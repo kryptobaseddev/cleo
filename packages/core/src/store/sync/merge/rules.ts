@@ -79,7 +79,7 @@ export const TASK_STAGE_MERGE_ORDER: readonly string[] = [
  * `task.status.absorbing` (T12937), `task.pipeline-stage.max` (T12938),
  * `task.verification.frozen-on-done` (T12939),
  * `docs.decision-adr-links.revoke-monotonic` (T13597),
- * `playbook.approval.once` (T12944).
+ * `audit.immutable` (T12941, table-level), `playbook.approval.once` (T12944).
  */
 export const SYNC_MERGE_RULES: Readonly<Record<string, MergeRuleSet>> = {
   tasks_tasks: {
@@ -117,6 +117,9 @@ export const SYNC_MERGE_RULES: Readonly<Record<string, MergeRuleSet>> = {
       },
     },
   },
+  // Audit rows are immutable once written (T12941, SA3), on both twins.
+  tasks_audit_log: { immutable: 'audit.immutable' },
+  audit_log: { immutable: 'audit.immutable' },
   tasks_playbook_approvals: {
     // A decision and its stamps move together (PB-1).
     groups: [['status', 'approved_at', 'approver', 'reason']],
@@ -171,6 +174,7 @@ export function implementedMergeRuleIds(): string[] {
   const ids: string[] = [];
   for (const set of Object.values(SYNC_MERGE_RULES)) {
     for (const rule of Object.values(set.rules ?? {})) ids.push(rule.id);
+    if (set.immutable !== undefined) ids.push(set.immutable);
   }
   // One invariant may cover several tables (a twin pair) or columns.
   return [...new Set(ids)].sort();

@@ -1,5 +1,59 @@
 # Changelog
 
+## [2026.10.10] (2026-10-12)
+
+### Added
+
+- CleoDocs schema re-key — conduit history tables FK the immutable doc uid (no cascade delete), version DAG identity, per-version per-section approvals, derived contributors, slug aliases, max-HLC head projection, local-only section CRDT states. _(provenance: [T13354](https://github.com/kryptobaseddev/cleo/search?q=T13354&type=commits))_
+- Decisions-vs-ADRs methodology — decision_adr_links syncing link table with natural (decision_id, adr_slug) identity, one-way revoke tombstones, and two-way surfacing (docs fetch shows linked D#### decisions; decision.find shows linked ADR slugs). _(provenance: [T13359](https://github.com/kryptobaseddev/cleo/search?q=T13359&type=commits))_
+- cleo docs triage: batch Jev (System One) keep/update/supersede/archive verdicts over draft docs via the new docs.triage decide site (shadow mode, proposals only, --record persists proposed D#### decisions) _(provenance: [T13446](https://github.com/kryptobaseddev/cleo/search?q=T13446&type=commits))_
+- Normal commands in a linked project start a detached cloud sync at most once per window, with no daemon _(provenance: [T13553](https://github.com/kryptobaseddev/cleo/search?q=T13553&type=commits))_
+
+### Fixed
+
+- The piggyback auto-sync never spawns under a test runner or CI _(provenance: [T13553](https://github.com/kryptobaseddev/cleo/search?q=T13553&type=commits))_
+- release plan refuses a stable release that opens the hooks-v1 gate by source without the promotion _(provenance: [T13555](https://github.com/kryptobaseddev/cleo/search?q=T13555&type=commits))_
+- cleo docs doctor apply envelope reports post-repair state, provenance backfill chains a wikilinks rebuild, and dangling detection excludes archived rows plus re-points blob rows with live content _(provenance: [T13560](https://github.com/kryptobaseddev/cleo/search?q=T13560&type=commits), [T13561](https://github.com/kryptobaseddev/cleo/search?q=T13561&type=commits), [T13562](https://github.com/kryptobaseddev/cleo/search?q=T13562&type=commits))_
+- cleo docs update --content - reads stdin instead of storing '-' _(provenance: [T13564](https://github.com/kryptobaseddev/cleo/search?q=T13564&type=commits))_
+- A typed gate's input snapshot recognises bun's subcommands: bun test a.ts b.ts captures both files, not ./test _(provenance: [T13566](https://github.com/kryptobaseddev/cleo/search?q=T13566&type=commits))_
+- Typed gates run in a git worktree CLEO did not provision; cleo worktree adopt seeds and verifies its project-info.json _(provenance: [T13568](https://github.com/kryptobaseddev/cleo/search?q=T13568&type=commits))_
+- docs triage --record links each proposed decision to its doc _(provenance: [T13575](https://github.com/kryptobaseddev/cleo/search?q=T13575&type=commits))_
+- A canary install writes a schema-valid project-info.json and gets update notices _(provenance: [T13581](https://github.com/kryptobaseddev/cleo/search?q=T13581&type=commits))_
+- Project registration no longer times out while the global store first opens _(provenance: [T13590](https://github.com/kryptobaseddev/cleo/search?q=T13590&type=commits))_
+- docs triage --record's doc link always has both graph nodes _(provenance: [T13600](https://github.com/kryptobaseddev/cleo/search?q=T13600&type=commits))_
+- cleo cloud status says when CI or a test runner suppresses background auto-sync _(provenance: [T13602](https://github.com/kryptobaseddev/cleo/search?q=T13602&type=commits))_
+- No automatic cloud sync runs under CI or a test runner, from any trigger _(provenance: [T13606](https://github.com/kryptobaseddev/cleo/search?q=T13606&type=commits))_
+- A scoped testsPassed now carries after a fast-forward or direct landing _(provenance: [T13608](https://github.com/kryptobaseddev/cleo/search?q=T13608&type=commits))_
+
+### Also in this release (listed by hand)
+
+These merged since v2026.10.9 and ship in this release. Their main-CI evidence was still queued in GitHub's runner backlog when the plan was cut, so they're listed here with their PRs rather than through the plan:
+
+- **Evidence and completion**
+  - `cleo complete` gives typed-gate revalidation its own budget, runs it once per task, and names a timeout instead of `E_INTERNAL "Shared operation deadline reached"` _(T13613, #2174)_
+  - Typed process gates (`cleo verify --run`) admit through the machine memory ledger like `cleo run` _(T13573, #2147)_
+  - qa-run receipts of one kind cover a change together _(T13580, #2153)_
+  - Test-run freshness reads the HEAD reflog of the worktree that holds the report _(T13579, #2154)_
+  - `pr:`/`ci:` evidence accepts a merged PR whose own check is stale-red when its merge commit's required checks are green _(T13611, #2175)_
+  - A test-run or qa-run receipt is not stale when a checkout or merge rewrote an input with identical bytes _(T13567, #2138)_
+  - A busy-database error is recognised on a wrapped cause, so the write is retried _(T13615, #2177)_
+  - Typed-gate input capture parses bun's other subcommands, `-c` and `--cwd` _(T13574, #2145)_
+- **Resources and runs**
+  - Waiter notices and `doctor tool-locks` name the pressure-narrowed memory budget _(T13572, #2151)_
+  - An admitted `cleo run` that overstays or hangs is reported, never killed _(T13563, #2139)_; a paused run is never reported overdue _(T13570, #2152)_
+- **Hooks and git**
+  - CLEO's commit-msg and pre-push hooks accept the exact `initial: cleo init` commit, so a fresh project can push _(T13577, #2143)_
+  - The hooks-v1 release gate is documented _(T13559, #2136)_. Hooks-v1 stays OFF in this stable release; it's in canary pilot.
+- **Sync (still unreleased: sync push/pull flags remain off)**
+  - Global credentials sync with their secrets sealed on the home stream _(T13467, #2100)_
+  - Rollback and cross-filesystem-move rebinds retire the old replica _(T13337, #2010)_
+  - Piggyback auto-sync throttles per project and logs a failed start _(T13556, #2164)_
+- **Docs and other**
+  - `cleo docs link-decision` / `unlink-decision` _(T13598, #2170)_
+  - Spawn re-checks compare against the recorded lease grant _(T13514, #2094)_
+  - `doctor` reports MCP fan-out per-session presence and orphans _(T13437, #2049)_
+- Everything from the 2026.10.10-canary.1 and canary.2 sections below.
+
 ## [2026.10.10-canary.2] (2026-10-12)
 
 ### Fixed

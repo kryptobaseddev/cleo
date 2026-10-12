@@ -181,7 +181,16 @@ export type QaRunBinding =
       codeName: 'E_EVIDENCE_STALE' | 'E_EVIDENCE_INSUFFICIENT';
       reason: string;
     }
-  | { ok: true };
+  | {
+      ok: true;
+      /**
+       * Changed code paths this receipt's roots do not cover (T13580). Judged
+       * across every receipt of the same kind by {@link qaRunUnionGapReason}.
+       */
+      uncovered: string[];
+      /** Dependent packages this receipt's roots do not cover (T13580). */
+      uncoveredPackages: string[];
+    };
 
 /** Up to five items, then a count. */
 function some(items: readonly string[]): string {
@@ -190,12 +199,15 @@ function some(items: readonly string[]): string {
 
 /**
  * Bind a receipt to the change it claims to check, or refuse it when it is
- * older than the change or does not cover it (see the module doc).
+ * older than the change or the change is workspace-wide (see the module doc).
+ * Coverage is not judged here: a receipt reports what it leaves uncovered,
+ * and {@link qaRunUnionGapReason} refuses what every receipt of its kind
+ * leaves uncovered, so two receipts may together cover a change (T13580).
  *
  * @param receipt - From {@link parseQaRunReceipt}.
  * @param receiptPath - Absolute path of the receipt file.
  * @param root - The task's checkout.
- * @returns The refusal, or ok.
+ * @returns The refusal, or ok with the paths and packages left uncovered.
  * @task T13427
  */
 export function bindQaRunReceipt(
@@ -220,7 +232,8 @@ export function bindQaRunReceipt(
     );
   }
   const changed = changes?.paths ?? [];
-  if (!fresh.judged || changed.length === 0) return { ok: true };
+  if (!fresh.judged || changed.length === 0)
+    return { ok: true, uncovered: [], uncoveredPackages: [] };
   const scope = deriveAffectedPackages(root, changed);
   if (scope.scope === 'full') {
     return refuse(
@@ -231,27 +244,60 @@ export function bindQaRunReceipt(
   const covered = (path: string): boolean =>
     receipt.roots.some((r) => r === path || inPackageDir(path, r));
   const uncovered = changed.filter((p) => !isCiDocumentPath(p) && !covered(p));
-  if (uncovered.length > 0) {
-    return refuse(
-      `qa-run ${receipt.kind} receipt (roots ${some(receipt.roots.map((r) => r || '.'))}) does not ` +
-        `cover the changed path(s) ${some(uncovered)}. Run ${receipt.kind} over roots that hold ` +
-        `every changed file, or record tool:${receipt.kind}.`,
-    );
-  }
   // A type change breaks importers: a dependent package must be checked too.
   const dependents = scope.packages.filter((name) => !scope.direct.includes(name));
-  if (dependents.length > 0) {
-    const workspace = listWorkspacePackages(root);
-    const unchecked = dependents.filter((name) => {
-      const dir = workspace.find((p) => p.name === name)?.dir;
-      return dir === undefined || !covered(dir);
-    });
-    if (unchecked.length > 0) {
-      return refuse(
-        `qa-run ${receipt.kind} receipt does not cover package(s) ${some(unchecked)}, which depend ` +
-          `on a changed package. Add their directories to the run's roots, or record tool:${receipt.kind}.`,
+  const workspace = dependents.length > 0 ? listWorkspacePackages(root) : [];
+  const uncoveredPackages = dependents.filter((name) => {
+    const dir = workspace.find((p) => p.name === name)?.dir;
+    return dir === undefined || !covered(dir);
+  });
+  return { ok: true, uncovered, uncoveredPackages };
+}
+
+/** A bound qa-run receipt as {@link qaRunUnionGapReason} reads it. */
+export interface BoundQaRun {
+  /** Which check it records. */
+  readonly check: QaRunKind;
+  /** Root-relative paths the run covered (`''` = the whole root). */
+  readonly roots: readonly string[];
+  /** Changed code paths it left uncovered; absent on atoms recorded before T13580 (they covered all). */
+  readonly uncovered?: readonly string[];
+  /** Dependent packages it left uncovered (T13580). */
+  readonly uncoveredPackages?: readonly string[];
+}
+
+/**
+ * Why a set of qa-run receipts does not cover the change, or null (T13580).
+ * Receipts of one kind count together: a path is a gap only when every
+ * receipt of that kind leaves it uncovered, so two lint runs over different
+ * roots may cover one change between them. Each receipt was already checked
+ * fresh and passing on its own.
+ *
+ * @param receipts - The bound qa-run receipts of one gate write.
+ * @returns The refusal naming the uncovered paths or packages, or null.
+ * @task T13580
+ */
+export function qaRunUnionGapReason(receipts: readonly BoundQaRun[]): string | null {
+  for (const check of QA_RUN_KINDS) {
+    const mine = receipts.filter((r) => r.check === check);
+    if (mine.length === 0) continue;
+    const everywhere = (list: (r: BoundQaRun) => readonly string[]): string[] =>
+      [...new Set(mine.flatMap(list))].filter((item) => mine.every((r) => list(r).includes(item)));
+    const roots = some([...new Set(mine.flatMap((r) => r.roots.map((root) => root || '.')))]);
+    const label = `qa-run ${check} receipt${mine.length > 1 ? 's' : ''} (roots ${roots})`;
+    const together = mine.length > 1 ? ' together' : '';
+    const paths = everywhere((r) => r.uncovered ?? []);
+    if (paths.length > 0)
+      return (
+        `${label}${together} do${mine.length > 1 ? '' : 'es'} not cover the changed path(s) ${some(paths)}. ` +
+        `Run ${check} over roots that hold every changed file, or record tool:${check}.`
       );
-    }
+    const packages = everywhere((r) => r.uncoveredPackages ?? []);
+    if (packages.length > 0)
+      return (
+        `${label}${together} do${mine.length > 1 ? '' : 'es'} not cover package(s) ${some(packages)}, which depend ` +
+        `on a changed package. Add their directories to the run's roots, or record tool:${check}.`
+      );
   }
-  return { ok: true };
+  return null;
 }

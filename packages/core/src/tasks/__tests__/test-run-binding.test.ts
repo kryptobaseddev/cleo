@@ -14,6 +14,7 @@ import type { EvidenceAtom } from '@cleocode/contracts';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { testRunTreeMismatchReason } from '../affected-scope.js';
 import { validateAtom } from '../evidence.js';
+import { reportFreshness } from '../test-run-binding.js';
 import { captureTreeHash } from '../tool-cache.js';
 
 function git(dir: string, args: string[], env: NodeJS.ProcessEnv = {}): string {
@@ -554,6 +555,31 @@ describe('relevance in a standalone single-package project (T13403)', () => {
     touch(file('src/a.ts'), ranAt + 30_000);
     const reverted = await validateAtom({ kind: 'test-run', path }, root);
     expect(!reverted.ok && reverted.codeName, JSON.stringify(reverted)).toBe('E_EVIDENCE_STALE');
+  });
+
+  it('a report produced in an older worktree is judged against that worktree reflog (T13579)', () => {
+    const old = `${root}-old`;
+    const fresh = `${root}-fresh`;
+    try {
+      git(root, ['worktree', 'add', '-q', '--detach', old, 'HEAD']);
+      const ranAt = Date.now() + 5_000;
+      mkdirSync(join(old, 'reports'), { recursive: true });
+      const path = join(old, 'reports', 'vitest.json');
+      writeFileSync(path, '{}');
+      const at = (ms: number) => {
+        const date = `@${Math.floor(ms / 1000)} +0000`;
+        return { GIT_COMMITTER_DATE: date, GIT_AUTHOR_DATE: date };
+      };
+      // After the run: the implementing commit records what was on disk, and
+      // a new worktree is made from it, whose reflog starts after the run.
+      git(old, ['commit', '-q', '--allow-empty', '-m', 'T1: implement'], at(ranAt + 20_000));
+      const implemented = git(old, ['rev-parse', 'HEAD']);
+      git(root, ['worktree', 'add', '-q', '--detach', fresh, implemented], at(ranAt + 30_000));
+      expect(reportFreshness(ranAt, path, fresh, 'test-run')).toMatchObject({ ok: true });
+    } finally {
+      rmSync(old, { recursive: true, force: true });
+      rmSync(fresh, { recursive: true, force: true });
+    }
   });
 
   it('red: an unrelated report (another test file of the package) is refused', async () => {

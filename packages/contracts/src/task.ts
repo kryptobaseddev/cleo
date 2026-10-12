@@ -344,6 +344,10 @@ export type EvidenceAtom =
       treeHash?: string;
       /** Tracked `evidence.runtimePaths` files the tree hash left out (T13554). */
       runtimeExcluded?: string[];
+      /** Changed code paths this receipt's roots leave uncovered; judged with its kind's other receipts (T13580). */
+      uncovered?: string[];
+      /** Dependent packages this receipt's roots leave uncovered (T13580). */
+      uncoveredPackages?: string[];
     }
   | {
       kind: 'tool';

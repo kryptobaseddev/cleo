@@ -10,6 +10,7 @@
  * @task T9839
  */
 
+import { DrizzleQueryError } from 'drizzle-orm/errors';
 import { describe, expect, it, vi } from 'vitest';
 import { isSqliteBusy, withWriteRetry } from '../with-retry.js';
 
@@ -55,6 +56,42 @@ describe('isSqliteBusy', () => {
   it('rejects generic errors', () => {
     expect(isSqliteBusy(new Error('something went wrong'))).toBe(false);
     expect(isSqliteBusy(new Error(''))).toBe(false);
+  });
+});
+
+describe('isSqliteBusy through a driver wrapper (T13615)', () => {
+  /** drizzle's real wrapper: a generic "Failed query" message, the SqliteError on `cause`. */
+  const wrapped = (cause: Error) => new DrizzleQueryError('insert into "t" values (?)', [1], cause);
+
+  it('recognises a busy cause, by message or by result code (incl. extended codes)', () => {
+    expect(isSqliteBusy(wrapped(new Error('database is locked')))).toBe(true);
+    expect(isSqliteBusy(wrapped(Object.assign(new Error('x'), { errcode: 5 })))).toBe(true);
+    expect(isSqliteBusy(wrapped(Object.assign(new Error('x'), { errcode: 517 })))).toBe(true);
+    expect(isSqliteBusy(wrapped(Object.assign(new Error('x'), { code: 'SQLITE_BUSY' })))).toBe(
+      true,
+    );
+  });
+
+  it('does not treat a wrapped non-busy error as busy, and stops at a bounded depth', () => {
+    expect(isSqliteBusy(wrapped(new Error('UNIQUE constraint failed')))).toBe(false);
+    expect(isSqliteBusy(wrapped(Object.assign(new Error('x'), { errcode: 19 })))).toBe(false);
+    let deep: Error = new Error('database is locked');
+    for (let i = 0; i < 10; i++) deep = wrapped(deep);
+    expect(isSqliteBusy(deep)).toBe(false);
+  });
+
+  it('withWriteRetry retries a wrapped busy write and propagates a wrapped non-busy one at once', async () => {
+    const busyOnce = vi
+      .fn()
+      .mockRejectedValueOnce(wrapped(new Error('database is locked')))
+      .mockResolvedValueOnce('ok');
+    await expect(withWriteRetry(busyOnce, { baseDelayMs: 1, jitterMs: 0 })).resolves.toBe('ok');
+    expect(busyOnce).toHaveBeenCalledTimes(2);
+    const constraint = vi.fn().mockRejectedValue(wrapped(new Error('UNIQUE constraint failed')));
+    await expect(withWriteRetry(constraint, { baseDelayMs: 1, jitterMs: 0 })).rejects.toThrow(
+      /Failed query/,
+    );
+    expect(constraint).toHaveBeenCalledTimes(1);
   });
 });
 
