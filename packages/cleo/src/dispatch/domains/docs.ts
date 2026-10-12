@@ -1765,6 +1765,7 @@ const _docsTypedHandler = defineTypedHandler<DocsTypedOps>('docs', {
     // T13564: an empty or bare '-' body is a missed stdin read, never a doc; storing
     // it would silently replace the canonical content.
     if (hasContent && ['', '-'].includes((inlineContent as string).trim())) {
+      // @sync-invariant none:input-shape an empty or bare '-' body is refused before any write
       return lafsError(
         'E_INVALID_INPUT',
         `--content is ${(inlineContent as string).trim() === '' ? 'empty' : "a bare '-'"}; refusing to replace the document body`,
