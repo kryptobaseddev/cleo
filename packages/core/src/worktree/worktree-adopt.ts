@@ -36,7 +36,7 @@
  * @adr ADR-062 — git merge --no-ff integration semantics
  */
 
-import { existsSync, readFileSync } from 'node:fs';
+import { copyFileSync, existsSync, mkdirSync, readFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import type {
   AdoptWorktreeOpts,
@@ -114,6 +114,14 @@ export async function adoptWorktree(
   }
   const branch = branchResult.branch;
 
+  // --- Seed and verify project-info.json (T13568 · T11035) ---
+  const seeded = seedProjectInfo(projectRoot, worktreePath);
+  if (typeof seeded !== 'string')
+    // @sync-invariant none:local-only adopting refuses a worktree whose local project-info names another project; nothing is written
+    return engineError('E_WORKTREE_IDENTITY_MISMATCH', seeded.mismatch, {
+      fix: 'Adopt the worktree from the project that owns it, or remove its stale .cleo/project-info.json.',
+    });
+
   // --- Resolve task ID ---
   const taskId: string | null = opts.taskId !== undefined ? opts.taskId : taskIdFromBranch(branch);
 
@@ -154,7 +162,47 @@ export async function adoptWorktree(
     source,
     isNew,
     adoptedAt,
+    projectInfo: seeded,
   });
+}
+
+/** A `projectId` field of a project-info file, or `''` when absent or unreadable. */
+function projectIdOf(infoPath: string): string {
+  try {
+    const data = JSON.parse(readFileSync(infoPath, 'utf-8')) as Record<string, unknown>;
+    return typeof data.projectId === 'string' ? data.projectId : '';
+  } catch {
+    return '';
+  }
+}
+
+/**
+ * Give an adopted worktree the adopting project's `.cleo/project-info.json`
+ * (T13568), as `createWorktree` does at provision time (T11033), and verify the
+ * projectId matches (T11035). An existing file is kept when its projectId
+ * matches and refused when it names another project.
+ *
+ * @returns The outcome, or the mismatch to refuse with.
+ */
+function seedProjectInfo(
+  projectRoot: string,
+  worktreePath: string,
+): 'seeded' | 'present' | 'skipped' | { mismatch: string } {
+  const parentInfo = join(projectRoot, '.cleo', 'project-info.json');
+  if (!existsSync(parentInfo)) return 'skipped';
+  const parentId = projectIdOf(parentInfo);
+  const worktreeInfo = join(worktreePath, '.cleo', 'project-info.json');
+  const outcome = existsSync(worktreeInfo) ? 'present' : 'seeded';
+  if (outcome === 'seeded') {
+    mkdirSync(join(worktreePath, '.cleo'), { recursive: true });
+    copyFileSync(parentInfo, worktreeInfo);
+  }
+  const worktreeId = projectIdOf(worktreeInfo);
+  if (worktreeId !== parentId)
+    return {
+      mismatch: `Worktree ${worktreePath} has projectId ${worktreeId || '(none)'} in .cleo/project-info.json, but the adopting project is ${parentId || '(none)'}`,
+    };
+  return outcome;
 }
 
 // ---------------------------------------------------------------------------
