@@ -7,6 +7,16 @@
 - A canary install writes a schema-valid project-info.json and gets update notices _(provenance: [T13581](https://github.com/kryptobaseddev/cleo/search?q=T13581&type=commits))_
 - CLEO's commit-msg and pre-push hooks accept the exact `initial: cleo init` commit, so a fresh `cleo init` project can push its first branch; ordinary untagged commits are still refused _(provenance: [T13577](https://github.com/kryptobaseddev/cleo/search?q=T13577&type=commits), #2143)_
 
+### Also in this build (merged since canary.1, listed by hand)
+
+These merged to main after v2026.10.10-canary.1 and ship in this canary, though outside the planned task scope:
+
+- **Docs history schema re-key (includes a migration):** the conduit doc-history tables now key on the immutable doc uid (no cascade delete), with version DAG identity, per-version per-section approvals, derived contributors, slug aliases, a max-HLC head projection and local-only section CRDT states. _(T13354, #2130)_
+- **Sync replica retirement:** a rollback or cross-filesystem-move rebind retires the old replica; a copy retires nothing. _(T13337, #2010)_
+- **Evidence freshness:** a test-run or qa-run receipt is no longer stale when a checkout or merge after the run rewrote an input with identical bytes; a bare touch or a revert still stales it. _(T13567/T13569, #2138)_
+- **`cleo docs triage`:** batch keep/update/supersede/archive verdicts over draft docs (shadow mode, proposals only; `--record` stores proposed decisions). _(T13446, #2132)_
+- **`cleo docs doctor` hardening:** the apply envelope reports post-repair state, provenance backfill chains a wikilinks rebuild, and dangling detection skips archived rows and re-points blob rows with live content. _(T13560/T13561/T13562, #2141)_
+
 > T13577 is listed by hand: #2143 was admin-merged after its PR CI ran on a stale merge ref, so CLEO's `pr:`/`ci:` atoms refuse it (T13611). Its merge commit b61dbb04 passed main CI (run 38218525627) and a true-merge CI run (38215710944).
 
 ## [2026.10.10-canary.1] (2026-10-12)
