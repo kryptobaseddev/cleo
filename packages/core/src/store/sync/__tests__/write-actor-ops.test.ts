@@ -17,9 +17,12 @@ import {
 import { currentWriteActorJson, runWithWriteActor, runWithWriteActorOp } from '../write-actor.js';
 
 const ENGINE_WRAP = resolve(import.meta.dirname, '../../../tasks/engine-wrap.ts');
-const SESSION_SOURCES = ['../../../sessions/index.ts', '../../../sessions/session-switch.ts'].map(
-  (p) => resolve(import.meta.dirname, p),
-);
+const SESSION_SOURCES = [
+  '../../../sessions/index.ts',
+  '../../../sessions/session-switch.ts',
+  '../../../sessions/snapshot.ts',
+  '../../../session/engine-ops.ts',
+].map((p) => resolve(import.meta.dirname, p));
 
 describe('explicit merge ops are real commands (T13229)', () => {
   it('every leave and restore op in the rules is emitted by core', () => {
