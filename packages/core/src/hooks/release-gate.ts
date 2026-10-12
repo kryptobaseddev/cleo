@@ -48,6 +48,8 @@ export class HooksV1UnreleasedError extends Error {
 
 /** The release metadata of this build's `@cleocode/core` manifest. */
 export interface HookReleaseManifest {
+  /** The package name (`@cleocode/core` when the build layout resolves correctly). */
+  readonly name?: string;
   /** The package version. */
   readonly version?: string;
   /** CLEO release metadata stamped at publish time. */
@@ -66,8 +68,14 @@ export interface HooksV1ReleaseOptions {
 
 let cached: HookReleaseManifest | undefined;
 
-/** This build's `@cleocode/core` manifest (src and dist both sit two levels below it). */
-function buildManifest(): HookReleaseManifest {
+/**
+ * This build's `@cleocode/core` manifest: src and dist both sit two levels
+ * below it. A layout change that resolved another manifest would keep the gate
+ * closed (fail safe); a test pins the name.
+ *
+ * @returns The manifest, or `{}` when it cannot be read.
+ */
+export function hookReleaseManifest(): HookReleaseManifest {
   if (cached) return cached;
   try {
     const path = fileURLToPath(new URL('../../package.json', import.meta.url));
@@ -89,7 +97,7 @@ function buildManifest(): HookReleaseManifest {
 export function hooksV1Released(opts: HooksV1ReleaseOptions = {}): boolean {
   if (!(opts.unreleased ?? UNRELEASED_HOOK_FEATURES).has('hooks-v1')) return true;
   if (opts.allowUnreleased === true) return true;
-  const manifest = opts.manifest ?? buildManifest();
+  const manifest = opts.manifest ?? hookReleaseManifest();
   if (/-canary\.\d+$/.test(manifest.version ?? '')) return true;
   return manifest.cleo?.releasedFeatures?.includes('hooks-v1') === true;
 }

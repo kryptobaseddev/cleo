@@ -14,6 +14,12 @@ Run `cleo hook sync --dry-run` to validate and preview changes. `cleo hook sync 
 
 Native harness project trust and exact hook-definition trust remain independent. CLEO never grants them automatically. Unknown harness versions and unobserved live delivery remain unverified. Kimi project-local delivery is unsupported; no global workaround is written.
 
+## Release gate (T13557)
+
+Project hooks are gated behind the unreleased feature `hooks-v1` (`packages/core/src/hooks/release-gate.ts`) until the stable promotion. On a build where it is unreleased, `cleo hook sync --activate` refuses with `E_HOOKS_V1_UNRELEASED` and writes no receipt. An existing activation receipt reports `activation: "unreleased"` and never runs: agent, Git and direct invocations return a non-blocking `skip` with code `HOOKS_V1_UNRELEASED`, a required `cleo hook check --ci` fails, and no handler is spawned. `cleo hook sync --disable` keeps working. A source checkout carries a stable version, so it is gated too; only code that passes the gate's `allowUnreleased` option (tests) opts in.
+
+The gate opens from release metadata only, so the pilot's implementation-source digest stays valid: a `-canary.N` build runs hooks, and the stable release planned with `--hooks-v1-promotion` stamps `cleo.releasedFeatures: ["hooks-v1"]` into `@cleocode/core`'s manifest (`scripts/mark-hotfix-release.mjs`; the digest normalizes the stamp out). A stable candidate without the stamp proves the runtime inert instead of exercising it. After the promotion, remove `hooks-v1` from `UNRELEASED_HOOK_FEATURES` in an ordinary change before the next stable release, which no longer stamps it.
+
 ## Execution and policy
 
 The checker receives one JSON HookInvocation on stdin, including the active Git checkout, source/event and relevant ref updates, normalized tool input or lifecycle context. Emit exactly one JSON object on stdout with status `pass`, `block`, `warn`, `skip` or `checker-error` and an optional bounded message; exit zero. Nonzero, malformed output, signal and configured timeout are checker failures.

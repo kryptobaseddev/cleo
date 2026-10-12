@@ -5,7 +5,7 @@
  */
 
 import { describe, expect, it } from 'vitest';
-import { hooksV1Released, UNRELEASED_HOOK_FEATURES } from '../release-gate.js';
+import { hookReleaseManifest, hooksV1Released, UNRELEASED_HOOK_FEATURES } from '../release-gate.js';
 
 describe('hooksV1Released (T13557)', () => {
   it('is closed on a stable build without the promotion stamp', () => {
@@ -33,7 +33,9 @@ describe('hooksV1Released (T13557)', () => {
     );
   });
 
-  it("reads this build's own manifest by default (the workspace version is not a canary)", () => {
+  it("reads this build's own @cleocode/core manifest by default (T13559)", () => {
+    // A layout change that resolved another package.json would silently keep a canary closed.
+    expect(hookReleaseManifest().name).toBe('@cleocode/core');
     expect(typeof hooksV1Released()).toBe('boolean');
   });
 });
