@@ -51,6 +51,7 @@ export async function archiveSticky(id: string, projectRoot: string): Promise<St
   // while every synced peer keeps it converted, so it is refused; an
   // archived sticky is left as it is.
   if (sticky.status === 'converted') {
+    // @sync-invariant sticky.status.one-way a converted sticky is never lowered to archived locally, matching every peer's merge
     throw new CleoError(
       ExitCode.VALIDATION_ERROR,
       `Sticky note ${id} was converted (${sticky.convertedToJson ?? 'unknown target'}) and cannot be archived`,

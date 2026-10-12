@@ -201,6 +201,7 @@ export async function stickyArchive(
     return engineSuccess(sticky);
   } catch (error) {
     if (error instanceof CleoError) {
+      // @sync-invariant sticky.status.one-way the archive refusal of a converted sticky (archiveSticky) surfaces here
       return engineError('E_INVALID_STATE', error.message, {
         ...(error.fix ? { fix: error.fix } : {}),
       });
