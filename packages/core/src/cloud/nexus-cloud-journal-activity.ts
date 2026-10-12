@@ -64,8 +64,16 @@ export class JournalActivitySinceError extends Error {
   }
 }
 
-/** Device names and last presence by Nexus device id, or why there are none. */
-async function deviceNames(opts: NexusJournalActivityOptions): Promise<{
+/**
+ * Device names and last presence by Nexus device id, or why there are none.
+ * No request is made when `offline` is set.
+ *
+ * @param opts - The connection options and `offline`.
+ * @returns The names, last presence times, and a warning when the lookup failed.
+ */
+export async function deviceNames(
+  opts: NexusCloudOptions & { readonly offline?: boolean },
+): Promise<{
   names: Map<string, string>;
   lastSeen: Map<string, string>;
   warning: CloudWarning | null;

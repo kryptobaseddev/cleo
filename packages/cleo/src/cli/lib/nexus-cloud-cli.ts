@@ -167,6 +167,9 @@ export function syncStreamClause(st: CloudStatusSyncStream): string {
     ...(st.unsentOps.known ? [`${st.unsentOps.value} unsent`] : []),
     ...(st.lastPulledSeq.known ? [`pulled to ${st.lastPulledSeq.value}`] : []),
     ...(quarantined > 0 ? [`${quarantined} quarantined`] : []),
+    ...(st.openConflicts.known && st.openConflicts.value > 0
+      ? [`${st.openConflicts.value} open conflict(s): cleo cloud conflicts`]
+      : []),
     ...(st.undo.state === 'ok'
       ? []
       : [

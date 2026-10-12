@@ -12,6 +12,7 @@
 
 import type {
   CloudActivityResult,
+  CloudConflictField,
   CloudConflictResolveResult,
   CloudConflictsResult,
   CloudDeviceOverviewResult,
@@ -53,6 +54,7 @@ function common(args: Args, operation: string) {
 
 /** A device as a human line names it: its server-supplied name, else its id, made terminal-safe (T13295). */
 const who = (name: string | null, id: string) => terminalSafe(name ?? id);
+const conflictValue = (v: CloudConflictField['theirs']): string => terminalSafe(JSON.stringify(v));
 
 /**
  * `--limit` of `cleo cloud activity`, validated (T13007): a whole number from
@@ -529,8 +531,10 @@ export async function runCloudConflicts(args: Args): Promise<void> {
     'cloud.conflicts',
     async () =>
       (await conflicts()).nexusCloudConflicts({
+        apiUrl: nexusApiUrlArg(args),
         scope: scopeArg(args, 'cloud.conflicts'),
         all: args.all === true,
+        offline: args.offline === true,
         ...(stream !== undefined ? { stream } : {}),
       }),
     (r) =>
@@ -538,10 +542,13 @@ export async function runCloudConflicts(args: Args): Promise<void> {
         ? `No ${args.all === true ? '' : 'open '}sync conflicts (${r.total} recorded).`
         : [
             `${r.open} open of ${r.total} sync conflict(s):`,
-            ...r.conflicts.map(
-              (c) =>
-                `  #${c.id} ${c.kind} ${c.table}/${c.uid}${c.columns.length ? ` [${c.columns.join(', ')}]` : ''}${c.rule ? ` ${c.rule}` : ''}: ${c.resolution}${c.resolvedAt ? ' (resolved)' : ''}`,
-            ),
+            ...r.conflicts.flatMap((c) => [
+              `  #${c.id} ${c.kind} ${c.table}/${terminalSafe(c.humanId ?? c.uid)}${c.rule ? ` ${c.rule}` : ''}: ${c.resolution}${c.resolvedAt ? ' (resolved)' : ''}, from ${c.deviceId ? who(c.deviceName, c.deviceId) : c.origin} at ${c.opHlc}${c.localHlc ? ` (local ${c.localHlc})` : ''}`,
+              ...c.fields.map(
+                (f) =>
+                  `      ${f.column}: ${f.withheld ? '(secret, withheld)' : `theirs ${c.opKnown ? conflictValue(f.theirs) : '(op pruned)'}, mine ${conflictValue(f.mine)}`}`,
+              ),
+            ]),
           ].join('\n'),
   );
 }
