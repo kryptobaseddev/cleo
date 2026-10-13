@@ -1082,6 +1082,28 @@ async function landedComponents(
  * is primary, each earlier one its own implemented attempt (D11151). Files
  * are the component's surviving files, narrowed to declared task files.
  */
+/**
+ * A carrier PR's changed files that belong to this task: the ones it declared
+ * (`task.files`), when any of them are in the PR, else all of them. A PR
+ * shared by several tasks (batch `--pr`, or a parent PR that also carries a
+ * sibling's code) is judged per task. The ONE scoping rule: the `--pr` change
+ * set and every scoped-run carry target use it, so `cleo done --plan` and
+ * `cleo complete` compare the same files (T13655).
+ *
+ * @param files - The carrier's changed files.
+ * @param task - The task (its declared files).
+ * @returns The task's files of the carrier.
+ * @task T13655
+ */
+export function taskScopedFiles(
+  files: readonly string[],
+  task: Pick<ChangeSetTask, 'files'>,
+): string[] {
+  const declared = task.files ?? [];
+  const own = declared.length > 0 ? files.filter((f) => diffIntersectsAc([f], declared)) : [];
+  return own.length > 0 ? own : [...files];
+}
+
 function deriveComponentChangeSet(
   cs: TaskChangeSet,
   components: readonly PrDetails[],
@@ -1090,15 +1112,13 @@ function deriveComponentChangeSet(
 ): true {
   const root = cs.executionRoot;
   const integration = cs.prNumber as number;
-  const declared = task.files ?? [];
   const attempts = components.map((c) => {
     const { files, deleted } = componentLandedChanges(
       root,
       c.mergeCommitSha as string,
       integrationMerge,
     );
-    const own = declared.length > 0 ? files.filter((f) => diffIntersectsAc([f], declared)) : [];
-    const kept = own.length > 0 ? own : files;
+    const kept = taskScopedFiles(files, task);
     return {
       prNumber: c.number,
       mergeCommitSha: integrationMerge,
@@ -1232,13 +1252,7 @@ async function deriveOnePr(
   const { files, deleted } = mergeCommitChanges(root, pr.mergeCommitSha);
   const prPaths = new Set(pr.changedPaths);
   cs.files = prPaths.size > 0 ? files.filter((p) => prPaths.has(p)) : files;
-  // A PR shared by several tasks (batch `--pr`): each task's files: evidence
-  // names only the files it declared, when any of them is in the PR.
-  const declared = task.files ?? [];
-  if (declared.length > 0) {
-    const own = cs.files.filter((f) => diffIntersectsAc([f], declared));
-    if (own.length > 0) cs.files = own;
-  }
+  cs.files = taskScopedFiles(cs.files, task);
   cs.deletedFiles = deleted;
   if (cs.files.length === 0) {
     cs.blockers.push(

@@ -326,7 +326,9 @@ describe('slow work finishes before the write (AC2)', () => {
     expect(r.success).toBe(false);
     if (r.success) return;
     const details = r.error.details as DoneBlockedDetails;
-    expect(details.cause).toBe('E_GATE_NOT_CACHED');
+    // T13655: the plan already sees the uncached typed gate (as completion
+    // would refuse it), so cleo done stops before any write.
+    expect(details.blocker).toBe('typed-gate-not-run');
     expect(details.next.command).toBe(`cleo verify ${id} --run && cleo done ${id}`);
   });
 

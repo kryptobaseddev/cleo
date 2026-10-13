@@ -747,6 +747,10 @@ export async function taskChangeMergeState(
 
   // T12965 review M2: the same root `cleo done` reads the change set from.
   const at = deps.executionRoot ?? cs.resolveChangeSetRoot(storeRoot, task.id).root;
+  // T13655: a carrier's files are scoped to the task exactly as the `--pr`
+  // change set scopes them, so planning and completion compare the same files.
+  const own = (target: LandedCarryTarget | null): LandedCarryTarget | null =>
+    target && { ...target, files: cs.taskScopedFiles(target.files, task) };
 
   if (commits.length === 0) {
     const newest = prs[0];
@@ -755,7 +759,7 @@ export async function taskChangeMergeState(
         state: 'merged',
         changeSet: null,
         prRef: prRefOf(newest),
-        landing: prCarryTarget(newest, at),
+        landing: own(prCarryTarget(newest, at)),
       };
     const changeSet = await derive();
     derivedFailure(changeSet);
@@ -784,7 +788,7 @@ export async function taskChangeMergeState(
         state: 'merged',
         changeSet: null,
         prRef: prRefOf(pr),
-        landing: prCarryTarget(pr, at),
+        landing: own(prCarryTarget(pr, at)),
       };
   }
   const changeSet = await derive();
@@ -827,13 +831,13 @@ export async function taskChangeMergeState(
         state: 'merged',
         changeSet,
         prRef: prRefOf(pr),
-        landing: mergeCarryTarget(at, pr.mergeCommitSha),
+        landing: own(mergeCarryTarget(at, pr.mergeCommitSha)),
       };
   }
 
   const isLanded = deps.isLanded ?? cs.isLandedOnOriginDefault;
   if (commits.every((sha) => isLanded(at, sha))) {
-    const landing = landedCarryTarget(at, commits, probes.contains);
+    const landing = own(landedCarryTarget(at, commits, probes.contains));
     // T12959 review: with a failed lookup the carrier is unknown, not absent.
     if (failures.length > 0)
       return { state: 'merged', changeSet, prRef: null, landing, ...lookupFailed() };

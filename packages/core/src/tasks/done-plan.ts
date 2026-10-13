@@ -116,6 +116,7 @@ const DONE_PLAN_BLOCKER_ORDER: readonly DonePlanBlockerCode[] = [
   'tool-unresolved',
   'tool-failed',
   'typed-gate-failed',
+  'typed-gate-not-run',
   'test-run-needed',
   'qa-run-needed',
   'ac-mapping-needed',
@@ -146,6 +147,11 @@ export interface DeriveTaskEvidenceOptions {
    * use, or memory pressure).
    */
   waitForTestSlot?: boolean;
+  /**
+   * The typed gates run in this `cleo done` (`--run-typed`), so a gate with no
+   * current pass is not yet a blocker (T13655).
+   */
+  runTyped?: boolean;
 }
 
 /**
@@ -516,6 +522,7 @@ function toolAndTypedGateBlockers(
   runs: readonly DonePlanToolRun[],
   typedGates: readonly DonePlanTypedGate[],
   root: string,
+  runTyped: boolean,
 ): DonePlanBlocker[] {
   const out: DonePlanBlocker[] = [];
   for (const run of runs) {
@@ -555,12 +562,28 @@ function toolAndTypedGateBlockers(
     }
   }
   for (const typed of typedGates) {
-    if (typed.status !== 'fail') continue;
-    out.push({
-      code: 'typed-gate-failed',
-      message: `Typed gate ${typed.alias} (${typed.kind}${typed.req ? ` ${typed.req}` : ''}) last failed.`,
-      next: step(`cleo verify ${taskId} --run`, 'Re-run the typed gates and fix the failing one.'),
-    });
+    const label = `Typed gate ${typed.alias} (${typed.kind}${typed.req ? ` ${typed.req}` : ''})`;
+    if (typed.status === 'fail') {
+      out.push({
+        code: 'typed-gate-failed',
+        message: `${label} last failed.`,
+        next: step(
+          `cleo verify ${taskId} --run`,
+          'Re-run the typed gates and fix the failing one.',
+        ),
+      });
+    } else if (typed.status === 'not-run' && !runTyped) {
+      // T13655: completion refuses a typed gate with no current bound pass
+      // (never run, or stale), so the plan must not call the task ready.
+      out.push({
+        code: 'typed-gate-not-run',
+        message: `${label} has no current passing result; cleo complete refuses it until it passes.`,
+        next: step(
+          `cleo verify ${taskId} --run && cleo done ${taskId}`,
+          'cleo done executes no typed gate: run them with cleo verify --run (it caches each pass), or pass --run-typed.',
+        ),
+      });
+    }
   }
   return out;
 }
@@ -956,7 +979,7 @@ export async function deriveTaskEvidence(
   const acBlocker = acMappingBlocker(taskId, acMapping, pending);
   const derivedBlockers = orderBlockers([
     ...changeSet.blockers,
-    ...toolAndTypedGateBlockers(taskId, isCode, toolRuns, typedGates, root),
+    ...toolAndTypedGateBlockers(taskId, isCode, toolRuns, typedGates, root, opts.runTyped === true),
     ...testRunBlockers,
     ...(acBlocker ? [acBlocker] : []),
     ...manualGateBlockers(taskId, gates),
