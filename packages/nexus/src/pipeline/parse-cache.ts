@@ -48,7 +48,7 @@ export interface FileExtraction {
  * Serialization format version. Bump when the payload encoding (not the
  * extractor) changes; extractor changes are caught by the fingerprint.
  */
-const PAYLOAD_FORMAT = 'nexus-parse-cache/v1';
+const PAYLOAD_FORMAT = 'nexus-parse-cache/v2';
 
 /** Grammar packages whose native behaviour determines extraction output. */
 const GRAMMAR_PACKAGES = [
@@ -181,21 +181,141 @@ export function encodeParseCacheEntry(
     contentHash,
     fingerprint,
     generation,
-    payload: gzipSync(JSON.stringify(file.extraction), { level: 1 }),
+    payload: encodeExtraction(file.extraction),
+  };
+}
+
+/** Extraction fields a resolution phase reads one file at a time (T13656). */
+export type ExtractionSites = 'calls' | 'accesses';
+
+/** Everything but the sites: what the parse-loop merge consumes. */
+export type ExtractionHead = Omit<Required<CommonExtractionResult>, ExtractionSites>;
+
+/** Payload sections, in order: head, calls, accesses. */
+const SECTION_COUNT = 3;
+
+/**
+ * Compress one file's extraction into its parse-cache payload form.
+ *
+ * The payload frames three gzip sections — head, calls, accesses — behind a
+ * table of their byte lengths, so each phase decodes only the section it
+ * reads. The parse loop holds every file in this form between parsing and
+ * resolution (T13656): compressed bytes outside the V8 heap.
+ *
+ * @param extraction - The complete per-file extraction.
+ * @returns The framed payload.
+ */
+export function encodeExtraction(extraction: Required<CommonExtractionResult>): Uint8Array {
+  const { calls, accesses, ...head } = extraction;
+  const sections = [head, calls, accesses].map((section) =>
+    gzipSync(JSON.stringify(section), { level: 1 }),
+  );
+  const table = Buffer.alloc(4 * SECTION_COUNT);
+  sections.forEach((section, index) => {
+    table.writeUInt32LE(section.length, 4 * index);
+  });
+  return Buffer.concat([table, ...sections]);
+}
+
+/** Inflate one section of a framed payload, rebinding its generation. */
+function sectionText(payload: Uint8Array, index: number, from?: string, to?: string): string {
+  const bytes = Buffer.from(payload.buffer, payload.byteOffset, payload.byteLength);
+  if (bytes.length < 4 * SECTION_COUNT) throw new Error('Parse cache payload is truncated');
+  let offset = 4 * SECTION_COUNT;
+  for (let section = 0; section < index; section++) offset += bytes.readUInt32LE(4 * section);
+  const end = offset + bytes.readUInt32LE(4 * index);
+  if (end > bytes.length) throw new Error('Parse cache payload is truncated');
+  const text = gunzipSync(bytes.subarray(offset, end)).toString('utf8');
+  return from && to && from !== to ? text.split(from).join(to) : text;
+}
+
+/**
+ * Decode the head of a payload written by {@link encodeExtraction}.
+ *
+ * @param payload - Framed extraction.
+ * @param strings - Canonical strings for this decode (see {@link internStrings}).
+ * @param from - Generation embedded in the payload, rewritten to `to` when they differ.
+ * @param to - Publication generation of the run decoding it.
+ * @returns Declarations, imports, heritage, re-exports and parse limitations.
+ * @throws When the payload is not a decodable extraction.
+ */
+export function decodeExtractionHead(
+  payload: Uint8Array,
+  strings: Map<string, string> = new Map(),
+  from?: string,
+  to?: string,
+): ExtractionHead {
+  const parsed = JSON.parse(sectionText(payload, 0, from, to)) as Partial<ExtractionHead>;
+  for (const key of ['definitions', 'imports', 'heritage', 'reExports'] as const) {
+    if (!Array.isArray(parsed[key])) throw new Error(`Parse cache entry lacks ${key}`);
+  }
+  internStrings(parsed, strings);
+  return {
+    definitions: parsed.definitions ?? [],
+    imports: parsed.imports ?? [],
+    heritage: parsed.heritage ?? [],
+    reExports: parsed.reExports ?? [],
+    parseLimitations: parsed.parseLimitations ?? [],
+  };
+}
+
+/**
+ * Decode one site section of a payload written by {@link encodeExtraction}.
+ *
+ * Not interned: resolution reads each record once and keeps nothing of it but
+ * strings the graph already holds (relation endpoints resolve to node ids).
+ *
+ * @param payload - Framed extraction.
+ * @param sites - Which section to decode.
+ * @param from - Generation embedded in the payload, rewritten to `to` when they differ.
+ * @param to - Publication generation of the run decoding it.
+ * @returns The section's records.
+ * @throws When the section is not a decodable record array.
+ */
+export function decodeExtractionSites<K extends ExtractionSites>(
+  payload: Uint8Array,
+  sites: K,
+  from?: string,
+  to?: string,
+): Required<CommonExtractionResult>[K] {
+  const parsed: unknown = JSON.parse(sectionText(payload, sites === 'calls' ? 1 : 2, from, to));
+  if (!Array.isArray(parsed)) throw new Error(`Parse cache entry lacks ${sites}`);
+  return parsed as Required<CommonExtractionResult>[K];
+}
+
+/**
+ * Decode a whole payload written by {@link encodeExtraction}.
+ *
+ * @param payload - Framed extraction.
+ * @param strings - Canonical strings for the head (see {@link internStrings}).
+ * @param from - Generation embedded in the payload, rewritten to `to` when they differ.
+ * @param to - Publication generation of the run decoding it.
+ * @returns The extraction with every per-file array present.
+ * @throws When the payload is not a decodable extraction.
+ */
+export function decodeExtraction(
+  payload: Uint8Array,
+  strings: Map<string, string> = new Map(),
+  from?: string,
+  to?: string,
+): Required<CommonExtractionResult> {
+  return {
+    ...decodeExtractionHead(payload, strings, from, to),
+    calls: decodeExtractionSites(payload, 'calls', from, to),
+    accesses: decodeExtractionSites(payload, 'accesses', from, to),
   };
 }
 
 /**
  * Decode a stored extraction and rebind it to the current publication generation.
  *
- * Strings are interned into `strings`, as worker results are: an incremental
- * run decodes every unchanged file before parsing, and un-interned decodes held
- * twice the heap of a full parse of the same files (1.1 GiB for 5 301 files of
- * axiom-app against a 1.5 GiB cap; T13325).
+ * Strings are interned into `strings`: a bare `JSON.parse` materialises each
+ * repeated path, scope id and generation separately, twice the heap of the
+ * same objects built in-process (T13325).
  *
  * @param entry - Stored cache entry.
  * @param generation - The publication generation of the run reusing it.
- * @param strings - Canonical strings shared across every entry decoded for one run.
+ * @param strings - Canonical strings for this decode.
  * @returns The extraction exactly as re-parsing the same bytes under `generation` would produce.
  * @throws When the payload is not a decodable extraction; callers treat that file as changed.
  */
@@ -205,31 +325,8 @@ export function decodeParseCacheEntry(
   strings: Map<string, string> = new Map(),
 ): FileExtraction {
   if (!entry.generation) throw new Error('Parse cache entry lacks its generation');
-  let text = gunzipSync(entry.payload).toString('utf8');
-  if (entry.generation !== generation) text = text.split(entry.generation).join(generation);
-  const parsed = JSON.parse(text) as CommonExtractionResult;
-  for (const key of [
-    'definitions',
-    'imports',
-    'heritage',
-    'calls',
-    'reExports',
-    'accesses',
-  ] as const) {
-    if (!Array.isArray(parsed[key])) throw new Error(`Parse cache entry lacks ${key}`);
-  }
-  internStrings(parsed, strings);
   return {
     path: entry.path,
-    extraction: {
-      definitions: parsed.definitions,
-      imports: parsed.imports,
-      heritage: parsed.heritage,
-      calls: parsed.calls,
-      reExports: parsed.reExports ?? [],
-      accesses: parsed.accesses ?? [],
-      // Absent on entries written before T13379.
-      parseLimitations: parsed.parseLimitations ?? [],
-    },
+    extraction: decodeExtraction(entry.payload, strings, entry.generation, generation),
   };
 }

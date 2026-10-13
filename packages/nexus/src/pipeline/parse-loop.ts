@@ -42,6 +42,7 @@ import type {
   GraphIndexFileReport,
   GraphNode,
   GraphNodeKind,
+  GraphParseCacheEntry,
   GraphRelation,
   ParserExecutionLimits,
   ParserExecutionPort,
@@ -78,7 +79,14 @@ import { buildBarrelExportMap, processExtractedImports } from './import-processo
 import type { KnowledgeGraph } from './knowledge-graph.js';
 import { detectLanguageFromPath } from './language-detection.js';
 import { buildLexicalScopeModel } from './lexical-scope.js';
-import { type FileExtraction, internStrings } from './parse-cache.js';
+import {
+  decodeExtraction,
+  decodeExtractionHead,
+  decodeExtractionSites,
+  type ExtractionHead,
+  type ExtractionSites,
+  encodeExtraction,
+} from './parse-cache.js';
 import { type ExtractedAccess, extractAccesses } from './processors/access-processor.js';
 import type { SymbolTable } from './symbol-table.js';
 import type { ParseWorkerInput, ParseWorkerResult } from './workers/parse-worker.js';
@@ -463,16 +471,17 @@ export interface ParseLoopOptions {
    */
   onProgress?: (current: number, total: number, filePath: string) => void;
   /**
-   * Extractions reused from the parse cache, keyed by path (T12315). A parseable
-   * file with an entry here is not re-parsed; its extraction is merged exactly
-   * where re-parsing it would have been, so resolution sees the same input.
+   * Parse-cache entries whose bytes and extractor build match, keyed by path
+   * (T12315). A parseable file with an entry here is not re-parsed; its
+   * extraction is decoded where re-parsing it would have been merged, so
+   * resolution sees the same input. An undecodable entry is re-parsed.
    */
-  reusedExtractions?: ReadonlyMap<string, FileExtraction>;
+  reusedEntries?: ReadonlyMap<string, GraphParseCacheEntry>;
   /**
-   * Called once per freshly and successfully parsed file, before any later phase
-   * can mutate its nodes — the moment a parse-cache entry must be captured.
+   * Called once per freshly and successfully parsed file with its compressed
+   * extraction ({@link encodeExtraction}) — the parse-cache payload.
    */
-  onFileExtracted?: (file: FileExtraction) => void;
+  onFileExtracted?: (path: string, payload: Uint8Array) => void;
 }
 
 /**
@@ -485,10 +494,14 @@ export interface ParseLoopOptions {
 export interface ParseLoopResult {
   /** All heritage records accumulated during the parse loop (for Phase 3c). */
   allHeritage: ExtractedHeritage[];
-  /** All call expression records accumulated during the parse loop (for Phase 3e). */
-  allCalls: ExtractedCall[];
+  /**
+   * Every call expression record, in scan order (for Phase 3e). Re-iterable;
+   * each iteration decodes one file at a time, so the records of the whole
+   * repository are never held at once (T13656).
+   */
+  allCalls: Iterable<ExtractedCall>;
   /** All member-access records accumulated during the parse loop (for Phase 3f). */
-  allAccesses: ExtractedAccess[];
+  allAccesses: Iterable<ExtractedAccess>;
   /**
    * Barrel export map built from re-export statements (T617).
    * Used by the call resolution phase to trace imports through barrel index files.
@@ -496,8 +509,10 @@ export interface ParseLoopResult {
   barrelMap: BarrelExportMap;
   /** Parseable files handed to the parser this run. */
   parsedFileCount: number;
-  /** Parseable files whose extraction came from {@link ParseLoopOptions.reusedExtractions}. */
+  /** Parseable files whose extraction came from {@link ParseLoopOptions.reusedEntries}. */
   reusedFileCount: number;
+  /** Paths of those files. */
+  reusedPaths: Set<string>;
 }
 
 const EXECUTABLE_CAPABILITIES: GraphAnalysisCapability[] = [
@@ -945,8 +960,8 @@ async function classifyFileCapabilities(
 
 /** Per-file extraction outcomes produced by one extraction pass. */
 interface ExtractionPass {
-  /** Successful extractions keyed by path. */
-  extracted: Map<string, FileExtraction>;
+  /** Successful extractions keyed by path, compressed by {@link encodeExtraction}. */
+  extracted: Map<string, Uint8Array>;
   /** Failure reports keyed by path; a file never appears in both maps. */
   failures: Map<string, GraphIndexFileReport>;
 }
@@ -1127,7 +1142,6 @@ async function extractInParallel(
 
   const total = files.length;
   const pass: ExtractionPass = { extracted: new Map(), failures: new Map() };
-  const strings = new Map<string, string>();
   const heapGuard = createParentHeapGuard();
   let received = 0;
   const pool = createWorkerPool(
@@ -1140,13 +1154,13 @@ async function extractInParallel(
     await pool.dispatch<ScannedFile, ParseWorkerResult, ParseWorkerInput>(files, {
       prepare: (file) => readWorkerInput(file, repoPath, options),
       onResult: (result) => {
-        internStrings(result, strings);
         // T12313: failures travel onward as reports; the publish step weighs how
         // much of the repository they affect instead of one chunk deciding alone.
         for (const report of result.reports) {
           if (report.status !== 'analyzed') pass.failures.set(report.path, report);
         }
-        for (const file of result.files) pass.extracted.set(file.path, file);
+        for (const file of result.files)
+          pass.extracted.set(file.path, encodeExtraction(file.extraction));
         received += result.reports.length;
         heapGuard.check(received, total);
       },
@@ -1253,10 +1267,10 @@ async function extractSequentially(
         createHash('sha256').update(source).digest('hex'),
         options.publicationGeneration,
       );
-      pass.extracted.set(file.path, {
-        path: file.path,
-        extraction: completeExtraction({ ...extracted, parseLimitations }),
-      });
+      pass.extracted.set(
+        file.path,
+        encodeExtraction(completeExtraction({ ...extracted, parseLimitations })),
+      );
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       fail(file.path, `extract: ${msg}`);
@@ -1310,7 +1324,7 @@ export async function runParseLoop(
   options: ParseLoopOptions = {},
 ): Promise<ParseLoopResult> {
   const { tsconfigPaths = null, namedImportMap = new Map() } = options;
-  const reused = options.reusedExtractions ?? new Map<string, FileExtraction>();
+  const reused = options.reusedEntries ?? new Map<string, GraphParseCacheEntry>();
 
   // Attach one capability contract to sequential and worker-returned reports.
   const callerReports = options.onFileReport;
@@ -1396,23 +1410,54 @@ export async function runParseLoop(
   }
 
   // Merge in scan order — identical whether an extraction was fresh or reused.
+  // Each file is decoded alone and its calls and accesses are dropped: the
+  // resolution phases decode them again one file at a time, so neither the
+  // decoded extractions nor their sites are ever held for the whole repository
+  // (T13656). Only the compressed payloads stay, outside the V8 heap.
   const allExtractedImports: ExtractedImport[] = [];
   const allReExports: ExtractedReExportRecord[] = [];
   const allHeritage: ExtractedHeritage[] = [];
-  const allCalls: ExtractedCall[] = [];
-  const allAccesses: ExtractedAccess[] = [];
+  const staged: { payload: Uint8Array; generation?: string }[] = [];
+  const reusedPaths = new Set<string>();
+  let reparsedCount = 0;
   for (const file of parseableFiles) {
-    const fresh = pass.extracted.get(file.path);
-    const fileExtraction = fresh ?? reused.get(file.path);
-    if (!fileExtraction) {
+    let payload = pass.extracted.get(file.path);
+    let extracted: ExtractionHead | undefined;
+    let generation: string | undefined;
+    const cached = payload ? undefined : reused.get(file.path);
+    if (cached) {
+      try {
+        if (!cached.generation) throw new Error('Parse cache entry lacks its generation');
+        // Decoded whole once, so an unreadable section is re-parsed now, not met in resolution.
+        extracted = decodeExtraction(
+          cached.payload,
+          new Map(),
+          cached.generation,
+          options.publicationGeneration,
+        );
+        payload = cached.payload;
+        generation = cached.generation;
+        reusedPaths.add(file.path);
+      } catch (error) {
+        // An undecodable entry is re-parsed, never trusted.
+        process.stderr.write(
+          `[nexus] Incremental: cached extraction for ${file.path} is unreadable (${error instanceof Error ? error.message : String(error)}); re-parsing it.\n`,
+        );
+        const retry = await extractSequentially([file], repoPath, options);
+        payload = retry.extracted.get(file.path);
+        const failure = retry.failures.get(file.path);
+        if (failure) pass.failures.set(file.path, failure);
+        reparsedCount++;
+      }
+    }
+    if (!payload) {
       const failure = pass.failures.get(file.path);
       // Unknown language/grammar keys are silently skipped exactly as before.
       if (failure) emitReport(failure);
       continue;
     }
-    // Capture the cache entry before any later phase mutates these nodes.
-    if (fresh) options.onFileExtracted?.(fresh);
-    const extracted = fileExtraction.extraction;
+    if (!reusedPaths.has(file.path)) options.onFileExtracted?.(file.path, payload);
+    extracted ??= decodeExtractionHead(payload);
     emitReport({ path: file.path, status: 'analyzed' }, extracted.parseLimitations);
     registerInSymbolTable(extracted.definitions, symbolTable);
     for (const node of extracted.definitions) graph.addNode(node);
@@ -1420,8 +1465,18 @@ export async function runParseLoop(
     allExtractedImports.push(...extracted.imports);
     allReExports.push(...extracted.reExports);
     allHeritage.push(...extracted.heritage);
-    allCalls.push(...extracted.calls);
-    allAccesses.push(...extracted.accesses);
+    staged.push({ payload, generation });
+  }
+  function* decodeStaged<K extends ExtractionSites>(
+    sites: K,
+  ): Generator<Required<CommonExtractionResult>[K][number]> {
+    for (const entry of staged)
+      yield* decodeExtractionSites(
+        entry.payload,
+        sites,
+        entry.generation,
+        options.publicationGeneration,
+      );
   }
 
   // Batch-resolve all extracted imports (populates namedImportMap for Phase 3e)
@@ -1444,10 +1499,11 @@ export async function runParseLoop(
 
   return {
     allHeritage,
-    allCalls,
-    allAccesses,
+    allCalls: { [Symbol.iterator]: () => decodeStaged('calls') },
+    allAccesses: { [Symbol.iterator]: () => decodeStaged('accesses') },
     barrelMap,
-    parsedFileCount: toParse.length,
-    reusedFileCount: parseableFiles.length - toParse.length,
+    parsedFileCount: toParse.length + reparsedCount,
+    reusedFileCount: reusedPaths.size,
+    reusedPaths,
   };
 }

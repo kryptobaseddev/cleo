@@ -774,6 +774,7 @@ export type {
   GraphPublicationRows,
   GraphRelation,
   GraphRelationType,
+  GraphStoredReferences,
   ImpactResult,
   InferredProvenance,
   KnowledgeGraph,
