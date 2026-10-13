@@ -35,11 +35,13 @@ import { blobAttachmentSchema } from '@cleocode/contracts/attachment-schema.js';
 import { DOCS_LIFECYCLE_STATUSES } from '@cleocode/contracts/operations/docs.js';
 import { and, eq } from 'drizzle-orm';
 import { pushWarning } from '../output.js';
-import { getCleoDirAbsolute } from '../paths.js';
+import { getCleoDirAbsolute, resolveCleoDir } from '../paths.js';
+import { fileBytesMatchSha256 } from '../store/blob-keep.js';
 import { resolveBoundSession } from '../store/session-store.js';
 import { getDb, getNativeTasksDb } from '../store/sqlite.js';
 import { attachmentRefs, docsAttachments } from '../store/tasks-schema.js';
 import { assertTwinCollapseWritable } from '../store/twin-collapse.js';
+import { writeFileAtomic } from '../tools/fs.js';
 import { deriveDocLinks, linksJsonOrNull } from './derive-links.js';
 import { validateDocBody } from './validate-body.js';
 import { getCanonicalCleoVersion } from './version-ssot.js';
@@ -647,6 +649,32 @@ export async function updateDocBySlug(
           message: `blob integrity check failed for slug '${slug}': expected sha256 ${newSha256.slice(0, 12)}... but read-back sha256 is ${writtenSha256.slice(0, 12)}... — storage is internally inconsistent`,
         },
       };
+    }
+  }
+
+  // T13362/T13653/T13657: mirror the verified bytes into the content-addressed
+  // blob store — the canonical read location since the legacy tree's read
+  // paths retired. An existing target is RE-HASHED, never trusted on
+  // existence alone: a truncated leftover from an interrupted pre-atomic
+  // write is replaced from these verified bytes, a matching one is skipped
+  // (content-addressed dedup). The write goes through the shared atomic
+  // writer (unique tmp + rename), so a crash never leaves a partial file
+  // that later runs would count as present.
+  {
+    const blobStoreFile = join(resolveCleoDir(projectRoot), 'blobs', 'blobs', newSha256);
+    if (!fileBytesMatchSha256(blobStoreFile, newSha256)) {
+      try {
+        await writeFileAtomic({ path: blobStoreFile, content: buf });
+      } catch (cause) {
+        return {
+          ok: false,
+          error: {
+            // @sync-invariant none:local-only a failed local blob-mirror write rolls the whole update back; no synced row was written
+            code: 'E_FILE_ERROR',
+            message: `failed to mirror new blob into the blob store for slug '${slug}': ${cause instanceof Error ? cause.message : String(cause)}`,
+          },
+        };
+      }
     }
   }
 

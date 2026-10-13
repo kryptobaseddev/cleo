@@ -786,7 +786,7 @@ const fetchCommand = defineCommand({
         } else {
           cliError(`Content not retrievable: ${ref}`, ExitCode.NOT_FOUND, {
             name: 'E_NOT_FOUND',
-            fix: 'The doc metadata exists but its blob may be missing. Try: cleo docs publish <slug>',
+            fix: 'The doc metadata exists but its bytes are not in the blob store. Try: cleo docs doctor --repair',
           });
         }
         process.exit(ExitCode.NOT_FOUND);
@@ -1985,13 +1985,20 @@ const doctorCommand = defineCommand({
     description:
       'Docs store health diagnostics + safe repairs: dangling local-file pointers, ' +
       'docVersion skew vs the audit log, empty topics/related_tasks provenance, ' +
-      'docs_wikilinks drift, legacy store surfaces, stale drafts. ' +
-      'Dry-run by default; --apply executes repairs (a fresh backup is created automatically first).',
+      'docs_wikilinks drift, legacy store surfaces, blob-store coverage, stale drafts. ' +
+      'Dry-run by default; --apply executes repairs (a fresh backup is created automatically first); ' +
+      '--repair runs only the hash-verified legacy-bytes → blob-store backfill (T13653).',
   },
   args: {
     apply: {
       type: 'boolean',
       description: 'Execute the repairs (default: dry-run plan only)',
+    },
+    repair: {
+      type: 'boolean',
+      description:
+        'Backfill hash-verified legacy bytes into the blob store so unmigrated docs ' +
+        'become readable again (T13653); runs only this repair, with the same backup gate',
     },
     'older-than-days': {
       type: 'string',
@@ -2001,12 +2008,13 @@ const doctorCommand = defineCommand({
   },
   async run({ args }) {
     const apply = args.apply === true;
+    const repair = args.repair === true;
     const olderThanDays = parseOlderThanDays(args['older-than-days']);
     await dispatchFromCli(
-      apply ? 'mutate' : 'query',
+      apply || repair ? 'mutate' : 'query',
       'docs',
       'doctor',
-      { apply, ...(olderThanDays !== undefined ? { olderThanDays } : {}) },
+      { apply, repair, ...(olderThanDays !== undefined ? { olderThanDays } : {}) },
       { command: 'docs doctor' },
     );
   },

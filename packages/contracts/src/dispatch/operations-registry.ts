@@ -8713,8 +8713,10 @@ export const OPERATIONS: OperationDef[] = [
     description:
       'docs.doctor (mutate) — apply the docs doctor repairs: set docVersion from the audit ' +
       'log, backfill topics/related_tasks from content, archive dangling local-file rows, ' +
-      'rebuild docs_wikilinks. The dispatch layer creates a fresh backup (cleo backup add ' +
-      'path) and requires its receipt before any write.',
+      'rebuild docs_wikilinks, and backfill hash-verified legacy bytes into the blob store. ' +
+      'The dispatch layer creates a fresh backup (cleo backup add ' +
+      'path) and requires its receipt before any write. repair:true restricts the run to ' +
+      'the legacy-blob-coverage backfill only (T13653).',
     tier: 1,
     idempotent: false,
     sessionRequired: false,
@@ -8725,6 +8727,14 @@ export const OPERATIONS: OperationDef[] = [
         type: 'boolean' as const,
         required: false,
         description: 'Execute repairs (default false — dry-run plan only)',
+      },
+      {
+        name: 'repair',
+        type: 'boolean' as const,
+        required: false,
+        description:
+          'Execute ONLY the legacy-blob-coverage backfill: mirror hash-verified legacy ' +
+          'bytes into the blob store so unmigrated docs become readable (T13653)',
       },
       {
         name: 'olderThanDays',

@@ -965,6 +965,14 @@
       "task_id",
       "type"
     ],
+    "docs_publications": [
+      "blob_name",
+      "last_blob_sha",
+      "owner_id",
+      "published_at",
+      "published_path",
+      "uid"
+    ],
     "docs_wikilinks": [
       "derived_at",
       "from_slug",

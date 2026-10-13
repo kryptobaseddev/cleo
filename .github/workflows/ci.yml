@@ -1238,8 +1238,11 @@ jobs:
   docs-drift:
     # T9645: gate published docs SSoT vs the on-disk git files.
     # `cleo docs status` exits 2 when any publication has drifted, 0 when
-    # all are in-sync, and is a no-op when no `.cleo/docs-publications.json`
-    # exists yet. This job IS the release-verify drift gate.
+    # all are in-sync. T13362: the ledger lives in the project store's
+    # `docs_publications` table (the deprecated `.cleo/docs-publications.json`
+    # is a read-only legacy seed source), so the skip probe reads the table
+    # read-only instead of checking for the JSON file. This job IS the
+    # release-verify drift gate.
     name: Docs SSoT Drift Gate (T9645)
     needs: [biome, changes]
     if: needs.changes.outputs.version_only != 'true'
@@ -1263,14 +1266,19 @@ jobs:
           key: ${{ runner.os }}-pnpm-store-${{ hashFiles('**/pnpm-lock.yaml') }}
           restore-keys: |
             ${{ runner.os }}-pnpm-store-
-      - name: Skip when no docs ledger exists
+      - name: Skip when the docs ledger has no rows
         id: ledger-check
         run: |
-          if [[ -f .cleo/docs-publications.json ]]; then
+          # T13362: probe the `docs_publications` table read-only. A fresh
+          # checkout has no `.cleo/cleo.db` (untracked per ADR-013), so the
+          # gate is a no-op there — same as the old JSON-existence skip, but
+          # no longer silently disabled when only the legacy JSON is absent
+          # while the store holds rows.
+          if node -e "const {DatabaseSync}=require('node:sqlite');try{const db=new DatabaseSync('.cleo/cleo.db',{readOnly:true});const r=db.prepare('SELECT COUNT(*) AS n FROM docs_publications').get();db.close();process.exit(r&&r.n>0?0:1);}catch{process.exit(1);}"; then
             echo "exists=true" >> "$GITHUB_OUTPUT"
           else
             echo "exists=false" >> "$GITHUB_OUTPUT"
-            echo "No docs-publications.json — gate is a no-op."
+            echo "No docs_publications rows — gate is a no-op."
           fi
       - run: pnpm install --frozen-lockfile
         if: steps.ledger-check.outputs.exists == 'true'

@@ -477,6 +477,15 @@ export const ROW_IDENTITY: Readonly<Record<TableScope, readonly RowIdentitySpec[
       key: ['slug'],
       task: 'T13360',
     },
+    {
+      // Natural over the published triple: one ledger row per (owner, blob,
+      // path), so a re-publish on either device coalesces onto the same row
+      // (the idempotency key the T13362 upsert relies on).
+      table: 'docs_publications',
+      kind: 'natural',
+      key: ['owner_id', 'blob_name', 'published_path'],
+      task: 'T13362',
+    },
   ],
   global: [
     ...brainTextKeyed(),

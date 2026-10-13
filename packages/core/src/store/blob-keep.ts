@@ -28,6 +28,7 @@
  * @task T12535
  */
 
+import { createHash } from 'node:crypto';
 import {
   copyFileSync,
   existsSync,
@@ -333,4 +334,23 @@ export function isTombstoned(cleoDir: string, sha256: string): boolean {
 export function unpinBlob(cleoDir: string, sha256: string): void {
   rmSync(keepPath(cleoDir, sha256), { force: true });
   rmSync(`${keepPath(cleoDir, sha256)}.tomb`, { force: true });
+}
+
+/**
+ * True when `target` exists AND its bytes re-hash to `sha256` (T13657).
+ *
+ * Existence alone is never proof that a content-addressed file holds the
+ * bytes its name claims: a truncated leftover from an interrupted
+ * pre-atomic write must be replaced from verified bytes, not trusted. Any
+ * read failure (absent, unreadable) returns false.
+ *
+ * @param target - Absolute path of the content-addressed file.
+ * @param sha256 - Lowercase hex SHA-256 the bytes must match.
+ */
+export function fileBytesMatchSha256(target: string, sha256: string): boolean {
+  try {
+    return createHash('sha256').update(readFileSync(target)).digest('hex') === sha256;
+  } catch {
+    return false;
+  }
 }

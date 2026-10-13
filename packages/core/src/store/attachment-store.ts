@@ -17,13 +17,19 @@
  */
 
 import { createHash, randomUUID } from 'node:crypto';
-import { mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
+import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { Attachment, AttachmentMetadata, AttachmentRef } from '@cleocode/contracts';
 import { and, asc, eq, or, sql } from 'drizzle-orm';
 import { EngineResultError } from '../engine-result.js';
 import { resolveCleoDir } from '../paths.js';
-import { extFromMime, pinBlob, restoreBlob, tombstoneBlob } from './blob-keep.js';
+import {
+  extFromMime,
+  fileBytesMatchSha256,
+  pinBlob,
+  restoreBlob,
+  tombstoneBlob,
+} from './blob-keep.js';
 import type { CleoBlobStore as CleoBlobStoreType } from './llmtxt-blob-adapter.js';
 import { getDb, getNativeTasksDb } from './sqlite.js';
 import { type AttachmentLifecycleStatus, attachmentRefs, attachments } from './tasks-schema.js';
@@ -794,21 +800,33 @@ export function createAttachmentStore(): AttachmentStore {
           // rename but before COMMIT the file exists without a row — that is the safe
           // direction (an unreferenced blob on disk is harmless; a row pointing to a
           // missing file is not).
+          //
+          // Both writes go through the shared atomic writer (T13657): a unique
+          // Both writes go through the shared atomic writer (T13657): a unique
+          // tmp file (`<target>.tmp.<pid>.<uuid>`) renamed into place, so two
+          // concurrent puts of the same content cannot truncate each other via
+          // a fixed tmp name, and an interrupted write never leaves a partial
+          // file at the final path. The primitive is the canonical tools/fs.js
+          // one (gate 11), imported lazily so read-only callers (e.g.
+          // `cleo show`) do not load the tools module graph (gate 39).
           if (wasNew) {
-            const tmpPath = `${filePath}.tmp`;
-            await mkdir(join(filePath, '..'), { recursive: true });
-            try {
-              await writeFile(tmpPath, buf);
-              await rename(tmpPath, filePath);
-            } catch (writeErr) {
-              // Clean up the temp file before re-throwing so the rollback below
-              // leaves no partial artifact at the final path.
-              try {
-                await rm(tmpPath, { force: true });
-              } catch {
-                // best-effort
-              }
-              throw writeErr;
+            const { writeFileAtomic } = await import('../tools/fs.js');
+            await writeFileAtomic({ path: filePath, content: buf });
+
+            // T13362/T13653/T13657: mirror the hash-verified bytes into the
+            // content-addressed blob store (`.cleo/blobs/blobs/<sha256>`) —
+            // the canonical read location since the legacy tree's read
+            // paths retired. Written inside the same transaction (write
+            // before COMMIT, same T11997 ordering as the legacy file) so a
+            // blob-write failure rolls the row back instead of leaving a
+            // readable-metadata/unreadable-bytes doc. An existing target is
+            // RE-HASHED, never trusted on existence alone: a truncated
+            // leftover from an interrupted pre-atomic write is replaced from
+            // these verified bytes; a matching one is skipped
+            // (idempotent re-put / cross-surface dedup).
+            const blobStoreFile = join(resolveCleoDir(cwd), 'blobs', 'blobs', hash);
+            if (!fileBytesMatchSha256(blobStoreFile, hash)) {
+              await writeFileAtomic({ path: blobStoreFile, content: buf });
             }
           }
 

@@ -714,6 +714,12 @@ const PROJECT_TABLES: Readonly<Record<string, TableRegistryEntry>> = {
     status: 'draft',
     source: 'table-classification-draft.md',
   },
+  docs_publications: {
+    class: 'portable-project',
+    status: 'resolved',
+    source: 'T13362 (docs-publications.json retirement)',
+    note: 'ruling: docs_*; the publication ledger is metadata about which blob was published to which git-tracked path — every column is device-meaningful (owner, blob name, path, sha, timestamp), so the whole row syncs; upsert on the (owner_id, blob_name, published_path) natural key, never a partial update of a single column outside the accessor',
+  },
   docs_manifest_entries: {
     class: 'portable-project',
     status: 'needs-owner-call',

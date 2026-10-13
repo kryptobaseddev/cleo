@@ -17,6 +17,10 @@
  *       Eligible for deletion only after the grace period elapses.
  *       Amendment 3 (adversarial review).
  *
+ *       T13653: the publications-ledger read FAILS CLOSED — an unreadable
+ *       ledger deletes nothing (every candidate is treated as potentially
+ *       published), never an empty protection set.
+ *
  * Amendment 1 (config restore): handled separately in config-repair.ts via
  * `repairConfigFile`.
  *
@@ -32,7 +36,7 @@
  */
 
 import { existsSync } from 'node:fs';
-import { appendFile, mkdir, readdir, readFile, stat, unlink } from 'node:fs/promises';
+import { appendFile, mkdir, readdir, stat, unlink } from 'node:fs/promises';
 import { join, relative } from 'node:path';
 import { eq } from 'drizzle-orm';
 import { resolveCleoDir } from '../paths.js';
@@ -138,28 +142,26 @@ function sha256FromBlobPath(prefixDir: string, filename: string): string {
 }
 
 /**
- * Read the docs-publications ledger and return all blob SHA-256 hashes
- * that appear in it, so we never declare a published blob unreferenced.
+ * Read the publication ledger and return all blob SHA-256 hashes that appear
+ * in it, so we never declare a published blob unreferenced.
+ *
+ * Reads the `docs_publications` store rows (T13362) — the deprecated
+ * `.cleo/docs-publications.json` sidecar is seeded into the table on first
+ * access by the publications-store shim, so the store is always at least as
+ * complete as the legacy file.
+ *
+ * FAILS CLOSED: returns `null` when the ledger cannot be read. An unreadable
+ * ledger must NOT silently degrade to an empty protection set — the sweep
+ * treats `null` as "everything is potentially published" and deletes nothing
+ * (T13653 review).
  */
-async function readPublicationsSha256Set(cwd: string): Promise<Set<string>> {
-  const ledgerPath = join(cwd, '.cleo', 'docs-publications.json');
-  const out = new Set<string>();
+async function readPublicationsSha256Set(cwd: string): Promise<Set<string> | null> {
+  const { readDocsPublicationSha256Set } = await import('../docs/publications-store.js');
   try {
-    const raw = await readFile(ledgerPath, 'utf-8');
-    const parsed = JSON.parse(raw) as {
-      entries?: Array<{ lastBlobSha?: string; [key: string]: unknown }>;
-    };
-    if (Array.isArray(parsed?.entries)) {
-      for (const e of parsed.entries) {
-        if (typeof e?.lastBlobSha === 'string' && e.lastBlobSha.length === 64) {
-          out.add(e.lastBlobSha);
-        }
-      }
-    }
+    return await readDocsPublicationSha256Set(cwd);
   } catch {
-    // File absent or malformed — treat as empty
+    return null;
   }
-  return out;
 }
 
 /**
@@ -394,14 +396,18 @@ export async function repairAttachmentStore(opts?: RepairOptions): Promise<Repai
           continue;
         }
 
-        // Check docs-publications.json
-        if (publicationsSha256Set.has(sha256)) {
+        // T13653: an UNREADABLE publications ledger fails closed — the blob is
+        // treated as potentially published and nothing is deleted.
+        if (publicationsSha256Set === null || publicationsSha256Set.has(sha256)) {
           referencedSkipCount++;
           const action: RepairAction = {
             kind: 'skip-referenced-blob',
             sha256,
             filePath,
-            reason: 'Referenced in docs-publications.json ledger',
+            reason:
+              publicationsSha256Set === null
+                ? 'Publications ledger unreadable — failing closed (T13653); blob treated as published'
+                : 'Referenced in docs-publications.json ledger',
           };
           actions.push(action);
           continue;

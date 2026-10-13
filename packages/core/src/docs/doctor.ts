@@ -2,7 +2,7 @@
  * `cleo docs doctor` — store health diagnostics + safe repairs — T13447.
  *
  * Audits the CleoDocs store (`cleo.db` `attachments`/`docs_wikilinks` tables
- * plus the on-disk legacy surfaces) for six known drift classes and, when
+ * plus the on-disk legacy surfaces) for seven known drift classes and, when
  * invoked with `apply: true`, performs the repairs that are safe to run
  * in-place:
  *
@@ -32,10 +32,25 @@
  *   - `legacy-store-present`— `.cleo/attachments/index.db`,
  *                             `.cleo/docs-publications.json` and/or
  *                             `.cleo/attachments/sha256/` still on disk.
+ *   - `legacy-blob-coverage`— content-bearing rows whose sha256 has NO
+ *                             counterpart in the blob store
+ *                             (`.cleo/blobs/blobs/`). This is the T13362 AC2
+ *                             deletion pre-check: the legacy byte tree may
+ *                             only be deleted once this diagnostic is clean
+ *                             (severity `error` while any are missing).
+ *                             Repair (`backfill-blob-bytes`, T13653): locate
+ *                             the bytes in the legacy `.cleo/attachments/`
+ *                             tree or a live keep-link, SHA-256-verify them
+ *                             against the row's recorded hash, and mirror
+ *                             them into the blob store. Hash-verified and
+ *                             idempotent — never writes unverified bytes,
+ *                             skips shas already in the store. Runs under
+ *                             the normal `--apply`, or focused via
+ *                             `--repair` (backfill only).
  *   - `stale-drafts`        — slugged docs still `draft` after
  *                             `--older-than-days` (default 30).
  *
- * SAFETY: `apply: true` REFUSES to run without a backup receipt
+ * SAFETY: `apply: true` (or `repair: true`) REFUSES to run without a backup receipt
  * ({@link DocsDoctorOptions.backupReceiptPath}) whose mtime is at most
  * {@link DOCS_DOCTOR_BACKUP_MAX_AGE_MS} old. The dispatch layer creates the
  * backup itself (same `createBackup` as `cleo backup add`) and passes the
@@ -50,17 +65,20 @@
  * @see wikilinks.ts — derived edge table + rebuild (T11826)
  */
 
-import { existsSync, readFileSync, statSync } from 'node:fs';
+import { createHash } from 'node:crypto';
+import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
+import { readFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { isAbsolute, join, resolve, sep } from 'node:path';
 import { getCleoWorktreesRoot } from '@cleocode/paths';
 import { eq } from 'drizzle-orm';
 import { resolveCleoDir } from '../paths.js';
 import { createAttachmentStore } from '../store/attachment-store.js';
-import { blobContentExists } from '../store/blob-keep.js';
+import { blobContentExists, blobFilePath, fileBytesMatchSha256 } from '../store/blob-keep.js';
 import { docsWikilinks } from '../store/schema/attachments.js';
 import { getDb } from '../store/sqlite.js';
 import { docsAttachments } from '../store/tasks-schema.js';
+import { writeFileAtomic } from '../tools/fs.js';
 import {
   type DerivedDocLinks,
   deriveDocLinks,
@@ -96,7 +114,7 @@ export const DOCS_DOCTOR_DEFAULT_OLDER_THAN_DAYS = 30;
 export const DOCS_DOCTOR_MAX_DETAIL_ITEMS = 50;
 
 /**
- * The six diagnostic classes {@link runDocsDoctor} checks for.
+ * The seven diagnostic classes {@link runDocsDoctor} checks for.
  *
  * @task T13447
  */
@@ -106,6 +124,7 @@ export type DocsDoctorDiagnosticKind =
   | 'empty-provenance'
   | 'wikilinks-drift'
   | 'legacy-store-present'
+  | 'legacy-blob-coverage'
   | 'stale-drafts';
 
 /**
@@ -178,6 +197,13 @@ export interface DocsDoctorOptions {
    * {@link backupReceiptPath} — see the module docblock for the safety rule.
    */
   readonly apply?: boolean;
+  /**
+   * Execute ONLY the legacy-blob-coverage backfill (T13653): mirror
+   * hash-verified legacy bytes into the blob store so unmigrated docs become
+   * readable again. Subject to the same backup-receipt gate as
+   * {@link apply}; ignored on dry runs.
+   */
+  readonly repair?: boolean;
   /** Age threshold (days) for the `stale-drafts` diagnostic. Default 30. */
   readonly olderThanDays?: number;
   /**
@@ -305,6 +331,114 @@ function blobRowContentAlive(
   const mimeRaw = payload['mime'];
   const mime = typeof mimeRaw === 'string' ? mimeRaw : 'application/octet-stream';
   return blobContentExists(resolveCleoDir(projectRoot), row.sha256, mime);
+}
+
+/**
+ * Locate the on-disk source of a sha's legacy bytes for the blob-store
+ * backfill (T13653). Tries, in order:
+ *
+ *   1. the primary legacy path (`.cleo/attachments/sha256/<2>/<62><ext>`,
+ *      extension from the row's mime);
+ *   2. ANY file in the sha's prefix directory whose stem equals the sha's
+ *      remaining 62 chars (the recorded mime may disagree with the extension
+ *      a historical writer used);
+ *   3. a live keep-link (`.cleo/attachments/keep/<2>/<62>` — not tombstoned).
+ *
+ * Returns the first existing candidate, or null when the bytes are gone.
+ * Read-only — verification happens in {@link backfillBlobStoreBytes}.
+ *
+ * @internal
+ */
+function resolveLegacyByteSource(cleoDir: string, sha256: string, mime: string): string | null {
+  const primary = blobFilePath(cleoDir, sha256, mime);
+  if (existsSync(primary)) return primary;
+
+  try {
+    for (const name of readdirSync(join(cleoDir, 'attachments', 'sha256', sha256.slice(0, 2)))) {
+      const stem = name.includes('.') ? name.slice(0, name.lastIndexOf('.')) : name;
+      if (stem === sha256.slice(2))
+        return join(cleoDir, 'attachments', 'sha256', sha256.slice(0, 2), name);
+    }
+  } catch {
+    /* prefix dir unreadable — fall through to the keep-link */
+  }
+
+  const keep = join(cleoDir, 'attachments', 'keep', sha256.slice(0, 2), sha256.slice(2));
+  if (existsSync(keep) && !existsSync(`${keep}.tomb`)) return keep;
+  return null;
+}
+
+/**
+ * Backfill outcome for one sha (T13653).
+ *
+ * - `written`   — bytes verified and mirrored into the blob store (also
+ *                 returned when a corrupt/truncated existing target was
+ *                 replaced from the verified source, T13654).
+ * - `present`   — blob-store file already existed AND re-hashes to the
+ *                 recorded sha (idempotent re-run; left untouched).
+ * - `unverified`— the source bytes' SHA-256 does not match the recorded hash;
+ *                 nothing was written (writing unverified bytes would poison
+ *                 the content-addressed store).
+ * - `unreadable`— the source could not be read; nothing was written.
+ */
+export type BlobBackfillOutcome = 'written' | 'present' | 'unverified' | 'unreadable';
+
+/**
+ * True when the blob store's file for `sha256` exists AND re-hashes to the
+ * recorded sha (T13654). A truncated or corrupted file at the content
+ * address — e.g. left by an interrupted write that predated tmp-then-rename —
+ * returns false so the coverage check treats the doc as unmigrated and the
+ * backfill replaces it from verified source bytes.
+ *
+ * @internal
+ */
+async function blobStoreFileVerified(cleoDir: string, sha256: string): Promise<boolean> {
+  try {
+    const bytes = await readFile(join(cleoDir, 'blobs', 'blobs', sha256));
+    return createHash('sha256').update(bytes).digest('hex') === sha256;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Mirror one sha's legacy bytes into the blob store (`.cleo/blobs/blobs/<sha>`).
+ *
+ * Hash-verified: the source bytes are SHA-256-hashed before any write and
+ * must equal the recorded sha256. Crash-safe (T13654): bytes are written to
+ * a tmp file and renamed into place — an interrupted write never leaves a
+ * truncated file at the final content address (which later runs would count
+ * as present and `blobReadBySha` would then reject as corrupt with no heal
+ * path). An existing target is RE-HASHED rather than assumed good: when its
+ * bytes mismatch the recorded hash (truncation/corruption), it is replaced
+ * from the verified source; a matching target is left untouched.
+ *
+ * @internal
+ */
+export async function backfillBlobStoreBytes(
+  cleoDir: string,
+  sha256: string,
+  sourcePath: string,
+): Promise<BlobBackfillOutcome> {
+  const target = join(cleoDir, 'blobs', 'blobs', sha256);
+
+  let bytes: Buffer;
+  try {
+    bytes = await readFile(sourcePath);
+  } catch {
+    return 'unreadable';
+  }
+  const actual = createHash('sha256').update(bytes).digest('hex');
+  if (actual !== sha256) return 'unverified';
+
+  if (fileBytesMatchSha256(target, sha256)) return 'present';
+
+  // Crash-safe via the shared atomic writer (T13657): a unique tmp file
+  // renamed into place — an interrupted write never leaves a truncated blob
+  // at the final content address (which later runs would count as present
+  // and `blobReadBySha` would then reject as corrupt with no heal path).
+  await writeFileAtomic({ path: target, content: bytes });
+  return 'written';
 }
 
 /**
@@ -446,6 +580,18 @@ interface BackfillCandidate {
   readonly derived: DerivedDocLinks;
 }
 
+/**
+ * One legacy-blob-coverage backfill candidate (T13653): a content-bearing
+ * sha missing from the blob store, with the resolved on-disk source of its
+ * legacy bytes (or null when no legacy source exists).
+ */
+interface BackfillBlobSource {
+  readonly sha256: string;
+  readonly slug: string | null;
+  /** Absolute path of the verified legacy byte source, or null. */
+  readonly sourcePath: string | null;
+}
+
 /** Inputs for the dangling-pointers repairs. */
 interface DanglingScan {
   /** Rows whose missing local-file target gets archived. */
@@ -464,6 +610,8 @@ interface DoctorScan {
   readonly dangling: DanglingScan;
   readonly skewed: ReadonlyArray<{ row: DoctorRow; expected: number }>;
   readonly backfillable: readonly BackfillCandidate[];
+  /** legacy-blob-coverage backfill candidates with resolved byte sources. */
+  readonly blobBackfillable: readonly BackfillBlobSource[];
   /** Edges expected from the CURRENT columns but absent from docs_wikilinks. */
   readonly missingEdges: readonly WikilinkEdge[];
   /**
@@ -626,7 +774,7 @@ async function scanStore(
     },
     {
       path: join(projectRoot, '.cleo', 'docs-publications.json'),
-      what: 'publication ledger',
+      what: 'publication ledger (deprecated; seeded into docs_publications)',
     },
     {
       path: join(projectRoot, '.cleo', 'attachments', 'sha256'),
@@ -636,6 +784,48 @@ async function scanStore(
   const legacyItems = legacyCandidates
     .filter((c) => existsSync(c.path))
     .map((c) => ({ path: c.path, what: c.what }));
+
+  // ── legacy-blob-coverage (T13362 AC2) ──────────────────────────────────────
+  // Deletion pre-check for the T12535 dropTask: the legacy
+  // `.cleo/attachments/sha256/` byte tree may ONLY be deleted once every
+  // content-bearing registry row has a migrated counterpart in the blob
+  // store (`.cleo/blobs/blobs/<sha>`). This check is report-only — it never
+  // deletes bytes.
+  const blobStoreShas = new Set<string>();
+  try {
+    for (const name of readdirSync(join(resolveCleoDir(projectRoot), 'blobs', 'blobs'))) {
+      if (name.length === 64 && /^[0-9a-f]{64}$/.test(name)) blobStoreShas.add(name);
+    }
+  } catch {
+    /* blob store dir may not exist yet — every row then counts as missing */
+  }
+  const coverageMissing: Array<{ sha256: string; slug: string | null }> = [];
+  const coverageSeen = new Set<string>();
+  const blobBackfillable: BackfillBlobSource[] = [];
+  const cleoDir = resolveCleoDir(projectRoot);
+  for (const row of rows) {
+    const payload = payloadById.get(row.id) ?? null;
+    if (payload?.kind !== 'blob' && payload?.kind !== 'local-file') continue;
+    if (coverageSeen.has(row.sha256)) continue;
+    coverageSeen.add(row.sha256);
+    // T13654: existence is not coverage. A truncated/corrupt file at the
+    // content address (an interrupted pre-tmp-rename write) makes the doc
+    // unreadable via blobReadBySha's integrity check — it counts as missing
+    // and becomes a backfill candidate so the repair can replace it.
+    if (!blobStoreShas.has(row.sha256) || !(await blobStoreFileVerified(cleoDir, row.sha256))) {
+      coverageMissing.push({ sha256: row.sha256, slug: row.slug });
+      const mimeRaw = payload?.['mime'];
+      const mime = typeof mimeRaw === 'string' ? mimeRaw : 'application/octet-stream';
+      blobBackfillable.push({
+        sha256: row.sha256,
+        slug: row.slug,
+        sourcePath: resolveLegacyByteSource(cleoDir, row.sha256, mime),
+      });
+    }
+  }
+  const coverageItems = coverageMissing
+    .slice(0, DOCS_DOCTOR_MAX_DETAIL_ITEMS)
+    .map((m) => ({ sha256: m.sha256, slug: m.slug }));
 
   // ── stale-drafts ───────────────────────────────────────────────────────────
   const cutoffIso = new Date(Date.now() - olderThanDays * 24 * 60 * 60 * 1000).toISOString();
@@ -683,6 +873,13 @@ async function scanStore(
       truncated: false,
     },
     {
+      kind: 'legacy-blob-coverage',
+      severity: coverageMissing.length > 0 ? 'error' : 'info',
+      count: coverageMissing.length,
+      items: coverageItems,
+      truncated: coverageMissing.length > coverageItems.length,
+    },
+    {
       kind: 'stale-drafts',
       severity: 'info',
       count: staleRows.length,
@@ -696,6 +893,7 @@ async function scanStore(
     dangling: { archivable, clearable },
     skewed,
     backfillable,
+    blobBackfillable,
     missingEdges,
     needsWikilinksRebuild: missingEdges.length > 0 || backfillChangesLinks,
   };
@@ -724,9 +922,30 @@ export async function runDocsDoctor(
   opts: DocsDoctorOptions = {},
 ): Promise<RunDocsDoctorResult> {
   const apply = opts.apply === true;
+  const repair = opts.repair === true;
+  const mutate = apply || repair;
   const olderThanDays = opts.olderThanDays ?? DOCS_DOCTOR_DEFAULT_OLDER_THAN_DAYS;
 
-  if (apply) {
+  // T13654: --apply and --repair together are refused, not merged. Planning
+  // skips the archive/clear/docVersion/provenance/wikilinks repairs under
+  // --repair, so executing them anyway (the old `apply` guard) produced
+  // UNREPORTED mutations — repairs the plan never listed. The two modes have
+  // disjoint repair sets; run them as separate invocations.
+  if (apply && repair) {
+    return {
+      ok: false,
+      error: {
+        // @sync-invariant none:input-shape a flag-combination refusal before any repair write; nothing was written
+        code: 'E_DOCS_DOCTOR_FLAG_CONFLICT',
+        message:
+          'docs doctor: --apply and --repair cannot be combined — --repair runs ONLY the ' +
+          'legacy-blob backfill. Run `cleo docs doctor --repair` for the backfill, or ' +
+          '`cleo docs doctor --apply` for the full repair set, separately.',
+      },
+    };
+  }
+
+  if (mutate) {
     const refusal = checkBackupReceipt(opts.backupReceiptPath);
     if (refusal) return { ok: false, error: refusal };
   }
@@ -735,120 +954,168 @@ export async function runDocsDoctor(
   const pre = await scanStore(projectRoot, db, olderThanDays);
 
   const repairs: DocsDoctorRepairAction[] = [];
-  for (const { row, path } of pre.dangling.archivable) {
-    repairs.push({
-      kind: 'dangling-pointers',
-      action: 'archive-dangling',
-      applied: apply,
-      attachmentId: row.id,
-      ...(row.slug !== null ? { slug: row.slug } : {}),
-      detail: `marked-dangling: local-file target missing (${path}) → lifecycle_status = 'archived'`,
-    });
+  // T13653: in repair mode ONLY the blob backfill runs — apply mode plans it
+  // alongside the other repairs.
+  if (!repair) {
+    for (const { row, path } of pre.dangling.archivable) {
+      repairs.push({
+        kind: 'dangling-pointers',
+        action: 'archive-dangling',
+        applied: apply,
+        attachmentId: row.id,
+        ...(row.slug !== null ? { slug: row.slug } : {}),
+        detail: `marked-dangling: local-file target missing (${path}) → lifecycle_status = 'archived'`,
+      });
+    }
+    for (const { row, path } of pre.dangling.clearable) {
+      repairs.push({
+        kind: 'dangling-pointers',
+        action: 'clear-stale-path',
+        applied: apply,
+        attachmentId: row.id,
+        ...(row.slug !== null ? { slug: row.slug } : {}),
+        detail:
+          `cleared stale legacy path (${path}) — content alive in the blob store ` +
+          `(sha256 ${row.sha256.slice(0, 12)}…)`,
+      });
+    }
+    for (const { row, expected } of pre.skewed) {
+      repairs.push({
+        kind: 'doc-version-skew',
+        action: 'set-doc-version',
+        applied: apply,
+        attachmentId: row.id,
+        ...(row.slug !== null ? { slug: row.slug } : {}),
+        detail: `audit-note: docVersion ${row.docVersion} → ${expected} (audit log revisions + 1)`,
+      });
+    }
+    for (const { row, derived } of pre.backfillable) {
+      const derivedCount = derived.topics.length + derived.relatedTasks.length;
+      repairs.push({
+        kind: 'empty-provenance',
+        action: 'backfill-provenance',
+        applied: apply && derivedCount > 0,
+        attachmentId: row.id,
+        ...(row.slug !== null ? { slug: row.slug } : {}),
+        detail:
+          derivedCount > 0
+            ? `derived topics=[${derived.topics.join(',')}] related_tasks=[${derived.relatedTasks.join(',')}]`
+            : 'no derivable topics or task mentions — columns stay NULL',
+      });
+    }
+    if (pre.needsWikilinksRebuild) {
+      repairs.push({
+        kind: 'wikilinks-drift',
+        action: 'rebuild-wikilinks',
+        applied: apply,
+        detail:
+          pre.missingEdges.length > 0
+            ? `${pre.missingEdges.length} expected edge(s) absent from docs_wikilinks → full re-derivation`
+            : 'provenance backfill changes derived edges → full re-derivation',
+      });
+    }
   }
-  for (const { row, path } of pre.dangling.clearable) {
+  for (const candidate of pre.blobBackfillable) {
     repairs.push({
-      kind: 'dangling-pointers',
-      action: 'clear-stale-path',
-      applied: apply,
-      attachmentId: row.id,
-      ...(row.slug !== null ? { slug: row.slug } : {}),
+      kind: 'legacy-blob-coverage',
+      action: 'backfill-blob-bytes',
+      applied: mutate && candidate.sourcePath !== null,
+      ...(candidate.slug !== null ? { slug: candidate.slug } : {}),
       detail:
-        `cleared stale legacy path (${path}) — content alive in the blob store ` +
-        `(sha256 ${row.sha256.slice(0, 12)}…)`,
-    });
-  }
-  for (const { row, expected } of pre.skewed) {
-    repairs.push({
-      kind: 'doc-version-skew',
-      action: 'set-doc-version',
-      applied: apply,
-      attachmentId: row.id,
-      ...(row.slug !== null ? { slug: row.slug } : {}),
-      detail: `audit-note: docVersion ${row.docVersion} → ${expected} (audit log revisions + 1)`,
-    });
-  }
-  for (const { row, derived } of pre.backfillable) {
-    const derivedCount = derived.topics.length + derived.relatedTasks.length;
-    repairs.push({
-      kind: 'empty-provenance',
-      action: 'backfill-provenance',
-      applied: apply && derivedCount > 0,
-      attachmentId: row.id,
-      ...(row.slug !== null ? { slug: row.slug } : {}),
-      detail:
-        derivedCount > 0
-          ? `derived topics=[${derived.topics.join(',')}] related_tasks=[${derived.relatedTasks.join(',')}]`
-          : 'no derivable topics or task mentions — columns stay NULL',
-    });
-  }
-  if (pre.needsWikilinksRebuild) {
-    repairs.push({
-      kind: 'wikilinks-drift',
-      action: 'rebuild-wikilinks',
-      applied: apply,
-      detail:
-        pre.missingEdges.length > 0
-          ? `${pre.missingEdges.length} expected edge(s) absent from docs_wikilinks → full re-derivation`
-          : 'provenance backfill changes derived edges → full re-derivation',
+        candidate.sourcePath !== null
+          ? `mirror hash-verified legacy bytes (${candidate.sourcePath}) → blob store ` +
+            `(sha256 ${candidate.sha256.slice(0, 12)}…)`
+          : `no legacy bytes found for sha256 ${candidate.sha256.slice(0, 12)}… — ` +
+            'cannot backfill; the doc stays unreadable until its bytes are restored',
     });
   }
 
   // ── Apply repairs (backup gate already passed) ─────────────────────────────
-  if (apply) {
-    for (const { row, expected } of pre.skewed) {
-      await db
-        .update(docsAttachments)
-        .set({ docVersion: expected })
-        .where(eq(docsAttachments.id, row.id))
-        .run();
+  if (mutate) {
+    const cleoDir = resolveCleoDir(projectRoot);
+    // Backfill repair entries were appended in pre.blobBackfillable order —
+    // zip by index so each outcome annotates its own entry.
+    const backfillRepairIdx = repairs
+      .map((r, i) => ({ r, i }))
+      .filter(({ r }) => r.kind === 'legacy-blob-coverage' && r.action === 'backfill-blob-bytes')
+      .map(({ i }) => i);
+    for (const [n, candidate] of pre.blobBackfillable.entries()) {
+      if (candidate.sourcePath === null) continue;
+      const outcome = await backfillBlobStoreBytes(cleoDir, candidate.sha256, candidate.sourcePath);
+      if (outcome === 'written' || outcome === 'present') continue;
+      const idx = backfillRepairIdx[n];
+      const original = idx === undefined ? undefined : repairs[idx];
+      if (original !== undefined && idx !== undefined) {
+        repairs[idx] = {
+          ...original,
+          detail:
+            outcome === 'unverified'
+              ? `SKIPPED — legacy bytes at ${candidate.sourcePath} fail SHA-256 ` +
+                `verification against the recorded hash ${candidate.sha256.slice(0, 12)}…; ` +
+                'nothing written (unverified bytes would poison the content-addressed store)'
+              : `SKIPPED — could not read legacy bytes at ${candidate.sourcePath}`,
+        };
+      }
     }
-    for (const { row, derived } of pre.backfillable) {
-      if (derived.topics.length + derived.relatedTasks.length === 0) continue;
-      await db
-        .update(docsAttachments)
-        .set({
-          topics: linksJsonOrNull(derived.topics),
-          relatedTasks: linksJsonOrNull(derived.relatedTasks),
-        })
-        .where(eq(docsAttachments.id, row.id))
-        .run();
-    }
-    for (const { row } of pre.dangling.archivable) {
-      await db
-        .update(docsAttachments)
-        .set({ lifecycleStatus: 'archived' })
-        .where(eq(docsAttachments.id, row.id))
-        .run();
-    }
-    for (const { row, payload } of pre.dangling.clearable) {
-      const cleaned: Record<string, unknown> = { ...payload };
-      delete cleaned['path'];
-      await db
-        .update(docsAttachments)
-        .set({ attachmentJson: JSON.stringify(cleaned) })
-        .where(eq(docsAttachments.id, row.id))
-        .run();
-    }
-    if (pre.needsWikilinksRebuild) {
-      await rebuildDocsWikilinks({ projectRoot });
+    if (apply) {
+      for (const { row, expected } of pre.skewed) {
+        await db
+          .update(docsAttachments)
+          .set({ docVersion: expected })
+          .where(eq(docsAttachments.id, row.id))
+          .run();
+      }
+      for (const { row, derived } of pre.backfillable) {
+        if (derived.topics.length + derived.relatedTasks.length === 0) continue;
+        await db
+          .update(docsAttachments)
+          .set({
+            topics: linksJsonOrNull(derived.topics),
+            relatedTasks: linksJsonOrNull(derived.relatedTasks),
+          })
+          .where(eq(docsAttachments.id, row.id))
+          .run();
+      }
+      for (const { row } of pre.dangling.archivable) {
+        await db
+          .update(docsAttachments)
+          .set({ lifecycleStatus: 'archived' })
+          .where(eq(docsAttachments.id, row.id))
+          .run();
+      }
+      for (const { row, payload } of pre.dangling.clearable) {
+        const cleaned: Record<string, unknown> = { ...payload };
+        delete cleaned['path'];
+        await db
+          .update(docsAttachments)
+          .set({ attachmentJson: JSON.stringify(cleaned) })
+          .where(eq(docsAttachments.id, row.id))
+          .run();
+      }
+      if (pre.needsWikilinksRebuild) {
+        await rebuildDocsWikilinks({ projectRoot });
+      }
     }
   }
 
-  // T13560: on apply, re-scan so the envelope's diagnostics (and the summary
-  // computed from them) describe POST-repair state, consistent with a
-  // follow-up dry run. Dry runs keep the pre-repair scan.
-  const post = apply ? await scanStore(projectRoot, db, olderThanDays) : pre;
+  // T13560: on a mutating run, re-scan so the envelope's diagnostics (and the
+  // summary computed from them) describe POST-repair state, consistent with
+  // a follow-up dry run. Dry runs keep the pre-repair scan.
+  const post = mutate ? await scanStore(projectRoot, db, olderThanDays) : pre;
   const findings = post.diagnostics.reduce((sum, d) => sum + d.count, 0);
-  const summary = apply
-    ? `docs doctor applied ${repairs.filter((r) => r.applied).length} repair(s); ${findings} finding(s) remain post-repair`
-    : `docs doctor found ${findings} finding(s); ${repairs.length} repair(s) planned (dry-run — pass --apply to execute)`;
+  const summary = repair
+    ? `docs doctor repaired ${repairs.filter((r) => r.applied).length} blob backfill(s); ` +
+      `${post.diagnostics.find((d) => d.kind === 'legacy-blob-coverage')?.count ?? 0} sha(s) still missing post-repair`
+    : apply
+      ? `docs doctor applied ${repairs.filter((r) => r.applied).length} repair(s); ${findings} finding(s) remain post-repair`
+      : `docs doctor found ${findings} finding(s); ${repairs.length} repair(s) planned (dry-run — pass --apply to execute)`;
 
   return {
     ok: true,
     report: {
-      applied: apply,
+      applied: mutate,
       olderThanDays,
-      backupReceiptPath: apply ? (opts.backupReceiptPath ?? null) : null,
+      backupReceiptPath: mutate ? (opts.backupReceiptPath ?? null) : null,
       diagnostics: post.diagnostics,
       repairs,
       summary,

@@ -16,7 +16,7 @@
  * @saga T9625
  */
 
-import { mkdir, mkdtemp, rm } from 'node:fs/promises';
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
@@ -69,6 +69,11 @@ async function seedSlug(opts: {
     projectRoot,
     { slug: opts.slug, ...(opts.type ? { type: opts.type } : {}) },
   );
+  // T13362: publish-pr reads bytes from the blob store only. The dispatch
+  // docs.add path mirrors bytes there; emulate the mirror for this fixture.
+  const blobDir = join(projectRoot, '.cleo', 'blobs', 'blobs');
+  await mkdir(blobDir, { recursive: true });
+  await writeFile(join(blobDir, meta.sha256), bytes);
   return { sha256: meta.sha256 };
 }
 
@@ -493,6 +498,11 @@ describe('T9719 — publish-pr structured error envelopes', () => {
       'test',
       projectRoot,
     );
+    // T13362: publish-pr reads bytes from the blob store only — emulate the
+    // docs.add mirror.
+    const blobDir = join(projectRoot, '.cleo', 'blobs', 'blobs');
+    await mkdir(blobDir, { recursive: true });
+    await writeFile(join(blobDir, meta.sha256), Buffer.from(content, 'utf-8'));
 
     const { runners } = makeRunners();
     const result = await publishDocsAsPr({

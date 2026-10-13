@@ -1470,7 +1470,7 @@ export type { PackBundleInput, PackBundleResult } from './store/backup-pack.js';
 export { packBundle } from './store/backup-pack.js';
 // Read-only blob ops façade — content-address read API (T947 step 1)
 export type { BlobListEntry } from './store/blob-ops.js';
-export { blobList, blobRead } from './store/blob-ops.js';
+export { blobList, blobRead, blobReadBySha } from './store/blob-ops.js';
 export type { LegacyCleanupResult, StrayNexusCleanupResult } from './store/cleanup-legacy.js';
 export {
   detectAndRemoveLegacyGlobalFiles,

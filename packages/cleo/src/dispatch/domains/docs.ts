@@ -852,7 +852,12 @@ const _docsTypedHandler = defineTypedHandler<DocsTypedOps>('docs', {
     // Fetch content through the read model
     const content = await model.fetchContent(doc);
     if (content === null) {
-      return lafsError('E_NOT_FOUND', `Content not retrievable: ${ref}`, 'fetch');
+      return lafsError(
+        'E_NOT_FOUND',
+        `Content not retrievable: ${ref} — the doc's bytes are not in the blob store; ` +
+          'run `cleo docs doctor --repair` to backfill hash-verified legacy bytes (T13653)',
+        'fetch',
+      );
     }
 
     const backend: AttachmentBackend = await currentAttachmentBackend();
@@ -883,17 +888,18 @@ const _docsTypedHandler = defineTypedHandler<DocsTypedOps>('docs', {
 
   doctor: async (params) => {
     const apply = params.apply === true;
+    const repair = params.repair === true;
     const projectRoot = getProjectRoot();
 
-    // T13447 — an apply run must have a fresh backup. Create it through the
+    // T13447 — an apply/repair run must have a fresh backup. Create it through the
     // same core function `cleo backup add` dispatches to, then hand the
     // resulting store snapshot to core as the receipt (existence + mtime is
     // verified there). When the store file was not captured, refuse to apply.
     let backupReceiptPath: string | undefined;
-    if (apply) {
+    if (apply || repair) {
       const backup = await createSystemBackup(projectRoot, {
         type: 'snapshot',
-        note: 'docs doctor pre-repair (T13447)',
+        note: `docs doctor pre-repair (T13447${repair ? '/T13653' : ''})`,
       });
       // PROJECT_STORE_BACKUP_FILE in @cleocode/core/system/backup — the
       // snapshot filename prefix for the project store.
@@ -910,6 +916,7 @@ const _docsTypedHandler = defineTypedHandler<DocsTypedOps>('docs', {
 
     const result = await runDocsDoctor(projectRoot, {
       apply,
+      repair,
       ...(params.olderThanDays !== undefined ? { olderThanDays: params.olderThanDays } : {}),
       ...(backupReceiptPath !== undefined ? { backupReceiptPath } : {}),
     });

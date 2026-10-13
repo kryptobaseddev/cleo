@@ -61,15 +61,15 @@ describe('isTextMime (T13352)', () => {
   });
 });
 
-describe('docsStoragePath (T13352)', () => {
+describe('docsStoragePath (T13352 / T13362)', () => {
   it('resolves manifest-db docs into the blob store', () => {
     const path = docsStoragePath(makeDoc({ source: 'manifest-db' }), '/p/.cleo');
     expect(path).toBe(`/p/.cleo/blobs/blobs/${SHA}`);
   });
 
-  it('resolves tasks-db docs into the legacy attachment tree with the MIME extension', () => {
+  it('resolves tasks-db docs into the blob store too (legacy tree retired, T13362)', () => {
     const path = docsStoragePath(makeDoc(), '/p/.cleo');
-    expect(path).toBe(`/p/.cleo/attachments/sha256/aa/${'a'.repeat(62)}.md`);
+    expect(path).toBe(`/p/.cleo/blobs/blobs/${SHA}`);
   });
 });
 
@@ -86,8 +86,7 @@ describe('buildDocsFetchResult (T13352)', () => {
     expect(result.metadata.refCount).toBe(3);
     expect(result.metadata.mime).toBe('text/markdown');
     expect(result.metadata.type).toBe('spec');
-    expect(result.path).toContain('.cleo/attachments/sha256/aa/');
-    expect(result.path).toMatch(/\.md$/);
+    expect(result.path).toContain(`.cleo/blobs/blobs/${SHA}`);
   });
 
   it('keeps bytesBase64 (not content) for a binary doc', async () => {

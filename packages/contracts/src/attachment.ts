@@ -177,7 +177,9 @@ export type AttachmentKind = Attachment['kind'];
 
 /**
  * Persisted metadata row for one attachment in the attachment registry
- * (`.cleo/attachments/index.db`).
+ * (the `attachments` table of the project `cleo.db`, twin-carried into
+ * `docs_attachments`; the legacy `.cleo/attachments/index.db` file is
+ * retired — T13362).
  *
  * The full {@link Attachment} value is stored as a JSON blob in the `attachment`
  * field so the registry does not need a column per variant.
@@ -217,7 +219,8 @@ export interface AttachmentMetadata {
 /**
  * Junction row linking one attachment to one owner.
  *
- * Stored in the `attachment_refs` table of `.cleo/attachments/index.db`.
+ * Stored in the `attachment_refs` table of the project `cleo.db`
+ * (twin-carried into `docs_attachment_refs`).
  * A single attachment can be referenced by multiple owners simultaneously
  * (e.g., the same RFC PDF attached to an epic and to every child task).
  */

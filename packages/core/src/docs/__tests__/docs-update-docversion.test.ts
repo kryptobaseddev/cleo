@@ -112,3 +112,40 @@ describe('updateDocBySlug — docVersion advancement (T13351)', () => {
     expect(await storedDocVersion('t13351-dry')).toBe(2);
   });
 });
+
+describe('updateDocBySlug — blob-store mirror heal (T13657)', () => {
+  it('replaces a truncated pre-existing blob-store file from the verified bytes, leaving no tmp artifact', async () => {
+    const { createHash } = await import('node:crypto');
+    const { mkdir, readdir, readFile, writeFile } = await import('node:fs/promises');
+    const { updateDocBySlug } = await import('../docs-update.js');
+    await seedSlug('t13657-heal', '# Doc\n\nv1.\n');
+
+    const newContent = '# Doc\n\nv2 healed.\n';
+    const newSha256 = createHash('sha256').update(Buffer.from(newContent, 'utf-8')).digest('hex');
+
+    // Simulate an interrupted pre-atomic write: a truncated look-alike sits
+    // at the new content's address, so an existence check would skip the
+    // mirror write and leave the corrupt file for blobReadBySha to reject.
+    const blobStoreFile = join(tempDir, '.cleo', 'blobs', 'blobs', newSha256);
+    await mkdir(join(blobStoreFile, '..'), { recursive: true });
+    await writeFile(blobStoreFile, Buffer.from('# Doc\n\nv2 hea', 'utf-8'));
+    expect(
+      createHash('sha256')
+        .update(await readFile(blobStoreFile))
+        .digest('hex'),
+    ).not.toBe(newSha256);
+
+    const res = await updateDocBySlug(tempDir, { slug: 't13657-heal', content: newContent });
+    expect(res.ok, JSON.stringify(res)).toBe(true);
+
+    // Healed: the mirrored blob re-hashes to its content address.
+    const healed = await readFile(blobStoreFile);
+    expect(createHash('sha256').update(healed).digest('hex')).toBe(newSha256);
+
+    // No tmp artifact left behind.
+    const leftovers = (await readdir(join(tempDir, '.cleo', 'blobs', 'blobs'))).filter((n) =>
+      n.includes('.tmp'),
+    );
+    expect(leftovers).toEqual([]);
+  });
+});
