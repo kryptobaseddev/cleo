@@ -1357,6 +1357,7 @@ export type {
 export {
   DOCS_LIFECYCLE_STATUSES,
   type DocsLifecycleStatus,
+  type DocsSectionConflict,
   type DocsUpdateParams,
 } from './operations/docs.js';
 // === Ensures-schema Zod registry (T11762 ST-1 / T11900 — cantbook ensures.schema SSoT) ===

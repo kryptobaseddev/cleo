@@ -18,15 +18,23 @@
  *   `manifest-db` → `.cleo/blobs/blobs/<sha256>`; anything else → the legacy
  *   content-addressed attachment path (with the MIME-correct extension).
  * - **mime/type come from the record**, never literals.
+ * - **Recorded CRDT head conflicts surface** as `headConflict` (T13604): the
+ *   fetched content is the winning projection; losing edits survive in the
+ *   append-only version history. Absent on a clean head — the no-conflict
+ *   envelope is unchanged.
  *
- * @task T13352 (Epic T13340 / Saga T13339)
+ * @task T13352 (envelope shape) · T13604 (head-conflict surfacing)
  * @see ResolvedDoc — packages/core/src/docs/docs-read-model.ts
  * @see readDoc — sibling read API with the same utf-8-vs-base64 body rule
  */
 
 import { Buffer } from 'node:buffer';
 import { join } from 'node:path';
-import type { DocsFetchResult, DocsType } from '@cleocode/contracts/operations/docs.js';
+import type {
+  DocsFetchResult,
+  DocsHeadConflictEntry,
+  DocsType,
+} from '@cleocode/contracts/operations/docs.js';
 import { resolveCleoDir } from '../paths.js';
 import { blobFilePath } from '../store/blob-keep.js';
 import type { ResolvedDoc } from './docs-read-model.js';
@@ -100,7 +108,7 @@ export function docsStoragePath(doc: ResolvedDoc, cleoDir: string): string | und
  * @returns The typed {@link DocsFetchResult}.
  * @task T13352
  */
-export function buildDocsFetchResult(opts: {
+export async function buildDocsFetchResult(opts: {
   doc: ResolvedDoc;
   content: string;
   projectRoot: string;
@@ -119,7 +127,7 @@ export function buildDocsFetchResult(opts: {
    * field. Omitted when the doc has no live links.
    */
   linkedDecisions?: string[];
-}): DocsFetchResult {
+}): Promise<DocsFetchResult> {
   const { doc, content, projectRoot, attachmentBackend, linkedDecisions } = opts;
   const cleoDir = resolveCleoDir(projectRoot);
   const contentBytes = Buffer.from(content, 'utf-8');
@@ -128,6 +136,7 @@ export function buildDocsFetchResult(opts: {
 
   const contentField = inline && text ? content : undefined;
   const bytesBase64 = inline && !text ? contentBytes.toString('base64') : undefined;
+  const headConflict = await readDocHeadConflict(projectRoot, doc.slug);
 
   return {
     metadata: {
@@ -153,6 +162,51 @@ export function buildDocsFetchResult(opts: {
     ...(attachmentBackend !== undefined
       ? { attachmentBackend: attachmentBackend as DocsFetchResult['attachmentBackend'] }
       : {}),
+    ...(headConflict !== undefined ? { headConflict } : {}),
     ...(linkedDecisions !== undefined && linkedDecisions.length > 0 ? { linkedDecisions } : {}),
   };
+}
+
+/**
+ * Surface a doc's recorded CRDT head conflicts on the fetch envelope
+ * (T13604): when the conduit's current-version projection carries recorded
+ * conflicts, the fetched content is the winning projection and the losing
+ * edits survive in the append-only version history. Absent for slug-less
+ * docs, docs outside the conduit family, and docs with a clean head — the
+ * no-conflict envelope is byte-identical to before.
+ *
+ * @param projectRoot - Project root.
+ * @param slug - The doc's slug (`ResolvedDoc.slug`), or null.
+ * @returns The head-conflict summary, or undefined when nothing to surface.
+ */
+async function readDocHeadConflict(
+  projectRoot: string,
+  slug: string | null,
+): Promise<DocsFetchResult['headConflict']> {
+  if (slug === null) return undefined;
+  try {
+    const { dbExists } = await import('../store/sqlite.js');
+    if (!dbExists(projectRoot)) return undefined;
+    const { resolveConduitDocUid, getConduitDocHead } = await import(
+      '../store/conduit-doc-history.js'
+    );
+    const docUid = await resolveConduitDocUid(projectRoot, slug);
+    if (docUid === null) return undefined;
+    const head = await getConduitDocHead(projectRoot, docUid);
+    if (!head || head.conflictCount === 0) return undefined;
+    let lastConflict: DocsHeadConflictEntry | undefined;
+    if (head.lastConflictJson) {
+      try {
+        lastConflict = JSON.parse(head.lastConflictJson) as DocsHeadConflictEntry;
+      } catch {
+        lastConflict = undefined;
+      }
+    }
+    return {
+      conflictCount: head.conflictCount,
+      ...(lastConflict !== undefined ? { lastConflict } : {}),
+    };
+  } catch {
+    return undefined;
+  }
 }

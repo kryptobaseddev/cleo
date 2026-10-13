@@ -10,10 +10,12 @@
  *       url-kind rows that are re-fetchable.  Amendment 2 (adversarial review).
  *
  *   (2) **file-without-row** — a blob file on disk has no corresponding row in
- *       the `attachments` table AND is not referenced by any of the three doc
- *       storage surfaces (tasks.db attachments, blobs manifest.db, and
- *       docs-publications.json).  Eligible for deletion only after the grace
- *       period elapses.  Amendment 3 (adversarial review).
+ *       the `attachments` table AND is not referenced by any of the doc
+ *       storage surfaces (tasks.db attachments, blobs manifest.db,
+ *       docs-publications.json, and the conduit doc-history family —
+ *       `conduit_attachment_versions` / `conduit_attachments`, T13596).
+ *       Eligible for deletion only after the grace period elapses.
+ *       Amendment 3 (adversarial review).
  *
  * Amendment 1 (config restore): handled separately in config-repair.ts via
  * `repairConfigFile`.
@@ -35,6 +37,7 @@ import { join, relative } from 'node:path';
 import { eq } from 'drizzle-orm';
 import { resolveCleoDir } from '../paths.js';
 import { collectBlobGarbage, isTombstoned, restoreBlob, unpinBlob } from './blob-keep.js';
+import { listConduitHistorySha256Set } from './conduit-doc-history.js';
 import { getDb, getNativeTasksDb } from './sqlite.js';
 import { attachments } from './tasks-schema.js';
 import { assertTwinCollapseWritable } from './twin-collapse.js';
@@ -315,6 +318,11 @@ export async function repairAttachmentStore(opts?: RepairOptions): Promise<Repai
     // no bare table
   }
   const publicationsSha256Set = await readPublicationsSha256Set(cwd);
+  // T13596: version/merged-text blobs are referenced by the conduit
+  // doc-history family, not by the legacy tables, the publications ledger
+  // or the blobs manifest — without this set the sweep below deletes
+  // history content as "unreferenced".
+  const conduitHistorySha256Set = await listConduitHistorySha256Set(cwd);
 
   let gracePeriodSkipCount = 0;
   let referencedSkipCount = 0;
@@ -346,6 +354,19 @@ export async function repairAttachmentStore(opts?: RepairOptions): Promise<Repai
 
         // Already referenced by an attachments row (either table)
         if (rowSha256Set.has(sha256)) continue;
+
+        // T13596: referenced by the conduit doc-history family (a version
+        // or merged-text blob) — history content, never swept.
+        if (conduitHistorySha256Set.has(sha256)) {
+          referencedSkipCount++;
+          actions.push({
+            kind: 'skip-referenced-blob',
+            sha256,
+            filePath: join(prefixPath, filename),
+            reason: 'Referenced in conduit_attachment_versions / conduit_attachments (doc history)',
+          });
+          continue;
+        }
 
         // T12535: tombstoned by this build's last deref; phase 3 decides.
         if (isTombstoned(cleoDir, sha256)) continue;
@@ -405,7 +426,7 @@ export async function repairAttachmentStore(opts?: RepairOptions): Promise<Repai
           kind: 'delete-unreferenced-blob',
           sha256,
           filePath,
-          reason: `Not referenced by attachments table, blobs manifest, or docs-publications ledger`,
+          reason: `Not referenced by attachments table, blobs manifest, docs-publications ledger, or conduit doc history`,
         };
         actions.push(action);
 
@@ -437,7 +458,7 @@ export async function repairAttachmentStore(opts?: RepairOptions): Promise<Repai
   // more are deleted once past the grace period.
   const garbage = collectBlobGarbage(
     cleoDir,
-    (sha256) => rowSha256Set.has(sha256),
+    (sha256) => rowSha256Set.has(sha256) || conduitHistorySha256Set.has(sha256),
     opts?.gracePeriodMs ?? DEFAULT_TOMBSTONE_GRACE_MS,
     now,
     dryRun,
