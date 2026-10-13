@@ -19,8 +19,8 @@
  * @task T13610 (Epic T13340 / Saga T13339)
  */
 
-import { describe, expect, it, vi } from 'vitest';
 import type { DocsSectionConflict, DocsUpdateOk } from '@cleocode/contracts';
+import { describe, expect, it, vi } from 'vitest';
 
 const SECTION_CONFLICTS: DocsSectionConflict[] = [
   { sectionId: 's1', incomingVersionUid: 'uid-incoming', projectionVersionUid: 'uid-projection' },
