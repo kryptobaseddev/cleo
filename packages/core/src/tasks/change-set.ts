@@ -177,30 +177,70 @@ type CarryTarget = Pick<
 >;
 
 /**
+ * The carrier's commits that belong to the task (T13662): every commit of the
+ * merged branch when its name holds the task id (`fix/t1919-…`, read from the
+ * GitHub merge commit's `Merge pull request #N from <owner>/<branch>`), else
+ * the branch commits whose message cites the id. Branch merges of the base
+ * (`--no-merges`) are never the task's. A squash or direct landing (one
+ * parent) is the task's when its message cites the id. Empty when git cannot
+ * say.
+ *
+ * @param root - The repository.
+ * @param merge - The carrier's merge commit.
+ * @param taskId - The task id.
+ * @returns The task's commits in the carrier.
+ * @task T13662
+ */
+function carrierTaskCommits(root: string, merge: string | undefined, taskId: string): string[] {
+  if (!merge) return [];
+  const parents = git(root, ['rev-list', '--parents', '-n', '1', merge])?.split(' ') ?? [];
+  if (parents.length < 3) {
+    const message = git(root, ['log', '-1', '--format=%B', merge]);
+    return message !== null && citesTask(message, taskId) ? [merge] : [];
+  }
+  const range = `${merge}^1..${merge}^2`;
+  const subject = git(root, ['log', '-1', '--format=%s', merge]) ?? '';
+  const branch = /^Merge pull request #\d+ from [^/\s]+\/(\S+)/.exec(subject)?.[1] ?? '';
+  if (branch && citesTask(branch.toUpperCase(), taskId.toUpperCase())) {
+    return (git(root, ['rev-list', '--no-merges', range]) ?? '').split('\n').filter(Boolean);
+  }
+  const log = git(root, ['log', '--no-merges', '--format=%H%x00%B%x01', range]) ?? '';
+  return log
+    .split('\x01')
+    .map((entry) => entry.trim().split('\x00'))
+    .filter(([sha, body]) => sha && body !== undefined && citesTask(body, taskId))
+    .map(([sha]) => sha as string);
+}
+
+/**
  * The part of a carrier's change that is this task's, for the scoped-run
- * carry check (T13655): the files the task's own implemented commits changed
- * (read from git, first-parent for a merge commit) plus its declared files,
- * within the carrier's files. With no own commit resolvable here, the whole
- * carrier counts. A single-task PR therefore stays whole (its commits are the
- * task's), a shared or parent PR counts only what this task changed, and an
- * under-declared task never narrows below its own commits. `cleo done --plan`
- * and `cleo complete` both judge through this one rule.
+ * carry check (T13655): the files the task's own commits changed (read from
+ * git, first-parent for a merge commit) plus its declared files, within the
+ * carrier's files. Its own commits are the recorded implemented commits and
+ * every carrier commit that belongs to it (T13662: the whole branch when the
+ * branch is the task's, else the commits citing it), so recording one
+ * test-only commit never narrows a task below its own migration. With no own
+ * commit resolvable here, the whole carrier counts. A single-task PR therefore
+ * stays whole, a shared or parent PR counts only what this task changed, and
+ * `cleo done --plan` and `cleo complete` both judge through this one rule.
  *
  * @param target - The carrier's merge commit, files and root, or null.
- * @param task - The task (its declared files).
- * @param commits - The task's implemented commit SHAs.
+ * @param task - The task (its id and declared files).
+ * @param commits - The task's recorded implemented commit SHAs.
  * @returns The target with the task's files, or the target unchanged.
  * @task T13655
+ * @task T13662
  */
 export function taskCarryScope<T extends CarryTarget>(
   target: T | null,
-  task: Pick<ChangeSetTask, 'files'>,
+  task: Pick<ChangeSetTask, 'id' | 'files'>,
   commits: readonly string[],
 ): T | null {
   if (!target) return null;
   const own = new Set<string>();
   let resolved = false;
-  for (const sha of commits) {
+  const theirs = carrierTaskCommits(target.executionRoot, target.mergeCommitSha, task.id);
+  for (const sha of [...new Set([...commits, ...theirs])]) {
     const out = git(target.executionRoot, [
       'diff-tree',
       '--no-commit-id',

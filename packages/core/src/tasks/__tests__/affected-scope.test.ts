@@ -1017,7 +1017,8 @@ describe('T13655: plan and complete scope a carrier PR to the task the same way'
       writeFileSync(join(root, 'b.ts'), 'export const b = 2;\n');
       git(root, 'commit', '-q', '-am', 'sibling code');
       writeFileSync(join(root, 'a.ts'), 'export const a = 2;\n');
-      git(root, 'commit', '-q', '-am', 'T9001 test edit');
+      // Like T1947's f76f2d38, the task's commit does not cite the task id.
+      git(root, 'commit', '-q', '-am', 'test edit');
     } else {
       writeFileSync(join(root, 'a.ts'), 'export const a = 2;\n');
       writeFileSync(join(root, 'b.ts'), 'export const b = 2;\n');
@@ -1133,6 +1134,64 @@ describe('T13655: plan and complete scope a carrier PR to the task the same way'
       expect(await verdict(c, false, [pr])).toBe(plan);
     } finally {
       rmSync(c.root, { recursive: true, force: true });
+    }
+  });
+
+  /**
+   * T1919's shape (T13662): one test-only commit recorded as implemented, while
+   * another commit of the same PR adds the migration-journal entry. `branch`
+   * names the merged branch; `cite` puts the task id in the journal commit's
+   * message. Main appends to the journal after the merge.
+   */
+  function journalPr(branch: string, cite: boolean) {
+    const root = realpathSync(mkdtempSync(join(tmpdir(), 'cleo-t13662-')));
+    git(root, 'init', '-q', '-b', 'main');
+    writeFileSync(join(root, 'a.test.ts'), 'export const t = 1;\n');
+    writeFileSync(join(root, 'journal.json'), '{"entries":[1]}\n');
+    git(root, 'add', '.');
+    git(root, 'commit', '-q', '-m', 'init');
+    git(root, 'switch', '-q', '-c', branch);
+    writeFileSync(join(root, 'journal.json'), '{"entries":[1,2]}\n');
+    git(
+      root,
+      'commit',
+      '-q',
+      '-am',
+      cite ? 'chore: number the T9001 migration' : 'chore: number a migration',
+    );
+    writeFileSync(join(root, 'a.test.ts'), 'export const t = 2;\n');
+    git(root, 'commit', '-q', '-am', 'test: native suite');
+    const impl = git(root, 'rev-parse', 'HEAD');
+    git(root, 'switch', '-q', 'main');
+    git(root, 'merge', '-q', '--no-ff', '-m', `Merge pull request #7 from owner/${branch}`, branch);
+    const merge = git(root, 'rev-parse', 'HEAD');
+    writeFileSync(join(root, 'journal.json'), '{"entries":[1,2,3]}\n');
+    git(root, 'commit', '-q', '-am', 'later migration on main');
+    return { root, impl, merge, tested: git(root, 'rev-parse', 'HEAD^{tree}') };
+  }
+
+  it("T13662: the task's own branch counts whole — a recorded test-only commit does not hide its journal entry", async () => {
+    const c = journalPr('fix/t9001-verified-phone', false);
+    try {
+      const plan = await verdict(c, true);
+      expect(plan).toMatch(/differ from the tree.*: journal\.json/);
+      expect(await verdict(c, false)).toBe(plan);
+    } finally {
+      rmSync(c.root, { recursive: true, force: true });
+    }
+  });
+
+  it('T13662: on another branch, a commit citing the task counts; one that does not, does not', async () => {
+    const cited = journalPr('fix/shared-wave', true);
+    const uncited = journalPr('fix/shared-wave', false);
+    try {
+      expect(await verdict(cited, false)).toMatch(/differ from the tree.*: journal\.json/);
+      expect(await verdict(cited, true)).toBe(await verdict(cited, false));
+      expect(await verdict(uncited, false)).toBeNull();
+      expect(await verdict(uncited, true)).toBeNull();
+    } finally {
+      rmSync(cited.root, { recursive: true, force: true });
+      rmSync(uncited.root, { recursive: true, force: true });
     }
   });
 
