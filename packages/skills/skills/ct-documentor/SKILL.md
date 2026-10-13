@@ -1,7 +1,7 @@
 ---
 name: ct-documentor
 description: Documentation coordinator with CLEO style guide compliance. Routes every canonical-doc write (spec, adr, research, handoff, note, llm-readme) through the docs SSoT via `cleo docs add` / `cleo docs publish` / `cleo docs fetch` — never raw filesystem writes. Carries the CLEO writing and review guides as references and coordinates ct-spec-writer and ct-adr-recorder. Use when creating or updating documentation files, consolidating scattered documentation, or validating documentation against style standards. Triggers on documentation tasks, doc update requests, or style guide compliance checks.
-version: 3.21.0
+version: 3.22.0
 protocol: null
 dependencies:
   - ct-spec-writer
@@ -16,7 +16,7 @@ compatibility:
   - gemini-cli
 license: MIT
 metadata:
-  version: 3.21.0
+  version: 3.22.0
   tier: core
   install: harness
   covers:
@@ -58,6 +58,11 @@ T13361 retired the legacy verbs `search`, `find`, `rank` (use `query`),
 `generate`, `export` (use `llm-output`), `gap-check` (use `check`), and
 `import`; `sync` stays until the T9645 reingest workflow migrates, and
 `status` stays agent-facing per `cleodocs-rearch-design` §6.
+
+`cleo docs stats` (T13363) is a read-only adoption-metrics probe: add:update
+ratio from the docs audit log, loose-markdown count (gitignore-aware scan),
+`docs_wikilinks` edge count, and live `decision_adr_links` count. Use it for
+pilot baseline comparisons — it never writes.
 
 `cleo docs doctor` (T13447) audits the docs store — dangling `local-file`
 pointers, docVersion skew vs the audit log, empty topics/related_tasks,

@@ -8690,6 +8690,22 @@ export const OPERATIONS: OperationDef[] = [
       },
     ],
   },
+  // ── docs.stats (T13363 — Epic T13340 / Saga T13339) ───────────────────────
+  {
+    gateway: 'query',
+    domain: 'docs',
+    operation: 'stats',
+    description:
+      'docs.stats (query) — per-project CleoDocs adoption metrics (read-only): add:update ' +
+      'ratio from the docs audit log, loose-markdown count with scanned/excluded dirs, ' +
+      'docs_wikilinks edge count, and live decision_adr_links count. Emitted for the ' +
+      'Council pilot baseline comparisons.',
+    tier: 1,
+    idempotent: true,
+    sessionRequired: false,
+    requiredParams: [],
+    params: [],
+  },
   {
     gateway: 'mutate',
     domain: 'docs',
