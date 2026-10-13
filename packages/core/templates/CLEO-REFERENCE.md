@@ -1,6 +1,6 @@
 # CLEO Protocol — on-demand reference
 
-Version: 2.24.11 | Companion to the always-loaded `CLEO-INJECTION.md` core
+Version: 2.24.12 | Companion to the always-loaded `CLEO-INJECTION.md` core
 
 Not injected into agent context. Print one section with `cleo briefing inject --section <name>`; tier-2 spawn prompts embed this whole file. Section names are the `CLEO-INJECTION:section` markers below.
 
@@ -301,7 +301,7 @@ All overrides append a line to `.cleo/audit/force-bypass.jsonl`. Use sparingly.
 
 ### Test evidence without churn (T12957)
 
-The evidence run is the one run. Start with `cleo done <id> --plan`, which picks affected → ci → full and shows each tool's cache state. When the PR has merged and the project sets `evidence.ciSatisfies`, record `testsPassed`/`qaPassed` with `ci:<pr>` and run nothing locally. Otherwise, when `testing.affectedCommand` is configured, use `tool:test-affected` (packages the diff touches plus dependents); a full `tool:test` is then only for changes to root config, which affected planning refuses. Without it, use a targeted `test-run:<json>` of the test files you changed, or `tool:test`. While iterating, run only the failing or changed test files; never run the suite by hand and then again through `tool:test`. On macOS heavy `test`/`build` runs take one machine-wide slot by default (`CLEO_TOOL_CONCURRENCY_TEST=<n>` raises it).
+The evidence run is the one run. Start with `cleo done <id> --plan`, which picks affected → ci and shows each tool's cache state; it never plans a whole-suite `tool:test` it would have to run (owner decision 2026-10-12, T13647) and refuses with `test-run-needed` instead, naming the scoped evidence to record. When the PR has merged and the project sets `evidence.ciSatisfies`, record `testsPassed`/`qaPassed` with `ci:<pr>` and run nothing locally. Otherwise, when `testing.affectedCommand` is configured, use `tool:test-affected` (packages the diff touches plus dependents); a full `tool:test` is then only for changes to root config, which affected planning refuses. Without it, use a targeted `test-run:<json>` of the test files you changed, or `tool:test`. While iterating, run only the failing or changed test files; never run the suite by hand and then again through `tool:test`. On macOS heavy `test`/`build` runs take one machine-wide slot by default (`CLEO_TOOL_CONCURRENCY_TEST=<n>` raises it).
 
 ### `pr:<number>` retroactive atom (T9764)
 

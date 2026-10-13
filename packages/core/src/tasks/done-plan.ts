@@ -596,8 +596,8 @@ function testRunNeededBlocker(
 }
 
 /**
- * The refusal that replaces a whole-suite `tool:test` (T13641): `cleo done`
- * never launches an unscoped suite on its own. Names why the affected scope
+ * The refusal that replaces a whole-suite `tool:test` (T13641, T13647 owner
+ * decision 2026-10-12): `cleo done` never launches an unscoped suite on its own. Names why the affected scope
  * does not apply, why the recorded scoped run no longer stands (with the
  * differing files, T13642), and the scoped evidence to record instead.
  */
@@ -619,7 +619,8 @@ function wholeSuiteRefusedBlocker(
       'Run the tests that cover the change with a JSON reporter (vitest run <files> --reporter=json ' +
         '--outputFile=<path>) and record the report' +
         (ciUsable ? ", or ci:<pr> once the merged PR's CI is green" : '') +
-        '. A full run is your explicit choice: cleo verify --gate testsPassed --evidence tool:test.',
+        ', or declare testing.affectedCommand in .cleo/project-context.json so cleo done can plan a ' +
+        'scoped tool:test-affected. A full run is your explicit choice: cleo verify --gate testsPassed --evidence tool:test.',
     ),
   };
 }
@@ -894,27 +895,6 @@ export async function deriveTaskEvidence(
                 mergeState: mergeInfo,
               })
             : null;
-        // T13641: a scoped testsPassed whose carry across the merge was refused
-        // is never re-proved by a whole suite cleo done launches on its own;
-        // the plan refuses and names the differing files instead (T13642: the
-        // plan and the final run agree, both not ready).
-        if (scoped?.scope === 'full' && gate === 'testsPassed' && supersededReason) {
-          testRunBlockers.push(
-            wholeSuiteRefusedBlocker(taskId, gate, scoped.reason, supersededReason, ciUsable),
-          );
-          continue;
-        }
-        // T13125: a whole-suite local run where merged-PR CI would carry the
-        // gate is named as such, with ci:<pr> as the preferred evidence.
-        if (scoped?.scope === 'full' && ciUsable) {
-          const why = scoped.reason ?? 'the affected scope does not apply';
-          changeSet.warnings.push(
-            `${gate}: this plans a whole-suite local tool:test (${why})` +
-              (why.includes('ci:<pr>')
-                ? ''
-                : '; evidence.ciSatisfies is set, so ci:<pr> once the PR merges is the preferred evidence and needs no local run'),
-          );
-        }
         const run: DonePlanToolRun =
           scoped?.scope === 'affected'
             ? await planToolRun('test-affected', gate, storeRoot, root, scoped.run.command)
@@ -928,6 +908,18 @@ export async function deriveTaskEvidence(
                   reason: scoped.reason,
                 }
               : await planToolRun(tool, gate, storeRoot, root);
+        // T13647 (owner decision 2026-10-12, "never run whole suites"): cleo
+        // done never plans a whole-suite tool:test it would have to execute (a
+        // cache miss). A result already cached for this tree runs nothing and
+        // keeps its usual handling; otherwise the plan refuses and names the
+        // scoped evidence to record, with the differing files when a carry was
+        // refused (T13641, T13642).
+        if (scoped?.scope === 'full' && run.cache === 'miss') {
+          testRunBlockers.push(
+            wholeSuiteRefusedBlocker(taskId, gate, scoped.reason, supersededReason, ciUsable),
+          );
+          continue;
+        }
         // T13427: in a standalone project a missing lint/typecheck result
         // would be a fresh whole-project run; plan a qa-run receipt of the
         // changed roots instead. A cached result still binds as tool:.
@@ -1008,7 +1000,13 @@ export async function deriveTaskEvidence(
   if (task.status === 'done') {
     changeSet.warnings.push(`${taskId} is already done; nothing is left to record.`);
   } else if (changeSet.implementedEvidence !== null || passed('implemented')) {
-    commands.push(`${cd}cleo complete ${taskId}`);
+    // T13648: `cleo complete` has no --pr, so a plan judged through an
+    // explicit PR finishes with `cleo done --pr`, which keeps that carrier.
+    commands.push(
+      opts.prNumber === undefined
+        ? `${cd}cleo complete ${taskId}`
+        : `${cd}cleo done ${taskId} --pr ${opts.prNumber}`,
+    );
   }
   const next =
     blockers[0]?.next ??
