@@ -1001,10 +1001,11 @@ describe('T13655: plan and complete scope a carrier PR to the task the same way'
   });
 
   /**
-   * T1947's shape: a parent PR carries a sibling's code (b.ts) and this
-   * task's test edit (a.ts); after the merge, main edits b.ts again.
+   * A PR merged with --no-ff, then main edits `moved` again. `shared`: a
+   * sibling's commit (b.ts) and this task's commit (a.ts), T1947's shape; else
+   * one task commit that changes both files.
    */
-  function parentPr(moveTaskFile = false) {
+  function carrier(shared: boolean, moved: 'a.ts' | 'b.ts') {
     const root = realpathSync(mkdtempSync(join(tmpdir(), 'cleo-t13655-')));
     git(root, 'init', '-q', '-b', 'main');
     writeFileSync(join(root, 'a.ts'), 'export const a = 1;\n');
@@ -1012,49 +1013,56 @@ describe('T13655: plan and complete scope a carrier PR to the task the same way'
     git(root, 'add', '.');
     git(root, 'commit', '-q', '-m', 'init');
     git(root, 'switch', '-q', '-c', 'feature');
-    writeFileSync(join(root, 'b.ts'), 'export const b = 2;\n');
-    git(root, 'commit', '-q', '-am', 'sibling code');
-    writeFileSync(join(root, 'a.ts'), 'export const a = 2;\n');
-    git(root, 'commit', '-q', '-am', 'T9001 test edit');
+    if (shared) {
+      writeFileSync(join(root, 'b.ts'), 'export const b = 2;\n');
+      git(root, 'commit', '-q', '-am', 'sibling code');
+      writeFileSync(join(root, 'a.ts'), 'export const a = 2;\n');
+      git(root, 'commit', '-q', '-am', 'T9001 test edit');
+    } else {
+      writeFileSync(join(root, 'a.ts'), 'export const a = 2;\n');
+      writeFileSync(join(root, 'b.ts'), 'export const b = 2;\n');
+      git(root, 'commit', '-q', '-am', 'T9001');
+    }
     const impl = git(root, 'rev-parse', 'HEAD');
     git(root, 'switch', '-q', 'main');
     git(root, 'merge', '-q', '--no-ff', '-m', 'Merge PR #7', 'feature');
     const merge = git(root, 'rev-parse', 'HEAD');
-    writeFileSync(join(root, moveTaskFile ? 'a.ts' : 'b.ts'), 'export const x = 3;\n');
+    writeFileSync(join(root, moved), 'export const x = 3;\n');
     git(root, 'commit', '-q', '-am', 'later edit on main');
     return { root, impl, merge, tested: git(root, 'rev-parse', 'HEAD^{tree}') };
   }
 
-  /** The carry verdict, with the change set planned through `--pr` (plan) or not (complete). */
+  const NONE: TaskChangeSet = {
+    source: 'none',
+    executionRoot: '',
+    rootSource: 'store',
+    files: [],
+    deletedFiles: [],
+    docs: [],
+    decisions: [],
+    candidates: [],
+    implementedEvidence: '',
+    blockers: [],
+    warnings: [],
+  };
+
+  /**
+   * The carry verdict for a task that declares only a.ts, through the change
+   * set planned with `--pr` (plan) or through GitHub's commit carrier (a plain
+   * complete). `implemented` defaults to the task's commit.
+   */
   async function verdict(
-    root: string,
-    impl: string,
-    merge: string,
-    tested: string,
+    c: ReturnType<typeof carrier>,
     viaPr: boolean,
+    implemented: EvidenceAtom[] = [{ kind: 'commit', sha: c.impl, shortSha: c.impl.slice(0, 7) }],
   ): Promise<string | null> {
-    const t: Task = {
-      ...task([run(tested)], [{ kind: 'commit', sha: impl, shortSha: impl.slice(0, 7) }]),
-      files: ['a.ts'],
-    };
-    const base: TaskChangeSet = {
-      source: 'none',
-      executionRoot: root,
-      rootSource: 'store',
-      files: [],
-      deletedFiles: [],
-      docs: [],
-      decisions: [],
-      candidates: [],
-      implementedEvidence: '',
-      blockers: [],
-      warnings: [],
-    };
-    const info = await taskChangeMergeState(t, root, {
-      executionRoot: root,
-      // `cleo done --plan --pr 7` derives the PR change set, scoped to the task.
+    const t: Task = { ...task([run(c.tested)], implemented), files: ['a.ts'] };
+    const base = { ...NONE, executionRoot: c.root };
+    const info = await taskChangeMergeState(t, c.root, {
+      executionRoot: c.root,
+      // `cleo done --plan --pr 7` derives the PR change set, files as declared.
       derived: viaPr
-        ? { ...base, source: 'pr', prNumber: 7, mergeCommitSha: merge, files: ['a.ts'] }
+        ? { ...base, source: 'pr', prNumber: 7, mergeCommitSha: c.merge, files: ['a.ts'] }
         : base,
       changeSet: {
         listPrsForCommit: async () => [
@@ -1062,7 +1070,7 @@ describe('T13655: plan and complete scope a carrier PR to the task the same way'
             number: 7,
             mergedAt: '2026-10-13T00:00:00Z',
             baseRefName: 'main',
-            mergeCommitSha: merge,
+            mergeCommitSha: c.merge,
           },
         ],
         viewPr: async () => ({
@@ -1072,43 +1080,70 @@ describe('T13655: plan and complete scope a carrier PR to the task the same way'
           baseRefName: 'main',
           state: 'MERGED',
           mergedAt: '2026-10-13T00:00:00Z',
-          headRefOid: impl,
-          mergeCommitSha: merge,
-          commits: [impl],
+          headRefOid: c.impl,
+          mergeCommitSha: c.merge,
+          commits: [c.impl],
         }),
         defaultBranch: () => 'main',
       },
-      contains: (_root, ancestor, descendant) => ancestor === impl && descendant === merge,
+      contains: (_root, ancestor, descendant) => ancestor === c.impl && descendant === c.merge,
       equivalent: () => false,
       isLanded: () => true,
     });
     return testsPassedSupersededReason(t.verification?.evidence?.testsPassed?.atoms ?? [], {
       mergeState: () => info,
-      currentTree: () => tested,
+      currentTree: () => c.tested,
     });
   }
 
-  it('a sibling file the parent PR changed, edited again later, does not refuse; both paths agree', async () => {
-    const { root, impl, merge, tested } = parentPr();
+  it('(1) a shared parent PR whose sibling file moved later: plan and complete both carry', async () => {
+    const c = carrier(true, 'b.ts');
     try {
-      const plan = await verdict(root, impl, merge, tested, true);
-      const complete = await verdict(root, impl, merge, tested, false);
-      expect(plan).toBeNull();
-      expect(complete).toBe(plan);
+      expect(await verdict(c, true)).toBeNull();
+      expect(await verdict(c, false)).toBeNull();
     } finally {
-      rmSync(root, { recursive: true, force: true });
+      rmSync(c.root, { recursive: true, force: true });
+    }
+  });
+
+  it('(2) a single-task PR whose undeclared file moved: plan and complete both refuse', async () => {
+    const c = carrier(false, 'b.ts');
+    try {
+      const plan = await verdict(c, true);
+      expect(plan).toMatch(/differ from the tree.*: b\.ts/);
+      expect(await verdict(c, false)).toBe(plan);
+    } finally {
+      rmSync(c.root, { recursive: true, force: true });
+    }
+  });
+
+  it('(3) a task with no own commits: the whole merge counts, on both paths', async () => {
+    const c = carrier(true, 'b.ts');
+    try {
+      const pr: EvidenceAtom = {
+        kind: 'pr',
+        prNumber: 7,
+        mergeCommitSha: c.merge,
+        mergedAt: '2026-10-13T00:00:00Z',
+        successCount: 1,
+        totalChecks: 1,
+      };
+      const plan = await verdict(c, true, [pr]);
+      expect(plan).toMatch(/differ from the tree.*: b\.ts/);
+      expect(await verdict(c, false, [pr])).toBe(plan);
+    } finally {
+      rmSync(c.root, { recursive: true, force: true });
     }
   });
 
   it("the task's own file moving after the merge refuses on both paths", async () => {
-    const { root, impl, merge, tested } = parentPr(true);
+    const c = carrier(true, 'a.ts');
     try {
-      const plan = await verdict(root, impl, merge, tested, true);
-      const complete = await verdict(root, impl, merge, tested, false);
+      const plan = await verdict(c, true);
       expect(plan).toMatch(/differ from the tree.*: a\.ts/);
-      expect(complete).toBe(plan);
+      expect(await verdict(c, false)).toBe(plan);
     } finally {
-      rmSync(root, { recursive: true, force: true });
+      rmSync(c.root, { recursive: true, force: true });
     }
   });
 });

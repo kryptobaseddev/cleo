@@ -170,6 +170,59 @@ function git(cwd: string, args: readonly string[]): string | null {
   }
 }
 
+/** The files a merged change is compared on (a merge commit, its files and root). */
+type CarryTarget = Pick<
+  TaskChangeSet,
+  'mergeCommitSha' | 'files' | 'deletedFiles' | 'executionRoot'
+>;
+
+/**
+ * The part of a carrier's change that is this task's, for the scoped-run
+ * carry check (T13655): the files the task's own implemented commits changed
+ * (read from git, first-parent for a merge commit) plus its declared files,
+ * within the carrier's files. With no own commit resolvable here, the whole
+ * carrier counts. A single-task PR therefore stays whole (its commits are the
+ * task's), a shared or parent PR counts only what this task changed, and an
+ * under-declared task never narrows below its own commits. `cleo done --plan`
+ * and `cleo complete` both judge through this one rule.
+ *
+ * @param target - The carrier's merge commit, files and root, or null.
+ * @param task - The task (its declared files).
+ * @param commits - The task's implemented commit SHAs.
+ * @returns The target with the task's files, or the target unchanged.
+ * @task T13655
+ */
+export function taskCarryScope<T extends CarryTarget>(
+  target: T | null,
+  task: Pick<ChangeSetTask, 'files'>,
+  commits: readonly string[],
+): T | null {
+  if (!target) return null;
+  const own = new Set<string>();
+  let resolved = false;
+  for (const sha of commits) {
+    const out = git(target.executionRoot, [
+      'diff-tree',
+      '--no-commit-id',
+      '--name-only',
+      '-r',
+      '-m',
+      '--first-parent',
+      '--root',
+      sha,
+    ]);
+    if (out === null) continue;
+    resolved = true;
+    for (const name of out.split('\n')) if (name) own.add(name);
+  }
+  if (!resolved) return target;
+  const declared = task.files ?? [];
+  const mine = (f: string): boolean => own.has(f) || diffIntersectsAc([f], declared);
+  const files = target.files.filter(mine);
+  const deletedFiles = target.deletedFiles.filter(mine);
+  return files.length + deletedFiles.length > 0 ? { ...target, files, deletedFiles } : target;
+}
+
 function canonical(path: string): string {
   try {
     return realpathSync(path);
@@ -1082,28 +1135,6 @@ async function landedComponents(
  * is primary, each earlier one its own implemented attempt (D11151). Files
  * are the component's surviving files, narrowed to declared task files.
  */
-/**
- * A carrier PR's changed files that belong to this task: the ones it declared
- * (`task.files`), when any of them are in the PR, else all of them. A PR
- * shared by several tasks (batch `--pr`, or a parent PR that also carries a
- * sibling's code) is judged per task. The ONE scoping rule: the `--pr` change
- * set and every scoped-run carry target use it, so `cleo done --plan` and
- * `cleo complete` compare the same files (T13655).
- *
- * @param files - The carrier's changed files.
- * @param task - The task (its declared files).
- * @returns The task's files of the carrier.
- * @task T13655
- */
-export function taskScopedFiles(
-  files: readonly string[],
-  task: Pick<ChangeSetTask, 'files'>,
-): string[] {
-  const declared = task.files ?? [];
-  const own = declared.length > 0 ? files.filter((f) => diffIntersectsAc([f], declared)) : [];
-  return own.length > 0 ? own : [...files];
-}
-
 function deriveComponentChangeSet(
   cs: TaskChangeSet,
   components: readonly PrDetails[],
@@ -1112,13 +1143,15 @@ function deriveComponentChangeSet(
 ): true {
   const root = cs.executionRoot;
   const integration = cs.prNumber as number;
+  const declared = task.files ?? [];
   const attempts = components.map((c) => {
     const { files, deleted } = componentLandedChanges(
       root,
       c.mergeCommitSha as string,
       integrationMerge,
     );
-    const kept = taskScopedFiles(files, task);
+    const own = declared.length > 0 ? files.filter((f) => diffIntersectsAc([f], declared)) : [];
+    const kept = own.length > 0 ? own : files;
     return {
       prNumber: c.number,
       mergeCommitSha: integrationMerge,
@@ -1252,7 +1285,13 @@ async function deriveOnePr(
   const { files, deleted } = mergeCommitChanges(root, pr.mergeCommitSha);
   const prPaths = new Set(pr.changedPaths);
   cs.files = prPaths.size > 0 ? files.filter((p) => prPaths.has(p)) : files;
-  cs.files = taskScopedFiles(cs.files, task);
+  // A PR shared by several tasks (batch `--pr`): each task's files: evidence
+  // names only the files it declared, when any of them is in the PR.
+  const declared = task.files ?? [];
+  if (declared.length > 0) {
+    const own = cs.files.filter((f) => diffIntersectsAc([f], declared));
+    if (own.length > 0) cs.files = own;
+  }
   cs.deletedFiles = deleted;
   if (cs.files.length === 0) {
     cs.blockers.push(

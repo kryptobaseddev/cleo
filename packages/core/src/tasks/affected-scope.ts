@@ -227,11 +227,10 @@ export async function testsPassedSupersededReason(
   // T13495: a tree-pinned scoped result carries across the merge when the
   // change it tested reached the default branch byte for byte.
   if (verdict.state === 'merged') {
-    // T13608: a fast-forward or direct landing has no merge commit; judge
-    // against the landed implementing commit instead.
-    const target = verdict.changeSet?.mergeCommitSha
-      ? verdict.changeSet
-      : (verdict.landing ?? verdict.changeSet ?? null);
+    // T13655: the carry target, scoped to the task by the one rule; a derived
+    // change set stands in only when no target could be read. T13608: a
+    // fast-forward or direct landing is judged against the landed commit.
+    const target = verdict.landing ?? verdict.changeSet ?? null;
     const carried = scopedRunCarriedAcrossMerge(atoms, target);
     if (carried.ok) return null;
     return scopedRunSupersededReason(atoms, verdict.state, verdict.lookupFailed, carried.why);
@@ -747,10 +746,13 @@ export async function taskChangeMergeState(
 
   // T12965 review M2: the same root `cleo done` reads the change set from.
   const at = deps.executionRoot ?? cs.resolveChangeSetRoot(storeRoot, task.id).root;
-  // T13655: a carrier's files are scoped to the task exactly as the `--pr`
-  // change set scopes them, so planning and completion compare the same files.
+  // T13655: every carry target is scoped by the one rule (the task's own
+  // commits plus its declared files), so planning and completion agree.
   const own = (target: LandedCarryTarget | null): LandedCarryTarget | null =>
-    target && { ...target, files: cs.taskScopedFiles(target.files, task) };
+    cs.taskCarryScope(target, task, commits);
+  // The carry target of a derived change set: its carrier's whole merge, scoped.
+  const ofDerived = (changeSet: TaskChangeSet): LandedCarryTarget | null =>
+    own(mergeCarryTarget(at, changeSet.mergeCommitSha));
 
   if (commits.length === 0) {
     const newest = prs[0];
@@ -767,6 +769,7 @@ export async function taskChangeMergeState(
       state: mergeStateOfChangeSet(changeSet),
       changeSet,
       prRef: changeSetPrRef(changeSet),
+      landing: ofDerived(changeSet),
       ...lookupFailed(),
     };
   }
@@ -805,7 +808,7 @@ export async function taskChangeMergeState(
       mergeCommitSha: changeSet.mergeCommitSha ?? null,
     }))
   ) {
-    return { state: 'merged', changeSet, prRef: derivedRef };
+    return { state: 'merged', changeSet, prRef: derivedRef, landing: ofDerived(changeSet) };
   }
   // T12959 review: a PR GitHub associates with the commits is a candidate
   // only; it is named when it carries them, like every other candidate.
