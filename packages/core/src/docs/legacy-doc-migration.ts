@@ -26,30 +26,37 @@
  *     `conduit_doc_migration_ledger` with `status: 'dangling'`, the legacy
  *     pointer and the reason — never silently imported (AC3).
  *   - **Idempotent** — every write carries a NATURAL uid (doc slug; (doc
- *     uid, migration key); ledger slug), so a re-run derives the same uids
- *     and `ON CONFLICT DO NOTHING` turns it into a verified no-op; docs
- *     already in the ledger are skipped. The second run's harness
- *     verification proves zero deltas and unchanged hashes (AC4).
+ *     uid, content hash, event timestamp); ledger slug), so a re-run derives
+ *     the same uids and `ON CONFLICT DO NOTHING` turns it into a verified
+ *     no-op; docs already in the ledger are skipped. The second run's
+ *     harness verification proves zero deltas and unchanged hashes (AC4).
  *
  * The migration is exposed as `cleo docs migrate` (dispatch op
  * `docs.migrate`); it takes its own pre-step VACUUM INTO backup through the
  * harness and needs no `--force` (it is additive — nothing is deleted).
  *
- * Cross-device caveat (T13633): the audit log (`docs-audit.jsonl`) is a
- * DEVICE-LOCAL file — it never syncs. A legacy doc migrated on two devices
- * therefore derives DIFFERENT natural version uids for the same logical
- * audit events (`evt-<i>` is position i in each device's own log): the rows
- * carry the same real content hashes but distinct uids, and the Stage C
- * merge treats them as distinct versions. That is an accepted v1
- * consequence of deriving identity from device-local provenance rather than
- * inventing cross-device keys; dedup by content hash is a follow-up if the
- * pilot shows it matters. The doc uid, the ledger receipt, and the head
- * projection are all device-independent.
+ * Cross-device identity (T13638): the audit log (`docs-audit.jsonl`) is a
+ * DEVICE-LOCAL file — it never syncs. Version identity therefore CANNOT
+ * derive from a row's position in it (`evt-<i>` was v1 and diverged across
+ * devices). Every imported version's natural uid is instead a pure function
+ * of the version's real facts — (doc uid, content hash, event timestamp) —
+ * so two devices migrating the same synced legacy doc derive IDENTICAL uids
+ * for the same content whatever their local audit logs hold, and two
+ * different contents can never collide on one uid. The doc uid, the ledger
+ * receipt, and the head projection were already device-independent.
+ *
+ * Existing installs: a store that already ran the t13360 import keeps its
+ * position-derived version uids — the ledger receipt makes the migration
+ * one-shot per doc, so the content-derived derivation applies to newly
+ * migrated rows only (accepted mixed state, per the task's (a) option; no
+ * re-key migration, since the spec does not mandate one).
  *
  * @module
  * @task T13360
  * @task T13633 — review round 2: leaf HLC constant, native-conflict count,
  *   cross-device caveat
+ * @task T13638 — version uids derived from (doc uid, content hash, event
+ *   timestamp), never from the device-local audit position
  * @epic T13340
  * @saga T13339
  */
@@ -98,8 +105,6 @@ interface LegacyPayload {
 
 /** One history row to import for one doc. */
 interface PlannedVersion {
-  /** Natural-identity discriminator (stable across re-runs). */
-  readonly migrationKey: string;
   /** Real audit actor, or {@link MIGRATION_SYSTEM_AUTHOR}. */
   readonly authorAgentId: string;
   /** SHA-256 hex of this version's body. */
@@ -333,15 +338,27 @@ export async function deriveLegacyDocMigrationPlan(projectRoot: string): Promise
       (e) => e.slug === slug && (e.op === 'docs.add' || e.op === 'docs.update'),
     );
     const versions: PlannedVersion[] = [];
-    for (let i = 0; i < events.length; i++) {
-      const event = events[i];
-      if (event === undefined || event.sha256 === undefined) continue;
+    // T13638: two events with the SAME content at the SAME instant are one
+    // logical version — the content-derived natural uid cannot tell them
+    // apart, so a repeat would either no-op away honest history or parent a
+    // version to itself. The first occurrence is kept; each repeat is a
+    // collapsed duplicate write, counted into the survivor's summary.
+    const seenVersionKeys = new Map<string, number>();
+    const collapsedDuplicates = new Map<string, number>();
+    for (const event of events) {
+      if (event.sha256 === undefined) continue;
       const eventMime = mime ?? 'application/octet-stream';
       if (!blobContentExists(cleoDir, event.sha256, eventMime)) continue; // bytes gone — honest omission
       const bytes = readBlobBytes(cleoDir, event.sha256, eventMime);
       if (bytes === null) continue;
+      const versionKey = `${event.sha256}|${event.ts}`;
+      const prior = seenVersionKeys.get(versionKey);
+      if (prior !== undefined) {
+        collapsedDuplicates.set(versionKey, (collapsedDuplicates.get(versionKey) ?? 0) + 1);
+        continue;
+      }
+      seenVersionKeys.set(versionKey, versions.length);
       versions.push({
-        migrationKey: `evt-${i + 1}`,
         authorAgentId:
           typeof event.actor === 'string' && event.actor.length > 0
             ? event.actor
@@ -353,11 +370,20 @@ export async function deriveLegacyDocMigrationPlan(projectRoot: string): Promise
         changeSummary: `migrated from the legacy docs store (audit ${event.op} @ ${event.ts})`,
       });
     }
+    for (const [versionKey, count] of collapsedDuplicates) {
+      const index = seenVersionKeys.get(versionKey);
+      if (index === undefined) continue;
+      const survivor = versions[index];
+      if (survivor === undefined) continue;
+      versions[index] = {
+        ...survivor,
+        changeSummary: `${survivor.changeSummary}; collapsed ${count} duplicate audit event(s) with identical content and timestamp`,
+      };
+    }
     if (versions.length === 0) {
       // No recoverable audit history — one content-capture version, honestly
       // system-attributed. Never invented authors or ordinals.
       versions.push({
-        migrationKey: 'base',
         authorAgentId: MIGRATION_SYSTEM_AUTHOR,
         contentHash: row.sha256,
         sizeBytes: content.length,
@@ -457,7 +483,6 @@ export async function planLegacyDocMigration(opts: {
           ordinal += 1;
           const { uid } = await importMigratedConduitVersion(projectRoot, {
             attachmentUid: docUid,
-            migrationKey: version.migrationKey,
             parentVersionUid: parentUid,
             authorAgentId: version.authorAgentId,
             storageKey: `sha256:${version.contentHash}`,
