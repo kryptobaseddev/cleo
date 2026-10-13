@@ -78,7 +78,7 @@ import { buildBarrelExportMap, processExtractedImports } from './import-processo
 import type { KnowledgeGraph } from './knowledge-graph.js';
 import { detectLanguageFromPath } from './language-detection.js';
 import { buildLexicalScopeModel } from './lexical-scope.js';
-import type { FileExtraction } from './parse-cache.js';
+import { type FileExtraction, internStrings } from './parse-cache.js';
 import { type ExtractedAccess, extractAccesses } from './processors/access-processor.js';
 import type { SymbolTable } from './symbol-table.js';
 import type { ParseWorkerInput, ParseWorkerResult } from './workers/parse-worker.js';
@@ -1070,36 +1070,6 @@ export function createParentHeapGuard(sources: ParentHeapGuardSources = {}): Par
       observer?.disconnect();
     },
   };
-}
-
-/**
- * Replace every string reachable from `value` with one canonical instance.
- *
- * A result that crosses a process boundary arrives as JSON, and `JSON.parse`
- * materialises each occurrence of a string separately: the 64-character
- * generation hash, file path, source id and lexical reason repeated on every
- * call and access record. Measured over 5 098 files of a real repository, the
- * received extractions retained 806 MiB against 498 MiB for the same objects
- * built in-process; sharing the strings brought them to 397 MiB (T13325).
- *
- * @param value - Freshly received JSON data, mutated in place.
- * @param pool - Canonical strings for the current parse.
- */
-function internStrings(value: object, pool: Map<string, string>): void {
-  const canonical = (text: string): string => {
-    const known = pool.get(text);
-    if (known !== undefined) return known;
-    pool.set(text, text);
-    return text;
-  };
-  const pending: object[] = [value];
-  for (let node = pending.pop(); node !== undefined; node = pending.pop()) {
-    for (const key of Object.keys(node)) {
-      const child: unknown = Reflect.get(node, key);
-      if (typeof child === 'string') Reflect.set(node, key, canonical(child));
-      else if (typeof child === 'object' && child !== null) pending.push(child);
-    }
-  }
 }
 
 /** Read one file's original source for a worker, refusing bytes that changed since the scan. */

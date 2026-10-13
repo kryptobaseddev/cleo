@@ -731,11 +731,15 @@ export async function runPipeline(
         reason =
           'the extractor build changed since the cached parse, so no cached extraction is current';
       } else {
+        const strings = new Map<string, string>();
         for (const entry of matching) {
           const scanned = scannedFiles.get(entry.path);
           if (!scanned?.contentHash || scanned.contentHash !== entry.contentHash) continue;
           try {
-            reusedExtractions.set(entry.path, decodeParseCacheEntry(entry, publicationGeneration));
+            reusedExtractions.set(
+              entry.path,
+              decodeParseCacheEntry(entry, publicationGeneration, strings),
+            );
           } catch (error) {
             // An undecodable entry is re-parsed, never trusted.
             process.stderr.write(
