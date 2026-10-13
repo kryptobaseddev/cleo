@@ -1706,6 +1706,140 @@ export async function pipelineManifestLink(
   }
 }
 
+/** The fields `cleo research update` and `link` may change on an existing entry (T13678). */
+export interface ManifestEntryPatch {
+  /** New title. */
+  title?: string;
+  /** Replacement topics. */
+  topics?: string[];
+  /** Replacement key findings. */
+  key_findings?: string[];
+  /** New status. */
+  status?: ExtendedManifestEntry['status'];
+  /** A task to add to `linked_tasks` (kept unique); never removes one. */
+  linkTask?: string;
+}
+
+/**
+ * Change only the given fields of an existing manifest entry, in one
+ * transaction (T13678). Every field the patch leaves out keeps its stored
+ * value, and `linkTask` is added to `linked_tasks`, never replacing it.
+ * `cleo research link` and `cleo research update` used to send a whole new
+ * entry through `manifest.append` under the same id, which replaced the
+ * title, topics, findings and links with placeholders.
+ *
+ * @param id - Exact manifest entry id.
+ * @param patch - The fields to change.
+ * @param projectRoot - Explicit project root.
+ * @param options - `requireExistingTasks` rejects a `linkTask` naming no task.
+ * @returns The updated entry id and the fields changed, `E_NOT_FOUND` for an
+ *   unknown id, or `E_VALIDATION` / `E_NOT_FOUND` for a bad `linkTask`.
+ * @example
+ * ```ts
+ * await pipelineManifestUpdate('res_1', { linkTask: 'T1981' }, '/project');
+ * ```
+ * @task T13678
+ */
+export async function pipelineManifestUpdate(
+  id: string,
+  patch: ManifestEntryPatch,
+  projectRoot?: string,
+  options: PipelineManifestAppendOptions = {},
+): Promise<EngineResult> {
+  if (!id) return { success: false, error: { code: 'E_INVALID_INPUT', message: 'id is required' } };
+  const typed = manifestEntryFieldsSchema.safeParse({
+    title: patch.title,
+    topics: patch.topics,
+    key_findings: patch.key_findings,
+  });
+  if (!typed.success) {
+    return {
+      success: false,
+      error: {
+        code: 'E_VALIDATION_FAILED',
+        message: `Invalid manifest update: ${typed.error.issues.map((i) => `${i.path.join('.')}: ${i.message}`).join(', ')}`,
+      },
+    };
+  }
+  const linkTask = patch.linkTask;
+  if (linkTask !== undefined) {
+    const scope = manifestScope(projectRoot);
+    const issues = manifestIdentityIssues({ id, linked_tasks: [linkTask] }, scope.worktreeRoot);
+    if (issues.length > 0) return identityFailure(issues);
+    if (options.requireExistingTasks === true) {
+      const missing = await worktreeScope.run(scope, () =>
+        findMissingLinkedTasks([linkTask], scope.worktreeRoot),
+      );
+      if (missing.length > 0) {
+        return identityFailure(
+          missing.map((value) => ({
+            field: 'linked_tasks',
+            code: 'E_NOT_FOUND',
+            value,
+            message: 'no such task in this project',
+          })),
+        );
+      }
+    }
+  }
+
+  try {
+    const binding = await getBinding(projectRoot);
+    return binding.db.transaction(
+      () => {
+        const rows = readStoredRows(binding, true, id);
+        if (!rows.length)
+          throw new EngineResultError({
+            code: 'E_NOT_FOUND',
+            message: `Manifest entry '${id}' not found`,
+          });
+        requireModernRows(rows);
+        const row = rows[0];
+        const entry = rowToEntry(row);
+        const meta = readRowMetadata(row);
+        const changed: string[] = [];
+        if (patch.title !== undefined) {
+          meta.title = patch.title;
+          changed.push('title');
+        }
+        if (patch.topics !== undefined) {
+          meta.topics = patch.topics;
+          changed.push('topics');
+        }
+        if (patch.key_findings !== undefined) {
+          meta.key_findings = patch.key_findings;
+          changed.push('key_findings');
+        }
+        const linked = entry.linked_tasks ?? [];
+        if (linkTask !== undefined && !linked.includes(linkTask)) {
+          meta['linked_tasks'] = [...linked, linkTask];
+          changed.push('linked_tasks');
+        }
+        if (patch.status !== undefined) changed.push('status');
+        if (changed.length === 0) return { success: true, data: { entryId: id, changed } };
+        binding.db
+          .update(pipelineManifest)
+          .set({
+            metadataJson: JSON.stringify(meta),
+            taskId: row.taskId ?? meta.linked_tasks?.[0] ?? null,
+            ...(patch.status !== undefined
+              ? { status: patch.status === 'completed' ? 'active' : patch.status }
+              : {}),
+          })
+          .where(eq(pipelineManifest.id, id))
+          .run();
+        return { success: true, data: { entryId: id, changed } };
+      },
+      { behavior: 'immediate' },
+    );
+  } catch (error) {
+    return manifestFailure(
+      'E_MANIFEST_UPDATE',
+      error instanceof Error ? error : new Error(String(error)),
+    );
+  }
+}
+
 // ============================================================================
 // Helper exported for compat consumers
 // ============================================================================
