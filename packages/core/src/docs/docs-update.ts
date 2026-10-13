@@ -436,8 +436,10 @@ export async function updateDocBySlug(
 
   // T12945: superseded is absorbing (docs.lifecycle.transitions). Leaving it —
   // an explicit --status, or a content edit's draft default — would hold here
-  // while every synced peer keeps the doc superseded, so it is refused.
-  if (oldRow.lifecycleStatus === 'superseded' && status !== 'superseded') {
+  // while every synced peer keeps the doc superseded, so it is refused. Any
+  // content edit is refused too, even with --status superseded: it would write
+  // a new superseded row without its successor link.
+  if (oldRow.lifecycleStatus === 'superseded' && (status !== 'superseded' || !statusOnly)) {
     return {
       ok: false,
       error: {

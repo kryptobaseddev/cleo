@@ -81,6 +81,9 @@ describe('updateDocBySlug — status alone (T12654)', () => {
     for (const params of [
       { slug: 't12945-old', status: 'accepted' as const },
       { slug: 't12945-old', content: '# Old\n\nEdited.\n' },
+      // Even re-asserting superseded: a content edit would write a new
+      // superseded row with no superseded_by.
+      { slug: 't12945-old', content: '# Old\n\nEdited.\n', status: 'superseded' as const },
     ]) {
       const res = await updateDocBySlug(tempDir, params);
       expect(res.ok).toBe(false);
