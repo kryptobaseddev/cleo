@@ -127,7 +127,7 @@ export const TASK_STAGE_MERGE_ORDER: readonly string[] = [
  * `docs.decision-adr-links.revoke-monotonic` (T13597),
  * `audit.immutable` (T12941, table-level), `playbook.approval.once` (T12944),
  * `session.status.terminal` (T12940), `release.status.absorbing` (T12943),
- * `sticky.status.one-way` (T12942).
+ * `sticky.status.one-way` (T12942), `docs.lifecycle.transitions` (T12945).
  */
 export const SYNC_MERGE_RULES: Readonly<Record<string, MergeRuleSet>> = {
   tasks_tasks: {
@@ -237,6 +237,21 @@ export const SYNC_MERGE_RULES: Readonly<Record<string, MergeRuleSet>> = {
       },
       // A second conversion to another target is refused, never LWW (SK2).
       converted_to_json: { kind: 'write-once', id: 'sticky.status.one-way' },
+    },
+  },
+  docs_attachments: {
+    // A supersession writes the status and its successor together (D04).
+    groups: [['lifecycle_status', 'superseded_by']],
+    rules: {
+      // superseded is sticky (T12945): no command leaves it — the local docs
+      // domain refuses a status change or content edit of a superseded doc,
+      // so origin and receivers agree. Other statuses merge by LWW.
+      lifecycle_status: {
+        kind: 'absorbing',
+        id: 'docs.lifecycle.transitions',
+        states: ['superseded'],
+        leaveOps: [],
+      },
     },
   },
   decision_adr_links: {

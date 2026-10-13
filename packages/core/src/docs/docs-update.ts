@@ -32,7 +32,7 @@ import { and, eq } from 'drizzle-orm';
 import { pushWarning } from '../output.js';
 import { getCleoDirAbsolute } from '../paths.js';
 import { getDb, getNativeTasksDb } from '../store/sqlite.js';
-import { attachmentRefs, attachments } from '../store/tasks-schema.js';
+import { attachmentRefs, docsAttachments } from '../store/tasks-schema.js';
 import { assertTwinCollapseWritable } from '../store/twin-collapse.js';
 import { deriveDocLinks, linksJsonOrNull } from './derive-links.js';
 import { validateDocBody } from './validate-body.js';
@@ -419,13 +419,32 @@ export async function updateDocBySlug(
   if (params.dryRun !== true) assertTwinCollapseWritable(db, 'attachments');
 
   // Look up the existing row by slug.
-  const oldRow = await db.select().from(attachments).where(eq(attachments.slug, slug)).get();
+  const oldRow = await db
+    .select()
+    .from(docsAttachments)
+    .where(eq(docsAttachments.slug, slug))
+    .get();
   if (!oldRow) {
     return {
       ok: false,
       error: {
         code: 'E_NOT_FOUND',
         message: `no attachment found with slug '${slug}' — the slug does not exist in the store and cannot be updated`,
+      },
+    };
+  }
+
+  // T12945: superseded is absorbing (docs.lifecycle.transitions). Leaving it —
+  // an explicit --status, or a content edit's draft default — would hold here
+  // while every synced peer keeps the doc superseded, so it is refused. Any
+  // content edit is refused too, even with --status superseded: it would write
+  // a new superseded row without its successor link.
+  if (oldRow.lifecycleStatus === 'superseded' && (status !== 'superseded' || !statusOnly)) {
+    return {
+      ok: false,
+      error: {
+        code: 'E_INVALID_STATUS', // @sync-invariant docs.lifecycle.transitions
+        message: `doc '${slug}' is superseded${oldRow.supersededBy ? ` (by ${oldRow.supersededBy})` : ''}; a superseded doc cannot change its status or content — add the new content as a new doc and supersede again with \`cleo docs supersede ${slug} <new-slug>\``,
       },
     };
   }
@@ -494,9 +513,9 @@ export async function updateDocBySlug(
     // Only touch lifecycle_status if it actually changes.
     if (oldRow.lifecycleStatus !== status) {
       await db
-        .update(attachments)
+        .update(docsAttachments)
         .set({ lifecycleStatus: status })
-        .where(eq(attachments.id, oldRow.id))
+        .where(eq(docsAttachments.id, oldRow.id))
         .run();
     }
     const auditPath = join(projectRoot, DOCS_VERSIONING_AUDIT_FILE);
@@ -632,21 +651,25 @@ export async function updateDocBySlug(
     nativeDb.prepare('BEGIN IMMEDIATE').run();
 
     // 1. Clear the slug on the old row so the UNIQUE INDEX is free.
-    await db.update(attachments).set({ slug: null }).where(eq(attachments.id, oldRow.id)).run();
+    await db
+      .update(docsAttachments)
+      .set({ slug: null })
+      .where(eq(docsAttachments.id, oldRow.id))
+      .run();
 
     // 2. Insert OR update the new-sha256 row. If a row already exists
     //    for this sha256 (rare — same bytes already stored under a
     //    different slug), reuse it and just transfer the slug onto it.
     const existingNewRow = await db
       .select()
-      .from(attachments)
-      .where(eq(attachments.sha256, newSha256))
+      .from(docsAttachments)
+      .where(eq(docsAttachments.sha256, newSha256))
       .get();
 
     if (existingNewRow) {
       newAttachmentId = existingNewRow.id;
       await db
-        .update(attachments)
+        .update(docsAttachments)
         .set({
           slug,
           type: oldRow.type ?? null,
@@ -655,12 +678,12 @@ export async function updateDocBySlug(
           topics: oldRow.topics ?? null,
           relatedTasks: derivedRelatedTasks,
         })
-        .where(eq(attachments.id, existingNewRow.id))
+        .where(eq(docsAttachments.id, existingNewRow.id))
         .run();
     } else {
       newAttachmentId = randomUUID();
       await db
-        .insert(attachments)
+        .insert(docsAttachments)
         .values({
           id: newAttachmentId,
           sha256: newSha256,
@@ -709,11 +732,11 @@ export async function updateDocBySlug(
     }
     if (refsAdded > 0) {
       await db
-        .update(attachments)
+        .update(docsAttachments)
         .set({
           refCount: (existingNewRow?.refCount ?? 0) + refsAdded,
         })
-        .where(eq(attachments.id, newAttachmentId))
+        .where(eq(docsAttachments.id, newAttachmentId))
         .run();
     }
 

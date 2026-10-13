@@ -512,7 +512,9 @@ async function scanStore(
     danglingCount += 1;
     const reason = !exists ? 'missing' : (ephemeral ?? 'missing');
     if (localFile && !exists) {
-      archivable.push({ row, path: absPath });
+      // A superseded doc keeps its status (docs.lifecycle.transitions, T12945):
+      // it is reported dangling, never archived out of 'superseded'.
+      if (row.lifecycleStatus !== 'superseded') archivable.push({ row, path: absPath });
     } else if (
       blobWithPath &&
       !exists &&

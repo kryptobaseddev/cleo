@@ -744,6 +744,48 @@ describe('brain_sticky_notes: one-way status, write-once conversion (T12942)', (
   });
 });
 
+// T12945 — superseded is sticky on docs_attachments: a concurrent status
+// write never un-supersedes a doc (D04), in either order.
+describe('docs_attachments: superseded is sticky (T12945)', () => {
+  const DOC_COLUMNS = ['slug', 'lifecycle_status', 'superseded_by', 'topics'];
+  const DOCS: MergeContext = { table: mergeSpecFor('docs_attachments', DOC_COLUMNS) };
+  const dOp = (o: LedgerOp['o'], hlc: string, a: Record<string, LedgerValue>): LedgerOp => ({
+    t: 'docs_attachments',
+    u: 'uid-doc-x',
+    o,
+    h: hlc,
+    a,
+  });
+  const add = dOp('I', h(10), {
+    slug: 'x',
+    lifecycle_status: 'draft',
+    superseded_by: null,
+    topics: null,
+  });
+  const supersede = dOp('U', h(20), { lifecycle_status: 'superseded', superseded_by: 'uid-doc-y' });
+  /** Device B accepts X later, unaware of the supersession: an ordinary write. */
+  const accept = dOp('U', h(30, R2), { lifecycle_status: 'accepted', superseded_by: null });
+
+  it('a concurrent accept never un-supersedes, in both orders', () => {
+    for (const ops of [
+      [add, supersede, accept],
+      [add, accept, supersede],
+    ]) {
+      let row = UNSEEN_ROW;
+      for (const o of ops) row = applyOp(row, o, DOCS).next;
+      expect(val(row, 'lifecycle_status')).toBe('superseded');
+      expect(val(row, 'superseded_by')).toBe('uid-doc-y');
+    }
+  });
+
+  it('non-superseded statuses still merge by LWW', () => {
+    const propose = dOp('U', h(20), { lifecycle_status: 'proposed', superseded_by: null });
+    let row = applyOp(UNSEEN_ROW, add, DOCS).next;
+    row = applyOp(row, propose, DOCS).next;
+    expect(val(applyOp(row, accept, DOCS).next, 'lifecycle_status')).toBe('accepted');
+  });
+});
+
 describe('review #1867: groups travel whole (T13222)', () => {
   const base = live(grp('active'), h(1));
   const done = op('U', h(3), grp('done', { completed_at: 'X' }), grp('active'));
@@ -905,6 +947,7 @@ describe('the merge-rule registry matches the write-invariant registry', () => {
     expect(implementedMergeRuleIds()).toEqual([
       'audit.immutable',
       'docs.decision-adr-links.revoke-monotonic',
+      'docs.lifecycle.transitions',
       'playbook.approval.once',
       'release.status.absorbing',
       'session.status.terminal',
