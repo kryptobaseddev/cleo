@@ -1,15 +1,22 @@
 /**
- * CLI docs command — canonical seven-verb path: add, update, fetch, list, remove, publish, check.
+ * CLI docs command — canonical six-verb path: add, update, fetch, list, remove, publish.
  *
  * Publish: consolidated `publish` verb (--target file|pr, --dry-run) (T11177).
  *   publish-pr retained as deprecated migration alias.
- * Query: query (consolidates search, find, rank) (T11133/T11176).
- * Advanced: supersede, generate, export, merge, graph, versions.
- * Legacy/migration: sync, status, gap-check, import, search, find, rank, publish-pr.
+ * Query: query — the ONLY search surface since T13361 retired search/find/rank
+ *   (free-text, --similar, --for modes) (T11133/T11176).
+ * LLM output: llm-output (T13361 retired the legacy generate/export verbs).
+ * Advanced: supersede, merge, graph, versions.
+ * Drift: check + doctor + status (agent-facing, kept per cleodocs-rearch-design §6);
+ *   gap-check retired by T13361.
+ * Reingest: sync RETAINED for now — the T9645 docs-reingest workflow invokes
+ *   `docs sync --from/--for/--name` in CI; its retirement moves with that workflow.
+ * Migration: import retired by T13361 (T9639 legacy .md migration utility).
  * Utilities: schema (doc-kind taxonomy discovery), serve, open, stop, viewer-status.
  * Migration alias: list-types to schema (T11142).
  *
  * @task T11046, T11133/T11176 (query), T11177 (publish), T11142 (unify schema/list-types)
+ * @task T13361 — retire legacy docs verbs (search/find/rank/generate/export/gap-check/import)
  * @saga T10516
  */
 
@@ -2170,9 +2177,9 @@ const statusCommand = defineCommand({
   },
 });
 
-// ── Legacy: cleo docs gap-check ───────────────────────────────────────────────
+// ── Doc-kind wire format (docs schema / docs list-types) ──────────────────────
 
-/** cleo docs gap-check — validate knowledge transfer from review docs */
+/** Wire-format twin of a {@link DocKindMetadata} entry (T9788). */
 interface DocKindMetadataWire {
   readonly kind: string;
   readonly label: string;
