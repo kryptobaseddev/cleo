@@ -21,6 +21,7 @@ import { CleoError } from '../errors.js';
 import type { DataAccessor } from '../store/data-accessor.js';
 import { getTaskAccessor } from '../store/data-accessor.js';
 import { requireBoundSession } from '../store/session-store.js';
+import { runWithWriteActorOp } from '../store/sync/write-actor.js';
 import { getDecisionLog } from './decisions.js';
 import { computeHandoff, type HandoffData } from './handoff.js';
 
@@ -321,8 +322,9 @@ export async function restoreSession(
   // Store the handoff data for context
   restoredSession.handoffJson = JSON.stringify(snapshot.handoff);
 
-  // Persist
-  await acc.upsertSingleSession(restoredSession);
+  // Persist. A restore may leave a terminal status (activate, or a snapshot
+  // taken while active): its transaction names the command (T12940).
+  await runWithWriteActorOp('session.restore', () => acc.upsertSingleSession(restoredSession));
 
   // Dispatch hook (best-effort)
   try {

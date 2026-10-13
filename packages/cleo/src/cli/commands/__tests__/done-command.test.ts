@@ -94,7 +94,8 @@ describe('cleo done', () => {
       'mutate',
       'tasks',
       'complete',
-      expect.objectContaining({ taskId: 'T1', notes: 'n' }),
+      // T13637: completion judges the same PR the plan did
+      expect.objectContaining({ taskId: 'T1', notes: 'n', prNumber: 42 }),
     );
     expect(recordTaskDone.mock.invocationCallOrder[0]).toBeLessThan(
       dispatchRaw.mock.invocationCallOrder[0] as number,

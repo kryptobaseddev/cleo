@@ -16,6 +16,7 @@
  */
 
 import { type EngineResult, engineError, engineSuccess } from '../engine-result.js';
+import { CleoError } from '../errors.js';
 import { paginate } from '../pagination.js';
 import { archiveSticky } from './archive.js';
 import {
@@ -199,6 +200,12 @@ export async function stickyArchive(
     }
     return engineSuccess(sticky);
   } catch (error) {
+    if (error instanceof CleoError) {
+      // @sync-invariant sticky.status.one-way the archive refusal of a converted sticky (archiveSticky) surfaces here
+      return engineError('E_INVALID_STATE', error.message, {
+        ...(error.fix ? { fix: error.fix } : {}),
+      });
+    }
     return engineError('E_INTERNAL', String(error));
   }
 }

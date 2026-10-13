@@ -11,8 +11,9 @@
  *
  * When CI does not hold, the refusal names the remedy that can work: still
  * pending → wait for CI and retry; a final red, a skipped or missing required
- * job, or a PR the `pr:` check refuses → fix CI, or record a full `tool:test`
- * (plus `tool:lint`/`tool:typecheck`). Never an open-ended wait on CI that has
+ * job, or a PR the `pr:` check refuses → fix CI, or record a targeted
+ * `test-run:` on the default branch after the merge that covers the change
+ * (T13623), which then stands in for testsPassed. Never an open-ended wait on CI that has
  * already concluded. When a lookup failed (`gh` unreachable, commits missing
  * locally), which PR carries the change is unknown: nothing is recorded and
  * the agent is told to retry or record `tool:test`, never to fix CI.
@@ -35,11 +36,12 @@ import {
   hasTreeBoundQaRun,
   type MergeProbeDeps,
   qaRunTreeMismatchReason,
+  scopedRunStandsAfterRedCi,
   type TaskMergeInfo,
   taskChangeMergeState,
   testsPassedSupersededReason,
 } from './affected-scope.js';
-import { resolveChangeSetRoot } from './change-set.js';
+import { isLandedOnOriginDefault, resolveChangeSetRoot } from './change-set.js';
 import { captureTreeHash } from './tool-cache.js';
 
 /** Gates merged CI can attest (D11149). */
@@ -57,6 +59,8 @@ export interface MergedCiDeps {
    * and the `test-run:` binding use (T12965 review M2).
    */
   currentTree?: (storeRoot: string, taskId: string) => Promise<string | null> | string | null;
+  /** Whether a commit has landed on origin's default branch; defaults to `isLandedOnOriginDefault` (T13627). */
+  landed?: (root: string, sha: string) => boolean;
   /** Canonical acceptance criteria of the task; defaults to the task store. */
   acRows?: (storeRoot: string, taskId: string) => Promise<readonly AcRow[]>;
   /** The gate write; defaults to `validateGateVerify`. */
@@ -86,7 +90,7 @@ export type MergedCiOutcome =
       /**
        * The change merged and its required CI concluded without proving the
        * gates (red, skipped or missing required jobs, or the PR is refused):
-       * fix CI, or record a full local run.
+       * fix CI, or record a covering test-run on the default branch (T13623).
        */
       kind: 'ci-red';
       /** Why the CI does not hold. */
@@ -226,6 +230,35 @@ export async function satisfyGatesFromMergedCi(
   }
 
   const { state, prRef, changeSet, unproven, lookupFailed } = await mergeInfo();
+  // T13623: merged CI concluded without proving the change. A targeted
+  // test-run recorded on the default branch after the merge, covering the
+  // change, stands in for testsPassed; the refusal says why one did not.
+  const afterRedCi = async (refusal: MergedCiOutcome): Promise<MergedCiOutcome> => {
+    if (refusal.kind !== 'ci-red') return refusal;
+    let why = 'no testsPassed is on record';
+    if (needs.includes('testsPassed') && task.verification?.gates?.testsPassed === true) {
+      const stands = scopedRunStandsAfterRedCi(
+        task.verification?.evidence?.testsPassed?.atoms ?? [],
+        changeSet ?? null,
+        await (deps.currentTree ?? defaultCurrentTree)(storeRoot, task.id),
+        deps.landed ?? isLandedOnOriginDefault,
+      );
+      const rest = needs.filter((g) => g !== 'testsPassed');
+      if (stands.ok && rest.length === 0)
+        return { kind: 'skipped', testsPassedReason: null, qaPassedReason: null };
+      why = stands.ok
+        ? `${rest.join(', ')} still needs evidence (a qa-run of this tree)`
+        : stands.why;
+    } else if (!needs.includes('testsPassed')) {
+      why = `${needs.join(', ')} still needs evidence (a qa-run of this tree)`;
+    }
+    return {
+      kind: 'ci-red',
+      reason:
+        `${refusal.reason}. A targeted test-run recorded on the default branch after the merge, ` +
+        `covering every file of the change, can stand in for testsPassed (T13623), but ${why}`,
+    };
+  };
   if (state !== 'merged') return { kind: 'skipped', testsPassedReason, qaPassedReason };
   if (prRef === null && lookupFailed !== undefined) {
     // T12959 review: a lookup failed, so which PR carries the change is
@@ -248,8 +281,10 @@ export async function satisfyGatesFromMergedCi(
       ...(changeSet?.warnings ?? []),
       ...(changeSet?.blockers.map((b) => b.message) ?? []),
     ].join(' ');
-    return ciRefusal(
-      `the change has merged but no merged PR's required CI proves it${why ? ` (${why})` : ''}`,
+    return afterRedCi(
+      ciRefusal(
+        `the change has merged but no merged PR's required CI proves it${why ? ` (${why})` : ''}`,
+      ),
     );
   }
 
@@ -281,7 +316,8 @@ export async function satisfyGatesFromMergedCi(
   if (written.success) return { kind: 'recorded', pr: prRef, gates: needs };
   const code = written.error?.code ?? 'E_INTERNAL';
   const message = written.error?.message ?? 'unknown error';
-  if (code === 'E_EVIDENCE_TESTS_FAILED') return ciRefusal(`ci:${prRef} does not hold: ${message}`);
+  if (code === 'E_EVIDENCE_TESTS_FAILED')
+    return afterRedCi(ciRefusal(`ci:${prRef} does not hold: ${message}`));
   // T13516: complete's write is cache-only (T13515), so a typed-gate cache
   // refusal means the gates were never run here, not that the user passed
   // --no-run: name the command that runs them.

@@ -134,11 +134,12 @@ describe('cloud status sync block (T12998)', () => {
       'lastPulledSeq',
       'serverHeadSeq',
       'devices',
-      'openConflicts',
       'lag',
     ] as const) {
       expect(project?.[field]).toMatchObject({ known: false, needs: 'S4' });
     }
+    // The apply's conflict log is local (T12997): known, and empty here.
+    expect(project?.openConflicts).toEqual({ known: true, value: 0 });
   });
 
   it('folded txns (own history below a genesis cut) count toward lastSealedSeq; inherited ones do not', async () => {

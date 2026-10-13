@@ -29,6 +29,7 @@ import {
   resolveBoundSession,
   sessionLastSeenMs,
 } from '../store/session-store.js';
+import { runWithWriteActorOp } from '../store/sync/write-actor.js';
 import { sessionsHoldingLiveClaims } from '../task-work/claims.js';
 import type { AgentSessionHandle } from './agent-session-adapter.js';
 import { closeAgentSession, openAgentSession } from './agent-session-adapter.js';
@@ -537,7 +538,9 @@ export async function resumeSession(
     if (!session.notes) session.notes = [];
     session.notes.push(`Resumed at ${new Date().toISOString()}`);
 
-    await accessor.upsertSingleSession(session);
+    // The resume is the explicit leave of a terminal status (T12940): its
+    // transaction names the command, so receivers accept it.
+    await runWithWriteActorOp('session.resume', () => accessor.upsertSingleSession(session));
     await bindCallingTerminal(session.id, projectRoot);
   }
 

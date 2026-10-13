@@ -107,27 +107,10 @@ function assertNotDoubleWrapped(envelope: LafsEnvelope): void {
 }
 
 describe('T9789 — cleo docs <verb> emits flat LAFS error envelopes (no double-wrap)', () => {
-  it.skipIf(!CLI_DIST_AVAILABLE)(
-    'cleo docs export — unknown task ID emits flat E_DOCS_EXPORT_FAILED envelope',
-    () => {
-      // exportDocument reliably throws on an unknown task ID, exercising
-      // the catch block that previously double-wrapped via
-      // `cliOutput(formatError(...))`.
-      const { stdout, status } = runCli(['docs', 'export', '--task', 'T-DOES-NOT-EXIST-9789']);
-
-      expect(stdout.length).toBeGreaterThan(0);
-      const envelope = parseEnvelopeFromStdout(stdout);
-
-      assertNotDoubleWrapped(envelope);
-      expect(envelope.success).toBe(false);
-      expect(envelope.error).toBeDefined();
-      expect(envelope.error?.codeName).toBe('E_DOCS_EXPORT_FAILED');
-      expect(envelope.error?.message).toMatch(/export/i);
-      expect(envelope.meta?.operation).toBeDefined();
-      expect(status).not.toBe(0);
-      expect(status).not.toBeNull();
-    },
-  );
+  // T13361: the `docs export` case that lived here was removed with the
+  // export verb (`llm-output` is the only LLM-output surface now). The
+  // flat-envelope guarantee for the llm-output catch block is enforced
+  // structurally by `scripts/lint-format-error-misuse.mjs`.
 
   it.skipIf(!CLI_DIST_AVAILABLE)(
     'cleo docs merge — invalid attachment refs emit flat E_DOCS_MERGE_FAILED envelope',
@@ -169,9 +152,9 @@ describe('T9789 — cleo docs <verb> emits flat LAFS error envelopes (no double-
    * ever re-introduced.
    */
   const SMOKE_VERBS = [
-    { label: 'search', argv: ['docs', 'search', '--help'] },
+    { label: 'query', argv: ['docs', 'query', '--help'] },
     { label: 'graph', argv: ['docs', 'graph', '--help'] },
-    { label: 'rank', argv: ['docs', 'rank', '--help'] },
+    { label: 'llm-output', argv: ['docs', 'llm-output', '--help'] },
     { label: 'versions', argv: ['docs', 'versions', '--help'] },
   ];
 

@@ -441,41 +441,57 @@ export const SYNC_WRITE_INVARIANTS: readonly SyncWriteInvariant[] = Object.freez
       'verification is frozen once done; otherwise merged per gate',
     ),
   ),
-  rule(
-    'session.status.terminal',
-    'T12940',
-    'tasks_sessions',
-    ['status', 'ended_at'],
-    ['S7', 'S8', 'S9', 'S10', 'S11', 'S17', 'S18', 'SC2', 'N1', 'SK5', 'P32'],
-    'ended and orphaned are terminal except on an explicit resume',
+  implemented(
+    rule(
+      'session.status.terminal',
+      'T12940',
+      'tasks_sessions',
+      ['status', 'ended_at'],
+      ['S7', 'S8', 'S9', 'S10', 'S11', 'S17', 'S18', 'SC2', 'N1', 'SK5', 'P32'],
+      'ended and orphaned are terminal except on an explicit resume',
+    ),
   ),
-  rule('audit.immutable', 'T12941', 'tasks_audit_log', ['*'], ['SA3'], 'audit rows are immutable', [
-    'tasks_audit_log',
-    'audit_log',
-  ]),
-  rule(
-    'sticky.status.one-way',
-    'T12942',
-    'brain_sticky_notes',
-    ['status', 'converted_to_json'],
-    ['SK2', 'SK3', 'B24'],
-    'active→{converted, archived} is one-way; converted_to_json is write-once',
+  implemented(
+    rule(
+      'audit.immutable',
+      'T12941',
+      'tasks_audit_log',
+      ['*'],
+      ['SA3'],
+      'audit rows are immutable',
+      ['tasks_audit_log', 'audit_log'],
+    ),
   ),
-  rule(
-    'release.status.absorbing',
-    'T12943',
-    'tasks_releases',
-    ['status'],
-    ['REL-2', 'REL-3', 'REL-4', 'REL-5', 'REL-6', 'REL-7', 'REL-8'],
-    'shipped release statuses are absorbing',
+  implemented(
+    rule(
+      'sticky.status.one-way',
+      'T12942',
+      'brain_sticky_notes',
+      ['status', 'converted_to_json'],
+      ['SK2', 'SK3', 'B24'],
+      'active→{converted, archived} is one-way; converted_to_json is write-once',
+    ),
   ),
-  rule(
-    'playbook.approval.once',
-    'T12944',
-    'tasks_playbook_approvals',
-    ['status'],
-    ['PB-1', 'PB-4', 'PB-7', 'P33'],
-    'an approval goes pending→decided once',
+  implemented(
+    rule(
+      'release.status.absorbing',
+      'T12943',
+      'tasks_releases',
+      ['status'],
+      ['REL-2', 'REL-3', 'REL-4', 'REL-5', 'REL-6', 'REL-7', 'REL-8'],
+      'shipped release statuses are absorbing',
+    ),
+  ),
+  implemented(
+    rule(
+      'playbook.approval.once',
+      'T12944',
+      'tasks_playbook_approvals',
+      ['status'],
+      ['PB-1', 'PB-4', 'PB-7', 'P33'],
+      'an approval goes pending→decided once',
+      ['tasks_playbook_approvals', 'playbook_approvals'],
+    ),
   ),
   implemented(
     rule(

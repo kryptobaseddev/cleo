@@ -37,7 +37,7 @@
  */
 
 import { ExitCode } from '@cleocode/contracts/exit-codes.js';
-import { and, eq } from 'drizzle-orm';
+import { and, count, eq } from 'drizzle-orm';
 import { CleoError } from '../errors.js';
 import { naturalRowUid } from './row-identity.js';
 import type { DecisionAdrLinkRow } from './schema/cleo-project/docs.js';
@@ -335,6 +335,26 @@ export async function listDecisionLinksForAdr(
     .all();
   const filtered = opts?.includeRevoked === true ? rows : rows.filter((r) => r.status === 'linked');
   return filtered.sort((a, b) => a.decisionId.localeCompare(b.decisionId));
+}
+
+/**
+ * Count the LIVE `decision_adr_links` rows (status `linked`) — the
+ * "decisions linked to docs" adoption metric (T13363). Revoked tombstones
+ * are excluded: the metric counts current cross-references, not history.
+ * Read-only, through the chokepoint handle.
+ *
+ * @param projectRoot - Absolute path to the CLEO project root.
+ * @returns The number of live links.
+ * @task T13363
+ */
+export async function countLinkedDecisionAdrs(projectRoot: string): Promise<number> {
+  const db = await getDb(projectRoot);
+  const rows = await db
+    .select({ n: count() })
+    .from(decisionAdrLinks)
+    .where(eq(decisionAdrLinks.status, 'linked'))
+    .all();
+  return rows[0]?.n ?? 0;
 }
 
 /** Optional `linkedAdrs` field attached by {@link attachLinkedAdrs}. */

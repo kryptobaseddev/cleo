@@ -61,6 +61,7 @@ import type { ViewComponentPr } from './component-pr.js';
 import { loadRecordedProjectRoots, rebaseLegacyEvidencePath } from './evidence-paths.js';
 import { HEAVY_HEAP_ENV, HEAVY_WORKERS_ENV, isHeavyTool } from './heavy-tool-env.js';
 import { DISABLE_ENV, describeMemoryLimit } from './heavy-tool-limit.js';
+import { qaRunUnionGapReason } from './qa-run-binding.js';
 import {
   computeCommitRevalidationKey,
   readCommitRevalidationEntry,
@@ -2143,9 +2144,11 @@ async function validateQaRun(
   if (capture.refusal) return { ok: false, ...capture.refusal };
   const treeHash = capture.tree;
   const headSha = treeHash ? await captureHead(bindRoot) : null;
+  let gaps: { uncovered: string[]; uncoveredPackages: string[] } | null = null;
   if (treeHash && headSha) {
     const binding = bindQaRunReceipt(receipt, abs, bindRoot);
     if (!binding.ok) return { ok: false, reason: binding.reason, codeName: binding.codeName };
+    gaps = binding;
   }
   return {
     ok: true,
@@ -2162,6 +2165,11 @@ async function validateQaRun(
       ...(treeHash && headSha ? { headSha, treeHash } : {}),
       ...(capture.runtimeExcluded.length > 0
         ? { runtimeExcluded: [...capture.runtimeExcluded] }
+        : {}),
+      // T13580: judged with the other receipts of this kind (qaRunUnionGapReason).
+      ...(gaps && gaps.uncovered.length > 0 ? { uncovered: gaps.uncovered } : {}),
+      ...(gaps && gaps.uncoveredPackages.length > 0
+        ? { uncoveredPackages: gaps.uncoveredPackages }
         : {}),
     },
   };
@@ -3223,6 +3231,18 @@ export function checkTaskEvidenceContext(
     );
     if (missing.length > 0)
       return `qaPassed with qa-run receipts needs a typecheck and a lint result; missing ${missing.join(' and ')}: add qa-run:<${missing[0]}-receipt.json> or tool:${missing[0]}.`;
+    // T13580: receipts of one kind cover the change together; a check also
+    // recorded as a whole-project tool: run needs no receipt coverage.
+    const gap = qaRunUnionGapReason(
+      atoms.filter(
+        (atom): atom is Extract<EvidenceAtom, { kind: 'qa-run' }> =>
+          atom.kind === 'qa-run' &&
+          !atoms.some(
+            (other) => other.kind === 'tool' && canonicalToolName(other.tool) === atom.check,
+          ),
+      ),
+    );
+    if (gap !== null) return gap;
   }
   const linked = atoms.filter(
     (atom): atom is Extract<EvidenceAtom, { kind: 'satisfies' }> =>

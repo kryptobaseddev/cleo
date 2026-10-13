@@ -71,6 +71,7 @@ import {
   sessionUnboundMessage,
   unbindSessionTerminals,
 } from '../store/session-store.js';
+import { runWithWriteActorOp } from '../store/sync/write-actor.js';
 import {
   getTaskHistory,
   type StartTaskOptions,
@@ -1059,7 +1060,9 @@ export async function sessionResume(
       await writeFocusState(accessor, sessionId, resumeFocus);
     }
 
-    await accessor.upsertSingleSession(session);
+    // The resume leaves a terminal status (T12940): its transaction names
+    // the command so receivers accept it (`cleo session resume` runs here).
+    await runWithWriteActorOp('session.resume', () => accessor.upsertSingleSession(session));
 
     // T12499: the terminal that resumes a session becomes bound to it.
     await bindCallingTerminal(sessionId, projectRoot);

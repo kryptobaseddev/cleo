@@ -1024,6 +1024,76 @@ export interface DocsDoctorResult {
   summary: string;
 }
 
+/**
+ * Parameters for `docs.stats` — per-project adoption metrics (T13363).
+ *
+ * Read-only; no filtering yet. Emitted per project so the CleoDocs
+ * re-architecture can be judged by behaviour (spec §7/§9).
+ *
+ * @task T13363 (Epic T13340 / Saga T13339)
+ */
+export interface DocsStatsParams {
+  /** Reserved for future filtering; currently unused. */
+  readonly _future?: never;
+}
+
+/**
+ * Add vs update doc activity, from the docs audit log
+ * (`.cleo/audit/docs-audit.jsonl`).
+ *
+ * @task T13363
+ */
+export interface DocsAddUpdateMetrics {
+  /** `docs.add` entries in the audit log. */
+  readonly adds: number;
+  /** `docs.update` entries in the audit log. */
+  readonly updates: number;
+  /** `adds / updates`; `null` when there are no updates (division undefined). */
+  readonly ratio: number | null;
+}
+
+/**
+ * Loose-markdown footprint: markdown files living outside the CleoDocs
+ * store, the growth signal for the Council pilot (baseline ~751 axiom-app +
+ * 1,265 admin-operations).
+ *
+ * Counted files are GIT-TRACKED `*.md` outside the store (`git ls-files`),
+ * so the scan is gitignore-aware by construction; untracked loose files are
+ * intentionally out of scope.
+ *
+ * @task T13363
+ */
+export interface LooseMarkdownMetrics {
+  /** Number of git-tracked `*.md` files outside the store. */
+  readonly count: number;
+  /** Top-level directories contributing tracked loose markdown (`'(root)'`
+   *  for files at the project root). */
+  readonly scannedDirs: readonly string[];
+  /** Excluded directory names (dependency trees, VCS internals, the
+   *  CleoDocs store). */
+  readonly excludedDirs: readonly string[];
+}
+
+/**
+ * Result of `docs.stats` — per-project adoption metrics.
+ *
+ * @task T13363
+ */
+export interface DocsStatsResult {
+  /** `docs.add` vs `docs.update` activity and their ratio. */
+  readonly addUpdate: DocsAddUpdateMetrics;
+  /** Loose-markdown count plus what was scanned/excluded. */
+  readonly looseMarkdown: LooseMarkdownMetrics;
+  /** Row count of the `docs_wikilinks` edge table (T11826). */
+  readonly wikilinksEdges: number;
+  /** Live `decision_adr_links` rows (status `linked`, T13359). */
+  readonly decisionsLinked: number;
+  /** ISO-8601 when the metrics were computed. */
+  readonly generatedAt: string;
+  /** One-line human summary. */
+  readonly summary: string;
+}
+
 // ============================================================================
 // Discriminated Union (DocsOps)
 // ============================================================================
@@ -1049,7 +1119,54 @@ export type DocsOps =
   | { op: 'docs.supersede'; params: DocsSupersedeParams; result: DocsSupersedeResult }
   | { op: 'docs.link-decision'; params: DocsDecisionLinkParams; result: DocsDecisionLinkResult }
   | { op: 'docs.unlink-decision'; params: DocsDecisionLinkParams; result: DocsDecisionLinkResult }
-  | { op: 'docs.doctor'; params: DocsDoctorParams; result: DocsDoctorResult };
+  | { op: 'docs.doctor'; params: DocsDoctorParams; result: DocsDoctorResult }
+  | { op: 'docs.migrate'; params: DocsMigrateParams; result: DocsMigrateResult }
+  | { op: 'docs.stats'; params: DocsStatsParams; result: DocsStatsResult };
+
+/**
+ * Parameters for `docs.migrate` — the T13360 legacy docs migration (spec §5).
+ * No params: the migration derives everything from the legacy store state.
+ *
+ * @task T13360 (Epic T13340 / Saga T13339)
+ */
+export interface DocsMigrateParams {
+  /** Reserved for future options; currently unused. */
+  readonly _future?: never;
+}
+
+/**
+ * Result of `docs.migrate` — the honest legacy docs import (T13360). The
+ * migration runs inside the T13448 safety harness; `backupId`/`transaction`
+ * expose the harness receipt so operators can audit (or undo) the run.
+ *
+ * @task T13360
+ */
+export interface DocsMigrateResult {
+  /** Harness outcome: completed, or halted/refused (with `failure`). */
+  readonly status: 'completed' | 'halted' | 'refused';
+  /** Docs whose bytes were content-captured into the re-keyed store. */
+  readonly captured: number;
+  /** Dangling-pointer docs recorded in the migration ledger (AC3). */
+  readonly dangling: number;
+  /** Docs already migrated by an earlier run (idempotency, AC4). */
+  readonly skipped: number;
+  /**
+   * Legacy slugs that already exist natively in `conduit_attachments` — the
+   * migration never clobbers a native doc; counted explicitly so the
+   * operator can reconcile them (T13633).
+   */
+  readonly nativeConflicts: number;
+  /** History rows imported across all captured docs. */
+  readonly versionsImported: number;
+  /** First failure when halted/refused. */
+  readonly failure: string | null;
+  /** The harness pre-step backup id (null only when the backup itself failed). */
+  readonly backupId: string | null;
+  /** Harness transaction outcome for the step. */
+  readonly transaction: 'committed' | 'rolled-back' | 'none';
+  /** One-line human summary. */
+  readonly summary: string;
+}
 
 /**
  * Enumeration of all docs domain operation names.
@@ -1069,4 +1186,6 @@ export type DocsOp =
   | 'docs.supersede'
   | 'docs.link-decision'
   | 'docs.unlink-decision'
-  | 'docs.doctor';
+  | 'docs.doctor'
+  | 'docs.migrate'
+  | 'docs.stats';

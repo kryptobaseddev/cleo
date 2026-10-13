@@ -92,6 +92,16 @@ const CONDUIT_REKEY_MIGRATION = join(
   REPO_ROOT,
   'packages/core/migrations/drizzle-cleo-project/20261011000000_t13354-conduit-history-rekey/migration.sql',
 );
+/**
+ * T13360: adds `origin` to `conduit_attachment_versions` (ADD COLUMN) and
+ * creates `conduit_doc_migration_ledger`. The fixture must carry the same
+ * column set the runtime-opened store has, or Gate B's hashed-column-set
+ * comparison fails on the versions table.
+ */
+const MIGRATED_ORIGIN_MIGRATION = join(
+  REPO_ROOT,
+  'packages/core/migrations/drizzle-cleo-project/20261013000000_t13360-migrated-doc-import/migration.sql',
+);
 
 /** The stub the manual llmtxt run placed beside its copies (a valid portable id). */
 const STUB_PROJECT_ID = 'dfd4e5d8-080f-7449-81cd-ff8dcef1049c';
@@ -231,7 +241,7 @@ function preMigrationCopy(shape: Shape, label: string, stub = true): string {
 function migrate(file: string): void {
   const conn = openRaw(file);
   try {
-    for (const migration of [UID_MIGRATION, CONDUIT_REKEY_MIGRATION]) {
+    for (const migration of [UID_MIGRATION, CONDUIT_REKEY_MIGRATION, MIGRATED_ORIGIN_MIGRATION]) {
       for (const stmt of readFileSync(migration, 'utf8').split('--> statement-breakpoint')) {
         conn.exec(stmt);
       }

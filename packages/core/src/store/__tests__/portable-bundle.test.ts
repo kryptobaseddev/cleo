@@ -481,6 +481,37 @@ describe('portable bundle v2 (T12318)', () => {
     );
   });
 
+  it('a plain import of a bundle carrying the vault credential sidecar never leaves it in the placed store (T13545)', async () => {
+    const bundle = path.join(tmp, 'out', 'sidecar.cleobundle.tar.gz');
+    let sealed = 0;
+    await exportPortableBundle({
+      scope: 'global',
+      outputPath: bundle,
+      label: 'sidecar',
+      cleoHome: home,
+      configHome,
+      sealCredentials: async () => {
+        sealed++;
+        return [{ tbl: 'accounts', uid: 'acct-uid', col: 'secret_enc', sealed: 'c2VhbGVk' }];
+      },
+    });
+    expect(sealed).toBe(1);
+    const destHome = path.join(tmp, 'home-dest');
+    const imported = await importPortableBundle({
+      bundlePath: bundle,
+      cwd: '/',
+      cleoHome: destHome,
+      configHome: path.join(tmp, 'config-dest'),
+    });
+    expect(imported.lossless).toBe(true);
+    const placed = new DatabaseSync(path.join(destHome, 'cleo.db'), { readOnly: true });
+    const sidecar = placed
+      .prepare("SELECT name FROM sqlite_master WHERE name = '_vault_sealed_credentials'")
+      .all();
+    placed.close();
+    expect(sidecar).toEqual([]);
+  });
+
   it('detects a row-count mismatch and a tampered manifest', async () => {
     const bundle = path.join(tmp, 'out', 'p.cleobundle.tar.gz');
     await exportPortableBundle({
