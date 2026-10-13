@@ -8,7 +8,7 @@ description: >-
   gates, package boundaries, validation, data safety or anything the task asked for.
 license: MIT
 metadata:
-  version: 1.0.0
+  version: 1.0.1
   tier: core
   install: harness
   covers:
@@ -65,7 +65,10 @@ callers that stop working, stores it would migrate. That is scope. Extra feature
 ## Never cut
 
 - Validation at trust boundaries, error handling that prevents data loss, security,
+  privacy (one user's data never reaches another, e.g. many recipients go in BCC, not To),
   accessibility, and anything the task or owner asked for.
+- A risk your change creates is part of the change: when the fix is small and in scope,
+  make it, then name it in the reply. Only report a risk you cannot fix in scope.
 - CLEO evidence: every gate gets programmatic evidence (`cleo verify`), never self-attested.
 - Type safety: no `any`, no `as unknown as X`; shared types live in `packages/contracts/`.
 - The package boundary and the `cleo check arch` gates; a smaller diff in the wrong package
