@@ -479,7 +479,7 @@
     },
     {
       "name": "ct-council",
-      "version": "1.0.0",
+      "version": "1.1.0",
       "description": "Convene \"The Council\" — a 5-advisor, shuffled gate-based peer-review, chairman-synthesis workflow for reviewing a plan, decision, architecture, or piece of work inside the current project. Use when the user says \"convene the council\" (or \"counsel\"), \"get the council on this\", \"council review\", \"run the five advisors\", \"stress-test this\", \"get multiple perspectives\", or asks for a rigorous multi-angle challenge of a proposal (Contrarian, First Principles, Expansionist, Outsider, Executor → shuffled peer review with pass/fail gates → convergence detector → Chairman verdict). Operates on the current codebase — each advisor grounds their analysis in actual files/commits before opining. Output is validated by scripts/validate.py.",
       "path": "skills/ct-council",
       "tier": 1,
@@ -1001,7 +1001,7 @@
     },
     {
       "name": "ct-orchestrator",
-      "version": "4.0.13",
+      "version": "4.0.14",
       "description": "Pipeline-aware orchestration skill for managing complex workflows through subagent delegation. Use when the user asks to \\\"orchestrate\\\", \\\"orchestrator mode\\\", \\\"run as orchestrator\\\", \\\"delegate to subagents\\\", \\\"coordinate agents\\\", \\\"spawn subagents\\\", \\\"multi-agent workflow\\\", \\\"context-protected workflow\\\", \\\"agent farm\\\", \\\"HITL orchestration\\\", \\\"pipeline management\\\", or needs to manage complex workflows by delegating work to subagents while protecting the main context window. Enforces ORC-001 through ORC-009 constraints. Provider-neutral — works with any AI agent runtime.",
       "path": "skills/ct-orchestrator",
       "tier": 0,
