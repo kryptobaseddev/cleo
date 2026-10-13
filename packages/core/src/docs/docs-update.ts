@@ -35,7 +35,7 @@ import { blobAttachmentSchema } from '@cleocode/contracts/attachment-schema.js';
 import { DOCS_LIFECYCLE_STATUSES } from '@cleocode/contracts/operations/docs.js';
 import { and, eq } from 'drizzle-orm';
 import { pushWarning } from '../output.js';
-import { getCleoDirAbsolute } from '../paths.js';
+import { getCleoDirAbsolute, resolveCleoDir } from '../paths.js';
 import { resolveBoundSession } from '../store/session-store.js';
 import { getDb, getNativeTasksDb } from '../store/sqlite.js';
 import { attachmentRefs, docsAttachments } from '../store/tasks-schema.js';
@@ -647,6 +647,30 @@ export async function updateDocBySlug(
           message: `blob integrity check failed for slug '${slug}': expected sha256 ${newSha256.slice(0, 12)}... but read-back sha256 is ${writtenSha256.slice(0, 12)}... — storage is internally inconsistent`,
         },
       };
+    }
+  }
+
+  // T13362/T13653: mirror the verified bytes into the content-addressed
+  // blob store — the canonical read location since the legacy tree's read
+  // paths retired. Skip when the sha is already present (content-addressed
+  // dedup: a prior put or update wrote the same bytes).
+  {
+    const { existsSync } = await import('node:fs');
+    const blobStoreFile = join(resolveCleoDir(projectRoot), 'blobs', 'blobs', newSha256);
+    if (!existsSync(blobStoreFile)) {
+      try {
+        await mkdir(join(blobStoreFile, '..'), { recursive: true });
+        await writeFile(blobStoreFile, buf);
+      } catch (cause) {
+        return {
+          ok: false,
+          error: {
+            // @sync-invariant none:local-only a failed local blob-mirror write rolls the whole update back; no synced row was written
+            code: 'E_FILE_ERROR',
+            message: `failed to mirror new blob into the blob store for slug '${slug}': ${cause instanceof Error ? cause.message : String(cause)}`,
+          },
+        };
+      }
     }
   }
 

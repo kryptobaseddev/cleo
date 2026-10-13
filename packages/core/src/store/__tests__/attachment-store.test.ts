@@ -225,6 +225,8 @@ describe('AttachmentStore', () => {
     await rm(
       join(tempDir, '.cleo', 'attachments', 'keep', meta.sha256.slice(0, 2), meta.sha256.slice(2)),
     );
+    // …and the blob-store mirror (T13653) — put() dual-writes the blob store.
+    await rm(join(tempDir, '.cleo', 'blobs', 'blobs', meta.sha256), { force: true });
     expect(await store.get(meta.sha256)).toBeNull();
     expect(await store.getMetadata(meta.sha256)).toEqual(meta);
     const { createDocsReadModel } = await import('../../docs/docs-read-model.js');

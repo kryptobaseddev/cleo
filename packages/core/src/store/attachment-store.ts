@@ -17,6 +17,7 @@
  */
 
 import { createHash, randomUUID } from 'node:crypto';
+import { existsSync } from 'node:fs';
 import { mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { Attachment, AttachmentMetadata, AttachmentRef } from '@cleocode/contracts';
@@ -809,6 +810,32 @@ export function createAttachmentStore(): AttachmentStore {
                 // best-effort
               }
               throw writeErr;
+            }
+
+            // T13362/T13653: mirror the hash-verified bytes into the
+            // content-addressed blob store (`.cleo/blobs/blobs/<sha256>`) —
+            // the canonical read location since the legacy tree's read
+            // paths retired. Written inside the same transaction (write
+            // before COMMIT, same T11997 ordering as the legacy file) so a
+            // blob-write failure rolls the row back instead of leaving a
+            // readable-metadata/unreadable-bytes doc. Content-addressed:
+            // one write per sha; an existing blob-store file is left
+            // untouched (idempotent re-put / cross-surface dedup).
+            const blobStoreFile = join(resolveCleoDir(cwd), 'blobs', 'blobs', hash);
+            if (!existsSync(blobStoreFile)) {
+              const blobTmpPath = `${blobStoreFile}.tmp`;
+              await mkdir(join(blobStoreFile, '..'), { recursive: true });
+              try {
+                await writeFile(blobTmpPath, buf);
+                await rename(blobTmpPath, blobStoreFile);
+              } catch (blobWriteErr) {
+                try {
+                  await rm(blobTmpPath, { force: true });
+                } catch {
+                  // best-effort
+                }
+                throw blobWriteErr;
+              }
             }
           }
 
