@@ -199,7 +199,12 @@ export const doneCommand = defineCommand({
         blocker: 'completion-refused',
         cause: completed.error?.code,
         next: {
-          command: completed.error?.fix ?? `cleo complete ${args.taskId}`,
+          // T13648: keep the explicit PR carrier; `cleo complete` has no --pr.
+          command:
+            completed.error?.fix ??
+            (args.pr === undefined
+              ? `cleo complete ${args.taskId}`
+              : `cleo done ${args.taskId} --pr ${args.pr}`),
           why: 'Every gate is recorded; completion itself was refused.',
         },
         recordedGates: recorded.data.recordedGates,
