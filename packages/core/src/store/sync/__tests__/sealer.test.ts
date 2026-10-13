@@ -17,15 +17,16 @@
  * @task T12984
  */
 
-import { mkdirSync, mkdtempSync, rmSync } from 'node:fs';
+import { copyFileSync, mkdirSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
-import type { DatabaseSync } from 'node:sqlite';
+import { DatabaseSync } from 'node:sqlite';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { syncSealerDoctorCheck } from '../../../doctor/sync-sealer.js';
 import { rekeyRowUid } from '../../display-id-alias.js';
 import { _resetDualScopeDbCache, openDualScopeDbAtPath } from '../../dual-scope-db.js';
 import { naturalRowUid } from '../../row-identity.js';
+import { carryMachineState } from '../../vault-manifest.js';
 import {
   captureRemints,
   captureTableDef,
@@ -33,10 +34,11 @@ import {
   openCaptureFrame,
   setCaptureEnabled,
 } from '../capture.js';
-import { setSyncFlag } from '../flags.js';
+import { readSyncFlags, setSyncFlag } from '../flags.js';
 import { parseHlc } from '../hlc.js';
 import { ensureProjectReplica } from '../replica.js';
 import { ReplicaRegistry } from '../replica-registry.js';
+import { appliedSyncSchemaHashes } from '../schema.js';
 import {
   canonicalJson,
   decodeEnc,
@@ -45,6 +47,7 @@ import {
   sealBacklog,
   sealPending,
 } from '../sealer.js';
+import { TIMESTAMP_CANON_MARKER } from '../timestamps.js';
 import { asOlderBuild } from './older-build.js';
 
 const SYNC_SCHEMA = resolve(import.meta.dirname, '../../../../migrations/sync-journal');
@@ -1053,5 +1056,120 @@ describe('S3c: canonical wire timestamps and append-only tombstones (T12986)', (
     framed(db, () => db.prepare("DELETE FROM tasks_tasks WHERE id = 'T1'").run());
     seal(db);
     expect(meta(db, 'tasks_tasks', 'uid-T1')).toMatchObject({ deleted: 1 });
+  });
+});
+
+describe('a restored store rewrites and seals (T13107, T13108)', () => {
+  const SEALER_FOLDER = '20261001170000_t12984-sealer';
+  const SEALER_TABLES = [
+    '_sync_txn',
+    '_sync_op',
+    '_sync_row_meta',
+    '_sync_ledger',
+    '_sync_quarantine',
+  ];
+  const createdAt = (db: DatabaseSync, id: string) =>
+    (
+      db.prepare('SELECT created_at FROM tasks_tasks WHERE id = ?').get(id) as {
+        created_at: string;
+      }
+    ).created_at;
+  const meta = (db: DatabaseSync, key: string) =>
+    (
+      db.prepare('SELECT value FROM tasks_row_identity_meta WHERE key = ?').get(key) as
+        | { value: string }
+        | undefined
+    )?.value;
+  const hasTable = (db: DatabaseSync, t: string) =>
+    db.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?").get(t) !==
+    undefined;
+
+  /**
+   * What an older CLI leaves: capture on before the sealer folder and before
+   * S3c, so the sealer tables and their ledger key are absent, and a task's
+   * timestamp is still in the legacy form with no canonical marker.
+   */
+  async function olderStore(path: string): Promise<void> {
+    mkdirSync(join(path, '..'), { recursive: true });
+    const db = (await openDualScopeDbAtPath('project', path)).db.$client as DatabaseSync;
+    setCaptureEnabled(db, 'project', true, { schemaRoot: SYNC_SCHEMA });
+    for (const t of SEALER_TABLES) db.exec(`DROP TABLE ${t}`);
+    db.prepare('DELETE FROM _sync_meta WHERE key = ?').run(`schema:${SEALER_FOLDER}`);
+    db.prepare('DELETE FROM tasks_row_identity_meta WHERE key = ?').run(TIMESTAMP_CANON_MARKER);
+    db.prepare(
+      `INSERT INTO tasks_tasks (id, title, type, status, priority, uid, birth_fp, created_at)
+       VALUES ('T1', 'old', 'task', 'pending', 'medium', 'uid-T1', 'fp-T1', '2026-09-14 19:56:01')`,
+    ).run();
+    db.exec('DELETE FROM _sync_capture');
+    _resetDualScopeDbCache();
+  }
+
+  it('a snapshot from before the rewrite and the sealer folder, pulled onto a store with both', async () => {
+    // The snapshot: an older device's store, as the vault exports it (VACUUM INTO).
+    const pusherPath = join(dir, 'pusher', '.cleo', 'cleo.db');
+    await olderStore(pusherPath);
+    const staged = join(dir, 'staged.db');
+    const pusher = new DatabaseSync(pusherPath);
+    pusher.exec(`VACUUM INTO '${staged}'`);
+    pusher.close();
+
+    // This device: capture and seal on, rewrite done, a local rename record, a bound replica.
+    const live = await store();
+    expect(meta(live, TIMESTAMP_CANON_MARKER)).toBeDefined();
+    live
+      .prepare('INSERT INTO tasks_row_identity_meta (key, value) VALUES (?, ?)')
+      .run('renamed_from:tasks_tasks:T9', '{"uid":"u9"}');
+    ensureProjectReplica(live, {
+      dbPath,
+      mode: 'test',
+      registry: new ReplicaRegistry(join(dir, 'replicas.json'), 'device-test'),
+      schemaRoot: SYNC_SCHEMA,
+    });
+    _resetDualScopeDbCache();
+
+    // The restore: carry this machine's state into the snapshot, then place it.
+    carryMachineState(staged, dbPath, 'project', { snapshotRoot: null });
+    for (const f of [dbPath, `${dbPath}-wal`, `${dbPath}-shm`]) rmSync(f, { force: true });
+    copyFileSync(staged, dbPath);
+
+    // The next open: the snapshot's ledger lacks the sealer folder, so it is
+    // applied; the snapshot has no canonical marker, so the rewrite runs.
+    const db = (await openDualScopeDbAtPath('project', dbPath)).db.$client as DatabaseSync;
+    expect(readSyncFlags(db)).toMatchObject({ 'sync.capture': true, 'sync.seal': true });
+    expect(meta(db, 'renamed_from:tasks_tasks:T9')).toBe('{"uid":"u9"}');
+    expect(createdAt(db, 'T1')).toBe('2026-09-14T19:56:01.000Z');
+    expect(meta(db, TIMESTAMP_CANON_MARKER)).toBeDefined();
+    expect([...appliedSyncSchemaHashes(db).keys()]).toContain(SEALER_FOLDER);
+    for (const t of SEALER_TABLES)
+      expect({ t, present: hasTable(db, t) }).toEqual({ t, present: true });
+
+    // And the sealer seals the next write.
+    framed(db, () => addTask(db, 'T2'));
+    expect(seal(db)).toMatchObject({ txns: 1, refused: null, pending: [] });
+  });
+
+  it('a snapshot without any sync schema keeps this machine’s flags; the schema applies on open', async () => {
+    const pusherPath = join(dir, 'plain', '.cleo', 'cleo.db');
+    mkdirSync(join(pusherPath, '..'), { recursive: true });
+    const plain = (await openDualScopeDbAtPath('project', pusherPath)).db.$client as DatabaseSync;
+    expect(hasTable(plain, '_sync_meta')).toBe(false);
+    _resetDualScopeDbCache();
+    const staged = join(dir, 'staged.db');
+    const p = new DatabaseSync(pusherPath);
+    p.exec(`VACUUM INTO '${staged}'`);
+    p.close();
+
+    await store();
+    _resetDualScopeDbCache();
+    carryMachineState(staged, dbPath, 'project', { snapshotRoot: null });
+    for (const f of [dbPath, `${dbPath}-wal`, `${dbPath}-shm`]) rmSync(f, { force: true });
+    copyFileSync(staged, dbPath);
+
+    const db = (await openDualScopeDbAtPath('project', dbPath)).db.$client as DatabaseSync;
+    expect(readSyncFlags(db)).toMatchObject({ 'sync.capture': true, 'sync.seal': true });
+    for (const t of SEALER_TABLES)
+      expect({ t, present: hasTable(db, t) }).toEqual({ t, present: true });
+    framed(db, () => addTask(db, 'T3'));
+    expect(seal(db)).toMatchObject({ txns: 1, refused: null, pending: [] });
   });
 });

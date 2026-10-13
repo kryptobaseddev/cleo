@@ -52,7 +52,11 @@ import {
 } from './sync/trigger-classes.js';
 import {
   classifyTable,
+  FILE_STATE_KEYS,
+  type FileStateKeyRule,
+  fileStateKeyRule,
   getTableRegistry,
+  isFileStateKey,
   isPortableTableClass,
   isSchemaStateTable,
   isSnapshotStateTable,
@@ -620,7 +624,11 @@ export interface VaultLostCredentials {
 
 /** What {@link carryMachineState} carried into the staged snapshot. */
 export interface CarriedMachineState {
-  /** Tables whose rows now come whole from the live store (`local-only`, or a `portable-secret` table without a stable key). */
+  /**
+   * Tables whose rows now come whole from the live store (`local-only`, or a
+   * `portable-secret` table without a stable key); for a table with file-state
+   * keys, every row but those (T13107).
+   */
   preserved: string[];
   /** Tables (and their columns) whose non-syncing cells were merged from live rows by a stable key. */
   carried: Array<{ table: string; columns: string[]; rows: number }>;
@@ -725,6 +733,11 @@ function stableKey(
  *   once the bare tables (local-only) are this machine's, each keeps the
  *   record, the snapshot's or else this machine's, that still matches it, and
  *   loses one neither matches (T13324).
+ *   A key/value table mixing both (`FILE_STATE_KEYS`: the row-identity
+ *   markers, the sync-schema ledger) is carried key by key: the file's keys
+ *   from the snapshot, every other key from the live store; a table only the
+ *   live store has is created for this machine's keys when its rule says so
+ *   (`_sync_meta`: the `sync.*` flags survive a restore; T13107, T13108).
  * - `portable-secret` tables: live rows are upserted by a stable key (the
  *   snapshot's copies arrive with their secrets cleared). Without a stable
  *   key the live table is kept whole.
@@ -821,6 +834,35 @@ export function carryMachineState(
       absolute(v) &&
       !relocatedHere(v, relocatable);
     const stripped = vaultStripColumns(scope);
+    /**
+     * A key/value table mixing the file's keys with this machine's: the file's
+     * stay as the snapshot has them, this machine's come from the live store
+     * (none when it lacks the table). Shaped differently here: left as the
+     * snapshot has it, and reported.
+     */
+    const carryByKey = (
+      t: string,
+      rule: FileStateKeyRule,
+      stagedCols: readonly string[],
+      liveCols: readonly string[],
+      sameShape: boolean,
+    ) => {
+      if (!stagedCols.includes('key') || (liveTables.has(t) && !sameShape)) {
+        out.skipped.push(t);
+        return;
+      }
+      const del = staged.prepare(`DELETE FROM ${quoteIdent(t)} WHERE key = ?`);
+      for (const r of staged.prepare(`SELECT key FROM ${quoteIdent(t)}`).all() as Array<{
+        key: string;
+      }>) {
+        if (!isFileStateKey(rule, String(r.key))) del.run(r.key);
+      }
+      if (liveTables.has(t)) {
+        const mine = rowsOf(live, t).filter((r) => !isFileStateKey(rule, String(r['key'])));
+        insertRows(staged, t, liveCols, mine);
+      }
+      out.preserved.push(t);
+    };
     staged.exec('PRAGMA foreign_keys = OFF');
     staged.exec('BEGIN IMMEDIATE');
     try {
@@ -856,6 +898,11 @@ export function carryMachineState(
             continue;
           }
           if (c.class === 'local-only') {
+            const keyRule = fileStateKeyRule(scope, t);
+            if (keyRule) {
+              carryByKey(t, keyRule, stagedCols, liveCols, sameShape);
+              continue;
+            }
             // Machine state never comes from another machine: a table this store
             // does not have yet is emptied, not filled with the pusher's rows.
             if (!liveTables.has(t)) {
@@ -1014,6 +1061,16 @@ export function carryMachineState(
         withTriggersSuspended(staged, ['capture', 'side-effect'], 'forward', carry);
       } else {
         carry();
+      }
+      // A key/value table only this machine has, whose rule keeps this
+      // machine's keys anyway: created with this machine's DDL (T13108).
+      const stagedTables = tablesOf(staged);
+      for (const [t, rule] of Object.entries(FILE_STATE_KEYS[scope])) {
+        const ddl = liveTables.get(t);
+        if (!rule.createIfAbsent || stagedTables.has(t) || !ddl) continue;
+        staged.exec(ddl);
+        const liveCols = infoOf(live, t).map((x) => x.name);
+        carryByKey(t, rule, liveCols, liveCols, true);
       }
       staged.exec('COMMIT');
     } catch (err) {
