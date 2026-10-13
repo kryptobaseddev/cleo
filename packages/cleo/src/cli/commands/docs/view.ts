@@ -123,7 +123,7 @@ const viewCommand = defineCommand({
     if (content === null) {
       cliError(`Content not retrievable: ${ref}`, ExitCode.NOT_FOUND, {
         name: 'E_NOT_FOUND',
-        fix: 'The doc metadata exists but its blob may be missing. Try: cleo docs publish <slug>',
+        fix: 'The doc metadata exists but its bytes are not in the blob store. Try: cleo docs doctor --repair',
       });
       return;
     }

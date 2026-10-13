@@ -1040,6 +1040,12 @@ export interface DocsDecisionLinkResult {
 export interface DocsDoctorParams {
   /** Execute repairs instead of producing a dry-run plan. Default false. */
   apply?: boolean;
+  /**
+   * Execute ONLY the legacy-blob-coverage backfill (T13653): mirror
+   * hash-verified legacy bytes into the blob store so unmigrated docs
+   * become readable again. Same backup gate as `apply`.
+   */
+  repair?: boolean;
   /** Age threshold (days) for the `stale-drafts` diagnostic. Default 30. */
   olderThanDays?: number;
 }

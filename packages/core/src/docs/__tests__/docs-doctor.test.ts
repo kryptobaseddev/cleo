@@ -9,7 +9,8 @@
  * @task T13447 (Epic T13340 / Saga T13339)
  */
 
-import { mkdirSync, utimesSync, writeFileSync } from 'node:fs';
+import { createHash } from 'node:crypto';
+import { existsSync, mkdirSync, utimesSync, writeFileSync } from 'node:fs';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -105,10 +106,13 @@ function makeStaleReceipt(): string {
   return receipt;
 }
 
-async function doctor(opts: { apply?: boolean; olderThanDays?: number; receipt?: string } = {}) {
+async function doctor(
+  opts: { apply?: boolean; repair?: boolean; olderThanDays?: number; receipt?: string } = {},
+) {
   const { runDocsDoctor } = await import('../doctor.js');
   return runDocsDoctor(tempDir, {
     ...(opts.apply !== undefined ? { apply: opts.apply } : {}),
+    ...(opts.repair !== undefined ? { repair: opts.repair } : {}),
     ...(opts.olderThanDays !== undefined ? { olderThanDays: opts.olderThanDays } : {}),
     ...(opts.receipt !== undefined ? { backupReceiptPath: opts.receipt } : {}),
   });
@@ -307,6 +311,12 @@ describe('runDocsDoctor — apply (T13447)', () => {
       // nothing derivable (planned-but-noop entry).
       'empty-provenance:backfill-provenance',
       'empty-provenance:backfill-provenance',
+      // All three seeds are unmigrated (no blob-store mirror): apply also
+      // backfills their hash-verified legacy bytes into the blob store
+      // (T13653).
+      'legacy-blob-coverage:backfill-blob-bytes',
+      'legacy-blob-coverage:backfill-blob-bytes',
+      'legacy-blob-coverage:backfill-blob-bytes',
       // Chained after the applied backfill: the derived edge set changes even
       // though the pre-repair drift was zero (T13561).
       'wikilinks-drift:rebuild-wikilinks',
@@ -532,5 +542,132 @@ describe('runDocsDoctor — backup gate (T13447)', () => {
     expect(res.ok).toBe(false);
     if (res.ok) return;
     expect(res.error.code).toBe('E_DOCS_DOCTOR_BACKUP_REQUIRED');
+  });
+});
+
+describe('runDocsDoctor — legacy-blob-coverage backfill (T13653)', () => {
+  /** True when the blob store holds a file for `content`'s sha256. */
+  function blobStoreHas(content: string): boolean {
+    const sha = createHash('sha256').update(content).digest('hex');
+    return existsSync(join(tempDir, '.cleo', 'blobs', 'blobs', sha));
+  }
+
+  it('dry run plans the backfill but writes nothing', async () => {
+    await seedSlug('plan-doc', '# Plan only\n');
+
+    const res = await doctor();
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+    const planned = res.report.repairs.filter(
+      (r) => r.kind === 'legacy-blob-coverage' && r.action === 'backfill-blob-bytes',
+    );
+    expect(planned).toHaveLength(1);
+    expect(planned[0]?.applied).toBe(false);
+    expect(blobStoreHas('# Plan only\n')).toBe(false);
+    // Coverage still errors pre-repair.
+    expect(diagnostic(res.report, 'legacy-blob-coverage').count).toBe(1);
+  });
+
+  it('--repair mirrors hash-verified legacy bytes into the blob store', async () => {
+    const content = '# Unmigrated\n\nReadable after repair.\n';
+    await seedSlug('repair-doc', content);
+    expect(blobStoreHas(content)).toBe(false);
+
+    const res = await doctor({ repair: true, receipt: makeReceipt() });
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+    expect(res.report.applied).toBe(true);
+    expect(blobStoreHas(content)).toBe(true);
+    // Post-repair envelope: the coverage diagnostic is clean …
+    expect(diagnostic(res.report, 'legacy-blob-coverage').count).toBe(0);
+    // … and a follow-up dry run agrees.
+    const followUp = await doctor();
+    expect(followUp.ok).toBe(true);
+    if (!followUp.ok) return;
+    expect(diagnostic(followUp.report, 'legacy-blob-coverage').count).toBe(0);
+  });
+
+  it('--repair is idempotent: a second run backfills nothing', async () => {
+    const content = '# Idempotent\n';
+    await seedSlug('idem-doc', content);
+    await doctor({ repair: true, receipt: makeReceipt() });
+
+    const second = await doctor({ repair: true, receipt: makeReceipt() });
+    expect(second.ok).toBe(true);
+    if (!second.ok) return;
+    expect(second.report.repairs.filter((r) => r.kind === 'legacy-blob-coverage')).toHaveLength(0);
+  });
+
+  it('--repair refuses to run without a fresh backup receipt', async () => {
+    await seedSlug('gate-repair', '# Doc\n');
+    const res = await doctor({ repair: true });
+    expect(res.ok).toBe(false);
+    if (res.ok) return;
+    expect(res.error.code).toBe('E_DOCS_DOCTOR_BACKUP_REQUIRED');
+  });
+
+  it('--repair runs ONLY the backfill: dangling rows are not archived', async () => {
+    const content = '# Coverage only\n';
+    await seedSlug('cov-doc', content);
+    await seedLocalFile('dangling-stays', join(tempDir, 'deleted', 'gone.md'));
+
+    const res = await doctor({ repair: true, receipt: makeReceipt() });
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+    // Only legacy-blob-coverage actions in the repair list.
+    expect(res.report.repairs.every((r) => r.kind === 'legacy-blob-coverage')).toBe(true);
+    // Backfill happened …
+    expect(blobStoreHas(content)).toBe(true);
+    // … but the dangling row is untouched.
+    const row = await rowBySlug('dangling-stays');
+    expect(row?.lifecycleStatus).toBe('draft');
+    expect(diagnostic(res.report, 'dangling-pointers').count).toBe(1);
+  });
+
+  it('skips (never writes) legacy bytes that fail SHA-256 verification', async () => {
+    const content = '# Tampered\n';
+    await seedSlug('tamper-doc', content);
+    const row = await rowBySlug('tamper-doc');
+    const sha = row?.sha256 ?? '';
+    const legacyPath = join(
+      tempDir,
+      '.cleo',
+      'attachments',
+      'sha256',
+      sha.slice(0, 2),
+      `${sha.slice(2)}.md`,
+    );
+    // Corrupt the legacy bytes — the recorded hash no longer matches.
+    writeFileSync(legacyPath, '# Tampered by someone else\n');
+
+    const res = await doctor({ repair: true, receipt: makeReceipt() });
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+    expect(blobStoreHas(content)).toBe(false);
+    expect(diagnostic(res.report, 'legacy-blob-coverage').count).toBe(1);
+    const backfill = res.report.repairs.find((r) => r.kind === 'legacy-blob-coverage');
+    expect(backfill?.detail).toContain('SKIPPED');
+    expect(backfill?.detail).toContain('SHA-256');
+  });
+
+  it('reports (and skips) shas whose legacy bytes are gone', async () => {
+    const content = '# Bytes gone\n';
+    await seedSlug('gone-bytes', content);
+    const row = await rowBySlug('gone-bytes');
+    const sha = row?.sha256 ?? '';
+    const { rmSync } = await import('node:fs');
+    // Primary AND keep-link — either alone still backfills (keep fallback).
+    rmSync(join(tempDir, '.cleo', 'attachments', 'sha256', sha.slice(0, 2), `${sha.slice(2)}.md`));
+    rmSync(join(tempDir, '.cleo', 'attachments', 'keep', sha.slice(0, 2), sha.slice(2)), {
+      force: true,
+    });
+
+    const res = await doctor({ repair: true, receipt: makeReceipt() });
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+    expect(blobStoreHas(content)).toBe(false);
+    expect(diagnostic(res.report, 'legacy-blob-coverage').count).toBe(1);
+    const backfill = res.report.repairs.find((r) => r.kind === 'legacy-blob-coverage');
+    expect(backfill?.detail).toContain('no legacy bytes found');
   });
 });
