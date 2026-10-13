@@ -67,7 +67,7 @@
 
 import { createHash } from 'node:crypto';
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
-import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { isAbsolute, join, resolve, sep } from 'node:path';
 import { getCleoWorktreesRoot } from '@cleocode/paths';
@@ -370,8 +370,11 @@ function resolveLegacyByteSource(cleoDir: string, sha256: string, mime: string):
 /**
  * Backfill outcome for one sha (T13653).
  *
- * - `written`   — bytes verified and mirrored into the blob store.
- * - `present`   — blob-store file already existed (idempotent re-run).
+ * - `written`   — bytes verified and mirrored into the blob store (also
+ *                 returned when a corrupt/truncated existing target was
+ *                 replaced from the verified source, T13654).
+ * - `present`   — blob-store file already existed AND re-hashes to the
+ *                 recorded sha (idempotent re-run; left untouched).
  * - `unverified`— the source bytes' SHA-256 does not match the recorded hash;
  *                 nothing was written (writing unverified bytes would poison
  *                 the content-addressed store).
@@ -380,11 +383,34 @@ function resolveLegacyByteSource(cleoDir: string, sha256: string, mime: string):
 export type BlobBackfillOutcome = 'written' | 'present' | 'unverified' | 'unreadable';
 
 /**
+ * True when the blob store's file for `sha256` exists AND re-hashes to the
+ * recorded sha (T13654). A truncated or corrupted file at the content
+ * address — e.g. left by an interrupted write that predated tmp-then-rename —
+ * returns false so the coverage check treats the doc as unmigrated and the
+ * backfill replaces it from verified source bytes.
+ *
+ * @internal
+ */
+async function blobStoreFileVerified(cleoDir: string, sha256: string): Promise<boolean> {
+  try {
+    const bytes = await readFile(join(cleoDir, 'blobs', 'blobs', sha256));
+    return createHash('sha256').update(bytes).digest('hex') === sha256;
+  } catch {
+    return false;
+  }
+}
+
+/**
  * Mirror one sha's legacy bytes into the blob store (`.cleo/blobs/blobs/<sha>`).
  *
- * Hash-verified: the source bytes are SHA-256-hashed before the write and
- * must equal the recorded sha256. Idempotent: an existing blob-store file is
- * left untouched (the coverage check already guarantees retrievability).
+ * Hash-verified: the source bytes are SHA-256-hashed before any write and
+ * must equal the recorded sha256. Crash-safe (T13654): bytes are written to
+ * a tmp file and renamed into place — an interrupted write never leaves a
+ * truncated file at the final content address (which later runs would count
+ * as present and `blobReadBySha` would then reject as corrupt with no heal
+ * path). An existing target is RE-HASHED rather than assumed good: when its
+ * bytes mismatch the recorded hash (truncation/corruption), it is replaced
+ * from the verified source; a matching target is left untouched.
  *
  * @internal
  */
@@ -394,7 +420,6 @@ export async function backfillBlobStoreBytes(
   sourcePath: string,
 ): Promise<BlobBackfillOutcome> {
   const target = join(cleoDir, 'blobs', 'blobs', sha256);
-  if (existsSync(target)) return 'present';
 
   let bytes: Buffer;
   try {
@@ -405,8 +430,28 @@ export async function backfillBlobStoreBytes(
   const actual = createHash('sha256').update(bytes).digest('hex');
   if (actual !== sha256) return 'unverified';
 
+  if (existsSync(target)) {
+    try {
+      const existing = await readFile(target);
+      if (createHash('sha256').update(existing).digest('hex') === sha256) return 'present';
+    } catch {
+      // Target unreadable — fall through and replace it from the verified source.
+    }
+  }
+
+  // Tmp-then-rename (T11997 ordering): a crash mid-write leaves only the tmp
+  // file behind, never a truncated blob at the content address.
   await mkdir(join(cleoDir, 'blobs', 'blobs'), { recursive: true });
-  await writeFile(target, bytes);
+  const tmp = `${target}.backfill-tmp.${process.pid}`;
+  try {
+    await writeFile(tmp, bytes);
+    await rename(tmp, target);
+  } catch (err) {
+    await rm(tmp, { force: true }).catch(() => {
+      /* tmp already gone — nothing to clean */
+    });
+    throw err;
+  }
   return 'written';
 }
 
@@ -777,7 +822,11 @@ async function scanStore(
     if (payload?.kind !== 'blob' && payload?.kind !== 'local-file') continue;
     if (coverageSeen.has(row.sha256)) continue;
     coverageSeen.add(row.sha256);
-    if (!blobStoreShas.has(row.sha256)) {
+    // T13654: existence is not coverage. A truncated/corrupt file at the
+    // content address (an interrupted pre-tmp-rename write) makes the doc
+    // unreadable via blobReadBySha's integrity check — it counts as missing
+    // and becomes a backfill candidate so the repair can replace it.
+    if (!blobStoreShas.has(row.sha256) || !(await blobStoreFileVerified(cleoDir, row.sha256))) {
       coverageMissing.push({ sha256: row.sha256, slug: row.slug });
       const mimeRaw = payload?.['mime'];
       const mime = typeof mimeRaw === 'string' ? mimeRaw : 'application/octet-stream';
@@ -890,6 +939,25 @@ export async function runDocsDoctor(
   const repair = opts.repair === true;
   const mutate = apply || repair;
   const olderThanDays = opts.olderThanDays ?? DOCS_DOCTOR_DEFAULT_OLDER_THAN_DAYS;
+
+  // T13654: --apply and --repair together are refused, not merged. Planning
+  // skips the archive/clear/docVersion/provenance/wikilinks repairs under
+  // --repair, so executing them anyway (the old `apply` guard) produced
+  // UNREPORTED mutations — repairs the plan never listed. The two modes have
+  // disjoint repair sets; run them as separate invocations.
+  if (apply && repair) {
+    return {
+      ok: false,
+      error: {
+        // @sync-invariant none:input-shape a flag-combination refusal before any repair write; nothing was written
+        code: 'E_DOCS_DOCTOR_FLAG_CONFLICT',
+        message:
+          'docs doctor: --apply and --repair cannot be combined — --repair runs ONLY the ' +
+          'legacy-blob backfill. Run `cleo docs doctor --repair` for the backfill, or ' +
+          '`cleo docs doctor --apply` for the full repair set, separately.',
+      },
+    };
+  }
 
   if (mutate) {
     const refusal = checkBackupReceipt(opts.backupReceiptPath);

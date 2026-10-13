@@ -10,10 +10,18 @@
  */
 
 import { createHash } from 'node:crypto';
-import { existsSync, mkdirSync, utimesSync, writeFileSync } from 'node:fs';
+import {
+  existsSync,
+  mkdirSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  utimesSync,
+  writeFileSync,
+} from 'node:fs';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 let tempDir: string;
@@ -58,6 +66,16 @@ async function rowBySlug(slug: string) {
   const { attachments } = await import('../../store/tasks-schema.js');
   const db = await getDb(tempDir);
   return db.select().from(attachments).where(eq(attachments.slug, slug)).get();
+}
+
+/**
+ * Remove the blob-store mirror for `content` — since T13653 the canonical
+ * put() mirrors bytes into `.cleo/blobs/blobs/`, so tests that exercise
+ * UNMIGRATED rows must delete the mirror to simulate a pre-mirror write.
+ */
+function removeBlobMirror(content: string): void {
+  const sha = createHash('sha256').update(content).digest('hex');
+  rmSync(join(tempDir, '.cleo', 'blobs', 'blobs', sha), { force: true });
 }
 
 /** Patch arbitrary columns on the slugged row (test scaffolding). */
@@ -209,9 +227,10 @@ describe('runDocsDoctor — diagnostics (T13447)', () => {
   });
 
   it('legacy-blob-coverage: error when a content-bearing row has no blob-store counterpart (T13362 AC2)', async () => {
-    // store.put writes the legacy tree only; without a mirrored blob-store
-    // file the row counts as unmigrated.
+    // store.put mirrors into the blob store since T13653; delete the mirror
+    // to simulate a pre-migration (unmigrated) row.
     await seedSlug('unmigrated-doc', '# Not migrated\n');
+    removeBlobMirror('# Not migrated\n');
 
     const res = await doctor();
     expect(res.ok).toBe(true);
@@ -304,6 +323,8 @@ describe('runDocsDoctor — apply (T13447)', () => {
     expect(gone?.lifecycleStatus).toBe('archived');
 
     const actions = res.report.repairs.map((r) => `${r.kind}:${r.action}`).sort();
+    // The seeds are mirrored into the blob store at put time (T13653), so no
+    // legacy-blob-coverage backfill entries are planned.
     expect(actions).toEqual([
       'dangling-pointers:archive-dangling',
       'doc-version-skew:set-doc-version',
@@ -311,12 +332,6 @@ describe('runDocsDoctor — apply (T13447)', () => {
       // nothing derivable (planned-but-noop entry).
       'empty-provenance:backfill-provenance',
       'empty-provenance:backfill-provenance',
-      // All three seeds are unmigrated (no blob-store mirror): apply also
-      // backfills their hash-verified legacy bytes into the blob store
-      // (T13653).
-      'legacy-blob-coverage:backfill-blob-bytes',
-      'legacy-blob-coverage:backfill-blob-bytes',
-      'legacy-blob-coverage:backfill-blob-bytes',
       // Chained after the applied backfill: the derived edge set changes even
       // though the pre-repair drift was zero (T13561).
       'wikilinks-drift:rebuild-wikilinks',
@@ -554,6 +569,7 @@ describe('runDocsDoctor — legacy-blob-coverage backfill (T13653)', () => {
 
   it('dry run plans the backfill but writes nothing', async () => {
     await seedSlug('plan-doc', '# Plan only\n');
+    removeBlobMirror('# Plan only\n');
 
     const res = await doctor();
     expect(res.ok).toBe(true);
@@ -571,6 +587,7 @@ describe('runDocsDoctor — legacy-blob-coverage backfill (T13653)', () => {
   it('--repair mirrors hash-verified legacy bytes into the blob store', async () => {
     const content = '# Unmigrated\n\nReadable after repair.\n';
     await seedSlug('repair-doc', content);
+    removeBlobMirror(content); // simulate a pre-mirror write
     expect(blobStoreHas(content)).toBe(false);
 
     const res = await doctor({ repair: true, receipt: makeReceipt() });
@@ -590,7 +607,11 @@ describe('runDocsDoctor — legacy-blob-coverage backfill (T13653)', () => {
   it('--repair is idempotent: a second run backfills nothing', async () => {
     const content = '# Idempotent\n';
     await seedSlug('idem-doc', content);
-    await doctor({ repair: true, receipt: makeReceipt() });
+    removeBlobMirror(content); // simulate a pre-mirror write
+    const first = await doctor({ repair: true, receipt: makeReceipt() });
+    expect(first.ok).toBe(true);
+    if (!first.ok) return;
+    expect(blobStoreHas(content)).toBe(true);
 
     const second = await doctor({ repair: true, receipt: makeReceipt() });
     expect(second.ok).toBe(true);
@@ -609,12 +630,15 @@ describe('runDocsDoctor — legacy-blob-coverage backfill (T13653)', () => {
   it('--repair runs ONLY the backfill: dangling rows are not archived', async () => {
     const content = '# Coverage only\n';
     await seedSlug('cov-doc', content);
+    removeBlobMirror(content); // simulate a pre-mirror write
     await seedLocalFile('dangling-stays', join(tempDir, 'deleted', 'gone.md'));
 
     const res = await doctor({ repair: true, receipt: makeReceipt() });
     expect(res.ok).toBe(true);
     if (!res.ok) return;
-    // Only legacy-blob-coverage actions in the repair list.
+    // Only legacy-blob-coverage actions in the repair list — and at least
+    // one (the cov-doc backfill actually ran).
+    expect(res.report.repairs.length).toBeGreaterThan(0);
     expect(res.report.repairs.every((r) => r.kind === 'legacy-blob-coverage')).toBe(true);
     // Backfill happened …
     expect(blobStoreHas(content)).toBe(true);
@@ -627,6 +651,7 @@ describe('runDocsDoctor — legacy-blob-coverage backfill (T13653)', () => {
   it('skips (never writes) legacy bytes that fail SHA-256 verification', async () => {
     const content = '# Tampered\n';
     await seedSlug('tamper-doc', content);
+    removeBlobMirror(content); // the mirror would otherwise satisfy coverage
     const row = await rowBySlug('tamper-doc');
     const sha = row?.sha256 ?? '';
     const legacyPath = join(
@@ -653,6 +678,7 @@ describe('runDocsDoctor — legacy-blob-coverage backfill (T13653)', () => {
   it('reports (and skips) shas whose legacy bytes are gone', async () => {
     const content = '# Bytes gone\n';
     await seedSlug('gone-bytes', content);
+    removeBlobMirror(content); // the mirror would otherwise satisfy coverage
     const row = await rowBySlug('gone-bytes');
     const sha = row?.sha256 ?? '';
     const { rmSync } = await import('node:fs');
@@ -669,5 +695,116 @@ describe('runDocsDoctor — legacy-blob-coverage backfill (T13653)', () => {
     expect(diagnostic(res.report, 'legacy-blob-coverage').count).toBe(1);
     const backfill = res.report.repairs.find((r) => r.kind === 'legacy-blob-coverage');
     expect(backfill?.detail).toContain('no legacy bytes found');
+  });
+
+  it('refuses --apply --repair together with a named error and writes nothing (T13654)', async () => {
+    const content = '# Flag conflict\n';
+    await seedSlug('flag-doc', content);
+    removeBlobMirror(content); // a backfill would otherwise land
+    const before = (await rowBySlug('flag-doc'))?.lifecycleStatus;
+
+    const res = await doctor({ apply: true, repair: true, receipt: makeReceipt() });
+
+    expect(res.ok).toBe(false);
+    if (res.ok) return;
+    expect(res.error.code).toBe('E_DOCS_DOCTOR_FLAG_CONFLICT');
+    // Refusal happens before ANY mutation: no backfill, no repairs.
+    expect(blobStoreHas(content)).toBe(false);
+    expect((await rowBySlug('flag-doc'))?.lifecycleStatus).toBe(before);
+  });
+
+  it('replaces a truncated existing blob-store target from the verified source (T13654)', async () => {
+    const content = '# Interrupted write\n';
+    await seedSlug('trunc-doc', content);
+    const row = await rowBySlug('trunc-doc');
+    const sha = row?.sha256 ?? '';
+    // Simulate the crash the tmp-then-rename fix prevents: a truncated file
+    // already sits at the final content address.
+    const target = join(tempDir, '.cleo', 'blobs', 'blobs', sha);
+    writeFileSync(target, content.slice(0, 5));
+
+    const res = await doctor({ repair: true, receipt: makeReceipt() });
+
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+    expect(readFileSync(target, 'utf-8')).toBe(content);
+    expect(diagnostic(res.report, 'legacy-blob-coverage').count).toBe(0);
+    // No tmp file left behind.
+    expect(
+      readdirSync(join(tempDir, '.cleo', 'blobs', 'blobs')).filter((n) => n.includes('.tmp')),
+    ).toEqual([]);
+  });
+});
+
+describe('backfillBlobStoreBytes crash-safety (T13654)', () => {
+  /** Seed a legacy source file for `content` and return its sha + path. */
+  function seedLegacySource(content: string): { sha: string; sourcePath: string } {
+    const sha = createHash('sha256').update(content).digest('hex');
+    const sourcePath = join(tempDir, '.cleo', 'attachments', 'sha256', sha.slice(0, 2), 'src.md');
+    mkdirSync(dirname(sourcePath), { recursive: true });
+    writeFileSync(sourcePath, content);
+    return { sha, sourcePath };
+  }
+
+  const targetOf = (sha: string) => join(tempDir, '.cleo', 'blobs', 'blobs', sha);
+
+  it('writes via tmp-then-rename and leaves no tmp file', async () => {
+    const { backfillBlobStoreBytes } = await import('../doctor.js');
+    const content = '# Clean write\n';
+    const { sha, sourcePath } = seedLegacySource(content);
+
+    const outcome = await backfillBlobStoreBytes(join(tempDir, '.cleo'), sha, sourcePath);
+
+    expect(outcome).toBe('written');
+    expect(readFileSync(targetOf(sha), 'utf-8')).toBe(content);
+    expect(
+      readdirSync(join(tempDir, '.cleo', 'blobs', 'blobs')).filter((n) => n.includes('.tmp')),
+    ).toEqual([]);
+  });
+
+  it('returns present and leaves a verified existing target untouched', async () => {
+    const { backfillBlobStoreBytes } = await import('../doctor.js');
+    const content = '# Already good\n';
+    const { sha, sourcePath } = seedLegacySource(content);
+    mkdirSync(dirname(targetOf(sha)), { recursive: true });
+    writeFileSync(targetOf(sha), content);
+
+    const outcome = await backfillBlobStoreBytes(join(tempDir, '.cleo'), sha, sourcePath);
+
+    expect(outcome).toBe('present');
+    expect(readFileSync(targetOf(sha), 'utf-8')).toBe(content);
+  });
+
+  it('replaces a corrupt existing target and returns written', async () => {
+    const { backfillBlobStoreBytes } = await import('../doctor.js');
+    const content = '# Corrupt target\n';
+    const { sha, sourcePath } = seedLegacySource(content);
+    mkdirSync(dirname(targetOf(sha)), { recursive: true });
+    writeFileSync(targetOf(sha), 'truncated');
+
+    const outcome = await backfillBlobStoreBytes(join(tempDir, '.cleo'), sha, sourcePath);
+
+    expect(outcome).toBe('written');
+    expect(readFileSync(targetOf(sha), 'utf-8')).toBe(content);
+    // The corrupt bytes are gone — no unhealable 'corrupt blob' state remains.
+    expect(
+      createHash('sha256')
+        .update(readFileSync(targetOf(sha)))
+        .digest('hex'),
+    ).toBe(sha);
+  });
+
+  it('still refuses unverified source bytes even when no target exists', async () => {
+    const { backfillBlobStoreBytes } = await import('../doctor.js');
+    const content = '# Untrusted\n';
+    const sha = createHash('sha256').update(content).digest('hex');
+    const sourcePath = join(tempDir, '.cleo', 'attachments', 'sha256', sha.slice(0, 2), 'src.md');
+    mkdirSync(dirname(sourcePath), { recursive: true });
+    writeFileSync(sourcePath, '# tampered\n');
+
+    const outcome = await backfillBlobStoreBytes(join(tempDir, '.cleo'), sha, sourcePath);
+
+    expect(outcome).toBe('unverified');
+    expect(existsSync(targetOf(sha))).toBe(false);
   });
 });
