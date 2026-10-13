@@ -711,6 +711,7 @@
       "content_hash",
       "created_at",
       "id",
+      "origin",
       "original_size",
       "parent_version_uid",
       "patch_text",
@@ -781,6 +782,17 @@
       "last_conflict_json",
       "uid",
       "updated_at"
+    ],
+    "conduit_doc_migration_ledger": [
+      "doc_uid",
+      "legacy_path",
+      "legacy_sha256",
+      "migrated_at",
+      "reason",
+      "slug",
+      "status",
+      "uid",
+      "versions_imported"
     ],
     "conduit_doc_slug_aliases": [
       "created_at",

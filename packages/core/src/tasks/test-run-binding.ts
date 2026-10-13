@@ -589,6 +589,32 @@ export function bindTestRunReport(
     );
   }
   if (changed === null || changed.length === 0) return { ok: true, untestedPackages: [] };
+  return testRunCoversChange(root, changed, testFiles);
+}
+
+/**
+ * Whether the test files a report ran cover a change — point 2 of the module
+ * doc, applied to an explicit list of changed paths. {@link bindTestRunReport}
+ * passes the branch's diff; `cleo complete` passes a merged change's own files
+ * when it judges a run recorded after the merge (T13623).
+ *
+ * @param root - The checkout the test files are relative to.
+ * @param changed - The change's paths, relative to `root` (non-empty).
+ * @param testFiles - Test files the report ran with a passing test.
+ * @returns The refusal, or the binding with the affected packages left untested.
+ * @task T12965
+ * @task T13623
+ */
+export function testRunCoversChange(
+  root: string,
+  changed: readonly string[],
+  testFiles: readonly string[],
+): TestRunBinding {
+  const refuse = (reason: string): TestRunBinding => ({
+    ok: false,
+    codeName: 'E_EVIDENCE_INSUFFICIENT',
+    reason,
+  });
   const scope = deriveAffectedPackages(root, changed);
   if (scope.scope === 'full') {
     // A workspace-wide change can break any package: only a full-suite run

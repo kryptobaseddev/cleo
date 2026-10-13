@@ -146,6 +146,11 @@ export interface CompleteTaskOptions {
    */
   waiveDependsReason?: string;
   /**
+   * The PR `cleo done --pr <n>` named: the merged-CI check derives the change
+   * set through it, as the plan did, so both judge the same carrier (T13637).
+   */
+  prNumber?: number;
+  /**
    * Optimistic-concurrency guard: the task version (`updatedAt`) the caller
    * read. It is compared with the stored row inside the completion's write
    * transaction; a mismatch fails with `E_CONFLICT`. When omitted, the version
@@ -628,10 +633,21 @@ export async function completeTask(
     // here persist if a later check below refuses (see complete-ci.ts).
     let verification: TaskVerification = task.verification;
     const { satisfyGatesFromMergedCi } = await import('./complete-ci.js');
+    // T13637: with `cleo done --pr <n>`, derive the change set through that PR
+    // as the plan did, so plan and completion judge the same carrier.
+    const derived =
+      options.prNumber === undefined
+        ? undefined
+        : await (await import('./change-set.js')).deriveTaskChangeSet({
+            task,
+            storeRoot: completionRoot,
+            prNumber: options.prNumber,
+          });
     const mergedCi = await satisfyGatesFromMergedCi(
       task,
       completionRoot,
       enforcement.verificationRequiredGates,
+      derived ? { merge: { derived } } : {},
     );
     if (mergedCi.kind === 'wait-for-ci' || mergedCi.kind === 'ci-red') {
       // @sync-invariant none:local-only completion-time evidence gate on the local verification record; nothing is written
@@ -644,7 +660,7 @@ export async function completeTask(
           fix:
             mergedCi.kind === 'wait-for-ci'
               ? `Wait for the PR's required CI to finish on the merge commit, then re-run 'cleo complete ${options.taskId}'. Do not run the test suite locally — merged CI is the evidence.`
-              : `Merged CI concluded without proving the gates: fix CI (re-run or fix the red/skipped required check), or record a full local run: cleo verify ${options.taskId} --gate testsPassed --evidence "tool:test" and --gate qaPassed --evidence "tool:lint;tool:typecheck".`,
+              : `Merged CI concluded without proving the gates: fix CI (re-run or fix the red/skipped required check), or, on the default branch after the merge, run the change's tests and record them: cleo verify ${options.taskId} --gate testsPassed --evidence "test-run:<vitest json>" (it must cover every file of the change, T13623), plus --gate qaPassed --evidence "qa-run:<typecheck receipt>;qa-run:<lint receipt>".`,
         },
       );
     }
@@ -1682,6 +1698,12 @@ export interface TaskCompleteEngineOptions {
    */
   waiveDependsReason?: string;
   /**
+   * The PR `cleo done --pr <n>` named.
+   * @see CompleteTaskOptions.prNumber
+   * @task T13637
+   */
+  prNumber?: number;
+  /**
    * Optimistic-concurrency guard (`--if-match`).
    * @see CompleteTaskOptions.expectedUpdatedAt
    * @task T12503
@@ -1724,6 +1746,7 @@ export async function taskComplete(
         cancelledChildWaiverReason: opts.cancelledChildWaiverReason,
         waiveDependsReason: opts.waiveDependsReason,
         expectedUpdatedAt: opts.expectedUpdatedAt,
+        ...(opts.prNumber !== undefined ? { prNumber: opts.prNumber } : {}),
       },
       projectRoot,
       accessor,

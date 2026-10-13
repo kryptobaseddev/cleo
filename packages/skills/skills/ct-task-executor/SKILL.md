@@ -1,7 +1,7 @@
 ---
 name: ct-task-executor
 description: General implementation task execution for completing assigned CLEO tasks by following instructions and producing concrete deliverables. Handles coding, configuration, documentation work with quality verification against acceptance criteria and progress reporting. Use when executing implementation tasks, completing assigned work, or producing task deliverables. Triggers on implementation tasks, general execution needs, or task completion work.
-version: 2.8.4
+version: 2.8.5
 protocol: implementation
 adrRefs:
   - ADR-070
@@ -17,7 +17,7 @@ compatibility:
   - gemini-cli
 license: MIT
 metadata:
-  version: 2.8.4
+  version: 2.8.5
   tier: core
   install: harness
   covers:
@@ -145,7 +145,9 @@ A database or service started for a test run must not outlive it. A `docker run`
    `cwd`; a locked stage also needs `--reason`. Then verify that gate again.
 2. **Document completion** - Write detailed output file
 3. **Update manifest** - Append summary entry
-4. **Complete task** - Mark task done in task system
+4. **Complete task** - Mark task done in task system. `cleo done <id> --pr <n>` completes
+   through PR `<n>`: the plan and the completion judge a scoped test run against the same
+   merge commit, so a ready plan is not refused by a different carrier.
 
 ---
 

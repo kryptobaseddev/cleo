@@ -469,6 +469,14 @@ export const ROW_IDENTITY: Readonly<Record<TableScope, readonly RowIdentitySpec[
       key: ['decision_id', 'adr_slug'],
       task: 'T13359',
     },
+    {
+      // Natural over the slug: one migration receipt per doc, so a re-run on
+      // either device coalesces onto the same row (the idempotency key).
+      table: 'conduit_doc_migration_ledger',
+      kind: 'natural',
+      key: ['slug'],
+      task: 'T13360',
+    },
   ],
   global: [
     ...brainTextKeyed(),

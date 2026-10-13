@@ -130,6 +130,11 @@ export interface TableMergeSpec {
    * so its value is a function of the merged status and candidates alone,
    * and converges.
    */
+  readonly coupled?: ReadonlyArray<{
+    readonly column: string;
+    readonly status: string;
+    readonly map: Readonly<Record<string, string>>;
+  }>;
   /**
    * The typed rule id when every row of the table is immutable once written
    * (audit rows, T12941): an op that would change a live row's value is
@@ -137,11 +142,6 @@ export interface TableMergeSpec {
    * re-delivery is a no-op. Inserts and deletes are unaffected.
    */
   readonly immutable?: string;
-  readonly coupled?: ReadonlyArray<{
-    readonly column: string;
-    readonly status: string;
-    readonly map: Readonly<Record<string, string>>;
-  }>;
 }
 
 /** The transaction-level context an op is applied in. */

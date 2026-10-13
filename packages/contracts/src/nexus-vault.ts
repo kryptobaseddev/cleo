@@ -628,5 +628,7 @@ export interface CloudConflictResolveResult {
   id: number;
   /** False when no open conflict has that id. */
   resolved: boolean;
+  /** Columns written with the incoming value by `--keep` (T12997); empty for mine or a plain acknowledge. */
+  written: string[];
   warnings: CloudWarning[];
 }

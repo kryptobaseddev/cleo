@@ -333,12 +333,63 @@ export const decisionAdrLinks = sqliteTable(
   ],
 );
 
+/**
+ * `conduit_doc_migration_ledger` — the auditable record of the T13360 legacy
+ * docs migration (spec §5: dangling-pointer docs are "content-captured or
+ * marked dangling — never silently imported"). One APPEND-ONLY row per
+ * migrated doc slug; the accessor never UPDATEs or DELETEs, so each row is an
+ * immutable receipt of what the migration did (and the idempotency key:
+ * a slug already in the ledger is skipped on re-run).
+ *
+ * Syncing (portable-project) with a NATURAL row identity over (slug): both
+ * devices derive one uid per slug and a re-run on either coalesces onto the
+ * same row. `uid` is declared LAST on purpose (the row-identity heal appends
+ * a missing uid column at the end).
+ *
+ * @task T13360
+ */
+export const conduitDocMigrationLedger = sqliteTable(
+  'conduit_doc_migration_ledger',
+  {
+    /** The migrated doc's slug (one ledger row per slug; the natural key). */
+    slug: text('slug').notNull(),
+    /** The captured doc's `conduit_attachments.uid` (NULL when dangling). */
+    docUid: text('doc_uid'),
+    /** `captured` — bytes live in the new store; `dangling` — unrecoverable. */
+    status: text('status', { enum: ['captured', 'dangling'] })
+      .notNull()
+      .default('captured'),
+    /** Why: e.g. 'path-missing', 'path-ephemeral:worktree', 'audit-log-import',
+     *  'blob-bytes-missing'. */
+    reason: text('reason').notNull().default(''),
+    /** The legacy pointer (local-file or stale blob path) when one existed. */
+    legacyPath: text('legacy_path'),
+    /** The legacy row's content sha256, when known. */
+    legacySha256: text('legacy_sha256'),
+    /** How many history rows the import created for this doc. */
+    versionsImported: integer('versions_imported').notNull().default(0),
+    /** ISO-8601 UTC instant the migration recorded this row. */
+    migratedAt: text('migrated_at').notNull().default(sql`(datetime('now'))`),
+    /** Natural row uid over (slug) (T12341); set by the accessor. */
+    uid: text('uid'),
+  },
+  (table) => [
+    primaryKey({ columns: [table.slug] }),
+    index('idx_conduit_doc_migration_ledger_doc_uid').on(table.docUid),
+    uniqueIndex('uq_conduit_doc_migration_ledger_uid').on(table.uid),
+  ],
+);
+
 // === TYPE EXPORTS ===
 
 /** Row type for `decision_adr_links` SELECT queries (target shape). */
 export type DecisionAdrLinkRow = typeof decisionAdrLinks.$inferSelect;
 /** Row type for `decision_adr_links` INSERT operations (target shape). */
 export type NewDecisionAdrLinkRow = typeof decisionAdrLinks.$inferInsert;
+/** Row type for `conduit_doc_migration_ledger` SELECT queries. */
+export type ConduitDocMigrationLedgerRow = typeof conduitDocMigrationLedger.$inferSelect;
+/** Row type for `conduit_doc_migration_ledger` INSERT operations. */
+export type NewConduitDocMigrationLedgerRow = typeof conduitDocMigrationLedger.$inferInsert;
 /** Row type for `docs_attachments` SELECT queries (target shape). */
 export type DocsAttachmentRow = typeof docsAttachments.$inferSelect;
 /** Row type for `docs_attachments` INSERT operations (target shape). */

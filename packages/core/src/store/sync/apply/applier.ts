@@ -126,7 +126,7 @@ import { type ApplyApi, withApplyFrame } from './frame.js';
 import { parentDeletePolicy } from './parent-delete.js';
 import { checkApplyPreconditions, checkTaskTreeShape, type PageRow } from './post-apply.js';
 import { resolveRef, uidOfKey } from './refs.js';
-import { wireToSql } from './write-api.js';
+import { type ApplyWriteApi, wireToSql } from './write-api.js';
 
 /** How {@link applyStagedTxns} runs. */
 export interface ApplyStagedOptions {
@@ -260,10 +260,17 @@ const keyText = (k: InboxKey): string => `${k.stream}:${k.seq}:${k.txnIdx}`;
  * The row's state as the merge sees it: the live row with its field HLCs
  * and leaves, a tombstone, or never seen. A live row with no row meta (not
  * yet sealed) carries the genesis HLC, so any stream write wins over it.
+ *
+ * @param db - The store.
+ * @param api - The write API (only its reads are used).
+ * @param def - The table's capture definition.
+ * @param uid - The row uid.
+ * @param localReplica - This store's replica (the genesis floor).
+ * @returns The row state.
  */
-function loadRowState(
+export function loadRowState(
   db: DatabaseSync,
-  api: ApplyApi,
+  api: Pick<ApplyWriteApi, 'rowMeta' | 'readRow'>,
   def: CaptureTableDef,
   uid: string,
   localReplica: string,
@@ -663,7 +670,17 @@ function effect(
     recordFieldLeaves(db, op.t, op.u, leaves);
     setFieldFrontiers(db, op.t, op.u, frontiers);
   }
-  if (!quiet) recordConflicts(db, { ...st.key, opIdx }, out.conflicts, st.replicaId, nowIso);
+  if (!quiet) {
+    // The pre-merge values, so `--keep mine` can re-assert what an applied op overwrote (T13624).
+    const local = before.live
+      ? Object.fromEntries(
+          Object.entries(before.fields)
+            .filter(([col]) => !def.secret.has(col))
+            .map(([col, f]) => [col, f.value]),
+        )
+      : null;
+    recordConflicts(db, { ...st.key, opIdx }, out.conflicts, st.replicaId, nowIso, local);
+  }
   return out.conflicts.length;
 }
 

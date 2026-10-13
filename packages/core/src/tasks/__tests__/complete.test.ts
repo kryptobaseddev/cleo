@@ -1004,7 +1004,7 @@ describe('completeTask', () => {
         expect((await accessor.loadSingleTask('T001'))?.status).toBe('active');
       });
 
-      it('a final red CI refuses with fix-CI-or-run-full, never a wait', async () => {
+      it('a final red CI refuses with fix-CI-or-a-covering-test-run, never a wait', async () => {
         ciResolver.impl = async () => ({
           ok: false,
           codeName: 'E_EVIDENCE_TESTS_FAILED',
@@ -1012,9 +1012,9 @@ describe('completeTask', () => {
         });
         await seedMerged([affected]);
         const refusal = completeTask({ taskId: 'T001' }, env.tempDir, accessor);
-        await expect(refusal).rejects.toThrow(/ci:42 does not hold.*CI: failure/s);
+        await expect(refusal).rejects.toThrow(/ci:42 does not hold.*CI: failure.*can stand in/s);
         await expect(refusal).rejects.toMatchObject({
-          fix: expect.stringMatching(/fix CI .*tool:test.*tool:lint;tool:typecheck/),
+          fix: expect.stringMatching(/fix CI .*test-run:.*cover every file of the change.*qa-run:/),
         });
       });
     });

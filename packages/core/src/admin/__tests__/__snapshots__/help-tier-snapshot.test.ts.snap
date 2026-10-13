@@ -514,6 +514,7 @@ exports[`cleo ops — real-registry tier-filter regression lock (T9845) > Tier 1
       "sync",
       "import",
       "doctor",
+      "migrate",
       "update",
     ],
     "query": [
@@ -1017,6 +1018,7 @@ exports[`cleo ops — real-registry tier-filter regression lock (T9845) > Tier 2
       "sync",
       "import",
       "doctor",
+      "migrate",
       "update",
     ],
     "query": [

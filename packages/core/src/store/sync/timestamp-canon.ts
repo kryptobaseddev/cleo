@@ -139,6 +139,9 @@ export const SYNC_TIMESTAMP_COLUMNS: Readonly<
     // T13359 (decisions vs ADRs): created_at is the birth, updated_at moves
     // exactly once — the revoke tombstone latch.
     decision_adr_links: ['created_at', 'updated_at'],
+    // T13360 (legacy docs migration): migrated_at is stamped once when the
+    // receipt is written and never moves (append-only ledger).
+    conduit_doc_migration_ledger: ['migrated_at'],
   },
   global: {
     brain_decisions: ['created_at', 'updated_at', 'valid_at', 'invalid_at', 'tier_promoted_at'],

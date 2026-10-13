@@ -1,7 +1,7 @@
 ---
 name: ct-documentor
 description: Documentation coordinator with CLEO style guide compliance. Routes every canonical-doc write (spec, adr, research, handoff, note, llm-readme) through the docs SSoT via `cleo docs add` / `cleo docs publish` / `cleo docs fetch` — never raw filesystem writes. Carries the CLEO writing and review guides as references and coordinates ct-spec-writer and ct-adr-recorder. Use when creating or updating documentation files, consolidating scattered documentation, or validating documentation against style standards. Triggers on documentation tasks, doc update requests, or style guide compliance checks.
-version: 3.20.0
+version: 3.22.0
 protocol: null
 dependencies:
   - ct-spec-writer
@@ -16,13 +16,13 @@ compatibility:
   - gemini-cli
 license: MIT
 metadata:
-  version: 3.20.0
+  version: 3.22.0
   tier: core
   install: harness
   covers:
     - packages/cleo/src/cli/commands/docs.ts
     - packages/contracts/src/docs-taxonomy.ts
-  lastReviewed: 2026-10-11
+  lastReviewed: 2026-10-12
   stability: stable
 ---
 
@@ -49,11 +49,15 @@ surfaces** — do not present them as the default path to agents.
 | `remove` | Detach a doc from an owner | Cleanup, de-duplication |
 | `publish` | Mirror an SSoT blob to a git-tracked path | When a doc must live on disk |
 
-**Legacy verbs** (advanced / migration surfaces only):
-`supersede`, `find --similar`, `graph`, `versions`, `sync`, `search`,
-`merge`, `rank`, `generate`, `export`, `schema`, `list-types`,
-`serve`/`open`/`stop`/`viewer-status`, `status`/`gap-check`, `import`,
+**Advanced verbs** (beyond the canonical six):
+`supersede`, `query --similar`, `graph`, `versions`, `sync`, `merge`,
+`schema`, `list-types`, `serve`/`open`/`stop`/`viewer-status`, `status`,
 `publish-pr`, `doctor`.
+
+T13361 retired the legacy verbs `search`, `find`, `rank` (use `query`),
+`generate`, `export` (use `llm-output`), `gap-check` (use `check`), and
+`import`; `sync` stays until the T9645 reingest workflow migrates, and
+`status` stays agent-facing per `cleodocs-rearch-design` §6.
 
 `cleo docs stats` (T13363) is a read-only adoption-metrics probe: add:update
 ratio from the docs audit log, loose-markdown count (gitignore-aware scan),
@@ -65,6 +69,17 @@ pointers, docVersion skew vs the audit log, empty topics/related_tasks,
 `docs_wikilinks` drift, legacy store surfaces, stale drafts — and with
 `--apply` repairs them after creating a backup automatically. Use it for
 store hygiene checks; it never edits doc content.
+
+`cleo docs migrate` (T13360) imports legacy docs + history into the re-keyed
+conduit store inside the migration safety harness (pre-step backup, verified
+rollback, COMMIT only on full verification). It is additive and idempotent:
+every imported history row is labeled `origin: migrated`, authors come from
+the legacy audit log (or the honest `system:migration` attribution — never
+invented), docs whose content pointers dangle are content-captured or
+recorded dangling in `conduit_doc_migration_ledger`, and a re-run is a
+verified no-op. Legacy slugs that already exist natively are counted as
+native-conflict skips, never clobbered. Run it once per project before the
+T13361/T13362 retirement lands; it needs no `--force`.
 
 For discovery (`find`, `search`, `schema`, `list-types`), prefer `cleo docs list`
 first — it returns slug + owner + type without forcing a filesystem walk. Use
@@ -102,7 +117,7 @@ Context injection for documentation tasks spawned via cleo-subagent. Orchestrate
 
 | Skill | Purpose | Invoke When |
 |-------|---------|-------------|
-| `cleo docs find` / `list` / `fetch` (and the Context7 MCP for library APIs) | Query existing docs and current external docs | Discovery phase, checking what exists |
+| `cleo docs query` / `list` / `fetch` (and the Context7 MCP for library APIs) | Query existing docs and current external docs | Discovery phase, checking what exists |
 | `references/writing.md` (was ct-docs-write) | Create/edit docs via `cleo docs add` with CLEO style | Writing or updating content |
 | `references/reviewing.md` (was ct-docs-review) | Check compliance with style guide, read through `cleo docs fetch`; PR mode | Quality validation before completion |
 | `ct-spec-writer` | Author specs (REQ-XXX requirements) via `cleo docs add --type spec` | Formal specification work |
@@ -167,7 +182,7 @@ Before adding a new doc, ALWAYS ask: is this **a new doc**, **a change to an exi
 └─────────────────────────────────────────────────────────────────────┘
 ```
 
-**Canonical discovery path**: `cleo docs list` (browse by owner/type) → `cleo docs fetch <slug>` (read). Reserve `cleo docs find --similar` (ADVANCED — T10163) for near-duplicate collision checks and `cleo docs search` for semantic queries.
+**Canonical discovery path**: `cleo docs list` (browse by owner/type) → `cleo docs fetch <slug>` (read). Reserve `cleo docs query --similar <slug>` (ADVANCED — T10163) for near-duplicate collision checks and `cleo docs query "<text>"` for semantic queries.
 
 ### Examples
 
@@ -178,7 +193,7 @@ Before adding a new doc, ALWAYS ask: is this **a new doc**, **a change to an exi
 
 - **"Replace the entire saga-orchestration model with v2" (ADVANCED)** - `cleo docs add T9999 v2.md --type adr --slug adr-080-saga-orchestration-v2` followed by `cleo docs supersede adr-073-above-epic-naming adr-080-saga-orchestration-v2 --reason "v2 canonicalizes the SG- prefix + 4-tier hierarchy"`. Both rows survive in the attachments table; readers see `lifecycle_status=superseded` on v1 and `supersedes=adr-073` on v2.
 
-- **"Drafting a new spec for the BRAIN recovery pipeline"** - FIRST run `cleo docs list --type spec` to browse existing specs (canonical discovery). If a matching spec exists, use `cleo docs update`. If no match, proceed with `cleo docs add T#### draft.md --type spec --slug spec-brain-recovery-pipeline`. The `cleo docs find --similar brain-recovery` path is the ADVANCED collision-detection surface - use only when `list` is insufficient.
+- **"Drafting a new spec for the BRAIN recovery pipeline"** - FIRST run `cleo docs list --type spec` to browse existing specs (canonical discovery). If a matching spec exists, use `cleo docs update`. If no match, proceed with `cleo docs add T#### draft.md --type spec --slug spec-brain-recovery-pipeline`. The `cleo docs query --similar brain-recovery` path is the ADVANCED collision-detection surface - use only when `list` is insufficient.
 
 - **"Auditing the supersession chain for ADR-039" (ADVANCED)** - `cleo docs graph --root adr-039-lafs-envelope-unification --depth 3`. Returns a DocProvenanceGraph envelope (T10166 contract) with nodes + edges, optionally `--format dot` for graphviz visualization.
 
@@ -186,7 +201,7 @@ Before adding a new doc, ALWAYS ask: is this **a new doc**, **a change to an exi
 
 - ❌ Calling `cleo docs add` with a slug that's only a typo-distance away from an existing doc — the auto-warn (T10167) fires `W_SLUG_SIMILAR`; respect it and route to `cleo docs update` instead of bypassing with `--allow-similar`.
 - ❌ Editing a `.cleo/adrs/*.md` file directly with `Write` — bypasses the SSoT writer; T10366 `WriterRegistry` is the chokepoint and the docs SSoT will reconcile auto-emit drift.
-- ❌ Creating a new doc when an existing one needs updating — bloats the attachments table and breaks lineage. The decision tree above resolves this — when in doubt, run `cleo docs list` first, or `cleo docs find --similar <proposed-slug>` (ADVANCED) as a last resort.
+- ❌ Creating a new doc when an existing one needs updating — bloats the attachments table and breaks lineage. The decision tree above resolves this — when in doubt, run `cleo docs list` first, or `cleo docs query --similar <proposed-slug>` (ADVANCED) as a last resort.
 
 ## Through SDK (preferred)
 

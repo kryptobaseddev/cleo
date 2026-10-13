@@ -1186,6 +1186,10 @@ export function readSealedCredentials(
  * store. Captures and side effects are suspended: a restored value is not a
  * change to journal.
  *
+ * Cells are matched by row uid. A row this machine holds under another uid
+ * (carried by its natural key, such as an account's provider and label) is
+ * not filled from the sealed cell: its local value wins (T13545).
+ *
  * @param stagedDbPath - The staged snapshot (never a live store).
  * @param values - Each cell's value, already encrypted under this machine's key.
  * @returns The cells filled.
@@ -1224,4 +1228,28 @@ export function fillSnapshotCredentials(
     staged.close();
   }
   return filled;
+}
+
+/**
+ * Drop {@link VAULT_SEALED_CREDENTIALS_TABLE} from a store a bundle import
+ * just placed, when it is there (T13545). The vault restore drops it from its
+ * staged copy itself; any other importer of a global vault bundle relies on
+ * this so the sidecar never stays in a live store. A no-op otherwise.
+ *
+ * @param dbPath - The placed `cleo.db`.
+ * @returns Whether a sidecar was dropped.
+ */
+export function dropSealedCredentialsSidecar(dbPath: string): boolean {
+  if (!fs.existsSync(dbPath)) return false;
+  const db = new DatabaseSync(dbPath); // schema-guard-exempt: the store a bundle import just placed; drops only the vault sidecar table
+  try {
+    const present = db
+      .prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?")
+      .get(VAULT_SEALED_CREDENTIALS_TABLE);
+    if (present === undefined) return false;
+    db.exec(`DROP TABLE ${quoteIdent(VAULT_SEALED_CREDENTIALS_TABLE)}`);
+    return true;
+  } finally {
+    db.close();
+  }
 }
