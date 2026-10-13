@@ -67,12 +67,13 @@
 
 import { createHash } from 'node:crypto';
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
-import { mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
+import { readFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { isAbsolute, join, resolve, sep } from 'node:path';
 import { getCleoWorktreesRoot } from '@cleocode/paths';
 import { eq } from 'drizzle-orm';
 import { resolveCleoDir } from '../paths.js';
+import { fileBytesMatchSha256, writeFileAtomic } from '../store/atomic-write.js';
 import { createAttachmentStore } from '../store/attachment-store.js';
 import { blobContentExists, blobFilePath } from '../store/blob-keep.js';
 import { docsWikilinks } from '../store/schema/attachments.js';
@@ -430,28 +431,13 @@ export async function backfillBlobStoreBytes(
   const actual = createHash('sha256').update(bytes).digest('hex');
   if (actual !== sha256) return 'unverified';
 
-  if (existsSync(target)) {
-    try {
-      const existing = await readFile(target);
-      if (createHash('sha256').update(existing).digest('hex') === sha256) return 'present';
-    } catch {
-      // Target unreadable — fall through and replace it from the verified source.
-    }
-  }
+  if (await fileBytesMatchSha256(target, sha256)) return 'present';
 
-  // Tmp-then-rename (T11997 ordering): a crash mid-write leaves only the tmp
-  // file behind, never a truncated blob at the content address.
-  await mkdir(join(cleoDir, 'blobs', 'blobs'), { recursive: true });
-  const tmp = `${target}.backfill-tmp.${process.pid}`;
-  try {
-    await writeFile(tmp, bytes);
-    await rename(tmp, target);
-  } catch (err) {
-    await rm(tmp, { force: true }).catch(() => {
-      /* tmp already gone — nothing to clean */
-    });
-    throw err;
-  }
+  // Crash-safe via the shared atomic writer (T13657): a unique tmp file
+  // renamed into place — an interrupted write never leaves a truncated blob
+  // at the final content address (which later runs would count as present
+  // and `blobReadBySha` would then reject as corrupt with no heal path).
+  await writeFileAtomic(target, bytes);
   return 'written';
 }
 

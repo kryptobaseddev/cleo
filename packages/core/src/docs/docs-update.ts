@@ -36,6 +36,7 @@ import { DOCS_LIFECYCLE_STATUSES } from '@cleocode/contracts/operations/docs.js'
 import { and, eq } from 'drizzle-orm';
 import { pushWarning } from '../output.js';
 import { getCleoDirAbsolute, resolveCleoDir } from '../paths.js';
+import { fileBytesMatchSha256, writeFileAtomic } from '../store/atomic-write.js';
 import { resolveBoundSession } from '../store/session-store.js';
 import { getDb, getNativeTasksDb } from '../store/sqlite.js';
 import { attachmentRefs, docsAttachments } from '../store/tasks-schema.js';
@@ -650,17 +651,19 @@ export async function updateDocBySlug(
     }
   }
 
-  // T13362/T13653: mirror the verified bytes into the content-addressed
+  // T13362/T13653/T13657: mirror the verified bytes into the content-addressed
   // blob store — the canonical read location since the legacy tree's read
-  // paths retired. Skip when the sha is already present (content-addressed
-  // dedup: a prior put or update wrote the same bytes).
+  // paths retired. An existing target is RE-HASHED, never trusted on
+  // existence alone: a truncated leftover from an interrupted pre-atomic
+  // write is replaced from these verified bytes, a matching one is skipped
+  // (content-addressed dedup). The write goes through the shared atomic
+  // writer (unique tmp + rename), so a crash never leaves a partial file
+  // that later runs would count as present.
   {
-    const { existsSync } = await import('node:fs');
     const blobStoreFile = join(resolveCleoDir(projectRoot), 'blobs', 'blobs', newSha256);
-    if (!existsSync(blobStoreFile)) {
+    if (!(await fileBytesMatchSha256(blobStoreFile, newSha256))) {
       try {
-        await mkdir(join(blobStoreFile, '..'), { recursive: true });
-        await writeFile(blobStoreFile, buf);
+        await writeFileAtomic(blobStoreFile, buf);
       } catch (cause) {
         return {
           ok: false,

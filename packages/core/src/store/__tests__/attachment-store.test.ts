@@ -8,7 +8,7 @@
  * @task T796
  */
 
-import { mkdtemp, rm, stat } from 'node:fs/promises';
+import { mkdir, mkdtemp, readdir, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
@@ -92,6 +92,50 @@ describe('AttachmentStore', () => {
 
     // Two distinct refs → refCount = 2.
     expect(meta2.refCount).toBe(2);
+  });
+
+  // ──────────────────────────────────────────────────────────────────────────
+  // T13657: a truncated pre-existing blob-store file is healed, not trusted
+  // ──────────────────────────────────────────────────────────────────────────
+
+  it('heals a truncated pre-existing blob-store file from the verified bytes (T13657)', async () => {
+    const { createHash } = await import('node:crypto');
+    const { createAttachmentStore } = await import('../attachment-store.js');
+    const { closeDb } = await import('../sqlite.js');
+    closeDb();
+
+    const store = createAttachmentStore();
+    const bytes = Buffer.from('Verified bytes for the heal test.', 'utf-8');
+    const sha256 = createHash('sha256').update(bytes).digest('hex');
+
+    // Simulate the crash the atomic write prevents: truncated bytes already
+    // sit at the content address (an interrupted pre-atomic write).
+    const blobStoreFile = join(tempDir, '.cleo', 'blobs', 'blobs', sha256);
+    await mkdir(join(blobStoreFile, '..'), { recursive: true });
+    await writeFile(blobStoreFile, bytes.subarray(0, 7));
+    expect(
+      createHash('sha256')
+        .update(await readFile(blobStoreFile))
+        .digest('hex'),
+    ).not.toBe(sha256);
+
+    const meta = await store.put(
+      bytes,
+      { kind: 'blob', storageKey: '', mime: 'text/plain', size: bytes.length },
+      'task',
+      'T001',
+    );
+    expect(meta.sha256).toBe(sha256);
+
+    // Healed: the store file now re-hashes to its content address.
+    const healed = await readFile(blobStoreFile);
+    expect(createHash('sha256').update(healed).digest('hex')).toBe(sha256);
+
+    // No tmp artifact left behind.
+    const leftovers = (await readdir(join(tempDir, '.cleo', 'blobs', 'blobs'))).filter((n) =>
+      n.includes('.tmp'),
+    );
+    expect(leftovers).toEqual([]);
   });
 
   // ──────────────────────────────────────────────────────────────────────────
