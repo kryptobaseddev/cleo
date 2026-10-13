@@ -1704,6 +1704,32 @@ describe('a stored typed pass bound to an older definition is not a pass (T13463
     expect(plan.typedGates.map((g) => g.status)).toEqual(['not-run']);
   });
 
+  it('T13655: a not-run typed gate blocks the plan, as completion refuses it', async () => {
+    const stale = await withStoredPass(current, (b) => ({ ...b, taskId: 'T999999' }));
+    expect(stale.ready).toBe(false);
+    const blocker = stale.blockers.find((b) => b.code === 'typed-gate-not-run');
+    expect(blocker?.next.command).toMatch(/cleo verify T\d+ --run && cleo done T\d+/);
+  });
+
+  it('T13655: with --run-typed the not-run typed gate runs in cleo done, so it does not block', async () => {
+    const id = await seedTask(['Change src/a.ts']);
+    commitOnTaskBranch(id);
+    await reqAdd(root, id, gate, env.accessor);
+    const plan = await deriveTaskEvidence(id, {
+      projectRoot: root,
+      cwd: root,
+      deps,
+      runTyped: true,
+    });
+    expect(plan.typedGates.map((g) => g.status)).toEqual(['not-run']);
+    expect(plan.blockers.map((b) => b.code)).not.toContain('typed-gate-not-run');
+  });
+
+  it('T13655: a current typed pass raises no typed-gate-not-run blocker', async () => {
+    const fresh = await withStoredPass(current);
+    expect(fresh.blockers.map((b) => b.code)).not.toContain('typed-gate-not-run');
+  });
+
   it('T13502: a binding to another criterion id reads not-run', async () => {
     const plan = await withStoredPass(current, (b) => ({ ...b, criterionId: 'not-this-row' }));
     expect(plan.typedGates.map((g) => g.status)).toEqual(['not-run']);

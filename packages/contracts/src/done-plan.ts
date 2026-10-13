@@ -66,6 +66,7 @@ export type DonePlanBlockerCode =
   | 'tool-unresolved'
   | 'tool-failed'
   | 'typed-gate-failed'
+  | 'typed-gate-not-run'
   | 'test-run-needed'
   | 'qa-run-needed'
   | 'ac-mapping-needed'
