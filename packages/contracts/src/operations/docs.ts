@@ -347,6 +347,22 @@ export interface DocsFetchParams {
 }
 
 /**
+ * Advisory section-lease notice (T13356): the named section is leased by
+ * another session, so the caller's edit went through uncoordinated. Leases
+ * are advisory — this is the 409 equivalent as data, never a failure.
+ */
+export interface DocsSectionLeaseNotice {
+  /** The leased section the update edited. */
+  sectionId: string;
+  /** The current holder agent id. */
+  holder: string;
+  /** The current holder's session id. */
+  sessionId: string;
+  /** When the blocking lease expires without renew (ISO-8601). */
+  expiresAt: string;
+}
+
+/**
  * One recorded non-append concurrent section edit on the CRDT write path
  * (T13595, surfaced T13604): the incoming edit landed as its own version
  * row (append-only history preserves both) while the head kept the stored
@@ -878,6 +894,14 @@ export interface DocsUpdateResult {
    * the same sections.
    */
   sectionConflicts?: DocsSectionConflict[];
+  /**
+   * Advisory section-lease notices from the CRDT write path (T13356): a
+   * section the update edited is leased by ANOTHER live session — the edit
+   * PROCEEDED anyway (leases are advisory: "409 is a social signal, not a
+   * hard lock", llmtxt T285). A `W_DOC_SECTION_LEASED` warning names the
+   * same sections and holders. Absent when no section was leased elsewhere.
+   */
+  leaseNotices?: DocsSectionLeaseNotice[];
 }
 
 // --------------------------------------------------------------------------

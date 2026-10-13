@@ -1987,6 +1987,11 @@ const _docsTypedHandler = defineTypedHandler<DocsTypedOps>('docs', {
         ...(outcome.result.sectionConflicts !== undefined
           ? { sectionConflicts: outcome.result.sectionConflicts }
           : {}),
+        // T13356 — advisory lease notices reach the envelope too: sections
+        // leased by other sessions; the edit proceeded anyway.
+        ...(outcome.result.leaseNotices !== undefined
+          ? { leaseNotices: outcome.result.leaseNotices }
+          : {}),
         // T11053 — surface which backend stored the updated blob so
         // observability consumers can confirm the V2 mirror succeeded.
         attachmentBackend: backend as DocsUpdateResult['attachmentBackend'],

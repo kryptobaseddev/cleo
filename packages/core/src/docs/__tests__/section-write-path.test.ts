@@ -31,8 +31,9 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { ResolvedDoc } from '../docs-read-model.js';
 import { updateDocBySlug } from '../docs-update.js';
 import { buildDocsFetchResult } from '../fetch-result.js';
+import { listSectionLeases, SectionLeaseManager } from '../section-leases.js';
 import { sectionStateText } from '../section-merge.js';
-import { projectDocUpdateThroughSections } from '../section-write-path.js';
+import { projectDocUpdateThroughSections, releaseSectionLeases } from '../section-write-path.js';
 
 let tempDir: string;
 
@@ -83,6 +84,210 @@ afterEach(async () => {
   closeDb();
   delete process.env['CLEO_DIR'];
   await rm(tempDir, { recursive: true, force: true });
+});
+
+describe('lease coordination through the write path (T13356)', () => {
+  const S1_BASE = '## Alpha\n\nalpha body';
+
+  /** A lease manager on the temp store for the given session. */
+  const leases = (sessionId: string, now?: () => number): SectionLeaseManager =>
+    new SectionLeaseManager(tempDir, { sessionId, ...(now !== undefined ? { now } : {}) });
+
+  it('acquires advisory leases for the sections an edit touches (AC2)', async () => {
+    const result = await projectDocUpdateThroughSections(tempDir, {
+      slug: 'plan-doc',
+      authorAgentId: 'agent-edit',
+      sessionId: 'ses-edit',
+      content: DOC_V1,
+      hlc: hlcAt(1000),
+    });
+    expect(result.leaseNotices).toEqual([]);
+
+    const held = await listSectionLeases(tempDir, 'plan-doc');
+    expect(held.map((l) => l.sectionId).sort()).toEqual(['s0', 's1', 's2']);
+    for (const lease of held) {
+      expect(lease.sessionId).toBe('ses-edit');
+      expect(lease.holder).toBe('agent-edit');
+    }
+  });
+
+  it('AC3: a section leased by another live session yields an advisory notice — and the edit still lands', async () => {
+    // Another session holds s1.
+    const other = leases('ses-other');
+    const foreign = await other.acquire('plan-doc', 's1', 60, 'editing elsewhere');
+    expect(foreign.ok).toBe(true);
+
+    const incoming = DOC_V1.replace(S1_BASE, '## Alpha\n\nREPLACED body');
+    const result = await projectDocUpdateThroughSections(tempDir, {
+      slug: 'plan-doc',
+      authorAgentId: 'agent-edit',
+      sessionId: 'ses-edit',
+      content: incoming,
+      hlc: hlcAt(2000),
+    });
+
+    // Advisory, not a hard failure: the notice names the holder…
+    expect(result.leaseNotices).toHaveLength(1);
+    expect(result.leaseNotices[0]?.sectionId).toBe('s1');
+    expect(result.leaseNotices[0]?.sessionId).toBe('ses-other');
+    expect(result.leaseNotices[0]?.expiresAt).toBeTruthy();
+    // …and the edit PROCEEDED: exact projection, head advanced.
+    expect(result.mergedText).toBe(incoming);
+    expect(result.head.advanced).toBe(true);
+    // The foreign lease stands untouched.
+    expect((await leases('ses-edit').status('plan-doc', 's1'))?.sessionId).toBe('ses-other');
+  });
+
+  it('renews on continued edits within a session without a notice (AC2)', async () => {
+    const first = await projectDocUpdateThroughSections(tempDir, {
+      slug: 'plan-doc',
+      authorAgentId: 'agent-edit',
+      sessionId: 'ses-edit',
+      content: DOC_V1,
+      hlc: hlcAt(1000),
+    });
+    expect(first.leaseNotices).toEqual([]);
+    const before = await leases('ses-edit').status('plan-doc', 's1');
+    expect(before?.sessionId).toBe('ses-edit');
+
+    const second = await projectDocUpdateThroughSections(tempDir, {
+      slug: 'plan-doc',
+      authorAgentId: 'agent-edit',
+      sessionId: 'ses-edit',
+      content: DOC_V2,
+      hlc: hlcAt(2000),
+    });
+    // Our own held lease renews instead of conflicting — no notice.
+    expect(second.leaseNotices).toEqual([]);
+    const after = await leases('ses-edit').status('plan-doc', 's1');
+    expect(after?.leaseId).toBe(before?.leaseId);
+    expect(after?.sessionId).toBe('ses-edit');
+  });
+
+  it("release path: releaseSectionLeases frees the session's sections on completion (AC2)", async () => {
+    await projectDocUpdateThroughSections(tempDir, {
+      slug: 'plan-doc',
+      authorAgentId: 'agent-edit',
+      sessionId: 'ses-edit',
+      content: DOC_V1,
+      hlc: hlcAt(1000),
+    });
+    expect(await listSectionLeases(tempDir, 'plan-doc')).toHaveLength(3);
+
+    const released = await releaseSectionLeases(tempDir, 'plan-doc', 'ses-edit');
+    expect(released.sort()).toEqual(['s0', 's1', 's2']);
+    expect(await listSectionLeases(tempDir, 'plan-doc')).toEqual([]);
+
+    // The next editor acquires without a notice.
+    const next = await projectDocUpdateThroughSections(tempDir, {
+      slug: 'plan-doc',
+      authorAgentId: 'agent-next',
+      sessionId: 'ses-next',
+      content: DOC_V2,
+      hlc: hlcAt(2000),
+    });
+    expect(next.leaseNotices).toEqual([]);
+  });
+
+  it('AC4: an expired foreign lease (dead session, TTL passed) is stale — takeover without a notice', async () => {
+    // A foreign session whose clock ran 10 s ago acquires with a 1 s TTL:
+    // its lease expired before it was even written, relative to real time.
+    const dead = leases('ses-dead', () => Date.now() - 10_000);
+    const stale = await dead.acquire('plan-doc', 's1', 1, 'died mid-edit');
+    expect(stale.ok).toBe(true);
+
+    const incoming = DOC_V1.replace(S1_BASE, '## Alpha\n\nREPLACED body');
+    const result = await projectDocUpdateThroughSections(tempDir, {
+      slug: 'plan-doc',
+      authorAgentId: 'agent-edit',
+      sessionId: 'ses-edit',
+      content: incoming,
+      hlc: hlcAt(2000),
+    });
+    expect(result.leaseNotices).toEqual([]);
+    const taken = await leases('ses-edit').status('plan-doc', 's1');
+    expect(taken?.sessionId).toBe('ses-edit');
+    expect(taken?.holder).toBe('agent-edit');
+  });
+
+  it('uncoordinated when no session is resolvable: edit lands, no leases, no notices', async () => {
+    const result = await projectDocUpdateThroughSections(tempDir, {
+      slug: 'plan-doc',
+      authorAgentId: 'agent-edit',
+      content: DOC_V1,
+      hlc: hlcAt(1000),
+    });
+    expect(result.leaseNotices).toEqual([]);
+    expect(await listSectionLeases(tempDir, 'plan-doc')).toEqual([]);
+  });
+});
+
+describe('docs-update envelope: advisory lease notices (T13356)', () => {
+  it('updateDocBySlug threads leaseNotices into the result and queues W_DOC_SECTION_LEASED', async () => {
+    // Seed the legacy row so updateDocBySlug finds the slug.
+    const v0 = '# Plan\n\nv0 body';
+    const { getDb } = await import('../../store/sqlite.js');
+    const { attachments } = await import('../../store/tasks-schema.js');
+    const db = await getDb(tempDir);
+    const sha0 = (await import('node:crypto'))
+      .createHash('sha256')
+      .update(v0, 'utf-8')
+      .digest('hex');
+    await db
+      .insert(attachments)
+      .values({
+        id: 'legacy-plan',
+        sha256: sha0,
+        attachmentJson: JSON.stringify({ kind: 'blob', sha256: sha0 }),
+        createdAt: new Date().toISOString(),
+        refCount: 0,
+        slug: 'plan-doc',
+        lifecycleStatus: 'draft',
+        docVersion: 1,
+      })
+      .run();
+
+    // Bound session for the caller (gate-16 resolution): seed the session
+    // row and name it via the env tier. The table object is the live
+    // `tasksSessions` (re-exported as `sessions` from tasks-schema), the
+    // same one session-store reads.
+    const { sessions } = await import('../../store/tasks-schema.js');
+    await db
+      .insert(sessions)
+      .values({ id: 'ses-caller', name: 'lease-envelope-test', status: 'active' })
+      .run();
+    process.env['CLEO_SESSION_ID'] = 'ses-caller';
+
+    const first = await updateDocBySlug(tempDir, { slug: 'plan-doc', content: DOC_V1 });
+    expect(first.ok).toBe(true);
+
+    // Another session holds s1 while the caller edits it. (The first update
+    // acquired the caller's own leases — release them so the foreign lease
+    // actually lands.)
+    await releaseSectionLeases(tempDir, 'plan-doc', 'ses-caller');
+    const other = new SectionLeaseManager(tempDir, { sessionId: 'ses-other' });
+    const foreign = await other.acquire('plan-doc', 's1', 60, 'held elsewhere');
+    expect(foreign.ok).toBe(true);
+    const { drainWarnings } = await import('../../output.js');
+    drainWarnings();
+
+    const incoming = DOC_V1.replace('## Alpha\n\nalpha body', '## Alpha\n\nREPLACED body');
+    const second = await updateDocBySlug(tempDir, { slug: 'plan-doc', content: incoming });
+    expect(second.ok).toBe(true);
+    if (!second.ok) throw new Error('unreachable');
+    expect(second.result.leaseNotices).toHaveLength(1);
+    expect(second.result.leaseNotices?.[0]?.sectionId).toBe('s1');
+    expect(second.result.leaseNotices?.[0]?.sessionId).toBe('ses-other');
+    // The edit still landed (advisory, AC3).
+    expect(second.result.changed).toBe(true);
+
+    const warnings = drainWarnings() ?? [];
+    const leaseWarning = warnings.find((w) => w.code === 'W_DOC_SECTION_LEASED');
+    expect(leaseWarning).toBeDefined();
+    expect(leaseWarning?.message).toContain("'s1'");
+    expect(leaseWarning?.message).toContain('ses-other');
+    delete process.env['CLEO_SESSION_ID'];
+  });
 });
 
 describe('projectDocUpdateThroughSections (T13355)', () => {
