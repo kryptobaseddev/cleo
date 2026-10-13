@@ -2,7 +2,7 @@
 name: ct-council
 description: Convene "The Council" — a 5-advisor, shuffled gate-based peer-review, chairman-synthesis workflow for reviewing a plan, decision, architecture, or piece of work inside the current project. Use when the user says "convene the council" (or "counsel"), "get the council on this", "council review", "run the five advisors", "stress-test this", "get multiple perspectives", or asks for a rigorous multi-angle challenge of a proposal (Contrarian, First Principles, Expansionist, Outsider, Executor → shuffled peer review with pass/fail gates → convergence detector → Chairman verdict). Operates on the current codebase — each advisor grounds their analysis in actual files/commits before opining. Output is validated by scripts/validate.py.
 metadata:
-  version: 1.0.0
+  version: 1.1.1
   tier: on-demand
   install: harness
   stability: stable
@@ -67,6 +67,7 @@ Every run lives under a run directory (`<run-dir>/`, created by `scripts/run_cou
 | `<run-dir>/phase3.md` | **Orchestrator** (or Chairman agent if delegated) | Phase 3 |
 | `<run-dir>/output.md` | **Orchestrator** (assembled from above) | After Phase 3 |
 | `<run-dir>/verdict.md`, `tldr.md` | **Auto-generated** by `run_council.py ingest` | After validate |
+| CleoDocs store doc (slug `council-run-<run_id>`) | **Auto-written** by `run_council.py ingest` via `cleo docs add`/`cleo docs update` | After validate (T13363 AC2) |
 
 The agent file-write contract: each Phase-1 / Phase-2 subagent must use the `Write` tool to save its full output markdown to the path above and return ONLY a one-line confirmation. The orchestrator does NOT include the agent's full output in its return-context — that bloats the orchestrator window unnecessarily.
 
@@ -295,7 +296,7 @@ The `--title` flag is optional; if omitted the title is auto-derived from the qu
 
 ### Validation + auto-generation
 
-`scripts/run_council.py ingest <run-dir>` validates `output.md`, then automatically writes `verdict.md` and `tldr.md` to the same run dir, then appends a telemetry record to `.cleo/council-runs.jsonl`. Direct usage:
+`scripts/run_council.py ingest <run-dir>` validates `output.md`, then automatically writes `verdict.md` and `tldr.md` to the same run dir, then appends a telemetry record to `.cleo/council-runs.jsonl`, then pushes the assembled `output.md` into the CleoDocs store as a sectioned `note` doc. Direct usage:
 
 ```bash
 # Full output (default)
@@ -306,8 +307,29 @@ python3 scripts/validate.py --phase 0 <phase0.md>  # only H1 + evidence pack
 python3 scripts/validate.py --phase 1 <file.md>    # +5 advisor sections
 python3 scripts/validate.py --phase 2 <file.md>    # +5 peer reviews
 
-python3 scripts/run_council.py ingest <run-dir>  # validate + verdict.md + tldr.md + telemetry
+python3 scripts/run_council.py ingest <run-dir>  # validate + verdict.md + tldr.md + telemetry + store doc
 ```
+
+### Store write (T13363 AC2)
+
+`ingest` also pushes the run's output document into the CleoDocs store so the per-phase
+`##` sections land as CRDT-merged sections instead of only loose files:
+
+- **Slug** — `council-run-<run_id>` (stable per run; re-ingesting the same run updates
+  the same doc instead of creating a new one). The slug is stamped into the INDEX entry
+  as `docs_slug` only when the store write succeeded.
+- **Kind** — `note`; owner is `--owner <id>` if passed, else the `CLEO_SESSION_ID`
+  environment variable, else the session the CLI binds to (`cleo session status`; under
+  Claude Code only `CLAUDE_CODE_SESSION_ID` is set and the CLI resolves it). The markdown
+  is piped via `--content -` (stdin), never argv.
+- **Ordered, non-fatal + additive** — the store write runs after the telemetry record and
+  the INDEX entry are written; those and the raw run dir remain the source of truth. Every
+  `cleo` call has a 60 s timeout. If it fails, times out, or no owner is resolvable,
+  ingest logs a warning and continues. `--no-store` skips the write.
+
+Retrieve a run's doc with `cleo docs fetch council-run-<run_id>`; each re-ingest that
+changes the bytes bumps the doc's version (see the `docVersion` field in the update
+envelope).
 
 The validator **auto-detects partial files** when no `--phase` is passed: if no Phase 3 header is present, it validates up to the highest phase the file contains and prints a stderr suggestion. This prevents the "12 missing-section errors" wall of red when you're checking a phase0.md or phase1-*.md mid-flight.
 
