@@ -380,6 +380,51 @@ export const conduitDocMigrationLedger = sqliteTable(
   ],
 );
 
+/**
+ * `docs_publications` — the publication ledger, one row per published
+ * (owner, blob, path) triple (T13362). Store-backed replacement for the
+ * deprecated `.cleo/docs-publications.json` sidecar: `cleo docs publish`
+ * records an upsert here, `cleo docs status` / the pre-commit drift hook /
+ * the attachment janitor read it back.
+ *
+ * Syncing (portable-project) with a NATURAL row identity over
+ * (owner_id, blob_name, published_path): both devices derive the same uid
+ * for one triple, so a re-publish on either device coalesces onto the same
+ * row. `uid` is declared LAST on purpose (the row-identity heal appends a
+ * missing uid column at the end, T13359 precedent); the migration that
+ * creates this table deliberately does NOT create the uid UNIQUE index —
+ * `ensureRowIdentitySchema` owns `uq_docs_publications_uid` at every open.
+ *
+ * @task T13362
+ */
+export const docsPublications = sqliteTable(
+  'docs_publications',
+  {
+    /** Owner entity ID whose blob was published (e.g. `"T123"`). */
+    ownerId: text('owner_id').notNull(),
+    /** Attachment name as stored in the blob manifest. */
+    blobName: text('blob_name').notNull(),
+    /** Project-root-relative path the bytes were written to. */
+    publishedPath: text('published_path').notNull(),
+    /** SHA-256 of the blob bytes at the time of publish. */
+    lastBlobSha: text('last_blob_sha').notNull(),
+    /** ISO-8601 timestamp of the latest publish event for this record. */
+    publishedAt: text('published_at').notNull(),
+    /**
+     * Natural row uid over (owner_id, blob_name, published_path) (T12341).
+     * Declared LAST on purpose: the row-identity heal appends a missing uid
+     * column at the end, and Gate B's replay compares column order between a
+     * rebuilt store and a written one.
+     */
+    uid: text('uid'),
+  },
+  (table) => [
+    primaryKey({ columns: [table.ownerId, table.blobName, table.publishedPath] }),
+    index('idx_docs_publications_published_path').on(table.publishedPath),
+    uniqueIndex('uq_docs_publications_uid').on(table.uid),
+  ],
+);
+
 // === TYPE EXPORTS ===
 
 /** Row type for `decision_adr_links` SELECT queries (target shape). */
@@ -390,6 +435,10 @@ export type NewDecisionAdrLinkRow = typeof decisionAdrLinks.$inferInsert;
 export type ConduitDocMigrationLedgerRow = typeof conduitDocMigrationLedger.$inferSelect;
 /** Row type for `conduit_doc_migration_ledger` INSERT operations. */
 export type NewConduitDocMigrationLedgerRow = typeof conduitDocMigrationLedger.$inferInsert;
+/** Row type for `docs_publications` SELECT queries. */
+export type DocsPublicationRow = typeof docsPublications.$inferSelect;
+/** Row type for `docs_publications` INSERT operations. */
+export type NewDocsPublicationRow = typeof docsPublications.$inferInsert;
 /** Row type for `docs_attachments` SELECT queries (target shape). */
 export type DocsAttachmentRow = typeof docsAttachments.$inferSelect;
 /** Row type for `docs_attachments` INSERT operations (target shape). */

@@ -35,8 +35,9 @@ import type { SimilarityRankResult } from 'llmtxt/similarity';
 import { discoveryEnv } from '../git/work-tree.js';
 import { getProjectRoot } from '../paths.js';
 import { createAttachmentStore } from '../store/attachment-store.js';
-import { blobList, blobRead } from '../store/blob-ops.js';
+import { blobList, blobRead, blobReadBySha } from '../store/blob-ops.js';
 import { canonicalizePath } from '../tools/fs.js';
+import { readDocsPublications, upsertDocsPublication } from './publications-store.js';
 
 // ─── Error helpers ────────────────────────────────────────────────────────────
 
@@ -1093,8 +1094,14 @@ export async function publishDocs(opts: {
       ? blobs.reduce((latest, b) => ((b.uploadedAt ?? 0) > (latest.uploadedAt ?? 0) ? b : latest))
       : undefined;
 
-  let canonicalBytes: Buffer | undefined;
+  let canonicalBytes: Uint8Array | undefined;
   if (!target) {
+    // The manifest missed — fall back to the doc REGISTRY for target selection
+    // (UUID / slug / default-latest resolution, still owner-scoped). Content
+    // bytes are read from the blob store by content address (T13362) — the
+    // legacy `.cleo/attachments/sha256/` tree has no read path here, so a doc
+    // whose bytes were never mirrored/consolidated fails loudly instead of
+    // silently publishing stale legacy bytes.
     const store = createAttachmentStore();
     const metadata = opts.attachmentId
       ? ((await store.getMetadata(opts.attachmentId, root).catch(() => null)) ??
@@ -1103,7 +1110,7 @@ export async function publishDocs(opts: {
           b.createdAt.localeCompare(a.createdAt),
         )[0];
     if (metadata) {
-      // Preserve UUID-to-legacy-blob lookup, still scoped to this owner's manifest.
+      // Preserve UUID-to-registry-blob lookup, still scoped to this owner's manifest.
       target = blobs.find((entry) => entry.sha256 === metadata.sha256);
       if (!target) {
         const owners = await store.listRefs(metadata.id, root);
@@ -1111,11 +1118,10 @@ export async function publishDocs(opts: {
         const owned = owner ? await store.listByOwner(owner.ownerType, opts.ownerId, root) : [];
         // @sync-invariant none:local-only publication reads are restricted to the requested attachment owner; no synced rows mutate.
         if (owned.some((attachment) => attachment.id === metadata.id)) {
-          const content = await store.get(metadata.sha256, root);
+          const content = await blobReadBySha(metadata.sha256, root);
           // @sync-invariant none:local-only blob content identity protects this local file publication, not synced rows.
-          if (!content || content.metadata.id !== metadata.id)
-            throw new Error(`publishDocs: could not read attachment "${metadata.id}"`);
-          canonicalBytes = content.bytes;
+          if (!content) throw new Error(`publishDocs: could not read attachment "${metadata.id}"`);
+          canonicalBytes = content;
           const extras = await store.getExtras(metadata.id, root);
           target = {
             name:
@@ -1123,7 +1129,7 @@ export async function publishDocs(opts: {
                 ? basename(metadata.attachment.storageKey)
                 : (extras?.slug ?? metadata.id),
             sha256: metadata.sha256,
-            sizeBytes: content.bytes.byteLength,
+            sizeBytes: content.byteLength,
             mimeType: metadata.attachment.kind === 'blob' ? metadata.attachment.mime : undefined,
             uploadedAt: Date.parse(metadata.createdAt),
           };
@@ -1217,12 +1223,10 @@ export async function publishDocs(opts: {
 // ─── docs-publications ledger (T9703 prep — used by status drift detector) ────
 
 /**
- * On-disk record of one published doc. Persisted to
- * `<projectRoot>/.cleo/docs-publications.json`.
- *
- * The ledger is intentionally a JSON sidecar rather than a SQLite table —
- * it stores ≤ O(docs) entries, is rewritten atomically, and avoids a
- * schema migration on the docs domain.
+ * On-disk record of one published doc. Persisted as a row of the
+ * `docs_publications` table in the project `cleo.db` (T13362) — the
+ * deprecated `.cleo/docs-publications.json` sidecar is read-only legacy,
+ * seeded into the table on first access by the publications-store shim.
  *
  * @epic T9626 (W0)
  * @task T9703 (ST-PUB-2c — drift detector)
@@ -1240,90 +1244,30 @@ export interface DocsPublicationRecord {
   readonly publishedAt: string;
 }
 
-/** Wire format of `.cleo/docs-publications.json` on disk. */
-interface DocsPublicationsLedger {
-  readonly version: 1;
-  readonly entries: readonly DocsPublicationRecord[];
-}
-
-/** Absolute path to the docs-publications ledger for a given project root. */
-function ledgerPath(projectRoot: string): string {
-  return join(projectRoot, '.cleo', 'docs-publications.json');
-}
-
 /**
- * Load the docs-publications ledger from disk.
+ * Load the docs-publications ledger.
  *
- * Returns an empty list when the ledger file does not yet exist. Tolerates
- * corrupt JSON by returning an empty list — callers should treat a missing
- * ledger as "no publications recorded yet" rather than a hard error.
+ * Reads the `docs_publications` store rows via the publications-store
+ * accessor, which carries the one-time legacy-JSON seed shim (T13362). A
+ * missing/empty ledger means "no publications recorded yet", never a hard
+ * error.
  *
  * @internal
  */
 export async function readPublicationsLedger(
   projectRoot: string,
 ): Promise<DocsPublicationRecord[]> {
-  const { readFile } = await import('node:fs/promises');
-  try {
-    const raw = await readFile(ledgerPath(projectRoot), 'utf-8');
-    const parsed = JSON.parse(raw) as Partial<DocsPublicationsLedger>;
-    if (!parsed || !Array.isArray(parsed.entries)) return [];
-    return parsed.entries.filter(
-      (e): e is DocsPublicationRecord =>
-        !!e &&
-        typeof e.ownerId === 'string' &&
-        typeof e.blobName === 'string' &&
-        typeof e.publishedPath === 'string' &&
-        typeof e.lastBlobSha === 'string' &&
-        typeof e.publishedAt === 'string',
-    );
-  } catch {
-    return [];
-  }
-}
-
-/**
- * Persist the docs-publications ledger atomically (tmp-then-rename + fsync).
- *
- * @internal
- */
-async function writePublicationsLedger(
-  projectRoot: string,
-  entries: readonly DocsPublicationRecord[],
-): Promise<void> {
-  const path = ledgerPath(projectRoot);
-  const tmp = `${path}.tmp.${process.pid}.${randomBytes(4).toString('hex')}`;
-  const payload: DocsPublicationsLedger = { version: 1, entries };
-  const text = `${JSON.stringify(payload, null, 2)}\n`;
-
-  await mkdir(dirname(path), { recursive: true });
-
-  const { open, rename, unlink } = await import('node:fs/promises');
-  let handle: Awaited<ReturnType<typeof open>> | undefined;
-  try {
-    handle = await open(tmp, 'w', 0o644);
-    await handle.writeFile(text, 'utf-8');
-    await handle.sync();
-  } finally {
-    await handle?.close();
-  }
-
-  try {
-    await rename(tmp, path);
-  } catch (err) {
-    await unlink(tmp).catch(() => {
-      /* already gone */
-    });
-    throw err;
-  }
+  return readDocsPublications(projectRoot);
 }
 
 /**
  * Record a publish event in the docs-publications ledger.
  *
- * Upserts on `(ownerId, blobName, publishedPath)`. Refreshes
- * `lastBlobSha` and `publishedAt` when the row already exists so the
- * ledger always reflects the latest known good publication.
+ * Upserts a `docs_publications` store row on `(ownerId, blobName,
+ * publishedPath)`, refreshing `lastBlobSha` and `publishedAt` when the row
+ * already exists so the ledger always reflects the latest known good
+ * publication. New writes go to the store only — the deprecated JSON sidecar
+ * is never updated (T13362).
  *
  * @param opts - Required record fields.
  * @epic T9626 (W0)
@@ -1337,43 +1281,18 @@ export async function recordPublication(opts: {
   projectRoot?: string;
 }): Promise<void> {
   const root = opts.projectRoot ?? getProjectRoot();
-  const existing = await readPublicationsLedger(root);
-  const next: DocsPublicationRecord[] = [];
-  let upserted = false;
-  for (const row of existing) {
-    if (
-      row.ownerId === opts.ownerId &&
-      row.blobName === opts.blobName &&
-      row.publishedPath === opts.publishedPath
-    ) {
-      next.push({
-        ownerId: opts.ownerId,
-        blobName: opts.blobName,
-        publishedPath: opts.publishedPath,
-        lastBlobSha: opts.lastBlobSha,
-        publishedAt: new Date().toISOString(),
-      });
-      upserted = true;
-    } else {
-      next.push(row);
-    }
-  }
-  if (!upserted) {
-    next.push({
-      ownerId: opts.ownerId,
-      blobName: opts.blobName,
-      publishedPath: opts.publishedPath,
-      lastBlobSha: opts.lastBlobSha,
-      publishedAt: new Date().toISOString(),
-    });
-  }
-  await writePublicationsLedger(root, next);
+  await upsertDocsPublication(root, {
+    ownerId: opts.ownerId,
+    blobName: opts.blobName,
+    publishedPath: opts.publishedPath,
+    lastBlobSha: opts.lastBlobSha,
+  });
 }
 
 /**
  * List all recorded publications in the ledger.
  *
- * Returns an empty array when the ledger does not exist or is unreadable.
+ * Returns an empty array when no publications exist.
  *
  * @epic T9626 (W0)
  * @task T9703 (ST-PUB-2c)
@@ -1382,7 +1301,7 @@ export async function listPublications(opts?: {
   projectRoot?: string;
 }): Promise<DocsPublicationRecord[]> {
   const root = opts?.projectRoot ?? getProjectRoot();
-  return readPublicationsLedger(root);
+  return readDocsPublications(root);
 }
 
 // ─── syncFromGit (T9702 — reverse-ingest) ─────────────────────────────────────

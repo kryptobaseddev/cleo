@@ -516,7 +516,7 @@
     "packages/core/src/docs/display-alias.ts :: ExitCode.NOT_FOUND": 1,
     "packages/core/src/docs/display-alias.ts :: ExitCode.VALIDATION_ERROR": 2,
     "packages/core/src/docs/display-alias.ts :: silent:cascade": 1,
-    "packages/core/src/docs/docs-ops.ts :: Error": 4,
+    "packages/core/src/docs/docs-ops.ts :: Error": 3,
     "packages/core/src/docs/docs-update.ts :: E_DOC_SCHEMA_MISMATCH": 1,
     "packages/core/src/docs/docs-update.ts :: E_FILE_ERROR": 4,
     "packages/core/src/docs/docs-update.ts :: E_INVALID_INPUT": 4,

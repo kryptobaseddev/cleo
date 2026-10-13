@@ -204,6 +204,37 @@ describe('runDocsDoctor — diagnostics (T13447)', () => {
     expect(diag.count).toBe(3);
   });
 
+  it('legacy-blob-coverage: error when a content-bearing row has no blob-store counterpart (T13362 AC2)', async () => {
+    // store.put writes the legacy tree only; without a mirrored blob-store
+    // file the row counts as unmigrated.
+    await seedSlug('unmigrated-doc', '# Not migrated\n');
+
+    const res = await doctor();
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+    const diag = diagnostic(res.report, 'legacy-blob-coverage');
+    expect(diag.severity).toBe('error');
+    expect(diag.count).toBe(1);
+    expect(diag.items[0]).toMatchObject({ slug: 'unmigrated-doc' });
+  });
+
+  it('legacy-blob-coverage: clean when every content-bearing row has a blob-store counterpart (T13362 AC2)', async () => {
+    const content = '# Migrated\n';
+    await seedSlug('migrated-doc', content);
+    const { createHash } = await import('node:crypto');
+    const sha = createHash('sha256').update(content).digest('hex');
+    const blobDir = join(tempDir, '.cleo', 'blobs', 'blobs');
+    mkdirSync(blobDir, { recursive: true });
+    writeFileSync(join(blobDir, sha), content);
+
+    const res = await doctor();
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+    const diag = diagnostic(res.report, 'legacy-blob-coverage');
+    expect(diag.severity).toBe('info');
+    expect(diag.count).toBe(0);
+  });
+
   it('flags stale drafts past the --older-than-days threshold', async () => {
     await seedSlug('old-draft', '# Old\n');
     const fortyDaysAgo = new Date(Date.now() - 40 * 24 * 60 * 60 * 1000).toISOString();

@@ -14,9 +14,11 @@
  *   Binary docs keep `bytesBase64` (≤ 1 MB inline cap).
  * - **`refCount` is the real value** from the read model
  *   (`attachments.ref_count`; 0 for manifest-only blobs).
- * - **`path` resolves against the doc's actual backing store**:
- *   `manifest-db` → `.cleo/blobs/blobs/<sha256>`; anything else → the legacy
- *   content-addressed attachment path (with the MIME-correct extension).
+ * - **`path` always resolves against the blob store**
+ *   (`.cleo/blobs/blobs/<sha256>`) — the canonical byte location since the
+ *   legacy `.cleo/attachments/sha256/` tree was retired as a read surface
+ *   (T13362). `fetchContent` reads the same location, so the reported path
+ *   always matches where the envelope's bytes came from.
  * - **mime/type come from the record**, never literals.
  * - **Recorded CRDT head conflicts surface** as `headConflict` (T13604): the
  *   fetched content is the winning projection; losing edits survive in the
@@ -36,7 +38,6 @@ import type {
   DocsType,
 } from '@cleocode/contracts/operations/docs.js';
 import { resolveCleoDir } from '../paths.js';
-import { blobFilePath } from '../store/blob-keep.js';
 import type { ResolvedDoc } from './docs-read-model.js';
 
 /** Largest body inlined into the envelope (matches the historical cap). */
@@ -76,11 +77,14 @@ export function isTextMime(mime: string | null): boolean {
 }
 
 /**
- * Resolve the on-disk storage path for a doc against its ACTUAL backing
- * store. `manifest-db` docs live in the blob store
- * (`.cleo/blobs/blobs/<sha256>`); everything else lives in the legacy
- * content-addressed attachment tree. Returns undefined for docs without a
- * content hash.
+ * Resolve the on-disk storage path for a doc.
+ *
+ * The blob store (`.cleo/blobs/blobs/<sha256>`) is the canonical byte
+ * location for every doc — `DocsReadModel.fetchContent` reads bytes by
+ * content address since the legacy `.cleo/attachments/sha256/` tree was
+ * retired as a read surface (T13362), so the envelope reports that same
+ * location regardless of which registry the doc's metadata resolved from.
+ * Returns undefined for docs without a content hash.
  *
  * @param doc - The resolved doc record.
  * @param cleoDir - The project's `.cleo` directory.
@@ -89,10 +93,7 @@ export function isTextMime(mime: string | null): boolean {
  */
 export function docsStoragePath(doc: ResolvedDoc, cleoDir: string): string | undefined {
   if (!doc.sha256) return undefined;
-  if (doc.source === 'manifest-db') {
-    return join(cleoDir, 'blobs', 'blobs', doc.sha256);
-  }
-  return blobFilePath(cleoDir, doc.sha256, doc.mimeType ?? 'text/markdown');
+  return join(cleoDir, 'blobs', 'blobs', doc.sha256);
 }
 
 /**

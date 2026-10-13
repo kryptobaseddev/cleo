@@ -32,7 +32,7 @@
  */
 
 import { existsSync } from 'node:fs';
-import { appendFile, mkdir, readdir, readFile, stat, unlink } from 'node:fs/promises';
+import { appendFile, mkdir, readdir, stat, unlink } from 'node:fs/promises';
 import { join, relative } from 'node:path';
 import { eq } from 'drizzle-orm';
 import { resolveCleoDir } from '../paths.js';
@@ -138,28 +138,17 @@ function sha256FromBlobPath(prefixDir: string, filename: string): string {
 }
 
 /**
- * Read the docs-publications ledger and return all blob SHA-256 hashes
- * that appear in it, so we never declare a published blob unreferenced.
+ * Read the publication ledger and return all blob SHA-256 hashes that appear
+ * in it, so we never declare a published blob unreferenced.
+ *
+ * Reads the `docs_publications` store rows (T13362) — the deprecated
+ * `.cleo/docs-publications.json` sidecar is seeded into the table on first
+ * access by the publications-store shim, so the store is always at least as
+ * complete as the legacy file.
  */
 async function readPublicationsSha256Set(cwd: string): Promise<Set<string>> {
-  const ledgerPath = join(cwd, '.cleo', 'docs-publications.json');
-  const out = new Set<string>();
-  try {
-    const raw = await readFile(ledgerPath, 'utf-8');
-    const parsed = JSON.parse(raw) as {
-      entries?: Array<{ lastBlobSha?: string; [key: string]: unknown }>;
-    };
-    if (Array.isArray(parsed?.entries)) {
-      for (const e of parsed.entries) {
-        if (typeof e?.lastBlobSha === 'string' && e.lastBlobSha.length === 64) {
-          out.add(e.lastBlobSha);
-        }
-      }
-    }
-  } catch {
-    // File absent or malformed — treat as empty
-  }
-  return out;
+  const { readDocsPublicationSha256Set } = await import('../docs/publications-store.js');
+  return readDocsPublicationSha256Set(cwd).catch(() => new Set<string>());
 }
 
 /**

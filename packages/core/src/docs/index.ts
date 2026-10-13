@@ -83,6 +83,11 @@ export {
 } from './docs-ops.js';
 export type { ExportDocumentOptions, ExportDocumentResult } from './export-document.js';
 export { exportDocument } from './export-document.js';
+export {
+  readDocsPublicationSha256Set,
+  readDocsPublications,
+  upsertDocsPublication,
+} from './publications-store.js';
 // ── T10361 — slug similarity warn at docs add write-time ────────────────────
 export type {
   CheckSlugSimilarityOptions,

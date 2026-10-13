@@ -2,7 +2,7 @@
  * `cleo docs doctor` — store health diagnostics + safe repairs — T13447.
  *
  * Audits the CleoDocs store (`cleo.db` `attachments`/`docs_wikilinks` tables
- * plus the on-disk legacy surfaces) for six known drift classes and, when
+ * plus the on-disk legacy surfaces) for seven known drift classes and, when
  * invoked with `apply: true`, performs the repairs that are safe to run
  * in-place:
  *
@@ -32,6 +32,13 @@
  *   - `legacy-store-present`— `.cleo/attachments/index.db`,
  *                             `.cleo/docs-publications.json` and/or
  *                             `.cleo/attachments/sha256/` still on disk.
+ *   - `legacy-blob-coverage`— content-bearing rows whose sha256 has NO
+ *                             counterpart in the blob store
+ *                             (`.cleo/blobs/blobs/`). This is the T13362 AC2
+ *                             deletion pre-check: the legacy byte tree may
+ *                             only be deleted once this diagnostic is clean
+ *                             (severity `error` while any are missing).
+ *                             Report-only — never deletes bytes.
  *   - `stale-drafts`        — slugged docs still `draft` after
  *                             `--older-than-days` (default 30).
  *
@@ -50,7 +57,7 @@
  * @see wikilinks.ts — derived edge table + rebuild (T11826)
  */
 
-import { existsSync, readFileSync, statSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { isAbsolute, join, resolve, sep } from 'node:path';
 import { getCleoWorktreesRoot } from '@cleocode/paths';
@@ -96,7 +103,7 @@ export const DOCS_DOCTOR_DEFAULT_OLDER_THAN_DAYS = 30;
 export const DOCS_DOCTOR_MAX_DETAIL_ITEMS = 50;
 
 /**
- * The six diagnostic classes {@link runDocsDoctor} checks for.
+ * The seven diagnostic classes {@link runDocsDoctor} checks for.
  *
  * @task T13447
  */
@@ -106,6 +113,7 @@ export type DocsDoctorDiagnosticKind =
   | 'empty-provenance'
   | 'wikilinks-drift'
   | 'legacy-store-present'
+  | 'legacy-blob-coverage'
   | 'stale-drafts';
 
 /**
@@ -626,7 +634,7 @@ async function scanStore(
     },
     {
       path: join(projectRoot, '.cleo', 'docs-publications.json'),
-      what: 'publication ledger',
+      what: 'publication ledger (deprecated; seeded into docs_publications)',
     },
     {
       path: join(projectRoot, '.cleo', 'attachments', 'sha256'),
@@ -636,6 +644,35 @@ async function scanStore(
   const legacyItems = legacyCandidates
     .filter((c) => existsSync(c.path))
     .map((c) => ({ path: c.path, what: c.what }));
+
+  // ── legacy-blob-coverage (T13362 AC2) ──────────────────────────────────────
+  // Deletion pre-check for the T12535 dropTask: the legacy
+  // `.cleo/attachments/sha256/` byte tree may ONLY be deleted once every
+  // content-bearing registry row has a migrated counterpart in the blob
+  // store (`.cleo/blobs/blobs/<sha>`). This check is report-only — it never
+  // deletes bytes.
+  const blobStoreShas = new Set<string>();
+  try {
+    for (const name of readdirSync(join(resolveCleoDir(projectRoot), 'blobs', 'blobs'))) {
+      if (name.length === 64 && /^[0-9a-f]{64}$/.test(name)) blobStoreShas.add(name);
+    }
+  } catch {
+    /* blob store dir may not exist yet — every row then counts as missing */
+  }
+  const coverageMissing: Array<{ sha256: string; slug: string | null }> = [];
+  const coverageSeen = new Set<string>();
+  for (const row of rows) {
+    const payload = payloadById.get(row.id) ?? null;
+    if (payload?.kind !== 'blob' && payload?.kind !== 'local-file') continue;
+    if (coverageSeen.has(row.sha256)) continue;
+    coverageSeen.add(row.sha256);
+    if (!blobStoreShas.has(row.sha256)) {
+      coverageMissing.push({ sha256: row.sha256, slug: row.slug });
+    }
+  }
+  const coverageItems = coverageMissing
+    .slice(0, DOCS_DOCTOR_MAX_DETAIL_ITEMS)
+    .map((m) => ({ sha256: m.sha256, slug: m.slug }));
 
   // ── stale-drafts ───────────────────────────────────────────────────────────
   const cutoffIso = new Date(Date.now() - olderThanDays * 24 * 60 * 60 * 1000).toISOString();
@@ -681,6 +718,13 @@ async function scanStore(
       count: legacyItems.length,
       items: legacyItems,
       truncated: false,
+    },
+    {
+      kind: 'legacy-blob-coverage',
+      severity: coverageMissing.length > 0 ? 'error' : 'info',
+      count: coverageMissing.length,
+      items: coverageItems,
+      truncated: coverageMissing.length > coverageItems.length,
     },
     {
       kind: 'stale-drafts',

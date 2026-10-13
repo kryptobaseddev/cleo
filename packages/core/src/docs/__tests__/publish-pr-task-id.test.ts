@@ -10,7 +10,7 @@
  * @epic T12515
  */
 
-import { mkdir, mkdtemp, rm } from 'node:fs/promises';
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { AttachmentRef } from '@cleocode/contracts';
@@ -69,6 +69,13 @@ async function seedDoc(
   for (const [ownerType, ownerId] of rest) {
     await store.ref(meta.id, ownerType, ownerId, 'test', projectRoot);
   }
+  // T13362: publish-pr reads bytes from the blob store only. The dispatch
+  // docs.add path mirrors bytes there; emulate the mirror for this fixture.
+  const { createHash } = await import('node:crypto');
+  const sha = createHash('sha256').update(bytes).digest('hex');
+  const blobDir = join(projectRoot, '.cleo', 'blobs', 'blobs');
+  await mkdir(blobDir, { recursive: true });
+  await writeFile(join(blobDir, sha), bytes);
 }
 
 /** Stub runners recording every call; `commitFail` makes `git commit` throw. */

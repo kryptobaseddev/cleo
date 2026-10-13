@@ -105,7 +105,7 @@ export type DocsType = BuiltinDocKind;
  *   for list/fetch wire responses).
  *
  * @see {@link import('../attachment.js').AttachmentMetadata} — the full domain
- *   registry row stored in `.cleo/attachments/index.db`.
+ *   registry row stored in the `attachments` table of the project `cleo.db`.
  */
 export interface DocsAttachmentRow {
   /** Attachment identifier (UUID-like string). */
@@ -177,8 +177,10 @@ export interface DocsAttachmentRow {
 /**
  * Supported attachment backend.
  *
- * - `legacy` — original file-based store (.cleo/attachments)
- * - `llmstxt-v2` — llmtxt-backed manifest store
+ * - `legacy` — original file-based byte store (`.cleo/attachments`); retired
+ *   as a read/write surface in T13362, bytes migrate to the blob store
+ *   (label retained for wire compatibility with older envelopes)
+ * - `llmstxt-v2` — llmtxt-backed manifest store (canonical byte store)
  */
 export type AttachmentBackend = 'legacy' | 'llmstxt-v2';
 
@@ -1031,6 +1033,7 @@ export interface DocsDoctorDiagnostic {
     | 'empty-provenance'
     | 'wikilinks-drift'
     | 'legacy-store-present'
+    | 'legacy-blob-coverage'
     | 'stale-drafts';
   /** `error` should be fixed promptly; `info` is observational. */
   severity: 'info' | 'warn' | 'error';
@@ -1074,7 +1077,7 @@ export interface DocsDoctorResult {
   olderThanDays: number;
   /** Backup receipt that authorised this run (null on dry runs). */
   backupReceiptPath: string | null;
-  /** All six diagnostics, in declaration order. */
+  /** All seven diagnostics, in declaration order. */
   diagnostics: readonly DocsDoctorDiagnostic[];
   /** Repair plan (dry run) or executed repairs (apply). */
   repairs: readonly DocsDoctorRepairAction[];
