@@ -42,7 +42,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { getProviderAskTool } from '@cleocode/caamp';
-import type { Task } from '@cleocode/contracts';
+import type { LeanLevel, Task } from '@cleocode/contracts';
 import { normalizeSlug } from '../docs/slug-normalize.js';
 import { provisionIsolatedShell } from '../sdk/isolation.js';
 import { resolveSkillLocation, resolveSkillPath } from '../skills/skill-paths.js';
@@ -266,6 +266,11 @@ export interface BuildSpawnPromptInput {
    * rendered in the `## Session Linkage` block.
    */
   sessionId?: string | null;
+  /**
+   * ct-lean level for the `## Lean Change` block (T13663); `off` omits it.
+   * Callers resolve it with `effectiveLeanLevel`. Defaults to `full`.
+   */
+  leanLevel?: LeanLevel;
   /**
    * Per-agent identity handle for the spawned task (T11343).
    *
@@ -1771,7 +1776,8 @@ export function buildSpawnPrompt(input: BuildSpawnPromptInput): BuildSpawnPrompt
   // implemented/exported. Restored as a follow-up; for now skip cleanly so the
   // tsc build does not block releases. Tracked: T10448.
   authoredSections.push(buildQualityGateBlock());
-  authoredSections.push(buildLeanChangeBlock());
+  const leanBlock = buildLeanChangeBlock(input.leanLevel ?? 'full');
+  if (leanBlock !== null) authoredSections.push(leanBlock);
 
   // Tier-specific content — tier 0 pointer is authored; tier 1/2 embeds
   // are verbatim and therefore land in `embeddedSections`.
