@@ -1157,7 +1157,7 @@ describe('T13655: plan and complete scope a carrier PR to the task the same way'
       'commit',
       '-q',
       '-am',
-      cite ? 'chore: number the T9001 migration' : 'chore: number a migration',
+      cite ? 'chore(t9001): number the migration' : 'chore: number a migration',
     );
     writeFileSync(join(root, 'a.test.ts'), 'export const t = 2;\n');
     git(root, 'commit', '-q', '-am', 'test: native suite');

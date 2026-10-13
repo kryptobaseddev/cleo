@@ -180,7 +180,8 @@ type CarryTarget = Pick<
  * The carrier's commits that belong to the task (T13662): every commit of the
  * merged branch when its name holds the task id (`fix/t1919-…`, read from the
  * GitHub merge commit's `Merge pull request #N from <owner>/<branch>`), else
- * the branch commits whose message cites the id. Branch merges of the base
+ * the branch commits whose message cites the id (case-insensitive, like the
+ * branch name: `fix(t1919)` counts). Branch merges of the base
  * (`--no-merges`) are never the task's. A squash or direct landing (one
  * parent) is the task's when its message cites the id. Empty when git cannot
  * say.
@@ -196,7 +197,9 @@ function carrierTaskCommits(root: string, merge: string | undefined, taskId: str
   const parents = git(root, ['rev-list', '--parents', '-n', '1', merge])?.split(' ') ?? [];
   if (parents.length < 3) {
     const message = git(root, ['log', '-1', '--format=%B', merge]);
-    return message !== null && citesTask(message, taskId) ? [merge] : [];
+    return message !== null && citesTask(message.toUpperCase(), taskId.toUpperCase())
+      ? [merge]
+      : [];
   }
   const range = `${merge}^1..${merge}^2`;
   const subject = git(root, ['log', '-1', '--format=%s', merge]) ?? '';
@@ -208,7 +211,10 @@ function carrierTaskCommits(root: string, merge: string | undefined, taskId: str
   return log
     .split('\x01')
     .map((entry) => entry.trim().split('\x00'))
-    .filter(([sha, body]) => sha && body !== undefined && citesTask(body, taskId))
+    .filter(
+      ([sha, body]) =>
+        sha && body !== undefined && citesTask(body.toUpperCase(), taskId.toUpperCase()),
+    )
     .map(([sha]) => sha as string);
 }
 
