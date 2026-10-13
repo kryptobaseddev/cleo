@@ -1270,3 +1270,109 @@ describe('T13623: a test-run on main after the merge stands in for red merged CI
     }
   });
 });
+
+describe('T13673: a later-main test-run stands in for any merged change (owner decision 2026-10-13)', () => {
+  /**
+   * T1919's shape: the change edits src/a.ts, its test and a migration journal;
+   * after the merge, main appends to the journal, so byte-identity carry fails.
+   */
+  function journalLanded() {
+    const root = realpathSync(mkdtempSync(join(tmpdir(), 'cleo-t13673-')));
+    const git = (...a: string[]): string =>
+      execFileSync('git', ['-c', 'user.name=T', '-c', 'user.email=t@e.x', ...a], {
+        cwd: root,
+        encoding: 'utf-8',
+      }).trim();
+    git('init', '-q', '-b', 'main');
+    mkdirSync(join(root, 'src'));
+    writeFileSync(join(root, 'package.json'), '{"name":"x","type":"module"}\n');
+    writeFileSync(join(root, 'src/a.ts'), 'export const a = 1;\n');
+    writeFileSync(join(root, 'src/a.test.ts'), "import './a.js';\n");
+    writeFileSync(join(root, 'journal.json'), '{"entries":[1]}\n');
+    git('add', '.');
+    git('commit', '-q', '-m', 'init');
+    git('switch', '-q', '-c', 'task/T9001');
+    writeFileSync(join(root, 'src/a.ts'), 'export const a = 2;\n');
+    writeFileSync(join(root, 'src/a.test.ts'), "import './a.js'; // 2\n");
+    writeFileSync(join(root, 'journal.json'), '{"entries":[1,2]}\n');
+    git('commit', '-q', '-am', 'T9001');
+    const branchHead = git('rev-parse', 'HEAD');
+    git('switch', '-q', 'main');
+    git(
+      'merge',
+      '-q',
+      '--no-ff',
+      '-m',
+      'Merge pull request #7 from owner/task/T9001',
+      'task/T9001',
+    );
+    const merge = git('rev-parse', 'HEAD');
+    writeFileSync(join(root, 'journal.json'), '{"entries":[1,2,3]}\n');
+    git('commit', '-q', '-am', 'a later migration');
+    const head = git('rev-parse', 'HEAD');
+    const tree = git('rev-parse', 'HEAD^{tree}');
+    git('update-ref', 'refs/remotes/origin/main', head);
+    const changeSet: TaskChangeSet = {
+      source: 'pr',
+      executionRoot: root,
+      rootSource: 'store',
+      files: ['journal.json', 'src/a.test.ts', 'src/a.ts'],
+      deletedFiles: [],
+      docs: [],
+      decisions: [],
+      candidates: [],
+      implementedEvidence: '',
+      blockers: [],
+      warnings: [],
+      prNumber: 7,
+      mergeCommitSha: merge,
+    };
+    return { root, head, tree, branchHead, changeSet };
+  }
+
+  const run = (o: Partial<Extract<EvidenceAtom, { kind: 'test-run' }>>): EvidenceAtom => ({
+    kind: 'test-run',
+    path: 'r.json',
+    sha256: 'c'.repeat(64),
+    passCount: 1,
+    failCount: 0,
+    skipCount: 0,
+    testFiles: ['src/a.test.ts'],
+    ...o,
+  });
+
+  /** The one rule plan and complete share, for a merged change. */
+  const judge = (c: ReturnType<typeof journalLanded>, atoms: EvidenceAtom[]) =>
+    testsPassedSupersededReason(atoms, {
+      mergeState: () => ({ state: 'merged', changeSet: c.changeSet }),
+      currentTree: () => c.tree,
+      landed: isLandedOnOriginDefault,
+    });
+
+  it('a targeted run on a main HEAD descending from the merge, on the current tree, covering the change, stands', async () => {
+    const c = journalLanded();
+    try {
+      // Byte identity alone refuses: the journal moved after the merge.
+      expect(scopedRunCarriedAcrossMerge([run({ treeHash: c.tree })], c.changeSet)).toMatchObject({
+        ok: false,
+      });
+      expect(await judge(c, [run({ headSha: c.head, treeHash: c.tree })])).toBeNull();
+    } finally {
+      rmSync(c.root, { recursive: true, force: true });
+    }
+  });
+
+  it('a run on a non-descendant HEAD, or one not covering the change, still refuses with both reasons', async () => {
+    const c = journalLanded();
+    try {
+      const stale = await judge(c, [run({ headSha: c.branchHead, treeHash: c.tree })]);
+      expect(stale).toMatch(
+        /differ from the tree.*journal\.json.*no test-run on main after the merge stands in.*does not descend/s,
+      );
+      const uncovered = await judge(c, [run({ headSha: c.head, treeHash: c.tree, testFiles: [] })]);
+      expect(uncovered).toMatch(/no test-run on main after the merge stands in/);
+    } finally {
+      rmSync(c.root, { recursive: true, force: true });
+    }
+  });
+});
