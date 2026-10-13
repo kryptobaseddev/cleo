@@ -47,19 +47,27 @@ import { withLock } from '../store/file-utils.js';
 /** File name of the store, directly under the CLEO home. */
 export const NEXUS_CREDENTIALS_FILE = 'nexus-credentials.json';
 
-const sessionSchema = z.object({
-  token: z.string().min(1),
-  tokenType: z.string(),
-  expiresAt: z.string().nullable(),
-  user: nexusAccountUserSchema.nullable(),
-  organization: nexusAccountOrganizationSchema.nullable(),
-  createdAt: z.string(),
-});
+// Loose: a field this CLEO does not know (written by a newer one) survives a rewrite (T12880).
+const sessionSchema = z
+  .object({
+    token: z.string().min(1),
+    tokenType: z.string(),
+    expiresAt: z.string().nullable(),
+    user: nexusAccountUserSchema.nullable(),
+    organization: nexusAccountOrganizationSchema.nullable(),
+    createdAt: z.string(),
+  })
+  .loose();
 
-const storeSchema = z.object({
-  version: z.literal(1),
-  sessions: z.record(z.string(), sessionSchema),
-});
+const storeSchema = z
+  .object({
+    version: z.literal(1),
+    sessions: z.record(z.string(), sessionSchema),
+  })
+  .loose();
+
+/** The file format this CLEO reads and writes. */
+const STORE_VERSION = 1;
 
 type NexusCredentialsFile = z.infer<typeof storeSchema>;
 
@@ -194,6 +202,36 @@ export class NexusCredentialsError extends Error {
 }
 
 /**
+ * Validate a decoded store file. A missing file is empty; a file of a newer
+ * format, or one that does not match this format, is refused and left as it
+ * is, never read as empty and then overwritten (T12880).
+ *
+ * @param raw - The decoded JSON, or null when the file does not exist.
+ * @param location - The file path, for the refusal.
+ * @returns The store.
+ * @throws {NexusCredentialsError} When the file is newer or malformed.
+ */
+function parseStore(raw: unknown, location: string): NexusCredentialsFile {
+  if (raw === null) return EMPTY_STORE;
+  const version =
+    typeof raw === 'object' && 'version' in raw && typeof raw.version === 'number'
+      ? raw.version
+      : null;
+  if (version !== null && version > STORE_VERSION) {
+    throw new NexusCredentialsError(
+      `${location} is format ${version}, newer than the format ${STORE_VERSION} this CLEO reads; it was left as is: upgrade CLEO on this machine`,
+    );
+  }
+  const parsed = storeSchema.safeParse(raw);
+  if (!parsed.success) {
+    throw new NexusCredentialsError(
+      `${location} is malformed (${parsed.error.issues[0]?.message ?? 'invalid'}); it was left as is: repair or remove it, then sign in again`,
+    );
+  }
+  return parsed.data;
+}
+
+/**
  * The storage key for an API URL: its origin (scheme, host and port).
  *
  * @param apiUrl - Any URL on the API host.
@@ -242,7 +280,7 @@ export class FileNexusTokenStore implements NexusTokenStore {
       createdAt: new Date().toISOString(),
     });
     await this.write((current) => ({
-      version: 1,
+      ...current,
       sessions: { ...current.sessions, [key]: record },
     }));
   }
@@ -259,7 +297,7 @@ export class FileNexusTokenStore implements NexusTokenStore {
         deleted = true;
         const sessions = { ...current.sessions };
         delete sessions[key];
-        return { version: 1, sessions };
+        return { ...current, sessions };
       });
     }
     // Rotated backups hold earlier copies of the file, and so of the token.
@@ -274,7 +312,8 @@ export class FileNexusTokenStore implements NexusTokenStore {
   }
 
   /**
-   * Read and validate the file; a missing or malformed file reads as empty. A
+   * Read and validate the file; a missing or empty file reads as empty. A
+   * malformed or newer-format file is refused and left as is (T12880). A
    * file readable or writable by group/others, or owned by another user, is
    * refused: its token may already be exposed or planted.
    */
@@ -287,12 +326,15 @@ export class FileNexusTokenStore implements NexusTokenStore {
       return EMPTY_STORE;
     }
     if (!raw.trim()) return EMPTY_STORE;
+    let decoded: unknown;
     try {
-      const parsed = storeSchema.safeParse(JSON.parse(raw));
-      return parsed.success ? parsed.data : EMPTY_STORE;
+      decoded = JSON.parse(raw);
     } catch {
-      return EMPTY_STORE;
+      throw new NexusCredentialsError(
+        `${this.location} is malformed (not JSON); it was left as is: repair or remove it, then sign in again`,
+      );
     }
+    return parseStore(decoded, this.location);
   }
 
   /** Locked, atomic, owner-only read-modify-write. */
@@ -300,13 +342,13 @@ export class FileNexusTokenStore implements NexusTokenStore {
     transform: (current: NexusCredentialsFile) => NexusCredentialsFile,
   ): Promise<void> {
     this.assertNoSymlinks();
+    // Refuse a malformed or newer file with a clear error before locking (T12880).
+    this.read();
     this.seed();
     await withLock<NexusCredentialsFile>(
       this.location,
-      (current) => {
-        const parsed = storeSchema.safeParse(current);
-        return transform(parsed.success ? parsed.data : EMPTY_STORE);
-      },
+      // A newer or malformed file throws here, before anything is written.
+      (current) => transform(parseStore(current, this.location)),
       { mode: 0o600 },
     );
   }
