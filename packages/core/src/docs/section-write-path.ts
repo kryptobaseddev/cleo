@@ -9,7 +9,12 @@
  *      conduit family on first sight ({@link ensureConduitDoc}).
  *   2. Split the new text into sections and resolve the previous head's
  *      section texts from its version blob — the single-writer vs.
- *      concurrent discriminator (T13589).
+ *      concurrent discriminator (T13589). When the caller names the version
+ *      it edited against ({@link ProjectDocUpdateInput.baseVersionUid}) and
+ *      the head has advanced past it, the discriminator is the BASE's text
+ *      instead: an append relative to the base 3-way merges through the
+ *      section CRDT (both edits survive), a non-append edit is recorded as
+ *      a conflict — a concurrent edit is never silently dropped (T13674).
  *   3. Apply each section's edit to its local Loro state
  *      (`section-merge.ts`): while the stored state equals the head's text
  *      the input projects EXACTLY (re-seed; replaces and deletions apply
@@ -54,7 +59,6 @@ import { getCleoDirAbsolute } from '../paths.js';
 import {
   appendConduitAttachmentVersion,
   type ConduitAttachmentVersionRow,
-  type ConduitDocHeadRow,
   ensureConduitDoc,
   getConduitAttachmentVersion,
   getConduitDocHead,
@@ -120,6 +124,18 @@ export interface ProjectDocUpdateInput {
    * version; `null` forces a root version.
    */
   readonly parentVersionUid?: string | null;
+  /**
+   * The conduit version uid the caller EDITED against — the version its
+   * content was fetched from (T13674). When it differs from the current
+   * head's version, the head has advanced: the projection discriminates the
+   * incoming section edits against the base's text instead of the head's,
+   * so an append relative to the base 3-way merges through the section CRDT
+   * (both edits survive) and a non-append edit is recorded as a conflict —
+   * never a silent drop. Omit for the legacy single-writer assumption. An
+   * unresolvable base version is treated as omitted (the projection cannot
+   * prove freshness either way).
+   */
+  readonly baseVersionUid?: string;
   /** Optional change summary for the version row. */
   readonly changeSummary?: string;
 }
@@ -145,6 +161,15 @@ export interface ProjectDocUpdateResult {
    * the head keeps the stored projection.
    */
   readonly conflicts: readonly SectionConflict[];
+  /**
+   * Sections whose incoming edit was authored against a stale base version
+   * and 3-way merged through the section CRDT (T13674): the head had
+   * advanced past {@link ProjectDocUpdateInput.baseVersionUid}, the incoming
+   * edit appended relative to the base, and both the concurrent edit and
+   * the incoming edit are in the merged text. Empty when the base was
+   * current or omitted.
+   */
+  readonly staleBaseMerged: readonly string[];
   /**
    * Advisory lease notices (T13356): sections this edit touched are leased
    * by ANOTHER live session. The edit proceeded anyway — leases are
@@ -236,24 +261,24 @@ function versionBlobPath(projectRoot: string, storageKey: string): string {
 }
 
 /**
- * Read the previous head version's merged text and split it into sections.
+ * Read a version row's text and split it into sections.
  *
- * This is the single-writer vs. concurrent discriminator (T13589): a
- * section whose stored state text equals the head's section text holds no
- * unlanded concurrent edit. Sync `node:fs` only — the caller runs inside
- * the write transaction, which must not yield to real I/O.
+ * Used for the previous head's text (the single-writer vs. concurrent
+ * discriminator, T13589) and for the caller-named base version's text (the
+ * stale-base discriminator, T13674). Sync `node:fs` only — the caller runs
+ * inside the write transaction, which must not yield to real I/O.
  *
  * @param projectRoot - Absolute path to the CLEO project root.
- * @param head - The current head row.
- * @returns The head's sections in document order, or `null` when the head's
- *   version or its blob is not resolvable locally (callers then take the
- *   single-writer path — see {@link applySectionTextEdit}).
+ * @param versionUid - The version's wire uid.
+ * @returns The version's sections in document order, or `null` when the
+ *   version or its blob is not resolvable locally (callers then fall back —
+ *   see {@link applySectionTextEdit}).
  */
-async function readHeadSectionTexts(
+async function readVersionSectionTexts(
   projectRoot: string,
-  head: ConduitDocHeadRow,
+  versionUid: string,
 ): Promise<string[] | null> {
-  const version = await getConduitAttachmentVersion(projectRoot, head.headVersionUid);
+  const version = await getConduitAttachmentVersion(projectRoot, versionUid);
   if (!version?.storageKey) return null;
   try {
     const text = readFileSync(versionBlobPath(projectRoot, version.storageKey), 'utf-8');
@@ -379,7 +404,19 @@ export async function projectDocUpdateThroughSections(
       // vs. concurrent discriminator for every section below (T13589).
       const previousHead = await getConduitDocHead(projectRoot, docUid);
       const headSections =
-        previousHead !== null ? await readHeadSectionTexts(projectRoot, previousHead) : null;
+        previousHead !== null
+          ? await readVersionSectionTexts(projectRoot, previousHead.headVersionUid)
+          : null;
+
+      // T13674: the caller's base version — when it resolves and differs
+      // from the head, the head has advanced and the incoming edits are
+      // discriminated against the BASE text (stale-base merge), never
+      // silently dropped as a single-writer replace. An unresolvable base
+      // falls back to the legacy single-writer assumption.
+      const baseSections =
+        input.baseVersionUid !== undefined
+          ? await readVersionSectionTexts(projectRoot, input.baseVersionUid)
+          : null;
 
       // Apply each section's edit onto its stored Loro state and read the
       // MERGED text back out of the state — never out of the input (T13585).
@@ -387,13 +424,15 @@ export async function projectDocUpdateThroughSections(
       const mergedSections: string[] = [];
       const sectionsModified: string[] = [];
       const conflictedSections: string[] = [];
+      const staleBaseMergedSections: string[] = [];
       for (const [index, text] of sections.entries()) {
         const id = sectionId(index);
         const stored = await readSectionCrdtState(projectRoot, docUid, id);
-        const { snapshot, changed, conflicted } = applySectionTextEdit(
+        const { snapshot, changed, conflicted, staleBaseMerged } = applySectionTextEdit(
           stored?.snapshot ?? null,
           text,
           headSections?.[index] ?? null,
+          baseSections?.[index] ?? null,
         );
         if (changed || stored === null) {
           await writeSectionCrdtState(projectRoot, {
@@ -405,6 +444,7 @@ export async function projectDocUpdateThroughSections(
         }
         if (changed) sectionsModified.push(id);
         if (conflicted) conflictedSections.push(id);
+        if (staleBaseMerged) staleBaseMergedSections.push(id);
         mergedSections.push(sectionStateText(snapshot));
       }
       const mergedText = joinSections(mergedSections);
@@ -506,6 +546,7 @@ export async function projectDocUpdateThroughSections(
         version,
         head,
         conflicts,
+        staleBaseMerged: staleBaseMergedSections,
         leaseNotices,
       };
     });

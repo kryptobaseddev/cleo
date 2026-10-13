@@ -286,3 +286,107 @@ describe('applySectionTextEdit (AC3)', () => {
     expect(snapshot.equals(stored)).toBe(true);
   });
 });
+
+describe('applySectionTextEdit — stale base (T13674)', () => {
+  // The HIGH finding: the caller edited against `baseText`, and the head has
+  // since advanced (a concurrent edit landed). Discriminating against the
+  // head text here would treat the incoming edit as a single-writer replace
+  // and silently drop the concurrent edit.
+
+  it('a stale-base append 3-way merges: both the concurrent edit and the incoming edit survive', () => {
+    const baseText = '## Alpha\n\nalpha body';
+    const base = seedSectionState(baseText);
+    // The concurrent writer landed first: stored state extends the base.
+    const concurrent = makeSectionEditUpdate(base, '\n\nA1\n');
+    const stored = mergeSectionUpdates(base, [concurrent]);
+    const headText = sectionStateText(stored);
+    // The incoming writer never saw A1: it edited from the base and appends.
+    const incoming = '## Alpha\n\nalpha body\n\nB1\n';
+
+    const { snapshot, changed, conflicted, staleBaseMerged } = applySectionTextEdit(
+      stored,
+      incoming,
+      headText,
+      baseText,
+    );
+    expect(changed).toBe(true);
+    expect(conflicted).toBe(false);
+    expect(staleBaseMerged).toBe(true);
+    const mergedText = sectionStateText(snapshot);
+    expect(mergedText).toContain('A1');
+    expect(mergedText).toContain('B1');
+    expect(mergedText.startsWith(baseText)).toBe(true);
+  });
+
+  it('a stale-base no-op (incoming equals the base) keeps the concurrent edit without conflict', () => {
+    const baseText = '## Alpha\n\nalpha body';
+    const base = seedSectionState(baseText);
+    const stored = mergeSectionUpdates(base, [makeSectionEditUpdate(base, '\n\nA1\n')]);
+    const headText = sectionStateText(stored);
+
+    const { snapshot, changed, conflicted, staleBaseMerged } = applySectionTextEdit(
+      stored,
+      baseText,
+      headText,
+      baseText,
+    );
+    expect(changed).toBe(false);
+    expect(conflicted).toBe(false);
+    expect(staleBaseMerged).toBe(false);
+    expect(snapshot.equals(stored)).toBe(true);
+  });
+
+  it('a stale-base NON-append edit is refused as a conflict, never fabricated over the concurrent edit', () => {
+    const baseText = '## Alpha\n\nalpha body';
+    const base = seedSectionState(baseText);
+    const stored = mergeSectionUpdates(base, [makeSectionEditUpdate(base, '\n\nA1\n')]);
+    const headText = sectionStateText(stored);
+    // The incoming writer replaced the body relative to the base it saw.
+    const incoming = '## Alpha\n\nrewritten body';
+
+    const { snapshot, changed, conflicted, staleBaseMerged } = applySectionTextEdit(
+      stored,
+      incoming,
+      headText,
+      baseText,
+    );
+    expect(conflicted).toBe(true);
+    expect(changed).toBe(false);
+    expect(staleBaseMerged).toBe(false);
+    expect(snapshot.equals(stored)).toBe(true);
+    expect(sectionStateText(snapshot)).toContain('A1');
+  });
+
+  it('a stale-base append is refused when the stored state does not extend the base (no fabrication)', () => {
+    // Guard: the stored state is unrelated to the claimed base (e.g. the
+    // base version lost a head race). Composing would invent text.
+    const stored = seedSectionState('## Gamma\n\ngamma body');
+    const { snapshot, changed, conflicted, staleBaseMerged } = applySectionTextEdit(
+      stored,
+      '## Alpha\n\nalpha body\n\nB1\n',
+      '## Head\n\nhead text',
+      '## Alpha\n\nalpha body',
+    );
+    expect(conflicted).toBe(true);
+    expect(changed).toBe(false);
+    expect(staleBaseMerged).toBe(false);
+    expect(snapshot.equals(stored)).toBe(true);
+  });
+
+  it('a CURRENT base (base equals head) keeps the legacy single-writer semantics', () => {
+    const headText = '## Alpha\n\nalpha body';
+    const stored = seedSectionState(headText);
+    const incoming = '## Alpha\n\nalpha body\n\nB1\n';
+
+    const { snapshot, changed, conflicted, staleBaseMerged } = applySectionTextEdit(
+      stored,
+      incoming,
+      headText,
+      headText,
+    );
+    expect(changed).toBe(true);
+    expect(conflicted).toBe(false);
+    expect(staleBaseMerged).toBe(false);
+    expect(sectionStateText(snapshot)).toBe(incoming);
+  });
+});

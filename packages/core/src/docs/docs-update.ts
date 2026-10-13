@@ -836,6 +836,7 @@ export async function updateDocBySlug(
   // without this the caller would never learn their edit is not in the head.
   let sectionConflicts: DocsSectionConflict[] | undefined;
   let leaseNotices: DocsSectionLeaseNotice[] | undefined;
+  let staleBaseMerged: string[] | undefined;
   if (hasContent) {
     try {
       const { projectDocUpdateThroughSections } = await import('./section-write-path.js');
@@ -849,6 +850,9 @@ export async function updateDocBySlug(
         authorAgentId: attachedBy,
         content: buf.toString('utf-8'),
         ...(boundSession !== null ? { sessionId: boundSession.session.id } : {}),
+        ...(typeof params.baseVersionUid === 'string'
+          ? { baseVersionUid: params.baseVersionUid }
+          : {}),
         ...(params.message !== undefined ? { changeSummary: params.message } : {}),
       });
       if (projection.conflicts.length > 0) {
@@ -868,6 +872,20 @@ export async function updateDocBySlug(
                   `section '${c.sectionId}' (incoming version ${c.incomingVersionUid} kept in history; head keeps projection version ${c.projectionVersionUid})`,
               )
               .join('; '),
+        });
+      }
+      if (projection.staleBaseMerged.length > 0) {
+        // T13674: the update was authored against a stale base and 3-way
+        // merged — both the concurrent edit and this edit are in the head.
+        // Named loudly so the caller re-fetches before the next edit.
+        staleBaseMerged = [...projection.staleBaseMerged];
+        pushWarning({
+          // @sync-invariant none:input-shape the warning only NAMES a stale-base merge the CRDT projection already performed; it rejects nothing and writes nothing
+          code: 'W_DOC_STALE_BASE_MERGED',
+          message:
+            `update of slug '${slug}' was authored against a stale base version; section(s) ` +
+            `${projection.staleBaseMerged.join(', ')} were merged with the concurrent edit — ` +
+            'both edits are in the head now. Re-fetch before your next edit.',
         });
       }
       if (projection.leaseNotices.length > 0) {
@@ -913,6 +931,7 @@ export async function updateDocBySlug(
       docVersion: oldRow.docVersion + 1,
       ...(sectionConflicts !== undefined ? { sectionConflicts } : {}),
       ...(leaseNotices !== undefined ? { leaseNotices } : {}),
+      ...(staleBaseMerged !== undefined ? { staleBaseMerged } : {}),
     },
   };
 }

@@ -825,6 +825,16 @@ export interface DocsUpdateParams {
   strict?: boolean;
   /** Agent identity that performed the update (default: `'human'`). */
   attachedBy?: string;
+  /**
+   * Conduit version uid the caller edited against — the version its content
+   * was fetched from (T13674). When the stored head has since advanced past
+   * this base, the projection can no longer assume single-writer: an incoming
+   * edit that appends relative to the base is 3-way merged through the
+   * section CRDT so the concurrent edit survives, and a non-append incoming
+   * edit is refused as a recorded conflict instead of silently replacing the
+   * head. Omit for the legacy single-writer assumption.
+   */
+  baseVersionUid?: string;
 }
 
 /**
@@ -904,6 +914,15 @@ export interface DocsUpdateResult {
    * same sections and holders. Absent when no section was leased elsewhere.
    */
   leaseNotices?: DocsSectionLeaseNotice[];
+  /**
+   * Sections whose incoming edit was authored against a STALE base version
+   * and 3-way merged through the section CRDT (T13674): the head had
+   * advanced past `baseVersionUid`, the incoming edit appended relative to
+   * the base, and both the concurrent edit and the incoming edit are now in
+   * the head. Absent when the base was current or omitted. A
+   * `W_DOC_STALE_BASE_MERGED` warning names the same sections.
+   */
+  staleBaseMerged?: string[];
 }
 
 // --------------------------------------------------------------------------

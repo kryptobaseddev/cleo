@@ -146,6 +146,14 @@ describe('operation envelope registry snapshots (T10615)', () => {
               "required": false,
               "type": "string",
             },
+            {
+              "cli": {
+                "flag": "base-version",
+              },
+              "name": "baseVersionUid",
+              "required": false,
+              "type": "string",
+            },
           ],
           "requiredParams": [
             "slug",

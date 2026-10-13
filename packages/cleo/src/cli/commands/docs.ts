@@ -1536,6 +1536,9 @@ const updateCommand = defineCommand({
         ...(args['dry-run'] === true ? { dryRun: true } : {}),
         ...(args.strict === true ? { strict: true } : {}),
         ...(typeof args['attached-by'] === 'string' ? { attachedBy: args['attached-by'] } : {}),
+        ...(typeof args['base-version'] === 'string'
+          ? { baseVersionUid: args['base-version'] }
+          : {}),
       },
       { command: 'docs update' },
     );

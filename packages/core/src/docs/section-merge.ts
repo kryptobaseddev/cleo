@@ -159,11 +159,31 @@ export function sectionStateText(state: Buffer): string {
  *     head, and records the conflict on the head — both versions preserved,
  *     nothing fabricated.
  *
+ * Stale base (T13674): when the caller names the version it edited against
+ * (`baseText`) and that base differs from the head's text, the head has
+ * advanced since the edit was authored and `headText` is NO LONGER the
+ * writer's common base — discriminating against it would treat a concurrent
+ * edit as a single-writer replace and SILENTLY DROP it. The incoming edit is
+ * therefore discriminated against `baseText` instead:
+ *
+ *   - `nextText` equals `baseText`: the writer authored nothing; the
+ *     concurrent edit stands (`changed: false`);
+ *   - `nextText` extends `baseText` (append relative to the base) and the
+ *     stored text also extends `baseText`: the authored tail composes onto
+ *     the stored state, so BOTH the concurrent edit and the incoming edit
+ *     survive (`changed: true`, `staleBaseMerged: true`);
+ *   - anything else (a non-append relative to the base, or a stored state
+ *     that does not extend the base): `conflicted: true`, stored state kept
+ *     — the write path records the conflict and lands both versions. Never
+ *     a fabricated merge.
+ *
  * Semantics:
  *
  *   - `stored === null` (first write of the section): seed a fresh state
  *     from the new text.
  *   - The stored text equals the new text: no-op (`changed: false`).
+ *   - `baseText` known and differing from `headText` (stale base): the
+ *     three rules above; `headText` is ignored for discrimination.
  *   - `headText === null` (no head text available for this section — no
  *     head yet, or the head version's blob is not resolvable locally): the
  *     single-writer assumption; re-seed from the new text (exact).
@@ -182,41 +202,87 @@ export function sectionStateText(state: Buffer): string {
  * @param nextText - The section's new full text.
  * @param headText - The section's text in the previous head version, or
  *   `null` when no head text is available.
- * @returns The resulting snapshot, whether it changed, and whether the edit
- *   is a non-append concurrent edit the caller must record as a conflict.
+ * @param baseText - The section's text in the version the caller edited
+ *   against (T13674), or `null`/omitted when unknown. Only discriminates
+ *   when it differs from `headText`.
+ * @returns The resulting snapshot, whether it changed, whether the edit
+ *   is a non-append concurrent edit the caller must record as a conflict,
+ *   and whether a stale base was 3-way merged.
  */
 export function applySectionTextEdit(
   stored: Buffer | null,
   nextText: string,
   headText: string | null,
-): { snapshot: Buffer; changed: boolean; conflicted: boolean } {
+  baseText: string | null = null,
+): { snapshot: Buffer; changed: boolean; conflicted: boolean; staleBaseMerged: boolean } {
   if (stored === null) {
-    return { snapshot: seedSectionState(nextText), changed: true, conflicted: false };
+    return {
+      snapshot: seedSectionState(nextText),
+      changed: true,
+      conflicted: false,
+      staleBaseMerged: false,
+    };
   }
   const current = sectionStateText(stored);
   if (current === nextText) {
-    return { snapshot: stored, changed: false, conflicted: false };
+    return { snapshot: stored, changed: false, conflicted: false, staleBaseMerged: false };
+  }
+  // T13674: the caller edited against `baseText` and the head has advanced
+  // (the base text differs from the head's). Discriminate the incoming edit
+  // against the BASE — never against the head, which would mistake a
+  // concurrent edit for a single-writer replace and drop it silently.
+  if (baseText !== null && baseText !== headText) {
+    if (nextText === baseText) {
+      // The writer authored nothing beyond the base; the stored (concurrent)
+      // edit stands.
+      return { snapshot: stored, changed: false, conflicted: false, staleBaseMerged: false };
+    }
+    if (nextText.startsWith(baseText) && current.startsWith(baseText)) {
+      // Append relative to the base, stored state extends the base: compose
+      // the authored tail onto the stored state. Both edits survive.
+      const update = makeSectionEditUpdate(stored, nextText.slice(baseText.length));
+      return {
+        snapshot: mergeSectionUpdates(stored, [update]),
+        changed: true,
+        conflicted: false,
+        staleBaseMerged: true,
+      };
+    }
+    // Non-append relative to the base, or a stored state that does not
+    // extend the base: refuse rather than fabricate. The write path records
+    // the conflict and lands both versions.
+    return { snapshot: stored, changed: false, conflicted: true, staleBaseMerged: false };
   }
   if (headText === null || current === headText) {
     // Single-writer edit: project the input EXACTLY. The primitives can only
     // append, so a re-seed is the honest encoding of a replace/delete — it
     // never fabricates a concatenation no writer authored (T13589).
-    return { snapshot: seedSectionState(nextText), changed: true, conflicted: false };
+    return {
+      snapshot: seedSectionState(nextText),
+      changed: true,
+      conflicted: false,
+      staleBaseMerged: false,
+    };
   }
   if (nextText === headText) {
     // The writer authored nothing beyond the base; the stored (concurrent)
     // edit stands.
-    return { snapshot: stored, changed: false, conflicted: false };
+    return { snapshot: stored, changed: false, conflicted: false, staleBaseMerged: false };
   }
   if (nextText.startsWith(headText)) {
     // Concurrent append-append: compose the incoming tail onto the stored
     // state. Both tails survive and nothing is fabricated (T13585).
     const update = makeSectionEditUpdate(stored, nextText.slice(headText.length));
-    return { snapshot: mergeSectionUpdates(stored, [update]), changed: true, conflicted: false };
+    return {
+      snapshot: mergeSectionUpdates(stored, [update]),
+      changed: true,
+      conflicted: false,
+      staleBaseMerged: false,
+    };
   }
   // Non-append concurrent edit (replace/delete relative to the base): not
   // expressible with append-only primitives without inventing text — keep
   // the stored state and let the write path record the conflict, landing
   // the incoming edit as its own version row (T13595).
-  return { snapshot: stored, changed: false, conflicted: true };
+  return { snapshot: stored, changed: false, conflicted: true, staleBaseMerged: false };
 }

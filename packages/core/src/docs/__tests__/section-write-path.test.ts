@@ -24,10 +24,12 @@
  * @task T13355 (Epic T13340 / Saga T13339)
  */
 
+import { readFileSync } from 'node:fs';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { getConduitAttachmentVersion } from '../../store/conduit-doc-history.js';
 import type { ResolvedDoc } from '../docs-read-model.js';
 import { updateDocBySlug } from '../docs-update.js';
 import { buildDocsFetchResult } from '../fetch-result.js';
@@ -986,5 +988,115 @@ describe('projectDocUpdateThroughSections (T13355)', () => {
     expect(winner.head.advanced).toBe(true);
     expect(winner.head.head.headVersionUid).toBe(winner.version.uid);
     expect(winner.version.parentVersionUid).toBe(first.version.uid);
+  });
+});
+
+describe('stale base through the write path (T13674)', () => {
+  const DOC_A = [
+    '# Plan',
+    '',
+    'preamble.',
+    '',
+    '## Alpha',
+    '',
+    'alpha body',
+    '',
+    'an appended line from agent A.',
+    '',
+    '## Beta',
+    '',
+    'beta body',
+  ].join('\n');
+
+  it('the normal two-agent case: a stale-base append 3-way merges and nothing is lost', async () => {
+    // Agent A and agent B both fetched DOC_V1. A's update lands first; B
+    // then submits its edit NAMING the version it fetched (v1). The head has
+    // advanced past v1, and B's append relative to v1 must merge with A's
+    // edit — before T13674 the projection saw stored === headText, assumed a
+    // single writer, re-seeded from B's text, and A's edit vanished from
+    // the head (sectionConflicts was null).
+    const first = await projectDocUpdateThroughSections(tempDir, {
+      slug: 'plan-doc',
+      authorAgentId: 'agent-seed',
+      content: DOC_V1,
+      hlc: hlcAt(1000),
+    });
+    const baseVersionUid = first.version.uid;
+    if (!baseVersionUid) throw new Error('expected the seed version uid');
+
+    const byA = await projectDocUpdateThroughSections(tempDir, {
+      slug: 'plan-doc',
+      authorAgentId: 'agent-a',
+      content: DOC_A,
+      hlc: hlcAt(2000),
+    });
+    expect(byA.head.advanced).toBe(true);
+
+    const byB = await projectDocUpdateThroughSections(tempDir, {
+      slug: 'plan-doc',
+      authorAgentId: 'agent-b',
+      content: DOC_V2, // B's append: 'an appended line from agent B.'
+      baseVersionUid,
+      hlc: hlcAt(3000),
+    });
+
+    // Both edits are in the merged text and the head.
+    expect(byB.staleBaseMerged).toEqual(['s1']);
+    expect(byB.conflicts).toEqual([]);
+    expect(byB.mergedText).toContain('an appended line from agent A.');
+    expect(byB.mergedText).toContain('an appended line from agent B.');
+    expect(byB.head.head.headVersionUid).toBe(byB.version.uid);
+    const headBlob = readFileSync(
+      join(tempDir, '.cleo', 'attachments', 'sha256', byB.version.storageKey),
+      'utf-8',
+    );
+    expect(headBlob).toContain('an appended line from agent A.');
+    expect(headBlob).toContain('an appended line from agent B.');
+  });
+
+  it('a stale-base non-append edit is recorded as a conflict — the concurrent edit stays in the head', async () => {
+    const first = await projectDocUpdateThroughSections(tempDir, {
+      slug: 'plan-doc',
+      authorAgentId: 'agent-seed',
+      content: DOC_V1,
+      hlc: hlcAt(1000),
+    });
+    const baseVersionUid = first.version.uid;
+    if (!baseVersionUid) throw new Error('expected the seed version uid');
+
+    await projectDocUpdateThroughSections(tempDir, {
+      slug: 'plan-doc',
+      authorAgentId: 'agent-a',
+      content: DOC_A,
+      hlc: hlcAt(2000),
+    });
+
+    // B rewrites the Alpha body relative to the stale base — a replace, not
+    // an append. Refused as a conflict: A's edit stays in the head, B's edit
+    // survives as its own version row.
+    const rewritten = DOC_V1.replace('alpha body', 'rewritten by B');
+    const byB = await projectDocUpdateThroughSections(tempDir, {
+      slug: 'plan-doc',
+      authorAgentId: 'agent-b',
+      content: rewritten,
+      baseVersionUid,
+      hlc: hlcAt(3000),
+    });
+
+    expect(byB.conflicts.map((c) => c.sectionId)).toEqual(['s1']);
+    expect(byB.staleBaseMerged).toEqual([]);
+    // The head keeps A's projection; B's text is NOT in the merged head text.
+    expect(byB.mergedText).toContain('an appended line from agent A.');
+    expect(byB.mergedText).not.toContain('rewritten by B');
+    // B's edit is preserved as its own version row (append-only history).
+    const incoming = byB.conflicts[0];
+    if (!incoming) throw new Error('expected the recorded conflict');
+    const incomingRow = await getConduitAttachmentVersion(tempDir, incoming.incomingVersionUid);
+    expect(incomingRow).not.toBeNull();
+    const incomingBlob = readFileSync(
+      join(tempDir, '.cleo', 'attachments', 'sha256', incomingRow?.storageKey ?? ''),
+      'utf-8',
+    );
+    expect(incomingBlob).toContain('rewritten by B');
   });
 });

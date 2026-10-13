@@ -8908,6 +8908,17 @@ export const OPERATIONS: OperationDef[] = [
         description: 'Agent identity that performed the update (defaults to "human")',
         cli: { flag: 'attached-by' },
       },
+      {
+        name: 'baseVersionUid',
+        type: 'string' as const,
+        required: false,
+        description:
+          'Conduit version uid the caller edited against (the version its content was fetched from, T13674). ' +
+          'When the head has since advanced, an append relative to the base is 3-way merged through the section CRDT ' +
+          'and a non-append edit is recorded as a conflict — an edit is never silently dropped. ' +
+          'Omit for the legacy single-writer assumption.',
+        cli: { flag: 'base-version' },
+      },
     ],
   },
   // ── playbook.* HITL CLI surface (T935) ───────────────────────────────────
