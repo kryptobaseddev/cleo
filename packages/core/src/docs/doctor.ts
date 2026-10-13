@@ -73,12 +73,13 @@ import { isAbsolute, join, resolve, sep } from 'node:path';
 import { getCleoWorktreesRoot } from '@cleocode/paths';
 import { eq } from 'drizzle-orm';
 import { resolveCleoDir } from '../paths.js';
-import { fileBytesMatchSha256, writeFileAtomic } from '../store/atomic-write.js';
 import { createAttachmentStore } from '../store/attachment-store.js';
 import { blobContentExists, blobFilePath } from '../store/blob-keep.js';
+import { fileBytesMatchSha256 } from '../store/blob-ops.js';
 import { docsWikilinks } from '../store/schema/attachments.js';
 import { getDb } from '../store/sqlite.js';
 import { docsAttachments } from '../store/tasks-schema.js';
+import { writeFileAtomic } from '../tools/fs.js';
 import {
   type DerivedDocLinks,
   deriveDocLinks,
@@ -437,7 +438,7 @@ export async function backfillBlobStoreBytes(
   // renamed into place — an interrupted write never leaves a truncated blob
   // at the final content address (which later runs would count as present
   // and `blobReadBySha` would then reject as corrupt with no heal path).
-  await writeFileAtomic(target, bytes);
+  await writeFileAtomic({ path: target, content: bytes });
   return 'written';
 }
 

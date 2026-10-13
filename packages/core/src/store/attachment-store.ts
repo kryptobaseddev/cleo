@@ -23,8 +23,9 @@ import type { Attachment, AttachmentMetadata, AttachmentRef } from '@cleocode/co
 import { and, asc, eq, or, sql } from 'drizzle-orm';
 import { EngineResultError } from '../engine-result.js';
 import { resolveCleoDir } from '../paths.js';
-import { fileBytesMatchSha256, writeFileAtomic } from './atomic-write.js';
+import { writeFileAtomic } from '../tools/fs.js';
 import { extFromMime, pinBlob, restoreBlob, tombstoneBlob } from './blob-keep.js';
+import { fileBytesMatchSha256 } from './blob-ops.js';
 import type { CleoBlobStore as CleoBlobStoreType } from './llmtxt-blob-adapter.js';
 import { getDb, getNativeTasksDb } from './sqlite.js';
 import { type AttachmentLifecycleStatus, attachmentRefs, attachments } from './tasks-schema.js';
@@ -802,7 +803,7 @@ export function createAttachmentStore(): AttachmentStore {
           // a fixed tmp name, and an interrupted write never leaves a partial
           // file at the final path.
           if (wasNew) {
-            await writeFileAtomic(filePath, buf);
+            await writeFileAtomic({ path: filePath, content: buf });
 
             // T13362/T13653/T13657: mirror the hash-verified bytes into the
             // content-addressed blob store (`.cleo/blobs/blobs/<sha256>`) —
@@ -817,7 +818,7 @@ export function createAttachmentStore(): AttachmentStore {
             // (idempotent re-put / cross-surface dedup).
             const blobStoreFile = join(resolveCleoDir(cwd), 'blobs', 'blobs', hash);
             if (!(await fileBytesMatchSha256(blobStoreFile, hash))) {
-              await writeFileAtomic(blobStoreFile, buf);
+              await writeFileAtomic({ path: blobStoreFile, content: buf });
             }
           }
 

@@ -106,8 +106,11 @@ export type ReadFileText = (input: ReadFileInput) => Promise<ReadFileResult>;
 export interface WriteFileInput {
   /** Absolute path to write. */
   readonly path: string;
-  /** Content to write. */
-  readonly content: string;
+  /**
+   * Content to write — UTF-8 text or raw bytes. Bytes are written verbatim
+   * (binary-safe); text is encoded as UTF-8.
+   */
+  readonly content: string | Uint8Array;
   /** Create parent directories if missing. Defaults to `true`. */
   readonly createDirs?: boolean;
 }

@@ -26,8 +26,30 @@
  * @see ./llmtxt-blob-adapter.ts (CleoBlobStore — llmtxt/blob wrapper)
  */
 
+import { createHash } from 'node:crypto';
+import { readFile } from 'node:fs/promises';
 import { getProjectRoot } from '../paths.js';
 import { CleoBlobStore } from './llmtxt-blob-adapter.js';
+
+/**
+ * True when `target` exists AND its bytes re-hash to `sha256` (T13657).
+ *
+ * Existence alone is never proof that a content-addressed file holds the
+ * bytes its name claims: a truncated leftover from an interrupted
+ * pre-atomic write must be replaced from verified bytes, not trusted. Any
+ * read failure (absent, unreadable) returns false.
+ *
+ * @param target - Absolute path of the content-addressed file.
+ * @param sha256 - Lowercase hex SHA-256 the bytes must match.
+ */
+export async function fileBytesMatchSha256(target: string, sha256: string): Promise<boolean> {
+  try {
+    const bytes = await readFile(target);
+    return createHash('sha256').update(bytes).digest('hex') === sha256;
+  } catch {
+    return false;
+  }
+}
 
 // ─── Public types ────────────────────────────────────────────────────────────
 

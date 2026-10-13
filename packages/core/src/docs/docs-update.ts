@@ -36,11 +36,12 @@ import { DOCS_LIFECYCLE_STATUSES } from '@cleocode/contracts/operations/docs.js'
 import { and, eq } from 'drizzle-orm';
 import { pushWarning } from '../output.js';
 import { getCleoDirAbsolute, resolveCleoDir } from '../paths.js';
-import { fileBytesMatchSha256, writeFileAtomic } from '../store/atomic-write.js';
+import { fileBytesMatchSha256 } from '../store/blob-ops.js';
 import { resolveBoundSession } from '../store/session-store.js';
 import { getDb, getNativeTasksDb } from '../store/sqlite.js';
 import { attachmentRefs, docsAttachments } from '../store/tasks-schema.js';
 import { assertTwinCollapseWritable } from '../store/twin-collapse.js';
+import { writeFileAtomic } from '../tools/fs.js';
 import { deriveDocLinks, linksJsonOrNull } from './derive-links.js';
 import { validateDocBody } from './validate-body.js';
 import { getCanonicalCleoVersion } from './version-ssot.js';
@@ -663,7 +664,7 @@ export async function updateDocBySlug(
     const blobStoreFile = join(resolveCleoDir(projectRoot), 'blobs', 'blobs', newSha256);
     if (!(await fileBytesMatchSha256(blobStoreFile, newSha256))) {
       try {
-        await writeFileAtomic(blobStoreFile, buf);
+        await writeFileAtomic({ path: blobStoreFile, content: buf });
       } catch (cause) {
         return {
           ok: false,
