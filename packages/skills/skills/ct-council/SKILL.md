@@ -2,7 +2,7 @@
 name: ct-council
 description: Convene "The Council" — a 5-advisor, shuffled gate-based peer-review, chairman-synthesis workflow for reviewing a plan, decision, architecture, or piece of work inside the current project. Use when the user says "convene the council" (or "counsel"), "get the council on this", "council review", "run the five advisors", "stress-test this", "get multiple perspectives", or asks for a rigorous multi-angle challenge of a proposal (Contrarian, First Principles, Expansionist, Outsider, Executor → shuffled peer review with pass/fail gates → convergence detector → Chairman verdict). Operates on the current codebase — each advisor grounds their analysis in actual files/commits before opining. Output is validated by scripts/validate.py.
 metadata:
-  version: 1.1.0
+  version: 1.1.1
   tier: on-demand
   install: harness
   stability: stable
@@ -317,12 +317,15 @@ python3 scripts/run_council.py ingest <run-dir>  # validate + verdict.md + tldr.
 
 - **Slug** — `council-run-<run_id>` (stable per run; re-ingesting the same run updates
   the same doc instead of creating a new one). The slug is stamped into the INDEX entry
-  as `docs_slug`.
+  as `docs_slug` only when the store write succeeded.
 - **Kind** — `note`; owner is `--owner <id>` if passed, else the `CLEO_SESSION_ID`
-  environment variable. The markdown is piped via `--content -` (stdin), never argv.
-- **Non-fatal + additive** — the raw run dir and `.cleo/council-runs.jsonl` remain the
-  telemetry source of truth. If the `cleo docs` subprocess fails (or no owner is
-  resolvable), ingest logs a warning and continues. `--no-store` skips the write.
+  environment variable, else the session the CLI binds to (`cleo session status`; under
+  Claude Code only `CLAUDE_CODE_SESSION_ID` is set and the CLI resolves it). The markdown
+  is piped via `--content -` (stdin), never argv.
+- **Ordered, non-fatal + additive** — the store write runs after the telemetry record and
+  the INDEX entry are written; those and the raw run dir remain the source of truth. Every
+  `cleo` call has a 60 s timeout. If it fails, times out, or no owner is resolvable,
+  ingest logs a warning and continues. `--no-store` skips the write.
 
 Retrieve a run's doc with `cleo docs fetch council-run-<run_id>`; each re-ingest that
 changes the bytes bumps the doc's version (see the `docVersion` field in the update
