@@ -2440,3 +2440,83 @@ export const SNAPSHOT_STATE_TABLES: Readonly<Record<TableScope, readonly string[
 export function isSnapshotStateTable(scope: TableScope, name: string): boolean {
   return SNAPSHOT_STATE_TABLES[scope].includes(name);
 }
+
+/**
+ * The keys of a `local-only` key/value table (column `key`) that describe the
+ * database file's own data or schema, among keys that describe this machine.
+ */
+export interface FileStateKeyRule {
+  /** Keys that describe the file. */
+  readonly exact: readonly string[];
+  /** Key prefixes that describe the file. */
+  readonly prefixes: readonly string[];
+  /**
+   * When the placed file lacks the table, create it (with this machine's DDL)
+   * so this machine's keys are not lost: its schema is applied lazily from the
+   * keys themselves (`_sync_meta`: the `sync.*` flags apply the sync schema).
+   */
+  readonly createIfAbsent: boolean;
+}
+
+/**
+ * `local-only` key/value tables that mix keys describing the database file
+ * with keys describing this machine. A vault restore takes the file's keys
+ * from the snapshot and this machine's keys from the live store (T13107,
+ * T13108):
+ *
+ * - `tasks_row_identity_meta`: the uid recipe the rows were derived with, the
+ *   "uids have left the device" marker and the canonical-timestamp rewrite
+ *   marker describe the rows; the local rename records (`renamed_from:*`)
+ *   are this store's history.
+ * - `_sync_meta`: the sync-schema ledger (`schema:<folder>`) describes which
+ *   sync tables the file has; the `sync.*` flags, `min_writer_version` (it
+ *   follows the capture flag), replica seqs, suspect marks and sealer counters
+ *   are this machine's.
+ *
+ * Every table here is classified `local-only` (asserted by the classification
+ * tests), so none of it syncs or is hashed by the manifest.
+ *
+ * @task T13107
+ * @task T13108
+ */
+export const FILE_STATE_KEYS: Readonly<
+  Record<TableScope, Readonly<Record<string, FileStateKeyRule>>>
+> = {
+  project: {
+    tasks_row_identity_meta: {
+      exact: ['row_identity_recipe', 'row_identity_synced'],
+      prefixes: ['timestamp_canon_'],
+      createIfAbsent: false,
+    },
+    _sync_meta: { exact: [], prefixes: ['schema:'], createIfAbsent: true },
+  },
+  global: {
+    _sync_meta: { exact: [], prefixes: ['schema:'], createIfAbsent: true },
+  },
+};
+
+/**
+ * The file-state key rule of a table ({@link FILE_STATE_KEYS}), or `null`.
+ *
+ * @param scope - Which `cleo.db` the table lives in.
+ * @param name - The physical name as `sqlite_master` reports it.
+ * @returns The rule, or `null` when the table has none.
+ * @task T13107
+ */
+export function fileStateKeyRule(scope: TableScope, name: string): FileStateKeyRule | null {
+  return Object.hasOwn(FILE_STATE_KEYS[scope], name)
+    ? (FILE_STATE_KEYS[scope][name] ?? null)
+    : null;
+}
+
+/**
+ * Whether `key` describes the file under `rule`.
+ *
+ * @param rule - A table's file-state key rule.
+ * @param key - A value of the table's `key` column.
+ * @returns `true` for a key the snapshot supplies on restore.
+ * @task T13107
+ */
+export function isFileStateKey(rule: FileStateKeyRule, key: string): boolean {
+  return rule.exact.includes(key) || rule.prefixes.some((p) => key.startsWith(p));
+}
