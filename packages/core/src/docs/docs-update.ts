@@ -28,6 +28,7 @@ import { join } from 'node:path';
 import type {
   DocsLifecycleStatus,
   DocsSectionConflict,
+  DocsSectionLeaseNotice,
   DocsUpdateParams,
 } from '@cleocode/contracts';
 import { blobAttachmentSchema } from '@cleocode/contracts/attachment-schema.js';
@@ -35,6 +36,7 @@ import { DOCS_LIFECYCLE_STATUSES } from '@cleocode/contracts/operations/docs.js'
 import { and, eq } from 'drizzle-orm';
 import { pushWarning } from '../output.js';
 import { getCleoDirAbsolute } from '../paths.js';
+import { resolveBoundSession } from '../store/session-store.js';
 import { getDb, getNativeTasksDb } from '../store/sqlite.js';
 import { attachmentRefs, docsAttachments } from '../store/tasks-schema.js';
 import { assertTwinCollapseWritable } from '../store/twin-collapse.js';
@@ -119,6 +121,13 @@ export interface DocsUpdateOk {
    * `W_DOC_SECTION_CONFLICT` warning names the same sections.
    */
   sectionConflicts?: DocsSectionConflict[];
+  /**
+   * Advisory section-lease notices (T13356): sections the update edited are
+   * leased by other live sessions — the edit PROCEEDED anyway (leases are
+   * advisory). Absent when nothing was leased elsewhere; a
+   * `W_DOC_SECTION_LEASED` warning names the same sections and holders.
+   */
+  leaseNotices?: DocsSectionLeaseNotice[];
   dryRun?: true;
   wouldWrite?: boolean;
   wouldChange?: boolean;
@@ -798,13 +807,20 @@ export async function updateDocBySlug(
   // stderr warning names the sections — the update reports changed:true, so
   // without this the caller would never learn their edit is not in the head.
   let sectionConflicts: DocsSectionConflict[] | undefined;
+  let leaseNotices: DocsSectionLeaseNotice[] | undefined;
   if (hasContent) {
     try {
       const { projectDocUpdateThroughSections } = await import('./section-write-path.js');
+      // T13356 AC4: the real session id drives lease acquire/renew, so a
+      // lease dies honestly with its session (TTL bound, holder-only renew).
+      // Gate 16: the bound session is resolved via resolveBoundSession —
+      // never a bare getActiveSession().
+      const boundSession = await resolveBoundSession(projectRoot);
       const projection = await projectDocUpdateThroughSections(projectRoot, {
         slug,
         authorAgentId: attachedBy,
         content: buf.toString('utf-8'),
+        ...(boundSession !== null ? { sessionId: boundSession.session.id } : {}),
         ...(params.message !== undefined ? { changeSummary: params.message } : {}),
       });
       if (projection.conflicts.length > 0) {
@@ -823,6 +839,23 @@ export async function updateDocBySlug(
                 (c) =>
                   `section '${c.sectionId}' (incoming version ${c.incomingVersionUid} kept in history; head keeps projection version ${c.projectionVersionUid})`,
               )
+              .join('; '),
+        });
+      }
+      if (projection.leaseNotices.length > 0) {
+        leaseNotices = projection.leaseNotices.map((n) => ({
+          sectionId: n.sectionId,
+          holder: n.holder,
+          sessionId: n.sessionId,
+          expiresAt: n.expiresAt,
+        }));
+        pushWarning({
+          // @sync-invariant none:input-shape the warning only NAMES an advisory lease held by another session (T13356); it rejects nothing and writes nothing
+          code: 'W_DOC_SECTION_LEASED',
+          message:
+            `section lease(s) held by another session on slug '${slug}' (advisory — your edit still landed): ` +
+            projection.leaseNotices
+              .map((n) => `section '${n.sectionId}' held by ${n.holder} until ${n.expiresAt}`)
               .join('; '),
         });
       }
@@ -851,6 +884,7 @@ export async function updateDocBySlug(
       ownerVersion: getCanonicalCleoVersion(projectRoot),
       docVersion: oldRow.docVersion + 1,
       ...(sectionConflicts !== undefined ? { sectionConflicts } : {}),
+      ...(leaseNotices !== undefined ? { leaseNotices } : {}),
     },
   };
 }

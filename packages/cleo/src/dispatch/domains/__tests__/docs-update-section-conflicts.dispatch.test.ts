@@ -19,11 +19,24 @@
  * @task T13610 (Epic T13340 / Saga T13339)
  */
 
-import type { DocsSectionConflict, DocsUpdateOk } from '@cleocode/contracts';
+import type {
+  DocsSectionConflict,
+  DocsSectionLeaseNotice,
+  DocsUpdateOk,
+} from '@cleocode/contracts';
 import { describe, expect, it, vi } from 'vitest';
 
 const SECTION_CONFLICTS: DocsSectionConflict[] = [
   { sectionId: 's1', incomingVersionUid: 'uid-incoming', projectionVersionUid: 'uid-projection' },
+];
+
+const LEASE_NOTICES: DocsSectionLeaseNotice[] = [
+  {
+    sectionId: 's2',
+    holder: 'agent-other',
+    sessionId: 'ses-other',
+    expiresAt: '2026-10-12T01:01:00.000Z',
+  },
 ];
 
 /** Mutable mock result so each test controls what the core returns. */
@@ -57,7 +70,7 @@ function makeCoreResult(overrides: Partial<DocsUpdateOk> = {}): DocsUpdateOk {
   };
 }
 
-describe('docs.update dispatch — sectionConflicts in the envelope (T13610)', () => {
+describe('docs.update dispatch — sectionConflicts + leaseNotices in the envelope (T13610, T13356)', () => {
   it('carries data.sectionConflicts with both version refs when the core result has them', async () => {
     const { DocsHandler } = await import('../docs.js');
     coreResult = makeCoreResult({ sectionConflicts: SECTION_CONFLICTS });
@@ -80,7 +93,24 @@ describe('docs.update dispatch — sectionConflicts in the envelope (T13610)', (
     expect(data.sectionConflicts?.[0]?.projectionVersionUid).toBe('uid-projection');
   });
 
-  it('omits sectionConflicts when the core result has none (no-conflict path unchanged)', async () => {
+  it('carries data.leaseNotices when the core result has them (T13356)', async () => {
+    const { DocsHandler } = await import('../docs.js');
+    coreResult = makeCoreResult({ leaseNotices: LEASE_NOTICES });
+
+    const response = await new DocsHandler().mutate('update', {
+      slug: 'plan-doc',
+      content: '# Plan\n\nnew body',
+    });
+
+    expect(response.success).toBe(true);
+    const data = response.data as { leaseNotices?: DocsSectionLeaseNotice[] };
+    expect(data.leaseNotices).toEqual(LEASE_NOTICES);
+    expect(data.leaseNotices?.[0]?.sectionId).toBe('s2');
+    expect(data.leaseNotices?.[0]?.holder).toBe('agent-other');
+    expect(data.leaseNotices?.[0]?.sessionId).toBe('ses-other');
+  });
+
+  it('omits both fields when the core result has none (no-conflict path unchanged)', async () => {
     const { DocsHandler } = await import('../docs.js');
     coreResult = makeCoreResult();
 
@@ -90,7 +120,11 @@ describe('docs.update dispatch — sectionConflicts in the envelope (T13610)', (
     });
 
     expect(response.success).toBe(true);
-    const data = response.data as { sectionConflicts?: DocsSectionConflict[] };
+    const data = response.data as {
+      sectionConflicts?: DocsSectionConflict[];
+      leaseNotices?: DocsSectionLeaseNotice[];
+    };
     expect(data.sectionConflicts).toBeUndefined();
+    expect(data.leaseNotices).toBeUndefined();
   });
 });
