@@ -698,6 +698,14 @@ describe('brain_sticky_notes: one-way status, write-once conversion (T12942)', (
     status: 'converted',
     converted_to_json: '{"memory":"O-x"}',
   });
+
+  it('an identical re-delivery (an own echo) records no conflict, as on a receiver', () => {
+    for (const o of [create, convertA]) {
+      const live = applyOp(UNSEEN_ROW, create, STICKY).next;
+      const once = o === create ? live : applyOp(live, o, STICKY).next;
+      expect(applyOp(once, o, STICKY).conflicts).toEqual([]);
+    }
+  });
   const reactivate = kOp('U', h(50, R2), { status: 'active' });
 
   /** Every permutation of `ops` after the create. */

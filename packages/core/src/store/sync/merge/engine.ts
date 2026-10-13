@@ -393,8 +393,10 @@ function mergeRankMax(
   if (won) {
     d.written.push(col);
     d.applied++;
-    if (!newer && cur !== undefined) {
-      // The rule picked an older write over a newer one.
+    // The rule picked an older write over a newer one. An identical
+    // re-delivery (an own echo: same HLC, same value) is not a conflict, or
+    // the origin records one its receivers never do.
+    if (cur !== undefined && cmp(h, cur.hlc) < 0) {
       d.conflicts.push(
         conflict(op, 'typed-rule', [col], 'incoming-applied', { rule: rule.id, localHlc: cur.hlc }),
       );
