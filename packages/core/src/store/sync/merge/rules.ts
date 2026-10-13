@@ -126,7 +126,8 @@ export const TASK_STAGE_MERGE_ORDER: readonly string[] = [
  * `task.verification.frozen-on-done` (T12939),
  * `docs.decision-adr-links.revoke-monotonic` (T13597),
  * `audit.immutable` (T12941, table-level), `playbook.approval.once` (T12944),
- * `session.status.terminal` (T12940), `release.status.absorbing` (T12943).
+ * `session.status.terminal` (T12940), `release.status.absorbing` (T12943),
+ * `sticky.status.one-way` (T12942).
  */
 export const SYNC_MERGE_RULES: Readonly<Record<string, MergeRuleSet>> = {
   tasks_tasks: {
@@ -219,6 +220,23 @@ export const SYNC_MERGE_RULES: Readonly<Record<string, MergeRuleSet>> = {
         states: ['approved', 'rejected'],
         leaveOps: [],
       },
+    },
+  },
+  brain_sticky_notes: {
+    rules: {
+      // One-way and order-free (T12942): the status is the maximum of its
+      // writes by active < archived < converted, so a sticky never returns to
+      // active, and a conversion beats a concurrent archive in every order,
+      // keeping status and converted_to_json in agreement (B24). No command
+      // reverses either move, so there are no restore ops.
+      status: {
+        kind: 'rank-max',
+        id: 'sticky.status.one-way',
+        order: ['active', 'archived', 'converted'],
+        restoreOps: [],
+      },
+      // A second conversion to another target is refused, never LWW (SK2).
+      converted_to_json: { kind: 'write-once', id: 'sticky.status.one-way' },
     },
   },
   decision_adr_links: {

@@ -679,6 +679,71 @@ describe('audit tables: rows are immutable (T12941)', () => {
   }
 });
 
+// T12942 — sticky status is one-way (active < archived < converted) and
+// converted_to_json is write-once: order-free, and conversion beats archive.
+describe('brain_sticky_notes: one-way status, write-once conversion (T12942)', () => {
+  const STICKY_COLUMNS = ['content', 'status', 'converted_to_json'];
+  const STICKY: MergeContext = { table: mergeSpecFor('brain_sticky_notes', STICKY_COLUMNS) };
+  const kOp = (o: LedgerOp['o'], hlc: string, a: Record<string, LedgerValue>): LedgerOp => ({
+    t: 'brain_sticky_notes',
+    u: 'uid-sn-1',
+    o,
+    h: hlc,
+    a,
+  });
+  const create = kOp('I', h(10), { content: 'idea', status: 'active', converted_to_json: null });
+  const convertA = kOp('U', h(20), { status: 'converted', converted_to_json: '{"task":"T9"}' });
+  const archiveB = kOp('U', h(30, R2), { status: 'archived' });
+  const convertB = kOp('U', h(40, R2), {
+    status: 'converted',
+    converted_to_json: '{"memory":"O-x"}',
+  });
+
+  it('an identical re-delivery (an own echo) records no conflict, as on a receiver', () => {
+    for (const o of [create, convertA]) {
+      const live = applyOp(UNSEEN_ROW, create, STICKY).next;
+      const once = o === create ? live : applyOp(live, o, STICKY).next;
+      expect(applyOp(once, o, STICKY).conflicts).toEqual([]);
+    }
+  });
+  const reactivate = kOp('U', h(50, R2), { status: 'active' });
+
+  /** Every permutation of `ops` after the create. */
+  const perms = (ops: LedgerOp[]): LedgerOp[][] =>
+    ops.length <= 1
+      ? [ops]
+      : ops.flatMap((o, i) =>
+          perms([...ops.slice(0, i), ...ops.slice(i + 1)]).map((p) => [o, ...p]),
+        );
+  const fold = (ops: LedgerOp[]) => {
+    let row = applyOp(UNSEEN_ROW, create, STICKY).next;
+    for (const o of ops) row = applyOp(row, o, STICKY).next;
+    return row;
+  };
+
+  it('a conversion beats a later archive and a reactivation, and converges in every order', () => {
+    for (const ops of perms([convertA, archiveB, reactivate])) {
+      const row = fold(ops);
+      expect(val(row, 'status')).toBe('converted');
+      expect(val(row, 'converted_to_json')).toBe('{"task":"T9"}');
+    }
+  });
+
+  it('archive is one-way too: a later reactivation stays archived in every order', () => {
+    for (const ops of perms([archiveB, reactivate]))
+      expect(val(fold(ops), 'status')).toBe('archived');
+  });
+
+  it('a second conversion to another target is refused as a typed-rule conflict', () => {
+    const converted = fold([convertA]);
+    const out = applyOp(converted, convertB, STICKY);
+    expect(val(out.next, 'converted_to_json')).toBe('{"task":"T9"}');
+    expect(out.conflicts).toContainEqual(
+      expect.objectContaining({ kind: 'typed-rule', rule: 'sticky.status.one-way' }),
+    );
+  });
+});
+
 describe('review #1867: groups travel whole (T13222)', () => {
   const base = live(grp('active'), h(1));
   const done = op('U', h(3), grp('done', { completed_at: 'X' }), grp('active'));
@@ -843,6 +908,7 @@ describe('the merge-rule registry matches the write-invariant registry', () => {
       'playbook.approval.once',
       'release.status.absorbing',
       'session.status.terminal',
+      'sticky.status.one-way',
       'task.pipeline-stage.max',
       'task.status.absorbing',
       'task.verification.frozen-on-done',
