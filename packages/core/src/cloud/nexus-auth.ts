@@ -49,6 +49,7 @@ import {
 import { type FetchLike, Http, isSecureUrl, NexusError } from './http.js';
 import {
   FileNexusTokenStore,
+  NexusCredentialsError,
   type NexusTokenStore,
   type SealedNexusSession,
 } from './nexus-credentials.js';
@@ -412,7 +413,14 @@ export async function runNexusDeviceCode(
 export async function logoutFromNexus(opts: NexusLogoutOptions = {}): Promise<NexusLogoutResult> {
   const apiUrl = resolveNexusApiUrl(opts.apiUrl);
   const store = opts.store ?? new FileNexusTokenStore();
-  const session = await store.get(apiUrl);
+  let session: SealedNexusSession | null;
+  try {
+    session = await store.get(apiUrl);
+  } catch (err) {
+    // An unreadable session file is not signed in here (T13677); it is left as is.
+    if (!(err instanceof NexusCredentialsError)) throw err;
+    return { apiUrl, removedLocally: false, revocation: 'skipped', warnings: [err.message] };
+  }
   if (!session) {
     return { apiUrl, removedLocally: false, revocation: 'skipped', warnings: [] };
   }

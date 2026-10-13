@@ -82,6 +82,23 @@ describe('FileNexusTokenStore refuses a file it cannot read safely (T12880)', ()
     expect(readFileSync(location, 'utf-8')).toBe(content);
   });
 
+  it('a whitespace-only file reads as empty but a write refuses it by name, not with a raw SyntaxError (T13677)', async () => {
+    const { location, store } = fresh('   \n');
+    expect(await store.get(API)).toBeNull();
+    await expect(store.put(API, session)).rejects.toThrow(/nexus-credentials\.json is malformed/);
+    expect(readFileSync(location, 'utf-8')).toBe('   \n');
+  });
+
+  it('logout over a malformed file reports it and signs nothing out, leaving it as is (T13677)', async () => {
+    const content = '{"version": 1, "sessions": []}';
+    const { location, store } = fresh(content);
+    const { logoutFromNexus } = await import('../nexus-auth.js');
+    const out = await logoutFromNexus({ apiUrl: API, store });
+    expect(out).toMatchObject({ removedLocally: false, revocation: 'skipped' });
+    expect(out.warnings.join(' ')).toMatch(/malformed.*left as is/);
+    expect(readFileSync(location, 'utf-8')).toBe(content);
+  });
+
   it('a newer format is refused with an upgrade hint, and left byte-identical', async () => {
     const content = '{"version": 2, "sessions": {}, "keychain": "os"}\n';
     const { location, store } = fresh(content);

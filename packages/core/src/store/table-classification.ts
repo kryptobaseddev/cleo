@@ -2469,9 +2469,11 @@ export interface FileStateKeyRule {
  *   marker describe the rows; the local rename records (`renamed_from:*`)
  *   are this store's history.
  * - `_sync_meta`: the sync-schema ledger (`schema:<folder>`) describes which
- *   sync tables the file has; the `sync.*` flags, `min_writer_version` (it
- *   follows the capture flag), replica seqs, suspect marks and sealer counters
- *   are this machine's.
+ *   sync tables the file has, and the suspect marks (`suspect:<table>`) name
+ *   tables whose rows the file holds writes never captured, so its repair
+ *   signal travels with those rows (T13677); the `sync.*` flags,
+ *   `min_writer_version` (it follows the capture flag), replica seqs and
+ *   sealer counters are this machine's.
  *
  * Every table here is classified `local-only` (asserted by the classification
  * tests), so none of it syncs or is hashed by the manifest.
@@ -2488,10 +2490,10 @@ export const FILE_STATE_KEYS: Readonly<
       prefixes: ['timestamp_canon_'],
       createIfAbsent: false,
     },
-    _sync_meta: { exact: [], prefixes: ['schema:'], createIfAbsent: true },
+    _sync_meta: { exact: [], prefixes: ['schema:', 'suspect:'], createIfAbsent: true },
   },
   global: {
-    _sync_meta: { exact: [], prefixes: ['schema:'], createIfAbsent: true },
+    _sync_meta: { exact: [], prefixes: ['schema:', 'suspect:'], createIfAbsent: true },
   },
 };
 

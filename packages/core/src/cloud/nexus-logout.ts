@@ -51,7 +51,12 @@ import type {
 import { z } from 'zod';
 import { type FetchLike, Http, NexusError } from './http.js';
 import { logoutFromNexus, NEXUS_REVOKE_TIMEOUT_MS, resolveNexusApiUrl } from './nexus-auth.js';
-import { FileNexusTokenStore, type NexusTokenStore, nexusOriginKey } from './nexus-credentials.js';
+import {
+  FileNexusTokenStore,
+  NexusCredentialsError,
+  type NexusTokenStore,
+  nexusOriginKey,
+} from './nexus-credentials.js';
 import {
   applyBeginRevoke,
   applyBeginSignOut,
@@ -536,7 +541,15 @@ export async function logoutNexusDevice(
 
   let session: NexusLogoutResult | null = null;
   const sessions = opts.store ?? new FileNexusTokenStore();
-  if ((await sessions.get(ctx.apiUrl)) !== null) {
+  let stored = false;
+  try {
+    stored = (await sessions.get(ctx.apiUrl)) !== null;
+  } catch (err) {
+    // An unreadable session file is not signed in here (T13677); it is left as is.
+    if (!(err instanceof NexusCredentialsError)) throw err;
+    warnings.push(err.message);
+  }
+  if (stored) {
     session = await logoutFromNexus({
       apiUrl: ctx.apiUrl,
       store: sessions,

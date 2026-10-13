@@ -475,6 +475,20 @@ describe('cloud status (E3, §4.4)', () => {
     expect(server.calls).toHaveLength(0);
   });
 
+  it('a malformed session file reads as not signed in, with a warning naming it; the file is left as is (T13677)', async () => {
+    writeFileSync(sessions.location, '{"version": 1, "sessions": []}', { mode: 0o600 });
+    const server = mockServer({});
+    const result = await getNexusCloudStatus(opts(server.fetch));
+    expect(result.verdict).toBe('not-signed-in');
+    expect(result.warnings).toContainEqual(
+      expect.objectContaining({
+        code: 'W_NEXUS_CREDENTIALS_UNREADABLE',
+        message: expect.stringContaining(sessions.location),
+      }),
+    );
+    expect(server.calls).toHaveLength(0);
+  });
+
   it('lists the devices holding the project, with fresh or stale presence (T13290)', async () => {
     await signIn();
     linkProject();
