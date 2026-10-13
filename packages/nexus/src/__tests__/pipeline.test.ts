@@ -31,6 +31,7 @@ import { gunzipSync } from 'node:zlib';
 import type {
   GraphIndexFileReport,
   GraphIndexReferenceReport,
+  GraphParseCacheEntry,
   GraphPublicationRows,
 } from '@cleocode/contracts';
 import type { GraphSourceRootAssessment } from '@cleocode/contracts/graph';
@@ -619,6 +620,61 @@ describe('streamed parse results (T13325)', () => {
       rmSync(directory, { recursive: true, force: true });
     }
   }, 150000);
+
+  it('re-parses a corrupt cached extraction at merge time and never resolves from it (T13676)', async () => {
+    const directory = makeTempDir();
+    try {
+      writeFile(
+        directory,
+        'main.ts',
+        'function helper(){ return 1; } export function main(){ return helper(); }',
+      );
+      const files = await walkRepositoryPaths(directory);
+      const generation = '11111111-1111-4111-8111-111111111111';
+      const parse = async (reusedEntries?: Map<string, GraphParseCacheEntry>) => {
+        const payloads: Uint8Array[] = [];
+        const graph = createKnowledgeGraph();
+        const result = await runParseLoop(
+          files,
+          graph,
+          createSymbolTable(),
+          buildImportResolutionContext(['main.ts']),
+          directory,
+          {
+            publicationGeneration: generation,
+            reusedEntries,
+            onFileReport: () => undefined,
+            onFileExtracted: (_path, payload) => payloads.push(payload),
+          },
+        );
+        return { result, payloads, graph };
+      };
+      const fresh = await parse();
+      const freshCalls = [...fresh.result.allCalls];
+      expect(freshCalls.map((call) => call.calledName)).toContain('helper');
+      // Corrupt the calls section only: the head still decodes, so a head-only
+      // check at merge would accept the entry and fail (or misread) in resolution.
+      const payload = Buffer.from(fresh.payloads[0] ?? new Uint8Array());
+      payload[12 + payload.readUInt32LE(0) + 12] ^= 0xff;
+      const corrupt: GraphParseCacheEntry = {
+        path: 'main.ts',
+        contentHash: 'unused',
+        fingerprint: 'unused',
+        generation,
+        payload,
+      };
+      const second = await parse(new Map([['main.ts', corrupt]]));
+      expect(second.result.reusedFileCount).toBe(0);
+      expect(second.result.reusedPaths.size).toBe(0);
+      expect(second.result.parsedFileCount).toBe(1);
+      // The re-parsed extraction replaces the corrupt cache entry.
+      expect(second.payloads).toHaveLength(1);
+      expect([...second.result.allCalls]).toEqual(freshCalls);
+      expect([...second.graph.nodes.keys()]).toEqual([...fresh.graph.nodes.keys()]);
+    } finally {
+      rmSync(directory, { recursive: true, force: true });
+    }
+  });
 });
 
 describe('typeof import() grammar-defect recovery (T13379)', () => {

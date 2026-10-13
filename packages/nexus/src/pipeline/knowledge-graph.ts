@@ -113,12 +113,13 @@ export interface KnowledgeGraph {
    * @param db - Drizzle database instance (from getNexusDb())
    * @param tables - Table references ({ nexusNodes, nexusRelations })
    */
-  /** Serialize and validate the staged generation before opening a write transaction; seals the graph against further relations. */
+  /** Serialize and validate the staged generation before opening a write transaction. */
   preparePublication(): EagerPublicationRows;
   /**
    * Validate the staged generation now and serialize its rows lazily, as the
    * publisher consumes them: the graph is never held twice (T13656). Seals the
-   * graph like {@link KnowledgeGraph.preparePublication}.
+   * graph: a later {@link KnowledgeGraph.addRelation} throws, since its dedup
+   * keys are released and the rows already handed out would not include it.
    */
   streamPublication(): GraphPublicationRows;
   flush(projectId: string, db: NexusDbInsert, tables: NexusTables): Promise<void>;
@@ -140,6 +141,8 @@ export function createKnowledgeGraph(): KnowledgeGraph {
   const relations: GraphRelation[] = [];
   /** Dedup set for relations: `${source}::${target}::${type}` */
   const relationKeys = new Set<string>();
+  /** Set by {@link streamPublication}; the graph accepts no relation afterwards. */
+  let sealed = false;
 
   function addNode(node: GraphNode): void {
     if (!nodes.has(node.id)) {
@@ -158,6 +161,8 @@ export function createKnowledgeGraph(): KnowledgeGraph {
   }
 
   function addRelation(rel: GraphRelation): void {
+    if (sealed)
+      throw new Error('Knowledge graph is sealed for publication; no relation can be added');
     rel = { ...rel, source: canonicalEndpoint(rel.source), target: canonicalEndpoint(rel.target) };
     const key = `${rel.source}::${rel.target}::${rel.type}`;
     if (!relationKeys.has(key)) {
@@ -207,11 +212,8 @@ export function createKnowledgeGraph(): KnowledgeGraph {
     };
   }
 
-  /** Validate the staged generation and seal it; returns the shared row timestamp. */
-  function seal(): string {
-    // Publication seals the graph: the dedup keys (one string per relation) are
-    // no longer needed and would otherwise be held beside the rows (T13656).
-    relationKeys.clear();
+  /** Validate the staged generation; returns the shared row timestamp. */
+  function validate(): string {
     for (const relation of relations) {
       if (!nodes.has(relation.source) || !nodes.has(relation.target)) {
         throw new Error(`Invalid graph relationship: ${relation.source} -> ${relation.target}`);
@@ -228,7 +230,7 @@ export function createKnowledgeGraph(): KnowledgeGraph {
   }
 
   function preparePublication(): EagerPublicationRows {
-    const now = seal();
+    const now = validate();
     return {
       nodes: [...nodes.values()].map((node) => nodeRow(node, now)),
       relations: relations.map((rel) => relationRow(rel, now)),
@@ -236,7 +238,11 @@ export function createKnowledgeGraph(): KnowledgeGraph {
   }
 
   function streamPublication(): GraphPublicationRows {
-    const now = seal();
+    const now = validate();
+    // The dedup keys (one string per relation) would otherwise be held beside
+    // the rows; releasing them is why the graph is sealed (T13656).
+    sealed = true;
+    relationKeys.clear();
     return {
       nodes: {
         *[Symbol.iterator]() {

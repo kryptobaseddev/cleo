@@ -2,7 +2,7 @@
 id: nexus-batch-bounded-heap
 tasks: [T13656]
 kind: fix
-summary: `cleo nexus analyze` holds one file's sites at a time, so a 21 000-file repository indexes under the default 1.5 GiB heap
+summary: "`cleo nexus analyze` holds one file's sites at a time, so a 21 000-file repository indexes under the default 1.5 GiB heap"
 ---
 
 Peak heap of an analysis grew with the repository: every file's decoded
