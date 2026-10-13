@@ -129,6 +129,36 @@ export function computeExtractorFingerprint(): string | null {
 }
 
 /**
+ * Replace every string reachable from `value` with one canonical instance.
+ *
+ * A result that crosses a process boundary arrives as JSON, and `JSON.parse`
+ * materialises each occurrence of a string separately: the 64-character
+ * generation hash, file path, source id and lexical reason repeated on every
+ * call and access record. Measured over 5 098 files of a real repository, the
+ * received extractions retained 806 MiB against 498 MiB for the same objects
+ * built in-process; sharing the strings brought them to 397 MiB (T13325).
+ *
+ * @param value - Freshly received JSON data, mutated in place.
+ * @param pool - Canonical strings for the current parse.
+ */
+export function internStrings(value: object, pool: Map<string, string>): void {
+  const canonical = (text: string): string => {
+    const known = pool.get(text);
+    if (known !== undefined) return known;
+    pool.set(text, text);
+    return text;
+  };
+  const pending: object[] = [value];
+  for (let node = pending.pop(); node !== undefined; node = pending.pop()) {
+    for (const key of Object.keys(node)) {
+      const child: unknown = Reflect.get(node, key);
+      if (typeof child === 'string') Reflect.set(node, key, canonical(child));
+      else if (typeof child === 'object' && child !== null) pending.push(child);
+    }
+  }
+}
+
+/**
  * Encode a freshly parsed extraction for storage.
  *
  * Must be called before any downstream phase mutates the extracted nodes
@@ -158,14 +188,21 @@ export function encodeParseCacheEntry(
 /**
  * Decode a stored extraction and rebind it to the current publication generation.
  *
+ * Strings are interned into `strings`, as worker results are: an incremental
+ * run decodes every unchanged file before parsing, and un-interned decodes held
+ * twice the heap of a full parse of the same files (1.1 GiB for 5 301 files of
+ * axiom-app against a 1.5 GiB cap; T13325).
+ *
  * @param entry - Stored cache entry.
  * @param generation - The publication generation of the run reusing it.
+ * @param strings - Canonical strings shared across every entry decoded for one run.
  * @returns The extraction exactly as re-parsing the same bytes under `generation` would produce.
  * @throws When the payload is not a decodable extraction; callers treat that file as changed.
  */
 export function decodeParseCacheEntry(
   entry: GraphParseCacheEntry,
   generation: string,
+  strings: Map<string, string> = new Map(),
 ): FileExtraction {
   if (!entry.generation) throw new Error('Parse cache entry lacks its generation');
   let text = gunzipSync(entry.payload).toString('utf8');
@@ -181,6 +218,7 @@ export function decodeParseCacheEntry(
   ] as const) {
     if (!Array.isArray(parsed[key])) throw new Error(`Parse cache entry lacks ${key}`);
   }
+  internStrings(parsed, strings);
   return {
     path: entry.path,
     extraction: {

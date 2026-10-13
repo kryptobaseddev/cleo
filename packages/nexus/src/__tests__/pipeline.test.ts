@@ -538,6 +538,55 @@ describe('streamed parse results (T13325)', () => {
     expect(() => live.check(1, 1)).not.toThrow();
     live.dispose();
   });
+
+  it('holds every decoded cache entry of an incremental run in interned form', () => {
+    // 200 cached files x 2 000 calls, each repeating its file path, enclosing
+    // scope and generation-bearing reason: ~150 MiB of strings when every
+    // decode materialises them anew, ~25 MiB interned. An incremental run
+    // keeps every decoded entry, so the un-interned form aborted a 1.5 GiB
+    // CLI on axiom-app before parsing began; here it aborts a 96 MiB probe.
+    const directory = makeTempDir();
+    try {
+      buildSync({
+        entryPoints: [fileURLToPath(new URL('../pipeline/parse-cache.ts', import.meta.url))],
+        outfile: join(directory, 'parse-cache.mjs'),
+        bundle: true,
+        platform: 'node',
+        format: 'esm',
+      });
+      const probePath = join(directory, 'probe.mjs');
+      writeFileSync(
+        probePath,
+        `
+        import assert from 'node:assert/strict';
+        import { decodeParseCacheEntry, encodeParseCacheEntry } from './parse-cache.mjs';
+        const old = 'a'.repeat(64);
+        const current = 'b'.repeat(64);
+        const entries = Array.from({ length: 200 }, (_, file) => {
+          const path = 'src/features/module-' + file + '/implementation-of-the-feature.ts';
+          const calls = Array.from({ length: 2000 }, (_, index) => ({
+            filePath: path,
+            sourceId: path + '::someEnclosingFunctionName' + (index % 50) + '@' + old,
+            reason: 'lexical-scope:unresolved-identifier-in-enclosing-scope@' + old,
+          }));
+          const extraction = { definitions: [], imports: [], heritage: [], calls, reExports: [], accesses: [], parseLimitations: [] };
+          return encodeParseCacheEntry({ path, extraction }, 'hash', 'fingerprint', old);
+        });
+        const strings = new Map();
+        const decoded = entries.map((entry) => decodeParseCacheEntry(entry, current, strings));
+        assert.equal(decoded.length, 200);
+        assert.equal(decoded[199].extraction.calls[1999].reason, 'lexical-scope:unresolved-identifier-in-enclosing-scope@' + current);
+      `,
+      );
+      execFileSync(process.execPath, ['--max-old-space-size=96', probePath], {
+        timeout: 60000,
+        env: { PATH: process.env['PATH'], HOME: directory, TMPDIR: directory },
+        stdio: 'pipe',
+      });
+    } finally {
+      rmSync(directory, { recursive: true, force: true });
+    }
+  });
 });
 
 describe('typeof import() grammar-defect recovery (T13379)', () => {
