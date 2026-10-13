@@ -36,7 +36,7 @@ import { DOCS_LIFECYCLE_STATUSES } from '@cleocode/contracts/operations/docs.js'
 import { and, eq } from 'drizzle-orm';
 import { pushWarning } from '../output.js';
 import { getCleoDirAbsolute, resolveCleoDir } from '../paths.js';
-import { fileBytesMatchSha256 } from '../store/blob-ops.js';
+import { fileBytesMatchSha256 } from '../store/blob-keep.js';
 import { resolveBoundSession } from '../store/session-store.js';
 import { getDb, getNativeTasksDb } from '../store/sqlite.js';
 import { attachmentRefs, docsAttachments } from '../store/tasks-schema.js';
@@ -662,7 +662,7 @@ export async function updateDocBySlug(
   // that later runs would count as present.
   {
     const blobStoreFile = join(resolveCleoDir(projectRoot), 'blobs', 'blobs', newSha256);
-    if (!(await fileBytesMatchSha256(blobStoreFile, newSha256))) {
+    if (!fileBytesMatchSha256(blobStoreFile, newSha256)) {
       try {
         await writeFileAtomic({ path: blobStoreFile, content: buf });
       } catch (cause) {

@@ -74,8 +74,7 @@ import { getCleoWorktreesRoot } from '@cleocode/paths';
 import { eq } from 'drizzle-orm';
 import { resolveCleoDir } from '../paths.js';
 import { createAttachmentStore } from '../store/attachment-store.js';
-import { blobContentExists, blobFilePath } from '../store/blob-keep.js';
-import { fileBytesMatchSha256 } from '../store/blob-ops.js';
+import { blobContentExists, blobFilePath, fileBytesMatchSha256 } from '../store/blob-keep.js';
 import { docsWikilinks } from '../store/schema/attachments.js';
 import { getDb } from '../store/sqlite.js';
 import { docsAttachments } from '../store/tasks-schema.js';
@@ -432,7 +431,7 @@ export async function backfillBlobStoreBytes(
   const actual = createHash('sha256').update(bytes).digest('hex');
   if (actual !== sha256) return 'unverified';
 
-  if (await fileBytesMatchSha256(target, sha256)) return 'present';
+  if (fileBytesMatchSha256(target, sha256)) return 'present';
 
   // Crash-safe via the shared atomic writer (T13657): a unique tmp file
   // renamed into place — an interrupted write never leaves a truncated blob

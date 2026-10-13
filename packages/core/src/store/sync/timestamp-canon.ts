@@ -142,6 +142,9 @@ export const SYNC_TIMESTAMP_COLUMNS: Readonly<
     // T13360 (legacy docs migration): migrated_at is stamped once when the
     // receipt is written and never moves (append-only ledger).
     conduit_doc_migration_ledger: ['migrated_at'],
+    // T13362 (publications ledger moves into the store): published_at moves
+    // on every re-publish of the (owner, blob, path) LWW row.
+    docs_publications: ['published_at'],
   },
   global: {
     brain_decisions: ['created_at', 'updated_at', 'valid_at', 'invalid_at', 'tier_promoted_at'],
