@@ -89,6 +89,14 @@ export interface ReconcileCopyOptions {
    * since the cut and wins.
    */
   readonly baseline?: DatabaseSync;
+  /**
+   * Adopt a merged row's secret columns with it (T13544). Set only when the
+   * merged state's secret cells already hold this machine's values: the global
+   * merge scratch, whose credential cells the checkpoint's sealed sidecar
+   * filled under this machine's key. A row this store already holds keeps its
+   * own secrets either way. @defaultValue false
+   */
+  readonly adoptSecrets?: boolean;
 }
 
 /** What {@link reconcileCopy} did. */
@@ -364,7 +372,7 @@ export function reconcileCopy(
           const values: Record<string, LedgerWireValue> = {};
           let resolvable = true;
           for (const col of def.columns) {
-            if (col === UID_COLUMN || def.secret.has(col)) continue;
+            if (col === UID_COLUMN || (def.secret.has(col) && o.adoptSecrets !== true)) continue;
             const v = localValue(col, theirs[col] ?? null);
             if (v === undefined) {
               resolvable = false;

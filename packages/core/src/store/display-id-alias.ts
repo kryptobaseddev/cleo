@@ -108,7 +108,13 @@ import {
   setNaturalUidNative,
   setRowUidNative,
 } from './sqlite-data-accessor.js';
-import { compareHlc as compareSyncHlc, encodeHlc, type Hlc, parseHlc } from './sync/hlc.js';
+import {
+  compareHlc as compareSyncHlc,
+  encodeHlc,
+  type Hlc,
+  PRE_HLC_REPLICA,
+  parseHlc,
+} from './sync/hlc.js';
 import { taskReferenceColumns } from './task-reference-columns.js';
 import { tasks as tasksTable } from './tasks-schema.js';
 import { insertTaskSchema } from './validation-schemas.js';
@@ -193,8 +199,13 @@ function aliasPrecedes(incoming: DisplayIdAliasRow, stored: DisplayIdAliasRow): 
   return incoming.createdAt < stored.createdAt;
 }
 
-/** The replica id a pre-HLC value carries: none issued it. */
-export const PRE_HLC_REPLICA = '00000000-0000-0000-0000-000000000000';
+/**
+ * The replica id a pre-HLC value carries: none issued it.
+ *
+ * @deprecated Import from `./sync/hlc.js` (the import-nothing leaf) — kept
+ *   re-exported here for existing consumers.
+ */
+export { PRE_HLC_REPLICA };
 
 /**
  * The collision HLC of two rows that have no creation HLC (written before the

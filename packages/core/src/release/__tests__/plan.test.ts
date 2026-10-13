@@ -20,6 +20,7 @@ import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { mkdir, mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import type { Task } from '@cleocode/contracts';
 import {
   E_CHANNEL_MISMATCH,
@@ -33,7 +34,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { closeDb, getDb, resetDbState } from '../../store/sqlite.js';
 import { createSqliteDataAccessor } from '../../store/sqlite-data-accessor.js';
 import * as schema from '../../store/tasks-schema.js';
-import { releasePlan } from '../plan.js';
+import { parseHooksV1Gate } from '../hooks-v1-promotion.js';
+import { __test__ as planInternals, releasePlan } from '../plan.js';
 
 let testDir: string;
 
@@ -463,6 +465,229 @@ describe('releasePlan — happy path', () => {
 // =============================================================================
 // Error envelopes
 // =============================================================================
+
+describe('releasePlan — hooks-v1 gate opened by source (T13555)', () => {
+  const gate = (set: string, released = 'return false;') =>
+    `export const UNRELEASED_HOOK_FEATURES: ReadonlySet<HookFeature> = new Set([${set}]);\n` +
+    `export function hooksV1Released(opts: HooksV1ReleaseOptions = {}): boolean {\n  ${released}\n}\n`;
+  const git = (...args: string[]) => execFileSync('git', ['-C', testDir, ...args]);
+  /** Tag a release with the gate closed, then commit `next` as the gate source. */
+  const releaseThen = (next: string | null) => {
+    const file = join(testDir, 'packages/core/src/hooks/release-gate.ts');
+    execFileSync('mkdir', ['-p', join(testDir, 'packages/core/src/hooks')]);
+    writeFileSync(file, gate("'hooks-v1'"));
+    git('add', '-A', 'packages');
+    git('commit', '-q', '-m', 'gate');
+    git('tag', 'v2026.5.1');
+    if (next === null) git('rm', '-q', file);
+    else {
+      writeFileSync(file, next);
+      git('add', '-A', 'packages');
+    }
+    git('commit', '-q', '--allow-empty', '-m', 'next');
+  };
+  const plan = (extra: { hooksV1Promotion?: boolean; hooksV1Waiver?: string } = {}) =>
+    releasePlan({
+      version: 'v2026.6.0',
+      epicId: 'T9999',
+      channel: 'latest',
+      scheme: 'calver',
+      projectRoot: testDir,
+      ...extra,
+    });
+
+  it('refuses a stable plan that drops hooks-v1 from the unreleased set without the flag', async () => {
+    await seedEpicWithChildren('T9999', 1);
+    releaseThen(gate(''));
+    const result = await plan();
+    expect(result.success).toBe(false);
+    if (result.success) throw new Error('unreachable');
+    expect(result.error.code).toBe('E_HOOKS_V1_PROMOTION_REQUIRED');
+    expect(result.error.details).toMatchObject({
+      previousTag: 'v2026.5.1',
+      changes: ["'hooks-v1' left UNRELEASED_HOOK_FEATURES"],
+    });
+  });
+
+  it('refuses a changed hooksV1Released and a deleted gate', async () => {
+    await seedEpicWithChildren('T9999', 1);
+    releaseThen(gate("'hooks-v1'", 'return true;'));
+    const changed = await plan();
+    expect(changed.success).toBe(false);
+    if (changed.success) throw new Error('unreachable');
+    expect(changed.error.details).toMatchObject({ changes: ['hooksV1Released changed'] });
+    git('rm', '-q', 'packages/core/src/hooks/release-gate.ts');
+    git('commit', '-q', '-m', 'delete');
+    const deleted = await plan();
+    expect(deleted.success).toBe(false);
+  });
+
+  it('accepts the promotion, an untouched gate, and an audited waiver', async () => {
+    await seedEpicWithChildren('T9999', 1);
+    releaseThen(gate(''));
+    expect((await plan({ hooksV1Promotion: true })).success).toBe(true);
+    const waived = await plan({ hooksV1Waiver: 'owner approved without the pilot' });
+    expect(waived.success).toBe(true);
+    if (!waived.success) throw new Error('unreachable');
+    const written = parseReleasePlan(JSON.parse(readFileSync(waived.data.planPath, 'utf-8')));
+    expect(written.hooksV1Waiver).toBe('owner approved without the pilot');
+    const audit = readFileSync(join(testDir, '.cleo/audit/hooks-v1-waiver.jsonl'), 'utf-8')
+      .trim()
+      .split('\n')
+      .map((line) => JSON.parse(line) as Record<string, unknown>);
+    expect(audit).toHaveLength(1);
+    expect(audit[0]).toMatchObject({
+      version: 'v2026.6.0',
+      previousTag: 'v2026.5.1',
+      reason: 'owner approved without the pilot',
+      changes: ["'hooks-v1' left UNRELEASED_HOOK_FEATURES"],
+    });
+  });
+
+  it('exempts the release after the promotion: removing hooks-v1 is the cleanup', async () => {
+    await seedEpicWithChildren('T9999', 1);
+    execFileSync('mkdir', ['-p', join(testDir, '.cleo/release')]);
+    writeFileSync(
+      join(testDir, '.cleo/release/v2026.5.1.plan.json'),
+      JSON.stringify({ hooksV1Promotion: true }),
+    );
+    git('add', '-f', '.cleo/release/v2026.5.1.plan.json');
+    releaseThen(gate(''));
+    expect((await plan()).success).toBe(true);
+  });
+
+  it('fails closed on a gate shape it cannot read', async () => {
+    await seedEpicWithChildren('T9999', 1);
+    releaseThen(
+      'export const UNRELEASED_HOOK_FEATURES = loadFeatures();\n' +
+        'export function hooksV1Released(opts: HooksV1ReleaseOptions = {}): boolean {\n  return false;\n}\n',
+    );
+    const result = await plan();
+    expect(result.success).toBe(false);
+    if (result.success) throw new Error('unreachable');
+    expect(result.error.details).toMatchObject({
+      changes: [
+        'packages/core/src/hooks/release-gate.ts has a gate shape the release guard cannot read',
+      ],
+    });
+  });
+
+  it('parses the real release-gate.ts: hooks-v1 unreleased and hooksV1Released found', () => {
+    const real = readFileSync(
+      fileURLToPath(new URL('../../hooks/release-gate.ts', import.meta.url)),
+      'utf-8',
+    );
+    const shape = parseHooksV1Gate(real);
+    expect(shape.unreleased).toBe(true);
+    expect(shape.released).toMatch(/^export function hooksV1Released\(/);
+  });
+
+  it('a later cleanup after the gate shipped open needs no waiver, whatever its shape', async () => {
+    await seedEpicWithChildren('T9999', 1);
+    releaseThen(gate(''));
+    expect((await plan({ hooksV1Promotion: true })).success).toBe(true);
+    git('tag', 'v2026.5.2');
+    writeFileSync(
+      join(testDir, 'packages/core/src/hooks/release-gate.ts'),
+      'export const UNRELEASED_HOOK_FEATURES = new Set<HookFeature>();\n',
+    );
+    git('add', '-A', 'packages');
+    git('commit', '-q', '-m', 'cleanup');
+    expect((await plan()).success).toBe(true);
+  });
+
+  it('reads `new Set()` with no array literal as hooks-v1 released', () => {
+    expect(
+      parseHooksV1Gate('export const UNRELEASED_HOOK_FEATURES = new Set<HookFeature>();\n')
+        .unreleased,
+    ).toBe(false);
+  });
+
+  it('leaves an untouched gate alone', async () => {
+    await seedEpicWithChildren('T9999', 1);
+    releaseThen(gate("'hooks-v1'"));
+    const result = await plan();
+    expect(result.success).toBe(true);
+    if (!result.success) throw new Error('unreachable');
+    expect(
+      parseReleasePlan(JSON.parse(readFileSync(result.data.planPath, 'utf-8'))).hooksV1Waiver,
+    ).toBeUndefined();
+  });
+});
+
+describe('releasePlan — a shipped version is immutable (T13619)', () => {
+  it.each([
+    'committed',
+    'tagged',
+    'pushed',
+    'published',
+    'reconciled',
+    'rolled_back',
+  ] as const)('refuses to re-plan a version whose row is %s, writing nothing', async (status) => {
+    await seedEpicWithChildren('T9999', 1);
+    const db = await getDb(testDir);
+    await db.insert(schema.releases).values({
+      id: 'testhash00000:v2026.6.0',
+      version: 'v2026.6.0',
+      channel: 'latest',
+      status,
+    });
+    const result = await releasePlan({
+      version: 'v2026.6.0',
+      epicId: 'T9999',
+      channel: 'latest',
+      scheme: 'calver',
+      projectRoot: testDir,
+    });
+    expect(result.success).toBe(false);
+    if (result.success) throw new Error('unreachable');
+    expect(result.error.code).toBe('E_INVALID_STATE');
+    expect(result.error.message).toContain('v2026.6.0');
+    // The origin keeps the shipped status, exactly as every synced peer does.
+    const rows = await db.select().from(schema.releases).all();
+    expect(rows.map((r) => [r.version, r.status])).toEqual([['v2026.6.0', status]]);
+    expect(existsSync(join(testDir, '.cleo/release/v2026.6.0.plan.json'))).toBe(false);
+  });
+
+  it('the plan upsert never moves a row that shipped after the check back to planned', async () => {
+    await seedEpicWithChildren('T9999', 1);
+    const result = await releasePlan({
+      version: 'v2026.6.0',
+      epicId: 'T9999',
+      channel: 'latest',
+      scheme: 'calver',
+      projectRoot: testDir,
+    });
+    expect(result.success).toBe(true);
+    if (!result.success) throw new Error('unreachable');
+    const plan = parseReleasePlan(JSON.parse(readFileSync(result.data.planPath, 'utf-8')));
+    // A peer's shipped status lands between the shipped check and the upsert.
+    const db = await getDb(testDir);
+    await db.update(schema.releases).set({ status: 'tagged' }).run();
+    await planInternals.upsertReleasesRow(plan, 'latest', testDir);
+    const rows = await db.select().from(schema.releases).all();
+    expect(rows.map((r) => [r.version, r.status])).toEqual([['v2026.6.0', 'tagged']]);
+  });
+
+  it('still re-plans a version that has not shipped', async () => {
+    await seedEpicWithChildren('T9999', 1);
+    const db = await getDb(testDir);
+    await db.insert(schema.releases).values({
+      id: 'testhash00000:v2026.6.0',
+      version: 'v2026.6.0',
+      channel: 'latest',
+      status: 'pr-opened',
+    });
+    const result = await releasePlan({
+      version: 'v2026.6.0',
+      epicId: 'T9999',
+      channel: 'latest',
+      scheme: 'calver',
+      projectRoot: testDir,
+    });
+    expect(result.success).toBe(true);
+  });
+});
 
 describe('releasePlan — error envelopes', () => {
   it('returns E_EPIC_NOT_FOUND when the epic does not exist', async () => {

@@ -3163,6 +3163,7 @@ export {
   type CloudActivityItem,
   type CloudActivityResult,
   type CloudConflict,
+  type CloudConflictField,
   type CloudConflictResolveResult,
   type CloudConflictsResult,
   type CloudDeviceOverviewResult,

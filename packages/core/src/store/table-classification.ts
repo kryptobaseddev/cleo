@@ -692,6 +692,18 @@ const PROJECT_TABLES: Readonly<Record<string, TableRegistryEntry>> = {
     note: 'ruling: conduit_* sync (agents need handoff history across devices). No secret column found. Merge scope project (not personal) is my proposal',
   },
   deriver_queue: { class: 'local-only', status: 'draft', source: 'table-classification-draft.md' },
+  decision_adr_links: {
+    class: 'portable-project',
+    status: 'resolved',
+    source: 'T13359 (spec cleodocs-rearch-design §4/§10, D11165)',
+    note: 'syncing, append-only two-way links D#### decisions ↔ ADR doc slugs; natural composite key (decision_id, adr_slug) in ROW_IDENTITY so both devices derive one uid per pair; unlink is a one-way revoked tombstone latch, never DELETE/re-link',
+  },
+  conduit_doc_migration_ledger: {
+    class: 'portable-project',
+    status: 'resolved',
+    source: 'T13360 (spec cleodocs-rearch-design §5, D11165)',
+    note: 'syncing, append-only migration audit receipts — one row per migrated doc slug (natural key in ROW_IDENTITY); the T13360 accessor never UPDATEs/DELETEs; dangling docs are recorded here with status dangling + reason, never silently imported',
+  },
   docs_attachment_refs: {
     class: 'portable-project',
     status: 'draft',

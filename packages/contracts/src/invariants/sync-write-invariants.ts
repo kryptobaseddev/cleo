@@ -441,41 +441,57 @@ export const SYNC_WRITE_INVARIANTS: readonly SyncWriteInvariant[] = Object.freez
       'verification is frozen once done; otherwise merged per gate',
     ),
   ),
-  rule(
-    'session.status.terminal',
-    'T12940',
-    'tasks_sessions',
-    ['status', 'ended_at'],
-    ['S7', 'S8', 'S9', 'S10', 'S11', 'S17', 'S18', 'SC2', 'N1', 'SK5', 'P32'],
-    'ended and orphaned are terminal except on an explicit resume',
+  implemented(
+    rule(
+      'session.status.terminal',
+      'T12940',
+      'tasks_sessions',
+      ['status', 'ended_at'],
+      ['S7', 'S8', 'S9', 'S10', 'S11', 'S17', 'S18', 'SC2', 'N1', 'SK5', 'P32'],
+      'ended and orphaned are terminal except on an explicit resume',
+    ),
   ),
-  rule('audit.immutable', 'T12941', 'tasks_audit_log', ['*'], ['SA3'], 'audit rows are immutable', [
-    'tasks_audit_log',
-    'audit_log',
-  ]),
-  rule(
-    'sticky.status.one-way',
-    'T12942',
-    'brain_sticky_notes',
-    ['status', 'converted_to_json'],
-    ['SK2', 'SK3', 'B24'],
-    'active→{converted, archived} is one-way; converted_to_json is write-once',
+  implemented(
+    rule(
+      'audit.immutable',
+      'T12941',
+      'tasks_audit_log',
+      ['*'],
+      ['SA3'],
+      'audit rows are immutable',
+      ['tasks_audit_log', 'audit_log'],
+    ),
   ),
-  rule(
-    'release.status.absorbing',
-    'T12943',
-    'tasks_releases',
-    ['status'],
-    ['REL-2', 'REL-3', 'REL-4', 'REL-5', 'REL-6', 'REL-7', 'REL-8'],
-    'shipped release statuses are absorbing',
+  implemented(
+    rule(
+      'sticky.status.one-way',
+      'T12942',
+      'brain_sticky_notes',
+      ['status', 'converted_to_json'],
+      ['SK2', 'SK3', 'B24'],
+      'active→{converted, archived} is one-way; converted_to_json is write-once',
+    ),
   ),
-  rule(
-    'playbook.approval.once',
-    'T12944',
-    'tasks_playbook_approvals',
-    ['status'],
-    ['PB-1', 'PB-4', 'PB-7', 'P33'],
-    'an approval goes pending→decided once',
+  implemented(
+    rule(
+      'release.status.absorbing',
+      'T12943',
+      'tasks_releases',
+      ['status'],
+      ['REL-2', 'REL-3', 'REL-4', 'REL-5', 'REL-6', 'REL-7', 'REL-8'],
+      'shipped release statuses are absorbing',
+    ),
+  ),
+  implemented(
+    rule(
+      'playbook.approval.once',
+      'T12944',
+      'tasks_playbook_approvals',
+      ['status'],
+      ['PB-1', 'PB-4', 'PB-7', 'P33'],
+      'an approval goes pending→decided once',
+      ['tasks_playbook_approvals', 'playbook_approvals'],
+    ),
   ),
   rule(
     'docs.lifecycle.transitions',
@@ -540,6 +556,21 @@ export const SYNC_WRITE_INVARIANTS: readonly SyncWriteInvariant[] = Object.freez
     reason:
       'adopting a legacy doc inserts one immutable-uid identity shell; losing the write is refused loudly at the writer, not merged',
   },
+  // T13359 (D11165) — decisions-vs-ADRs link table; the natural composite key
+  // makes identical links merge to one row, and the revoke is a one-way latch.
+  // T13597: enforced at merge, not just by the local accessor — 'revoked' is an
+  // absorbing state with no leave op, so a concurrent same-uid link op cannot
+  // flip a tombstoned row back to 'linked' on any replica.
+  implemented(
+    rule(
+      'docs.decision-adr-links.revoke-monotonic',
+      'T13597',
+      'decision_adr_links',
+      ['status', 'revoked_by'],
+      [],
+      'status flips linked→revoked exactly once (the row is the tombstone, never DELETEd); the merge engine refuses a non-absorbing status write onto a revoked row, so a concurrent re-link can never resurrect the pair',
+    ),
+  ),
 
   // §3.6.0 identity-layer rows.
   {

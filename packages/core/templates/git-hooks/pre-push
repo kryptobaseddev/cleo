@@ -37,12 +37,21 @@ FAIL_LOG=""
 
 check_subject() {
   subject="$1"
+  sha="$2"
   case "$subject" in
     'Merge '*) return 0 ;;
     'Revert '*) return 0 ;;
     'fixup! '*) return 0 ;;
     'squash! '*) return 0 ;;
     'amend! '*) return 0 ;;
+    # T13577: the empty commit `cleo init` makes so HEAD resolves. Exact
+    # subject only, never a prefix, and only for a parentless (root) commit
+    # (T13582), so it opens no bypass for later commits.
+    'initial: cleo init')
+      if [ "$(git rev-list --parents -n 1 "$sha" 2>/dev/null | wc -w)" -eq 1 ]; then
+        return 0
+      fi
+      ;;
   esac
   if printf '%s' "$subject" | grep -Eq 'T[0-9]+'; then
     return 0
@@ -78,7 +87,7 @@ while read -r local_ref local_sha remote_ref remote_sha; do
     if [ -z "$subject" ]; then
       continue
     fi
-    if ! check_subject "$subject"; then
+    if ! check_subject "$subject" "$sha"; then
       FAIL=1
       FAIL_LOG="${FAIL_LOG}  ${sha}  ${subject}
 "

@@ -863,4 +863,53 @@ describe('nothing found', () => {
     expect(cs.blockers.map((b) => b.code)).toEqual(['no-change-set']);
     expect(cs.blockers[0]?.next.command).toBe('git switch -c task/T930');
   });
+
+  it('T13643: a recorded implemented commit that IS a merged PR’s merge commit names that PR, though it never cites the task', async () => {
+    const repo = repoWithOrigin(base, 'repo');
+    commitTaskWork(repo, 'other work');
+    const merge = git(repo, ['rev-parse', 'HEAD']);
+    const verification: ChangeSetTask['verification'] = {
+      passed: false,
+      round: 1,
+      gates: { implemented: true },
+      failureLog: [],
+      lastAgent: null,
+      lastUpdated: null,
+      evidence: {
+        implemented: {
+          atoms: [{ kind: 'commit', sha: merge, shortSha: merge.slice(0, 9) }],
+          capturedAt: '2026-10-12T00:00:00Z',
+          capturedBy: 'test',
+        },
+      },
+    };
+    const cs = await deriveTaskChangeSet(
+      { task: task('T940', { verification }), storeRoot: repo, cwd: repo },
+      {
+        listMergedPrs: async () => ({
+          ok: true,
+          prs: [{ number: 1812, title: 'batch: other work', body: '', headRefName: 'b' }],
+        }),
+        listPrsForCommit: async (sha) =>
+          sha === merge
+            ? [
+                {
+                  number: 1812,
+                  mergedAt: '2026-10-12T00:00:00Z',
+                  baseRefName: 'main',
+                  mergeCommitSha: merge,
+                },
+              ]
+            : [],
+        ...onMain,
+        resolvePr: async (n) => prResolution(n, merge, ['a.ts', 'new.ts', 'old.ts']),
+        ...noDocs,
+        env: {},
+      },
+    );
+    expect(cs.source).toBe('pr');
+    expect(cs.prNumber).toBe(1812);
+    expect(cs.mergeCommitSha).toBe(merge);
+    expect(cs.blockers).toEqual([]);
+  });
 });

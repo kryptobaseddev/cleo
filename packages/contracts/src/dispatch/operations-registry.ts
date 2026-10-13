@@ -8169,6 +8169,61 @@ export const OPERATIONS: OperationDef[] = [
       },
     ],
   },
+  // ── docs.link-decision / docs.unlink-decision (T13598) ──────────────────
+  {
+    gateway: 'mutate',
+    domain: 'docs',
+    operation: 'link-decision',
+    description:
+      'docs.link-decision (mutate) — link a D#### decision to the ADR doc that ratifies it (decision_adr_links); idempotent, refuses a revoked pair (T13598)',
+    tier: 1,
+    idempotent: true,
+    sessionRequired: false,
+    requiredParams: ['adrSlug', 'decisionId'],
+    params: [
+      {
+        name: 'adrSlug',
+        type: 'string' as const,
+        required: true,
+        description: 'Slug of the ADR doc',
+        cli: { positional: true },
+      },
+      {
+        name: 'decisionId',
+        type: 'string' as const,
+        required: true,
+        description: 'The D#### brain ledger decision id the ADR ratifies',
+        cli: { positional: true },
+      },
+    ],
+  },
+  {
+    gateway: 'mutate',
+    domain: 'docs',
+    operation: 'unlink-decision',
+    description:
+      'docs.unlink-decision (mutate) — revoke a decision-to-ADR link as a permanent tombstone; the pair can never be re-linked (T13598)',
+    tier: 1,
+    idempotent: true,
+    sessionRequired: false,
+    requiredParams: ['adrSlug', 'decisionId'],
+    params: [
+      {
+        name: 'adrSlug',
+        type: 'string' as const,
+        required: true,
+        description: 'Slug of the ADR doc',
+        cli: { positional: true },
+      },
+      {
+        name: 'decisionId',
+        type: 'string' as const,
+        required: true,
+        description: 'The D#### brain ledger decision id to unlink',
+        cli: { positional: true },
+      },
+    ],
+  },
   // ── docs.supersede (T10162) ──────────────────────────────────────────────
   {
     gateway: 'mutate',
@@ -8635,6 +8690,22 @@ export const OPERATIONS: OperationDef[] = [
       },
     ],
   },
+  // ── docs.stats (T13363 — Epic T13340 / Saga T13339) ───────────────────────
+  {
+    gateway: 'query',
+    domain: 'docs',
+    operation: 'stats',
+    description:
+      'docs.stats (query) — per-project CleoDocs adoption metrics (read-only): add:update ' +
+      'ratio from the docs audit log, loose-markdown count with scanned/excluded dirs, ' +
+      'docs_wikilinks edge count, and live decision_adr_links count. Emitted for the ' +
+      'Council pilot baseline comparisons.',
+    tier: 1,
+    idempotent: true,
+    sessionRequired: false,
+    requiredParams: [],
+    params: [],
+  },
   {
     gateway: 'mutate',
     domain: 'docs',
@@ -8662,6 +8733,24 @@ export const OPERATIONS: OperationDef[] = [
         description: 'Age threshold in days for the stale-drafts check (default 30)',
       },
     ],
+  },
+  // ── docs.migrate (T13360 — Epic T13340 / Saga T13339) ─────────────────────
+  {
+    gateway: 'mutate',
+    domain: 'docs',
+    operation: 'migrate',
+    description:
+      'docs.migrate (mutate) — the T13360 legacy docs migration (spec §5): import legacy ' +
+      'docs + history into the re-keyed conduit store inside the T13448 safety harness ' +
+      '(pre-step VACUUM INTO backup, before/after fingerprints, COMMIT only on full ' +
+      'verification). Imported rows are labeled origin:migrated; dangling-pointer docs are ' +
+      'content-captured or recorded dangling in conduit_doc_migration_ledger. Idempotent — ' +
+      'a re-run is a verified no-op.',
+    tier: 1,
+    idempotent: true,
+    sessionRequired: false,
+    requiredParams: [],
+    params: [],
   },
   // ── docs.generate (T798) ─────────────────────────────────────────────────
   {
@@ -9476,6 +9565,13 @@ export const OPERATIONS: OperationDef[] = [
         type: 'boolean',
         required: false,
         description: 'Require the unified-hooks pilot for this stable promotion',
+      },
+      {
+        name: 'hooksV1Waiver',
+        type: 'string',
+        required: false,
+        description:
+          'Audited reason to ship a source change that opens the hooks-v1 gate without the promotion',
       },
       {
         name: 'dryRun',

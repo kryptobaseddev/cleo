@@ -120,8 +120,15 @@ export async function buildDocsFetchResult(opts: {
    * value through with a cast, and this builder preserves that behaviour.
    */
   attachmentBackend?: string;
+  /**
+   * `D####` decisions linked to this doc (T13359) — looked up by the caller
+   * (the dispatch handler owns the store access) and echoed here so the
+   * `docs.fetch` envelope and `docs view --json` can never drift on the
+   * field. Omitted when the doc has no live links.
+   */
+  linkedDecisions?: string[];
 }): Promise<DocsFetchResult> {
-  const { doc, content, projectRoot, attachmentBackend } = opts;
+  const { doc, content, projectRoot, attachmentBackend, linkedDecisions } = opts;
   const cleoDir = resolveCleoDir(projectRoot);
   const contentBytes = Buffer.from(content, 'utf-8');
   const inline = contentBytes.length <= MAX_INLINE_BYTES;
@@ -156,6 +163,7 @@ export async function buildDocsFetchResult(opts: {
       ? { attachmentBackend: attachmentBackend as DocsFetchResult['attachmentBackend'] }
       : {}),
     ...(headConflict !== undefined ? { headConflict } : {}),
+    ...(linkedDecisions !== undefined && linkedDecisions.length > 0 ? { linkedDecisions } : {}),
   };
 }
 

@@ -59,6 +59,7 @@ import {
   primaryKey,
   sqliteTable,
   text,
+  uniqueIndex,
 } from 'drizzle-orm/sqlite-core';
 import { MANIFEST_STATUSES } from '../../status-registry.js';
 import { ATTACHMENT_LIFECYCLE_STATUSES, ATTACHMENT_OWNER_TYPES } from '../attachments.js';
@@ -273,8 +274,122 @@ export const docsPipelineManifest = sqliteTable(
   ],
 );
 
+/**
+ * `decision_adr_links` — two-way links between `D####` brain ledger decisions
+ * and curated ADR docs (T13359 · spec `cleodocs-rearch-design` §4/§10 ·
+ * D11165).
+ *
+ * SYNCING, append-only. The ledger stays the operational authority; ADR docs
+ * are authored when a decision graduates, and this table is the only
+ * cross-reference between the two tiers. Identity is NATURAL over
+ * (decision_id, adr_slug) so both devices derive the same uid for one pair
+ * and concurrent identical links coalesce on apply (spec §10).
+ *
+ * An unlink never DELETEs (append-only): it flips `status` to 'revoked' —
+ * a one-way monotonic latch, the row itself is the tombstone and survives
+ * sync and restore. A revoked pair is never re-linked. The latch is enforced
+ * at merge as well as at the accessor (T13597): `SYNC_MERGE_RULES` declares
+ * 'revoked' an absorbing state with no leave op, so a concurrent same-uid
+ * link op cannot resurrect the tombstone by LWW. Neither column is a
+ * DB-level FK: `decision_id` is a cross-DB soft reference (the ledger lives
+ * in brain.db), and `adr_slug` is a mutable doc alias (resolvable through
+ * `conduit_doc_slug_aliases`).
+ *
+ * @task T13359
+ */
+export const decisionAdrLinks = sqliteTable(
+  'decision_adr_links',
+  {
+    /** Ledger decision id (`D####`), cross-DB soft FK → brain_decisions.id. */
+    decisionId: text('decision_id').notNull(),
+    /** The ADR doc's slug (`adr-NNN-…`), a mutable alias — no FK. */
+    adrSlug: text('adr_slug').notNull(),
+    /**
+     * Link state: 'linked' or 'revoked' (§5b non-conformer — bare TEXT).
+     * Written by the canonical accessors only; the revoke is a one-way latch,
+     * never an UPDATE back to 'linked'.
+     */
+    status: text('status').notNull().default('linked'),
+    /** Agent id that created the link; NULL when unknown. */
+    linkedBy: text('linked_by'),
+    /** Agent id that revoked the link; NULL while linked. */
+    revokedBy: text('revoked_by'),
+    /** ISO-8601 UTC creation instant. */
+    createdAt: text('created_at').notNull().default(sql`(datetime('now'))`),
+    /** ISO-8601 UTC instant of the revoke (tombstone); equals created_at until then. */
+    updatedAt: text('updated_at').notNull().default(sql`(datetime('now'))`),
+    /**
+     * Natural row uid over (decision_id, adr_slug) (T12341). Declared LAST on
+     * purpose: the row-identity heal appends a missing uid column at the end,
+     * and Gate B's replay compares column order between a rebuilt store and a
+     * written one.
+     */
+    uid: text('uid'),
+  },
+  (table) => [
+    primaryKey({ columns: [table.decisionId, table.adrSlug] }),
+    index('idx_decision_adr_links_adr_slug').on(table.adrSlug),
+    uniqueIndex('uq_decision_adr_links_uid').on(table.uid),
+  ],
+);
+
+/**
+ * `conduit_doc_migration_ledger` — the auditable record of the T13360 legacy
+ * docs migration (spec §5: dangling-pointer docs are "content-captured or
+ * marked dangling — never silently imported"). One APPEND-ONLY row per
+ * migrated doc slug; the accessor never UPDATEs or DELETEs, so each row is an
+ * immutable receipt of what the migration did (and the idempotency key:
+ * a slug already in the ledger is skipped on re-run).
+ *
+ * Syncing (portable-project) with a NATURAL row identity over (slug): both
+ * devices derive one uid per slug and a re-run on either coalesces onto the
+ * same row. `uid` is declared LAST on purpose (the row-identity heal appends
+ * a missing uid column at the end).
+ *
+ * @task T13360
+ */
+export const conduitDocMigrationLedger = sqliteTable(
+  'conduit_doc_migration_ledger',
+  {
+    /** The migrated doc's slug (one ledger row per slug; the natural key). */
+    slug: text('slug').notNull(),
+    /** The captured doc's `conduit_attachments.uid` (NULL when dangling). */
+    docUid: text('doc_uid'),
+    /** `captured` — bytes live in the new store; `dangling` — unrecoverable. */
+    status: text('status', { enum: ['captured', 'dangling'] })
+      .notNull()
+      .default('captured'),
+    /** Why: e.g. 'path-missing', 'path-ephemeral:worktree', 'audit-log-import',
+     *  'blob-bytes-missing'. */
+    reason: text('reason').notNull().default(''),
+    /** The legacy pointer (local-file or stale blob path) when one existed. */
+    legacyPath: text('legacy_path'),
+    /** The legacy row's content sha256, when known. */
+    legacySha256: text('legacy_sha256'),
+    /** How many history rows the import created for this doc. */
+    versionsImported: integer('versions_imported').notNull().default(0),
+    /** ISO-8601 UTC instant the migration recorded this row. */
+    migratedAt: text('migrated_at').notNull().default(sql`(datetime('now'))`),
+    /** Natural row uid over (slug) (T12341); set by the accessor. */
+    uid: text('uid'),
+  },
+  (table) => [
+    primaryKey({ columns: [table.slug] }),
+    index('idx_conduit_doc_migration_ledger_doc_uid').on(table.docUid),
+    uniqueIndex('uq_conduit_doc_migration_ledger_uid').on(table.uid),
+  ],
+);
+
 // === TYPE EXPORTS ===
 
+/** Row type for `decision_adr_links` SELECT queries (target shape). */
+export type DecisionAdrLinkRow = typeof decisionAdrLinks.$inferSelect;
+/** Row type for `decision_adr_links` INSERT operations (target shape). */
+export type NewDecisionAdrLinkRow = typeof decisionAdrLinks.$inferInsert;
+/** Row type for `conduit_doc_migration_ledger` SELECT queries. */
+export type ConduitDocMigrationLedgerRow = typeof conduitDocMigrationLedger.$inferSelect;
+/** Row type for `conduit_doc_migration_ledger` INSERT operations. */
+export type NewConduitDocMigrationLedgerRow = typeof conduitDocMigrationLedger.$inferInsert;
 /** Row type for `docs_attachments` SELECT queries (target shape). */
 export type DocsAttachmentRow = typeof docsAttachments.$inferSelect;
 /** Row type for `docs_attachments` INSERT operations (target shape). */

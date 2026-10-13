@@ -78,3 +78,39 @@ describe('purgeSticky', () => {
     expect(result).toBeNull();
   });
 });
+
+describe('archiveSticky keeps the status one-way (T13620)', () => {
+  beforeEach(async () => {
+    tempDir = await mkdtemp(join(tmpdir(), 'cleo-archive-test-'));
+    await mkdir(join(tempDir, '.cleo'), { recursive: true });
+  });
+
+  afterEach(async () => {
+    closeBrainDb();
+    await rm(tempDir, { recursive: true, force: true }).catch(() => {});
+  });
+
+  it('refuses to archive a converted sticky, leaving it converted as every peer keeps it', async () => {
+    const sticky = await addSticky({ content: 'converted idea', tags: [] }, tempDir);
+    const { getBrainAccessor } = await import('../../store/memory-accessor.js');
+    const accessor = await getBrainAccessor(tempDir);
+    await accessor.updateStickyNote(sticky.id, {
+      status: 'converted',
+      convertedToJson: JSON.stringify({ type: 'task', id: 'T9' }),
+    });
+    await expect(archiveSticky(sticky.id, tempDir)).rejects.toThrow(/converted/);
+    const after = await getSticky(sticky.id, tempDir);
+    expect(after?.status).toBe('converted');
+    expect(after?.convertedTo).toEqual({ type: 'task', id: 'T9' });
+    const { stickyArchive } = await import('../engine-ops.js');
+    const r = await stickyArchive(tempDir, sticky.id);
+    expect(r.success).toBe(false);
+    if (!r.success) expect(r.error.code).toBe('E_INVALID_STATE');
+  });
+
+  it('archives an active sticky, and a second archive is a no-op', async () => {
+    const sticky = await addSticky({ content: 'idea', tags: [] }, tempDir);
+    expect((await archiveSticky(sticky.id, tempDir))?.status).toBe('archived');
+    expect((await archiveSticky(sticky.id, tempDir))?.status).toBe('archived');
+  });
+});

@@ -426,6 +426,14 @@ export const conduitAttachmentVersions = sqliteTable(
     tokensRemoved: integer('tokens_removed').notNull().default(0),
     /** ISO-8601 UTC creation instant (was epoch seconds, §4). */
     createdAt: text('created_at').notNull().default(sql`(datetime('now'))`),
+    /**
+     * Import provenance (T13360, spec §5): NULL for natively-written
+     * versions; `'migrated'` for rows imported from the legacy docs store by
+     * the T13360 data migration (`cleo docs migrate`). Every imported history
+     * row carries this label — the honesty contract that no imported row
+     * poses as native.
+     */
+    origin: text('origin'),
   },
   (table) => [
     uniqueIndex('uq_conduit_attachment_versions_uid').on(table.uid),

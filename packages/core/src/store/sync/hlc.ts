@@ -41,6 +41,16 @@ export const MAX_PHYS = 9_999_999_999_999;
  */
 export const MAX_DRIFT_MS = 5 * 60 * 1000;
 
+/**
+ * The replica id a pre-HLC value carries: none issued it (all-zero UUID).
+ * Shared by anything minting a deterministic, device-independent HLC — the
+ * collision HLC of two pre-journal births (`display-id-alias.ts`) and the
+ * T13360 migration head projection. Kept in this import-nothing leaf so
+ * consumers do not drag write-path modules onto the synced write path
+ * (gate 38, T13633).
+ */
+export const PRE_HLC_REPLICA = '00000000-0000-0000-0000-000000000000';
+
 const HLC_RE = /^(\d{13})-(\d{6})-([0-9a-f-]{36})$/;
 const REPLICA_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 

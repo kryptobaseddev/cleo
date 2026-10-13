@@ -117,6 +117,8 @@ export function completeDispatchParams(args: {
     waiveDependsReason: str('waive-depends'),
     // T12503 — optimistic concurrency
     expectedUpdatedAt: str('if-match'),
+    // T13637 — `cleo done --pr <n>`: complete through the PR the plan judged
+    prNumber: args.pr === undefined ? undefined : Number(args.pr),
   };
 }
 

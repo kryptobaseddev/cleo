@@ -12,10 +12,11 @@
  * - `cleo cloud restore <name>` — a project onto this machine by name, label
  *   or id (T13102).
  * - `cleo cloud conflicts [resolve <id>]` — the store's recorded sync
- *   conflicts (T12344 PR-6); local only.
+ *   conflicts (T12344 PR-6) with both sides per field (T12997); local, plus
+ *   the device-name lookup unless `--offline`.
  *
  * Every request these commands make is a GET (`conflicts resolve` makes
- * none: it is a local write to this store's conflict log). Getting the device credential
+ * none: it is a local write to this store, synced like any write). Getting the device credential
  * can still write, as every device-credential command does (contract §3.4,
  * §3.5): a 9.24 session is upgraded once through E1, and unsettled logouts are
  * retried through E9/E10. Thin handlers: the flows live in
@@ -317,7 +318,7 @@ const conflictsSubCommand = defineCommand({
   meta: {
     name: 'conflicts',
     description:
-      "The sync conflicts this store's apply recorded (typed-rule refusals, edits of deleted rows, deletes over newer edits, divergent edits, dangling references, guard refusals, parent deletes with live children, uid collisions, post-apply invariants), oldest first: open ones by default, --all for every one. `resolve <id>` acknowledges one (marks it resolved) once its resolution, an ordinary write, is made; it never replays the voided op. Local only; counts follow --stream.",
+      "The sync conflicts this store's apply recorded (typed-rule refusals, edits of deleted rows, deletes over newer edits, divergent edits, dangling references, guard refusals, parent deletes with live children, uid collisions, post-apply invariants), oldest first: open ones by default, --all for every one. Each shows the row's human id, the device that wrote the incoming op and its HLC, the holding rule, and per column the incoming and this store's value (secret columns withheld). `resolve <id> --keep mine|theirs|<column>=<side>,...` settles one (theirs is an ordinary write that syncs, refused when a typed rule would refuse it on a receiver); without --keep it only acknowledges. It never replays the voided op. Local, except the device-name lookup (skip it with --offline); counts follow --stream.",
   },
   args: {
     action: {
@@ -330,9 +331,19 @@ const conflictsSubCommand = defineCommand({
       description: 'Conflict id for resolve (from the list).',
       required: false,
     },
+    keep: {
+      type: 'string',
+      description:
+        "resolve: which side to keep, 'mine', 'theirs' or per column ('status=theirs,title=mine'; unnamed columns keep mine). Mine writes nothing; theirs is a new local write that syncs, refused when a typed rule (an absorbing status, a frozen field) would refuse it on every device. Without --keep, resolve only acknowledges.",
+    },
     all: { type: 'boolean', description: 'Include resolved conflicts.' },
     stream: { type: 'string', description: 'Only conflicts from this stream.' },
+    offline: {
+      type: 'boolean',
+      description: 'Skip the device-name lookup (no request leaves the machine).',
+    },
     scope: SCOPE_ARG,
+    'api-url': NEXUS_API_URL_ARG,
     json: JSON_ARG,
   },
   async run({ args }) {

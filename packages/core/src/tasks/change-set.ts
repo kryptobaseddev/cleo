@@ -569,6 +569,29 @@ export async function defaultListPrsForCommit(
   });
 }
 
+/**
+ * The one merged PR GitHub associates with every recorded implemented commit
+ * (T13643), or null when there is none, more than one, no commit atom, or the
+ * lookup failed. A candidate only: the caller verifies it like `--pr`.
+ */
+async function commitCarrierPr(
+  task: ChangeSetTask,
+  root: string,
+  list: NonNullable<ChangeSetDeps['listPrsForCommit']>,
+): Promise<number | null> {
+  const shas = (task.verification?.evidence?.implemented?.atoms ?? []).flatMap((a) =>
+    a.kind === 'commit' ? [a.sha] : [],
+  );
+  let common: number[] | null = null;
+  for (const sha of shas) {
+    const rows = await list(sha, root);
+    if (rows === null) return null;
+    const merged = rows.filter((pr) => pr.mergedAt !== null).map((pr) => pr.number);
+    common = common === null ? merged : common.filter((n) => merged.includes(n));
+  }
+  return common?.length === 1 ? (common[0] ?? null) : null;
+}
+
 /** Default {@link ChangeSetDeps.findPrByHead}: `gh pr list --head <branch> --state all`. */
 async function defaultFindPrByHead(
   branch: string,
@@ -1369,16 +1392,14 @@ export async function deriveTaskChangeSet(
     !(await hasOwnBranchMergedPr(input.task.id, root, listMergedPrs));
   if (docsFirst && (await deriveDocsChangeSet(cs, input, docsDeps))) return cs;
 
-  if (
-    await derivePrChangeSet(cs, input, roots, {
-      listMergedPrs,
-      resolvePr: deps.resolvePr ?? defaultResolvePr,
-      viewPr: deps.viewPr ?? defaultViewPr,
-      findPrByHead: deps.findPrByHead ?? defaultFindPrByHead,
-      ...(deps.landing ? { landing: deps.landing } : {}),
-    })
-  )
-    return cs;
+  const prDeps: PrDeps = {
+    listMergedPrs,
+    resolvePr: deps.resolvePr ?? defaultResolvePr,
+    viewPr: deps.viewPr ?? defaultViewPr,
+    findPrByHead: deps.findPrByHead ?? defaultFindPrByHead,
+    ...(deps.landing ? { landing: deps.landing } : {}),
+  };
+  if (await derivePrChangeSet(cs, input, roots, prDeps)) return cs;
   // A PR the pr: validator refused does not end the search: the task branch
   // still describes the work. The refusal survives as a warning when the
   // branch answers, and as the blocker when it does not.
@@ -1394,6 +1415,21 @@ export async function deriveTaskChangeSet(
     return cs;
   }
   if (refused.length > 0) return cs;
+  // T13643: a commit-only carrier. The recorded implemented commit landed in
+  // a merged PR that never cites the task (or IS that PR's merge commit);
+  // GitHub's commit-to-PR association names it, verified like `--pr`.
+  if (input.prNumber === undefined) {
+    const carrier = await commitCarrierPr(
+      input.task,
+      root,
+      deps.listPrsForCommit ?? defaultListPrsForCommit,
+    );
+    if (
+      carrier !== null &&
+      (await derivePrChangeSet(cs, { ...input, prNumber: carrier }, roots, prDeps))
+    )
+      return cs;
+  }
   if (!docsFirst && (await deriveDocsChangeSet(cs, input, docsDeps))) return cs;
 
   const id = input.task.id;

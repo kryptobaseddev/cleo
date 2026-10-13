@@ -7,7 +7,7 @@
  */
 
 import { execFileSync } from 'node:child_process';
-import { mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { EvidenceAtom, Task, TaskChangeSet } from '@cleocode/contracts';
@@ -16,12 +16,13 @@ import {
   isScopedOnly,
   mergeStateOfChangeSet,
   scopedRunCarriedAcrossMerge,
+  scopedRunStandsAfterRedCi,
   scopedRunSupersededReason,
   taskChangeMergeState,
   testRunTreeMismatchReason,
   testsPassedSupersededReason,
 } from '../affected-scope.js';
-import { type ChangeSetDeps, hasPatchEquivalent } from '../change-set.js';
+import { type ChangeSetDeps, hasPatchEquivalent, isLandedOnOriginDefault } from '../change-set.js';
 
 const affected: EvidenceAtom = {
   kind: 'tool',
@@ -707,5 +708,401 @@ describe('a tree-pinned scoped run carries across the merge (T13495)', () => {
     expect(reason).toMatch(
       /does not carry across the merge because the merge commit is not known here/,
     );
+  });
+});
+
+describe('T13608: a scoped run after a fast-forward or direct landing (no merge commit)', () => {
+  const sh = (cwd: string, args: string[]): string =>
+    execFileSync('git', args, {
+      cwd,
+      encoding: 'utf-8',
+      env: {
+        ...process.env,
+        GIT_AUTHOR_NAME: 't',
+        GIT_AUTHOR_EMAIL: 't@example.invalid',
+        GIT_COMMITTER_NAME: 't',
+        GIT_COMMITTER_EMAIL: 't@example.invalid',
+        GIT_CONFIG_NOSYSTEM: '1',
+      },
+    }).trim();
+  const noChangeSet: TaskChangeSet = {
+    source: 'none',
+    executionRoot: '/repo',
+    rootSource: 'store',
+    files: [],
+    deletedFiles: [],
+    docs: [],
+    decisions: [],
+    candidates: [],
+    implementedEvidence: '',
+    blockers: [],
+    warnings: [],
+  };
+  const run = (treeHash: string): EvidenceAtom => ({
+    kind: 'test-run',
+    path: 'reports/r.json',
+    sha256: 'c'.repeat(64),
+    passCount: 1,
+    failCount: 0,
+    skipCount: 0,
+    treeHash,
+  });
+
+  /** A repo whose implementing commit is fast-forwarded onto main. */
+  function landed(): { root: string; impl: string } {
+    const root = realpathSync(mkdtempSync(join(tmpdir(), 'cleo-t13608-')));
+    sh(root, ['init', '-q', '-b', 'main']);
+    writeFileSync(join(root, 'a.ts'), 'export const a = 1;\n');
+    writeFileSync(join(root, 'b.ts'), 'export const b = 1;\n');
+    sh(root, ['add', '.']);
+    sh(root, ['commit', '-q', '-m', 'base']);
+    writeFileSync(join(root, 'a.ts'), 'export const a = 2;\n');
+    sh(root, ['commit', '-q', '-am', 'T9001: implement']);
+    return { root, impl: sh(root, ['rev-parse', 'HEAD']) };
+  }
+
+  async function reason(root: string, impl: string): Promise<string | null> {
+    const tree = sh(root, ['rev-parse', 'HEAD^{tree}']);
+    const t = task([run(tree)], [{ kind: 'commit', sha: impl, shortSha: impl.slice(0, 7) }]);
+    const info = await taskChangeMergeState(t, root, {
+      derived: { ...noChangeSet, executionRoot: root },
+      executionRoot: root,
+      isLanded: () => true,
+      changeSet: { viewPr: async () => null, listPrsForCommit: async () => [] },
+    });
+    return testsPassedSupersededReason(t.verification?.evidence?.testsPassed?.atoms ?? [], {
+      mergeState: () => info,
+      currentTree: () => tree,
+    });
+  }
+
+  it('stands: the run tested the landed commit, and later unrelated main commits do not matter', async () => {
+    const { root, impl } = landed();
+    try {
+      expect(await reason(root, impl)).toBeNull();
+      writeFileSync(join(root, 'b.ts'), 'export const b = 2;\n');
+      sh(root, ['commit', '-q', '-am', 'unrelated']);
+      expect(await reason(root, impl)).toBeNull();
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('refuses once main edits a file the implementing commit changed', async () => {
+    const { root, impl } = landed();
+    try {
+      writeFileSync(join(root, 'a.ts'), 'export const a = 3;\n');
+      sh(root, ['commit', '-q', '-am', 'later edit']);
+      expect(await reason(root, impl)).toMatch(
+        new RegExp(`files at merge commit ${impl.slice(0, 12)} differ`),
+      );
+      // T13637: the refusal names the file that moved, so it can be acted on.
+      expect(await reason(root, impl)).toMatch(/\): a\.ts/);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+});
+
+describe('T13634: a recorded pr: atom gives the scoped run its merge commit to compare', () => {
+  const git = (cwd: string, ...a: string[]): string =>
+    execFileSync('git', ['-c', 'user.name=T', '-c', 'user.email=t@e.x', ...a], {
+      cwd,
+      encoding: 'utf-8',
+    }).trim();
+  const run = (treeHash: string): EvidenceAtom => ({
+    kind: 'test-run',
+    path: 'r.json',
+    sha256: 'c'.repeat(64),
+    passCount: 1,
+    failCount: 0,
+    skipCount: 0,
+    treeHash,
+  });
+
+  /** A branch change to a.ts squash-merged onto main, recorded as `pr:` evidence. */
+  function merged(alterAtMerge = false) {
+    const root = realpathSync(mkdtempSync(join(tmpdir(), 'cleo-t13634-')));
+    git(root, 'init', '-q', '-b', 'main');
+    writeFileSync(join(root, 'a.ts'), 'export const a = 1;\n');
+    git(root, 'add', '.');
+    git(root, 'commit', '-q', '-m', 'init');
+    git(root, 'switch', '-q', '-c', 'task/T9001');
+    writeFileSync(join(root, 'a.ts'), 'export const a = 2;\n');
+    git(root, 'commit', '-q', '-am', 'T9001');
+    const impl = git(root, 'rev-parse', 'HEAD');
+    const tested = git(root, 'rev-parse', 'HEAD^{tree}');
+    git(root, 'switch', '-q', 'main');
+    git(root, 'merge', '-q', '--squash', 'task/T9001');
+    if (alterAtMerge) writeFileSync(join(root, 'a.ts'), 'export const a = 3;\n');
+    git(root, 'add', '.');
+    git(root, 'commit', '-q', '-m', 'T9001 (#7)');
+    const pr: EvidenceAtom = {
+      kind: 'pr',
+      prNumber: 7,
+      mergeCommitSha: git(root, 'rev-parse', 'HEAD'),
+      mergedAt: '2026-10-12T00:00:00Z',
+      successCount: 1,
+      totalChecks: 1,
+      changedPaths: ['a.ts'],
+    };
+    return { root, impl, tested, pr };
+  }
+
+  async function reason(t: Task, root: string, tree: string): Promise<string | null> {
+    const info = await taskChangeMergeState(t, root, { executionRoot: root, contains: () => true });
+    return testsPassedSupersededReason(t.verification?.evidence?.testsPassed?.atoms ?? [], {
+      mergeState: () => info,
+      currentTree: () => tree,
+    });
+  }
+
+  it('stands with only a pr: atom (no commit atoms) when the merged files match', async () => {
+    const { root, tested, pr } = merged();
+    try {
+      expect(await reason(task([run(tested)], [pr]), root, tested)).toBeNull();
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('stands when a recorded pr: atom carries the commit atoms and the merged files match', async () => {
+    const { root, impl, tested, pr } = merged();
+    try {
+      const t = task(
+        [run(tested)],
+        [{ kind: 'commit', sha: impl, shortSha: impl.slice(0, 7) }, pr],
+      );
+      expect(await reason(t, root, tested)).toBeNull();
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('T13636: with no file inventory, the merge commit gives the PR files (files: atoms list receipts only)', async () => {
+    const { root, tested, pr } = merged();
+    try {
+      const { changedPaths: _omit, ...bare } = pr as Extract<EvidenceAtom, { kind: 'pr' }>;
+      // T1770's shape: the files: atom binds a receipt, not the PR's source.
+      const files: EvidenceAtom = {
+        kind: 'files',
+        files: [{ path: 'receipt.json', sha256: 'd'.repeat(64) }],
+      };
+      expect(await reason(task([run(tested)], [bare, files]), root, tested)).toBeNull();
+      expect(await reason(task([run(tested)], [bare]), root, tested)).toBeNull();
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('T13636: the merge-commit file list cannot narrow — a merged file that moved still refuses', async () => {
+    const { root, tested, pr } = merged(true);
+    try {
+      const { changedPaths: _omit, ...bare } = pr as Extract<EvidenceAtom, { kind: 'pr' }>;
+      const files: EvidenceAtom = {
+        kind: 'files',
+        files: [{ path: 'receipt.json', sha256: 'd'.repeat(64) }],
+      };
+      expect(await reason(task([run(tested)], [bare, files]), root, tested)).toMatch(
+        /differ from the tree.*: a\.ts/,
+      );
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('T13637: a commit-backed GitHub carrier (no pr: atom) gives its merge commit to compare', async () => {
+    const { root, impl, tested, pr } = merged();
+    try {
+      const mergeSha = (pr as Extract<EvidenceAtom, { kind: 'pr' }>).mergeCommitSha as string;
+      const t = task(
+        [run(tested)],
+        [
+          { kind: 'commit', sha: impl, shortSha: impl.slice(0, 7) },
+          { kind: 'files', files: [{ path: 'a.ts', sha256: 'd'.repeat(64) }] },
+        ],
+      );
+      const info = await taskChangeMergeState(t, root, {
+        executionRoot: root,
+        derived: {
+          source: 'none',
+          executionRoot: root,
+          rootSource: 'store',
+          files: ['a.ts'],
+          deletedFiles: [],
+          docs: [],
+          decisions: [],
+          candidates: [],
+          implementedEvidence: '',
+          blockers: [],
+          warnings: [],
+        },
+        changeSet: {
+          listPrsForCommit: async () => [
+            {
+              number: 7,
+              mergedAt: '2026-10-12T00:00:00Z',
+              baseRefName: 'main',
+              mergeCommitSha: mergeSha,
+            },
+          ],
+          viewPr: async () => ({
+            number: 7,
+            title: 'T9001',
+            headRefName: 'task/T9001',
+            baseRefName: 'main',
+            state: 'MERGED',
+            mergedAt: '2026-10-12T00:00:00Z',
+            headRefOid: impl,
+            mergeCommitSha: mergeSha,
+            commits: [impl],
+          }),
+          defaultBranch: () => 'main',
+        },
+        contains: () => false,
+        equivalent: () => false,
+        isLanded: () => false,
+      });
+      expect(info).toMatchObject({ state: 'merged', prRef: '7' });
+      const why = await testsPassedSupersededReason(
+        t.verification?.evidence?.testsPassed?.atoms ?? [],
+        { mergeState: () => info, currentTree: () => tested },
+      );
+      expect(why).toBeNull();
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('still refuses when the merge changed a file the scoped run tested', async () => {
+    const { root, tested, pr } = merged(true);
+    try {
+      expect(await reason(task([run(tested)], [pr]), root, tested)).toMatch(/differ from the tree/);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+});
+
+describe('T13623: a test-run on main after the merge stands in for red merged CI', () => {
+  /** A standalone project: the change edits src/a.ts and its test, merges, then main moves on. */
+  function landed() {
+    const root = realpathSync(mkdtempSync(join(tmpdir(), 'red-ci-')));
+    const git = (...a: string[]): string =>
+      execFileSync('git', ['-c', 'user.name=T', '-c', 'user.email=t@e.x', ...a], {
+        cwd: root,
+        encoding: 'utf-8',
+      }).trim();
+    git('init', '-q', '-b', 'main');
+    mkdirSync(join(root, 'src'));
+    writeFileSync(join(root, 'package.json'), '{"name":"x","type":"module"}\n');
+    writeFileSync(join(root, 'src/a.ts'), 'export const a = 1;\n');
+    writeFileSync(join(root, 'src/a.test.ts'), "import './a.js';\n");
+    writeFileSync(join(root, 'src/other.ts'), 'export const o = 1;\n');
+    git('add', '.');
+    git('commit', '-q', '-m', 'init');
+    git('switch', '-q', '-c', 'task/T1');
+    writeFileSync(join(root, 'src/a.ts'), 'export const a = 2;\n');
+    writeFileSync(join(root, 'src/a.test.ts'), "import './a.js'; // 2\n");
+    git('commit', '-q', '-am', 'T1');
+    const branchHead = git('rev-parse', 'HEAD');
+    git('switch', '-q', 'main');
+    git('merge', '-q', '--no-ff', '-m', 'Merge #5', 'task/T1');
+    const merge = git('rev-parse', 'HEAD');
+    writeFileSync(join(root, 'src/other.ts'), 'export const o = 2;\n');
+    git('commit', '-q', '-am', 'a later PR');
+    const head = git('rev-parse', 'HEAD');
+    const tree = git('rev-parse', 'HEAD^{tree}');
+    git('update-ref', 'refs/remotes/origin/main', head);
+    const changeSet = {
+      mergeCommitSha: merge,
+      files: ['src/a.ts', 'src/a.test.ts'],
+      executionRoot: root,
+    };
+    return { root, git, head, tree, branchHead, changeSet };
+  }
+
+  const run = (o: Partial<Extract<EvidenceAtom, { kind: 'test-run' }>>): EvidenceAtom => ({
+    kind: 'test-run',
+    path: 'r.json',
+    sha256: 'c'.repeat(64),
+    passCount: 1,
+    failCount: 0,
+    skipCount: 0,
+    testFiles: ['src/a.test.ts'],
+    ...o,
+  });
+
+  it('stands when it ran on a descendant of the merge, on the current tree, covering the change', () => {
+    const { root, head, tree, changeSet } = landed();
+    try {
+      expect(
+        scopedRunStandsAfterRedCi(
+          [run({ headSha: head, treeHash: tree })],
+          changeSet,
+          tree,
+          isLandedOnOriginDefault,
+        ),
+      ).toEqual({ ok: true });
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('fails closed: a moved tree, a pre-merge HEAD, an uncovered test file, no pin, or an affected tool run', () => {
+    const { root, head, tree, branchHead, changeSet } = landed();
+    try {
+      const judge = (atoms: EvidenceAtom[], current = tree) =>
+        scopedRunStandsAfterRedCi(atoms, changeSet, current, isLandedOnOriginDefault);
+      expect(judge([run({ headSha: head, treeHash: tree })], 'f'.repeat(40))).toMatchObject({
+        ok: false,
+        why: expect.stringMatching(/but the tree is now/),
+      });
+      expect(judge([run({ headSha: branchHead, treeHash: tree })])).toMatchObject({
+        ok: false,
+        why: expect.stringMatching(/does not descend from merge commit/),
+      });
+      expect(judge([run({ headSha: head, treeHash: tree, testFiles: [] })])).toMatchObject({
+        ok: false,
+      });
+      expect(judge([run({ treeHash: tree })])).toMatchObject({
+        ok: false,
+        why: expect.stringMatching(/records no HEAD and tree/),
+      });
+      expect(judge([run({ headSha: head, treeHash: tree }), affected])).toMatchObject({
+        ok: false,
+        why: expect.stringMatching(/only test-run reports/),
+      });
+      expect(
+        scopedRunStandsAfterRedCi(
+          [run({ headSha: head, treeHash: tree })],
+          null,
+          tree,
+          isLandedOnOriginDefault,
+        ),
+      ).toMatchObject({ ok: false, why: expect.stringMatching(/merge commit is not known/) });
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+  it('refuses a run on a branch that merged main and added its own fix (T13627)', () => {
+    const { root, git, changeSet } = landed();
+    try {
+      git('switch', '-q', '-c', 'feature/fix-the-red-test');
+      writeFileSync(join(root, 'src/a.test.ts'), "import './a.js'; // fixed only here\n");
+      git('commit', '-q', '-am', 'fix the test only on this branch');
+      const branchHead = git('rev-parse', 'HEAD');
+      const branchTree = git('rev-parse', 'HEAD^{tree}');
+      expect(
+        scopedRunStandsAfterRedCi(
+          [run({ headSha: branchHead, treeHash: branchTree })],
+          changeSet,
+          branchTree,
+          isLandedOnOriginDefault,
+        ),
+      ).toMatchObject({ ok: false, why: expect.stringMatching(/not on origin's default branch/) });
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
   });
 });
