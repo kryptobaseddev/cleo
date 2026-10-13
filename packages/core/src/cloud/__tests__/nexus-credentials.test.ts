@@ -7,7 +7,7 @@
  * @task T12712
  */
 
-import { existsSync, mkdtempSync, symlinkSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
@@ -51,5 +51,70 @@ describe('FileNexusTokenStore seed (TOCTOU)', () => {
     }
     // Following the link would have created the attacker's target file.
     expect(existsSync(victim)).toBe(false);
+  });
+});
+
+describe('FileNexusTokenStore refuses a file it cannot read safely (T12880)', () => {
+  const API = 'https://api.nexus.test';
+  const session = {
+    token: 'tok_SECRET_t12880_0123456789abcdef',
+    tokenType: 'Bearer',
+    expiresAt: null,
+    user: null,
+    organization: null,
+  };
+  const fresh = (content: string) => {
+    const location = join(
+      mkdtempSync(join(tmpdir(), 'nexus-cred-t12880-')),
+      'nexus-credentials.json',
+    );
+    writeFileSync(location, content, { mode: 0o600 });
+    return { location, store: new FileNexusTokenStore(location) };
+  };
+
+  it.each([
+    ['not JSON', '{"version": 1, "sessions": '],
+    ['a wrong shape', '{"version": 1, "sessions": []}'],
+  ])('%s is refused on read and write, and left byte-identical', async (_label, content) => {
+    const { location, store } = fresh(content);
+    await expect(store.get(API)).rejects.toThrow(/malformed.*left as is/);
+    await expect(store.put(API, session)).rejects.toThrow(/malformed.*left as is/);
+    expect(readFileSync(location, 'utf-8')).toBe(content);
+  });
+
+  it('a newer format is refused with an upgrade hint, and left byte-identical', async () => {
+    const content = '{"version": 2, "sessions": {}, "keychain": "os"}\n';
+    const { location, store } = fresh(content);
+    await expect(store.list()).rejects.toThrow(/format 2, newer than the format 1.*upgrade CLEO/);
+    await expect(store.delete(API)).rejects.toThrow(/format 2/);
+    expect(readFileSync(location, 'utf-8')).toBe(content);
+  });
+
+  it('fields this CLEO does not know survive a rewrite', async () => {
+    const { location, store } = fresh(
+      JSON.stringify({
+        version: 1,
+        note: 'from a newer CLEO',
+        sessions: {
+          'https://other.nexus.test': {
+            token: 'tok_other_0123456789abcdef',
+            tokenType: 'Bearer',
+            expiresAt: null,
+            user: null,
+            organization: null,
+            createdAt: '2026-10-01T00:00:00.000Z',
+            device: 'kept',
+          },
+        },
+      }),
+    );
+    await store.put(API, session);
+    const after = JSON.parse(readFileSync(location, 'utf-8')) as {
+      note?: string;
+      sessions: Record<string, { device?: string }>;
+    };
+    expect(after.note).toBe('from a newer CLEO');
+    expect(after.sessions['https://other.nexus.test']?.device).toBe('kept');
+    expect(Object.keys(after.sessions).sort()).toEqual([API, 'https://other.nexus.test']);
   });
 });
