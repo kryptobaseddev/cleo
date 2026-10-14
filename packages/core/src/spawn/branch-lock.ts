@@ -61,10 +61,10 @@ import {
 import {
   acquireWorktreeTaskLock,
   describeDisposalBlockers,
-  findDisposalBlockers,
   getGitRoot,
   gitSilent,
   gitSync,
+  guardWorktreeDisposal,
   integrateWorktree,
   napiDestroyWorktree,
   pruneWorktrees,
@@ -434,7 +434,9 @@ export function pruneWorktree(
 
   // T13696: removal deletes the whole directory, so refuse while another
   // checkout links into it or it holds the only copy of the task's evidence.
-  const kept = findDisposalBlockers(worktreePath, {
+  const kept = guardWorktreeDisposal(worktreePath, {
+    taskId,
+    reason: 'complete',
     gitRoot,
     projectRoot,
     evidence: opts.evidence,

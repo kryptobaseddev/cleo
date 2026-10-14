@@ -1434,9 +1434,11 @@ export async function completeTask(
     });
     // T13696: a kept worktree is never silent — something still needs its files.
     if (integration.worktreeKept) {
-      getLogger('tasks:complete').warn(
-        { taskId: options.taskId, kept: integration.worktreeKept },
-        `[T13696] ${integration.error ?? integration.hint ?? 'worktree kept'}`,
+      const { warnWorktreeKept } = await import('../sentient/worktree-dispatch.js');
+      await warnWorktreeKept(
+        options.taskId,
+        integration.worktreeKept,
+        integration.error ?? integration.hint,
       );
     }
     // T12153 (GH #1223) — `nothingToIntegrate` is NOT a failure. Most tasks are

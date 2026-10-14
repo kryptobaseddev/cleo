@@ -6,6 +6,7 @@
  * @epic T9834
  */
 
+import type { WorktreeDisposalBlockers } from '@cleocode/contracts';
 import { type EngineResult, engineError, engineSuccess } from '../engine-result.js';
 import { cleoErrorToEngineResult } from '../errors-to-engine.js';
 import { predictImpact } from '../intelligence/impact.js';
@@ -156,6 +157,8 @@ export async function coreTaskCancel(
   childStrategy?: ChildStrategy;
   affectedTasks?: string[];
   affectedCount?: number;
+  /** Set when the task worktree was kept because something still needs its files (T13701). */
+  worktreeKept?: WorktreeDisposalBlockers;
 }> {
   const accessor = await getTaskAccessor(projectRoot);
   const task = await accessor.loadSingleTask(taskId);
@@ -287,10 +290,23 @@ export async function coreTaskCancel(
   task.pipelineStage = 'cancelled';
   await accessor.upsertSingleTask(task);
 
-  // Best-effort worktree cleanup when cancelling a task.
-  // Promise rejection (e.g. non-git directory) swallowed — must not propagate.
-  const { teardownWorktree } = await import('../sentient/worktree-dispatch.js');
-  teardownWorktree(projectRoot, { taskId, evidence: taskEvidenceAtoms(task) }).catch(() => {});
+  // Best-effort worktree cleanup when cancelling a task, awaited so a kept
+  // worktree reaches the envelope (T13701). A failure never fails the cancel.
+  let worktreeKept: WorktreeDisposalBlockers | undefined;
+  try {
+    const { teardownWorktree, warnWorktreeKept } = await import('../sentient/worktree-dispatch.js');
+    const teardown = await teardownWorktree(projectRoot, {
+      taskId,
+      reason: 'cancel',
+      evidence: taskEvidenceAtoms(task),
+    });
+    if (teardown.kept) {
+      worktreeKept = teardown.kept;
+      await warnWorktreeKept(taskId, teardown.kept, teardown.error);
+    }
+  } catch {
+    // e.g. not a git checkout — nothing to tear down.
+  }
 
   return {
     task: taskId,
@@ -300,6 +316,7 @@ export async function coreTaskCancel(
     childStrategy,
     affectedTasks,
     affectedCount: affectedTasks.length,
+    ...(worktreeKept ? { worktreeKept } : {}),
   };
 }
 
@@ -800,6 +817,7 @@ export async function taskCancel(
     childStrategy?: ChildStrategy;
     affectedTasks?: string[];
     affectedCount?: number;
+    worktreeKept?: WorktreeDisposalBlockers;
   }>
 > {
   try {

@@ -25,13 +25,20 @@
 import { existsSync } from 'node:fs';
 import type {
   EngineResult,
+  EvidenceAtom,
   PrunedWorktreeOutcome,
   PruneOrphanedWorktreesOpts,
   PruneOrphanedWorktreesResult,
   WorktreeInfo,
 } from '@cleocode/contracts';
 import { engineError, engineSuccess } from '@cleocode/contracts/engine-result.js';
-import { gitSilent, napiDestroyWorktree } from '@cleocode/worktree';
+import {
+  describeDisposalBlockers,
+  gitSilent,
+  guardWorktreeDisposal,
+  napiDestroyWorktree,
+} from '@cleocode/worktree';
+import { taskEvidenceAtoms } from '../tasks/evidence-paths.js';
 import { appendWorktreeAuditEntry, resolveWorktreeAuditActor } from './audit.js';
 import { isPrimaryWorktree, listWorktrees, resolvePrimaryWorktreePath } from './list.js';
 
@@ -99,6 +106,45 @@ export async function pruneOrphanedWorktreesByStatus(
 
   for (const wt of candidates) {
     const reason = reasonForStatus(wt);
+
+    // T13700: the same guard as complete/cancel — dependents, evidence and the keep marker.
+    const kept = guardWorktreeDisposal(wt.path, {
+      taskId: wt.taskId,
+      reason,
+      projectRoot: opts.projectRoot,
+      evidence: await loadTaskEvidence(opts.projectRoot, wt.taskId),
+      dryRun,
+    });
+    if (kept !== null) {
+      const error = describeDisposalBlockers(wt.path, kept);
+      outcomes.push({
+        path: wt.path,
+        branch: wt.branch,
+        taskId: wt.taskId,
+        reason,
+        pruned: false,
+        branchDeleted: false,
+        error,
+        kept,
+      });
+      if (!dryRun) {
+        appendWorktreeAuditEntry(
+          opts.projectRoot,
+          {
+            actor,
+            action: 'prune',
+            target: wt.path,
+            ...(wt.branch ? { branch: wt.branch } : {}),
+            ...(wt.taskId ? { taskId: wt.taskId } : {}),
+            reason: `${reason}+kept`,
+            success: false,
+            error,
+          },
+          opts.auditLogPath,
+        );
+      }
+      continue;
+    }
 
     if (dryRun) {
       outcomes.push({
@@ -179,6 +225,22 @@ export async function pruneOrphanedWorktreesByStatus(
 // ---------------------------------------------------------------------------
 // Internal helpers — exported for tests only.
 // ---------------------------------------------------------------------------
+
+/** The owning task's recorded evidence, or `[]` when there is no task or the store is unreadable. */
+async function loadTaskEvidence(
+  projectRoot: string,
+  taskId: string | null,
+): Promise<EvidenceAtom[]> {
+  if (taskId === null) return [];
+  try {
+    const { getTaskAccessor } = await import('../store/data-accessor.js');
+    const task = await (await getTaskAccessor(projectRoot)).loadSingleTask(taskId);
+    return task ? taskEvidenceAtoms(task) : [];
+  } catch {
+    // Without the store the marker and dependents scan still guard the disposal.
+    return [];
+  }
+}
 
 /**
  * Map a {@link WorktreeInfo} entry's `statusCategory` to a short human-readable

@@ -19,9 +19,21 @@
  */
 
 import { createHash } from 'node:crypto';
-import { existsSync, lstatSync, readdirSync, readFileSync, realpathSync } from 'node:fs';
+import {
+  existsSync,
+  lstatSync,
+  readdirSync,
+  readFileSync,
+  realpathSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs';
 import { dirname, isAbsolute, join, relative, sep } from 'node:path';
-import type { EvidenceAtom, WorktreeDisposalBlockers } from '@cleocode/contracts';
+import type {
+  EvidenceAtom,
+  WorktreeDisposalBlockers,
+  WorktreeKeepMarker,
+} from '@cleocode/contracts';
 import { gitSync } from './git.js';
 
 /** shortcut: at most this many entries are read per scanned directory; raise it if a store outgrows it. */
@@ -127,6 +139,36 @@ function hashedFiles(
 }
 
 /**
+ * Evidence files inside `worktreePath` with no byte-identical copy at the same
+ * relative path under `projectRoot`; with `projectRoot` `null`, every one.
+ */
+function unrecoverableEvidenceFiles(
+  worktreePath: string,
+  projectRoot: string | null,
+  evidence: readonly EvidenceAtom[],
+): Array<{ path: string; sha256: string }> {
+  const self = realOrNull(worktreePath);
+  if (self === null) return [];
+  const lost = new Map<string, string>();
+  for (const atom of evidence) {
+    for (const file of hashedFiles(atom)) {
+      const abs = file.resolvedPath ?? (isAbsolute(file.path) ? file.path : null);
+      const real = abs === null ? null : realOrNull(abs);
+      if (real === null || !isWithin(self, real)) continue;
+      const counterpart = projectRoot === null ? null : join(projectRoot, relative(self, real));
+      if (
+        counterpart === null ||
+        !existsSync(counterpart) ||
+        sha256Of(counterpart) !== file.sha256
+      ) {
+        lost.set(real, file.sha256);
+      }
+    }
+  }
+  return [...lost].map(([path, sha256]) => ({ path, sha256 }));
+}
+
+/**
  * Evidence files inside `worktreePath` that re-validation could not find once
  * the worktree is gone: no byte-identical file at the same relative path under
  * `projectRoot` (where a merged, committed file lands).
@@ -143,19 +185,7 @@ export function findUnrecoverableEvidence(
   projectRoot: string,
   evidence: readonly EvidenceAtom[],
 ): string[] {
-  const self = realOrNull(worktreePath);
-  if (self === null) return [];
-  const lost = new Set<string>();
-  for (const atom of evidence) {
-    for (const file of hashedFiles(atom)) {
-      const abs = file.resolvedPath ?? (isAbsolute(file.path) ? file.path : null);
-      const real = abs === null ? null : realOrNull(abs);
-      if (real === null || !isWithin(self, real)) continue;
-      const counterpart = join(projectRoot, relative(self, real));
-      if (!existsSync(counterpart) || sha256Of(counterpart) !== file.sha256) lost.add(real);
-    }
-  }
-  return [...lost];
+  return unrecoverableEvidenceFiles(worktreePath, projectRoot, evidence).map((f) => f.path);
 }
 
 /**
@@ -203,4 +233,112 @@ export function describeDisposalBlockers(
     );
   }
   return `Worktree ${worktreePath} kept: ${parts.join('; ')}. Remove the links or re-verify, then dispose it.`;
+}
+
+/**
+ * Where the keep marker for `worktreePath` lives: beside the checkout, never
+ * inside it, so `git status` stays clean and nothing can commit it.
+ *
+ * @param worktreePath - The worktree the marker describes.
+ * @returns `<worktreePath>.keep.json`.
+ *
+ * @task T13700
+ */
+export function keepMarkerPath(worktreePath: string): string {
+  return `${worktreePath.replace(/[\\/]+$/, '')}.keep.json`;
+}
+
+/**
+ * The keep marker for `worktreePath`, or `null` when there is none or it is
+ * unreadable.
+ *
+ * @param worktreePath - The worktree to look up.
+ * @returns The marker, or `null`.
+ *
+ * @task T13700
+ */
+export function readKeepMarker(worktreePath: string): WorktreeKeepMarker | null {
+  let parsed: Partial<WorktreeKeepMarker>;
+  try {
+    parsed = JSON.parse(
+      readFileSync(keepMarkerPath(worktreePath), 'utf-8'),
+    ) as Partial<WorktreeKeepMarker>;
+  } catch {
+    return null;
+  }
+  return {
+    taskId: typeof parsed.taskId === 'string' ? parsed.taskId : null,
+    reason: typeof parsed.reason === 'string' ? parsed.reason : 'unknown',
+    projectRoot: typeof parsed.projectRoot === 'string' ? parsed.projectRoot : null,
+    dependents: Array.isArray(parsed.dependents) ? parsed.dependents : [],
+    evidence: Array.isArray(parsed.evidence) ? parsed.evidence : [],
+    keptAt: typeof parsed.keptAt === 'string' ? parsed.keptAt : '',
+  };
+}
+
+/**
+ * The one disposal guard every path that deletes a worktree calls first
+ * (T13700): dependents scan, evidence check, and the durable keep marker.
+ *
+ * Evidence from an earlier keep is re-checked from the marker, so a batch
+ * prune with no task store still honours it. While anything blocks, the marker
+ * is written (or refreshed) and the blockers returned; once nothing does, the
+ * marker is removed and `null` returned, so the caller may dispose.
+ *
+ * @param worktreePath - The worktree about to be disposed.
+ * @param opts.taskId - Owning task, recorded on a new marker.
+ * @param opts.reason - The disposal asking, recorded on a new marker.
+ * @param opts.gitRoot - Git root whose worktrees are scanned; defaults to the worktree itself.
+ * @param opts.projectRoot - Main checkout evidence falls back to; defaults to the marker's.
+ * @param opts.evidence - The task's recorded evidence atoms, when the caller has them.
+ * @param opts.dryRun - Report only; never write or remove the marker.
+ * @returns The blockers, or `null` when disposal is safe.
+ *
+ * @task T13700
+ */
+export function guardWorktreeDisposal(
+  worktreePath: string,
+  opts: {
+    taskId: string | null;
+    reason: string;
+    gitRoot?: string;
+    projectRoot?: string;
+    evidence?: readonly EvidenceAtom[];
+    dryRun?: boolean;
+  },
+): WorktreeDisposalBlockers | null {
+  const marker = readKeepMarker(worktreePath);
+  const projectRoot = opts.projectRoot ?? marker?.projectRoot ?? null;
+  const evidence: EvidenceAtom[] = [...(opts.evidence ?? [])];
+  if (marker !== null && marker.evidence.length > 0) {
+    evidence.push({
+      kind: 'files',
+      files: marker.evidence.map((f) => ({ ...f, resolvedPath: f.path })),
+    });
+  }
+  const dependents = findWorktreeDependents(worktreePath, opts.gitRoot ?? worktreePath);
+  const lost = unrecoverableEvidenceFiles(worktreePath, projectRoot, evidence);
+  const blockers =
+    dependents.length > 0 || lost.length > 0
+      ? { dependents, evidence: lost.map((f) => f.path) }
+      : null;
+  if (opts.dryRun === true) return blockers;
+  try {
+    if (blockers !== null) {
+      const next: WorktreeKeepMarker = {
+        taskId: marker?.taskId ?? opts.taskId,
+        reason: marker?.reason ?? opts.reason,
+        projectRoot,
+        dependents,
+        evidence: lost,
+        keptAt: marker?.keptAt || new Date().toISOString(),
+      };
+      writeFileSync(keepMarkerPath(worktreePath), `${JSON.stringify(next, null, 2)}\n`, 'utf-8');
+    } else if (marker !== null) {
+      rmSync(keepMarkerPath(worktreePath), { force: true });
+    }
+  } catch {
+    // The marker is a record, not the guard: the scan above already decided.
+  }
+  return blockers;
 }

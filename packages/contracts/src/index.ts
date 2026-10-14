@@ -2039,6 +2039,7 @@ export type {
   WorktreeIncludePattern,
   WorktreeInfo,
   WorktreeInstallOutcome,
+  WorktreeKeepMarker,
   WorktreeLifecycleAction,
   WorktreeLifecycleAuditEntry,
   WorktreeListEntry,

@@ -25,7 +25,7 @@
  */
 
 import { execFileSync } from 'node:child_process';
-import { appendFileSync, existsSync, mkdirSync, readdirSync } from 'node:fs';
+import { appendFileSync, existsSync, mkdirSync, readdirSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import type { PruneWorktreesOptions, PruneWorktreesResult } from '@cleocode/contracts';
 import { getGitRoot, gitSilent } from './git.js';
@@ -36,7 +36,7 @@ import {
 } from './napi-binding.js';
 import { computeProjectHash, resolveWorktreeRootForHash } from './paths.js';
 import { appendWorktreeAuditLog, removeWorktreeFromSentinelIndex } from './worktree-audit.js';
-import { describeDisposalBlockers, findWorktreeDependents } from './worktree-dependents.js';
+import { describeDisposalBlockers, guardWorktreeDisposal } from './worktree-dependents.js';
 import { releaseWorktreeTaskLock } from './worktree-lock.js';
 
 /**
@@ -193,6 +193,12 @@ function classifyPruneCandidate(
   worktreeRoot: string,
 ): PruneDecision | null {
   const path = join(worktreeRoot, entry);
+  // Only directories are worktrees; a sibling file (e.g. a `.keep.json` marker) never is.
+  try {
+    if (!statSync(path).isDirectory()) return null;
+  } catch {
+    return null;
+  }
   if (preserveTaskIds !== undefined) {
     // T11996: entries in the preserve set are NEVER eligible for pruning,
     // regardless of idle age. Idle-age is only applied to orphan entries
@@ -397,10 +403,11 @@ function pruneSingleEntry(
 ): void {
   const { taskId, path, reason } = decision;
 
-  // T13696: never delete a worktree another checkout still links into.
-  const dependents = findWorktreeDependents(path, gitRoot);
-  if (dependents.length > 0) {
-    errors.push({ path, reason: describeDisposalBlockers(path, { dependents, evidence: [] }) });
+  // T13696/T13700: never delete a worktree another checkout links into, or
+  // one an earlier disposal kept (its marker's evidence is re-checked here).
+  const kept = guardWorktreeDisposal(path, { taskId, reason, gitRoot, projectRoot });
+  if (kept !== null) {
+    errors.push({ path, reason: describeDisposalBlockers(path, kept) });
     return;
   }
 

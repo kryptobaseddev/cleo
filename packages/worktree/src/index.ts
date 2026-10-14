@@ -34,6 +34,7 @@ export type {
   WorktreeHook,
   WorktreeHookResult,
   WorktreeIncludePattern,
+  WorktreeKeepMarker,
   WorktreeListEntry,
 } from '@cleocode/contracts';
 export type { CopyPathsOptions } from './copy-on-write.js';
@@ -75,6 +76,9 @@ export {
   findDisposalBlockers,
   findUnrecoverableEvidence,
   findWorktreeDependents,
+  guardWorktreeDisposal,
+  keepMarkerPath,
+  readKeepMarker,
 } from './worktree-dependents.js';
 export { destroyWorktree } from './worktree-destroy.js';
 export { runProjectWorktreeHooks, runWorktreeHooks } from './worktree-hooks.js';

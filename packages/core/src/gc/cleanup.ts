@@ -28,6 +28,7 @@ import type { Dirent } from 'node:fs';
 import { appendFileSync, existsSync, mkdirSync, readdirSync, rmSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { describeDisposalBlockers, guardWorktreeDisposal } from '@cleocode/worktree';
 import { create as tarCreate } from 'tar';
 
 // ---------------------------------------------------------------------------
@@ -543,6 +544,14 @@ export function pruneOrphanWorktrees(options: PruneOrphanWorktreesOptions): Clea
         }
       } catch {
         skipped++;
+        continue;
+      }
+
+      // T13700: the shared disposal guard — no task store here, so it relies on
+      // the dependents scan and on any keep marker an earlier disposal wrote.
+      const kept = guardWorktreeDisposal(worktreePath, { taskId, reason: 'gc-orphan', dryRun });
+      if (kept !== null) {
+        errors.push({ path: worktreePath, reason: describeDisposalBlockers(worktreePath, kept) });
         continue;
       }
 

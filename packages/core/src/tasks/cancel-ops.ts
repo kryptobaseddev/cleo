@@ -7,7 +7,7 @@
  */
 
 import type { Task } from '@cleocode/contracts';
-import { teardownWorktree } from '../sentient/worktree-dispatch.js';
+import { teardownWorktree, warnWorktreeKept } from '../sentient/worktree-dispatch.js';
 import { taskEvidenceAtoms } from './evidence-paths.js';
 
 /** Result of a cancel operation. */
@@ -112,7 +112,11 @@ export function cancelTask(
   // Best-effort worktree cleanup when cancelling a task.
   // Promise rejection (e.g. non-git directory) swallowed — must not propagate.
   if (projectRoot) {
-    teardownWorktree(projectRoot, { taskId, evidence: taskEvidenceAtoms(task) }).catch(() => {});
+    // This path is synchronous, so the result lands late; the keep marker
+    // beside the worktree is the durable record (T13700/T13701).
+    teardownWorktree(projectRoot, { taskId, reason: 'cancel', evidence: taskEvidenceAtoms(task) })
+      .then((r) => (r.kept ? warnWorktreeKept(taskId, r.kept, r.error) : undefined))
+      .catch(() => {});
   }
 
   return {
