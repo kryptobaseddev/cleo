@@ -78,10 +78,13 @@ export const QA_RUN_SHAPE_HINT =
   '{"kind":"typecheck"|"lint","command":["tsc","--noEmit",…],"exitCode":0,' +
   '"diagnostics":{"errors":0},"roots":["src/a"],"startTime":<epoch ms>}';
 
-/** Source files each QA check reads; a path no pattern matches is no check's input. */
+/**
+ * Files each QA check reads — its sources and the configs that change its
+ * result; a path no pattern matches is no check's input.
+ */
 const QA_RUN_INPUTS: Record<QaRunKind, RegExp> = {
-  lint: /\.(?:[cm]?[jt]sx?|svelte|vue)$/,
-  typecheck: /\.(?:[cm]?tsx?|svelte|vue)$/,
+  lint: /\.(?:[cm]?[jt]sx?|svelte|vue)$|(?:^|\/)(?:package\.json|biome\.jsonc?|\.eslintrc[^/]*|eslint\.config\.[^/]+)$/,
+  typecheck: /\.(?:[cm]?tsx?|svelte|vue)$|(?:^|\/)(?:package\.json|[jt]sconfig[^/]*\.json)$/,
 };
 
 /**

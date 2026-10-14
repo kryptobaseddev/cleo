@@ -17,7 +17,7 @@ import { parseEvidenceString, validateEvidenceForGate } from '@cleocode/contract
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { hasTreeBoundQaRun, qaRunTreeMismatchReason } from '../affected-scope.js';
 import { checkTaskEvidenceContext, validateAtom } from '../evidence.js';
-import { parseQaRunReceipt, qaRunUnionGapReason } from '../qa-run-binding.js';
+import { parseQaRunReceipt, qaRunChecks, qaRunUnionGapReason } from '../qa-run-binding.js';
 
 function git(dir: string, args: string[]): string {
   return execFileSync('git', args, { cwd: dir, encoding: 'utf-8' }).trim();
@@ -320,6 +320,17 @@ describe('a qa-run receipt in a standalone project', () => {
 });
 
 describe('a qa-run kind owes coverage only for what its tool reads (T13698)', () => {
+  it('reads sources and the configs that change a check, nothing else', () => {
+    expect(qaRunChecks('lint', 'src/a.tsx')).toBe(true);
+    expect(qaRunChecks('lint', 'packages/a/eslint.config.mjs')).toBe(true);
+    expect(qaRunChecks('lint', 'biome.json')).toBe(true);
+    expect(qaRunChecks('lint', 'packages/a/package.json')).toBe(true);
+    expect(qaRunChecks('typecheck', 'packages/a/tsconfig.build.json')).toBe(true);
+    expect(qaRunChecks('typecheck', 'src/a.js')).toBe(false);
+    expect(qaRunChecks('lint', 'scripts/INDEX.md')).toBe(false);
+    expect(qaRunChecks('typecheck', 'data/fixture.json')).toBe(false);
+  });
+
   // axiom T1984: ESLint over the changed TS entry files, plus a generated
   // scripts/INDEX.md that ESLint never reads (scripts/ is a CI code root, so
   // the .md is not set aside as documentation).
