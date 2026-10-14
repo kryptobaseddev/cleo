@@ -8900,6 +8900,20 @@ export const OPERATIONS: OperationDef[] = [
         description: 'Inline UTF-8 content (mutually exclusive with file)',
       },
       {
+        name: 'baseVersionUid',
+        type: 'string' as const,
+        required: false,
+        description:
+          'Expected base version uid — the metadata.headVersionUid from the `cleo docs fetch <slug>` envelope the edit was authored against (T13674). ' +
+          'When the stored head has moved past it: append-shaped section edits are three-way merged through the section CRDT (both writers survive); ' +
+          'a non-mergeable section edit is recorded as a named section conflict — nothing is silently dropped. ' +
+          "A base that does not resolve to this doc's version history is refused with E_DOC_BASE_UNKNOWN before any write. " +
+          'Works with --content and with a UTF-8 text --file; a non-text --file with a base is refused with E_DOC_BASE_UNSUPPORTED. ' +
+          'The update result carries the new headVersionUid, so edits can chain without a re-fetch. ' +
+          'Omit only when the edit was not based on an earlier fetch (the current head is then assumed).',
+        cli: { flag: 'base-version-uid' },
+      },
+      {
         name: 'message',
         type: 'string' as const,
         required: false,

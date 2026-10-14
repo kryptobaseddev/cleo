@@ -1536,6 +1536,12 @@ const updateCommand = defineCommand({
         ...(args['dry-run'] === true ? { dryRun: true } : {}),
         ...(args.strict === true ? { strict: true } : {}),
         ...(typeof args['attached-by'] === 'string' ? { attachedBy: args['attached-by'] } : {}),
+        // T13674: the version the edit was authored against (the fetch
+        // envelope's metadata.headVersionUid). A stale base merges or
+        // conflicts instead of silently dropping a concurrent writer's edit.
+        ...(typeof args['base-version-uid'] === 'string'
+          ? { baseVersionUid: args['base-version-uid'] }
+          : {}),
       },
       { command: 'docs update' },
     );

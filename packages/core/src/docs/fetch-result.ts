@@ -138,6 +138,11 @@ export async function buildDocsFetchResult(opts: {
   const contentField = inline && text ? content : undefined;
   const bytesBase64 = inline && !text ? contentBytes.toString('base64') : undefined;
   const headConflict = await readDocHeadConflict(projectRoot, doc.slug);
+  // T13674: expose the conduit head version the fetched body was projected
+  // from, so a writer can pass it back as docs.update baseVersionUid and a
+  // stale base is merged/conflicted instead of silently overwriting a
+  // concurrent edit. Absent for docs outside the conduit family.
+  const headVersionUid = await readDocHeadVersionUid(projectRoot, doc.slug);
 
   return {
     metadata: {
@@ -154,6 +159,7 @@ export async function buildDocsFetchResult(opts: {
       ...(doc.displayNumber !== null ? { displayNumber: doc.displayNumber } : {}),
       ...(doc.title ? { title: doc.title } : {}),
       ...(doc.blobName ? { blobName: doc.blobName } : {}),
+      ...(headVersionUid !== undefined ? { headVersionUid } : {}),
     },
     path: docsStoragePath(doc, cleoDir),
     sizeBytes: contentBytes.length,
@@ -166,6 +172,36 @@ export async function buildDocsFetchResult(opts: {
     ...(headConflict !== undefined ? { headConflict } : {}),
     ...(linkedDecisions !== undefined && linkedDecisions.length > 0 ? { linkedDecisions } : {}),
   };
+}
+
+/**
+ * Resolve the conduit head version uid for a slug (T13674) — the version the
+ * fetched body was projected from. Returns undefined for slug-less docs,
+ * docs outside the conduit family, and any store read failure (the base
+ * parameter stays opt-in; a degraded store must not break fetch).
+ *
+ * @param projectRoot - Project root.
+ * @param slug - The doc's slug (`ResolvedDoc.slug`), or null.
+ * @returns The head version uid, or undefined when not applicable.
+ */
+export async function readDocHeadVersionUid(
+  projectRoot: string,
+  slug: string | null,
+): Promise<string | undefined> {
+  if (slug === null) return undefined;
+  try {
+    const { dbExists } = await import('../store/sqlite.js');
+    if (!dbExists(projectRoot)) return undefined;
+    const { resolveConduitDocUid, getConduitDocHead } = await import(
+      '../store/conduit-doc-history.js'
+    );
+    const docUid = await resolveConduitDocUid(projectRoot, slug);
+    if (docUid === null) return undefined;
+    const head = await getConduitDocHead(projectRoot, docUid);
+    return head?.headVersionUid ?? undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 /**
