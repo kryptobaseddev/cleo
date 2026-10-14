@@ -429,113 +429,116 @@ export async function runGoverned(opts: RunGovernedOptions): Promise<RunGoverned
       })
     : () => {};
   let admission: RunAdmission;
-  if (isLedgerClass(opts.cls)) {
-    // T13133: one budget and one FIFO queue for every heavy run. Nested in an
-    // admitted run's process tree (any class), it rides that admission; a
-    // memory-pressure wait and, after a minute, the holders are warnings, so
-    // --passthrough shows them.
-    const out = await d.admit(
-      {
-        label: `run:${opts.cls}`,
-        footprintBytes: opts.footprintBytes ?? footprintForClass(opts.cls),
-        ...(opts.footprintReason !== undefined ? { footprintReason: opts.footprintReason } : {}),
-        ...(opts.scope !== undefined ? { scope: opts.scope } : {}),
-        // T13237: one full-build machine-wide, whatever its footprint.
-        ...(opts.cls === 'full-build' ? { exclusive: true } : {}),
-        command,
-        cwd: opts.cwd,
-      },
-      {
-        wait: opts.wait === true,
-        timeoutMs: Math.max(1, deadline - d.now()),
-        ...(opts.queuePollMs !== undefined ? { pollMs: opts.queuePollMs } : {}),
-        memoryPressure: memoryGateReporter((line) => notice(line, 'warn'), `${opts.cls} job`, {
+  try {
+    if (isLedgerClass(opts.cls)) {
+      // T13133: one budget and one FIFO queue for every heavy run. Nested in an
+      // admitted run's process tree (any class), it rides that admission; a
+      // memory-pressure wait and, after a minute, the holders are warnings, so
+      // --passthrough shows them.
+      const out = await d.admit(
+        {
+          label: `run:${opts.cls}`,
+          footprintBytes: opts.footprintBytes ?? footprintForClass(opts.cls),
+          ...(opts.footprintReason !== undefined ? { footprintReason: opts.footprintReason } : {}),
+          ...(opts.scope !== undefined ? { scope: opts.scope } : {}),
+          // T13237: one full-build machine-wide, whatever its footprint.
+          ...(opts.cls === 'full-build' ? { exclusive: true } : {}),
+          command,
+          cwd: opts.cwd,
+        },
+        {
+          wait: opts.wait === true,
+          timeoutMs: Math.max(1, deadline - d.now()),
+          ...(opts.queuePollMs !== undefined ? { pollMs: opts.queuePollMs } : {}),
+          memoryPressure: memoryGateReporter((line) => notice(line, 'warn'), `${opts.cls} job`, {
+            now: d.now,
+          }),
+          notice: (line) => notice(line, 'warn'),
           now: d.now,
-        }),
-        notice: (line) => notice(line, 'warn'),
-        now: d.now,
-        sleep: (ms) => d.sleep(ms, queueAbort.signal),
-        signal: queueAbort.signal,
-      },
-    );
-    uninstallQueue();
-    if (queuedSignal !== null) {
-      if (out.admitted) await out.grant.release();
-      return interrupted(queuedSignal);
-    }
-    if (!out.admitted) {
-      const { refusal } = out;
-      return deferral(
-        opts,
-        d,
-        opts.wait
-          ? `timed out after ${Math.round((d.now() - t0) / 1000)}s waiting for the machine budget (position ${refusal.ahead + 1}): ${refusal.reason}`
-          : refusal.reason,
-        refusal.retryAfterMs,
-        sample,
-        opts.wait ? refusal.ahead + 1 : null,
-        refusal.memoryPressure,
+          sleep: (ms) => d.sleep(ms, queueAbort.signal),
+          signal: queueAbort.signal,
+        },
       );
-    }
-    const { grant } = out;
-    if (grant.ungoverned) sayUngoverned(grant.ungoverned);
-    if (grant.nested) {
-      notice('nested in an admitted run: riding its admission, inside its process tree', 'info');
-    } else if (grant.waitedMs >= 1_000 && opts.wait) {
-      notice(`admitted after ${Math.round(grant.waitedMs / 1000)}s in the queue`, 'warn');
-    }
-    admission = {
-      release: () => grant.release(),
-      slot: grant.id === null ? -1 : 0,
-      token: grant.token,
-      holdsShare: grant.id !== null,
-    };
-  } else {
-    // Classes outside the ledger (db-heavy) keep their governor slots. A run
-    // nested in a job of the SAME class rides its slot (#1777 round 3, M-2).
-    const parent = enclosing !== null && enclosing.class === opts.cls ? enclosing : null;
-    if (parent) {
-      notice(
-        `nested in a running ${parent.class} job (${parent.command}): running on its slot`,
-        'info',
-      );
-      admission = { release: async () => {}, slot: -1, token: '', holdsShare: false };
-    } else {
-      const tryAcquire = async (s: ResourceSample): Promise<AdmissionResult> => {
-        const r = await admitFailOpen(opts.cls, () => d.tryAcquire(opts.cls, s));
-        if (r.ungoverned !== null) sayUngoverned(r.ungoverned);
-        return r.admission;
-      };
-      let result = await tryAcquire(sample);
-      while (result.deferred && opts.wait && d.now() < deadline && queuedSignal === null) {
-        await d.sleep(opts.queuePollMs ?? 1000, queueAbort.signal);
-        sample = await d.sample();
-        result = await tryAcquire(sample);
-      }
-      uninstallQueue();
       if (queuedSignal !== null) {
-        if (!result.deferred) await result.release();
+        if (out.admitted) await out.grant.release();
         return interrupted(queuedSignal);
       }
-      if (result.deferred) {
+      if (!out.admitted) {
+        const { refusal } = out;
         return deferral(
           opts,
           d,
-          result.reason,
-          result.retryAfterMs,
+          opts.wait
+            ? `timed out after ${Math.round((d.now() - t0) / 1000)}s waiting for the machine budget (position ${refusal.ahead + 1}): ${refusal.reason}`
+            : refusal.reason,
+          refusal.retryAfterMs,
           sample,
-          null,
-          result.memoryPressure ?? null,
+          opts.wait ? refusal.ahead + 1 : null,
+          refusal.memoryPressure,
         );
       }
-      const granted = result;
+      const { grant } = out;
+      if (grant.ungoverned) sayUngoverned(grant.ungoverned);
+      if (grant.nested) {
+        notice('nested in an admitted run: riding its admission, inside its process tree', 'info');
+      } else if (grant.waitedMs >= 1_000 && opts.wait) {
+        notice(`admitted after ${Math.round(grant.waitedMs / 1000)}s in the queue`, 'warn');
+      }
       admission = {
-        release: () => granted.release(),
-        slot: granted.slot,
-        token: '',
-        holdsShare: true,
+        release: () => grant.release(),
+        slot: grant.id === null ? -1 : 0,
+        token: grant.token,
+        holdsShare: grant.id !== null,
       };
+    } else {
+      // Classes outside the ledger (db-heavy) keep their governor slots. A run
+      // nested in a job of the SAME class rides its slot (#1777 round 3, M-2).
+      const parent = enclosing !== null && enclosing.class === opts.cls ? enclosing : null;
+      if (parent) {
+        notice(
+          `nested in a running ${parent.class} job (${parent.command}): running on its slot`,
+          'info',
+        );
+        admission = { release: async () => {}, slot: -1, token: '', holdsShare: false };
+      } else {
+        const tryAcquire = async (s: ResourceSample): Promise<AdmissionResult> => {
+          const r = await admitFailOpen(opts.cls, () => d.tryAcquire(opts.cls, s));
+          if (r.ungoverned !== null) sayUngoverned(r.ungoverned);
+          return r.admission;
+        };
+        let result = await tryAcquire(sample);
+        while (result.deferred && opts.wait && d.now() < deadline && queuedSignal === null) {
+          await d.sleep(opts.queuePollMs ?? 1000, queueAbort.signal);
+          sample = await d.sample();
+          result = await tryAcquire(sample);
+        }
+        if (queuedSignal !== null) {
+          if (!result.deferred) await result.release();
+          return interrupted(queuedSignal);
+        }
+        if (result.deferred) {
+          return deferral(
+            opts,
+            d,
+            result.reason,
+            result.retryAfterMs,
+            sample,
+            null,
+            result.memoryPressure ?? null,
+          );
+        }
+        const granted = result;
+        admission = {
+          release: () => granted.release(),
+          slot: granted.slot,
+          token: '',
+          holdsShare: true,
+        };
+      }
     }
+  } finally {
+    // Every admission path, a throw or a nested ride included, drops the queue handler.
+    uninstallQueue();
   }
   const grant = admission;
   const waitedMs = d.now() - t0;

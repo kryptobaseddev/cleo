@@ -19,6 +19,9 @@ Three defects reported against `cleo run` on 2026.10.12:
   exiting 128 + the signal number, instead of dying with no envelope. Under
   `--passthrough` the "admitted after Ns" line is always shown, and a run that
   succeeds ends with an "exited 0 after Ns" line, so it never looks like a no-op.
+  This changes the #1777 R7 contract that a `--passthrough` success writes
+  nothing at all: stdout is still only the child's, and stderr now carries that
+  one line.
 - **Unattributed SIGTERM (T13680).** When the runner itself receives a signal
   and forwards it, it says so ("runner received SIGTERM (its parent pid N);
   forwarding it to pid M") and the result carries `runnerSignal`. A signal with
