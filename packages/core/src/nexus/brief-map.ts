@@ -20,6 +20,9 @@ import type { BriefMapFile, BriefMapReport } from '@cleocode/contracts';
 /** Default character budget (Ponytail's default). */
 export const BRIEF_MAP_DEFAULT_BUDGET = 2000;
 
+/** What `cleo briefing` prints instead of a map when the project has no code index. */
+export const BRIEF_MAP_NO_INDEX = 'no code index; run `cleo nexus analyze`';
+
 const MAX_FILES = 4000;
 const SRC = /\.(py|js|jsx|mjs|cjs|ts|tsx|go|rs|rb|java|kt|php|swift|cs)$/;
 const SKIP_DIR =
@@ -207,6 +210,23 @@ function filesFromGitWalk(projectRoot: string): BriefMapFile[] {
 }
 
 /**
+ * Build the brief map from the nexus graph only, never walking the tree, so it
+ * is cheap enough for `cleo briefing`.
+ *
+ * @param projectRoot - the project root.
+ * @param budget - character budget (default {@link BRIEF_MAP_DEFAULT_BUDGET}).
+ * @returns the report, or `null` when the project has no code index.
+ */
+export async function buildNexusBriefMap(
+  projectRoot: string,
+  budget: number = BRIEF_MAP_DEFAULT_BUDGET,
+): Promise<BriefMapReport | null> {
+  const files = await filesFromNexus(projectRoot);
+  if (files.length === 0) return null;
+  return { source: 'nexus', budget, ...formatBriefMap(files, budget) };
+}
+
+/**
  * Build the brief map for a project: from the nexus graph when indexed, else
  * from a git-tracked regex walk.
  *
@@ -217,8 +237,11 @@ export async function buildBriefMap(
   projectRoot: string,
   budget: number = BRIEF_MAP_DEFAULT_BUDGET,
 ): Promise<BriefMapReport> {
-  const fromNexus = await filesFromNexus(projectRoot);
-  const source = fromNexus.length > 0 ? 'nexus' : 'git-walk';
-  const files = source === 'nexus' ? fromNexus : filesFromGitWalk(projectRoot);
-  return { source, budget, ...formatBriefMap(files, budget) };
+  return (
+    (await buildNexusBriefMap(projectRoot, budget)) ?? {
+      source: 'git-walk',
+      budget,
+      ...formatBriefMap(filesFromGitWalk(projectRoot), budget),
+    }
+  );
 }

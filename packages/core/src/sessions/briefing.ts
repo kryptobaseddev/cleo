@@ -257,7 +257,8 @@ export interface SessionBriefing {
   memoryContext?: SessionMemoryContext;
   /**
    * Brief codebase map (`cleo map --brief`): exported names per folder, so
-   * reuse needs no search. Present only when `lean.map` is on (T13666).
+   * reuse needs no search. Present only when `lean.map` is on (T13666);
+   * a one-line no-index notice when the project has no code index.
    */
   codebaseMap?: string;
   /**
@@ -624,13 +625,15 @@ export async function computeBriefing(
   }
 
   // T13666: the brief codebase map, when `lean.map` is on (opt-in: it costs
-  // up to ~2,000 characters per briefing). Best-effort.
+  // up to ~2,000 characters per briefing). Nexus graph only: a briefing never
+  // walks the tree. Best-effort.
   let codebaseMap: string | undefined;
   try {
     const { getConfigValue } = await import('../config/registry.js');
     if ((await getConfigValue<boolean>('lean.map', { projectRoot })) === true) {
-      const { buildBriefMap } = await import('../nexus/brief-map.js');
-      codebaseMap = (await buildBriefMap(projectRoot)).text || undefined;
+      const { buildNexusBriefMap, BRIEF_MAP_NO_INDEX } = await import('../nexus/brief-map.js');
+      const report = await buildNexusBriefMap(projectRoot);
+      codebaseMap = report === null ? BRIEF_MAP_NO_INDEX : report.text || undefined;
     }
   } catch {
     // Advisory only; `cleo map --brief` reports the map directly.

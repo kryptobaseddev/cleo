@@ -1,12 +1,31 @@
 /**
- * T13666 — brief codebase map: formatting, budget, ordering and the git-walk fallback.
+ * T13666 — brief codebase map: formatting, budget, ordering, the nexus-backed
+ * path and the git-walk fallback.
  */
 import { execFileSync } from 'node:child_process';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { buildBriefMap, formatBriefMap, isMappableSource, namesInSource } from '../brief-map.js';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+
+type NodeRow = { file: string | null; name: string | null; kind: string; line: number | null };
+/** Rows the stubbed nexus graph returns (already filtered to exported, non-external). */
+let nexusRows: NodeRow[] = [];
+vi.mock('../../store/nexus-sqlite.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../store/nexus-sqlite.js')>()),
+  getNexusDb: async () => ({
+    select: () => ({ from: () => ({ where: () => ({ all: () => nexusRows }) }) }),
+  }),
+}));
+
+const {
+  BRIEF_MAP_NO_INDEX,
+  buildBriefMap,
+  buildNexusBriefMap,
+  formatBriefMap,
+  isMappableSource,
+  namesInSource,
+} = await import('../brief-map.js');
 
 describe('formatBriefMap (T13666)', () => {
   it('lists one line per folder, shared folders first', () => {
@@ -71,6 +90,34 @@ describe('fallback regex names (T13666)', () => {
     expect(isMappableSource('src/__tests__/a.ts')).toBe(false);
     expect(isMappableSource('node_modules/x/index.js')).toBe(false);
     expect(isMappableSource('src/a.d.ts')).toBe(false);
+  });
+});
+
+describe('buildBriefMap from the nexus graph (T13666)', () => {
+  afterEach(() => {
+    nexusRows = [];
+  });
+
+  it('maps indexed symbols in source order, skipping private names and non-symbol kinds', async () => {
+    nexusRows = [
+      { file: 'src/lib/money.ts', name: 'parseMoney', kind: 'function', line: 20 },
+      { file: 'src/lib/money.ts', name: 'formatMoney', kind: 'function', line: 3 },
+      { file: 'src/lib/money.ts', name: '_round', kind: 'function', line: 40 },
+      { file: 'src/lib/money.ts', name: 'money.ts', kind: 'file', line: 1 },
+      { file: 'src/app.ts', name: 'App', kind: 'class', line: 1 },
+    ];
+    const report = await buildBriefMap('/nonexistent-repo');
+    expect(report.source).toBe('nexus');
+    expect(report.text.split('\n').slice(1)).toEqual([
+      'src/lib/: formatMoney, parseMoney',
+      'src/: App',
+    ]);
+    expect(await buildNexusBriefMap('/nonexistent-repo')).toEqual(report);
+  });
+
+  it('returns null without an index, so a briefing can print the no-index line', async () => {
+    expect(await buildNexusBriefMap('/nonexistent-repo')).toBeNull();
+    expect(BRIEF_MAP_NO_INDEX).toBe('no code index; run `cleo nexus analyze`');
   });
 });
 

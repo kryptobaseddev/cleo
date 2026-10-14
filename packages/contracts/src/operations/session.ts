@@ -529,7 +529,8 @@ export interface SessionBriefingShowResult {
   docsContext?: SessionBriefingDocsContext;
   /**
    * Brief codebase map (`cleo map --brief`): exported names per folder.
-   * Present only when the `lean.map` config key is on (T13666).
+   * Present only when the `lean.map` config key is on (T13666). Read from the
+   * nexus graph only; an unindexed project gets `no code index; run \`cleo nexus analyze\``.
    */
   codebaseMap?: string;
 }
