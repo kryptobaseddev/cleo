@@ -170,6 +170,105 @@ function git(cwd: string, args: readonly string[]): string | null {
   }
 }
 
+/** The files a merged change is compared on (a merge commit, its files and root). */
+type CarryTarget = Pick<
+  TaskChangeSet,
+  'mergeCommitSha' | 'files' | 'deletedFiles' | 'executionRoot'
+>;
+
+/**
+ * The carrier's commits that belong to the task (T13662): every commit of the
+ * merged branch when its name holds the task id (`fix/t1919-…`, read from the
+ * GitHub merge commit's `Merge pull request #N from <owner>/<branch>`), else
+ * the branch commits whose message cites the id (case-insensitive, like the
+ * branch name: `fix(t1919)` counts). Branch merges of the base
+ * (`--no-merges`) are never the task's. A squash or direct landing (one
+ * parent) is the task's when its message cites the id. Empty when git cannot
+ * say.
+ *
+ * @param root - The repository.
+ * @param merge - The carrier's merge commit.
+ * @param taskId - The task id.
+ * @returns The task's commits in the carrier.
+ * @task T13662
+ */
+function carrierTaskCommits(root: string, merge: string | undefined, taskId: string): string[] {
+  if (!merge) return [];
+  const parents = git(root, ['rev-list', '--parents', '-n', '1', merge])?.split(' ') ?? [];
+  if (parents.length < 3) {
+    const message = git(root, ['log', '-1', '--format=%B', merge]);
+    return message !== null && citesTask(message.toUpperCase(), taskId.toUpperCase())
+      ? [merge]
+      : [];
+  }
+  const range = `${merge}^1..${merge}^2`;
+  const subject = git(root, ['log', '-1', '--format=%s', merge]) ?? '';
+  const branch = /^Merge pull request #\d+ from [^/\s]+\/(\S+)/.exec(subject)?.[1] ?? '';
+  if (branch && citesTask(branch.toUpperCase(), taskId.toUpperCase())) {
+    return (git(root, ['rev-list', '--no-merges', range]) ?? '').split('\n').filter(Boolean);
+  }
+  const log = git(root, ['log', '--no-merges', '--format=%H%x00%B%x01', range]) ?? '';
+  return log
+    .split('\x01')
+    .map((entry) => entry.trim().split('\x00'))
+    .filter(
+      ([sha, body]) =>
+        sha && body !== undefined && citesTask(body.toUpperCase(), taskId.toUpperCase()),
+    )
+    .map(([sha]) => sha as string);
+}
+
+/**
+ * The part of a carrier's change that is this task's, for the scoped-run
+ * carry check (T13655): the files the task's own commits changed (read from
+ * git, first-parent for a merge commit) plus its declared files, within the
+ * carrier's files. Its own commits are the recorded implemented commits and
+ * every carrier commit that belongs to it (T13662: the whole branch when the
+ * branch is the task's, else the commits citing it), so recording one
+ * test-only commit never narrows a task below its own migration. With no own
+ * commit resolvable here, the whole carrier counts. A single-task PR therefore
+ * stays whole, a shared or parent PR counts only what this task changed, and
+ * `cleo done --plan` and `cleo complete` both judge through this one rule.
+ *
+ * @param target - The carrier's merge commit, files and root, or null.
+ * @param task - The task (its id and declared files).
+ * @param commits - The task's recorded implemented commit SHAs.
+ * @returns The target with the task's files, or the target unchanged.
+ * @task T13655
+ * @task T13662
+ */
+export function taskCarryScope<T extends CarryTarget>(
+  target: T | null,
+  task: Pick<ChangeSetTask, 'id' | 'files'>,
+  commits: readonly string[],
+): T | null {
+  if (!target) return null;
+  const own = new Set<string>();
+  let resolved = false;
+  const theirs = carrierTaskCommits(target.executionRoot, target.mergeCommitSha, task.id);
+  for (const sha of [...new Set([...commits, ...theirs])]) {
+    const out = git(target.executionRoot, [
+      'diff-tree',
+      '--no-commit-id',
+      '--name-only',
+      '-r',
+      '-m',
+      '--first-parent',
+      '--root',
+      sha,
+    ]);
+    if (out === null) continue;
+    resolved = true;
+    for (const name of out.split('\n')) if (name) own.add(name);
+  }
+  if (!resolved) return target;
+  const declared = task.files ?? [];
+  const mine = (f: string): boolean => own.has(f) || diffIntersectsAc([f], declared);
+  const files = target.files.filter(mine);
+  const deletedFiles = target.deletedFiles.filter(mine);
+  return files.length + deletedFiles.length > 0 ? { ...target, files, deletedFiles } : target;
+}
+
 function canonical(path: string): string {
   try {
     return realpathSync(path);
@@ -567,6 +666,29 @@ export async function defaultListPrsForCommit(
         ]
       : [];
   });
+}
+
+/**
+ * The one merged PR GitHub associates with every recorded implemented commit
+ * (T13643), or null when there is none, more than one, no commit atom, or the
+ * lookup failed. A candidate only: the caller verifies it like `--pr`.
+ */
+async function commitCarrierPr(
+  task: ChangeSetTask,
+  root: string,
+  list: NonNullable<ChangeSetDeps['listPrsForCommit']>,
+): Promise<number | null> {
+  const shas = (task.verification?.evidence?.implemented?.atoms ?? []).flatMap((a) =>
+    a.kind === 'commit' ? [a.sha] : [],
+  );
+  let common: number[] | null = null;
+  for (const sha of shas) {
+    const rows = await list(sha, root);
+    if (rows === null) return null;
+    const merged = rows.filter((pr) => pr.mergedAt !== null).map((pr) => pr.number);
+    common = common === null ? merged : common.filter((n) => merged.includes(n));
+  }
+  return common?.length === 1 ? (common[0] ?? null) : null;
 }
 
 /** Default {@link ChangeSetDeps.findPrByHead}: `gh pr list --head <branch> --state all`. */
@@ -1369,16 +1491,14 @@ export async function deriveTaskChangeSet(
     !(await hasOwnBranchMergedPr(input.task.id, root, listMergedPrs));
   if (docsFirst && (await deriveDocsChangeSet(cs, input, docsDeps))) return cs;
 
-  if (
-    await derivePrChangeSet(cs, input, roots, {
-      listMergedPrs,
-      resolvePr: deps.resolvePr ?? defaultResolvePr,
-      viewPr: deps.viewPr ?? defaultViewPr,
-      findPrByHead: deps.findPrByHead ?? defaultFindPrByHead,
-      ...(deps.landing ? { landing: deps.landing } : {}),
-    })
-  )
-    return cs;
+  const prDeps: PrDeps = {
+    listMergedPrs,
+    resolvePr: deps.resolvePr ?? defaultResolvePr,
+    viewPr: deps.viewPr ?? defaultViewPr,
+    findPrByHead: deps.findPrByHead ?? defaultFindPrByHead,
+    ...(deps.landing ? { landing: deps.landing } : {}),
+  };
+  if (await derivePrChangeSet(cs, input, roots, prDeps)) return cs;
   // A PR the pr: validator refused does not end the search: the task branch
   // still describes the work. The refusal survives as a warning when the
   // branch answers, and as the blocker when it does not.
@@ -1394,6 +1514,21 @@ export async function deriveTaskChangeSet(
     return cs;
   }
   if (refused.length > 0) return cs;
+  // T13643: a commit-only carrier. The recorded implemented commit landed in
+  // a merged PR that never cites the task (or IS that PR's merge commit);
+  // GitHub's commit-to-PR association names it, verified like `--pr`.
+  if (input.prNumber === undefined) {
+    const carrier = await commitCarrierPr(
+      input.task,
+      root,
+      deps.listPrsForCommit ?? defaultListPrsForCommit,
+    );
+    if (
+      carrier !== null &&
+      (await derivePrChangeSet(cs, { ...input, prNumber: carrier }, roots, prDeps))
+    )
+      return cs;
+  }
   if (!docsFirst && (await deriveDocsChangeSet(cs, input, docsDeps))) return cs;
 
   const id = input.task.id;

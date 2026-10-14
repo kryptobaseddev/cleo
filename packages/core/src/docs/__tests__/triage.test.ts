@@ -22,11 +22,12 @@ import type {
 } from '@cleocode/contracts';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-// The fire-and-forget symbol cross-link in storeDecision (decision-cross-link.ts)
-// does heavy code-index work when the rationale carries symbol-like text (the
-// docs.triage rationales do); in a one-process test run it blocks a following
-// test's doc writes for the full busy timeout. The cross-link is orthogonal to
-// what these tests assert, so it is stubbed out.
+// The symbol cross-link in storeDecision (decision-cross-link.ts) is awaited
+// since T13565, but with brain.autoCapture enabled it still writes applies_to
+// edges for symbol-like rationale text (the docs.triage rationales carry
+// symbol matches), which would make the exact edge-set assertions below
+// (T13575/T13600) depend on the ambient autoCapture config. The cross-link is
+// orthogonal to what these tests assert, so it stays stubbed out.
 vi.mock('../../memory/decision-cross-link.js', () => ({
   autoCrossLinkDecision: vi.fn(async () => {}),
 }));
@@ -424,6 +425,47 @@ describe('triageDocs', () => {
       .where(eq(attachments.id, id))
       .get();
     expect(after).toEqual(before);
+  });
+
+  it('a repeated --record keeps one proposed decision per (doc, verdict) (T13575)', async () => {
+    const id = await seedDoc('old', { createdAt: '2025-06-01T00:00:00.000Z' });
+    const run = async () => {
+      const { provider } = stubProvider(archiveAnswers);
+      return triageDocs({
+        projectRoot: projectDir,
+        now: NOW,
+        mode: 'shadow',
+        record: true,
+        decide: stubWiring(provider),
+      });
+    };
+    const first = await run();
+    const second = await run();
+    const decisionId = first.proposals[0]?.decisionId;
+    expect(second.proposals[0]?.decisionId).toBe(decisionId);
+
+    const { listDecisions } = await import('../../memory/decisions.js');
+    const { total } = await listDecisions(projectDir);
+    expect(total).toBe(1);
+
+    // The decision links the doc structurally, with autoCapture at its default (off).
+    const doc = await (await getDb(projectDir))
+      .select({ sha256: attachments.sha256 })
+      .from(attachments)
+      .where(eq(attachments.id, id))
+      .get();
+    const { getBrainAccessor } = await import('../../store/memory-accessor.js');
+    const edges = await (await getBrainAccessor(projectDir)).getPageEdges(
+      `decision:${decisionId}`,
+      'out',
+    );
+    expect(edges.map((e) => [e.toId, e.edgeType])).toEqual([
+      [`llmtxt:${doc?.sha256}`, 'references'],
+    ]);
+    // Neither end dangles, although autoCapture is off (T13600).
+    const accessor = await getBrainAccessor(projectDir);
+    expect((await accessor.getPageNode(`llmtxt:${doc?.sha256}`))?.nodeType).toBe('llmtxt');
+    expect((await accessor.getPageNode(`decision:${decisionId}`))?.nodeType).toBe('decision');
   });
 
   it('without --record nothing is persisted', async () => {

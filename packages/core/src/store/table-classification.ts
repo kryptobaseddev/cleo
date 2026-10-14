@@ -692,6 +692,18 @@ const PROJECT_TABLES: Readonly<Record<string, TableRegistryEntry>> = {
     note: 'ruling: conduit_* sync (agents need handoff history across devices). No secret column found. Merge scope project (not personal) is my proposal',
   },
   deriver_queue: { class: 'local-only', status: 'draft', source: 'table-classification-draft.md' },
+  decision_adr_links: {
+    class: 'portable-project',
+    status: 'resolved',
+    source: 'T13359 (spec cleodocs-rearch-design §4/§10, D11165)',
+    note: 'syncing, append-only two-way links D#### decisions ↔ ADR doc slugs; natural composite key (decision_id, adr_slug) in ROW_IDENTITY so both devices derive one uid per pair; unlink is a one-way revoked tombstone latch, never DELETE/re-link',
+  },
+  conduit_doc_migration_ledger: {
+    class: 'portable-project',
+    status: 'resolved',
+    source: 'T13360 (spec cleodocs-rearch-design §5, D11165)',
+    note: 'syncing, append-only migration audit receipts — one row per migrated doc slug (natural key in ROW_IDENTITY); the T13360 accessor never UPDATEs/DELETEs; dangling docs are recorded here with status dangling + reason, never silently imported',
+  },
   docs_attachment_refs: {
     class: 'portable-project',
     status: 'draft',
@@ -701,6 +713,12 @@ const PROJECT_TABLES: Readonly<Record<string, TableRegistryEntry>> = {
     class: 'portable-project',
     status: 'draft',
     source: 'table-classification-draft.md',
+  },
+  docs_publications: {
+    class: 'portable-project',
+    status: 'resolved',
+    source: 'T13362 (docs-publications.json retirement)',
+    note: 'ruling: docs_*; the publication ledger is metadata about which blob was published to which git-tracked path — every column is device-meaningful (owner, blob name, path, sha, timestamp), so the whole row syncs; upsert on the (owner_id, blob_name, published_path) natural key, never a partial update of a single column outside the accessor',
   },
   docs_manifest_entries: {
     class: 'portable-project',
@@ -2421,4 +2439,86 @@ export const SNAPSHOT_STATE_TABLES: Readonly<Record<TableScope, readonly string[
  */
 export function isSnapshotStateTable(scope: TableScope, name: string): boolean {
   return SNAPSHOT_STATE_TABLES[scope].includes(name);
+}
+
+/**
+ * The keys of a `local-only` key/value table (column `key`) that describe the
+ * database file's own data or schema, among keys that describe this machine.
+ */
+export interface FileStateKeyRule {
+  /** Keys that describe the file. */
+  readonly exact: readonly string[];
+  /** Key prefixes that describe the file. */
+  readonly prefixes: readonly string[];
+  /**
+   * When the placed file lacks the table, create it (with this machine's DDL)
+   * so this machine's keys are not lost: its schema is applied lazily from the
+   * keys themselves (`_sync_meta`: the `sync.*` flags apply the sync schema).
+   */
+  readonly createIfAbsent: boolean;
+}
+
+/**
+ * `local-only` key/value tables that mix keys describing the database file
+ * with keys describing this machine. A vault restore takes the file's keys
+ * from the snapshot and this machine's keys from the live store (T13107,
+ * T13108):
+ *
+ * - `tasks_row_identity_meta`: the uid recipe the rows were derived with, the
+ *   "uids have left the device" marker and the canonical-timestamp rewrite
+ *   marker describe the rows; the local rename records (`renamed_from:*`)
+ *   are this store's history.
+ * - `_sync_meta`: the sync-schema ledger (`schema:<folder>`) describes which
+ *   sync tables the file has, and the suspect marks (`suspect:<table>`) name
+ *   tables whose rows the file holds writes never captured, so its repair
+ *   signal travels with those rows (T13677); the `sync.*` flags,
+ *   `min_writer_version` (it follows the capture flag), replica seqs and
+ *   sealer counters are this machine's.
+ *
+ * Every table here is classified `local-only` (asserted by the classification
+ * tests), so none of it syncs or is hashed by the manifest.
+ *
+ * @task T13107
+ * @task T13108
+ */
+export const FILE_STATE_KEYS: Readonly<
+  Record<TableScope, Readonly<Record<string, FileStateKeyRule>>>
+> = {
+  project: {
+    tasks_row_identity_meta: {
+      exact: ['row_identity_recipe', 'row_identity_synced'],
+      prefixes: ['timestamp_canon_'],
+      createIfAbsent: false,
+    },
+    _sync_meta: { exact: [], prefixes: ['schema:', 'suspect:'], createIfAbsent: true },
+  },
+  global: {
+    _sync_meta: { exact: [], prefixes: ['schema:', 'suspect:'], createIfAbsent: true },
+  },
+};
+
+/**
+ * The file-state key rule of a table ({@link FILE_STATE_KEYS}), or `null`.
+ *
+ * @param scope - Which `cleo.db` the table lives in.
+ * @param name - The physical name as `sqlite_master` reports it.
+ * @returns The rule, or `null` when the table has none.
+ * @task T13107
+ */
+export function fileStateKeyRule(scope: TableScope, name: string): FileStateKeyRule | null {
+  return Object.hasOwn(FILE_STATE_KEYS[scope], name)
+    ? (FILE_STATE_KEYS[scope][name] ?? null)
+    : null;
+}
+
+/**
+ * Whether `key` describes the file under `rule`.
+ *
+ * @param rule - A table's file-state key rule.
+ * @param key - A value of the table's `key` column.
+ * @returns `true` for a key the snapshot supplies on restore.
+ * @task T13107
+ */
+export function isFileStateKey(rule: FileStateKeyRule, key: string): boolean {
+  return rule.exact.includes(key) || rule.prefixes.some((p) => key.startsWith(p));
 }

@@ -673,9 +673,15 @@ export function buildPublishCommitMessage(opts: {
  * Resolve `slugOrId` to attachment bytes + metadata.
  *
  * Resolution order mirrors `docs.fetch`:
- *   1. Slug (kebab-case, not pure hex) → `findBySlug`
- *   2. Attachment id (`att_*` / UUID) → `getMetadata` + bytes
- *   3. Full sha256 (64 hex) → `get(sha)`
+ *   1. Slug (kebab-case, not pure hex) → registry `findBySlug`
+ *   2. Attachment id (`att_*` / UUID) → registry `getMetadata`
+ *   3. Full sha256 (64 hex) → content address
+ *
+ * The doc REGISTRY (slug/type/owner refs) still resolves through the
+ * attachment store, but content bytes are read from the blob store ONLY
+ * (T13362) — the legacy `.cleo/attachments/sha256/` tree has no read path
+ * here. A doc whose bytes were never mirrored/consolidated resolves to null
+ * (the caller surfaces E_DOC_NOT_FOUND with migration guidance).
  *
  * @internal
  */
@@ -688,21 +694,28 @@ async function resolveDocBytes(
   type: string | null;
   owners: PublishOwnerRef[];
 } | null> {
-  // Lazy import to keep the foundation tree-shake friendly.
+  // Lazy imports to keep the foundation tree-shake friendly.
   const { createAttachmentStore } = await import('../store/attachment-store.js');
+  const { blobReadBySha } = await import('../store/blob-ops.js');
   const store = createAttachmentStore();
   // T12549 — owner refs feed the commit's task id; a read failure degrades
   // to "no owners" so publishing never hinges on the ref table.
   const readOwners = async (attachmentId: string): Promise<PublishOwnerRef[]> =>
     store.listRefs(attachmentId, projectRoot).catch(() => []);
 
+  /** Read bytes from the blob store by content address; null when absent. */
+  const readBytes = async (sha256: string): Promise<Buffer | null> => {
+    const bytes = await blobReadBySha(sha256, projectRoot).catch(() => null);
+    return bytes ? Buffer.from(bytes) : null;
+  };
+
   if (SLUG_PATTERN.test(slugOrId) && !/^[0-9a-f]+$/i.test(slugOrId)) {
     const bySlug = await store.findBySlug(slugOrId, projectRoot).catch(() => null);
     if (bySlug) {
-      const fetched = await store.get(bySlug.metadata.sha256, projectRoot);
-      if (fetched) {
+      const bytes = await readBytes(bySlug.metadata.sha256);
+      if (bytes) {
         return {
-          bytes: fetched.bytes,
+          bytes,
           slug: bySlug.slug,
           type: bySlug.type,
           owners: await readOwners(bySlug.metadata.id),
@@ -714,11 +727,11 @@ async function resolveDocBytes(
   if (/^(att_|[0-9a-f]{8}-)/i.test(slugOrId)) {
     const meta = await store.getMetadata(slugOrId, projectRoot).catch(() => null);
     if (meta) {
-      const fetched = await store.get(meta.sha256, projectRoot);
-      if (fetched) {
+      const bytes = await readBytes(meta.sha256);
+      if (bytes) {
         const extras = await store.getExtras(meta.id, projectRoot).catch(() => null);
         return {
-          bytes: fetched.bytes,
+          bytes,
           slug: extras?.slug ?? null,
           type: extras?.type ?? null,
           owners: await readOwners(meta.id),
@@ -728,14 +741,13 @@ async function resolveDocBytes(
   }
 
   if (/^[0-9a-f]{64}$/i.test(slugOrId)) {
-    const fetched = await store.get(slugOrId, projectRoot);
-    if (fetched) {
-      const extras = await store.getExtras(fetched.metadata.id, projectRoot).catch(() => null);
+    const bytes = await readBytes(slugOrId);
+    if (bytes) {
       return {
-        bytes: fetched.bytes,
-        slug: extras?.slug ?? null,
-        type: extras?.type ?? null,
-        owners: await readOwners(fetched.metadata.id),
+        bytes,
+        slug: null,
+        type: null,
+        owners: [],
       };
     }
   }
@@ -779,8 +791,10 @@ export async function publishDocsAsPr(opts: PublishPrOptions): Promise<PublishPr
       success: false,
       error: publishPrError(
         'E_DOC_NOT_FOUND',
-        `no attachment found for '${opts.slugOrId}'`,
-        'Run `cleo docs list --project` to find a valid slug or attachment id.',
+        `no blob-store bytes found for '${opts.slugOrId}'`,
+        'Run `cleo docs list --project` to find a valid slug or attachment id. If the doc ' +
+          'resolves but its bytes are missing, migrate the legacy store (`cleo docs migrate` / ' +
+          'blob consolidation) before publishing (T13362).',
       ),
     };
   }

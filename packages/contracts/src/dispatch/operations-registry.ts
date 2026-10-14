@@ -5041,6 +5041,35 @@ export const OPERATIONS: OperationDef[] = [
   {
     gateway: 'mutate',
     domain: 'pipeline',
+    operation: 'manifest.update',
+    description:
+      'pipeline.manifest.update (mutate) — change only the given fields of a manifest entry; linkTask adds a linked task (T13678)',
+    tier: 1,
+    idempotent: true,
+    sessionRequired: false,
+    requiredParams: ['id'],
+    params: [
+      { name: 'id', type: 'string', required: true, description: 'Manifest entry id' },
+      {
+        name: 'linkTask',
+        type: 'string',
+        required: false,
+        description: 'Task id to add to linked_tasks',
+      },
+      { name: 'title', type: 'string', required: false, description: 'New title' },
+      { name: 'topics', type: 'array', required: false, description: 'Replacement topics' },
+      {
+        name: 'key_findings',
+        type: 'array',
+        required: false,
+        description: 'Replacement key findings',
+      },
+      { name: 'status', type: 'string', required: false, description: 'New status' },
+    ] satisfies ParamDef[],
+  },
+  {
+    gateway: 'mutate',
+    domain: 'pipeline',
     operation: 'manifest.archive',
     description: 'pipeline.manifest.archive (mutate) — archive old manifest entries',
     tier: 1,
@@ -8169,6 +8198,61 @@ export const OPERATIONS: OperationDef[] = [
       },
     ],
   },
+  // ── docs.link-decision / docs.unlink-decision (T13598) ──────────────────
+  {
+    gateway: 'mutate',
+    domain: 'docs',
+    operation: 'link-decision',
+    description:
+      'docs.link-decision (mutate) — link a D#### decision to the ADR doc that ratifies it (decision_adr_links); idempotent, refuses a revoked pair (T13598)',
+    tier: 1,
+    idempotent: true,
+    sessionRequired: false,
+    requiredParams: ['adrSlug', 'decisionId'],
+    params: [
+      {
+        name: 'adrSlug',
+        type: 'string' as const,
+        required: true,
+        description: 'Slug of the ADR doc',
+        cli: { positional: true },
+      },
+      {
+        name: 'decisionId',
+        type: 'string' as const,
+        required: true,
+        description: 'The D#### brain ledger decision id the ADR ratifies',
+        cli: { positional: true },
+      },
+    ],
+  },
+  {
+    gateway: 'mutate',
+    domain: 'docs',
+    operation: 'unlink-decision',
+    description:
+      'docs.unlink-decision (mutate) — revoke a decision-to-ADR link as a permanent tombstone; the pair can never be re-linked (T13598)',
+    tier: 1,
+    idempotent: true,
+    sessionRequired: false,
+    requiredParams: ['adrSlug', 'decisionId'],
+    params: [
+      {
+        name: 'adrSlug',
+        type: 'string' as const,
+        required: true,
+        description: 'Slug of the ADR doc',
+        cli: { positional: true },
+      },
+      {
+        name: 'decisionId',
+        type: 'string' as const,
+        required: true,
+        description: 'The D#### brain ledger decision id to unlink',
+        cli: { positional: true },
+      },
+    ],
+  },
   // ── docs.supersede (T10162) ──────────────────────────────────────────────
   {
     gateway: 'mutate',
@@ -8635,6 +8719,22 @@ export const OPERATIONS: OperationDef[] = [
       },
     ],
   },
+  // ── docs.stats (T13363 — Epic T13340 / Saga T13339) ───────────────────────
+  {
+    gateway: 'query',
+    domain: 'docs',
+    operation: 'stats',
+    description:
+      'docs.stats (query) — per-project CleoDocs adoption metrics (read-only): add:update ' +
+      'ratio from the docs audit log, loose-markdown count with scanned/excluded dirs, ' +
+      'docs_wikilinks edge count, and live decision_adr_links count. Emitted for the ' +
+      'Council pilot baseline comparisons.',
+    tier: 1,
+    idempotent: true,
+    sessionRequired: false,
+    requiredParams: [],
+    params: [],
+  },
   {
     gateway: 'mutate',
     domain: 'docs',
@@ -8642,8 +8742,10 @@ export const OPERATIONS: OperationDef[] = [
     description:
       'docs.doctor (mutate) — apply the docs doctor repairs: set docVersion from the audit ' +
       'log, backfill topics/related_tasks from content, archive dangling local-file rows, ' +
-      'rebuild docs_wikilinks. The dispatch layer creates a fresh backup (cleo backup add ' +
-      'path) and requires its receipt before any write.',
+      'rebuild docs_wikilinks, and backfill hash-verified legacy bytes into the blob store. ' +
+      'The dispatch layer creates a fresh backup (cleo backup add ' +
+      'path) and requires its receipt before any write. repair:true restricts the run to ' +
+      'the legacy-blob-coverage backfill only (T13653).',
     tier: 1,
     idempotent: false,
     sessionRequired: false,
@@ -8656,12 +8758,38 @@ export const OPERATIONS: OperationDef[] = [
         description: 'Execute repairs (default false — dry-run plan only)',
       },
       {
+        name: 'repair',
+        type: 'boolean' as const,
+        required: false,
+        description:
+          'Execute ONLY the legacy-blob-coverage backfill: mirror hash-verified legacy ' +
+          'bytes into the blob store so unmigrated docs become readable (T13653)',
+      },
+      {
         name: 'olderThanDays',
         type: 'number' as const,
         required: false,
         description: 'Age threshold in days for the stale-drafts check (default 30)',
       },
     ],
+  },
+  // ── docs.migrate (T13360 — Epic T13340 / Saga T13339) ─────────────────────
+  {
+    gateway: 'mutate',
+    domain: 'docs',
+    operation: 'migrate',
+    description:
+      'docs.migrate (mutate) — the T13360 legacy docs migration (spec §5): import legacy ' +
+      'docs + history into the re-keyed conduit store inside the T13448 safety harness ' +
+      '(pre-step VACUUM INTO backup, before/after fingerprints, COMMIT only on full ' +
+      'verification). Imported rows are labeled origin:migrated; dangling-pointer docs are ' +
+      'content-captured or recorded dangling in conduit_doc_migration_ledger. Idempotent — ' +
+      'a re-run is a verified no-op.',
+    tier: 1,
+    idempotent: true,
+    sessionRequired: false,
+    requiredParams: [],
+    params: [],
   },
   // ── docs.generate (T798) ─────────────────────────────────────────────────
   {
@@ -8770,6 +8898,20 @@ export const OPERATIONS: OperationDef[] = [
         type: 'string' as const,
         required: false,
         description: 'Inline UTF-8 content (mutually exclusive with file)',
+      },
+      {
+        name: 'baseVersionUid',
+        type: 'string' as const,
+        required: false,
+        description:
+          'Expected base version uid — the metadata.headVersionUid from the `cleo docs fetch <slug>` envelope the edit was authored against (T13674). ' +
+          'When the stored head has moved past it: append-shaped section edits are three-way merged through the section CRDT (both writers survive); ' +
+          'a non-mergeable section edit is recorded as a named section conflict — nothing is silently dropped. ' +
+          "A base that does not resolve to this doc's version history is refused with E_DOC_BASE_UNKNOWN before any write. " +
+          'Works with --content and with a UTF-8 text --file; a non-text --file with a base is refused with E_DOC_BASE_UNSUPPORTED. ' +
+          'The update result carries the new headVersionUid, so edits can chain without a re-fetch. ' +
+          'Omit only when the edit was not based on an earlier fetch (the current head is then assumed).',
+        cli: { flag: 'base-version-uid' },
       },
       {
         name: 'message',
@@ -9476,6 +9618,13 @@ export const OPERATIONS: OperationDef[] = [
         type: 'boolean',
         required: false,
         description: 'Require the unified-hooks pilot for this stable promotion',
+      },
+      {
+        name: 'hooksV1Waiver',
+        type: 'string',
+        required: false,
+        description:
+          'Audited reason to ship a source change that opens the hooks-v1 gate without the promotion',
       },
       {
         name: 'dryRun',

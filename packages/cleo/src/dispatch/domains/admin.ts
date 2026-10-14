@@ -1073,6 +1073,17 @@ const _adminTypedHandler = defineTypedHandler<AdminOps>('admin', {
           // T12680: the invocation directory; core never falls back to it.
           cwd: process.cwd(),
         });
+        // T13709: a restore that left docs bytes out is not a success.
+        if (data.store?.partial === true) {
+          return lafsError(
+            // @sync-invariant none:local-only a partial restore of local backup files; this report writes no synced row
+            'E_RESTORE_PARTIAL',
+            `backup ${backupId} restored only in part: ${(data.store.warnings ?? []).join('; ')}`,
+            'backup.mutate',
+            'cleo docs doctor --repair can backfill missing bytes; or restore another backup',
+            { result: data },
+          );
+        }
         return lafsSuccess(data, 'backup.mutate');
       } catch (err) {
         return lafsError(

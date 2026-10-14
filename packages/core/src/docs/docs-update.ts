@@ -25,15 +25,23 @@ import { createHash, randomUUID } from 'node:crypto';
 import { appendFileSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import type { DocsLifecycleStatus, DocsUpdateParams } from '@cleocode/contracts';
+import type {
+  DocsLifecycleStatus,
+  DocsSectionConflict,
+  DocsSectionLeaseNotice,
+  DocsUpdateParams,
+} from '@cleocode/contracts';
 import { blobAttachmentSchema } from '@cleocode/contracts/attachment-schema.js';
 import { DOCS_LIFECYCLE_STATUSES } from '@cleocode/contracts/operations/docs.js';
 import { and, eq } from 'drizzle-orm';
 import { pushWarning } from '../output.js';
-import { getCleoDirAbsolute } from '../paths.js';
+import { getCleoDirAbsolute, resolveCleoDir } from '../paths.js';
+import { fileBytesMatchSha256 } from '../store/blob-keep.js';
+import { resolveBoundSession } from '../store/session-store.js';
 import { getDb, getNativeTasksDb } from '../store/sqlite.js';
-import { attachmentRefs, attachments } from '../store/tasks-schema.js';
+import { attachmentRefs, docsAttachments } from '../store/tasks-schema.js';
 import { assertTwinCollapseWritable } from '../store/twin-collapse.js';
+import { writeFileAtomic } from '../tools/fs.js';
 import { deriveDocLinks, linksJsonOrNull } from './derive-links.js';
 import { validateDocBody } from './validate-body.js';
 import { getCanonicalCleoVersion } from './version-ssot.js';
@@ -74,7 +82,27 @@ export type DocsUpdateError =
   | { code: 'E_INVALID_INPUT'; message: string }
   | { code: 'E_DOC_SCHEMA_MISMATCH'; message: string; details?: Record<string, unknown> }
   | { code: 'E_INVALID_STATUS'; message: string }
-  | { code: 'E_FILE_ERROR'; message: string };
+  | { code: 'E_FILE_ERROR'; message: string }
+  | {
+      /**
+       * A declared `baseVersionUid` does not resolve to this doc's conduit
+       * version history (unknown uid, another doc's version, or unresolvable
+       * bytes). Refused BEFORE any write (T13674) — the base anchors the
+       * stale-base merge, so guessing it could silently drop a concurrent
+       * writer's edit, the exact hazard the parameter exists to prevent.
+       */
+      code: 'E_DOC_BASE_UNKNOWN';
+      message: string;
+    }
+  | {
+      /**
+       * A declared `baseVersionUid` with a `file` that is not UTF-8 text:
+       * the stale-base merge runs on text sections, so the base cannot be
+       * honoured and is refused before any write rather than ignored (T13688).
+       */
+      code: 'E_DOC_BASE_UNSUPPORTED';
+      message: string;
+    };
 
 /**
  * Successful update result returned by {@link updateDocBySlug}.
@@ -108,6 +136,38 @@ export interface DocsUpdateOk {
    * @task T11055
    */
   summary: string;
+  /**
+   * Non-append concurrent section edits recorded by the CRDT projection
+   * (T13604): the incoming edit landed as its own version row while the
+   * head kept the stored projection. Absent when nothing conflicted; a
+   * `W_DOC_SECTION_CONFLICT` warning names the same sections.
+   */
+  sectionConflicts?: DocsSectionConflict[];
+  /**
+   * Advisory section-lease notices (T13356): sections the update edited are
+   * leased by other live sessions — the edit PROCEEDED anyway (leases are
+   * advisory). Absent when nothing was leased elsewhere; a
+   * `W_DOC_SECTION_LEASED` warning names the same sections and holders.
+   */
+  leaseNotices?: DocsSectionLeaseNotice[];
+  /**
+   * True when the update was authored against a superseded head and the CRDT
+   * projection merged a concurrent writer's edit into the head (T13674):
+   * the stored text is the merge, not the submitted bytes. A
+   * `W_DOC_STALE_BASE` warning names the same situation and its remedy.
+   * Absent when the declared base was the current head (or undeclared).
+   *
+   * @task T13674
+   */
+  staleBaseMerged?: boolean;
+  /**
+   * The conduit head version uid after the update — pass it as the next
+   * update's `baseVersionUid` to chain edits without a re-fetch. Absent for
+   * docs outside the conduit family.
+   *
+   * @task T13674
+   */
+  headVersionUid?: string;
   dryRun?: true;
   wouldWrite?: boolean;
   wouldChange?: boolean;
@@ -396,6 +456,20 @@ export async function updateDocBySlug(
   } else {
     buf = Buffer.from(params.content as string, 'utf-8');
   }
+  // The text the base and the section projection work on: inline content, or
+  // a file whose bytes are UTF-8 text (T13688 — `--file` must honour the base
+  // exactly as `--content` does, never silently drop it).
+  const text = hasContent ? (params.content as string) : buf !== null ? utf8TextOf(buf) : null;
+  if (hasFile && text === null && params.baseVersionUid !== undefined) {
+    return {
+      ok: false,
+      error: {
+        // @sync-invariant none:input-shape a base cannot anchor a section merge of non-text bytes; refused before any write
+        code: 'E_DOC_BASE_UNSUPPORTED',
+        message: `--base-version-uid needs a UTF-8 text body; '${params.file}' is not text — omit the base to replace the bytes whole`,
+      },
+    };
+  }
 
   // Validate requested status (defaults to draft).
   const status: DocsLifecycleStatus = params.status ?? 'draft';
@@ -419,13 +493,95 @@ export async function updateDocBySlug(
   if (params.dryRun !== true) assertTwinCollapseWritable(db, 'attachments');
 
   // Look up the existing row by slug.
-  const oldRow = await db.select().from(attachments).where(eq(attachments.slug, slug)).get();
+  const oldRow = await db
+    .select()
+    .from(docsAttachments)
+    .where(eq(docsAttachments.slug, slug))
+    .get();
   if (!oldRow) {
     return {
       ok: false,
       error: {
         code: 'E_NOT_FOUND',
         message: `no attachment found with slug '${slug}' — the slug does not exist in the store and cannot be updated`,
+      },
+    };
+  }
+
+  // T13674: resolve the declared base BEFORE any write. The base is the
+  // conduit version the edit was authored against (the fetch envelope's
+  // metadata.headVersionUid). An unresolvable base is refused up front —
+  // guessing the head reference here could silently drop a concurrent
+  // writer's edit, the exact hazard this parameter exists to prevent.
+  let baseSections: string[] | undefined;
+  if (text !== null && params.baseVersionUid !== undefined) {
+    const { resolveConduitDocUid, getConduitAttachmentVersion } = await import(
+      '../store/conduit-doc-history.js'
+    );
+    const { splitDocIntoSections } = await import('./section-merge.js');
+    const docUid = await resolveConduitDocUid(projectRoot, slug);
+    const version =
+      docUid !== null
+        ? await getConduitAttachmentVersion(projectRoot, params.baseVersionUid)
+        : null;
+    if (docUid === null || version === null || version.attachmentUid !== docUid) {
+      return {
+        ok: false,
+        error: {
+          // @sync-invariant none:input-shape a declared base that does not resolve to this doc's version history is refused before any write
+          code: 'E_DOC_BASE_UNKNOWN',
+          message:
+            `base version '${params.baseVersionUid}' does not resolve to slug '${slug}'s version history — ` +
+            're-fetch the doc (`cleo docs fetch ' +
+            slug +
+            '`) and retry with its metadata.headVersionUid',
+        },
+      };
+    }
+    if (!version.storageKey) {
+      return {
+        ok: false,
+        error: {
+          // @sync-invariant none:input-shape a base without resolvable bytes cannot anchor a merge; nothing was written
+          code: 'E_DOC_BASE_UNKNOWN',
+          message:
+            `base version '${params.baseVersionUid}' has no stored bytes for slug '${slug}' — ` +
+            're-fetch the doc and retry with its current metadata.headVersionUid',
+        },
+      };
+    }
+    const { readFile } = await import('node:fs/promises');
+    try {
+      const text = await readFile(
+        join(getCleoDirAbsolute(projectRoot), 'attachments', 'sha256', version.storageKey),
+        'utf-8',
+      );
+      baseSections = splitDocIntoSections(text);
+    } catch (cause) {
+      return {
+        ok: false,
+        error: {
+          // @sync-invariant none:input-shape the declared base's bytes are unreadable; nothing was written
+          code: 'E_DOC_BASE_UNKNOWN',
+          message:
+            `base version '${params.baseVersionUid}' bytes for slug '${slug}' cannot be read ` +
+            `(${cause instanceof Error ? cause.message : String(cause)}) — re-fetch the doc and retry`,
+        },
+      };
+    }
+  }
+
+  // T12945: superseded is absorbing (docs.lifecycle.transitions). Leaving it —
+  // an explicit --status, or a content edit's draft default — would hold here
+  // while every synced peer keeps the doc superseded, so it is refused. Any
+  // content edit is refused too, even with --status superseded: it would write
+  // a new superseded row without its successor link.
+  if (oldRow.lifecycleStatus === 'superseded' && (status !== 'superseded' || !statusOnly)) {
+    return {
+      ok: false,
+      error: {
+        code: 'E_INVALID_STATUS', // @sync-invariant docs.lifecycle.transitions
+        message: `doc '${slug}' is superseded${oldRow.supersededBy ? ` (by ${oldRow.supersededBy})` : ''}; a superseded doc cannot change its status or content — add the new content as a new doc and supersede again with \`cleo docs supersede ${slug} <new-slug>\``,
       },
     };
   }
@@ -494,11 +650,13 @@ export async function updateDocBySlug(
     // Only touch lifecycle_status if it actually changes.
     if (oldRow.lifecycleStatus !== status) {
       await db
-        .update(attachments)
+        .update(docsAttachments)
         .set({ lifecycleStatus: status })
-        .where(eq(attachments.id, oldRow.id))
+        .where(eq(docsAttachments.id, oldRow.id))
         .run();
     }
+    const { readDocHeadVersionUid } = await import('./fetch-result.js');
+    const noopHead = await readDocHeadVersionUid(projectRoot, slug);
     const auditPath = join(projectRoot, DOCS_VERSIONING_AUDIT_FILE);
     const squashed = writeOrSquashAudit({
       auditPath,
@@ -534,6 +692,7 @@ export async function updateDocBySlug(
             : `slug '${slug}' bytes unchanged but lifecycle status changed from '${oldRow.lifecycleStatus}' to '${status}'`,
         ownerVersion: getCanonicalCleoVersion(projectRoot),
         docVersion: oldRow.docVersion,
+        ...(noopHead !== undefined ? { headVersionUid: noopHead } : {}),
       },
     };
   }
@@ -611,6 +770,32 @@ export async function updateDocBySlug(
     }
   }
 
+  // T13362/T13653/T13657: mirror the verified bytes into the content-addressed
+  // blob store — the canonical read location since the legacy tree's read
+  // paths retired. An existing target is RE-HASHED, never trusted on
+  // existence alone: a truncated leftover from an interrupted pre-atomic
+  // write is replaced from these verified bytes, a matching one is skipped
+  // (content-addressed dedup). The write goes through the shared atomic
+  // writer (unique tmp + rename), so a crash never leaves a partial file
+  // that later runs would count as present.
+  {
+    const blobStoreFile = join(resolveCleoDir(projectRoot), 'blobs', 'blobs', newSha256);
+    if (!fileBytesMatchSha256(blobStoreFile, newSha256)) {
+      try {
+        await writeFileAtomic({ path: blobStoreFile, content: buf });
+      } catch (cause) {
+        return {
+          ok: false,
+          error: {
+            // @sync-invariant none:local-only a failed local blob-mirror write rolls the whole update back; no synced row was written
+            code: 'E_FILE_ERROR',
+            message: `failed to mirror new blob into the blob store for slug '${slug}': ${cause instanceof Error ? cause.message : String(cause)}`,
+          },
+        };
+      }
+    }
+  }
+
   const nativeDb = getNativeTasksDb();
   if (!nativeDb) {
     return {
@@ -632,21 +817,25 @@ export async function updateDocBySlug(
     nativeDb.prepare('BEGIN IMMEDIATE').run();
 
     // 1. Clear the slug on the old row so the UNIQUE INDEX is free.
-    await db.update(attachments).set({ slug: null }).where(eq(attachments.id, oldRow.id)).run();
+    await db
+      .update(docsAttachments)
+      .set({ slug: null })
+      .where(eq(docsAttachments.id, oldRow.id))
+      .run();
 
     // 2. Insert OR update the new-sha256 row. If a row already exists
     //    for this sha256 (rare — same bytes already stored under a
     //    different slug), reuse it and just transfer the slug onto it.
     const existingNewRow = await db
       .select()
-      .from(attachments)
-      .where(eq(attachments.sha256, newSha256))
+      .from(docsAttachments)
+      .where(eq(docsAttachments.sha256, newSha256))
       .get();
 
     if (existingNewRow) {
       newAttachmentId = existingNewRow.id;
       await db
-        .update(attachments)
+        .update(docsAttachments)
         .set({
           slug,
           type: oldRow.type ?? null,
@@ -655,12 +844,12 @@ export async function updateDocBySlug(
           topics: oldRow.topics ?? null,
           relatedTasks: derivedRelatedTasks,
         })
-        .where(eq(attachments.id, existingNewRow.id))
+        .where(eq(docsAttachments.id, existingNewRow.id))
         .run();
     } else {
       newAttachmentId = randomUUID();
       await db
-        .insert(attachments)
+        .insert(docsAttachments)
         .values({
           id: newAttachmentId,
           sha256: newSha256,
@@ -709,11 +898,11 @@ export async function updateDocBySlug(
     }
     if (refsAdded > 0) {
       await db
-        .update(attachments)
+        .update(docsAttachments)
         .set({
           refCount: (existingNewRow?.refCount ?? 0) + refsAdded,
         })
-        .where(eq(attachments.id, newAttachmentId))
+        .where(eq(docsAttachments.id, newAttachmentId))
         .run();
     }
 
@@ -755,6 +944,103 @@ export async function updateDocBySlug(
     );
   }
 
+  // T13355: project the update through the section CRDT merge layer (spec
+  // `cleodocs-rearch-design` §2 option b). Text bodies only — inline content
+  // or a UTF-8 text file (T13688); binary files stay on the whole-doc path.
+  // Best-effort: a projection failure must not fail the completed update —
+  // the whole-row write above is the fallback when no section state exists.
+  // T13604: a recorded conflict is threaded into the result envelope and a
+  // stderr warning names the sections — the update reports changed:true, so
+  // without this the caller would never learn their edit is not in the head.
+  let sectionConflicts: DocsSectionConflict[] | undefined;
+  let leaseNotices: DocsSectionLeaseNotice[] | undefined;
+  let staleBaseMerged = false;
+  if (text !== null) {
+    try {
+      const { projectDocUpdateThroughSections } = await import('./section-write-path.js');
+      // T13356 AC4: the real session id drives lease acquire/renew, so a
+      // lease dies honestly with its session (TTL bound, holder-only renew).
+      // Gate 16: the bound session is resolved via resolveBoundSession —
+      // never a bare getActiveSession().
+      const boundSession = await resolveBoundSession(projectRoot);
+      const projection = await projectDocUpdateThroughSections(projectRoot, {
+        slug,
+        authorAgentId: attachedBy,
+        content: text,
+        ...(boundSession !== null ? { sessionId: boundSession.session.id } : {}),
+        ...(params.message !== undefined ? { changeSummary: params.message } : {}),
+        // T13674: the declared base replaces the previous head as the
+        // single-writer/concurrent discriminator, so a stale base merges
+        // (append) or conflicts (non-append) instead of re-seeding over a
+        // concurrent writer's landed edit.
+        ...(baseSections !== undefined ? { baseSections } : {}),
+      });
+      // T13674: the declared base was superseded AND at least one edited
+      // section composed into the head — its text is the merge of the
+      // caller's edit and a concurrent writer's. A section that only
+      // conflicted merged nothing, so it is reported as a conflict alone.
+      const conflicted = new Set(projection.conflicts.map((c) => c.sectionId));
+      staleBaseMerged =
+        params.baseVersionUid !== undefined &&
+        projection.previousHeadVersionUid !== null &&
+        params.baseVersionUid !== projection.previousHeadVersionUid &&
+        projection.sectionsModified.some((id) => !conflicted.has(id));
+      if (staleBaseMerged) {
+        pushWarning({
+          // @sync-invariant none:input-shape the warning only names a merge the CRDT projection already performed (docs.head.max-hlc); it rejects nothing and writes nothing
+          code: 'W_DOC_STALE_BASE',
+          message:
+            `slug '${slug}' was updated against a superseded base — a concurrent writer's edit was merged ` +
+            'into the head. Re-fetch (`cleo docs fetch ' +
+            slug +
+            '`) before your next edit so it is authored against the current head.',
+        });
+      }
+      if (projection.conflicts.length > 0) {
+        sectionConflicts = projection.conflicts.map((c) => ({
+          sectionId: c.sectionId,
+          incomingVersionUid: c.incomingVersionUid,
+          projectionVersionUid: c.projectionVersionUid,
+        }));
+        pushWarning({
+          // @sync-invariant none:input-shape the warning only NAMES a conflict the CRDT projection already recorded (docs.head.max-hlc); it rejects nothing and writes nothing
+          code: 'W_DOC_SECTION_CONFLICT',
+          message:
+            `concurrent section edit(s) on slug '${slug}' did not merge into the conduit head: ` +
+            projection.conflicts
+              .map(
+                (c) =>
+                  `section '${c.sectionId}' (incoming version ${c.incomingVersionUid} kept in history; head keeps projection version ${c.projectionVersionUid})`,
+              )
+              .join('; '),
+        });
+      }
+      if (projection.leaseNotices.length > 0) {
+        leaseNotices = projection.leaseNotices.map((n) => ({
+          sectionId: n.sectionId,
+          holder: n.holder,
+          sessionId: n.sessionId,
+          expiresAt: n.expiresAt,
+        }));
+        pushWarning({
+          // @sync-invariant none:input-shape the warning only NAMES an advisory lease held by another session (T13356); it rejects nothing and writes nothing
+          code: 'W_DOC_SECTION_LEASED',
+          message:
+            `section lease(s) held by another session on slug '${slug}' (advisory — your edit still landed): ` +
+            projection.leaseNotices
+              .map((n) => `section '${n.sectionId}' held by ${n.holder} until ${n.expiresAt}`)
+              .join('; '),
+        });
+      }
+    } catch (projectionErr) {
+      process.emitWarning(
+        `docs section CRDT projection failed after update of slug '${slug}': ${projectionErr instanceof Error ? projectionErr.message : String(projectionErr)}`,
+      );
+    }
+  }
+
+  const { readDocHeadVersionUid } = await import('./fetch-result.js');
+  const headVersionUid = await readDocHeadVersionUid(projectRoot, slug);
   return {
     ok: true,
     result: {
@@ -772,8 +1058,19 @@ export async function updateDocBySlug(
       summary: `slug '${slug}' was changed — content replaced${params.message ? ` ("${params.message}")` : ''}`,
       ownerVersion: getCanonicalCleoVersion(projectRoot),
       docVersion: oldRow.docVersion + 1,
+      ...(sectionConflicts !== undefined ? { sectionConflicts } : {}),
+      ...(leaseNotices !== undefined ? { leaseNotices } : {}),
+      ...(staleBaseMerged ? { staleBaseMerged: true as const } : {}),
+      ...(headVersionUid !== undefined ? { headVersionUid } : {}),
     },
   };
+}
+
+/** The bytes as text when they are valid UTF-8 without NUL bytes; else null. */
+function utf8TextOf(buf: Buffer): string | null {
+  if (buf.includes(0)) return null;
+  const text = buf.toString('utf-8');
+  return Buffer.from(text, 'utf-8').equals(buf) ? text : null;
 }
 
 /**

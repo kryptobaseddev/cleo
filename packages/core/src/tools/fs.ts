@@ -19,8 +19,9 @@
  * @saga T11387
  */
 
+import { randomUUID } from 'node:crypto';
 import { constants } from 'node:fs';
-import { mkdir, open, readFile, realpath, rename, stat, writeFile } from 'node:fs/promises';
+import { mkdir, open, readFile, realpath, rename, rm, stat, writeFile } from 'node:fs/promises';
 import { basename, dirname, isAbsolute, join, resolve as resolvePath } from 'node:path';
 import type {
   PathExistsInput,
@@ -147,9 +148,13 @@ export async function readJson<T>(path: string): Promise<T> {
 /**
  * Atomically write a file via tmp-then-rename.
  *
- * Writes to a sibling `.<name>.<pid>.tmp` then `rename`s it over the target, so
- * a crash mid-write never leaves a partial file at `path`. Creates parent
- * directories by default.
+ * Writes to a sibling UNIQUE tmp file (`<name>.tmp.<pid>.<uuid>`) then
+ * `rename`s it over the target, so a crash mid-write never leaves a partial
+ * file at `path` — and two concurrent writers of the same target (even the
+ * same content) cannot truncate each other through a fixed tmp name (T13657).
+ * The tmp is removed best-effort when the write or rename fails. Creates
+ * parent directories by default. Accepts UTF-8 text or raw bytes
+ * (binary-safe, byte length reported in the result).
  *
  * @param input - {@link WriteFileInput} (absolute path + content + createDirs).
  * @returns the path and the number of bytes written.
@@ -159,10 +164,20 @@ export async function writeFileAtomic(input: WriteFileInput): Promise<WriteFileR
   if (input.createDirs !== false) {
     await mkdir(dir, { recursive: true });
   }
-  const bytesWritten = Buffer.byteLength(input.content, 'utf8');
-  const tmpPath = join(dir, `.${process.pid}-${bytesWritten}.tmp`);
-  await writeFile(tmpPath, input.content, { encoding: 'utf8' });
-  await rename(tmpPath, input.path);
+  const bytesWritten =
+    typeof input.content === 'string'
+      ? Buffer.byteLength(input.content, 'utf8')
+      : input.content.byteLength;
+  const tmpPath = join(dir, `${basename(input.path)}.tmp.${process.pid}.${randomUUID()}`);
+  try {
+    await writeFile(tmpPath, input.content);
+    await rename(tmpPath, input.path);
+  } catch (err) {
+    await rm(tmpPath, { force: true }).catch(() => {
+      /* tmp already gone — nothing to clean */
+    });
+    throw err;
+  }
   return { path: input.path, bytesWritten };
 }
 

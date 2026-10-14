@@ -1,0 +1,674 @@
+{
+  "$schema": "https://cleocode.io/schemas/release-plan/v1.json",
+  "version": "v2026.10.13",
+  "resolvedVersion": "v2026.10.13",
+  "suffixApplied": false,
+  "scheme": "calver",
+  "channel": "latest",
+  "epicId": null,
+  "releaseKind": "regular",
+  "hooksV1Promotion": false,
+  "createdAt": "2026-10-14T05:50:51.115Z",
+  "createdBy": "keatonhoskins",
+  "previousVersion": "v2026.10.12",
+  "previousTag": "v2026.10.12",
+  "previousShippedAt": null,
+  "tasks": [
+    {
+      "id": "T13673",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "Carry rule: a targeted test-run on a main HEAD descending from the merge stands in for every merged change, not only red/skipped CI (owner decision 2026-10-13)",
+      "evidenceAtoms": [
+        "pr:2224",
+        "files:packages/core/src/tasks/__tests__/affected-scope.test.ts,packages/core/src/tasks/affected-scope.ts,packages/core/templates/CLEO-INJECTION.md,packages/core/templates/CLEO-REFERENCE.md,packages/skills/skills/ct-cleo/SKILL.md,packages/skills/skills/manifest.json,packages/core/src/tasks/__tests__/affected-scope.test.ts,packages/skills/skills/manifest.json",
+        "ci:2224"
+      ],
+      "epicAncestor": "T13434",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T13585",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "docs update: prove concurrent edits survive and order-independence end to end through the write path, not only the pure engine (#2144 review)",
+      "evidenceAtoms": [
+        "pr:2218",
+        "files:.changeset/docs-update-stale-base.md,packages/cleo/src/cli/commands/docs.ts,packages/cleo/src/dispatch/domains/docs.ts,packages/contracts/src/__tests__/__snapshots__/operations-registry.test.ts.snap,packages/contracts/src/dispatch/__tests__/operation-envelope-snapshots.test.ts,packages/contracts/src/dispatch/operations-registry.ts,packages/contracts/src/operations/docs.ts,packages/core/src/dispatch/__tests__/mvi-projection.test.ts,packages/core/src/dispatch/mvi-projection.ts,packages/core/src/docs/__tests__/docs-update-concurrency.test.ts,packages/core/src/docs/docs-update.ts,packages/core/src/docs/fetch-result.ts,packages/core/src/docs/section-merge.ts,packages/core/src/docs/section-write-path.ts,packages/skills/skills/ct-documentor/SKILL.md,packages/skills/skills/manifest.json",
+        "ci:2218"
+      ],
+      "epicAncestor": "T13340",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T13679",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "cleo run watchdog: tree CPU is a high-water mark, so sequential short workers read as idle and raise a false 'hung' notice",
+      "evidenceAtoms": [
+        "pr:2231",
+        "files:.changeset/t13679-run-watchdog-signals.md,packages/cleo/src/cli/__tests__/run-command.test.ts,packages/cleo/src/cli/commands/run.ts,packages/contracts/src/resource-governor.ts,packages/core/src/resources/__tests__/admission-ledger.test.ts,packages/core/src/resources/__tests__/run-admission.test.ts,packages/core/src/resources/__tests__/run-governed.test.ts,packages/core/src/resources/admission-ledger.ts,packages/core/src/resources/run-admission.ts,packages/core/src/resources/run-governed.ts",
+        "ci:2231"
+      ],
+      "epicAncestor": "T13434",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T13680",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "cleo run: a SIGTERM the runner forwards is indistinguishable from one aimed at the child; record who was signalled",
+      "evidenceAtoms": [
+        "pr:2231",
+        "files:.changeset/t13679-run-watchdog-signals.md,packages/cleo/src/cli/__tests__/run-command.test.ts,packages/cleo/src/cli/commands/run.ts,packages/contracts/src/resource-governor.ts,packages/core/src/resources/__tests__/admission-ledger.test.ts,packages/core/src/resources/__tests__/run-admission.test.ts,packages/core/src/resources/__tests__/run-governed.test.ts,packages/core/src/resources/admission-ledger.ts,packages/core/src/resources/run-admission.ts,packages/core/src/resources/run-governed.ts",
+        "ci:2231"
+      ],
+      "epicAncestor": "T13434",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T13681",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "cleo run --passthrough: a queued run can end with no admission line, no exit line and no envelope (silent success, or killed while queued)",
+      "evidenceAtoms": [
+        "pr:2231",
+        "files:.changeset/t13679-run-watchdog-signals.md,packages/cleo/src/cli/__tests__/run-command.test.ts,packages/cleo/src/cli/commands/run.ts,packages/contracts/src/resource-governor.ts,packages/core/src/resources/__tests__/admission-ledger.test.ts,packages/core/src/resources/__tests__/run-admission.test.ts,packages/core/src/resources/__tests__/run-governed.test.ts,packages/core/src/resources/admission-ledger.ts,packages/core/src/resources/run-admission.ts,packages/core/src/resources/run-governed.ts",
+        "ci:2231"
+      ],
+      "epicAncestor": "T13434",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T13663",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "ct-lean levels lite/full/ultra/off: lean.level config, CLEO_LEAN_LEVEL env, cleo lean level/help verbs",
+      "evidenceAtoms": [
+        "pr:2226",
+        "files:.changeset/t13663-lean-levels.md,packages/cleo/src/cli/commands/lean.ts,packages/cleo/src/cli/generated/command-manifest.ts,packages/contracts/src/config.ts,packages/contracts/src/index.ts,packages/contracts/src/lean.ts,packages/core/src/config/registry.ts,packages/core/src/orchestration/__tests__/lean-level.test.ts,packages/core/src/orchestration/index.ts,packages/core/src/orchestration/lean-change.ts,packages/core/src/orchestration/spawn-prompt.ts,packages/core/src/orchestration/spawn.ts,packages/skills/skills/ct-lean/SKILL.md,packages/skills/skills/ct-orchestrator/SKILL.md,packages/skills/skills/manifest.json,packages/contracts/src/index.ts",
+        "ci:2226"
+      ],
+      "epicAncestor": "T13418",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T13678",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "research link/update rewrite the whole manifest entry: link wipes title, topics, key_findings and linked_tasks (data loss)",
+      "evidenceAtoms": [
+        "pr:2229",
+        "files:.changeset/t13678-research-link-merge.md,packages/cleo/src/cli/commands/__tests__/research-link-update.test.ts,packages/cleo/src/cli/commands/research.ts,packages/cleo/src/dispatch/domains/pipeline.ts,packages/contracts/src/__tests__/__snapshots__/operations-registry.test.ts.snap,packages/contracts/src/dispatch/operations-registry.ts,packages/core/src/admin/__tests__/__snapshots__/help-tier-snapshot.test.ts.snap,packages/core/src/memory/__tests__/pipeline-manifest-sqlite.test.ts,packages/core/src/memory/pipeline-manifest-sqlite.ts",
+        "ci:2229"
+      ],
+      "epicAncestor": "T11679",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T12908",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "Replica registry: lock upsert/write (concurrent links lose an entry)",
+      "evidenceAtoms": [
+        "pr:2227",
+        "files:packages/core/src/cloud/nexus-vault-state.ts,packages/core/src/store/lock.ts,packages/core/src/store/sync/__tests__/replica-registry.test.ts,packages/core/src/store/sync/replica-registry.ts",
+        "ci:2227"
+      ],
+      "epicAncestor": "T12323",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T13677",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "Review LOWs from #2221/#2222: restore carries machine keys on a shape mismatch, suspect marks are file state, token store degrades reads on a malformed file",
+      "evidenceAtoms": [
+        "pr:2225",
+        "files:packages/core/src/cloud/__tests__/nexus-cloud.test.ts,packages/core/src/cloud/__tests__/nexus-credentials.test.ts,packages/core/src/cloud/__tests__/nexus-logout.test.ts,packages/core/src/cloud/nexus-auth.ts,packages/core/src/cloud/nexus-cloud-status.ts,packages/core/src/cloud/nexus-credentials.ts,packages/core/src/cloud/nexus-logout.ts,packages/core/src/store/__tests__/vault-manifest.test.ts,packages/core/src/store/table-classification.ts,packages/core/src/store/vault-manifest.ts",
+        "ci:2225"
+      ],
+      "epicAncestor": "T12323",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T13662",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "Carry scope (T13655) narrows to RECORDED implemented commits: a task that records one test-only commit carries past its own migration/journal changes (axiom T1919)",
+      "evidenceAtoms": [
+        "pr:2223",
+        "files:packages/core/src/tasks/__tests__/affected-scope.test.ts,packages/core/src/tasks/change-set.ts",
+        "ci:2223"
+      ],
+      "epicAncestor": "T13139",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T13107",
+      "kind": "fix",
+      "impact": "patch",
+      "userFacingSummary": "Vault restore copies tasks_row_identity_meta from the live store, so restored rows can skip the canonical timestamp rewrite",
+      "evidenceAtoms": [
+        "pr:2222",
+        "files:.changeset/t13107-t13108-restore-file-state-keys.md,packages/core/src/store/__tests__/vault-manifest.test.ts,packages/core/src/store/sync/__tests__/sealer.test.ts,packages/core/src/store/table-classification.ts,packages/core/src/store/vault-manifest.ts",
+        "ci:2222"
+      ],
+      "epicAncestor": "T12323",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T13108",
+      "kind": "fix",
+      "impact": "patch",
+      "userFacingSummary": "_sync_meta mixes device sync flags with the file's sync-schema ledger; a vault restore can leave them inconsistent and break the sealer",
+      "evidenceAtoms": [
+        "pr:2222",
+        "files:.changeset/t13107-t13108-restore-file-state-keys.md,packages/core/src/store/__tests__/vault-manifest.test.ts,packages/core/src/store/sync/__tests__/sealer.test.ts,packages/core/src/store/table-classification.ts,packages/core/src/store/vault-manifest.ts",
+        "ci:2222"
+      ],
+      "epicAncestor": "T12323",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T12880",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "FileNexusTokenStore reads a malformed session file as empty and rewrites it (downgrade/data-loss hazard)",
+      "evidenceAtoms": [
+        "pr:2221",
+        "files:packages/core/src/cloud/__tests__/nexus-credentials.test.ts,packages/core/src/cloud/nexus-credentials.ts",
+        "ci:2221"
+      ],
+      "epicAncestor": "T12323",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T13362",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "P4: Retire legacy attachments fs store and docs-publications.json",
+      "evidenceAtoms": [
+        "pr:2210",
+        "files:.github/workflows/ci.yml,.github/workflows/docs-reingest.yml,AGENTS.md,packages/cleo/src/cli/__tests__/docs-idempotency.test.ts,packages/cleo/src/cli/__tests__/docs-publish-pr.test.ts,packages/cleo/src/cli/commands/docs.ts,packages/cleo/src/cli/commands/docs/view.ts,packages/cleo/src/dispatch/domains/docs.ts,packages/contracts/src/__tests__/__snapshots__/operations-registry.test.ts.snap,packages/contracts/src/attachment.ts,packages/contracts/src/dispatch/operations-registry.ts,packages/contracts/src/operations/docs.ts,packages/contracts/src/tools/atomic.ts,packages/core/migrations/drizzle-cleo-project/20261014000000_t13362-docs-publications-ledger/migration.sql,packages/core/src/docs/__tests__/docs-doctor.test.ts,packages/core/src/docs/__tests__/docs-publications-store.test.ts,packages/core/src/docs/__tests__/docs-read-model-fetch-content.test.ts,packages/core/src/docs/__tests__/docs-update-docversion.test.ts,packages/core/src/docs/__tests__/fetch-result.test.ts,packages/core/src/docs/__tests__/publish-pr-task-id.test.ts,packages/core/src/docs/__tests__/publish-smoke.test.ts,packages/core/src/docs/docs-ops.ts,packages/core/src/docs/docs-read-model.ts,packages/core/src/docs/docs-update.ts,packages/core/src/docs/doctor.ts,packages/core/src/docs/fetch-result.ts,packages/core/src/docs/index.ts,packages/core/src/docs/publications-store.ts,packages/core/src/docs/publish-pr.ts,packages/core/src/internal.ts,packages/core/src/store/__tests__/attachment-repair-fail-closed.test.ts,packages/core/src/store/__tests__/attachment-store.test.ts,packages/core/src/store/__tests__/fixtures/table-classification-columns.json,packages/core/src/store/__tests__/twin-collapse-attachments.test.ts,packages/core/src/store/attachment-repair.ts,packages/core/src/store/attachment-store.ts,packages/core/src/store/blob-keep.ts,packages/core/src/store/blob-ops.ts,packages/core/src/store/row-identity-registry.ts,packages/core/src/store/schema/cleo-project/docs.ts,packages/core/src/store/sync/timestamp-canon.ts,packages/core/src/store/table-classification.ts,packages/core/src/tools/fs.ts,packages/skills/skills/ct-documentor/SKILL.md,packages/skills/skills/manifest.json,scripts/.lint-sync-write-invariants-baseline.json,scripts/__tests__/pre-commit-docs-drift.test.mjs,scripts/hooks/pre-commit-docs-drift.mjs,packages/skills/skills/manifest.json",
+        "ci:2210"
+      ],
+      "epicAncestor": "T13340",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T13424",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "Benchmark ct-lean vs installed Ponytail plugin; tune; recommend plugin removal to owner",
+      "evidenceAtoms": [
+        "pr:2217",
+        "files:.changeset/t13424-ct-lean-privacy.md,packages/core/src/orchestration/lean-change.ts,packages/skills/skills/ct-lean/SKILL.md,packages/skills/skills/manifest.json,packages/skills/skills/manifest.json",
+        "ci:2217"
+      ],
+      "epicAncestor": "T13418",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T12775",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "Sync journal B: data written while capture is suspended is marked suspect; migration backfills re-baseline",
+      "evidenceAtoms": [
+        "pr:2216",
+        "files:.changeset/t12775-twin-collapse-suspect.md,packages/core/src/store/sync/__tests__/rewriters-capture.test.ts,packages/core/src/store/twin-collapse.ts",
+        "ci:2216"
+      ],
+      "epicAncestor": "T12323",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T13655",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "cleo done --plan and cleo complete compute different scoped carry change sets for a carrier PR (T1947: plan scopes to task.files, complete takes the whole PR merge diff)",
+      "evidenceAtoms": [
+        "pr:2215",
+        "files:packages/contracts/src/done-plan.ts,packages/core/src/tasks/__tests__/affected-scope.test.ts,packages/core/src/tasks/__tests__/done-plan.test.ts,packages/core/src/tasks/__tests__/done-record.test.ts,packages/core/src/tasks/affected-scope.ts,packages/core/src/tasks/change-set.ts,packages/core/src/tasks/done-plan.ts",
+        "ci:2215"
+      ],
+      "epicAncestor": "T13139",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T13652",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "Flaky: observation-owner-sites-exit.test.ts 'readiness: slow module' reports timeout on CI",
+      "evidenceAtoms": [
+        "pr:2214",
+        "files:packages/core/src/decide/__tests__/observation-owner-sites-exit.test.ts",
+        "ci:2214"
+      ],
+      "epicAncestor": "T13434",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T13356",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "P2: Section leases — resolve llmtxt/leases exports gap and integrate",
+      "evidenceAtoms": [
+        "pr:2211",
+        "files:packages/cleo/src/dispatch/domains/__tests__/docs-update-section-conflicts.dispatch.test.ts,packages/cleo/src/dispatch/domains/docs.ts,packages/contracts/src/index.ts,packages/contracts/src/operations/docs.ts,packages/core/src/docs/__tests__/section-leases.test.ts,packages/core/src/docs/__tests__/section-write-path.test.ts,packages/core/src/docs/docs-update.ts,packages/core/src/docs/section-leases.ts,packages/core/src/docs/section-write-path.ts",
+        "ci:2211"
+      ],
+      "epicAncestor": "T13340",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T13647",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "cleo done never launches an unscoped whole-suite test run (owner decision 2026-10-12)",
+      "evidenceAtoms": [
+        "pr:2209",
+        "files:packages/cleo/src/cli/commands/done.ts,packages/core/src/tasks/__tests__/done-plan.test.ts,packages/core/src/tasks/__tests__/done-record.test.ts,packages/core/src/tasks/done-plan.ts,packages/core/templates/CLEO-INJECTION.md,packages/core/templates/CLEO-REFERENCE.md,packages/skills/skills/ct-cleo/SKILL.md,packages/skills/skills/manifest.json",
+        "ci:2209"
+      ],
+      "epicAncestor": "T13434",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T13355",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "P2: Wire llmtxt CRDT merge into the docs update write path",
+      "evidenceAtoms": [
+        "pr:2144",
+        "files:.changeset/t13355-crdt-writepath.md,.changeset/t13595-t13596-crdt-merge-safety.md,.changeset/t13604-surface-crdt-conflicts.md,packages/cleo/src/cli/commands/docs/view.ts,packages/cleo/src/dispatch/domains/__tests__/docs-update-section-conflicts.dispatch.test.ts,packages/cleo/src/dispatch/domains/docs.ts,packages/contracts/src/index.ts,packages/contracts/src/invariants/sync-write-invariants.ts,packages/contracts/src/operations/docs.ts,packages/core/src/docs/__tests__/fetch-result.test.ts,packages/core/src/docs/__tests__/section-merge.test.ts,packages/core/src/docs/__tests__/section-write-path.test.ts,packages/core/src/docs/docs-update.ts,packages/core/src/docs/fetch-result.ts,packages/core/src/docs/section-merge.ts,packages/core/src/docs/section-write-path.ts,packages/core/src/store/attachment-repair.ts,packages/core/src/store/conduit-doc-history.ts,packages/contracts/src/invariants/sync-write-invariants.ts,packages/core/src/docs/docs-update.ts",
+        "ci:2144"
+      ],
+      "epicAncestor": "T13340",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T12945",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "Typed merge rule: docs.lifecycle.transitions (docs_attachments)",
+      "evidenceAtoms": [
+        "pr:2187",
+        "files:packages/cleo/src/cli/commands/__tests__/docs-update.test.ts,packages/contracts/src/invariants/sync-write-invariants.ts,packages/core/src/docs/__tests__/docs-update-status-only.test.ts,packages/core/src/docs/docs-update.ts,packages/core/src/docs/doctor.ts,packages/core/src/store/sync/merge/__tests__/merge-engine.test.ts,packages/core/src/store/sync/merge/rules.ts",
+        "ci:2187"
+      ],
+      "epicAncestor": "T12323",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T12942",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "Typed merge rule: sticky.status.one-way (brain_sticky_notes)",
+      "evidenceAtoms": [
+        "pr:2183",
+        "files:.changeset/t12942-sticky-status-one-way.md,packages/contracts/src/invariants/sync-write-invariants.ts,packages/core/src/sticky/__tests__/purge.test.ts,packages/core/src/sticky/archive.ts,packages/core/src/sticky/engine-ops.ts,packages/core/src/store/sync/merge/__tests__/merge-engine.test.ts,packages/core/src/store/sync/merge/engine.ts,packages/core/src/store/sync/merge/rules.ts",
+        "ci:2183"
+      ],
+      "epicAncestor": "T12323",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T13641",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "cleo done fell back to an unfiltered whole-suite test run (vitest run with no files) when scoped evidence did not carry",
+      "evidenceAtoms": [
+        "pr:2207",
+        "files:packages/core/src/tasks/__tests__/change-set.test.ts,packages/core/src/tasks/__tests__/done-plan.test.ts,packages/core/src/tasks/change-set.ts,packages/core/src/tasks/done-plan.ts",
+        "ci:2207"
+      ],
+      "epicAncestor": "T13434",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T13360",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "P4: Honest migration of legacy docs into the re-keyed store",
+      "evidenceAtoms": [
+        "pr:2201",
+        "files:packages/cleo/src/cli/commands/docs.ts,packages/cleo/src/cli/commands/docs/migrate.ts,packages/cleo/src/dispatch/domains/docs.ts,packages/contracts/src/__tests__/__snapshots__/operations-registry.test.ts.snap,packages/contracts/src/dispatch/operations-registry.ts,packages/contracts/src/operations/docs.ts,packages/core/migrations/drizzle-cleo-project/20261013000000_t13360-migrated-doc-import/migration.sql,packages/core/src/admin/__tests__/__snapshots__/help-tier-snapshot.test.ts.snap,packages/core/src/docs/__tests__/legacy-doc-migration.test.ts,packages/core/src/docs/legacy-doc-migration.ts,packages/core/src/store/__tests__/__snapshots__/conduit-ddl-snapshot.test.ts.snap,packages/core/src/store/__tests__/fixtures/table-classification-columns.json,packages/core/src/store/__tests__/row-identity-gate-b.test.ts,packages/core/src/store/conduit-doc-history.ts,packages/core/src/store/display-id-alias.ts,packages/core/src/store/row-identity-registry.ts,packages/core/src/store/schema/cleo-project/conduit.ts,packages/core/src/store/schema/cleo-project/docs.ts,packages/core/src/store/sync/hlc.ts,packages/core/src/store/sync/timestamp-canon.ts,packages/core/src/store/table-classification.ts,packages/skills/skills/ct-documentor/SKILL.md,packages/skills/skills/manifest.json,packages/skills/skills/manifest.json",
+        "ci:2201"
+      ],
+      "epicAncestor": "T13340",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T12943",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "Typed merge rule: release.status.absorbing (tasks_releases)",
+      "evidenceAtoms": [
+        "pr:2181",
+        "files:.changeset/t12943-release-status-absorbing.md,packages/contracts/src/invariants/sync-write-invariants.ts,packages/core/src/release/__tests__/open.test.ts,packages/core/src/release/__tests__/plan.test.ts,packages/core/src/release/open.ts,packages/core/src/release/plan.ts,packages/core/src/store/sync/merge/__tests__/merge-engine.test.ts,packages/core/src/store/sync/merge/rules.ts",
+        "ci:2181"
+      ],
+      "epicAncestor": "T12323",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T13674",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "docs update: a stale full-text update silently drops a concurrent writer's section edit from the head (no conflict)",
+      "evidenceAtoms": [
+        "pr:2218",
+        "files:.changeset/docs-update-stale-base.md,packages/cleo/src/cli/commands/docs.ts,packages/cleo/src/dispatch/domains/docs.ts,packages/contracts/src/__tests__/__snapshots__/operations-registry.test.ts.snap,packages/contracts/src/dispatch/__tests__/operation-envelope-snapshots.test.ts,packages/contracts/src/dispatch/operations-registry.ts,packages/contracts/src/operations/docs.ts,packages/core/src/dispatch/__tests__/mvi-projection.test.ts,packages/core/src/dispatch/mvi-projection.ts,packages/core/src/docs/__tests__/docs-update-concurrency.test.ts,packages/core/src/docs/docs-update.ts,packages/core/src/docs/fetch-result.ts,packages/core/src/docs/section-merge.ts,packages/core/src/docs/section-write-path.ts,packages/skills/skills/ct-documentor/SKILL.md,packages/skills/skills/manifest.json",
+        "ci:2218"
+      ],
+      "epicAncestor": "T13434",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T13688",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "#2218 9026dc0c: docs update --file silently ignores --base-version-uid, yet ct-documentor documents exactly that flow",
+      "evidenceAtoms": [
+        "pr:2218",
+        "files:.changeset/docs-update-stale-base.md,packages/cleo/src/cli/commands/docs.ts,packages/cleo/src/dispatch/domains/docs.ts,packages/contracts/src/__tests__/__snapshots__/operations-registry.test.ts.snap,packages/contracts/src/dispatch/__tests__/operation-envelope-snapshots.test.ts,packages/contracts/src/dispatch/operations-registry.ts,packages/contracts/src/operations/docs.ts,packages/core/src/dispatch/__tests__/mvi-projection.test.ts,packages/core/src/dispatch/mvi-projection.ts,packages/core/src/docs/__tests__/docs-update-concurrency.test.ts,packages/core/src/docs/docs-update.ts,packages/core/src/docs/fetch-result.ts,packages/core/src/docs/section-merge.ts,packages/core/src/docs/section-write-path.ts,packages/skills/skills/ct-documentor/SKILL.md,packages/skills/skills/manifest.json",
+        "ci:2218"
+      ],
+      "epicAncestor": "T13434",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T13689",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "#2231 9180067d: passthrough exit line is gated on wall time since start, not queue wait, so unqueued runs under load print it",
+      "evidenceAtoms": [
+        "pr:2231",
+        "files:packages/cleo/src/cli/__tests__/run-command.test.ts,packages/cleo/src/cli/commands/run.ts,packages/core/src/resources/__tests__/run-governed.test.ts,packages/core/src/resources/run-governed.ts",
+        "ci:2231"
+      ],
+      "epicAncestor": "T13434",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T13675",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "#2218 10f545c8: the concurrency test injects the merge itself; it does not prove T13585 AC1 through docs-update",
+      "evidenceAtoms": [
+        "pr:2218",
+        "files:.changeset/docs-update-stale-base.md,packages/cleo/src/cli/commands/docs.ts,packages/cleo/src/dispatch/domains/docs.ts,packages/contracts/src/__tests__/__snapshots__/operations-registry.test.ts.snap,packages/contracts/src/dispatch/__tests__/operation-envelope-snapshots.test.ts,packages/contracts/src/dispatch/operations-registry.ts,packages/contracts/src/operations/docs.ts,packages/core/src/dispatch/__tests__/mvi-projection.test.ts,packages/core/src/dispatch/mvi-projection.ts,packages/core/src/docs/__tests__/docs-update-concurrency.test.ts,packages/core/src/docs/docs-update.ts,packages/core/src/docs/fetch-result.ts,packages/core/src/docs/section-merge.ts,packages/core/src/docs/section-write-path.ts,packages/skills/skills/ct-documentor/SKILL.md,packages/skills/skills/manifest.json",
+        "ci:2218"
+      ],
+      "epicAncestor": "T13434",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T13685",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "#2228 0cdcf78f: an unknown or foreign --base-version silently falls back to the single-writer replace",
+      "evidenceAtoms": [
+        "pr:2218",
+        "files:packages/core/src/docs/__tests__/docs-update-concurrency.test.ts,packages/core/src/docs/docs-update.ts",
+        "ci:2218"
+      ],
+      "epicAncestor": "T13434",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T13696",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "Worktree dispose on complete/cancel destroys dependents and evidence (symlinked node_modules, evidence files)",
+      "evidenceAtoms": [
+        "pr:2243",
+        "files:.changeset/worktree-dispose-keeps-dependents.md,packages/cleo/src/cli/commands/gc.ts,packages/contracts/src/branch-lock.ts,packages/contracts/src/index.ts,packages/contracts/src/operations/worktree.ts,packages/core/src/__tests__/gc-prune-guard.test.ts,packages/core/src/gc/__tests__/cleanup.test.ts,packages/core/src/gc/cleanup.ts,packages/core/src/gc/janitor.ts,packages/core/src/sentient/worktree-dispatch.ts,packages/core/src/spawn/__tests__/worktree-dispose-guard.test.ts,packages/core/src/spawn/branch-lock.ts,packages/core/src/tasks/__tests__/worktree-kept-warning.test.ts,packages/core/src/tasks/cancel-ops.ts,packages/core/src/tasks/complete.ts,packages/core/src/tasks/engine-wrap.ts,packages/core/src/tasks/evidence-paths.ts,packages/core/src/worktree/__tests__/list.test.ts,packages/core/src/worktree/__tests__/prune-disposal-guard.test.ts,packages/core/src/worktree/list.ts,packages/core/src/worktree/prune.ts,packages/worktree/src/__tests__/worktree-dependents.test.ts,packages/worktree/src/index.ts,packages/worktree/src/worktree-dependents.ts,packages/worktree/src/worktree-destroy.ts,packages/worktree/src/worktree-prune.ts",
+        "ci:2243"
+      ],
+      "epicAncestor": "T11817",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T13700",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "#2243 bc764277: cleo worktree prune (core/worktree/prune.ts removeWorktreeFromDisk) disposes merged/orphan worktrees with no T13696 guard",
+      "evidenceAtoms": [
+        "pr:2243",
+        "files:packages/core/src/worktree/__tests__/prune-disposal-guard.test.ts,packages/core/src/worktree/prune.ts,packages/worktree/src/worktree-prune.ts",
+        "ci:2243"
+      ],
+      "epicAncestor": "T13434",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T13701",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "#2243 bc764277: a worktree kept by cleo complete/cancel is not visible to the caller (logger file and audit jsonl only)",
+      "evidenceAtoms": [
+        "pr:2243",
+        "files:packages/core/src/tasks/__tests__/worktree-kept-warning.test.ts,packages/core/src/tasks/cancel-ops.ts,packages/core/src/tasks/complete.ts,packages/core/src/tasks/engine-wrap.ts,packages/core/src/worktree/__tests__/list.test.ts,packages/core/src/worktree/list.ts",
+        "ci:2243"
+      ],
+      "epicAncestor": "T13434",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T13705",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "docs fetch/view self-heal: a blob-store miss backfills that sha's hash-verified legacy bytes (10.13 blocker)",
+      "evidenceAtoms": [
+        "pr:2245",
+        "files:.changeset/docs-blob-lazy-heal.md,packages/core/src/docs/__tests__/docs-doctor.test.ts,packages/core/src/docs/docs-read-model.ts,packages/core/src/docs/doctor.ts,packages/core/src/store/__tests__/blob-read-heal.test.ts,packages/core/src/store/blob-keep.ts,packages/core/src/store/blob-ops.ts",
+        "ci:2245"
+      ],
+      "epicAncestor": "T12321",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T13706",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "#2245 b8927726: a failed lazy heal write makes blobReadBySha throw instead of null (read-only or full disk)",
+      "evidenceAtoms": [
+        "pr:2245",
+        "files:packages/core/src/store/__tests__/blob-read-heal.test.ts,packages/core/src/store/blob-keep.ts,packages/core/src/store/blob-ops.ts",
+        "ci:2245"
+      ],
+      "epicAncestor": "T13434",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T13638",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "Legacy doc migration: version uids from device-local audit position can collide across devices",
+      "evidenceAtoms": [
+        "pr:2219",
+        "files:packages/core/src/docs/__tests__/legacy-doc-migration.test.ts,packages/core/src/docs/legacy-doc-migration.ts,packages/core/src/store/conduit-doc-history.ts",
+        "ci:2219"
+      ],
+      "epicAncestor": "T13340",
+      "ivtrPhaseAtPlan": "contribution"
+    }
+  ],
+  "changelog": {
+    "features": [
+      "T13673",
+      "T13585",
+      "T13679",
+      "T13680",
+      "T13681",
+      "T13663",
+      "T13678",
+      "T12908",
+      "T13677",
+      "T13662",
+      "T12880",
+      "T13362",
+      "T13424",
+      "T12775",
+      "T13655",
+      "T13652",
+      "T13356",
+      "T13647",
+      "T13355",
+      "T12945",
+      "T12942",
+      "T13641",
+      "T13360",
+      "T12943",
+      "T13674",
+      "T13688",
+      "T13689",
+      "T13675",
+      "T13685",
+      "T13696",
+      "T13700",
+      "T13701",
+      "T13705",
+      "T13706",
+      "T13638"
+    ],
+    "fixes": [
+      "T13107",
+      "T13108"
+    ],
+    "chores": [],
+    "breaking": []
+  },
+  "gates": [
+    {
+      "name": "test",
+      "atom": "tool:test",
+      "status": "unresolved",
+      "lastVerifiedAt": "2026-10-14T05:50:51.115Z",
+      "resolvedCommand": "pnpm run test",
+      "resolvedSource": "project-context"
+    },
+    {
+      "name": "build",
+      "atom": "tool:build",
+      "status": "unresolved",
+      "lastVerifiedAt": "2026-10-14T05:50:51.115Z",
+      "resolvedCommand": "pnpm run build",
+      "resolvedSource": "project-context"
+    },
+    {
+      "name": "lint",
+      "atom": "tool:lint",
+      "status": "unresolved",
+      "lastVerifiedAt": "2026-10-14T05:50:51.115Z",
+      "resolvedCommand": "pnpm run lint",
+      "resolvedSource": "package-script"
+    },
+    {
+      "name": "typecheck",
+      "atom": "tool:typecheck",
+      "status": "unresolved",
+      "lastVerifiedAt": "2026-10-14T05:50:51.115Z",
+      "resolvedCommand": "pnpm run typecheck",
+      "resolvedSource": "package-script"
+    },
+    {
+      "name": "audit",
+      "atom": "tool:audit",
+      "status": "unresolved",
+      "lastVerifiedAt": "2026-10-14T05:50:51.115Z",
+      "resolvedCommand": "npm audit",
+      "resolvedSource": "language-default"
+    },
+    {
+      "name": "security-scan",
+      "atom": "tool:security-scan",
+      "status": "unresolved",
+      "lastVerifiedAt": "2026-10-14T05:50:51.115Z",
+      "resolvedCommand": "npm audit",
+      "resolvedSource": "language-default"
+    }
+  ],
+  "platformMatrix": [
+    {
+      "platform": "any",
+      "publisher": "npm",
+      "package": "@cleocode/cleo"
+    }
+  ],
+  "preflightSummary": {
+    "esbuildExternalsDrift": false,
+    "lockfileDrift": false,
+    "epicCompletenessClean": true,
+    "doubleListingClean": true,
+    "preflightWarnings": [
+      "Skipped 753 out-of-scope changeset entries whose task anchors are not part of this release plan"
+    ]
+  },
+  "workflowRunUrl": null,
+  "prUrl": null,
+  "mergeCommitSha": null,
+  "status": "planned",
+  "meta": {
+    "firstEverRelease": false,
+    "archetype": "node",
+    "releaseNotes": "## v2026.10.13 — 2026-10-14\n\n### Added\n\n- Sync merges keep sticky notes one-way: converted or archived never returns to active _(provenance: [T12942](https://github.com/kryptobaseddev/cleo/search?q=T12942&type=commits))_\n- Sync merges never move a shipped release back to an earlier status _(provenance: [T12943](https://github.com/kryptobaseddev/cleo/search?q=T12943&type=commits))_\n- Wire the llmtxt Loro CRDT merge into the docs update write path — section merge engine, head projection under docs.head.max-hlc, append-only DAG versions _(provenance: [T13355](https://github.com/kryptobaseddev/cleo/search?q=T13355&type=commits))_\n- ct-lean levels off/lite/full/ultra: `cleo lean level`, the `lean.level` config key and CLEO_LEAN_LEVEL _(provenance: [T13663](https://github.com/kryptobaseddev/cleo/search?q=T13663&type=commits))_\n\n### Fixed\n\n- docs fetch and view heal a doc whose bytes predate the blob store on first read, instead of failing until docs doctor --repair runs _(provenance: [T13705](https://github.com/kryptobaseddev/cleo/search?q=T13705&type=commits))_\n- cleo docs update detects a stale declared base — append edits three-way merge, non-mergeable edits record a named section conflict, an unresolvable base is refused (T13674) _(provenance: [T13674](https://github.com/kryptobaseddev/cleo/search?q=T13674&type=commits), [T13684](https://github.com/kryptobaseddev/cleo/search?q=T13684&type=commits), [T13688](https://github.com/kryptobaseddev/cleo/search?q=T13688&type=commits))_\n- A migration's data backfill is never emitted, and the row-meta content hash follows it under the new sync-set version (journal B, migration half) _(provenance: [T12775](https://github.com/kryptobaseddev/cleo/search?q=T12775&type=commits))_\n- twin collapse marks the synced twin it wrote suspect (withSuspectAccounting gets its first production caller) _(provenance: [T12775](https://github.com/kryptobaseddev/cleo/search?q=T12775&type=commits))_\n- A vault restore takes the row-identity markers and the sync-schema ledger from the snapshot, so a restored store rewrites its timestamps and seals _(provenance: [T13107](https://github.com/kryptobaseddev/cleo/search?q=T13107&type=commits), [T13108](https://github.com/kryptobaseddev/cleo/search?q=T13108&type=commits))_\n- ct-lean 1.0.1 names privacy in its never-cut list and fixes small in-scope risks instead of only reporting them _(provenance: [T13424](https://github.com/kryptobaseddev/cleo/search?q=T13424&type=commits))_\n- cleo research link and update no longer replace a manifest entry's title, topics, findings and links _(provenance: [T13678](https://github.com/kryptobaseddev/cleo/search?q=T13678&type=commits))_\n- cleo run no longer flags sequential short workers as hung, reports a signal while queued, and records a signal the runner forwarded _(provenance: [T13679](https://github.com/kryptobaseddev/cleo/search?q=T13679&type=commits), [T13680](https://github.com/kryptobaseddev/cleo/search?q=T13680&type=commits), [T13681](https://github.com/kryptobaseddev/cleo/search?q=T13681&type=commits))_\n- cleo complete and cleo cancel no longer delete a task worktree that other worktrees symlink into, or that holds the only copy of the task's evidence _(provenance: [T13696](https://github.com/kryptobaseddev/cleo/search?q=T13696&type=commits), [T13700](https://github.com/kryptobaseddev/cleo/search?q=T13700&type=commits), [T13701](https://github.com/kryptobaseddev/cleo/search?q=T13701&type=commits))_\n\n### Also in this release (listed by hand)\n\nMerged since v2026.10.12 and reviewed, with green PR CI. These have no release-note changeset, or their tasks were still open at planning time:\n\n- T13325, T13656 #2213 #2220: `cleo nexus analyze` keeps its heap bounded on large projects. Parse results spool to disk, and graph publication streams in batches.\n- T13673 #2224: after a merge, a targeted `test-run:` recorded on a later main commit that covers the change stands in, whatever the merge's own CI concluded.\n- T13662, T13655 #2223 #2215: carry scope is the task's own commits plus its declared files.\n- T13641, T13647 #2207 #2209: `cleo done` never falls back to a whole test suite.\n- T13652 #2214: release-readiness timing.\n- T13585 #2218: proof of concurrent docs updates (T13675, T13685, T13688, T13689).\n- T12908 #2227: replica registry lock.\n- T12880 #2221: token store refusal.\n- T13638 #2219: migrated legacy doc versions get uids that are stable across devices.\n- T13360, T13361, T13362 #2201 #2208 #2210: legacy docs migration and read retirement.\n- T13356 #2211: leases wiring.\n- T12945 #2187: docs lifecycle in the sync merge rules.\n- T13363 #2195 #2212: council metrics and sections.\n- T13677 #2225: review follow-ups.\n- T13706 #2245: a failed self-heal write never fails a docs read.\n",
+    "changesetEntryCount": 13,
+    "changesetIds": [
+      "docs-blob-lazy-heal",
+      "docs-update-stale-base",
+      "t12775-chash-rebaseline",
+      "t12775-twin-collapse-suspect",
+      "t12942-sticky-status-one-way",
+      "t12943-release-status-absorbing",
+      "t13107-t13108-restore-file-state-keys",
+      "t13355-crdt-writepath",
+      "t13424-ct-lean-privacy",
+      "t13663-lean-levels",
+      "t13678-research-link-merge",
+      "t13679-run-watchdog-signals",
+      "worktree-dispose-keeps-dependents"
+    ],
+    "taskIds": [
+      "T13673",
+      "T13585",
+      "T13679",
+      "T13680",
+      "T13681",
+      "T13663",
+      "T13678",
+      "T12908",
+      "T13677",
+      "T13662",
+      "T13107",
+      "T13108",
+      "T12880",
+      "T13362",
+      "T13424",
+      "T12775",
+      "T13655",
+      "T13652",
+      "T13356",
+      "T13647",
+      "T13355",
+      "T12945",
+      "T12942",
+      "T13641",
+      "T13360",
+      "T12943",
+      "T13674",
+      "T13688",
+      "T13689",
+      "T13675",
+      "T13685",
+      "T13696",
+      "T13700",
+      "T13701",
+      "T13705",
+      "T13706",
+      "T13638"
+    ]
+  }
+}

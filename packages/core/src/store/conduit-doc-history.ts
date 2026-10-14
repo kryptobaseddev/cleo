@@ -30,9 +30,9 @@
  * @saga T13339
  */
 
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { ExitCode } from '@cleocode/contracts/exit-codes.js';
-import { and, desc, eq, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, sql } from 'drizzle-orm';
 import { CleoError } from '../errors.js';
 import { naturalRowUid } from './row-identity.js';
 import {
@@ -43,7 +43,62 @@ import {
   conduitDocSlugAliases,
   sectionCrdtStates,
 } from './schema/cleo-project/conduit.js';
-import { getDb } from './sqlite.js';
+import type { ConduitDocMigrationLedgerRow } from './schema/cleo-project/docs.js';
+import { conduitDocMigrationLedger } from './schema/cleo-project/docs.js';
+import { getDb, getNativeDb } from './sqlite.js';
+
+/**
+ * Run one docs-projection write batch atomically (T13583).
+ *
+ * The section write path composes several accessors — section-state writes,
+ * the version append, the head upsert, the rebase and the derived
+ * contributors rebuild — and a failure halfway must not leave a non-head
+ * version behind for the next update to fork onto. The drizzle handle from
+ * {@link getDb} and the raw handle from {@link getNativeDb} are the same
+ * underlying `DatabaseSync`, so a `BEGIN IMMEDIATE` on the raw handle
+ * brackets every statement the accessors issue (the same pattern
+ * `docs-update.ts` uses for its slug transfer).
+ *
+ * Constraint (T13583): every statement inside `fn` must resolve without a
+ * real I/O yield — the docs projection satisfies this (sync-driver
+ * accessors, sync `node:fs` blob reads/writes), so no other async writer can
+ * interleave on this connection mid-transaction. A caller that awaits real
+ * I/O inside `fn` breaks that guarantee; per-handle writer serialization is
+ * the follow-up if such a caller appears.
+ *
+ * @param projectRoot - Absolute path to the CLEO project root.
+ * @param fn - The write batch; awaited between statements on this one
+ *   connection, so no other writer can interleave inside the transaction.
+ * @returns What `fn` returned.
+ */
+// @sync-invariant docs.head.max-hlc the version append, the head upsert and the rebase commit or roll back as one causal step; a half-landed projection cannot fork the next update
+export async function withConduitDocWriteTransaction<T>(
+  projectRoot: string,
+  fn: () => Promise<T>,
+): Promise<T> {
+  await getDb(projectRoot);
+  const native = getNativeDb(projectRoot);
+  if (!native) {
+    // @sync-invariant none:input-shape the projection requires an open project store; getDb above just opened it, so this is a broken environment, not row data — nothing was written
+    throw new CleoError(
+      ExitCode.GENERAL_ERROR,
+      'conduit doc write transaction requires an initialised project store',
+    );
+  }
+  native.prepare('BEGIN IMMEDIATE').run();
+  try {
+    const out = await fn();
+    native.prepare('COMMIT').run();
+    return out;
+  } catch (err) {
+    try {
+      native.prepare('ROLLBACK').run();
+    } catch {
+      /* Auto-rolled back by SQLite on most errors. */
+    }
+    throw err;
+  }
+}
 
 /** Row shape of `conduit_attachment_versions` as read back. */
 export type ConduitAttachmentVersionRow = typeof conduitAttachmentVersions.$inferSelect;
@@ -62,6 +117,12 @@ export interface ConduitDocHeadConflict {
   readonly hlc: string;
   /** ISO-8601 instant the conflict was recorded. */
   readonly recordedAt: string;
+  /**
+   * The winning head's version uid at recording time — both sides of the
+   * conflict are named on the row (head `head_version_uid` + this).
+   * (T13595)
+   */
+  readonly winnerVersionUid?: string;
 }
 
 /**
@@ -107,6 +168,76 @@ export async function resolveConduitDocUid(
     .orderBy(desc(conduitDocSlugAliases.createdAt))
     .get();
   return alias?.docUid ?? null;
+}
+
+/**
+ * Adopt a document into the conduit family on first sight (T13355).
+ *
+ * The docs write path (`docs/section-write-path.ts`) projects every doc
+ * update through the section CRDT layer, whose history tables are keyed on
+ * `conduit_attachments.uid`; a doc that only exists in the legacy
+ * `attachments` registry has no conduit row yet, so this inserts one. The
+ * row is a thin identity shell: the bytes live in the blob store, so
+ * `content` carries an empty buffer and the sizes/hash describe nothing —
+ * the version rows carry the real content addressing.
+ *
+ * `conversation_id` is the NOT NULL transport owner; docs adopted here use
+ * the `cleodocs` sentinel (no FK — soft reference by design). Idempotent:
+ * an existing live row (or alias-resolved uid) is returned with
+ * `adopted: false`.
+ *
+ * The adopted row's uid is the schema's random UUIDv7 default — a
+ * single-device mint. Two devices adopting the same legacy slug concurrently
+ * mint two uids for one doc; deduping that is the filed follow-up (T13586).
+ *
+ * @param projectRoot - Absolute path to the CLEO project root.
+ * @param input - Slug, author and current full text of the doc.
+ * @returns The doc's immutable uid and whether this call created the row.
+ */
+// @sync-invariant docs.doc.adopt-once the existence probe and the identity-shell insert are one causal step; the uid default makes a re-adopt conflict-free
+export async function ensureConduitDoc(
+  projectRoot: string,
+  input: { slug: string; authorAgentId: string; content: Buffer },
+): Promise<{ uid: string; adopted: boolean }> {
+  requireNonEmpty('slug', input.slug);
+  requireNonEmpty('authorAgentId', input.authorAgentId);
+  const existing = await resolveConduitDocUid(projectRoot, input.slug);
+  if (existing !== null) return { uid: existing, adopted: false };
+
+  const db = await getDb(projectRoot);
+  await db
+    .insert(conduitAttachments)
+    .values({
+      slug: input.slug,
+      conversationId: 'cleodocs',
+      fromAgentId: input.authorAgentId,
+      content: Buffer.alloc(0),
+      originalSize: input.content.length,
+      compressedSize: input.content.length,
+      contentHash: createHash('sha256').update(input.content).digest('hex'),
+      format: 'text',
+      title: input.slug,
+      tokens: input.content
+        .toString('utf-8')
+        .split(/\s+/)
+        .filter((w) => w.length > 0).length,
+    })
+    .onConflictDoNothing()
+    .run();
+
+  const row = await db
+    .select({ uid: conduitAttachments.uid })
+    .from(conduitAttachments)
+    .where(eq(conduitAttachments.slug, input.slug))
+    .get();
+  if (!row?.uid) {
+    // @sync-invariant docs.doc.adopt-once an adopt that cannot be read back means the store lost the write; fail loudly instead of returning a phantom
+    throw new CleoError(
+      ExitCode.GENERAL_ERROR,
+      `conduit doc adopt for slug '${input.slug}' could not be read back`,
+    );
+  }
+  return { uid: row.uid, adopted: true };
 }
 
 /**
@@ -237,6 +368,57 @@ export async function appendConduitAttachmentVersion(
     );
   }
   return row;
+}
+
+/**
+ * The set of content hashes the conduit doc-history family references.
+ *
+ * The blob sweep (`attachment-repair.ts`) only consulted the legacy
+ * attachments tables, the publications ledger and the blobs manifest, so a
+ * version/merged-text blob this family references could be garbage-collected
+ * as "unreferenced" (T13596). The sweep callers consult this set; it covers
+ * the version rows' `content_hash` (the merged-text blobs) and the adopted
+ * docs' `content_hash`.
+ *
+ * @param projectRoot - Absolute path to the CLEO project root.
+ * @returns Every `content_hash` named by `conduit_attachment_versions` or
+ *   `conduit_attachments`.
+ */
+export async function listConduitHistorySha256Set(projectRoot: string): Promise<Set<string>> {
+  const db = await getDb(projectRoot);
+  const versionRows = await db
+    .select({ contentHash: conduitAttachmentVersions.contentHash })
+    .from(conduitAttachmentVersions)
+    .all();
+  const docRows = await db
+    .select({ contentHash: conduitAttachments.contentHash })
+    .from(conduitAttachments)
+    .all();
+  const set = new Set<string>();
+  for (const row of versionRows) set.add(row.contentHash);
+  for (const row of docRows) set.add(row.contentHash);
+  return set;
+}
+
+/**
+ * Read one version row by its wire identity (`uid`).
+ *
+ * @param projectRoot - Absolute path to the CLEO project root.
+ * @param versionUid - The version's `uid`.
+ * @returns The version row, or `null` when unknown.
+ */
+export async function getConduitAttachmentVersion(
+  projectRoot: string,
+  versionUid: string,
+): Promise<ConduitAttachmentVersionRow | null> {
+  requireNonEmpty('versionUid', versionUid);
+  const db = await getDb(projectRoot);
+  const row = await db
+    .select()
+    .from(conduitAttachmentVersions)
+    .where(eq(conduitAttachmentVersions.uid, versionUid))
+    .get();
+  return row ?? null;
 }
 
 /**
@@ -497,6 +679,7 @@ export async function upsertConduitDocHead(
       versionUid: input.headVersionUid,
       hlc: input.headHlc,
       recordedAt: now,
+      winnerVersionUid: existing.headVersionUid,
     };
     await db
       .update(conduitDocHeads)
@@ -644,4 +827,253 @@ export async function rebaseSectionCrdtStates(
     .set({ baseVersionUid, updatedAt: new Date().toISOString() })
     .where(eq(sectionCrdtStates.attachmentUid, attachmentUid))
     .run();
+}
+
+// ============================================================================
+// T13360 — legacy docs migration accessors (spec §5, D11165)
+//
+// The three importers below are IDEMPOTENT by construction: every row's uid
+// is the NATURAL identity over its business key (doc slug; (doc uid, content
+// hash, event timestamp); ledger slug), so a re-run derives the same uid and
+// `onConflictDoNothing` turns the insert into a verified no-op — which is
+// what makes the T13360 harness step re-runnable (AC4).
+// ============================================================================
+
+/** Input for {@link importMigratedConduitDoc}. */
+export interface ImportMigratedConduitDocInput {
+  /** Doc slug (the pre-rekey primary key; still the table PK). */
+  readonly slug: string;
+  /** Real provenance author when known; 'system:migration' when none. */
+  readonly fromAgentId: string;
+  /** Captured content bytes (stored uncompressed; sizes equal). */
+  readonly content: Buffer;
+  /** SHA-256 hex of `content`. */
+  readonly contentHash: string;
+  /** Content format tag ('markdown', 'text', …). */
+  readonly format: string;
+  /** Optional title. */
+  readonly title?: string;
+  /** Token count (measured, never invented). */
+  readonly tokens: number;
+  /** ISO-8601 doc creation instant from real provenance. */
+  readonly createdAt: string;
+  /** Imported history length (also written to the version_count columns). */
+  readonly versionCount: number;
+}
+
+/**
+ * Import one legacy doc as a `conduit_attachments` row (content-captured).
+ *
+ * The row uid is the natural identity over the slug: re-runs coalesce.
+ * `conversation_id` is the honest system value 'docs:migration' — migrated
+ * docs belong to no conduit conversation.
+ *
+ * @param projectRoot - Absolute path to the CLEO project root.
+ * @param input - The captured doc facts.
+ * @returns The doc uid and whether this call inserted the row.
+ * @task T13360
+ */
+// @sync-invariant docs.docs-migration.idempotent-import the natural uid over the slug makes a re-run a verified no-op via ON CONFLICT DO NOTHING; nothing is updated or deleted
+export async function importMigratedConduitDoc(
+  projectRoot: string,
+  input: ImportMigratedConduitDocInput,
+): Promise<{ uid: string; inserted: boolean }> {
+  requireNonEmpty('slug', input.slug);
+  requireNonEmpty('fromAgentId', input.fromAgentId);
+  requireNonEmpty('contentHash', input.contentHash);
+  const uid = naturalRowUid('project', 'conduit_attachments', [input.slug]);
+  const db = await getDb(projectRoot);
+  const result = await db
+    .insert(conduitAttachments)
+    .values({
+      slug: input.slug,
+      conversationId: 'docs:migration',
+      fromAgentId: input.fromAgentId,
+      content: input.content,
+      originalSize: input.content.length,
+      compressedSize: input.content.length,
+      contentHash: input.contentHash,
+      format: input.format,
+      ...(input.title !== undefined ? { title: input.title } : {}),
+      tokens: input.tokens,
+      versionCount: input.versionCount,
+      currentVersion: input.versionCount,
+      createdAt: input.createdAt,
+      uid,
+    })
+    .onConflictDoNothing()
+    .run();
+  return { uid, inserted: (result.changes ?? 0) > 0 };
+}
+
+/** Input for {@link importMigratedConduitVersion}. */
+export interface ImportMigratedConduitVersionInput {
+  /** Immutable doc id (`conduit_attachments.uid`). */
+  readonly attachmentUid: string;
+  /** Parent version uid in the DAG (NULL for the root import). */
+  readonly parentVersionUid: string | null;
+  /** Real provenance author (audit-log actor); 'system:migration' when none. */
+  readonly authorAgentId: string;
+  /** Content-addressed ref to the captured bytes. */
+  readonly storageKey: string;
+  /** SHA-256 hex of the version body. */
+  readonly contentHash: string;
+  /** Body size in bytes. */
+  readonly sizeBytes: number;
+  /** Measured token count. */
+  readonly tokens: number;
+  /** Display ordinal within the doc (derived from the real event order). */
+  readonly versionNumber: number;
+  /** ISO-8601 instant from real provenance (the audit event's ts). */
+  readonly createdAt: string;
+  /** Honest summary of what this row is. */
+  readonly changeSummary: string;
+  /** Pre-rekey display slug (legacy carry column). */
+  readonly slug: string;
+}
+
+/**
+ * Import one history row for a migrated doc.
+ *
+ * Every imported row carries `origin: 'migrated'` (spec §5 — no imported row
+ * poses as native) and a natural uid over (doc uid, content hash, event
+ * timestamp) — a pure function of the version's real facts (T13638). The
+ * derivation never touches the device-local `docs-audit.jsonl` row position,
+ * so two devices migrating the same synced legacy doc derive the SAME uid
+ * for the same content whatever their local audit logs hold, and two
+ * different contents (different hashes) can never collide on one uid. The
+ * insert is conflict-free on re-run and history can never be duplicated
+ * (AC4).
+ *
+ * @param projectRoot - Absolute path to the CLEO project root.
+ * @param input - The version facts.
+ * @returns The version uid and whether this call inserted the row.
+ * @task T13360
+ * @task T13638 — content-derived natural uid
+ */
+// @sync-invariant docs.versions.append-only the natural uid over (doc uid, content hash, event timestamp) makes a re-run a verified no-op via ON CONFLICT DO NOTHING; imported history is never updated or deleted
+export async function importMigratedConduitVersion(
+  projectRoot: string,
+  input: ImportMigratedConduitVersionInput,
+): Promise<{ uid: string; inserted: boolean }> {
+  requireNonEmpty('attachmentUid', input.attachmentUid);
+  requireNonEmpty('contentHash', input.contentHash);
+  requireNonEmpty('createdAt', input.createdAt);
+  requireNonEmpty('authorAgentId', input.authorAgentId);
+  const uid = naturalRowUid('project', 'conduit_attachment_versions', [
+    input.attachmentUid,
+    input.contentHash,
+    input.createdAt,
+  ]);
+  const db = await getDb(projectRoot);
+  const result = await db
+    .insert(conduitAttachmentVersions)
+    .values({
+      id: randomUUID(),
+      uid,
+      attachmentUid: input.attachmentUid,
+      parentVersionUid: input.parentVersionUid,
+      slug: input.slug,
+      versionNumber: input.versionNumber,
+      authorAgentId: input.authorAgentId,
+      changeType: 'migrated',
+      storageKey: input.storageKey,
+      contentHash: input.contentHash,
+      originalSize: input.sizeBytes,
+      compressedSize: input.sizeBytes,
+      tokens: input.tokens,
+      changeSummary: input.changeSummary,
+      sectionsModified: '[]',
+      tokensAdded: 0,
+      tokensRemoved: 0,
+      createdAt: input.createdAt,
+      origin: 'migrated',
+    })
+    .onConflictDoNothing()
+    .run();
+  return { uid, inserted: (result.changes ?? 0) > 0 };
+}
+
+/** Input for {@link recordConduitDocMigration}. */
+export interface RecordConduitDocMigrationInput {
+  /** The migrated doc's slug (one receipt per slug). */
+  readonly slug: string;
+  /** Captured doc uid (NULL when the doc is dangling). */
+  readonly docUid: string | null;
+  /** 'captured' or 'dangling'. */
+  readonly status: 'captured' | 'dangling';
+  /** Why (e.g. 'path-missing', 'path-ephemeral:worktree'). */
+  readonly reason: string;
+  /** Legacy pointer path when one existed. */
+  readonly legacyPath?: string;
+  /** Legacy content sha256 when known. */
+  readonly legacySha256?: string;
+  /** How many history rows the import created. */
+  readonly versionsImported: number;
+}
+
+/**
+ * Record the migration receipt for one doc (append-only, idempotent).
+ *
+ * This IS the auditable record for the dangling verdict (AC3): a dangling
+ * doc leaves a row with status 'dangling', the legacy pointer and the
+ * reason — never a silent import. The natural uid over the slug makes a
+ * re-run coalesce onto the same row.
+ *
+ * @param projectRoot - Absolute path to the CLEO project root.
+ * @param input - The receipt facts.
+ * @task T13360
+ */
+// @sync-invariant docs.docs-migration.idempotent-import the natural uid over the slug makes a re-run a verified no-op via ON CONFLICT DO NOTHING; receipts are never updated or deleted
+export async function recordConduitDocMigration(
+  projectRoot: string,
+  input: RecordConduitDocMigrationInput,
+): Promise<{ uid: string; inserted: boolean }> {
+  requireNonEmpty('slug', input.slug);
+  const uid = naturalRowUid('project', 'conduit_doc_migration_ledger', [input.slug]);
+  const db = await getDb(projectRoot);
+  const result = await db
+    .insert(conduitDocMigrationLedger)
+    .values({
+      slug: input.slug,
+      docUid: input.docUid,
+      status: input.status,
+      reason: input.reason,
+      ...(input.legacyPath !== undefined ? { legacyPath: input.legacyPath } : {}),
+      ...(input.legacySha256 !== undefined ? { legacySha256: input.legacySha256 } : {}),
+      versionsImported: input.versionsImported,
+      migratedAt: new Date().toISOString(),
+      uid,
+    })
+    .onConflictDoNothing()
+    .run();
+  return { uid, inserted: (result.changes ?? 0) > 0 };
+}
+
+/** The migration receipt for one doc, or null when not migrated. */
+export async function findConduitDocMigration(
+  projectRoot: string,
+  slug: string,
+): Promise<ConduitDocMigrationLedgerRow | null> {
+  requireNonEmpty('slug', slug);
+  const db = await getDb(projectRoot);
+  return (
+    (await db
+      .select()
+      .from(conduitDocMigrationLedger)
+      .where(eq(conduitDocMigrationLedger.slug, slug))
+      .get()) ?? null
+  );
+}
+
+/** All migration receipts, slug ascending (the audit view). */
+export async function listConduitDocMigrations(
+  projectRoot: string,
+): Promise<ConduitDocMigrationLedgerRow[]> {
+  const db = await getDb(projectRoot);
+  return db
+    .select()
+    .from(conduitDocMigrationLedger)
+    .orderBy(asc(conduitDocMigrationLedger.slug))
+    .all();
 }

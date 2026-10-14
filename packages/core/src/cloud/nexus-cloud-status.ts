@@ -75,7 +75,12 @@ import {
   nexusQueryPath,
   retiredReplicasOfProject,
 } from './nexus-cloud.js';
-import { FileNexusTokenStore, type NexusTokenStore, nexusOriginKey } from './nexus-credentials.js';
+import {
+  FileNexusTokenStore,
+  NexusCredentialsError,
+  type NexusTokenStore,
+  nexusOriginKey,
+} from './nexus-credentials.js';
 import { NexusDeviceStore, UnreadableNexusDevice } from './nexus-device.js';
 import { nexusHomeReplicaListSchema } from './nexus-home.js';
 import { projectStream } from './streams.js';
@@ -443,6 +448,7 @@ export async function readStoreSyncStream(
     { undoBudget },
     { seenTxnReport },
     { activeReplica },
+    { conflictCounts },
   ] = await Promise.all([
     import('../store/sync/flags.js'),
     import('../store/sync/schema.js'),
@@ -452,6 +458,7 @@ export async function readStoreSyncStream(
     import('../store/sync/sequencing.js'),
     import('../store/sync/pull.js'),
     import('../store/sync/replica.js'),
+    import('../store/sync/conflicts.js'),
   ]);
   const holds = holdsReport(db, Date.now());
   const flags = readSyncFlags(db);
@@ -520,7 +527,10 @@ export async function readStoreSyncStream(
     lastPulledSeq: journal.lastPulledSeq,
     serverHeadSeq: needsPush("the server's head for this stream"),
     devices: needsPush('per-device last sync'),
-    openConflicts: needsPush('the conflicts held open on this stream'),
+    // The apply's conflict log is local (T12997): `cleo cloud conflicts` lists them.
+    openConflicts: hasTable(db, '_sync_conflict')
+      ? { known: true, value: conflictCounts(db, journal.stream ?? undefined).open }
+      : needsPush('the conflicts held open on this stream'),
     lag: needsPush('lag behind the server'),
   };
 }
@@ -583,18 +593,30 @@ function isWritable(dir: string): boolean {
   }
 }
 
-/** True when a device credential (or a 9.24 session to upgrade) is stored for the origin. */
+/**
+ * True when a device credential (or a 9.24 session to upgrade) is stored for
+ * the origin. A session file this CLEO cannot read safely (malformed, or a
+ * newer format) reads as no session, with a warning naming it (T13677); a
+ * write still refuses it.
+ */
 async function hasLocalCredential(
   apiUrl: string,
   devices: NexusDeviceStore,
   sessions: NexusTokenStore,
+  warnings: CloudWarning[],
 ): Promise<boolean> {
   const origin = nexusOriginKey(apiUrl);
   for (const d of await devices.list()) {
     if (d instanceof UnreadableNexusDevice || d.origin !== origin) continue;
     if (d.currentBearer() !== null || d.unseal().raceCandidate) return true;
   }
-  return (await sessions.get(apiUrl)) !== null;
+  try {
+    return (await sessions.get(apiUrl)) !== null;
+  } catch (err) {
+    if (!(err instanceof NexusCredentialsError)) throw err;
+    warnings.push({ code: 'W_NEXUS_CREDENTIALS_UNREADABLE', message: err.message });
+    return false;
+  }
 }
 
 /** A summary with no remote facts. */
@@ -900,6 +922,10 @@ export async function getNexusCloudStatus(
   const { autoSyncWarning } = await import('./auto-sync.js');
   const autoSync = autoSyncWarning();
   if (autoSync) warnings.push(autoSync);
+  // T13602: say so when a test runner or CI suppresses the background sync.
+  const { autoSyncSuppressedWarning } = await import('./auto-sync-command.js');
+  const suppressed = autoSyncSuppressedWarning();
+  if (suppressed) warnings.push(suppressed);
   const local: CloudStatusLocal = {
     apiUrl,
     signedIn: false,
@@ -919,7 +945,7 @@ export async function getNexusCloudStatus(
     ...withSync,
     warnings,
   });
-  if (!(await hasLocalCredential(apiUrl, devices, sessions))) return notSignedIn();
+  if (!(await hasLocalCredential(apiUrl, devices, sessions, warnings))) return notSignedIn();
   try {
     const conn = await connectNexusCloud({
       ...opts,

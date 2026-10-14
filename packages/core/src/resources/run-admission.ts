@@ -621,7 +621,11 @@ export function watchRun(
     idleSinceMs = null;
   } else if (at.usage !== null) {
     // Under a second of CPU between samples counts as idle (ps rounds to whole seconds on Linux).
-    const moved = lastCpuMs === null || at.usage.cpuMs - lastCpuMs >= 1000;
+    // A falling sum means a worker exited (the tree's CPU counts live processes only):
+    // that is activity, and it resets the baseline, or every smaller later worker
+    // would read as idle until it beat the old peak (T13679).
+    const moved =
+      lastCpuMs === null || at.usage.cpuMs < lastCpuMs || at.usage.cpuMs - lastCpuMs >= 1000;
     if (moved) {
       idleSinceMs = null;
       if (hungAtMs !== null) {

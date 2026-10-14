@@ -52,7 +52,11 @@ import {
 } from './sync/trigger-classes.js';
 import {
   classifyTable,
+  FILE_STATE_KEYS,
+  type FileStateKeyRule,
+  fileStateKeyRule,
   getTableRegistry,
+  isFileStateKey,
   isPortableTableClass,
   isSchemaStateTable,
   isSnapshotStateTable,
@@ -620,7 +624,11 @@ export interface VaultLostCredentials {
 
 /** What {@link carryMachineState} carried into the staged snapshot. */
 export interface CarriedMachineState {
-  /** Tables whose rows now come whole from the live store (`local-only`, or a `portable-secret` table without a stable key). */
+  /**
+   * Tables whose rows now come whole from the live store (`local-only`, or a
+   * `portable-secret` table without a stable key); for a table with file-state
+   * keys, every row but those (T13107).
+   */
   preserved: string[];
   /** Tables (and their columns) whose non-syncing cells were merged from live rows by a stable key. */
   carried: Array<{ table: string; columns: string[]; rows: number }>;
@@ -699,6 +707,9 @@ function stableKey(
     const cols = (
       db.prepare(`PRAGMA index_info(${quoteIdent(i.name)})`).all() as Array<{ name: string | null }>
     ).map((c) => c.name);
+    // A row uid is filled at open, so a live store's rows may still lack one
+    // (T13467): its unique index is no stable key to match rows by.
+    if (cols.includes('uid')) continue;
     if (cols.length > 0 && cols.every((c): c is string => c !== null && common.has(c))) {
       return { key: cols as string[], unstablePk };
     }
@@ -722,6 +733,11 @@ function stableKey(
  *   once the bare tables (local-only) are this machine's, each keeps the
  *   record, the snapshot's or else this machine's, that still matches it, and
  *   loses one neither matches (T13324).
+ *   A key/value table mixing both (`FILE_STATE_KEYS`: the row-identity
+ *   markers, the sync-schema ledger) is carried key by key: the file's keys
+ *   from the snapshot, every other key from the live store; a table only the
+ *   live store has is created for this machine's keys when its rule says so
+ *   (`_sync_meta`: the `sync.*` flags survive a restore; T13107, T13108).
  * - `portable-secret` tables: live rows are upserted by a stable key (the
  *   snapshot's copies arrive with their secrets cleared). Without a stable
  *   key the live table is kept whole.
@@ -818,6 +834,49 @@ export function carryMachineState(
       absolute(v) &&
       !relocatedHere(v, relocatable);
     const stripped = vaultStripColumns(scope);
+    /**
+     * A key/value table mixing the file's keys with this machine's: the file's
+     * stay as the snapshot has them, this machine's come from the live store
+     * (none when it lacks the table). Shaped differently here: left as the
+     * snapshot has it, and reported.
+     */
+    const carryByKey = (
+      t: string,
+      rule: FileStateKeyRule,
+      stagedCols: readonly string[],
+      liveCols: readonly string[],
+      sameShape: boolean,
+    ) => {
+      // T13677: on a shape mismatch this machine's keys still replace the
+      // pusher's, over the columns both shapes share; only a table whose rows
+      // cannot be written that way is left as the snapshot has it.
+      const cols = sameShape ? liveCols : liveCols.filter((c) => stagedCols.includes(c));
+      if (!stagedCols.includes('key') || (liveTables.has(t) && !cols.includes('key'))) {
+        out.skipped.push(t);
+        return;
+      }
+      staged.exec('SAVEPOINT carry_by_key');
+      try {
+        const del = staged.prepare(`DELETE FROM ${quoteIdent(t)} WHERE key = ?`);
+        for (const r of staged.prepare(`SELECT key FROM ${quoteIdent(t)}`).all() as Array<{
+          key: string;
+        }>) {
+          if (!isFileStateKey(rule, String(r.key))) del.run(r.key);
+        }
+        if (liveTables.has(t)) {
+          const mine = rowsOf(live, t).filter((r) => !isFileStateKey(rule, String(r['key'])));
+          insertRows(staged, t, cols, mine);
+        }
+        staged.exec('RELEASE carry_by_key');
+      } catch {
+        // A staged column this machine's rows cannot fill (NOT NULL, no default).
+        staged.exec('ROLLBACK TO carry_by_key');
+        staged.exec('RELEASE carry_by_key');
+        out.skipped.push(t);
+        return;
+      }
+      out.preserved.push(t);
+    };
     staged.exec('PRAGMA foreign_keys = OFF');
     staged.exec('BEGIN IMMEDIATE');
     try {
@@ -853,6 +912,11 @@ export function carryMachineState(
             continue;
           }
           if (c.class === 'local-only') {
+            const keyRule = fileStateKeyRule(scope, t);
+            if (keyRule) {
+              carryByKey(t, keyRule, stagedCols, liveCols, sameShape);
+              continue;
+            }
             // Machine state never comes from another machine: a table this store
             // does not have yet is emptied, not filled with the pusher's rows.
             if (!liveTables.has(t)) {
@@ -1012,6 +1076,16 @@ export function carryMachineState(
       } else {
         carry();
       }
+      // A key/value table only this machine has, whose rule keeps this
+      // machine's keys anyway: created with this machine's DDL (T13108).
+      const stagedTables = tablesOf(staged);
+      for (const [t, rule] of Object.entries(FILE_STATE_KEYS[scope])) {
+        const ddl = liveTables.get(t);
+        if (!rule.createIfAbsent || stagedTables.has(t) || !ddl) continue;
+        staged.exec(ddl);
+        const liveCols = infoOf(live, t).map((x) => x.name);
+        carryByKey(t, rule, liveCols, liveCols, true);
+      }
       staged.exec('COMMIT');
     } catch (err) {
       staged.exec('ROLLBACK');
@@ -1049,4 +1123,204 @@ export function emptyVaultTableHash(hashKey: Uint8Array, table: string): string 
     .createHmac('sha256', Buffer.from(hashKey))
     .update(`cleo-vault-table/v1\n${table}\n0\n`)
     .digest('hex');
+}
+
+/**
+ * Table a vault snapshot carries its sealed credential cells in (T13530). It
+ * exists only in a staged snapshot: the export writes it after the credential
+ * columns are cleared, and the restore fills the cleared cells from it and
+ * drops it before the file is placed. Unclassified, so no manifest lists it.
+ */
+export const VAULT_SEALED_CREDENTIALS_TABLE = '_vault_sealed_credentials';
+
+/** One credential cell a vault snapshot carries sealed under the account's key (T13530). */
+export interface SealedCredentialCell {
+  /** Table of the row. */
+  readonly tbl: string;
+  /** Row uid (the seal's AAD binds it). */
+  readonly uid: string;
+  /** Credential column. */
+  readonly col: string;
+  /** The sealed value (base64): ciphertext only, never this machine's key material. */
+  readonly sealed: string;
+}
+
+/** A row holding credential values, read from a snapshot. */
+export interface SnapshotCredentialRow {
+  /** Table of the row. */
+  readonly table: string;
+  /** Row uid. */
+  readonly uid: string;
+  /** The whole row (natural key columns included). */
+  readonly row: Readonly<Record<string, unknown>>;
+}
+
+/**
+ * Rows of a snapshot with a uid and a non-NULL value in any of `columns`.
+ * Read-only.
+ *
+ * @param snapshotPath - A staged snapshot.
+ * @param columns - Table to credential columns; absent tables and columns are skipped.
+ * @returns The rows, per table in `columns` order.
+ */
+export function readSnapshotCredentialRows(
+  snapshotPath: string,
+  columns: Readonly<Record<string, readonly string[]>>,
+): SnapshotCredentialRow[] {
+  const db = new DatabaseSync(snapshotPath, { readOnly: true });
+  try {
+    const out: SnapshotCredentialRow[] = [];
+    for (const [table, wanted] of Object.entries(columns)) {
+      const info = db.prepare(`PRAGMA main.table_info(${quoteIdent(table)})`).all() as Array<{
+        name: string;
+      }>;
+      const cols = wanted.filter((c) => info.some((i) => i.name === c));
+      if (cols.length === 0 || !info.some((i) => i.name === 'uid')) continue;
+      const rows = db
+        .prepare(
+          `SELECT * FROM ${quoteIdent(table)} WHERE uid IS NOT NULL AND (${cols.map((c) => `${quoteIdent(c)} IS NOT NULL`).join(' OR ')})`,
+        )
+        .all() as Array<Record<string, unknown>>;
+      for (const row of rows) out.push({ table, uid: String(row.uid), row });
+    }
+    return out;
+  } finally {
+    db.close();
+  }
+}
+
+/**
+ * Write sealed credential cells into a staged snapshot's
+ * {@link VAULT_SEALED_CREDENTIALS_TABLE}. Never a live store: the export
+ * calls it on its own VACUUM copy after the credential columns are cleared.
+ *
+ * @param snapshotPath - A staged snapshot.
+ * @param cells - The sealed cells (nothing is written when empty).
+ */
+export function writeSealedCredentials(
+  snapshotPath: string,
+  cells: readonly SealedCredentialCell[],
+): void {
+  if (cells.length === 0) return;
+  const db = new DatabaseSync(snapshotPath); // schema-guard-exempt: a staged snapshot copy the export owns; the sidecar table never reaches a live store
+  try {
+    db.exec(
+      `CREATE TABLE ${quoteIdent(VAULT_SEALED_CREDENTIALS_TABLE)} (tbl TEXT NOT NULL, uid TEXT NOT NULL, col TEXT NOT NULL, sealed TEXT NOT NULL, PRIMARY KEY (tbl, uid, col))`,
+    );
+    const insert = db.prepare(
+      `INSERT INTO ${quoteIdent(VAULT_SEALED_CREDENTIALS_TABLE)} (tbl, uid, col, sealed) VALUES (?, ?, ?, ?)`,
+    );
+    db.exec('BEGIN');
+    for (const c of cells) insert.run(c.tbl, c.uid, c.col, c.sealed);
+    db.exec('COMMIT');
+  } finally {
+    db.close();
+  }
+}
+
+/**
+ * The sealed credential cells of a staged snapshot, with the row each belongs
+ * to (empty when the snapshot carries none, or its row is gone). Read-only.
+ *
+ * @param stagedDbPath - A staged snapshot.
+ * @returns Each cell with its row.
+ */
+export function readSealedCredentials(
+  stagedDbPath: string,
+): Array<SealedCredentialCell & { readonly row: Readonly<Record<string, unknown>> }> {
+  const db = new DatabaseSync(stagedDbPath, { readOnly: true });
+  try {
+    const present = db
+      .prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?")
+      .get(VAULT_SEALED_CREDENTIALS_TABLE);
+    if (present === undefined) return [];
+    const cells = db
+      .prepare(`SELECT tbl, uid, col, sealed FROM ${quoteIdent(VAULT_SEALED_CREDENTIALS_TABLE)}`)
+      .all() as Array<{ tbl: string; uid: string; col: string; sealed: string }>;
+    const out: Array<SealedCredentialCell & { row: Record<string, unknown> }> = [];
+    for (const c of cells) {
+      const row = db.prepare(`SELECT * FROM ${quoteIdent(c.tbl)} WHERE uid = ?`).get(c.uid) as
+        | Record<string, unknown>
+        | undefined;
+      if (row) out.push({ ...c, row });
+    }
+    return out;
+  } finally {
+    db.close();
+  }
+}
+
+/**
+ * Fill a staged snapshot's credential cells that are still NULL after
+ * {@link carryMachineState} (a value this machine holds always wins), then
+ * drop {@link VAULT_SEALED_CREDENTIALS_TABLE} so it never reaches the placed
+ * store. Captures and side effects are suspended: a restored value is not a
+ * change to journal.
+ *
+ * Cells are matched by row uid. A row this machine holds under another uid
+ * (carried by its natural key, such as an account's provider and label) is
+ * not filled from the sealed cell: its local value wins (T13545).
+ *
+ * @param stagedDbPath - The staged snapshot (never a live store).
+ * @param values - Each cell's value, already encrypted under this machine's key.
+ * @returns The cells filled.
+ */
+export function fillSnapshotCredentials(
+  stagedDbPath: string,
+  values: ReadonlyArray<{ tbl: string; uid: string; col: string; value: string }>,
+): number {
+  const staged = new DatabaseSync(stagedDbPath); // schema-guard-exempt: the restore's staged snapshot; drops only the vault sidecar table
+  let filled = 0;
+  try {
+    staged.exec('BEGIN IMMEDIATE');
+    try {
+      const fill = () => {
+        for (const v of values) {
+          const r = staged
+            .prepare(
+              `UPDATE ${quoteIdent(v.tbl)} SET ${quoteIdent(v.col)} = ? WHERE uid = ? AND ${quoteIdent(v.col)} IS NULL`,
+            )
+            .run(v.value, v.uid);
+          filled += Number(r.changes);
+        }
+        staged.exec(`DROP TABLE IF EXISTS ${quoteIdent(VAULT_SEALED_CREDENTIALS_TABLE)}`);
+      };
+      if (hasTriggerSuspendTable(staged)) {
+        withTriggersSuspended(staged, ['capture', 'side-effect'], 'forward', fill);
+      } else {
+        fill();
+      }
+      staged.exec('COMMIT');
+    } catch (err) {
+      staged.exec('ROLLBACK');
+      throw err;
+    }
+  } finally {
+    staged.close();
+  }
+  return filled;
+}
+
+/**
+ * Drop {@link VAULT_SEALED_CREDENTIALS_TABLE} from a store a bundle import
+ * just placed, when it is there (T13545). The vault restore drops it from its
+ * staged copy itself; any other importer of a global vault bundle relies on
+ * this so the sidecar never stays in a live store. A no-op otherwise.
+ *
+ * @param dbPath - The placed `cleo.db`.
+ * @returns Whether a sidecar was dropped.
+ */
+export function dropSealedCredentialsSidecar(dbPath: string): boolean {
+  if (!fs.existsSync(dbPath)) return false;
+  const db = new DatabaseSync(dbPath); // schema-guard-exempt: the store a bundle import just placed; drops only the vault sidecar table
+  try {
+    const present = db
+      .prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?")
+      .get(VAULT_SEALED_CREDENTIALS_TABLE);
+    if (present === undefined) return false;
+    db.exec(`DROP TABLE ${quoteIdent(VAULT_SEALED_CREDENTIALS_TABLE)}`);
+    return true;
+  } finally {
+    db.close();
+  }
 }

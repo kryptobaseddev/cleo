@@ -1150,6 +1150,78 @@ export function evaluateRollup(
 }
 
 // ---------------------------------------------------------------------------
+// Merge-commit checks (T13611)
+// ---------------------------------------------------------------------------
+
+/**
+ * Fetches the check runs recorded on a merge commit (its default-branch push
+ * run), in `statusCheckRollup` shape. Injectable for tests.
+ *
+ * @task T13611
+ */
+export type FetchGhCommitCheckRuns = (
+  sha: string,
+  cwd: string,
+) => Promise<
+  { ok: true; checks: GhPrViewPayload['statusCheckRollup'] } | { ok: false; reason: string }
+>;
+
+/**
+ * Default {@link FetchGhCommitCheckRuns}: `gh api
+ * repos/{owner}/{repo}/commits/<sha>/check-runs`, run in `cwd` so `gh`
+ * resolves the repository the same way `gh pr view` does.
+ *
+ * @task T13611
+ */
+export const defaultFetchGhCommitCheckRuns: FetchGhCommitCheckRuns = async (sha, cwd) => {
+  if (!isGitWorkTree(cwd) || !isGhCliAvailable()) {
+    return {
+      ok: false,
+      reason: `gh cannot query check runs from ${cwd} (no work tree or gh CLI).`,
+    };
+  }
+  let stdout: string;
+  try {
+    stdout = execFileSync(
+      'gh',
+      [
+        'api',
+        '--paginate',
+        `repos/{owner}/{repo}/commits/${sha}/check-runs?per_page=100`,
+        '--jq',
+        '.check_runs[] | {name, status, conclusion, started_at, completed_at}',
+      ],
+      { encoding: 'utf-8', stdio: ['ignore', 'pipe', 'pipe'], cwd, timeout: ghQueryTimeoutMs() },
+    );
+  } catch (err) {
+    if (isGhTimeout(err)) return { ok: false, reason: ghTimeoutReason(`gh api ${sha} check-runs`) };
+    return { ok: false, reason: `gh api check-runs for ${sha.slice(0, 12)} failed` };
+  }
+  const upper = (v: unknown): string | null => (typeof v === 'string' ? v.toUpperCase() : null);
+  const checks: GhPrViewPayload['statusCheckRollup'] = [];
+  for (const line of stdout.split('\n')) {
+    if (!line.trim()) continue;
+    let run: Record<string, unknown>;
+    try {
+      run = JSON.parse(line) as Record<string, unknown>;
+    } catch {
+      return {
+        ok: false,
+        reason: `gh api check-runs for ${sha.slice(0, 12)} returned malformed JSON`,
+      };
+    }
+    checks.push({
+      ...(typeof run['name'] === 'string' ? { name: run['name'] } : {}),
+      status: upper(run['status']) ?? 'COMPLETED',
+      conclusion: upper(run['conclusion']),
+      startedAt: typeof run['started_at'] === 'string' ? run['started_at'] : null,
+      completedAt: typeof run['completed_at'] === 'string' ? run['completed_at'] : null,
+    });
+  }
+  return { ok: true, checks };
+};
+
+// ---------------------------------------------------------------------------
 // Top-level resolver
 // ---------------------------------------------------------------------------
 
@@ -1192,6 +1264,12 @@ export interface ResolvePrEvidenceAtomOptions {
    * @task T12623
    */
   readonly readOnly?: boolean;
+  /**
+   * Mock merge-commit check-run fetcher for tests; defaults to
+   * {@link defaultFetchGhCommitCheckRuns}. Consulted only when the PR's own
+   * rollup is not green. @task T13611
+   */
+  readonly fetchGhCommitCheckRuns?: FetchGhCommitCheckRuns;
 }
 
 /**
@@ -1353,10 +1431,29 @@ export async function resolvePrEvidenceAtom(
     };
   }
 
-  const rollupResult = evaluateRollup(payload.statusCheckRollup, required.workflows, {
+  const mergeCommitSha = payload.mergeCommit?.oid;
+  const rollupOptions = {
     requiredSource: describeRequiredWorkflowsSource(required.source),
     prNumber,
-  });
+  };
+  let rollupResult = evaluateRollup(payload.statusCheckRollup, required.workflows, rollupOptions);
+  // T13611: the PR head's last run can stay red from a stale merge ref while
+  // the merged change itself passed. Every required check green on the merge
+  // commit's own (default-branch push) run proves the merged code; red or
+  // missing there, the refusal stands.
+  if (!rollupResult.ok && mergeCommitSha && /^[0-9a-f]{40}$/i.test(mergeCommitSha)) {
+    const fetchMerge = opts.fetchGhCommitCheckRuns ?? defaultFetchGhCommitCheckRuns;
+    const merged = await fetchMerge(mergeCommitSha, executionRoot);
+    const onMerge = merged.ok
+      ? evaluateRollup(merged.checks, required.workflows, rollupOptions)
+      : { ok: false as const, reason: merged.reason };
+    rollupResult = onMerge.ok
+      ? onMerge
+      : {
+          ok: false,
+          reason: `${rollupResult.reason} The merge commit ${mergeCommitSha.slice(0, 12)} does not prove it either: ${onMerge.reason}`,
+        };
+  }
   if (!rollupResult.ok) {
     return {
       ok: false,
@@ -1365,7 +1462,6 @@ export async function resolvePrEvidenceAtom(
     };
   }
 
-  const mergeCommitSha = payload.mergeCommit?.oid;
   if (!mergeCommitSha || !/^[0-9a-f]{40}$/i.test(mergeCommitSha)) {
     return {
       ok: false,

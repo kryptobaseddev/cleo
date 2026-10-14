@@ -1,6 +1,6 @@
 {
   "name": "@cleocode/nexus",
-  "version": "2026.10.10-canary.1",
+  "version": "2026.10.13",
   "private": false,
   "type": "module",
   "description": "CLEO project registry and code intelligence — unified nexus package",
@@ -18,6 +18,10 @@
     "./pipeline": {
       "types": "./dist/src/pipeline/index.d.ts",
       "import": "./dist/src/pipeline/index.js"
+    },
+    "./reference-spool": {
+      "types": "./dist/src/pipeline/reference-spool.d.ts",
+      "import": "./dist/src/pipeline/reference-spool.js"
     },
     "./code/unfold": {
       "types": "./dist/src/code/unfold.d.ts",

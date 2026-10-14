@@ -1,8 +1,8 @@
 /**
  * DocsReadModel — unified read-side query surface for the CLEO docs system.
  *
- * Abstracts the scattered document surfaces (tasks.db attachments,
- * manifest.db blobs, and the docs-publications.json ledger) behind one
+ * Abstracts the scattered document surfaces (the `attachments` doc registry,
+ * manifest.db blobs, and the `docs_publications` store ledger) behind one
  * coherent read API. Agents and CLI command handlers query through this
  * model instead of navigating the individual stores directly.
  *
@@ -14,14 +14,19 @@
  *   - latest        → resolve the latest version for a given slug
  *
  * The read model also surfaces publication status and drift classification
- * from the docs-publications.json ledger, which is the canonical record of
- * which blobs have been published to git-tracked paths and whether those
+ * from the `docs_publications` store ledger, which is the canonical record
+ * of which blobs have been published to git-tracked paths and whether those
  * published files are in-sync with the backing blob store.
+ *
+ * Content reads are blob-store ONLY (T13362): the legacy
+ * `.cleo/attachments/sha256/` byte tree has no fallback path here — docs
+ * whose bytes were never mirrored/consolidated into `.cleo/blobs/blobs/`
+ * report `no-content` until migrated.
  *
  * @task T11049 (T10516-C2)
  * @epic T10519 (T10516-C)
  * @saga T10516 (SG-DOCS-CLI-SIMPLIFICATION)
- * @see packages/core/src/store/attachment-store.ts (tasks.db attachments)
+ * @see packages/core/src/store/attachment-store.ts (doc registry)
  * @see packages/core/src/store/blob-ops.ts (manifest.db blobs via llmtxt)
  * @see packages/core/src/docs/docs-ops.ts (publications ledger + status)
  */
@@ -30,27 +35,11 @@ import type { AttachmentMetadata, DocKind } from '@cleocode/contracts';
 import { getProjectRoot } from '../paths.js';
 import { createAttachmentStore } from '../store/attachment-store.js';
 import type { BlobListEntry } from '../store/blob-ops.js';
-import { blobList, blobRead } from '../store/blob-ops.js';
+import { blobList, blobRead, blobReadBySha } from '../store/blob-ops.js';
 import type { AttachmentLifecycleStatus } from '../store/schema/attachments.js';
+import type { DocsPublicationRecord } from './docs-ops.js';
 import { resolveDisplayNumber } from './numbering.js';
-
-// ---------------------------------------------------------------------------
-// Re-use the publications types from docs-ops via dynamic import to avoid
-// a circular dependency (docs-read-model → docs-ops → docs-read-model).
-// ---------------------------------------------------------------------------
-
-interface DocsPublicationRecord {
-  readonly ownerId: string;
-  readonly blobName: string;
-  readonly publishedPath: string;
-  readonly lastBlobSha: string;
-  readonly publishedAt: string;
-}
-
-interface DocsPublicationsLedger {
-  readonly version: 1;
-  readonly entries: readonly DocsPublicationRecord[];
-}
+import { readDocsPublications } from './publications-store.js';
 
 // ---------------------------------------------------------------------------
 // Public types
@@ -59,10 +48,11 @@ interface DocsPublicationsLedger {
 /**
  * A fully-resolved document record surfaced by the read model.
  *
- * Unifies fields from tasks.db attachments, manifest.db blobs, and the
- * publications ledger into a single envelope. Content is NOT populated by
- * default — callers that need the raw text must call {@link DocsReadModel.fetchContent}
- * separately. This keeps list/status operations fast by avoiding unnecessary blob reads.
+ * Unifies fields from the doc registry (`attachments`), manifest.db blobs,
+ * and the `docs_publications` store ledger into a single envelope. Content
+ * is NOT populated by default — callers that need the raw text must call
+ * {@link DocsReadModel.fetchContent} separately. This keeps list/status
+ * operations fast by avoiding unnecessary blob reads.
  */
 export interface ResolvedDoc {
   /** Attachment UUID (tasks.db) or SHA-256 hex (blob store). Always set. */
@@ -161,10 +151,11 @@ export interface DocsReadModelOptions {
 /**
  * Unified read-side query model for the CLEO docs system.
  *
- * Hides the three-backend reality (tasks.db attachments, manifest.db blobs,
- * docs-publications.json ledger) behind a single typed query surface.
- * CLI command handlers should depend on this class rather than calling
- * `AttachmentStore`, `blobList`, or `readPublicationsLedger` directly.
+ * Hides the multi-store reality (the `attachments` doc registry, manifest.db
+ * blobs, and the `docs_publications` store ledger) behind a single typed
+ * query surface. CLI command handlers should depend on this class rather
+ * than calling `AttachmentStore`, `blobList`, or the publications-store
+ * accessors directly.
  *
  * Construction is cheap — the underlying stores are opened lazily on
  * first use and closed via {@link close}.
@@ -402,25 +393,18 @@ export class DocsReadModel {
    * (keeps list/status operations fast). Call this when you need the
    * actual text/bytes.
    *
+   * Content is read from the blob store ONLY (T13362). A doc whose bytes were
+   * never mirrored into it is healed on this read from hash-verified legacy
+   * bytes when they exist (T13705, inside `blobReadBySha`); otherwise `null`.
+   *
    * @param doc - A resolved doc (from any resolution method).
    * @returns The raw content as a UTF-8 string, or `null` if the blob
    *          cannot be read.
    */
   async fetchContent(doc: ResolvedDoc): Promise<string | null> {
-    // Try blob store first
-    const bytes = await blobRead(doc.ownerId, doc.blobName, this.projectRoot);
-    if (bytes) return new TextDecoder().decode(bytes);
-
-    // Fall back to attachment store
-    const store = createAttachmentStore();
-    try {
-      const result = await store.get(doc.sha256, this.projectRoot);
-      if (result) return result.bytes.toString('utf-8');
-    } catch {
-      // Attachment store unavailable or blob purged
-    }
-
-    return null;
+    const bytes = await blobReadBySha(doc.sha256, this.projectRoot);
+    if (!bytes) return null;
+    return new TextDecoder().decode(bytes);
   }
 
   /**
@@ -495,7 +479,7 @@ export class DocsReadModel {
    * Check publication status for all published docs.
    *
    * Compares the blob SHA in the store against the file SHA on disk
-   * for every entry in the docs-publications ledger.
+   * for every row of the `docs_publications` store ledger.
    * Returns the same shape as `statusDocs()` for backward compatibility.
    */
   async status(projectRootOverride?: string): Promise<{
@@ -808,33 +792,14 @@ export class DocsReadModel {
   }
 
   /**
-   * Load publications from the JSON ledger, cached in memory.
+   * Load publications from the store ledger, cached in memory.
+   *
+   * Reads `docs_publications` rows through the publications-store accessor
+   * (which carries the one-time legacy-JSON seed shim, T13362).
    */
   private async loadPublications(): Promise<DocsPublicationRecord[]> {
     if (this.publicationCache) return this.publicationCache;
-
-    this.publicationCache = (async () => {
-      const { join } = await import('node:path');
-      const { readFile } = await import('node:fs/promises');
-      const ledgerPath = join(this.projectRoot, '.cleo', 'docs-publications.json');
-      try {
-        const raw = await readFile(ledgerPath, 'utf-8');
-        const parsed = JSON.parse(raw) as Partial<DocsPublicationsLedger>;
-        if (!parsed || !Array.isArray(parsed.entries)) return [];
-        return parsed.entries.filter(
-          (e): e is DocsPublicationRecord =>
-            !!e &&
-            typeof e.ownerId === 'string' &&
-            typeof e.blobName === 'string' &&
-            typeof e.publishedPath === 'string' &&
-            typeof e.lastBlobSha === 'string' &&
-            typeof e.publishedAt === 'string',
-        );
-      } catch {
-        return [];
-      }
-    })();
-
+    this.publicationCache = readDocsPublications(this.projectRoot);
     return this.publicationCache;
   }
 }

@@ -8,6 +8,7 @@ import { randomUUID } from 'node:crypto';
 import { join, resolve } from 'node:path';
 import { isDeepStrictEqual } from 'node:util';
 import type {
+  AcceptanceGate,
   AcRow,
   KnowledgeCoverage,
   Task,
@@ -59,8 +60,13 @@ import { acItemToText } from './ac-table.js';
 import { buildRollupEvidence, isCoordinationParent } from './coordination-parent.js';
 import { createAcceptanceEnforcement } from './enforcement.js';
 import { revalidateEvidence } from './evidence.js';
+import { taskEvidenceAtoms } from './evidence-paths.js';
 import { readAllowCachedGates } from './gate-result-cache.js';
-import { TypedRevalidationError, validateTaskGateCompletion } from './gate-runner.js';
+import {
+  TypedRevalidationError,
+  typedGateAdmissionMs,
+  validateTaskGateCompletion,
+} from './gate-runner.js';
 import { validateNexusImpactGate } from './nexus-impact-gate.js';
 import { isTerminalPipelineStage, isValidPipelineStage } from './pipeline-stage.js';
 import {
@@ -140,6 +146,11 @@ export interface CompleteTaskOptions {
    * @task T11954 (DHQ-071)
    */
   waiveDependsReason?: string;
+  /**
+   * The PR `cleo done --pr <n>` named: the merged-CI check derives the change
+   * set through it, as the plan did, so both judge the same carrier (T13637).
+   */
+  prNumber?: number;
   /**
    * Optimistic-concurrency guard: the task version (`updatedAt`) the caller
    * read. It is compared with the stored row inside the completion's write
@@ -472,7 +483,6 @@ export async function completeTask(
   cwd?: string,
   accessor?: DataAccessor,
 ): Promise<CompleteTaskResult> {
-  const admittedAt = Date.now();
   const capturedExecution = worktreeScope.getStore()?.execution;
   const completionRoot = resolve(resolveOrCwd(cwd));
   const acc = accessor ?? (await getTaskAccessor(completionRoot));
@@ -624,10 +634,21 @@ export async function completeTask(
     // here persist if a later check below refuses (see complete-ci.ts).
     let verification: TaskVerification = task.verification;
     const { satisfyGatesFromMergedCi } = await import('./complete-ci.js');
+    // T13637: with `cleo done --pr <n>`, derive the change set through that PR
+    // as the plan did, so plan and completion judge the same carrier.
+    const derived =
+      options.prNumber === undefined
+        ? undefined
+        : await (await import('./change-set.js')).deriveTaskChangeSet({
+            task,
+            storeRoot: completionRoot,
+            prNumber: options.prNumber,
+          });
     const mergedCi = await satisfyGatesFromMergedCi(
       task,
       completionRoot,
       enforcement.verificationRequiredGates,
+      derived ? { merge: { derived } } : {},
     );
     if (mergedCi.kind === 'wait-for-ci' || mergedCi.kind === 'ci-red') {
       // @sync-invariant none:local-only completion-time evidence gate on the local verification record; nothing is written
@@ -640,7 +661,7 @@ export async function completeTask(
           fix:
             mergedCi.kind === 'wait-for-ci'
               ? `Wait for the PR's required CI to finish on the merge commit, then re-run 'cleo complete ${options.taskId}'. Do not run the test suite locally — merged CI is the evidence.`
-              : `Merged CI concluded without proving the gates: fix CI (re-run or fix the red/skipped required check), or record a full local run: cleo verify ${options.taskId} --gate testsPassed --evidence "tool:test" and --gate qaPassed --evidence "tool:lint;tool:typecheck".`,
+              : `Merged CI concluded without proving the gates: fix CI (re-run or fix the red/skipped required check), or, on the default branch after the merge, run the change's tests and record them: cleo verify ${options.taskId} --gate testsPassed --evidence "test-run:<vitest json>" (it must cover every file of the change, T13623), plus --gate qaPassed --evidence "qa-run:<typecheck receipt>;qa-run:<lint receipt>".`,
         },
       );
     }
@@ -909,23 +930,35 @@ export async function completeTask(
   const autoCompleted: string[] = [];
   const autoCompletedTasks: Task[] = [];
 
-  let typedExecution = capturedExecution;
-  let ownedTypedExecution: OperationExecutionContext | undefined;
+  // T13613: each typed task's revalidation owns a budget that starts when the
+  // revalidation does, sized like the verify that produced the result; one
+  // revalidation per task per completion. A caller-supplied execution keeps
+  // its own deadline. Cleared at the start of each transaction attempt.
+  const revalidated = new Set<string>();
   const validateTypedCompletion = async (
     candidate: Task,
     tx: TransactionAccessor,
   ): Promise<void> => {
+    if (revalidated.has(candidate.id)) return;
     const criteria = await tx.getAcRows(candidate.id);
     if (
       !(candidate.acceptance ?? []).some((item) => typeof item !== 'string') &&
       !criteria.some((row) => row.kind === 'evidence_bound')
     )
       return;
+    let owned: OperationExecutionContext | undefined;
+    let budgetMs = 0;
     try {
-      if (!typedExecution) {
+      let execution = capturedExecution;
+      if (!execution) {
         const info = readProjectInfoAtDirectorySync(completionRoot, join(completionRoot, '.cleo'));
         if (!info.projectId) throw new Error('Typed completion requires stable project identity');
-        ownedTypedExecution = createOperationExecutionContext(
+        budgetMs = typedGateAdmissionMs(
+          (candidate.acceptance ?? []).filter(
+            (item): item is AcceptanceGate => typeof item !== 'string',
+          ),
+        );
+        owned = createOperationExecutionContext(
           {
             projectId: info.projectId,
             projectRoot: completionRoot,
@@ -933,25 +966,32 @@ export async function completeTask(
             operation: 'tasks.complete',
             idempotencyKey: `${options.taskId}:${randomUUID()}`,
           },
-          { deadlineAt: admittedAt + 2000 },
+          { budgetMs },
         );
-        typedExecution = ownedTypedExecution;
+        execution = owned;
       }
-      typedExecution.assertActive();
+      execution.assertActive();
       await validateTaskGateCompletion(
         candidate,
         criteria,
-        {
-          projectRoot: completionRoot,
-          execution: typedExecution,
-        },
+        { projectRoot: completionRoot, execution },
         acc,
         { allowCachedGates: readAllowCachedGates(completionRoot) },
       );
-      typedExecution.assertActive();
+      execution.assertActive();
+      revalidated.add(candidate.id);
     } catch (error) {
       // Cancellation/deadline remains an operation failure, never a parent-rollup skip.
-      typedExecution?.assertActive();
+      capturedExecution?.assertActive();
+      if (owned?.signal.aborted)
+        // @sync-invariant none:input-shape a typed revalidation past its own budget is refused before the completion write; nothing is written
+        throw new CleoError(
+          ExitCode.GENERAL_ERROR,
+          `Typed requirement revalidation for ${candidate.id} did not finish within its ${budgetMs} ms budget (re-hashing the typed gates' inputs)`,
+          {
+            fix: `Retry \`cleo complete ${candidate.id}\`; if it times out again, the typed gates' inputs are too large to re-hash in that budget: raise the gates' timeoutMs (it sizes the budget) with \`cleo req replace\`.`,
+          },
+        );
       throw new CleoError(
         ExitCode.AC_COVERAGE_INCOMPLETE,
         `Typed requirements for ${candidate.id} cannot complete: ${error instanceof Error ? error.message : String(error)}`,
@@ -962,6 +1002,8 @@ export async function completeTask(
               : `Run explicit verification for ${candidate.id} against current requirement inputs.`,
         },
       );
+    } finally {
+      owned?.close();
     }
   };
 
@@ -977,6 +1019,15 @@ export async function completeTask(
     },
     async () =>
       withTaskWriteTransaction(acc, async (tx) => {
+        // A SQLITE_BUSY retry re-runs this callback in a new transaction: its
+        // revalidations and parent rollup must run again, never reuse a
+        // rolled-back attempt's.
+        revalidated.clear();
+        // T13614: so is the rollup a rolled-back attempt computed, and the
+        // task it mutated (status, stage, appended notes).
+        autoCompleted.length = 0;
+        autoCompletedTasks.length = 0;
+        task = structuredClone(initialTask);
         // ---- T10509/T10595: AC-coverage gate (load-bearing IVTR closure) ----
         //
         // The coverage rows are read after BEGIN IMMEDIATE has acquired the
@@ -1300,7 +1351,7 @@ export async function completeTask(
           await validateTypedCompletion(task, tx);
           for (const parentTask of autoCompletedTasks)
             await validateTypedCompletion(parentTask, tx);
-          typedExecution?.assertActive();
+          capturedExecution?.assertActive();
           await tx.upsertSingleTask(task);
           for (const parentTask of autoCompletedTasks) {
             await tx.upsertSingleTask(parentTask);
@@ -1316,13 +1367,13 @@ export async function completeTask(
             after: { title: task.title, previousStatus: before.status },
           });
 
-          typedExecution?.assertActive();
+          capturedExecution?.assertActive();
         };
-        if (typedExecution)
+        if (capturedExecution)
           await worktreeScope.run(
             captureProjectScope(completionRoot, {
               ...captureProjectScope(completionRoot, worktreeScope.getStore()),
-              execution: typedExecution,
+              execution: capturedExecution,
             }),
             commitTasks,
           );
@@ -1333,7 +1384,7 @@ export async function completeTask(
         // documents, so we return an empty object here — eventCount still
         // ticks to 1 on success, which is the signal the receipt needs.
         return {};
-      }).finally(() => ownedTypedExecution?.close()),
+      }),
   );
 
   // Compute newly unblocked tasks: dependents whose deps are now all satisfied
@@ -1379,7 +1430,17 @@ export async function completeTask(
     const { completeAgentWorktreeIntegration } = await import('../spawn/branch-lock.js');
     const integration = completeAgentWorktreeIntegration(options.taskId, projectRoot, {
       taskTitle: task.title,
+      evidence: taskEvidenceAtoms(task),
     });
+    // T13696: a kept worktree is never silent — something still needs its files.
+    if (integration.worktreeKept) {
+      const { warnWorktreeKept } = await import('../sentient/worktree-dispatch.js');
+      await warnWorktreeKept(
+        options.taskId,
+        integration.worktreeKept,
+        integration.error ?? integration.hint,
+      );
+    }
     // T12153 (GH #1223) — `nothingToIntegrate` is NOT a failure. Most tasks are
     // worked on a feature branch and merged by PR, so no `task/<id>` branch or
     // agent worktree ever existed, and there is nothing to merge. Reporting
@@ -1648,6 +1709,12 @@ export interface TaskCompleteEngineOptions {
    */
   waiveDependsReason?: string;
   /**
+   * The PR `cleo done --pr <n>` named.
+   * @see CompleteTaskOptions.prNumber
+   * @task T13637
+   */
+  prNumber?: number;
+  /**
    * Optimistic-concurrency guard (`--if-match`).
    * @see CompleteTaskOptions.expectedUpdatedAt
    * @task T12503
@@ -1690,6 +1757,7 @@ export async function taskComplete(
         cancelledChildWaiverReason: opts.cancelledChildWaiverReason,
         waiveDependsReason: opts.waiveDependsReason,
         expectedUpdatedAt: opts.expectedUpdatedAt,
+        ...(opts.prNumber !== undefined ? { prNumber: opts.prNumber } : {}),
       },
       projectRoot,
       accessor,

@@ -48,11 +48,12 @@ import {
   E_EPIC_EMPTY_LEAF_NO_EVIDENCE,
   E_EPIC_NOT_FOUND,
   E_EVIDENCE_INSUFFICIENT,
+  E_INVALID_STATE,
   E_RELEASE_PLAN_INVALID,
   ExitCode,
 } from '@cleocode/contracts/exit-codes.js';
 import { parseReleasePlan, RELEASE_PERSISTED_CHANNEL } from '@cleocode/contracts/release/plan.js';
-import { desc, eq } from 'drizzle-orm';
+import { desc, eq, notInArray } from 'drizzle-orm';
 
 import { parseChangesetDir } from '../changesets/index.js';
 import { WriterRegistry } from '../docs/writer-registry.js';
@@ -63,7 +64,9 @@ import { isSagaShape } from '../sagas/enforcement.js';
 import { resolveSagaMemberIds } from '../sagas/storage.js';
 import { atomicWrite } from '../store/atomic.js';
 import { getTaskAccessor } from '../store/data-accessor.js';
+import { RELEASE_STATUSES } from '../store/schema/provenance/releases.js';
 import { getDb } from '../store/sqlite.js';
+import { RELEASE_ABSORBING_STATUSES } from '../store/sync/merge/rules.js';
 import {
   type NewReleaseChangesetRow,
   type NewReleaseRow,
@@ -79,6 +82,7 @@ import {
 } from '../tasks/verification-policy.js';
 import { aggregateChangesetsForRelease } from './changesets-aggregator.js';
 import { runGitWithLockRetry } from './engine-ops.js';
+import { appendHooksV1Waiver, hooksV1GateSourceChanges } from './hooks-v1-promotion.js';
 import { loadReleaseConfig } from './release-config.js';
 import { normalizeVersion } from './version.js';
 
@@ -139,6 +143,11 @@ export interface ReleasePlanOptions {
   hotfix?: boolean;
   /** Require retained pilot evidence for this hooks-v1 stable promotion. */
   hooksV1Promotion?: boolean;
+  /**
+   * Reason to ship a source change that opens the hooks-v1 gate without the
+   * promotion (T13555). Recorded in the plan and `.cleo/audit/hooks-v1-waiver.jsonl`.
+   */
+  hooksV1Waiver?: string;
   /** Dry-run flag — equivalent to `CLEO_DRY_RUN=1`. Reads only; no writes. */
   dryRun?: boolean;
   /**
@@ -1445,8 +1454,30 @@ async function upsertReleasesRow(
         plannedAt: row.plannedAt,
         projectHash: row.projectHash,
       },
+      // T13619: the shipped check above is read-then-write; a peer's shipped
+      // status applied in between must still never be moved back to planned.
+      setWhere: notInArray(
+        releases.status,
+        RELEASE_STATUSES.filter((s) => RELEASE_ABSORBING_STATUSES.includes(s)),
+      ),
     })
     .run();
+}
+
+/**
+ * The status of `version`'s release row when it has shipped (a status the
+ * sync merge never takes back, T12943), else null.
+ *
+ * @internal
+ */
+async function shippedReleaseStatus(projectRoot: string, version: string): Promise<string | null> {
+  const db = await getDb(projectRoot);
+  const row = await db
+    .select({ status: releases.status })
+    .from(releases)
+    .where(eq(releases.version, version))
+    .get();
+  return row && RELEASE_ABSORBING_STATUSES.includes(row.status) ? row.status : null;
 }
 
 // ---------------------------------------------------------------------------
@@ -1617,6 +1648,21 @@ export async function releasePlan(
 
   // ── R-022: channel + scheme compatibility ─────────────────────────────
   const normalizedVersion = normalizeVersion(opts.version);
+  // T13619: a shipped version is immutable. Re-planning it would reset its
+  // status to 'planned' locally while every synced peer keeps it shipped
+  // (release.status.absorbing), so refuse before anything is written.
+  const shipped = await shippedReleaseStatus(projectRoot, normalizedVersion);
+  if (shipped !== null) {
+    return engineError<ReleasePlanResult>(
+      E_INVALID_STATE,
+      `Release ${normalizedVersion} has already shipped (status '${shipped}'); a shipped version is immutable and cannot be re-planned`,
+      {
+        exitCode: ExitCode.VALIDATION_ERROR,
+        fix: 'plan a new version instead (the next calver or semver number)',
+        details: { version: normalizedVersion, currentStatus: shipped },
+      },
+    );
+  }
   const channelCheck = validateChannelScheme(channel, scheme, normalizedVersion);
   if (!channelCheck.ok) {
     return engineError<ReleasePlanResult>(E_CHANNEL_MISMATCH, channelCheck.reason, {
@@ -1839,6 +1885,28 @@ export async function releasePlan(
   const dbChannel = mapPlanChannelToDbChannel(channel, releaseKind);
   const prior = await resolvePreviousVersion(dbChannel, projectRoot, normalizedVersion);
 
+  // ── T13555: a stable plan that opens the hooks-v1 gate by source ──────
+  // needs the promotion (and its pilot evidence) or an audited waiver.
+  const hooksV1Waiver = opts.hooksV1Waiver?.trim() || undefined;
+  const hooksGateChanges =
+    channel === 'latest' &&
+    releaseKind !== 'hotfix' &&
+    opts.hooksV1Promotion !== true &&
+    prior.previousTag
+      ? hooksV1GateSourceChanges(projectRoot, prior.previousTag)
+      : [];
+  if (hooksGateChanges.length > 0 && hooksV1Waiver === undefined) {
+    return engineError<ReleasePlanResult>(
+      'E_HOOKS_V1_PROMOTION_REQUIRED',
+      `This release opens the hooks-v1 gate by source since ${prior.previousTag}: ${hooksGateChanges.join('; ')}`,
+      {
+        exitCode: ExitCode.VALIDATION_ERROR,
+        fix: 'plan it as the promotion with --hooks-v1-promotion (pilot evidence required), or pass --hooks-v1-waiver "<reason>" (audited)',
+        details: { previousTag: prior.previousTag, changes: hooksGateChanges },
+      },
+    );
+  }
+
   // ── R-024 / R-311: gate resolution via ADR-061 ────────────────────────
   const createdAt = new Date().toISOString();
   const { gates, unresolved } = resolveGatesViaToolResolver(projectRoot, createdAt);
@@ -1908,6 +1976,7 @@ export async function releasePlan(
     epicId: resolvedEpicId,
     releaseKind,
     hooksV1Promotion: opts.hooksV1Promotion === true,
+    ...(hooksGateChanges.length > 0 ? { hooksV1Waiver } : {}),
     createdAt,
     createdBy: opts.createdBy ?? process.env['USER'] ?? 'cleo-agent',
     previousVersion: prior.previousVersion,
@@ -1965,6 +2034,14 @@ export async function releasePlan(
     // In dry-run mode, compute the path but DO NOT touch the filesystem or DB.
     planPath = join(resolveCleoDir(projectRoot), 'release', `${plan.resolvedVersion}.plan.json`);
   } else {
+    if (hooksGateChanges.length > 0 && hooksV1Waiver !== undefined && prior.previousTag)
+      appendHooksV1Waiver({
+        projectRoot,
+        version: plan.resolvedVersion,
+        previousTag: prior.previousTag,
+        reason: hooksV1Waiver,
+        changes: hooksGateChanges,
+      });
     planPath = writePlanFile(plan, projectRoot);
     await upsertReleasesRow(plan, dbChannel, projectRoot);
     // T9753: persist parsed changeset entries linked to the release row.

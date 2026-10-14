@@ -6,6 +6,7 @@
  */
 
 import * as fs from 'node:fs';
+import * as path from 'node:path';
 import { ExitCode } from '@cleocode/contracts/exit-codes.js';
 import lockfile from 'proper-lockfile';
 import { CleoError } from '../errors.js';
@@ -165,6 +166,51 @@ export async function withLock<T>(
     return await fn();
   } finally {
     await release();
+  }
+}
+
+/**
+ * Run `fn` holding an exclusive cross-process lock on `filePath`, without
+ * yielding: for read-modify-write of a small file from synchronous code (a
+ * store open). Waits up to `waitMs` for another holder; a lock whose holder
+ * stopped refreshing it for `stale` ms is taken over. The file need not exist.
+ *
+ * @param filePath - The file to lock (the lock is `<filePath>.lock`).
+ * @param fn - Runs while the lock is held; the lock is released when it returns or throws.
+ * @param options - Wait budget and stale age.
+ * @returns What `fn` returns.
+ *
+ * @task T12908
+ */
+export function withLockSync<T>(
+  filePath: string,
+  fn: () => T,
+  options: { waitMs?: number; stale?: number; label?: string } = {},
+): T {
+  fs.mkdirSync(path.dirname(filePath), { recursive: true });
+  const deadline = Date.now() + (options.waitMs ?? 15_000);
+  let release: () => void;
+  for (;;) {
+    try {
+      release = lockfile.lockSync(filePath, {
+        realpath: false,
+        stale: options.stale ?? DEFAULT_LOCK_OPTIONS.stale,
+      });
+      break;
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code !== 'ELOCKED' || Date.now() > deadline) {
+        // @sync-invariant none:local-only a machine-local file lock was not acquired; nothing was written
+        throw new Error(
+          `cannot lock ${options.label ?? filePath}: ${err instanceof Error ? err.message : String(err)}`,
+        );
+      }
+      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 25);
+    }
+  }
+  try {
+    return fn();
+  } finally {
+    release();
   }
 }
 

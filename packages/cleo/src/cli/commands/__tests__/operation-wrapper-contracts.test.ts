@@ -31,7 +31,9 @@ describe('T10614 docs/relations/context operation wrapper contracts', () => {
   it('keeps canonical docs attachment verbs routed through docs operations', () => {
     const source = readCommand('docs');
 
-    for (const operation of ['add', 'list', 'fetch', 'remove', 'generate', 'update']) {
+    // T13361: 'generate' retired from the CLI surface (replaced by docs llm-output);
+    // the docs.generate operation remains for internal callers (writer-registry).
+    for (const operation of ['add', 'list', 'fetch', 'remove', 'update']) {
       expect(source).toContain(`'docs',\n      '${operation}'`);
     }
     expect(source).toContain("resolveOperation('mutate', 'docs', 'update')");

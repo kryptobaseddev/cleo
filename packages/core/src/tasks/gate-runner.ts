@@ -56,6 +56,7 @@ import type {
 import type {
   AcceptanceGateArtifact,
   AcceptanceGateBinding,
+  AcceptanceGateCacheInputs,
   AcceptanceGateInvocation,
   AcceptanceGateRunOptions,
   AcceptanceGateTreeBinding,
@@ -71,10 +72,15 @@ import type {
   ProcessCaptureOptions,
   ProcessCaptureResult,
 } from '@cleocode/contracts/resource-governor';
-import { gitToplevel } from '../git/work-tree.js';
+import { gitToplevel, resolveDeclaredEvidenceGitRoot } from '../git/work-tree.js';
 import { getProjectRoot } from '../paths.js';
 import { captureProjectScope, worktreeScope } from '../project-scope.js';
 import { truncateString } from '../render/helpers.js';
+import {
+  ADMISSION_ENV,
+  footprintForClass,
+  planRunFootprint,
+} from '../resources/admission-ledger.js';
 import { captureWrapped } from '../resources/spawn-wrapper.js';
 import { createAttachmentStore } from '../store/attachment-store.js';
 import { registerTeardownAbort } from '../teardown-signal.js';
@@ -84,6 +90,7 @@ import { resolveCanonicalProjectRoot } from './evidence.js';
 import {
   buildGateCacheEntryBody,
   captureGateCacheState,
+  describeGateCacheMiss,
   evidenceCacheKeyPath,
   type GateCacheState,
   gateCacheEntryPath,
@@ -92,6 +99,7 @@ import {
 } from './gate-result-cache.js';
 import { heavyToolEnv } from './heavy-tool-env.js';
 import { resolveSpawnTimeoutMs } from './tool-cache.js';
+import { acquireGlobalSlot } from './tool-semaphore.js';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -274,8 +282,9 @@ function writeExecutedGatePass(
   inputsHash: string,
   observed: AcceptanceGateResult,
   key: Buffer,
+  inputs?: AcceptanceGateCacheInputs,
 ): void {
-  const body = buildGateCacheEntryBody(gate, state, inputsHash, observed);
+  const body = buildGateCacheEntryBody(gate, state, inputsHash, observed, inputs);
   if (!body) return;
   try {
     const path = gateCacheEntryPath(projectRoot, gate, state, inputsHash);
@@ -321,12 +330,33 @@ export async function captureGateInputsHash(
   execution: OperationExecutionContext,
   env: NodeJS.ProcessEnv = process.env,
 ): Promise<string> {
+  return (await captureGateInputs(task, gate, execution, env)).hash;
+}
+
+/**
+ * {@link captureGateInputsHash} with the parts behind the digest, which a
+ * stored pass keeps so a later miss can say what moved (T13693).
+ *
+ * @param task - Task that owns the gate; its `files` are verifier inputs.
+ * @param gate - Gate whose invocation and inputs are captured.
+ * @param execution - Admitted lifetime whose project root scopes the capture.
+ * @param env - Environment the gate will launch with.
+ * @returns The digest and its parts.
+ * @task T13693
+ */
+export async function captureGateInputs(
+  task: Task,
+  gate: AcceptanceGate,
+  execution: OperationExecutionContext,
+  env: NodeJS.ProcessEnv = process.env,
+): Promise<{ hash: string; inputs: AcceptanceGateCacheInputs }> {
   const tree = resolveTypedGateRoot(resolve(execution.identity.projectRoot));
   const invocation = executableInvocation(gate, tree, { ...env });
-  return gateInputsHash(
-    invocation,
-    await snapshotGateInputs(task, gate, invocation, execution, tree),
-  );
+  const artifacts = await snapshotGateInputs(task, gate, invocation, execution, tree);
+  return {
+    hash: gateInputsHash(invocation, artifacts),
+    inputs: { environmentHash: invocation?.environmentHash ?? null, artifacts },
+  };
 }
 
 /**
@@ -349,14 +379,24 @@ export async function captureGateInputsHash(
  * carried to another tree by content (tracked inputs must hash identically and
  * the recorded HEAD must be merged there).
  *
+ * T13649: the evidence declaration (`CLEO_EVIDENCE_GIT_ROOT`, `GIT_WORK_TREE`
+ * or `evidence.gitRoot`) is consulted first, as `resolveEvidenceExecutionRoot`
+ * does for evidence tools. Without it, a run whose cwd had been moved to the
+ * store root keyed the gate cache to the primary checkout's HEAD even when the
+ * caller named its worktree. A declared tree is honoured only when it is this
+ * project's checkout or one of its linked worktrees, like the cwd.
+ *
  * @param projectRoot - CLEO store root (the typed gate's authority).
  * @param cwd - Invocation directory. Defaults to `process.cwd()`.
+ * @param env - Where the evidence declaration is read. Defaults to `process.env`.
  * @returns The realpath of the tree typed gates execute in.
  * @task T12625
+ * @task T13649
  */
 export function resolveTypedGateRoot(
   projectRoot: string,
   cwd: string = process.cwd(), // CWD-OK: the invocation tree is the subject (gh#1220)
+  env: NodeJS.ProcessEnv = process.env,
 ): string {
   const real = (p: string): string => {
     try {
@@ -366,9 +406,15 @@ export function resolveTypedGateRoot(
     }
   };
   const root = real(projectRoot);
-  const top = gitToplevel(cwd);
-  if (top === null || real(top) === root) return projectRoot;
-  return real(resolveCanonicalProjectRoot(top)) === root ? real(top) : projectRoot;
+  const ofThisProject = (top: string | null): string | null =>
+    top !== null && real(top) !== root && real(resolveCanonicalProjectRoot(top)) === root
+      ? real(top)
+      : null;
+  const declared = resolveDeclaredEvidenceGitRoot(projectRoot, env);
+  const declaredTop = declared ? gitToplevel(declared.path) : null;
+  // A declaration naming the store root itself is honoured as such.
+  if (declaredTop !== null && real(declaredTop) === root) return projectRoot;
+  return ofThisProject(declaredTop) ?? ofThisProject(gitToplevel(cwd)) ?? projectRoot;
 }
 
 /**
@@ -500,8 +546,22 @@ export async function runGates(
                   'It was not used. Run `cleo verify <taskId> --run` (a pass replaces the entry), or pass --run-typed on this write',
               );
           }
-          if (cacheMode === 'only' && TOOL_GATE_KINDS.has(parsed.kind))
-            throw new Error(gateNotCachedMessage(parsed, cacheState !== null, cacheKey !== null));
+          if (cacheMode === 'only' && TOOL_GATE_KINDS.has(parsed.kind)) {
+            // T13693: say which key part moved since the last stored pass.
+            const why =
+              cacheState && cacheKey
+                ? describeGateCacheMiss(
+                    projectRoot,
+                    parsed,
+                    cacheState,
+                    cacheInputsHash!,
+                    options.cacheInputs,
+                  )
+                : null;
+            throw new Error(
+              `${gateNotCachedMessage(parsed, cacheState !== null, cacheKey !== null)}${why ? ` ${why}` : ''}`,
+            );
+          }
           const observed: AcceptanceGateResult = {
             ...(await runOneGate(
               parsed,
@@ -521,6 +581,7 @@ export async function runGates(
               cacheInputsHash!,
               observed,
               cacheKey,
+              options.cacheInputs,
             );
           results.push(observed);
         } catch (error) {
@@ -816,7 +877,13 @@ export async function runTaskGates(
               env,
               execution,
               ...(options.cache && options.cache !== 'off'
-                ? { cacheInputsHash: gateInputsHash(invocation, artifacts) }
+                ? {
+                    cacheInputsHash: gateInputsHash(invocation, artifacts),
+                    cacheInputs: {
+                      environmentHash: invocation?.environmentHash ?? null,
+                      artifacts,
+                    },
+                  }
                 : {}),
             })
           )[0]!;
@@ -1262,41 +1329,116 @@ async function packageStoreRealPath(root: string, path: string): Promise<string>
 const BUN_SUBCOMMANDS: ReadonlySet<string> = new Set(['test', 'run', 'x', 'exec', 'build']);
 
 /**
- * The script an interpreter invocation runs, and the argument indexes that are
- * never inputs (T13566). The first positional argument is the script —
- * `node a.js`, `bun a.ts` — except where bun names a subcommand: `bun test
- * a.test.ts b.test.ts` and `bun run file.ts` have no implicit script (the
- * named files are captured as file-like arguments), and the package that
- * `bun x <pkg>` / `bunx <pkg>` runs is not a file of this project.
+ * bun options whose value names a file that changes what the gate runs (a
+ * preload, env file, bunfig, tsconfig): never the script, but captured as an
+ * input when it names an existing file, so editing it invalidates a cached
+ * pass (T13574 review).
+ */
+const BUN_FILE_FLAGS: ReadonlySet<string> = new Set([
+  '-c',
+  '--config',
+  '-r',
+  '--preload',
+  '--env-file',
+  '--tsconfig-override',
+]);
+
+/** bun options whose next argument is their value, never a script or a positional (T13574). */
+const BUN_VALUE_FLAGS: ReadonlySet<string> = new Set([...BUN_FILE_FLAGS, '--cwd']);
+
+/** Flags that make an interpreter evaluate inline code, so it runs no script file. */
+function evalFlags(command: string): readonly string[] {
+  // bun's `-c` is `--config` (T13574); for python, bash and sh it is inline code.
+  return command === 'bun' || command === 'bunx'
+    ? ['-e', '--eval', '-p', '--print']
+    : ['-e', '--eval', '-c', '--print', '-p'];
+}
+
+/**
+ * The script an interpreter invocation runs, the argument indexes that are
+ * never inputs, and the directory its file arguments resolve from (T13566,
+ * T13574). The first positional argument is the script — `node a.js` — with
+ * bun's exceptions:
+ *  - a subcommand (`bun test a.test.ts b.test.ts`, `bun run file.ts`) leaves no
+ *    implicit script; the named files are captured as file-like arguments, and
+ *    the package `bun x <pkg>` / `bunx <pkg>` runs is not a project file;
+ *  - otherwise the first positional is the script only when it is an existing
+ *    regular file (`bun a.ts`); any other word (`install`, `add`, `pm`,
+ *    `create`, …) is a subcommand whose arguments name packages, not inputs;
+ *  - the values of bun's value flags (`-c bunfig.toml`, `--cwd dir`) are never
+ *    the script; a file flag's value (`--preload ./setup.ts`, `--env-file`,
+ *    `-c`, `--tsconfig-override`) is returned as an input when it names an
+ *    existing regular file, and `--cwd` moves where file arguments resolve.
  *
  * @param command - Basename of the interpreter.
  * @param args - Its arguments.
- * @returns The implicit script, if any, and the indexes to leave out.
+ * @param cwd - The invocation's working directory.
+ * @returns The implicit script, the indexes to leave out, the resolution base,
+ *   and the absolute paths of files named by bun's file flags.
  */
-function interpreterScript(
+async function interpreterScript(
   command: string,
   args: readonly string[],
-): { script: string | undefined; notInputs: ReadonlySet<number> } {
-  const positional = args.flatMap((arg, index) => (arg.startsWith('-') ? [] : [index]));
+  cwd: string,
+): Promise<{
+  script: string | undefined;
+  notInputs: ReadonlySet<number>;
+  base: string;
+  flagFiles: readonly string[];
+}> {
+  const bun = command === 'bun' || command === 'bunx';
+  const notInputs = new Set<number>();
+  let base = cwd;
+  const flagValues: string[] = [];
+  if (bun) {
+    args.forEach((arg, index) => {
+      const eq = arg.indexOf('=');
+      const flag = arg.startsWith('--') && eq > 0 ? arg.slice(0, eq) : arg;
+      const inline = flag === arg ? undefined : arg.slice(eq + 1);
+      if (!BUN_VALUE_FLAGS.has(flag)) return;
+      const value = inline ?? args[index + 1];
+      if (value === undefined) return;
+      if (inline === undefined) notInputs.add(index + 1);
+      if (flag === '--cwd') base = resolve(cwd, value);
+      else flagValues.push(value);
+    });
+  }
+  const regularFile = (path: string): Promise<boolean> =>
+    stat(path).then(
+      (st) => st.isFile(),
+      () => false,
+    );
+  const flagFiles: string[] = [];
+  for (const value of flagValues) {
+    const path = resolve(base, value);
+    if (await regularFile(path)) flagFiles.push(path);
+  }
+  const positional = args.flatMap((arg, index) =>
+    arg.startsWith('-') || notInputs.has(index) ? [] : [index],
+  );
   const word = (n: number): string | undefined => {
     const index = positional[n];
     return index === undefined ? undefined : args[index];
   };
-  const notInputs = new Set<number>();
   const exclude = (n: number): void => {
     const index = positional[n];
     if (index !== undefined) notInputs.add(index);
   };
   if (command === 'bunx') {
     exclude(0);
-    return { script: undefined, notInputs };
+    return { script: undefined, notInputs, base, flagFiles };
   }
-  if (command === 'bun' && BUN_SUBCOMMANDS.has(word(0) ?? '')) {
+  if (command !== 'bun') return { script: word(0), notInputs, base, flagFiles };
+  const first = word(0);
+  if (first !== undefined && BUN_SUBCOMMANDS.has(first)) {
     exclude(0);
-    if (word(0) === 'x') exclude(1);
-    return { script: undefined, notInputs };
+    if (first === 'x') exclude(1);
+    return { script: undefined, notInputs, base, flagFiles };
   }
-  return { script: word(0), notInputs };
+  if (first !== undefined && (await regularFile(resolve(base, first))))
+    return { script: first, notInputs, base, flagFiles };
+  for (const index of positional) notInputs.add(index);
+  return { script: undefined, notInputs, base, flagFiles };
 }
 
 /** Capture declared task inputs and an interpreter's explicit harness argument. */
@@ -1317,6 +1459,9 @@ async function snapshotGateInputs(
       throw new Error('Typed invocation working directory has ambiguous symlink ownership');
   }
   const paths = new Set((task.files ?? []).map((path) => resolve(root, path)));
+  // T13690: a declared task file is a literal path; `app/[id]/page.tsx` is a
+  // Next.js route, not a glob. Only paths from other sources are refused.
+  const literal = new Set(paths);
   if (gate.kind === 'file' && gate.path) paths.add(resolve(root, gate.path));
   if (
     invocation &&
@@ -1324,20 +1469,23 @@ async function snapshotGateInputs(
       basename(invocation.command),
     )
   ) {
-    if (!invocation.args.some((arg) => ['-e', '--eval', '-c', '--print', '-p'].includes(arg))) {
+    const command = basename(invocation.command);
+    if (!invocation.args.some((arg) => evalFlags(command).includes(arg))) {
       const scripts: string[] = [];
-      const { script, notInputs } = interpreterScript(
-        basename(invocation.command),
+      const { script, notInputs, base, flagFiles } = await interpreterScript(
+        command,
         invocation.args,
+        invocation.cwd,
       );
-      if (script) scripts.push(resolve(invocation.cwd, script));
+      if (script) scripts.push(resolve(base, script));
+      scripts.push(...flagFiles);
       invocation.args.forEach((arg, index) => {
         if (
           !notInputs.has(index) &&
           !arg.startsWith('-') &&
           (arg.includes('/') || /\.(?:[cm]?[jt]sx?|py|sh|rb|pl)$/.test(arg))
         )
-          scripts.push(resolve(invocation.cwd, arg));
+          scripts.push(resolve(base, arg));
       });
       for (const path of scripts) paths.add(await packageStoreRealPath(root, path));
     }
@@ -1346,7 +1494,8 @@ async function snapshotGateInputs(
   for (const path of [...paths].sort()) {
     execution.assertActive();
     execution.consume({ items: 1 });
-    if (/[?*[\]{}]/.test(path))
+    const globLike = /[?*[\]{}]/.test(path);
+    if (!literal.has(path) && globLike)
       throw new Error(`Typed input requires an explicit file path: ${path}`);
     const rel = relative(root, path);
     if (!rel || rel === '..' || rel.startsWith('../') || isAbsolute(rel))
@@ -1369,6 +1518,13 @@ async function snapshotGateInputs(
       before = await lstat(path);
     } catch (error) {
       if (error instanceof Error && 'code' in error && error.code === 'ENOENT') {
+        // T13691: an absent glob-looking entry is a pattern written by mistake
+        // (task.files are literal); recorded absent, its hash would never move.
+        if (globLike)
+          // @sync-invariant none:input-shape a declared task path that is a mistaken glob is refused before the gate runs; nothing is written
+          throw new Error(
+            `declared task file ${relative(root, path)} does not exist; list explicit paths, task.files are literal`,
+          );
         artifacts.push({ path, sha256: null, bytes: null });
         continue;
       }
@@ -1456,25 +1612,49 @@ async function runOneGate(
 
 // ─── Test gate ────────────────────────────────────────────────────────────────
 
-/** Execute a process gate through the existing captured resource service. */
+/**
+ * Execute a process gate through the existing captured resource service,
+ * admitted first through the machine-wide ledger (T13573).
+ *
+ * A typed gate is charged what `cleo run` would charge the same command
+ * ({@link planRunFootprint} for its class) and waits on the same ledger and
+ * pressure predicate as `cleo run` and `tool:` evidence, so a gate cannot run
+ * while the budget is full. The wait ends {@link TYPED_GATE_BOOKKEEPING_MS}
+ * before the shared deadline, so a refusal (the admission's own error, naming
+ * the holders) is recorded as the gate's result. The child inherits the admission
+ * token, so a governed command it starts is not charged twice.
+ */
 async function captureGateCommand(
   command: string,
   args: readonly string[],
   cwd: string,
   timeoutMs: number,
+  cls: 'test-run' | 'scoped-build',
   context: ProcessCaptureOptions,
   overlay?: Readonly<Record<string, string>>,
 ): Promise<ProcessCaptureResult> {
   const env = gateEnvironment(context.env ?? process.env, overlay);
-  return captureWrapped(command, args, {
-    ...context,
-    cwd,
-    env,
-    execution: {
-      ...context.execution,
-      deadlineAt: Math.min(context.execution.deadlineAt, Date.now() + timeoutMs),
-    },
+  const footprintBytes =
+    planRunFootprint(cls, [command, ...args], env).footprintBytes ?? footprintForClass(cls);
+  const release = await acquireGlobalSlot(cls === 'test-run' ? 'test' : 'lint', {
+    label: `gate:${cls === 'test-run' ? 'test' : 'command'}`,
+    footprintBytes,
+    // End the wait while the bookkeeping budget remains, so the refusal is recorded.
+    timeoutMs: Math.max(0, context.execution.deadlineAt - Date.now() - TYPED_GATE_BOOKKEEPING_MS),
   });
+  try {
+    return await captureWrapped(command, args, {
+      ...context,
+      cwd,
+      env: release.admission ? { ...env, [ADMISSION_ENV]: release.admission } : env,
+      execution: {
+        ...context.execution,
+        deadlineAt: Math.min(context.execution.deadlineAt, Date.now() + timeoutMs),
+      },
+    });
+  } finally {
+    await release();
+  }
 }
 
 /** Preserve target failure independently from launch, cancellation and cleanup failures. */
@@ -1660,6 +1840,7 @@ async function runTestGate(
     invocation.args,
     invocation.cwd,
     timeoutMs,
+    'test-run',
     context,
     gate.env,
   );
@@ -1908,6 +2089,7 @@ async function runCommandGate(
     invocation.args,
     invocation.cwd,
     timeoutMs,
+    'scoped-build',
     context,
     gate.env,
   );
@@ -1954,6 +2136,7 @@ async function runLintGate(
     invocation.args,
     invocation.cwd,
     timeoutMs,
+    'scoped-build',
     context,
   );
   const passed =

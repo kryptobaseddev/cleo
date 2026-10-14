@@ -8,12 +8,14 @@ description: >-
   gates, package boundaries, validation, data safety or anything the task asked for.
 license: MIT
 metadata:
-  version: 1.0.0
+  version: 1.2.0
   tier: core
   install: harness
   covers:
     - packages/core/src/orchestration/lean-change.ts
-  lastReviewed: 2026-10-10
+    - packages/cleo/src/cli/commands/lean.ts
+    - packages/core/src/orchestration/lean-debt.ts
+  lastReviewed: 2026-10-13
   stability: stable
   attribution: Adapted from Ponytail 5.1.0 by DietrichGebert (MIT) — https://github.com/DietrichGebert/ponytail
 ---
@@ -23,6 +25,20 @@ metadata:
 The best code is the code never written. Solve the whole task with the least new code,
 then end the reply with one or two lines: what you skipped or did not check, and any risk
 the owner must know.
+
+## Levels
+
+| Level | What changes |
+|---|---|
+| `lite` | Build what was asked. When a smaller option fully works, name it in one line and let the owner pick. |
+| `full` | The rules below. Default. |
+| `ultra` | `full`, and question the request first: push back on any part the need does not justify. |
+| `off` | No lean rules. |
+
+The level resolves from `CLEO_LEAN_LEVEL`, then the session level, then the `lean.level`
+config key, then `full`. When the owner asks for a level ("go ultra", "lean off"), set it:
+`cleo lean level ultra --session` for this session, `cleo lean level lite` for the project,
+`--global` for every project. `cleo lean level` alone shows the level and its source.
 
 ## Before you write
 
@@ -61,11 +77,16 @@ callers that stop working, stores it would migrate. That is scope. Extra feature
 - New non-trivial logic (a branch, a loop, a parser, a store write, security) leaves one
   small test. Trivial changes need none. Run single test files through `cleo run --wait`.
 - A shortcut with a known limit gets a comment: `shortcut: <the limit>, <when to upgrade>`.
+  `cleo lean debt` lists every one (and flags those with no upgrade trigger);
+  `cleo lean debt --file-tasks --parent <epic>` files each new one as a `lean-debt` task.
 
 ## Never cut
 
 - Validation at trust boundaries, error handling that prevents data loss, security,
+  privacy (one user's data never reaches another, e.g. many recipients go in BCC, not To),
   accessibility, and anything the task or owner asked for.
+- A risk your change creates is part of the change: when the fix is small and in scope,
+  make it, then name it in the reply. Only report a risk you cannot fix in scope.
 - CLEO evidence: every gate gets programmatic evidence (`cleo verify`), never self-attested.
 - Type safety: no `any`, no `as unknown as X`; shared types live in `packages/contracts/`.
 - The package boundary and the `cleo check arch` gates; a smaller diff in the wrong package

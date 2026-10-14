@@ -28,6 +28,7 @@
  * @task T12535
  */
 
+import { createHash } from 'node:crypto';
 import {
   copyFileSync,
   existsSync,
@@ -39,6 +40,7 @@ import {
   statSync,
   writeFileSync,
 } from 'node:fs';
+import { readFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 
 /**
@@ -333,4 +335,167 @@ export function isTombstoned(cleoDir: string, sha256: string): boolean {
 export function unpinBlob(cleoDir: string, sha256: string): void {
   rmSync(keepPath(cleoDir, sha256), { force: true });
   rmSync(`${keepPath(cleoDir, sha256)}.tomb`, { force: true });
+}
+
+/**
+ * True when `target` exists AND its bytes re-hash to `sha256` (T13657).
+ *
+ * Existence alone is never proof that a content-addressed file holds the
+ * bytes its name claims: a truncated leftover from an interrupted
+ * pre-atomic write must be replaced from verified bytes, not trusted. Any
+ * read failure (absent, unreadable) returns false.
+ *
+ * @param target - Absolute path of the content-addressed file.
+ * @param sha256 - Lowercase hex SHA-256 the bytes must match.
+ */
+export function fileBytesMatchSha256(target: string, sha256: string): boolean {
+  try {
+    return createHash('sha256').update(readFileSync(target)).digest('hex') === sha256;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Locate the on-disk source of a sha's legacy bytes for the blob-store
+ * backfill (T13653). Tries, in order:
+ *
+ *   1. the primary legacy path (`.cleo/attachments/sha256/<2>/<62><ext>`,
+ *      extension from the row's mime);
+ *   2. ANY file in the sha's prefix directory whose stem equals the sha's
+ *      remaining 62 chars (the recorded mime may disagree with the extension
+ *      a historical writer used);
+ *   3. a live keep-link (`.cleo/attachments/keep/<2>/<62>` — not tombstoned).
+ *
+ * Returns the first existing candidate, or null when the bytes are gone.
+ * Read-only — verification happens in {@link backfillBlobStoreBytes}.
+ *
+ * @param cleoDir - Absolute `.cleo` directory.
+ * @param sha256 - Recorded content hash.
+ * @param mime - Recorded mime (picks the primary path's extension).
+ * @returns The first existing candidate path, or null.
+ * @internal
+ */
+export function resolveLegacyByteSource(
+  cleoDir: string,
+  sha256: string,
+  mime: string,
+): string | null {
+  const primary = blobFilePath(cleoDir, sha256, mime);
+  if (existsSync(primary)) return primary;
+
+  try {
+    for (const name of readdirSync(join(cleoDir, 'attachments', 'sha256', sha256.slice(0, 2)))) {
+      const stem = name.includes('.') ? name.slice(0, name.lastIndexOf('.')) : name;
+      if (stem === sha256.slice(2))
+        return join(cleoDir, 'attachments', 'sha256', sha256.slice(0, 2), name);
+    }
+  } catch {
+    /* prefix dir unreadable — fall through to the keep-link */
+  }
+
+  const keep = join(cleoDir, 'attachments', 'keep', sha256.slice(0, 2), sha256.slice(2));
+  if (existsSync(keep) && !existsSync(`${keep}.tomb`)) return keep;
+  return null;
+}
+
+/**
+ * Backfill outcome for one sha (T13653).
+ *
+ * - `written`   — bytes verified and mirrored into the blob store (also
+ *                 returned when a corrupt/truncated existing target was
+ *                 replaced from the verified source, T13654).
+ * - `present`   — blob-store file already existed AND re-hashes to the
+ *                 recorded sha (idempotent re-run; left untouched).
+ * - `unverified`— the source bytes' SHA-256 does not match the recorded hash;
+ *                 nothing was written (writing unverified bytes would poison
+ *                 the content-addressed store).
+ * - `unreadable`— the source could not be read; nothing was written.
+ */
+export type BlobBackfillOutcome = 'written' | 'present' | 'unverified' | 'unreadable';
+
+/**
+ * Mirror one sha's legacy bytes into the blob store (`.cleo/blobs/blobs/<sha>`).
+ *
+ * Hash-verified: the source bytes are SHA-256-hashed before any write and
+ * must equal the recorded sha256. Crash-safe (T13654): bytes are written to
+ * a tmp file and renamed into place — an interrupted write never leaves a
+ * truncated file at the final content address (which later runs would count
+ * as present and `blobReadBySha` would then reject as corrupt with no heal
+ * path). An existing target is RE-HASHED rather than assumed good: when its
+ * bytes mismatch the recorded hash (truncation/corruption), it is replaced
+ * from the verified source; a matching target is left untouched.
+ *
+ * @internal
+ */
+export async function backfillBlobStoreBytes(
+  cleoDir: string,
+  sha256: string,
+  sourcePath: string,
+): Promise<BlobBackfillOutcome> {
+  const target = join(cleoDir, 'blobs', 'blobs', sha256);
+
+  let bytes: Buffer;
+  try {
+    bytes = await readFile(sourcePath);
+  } catch {
+    return 'unreadable';
+  }
+  const actual = createHash('sha256').update(bytes).digest('hex');
+  if (actual !== sha256) return 'unverified';
+
+  if (fileBytesMatchSha256(target, sha256)) return 'present';
+
+  // Crash-safe via the shared atomic writer (T13657): a unique tmp file
+  // renamed into place — an interrupted write never leaves a truncated blob
+  // at the final content address (which later runs would count as present
+  // and `blobReadBySha` would then reject as corrupt with no heal path).
+  // Lazy: blob-keep loads on CLI paths that never write a blob (gate 39).
+  const { writeFileAtomic } = await import('../tools/fs.js');
+  await writeFileAtomic({ path: target, content: bytes });
+  return 'written';
+}
+
+/**
+ * Self-heal one blob-store miss from hash-verified legacy bytes (T13705).
+ *
+ * Docs written before the blob store held every body keep their bytes only in
+ * the legacy attachment tree, which the read paths no longer consult (#2210).
+ * When those bytes exist and hash to the recorded sha, they are mirrored into
+ * the blob store exactly as `cleo docs doctor --repair` would ({@link
+ * backfillBlobStoreBytes}: atomic write, only ever adds an absent content-addressed
+ * file), so the first read heals the doc. Missing or mismatched bytes write
+ * nothing.
+ *
+ * The read never fails on the write (T13706): on a read-only `.cleo`, a
+ * sandbox or a full disk the verified bytes are still returned, a warning is
+ * emitted, and the blob-store file is left for `cleo docs doctor --repair`.
+ *
+ * @param cleoDir - Absolute `.cleo` directory the blob store lives under.
+ * @param sha256 - The content hash the doc row records.
+ * @returns The hash-verified bytes, or null when no legacy bytes verify.
+ * @task T13705
+ */
+export async function healBlobFromLegacy(
+  cleoDir: string,
+  sha256: string,
+): Promise<Uint8Array | null> {
+  const source = resolveLegacyByteSource(cleoDir, sha256, 'application/octet-stream');
+  if (source === null) return null;
+  let bytes: Buffer;
+  try {
+    bytes = await readFile(source);
+  } catch {
+    return null;
+  }
+  if (createHash('sha256').update(bytes).digest('hex') !== sha256) return null;
+  try {
+    await backfillBlobStoreBytes(cleoDir, sha256, source);
+  } catch (err) {
+    process.emitWarning(
+      `blob store not healed for sha256 ${sha256.slice(0, 12)}… (${err instanceof Error ? err.message : String(err)}); ` +
+        'served the verified legacy bytes — run `cleo docs doctor --repair` once the store is writable',
+    );
+  }
+  return new Uint8Array(bytes);
 }

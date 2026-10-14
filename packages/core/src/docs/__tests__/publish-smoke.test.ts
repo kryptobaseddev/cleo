@@ -35,6 +35,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 vi.mock('../../store/blob-ops.js', () => ({
   blobList: vi.fn(),
   blobRead: vi.fn(),
+  blobReadBySha: vi.fn(),
 }));
 
 vi.mock('../../paths.js', async () => ({
@@ -291,6 +292,20 @@ describe('T13376: registered canonical worktree publication boundaries', () => {
       root,
       { slug, type: 'changeset' },
     );
+    // T13362: publish fallback bytes resolve from the blob store by content
+    // address — emulate the docs.add mirror (content-addressed file) and let
+    // the mocked blobReadBySha read it from disk.
+    const blobDir = join(root, '.cleo', 'blobs', 'blobs');
+    mkdirSync(blobDir, { recursive: true });
+    writeFileSync(join(blobDir, metadata.sha256), text);
+    vi.mocked(blobOps.blobReadBySha).mockReset();
+    vi.mocked(blobOps.blobReadBySha).mockImplementation(async (sha, dir) => {
+      try {
+        return new Uint8Array(readFileSync(join(dir, '.cleo', 'blobs', 'blobs', sha)));
+      } catch {
+        return null;
+      }
+    });
     try {
       for (const attachmentId of [metadata.id, metadata.sha256, slug, undefined]) {
         const result = await publishDocs({
@@ -379,11 +394,13 @@ describe('AC3: audit trail — publications ledger', () => {
 
   beforeEach(() => {
     root = newProjectRoot();
+    process.env['CLEO_DIR'] = join(root, '.cleo');
     vi.mocked(blobOps.blobRead).mockResolvedValue(new Uint8Array([97]));
     vi.mocked(blobOps.blobList).mockResolvedValue([blob('doc.md', 'sha-audit', 1000)]);
   });
 
   afterEach(() => {
+    delete process.env['CLEO_DIR'];
     try {
       rmSync(root, { recursive: true, force: true });
     } catch {
@@ -479,8 +496,14 @@ describe('AC3: audit trail — publications ledger', () => {
     expect(await listPublications({ projectRoot: root })).toHaveLength(3);
   });
 
-  it('readPublicationsLedger returns empty array for missing ledger', async () => {
-    expect(await readPublicationsLedger(join(root, 'nonexistent'))).toEqual([]);
+  it('readPublicationsLedger returns empty array when the store has no rows', async () => {
+    // T13362: the ledger is the project store's `docs_publications` table —
+    // a store with no rows (and no legacy JSON seed source) means "no
+    // publications recorded yet".
+    const emptyRoot = newProjectRoot();
+    process.env['CLEO_DIR'] = join(emptyRoot, '.cleo');
+    expect(await readPublicationsLedger(emptyRoot)).toEqual([]);
+    rmSync(emptyRoot, { recursive: true, force: true });
   });
 
   it('readPublicationsLedger returns empty array for corrupt JSON', async () => {
@@ -496,11 +519,13 @@ describe('Integration: full publish lifecycle smoke', () => {
 
   beforeEach(() => {
     root = newProjectRoot();
+    process.env['CLEO_DIR'] = join(root, '.cleo');
     vi.mocked(blobOps.blobRead).mockResolvedValue(new Uint8Array([99, 108, 101, 111])); // "cleo"
     vi.mocked(blobOps.blobList).mockResolvedValue([blob('smoke.md', 'sha-smoke', 9999, 256)]);
   });
 
   afterEach(() => {
+    delete process.env['CLEO_DIR'];
     try {
       rmSync(root, { recursive: true, force: true });
     } catch {

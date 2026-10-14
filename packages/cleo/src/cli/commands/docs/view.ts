@@ -123,7 +123,7 @@ const viewCommand = defineCommand({
     if (content === null) {
       cliError(`Content not retrievable: ${ref}`, ExitCode.NOT_FOUND, {
         name: 'E_NOT_FOUND',
-        fix: 'The doc metadata exists but its blob may be missing. Try: cleo docs publish <slug>',
+        fix: 'The doc metadata exists but its bytes are not in the blob store. Try: cleo docs doctor --repair',
       });
       return;
     }
@@ -131,7 +131,7 @@ const viewCommand = defineCommand({
     if (renderMode === 'json') {
       // T13352 — same shared builder as docs.fetch: decoded text by default,
       // real refCount, storage path against the doc's actual store.
-      const result = buildDocsFetchResult({ doc, content, projectRoot: getProjectRoot() });
+      const result = await buildDocsFetchResult({ doc, content, projectRoot: getProjectRoot() });
       cliOutput(result, {
         command: 'docs view',
         operation: 'docs.view',

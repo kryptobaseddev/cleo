@@ -72,6 +72,9 @@ const DEFAULT_BASE_DELAY_MS = 100;
 /** Default uniform jitter window in milliseconds (± 50ms). */
 const DEFAULT_JITTER_MS = 50;
 
+/** How many `cause` links {@link isSqliteBusy} follows (T13615). */
+const MAX_BUSY_CAUSE_DEPTH = 5;
+
 /**
  * Check if an error indicates SQLite was BUSY (lock held by another
  * connection or process). Matches both `SQLITE_BUSY` literal error
@@ -84,7 +87,9 @@ const DEFAULT_JITTER_MS = 50;
  *
  * @param err - The thrown value to inspect. Non-Error values (string,
  *   null, undefined, number, object literal) always return false.
- * @returns `true` if the error message contains a SQLITE_BUSY indicator.
+ * @returns `true` if the error, or one of its first few `cause` links (a
+ *   driver wrapper such as drizzle's DrizzleQueryError), carries a SQLITE_BUSY
+ *   message or result code (T13615).
  *
  * @task T5185 — original implementation; relocated from migration-manager.ts.
  * @bug gh-391
@@ -103,9 +108,19 @@ const DEFAULT_JITTER_MS = 50;
  * ```
  */
 export function isSqliteBusy(err: unknown): boolean {
-  if (!(err instanceof Error)) return false;
-  const msg = err.message.toLowerCase();
-  return msg.includes('sqlite_busy') || msg.includes('database is locked');
+  // T13615: drizzle wraps a failed query in DrizzleQueryError ("Failed query:
+  // …") with the SqliteError on `cause`, so walk a bounded cause chain.
+  let current: unknown = err;
+  for (let depth = 0; depth < MAX_BUSY_CAUSE_DEPTH && current instanceof Error; depth++) {
+    const msg = current.message.toLowerCase();
+    if (msg.includes('sqlite_busy') || msg.includes('database is locked')) return true;
+    const { errcode, code } = current as Error & { errcode?: unknown; code?: unknown };
+    // Primary result code 5 is SQLITE_BUSY; extended codes keep it in the low byte.
+    if ((typeof errcode === 'number' && (errcode & 0xff) === 5) || code === 'SQLITE_BUSY')
+      return true;
+    current = current.cause;
+  }
+  return false;
 }
 
 /**

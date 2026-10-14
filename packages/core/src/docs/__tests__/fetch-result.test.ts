@@ -6,7 +6,8 @@
  * storage path resolved against the doc's actual backing store. Binary
  * docs keep `bytesBase64`.
  *
- * Pure builder tests — fabricated ResolvedDoc records, no DB.
+ * Pure builder tests — fabricated ResolvedDoc records, no DB (the
+ * head-conflict lookup short-circuits on `dbExists`, T13604).
  *
  * @task T13352
  */
@@ -60,21 +61,21 @@ describe('isTextMime (T13352)', () => {
   });
 });
 
-describe('docsStoragePath (T13352)', () => {
+describe('docsStoragePath (T13352 / T13362)', () => {
   it('resolves manifest-db docs into the blob store', () => {
     const path = docsStoragePath(makeDoc({ source: 'manifest-db' }), '/p/.cleo');
     expect(path).toBe(`/p/.cleo/blobs/blobs/${SHA}`);
   });
 
-  it('resolves tasks-db docs into the legacy attachment tree with the MIME extension', () => {
+  it('resolves tasks-db docs into the blob store too (legacy tree retired, T13362)', () => {
     const path = docsStoragePath(makeDoc(), '/p/.cleo');
-    expect(path).toBe(`/p/.cleo/attachments/sha256/aa/${'a'.repeat(62)}.md`);
+    expect(path).toBe(`/p/.cleo/blobs/blobs/${SHA}`);
   });
 });
 
 describe('buildDocsFetchResult (T13352)', () => {
-  it('surfaces decoded content (not base64) and the real refCount for a text doc', () => {
-    const result = buildDocsFetchResult({
+  it('surfaces decoded content (not base64) and the real refCount for a text doc', async () => {
+    const result = await buildDocsFetchResult({
       doc: makeDoc(),
       content: '# A spec\n\nBody.\n',
       projectRoot: ROOT,
@@ -85,12 +86,11 @@ describe('buildDocsFetchResult (T13352)', () => {
     expect(result.metadata.refCount).toBe(3);
     expect(result.metadata.mime).toBe('text/markdown');
     expect(result.metadata.type).toBe('spec');
-    expect(result.path).toContain('.cleo/attachments/sha256/aa/');
-    expect(result.path).toMatch(/\.md$/);
+    expect(result.path).toContain(`.cleo/blobs/blobs/${SHA}`);
   });
 
-  it('keeps bytesBase64 (not content) for a binary doc', () => {
-    const result = buildDocsFetchResult({
+  it('keeps bytesBase64 (not content) for a binary doc', async () => {
+    const result = await buildDocsFetchResult({
       doc: makeDoc({ mimeType: 'application/pdf', blobName: 'scan.pdf' }),
       content: '%PDF-1.7 fake',
       projectRoot: ROOT,
@@ -100,8 +100,8 @@ describe('buildDocsFetchResult (T13352)', () => {
     expect(result.inlined).toBe(true);
   });
 
-  it('points manifest-db docs at the blob store path', () => {
-    const result = buildDocsFetchResult({
+  it('points manifest-db docs at the blob store path', async () => {
+    const result = await buildDocsFetchResult({
       doc: makeDoc({ source: 'manifest-db' }),
       content: 'body',
       projectRoot: ROOT,
@@ -109,8 +109,8 @@ describe('buildDocsFetchResult (T13352)', () => {
     expect(result.path).toContain(`.cleo/blobs/blobs/${SHA}`);
   });
 
-  it('inlines nothing above the 1 MB cap', () => {
-    const result = buildDocsFetchResult({
+  it('inlines nothing above the 1 MB cap', async () => {
+    const result = await buildDocsFetchResult({
       doc: makeDoc(),
       content: 'x'.repeat(1024 * 1024 + 1),
       projectRoot: ROOT,
@@ -118,5 +118,30 @@ describe('buildDocsFetchResult (T13352)', () => {
     expect(result.content).toBeUndefined();
     expect(result.bytesBase64).toBeUndefined();
     expect(result.inlined).toBe(false);
+  });
+
+  it('echoes linkedDecisions when the caller supplies them, omits them otherwise (T13359)', async () => {
+    const withLinks = await buildDocsFetchResult({
+      doc: makeDoc({ kind: 'adr', slug: 'adr-901-x' }),
+      content: 'body',
+      projectRoot: ROOT,
+      linkedDecisions: ['D11165', 'D11166'],
+    });
+    expect(withLinks.linkedDecisions).toEqual(['D11165', 'D11166']);
+
+    const without = await buildDocsFetchResult({
+      doc: makeDoc({ kind: 'adr', slug: 'adr-902-y' }),
+      content: 'body',
+      projectRoot: ROOT,
+    });
+    expect(without.linkedDecisions).toBeUndefined();
+
+    const empty = await buildDocsFetchResult({
+      doc: makeDoc({ kind: 'adr', slug: 'adr-903-z' }),
+      content: 'body',
+      projectRoot: ROOT,
+      linkedDecisions: [],
+    });
+    expect('linkedDecisions' in empty).toBe(false);
   });
 });

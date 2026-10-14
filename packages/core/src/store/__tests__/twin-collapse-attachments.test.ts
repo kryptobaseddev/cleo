@@ -1211,6 +1211,10 @@ describe('mixed versions: the 2026.9.20 build writes after the collapse', () => 
       projectDir,
     );
     const file = blobFile(mine.sha256);
+    // T13653: put() dual-writes the blob store, and the sweep conservatively
+    // skips legacy files whose bytes are mirrored there — remove the mirror
+    // to exercise the pre-mirror GC path this test targets.
+    rmSync(join(projectDir, '.cleo', 'blobs', 'blobs', mine.sha256), { force: true });
     // An old file: only the tombstone's own grace period protects it.
     const hourAgo = new Date(Date.now() - 60 * 60 * 1000);
     utimesSync(file, hourAgo, hourAgo);

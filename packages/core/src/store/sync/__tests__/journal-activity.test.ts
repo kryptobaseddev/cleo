@@ -19,11 +19,13 @@ import type { LedgerTxn } from '@cleocode/contracts/ledger';
 import { SYNC_SCHEMA_VERSION } from '@cleocode/contracts/sync-schema.js';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { generateEd25519 } from '../../../cloud/crypto.js';
+import { parseConflictKeep } from '../../../cloud/nexus-cloud-conflicts.js';
 import { mergeDeviceOverview } from '../../../cloud/nexus-cloud-device-overview.js';
 import {
   JournalActivitySinceError,
   nexusJournalActivity,
 } from '../../../cloud/nexus-cloud-journal-activity.js';
+import { readStoreSyncStream } from '../../../cloud/nexus-cloud-status.js';
 import {
   _resetDualScopeDbCache,
   getDualScopeNativeDb,
@@ -35,7 +37,9 @@ import {
   ROW_IDENTITY_RECIPE_KEY,
 } from '../../row-identity.js';
 import { JournalActivityCursorError, journalActivity } from '../activity.js';
+import { ConflictResolveError, resolveConflictKeeping } from '../apply/resolve-conflict.js';
 import { finishCaptureFrame, openCaptureFrame, setCaptureEnabled } from '../capture.js';
+import { conflictDetail, listConflicts } from '../conflicts.js';
 import { setSyncFlag } from '../flags.js';
 import { completeGenesis, cutGenesis, joinStream } from '../genesis.js';
 import { parseHlc } from '../hlc.js';
@@ -415,6 +419,312 @@ describe('journal activity lists what each device changed and when (T13369)', ()
     await expect(nexusJournalActivity({ since: 'yesterday-ish', offline: true })).rejects.toThrow(
       JournalActivitySinceError,
     );
+  });
+});
+
+describe('cloud conflicts shows what each conflict is about (T12997)', () => {
+  it('a task done on A and edited on B: human id, device, rule and both sides per field', async () => {
+    const { a, b } = await twoDevices();
+    const stream = fakeStream();
+    write(
+      a.db,
+      `INSERT INTO tasks_tasks (id, title, type, status, priority, uid, birth_fp)
+       VALUES ('T1', 'shared', 'task', 'pending', 'medium', 'uid-T1', 'fp-T1')`,
+    );
+    await push(a, stream);
+    await pull(b, stream);
+    write(
+      a.db,
+      "UPDATE tasks_tasks SET status = 'done', pipeline_stage = 'contribution', completed_at = '2026-10-12T00:00:00.000Z' WHERE id = 'T1'",
+      '{"op":"tasks.complete"}',
+    );
+    // Sealed (HLC-stamped) and sent before B writes; B has not pulled it.
+    await push(a, stream);
+    const after = Date.now() + 5;
+    while (Date.now() < after) {
+      // spin: B's write must carry the later HLC
+    }
+    write(
+      b.db,
+      "UPDATE tasks_tasks SET status = 'active' WHERE id = 'T1'",
+      '{"op":"tasks.update"}',
+    );
+    await push(b, stream);
+    await pull(a, stream);
+
+    const open = listConflicts(a.db, { open: true });
+    const held = open.find((c) => c.rule === 'task.status.absorbing');
+    expect(held).toBeDefined();
+    if (!held) return;
+    const d = conflictDetail(a.db, 'project', held);
+    expect(d.humanId).toBe('T1');
+    expect(d.deviceId).toBe('dev-b');
+    expect(d.opKnown).toBe(true);
+    expect(d.fields.find((f) => f.column === 'status')).toEqual({
+      column: 'status',
+      theirs: 'active',
+      mine: 'done',
+      withheld: false,
+    });
+    // cloud status counts the same open conflicts from the local log.
+    const st = await readStoreSyncStream(
+      a.db,
+      'project',
+      STREAM,
+      join(dir, 'a', '.cleo', 'cleo.db'),
+    );
+    expect(st.openConflicts).toEqual({ known: true, value: open.length });
+  });
+});
+
+describe('cloud conflicts resolve --keep (T12997)', () => {
+  const spin = () => {
+    const after = Date.now() + 5;
+    while (Date.now() < after) {
+      // spin: the next write must carry a later HLC
+    }
+  };
+  const statusOf = (r: Replica) =>
+    (r.db.prepare("SELECT status, title FROM tasks_tasks WHERE id = 'T1'").get() as {
+      status: string;
+      title: string;
+    }) ?? null;
+
+  async function shared() {
+    const { a, b } = await twoDevices();
+    const stream = fakeStream();
+    write(
+      a.db,
+      `INSERT INTO tasks_tasks (id, title, type, status, priority, uid, birth_fp)
+       VALUES ('T1', 'shared', 'task', 'pending', 'medium', 'uid-T1', 'fp-T1')`,
+    );
+    await push(a, stream);
+    await pull(b, stream);
+    return { a, b, stream };
+  }
+
+  it('keeping theirs out of an absorbing status is refused here, as every receiver would; keeping mine converges', async () => {
+    const { a, b, stream } = await shared();
+    write(
+      a.db,
+      "UPDATE tasks_tasks SET status = 'done', pipeline_stage = 'contribution', completed_at = '2026-10-12T00:00:00.000Z' WHERE id = 'T1'",
+      '{"op":"tasks.complete"}',
+    );
+    await push(a, stream);
+    spin();
+    write(
+      b.db,
+      "UPDATE tasks_tasks SET status = 'active' WHERE id = 'T1'",
+      '{"op":"tasks.update"}',
+    );
+    await push(b, stream);
+    await pull(a, stream);
+    const held = listConflicts(a.db, { open: true }).find(
+      (c) => c.rule === 'task.status.absorbing',
+    );
+    if (!held) throw new Error('no task.status.absorbing conflict recorded');
+
+    let err: unknown;
+    try {
+      resolveConflictKeeping(a.db, 'project', held.id, 'theirs', new Date().toISOString());
+    } catch (e) {
+      err = e;
+    }
+    expect(err).toBeInstanceOf(ConflictResolveError);
+    if (err instanceof ConflictResolveError) {
+      expect(err.code).toBe('E_INVALID_STATE');
+      expect(err.message).toContain('task.status.absorbing');
+      expect(err.fix).toContain('cleo restore task');
+    }
+    // Refused before any write: the row and the conflict are as they were.
+    expect(statusOf(a).status).toBe('done');
+    expect(listConflicts(a.db, { open: true }).some((c) => c.id === held.id)).toBe(true);
+
+    expect(
+      resolveConflictKeeping(a.db, 'project', held.id, 'mine', new Date().toISOString()),
+    ).toEqual({ id: held.id, written: [] });
+    expect(listConflicts(a.db, { open: true }).some((c) => c.id === held.id)).toBe(false);
+    // The receiver converges on the same absorbing status without any resolution write.
+    await pull(b, stream);
+    expect(statusOf(b).status).toBe('done');
+  });
+
+  it('keeping theirs on a field conflict is an ordinary write: it syncs and wins on the peer', async () => {
+    const { a, b, stream } = await shared();
+    // A renames and seals first (the older HLC) but sends it last; B renames
+    // later and B's own echo lands first, so A's rename reaches B as an older,
+    // divergent edit that B drops: the conflict both devices would settle on 'B title'.
+    write(
+      a.db,
+      "UPDATE tasks_tasks SET title = 'A title' WHERE id = 'T1'",
+      '{"op":"tasks.update"}',
+    );
+    await pull(a, stream);
+    spin();
+    write(
+      b.db,
+      "UPDATE tasks_tasks SET title = 'B title' WHERE id = 'T1'",
+      '{"op":"tasks.update"}',
+    );
+    await push(b, stream);
+    await pull(b, stream);
+    await push(a, stream);
+    await pull(b, stream);
+    const held = listConflicts(b.db, { open: true }).find(
+      (c) => c.kind === 'field' && c.resolution === 'incoming-dropped',
+    );
+    if (!held) throw new Error('no dropped title conflict recorded');
+    expect(conflictDetail(b.db, 'project', held).fields).toEqual([
+      { column: 'title', theirs: 'A title', mine: 'B title', withheld: false },
+    ]);
+
+    expect(
+      resolveConflictKeeping(
+        b.db,
+        'project',
+        held.id,
+        { title: 'theirs' },
+        new Date().toISOString(),
+      ),
+    ).toEqual({ id: held.id, written: ['title'] });
+    expect(statusOf(b).title).toBe('A title');
+    await push(b, stream);
+    await pull(a, stream);
+    await pull(b, stream);
+    expect(statusOf(a).title).toBe('A title');
+    expect(statusOf(b).title).toBe('A title');
+  });
+
+  it('keep mine on an incoming-applied conflict re-asserts the overwritten value, and it syncs (T13624)', async () => {
+    const { a, b, stream } = await shared();
+    // A renames and its echo lands; B, not having pulled it, renames later.
+    // A applies B's newer rename over its own: incoming-applied, A's value lost.
+    write(
+      a.db,
+      "UPDATE tasks_tasks SET title = 'A title' WHERE id = 'T1'",
+      '{"op":"tasks.update"}',
+    );
+    await push(a, stream);
+    await pull(a, stream);
+    spin();
+    write(
+      b.db,
+      "UPDATE tasks_tasks SET title = 'B title' WHERE id = 'T1'",
+      '{"op":"tasks.update"}',
+    );
+    await push(b, stream);
+    await pull(a, stream);
+    const held = listConflicts(a.db, { open: true }).find(
+      (c) => c.kind === 'field' && c.resolution === 'incoming-applied',
+    );
+    if (!held) throw new Error('no applied title conflict recorded');
+    expect(statusOf(a).title).toBe('B title');
+    // Mine is what A held before the merge, not the current (overwritten) value.
+    expect(conflictDetail(a.db, 'project', held).fields).toEqual([
+      { column: 'title', theirs: 'B title', mine: 'A title', withheld: false },
+    ]);
+
+    expect(
+      resolveConflictKeeping(a.db, 'project', held.id, 'mine', new Date().toISOString()),
+    ).toEqual({ id: held.id, written: ['title'] });
+    expect(statusOf(a).title).toBe('A title');
+    await push(a, stream);
+    await pull(b, stream);
+    await pull(a, stream);
+    expect(statusOf(b).title).toBe('A title');
+    expect(statusOf(a).title).toBe('A title');
+  });
+
+  it('keep mine on an incoming-applied conflict is refused by the same typed-rule probe (T13624)', async () => {
+    const { a, b, stream } = await shared();
+    write(
+      a.db,
+      "UPDATE tasks_tasks SET status = 'done', pipeline_stage = 'contribution', completed_at = '2026-10-12T00:00:00.000Z' WHERE id = 'T1'",
+      '{"op":"tasks.complete"}',
+    );
+    // A seals its done first (the older HLC) but sends it after B's later active
+    // has landed and echoed: B applies the absorbing done over it, incoming-applied.
+    await pull(a, stream);
+    spin();
+    write(
+      b.db,
+      "UPDATE tasks_tasks SET status = 'active' WHERE id = 'T1'",
+      '{"op":"tasks.update"}',
+    );
+    await push(b, stream);
+    await pull(b, stream);
+    await push(a, stream);
+    await pull(b, stream);
+    const held = listConflicts(b.db, { open: true }).find(
+      (c) => c.rule === 'task.status.absorbing' && c.resolution === 'incoming-applied',
+    );
+    if (!held) throw new Error('no applied task.status.absorbing conflict recorded on B');
+    expect(statusOf(b).status).toBe('done');
+    expect(conflictDetail(b.db, 'project', held).fields.find((f) => f.column === 'status')).toEqual(
+      { column: 'status', theirs: 'done', mine: 'active', withheld: false },
+    );
+
+    let err: unknown;
+    try {
+      resolveConflictKeeping(b.db, 'project', held.id, 'mine', new Date().toISOString());
+    } catch (e) {
+      err = e;
+    }
+    expect(err).toBeInstanceOf(ConflictResolveError);
+    if (err instanceof ConflictResolveError) {
+      expect(err.code).toBe('E_INVALID_STATE');
+      expect(err.message).toContain('task.status.absorbing');
+    }
+    expect(statusOf(b).status).toBe('done');
+    expect(listConflicts(b.db, { open: true }).some((c) => c.id === held.id)).toBe(true);
+  });
+
+  it('keep mine is refused when this store kept no copy of an overwritten value', async () => {
+    const { a, b, stream } = await shared();
+    write(
+      a.db,
+      "UPDATE tasks_tasks SET title = 'A title' WHERE id = 'T1'",
+      '{"op":"tasks.update"}',
+    );
+    await push(a, stream);
+    await pull(a, stream);
+    spin();
+    write(
+      b.db,
+      "UPDATE tasks_tasks SET title = 'B title' WHERE id = 'T1'",
+      '{"op":"tasks.update"}',
+    );
+    await push(b, stream);
+    await pull(a, stream);
+    const held = listConflicts(a.db, { open: true }).find(
+      (c) => c.kind === 'field' && c.resolution === 'incoming-applied',
+    );
+    if (!held) throw new Error('no applied title conflict recorded');
+    // A conflict recorded before T13624 has no local copy.
+    a.db.prepare('UPDATE _sync_conflict SET local_json = NULL WHERE id = ?').run(held.id);
+    expect(() =>
+      resolveConflictKeeping(a.db, 'project', held.id, 'mine', new Date().toISOString()),
+    ).toThrow(/overwritten by the incoming op and this store kept no copy/);
+    expect(statusOf(a).title).toBe('B title');
+    expect(listConflicts(a.db, { open: true }).some((c) => c.id === held.id)).toBe(true);
+  });
+
+  it('parses --keep: mine, theirs, or column=side pairs', () => {
+    expect(parseConflictKeep('mine')).toBe('mine');
+    expect(parseConflictKeep('theirs')).toBe('theirs');
+    expect(parseConflictKeep('status=theirs, title=mine')).toEqual({
+      status: 'theirs',
+      title: 'mine',
+    });
+    expect(parseConflictKeep('status=both')).toBeNull();
+    expect(parseConflictKeep('')).toBeNull();
+  });
+
+  it('refuses an unknown or resolved conflict id', async () => {
+    const { a } = await shared();
+    expect(() =>
+      resolveConflictKeeping(a.db, 'project', 999, 'theirs', new Date().toISOString()),
+    ).toThrow(/no open conflict 999/);
   });
 });
 

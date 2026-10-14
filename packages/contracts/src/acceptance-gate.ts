@@ -67,6 +67,12 @@ export interface AcceptanceGateRunOptions
    */
   cacheInputsHash?: string;
   /**
+   * The parts behind {@link AcceptanceGateRunOptions.cacheInputsHash}, kept
+   * beside a stored pass (outside its MAC) so a later miss can say whether the
+   * environment or a task file moved (T13693). Diagnostic only, never trusted.
+   */
+  cacheInputs?: AcceptanceGateCacheInputs;
+  /**
    * The task's stored typed results before this run (T13525). With
    * `cache: 'only'`, a gate with no cache entry reuses its stored pass when
    * that pass is bound to the same criterion, gate definition, invocation and
@@ -390,6 +396,14 @@ export type GateResultDetails =
     };
 
 // ─── Result ──────────────────────────────────────────────────────────────────
+
+/** The parts of a typed gate's inputs digest a cache-miss diagnostic compares (T13693). */
+export interface AcceptanceGateCacheInputs {
+  /** Hash of the gate's effective environment, or null when it has no invocation. */
+  environmentHash: string | null;
+  /** The captured input files. */
+  artifacts: readonly AcceptanceGateArtifact[];
+}
 
 /**
  * Exact bytes observed for one declared task input or resolved verification harness.

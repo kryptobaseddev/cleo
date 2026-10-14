@@ -30,11 +30,13 @@ import type { ChangeSetDeps } from '../change-set.js';
 import { completeTask } from '../complete.js';
 import {
   type RecordTaskDoneOptions,
-  recordTaskDone,
-  recordTasksDone,
+  recordTaskDone as recordTaskDoneUncached,
+  recordTasksDone as recordTasksDoneUncached,
   sharedToolRunner,
 } from '../done-record.js';
 import { parseGateJson, reqAdd } from '../req.js';
+import { runToolCached } from '../tool-cache.js';
+import { resolveToolCommand } from '../tool-resolver.js';
 import { useRealToolRunner } from './real-tool-runner.js';
 
 // These tests spawn tiny real commands on purpose (T13203 guard opt-in).
@@ -116,6 +118,29 @@ function opts(extra: Partial<RecordTaskDoneOptions> = {}): RecordTaskDoneOptions
     ...extra,
   };
 }
+
+/**
+ * T13647 (owner decision 2026-10-12, "never run whole suites"): cleo done
+ * never runs a whole-suite tool:test it would have to execute. These tests
+ * exercise the record path, so each call first caches the fixture's test
+ * result for the tree it runs in, as an explicit prior run leaves it; the
+ * plan then binds that cached result and runs nothing new.
+ */
+async function cacheTestResult(dir: string): Promise<void> {
+  const test = resolveToolCommand('test', root);
+  if (!test.ok) return;
+  await runToolCached(test.command, root, { executionRoot: dir, skipGlobalSemaphore: true });
+}
+
+const recordTaskDone: typeof recordTaskDoneUncached = async (taskId, o = {}) => {
+  await cacheTestResult(o.cwd ?? root);
+  return recordTaskDoneUncached(taskId, o);
+};
+
+const recordTasksDone: typeof recordTasksDoneUncached = async (taskIds, o = {}) => {
+  await cacheTestResult(o.cwd ?? root);
+  return recordTasksDoneUncached(taskIds, o);
+};
 
 function gatesJsonl(): string {
   const path = join(root, '.cleo', 'audit', 'gates.jsonl');
@@ -301,7 +326,9 @@ describe('slow work finishes before the write (AC2)', () => {
     expect(r.success).toBe(false);
     if (r.success) return;
     const details = r.error.details as DoneBlockedDetails;
-    expect(details.cause).toBe('E_GATE_NOT_CACHED');
+    // T13655: the plan already sees the uncached typed gate (as completion
+    // would refuse it), so cleo done stops before any write.
+    expect(details.blocker).toBe('typed-gate-not-run');
     expect(details.next.command).toBe(`cleo verify ${id} --run && cleo done ${id}`);
   });
 

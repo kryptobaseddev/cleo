@@ -105,7 +105,7 @@ export type DocsType = BuiltinDocKind;
  *   for list/fetch wire responses).
  *
  * @see {@link import('../attachment.js').AttachmentMetadata} — the full domain
- *   registry row stored in `.cleo/attachments/index.db`.
+ *   registry row stored in the `attachments` table of the project `cleo.db`.
  */
 export interface DocsAttachmentRow {
   /** Attachment identifier (UUID-like string). */
@@ -172,13 +172,25 @@ export interface DocsAttachmentRow {
   title?: string;
   /** Backing blob name, e.g. `spec.md` (only populated by fetch/view envelopes, T13352). */
   blobName?: string;
+  /**
+   * Conduit head version uid at fetch/view time (T13674) — the version the
+   * fetched body was projected from. Pass it back as `baseVersionUid` on
+   * `docs.update` so a stale base is detected and merged (or conflicted)
+   * instead of silently overwriting a concurrent writer's edit. Only
+   * populated for docs adopted into the conduit family; omitted otherwise.
+   *
+   * @task T13674
+   */
+  headVersionUid?: string;
 }
 
 /**
  * Supported attachment backend.
  *
- * - `legacy` — original file-based store (.cleo/attachments)
- * - `llmstxt-v2` — llmtxt-backed manifest store
+ * - `legacy` — original file-based byte store (`.cleo/attachments`); retired
+ *   as a read/write surface in T13362, bytes migrate to the blob store
+ *   (label retained for wire compatibility with older envelopes)
+ * - `llmstxt-v2` — llmtxt-backed manifest store (canonical byte store)
  */
 export type AttachmentBackend = 'legacy' | 'llmstxt-v2';
 
@@ -347,6 +359,66 @@ export interface DocsFetchParams {
 }
 
 /**
+ * Advisory section-lease notice (T13356): the named section is leased by
+ * another session, so the caller's edit went through uncoordinated. Leases
+ * are advisory — this is the 409 equivalent as data, never a failure.
+ */
+export interface DocsSectionLeaseNotice {
+  /** The leased section the update edited. */
+  sectionId: string;
+  /** The current holder agent id. */
+  holder: string;
+  /** The current holder's session id. */
+  sessionId: string;
+  /** When the blocking lease expires without renew (ISO-8601). */
+  expiresAt: string;
+}
+
+/**
+ * One recorded non-append concurrent section edit on the CRDT write path
+ * (T13595, surfaced T13604): the incoming edit landed as its own version
+ * row (append-only history preserves both) while the head kept the stored
+ * projection. Never invented text — a true merge is not expressible with
+ * the append-only llmtxt primitives.
+ */
+export interface DocsSectionConflict {
+  /** The section that could not be merged. */
+  sectionId: string;
+  /** Version row carrying the incoming (authored) edit — the loser. */
+  incomingVersionUid: string;
+  /** Projection version row the head kept — the winner. */
+  projectionVersionUid: string;
+}
+
+/**
+ * The most recent recorded head conflict of a conduit doc (T13604), parsed
+ * from `conduit_doc_heads.last_conflict_json`.
+ */
+export interface DocsHeadConflictEntry {
+  /** The losing version's uid. */
+  versionUid: string;
+  /** The losing head's HLC. */
+  hlc: string;
+  /** ISO-8601 instant the conflict was recorded. */
+  recordedAt: string;
+  /** The winning head's version uid at recording time, when recorded. */
+  winnerVersionUid?: string;
+}
+
+/**
+ * Head-conflict summary surfaced on `docs.fetch` when a doc's conduit head
+ * carries recorded conflicts (T13604). The content returned is the winning
+ * (head) projection; the losing edits survive in the append-only version
+ * history.
+ */
+export interface DocsHeadConflictInfo {
+  /** Total recorded conflicts (`conduit_doc_heads.conflict_count`). */
+  conflictCount: number;
+  /** The most recently recorded conflict, when any. */
+  lastConflict?: DocsHeadConflictEntry;
+}
+
+/**
  * Result of `docs.fetch`.
  */
 export interface DocsFetchResult {
@@ -371,6 +443,21 @@ export interface DocsFetchResult {
   inlined: boolean;
   /** Current attachment backend in use. */
   attachmentBackend?: AttachmentBackend;
+  /**
+   * Present when the doc's conduit head carries recorded CRDT merge
+   * conflicts (T13604): the fetched content is the winning projection, and
+   * the losing edits survive in the append-only version history.
+   */
+  headConflict?: DocsHeadConflictInfo;
+  /**
+   * `D####` brain ledger decisions linked to this ADR doc through
+   * `decision_adr_links` (T13359, spec `cleodocs-rearch-design` §4/§10,
+   * D11165) — the ADR→decision direction of the two-way trace. Present only
+   * for fetched docs that have live (non-revoked) links; the ledger stays
+   * the operational authority, so an ADR always names the decisions it
+   * ratifies.
+   */
+  linkedDecisions?: string[];
 }
 
 // --------------------------------------------------------------------------
@@ -733,6 +820,27 @@ export interface DocsUpdateParams {
   allowExternal?: boolean;
   /** Inline UTF-8 content (mutually exclusive with `file`). */
   content?: string;
+  /**
+   * Expected base version — the conduit version uid the edit was authored
+   * against: the `metadata.headVersionUid` from the `docs.fetch` envelope the
+   * writer read (T13674). Stale-base detection: when the stored head has
+   * already moved past this base, every section is merged relative to the
+   * base — an append-shaped edit composes onto the stored state (both
+   * writers survive, `staleBaseMerged: true`) and a non-mergeable edit is
+   * recorded as a named section conflict (`sectionConflicts`); a concurrent
+   * writer's edit is never silently dropped. A declared base that does not
+   * resolve to this doc's version history is refused with
+   * `E_DOC_BASE_UNKNOWN` before any write. When omitted, the current head at
+   * invocation time is assumed — the single-writer semantics of the
+   * pre-T13674 path, safe only for callers that did not base their edit on
+   * an earlier fetch. Inline content and UTF-8 text `file` bodies both
+   * project through the section CRDT and honour the base (T13688); a
+   * declared base with a non-text `file` is refused with
+   * `E_DOC_BASE_UNSUPPORTED` before any write, never ignored.
+   *
+   * @task T13674
+   */
+  baseVersionUid?: string;
   /** Optional one-line summary describing the change (recorded in the audit log). */
   message?: string;
   /**
@@ -811,6 +919,41 @@ export interface DocsUpdateResult {
    * `llmtxt` when the V2 mirror write succeeded; `legacy` otherwise.
    */
   attachmentBackend?: AttachmentBackend;
+  /**
+   * Non-append concurrent section edits recorded during the CRDT projection
+   * (T13604): the incoming edit is NOT in the returned conduit head — it
+   * landed as its own version row while the head kept the stored projection.
+   * Absent when nothing conflicted. A `W_DOC_SECTION_CONFLICT` warning names
+   * the same sections.
+   */
+  sectionConflicts?: DocsSectionConflict[];
+  /**
+   * Advisory section-lease notices from the CRDT write path (T13356): a
+   * section the update edited is leased by ANOTHER live session — the edit
+   * PROCEEDED anyway (leases are advisory: "409 is a social signal, not a
+   * hard lock", llmtxt T285). A `W_DOC_SECTION_LEASED` warning names the
+   * same sections and holders. Absent when no section was leased elsewhere.
+   */
+  leaseNotices?: DocsSectionLeaseNotice[];
+  /**
+   * True when the update was authored against a superseded head and the
+   * section CRDT merged a concurrent writer's edit into the projection
+   * (T13674): the returned head text is the merge, not the submitted bytes.
+   * A `W_DOC_STALE_BASE` warning names the same situation and its remedy
+   * (re-fetch before the next edit). Absent when the declared base was the
+   * current head (or no base was declared).
+   *
+   * @task T13674
+   */
+  staleBaseMerged?: boolean;
+  /**
+   * The conduit head version uid after the update (T13674) — pass it as the
+   * next update's `baseVersionUid` to chain edits without a re-fetch. Absent
+   * for docs outside the conduit family.
+   *
+   * @task T13674
+   */
+  headVersionUid?: string;
 }
 
 // --------------------------------------------------------------------------
@@ -900,6 +1043,38 @@ export interface DocsSupersedeResult {
 }
 
 // --------------------------------------------------------------------------
+// docs.link-decision / docs.unlink-decision — decision_adr_links writers (T13598)
+// --------------------------------------------------------------------------
+
+/**
+ * Parameters for `docs.link-decision` and `docs.unlink-decision`.
+ *
+ * @task T13598
+ */
+export interface DocsDecisionLinkParams {
+  /** The ADR doc slug (`adr-NNN-…`). */
+  adrSlug: string;
+  /** The `D####` brain ledger decision id. */
+  decisionId: string;
+}
+
+/**
+ * Result of `docs.link-decision` and `docs.unlink-decision`.
+ *
+ * @task T13598
+ */
+export interface DocsDecisionLinkResult {
+  /** The ADR doc slug. */
+  adrSlug: string;
+  /** The `D####` decision id. */
+  decisionId: string;
+  /** The link's state after the call. */
+  status: 'linked' | 'revoked';
+  /** False for an idempotent repeat (already linked, or already revoked). */
+  changed: boolean;
+}
+
+// --------------------------------------------------------------------------
 // docs.doctor — store health diagnostics + safe repairs (T13447)
 // --------------------------------------------------------------------------
 
@@ -915,6 +1090,12 @@ export interface DocsSupersedeResult {
 export interface DocsDoctorParams {
   /** Execute repairs instead of producing a dry-run plan. Default false. */
   apply?: boolean;
+  /**
+   * Execute ONLY the legacy-blob-coverage backfill (T13653): mirror
+   * hash-verified legacy bytes into the blob store so unmigrated docs
+   * become readable again. Same backup gate as `apply`.
+   */
+  repair?: boolean;
   /** Age threshold (days) for the `stale-drafts` diagnostic. Default 30. */
   olderThanDays?: number;
 }
@@ -932,6 +1113,7 @@ export interface DocsDoctorDiagnostic {
     | 'empty-provenance'
     | 'wikilinks-drift'
     | 'legacy-store-present'
+    | 'legacy-blob-coverage'
     | 'stale-drafts';
   /** `error` should be fixed promptly; `info` is observational. */
   severity: 'info' | 'warn' | 'error';
@@ -975,12 +1157,82 @@ export interface DocsDoctorResult {
   olderThanDays: number;
   /** Backup receipt that authorised this run (null on dry runs). */
   backupReceiptPath: string | null;
-  /** All six diagnostics, in declaration order. */
+  /** All seven diagnostics, in declaration order. */
   diagnostics: readonly DocsDoctorDiagnostic[];
   /** Repair plan (dry run) or executed repairs (apply). */
   repairs: readonly DocsDoctorRepairAction[];
   /** One-line human summary. */
   summary: string;
+}
+
+/**
+ * Parameters for `docs.stats` — per-project adoption metrics (T13363).
+ *
+ * Read-only; no filtering yet. Emitted per project so the CleoDocs
+ * re-architecture can be judged by behaviour (spec §7/§9).
+ *
+ * @task T13363 (Epic T13340 / Saga T13339)
+ */
+export interface DocsStatsParams {
+  /** Reserved for future filtering; currently unused. */
+  readonly _future?: never;
+}
+
+/**
+ * Add vs update doc activity, from the docs audit log
+ * (`.cleo/audit/docs-audit.jsonl`).
+ *
+ * @task T13363
+ */
+export interface DocsAddUpdateMetrics {
+  /** `docs.add` entries in the audit log. */
+  readonly adds: number;
+  /** `docs.update` entries in the audit log. */
+  readonly updates: number;
+  /** `adds / updates`; `null` when there are no updates (division undefined). */
+  readonly ratio: number | null;
+}
+
+/**
+ * Loose-markdown footprint: markdown files living outside the CleoDocs
+ * store, the growth signal for the Council pilot (baseline ~751 axiom-app +
+ * 1,265 admin-operations).
+ *
+ * Counted files are GIT-TRACKED `*.md` outside the store (`git ls-files`),
+ * so the scan is gitignore-aware by construction; untracked loose files are
+ * intentionally out of scope.
+ *
+ * @task T13363
+ */
+export interface LooseMarkdownMetrics {
+  /** Number of git-tracked `*.md` files outside the store. */
+  readonly count: number;
+  /** Top-level directories contributing tracked loose markdown (`'(root)'`
+   *  for files at the project root). */
+  readonly scannedDirs: readonly string[];
+  /** Excluded directory names (dependency trees, VCS internals, the
+   *  CleoDocs store). */
+  readonly excludedDirs: readonly string[];
+}
+
+/**
+ * Result of `docs.stats` — per-project adoption metrics.
+ *
+ * @task T13363
+ */
+export interface DocsStatsResult {
+  /** `docs.add` vs `docs.update` activity and their ratio. */
+  readonly addUpdate: DocsAddUpdateMetrics;
+  /** Loose-markdown count plus what was scanned/excluded. */
+  readonly looseMarkdown: LooseMarkdownMetrics;
+  /** Row count of the `docs_wikilinks` edge table (T11826). */
+  readonly wikilinksEdges: number;
+  /** Live `decision_adr_links` rows (status `linked`, T13359). */
+  readonly decisionsLinked: number;
+  /** ISO-8601 when the metrics were computed. */
+  readonly generatedAt: string;
+  /** One-line human summary. */
+  readonly summary: string;
 }
 
 // ============================================================================
@@ -1006,7 +1258,56 @@ export type DocsOps =
   | { op: 'docs.remove'; params: DocsRemoveParams; result: DocsRemoveResult }
   | { op: 'docs.update'; params: DocsUpdateParams; result: DocsUpdateResult }
   | { op: 'docs.supersede'; params: DocsSupersedeParams; result: DocsSupersedeResult }
-  | { op: 'docs.doctor'; params: DocsDoctorParams; result: DocsDoctorResult };
+  | { op: 'docs.link-decision'; params: DocsDecisionLinkParams; result: DocsDecisionLinkResult }
+  | { op: 'docs.unlink-decision'; params: DocsDecisionLinkParams; result: DocsDecisionLinkResult }
+  | { op: 'docs.doctor'; params: DocsDoctorParams; result: DocsDoctorResult }
+  | { op: 'docs.migrate'; params: DocsMigrateParams; result: DocsMigrateResult }
+  | { op: 'docs.stats'; params: DocsStatsParams; result: DocsStatsResult };
+
+/**
+ * Parameters for `docs.migrate` — the T13360 legacy docs migration (spec §5).
+ * No params: the migration derives everything from the legacy store state.
+ *
+ * @task T13360 (Epic T13340 / Saga T13339)
+ */
+export interface DocsMigrateParams {
+  /** Reserved for future options; currently unused. */
+  readonly _future?: never;
+}
+
+/**
+ * Result of `docs.migrate` — the honest legacy docs import (T13360). The
+ * migration runs inside the T13448 safety harness; `backupId`/`transaction`
+ * expose the harness receipt so operators can audit (or undo) the run.
+ *
+ * @task T13360
+ */
+export interface DocsMigrateResult {
+  /** Harness outcome: completed, or halted/refused (with `failure`). */
+  readonly status: 'completed' | 'halted' | 'refused';
+  /** Docs whose bytes were content-captured into the re-keyed store. */
+  readonly captured: number;
+  /** Dangling-pointer docs recorded in the migration ledger (AC3). */
+  readonly dangling: number;
+  /** Docs already migrated by an earlier run (idempotency, AC4). */
+  readonly skipped: number;
+  /**
+   * Legacy slugs that already exist natively in `conduit_attachments` — the
+   * migration never clobbers a native doc; counted explicitly so the
+   * operator can reconcile them (T13633).
+   */
+  readonly nativeConflicts: number;
+  /** History rows imported across all captured docs. */
+  readonly versionsImported: number;
+  /** First failure when halted/refused. */
+  readonly failure: string | null;
+  /** The harness pre-step backup id (null only when the backup itself failed). */
+  readonly backupId: string | null;
+  /** Harness transaction outcome for the step. */
+  readonly transaction: 'committed' | 'rolled-back' | 'none';
+  /** One-line human summary. */
+  readonly summary: string;
+}
 
 /**
  * Enumeration of all docs domain operation names.
@@ -1024,4 +1325,8 @@ export type DocsOp =
   | 'docs.remove'
   | 'docs.update'
   | 'docs.supersede'
-  | 'docs.doctor';
+  | 'docs.link-decision'
+  | 'docs.unlink-decision'
+  | 'docs.doctor'
+  | 'docs.migrate'
+  | 'docs.stats';

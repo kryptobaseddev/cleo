@@ -16,6 +16,7 @@ import { countUnmergedCommits, getGitRoot, gitSilent, gitSync } from './git.js';
 import { destroyWorktree as napiDestroyWorktree } from './napi-binding.js';
 import { computeProjectHash, resolveTaskWorktreePath } from './paths.js';
 import { appendWorktreeAuditLog, removeWorktreeFromSentinelIndex } from './worktree-audit.js';
+import { describeDisposalBlockers, guardWorktreeDisposal } from './worktree-dependents.js';
 import { runWorktreeHooks } from './worktree-hooks.js';
 import { locateTaskWorktree } from './worktree-locate.js';
 import { releaseWorktreeTaskLock } from './worktree-lock.js';
@@ -88,6 +89,40 @@ export async function destroyWorktree(
       force,
       hookResults,
     };
+  }
+
+  // T13696: never delete files something outside the worktree still needs —
+  // a sibling's symlinked node_modules, or evidence that exists only here.
+  if (existsSync(worktreePath)) {
+    const kept = guardWorktreeDisposal(worktreePath, {
+      taskId,
+      reason: options.reason ?? 'manual',
+      gitRoot,
+      projectRoot,
+      evidence: options.evidence,
+    });
+    if (kept !== null) {
+      const message = describeDisposalBlockers(worktreePath, kept);
+      appendWorktreeAuditLog(projectRoot, {
+        action: 'destroy',
+        xdgPath: worktreePath,
+        taskId,
+        branch,
+        reason: options.reason ?? 'manual',
+        success: false,
+        error: message,
+      });
+      return {
+        taskId,
+        worktreeRemoved: false,
+        branchDeleted: false,
+        error: message,
+        dirty,
+        force,
+        hookResults,
+        kept,
+      };
+    }
   }
 
   // Step 2: Run pre-remove hooks.

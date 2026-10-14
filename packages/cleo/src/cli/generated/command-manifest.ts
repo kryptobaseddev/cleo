@@ -845,6 +845,13 @@ export const COMMAND_MANIFEST: readonly CommandManifestEntry[] = [
     load: async () => (await import('../commands/labels.js')).labelsCommand as CommandDef,
   },
   {
+    exportName: 'leanCommand',
+    name: 'lean',
+    description:
+      'ct-lean (smallest complete change) levels and tools: cleo lean level [off|lite|full|ultra] [--session|--global] · cleo lean debt [--file-tasks --parent <epic>]',
+    load: async () => (await import('../commands/lean.js')).leanCommand as CommandDef,
+  },
+  {
     exportName: 'lifecycleCommand',
     name: 'lifecycle',
     description: 'RCASD-IVTR+C lifecycle pipeline management',

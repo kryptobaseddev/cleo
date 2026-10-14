@@ -11,6 +11,10 @@ export default defineConfig({
     // Without this, `pnpm test:pkg @cleocode/utils` runs vitest's default
     // (CPU-1 ≈ 23 forks) with no heap cap and can OOM-freeze a big local box.
     extends: true,
+    // T13628: `extends: true` does not carry the root's timeouts across this
+    // project's own root, so tests ran at vitest's 5 s default (see T13625).
+    testTimeout: 120_000,
+    hookTimeout: 120_000,
     include: ['src/**/*.test.ts'],
   },
 });

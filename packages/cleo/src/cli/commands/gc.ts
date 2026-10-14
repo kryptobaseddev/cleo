@@ -182,7 +182,7 @@ const worktreesCommand = defineCommand({
     );
 
     try {
-      const result = pruneOrphanWorktrees({
+      const result = await pruneOrphanWorktrees({
         worktreesRoot,
         projectHash,
         activeTaskIds,

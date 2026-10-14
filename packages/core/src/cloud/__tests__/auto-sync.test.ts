@@ -49,12 +49,25 @@ function seams(over: Partial<AutoSyncOptions> = {}) {
     sync,
     // Behave as after T13549 releases sync.push/sync.pull.
     unreleasedFlags: new Set(),
+    // Outside a test runner or CI (vitest itself sets VITEST and NODE_ENV=test).
+    env: {},
     ...over,
   };
   return { opts, sync };
 }
 
 describe('autoCloudSync (T13468)', () => {
+  it('no automatic trigger syncs under CI, VITEST or NODE_ENV=test (T13606)', async () => {
+    for (const env of [{ CI: 'true' }, { VITEST: 'true' }, { NODE_ENV: 'test' }]) {
+      for (const reason of ['session-end', 'tick', 'command'] as const) {
+        const { opts, sync } = seams({ env });
+        expect(await autoCloudSync(project, reason, opts)).toBe('disabled');
+        expect(sync).not.toHaveBeenCalled();
+      }
+    }
+    expect(readAutoSyncState(home).lastAttemptAt).toBeUndefined();
+  });
+
   it('is inert while sync.push and sync.pull are unreleased: no state, no sync, no fetch (T13553)', async () => {
     const fetchSpy = vi.fn(async () => {
       throw new Error('no network in this test');

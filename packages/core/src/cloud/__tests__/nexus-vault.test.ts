@@ -50,6 +50,7 @@ import {
 import { drizzle } from 'drizzle-orm/node-sqlite';
 import { create as tarCreate, extract as tarExtract } from 'tar';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { decryptGlobal, encryptGlobal } from '../../crypto/credentials.js';
 import { _resetDeviceIdCacheForTests } from '../../llm/stable-device-id.js';
 import {
   _resetDualScopeDbCache,
@@ -6399,6 +6400,8 @@ describe('the main brain stream through cloud sync (T13370)', () => {
           admit: async () => ({ release: async () => {} }),
           sync: () => cloudSync(vopts(m, { allowUnreleased: true })),
           unreleasedFlags: new Set(),
+          // As on a real machine: outside the test runner's VITEST/NODE_ENV (T13606).
+          env: {},
         }),
       );
     };
@@ -6675,6 +6678,223 @@ describe('the main brain stream through cloud sync (T13370)', () => {
     ];
     expect(await rowsOf(a, d1)).toEqual(both);
     expect(await rowsOf(b, d1)).toEqual(both);
+  });
+
+  /** A cuts home:<user> with two credentials; B (never synced) holds its own for one of them (T13544). */
+  const credentialBrains = async (beforeCut?: (a: Machine) => Promise<void>) => {
+    const a = await machine('a', DEVICE_A, REPLICA_A);
+    const b = await machine('b', DEVICE_B, REPLICA_B);
+    const account = async (m: Machine, id: number, label: string, secret: string) =>
+      (await globalStore(m)).exec(
+        `INSERT INTO accounts (id, provider, label, auth_type, secret_enc) VALUES (${id}, 'anthropic', '${label}', 'key', '${await encryptGlobal(secret, `account:anthropic:${label}`, { cleoHome: m.home })}')`,
+      );
+    await onM(a, async () => {
+      await account(a, 1, 'work', 'sk-A-work');
+      await account(a, 2, 'team', 'sk-A-team');
+      await beforeCut?.(a);
+      const db = await globalStore(a);
+      setCaptureEnabled(db, 'global', true, { schemaRoot: SYNC_JOURNAL });
+      setSyncFlag(db, 'sync.seal', true, { schemaRoot: SYNC_JOURNAL, allowUnreleased: true });
+    });
+    expect(
+      (await onM(a, () => enableSyncPush(vopts(a, { scope: 'global', allowUnreleased: true }))))
+        .status,
+    ).toBe('enabled');
+    await onM(a, async () => {
+      setSyncFlag(await globalStore(a), 'sync.pull', true, { allowUnreleased: true });
+    });
+    await onM(b, () => account(b, 7, 'work', 'sk-B-work'));
+    const secretOn = async (label: string) => {
+      const row = (await onM(b, async () =>
+        (
+          await globalStore(b)
+        )
+          .prepare("SELECT secret_enc FROM accounts WHERE provider = 'anthropic' AND label = ?")
+          .get(label),
+      )) as { secret_enc: string | null } | undefined;
+      return decryptGlobal(row?.secret_enc ?? '', `account:anthropic:${label}`, {
+        cleoHome: b.home,
+      });
+    };
+    return { a, b, secretOn };
+  };
+
+  it("a never-synced B merge-joins and can use A's credential, while B's own credential keeps B's value (T13544)", async () => {
+    const { b, secretOn } = await credentialBrains();
+    const joined = await onM(b, () =>
+      enableSyncPush(vopts(b, { scope: 'global', allowUnreleased: true })),
+    );
+    expect(joined.status).toBe('joined');
+    // A's credential arrived usable under B's own key; the one B held stayed B's.
+    expect(await secretOn('team')).toBe('sk-A-team');
+    expect(await secretOn('work')).toBe('sk-B-work');
+    expect(
+      await onM(b, async () =>
+        (await globalStore(b))
+          .prepare("SELECT name FROM sqlite_master WHERE name = '_vault_sealed_credentials'")
+          .all(),
+      ),
+    ).toEqual([]);
+  });
+
+  it('a merge join takes a credential A changed after the cut, not the stale checkpoint value (T13592)', async () => {
+    const { a, b, secretOn } = await credentialBrains();
+    // After the cut, A rotates its team key; cloud sync seals and pushes the change.
+    await onM(a, async () => {
+      (await globalStore(a))
+        .prepare(
+          "UPDATE accounts SET secret_enc = ? WHERE provider = 'anthropic' AND label = 'team'",
+        )
+        .run(
+          await encryptGlobal('sk-A-team-rotated', 'account:anthropic:team', { cleoHome: a.home }),
+        );
+    });
+    const pushed = await onM(a, () =>
+      cloudSync(vopts(a, { scope: 'global', allowUnreleased: true })),
+    );
+    expect(pushed.streams[0]?.refused ?? null).toBeNull();
+
+    const joined = await onM(b, () =>
+      enableSyncPush(vopts(b, { scope: 'global', allowUnreleased: true })),
+    );
+    expect(joined.status).toBe('joined');
+    expect(await secretOn('team')).toBe('sk-A-team-rotated');
+    expect(await secretOn('work')).toBe('sk-B-work');
+  });
+
+  it('a merge join keeps a credential A revoked after the cut revoked, never re-filled from the checkpoint (T13593)', async () => {
+    // A connects a service before the cut, so the checkpoint carries its sealed credential.
+    const { a, b } = await credentialBrains(async (m) => {
+      const blob = await encryptGlobal('{"access_token":"tok"}', 'service:github:personal', {
+        cleoHome: m.home,
+      });
+      (await globalStore(m))
+        .prepare(
+          "INSERT INTO service_connections (id, provider, label, status, credentials_enc) VALUES (1, 'github', 'personal', 'active', ?)",
+        )
+        .run(blob);
+    });
+    // After the cut, A revokes it the way revokeConnection does, and syncs.
+    await onM(a, async () => {
+      (await globalStore(a)).exec(
+        "UPDATE service_connections SET status = 'revoked', credentials_enc = NULL WHERE provider = 'github' AND label = 'personal'",
+      );
+    });
+    const pushed = await onM(a, () =>
+      cloudSync(vopts(a, { scope: 'global', allowUnreleased: true })),
+    );
+    expect(pushed.streams[0]?.refused ?? null).toBeNull();
+
+    const joined = await onM(b, () =>
+      enableSyncPush(vopts(b, { scope: 'global', allowUnreleased: true })),
+    );
+    expect(joined.status).toBe('joined');
+    expect(
+      await onM(b, async () =>
+        (await globalStore(b))
+          .prepare(
+            "SELECT status, credentials_enc FROM service_connections WHERE provider = 'github'",
+          )
+          .get(),
+      ),
+    ).toEqual({ status: 'revoked', credentials_enc: null });
+  });
+
+  it('a merge join whose credential fill fails changes nothing, and the next attempt joins with them (T13544)', async () => {
+    const { b, secretOn } = await credentialBrains();
+    // B's machine key cannot be read: re-encrypting A's credential fails.
+    const keyPath = path.join(b.home, 'machine-key');
+    const saved = fs.readFileSync(keyPath);
+    fs.rmSync(keyPath);
+    fs.mkdirSync(keyPath);
+    await expect(
+      onM(b, () => enableSyncPush(vopts(b, { scope: 'global', allowUnreleased: true }))),
+    ).rejects.toThrow();
+    expect(
+      await onM(b, async () =>
+        (await globalStore(b)).prepare('SELECT label FROM accounts ORDER BY label').all(),
+      ),
+    ).toEqual([{ label: 'work' }]);
+    fs.rmSync(keyPath, { recursive: true });
+    fs.writeFileSync(keyPath, saved, { mode: 0o600 });
+    const joined = await onM(b, () =>
+      enableSyncPush(vopts(b, { scope: 'global', allowUnreleased: true })),
+    );
+    expect(joined.status).toBe('joined');
+    expect(await secretOn('team')).toBe('sk-A-team');
+  });
+
+  it('a credential A set before the cut is usable on B after restore + join, and never plaintext in the checkpoint (T13530)', async () => {
+    const SECRET = 'sk-live-T13530-do-not-leak';
+    const a = await machine('a', DEVICE_A, REPLICA_A);
+    const b = await machine('b', DEVICE_B, REPLICA_B);
+    await onM(a, async () => {
+      const db = await globalStore(a);
+      // Set before the journal starts: it can only reach B through the genesis checkpoint.
+      db.prepare(
+        "INSERT INTO accounts (id, provider, label, auth_type, secret_enc) VALUES (1, 'anthropic', 'work', 'key', ?)",
+      ).run(await encryptGlobal(SECRET, 'account:anthropic:work', { cleoHome: a.home }));
+      setCaptureEnabled(db, 'global', true, { schemaRoot: SYNC_JOURNAL });
+      setSyncFlag(db, 'sync.seal', true, { schemaRoot: SYNC_JOURNAL, allowUnreleased: true });
+    });
+    const enabled = await onM(a, () =>
+      enableSyncPush(vopts(a, { scope: 'global', allowUnreleased: true })),
+    );
+    expect(enabled.status).toBe('enabled');
+    await onM(a, async () => {
+      setSyncFlag(await globalStore(a), 'sync.pull', true, { allowUnreleased: true });
+    });
+
+    // The genesis checkpoint holds no plaintext secret (nor A's machine-bound ciphertext).
+    const cp = fake.stream(HOME_STREAM).checkpoints.at(-1);
+    if (!cp || !fake.escrow) throw new Error('fixture');
+    const tar = gunzipSync(
+      openAead(
+        nexusHomeDataKey(fake.escrow.mk),
+        fake.blobs.get(cp.blobSha256)?.bytes ?? Buffer.alloc(0),
+        'checkpoint',
+        `checkpoint/v2\n${cp.streamId}\n${cp.checkpointId}\n${cp.coversSeq}`,
+      ),
+    );
+    expect(tar.includes(Buffer.from(SECRET))).toBe(false);
+    const encA = await onM(a, async () =>
+      (await globalStore(a)).prepare('SELECT secret_enc FROM accounts WHERE id = 1').get(),
+    );
+    expect(tar.includes(Buffer.from(String((encA as { secret_enc: string }).secret_enc)))).toBe(
+      false,
+    );
+
+    const restored = await onM(b, () =>
+      restoreNexusVault(vopts(b, { scope: 'global', mode: 'pull', force: true })),
+    );
+    expect(restored.status).toBe('restored');
+    const joined = await onM(b, () =>
+      enableSyncPush(vopts(b, { scope: 'global', allowUnreleased: true })),
+    );
+    expect(joined.status).toBe('joined');
+    const r = await onM(b, () => cloudSync(vopts(b, { scope: 'global', allowUnreleased: true })));
+    expect(r.streams[0]?.refused ?? null).toBeNull();
+
+    const onB = (await onM(b, async () =>
+      (
+        await globalStore(b)
+      )
+        .prepare("SELECT secret_enc FROM accounts WHERE provider = 'anthropic' AND label = 'work'")
+        .get(),
+    )) as { secret_enc: string | null } | undefined;
+    expect(onB?.secret_enc ?? null).not.toBeNull();
+    // Usable on B: it opens under B's own machine key.
+    expect(
+      await decryptGlobal(onB?.secret_enc ?? '', 'account:anthropic:work', { cleoHome: b.home }),
+    ).toBe(SECRET);
+    // The sealed sidecar never reaches the placed store.
+    expect(
+      await onM(b, async () =>
+        (await globalStore(b))
+          .prepare("SELECT name FROM sqlite_master WHERE name = '_vault_sealed_credentials'")
+          .all(),
+      ),
+    ).toEqual([]);
   });
 });
 

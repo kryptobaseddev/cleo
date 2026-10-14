@@ -29,6 +29,7 @@ import { _forceSystemdRunAvailable } from '../../resources/spawn-wrapper.js';
 import { createOperationExecutionContext } from '../../store/background-ops.js';
 import { acItemToText, acTextHash, buildFreshAcRows } from '../ac-table.js';
 import {
+  captureGateInputsHash,
   createTaskGateReceipt,
   outputReportsFailure,
   resolveGateTimeoutMs,
@@ -38,6 +39,8 @@ import {
   TYPED_GATE_BOOKKEEPING_MS,
   typedGateAdmissionMs,
 } from '../gate-runner.js';
+import { admissionCapacityBytes } from '../heavy-tool-env.js';
+import { acquireGlobalSlot } from '../tool-semaphore.js';
 
 // ─── Setup ────────────────────────────────────────────────────────────────
 
@@ -982,11 +985,21 @@ describe("bun's subcommands are not the script (T13566)", () => {
     await writeFile(join(projectRoot, 'test', 'b.test.ts'), 'export {};\n');
     await mkdir(join(projectRoot, 'scripts'), { recursive: true });
     await writeFile(join(projectRoot, 'scripts', 'x.ts'), 'export {};\n');
+    await mkdir(join(projectRoot, 'sub'), { recursive: true });
+    await writeFile(join(projectRoot, 'sub', 'c.test.ts'), 'export {};\n');
+    await writeFile(join(projectRoot, 'bunfig.toml'), '');
   });
   beforeEach(() => _forceSystemdRunAvailable(false));
   afterEach(() => _forceSystemdRunAvailable(undefined));
 
   async function inputs(args: string[], command = fakeBun): Promise<string[]> {
+    return (await artifactsOf(args, command)).map((a) => a.path);
+  }
+
+  async function artifactsOf(
+    args: string[],
+    command = fakeBun,
+  ): Promise<Array<{ path: string; sha256: string | null }>> {
     const task: Task = {
       id: 'T166',
       title: 'bun gate',
@@ -1022,7 +1035,10 @@ describe("bun's subcommands are not the script (T13566)", () => {
     try {
       const [result] = await runTaskGates(task, rows, { execution });
       expect(result?.result, result?.errorMessage).toBe('pass');
-      return (result?.binding?.artifacts ?? []).map((a) => a.path.slice(projectRoot.length + 1));
+      return (result?.binding?.artifacts ?? []).map((a) => ({
+        path: a.path.slice(projectRoot.length + 1),
+        sha256: a.sha256,
+      }));
     } finally {
       execution.close();
     }
@@ -1040,6 +1056,60 @@ describe("bun's subcommands are not the script (T13566)", () => {
     const named = await inputs(['run', 'build']);
     expect(named).not.toContain('run');
     expect(named).not.toContain('build');
+  });
+
+  it('other bun subcommands capture nothing: install, add, pm, create (T13574)', async () => {
+    for (const args of [
+      ['install'],
+      ['add', '@scope/pkg'],
+      ['pm', 'ls'],
+      ['create', 'user/repo', 'dest'],
+      ['upgrade'],
+    ]) {
+      const captured = await inputs(args);
+      for (const word of args) expect(captured).not.toContain(word);
+      expect(captured.every((path) => !path.startsWith('user/') && path !== 'dest')).toBe(true);
+    }
+  });
+
+  it('bun -c <file> is the config flag, not inline eval (T13574)', async () => {
+    const captured = await inputs(['-c', 'bunfig.toml', 'test', 'test/a.test.ts']);
+    expect(captured).toContain('test/a.test.ts');
+    // The config file is an input the gate reads (T13574 review), not inline code.
+    expect(captured).toContain('bunfig.toml');
+  });
+
+  it('bun --cwd dir test resolves files in dir and never captures dir (T13574)', async () => {
+    const captured = await inputs(['--cwd', 'sub', 'test', 'c.test.ts']);
+    expect(captured).toContain('sub/c.test.ts');
+    expect(captured).not.toContain('sub');
+    expect(await inputs(['--cwd=sub', 'test', 'c.test.ts'])).toContain('sub/c.test.ts');
+  });
+
+  it('bun file-flag values are captured inputs, never the script: an edited preload changes the snapshot (T13574 review)', async () => {
+    await mkdir(join(projectRoot, 'setup'), { recursive: true });
+    await writeFile(join(projectRoot, 'setup', 'pre.ts'), 'export const v = 1;\n');
+    await writeFile(join(projectRoot, 'setup', '.env.test'), 'A=1\n');
+    const args = [
+      '--preload',
+      './setup/pre.ts',
+      '--env-file=setup/.env.test',
+      '-c',
+      'bunfig.toml',
+      'test',
+      'test/a.test.ts',
+    ];
+    const before = await artifactsOf(args);
+    const preload = before.find((a) => a.path === 'setup/pre.ts');
+    expect(preload?.sha256).toEqual(expect.any(String));
+    expect(before.map((a) => a.path)).toEqual(
+      expect.arrayContaining(['setup/.env.test', 'bunfig.toml', 'test/a.test.ts']),
+    );
+    await writeFile(join(projectRoot, 'setup', 'pre.ts'), 'export const v = 2;\n');
+    const after = await artifactsOf(args);
+    expect(after.find((a) => a.path === 'setup/pre.ts')?.sha256).not.toBe(preload?.sha256);
+    // --cwd's value is a directory, never an input.
+    expect(await inputs(['--cwd', 'sub', 'test', 'c.test.ts'])).not.toContain('sub');
   });
 
   it('bun x <pkg> and bunx <pkg> never capture the package as a file', async () => {
@@ -1344,6 +1414,46 @@ describe('task-bound explicit gate verification (T12292)', () => {
     }
   });
 
+  it('a bracketed task file (Next.js app/[id]/page.tsx) is a literal input, and --run and the write path key it alike (T13690)', async () => {
+    const script = 'bracket-pass.mjs';
+    await writeFile(join(projectRoot, script), 'process.exit(0);');
+    await mkdir(join(projectRoot, 'app', '[id]'), { recursive: true });
+    await writeFile(join(projectRoot, 'app', '[id]', 'page.tsx'), 'export default 1;\n');
+    const base = taskAndRows(script);
+    const task: Task = {
+      ...base.task,
+      files: [script, 'app/[id]/page.tsx', 'app/plain-absent.tsx'],
+    };
+    const execution = admitted();
+    try {
+      const [result] = await runTaskGates(task, base.rows, { execution });
+      expect(result?.result, result?.errorMessage).toBe('pass');
+      const artifacts = result?.binding?.artifacts ?? [];
+      const page = artifacts.find((a) => a.path.endsWith(join('app', '[id]', 'page.tsx')));
+      expect(page?.sha256).toBe(createHash('sha256').update('export default 1;\n').digest('hex'));
+      // A plain declared file that does not exist is recorded as absent.
+      expect(artifacts.find((a) => a.path.endsWith('plain-absent.tsx'))?.sha256).toBeNull();
+      // The digest `cleo verify --run` caches under equals the one the write path reads.
+      const gate = task.acceptance?.find((a) => typeof a !== 'string');
+      if (!gate || typeof gate === 'string') throw new Error('expected a typed gate');
+      const runHash = await captureGateInputsHash(task, gate, execution);
+      const writeHash = createHash('sha256')
+        .update(JSON.stringify({ invocation: result?.binding?.invocation ?? null, artifacts }))
+        .digest('hex');
+      expect(runHash).toBe(writeHash);
+      // T13691: an absent glob-looking entry is a mistaken pattern, refused by name.
+      const [refused] = await runTaskGates({ ...task, files: [script, 'src/**/*.ts'] }, base.rows, {
+        execution,
+      });
+      expect(refused?.result).toBe('error');
+      expect(refused?.errorMessage).toMatch(
+        /declared task file src\/\*\*\/\*\.ts does not exist; list explicit paths, task\.files are literal/,
+      );
+    } finally {
+      execution.close();
+    }
+  });
+
   it('refuses path escape, oversized inputs and expired admission before executing the harness', async () => {
     const script = 'bound-budget.mjs';
     await writeFile(join(projectRoot, script), 'process.exit(0);');
@@ -1535,4 +1645,136 @@ describe('expect pass reads runner summaries, not the word "fail" (T13511)', () 
     );
     expect(result?.result).toBe('fail');
   });
+});
+
+describe('typed process gates admit through the machine ledger (T13573)', () => {
+  beforeEach(() => _forceSystemdRunAvailable(false));
+  afterEach(() => _forceSystemdRunAvailable(undefined));
+
+  it('with a full ledger a typed test gate does not spawn until it is admitted', async () => {
+    const marker = join(projectRoot, 't13573-ran');
+    await writeFile(
+      join(projectRoot, 't13573-gate.mjs'),
+      `import { writeFileSync } from 'node:fs'; writeFileSync(${JSON.stringify(marker)}, 'ran');`,
+    );
+    const task: Task = {
+      id: 'T173',
+      title: 'admitted gate',
+      description: 'typed gate admission fixture',
+      status: 'active',
+      type: 'task',
+      priority: 'medium',
+      createdAt: '2026-10-12T00:00:00.000Z',
+      acceptance: [
+        {
+          kind: 'test',
+          command: process.execPath,
+          args: ['t13573-gate.mjs'],
+          expect: 'exit0',
+          req: 'ADMIT-1',
+          description: 'waits for admission',
+        },
+      ],
+    };
+    const rows: AcRow[] = buildFreshAcRows(task.id, task.acceptance).map((row) => ({
+      ...row,
+      kind: row.kind ?? 'text',
+      sourceKey: row.sourceKey ?? '',
+      projection: row.projection ?? 'legacy',
+      targetTaskId: row.targetTaskId ?? null,
+      contentHash: row.contentHash ?? null,
+      createdAt: task.createdAt,
+      updatedAt: null,
+    }));
+    // Another run holds the whole machine budget.
+    const holder = await acquireGlobalSlot('test', {
+      footprintBytes: admissionCapacityBytes(),
+      label: 'holder',
+    });
+    const execution = createOperationExecutionContext(
+      {
+        projectId: 'gate-fixture',
+        projectRoot,
+        actor: 'admission-agent',
+        operation: 'check.gate.verify',
+        idempotencyKey: 't13573-admission',
+      },
+      { budgetMs: 30_000 },
+    );
+    try {
+      const run = runTaskGates(task, rows, { execution });
+      await new Promise((resolve) => setTimeout(resolve, 1_500));
+      await expect(readFile(marker, 'utf8')).rejects.toThrow();
+      await holder();
+      const [result] = await run;
+      expect(result?.result, result?.errorMessage).toBe('pass');
+      expect(await readFile(marker, 'utf8')).toBe('ran');
+    } finally {
+      await holder();
+      execution.close();
+    }
+  }, 30_000);
+
+  it('refuses with the admission reason, never spawning, when the budget stays full past the gate deadline', async () => {
+    const marker = join(projectRoot, 't13573-refused');
+    await writeFile(
+      join(projectRoot, 't13573-refuse.mjs'),
+      `import { writeFileSync } from 'node:fs'; writeFileSync(${JSON.stringify(marker)}, 'ran');`,
+    );
+    const task: Task = {
+      id: 'T174',
+      title: 'refused gate',
+      description: 'typed gate admission refusal fixture',
+      status: 'active',
+      type: 'task',
+      priority: 'medium',
+      createdAt: '2026-10-12T00:00:00.000Z',
+      acceptance: [
+        {
+          kind: 'test',
+          command: process.execPath,
+          args: ['t13573-refuse.mjs'],
+          expect: 'exit0',
+          req: 'ADMIT-2',
+          description: 'refused while the budget is full',
+          timeoutMs: 1_500,
+        },
+      ],
+    };
+    const rows: AcRow[] = buildFreshAcRows(task.id, task.acceptance).map((row) => ({
+      ...row,
+      kind: row.kind ?? 'text',
+      sourceKey: row.sourceKey ?? '',
+      projection: row.projection ?? 'legacy',
+      targetTaskId: row.targetTaskId ?? null,
+      contentHash: row.contentHash ?? null,
+      createdAt: task.createdAt,
+      updatedAt: null,
+    }));
+    const holder = await acquireGlobalSlot('test', {
+      footprintBytes: admissionCapacityBytes(),
+      label: 'holder',
+    });
+    const execution = createOperationExecutionContext(
+      {
+        projectId: 'gate-fixture',
+        projectRoot,
+        actor: 'admission-agent',
+        operation: 'check.gate.verify',
+        idempotencyKey: 't13573-refusal',
+      },
+      { budgetMs: 4_000 },
+    );
+    try {
+      const outcome = await runTaskGates(task, rows, { execution }).then(
+        ([result]) => result?.errorMessage ?? result?.result ?? '',
+        (error: Error) => error.message,
+      );
+      expect(outcome).toMatch(/Timed out waiting for admission of a 'test' run/);
+      await expect(readFile(marker, 'utf8')).rejects.toThrow();
+    } finally {
+      await holder();
+      execution.close();
+    }
+  }, 30_000);
 });

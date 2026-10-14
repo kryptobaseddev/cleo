@@ -474,37 +474,42 @@ function resolveSingleAccess(
  * populated. Access records are first deduplicated (read+write pairs of the
  * same source→target are collapsed to `'readwrite'`) before resolution.
  *
- * @param accesses - All access records accumulated during the parse loop
+ * The input is iterated twice — lexical sites, then legacy sites deduplicated
+ * per file (their key includes the file-scoped source id) — and never held
+ * whole, so a streamed input stays bounded by one file (T13656).
+ *
+ * @param accesses - Every access record in scan order; must be re-iterable
  * @param graph - KnowledgeGraph to write ACCESSES edges into
  * @param symbolTable - Fully-populated SymbolTable (all files parsed)
  * @param namedImportMap - Explicit source-module bindings for lexical receivers.
  * @param barrelMap - Re-export candidates for namespace access resolution.
+ * @param onReference - Receives each unresolved site instead of the result retaining it
  * @returns Resolution counters and original unresolved sites
  */
 export async function resolveAccesses(
-  accesses: ExtractedAccess[],
+  accesses: Iterable<ExtractedAccess>,
   graph: KnowledgeGraph,
   symbolTable: SymbolTable,
   namedImportMap: NamedImportMap = new Map(),
   barrelMap: BarrelExportMap = new Map(),
+  onReference?: (reference: GraphIndexReferenceReport) => void,
 ): Promise<AccessResolutionResult> {
   let tier1Count = 0;
   let tier2aCount = 0;
   let tier3Count = 0;
   let unresolvedCount = 0;
   const references: GraphIndexReferenceReport[] = [];
+  const report =
+    onReference ??
+    ((reference: GraphIndexReferenceReport): void => {
+      references.push(reference);
+    });
   const resolvedEdges = new Map<
     string,
     { relation: GraphRelation; modes: Set<AccessMode>; provenance: string[] }
   >();
   // Preserve every lexical site. Only legacy language records lack source ranges.
-  const sites = [
-    ...accesses.filter((access) => access.generation),
-    ...deduplicateAccesses(accesses.filter((access) => !access.generation)),
-  ];
-  let processed = 0;
-  for (const access of sites) {
-    if (++processed % 100 === 0) await Promise.resolve();
+  const resolveSite = (access: ExtractedAccess): void => {
     const lexical = access.generation
       ? resolveLexicalReference(
           {
@@ -526,9 +531,9 @@ export async function resolveAccesses(
         )
       : undefined;
     if (lexical && 'report' in lexical) {
-      references.push(lexical.report);
+      report(lexical.report);
       unresolvedCount++;
-      continue;
+      return;
     }
     const resolved = lexical
       ? {
@@ -539,7 +544,7 @@ export async function resolveAccesses(
       : resolveSingleAccess(access, symbolTable);
     if (!resolved) {
       unresolvedCount++;
-      references.push({
+      report({
         kind: 'unresolved',
         filePath: access.filePath,
         sourceId: access.sourceId,
@@ -550,7 +555,7 @@ export async function resolveAccesses(
           .lookupCallableByName(access.memberName)
           .map((candidate) => candidate.nodeId),
       });
-      continue;
+      return;
     }
     const key = `${access.sourceId}\0${resolved.nodeId}`;
     let edge = resolvedEdges.get(key);
@@ -575,7 +580,28 @@ export async function resolveAccesses(
     edge.provenance.push(
       `${access.memberName} (tier: ${resolved.tier})${lexical ? `; ${lexical.reason}; utf16 ${access.span?.startIndex}:${access.span?.endIndex}; source ${access.generation}` : '; language-specific name resolution'}`,
     );
+  };
+  let processed = 0;
+  let legacySites = false;
+  for (const access of accesses) {
+    if (!access.generation) {
+      legacySites = true;
+      continue;
+    }
+    if (++processed % 10000 === 0) await Promise.resolve();
+    resolveSite(access);
   }
+  let legacyFile: ExtractedAccess[] = [];
+  const flushLegacy = (): void => {
+    for (const access of deduplicateAccesses(legacyFile)) resolveSite(access);
+    legacyFile = [];
+  };
+  for (const access of legacySites ? accesses : []) {
+    if (access.generation) continue;
+    if (legacyFile.length > 0 && legacyFile[0]?.filePath !== access.filePath) flushLegacy();
+    legacyFile.push(access);
+  }
+  flushLegacy();
   for (const { relation, modes, provenance } of resolvedEdges.values()) {
     const mode =
       modes.has('readwrite') || (modes.has('read') && modes.has('write'))

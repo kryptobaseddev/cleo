@@ -7,8 +7,13 @@
  * @task T12960
  * @task T12656
  * @task T12965
+ * @task T13644
  */
 
+import { execFileSync } from 'node:child_process';
+import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import type {
   AcRow,
   EvidenceAtom,
@@ -26,6 +31,9 @@ import { isPendingCiReason, type MergedCiDeps, satisfyGatesFromMergedCi } from '
 const mergeOverride = vi.hoisted(() => ({
   value: null as null | TaskMergeInfo,
 }));
+const standsOverride = vi.hoisted(() => ({
+  value: null as null | { ok: true } | { ok: false; why: string },
+}));
 
 vi.mock('../affected-scope.js', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../affected-scope.js')>();
@@ -35,11 +43,14 @@ vi.mock('../affected-scope.js', async (importOriginal) => {
       ...args: Parameters<typeof actual.taskChangeMergeState>
     ): ReturnType<typeof actual.taskChangeMergeState> =>
       mergeOverride.value ?? actual.taskChangeMergeState(...args),
+    scopedRunStandsAfterRedCi: (...args: Parameters<typeof actual.scopedRunStandsAfterRedCi>) =>
+      standsOverride.value ?? actual.scopedRunStandsAfterRedCi(...args),
   };
 });
 
 afterEach(() => {
   mergeOverride.value = null;
+  standsOverride.value = null;
 });
 
 const now = '2026-10-01T00:00:00Z';
@@ -265,6 +276,81 @@ describe('satisfyGatesFromMergedCi', () => {
       );
       expect(out.kind, message).toBe('ci-red');
     }
+  });
+
+  describe('red merged CI with a test-run recorded on main after the merge (T13623)', () => {
+    const afterMerge: EvidenceAtom = {
+      kind: 'test-run',
+      path: 'r.json',
+      sha256: 'c'.repeat(64),
+      passCount: 3,
+      failCount: 0,
+      skipCount: 0,
+      headSha: 'b'.repeat(40),
+      treeHash: 'f'.repeat(40),
+      testFiles: ['src/a.test.ts'],
+    };
+    const red = () =>
+      recorder(
+        engineError<GateVerifyResult>(
+          'E_EVIDENCE_TESTS_FAILED',
+          "Required CI on PR #42's merge commit is not green:\n  - CI: failure",
+        ),
+      );
+    const merged = () => {
+      mergeOverride.value = {
+        state: 'merged',
+        prRef: '42',
+        changeSet: changeSet({
+          source: 'pr',
+          prNumber: 42,
+          mergeState: 'merged',
+          mergeCommitSha: 'a'.repeat(40),
+          files: ['src/a.ts', 'src/a.test.ts'],
+        }),
+      };
+    };
+
+    it('stands in for testsPassed when it covers the change, so nothing is refused', async () => {
+      merged();
+      standsOverride.value = { ok: true };
+      const w = red();
+      const out = await satisfyGatesFromMergedCi(
+        task({ tests: [afterMerge], qa: true }),
+        '/nonexistent',
+        REQUIRED,
+        deps({ recordGates: w.recordGates }),
+      );
+      expect(out).toEqual({ kind: 'skipped', testsPassedReason: null, qaPassedReason: null });
+      expect(w.calls).toHaveLength(1);
+    });
+
+    it('stays ci-red and says why the run cannot stand in', async () => {
+      merged();
+      standsOverride.value = { ok: false, why: 'the test-run did not run src/a.test.ts' };
+      const out = await satisfyGatesFromMergedCi(
+        task({ tests: [afterMerge], qa: true }),
+        '/nonexistent',
+        REQUIRED,
+        deps({ recordGates: red().recordGates }),
+      );
+      expect(out.kind).toBe('ci-red');
+      expect(out.kind === 'ci-red' && out.reason).toMatch(
+        /CI: failure\. A targeted test-run recorded on the default branch after the merge.*can stand in for testsPassed \(T13623\), but the test-run did not run src\/a\.test\.ts/s,
+      );
+    });
+
+    it('still refuses when qaPassed also needs evidence', async () => {
+      merged();
+      standsOverride.value = { ok: true };
+      const out = await satisfyGatesFromMergedCi(
+        task({ tests: [afterMerge] }),
+        '/nonexistent',
+        REQUIRED,
+        deps({ recordGates: red().recordGates }),
+      );
+      expect(out.kind === 'ci-red' && out.reason).toMatch(/but qaPassed still needs evidence/);
+    });
   });
 
   it('a startup_failure (or any *_failure) beside a pending job is ci-red, never a wait', async () => {
@@ -515,6 +601,171 @@ describe('satisfyGatesFromMergedCi', () => {
         }),
       );
       expect(out).toEqual({ kind: 'skipped', testsPassedReason: null, qaPassedReason: null });
+    });
+  });
+
+  describe('T13644: qa-run receipts on main after the merge stand in for red merged CI (T13224 shape)', () => {
+    /**
+     * T13224 / PR #1910: the change edits src/a.ts and its test, merges, CI on
+     * the merge is red (cancelled, then environmental), and main then edits
+     * src/a.ts again, so byte-identity carry fails. Test-run and qa-run
+     * receipts are recorded on the newest main HEAD.
+     */
+    function landed() {
+      const root = realpathSync(mkdtempSync(join(tmpdir(), 'cleo-t13644-')));
+      const git = (...a: string[]): string =>
+        execFileSync('git', ['-c', 'user.name=T', '-c', 'user.email=t@e.x', ...a], {
+          cwd: root,
+          encoding: 'utf-8',
+        }).trim();
+      git('init', '-q', '-b', 'main');
+      mkdirSync(join(root, 'src'));
+      writeFileSync(join(root, 'package.json'), '{"name":"x","type":"module"}\n');
+      writeFileSync(join(root, 'src/a.ts'), 'export const a = 1;\n');
+      writeFileSync(join(root, 'src/a.test.ts'), "import './a.js';\n");
+      git('add', '.');
+      git('commit', '-q', '-m', 'init');
+      git('switch', '-q', '-c', 'task/T9001');
+      writeFileSync(join(root, 'src/a.ts'), 'export const a = 2;\n');
+      writeFileSync(join(root, 'src/a.test.ts'), "import './a.js'; // 2\n");
+      git('commit', '-q', '-am', 'T9001');
+      const branchHead = git('rev-parse', 'HEAD');
+      git('switch', '-q', 'main');
+      git('merge', '-q', '--no-ff', '-m', 'Merge pull request #42', 'task/T9001');
+      const merge = git('rev-parse', 'HEAD');
+      writeFileSync(join(root, 'src/a.ts'), 'export const a = 3;\n');
+      git('commit', '-q', '-am', 'a later PR edits a.ts');
+      const head = git('rev-parse', 'HEAD');
+      const tree = git('rev-parse', 'HEAD^{tree}');
+      git('update-ref', 'refs/remotes/origin/main', head);
+      mergeOverride.value = {
+        state: 'merged',
+        prRef: '42',
+        changeSet: changeSet({
+          source: 'pr',
+          executionRoot: root,
+          prNumber: 42,
+          mergeState: 'merged',
+          mergeCommitSha: merge,
+          files: ['src/a.test.ts', 'src/a.ts'],
+        }),
+      };
+      return { root, head, tree, branchHead };
+    }
+    const testRun = (headSha: string, treeHash: string): EvidenceAtom => ({
+      kind: 'test-run',
+      path: 'r.json',
+      sha256: 'c'.repeat(64),
+      passCount: 1,
+      failCount: 0,
+      skipCount: 0,
+      headSha,
+      treeHash,
+      testFiles: ['src/a.test.ts'],
+    });
+    const qaRun = (
+      check: 'typecheck' | 'lint',
+      headSha: string,
+      treeHash: string,
+      roots = ['src'],
+    ): EvidenceAtom => ({
+      kind: 'qa-run',
+      path: `${check}.json`,
+      sha256: 'c'.repeat(64),
+      check,
+      command: [check === 'lint' ? 'biome' : 'tsc'],
+      roots,
+      headSha,
+      treeHash,
+    });
+    const red = () =>
+      recorder(
+        engineError<GateVerifyResult>(
+          'E_EVIDENCE_TESTS_FAILED',
+          "Required CI on PR #42's merge commit is not green:\n  - CI: cancelled",
+        ),
+      );
+
+    it('carries: a typecheck and a lint qa-run on a descendant main HEAD, covering the change, stand for qaPassed', async () => {
+      const c = landed();
+      try {
+        const w = red();
+        const out = await satisfyGatesFromMergedCi(
+          task({
+            tests: [testRun(c.head, c.tree)],
+            qa: [qaRun('typecheck', c.head, c.tree), qaRun('lint', c.head, c.tree)],
+          }),
+          '/nonexistent',
+          REQUIRED,
+          deps({ recordGates: w.recordGates, currentTree: () => c.tree }),
+        );
+        expect(out).toEqual({ kind: 'skipped', testsPassedReason: null, qaPassedReason: null });
+        expect(w.calls).toHaveLength(0);
+      } finally {
+        rmSync(c.root, { recursive: true, force: true });
+      }
+    });
+
+    it('refuses receipts recorded on a commit that does not descend from the merge', async () => {
+      const c = landed();
+      try {
+        const out = await satisfyGatesFromMergedCi(
+          task({
+            tests: [testRun(c.head, c.tree)],
+            qa: [qaRun('typecheck', c.branchHead, c.tree), qaRun('lint', c.branchHead, c.tree)],
+          }),
+          '/nonexistent',
+          REQUIRED,
+          deps({ recordGates: red().recordGates, currentTree: () => c.tree }),
+        );
+        expect(out.kind).toBe('ci-red');
+        expect(out.kind === 'ci-red' && out.reason).toMatch(
+          /CI: cancelled.*qaPassed still needs evidence \(qaPassed rests on qa-run receipts.*qa-run:typecheck\.json was recorded at \w+, which does not descend from merge commit/s,
+        );
+      } finally {
+        rmSync(c.root, { recursive: true, force: true });
+      }
+    });
+
+    it('refuses receipts whose roots do not cover the change', async () => {
+      const c = landed();
+      try {
+        const out = await satisfyGatesFromMergedCi(
+          task({
+            tests: [testRun(c.head, c.tree)],
+            qa: [
+              qaRun('typecheck', c.head, c.tree, ['lib']),
+              qaRun('lint', c.head, c.tree, ['src']),
+            ],
+          }),
+          '/nonexistent',
+          REQUIRED,
+          deps({ recordGates: red().recordGates, currentTree: () => c.tree }),
+        );
+        expect(out.kind === 'ci-red' && out.reason).toMatch(
+          /qa-run typecheck receipt \(roots lib\) does not cover the changed path\(s\) src\/a\.test\.ts, src\/a\.ts/,
+        );
+      } finally {
+        rmSync(c.root, { recursive: true, force: true });
+      }
+    });
+
+    it('without ciSatisfies, a non-descendant receipt is the ordinary qaPassed refusal', async () => {
+      const c = landed();
+      try {
+        const out = await satisfyGatesFromMergedCi(
+          task({
+            tests: [testRun(c.head, c.tree)],
+            qa: [qaRun('typecheck', c.branchHead, c.tree), qaRun('lint', c.branchHead, c.tree)],
+          }),
+          '/nonexistent',
+          REQUIRED,
+          deps({ ciSatisfies: () => false, currentTree: () => c.tree }),
+        );
+        expect(out.kind === 'skipped' && out.qaPassedReason).toMatch(/does not descend/);
+      } finally {
+        rmSync(c.root, { recursive: true, force: true });
+      }
     });
   });
 

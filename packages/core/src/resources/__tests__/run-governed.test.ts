@@ -196,7 +196,12 @@ function harness(opts: {
           },
         };
       }
-      while (next !== 'grant' && o.wait && clock.t - t0 < (o.timeoutMs ?? 0)) {
+      while (
+        next !== 'grant' &&
+        o.wait &&
+        clock.t - t0 < (o.timeoutMs ?? 0) &&
+        o.signal?.aborted !== true
+      ) {
         if (next === 'pressure') o.memoryPressure?.waiting(PRESSURE_READING, clock.t - t0);
         await (o.sleep ?? (async () => {}))(o.pollMs ?? 1000);
         next = take();
@@ -363,6 +368,31 @@ describe('the hung/overdue watchdog (T13563)', () => {
     expect(seen).toMatchObject({ measuredRssBytes: 300 * 1024 ** 2, cpuMs: 4200 });
     expect(seen?.hungAtMs).toEqual(expect.any(Number));
     expect(h.signals).toEqual([]);
+  });
+
+  it('never flags a run overdue for a pause still in progress (T13570)', async () => {
+    vi.stubEnv('CLEO_RUN_MAX_WALL_MIN', '1');
+    writeRunJob(olderJob(), join(dir, 'jobs'));
+    const notices: string[] = [];
+    let seen: RunJob | null = null;
+    const h = harness({
+      // Backoff from the 2nd sample on: this younger job is paused and stays paused.
+      levels: ['ok', 'backoff'],
+      treeUsage: () => ({ cpuMs: 0, rssBytes: 1, processes: 1 }),
+      onSleep: (n, hh) => {
+        // The older job stays alive, so this one stays paused.
+        writeRunJob({ ...olderJob(), heartbeatAtMs: hh.clock.t }, join(dir, 'jobs'));
+        // 5 s ticks: well past the 1 min limit, nearly all of it paused.
+        if (n === 40) {
+          seen = recordOf(hh);
+          hh.exit(0);
+        }
+      },
+    });
+    await runGoverned(base(h, { notice: (line: string) => notices.push(line) }));
+    expect(h.signals.some(([, s]) => s === 'SIGSTOP')).toBe(true);
+    expect(notices.some((l) => l.startsWith('overdue:'))).toBe(false);
+    expect(seen?.overdueAtMs ?? null).toBeNull();
   });
 
   it('flags a run past its maximum wall time as overdue once, and a busy tree is never hung', async () => {
@@ -537,6 +567,61 @@ describe('runGoverned', () => {
       [500, 'SIGTERM'],
     ]);
     expect(r).toMatchObject({ kind: 'exited', signal: 'SIGTERM' });
+  });
+
+  it('records the signal the runner received and names the forward (T13680)', async () => {
+    const notices: Array<[string, string]> = [];
+    const h = harness({
+      onSample: (n, hh) => {
+        if (n === 2) {
+          hh.forward('SIGTERM');
+          hh.exit(null, 'SIGTERM');
+        }
+      },
+    });
+    const r = await runGoverned(
+      base(h, {
+        deps: { ...h.deps, ppid: 4242 },
+        notice: (m: string, l: string) => notices.push([l, m]),
+      }),
+    );
+    expect(r).toMatchObject({
+      kind: 'exited',
+      signal: 'SIGTERM',
+      runnerSignal: { signal: 'SIGTERM', ppid: 4242, atMs: expect.any(Number) },
+    });
+    expect(notices).toContainEqual([
+      'warn',
+      'runner received SIGTERM (its parent pid 4242); forwarding it to pid 500',
+    ]);
+  });
+
+  it('a child killed directly, with the runner never signalled, has no runnerSignal (T13680)', async () => {
+    const h = harness({ onSample: (n, hh) => n === 2 && hh.exit(null, 'SIGKILL') });
+    const r = await runGoverned(base(h));
+    expect(r).toMatchObject({ kind: 'exited', signal: 'SIGKILL', runnerSignal: null });
+  });
+
+  it('a signal while waiting in the queue leaves it and reports interrupted, starting nothing (T13681)', async () => {
+    const notices: Array<[string, string]> = [];
+    const h = harness({
+      admissions: ['deny'],
+      onSleep: (n, hh) => n === 3 && hh.forward('SIGTERM'),
+    });
+    const r = await runGoverned(
+      base(h, {
+        wait: true,
+        queuePollMs: 1000,
+        timeoutMs: 600_000,
+        notice: (m: string, l: string) => notices.push([l, m]),
+      }),
+    );
+    expect(r).toMatchObject({ kind: 'interrupted', signal: 'SIGTERM', class: 'test-run' });
+    expect(h.spawned).toEqual([]);
+    expect(notices).toContainEqual([
+      'warn',
+      'SIGTERM while waiting in the queue: left the queue, nothing started',
+    ]);
   });
 
   it("a nested run inside a live job's group rides its admission: not detached, never paused", async () => {
@@ -968,13 +1053,13 @@ describe('notice levels (#1777 R7: --passthrough prints only warnings)', () => {
     expect(notices).toEqual([['warn', expect.stringContaining('running ungoverned')]]);
   });
 
-  it('a queue admission and a nested run are progress (info)', async () => {
+  it('a queue admission is shown even under --passthrough (warn, T13681); a nested run is progress (info)', async () => {
     const queued: Array<[string, string]> = [];
     const q = harness({
       admissions: ['deny', 'grant'],
       onSample: (n, hh) => n === 3 && hh.exit(0),
     });
-    await runGoverned(
+    const qr = await runGoverned(
       base(q, {
         wait: true,
         queuePollMs: 1000,
@@ -982,7 +1067,28 @@ describe('notice levels (#1777 R7: --passthrough prints only warnings)', () => {
         notice: (m: string, l: string) => queued.push([l, m]),
       }),
     );
-    expect(queued).toEqual([['info', expect.stringContaining('admitted after')]]);
+    expect(queued).toEqual([['warn', expect.stringContaining('admitted after')]]);
+    expect(qr).toMatchObject({ kind: 'exited', queued: true });
+
+    // Slow setup before an immediate admission: waitedMs is large, but it never
+    // queued, so no admission notice and queued false (the CLI's exit line pairs with it).
+    const slow: Array<[string, string]> = [];
+    const s0 = harness({
+      onSample: (n, hh) => {
+        if (n === 1) hh.clock.t += 5_000;
+        if (n === 2) hh.exit(0);
+      },
+    });
+    const sr = await runGoverned(
+      base(s0, {
+        wait: true,
+        timeoutMs: 60_000,
+        notice: (m: string, l: string) => slow.push([l, m]),
+      }),
+    );
+    expect(sr).toMatchObject({ kind: 'exited', queued: false });
+    if (sr.kind === 'exited') expect(sr.waitedMs).toBeGreaterThanOrEqual(5_000);
+    expect(slow.filter(([, m]) => m.startsWith('admitted after'))).toEqual([]);
 
     writeRunJob(
       { ...olderJob(), id: 'outer', childPid: 777, childStart: 'start-777' },

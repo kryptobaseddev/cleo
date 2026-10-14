@@ -23,6 +23,21 @@ import { registerProjectOnEncounter } from '../paths.js';
 import { ensureGitignore, ensureProjectInfo } from '../scaffold/ensure-config.js';
 import { checkProjectIdentity } from '../validation/doctor/checks.js';
 
+/** Milliseconds the next registry open waits first: a slow cold open (T13590). */
+const slowOpen = vi.hoisted(() => ({ ms: 0 }));
+vi.mock('../store/nexus-sqlite.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../store/nexus-sqlite.js')>();
+  return {
+    ...actual,
+    getNexusRegistryDb: async (home: string) => {
+      const ms = slowOpen.ms;
+      slowOpen.ms = 0;
+      if (ms > 0) await new Promise((done) => setTimeout(done, ms));
+      return actual.getNexusRegistryDb(home);
+    },
+  };
+});
+
 /** The shipped `project-info.json` schema, as `checkSchemaIntegrity` loads it. */
 function projectInfoSchema(): Record<string, unknown> {
   return JSON.parse(
@@ -261,6 +276,18 @@ describe('AC2: --resolve re-keys a conflict to the tracked id without losing row
     expect(readFileSync(join(root, '.cleo', 'project-id'), 'utf-8')).toBe('x y\n');
     expect(existsSync(join(root, '.cleo', 'project-info.json'))).toBe(true);
   });
+});
+
+describe('T13590: a slow registry cold open is outside the encounter budget', () => {
+  it('the dry-run path passes when the first open outlasts the 2 s operation budget', async () => {
+    const root = project('slow', 'local-a', 'tracked-b');
+    slowOpen.ms = 2_500;
+    await registerProjectOnEncounter(root, 'local-a');
+    expect(slowOpen.ms).toBe(0);
+    const plan = await resolveProjectIdentity(root, { dryRun: true });
+    expect(plan.refused).toBeNull();
+    expect(plan.steps.map((s) => s.action)).toContain('rekey-registry-row');
+  }, 30_000);
 });
 
 describe('T12557: persisted projectRoot is stripped by --resolve; projectHash is never touched', () => {

@@ -102,10 +102,10 @@ export interface GovernedChild extends EventEmitter {
 }
 
 /**
- * How out of the ordinary a notice is. `warn`: the run is ungoverned, or was
- * paused or resumed under pressure (`--passthrough` still prints these).
- * `info`: progress such as a queue admission or a nested run (left out by
- * `--passthrough`).
+ * How out of the ordinary a notice is. `warn`: the run is ungoverned, was
+ * paused or resumed under pressure, was admitted after waiting in the queue,
+ * or the runner was signalled (`--passthrough` still prints these). `info`:
+ * progress such as a nested run (left out by `--passthrough`).
  */
 export type RunNoticeLevel = 'info' | 'warn';
 
@@ -140,6 +140,8 @@ export interface RunGovernedDeps {
   /** Install runner signal forwarding; returns an uninstall function. */
   readonly onRunnerSignal: (handler: (signal: NodeJS.Signals) => void) => () => void;
   readonly jobsDir: string;
+  /** The runner's parent pid, recorded with a signal the runner received (T13680). */
+  readonly ppid: number;
   /** The admission ledger's entries (for the `running[]` of a deferral). */
   readonly ledger: () => readonly LedgerEntry[];
   readonly pid: number;
@@ -198,8 +200,25 @@ export interface RunGovernedOptions {
   readonly deps?: Partial<RunGovernedDeps>;
 }
 
+/** A signal the runner itself received, and forwarded to its child (T13680). */
+export interface RunnerSignal {
+  readonly signal: NodeJS.Signals;
+  /** When it arrived (epoch ms). */
+  readonly atMs: number;
+  /** The runner's parent pid then: the likeliest sender, or its process. */
+  readonly ppid: number;
+}
+
 /** Result of {@link runGoverned}. */
 export type RunGovernedResult =
+  | {
+      /** A signal reached the runner while it waited in the queue; nothing started (T13681). */
+      readonly kind: 'interrupted';
+      readonly signal: NodeJS.Signals;
+      readonly waitedMs: number;
+      readonly class: ResourceClass;
+      readonly command: string;
+    }
   | {
       readonly kind: 'deferred';
       readonly reason: string;
@@ -225,6 +244,14 @@ export type RunGovernedResult =
        * full disk): the command ran ungoverned rather than not at all.
        */
       readonly ungoverned: GovernorIoError | null;
+      /**
+       * The first SIGINT/SIGTERM/SIGHUP the runner itself received while the
+       * child ran, which it forwarded; null when the runner was not signalled,
+       * so a `signal` here with no `runnerSignal` was aimed at the child (T13680).
+       */
+      readonly runnerSignal: RunnerSignal | null;
+      /** True exactly when the run waited in the queue and said "admitted after" (T13681). */
+      readonly queued: boolean;
     };
 
 /** What admission handed the run: how to give it back, and what to tell the child. */
@@ -305,6 +332,7 @@ function defaultDeps(): RunGovernedDeps {
       };
     },
     jobsDir: runJobsDir(),
+    ppid: process.ppid,
     ledger: () => readLedger(),
     pid: process.pid,
     groupOf: processGroupOf,
@@ -392,103 +420,129 @@ export async function runGoverned(opts: RunGovernedOptions): Promise<RunGoverned
     notice(`${describeAdmissionIoError(io)}: running ungoverned`, 'warn');
   };
   const deadline = t0 + (opts.timeoutMs ?? 30 * 60_000);
+  // T13681: a signal while queued leaves the queue and reports it, never a
+  // silent death with no envelope.
+  const queueAbort = new AbortController();
+  let queuedSignal: NodeJS.Signals | null = null;
+  const uninstallQueue = opts.wait
+    ? d.onRunnerSignal((signal) => {
+        queuedSignal ??= signal;
+        queueAbort.abort();
+      })
+    : () => {};
   let admission: RunAdmission;
-  if (isLedgerClass(opts.cls)) {
-    // T13133: one budget and one FIFO queue for every heavy run. Nested in an
-    // admitted run's process tree (any class), it rides that admission; a
-    // memory-pressure wait and, after a minute, the holders are warnings, so
-    // --passthrough shows them.
-    const out = await d.admit(
-      {
-        label: `run:${opts.cls}`,
-        footprintBytes: opts.footprintBytes ?? footprintForClass(opts.cls),
-        ...(opts.footprintReason !== undefined ? { footprintReason: opts.footprintReason } : {}),
-        ...(opts.scope !== undefined ? { scope: opts.scope } : {}),
-        // T13237: one full-build machine-wide, whatever its footprint.
-        ...(opts.cls === 'full-build' ? { exclusive: true } : {}),
-        command,
-        cwd: opts.cwd,
-      },
-      {
-        wait: opts.wait === true,
-        timeoutMs: Math.max(1, deadline - d.now()),
-        ...(opts.queuePollMs !== undefined ? { pollMs: opts.queuePollMs } : {}),
-        memoryPressure: memoryGateReporter((line) => notice(line, 'warn'), `${opts.cls} job`, {
+  let queued = false;
+  try {
+    if (isLedgerClass(opts.cls)) {
+      // T13133: one budget and one FIFO queue for every heavy run. Nested in an
+      // admitted run's process tree (any class), it rides that admission; a
+      // memory-pressure wait and, after a minute, the holders are warnings, so
+      // --passthrough shows them.
+      const out = await d.admit(
+        {
+          label: `run:${opts.cls}`,
+          footprintBytes: opts.footprintBytes ?? footprintForClass(opts.cls),
+          ...(opts.footprintReason !== undefined ? { footprintReason: opts.footprintReason } : {}),
+          ...(opts.scope !== undefined ? { scope: opts.scope } : {}),
+          // T13237: one full-build machine-wide, whatever its footprint.
+          ...(opts.cls === 'full-build' ? { exclusive: true } : {}),
+          command,
+          cwd: opts.cwd,
+        },
+        {
+          wait: opts.wait === true,
+          timeoutMs: Math.max(1, deadline - d.now()),
+          ...(opts.queuePollMs !== undefined ? { pollMs: opts.queuePollMs } : {}),
+          memoryPressure: memoryGateReporter((line) => notice(line, 'warn'), `${opts.cls} job`, {
+            now: d.now,
+          }),
+          notice: (line) => notice(line, 'warn'),
           now: d.now,
-        }),
-        notice: (line) => notice(line, 'warn'),
-        now: d.now,
-        sleep: (ms) => d.sleep(ms),
-      },
-    );
-    if (!out.admitted) {
-      const { refusal } = out;
-      return deferral(
-        opts,
-        d,
-        opts.wait
-          ? `timed out after ${Math.round((d.now() - t0) / 1000)}s waiting for the machine budget (position ${refusal.ahead + 1}): ${refusal.reason}`
-          : refusal.reason,
-        refusal.retryAfterMs,
-        sample,
-        opts.wait ? refusal.ahead + 1 : null,
-        refusal.memoryPressure,
+          sleep: (ms) => d.sleep(ms, queueAbort.signal),
+          signal: queueAbort.signal,
+        },
       );
-    }
-    const { grant } = out;
-    if (grant.ungoverned) sayUngoverned(grant.ungoverned);
-    if (grant.nested) {
-      notice('nested in an admitted run: riding its admission, inside its process tree', 'info');
-    } else if (grant.waitedMs >= 1_000 && opts.wait) {
-      notice(`admitted after ${Math.round(grant.waitedMs / 1000)}s in the queue`, 'info');
-    }
-    admission = {
-      release: () => grant.release(),
-      slot: grant.id === null ? -1 : 0,
-      token: grant.token,
-      holdsShare: grant.id !== null,
-    };
-  } else {
-    // Classes outside the ledger (db-heavy) keep their governor slots. A run
-    // nested in a job of the SAME class rides its slot (#1777 round 3, M-2).
-    const parent = enclosing !== null && enclosing.class === opts.cls ? enclosing : null;
-    if (parent) {
-      notice(
-        `nested in a running ${parent.class} job (${parent.command}): running on its slot`,
-        'info',
-      );
-      admission = { release: async () => {}, slot: -1, token: '', holdsShare: false };
-    } else {
-      const tryAcquire = async (s: ResourceSample): Promise<AdmissionResult> => {
-        const r = await admitFailOpen(opts.cls, () => d.tryAcquire(opts.cls, s));
-        if (r.ungoverned !== null) sayUngoverned(r.ungoverned);
-        return r.admission;
-      };
-      let result = await tryAcquire(sample);
-      while (result.deferred && opts.wait && d.now() < deadline) {
-        await d.sleep(opts.queuePollMs ?? 1000);
-        sample = await d.sample();
-        result = await tryAcquire(sample);
+      if (queuedSignal !== null) {
+        if (out.admitted) await out.grant.release();
+        return interrupted(queuedSignal);
       }
-      if (result.deferred) {
+      if (!out.admitted) {
+        const { refusal } = out;
         return deferral(
           opts,
           d,
-          result.reason,
-          result.retryAfterMs,
+          opts.wait
+            ? `timed out after ${Math.round((d.now() - t0) / 1000)}s waiting for the machine budget (position ${refusal.ahead + 1}): ${refusal.reason}`
+            : refusal.reason,
+          refusal.retryAfterMs,
           sample,
-          null,
-          result.memoryPressure ?? null,
+          opts.wait ? refusal.ahead + 1 : null,
+          refusal.memoryPressure,
         );
       }
-      const granted = result;
+      const { grant } = out;
+      if (grant.ungoverned) sayUngoverned(grant.ungoverned);
+      if (grant.nested) {
+        notice('nested in an admitted run: riding its admission, inside its process tree', 'info');
+      } else if (grant.waitedMs >= 1_000 && opts.wait) {
+        queued = true;
+        notice(`admitted after ${Math.round(grant.waitedMs / 1000)}s in the queue`, 'warn');
+      }
       admission = {
-        release: () => granted.release(),
-        slot: granted.slot,
-        token: '',
-        holdsShare: true,
+        release: () => grant.release(),
+        slot: grant.id === null ? -1 : 0,
+        token: grant.token,
+        holdsShare: grant.id !== null,
       };
+    } else {
+      // Classes outside the ledger (db-heavy) keep their governor slots. A run
+      // nested in a job of the SAME class rides its slot (#1777 round 3, M-2).
+      const parent = enclosing !== null && enclosing.class === opts.cls ? enclosing : null;
+      if (parent) {
+        notice(
+          `nested in a running ${parent.class} job (${parent.command}): running on its slot`,
+          'info',
+        );
+        admission = { release: async () => {}, slot: -1, token: '', holdsShare: false };
+      } else {
+        const tryAcquire = async (s: ResourceSample): Promise<AdmissionResult> => {
+          const r = await admitFailOpen(opts.cls, () => d.tryAcquire(opts.cls, s));
+          if (r.ungoverned !== null) sayUngoverned(r.ungoverned);
+          return r.admission;
+        };
+        let result = await tryAcquire(sample);
+        while (result.deferred && opts.wait && d.now() < deadline && queuedSignal === null) {
+          await d.sleep(opts.queuePollMs ?? 1000, queueAbort.signal);
+          sample = await d.sample();
+          result = await tryAcquire(sample);
+        }
+        if (queuedSignal !== null) {
+          if (!result.deferred) await result.release();
+          return interrupted(queuedSignal);
+        }
+        if (result.deferred) {
+          return deferral(
+            opts,
+            d,
+            result.reason,
+            result.retryAfterMs,
+            sample,
+            null,
+            result.memoryPressure ?? null,
+          );
+        }
+        const granted = result;
+        admission = {
+          release: () => granted.release(),
+          slot: granted.slot,
+          token: '',
+          holdsShare: true,
+        };
+      }
     }
+  } finally {
+    // Every admission path, a throw or a nested ride included, drops the queue handler.
+    uninstallQueue();
   }
   const grant = admission;
   const waitedMs = d.now() - t0;
@@ -532,6 +586,8 @@ export async function runGoverned(opts: RunGovernedOptions): Promise<RunGoverned
   writeRunJob(job, d.jobsDir);
 
   let exited = false;
+  // Declared before the spawn: a spawn failure reports it too (null).
+  let runnerSignal: RunnerSignal | null = null;
   let pausedAtMs: number | null = null;
   let capResumedAtMs: number | null = null;
   let pausedTotalMs = 0;
@@ -580,11 +636,16 @@ export async function runGoverned(opts: RunGovernedOptions): Promise<RunGoverned
   // 4, L-A).
   const forwardTo = leadsGroup ? d.signal : d.signalPid;
   const uninstall = d.onRunnerSignal((signal) => {
+    runnerSignal ??= { signal, atMs: d.now(), ppid: d.ppid };
     if (childPid === undefined || exited) return;
     // A terminal's Ctrl-C already reached its whole foreground group, child
     // included: forwarding it would deliver a second SIGINT, which some
     // runners treat as force-quit (#1777 R8). SIGTERM and SIGHUP still go.
     if (opts.foreground === true && signal === 'SIGINT') return;
+    notice(
+      `runner received ${signal} (its parent pid ${d.ppid}); forwarding it to pid ${childPid}`,
+      'warn',
+    );
     forwardTo(childPid, 'SIGCONT');
     forwardTo(childPid, signal);
   });
@@ -599,9 +660,11 @@ export async function runGoverned(opts: RunGovernedOptions): Promise<RunGoverned
     if (childPid === undefined || now - treeSampledAtMs < TREE_SAMPLE_MS) return;
     treeSampledAtMs = now;
     const usage = d.treeUsage(childPid);
+    // A pause still in progress is not run time either (T13570).
+    const pausedMs = pausedTotalMs + (pausedAtMs !== null ? now - pausedAtMs : 0);
     const step = watchRun(
       watch,
-      { nowMs: now, startedAtMs, pausedTotalMs, paused: pausedAtMs !== null, usage },
+      { nowMs: now, startedAtMs, pausedTotalMs: pausedMs, paused: pausedAtMs !== null, usage },
       limits,
     );
     watch = step.next;
@@ -609,7 +672,7 @@ export async function runGoverned(opts: RunGovernedOptions): Promise<RunGoverned
     for (const event of step.events) {
       if (event === 'overdue')
         notice(
-          `overdue: running ${minutes(now - startedAtMs - pausedTotalMs)} min, past the ${opts.cls} limit of ${minutes(limits.maxWallMs ?? 0)} min (pid ${childPid}, ${command}). It keeps its reservation until it exits; check it or stop it.`,
+          `overdue: running ${minutes(now - startedAtMs - pausedMs)} min, past the ${opts.cls} limit of ${minutes(limits.maxWallMs ?? 0)} min (pid ${childPid}, ${command}). It keeps its reservation until it exits; check it or stop it.`,
           'warn',
         );
       else if (event === 'hung')
@@ -707,6 +770,13 @@ export async function runGoverned(opts: RunGovernedOptions): Promise<RunGoverned
       pauses,
       slot: grant.slot,
       ungoverned,
+      runnerSignal,
+      queued,
     };
+  }
+
+  function interrupted(signal: NodeJS.Signals): RunGovernedResult {
+    notice(`${signal} while waiting in the queue: left the queue, nothing started`, 'warn');
+    return { kind: 'interrupted', signal, waitedMs: d.now() - t0, class: opts.cls, command };
   }
 }

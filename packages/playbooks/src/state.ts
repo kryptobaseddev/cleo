@@ -414,6 +414,18 @@ export function updatePlaybookApproval(
     values.push(patch.reason ?? null);
   }
   if ('status' in patch && patch.status !== undefined) {
+    // A decided gate never changes its decision (playbook.approval.once, the
+    // same guard transitionGate applies): a peer would refuse the move, so
+    // the origin refuses it too (T12944).
+    const current = db
+      .prepare('SELECT status FROM playbook_approvals WHERE approval_id = ?')
+      .get(approvalId) as { status: string } | undefined;
+    if (current && current.status !== 'pending' && current.status !== patch.status) {
+      // @sync-invariant playbook.approval.once a decided gate keeps its decision locally, as every peer's merge keeps it
+      throw new Error(
+        `E_APPROVAL_ALREADY_DECIDED: gate ${approvalId} is already ${current.status}`,
+      );
+    }
     sets.push('status = ?');
     values.push(patch.status);
   }

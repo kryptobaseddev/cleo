@@ -24,7 +24,9 @@
  * `encryptGlobal()` (packages/core/src/crypto/credentials.ts, T11710) — the
  * project-INDEPENDENT KDF `HMAC-SHA256(machine-key || globalSalt, id)` reusing the
  * machine-local `getGlobalSalt()` (store/global-salt.ts). The ciphertext keeps the
- * versioned `0x01 + 12B IV + 16B authTag` framing. Global (not project-bound)
+ * versioned `0x01 + 12B IV + 16B authTag` framing, under the `encryptGlobal`
+ * id `account:${provider}:${label}` (T13467: a received credential is re-encrypted
+ * under the same id). Global (not project-bound)
  * encryption is required because an LLM credential must decrypt consistently for
  * the same machine regardless of which project's cwd the pool is read from.
  *
@@ -49,7 +51,7 @@
  */
 
 import { sql } from 'drizzle-orm';
-import { index, integer, sqliteTable, text, unique } from 'drizzle-orm/sqlite-core';
+import { index, integer, sqliteTable, text, unique, uniqueIndex } from 'drizzle-orm/sqlite-core';
 
 /**
  * Legal `accounts.status` values — the health lifecycle of a pooled credential.
@@ -133,8 +135,11 @@ export const accounts = sqliteTable(
     createdAt: text('created_at').notNull().default(sql`(datetime('now'))`),
     /** ISO-8601 UTC last-update instant. Defaults to write time; bumped on mutation. */
     updatedAt: text('updated_at').notNull().default(sql`(datetime('now'))`),
+    /** Row uid (T13467): a UUIDv8 over (`provider`, `label`), filled at open or by the uid trigger. */
+    uid: text('uid'),
   },
   (table) => [
+    uniqueIndex('uq_accounts_uid').on(table.uid),
     // The natural unique key: a label is unique within a provider. drizzle CAN
     // emit this (non-partial) unique; the per-provider active pointer is the
     // SEPARATE partial unique index emitted as raw SQL in the migration.

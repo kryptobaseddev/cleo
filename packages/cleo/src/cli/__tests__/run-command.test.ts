@@ -100,6 +100,8 @@ function exited(
     pauses: 0,
     slot: 0,
     ungoverned: null,
+    runnerSignal: null,
+    queued: false,
     ...over,
   };
 }
@@ -158,6 +160,20 @@ describe('cleo run --passthrough (#1777 R7)', () => {
     expect(opts()).toMatchObject({ passthrough: true, foreground: false, argv });
     expect(out).toEqual([]);
     expect(err).toEqual([]);
+  });
+
+  it('interrupted while queued: E_RUN_INTERRUPTED on stderr, exit 128 + the signal (T13681)', async () => {
+    runGoverned.mockResolvedValue({
+      kind: 'interrupted',
+      signal: 'SIGTERM',
+      waitedMs: 780_000,
+      class: 'test-run',
+      command: 'npx vitest run',
+    });
+    await expect(invoke({ passthrough: true }, argv)).rejects.toThrow('exit 143');
+    expect(out).toEqual([]);
+    expect(err.join('')).toContain('E_RUN_INTERRUPTED');
+    expect(err.join('')).toContain('interrupted by SIGTERM while waiting in the queue');
   });
 
   it.each([
@@ -227,6 +243,28 @@ describe('cleo run --passthrough (#1777 R7)', () => {
     opts().notice?.('admitted after 3s in the test-run queue', 'info');
     opts().notice?.('paused: machine at backoff', 'warn');
     expect(err).toEqual(['[cleo run] paused: machine at backoff\n']);
+  });
+
+  // #1777 R7 narrowed by T13681: a run that waited in the queue says so, twice;
+  // one admitted at once stays byte-silent (the test above and the success test).
+  it('a queued run prints its admission and, on success, one exited line (T13681)', async () => {
+    runGoverned.mockImplementation(async (o: RunGovernedOptions) => {
+      o.notice?.('admitted after 5s in the queue', 'warn');
+      return exited({ waitedMs: 5_000, durationMs: 3_000, queued: true });
+    });
+    await invoke({ passthrough: true, wait: true }, argv);
+    expect(out).toEqual([]);
+    expect(err).toEqual([
+      '[cleo run] admitted after 5s in the queue\n',
+      '[cleo run] exited 0 after 3s\n',
+    ]);
+  });
+
+  it('a slow-setup run that never queued prints neither line, whatever its waitedMs (T13681)', async () => {
+    runGoverned.mockResolvedValue(exited({ waitedMs: 4_000, durationMs: 3_000, queued: false }));
+    await invoke({ passthrough: true, wait: true }, argv);
+    expect(out).toEqual([]);
+    expect(err).toEqual([]);
   });
 
   it('T13122: an inherited heap above the budget is clamped, and that warning shows under --passthrough', async () => {

@@ -13,14 +13,22 @@ It does NOT spawn agents itself (the orchestrator does that — see SKILL.md
   3. Validator + telemetry hooks: a validated `output.md` is automatically
      appended to .cleo/council-runs.jsonl with optional --tokens / --wall-clock
      stamps.
-  4. A `--scenario` flag that names the shakedown (1..8) for telemetry
+  4. Store write (T13363 AC2): a validated `output.md` is ALSO pushed into the
+     CleoDocs store as a sectioned `note` doc (slug `council-run-<run_id>`)
+     via `cleo docs add` / `cleo docs update` (idempotent re-ingest updates
+     the same doc). The store write is ADDITIVE and NON-FATAL — the raw run
+     dir + JSONL telemetry remain the audit source of truth.
+  5. A `--scenario` flag that names the shakedown (1..8) for telemetry
      filtering and exit-criteria reporting.
 
 Subcommands:
 
   init <question>          create a new run directory + skeleton phase0 prompt
   validate <run-dir>       run validate.py on the assembled output.md
-  ingest <run-dir>         validate + emit telemetry to the JSONL log
+  ingest <run-dir>         validate + emit telemetry to the JSONL log AND push
+                           output.md into the CleoDocs store (slug
+                           council-run-<run_id>; --no-store to skip,
+                           --owner to override the doc owner)
   list                     show all runs under the configured runs dir
 
 Convention: assemble phase outputs into <run-dir>/output.md by hand or by
@@ -39,6 +47,7 @@ import argparse
 import datetime as _dt
 import hashlib
 import json
+import os
 import re
 import subprocess
 import sys
@@ -234,6 +243,136 @@ def cmd_validate(args) -> int:
     return code
 
 
+# ─── CleoDocs store write (T13363 AC2) ──────────────────────────────────────
+#
+# The run's output document (assembled output.md — one `##` phase per agent)
+# is pushed into the CleoDocs store so concurrent multi-agent edits land as
+# CRDT-merged sections instead of loose files. Raw run artifacts under
+# .cleo/council-runs/ stay the telemetry source of truth; the store write is
+# additive and non-fatal (a failure warns and ingest continues).
+
+def docs_slug_for_run(run_id: str) -> str:
+    """Stable per-run store slug: `council-run-<run_id>` (kebab-case, ≤80 chars)."""
+    return f"council-run-{run_id}"
+
+
+# Bound on every `cleo` subprocess: a hung CLI must never block ingest.
+CLEO_TIMEOUT_SEC = 60
+
+
+def _bound_cleo_session() -> str | None:
+    """The CLEO session the CLI itself binds to (CLAUDE_CODE_SESSION_ID, the
+    terminal, …), read from `cleo session status`. None on any failure."""
+    try:
+        r = subprocess.run(
+            ["cleo", "session", "status", "--field", "/data/session/session/id", "--quiet"],
+            capture_output=True, text=True, timeout=CLEO_TIMEOUT_SEC,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    sid = (r.stdout or "").strip()
+    return sid if r.returncode == 0 and sid.startswith("ses_") else None
+
+
+def resolve_docs_owner(args) -> str | None:
+    """Owner for the store doc: --owner flag, else CLEO_SESSION_ID, else the
+    session the CLI binds to (`cleo session status`; under Claude Code only
+    CLAUDE_CODE_SESSION_ID is set, and the CLI resolves it).
+
+    Returns None when no owner can be determined — the caller then skips the
+    store write (non-fatal).
+    """
+    owner = getattr(args, "owner", None)
+    if owner:
+        return owner
+    return os.environ.get("CLEO_SESSION_ID") or _bound_cleo_session()
+
+
+def _docs_subprocess_env(owner: str) -> dict:
+    env = dict(os.environ)
+    # Attribute the write to the owning session when the owner IS a session.
+    if owner.startswith("ses_"):
+        env["CLEO_SESSION_ID"] = owner
+    return env
+
+
+def _run_cleo_docs(cmd: list, *, content: str, env: dict) -> subprocess.CompletedProcess:
+    # Content flows via stdin (`--content -`): argv never carries the markdown,
+    # so verdicts of any size are safe from shell-quoting limits.
+    return subprocess.run(
+        cmd, input=content, capture_output=True, text=True, env=env,
+        timeout=CLEO_TIMEOUT_SEC,
+    )
+
+
+def push_run_to_docs_store(
+    *,
+    run_dir: Path,
+    meta: dict,
+    content: str,
+    owner: str,
+) -> bool:
+    """Push output.md into the CleoDocs store as a sectioned `note` doc.
+
+    Idempotent: `cleo docs add` first; on E_SLUG_RESERVED (re-ingest of a
+    known run) falls back to `cleo docs update`, which noops when the bytes
+    are unchanged. Returns True when the doc is in the store; on any failure
+    prints a warning and returns False — NEVER raises into ingest.
+    """
+    rid = meta.get("run_id") or run_dir.name
+    slug = docs_slug_for_run(rid)
+    title = (meta.get("title") or f"Council run {rid}")[:DEFAULT_TITLE_MAX_LEN]
+    question = meta.get("question") or ""
+    desc = f"Council run {rid} — {question} (audit trail: {run_dir})".strip()
+    env = _docs_subprocess_env(owner)
+
+    add_cmd = [
+        "cleo", "docs", "add", owner,
+        "--content", "-",
+        "--type", "note",
+        "--slug", slug,
+        f"--title={title}",  # one token: a title starting with "-" is never a flag
+        "--desc", desc,
+        "--attached-by", "council",
+        "--json",
+    ]
+    try:
+        result = _run_cleo_docs(add_cmd, content=content, env=env)
+    except (OSError, subprocess.TimeoutExpired) as e:
+        print(f"⚠️  Store write skipped — could not run `cleo docs add`: {e}", file=sys.stderr)
+        return False
+
+    if result.returncode == 0:
+        print(f"📦 Verdict doc written to store: slug '{slug}' (owner {owner})", file=sys.stderr)
+        return True
+
+    combined = (result.stdout or "") + (result.stderr or "")
+    if "E_SLUG_RESERVED" not in combined:
+        detail = combined.strip().splitlines()[0] if combined.strip() else f"exit {result.returncode}"
+        print(f"⚠️  Store write failed (`cleo docs add` {slug}): {detail}", file=sys.stderr)
+        return False
+
+    # Re-ingest of a known run: update the existing doc instead.
+    update_cmd = [
+        "cleo", "docs", "update", slug,
+        "--content", "-",
+        "--message", f"council re-ingest {rid}",
+        "--json",
+    ]
+    try:
+        result = _run_cleo_docs(update_cmd, content=content, env=env)
+    except (OSError, subprocess.TimeoutExpired) as e:
+        print(f"⚠️  Store update skipped — could not run `cleo docs update`: {e}", file=sys.stderr)
+        return False
+    if result.returncode == 0:
+        print(f"📦 Verdict doc updated in store: slug '{slug}'", file=sys.stderr)
+        return True
+    combined = (result.stdout or "") + (result.stderr or "")
+    detail = combined.strip().splitlines()[0] if combined.strip() else f"exit {result.returncode}"
+    print(f"⚠️  Store update failed (`cleo docs update` {slug}): {detail}", file=sys.stderr)
+    return False
+
+
 def cmd_ingest(args) -> int:
     run_dir = Path(args.run_dir)
     output_path = run_dir / "output.md"
@@ -331,6 +470,20 @@ def cmd_ingest(args) -> int:
             "wall_clock_seconds": args.wall_clock,
         })
         print(f"📋 INDEX.jsonl updated at {_index_path(runs_dir)}", file=sys.stderr)
+
+    # T13363 AC2 — push the run's output document into the CleoDocs store, AFTER
+    # the telemetry record and the INDEX entry exist (the audit source of truth).
+    # Additive + non-fatal; docs_slug is stamped only when the write succeeded.
+    if not getattr(args, "no_store", False):
+        owner = resolve_docs_owner(args)
+        if owner is None:
+            print(
+                "⚠️  Store write skipped — no owner (pass --owner <id>, set CLEO_SESSION_ID, "
+                "or start a cleo session)",
+                file=sys.stderr,
+            )
+        elif push_run_to_docs_store(run_dir=run_dir, meta=meta, content=md, owner=owner) and meta.get("run_id"):
+            _upsert_index(run_dir.parent, meta["run_id"], {"docs_slug": docs_slug_for_run(meta["run_id"])})
     return 0
 
 
@@ -550,6 +703,15 @@ def main():
     p_ing.add_argument("--log", default=str(DEFAULT_LOG_PATH))
     p_ing.add_argument("--tokens", type=int, default=None)
     p_ing.add_argument("--wall-clock", type=float, default=None)
+    p_ing.add_argument(
+        "--owner", default=None,
+        help="Owner id for the CleoDocs store doc (default: CLEO_SESSION_ID, else the "
+             "session `cleo session status` binds to).",
+    )
+    p_ing.add_argument(
+        "--no-store", action="store_true",
+        help="Skip the CleoDocs store write (T13363 AC2) — raw artifacts only.",
+    )
     p_ing.set_defaults(func=cmd_ingest)
 
     p_list = sub.add_parser("list", help="List runs from INDEX.jsonl.")

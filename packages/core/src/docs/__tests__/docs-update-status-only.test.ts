@@ -56,7 +56,9 @@ describe('updateDocBySlug — status alone (T12654)', () => {
     const { updateDocBySlug } = await import('../docs-update.js');
     const sha = await seedSlug('t12654-spec', '# Spec\n\nBody.\n');
 
-    for (const status of DOCS_LIFECYCLE_STATUSES) {
+    // superseded is sticky (T12945), so it is applied last.
+    const ordered = [...DOCS_LIFECYCLE_STATUSES.filter((s) => s !== 'superseded'), 'superseded'];
+    for (const status of ordered) {
       const res = await updateDocBySlug(tempDir, { slug: 't12654-spec', status });
       expect(res.ok, `status ${status}: ${JSON.stringify(res)}`).toBe(true);
       if (!res.ok) continue;
@@ -67,7 +69,38 @@ describe('updateDocBySlug — status alone (T12654)', () => {
 
     const { createAttachmentStore } = await import('../../store/attachment-store.js');
     const row = await createAttachmentStore().findBySlug('t12654-spec', tempDir);
-    expect(row?.lifecycleStatus).toBe(DOCS_LIFECYCLE_STATUSES.at(-1));
+    expect(row?.lifecycleStatus).toBe('superseded');
+  });
+
+  it('refuses to leave superseded by --status or by a content edit, writing nothing (T12945)', async () => {
+    const { updateDocBySlug } = await import('../docs-update.js');
+    const sha = await seedSlug('t12945-old', '# Old\n\nBody.\n');
+    expect((await updateDocBySlug(tempDir, { slug: 't12945-old', status: 'superseded' })).ok).toBe(
+      true,
+    );
+    for (const params of [
+      { slug: 't12945-old', status: 'accepted' as const },
+      { slug: 't12945-old', content: '# Old\n\nEdited.\n' },
+      // Even re-asserting superseded: a content edit would write a new
+      // superseded row with no superseded_by.
+      { slug: 't12945-old', content: '# Old\n\nEdited.\n', status: 'superseded' as const },
+    ]) {
+      const res = await updateDocBySlug(tempDir, params);
+      expect(res.ok).toBe(false);
+      if (!res.ok) {
+        expect(res.error.code).toBe('E_INVALID_STATUS');
+        expect(res.error.message).toMatch(/superseded.*cleo docs supersede t12945-old/s);
+      }
+    }
+    // The origin keeps the doc superseded with its bytes, as every synced peer does.
+    const { createAttachmentStore } = await import('../../store/attachment-store.js');
+    const row = await createAttachmentStore().findBySlug('t12945-old', tempDir);
+    expect(row?.lifecycleStatus).toBe('superseded');
+    expect(row?.metadata.sha256).toBe(sha);
+    // Re-asserting superseded is allowed.
+    expect((await updateDocBySlug(tempDir, { slug: 't12945-old', status: 'superseded' })).ok).toBe(
+      true,
+    );
   });
 
   it('still rejects an update with no file, no content and no status', async () => {

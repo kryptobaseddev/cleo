@@ -136,6 +136,29 @@ describe('rewriters with capture on (§2.3a rule 11)', () => {
     }
   });
 
+  it('a twin collapse that writes a synced twin marks it suspect (§2.3a rule 3, T12775)', async () => {
+    const { collapseTwinTables } = await import('../../twin-collapse.js');
+    const homeDb = join(root, 'cleo-home', 'cleo.db');
+    const h = await openDualScopeDbAtPath('global', homeDb, undefined, { dedicated: true });
+    const db = h.db.$client as DatabaseSyncType;
+    try {
+      setCaptureEnabled(db, 'global', true, { schemaRoot: SYNC_SCHEMA });
+      expect(syncSetTables('global')).toContain('brain_sticky_tags');
+      db.exec(
+        "INSERT INTO brain_sticky_notes (id, content, tags_json) VALUES ('SN-001', 'note', '[\"a\",\"b\"]')",
+      );
+      // An older build's bare junction holds a tag the twin lacks.
+      db.exec('CREATE TABLE sticky_tags (sticky_id TEXT NOT NULL, tag TEXT NOT NULL)');
+      db.exec("INSERT INTO sticky_tags (sticky_id, tag) VALUES ('SN-001', 'b')");
+      const receipts = collapseTwinTables(db, homeDb);
+      const sticky = receipts.find((r) => r.table === 'sticky_tags');
+      expect(sticky?.status).toBe('initial');
+      expect(suspectTables(db)).toContain('brain_sticky_tags');
+    } finally {
+      h.close();
+    }
+  });
+
   it('twin collapse runs in the bind of a capture-enabled store and leaves capture intact', async () => {
     const { getDb, getNativeDb, resetDbState } = await import('../../sqlite.js');
     const { getBrainDb } = await import('../../memory-sqlite.js');

@@ -43,6 +43,7 @@ import {
   pipelineManifestShow,
   pipelineManifestStats,
   pipelineManifestSuperseded,
+  pipelineManifestUpdate,
   pipelineManifestValidate,
   readManifestEntries,
   repairMalformedManifestRows,
@@ -910,6 +911,72 @@ describe('pipeline-manifest-sqlite', () => {
 
       const show = await pipelineManifestShow('T001-research', testRoot);
       expect((show.data as any).title).toBe('Updated Title');
+    });
+  });
+
+  // =========================================================================
+  // T13678: link and update change only what they name
+  // =========================================================================
+
+  describe('pipelineManifestUpdate (T13678)', () => {
+    const RICH: ExtendedManifestEntry = {
+      ...ENTRY_A,
+      id: 'res_1791930862719',
+      title: 'Original research title',
+      topics: ['sync', 'merge', 'identity'],
+      key_findings: Array.from({ length: 15 }, (_, i) => `finding ${i + 1}`),
+      linked_tasks: ['T001', 'T002'],
+    };
+    const show = async (id: string) =>
+      (await pipelineManifestShow(id, testRoot)).data as ExtendedManifestEntry;
+
+    it('a link adds the task and leaves title, topics, all 15 findings and earlier links as stored', async () => {
+      await pipelineManifestAppend(RICH, testRoot);
+      const before = await show(RICH.id);
+      const result = await pipelineManifestUpdate(RICH.id, { linkTask: 'T1981' }, testRoot);
+      expect(result).toMatchObject({ success: true, data: { changed: ['linked_tasks'] } });
+      const after = await show(RICH.id);
+      expect(after).toEqual({ ...before, linked_tasks: ['T001', 'T002', 'T1981'] });
+      expect(after.key_findings).toHaveLength(15);
+      // Linking again changes nothing.
+      expect(await pipelineManifestUpdate(RICH.id, { linkTask: 'T1981' }, testRoot)).toMatchObject({
+        success: true,
+        data: { changed: [] },
+      });
+      expect(await show(RICH.id)).toEqual(after);
+    });
+
+    it('an update of one field keeps every other field, links included', async () => {
+      await pipelineManifestAppend(RICH, testRoot);
+      const before = await show(RICH.id);
+      await pipelineManifestUpdate(RICH.id, { status: 'partial' }, testRoot);
+      expect(await show(RICH.id)).toEqual({ ...before, status: 'partial' });
+      await pipelineManifestUpdate(RICH.id, { key_findings: ['only this'] }, testRoot);
+      expect(await show(RICH.id)).toEqual({
+        ...before,
+        status: 'partial',
+        key_findings: ['only this'],
+      });
+    });
+
+    it('an unknown id fails E_NOT_FOUND and writes nothing', async () => {
+      const result = await pipelineManifestUpdate('res_missing', { linkTask: 'T1981' }, testRoot);
+      expect(result).toMatchObject({ success: false, error: { code: 'E_NOT_FOUND' } });
+      expect((await pipelineManifestList({}, testRoot)).data).toMatchObject({ total: 0 });
+    });
+
+    it('a malformed or (when required) missing task is refused before any write', async () => {
+      await pipelineManifestAppend(RICH, testRoot);
+      const before = await show(RICH.id);
+      expect(
+        await pipelineManifestUpdate(RICH.id, { linkTask: '../escape' }, testRoot),
+      ).toMatchObject({ success: false, error: { code: 'E_VALIDATION' } });
+      expect(
+        await pipelineManifestUpdate(RICH.id, { linkTask: 'T99999' }, testRoot, {
+          requireExistingTasks: true,
+        }),
+      ).toMatchObject({ success: false, error: { code: 'E_NOT_FOUND' } });
+      expect(await show(RICH.id)).toEqual(before);
     });
   });
 

@@ -215,6 +215,7 @@ import {
 } from './backup-sidecar.js';
 import { blobFileForRow, pinBlob, restoreBlob } from './blob-keep.js';
 import { planMigrationSnapshot, writeMigrationSnapshot } from './pre-repair-snapshot.js';
+import { withSuspectAccounting } from './sync/structural.js';
 
 const log = getLogger('twin-collapse');
 
@@ -2335,7 +2336,14 @@ function collapsePair(
       (plan.set.size > 0 || plan.del.length > 0)
     )
       throw new Error(`bare ${pair.table} changed after the snapshot decision; retry the open`);
-    const counts = pair.apply(db, plan);
+    // §2.3a rule 3 (T12775): a merge that wrote a synced twin marks its touch
+    // set suspect, so the sealer's repair diff covers what capture may miss.
+    const { result: counts } = withSuspectAccounting(
+      db,
+      hasMainTable(db, 'tasks_tasks') ? 'project' : 'global',
+      [pair.twin],
+      () => pair.apply(db, plan),
+    );
     const now = new Date().toISOString();
     const next: CollapseState = {
       version: 3,

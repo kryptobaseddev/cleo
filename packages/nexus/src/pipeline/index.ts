@@ -131,6 +131,9 @@ export type {
   ExtractedAccess,
 } from './processors/access-processor.js';
 export { extractAccesses, resolveAccesses } from './processors/access-processor.js';
+// Reference spool (T13656)
+export type { ReferenceSpool } from './reference-spool.js';
+export { createReferenceSpool } from './reference-spool.js';
 // Resolution context (T533)
 export type {
   ImportMap,
@@ -172,7 +175,6 @@ import type { GraphSourceRootAssessment } from '@cleocode/contracts/graph';
 import { sql } from 'drizzle-orm';
 import { resolveCalls } from './call-processor.js';
 import { detectCommunities } from './community-processor.js';
-import type { ExtractedCall } from './extractors/typescript-extractor.js';
 import { walkRepositoryPaths } from './filesystem-walker.js';
 import { buildHeritageMap, processHeritage } from './heritage-processor.js';
 import {
@@ -182,15 +184,11 @@ import {
 } from './import-processor.js';
 import type { KnowledgeGraph, NexusDbInsert, NexusTables } from './knowledge-graph.js';
 import { createKnowledgeGraph } from './knowledge-graph.js';
-import {
-  computeExtractorFingerprint,
-  decodeParseCacheEntry,
-  encodeParseCacheEntry,
-  type FileExtraction,
-} from './parse-cache.js';
+import { computeExtractorFingerprint } from './parse-cache.js';
 import { oversizedFileCoverage, runParseLoop } from './parse-loop.js';
 import { detectProcesses } from './process-processor.js';
-import { type ExtractedAccess, resolveAccesses } from './processors/access-processor.js';
+import { resolveAccesses } from './processors/access-processor.js';
+import { createReferenceSpool } from './reference-spool.js';
 import { createResolutionContext } from './resolution-context.js';
 import { processStructure } from './structure-processor.js';
 
@@ -338,8 +336,11 @@ export interface PipelineResult {
   durationMs: number;
   /** File outcomes that distinguish exclusion, extraction limits, and failures. */
   files?: GraphIndexFileReport[];
-  /** AST references retained as explicit extraction limitations, not graph edges. */
-  references?: GraphIndexReferenceReport[];
+  /**
+   * AST references retained as explicit extraction limitations, not graph
+   * edges. The list itself is streamed into the publication (T13656).
+   */
+  referenceCount?: number;
   /** Number of EXTENDS edges emitted by the heritage processor. */
   extendsCount: number;
   /** Number of IMPLEMENTS edges emitted by the heritage processor. */
@@ -520,16 +521,18 @@ async function getIndexedFileHashes(
 // Pipeline entry point
 // ---------------------------------------------------------------------------
 
-/** Keep AST-proven but unmodeled source scopes as diagnostics, never invented graph declarations. */
+/**
+ * Keep AST-proven but unmodeled source scopes as diagnostics, never invented graph declarations.
+ *
+ * @param graph - Graph whose unmodeled-source reference relations are moved out.
+ * @param syntaxScopes - `<relationship>\0<sourceId>` → file path of every resolved site.
+ * @param onReference - Receives each retained reference.
+ */
 function retainAnalyzedReferences(
   graph: KnowledgeGraph,
-  calls: readonly ExtractedCall[],
-  accesses: readonly ExtractedAccess[],
-): GraphIndexReferenceReport[] {
-  const syntaxScopes = new Map<string, string>();
-  for (const call of calls) syntaxScopes.set(`calls\0${call.sourceId}`, call.filePath);
-  for (const access of accesses) syntaxScopes.set(`accesses\0${access.sourceId}`, access.filePath);
-  const reports: GraphIndexReferenceReport[] = [];
+  syntaxScopes: ReadonlyMap<string, string>,
+  onReference: (reference: GraphIndexReferenceReport) => void,
+): void {
   let retained = 0;
   for (const relation of graph.relations) {
     const filePath = syntaxScopes.get(`${relation.type}\0${relation.source}`);
@@ -543,7 +546,7 @@ function retainAnalyzedReferences(
       file?.kind === 'file' &&
       file.filePath === filePath
     ) {
-      reports.push({
+      onReference({
         kind: 'unmodeled-source',
         filePath,
         sourceId: relation.source,
@@ -559,7 +562,6 @@ function retainAnalyzedReferences(
     graph.relations[retained++] = relation;
   }
   graph.relations.length = retained;
-  return reports;
 }
 
 /**
@@ -645,7 +647,7 @@ export async function runPipeline(
   let changedFiles = 0;
   let addedFiles = 0;
   let deletedFiles = 0;
-  const reusedExtractions = new Map<string, FileExtraction>();
+  const reusableEntries = new Map<string, GraphParseCacheEntry>();
   let cachedPaths: string[] = [];
   if (isIncremental) {
     const readableDb = db as NexusDbReadInsert;
@@ -731,17 +733,11 @@ export async function runPipeline(
         reason =
           'the extractor build changed since the cached parse, so no cached extraction is current';
       } else {
+        // Decoded lazily, one file at a time, by the parse loop (T13656).
         for (const entry of matching) {
           const scanned = scannedFiles.get(entry.path);
-          if (!scanned?.contentHash || scanned.contentHash !== entry.contentHash) continue;
-          try {
-            reusedExtractions.set(entry.path, decodeParseCacheEntry(entry, publicationGeneration));
-          } catch (error) {
-            // An undecodable entry is re-parsed, never trusted.
-            process.stderr.write(
-              `[nexus] Incremental: cached extraction for ${entry.path} is unreadable (${error instanceof Error ? error.message : String(error)}); re-parsing it.\n`,
-            );
-          }
+          if (scanned?.contentHash && scanned.contentHash === entry.contentHash)
+            reusableEntries.set(entry.path, entry);
         }
         endPhase('cacheDecode');
         mode = 'incremental';
@@ -793,34 +789,45 @@ export async function runPipeline(
   // resolve imports and barrels over the MERGED extraction of every file.
   process.stderr.write('[nexus] Phase 3: Parsing files...\n');
   const cacheUpserts: GraphParseCacheEntry[] = [];
-  const { allHeritage, allCalls, allAccesses, barrelMap, parsedFileCount, reusedFileCount } =
-    await runParseLoop(files, graph, symbolTable, importCtx, repoPath, {
-      tsconfigPaths,
-      namedImportMap,
-      publicationGeneration,
-      onProgress,
-      parserLimits: options?.parserLimits,
-      parserExecution: options?.parserExecution,
-      reusedExtractions,
-      onFileExtracted: fingerprint
-        ? (file) => {
-            const contentHash = scannedFiles.get(file.path)?.contentHash;
-            if (contentHash)
-              cacheUpserts.push(
-                encodeParseCacheEntry(file, contentHash, fingerprint, publicationGeneration),
-              );
-          }
-        : undefined,
-      onFileReport: (report) => {
-        const file = scannedFiles.get(report.path);
-        reports.set(report.path, {
-          ...report,
-          mtimeMs: file?.mtimeMs,
-          size: file?.size,
-          contentHash: file?.contentHash,
-        });
-      },
-    });
+  const {
+    allHeritage,
+    allCalls,
+    allAccesses,
+    barrelMap,
+    parsedFileCount,
+    reusedFileCount,
+    reusedPaths,
+  } = await runParseLoop(files, graph, symbolTable, importCtx, repoPath, {
+    tsconfigPaths,
+    namedImportMap,
+    publicationGeneration,
+    onProgress,
+    parserLimits: options?.parserLimits,
+    parserExecution: options?.parserExecution,
+    reusedEntries: reusableEntries,
+    onFileExtracted: fingerprint
+      ? (path, payload) => {
+          const contentHash = scannedFiles.get(path)?.contentHash;
+          if (contentHash)
+            cacheUpserts.push({
+              path,
+              contentHash,
+              fingerprint,
+              generation: publicationGeneration,
+              payload,
+            });
+        }
+      : undefined,
+    onFileReport: (report) => {
+      const file = scannedFiles.get(report.path);
+      reports.set(report.path, {
+        ...report,
+        mtimeMs: file?.mtimeMs,
+        size: file?.size,
+        contentHash: file?.contentHash,
+      });
+    },
+  });
   if (mode === 'incremental') {
     process.stderr.write(
       `[nexus] Incremental: parsed ${parsedFileCount} file(s), reused ${reusedFileCount} cached extraction(s); resolving all ${parsedFileCount + reusedFileCount} against the merged symbol table\n`,
@@ -843,7 +850,29 @@ export async function runPipeline(
   // Phase 3e: Call resolution — emit CALLS + HAS_METHOD + HAS_PROPERTY edges
   // Pass barrelMap so Tier 2a can trace imports through barrel re-export chains (T617).
   process.stderr.write('[nexus] Phase 3e: Resolving calls...\n');
-  const callResult = await resolveCalls(allCalls, graph, symbolTable, namedImportMap, barrelMap);
+  // T13656: every retained reference is serialized as it is reported, and the
+  // sites are streamed file by file, so neither is held for the whole repository.
+  const referenceSpool = createReferenceSpool(publicationGeneration);
+  const appendReference = (reference: GraphIndexReferenceReport): void =>
+    referenceSpool.append(reference);
+  const syntaxScopes = new Map<string, string>();
+  function* scoped<T extends { sourceId: string; filePath: string }>(
+    type: 'calls' | 'accesses',
+    sites: Iterable<T>,
+  ): Generator<T> {
+    for (const site of sites) {
+      syntaxScopes.set(`${type}\0${site.sourceId}`, site.filePath);
+      yield site;
+    }
+  }
+  const callResult = await resolveCalls(
+    scoped('calls', allCalls),
+    graph,
+    symbolTable,
+    namedImportMap,
+    barrelMap,
+    appendReference,
+  );
   process.stderr.write(
     `[nexus] Calls: tier1=${callResult.tier1Count}, tier2a=${callResult.tier2aCount}, tier3=${callResult.tier3Count}, unresolved=${callResult.unresolvedCount}\n`,
   );
@@ -856,24 +885,23 @@ export async function runPipeline(
   // class members and properties. Same-file and global tiers are used.
   process.stderr.write('[nexus] Phase 3f: Resolving member accesses...\n');
   const accessResult = await resolveAccesses(
-    allAccesses,
+    { [Symbol.iterator]: () => scoped('accesses', allAccesses) },
     graph,
     symbolTable,
     namedImportMap,
     barrelMap,
+    appendReference,
   );
   process.stderr.write(
     `[nexus] Accesses: tier1=${accessResult.tier1Count}, tier2a=${accessResult.tier2aCount}, tier3=${accessResult.tier3Count}, unresolved=${accessResult.unresolvedCount}\n`,
   );
 
-  const referenceReports = [
-    ...callResult.references,
-    ...accessResult.references,
-    ...retainAnalyzedReferences(graph, allCalls, allAccesses),
-  ];
-  if (referenceReports.length > 0) {
+  retainAnalyzedReferences(graph, syntaxScopes, appendReference);
+  syntaxScopes.clear();
+  const storedReferences = referenceSpool.finish();
+  if (storedReferences.count > 0) {
     process.stderr.write(
-      `[nexus] Reference limitations: ${referenceReports.length} unresolved or unmodeled static sites retained with available evidence.\n`,
+      `[nexus] Reference limitations: ${storedReferences.count} unresolved or unmodeled static sites retained with available evidence.\n`,
     );
   }
   endPhase('resolve');
@@ -957,11 +985,11 @@ export async function runPipeline(
       );
     }
     endPhase('verify');
-    const publication = graph.preparePublication();
+    const publication = graph.streamPublication();
     publication.generation = publicationGeneration;
     publication.assessment = {
       generation: publicationGeneration,
-      references: referenceReports,
+      referenceCount: storedReferences.count,
       ...(sourceRoots ? { sourceRoots } : {}),
       sourceRoot: repoPath,
       includedRepositories: [...(options.includedRepositories ?? [])],
@@ -973,9 +1001,10 @@ export async function runPipeline(
       fingerprint,
       mode,
       cacheUpserts,
-      reusedExtractions,
+      reusedPaths,
       cachedPaths,
     );
+    publication.references = storedReferences;
     options.parserLimits?.signal?.throwIfAborted();
     await options.publishGraph(publication);
   } else {
@@ -994,7 +1023,7 @@ export async function runPipeline(
     fileCount: files.length,
     durationMs,
     files: [...reports.values()],
-    references: referenceReports,
+    referenceCount: storedReferences.count,
     extendsCount: heritageResult.extendsCount,
     implementsCount: heritageResult.implementsCount,
     callsTier1Count: callResult.tier1Count,
@@ -1035,7 +1064,7 @@ function buildParseCacheUpdate(
   fingerprint: string | null,
   mode: 'incremental' | 'full',
   upserts: GraphParseCacheEntry[],
-  reused: ReadonlyMap<string, FileExtraction>,
+  reused: ReadonlySet<string>,
   cachedPaths: readonly string[],
 ): GraphParseCacheUpdate {
   // Without a fingerprint nothing can be proven current; clear rather than keep.

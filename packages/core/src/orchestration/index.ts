@@ -11,6 +11,7 @@ import { resolveOrCwd } from '../paths.js';
 import type { DataAccessor } from '../store/data-accessor.js';
 import { orderByRanking } from '../task-tools/score-task-priority.js';
 import { loadRankingContext } from '../tasks/task-next.js';
+import { effectiveLeanLevel } from './lean-change.js';
 import {
   buildSpawnPrompt,
   DEFAULT_SPAWN_TIER,
@@ -400,12 +401,17 @@ export async function prepareSpawn(
   const tier: SpawnTier = options?.tier ?? DEFAULT_SPAWN_TIER;
   const projectRoot = resolveOrCwd(cwd);
 
+  const { level: leanLevel } = await effectiveLeanLevel({
+    projectRoot,
+    sessionId: options?.sessionId ?? null,
+  });
   const result = buildSpawnPrompt({
     task,
     protocol: protocol as SpawnProtocolPhase | string,
     tier,
     projectRoot,
     sessionId: options?.sessionId ?? null,
+    leanLevel,
   });
 
   return {

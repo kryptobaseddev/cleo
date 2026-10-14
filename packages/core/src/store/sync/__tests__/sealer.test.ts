@@ -17,15 +17,16 @@
  * @task T12984
  */
 
-import { mkdirSync, mkdtempSync, rmSync } from 'node:fs';
+import { copyFileSync, mkdirSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
-import type { DatabaseSync } from 'node:sqlite';
+import { DatabaseSync } from 'node:sqlite';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { syncSealerDoctorCheck } from '../../../doctor/sync-sealer.js';
 import { rekeyRowUid } from '../../display-id-alias.js';
 import { _resetDualScopeDbCache, openDualScopeDbAtPath } from '../../dual-scope-db.js';
 import { naturalRowUid } from '../../row-identity.js';
+import { carryMachineState } from '../../vault-manifest.js';
 import {
   captureRemints,
   captureTableDef,
@@ -33,10 +34,11 @@ import {
   openCaptureFrame,
   setCaptureEnabled,
 } from '../capture.js';
-import { setSyncFlag } from '../flags.js';
+import { readSyncFlags, setSyncFlag } from '../flags.js';
 import { parseHlc } from '../hlc.js';
 import { ensureProjectReplica } from '../replica.js';
 import { ReplicaRegistry } from '../replica-registry.js';
+import { appliedSyncSchemaHashes } from '../schema.js';
 import {
   canonicalJson,
   decodeEnc,
@@ -45,6 +47,7 @@ import {
   sealBacklog,
   sealPending,
 } from '../sealer.js';
+import { TIMESTAMP_CANON_MARKER } from '../timestamps.js';
 import { asOlderBuild } from './older-build.js';
 
 const SYNC_SCHEMA = resolve(import.meta.dirname, '../../../../migrations/sync-journal');
@@ -70,8 +73,8 @@ afterEach(() => {
   rmSync(dir, { recursive: true, force: true });
 });
 
-async function store(opts: { seal?: boolean } = {}): Promise<DatabaseSync> {
-  const handle = await openDualScopeDbAtPath('project', dbPath);
+async function store(opts: { seal?: boolean; path?: string } = {}): Promise<DatabaseSync> {
+  const handle = await openDualScopeDbAtPath('project', opts.path ?? dbPath);
   const db = handle.db.$client as DatabaseSync;
   setCaptureEnabled(db, 'project', true, { schemaRoot: SYNC_SCHEMA });
   if (opts.seal !== false) {
@@ -330,6 +333,31 @@ describe('sealPending', () => {
     expect(moved?.chash).toBe(was?.chash);
   });
 
+  it('a K keeps a non-null fhlc when it moves row meta (probe E, T13031)', async () => {
+    const db = await store();
+    framed(db, () => addTask(db, 'T1'));
+    seal(db);
+    // A later U gives the row a per-field fhlc, so a move that cleared it would show.
+    framed(db, () => db.exec("UPDATE tasks_tasks SET title = 'renamed' WHERE id = 'T1'"));
+    seal(db);
+    db.exec("UPDATE _sync_row_meta SET sent = 1 WHERE uid = 'uid-T1'");
+    const was = meta(db, 'tasks_tasks', 'uid-T1');
+    expect(was?.fhlc).toBeTruthy();
+    db.exec('BEGIN IMMEDIATE');
+    rekeyRowUid(db, 'tasks_tasks', 'uid-T1', { loserBirthFp: 'fp-T1', winnerBirthFp: 'fp-T0' });
+    db.exec('COMMIT');
+    seal(db);
+    const newUid = ops(db).find((o) => o.o === 'K')?.nu as string;
+    expect(newUid).toBeTruthy();
+    const moved = meta(db, 'tasks_tasks', newUid);
+    expect(moved).toMatchObject({
+      hlc: was?.hlc,
+      fhlc: was?.fhlc,
+      version: was?.version,
+      chash: was?.chash,
+    });
+  });
+
   it('netting in a frame: I then U seals one I; an insert then delete seals nothing', async () => {
     const db = await store();
     framed(db, () => {
@@ -508,6 +536,25 @@ describe('#1779 review fixes (T13029–T13033)', () => {
     expect(u).toMatchObject({ u: 'uid-T1', bfp: 'fp-T1' });
   });
 
+  it.each([
+    ['in the same batch as the K', undefined],
+    ['alone, before the K is read', 1],
+  ] as const)('a U whose row was re-keyed before sealing still carries its bfp, sealed %s (probe G, T13030)', async (_case, budget) => {
+    const db = await store();
+    framed(db, () => addTask(db, 'T1'));
+    seal(db);
+    framed(db, () => db.prepare("UPDATE tasks_tasks SET title = 'x' WHERE id = 'T1'").run());
+    // The re-key moves the row to a new uid and birth_fp before the U is sealed.
+    db.exec('BEGIN IMMEDIATE');
+    rekeyRowUid(db, 'tasks_tasks', 'uid-T1', { loserBirthFp: 'fp-T1', winnerBirthFp: 'fp-T0' });
+    db.exec('COMMIT');
+    expect(db.prepare("SELECT uid FROM tasks_tasks WHERE uid = 'uid-T1'").get()).toBeUndefined();
+    seal(db, budget);
+    const u = opsOf(db, 'tasks_tasks').find((o) => o.o === 'U');
+    // The U belongs to the row as it was when written: its old uid and birth_fp.
+    expect(u).toMatchObject({ u: 'uid-T1', bfp: 'fp-T1', a: { title: 'x' } });
+  });
+
   it('chash hashes the wire image: the same row under another display id hashes alike (T13031)', async () => {
     const db = await store();
     addTask(db, 'T1');
@@ -516,6 +563,34 @@ describe('#1779 review fixes (T13029–T13033)', () => {
     const before = rowChash(db, 'project', def, 'uid-T1');
     db.prepare("UPDATE tasks_tasks SET id = 'T777' WHERE id = 'T1'").run();
     expect(rowChash(db, 'project', def, 'uid-T1')).toBe(before);
+  });
+
+  it('two replicas holding the same logical row under different local keys compute the same chash (T13031)', async () => {
+    const a = await store();
+    const pathB = join(dir, 'replica-b', '.cleo', 'cleo.db');
+    mkdirSync(join(dir, 'replica-b', '.cleo'), { recursive: true });
+    const b = await store({ path: pathB });
+    /** The same logical rows: parent uid-P and child uid-C, under replica-local display ids. */
+    const seed = (db: DatabaseSync, parentId: string, childId: string) => {
+      const ins = db.prepare(
+        `INSERT INTO tasks_tasks (id, title, type, status, priority, parent_id, uid, birth_fp, created_at, updated_at)
+         VALUES (?, ?, ?, 'pending', 'medium', ?, ?, ?, '2026-10-12T00:00:00.000Z', '2026-10-12T00:00:00.000Z')`,
+      );
+      ins.run(parentId, 'parent', 'epic', null, 'uid-P', 'fp-P');
+      ins.run(childId, 'child', 'task', parentId, 'uid-C', 'fp-C');
+    };
+    seed(a, 'T1', 'T2');
+    seed(b, 'T901', 'T902');
+    const defA = captureTableDef(a, 'project', 'tasks_tasks');
+    const defB = captureTableDef(b, 'project', 'tasks_tasks');
+    if (!defA || !defB) throw new Error('no def');
+    // The child's reference hashes as the parent's uid, not its local id.
+    expect(rowChash(a, 'project', defA, 'uid-C')).toMatch(/^[0-9a-f]{64}$/);
+    expect(rowChash(a, 'project', defA, 'uid-C')).toBe(rowChash(b, 'project', defB, 'uid-C'));
+    expect(rowChash(a, 'project', defA, 'uid-P')).toBe(rowChash(b, 'project', defB, 'uid-P'));
+    // A real content difference still differs.
+    b.prepare("UPDATE tasks_tasks SET title = 'other' WHERE uid = 'uid-C'").run();
+    expect(rowChash(a, 'project', defA, 'uid-C')).not.toBe(rowChash(b, 'project', defB, 'uid-C'));
   });
 
   it('the transaction counter only rises: no txn id is reused after old rows are collected (T13033)', async () => {
@@ -981,5 +1056,120 @@ describe('S3c: canonical wire timestamps and append-only tombstones (T12986)', (
     framed(db, () => db.prepare("DELETE FROM tasks_tasks WHERE id = 'T1'").run());
     seal(db);
     expect(meta(db, 'tasks_tasks', 'uid-T1')).toMatchObject({ deleted: 1 });
+  });
+});
+
+describe('a restored store rewrites and seals (T13107, T13108)', () => {
+  const SEALER_FOLDER = '20261001170000_t12984-sealer';
+  const SEALER_TABLES = [
+    '_sync_txn',
+    '_sync_op',
+    '_sync_row_meta',
+    '_sync_ledger',
+    '_sync_quarantine',
+  ];
+  const createdAt = (db: DatabaseSync, id: string) =>
+    (
+      db.prepare('SELECT created_at FROM tasks_tasks WHERE id = ?').get(id) as {
+        created_at: string;
+      }
+    ).created_at;
+  const meta = (db: DatabaseSync, key: string) =>
+    (
+      db.prepare('SELECT value FROM tasks_row_identity_meta WHERE key = ?').get(key) as
+        | { value: string }
+        | undefined
+    )?.value;
+  const hasTable = (db: DatabaseSync, t: string) =>
+    db.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?").get(t) !==
+    undefined;
+
+  /**
+   * What an older CLI leaves: capture on before the sealer folder and before
+   * S3c, so the sealer tables and their ledger key are absent, and a task's
+   * timestamp is still in the legacy form with no canonical marker.
+   */
+  async function olderStore(path: string): Promise<void> {
+    mkdirSync(join(path, '..'), { recursive: true });
+    const db = (await openDualScopeDbAtPath('project', path)).db.$client as DatabaseSync;
+    setCaptureEnabled(db, 'project', true, { schemaRoot: SYNC_SCHEMA });
+    for (const t of SEALER_TABLES) db.exec(`DROP TABLE ${t}`);
+    db.prepare('DELETE FROM _sync_meta WHERE key = ?').run(`schema:${SEALER_FOLDER}`);
+    db.prepare('DELETE FROM tasks_row_identity_meta WHERE key = ?').run(TIMESTAMP_CANON_MARKER);
+    db.prepare(
+      `INSERT INTO tasks_tasks (id, title, type, status, priority, uid, birth_fp, created_at)
+       VALUES ('T1', 'old', 'task', 'pending', 'medium', 'uid-T1', 'fp-T1', '2026-09-14 19:56:01')`,
+    ).run();
+    db.exec('DELETE FROM _sync_capture');
+    _resetDualScopeDbCache();
+  }
+
+  it('a snapshot from before the rewrite and the sealer folder, pulled onto a store with both', async () => {
+    // The snapshot: an older device's store, as the vault exports it (VACUUM INTO).
+    const pusherPath = join(dir, 'pusher', '.cleo', 'cleo.db');
+    await olderStore(pusherPath);
+    const staged = join(dir, 'staged.db');
+    const pusher = new DatabaseSync(pusherPath);
+    pusher.exec(`VACUUM INTO '${staged}'`);
+    pusher.close();
+
+    // This device: capture and seal on, rewrite done, a local rename record, a bound replica.
+    const live = await store();
+    expect(meta(live, TIMESTAMP_CANON_MARKER)).toBeDefined();
+    live
+      .prepare('INSERT INTO tasks_row_identity_meta (key, value) VALUES (?, ?)')
+      .run('renamed_from:tasks_tasks:T9', '{"uid":"u9"}');
+    ensureProjectReplica(live, {
+      dbPath,
+      mode: 'test',
+      registry: new ReplicaRegistry(join(dir, 'replicas.json'), 'device-test'),
+      schemaRoot: SYNC_SCHEMA,
+    });
+    _resetDualScopeDbCache();
+
+    // The restore: carry this machine's state into the snapshot, then place it.
+    carryMachineState(staged, dbPath, 'project', { snapshotRoot: null });
+    for (const f of [dbPath, `${dbPath}-wal`, `${dbPath}-shm`]) rmSync(f, { force: true });
+    copyFileSync(staged, dbPath);
+
+    // The next open: the snapshot's ledger lacks the sealer folder, so it is
+    // applied; the snapshot has no canonical marker, so the rewrite runs.
+    const db = (await openDualScopeDbAtPath('project', dbPath)).db.$client as DatabaseSync;
+    expect(readSyncFlags(db)).toMatchObject({ 'sync.capture': true, 'sync.seal': true });
+    expect(meta(db, 'renamed_from:tasks_tasks:T9')).toBe('{"uid":"u9"}');
+    expect(createdAt(db, 'T1')).toBe('2026-09-14T19:56:01.000Z');
+    expect(meta(db, TIMESTAMP_CANON_MARKER)).toBeDefined();
+    expect([...appliedSyncSchemaHashes(db).keys()]).toContain(SEALER_FOLDER);
+    for (const t of SEALER_TABLES)
+      expect({ t, present: hasTable(db, t) }).toEqual({ t, present: true });
+
+    // And the sealer seals the next write.
+    framed(db, () => addTask(db, 'T2'));
+    expect(seal(db)).toMatchObject({ txns: 1, refused: null, pending: [] });
+  });
+
+  it('a snapshot without any sync schema keeps this machine’s flags; the schema applies on open', async () => {
+    const pusherPath = join(dir, 'plain', '.cleo', 'cleo.db');
+    mkdirSync(join(pusherPath, '..'), { recursive: true });
+    const plain = (await openDualScopeDbAtPath('project', pusherPath)).db.$client as DatabaseSync;
+    expect(hasTable(plain, '_sync_meta')).toBe(false);
+    _resetDualScopeDbCache();
+    const staged = join(dir, 'staged.db');
+    const p = new DatabaseSync(pusherPath);
+    p.exec(`VACUUM INTO '${staged}'`);
+    p.close();
+
+    await store();
+    _resetDualScopeDbCache();
+    carryMachineState(staged, dbPath, 'project', { snapshotRoot: null });
+    for (const f of [dbPath, `${dbPath}-wal`, `${dbPath}-shm`]) rmSync(f, { force: true });
+    copyFileSync(staged, dbPath);
+
+    const db = (await openDualScopeDbAtPath('project', dbPath)).db.$client as DatabaseSync;
+    expect(readSyncFlags(db)).toMatchObject({ 'sync.capture': true, 'sync.seal': true });
+    for (const t of SEALER_TABLES)
+      expect({ t, present: hasTable(db, t) }).toEqual({ t, present: true });
+    framed(db, () => addTask(db, 'T3'));
+    expect(seal(db)).toMatchObject({ txns: 1, refused: null, pending: [] });
   });
 });

@@ -2,16 +2,26 @@
 /**
  * pre-commit-docs-drift — advisory hook that warns when a staged Markdown
  * file is registered in the docs-publications ledger but its on-disk content
- * has drifted from the SSoT blob recorded under `.cleo/docs-publications.json`.
+ * has drifted from the SSoT blob recorded under `docs_publications` in the
+ * project `cleo.db` (T13362).
  *
  * Triggered by `simple-git-hooks` on every `pre-commit` event. Designed for
  * sub-200ms execution on the staged-file fast-path (zero work when no
  * staged file is in the ledger).
  *
+ * Ledger read (T13362)
+ * --------------------
+ * The ledger lives in the `docs_publications` table of `.cleo/cleo.db`. The
+ * hook opens the DB read-only via `node:sqlite` (no migrations run, no
+ * writes, no lock contention) and indexes rows by `published_path`. When the
+ * table is absent (older store) or holds zero rows, the hook falls back to
+ * the deprecated `.cleo/docs-publications.json` — mirroring the core
+ * seed shim so drift is caught before AND after the one-time seed.
+ *
  * Behaviour
  * ---------
  * 1. Read the staged `.md` paths via `git diff --cached --name-only --diff-filter=ACMR`.
- * 2. Load `.cleo/docs-publications.json` (ledger). No ledger → exit 0 (no-op).
+ * 2. Load the ledger (store table first, legacy JSON fallback). No rows → exit 0 (no-op).
  * 3. For each staged path that matches a `publishedPath` in the ledger:
  *      - Hash the on-disk bytes.
  *      - Compare against `lastBlobSha`.
@@ -37,6 +47,7 @@
  *   1 — drift detected with CLEO_STRICT_DOCS_DRIFT=1 set
  *
  * @task T9645
+ * @task T13362 (ledger moved into cleo.db)
  * @epic T9630
  * @saga T9625
  */
@@ -45,6 +56,7 @@ import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { appendFileSync, mkdirSync, readFileSync, statSync } from 'node:fs';
 import { isAbsolute, join, resolve } from 'node:path';
+import { DatabaseSync } from 'node:sqlite';
 
 const STRICT = process.env.CLEO_STRICT_DOCS_DRIFT === '1';
 const OWNER_OVERRIDE = process.env.CLEO_OWNER_OVERRIDE === '1';
@@ -74,7 +86,64 @@ function stagedMarkdownPaths(root) {
     .filter((s) => s.length > 0 && s.toLowerCase().endsWith('.md'));
 }
 
+/**
+ * Load the ledger rows from the `docs_publications` store table, falling
+ * back to the deprecated JSON sidecar when the table is absent or empty
+ * (mirrors the core seed shim, T13362).
+ *
+ * @param root - Project root (git top-level).
+ * @returns Ledger rows shaped like the legacy JSON entries.
+ */
 function loadLedger(root) {
+  const fromStore = loadLedgerFromStore(root);
+  if (fromStore.length > 0) return fromStore;
+  return loadLedgerFromLegacyJson(root);
+}
+
+/**
+ * Read `docs_publications` rows from `.cleo/cleo.db` read-only.
+ *
+ * Opens the DB with `readOnly: true` so the hook never migrates, writes, or
+ * contends with a live writer; any failure (no DB, pre-T13362 schema, busy)
+ * yields an empty list and the caller falls back to the legacy JSON.
+ */
+function loadLedgerFromStore(root) {
+  const dbPath = join(root, '.cleo', 'cleo.db');
+  let db;
+  try {
+    db = new DatabaseSync(dbPath, { readOnly: true });
+  } catch {
+    return [];
+  }
+  try {
+    const rows = db
+      .prepare(
+        'SELECT owner_id AS ownerId, blob_name AS blobName, published_path AS publishedPath, ' +
+          'last_blob_sha AS lastBlobSha, published_at AS publishedAt FROM docs_publications',
+      )
+      .all();
+    return rows.filter(
+      (r) =>
+        r &&
+        typeof r.ownerId === 'string' &&
+        typeof r.blobName === 'string' &&
+        typeof r.publishedPath === 'string' &&
+        typeof r.lastBlobSha === 'string',
+    );
+  } catch {
+    // Table absent (older store schema) — the legacy JSON fallback applies.
+    return [];
+  } finally {
+    try {
+      db.close();
+    } catch {
+      /* closing is best-effort */
+    }
+  }
+}
+
+/** Read the deprecated `.cleo/docs-publications.json` sidecar (legacy shim). */
+function loadLedgerFromLegacyJson(root) {
   const path = join(root, '.cleo', 'docs-publications.json');
   try {
     const data = readFileSync(path, 'utf-8');
@@ -82,6 +151,9 @@ function loadLedger(root) {
     if (Array.isArray(parsed)) return parsed;
     if (parsed && typeof parsed === 'object' && Array.isArray(parsed.rows)) {
       return parsed.rows;
+    }
+    if (parsed && typeof parsed === 'object' && Array.isArray(parsed.entries)) {
+      return parsed.entries;
     }
     return [];
   } catch {

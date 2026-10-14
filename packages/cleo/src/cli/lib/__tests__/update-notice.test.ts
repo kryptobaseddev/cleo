@@ -66,6 +66,19 @@ describe('releaseChannelTag', () => {
     expect(releaseChannelTag('2026.10.4-dev.3')).toBeNull();
     expect(releaseChannelTag('garbage')).toBeNull();
   });
+
+  it('a canary install follows latest, where `cleo self-update` takes it (T13581)', () => {
+    expect(releaseChannelTag('2026.10.10-canary.1')).toBe('latest');
+    // Ahead of latest: silent. The stable that promotes it, or a hotfix past it: noticed.
+    expect(decideUpdateNotice('2026.10.10-canary.1', { latest: '2026.10.9' })).toBeNull();
+    expect(decideUpdateNotice('2026.10.10-canary.1', { latest: '2026.10.10' })).toMatchObject({
+      kind: 'update',
+      target: '2026.10.10',
+    });
+    expect(
+      decideUpdateNotice('2026.10.10-canary.1', { latest: '9999.1.0' }, '9999.1.0'),
+    ).toMatchObject({ kind: 'hotfix', target: '9999.1.0' });
+  });
 });
 
 describe('decideUpdateNotice', () => {

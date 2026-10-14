@@ -338,6 +338,11 @@ const planCommand = defineCommand({
       type: 'boolean',
       description: 'Require the unified-hooks pilot for this stable promotion',
     },
+    'hooks-v1-waiver': {
+      type: 'string',
+      description:
+        'Audited reason to ship a source change that opens the hooks-v1 gate without the promotion',
+    },
     hotfix: {
       type: 'boolean',
       description: 'Mark plan as release_kind=hotfix',
@@ -420,6 +425,9 @@ const planCommand = defineCommand({
         channel: args.channel as string | undefined,
         hotfix: args.hotfix === true,
         hooksV1Promotion: args['hooks-v1-promotion'] === true,
+        ...(typeof args['hooks-v1-waiver'] === 'string'
+          ? { hooksV1Waiver: args['hooks-v1-waiver'] }
+          : {}),
         dryRun: args['dry-run'] === true,
         writeChangelog: !negatedFlag(args, 'changelog'),
       },

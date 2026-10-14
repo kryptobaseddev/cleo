@@ -143,7 +143,7 @@ Agents MUST NOT navigate/read/write these directly — use `cleo docs add|fetch|
 |---|---|---|
 | Attachment rows | `.cleo/attachments/index.db` + `.cleo/attachments/sha256/<prefix>/<hash>.<ext>` | Per-task attachments (local-file, url, blob, llms-txt, llmtxt-doc) |
 | Blob manifest | `.cleo/blobs/manifest.db` + `.cleo/blobs/blobs/<sha>` | Content-addressed doc SSoT (ADR, spec, research, handoff, note, plan, changeset) |
-| Publication ledger | `.cleo/docs-publications.json` | Slug → on-disk mirror path; drives the pre-commit drift hook |
+| Publication ledger | `docs_publications` table in project `.cleo/cleo.db` (deprecated seed source: `.cleo/docs-publications.json`) | (owner, blob, path) → published mirror path + last blob sha; drives the pre-commit drift hook and CI docs-drift gate (T13362) |
 
 ## Worktree Subsystem (ADR-055 · D009 · Saga T9800)
 

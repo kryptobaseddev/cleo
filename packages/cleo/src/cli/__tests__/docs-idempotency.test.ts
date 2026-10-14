@@ -45,9 +45,13 @@ beforeEach(async () => {
   // The blob store writes to `<projectRoot>/.cleo/blobs/`; create the prefix
   // so the adapter's open() can stat the parent.
   await mkdir(join(projectRoot, '.cleo'), { recursive: true });
+  // T13362: the publications ledger resolves through resolveCleoDir — pin the
+  // store to THIS temp project so tests do not share the sandbox project DB.
+  process.env['CLEO_DIR'] = join(projectRoot, '.cleo');
 });
 
 afterEach(async () => {
+  delete process.env['CLEO_DIR'];
   // Best-effort cleanup. The OS will reap /tmp eventually either way.
   const { rm } = await import('node:fs/promises');
   await rm(projectRoot, { recursive: true, force: true }).catch(() => {

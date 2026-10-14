@@ -226,7 +226,7 @@
     },
     {
       "name": "ct-cleo",
-      "version": "2.24.11",
+      "version": "2.24.13",
       "description": "CLEO task management protocol - session, task, and workflow guidance. Use when managing tasks, sessions, or multi-agent workflows with the CLEO CLI protocol.",
       "path": "skills/ct-cleo",
       "tier": 0,
@@ -479,7 +479,7 @@
     },
     {
       "name": "ct-council",
-      "version": "1.0.0",
+      "version": "1.1.1",
       "description": "Convene \"The Council\" — a 5-advisor, shuffled gate-based peer-review, chairman-synthesis workflow for reviewing a plan, decision, architecture, or piece of work inside the current project. Use when the user says \"convene the council\" (or \"counsel\"), \"get the council on this\", \"council review\", \"run the five advisors\", \"stress-test this\", \"get multiple perspectives\", or asks for a rigorous multi-angle challenge of a proposal (Contrarian, First Principles, Expansionist, Outsider, Executor → shuffled peer review with pass/fail gates → convergence detector → Chairman verdict). Operates on the current codebase — each advisor grounds their analysis in actual files/commits before opining. Output is validated by scripts/validate.py.",
       "path": "skills/ct-council",
       "tier": 1,
@@ -566,7 +566,7 @@
     },
     {
       "name": "ct-dev-workflow",
-      "version": "3.1.17",
+      "version": "3.1.19",
       "description": "Development workflow orchestration for task-driven development with atomic commits, conventional commit messages, and systematic release processes. Enforces task traceability, branch discipline, smart test scope selection, and GitHub Actions integration. Use when committing code, creating releases, managing branches, or following contribution protocols. Triggers on commit operations, release preparation, or workflow compliance needs.",
       "path": "skills/ct-dev-workflow",
       "tier": 0,
@@ -642,7 +642,7 @@
     },
     {
       "name": "ct-documentor",
-      "version": "3.18.0",
+      "version": "3.25.1",
       "description": "Documentation coordinator with CLEO style guide compliance. Routes every canonical-doc write (spec, adr, research, handoff, note, llm-readme) through the docs SSoT via `cleo docs add` / `cleo docs publish` / `cleo docs fetch` — never raw filesystem writes. Carries the CLEO writing and review guides as references and coordinates ct-spec-writer and ct-adr-recorder. Use when creating or updating documentation files, consolidating scattered documentation, or validating documentation against style standards. Triggers on documentation tasks, doc update requests, or style guide compliance checks.",
       "path": "skills/ct-documentor",
       "tier": 0,
@@ -983,7 +983,7 @@
     },
     {
       "name": "ct-lean",
-      "version": "1.0.0",
+      "version": "1.2.0",
       "description": "Lean change discipline for CLEO work: the smallest change that fully solves the task, and a reply a busy owner understands in one read. Use on every coding task (writing, fixing, refactoring, reviewing, choosing dependencies) and when the owner asks for the simplest solution, YAGNI, or complains about over-engineering or bloat. Never trades away evidence gates, package boundaries, validation, data safety or anything the task asked for.",
       "path": "skills/ct-lean",
       "tier": 0,
@@ -1001,7 +1001,7 @@
     },
     {
       "name": "ct-orchestrator",
-      "version": "4.0.13",
+      "version": "4.0.15",
       "description": "Pipeline-aware orchestration skill for managing complex workflows through subagent delegation. Use when the user asks to \\\"orchestrate\\\", \\\"orchestrator mode\\\", \\\"run as orchestrator\\\", \\\"delegate to subagents\\\", \\\"coordinate agents\\\", \\\"spawn subagents\\\", \\\"multi-agent workflow\\\", \\\"context-protected workflow\\\", \\\"agent farm\\\", \\\"HITL orchestration\\\", \\\"pipeline management\\\", or needs to manage complex workflows by delegating work to subagents while protecting the main context window. Enforces ORC-001 through ORC-009 constraints. Provider-neutral — works with any AI agent runtime.",
       "path": "skills/ct-orchestrator",
       "tier": 0,
@@ -1168,7 +1168,7 @@
     },
     {
       "name": "ct-release-orchestrator",
-      "version": "3.2.4",
+      "version": "3.2.5",
       "description": "Orchestrates the canonical 4-verb release pipeline introduced by SPEC-T9345: cleo release plan, then cleo release open, then PR + GHA tag workflow, then cleo release reconcile. The deprecated cleo release ship monolith was deleted in T10103 — do not invoke it. Use ship-e2e-smoke to validate the full pipeline end-to-end (dry-run by default). The full verb-to-state map is in docs/release/verb-matrix.md. Use when shipping a new version, validating the release pipeline end-to-end, or promoting a completed epic to released status.",
       "path": "skills/ct-release-orchestrator",
       "tier": 1,
@@ -1490,7 +1490,7 @@
     },
     {
       "name": "ct-task-executor",
-      "version": "2.8.3",
+      "version": "2.8.5",
       "description": "General implementation task execution for completing assigned CLEO tasks by following instructions and producing concrete deliverables. Handles coding, configuration, documentation work with quality verification against acceptance criteria and progress reporting. Use when executing implementation tasks, completing assigned work, or producing task deliverables. Triggers on implementation tasks, general execution needs, or task completion work.",
       "path": "skills/ct-task-executor",
       "tier": 0,

@@ -28,6 +28,7 @@ import type {
   DestroyWorktreeResult,
   ListWorktreesOptions,
   PruneWorktreesResult,
+  WorktreeDisposalBlockers,
   WorktreeListEntry,
 } from '@cleocode/contracts';
 
@@ -122,6 +123,30 @@ export async function teardownWorktree(
 ): Promise<DestroyWorktreeResult> {
   const mod = await backend();
   return mod.destroyWorktree(projectRoot, options);
+}
+
+/**
+ * Surface a kept worktree as a `W_WORKTREE_KEPT` envelope warning, so
+ * `cleo complete` and `cleo cancel` never keep one silently (T13701).
+ *
+ * @param taskId - The task whose worktree was kept.
+ * @param kept - What still needs the worktree's files.
+ * @param message - The disposal's explanation (names the path and blockers).
+ *
+ * @task T13701
+ */
+export async function warnWorktreeKept(
+  taskId: string,
+  kept: WorktreeDisposalBlockers,
+  message: string | undefined,
+): Promise<void> {
+  const { pushWarning } = await import('../output.js');
+  pushWarning({
+    // @sync-invariant none:local-only a warning about a worktree on this machine's disk; never replicated
+    code: 'W_WORKTREE_KEPT',
+    message: message ?? `Worktree for ${taskId} kept: something still needs its files.`,
+    context: { taskId, dependents: kept.dependents, evidence: kept.evidence },
+  });
 }
 
 /**

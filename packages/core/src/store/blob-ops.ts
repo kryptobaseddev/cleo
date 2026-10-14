@@ -97,6 +97,57 @@ export async function blobRead(
 }
 
 /**
+ * Read raw bytes for a blob directly from its content-addressed store path,
+ * without resolving an (owner, name) manifest pair first.
+ *
+ * The llmtxt BlobFsAdapter stores bytes at
+ * `<projectRoot>/.cleo/blobs/blobs/<sha256-hex>`, so a sha256 alone is a
+ * complete address. Used by the docs read/publish paths after the legacy
+ * attachment byte tree was retired (T13362): the doc registry still resolves
+ * metadata (slug, owner refs), but content always comes from the blob store.
+ *
+ * Hash-verifies the bytes against the address (a mismatch means corruption
+ * or a wrong guess) and returns `null` when the file is absent — mirrors
+ * {@link blobRead}'s null-not-throws contract. An absent file is first healed
+ * from hash-verified legacy bytes when they exist (T13705), so docs written
+ * before the blob store held every body read without a manual repair.
+ *
+ * @param sha256 - Lowercase hex SHA-256 of the content.
+ * @param projectRoot - Absolute project root. Defaults to `getProjectRoot()`.
+ * @returns Raw bytes, or `null` when the blob is not in the store.
+ * @throws {Error} when on-disk bytes fail SHA-256 verification.
+ *
+ * @task T13362
+ */
+export async function blobReadBySha(
+  sha256: string,
+  projectRoot?: string,
+): Promise<Uint8Array | null> {
+  const root = projectRoot ?? getProjectRoot();
+  const { createHash } = await import('node:crypto');
+  const { readFile } = await import('node:fs/promises');
+  const { join } = await import('node:path');
+
+  const file = join(root, '.cleo', 'blobs', 'blobs', sha256.toLowerCase());
+  let bytes: Uint8Array;
+  try {
+    bytes = new Uint8Array(await readFile(file));
+  } catch {
+    // T13705: a doc whose bytes predate the blob store heals on first read
+    // from hash-verified legacy bytes; otherwise the miss stands.
+    // The heal never throws on its write (T13706): verified bytes are served.
+    const { healBlobFromLegacy } = await import('./blob-keep.js');
+    return healBlobFromLegacy(join(root, '.cleo'), sha256.toLowerCase());
+  }
+  const actual = createHash('sha256').update(bytes).digest('hex');
+  if (actual !== sha256.toLowerCase()) {
+    // @sync-invariant none:local-only a corrupt local blob file is a read-side integrity refusal; no synced row is written or mutated
+    throw new Error(`blobReadBySha: corrupt blob at ${file}: expected sha256=${sha256}`);
+  }
+  return bytes;
+}
+
+/**
  * List active (non-detached) attachment manifests for a task.
  *
  * Returns an empty array (not throws) when no blobs are attached to the

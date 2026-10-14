@@ -10,6 +10,7 @@
  */
 
 import type { HeavyCommandHookMode } from './heavy-command-hook.js';
+import type { LeanConfig } from './lean.js';
 import type { ModelTransport } from './operations/llm.js';
 
 /** Output format options. */
@@ -895,6 +896,12 @@ export interface ResourcesConfig {
 
 /** CLEO project configuration (config.json). */
 export interface CleoConfig {
+  /**
+   * ct-lean rule level (T13663).
+   *
+   * @defaultValue undefined (level `full`)
+   */
+  lean?: LeanConfig;
   /** Configuration schema version string. */
   version: string;
   /** Output formatting preferences. */

@@ -769,15 +769,36 @@ export interface GraphPublicationRows {
   generation?: string;
   /** Source provenance and coverage belonging to this generation. */
   assessment?: GraphIndexAssessment;
-  /** Complete replacement node generation. */
-  nodes: NexusNodeInsertRow[];
-  /** Complete replacement relationship generation. */
-  relations: NexusRelationInsertRow[];
+  /**
+   * Complete replacement node generation. May be serialized lazily as the
+   * publisher iterates it (once), so the graph is not held twice (T13656).
+   */
+  nodes: Iterable<NexusNodeInsertRow>;
+  /** Complete replacement relationship generation; may be lazy like `nodes`. */
+  relations: Iterable<NexusRelationInsertRow>;
   /**
    * Per-file extraction memo changes committed in the same transaction as the rows.
    * Absent when the producer does not maintain a parse cache.
    */
   parseCache?: GraphParseCacheUpdate;
+  /**
+   * The generation's retained references, already in their stored encoding
+   * (T13656). When present, `assessment.references` is absent and
+   * `assessment.referenceCount` equals `references.count`.
+   */
+  references?: GraphStoredReferences;
+}
+
+/**
+ * A reference list in its stored encoding: the JSON array, one reference per
+ * line, as concatenated gzip members (T13326). Producers stream references into
+ * it as they are reported, so the list is never held as objects (T13656).
+ */
+export interface GraphStoredReferences {
+  /** Number of references encoded. */
+  count: number;
+  /** The compressed list, stored verbatim. */
+  payload: Uint8Array;
 }
 
 /**

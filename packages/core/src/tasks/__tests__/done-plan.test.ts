@@ -127,6 +127,36 @@ function commitOnTaskBranch(taskId: string): string {
   return git(root, ['rev-parse', 'HEAD']);
 }
 
+/**
+ * Cache a passing whole-suite tool:test for the current tree, as an explicit
+ * prior run would. T13647 (owner decision 2026-10-12, "never run whole
+ * suites"): cleo done never plans a whole suite it must execute, but a result
+ * already cached for this tree runs nothing and still binds. Tests about other
+ * behaviour use this so their tool:test is a cache hit, not a planned run.
+ */
+async function cacheTestPass(): Promise<void> {
+  const test = resolveToolCommand('test', root);
+  if (!test.ok) throw new Error(test.reason);
+  await runToolCached(test.command, root, { executionRoot: root, skipGlobalSemaphore: true });
+}
+
+/**
+ * T13647 (owner decision 2026-10-12, "never run whole suites"): a whole-suite
+ * tool:test cleo done would have to run is refused with test-run-needed, never
+ * planned.
+ */
+function expectWholeSuiteRefused(
+  plan: Awaited<ReturnType<typeof deriveTaskEvidence>>,
+  reason?: RegExp,
+): void {
+  expect(plan.toolRuns.find((r) => r.gate === 'testsPassed')).toBeUndefined();
+  const refusal = plan.blockers.find((b) => b.code === 'test-run-needed');
+  expect(refusal?.message).toMatch(/never runs a whole suite on its own/);
+  if (reason) expect(refusal?.message).toMatch(reason);
+  expect(refusal?.next?.why).toMatch(/testing\.affectedCommand/);
+  expect(plan.ready).toBe(false);
+}
+
 /** Hash every file under a directory (missing directory → empty map). */
 function snapshotDir(dir: string): Record<string, string> {
   const out: Record<string, string> = {};
@@ -160,6 +190,7 @@ describe('AC mapping is conservative', () => {
   it('maps an AC whose every named file is in the diff, and asks for the rest', async () => {
     const id = await seedTask(['Change src/a.ts to return 2', 'Handles every edge case']);
     commitOnTaskBranch(id);
+    await cacheTestPass();
 
     const plan = await deriveTaskEvidence(id, { projectRoot: root, cwd: root, deps });
 
@@ -200,6 +231,7 @@ describe('AC mapping is conservative', () => {
   it('--satisfies fans the answer out to every gate and yields runnable commands', async () => {
     const id = await seedTask(['Change src/a.ts to return 2', 'Handles every edge case']);
     const head = commitOnTaskBranch(id);
+    await cacheTestPass();
 
     const plan = await deriveTaskEvidence(id, {
       projectRoot: root,
@@ -439,6 +471,20 @@ describe('merged-PR CI replaces local tool runs when the project opts in (T12634
       expect(plan.changeSet.warnings.join(' ')).toMatch(
         /does not carry across the merge because the change's files at merge commit .* differ/,
       );
+      // T13641/T13642: no whole-suite fallback. The plan is not ready and
+      // names the differing file, and cleo done runs no tool at all.
+      expect(plan.toolRuns.map((r) => r.tool)).not.toContain('test');
+      const refusal = plan.blockers.find((b) => b.code === 'test-run-needed');
+      expect(refusal?.message).toMatch(/never runs a whole suite[\s\S]*src\/a\.ts/);
+      const runTool = vi.fn();
+      const done = await recordTaskDone(id, {
+        projectRoot: root,
+        cwd: root,
+        deps: deps2,
+        steps: { runTool },
+      });
+      expect(done.success).toBe(false);
+      expect(runTool).not.toHaveBeenCalled();
     });
   });
 
@@ -711,8 +757,28 @@ describe('merged-PR CI replaces local tool runs when the project opts in (T12634
     expect(plan.changeSet.warnings.join(' ')).toMatch(/scoped run/);
   });
 
+  it('T13648: a plan judged through --pr finishes with cleo done --pr, never a carrier-less complete', async () => {
+    const { id, prDeps } = await mergedPrSetup(true);
+    const plan = await deriveTaskEvidence(id, {
+      projectRoot: root,
+      cwd: root,
+      satisfies: 'all',
+      prNumber: 42,
+      deps: prDeps,
+    });
+    expect(plan.commands.at(-1)).toBe(`cleo done ${id} --pr 42`);
+    expect(plan.commands.some((c) => c.includes('cleo complete'))).toBe(false);
+  });
+
   it('without the opt-in, the same PR still plans local tool runs', async () => {
-    const plan = await mergedPrPlan(false);
+    const { id, prDeps } = await mergedPrSetup(false);
+    await cacheTestPass();
+    const plan = await deriveTaskEvidence(id, {
+      projectRoot: root,
+      cwd: root,
+      satisfies: 'all',
+      deps: prDeps,
+    });
     expect(plan.toolRuns.map((r) => r.tool)).toEqual(['test', 'lint', 'typecheck']);
     expect(plan.gates.find((g) => g.gate === 'testsPassed')?.evidence).toMatch(/^tool:test;/);
   });
@@ -806,7 +872,9 @@ describe('cleo done and cleo complete judge the merge alike (T12656 AC2, T12959 
       deps: prDeps,
     });
     expect(plan.changeSet.prNumber).toBe(42);
-    expect(plan.gates.find((g) => g.gate === 'testsPassed')?.evidence).toMatch(/^tool:test;/);
+    expect(plan.gates.find((g) => g.gate === 'testsPassed')?.evidence ?? '').not.toMatch(/^ci:/);
+    // T13647: the local run is the whole suite, which cleo done refuses.
+    expectWholeSuiteRefused(plan);
 
     const task = await env.accessor.loadSingleTask(id);
     if (!task) throw new Error('fixture task vanished');
@@ -1005,7 +1073,7 @@ describe('a standalone single-package project plans a targeted test-run (T13403)
     );
   });
 
-  it('with no changed test file, testsPassed keeps its tool run', async () => {
+  it('T13647: with no changed test file, a whole-suite tool:test is refused and cleo done spawns nothing', async () => {
     standalone();
     const id = await seedTask(['Change src/a.ts']);
     commitOnTaskBranch(id);
@@ -1015,11 +1083,20 @@ describe('a standalone single-package project plans a targeted test-run (T13403)
       deps,
       satisfies: 'all',
     });
-    expect(plan.blockers.map((b) => b.code)).not.toContain('test-run-needed');
-    expect(plan.toolRuns.find((r) => r.gate === 'testsPassed')?.tool).toBe('test');
+    expectWholeSuiteRefused(plan);
+    const runTool = vi.fn();
+    const done = await recordTaskDone(id, {
+      projectRoot: root,
+      cwd: root,
+      deps,
+      satisfies: 'all',
+      steps: { runTool },
+    });
+    expect(done.success).toBe(false);
+    expect(runTool).not.toHaveBeenCalled();
   });
 
-  it('a workspace with a changed test file keeps its tool run (monorepo unchanged)', async () => {
+  it('T13647: a workspace with a changed test file and no affected scope refuses the whole suite', async () => {
     writeFileSync(join(root, 'pnpm-workspace.yaml'), 'packages:\n  - "pkgs/*"\n');
     mkdirSync(join(root, 'pkgs', 'a'), { recursive: true });
     writeFileSync(join(root, 'pkgs', 'a', 'package.json'), JSON.stringify({ name: '@w/a' }));
@@ -1037,8 +1114,7 @@ describe('a standalone single-package project plans a targeted test-run (T13403)
       deps,
       satisfies: 'all',
     });
-    expect(plan.blockers.map((b) => b.code)).not.toContain('test-run-needed');
-    expect(plan.toolRuns.find((r) => r.gate === 'testsPassed')?.tool).toBe('test');
+    expectWholeSuiteRefused(plan);
     // T13427: a workspace keeps planning its lint/typecheck tool runs.
     expect(plan.blockers.map((b) => b.code)).not.toContain('qa-run-needed');
     expect(
@@ -1109,7 +1185,7 @@ describe('affected-scope test runs (T12635, D11150)', () => {
     );
   });
 
-  it('T12959 review (L4): testing.preferAffected false plans the full tool:test, as tool:test runs it', async () => {
+  it('T13647: testing.preferAffected false would mean the full tool:test, so the plan refuses it', async () => {
     workspaceWithPackages();
     const ctxPath = join(root, '.cleo', 'project-context.json');
     const ctx = JSON.parse(readFileSync(ctxPath, 'utf-8')) as { testing: Record<string, unknown> };
@@ -1127,13 +1203,10 @@ describe('affected-scope test runs (T12635, D11150)', () => {
       deps,
       satisfies: 'all',
     });
-    expect(plan.toolRuns.find((r) => r.gate === 'testsPassed')?.tool).toBe('test');
-    expect(plan.gates.find((g) => g.gate === 'testsPassed')?.evidence).toBe(
-      `tool:test;satisfies:${id}#AC1`,
-    );
+    expectWholeSuiteRefused(plan, /testing\.preferAffected is false/);
   });
 
-  it('T13125: with evidence.ciSatisfies, a whole-suite tool:test plan names ci:<pr> as preferred', async () => {
+  it('T13125/T13647: with evidence.ciSatisfies, the whole-suite refusal names ci:<pr>', async () => {
     workspaceWithPackages();
     const ctxPath = join(root, '.cleo', 'project-context.json');
     const ctx = JSON.parse(readFileSync(ctxPath, 'utf-8')) as { testing: Record<string, unknown> };
@@ -1158,13 +1231,13 @@ describe('affected-scope test runs (T12635, D11150)', () => {
       deps,
       satisfies: 'all',
     });
-    expect(plan.toolRuns.find((r) => r.gate === 'testsPassed')?.tool).toBe('test');
-    expect(plan.changeSet.warnings.join(' ')).toMatch(
-      /testsPassed: this plans a whole-suite local tool:test \(testing\.preferAffected is false\); evidence\.ciSatisfies is set, so ci:<pr> once the PR merges is the preferred evidence/,
+    expectWholeSuiteRefused(plan, /testing\.preferAffected is false/);
+    expect(plan.blockers.find((b) => b.code === 'test-run-needed')?.next?.why).toMatch(
+      /ci:<pr> once the merged PR's CI is green/,
     );
   });
 
-  it('when vitest cannot name the projects, testsPassed falls back to the full tool:test', async () => {
+  it('T13647: when vitest cannot name the projects, the full tool:test is refused', async () => {
     workspaceWithPackages(false);
     const id = await seedTask(['Change pkgs/a/i.ts']);
     git(root, ['switch', '-q', '-c', `task/${id}`]);
@@ -1176,10 +1249,10 @@ describe('affected-scope test runs (T12635, D11150)', () => {
       deps,
       satisfies: 'all',
     });
-    expect(plan.toolRuns.find((r) => r.gate === 'testsPassed')?.tool).toBe('test');
+    expectWholeSuiteRefused(plan);
   });
 
-  it('T12656: when gh is unreachable the merge state is unknown, so testsPassed plans the full tool:test', async () => {
+  it('T12656/T13647: when gh is unreachable the merge state is unknown, so the full tool:test is refused', async () => {
     workspaceWithPackages();
     const id = await seedTask(['Change pkgs/a/i.ts']);
     git(root, ['switch', '-q', '-c', `task/${id}`]);
@@ -1192,7 +1265,7 @@ describe('affected-scope test runs (T12635, D11150)', () => {
       deps: { ...deps, listMergedPrs: async () => ({ ok: false, reason: 'gh timed out' }) },
     });
     expect(plan.changeSet.mergeState).toBe('unknown');
-    expect(plan.toolRuns.find((r) => r.gate === 'testsPassed')?.tool).toBe('test');
+    expectWholeSuiteRefused(plan);
   });
 
   it('T12656: --plan never waits for a busy machine budget; it reports the scope as pending', async () => {
@@ -1259,7 +1332,7 @@ describe('affected-scope test runs (T12635, D11150)', () => {
     }
   }, 30_000);
 
-  it('a workspace-wide change falls back to the full tool:test', async () => {
+  it('T13647: a workspace-wide change would mean the full tool:test, so the plan refuses it', async () => {
     workspaceWithPackages();
     const id = await seedTask(['Change the lockfile']);
     git(root, ['switch', '-q', '-c', `task/${id}`]);
@@ -1272,7 +1345,7 @@ describe('affected-scope test runs (T12635, D11150)', () => {
       deps,
       satisfies: 'all',
     });
-    expect(plan.toolRuns.find((r) => r.gate === 'testsPassed')?.tool).toBe('test');
+    expectWholeSuiteRefused(plan);
   });
 });
 
@@ -1360,6 +1433,7 @@ describe('the plan and done share one readiness check (T12672)', () => {
   it('the preview never runs a tool', async () => {
     const id = await seedTask(['Change src/a.ts to return 2']);
     commitOnTaskBranch(id);
+    await cacheTestPass();
     const seen: string[] = [];
     const plan = await deriveTaskEvidence(id, {
       projectRoot: root,
@@ -1628,6 +1702,32 @@ describe('a stored typed pass bound to an older definition is not a pass (T13463
   it('T13502: a binding for another task reads not-run', async () => {
     const plan = await withStoredPass(current, (b) => ({ ...b, taskId: 'T999999' }));
     expect(plan.typedGates.map((g) => g.status)).toEqual(['not-run']);
+  });
+
+  it('T13655: a not-run typed gate blocks the plan, as completion refuses it', async () => {
+    const stale = await withStoredPass(current, (b) => ({ ...b, taskId: 'T999999' }));
+    expect(stale.ready).toBe(false);
+    const blocker = stale.blockers.find((b) => b.code === 'typed-gate-not-run');
+    expect(blocker?.next.command).toMatch(/cleo verify T\d+ --run && cleo done T\d+/);
+  });
+
+  it('T13655: with --run-typed the not-run typed gate runs in cleo done, so it does not block', async () => {
+    const id = await seedTask(['Change src/a.ts']);
+    commitOnTaskBranch(id);
+    await reqAdd(root, id, gate, env.accessor);
+    const plan = await deriveTaskEvidence(id, {
+      projectRoot: root,
+      cwd: root,
+      deps,
+      runTyped: true,
+    });
+    expect(plan.typedGates.map((g) => g.status)).toEqual(['not-run']);
+    expect(plan.blockers.map((b) => b.code)).not.toContain('typed-gate-not-run');
+  });
+
+  it('T13655: a current typed pass raises no typed-gate-not-run blocker', async () => {
+    const fresh = await withStoredPass(current);
+    expect(fresh.blockers.map((b) => b.code)).not.toContain('typed-gate-not-run');
   });
 
   it('T13502: a binding to another criterion id reads not-run', async () => {

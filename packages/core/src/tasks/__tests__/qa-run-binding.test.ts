@@ -6,6 +6,7 @@
  * typecheck + lint pair for qaPassed.
  *
  * @task T13427
+ * @task T13644
  */
 
 import { execFileSync } from 'node:child_process';
@@ -15,9 +16,15 @@ import { join } from 'node:path';
 import type { EvidenceAtom, EvidenceValidationContext } from '@cleocode/contracts';
 import { parseEvidenceString, validateEvidenceForGate } from '@cleocode/contracts';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { hasTreeBoundQaRun, qaRunTreeMismatchReason } from '../affected-scope.js';
+import {
+  hasTreeBoundQaRun,
+  qaPassedSupersededReason,
+  qaRunTreeMismatchReason,
+  scopedRunStandsAfterRedCi,
+} from '../affected-scope.js';
+import { isLandedOnOriginDefault } from '../change-set.js';
 import { checkTaskEvidenceContext, validateAtom } from '../evidence.js';
-import { parseQaRunReceipt } from '../qa-run-binding.js';
+import { parseQaRunReceipt, qaRunUnionGapReason } from '../qa-run-binding.js';
 
 function git(dir: string, args: string[]): string {
   return execFileSync('git', args, { cwd: dir, encoding: 'utf-8' }).trim();
@@ -179,9 +186,13 @@ function put(rel: string, body: string): void {
 }
 
 /** Write a receipt under the gitignored reports/ dir. */
-function receipt(fields: Record<string, unknown>, startTime = Date.now() + 5_000): string {
+function receipt(
+  fields: Record<string, unknown>,
+  startTime = Date.now() + 5_000,
+  name = String(fields['kind'] ?? 'typecheck'),
+): string {
   mkdirSync(join(root, 'reports'), { recursive: true });
-  const path = join(root, 'reports', `${String(fields['kind'] ?? 'typecheck')}.json`);
+  const path = join(root, 'reports', `${name}.json`);
   writeFileSync(
     path,
     JSON.stringify({
@@ -236,13 +247,60 @@ describe('a qa-run receipt in a standalone project', () => {
     expect(r.ok, JSON.stringify(r)).toBe(true);
   });
 
-  it('red: a receipt that misses a changed root is refused, naming the path', async () => {
+  it('red: a receipt that misses a changed root records the gap, and the gate refuses it naming the path', async () => {
     const r = await validateAtom(
       { kind: 'qa-run', path: receipt({ roots: ['src/a', 'src/c'] }) },
       root,
     );
-    expect(!r.ok && r.codeName, JSON.stringify(r)).toBe('E_EVIDENCE_INSUFFICIENT');
-    expect(!r.ok && r.reason).toMatch(/does not cover the changed path\(s\) src\/b\/y\.ts/);
+    expect(r.ok && r.atom, JSON.stringify(r)).toMatchObject({ uncovered: ['src/b/y.ts'] });
+    if (!r.ok || r.atom.kind !== 'qa-run') throw new Error('expected a qa-run atom');
+    expect(qaRunUnionGapReason([r.atom])).toMatch(
+      /does not cover the changed path\(s\) src\/b\/y\.ts/,
+    );
+  });
+
+  it('green: two lint receipts whose roots together cover the change satisfy lint, each fresh on its own (T13580)', async () => {
+    const lintA = await validateAtom(
+      { kind: 'qa-run', path: receipt({ kind: 'lint', roots: ['src/a'] }, undefined, 'lint-a') },
+      root,
+    );
+    const lintB = await validateAtom(
+      { kind: 'qa-run', path: receipt({ kind: 'lint', roots: ['src/b'] }, undefined, 'lint-b') },
+      root,
+    );
+    const types = await validateAtom({ kind: 'qa-run', path: receipt({ roots: ['src'] }) }, root);
+    if (!lintA.ok || !lintB.ok || !types.ok) throw new Error(JSON.stringify([lintA, lintB, types]));
+    expect(lintA.atom).toMatchObject({ uncovered: ['src/b/y.ts'] });
+    expect(lintB.atom).toMatchObject({ uncovered: ['src/a/x.ts'] });
+    const ctx: EvidenceValidationContext = {
+      task: { id: 'T1', kind: 'work', labels: [], files: [], acceptance: [] },
+      gates: ['qaPassed'],
+      criteria: [],
+    };
+    expect(
+      checkTaskEvidenceContext(ctx, 'qaPassed', [types.atom, lintA.atom, lintB.atom]),
+    ).toBeNull();
+  });
+
+  it('red: lint receipts that leave a path uncovered between them are refused, naming it (T13580)', async () => {
+    const lintA = await validateAtom(
+      { kind: 'qa-run', path: receipt({ kind: 'lint', roots: ['src/a'] }, undefined, 'lint-a') },
+      root,
+    );
+    const lintC = await validateAtom(
+      { kind: 'qa-run', path: receipt({ kind: 'lint', roots: ['src/c'] }, undefined, 'lint-c') },
+      root,
+    );
+    const types = await validateAtom({ kind: 'qa-run', path: receipt({ roots: ['src'] }) }, root);
+    if (!lintA.ok || !lintC.ok || !types.ok) throw new Error(JSON.stringify([lintA, lintC, types]));
+    const ctx: EvidenceValidationContext = {
+      task: { id: 'T1', kind: 'work', labels: [], files: [], acceptance: [] },
+      gates: ['qaPassed'],
+      criteria: [],
+    };
+    expect(checkTaskEvidenceContext(ctx, 'qaPassed', [types.atom, lintA.atom, lintC.atom])).toMatch(
+      /qa-run lint receipts \(roots src\/a, src\/c\) together do not cover the changed path\(s\) src\/b\/y\.ts/,
+    );
   });
 
   it('red: a receipt older than the change is stale', async () => {
@@ -289,7 +347,9 @@ describe('a qa-run receipt in a workspace', () => {
       { kind: 'qa-run', path: receipt({ roots: ['packages/a'] }) },
       root,
     );
-    expect(!r.ok && r.reason, JSON.stringify(r)).toMatch(/does not cover package\(s\) @x\/b/);
+    expect(r.ok && r.atom, JSON.stringify(r)).toMatchObject({ uncoveredPackages: ['@x/b'] });
+    if (!r.ok || r.atom.kind !== 'qa-run') throw new Error('expected a qa-run atom');
+    expect(qaRunUnionGapReason([r.atom])).toMatch(/does not cover package\(s\) @x\/b/);
   });
 
   it('green: covering the changed package and its dependent binds', async () => {
@@ -305,5 +365,116 @@ describe('a qa-run receipt in a workspace', () => {
     const path = receipt({ roots: ['packages/a', 'packages/b'] });
     const r = await validateAtom({ kind: 'qa-run', path }, root);
     expect(!r.ok && r.reason, JSON.stringify(r)).toMatch(/workspace-wide.*Record tool:typecheck/);
+  });
+});
+
+describe('T13644: qa-run receipts recorded on main after the merge (T13224 shape)', () => {
+  let merge = '';
+  let branchHead = '';
+  beforeEach(() => {
+    initRepo(() => {
+      put('package.json', JSON.stringify({ name: 'solo' }));
+      put('src/a/x.ts', 'export const x = 1;\n');
+    });
+    put('src/a/x.ts', 'export const x = 2;\n');
+    git(root, ['commit', '-q', '-am', 'T1: change a']);
+    branchHead = git(root, ['rev-parse', 'HEAD']);
+    git(root, ['switch', '-q', 'main']);
+    git(root, ['merge', '-q', '--no-ff', '-m', 'Merge pull request #1910', 'task/T1']);
+    merge = git(root, ['rev-parse', 'HEAD']);
+    // A later PR edits the same file, so byte-identity carry cannot hold.
+    put('src/a/x.ts', 'export const x = 3;\n');
+    git(root, ['commit', '-q', '-am', 'a later PR']);
+    git(root, ['push', '-q', 'origin', 'main']);
+  });
+
+  const target = () => ({ mergeCommitSha: merge, files: ['src/a/x.ts'], executionRoot: root });
+  const judge = (atoms: EvidenceAtom[]) =>
+    qaPassedSupersededReason(atoms, {
+      mergeState: () => ({ state: 'merged' as const, landing: { ...target(), deletedFiles: [] } }),
+      currentTree: () => git(root, ['rev-parse', 'HEAD^{tree}']),
+      landed: isLandedOnOriginDefault,
+    });
+  async function bound(kind: 'typecheck' | 'lint', roots: string[]): Promise<EvidenceAtom> {
+    const r = await validateAtom({ kind: 'qa-run', path: receipt({ kind, roots }) }, root);
+    if (!r.ok) throw new Error(JSON.stringify(r));
+    return r.atom;
+  }
+
+  it('verify binds both receipts on main, and plan/complete let them stand for qaPassed', async () => {
+    const atoms = [await bound('typecheck', ['src']), await bound('lint', ['src'])];
+    expect(atoms[0]).toMatchObject({ headSha: git(root, ['rev-parse', 'HEAD']) });
+    expect(await judge(atoms)).toBeNull();
+  });
+
+  it('refuses receipts that do not cover the change, naming the path', async () => {
+    const atoms = [await bound('typecheck', ['lib']), await bound('lint', ['src'])];
+    expect(await judge(atoms)).toMatch(
+      /differ from the tree.*no qa-run on main after the merge stands in.*typecheck receipt \(roots lib\) does not cover the changed path\(s\) src\/a\/x\.ts/s,
+    );
+  });
+
+  it('refuses receipts bound to a commit that does not descend from the merge', async () => {
+    const tree = git(root, ['rev-parse', 'HEAD^{tree}']);
+    const atoms = (['typecheck', 'lint'] as const).map(
+      (check): EvidenceAtom => ({
+        kind: 'qa-run',
+        path: `${check}.json`,
+        sha256: 'c'.repeat(64),
+        check,
+        command: ['x'],
+        roots: ['src'],
+        headSha: branchHead,
+        treeHash: tree,
+      }),
+    );
+    expect(await judge(atoms)).toMatch(/which does not descend from merge commit/);
+  });
+
+  it('pre-merge receipts still carry when the change merged byte for byte (T13495 rule)', async () => {
+    const branchTree = git(root, ['rev-parse', `${branchHead}^{tree}`]);
+    const atoms = (['typecheck', 'lint'] as const).map(
+      (check): EvidenceAtom => ({
+        kind: 'qa-run',
+        path: `${check}.json`,
+        sha256: 'c'.repeat(64),
+        check,
+        command: ['x'],
+        roots: ['src'],
+        headSha: branchHead,
+        treeHash: branchTree,
+      }),
+    );
+    expect(
+      await qaPassedSupersededReason(atoms, {
+        mergeState: () => ({
+          state: 'merged' as const,
+          landing: { ...target(), deletedFiles: [] },
+        }),
+        currentTree: () => branchTree,
+        landed: isLandedOnOriginDefault,
+      }),
+    ).toBeNull();
+  });
+
+  it('needs both a typecheck and a lint receipt, as the verify-time pair rule does', async () => {
+    const atoms = [await bound('typecheck', ['src'])];
+    expect(
+      scopedRunStandsAfterRedCi(
+        atoms,
+        target(),
+        git(root, ['rev-parse', 'HEAD^{tree}']),
+        isLandedOnOriginDefault,
+        'qaPassed',
+      ),
+    ).toEqual({ ok: false, why: 'no qa-run lint receipt is on record' });
+  });
+
+  it('a whole-project tool: run beside the receipts is not judged after merge (it pins no tree)', async () => {
+    const atoms = [
+      await bound('typecheck', ['lib']),
+      { kind: 'tool', tool: 'lint', exitCode: 0 } as EvidenceAtom,
+    ];
+    expect(await judge(atoms)).toBeNull();
   });
 });

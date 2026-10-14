@@ -33,9 +33,12 @@ import { readFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import type { BlobAttachment } from '@cleocode/contracts';
 import { DocKindRegistry } from '@cleocode/contracts/docs-taxonomy.js';
+import { ExitCode } from '@cleocode/contracts/exit-codes.js';
 import type {
   DocsAddParams,
   DocsAddResult,
+  DocsDecisionLinkParams,
+  DocsDecisionLinkResult,
   DocsDoctorParams,
   DocsDoctorResult,
   DocsFetchParams,
@@ -47,6 +50,8 @@ import type {
   DocsListResult,
   DocsLlmOutputParams,
   DocsLlmOutputResult,
+  DocsMigrateParams,
+  DocsMigrateResult,
   DocsRemoveParams,
   DocsRemoveResult,
   DocsSupersedeParams,
@@ -75,6 +80,7 @@ import {
 import { consumeReservedSlug, releaseReservedSlug } from '@cleocode/core/docs/slug-allocator';
 import { SUPERSEDE_NOT_FOUND_CODE, SUPERSEDE_SAME_SLUG_CODE } from '@cleocode/core/docs/supersede';
 import { validateDocBody } from '@cleocode/core/docs/validate-body';
+import { CleoError } from '@cleocode/core/errors';
 import type {
   AttachmentBackend,
   AttachmentRef,
@@ -93,6 +99,11 @@ import {
   createAttachmentStore,
   SlugCollisionError,
 } from '@cleocode/core/store/attachment-store';
+import {
+  linkDecisionToAdr,
+  listDecisionLinksForAdr,
+  revokeDecisionAdrLink,
+} from '@cleocode/core/store/decision-adr-links.js';
 import { defineTypedHandler, lafsError, lafsSuccess, typedDispatch } from '../adapters/typed.js';
 import type { DispatchResponse, DomainHandler } from '../types.js';
 import { handleErrorResult, unsupportedOp } from './_base.js';
@@ -160,6 +171,18 @@ const supersedeDoc = lazyOperation(
 const triageDocs = lazyOperation(
   async () => (await import('@cleocode/core/docs/triage')).triageDocs,
 );
+const computeDocsStats = lazyOperation(
+  async () => (await import('@cleocode/core/docs/stats')).computeDocsStats,
+);
+const runLegacyDocMigration = lazyOperation(
+  async () => (await import('@cleocode/core/docs/legacy-doc-migration')).runLegacyDocMigration,
+);
+/** Memoized sqlite module import (lazyOperation only wraps functions). */
+let sqliteModuleForMigration: typeof import('@cleocode/core/store/sqlite.js') | null = null;
+async function sqliteForMigration(): Promise<typeof import('@cleocode/core/store/sqlite.js')> {
+  sqliteModuleForMigration ??= await import('@cleocode/core/store/sqlite.js');
+  return sqliteModuleForMigration;
+}
 const syncFromGit = lazyOperation(
   async () => (await import('@cleocode/core/docs/docs-ops')).syncFromGit,
 );
@@ -272,7 +295,10 @@ type DocsTypedOps = {
   readonly remove: readonly [DocsRemoveParams, DocsRemoveResult];
   readonly update: readonly [DocsUpdateParams, DocsUpdateResult];
   readonly supersede: readonly [DocsSupersedeParams, DocsSupersedeResult];
+  readonly 'link-decision': readonly [DocsDecisionLinkParams, DocsDecisionLinkResult];
+  readonly 'unlink-decision': readonly [DocsDecisionLinkParams, DocsDecisionLinkResult];
   readonly doctor: readonly [DocsDoctorParams, DocsDoctorResult];
+  readonly migrate: readonly [DocsMigrateParams, DocsMigrateResult];
 };
 
 // ─── Owner type inference ─────────────────────────────────────────────────────
@@ -464,6 +490,29 @@ function compareByOrderBy(
 }
 
 // ─── Typed inner handler ──────────────────────────────────────────────────────
+
+/**
+ * Run a decision-link write and keep the accessor's refusal code (T13598).
+ *
+ * @param op - The operation name for the envelope.
+ * @param write - The accessor call.
+ * @returns The success envelope, or the CleoError's LAFS code (revoked pair, unknown link).
+ */
+async function decisionLinkResponse(
+  op: 'link-decision' | 'unlink-decision',
+  write: () => Promise<DocsDecisionLinkResult>,
+) {
+  try {
+    return lafsSuccess<DocsDecisionLinkResult>(await write(), op);
+  } catch (err) {
+    if (!(err instanceof CleoError)) throw err;
+    return lafsError(
+      err.toLAFSError().code, // @sync-invariant docs.decision-adr-links.revoke-monotonic the accessor's refusal (re-link of a revoked pair, revoke of an unknown link) is surfaced unchanged
+      err.message,
+      op,
+    );
+  }
+}
 
 /**
  * Typed inner handler for the docs domain.
@@ -803,19 +852,33 @@ const _docsTypedHandler = defineTypedHandler<DocsTypedOps>('docs', {
     // Fetch content through the read model
     const content = await model.fetchContent(doc);
     if (content === null) {
-      return lafsError('E_NOT_FOUND', `Content not retrievable: ${ref}`, 'fetch');
+      return lafsError(
+        'E_NOT_FOUND',
+        `Content not retrievable: ${ref} — the doc's bytes are not in the blob store; ` +
+          'run `cleo docs doctor --repair` to backfill hash-verified legacy bytes (T13653)',
+        'fetch',
+      );
     }
 
     const backend: AttachmentBackend = await currentAttachmentBackend();
 
+    // T13359 — surface the D#### decisions this ADR doc ratifies, the
+    // ADR→decision direction of the two-way trace (spec §4, D11165). The
+    // ledger stays the operational authority; the field is omitted when the
+    // doc has no live (non-revoked) links.
+    const linkedDecisions = doc.slug
+      ? (await listDecisionLinksForAdr(getProjectRoot(), doc.slug)).map((link) => link.decisionId)
+      : undefined;
+
     // T13352 — the shared builder surfaces decoded text by default, the real
     // refCount, and a storage path resolved against the doc's actual store.
     return lafsSuccess<DocsFetchResult>(
-      buildDocsFetchResult({
+      await buildDocsFetchResult({
         doc,
         content,
         projectRoot: getProjectRoot(),
         attachmentBackend: backend,
+        ...(linkedDecisions !== undefined ? { linkedDecisions } : {}),
       }),
       'fetch',
     );
@@ -825,17 +888,18 @@ const _docsTypedHandler = defineTypedHandler<DocsTypedOps>('docs', {
 
   doctor: async (params) => {
     const apply = params.apply === true;
+    const repair = params.repair === true;
     const projectRoot = getProjectRoot();
 
-    // T13447 — an apply run must have a fresh backup. Create it through the
+    // T13447 — an apply/repair run must have a fresh backup. Create it through the
     // same core function `cleo backup add` dispatches to, then hand the
     // resulting store snapshot to core as the receipt (existence + mtime is
     // verified there). When the store file was not captured, refuse to apply.
     let backupReceiptPath: string | undefined;
-    if (apply) {
+    if (apply || repair) {
       const backup = await createSystemBackup(projectRoot, {
         type: 'snapshot',
-        note: 'docs doctor pre-repair (T13447)',
+        note: `docs doctor pre-repair (T13447${repair ? '/T13653' : ''})`,
       });
       // PROJECT_STORE_BACKUP_FILE in @cleocode/core/system/backup — the
       // snapshot filename prefix for the project store.
@@ -852,6 +916,7 @@ const _docsTypedHandler = defineTypedHandler<DocsTypedOps>('docs', {
 
     const result = await runDocsDoctor(projectRoot, {
       apply,
+      repair,
       ...(params.olderThanDays !== undefined ? { olderThanDays: params.olderThanDays } : {}),
       ...(backupReceiptPath !== undefined ? { backupReceiptPath } : {}),
     });
@@ -859,6 +924,52 @@ const _docsTypedHandler = defineTypedHandler<DocsTypedOps>('docs', {
       return lafsError(result.error.code, result.error.message, 'doctor');
     }
     return lafsSuccess<DocsDoctorResult>(result.report, 'doctor');
+  },
+
+  // ── docs.migrate (T13360 — spec §5 honest legacy docs import) ─────────────
+
+  migrate: async (_params) => {
+    const projectRoot = getProjectRoot();
+    // The T13448 harness needs the live native handle; opening through the
+    // chokepoint also ensures migrations are reconciled before we read.
+    const { getDb, getNativeDb } = await sqliteForMigration();
+    await getDb(projectRoot);
+    const native = getNativeDb(projectRoot);
+    if (native === null) {
+      return lafsError(
+        'E_DOCS_MIGRATE_NO_STORE', // @sync-invariant none:input-shape the project store could not be opened; nothing was written
+        'docs migrate requires an open project store — the migration wrote nothing',
+        'migrate',
+      );
+    }
+    const result = await runLegacyDocMigration({
+      projectRoot,
+      db: native,
+      cwd: projectRoot,
+    });
+    const step = result.report.steps[0];
+    const summary =
+      result.report.status === 'completed'
+        ? `legacy docs migration: ${result.counts.toCapture} captured, ` +
+          `${result.counts.toMarkDangling} dangling, ${result.counts.toSkip} already migrated, ` +
+          `${result.counts.nativeConflicts} native-conflict skips ` +
+          `(${result.counts.versions} history rows)`
+        : `legacy docs migration ${result.report.status}: ${result.report.failure ?? 'step failed'}`;
+    return lafsSuccess<DocsMigrateResult>(
+      {
+        status: result.report.status,
+        captured: result.counts.toCapture,
+        dangling: result.counts.toMarkDangling,
+        skipped: result.counts.toSkip,
+        nativeConflicts: result.counts.nativeConflicts,
+        versionsImported: result.counts.versions,
+        failure: result.report.failure,
+        backupId: step?.backup?.backupId ?? null,
+        transaction: step?.transaction ?? 'none',
+        summary,
+      },
+      'migrate',
+    );
   },
 
   // ── docs.add ───────────────────────────────────────────────────────────────
@@ -1762,6 +1873,16 @@ const _docsTypedHandler = defineTypedHandler<DocsTypedOps>('docs', {
         'Use `cleo docs update <slug> --file ./new.md` OR `cleo docs update <slug> --content "..."`.',
       );
     }
+    // T13564: an empty or bare '-' body is a missed stdin read, never a doc; storing
+    // it would silently replace the canonical content.
+    if (hasContent && ['', '-'].includes((inlineContent as string).trim())) {
+      return lafsError(
+        'E_INVALID_INPUT', // @sync-invariant none:input-shape an empty or bare '-' body is refused before any write
+        `--content is ${(inlineContent as string).trim() === '' ? 'empty' : "a bare '-'"}; refusing to replace the document body`,
+        'update',
+        'Pipe the body with `cat new.md | cleo docs update <slug> --content -`, or use `--file ./new.md`.',
+      );
+    }
     if (statusOnly && rawStatus === undefined) {
       return lafsError(
         'E_INVALID_INPUT',
@@ -1868,6 +1989,25 @@ const _docsTypedHandler = defineTypedHandler<DocsTypedOps>('docs', {
         docVersion: outcome.result.docVersion,
         squashed: outcome.result.squashed,
         summary: outcome.result.summary,
+        // T13604 — recorded CRDT section conflicts reach the envelope (AC1):
+        // the projection names the sections + both version refs.
+        ...(outcome.result.sectionConflicts !== undefined
+          ? { sectionConflicts: outcome.result.sectionConflicts }
+          : {}),
+        // T13356 — advisory lease notices reach the envelope too: sections
+        // leased by other sessions; the edit proceeded anyway.
+        ...(outcome.result.leaseNotices !== undefined
+          ? { leaseNotices: outcome.result.leaseNotices }
+          : {}),
+        // T13674 — a stale declared base was merged, not blindly applied:
+        // the head carries a concurrent writer's edit too; the caller must
+        // re-fetch before its next edit.
+        ...(outcome.result.staleBaseMerged !== undefined
+          ? { staleBaseMerged: outcome.result.staleBaseMerged }
+          : {}),
+        ...(outcome.result.headVersionUid !== undefined
+          ? { headVersionUid: outcome.result.headVersionUid }
+          : {}),
         // T11053 — surface which backend stored the updated blob so
         // observability consumers can confirm the V2 mirror succeeded.
         attachmentBackend: backend as DocsUpdateResult['attachmentBackend'],
@@ -1881,6 +2021,58 @@ const _docsTypedHandler = defineTypedHandler<DocsTypedOps>('docs', {
       },
       'update',
     );
+  },
+
+  // ── docs.link-decision / docs.unlink-decision (T13598) ─────────────────────
+  // decision_adr_links writers through the canonical accessors; a revoked
+  // pair is never re-linked (the accessor's one-way tombstone latch).
+
+  'link-decision': async (params) => {
+    const { adrSlug, decisionId } = params;
+    if (typeof adrSlug !== 'string' || adrSlug.length === 0 || typeof decisionId !== 'string') {
+      return lafsError(
+        'E_INVALID_INPUT', // @sync-invariant none:input-shape a missing ADR slug or decision id is refused before any write
+        '<adrSlug> and <decisionId> are required',
+        'link-decision',
+      );
+    }
+    return decisionLinkResponse('link-decision', async () => {
+      // The table is append-only: a link to a typo would be permanent, so both
+      // ends must exist before the write (T13598 review).
+      if ((await createDocsReadModel().resolveLatest(adrSlug)) === null)
+        // @sync-invariant none:input-shape a link to an unknown doc slug is refused before any write
+        throw new CleoError(ExitCode.NOT_FOUND, `no doc has the slug '${adrSlug}'`);
+      const { recallDecision } = await import('@cleocode/core/memory/decisions');
+      if ((await recallDecision(getProjectRoot(), decisionId)) === null)
+        // @sync-invariant none:input-shape a link to a decision missing from the ledger is refused before any write
+        throw new CleoError(ExitCode.NOT_FOUND, `no stored decision has the id '${decisionId}'`);
+      const { inserted } = await linkDecisionToAdr(getProjectRoot(), {
+        decisionId,
+        adrSlug,
+        ...(process.env['CLEO_AGENT_ID'] ? { linkedBy: process.env['CLEO_AGENT_ID'] } : {}),
+      });
+      // A revoked pair throws, so a returned link is live.
+      return { adrSlug, decisionId, status: 'linked', changed: inserted };
+    });
+  },
+
+  'unlink-decision': async (params) => {
+    const { adrSlug, decisionId } = params;
+    if (typeof adrSlug !== 'string' || adrSlug.length === 0 || typeof decisionId !== 'string') {
+      return lafsError(
+        'E_INVALID_INPUT', // @sync-invariant none:input-shape a missing ADR slug or decision id is refused before any write
+        '<adrSlug> and <decisionId> are required',
+        'unlink-decision',
+      );
+    }
+    return decisionLinkResponse('unlink-decision', async () => {
+      const { revoked } = await revokeDecisionAdrLink(getProjectRoot(), {
+        decisionId,
+        adrSlug,
+        ...(process.env['CLEO_AGENT_ID'] ? { revokedBy: process.env['CLEO_AGENT_ID'] } : {}),
+      });
+      return { adrSlug, decisionId, status: 'revoked', changed: revoked };
+    });
   },
 
   // ── docs.supersede ─────────────────────────────────────────────────────────
@@ -2045,17 +2237,21 @@ const QUERY_OPS = new Set<string>([
   'audit',
   'doctor',
   'triage',
+  'stats',
 ]);
 const MUTATE_OPS = new Set<string>([
   'add',
   'remove',
   'update',
   'supersede',
+  'link-decision',
+  'unlink-decision',
   'publish',
   'publish-pr',
   'sync',
   'import',
   'doctor',
+  'migrate',
 ]);
 
 async function dispatchDocsLegacyQuery(
@@ -2130,6 +2326,8 @@ async function dispatchDocsLegacyQuery(
         record: params['record'] === true,
         projectRoot,
       });
+    case 'stats':
+      return computeDocsStats({ projectRoot });
     default:
       throw new Error(`Unsupported docs query operation: ${operation}`);
   }
@@ -2396,17 +2594,21 @@ export class DocsHandler implements DomainHandler {
         'audit',
         'doctor',
         'triage',
+        'stats',
       ],
       mutate: [
         'add',
         'remove',
         'update',
         'supersede',
+        'link-decision',
+        'unlink-decision',
         'publish',
         'publish-pr',
         'sync',
         'import',
         'doctor',
+        'migrate',
       ],
     };
   }

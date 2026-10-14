@@ -55,8 +55,7 @@ import {
   standalonePackage,
 } from './affected-packages.js';
 import {
-  hasTreeBoundQaRun,
-  qaRunTreeMismatchReason,
+  qaPassedSupersededReason,
   type TaskMergeInfo,
   taskChangeMergeState,
   testsPassedSupersededReason,
@@ -116,6 +115,7 @@ const DONE_PLAN_BLOCKER_ORDER: readonly DonePlanBlockerCode[] = [
   'tool-unresolved',
   'tool-failed',
   'typed-gate-failed',
+  'typed-gate-not-run',
   'test-run-needed',
   'qa-run-needed',
   'ac-mapping-needed',
@@ -146,6 +146,11 @@ export interface DeriveTaskEvidenceOptions {
    * use, or memory pressure).
    */
   waitForTestSlot?: boolean;
+  /**
+   * The typed gates run in this `cleo done` (`--run-typed`), so a gate with no
+   * current pass is not yet a blocker (T13655).
+   */
+  runTyped?: boolean;
 }
 
 /**
@@ -516,6 +521,7 @@ function toolAndTypedGateBlockers(
   runs: readonly DonePlanToolRun[],
   typedGates: readonly DonePlanTypedGate[],
   root: string,
+  runTyped: boolean,
 ): DonePlanBlocker[] {
   const out: DonePlanBlocker[] = [];
   for (const run of runs) {
@@ -555,12 +561,28 @@ function toolAndTypedGateBlockers(
     }
   }
   for (const typed of typedGates) {
-    if (typed.status !== 'fail') continue;
-    out.push({
-      code: 'typed-gate-failed',
-      message: `Typed gate ${typed.alias} (${typed.kind}${typed.req ? ` ${typed.req}` : ''}) last failed.`,
-      next: step(`cleo verify ${taskId} --run`, 'Re-run the typed gates and fix the failing one.'),
-    });
+    const label = `Typed gate ${typed.alias} (${typed.kind}${typed.req ? ` ${typed.req}` : ''})`;
+    if (typed.status === 'fail') {
+      out.push({
+        code: 'typed-gate-failed',
+        message: `${label} last failed.`,
+        next: step(
+          `cleo verify ${taskId} --run`,
+          'Re-run the typed gates and fix the failing one.',
+        ),
+      });
+    } else if (typed.status === 'not-run' && !runTyped) {
+      // T13655: completion refuses a typed gate with no current bound pass
+      // (never run, or stale), so the plan must not call the task ready.
+      out.push({
+        code: 'typed-gate-not-run',
+        message: `${label} has no current passing result; cleo complete refuses it until it passes.`,
+        next: step(
+          `cleo verify ${taskId} --run && cleo done ${taskId}`,
+          'cleo done executes no typed gate: run them with cleo verify --run (it caches each pass), or pass --run-typed.',
+        ),
+      });
+    }
   }
   return out;
 }
@@ -591,6 +613,36 @@ function testRunNeededBlocker(
       'Write the report to a gitignored path (vitest run <files> --reporter=json ' +
         '--outputFile=<path>; jest <files> --json --outputFile=<path>); it must pass every ' +
         'changed test file. tool:test (the whole suite) also satisfies the gate.',
+    ),
+  };
+}
+
+/**
+ * The refusal that replaces a whole-suite `tool:test` (T13641, T13647 owner
+ * decision 2026-10-12): `cleo done` never launches an unscoped suite on its own. Names why the affected scope
+ * does not apply, why the recorded scoped run no longer stands (with the
+ * differing files, T13642), and the scoped evidence to record instead.
+ */
+function wholeSuiteRefusedBlocker(
+  taskId: string,
+  gate: VerificationGate,
+  scopeReason: string | null,
+  supersededReason: string | null,
+  ciUsable: boolean,
+): DonePlanBlocker {
+  return {
+    code: 'test-run-needed',
+    message:
+      `${gate}: the only test run cleo done could plan is the whole suite ` +
+      `(${scopeReason ?? 'the affected scope does not apply'}), and cleo done never runs a whole suite on its own.` +
+      (supersededReason ? ` ${supersededReason}` : ''),
+    next: step(
+      `cleo verify ${taskId} --gate ${gate} --evidence 'test-run:<vitest-json-report>'`,
+      'Run the tests that cover the change with a JSON reporter (vitest run <files> --reporter=json ' +
+        '--outputFile=<path>) and record the report' +
+        (ciUsable ? ", or ci:<pr> once the merged PR's CI is green" : '') +
+        ', or declare testing.affectedCommand in .cleo/project-context.json so cleo done can plan a ' +
+        'scoped tool:test-affected. A full run is your explicit choice: cleo verify --gate testsPassed --evidence tool:test.',
     ),
   };
 }
@@ -804,11 +856,12 @@ export async function deriveTaskEvidence(
   );
   const superseded = supersededReason !== null;
   if (supersededReason) changeSet.warnings.push(supersededReason);
-  // T13427: a qa-run receipt stands only while its tree does.
-  const qaAtoms = task.verification?.evidence?.qaPassed?.atoms ?? [];
-  const qaSupersededReason = hasTreeBoundQaRun(qaAtoms)
-    ? qaRunTreeMismatchReason(qaAtoms, await captureTreeHash(root))
-    : null;
+  // T13427: a qa-run receipt stands only while its tree does; T13644: after
+  // merge, only when it carries or was recorded on main after the merge.
+  const qaSupersededReason = await qaPassedSupersededReason(
+    task.verification?.evidence?.qaPassed?.atoms ?? [],
+    { mergeState: mergeInfo, currentTree: () => captureTreeHash(root) },
+  );
   if (qaSupersededReason) changeSet.warnings.push(qaSupersededReason);
   const passed = (gate: VerificationGate): boolean =>
     task.verification?.gates?.[gate] === true &&
@@ -865,17 +918,6 @@ export async function deriveTaskEvidence(
                 mergeState: mergeInfo,
               })
             : null;
-        // T13125: a whole-suite local run where merged-PR CI would carry the
-        // gate is named as such, with ci:<pr> as the preferred evidence.
-        if (scoped?.scope === 'full' && ciUsable) {
-          const why = scoped.reason ?? 'the affected scope does not apply';
-          changeSet.warnings.push(
-            `${gate}: this plans a whole-suite local tool:test (${why})` +
-              (why.includes('ci:<pr>')
-                ? ''
-                : '; evidence.ciSatisfies is set, so ci:<pr> once the PR merges is the preferred evidence and needs no local run'),
-          );
-        }
         const run: DonePlanToolRun =
           scoped?.scope === 'affected'
             ? await planToolRun('test-affected', gate, storeRoot, root, scoped.run.command)
@@ -889,6 +931,18 @@ export async function deriveTaskEvidence(
                   reason: scoped.reason,
                 }
               : await planToolRun(tool, gate, storeRoot, root);
+        // T13647 (owner decision 2026-10-12, "never run whole suites"): cleo
+        // done never plans a whole-suite tool:test it would have to execute (a
+        // cache miss). A result already cached for this tree runs nothing and
+        // keeps its usual handling; otherwise the plan refuses and names the
+        // scoped evidence to record, with the differing files when a carry was
+        // refused (T13641, T13642).
+        if (scoped?.scope === 'full' && run.cache === 'miss') {
+          testRunBlockers.push(
+            wholeSuiteRefusedBlocker(taskId, gate, scoped.reason, supersededReason, ciUsable),
+          );
+          continue;
+        }
         // T13427: in a standalone project a missing lint/typecheck result
         // would be a fresh whole-project run; plan a qa-run receipt of the
         // changed roots instead. A cached result still binds as tool:.
@@ -925,7 +979,7 @@ export async function deriveTaskEvidence(
   const acBlocker = acMappingBlocker(taskId, acMapping, pending);
   const derivedBlockers = orderBlockers([
     ...changeSet.blockers,
-    ...toolAndTypedGateBlockers(taskId, isCode, toolRuns, typedGates, root),
+    ...toolAndTypedGateBlockers(taskId, isCode, toolRuns, typedGates, root, opts.runTyped === true),
     ...testRunBlockers,
     ...(acBlocker ? [acBlocker] : []),
     ...manualGateBlockers(taskId, gates),
@@ -969,7 +1023,13 @@ export async function deriveTaskEvidence(
   if (task.status === 'done') {
     changeSet.warnings.push(`${taskId} is already done; nothing is left to record.`);
   } else if (changeSet.implementedEvidence !== null || passed('implemented')) {
-    commands.push(`${cd}cleo complete ${taskId}`);
+    // T13648: `cleo complete` has no --pr, so a plan judged through an
+    // explicit PR finishes with `cleo done --pr`, which keeps that carrier.
+    commands.push(
+      opts.prNumber === undefined
+        ? `${cd}cleo complete ${taskId}`
+        : `${cd}cleo done ${taskId} --pr ${opts.prNumber}`,
+    );
   }
   const next =
     blockers[0]?.next ??

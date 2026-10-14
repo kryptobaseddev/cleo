@@ -25,6 +25,7 @@ import {
 import { TRIGGER_SUSPEND_TABLE_DDL } from '../sync/trigger-classes.js';
 import {
   classifyTable,
+  FILE_STATE_KEYS,
   SCHEMA_STATE_TABLES,
   SNAPSHOT_STATE_TABLES,
 } from '../table-classification.js';
@@ -588,6 +589,11 @@ describe('carryMachineState keys rows by a stable key, never a machine-minted id
       CREATE TABLE agent_service_grants (agent_id TEXT NOT NULL, service_connection_id INTEGER NOT NULL,
         scope TEXT, PRIMARY KEY (agent_id, service_connection_id));
       ${seed}
+      -- T13467: row uids, still unfilled on a live store (filled at open).
+      ALTER TABLE accounts ADD COLUMN uid TEXT;
+      CREATE UNIQUE INDEX uq_accounts_uid ON accounts (uid);
+      ALTER TABLE agent_service_grants ADD COLUMN uid TEXT;
+      CREATE UNIQUE INDEX uq_agent_service_grants_uid ON agent_service_grants (uid);
     `);
     db.close();
     return file;
@@ -653,10 +659,11 @@ describe('carryMachineState keys rows by a stable key, never a machine-minted id
     expect(read(staged, "SELECT id FROM accounts WHERE provider = 'anthropic'")).toEqual([
       { id: 2 },
     ]);
-    // agent_service_grants has no stable key (its key holds a machine-minted id): kept whole from live.
+    // agent_service_grants has no stable key (its key holds a machine-minted id, and its
+    // uid index is unfilled on a live store, T13467): kept whole from live.
     expect(out.preserved).toContain('agent_service_grants');
     expect(read(staged, 'SELECT * FROM agent_service_grants')).toEqual([
-      { agent_id: 'ag', service_connection_id: 5, scope: 'live' },
+      { agent_id: 'ag', service_connection_id: 5, scope: 'live', uid: null },
     ]);
     expect(out.scrubbed).toEqual([{ table: 'skills_skills', rows: 1 }]);
     expect(out.lost).toEqual([]);
@@ -1114,6 +1121,167 @@ describe('carry settles the reconcile record against the bare tables as restored
           class: 'local-only',
         });
         expect(isVaultManifestTable(scope, t)).toBe(false);
+      }
+    }
+  });
+});
+
+describe('carry takes file-state keys from the snapshot, machine keys from the live store (T13107, T13108)', () => {
+  const META =
+    'CREATE TABLE tasks_row_identity_meta (key TEXT PRIMARY KEY NOT NULL, value TEXT NOT NULL)';
+  const SYNC_META =
+    'CREATE TABLE _sync_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at TEXT NOT NULL)';
+  const make = (
+    name: string,
+    meta: Record<string, string> | null,
+    syncMeta: Record<string, string> | null,
+  ) => {
+    const f = path.join(tmp, `${name}.db`);
+    const db = new DatabaseSync(f);
+    db.exec('CREATE TABLE tasks_tasks (id TEXT PRIMARY KEY, title TEXT)');
+    if (meta) {
+      db.exec(META);
+      const ins = db.prepare('INSERT INTO tasks_row_identity_meta VALUES (?, ?)');
+      for (const [k, v] of Object.entries(meta)) ins.run(k, v);
+    }
+    if (syncMeta) {
+      db.exec(SYNC_META);
+      const ins = db.prepare('INSERT INTO _sync_meta VALUES (?, ?, ?)');
+      for (const [k, v] of Object.entries(syncMeta)) ins.run(k, v, 't');
+    }
+    db.close();
+    return f;
+  };
+  const kv = (f: string, table: string) => {
+    const db = new DatabaseSync(f, { readOnly: true });
+    try {
+      return Object.fromEntries(
+        (
+          db.prepare(`SELECT key, value FROM ${table} ORDER BY key`).all() as Array<{
+            key: string;
+            value: string;
+          }>
+        ).map((r) => [r.key, r.value]),
+      );
+    } finally {
+      db.close();
+    }
+  };
+  const LIVE_SYNC = {
+    'schema:20260929140000_t12342-sync-clock': 'h1',
+    'schema:20261001170000_t12984-sealer': 'h3',
+    'sync.capture': '1',
+    'sync.seal': '1',
+    min_writer_version: '2026.10.2',
+    'seq:r-live:project:p': '7',
+  };
+
+  it('row-identity markers come from the snapshot; local rename records stay this store’s', () => {
+    const staged = make(
+      'staged',
+      { row_identity_recipe: 'snap-recipe', 'renamed_from:tasks_tasks:T1': 'snap-rename' },
+      null,
+    );
+    const live = make(
+      'live',
+      {
+        row_identity_recipe: 'live-recipe',
+        row_identity_synced: 'live-synced',
+        timestamp_canon_v1: 'done',
+        'renamed_from:tasks_tasks:T9': 'live-rename',
+      },
+      null,
+    );
+    const out = carryMachineState(staged, live, 'project');
+    expect(kv(staged, 'tasks_row_identity_meta')).toEqual({
+      row_identity_recipe: 'snap-recipe',
+      'renamed_from:tasks_tasks:T9': 'live-rename',
+    });
+    expect(out.preserved).toContain('tasks_row_identity_meta');
+  });
+
+  it('the sync-schema ledger comes from the snapshot; flags, writer floor and seqs stay this machine’s', () => {
+    const staged = make('staged', null, {
+      'schema:20260929140000_t12342-sync-clock': 'h1',
+      'sync.capture': '0',
+      'seq:r-pusher:project:p': '3',
+    });
+    const live = make('live', null, LIVE_SYNC);
+    carryMachineState(staged, live, 'project');
+    expect(kv(staged, '_sync_meta')).toEqual({
+      'schema:20260929140000_t12342-sync-clock': 'h1',
+      'sync.capture': '1',
+      'sync.seal': '1',
+      min_writer_version: '2026.10.2',
+      'seq:r-live:project:p': '7',
+    });
+  });
+
+  it('suspect marks come from the snapshot: its uncaptured writes keep their repair signal (T13677)', () => {
+    const staged = make('staged', null, {
+      'schema:20260929140000_t12342-sync-clock': 'h1',
+      'suspect:tasks_tasks': '2026-10-13T00:00:00.000Z',
+    });
+    const live = make('live', null, { ...LIVE_SYNC, 'suspect:brain_observations': 'x' });
+    carryMachineState(staged, live, 'project');
+    const meta = kv(staged, '_sync_meta');
+    expect(meta['suspect:tasks_tasks']).toBe('2026-10-13T00:00:00.000Z');
+    expect(meta['suspect:brain_observations']).toBeUndefined();
+    expect(meta['sync.capture']).toBe('1');
+  });
+
+  it("a shape mismatch still replaces the pusher's machine keys, over the shared columns (T13677)", () => {
+    const staged = make('staged', null, {
+      'schema:20260929140000_t12342-sync-clock': 'h1',
+      'sync.capture': '0',
+      'seq:r-pusher:project:p': '3',
+    });
+    // The snapshot's _sync_meta has a column this machine's table lacks.
+    const db = new DatabaseSync(staged);
+    db.exec('ALTER TABLE _sync_meta ADD COLUMN note TEXT');
+    db.close();
+    const live = make('live', null, LIVE_SYNC);
+    const out = carryMachineState(staged, live, 'project');
+    expect(kv(staged, '_sync_meta')).toEqual({
+      'schema:20260929140000_t12342-sync-clock': 'h1',
+      'sync.capture': '1',
+      'sync.seal': '1',
+      min_writer_version: '2026.10.2',
+      'seq:r-live:project:p': '7',
+    });
+    expect(out.preserved).toContain('_sync_meta');
+    expect(out.skipped).not.toContain('_sync_meta');
+  });
+
+  it('a snapshot without _sync_meta keeps this machine’s flags, with no ledger (the schema re-applies)', () => {
+    const staged = make('staged', null, null);
+    const live = make('live', null, LIVE_SYNC);
+    carryMachineState(staged, live, 'global');
+    const meta = kv(staged, '_sync_meta');
+    expect(meta['sync.capture']).toBe('1');
+    expect(Object.keys(meta).filter((k) => k.startsWith('schema:'))).toEqual([]);
+  });
+
+  it('a new machine (no live store) keeps the file keys and drops the pusher’s machine keys', () => {
+    const staged = make(
+      'staged',
+      { timestamp_canon_v1: 'done', 'renamed_from:tasks_tasks:T1': 'snap' },
+      { 'schema:x': 'h', 'sync.capture': '1' },
+    );
+    carryMachineState(staged, null, 'project');
+    expect(kv(staged, 'tasks_row_identity_meta')).toEqual({ timestamp_canon_v1: 'done' });
+    expect(kv(staged, '_sync_meta')).toEqual({ 'schema:x': 'h' });
+  });
+
+  it('every file-state key table is local-only in its scope', () => {
+    for (const scope of ['project', 'global'] as const) {
+      for (const t of Object.keys(FILE_STATE_KEYS[scope])) {
+        const c = classifyTable(scope, t);
+        expect({ scope, t, class: 'class' in c ? c.class : c.kind }).toEqual({
+          scope,
+          t,
+          class: 'local-only',
+        });
       }
     }
   });

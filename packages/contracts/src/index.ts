@@ -774,6 +774,7 @@ export type {
   GraphPublicationRows,
   GraphRelation,
   GraphRelationType,
+  GraphStoredReferences,
   ImpactResult,
   InferredProvenance,
   KnowledgeGraph,
@@ -896,6 +897,14 @@ export {
   isLafsError,
   isLafsSuccess,
 } from './lafs.js';
+// === ct-lean levels (T13663 / Epic T13418) ===
+export type {
+  LeanConfig,
+  LeanDebtItem,
+  LeanDebtReport,
+  LeanLevel,
+  LeanLevelSource,
+} from './lean.js';
 // === Lease-IPC v1.1 (PARALLEL DbWriterLease contract — T11627 · SG-RUNTIME-UNIFICATION) ===
 export type {
   ChildKilledUnresponsiveResponse,
@@ -1357,6 +1366,8 @@ export type {
 export {
   DOCS_LIFECYCLE_STATUSES,
   type DocsLifecycleStatus,
+  type DocsSectionConflict,
+  type DocsSectionLeaseNotice,
   type DocsUpdateParams,
 } from './operations/docs.js';
 // === Ensures-schema Zod registry (T11762 ST-1 / T11900 — cantbook ensures.schema SSoT) ===
@@ -2028,11 +2039,13 @@ export type {
   PruneOrphanedWorktreesResult,
   PruneWorktreesOptions,
   PruneWorktreesResult,
+  WorktreeDisposalBlockers,
   WorktreeHook,
   WorktreeHookResult,
   WorktreeIncludePattern,
   WorktreeInfo,
   WorktreeInstallOutcome,
+  WorktreeKeepMarker,
   WorktreeLifecycleAction,
   WorktreeLifecycleAuditEntry,
   WorktreeListEntry,
@@ -2487,6 +2500,7 @@ export {
 // === Store restore (T13240 — restore cleo.db from a named snapshot or backup id) ===
 export type {
   StoreRecoverResult,
+  StoreRestoreDocsBytes,
   StoreRestoreKept,
   StoreRestoreResult,
   StoreRestoreSource,
@@ -3162,6 +3176,7 @@ export {
   type CloudActivityItem,
   type CloudActivityResult,
   type CloudConflict,
+  type CloudConflictField,
   type CloudConflictResolveResult,
   type CloudConflictsResult,
   type CloudDeviceOverviewResult,

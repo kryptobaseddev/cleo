@@ -293,7 +293,9 @@ export function compareVersions(a: string, b: string): -1 | 0 | 1 | null {
 /**
  * The dist-tag `cleo self-update` follows for an installed version, mirroring
  * the release workflow: a plain version is `latest`, `-beta`/`-rc` is `beta`,
- * and `-alpha`/`-dev` (or anything unparseable) gets no notice.
+ * a `-canary.N` is `latest` (a canary install runs as `cleo`, so `cleo
+ * self-update` moves it to the stable release that promotes it, T13581), and
+ * `-alpha`/`-dev` (or anything unparseable) gets no notice.
  *
  * @param version - Installed version.
  * @returns The channel's dist-tag, or `null` when no notice applies.
@@ -304,6 +306,7 @@ export function releaseChannelTag(version: string): 'latest' | 'beta' | null {
   if (parsed.pre.length === 0) return 'latest';
   const tag = (parsed.pre[0] ?? '').toLowerCase();
   if (tag.startsWith('beta') || tag.startsWith('rc')) return 'beta';
+  if (tag === 'canary') return 'latest';
   return null;
 }
 
