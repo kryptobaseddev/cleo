@@ -13,6 +13,7 @@ import { join } from 'node:path';
 import { afterAll, afterEach, describe, expect, it, vi } from 'vitest';
 import { captureGateCacheState } from '../gate-result-cache.js';
 import { resolveTypedGateRoot } from '../gate-runner.js';
+import { captureHead, captureTree } from '../tool-cache.js';
 
 const base = realpathSync(mkdtempSync(join(tmpdir(), 'typed-gate-ambient-')));
 afterAll(() => rmSync(base, { recursive: true, force: true }));
@@ -57,6 +58,19 @@ describe('typed-gate git reads ignore ambient GIT_DIR/GIT_WORK_TREE (T13695)', (
     vi.unstubAllEnvs();
     const clean = await captureGateCacheState(wt);
     expect(state?.dirtyFingerprint).toBe(clean?.dirtyFingerprint);
+  });
+
+  it('the tree hash and the HEAD of a binding both come from the worktree under a hostile env (T13697)', async () => {
+    const cleanTree = (await captureTree(wt)).tree;
+    const cleanHead = await captureHead(wt);
+    vi.stubEnv('GIT_DIR', join(other, '.git'));
+    vi.stubEnv('GIT_WORK_TREE', other);
+    vi.stubEnv('GIT_INDEX_FILE', join(other, '.git', 'index'));
+    const tree = (await captureTree(wt)).tree;
+    expect(tree).not.toBeNull();
+    expect(tree).toBe(cleanTree);
+    expect(await captureHead(wt)).toBe(cleanHead);
+    expect(cleanHead).toBe(git(wt, 'rev-parse', 'HEAD'));
   });
 
   it("axiom's workaround (GIT_DIR and GIT_WORK_TREE exported to the worktree) still resolves and keys to it", async () => {

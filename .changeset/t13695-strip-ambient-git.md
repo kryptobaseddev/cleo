@@ -1,13 +1,15 @@
 ---
 id: t13695-strip-ambient-git
-tasks: [T13695]
+tasks: [T13695, T13697]
 kind: fix
 summary: evidence and typed-gate git reads use the resolved tree, never an inherited GIT_DIR or GIT_WORK_TREE
 ---
 
-The HEAD and dirty-tree fingerprint behind the tool cache, the typed-gate
-cache and a test-run's tree binding (`captureHead`, `captureDirtyFingerprint`,
-and gate-runner's own git reads) ran `git` with the inherited environment. An
+The HEAD, tree hash and dirty-tree fingerprint behind the tool cache, the
+typed-gate cache and a test-run's tree binding (`captureHead`, `captureTree`
+and every git call inside it, `captureDirtyFingerprint`, gate-runner's own git
+reads, and the evidence execution root's toplevel probe) ran `git` with the
+inherited environment. An
 exported `GIT_DIR` therefore made `git -C <tree>` read a different repository
 whenever the two disagreed. Since T13649 the tree comes from the evidence
 declaration (`CLEO_EVIDENCE_GIT_ROOT`, `GIT_WORK_TREE`, `evidence.gitRoot`) or

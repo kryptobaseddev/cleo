@@ -47,6 +47,7 @@ import { ExitCode } from '@cleocode/contracts/exit-codes.js';
 import { CleoError } from '../errors.js';
 import {
   describeUnusableEvidenceGitRoot,
+  discoveryEnv,
   E_EVIDENCE_GIT_ROOT,
   findNestedGitWorkTrees,
   findWorkTreeContainingCommit,
@@ -1849,6 +1850,8 @@ export function resolveEvidenceExecutionRoot(
       execFileSync('git', ['rev-parse', '--show-toplevel'], {
         cwd,
         encoding: 'utf-8',
+        // T13697: the cwd's own checkout, never an inherited GIT_DIR/GIT_WORK_TREE.
+        env: discoveryEnv(),
         stdio: ['ignore', 'pipe', 'ignore'],
       }).trim() || null;
   } catch {

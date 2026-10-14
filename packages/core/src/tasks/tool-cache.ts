@@ -1433,6 +1433,7 @@ function resolveRuntimePaths(root: string, protectedInputs: readonly string[]): 
     cwd: root,
     encoding: 'utf-8',
     maxBuffer: 64 * 1024 * 1024,
+    env: discoveryEnv(),
     stdio: ['ignore', 'pipe', 'ignore'],
   })
     .split('\0')
@@ -1543,7 +1544,17 @@ export async function captureTree(
   // `--absolute-git-dir`, not `--git-path index`: the latter answers with an
   // inherited `GIT_INDEX_FILE` (e.g. inside a git hook), which is not this
   // checkout's index.
-  const gitDir = await spawnCmd('git', ['rev-parse', '--absolute-git-dir'], root);
+  // T13697: every read below names `root`'s own repository, never an inherited
+  // GIT_DIR/GIT_WORK_TREE/GIT_INDEX_FILE (the temp index is set explicitly).
+  const base = discoveryEnv();
+  const gitDir = await spawnCmd(
+    'git',
+    ['rev-parse', '--absolute-git-dir'],
+    root,
+    undefined,
+    undefined,
+    base,
+  );
   if (gitDir.exitCode !== 0) return none();
   const realIndex = join(gitDir.stdout.trim(), 'index');
   let tmpDir: string | null = null;
@@ -1561,9 +1572,9 @@ export async function captureTree(
     } else {
       // No index yet: seed from HEAD. An unborn HEAD leaves the index empty,
       // which is correct — nothing is tracked.
-      await spawnCmd('git', ['read-tree', 'HEAD'], root, undefined, env);
+      await spawnCmd('git', ['read-tree', 'HEAD'], root, undefined, env, base);
     }
-    const tracked = await spawnCmd('git', ['add', '-u', '--', '.'], root, undefined, env);
+    const tracked = await spawnCmd('git', ['add', '-u', '--', '.'], root, undefined, env, base);
     if (tracked.exitCode !== 0) return none();
     // T13554: declared runtime files keep their HEAD content.
     runtime = resolveRuntimePaths(root, protectedInputs);
@@ -1572,6 +1583,9 @@ export async function captureTree(
         'git',
         ['diff', '--name-only', '-z', 'HEAD', '--', ...runtime.files],
         root,
+        undefined,
+        undefined,
+        base,
       );
       runtimeExcluded =
         dirty.exitCode === 0 ? dirty.stdout.split('\0').filter((p) => p !== '') : [];
@@ -1581,6 +1595,7 @@ export async function captureTree(
         root,
         undefined,
         env,
+        base,
       );
       if (reset.exitCode !== 0) return none(runtime.refusal);
     }
@@ -1590,7 +1605,7 @@ export async function captureTree(
       encoding: 'utf-8',
       maxBuffer: 256 * 1024 * 1024,
       stdio: ['ignore', 'pipe', 'ignore'],
-      env: { ...process.env, ...env },
+      env: { ...base, ...env },
     });
     const untracked = listed.split('\0').filter((p) => {
       if (p === '' || isUntrackedRuntimeOutput(p)) return false;
@@ -1605,11 +1620,11 @@ export async function captureTree(
         cwd: root,
         input: `${untracked.join('\0')}\0`,
         stdio: ['pipe', 'ignore', 'ignore'],
-        env: { ...process.env, ...env },
+        env: { ...base, ...env },
       });
     }
 
-    const tree = await spawnCmd('git', ['write-tree'], root, undefined, env);
+    const tree = await spawnCmd('git', ['write-tree'], root, undefined, env, base);
     if (tree.exitCode !== 0) return none(runtime.refusal);
     return {
       tree: tree.stdout.trim() || null,
@@ -1811,6 +1826,7 @@ function listTrackedFiles(root: string): string[] {
       cwd: root,
       encoding: 'utf-8',
       maxBuffer: 64 * 1024 * 1024,
+      env: discoveryEnv(),
       stdio: ['ignore', 'pipe', 'ignore'],
     })
       .split('\0')
