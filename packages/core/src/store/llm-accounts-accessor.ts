@@ -226,6 +226,7 @@ async function sealUnchanged(
  * @param credential - The credential.
  * @param opts - Which store and machine key.
  * @task T13715
+ * @sync-invariant none:input-shape reads only its own row, by the (provider, label) natural key, to keep an unchanged ciphertext; no other row is read or written
  */
 export async function upsertLlmAccount(
   credential: StoredCredential,

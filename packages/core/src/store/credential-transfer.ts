@@ -559,6 +559,7 @@ async function openRow(row: StoredRow, sources: CredentialSources): Promise<stri
     case 'llm-pool': {
       if (row.account === undefined) return row.material;
       const credential = llmAccountToCredentialSync(row.account, { cleoHome: sources.cleoHome });
+      // @sync-invariant none:local-only sealing reads a credential for export; it writes no synced row
       if (credential === null) throw new Error('the stored LLM credential is malformed');
       return JSON.stringify(credential);
     }
