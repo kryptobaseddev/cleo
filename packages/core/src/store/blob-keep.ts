@@ -467,14 +467,35 @@ export async function backfillBlobStoreBytes(
  * file), so the first read heals the doc. Missing or mismatched bytes write
  * nothing.
  *
+ * The read never fails on the write (T13706): on a read-only `.cleo`, a
+ * sandbox or a full disk the verified bytes are still returned, a warning is
+ * emitted, and the blob-store file is left for `cleo docs doctor --repair`.
+ *
  * @param cleoDir - Absolute `.cleo` directory the blob store lives under.
  * @param sha256 - The content hash the doc row records.
- * @returns True when the blob store now holds verified bytes for `sha256`.
+ * @returns The hash-verified bytes, or null when no legacy bytes verify.
  * @task T13705
  */
-export async function healBlobFromLegacy(cleoDir: string, sha256: string): Promise<boolean> {
+export async function healBlobFromLegacy(
+  cleoDir: string,
+  sha256: string,
+): Promise<Uint8Array | null> {
   const source = resolveLegacyByteSource(cleoDir, sha256, 'application/octet-stream');
-  if (source === null) return false;
-  const outcome = await backfillBlobStoreBytes(cleoDir, sha256, source);
-  return outcome === 'written' || outcome === 'present';
+  if (source === null) return null;
+  let bytes: Buffer;
+  try {
+    bytes = await readFile(source);
+  } catch {
+    return null;
+  }
+  if (createHash('sha256').update(bytes).digest('hex') !== sha256) return null;
+  try {
+    await backfillBlobStoreBytes(cleoDir, sha256, source);
+  } catch (err) {
+    process.emitWarning(
+      `blob store not healed for sha256 ${sha256.slice(0, 12)}… (${err instanceof Error ? err.message : String(err)}); ` +
+        'served the verified legacy bytes — run `cleo docs doctor --repair` once the store is writable',
+    );
+  }
+  return new Uint8Array(bytes);
 }

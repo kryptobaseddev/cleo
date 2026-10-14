@@ -11,10 +11,18 @@
  */
 
 import { createHash } from 'node:crypto';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import {
+  chmodSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { DocsReadModel, type ResolvedDoc } from '../../docs/docs-read-model.js';
 import { blobReadBySha } from '../blob-ops.js';
 
@@ -80,6 +88,24 @@ describe('blob-store miss self-heal (T13705)', () => {
 
     expect(await blobReadBySha(recorded, root)).toBeNull();
     expect(existsSync(blobStoreFile(recorded))).toBe(false);
+  });
+
+  it('a heal write that fails still serves the verified bytes, with a warning, and never throws (T13706)', async () => {
+    const body = '# legacy doc on a read-only store\n';
+    const sha = legacyDoc(body);
+    const blobs = join(root, '.cleo', 'blobs', 'blobs');
+    mkdirSync(blobs, { recursive: true });
+    chmodSync(blobs, 0o555); // the atomic writer cannot create its tmp file here
+    const warn = vi.spyOn(process, 'emitWarning').mockImplementation(() => undefined);
+    try {
+      const content = await new DocsReadModel({ projectRoot: root }).fetchContent(doc(sha));
+      expect(content).toBe(body);
+      expect(existsSync(blobStoreFile(sha))).toBe(false);
+      expect(String(warn.mock.calls[0]?.[0])).toContain('cleo docs doctor --repair');
+    } finally {
+      warn.mockRestore();
+      chmodSync(blobs, 0o755);
+    }
   });
 
   it('a sha with no legacy bytes at all stays a miss', async () => {
