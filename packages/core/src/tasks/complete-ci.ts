@@ -33,9 +33,8 @@ import type { EngineResult } from '../engine-result.js';
 import { readCiSatisfies } from '../release/ci-evidence.js';
 import type { GateVerifyParams, GateVerifyResult } from '../validation/engine-ops.js';
 import {
-  hasTreeBoundQaRun,
   type MergeProbeDeps,
-  qaRunTreeMismatchReason,
+  qaPassedSupersededReason,
   scopedRunStandsAfterRedCi,
   type TaskMergeInfo,
   taskChangeMergeState,
@@ -209,14 +208,14 @@ export async function satisfyGatesFromMergedCi(
         })
       : null;
   const qaAtoms = task.verification?.evidence?.qaPassed?.atoms ?? [];
+  // T13644: the same rule as testsPassed — a moved tree, or qa-run receipts
+  // that neither carry across the merge nor were recorded on main after it.
   const qaPassedReason =
-    task.verification?.gates?.qaPassed === true &&
-    ciGates.includes('qaPassed') &&
-    hasTreeBoundQaRun(qaAtoms)
-      ? qaRunTreeMismatchReason(
-          qaAtoms,
-          await (deps.currentTree ?? defaultCurrentTree)(storeRoot, task.id),
-        )
+    task.verification?.gates?.qaPassed === true && ciGates.includes('qaPassed')
+      ? await qaPassedSupersededReason(qaAtoms, {
+          mergeState: mergeInfo,
+          currentTree: () => (deps.currentTree ?? defaultCurrentTree)(storeRoot, task.id),
+        })
       : null;
   const needs = ciGates.filter(
     (g) =>
@@ -236,6 +235,7 @@ export async function satisfyGatesFromMergedCi(
   const afterRedCi = async (refusal: MergedCiOutcome): Promise<MergedCiOutcome> => {
     if (refusal.kind !== 'ci-red') return refusal;
     let why = 'no testsPassed is on record';
+    const qaNeed = qaPassedReason ?? 'a qa-run of this tree';
     if (needs.includes('testsPassed') && task.verification?.gates?.testsPassed === true) {
       const stands = scopedRunStandsAfterRedCi(
         task.verification?.evidence?.testsPassed?.atoms ?? [],
@@ -246,11 +246,9 @@ export async function satisfyGatesFromMergedCi(
       const rest = needs.filter((g) => g !== 'testsPassed');
       if (stands.ok && rest.length === 0)
         return { kind: 'skipped', testsPassedReason: null, qaPassedReason: null };
-      why = stands.ok
-        ? `${rest.join(', ')} still needs evidence (a qa-run of this tree)`
-        : stands.why;
+      why = stands.ok ? `${rest.join(', ')} still needs evidence (${qaNeed})` : stands.why;
     } else if (!needs.includes('testsPassed')) {
-      why = `${needs.join(', ')} still needs evidence (a qa-run of this tree)`;
+      why = `${needs.join(', ')} still needs evidence (${qaNeed})`;
     }
     return {
       kind: 'ci-red',
