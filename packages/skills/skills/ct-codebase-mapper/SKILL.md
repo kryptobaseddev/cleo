@@ -1,6 +1,6 @@
 ---
 name: ct-codebase-mapper
-version: 2.2.1
+version: 2.3.0
 description: Orient in an unfamiliar or large codebase with CLEO's code-intelligence graph (cleo nexus) and project map (cleo map). Use before planning or editing unfamiliar code, for brownfield onboarding, to find what a change would break, or to map a project's structure, communities and execution flows. Triggers on "map the codebase", "understand this project", "what calls X", "what would break", "brownfield analysis", "project structure".
 protocol: null
 dependencies: []
@@ -17,7 +17,7 @@ triggers:
   - project structure
   - blast radius
 metadata:
-  version: 2.2.1
+  version: 2.3.0
   tier: on-demand
   install: harness
   covers:
@@ -77,6 +77,8 @@ cleo map --focus concerns     # one area: stack | architecture | structure |
                               #   conventions | testing | integrations | concerns
 cleo map --store              # same survey, findings stored to BRAIN
                               #   (tagged source: 'codebase-map')
+cleo map --brief              # one line per folder of exported names (nexus graph,
+                              #   else git-tracked walk), --budget N chars (default 2000)
 ```
 
 ## 3. Find the structure

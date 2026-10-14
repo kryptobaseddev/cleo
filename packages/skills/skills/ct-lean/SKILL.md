@@ -8,13 +8,14 @@ description: >-
   gates, package boundaries, validation, data safety or anything the task asked for.
 license: MIT
 metadata:
-  version: 1.2.0
+  version: 1.5.0
   tier: core
   install: harness
   covers:
     - packages/core/src/orchestration/lean-change.ts
     - packages/cleo/src/cli/commands/lean.ts
     - packages/core/src/orchestration/lean-debt.ts
+    - packages/core/src/nexus/brief-map.ts
   lastReviewed: 2026-10-13
   stability: stable
   attribution: Adapted from Ponytail 5.1.0 by DietrichGebert (MIT) — https://github.com/DietrichGebert/ponytail
@@ -53,7 +54,8 @@ callers that stop working, stores it would migrate. That is scope. Extra feature
 1. **Does it need to exist?** Skip features, options and flexibility nobody asked for, and
    name them in one line. A vague request gets the smallest version that does the core job.
 2. **Already in this codebase?** A helper, accessor, contract or pattern: use it the way the
-   surrounding code does. Search `packages/core/src` and `packages/contracts/src` first.
+   surrounding code does. Search `packages/core/src` and `packages/contracts/src` first;
+   `cleo map --brief` lists what exists per folder (set `lean.map` to get it in `cleo briefing`).
 3. **Standard library or platform feature?** Use it, unless the repo has its own (a house
    chokepoint such as `openDualScopeDb` or `cleo run` beats a raw primitive).
 4. **An installed dependency?** Use it. Never add a dependency for a few lines.

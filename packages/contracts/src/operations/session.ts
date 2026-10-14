@@ -527,6 +527,11 @@ export interface SessionBriefingShowResult {
    * when the attachment store is unavailable or no attachments exist.
    */
   docsContext?: SessionBriefingDocsContext;
+  /**
+   * Brief codebase map (`cleo map --brief`): exported names per folder.
+   * Present only when the `lean.map` config key is on (T13666).
+   */
+  codebaseMap?: string;
 }
 
 // session.history (query — not in primary handler but exported for completeness)
