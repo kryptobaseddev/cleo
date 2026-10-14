@@ -42,7 +42,7 @@
  */
 
 import { createHash, createHmac, timingSafeEqual } from 'node:crypto';
-import { existsSync, readdirSync, readFileSync, realpathSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync, realpathSync, statSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import type { AcceptanceGate, AcceptanceGateResult } from '@cleocode/contracts';
 import type { AcceptanceGateCacheInputs } from '@cleocode/contracts/acceptance-gate';
@@ -248,6 +248,12 @@ export function buildGateCacheEntryBody(
   };
 }
 
+/** Cache entries a miss diagnostic reads at most, newest first (#2240 review). */
+const MISS_SCAN_ENTRIES = 50;
+
+/** Changed input files a miss diagnostic names before "and N more" (#2240 review). */
+const MISS_LISTED_FILES = 10;
+
 /**
  * Why a gate has no cached pass: which key parts differ from the newest stored
  * pass of the same gate definition (T13693). A refusal that only said "no
@@ -279,7 +285,20 @@ export function describeGateCacheMiss(
   const dir = join(projectRoot, '.cleo', 'cache', 'evidence');
   let names: string[];
   try {
-    names = readdirSync(dir).filter((n) => n.startsWith('gate-') && n.endsWith('.json'));
+    // Only the newest entries are parsed, so the cost does not grow with an
+    // unpruned cache; the pass that explains a miss is a recent one.
+    names = readdirSync(dir)
+      .filter((n) => n.startsWith('gate-') && n.endsWith('.json'))
+      .map((n) => {
+        try {
+          return { n, at: statSync(join(dir, n)).mtimeMs };
+        } catch {
+          return { n, at: 0 };
+        }
+      })
+      .sort((a, b) => b.at - a.at)
+      .slice(0, MISS_SCAN_ENTRIES)
+      .map(({ n }) => n);
   } catch {
     return null;
   }
@@ -314,9 +333,13 @@ export function describeGateCacheMiss(
       const after = new Map(inputs.artifacts.map((a) => [a.path, a.sha256]));
       for (const path of new Set([...before.keys(), ...after.keys()]))
         if (before.get(path) !== after.get(path)) changed.push(path);
+      const listed =
+        changed.length > MISS_LISTED_FILES
+          ? `${changed.slice(0, MISS_LISTED_FILES).join(', ')} and ${changed.length - MISS_LISTED_FILES} more`
+          : changed.join(', ');
       parts.push(
         changed.length > 0
-          ? `inputs: ${changed.join(', ')}`
+          ? `inputs: ${listed}`
           : 'inputs (the invocation: command, arguments or working directory)',
       );
     } else {
