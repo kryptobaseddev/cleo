@@ -983,7 +983,7 @@
     },
     {
       "name": "ct-lean",
-      "version": "1.1.0",
+      "version": "1.2.0",
       "description": "Lean change discipline for CLEO work: the smallest change that fully solves the task, and a reply a busy owner understands in one read. Use on every coding task (writing, fixing, refactoring, reviewing, choosing dependencies) and when the owner asks for the simplest solution, YAGNI, or complains about over-engineering or bloat. Never trades away evidence gates, package boundaries, validation, data safety or anything the task asked for.",
       "path": "skills/ct-lean",
       "tier": 0,
