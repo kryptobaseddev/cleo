@@ -152,7 +152,9 @@ export function brokenWorkTreeReason(
   return (
     `${root} is not a git work tree git can open on its own${hasLink ? ` (its .git does not resolve)` : ''}` +
     `${exported.length > 0 ? `; ${exported.join(' and ')} ${exported.length > 1 ? 'are' : 'is'} exported, which evidence reads ignore` : ''}. ` +
-    'Run `git worktree repair` in it (or from the main checkout), or set CLEO_EVIDENCE_GIT_ROOT to a working checkout.'
+    'Exporting GIT_DIR or GIT_WORK_TREE does not make it usable: run `git worktree repair` in it ' +
+    '(or from the main checkout), or declare a working checkout with CLEO_EVIDENCE_GIT_ROOT or ' +
+    '`evidence.gitRoot` in .cleo/project-context.json.'
   );
 }
 

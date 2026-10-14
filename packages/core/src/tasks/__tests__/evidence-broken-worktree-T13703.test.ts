@@ -83,9 +83,31 @@ describe('a worktree git cannot open on its own is refused, not judged (T13703)'
       ok: false,
       codeName: 'E_EVIDENCE_GIT_ROOT',
       reason: expect.stringMatching(
-        /its \.git does not resolve.*GIT_DIR and GIT_WORK_TREE are exported.*git worktree repair/,
+        /its \.git does not resolve.*GIT_DIR and GIT_WORK_TREE are exported.*does not make it usable.*git worktree repair.*CLEO_EVIDENCE_GIT_ROOT.*evidence\.gitRoot/,
       ),
     });
+  });
+
+  it('a declared evidence.gitRoot wins: a non-git store root with GIT_DIR exported binds to the declared checkout', async () => {
+    const store = join(base, 'store');
+    mkdirSync(join(store, '.cleo'), { recursive: true });
+    writeFileSync(
+      join(store, '.cleo', 'project-context.json'),
+      JSON.stringify({ evidence: { gitRoot: 'repo' } }),
+    );
+    const sub = join(store, 'repo');
+    mkdirSync(sub);
+    git(sub, ['init', '-q', '-b', 'main']);
+    writeFileSync(join(sub, 'a.ts'), 'export const a = 1;\n');
+    git(sub, ['add', '.']);
+    git(sub, ['commit', '-q', '-m', 'A']);
+    vi.stubEnv('GIT_DIR', join(base, 'nowhere', '.git'));
+    expect(brokenWorkTreeReason(store)).toMatch(/GIT_DIR is exported/);
+    const path = receipt(join(sub, 'tmp'), Date.now());
+    const result = await validateAtom({ kind: 'qa-run', path }, store);
+    expect(result.ok, JSON.stringify(result)).toBe(true);
+    if (result.ok && result.atom.kind === 'qa-run')
+      expect(result.atom.headSha).toBe(git(sub, ['rev-parse', 'HEAD']));
   });
 
   it('a genuine non-git root keeps its no-binding behaviour', async () => {
