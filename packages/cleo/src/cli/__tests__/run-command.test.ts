@@ -153,14 +153,12 @@ describe('cleo run --passthrough (#1777 R7)', () => {
   const argv = ['npx', 'vitest', 'run', 'a.test.ts'];
   const opts = (): RunGovernedOptions => runGoverned.mock.calls[0]?.[0] as RunGovernedOptions;
 
-  // T13681 changes #1777 R7 ("writes nothing at all"): a success now ends with
-  // one stderr line, so a queued run that finished never looks like a no-op.
-  it("success: the child gets the stdio, stdout stays the child's, and stderr gets one exited line (T13681)", async () => {
+  it('success: the child gets the stdio, and cleo run writes nothing at all', async () => {
     runGoverned.mockResolvedValue(exited());
     await invoke({ passthrough: true }, argv);
     expect(opts()).toMatchObject({ passthrough: true, foreground: false, argv });
     expect(out).toEqual([]);
-    expect(err).toEqual(['[cleo run] exited 0 after 0s\n']);
+    expect(err).toEqual([]);
   });
 
   it('interrupted while queued: E_RUN_INTERRUPTED on stderr, exit 128 + the signal (T13681)', async () => {
@@ -238,13 +236,16 @@ describe('cleo run --passthrough (#1777 R7)', () => {
     expect(runGoverned).not.toHaveBeenCalled();
   });
 
-  it('stays quiet: progress (info) notices are dropped, warnings are printed', async () => {
+  // #1777 R7 narrowed by T13681: silent unless the run waited in the queue.
+  // The core sends a real queue admission as a warning, so it is printed.
+  it('stays quiet: progress (info) notices are dropped; a queue admission and warnings are printed', async () => {
     runGoverned.mockResolvedValue(exited());
     await invoke({ passthrough: true }, argv);
     opts().notice?.('nested in an admitted run', 'info');
+    opts().notice?.('admitted after 3s in the queue', 'warn');
     opts().notice?.('paused: machine at backoff', 'warn');
     expect(err).toEqual([
-      '[cleo run] exited 0 after 0s\n',
+      '[cleo run] admitted after 3s in the queue\n',
       '[cleo run] paused: machine at backoff\n',
     ]);
   });
@@ -257,9 +258,8 @@ describe('cleo run --passthrough (#1777 R7)', () => {
     expect(Number(childHeap)).toBeLessThan(999999);
     expect(opts().env.NODE_OPTIONS).toMatch(/^--enable-source-maps --max-old-space-size=\d+$/);
     expect(out).toEqual([]);
-    expect(err).toHaveLength(2);
+    expect(err).toHaveLength(1);
     expect(err[0]).toMatch(/^\[cleo run\] planned resources: heap \d+ MiB .*clamped NODE_OPTIONS/);
-    expect(err[1]).toBe('[cleo run] exited 0 after 0s\n');
   });
 
   it('T13122: the envelope names the heap and worker plan the child got', async () => {

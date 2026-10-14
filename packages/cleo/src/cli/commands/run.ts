@@ -328,12 +328,7 @@ export const runCommand = defineCommand({
 
     const code = runExitCode(result);
     if (code !== 0) exitFailed(result, code, passthrough, resources);
-    if (passthrough) {
-      // T13681: the child's output is the report; say it finished, so a
-      // successful run never looks like a no-op.
-      notice(`exited 0 after ${Math.round(result.durationMs / 1000)}s`, 'warn');
-      return;
-    }
+    if (passthrough) return;
     const { kind: _kind, ...data } = result;
     cliOutput(resources === null ? data : { ...data, resources }, {
       command: 'run',
