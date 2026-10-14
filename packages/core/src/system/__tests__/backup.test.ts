@@ -27,11 +27,13 @@
  * @task T10315
  */
 
+import { createHash } from 'node:crypto';
 import {
   existsSync,
   mkdirSync,
   readdirSync,
   readFileSync,
+  renameSync,
   utimesSync,
   writeFileSync,
 } from 'node:fs';
@@ -561,5 +563,137 @@ describe('system/backup — restored .db files are byte-identical', () => {
     const liveBytes = readFileSync(join(testDir, '.cleo', 'tasks.db'));
     expect(Buffer.compare(liveBytes, payload)).toBe(0);
     expect(existsSync(join(testDir, '.cleo', 'tasks.db'))).toBe(true);
+  });
+});
+
+describe('docs byte surfaces (T13704)', () => {
+  let testDir: string;
+
+  beforeEach(async () => {
+    vi.resetModules();
+    // Earlier describes in this file vi.doMock the store modules; the docs
+    // byte-surface tests drive the REAL store (a real VACUUM INTO of cleo.db
+    // and a real manifest.db), so the mocks must be lifted here.
+    vi.doUnmock('../../store/sqlite.js');
+    vi.doUnmock('../../store/memory-sqlite.js');
+    testDir = await mkdtemp(join(tmpdir(), 'cleo-backup-docs-bytes-'));
+    mkdirSync(join(testDir, '.cleo'), { recursive: true });
+    process.env['CLEO_DIR'] = join(testDir, '.cleo');
+  });
+
+  afterEach(async () => {
+    const { closeDb } = await import('../../store/sqlite.js');
+    closeDb();
+    delete process.env['CLEO_DIR'];
+    await rm(testDir, { recursive: true, force: true });
+  });
+
+  const DOC_CONTENT = '# Restored doc\n\nhello bytes.\n';
+
+  function docSha(content: string): string {
+    return createHash('sha256').update(Buffer.from(content, 'utf-8')).digest('hex');
+  }
+
+  /** Seed a project whose doc bytes live only in the blob store + legacy tree. */
+  async function seedProjectWithDocBytes(): Promise<string> {
+    const { getDb, closeDb } = await import('../../store/sqlite.js');
+    writeFileSync(join(testDir, '.cleo', 'config.json'), '{"version":"test"}');
+    writeFileSync(join(testDir, '.cleo', 'project-info.json'), '{"projectId":"t13704"}');
+    await getDb(testDir);
+    closeDb();
+
+    const sha = docSha(DOC_CONTENT);
+    mkdirSync(join(testDir, '.cleo', 'blobs', 'blobs'), { recursive: true });
+    const manifest = new DatabaseSync(join(testDir, '.cleo', 'blobs', 'manifest.db'));
+    manifest.exec('CREATE TABLE blobs (sha TEXT PRIMARY KEY)');
+    manifest.close();
+    writeFileSync(join(testDir, '.cleo', 'blobs', 'blobs', sha), DOC_CONTENT);
+    const attDir = join(testDir, '.cleo', 'attachments', 'sha256', sha.slice(0, 2));
+    mkdirSync(attDir, { recursive: true });
+    writeFileSync(join(attDir, `${sha.slice(2)}.md`), DOC_CONTENT);
+    return sha;
+  }
+
+  /** Wipe `.cleo/` entirely (true "empty store") but keep the backups directory. */
+  async function wipeKeepingBackups(): Promise<void> {
+    const { closeDb } = await import('../../store/sqlite.js');
+    closeDb();
+    const backups = join(testDir, '.cleo', 'backups');
+    const saved = join(testDir, 'saved-backups');
+    renameSync(backups, saved);
+    await rm(join(testDir, '.cleo'), { recursive: true, force: true });
+    mkdirSync(join(testDir, '.cleo'), { recursive: true });
+    renameSync(saved, backups);
+  }
+
+  it('createBackup captures the blob store + attachment bytes; restore into an empty store returns the doc bytes (docs fetch works)', async () => {
+    const sha = await seedProjectWithDocBytes();
+
+    const { createBackup, restoreBackupById } = await import('../backup.js');
+    const backup = await createBackup(testDir, { type: 'snapshot', note: 't13704' });
+
+    // Capture: manifest + blob byte + legacy attachment byte, all flat
+    // `<payload>.<backupId>` files in the canonical backup dir.
+    const backupDir = join(testDir, '.cleo', 'backups', 'sqlite');
+    expect(existsSync(join(backupDir, `blobs.manifest.db.${backup.backupId}`))).toBe(true);
+    expect(existsSync(join(backupDir, `blob-${sha}.${backup.backupId}`))).toBe(true);
+    expect(
+      existsSync(
+        join(backupDir, `att-sha256__${sha.slice(0, 2)}__${sha.slice(2)}.md.${backup.backupId}`),
+      ),
+    ).toBe(true);
+    const meta = JSON.parse(
+      readFileSync(join(backupDir, `${backup.backupId}.meta.json`), 'utf-8'),
+    ) as { docsBytes: { blobs: number; attachments: number; blobManifest: { sha256: string } } };
+    expect(meta.docsBytes.blobs).toBe(1);
+    expect(meta.docsBytes.attachments).toBe(1);
+    expect(meta.docsBytes.blobManifest.sha256).toMatch(/^[0-9a-f]{64}$/);
+
+    // Restore into an EMPTY store — the v2026.10.13 qualification shape.
+    await wipeKeepingBackups();
+    const restored = await restoreBackupById(testDir, { backupId: backup.backupId, cwd: testDir });
+
+    expect(restored.restored).toBe(true);
+    expect(restored.store?.restored).toBe(true);
+    expect(restored.docsBytes?.blobManifestRestored).toBe(true);
+    expect(restored.docsBytes?.blobsRestored).toBe(1);
+    expect(restored.docsBytes?.attachmentsRestored).toBe(1);
+    expect(restored.docsBytes?.blobsFailed).toEqual([]);
+    expect(restored.docsBytes?.attachmentsFailed).toEqual([]);
+
+    // docs fetch reads exactly these bytes: the blob store file holds the
+    // content AND re-hashes to its content address; the legacy tree is back.
+    const blobBytes = readFileSync(join(testDir, '.cleo', 'blobs', 'blobs', sha), 'utf-8');
+    expect(blobBytes).toBe(DOC_CONTENT);
+    expect(docSha(blobBytes)).toBe(sha);
+    expect(
+      readFileSync(
+        join(testDir, '.cleo', 'attachments', 'sha256', sha.slice(0, 2), `${sha.slice(2)}.md`),
+        'utf-8',
+      ),
+    ).toBe(DOC_CONTENT);
+    expect(existsSync(join(testDir, '.cleo', 'blobs', 'manifest.db'))).toBe(true);
+  });
+
+  it('a corrupt payload file is refused by its sha256 and never placed at the content address', async () => {
+    const sha = await seedProjectWithDocBytes();
+
+    const { createBackup, restoreBackupById } = await import('../backup.js');
+    const backup = await createBackup(testDir, { type: 'snapshot', note: 't13704-corrupt' });
+    const backupDir = join(testDir, '.cleo', 'backups', 'sqlite');
+
+    // Tamper with the captured blob bytes (a flipped bit is not its address).
+    writeFileSync(join(backupDir, `blob-${sha}.${backup.backupId}`), 'corrupted bytes');
+
+    await wipeKeepingBackups();
+    const restored = await restoreBackupById(testDir, { backupId: backup.backupId, cwd: testDir });
+
+    expect(restored.docsBytes?.blobsRestored).toBe(0);
+    expect(restored.docsBytes?.blobsFailed).toContain(sha);
+    // The corrupt bytes never land where readers would trust them.
+    expect(existsSync(join(testDir, '.cleo', 'blobs', 'blobs', sha))).toBe(false);
+    // Untampered surfaces still restored.
+    expect(restored.docsBytes?.blobManifestRestored).toBe(true);
+    expect(restored.docsBytes?.attachmentsRestored).toBe(1);
   });
 });
