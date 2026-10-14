@@ -41,7 +41,7 @@ import {
   readAllowCachedGates,
 } from './gate-result-cache.js';
 import {
-  captureGateInputsHash,
+  captureGateInputs,
   extractTypedGates,
   resolveTypedGateRoot,
   runGates,
@@ -178,9 +178,10 @@ export async function previewTaskGates(
     const observed: AcceptanceGateResult[] = [];
     const notCachedWhy: Array<string | undefined> = [];
     for (const gate of gates) {
-      const cacheInputsHash = allowCachedGates
-        ? await captureGateInputsHash(task, gate, execution).catch(() => undefined)
+      const captured = allowCachedGates
+        ? await captureGateInputs(task, gate, execution).catch(() => undefined)
         : undefined;
+      const cacheInputsHash = captured?.hash;
       notCachedWhy.push(
         !allowCachedGates
           ? 'evidence.allowCachedGates is false'
@@ -196,7 +197,13 @@ export async function previewTaskGates(
         ...(await runGates(
           [gate],
           cacheInputsHash
-            ? { projectRoot: root, execution, cache: 'refresh', cacheInputsHash }
+            ? {
+                projectRoot: root,
+                execution,
+                cache: 'refresh',
+                cacheInputsHash,
+                cacheInputs: captured?.inputs,
+              }
             : { projectRoot: root, execution },
         )),
       );

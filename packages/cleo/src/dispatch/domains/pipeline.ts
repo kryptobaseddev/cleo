@@ -108,6 +108,10 @@ const pipelineManifestAppend = lazyOperation(
   async () =>
     (await import('@cleocode/core/memory/pipeline-manifest-sqlite')).pipelineManifestAppend,
 );
+const pipelineManifestUpdate = lazyOperation(
+  async () =>
+    (await import('@cleocode/core/memory/pipeline-manifest-sqlite')).pipelineManifestUpdate,
+);
 const pipelineManifestArchive = lazyOperation(
   async () =>
     (await import('@cleocode/core/memory/pipeline-manifest-sqlite')).pipelineManifestArchive,
@@ -190,6 +194,7 @@ type ManifestFindParams = { query: string; confidence?: number; limit?: number }
 type ManifestStatsParams = { epicId?: string };
 type ManifestAppendParams = { entry: Parameters<typeof pipelineManifestAppend>[0] };
 type ManifestArchiveParams = { beforeDate: string };
+type ManifestUpdateParams = { id: string } & Parameters<typeof pipelineManifestUpdate>[1];
 
 // ---- Phase wrapper types ---------------------------------------------------
 
@@ -351,6 +356,12 @@ async function manifestAppendOp(params: ManifestAppendParams) {
   return pipelineManifestAppend(params.entry, getProjectRoot(), { requireExistingTasks: true });
 }
 
+async function manifestUpdateOp(params: ManifestUpdateParams) {
+  // T13678: change only the given fields; linkTask is added, never replacing links.
+  const { id, ...patch } = params;
+  return pipelineManifestUpdate(id, patch, getProjectRoot(), { requireExistingTasks: true });
+}
+
 async function manifestArchiveOp(params: ManifestArchiveParams) {
   return pipelineManifestArchive(params.beforeDate, getProjectRoot());
 }
@@ -417,6 +428,7 @@ const coreOps = {
   'manifest.find': manifestFindOp,
   'manifest.stats': manifestStatsOp,
   'manifest.append': manifestAppendOp,
+  'manifest.update': manifestUpdateOp,
   'manifest.archive': manifestArchiveOp,
   'phase.show': phaseShowOp,
   'phase.list': phaseListOp,
@@ -655,6 +667,12 @@ const _pipelineTypedHandler = defineTypedHandler<PipelineOps>('pipeline', {
     return wrapCoreResult(await coreOps['manifest.append'](params), 'manifest.append');
   },
 
+  'manifest.update': async (params: PipelineOps['manifest.update'][0]) => {
+    // @sync-invariant none:input-shape an update names no entry id; nothing is written
+    if (!params.id) return lafsError('E_INVALID_INPUT', 'id is required', 'manifest.update');
+    return wrapCoreResult(await coreOps['manifest.update'](params), 'manifest.update');
+  },
+
   'manifest.archive': async (params: PipelineOps['manifest.archive'][0]) => {
     if (!params.beforeDate) {
       return lafsError(
@@ -855,6 +873,7 @@ export class PipelineHandler implements DomainHandler {
       'release.rollback',
       'release.rollback.full',
       'manifest.append',
+      'manifest.update',
       'manifest.archive',
       'phase.set',
       'phase.advance',
@@ -923,6 +942,7 @@ export class PipelineHandler implements DomainHandler {
         'release.rollback',
         'release.rollback.full',
         'manifest.append',
+        'manifest.update',
         'manifest.archive',
         'phase.set',
         'phase.advance',

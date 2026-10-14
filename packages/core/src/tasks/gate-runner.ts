@@ -56,6 +56,7 @@ import type {
 import type {
   AcceptanceGateArtifact,
   AcceptanceGateBinding,
+  AcceptanceGateCacheInputs,
   AcceptanceGateInvocation,
   AcceptanceGateRunOptions,
   AcceptanceGateTreeBinding,
@@ -89,6 +90,7 @@ import { resolveCanonicalProjectRoot } from './evidence.js';
 import {
   buildGateCacheEntryBody,
   captureGateCacheState,
+  describeGateCacheMiss,
   evidenceCacheKeyPath,
   type GateCacheState,
   gateCacheEntryPath,
@@ -280,8 +282,9 @@ function writeExecutedGatePass(
   inputsHash: string,
   observed: AcceptanceGateResult,
   key: Buffer,
+  inputs?: AcceptanceGateCacheInputs,
 ): void {
-  const body = buildGateCacheEntryBody(gate, state, inputsHash, observed);
+  const body = buildGateCacheEntryBody(gate, state, inputsHash, observed, inputs);
   if (!body) return;
   try {
     const path = gateCacheEntryPath(projectRoot, gate, state, inputsHash);
@@ -327,12 +330,33 @@ export async function captureGateInputsHash(
   execution: OperationExecutionContext,
   env: NodeJS.ProcessEnv = process.env,
 ): Promise<string> {
+  return (await captureGateInputs(task, gate, execution, env)).hash;
+}
+
+/**
+ * {@link captureGateInputsHash} with the parts behind the digest, which a
+ * stored pass keeps so a later miss can say what moved (T13693).
+ *
+ * @param task - Task that owns the gate; its `files` are verifier inputs.
+ * @param gate - Gate whose invocation and inputs are captured.
+ * @param execution - Admitted lifetime whose project root scopes the capture.
+ * @param env - Environment the gate will launch with.
+ * @returns The digest and its parts.
+ * @task T13693
+ */
+export async function captureGateInputs(
+  task: Task,
+  gate: AcceptanceGate,
+  execution: OperationExecutionContext,
+  env: NodeJS.ProcessEnv = process.env,
+): Promise<{ hash: string; inputs: AcceptanceGateCacheInputs }> {
   const tree = resolveTypedGateRoot(resolve(execution.identity.projectRoot));
   const invocation = executableInvocation(gate, tree, { ...env });
-  return gateInputsHash(
-    invocation,
-    await snapshotGateInputs(task, gate, invocation, execution, tree),
-  );
+  const artifacts = await snapshotGateInputs(task, gate, invocation, execution, tree);
+  return {
+    hash: gateInputsHash(invocation, artifacts),
+    inputs: { environmentHash: invocation?.environmentHash ?? null, artifacts },
+  };
 }
 
 /**
@@ -522,8 +546,22 @@ export async function runGates(
                   'It was not used. Run `cleo verify <taskId> --run` (a pass replaces the entry), or pass --run-typed on this write',
               );
           }
-          if (cacheMode === 'only' && TOOL_GATE_KINDS.has(parsed.kind))
-            throw new Error(gateNotCachedMessage(parsed, cacheState !== null, cacheKey !== null));
+          if (cacheMode === 'only' && TOOL_GATE_KINDS.has(parsed.kind)) {
+            // T13693: say which key part moved since the last stored pass.
+            const why =
+              cacheState && cacheKey
+                ? describeGateCacheMiss(
+                    projectRoot,
+                    parsed,
+                    cacheState,
+                    cacheInputsHash!,
+                    options.cacheInputs,
+                  )
+                : null;
+            throw new Error(
+              `${gateNotCachedMessage(parsed, cacheState !== null, cacheKey !== null)}${why ? ` ${why}` : ''}`,
+            );
+          }
           const observed: AcceptanceGateResult = {
             ...(await runOneGate(
               parsed,
@@ -543,6 +581,7 @@ export async function runGates(
               cacheInputsHash!,
               observed,
               cacheKey,
+              options.cacheInputs,
             );
           results.push(observed);
         } catch (error) {
@@ -844,7 +883,13 @@ export async function runTaskGates(
               env,
               execution,
               ...(options.cache && options.cache !== 'off'
-                ? { cacheInputsHash: gateInputsHash(invocation, artifacts) }
+                ? {
+                    cacheInputsHash: gateInputsHash(invocation, artifacts),
+                    cacheInputs: {
+                      environmentHash: invocation?.environmentHash ?? null,
+                      artifacts,
+                    },
+                  }
                 : {}),
             })
           )[0]!;

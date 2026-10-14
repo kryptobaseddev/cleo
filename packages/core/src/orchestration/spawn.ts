@@ -50,6 +50,7 @@ import {
 import { collectOrchestrateDashboard, formatDashboardPromptSummary } from './dashboard.js';
 import { type HarnessHint, resolveHarnessHint } from './harness-hint.js';
 import { autoDispatch } from './index.js';
+import { effectiveLeanLevel } from './lean-change.js';
 import {
   buildSpawnPrompt,
   type ConduitSubscriptionConfig,
@@ -822,12 +823,17 @@ export async function composeSpawnPayload(
   //    continue to work unchanged.
   const protocol = options.protocol ?? autoDispatch(task);
   const shouldEmbedInjection = options.embedInjection ?? harnessHint !== 'claude-code';
+  const { level: leanLevel } = await effectiveLeanLevel({
+    projectRoot,
+    sessionId: options.sessionId ?? null,
+  });
   const promptResult = buildSpawnPrompt({
     task,
     protocol,
     tier,
     projectRoot,
     sessionId: options.sessionId ?? null,
+    leanLevel,
     harnessHint,
     ...(options.askProviderId !== undefined ? { askProviderId: options.askProviderId } : {}),
     skipCleoInjectionEmbed: !shouldEmbedInjection,
