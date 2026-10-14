@@ -2005,6 +2005,9 @@ const _docsTypedHandler = defineTypedHandler<DocsTypedOps>('docs', {
         ...(outcome.result.staleBaseMerged !== undefined
           ? { staleBaseMerged: outcome.result.staleBaseMerged }
           : {}),
+        ...(outcome.result.headVersionUid !== undefined
+          ? { headVersionUid: outcome.result.headVersionUid }
+          : {}),
         // T11053 — surface which backend stored the updated blob so
         // observability consumers can confirm the V2 mirror succeeded.
         attachmentBackend: backend as DocsUpdateResult['attachmentBackend'],

@@ -1,6 +1,6 @@
 ---
 id: docs-update-stale-base
-tasks: [T13674]
+tasks: [T13674, T13684, T13688]
 kind: fix
 summary: cleo docs update detects a stale declared base — append edits three-way merge, non-mergeable edits record a named section conflict, an unresolvable base is refused (T13674)
 ---
@@ -26,6 +26,10 @@ that does not resolve to the doc's version history is refused with
 pre-existing single-writer semantics (documented risk for callers that edited
 from an older fetch).
 
-Only inline-content updates project through the section CRDT; `file`-based
-updates stay on the whole-doc path (T13355) and do not take the base into
-account.
+A UTF-8 text `--file` takes the same path as `--content`, base included
+(T13688); a declared base with a non-text `--file` is refused with
+`E_DOC_BASE_UNSUPPORTED` before any write instead of being ignored. The update
+result carries the new `headVersionUid`, so a writer can chain the next edit
+without a re-fetch, and default `cleo docs fetch` now shows `headVersionUid`
+(T13684). `staleBaseMerged` is set only when a section actually merged; a
+conflict-only outcome reports the conflict alone.

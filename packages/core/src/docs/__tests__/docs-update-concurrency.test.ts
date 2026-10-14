@@ -57,7 +57,7 @@
  */
 
 import { createHash } from 'node:crypto';
-import { readFileSync } from 'node:fs';
+import { readFileSync, writeFileSync } from 'node:fs';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -395,7 +395,8 @@ describe('concurrent docs updates through docs-update (T13585, real path)', () =
       if (!bResult.ok) return;
       expect(bResult.result.sectionConflicts).toHaveLength(1);
       expect(bResult.result.sectionConflicts?.[0]?.sectionId).toBe(SECTION_S1);
-      expect(bResult.result.staleBaseMerged).toBe(true);
+      // Only a conflict: nothing merged, so the merge flag must not claim one.
+      expect(bResult.result.staleBaseMerged).toBeUndefined();
 
       // A's edit is still the head projection; B's edit survives in its own
       // append-only version row — both preserved, nothing fabricated.
@@ -468,4 +469,132 @@ describe('concurrent docs updates through docs-update (T13585, real path)', () =
       await rm(root, { recursive: true, force: true });
     }
   });
+
+  it('T13688: a text --file honours the declared base exactly as --content does; the result chains the new head', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'cleo-docs-concurrency-file-'));
+    process.env['CLEO_DIR'] = join(root, '.cleo');
+    closeDb();
+    try {
+      await seedLegacyDoc(root, SLUG);
+      const seed = await updateDocBySlug(root, { slug: SLUG, content: BASE_DOC });
+      expect(seed.ok).toBe(true);
+      const docUid = (await resolveConduitDocUid(root, SLUG)) as string;
+      const baseVersionUid = (await getConduitDocHead(root, docUid))?.headVersionUid ?? '';
+
+      const aResult = await updateDocBySlug(root, {
+        slug: SLUG,
+        content: joinSections([S0_TEXT, `${S1_BASE}${TAIL_A}`, S2_TEXT]),
+        attachedBy: 'agent-a',
+        baseVersionUid,
+      });
+      expect(aResult.ok).toBe(true);
+
+      // Writer B authored from the same base and submits a FILE.
+      const file = join(root, 'b.md');
+      writeFileSync(file, joinSections([S0_TEXT, `${S1_BASE}${TAIL_B}`, S2_TEXT]));
+      const bResult = await updateDocBySlug(root, {
+        slug: SLUG,
+        file,
+        attachedBy: 'agent-b',
+        baseVersionUid,
+      });
+      expect(bResult.ok, JSON.stringify(bResult)).toBe(true);
+      if (!bResult.ok) return;
+      expect(bResult.result.staleBaseMerged).toBe(true);
+      expect(bResult.result.sectionConflicts).toBeUndefined();
+
+      const head = await getConduitDocHead(root, docUid);
+      expect(bResult.result.headVersionUid).toBe(head?.headVersionUid);
+      const headVersion = await getConduitAttachmentVersion(root, head?.headVersionUid ?? '');
+      const { getCleoDirAbsolute } = await import('../../paths.js');
+      const finalHeadText = readFileSync(
+        join(getCleoDirAbsolute(root), 'attachments', 'sha256', headVersion?.storageKey ?? ''),
+        'utf-8',
+      );
+      expect(finalHeadText).toContain(MARKER_A);
+      expect(finalHeadText).toContain(MARKER_B);
+    } finally {
+      closeDb();
+      delete process.env['CLEO_DIR'];
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it('T13688: a declared base with a non-text --file is refused before any write (E_DOC_BASE_UNSUPPORTED)', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'cleo-docs-concurrency-binary-'));
+    process.env['CLEO_DIR'] = join(root, '.cleo');
+    closeDb();
+    try {
+      await seedLegacyDoc(root, SLUG);
+      const seed = await updateDocBySlug(root, { slug: SLUG, content: BASE_DOC });
+      expect(seed.ok).toBe(true);
+      const docUid = (await resolveConduitDocUid(root, SLUG)) as string;
+      const baseVersionUid = (await getConduitDocHead(root, docUid))?.headVersionUid ?? '';
+      const file = join(root, 'image.bin');
+      writeFileSync(file, Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x00, 0xff, 0xfe]));
+
+      const refused = await updateDocBySlug(root, { slug: SLUG, file, baseVersionUid });
+      expect(refused.ok).toBe(false);
+      if (refused.ok) return;
+      expect(refused.error.code).toBe('E_DOC_BASE_UNSUPPORTED');
+      expect(await listConduitAttachmentVersions(root, docUid)).toHaveLength(1);
+    } finally {
+      closeDb();
+      delete process.env['CLEO_DIR'];
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("T13674: another doc's version uid is refused as a base (E_DOC_BASE_UNKNOWN)", async () => {
+    const root = await mkdtemp(join(tmpdir(), 'cleo-docs-concurrency-foreign-'));
+    process.env['CLEO_DIR'] = join(root, '.cleo');
+    closeDb();
+    try {
+      await seedLegacyDoc(root, SLUG);
+      await seedLegacyDoc(root, 'other-doc');
+      expect((await updateDocBySlug(root, { slug: SLUG, content: BASE_DOC })).ok).toBe(true);
+      // Distinct bytes: attachment rows are content-addressed.
+      expect(
+        (await updateDocBySlug(root, { slug: 'other-doc', content: `${BASE_DOC}\n\nother.` })).ok,
+      ).toBe(true);
+      const otherUid = (await resolveConduitDocUid(root, 'other-doc')) as string;
+      const foreignBase = (await getConduitDocHead(root, otherUid))?.headVersionUid ?? '';
+      expect(foreignBase).not.toBe('');
+
+      const refused = await updateDocBySlug(root, {
+        slug: SLUG,
+        content: `${BASE_DOC}\n\nmore.`,
+        baseVersionUid: foreignBase,
+      });
+      expect(refused.ok).toBe(false);
+      if (refused.ok) return;
+      expect(refused.error.code).toBe('E_DOC_BASE_UNKNOWN');
+      const docUid = (await resolveConduitDocUid(root, SLUG)) as string;
+      expect(await listConduitAttachmentVersions(root, docUid)).toHaveLength(1);
+    } finally {
+      closeDb();
+      delete process.env['CLEO_DIR'];
+      await rm(root, { recursive: true, force: true });
+    }
+  });
 });
+
+/** Insert a legacy (pre-conduit) doc row the first update adopts. */
+async function seedLegacyDoc(root: string, slug: string): Promise<void> {
+  const db = await getDb(root);
+  const v0 = `# ${slug}\n\nv0 body`;
+  const sha0 = createHash('sha256').update(v0, 'utf-8').digest('hex');
+  await db
+    .insert(attachments)
+    .values({
+      id: `legacy-${slug}`,
+      sha256: sha0,
+      attachmentJson: JSON.stringify({ kind: 'blob', sha256: sha0 }),
+      createdAt: new Date().toISOString(),
+      refCount: 0,
+      slug,
+      lifecycleStatus: 'draft',
+      docVersion: 1,
+    })
+    .run();
+}

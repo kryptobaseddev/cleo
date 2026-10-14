@@ -833,9 +833,10 @@ export interface DocsUpdateParams {
    * `E_DOC_BASE_UNKNOWN` before any write. When omitted, the current head at
    * invocation time is assumed — the single-writer semantics of the
    * pre-T13674 path, safe only for callers that did not base their edit on
-   * an earlier fetch. Only inline-content updates project through the
-   * section CRDT; `file`-based updates stay on the whole-doc path (T13355)
-   * and do not take the base into account.
+   * an earlier fetch. Inline content and UTF-8 text `file` bodies both
+   * project through the section CRDT and honour the base (T13688); a
+   * declared base with a non-text `file` is refused with
+   * `E_DOC_BASE_UNSUPPORTED` before any write, never ignored.
    *
    * @task T13674
    */
@@ -945,6 +946,14 @@ export interface DocsUpdateResult {
    * @task T13674
    */
   staleBaseMerged?: boolean;
+  /**
+   * The conduit head version uid after the update (T13674) — pass it as the
+   * next update's `baseVersionUid` to chain edits without a re-fetch. Absent
+   * for docs outside the conduit family.
+   *
+   * @task T13674
+   */
+  headVersionUid?: string;
 }
 
 // --------------------------------------------------------------------------

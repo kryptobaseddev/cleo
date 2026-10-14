@@ -93,6 +93,15 @@ export type DocsUpdateError =
        */
       code: 'E_DOC_BASE_UNKNOWN';
       message: string;
+    }
+  | {
+      /**
+       * A declared `baseVersionUid` with a `file` that is not UTF-8 text:
+       * the stale-base merge runs on text sections, so the base cannot be
+       * honoured and is refused before any write rather than ignored (T13688).
+       */
+      code: 'E_DOC_BASE_UNSUPPORTED';
+      message: string;
     };
 
 /**
@@ -151,6 +160,14 @@ export interface DocsUpdateOk {
    * @task T13674
    */
   staleBaseMerged?: boolean;
+  /**
+   * The conduit head version uid after the update — pass it as the next
+   * update's `baseVersionUid` to chain edits without a re-fetch. Absent for
+   * docs outside the conduit family.
+   *
+   * @task T13674
+   */
+  headVersionUid?: string;
   dryRun?: true;
   wouldWrite?: boolean;
   wouldChange?: boolean;
@@ -439,6 +456,20 @@ export async function updateDocBySlug(
   } else {
     buf = Buffer.from(params.content as string, 'utf-8');
   }
+  // The text the base and the section projection work on: inline content, or
+  // a file whose bytes are UTF-8 text (T13688 — `--file` must honour the base
+  // exactly as `--content` does, never silently drop it).
+  const text = hasContent ? (params.content as string) : buf !== null ? utf8TextOf(buf) : null;
+  if (hasFile && text === null && params.baseVersionUid !== undefined) {
+    return {
+      ok: false,
+      error: {
+        // @sync-invariant none:input-shape a base cannot anchor a section merge of non-text bytes; refused before any write
+        code: 'E_DOC_BASE_UNSUPPORTED',
+        message: `--base-version-uid needs a UTF-8 text body; '${params.file}' is not text — omit the base to replace the bytes whole`,
+      },
+    };
+  }
 
   // Validate requested status (defaults to draft).
   const status: DocsLifecycleStatus = params.status ?? 'draft';
@@ -483,7 +514,7 @@ export async function updateDocBySlug(
   // guessing the head reference here could silently drop a concurrent
   // writer's edit, the exact hazard this parameter exists to prevent.
   let baseSections: string[] | undefined;
-  if (hasContent && params.baseVersionUid !== undefined) {
+  if (text !== null && params.baseVersionUid !== undefined) {
     const { resolveConduitDocUid, getConduitAttachmentVersion } = await import(
       '../store/conduit-doc-history.js'
     );
@@ -624,6 +655,8 @@ export async function updateDocBySlug(
         .where(eq(docsAttachments.id, oldRow.id))
         .run();
     }
+    const { readDocHeadVersionUid } = await import('./fetch-result.js');
+    const noopHead = await readDocHeadVersionUid(projectRoot, slug);
     const auditPath = join(projectRoot, DOCS_VERSIONING_AUDIT_FILE);
     const squashed = writeOrSquashAudit({
       auditPath,
@@ -659,6 +692,7 @@ export async function updateDocBySlug(
             : `slug '${slug}' bytes unchanged but lifecycle status changed from '${oldRow.lifecycleStatus}' to '${status}'`,
         ownerVersion: getCanonicalCleoVersion(projectRoot),
         docVersion: oldRow.docVersion,
+        ...(noopHead !== undefined ? { headVersionUid: noopHead } : {}),
       },
     };
   }
@@ -911,8 +945,8 @@ export async function updateDocBySlug(
   }
 
   // T13355: project the update through the section CRDT merge layer (spec
-  // `cleodocs-rearch-design` §2 option b). Inline text only — the agent
-  // write path; file-supplied updates stay on the whole-doc path for now.
+  // `cleodocs-rearch-design` §2 option b). Text bodies only — inline content
+  // or a UTF-8 text file (T13688); binary files stay on the whole-doc path.
   // Best-effort: a projection failure must not fail the completed update —
   // the whole-row write above is the fallback when no section state exists.
   // T13604: a recorded conflict is threaded into the result envelope and a
@@ -921,7 +955,7 @@ export async function updateDocBySlug(
   let sectionConflicts: DocsSectionConflict[] | undefined;
   let leaseNotices: DocsSectionLeaseNotice[] | undefined;
   let staleBaseMerged = false;
-  if (hasContent) {
+  if (text !== null) {
     try {
       const { projectDocUpdateThroughSections } = await import('./section-write-path.js');
       // T13356 AC4: the real session id drives lease acquire/renew, so a
@@ -932,7 +966,7 @@ export async function updateDocBySlug(
       const projection = await projectDocUpdateThroughSections(projectRoot, {
         slug,
         authorAgentId: attachedBy,
-        content: buf.toString('utf-8'),
+        content: text,
         ...(boundSession !== null ? { sessionId: boundSession.session.id } : {}),
         ...(params.message !== undefined ? { changeSummary: params.message } : {}),
         // T13674: the declared base replaces the previous head as the
@@ -941,13 +975,16 @@ export async function updateDocBySlug(
         // concurrent writer's landed edit.
         ...(baseSections !== undefined ? { baseSections } : {}),
       });
-      // T13674: the declared base was superseded — the returned head text is
-      // the merge of the caller's edit and a concurrent writer's, never the
-      // submitted bytes alone.
+      // T13674: the declared base was superseded AND at least one edited
+      // section composed into the head — its text is the merge of the
+      // caller's edit and a concurrent writer's. A section that only
+      // conflicted merged nothing, so it is reported as a conflict alone.
+      const conflicted = new Set(projection.conflicts.map((c) => c.sectionId));
       staleBaseMerged =
         params.baseVersionUid !== undefined &&
         projection.previousHeadVersionUid !== null &&
-        params.baseVersionUid !== projection.previousHeadVersionUid;
+        params.baseVersionUid !== projection.previousHeadVersionUid &&
+        projection.sectionsModified.some((id) => !conflicted.has(id));
       if (staleBaseMerged) {
         pushWarning({
           // @sync-invariant none:input-shape the warning only names a merge the CRDT projection already performed (docs.head.max-hlc); it rejects nothing and writes nothing
@@ -1002,6 +1039,8 @@ export async function updateDocBySlug(
     }
   }
 
+  const { readDocHeadVersionUid } = await import('./fetch-result.js');
+  const headVersionUid = await readDocHeadVersionUid(projectRoot, slug);
   return {
     ok: true,
     result: {
@@ -1022,8 +1061,16 @@ export async function updateDocBySlug(
       ...(sectionConflicts !== undefined ? { sectionConflicts } : {}),
       ...(leaseNotices !== undefined ? { leaseNotices } : {}),
       ...(staleBaseMerged ? { staleBaseMerged: true as const } : {}),
+      ...(headVersionUid !== undefined ? { headVersionUid } : {}),
     },
   };
+}
+
+/** The bytes as text when they are valid UTF-8 without NUL bytes; else null. */
+function utf8TextOf(buf: Buffer): string | null {
+  if (buf.includes(0)) return null;
+  const text = buf.toString('utf-8');
+  return Buffer.from(text, 'utf-8').equals(buf) ? text : null;
 }
 
 /**

@@ -184,7 +184,7 @@ export async function buildDocsFetchResult(opts: {
  * @param slug - The doc's slug (`ResolvedDoc.slug`), or null.
  * @returns The head version uid, or undefined when not applicable.
  */
-async function readDocHeadVersionUid(
+export async function readDocHeadVersionUid(
   projectRoot: string,
   slug: string | null,
 ): Promise<string | undefined> {
