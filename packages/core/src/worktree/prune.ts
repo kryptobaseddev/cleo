@@ -130,6 +130,7 @@ export async function pruneOrphanedWorktreesByStatus(
       if (!dryRun) {
         appendWorktreeAuditEntry(
           opts.projectRoot,
+          // @sync-invariant none:local-only a worktree on this machine's disk, recorded in its local audit log; never replicated
           {
             actor,
             action: 'prune',

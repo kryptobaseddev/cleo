@@ -142,6 +142,7 @@ export async function warnWorktreeKept(
 ): Promise<void> {
   const { pushWarning } = await import('../output.js');
   pushWarning({
+    // @sync-invariant none:local-only a warning about a worktree on this machine's disk; never replicated
     code: 'W_WORKTREE_KEPT',
     message: message ?? `Worktree for ${taskId} kept: something still needs its files.`,
     context: { taskId, dependents: kept.dependents, evidence: kept.evidence },
