@@ -187,26 +187,13 @@ const linkCommand = defineCommand({
     const researchId = args.researchId;
     const taskId = args.taskId;
 
+    // T13678: add the link only; the entry's other fields stay as stored.
     await dispatchFromCli(
       'mutate',
       'pipeline',
-      'manifest.append',
-      {
-        entry: {
-          id: researchId,
-          file: `research/link-${researchId}.md`,
-          title: `Link: ${researchId} -> ${taskId}`,
-          date: new Date().toISOString().slice(0, 10),
-          status: 'partial',
-          agent_type: 'researcher',
-          topics: [],
-          key_findings: [],
-          actionable: false,
-          needs_followup: [],
-          linked_tasks: [taskId],
-        },
-      },
-      { command: 'research', operation: 'pipeline.manifest.append' },
+      'manifest.update',
+      { id: researchId, linkTask: taskId },
+      { command: 'research', operation: 'pipeline.manifest.update' },
     );
   },
 });
@@ -239,31 +226,18 @@ const updateCommand = defineCommand({
     },
   },
   async run({ args }) {
-    const id = args.id;
-    const findings = args.findings ? args.findings.split(',').map((s) => s.trim()) : [];
-    const status = args.status ?? 'partial';
-    const topic = args.topic ?? `Updated research: ${id}`;
-
+    // T13678: change only the fields whose flags are given.
     await dispatchFromCli(
       'mutate',
       'pipeline',
-      'manifest.append',
+      'manifest.update',
       {
-        entry: {
-          id,
-          file: `research/${id}.md`,
-          title: topic,
-          date: new Date().toISOString().slice(0, 10),
-          status,
-          agent_type: 'researcher',
-          topics: topic !== `Updated research: ${id}` ? [topic] : [],
-          key_findings: findings,
-          actionable: findings.length > 0,
-          needs_followup: [],
-          linked_tasks: [],
-        },
+        id: args.id,
+        ...(args.findings ? { key_findings: args.findings.split(',').map((s) => s.trim()) } : {}),
+        ...(args.status ? { status: args.status } : {}),
+        ...(args.topic ? { title: args.topic, topics: [args.topic] } : {}),
       },
-      { command: 'research', operation: 'pipeline.manifest.append' },
+      { command: 'research', operation: 'pipeline.manifest.update' },
     );
   },
 });
