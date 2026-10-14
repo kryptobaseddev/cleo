@@ -28,7 +28,6 @@ import type { Dirent } from 'node:fs';
 import { appendFileSync, existsSync, mkdirSync, readdirSync, rmSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { describeDisposalBlockers, guardWorktreeDisposal } from '@cleocode/worktree';
 import { create as tarCreate } from 'tar';
 
 // ---------------------------------------------------------------------------
@@ -434,8 +433,12 @@ function quarantineWorktreeDir(
  * @task T9043
  * @task T11996
  */
-export function pruneOrphanWorktrees(options: PruneOrphanWorktreesOptions): CleanupResult {
+export async function pruneOrphanWorktrees(
+  options: PruneOrphanWorktreesOptions,
+): Promise<CleanupResult> {
   const { worktreesRoot, projectHash, activeTaskIds, dryRun = false } = options;
+  // Lazy: setup-global imports this module, and gate jobs run without worktree's dist (T13696).
+  const { describeDisposalBlockers, guardWorktreeDisposal } = await import('@cleocode/worktree');
 
   const removed: string[] = [];
   const quarantined: string[] = [];

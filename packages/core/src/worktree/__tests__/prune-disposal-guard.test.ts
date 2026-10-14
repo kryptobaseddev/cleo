@@ -176,7 +176,7 @@ describe('pruneOrphanedWorktreesByStatus disposal guard (T13700)', () => {
     expect(existsSync(keepMarkerPath(owner))).toBe(false);
   });
 
-  it('cleo gc worktrees skips a worktree a sibling links into', () => {
+  it('cleo gc worktrees skips a worktree a sibling links into', async () => {
     const worktreesRoot = join(base, 'gc-root');
     const owner = join(worktreesRoot, 'h', 'T986');
     const sibling = join(worktreesRoot, 'h', 'T987');
@@ -186,7 +186,7 @@ describe('pruneOrphanedWorktreesByStatus disposal guard (T13700)', () => {
     const link = join(sibling, 'node_modules');
     symlinkSync(join(owner, 'node_modules'), link);
 
-    const result = pruneOrphanWorktrees({
+    const result = await pruneOrphanWorktrees({
       worktreesRoot,
       projectHash: 'h',
       activeTaskIds: new Set(['T000']),

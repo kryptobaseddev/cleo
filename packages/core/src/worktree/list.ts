@@ -51,7 +51,6 @@ import type {
   WorktreeStatusCategory,
 } from '@cleocode/contracts';
 import { engineError, engineSuccess } from '@cleocode/contracts/engine-result.js';
-import { readKeepMarker } from '@cleocode/worktree';
 import { resolveOrCwd } from '../paths.js';
 import { readSentinelIndex } from './sentinel-index.js';
 
@@ -99,6 +98,8 @@ export async function listWorktrees(
   const staleDays = opts.staleDays ?? DEFAULT_STALE_DAYS;
   const staleThresholdMs = staleDays * 24 * 60 * 60 * 1000;
   const nowMs = Date.now();
+  // Lazy: keeps @cleocode/worktree out of this module's static graph (T13696).
+  const { readKeepMarker } = await import('@cleocode/worktree');
 
   let porcelainEntries: PorcelainEntry[];
   try {
@@ -219,7 +220,7 @@ export async function listWorktrees(
       owningTaskStatus,
       statusCategory,
       source,
-      ...keptField(entry.path),
+      ...keptField(entry.path, readKeepMarker),
     };
   });
 
@@ -266,7 +267,7 @@ export async function listWorktrees(
       owningTaskStatus,
       statusCategory,
       source: sentinel.source,
-      ...keptField(sentinel.path),
+      ...keptField(sentinel.path, readKeepMarker),
     });
   }
 
@@ -279,7 +280,10 @@ export async function listWorktrees(
 }
 
 /** `{ kept }` when a disposal kept this worktree (its keep marker), else `{}` (T13701). */
-function keptField(path: string): Pick<WorktreeInfo, 'kept'> {
+function keptField(
+  path: string,
+  readKeepMarker: typeof import('@cleocode/worktree').readKeepMarker,
+): Pick<WorktreeInfo, 'kept'> {
   const kept = readKeepMarker(path);
   return kept ? { kept } : {};
 }
