@@ -295,6 +295,53 @@ describe('the main brain stream (home:<user>) end to end (T13370)', () => {
     expect(contentChecksums(b.db)).toEqual(contentChecksums(a.db));
   });
 
+  it('natural-key rows replay on B by derived uid: same counts and hashes through insert, update and delete (T12895)', async () => {
+    const NATURAL = ['brain_page_edges', 'brain_memory_links', 'brain_sticky_tags'] as const;
+    const counts = (db: DatabaseSync) => NATURAL.map((t) => rowHashes(db, t).length);
+    const expectReplayed = () => {
+      for (const t of NATURAL) expect(rowHashes(b.db, t), t).toEqual(rowHashes(a.db, t));
+      expect(contentChecksums(b.db)).toEqual(contentChecksums(a.db));
+    };
+    const { a, b } = await twoDevices();
+    const stream = fakeStream();
+    writeBrain(a.db);
+    write(
+      a.db,
+      `INSERT INTO brain_page_edges (from_id, to_id, edge_type, created_at) VALUES
+         ('decision:D9001', 'observation:O-home0001', 'co_retrieved', '2026-10-10 09:07:00'),
+         ('decision:D9001', 'symbol:src/a.ts#f', 'code_reference', '2026-10-10 09:07:01');
+       INSERT INTO brain_memory_links (memory_type, memory_id, task_id, link_type, created_at) VALUES
+         ('observation', 'O-home0001', 'T1', 'produced_by', '2026-10-10 09:08:00'),
+         ('decision', 'D9001', 'T2', 'produced_by', '2026-10-10 09:08:01');
+       INSERT INTO brain_sticky_tags (sticky_id, tag) VALUES ('SN-901', 'sync');`,
+    );
+    await push(a, stream);
+    await pull(b, stream);
+    expect(counts(a.db)).toEqual([3, 2, 1]);
+    expectReplayed();
+
+    write(
+      a.db,
+      `UPDATE brain_page_edges SET weight = 0.4, reinforcement_count = 2,
+         last_reinforced_at = '2026-10-10 10:00:00'
+         WHERE from_id = 'observation:O-home0001' AND edge_type = 'co_retrieved';
+       DELETE FROM brain_page_edges WHERE to_id = 'symbol:src/a.ts#f';
+       DELETE FROM brain_memory_links WHERE memory_id = 'D9001';
+       INSERT INTO brain_sticky_tags (sticky_id, tag) VALUES ('SN-901', 'brain');`,
+    );
+    await push(a, stream);
+    await pull(b, stream);
+    expect(counts(a.db)).toEqual([2, 1, 2]);
+    expectReplayed();
+    expect(
+      b.db
+        .prepare(
+          "SELECT weight, reinforcement_count FROM brain_page_edges WHERE from_id = 'observation:O-home0001'",
+        )
+        .get(),
+    ).toEqual({ weight: 0.4, reinforcement_count: 2 });
+  });
+
   it("cloud status names the home stream from the store's own journal: cut, unsent ops, pushed and pulled positions", async () => {
     const { a, b } = await twoDevices();
     const stream = fakeStream();
