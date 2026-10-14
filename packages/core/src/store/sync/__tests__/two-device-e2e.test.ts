@@ -403,3 +403,52 @@ describe('two devices editing one task converge (T13371)', () => {
     expect(atA.updates.length).toBe(0);
   });
 });
+
+describe('natural-key brain rows replay across devices (T12895)', () => {
+  it('memory links, release links and page edges reach B by derived uid, with the same counts and hashes', async () => {
+    const NATURAL = ['brain_page_edges', 'brain_memory_links', 'tasks_brain_release_links'];
+    const count = (db: DatabaseSync, t: string) =>
+      (db.prepare(`SELECT count(*) AS n FROM "${t}"`).get() as { n: number }).n;
+    const pick = (sums: Record<string, string>) =>
+      Object.fromEntries(NATURAL.map((t) => [t, sums[t] ?? null]));
+    const expectReplayed = (want: number[]) => {
+      expect(NATURAL.map((t) => count(a.db, t))).toEqual(want);
+      expect(NATURAL.map((t) => count(b.db, t))).toEqual(want);
+      expect(pick(contentChecksums(b.db))).toEqual(pick(contentChecksums(a.db)));
+      expect(contentChecksums(b.db)).toEqual(contentChecksums(a.db));
+    };
+    const { a, b } = await twoDevices();
+    const stream = fakeStream();
+    write(
+      a.db,
+      `INSERT INTO tasks_tasks (id, title, type, status, priority, uid, birth_fp)
+         VALUES ('T1', 'linked task', 'task', 'pending', 'medium', 'uid-T1', 'fp-T1');
+       INSERT INTO brain_memory_links (memory_type, memory_id, task_id, link_type, created_at) VALUES
+         ('observation', 'O-0a1b2c3d', 'T1', 'produced_by', '2026-10-10 09:00:00'),
+         ('decision', 'D0001', 'T1', 'produced_by', '2026-10-10 09:00:01');
+       INSERT INTO tasks_brain_release_links (brain_entry_id, release_id, link_type, created_at) VALUES
+         ('O-0a1b2c3d', 'v2026.10.5', 'observed-in', '2026-10-10 09:01:00');
+       INSERT INTO brain_page_edges (from_id, to_id, edge_type, created_at) VALUES
+         ('task:T1', 'observation:O-0a1b2c3d', 'derived_from', '2026-10-10 09:02:00'),
+         ('task:T1', 'symbol:src/a.ts#f', 'code_reference', '2026-10-10 09:02:01');`,
+    );
+    await push(a, stream);
+    await pull(b, stream);
+    expectReplayed([2, 2, 1]);
+
+    write(
+      a.db,
+      `UPDATE brain_page_edges SET weight = 0.25 WHERE to_id = 'observation:O-0a1b2c3d';
+       DELETE FROM brain_page_edges WHERE to_id = 'symbol:src/a.ts#f';
+       DELETE FROM brain_memory_links WHERE memory_id = 'D0001';
+       INSERT INTO tasks_brain_release_links (brain_entry_id, release_id, link_type, created_at) VALUES
+         ('D0001', 'v2026.10.6', 'observed-in', '2026-10-10 09:03:00');`,
+    );
+    await push(a, stream);
+    await pull(b, stream);
+    expectReplayed([1, 1, 2]);
+    expect(
+      b.db.prepare("SELECT weight FROM brain_page_edges WHERE from_id = 'task:T1'").get(),
+    ).toEqual({ weight: 0.25 });
+  });
+});
