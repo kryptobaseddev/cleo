@@ -1059,7 +1059,7 @@ describe('notice levels (#1777 R7: --passthrough prints only warnings)', () => {
       admissions: ['deny', 'grant'],
       onSample: (n, hh) => n === 3 && hh.exit(0),
     });
-    await runGoverned(
+    const qr = await runGoverned(
       base(q, {
         wait: true,
         queuePollMs: 1000,
@@ -1068,6 +1068,27 @@ describe('notice levels (#1777 R7: --passthrough prints only warnings)', () => {
       }),
     );
     expect(queued).toEqual([['warn', expect.stringContaining('admitted after')]]);
+    expect(qr).toMatchObject({ kind: 'exited', queued: true });
+
+    // Slow setup before an immediate admission: waitedMs is large, but it never
+    // queued, so no admission notice and queued false (the CLI's exit line pairs with it).
+    const slow: Array<[string, string]> = [];
+    const s0 = harness({
+      onSample: (n, hh) => {
+        if (n === 1) hh.clock.t += 5_000;
+        if (n === 2) hh.exit(0);
+      },
+    });
+    const sr = await runGoverned(
+      base(s0, {
+        wait: true,
+        timeoutMs: 60_000,
+        notice: (m: string, l: string) => slow.push([l, m]),
+      }),
+    );
+    expect(sr).toMatchObject({ kind: 'exited', queued: false });
+    if (sr.kind === 'exited') expect(sr.waitedMs).toBeGreaterThanOrEqual(5_000);
+    expect(slow.filter(([, m]) => m.startsWith('admitted after'))).toEqual([]);
 
     writeRunJob(
       { ...olderJob(), id: 'outer', childPid: 777, childStart: 'start-777' },

@@ -76,9 +76,6 @@ import { GovernedRunInTestRunnerError } from '@cleocode/core/tasks/tool-runner-g
 import { defineCommand } from '../lib/define-cli-command.js';
 import { cliError, cliOutput } from '../renderers/index.js';
 
-/** A run that waited at least this long was queued; it is told about (T13681). */
-const QUEUED_NOTICE_MS = 1_000;
-
 function commandAfterDashes(rawArgs: readonly string[]): string[] {
   const idx = rawArgs.indexOf('--');
   return idx === -1 ? [] : rawArgs.slice(idx + 1);
@@ -332,12 +329,11 @@ export const runCommand = defineCommand({
     const code = runExitCode(result);
     if (code !== 0) exitFailed(result, code, passthrough, resources);
     if (passthrough) {
-      // T13681: a run that waited in the queue ends with one line, so a
-      // finished queued run never looks like a no-op. A run admitted at once
-      // stays byte-silent (#1777 R7): the hook rewrites every heavy command.
-      // Same threshold as the core's "admitted after" notice.
-      if (args.wait && result.waitedMs >= QUEUED_NOTICE_MS)
-        notice(`exited 0 after ${Math.round(result.durationMs / 1000)}s`, 'warn');
+      // T13681: a run that said "admitted after" ends with one line too, so a
+      // finished queued run never looks like a no-op; the two always come as a
+      // pair. A run admitted at once stays byte-silent (#1777 R7): the hook
+      // rewrites every heavy command.
+      if (result.queued) notice(`exited 0 after ${Math.round(result.durationMs / 1000)}s`, 'warn');
       return;
     }
     const { kind: _kind, ...data } = result;

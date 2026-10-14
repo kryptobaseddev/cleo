@@ -101,6 +101,7 @@ function exited(
     slot: 0,
     ungoverned: null,
     runnerSignal: null,
+    queued: false,
     ...over,
   };
 }
@@ -249,7 +250,7 @@ describe('cleo run --passthrough (#1777 R7)', () => {
   it('a queued run prints its admission and, on success, one exited line (T13681)', async () => {
     runGoverned.mockImplementation(async (o: RunGovernedOptions) => {
       o.notice?.('admitted after 5s in the queue', 'warn');
-      return exited({ waitedMs: 5_000, durationMs: 3_000 });
+      return exited({ waitedMs: 5_000, durationMs: 3_000, queued: true });
     });
     await invoke({ passthrough: true, wait: true }, argv);
     expect(out).toEqual([]);
@@ -257,6 +258,13 @@ describe('cleo run --passthrough (#1777 R7)', () => {
       '[cleo run] admitted after 5s in the queue\n',
       '[cleo run] exited 0 after 3s\n',
     ]);
+  });
+
+  it('a slow-setup run that never queued prints neither line, whatever its waitedMs (T13681)', async () => {
+    runGoverned.mockResolvedValue(exited({ waitedMs: 4_000, durationMs: 3_000, queued: false }));
+    await invoke({ passthrough: true, wait: true }, argv);
+    expect(out).toEqual([]);
+    expect(err).toEqual([]);
   });
 
   it('T13122: an inherited heap above the budget is clamped, and that warning shows under --passthrough', async () => {

@@ -250,6 +250,8 @@ export type RunGovernedResult =
        * so a `signal` here with no `runnerSignal` was aimed at the child (T13680).
        */
       readonly runnerSignal: RunnerSignal | null;
+      /** True exactly when the run waited in the queue and said "admitted after" (T13681). */
+      readonly queued: boolean;
     };
 
 /** What admission handed the run: how to give it back, and what to tell the child. */
@@ -429,6 +431,7 @@ export async function runGoverned(opts: RunGovernedOptions): Promise<RunGoverned
       })
     : () => {};
   let admission: RunAdmission;
+  let queued = false;
   try {
     if (isLedgerClass(opts.cls)) {
       // T13133: one budget and one FIFO queue for every heavy run. Nested in an
@@ -482,6 +485,7 @@ export async function runGoverned(opts: RunGovernedOptions): Promise<RunGoverned
       if (grant.nested) {
         notice('nested in an admitted run: riding its admission, inside its process tree', 'info');
       } else if (grant.waitedMs >= 1_000 && opts.wait) {
+        queued = true;
         notice(`admitted after ${Math.round(grant.waitedMs / 1000)}s in the queue`, 'warn');
       }
       admission = {
@@ -767,6 +771,7 @@ export async function runGoverned(opts: RunGovernedOptions): Promise<RunGoverned
       slot: grant.slot,
       ungoverned,
       runnerSignal,
+      queued,
     };
   }
 
