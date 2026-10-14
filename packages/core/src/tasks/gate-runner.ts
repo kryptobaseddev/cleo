@@ -1433,7 +1433,8 @@ async function snapshotGateInputs(
   for (const path of [...paths].sort()) {
     execution.assertActive();
     execution.consume({ items: 1 });
-    if (!literal.has(path) && /[?*[\]{}]/.test(path))
+    const globLike = /[?*[\]{}]/.test(path);
+    if (!literal.has(path) && globLike)
       throw new Error(`Typed input requires an explicit file path: ${path}`);
     const rel = relative(root, path);
     if (!rel || rel === '..' || rel.startsWith('../') || isAbsolute(rel))
@@ -1456,6 +1457,12 @@ async function snapshotGateInputs(
       before = await lstat(path);
     } catch (error) {
       if (error instanceof Error && 'code' in error && error.code === 'ENOENT') {
+        // T13691: an absent glob-looking entry is a pattern written by mistake
+        // (task.files are literal); recorded absent, its hash would never move.
+        if (globLike)
+          throw new Error(
+            `declared task file ${relative(root, path)} does not exist; list explicit paths, task.files are literal`,
+          );
         artifacts.push({ path, sha256: null, bytes: null });
         continue;
       }

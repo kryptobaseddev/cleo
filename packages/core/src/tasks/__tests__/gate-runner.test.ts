@@ -1422,7 +1422,7 @@ describe('task-bound explicit gate verification (T12292)', () => {
     const base = taskAndRows(script);
     const task: Task = {
       ...base.task,
-      files: [script, 'app/[id]/page.tsx', 'app/{a,b}/absent.tsx'],
+      files: [script, 'app/[id]/page.tsx', 'app/plain-absent.tsx'],
     };
     const execution = admitted();
     try {
@@ -1431,8 +1431,8 @@ describe('task-bound explicit gate verification (T12292)', () => {
       const artifacts = result?.binding?.artifacts ?? [];
       const page = artifacts.find((a) => a.path.endsWith(join('app', '[id]', 'page.tsx')));
       expect(page?.sha256).toBe(createHash('sha256').update('export default 1;\n').digest('hex'));
-      // A literal path that does not exist is recorded as absent, not refused.
-      expect(artifacts.find((a) => a.path.endsWith('absent.tsx'))?.sha256).toBeNull();
+      // A plain declared file that does not exist is recorded as absent.
+      expect(artifacts.find((a) => a.path.endsWith('plain-absent.tsx'))?.sha256).toBeNull();
       // The digest `cleo verify --run` caches under equals the one the write path reads.
       const gate = task.acceptance?.find((a) => typeof a !== 'string');
       if (!gate || typeof gate === 'string') throw new Error('expected a typed gate');
@@ -1441,6 +1441,14 @@ describe('task-bound explicit gate verification (T12292)', () => {
         .update(JSON.stringify({ invocation: result?.binding?.invocation ?? null, artifacts }))
         .digest('hex');
       expect(runHash).toBe(writeHash);
+      // T13691: an absent glob-looking entry is a mistaken pattern, refused by name.
+      const [refused] = await runTaskGates({ ...task, files: [script, 'src/**/*.ts'] }, base.rows, {
+        execution,
+      });
+      expect(refused?.result).toBe('error');
+      expect(refused?.errorMessage).toMatch(
+        /declared task file src\/\*\*\/\*\.ts does not exist; list explicit paths, task\.files are literal/,
+      );
     } finally {
       execution.close();
     }

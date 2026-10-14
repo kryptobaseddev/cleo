@@ -13,6 +13,10 @@ uncached (its cache report said the inputs could not be captured), and every
 later evidence write that read the cache failed with `E_GATE_NOT_CACHED`, even
 in the same environment with unchanged inputs.
 
-Declared task files are now literal paths: their bytes are hashed (or recorded
-as absent), and the glob refusal applies only to paths from other sources. The
+Declared task files are now literal paths: an existing one is hashed whatever
+characters it holds, and the glob refusal applies only to paths from other
+sources. A declared file that does not exist is still recorded as absent,
+unless it holds glob characters: `src/**/*.ts` is a pattern written by mistake
+(task.files have no glob semantics), and recorded as absent its hash would never
+move when the files it meant change, so it is refused by name (T13691). The
 digest `--run` caches under is the one the evidence write reads.
