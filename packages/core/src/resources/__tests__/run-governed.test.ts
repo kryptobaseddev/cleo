@@ -196,7 +196,12 @@ function harness(opts: {
           },
         };
       }
-      while (next !== 'grant' && o.wait && clock.t - t0 < (o.timeoutMs ?? 0)) {
+      while (
+        next !== 'grant' &&
+        o.wait &&
+        clock.t - t0 < (o.timeoutMs ?? 0) &&
+        o.signal?.aborted !== true
+      ) {
         if (next === 'pressure') o.memoryPressure?.waiting(PRESSURE_READING, clock.t - t0);
         await (o.sleep ?? (async () => {}))(o.pollMs ?? 1000);
         next = take();
@@ -562,6 +567,61 @@ describe('runGoverned', () => {
       [500, 'SIGTERM'],
     ]);
     expect(r).toMatchObject({ kind: 'exited', signal: 'SIGTERM' });
+  });
+
+  it('records the signal the runner received and names the forward (T13680)', async () => {
+    const notices: Array<[string, string]> = [];
+    const h = harness({
+      onSample: (n, hh) => {
+        if (n === 2) {
+          hh.forward('SIGTERM');
+          hh.exit(null, 'SIGTERM');
+        }
+      },
+    });
+    const r = await runGoverned(
+      base(h, {
+        deps: { ...h.deps, ppid: 4242 },
+        notice: (m: string, l: string) => notices.push([l, m]),
+      }),
+    );
+    expect(r).toMatchObject({
+      kind: 'exited',
+      signal: 'SIGTERM',
+      runnerSignal: { signal: 'SIGTERM', ppid: 4242, atMs: expect.any(Number) },
+    });
+    expect(notices).toContainEqual([
+      'warn',
+      'runner received SIGTERM (its parent pid 4242); forwarding it to pid 500',
+    ]);
+  });
+
+  it('a child killed directly, with the runner never signalled, has no runnerSignal (T13680)', async () => {
+    const h = harness({ onSample: (n, hh) => n === 2 && hh.exit(null, 'SIGKILL') });
+    const r = await runGoverned(base(h));
+    expect(r).toMatchObject({ kind: 'exited', signal: 'SIGKILL', runnerSignal: null });
+  });
+
+  it('a signal while waiting in the queue leaves it and reports interrupted, starting nothing (T13681)', async () => {
+    const notices: Array<[string, string]> = [];
+    const h = harness({
+      admissions: ['deny'],
+      onSleep: (n, hh) => n === 3 && hh.forward('SIGTERM'),
+    });
+    const r = await runGoverned(
+      base(h, {
+        wait: true,
+        queuePollMs: 1000,
+        timeoutMs: 600_000,
+        notice: (m: string, l: string) => notices.push([l, m]),
+      }),
+    );
+    expect(r).toMatchObject({ kind: 'interrupted', signal: 'SIGTERM', class: 'test-run' });
+    expect(h.spawned).toEqual([]);
+    expect(notices).toContainEqual([
+      'warn',
+      'SIGTERM while waiting in the queue: left the queue, nothing started',
+    ]);
   });
 
   it("a nested run inside a live job's group rides its admission: not detached, never paused", async () => {
@@ -993,7 +1053,7 @@ describe('notice levels (#1777 R7: --passthrough prints only warnings)', () => {
     expect(notices).toEqual([['warn', expect.stringContaining('running ungoverned')]]);
   });
 
-  it('a queue admission and a nested run are progress (info)', async () => {
+  it('a queue admission is shown even under --passthrough (warn, T13681); a nested run is progress (info)', async () => {
     const queued: Array<[string, string]> = [];
     const q = harness({
       admissions: ['deny', 'grant'],
@@ -1007,7 +1067,7 @@ describe('notice levels (#1777 R7: --passthrough prints only warnings)', () => {
         notice: (m: string, l: string) => queued.push([l, m]),
       }),
     );
-    expect(queued).toEqual([['info', expect.stringContaining('admitted after')]]);
+    expect(queued).toEqual([['warn', expect.stringContaining('admitted after')]]);
 
     writeRunJob(
       { ...olderJob(), id: 'outer', childPid: 777, childStart: 'start-777' },

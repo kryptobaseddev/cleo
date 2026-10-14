@@ -102,10 +102,10 @@ export interface GovernedChild extends EventEmitter {
 }
 
 /**
- * How out of the ordinary a notice is. `warn`: the run is ungoverned, or was
- * paused or resumed under pressure (`--passthrough` still prints these).
- * `info`: progress such as a queue admission or a nested run (left out by
- * `--passthrough`).
+ * How out of the ordinary a notice is. `warn`: the run is ungoverned, was
+ * paused or resumed under pressure, was admitted after waiting in the queue,
+ * or the runner was signalled (`--passthrough` still prints these). `info`:
+ * progress such as a nested run (left out by `--passthrough`).
  */
 export type RunNoticeLevel = 'info' | 'warn';
 
@@ -140,6 +140,8 @@ export interface RunGovernedDeps {
   /** Install runner signal forwarding; returns an uninstall function. */
   readonly onRunnerSignal: (handler: (signal: NodeJS.Signals) => void) => () => void;
   readonly jobsDir: string;
+  /** The runner's parent pid, recorded with a signal the runner received (T13680). */
+  readonly ppid: number;
   /** The admission ledger's entries (for the `running[]` of a deferral). */
   readonly ledger: () => readonly LedgerEntry[];
   readonly pid: number;
@@ -198,8 +200,25 @@ export interface RunGovernedOptions {
   readonly deps?: Partial<RunGovernedDeps>;
 }
 
+/** A signal the runner itself received, and forwarded to its child (T13680). */
+export interface RunnerSignal {
+  readonly signal: NodeJS.Signals;
+  /** When it arrived (epoch ms). */
+  readonly atMs: number;
+  /** The runner's parent pid then: the likeliest sender, or its process. */
+  readonly ppid: number;
+}
+
 /** Result of {@link runGoverned}. */
 export type RunGovernedResult =
+  | {
+      /** A signal reached the runner while it waited in the queue; nothing started (T13681). */
+      readonly kind: 'interrupted';
+      readonly signal: NodeJS.Signals;
+      readonly waitedMs: number;
+      readonly class: ResourceClass;
+      readonly command: string;
+    }
   | {
       readonly kind: 'deferred';
       readonly reason: string;
@@ -225,6 +244,12 @@ export type RunGovernedResult =
        * full disk): the command ran ungoverned rather than not at all.
        */
       readonly ungoverned: GovernorIoError | null;
+      /**
+       * The first SIGINT/SIGTERM/SIGHUP the runner itself received while the
+       * child ran, which it forwarded; null when the runner was not signalled,
+       * so a `signal` here with no `runnerSignal` was aimed at the child (T13680).
+       */
+      readonly runnerSignal: RunnerSignal | null;
     };
 
 /** What admission handed the run: how to give it back, and what to tell the child. */
@@ -305,6 +330,7 @@ function defaultDeps(): RunGovernedDeps {
       };
     },
     jobsDir: runJobsDir(),
+    ppid: process.ppid,
     ledger: () => readLedger(),
     pid: process.pid,
     groupOf: processGroupOf,
@@ -392,6 +418,16 @@ export async function runGoverned(opts: RunGovernedOptions): Promise<RunGoverned
     notice(`${describeAdmissionIoError(io)}: running ungoverned`, 'warn');
   };
   const deadline = t0 + (opts.timeoutMs ?? 30 * 60_000);
+  // T13681: a signal while queued leaves the queue and reports it, never a
+  // silent death with no envelope.
+  const queueAbort = new AbortController();
+  let queuedSignal: NodeJS.Signals | null = null;
+  const uninstallQueue = opts.wait
+    ? d.onRunnerSignal((signal) => {
+        queuedSignal ??= signal;
+        queueAbort.abort();
+      })
+    : () => {};
   let admission: RunAdmission;
   if (isLedgerClass(opts.cls)) {
     // T13133: one budget and one FIFO queue for every heavy run. Nested in an
@@ -418,9 +454,15 @@ export async function runGoverned(opts: RunGovernedOptions): Promise<RunGoverned
         }),
         notice: (line) => notice(line, 'warn'),
         now: d.now,
-        sleep: (ms) => d.sleep(ms),
+        sleep: (ms) => d.sleep(ms, queueAbort.signal),
+        signal: queueAbort.signal,
       },
     );
+    uninstallQueue();
+    if (queuedSignal !== null) {
+      if (out.admitted) await out.grant.release();
+      return interrupted(queuedSignal);
+    }
     if (!out.admitted) {
       const { refusal } = out;
       return deferral(
@@ -440,7 +482,7 @@ export async function runGoverned(opts: RunGovernedOptions): Promise<RunGoverned
     if (grant.nested) {
       notice('nested in an admitted run: riding its admission, inside its process tree', 'info');
     } else if (grant.waitedMs >= 1_000 && opts.wait) {
-      notice(`admitted after ${Math.round(grant.waitedMs / 1000)}s in the queue`, 'info');
+      notice(`admitted after ${Math.round(grant.waitedMs / 1000)}s in the queue`, 'warn');
     }
     admission = {
       release: () => grant.release(),
@@ -465,10 +507,15 @@ export async function runGoverned(opts: RunGovernedOptions): Promise<RunGoverned
         return r.admission;
       };
       let result = await tryAcquire(sample);
-      while (result.deferred && opts.wait && d.now() < deadline) {
-        await d.sleep(opts.queuePollMs ?? 1000);
+      while (result.deferred && opts.wait && d.now() < deadline && queuedSignal === null) {
+        await d.sleep(opts.queuePollMs ?? 1000, queueAbort.signal);
         sample = await d.sample();
         result = await tryAcquire(sample);
+      }
+      uninstallQueue();
+      if (queuedSignal !== null) {
+        if (!result.deferred) await result.release();
+        return interrupted(queuedSignal);
       }
       if (result.deferred) {
         return deferral(
@@ -532,6 +579,8 @@ export async function runGoverned(opts: RunGovernedOptions): Promise<RunGoverned
   writeRunJob(job, d.jobsDir);
 
   let exited = false;
+  // Declared before the spawn: a spawn failure reports it too (null).
+  let runnerSignal: RunnerSignal | null = null;
   let pausedAtMs: number | null = null;
   let capResumedAtMs: number | null = null;
   let pausedTotalMs = 0;
@@ -580,11 +629,16 @@ export async function runGoverned(opts: RunGovernedOptions): Promise<RunGoverned
   // 4, L-A).
   const forwardTo = leadsGroup ? d.signal : d.signalPid;
   const uninstall = d.onRunnerSignal((signal) => {
+    runnerSignal ??= { signal, atMs: d.now(), ppid: d.ppid };
     if (childPid === undefined || exited) return;
     // A terminal's Ctrl-C already reached its whole foreground group, child
     // included: forwarding it would deliver a second SIGINT, which some
     // runners treat as force-quit (#1777 R8). SIGTERM and SIGHUP still go.
     if (opts.foreground === true && signal === 'SIGINT') return;
+    notice(
+      `runner received ${signal} (its parent pid ${d.ppid}); forwarding it to pid ${childPid}`,
+      'warn',
+    );
     forwardTo(childPid, 'SIGCONT');
     forwardTo(childPid, signal);
   });
@@ -709,6 +763,12 @@ export async function runGoverned(opts: RunGovernedOptions): Promise<RunGoverned
       pauses,
       slot: grant.slot,
       ungoverned,
+      runnerSignal,
     };
+  }
+
+  function interrupted(signal: NodeJS.Signals): RunGovernedResult {
+    notice(`${signal} while waiting in the queue: left the queue, nothing started`, 'warn');
+    return { kind: 'interrupted', signal, waitedMs: d.now() - t0, class: opts.cls, command };
   }
 }

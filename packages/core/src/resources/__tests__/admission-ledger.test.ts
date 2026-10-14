@@ -897,6 +897,30 @@ describe('admit (one ledger, real critical section)', () => {
     }
   });
 
+  it('an aborted signal leaves the queue at once, as a timeout does (T13681)', async () => {
+    const a = await admit(
+      { label: 'tool:test', footprintBytes: 8 * GIB },
+      { ...base, dir, wait: false },
+    );
+    if (!a.admitted) throw new Error('expected an admission');
+    const stop = new AbortController();
+    const waiting = admit(
+      { label: 'tool:build', footprintBytes: 8 * GIB },
+      { ...base, dir, wait: true, timeoutMs: 600_000, signal: stop.signal },
+    );
+    await new Promise((r) => setTimeout(r, 50));
+    expect(
+      readLedger(dir)
+        .map((e) => e.state)
+        .sort(),
+    ).toEqual(['admitted', 'waiting']);
+    stop.abort();
+    const b = await waiting;
+    expect(b.admitted).toBe(false);
+    expect(readLedger(dir).map((e) => e.state)).toEqual(['admitted']);
+    await a.grant.release();
+  });
+
   it('the memory gate refuses with the readings; a waiter says so and starts when pressure falls', async () => {
     const refused = await admit(
       { label: 'tool:test', footprintBytes: GIB },

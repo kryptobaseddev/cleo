@@ -1480,6 +1480,11 @@ export interface AdmitOptions {
    * wait does not let them expire (T13492). Failures are ignored.
    */
   readonly keepAlive?: () => Promise<unknown>;
+  /**
+   * Stop waiting: an aborted signal leaves the queue as a timeout does (T13681).
+   * The caller decides what a grant raced in at that moment means.
+   */
+  readonly signal?: AbortSignal;
   /** Interval for {@link AdmitOptions.keepAlive}. @defaultValue 5 minutes */
   readonly keepAliveMs?: number;
 }
@@ -1871,7 +1876,7 @@ async function admitInner(req: AdmissionRequest, opts: AdmitOptions): Promise<Ad
       opts.notice(holderReport(first.doc, entry, pid, now() - t0, capacityBytes, now()));
     }
     const remaining = timeoutMs - (now() - t0);
-    if (remaining <= 0) {
+    if (remaining <= 0 || opts.signal?.aborted === true) {
       const raced = await leave();
       if (raced !== null) return { admitted: true, grant: holdGrant(raced, dir, now() - t0, opts) };
       return { admitted: false, refusal: refusal(first.doc, reading) };
