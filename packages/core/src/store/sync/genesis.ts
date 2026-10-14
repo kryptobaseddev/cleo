@@ -36,7 +36,12 @@ import {
   rowIdentityRecipeCurrent,
   UID_COLUMN,
 } from '../row-identity.js';
-import { captureTriggerDrift, setCaptureEnabled, syncSetTables } from './capture.js';
+import {
+  captureTriggerDrift,
+  establishLazySchemas,
+  setCaptureEnabled,
+  syncSetTables,
+} from './capture.js';
 import { isSyncFlagOn, readSyncFlags, setSyncFlag } from './flags.js';
 import { type StreamCursor, writeStreamCursor } from './pull.js';
 import { baselineRowMeta, planRepair } from './repair.js';
@@ -520,6 +525,8 @@ export async function cutGenesisWithSnapshot(
   opts: GenesisCutOptions & { readonly dbPath: string },
   snapshot: (cut: number) => Promise<void>,
 ): Promise<GenesisCutReport> {
+  // T13719: the cut baselines, and the bundle snapshots, this build's schema.
+  await establishLazySchemas(db, opts.scope);
   const marker = holdRestoreMarker(opts.dbPath, 'genesis');
   try {
     let r: GenesisCutReport;

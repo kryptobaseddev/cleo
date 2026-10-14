@@ -1246,6 +1246,21 @@ describe('review #1903 LOWs', () => {
     apply(db);
     expect(statuses(db)).toEqual(['1.0:refused-schema', '2.0:refused-schema']);
   });
+
+  it('a refused-schema insert applies once the store has its column, and its pending update follows (T13719)', async () => {
+    const db = await store();
+    stage(db, segment(R1, [txn('R1:1', [insert('c1', h(1), { zz_t13719: 'v1' })])]));
+    stage(db, segment(R1, [txn('R1:2', [update('c1', h(2), { title: 'renamed' })])]));
+    expect(apply(db)).toMatchObject({ applied: 0, refusedSchema: 1, pending: 1 });
+    // No upgrade: the column arrives by a lazily run migration.
+    db.exec('ALTER TABLE tasks_tasks ADD COLUMN zz_t13719 TEXT');
+    expect(apply(db)).toMatchObject({ applied: 2, refusedSchema: 0, pending: 0 });
+    expect(inboxCounts(db, STREAM)).toEqual({ applied: 2 });
+    expect(db.prepare('SELECT title, zz_t13719 FROM tasks_tasks WHERE uid = ?').get('c1')).toEqual({
+      title: 'renamed',
+      zz_t13719: 'v1',
+    });
+  });
 });
 
 describe('T13226 shapes (#1909): journaled SET NULL and parent-keyed child deletes', () => {

@@ -137,32 +137,6 @@ async function ensureUsageLogTable(projectRoot: string): Promise<void> {
   }
 }
 
-/**
- * Ensure prune_candidate column exists on all typed brain tables.
- * Added lazily so existing schemas are not broken.
- */
-async function ensurePruneCandidateColumn(projectRoot: string): Promise<void> {
-  const { getBrainDb, getBrainNativeDb } = await import('../store/memory-sqlite.js');
-  await getBrainDb(projectRoot);
-  const nativeDb = getBrainNativeDb(projectRoot);
-  if (!nativeDb) return;
-
-  const tables = [
-    'brain_decisions',
-    'brain_patterns',
-    'brain_learnings',
-    'brain_observations',
-  ] as const;
-
-  for (const tbl of tables) {
-    try {
-      nativeDb.prepare(`ALTER TABLE ${tbl} ADD COLUMN prune_candidate INTEGER DEFAULT 0`).run();
-    } catch {
-      // Column already exists — silently continue
-    }
-  }
-}
-
 // ============================================================================
 // 1. trackMemoryUsage
 // ============================================================================
@@ -270,7 +244,6 @@ function applyQualityDelta(
  */
 export async function correlateOutcomes(projectRoot: string): Promise<CorrelateOutcomesResult> {
   await ensureUsageLogTable(projectRoot);
-  await ensurePruneCandidateColumn(projectRoot);
 
   const { getBrainDb, getBrainNativeDb } = await import('../store/memory-sqlite.js');
   await getBrainDb(projectRoot);

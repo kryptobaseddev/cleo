@@ -6,7 +6,9 @@
  * its status, its conflict records, its row meta and its leaves:
  *
  * 1. **Schema.** A segment or transaction format newer than this build is
- *    `refused-schema` (E_SCHEMA_AHEAD), kept for replay after an upgrade.
+ *    `refused-schema` (E_SCHEMA_AHEAD). Every call re-opens the stream's
+ *    `refused-schema` transactions first, so one applies as soon as the
+ *    build or the store's schema has what it needs (T13719).
  * 2. **Skew (§1.3).** A transaction whose HLC is beyond the skew bound is
  *    `held-skew`, and so is every later transaction of the same origin
  *    replica in this pass (FIFO); other replicas keep flowing.
@@ -88,7 +90,14 @@ import {
 } from '../field-leave.js';
 import { accountRebaseRows, heldOp, holdOp, type KeptRow, txnHasHold, unholdOp } from '../held.js';
 import { encodeHlc, genesisHlc, isWithinSkew, parseHlc } from '../hlc.js';
-import { type InboxKey, type InboxStatus, markTxns, type StagedTxn, stagedTxns } from '../inbox.js';
+import {
+  type InboxKey,
+  type InboxStatus,
+  markTxns,
+  reopenRefusedSchema,
+  type StagedTxn,
+  stagedTxns,
+} from '../inbox.js';
 import { applyOp, checkSchemaVersion } from '../merge/engine.js';
 import { mergeSpecFor } from '../merge/rules.js';
 import {
@@ -1766,6 +1775,7 @@ export function applyStagedTxns(db: DatabaseSync, opts: ApplyStagedOptions): App
       blocked,
     };
   }
+  reopenRefusedSchema(db, opts.stream);
   opts.seal?.();
   const sequencingOn = hasTable(db, '_sync_sequenced');
   const defCache = new Map<string, CaptureTableDef | null>();

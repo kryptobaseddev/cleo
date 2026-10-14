@@ -879,6 +879,35 @@ export function syncCaptureOpenPass(
 }
 
 /**
+ * Bring a project store's lazily migrated tables current before a sync step
+ * reads or writes them (T13719). The brain lineage runs when the brain domain
+ * binds, not at the store open, so a joiner that never opened brain refused
+ * every brain op naming a newer column, and a genesis cut taken before brain
+ * opened snapshotted the old shape. Its DDL runs outside a migration bracket,
+ * so the capture triggers are then regenerated for the new columns (a no-op
+ * when they already match).
+ *
+ * @param db - The store, outside any transaction.
+ * @param scope - Its scope; only `project` has lazily migrated tables.
+ *
+ * @example
+ * ```ts
+ * await establishLazySchemas(db, 'project');
+ * applyStagedTxns(db, opts);
+ * ```
+ */
+export async function establishLazySchemas(db: DatabaseSync, scope: TableScope): Promise<void> {
+  const dbPath = db.location();
+  if (scope !== 'project' || dbPath === null) return;
+  // Lazy: memory-sqlite imports the store open, which imports this module.
+  const { establishBrainSchema } = await import('../memory-sqlite.js');
+  establishBrainSchema(db, dbPath);
+  if (readSyncFlags(db)['sync.capture'] && hasTable(db, '_sync_capture')) {
+    installCaptureTriggers(db, scope);
+  }
+}
+
+/**
  * Migration-runner hooks (§2.3a rules 1 and 5): drop every capture trigger
  * inside the bracket before a migration's statements, and regenerate them for
  * the new schema before its COMMIT. Only when capture is on.

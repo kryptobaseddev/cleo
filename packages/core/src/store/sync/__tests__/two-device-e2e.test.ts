@@ -51,7 +51,8 @@ import {
 } from '../capture.js';
 import { listConflicts } from '../conflicts.js';
 import { setSyncFlag, syncSetTables } from '../flags.js';
-import { completeGenesis, cutGenesis, joinStream } from '../genesis.js';
+import { completeGenesis, cutGenesis, cutGenesisWithSnapshot, joinStream } from '../genesis.js';
+import { inboxCounts } from '../inbox.js';
 import {
   type PulledStreamSegment,
   type PullStreamOptions,
@@ -450,5 +451,81 @@ describe('natural-key brain rows replay across devices (T12895)', () => {
     expect(
       b.db.prepare("SELECT weight FROM brain_page_edges WHERE from_id = 'task:T1'").get(),
     ).toEqual({ weight: 0.25 });
+  });
+});
+
+describe('brain ops reach a joiner that never opened brain (T13719)', () => {
+  const hasColumn = (db: DatabaseSync, table: string, column: string): boolean =>
+    (db.prepare(`PRAGMA table_info("${table}")`).all() as Array<{ name: string }>).some(
+      (c) => c.name === column,
+    );
+  const LAZY = ['network', 'prune_candidate'] as const;
+  const OBS = 'id, title, narrative, network, prune_candidate';
+
+  it('the genesis cut and the pull bring the brain schema current; both converge with nothing pending', async () => {
+    // A cuts genesis without ever binding the brain domain.
+    const a = await open('a', 'dev-a');
+    for (const c of LAZY) expect(hasColumn(a.db, 'brain_observations', c), c).toBe(false);
+    const cut = await cutGenesisWithSnapshot(
+      a.db,
+      {
+        scope: 'project',
+        stream: STREAM,
+        dbPath: join(dir, 'a', '.cleo', 'cleo.db'),
+        now: () => ++clock,
+        env: {},
+        allowUnreleased: true,
+      },
+      async () => {},
+    );
+    expect(cut.refused).toBeNull();
+    for (const c of LAZY) expect(hasColumn(a.db, 'brain_observations', c), c).toBe(true);
+    completeGenesis(a.db, {
+      stream: STREAM,
+      replica: replicaOf(a),
+      replicaSeqFloor: null,
+      nowIso: new Date(++clock).toISOString(),
+    });
+
+    // B joins; it never binds brain either.
+    const b = await open('b', 'dev-b');
+    expect(
+      joinStream(b.db, {
+        scope: 'project',
+        stream: STREAM,
+        cursor: START,
+        now: () => ++clock,
+        allowUnreleased: true,
+      }).refused,
+    ).toBeNull();
+    for (const c of LAZY) expect(hasColumn(b.db, 'brain_observations', c), c).toBe(false);
+
+    const stream = fakeStream();
+    write(
+      a.db,
+      `INSERT INTO brain_observations (id, type, title, narrative, created_at, valid_at, network, prune_candidate)
+       VALUES ('O-t13719', 'discovery', 'joiner sees it', 'first', '2026-10-14T09:00:00.000Z',
+               '2026-10-14 09:00:00', 'world', 1)`,
+    );
+    write(a.db, "UPDATE brain_observations SET title = 'retitled on A' WHERE id = 'O-t13719'");
+    await push(a, stream);
+    const pulled = await pull(b, stream);
+    expect(pulled.apply).toMatchObject({ refusedSchema: 0, pending: 0 });
+    expect(inboxCounts(b.db, STREAM)).not.toHaveProperty('refused-schema');
+    expect(inboxCounts(b.db, STREAM)).not.toHaveProperty('pending');
+    const row = (db: DatabaseSync) =>
+      db.prepare(`SELECT ${OBS} FROM brain_observations WHERE id = 'O-t13719'`).get();
+    expect(row(b.db)).toEqual({
+      id: 'O-t13719',
+      title: 'retitled on A',
+      narrative: 'first',
+      network: 'world',
+      prune_candidate: 1,
+    });
+    expect(row(b.db)).toEqual(row(a.db));
+    await pull(a, stream); // own echo
+    expect(contentChecksums(b.db).brain_observations).toBe(
+      contentChecksums(a.db).brain_observations,
+    );
   });
 });
