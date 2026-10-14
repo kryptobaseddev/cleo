@@ -37,6 +37,21 @@ export interface StoreRestoreKept {
   readonly sidecars: readonly string[];
 }
 
+/**
+ * The docs byte surfaces restored from a backup id (T13704, T13708): the
+ * blob-store and attachment databases and the byte files `docs fetch` reads.
+ */
+export interface StoreRestoreDocsBytes {
+  /** `true` only when every recorded database and byte file was verified and placed. */
+  readonly complete: boolean;
+  /** Databases placed, relative to `.cleo/` (`blobs/manifest.db`, `attachments/index.db`). */
+  readonly dbsRestored: readonly string[];
+  /** Byte files verified (sha256) and placed. */
+  readonly filesRestored: number;
+  /** What was not placed, each `<path>: <why>` (missing, sha256 mismatch, integrity_check, busy). */
+  readonly failed: readonly string[];
+}
+
 /** Result of a store restore (or its dry run). */
 export interface StoreRestoreResult {
   readonly dryRun: boolean;
@@ -53,6 +68,19 @@ export interface StoreRestoreResult {
   readonly removedSidecars: readonly string[];
   /** How to undo the restore (`null` on a dry run, or when nothing was replaced). */
   readonly undo: string | null;
+  /**
+   * The docs byte surfaces restored with the store (`--id` of a backup that
+   * captured them, T13708). Absent otherwise.
+   */
+  readonly docsBytes?: StoreRestoreDocsBytes;
+  /**
+   * `true` when the store was placed but part of the backup was not (a docs
+   * byte that was missing or failed verification): the restore is not a
+   * clean success and the CLI exits non-zero (T13709).
+   */
+  readonly partial?: boolean;
+  /** What the partial restore left out, one line each. */
+  readonly warnings?: readonly string[];
 }
 
 /**

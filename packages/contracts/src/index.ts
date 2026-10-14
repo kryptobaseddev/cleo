@@ -2500,6 +2500,7 @@ export {
 // === Store restore (T13240 — restore cleo.db from a named snapshot or backup id) ===
 export type {
   StoreRecoverResult,
+  StoreRestoreDocsBytes,
   StoreRestoreKept,
   StoreRestoreResult,
   StoreRestoreSource,

@@ -208,6 +208,19 @@ const backupSubCommand = defineCommand({
           confirmOwnerStore: args['confirm-owner-store'] === true,
           cwd: process.cwd(),
         });
+        if (result.partial === true) {
+          // T13709: the store was placed but docs bytes were not: never a clean success.
+          cliError(
+            `E_RESTORE_PARTIAL: restored only in part: ${(result.warnings ?? []).join('; ')}`,
+            ExitCode.CHECKSUM_MISMATCH,
+            {
+              name: 'E_RESTORE_PARTIAL',
+              details: result,
+              fix: `cleo docs doctor --repair can backfill missing bytes${result.undo ? `; undo with ${result.undo}` : ''}`,
+            },
+          );
+          process.exit(ExitCode.CHECKSUM_MISMATCH);
+        }
         cliOutput(result, {
           command: 'restore',
           operation: 'admin.backup.restore-store',
