@@ -1398,6 +1398,9 @@ async function snapshotGateInputs(
       throw new Error('Typed invocation working directory has ambiguous symlink ownership');
   }
   const paths = new Set((task.files ?? []).map((path) => resolve(root, path)));
+  // T13690: a declared task file is a literal path; `app/[id]/page.tsx` is a
+  // Next.js route, not a glob. Only paths from other sources are refused.
+  const literal = new Set(paths);
   if (gate.kind === 'file' && gate.path) paths.add(resolve(root, gate.path));
   if (
     invocation &&
@@ -1430,7 +1433,8 @@ async function snapshotGateInputs(
   for (const path of [...paths].sort()) {
     execution.assertActive();
     execution.consume({ items: 1 });
-    if (/[?*[\]{}]/.test(path))
+    const globLike = /[?*[\]{}]/.test(path);
+    if (!literal.has(path) && globLike)
       throw new Error(`Typed input requires an explicit file path: ${path}`);
     const rel = relative(root, path);
     if (!rel || rel === '..' || rel.startsWith('../') || isAbsolute(rel))
@@ -1453,6 +1457,13 @@ async function snapshotGateInputs(
       before = await lstat(path);
     } catch (error) {
       if (error instanceof Error && 'code' in error && error.code === 'ENOENT') {
+        // T13691: an absent glob-looking entry is a pattern written by mistake
+        // (task.files are literal); recorded absent, its hash would never move.
+        if (globLike)
+          // @sync-invariant none:input-shape a declared task path that is a mistaken glob is refused before the gate runs; nothing is written
+          throw new Error(
+            `declared task file ${relative(root, path)} does not exist; list explicit paths, task.files are literal`,
+          );
         artifacts.push({ path, sha256: null, bytes: null });
         continue;
       }
