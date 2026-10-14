@@ -1,5 +1,46 @@
 # Changelog
 
+## [2026.10.13] (2026-10-14)
+
+### Added
+
+- Sync merges keep sticky notes one-way: converted or archived never returns to active _(provenance: [T12942](https://github.com/kryptobaseddev/cleo/search?q=T12942&type=commits))_
+- Sync merges never move a shipped release back to an earlier status _(provenance: [T12943](https://github.com/kryptobaseddev/cleo/search?q=T12943&type=commits))_
+- Wire the llmtxt Loro CRDT merge into the docs update write path — section merge engine, head projection under docs.head.max-hlc, append-only DAG versions _(provenance: [T13355](https://github.com/kryptobaseddev/cleo/search?q=T13355&type=commits))_
+- ct-lean levels off/lite/full/ultra: `cleo lean level`, the `lean.level` config key and CLEO_LEAN_LEVEL _(provenance: [T13663](https://github.com/kryptobaseddev/cleo/search?q=T13663&type=commits))_
+
+### Fixed
+
+- docs fetch and view heal a doc whose bytes predate the blob store on first read, instead of failing until docs doctor --repair runs _(provenance: [T13705](https://github.com/kryptobaseddev/cleo/search?q=T13705&type=commits))_
+- cleo docs update detects a stale declared base — append edits three-way merge, non-mergeable edits record a named section conflict, an unresolvable base is refused (T13674) _(provenance: [T13674](https://github.com/kryptobaseddev/cleo/search?q=T13674&type=commits), [T13684](https://github.com/kryptobaseddev/cleo/search?q=T13684&type=commits), [T13688](https://github.com/kryptobaseddev/cleo/search?q=T13688&type=commits))_
+- A migration's data backfill is never emitted, and the row-meta content hash follows it under the new sync-set version (journal B, migration half) _(provenance: [T12775](https://github.com/kryptobaseddev/cleo/search?q=T12775&type=commits))_
+- twin collapse marks the synced twin it wrote suspect (withSuspectAccounting gets its first production caller) _(provenance: [T12775](https://github.com/kryptobaseddev/cleo/search?q=T12775&type=commits))_
+- A vault restore takes the row-identity markers and the sync-schema ledger from the snapshot, so a restored store rewrites its timestamps and seals _(provenance: [T13107](https://github.com/kryptobaseddev/cleo/search?q=T13107&type=commits), [T13108](https://github.com/kryptobaseddev/cleo/search?q=T13108&type=commits))_
+- ct-lean 1.0.1 names privacy in its never-cut list and fixes small in-scope risks instead of only reporting them _(provenance: [T13424](https://github.com/kryptobaseddev/cleo/search?q=T13424&type=commits))_
+- cleo research link and update no longer replace a manifest entry's title, topics, findings and links _(provenance: [T13678](https://github.com/kryptobaseddev/cleo/search?q=T13678&type=commits))_
+- cleo run no longer flags sequential short workers as hung, reports a signal while queued, and records a signal the runner forwarded _(provenance: [T13679](https://github.com/kryptobaseddev/cleo/search?q=T13679&type=commits), [T13680](https://github.com/kryptobaseddev/cleo/search?q=T13680&type=commits), [T13681](https://github.com/kryptobaseddev/cleo/search?q=T13681&type=commits))_
+- cleo complete and cleo cancel no longer delete a task worktree that other worktrees symlink into, or that holds the only copy of the task's evidence _(provenance: [T13696](https://github.com/kryptobaseddev/cleo/search?q=T13696&type=commits), [T13700](https://github.com/kryptobaseddev/cleo/search?q=T13700&type=commits), [T13701](https://github.com/kryptobaseddev/cleo/search?q=T13701&type=commits))_
+
+### Also in this release (listed by hand)
+
+Merged since v2026.10.12 and reviewed, with green PR CI. These have no release-note changeset, or their tasks were still open at planning time:
+
+- T13325, T13656 #2213 #2220: `cleo nexus analyze` keeps its heap bounded on large projects. Parse results spool to disk, and graph publication streams in batches.
+- T13673 #2224: after a merge, a targeted `test-run:` recorded on a later main commit that covers the change stands in, whatever the merge's own CI concluded.
+- T13662, T13655 #2223 #2215: carry scope is the task's own commits plus its declared files.
+- T13641, T13647 #2207 #2209: `cleo done` never falls back to a whole test suite.
+- T13652 #2214: release-readiness timing.
+- T13585 #2218: proof of concurrent docs updates (T13675, T13685, T13688, T13689).
+- T12908 #2227: replica registry lock.
+- T12880 #2221: token store refusal.
+- T13638 #2219: migrated legacy doc versions get uids that are stable across devices.
+- T13360, T13361, T13362 #2201 #2208 #2210: legacy docs migration and read retirement.
+- T13356 #2211: leases wiring.
+- T12945 #2187: docs lifecycle in the sync merge rules.
+- T13363 #2195 #2212: council metrics and sections.
+- T13677 #2225: review follow-ups.
+- T13706 #2245: a failed self-heal write never fails a docs read.
+
 ## [2026.10.12] (2026-10-12)
 
 ### Fixed
