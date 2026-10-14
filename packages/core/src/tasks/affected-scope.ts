@@ -215,6 +215,11 @@ export async function testsPassedSupersededReason(
   probe: {
     mergeState: () => Promise<ChangeMergeState | MergedVerdict> | ChangeMergeState | MergedVerdict;
     currentTree: () => Promise<string | null> | string | null;
+    /**
+     * Whether a commit has landed on origin's default branch (the later-main
+     * stand-in, T13673); defaults to `isLandedOnOriginDefault`.
+     */
+    landed?: (root: string, sha: string) => boolean;
   },
 ): Promise<string | null> {
   if (hasTreeBoundTestRun(atoms)) {
@@ -233,7 +238,19 @@ export async function testsPassedSupersededReason(
     const target = verdict.landing ?? verdict.changeSet ?? null;
     const carried = scopedRunCarriedAcrossMerge(atoms, target);
     if (carried.ok) return null;
-    return scopedRunSupersededReason(atoms, verdict.state, verdict.lookupFailed, carried.why);
+    // T13673 (owner decision 2026-10-13): a targeted test-run recorded on a
+    // main commit that descends from the merge, on the current tree, covering
+    // the task's change, stands in for any merged change, whatever the merge's
+    // own CI concluded. Byte identity stays the rule for every other run.
+    const landed = probe.landed ?? (await import('./change-set.js')).isLandedOnOriginDefault;
+    const stands = scopedRunStandsAfterRedCi(atoms, target, await probe.currentTree(), landed);
+    if (stands.ok) return null;
+    return scopedRunSupersededReason(
+      atoms,
+      verdict.state,
+      verdict.lookupFailed,
+      `${carried.why}, and no test-run on main after the merge stands in (${stands.why})`,
+    );
   }
   return scopedRunSupersededReason(atoms, verdict.state, verdict.lookupFailed);
 }
@@ -335,8 +352,14 @@ function differingPaths(root: string, tree: string, merge: string, paths: string
  *   (`isLandedOnOriginDefault`; passed in so this module keeps loading
  *   change-set lazily).
  * @returns `ok`, or why the recorded run does not stand in.
+ * Since T13673 (owner decision 2026-10-13) the same stand-in applies to every
+ * merged change, whatever its CI concluded: {@link testsPassedSupersededReason}
+ * asks it whenever byte-identity carry fails, so `cleo done --plan` and
+ * `cleo complete` accept it alike.
+ *
  * @task T13623
  * @task T13627
+ * @task T13673
  */
 export function scopedRunStandsAfterRedCi(
   atoms: ReadonlyArray<EvidenceAtom>,
