@@ -897,6 +897,8 @@ export {
   isLafsError,
   isLafsSuccess,
 } from './lafs.js';
+// === ct-lean levels (T13663 / Epic T13418) ===
+export type { LeanConfig, LeanLevel, LeanLevelSource } from './lean.js';
 // === Lease-IPC v1.1 (PARALLEL DbWriterLease contract — T11627 · SG-RUNTIME-UNIFICATION) ===
 export type {
   ChildKilledUnresponsiveResponse,
