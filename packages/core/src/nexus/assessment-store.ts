@@ -20,8 +20,9 @@
  * ~0.6 s to compress and ~0.55 s to inflate. A historical plain-text list is
  * still read as stored.
  *
- * The list is written one reference per line, in gzip members of
- * {@link REFERENCES_PER_MEMBER} references, and read back line by line
+ * The list is written one reference per line, in gzip members of a few
+ * thousand references (`@cleocode/nexus/reference-spool`, which the pipeline
+ * streams into during resolution — T13656), and read back line by line
  * (T13326). Building it as ONE `JSON.stringify` string failed outright on a
  * 5 357-file repository: 846 151 references exceed V8's maximum string length
  * (2^29 - 24 characters), so publication died with "Invalid string length"
@@ -36,8 +37,13 @@
 
 import { isAbsolute } from 'node:path';
 import { Readable } from 'node:stream';
-import { createGunzip, gunzipSync, gzipSync } from 'node:zlib';
-import type { GraphIndexAssessment, GraphIndexReferenceReport } from '@cleocode/contracts';
+import { createGunzip, gunzipSync } from 'node:zlib';
+import type {
+  GraphIndexAssessment,
+  GraphIndexReferenceReport,
+  GraphStoredReferences,
+} from '@cleocode/contracts';
+import { createReferenceSpool } from '@cleocode/nexus/reference-spool';
 import { sql } from 'drizzle-orm';
 import type { NodeSQLiteDatabase } from 'drizzle-orm/node-sqlite';
 import { encodeStoredAssessment } from './stored-roots.js';
@@ -47,18 +53,6 @@ export const ASSESSMENT_KEY = 'graph_assessment';
 
 /** `_nexus_meta` key of the separately stored reference list. */
 export const ASSESSMENT_REFERENCES_KEY = 'graph_assessment_references';
-
-/** gzip level of the stored reference list: level 1 is ~16x smaller at ~1 s per 450 MB. */
-const REFERENCES_GZIP_LEVEL = 1;
-
-/**
- * References compressed per gzip member of the stored list.
- *
- * Bounds the largest string the encoder builds to one member's worth (a few
- * MB) whatever the repository size, while keeping members large enough that
- * per-member gzip framing does not cost compression.
- */
-const REFERENCES_PER_MEMBER = 4096;
 
 /** Newline byte; JSON text never contains a raw one inside a value. */
 const NEWLINE = 0x0a;
@@ -76,17 +70,9 @@ const NEWLINE = 0x0a;
 export function encodeStoredReferences(
   references: readonly GraphIndexReferenceReport[],
 ): Uint8Array {
-  const members: Buffer[] = [];
-  let text = '[';
-  references.forEach((reference, index) => {
-    text += `${index === 0 ? '\n' : ',\n'}${JSON.stringify(reference)}`;
-    if ((index + 1) % REFERENCES_PER_MEMBER === 0) {
-      members.push(gzipSync(text, { level: REFERENCES_GZIP_LEVEL }));
-      text = '';
-    }
-  });
-  members.push(gzipSync(`${text}\n]`, { level: REFERENCES_GZIP_LEVEL }));
-  return Buffer.concat(members);
+  const spool = createReferenceSpool();
+  for (const reference of references) spool.append(reference);
+  return spool.finish().payload;
 }
 
 /**
@@ -260,6 +246,8 @@ export function assessmentSummary(assessment: GraphIndexAssessment): GraphIndexA
  * Write an assessment inside the caller's transaction.
  *
  * - A full assessment writes its summary and replaces the reference list.
+ * - `stored` replaces the list with bytes already in the stored encoding
+ *   (T13656); the summary's `referenceCount` must equal `stored.count`.
  * - A summary that already carries `referenceCount` (for example a provenance
  *   re-record of an unchanged generation) rewrites the summary only, keeping
  *   the stored list of that same generation.
@@ -271,17 +259,22 @@ export function assessmentSummary(assessment: GraphIndexAssessment): GraphIndexA
  *
  * @param tx - Graph database handle or open transaction.
  * @param assessment - Assessment to persist, with absolute in-memory paths.
+ * @param stored - The reference list already encoded, written verbatim.
  * @returns The summary written, in its in-memory (absolute-path) form.
  */
 export function writeAssessment(
   tx: Pick<NodeSQLiteDatabase, 'run'>,
   assessment: GraphIndexAssessment,
+  stored?: GraphStoredReferences,
 ): GraphIndexAssessment {
   const summary = assessmentSummary(assessment);
+  if (stored && (assessment.references !== undefined || summary.referenceCount !== stored.count))
+    // @sync-invariant none:input-shape a mismatched staged list is refused before any write
+    throw new Error('Staged reference list does not match the assessment reference count.');
   tx.run(sql`INSERT INTO main._nexus_meta (key, value) VALUES (${ASSESSMENT_KEY}, ${JSON.stringify(encodeStoredAssessment(summary))})
     ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = strftime('%s', 'now')`);
-  if (assessment.references !== undefined) {
-    tx.run(sql`INSERT INTO main._nexus_meta (key, value) VALUES (${ASSESSMENT_REFERENCES_KEY}, ${encodeStoredReferences(assessment.references)})
+  if (stored || assessment.references !== undefined) {
+    tx.run(sql`INSERT INTO main._nexus_meta (key, value) VALUES (${ASSESSMENT_REFERENCES_KEY}, ${stored?.payload ?? encodeStoredReferences(assessment.references ?? [])})
       ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = strftime('%s', 'now')`);
   } else if (summary.referenceCount === undefined) {
     tx.run(sql`DELETE FROM main._nexus_meta WHERE key = ${ASSESSMENT_REFERENCES_KEY}`);

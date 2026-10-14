@@ -222,6 +222,18 @@ describe('processHeritage', () => {
     expect(() => graph.preparePublication()).toThrow('Invalid graph relationship');
   });
 
+  it('seals the graph once publication is streamed: a later relation is refused (T13656)', () => {
+    const graph = createKnowledgeGraph();
+    graph.addNode(makeNode('a.ts::a', 'function', 'a', 'a.ts'));
+    graph.addNode(makeNode('a.ts::b', 'function', 'b', 'a.ts'));
+    graph.addRelation({ source: 'a.ts::a', target: 'a.ts::b', type: 'calls', confidence: 1 });
+    const rows = graph.streamPublication();
+    expect(() =>
+      graph.addRelation({ source: 'a.ts::a', target: 'a.ts::b', type: 'calls', confidence: 1 }),
+    ).toThrow('sealed');
+    expect([...rows.relations]).toHaveLength(1);
+  });
+
   it('skips record when child type not found in symbol table', () => {
     const graph = createKnowledgeGraph();
     const ctx = createResolutionContext();

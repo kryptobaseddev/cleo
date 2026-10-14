@@ -19,6 +19,10 @@
       "types": "./dist/src/pipeline/index.d.ts",
       "import": "./dist/src/pipeline/index.js"
     },
+    "./reference-spool": {
+      "types": "./dist/src/pipeline/reference-spool.d.ts",
+      "import": "./dist/src/pipeline/reference-spool.js"
+    },
     "./code/unfold": {
       "types": "./dist/src/code/unfold.d.ts",
       "import": "./dist/src/code/unfold.js"

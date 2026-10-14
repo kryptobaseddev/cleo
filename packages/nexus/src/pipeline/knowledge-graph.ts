@@ -114,9 +114,22 @@ export interface KnowledgeGraph {
    * @param tables - Table references ({ nexusNodes, nexusRelations })
    */
   /** Serialize and validate the staged generation before opening a write transaction. */
-  preparePublication(): GraphPublicationRows;
+  preparePublication(): EagerPublicationRows;
+  /**
+   * Validate the staged generation now and serialize its rows lazily, as the
+   * publisher consumes them: the graph is never held twice (T13656). Seals the
+   * graph: a later {@link KnowledgeGraph.addRelation} throws, since its dedup
+   * keys are released and the rows already handed out would not include it.
+   */
+  streamPublication(): GraphPublicationRows;
   flush(projectId: string, db: NexusDbInsert, tables: NexusTables): Promise<void>;
 }
+
+/** Publication rows built up front, for callers that inspect them. */
+export type EagerPublicationRows = GraphPublicationRows & {
+  nodes: NexusNodeInsertRow[];
+  relations: NexusRelationInsertRow[];
+};
 
 /**
  * Create a new empty KnowledgeGraph.
@@ -128,6 +141,8 @@ export function createKnowledgeGraph(): KnowledgeGraph {
   const relations: GraphRelation[] = [];
   /** Dedup set for relations: `${source}::${target}::${type}` */
   const relationKeys = new Set<string>();
+  /** Set by {@link streamPublication}; the graph accepts no relation afterwards. */
+  let sealed = false;
 
   function addNode(node: GraphNode): void {
     if (!nodes.has(node.id)) {
@@ -136,13 +151,18 @@ export function createKnowledgeGraph(): KnowledgeGraph {
   }
 
   function canonicalEndpoint(id: string): string {
-    if (nodes.has(id) || !id.endsWith('::__file__')) return id;
+    // The node's own id string, so relations share it rather than hold copies (T13656).
+    const node = nodes.get(id);
+    if (node) return node.id;
+    if (!id.endsWith('::__file__')) return id;
     const filePath = id.slice(0, -'::__file__'.length);
     const file = nodes.get(filePath);
     return file?.kind === 'file' && file.filePath === filePath ? filePath : id;
   }
 
   function addRelation(rel: GraphRelation): void {
+    if (sealed)
+      throw new Error('Knowledge graph is sealed for publication; no relation can be added');
     rel = { ...rel, source: canonicalEndpoint(rel.source), target: canonicalEndpoint(rel.target) };
     const key = `${rel.source}::${rel.target}::${rel.type}`;
     if (!relationKeys.has(key)) {
@@ -151,53 +171,49 @@ export function createKnowledgeGraph(): KnowledgeGraph {
     }
   }
 
-  function preparePublication(): GraphPublicationRows {
-    const now = new Date().toISOString();
+  function nodeRow(node: GraphNode, now: string): NexusNodeInsertRow {
+    // ADR-090 · T11648 — no `projectId`.
+    return {
+      id: node.id,
+      kind: node.kind,
+      label: node.name || node.id,
+      name: node.name || null,
+      filePath: node.filePath || null,
+      startLine: node.startLine ?? null,
+      endLine: node.endLine ?? null,
+      language: node.language || null,
+      isExported: node.exported ?? false,
+      parentId: node.parent ?? null,
+      parametersJson: node.parameters ? JSON.stringify(node.parameters) : null,
+      returnType: node.returnType ?? null,
+      docSummary: node.docSummary ?? null,
+      communityId: node.communityId ?? null,
+      metaJson:
+        node.meta || node.isExternal !== undefined
+          ? JSON.stringify({
+              ...node.meta,
+              ...(node.isExternal !== undefined ? { isExternal: node.isExternal } : {}),
+            })
+          : null,
+      indexedAt: now,
+    };
+  }
 
-    // Build node insert rows (ADR-090 · T11648 — no `projectId`).
-    const nodeRows: NexusNodeInsertRow[] = [];
-    for (const node of nodes.values()) {
-      nodeRows.push({
-        id: node.id,
-        kind: node.kind,
-        label: node.name || node.id,
-        name: node.name || null,
-        filePath: node.filePath || null,
-        startLine: node.startLine ?? null,
-        endLine: node.endLine ?? null,
-        language: node.language || null,
-        isExported: node.exported ?? false,
-        parentId: node.parent ?? null,
-        parametersJson: node.parameters ? JSON.stringify(node.parameters) : null,
-        returnType: node.returnType ?? null,
-        docSummary: node.docSummary ?? null,
-        communityId: node.communityId ?? null,
-        metaJson:
-          node.meta || node.isExternal !== undefined
-            ? JSON.stringify({
-                ...node.meta,
-                ...(node.isExternal !== undefined ? { isExternal: node.isExternal } : {}),
-              })
-            : null,
-        indexedAt: now,
-      });
-    }
+  function relationRow(rel: GraphRelation, now: string): NexusRelationInsertRow {
+    return {
+      id: randomUUID(),
+      sourceId: rel.source,
+      targetId: rel.target,
+      type: rel.type,
+      confidence: rel.confidence,
+      reason: rel.reason ?? null,
+      step: null,
+      indexedAt: now,
+    };
+  }
 
-    // Build relation insert rows (ADR-090 · T11648 — no `projectId`).
-    const relationRows: NexusRelationInsertRow[] = [];
-    for (const rel of relations) {
-      relationRows.push({
-        id: randomUUID(),
-        sourceId: rel.source,
-        targetId: rel.target,
-        type: rel.type,
-        confidence: rel.confidence,
-        reason: rel.reason ?? null,
-        step: null,
-        indexedAt: now,
-      });
-    }
-
+  /** Validate the staged generation; returns the shared row timestamp. */
+  function validate(): string {
     for (const relation of relations) {
       if (!nodes.has(relation.source) || !nodes.has(relation.target)) {
         throw new Error(`Invalid graph relationship: ${relation.source} -> ${relation.target}`);
@@ -210,7 +226,35 @@ export function createKnowledgeGraph(): KnowledgeGraph {
         throw new Error(`Invalid graph confidence: ${relation.source} -> ${relation.target}`);
       }
     }
-    return { nodes: nodeRows, relations: relationRows };
+    return new Date().toISOString();
+  }
+
+  function preparePublication(): EagerPublicationRows {
+    const now = validate();
+    return {
+      nodes: [...nodes.values()].map((node) => nodeRow(node, now)),
+      relations: relations.map((rel) => relationRow(rel, now)),
+    };
+  }
+
+  function streamPublication(): GraphPublicationRows {
+    const now = validate();
+    // The dedup keys (one string per relation) would otherwise be held beside
+    // the rows; releasing them is why the graph is sealed (T13656).
+    sealed = true;
+    relationKeys.clear();
+    return {
+      nodes: {
+        *[Symbol.iterator]() {
+          for (const node of nodes.values()) yield nodeRow(node, now);
+        },
+      },
+      relations: {
+        *[Symbol.iterator]() {
+          for (const rel of relations) yield relationRow(rel, now);
+        },
+      },
+    };
   }
 
   async function flush(_projectId: string, db: NexusDbInsert, tables: NexusTables): Promise<void> {
@@ -240,5 +284,6 @@ export function createKnowledgeGraph(): KnowledgeGraph {
     addRelation,
     flush,
     preparePublication,
+    streamPublication,
   };
 }
