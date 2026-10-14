@@ -49,7 +49,6 @@
  *                a deprecated read-only fallthrough for one release.
  */
 
-import { createHash } from 'node:crypto';
 import {
   copyFileSync,
   existsSync,
@@ -62,15 +61,15 @@ import {
   unlinkSync,
   writeFileSync,
 } from 'node:fs';
-import { basename, dirname, join } from 'node:path';
+import { dirname, join } from 'node:path';
 import type { StoreRestoreResult } from '@cleocode/contracts';
 import { ExitCode } from '@cleocode/contracts/exit-codes.js';
 import { CleoError } from '../errors.js';
 import { getLogger } from '../logger.js';
 import { formatBackupTimestamp, rotateBackupDir } from '../store/backup-sidecar.js';
+import { backupDocsBytes, sweepDocsBytePool } from '../store/docs-bytes-backup.js';
 import { resolveDualScopeDbPath } from '../store/dual-scope-db.js';
 import type { AbandonableLock } from '../store/lock.js';
-import { sha256File, vacuumSnapshot } from '../store/portable-bundle-scan.js';
 import { getNativeDb } from '../store/sqlite.js';
 import { assertRestoreTargetConfirmed } from '../store/worktree-isolation-guard.js';
 
@@ -197,265 +196,6 @@ export interface RestoreResult {
   timestamp: string;
   /** File names that were successfully restored back into `.cleo/`. */
   filesRestored: string[];
-  /**
-   * Outcome of the docs byte-surface restore (T13704): the blob-store
-   * manifest, blob bytes and legacy attachment bytes a restored project
-   * needs before `docs fetch` can return anything. Absent for backups that
-   * predate the docs byte surfaces (or captured none).
-   */
-  docsBytes?: DocsByteRestoreSummary;
-}
-
-// ─── Docs byte surfaces (T13704) ────────────────────────────────────────────
-
-/**
- * The v2026.10.13 local qualification restored a snapshot holding only
- * `cleo.db` + config + project-info, and `docs fetch` failed with
- * E_NOT_FOUND "bytes are not in the blob store": doc CONTENT lives outside
- * the project store, in two content-addressed trees under `.cleo/` —
- *
- *   - `.cleo/blobs/manifest.db` (the blob-store metadata database) plus
- *     `.cleo/blobs/blobs/<sha256>` (the bytes; the canonical read location
- *     since the legacy tree's read retirement, T13362);
- *   - `.cleo/attachments/sha256/<2>/<62><ext>` (+ `keep/` pin links) — the
- *     legacy byte tree, still a `docs doctor --repair` backfill source.
- *
- * `cleo backup add` snapshots both trees alongside the store; `cleo restore
- * backup` verifies sha256 on every restored file before placing it (the
- * blob/attachment file names ARE the content address, so the check is
- * intrinsic; the manifest's hash is recorded in the sidecar).
- *
- * Payload files are FLAT entries in the backup directory
- * (`blob-<sha>.<backupId>`, `att-<encoded-path>.<backupId>`,
- * `blobs.manifest.db.<backupId>`) so the existing rotation and sidecar
- * sweep machinery treats them like every other `<file>.<backupId>` payload.
- *
- * @task T13704
- */
-
-/** Backup file label for the blob-store manifest database snapshot. */
-const DOCS_BLOB_MANIFEST_LABEL = 'blobs.manifest.db';
-/** Backup file prefix for one blob-store byte file (`<prefix><sha>.<backupId>`). */
-const DOCS_BLOB_FILE_PREFIX = 'blob-';
-/** Backup file prefix for one legacy attachment byte file. */
-const DOCS_ATTACHMENT_FILE_PREFIX = 'att-';
-
-/** What the backup side captured of the docs byte surfaces. */
-interface DocsByteBackupSummary {
-  /** SHA-256 of the captured blob-store manifest (verified on restore). */
-  blobManifestSha256: string | null;
-  /** Number of blob-store byte files captured. */
-  blobs: number;
-  /** Number of legacy attachment byte files captured. */
-  attachments: number;
-}
-
-/** Sidecar record of the docs byte surfaces (written into `<backupId>.meta.json`). */
-interface DocsByteMeta {
-  blobManifest?: { file: string; sha256: string };
-  blobs: number;
-  attachments: number;
-}
-
-/** Per-surface restore outcome with per-file verification failures. */
-export interface DocsByteRestoreSummary {
-  /** Whether the blob-store manifest was verified and placed. */
-  blobManifestRestored: boolean;
-  /** Blob byte files verified and placed. */
-  blobsRestored: number;
-  /** Blob files whose bytes did not hash to their content address (skipped). */
-  blobsFailed: string[];
-  /** Legacy attachment byte files verified and placed. */
-  attachmentsRestored: number;
-  /** Attachment files that failed verification or placement (skipped). */
-  attachmentsFailed: string[];
-}
-
-/** Recursive file listing (relative to `base`) of every regular file under `dir`. */
-function walkRegularFiles(dir: string, base: string, out: string[]): void {
-  if (!existsSync(dir)) return;
-  for (const entry of readdirSync(dir, { withFileTypes: true })) {
-    const abs = join(dir, entry.name);
-    if (entry.isDirectory()) {
-      walkRegularFiles(abs, base, out);
-    } else if (entry.isFile()) {
-      out.push(abs);
-    }
-  }
-}
-
-/** Synchronous SHA-256 hex of a file (restore runs in a sync function). */
-function sha256OfFileSync(path: string): string {
-  return createHash('sha256').update(readFileSync(path)).digest('hex');
-}
-
-/**
- * The content address a legacy attachment path claims, or `null` when the
- * path is not content-addressed (`sha256/<2>/<62><ext>` / `keep/<2>/<62>`).
- * The name IS the address: `<2><62>` is the sha256.
- */
-function expectedAttachmentSha(relPath: string): string | null {
-  const parts = relPath.split('/');
-  if (parts.length !== 3 || (parts[0] !== 'sha256' && parts[0] !== 'keep')) return null;
-  const [, prefix, name] = parts;
-  const stem = name.includes('.') ? name.slice(0, name.lastIndexOf('.')) : name;
-  const sha = `${prefix}${stem}`;
-  return /^[0-9a-f]{64}$/.test(sha) ? sha : null;
-}
-
-/**
- * Snapshot the docs byte surfaces into the backup directory (T13704).
- * Best-effort per file, matching the module's partial-but-usable backup
- * philosophy. Returns `null` when there is nothing to capture.
- */
-async function backupDocsByteSurfaces(
-  cleoDir: string,
-  backupDir: string,
-  backupId: string,
-): Promise<DocsByteBackupSummary | null> {
-  const blobsDir = join(cleoDir, 'blobs');
-  const attachmentsDir = join(cleoDir, 'attachments');
-  if (!existsSync(blobsDir) && !existsSync(attachmentsDir)) return null;
-
-  const summary: DocsByteBackupSummary = { blobManifestSha256: null, blobs: 0, attachments: 0 };
-
-  // The manifest is a live SQLite database: VACUUM INTO via a read-only
-  // handle (the only safe snapshot of a WAL-mode db — same discipline as
-  // the store snapshot above).
-  const manifestSrc = join(blobsDir, 'manifest.db');
-  if (existsSync(manifestSrc)) {
-    try {
-      const dest = join(backupDir, `${DOCS_BLOB_MANIFEST_LABEL}.${backupId}`);
-      vacuumSnapshot(manifestSrc, dest);
-      summary.blobManifestSha256 = await sha256File(dest);
-    } catch {
-      // manifest uncapturable: the byte files still back up; a restored
-      // manifest is rebuilt/repaired by the docs doctor on the target.
-    }
-  }
-
-  // Blob bytes: content-addressed flat files.
-  const blobFiles: string[] = [];
-  walkRegularFiles(join(blobsDir, 'blobs'), blobsDir, blobFiles);
-  for (const abs of blobFiles) {
-    try {
-      copyFileSync(abs, join(backupDir, `${DOCS_BLOB_FILE_PREFIX}${basename(abs)}.${backupId}`));
-      summary.blobs++;
-    } catch {
-      // skip files that fail to copy
-    }
-  }
-
-  // Legacy attachment bytes: mirror the tree with '/' encoded as '__'.
-  const attachmentFiles: string[] = [];
-  walkRegularFiles(attachmentsDir, attachmentsDir, attachmentFiles);
-  for (const abs of attachmentFiles) {
-    const rel = abs.slice(attachmentsDir.length + 1);
-    try {
-      copyFileSync(
-        abs,
-        join(backupDir, `${DOCS_ATTACHMENT_FILE_PREFIX}${rel.split('/').join('__')}.${backupId}`),
-      );
-      summary.attachments++;
-    } catch {
-      // skip files that fail to copy
-    }
-  }
-
-  if (summary.blobManifestSha256 === null && summary.blobs === 0 && summary.attachments === 0) {
-    return null;
-  }
-  return summary;
-}
-
-/**
- * Restore the docs byte surfaces from a backup (T13704): verify sha256 for
- * every payload file against its recorded or content-derived address, and
- * place only verified bytes into the live `.cleo/` tree. Verification
- * failures are collected and skipped — a corrupt backup file must never
- * land at a content address the readers would then trust.
- */
-function restoreDocsByteSurfaces(
-  cleoDir: string,
-  backupDir: string,
-  backupId: string,
-  meta: DocsByteMeta,
-): DocsByteRestoreSummary {
-  const summary: DocsByteRestoreSummary = {
-    blobManifestRestored: false,
-    blobsRestored: 0,
-    blobsFailed: [],
-    attachmentsRestored: 0,
-    attachmentsFailed: [],
-  };
-
-  // Manifest first: readers resolve blob metadata through it.
-  if (meta.blobManifest !== undefined) {
-    const backupFile = join(backupDir, `${meta.blobManifest.file}.${backupId}`);
-    if (existsSync(backupFile)) {
-      try {
-        if (sha256OfFileSync(backupFile) === meta.blobManifest.sha256) {
-          const dest = join(cleoDir, 'blobs', 'manifest.db');
-          mkdirSync(dirname(dest), { recursive: true });
-          copyFileSync(backupFile, dest);
-          summary.blobManifestRestored = true;
-        } else {
-          summary.blobsFailed.push(meta.blobManifest.file);
-        }
-      } catch {
-        summary.blobsFailed.push(meta.blobManifest.file);
-      }
-    }
-  }
-
-  let entries: string[] = [];
-  try {
-    entries = readdirSync(backupDir);
-  } catch {
-    return summary;
-  }
-
-  for (const name of entries) {
-    if (!name.endsWith(`.${backupId}`)) continue;
-    const backupFile = join(backupDir, name);
-    if (name.startsWith(DOCS_BLOB_FILE_PREFIX)) {
-      const sha = name.slice(DOCS_BLOB_FILE_PREFIX.length, name.length - backupId.length - 1);
-      try {
-        if (sha256OfFileSync(backupFile) !== sha) {
-          summary.blobsFailed.push(sha);
-          continue;
-        }
-        const dest = join(cleoDir, 'blobs', 'blobs', sha);
-        mkdirSync(dirname(dest), { recursive: true });
-        copyFileSync(backupFile, dest);
-        summary.blobsRestored++;
-      } catch {
-        summary.blobsFailed.push(sha);
-      }
-      continue;
-    }
-    if (name.startsWith(DOCS_ATTACHMENT_FILE_PREFIX)) {
-      const encoded = name.slice(
-        DOCS_ATTACHMENT_FILE_PREFIX.length,
-        name.length - backupId.length - 1,
-      );
-      const rel = encoded.split('__').join('/');
-      const expectedSha = expectedAttachmentSha(rel);
-      try {
-        if (expectedSha !== null && sha256OfFileSync(backupFile) !== expectedSha) {
-          summary.attachmentsFailed.push(rel);
-          continue;
-        }
-        const dest = join(cleoDir, 'attachments', rel);
-        mkdirSync(dirname(dest), { recursive: true });
-        copyFileSync(backupFile, dest);
-        summary.attachmentsRestored++;
-      } catch {
-        summary.attachmentsFailed.push(rel);
-      }
-    }
-  }
-  return summary;
 }
 
 /**
@@ -570,11 +310,13 @@ export async function createBackup(
 
   // T13704: the docs byte surfaces live OUTSIDE the store — a backup of
   // cleo.db alone cannot serve `docs fetch` after a restore (the 10.13
-  // qualification finding). Snapshot the blob-store manifest + bytes and
-  // the legacy attachment bytes alongside the store.
-  const docsByteSummary = await backupDocsByteSurfaces(cleoDir, backupDir, backupId);
-  if (docsByteSummary !== null && docsByteSummary.blobManifestSha256 !== null) {
-    backedUp.push(DOCS_BLOB_MANIFEST_LABEL);
+  // qualification finding). Their databases are snapshotted beside the store
+  // and their bytes go into the shared pool (store/docs-bytes-backup.ts).
+  let docsBytes: ReturnType<typeof backupDocsBytes> = null;
+  try {
+    docsBytes = backupDocsBytes(cleoDir, backupDir, backupId);
+  } catch (err) {
+    getLogger('backup').warn({ backupId, err }, 'docs byte surfaces not captured');
   }
 
   // Write metadata sidecar.
@@ -591,21 +333,8 @@ export async function createBackup(
           files: backedUp,
           scope: 'project',
           ...(backedUp.includes('cleo.db') ? { contains: [...PROJECT_STORE_CONTENTS] } : {}),
-          ...(docsByteSummary !== null
-            ? {
-                docsBytes: {
-                  ...(docsByteSummary.blobManifestSha256 !== null
-                    ? {
-                        blobManifest: {
-                          file: DOCS_BLOB_MANIFEST_LABEL,
-                          sha256: docsByteSummary.blobManifestSha256,
-                        },
-                      }
-                    : {}),
-                  blobs: docsByteSummary.blobs,
-                  attachments: docsByteSummary.attachments,
-                } satisfies DocsByteMeta,
-              }
+          ...(docsBytes !== null
+            ? { docsBytes: { dbs: docsBytes.dbs, files: docsBytes.files } }
             : {}),
         },
         null,
@@ -621,6 +350,12 @@ export async function createBackup(
   // touched.
   const maxSnapshots = opts?.maxSnapshots ?? DEFAULT_MAX_SNAPSHOTS;
   rotateBackupDir(backupDir, maxSnapshots, btype);
+  // T13710: pool bytes no surviving backup references go with the rotation.
+  try {
+    sweepDocsBytePool(backupDir);
+  } catch {
+    // non-fatal — an unswept pool file only costs space
+  }
 
   return { backupId, path: backupDir, timestamp, type: btype, files: backedUp };
 }
@@ -1075,7 +810,7 @@ export function restoreBackup(
 
   if (foundInLegacy) emitLegacyDeprecationWarning();
 
-  let meta: { files: string[]; timestamp: string; docsBytes?: DocsByteMeta };
+  let meta: { files: string[]; timestamp: string };
   try {
     meta = JSON.parse(readFileSync(metaPath, 'utf-8'));
   } catch {
@@ -1089,10 +824,6 @@ export function restoreBackup(
     // writers, handles the WAL and keeps the replaced store.
     if (file === 'cleo.db' || (params.skipStoreFiles === true && STORE_FILE_LABELS.has(file)))
       continue;
-    // T13704: the blob-store manifest label rides along in files[] for
-    // `cleo backup list` visibility, but its restore is verified and placed
-    // by the docs-byte-surface pass below (into .cleo/blobs/, not .cleo/).
-    if (file === DOCS_BLOB_MANIFEST_LABEL) continue;
     const backupFile = join(backupDir, `${file}.${params.backupId}`);
     if (!existsSync(backupFile)) continue;
     const destPath = join(cleoDir, file);
@@ -1114,25 +845,11 @@ export function restoreBackup(
     }
   }
 
-  // T13704: restore the docs byte surfaces (blob-store manifest + bytes,
-  // legacy attachment bytes) with sha256 verification, so `docs fetch`
-  // works on the restored project.
-  const docsBytes =
-    meta.docsBytes !== undefined
-      ? restoreDocsByteSurfaces(cleoDir, backupDir, params.backupId, meta.docsBytes)
-      : undefined;
-  const docsBytesRestored =
-    docsBytes !== undefined &&
-    (docsBytes.blobManifestRestored ||
-      docsBytes.blobsRestored > 0 ||
-      docsBytes.attachmentsRestored > 0);
-
   return {
-    restored: restored.length > 0 || docsBytesRestored,
+    restored: restored.length > 0,
     backupId: params.backupId,
     timestamp: meta.timestamp ?? new Date().toISOString(),
     filesRestored: restored,
-    ...(docsBytes !== undefined ? { docsBytes } : {}),
   };
 }
 
@@ -1181,9 +898,12 @@ export async function restoreBackupById(
   let store: StoreRestoreResult | null = null;
   if (storeFile) {
     const { restoreStoreSnapshot } = await import('../store/restore-store.js');
+    // A canonical backup goes by id, so its docs byte surfaces come back with
+    // the store (T13708); a legacy-dir backup predates them.
+    const canonical = dir === dirs[0];
     store = await restoreStoreSnapshot({
       projectRoot,
-      snapshot: storeFile,
+      ...(canonical ? { backupId: params.backupId } : { snapshot: storeFile }),
       confirmOwnerStore: params.confirmOwnerStore,
       cwd: params.cwd,
     });

@@ -23,6 +23,11 @@
  *    `--id` undoes the restore.
  * 5. Remove the live `-wal`/`-shm`/`-journal` (they belong to the replaced
  *    file), rename the verified copy over `cleo.db`, and check the result.
+ * 6. For a backup id that captured the docs byte surfaces (T13708): before
+ *    step 3's lock, refuse while a docs database is open elsewhere and keep
+ *    the live docs bytes under the same `pre-restore-*` backup; after the
+ *    swap, place every verified docs byte. Anything that fails verification
+ *    makes the result `partial`, with `warnings` (T13709).
  *
  * Residual: a process that opens the store between the check under the lock
  * and the rename (milliseconds; a first open waits on the same lock).
@@ -58,6 +63,12 @@ import { ExitCode } from '@cleocode/contracts/exit-codes.js';
 import { CleoError } from '../errors.js';
 import { getLogger } from '../logger.js';
 import { formatBackupTimestamp } from './backup-sidecar.js';
+import {
+  backupDocsBytes,
+  docsDbsOpenElsewhere,
+  hasDocsBytes,
+  restoreDocsBytes,
+} from './docs-bytes-backup.js';
 import { resolveDualScopeDbPath } from './dual-scope-db.js';
 import { withLock } from './lock.js';
 import { openCleoDbSnapshot } from './open-cleo-db.js';
@@ -354,12 +365,13 @@ function copyDurable(from: string, to: string): void {
  * the WAL into the copy (a writable private copy, so the live file is never
  * opened), and list it as a backup so `--id` restores it.
  */
-function keepLiveStore(target: string, sqliteDir: string, now: Date): StoreRestoreKept {
+function keepLiveStore(
+  target: string,
+  sqliteDir: string,
+  backupId: string,
+  now: Date,
+): StoreRestoreKept {
   mkdirSync(sqliteDir, { recursive: true });
-  let backupId = `pre-restore-${formatBackupTimestamp(now)}`;
-  for (let n = 2; existsSync(join(sqliteDir, `${backupId}.meta.json`)); n++) {
-    backupId = `pre-restore-${formatBackupTimestamp(now)}-${n}`;
-  }
   const kept = join(sqliteDir, `cleo.db.${backupId}`);
   copyDurable(target, kept);
   for (const s of SIDECARS) {
@@ -391,6 +403,33 @@ function keepLiveStore(target: string, sqliteDir: string, now: Date): StoreResto
       sidecars.push(named);
     }
   }
+  writePreRestoreMeta(
+    sqliteDir,
+    backupId,
+    now,
+    ['cleo.db'],
+    `the live cleo.db replaced by a restore (T13240)${checkpointed ? '' : '; its WAL could not be folded in, raw sidecars kept'}`,
+  );
+  return { backupId, path: kept, checkpointed, sidecars };
+}
+
+/** A fresh `pre-restore-<timestamp>[-n]` backup id. */
+function preRestoreId(sqliteDir: string, now: Date): string {
+  let backupId = `pre-restore-${formatBackupTimestamp(now)}`;
+  for (let n = 2; existsSync(join(sqliteDir, `${backupId}.meta.json`)); n++) {
+    backupId = `pre-restore-${formatBackupTimestamp(now)}-${n}`;
+  }
+  return backupId;
+}
+
+/** The pinned sidecar of a `pre-restore-*` backup, so `--id` undoes the restore. */
+function writePreRestoreMeta(
+  sqliteDir: string,
+  backupId: string,
+  now: Date,
+  files: string[],
+  note: string,
+): void {
   writeFileSync(
     join(sqliteDir, `${backupId}.meta.json`),
     `${JSON.stringify(
@@ -398,8 +437,8 @@ function keepLiveStore(target: string, sqliteDir: string, now: Date): StoreResto
         backupId,
         type: 'pre-restore',
         timestamp: now.toISOString(),
-        note: `the live cleo.db replaced by a restore (T13240)${checkpointed ? '' : '; its WAL could not be folded in, raw sidecars kept'}`,
-        files: ['cleo.db'],
+        note,
+        files,
         pinned: true,
         pinnedReason: 'undo of a store restore',
       },
@@ -407,7 +446,22 @@ function keepLiveStore(target: string, sqliteDir: string, now: Date): StoreResto
       2,
     )}\n`,
   );
-  return { backupId, path: kept, checkpointed, sidecars };
+}
+
+/**
+ * Refuse while another connection holds a live docs database open: the
+ * restore replaces it, and that connection would keep writing to the old one.
+ */
+function assertDocsDbsQuiescent(cleoDir: string): void {
+  const busy = docsDbsOpenElsewhere(cleoDir);
+  if (busy.length === 0) return;
+  // @sync-invariant none:local-only another connection holds a docs database open; nothing is written
+  throw restoreError(
+    ExitCode.LOCK_TIMEOUT,
+    'E_RESTORE_STORE_BUSY',
+    `another process has ${busy.join(', ')} open; it would keep writing to the replaced file`,
+    'stop every cleo process (sessions, daemons, Studio), then run it again',
+  );
 }
 
 /**
@@ -464,6 +518,20 @@ export async function restoreStoreSnapshot(opts: StoreRestoreOptions): Promise<S
     await assertQuiescent(target, opts.assumeStoppedIfUnverifiable === true, scope);
     const now = opts.now ?? new Date();
     const sqliteDir = join(cleoDir, 'backups', 'sqlite');
+    const keepId = preRestoreId(sqliteDir, now);
+    // T13708: a backup id restores the docs byte surfaces with the store.
+    // Busy docs databases refuse before anything changes, and the live bytes
+    // and databases are kept under the undo backup first (outside the
+    // first-open lock: a full pass over the byte trees blocks for seconds).
+    const docsFrom =
+      scope === 'project' && source.backupId !== null && hasDocsBytes(sqliteDir, source.backupId)
+        ? source.backupId
+        : null;
+    let docsKept = false;
+    if (docsFrom !== null) {
+      assertDocsDbsQuiescent(cleoDir);
+      docsKept = backupDocsBytes(cleoDir, sqliteDir, keepId) !== null;
+    }
     const { FIRST_OPEN_LOCK_SUFFIX } = await import('./sqlite.js');
     const placed = await withLock(
       `${target}${FIRST_OPEN_LOCK_SUFFIX}`,
@@ -473,7 +541,16 @@ export async function restoreStoreSnapshot(opts: StoreRestoreOptions): Promise<S
         const release = writeRestoreMarker(target, 'restore');
         try {
           await assertQuiescent(target, opts.assumeStoppedIfUnverifiable === true, scope);
-          const kept = existsSync(target) ? keepLiveStore(target, sqliteDir, now) : null;
+          const kept = existsSync(target) ? keepLiveStore(target, sqliteDir, keepId, now) : null;
+          if (kept === null && docsKept) {
+            writePreRestoreMeta(
+              sqliteDir,
+              keepId,
+              now,
+              [],
+              'the live docs bytes replaced by a restore (T13708)',
+            );
+          }
           const removed: string[] = [];
           for (const s of SIDECARS) {
             if (existsSync(target + s)) {
@@ -496,6 +573,11 @@ export async function restoreStoreSnapshot(opts: StoreRestoreOptions): Promise<S
       { target, source: source.path, kept: placed.kept?.path ?? null, tasks: after.tasks },
       `${scope} store restored from a snapshot (T13240)`,
     );
+    const docsBytes = docsFrom !== null ? restoreDocsBytes(cleoDir, sqliteDir, docsFrom) : null;
+    const warnings = docsBytes?.failed.map((f) => `docs bytes not restored: ${f}`) ?? [];
+    if (warnings.length > 0) {
+      getLogger('store-restore').warn({ backupId: docsFrom, warnings }, 'partial restore (T13709)');
+    }
     return {
       dryRun: false,
       scope,
@@ -508,6 +590,8 @@ export async function restoreStoreSnapshot(opts: StoreRestoreOptions): Promise<S
       undo: placed.kept
         ? `cleo restore backup${scope === 'global' ? ' --scope global' : ''} --id ${placed.kept.backupId}`
         : null,
+      ...(docsBytes !== null ? { docsBytes } : {}),
+      ...(warnings.length > 0 ? { partial: true, warnings } : {}),
     };
   } finally {
     // Verifying a WAL-mode copy can leave its own sidecars beside it.
