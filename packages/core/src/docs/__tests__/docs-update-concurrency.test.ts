@@ -71,7 +71,9 @@ import {
 } from '../../store/conduit-doc-history.js';
 import { closeDb, getDb } from '../../store/sqlite.js';
 import { attachments } from '../../store/tasks-schema.js';
+import { DocsReadModel } from '../docs-read-model.js';
 import { type UpdateDocBySlugResult, updateDocBySlug } from '../docs-update.js';
+import { buildDocsFetchResult } from '../fetch-result.js';
 import {
   joinSections,
   makeSectionEditUpdate,
@@ -571,6 +573,85 @@ describe('concurrent docs updates through docs-update (T13585, real path)', () =
       expect(refused.error.code).toBe('E_DOC_BASE_UNKNOWN');
       const docUid = (await resolveConduitDocUid(root, SLUG)) as string;
       expect(await listConduitAttachmentVersions(root, docUid)).toHaveLength(1);
+    } finally {
+      closeDb();
+      delete process.env['CLEO_DIR'];
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it('T13684: fetch -> concurrent update -> update with the fetched base, then chain on the returned head', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'cleo-docs-concurrency-fetch-'));
+    process.env['CLEO_DIR'] = join(root, '.cleo');
+    closeDb();
+    try {
+      await seedLegacyDoc(root, SLUG);
+      expect((await updateDocBySlug(root, { slug: SLUG, content: BASE_DOC })).ok).toBe(true);
+
+      // The base comes from the docs.fetch envelope, the surface writers read
+      // (the builder behind both `docs fetch` and `docs view --json`).
+      const model = new DocsReadModel({ projectRoot: root });
+      const resolved = await model.resolveBySlug(SLUG);
+      if (resolved === null) throw new Error('seeded doc did not resolve');
+      const fetched = await buildDocsFetchResult({
+        doc: resolved,
+        content: BASE_DOC,
+        projectRoot: root,
+      });
+      const base = fetched.metadata.headVersionUid;
+      expect(base).toBeDefined();
+
+      // A concurrent writer lands first, from the same fetch.
+      const first = await updateDocBySlug(root, {
+        slug: SLUG,
+        content: joinSections([S0_TEXT, `${S1_BASE}${TAIL_A}`, S2_TEXT]),
+        attachedBy: 'agent-a',
+        baseVersionUid: base,
+      });
+      expect(first.ok).toBe(true);
+
+      // This writer declares the base it fetched: the stale edit merges in.
+      const second = await updateDocBySlug(root, {
+        slug: SLUG,
+        content: joinSections([S0_TEXT, `${S1_BASE}${TAIL_B}`, S2_TEXT]),
+        attachedBy: 'agent-b',
+        baseVersionUid: base,
+      });
+      expect(second.ok, JSON.stringify(second)).toBe(true);
+      if (!second.ok) return;
+      expect(second.result.staleBaseMerged).toBe(true);
+      expect(second.result.headVersionUid).toBeDefined();
+
+      // update -> update: the returned head is a current base, so the next edit
+      // is not stale.
+      const third = await updateDocBySlug(root, {
+        slug: SLUG,
+        content: joinSections([S0_TEXT, `${S1_BASE}${TAIL_A}${TAIL_B}\n\nthird.`, S2_TEXT]),
+        attachedBy: 'agent-b',
+        baseVersionUid: second.result.headVersionUid,
+      });
+      expect(third.ok, JSON.stringify(third)).toBe(true);
+      if (!third.ok) return;
+      expect(third.result.staleBaseMerged).toBeUndefined();
+      expect(third.result.sectionConflicts).toBeUndefined();
+
+      // A re-fetch reports the head the last update returned, and both writers survive.
+      const refetched = await buildDocsFetchResult({
+        doc: resolved,
+        content: '',
+        projectRoot: root,
+      });
+      expect(refetched.metadata.headVersionUid).toBe(third.result.headVersionUid);
+      const docUid = (await resolveConduitDocUid(root, SLUG)) as string;
+      const head = await getConduitDocHead(root, docUid);
+      const headVersion = await getConduitAttachmentVersion(root, head?.headVersionUid ?? '');
+      const { getCleoDirAbsolute } = await import('../../paths.js');
+      const headText = readFileSync(
+        join(getCleoDirAbsolute(root), 'attachments', 'sha256', headVersion?.storageKey ?? ''),
+        'utf-8',
+      );
+      expect(headText).toContain(MARKER_A);
+      expect(headText).toContain(MARKER_B);
     } finally {
       closeDb();
       delete process.env['CLEO_DIR'];

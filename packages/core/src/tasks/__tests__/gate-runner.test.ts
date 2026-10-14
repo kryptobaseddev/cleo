@@ -29,6 +29,7 @@ import { _forceSystemdRunAvailable } from '../../resources/spawn-wrapper.js';
 import { createOperationExecutionContext } from '../../store/background-ops.js';
 import { acItemToText, acTextHash, buildFreshAcRows } from '../ac-table.js';
 import {
+  captureGateInputsHash,
   createTaskGateReceipt,
   outputReportsFailure,
   resolveGateTimeoutMs,
@@ -1408,6 +1409,46 @@ describe('task-bound explicit gate verification (T12292)', () => {
           { execution },
         ),
       ).rejects.toThrow('passing bound');
+    } finally {
+      execution.close();
+    }
+  });
+
+  it('a bracketed task file (Next.js app/[id]/page.tsx) is a literal input, and --run and the write path key it alike (T13690)', async () => {
+    const script = 'bracket-pass.mjs';
+    await writeFile(join(projectRoot, script), 'process.exit(0);');
+    await mkdir(join(projectRoot, 'app', '[id]'), { recursive: true });
+    await writeFile(join(projectRoot, 'app', '[id]', 'page.tsx'), 'export default 1;\n');
+    const base = taskAndRows(script);
+    const task: Task = {
+      ...base.task,
+      files: [script, 'app/[id]/page.tsx', 'app/plain-absent.tsx'],
+    };
+    const execution = admitted();
+    try {
+      const [result] = await runTaskGates(task, base.rows, { execution });
+      expect(result?.result, result?.errorMessage).toBe('pass');
+      const artifacts = result?.binding?.artifacts ?? [];
+      const page = artifacts.find((a) => a.path.endsWith(join('app', '[id]', 'page.tsx')));
+      expect(page?.sha256).toBe(createHash('sha256').update('export default 1;\n').digest('hex'));
+      // A plain declared file that does not exist is recorded as absent.
+      expect(artifacts.find((a) => a.path.endsWith('plain-absent.tsx'))?.sha256).toBeNull();
+      // The digest `cleo verify --run` caches under equals the one the write path reads.
+      const gate = task.acceptance?.find((a) => typeof a !== 'string');
+      if (!gate || typeof gate === 'string') throw new Error('expected a typed gate');
+      const runHash = await captureGateInputsHash(task, gate, execution);
+      const writeHash = createHash('sha256')
+        .update(JSON.stringify({ invocation: result?.binding?.invocation ?? null, artifacts }))
+        .digest('hex');
+      expect(runHash).toBe(writeHash);
+      // T13691: an absent glob-looking entry is a mistaken pattern, refused by name.
+      const [refused] = await runTaskGates({ ...task, files: [script, 'src/**/*.ts'] }, base.rows, {
+        execution,
+      });
+      expect(refused?.result).toBe('error');
+      expect(refused?.errorMessage).toMatch(
+        /declared task file src\/\*\*\/\*\.ts does not exist; list explicit paths, task\.files are literal/,
+      );
     } finally {
       execution.close();
     }

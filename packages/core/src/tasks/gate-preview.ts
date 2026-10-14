@@ -41,8 +41,9 @@ import {
   readAllowCachedGates,
 } from './gate-result-cache.js';
 import {
-  captureGateInputsHash,
+  captureGateInputs,
   extractTypedGates,
+  resolveTypedGateRoot,
   runGates,
   typedGateAdmissionMs,
 } from './gate-runner.js';
@@ -172,13 +173,15 @@ export async function previewTaskGates(
     // A gate whose inputs cannot be captured still runs, uncached; the runner
     // reports its own error for it exactly as before.
     const allowCachedGates = readAllowCachedGates(root);
-    const cacheState = await captureGateCacheState(root);
+    // T13649: report the tree the runner keys its cache to, not the store root.
+    const cacheState = await captureGateCacheState(resolveTypedGateRoot(root));
     const observed: AcceptanceGateResult[] = [];
     const notCachedWhy: Array<string | undefined> = [];
     for (const gate of gates) {
-      const cacheInputsHash = allowCachedGates
-        ? await captureGateInputsHash(task, gate, execution).catch(() => undefined)
+      const captured = allowCachedGates
+        ? await captureGateInputs(task, gate, execution).catch(() => undefined)
         : undefined;
+      const cacheInputsHash = captured?.hash;
       notCachedWhy.push(
         !allowCachedGates
           ? 'evidence.allowCachedGates is false'
@@ -194,7 +197,13 @@ export async function previewTaskGates(
         ...(await runGates(
           [gate],
           cacheInputsHash
-            ? { projectRoot: root, execution, cache: 'refresh', cacheInputsHash }
+            ? {
+                projectRoot: root,
+                execution,
+                cache: 'refresh',
+                cacheInputsHash,
+                cacheInputs: captured?.inputs,
+              }
             : { projectRoot: root, execution },
         )),
       );

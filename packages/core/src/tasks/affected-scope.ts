@@ -27,6 +27,7 @@ import type {
   CommitPr,
   PatchEquivalenceUnknown,
 } from './change-set.js';
+import { QA_RUN_KINDS, qaRunCoverage, qaRunUnionGapReason } from './qa-run-binding.js';
 import { changedTestFiles, testRunCoversChange } from './test-run-binding.js';
 
 /** Whether the task's change has merged to the default branch. */
@@ -184,6 +185,58 @@ export function hasTreeBoundQaRun(atoms: ReadonlyArray<EvidenceAtom>): boolean {
 }
 
 /**
+ * The one rule for whether a recorded `qaPassed` still stands — shared by
+ * `cleo done` planning and `cleo complete`, like
+ * {@link testsPassedSupersededReason}. A moved tree under a qa-run receipt
+ * (T13427) is checked first. Then, once the change has merged, a gate resting
+ * on qa-run receipts alone (no `ci:<pr>`, no whole-project `tool:` run) stands
+ * only when the receipts carry across the merge byte for byte (T13495), or
+ * were recorded on the default branch after the merge, on the current tree,
+ * covering the change (T13644, extending the T13673 owner decision): the
+ * stand-in holds whatever the merge's own CI concluded.
+ *
+ * @param atoms - Recorded `qaPassed` atoms.
+ * @param probe - Lazy merge state and current tree hash, as for testsPassed.
+ * @returns The reason it no longer stands, or null.
+ * @task T13427
+ * @task T13644
+ */
+export async function qaPassedSupersededReason(
+  atoms: ReadonlyArray<EvidenceAtom>,
+  probe: Parameters<typeof testsPassedSupersededReason>[1],
+): Promise<string | null> {
+  if (hasTreeBoundQaRun(atoms)) {
+    const moved = qaRunTreeMismatchReason(atoms, await probe.currentTree());
+    if (moved) return moved;
+  }
+  if (
+    !atoms.some((a) => a.kind === 'qa-run') ||
+    atoms.some((a) => a.kind === 'ci' || a.kind === 'tool')
+  )
+    return null;
+  const merge = await probe.mergeState();
+  const verdict = typeof merge === 'string' ? { state: merge } : merge;
+  if (verdict.state !== 'merged') return null;
+  const target = verdict.landing ?? verdict.changeSet ?? null;
+  const carried = scopedRunCarriedAcrossMerge(atoms, target);
+  if (carried.ok) return null;
+  const landed = probe.landed ?? (await import('./change-set.js')).isLandedOnOriginDefault;
+  const stands = scopedRunStandsAfterRedCi(
+    atoms,
+    target,
+    await probe.currentTree(),
+    landed,
+    'qaPassed',
+  );
+  if (stands.ok) return null;
+  return (
+    `qaPassed rests on qa-run receipts and the change has merged, but ${carried.why}, and no ` +
+    `qa-run on main after the merge stands in (${stands.why}). Record ci:<pr>, or on the default ` +
+    `branch run typecheck and lint over the change's roots and record a qa-run for each.`
+  );
+}
+
+/**
  * Whether the recorded `testsPassed` atoms carry a tree-bound `test-run:`
  * that {@link testRunTreeMismatchReason} would judge, so callers compute the
  * current tree hash only when it matters.
@@ -262,7 +315,7 @@ export async function testsPassedSupersededReason(
  * closed — no merge commit, no changed paths, a result with no tree pin, or a
  * git failure each say why the result does not carry.
  *
- * @param atoms - Recorded `testsPassed` atoms.
+ * @param atoms - Recorded `testsPassed` atoms, or `qaPassed` qa-run receipts (T13644).
  * @param changeSet - The merged change set (its merge commit, files and root).
  * @returns `ok`, or why the scoped result does not carry across the merge.
  * @task T13495
@@ -279,7 +332,8 @@ export function scopedRunCarriedAcrossMerge(
   const paths = [...new Set([...changeSet.files, ...changeSet.deletedFiles])];
   if (paths.length === 0) return { ok: false, why: 'the merged change lists no files to compare' };
   const scoped = atoms.filter(
-    (a) => a.kind === 'test-run' || (a.kind === 'tool' && a.scope === 'affected'),
+    (a) =>
+      a.kind === 'test-run' || a.kind === 'qa-run' || (a.kind === 'tool' && a.scope === 'affected'),
   );
   for (const atom of scoped) {
     const tree = 'treeHash' in atom && typeof atom.treeHash === 'string' ? atom.treeHash : null;
@@ -345,12 +399,15 @@ function differingPaths(root: string, tree: string, merge: string, paths: string
  *    pre-merge report must cover a branch ({@link testRunCoversChange}), and
  *    ran every test file the change added or edited that still exists.
  *
- * @param atoms - Recorded `testsPassed` atoms.
+ * @param atoms - Recorded `testsPassed` atoms, or `qaPassed` atoms with `gate`.
  * @param changeSet - The merged change set (its merge commit, files and root).
  * @param current - The current tree hash of that root, or null.
  * @param landed - Whether a commit has landed on origin's default branch
  *   (`isLandedOnOriginDefault`; passed in so this module keeps loading
  *   change-set lazily).
+ * @param gate - `qaPassed` judges `qa-run:` receipts instead (T13644): a
+ *   typecheck and a lint, each bound like a test-run, whose roots together
+ *   cover the change by the verify-time coverage rule ({@link qaRunCoverage}).
  * @returns `ok`, or why the recorded run does not stand in.
  * Since T13673 (owner decision 2026-10-13) the same stand-in applies to every
  * merged change, whatever its CI concluded: {@link testsPassedSupersededReason}
@@ -360,33 +417,40 @@ function differingPaths(root: string, tree: string, merge: string, paths: string
  * @task T13623
  * @task T13627
  * @task T13673
+ * @task T13644
  */
 export function scopedRunStandsAfterRedCi(
   atoms: ReadonlyArray<EvidenceAtom>,
   changeSet: Pick<TaskChangeSet, 'mergeCommitSha' | 'files' | 'executionRoot'> | null,
   current: string | null,
   landed: (root: string, sha: string) => boolean,
+  gate: 'testsPassed' | 'qaPassed' = 'testsPassed',
 ): { ok: true } | { ok: false; why: string } {
   const merge = changeSet?.mergeCommitSha;
   if (!changeSet || !merge) return { ok: false, why: 'the merge commit is not known here' };
   if (changeSet.files.length === 0)
     return { ok: false, why: 'the merged change lists no files to cover' };
+  const qa = gate === 'qaPassed';
   const runs = atoms.filter(
-    (a): a is Extract<EvidenceAtom, { kind: 'test-run' }> => a.kind === 'test-run',
+    (a): a is Extract<EvidenceAtom, { kind: 'test-run' | 'qa-run' }> =>
+      a.kind === (qa ? 'qa-run' : 'test-run'),
   );
-  if (runs.length === 0 || atoms.some((a) => a.kind === 'tool' && a.scope === 'affected'))
+  if (runs.length === 0 || atoms.some((a) => a.kind === 'tool' && (qa || a.scope === 'affected')))
     return {
       ok: false,
-      why: 'only test-run reports, which name the test files they ran, can stand in',
+      why: qa
+        ? 'only qa-run receipts, which name the roots they checked, can stand in'
+        : 'only test-run reports, which name the test files they ran, can stand in',
     };
   const root = changeSet.executionRoot;
   for (const run of runs) {
+    const label = `${run.kind}:${run.path}`;
     if (!run.headSha || !run.treeHash)
-      return { ok: false, why: `test-run:${run.path} records no HEAD and tree to judge` };
+      return { ok: false, why: `${label} records no HEAD and tree to judge` };
     if (run.treeHash !== current)
       return {
         ok: false,
-        why: `test-run:${run.path} ran on tree ${run.treeHash.slice(0, 12)}, but the tree is now ${current?.slice(0, 12) ?? 'unknown'}`,
+        why: `${label} ran on tree ${run.treeHash.slice(0, 12)}, but the tree is now ${current?.slice(0, 12) ?? 'unknown'}`,
       };
     try {
       execFileSync('git', ['merge-base', '--is-ancestor', merge, run.headSha], {
@@ -396,16 +460,32 @@ export function scopedRunStandsAfterRedCi(
     } catch {
       return {
         ok: false,
-        why: `test-run:${run.path} was recorded at ${run.headSha.slice(0, 12)}, which does not descend from merge commit ${merge.slice(0, 12)}`,
+        why: `${label} was recorded at ${run.headSha.slice(0, 12)}, which does not descend from merge commit ${merge.slice(0, 12)}`,
       };
     }
     if (!landed(root, run.headSha))
       return {
         ok: false,
-        why: `test-run:${run.path} was recorded at ${run.headSha.slice(0, 12)}, which is not on origin's default branch; run it on the default branch`,
+        why: `${label} was recorded at ${run.headSha.slice(0, 12)}, which is not on origin's default branch; run it on the default branch`,
       };
   }
-  const ran = [...new Set(runs.flatMap((r) => r.testFiles ?? []))];
+  if (qa) {
+    const receipts = runs.filter(
+      (r): r is Extract<EvidenceAtom, { kind: 'qa-run' }> => r.kind === 'qa-run',
+    );
+    const missing = QA_RUN_KINDS.filter((k) => !receipts.some((r) => r.check === k));
+    if (missing.length > 0)
+      return { ok: false, why: `no qa-run ${missing.join(' or ')} receipt is on record` };
+    const bound = [];
+    for (const r of receipts) {
+      const cover = qaRunCoverage(r.check, r.roots, root, changeSet.files);
+      if (!cover.ok) return { ok: false, why: cover.reason };
+      bound.push({ check: r.check, roots: r.roots, ...cover });
+    }
+    const gap = qaRunUnionGapReason(bound);
+    return gap === null ? { ok: true } : { ok: false, why: gap };
+  }
+  const ran = [...new Set(runs.flatMap((r) => (r.kind === 'test-run' ? (r.testFiles ?? []) : [])))];
   const covered = testRunCoversChange(root, changeSet.files, ran);
   if (!covered.ok) return { ok: false, why: covered.reason };
   const unrun = changedTestFiles(root, changeSet.files).filter((f) => !ran.includes(f));

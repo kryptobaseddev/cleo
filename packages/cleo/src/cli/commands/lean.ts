@@ -67,15 +67,77 @@ const levelSubcommand = defineCommand({
   },
 });
 
+const debtSubcommand = defineCommand({
+  meta: {
+    name: 'debt',
+    description:
+      'Ledger of every `shortcut:` (or `ponytail:`) comment in git-tracked files, with its limit, upgrade trigger and a no-trigger flag. --file-tasks files one lean-debt task per new marker under --parent.',
+  },
+  args: {
+    marker: {
+      type: 'string',
+      description: 'Marker word to scan instead of shortcut/ponytail (e.g. TODO)',
+    },
+    'file-tasks': {
+      type: 'boolean',
+      description: 'File one lean-debt task per marker that has none yet',
+    },
+    parent: {
+      type: 'string',
+      description: 'Parent epic for filed tasks (required with --file-tasks)',
+    },
+  },
+  async run({ args }) {
+    const fileTasks = args['file-tasks'] === true;
+    const parentId = typeof args.parent === 'string' ? args.parent : undefined;
+    if (fileTasks && !parentId) {
+      cliError('lean debt: --file-tasks needs --parent <epicId>', ExitCode.INVALID_INPUT, {
+        name: 'E_INVALID_INPUT',
+      });
+      process.exit(ExitCode.INVALID_INPUT);
+      return;
+    }
+    const { leanDebtReport } = await import('@cleocode/core/orchestration/lean-debt.js');
+    const { getProjectRoot } = await import('@cleocode/core/project-scope');
+    try {
+      const report = await leanDebtReport({
+        projectRoot: getProjectRoot(),
+        ...(typeof args.marker === 'string' && args.marker.trim()
+          ? { markers: [args.marker.trim()] }
+          : {}),
+        fileTasks,
+        ...(parentId ? { parentId } : {}),
+      });
+      cliOutput(report, { command: 'lean-debt', operation: 'lean.debt' });
+    } catch (err) {
+      const { CleoError } = await import('@cleocode/core/internal');
+      if (err instanceof CleoError) {
+        cliError(`lean debt: ${err.message}`, err.code, { name: 'CleoError', fix: err.fix });
+        process.exit(err.code);
+        return;
+      }
+      cliError(
+        `lean debt: ${err instanceof Error ? err.message : String(err)}`,
+        ExitCode.GENERAL_ERROR,
+        {
+          name: 'E_LEAN_DEBT_FAILED',
+        },
+      );
+      process.exit(ExitCode.GENERAL_ERROR);
+    }
+  },
+});
+
 /** cleo lean — ct-lean levels and tools. */
 export const leanCommand = defineCommand({
   meta: {
     name: 'lean',
     description:
-      'ct-lean (smallest complete change) levels and tools: cleo lean level [off|lite|full|ultra] [--session|--global]',
+      'ct-lean (smallest complete change) levels and tools: cleo lean level [off|lite|full|ultra] [--session|--global] · cleo lean debt [--file-tasks --parent <epic>]',
   },
   subCommands: {
     level: levelSubcommand,
+    debt: debtSubcommand,
   },
   async run({ cmd, rawArgs }) {
     const firstArg = rawArgs?.find((a) => !a.startsWith('-'));
