@@ -13,4 +13,4 @@ summary: Sync is released and on by default; cleo login nexus leaves a linked pr
 
 Opt out with `cloud.autoSync: false` or `CLEO_DISABLE_AUTO_SYNC=1`. CI and redirected-stderr logins still only print. A failure to turn sync on warns (`W_NEXUS_FIRST_RUN_SYNC`) and never fails the login.
 
-Background auto-sync (session end, the sentient tick, normal commands) becomes live, because its unreleased guard no longer holds.
+Background auto-sync (session end, the sentient tick, normal commands) becomes live, because its unreleased guard no longer holds. Under a test runner or CI it stays off, and `cleo cloud status` warns `W_AUTO_SYNC_SUPPRESSED`.

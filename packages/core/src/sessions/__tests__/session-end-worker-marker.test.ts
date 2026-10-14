@@ -233,12 +233,13 @@ describe.skipIf(DIST_MISSING)('session-end worker marker (T12508)', { timeout: 1
     });
   }
 
-  it('the worker runs the automatic cloud sync after its snapshot; a store with no sync on skips it (T13468, T13549)', async () => {
+  // The worker inherits VITEST, so the released auto-sync is suppressed (T13606); auto-sync.test covers 'skipped'.
+  it('the worker runs the automatic cloud sync after its snapshot; suppressed under the test runner (T13468, T13549, T13606)', async () => {
     const { requestSessionEndSnapshot } = await import('../session-end-snapshot.js');
     const req = await requestSessionEndSnapshot(projectRoot);
     expect(req.mode).toBe('detached');
     expect(await waitFor(() => workerLines().length > 0, 60_000)).toBe(true);
-    expect(workerLines()[0]?.autoSync).toBe('skipped');
+    expect(workerLines()[0]?.autoSync).toBe('disabled');
   });
 
   it('a marker naming a live pid that is a DIFFERENT process (pid 1) does not block', async () => {

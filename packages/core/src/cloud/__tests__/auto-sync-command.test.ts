@@ -256,6 +256,12 @@ describe('cleo cloud status names what suppresses auto-sync (T13602)', () => {
     expect(autoSyncSuppressedBy({ VITEST: 'true' })).toBe('VITEST');
     expect(autoSyncSuppressedBy({ NODE_ENV: 'test' })).toBe('NODE_ENV=test');
     expect(autoSyncSuppressedWarning({ CI: 'false' }, released)).toBeNull();
-    expect(autoSyncSuppressedWarning({ CI: 'true' })).toBeNull();
+    expect(
+      autoSyncSuppressedWarning({ CI: 'true' }, new Set(['sync.push', 'sync.pull'])),
+    ).toBeNull();
+  });
+
+  it('warns by default now that sync is released (T13549)', () => {
+    expect(autoSyncSuppressedWarning({ CI: 'true' })?.code).toBe(W_AUTO_SYNC_SUPPRESSED);
   });
 });
