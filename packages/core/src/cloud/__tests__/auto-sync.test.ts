@@ -73,7 +73,10 @@ describe('autoCloudSync (T13468)', () => {
       throw new Error('no network in this test');
     });
     vi.stubGlobal('fetch', fetchSpy);
-    const { unreleasedFlags: _released, ...unreleased } = seams().opts;
+    const unreleased = {
+      ...seams().opts,
+      unreleasedFlags: new Set(['sync.push', 'sync.pull']),
+    };
     const { opts, sync } = seams();
     for (const reason of ['session-end', 'tick', 'command'] as const) {
       expect(await autoCloudSync(project, reason, { ...unreleased, sync })).toBe('disabled');

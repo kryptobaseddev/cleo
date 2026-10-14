@@ -113,6 +113,7 @@ import {
 } from '../store/portable-bundle-scan.js';
 import { writeRestoreMarker } from '../store/restore-marker.js';
 import { FIRST_OPEN_LOCK_SUFFIX } from '../store/sqlite.js';
+import { setCaptureEnabled } from '../store/sync/capture.js';
 import { isSyncFlagOn, setSyncFlag, UNRELEASED_FLAGS } from '../store/sync/flags.js';
 import {
   completeGenesis,
@@ -1563,6 +1564,7 @@ async function enableSyncPushImpl(
   const resuming = pendingCut && fs.existsSync(saved.bundle) && fs.existsSync(saved.meta);
   const base = { apiUrl: conn.apiUrl, scope: t.scope, streamId: t.streamId };
   if (cutBefore !== undefined && !pendingCut) {
+    if (!isSyncFlagOn(db, 'sync.pull')) setSyncFlag(db, 'sync.pull', true);
     return {
       ...base,
       status: 'already',
@@ -1619,6 +1621,7 @@ async function enableSyncPushImpl(
       });
       fs.rmSync(saved.bundle, { force: true });
       fs.rmSync(saved.meta, { force: true });
+      setSyncFlag(db, 'sync.pull', true);
       warnings.push(...conn.state.drainWarnings());
       return {
         ...base,
@@ -1807,6 +1810,9 @@ async function enableSyncPushImpl(
   const git = gitTracking(t);
   if (git.mode === 'unknown') warnings.push(gitUnknownWarning(t));
 
+  // T13549: a released push turns on the capture and sealing its cut needs.
+  if (!isSyncFlagOn(db, 'sync.capture')) setCaptureEnabled(db, tableScopeOf(t), true);
+  if (!isSyncFlagOn(db, 'sync.seal')) setSyncFlag(db, 'sync.seal', true);
   await acquireLease(conn, t, false, 'cleo sync enable push');
   try {
     let cut = cutBefore ?? 0;
@@ -1958,6 +1964,8 @@ async function enableSyncPushImpl(
     fs.rmSync(saved.bundle, { force: true });
     fs.rmSync(saved.meta, { force: true });
     await releaseLeaseQuietly(conn, t);
+    // Pull rides with push (T13549): a store that pushes also receives.
+    setSyncFlag(db, 'sync.pull', true);
     warnings.push(...conn.state.drainWarnings());
     return {
       ...base,

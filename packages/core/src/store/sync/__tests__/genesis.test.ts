@@ -252,11 +252,10 @@ describe('genesis preconditions (T13032 AC2 step 0): a refusal cuts nothing', ()
     expectUncut(db);
   });
 
-  it('sealing not allowed', async () => {
+  it('a cut needs no unreleased opt-in once sync is released (T13549)', async () => {
     const { db } = await store();
     const r = cutGenesis(db, { scope: 'project', stream: STREAM, env: {} });
-    expect(r.refused).toMatch(/unreleased/);
-    expectUncut(db);
+    expect(r.refused).toBeNull();
   });
 
   it('no bound replica', async () => {

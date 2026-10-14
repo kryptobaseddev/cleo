@@ -32,7 +32,13 @@ import {
   tickClock,
   withImmediateTransaction,
 } from '../clock-store.js';
-import { isSyncFlagOn, killSwitchVar, readSyncFlags, setSyncFlag } from '../flags.js';
+import {
+  isSyncFlagOn,
+  killSwitchVar,
+  readSyncFlags,
+  setSyncFlag,
+  UNRELEASED_FLAGS,
+} from '../flags.js';
 import { encodeHlc, MAX_DRIFT_MS, parseHlc } from '../hlc.js';
 import {
   activeReplica,
@@ -212,15 +218,21 @@ describe('sync schema journal', () => {
     ).toThrow(SyncSchemaHashDriftError);
   });
 
-  it('an unreleased flag cannot be turned on (T13032): sync.seal waits for S3b–S3d', () => {
+  it('every sync flag is released (T13549): each turns on without the opt-in', () => {
     const { db } = freshStore();
-    for (const flag of ['sync.seal', 'sync.push', 'sync.pull', 'sync.strict'] as const) {
-      expect(() => setSyncFlag(db, flag, true, { schemaRoot: SCHEMA_ROOT })).toThrow(
-        /E_SYNC_FLAG_UNRELEASED/,
-      );
+    expect(UNRELEASED_FLAGS.size).toBe(0);
+    for (const flag of [
+      'sync.capture',
+      'sync.seal',
+      'sync.push',
+      'sync.pull',
+      'sync.strict',
+    ] as const) {
+      expect(setSyncFlag(db, flag, true, { schemaRoot: SCHEMA_ROOT })).toBe(true);
     }
-    expect(setSyncFlag(db, 'sync.capture', true, { schemaRoot: SCHEMA_ROOT })).toBe(true);
-    expect(setSyncFlag(db, 'sync.seal', false, { schemaRoot: SCHEMA_ROOT })).toBe(false);
+    // Still a store-level opt-out: a flag turns off again.
+    setSyncFlag(db, 'sync.seal', false, { schemaRoot: SCHEMA_ROOT });
+    expect(isSyncFlagOn(db, 'sync.seal', {})).toBe(false);
   });
 
   it('two connections enabling at once apply each folder once (re-read under the lock)', () => {

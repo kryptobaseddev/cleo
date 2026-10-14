@@ -32,6 +32,7 @@ import {
   W_NEXUS_FIRST_RUN_LINK,
   W_NEXUS_FIRST_RUN_PROJECTS,
   W_NEXUS_FIRST_RUN_RESTORE,
+  W_NEXUS_FIRST_RUN_SYNC,
 } from '../nexus-first-run.js';
 import type { NexusNamedProjectsResult } from '../nexus-project-names.js';
 
@@ -39,6 +40,7 @@ import type { NexusNamedProjectsResult } from '../nexus-project-names.js';
 const defaults = vi.hoisted(() => ({
   link: vi.fn(),
   push: vi.fn(),
+  enableSync: vi.fn(async () => ({})),
 }));
 vi.mock('../nexus-link.js', async (importOriginal) => {
   const mod = await importOriginal<typeof import('../nexus-link.js')>();
@@ -46,7 +48,7 @@ vi.mock('../nexus-link.js', async (importOriginal) => {
 });
 vi.mock('../nexus-vault.js', async (importOriginal) => {
   const mod = await importOriginal<typeof import('../nexus-vault.js')>();
-  return { ...mod, pushNexusVault: defaults.push };
+  return { ...mod, pushNexusVault: defaults.push, enableSyncPush: defaults.enableSync };
 });
 
 const API = 'https://api.nexus.test';
@@ -84,6 +86,8 @@ beforeEach(() => {
   process.env['CLEO_DIR'] = join(projectRoot, '.cleo');
   defaults.link.mockReset();
   defaults.push.mockReset();
+  defaults.enableSync.mockClear();
+  delete process.env['CLEO_DISABLE_AUTO_SYNC'];
 });
 
 afterEach(() => {
@@ -189,6 +193,8 @@ function stubs() {
       }),
     ),
     confirm: vi.fn(async () => true),
+    enableSync: vi.fn(async (_o: unknown) => ({})),
+    readAutoSync: vi.fn(async (_root: string): Promise<boolean | undefined> => undefined),
   };
 }
 
@@ -206,6 +212,8 @@ function run(
     cloudBackup: s.cloudBackup,
     listProjects: s.listProjects,
     confirm: s.confirm,
+    enableSync: s.enableSync,
+    readAutoSync: s.readAutoSync,
     ...extra,
   });
 }
@@ -629,5 +637,86 @@ describe('guided first run skips', () => {
     expect(r.state).toBe('skipped');
     expect(r.reason).toContain('CLEO_NEXUS_DEVICE=0');
     expect(s.link).not.toHaveBeenCalled();
+  });
+});
+
+describe('login leaves the linked project syncing (T13549)', () => {
+  const scopes = (s: ReturnType<typeof stubs>) =>
+    s.enableSync.mock.calls.map((c) => (c[0] as { scope: string }).scope);
+
+  it('after linking and backing up, sync turns on for the project and the home stream', async () => {
+    const s = stubs();
+    const r = await run(s, { consent: 'yes' });
+    expect(r.state).toBe('backed-up');
+    expect(scopes(s)).toEqual(['project', 'global']);
+    expect(s.enableSync).toHaveBeenCalledWith(
+      expect.objectContaining({ apiUrl: API, projectRoot, scope: 'project' }),
+    );
+    // Enabling comes after the backup.
+    expect(s.push.mock.invocationCallOrder[0]).toBeLessThan(
+      s.enableSync.mock.invocationCallOrder[0] ?? 0,
+    );
+    expect(r.warnings.map((w) => w.code)).not.toContain(W_NEXUS_FIRST_RUN_SYNC);
+  });
+
+  it('a second device that restores joins: sync turns on after the restore', async () => {
+    const s = stubs();
+    s.cloudBackup.mockResolvedValue(true);
+    const r = await run(s, { consent: 'yes' });
+    expect(r.state).toBe('restored');
+    expect(scopes(s)).toEqual(['project', 'global']);
+  });
+
+  it('an already-linked project gets sync on too (an older link)', async () => {
+    writeLink(linkEntry());
+    const s = stubs();
+    const r = await run(s, { consent: 'unattended' });
+    expect(r.state).toBe('already-linked');
+    expect(scopes(s)).toEqual(['project', 'global']);
+  });
+
+  it('CI and redirected stderr only print: consent never turns nothing on', async () => {
+    writeLink(linkEntry());
+    const s = stubs();
+    const r = await run(s, { consent: 'never' });
+    expect(r.state).toBe('already-linked');
+    expect(s.enableSync).not.toHaveBeenCalled();
+  });
+
+  it('the opt-outs leave sync off: cloud.autoSync false, or CLEO_DISABLE_AUTO_SYNC=1', async () => {
+    const off = stubs();
+    off.readAutoSync.mockResolvedValue(false);
+    expect((await run(off, { consent: 'yes' })).state).toBe('backed-up');
+    expect(off.enableSync).not.toHaveBeenCalled();
+    process.env['CLEO_DISABLE_AUTO_SYNC'] = '1';
+    const env = stubs();
+    expect((await run(env, { consent: 'yes' })).state).toBe('backed-up');
+    expect(env.enableSync).not.toHaveBeenCalled();
+  });
+
+  it('a failure to turn sync on warns per scope and never fails the login', async () => {
+    const s = stubs();
+    s.enableSync.mockRejectedValue(
+      new NexusAccountError('E_NEXUS_SYNC_REFUSED', 'the genesis cut was refused: x'),
+    );
+    const r = await run(s, { consent: 'yes' });
+    expect(r.state).toBe('backed-up');
+    const sync = r.warnings.filter((w) => w.code === W_NEXUS_FIRST_RUN_SYNC);
+    expect(sync.map((w) => w.message)).toEqual([
+      expect.stringContaining('cleo sync enable push --scope project'),
+      expect.stringContaining('cleo sync enable push --scope global'),
+    ]);
+  });
+
+  it('without the stub it calls enableSyncPush', async () => {
+    defaults.link.mockResolvedValueOnce(linkResult());
+    defaults.push.mockResolvedValueOnce(pushResult());
+    await runNexusFirstRun({
+      apiUrl: API,
+      projectRoot,
+      consent: 'yes',
+      readAutoSync: async () => undefined,
+    });
+    expect(defaults.enableSync).toHaveBeenCalledTimes(2);
   });
 });
