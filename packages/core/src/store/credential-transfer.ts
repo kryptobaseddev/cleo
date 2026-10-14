@@ -27,17 +27,14 @@
  * |-------|----------|------------|
  * | `project-agent` | project `cleo.db` → `tasks_agent_credentials.api_key_encrypted` | project KDF |
  * | `service-connection` | global `cleo.db` → `service_connections.credentials_enc` | global KDF, id `service:<provider>:<label>` |
- * | `llm-pool` | `<cleoHome>/llm-credentials.json` | none (0600 plaintext file) |
+ * | `llm-pool` | global `cleo.db` → `accounts.secret_enc` / `refresh_enc`; legacy `<cleoHome>/llm-credentials.json` | global KDF, id `account:<provider>:<label>` (T13715); the legacy file is plaintext |
  * | `agent-registry` | global `cleo.db` → `agent_registry_agents.api_key_encrypted` | global KDF, id `agent:<agentId>` (T12352) |
  *
- * The LLM pool stays a plaintext 0600 file on purpose (T12326 decision).
- * Encrypting it under the machine-key would add little on-device protection,
- * because the key sits in the same directory with the same mode. It would also
- * force a key read into the synchronous resolver hot path
- * (`pickCredentialForProviderSync`) and break the tools that read the file
- * directly. What matters is that the pool never enters an unencrypted bundle,
- * and this module guarantees that: the pool is either sealed or listed for
- * re-entry.
+ * The LLM pool moved from a plaintext 0600 file into the synced `accounts`
+ * table (T13715, superseding the T12326 decision to keep the file), so it
+ * travels on the home stream. An unmigrated legacy file is still read. The
+ * pool never enters an unencrypted bundle: it is either sealed or listed for
+ * re-entry, and its ciphertext is blanked in staged snapshots.
  *
  * Callers pass FILE PATHS (live stores, or a backup's staged snapshots); the
  * module opens short-lived raw handles and closes them before returning.
@@ -73,6 +70,12 @@ import {
 import { getCleoHome } from '../paths.js';
 import { openAgentApiKey, sealAgentApiKey } from './agent-api-key.js';
 import { decryptBundle, encryptBundle } from './backup-crypto.js';
+import {
+  type LlmAccountRow,
+  listLlmAccountRowsSync,
+  llmAccountToCredentialSync,
+  upsertLlmAccount,
+} from './llm-accounts-accessor.js';
 import { installSchemaWriteGuard } from './worktree-build-guard.js';
 
 // ---------------------------------------------------------------------------
@@ -129,9 +132,11 @@ export interface CredentialTargets {
   /** Restored global `cleo.db`. */
   readonly globalDbPath?: string;
   /**
-   * Write `llm-pool` entries into the local pool (`<cleoHome>/llm-credentials.json`).
-   * Default `true`. Only the AMBIENT home's pool can be written; with a
-   * different `cleoHome` the entries are reported for re-entry instead.
+   * Write `llm-pool` entries into the pool: the `accounts` table of
+   * {@link CredentialTargets.globalDbPath} when given (T13715), else the
+   * ambient home's pool. Default `true`. Without a global store, only the
+   * AMBIENT home's pool can be written; with a different `cleoHome` the
+   * entries are reported for re-entry instead.
    */
   readonly restoreLlmPool?: boolean;
   /**
@@ -262,6 +267,8 @@ interface StoredRow {
   readonly descriptor: CredentialDescriptor;
   /** Ciphertext (DB stores) or the serialized entry (`llm-pool`). */
   readonly material: string;
+  /** An `llm-pool` credential read from `accounts`: decrypted by {@link openRow}. */
+  readonly account?: LlmAccountRow;
 }
 
 /** Open a database file, run `fn`, always close. Returns `fallback` when the file is absent. */
@@ -378,13 +385,33 @@ function readLlmPoolRows(storePath: string | undefined): StoredRow[] {
   }));
 }
 
+/** Read the `accounts` (LLM pool) rows that carry a secret, still encrypted. */
+function readLlmAccountRows(dbPath: string | undefined): StoredRow[] {
+  if (dbPath === undefined) return [];
+  return listLlmAccountRowsSync({ dbPath })
+    .filter((r) => r.secret_enc !== null && r.secret_enc !== '')
+    .map((r) => ({
+      descriptor: {
+        store: 'llm-pool',
+        id: `${r.provider}:${r.label}`,
+        label: `${r.provider} LLM credential "${r.label}"`,
+      },
+      material: '',
+      account: r,
+    }));
+}
+
 /** Every credential row across the given sources, still encrypted. */
 function readAllRows(sources: CredentialSources): StoredRow[] {
+  const accounts = readLlmAccountRows(sources.globalDbPath);
+  const pooled = new Set(accounts.map((r) => r.descriptor.id));
   return [
     ...readProjectAgentRows(sources.projectDbPath),
     ...readServiceConnectionRows(sources.globalDbPath),
     ...readAgentRegistryRows(sources.globalDbPath),
-    ...readLlmPoolRows(sources.llmStorePath),
+    ...accounts,
+    // An unmigrated legacy entry `accounts` already holds is the same credential.
+    ...readLlmPoolRows(sources.llmStorePath).filter((r) => !pooled.has(r.descriptor.id)),
   ];
 }
 
@@ -444,8 +471,8 @@ function assertStagedCopy(dbPath: string): void {
  * decrypted on another device, and it would be decryptable by anyone who
  * later obtains this device's machine-key. Sets
  * `tasks_agent_credentials.api_key_encrypted = ''` (the column is NOT NULL)
- * and `service_connections.credentials_enc = NULL`; every non-secret column
- * is kept. The LLM pool FILE is not touched — the bundle writer must exclude
+ * and `service_connections.credentials_enc = NULL` (likewise the `accounts`
+ * secrets); every non-secret column is kept. The LLM pool FILE is not touched — the bundle writer must exclude
  * it, and can take its entries from the returned list.
  *
  * @param sources - Staged snapshot paths (`projectDbPath` / `globalDbPath`);
@@ -477,6 +504,12 @@ export function redactCredentialCiphertexts(sources: CredentialSources): Credent
       // gate-28: staged-snapshot redactCredentialCiphertexts
       db.prepare(
         'UPDATE agent_registry_agents SET api_key_encrypted = NULL WHERE api_key_encrypted IS NOT NULL',
+      ).run();
+    }
+    if (hasTable(db, 'accounts', ['secret_enc', 'refresh_enc'])) {
+      // gate-28: staged-snapshot redactCredentialCiphertexts
+      db.prepare(
+        'UPDATE accounts SET secret_enc = NULL, refresh_enc = NULL WHERE secret_enc IS NOT NULL OR refresh_enc IS NOT NULL',
       ).run();
     }
   });
@@ -523,8 +556,12 @@ async function openRow(row: StoredRow, sources: CredentialSources): Promise<stri
       if (key.requiresReauth) throw new Error(key.reason ?? 'the stored key is not recoverable');
       return key.apiKey;
     }
-    case 'llm-pool':
-      return row.material;
+    case 'llm-pool': {
+      if (row.account === undefined) return row.material;
+      const credential = llmAccountToCredentialSync(row.account, { cleoHome: sources.cleoHome });
+      if (credential === null) throw new Error('the stored LLM credential is malformed');
+      return JSON.stringify(credential);
+    }
   }
 }
 
@@ -582,6 +619,17 @@ export async function sealCredentials(
   } finally {
     plaintext.fill(0);
   }
+}
+
+/** Parse a sealed `llm-pool` secret (a serialized pool entry); `null` when malformed. */
+function parseSealedLlmEntry(secret: string): StoredCredential | null {
+  let credential: unknown;
+  try {
+    credential = JSON.parse(secret);
+  } catch {
+    return null;
+  }
+  return isStoredCredential(credential) ? credential : null;
 }
 
 /** Type guard for a credential descriptor field set. */
@@ -797,6 +845,25 @@ export async function unsealCredentials(
           reentry.push(reentryFor(descriptor, 'LLM pool restore was not requested'));
           break;
         }
+        const { globalDbPath } = targets;
+        if (globalDbPath !== undefined) {
+          const credential = parseSealedLlmEntry(entry.secret);
+          if (credential === null) {
+            reentry.push(reentryFor(descriptor, 'sealed LLM entry is malformed'));
+            break;
+          }
+          writes.push({
+            entry,
+            apply: async () => {
+              await upsertLlmAccount(credential, {
+                dbPath: globalDbPath,
+                ...(targets.cleoHome !== undefined ? { cleoHome: targets.cleoHome } : {}),
+              });
+              return true;
+            },
+          });
+          break;
+        }
         if (
           targets.cleoHome !== undefined &&
           canonicalPath(targets.cleoHome) !== canonicalPath(getCleoHome())
@@ -806,17 +873,11 @@ export async function unsealCredentials(
           );
           break;
         }
-        let credential: unknown;
-        try {
-          credential = JSON.parse(entry.secret);
-        } catch {
-          credential = undefined;
-        }
-        if (!isStoredCredential(credential)) {
+        const stored = parseSealedLlmEntry(entry.secret);
+        if (stored === null) {
           reentry.push(reentryFor(descriptor, 'sealed LLM entry is malformed'));
           break;
         }
-        const stored: StoredCredential = credential;
         writes.push({
           entry,
           apply: async () => {
