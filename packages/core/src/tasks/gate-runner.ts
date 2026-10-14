@@ -71,7 +71,7 @@ import type {
   ProcessCaptureOptions,
   ProcessCaptureResult,
 } from '@cleocode/contracts/resource-governor';
-import { gitToplevel } from '../git/work-tree.js';
+import { gitToplevel, resolveDeclaredEvidenceGitRoot } from '../git/work-tree.js';
 import { getProjectRoot } from '../paths.js';
 import { captureProjectScope, worktreeScope } from '../project-scope.js';
 import { truncateString } from '../render/helpers.js';
@@ -355,14 +355,24 @@ export async function captureGateInputsHash(
  * carried to another tree by content (tracked inputs must hash identically and
  * the recorded HEAD must be merged there).
  *
+ * T13649: the evidence declaration (`CLEO_EVIDENCE_GIT_ROOT`, `GIT_WORK_TREE`
+ * or `evidence.gitRoot`) is consulted first, as `resolveEvidenceExecutionRoot`
+ * does for evidence tools. Without it, a run whose cwd had been moved to the
+ * store root keyed the gate cache to the primary checkout's HEAD even when the
+ * caller named its worktree. A declared tree is honoured only when it is this
+ * project's checkout or one of its linked worktrees, like the cwd.
+ *
  * @param projectRoot - CLEO store root (the typed gate's authority).
  * @param cwd - Invocation directory. Defaults to `process.cwd()`.
+ * @param env - Where the evidence declaration is read. Defaults to `process.env`.
  * @returns The realpath of the tree typed gates execute in.
  * @task T12625
+ * @task T13649
  */
 export function resolveTypedGateRoot(
   projectRoot: string,
   cwd: string = process.cwd(), // CWD-OK: the invocation tree is the subject (gh#1220)
+  env: NodeJS.ProcessEnv = process.env,
 ): string {
   const real = (p: string): string => {
     try {
@@ -372,9 +382,15 @@ export function resolveTypedGateRoot(
     }
   };
   const root = real(projectRoot);
-  const top = gitToplevel(cwd);
-  if (top === null || real(top) === root) return projectRoot;
-  return real(resolveCanonicalProjectRoot(top)) === root ? real(top) : projectRoot;
+  const ofThisProject = (top: string | null): string | null =>
+    top !== null && real(top) !== root && real(resolveCanonicalProjectRoot(top)) === root
+      ? real(top)
+      : null;
+  const declared = resolveDeclaredEvidenceGitRoot(projectRoot, env);
+  const declaredTop = declared ? gitToplevel(declared.path) : null;
+  // A declaration naming the store root itself is honoured as such.
+  if (declaredTop !== null && real(declaredTop) === root) return projectRoot;
+  return ofThisProject(declaredTop) ?? ofThisProject(gitToplevel(cwd)) ?? projectRoot;
 }
 
 /**
