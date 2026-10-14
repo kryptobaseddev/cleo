@@ -1746,6 +1746,7 @@ export async function pipelineManifestUpdate(
   projectRoot?: string,
   options: PipelineManifestAppendOptions = {},
 ): Promise<EngineResult> {
+  // @sync-invariant none:input-shape an update names no entry id; nothing is written
   if (!id) return { success: false, error: { code: 'E_INVALID_INPUT', message: 'id is required' } };
   const typed = manifestEntryFieldsSchema.safeParse({
     title: patch.title,
@@ -1753,6 +1754,7 @@ export async function pipelineManifestUpdate(
     key_findings: patch.key_findings,
   });
   if (!typed.success) {
+    // @sync-invariant none:input-shape a patch field of the wrong type is refused before any write
     return {
       success: false,
       error: {
@@ -1774,6 +1776,7 @@ export async function pipelineManifestUpdate(
         return identityFailure(
           missing.map((value) => ({
             field: 'linked_tasks',
+            // @sync-invariant none:input-shape a link to a task this project lacks is refused before any write
             code: 'E_NOT_FOUND',
             value,
             message: 'no such task in this project',
@@ -1789,6 +1792,7 @@ export async function pipelineManifestUpdate(
       () => {
         const rows = readStoredRows(binding, true, id);
         if (!rows.length)
+          // @sync-invariant none:input-shape the id names no stored entry; the transaction writes nothing
           throw new EngineResultError({
             code: 'E_NOT_FOUND',
             message: `Manifest entry '${id}' not found`,
@@ -1834,6 +1838,7 @@ export async function pipelineManifestUpdate(
     );
   } catch (error) {
     return manifestFailure(
+      // @sync-invariant none:local-only the local store read or write failed; the transaction rolled back
       'E_MANIFEST_UPDATE',
       error instanceof Error ? error : new Error(String(error)),
     );

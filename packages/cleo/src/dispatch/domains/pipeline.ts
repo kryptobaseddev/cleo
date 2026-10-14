@@ -668,6 +668,7 @@ const _pipelineTypedHandler = defineTypedHandler<PipelineOps>('pipeline', {
   },
 
   'manifest.update': async (params: PipelineOps['manifest.update'][0]) => {
+    // @sync-invariant none:input-shape an update names no entry id; nothing is written
     if (!params.id) return lafsError('E_INVALID_INPUT', 'id is required', 'manifest.update');
     return wrapCoreResult(await coreOps['manifest.update'](params), 'manifest.update');
   },
