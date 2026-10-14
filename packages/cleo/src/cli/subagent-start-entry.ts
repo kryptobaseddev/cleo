@@ -75,11 +75,12 @@ export async function subagentStartHook(
   if (!subagentInScope(env.CLEO_LEAN_SUBAGENT_MATCHER, agentTypeOf(stdin))) return '';
   const { heavyHookProjectRoot } = await import('@cleocode/core/resources/heavy-command.js');
   const lean = await import('@cleocode/core/orchestration/lean-change.js');
-  const { level } = await lean.effectiveLeanLevel({
-    projectRoot: heavyHookProjectRoot(cwd),
-    sessionId: env.CLEO_SESSION_ID ?? null,
-    env,
-  });
+  const projectRoot = heavyHookProjectRoot(cwd);
+  // The session the CLI would bind: CLEO_SESSION_ID, else the terminal binding,
+  // which under Claude Code is keyed by CLAUDE_CODE_SESSION_ID.
+  const { resolveBoundSessionId } = await import('@cleocode/core/store/session-store.js');
+  const sessionId = await resolveBoundSessionId(projectRoot, env).catch(() => null);
+  const { level } = await lean.effectiveLeanLevel({ projectRoot, sessionId, env });
   const block = lean.buildLeanChangeBlock(level);
   if (block === null) return '';
   const answer: HookJsonValue = {

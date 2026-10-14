@@ -5,7 +5,7 @@
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { type HookIo, runHookCli } from '../hook-entry.js';
 import { subagentInScope, subagentStartHook } from '../subagent-start-entry.js';
 
@@ -51,6 +51,47 @@ describe('subagentStartHook (T13667)', () => {
     const ultra = JSON.parse(await subagentStartHook('{}', {}, root));
     expect(ultra.hookSpecificOutput.additionalContext).toContain('(ct-lean, ultra)');
     expect(await subagentStartHook('{}', { CLEO_LEAN_LEVEL: 'off' }, root)).toBe('');
+  });
+
+  it('reads the session level of the session bound to CLAUDE_CODE_SESSION_ID', async () => {
+    // Only the harness key names the caller, as under Claude Code's Agent tool.
+    const harness = { CLAUDE_CODE_SESSION_ID: 'cc-subagent-test' };
+    const { SESSION_ENV_KEY_PRECEDENCE } = await import('@cleocode/core/sessions/session-id.js');
+    const { TERMINAL_KEY_SOURCES } = await import('@cleocode/core/sessions/terminal-identity.js');
+    for (const name of [
+      ...SESSION_ENV_KEY_PRECEDENCE,
+      ...TERMINAL_KEY_SOURCES.map((k) => k.envVar),
+      'CLEO_DIR',
+      'CLEO_ROOT',
+    ]) {
+      vi.stubEnv(name, undefined);
+    }
+    writeFileSync(
+      join(root, '.cleo', 'config.json'),
+      JSON.stringify({ enforcement: { session: { requiredForMutate: false } } }),
+    );
+    try {
+      const { sessionStart } = await import('@cleocode/core/internal');
+      for (const [k, v] of Object.entries(harness)) vi.stubEnv(k, v);
+      const started = await sessionStart(root, { scope: 'global', name: 'subagent-start' });
+      vi.stubEnv('CLAUDE_CODE_SESSION_ID', undefined);
+      const sessionId = started.data?.id;
+      expect(sessionId).toBeTruthy();
+      const { setLeanLevel } = await import('@cleocode/core/orchestration/lean-change.js');
+      await setLeanLevel({ projectRoot: root, level: 'ultra', scope: 'session', sessionId });
+
+      const out = JSON.parse(await subagentStartHook('{}', harness, root));
+      expect(out.hookSpecificOutput.additionalContext).toContain('(ct-lean, ultra)');
+      // A different harness session is not bound, so it gets the default level.
+      const other = JSON.parse(
+        await subagentStartHook('{}', { CLAUDE_CODE_SESSION_ID: 'cc-other' }, root),
+      );
+      expect(other.hookSpecificOutput.additionalContext).toContain('## Lean Change (ct-lean)');
+    } finally {
+      vi.unstubAllEnvs();
+      const { closeAllDatabases } = await import('@cleocode/core/store/sqlite.js');
+      await closeAllDatabases();
+    }
   });
 
   it('respects the matcher', async () => {
