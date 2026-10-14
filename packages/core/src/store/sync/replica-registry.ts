@@ -16,7 +16,9 @@
  * authority that catches what a lost registry cannot.
  *
  * Writes use the file-then-rename pattern, so a crash leaves the old or the
- * new file, never a torn one.
+ * new file, never a torn one, and every write holds a cross-process lock on
+ * the file, so two processes binding stores at once never drop each other's
+ * entry (T12908).
  *
  * A replica this device retired at the same path (a replaced or rolled-back
  * file; a copy retires nothing) keeps its entry with `retiredAt`, `successor`,
@@ -32,6 +34,7 @@ import { randomBytes } from 'node:crypto';
 import { mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { resolveStableDeviceIdPath, resolveSyncReplicaRegistryPath } from '@cleocode/paths';
+import { withLockSync } from '../lock.js';
 
 /** One replica this device has bound. */
 export interface ReplicaRegistryEntry {
@@ -132,8 +135,12 @@ export class ReplicaRegistry {
     return Object.hasOwn(replicas, replicaId) ? replicas[replicaId] : undefined;
   }
 
-  /** Replace the whole file (file-then-rename). */
+  /** Replace the whole file (file-then-rename), under the file's lock. */
   write(file: ReplicaRegistryFile): void {
+    withLockSync(this.path, () => this.writeLocked(file));
+  }
+
+  private writeLocked(file: ReplicaRegistryFile): void {
     mkdirSync(dirname(this.path), { recursive: true });
     const tmp = `${this.path}.${process.pid}.${randomBytes(4).toString('hex')}.tmp`;
     try {
@@ -158,6 +165,16 @@ export class ReplicaRegistry {
     },
     now: Date = new Date(),
   ): boolean {
+    return withLockSync(this.path, () => this.upsertLocked(replicaId, patch, now));
+  }
+
+  private upsertLocked(
+    replicaId: string,
+    patch: Omit<ReplicaRegistryEntry, 'updatedAt' | 'hwm'> & {
+      hwm?: Readonly<Record<string, number>>;
+    },
+    now: Date,
+  ): boolean {
     const file = this.read();
     const prev = Object.hasOwn(file.replicas, replicaId) ? file.replicas[replicaId] : undefined;
     const hwm: Record<string, number> = { ...(prev?.hwm ?? {}) };
@@ -178,7 +195,7 @@ export class ReplicaRegistry {
       updatedAt: prev?.updatedAt ?? now.toISOString(),
     };
     if (prev && sameEntry(prev, next)) return false;
-    this.write({
+    this.writeLocked({
       ...file,
       replicas: { ...file.replicas, [replicaId]: { ...next, updatedAt: now.toISOString() } },
     });
@@ -194,12 +211,15 @@ export class ReplicaRegistry {
    * @returns Whether the file changed.
    */
   advanceHwm(replicaId: string, stream: string, seq: number, now: Date = new Date()): boolean {
-    const prev = this.get(replicaId);
-    if (!prev) {
-      // @sync-invariant none:local-only the device registry has no entry for this replica; machine-local bookkeeping
-      throw new Error(`replica ${replicaId} is not registered on device ${this.deviceId}`);
-    }
-    return this.upsert(replicaId, { ...prev, hwm: { [stream]: seq } }, now);
+    // Read and patch under one lock, so a concurrent retire is not overwritten.
+    return withLockSync(this.path, () => {
+      const prev = this.get(replicaId);
+      if (!prev) {
+        // @sync-invariant none:local-only the device registry has no entry for this replica; machine-local bookkeeping
+        throw new Error(`replica ${replicaId} is not registered on device ${this.deviceId}`);
+      }
+      return this.upsertLocked(replicaId, { ...prev, hwm: { [stream]: seq } }, now);
+    });
   }
 
   /**

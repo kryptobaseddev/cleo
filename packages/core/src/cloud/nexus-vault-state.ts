@@ -23,8 +23,8 @@ import fs from 'node:fs';
 import path from 'node:path';
 import type { CloudWarning } from '@cleocode/contracts';
 import { resolveNexusVaultStatePath } from '@cleocode/paths';
-import lockfile from 'proper-lockfile';
 import { z } from 'zod';
+import { withLockSync } from '../store/lock.js';
 import { initialTrustState, type TrustState } from './keys.js';
 
 const trustStateSchema = z.object({
@@ -103,10 +103,6 @@ const LOCK_STALE_MS = 10_000;
 /** Warning code: the state file was unreadable or newer, and was moved aside. */
 export const W_NEXUS_VAULT_STATE_MOVED = 'W_NEXUS_VAULT_STATE_MOVED';
 
-function sleepSync(ms: number): void {
-  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
-}
-
 /**
  * Read/modify/write access to the vault state file.
  */
@@ -129,28 +125,11 @@ export class NexusVaultState {
 
   /** Run `fn` holding the state file's lock. */
   private locked<T>(fn: () => T): T {
-    fs.mkdirSync(path.dirname(this.path), { recursive: true });
-    const deadline = Date.now() + LOCK_WAIT_MS;
-    let release: () => void;
-    for (;;) {
-      try {
-        release = lockfile.lockSync(this.path, { realpath: false, stale: LOCK_STALE_MS });
-        break;
-      } catch (err) {
-        const code = (err as NodeJS.ErrnoException).code;
-        if (code !== 'ELOCKED' || Date.now() > deadline) {
-          throw new Error(
-            `cannot lock the cloud vault state ${this.path}: ${err instanceof Error ? err.message : String(err)}`,
-          );
-        }
-        sleepSync(25);
-      }
-    }
-    try {
-      return fn();
-    } finally {
-      release();
-    }
+    return withLockSync(this.path, fn, {
+      waitMs: LOCK_WAIT_MS,
+      stale: LOCK_STALE_MS,
+      label: `the cloud vault state ${this.path}`,
+    });
   }
 
   /** Move an unusable file aside (never overwrite it) and start empty. */
