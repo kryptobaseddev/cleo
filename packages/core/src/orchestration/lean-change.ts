@@ -199,8 +199,10 @@ export async function setLeanLevel(opts: {
   readonly sessionId?: string | null;
 }): Promise<{ readonly level: LeanLevel; readonly scope: LeanLevelScope }> {
   if (opts.scope === 'session') {
-    if (!opts.sessionId)
+    if (!opts.sessionId) {
+      // @sync-invariant none:local-only the session lean level is a gitignored per-machine file; refused before any write
       throw new Error('no bound CLEO session: start or resume one, or drop --session');
+    }
     await writeSessionLeanLevel(opts.projectRoot, opts.sessionId, opts.level);
   } else {
     const { writeConfigValue } = await import('../config/registry.js');

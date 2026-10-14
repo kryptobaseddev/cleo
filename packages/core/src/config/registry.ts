@@ -455,7 +455,10 @@ export async function writeConfigValue(
   const config = (await readJsonOrNull(configPath)) ?? {};
   const segments = key.split('.');
   const last = segments.pop();
-  if (last === undefined || last === '') throw new Error(`invalid config key: "${key}"`);
+  if (last === undefined || last === '') {
+    // @sync-invariant none:local-only config.json is per-machine, never synced; an empty key is refused before any write
+    throw new Error(`invalid config key: "${key}"`);
+  }
   let cursor: Record<string, unknown> = config;
   for (const seg of segments) {
     const existing = cursor[seg];
