@@ -901,6 +901,35 @@ describe('process-tree watchdog (T13563)', () => {
     expect(p.next.idleSinceMs).toBeNull();
   });
 
+  it('sequential short workers, each below an earlier peak, never read as hung (T13679)', () => {
+    const limits = { maxWallMs: null, idleWindowMs: 60_000 };
+    const at = (nowMs: number, cpuMs: number) => ({
+      nowMs,
+      startedAtMs: 0,
+      pausedTotalMs: 0,
+      paused: false,
+      usage: { cpuMs, rssBytes: 1, processes: 2 },
+    });
+    // A heavy first batch, then one short worker per batch: the live-tree sum
+    // drops as each exits and climbs again, always below the first peak.
+    const samples = [60_000, 2_000, 3_500, 5_000, 1_500, 3_000, 4_500, 1_200, 2_700, 4_200];
+    let s = watchRun(RUN_WATCH_START, at(0, samples[0] ?? 0), limits);
+    const events: string[] = [];
+    samples.slice(1).forEach((cpuMs, i) => {
+      s = watchRun(s.next, at((i + 1) * 30_000, cpuMs), limits);
+      events.push(...s.events);
+    });
+    expect(events).toEqual([]);
+    expect(s.next.hungAtMs).toBeNull();
+    // A tree that then stays flat for the window is still flagged, once.
+    const flat: string[] = [];
+    for (let t = 330_000; t <= 450_000; t += 30_000) {
+      s = watchRun(s.next, at(t, 4_200), limits);
+      flat.push(...s.events);
+    }
+    expect(flat).toEqual(['hung']);
+  });
+
   it('flags overdue once past the unpaused maximum wall time', () => {
     const limits = { maxWallMs: 60_000, idleWindowMs: 10 * 60_000 };
     const at = (nowMs: number, pausedTotalMs = 0) => ({
