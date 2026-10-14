@@ -82,7 +82,18 @@ export type DocsUpdateError =
   | { code: 'E_INVALID_INPUT'; message: string }
   | { code: 'E_DOC_SCHEMA_MISMATCH'; message: string; details?: Record<string, unknown> }
   | { code: 'E_INVALID_STATUS'; message: string }
-  | { code: 'E_FILE_ERROR'; message: string };
+  | { code: 'E_FILE_ERROR'; message: string }
+  | {
+      /**
+       * A declared `baseVersionUid` does not resolve to this doc's conduit
+       * version history (unknown uid, another doc's version, or unresolvable
+       * bytes). Refused BEFORE any write (T13674) — the base anchors the
+       * stale-base merge, so guessing it could silently drop a concurrent
+       * writer's edit, the exact hazard the parameter exists to prevent.
+       */
+      code: 'E_DOC_BASE_UNKNOWN';
+      message: string;
+    };
 
 /**
  * Successful update result returned by {@link updateDocBySlug}.
@@ -130,6 +141,16 @@ export interface DocsUpdateOk {
    * `W_DOC_SECTION_LEASED` warning names the same sections and holders.
    */
   leaseNotices?: DocsSectionLeaseNotice[];
+  /**
+   * True when the update was authored against a superseded head and the CRDT
+   * projection merged a concurrent writer's edit into the head (T13674):
+   * the stored text is the merge, not the submitted bytes. A
+   * `W_DOC_STALE_BASE` warning names the same situation and its remedy.
+   * Absent when the declared base was the current head (or undeclared).
+   *
+   * @task T13674
+   */
+  staleBaseMerged?: boolean;
   dryRun?: true;
   wouldWrite?: boolean;
   wouldChange?: boolean;
@@ -454,6 +475,69 @@ export async function updateDocBySlug(
         message: `no attachment found with slug '${slug}' — the slug does not exist in the store and cannot be updated`,
       },
     };
+  }
+
+  // T13674: resolve the declared base BEFORE any write. The base is the
+  // conduit version the edit was authored against (the fetch envelope's
+  // metadata.headVersionUid). An unresolvable base is refused up front —
+  // guessing the head reference here could silently drop a concurrent
+  // writer's edit, the exact hazard this parameter exists to prevent.
+  let baseSections: string[] | undefined;
+  if (hasContent && params.baseVersionUid !== undefined) {
+    const { resolveConduitDocUid, getConduitAttachmentVersion } = await import(
+      '../store/conduit-doc-history.js'
+    );
+    const { splitDocIntoSections } = await import('./section-merge.js');
+    const docUid = await resolveConduitDocUid(projectRoot, slug);
+    const version =
+      docUid !== null
+        ? await getConduitAttachmentVersion(projectRoot, params.baseVersionUid)
+        : null;
+    if (docUid === null || version === null || version.attachmentUid !== docUid) {
+      return {
+        ok: false,
+        error: {
+          // @sync-invariant none:input-shape a declared base that does not resolve to this doc's version history is refused before any write
+          code: 'E_DOC_BASE_UNKNOWN',
+          message:
+            `base version '${params.baseVersionUid}' does not resolve to slug '${slug}'s version history — ` +
+            're-fetch the doc (`cleo docs fetch ' +
+            slug +
+            '`) and retry with its metadata.headVersionUid',
+        },
+      };
+    }
+    if (!version.storageKey) {
+      return {
+        ok: false,
+        error: {
+          // @sync-invariant none:input-shape a base without resolvable bytes cannot anchor a merge; nothing was written
+          code: 'E_DOC_BASE_UNKNOWN',
+          message:
+            `base version '${params.baseVersionUid}' has no stored bytes for slug '${slug}' — ` +
+            're-fetch the doc and retry with its current metadata.headVersionUid',
+        },
+      };
+    }
+    const { readFile } = await import('node:fs/promises');
+    try {
+      const text = await readFile(
+        join(getCleoDirAbsolute(projectRoot), 'attachments', 'sha256', version.storageKey),
+        'utf-8',
+      );
+      baseSections = splitDocIntoSections(text);
+    } catch (cause) {
+      return {
+        ok: false,
+        error: {
+          // @sync-invariant none:input-shape the declared base's bytes are unreadable; nothing was written
+          code: 'E_DOC_BASE_UNKNOWN',
+          message:
+            `base version '${params.baseVersionUid}' bytes for slug '${slug}' cannot be read ` +
+            `(${cause instanceof Error ? cause.message : String(cause)}) — re-fetch the doc and retry`,
+        },
+      };
+    }
   }
 
   // T12945: superseded is absorbing (docs.lifecycle.transitions). Leaving it —
@@ -836,6 +920,7 @@ export async function updateDocBySlug(
   // without this the caller would never learn their edit is not in the head.
   let sectionConflicts: DocsSectionConflict[] | undefined;
   let leaseNotices: DocsSectionLeaseNotice[] | undefined;
+  let staleBaseMerged = false;
   if (hasContent) {
     try {
       const { projectDocUpdateThroughSections } = await import('./section-write-path.js');
@@ -850,7 +935,30 @@ export async function updateDocBySlug(
         content: buf.toString('utf-8'),
         ...(boundSession !== null ? { sessionId: boundSession.session.id } : {}),
         ...(params.message !== undefined ? { changeSummary: params.message } : {}),
+        // T13674: the declared base replaces the previous head as the
+        // single-writer/concurrent discriminator, so a stale base merges
+        // (append) or conflicts (non-append) instead of re-seeding over a
+        // concurrent writer's landed edit.
+        ...(baseSections !== undefined ? { baseSections } : {}),
       });
+      // T13674: the declared base was superseded — the returned head text is
+      // the merge of the caller's edit and a concurrent writer's, never the
+      // submitted bytes alone.
+      staleBaseMerged =
+        params.baseVersionUid !== undefined &&
+        projection.previousHeadVersionUid !== null &&
+        params.baseVersionUid !== projection.previousHeadVersionUid;
+      if (staleBaseMerged) {
+        pushWarning({
+          // @sync-invariant none:input-shape the warning only names a merge the CRDT projection already performed (docs.head.max-hlc); it rejects nothing and writes nothing
+          code: 'W_DOC_STALE_BASE',
+          message:
+            `slug '${slug}' was updated against a superseded base — a concurrent writer's edit was merged ` +
+            'into the head. Re-fetch (`cleo docs fetch ' +
+            slug +
+            '`) before your next edit so it is authored against the current head.',
+        });
+      }
       if (projection.conflicts.length > 0) {
         sectionConflicts = projection.conflicts.map((c) => ({
           sectionId: c.sectionId,
@@ -913,6 +1021,7 @@ export async function updateDocBySlug(
       docVersion: oldRow.docVersion + 1,
       ...(sectionConflicts !== undefined ? { sectionConflicts } : {}),
       ...(leaseNotices !== undefined ? { leaseNotices } : {}),
+      ...(staleBaseMerged ? { staleBaseMerged: true as const } : {}),
     },
   };
 }

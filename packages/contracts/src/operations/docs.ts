@@ -172,6 +172,16 @@ export interface DocsAttachmentRow {
   title?: string;
   /** Backing blob name, e.g. `spec.md` (only populated by fetch/view envelopes, T13352). */
   blobName?: string;
+  /**
+   * Conduit head version uid at fetch/view time (T13674) — the version the
+   * fetched body was projected from. Pass it back as `baseVersionUid` on
+   * `docs.update` so a stale base is detected and merged (or conflicted)
+   * instead of silently overwriting a concurrent writer's edit. Only
+   * populated for docs adopted into the conduit family; omitted otherwise.
+   *
+   * @task T13674
+   */
+  headVersionUid?: string;
 }
 
 /**
@@ -810,6 +820,26 @@ export interface DocsUpdateParams {
   allowExternal?: boolean;
   /** Inline UTF-8 content (mutually exclusive with `file`). */
   content?: string;
+  /**
+   * Expected base version — the conduit version uid the edit was authored
+   * against: the `metadata.headVersionUid` from the `docs.fetch` envelope the
+   * writer read (T13674). Stale-base detection: when the stored head has
+   * already moved past this base, every section is merged relative to the
+   * base — an append-shaped edit composes onto the stored state (both
+   * writers survive, `staleBaseMerged: true`) and a non-mergeable edit is
+   * recorded as a named section conflict (`sectionConflicts`); a concurrent
+   * writer's edit is never silently dropped. A declared base that does not
+   * resolve to this doc's version history is refused with
+   * `E_DOC_BASE_UNKNOWN` before any write. When omitted, the current head at
+   * invocation time is assumed — the single-writer semantics of the
+   * pre-T13674 path, safe only for callers that did not base their edit on
+   * an earlier fetch. Only inline-content updates project through the
+   * section CRDT; `file`-based updates stay on the whole-doc path (T13355)
+   * and do not take the base into account.
+   *
+   * @task T13674
+   */
+  baseVersionUid?: string;
   /** Optional one-line summary describing the change (recorded in the audit log). */
   message?: string;
   /**
@@ -904,6 +934,17 @@ export interface DocsUpdateResult {
    * same sections and holders. Absent when no section was leased elsewhere.
    */
   leaseNotices?: DocsSectionLeaseNotice[];
+  /**
+   * True when the update was authored against a superseded head and the
+   * section CRDT merged a concurrent writer's edit into the projection
+   * (T13674): the returned head text is the merge, not the submitted bytes.
+   * A `W_DOC_STALE_BASE` warning names the same situation and its remedy
+   * (re-fetch before the next edit). Absent when the declared base was the
+   * current head (or no base was declared).
+   *
+   * @task T13674
+   */
+  staleBaseMerged?: boolean;
 }
 
 // --------------------------------------------------------------------------

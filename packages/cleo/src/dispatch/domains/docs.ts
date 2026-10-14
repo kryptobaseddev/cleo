@@ -1999,6 +1999,12 @@ const _docsTypedHandler = defineTypedHandler<DocsTypedOps>('docs', {
         ...(outcome.result.leaseNotices !== undefined
           ? { leaseNotices: outcome.result.leaseNotices }
           : {}),
+        // T13674 — a stale declared base was merged, not blindly applied:
+        // the head carries a concurrent writer's edit too; the caller must
+        // re-fetch before its next edit.
+        ...(outcome.result.staleBaseMerged !== undefined
+          ? { staleBaseMerged: outcome.result.staleBaseMerged }
+          : {}),
         // T11053 — surface which backend stored the updated blob so
         // observability consumers can confirm the V2 mirror succeeded.
         attachmentBackend: backend as DocsUpdateResult['attachmentBackend'],

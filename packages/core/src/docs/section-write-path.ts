@@ -120,6 +120,18 @@ export interface ProjectDocUpdateInput {
    * version; `null` forces a root version.
    */
   readonly parentVersionUid?: string | null;
+  /**
+   * The section texts of the version this edit was AUTHORED AGAINST
+   * (T13674) — the write path's stale-base discriminator. Callers that
+   * fetched a head and declared it pass its section texts (resolved and
+   * validated before any write); every section is then merged relative to
+   * that base, so an edit authored against a superseded head composes onto
+   * the stored state (append) or records a conflict (non-append) instead of
+   * re-seeding over a concurrent writer's edit. Omit (or null) to assert
+   * single-writer semantics against the previous head — the pre-T13674
+   * behavior.
+   */
+  readonly baseSections?: readonly string[] | null;
   /** Optional change summary for the version row. */
   readonly changeSummary?: string;
 }
@@ -138,6 +150,12 @@ export interface ProjectDocUpdateResult {
   readonly version: ConduitAttachmentVersionRow;
   /** The head upsert outcome (advanced vs. conflict recorded). */
   readonly head: UpsertConduitDocHeadResult;
+  /**
+   * The head version uid this projection chained onto (`null` when the doc
+   * had no head yet). Callers that declared a base compare it against their
+   * base to detect a stale merge (T13674).
+   */
+  readonly previousHeadVersionUid: string | null;
   /**
    * Non-append concurrent section edits recorded as conflicts (T13595): the
    * incoming edit could not be composed without fabricating text, so it was
@@ -375,11 +393,19 @@ export async function projectDocUpdateThroughSections(
               content: contentBuffer,
             });
 
-      // Resolve the previous head's section texts FIRST — the single-writer
-      // vs. concurrent discriminator for every section below (T13589).
+      // Resolve the previous head's section texts FIRST — the default
+      // single-writer vs. concurrent discriminator for every section below
+      // (T13589). A caller-declared base (T13674) REPLACES it: the incoming
+      // edit is then judged against the base it was authored from, so a
+      // stale base composes (append) or conflicts (non-append) instead of
+      // re-seeding over a concurrent writer's landed edit.
       const previousHead = await getConduitDocHead(projectRoot, docUid);
       const headSections =
         previousHead !== null ? await readHeadSectionTexts(projectRoot, previousHead) : null;
+      const referenceSections =
+        input.baseSections !== undefined && input.baseSections !== null
+          ? input.baseSections
+          : headSections;
 
       // Apply each section's edit onto its stored Loro state and read the
       // MERGED text back out of the state — never out of the input (T13585).
@@ -393,7 +419,7 @@ export async function projectDocUpdateThroughSections(
         const { snapshot, changed, conflicted } = applySectionTextEdit(
           stored?.snapshot ?? null,
           text,
-          headSections?.[index] ?? null,
+          referenceSections?.[index] ?? null,
         );
         if (changed || stored === null) {
           await writeSectionCrdtState(projectRoot, {
@@ -505,6 +531,7 @@ export async function projectDocUpdateThroughSections(
         sectionsModified,
         version,
         head,
+        previousHeadVersionUid: previousHead?.headVersionUid ?? null,
         conflicts,
         leaseNotices,
       };
