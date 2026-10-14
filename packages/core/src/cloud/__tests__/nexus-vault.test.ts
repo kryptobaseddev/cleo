@@ -58,6 +58,7 @@ import {
   openDualScopeDb,
   openDualScopeDbAtPath,
 } from '../../store/dual-scope-db.js';
+import { CleoBlobStore } from '../../store/llmtxt-blob-adapter.js';
 import { runBracketedMigrations } from '../../store/migration-runner.js';
 import { computeManifestHash, exportPortableBundle } from '../../store/portable-bundle.js';
 import { resolveCorePackageMigrationsFolder } from '../../store/resolve-migrations-folder.js';
@@ -2072,6 +2073,122 @@ describe('cloud vault snapshot coverage beyond cleo.db (T12969)', () => {
     expect(fs.readFileSync(path.join(a.root, '.cleo', 'adrs', 'adr-1.md'), 'utf8')).toBe(
       '# ADR 1, revised\n',
     );
+  });
+});
+
+describe('cloud vault snapshots carry the docs bytes (T13704)', () => {
+  /** A doc in A's blob store, a legacy attachment byte file and its index; A pushes. */
+  async function pushDocsFromA(a: Machine): Promise<{ legacyRel: string; legacy: string }> {
+    const blobs = new CleoBlobStore({ projectRoot: a.root });
+    await blobs.open();
+    try {
+      await blobs.attach('T13704', 'design.md', DOC_BYTES, 'text/markdown');
+    } finally {
+      await blobs.close();
+    }
+    const legacy = '# legacy attachment\n';
+    const s = sha256Hex(Buffer.from(legacy));
+    const legacyRel = `attachments/sha256/${s.slice(0, 2)}/${s.slice(2)}.md`;
+    fs.mkdirSync(path.dirname(path.join(a.root, '.cleo', legacyRel)), { recursive: true });
+    fs.writeFileSync(path.join(a.root, '.cleo', legacyRel), legacy);
+    const index = new DatabaseSync(path.join(a.root, '.cleo', 'attachments', 'index.db'));
+    index.exec(
+      `CREATE TABLE attachments (sha TEXT PRIMARY KEY); INSERT INTO attachments VALUES ('${s}');`,
+    );
+    index.close();
+    const pushed = await on(a, () => pushNexusVault(vopts(a)));
+    expect(pushed.status).toBe('pushed');
+    return { legacyRel, legacy };
+  }
+
+  const DOC_BYTES = new Uint8Array(
+    Buffer.from('# Design\n\nbytes that must survive a new device\n'),
+  );
+
+  it('a fresh device restores the docs databases and bytes, and the blob store serves identical bytes', async () => {
+    const { a, b } = await twoMachines();
+    const { legacyRel, legacy } = await pushDocsFromA(a);
+    const cp = fake.stream(STREAM).checkpoints.at(-1);
+    expect(cp?.manifest.tables['zz_vault_db_blobs_manifest_db']?.rows).toBeGreaterThan(0);
+    expect(cp?.manifest.tables['zz_vault_db_attachments_index_db']?.rows).toBe(1);
+
+    const { result } = await restoreOntoB(b);
+    expect(result.status).toBe('restored');
+    expect(result.verified).toBe(true);
+    const blobs = new CleoBlobStore({ projectRoot: b.root });
+    await blobs.open();
+    try {
+      const doc = await blobs.get('T13704', 'design.md');
+      expect(doc?.data?.equals(Buffer.from(DOC_BYTES))).toBe(true);
+      expect(doc?.hash).toBe(sha256Hex(Buffer.from(DOC_BYTES)));
+    } finally {
+      await blobs.close();
+    }
+    expect(fs.readFileSync(path.join(b.root, '.cleo', legacyRel), 'utf8')).toBe(legacy);
+    const index = new DatabaseSync(path.join(b.root, '.cleo', 'attachments', 'index.db'), {
+      readOnly: true,
+    });
+    try {
+      expect(index.prepare('SELECT count(*) AS n FROM attachments').get()).toEqual({ n: 1 });
+    } finally {
+      index.close();
+    }
+  });
+
+  it('a snapshot whose docs bytes were altered after export is refused on a fresh device, nothing placed', async () => {
+    const { a } = await twoMachines();
+    await pushDocsFromA(a);
+    const head = fake.stream(STREAM).checkpoints.at(-1) as Checkpoint;
+    const mk = fake.escrow?.mk ?? Buffer.alloc(0);
+    const wrapped = fake.projectKeys.get(REMOTE_PROJECT)?.[0];
+    const pdk = unwrapProjectKey(mk, wrapped?.wrappedProjectKey ?? '', REMOTE_PROJECT, 1);
+
+    // A key holder re-pushes A's bundle with one blob byte flipped (manifest and checksums unchanged).
+    const work = path.join(base, 'docs-corrupt');
+    const dir = path.join(work, 'x');
+    fs.mkdirSync(dir, { recursive: true });
+    const gz = path.join(work, 'in.tar.gz');
+    await on(a, () =>
+      exportPortableBundle({ scope: 'project', projectRoot: a.root, outputPath: gz, label: 't' }),
+    );
+    await tarExtract({ file: gz, cwd: dir });
+    const manifest = JSON.parse(
+      fs.readFileSync(path.join(dir, 'manifest.json'), 'utf8'),
+    ) as PortableBundleManifest;
+    const blob = manifest.projects[0]?.files.find((f) => f.relPath.startsWith('blobs/blobs/'));
+    if (!blob) throw new Error('fixture: the bundle carries no blob bytes');
+    const bytes = fs.readFileSync(path.join(dir, blob.bundlePath));
+    bytes[0] = (bytes[0] ?? 0) ^ 0xff;
+    fs.writeFileSync(path.join(dir, blob.bundlePath), bytes);
+    const out = path.join(work, 'out.tar.gz');
+    await tarCreate({ gzip: true, file: out, cwd: dir }, fs.readdirSync(dir));
+    const journal = new Journal({
+      http: new Http({ baseUrl: API, token: a.token, deviceId: a.deviceId, fetch: fake.fetch }),
+      streamId: STREAM,
+      replicaId: REPLICA_A,
+      deviceId: DEVICE_A,
+      signing: a.keys.signing,
+      key: pdk,
+      fetch: fake.fetch,
+    });
+    await journal.pushCheckpoint({
+      bundle: fs.readFileSync(out),
+      manifest: structuredClone(head.manifest),
+      cursor: cursorFromCheckpoint(head),
+      parentCheckpointId: head.checkpointId,
+    });
+
+    const c = await machine('c', '0198a1b2-0000-7000-8000-0000000000d3', uuidv7());
+    const err = await on(c, () =>
+      restoreNexusVault(vopts(c, { mode: 'restore', projectId: REMOTE_PROJECT, into: c.root })),
+    ).then(
+      () => null,
+      (e: Error & { code?: string }) => e,
+    );
+    expect(err?.code).toBe('E_BUNDLE_INTEGRITY');
+    expect(err?.message).toContain(blob.bundlePath);
+    expect(fs.existsSync(path.join(c.root, '.cleo', 'cleo.db'))).toBe(false);
+    expect(fs.existsSync(path.join(c.root, '.cleo', blob.relPath))).toBe(false);
   });
 });
 
