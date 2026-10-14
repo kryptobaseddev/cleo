@@ -55,8 +55,7 @@ import {
   standalonePackage,
 } from './affected-packages.js';
 import {
-  hasTreeBoundQaRun,
-  qaRunTreeMismatchReason,
+  qaPassedSupersededReason,
   type TaskMergeInfo,
   taskChangeMergeState,
   testsPassedSupersededReason,
@@ -857,11 +856,12 @@ export async function deriveTaskEvidence(
   );
   const superseded = supersededReason !== null;
   if (supersededReason) changeSet.warnings.push(supersededReason);
-  // T13427: a qa-run receipt stands only while its tree does.
-  const qaAtoms = task.verification?.evidence?.qaPassed?.atoms ?? [];
-  const qaSupersededReason = hasTreeBoundQaRun(qaAtoms)
-    ? qaRunTreeMismatchReason(qaAtoms, await captureTreeHash(root))
-    : null;
+  // T13427: a qa-run receipt stands only while its tree does; T13644: after
+  // merge, only when it carries or was recorded on main after the merge.
+  const qaSupersededReason = await qaPassedSupersededReason(
+    task.verification?.evidence?.qaPassed?.atoms ?? [],
+    { mergeState: mergeInfo, currentTree: () => captureTreeHash(root) },
+  );
   if (qaSupersededReason) changeSet.warnings.push(qaSupersededReason);
   const passed = (gate: VerificationGate): boolean =>
     task.verification?.gates?.[gate] === true &&

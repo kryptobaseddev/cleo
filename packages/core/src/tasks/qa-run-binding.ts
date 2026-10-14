@@ -234,15 +234,40 @@ export function bindQaRunReceipt(
   const changed = changes?.paths ?? [];
   if (!fresh.judged || changed.length === 0)
     return { ok: true, uncovered: [], uncoveredPackages: [] };
+  return qaRunCoverage(receipt.kind, receipt.roots, root, changed);
+}
+
+/**
+ * What a receipt's roots leave uncovered of a set of changed paths — the one
+ * coverage rule for binding a receipt at verify time and for judging one
+ * recorded on the default branch after the change merged (T13644). Refuses a
+ * workspace-wide change, which only a whole-project run speaks for.
+ *
+ * @param kind - The check the receipt records.
+ * @param roots - The receipt's normalised roots (`''` = the whole root).
+ * @param root - The checkout the paths are relative to.
+ * @param changed - The changed paths (documentation paths are ignored).
+ * @returns The refusal, or ok with the paths and packages left uncovered.
+ * @task T13427
+ * @task T13644
+ */
+export function qaRunCoverage(
+  kind: QaRunKind,
+  roots: readonly string[],
+  root: string,
+  changed: readonly string[],
+): QaRunBinding {
   const scope = deriveAffectedPackages(root, changed);
   if (scope.scope === 'full') {
-    return refuse(
-      `The change is workspace-wide (${scope.reason}), so only a whole-project ${receipt.kind} ` +
-        `speaks for it. Record tool:${receipt.kind}, or ci:<pr> once the PR merges.`,
-    );
+    return {
+      ok: false,
+      codeName: 'E_EVIDENCE_INSUFFICIENT',
+      reason:
+        `The change is workspace-wide (${scope.reason}), so only a whole-project ${kind} ` +
+        `speaks for it. Record tool:${kind}, or ci:<pr> once the PR merges.`,
+    };
   }
-  const covered = (path: string): boolean =>
-    receipt.roots.some((r) => r === path || inPackageDir(path, r));
+  const covered = (path: string): boolean => roots.some((r) => r === path || inPackageDir(path, r));
   const uncovered = changed.filter((p) => !isCiDocumentPath(p) && !covered(p));
   // A type change breaks importers: a dependent package must be checked too.
   const dependents = scope.packages.filter((name) => !scope.direct.includes(name));

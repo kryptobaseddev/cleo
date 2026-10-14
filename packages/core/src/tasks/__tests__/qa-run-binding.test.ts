@@ -6,6 +6,7 @@
  * typecheck + lint pair for qaPassed.
  *
  * @task T13427
+ * @task T13644
  */
 
 import { execFileSync } from 'node:child_process';
@@ -15,7 +16,13 @@ import { join } from 'node:path';
 import type { EvidenceAtom, EvidenceValidationContext } from '@cleocode/contracts';
 import { parseEvidenceString, validateEvidenceForGate } from '@cleocode/contracts';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { hasTreeBoundQaRun, qaRunTreeMismatchReason } from '../affected-scope.js';
+import {
+  hasTreeBoundQaRun,
+  qaPassedSupersededReason,
+  qaRunTreeMismatchReason,
+  scopedRunStandsAfterRedCi,
+} from '../affected-scope.js';
+import { isLandedOnOriginDefault } from '../change-set.js';
 import { checkTaskEvidenceContext, validateAtom } from '../evidence.js';
 import { parseQaRunReceipt, qaRunUnionGapReason } from '../qa-run-binding.js';
 
@@ -358,5 +365,116 @@ describe('a qa-run receipt in a workspace', () => {
     const path = receipt({ roots: ['packages/a', 'packages/b'] });
     const r = await validateAtom({ kind: 'qa-run', path }, root);
     expect(!r.ok && r.reason, JSON.stringify(r)).toMatch(/workspace-wide.*Record tool:typecheck/);
+  });
+});
+
+describe('T13644: qa-run receipts recorded on main after the merge (T13224 shape)', () => {
+  let merge = '';
+  let branchHead = '';
+  beforeEach(() => {
+    initRepo(() => {
+      put('package.json', JSON.stringify({ name: 'solo' }));
+      put('src/a/x.ts', 'export const x = 1;\n');
+    });
+    put('src/a/x.ts', 'export const x = 2;\n');
+    git(root, ['commit', '-q', '-am', 'T1: change a']);
+    branchHead = git(root, ['rev-parse', 'HEAD']);
+    git(root, ['switch', '-q', 'main']);
+    git(root, ['merge', '-q', '--no-ff', '-m', 'Merge pull request #1910', 'task/T1']);
+    merge = git(root, ['rev-parse', 'HEAD']);
+    // A later PR edits the same file, so byte-identity carry cannot hold.
+    put('src/a/x.ts', 'export const x = 3;\n');
+    git(root, ['commit', '-q', '-am', 'a later PR']);
+    git(root, ['push', '-q', 'origin', 'main']);
+  });
+
+  const target = () => ({ mergeCommitSha: merge, files: ['src/a/x.ts'], executionRoot: root });
+  const judge = (atoms: EvidenceAtom[]) =>
+    qaPassedSupersededReason(atoms, {
+      mergeState: () => ({ state: 'merged' as const, landing: { ...target(), deletedFiles: [] } }),
+      currentTree: () => git(root, ['rev-parse', 'HEAD^{tree}']),
+      landed: isLandedOnOriginDefault,
+    });
+  async function bound(kind: 'typecheck' | 'lint', roots: string[]): Promise<EvidenceAtom> {
+    const r = await validateAtom({ kind: 'qa-run', path: receipt({ kind, roots }) }, root);
+    if (!r.ok) throw new Error(JSON.stringify(r));
+    return r.atom;
+  }
+
+  it('verify binds both receipts on main, and plan/complete let them stand for qaPassed', async () => {
+    const atoms = [await bound('typecheck', ['src']), await bound('lint', ['src'])];
+    expect(atoms[0]).toMatchObject({ headSha: git(root, ['rev-parse', 'HEAD']) });
+    expect(await judge(atoms)).toBeNull();
+  });
+
+  it('refuses receipts that do not cover the change, naming the path', async () => {
+    const atoms = [await bound('typecheck', ['lib']), await bound('lint', ['src'])];
+    expect(await judge(atoms)).toMatch(
+      /differ from the tree.*no qa-run on main after the merge stands in.*typecheck receipt \(roots lib\) does not cover the changed path\(s\) src\/a\/x\.ts/s,
+    );
+  });
+
+  it('refuses receipts bound to a commit that does not descend from the merge', async () => {
+    const tree = git(root, ['rev-parse', 'HEAD^{tree}']);
+    const atoms = (['typecheck', 'lint'] as const).map(
+      (check): EvidenceAtom => ({
+        kind: 'qa-run',
+        path: `${check}.json`,
+        sha256: 'c'.repeat(64),
+        check,
+        command: ['x'],
+        roots: ['src'],
+        headSha: branchHead,
+        treeHash: tree,
+      }),
+    );
+    expect(await judge(atoms)).toMatch(/which does not descend from merge commit/);
+  });
+
+  it('pre-merge receipts still carry when the change merged byte for byte (T13495 rule)', async () => {
+    const branchTree = git(root, ['rev-parse', `${branchHead}^{tree}`]);
+    const atoms = (['typecheck', 'lint'] as const).map(
+      (check): EvidenceAtom => ({
+        kind: 'qa-run',
+        path: `${check}.json`,
+        sha256: 'c'.repeat(64),
+        check,
+        command: ['x'],
+        roots: ['src'],
+        headSha: branchHead,
+        treeHash: branchTree,
+      }),
+    );
+    expect(
+      await qaPassedSupersededReason(atoms, {
+        mergeState: () => ({
+          state: 'merged' as const,
+          landing: { ...target(), deletedFiles: [] },
+        }),
+        currentTree: () => branchTree,
+        landed: isLandedOnOriginDefault,
+      }),
+    ).toBeNull();
+  });
+
+  it('needs both a typecheck and a lint receipt, as the verify-time pair rule does', async () => {
+    const atoms = [await bound('typecheck', ['src'])];
+    expect(
+      scopedRunStandsAfterRedCi(
+        atoms,
+        target(),
+        git(root, ['rev-parse', 'HEAD^{tree}']),
+        isLandedOnOriginDefault,
+        'qaPassed',
+      ),
+    ).toEqual({ ok: false, why: 'no qa-run lint receipt is on record' });
+  });
+
+  it('a whole-project tool: run beside the receipts is not judged after merge (it pins no tree)', async () => {
+    const atoms = [
+      await bound('typecheck', ['lib']),
+      { kind: 'tool', tool: 'lint', exitCode: 0 } as EvidenceAtom,
+    ];
+    expect(await judge(atoms)).toBeNull();
   });
 });
