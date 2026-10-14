@@ -319,6 +319,74 @@ describe('a qa-run receipt in a standalone project', () => {
   });
 });
 
+describe('a qa-run kind owes coverage only for what its tool reads (T13698)', () => {
+  // axiom T1984: ESLint over the changed TS entry files, plus a generated
+  // scripts/INDEX.md that ESLint never reads (scripts/ is a CI code root, so
+  // the .md is not set aside as documentation).
+  beforeEach(() => {
+    initRepo(() => {
+      put('package.json', JSON.stringify({ name: 'solo' }));
+      put('src/a/x.ts', 'export const x = 1;\n');
+      put('src/b/y.ts', 'export const y = 1;\n');
+      put('scripts/INDEX.md', '# index\n');
+    });
+    put('src/a/x.ts', 'export const x = 2;\n');
+    put('src/b/y.ts', 'export const y = 2;\n');
+    put('scripts/INDEX.md', '# index\n\n- x\n');
+    git(root, ['commit', '-q', '-am', 'T1: change entries and regenerate the index']);
+  });
+
+  const ctx: EvidenceValidationContext = {
+    task: { id: 'T1', kind: 'work', labels: [], files: [], acceptance: [] },
+    gates: ['qaPassed'],
+    criteria: [],
+  };
+
+  async function bound(fields: Record<string, unknown>, name: string): Promise<EvidenceAtom> {
+    const r = await validateAtom({ kind: 'qa-run', path: receipt(fields, undefined, name) }, root);
+    if (!r.ok) throw new Error(JSON.stringify(r));
+    return r.atom;
+  }
+
+  it('green: lint over the TS files passes with the .md left to the typecheck receipt that holds it', async () => {
+    const lint = await bound(
+      { kind: 'lint', command: ['eslint'], roots: ['src/a/x.ts', 'src/b/y.ts'] },
+      'lint',
+    );
+    expect(lint).toMatchObject({ uncovered: ['scripts/INDEX.md'] });
+    const types = await bound({ roots: ['src', 'scripts'] }, 'typecheck');
+    expect(checkTaskEvidenceContext(ctx, 'qaPassed', [types, lint])).toBeNull();
+  });
+
+  it('red: a lintable file the lint run missed is still refused, naming it', async () => {
+    const lint = await bound({ kind: 'lint', command: ['eslint'], roots: ['src/a/x.ts'] }, 'lint');
+    const types = await bound({ roots: ['src', 'scripts'] }, 'typecheck');
+    expect(checkTaskEvidenceContext(ctx, 'qaPassed', [types, lint])).toMatch(
+      /qa-run lint receipt \(roots src\/a\/x\.ts\) does not cover the changed path\(s\) src\/b\/y\.ts\./,
+    );
+  });
+
+  it('red: a file neither check reads and no receipt holds is named as needing its own evidence', async () => {
+    const lint = await bound(
+      { kind: 'lint', command: ['eslint'], roots: ['src/a/x.ts', 'src/b/y.ts'] },
+      'lint',
+    );
+    const types = await bound({ roots: ['src'] }, 'typecheck');
+    const gap = checkTaskEvidenceContext(ctx, 'qaPassed', [types, lint]);
+    expect(gap).toMatch(/^scripts\/INDEX\.md is not read by lint or typecheck/);
+    expect(gap).toContain('Add evidence that does');
+    // A whole-project tool: run speaks for it.
+    expect(
+      qaRunUnionGapReason(
+        [types, lint].filter(
+          (a): a is Extract<EvidenceAtom, { kind: 'qa-run' }> => a.kind === 'qa-run',
+        ),
+        true,
+      ),
+    ).toBeNull();
+  });
+});
+
 describe('a qa-run receipt in a workspace', () => {
   beforeEach(() => {
     initRepo(() => {
