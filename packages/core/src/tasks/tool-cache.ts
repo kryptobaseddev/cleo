@@ -64,6 +64,7 @@ import { join, matchesGlob, resolve } from 'node:path';
 import type { HeavyToolResourcePlan } from '@cleocode/contracts';
 import { ExitCode } from '@cleocode/contracts/exit-codes.js';
 import { CleoError } from '../errors.js';
+import { discoveryEnv } from '../git/work-tree.js';
 import { ADMISSION_ENV, planFootprintBytes } from '../resources/admission-ledger.js';
 import { activeToolGroups, trackToolGroup } from '../resources/tool-groups.js';
 import { isLocked, withLock } from '../store/lock.js';
@@ -1112,6 +1113,7 @@ function spawnCmd(
   cwd: string,
   spawnTimeoutMs?: number,
   envOverlay?: Readonly<Record<string, string>>,
+  baseEnv: NodeJS.ProcessEnv = process.env,
 ): Promise<CommandResult> {
   return new Promise((resolve) => {
     const stdoutBuf = new TailBuffer(STREAM_TAIL_CAP_BYTES);
@@ -1124,7 +1126,7 @@ function spawnCmd(
       // because a consuming project cannot be relied on to bound its own test
       // runner — and CLEO's semaphore counts this whole tree as a single slot
       // even when it fans out across a workspace.
-      env: envOverlay === undefined ? process.env : { ...process.env, ...envOverlay },
+      env: envOverlay === undefined ? baseEnv : { ...baseEnv, ...envOverlay },
       // T12025: detached creates a new process group on POSIX so that
       // killProcessTree can signal every descendant. Without this a
       // tool like `pnpm test` that forks worker processes inheriting
@@ -1214,7 +1216,15 @@ function spawnCmd(
  * @task T1534
  */
 export async function captureHead(projectRoot: string): Promise<string | null> {
-  const r = await spawnCmd('git', ['rev-parse', 'HEAD'], projectRoot);
+  // T13695: the HEAD of `projectRoot` itself, never of an inherited GIT_DIR.
+  const r = await spawnCmd(
+    'git',
+    ['rev-parse', 'HEAD'],
+    projectRoot,
+    undefined,
+    undefined,
+    discoveryEnv(),
+  );
   if (r.exitCode !== 0) return null;
   return r.stdout.trim() || null;
 }
@@ -1309,7 +1319,12 @@ const FINGERPRINT_PATHSPEC: readonly string[] = [
 function hashGitStdout(args: readonly string[], cwd: string): Promise<string | null> {
   return new Promise((resolve) => {
     const hash = createHash('sha256');
-    const child = spawn('git', [...args], { cwd, stdio: ['ignore', 'pipe', 'ignore'] });
+    // T13695: fingerprint `cwd`'s own tree, never an inherited GIT_DIR/GIT_WORK_TREE.
+    const child = spawn('git', [...args], {
+      cwd,
+      env: discoveryEnv(),
+      stdio: ['ignore', 'pipe', 'ignore'],
+    });
     child.stdout?.on('data', (chunk: Buffer) => hash.update(chunk));
     child.on('error', () => resolve(null));
     child.on('close', (code) => {

@@ -71,7 +71,7 @@ import type {
   ProcessCaptureOptions,
   ProcessCaptureResult,
 } from '@cleocode/contracts/resource-governor';
-import { gitToplevel, resolveDeclaredEvidenceGitRoot } from '../git/work-tree.js';
+import { discoveryEnv, gitToplevel, resolveDeclaredEvidenceGitRoot } from '../git/work-tree.js';
 import { getProjectRoot } from '../paths.js';
 import { captureProjectScope, worktreeScope } from '../project-scope.js';
 import { truncateString } from '../render/helpers.js';
@@ -565,12 +565,18 @@ export async function runGates(
   }
 }
 
-/** `git` read in `cwd`; `null` on a non-zero exit or when git is unavailable. */
+/**
+ * `git` read in `cwd`; `null` on a non-zero exit or when git is unavailable.
+ * Ambient `GIT_DIR`/`GIT_WORK_TREE` are dropped (T13695): the tree is resolved
+ * explicitly ({@link resolveTypedGateRoot}), so an inherited repo pointer may
+ * only ever make it read another repository.
+ */
 function gitOut(cwd: string, args: readonly string[]): string | null {
   try {
     return execFileSync('git', args, {
       cwd,
       encoding: 'utf-8',
+      env: discoveryEnv(),
       stdio: ['ignore', 'pipe', 'ignore'],
     }).trim();
   } catch {
