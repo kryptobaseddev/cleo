@@ -333,6 +333,21 @@ function writeGraphTransaction(
   }
 }
 
+/** Pass rows to `insert` 500 at a time, never holding more; returns how many there were. */
+function insertInChunks<T>(rows: Iterable<T>, insert: (chunk: T[]) => void): number {
+  let chunk: T[] = [];
+  let count = 0;
+  for (const row of rows) {
+    chunk.push(row);
+    if (++count % 500 === 0) {
+      insert(chunk);
+      chunk = [];
+    }
+  }
+  if (chunk.length > 0) insert(chunk);
+  return count;
+}
+
 /**
  * Atomically publish staged rows if the graph has not changed since assessment.
  * Failed inserts, FTS repair, or stale generations roll back the entire replacement.
@@ -340,6 +355,7 @@ function writeGraphTransaction(
  * @param db - Owning project graph database with the canonical schema installed.
  * @param rows - Validated staged nodes, relations and source assessment to publish.
  * @param expectedGeneration - Previously observed generation; null for the first publication.
+ * @returns The number of node and relation rows written.
  * @remarks The transaction rejects stale generation preconditions and restores the
  * prior live rows on failure. Successful replacement does not itself retain an
  * independently recoverable historical generation.
@@ -352,7 +368,9 @@ export function publishNexusGraph(
   db: NodeSQLiteDatabase,
   rows: GraphPublicationRows,
   expectedGeneration: string | null,
-): void {
+): { nodeCount: number; relationCount: number } {
+  let nodeCount = 0;
+  let relationCount = 0;
   const generation = rows.generation ?? randomUUID();
   if (rows.generation !== undefined) {
     z.uuid().parse(generation);
@@ -385,16 +403,11 @@ export function publishNexusGraph(
     }
     tx.delete(nexusRelations).run();
     tx.delete(nexusNodes).run();
-    for (let offset = 0; offset < rows.nodes.length; offset += 500) {
-      tx.insert(nexusNodes)
-        .values(rows.nodes.slice(offset, offset + 500))
-        .run();
-    }
-    for (let offset = 0; offset < rows.relations.length; offset += 500) {
-      tx.insert(nexusRelations)
-        .values(rows.relations.slice(offset, offset + 500))
-        .run();
-    }
+    // Rows may be serialized lazily (T13656): consume them 500 at a time.
+    nodeCount = insertInChunks(rows.nodes, (chunk) => tx.insert(nexusNodes).values(chunk).run());
+    relationCount = insertInChunks(rows.relations, (chunk) =>
+      tx.insert(nexusRelations).values(chunk).run(),
+    );
     if (
       rows.generation !== undefined &&
       tx.values(sql`
@@ -423,10 +436,11 @@ export function publishNexusGraph(
       );
     else clearFileManifest(tx);
     // T12348: summary and reference list are written together, separately.
-    if (rows.assessment) writeAssessment(tx, rows.assessment);
+    if (rows.assessment) writeAssessment(tx, rows.assessment, rows.references);
     tx.run(sql`INSERT INTO main._nexus_meta (key, value) VALUES ('graph_generation', ${generation})
       ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = strftime('%s', 'now')`);
   });
+  return { nodeCount, relationCount };
 }
 
 /**
@@ -747,10 +761,10 @@ async function runScopedNexusAnalysis(
       execution?.assertActive();
       signal?.throwIfAborted();
       const commitStart = Date.now();
-      publishNexusGraph(db, rows, expectedGeneration);
+      const written = publishNexusGraph(db, rows, expectedGeneration);
       const timing =
         `[nexus] Publication: source recheck ${commitStart - recheckStart}ms, atomic commit of ` +
-        `${rows.nodes.length} nodes + ${rows.relations.length} relations ${Date.now() - commitStart}ms\n`;
+        `${written.nodeCount} nodes + ${written.relationCount} relations ${Date.now() - commitStart}ms\n`;
       process.stderr.write(timing); // json-stream-hygiene-allowed: analyze progress telemetry on stderr, same channel as the pipeline phase log
       committedAssessment = rows.assessment ? assessmentSummary(rows.assessment) : null;
     },

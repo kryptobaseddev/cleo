@@ -12,7 +12,7 @@
  */
 
 import { randomBytes } from 'node:crypto';
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
@@ -284,6 +284,18 @@ describe('cleo logout nexus (E9)', () => {
     expect(r.devices).toEqual([]);
     expect(r.session).toBeNull();
     expect(api.calls).toEqual([]);
+  });
+
+  it('a malformed session file is reported and left as is; nothing is called (T13677)', async () => {
+    const content = '{"version": 1, "sessions": []}';
+    mkdirSync(join(dir, 'home'), { recursive: true });
+    writeFileSync(sessions.location, content, { mode: 0o600 });
+    const api = mockApi(new Map());
+    const r = await run(api.fetch);
+    expect(r.session).toBeNull();
+    expect(r.warnings.join(' ')).toContain(sessions.location);
+    expect(api.calls).toEqual([]);
+    expect(readFileSync(sessions.location, 'utf-8')).toBe(content);
   });
 
   it('retries a retired device request left by a device change', async () => {

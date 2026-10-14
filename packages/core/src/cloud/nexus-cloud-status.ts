@@ -75,7 +75,12 @@ import {
   nexusQueryPath,
   retiredReplicasOfProject,
 } from './nexus-cloud.js';
-import { FileNexusTokenStore, type NexusTokenStore, nexusOriginKey } from './nexus-credentials.js';
+import {
+  FileNexusTokenStore,
+  NexusCredentialsError,
+  type NexusTokenStore,
+  nexusOriginKey,
+} from './nexus-credentials.js';
 import { NexusDeviceStore, UnreadableNexusDevice } from './nexus-device.js';
 import { nexusHomeReplicaListSchema } from './nexus-home.js';
 import { projectStream } from './streams.js';
@@ -588,18 +593,30 @@ function isWritable(dir: string): boolean {
   }
 }
 
-/** True when a device credential (or a 9.24 session to upgrade) is stored for the origin. */
+/**
+ * True when a device credential (or a 9.24 session to upgrade) is stored for
+ * the origin. A session file this CLEO cannot read safely (malformed, or a
+ * newer format) reads as no session, with a warning naming it (T13677); a
+ * write still refuses it.
+ */
 async function hasLocalCredential(
   apiUrl: string,
   devices: NexusDeviceStore,
   sessions: NexusTokenStore,
+  warnings: CloudWarning[],
 ): Promise<boolean> {
   const origin = nexusOriginKey(apiUrl);
   for (const d of await devices.list()) {
     if (d instanceof UnreadableNexusDevice || d.origin !== origin) continue;
     if (d.currentBearer() !== null || d.unseal().raceCandidate) return true;
   }
-  return (await sessions.get(apiUrl)) !== null;
+  try {
+    return (await sessions.get(apiUrl)) !== null;
+  } catch (err) {
+    if (!(err instanceof NexusCredentialsError)) throw err;
+    warnings.push({ code: 'W_NEXUS_CREDENTIALS_UNREADABLE', message: err.message });
+    return false;
+  }
 }
 
 /** A summary with no remote facts. */
@@ -928,7 +945,7 @@ export async function getNexusCloudStatus(
     ...withSync,
     warnings,
   });
-  if (!(await hasLocalCredential(apiUrl, devices, sessions))) return notSignedIn();
+  if (!(await hasLocalCredential(apiUrl, devices, sessions, warnings))) return notSignedIn();
   try {
     const conn = await connectNexusCloud({
       ...opts,

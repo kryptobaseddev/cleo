@@ -5,7 +5,7 @@ import { chmod, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
-import type { GraphPublicationRows } from '@cleocode/contracts';
+import type { GraphPublicationRows, NexusNodeInsertRow } from '@cleocode/contracts';
 import { drizzle } from 'drizzle-orm/node-sqlite';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { graphCoverageFinding } from '../../doctor/knowledge.js';
@@ -70,7 +70,7 @@ beforeEach(() => {
 afterEach(() => native.close());
 
 /** A complete replacement generation using the shared publication contract. */
-function replacement(): GraphPublicationRows {
+function replacement(): GraphPublicationRows & { nodes: NexusNodeInsertRow[] } {
   return {
     nodes: [
       {

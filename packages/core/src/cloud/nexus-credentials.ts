@@ -345,12 +345,22 @@ export class FileNexusTokenStore implements NexusTokenStore {
     // Refuse a malformed or newer file with a clear error before locking (T12880).
     this.read();
     this.seed();
-    await withLock<NexusCredentialsFile>(
-      this.location,
-      // A newer or malformed file throws here, before anything is written.
-      (current) => transform(parseStore(current, this.location)),
-      { mode: 0o600 },
-    );
+    try {
+      await withLock<NexusCredentialsFile>(
+        this.location,
+        // A newer or malformed file throws here, before anything is written.
+        (current) => transform(parseStore(current, this.location)),
+        { mode: 0o600 },
+      );
+    } catch (err) {
+      // A whitespace-only or garbled file fails JSON.parse inside the lock: name it (T13677).
+      if (err instanceof SyntaxError) {
+        throw new NexusCredentialsError(
+          `${this.location} is malformed (not JSON); it was left as is: repair or remove it, then sign in again`,
+        );
+      }
+      throw err;
+    }
   }
 
   /**

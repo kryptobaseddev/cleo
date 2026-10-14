@@ -5041,6 +5041,35 @@ export const OPERATIONS: OperationDef[] = [
   {
     gateway: 'mutate',
     domain: 'pipeline',
+    operation: 'manifest.update',
+    description:
+      'pipeline.manifest.update (mutate) — change only the given fields of a manifest entry; linkTask adds a linked task (T13678)',
+    tier: 1,
+    idempotent: true,
+    sessionRequired: false,
+    requiredParams: ['id'],
+    params: [
+      { name: 'id', type: 'string', required: true, description: 'Manifest entry id' },
+      {
+        name: 'linkTask',
+        type: 'string',
+        required: false,
+        description: 'Task id to add to linked_tasks',
+      },
+      { name: 'title', type: 'string', required: false, description: 'New title' },
+      { name: 'topics', type: 'array', required: false, description: 'Replacement topics' },
+      {
+        name: 'key_findings',
+        type: 'array',
+        required: false,
+        description: 'Replacement key findings',
+      },
+      { name: 'status', type: 'string', required: false, description: 'New status' },
+    ] satisfies ParamDef[],
+  },
+  {
+    gateway: 'mutate',
+    domain: 'pipeline',
     operation: 'manifest.archive',
     description: 'pipeline.manifest.archive (mutate) — archive old manifest entries',
     tier: 1,

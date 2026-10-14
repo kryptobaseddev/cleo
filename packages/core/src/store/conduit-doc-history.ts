@@ -833,8 +833,8 @@ export async function rebaseSectionCrdtStates(
 // T13360 — legacy docs migration accessors (spec §5, D11165)
 //
 // The three importers below are IDEMPOTENT by construction: every row's uid
-// is the NATURAL identity over its business key (doc slug; (doc uid,
-// migration key); ledger slug), so a re-run derives the same uid and
+// is the NATURAL identity over its business key (doc slug; (doc uid, content
+// hash, event timestamp); ledger slug), so a re-run derives the same uid and
 // `onConflictDoNothing` turns the insert into a verified no-op — which is
 // what makes the T13360 harness step re-runnable (AC4).
 // ============================================================================
@@ -910,13 +910,6 @@ export async function importMigratedConduitDoc(
 export interface ImportMigratedConduitVersionInput {
   /** Immutable doc id (`conduit_attachments.uid`). */
   readonly attachmentUid: string;
-  /**
-   * Stable per-doc import key — the natural identity discriminator. The
-   * migration uses the legacy audit event's ordinal position ('evt-1',
-   * 'evt-2', …) or 'base' for the content-capture fallback, so a re-run
-   * derives the same uid for the same legacy fact.
-   */
-  readonly migrationKey: string;
   /** Parent version uid in the DAG (NULL for the root import). */
   readonly parentVersionUid: string | null;
   /** Real provenance author (audit-log actor); 'system:migration' when none. */
@@ -943,7 +936,12 @@ export interface ImportMigratedConduitVersionInput {
  * Import one history row for a migrated doc.
  *
  * Every imported row carries `origin: 'migrated'` (spec §5 — no imported row
- * poses as native) and a natural uid over (doc uid, migration key), so the
+ * poses as native) and a natural uid over (doc uid, content hash, event
+ * timestamp) — a pure function of the version's real facts (T13638). The
+ * derivation never touches the device-local `docs-audit.jsonl` row position,
+ * so two devices migrating the same synced legacy doc derive the SAME uid
+ * for the same content whatever their local audit logs hold, and two
+ * different contents (different hashes) can never collide on one uid. The
  * insert is conflict-free on re-run and history can never be duplicated
  * (AC4).
  *
@@ -951,18 +949,21 @@ export interface ImportMigratedConduitVersionInput {
  * @param input - The version facts.
  * @returns The version uid and whether this call inserted the row.
  * @task T13360
+ * @task T13638 — content-derived natural uid
  */
-// @sync-invariant docs.versions.append-only the natural uid over (doc uid, migration key) makes a re-run a verified no-op via ON CONFLICT DO NOTHING; imported history is never updated or deleted
+// @sync-invariant docs.versions.append-only the natural uid over (doc uid, content hash, event timestamp) makes a re-run a verified no-op via ON CONFLICT DO NOTHING; imported history is never updated or deleted
 export async function importMigratedConduitVersion(
   projectRoot: string,
   input: ImportMigratedConduitVersionInput,
 ): Promise<{ uid: string; inserted: boolean }> {
   requireNonEmpty('attachmentUid', input.attachmentUid);
-  requireNonEmpty('migrationKey', input.migrationKey);
+  requireNonEmpty('contentHash', input.contentHash);
+  requireNonEmpty('createdAt', input.createdAt);
   requireNonEmpty('authorAgentId', input.authorAgentId);
   const uid = naturalRowUid('project', 'conduit_attachment_versions', [
     input.attachmentUid,
-    input.migrationKey,
+    input.contentHash,
+    input.createdAt,
   ]);
   const db = await getDb(projectRoot);
   const result = await db

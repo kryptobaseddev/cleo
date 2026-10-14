@@ -431,6 +431,51 @@ export async function unsetConfigValue(
 }
 
 /**
+ * Write one `.`-separated key into the project or global config file, at the
+ * same path {@link getConfigValue} reads (T13663). Intermediate objects are
+ * created; the file is written atomically.
+ *
+ * @param key - Dot-separated key (e.g. `'lean.level'`).
+ * @param value - JSON-serialisable value.
+ * @param opts.projectRoot - Absolute path to the project root.
+ * @param opts.global - When `true`, target the global `~/.cleo/config.json`.
+ * @returns The scope written.
+ * @throws When the present file contains malformed JSON.
+ *
+ * @public
+ */
+export async function writeConfigValue(
+  key: string,
+  value: string | number | boolean | null,
+  opts: { projectRoot: string; global?: boolean },
+): Promise<{ key: string; scope: 'project' | 'global' }> {
+  const configPath = opts.global
+    ? resolveGlobalConfigPath()
+    : resolveProjectFilePath(opts.projectRoot, CLEO_CONFIG_MANIFEST.path.replace(/^\.cleo\//, ''));
+  const config = (await readJsonOrNull(configPath)) ?? {};
+  const segments = key.split('.');
+  const last = segments.pop();
+  if (last === undefined || last === '') {
+    // @sync-invariant none:local-only config.json is per-machine, never synced; an empty key is refused before any write
+    throw new Error(`invalid config key: "${key}"`);
+  }
+  let cursor: Record<string, unknown> = config;
+  for (const seg of segments) {
+    const existing = cursor[seg];
+    if (isPlainObject(existing)) {
+      cursor = existing;
+    } else {
+      const fresh: Record<string, unknown> = {};
+      cursor[seg] = fresh;
+      cursor = fresh;
+    }
+  }
+  cursor[last] = value;
+  await atomicWriteJson(configPath, config);
+  return { key, scope: opts.global ? 'global' : 'project' };
+}
+
+/**
  * Delete a `.`-separated key from a plain object in place.
  *
  * Returns `true` IFF the key existed and was deleted. Traverses only through

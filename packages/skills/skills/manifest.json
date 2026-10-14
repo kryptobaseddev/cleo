@@ -983,7 +983,7 @@
     },
     {
       "name": "ct-lean",
-      "version": "1.0.1",
+      "version": "1.1.0",
       "description": "Lean change discipline for CLEO work: the smallest change that fully solves the task, and a reply a busy owner understands in one read. Use on every coding task (writing, fixing, refactoring, reviewing, choosing dependencies) and when the owner asks for the simplest solution, YAGNI, or complains about over-engineering or bloat. Never trades away evidence gates, package boundaries, validation, data safety or anything the task asked for.",
       "path": "skills/ct-lean",
       "tier": 0,
@@ -1001,7 +1001,7 @@
     },
     {
       "name": "ct-orchestrator",
-      "version": "4.0.14",
+      "version": "4.0.15",
       "description": "Pipeline-aware orchestration skill for managing complex workflows through subagent delegation. Use when the user asks to \\\"orchestrate\\\", \\\"orchestrator mode\\\", \\\"run as orchestrator\\\", \\\"delegate to subagents\\\", \\\"coordinate agents\\\", \\\"spawn subagents\\\", \\\"multi-agent workflow\\\", \\\"context-protected workflow\\\", \\\"agent farm\\\", \\\"HITL orchestration\\\", \\\"pipeline management\\\", or needs to manage complex workflows by delegating work to subagents while protecting the main context window. Enforces ORC-001 through ORC-009 constraints. Provider-neutral — works with any AI agent runtime.",
       "path": "skills/ct-orchestrator",
       "tier": 0,

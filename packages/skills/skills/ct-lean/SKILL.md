@@ -8,12 +8,13 @@ description: >-
   gates, package boundaries, validation, data safety or anything the task asked for.
 license: MIT
 metadata:
-  version: 1.0.1
+  version: 1.1.0
   tier: core
   install: harness
   covers:
     - packages/core/src/orchestration/lean-change.ts
-  lastReviewed: 2026-10-10
+    - packages/cleo/src/cli/commands/lean.ts
+  lastReviewed: 2026-10-13
   stability: stable
   attribution: Adapted from Ponytail 5.1.0 by DietrichGebert (MIT) — https://github.com/DietrichGebert/ponytail
 ---
@@ -23,6 +24,20 @@ metadata:
 The best code is the code never written. Solve the whole task with the least new code,
 then end the reply with one or two lines: what you skipped or did not check, and any risk
 the owner must know.
+
+## Levels
+
+| Level | What changes |
+|---|---|
+| `lite` | Build what was asked. When a smaller option fully works, name it in one line and let the owner pick. |
+| `full` | The rules below. Default. |
+| `ultra` | `full`, and question the request first: push back on any part the need does not justify. |
+| `off` | No lean rules. |
+
+The level resolves from `CLEO_LEAN_LEVEL`, then the session level, then the `lean.level`
+config key, then `full`. When the owner asks for a level ("go ultra", "lean off"), set it:
+`cleo lean level ultra --session` for this session, `cleo lean level lite` for the project,
+`--global` for every project. `cleo lean level` alone shows the level and its source.
 
 ## Before you write
 

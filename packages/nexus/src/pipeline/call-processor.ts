@@ -47,7 +47,10 @@ import { CLASS_KINDS, resolveLexicalReference, type SymbolTable } from './symbol
  * Result counters from a call resolution run.
  */
 export interface CallResolutionResult {
-  /** Unresolved sites retained with their original binding and range evidence. */
+  /**
+   * Unresolved sites retained with their original binding and range evidence;
+   * empty when the caller supplied an `onReference` sink, which received them.
+   */
   references: GraphIndexReferenceReport[];
   /** CALLS edges emitted at Tier 1 (same-file confidence 0.95). */
   tier1Count: number;
@@ -244,121 +247,116 @@ function resolveSingleCall(
  * (the HeritageMap is available for future virtual-dispatch, though not used
  * in Tier 1 + 2a).
  *
- * Processing is grouped per-file for cache efficiency, consistent with
- * GitNexus `processCallsFromExtracted`.
+ * Calls are resolved in input order, one at a time, so a streamed input is
+ * never held whole (T13656); the parse loop yields them file by file.
  *
- * @param calls - All call expression records accumulated during the parse loop
+ * @param calls - Every call expression record, in scan order
  * @param graph - KnowledgeGraph to write CALLS edges into
  * @param symbolTable - Fully-populated SymbolTable (all files parsed)
  * @param namedImportMap - Named import bindings from the import processing phase
  * @param barrelMap - Barrel export chain map for Tier 2a barrel tracing (T617)
+ * @param onReference - Receives each unresolved site instead of the result retaining it
  * @returns Resolution counters
  */
 export async function resolveCalls(
-  calls: ExtractedCall[],
+  calls: Iterable<ExtractedCall>,
   graph: KnowledgeGraph,
   symbolTable: SymbolTable,
   namedImportMap: NamedImportMap,
   barrelMap: BarrelExportMap = new Map(),
+  onReference?: (reference: GraphIndexReferenceReport) => void,
 ): Promise<CallResolutionResult> {
   const references: GraphIndexReferenceReport[] = [];
+  const report =
+    onReference ??
+    ((reference: GraphIndexReferenceReport): void => {
+      references.push(reference);
+    });
   let tier1Count = 0;
   let tier2aCount = 0;
   let tier3Count = 0;
   let unresolvedCount = 0;
 
-  // Group calls by file for cache efficiency
-  const byFile = new Map<string, ExtractedCall[]>();
+  let processed = 0;
   for (const call of calls) {
-    let list = byFile.get(call.filePath);
-    if (!list) {
-      list = [];
-      byFile.set(call.filePath, list);
+    // Yield to the event loop periodically on large repos (mirrors parse-loop pattern)
+    if (++processed % 10000 === 0) await Promise.resolve();
+    const lexical = call.generation
+      ? resolveLexicalReference(
+          {
+            filePath: call.filePath,
+            sourceId: call.sourceId,
+            targetName: call.calledName,
+            relationship: 'calls',
+            span: call.span,
+            generation: call.generation,
+            publicationGeneration: call.publicationGeneration,
+            lexical: call.lexical,
+            member:
+              call.callForm === 'member' ||
+              (call.callForm === 'constructor' && call.receiverName !== undefined),
+            dynamic: call.dynamic,
+          },
+          symbolTable,
+          graph.nodes,
+          namedImportMap,
+          barrelMap,
+        )
+      : undefined;
+    if (lexical && 'report' in lexical) {
+      report(lexical.report);
+      unresolvedCount++;
+      continue;
     }
-    list.push(call);
-  }
+    const resolved = lexical
+      ? {
+          nodeId: lexical.targetId,
+          confidence: TIER_CONFIDENCE[lexical.tier],
+          tier: lexical.tier,
+        }
+      : resolveSingleCall(call, symbolTable, namedImportMap, barrelMap);
 
-  let filesProcessed = 0;
-
-  for (const [, fileCalls] of byFile) {
-    filesProcessed++;
-
-    // Yield to event loop periodically on large repos (mirrors parse-loop pattern)
-    if (filesProcessed % 100 === 0) {
-      await Promise.resolve();
+    if (!resolved) {
+      unresolvedCount++;
+      report({
+        kind: 'unresolved',
+        filePath: call.filePath,
+        sourceId: call.sourceId,
+        targetName: call.calledName,
+        relationship: 'calls',
+        reason:
+          'Language-specific resolver did not establish a target; lexical capability unavailable',
+        candidateIds: symbolTable
+          .lookupCallableByName(call.calledName)
+          .map((candidate) => candidate.nodeId),
+      });
+      continue;
     }
 
-    for (const call of fileCalls) {
-      const lexical = call.generation
-        ? resolveLexicalReference(
-            {
-              filePath: call.filePath,
-              sourceId: call.sourceId,
-              targetName: call.calledName,
-              relationship: 'calls',
-              span: call.span,
-              generation: call.generation,
-              publicationGeneration: call.publicationGeneration,
-              lexical: call.lexical,
-              member:
-                call.callForm === 'member' ||
-                (call.callForm === 'constructor' && call.receiverName !== undefined),
-              dynamic: call.dynamic,
-            },
-            symbolTable,
-            graph.nodes,
-            namedImportMap,
-            barrelMap,
-          )
-        : undefined;
-      if (lexical && 'report' in lexical) {
-        references.push(lexical.report);
-        unresolvedCount++;
-        continue;
-      }
-      const resolved = lexical
-        ? {
-            nodeId: lexical.targetId,
-            confidence: TIER_CONFIDENCE[lexical.tier],
-            tier: lexical.tier,
-          }
-        : resolveSingleCall(call, symbolTable, namedImportMap, barrelMap);
+    const rel: GraphRelation = {
+      source: call.sourceId,
+      target: resolved.nodeId,
+      type: 'calls',
+      confidence: resolved.confidence,
+      confidenceLabel: confidenceLabelFromNumeric(resolved.confidence),
+      // Joined, not one template literal: V8 keeps a template's pieces as a tree
+      // of ~30 cons strings, a quarter of the heap at publication (T13656).
+      reason: [
+        `${call.callForm} call to ${call.calledName} (tier: ${resolved.tier})`,
+        lexical
+          ? `; ${lexical.reason}; utf16 ${call.span?.startIndex}:${call.span?.endIndex}; source ${call.generation}`
+          : '; language-specific name resolution',
+      ].join(''),
+    };
 
-      if (!resolved) {
-        unresolvedCount++;
-        references.push({
-          kind: 'unresolved',
-          filePath: call.filePath,
-          sourceId: call.sourceId,
-          targetName: call.calledName,
-          relationship: 'calls',
-          reason:
-            'Language-specific resolver did not establish a target; lexical capability unavailable',
-          candidateIds: symbolTable
-            .lookupCallableByName(call.calledName)
-            .map((candidate) => candidate.nodeId),
-        });
-        continue;
-      }
+    graph.addRelation(rel);
 
-      const rel: GraphRelation = {
-        source: call.sourceId,
-        target: resolved.nodeId,
-        type: 'calls',
-        confidence: resolved.confidence,
-        confidenceLabel: confidenceLabelFromNumeric(resolved.confidence),
-        reason: `${call.callForm} call to ${call.calledName} (tier: ${resolved.tier})${lexical ? `; ${lexical.reason}; utf16 ${call.span?.startIndex}:${call.span?.endIndex}; source ${call.generation}` : '; language-specific name resolution'}`,
-      };
-
-      graph.addRelation(rel);
-
-      if (resolved.tier === 'same-file') {
-        tier1Count++;
-      } else if (resolved.tier === 'import-scoped') {
-        tier2aCount++;
-      } else {
-        tier3Count++;
-      }
+    if (resolved.tier === 'same-file') {
+      tier1Count++;
+    } else if (resolved.tier === 'import-scoped') {
+      tier2aCount++;
+    } else {
+      tier3Count++;
     }
   }
 

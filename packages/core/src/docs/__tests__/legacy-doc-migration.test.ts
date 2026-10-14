@@ -19,7 +19,7 @@
  */
 
 import { createHash } from 'node:crypto';
-import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { appendFileSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
@@ -39,7 +39,7 @@ import {
 } from '../../store/schema/cleo-project/conduit.js';
 import { getDb, getNativeDb } from '../../store/sqlite.js';
 import { docsAttachments } from '../../store/tasks-schema.js';
-import { writeAuditEntry } from '../docs-audit.js';
+import { DOCS_AUDIT_FILE, writeAuditEntry } from '../docs-audit.js';
 import {
   deriveLegacyDocMigrationPlan,
   MIGRATION_SYSTEM_AUTHOR,
@@ -368,5 +368,253 @@ describe('legacy docs migration (T13360)', () => {
     const versions = await listConduitAttachmentVersions(env.tempDir, resolvedUid ?? '');
     expect(versions).toHaveLength(1);
     expect(versions[0]?.origin).toBe('migrated');
+  });
+});
+
+/**
+ * T13638 — the migrated version uid is a pure function of (doc uid, content
+ * hash, event timestamp), never of the audit log's device-local row
+ * position. These tests run the migration on independent stores whose
+ * docs-audit.jsonl files hold the SAME events at DIFFERENT file positions
+ * (and with device-specific noise events) and prove the migrations derive
+ * identical uids — and that distinct contents can never collide.
+ *
+ * The two "devices" run SEQUENTIALLY: createTestDb owns process-global state
+ * (the DB singleton and CLEO_DIR), so only one fixture store may be live at
+ * a time.
+ */
+describe('content-derived version uids (T13638)', () => {
+  /** A synthetic audit event (written directly, with an explicit timestamp). */
+  interface AuditSpec {
+    op: string;
+    ts: string;
+    actor: string;
+    slug: string;
+    sha256: string;
+  }
+
+  /** Write bytes into `target`'s blob store and return the sha. */
+  function seedBlobIn(target: TestDbEnv, bytes: Buffer): string {
+    const hash = sha(bytes);
+    const path = blobFilePath(target.cleoDir, hash, MIME);
+    mkdirSync(dirname(path), { recursive: true });
+    writeFileSync(path, bytes);
+    return hash;
+  }
+
+  /** Seed one legacy docs_attachments row in `target`. */
+  async function seedLegacyDocIn(
+    target: TestDbEnv,
+    opts: { slug: string; payload: Record<string, unknown>; sha256: string },
+  ): Promise<void> {
+    const store = await getDb(target.tempDir);
+    await store
+      .insert(docsAttachments)
+      .values({
+        id: `att-${opts.slug}`,
+        sha256: opts.sha256,
+        attachmentJson: JSON.stringify(opts.payload),
+        slug: opts.slug,
+        createdAt: '2026-09-01T00:00:00.000Z',
+      })
+      .run();
+  }
+
+  /**
+   * Append one audit line directly, with an EXPLICIT timestamp (the public
+   * writeAuditEntry stamps wall-clock time, which would differ across the
+   * two seeded stores and defeat the comparison). The checkpoint value is a
+   * placeholder: readAuditLog reports the chain broken but still returns
+   * every entry, and the migration path reads only the event facts.
+   */
+  function writeAuditLine(projectRoot: string, entry: AuditSpec): void {
+    const path = join(projectRoot, DOCS_AUDIT_FILE);
+    mkdirSync(dirname(path), { recursive: true });
+    appendFileSync(
+      path,
+      `${JSON.stringify({ ...entry, summary: `${entry.op} ${entry.slug}`, checkpoint: 'test' })}\n`,
+    );
+  }
+
+  /** Run the migration in `target` and return slug → ordered version uids. */
+  async function migrateAndCollectUids(target: TestDbEnv): Promise<Map<string, string[]>> {
+    const native = getNativeDb(target.tempDir);
+    if (!native) throw new Error('expected a native handle');
+    const result = await runLegacyDocMigration({
+      projectRoot: target.tempDir,
+      db: native,
+      cwd: target.tempDir,
+    });
+    expect(result.report.status).toBe('completed');
+    const store = await getDb(target.tempDir);
+    const versions = await store.select().from(conduitAttachmentVersions).all();
+    const bySlug = new Map<string, string[]>();
+    for (const version of versions.sort((a, b) => a.versionNumber - b.versionNumber)) {
+      const slug = version.slug ?? '';
+      bySlug.set(slug, [...(bySlug.get(slug) ?? []), version.uid]);
+    }
+    return bySlug;
+  }
+
+  it('derives identical version uids from two divergent device-local audit logs', async () => {
+    const x1 = Buffer.from('# Doc X\nfirst revision');
+    const x2 = Buffer.from('# Doc X\nsecond revision');
+    const y1 = Buffer.from('# Doc Y\nonly revision');
+    const x1Sha = sha(x1);
+    const x2Sha = sha(x2);
+    const y1Sha = sha(y1);
+    // Fixed event instants — identical on both "devices".
+    const xAddTs = '2026-09-10T10:00:00.000Z';
+    const xUpdateTs = '2026-09-10T11:00:00.000Z';
+    const yAddTs = '2026-09-10T09:30:00.000Z';
+
+    // One shared fixture (same docs, same blobs, same event facts); only the
+    // device-local audit log differs per run.
+    const seedFixture = async (device: TestDbEnv): Promise<void> => {
+      seedBlobIn(device, x1);
+      seedBlobIn(device, x2);
+      seedBlobIn(device, y1);
+      await seedLegacyDocIn(device, {
+        slug: 'doc-x',
+        sha256: x2Sha,
+        payload: { kind: 'blob', mime: MIME },
+      });
+      await seedLegacyDocIn(device, {
+        slug: 'doc-y',
+        sha256: y1Sha,
+        payload: { kind: 'blob', mime: MIME },
+      });
+    };
+
+    // Device A's log: doc-x's events sit at file positions 2 and 4, split
+    // by a doc-y event. (Position-derived keys — the old 'evt-<i>' — would
+    // mint 'evt-1'/'evt-3' here.)
+    const deviceALog: AuditSpec[] = [
+      {
+        op: 'docs.add',
+        ts: '2026-09-10T08:00:00.000Z',
+        actor: 'agent-noise',
+        slug: 'doc-a-only',
+        sha256: '1'.repeat(64),
+      },
+      { op: 'docs.add', ts: xAddTs, actor: 'agent-author-a', slug: 'doc-x', sha256: x1Sha },
+      { op: 'docs.add', ts: yAddTs, actor: 'agent-author-y', slug: 'doc-y', sha256: y1Sha },
+      { op: 'docs.update', ts: xUpdateTs, actor: 'agent-author-b', slug: 'doc-x', sha256: x2Sha },
+    ];
+
+    // Device B's log: same doc-x events, but at file positions 1 and 2,
+    // followed by noise A lacks and the doc-y event last. The old
+    // derivation would mint 'evt-1'/'evt-2' — different uids for the same
+    // logical versions.
+    const deviceBLog: AuditSpec[] = [
+      { op: 'docs.add', ts: xAddTs, actor: 'agent-author-a', slug: 'doc-x', sha256: x1Sha },
+      { op: 'docs.update', ts: xUpdateTs, actor: 'agent-author-b', slug: 'doc-x', sha256: x2Sha },
+      {
+        op: 'docs.add',
+        ts: '2026-09-10T12:00:00.000Z',
+        actor: 'agent-noise',
+        slug: 'doc-b-only',
+        sha256: '2'.repeat(64),
+      },
+      { op: 'docs.add', ts: yAddTs, actor: 'agent-author-y', slug: 'doc-y', sha256: y1Sha },
+    ];
+
+    // The two devices run sequentially (createTestDb owns process-global
+    // state); each result is captured before the next store opens.
+    let uidsA: Map<string, string[]>;
+    let docUidA: string | null;
+    const deviceA = await createTestDb();
+    try {
+      await seedFixture(deviceA);
+      for (const entry of deviceALog) writeAuditLine(deviceA.tempDir, entry);
+      uidsA = await migrateAndCollectUids(deviceA);
+      docUidA = await resolveConduitDocUid(deviceA.tempDir, 'doc-x');
+    } finally {
+      await deviceA.cleanup();
+    }
+
+    let uidsB: Map<string, string[]>;
+    let docUidB: string | null;
+    const deviceB = await createTestDb();
+    try {
+      await seedFixture(deviceB);
+      for (const entry of deviceBLog) writeAuditLine(deviceB.tempDir, entry);
+      uidsB = await migrateAndCollectUids(deviceB);
+      docUidB = await resolveConduitDocUid(deviceB.tempDir, 'doc-x');
+    } finally {
+      await deviceB.cleanup();
+    }
+
+    // Same doc, same content, same event timestamps — IDENTICAL uids,
+    // whatever the device-local audit position or noise.
+    expect(uidsA.get('doc-x')).toEqual([...(uidsB.get('doc-x') ?? [])]);
+    expect(uidsA.get('doc-y')).toEqual([...(uidsB.get('doc-y') ?? [])]);
+    expect(uidsA.get('doc-x')).toHaveLength(2);
+    // Doc identity was already device-independent and stays so.
+    expect(docUidA).toBe(docUidB);
+  });
+
+  it('never collides: same instant with different contents derives different uids', async () => {
+    const first = Buffer.from('# Doc C\ncontent one');
+    const second = Buffer.from('# Doc C\ncontent two — different');
+    const firstSha = sha(first);
+    const secondSha = sha(second);
+    const sameInstant = '2026-09-11T10:00:00.000Z';
+
+    // The module-level fixture from beforeEach is not used here, but a fresh
+    // store is required: createTestDb resets the singleton.
+    const target = await createTestDb();
+    try {
+      seedBlobIn(target, first);
+      seedBlobIn(target, second);
+      await seedLegacyDocIn(target, {
+        slug: 'doc-c',
+        sha256: secondSha,
+        payload: { kind: 'blob', mime: MIME },
+      });
+      // Two DISTINCT contents recorded at the SAME instant — the adversarial
+      // case for a content-derived key. A third event repeats the second
+      // event's content+instant exactly: one logical version, collapsed,
+      // not a self-parented duplicate row.
+      const log: AuditSpec[] = [
+        { op: 'docs.add', ts: sameInstant, actor: 'agent-author', slug: 'doc-c', sha256: firstSha },
+        {
+          op: 'docs.update',
+          ts: sameInstant,
+          actor: 'agent-author',
+          slug: 'doc-c',
+          sha256: secondSha,
+        },
+        {
+          op: 'docs.update',
+          ts: sameInstant,
+          actor: 'agent-author',
+          slug: 'doc-c',
+          sha256: secondSha,
+        },
+      ];
+      for (const entry of log) writeAuditLine(target.tempDir, entry);
+
+      const native = getNativeDb(target.tempDir);
+      if (!native) throw new Error('expected a native handle');
+      const result = await runLegacyDocMigration({
+        projectRoot: target.tempDir,
+        db: native,
+        cwd: target.tempDir,
+      });
+      expect(result.report.status).toBe('completed');
+
+      const docUid = await resolveConduitDocUid(target.tempDir, 'doc-c');
+      const versions = await listConduitAttachmentVersions(target.tempDir, docUid ?? '');
+      // The exact duplicate event collapsed: two versions, not three.
+      expect(versions).toHaveLength(2);
+      expect(new Set(versions.map((v) => v.uid)).size).toBe(2);
+      const [v1, v2] = [versions[1], versions[0]]; // listConduitAttachmentVersions is newest-first
+      expect(v1?.parentVersionUid).toBeNull();
+      expect(v2?.parentVersionUid).toBe(v1?.uid);
+      expect(v2?.changeSummary).toContain('collapsed 1 duplicate');
+    } finally {
+      await target.cleanup();
+    }
   });
 });

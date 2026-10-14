@@ -26,8 +26,14 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { fileURLToPath } from 'node:url';
+import { gunzipSync } from 'node:zlib';
 
-import type { GraphIndexFileReport, GraphPublicationRows } from '@cleocode/contracts';
+import type {
+  GraphIndexFileReport,
+  GraphIndexReferenceReport,
+  GraphParseCacheEntry,
+  GraphPublicationRows,
+} from '@cleocode/contracts';
 import type { GraphSourceRootAssessment } from '@cleocode/contracts/graph';
 import { buildSync } from 'esbuild';
 import Parser from 'tree-sitter';
@@ -75,6 +81,14 @@ function stubTable(): DrizzleTableRef {
 // ---------------------------------------------------------------------------
 // Test utilities
 // ---------------------------------------------------------------------------
+
+/** The retained references a publication carries in their stored encoding (T13656). */
+function storedReferences(rows: GraphPublicationRows | undefined): GraphIndexReferenceReport[] {
+  const payload = rows?.references?.payload;
+  return payload
+    ? (JSON.parse(gunzipSync(payload).toString('utf8')) as GraphIndexReferenceReport[])
+    : [];
+}
 
 /** Create a temporary directory that is cleaned up after each test. */
 function makeTempDir(): string {
@@ -297,7 +311,7 @@ describe('isolated shared extraction (T12262)', () => {
         });
         assert.equal(childCount, 3, 'production pipeline must use exactly one owned child for one file');
         assert.equal(publications.length, 1);
-        assert.ok(publications[0].nodes.some(node => node.name === '解析'));
+        assert.ok([...publications[0].nodes].some(node => node.name === '解析'));
         assert.equal(publications[0].assessment.files.find(file => file.path === 'main.ts').status, 'analyzed');
         const observedCapabilities = publications[0].assessment.files.find(file => file.path === 'main.ts').capabilities;
         assert.equal(observedCapabilities.role, 'executable');
@@ -539,50 +553,124 @@ describe('streamed parse results (T13325)', () => {
     live.dispose();
   });
 
-  it('holds every decoded cache entry of an incremental run in interned form', () => {
-    // 200 cached files x 2 000 calls, each repeating its file path, enclosing
-    // scope and generation-bearing reason: ~150 MiB of strings when every
-    // decode materialises them anew, ~25 MiB interned. An incremental run
-    // keeps every decoded entry, so the un-interned form aborted a 1.5 GiB
-    // CLI on axiom-app before parsing began; here it aborts a 96 MiB probe.
+  it('bounds the run by one file, not by the repository: sites and references are streamed', () => {
+    // 100 files x 1 000 call and 1 000 access sites, none resolvable: 200 000
+    // retained references. Holding the sites or the references for the whole
+    // repository needs well over 64 MiB and V8 aborts the probe — the
+    // axiom-app crash, scaled down (T13656). Streamed, the run fits in 40 MiB.
+    // Mutation check: retaining the references, or materializing the call
+    // sites, in the built pipeline makes this probe abort.
     const directory = makeTempDir();
     try {
+      symlinkSync(
+        fileURLToPath(new URL('../../node_modules', import.meta.url)),
+        join(directory, 'node_modules'),
+        'dir',
+      );
       buildSync({
-        entryPoints: [fileURLToPath(new URL('../pipeline/parse-cache.ts', import.meta.url))],
-        outfile: join(directory, 'parse-cache.mjs'),
+        entryPoints: [fileURLToPath(new URL('../pipeline/index.ts', import.meta.url))],
+        outfile: join(directory, 'pipeline.mjs'),
         bundle: true,
+        packages: 'external',
         platform: 'node',
         format: 'esm',
       });
+      const repo = join(directory, 'repo');
+      for (let file = 0; file < 100; file++) {
+        const body = Array.from(
+          { length: 1000 },
+          (_, site) => `  missing${site}(); value.member${site};`,
+        ).join('\n');
+        writeFile(
+          repo,
+          `module${file}.ts`,
+          `export function run${file}(value: unknown) {\n${body}\n}\n`,
+        );
+      }
       const probePath = join(directory, 'probe.mjs');
       writeFileSync(
         probePath,
         `
         import assert from 'node:assert/strict';
-        import { decodeParseCacheEntry, encodeParseCacheEntry } from './parse-cache.mjs';
-        const old = 'a'.repeat(64);
-        const current = 'b'.repeat(64);
-        const entries = Array.from({ length: 200 }, (_, file) => {
-          const path = 'src/features/module-' + file + '/implementation-of-the-feature.ts';
-          const calls = Array.from({ length: 2000 }, (_, index) => ({
-            filePath: path,
-            sourceId: path + '::someEnclosingFunctionName' + (index % 50) + '@' + old,
-            reason: 'lexical-scope:unresolved-identifier-in-enclosing-scope@' + old,
-          }));
-          const extraction = { definitions: [], imports: [], heritage: [], calls, reExports: [], accesses: [], parseLimitations: [] };
-          return encodeParseCacheEntry({ path, extraction }, 'hash', 'fingerprint', old);
+        import { runPipeline } from './pipeline.mjs';
+        let nodes = 0;
+        let relations = 0;
+        let references = 0;
+        const noWrites = { insert() { throw new Error('unexpected live store mutation'); } };
+        await runPipeline(${JSON.stringify(repo)}, 'probe', noWrites, { nexusNodes: {}, nexusRelations: {} }, undefined, {
+          publishGraph(rows) {
+            for (const _ of rows.nodes) nodes++;
+            for (const _ of rows.relations) relations++;
+            references = rows.references.count;
+            assert.equal(rows.assessment.referenceCount, references);
+            assert.equal(rows.assessment.references, undefined);
+          },
         });
-        const strings = new Map();
-        const decoded = entries.map((entry) => decodeParseCacheEntry(entry, current, strings));
-        assert.equal(decoded.length, 200);
-        assert.equal(decoded[199].extraction.calls[1999].reason, 'lexical-scope:unresolved-identifier-in-enclosing-scope@' + current);
+        assert.equal(nodes, 200);
+        assert.equal(relations, 100);
+        assert.equal(references, 200000);
       `,
       );
-      execFileSync(process.execPath, ['--max-old-space-size=96', probePath], {
-        timeout: 60000,
+      execFileSync(process.execPath, ['--max-old-space-size=64', probePath], {
+        timeout: 120000,
         env: { PATH: process.env['PATH'], HOME: directory, TMPDIR: directory },
         stdio: 'pipe',
       });
+    } finally {
+      rmSync(directory, { recursive: true, force: true });
+    }
+  }, 150000);
+
+  it('re-parses a corrupt cached extraction at merge time and never resolves from it (T13676)', async () => {
+    const directory = makeTempDir();
+    try {
+      writeFile(
+        directory,
+        'main.ts',
+        'function helper(){ return 1; } export function main(){ return helper(); }',
+      );
+      const files = await walkRepositoryPaths(directory);
+      const generation = '11111111-1111-4111-8111-111111111111';
+      const parse = async (reusedEntries?: Map<string, GraphParseCacheEntry>) => {
+        const payloads: Uint8Array[] = [];
+        const graph = createKnowledgeGraph();
+        const result = await runParseLoop(
+          files,
+          graph,
+          createSymbolTable(),
+          buildImportResolutionContext(['main.ts']),
+          directory,
+          {
+            publicationGeneration: generation,
+            reusedEntries,
+            onFileReport: () => undefined,
+            onFileExtracted: (_path, payload) => payloads.push(payload),
+          },
+        );
+        return { result, payloads, graph };
+      };
+      const fresh = await parse();
+      const freshCalls = [...fresh.result.allCalls];
+      expect(freshCalls.map((call) => call.calledName)).toContain('helper');
+      // Corrupt the calls section only: the head still decodes, so a head-only
+      // check at merge would accept the entry and fail (or misread) in resolution.
+      const payload = Buffer.from(fresh.payloads[0] ?? new Uint8Array());
+      payload[12 + payload.readUInt32LE(0) + 12] ^= 0xff;
+      const corrupt: GraphParseCacheEntry = {
+        path: 'main.ts',
+        contentHash: 'unused',
+        fingerprint: 'unused',
+        generation,
+        payload,
+      };
+      const second = await parse(new Map([['main.ts', corrupt]]));
+      expect(second.result.reusedFileCount).toBe(0);
+      expect(second.result.reusedPaths.size).toBe(0);
+      expect(second.result.parsedFileCount).toBe(1);
+      // The re-parsed extraction replaces the corrupt cache entry.
+      expect(second.payloads).toHaveLength(1);
+      expect([...second.result.allCalls]).toEqual(freshCalls);
+      expect([...second.graph.nodes.keys()]).toEqual([...fresh.graph.nodes.keys()]);
     } finally {
       rmSync(directory, { recursive: true, force: true });
     }
@@ -1179,7 +1267,7 @@ describe('capability-specific file evidence (T12289)', () => {
           onFileReport: (report) => reports.push(report),
         },
       );
-      expect(result.allCalls.some((call) => call.calledName === 'helper')).toBe(true);
+      expect([...result.allCalls].some((call) => call.calledName === 'helper')).toBe(true);
       expect(reports[0]).toMatchObject({
         status: 'analyzed',
         capabilities: {
@@ -1801,7 +1889,7 @@ describe('runPipeline', () => {
     expect(publishGraph.mock.calls[0]![0].assessment?.files).toEqual([
       expect.objectContaining({ path: 'main.ts', status: 'analyzed' }),
     ]);
-    expect(publishGraph.mock.calls[0]![0].relations).toEqual(
+    expect([...publishGraph.mock.calls[0]![0].relations]).toEqual(
       expect.arrayContaining([
         expect.objectContaining({ sourceId: 'main.ts', targetId: 'module:pg', type: 'imports' }),
       ]),
@@ -2026,7 +2114,7 @@ describe('runPipeline', () => {
     const rows = publishGraph.mock.calls[0]![0];
     expect(rows.generation).toMatch(/^[a-f0-9-]{36}$/);
     expect(rows.assessment?.generation).toBe(rows.generation);
-    const anonymous = rows.nodes.find((node) => node.name?.startsWith('<anonymous@'));
+    const anonymous = [...rows.nodes].find((node) => node.name?.startsWith('<anonymous@'));
     expect(anonymous?.id).toContain(`#${rows.generation}>`);
     const sourceHash = rows.assessment?.files.find(
       (file) => file.path === 'anonymous.ts',
@@ -2035,7 +2123,7 @@ describe('runPipeline', () => {
     expect(sourceHash).not.toBe(rows.generation);
     expect(anonymous?.metaJson).toContain(`"sourceGeneration":"${sourceHash}"`);
     expect(anonymous?.metaJson).toContain(`"publicationGeneration":"${rows.generation}"`);
-    expect(rows.assessment?.references?.[0]).toMatchObject({
+    expect(storedReferences(rows)[0]).toMatchObject({
       generation: sourceHash,
       publicationGeneration: rows.generation,
     });
@@ -2069,8 +2157,9 @@ export function GET(input) {
       { publishGraph },
     );
     const generation = publishGraph.mock.calls[0]?.[0];
-    const references = generation?.assessment?.references ?? [];
-    expect(result.references).toEqual(references);
+    const references = storedReferences(generation);
+    expect(result.referenceCount).toBe(references.length);
+    expect(generation?.assessment?.referenceCount).toBe(references.length);
     expect(
       references.some((site) => site.kind === 'external' && site.targetName === 'remote'),
     ).toBe(true);
@@ -2097,12 +2186,13 @@ export function GET(input) {
       expect(site.reason.length).toBeGreaterThan(10);
       expect(source.slice(site.span?.startIndex, site.span?.endIndex).length).toBeGreaterThan(0);
     }
-    const productionEdges =
-      generation?.relations.filter((edge) => edge.targetId === 'production.ts::orgNameTaken') ?? [];
+    const productionEdges = [...(generation?.relations ?? [])].filter(
+      (edge) => edge.targetId === 'production.ts::orgNameTaken',
+    );
     expect(productionEdges.filter((edge) => edge.type === 'calls')).toHaveLength(1);
     expect(productionEdges.filter((edge) => edge.type === 'accesses')).toHaveLength(0);
     expect(
-      generation?.relations.some(
+      [...(generation?.relations ?? [])].some(
         (edge) => edge.type === 'imports' && edge.targetId === 'production.ts',
       ),
     ).toBe(true);
@@ -2134,13 +2224,15 @@ export function outer() { const nested = () => known(); return nested(); }
     );
     const generation = publishGraph.mock.calls[0]?.[0];
     expect(generation).toBeDefined();
-    expect(generation?.assessment?.references).toEqual([]);
-    expect(result.references).toEqual(generation?.assessment?.references);
-    expect(generation?.nodes.map((node) => node.id)).toEqual(
+    expect(storedReferences(generation)).toEqual([]);
+    expect(result.referenceCount).toBe(0);
+    const nodes = [...(generation?.nodes ?? [])];
+    const relations = [...(generation?.relations ?? [])];
+    expect(nodes.map((node) => node.id)).toEqual(
       expect.arrayContaining(['main.ts::fetch', 'main.ts::outer.nested']),
     );
     for (const sourceId of ['main.ts::fetch', 'main.ts::outer.nested']) {
-      expect(generation?.relations).toContainEqual(
+      expect(relations).toContainEqual(
         expect.objectContaining({
           sourceId,
           targetId: 'main.ts::known',
@@ -2148,7 +2240,7 @@ export function outer() { const nested = () => known(); return nested(); }
         }),
       );
     }
-    expect(generation?.relations).toEqual(
+    expect(relations).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
           sourceId: 'main.ts::modeled',
@@ -2157,10 +2249,8 @@ export function outer() { const nested = () => known(); return nested(); }
         }),
       ]),
     );
-    const ids = new Set(generation?.nodes.map((node) => node.id));
-    expect(
-      generation?.relations.every((edge) => ids.has(edge.sourceId) && ids.has(edge.targetId)),
-    ).toBe(true);
+    const ids = new Set(nodes.map((node) => node.id));
+    expect(relations.every((edge) => ids.has(edge.sourceId) && ids.has(edge.targetId))).toBe(true);
     expect(insert).not.toHaveBeenCalled();
   });
 
