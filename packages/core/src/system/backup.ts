@@ -67,7 +67,11 @@ import { ExitCode } from '@cleocode/contracts/exit-codes.js';
 import { CleoError } from '../errors.js';
 import { getLogger } from '../logger.js';
 import { formatBackupTimestamp, rotateBackupDir } from '../store/backup-sidecar.js';
-import { backupDocsBytes, sweepDocsBytePool } from '../store/docs-bytes-backup.js';
+import {
+  backupDocsBytes,
+  type DocsBytesMeta,
+  sweepDocsBytePool,
+} from '../store/docs-bytes-backup.js';
 import { resolveDualScopeDbPath } from '../store/dual-scope-db.js';
 import type { AbandonableLock } from '../store/lock.js';
 import { getNativeDb } from '../store/sqlite.js';
@@ -312,11 +316,21 @@ export async function createBackup(
   // cleo.db alone cannot serve `docs fetch` after a restore (the 10.13
   // qualification finding). Their databases are snapshotted beside the store
   // and their bytes go into the shared pool (store/docs-bytes-backup.ts).
-  let docsBytes: ReturnType<typeof backupDocsBytes> = null;
+  // What failed is recorded in the meta, so a restore reports it (T13709).
+  let docsMeta: DocsBytesMeta | null = null;
   try {
-    docsBytes = backupDocsBytes(cleoDir, backupDir, backupId);
+    const docsBytes = backupDocsBytes(cleoDir, backupDir, backupId);
+    if (docsBytes !== null) {
+      docsMeta = {
+        dbs: docsBytes.dbs,
+        files: docsBytes.files,
+        ...(docsBytes.skipped.length > 0 ? { skipped: docsBytes.skipped } : {}),
+      };
+    }
   } catch (err) {
-    getLogger('backup').warn({ backupId, err }, 'docs byte surfaces not captured');
+    const error = err instanceof Error ? err.message : String(err);
+    docsMeta = { error };
+    getLogger('backup').warn({ backupId, error }, 'docs byte surfaces not captured');
   }
 
   // Write metadata sidecar.
@@ -333,9 +347,7 @@ export async function createBackup(
           files: backedUp,
           scope: 'project',
           ...(backedUp.includes('cleo.db') ? { contains: [...PROJECT_STORE_CONTENTS] } : {}),
-          ...(docsBytes !== null
-            ? { docsBytes: { dbs: docsBytes.dbs, files: docsBytes.files } }
-            : {}),
+          ...(docsMeta !== null ? { docsBytes: docsMeta } : {}),
         },
         null,
         2,

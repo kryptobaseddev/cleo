@@ -332,3 +332,136 @@ describe('a partial restore is never clean (T13709)', () => {
     expect(dbValues('blobs/manifest.db')).toEqual(['manifest:# db\n', 'live row']);
   });
 });
+
+describe('review hardening (#2253)', () => {
+  const tamper = (id: string, edit: (s: DocsSidecar) => DocsSidecar): void => {
+    writeFileSync(
+      join(backupDir, `docs-bytes.json.${id}`),
+      JSON.stringify({ version: 1, ...edit(sidecarOf(id)) }),
+    );
+  };
+  const storeTaskCount = (): number => {
+    const db = new DatabaseSync(join(cleoDir, 'cleo.db'), { readOnly: true });
+    try {
+      return (db.prepare('SELECT count(*) AS n FROM tasks_tasks').get() as { n: number }).n;
+    } finally {
+      db.close();
+    }
+  };
+
+  it('a sidecar db entry that is not a known docs database is refused (cleo.db, ../x)', async () => {
+    seedDocs('# tamper\n');
+    const id = await backupAt(1);
+    tamper(id, (s) => ({
+      ...s,
+      dbs: [
+        ...s.dbs,
+        { ...(s.dbs[0] as DocsSidecar['dbs'][number]), path: 'cleo.db' },
+        { ...(s.dbs[0] as DocsSidecar['dbs'][number]), path: '../x' },
+      ],
+    }));
+    const before = readFileSync(join(backupDir, `cleo.db.${id}`));
+
+    const result = await restoreId(id);
+
+    expect(result.partial).toBe(true);
+    expect(result.docsBytes?.failed).toEqual(
+      expect.arrayContaining([
+        expect.stringMatching(/^cleo\.db: not a docs database/),
+        expect.stringMatching(/^\.\.\/x: not a docs database/),
+      ]),
+    );
+    // The restored store is the backup's, not a docs snapshot renamed over it.
+    expect(readFileSync(join(cleoDir, 'cleo.db')).equals(before)).toBe(true);
+    expect(storeTaskCount()).toBe(0);
+    expect(existsSync(join(env.tempDir, 'x'))).toBe(false);
+  });
+
+  it('a sidecar file path with a backslash or an absolute path is refused', async () => {
+    const s = seedDocs('# paths\n');
+    const id = await backupAt(1);
+    tamper(id, (sc) => ({
+      ...sc,
+      files: [
+        ...sc.files,
+        { path: 'attachments\\..\\..\\evil', sha256: s },
+        { path: '/tmp/evil', sha256: s },
+      ],
+    }));
+
+    const result = await restoreId(id);
+
+    expect(result.partial).toBe(true);
+    expect(result.docsBytes?.failed).toEqual(
+      expect.arrayContaining([
+        'attachments\\..\\..\\evil: not a docs byte path',
+        '/tmp/evil: not a docs byte path',
+      ]),
+    );
+  });
+
+  it('aborts before any swap when a live docs database cannot be kept', async () => {
+    seedDocs('# keep\n');
+    const id = await backupAt(1);
+    // A live index.db whose b-tree pages are corrupt: it opens and locks,
+    // but its snapshot fails (VACUUM INTO or integrity_check).
+    const index = join(cleoDir, 'attachments', 'index.db');
+    for (const suffix of ['', '-wal', '-shm']) rmSync(`${index}${suffix}`, { force: true });
+    const db = new DatabaseSync(index);
+    db.exec('PRAGMA journal_mode = DELETE; CREATE TABLE t (v TEXT);');
+    const insert = db.prepare('INSERT INTO t (v) VALUES (?)');
+    for (let i = 0; i < 200; i++) insert.run(`row ${i} ${'x'.repeat(100)}`);
+    db.close();
+    const bytes = readFileSync(index);
+    for (let off = 4096; off < bytes.length; off += 4096) bytes.fill(0xa5, off + 8, off + 200);
+    writeFileSync(index, bytes);
+    const liveStore = readFileSync(join(cleoDir, 'cleo.db'));
+
+    await expect(restoreId(id)).rejects.toThrow(/E_RESTORE_KEEP_FAILED/);
+    expect(readFileSync(index).equals(bytes)).toBe(true);
+    expect(readFileSync(join(cleoDir, 'cleo.db')).equals(liveStore)).toBe(true);
+  });
+
+  it('a backup whose meta records docs bytes but whose sidecar is gone restores as partial', async () => {
+    seedDocs('# meta\n');
+    const id = await backupAt(1);
+    const meta = JSON.parse(readFileSync(join(backupDir, `${id}.meta.json`), 'utf-8')) as {
+      docsBytes?: { files?: number };
+    };
+    expect(meta.docsBytes?.files).toBe(2);
+    rmSync(join(backupDir, `docs-bytes.json.${id}`));
+    wipeKeepingBackups();
+
+    const result = await restoreId(id);
+
+    expect(result.restored).toBe(true);
+    expect(result.partial).toBe(true);
+    expect(result.warnings).toEqual([
+      `docs-bytes.json.${id} is missing (the backup recorded docs bytes)`,
+    ]);
+  });
+
+  it('with no live store, the docs-only keep is undone by --id', async () => {
+    seedDocs('# in the backup\n');
+    const id = await backupAt(1);
+    const liveOnly = addBlob('# live only\n');
+    makeDb('blobs/manifest.db', 'live row');
+    resetDbState();
+    for (const suffix of ['', '-wal', '-shm'])
+      rmSync(join(cleoDir, `cleo.db${suffix}`), { force: true });
+
+    const result = await restoreId(id);
+    expect(result.kept).toBeNull();
+    expect(result.undo).toMatch(/^cleo restore backup --id pre-restore-/);
+    expect(dbValues('blobs/manifest.db')).toHaveLength(1);
+
+    const undoId = String(result.undo).split(' ').pop() as string;
+    resetDbState();
+    const undone = await restoreId(undoId);
+
+    expect(undone.restored).toBe(true);
+    expect(undone.docsBytes?.complete).toBe(true);
+    expect(existsSync(join(cleoDir, 'blobs', 'blobs', liveOnly))).toBe(true);
+    expect(dbValues('blobs/manifest.db')).toEqual(['manifest:# in the backup\n', 'live row']);
+  });
+});

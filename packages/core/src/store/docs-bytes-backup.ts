@@ -45,7 +45,7 @@ import {
   unlinkSync,
   writeFileSync,
 } from 'node:fs';
-import { dirname, join } from 'node:path';
+import { dirname, isAbsolute, join } from 'node:path';
 import type { StoreRestoreDocsBytes } from '@cleocode/contracts';
 import { z } from 'zod';
 import { getLogger } from '../logger.js';
@@ -235,7 +235,7 @@ export function backupDocsBytes(
       }
     }
 
-    if (sidecar.dbs.length === 0 && sidecar.files.length === 0) return null;
+    if (sidecar.dbs.length === 0 && sidecar.files.length === 0 && skipped.length === 0) return null;
     const dest = join(backupDir, `${DOCS_BYTES_SIDECAR_LABEL}.${backupId}`);
     const tmp = `${dest}.tmp`;
     writeFileSync(tmp, JSON.stringify(sidecar));
@@ -351,6 +351,12 @@ export function restoreDocsBytes(
   const failed: string[] = [];
 
   for (const db of sidecar.dbs) {
+    // The sidecar is data read from disk: a db entry must name a known docs
+    // database exactly, or it could replace cleo.db or escape `.cleo/`.
+    if (!DOCS_DBS.some((known) => known.label === db.label && known.path === db.path)) {
+      failed.push(`${db.path}: not a docs database (${db.label})`);
+      continue;
+    }
     const dest = join(cleoDir, db.path);
     const staged = `${dest}.restore-${process.pid}-${Date.now()}`;
     try {
@@ -384,6 +390,8 @@ export function restoreDocsBytes(
     // The sidecar is data read from disk: place bytes only inside the two trees.
     const inTree =
       (file.path.startsWith('blobs/blobs/') || file.path.startsWith('attachments/')) &&
+      !file.path.includes('\\') &&
+      !isAbsolute(file.path) &&
       !file.path.split('/').includes('..') &&
       !isDocsDbFile(file.path);
     if (!inTree) {
@@ -410,4 +418,84 @@ export function restoreDocsBytes(
   }
 
   return { complete: failed.length === 0, dbsRestored, filesRestored, failed };
+}
+
+/**
+ * Labels of the docs databases that exist live under `cleoDir`: a safety
+ * copy of them must hold each of these before anything replaces them.
+ *
+ * @param cleoDir - The project's `.cleo/` directory.
+ * @returns The live database labels (`blobs.manifest.db`, `attachments.index.db`).
+ */
+export function liveDocsDbLabels(cleoDir: string): string[] {
+  return DOCS_DBS.filter((db) => existsSync(join(cleoDir, db.path))).map((db) => db.label);
+}
+
+/** What `createBackup` records of the docs capture in `<backupId>.meta.json`. */
+export interface DocsBytesMeta {
+  /** Database labels captured. */
+  readonly dbs?: readonly string[];
+  /** Byte files referenced. */
+  readonly files?: number;
+  /** What could not be captured. */
+  readonly skipped?: readonly string[];
+  /** Why the capture failed as a whole. */
+  readonly error?: string;
+}
+
+const metaSchema = z.object({
+  docsBytes: z
+    .object({
+      dbs: z.array(z.string()).optional(),
+      files: z.number().optional(),
+      skipped: z.array(z.string()).optional(),
+      error: z.string().optional(),
+    })
+    .optional(),
+});
+
+/**
+ * Where backup `backupId` falls short of the docs capture its
+ * `<backupId>.meta.json` records (T13709): a capture that failed or skipped
+ * files, or a `docs-bytes.json` sidecar that is missing or lists fewer
+ * databases or files than recorded. A backup whose meta records no docs
+ * capture (older builds) yields nothing.
+ *
+ * @param backupDir - `.cleo/backups/sqlite`.
+ * @param backupId - The backup.
+ * @returns One warning per shortfall.
+ */
+export function docsBytesMetaWarnings(backupDir: string, backupId: string): string[] {
+  let meta: DocsBytesMeta | undefined;
+  try {
+    const parsed = metaSchema.safeParse(
+      JSON.parse(readFileSync(join(backupDir, `${backupId}.meta.json`), 'utf-8')),
+    );
+    meta = parsed.success ? parsed.data.docsBytes : undefined;
+  } catch {
+    return [];
+  }
+  if (meta === undefined) return [];
+  const warnings: string[] = [];
+  if (meta.error !== undefined) warnings.push(`docs bytes were not captured: ${meta.error}`);
+  for (const s of meta.skipped ?? []) warnings.push(`docs bytes were not captured: ${s}`);
+  const recorded = (meta.dbs?.length ?? 0) + (meta.files ?? 0);
+  if (recorded === 0) return warnings;
+  const sidecarPath = join(backupDir, `${DOCS_BYTES_SIDECAR_LABEL}.${backupId}`);
+  if (!existsSync(sidecarPath)) {
+    warnings.push(
+      `${DOCS_BYTES_SIDECAR_LABEL}.${backupId} is missing (the backup recorded docs bytes)`,
+    );
+    return warnings;
+  }
+  const sidecar = readSidecarFile(sidecarPath);
+  // An unreadable sidecar is reported by restoreDocsBytes.
+  if (sidecar === null) return warnings;
+  const missingDbs = (meta.dbs ?? []).filter((l) => !sidecar.dbs.some((d) => d.label === l));
+  if (missingDbs.length > 0 || sidecar.files.length < (meta.files ?? 0)) {
+    warnings.push(
+      `${DOCS_BYTES_SIDECAR_LABEL}.${backupId} is incomplete: ${sidecar.files.length}/${meta.files ?? 0} files${missingDbs.length > 0 ? `, missing ${missingDbs.join(', ')}` : ''}`,
+    );
+  }
+  return warnings;
 }
