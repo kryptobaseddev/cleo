@@ -913,10 +913,12 @@
       "attached_by",
       "attachment_id",
       "owner_id",
-      "owner_type"
+      "owner_type",
+      "uid"
     ],
     "docs_attachments": [
       "attachment_json",
+      "birth_fp",
       "created_at",
       "display_alias",
       "doc_version",
@@ -932,7 +934,8 @@
       "superseded_by",
       "supersedes",
       "topics",
-      "type"
+      "type",
+      "uid"
     ],
     "docs_manifest_entries": [
       "agent_type",

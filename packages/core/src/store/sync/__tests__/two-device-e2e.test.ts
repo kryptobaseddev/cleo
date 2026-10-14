@@ -23,7 +23,7 @@
  */
 
 import { createHash } from 'node:crypto';
-import { mkdirSync, mkdtempSync, rmSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import type { DatabaseSync } from 'node:sqlite';
@@ -31,6 +31,7 @@ import type { LedgerTxn } from '@cleocode/contracts/ledger';
 import { SYNC_SCHEMA_VERSION } from '@cleocode/contracts/sync-schema.js';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { generateEd25519 } from '../../../cloud/crypto.js';
+import { DocsReadModel } from '../../../docs/docs-read-model.js';
 import {
   _resetDualScopeDbCache,
   getDualScopeNativeDb,
@@ -450,5 +451,82 @@ describe('natural-key brain rows replay across devices (T12895)', () => {
     expect(
       b.db.prepare("SELECT weight FROM brain_page_edges WHERE from_id = 'task:T1'").get(),
     ).toEqual({ weight: 0.25 });
+  });
+});
+
+describe('docs reach a second device (T12919)', () => {
+  const BODY = '# Gate doc\n\nline one\n';
+  const SHA = createHash('sha256').update(BODY).digest('hex');
+  const NEXT_SHA = createHash('sha256').update(`${BODY}v2\n`).digest('hex');
+  const json = (sha: string) =>
+    JSON.stringify({ kind: 'blob', mime: 'text/markdown', sha256: sha, size: BODY.length });
+
+  /** A adds a doc (and its successor draft), B pulls them. */
+  async function docOnBoth() {
+    const { a, b } = await twoDevices();
+    const stream = fakeStream();
+    write(
+      a.db,
+      `INSERT INTO docs_attachments (id, sha256, attachment_json, created_at, ref_count, slug, type)
+         VALUES ('doc-1', '${SHA}', '${json(SHA)}', '2026-10-14T18:00:00.000Z', 1, 'gate-doc', 'note'),
+                ('doc-2', '${NEXT_SHA}', '${json(NEXT_SHA)}', '2026-10-14T18:00:01.000Z', 0, NULL, 'note');
+       INSERT INTO docs_attachment_refs (attachment_id, owner_type, owner_id, attached_at)
+         VALUES ('doc-1', 'task', 'T1', '2026-10-14T18:00:00.000Z');`,
+    );
+    mkdirSync(join(dir, 'a', '.cleo', 'blobs', 'blobs'), { recursive: true });
+    writeFileSync(join(dir, 'a', '.cleo', 'blobs', 'blobs', SHA), BODY);
+    await push(a, stream);
+    await pull(b, stream);
+    await pull(a, stream); // own echo
+    return { a, b, stream };
+  }
+
+  const docRow = (db: DatabaseSync, id: string) =>
+    db
+      .prepare(
+        'SELECT id, sha256, slug, lifecycle_status, superseded_by, uid FROM docs_attachments WHERE id = ?',
+      )
+      .get(id);
+
+  it('the doc row and its ref travel with their uids; docs list and fetch resolve it on B', async () => {
+    const { a, b } = await docOnBoth();
+    expect(docRow(b.db, 'doc-1')).toEqual(docRow(a.db, 'doc-1'));
+    expect((docRow(b.db, 'doc-1') as { uid: string | null }).uid).toBeTruthy();
+    const refs = 'SELECT attachment_id, owner_type, owner_id, uid FROM docs_attachment_refs';
+    expect(b.db.prepare(refs).all()).toEqual(a.db.prepare(refs).all());
+    const pick = (s: Record<string, string>) => [s.docs_attachments, s.docs_attachment_refs];
+    expect(pick(contentChecksums(b.db))).toEqual(pick(contentChecksums(a.db)));
+
+    const model = new DocsReadModel({ projectRoot: join(dir, 'b') });
+    const listed = await model.listProjectDocs();
+    expect(listed.map((d) => d.slug)).toContain('gate-doc');
+    // The bytes are not on the stream (T13721): fetch names the doc and says
+    // its content is missing, never a fabricated body.
+    const missing = await model.fetchDecoded('gate-doc');
+    expect(missing).toMatchObject({ ok: false, reason: 'no-content' });
+    // Once the content-addressed bytes land (a vault restore carries them,
+    // T13704), the synced row serves them.
+    mkdirSync(join(dir, 'b', '.cleo', 'blobs', 'blobs'), { recursive: true });
+    writeFileSync(join(dir, 'b', '.cleo', 'blobs', 'blobs', SHA), BODY);
+    expect(await model.fetchDecoded('gate-doc')).toMatchObject({ ok: true, content: BODY });
+  });
+
+  it('a concurrent lifecycle transition converges: superseded absorbs a later accept (docs.lifecycle.transitions)', async () => {
+    const { a, b, stream } = await docOnBoth();
+    write(
+      a.db,
+      "UPDATE docs_attachments SET lifecycle_status = 'superseded', superseded_by = 'doc-2' WHERE id = 'doc-1'",
+    );
+    await push(a, stream);
+    // B has not seen A's supersession; its accept carries the later HLC.
+    write(b.db, "UPDATE docs_attachments SET lifecycle_status = 'accepted' WHERE id = 'doc-1'");
+    await push(b, stream);
+    await pull(a, stream);
+    await pull(b, stream);
+    expect(docRow(b.db, 'doc-1')).toEqual(docRow(a.db, 'doc-1'));
+    expect(docRow(a.db, 'doc-1')).toMatchObject({
+      lifecycle_status: 'superseded',
+      superseded_by: 'doc-2',
+    });
   });
 });

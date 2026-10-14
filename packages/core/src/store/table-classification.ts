@@ -740,10 +740,10 @@ const PROJECT_TABLES: Readonly<Record<string, TableRegistryEntry>> = {
     note: 'ruling: manifests; source_file is written repo-relative (memory/manifest-ingestion.ts)',
   },
   docs_wikilinks: {
-    class: 'portable-project',
+    class: 'derived',
     status: 'resolved',
-    source: 'cleo-dev ruling 2026-09-28',
-    note: 'ruling: docs_*; parsed links are not in the narrow derived set',
+    source: 'T12919 (docs sync coverage)',
+    note: 'the 2026-09-28 ruling kept it portable as parsed links, but nothing parses bodies (T11826 AC4): rebuildDocsWikilinks (docs/wikilinks.ts) truncates and re-derives every edge from the supersedes/superseded_by/related_tasks/topics columns of the synced docs_attachments rows, cheaply and without an LLM. Syncing it would replay a full delete and re-insert on every docs write and make a second source of truth. Never captured, never replicated',
   },
   evidence_ac_bindings: {
     class: 'local-only',

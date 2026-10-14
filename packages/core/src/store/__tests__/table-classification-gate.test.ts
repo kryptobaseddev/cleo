@@ -674,7 +674,10 @@ describe('Gate A: two-tier policy', () => {
     // T13354 (team-sync verdict, D11165): the contributor rollup is rebuilt
     // deterministically from conduit_attachment_versions after apply — never
     // synced, never a second source of truth.
-    t === 'conduit_attachment_contributors';
+    t === 'conduit_attachment_contributors' ||
+    // T12919: re-derived from the synced doc rows' provenance columns by
+    // rebuildDocsWikilinks; no body parsing, no LLM.
+    t === 'docs_wikilinks';
 
   it.each([
     'project',
