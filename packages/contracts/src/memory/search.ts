@@ -19,6 +19,16 @@
  * @see Layer 3: {@link ./fetch.ts}
  */
 
+// ── MemoryScope ─────────────────────────────────────────────────────
+
+/**
+ * Which store a BRAIN entry lives in: the project `cleo.db`, or the global
+ * `cleo.db` (the main brain, synced on the account's `home:<user>` stream).
+ *
+ * @task T13720
+ */
+export type MemoryScope = 'project' | 'global';
+
 // ── BrainCompactHit ─────────────────────────────────────────────────
 
 /**
@@ -62,6 +72,8 @@ export interface BrainCompactHit {
    * by `@cleocode/core`'s `mvi-helpers`.
    */
   _next?: Record<string, string>;
+  /** Store the hit came from; absent means the project store (T13720). */
+  scope?: MemoryScope;
 }
 
 // ── SearchBrainCompactParams ────────────────────────────────────────

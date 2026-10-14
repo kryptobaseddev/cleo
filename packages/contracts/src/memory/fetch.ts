@@ -16,6 +16,8 @@
  * @see Layer 2: {@link ./timeline.ts}
  */
 
+import type { MemoryScope } from './search.js';
+
 // ── FetchBrainEntriesParams ─────────────────────────────────────────
 
 /**
@@ -47,6 +49,8 @@ export interface FetchedBrainEntry {
    * via a discriminated read or pass the value through to a renderer.
    */
   data: unknown;
+  /** Store the entry came from; absent means the project store (T13720). */
+  scope?: MemoryScope;
 }
 
 // ── FetchBrainEntriesResult ─────────────────────────────────────────

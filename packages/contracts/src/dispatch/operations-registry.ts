@@ -4331,6 +4331,12 @@ export const OPERATIONS: OperationDef[] = [
         description: 'text parameter',
         cli: { positional: true },
       },
+      {
+        name: 'scope',
+        type: 'string',
+        required: false,
+        description: 'Store to write: project (default) or global, the synced main brain (T13720)',
+      },
     ] satisfies ParamDef[],
   },
   {
@@ -4355,6 +4361,12 @@ export const OPERATIONS: OperationDef[] = [
         type: 'string',
         required: true,
         description: 'rationale parameter',
+      },
+      {
+        name: 'scope',
+        type: 'string',
+        required: false,
+        description: 'Store to write: project (default) or global, the synced main brain (T13720)',
       },
     ] satisfies ParamDef[],
   },

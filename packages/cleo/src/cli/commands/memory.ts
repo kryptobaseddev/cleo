@@ -332,6 +332,11 @@ const observeCommand = defineCommand({
       description:
         'SHA-256 of an attachment to link to this observation (comma-separated for multiple)',
     },
+    scope: {
+      type: 'string',
+      description:
+        'Store to write: project (default) or global (the main brain, synced across your devices)',
+    },
   },
   async run({ args }) {
     await dispatchFromCli(
@@ -346,6 +351,7 @@ const observeCommand = defineCommand({
         sourceType: (args['source-type'] as string | undefined) ?? 'manual',
         // T799: pass attachment refs
         ...(args.attach !== undefined && { attach: args.attach }),
+        ...(args.scope !== undefined && { scope: args.scope }),
       },
       { command: 'memory', operation: 'memory.observe' },
     );
@@ -519,6 +525,11 @@ const decisionStoreCommand = defineCommand({
       type: 'string',
       description: 'Who originated this decision: owner | council | agent (default: agent)',
     },
+    scope: {
+      type: 'string',
+      description:
+        'Store to write: project (default) or global (the main brain, synced across your devices)',
+    },
     json: {
       type: 'boolean',
       description: 'Output as JSON',
@@ -541,6 +552,7 @@ const decisionStoreCommand = defineCommand({
           confirmationState: args['confirmation-state'],
         }),
         ...(args['decided-by'] !== undefined && { decidedBy: args['decided-by'] }),
+        ...(args.scope !== undefined && { scope: args.scope }),
       },
       { command: 'memory', operation: 'memory.decision.store' },
     );
