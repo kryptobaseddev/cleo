@@ -362,8 +362,18 @@ function deletedAfterRun(
  */
 function committedAfterRunUnseen(root: string, clock: RunClock): string | null {
   const atRun = headAtRunFor(root, clock);
-  if (atRun === null)
-    return 'HEAD as of the run is not in the reflog, so what the run saw is unknown';
+  if (atRun === null) {
+    // T13702: name the reflog read. It is the one of the worktree holding the
+    // report, so a receipt copied into another worktree is judged there.
+    const tree = reportWorktree(root, clock.reportPath) ?? root;
+    const log =
+      git(tree, ['rev-parse', '--path-format=absolute', '--git-path', 'logs/HEAD'])?.trim() ||
+      'its HEAD reflog';
+    return (
+      `HEAD as of the run is not in the reflog of ${tree} (${log}), so what the run saw is unknown. ` +
+      'The reflog read is that of the worktree holding the report: keep a receipt in the worktree it ran in'
+    );
+  }
   const differing = git(root, ['diff', '--name-only', '--no-renames', atRun]);
   if (differing === null)
     return `git could not diff ${atRun.slice(0, 12)} against the working tree`;
