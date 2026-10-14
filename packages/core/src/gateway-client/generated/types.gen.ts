@@ -8263,6 +8263,59 @@ export type MutatePipelineManifestAppendResponses = {
 
 export type MutatePipelineManifestAppendResponse = MutatePipelineManifestAppendResponses[keyof MutatePipelineManifestAppendResponses];
 
+export type MutatePipelineManifestUpdateData = {
+    body: {
+        /**
+         * Manifest entry id
+         */
+        id: string;
+        /**
+         * Task id to add to linked_tasks
+         */
+        linkTask?: string;
+        /**
+         * New title
+         */
+        title?: string;
+        /**
+         * Replacement topics
+         */
+        topics?: Array<string>;
+        /**
+         * Replacement key findings
+         */
+        key_findings?: Array<string>;
+        /**
+         * New status
+         */
+        status?: string;
+    };
+    path?: never;
+    query?: never;
+    url: '/v1/pipeline/manifest.update';
+};
+
+export type MutatePipelineManifestUpdateResponses = {
+    /**
+     * Generic query result — the precise /data shape is not individually contracted. Run with --full to see the verbose record, or --describe for the operation contract.
+     */
+    200: {
+        success: true;
+        data: {
+            [key: string]: unknown;
+        };
+        /**
+         * LAFS response metadata.
+         */
+        meta: {
+            [key: string]: unknown;
+        };
+        [key: string]: unknown;
+    };
+};
+
+export type MutatePipelineManifestUpdateResponse = MutatePipelineManifestUpdateResponses[keyof MutatePipelineManifestUpdateResponses];
+
 export type MutatePipelineManifestArchiveData = {
     body: {
         /**
@@ -14434,6 +14487,10 @@ export type MutateDocsUpdateData = {
          * Inline UTF-8 content (mutually exclusive with file)
          */
         content?: string;
+        /**
+         * Expected base version uid — the metadata.headVersionUid from the `cleo docs fetch <slug>` envelope the edit was authored against (T13674). When the stored head has moved past it: append-shaped section edits are three-way merged through the section CRDT (both writers survive); a non-mergeable section edit is recorded as a named section conflict — nothing is silently dropped. A base that does not resolve to this doc's version history is refused with E_DOC_BASE_UNKNOWN before any write. Works with --content and with a UTF-8 text --file; a non-text --file with a base is refused with E_DOC_BASE_UNSUPPORTED. The update result carries the new headVersionUid, so edits can chain without a re-fetch. Omit only when the edit was not based on an earlier fetch (the current head is then assumed).
+         */
+        baseVersionUid?: string;
         /**
          * One-line summary describing the change (recorded in the audit log)
          */
