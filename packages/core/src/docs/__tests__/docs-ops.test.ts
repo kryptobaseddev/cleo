@@ -7,7 +7,9 @@
  * @epic T1041
  */
 
+import { ExitCode } from '@cleocode/contracts/exit-codes.js';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { CleoError } from '../../errors.js';
 
 // ─── Module mocks (hoisted) ───────────────────────────────────────────────────
 
@@ -28,6 +30,22 @@ vi.mock('llmtxt/graph', () => ({
 vi.mock('../../store/blob-ops.js', () => ({
   blobList: vi.fn(),
   blobRead: vi.fn(),
+}));
+
+const attachmentStoreMocks = vi.hoisted(() => ({
+  findBySlug: vi.fn(),
+  listRefs: vi.fn(async () => []),
+  getMetadata: vi.fn(async () => null),
+  listByOwner: vi.fn(async () => []),
+}));
+
+vi.mock('../../store/attachment-store.js', () => ({
+  createAttachmentStore: () => ({
+    findBySlug: attachmentStoreMocks.findBySlug,
+    listRefs: attachmentStoreMocks.listRefs,
+    getMetadata: attachmentStoreMocks.getMetadata,
+    listByOwner: attachmentStoreMocks.listByOwner,
+  }),
 }));
 
 vi.mock('../../paths.js', () => ({
@@ -261,6 +279,8 @@ describe('rankDocs', () => {
 describe('listDocVersions', () => {
   beforeEach(() => {
     vi.mocked(blobOps.blobList).mockResolvedValue(mockBlobs);
+    attachmentStoreMocks.findBySlug.mockReset();
+    attachmentStoreMocks.listRefs.mockReset();
   });
 
   it('returns all blobs when no name filter given', async () => {
@@ -270,6 +290,7 @@ describe('listDocVersions', () => {
     expect(result.nameFilter).toBeUndefined();
     expect(result.versions).toHaveLength(2);
     expect(result.versions[0].sha256).toBe('aabb');
+    expect(attachmentStoreMocks.findBySlug).not.toHaveBeenCalled();
   });
 
   it('filters by name when name option provided', async () => {
@@ -280,11 +301,45 @@ describe('listDocVersions', () => {
     expect(result.versions[0].name).toBe('spec.md');
   });
 
-  it('returns empty versions list when blobList returns empty', async () => {
+  it('throws E_NOT_FOUND when the arg is neither an owner with blobs nor a known slug (T13725)', async () => {
     vi.mocked(blobOps.blobList).mockResolvedValue([]);
+    attachmentStoreMocks.findBySlug.mockResolvedValue(null);
 
-    const result = await listDocVersions({ ownerId: 'T999' });
+    const err = await listDocVersions({ ownerId: 't999-no-such-doc' }).catch((e: Error) => e);
 
+    expect(err).toBeInstanceOf(CleoError);
+    expect((err as CleoError).code).toBe(ExitCode.NOT_FOUND);
+    expect(err.message).toContain("no doc or owner found for 't999-no-such-doc'");
+  });
+
+  it('resolves a doc slug to its owning task and lists that owner’s blobs (T13725)', async () => {
+    vi.mocked(blobOps.blobList).mockImplementation((ownerId: string) =>
+      Promise.resolve(ownerId === 'T777' ? mockBlobs : []),
+    );
+    attachmentStoreMocks.findBySlug.mockResolvedValue({
+      metadata: { id: 'att-doc-1' },
+      slug: 't777-my-doc',
+    });
+    attachmentStoreMocks.listRefs.mockResolvedValue([{ ownerType: 'task', ownerId: 'T777' }]);
+
+    const result = await listDocVersions({ ownerId: 't777-my-doc' });
+
+    expect(result.ownerId).toBe('T777');
+    expect(result.versions).toHaveLength(2);
+    expect(result.versions[0].sha256).toBe('aabb');
+  });
+
+  it('returns an empty list when the slug resolves to a doc whose owners have no mirrored blobs (T13725)', async () => {
+    vi.mocked(blobOps.blobList).mockResolvedValue([]);
+    attachmentStoreMocks.findBySlug.mockResolvedValue({
+      metadata: { id: 'att-doc-2' },
+      slug: 't778-legacy-doc',
+    });
+    attachmentStoreMocks.listRefs.mockResolvedValue([{ ownerType: 'task', ownerId: 'T778' }]);
+
+    const result = await listDocVersions({ ownerId: 't778-legacy-doc' });
+
+    expect(result.ownerId).toBe('t778-legacy-doc');
     expect(result.versions).toHaveLength(0);
   });
 });

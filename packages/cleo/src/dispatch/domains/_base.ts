@@ -13,6 +13,7 @@
 
 import type { LAFSPage } from '@cleocode/contracts';
 import type { EngineResult, ProblemDetails } from '@cleocode/core';
+import { cleoErrorToEngineError } from '@cleocode/runtime/gateway';
 import type { DispatchResponse } from '../types.js';
 import { dispatchMeta } from './_meta.js';
 
@@ -275,6 +276,12 @@ export function paramStringArray(
  * Handle a caught error: extract message and return an internal error response.
  * Callers should log the error themselves (with their domain-specific logger)
  * before or after calling this.
+ *
+ * T13725 — a `CleoError` throw (numeric exit `code`, optional `fix`/`details`)
+ * is mapped through the canonical {@link cleoErrorToEngineError} converter so
+ * its named code (e.g. `E_NOT_FOUND`) and recovery hint survive the envelope
+ * hop instead of flattening to `E_INTERNAL`. Plain `Error` throws keep the
+ * historical `E_INTERNAL` shape.
  */
 export function handleErrorResult(
   gateway: string,
@@ -283,6 +290,32 @@ export function handleErrorResult(
   error: unknown,
   startTime: number,
 ): DispatchResponse {
+  if (error !== null && typeof error === 'object' && error instanceof Error) {
+    const coded = (error as { code?: unknown }).code;
+    if (typeof coded === 'number') {
+      const result = cleoErrorToEngineError(
+        error,
+        'E_INTERNAL', // @sync-invariant none:local-only the fallback names a local dispatch error envelope; no synced table is written
+        'Dispatch operation failed',
+      );
+      if (!result.success) {
+        // @sync-invariant none:local-only forwards the mapped code into a local dispatch error envelope; no synced table is written
+        return {
+          meta: dispatchMeta(gateway, domain, operation, startTime),
+          success: false,
+          error: {
+            code: result.error.code,
+            message: result.error.message,
+            details: result.error.details as Record<string, unknown> | undefined,
+            exitCode: result.error.exitCode,
+            fix: result.error.fix,
+            alternatives: result.error.alternatives,
+            ...(result.error.problemDetails ? { problemDetails: result.error.problemDetails } : {}),
+          },
+        };
+      }
+    }
+  }
   const message = error instanceof Error ? error.message : String(error);
   return {
     meta: dispatchMeta(gateway, domain, operation, startTime),

@@ -28,10 +28,12 @@ import {
   sep,
 } from 'node:path';
 import type { LocalFileAttachment } from '@cleocode/contracts';
+import { ExitCode } from '@cleocode/contracts/exit-codes.js';
 import { computeProjectHash, resolveWorktreeRootForHash } from '@cleocode/paths';
 import type { KnowledgeGraph, MessageInput } from 'llmtxt/graph';
 import type { ReconstructionResult, VersionDiffSummary, VersionEntry } from 'llmtxt/sdk';
 import type { SimilarityRankResult } from 'llmtxt/similarity';
+import { CleoError } from '../errors.js';
 import { discoveryEnv } from '../git/work-tree.js';
 import { getProjectRoot } from '../paths.js';
 import { createAttachmentStore } from '../store/attachment-store.js';
@@ -927,8 +929,17 @@ export async function rankDocs(opts: {
  * filtered by filename. Each entry carries its content-address SHA-256 so
  * callers can reconstruct history from the store.
  *
- * @param opts - Required `ownerId`, optional `name` filter and `projectRoot`.
+ * T13725 — `ownerId` may also be a doc slug: when the verbatim arg matches
+ * no owner with mirrored blobs, it is resolved as a doc slug through the
+ * same {@link AttachmentStore.findBySlug} surface `docs fetch` uses, and
+ * the blobs of the task(s) the doc is attached to are listed instead. An
+ * arg that is neither a known owner (with blobs) nor a known slug throws
+ * `E_NOT_FOUND` rather than returning a silently empty list.
+ *
+ * @param opts - Required `ownerId` (owner id or doc slug), optional `name`
+ *   filter and `projectRoot`.
  * @returns Version list with SHA-256 content addresses.
+ * @throws {CleoError} `E_NOT_FOUND` when the arg resolves to no owner and no doc.
  *
  * @example
  * ```ts
@@ -941,7 +952,28 @@ export async function listDocVersions(opts: {
   projectRoot?: string;
 }): Promise<DocsVersionsResult> {
   const root = opts.projectRoot ?? getProjectRoot();
-  const allBlobs = await blobList(opts.ownerId, root).catch(() => []);
+  let allBlobs = await blobList(opts.ownerId, root).catch(() => []);
+  let listedOwnerId = opts.ownerId;
+
+  if (allBlobs.length === 0) {
+    const store = createAttachmentStore();
+    const doc = await store.findBySlug(opts.ownerId, root).catch(() => null);
+    if (doc === null) {
+      // @sync-invariant none:input-shape an unknown --for arg is refused on a read-only query path before any write; nothing was written
+      throw new CleoError(ExitCode.NOT_FOUND, `no doc or owner found for '${opts.ownerId}'`, {
+        fix: 'Pass an owner id (T###, ses_*, O-*) or a doc slug from `cleo docs list`.',
+      });
+    }
+    const refs = await store.listRefs(doc.metadata.id, root).catch(() => []);
+    for (const ref of refs) {
+      const rows = await blobList(ref.ownerId, root).catch(() => []);
+      if (rows.length > 0) {
+        allBlobs = rows;
+        listedOwnerId = ref.ownerId;
+        break;
+      }
+    }
+  }
 
   const filtered = opts.name ? allBlobs.filter((b) => b.name === opts.name) : allBlobs;
 
@@ -954,7 +986,7 @@ export async function listDocVersions(opts: {
   }));
 
   return {
-    ownerId: opts.ownerId,
+    ownerId: listedOwnerId,
     nameFilter: opts.name,
     versions,
   };
