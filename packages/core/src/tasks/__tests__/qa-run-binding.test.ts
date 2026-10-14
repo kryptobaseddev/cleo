@@ -369,6 +369,17 @@ describe('a qa-run kind owes coverage only for what its tool reads (T13698)', ()
     expect(checkTaskEvidenceContext(ctx, 'qaPassed', [types, lint])).toBeNull();
   });
 
+  it('red: a changed tsconfig is owed by a typecheck receipt; a lint receipt holding it does not stand in', async () => {
+    put('tsconfig.json', '{"compilerOptions":{"strict":true}}\n');
+    git(root, ['add', '.']);
+    git(root, ['commit', '-q', '-m', 'T1: tighten tsconfig']);
+    const lint = await bound({ kind: 'lint', command: ['eslint'], roots: ['.'] }, 'lint');
+    const types = await bound({ roots: ['src', 'scripts'] }, 'typecheck');
+    expect(checkTaskEvidenceContext(ctx, 'qaPassed', [types, lint])).toMatch(
+      /qa-run typecheck receipt \(roots scripts, src\) does not cover the changed path\(s\) tsconfig\.json\./,
+    );
+  });
+
   it('red: a lintable file the lint run missed is still refused, naming it', async () => {
     const lint = await bound({ kind: 'lint', command: ['eslint'], roots: ['src/a/x.ts'] }, 'lint');
     const types = await bound({ roots: ['src', 'scripts'] }, 'typecheck');
