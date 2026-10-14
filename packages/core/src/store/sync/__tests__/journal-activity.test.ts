@@ -635,6 +635,50 @@ describe('cloud conflicts resolve --keep (T12997)', () => {
     expect(statusOf(a).title).toBe('A title');
   });
 
+  it('keep mine on an incoming-applied conflict is refused by the same typed-rule probe (T13624)', async () => {
+    const { a, b, stream } = await shared();
+    write(
+      a.db,
+      "UPDATE tasks_tasks SET status = 'done', pipeline_stage = 'contribution', completed_at = '2026-10-12T00:00:00.000Z' WHERE id = 'T1'",
+      '{"op":"tasks.complete"}',
+    );
+    // A seals its done first (the older HLC) but sends it after B's later active
+    // has landed and echoed: B applies the absorbing done over it, incoming-applied.
+    await pull(a, stream);
+    spin();
+    write(
+      b.db,
+      "UPDATE tasks_tasks SET status = 'active' WHERE id = 'T1'",
+      '{"op":"tasks.update"}',
+    );
+    await push(b, stream);
+    await pull(b, stream);
+    await push(a, stream);
+    await pull(b, stream);
+    const held = listConflicts(b.db, { open: true }).find(
+      (c) => c.rule === 'task.status.absorbing' && c.resolution === 'incoming-applied',
+    );
+    if (!held) throw new Error('no applied task.status.absorbing conflict recorded on B');
+    expect(statusOf(b).status).toBe('done');
+    expect(conflictDetail(b.db, 'project', held).fields.find((f) => f.column === 'status')).toEqual(
+      { column: 'status', theirs: 'done', mine: 'active', withheld: false },
+    );
+
+    let err: unknown;
+    try {
+      resolveConflictKeeping(b.db, 'project', held.id, 'mine', new Date().toISOString());
+    } catch (e) {
+      err = e;
+    }
+    expect(err).toBeInstanceOf(ConflictResolveError);
+    if (err instanceof ConflictResolveError) {
+      expect(err.code).toBe('E_INVALID_STATE');
+      expect(err.message).toContain('task.status.absorbing');
+    }
+    expect(statusOf(b).status).toBe('done');
+    expect(listConflicts(b.db, { open: true }).some((c) => c.id === held.id)).toBe(true);
+  });
+
   it('keep mine is refused when this store kept no copy of an overwritten value', async () => {
     const { a, b, stream } = await shared();
     write(
