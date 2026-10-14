@@ -902,6 +902,8 @@ export type {
   LeanConfig,
   LeanDebtItem,
   LeanDebtReport,
+  LeanGainMetric,
+  LeanGainReport,
   LeanLevel,
   LeanLevelSource,
 } from './lean.js';
