@@ -178,6 +178,13 @@ function fakeStream() {
         })
         .join('\n');
     },
+    /** Whether `needle` appears in any segment, as raw bytes or decoded. */
+    leaks(needle: string): boolean {
+      return (
+        segments.some((s) => Buffer.from(s.plaintext).includes(needle)) ||
+        this.text().includes(needle)
+      );
+    },
   };
 }
 type Stream = ReturnType<typeof fakeStream>;
@@ -316,8 +323,8 @@ describe('global secrets travel sealed on the home stream (T13467)', () => {
     expect(stream.segments.length).toBeGreaterThan(0);
     const text = stream.text();
     expect(text).toContain('accounts');
-    expect(text).not.toContain(SECRET);
-    expect(text).not.toContain(aCipher);
+    expect(stream.leaks(SECRET)).toBe(false);
+    expect(stream.leaks(aCipher)).toBe(false);
     await pull(b, stream);
     const onB = accountRow(b, 'anthropic', 'work');
     expect(onB?.uid).toBe(accountRow(a, 'anthropic', 'work')?.uid);
@@ -327,6 +334,54 @@ describe('global secrets travel sealed on the home stream (T13467)', () => {
       await decryptGlobal(onB?.secret_enc ?? '', 'account:anthropic:work', { cleoHome: b.home }),
     ).toBe(SECRET);
     expect(onB?.priority).toBe(1);
+    expect(pendingInbox(b)).toBe(0);
+  });
+
+  it('a BYOC client secret (service_configs) is usable on B; an agent_registry_accounts token never travels', async () => {
+    const { a, b } = await twoDevices();
+    const stream = fakeStream();
+    const CLIENT_SECRET = 'byoc-client-secret-T13467';
+    const OAUTH_TOKEN = 'agent-registry-oauth-token-T13467';
+    const aCipher = await encryptGlobal(CLIENT_SECRET, 'service-config:github', {
+      cleoHome: a.home,
+    });
+    write(
+      a.db,
+      `INSERT INTO service_configs (provider, enabled, settings, client_secret_enc, created_at, updated_at)
+       VALUES ('github', 1, '{"client_id":"client-1"}', ?, '2026-10-11T00:00:00.000Z', '2026-10-11T00:00:00.000Z')`,
+      aCipher,
+    );
+    // Local-only (owner decision 2026-10-11): neither the user nor its OAuth row is captured.
+    write(
+      a.db,
+      `INSERT INTO agent_registry_users (id, email, password_hash, created_at, updated_at)
+       VALUES ('u-1', 'a@example.test', 'hash', '2026-10-11T00:00:00.000Z', '2026-10-11T00:00:00.000Z')`,
+    );
+    write(
+      a.db,
+      `INSERT INTO agent_registry_accounts (id, user_id, account_id, provider_id, access_token, created_at, updated_at)
+       VALUES ('acc-1', 'u-1', 'gh-1', 'github', ?, '2026-10-11T00:00:00.000Z', '2026-10-11T00:00:00.000Z')`,
+      OAUTH_TOKEN,
+    );
+    await push(a, stream, await sealsOf(a));
+    expect(stream.text()).toContain('service_configs');
+    for (const needle of [CLIENT_SECRET, aCipher, OAUTH_TOKEN, 'agent_registry_accounts']) {
+      expect(stream.leaks(needle)).toBe(false);
+    }
+    await pull(b, stream);
+    const onB = b.db
+      .prepare("SELECT settings, client_secret_enc FROM service_configs WHERE provider = 'github'")
+      .get() as { settings: string; client_secret_enc: string } | undefined;
+    expect(onB?.settings).toBe('{"client_id":"client-1"}');
+    expect(onB?.client_secret_enc).not.toBe(aCipher);
+    expect(
+      await decryptGlobal(onB?.client_secret_enc ?? '', 'service-config:github', {
+        cleoHome: b.home,
+      }),
+    ).toBe(CLIENT_SECRET);
+    expect(b.db.prepare('SELECT count(*) AS n FROM agent_registry_accounts').get()).toEqual({
+      n: 0,
+    });
     expect(pendingInbox(b)).toBe(0);
   });
 
