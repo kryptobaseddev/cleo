@@ -11,6 +11,7 @@ import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'nod
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, afterEach, describe, expect, it, vi } from 'vitest';
+import { resolveEvidenceExecutionRoot } from '../evidence.js';
 import { captureGateCacheState } from '../gate-result-cache.js';
 import { resolveTypedGateRoot } from '../gate-runner.js';
 import { captureHead, captureTree } from '../tool-cache.js';
@@ -71,6 +72,12 @@ describe('typed-gate git reads ignore ambient GIT_DIR/GIT_WORK_TREE (T13695)', (
     expect(tree).toBe(cleanTree);
     expect(await captureHead(wt)).toBe(cleanHead);
     expect(cleanHead).toBe(git(wt, 'rev-parse', 'HEAD'));
+  });
+
+  it('exporting only GIT_WORK_TREE still resolves through the declared root, for evidence tools and typed gates', () => {
+    vi.stubEnv('GIT_WORK_TREE', wt);
+    expect(resolveEvidenceExecutionRoot(main, main)).toBe(realpathSync(wt));
+    expect(resolveTypedGateRoot(main, main)).toBe(realpathSync(wt));
   });
 
   it("axiom's workaround (GIT_DIR and GIT_WORK_TREE exported to the worktree) still resolves and keys to it", async () => {
