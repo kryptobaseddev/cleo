@@ -127,7 +127,7 @@ Before `cleo complete <id>`, every gate requires programmatic evidence validated
 | gate | evidence that satisfies it |
 |------|----------------------------|
 | `implemented` | `commit:<sha>;files:path/a.ts,path/b.ts` — or `pr:<number>` with `files:<changed-paths>`, or `decision:<id>` for decision-only tasks |
-| `testsPassed` | `ci:<pr>` if merged and `evidence.ciSatisfies`; else `tool:test-affected` (needs `testing.affectedCommand`), changed-file `test-run:<json>`, or `tool:test`. After merge a scoped run carries only byte-identical files, or as a `test-run:` on a main HEAD descending from the merge (current tree, covering the change) |
+| `testsPassed` | `ci:<pr>` if merged and `evidence.ciSatisfies`; else `tool:test-affected` (needs `testing.affectedCommand`), changed-file `test-run:<json>`, or `tool:test` |
 | `qaPassed` | `ci:<pr>` likewise, else `tool:lint;tool:typecheck` or a `qa-run:<json>` per check |
 | `documented` | `files:docs/spec.md` |
 | `securityPassed` | `tool:security-scan` |
