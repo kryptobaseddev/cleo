@@ -823,6 +823,7 @@ describe('the generator on a plain database (L3, L4)', () => {
       identity: ['uid'],
       secret: new Set(),
       refs: new Map(),
+      timestamps: new Set(),
       appendOnly: false,
     };
     for (const t of captureTriggers(def)) db.exec(t.sql);

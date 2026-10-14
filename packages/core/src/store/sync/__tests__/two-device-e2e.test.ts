@@ -452,3 +452,40 @@ describe('natural-key brain rows replay across devices (T12895)', () => {
     ).toEqual({ weight: 0.25 });
   });
 });
+
+describe('legacy-format timestamps echo without conflicts (T13714)', () => {
+  it("A's own echo of brain rows with 'YYYY-MM-DD HH:MM:SS' text records no conflict, and both devices list the same set", async () => {
+    const { a, b } = await twoDevices();
+    const stream = fakeStream();
+    write(
+      a.db,
+      `INSERT INTO brain_observations (id, type, title, created_at, updated_at) VALUES
+         ('O-t13714', 'discovery', 'legacy stamps', '2026-10-14 17:30:00', '2026-10-14 17:30:00');
+       INSERT INTO brain_page_nodes (id, node_type, label, created_at, updated_at, last_activity_at)
+         VALUES ('task:T13714', 'task', 'T13714', '2026-10-14 17:30:00', '2026-10-14 17:30:00', '2026-10-14 17:30:00');`,
+    );
+    await push(a, stream);
+    await pull(b, stream);
+    await pull(a, stream); // own echo of the inserts
+    // A command stamps the rows with SQLite's datetime('now') text.
+    write(
+      a.db,
+      `UPDATE brain_observations SET title = 'stamped', updated_at = '2026-10-14 17:32:57' WHERE id = 'O-t13714';
+       UPDATE brain_page_nodes SET updated_at = '2026-10-14 17:39:30', last_activity_at = '2026-10-14 17:39:30'
+         WHERE id = 'task:T13714';`,
+    );
+    await push(a, stream);
+    await pull(a, stream); // own echo of the updates
+    await pull(b, stream);
+
+    expect(conflictKeys(a.db)).toEqual([]);
+    expect(conflictKeys(b.db)).toEqual(conflictKeys(a.db));
+    // A keeps its local text; B holds the canonical wire form of the same instant.
+    expect(
+      a.db.prepare("SELECT updated_at FROM brain_observations WHERE id = 'O-t13714'").get(),
+    ).toEqual({ updated_at: '2026-10-14 17:32:57' });
+    expect(
+      b.db.prepare("SELECT updated_at FROM brain_observations WHERE id = 'O-t13714'").get(),
+    ).toEqual({ updated_at: '2026-10-14T17:32:57.000Z' });
+  });
+});

@@ -57,7 +57,7 @@ import { classifyTable } from '../table-classification.js';
 import { readSyncFlags, setSyncFlag, syncSetTables } from './flags.js';
 import { mergeGroupsOf } from './merge/rules.js';
 import { ensureSyncSchema, hasTable, healSyncSchema } from './schema.js';
-import { canonicalizeStoreTimestamps } from './timestamps.js';
+import { canonicalizeStoreTimestamps, timestampColumns } from './timestamps.js';
 import {
   atomicDdl,
   CAPTURE_TRIGGER_PREFIX,
@@ -80,6 +80,8 @@ export interface CaptureTableDef {
   readonly secret: ReadonlySet<string>;
   /** Reference columns: target table and its local key column. */
   readonly refs: ReadonlyMap<string, { table: string; key: string }>;
+  /** Captured timestamp columns (§1.8): the merge reads them in their canonical wire form. */
+  readonly timestamps: ReadonlySet<string>;
   /** Rows never change: undo keeps only `rk` and `uid`. */
   readonly appendOnly: boolean;
   /**
@@ -170,6 +172,7 @@ export function captureTableDef(
     identity,
     secret,
     refs,
+    timestamps: timestampColumns(scope, table),
     appendOnly: (spec.content?.length ?? 0) > 0,
     ...(localRowid ? { localRowid } : {}),
     ...(localRowid && spec.localKey === localRowid && !isIntegerColumn(info, localRowid)
