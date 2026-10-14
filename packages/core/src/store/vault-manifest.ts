@@ -847,19 +847,33 @@ export function carryMachineState(
       liveCols: readonly string[],
       sameShape: boolean,
     ) => {
-      if (!stagedCols.includes('key') || (liveTables.has(t) && !sameShape)) {
+      // T13677: on a shape mismatch this machine's keys still replace the
+      // pusher's, over the columns both shapes share; only a table whose rows
+      // cannot be written that way is left as the snapshot has it.
+      const cols = sameShape ? liveCols : liveCols.filter((c) => stagedCols.includes(c));
+      if (!stagedCols.includes('key') || (liveTables.has(t) && !cols.includes('key'))) {
         out.skipped.push(t);
         return;
       }
-      const del = staged.prepare(`DELETE FROM ${quoteIdent(t)} WHERE key = ?`);
-      for (const r of staged.prepare(`SELECT key FROM ${quoteIdent(t)}`).all() as Array<{
-        key: string;
-      }>) {
-        if (!isFileStateKey(rule, String(r.key))) del.run(r.key);
-      }
-      if (liveTables.has(t)) {
-        const mine = rowsOf(live, t).filter((r) => !isFileStateKey(rule, String(r['key'])));
-        insertRows(staged, t, liveCols, mine);
+      staged.exec('SAVEPOINT carry_by_key');
+      try {
+        const del = staged.prepare(`DELETE FROM ${quoteIdent(t)} WHERE key = ?`);
+        for (const r of staged.prepare(`SELECT key FROM ${quoteIdent(t)}`).all() as Array<{
+          key: string;
+        }>) {
+          if (!isFileStateKey(rule, String(r.key))) del.run(r.key);
+        }
+        if (liveTables.has(t)) {
+          const mine = rowsOf(live, t).filter((r) => !isFileStateKey(rule, String(r['key'])));
+          insertRows(staged, t, cols, mine);
+        }
+        staged.exec('RELEASE carry_by_key');
+      } catch {
+        // A staged column this machine's rows cannot fill (NOT NULL, no default).
+        staged.exec('ROLLBACK TO carry_by_key');
+        staged.exec('RELEASE carry_by_key');
+        out.skipped.push(t);
+        return;
       }
       out.preserved.push(t);
     };

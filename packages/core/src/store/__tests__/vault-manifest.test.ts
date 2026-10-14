@@ -1217,6 +1217,42 @@ describe('carry takes file-state keys from the snapshot, machine keys from the l
     });
   });
 
+  it('suspect marks come from the snapshot: its uncaptured writes keep their repair signal (T13677)', () => {
+    const staged = make('staged', null, {
+      'schema:20260929140000_t12342-sync-clock': 'h1',
+      'suspect:tasks_tasks': '2026-10-13T00:00:00.000Z',
+    });
+    const live = make('live', null, { ...LIVE_SYNC, 'suspect:brain_observations': 'x' });
+    carryMachineState(staged, live, 'project');
+    const meta = kv(staged, '_sync_meta');
+    expect(meta['suspect:tasks_tasks']).toBe('2026-10-13T00:00:00.000Z');
+    expect(meta['suspect:brain_observations']).toBeUndefined();
+    expect(meta['sync.capture']).toBe('1');
+  });
+
+  it("a shape mismatch still replaces the pusher's machine keys, over the shared columns (T13677)", () => {
+    const staged = make('staged', null, {
+      'schema:20260929140000_t12342-sync-clock': 'h1',
+      'sync.capture': '0',
+      'seq:r-pusher:project:p': '3',
+    });
+    // The snapshot's _sync_meta has a column this machine's table lacks.
+    const db = new DatabaseSync(staged);
+    db.exec('ALTER TABLE _sync_meta ADD COLUMN note TEXT');
+    db.close();
+    const live = make('live', null, LIVE_SYNC);
+    const out = carryMachineState(staged, live, 'project');
+    expect(kv(staged, '_sync_meta')).toEqual({
+      'schema:20260929140000_t12342-sync-clock': 'h1',
+      'sync.capture': '1',
+      'sync.seal': '1',
+      min_writer_version: '2026.10.2',
+      'seq:r-live:project:p': '7',
+    });
+    expect(out.preserved).toContain('_sync_meta');
+    expect(out.skipped).not.toContain('_sync_meta');
+  });
+
   it('a snapshot without _sync_meta keeps this machine’s flags, with no ledger (the schema re-applies)', () => {
     const staged = make('staged', null, null);
     const live = make('live', null, LIVE_SYNC);
