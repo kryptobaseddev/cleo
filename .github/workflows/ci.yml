@@ -1665,6 +1665,12 @@ jobs:
         run: pnpm --filter @cleocode/cant run build:napi
       - name: Build packages (required for cross-package imports)
         run: pnpm run build
+      # T13686: the generated gateway client is derived from the OPERATIONS
+      # registry; an op added without `pnpm --filter @cleocode/core run gen:sdk`
+      # fails here. It reads the core dist the step above just built.
+      - name: Generated SDK client drift (T13686)
+        if: matrix.os == 'ubuntu-latest'
+        run: pnpm --filter @cleocode/core run gen:sdk:check
       - name: Pack build output
         # Everything untracked in the workspace except node_modules/ and the
         # cargo target/ — i.e. every package's dist/, tsbuildinfo, the
