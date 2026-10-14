@@ -1398,6 +1398,9 @@ async function snapshotGateInputs(
       throw new Error('Typed invocation working directory has ambiguous symlink ownership');
   }
   const paths = new Set((task.files ?? []).map((path) => resolve(root, path)));
+  // T13690: a declared task file is a literal path; `app/[id]/page.tsx` is a
+  // Next.js route, not a glob. Only paths from other sources are refused.
+  const literal = new Set(paths);
   if (gate.kind === 'file' && gate.path) paths.add(resolve(root, gate.path));
   if (
     invocation &&
@@ -1430,7 +1433,7 @@ async function snapshotGateInputs(
   for (const path of [...paths].sort()) {
     execution.assertActive();
     execution.consume({ items: 1 });
-    if (/[?*[\]{}]/.test(path))
+    if (!literal.has(path) && /[?*[\]{}]/.test(path))
       throw new Error(`Typed input requires an explicit file path: ${path}`);
     const rel = relative(root, path);
     if (!rel || rel === '..' || rel.startsWith('../') || isAbsolute(rel))
