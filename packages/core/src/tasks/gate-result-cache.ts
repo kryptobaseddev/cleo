@@ -42,9 +42,10 @@
  */
 
 import { createHash, createHmac, timingSafeEqual } from 'node:crypto';
-import { existsSync, readFileSync, realpathSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync, realpathSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import type { AcceptanceGate, AcceptanceGateResult } from '@cleocode/contracts';
+import type { AcceptanceGateCacheInputs } from '@cleocode/contracts/acceptance-gate';
 import { acceptanceGateResultSchema } from '@cleocode/contracts/acceptance-gate-schema.js';
 import { getCleoHome } from '../paths.js';
 import { acItemToText } from './ac-table.js';
@@ -78,6 +79,11 @@ export interface GateCacheEntryBody {
   /** When the gate actually executed and the entry was sealed. */
   createdAt: string;
   result: CachedGateObservation;
+  /**
+   * The parts behind `inputsHash`, for a later miss to explain itself (T13693).
+   * Outside the MAC: diagnostic only, never used to serve a pass.
+   */
+  inputs?: AcceptanceGateCacheInputs;
 }
 
 /** On-disk shape of one sealed entry. */
@@ -205,6 +211,7 @@ export function evidenceCacheKeyPath(): string {
  * @param state - Repo state captured BEFORE the gate executed.
  * @param inputsHash - Inputs digest captured BEFORE the gate executed.
  * @param result - The runner's observed result.
+ * @param inputs - The parts behind `inputsHash`, kept for miss diagnostics (T13693).
  * @returns The body to seal, or `null` for anything but a cacheable pass.
  * @example
  * ```typescript
@@ -217,6 +224,7 @@ export function buildGateCacheEntryBody(
   state: GateCacheState,
   inputsHash: string,
   result: AcceptanceGateResult,
+  inputs?: AcceptanceGateCacheInputs,
 ): GateCacheEntryBody | null {
   if (!isCacheableGate(gate) || result.result !== 'pass') return null;
   const {
@@ -236,7 +244,88 @@ export function buildGateCacheEntryBody(
     inputsHash,
     createdAt: new Date().toISOString(),
     result: observed,
+    ...(inputs ? { inputs } : {}),
   };
+}
+
+/**
+ * Why a gate has no cached pass: which key parts differ from the newest stored
+ * pass of the same gate definition (T13693). A refusal that only said "no
+ * cached pass for the current HEAD, working tree and inputs" could not tell a
+ * moved HEAD from a test that rewrote a tracked file or an environment that
+ * changed between two commands. Entries are read without authentication: this
+ * explains, it never serves.
+ *
+ * @param projectRoot - Project whose `.cleo/cache/evidence/` holds the entries.
+ * @param gate - The gate that missed.
+ * @param state - The repo state the lookup used.
+ * @param inputsHash - The inputs digest the lookup used.
+ * @param inputs - The parts behind `inputsHash`, when the caller has them.
+ * @returns A sentence naming the differing parts, or null when no pass of this
+ *   gate is stored at all.
+ * @example
+ * ```typescript
+ * const why = describeGateCacheMiss(root, gate, state, inputsHash, inputs);
+ * ```
+ * @task T13693
+ */
+export function describeGateCacheMiss(
+  projectRoot: string,
+  gate: AcceptanceGate,
+  state: GateCacheState,
+  inputsHash: string,
+  inputs?: AcceptanceGateCacheInputs,
+): string | null {
+  const dir = join(projectRoot, '.cleo', 'cache', 'evidence');
+  let names: string[];
+  try {
+    names = readdirSync(dir).filter((n) => n.startsWith('gate-') && n.endsWith('.json'));
+  } catch {
+    return null;
+  }
+  const wanted = gateHash(gate);
+  let newest: Partial<GateCacheEntryBody> | null = null;
+  for (const name of names) {
+    try {
+      const entry = JSON.parse(
+        readFileSync(join(dir, name), 'utf-8'),
+      ) as Partial<GateCacheEntryBody>;
+      if (entry.gateHash !== wanted || typeof entry.createdAt !== 'string') continue;
+      if (newest === null || entry.createdAt > (newest.createdAt ?? '')) newest = entry;
+    } catch {
+      // An unreadable entry explains nothing.
+    }
+  }
+  if (newest === null) return null;
+  const short = (v: unknown): string => (typeof v === 'string' ? v.slice(0, 12) : 'unknown');
+  const parts: string[] = [];
+  if (newest.head !== state.head) parts.push(`HEAD ${short(newest.head)} → ${short(state.head)}`);
+  if (newest.dirtyFingerprint !== state.dirtyFingerprint)
+    parts.push(
+      'tracked uncommitted changes (a tracked file changed, perhaps written by the run itself)',
+    );
+  if (newest.cwd !== state.cwd) parts.push(`execution root ${newest.cwd} → ${state.cwd}`);
+  if (newest.inputsHash !== inputsHash) {
+    const stored = newest.inputs;
+    if (stored && inputs) {
+      const changed: string[] = [];
+      if (stored.environmentHash !== inputs.environmentHash) changed.push('the environment');
+      const before = new Map(stored.artifacts.map((a) => [a.path, a.sha256]));
+      const after = new Map(inputs.artifacts.map((a) => [a.path, a.sha256]));
+      for (const path of new Set([...before.keys(), ...after.keys()]))
+        if (before.get(path) !== after.get(path)) changed.push(path);
+      parts.push(
+        changed.length > 0
+          ? `inputs: ${changed.join(', ')}`
+          : 'inputs (the invocation: command, arguments or working directory)',
+      );
+    } else {
+      parts.push('inputs (environment, invocation or task files)');
+    }
+  }
+  return parts.length > 0
+    ? `It differs from the newest cached pass of this gate (${newest.createdAt}) in: ${parts.join('; ')}.`
+    : null;
 }
 
 /**
