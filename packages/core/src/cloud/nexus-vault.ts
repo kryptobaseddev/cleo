@@ -176,6 +176,7 @@ import {
   vaultStripColumns,
 } from '../store/vault-manifest.js';
 import { foreignWriterLeases, storeOpenElsewhere } from '../store/writer-lease.js';
+import { autoSyncSuppressedBy } from './auto-sync.js';
 import { deriveKey, uuidv7 } from './crypto.js';
 import { NexusError } from './http.js';
 import { cursorFromCheckpoint, initialPullCursor, Journal, type PullCursor } from './journal.js';
@@ -3806,14 +3807,64 @@ export function cloudSync(
 
 /**
  * `cleo cloud pull` / `cleo cloud restore`: verify and activate a snapshot.
+ * A restore then turns sync on for the store and the home stream (T13718).
  *
- * @param opts - Mode, snapshot, project and target overrides.
+ * @param opts - Mode, snapshot, project and target overrides;
+ *   `allowUnreleased` for tests and staging only.
  * @returns What was restored.
  * @throws {NexusAccountError} `E_NEXUS_VAULT_LOCAL_CHANGES`, `E_NEXUS_VAULT_VERIFY_FAILED`,
  *   `E_NEXUS_VAULT_EMPTY`, `E_NEXUS_VAULT_KEY_UNAVAILABLE`, or a mapped API error.
  */
-export function restoreNexusVault(opts: NexusVaultRestoreOptions): Promise<CloudRestoreResult> {
-  return mapped(() => restoreNexusVaultImpl(opts));
+export async function restoreNexusVault(
+  opts: NexusVaultRestoreOptions & { allowUnreleased?: boolean },
+): Promise<CloudRestoreResult> {
+  const result = await mapped(() => restoreNexusVaultImpl(opts));
+  if (opts.mode !== 'restore' || result.status !== 'restored') return result;
+  const { mode, checkpointId, force, projectId, into, relink, ...vault } = opts;
+  return {
+    ...result,
+    warnings: [...result.warnings, ...(await turnSyncOnAfterJoin(vault, result))],
+  };
+}
+
+/**
+ * After a restore places a store on this device (`cleo cloud restore`, or the
+ * login first run's restore), turn sync on for it and for the account's home
+ * stream, the way login does once a project is linked, so a device that joins
+ * by restore is syncing with no enable step (T13718). Inert while `sync.push`
+ * is unreleased; skipped under a test runner or CI and by the opt-outs
+ * `CLEO_DISABLE_AUTO_SYNC=1` or `cloud.autoSync: false`. A failure warns
+ * `W_NEXUS_FIRST_RUN_SYNC`; the restore stands.
+ */
+async function turnSyncOnAfterJoin(
+  opts: NexusVaultCommandOptions & { allowUnreleased?: boolean },
+  restored: CloudRestoreResult,
+): Promise<CloudWarning[]> {
+  if (UNRELEASED_FLAGS.has('sync.push') && opts.allowUnreleased !== true) return [];
+  if (autoSyncSuppressedBy(process.env) !== null) return [];
+  if (process.env['CLEO_DISABLE_AUTO_SYNC'] === '1') return [];
+  const projectRoot =
+    restored.scope === 'project' ? restored.target : (opts.projectRoot ?? process.cwd());
+  try {
+    const { getConfigValue } = await import('../config/registry.js');
+    if ((await getConfigValue<boolean>('cloud.autoSync', { projectRoot })) === false) return [];
+  } catch {
+    // An unreadable config is not an opt-out.
+  }
+  const scopes: CloudVaultScope[] =
+    restored.scope === 'project' ? ['project', 'global'] : ['global'];
+  const warnings: CloudWarning[] = [];
+  for (const scope of scopes) {
+    try {
+      await enableSyncPush({ ...opts, projectRoot, scope });
+    } catch (err) {
+      warnings.push({
+        code: 'W_NEXUS_FIRST_RUN_SYNC',
+        message: `restored, but sync is not on for the ${scope} store: ${err instanceof Error ? err.message : String(err)}; run \`cleo sync enable push --scope ${scope}\``,
+      });
+    }
+  }
+  return warnings;
 }
 
 /**

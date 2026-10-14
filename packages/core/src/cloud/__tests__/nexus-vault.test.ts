@@ -33,6 +33,7 @@ import path from 'node:path';
 import type { DatabaseSync as _DatabaseSyncType } from 'node:sqlite';
 import { gunzipSync } from 'node:zlib';
 import {
+  type CloudWarning,
   NEXUS_FEATURE_PROJECT_INITIAL_KEY,
   type NexusLoginResult,
   type PortableBundleManifest,
@@ -6291,6 +6292,99 @@ describe('sync enable push: the genesis checkpoint (T12343 S4-1b)', () => {
     } finally {
       fakeDateHeader = null;
     }
+  });
+
+  describe('a device that joins by cloud restore turns sync on (T13718)', () => {
+    /** Restore A's checkpoint onto B; the relink binds and attaches B's replica, as `linkProjectToNexus` does. */
+    async function restoreJoin(
+      before?: (b: Machine) => void,
+    ): Promise<{ b: Machine; bDb: string; warnings: CloudWarning[] }> {
+      const b = await machine('b', DEVICE_B, REPLICA_B);
+      before?.(b);
+      fake.replicas.get(REMOTE_PROJECT)?.set(REPLICA_B, DEVICE_B);
+      const bDb = path.join(b.root, '.cleo', 'cleo.db');
+      const result = await on(b, () =>
+        restoreNexusVault(
+          vopts(b, {
+            mode: 'restore',
+            projectId: REMOTE_PROJECT,
+            into: b.root,
+            allowUnreleased: true,
+            relink: async () => {
+              b.replicaId = ensureProjectReplica(await storeOf(bDb), {
+                dbPath: bDb,
+                mode: 'live',
+              }).replicaId;
+              fake.replicas.get(REMOTE_PROJECT)?.set(b.replicaId, DEVICE_B);
+              link(b);
+              return [];
+            },
+          }),
+        ),
+      );
+      return { b, bDb, warnings: result.warnings };
+    }
+
+    /** Device A with sync on and one edit B has not seen. */
+    async function syncingA(): Promise<void> {
+      const { m: a, dbPath: aDb } = await journalMachine();
+      await on(a, () => enableSyncPush(vopts(a, { allowUnreleased: true })));
+      await on(a, async () => {
+        setSyncFlag(await storeOf(aDb), 'sync.pull', true, { allowUnreleased: true });
+      });
+      await on(a, async () => {
+        (await storeOf(aDb)).exec("UPDATE tasks_tasks SET title = 'from A' WHERE id = 'T1'");
+      });
+      await on(a, () => pushSyncStream(vopts(a, { allowUnreleased: true })));
+    }
+
+    beforeEach(() => {
+      // As on a real machine: outside the test runner's VITEST/NODE_ENV and CI (T13606).
+      vi.stubEnv('VITEST', '');
+      vi.stubEnv('NODE_ENV', 'production');
+      vi.stubEnv('CI', '');
+      vi.stubEnv('CLEO_DISABLE_AUTO_SYNC', '');
+    });
+    afterEach(() => {
+      vi.unstubAllEnvs();
+    });
+
+    it("a fresh device restores, and cloud sync applies the other device's ops with no enable step", async () => {
+      await syncingA();
+      const { b, bDb, warnings } = await restoreJoin();
+      expect(warnings.filter((w) => w.message.includes('project store'))).toEqual([]);
+      const r = await on(b, () => cloudSync(vopts(b, { scope: 'project', allowUnreleased: true })));
+      expect(r.streams[0]?.refused ?? null).toBeNull();
+      expect(
+        await on(b, async () =>
+          (await storeOf(bDb)).prepare("SELECT title FROM tasks_tasks WHERE id = 'T1'").get(),
+        ),
+      ).toEqual({ title: 'from A' });
+    });
+
+    it('CLEO_DISABLE_AUTO_SYNC=1 keeps sync off after the restore', async () => {
+      await syncingA();
+      vi.stubEnv('CLEO_DISABLE_AUTO_SYNC', '1');
+      const { b } = await restoreJoin();
+      const refused = await failure(
+        on(b, () => cloudSync(vopts(b, { scope: 'project', allowUnreleased: true }))),
+      );
+      expect(refused.code).toBe('E_SYNC_DISABLED');
+    });
+
+    it('cloud.autoSync false keeps sync off after the restore', async () => {
+      await syncingA();
+      const { b: joined } = await restoreJoin((b) =>
+        fs.writeFileSync(
+          path.join(b.home, 'config.json'),
+          JSON.stringify({ cloud: { autoSync: false } }),
+        ),
+      );
+      const refused = await failure(
+        on(joined, () => cloudSync(vopts(joined, { scope: 'project', allowUnreleased: true }))),
+      );
+      expect(refused.code).toBe('E_SYNC_DISABLED');
+    });
   });
 
   it('refuses without the unreleased opt-in, on a journaled stream, and when the store and link name different replicas', async () => {
