@@ -59,8 +59,10 @@ import {
   OLDER_CLEO_HOOK_ANSWER,
   OLDER_CLEO_MARKER_PREFIX,
   OPENCODE_HEAVY_COMMAND_PLUGIN,
+  SUBAGENT_START_HOOK_ID,
   syncJsonAskEnforceHook,
   syncJsonHeavyCommandHook,
+  syncJsonSubagentStartHook,
   syncOpencodeHeavyCommandPlugin,
 } from '../heavy-command-hook-install.js';
 
@@ -327,6 +329,21 @@ describe.each(SHELLS)('heavyCommandHookCommand under %s', (shell) => {
     expect(heavyCommandHookCommand('codex')).toMatch(
       /^\/bin\/sh -c 'command -v cleo .*' # cleo-hook$/,
     );
+  });
+});
+
+describe('syncJsonSubagentStartHook (T13667)', () => {
+  const read = (p: string) => JSON.parse(readFileSync(p, 'utf-8'));
+
+  it('adds one SubagentStart entry for Claude Code, idempotent, and removes only its own', async () => {
+    const path = join(dir, 'project', '.claude', 'settings.local.json');
+    expect(await syncJsonSubagentStartHook(path, true)).toBe('installed');
+    expect(await syncJsonSubagentStartHook(path, true)).toBe('unchanged');
+    const entry = read(path).hooks.SubagentStart[0].hooks[0];
+    expect(entry.command).toContain(`${SUBAGENT_START_HOOK_ID} --provider claude-code`);
+    expect(entry.command.endsWith('exit 0 # cleo-hook')).toBe(true);
+    expect(await syncJsonSubagentStartHook(path, false)).toBe('removed');
+    expect(read(path).hooks.SubagentStart).toEqual([]);
   });
 });
 

@@ -185,16 +185,36 @@ const askEnforceSubcommand = defineCommand({
   },
 });
 
+const subagentStartSubcommand = defineCommand({
+  meta: {
+    name: 'subagent-start',
+    description:
+      'SubagentStart hook (T13667): give harness-spawned subagents the ct-lean rules at the effective level (none at off). Reads the hook JSON on stdin; prints the harness answer.',
+  },
+  args: {
+    provider: {
+      type: 'string',
+      description: 'Harness protocol to answer in: claude-code (default)',
+    },
+  },
+  async run({ args }) {
+    const { runHookCli } = await import('../hook-entry.js');
+    const provider = typeof args.provider === 'string' ? args.provider : 'claude-code';
+    process.exitCode = await runHookCli(['subagent-start', '--provider', provider]);
+  },
+});
+
 /** cleo hook — agent-harness hooks (stdout is the harness protocol). */
 export const hookCommand = defineCommand({
   meta: {
     name: 'hook',
     description:
-      'Agent-harness hooks installed by cleo init/upgrade; stdout is the harness hook protocol, not LAFS: cleo hook heavy-command --provider claude-code|codex|kimi|opencode',
+      'Agent-harness hooks installed by cleo init/upgrade; stdout is the harness hook protocol, not LAFS: cleo hook heavy-command|ask-enforce|subagent-start --provider <harness>',
   },
   subCommands: {
     'heavy-command': heavyCommandSubcommand,
     'ask-enforce': askEnforceSubcommand,
+    'subagent-start': subagentStartSubcommand,
     sync: syncSubcommand,
     run: runSubcommand,
     check: checkSubcommand,
