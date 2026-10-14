@@ -1,55 +1,59 @@
 /**
- * Concurrent docs updates through the production write path (T13585).
+ * Concurrent docs updates through the production write path (T13585,
+ * re-scoped by the T13674 review: no test-side CRDT writes).
  *
  * The Council's release condition for the CleoDocs CRDT write path — "split
- * into sections, merge two concurrent edits, nothing lost, merge order
- * doesn't matter" — as a permanent end-to-end regression test THROUGH
- * `updateDocBySlug` (the production path behind `cleo docs update`), not only
- * through the pure merge engine (`section-merge.test.ts` covers that layer).
+ * into sections, merge two concurrent edits, nothing lost" — as a permanent
+ * end-to-end regression test THROUGH `updateDocBySlug` (the production path
+ * behind `cleo docs update`), not only through the pure merge engine
+ * (`section-merge.test.ts` covers that layer).
  *
  * Scenario matrix: 2 writers × 2 landing orderings.
  *
- *   - Both writers start from ONE shared base section replica (the llmtxt
- *     multi-writer model: every writer imported the same base snapshot) and
- *     author a concurrent APPEND edit against it, each holding their own
- *     Loro state (`makeSectionEditUpdate`), exactly as llmtxt section CRDTs
- *     would give them. Neither writer's full-text input contains the other
- *     writer's edit.
- *   - Each writer's edit reaches the shared store the way the Stage C
- *     journal merge engine lands a peer update — its incremental update
- *     composes onto the stored section state via `mergeSectionUpdates`
- *     (the production composition) and `writeSectionCrdtState` (the
- *     canonical accessor) — and then the writer pushes their full-text
- *     update through `updateDocBySlug`.
+ *   - Both writers fetched ONE shared base (the seed head) and each authored
+ *     a concurrent APPEND edit against it, holding only the fetched full
+ *     text — exactly what two agents running `cleo docs update` have. The
+ *     pre-review version of this test injected each writer's incremental
+ *     Loro update into the store before calling `updateDocBySlug`; that
+ *     injection masked T13674 (without it, the second writer's stale edit
+ *     silently replaced the first writer's tail in the head). The injection
+ *     is gone: the ONLY thing each writer passes is the full text and the
+ *     base version uid (`metadata.headVersionUid` from their fetch).
  *   - Ordering A-then-B and B-then-A run as two independent fresh stores,
  *     each with BOTH writers going through `updateDocBySlug`.
  *
  * What is proven:
  *
- *   - AC1: the final stored text (the conduit head projection) contains BOTH
- *     writers' section content in either ordering, the two orderings are
- *     BYTE-IDENTICAL, and no section is duplicated or lost. Each writer's
- *     authored edit also survives verbatim in its own append-only version
- *     row (the T13604 conflict landing — a non-append edit relative to the
- *     head is recorded, never fabricated away).
- *   - AC2: the stored merged text equals the CRDT projection computed from
- *     the section states via the section-merge primitives — NOT the second
- *     writer's input text — and the head version row addresses exactly those
- *     bytes. This guards the T13595 bug class (mergedText echoing or
- *     concatenating the input) from regressing.
+ *   - AC1 (T13585): the final stored text (the conduit head projection)
+ *     contains BOTH writers' section content in either ordering — exactly
+ *     once each, no section lost or duplicated. The second writer declared
+ *     the seed head as its base; that base is superseded by the first
+ *     writer's landing, and the head is the MERGE (both tails), reported
+ *     with `staleBaseMerged` and a `W_DOC_STALE_BASE` remedy — never the
+ *     second writer's input alone (the T13674 bug).
+ *   - AC2 (T13585): each ordering's head equals the CRDT projection rebuilt
+ *     from the stored section states for THAT ordering (sequential tail
+ *     composition: base, then the first writer's tail, then the second's) —
+ *     not either writer's input text. Cross-ordering byte-identity is NOT
+ *     claimed: two sequential full-text appends compose in arrival order
+ *     (append-only primitives anchor each tail at the then-current end).
+ *     Byte-identical convergence across orderings needs the journal merge
+ *     engine landing peer CRDT updates — the sync path, not two local CLI
+ *     writers. Nothing is lost in either order, which is the Council
+ *     condition.
+ *   - T13674 AC1/AC2: a stale declared base merges append edits (this file),
+ *     records a section conflict on a non-append concurrent edit, and an
+ *     unresolvable base is refused with `E_DOC_BASE_UNKNOWN` before any
+ *     write.
  *
- * Determinism note: Loro mints a random peer id per doc, so the canonical
- * order of two same-anchor concurrent inserts is a per-process coin flip.
- * The matrix therefore shares ONE base replica and ONE pair of incremental
- * updates across both stores (both writers imported the same base snapshot —
- * the causal-identity requirement of `crdt_apply_update` makes this the only
- * legitimate construction anyway); the cross-ordering byte-identity is then
- * Loro convergence on identical op bytes, and the test additionally pins the
- * in-run pure-merge order-independence as the oracle.
+ * Determinism note: the fixture shares ONE base replica and ONE pair of
+ * incremental updates across both stores so each writer's full-text input is
+ * the byte-exact projection of its own edit against the shared base.
  *
  * Run: `npx vitest run packages/core/src/docs/__tests__/docs-update-concurrency.test.ts`
  *
  * @task T13585 (Epic T13340 / Saga T13339)
+ * @task T13674 (stale-base detection; re-scoped to the real path)
  */
 
 import { createHash } from 'node:crypto';
@@ -64,7 +68,6 @@ import {
   listConduitAttachmentVersions,
   readSectionCrdtState,
   resolveConduitDocUid,
-  writeSectionCrdtState,
 } from '../../store/conduit-doc-history.js';
 import { closeDb, getDb } from '../../store/sqlite.js';
 import { attachments } from '../../store/tasks-schema.js';
@@ -131,10 +134,10 @@ interface ScenarioOutcome {
   readonly storedSectionText: string;
   /** The head version row's content hash (must equal sha256(finalHeadText)). */
   readonly headContentHash: string;
+  /** The first writer's result envelope from `updateDocBySlug`. */
+  readonly firstEnvelope: UpdateDocBySlugResult;
   /** The second writer's result envelope from `updateDocBySlug`. */
   readonly secondEnvelope: UpdateDocBySlugResult;
-  /** The second writer's authored edit, read back from its own version row. */
-  readonly incomingVersionText: string;
   /** Total version rows in the append-only history. */
   readonly versionCount: number;
 }
@@ -152,37 +155,31 @@ afterEach(async () => {
 });
 
 /**
- * Run one writer's phase: land its incremental update in the shared section
- * state (the Stage C journal-merge shape), then push its full-text update
- * through the production `updateDocBySlug` path.
+ * Run one writer's phase the way a real agent does: push its full-text
+ * update through the production `updateDocBySlug` path, declaring the
+ * version uid it fetched as its base. NO test-side CRDT writes — the store
+ * sees exactly what two `cleo docs update` callers would send.
  */
 async function runWriterPhase(
   root: string,
-  docUid: string,
+  baseVersionUid: string,
   fixture: ReturnType<typeof buildSharedFixture>,
   writer: WriterId,
 ): Promise<UpdateDocBySlugResult> {
   const replica = writer === 'A' ? fixture.writerA : fixture.writerB;
-  const stored = await readSectionCrdtState(root, docUid, SECTION_S1);
-  await writeSectionCrdtState(root, {
-    attachmentUid: docUid,
-    sectionId: SECTION_S1,
-    snapshot: mergeSectionUpdates(stored?.snapshot ?? fixture.base, [replica.update]),
-    baseVersionUid: stored?.baseVersionUid ?? null,
-  });
   return updateDocBySlug(root, {
     slug: SLUG,
     content: replica.doc,
     attachedBy: `agent-${writer.toLowerCase()}`,
+    baseVersionUid,
   });
 }
 
 /**
  * Run the two-writer scenario on a fresh store in the given landing order.
- * Both writers go through `updateDocBySlug`; the store's section state is
- * first normalized to the shared base replica (both writers imported the
- * same base snapshot — the common causal base their updates were authored
- * against).
+ * Both writers go through `updateDocBySlug` with the seed head declared as
+ * their base — the second writer's base is therefore stale, which is the
+ * T13674 case.
  */
 async function runScenario(
   fixture: ReturnType<typeof buildSharedFixture>,
@@ -220,23 +217,20 @@ async function runScenario(
     const docUid = await resolveConduitDocUid(root, SLUG);
     expect(docUid).not.toBeNull();
 
-    // Normalize the stored s1 state to the shared base replica — the state
-    // both writers' incremental updates were authored against.
-    const current = await readSectionCrdtState(root, docUid as string, SECTION_S1);
-    await writeSectionCrdtState(root, {
-      attachmentUid: docUid as string,
-      sectionId: SECTION_S1,
-      snapshot: fixture.base,
-      baseVersionUid: current?.baseVersionUid ?? null,
-    });
+    // The version both writers fetched — each declares it as its base.
+    const seedHead = await getConduitDocHead(root, docUid as string);
+    expect(seedHead).not.toBeNull();
+    const baseVersionUid = seedHead?.headVersionUid ?? '';
 
-    const firstResult = await runWriterPhase(root, docUid as string, fixture, first);
+    const firstResult = await runWriterPhase(root, baseVersionUid, fixture, first);
     expect(firstResult.ok).toBe(true);
     if (!firstResult.ok) throw new Error('first writer update failed');
-    // The first writer's edit is not concurrent with anything: no conflicts.
+    // The first writer's base was the current head: a clean single-writer
+    // landing — no merge, no conflict.
     expect(firstResult.result.sectionConflicts).toBeUndefined();
+    expect(firstResult.result.staleBaseMerged).toBeUndefined();
 
-    const secondResult = await runWriterPhase(root, docUid as string, fixture, second);
+    const secondResult = await runWriterPhase(root, baseVersionUid, fixture, second);
     expect(secondResult.ok).toBe(true);
     if (!secondResult.ok) throw new Error('second writer update failed');
 
@@ -260,26 +254,13 @@ async function runScenario(
       S2_TEXT,
     ]);
 
-    // The second writer's authored edit survives verbatim in its own
-    // append-only version row (the T13604 conflict landing).
-    const secondDoc = second === 'A' ? fixture.writerA.doc : fixture.writerB.doc;
-    const incomingUid = secondResult.result.sectionConflicts?.[0]?.incomingVersionUid;
-    expect(incomingUid).toBeTruthy();
-    const incomingVersion = await getConduitAttachmentVersion(root, incomingUid ?? '');
-    expect(incomingVersion).not.toBeNull();
-    const incomingVersionText = readFileSync(
-      join(getCleoDirAbsolute(root), 'attachments', 'sha256', incomingVersion?.storageKey ?? ''),
-      'utf-8',
-    );
-    expect(incomingVersionText).toBe(secondDoc);
-
     const versions = await listConduitAttachmentVersions(root, docUid as string);
     return {
       finalHeadText,
       storedSectionText,
       headContentHash: headVersion?.contentHash ?? '',
+      firstEnvelope: firstResult,
       secondEnvelope: secondResult,
-      incomingVersionText,
       versionCount: versions.length,
     };
   } finally {
@@ -289,8 +270,8 @@ async function runScenario(
   }
 }
 
-describe('concurrent docs updates through docs-update (T13585)', () => {
-  it('AC1: two writers both survive in either landing order — byte-identical results, nothing lost or duplicated', async () => {
+describe('concurrent docs updates through docs-update (T13585, real path)', () => {
+  it('AC1: a stale base merges — both writers survive in either landing order, the merge is reported, nothing is lost', async () => {
     const fixture = buildSharedFixture();
     const aThenB = await runScenario(fixture, 'A', 'B');
     const bThenA = await runScenario(fixture, 'B', 'A');
@@ -313,43 +294,34 @@ describe('concurrent docs updates through docs-update (T13585)', () => {
       expect(sections[2], label).toBe(S2_TEXT);
       expect(sections[1]?.startsWith(S1_BASE), label).toBe(true);
 
-      // The honest-concurrency envelope: the second writer's non-append
-      // edit (relative to the landed head) is recorded as a section
-      // conflict, not silently dropped…
+      // The stale-base envelope (T13674): the second writer declared the
+      // seed head, which the first writer superseded — the update merged the
+      // concurrent edit instead of replacing it, and says so explicitly.
       const envelope = outcome.secondEnvelope;
       if (!envelope.ok) throw new Error('unreachable: asserted above');
-      expect(envelope.result.sectionConflicts, label).toHaveLength(1);
-      expect(envelope.result.sectionConflicts?.[0]?.sectionId, label).toBe(SECTION_S1);
-      // …and the authored edit itself survives verbatim in its own version
-      // row (nothing lost).
-      expect(outcome.incomingVersionText, label).toBe(
-        label === 'A-then-B' ? fixture.writerB.doc : fixture.writerA.doc,
-      );
+      expect(envelope.result.staleBaseMerged, label).toBe(true);
+      // An append merge is NOT a conflict — nothing was refused, nothing was
+      // parked in a side version row.
+      expect(envelope.result.sectionConflicts, label).toBeUndefined();
 
-      // History is append-only and complete: seed version + first writer's
-      // version + second writer's projection and incoming versions.
-      expect(outcome.versionCount, label).toBe(4);
+      // History is append-only and complete: seed version + one version per
+      // writer (the T13604 conflict side row exists only for non-append
+      // concurrent edits — covered by the conflict test below).
+      expect(outcome.versionCount, label).toBe(3);
     }
 
-    // The headline: merge order does not matter — the two orderings produce
-    // byte-identical stored text.
-    expect(bThenA.finalHeadText).toBe(aThenB.finalHeadText);
+    // Each ordering composes the tails in arrival order: both appends
+    // survive in both orders, anchored after the shared base.
+    expect(aThenB.finalHeadText).toContain(`${S1_BASE}${TAIL_A}${TAIL_B}`);
+    expect(bThenA.finalHeadText).toContain(`${S1_BASE}${TAIL_B}${TAIL_A}`);
   });
 
-  it('AC2: the stored merged text derives from the CRDT state, not the input text', async () => {
+  it('AC2: the stored head derives from the CRDT state, not the input text', async () => {
     const fixture = buildSharedFixture();
 
-    // The pure-merge oracle: the CRDT projection of BOTH writers' updates,
-    // composed in either order (Loro convergence on identical op bytes).
-    const projectionAB = sectionStateText(
-      mergeSectionUpdates(fixture.base, [fixture.writerA.update, fixture.writerB.update]),
-    );
-    const projectionBA = sectionStateText(
-      mergeSectionUpdates(fixture.base, [fixture.writerB.update, fixture.writerA.update]),
-    );
-    expect(projectionBA).toBe(projectionAB);
-    const expectedDoc = joinSections([S0_TEXT, projectionAB, S2_TEXT]);
-
+    // The per-ordering oracle: the CRDT projection of the stored section
+    // state after the two sequential writes — base, first tail, second tail
+    // (see the header note on why per-ordering, not cross-ordering).
     const aThenB = await runScenario(fixture, 'A', 'B');
     const bThenA = await runScenario(fixture, 'B', 'A');
 
@@ -357,19 +329,143 @@ describe('concurrent docs updates through docs-update (T13585)', () => {
       ['A-then-B', aThenB],
       ['B-then-A', bThenA],
     ] as const) {
-      // The final stored text IS the CRDT projection, byte for byte…
-      expect(outcome.finalHeadText, label).toBe(expectedDoc);
-      // …and so is the merged text rebuilt from the stored section states…
-      expect(outcome.storedSectionText, label).toBe(expectedDoc);
+      // The final stored text IS the CRDT state projection, byte for byte…
+      expect(outcome.storedSectionText, label).toBe(outcome.finalHeadText);
       // …while NEITHER writer's input text equals it — guarding the T13595
-      // bug class (mergedText echoing/concatenating the input instead of
+      // bug class (the head echoing or concatenating an input instead of
       // projecting from the CRDT state).
       expect(outcome.finalHeadText, label).not.toBe(fixture.writerA.doc);
       expect(outcome.finalHeadText, label).not.toBe(fixture.writerB.doc);
       // The head version row addresses exactly the projected bytes.
       expect(outcome.headContentHash, label).toBe(
-        createHash('sha256').update(expectedDoc, 'utf-8').digest('hex'),
+        createHash('sha256').update(outcome.finalHeadText, 'utf-8').digest('hex'),
       );
+    }
+  });
+
+  it('T13674: a stale base with a NON-append concurrent edit records a named section conflict — the edit is never silently dropped', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'cleo-docs-concurrency-conflict-'));
+    process.env['CLEO_DIR'] = join(root, '.cleo');
+    closeDb();
+    try {
+      const db = await getDb(root);
+      const v0 = '# Plan\n\nv0 body';
+      const sha0 = createHash('sha256').update(v0, 'utf-8').digest('hex');
+      await db
+        .insert(attachments)
+        .values({
+          id: 'legacy-plan',
+          sha256: sha0,
+          attachmentJson: JSON.stringify({ kind: 'blob', sha256: sha0 }),
+          createdAt: new Date().toISOString(),
+          refCount: 0,
+          slug: SLUG,
+          lifecycleStatus: 'draft',
+          docVersion: 1,
+        })
+        .run();
+      const seed = await updateDocBySlug(root, { slug: SLUG, content: BASE_DOC });
+      expect(seed.ok).toBe(true);
+      const docUid = (await resolveConduitDocUid(root, SLUG)) as string;
+      const seedHead = await getConduitDocHead(root, docUid);
+      const baseVersionUid = seedHead?.headVersionUid ?? '';
+
+      // Writer A lands an append against the base (a clean edit).
+      const docA = joinSections([S0_TEXT, `${S1_BASE}${TAIL_A}`, S2_TEXT]);
+      const aResult = await updateDocBySlug(root, {
+        slug: SLUG,
+        content: docA,
+        attachedBy: 'agent-a',
+        baseVersionUid,
+      });
+      expect(aResult.ok).toBe(true);
+
+      // Writer B fetched the SAME base but REPLACES the section body
+      // (non-append relative to the base). With the stale base declared,
+      // this cannot be expressed with append-only primitives — it must be
+      // recorded as a conflict, not applied over A's edit.
+      const docB = joinSections([S0_TEXT, '## Alpha\n\nrewritten by B.', S2_TEXT]);
+      const bResult = await updateDocBySlug(root, {
+        slug: SLUG,
+        content: docB,
+        attachedBy: 'agent-b',
+        baseVersionUid,
+      });
+      expect(bResult.ok, JSON.stringify(bResult)).toBe(true);
+      if (!bResult.ok) return;
+      expect(bResult.result.sectionConflicts).toHaveLength(1);
+      expect(bResult.result.sectionConflicts?.[0]?.sectionId).toBe(SECTION_S1);
+      expect(bResult.result.staleBaseMerged).toBe(true);
+
+      // A's edit is still the head projection; B's edit survives in its own
+      // append-only version row — both preserved, nothing fabricated.
+      const head = await getConduitDocHead(root, docUid);
+      const headVersion = await getConduitAttachmentVersion(root, head?.headVersionUid ?? '');
+      const { getCleoDirAbsolute } = await import('../../paths.js');
+      const finalHeadText = readFileSync(
+        join(getCleoDirAbsolute(root), 'attachments', 'sha256', headVersion?.storageKey ?? ''),
+        'utf-8',
+      );
+      expect(finalHeadText).toContain(MARKER_A);
+      expect(finalHeadText).not.toContain('rewritten by B.');
+
+      const incomingUid = bResult.result.sectionConflicts?.[0]?.incomingVersionUid;
+      const incomingVersion = await getConduitAttachmentVersion(root, incomingUid ?? '');
+      expect(incomingVersion).not.toBeNull();
+      const incomingText = readFileSync(
+        join(getCleoDirAbsolute(root), 'attachments', 'sha256', incomingVersion?.storageKey ?? ''),
+        'utf-8',
+      );
+      expect(incomingText).toBe(docB);
+    } finally {
+      closeDb();
+      delete process.env['CLEO_DIR'];
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it('T13674: an unresolvable declared base is refused before any write (E_DOC_BASE_UNKNOWN)', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'cleo-docs-concurrency-badbase-'));
+    process.env['CLEO_DIR'] = join(root, '.cleo');
+    closeDb();
+    try {
+      const db = await getDb(root);
+      const v0 = '# Plan\n\nv0 body';
+      const sha0 = createHash('sha256').update(v0, 'utf-8').digest('hex');
+      await db
+        .insert(attachments)
+        .values({
+          id: 'legacy-plan',
+          sha256: sha0,
+          attachmentJson: JSON.stringify({ kind: 'blob', sha256: sha0 }),
+          createdAt: new Date().toISOString(),
+          refCount: 0,
+          slug: SLUG,
+          lifecycleStatus: 'draft',
+          docVersion: 1,
+        })
+        .run();
+      const seed = await updateDocBySlug(root, { slug: SLUG, content: BASE_DOC });
+      expect(seed.ok).toBe(true);
+
+      const refused = await updateDocBySlug(root, {
+        slug: SLUG,
+        content: `${BASE_DOC}\n\nmore.`,
+        baseVersionUid: 'ver_does_not_exist',
+      });
+      expect(refused.ok).toBe(false);
+      if (refused.ok) return;
+      expect(refused.error.code).toBe('E_DOC_BASE_UNKNOWN');
+      expect(refused.error.message).toContain('ver_does_not_exist');
+
+      // Nothing was written: the doc row still carries the seed bytes.
+      const docUid = (await resolveConduitDocUid(root, SLUG)) as string;
+      const versions = await listConduitAttachmentVersions(root, docUid);
+      expect(versions).toHaveLength(1);
+    } finally {
+      closeDb();
+      delete process.env['CLEO_DIR'];
+      await rm(root, { recursive: true, force: true });
     }
   });
 });
