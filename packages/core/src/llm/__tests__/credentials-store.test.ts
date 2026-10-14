@@ -679,6 +679,16 @@ describe('legacy llm-credentials.json migration (T13715)', () => {
     await expect(listCredentials('anthropic')).resolves.toEqual([]);
   });
 
+  it('a list still serves the legacy entries when the store cannot be written', async () => {
+    isolateHomes();
+    seedLegacy([...legacy]);
+    // A directory where the global store belongs: every open fails.
+    mkdirSync(join(process.env['CLEO_HOME'] ?? '', 'cleo.db'));
+    const listed = await listCredentials('anthropic');
+    expect(listed.map((c) => c.accessToken)).toEqual(['sk-old']);
+    expect(existsSync(credentialsStorePath())).toBe(true);
+  });
+
   it('a malformed legacy file is left in place', async () => {
     isolateHomes();
     seedLegacy([], '{ not json');

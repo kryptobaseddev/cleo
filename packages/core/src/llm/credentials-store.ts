@@ -532,6 +532,18 @@ export function pickCredentialForProviderSync(
 // ---------------------------------------------------------------------------
 
 /**
+ * {@link migrateLegacyCredentialsFile} for read paths: a failed migration is
+ * logged, never thrown, because the reader still serves the file's entries.
+ */
+async function migrateForRead(): Promise<void> {
+  try {
+    await migrateLegacyCredentialsFile();
+  } catch (err) {
+    logger.warn({ err: (err as Error).message }, 'llm-credentials-store: migration deferred');
+  }
+}
+
+/**
  * List credentials in the pool, optionally filtered to a single provider.
  *
  * Returns `[]` when the file does not exist. Never throws.
@@ -539,7 +551,7 @@ export function pickCredentialForProviderSync(
  * @task T9257
  */
 export async function listCredentials(provider?: ModelTransport): Promise<StoredCredential[]> {
-  await migrateLegacyCredentialsFile();
+  await migrateForRead();
   const data = readStoreSync();
   if (!provider) return [...data.credentials];
   return data.credentials.filter((c) => c.provider === provider);
@@ -555,7 +567,7 @@ export async function getCredentialByLabel(
   provider: ModelTransport,
   label: string,
 ): Promise<StoredCredential | null> {
-  await migrateLegacyCredentialsFile();
+  await migrateForRead();
   const data = readStoreSync();
   return data.credentials.find((c) => c.provider === provider && c.label === label) ?? null;
 }
@@ -635,6 +647,6 @@ export async function pickCredentialForProvider(
   provider: ModelTransport,
   opts: { strategy?: CredentialsStoreStrategy; preferLabel?: string } = {},
 ): Promise<StoredCredential | null> {
-  await migrateLegacyCredentialsFile();
+  await migrateForRead();
   return pickCredentialForProviderSync(provider, opts);
 }
