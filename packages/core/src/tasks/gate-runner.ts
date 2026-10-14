@@ -1460,6 +1460,7 @@ async function snapshotGateInputs(
         // T13691: an absent glob-looking entry is a pattern written by mistake
         // (task.files are literal); recorded absent, its hash would never move.
         if (globLike)
+          // @sync-invariant none:input-shape a declared task path that is a mistaken glob is refused before the gate runs; nothing is written
           throw new Error(
             `declared task file ${relative(root, path)} does not exist; list explicit paths, task.files are literal`,
           );
