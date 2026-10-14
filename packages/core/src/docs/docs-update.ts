@@ -939,8 +939,12 @@ export async function updateDocBySlug(
     const { rebuildDocsWikilinks } = await import('./wikilinks.js');
     await rebuildDocsWikilinks({ projectRoot });
   } catch (rebuildErr) {
+    // T13711: drizzle interpolates the full SQL + params into err.message
+    // (~900 KB on axiom-app) — warn with the bounded driver cause, never the
+    // parameter dump.
+    const { boundedErrorMessage } = await import('../lib/error-message.js');
     process.emitWarning(
-      `docs wikilinks rebuild failed after update of slug '${slug}': ${rebuildErr instanceof Error ? rebuildErr.message : String(rebuildErr)}`,
+      `docs wikilinks rebuild failed after update of slug '${slug}': ${boundedErrorMessage(rebuildErr)}`,
     );
   }
 

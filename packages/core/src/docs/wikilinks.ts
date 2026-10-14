@@ -83,7 +83,9 @@ interface DerivationRow {
  *
  * The whole table is truncated and re-derived inside a single transaction, so
  * the function is safe to call after any doc write and always converges to the
- * same edge set for a given `attachments` state.
+ * same edge set for a given `attachments` state. The edge insert is chunked at
+ * 6553 rows per statement — SQLite's 32766-variable cap with 5 bound columns
+ * per row — so stores with more than 6553 edges still rebuild fully (T13711).
  *
  * @example
  * ```ts
@@ -142,18 +144,27 @@ export async function rebuildDocsWikilinks(
     if (edges.length === 0) return;
     // Batch insert; INSERT OR IGNORE semantics via onConflictDoNothing keep the
     // composite PK idempotent even if deriveWikilinkEdges emitted a duplicate.
-    tx.insert(docsWikilinks)
-      .values(
-        edges.map((e) => ({
-          fromSlug: e.fromSlug,
-          toSlug: e.toSlug,
-          relation: e.relation,
-          toIsTask: e.toIsTask,
-          derivedAt: nowIso,
-        })),
-      )
-      .onConflictDoNothing()
-      .run();
+    //
+    // T13711: SQLite caps a statement's bound variables at SQLITE_MAX_VARIABLE_
+    // NUMBER (32766). With 5 columns per row, one INSERT binds at most
+    // floor(32766/5) = 6553 rows — past that (axiom-app: 8387 edges) the single
+    // statement fails and the whole rebuild rolls back. Chunk inside the SAME
+    // transaction so the rebuild stays atomic.
+    const WIKILINK_INSERT_CHUNK_ROWS = 6553; // floor(32766 / 5 columns)
+    for (let i = 0; i < edges.length; i += WIKILINK_INSERT_CHUNK_ROWS) {
+      tx.insert(docsWikilinks)
+        .values(
+          edges.slice(i, i + WIKILINK_INSERT_CHUNK_ROWS).map((e) => ({
+            fromSlug: e.fromSlug,
+            toSlug: e.toSlug,
+            relation: e.relation,
+            toIsTask: e.toIsTask,
+            derivedAt: nowIso,
+          })),
+        )
+        .onConflictDoNothing()
+        .run();
+    }
   });
 
   const byRelation: Record<DocsWikilinkRelation, number> = {
