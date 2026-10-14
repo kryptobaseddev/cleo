@@ -42,7 +42,6 @@ import {
 } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
-import { writeFileAtomic } from '../tools/fs.js';
 
 /**
  * Minimal MIME-to-extension map for common attachment types.
@@ -451,6 +450,8 @@ export async function backfillBlobStoreBytes(
   // renamed into place — an interrupted write never leaves a truncated blob
   // at the final content address (which later runs would count as present
   // and `blobReadBySha` would then reject as corrupt with no heal path).
+  // Lazy: blob-keep loads on CLI paths that never write a blob (gate 39).
+  const { writeFileAtomic } = await import('../tools/fs.js');
   await writeFileAtomic({ path: target, content: bytes });
   return 'written';
 }
