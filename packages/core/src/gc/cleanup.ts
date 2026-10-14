@@ -433,8 +433,12 @@ function quarantineWorktreeDir(
  * @task T9043
  * @task T11996
  */
-export function pruneOrphanWorktrees(options: PruneOrphanWorktreesOptions): CleanupResult {
+export async function pruneOrphanWorktrees(
+  options: PruneOrphanWorktreesOptions,
+): Promise<CleanupResult> {
   const { worktreesRoot, projectHash, activeTaskIds, dryRun = false } = options;
+  // Lazy: setup-global imports this module, and gate jobs run without worktree's dist (T13696).
+  const { describeDisposalBlockers, guardWorktreeDisposal } = await import('@cleocode/worktree');
 
   const removed: string[] = [];
   const quarantined: string[] = [];
@@ -543,6 +547,14 @@ export function pruneOrphanWorktrees(options: PruneOrphanWorktreesOptions): Clea
         }
       } catch {
         skipped++;
+        continue;
+      }
+
+      // T13700: the shared disposal guard — no task store here, so it relies on
+      // the dependents scan and on any keep marker an earlier disposal wrote.
+      const kept = guardWorktreeDisposal(worktreePath, { taskId, reason: 'gc-orphan', dryRun });
+      if (kept !== null) {
+        errors.push({ path: worktreePath, reason: describeDisposalBlockers(worktreePath, kept) });
         continue;
       }
 
