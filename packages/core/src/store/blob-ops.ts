@@ -108,7 +108,9 @@ export async function blobRead(
  *
  * Hash-verifies the bytes against the address (a mismatch means corruption
  * or a wrong guess) and returns `null` when the file is absent — mirrors
- * {@link blobRead}'s null-not-throws contract.
+ * {@link blobRead}'s null-not-throws contract. An absent file is first healed
+ * from hash-verified legacy bytes when they exist (T13705), so docs written
+ * before the blob store held every body read without a manual repair.
  *
  * @param sha256 - Lowercase hex SHA-256 of the content.
  * @param projectRoot - Absolute project root. Defaults to `getProjectRoot()`.
@@ -131,7 +133,15 @@ export async function blobReadBySha(
   try {
     bytes = new Uint8Array(await readFile(file));
   } catch {
-    return null;
+    // T13705: a doc whose bytes predate the blob store heals on first read
+    // from hash-verified legacy bytes; otherwise the miss stands.
+    const { healBlobFromLegacy } = await import('./blob-keep.js');
+    if (!(await healBlobFromLegacy(join(root, '.cleo'), sha256.toLowerCase()))) return null;
+    try {
+      bytes = new Uint8Array(await readFile(file));
+    } catch {
+      return null;
+    }
   }
   const actual = createHash('sha256').update(bytes).digest('hex');
   if (actual !== sha256.toLowerCase()) {
