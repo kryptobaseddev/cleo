@@ -16,5 +16,7 @@ carries a stable key built from the file and marker text, so moving lines does
 not change it. `--marker <word>` scans another word instead.
 
 `--file-tasks --parent <epic>` files one `lean-debt` task per marker that has
-none yet. Re-running it is idempotent, so the ledger lives in the task store
-instead of a file that rots.
+none yet. Re-running it is idempotent (a done, cancelled or archived debt task
+still counts as filed), so the ledger lives in the task store instead of a file
+that rots. Filing checks for a session first, so an unbound caller files
+nothing.

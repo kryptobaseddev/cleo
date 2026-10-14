@@ -110,6 +110,12 @@ const debtSubcommand = defineCommand({
       });
       cliOutput(report, { command: 'lean-debt', operation: 'lean.debt' });
     } catch (err) {
+      const { CleoError } = await import('@cleocode/core/internal');
+      if (err instanceof CleoError) {
+        cliError(`lean debt: ${err.message}`, err.code, { name: 'CleoError', fix: err.fix });
+        process.exit(err.code);
+        return;
+      }
       cliError(
         `lean debt: ${err instanceof Error ? err.message : String(err)}`,
         ExitCode.GENERAL_ERROR,

@@ -144,10 +144,16 @@ export async function leanDebtReport(opts: {
   const filed: { key: string; taskId: string }[] = [];
   const alreadyFiled: string[] = [];
   if (opts.fileTasks && items.length > 0) {
+    // The same check addTask makes, run before the first filing so an unbound
+    // caller files nothing instead of failing partway through the ledger.
+    const { requireActiveSession } = await import('../sessions/session-enforcement.js');
+    await requireActiveSession('tasks.add', opts.projectRoot);
     const { getTaskAccessor } = await import('../store/data-accessor.js');
     const { addTask } = await import('../tasks/add.js');
     const accessor = await getTaskAccessor(opts.projectRoot);
-    const { tasks } = await accessor.queryTasks({ label: LEAN_DEBT_LABEL });
+    // An empty excludeStatus keeps archived rows: a debt task that was done,
+    // cancelled or archived still counts as filed.
+    const { tasks } = await accessor.queryTasks({ label: LEAN_DEBT_LABEL, excludeStatus: [] });
     const known = new Set(
       tasks.flatMap((t) => /lean-debt-key: ([0-9a-f]{12})/.exec(t.description ?? '')?.[1] ?? []),
     );

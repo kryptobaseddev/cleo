@@ -14,6 +14,8 @@ vi.mock('../../store/data-accessor.js', () => ({
   getTaskAccessor: async () => ({ queryTasks }),
 }));
 vi.mock('../../tasks/add.js', () => ({ addTask }));
+const requireActiveSession = vi.fn();
+vi.mock('../../sessions/session-enforcement.js', () => ({ requireActiveSession }));
 
 const { leanDebtKeyLine, leanDebtReport, parseLeanDebtLine, scanLeanDebt } = await import(
   '../lean-debt.js'
@@ -63,6 +65,8 @@ describe('scanLeanDebt over a git repo (T13664)', () => {
   let repo: string;
 
   beforeEach(() => {
+    vi.clearAllMocks();
+    requireActiveSession.mockResolvedValue({ allowed: true });
     repo = mkdtempSync(join(tmpdir(), 'lean-debt-'));
     const git = (...args: string[]) =>
       execFileSync('git', ['-C', repo, ...args], { stdio: 'ignore' });
@@ -108,6 +112,19 @@ describe('scanLeanDebt over a git repo (T13664)', () => {
     const [options] = addTask.mock.calls[0] ?? [];
     expect(options).toMatchObject({ labels: ['lean-debt'], parentId: 'T100' });
     expect(options.description).toContain(leanDebtKeyLine(items[1]?.key ?? ''));
-    expect(queryTasks).toHaveBeenCalledWith({ label: 'lean-debt' });
+    expect(queryTasks).toHaveBeenCalledWith({ label: 'lean-debt', excludeStatus: [] });
+  });
+
+  it('files nothing when no session is bound', async () => {
+    const unbound = Object.assign(new Error("Operation 'tasks.add' requires an active session"), {
+      code: 36,
+    });
+    requireActiveSession.mockRejectedValue(unbound);
+    await expect(
+      leanDebtReport({ projectRoot: repo, fileTasks: true, parentId: 'T100' }),
+    ).rejects.toBe(unbound);
+    expect(requireActiveSession).toHaveBeenCalledWith('tasks.add', repo);
+    expect(queryTasks).not.toHaveBeenCalled();
+    expect(addTask).not.toHaveBeenCalled();
   });
 });
