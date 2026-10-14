@@ -17,10 +17,11 @@ Three defects reported against `cleo run` on 2026.10.12:
 - **Silent queued runs (T13681).** A SIGINT, SIGTERM or SIGHUP while a run
   waits in the queue now leaves the queue and reports `E_RUN_INTERRUPTED`,
   exiting 128 + the signal number, instead of dying with no envelope. Under
-  `--passthrough` a run that waited in the queue now prints its "admitted after
-  Ns in the queue" line on stderr: a narrow change to the #1777 R7 contract,
-  which is now "silent unless queued". A successful run that never queued still
-  prints nothing of its own.
+  `--passthrough`, a run that waited in the queue now prints "admitted after Ns
+  in the queue" and, on success, "exited 0 after Ns" on stderr, so a finished
+  queued run never looks like a no-op. A run admitted at once stays byte-silent
+  as #1777 R7 requires (the hook rewrites every heavy command); R7 is narrowed
+  to "silent unless queued".
 - **Unattributed SIGTERM (T13680).** When the runner itself receives a signal
   and forwards it, it says so ("runner received SIGTERM (its parent pid N);
   forwarding it to pid M") and the result carries `runnerSignal`. A signal with

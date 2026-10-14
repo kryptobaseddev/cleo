@@ -236,17 +236,26 @@ describe('cleo run --passthrough (#1777 R7)', () => {
     expect(runGoverned).not.toHaveBeenCalled();
   });
 
-  // #1777 R7 narrowed by T13681: silent unless the run waited in the queue.
-  // The core sends a real queue admission as a warning, so it is printed.
-  it('stays quiet: progress (info) notices are dropped; a queue admission and warnings are printed', async () => {
+  it('stays quiet: progress (info) notices are dropped, warnings are printed', async () => {
     runGoverned.mockResolvedValue(exited());
     await invoke({ passthrough: true }, argv);
-    opts().notice?.('nested in an admitted run', 'info');
-    opts().notice?.('admitted after 3s in the queue', 'warn');
+    opts().notice?.('admitted after 3s in the test-run queue', 'info');
     opts().notice?.('paused: machine at backoff', 'warn');
+    expect(err).toEqual(['[cleo run] paused: machine at backoff\n']);
+  });
+
+  // #1777 R7 narrowed by T13681: a run that waited in the queue says so, twice;
+  // one admitted at once stays byte-silent (the test above and the success test).
+  it('a queued run prints its admission and, on success, one exited line (T13681)', async () => {
+    runGoverned.mockImplementation(async (o: RunGovernedOptions) => {
+      o.notice?.('admitted after 5s in the queue', 'warn');
+      return exited({ waitedMs: 5_000, durationMs: 3_000 });
+    });
+    await invoke({ passthrough: true, wait: true }, argv);
+    expect(out).toEqual([]);
     expect(err).toEqual([
-      '[cleo run] admitted after 3s in the queue\n',
-      '[cleo run] paused: machine at backoff\n',
+      '[cleo run] admitted after 5s in the queue\n',
+      '[cleo run] exited 0 after 3s\n',
     ]);
   });
 
