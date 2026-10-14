@@ -1,6 +1,6 @@
 {
   "name": "@cleocode/agents",
-  "version": "2026.10.12",
+  "version": "2026.10.13",
   "description": "CLEO agent protocols and templates",
   "type": "module",
   "license": "MIT",
