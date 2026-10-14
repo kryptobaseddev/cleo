@@ -2033,6 +2033,7 @@ export type {
   PruneOrphanedWorktreesResult,
   PruneWorktreesOptions,
   PruneWorktreesResult,
+  WorktreeDisposalBlockers,
   WorktreeHook,
   WorktreeHookResult,
   WorktreeIncludePattern,

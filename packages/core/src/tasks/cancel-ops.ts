@@ -8,6 +8,7 @@
 
 import type { Task } from '@cleocode/contracts';
 import { teardownWorktree } from '../sentient/worktree-dispatch.js';
+import { taskEvidenceAtoms } from './evidence-paths.js';
 
 /** Result of a cancel operation. */
 export interface CancelResult {
@@ -111,7 +112,7 @@ export function cancelTask(
   // Best-effort worktree cleanup when cancelling a task.
   // Promise rejection (e.g. non-git directory) swallowed — must not propagate.
   if (projectRoot) {
-    teardownWorktree(projectRoot, { taskId }).catch(() => {});
+    teardownWorktree(projectRoot, { taskId, evidence: taskEvidenceAtoms(task) }).catch(() => {});
   }
 
   return {

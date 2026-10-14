@@ -37,9 +37,11 @@ import { dirname, isAbsolute, join, relative } from 'node:path';
 
 import type {
   AgentWorktreeState,
+  EvidenceAtom,
   FsHardenCapabilities,
   FsHardenState,
   WorktreeCleanupResult,
+  WorktreeDisposalBlockers,
   WorktreeMergeResult,
   WorktreeSpawnResult,
 } from '@cleocode/contracts';
@@ -58,6 +60,8 @@ import {
 
 import {
   acquireWorktreeTaskLock,
+  describeDisposalBlockers,
+  findDisposalBlockers,
   getGitRoot,
   gitSilent,
   gitSync,
@@ -329,6 +333,8 @@ export interface PruneWorktreeResult {
   wasDirty: boolean;
   /** Error message if any step failed. */
   error?: string;
+  /** Set (with `status: 'skipped'`) when the worktree was kept because something still needs its files (T13696). */
+  kept?: WorktreeDisposalBlockers;
 }
 
 /**
@@ -372,11 +378,14 @@ function leaveDirectoryBeforeRemoval(dir: string, to: string): void {
  *   the result — callers should use `completeAgentWorktreeViaMerge` first.
  * - Always writes a `--force` remove with an audit log entry (`.cleo/audit/worktree-prune.jsonl`)
  *   when the worktree is detected as dirty.
+ * - Keeps the worktree (`{ status: 'skipped', kept }`) while another checkout
+ *   symlinks into it or it holds evidence found nowhere else (T13696).
  * - Never throws — failures are returned in `{ status: 'error', error }`.
  *
  * @param taskId     - The CLEO task ID (e.g. "T1462").
  * @param projectRoot - Absolute path to the project root.
  * @param opts.auditLogPath - Override path for the audit JSONL (testing).
+ * @param opts.evidence - The task's recorded evidence atoms (T13696).
  * @returns Prune outcome.
  *
  * @task T1462
@@ -385,7 +394,7 @@ function leaveDirectoryBeforeRemoval(dir: string, to: string): void {
 export function pruneWorktree(
   taskId: string,
   projectRoot: string,
-  opts: { auditLogPath?: string } = {},
+  opts: { auditLogPath?: string; evidence?: readonly EvidenceAtom[] } = {},
 ): PruneWorktreeResult {
   const branch = `task/${taskId}`;
   let gitRoot: string;
@@ -421,6 +430,42 @@ export function pruneWorktree(
       /* best-effort */
     }
     return { taskId, status: 'skipped', worktreeRemoved: false, branchDeleted, wasDirty: false };
+  }
+
+  // T13696: removal deletes the whole directory, so refuse while another
+  // checkout links into it or it holds the only copy of the task's evidence.
+  const kept = findDisposalBlockers(worktreePath, {
+    gitRoot,
+    projectRoot,
+    evidence: opts.evidence,
+  });
+  if (kept !== null) {
+    const error = describeDisposalBlockers(worktreePath, kept);
+    try {
+      const logPath =
+        opts.auditLogPath ?? join(projectRoot, '.cleo', 'audit', 'worktree-prune.jsonl');
+      mkdirSync(dirname(logPath), { recursive: true });
+      const entry = JSON.stringify({
+        timestamp: new Date().toISOString(),
+        taskId,
+        worktreePath,
+        action: 'kept',
+        ...kept,
+        agent: process.env['CLEO_AGENT_ID'] ?? 'cleo',
+      });
+      appendFileSync(logPath, entry + '\n', 'utf-8');
+    } catch {
+      /* audit is best-effort */
+    }
+    return {
+      taskId,
+      status: 'skipped',
+      worktreeRemoved: false,
+      branchDeleted: false,
+      wasDirty: false,
+      error,
+      kept,
+    };
   }
 
   // Detect dirty state: uncommitted changes in the worktree.
@@ -937,6 +982,7 @@ export function assessUpstreamIntegration(
  * @param opts.targetBranch - Override the resolved default branch.
  * @param opts.taskTitle - Task title used in the merge commit message subject.
  * @param opts.skipFetch - Skip every `git fetch` (test fixtures).
+ * @param opts.evidence - The task's evidence atoms; the prune keeps a worktree holding the only copy (T13696).
  * @param opts.fetchTimeoutMs - Timeout for the upstream fetch (default
  *   {@link UPSTREAM_FETCH_TIMEOUT_MS}).
  * @returns Merge integration result.
@@ -952,6 +998,7 @@ export function completeAgentWorktreeViaMerge(
     taskTitle?: string;
     skipFetch?: boolean;
     fetchTimeoutMs?: number;
+    evidence?: readonly EvidenceAtom[];
   } = {},
 ): WorktreeMergeResult {
   const branch = `task/${taskId}`;
@@ -1028,7 +1075,9 @@ export function completeAgentWorktreeViaMerge(
       // worktree unless it holds uncommitted work, which is left for the
       // operator. The checkout itself is never moved (hint-only).
       const dirty = existsSync(worktreePath) && isWorktreeDirty(worktreePath);
-      const pruneResult = dirty ? null : pruneWorktree(taskId, projectRoot);
+      const pruneResult = dirty
+        ? null
+        : pruneWorktree(taskId, projectRoot, { evidence: opts.evidence });
       let branchDeleted = pruneResult?.branchDeleted ?? false;
       // pruneWorktree only deletes a branch with zero commits ahead of the
       // checkout HEAD, so a stale local default branch, a squash merge, or a
@@ -1051,13 +1100,16 @@ export function completeAgentWorktreeViaMerge(
         commitCount: 0,
         rebased: false,
         worktreeRemoved: pruneResult?.worktreeRemoved ?? false,
+        ...(pruneResult?.kept ? { worktreeKept: pruneResult.kept } : {}),
         branchDeleted,
         nothingToIntegrate: true,
         ...(upstream.kind === 'landed' ? { landedUpstream: true } : {}),
         ...(upstream.syncCommand ? { syncCommand: upstream.syncCommand } : {}),
         hint: dirty
           ? `${upstream.hint} Worktree ${worktreePath} has uncommitted changes and was preserved.`
-          : upstream.hint,
+          : pruneResult?.kept
+            ? `${upstream.hint} ${pruneResult.error}`
+            : upstream.hint,
       };
     }
     if (upstream.kind === 'stale-target') {
@@ -1102,7 +1154,7 @@ export function completeAgentWorktreeViaMerge(
       error: result.error,
     };
   }
-  const pruneResult = pruneWorktree(taskId, projectRoot);
+  const pruneResult = pruneWorktree(taskId, projectRoot, { evidence: opts.evidence });
   return {
     taskId,
     targetBranch,
@@ -1111,6 +1163,7 @@ export function completeAgentWorktreeViaMerge(
     commitCount: result.commitCount,
     rebased: result.rebased,
     worktreeRemoved: pruneResult.worktreeRemoved,
+    ...(pruneResult.kept ? { worktreeKept: pruneResult.kept } : {}),
     branchDeleted: pruneResult.branchDeleted,
     error: pruneResult.error,
   };
@@ -1152,6 +1205,7 @@ export interface WorktreeIntegrationResult extends WorktreeMergeResult {
  * @param opts.taskTitle - Task title used in the merge commit message subject.
  * @param opts.skipFetch - Skip the `git fetch origin` step (test fixtures).
  * @param opts.auditLogPath - Override the audit JSONL path (testing).
+ * @param opts.evidence - The task's evidence atoms; the prune keeps a worktree holding the only copy (T13696).
  * @returns Integration result including audit log path.
  *
  * @task T9043
@@ -1165,12 +1219,14 @@ export function completeAgentWorktreeIntegration(
     taskTitle?: string;
     skipFetch?: boolean;
     auditLogPath?: string;
+    evidence?: readonly EvidenceAtom[];
   } = {},
 ): WorktreeIntegrationResult {
   const mergeResult = completeAgentWorktreeViaMerge(taskId, projectRoot, {
     targetBranch: opts.targetBranch,
     taskTitle: opts.taskTitle,
     skipFetch: opts.skipFetch,
+    evidence: opts.evidence,
   });
 
   // Write audit log entry.
@@ -1187,6 +1243,7 @@ export function completeAgentWorktreeIntegration(
       mergeCommit: mergeResult.mergeCommit,
       merged: mergeResult.merged,
       worktreeRemoved: mergeResult.worktreeRemoved,
+      worktreeKept: mergeResult.worktreeKept ?? null,
       branchDeleted: mergeResult.branchDeleted,
       error: mergeResult.error ?? null,
       agent: process.env['CLEO_AGENT_ID'] ?? 'cleo',

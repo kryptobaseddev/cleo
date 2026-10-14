@@ -36,6 +36,7 @@ import {
 } from './napi-binding.js';
 import { computeProjectHash, resolveWorktreeRootForHash } from './paths.js';
 import { appendWorktreeAuditLog, removeWorktreeFromSentinelIndex } from './worktree-audit.js';
+import { describeDisposalBlockers, findWorktreeDependents } from './worktree-dependents.js';
 import { releaseWorktreeTaskLock } from './worktree-lock.js';
 
 /**
@@ -395,6 +396,13 @@ function pruneSingleEntry(
   errors: Array<{ path: string; reason: string }>,
 ): void {
   const { taskId, path, reason } = decision;
+
+  // T13696: never delete a worktree another checkout still links into.
+  const dependents = findWorktreeDependents(path, gitRoot);
+  if (dependents.length > 0) {
+    errors.push({ path, reason: describeDisposalBlockers(path, { dependents, evidence: [] }) });
+    return;
+  }
 
   // T11996: Dirty/unpushed guard — quarantine instead of deleting.
   const dirty = isWorktreeDirty(path);

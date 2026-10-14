@@ -14,6 +14,7 @@ import { getTaskAccessor } from '../store/data-accessor.js';
 import { runWithWriteActorOp } from '../store/sync/write-actor.js';
 import { canCancel } from './cancel-ops.js';
 import type { ChildStrategy } from './deletion-strategy.js';
+import { taskEvidenceAtoms } from './evidence-paths.js';
 import { discoverRelated, suggestRelated } from './relates.js';
 import { coreTaskAnalyze } from './task-analyze.js';
 import { coreTaskBlockers } from './task-blockers.js';
@@ -289,7 +290,7 @@ export async function coreTaskCancel(
   // Best-effort worktree cleanup when cancelling a task.
   // Promise rejection (e.g. non-git directory) swallowed — must not propagate.
   const { teardownWorktree } = await import('../sentient/worktree-dispatch.js');
-  teardownWorktree(projectRoot, { taskId }).catch(() => {});
+  teardownWorktree(projectRoot, { taskId, evidence: taskEvidenceAtoms(task) }).catch(() => {});
 
   return {
     task: taskId,

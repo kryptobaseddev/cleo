@@ -60,6 +60,7 @@ import { acItemToText } from './ac-table.js';
 import { buildRollupEvidence, isCoordinationParent } from './coordination-parent.js';
 import { createAcceptanceEnforcement } from './enforcement.js';
 import { revalidateEvidence } from './evidence.js';
+import { taskEvidenceAtoms } from './evidence-paths.js';
 import { readAllowCachedGates } from './gate-result-cache.js';
 import {
   TypedRevalidationError,
@@ -1429,7 +1430,15 @@ export async function completeTask(
     const { completeAgentWorktreeIntegration } = await import('../spawn/branch-lock.js');
     const integration = completeAgentWorktreeIntegration(options.taskId, projectRoot, {
       taskTitle: task.title,
+      evidence: taskEvidenceAtoms(task),
     });
+    // T13696: a kept worktree is never silent — something still needs its files.
+    if (integration.worktreeKept) {
+      getLogger('tasks:complete').warn(
+        { taskId: options.taskId, kept: integration.worktreeKept },
+        `[T13696] ${integration.error ?? integration.hint ?? 'worktree kept'}`,
+      );
+    }
     // T12153 (GH #1223) — `nothingToIntegrate` is NOT a failure. Most tasks are
     // worked on a feature branch and merged by PR, so no `task/<id>` branch or
     // agent worktree ever existed, and there is nothing to merge. Reporting

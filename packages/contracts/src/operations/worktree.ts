@@ -18,6 +18,7 @@
 // Hooks framework
 // ---------------------------------------------------------------------------
 import type { HookExecutor, HookOutcome } from '../project-hooks.js';
+import type { EvidenceAtom } from '../task.js';
 
 /**
  * A declarative lifecycle hook definition for worktree events.
@@ -489,6 +490,25 @@ export interface DestroyWorktreeOptions {
    * @default 'manual'
    */
   reason?: string;
+  /**
+   * The task's recorded evidence atoms. An evidence file inside the worktree
+   * with no byte-identical copy at the same path under the project root keeps
+   * the worktree (T13696).
+   */
+  evidence?: readonly EvidenceAtom[];
+}
+
+/**
+ * Why a worktree disposal was refused (T13696). Disposal deletes the whole
+ * directory, so it is skipped while anything outside it still needs a file in it.
+ *
+ * @task T13696
+ */
+export interface WorktreeDisposalBlockers {
+  /** Paths in other worktrees (or the main checkout) that resolve into this worktree, e.g. a symlinked `node_modules`. */
+  dependents: string[];
+  /** Evidence files inside the worktree that re-validation could not find anywhere else once it is gone. */
+  evidence: string[];
 }
 
 /**
@@ -511,6 +531,8 @@ export interface DestroyWorktreeResult {
   force?: boolean;
   /** Results of pre-remove and post-destroy hooks. */
   hookResults?: WorktreeHookResult[];
+  /** Set when the worktree was kept because something still needs its files (T13696). */
+  kept?: WorktreeDisposalBlockers;
 }
 
 // ---------------------------------------------------------------------------
