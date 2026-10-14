@@ -588,8 +588,8 @@ export async function populateEmbeddings(
       message: registered
         ? 'Embedding backfill did nothing: the embedding provider is registered but ' +
           'reported itself unavailable, which means a previous load failed in this ' +
-          'process (commonly: no cached model and no network for the ~22 MB first-run ' +
-          'download). Hybrid search will fall back to FTS5.'
+          'process (commonly: no cached model, and model downloads are off until ' +
+          'brain.embedding.allowModelDownload is true). Hybrid search will fall back to FTS5.'
         : 'Embedding backfill did nothing: no embedding provider could be constructed. ' +
           'Check that brain.embedding.enabled is true and that the transformers runtime ' +
           'is installed. Hybrid search will fall back to FTS5.',

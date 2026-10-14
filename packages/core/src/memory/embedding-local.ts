@@ -3,8 +3,8 @@
  *
  * Implements the EmbeddingProvider interface for brain memory vector search.
  * Uses all-MiniLM-L6-v2 (22MB, 384 dimensions) — matches the brain_embeddings
- * vec0 table schema. Model downloads on first call and is cached locally by
- * the transformers library.
+ * vec0 table schema. The model loads from the transformers cache, and is
+ * downloaded only when `brain.embedding.allowModelDownload` is true (T13716).
  *
  * @epic T134
  * @task T136
@@ -17,11 +17,20 @@
  *   `prebuild-install` transitive via `sharp@0.34+`.
  */
 
+import { getLogger } from '../logger.js';
 import type { EmbeddingProvider } from './brain-embedding.js';
 import { EMBEDDING_DIMENSIONS } from './brain-embedding.js';
 
 /** Model identifier for all-MiniLM-L6-v2 via Xenova hub. */
 const MODEL_NAME = 'Xenova/all-MiniLM-L6-v2';
+
+/**
+ * How a user opts into the one-time model download (T13716).
+ *
+ * @task T13716
+ */
+export const ENABLE_MODEL_DOWNLOAD_HINT =
+  'cleo config set brain.embedding.allowModelDownload true --type boolean --scope global';
 
 /** Pipeline singleton — initialized lazily on first call. */
 let _pipeline: import('@huggingface/transformers').FeatureExtractionPipeline | null = null;
@@ -46,22 +55,37 @@ let _loadError: string | null = null;
  * Load the transformers feature-extraction pipeline lazily.
  * Dynamic import prevents the heavy model from loading unless embedding is enabled.
  *
- * On first call this downloads ~22 MB. That cost is expected and is the reason
- * the load is lazy — it is NOT a reason to refuse to start it (gh#1217).
+ * This is the ONE place the model is fetched (T13716): it downloads the ~22 MB
+ * model only when `brain.embedding.allowModelDownload` is true. Otherwise it
+ * loads from the local cache with no network, and an uncached model latches as
+ * unavailable, so background callers (the session-end worker, the sentient
+ * tick) skip quietly instead of reaching huggingface.co.
  */
 async function loadPipeline(): Promise<void> {
   if (_ready) return;
   if (_loadFailed) {
     throw new Error(`Local embedding pipeline is unavailable in this process: ${_loadError}`);
   }
+  let allowDownload = false;
   try {
     // Dynamic import — only resolves when embedding is explicitly enabled
     const { pipeline } = await import('@huggingface/transformers');
-    _pipeline = await pipeline('feature-extraction', MODEL_NAME);
+    const { loadConfig } = await import('../config.js');
+    allowDownload = (await loadConfig()).brain?.embedding?.allowModelDownload === true;
+    _pipeline = await pipeline('feature-extraction', MODEL_NAME, {
+      local_files_only: !allowDownload,
+    });
     _ready = true;
   } catch (err) {
     _loadFailed = true;
     _loadError = err instanceof Error ? err.message : String(err);
+    if (!allowDownload) {
+      getLogger('embedding-local').debug(
+        { err },
+        'Embedding model is not cached and downloads are off; skipping embeddings. ' +
+          `To enable: ${ENABLE_MODEL_DOWNLOAD_HINT}`,
+      );
+    }
     throw err;
   }
 }
@@ -98,8 +122,8 @@ export function __resetLocalEmbeddingStateForTests(): void {
  * Local embedding provider backed by @huggingface/transformers.
  *
  * Produces 384-dimension Float32Array vectors compatible with the
- * brain_embeddings vec0 table. The model is downloaded on first use
- * and cached locally by the transformers library.
+ * brain_embeddings vec0 table. The model loads from the local cache; it is
+ * downloaded only when `brain.embedding.allowModelDownload` is true (T13716).
  *
  * Use {@link initDefaultProvider} (in brain-embedding.ts) to register an
  * instance when brain.embedding.enabled=true and
@@ -143,7 +167,7 @@ export class LocalEmbeddingProvider implements EmbeddingProvider {
 
   /**
    * Convert a single text string into a 384-dimension float vector.
-   * Triggers model download on first call if not already cached.
+   * Loads the model on first call (downloading it only on opt-in, T13716).
    *
    * @param text - The text to embed.
    * @returns A Float32Array of length 384.

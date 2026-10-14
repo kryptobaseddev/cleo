@@ -228,6 +228,14 @@ export interface BrainEmbeddingConfig {
   enabled: boolean;
   /** Embedding provider to use (default: 'local'). */
   provider: 'local' | 'openai';
+  /**
+   * Whether the local provider may download its model from the Hugging Face
+   * hub when it is not cached (default: false). Off, CLEO makes no connection
+   * for embeddings: a cached model still loads, an absent one is skipped.
+   *
+   * @task T13716
+   */
+  allowModelDownload?: boolean;
 }
 
 /**
