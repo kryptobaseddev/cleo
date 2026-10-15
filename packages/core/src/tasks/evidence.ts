@@ -3842,7 +3842,7 @@ export async function revalidateEvidence(
               atom,
               reason:
                 lossy === f.sha256
-                  ? `Recorded hash for ${f.path} came from a build that mis-hashed non-ASCII git content (T13738); the file is unchanged. Re-run \`cleo verify\` with the same evidence to record the correct hash.`
+                  ? `Recorded hash for ${f.path} likely came from a build that mis-hashed non-ASCII content (T13738); check the file, then re-run \`cleo verify\` to record the correct hash.`
                   : `File modified since verify: ${f.path} (expected ${f.sha256.slice(0, 8)}, got ${sha256.slice(0, 8)})`,
             });
             break;

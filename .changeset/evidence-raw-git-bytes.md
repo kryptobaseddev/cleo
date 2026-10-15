@@ -14,6 +14,7 @@ bytes.
 
 Existing receipts: a `files:` hash recorded by an affected build no longer
 matches at `cleo complete`, because file hashes are re-read and compared on
-every completion and are never cached. The failure names T13738 and says the
-file is unchanged; re-running `cleo verify` with the same evidence records the
-correct hash. The old hash is never accepted.
+every completion and are never cached. The failure names T13738 as the likely
+cause (the lossy mapping is many-to-one, so it cannot prove the file is
+unchanged); check the file, then re-run `cleo verify` to record the correct
+hash. The old hash is never accepted.

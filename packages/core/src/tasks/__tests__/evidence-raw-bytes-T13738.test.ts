@@ -84,6 +84,8 @@ describe('files: evidence hashes raw git blob bytes (T13738)', () => {
     );
     const r = await revalidateEvidence(evidence, dir);
     expect(r.stillValid).toBe(false);
-    expect(r.failedAtoms[0]?.reason).toMatch(/T13738.*Re-run `cleo verify`/);
+    expect(r.failedAtoms[0]?.reason).toMatch(
+      /likely came from.*T13738.*check the file, then re-run `cleo verify`/,
+    );
   });
 });
