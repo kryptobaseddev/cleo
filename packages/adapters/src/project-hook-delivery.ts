@@ -182,6 +182,23 @@ function configEdits(
       else edits.push({ path: ['hooks', event, index] });
     }
   }
+  // Remove containers emptied by these removals so rollback leaves no `{"hooks":{"X":[]}}` residue.
+  const emptied = Object.entries(hooks)
+    .filter(
+      ([event, entries]) =>
+        Array.isArray(entries) &&
+        entries.length > 0 &&
+        edits.filter((change) => change.path[1] === event).length === entries.length &&
+        !desired.some((next) => next.event === event),
+    )
+    .map(([event]) => event);
+  if (emptied.length > 0) {
+    const kept = edits.filter((change) => !emptied.includes(String(change.path[1])));
+    edits.length = 0;
+    if (emptied.length === Object.keys(hooks).length && desired.length === 0)
+      edits.push({ path: ['hooks'] });
+    else edits.push(...kept, ...emptied.map((event) => ({ path: ['hooks', event] })));
+  }
   for (const next of desired) {
     const entries = hooks[next.event];
     if (entries !== undefined && !Array.isArray(entries))
@@ -303,6 +320,11 @@ async function deliverProvider(
     if (!valid) throw new Error('HOOK_RECEIPT_OWNERSHIP_INVALID');
     result.provenance = 'cleo-receipt';
   }
+  // Disable undoes only what an activation receipt proves; it never creates files (T13743).
+  if (options.rollback && !prior?.entries.length) {
+    result.state = 'disabled';
+    return result;
+  }
   if (options.events.length === 0 && !prior && !options.rollback) {
     result.state = 'unsupported';
     result.diagnostics.push('HOOK_NO_AGENT_BINDINGS');
@@ -400,7 +422,23 @@ async function deliverProvider(
   result.entries = inspectEntries(config, prior);
   const edits = configEdits(config, prior, desired);
   result.state = edits.length ? 'planned' : 'current';
+  if (!options.dryRun && options.rollback) {
+    if (existsSync(target)) {
+      await editJsonConfigFile(target, (current) => configEdits(current, prior, desired));
+      if (prior?.createdConfig)
+        await withFileLock(target, async () => {
+          await localTarget(options.projectRoot, configPath);
+          if (Object.keys(await readManagedJsonConfigFile(target)).length === 0)
+            await unlink(target);
+        });
+    }
+    await unlink(receiptPath);
+    result.state = 'disabled';
+    result.entries = inspectEntries(await readManagedJsonConfigFile(target), undefined);
+    return result;
+  }
   if (!options.dryRun) {
+    const createdConfig = existsSync(target) ? (prior?.createdConfig ?? false) : true;
     if (!existsSync(target))
       excludeHookFileFromGit(
         options.projectRoot,
@@ -417,6 +455,7 @@ async function deliverProvider(
           provider,
           configPath: target,
           entries: desired,
+          createdConfig,
           recordedAt: new Date().toISOString(),
         }) + '\n',
     });

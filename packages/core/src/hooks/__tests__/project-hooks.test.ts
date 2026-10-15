@@ -206,21 +206,39 @@ describe('activated project checks through actual child processes', () => {
       blocks: true,
     });
   });
-  it('changed handler content requires a new explicit activation', async () => {
+  it('changed handler content fails closed in Git until explicitly reactivated (T13742)', async () => {
     await activateProjectHooks(root);
     await writeFile(
       join(root, 'handler.mjs'),
       'process.stdout.write(JSON.stringify({status:"block"}));',
     );
-    expect((await executeProjectHooks(invocation))[0]).toMatchObject({
-      status: 'warn',
-      blocks: false,
-      code: 'HOOK_REACTIVATION_REQUIRED',
-    });
+    expect(await executeProjectHooks(invocation)).toMatchObject([
+      {
+        id: 'migration-check',
+        status: 'block',
+        blocks: true,
+        code: 'HOOK_REACTIVATION_REQUIRED',
+        message: expect.stringContaining('cleo hook sync --activate'),
+      },
+    ]);
+    // Agent checks stay advisory: the drift is reported, never enforced.
+    expect(
+      (await executeProjectHooks({ ...invocation, source: 'agent' }, 'migration-check'))[0],
+    ).toMatchObject({ status: 'warn', blocks: false, code: 'HOOK_REACTIVATION_REQUIRED' });
     await activateProjectHooks(root);
     expect((await executeProjectHooks(invocation))[0]).toMatchObject({
       status: 'block',
       blocks: true,
+      code: 'HOOK_BLOCK',
+    });
+    await writeFile(
+      join(root, 'handler.mjs'),
+      'process.stdout.write(JSON.stringify({status:"pass"}));',
+    );
+    await activateProjectHooks(root);
+    expect((await executeProjectHooks(invocation))[0]).toMatchObject({
+      status: 'pass',
+      blocks: false,
     });
     await disableProjectHooks(root);
     expect((await executeProjectHooks(invocation))[0].status).toBe('skip');
@@ -420,7 +438,7 @@ describe('activated project checks through actual child processes', () => {
     await activateProjectHooks(root);
     expect(await executeProjectHooks(invocation)).toMatchObject([
       { id: 'migration-check', status: 'pass' },
-      { id: 'later-check', code: 'HOOK_REACTIVATION_REQUIRED', blocks: false },
+      { id: 'later-check', code: 'HOOK_REACTIVATION_REQUIRED', blocks: true },
     ]);
   });
   it('inherits approval into an identical linked checkout and rejects changed code', async () => {
@@ -447,8 +465,9 @@ describe('activated project checks through actual child processes', () => {
       expect((await executor.execute(request))[0].status).toBe('pass');
       await writeFile(join(checkout, 'handler.mjs'), 'process.exit(9);');
       expect((await executor.execute(request))[0]).toMatchObject({
-        status: 'warn',
-        blocks: false,
+        id: 'migration-check',
+        status: 'block',
+        blocks: true,
         code: 'HOOK_REACTIVATION_REQUIRED',
       });
     } finally {

@@ -1,7 +1,7 @@
 ---
 name: ct-dev-workflow
 description: Development workflow orchestration for task-driven development with atomic commits, conventional commit messages, and systematic release processes. Enforces task traceability, branch discipline, smart test scope selection, and GitHub Actions integration. Use when committing code, creating releases, managing branches, or following contribution protocols. Triggers on commit operations, release preparation, or workflow compliance needs.
-version: 3.1.19
+version: 3.1.20
 protocol: contribution
 dependencies: []
 sharedResources:
@@ -14,7 +14,7 @@ compatibility:
   - gemini-cli
 license: MIT
 metadata:
-  version: 3.1.19
+  version: 3.1.20
   tier: core
   install: harness
   covers:
@@ -26,7 +26,7 @@ metadata:
     - packages/core/src/hooks.ts
     - packages/core/templates/git-hooks/**
     - packages/contracts/src/git-hooks.ts
-  lastReviewed: 2026-10-12
+  lastReviewed: 2026-10-15
   stability: stable
 ---
 
@@ -517,10 +517,13 @@ are delivery outputs. Until the hooks-v1 stable promotion, a stable build is ine
 cannot be activated on main either; only code passing the gate's `allowUnreleased` option
 (tests) opts in. Preview with `cleo hook sync --dry-run`; explicit local activation
 uses `cleo hook sync --activate` and binds definitions, handlers and dependencies to
-current hashes. Source drift requires reactivation. Agent project checks are advisory;
-Git applies project verdicts. Native harness trust remains separately unverified.
+current hashes. Source drift requires reactivation and runs no handler: Git, worktree and
+CI refuse every matching check (naming `cleo hook sync --activate`) until it is reactivated,
+while agents only warn (T13742). Agent project checks are advisory; Git applies project verdicts. Native harness trust remains separately unverified.
 Inspect with `cleo doctor hooks`; `--fix` never activates definitions or grants trust.
-`cleo hook sync --disable` disables execution and removes only verified managed entries.
+`cleo hook sync --disable` disables execution and removes only verified managed entries:
+it skips providers with no delivery receipt, creates nothing, and deletes a provider config
+that activation created once it is empty (T13743).
 CI uses `cleo hook check <id> --ci --candidate <sha>` or an explicit JSON `--input` file;
 CLEO infrastructure failure is an unavailable check, never successful CI evidence.
 Launcher faults allow locally regardless of checker error policy. File inputs and

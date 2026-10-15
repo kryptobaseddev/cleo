@@ -1,6 +1,7 @@
 /** Project-local activation delivery, ownership and hash-guarded removal. */
 import { execFileSync, spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
+import { existsSync } from 'node:fs';
 import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -95,6 +96,32 @@ describe('project hook delivery', () => {
     expect(body).toContain('// team comment');
     expect(body).toContain(heavy);
     expect(body).not.toContain('# cleo-project-hook:v1');
+  });
+  it('disable creates nothing for a never-activated provider (T13743)', async () => {
+    const opts = await options();
+    await rm(join(opts.projectRoot, '.codex'), { recursive: true });
+    const result = (await syncProjectHookProviders({ ...opts, enabled: false, rollback: true }))[0];
+    expect(result?.state).toBe('disabled');
+    expect(existsSync(join(opts.projectRoot, '.codex'))).toBe(false);
+    expect(existsSync(join(opts.stateDir, 'provider-codex.json'))).toBe(false);
+  });
+  it('disable deletes a config activation created and restores a pre-existing one byte-identically (T13743)', async () => {
+    const opts = await options();
+    const file = join(opts.projectRoot, '.codex/hooks.json');
+    await syncProjectHookProviders(opts);
+    expect(existsSync(file)).toBe(true);
+    await syncProjectHookProviders({ ...opts, enabled: false, rollback: true });
+    expect(existsSync(file)).toBe(false);
+    expect(existsSync(join(opts.stateDir, 'provider-codex.json'))).toBe(false);
+    // A second disable finds no receipt and writes nothing.
+    await syncProjectHookProviders({ ...opts, enabled: false, rollback: true });
+    expect(existsSync(file)).toBe(false);
+    const original = '{\n  // team settings\n  "model": "o4"\n}\n';
+    await writeFile(file, original);
+    expect((await syncProjectHookProviders(opts))[0]?.state).toBe('installed');
+    expect(await readFile(file, 'utf8')).toContain('# cleo-project-hook:v1');
+    await syncProjectHookProviders({ ...opts, enabled: false, rollback: true });
+    expect(await readFile(file, 'utf8')).toBe(original);
   });
   it('warns and allows native invocation when CLEO is absent or lacks the protocol', async () => {
     const opts = await options();

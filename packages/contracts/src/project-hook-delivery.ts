@@ -31,6 +31,8 @@ export const ProjectHookDeliveryReceiptSchema = z
           .strict(),
       )
       .max(128),
+    /** Activation created the provider config file, so rollback deletes it once empty (T13743). */
+    createdConfig: z.boolean().optional(),
     recordedAt: z.iso.datetime(),
   })
   .strict();
