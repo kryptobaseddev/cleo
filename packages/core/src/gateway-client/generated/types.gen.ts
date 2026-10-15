@@ -7030,6 +7030,10 @@ export type MutateMemoryObserveData = {
          * text parameter
          */
         text: string;
+        /**
+         * Store to write: project (default) or global, the synced main brain (T13720)
+         */
+        scope?: string;
     };
     path?: never;
     query?: never;
@@ -7067,6 +7071,10 @@ export type MutateMemoryDecisionStoreData = {
          * rationale parameter
          */
         rationale: string;
+        /**
+         * Store to write: project (default) or global, the synced main brain (T13720)
+         */
+        scope?: string;
     };
     path?: never;
     query?: never;

@@ -57,6 +57,8 @@ describe('main brain (global store) memory (T13720)', () => {
     expect(res.success).toBe(true);
     const { id, scope } = res.data as { id: string; scope: string };
     expect(scope).toBe('global');
+    // Random suffix, never clock-derived: two devices in one millisecond must not collide.
+    expect(id).toMatch(/^O-[0-9a-f]{8}$/);
 
     const db = await globalDb();
     const row = db.prepare('SELECT uid, narrative FROM brain_observations WHERE id = ?').get(id) as
@@ -100,6 +102,23 @@ describe('main brain (global store) memory (T13720)', () => {
     expect(data.results).toEqual([
       expect.objectContaining({ id: globalId, type: 'observation', scope: 'global' }),
     ]);
+    // Same row shape as project fetch: camelCase keys, boolean verified.
+    expect(data.results[0]?.data).toMatchObject({
+      sourceType: 'manual',
+      createdAt: expect.any(String),
+      verified: true,
+    });
+    expect(data.results[0]?.data).not.toHaveProperty('source_type');
+  });
+
+  it('a LIKE wildcard in the query matches literally', async () => {
+    await memoryObserve({ text: 'coverage reached 100% today', scope: 'global' });
+    await memoryObserve({ text: 'coverage reached 1000 lines', scope: 'global' });
+    const found = await memoryFind({ query: '100%', tables: ['observations'] }, project);
+    const titles = (found.data as { results: BrainCompactHit[] }).results
+      .filter((h) => h.scope === 'global')
+      .map((h) => h.title);
+    expect(titles).toEqual(['coverage reached 100% today']);
   });
 
   it('an accepted global decision is current guidance in the project briefing', async () => {

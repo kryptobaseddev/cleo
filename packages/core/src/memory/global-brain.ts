@@ -14,16 +14,13 @@
  * @module memory/global-brain
  */
 
-import { createHash } from 'node:crypto';
-import type { DatabaseSync } from 'node:sqlite';
+import { createHash, randomBytes } from 'node:crypto';
+import type { DatabaseSync, SQLOutputValue } from 'node:sqlite';
 import type { BrainCompactHit, FetchedBrainEntry } from '@cleocode/contracts';
 import { addGlobalDecision, addGlobalObservation } from '../store/memory-accessor.js';
 import type { BrainSourceConfidence } from '../store/schema/memory-schema.js';
 import { classifyObservationTypeByKeywords } from './observation-type-decision.js';
 import { computeObservationQuality } from './quality-scoring.js';
-
-/** Monotonic counter: two observations in one millisecond get distinct ids. */
-let observeSeq = 0;
 
 /** SQLite `datetime('now')` shape, the format the project brain writers use. */
 const nowSql = (): string => new Date().toISOString().replace('T', ' ').slice(0, 19);
@@ -58,7 +55,9 @@ export async function observeGlobalBrain(params: {
   const sourceType = params.sourceType ?? 'manual';
   const sourceConfidence: BrainSourceConfidence = sourceType === 'manual' ? 'owner' : 'agent';
   const createdAt = nowSql();
-  const id = `O-${Date.now().toString(36)}-${(observeSeq++ % 1000).toString(36)}`;
+  // Random, not clock-based: two devices observing in one millisecond must not
+  // collide, and sync never re-mints O- ids.
+  const id = `O-${randomBytes(4).toString('hex')}`;
   await addGlobalObservation({
     id,
     type,
@@ -130,7 +129,7 @@ export async function findGlobalBrain(
   opts: { limit?: number; tables?: readonly string[]; includeHistory?: boolean } = {},
 ): Promise<BrainCompactHit[]> {
   const db = await globalNativeDb();
-  const like = `%${query}%`;
+  const like = `%${query.replace(/[\\%_]/g, (c) => `\\${c}`)}%`;
   const want = (t: string) => !opts.tables || opts.tables.includes(t);
   const current = (extra: string) => (opts.includeHistory ? '' : ` AND invalid_at IS NULL${extra}`);
   const hits: BrainCompactHit[] = [];
@@ -138,7 +137,7 @@ export async function findGlobalBrain(
     const rows = db
       .prepare(
         `SELECT id, title, created_at FROM main.brain_observations
-         WHERE (title LIKE ? OR narrative LIKE ?)${current('')}`,
+         WHERE (title LIKE ? ESCAPE '\\' OR narrative LIKE ? ESCAPE '\\')${current('')}`,
       )
       .all(like, like) as Array<{ id: string; title: string; created_at: string }>;
     for (const r of rows) hits.push(hit(r.id, 'observation', r.title, r.created_at));
@@ -147,7 +146,7 @@ export async function findGlobalBrain(
     const rows = db
       .prepare(
         `SELECT id, decision, created_at FROM main.brain_decisions
-         WHERE (decision LIKE ? OR rationale LIKE ?)${current(
+         WHERE (decision LIKE ? ESCAPE '\\' OR rationale LIKE ? ESCAPE '\\')${current(
            " AND superseded_by IS NULL AND confirmation_state != 'superseded'",
          )}`,
       )
@@ -192,7 +191,20 @@ export async function fetchGlobalBrain(ids: readonly string[]): Promise<FetchedB
         : [null, null];
     if (!table) continue;
     const row = db.prepare(`SELECT * FROM main.${table} WHERE id = ?`).get(id);
-    if (row) out.push({ id, type, data: row, scope: 'global' });
+    if (row) out.push({ id, type, data: camelRow(row), scope: 'global' });
+  }
+  return out;
+}
+
+/**
+ * A raw row in the shape project fetch returns (the drizzle row): camelCase
+ * keys, `verified` as a boolean.
+ */
+function camelRow(row: Record<string, SQLOutputValue>): Record<string, SQLOutputValue | boolean> {
+  const out: Record<string, SQLOutputValue | boolean> = {};
+  for (const [key, value] of Object.entries(row)) {
+    out[key.replace(/_([a-z])/g, (_m, c: string) => c.toUpperCase())] =
+      key === 'verified' ? value === 1 : value;
   }
   return out;
 }
