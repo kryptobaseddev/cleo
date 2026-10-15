@@ -409,7 +409,7 @@ const PROJECT_TABLES: Readonly<Record<string, TableRegistryEntry>> = {
     class: 'portable-personal',
     status: 'needs-owner-call',
     source: 'cleo-dev ruling 2026-09-28',
-    note: 'embeddings are NOT derived under the ruling (they cost money to regenerate). vec0 is a virtual table the session extension cannot capture, so it must ship as a content-addressed cache blob; its _rowids/_chunks/_vector_chunks/_info shadows stay derived by pattern',
+    note: 'embeddings are NOT derived under the ruling (they cost money to regenerate). vec0 is a virtual table the session extension cannot capture, so it must ship as a content-addressed cache blob; its _rowids/_chunks/_vector_chunks/_metadata*/_info shadows stay derived by pattern',
   },
   brain_learnings: {
     class: 'portable-personal',
@@ -2250,11 +2250,12 @@ const FTS5_RULE: TablePatternRule = {
 
 /**
  * The sqlite-vec (vec0) shadow tables of `brain_embeddings`, by their known
- * names. The `brain_embeddings` virtual table itself is an explicit
+ * names (`metadata*` back the `model` metadata column, T13740). The `brain_embeddings` virtual table itself is an explicit
  * portable-personal entry in both scopes: embeddings are not derived.
  */
 const VEC0_SHADOW_RULE: TablePatternRule = {
-  match: '^brain_embeddings_(chunks|info|rowids|vector_chunks[0-9]{2})$',
+  match:
+    '^brain_embeddings_(chunks|info|rowids|vector_chunks[0-9]{2}|metadatachunks[0-9]{2}|metadatatext[0-9]{2})$',
   class: 'derived',
   reason: 'sqlite-vec shadow table of brain_embeddings; rebuilt from the virtual table',
 };

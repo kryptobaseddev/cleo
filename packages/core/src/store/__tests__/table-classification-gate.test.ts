@@ -600,6 +600,10 @@ describe('classifyTable', () => {
       kind: 'pattern',
       class: 'derived',
     });
+    expect(classifyTable('project', 'brain_embeddings_metadatatext00')).toMatchObject({
+      kind: 'pattern',
+      class: 'derived',
+    });
     expect(classifyTable('project', '_exodus_recovery_tasks')).toMatchObject({
       kind: 'pattern',
       class: 'local-only',
@@ -658,7 +662,8 @@ describe('Gate A: two-tier policy', () => {
     'agent_registry_agent_skills',
   ]);
   const FTS_SHADOW = /^[a-z_]+_fts(_(config|data|docsize|idx|content))?$/;
-  const VEC_SHADOW = /^brain_embeddings_(chunks|info|rowids|vector_chunks[0-9]{2})$/;
+  const VEC_SHADOW =
+    /^brain_embeddings_(chunks|info|rowids|vector_chunks[0-9]{2}|metadatachunks[0-9]{2}|metadatatext[0-9]{2})$/;
   /**
    * Recomputed brain state (team-lead decision 2026-10-10, T12896): the
    * surprisal pass truncates and rebuilds the tree every cycle on each device
