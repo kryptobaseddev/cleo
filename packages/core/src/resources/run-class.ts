@@ -1318,6 +1318,33 @@ export function runFootprint(argv: readonly string[]): RunFootprint {
   return { size: 'class', reason: 'sized by its class' };
 }
 
+/** Commands that run whatever they are given: their heaviness is unknown. */
+const OPAQUE_RUNNERS = /^(sh|bash|zsh|dash|ksh|fish|make|gmake|just|xargs)$/;
+
+/**
+ * Why a command runs no heavy tool (T13452): `looksHeavy` rejects it and it
+ * is not a runner of other commands (a shell, `make`, a package-manager
+ * script, CLEO itself), e.g. `node scripts/x.mjs` or `ls`. Git is sized by
+ * {@link runFootprint} and its hooks, so it is never answered here.
+ *
+ * @param argv - the command.
+ * @returns the reason, or `null` when the command may be heavy.
+ *
+ * @example
+ * ```ts
+ * lightCommandReason(['node', 'scripts/gen.mjs']); // 'node runs no heavy tool'
+ * lightCommandReason(['bash', '-c', 'pnpm test']);  // null
+ * ```
+ */
+export function lightCommandReason(argv: readonly string[]): string | null {
+  const t = commandTarget(argv);
+  if (t.tool === '' || t.tool === 'git' || t.pm !== null || OPAQUE_RUNNERS.test(t.tool)) {
+    return null;
+  }
+  if (isCleoCommand(t) || looksHeavy(argv)) return null;
+  return `${t.tool} runs no heavy tool`;
+}
+
 /** git subcommands that can use gigabytes across threads (T13458): never light. */
 const HEAVY_GIT_SUBCOMMANDS: ReadonlySet<string> = new Set(['gc', 'repack', 'fsck', 'clone']);
 

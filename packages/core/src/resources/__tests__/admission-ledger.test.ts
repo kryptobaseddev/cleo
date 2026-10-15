@@ -1410,12 +1410,13 @@ describe('cleo run is charged by its real scope (T13367)', () => {
             entry({ id: 'a', enqueuedAtMs: 1, footprintBytes: bytes }),
             entry({ id: 'b', enqueuedAtMs: 2, footprintBytes: bytes }),
             entry({ id: 'p0', enqueuedAtMs: 3, footprintBytes: bytes }),
+            entry({ id: 'p1', enqueuedAtMs: 4, footprintBytes: bytes }),
           ],
           { capacityBytes: capacity, share: 'full', nowMs: 1_000 },
         ),
       );
-    expect(two(single.footprintBytes ?? 0)).toEqual(['a', 'b', 'p0']);
-    expect(two(heavy.footprintBytes ?? 0)).not.toContain('p0');
+    expect(two(single.footprintBytes ?? 0)).toEqual(['a', 'b', 'p0', 'p1']);
+    expect(two(heavy.footprintBytes ?? 0)).not.toContain('p1');
   });
 
   it('a two-file biome check is admitted while a full build holds the budget', () => {
@@ -1522,5 +1523,90 @@ describe('a git push is charged by what actually runs (T13452)', () => {
     } finally {
       rmSync(repo, { recursive: true, force: true });
     }
+  });
+
+  it('a command looksHeavy rejects is charged light, naming it; a runner of other commands is not', () => {
+    for (const [argv, reason] of [
+      [['node', 'scripts/gen.mjs'], 'node runs no heavy tool'],
+      [['git', 'status'], 'git status runs no heavy tool'],
+      [['ls', '-la'], 'ls runs no heavy tool'],
+    ] as const) {
+      const plan = planRunFootprint('scoped-build', argv, {}, RAM, () => true);
+      expect(plan.footprintBytes, argv.join(' ')).toBe(GIB);
+      expect(plan.resources, argv.join(' ')).toBeNull();
+      expect(plan.footprintReason).toBe(reason);
+    }
+    for (const argv of [
+      ['bash', '-c', 'pnpm test'],
+      ['make', 'all'],
+      ['pnpm', 'run', 'generate'],
+      ['cleo', 'verify', 'T1'],
+      ['pnpm', 'install'],
+    ]) {
+      const plan = planRunFootprint('scoped-build', argv, {}, RAM);
+      expect(plan.footprintBytes, argv.join(' ')).toBeGreaterThan(HEAVY_FOOTPRINT_BYTES);
+    }
+    // An explicit test run, or full-build, of the same command keeps its class plan.
+    for (const cls of ['test-run', 'full-build'] as const) {
+      const plan = planRunFootprint(cls, ['node', 'scripts/gen.mjs'], {}, RAM);
+      expect(plan.footprintBytes, cls).toBeGreaterThan(HEAVY_FOOTPRINT_BYTES);
+    }
+  });
+
+  it('git commit with an installed pre-commit hook keeps the class plan, naming the hook', () => {
+    const plan = planRunFootprint(
+      'scoped-build',
+      ['git', 'commit', '-m', 'x'],
+      {},
+      RAM,
+      (hook) => hook === 'pre-commit',
+    );
+    expect(plan.resources).not.toBeNull();
+    expect(plan.footprintReason).toBe('scoped-build plan: runs the pre-commit hook');
+  });
+});
+
+describe('a scoped build is charged its own plan, not a whole heavy run (T13759)', () => {
+  it('64 GiB: a scoped build plans 2 workers (12 GiB); a test run keeps 4 (24 GiB); full-build is not shrunk', () => {
+    const scoped = planRunFootprint('scoped-build', ['pnpm', 'install'], {}, 64);
+    expect(scoped.resources?.workers).toBe(2);
+    expect(scoped.overlay.VITEST_MAX_WORKERS).toBe('2');
+    expect(scoped.footprintBytes).toBe(12 * GIB);
+    expect(planRunFootprint('test-run', ['pnpm', 'test'], {}, 64).footprintBytes).toBe(24 * GIB);
+    expect(planRunFootprint('full-build', ['pnpm', 'run', 'build'], {}, 64).footprintBytes).toBe(
+      24 * GIB,
+    );
+  });
+
+  it('a hooked commit is sized to the scoped plan it is spawned with', () => {
+    const plan = planRunFootprint('scoped-build', ['git', 'commit', '-m', 'x'], {}, 64, () => true);
+    expect(plan.footprintBytes).toBe(12 * GIB);
+  });
+
+  it('a multi-process scoped build stays heavy; a one-worker machine is unchanged', () => {
+    expect(planRunFootprint('scoped-build', ['pnpm', 'install'], {}, 48).resources?.workers).toBe(
+      2,
+    );
+    expect(planRunFootprint('scoped-build', ['pnpm', 'install'], {}, 16).resources?.workers).toBe(
+      1,
+    );
+  });
+
+  it('two scoped builds are admitted together within a pressure-halved budget', () => {
+    const capacity = admissionCapacityBytes(64 * GIB);
+    const bytes = planRunFootprint('scoped-build', ['pnpm', 'install'], {}, 64).footprintBytes ?? 0;
+    const pass = (footprintBytes: number) =>
+      admittedIds(
+        schedulePass(
+          [
+            entry({ id: 'install', enqueuedAtMs: 1, footprintBytes }),
+            entry({ id: 'commit', enqueuedAtMs: 2, footprintBytes }),
+          ],
+          { capacityBytes: capacity, share: 'half', nowMs: 1_000 },
+        ),
+      );
+    expect(pass(bytes)).toEqual(['install', 'commit']);
+    // Before T13759 each was charged 24 GiB, the whole halved budget: one at a time.
+    expect(pass(24 * GIB)).toEqual(['install']);
   });
 });

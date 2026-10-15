@@ -105,7 +105,13 @@ import {
   type MemoryGateReporter,
 } from './pressure-gate.js';
 import { processAncestors, processGroupOf } from './run-admission.js';
-import { canonicalForClass, gitHookFor, namedTestFileCount, runFootprint } from './run-class.js';
+import {
+  canonicalForClass,
+  gitHookFor,
+  lightCommandReason,
+  namedTestFileCount,
+  runFootprint,
+} from './run-class.js';
 import { ownProcessStartedAt, type PidProbe, systemPidProbe } from './slot-holder.js';
 import { followToolGroups, isProbeableId } from './tool-groups.js';
 
@@ -296,6 +302,16 @@ export function gitHookInstalled(
   }
 }
 
+/**
+ * Workers a scoped build plans for (T13759): half of {@link heavyToolWorkers},
+ * rounded up, so a run that was multi-process stays multi-process (and heavy).
+ * On a 64 GiB Mac that is 2 workers (12 GiB) instead of 4 (24 GiB), so two
+ * scoped builds fit a pressure-halved budget together.
+ */
+function scopedBuildWorkers(totalRamGib: number, env: NodeJS.ProcessEnv): number {
+  return Math.ceil(heavyToolWorkers(totalRamGib, env) / 2);
+}
+
 /** What a `cleo run` job is planned with and charged (T13367). */
 export interface RunFootprintPlan {
   /** Env overlay for the child (heap ceiling, workers); empty for a light run. */
@@ -315,9 +331,11 @@ export interface RunFootprintPlan {
  *
  * A formatter on named files is charged {@link LIGHT_FOOTPRINT_BYTES} with no
  * heap plan. A single Node linter on files, or a one-project `tsc -p`, is
- * charged one process. Anything else gets the class's heavy-run plan, with a
- * named-file test run capped at one worker per file (T13132). An explicit
- * `full-build` is never shrunk.
+ * charged one process. A scoped build of a command that runs no heavy tool
+ * (`node x.mjs`, a hook-free `git push`) is charged light (T13452). Anything
+ * else gets the class's heavy-run plan, with a named-file test run capped at
+ * one worker per file (T13132) and a scoped build at half a heavy run's
+ * workers (T13759). An explicit `full-build` is never shrunk.
  *
  * @param cls - the resolved class.
  * @param argv - the command.
@@ -338,6 +356,10 @@ export function planRunFootprint(
     gitHookInstalled(process.cwd(), hook, globals), // CWD-OK: cleo run runs the command in its own cwd
 ): RunFootprintPlan {
   let scope = cls === 'full-build' ? null : runFootprint(argv);
+  // T13452: a scoped build of a command that runs no heavy tool (`node x.mjs`,
+  // `ls`) is charged light. An explicit test run keeps its class plan.
+  const light = cls === 'scoped-build' && scope?.size === 'class' ? lightCommandReason(argv) : null;
+  if (light !== null) scope = { size: 'light', reason: light };
   // T13452: a hooked git push/commit keeps the class plan, because whatever
   // the hook runs (tests, a build) rides this admission.
   const probe = scope?.size === 'light' ? gitHookFor(argv) : null;
@@ -365,11 +387,15 @@ export function planRunFootprint(
     };
   }
   const namedFiles = namedTestFileCount(cls, argv);
+  // T13759: a scoped build is one package; it plans half a heavy run's workers
+  // (and is spawned with them), so two fit where one whole-suite run would.
+  const maxWorkers =
+    namedFiles ?? (cls === 'scoped-build' ? scopedBuildWorkers(totalRamGib, env) : undefined);
   const { overlay, resources } = planHeavyToolEnv(
     canonicalForClass(cls),
     env,
     totalRamGib,
-    namedFiles ?? undefined,
+    maxWorkers,
   );
   return {
     overlay,
