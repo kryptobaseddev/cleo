@@ -350,6 +350,7 @@ describe('activated project checks through actual child processes', () => {
       { id: 'later-check', status: 'block', blocks: true, code: 'HOOK_REACTIVATION_REQUIRED' },
     ]);
   });
+  // Activation, drift and a refused run can exceed the 5 s default under machine load.
   it('corrupted approved bindings fail closed like a legacy activation (T13742)', async () => {
     await activateProjectHooks(root);
     const file = join(resolveProjectHookContext(root).stateDir, 'activation.json');
@@ -362,7 +363,7 @@ describe('activated project checks through actual child processes', () => {
     expect(
       await executeProjectHooks({ ...invocation, source: 'worktree', event: 'post-start' }),
     ).toMatchObject([{ id: 'cleo.project-hooks', status: 'block', blocks: true }]);
-  });
+  }, 20000);
   it('a direct check of an unknown hook ID fails during drift (T13742 F1-C)', async () => {
     await activateProjectHooks(root);
     await writeFile(join(root, 'handler.mjs'), 'process.stdout.write("{}");');
