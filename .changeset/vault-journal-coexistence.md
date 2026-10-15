@@ -10,11 +10,16 @@ with the head snapshot's frozen counts. Journal streams take no new snapshots,
 so every synced store reported `ahead` (the Stage C staging gate).
 
 With `sync.push` on, `cleo cloud push` now seals, pushes and pulls the journal,
-then writes a checkpoint/v3 at the store's pull position. Its counts reconcile
+then writes a checkpoint/v3 at the snapshot's pull position. Its counts reconcile
 through the window's journal tallies (pending and voided transactions), never a
-synthetic delta segment for journal tables. Files and other databases, which
-the journal never carries, still reconcile through a delta segment of those
-entries alone, and the sealer numbers its next segment after it.
+synthetic delta segment. The snapshot is checked to hold exactly the sealed and
+pushed state: a write that lands between the sync and the snapshot makes the
+push sync and snapshot once more, then refuse, so it is never recorded as a
+voided effect. Files and other databases, which the journal never carries, are
+snapshot-authoritative on the server (cleo-nexus #44); a server without that
+rule refuses the checkpoint, and the push says so instead of writing a delta.
+A restore keeps the checkpoint's inbox, so its pending transactions still apply,
+once.
 
 `cleo cloud verify` on a store that writes the journal compares each table's
 rows with the head's counts plus the journal's tallies past it, and reports

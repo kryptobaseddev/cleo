@@ -229,6 +229,12 @@ export interface ExportPortableBundleInput {
    * account key, so a joining device gets usable credentials (T13530).
    */
   sealCredentials?: (snapshotPath: string) => Promise<readonly SealedCredentialCell[]>;
+  /**
+   * Read the primary store snapshot as taken, before anything in it is sealed,
+   * stripped or cleared. The cloud vault checks a journal checkpoint's
+   * snapshot holds exactly the sealed and pushed state (T12999).
+   */
+  inspectSnapshot?: (snapshotPath: string) => Promise<void>;
 }
 
 // ---------------------------------------------------------------------------
@@ -369,6 +375,8 @@ interface StagingState {
   sharesIdentity: boolean;
   /** Seals the primary snapshot's credential cells ({@link ExportPortableBundleInput.sealCredentials}). */
   sealCredentials: ((snapshotPath: string) => Promise<readonly SealedCredentialCell[]>) | null;
+  /** Reads the primary snapshot as taken ({@link ExportPortableBundleInput.inspectSnapshot}). */
+  inspectSnapshot: ((snapshotPath: string) => Promise<void>) | null;
 }
 
 /** Credential tables whose rows {@link listCredentialsForReentry} enumerates, by store. */
@@ -499,6 +507,7 @@ async function stageSection(
       }
       continue;
     }
+    if (isPrimary && state.inspectSnapshot !== null) await state.inspectSnapshot(staged);
     // Sealed BEFORE clearing, from the snapshot itself.
     const sealed =
       isPrimary && state.sealCredentials !== null ? await state.sealCredentials(staged) : [];
@@ -782,6 +791,7 @@ export async function exportPortableBundle(
     clearTables: input.clearTables ?? null,
     sharesIdentity: input.sharesIdentity !== false,
     sealCredentials: input.sealCredentials ?? null,
+    inspectSnapshot: input.inspectSnapshot ?? null,
   };
 
   try {

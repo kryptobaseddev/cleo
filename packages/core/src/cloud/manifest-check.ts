@@ -128,6 +128,19 @@ export function checkManifest(
 // v3: applied-effect accounting under concurrent writers (journal spec §2.11)
 // ---------------------------------------------------------------------------
 
+/**
+ * Whether a manifest key is snapshot-authoritative (T12999): the cloud vault's plain-file inventory
+ * (`zz_vault_files`) and its other databases (`zz_vault_db_*`). The change journal never carries
+ * them, so no segment declares their rows: the snapshot alone says what they hold, and the v3 row rule
+ * does not reconcile them against the parent and the window.
+ *
+ * @param key - A manifest table key.
+ * @returns `true` for a key the snapshot alone decides.
+ */
+export function isSnapshotAuthoritativeKey(key: string): boolean {
+  return key === 'zz_vault_files' || key.startsWith('zz_vault_db_');
+}
+
 /** A transaction and its declared (or remaining voided) per-table counts. */
 export interface DeclaredTxn {
   readonly ref: TxnRef;
@@ -232,6 +245,8 @@ function addInto(into: Map<string, Counts>, d: TableDeltas, sign = 1): void {
  * parent's and the last of those rises (T090), so the next window's baseline never sits below what
  * the replay already reached. Decl(A) is computed from the window's sum, so
  * only the named transactions need loading: Decl(window) + Decl(parent.pending) − Decl(pending).
+ * The snapshot-authoritative keys ({@link isSnapshotAuthoritativeKey}: the vault's files and other
+ * databases) are not reconciled: no segment declares their rows (T12999).
  * A v2 manifest is the v3 one with empty lists; a v2 segment is one transaction (txn 0) with the
  * segment's deltas. Once a stream has a v3 checkpoint, a v2 one is refused (E_STREAM_VERSION): the
  * lineage is linear, so checking the parent ratchets the whole stream.
@@ -406,6 +421,7 @@ export function checkManifestV3(input: {
   ]);
   const regressions: RegressionFinding[] = [];
   for (const table of [...tables].sort()) {
+    if (isSnapshotAuthoritativeKey(table)) continue;
     const parentRows = Object.hasOwn(parent.tables, table) ? (parent.tables[table]?.rows ?? 0) : 0;
     const { created, deleted } = declA.get(table) ?? ZERO;
     const expectedRows = parentRows + created - deleted + (adjust.get(table) ?? 0);

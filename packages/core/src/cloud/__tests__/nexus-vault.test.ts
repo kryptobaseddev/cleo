@@ -118,9 +118,11 @@ import { isSendableWrap, masterKeyVerifier, unwrapProjectKey, wrapProjectKey } f
 import {
   checkManifestV3,
   type DeclaredTxn,
+  isSnapshotAuthoritativeKey,
   manifestVersion,
   nextVoidedSet,
   schemaRises,
+  sumDeltas,
   txnRefKey,
   windowOf,
 } from '../manifest-check.js';
@@ -254,6 +256,8 @@ const DEVICE_A = '0198a1b2-0000-7000-8000-0000000000d1';
 const DEVICE_B = '0198a1b2-0000-7000-8000-0000000000d2';
 const REPLICA_A = '0198a1b2-0000-7000-8000-0000000000e1';
 const REPLICA_B = '0198a1b2-0000-7000-8000-0000000000e2';
+const DEVICE_C = '0198a1b2-0000-7000-8000-0000000000d3';
+const REPLICA_C = '0198a1b2-0000-7000-8000-0000000000e3';
 const REMOTE_PROJECT = '0190a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a99';
 const LOCAL_PROJECT = '0190a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5b';
 const OTHER_PROJECT = '0190a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a77';
@@ -417,6 +421,8 @@ class FakeNexus {
   afterCheckpoint: { deviceId: string; run: () => Promise<void> } | null = null;
   /** The server's MAX_SCHEMA_VERSION. */
   maxSchemaVersion = 10_000;
+  /** Whether the vault's file and database keys are snapshot-authoritative (T12999); false acts as an older server. */
+  snapshotAuthoritativeKeys = true;
   /** Whether the stream head carries `maxSchemaVersion` (a server from before it does not). */
   reportMaxSchemaVersion = true;
   /** Largest activity page this server serves (the real one: 200). */
@@ -1243,6 +1249,19 @@ class FakeNexus {
         voidedBefore: s.voided,
         maxAcceptedSchemaVersion: this.maxSchemaVersion,
       });
+      // An older server reconciled the vault's file and database keys like any table.
+      const legacyFindings = this.snapshotAuthoritativeKeys
+        ? []
+        : Object.keys(manifest.tables)
+            .filter(isSnapshotAuthoritativeKey)
+            .filter((k) => {
+              const d = sumDeltas(window.map((x) => x.deltas))[k] ?? { created: 0, deleted: 0 };
+              const parentRows = parent?.manifest.tables[k]?.rows ?? 0;
+              return parent && manifest.tables[k]?.rows !== parentRows + d.created - d.deleted;
+            });
+      if (verdict.ok && legacyFindings.length > 0) {
+        throw new ApiFail(409, 'E_REGRESSION', { tables: legacyFindings });
+      }
       if (!verdict.ok) {
         this.record(dev, `checkpoint.refused.${verdict.code}`, streamId);
         throw new ApiFail(verdict.code === 'E_SCHEMA_AHEAD' ? 422 : 409, verdict.code, {
@@ -6143,24 +6162,89 @@ describe('sync enable push: the genesis checkpoint (T12343 S4-1b)', () => {
       expect(s.checkpoints).toHaveLength(2);
     });
 
-    it('AC1: a new doc goes in a delta segment of the vault-only entries alone, and the journal numbers its next segment after it', async () => {
+    it('AC1: a new doc is snapshot-authoritative: no delta segment, and a server without the exemption refuses with a clear message', async () => {
       const { a, aDb } = await journalDevices(false);
       await on(a, async () => (await storeOf(aDb)).exec(insertTask('T3', 'from A')));
       fs.mkdirSync(path.join(a.root, '.cleo', 'adrs'), { recursive: true });
       fs.writeFileSync(path.join(a.root, '.cleo', 'adrs', 'adr-1.md'), '# ADR 1\n');
       const s = fake.stream(STREAM);
+      const filesBefore = s.checkpoints[0]?.manifest.tables['zz_vault_files']?.rows ?? 0;
+      // An older server reconciles the file inventory against the journal: refused, nothing written.
+      fake.snapshotAuthoritativeKeys = false;
+      const refused = await failure(
+        on(a, () => pushNexusVault(vopts(a, { allowUnreleased: true }))),
+      );
+      expect(refused.code).toBe('E_NEXUS_VAULT_REFUSED');
+      expect(refused.fix).toContain('snapshot-authoritative');
+      expect(s.checkpoints).toHaveLength(1);
+      const segments = s.segments.length;
+      fake.snapshotAuthoritativeKeys = true;
       const pushed = await on(a, () => pushNexusVault(vopts(a, { allowUnreleased: true })));
       expect(pushed.status).toBe('pushed');
-      const delta = s.segments.find((x) => x.seq === pushed.deltaSegmentSeq);
-      // The journal segment carried the task; the delta only the file the journal never sees.
-      expect(delta?.deltas).toEqual({ zz_vault_files: { created: 1, deleted: 0 } });
-      expect(s.checkpoints.at(-1)?.manifest.tables['tasks_tasks']?.rows).toBe(3);
-      // The sealer's next segment follows the delta: no gap, no reuse.
+      expect(pushed.deltaSegmentSeq).toBeNull();
+      expect(s.segments).toHaveLength(segments);
+      const cp = s.checkpoints.at(-1);
+      expect(cp?.manifest.tables['zz_vault_files']?.rows).toBe(filesBefore + 1);
+      expect(cp?.manifest.tables['tasks_tasks']?.rows).toBe(3);
+      // The journal's numbering is untouched: its next segment follows on.
       await on(a, async () => (await storeOf(aDb)).exec(insertTask('T4', 'from A')));
       expect((await sync(a))?.sent).toBe(1);
       const own = s.segments.filter((x) => x.replicaId === a.replicaId).map((x) => x.replicaSeq);
       expect(own).toEqual(own.map((_, i) => i));
       expect((await on(a, () => verifyNexusVault(vopts(a)))).verdict).toBe('match');
+    });
+
+    it('a write racing the snapshot is never a voided delete: the push syncs and snapshots again, and refuses if it keeps moving', async () => {
+      const { a, aDb, b, bDb } = await journalDevices(true);
+      if (!b || !bDb) throw new Error('no device B');
+      await on(b, async () => (await storeOf(bDb)).exec("DELETE FROM tasks_tasks WHERE id = 'T9'"));
+      await sync(b);
+      await sync(a);
+      const s = fake.stream(STREAM);
+      // A writes between the push's sync and its snapshot (after the pull's listing, at the push's).
+      // `pick` chooses which checkpoint listings write: each attempt lists twice (the pull, then the push).
+      let raced = 0;
+      const racing = (pick: (listing: number) => boolean) => {
+        let lists = 0;
+        const fetch: FetchLike = async (input, init) => {
+          const url = String(input instanceof Request ? input.url : input);
+          if ((init?.method ?? 'GET') === 'GET' && url.endsWith('/checkpoints')) {
+            lists += 1;
+            if (pick(lists)) {
+              await on(a, async () =>
+                (await storeOf(aDb)).exec(insertTask(`R${++raced}`, 'raced')),
+              );
+            }
+          }
+          return fake.fetch(input, init);
+        };
+        return fetch;
+      };
+      const pushed = await on(a, () =>
+        pushNexusVault(vopts(a, { allowUnreleased: true, fetch: racing((n) => n === 2) })),
+      );
+      expect(pushed.status).toBe('pushed');
+      const cp = s.checkpoints.at(-1);
+      // B's applied delete stays applied; the raced row travelled through the journal first.
+      expect(cp?.manifest.voided).toEqual([]);
+      expect(cp?.manifest.tables['tasks_tasks']?.rows).toBe(4);
+      expect((await on(a, () => verifyNexusVault(vopts(a)))).verdict).toBe('match');
+      await sync(b);
+      expect((await on(b, () => verifyNexusVault(vopts(b)))).verdict).toBe('match');
+      // A store that keeps moving is refused, nothing written.
+      const checkpoints = s.checkpoints.length;
+      const moving = await failure(
+        on(a, () =>
+          pushNexusVault(vopts(a, { allowUnreleased: true, fetch: racing((n) => n % 2 === 0) })),
+        ),
+      );
+      expect(moving.code).toBe('E_NEXUS_SYNC_REFUSED');
+      expect(moving.message).toContain('changed while it was snapshotted');
+      expect(s.checkpoints).toHaveLength(checkpoints);
+      // Once quiet, the next push voids nothing of its own.
+      const next = await on(a, () => pushNexusVault(vopts(a, { allowUnreleased: true })));
+      expect(next.status).toBe('pushed');
+      expect(s.checkpoints.at(-1)?.manifest.voided).toEqual([]);
     });
 
     it('AC2+AC3: a store restored from a journal checkpoint binds its own replica, resumes at its coversSeq and never re-sends inherited rows', async () => {
@@ -6204,6 +6288,71 @@ describe('sync enable push: the genesis checkpoint (T12343 S4-1b)', () => {
           (await storeOf(aDb)).prepare("SELECT title FROM tasks_tasks WHERE id = 'T10'").get(),
         ),
       ).toEqual({ title: 'from B' });
+    });
+
+    it('a checkpoint with pending transactions restores on a new device, and they apply exactly once after a sync', async () => {
+      const { a, aDb, b, bDb } = await journalDevices(true);
+      if (!b || !bDb) throw new Error('no device B');
+      await on(b, async () => (await storeOf(bDb)).exec(insertTask('T20', 'held')));
+      await sync(b);
+      const s = fake.stream(STREAM);
+      const held = s.segments.at(-1);
+      if (!held) throw new Error('no segment from B');
+      // A's clock runs an hour behind: B's write is past the skew bound, so A holds it (pending).
+      vi.useFakeTimers({ toFake: ['Date'] });
+      try {
+        vi.setSystemTime(Date.now() - 3_600_000);
+        await sync(a);
+        const pushed = await on(a, () => pushNexusVault(vopts(a, { allowUnreleased: true })));
+        expect(pushed.status).toBe('pushed');
+      } finally {
+        vi.useRealTimers();
+      }
+      const cp = s.checkpoints.at(-1);
+      if (!cp) throw new Error('no checkpoint');
+      expect(cp.manifest.pending).toEqual([
+        { replicaId: held.replicaId, replicaSeq: held.replicaSeq, txn: 0 },
+      ]);
+      expect(cp.coversSeq).toBeGreaterThanOrEqual(held.seq);
+
+      // C, a new device, restores that checkpoint and joins.
+      const c = await machine('c', DEVICE_C, REPLICA_C);
+      fake.replicas.get(REMOTE_PROJECT)?.set(REPLICA_C, DEVICE_C);
+      await restoreOntoB(c);
+      const cDb = path.join(c.root, '.cleo', 'cleo.db');
+      c.replicaId = await on(
+        c,
+        async () =>
+          ensureProjectReplica(await storeOf(cDb), { dbPath: cDb, mode: 'live' }).replicaId,
+      );
+      fake.replicas.get(REMOTE_PROJECT)?.set(c.replicaId, DEVICE_C);
+      link(c);
+      expect((await on(c, () => enableSyncPush(vopts(c, { allowUnreleased: true })))).status).toBe(
+        'joined',
+      );
+      const applied = async (m: Machine, dbFile: string) =>
+        on(m, async () => {
+          const db = await storeOf(dbFile);
+          return {
+            rows: (
+              db.prepare("SELECT count(*) AS n FROM tasks_tasks WHERE id = 'T20'").get() as {
+                n: number;
+              }
+            ).n,
+            inbox: db
+              .prepare(
+                'SELECT status FROM _sync_inbox WHERE stream = ? AND replica_id = ? AND replica_seq = ?',
+              )
+              .all(STREAM, held.replicaId, held.replicaSeq),
+          };
+        });
+      await sync(c);
+      await sync(c);
+      expect(await applied(c, cDb)).toEqual({ rows: 1, inbox: [{ status: 'applied' }] });
+      // A, its clock right again, applies it once too.
+      await sync(a);
+      await sync(a);
+      expect(await applied(a, aDb)).toEqual({ rows: 1, inbox: [{ status: 'applied' }] });
     });
 
     it('AC4: cloud verify compares a journal store with the journal tallies past the head; without the journal it is unchanged', async () => {
