@@ -786,7 +786,7 @@ const fetchCommand = defineCommand({
         } else {
           cliError(`Content not retrievable: ${ref}`, ExitCode.NOT_FOUND, {
             name: 'E_NOT_FOUND',
-            fix: 'The doc metadata exists but its bytes are not in the blob store. Try: cleo docs doctor --repair',
+            fix: 'The doc metadata exists but its bytes are not in the blob store. A doc synced from another device gets its bytes on the next `cleo cloud sync` (its warnings say why when they cannot travel); otherwise try: cleo docs doctor --repair',
           });
         }
         process.exit(ExitCode.NOT_FOUND);

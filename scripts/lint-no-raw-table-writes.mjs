@@ -338,6 +338,13 @@ export const EXEMPT = {
     _sync_clock: { count: 1, reason: SYNC_BOOKKEEPING },
   },
   'packages/core/src/store/sync/flags.ts': { _sync_meta: { count: 1, reason: SYNC_BOOKKEEPING } },
+  'packages/core/src/cloud/doc-bytes.ts': {
+    _sync_meta: {
+      count: 1,
+      reason:
+        'doc-bytes bookkeeping (local-only): which doc bodies THIS store has put on or taken from a stream (T13721)',
+    },
+  },
   'packages/core/src/store/sync/writer-version.ts': {
     _sync_meta: { count: 1, reason: SYNC_BOOKKEEPING },
   },

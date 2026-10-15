@@ -23,14 +23,18 @@
  */
 
 import { createHash } from 'node:crypto';
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import type { DatabaseSync } from 'node:sqlite';
+import type { CloudWarning } from '@cleocode/contracts';
 import type { LedgerTxn } from '@cleocode/contracts/ledger';
 import { SYNC_SCHEMA_VERSION } from '@cleocode/contracts/sync-schema.js';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { generateEd25519 } from '../../../cloud/crypto.js';
+import { deriveKey, generateEd25519, hmacSha256, randomKey } from '../../../cloud/crypto.js';
+import { pullDocBytes, pushDocBytes } from '../../../cloud/doc-bytes.js';
+import { Http } from '../../../cloud/http.js';
+import { Journal } from '../../../cloud/journal.js';
 import { DocsReadModel } from '../../../docs/docs-read-model.js';
 import {
   _resetDualScopeDbCache,
@@ -538,8 +542,8 @@ describe('docs reach a second device (T12919)', () => {
     const model = new DocsReadModel({ projectRoot: join(dir, 'b') });
     const listed = await model.listProjectDocs();
     expect(listed.map((d) => d.slug)).toContain('gate-doc');
-    // The bytes are not on the stream (T13721): fetch names the doc and says
-    // its content is missing, never a fabricated body.
+    // Segments carry no bytes (they travel as stream blobs, T13721): fetch
+    // names the doc and says its content is missing, never a fabricated body.
     const missing = await model.fetchDecoded('gate-doc');
     expect(missing).toMatchObject({ ok: false, reason: 'no-content' });
     // Once the content-addressed bytes land (a vault restore carries them,
@@ -682,6 +686,403 @@ describe('docs reach a second device (T12919)', () => {
     expect(orphans(b.db)).toEqual({ n: 0 });
     expect(docs(b.db)).toEqual(docs(a.db));
     expect(refs(b.db)).toEqual(refs(a.db));
+  });
+
+  /**
+   * A fake Nexus for doc bytes (T13721): presign/complete and the stream
+   * attachment routes (E32/E33), blobs in memory. `routes: false` is a server
+   * from before E32/E33: those paths answer 404 like any unknown route.
+   */
+  function attachmentServer(routes = true) {
+    const blobs = new Map<string, Buffer>();
+    const refs = new Map<string, { blobSha256: string; sizeBytes: number }>();
+    const calls: string[] = [];
+    /** E34 answers 403 while false (the caller is neither the recorder nor an owner). */
+    const policy = { deleteAllowed: true, beforePut: (_ref: string) => {} };
+    const reply = (data: unknown, status = 200) =>
+      new Response(
+        JSON.stringify(
+          status === 200
+            ? { success: true, data, meta: { requestId: 'r' } }
+            : {
+                success: false,
+                error:
+                  status === 403
+                    ? { code: 'E_FORBIDDEN', message: 'not the recorder or an owner' }
+                    : { code: 'E_NOT_FOUND', message: 'route not found' },
+              },
+        ),
+        { status },
+      );
+    const http = new Http({
+      baseUrl: 'https://nexus.test',
+      token: 't',
+      maxAttempts: 1,
+      fetch: async (input, init) => {
+        const path = input.replace('https://nexus.test', '');
+        const method = init?.method ?? 'GET';
+        calls.push(`${method} ${path}`);
+        const body = init?.body ? JSON.parse(String(init.body)) : undefined;
+        if (method === 'POST' && path === '/v1/blobs/presign') {
+          return reply({
+            alreadyPresent: blobs.has(body.sha256),
+            uploadUrl: `https://blob.test/${body.sha256}`,
+            uploadHeaders: {},
+            expiresAt: null,
+          });
+        }
+        const done = /^\/v1\/blobs\/([0-9a-f]{64})\/complete$/.exec(path);
+        if (method === 'POST' && done) return reply({ sha256: done[1], verified: true });
+        const att = /\/attachments\/([0-9a-f]{64})$/.exec(path);
+        if (!att || !routes) return reply(null, 404);
+        const ref = att[1] ?? '';
+        if (method === 'DELETE') {
+          if (!policy.deleteAllowed) return reply(null, 403);
+          return reply({ deleted: refs.delete(ref) });
+        }
+        if (method === 'PUT') {
+          policy.beforePut(ref);
+          const created = !refs.has(ref);
+          if (created) refs.set(ref, body);
+          return reply({ ...refs.get(ref), created });
+        }
+        const r = refs.get(ref);
+        return reply({
+          download: r
+            ? {
+                url: `https://blob.test/${r.blobSha256}`,
+                sha256: r.blobSha256,
+                sizeBytes: r.sizeBytes,
+                expiresInSeconds: 300,
+              }
+            : null,
+        });
+      },
+    });
+    const key = randomKey();
+    const journal = (r: Replica) =>
+      new Journal({
+        http,
+        streamId: STREAM,
+        replicaId: replicaOf(r),
+        deviceId: r.device,
+        signing: KEYS[r.device],
+        key,
+        uploader: async (url, _headers, bytes) => {
+          blobs.set(url.slice(url.lastIndexOf('/') + 1), Buffer.from(bytes));
+        },
+        downloader: async (url) =>
+          blobs.get(url.slice(url.lastIndexOf('/') + 1)) ?? Buffer.alloc(0),
+      });
+    /** Record `bytes` under the ref of `sha`, as a squatting writer (or a buggy client) would. */
+    const squat = (sha: string, bytes: Buffer) => {
+      const blobSha256 = createHash('sha256').update(bytes).digest('hex');
+      blobs.set(blobSha256, bytes);
+      const ref = hmacSha256(deriveKey(key, 'attachment-ref'), Buffer.from(sha)).toString('hex');
+      refs.set(ref, { blobSha256, sizeBytes: bytes.length });
+    };
+    return { blobs, refs, calls, journal, policy, squat, key };
+  }
+
+  const docBytes = (r: Replica, name: string, warnings: CloudWarning[]) => ({
+    stream: STREAM,
+    cleoDir: join(dir, name, '.cleo'),
+    warn: (w: CloudWarning) => {
+      warnings.push(w);
+    },
+  });
+  const blobFile = (name: string) => join(dir, name, '.cleo', 'blobs', 'blobs', SHA);
+
+  it('a doc body added on A reaches B through the stream, encrypted, and fetch returns identical bytes (T13721)', async () => {
+    const { a, b } = await docOnBoth();
+    const server = attachmentServer();
+    const warnings: CloudWarning[] = [];
+    // A holds the body of one of its two docs: only that one goes up.
+    expect(await pushDocBytes(a.db, server.journal(a), docBytes(a, 'a', warnings))).toEqual({
+      moved: 1,
+      refused: 0,
+    });
+    expect(server.blobs.size).toBe(1);
+    for (const stored of server.blobs.values()) {
+      expect(stored.includes(Buffer.from('Gate doc'))).toBe(false); // never plaintext
+    }
+
+    expect(await pullDocBytes(b.db, server.journal(b), docBytes(b, 'b', warnings))).toEqual({
+      moved: 1,
+      refused: 0,
+    });
+    const model = new DocsReadModel({ projectRoot: join(dir, 'b') });
+    expect(await model.fetchDecoded('gate-doc')).toMatchObject({ ok: true, content: BODY });
+    expect(readFileSync(blobFile('b'))).toEqual(readFileSync(blobFile('a')));
+
+    // Dedup: neither device uploads the body again.
+    const presigns = () => server.calls.filter((c) => c.endsWith('/v1/blobs/presign')).length;
+    expect(await pushDocBytes(a.db, server.journal(a), docBytes(a, 'a', warnings))).toEqual({
+      moved: 0,
+      refused: 0,
+    });
+    expect(await pushDocBytes(b.db, server.journal(b), docBytes(b, 'b', warnings))).toEqual({
+      moved: 0,
+      refused: 0,
+    });
+    expect(presigns()).toBe(1);
+    expect(warnings).toEqual([]);
+  });
+
+  it('a tampered or swapped doc blob is refused and nothing is written on B (T13721)', async () => {
+    const { a, b } = await docOnBoth();
+    const server = attachmentServer();
+    const warnings: CloudWarning[] = [];
+    await pushDocBytes(a.db, server.journal(a), docBytes(a, 'a', warnings));
+    const [[blobSha, ciphertext]] = [...server.blobs.entries()] as Array<[string, Buffer]>;
+    // One flipped byte: the ciphertext no longer matches its announced sha256.
+    const flipped = Buffer.from(ciphertext);
+    flipped[flipped.length - 1] = (flipped.at(-1) ?? 0) ^ 0xff;
+    server.blobs.set(blobSha, flipped);
+    expect(await pullDocBytes(b.db, server.journal(b), docBytes(b, 'b', warnings))).toEqual({
+      moved: 0,
+      refused: 1,
+    });
+    expect(existsSync(blobFile('b'))).toBe(false);
+    // A delivery fault proves nothing about the record: it is kept.
+    expect(server.refs.size).toBe(1);
+
+    // A consistent swap (sha and size re-announced) fails the AEAD under the stream key.
+    const swapped = Buffer.from(ciphertext);
+    swapped[40] = (swapped[40] ?? 0) ^ 0x01;
+    const swappedSha = createHash('sha256').update(swapped).digest('hex');
+    server.blobs.set(swappedSha, swapped);
+    for (const [ref, r] of server.refs) server.refs.set(ref, { ...r, blobSha256: swappedSha });
+    expect(await pullDocBytes(b.db, server.journal(b), docBytes(b, 'b', warnings))).toEqual({
+      moved: 0,
+      refused: 1,
+    });
+    expect(existsSync(blobFile('b'))).toBe(false);
+    // Content that matched its sha256 and still fails the AEAD is provably wrong: the record is cleared.
+    expect(server.refs.size).toBe(0);
+    expect(warnings.map((w) => w.code)).toEqual([
+      'W_SYNC_DOC_BYTES_REFUSED',
+      'W_SYNC_DOC_BYTES_REFUSED',
+    ]);
+    expect(warnings.map((w) => w.message).join('\n')).toMatch(/blob-hash[\s\S]*decrypt/);
+    expect(
+      await new DocsReadModel({ projectRoot: join(dir, 'b') }).fetchDecoded('gate-doc'),
+    ).toMatchObject({ ok: false, reason: 'no-content' });
+  });
+
+  it('a squatted ref heals: B refuses the junk, A clears it and records the real bytes, B then fetches them (T13721)', async () => {
+    const { a, b } = await docOnBoth();
+    const server = attachmentServer();
+    const warnings: CloudWarning[] = [];
+    server.squat(SHA, Buffer.from('junk recorded first by a squatting writer'));
+
+    expect(await pullDocBytes(b.db, server.journal(b), docBytes(b, 'b', warnings))).toEqual({
+      moved: 0,
+      refused: 1,
+    });
+    expect(existsSync(blobFile('b'))).toBe(false);
+
+    // A holds the bytes: it checks the recorded blob, clears it (E34) and records its own.
+    expect(await pushDocBytes(a.db, server.journal(a), docBytes(a, 'a', warnings))).toEqual({
+      moved: 1,
+      refused: 0,
+    });
+    expect(server.calls.filter((c) => c.startsWith('DELETE '))).toHaveLength(1);
+    expect(await pullDocBytes(b.db, server.journal(b), docBytes(b, 'b', warnings))).toEqual({
+      moved: 1,
+      refused: 0,
+    });
+    expect(
+      await new DocsReadModel({ projectRoot: join(dir, 'b') }).fetchDecoded('gate-doc'),
+    ).toMatchObject({ ok: true, content: BODY });
+    expect(warnings.map((w) => w.code)).toEqual(['W_SYNC_DOC_BYTES_REFUSED']);
+  });
+
+  it('a ref A may not clear, or a racer recorded first, stays contested and unmarked until it heals (T13721)', async () => {
+    const { a } = await docOnBoth();
+    const server = attachmentServer();
+    const warnings: CloudWarning[] = [];
+    const run = () => pushDocBytes(a.db, server.journal(a), docBytes(a, 'a', warnings));
+
+    // Squatted by another user, and A is not an owner: E34 is 403.
+    server.squat(SHA, Buffer.from('junk'));
+    server.policy.deleteAllowed = false;
+    expect(await run()).toEqual({ moved: 0, refused: 0 });
+
+    // L1: cleared now, but a racer records first: created false names another blob.
+    server.policy.deleteAllowed = true;
+    server.policy.beforePut = (ref) => {
+      server.policy.beforePut = () => {};
+      server.refs.set(ref, { blobSha256: 'f'.repeat(64), sizeBytes: 99 });
+    };
+    expect(await run()).toEqual({ moved: 0, refused: 0 });
+    expect(warnings.map((w) => w.code)).toEqual([
+      'W_SYNC_DOC_BYTES_CONTESTED',
+      'W_SYNC_DOC_BYTES_CONTESTED',
+    ]);
+
+    // Neither run marked the body sent, so the next one checks the racer's junk and heals.
+    server.blobs.set('f'.repeat(64), Buffer.alloc(99));
+    expect(await run()).toEqual({ moved: 1, refused: 0 });
+    expect(await run()).toEqual({ moved: 0, refused: 0 });
+  });
+
+  it("a record cleared after A marked it sent is re-recorded by A's re-check (T13721)", async () => {
+    const { a, b } = await docOnBoth();
+    const server = attachmentServer();
+    const warnings: CloudWarning[] = [];
+    await pushDocBytes(a.db, server.journal(a), docBytes(a, 'a', warnings));
+    // An owner clears the good record, then a squatter records junk before A looks again.
+    server.refs.clear();
+    server.squat(SHA, Buffer.from('junk after the clear'));
+    // B refuses it and clears the junk (it may); A's next push re-checks, finds no record, records again.
+    expect(await pullDocBytes(b.db, server.journal(b), docBytes(b, 'b', warnings))).toEqual({
+      moved: 0,
+      refused: 1,
+    });
+    expect(server.refs.size).toBe(0);
+    expect(await pushDocBytes(a.db, server.journal(a), docBytes(a, 'a', warnings))).toEqual({
+      moved: 1,
+      refused: 0,
+    });
+    expect(await pullDocBytes(b.db, server.journal(b), docBytes(b, 'b', warnings))).toEqual({
+      moved: 1,
+      refused: 0,
+    });
+    expect(readFileSync(blobFile('b'), 'utf8')).toBe(BODY);
+  });
+
+  it('more than a run of byte-less rows ahead of a real doc never starve it: the cursor moves on (T13721)', async () => {
+    const { a, b } = await twoDevices();
+    const stream = fakeStream();
+    for (const r of [a, b]) uniqueDocIndexes(r.db);
+    // 120 docs no device holds bytes for, every sha sorting before the real one.
+    const empty = Array.from({ length: 120 }, (_, i) => `00${i.toString(16).padStart(62, '0')}`);
+    expect(empty.every((x) => x < SHA)).toBe(true);
+    const at = new Date(++clockMs).toISOString();
+    write(
+      a.db,
+      empty
+        .map(
+          (x, i) =>
+            `INSERT INTO docs_attachments (id, sha256, attachment_json, created_at, ref_count) VALUES ('e-${i}', '${x}', '${json(x)}', '${at}', 0);`,
+        )
+        .join('\n'),
+    );
+    addDoc(a.db, 'doc-1', SHA, 'gate-doc', 'T1');
+    mkdirSync(join(dir, 'a', '.cleo', 'blobs', 'blobs'), { recursive: true });
+    writeFileSync(join(dir, 'a', '.cleo', 'blobs', 'blobs', SHA), BODY);
+    await push(a, stream);
+    await pull(b, stream);
+    const server = attachmentServer();
+    const warnings: CloudWarning[] = [];
+    expect(await pushDocBytes(a.db, server.journal(a), docBytes(a, 'a', warnings))).toEqual({
+      moved: 1,
+      refused: 0,
+    });
+    const gets = () => server.calls.filter((c) => c.startsWith('GET ')).length;
+    const before = gets();
+    // Run one spends its 100 attempts on byte-less rows; run two resumes after them.
+    expect(await pullDocBytes(b.db, server.journal(b), docBytes(b, 'b', warnings))).toEqual({
+      moved: 0,
+      refused: 0,
+    });
+    expect(gets() - before).toBe(100);
+    expect(await pullDocBytes(b.db, server.journal(b), docBytes(b, 'b', warnings))).toEqual({
+      moved: 1,
+      refused: 0,
+    });
+    expect(readFileSync(blobFile('b'), 'utf8')).toBe(BODY);
+    // Each run stays inside its budget (run two wraps around once it passes the real doc).
+    expect(gets() - before).toBe(200);
+  });
+
+  it('a body over the pull cap never loops: B refuses it without clearing, and a capped holder never sends it (T13721)', async () => {
+    const { a, b } = await docOnBoth();
+    const server = attachmentServer();
+    const warnings: CloudWarning[] = [];
+    const capped = (r: Replica, name: string) => ({ ...docBytes(r, name, warnings), maxBytes: 50 });
+    // A holder without the cap uploaded it (BODY + overhead is over 50 bytes).
+    await pushDocBytes(a.db, server.journal(a), docBytes(a, 'a', warnings));
+    for (let cycle = 0; cycle < 3; cycle++) {
+      expect(await pullDocBytes(b.db, server.journal(b), capped(b, 'b'))).toEqual({
+        moved: 0,
+        refused: 1,
+      });
+      await pushDocBytes(a.db, server.journal(a), docBytes(a, 'a', warnings));
+    }
+    expect(server.refs.size).toBe(1);
+    expect(server.calls.filter((c) => c.startsWith('DELETE '))).toHaveLength(0);
+    expect(server.calls.filter((c) => c.endsWith('/v1/blobs/presign'))).toHaveLength(1);
+    expect(warnings.every((w) => w.message.includes('too-large'))).toBe(true);
+
+    // A holder with the same cap never sends it, and says so once per run.
+    const fresh = attachmentServer();
+    const quiet: CloudWarning[] = [];
+    expect(
+      await pushDocBytes(a.db, fresh.journal(a), {
+        ...docBytes(a, 'a', quiet),
+        stream: `${STREAM}-capped`,
+        maxBytes: 50,
+      }),
+    ).toEqual({ moved: 0, refused: 0 });
+    expect(fresh.calls).toEqual([]);
+    expect(quiet.map((w) => w.code)).toEqual(['W_SYNC_DOC_BYTES_TOO_LARGE']);
+  });
+
+  it('a recorded blob that cannot be checked holds up only itself: the push moves on to the next doc (T13721)', async () => {
+    const { a } = await docOnBoth();
+    const server = attachmentServer();
+    const warnings: CloudWarning[] = [];
+    const NEXT = `${BODY}v2\n`;
+    writeFileSync(join(dir, 'a', '.cleo', 'blobs', 'blobs', NEXT_SHA), NEXT);
+    // The doc that sorts first is recorded with a blob of the right size whose stored bytes are
+    // damaged (a delivery fault: the download misses its announced sha256).
+    const [first, firstLen] = SHA < NEXT_SHA ? [SHA, BODY.length] : [NEXT_SHA, NEXT.length];
+    const [second] = SHA < NEXT_SHA ? [NEXT_SHA] : [SHA];
+    server.squat(first, Buffer.alloc(firstLen + 61, 1));
+    for (const r of server.refs.values()) {
+      server.blobs.set(r.blobSha256, Buffer.alloc(firstLen + 61, 2));
+    }
+    const refOf = (x: string) =>
+      hmacSha256(deriveKey(server.key, 'attachment-ref'), Buffer.from(x)).toString('hex');
+    for (let run = 0; run < 3; run++) {
+      await pushDocBytes(a.db, server.journal(a), docBytes(a, 'a', warnings));
+    }
+    // The second doc was recorded on the first run; the first stays recorded, never cleared.
+    expect(server.refs.has(refOf(second))).toBe(true);
+    expect(server.refs.has(refOf(first))).toBe(true);
+    expect(server.calls.filter((c) => c.startsWith('DELETE '))).toHaveLength(0);
+    expect(server.calls.filter((c) => c.endsWith('/v1/blobs/presign'))).toHaveLength(1);
+    expect(warnings.map((w) => w.code)).toEqual([
+      'W_SYNC_DOC_BYTES_UNVERIFIED',
+      'W_SYNC_DOC_BYTES_UNVERIFIED',
+      'W_SYNC_DOC_BYTES_UNVERIFIED',
+    ]);
+  });
+
+  it('a server without the attachment routes: rows still sync, fetch is no-content, one warning says why (T13721)', async () => {
+    const { a, b } = await docOnBoth();
+    const server = attachmentServer(false);
+    const warnings: CloudWarning[] = [];
+    expect(await pushDocBytes(a.db, server.journal(a), docBytes(a, 'a', warnings))).toEqual({
+      moved: 0,
+      refused: 0,
+    });
+    // It asked first, so nothing was uploaded for a route that is not there.
+    expect(server.calls.some((c) => c.includes('/v1/blobs/'))).toBe(false);
+    expect(await pullDocBytes(b.db, server.journal(b), docBytes(b, 'b', warnings))).toEqual({
+      moved: 0,
+      refused: 0,
+    });
+    expect(warnings.map((w) => w.code)).toEqual([
+      'W_SYNC_DOC_BYTES_UNAVAILABLE',
+      'W_SYNC_DOC_BYTES_UNAVAILABLE',
+    ]);
+    expect(warnings[0]?.message).toContain('does not carry doc bytes yet');
+    const model = new DocsReadModel({ projectRoot: join(dir, 'b') });
+    expect((await model.listProjectDocs()).map((d) => d.slug)).toContain('gate-doc');
+    expect(await model.fetchDecoded('gate-doc')).toMatchObject({ ok: false, reason: 'no-content' });
   });
 });
 
