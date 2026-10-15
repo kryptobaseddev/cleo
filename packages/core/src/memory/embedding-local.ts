@@ -135,6 +135,7 @@ async function loadPipeline(): Promise<void> {
         `build embeds with ${_expectedOnnxSha256.slice(0, 12)}…; embeddings are off ` +
         'and search uses FTS5 only. Replace the cached file or upgrade CLEO.';
       getLogger('embedding-local').warn({ onnxPath, actual }, message);
+      // @sync-invariant none:local-only the local model file is not the expected weights; nothing is written
       throw new Error(message);
     }
     _pipeline = pipeline;
