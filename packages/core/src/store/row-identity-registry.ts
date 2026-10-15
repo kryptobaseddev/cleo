@@ -488,14 +488,16 @@ export const ROW_IDENTITY: Readonly<Record<TableScope, readonly RowIdentitySpec[
       task: 'T13362',
     },
     {
-      // T12919: the doc registry. `id` is a random UUIDv4 minted once per doc
-      // version, so it travels as is and never collides across devices; the
-      // content address is fixed at birth. Supersession pointers travel as uids.
+      // T12919: the doc registry. Natural on its content address: sha256 is
+      // UNIQUE and no writer changes it (a new version is a new row), so two
+      // devices that store the same bytes derive ONE uid and merge field by
+      // field instead of one losing its row to the UNIQUE index. The random
+      // UUIDv4 `id` is a local key that never travels (a received row takes
+      // its uid as id); references to it travel as uids.
       table: DOCS_ATTACHMENTS,
-      kind: 'minted',
-      key: ['id'],
-      birth: 'created_at',
-      birthFacts: ['sha256'],
+      kind: 'natural',
+      key: ['sha256'],
+      localKey: 'id',
       refs: [
         { column: 'supersedes', table: DOCS_ATTACHMENTS },
         { column: 'superseded_by', table: DOCS_ATTACHMENTS },
@@ -503,12 +505,14 @@ export const ROW_IDENTITY: Readonly<Record<TableScope, readonly RowIdentitySpec[
       task: 'T12919',
     },
     {
-      // Natural over the primary key: both devices derive one uid for one
-      // attachment of one owner. Raw ids: the attachment id is a UUID that is
-      // never re-minted, and the owner id is polymorphic (task, session, …).
+      // Natural over the primary key, the attachment by its uid (its local id
+      // differs per device), so a ref to a doc deleted elsewhere is held or
+      // raised as a dangling ref, never written as an orphan. The owner id is
+      // polymorphic (task, session, …) and stays raw (T13731).
       table: 'docs_attachment_refs',
       kind: 'natural',
       key: ['attachment_id', 'owner_type', 'owner_id'],
+      keyRefs: [{ column: 'attachment_id', table: DOCS_ATTACHMENTS }],
       task: 'T12919',
     },
   ],

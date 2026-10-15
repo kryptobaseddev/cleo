@@ -918,7 +918,6 @@
     ],
     "docs_attachments": [
       "attachment_json",
-      "birth_fp",
       "created_at",
       "display_alias",
       "doc_version",

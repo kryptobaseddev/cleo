@@ -43,6 +43,7 @@ import {
 } from '../apply-intent.js';
 import { type CaptureTableDef, captureTableDef, enc } from '../capture.js';
 import { moveFieldState } from '../field-leave.js';
+import { syncSetTables } from '../flags.js';
 import {
   compressFieldHlcs,
   fieldHlcsOf,
@@ -181,7 +182,11 @@ export interface ApplyWriteApi {
    * rebase snapshots them before it rewinds an insert (§3.5 R7-2).
    */
   readLocalOnly(table: string, uid: string): Record<string, SQLInputValue> | null;
-  /** Write back local-only columns a rebase snapshotted (never captured, never intents). */
+  /**
+   * Write back local-only columns a rebase snapshotted (never captured, never
+   * intents). A restored local key moves the sync-set references that point
+   * at the interim key with it.
+   */
   writeLocalOnly(table: string, uid: string, values: Readonly<Record<string, SQLInputValue>>): void;
   /**
    * What deleting the row would remove outside the sync set through FK
@@ -596,9 +601,35 @@ export function createApplyWriteApi(
       const allowed = new Set(localOnlyColumns(table));
       const cols = Object.keys(values).filter((c) => allowed.has(c));
       if (cols.length === 0) return;
+      // A rebase puts back a row's local key (T12919): rows written while it
+      // was rewound reference the interim key, so they follow it back.
+      const key = defOf(table).localRowid;
+      const interim =
+        key !== undefined && cols.includes(key)
+          ? (
+              db
+                .prepare(
+                  `SELECT ${ident(key)} AS k FROM main.${ident(table)} WHERE ${ident(UID_COLUMN)} = ?`,
+                )
+                .get(uid) as { k: SQLInputValue } | undefined
+            )?.k
+          : undefined;
+      const moved = key !== undefined && interim !== undefined && interim !== values[key];
+      if (moved) db.exec('PRAGMA defer_foreign_keys = ON');
       db.prepare(
         `UPDATE main.${ident(table)} SET ${cols.map((c) => `${ident(c)} = ?`).join(', ')} WHERE ${ident(UID_COLUMN)} = ?`,
       ).run(...cols.map((c) => values[c] as SQLInputValue), uid);
+      if (!moved) return;
+      for (const t of syncSetTables(scope)) {
+        const def = captureTableDef(db, scope, t);
+        for (const [col, ref] of def?.refs ?? []) {
+          if (ref.table !== table || ref.key !== key) continue;
+          db.prepare(`UPDATE main.${ident(t)} SET ${ident(col)} = ? WHERE ${ident(col)} = ?`).run(
+            values[key] as SQLInputValue,
+            interim,
+          );
+        }
+      }
     },
 
     readLocalDescendants(table, uid) {

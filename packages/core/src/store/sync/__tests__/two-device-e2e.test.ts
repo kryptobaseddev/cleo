@@ -456,23 +456,68 @@ describe('natural-key brain rows replay across devices (T12895)', () => {
 
 describe('docs reach a second device (T12919)', () => {
   const BODY = '# Gate doc\n\nline one\n';
-  const SHA = createHash('sha256').update(BODY).digest('hex');
-  const NEXT_SHA = createHash('sha256').update(`${BODY}v2\n`).digest('hex');
-  const json = (sha: string) =>
-    JSON.stringify({ kind: 'blob', mime: 'text/markdown', sha256: sha, size: BODY.length });
+  const sha = (body: string) => createHash('sha256').update(body).digest('hex');
+  const SHA = sha(BODY);
+  const NEXT_SHA = sha(`${BODY}v2\n`);
+  const json = (s: string) =>
+    JSON.stringify({ kind: 'blob', mime: 'text/markdown', sha256: s, size: BODY.length });
+  let clockMs = Date.parse('2026-10-14T18:00:00.000Z');
 
-  /** A adds a doc (and its successor draft), B pulls them. */
+  /** The UNIQUE indexes real stores carry (twin collapse, twin-collapse.ts). */
+  function uniqueDocIndexes(db: DatabaseSync): string[] {
+    db.exec(`CREATE UNIQUE INDEX IF NOT EXISTS uniq_docs_attachments_slug ON docs_attachments (slug) WHERE slug IS NOT NULL;
+             CREATE UNIQUE INDEX IF NOT EXISTS uniq_docs_attachments_sha256 ON docs_attachments (sha256);`);
+    return (
+      db
+        .prepare(
+          "SELECT name FROM sqlite_master WHERE type = 'index' AND name LIKE 'uniq_docs_attachments_%' ORDER BY name",
+        )
+        .all() as Array<{ name: string }>
+    ).map((r) => r.name);
+  }
+
+  /** Add a doc with one ref, as `docs add` writes them (a random local id). */
+  function addDoc(db: DatabaseSync, id: string, s: string, slug: string | null, owner: string) {
+    const at = new Date(++clockMs).toISOString();
+    write(
+      db,
+      `INSERT INTO docs_attachments (id, sha256, attachment_json, created_at, ref_count, slug, type)
+         VALUES ('${id}', '${s}', '${json(s)}', '${at}', 1, ${slug === null ? 'NULL' : `'${slug}'`}, 'note');
+       INSERT INTO docs_attachment_refs (attachment_id, owner_type, owner_id, attached_at)
+         VALUES ('${id}', 'task', '${owner}', '${at}');`,
+    );
+  }
+
+  /** Every doc row without its local id, by content address. */
+  const docs = (db: DatabaseSync) =>
+    db
+      .prepare(
+        'SELECT sha256, slug, lifecycle_status, uid, ' +
+          '(SELECT s.sha256 FROM docs_attachments s WHERE s.id = d.superseded_by) AS superseded_by_sha ' +
+          'FROM docs_attachments d ORDER BY sha256',
+      )
+      .all();
+  /** Every ref, with its doc named by content address (the local id differs per device). */
+  const refs = (db: DatabaseSync) =>
+    db
+      .prepare(
+        `SELECT d.sha256, r.owner_type, r.owner_id, r.uid FROM docs_attachment_refs r
+           LEFT JOIN docs_attachments d ON d.id = r.attachment_id ORDER BY r.uid`,
+      )
+      .all();
+  const docConflicts = (db: DatabaseSync, kind: string) =>
+    listConflicts(db, { stream: STREAM }).filter(
+      (c) => c.table.startsWith('docs_') && c.kind === kind,
+    );
+  const pick = (s: Record<string, string>) => [s.docs_attachments, s.docs_attachment_refs];
+
+  /** A adds a doc and its successor draft, B pulls them. */
   async function docOnBoth() {
     const { a, b } = await twoDevices();
     const stream = fakeStream();
-    write(
-      a.db,
-      `INSERT INTO docs_attachments (id, sha256, attachment_json, created_at, ref_count, slug, type)
-         VALUES ('doc-1', '${SHA}', '${json(SHA)}', '2026-10-14T18:00:00.000Z', 1, 'gate-doc', 'note'),
-                ('doc-2', '${NEXT_SHA}', '${json(NEXT_SHA)}', '2026-10-14T18:00:01.000Z', 0, NULL, 'note');
-       INSERT INTO docs_attachment_refs (attachment_id, owner_type, owner_id, attached_at)
-         VALUES ('doc-1', 'task', 'T1', '2026-10-14T18:00:00.000Z');`,
-    );
+    for (const r of [a, b]) uniqueDocIndexes(r.db);
+    addDoc(a.db, 'doc-1', SHA, 'gate-doc', 'T1');
+    addDoc(a.db, 'doc-2', NEXT_SHA, null, 'T1');
     mkdirSync(join(dir, 'a', '.cleo', 'blobs', 'blobs'), { recursive: true });
     writeFileSync(join(dir, 'a', '.cleo', 'blobs', 'blobs', SHA), BODY);
     await push(a, stream);
@@ -481,20 +526,11 @@ describe('docs reach a second device (T12919)', () => {
     return { a, b, stream };
   }
 
-  const docRow = (db: DatabaseSync, id: string) =>
-    db
-      .prepare(
-        'SELECT id, sha256, slug, lifecycle_status, superseded_by, uid FROM docs_attachments WHERE id = ?',
-      )
-      .get(id);
-
   it('the doc row and its ref travel with their uids; docs list and fetch resolve it on B', async () => {
     const { a, b } = await docOnBoth();
-    expect(docRow(b.db, 'doc-1')).toEqual(docRow(a.db, 'doc-1'));
-    expect((docRow(b.db, 'doc-1') as { uid: string | null }).uid).toBeTruthy();
-    const refs = 'SELECT attachment_id, owner_type, owner_id, uid FROM docs_attachment_refs';
-    expect(b.db.prepare(refs).all()).toEqual(a.db.prepare(refs).all());
-    const pick = (s: Record<string, string>) => [s.docs_attachments, s.docs_attachment_refs];
+    expect(docs(b.db)).toEqual(docs(a.db));
+    expect(docs(b.db)).toHaveLength(2);
+    expect(refs(b.db)).toEqual(refs(a.db));
     expect(pick(contentChecksums(b.db))).toEqual(pick(contentChecksums(a.db)));
 
     const model = new DocsReadModel({ projectRoot: join(dir, 'b') });
@@ -515,18 +551,117 @@ describe('docs reach a second device (T12919)', () => {
     const { a, b, stream } = await docOnBoth();
     write(
       a.db,
-      "UPDATE docs_attachments SET lifecycle_status = 'superseded', superseded_by = 'doc-2' WHERE id = 'doc-1'",
+      `UPDATE docs_attachments SET lifecycle_status = 'superseded',
+         superseded_by = (SELECT id FROM docs_attachments WHERE sha256 = '${NEXT_SHA}')
+       WHERE sha256 = '${SHA}'`,
     );
     await push(a, stream);
     // B has not seen A's supersession; its accept carries the later HLC.
-    write(b.db, "UPDATE docs_attachments SET lifecycle_status = 'accepted' WHERE id = 'doc-1'");
+    write(
+      b.db,
+      `UPDATE docs_attachments SET lifecycle_status = 'accepted' WHERE sha256 = '${SHA}'`,
+    );
     await push(b, stream);
     await pull(a, stream);
     await pull(b, stream);
-    expect(docRow(b.db, 'doc-1')).toEqual(docRow(a.db, 'doc-1'));
-    expect(docRow(a.db, 'doc-1')).toMatchObject({
+    expect(docs(b.db)).toEqual(docs(a.db));
+    expect(docs(a.db)[SHA < NEXT_SHA ? 0 : 1]).toMatchObject({
+      sha256: SHA,
       lifecycle_status: 'superseded',
-      superseded_by: 'doc-2',
+      superseded_by_sha: NEXT_SHA,
     });
+  });
+
+  it('the same bytes added on both devices become one doc; no row, ref or blob owner is lost', async () => {
+    const { a, b } = await twoDevices();
+    const stream = fakeStream();
+    for (const r of [a, b]) expect(uniqueDocIndexes(r.db)).toHaveLength(2);
+    // The same repo ADR backfilled on each machine, each with its own random id.
+    addDoc(a.db, 'id-a', SHA, 'adr-001', 'T1');
+    addDoc(b.db, 'id-b', SHA, 'adr-001', 'T2');
+    await push(a, stream);
+    await push(b, stream);
+    await pull(a, stream);
+    await pull(b, stream);
+    for (const r of [a, b]) {
+      expect(docs(r.db)).toHaveLength(1);
+      // Both owners keep their ref, each pointing at the one doc.
+      expect(
+        (refs(r.db) as Array<{ sha256: string; owner_id: string }>)
+          .map((x) => [x.sha256, x.owner_id])
+          .sort(),
+      ).toEqual([
+        [SHA, 'T1'],
+        [SHA, 'T2'],
+      ]);
+      expect(docConflicts(r.db, 'guard')).toEqual([]);
+    }
+    // Each device keeps its own local id for its own row.
+    expect(a.db.prepare('SELECT id FROM docs_attachments').get()).toEqual({ id: 'id-a' });
+    expect(b.db.prepare('SELECT id FROM docs_attachments').get()).toEqual({ id: 'id-b' });
+    expect(docs(b.db)).toEqual(docs(a.db));
+    expect(refs(b.db)).toEqual(refs(a.db));
+  });
+
+  it('two different docs under one slug both survive: the greater uid yields the slug on both devices', async () => {
+    const { a, b } = await twoDevices();
+    const stream = fakeStream();
+    for (const r of [a, b]) expect(uniqueDocIndexes(r.db)).toHaveLength(2);
+    addDoc(a.db, 'id-a', SHA, 'adr-001', 'T1');
+    addDoc(b.db, 'id-b', NEXT_SHA, 'adr-001', 'T2');
+    await push(a, stream);
+    await push(b, stream);
+    await pull(a, stream);
+    await pull(b, stream);
+    const atA = docs(a.db) as Array<{ sha256: string; slug: string; uid: string }>;
+    expect(atA).toHaveLength(2);
+    expect(docs(b.db)).toEqual(atA);
+    const [keeps, yields] = [...atA].sort((x, y) => x.uid.localeCompare(y.uid));
+    expect(keeps?.slug).toBe('adr-001');
+    expect(yields?.slug).toBe(`adr-001-${yields?.uid.replaceAll('-', '').slice(-8)}`);
+    expect(refs(b.db)).toEqual(refs(a.db));
+    expect(refs(a.db)).toHaveLength(2);
+    for (const r of [a, b]) {
+      expect(docConflicts(r.db, 'guard')).toEqual([]);
+      expect(docConflicts(r.db, 'key-collision').map((c) => c.uid)).toEqual([yields?.uid]);
+    }
+  });
+
+  it('a deref racing an attach never leaves a silent orphan ref', async () => {
+    const { a, b, stream } = await docOnBoth();
+    // A derefs the last owner: the ref, then the doc (ref_count 0).
+    write(
+      a.db,
+      `DELETE FROM docs_attachment_refs WHERE attachment_id = 'doc-2';
+       DELETE FROM docs_attachments WHERE id = 'doc-2';`,
+    );
+    await push(a, stream);
+    // B, offline, attaches the same doc to another task.
+    const local = (
+      b.db.prepare(`SELECT id FROM docs_attachments WHERE sha256 = '${NEXT_SHA}'`).get() as {
+        id: string;
+      }
+    ).id;
+    write(
+      b.db,
+      `INSERT INTO docs_attachment_refs (attachment_id, owner_type, owner_id, attached_at)
+         VALUES ('${local}', 'task', 'T9', '2026-10-14T19:00:00.000Z');
+       UPDATE docs_attachments SET ref_count = 2 WHERE id = '${local}';`,
+    );
+    await push(b, stream);
+    await pull(a, stream);
+    await pull(b, stream);
+    const orphans = (db: DatabaseSync) =>
+      db
+        .prepare(
+          'SELECT count(*) AS n FROM docs_attachment_refs r WHERE NOT EXISTS (SELECT 1 FROM docs_attachments d WHERE d.id = r.attachment_id)',
+        )
+        .get();
+    // A never writes the late ref onto the deleted doc: it records a dangling ref.
+    expect(orphans(a.db)).toEqual({ n: 0 });
+    expect(docConflicts(a.db, 'dangling-ref').length).toBeGreaterThan(0);
+    expect(orphans(b.db)).toEqual({ n: 0 });
+    expect(docs(b.db)).toEqual(docs(a.db));
+    expect(refs(b.db)).toEqual(refs(a.db));
   });
 });

@@ -61,7 +61,6 @@ import {
   text,
   uniqueIndex,
 } from 'drizzle-orm/sqlite-core';
-import { defaultRowUid } from '../../row-identity-flag.js';
 import { MANIFEST_STATUSES } from '../../status-registry.js';
 import { ATTACHMENT_LIFECYCLE_STATUSES, ATTACHMENT_OWNER_TYPES } from '../attachments.js';
 
@@ -126,13 +125,10 @@ export const docsAttachments = sqliteTable(
      */
     displayAlias: integer('display_alias'),
     /**
-     * Row uid (T12919): the merge key. A new row gets a random UUIDv7; a row
-     * written without one gets a deterministic uid at the next open. Declared
-     * after the T12535 columns: the migration appends it.
+     * Row uid (T12919): a UUIDv8 over sha256, filled at open or by the uid
+     * trigger. Declared after the T12535 columns: the migration appends it.
      */
-    uid: text('uid').$defaultFn(defaultRowUid),
-    /** Birth fingerprint (T12919): creation facts hashed once with the uid; never updated. */
-    birthFp: text('birth_fp'),
+    uid: text('uid'),
   },
   (table) => [
     uniqueIndex('uq_docs_attachments_uid').on(table.uid),

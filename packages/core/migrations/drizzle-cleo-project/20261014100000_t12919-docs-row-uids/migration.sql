@@ -1,9 +1,10 @@
 -- T12919 (epic T12323) — row uids for the doc registry (project store).
 --
 -- Adds a nullable `uid` column and a unique index on it to `docs_attachments`
--- (minted: plus `birth_fp`) and `docs_attachment_refs` (natural over its
--- primary key). Without a uid neither table had capture triggers, so a doc
--- added on one device never reached another (Stage C gate, T13549).
+-- (natural over sha256) and `docs_attachment_refs` (natural over its primary
+-- key, the attachment by uid). Natural tables carry no `birth_fp`. Without
+-- a uid neither table had capture triggers, so a doc added on one device
+-- never reached another (Stage C gate, T13549).
 -- `docs_wikilinks` gets nothing: it is derived from the doc rows and rebuilt
 -- on each device. Spec: `cleo docs fetch t12341-uid-scheme`.
 --
@@ -18,8 +19,6 @@
 -- @epic T12323
 
 ALTER TABLE `docs_attachments` ADD COLUMN `uid` text;
---> statement-breakpoint
-ALTER TABLE `docs_attachments` ADD COLUMN `birth_fp` text;
 --> statement-breakpoint
 ALTER TABLE `docs_attachment_refs` ADD COLUMN `uid` text;
 --> statement-breakpoint
