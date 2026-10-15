@@ -569,6 +569,7 @@ export function resolveRequiredWorkflows(
 ): string[] {
   const tier = resolveSyncTier(env, projectContext);
   // T13744: an unreadable env list is never an empty (accept-all) one.
+  // @sync-invariant none:input-shape a malformed env value is refused before anything is read or written
   if (tier?.source.tier === 'unknown') throw new Error(tier.source.reason);
   return tier?.workflows ?? [...PR_REQUIRED_WORKFLOWS];
 }
