@@ -12,7 +12,9 @@
  *     that depends on a changed package is covered by a root at or above its
  *     directory, since a type change breaks importers. A workspace-wide change
  *     (a path outside every package) is refused: only a whole-project run
- *     speaks for it.
+ *     speaks for it — unless the change is non-code only (docs, editor settings;
+ *     T13745), when no package is affected and a lint (or structural) receipt
+ *     holding the files stands without a typecheck.
  *  4. **Identity.** HEAD and the tool-cache tree hash are recorded by the
  *     validator; `cleo complete` refuses the atom once the tree moves, unless
  *     merged CI carries the gate.
@@ -34,6 +36,7 @@ import { isCiDocumentPath } from '../release/ci-evidence.js';
 import {
   deriveAffectedPackages,
   inPackageDir,
+  isNonCodeOnlyChange,
   listWorkspacePackages,
 } from './affected-packages.js';
 import { reportFreshness } from './test-run-binding.js';
@@ -190,6 +193,8 @@ export type QaRunBinding =
       uncovered: string[];
       /** Dependent packages this receipt's roots do not cover (T13580). */
       uncoveredPackages: string[];
+      /** The change is non-code only: no package affected, no typecheck owed (T13745). */
+      nonCodeChange?: boolean;
     };
 
 /** Up to five items, then a count. */
@@ -257,6 +262,13 @@ export function qaRunCoverage(
   root: string,
   changed: readonly string[],
 ): QaRunBinding {
+  const covered = (path: string): boolean => roots.some((r) => r === path || inPackageDir(path, r));
+  // T13745: a non-code-only change (docs, editor settings) affects no package; the
+  // receipt's roots must still hold each changed non-doc file.
+  if (isNonCodeOnlyChange(changed)) {
+    const uncovered = changed.filter((p) => !isCiDocumentPath(p) && !covered(p));
+    return { ok: true, uncovered, uncoveredPackages: [], nonCodeChange: true };
+  }
   const scope = deriveAffectedPackages(root, changed);
   if (scope.scope === 'full') {
     return {
@@ -267,7 +279,6 @@ export function qaRunCoverage(
         `speaks for it. Record tool:${kind}, or ci:<pr> once the PR merges.`,
     };
   }
-  const covered = (path: string): boolean => roots.some((r) => r === path || inPackageDir(path, r));
   const uncovered = changed.filter((p) => !isCiDocumentPath(p) && !covered(p));
   // A type change breaks importers: a dependent package must be checked too.
   const dependents = scope.packages.filter((name) => !scope.direct.includes(name));

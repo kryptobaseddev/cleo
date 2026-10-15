@@ -2144,7 +2144,8 @@ async function validateQaRun(
   if (capture.refusal) return { ok: false, ...capture.refusal };
   const treeHash = capture.tree;
   const headSha = treeHash ? await captureHead(bindRoot) : null;
-  let gaps: { uncovered: string[]; uncoveredPackages: string[] } | null = null;
+  let gaps: { uncovered: string[]; uncoveredPackages: string[]; nonCodeChange?: boolean } | null =
+    null;
   if (treeHash && headSha) {
     const binding = bindQaRunReceipt(receipt, abs, bindRoot);
     if (!binding.ok) return { ok: false, reason: binding.reason, codeName: binding.codeName };
@@ -2171,6 +2172,7 @@ async function validateQaRun(
       ...(gaps && gaps.uncoveredPackages.length > 0
         ? { uncoveredPackages: gaps.uncoveredPackages }
         : {}),
+      ...(gaps?.nonCodeChange ? { nonCodeChange: true } : {}),
     },
   };
 }
@@ -2210,6 +2212,33 @@ async function validateTool(
   roots: EvidenceRoots,
   context?: EvidenceValidationContext,
 ): Promise<AtomValidation> {
+  // T13745: no test reads a non-code-only change (docs, editor settings), so
+  // the gate is satisfied by absence, recorded with the paths, never by a
+  // suite. Pinned to the tree like a test-run: once the tree moves (code
+  // added after verify), testsPassedSupersededReason refuses it at complete.
+  if (tool === 'test' || tool === 'test-affected') {
+    const { isNonCodeOnlyChange, scopedChangedPaths } = await import('./affected-packages.js');
+    const root = context?.task.id
+      ? (await import('./change-set.js')).resolveChangeSetRoot(roots.storeRoot, context.task.id)
+          .root
+      : roots.executionRoot;
+    const changed = scopedChangedPaths(root)?.paths ?? [];
+    const treeHash = isNonCodeOnlyChange(changed) ? (await captureTree(root)).tree : null;
+    if (treeHash) {
+      return {
+        ok: true,
+        atom: {
+          kind: 'tool',
+          tool,
+          exitCode: 0,
+          notApplicable: true,
+          nonCodeChange: true,
+          treeHash,
+          reason: `no test reads this change: it touches only non-code files (${changed.join(', ')})`,
+        },
+      };
+    }
+  }
   if (tool === 'test-affected') return validateAffectedTests(roots, context?.task.id);
   // T12959: `tool:test` runs the affected packages first when a template is
   // declared; the full suite runs only when that scope cannot be trusted, and
@@ -3208,7 +3237,7 @@ export function checkTaskEvidenceContext(
         atom.kind === 'test-run' ||
         atom.kind === 'qa-run' ||
         atom.kind === 'ci' ||
-        (atom.kind === 'tool' && !atom.notApplicable),
+        (atom.kind === 'tool' && (!atom.notApplicable || atom.nonCodeChange === true)),
     )
   ) {
     return `Code task ${context.task.id} requires an actual verification result for ${gate}; absence of a toolchain is not a passing result.`;
@@ -3221,8 +3250,11 @@ export function checkTaskEvidenceContext(
     atoms.some((atom) => atom.kind === 'qa-run') &&
     !atoms.some((atom) => atom.kind === 'ci')
   ) {
+    // T13745: a non-code-only change has no TypeScript to typecheck.
+    const nonCode = atoms.some((atom) => atom.kind === 'qa-run' && atom.nonCodeChange === true);
     const missing = (['typecheck', 'lint'] as const).filter(
       (check) =>
+        !(nonCode && check === 'typecheck') &&
         !atoms.some(
           (atom) =>
             (atom.kind === 'qa-run' && atom.check === check) ||

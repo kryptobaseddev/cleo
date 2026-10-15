@@ -211,6 +211,41 @@ export function standalonePackage(root: string): WorkspacePackage | null {
 }
 
 /**
+ * Known-inert files besides documentation: editor and dependency-bot settings
+ * nothing builds, tests, lints, runs or deploys. An allowlist, so an unknown
+ * config (CI, deploy, hooks, `.cleo/` evidence rules) stays code (T13745).
+ * shortcut: a fixed list; widen it only with a file no tool reads.
+ */
+const INERT_PATH =
+  /^(?:renovate\.json5?|\.editorconfig|\.(?:vscode|idea|zed)\/.+|[^/]+\.code-workspace)$/;
+
+/**
+ * Whether a changed path is non-code (T13745): documentation
+ * ({@link isCiDocumentPath}) or a known-inert editor or bot setting
+ * (renovate, .editorconfig, .vscode/, .idea/, .zed/). Everything else is code.
+ *
+ * @param path - Repo-relative changed path.
+ * @returns True when no build, test, lint, CI or deploy reads the path.
+ * @task T13745
+ */
+export function isNonCodePath(path: string): boolean {
+  const p = slashSeparated(path);
+  return isCiDocumentPath(p) || INERT_PATH.test(p);
+}
+
+/**
+ * Whether a change set is non-empty and made only of {@link isNonCodePath}
+ * paths: no test reads it and no TypeScript changed (T13745).
+ *
+ * @param paths - The change's repo-relative paths.
+ * @returns True for a non-code-only change.
+ * @task T13745
+ */
+export function isNonCodeOnlyChange(paths: readonly string[]): boolean {
+  return paths.length > 0 && paths.every(isNonCodePath);
+}
+
+/**
  * Derive the affected-package set for a diff.
  *
  * @param root - Workspace root.

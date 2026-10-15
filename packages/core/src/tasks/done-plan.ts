@@ -51,6 +51,7 @@ import { isCiDocumentPath, readCiChecks, readCiSatisfies } from '../release/ci-e
 import { getTaskAccessor } from '../store/data-accessor.js';
 import {
   changedPathsSinceDefault,
+  isNonCodeOnlyChange,
   planScopedTestRun,
   standalonePackage,
 } from './affected-packages.js';
@@ -505,9 +506,12 @@ function toolGateEvidence(
   runs: readonly DonePlanToolRun[],
   decisionOnly: boolean,
   ciPr: string | null,
+  nonCode: boolean,
 ): string | null {
   if (decisionOnly) return 'note:decision-only implementation, no code changed';
   if (ciPr !== null) return `ci:${ciPr}`;
+  // T13745: validates as not applicable (no test reads the change); runs nothing.
+  if (nonCode && gate === 'testsPassed') return 'tool:test';
   const atoms = runs
     .filter((r) => r.gate === gate && r.cache !== 'unresolved')
     .map((r) => `tool:${r.tool}`);
@@ -640,7 +644,12 @@ function wholeSuiteRefusedBlocker(
       `cleo verify ${taskId} --gate ${gate} --evidence 'test-run:<vitest-json-report>'`,
       'Run the tests that cover the change with a JSON reporter (vitest run <files> --reporter=json ' +
         '--outputFile=<path>) and record the report' +
-        (ciUsable ? ", or ci:<pr> once the merged PR's CI is green" : '') +
+        (ciUsable
+          ? ", or ci:<pr> once the merged PR's CI is green"
+          : // T13745: a change outside every package (root config) has no targeted
+            // run; merged CI with covering rules is its honest route.
+            ', or ci:<pr> once the PR merges if you set evidence.ciSatisfies and evidence.ciChecks ' +
+            '(evidence.ciChecks.covering maps root config paths to the CI jobs that check them)') +
         ', or declare testing.affectedCommand in .cleo/project-context.json so cleo done can plan a ' +
         'scoped tool:test-affected. A full run is your explicit choice: cleo verify --gate testsPassed --evidence tool:test.',
     ),
@@ -655,6 +664,7 @@ function qaRunNeededBlocker(
   taskId: string,
   root: string,
   checks: readonly string[],
+  subject = 'this single-package project',
 ): DonePlanBlocker {
   const dirs = [
     ...new Set(
@@ -668,7 +678,7 @@ function qaRunNeededBlocker(
   return {
     code: 'qa-run-needed',
     message:
-      `qaPassed: this single-package project has no recorded ${checks.join(' or ')} result for ` +
+      `qaPassed: ${subject} has no recorded ${checks.join(' or ')} result for ` +
       `the current tree, and tool:${checks[0]} would check the whole project. Run ` +
       `${checks.join(' and ')} over the changed roots (${roots || 'none'}) and record a qa-run receipt for each.`,
     next: step(
@@ -893,7 +903,13 @@ export async function deriveTaskEvidence(
   // T13428: a docs change set (a research or documentation deliverable) has
   // no code to test or typecheck, decision recorded yet or not: never plan a
   // whole suite or a typecheck for it.
-  if (!decisionOnly && changeSet.source !== 'docs' && ciPr === null) {
+  // T13745: a non-code-only change (docs, editor settings) has no test to run and
+  // no TypeScript to typecheck: tool:test records that by absence, and a lint
+  // (or structural) qa-run receipt holding the files stands for qaPassed.
+  const nonCode =
+    changeSet.source !== 'docs' &&
+    isNonCodeOnlyChange([...changeSet.files, ...changeSet.deletedFiles]);
+  if (!decisionOnly && changeSet.source !== 'docs' && ciPr === null && !nonCode) {
     for (const gate of pending) {
       for (const tool of GATE_TOOLS[gate] ?? []) {
         // T13403: a standalone project is one package, the whole project, so
@@ -957,6 +973,9 @@ export async function deriveTaskEvidence(
   if (qaRunChecks.length > 0) {
     testRunBlockers.push(qaRunNeededBlocker(taskId, root, qaRunChecks));
   }
+  if (nonCode && ciPr === null && pending.includes('qaPassed')) {
+    testRunBlockers.push(qaRunNeededBlocker(taskId, root, ['lint'], 'this non-code change'));
+  }
   const typedGates = planTypedGates(task, rows, storeRoot);
   const acMapping = mapCriteria(task, rows, typedGates, changeSet, pending, satisfies);
 
@@ -965,7 +984,7 @@ export async function deriveTaskEvidence(
       gate === 'implemented'
         ? changeSet.implementedEvidence
         : GATE_TOOLS[gate]
-          ? toolGateEvidence(gate, toolRuns, decisionOnly, ciPr)
+          ? toolGateEvidence(gate, toolRuns, decisionOnly, ciPr, nonCode)
           : null;
     return {
       gate,
