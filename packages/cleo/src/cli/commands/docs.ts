@@ -1558,12 +1558,15 @@ const versionsCommand = defineCommand({
     name: 'versions',
     description:
       'List all SHA-256 content-address versions of attachments for an entity. ' +
+      '--for accepts an owner id or a doc slug: an owner id (T###, ses_*, O-*) is listed as-is; ' +
+      'any other arg resolves as a doc slug to its owning task, whose blobs (sibling docs included) are listed. ' +
       'Use --name to filter by a specific filename.',
   },
   args: {
     for: {
       type: 'string',
-      description: 'Owner entity ID (T###, ses_*, O-*)',
+      description:
+        'Owner entity ID (T###, ses_*, O-*) or doc slug (T13725: a slug resolves to its owning task)',
       required: true,
     },
     name: {
