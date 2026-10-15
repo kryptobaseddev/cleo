@@ -17,7 +17,10 @@ brain opened snapshotted the old shape too.
   any new column.
 - `prune_candidate` is a forward `drizzle-brain` migration; the ad-hoc
   ALTER in quality feedback is gone. It is classed `local-only` (a per-device
-  curation flag), so it never travels in ops.
+  curation flag), so it never travels in ops. On receive, the applier drops
+  the values of every column this build classes `local-only` (as it already
+  dropped the local rowid), so an op captured before the reclassification,
+  or by an older build, applies and an insert takes the local default.
 - The consolidated brain reconciler skips an ADD COLUMN whose column already
   exists, so a partly applied column set no longer throws "duplicate column
   name" on every brain open, pull and genesis cut.

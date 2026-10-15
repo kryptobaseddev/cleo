@@ -92,6 +92,12 @@ export interface CaptureTableDef {
   readonly localRowid?: string;
   /** A TEXT local key: an applied insert sets it to the row's uid (T12915). */
   readonly localKeyIsUid?: boolean;
+  /**
+   * Every column kept out of {@link columns}: the `local-only` overrides and
+   * {@link localRowid}. A received op's values for them are dropped before
+   * planning (T13719), so an op from a build that still sent one applies.
+   */
+  readonly localOnly?: ReadonlySet<string>;
 }
 
 /** One generated trigger. */
@@ -171,6 +177,7 @@ export function captureTableDef(
     secret,
     refs,
     appendOnly: (spec.content?.length ?? 0) > 0,
+    localOnly,
     ...(localRowid ? { localRowid } : {}),
     ...(localRowid && spec.localKey === localRowid && !isIntegerColumn(info, localRowid)
       ? { localKeyIsUid: true }
