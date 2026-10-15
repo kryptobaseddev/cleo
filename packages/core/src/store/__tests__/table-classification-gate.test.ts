@@ -258,9 +258,9 @@ const OPTIONAL_TRANSIENT: Record<TableScope, Record<string, { class: string; ddl
   global: {
     __catalog_meta: { class: 'local-only', ddl: 'packages/core/src/llm/catalog-seeder.ts' },
     ...SYNC_JOURNAL_TABLES,
-    // No global binder creates it yet; pinned so a future one is never derived.
+    // No global binder creates it yet; a local vector cache like its project twin (T13729).
     brain_embeddings: {
-      class: 'portable-personal',
+      class: 'derived',
       ddl: 'packages/core/src/store/memory-sqlite.ts',
     },
   },
@@ -676,6 +676,9 @@ describe('Gate A: two-tier policy', () => {
     AGENT_REGISTRY_JUNCTIONS.has(t) ||
     FTS_SHADOW.test(t) ||
     VEC_SHADOW.test(t) ||
+    // Owner decision 2026-10-14 (T13729): memory-search vectors are a local
+    // cache, model-tagged and rebuilt per machine from the synced memory text.
+    t === 'brain_embeddings' ||
     // T13354 (team-sync verdict, D11165): the contributor rollup is rebuilt
     // deterministically from conduit_attachment_versions after apply — never
     // synced, never a second source of truth.
@@ -700,12 +703,10 @@ describe('Gate A: two-tier policy', () => {
     expect(wide, `${scope}: tables classed derived outside the narrow set`).toEqual([]);
   });
 
-  it.each([
-    'project',
-    'global',
-  ] as const)('%s: embeddings and LLM/sleep output are not derived', (scope) => {
-    // brain_memory_trees left this list on purpose (RECOMPUTED_BRAIN above).
-    for (const t of ['brain_embeddings', 'brain_patterns', 'brain_page_edges']) {
+  it.each(['project', 'global'] as const)('%s: LLM/sleep output is not derived', (scope) => {
+    // brain_memory_trees left this list on purpose (RECOMPUTED_BRAIN above),
+    // and brain_embeddings by owner decision 2026-10-14 (T13729).
+    for (const t of ['brain_patterns', 'brain_page_edges']) {
       const r = classifyTable(scope, t);
       expect(r.kind === 'entry' && r.class !== 'derived', `${scope}.${t}`).toBe(true);
     }

@@ -322,9 +322,10 @@ describe('fingerprint-store', () => {
     expect(fp.tables._writer_leases.sha256).toBeUndefined();
     const unclassified = Object.entries(fp.tables).filter(([, e]) => e.class === 'UNCLASSIFIED');
     expect(unclassified).toEqual([]);
-    // vec0 is portable-personal; it must be hashed, not skipped.
+    // vec0 is readable here, and derived (T13729): counted, never hashed.
     expect(fp.vecLoaded).toBe(true);
-    expect(fp.tables.brain_embeddings?.sha256).toMatch(/^[0-9a-f]{64}$/);
+    expect(fp.tables.brain_embeddings).toMatchObject({ class: 'derived', shareable: false });
+    expect(fp.tables.brain_embeddings?.sha256).toBeUndefined();
     expect(fp.invariants).toMatchObject({ dependencyCycles: 0, containmentViolations: 0 });
     // One sidecar line per syncing row.
     expect(rows.split('\n').filter((l) => l.startsWith('tasks_tasks\t'))).toHaveLength(3);

@@ -670,16 +670,6 @@ function exempt(
   return Object.fromEntries(tables.map((table) => [table, exemption]));
 }
 
-/** Brain tables of both scopes, by the task that gives them a uid. */
-const BRAIN_EXEMPT: Readonly<Record<string, RowIdentityExemption>> = {
-  brain_embeddings: {
-    category: 'not-row-replicated',
-    reason:
-      'vec0 virtual table: the session extension cannot capture it, so it ships as a content-addressed cache blob, never as rows (classification registry note)',
-    task: 'T12918',
-  },
-};
-
 /**
  * Every syncing table WITHOUT a {@link ROW_IDENTITY} entry, with the reason it
  * syncs without one. A syncing table in neither place fails the row-identity
@@ -695,7 +685,6 @@ export const ROW_IDENTITY_EXEMPT: Readonly<
   Record<TableScope, Readonly<Record<string, RowIdentityExemption>>>
 > = {
   project: {
-    ...BRAIN_EXEMPT,
     // Both twins of each pair. brain_session_narrative (twin of
     // session_narrative) and brain_observations_staging already have a uid
     // plan (T12894), so only their bare sides wait on the collapse.
@@ -792,7 +781,6 @@ export const ROW_IDENTITY_EXEMPT: Readonly<
     ),
   },
   global: {
-    ...BRAIN_EXEMPT,
     ...exempt(
       [
         'nexus_audit_log',
@@ -826,7 +814,9 @@ export const ROW_IDENTITY_EXEMPT: Readonly<
  * T13354 declared the re-keyed conduit doc family (5 project, dropping 4
  * exemptions — contributors became derived and not syncing), T13467 the
  * credential tables (4 global), and T12919 the doc registry and its refs
- * (2 project; docs_wikilinks became derived and not syncing)
+ * (2 project; docs_wikilinks became derived and not syncing), and T13729
+ * reclassified brain_embeddings derived in both scopes (owner decision
+ * 2026-10-14: vectors are a local cache), closing the T12918 blob exemption
  * ({@link rowIdentityExemptionSummary} prints the live numbers):
  *
  * | category             | task   | project | global |
@@ -840,14 +830,13 @@ export const ROW_IDENTITY_EXEMPT: Readonly<
  * | planned (skills)     | T12917 | 0       | 4      |
  * | planned (misc)       | T12920 | 12      | 0      |
  * | twin-collapse        | T12535 | 30      | 0      |
- * | not-row-replicated   | T12918 | 1       | 1      |
- * | total                |        | 67      | 13     |
+ * | total                |        | 66      | 12     |
  *
  * @task T12897
  */
 export const ROW_IDENTITY_EXEMPT_PINNED: Readonly<Record<TableScope, number>> = {
-  project: 67,
-  global: 13,
+  project: 66,
+  global: 12,
 };
 
 /**
@@ -859,8 +848,8 @@ export const ROW_IDENTITY_EXEMPT_PINNED: Readonly<Record<TableScope, number>> = 
  * @task T12897
  */
 export const ROW_IDENTITY_EXEMPT_NAMES_SHA256: Readonly<Record<TableScope, string>> = {
-  project: 'f19c96778032a1363a3dda72cbf837c270ecb936101feb059c32e15b560d1a02',
-  global: '615415a2502708e84007335451603d186c3051cb7e8a69c0b48f561e485edd84',
+  project: 'c4832469c6cd06dfb4623accf86ba5d26fabeff8b2aa282d6131e5555cbf7897',
+  global: '09b63cf1df7591f9320e4f540c0df9a717008a7a80c17b38ef2729f09ea5f618',
 };
 
 /**

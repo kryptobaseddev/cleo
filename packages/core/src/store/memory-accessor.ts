@@ -80,15 +80,24 @@ export function upsertEmbeddingRowsNative(
   const ins = nativeDb.prepare(
     'INSERT INTO brain_embeddings (id, embedding, model) VALUES (?, ?, ?)',
   );
+  // One transaction per batch: a failure leaves no row deleted but not re-inserted.
+  nativeDb.prepare('SAVEPOINT embed_upsert').run();
   let written = 0;
-  for (const row of rows) {
-    del.run(row.id);
-    ins.run(
-      row.id,
-      Buffer.from(row.vector.buffer, row.vector.byteOffset, row.vector.byteLength),
-      model,
-    );
-    written++;
+  try {
+    for (const row of rows) {
+      del.run(row.id);
+      ins.run(
+        row.id,
+        Buffer.from(row.vector.buffer, row.vector.byteOffset, row.vector.byteLength),
+        model,
+      );
+      written++;
+    }
+    nativeDb.prepare('RELEASE embed_upsert').run();
+  } catch (err) {
+    nativeDb.prepare('ROLLBACK TO embed_upsert').run();
+    nativeDb.prepare('RELEASE embed_upsert').run();
+    throw err;
   }
   return written;
 }

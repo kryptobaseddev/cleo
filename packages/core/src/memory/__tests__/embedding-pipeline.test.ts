@@ -477,6 +477,20 @@ describe.skipIf(!isSqliteVecAvailable())(
       ]);
     });
 
+    it('a failing batch upsert rolls back, keeping the old vectors', async () => {
+      const db = await openBrain();
+      const { upsertEmbeddingRowsNative } = await import('../../store/memory-accessor.js');
+      const vec = (v: number) => new Float32Array(EMBEDDING_DIMENSIONS).fill(v);
+      upsertEmbeddingRowsNative(db, 'old-model', [{ id: 'O-keep-0', vector: vec(0.1) }]);
+      expect(() =>
+        upsertEmbeddingRowsNative(db, 'new-model', [
+          { id: 'O-keep-0', vector: vec(0.2) },
+          { id: 'O-bad-0', vector: new Float32Array(3) }, // wrong dimension: vec0 rejects it
+        ]),
+      ).toThrow();
+      expect(storedModels(db)).toEqual({ 'O-keep-0': 'old-model' });
+    });
+
     it('rebuilds a vector table from before the model tag', async () => {
       let db = await openBrain();
       db.prepare('DROP TABLE brain_embeddings').run();

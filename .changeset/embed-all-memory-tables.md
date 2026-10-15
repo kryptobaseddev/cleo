@@ -1,6 +1,6 @@
 ---
 id: embed-all-memory-tables
-tasks: [T13740]
+tasks: [T13740, T13729]
 kind: feat
 summary: Vector search embeds decisions, learnings and patterns too, and every vector records its model
 ---
@@ -19,3 +19,10 @@ local derived data that the backfill recomputes.
 
 Re-embedding an existing row also works now: vec0 rejects `INSERT OR REPLACE`
 on its primary key, so the upsert deletes the old vector first.
+
+`brain_embeddings` is now classified derived in both scopes (owner decision
+2026-10-14, T13729): vectors are a local cache rebuilt per machine from the
+synced memory text, never synced. This supersedes the 2026-09-28 ruling that
+made them portable-personal and closes the T12918 cache-blob plan. The
+pre-tag table rebuild runs under one write lock, and each batch of vector
+upserts is one transaction.

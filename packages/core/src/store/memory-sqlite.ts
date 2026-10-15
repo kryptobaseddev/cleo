@@ -363,15 +363,25 @@ function loadBrainVecExtension(nativeDb: DatabaseSync): boolean {
  * @task T13740
  */
 function initializeBrainVec(nativeDb: DatabaseSync): void {
-  const columns = nativeDb.prepare('PRAGMA main.table_info(brain_embeddings)').all();
-  if (columns.length > 0 && !columns.some((c) => c.name === 'model')) {
-    nativeDb.prepare('DROP TABLE main.brain_embeddings').run();
+  // Check, drop and create under one write lock, so two processes opening an
+  // old store at once cannot both see the old shape and race the rebuild.
+  const own = !nativeDb.isTransaction;
+  if (own) nativeDb.prepare('BEGIN IMMEDIATE').run();
+  try {
+    const columns = nativeDb.prepare('PRAGMA main.table_info(brain_embeddings)').all();
+    if (columns.length > 0 && !columns.some((c) => c.name === 'model')) {
+      nativeDb.prepare('DROP TABLE IF EXISTS main.brain_embeddings').run();
+    }
+    nativeDb
+      .prepare(
+        'CREATE VIRTUAL TABLE IF NOT EXISTS brain_embeddings USING vec0(id TEXT PRIMARY KEY, embedding FLOAT[384], model TEXT)',
+      )
+      .run();
+    if (own) nativeDb.prepare('COMMIT').run();
+  } catch (err) {
+    if (own && nativeDb.isTransaction) nativeDb.prepare('ROLLBACK').run();
+    throw err;
   }
-  nativeDb
-    .prepare(
-      'CREATE VIRTUAL TABLE IF NOT EXISTS brain_embeddings USING vec0(id TEXT PRIMARY KEY, embedding FLOAT[384], model TEXT)',
-    )
-    .run();
 }
 
 /**
