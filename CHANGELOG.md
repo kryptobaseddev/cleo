@@ -6,7 +6,7 @@
 
 ### Added
 
-- Global credentials sync with their secrets: sealed in cloud sync, re-encrypted on the receiving device _(provenance: [T13467](https://github.com/kryptobaseddev/cleo/search?q=T13467&type=commits), [T12915](https://github.com/kryptobaseddev/cleo/search?q=T12915&type=commits))_
+- Global credentials sync with their secrets: sealed in cloud sync, re-encrypted on the receiving device (inert on stable until Stage C) _(provenance: [T13467](https://github.com/kryptobaseddev/cleo/search?q=T13467&type=commits), [T12915](https://github.com/kryptobaseddev/cleo/search?q=T12915&type=commits))_
 
 ### Changed
 
@@ -15,12 +15,12 @@
 ### Fixed
 
 - cleo backup add and cleo restore backup --id now carry the docs blob store and attachments, so docs fetch works after a restore _(provenance: [T13704](https://github.com/kryptobaseddev/cleo/search?q=T13704&type=commits), [T13708](https://github.com/kryptobaseddev/cleo/search?q=T13708&type=commits), [T13709](https://github.com/kryptobaseddev/cleo/search?q=T13709&type=commits), [T13710](https://github.com/kryptobaseddev/cleo/search?q=T13710&type=commits))_
-- a sync joiner that never opened brain no longer refuses brain ops, and refused-schema ops retry once the schema has their columns _(provenance: [T13719](https://github.com/kryptobaseddev/cleo/search?q=T13719&type=commits))_
+- a sync joiner that never opened brain no longer refuses brain ops, and refused-schema ops retry once the schema has their columns (inert on stable until Stage C) _(provenance: [T13719](https://github.com/kryptobaseddev/cleo/search?q=T13719&type=commits))_
 - docs versions --for accepts a doc slug; dispatch keeps a CleoError's named code _(provenance: [T13725](https://github.com/kryptobaseddev/cleo/search?q=T13725&type=commits))_
-- LLM credentials now live encrypted in the synced accounts table, so a key added with cleo llm add on one device works on your others; llm-credentials.json is migrated once and removed _(provenance: [T13715](https://github.com/kryptobaseddev/cleo/search?q=T13715&type=commits), [T13528](https://github.com/kryptobaseddev/cleo/search?q=T13528&type=commits))_
+- LLM credentials now live encrypted in the accounts table, and llm-credentials.json is migrated once and removed; a key added with cleo llm add reaching your other devices is inert on stable until Stage C _(provenance: [T13715](https://github.com/kryptobaseddev/cleo/search?q=T13715&type=commits), [T13528](https://github.com/kryptobaseddev/cleo/search?q=T13528&type=commits))_
 - A qa-run receipt recorded on an earlier tree carries while its checked roots, the task's current change and the shared tool configs are byte-identical; a refusal names the paths that changed _(provenance: [T13644](https://github.com/kryptobaseddev/cleo/search?q=T13644&type=commits))_
-- cleo cloud restore now turns sync on for the restored project and the home stream, so a device that joins by restore syncs with no enable step _(provenance: [T13718](https://github.com/kryptobaseddev/cleo/search?q=T13718&type=commits))_
-- a replica's own echo no longer records field conflicts on timestamps stored as legacy 'YYYY-MM-DD HH:MM:SS' text _(provenance: [T13714](https://github.com/kryptobaseddev/cleo/search?q=T13714&type=commits))_
+- cleo cloud restore now turns sync on for the restored project and the home stream, so a device that joins by restore syncs with no enable step (inert on stable until Stage C) _(provenance: [T13718](https://github.com/kryptobaseddev/cleo/search?q=T13718&type=commits))_
+- a replica's own echo no longer records field conflicts on timestamps stored as legacy 'YYYY-MM-DD HH:MM:SS' text (inert on stable until Stage C) _(provenance: [T13714](https://github.com/kryptobaseddev/cleo/search?q=T13714&type=commits))_
 - qa-run receipts recorded on a main HEAD after the merge, on the current tree and covering the change, stand in for qaPassed whatever the merge CI concluded (the T13673 rule, now for qaPassed) _(provenance: [T13644](https://github.com/kryptobaseddev/cleo/search?q=T13644&type=commits))_
 - Docs wikilinks rebuild chunks past SQLite's variable cap; rebuild warnings stay bounded and never print SQL params _(provenance: [T13711](https://github.com/kryptobaseddev/cleo/search?q=T13711&type=commits))_
 
