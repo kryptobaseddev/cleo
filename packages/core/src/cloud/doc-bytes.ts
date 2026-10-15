@@ -199,6 +199,14 @@ export function pushDocBytes(
         });
         return 'done';
       }
+      if (outcome === 'unverified') {
+        // A per-body delivery fault: warn, leave it unmarked, move on to the rest.
+        o.warn({
+          code: 'W_SYNC_DOC_BYTES_UNVERIFIED',
+          message: `${o.stream}: doc ${sha256.slice(0, 12)}…'s recorded blob could not be checked (a size or hash fault of its download); it is kept, and the next sync checks it again`,
+        });
+        return 'done';
+      }
       if (outcome === 'sent') moved++;
       writeMeta(db, sentKey(o.stream, sha256), '1');
       return 'done';

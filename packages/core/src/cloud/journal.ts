@@ -25,6 +25,7 @@ import {
   hmacSha256,
   type KeyPair,
   open,
+  SEAL_OVERHEAD,
   seal,
   sha256Hex,
   signEd25519,
@@ -96,8 +97,8 @@ const refuse = (code: ClientErrorCode, reason: RefusalReason, message: string) =
 export const isClientRefusal = (err: unknown): err is NexusError =>
   err instanceof NexusError && err.status === 0 && typeof err.details?.reason === 'string';
 
-/** Bytes `seal` adds to a plaintext (version, salt, nonce and tag): an attachment's ciphertext size is its size plus this. */
-export const AEAD_OVERHEAD = 1 + 32 + 12 + 16;
+/** An attachment's ciphertext size is its plaintext size plus this ({@link SEAL_OVERHEAD}). */
+export const AEAD_OVERHEAD = SEAL_OVERHEAD;
 
 /**
  * Whether a refusal proves the recorded content wrong, not just its delivery: the ciphertext matched
@@ -800,25 +801,28 @@ export class Journal {
    *
    * @param sha256 - The plaintext sha256 the synced row names.
    * @param plaintext - The bytes; they must hash to `sha256`.
-   * @returns `sent` when this call recorded it, `present` when the stream already had a good copy, and
-   *   `contested` when the ref holds another blob this caller may not clear, or a racer recorded first.
+   * @returns `sent` when this call recorded it, `present` when the stream already had a good copy,
+   *   `contested` when the ref holds another blob this caller may not clear, or a racer recorded first,
+   *   and `unverified` when the recorded blob could not be checked (a size or hash fault of its
+   *   download): nothing is cleared, and the next push checks it again.
    */
   async pushAttachment(
     sha256: string,
     plaintext: Buffer,
-  ): Promise<'sent' | 'present' | 'contested'> {
+  ): Promise<'sent' | 'present' | 'contested' | 'unverified'> {
     if (sha256Hex(plaintext) !== sha256)
       throw refuse('E_VALIDATION', 'payload', `attachment ${sha256} does not match its bytes`);
     const path = this.attachmentPath(sha256);
     const { download: d } = await this.o.http.request('GET', path, GetStreamAttachmentResult);
     if (d !== null) {
       // A record of another size cannot hold these bytes; one of the right size is downloaded and
-      // cleared only when its content is provably wrong (a delivery fault is thrown and retried).
+      // cleared only when its content is provably wrong. A delivery fault proves nothing: unverified.
       if (d.sizeBytes === plaintext.length + AEAD_OVERHEAD) {
         try {
           await this.readAttachment(sha256, d, d.sizeBytes);
           return 'present';
         } catch (err) {
+          if (isClientRefusal(err) && !provesContentWrong(err)) return 'unverified';
           if (!provesContentWrong(err)) throw err;
         }
       }

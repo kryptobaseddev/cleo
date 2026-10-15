@@ -781,7 +781,7 @@ describe('docs reach a second device (T12919)', () => {
       const ref = hmacSha256(deriveKey(key, 'attachment-ref'), Buffer.from(sha)).toString('hex');
       refs.set(ref, { blobSha256, sizeBytes: bytes.length });
     };
-    return { blobs, refs, calls, journal, policy, squat };
+    return { blobs, refs, calls, journal, policy, squat, key };
   }
 
   const docBytes = (r: Replica, name: string, warnings: CloudWarning[]) => ({
@@ -1028,6 +1028,37 @@ describe('docs reach a second device (T12919)', () => {
     ).toEqual({ moved: 0, refused: 0 });
     expect(fresh.calls).toEqual([]);
     expect(quiet.map((w) => w.code)).toEqual(['W_SYNC_DOC_BYTES_TOO_LARGE']);
+  });
+
+  it('a recorded blob that cannot be checked holds up only itself: the push moves on to the next doc (T13721)', async () => {
+    const { a } = await docOnBoth();
+    const server = attachmentServer();
+    const warnings: CloudWarning[] = [];
+    const NEXT = `${BODY}v2\n`;
+    writeFileSync(join(dir, 'a', '.cleo', 'blobs', 'blobs', NEXT_SHA), NEXT);
+    // The doc that sorts first is recorded with a blob of the right size whose stored bytes are
+    // damaged (a delivery fault: the download misses its announced sha256).
+    const [first, firstLen] = SHA < NEXT_SHA ? [SHA, BODY.length] : [NEXT_SHA, NEXT.length];
+    const [second] = SHA < NEXT_SHA ? [NEXT_SHA] : [SHA];
+    server.squat(first, Buffer.alloc(firstLen + 61, 1));
+    for (const r of server.refs.values()) {
+      server.blobs.set(r.blobSha256, Buffer.alloc(firstLen + 61, 2));
+    }
+    const refOf = (x: string) =>
+      hmacSha256(deriveKey(server.key, 'attachment-ref'), Buffer.from(x)).toString('hex');
+    for (let run = 0; run < 3; run++) {
+      await pushDocBytes(a.db, server.journal(a), docBytes(a, 'a', warnings));
+    }
+    // The second doc was recorded on the first run; the first stays recorded, never cleared.
+    expect(server.refs.has(refOf(second))).toBe(true);
+    expect(server.refs.has(refOf(first))).toBe(true);
+    expect(server.calls.filter((c) => c.startsWith('DELETE '))).toHaveLength(0);
+    expect(server.calls.filter((c) => c.endsWith('/v1/blobs/presign'))).toHaveLength(1);
+    expect(warnings.map((w) => w.code)).toEqual([
+      'W_SYNC_DOC_BYTES_UNVERIFIED',
+      'W_SYNC_DOC_BYTES_UNVERIFIED',
+      'W_SYNC_DOC_BYTES_UNVERIFIED',
+    ]);
   });
 
   it('a server without the attachment routes: rows still sync, fetch is no-content, one warning says why (T13721)', async () => {
