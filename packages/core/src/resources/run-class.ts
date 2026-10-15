@@ -1318,31 +1318,77 @@ export function runFootprint(argv: readonly string[]): RunFootprint {
   return { size: 'class', reason: 'sized by its class' };
 }
 
-/** Commands that run whatever they are given: their heaviness is unknown. */
-const OPAQUE_RUNNERS = /^(sh|bash|zsh|dash|ksh|fish|make|gmake|just|xargs)$/;
+/** Utilities that never run a heavy tool: the only commands charged light by name. */
+const LIGHT_UTILITIES =
+  /^(ls|cat|echo|printf|head|tail|wc|pwd|true|false|date|sleep|mkdir|touch|cp|mv|rm|ln|stat|which|basename|dirname)$/;
+/** Wrappers stripped before classifying, and their flags that take a value. */
+const WRAPPERS = /^(env|nice|nohup|time|timeout|sudo|command|exec)$/;
+const WRAPPER_VALUE_FLAGS: ReadonlySet<string> = new Set([
+  '-n',
+  '-u',
+  '-g',
+  '-s',
+  '-k',
+  '-C',
+  '-p',
+]);
+/** A plain script path `node` may run light. */
+const NODE_SCRIPT = /\.[cm]?js$/;
+
+/** `argv` without leading wrappers (`timeout 60`, `sudo -u x`, `env A=1`, `nice -n 5`). */
+function unwrapped(argv: readonly string[]): readonly string[] {
+  let i = 0;
+  while (i < argv.length) {
+    const w = argv[i] as string;
+    if (/^[A-Za-z_][A-Za-z0-9_]*=/.test(w)) {
+      i++;
+      continue;
+    }
+    const b = base(w);
+    if (!WRAPPERS.test(b)) break;
+    i++;
+    while (i < argv.length && (argv[i] as string).startsWith('-')) {
+      i += WRAPPER_VALUE_FLAGS.has(argv[i] as string) ? 2 : 1;
+    }
+    if (b === 'timeout') i++; // the duration
+  }
+  return argv.slice(i);
+}
 
 /**
- * Why a command runs no heavy tool (T13452): `looksHeavy` rejects it and it
- * is not a runner of other commands (a shell, `make`, a package-manager
- * script, CLEO itself), e.g. `node scripts/x.mjs` or `ls`. Git is sized by
- * {@link runFootprint} and its hooks, so it is never answered here.
+ * Why a command is known to run no heavy tool (T13452), from a small
+ * allowlist: a file utility (`ls`, `cat`, `echo`, …) or `node` running a
+ * plain `.js`/`.mjs`/`.cjs` script with no node flags (not CLEO's own CLI).
+ * Leading wrappers (`timeout`, `sudo`, `env`, `nice`, `command`, `exec`) are
+ * stripped first. Everything else (cargo, go, pytest, gradle, docker, a shell
+ * script, `node --test`) may be heavy and keeps its class plan. Git is sized
+ * by {@link runFootprint} and its hooks, so it is never answered here.
  *
  * @param argv - the command.
  * @returns the reason, or `null` when the command may be heavy.
  *
  * @example
  * ```ts
- * lightCommandReason(['node', 'scripts/gen.mjs']); // 'node runs no heavy tool'
- * lightCommandReason(['bash', '-c', 'pnpm test']);  // null
+ * lightCommandReason(['node', 'scripts/gen.mjs']);       // 'node scripts/gen.mjs runs no heavy tool'
+ * lightCommandReason(['timeout', '5', 'ls']);            // 'ls runs no heavy tool'
+ * lightCommandReason(['node', '--test', 'a.test.mjs']);  // null
+ * lightCommandReason(['cargo', 'clippy']);               // null
  * ```
  */
 export function lightCommandReason(argv: readonly string[]): string | null {
-  const t = commandTarget(argv);
-  if (t.tool === '' || t.tool === 'git' || t.pm !== null || OPAQUE_RUNNERS.test(t.tool)) {
-    return null;
+  const words = unwrapped(argv);
+  const tool = base(words[0] ?? '');
+  if (LIGHT_UTILITIES.test(tool)) return `${tool} runs no heavy tool`;
+  const script = words[1];
+  if (
+    tool === 'node' &&
+    script !== undefined &&
+    NODE_SCRIPT.test(script) &&
+    !CLEO_SCRIPT.test(script)
+  ) {
+    return `node ${script} runs no heavy tool`;
   }
-  if (isCleoCommand(t) || looksHeavy(argv)) return null;
-  return `${t.tool} runs no heavy tool`;
+  return null;
 }
 
 /** git subcommands that can use gigabytes across threads (T13458): never light. */

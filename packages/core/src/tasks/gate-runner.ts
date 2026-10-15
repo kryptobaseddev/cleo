@@ -1634,8 +1634,13 @@ async function captureGateCommand(
   overlay?: Readonly<Record<string, string>>,
 ): Promise<ProcessCaptureResult> {
   const env = gateEnvironment(context.env ?? process.env, overlay);
+  const plan = planRunFootprint(cls, [command, ...args], env);
+  // The gate spawns with the whole heavy-run env (gateEnvironment), not the
+  // plan's overlay, so a worker-pool plan is charged the whole heavy run (T13759).
   const footprintBytes =
-    planRunFootprint(cls, [command, ...args], env).footprintBytes ?? footprintForClass(cls);
+    plan.resources !== null && plan.resources.workers > 1
+      ? footprintForClass(cls)
+      : (plan.footprintBytes ?? footprintForClass(cls));
   const release = await acquireGlobalSlot(cls === 'test-run' ? 'test' : 'lint', {
     label: `gate:${cls === 'test-run' ? 'test' : 'command'}`,
     footprintBytes,

@@ -13,8 +13,16 @@ half a heavy run's workers rounded up (2 workers, 12 GiB on 64 GiB), so two fit
 a halved budget. Test runs and full builds keep their plans; a full build is
 never shrunk.
 
-A scoped build of a command `looksHeavy` rejects (`node scripts/x.mjs`, `ls`)
-is now charged the light footprint, with a reason naming the tool. Shells,
-`make`, package-manager scripts and CLEO itself keep the class plan, since they
-run arbitrary commands. A git push or commit with an installed hook keeps the
-plan, as before.
+A scoped build of a command on a small allowlist is charged the light
+footprint, with a reason naming it: file utilities (`ls`, `cat`, `echo`, …) and
+`node` running a plain `.js`/`.mjs`/`.cjs` script with no node flags. Wrappers
+(`timeout`, `sudo`, `env`, `nice`, `command`, `exec`) are stripped first.
+Everything else (cargo, go, pytest, gradle, docker, shell scripts, `node
+--test`) keeps the class plan. A git push or commit with an installed hook keeps
+the plan, as before.
+
+A nested run rides an enclosing grant only when that grant is a heavy run's or
+covers the request. Under a light grant a heavier run queues for itself,
+charged at most what the parent leaves of the capacity. Typed gates, which are
+spawned with the whole heavy-run environment, are charged the whole heavy run
+for a worker-pool plan.

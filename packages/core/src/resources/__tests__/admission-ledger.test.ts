@@ -982,6 +982,48 @@ describe('admit (one ledger, real critical section)', () => {
     await outer.grant.release();
   });
 
+  it('under a light parent, a nested heavy run queues for its own footprint (T13452)', async () => {
+    const nestedIn = async (outerBytes: number, innerBytes: number) => {
+      const outer = await admit(
+        { label: 'run:scoped-build', footprintBytes: outerBytes },
+        { ...base, dir, wait: false },
+      );
+      if (!outer.admitted) throw new Error('expected an admission');
+      const holderPid = process.pid;
+      const nested = await admit(
+        { label: 'run:full-build', footprintBytes: innerBytes },
+        {
+          ...base,
+          dir,
+          wait: false,
+          pid: 99_999,
+          env: { [ADMISSION_ENV]: outer.grant.token },
+          facts: {
+            ancestorsOf: () => [holderPid],
+            groupOf: () => null,
+            startedAt: (pid) => readLedger(dir).find((e) => e.pid === pid)?.startedAt ?? null,
+          },
+        },
+      );
+      const ledger = readLedger(dir).map((e) => e.footprintBytes);
+      if (nested.admitted) await nested.grant.release();
+      await outer.grant.release();
+      return { nested, ledger };
+    };
+    // A 1 GiB grant does not carry an 8 GiB run: it gets its own entry.
+    const own = await nestedIn(GIB, 8 * GIB);
+    expect(own.nested.admitted && own.nested.grant.nested).toBe(false);
+    expect(own.ledger).toEqual([GIB, 8 * GIB]);
+    // A capacity-sized run is charged what the parent leaves, so it never waits on its parent.
+    const whole = await nestedIn(GIB, 20 * GIB);
+    expect(whole.nested.admitted).toBe(true);
+    expect(whole.ledger).toEqual([GIB, capacityBytes - GIB]);
+    // A heavy parent's grant still carries a bigger nested run.
+    const heavy = await nestedIn(8 * GIB, 9 * GIB);
+    expect(heavy.nested.admitted && heavy.nested.grant.nested).toBe(true);
+    expect(heavy.ledger).toEqual([8 * GIB]);
+  });
+
   it('a holder that died without releasing is reaped, and its share freed', async () => {
     const gone: PidProbe = {
       liveness: (pid) => (pid === 4_000_001 ? 'gone' : 'alive'),
@@ -1527,9 +1569,10 @@ describe('a git push is charged by what actually runs (T13452)', () => {
 
   it('a command looksHeavy rejects is charged light, naming it; a runner of other commands is not', () => {
     for (const [argv, reason] of [
-      [['node', 'scripts/gen.mjs'], 'node runs no heavy tool'],
+      [['node', 'scripts/gen.mjs'], 'node scripts/gen.mjs runs no heavy tool'],
       [['git', 'status'], 'git status runs no heavy tool'],
       [['ls', '-la'], 'ls runs no heavy tool'],
+      [['timeout', '60', 'sudo', '-u', 'me', 'cat', 'a'], 'cat runs no heavy tool'],
     ] as const) {
       const plan = planRunFootprint('scoped-build', argv, {}, RAM, () => true);
       expect(plan.footprintBytes, argv.join(' ')).toBe(GIB);
@@ -1541,7 +1584,26 @@ describe('a git push is charged by what actually runs (T13452)', () => {
       ['make', 'all'],
       ['pnpm', 'run', 'generate'],
       ['cleo', 'verify', 'T1'],
+      ['node', 'bin/cleo.js', 'verify', 'T1'],
       ['pnpm', 'install'],
+      // B1 of the #2280 review: anything off the allowlist keeps the plan.
+      ['cargo', 'clippy'],
+      ['cargo', 'nextest', 'run'],
+      ['go', 'vet', './...'],
+      ['gradle', 'build'],
+      ['mvn', 'verify'],
+      ['xcodebuild', 'test'],
+      ['docker', 'build', '.'],
+      ['npx', 'tsx', 'scripts/x.ts'],
+      ['./scripts/test.sh'],
+      ['pre-commit', 'run', '--all-files'],
+      ['lefthook', 'run', 'pre-commit'],
+      ['node', '--test', 'a.test.mjs'],
+      ['node', '--max-old-space-size=8192', 'build.mjs'],
+      ['timeout', '600', 'cargo', 'check'],
+      ['sudo', 'pytest'],
+      ['watchexec', 'ls'],
+      ['parallel', 'echo', ':::', 'a'],
     ]) {
       const plan = planRunFootprint('scoped-build', argv, {}, RAM);
       expect(plan.footprintBytes, argv.join(' ')).toBeGreaterThan(HEAVY_FOOTPRINT_BYTES);

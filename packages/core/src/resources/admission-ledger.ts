@@ -44,7 +44,10 @@
  * A grant exports `CLEO_ADMISSION=<id>.<nonce>` to its children. A request
  * made inside an admitted run's process tree rides that grant (no new budget,
  * no queue), so a `cleo verify` under `cleo run`, or a `cleo run` under an
- * evidence run, never waits for the budget its own ancestor holds. The token
+ * evidence run, never waits for the budget its own ancestor holds. Only a
+ * heavy grant, or one at least as big as the request, carries it: under a
+ * light grant (a `node` script charged 1 GiB) a heavy run queues for its own
+ * footprint (T13452). The token
  * only says which grant to check: the caller must descend from the holder
  * (ancestry, or membership of a tool process group it started), with the
  * holder's start time matching, so the env var alone grants nothing. A wrapper
@@ -1780,11 +1783,19 @@ async function admitInner(req: AdmissionRequest, opts: AdmitOptions): Promise<Ad
   const timeoutMs = opts.timeoutMs ?? 3_600_000;
   const t0 = now();
 
-  // Re-entrant: a request inside an admitted run's tree rides its grant.
+  // Re-entrant: a request inside an admitted run's tree rides its grant, when
+  // that grant is a heavy run's or covers the request. Under a light or
+  // single-process grant a bigger run queues for itself (T13452), charged at
+  // most what the parent leaves of the capacity, so it can never wait on its
+  // own parent's bytes.
   const parent = enclosingGrant(readLedger(dir), pid, env, opts.facts);
-  if (parent !== null) {
+  if (parent !== null && (isHeavy(parent) || parent.footprintBytes >= req.footprintBytes)) {
     return { admitted: true, grant: passThrough(admissionToken(parent), true, null) };
   }
+  const footprintBytes =
+    parent === null
+      ? Math.max(0, req.footprintBytes)
+      : Math.max(0, Math.min(req.footprintBytes, capacityBytes - charged(parent, capacityBytes)));
 
   const entry: LedgerEntry = {
     id: newId(pid, t0),
@@ -1795,7 +1806,7 @@ async function admitInner(req: AdmissionRequest, opts: AdmitOptions): Promise<Ad
     label: req.label,
     command: req.command ?? process.argv.slice(1).join(' '),
     cwd: req.cwd === undefined ? process.cwd() : req.cwd, // CWD-OK: display only — where the run was started, shown in status and reports
-    footprintBytes: Math.max(0, req.footprintBytes),
+    footprintBytes,
     state: 'waiting',
     enqueuedAtMs: t0,
     admittedAtMs: null,
