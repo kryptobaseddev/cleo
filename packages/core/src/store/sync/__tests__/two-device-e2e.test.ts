@@ -488,6 +488,8 @@ describe('legacy-format timestamps echo without conflicts (T13714)', () => {
     expect(
       b.db.prepare("SELECT updated_at FROM brain_observations WHERE id = 'O-t13714'").get(),
     ).toEqual({ updated_at: '2026-10-14T17:32:57.000Z' });
+  });
+});
 
 describe('brain ops reach a joiner that never opened brain (T13719)', () => {
   const hasColumn = (db: DatabaseSync, table: string, column: string): boolean =>
