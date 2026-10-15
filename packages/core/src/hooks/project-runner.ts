@@ -24,7 +24,7 @@ import {
   resolveProjectHookFile,
   resolveProjectHookStateFile,
 } from './project-state.js';
-import { HOOKS_V1_UNRELEASED } from './release-gate.js';
+import { HOOKS_V1_UNRELEASED, hooksV1Released } from './release-gate.js';
 
 const MAX_INPUT_BYTES = 65536;
 const MAX_OUTPUT_BYTES = 65536;
@@ -69,13 +69,16 @@ function blocksFor(
 }
 
 /**
- * Changed inputs never run (T13742): every approved or current hook matching the event, and an
- * event no hook matches, fails closed for Git, worktree, direct and CI; agents only warn.
+ * Changed inputs never run (T13742): every approved, current or linked hook matching the event
+ * fails closed for Git, worktree, direct and CI; agents only warn. An event none of them binds
+ * runs no hooks, except for an activation recorded before bindings were stored, which refuses
+ * it too. A direct check of an absent ID always refuses.
  */
 function reactivationRequired(
   hooks: ReadonlyArray<Pick<ProjectHookDefinition, 'id' | 'bindings'>>,
   invocation: HookInvocation,
-  id?: string,
+  id: string | undefined,
+  approved: HookActivation | undefined,
 ): HookOutcome[] {
   const blocks = invocation.source !== 'agent';
   const ids = new Set(
@@ -85,6 +88,7 @@ function reactivationRequired(
       )
       .map((hook) => hook.id),
   );
+  if (ids.size === 0 && !id && approved?.bindings) return [];
   return [...(ids.size > 0 ? ids : [id ?? 'cleo.project-hooks'])].map((hookId) => ({
     id: hookId,
     status: blocks ? 'block' : 'warn',
@@ -102,6 +106,38 @@ function approvedHooks(
   activation: HookActivation | undefined,
 ): Array<Pick<ProjectHookDefinition, 'id' | 'bindings'>> {
   return Object.entries(activation?.bindings ?? {}).map(([id, bindings]) => ({ id, bindings }));
+}
+
+/**
+ * A manifest that no longer parses cannot shed an approved hook (T13742): refuse the approved
+ * bindings. Returns undefined for every other fault, which keeps its local allow behaviour.
+ */
+async function refuseInvalidManifest(
+  invocation: HookInvocation,
+  id: string | undefined,
+  activationRoot: string | undefined,
+): Promise<HookOutcome[] | undefined> {
+  try {
+    const state = await readProjectHooksLocalState(
+      resolveProjectHookContext(activationRoot ?? invocation.projectRoot),
+    );
+    if (!state.hooks.project.enabled || !state.activation?.bindings || !hooksV1Released())
+      return undefined;
+    for (const root of new Set([invocation.projectRoot, activationRoot ?? invocation.projectRoot]))
+      try {
+        await readProjectHooksManifest(resolveProjectHookContext(root));
+      } catch {
+        return reactivationRequired(
+          approvedHooks(state.activation),
+          invocation,
+          id,
+          state.activation,
+        );
+      }
+    return undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 async function executeOne(
@@ -286,6 +322,7 @@ export async function executeProjectHooks(
           [...approvedHooks(approved), ...inspection.manifest.hooks, ...targetManifest.hooks],
           invocation,
           id,
+          approved,
         );
       }
     }
@@ -321,6 +358,7 @@ export async function executeProjectHooks(
           [...approvedHooks(approved), ...inspection.manifest.hooks, ...target],
           invocation,
           id,
+          approved,
         );
       }
       return [
@@ -355,7 +393,7 @@ export async function executeProjectHooks(
         !sameInputs(fresh.activation, approved) ||
         !sameInputs(target, approved)
       ) {
-        outcomes.push(...reactivationRequired(definitions.slice(index), invocation, id));
+        outcomes.push(...reactivationRequired(definitions.slice(index), invocation, id, approved));
         break;
       }
       const remainingMs = Math.floor(deadline - performance.now());
@@ -398,7 +436,11 @@ export async function executeProjectHooks(
     }
     return outcomes;
   } catch {
-    return [fault(invocation, 'HOOK_INFRASTRUCTURE_ERROR')];
+    return (
+      (await refuseInvalidManifest(invocation, id, activationRoot)) ?? [
+        fault(invocation, 'HOOK_INFRASTRUCTURE_ERROR'),
+      ]
+    );
   }
 }
 

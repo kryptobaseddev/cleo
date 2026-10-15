@@ -257,10 +257,41 @@ describe('activated project checks through actual child processes', () => {
     expect(await executeProjectHooks(invocation)).toMatchObject([
       { id: 'migration-check', status: 'block', blocks: true, code: 'HOOK_REACTIVATION_REQUIRED' },
     ]);
-    // An event no approved or current hook binds still refuses outside agents.
-    expect(await executeProjectHooks({ ...invocation, event: 'post-merge' })).toMatchObject([
-      { id: 'cleo.project-hooks', status: 'block', blocks: true },
+    // A malformed manifest cannot shed the approved hook either.
+    await writeFile(join(root, '.cleo/hooks.json'), 'invalid-json');
+    expect(await executeProjectHooks(invocation)).toMatchObject([
+      { id: 'migration-check', status: 'block', blocks: true, code: 'HOOK_REACTIVATION_REQUIRED' },
     ]);
+    expect(
+      await executeProjectHooks({ ...invocation, source: 'worktree', event: 'post-start' }),
+    ).toEqual([]);
+  });
+  it('drift refuses only bound events: worktree start passes, the push is refused (T13742)', async () => {
+    await activateProjectHooks(root);
+    await writeFile(join(root, 'handler.mjs'), 'process.exit(4);');
+    expect(
+      await executeProjectHooks({ ...invocation, source: 'worktree', event: 'post-start' }),
+    ).toEqual([]);
+    expect(
+      await executeProjectHooks({ ...invocation, source: 'agent', event: 'PreToolUse' }),
+    ).toEqual([]);
+    expect(await executeProjectHooks(invocation)).toMatchObject([
+      { id: 'migration-check', status: 'block', blocks: true, code: 'HOOK_REACTIVATION_REQUIRED' },
+    ]);
+  });
+  it('a legacy activation without stored bindings refuses every non-agent event on drift', async () => {
+    await activateProjectHooks(root);
+    const file = join(resolveProjectHookContext(root).stateDir, 'activation.json');
+    const state = JSON.parse(await readFile(file, 'utf8')) as {
+      activation: { bindings?: Record<string, unknown> };
+    };
+    delete state.activation.bindings;
+    await writeFile(file, JSON.stringify(state));
+    expect((await inspectProjectHooks(root)).activation).toBe('active');
+    await rm(join(root, '.cleo/hooks.json'));
+    expect(
+      await executeProjectHooks({ ...invocation, source: 'worktree', event: 'post-start' }),
+    ).toMatchObject([{ id: 'cleo.project-hooks', status: 'block', blocks: true }]);
     expect(
       await executeProjectHooks({ ...invocation, source: 'agent', event: 'PreToolUse' }),
     ).toMatchObject([{ status: 'warn', blocks: false, code: 'HOOK_REACTIVATION_REQUIRED' }]);

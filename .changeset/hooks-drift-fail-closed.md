@@ -10,9 +10,13 @@ reported a non-blocking `warn (HOOK_REACTIVATION_REQUIRED)` and Git pre-push
 allowed the push, so a check that would have blocked was skipped. Drift now runs
 no handler and refuses every matching check wherever its block verdict would be
 enforced (Git, worktree, direct, CI), with `cleo hook sync --activate` in the
-message, and refuses there even when no hook matches the event. Activation now
-records each hook's approved bindings, so a commit that deletes or rebinds a hook
-cannot escape the gate. Agent checks stay advisory and only warn. The same rule
+message. Activation now records each hook's approved bindings, so a commit that
+deletes, rebinds or corrupts a hook definition cannot escape the gate: drift
+refuses every event in the approved, current or linked-checkout bindings, and a
+`.cleo/hooks.json` that no longer parses refuses the approved ones. An event
+none of them binds still runs no hooks, so worktree creation is not blocked
+unless worktree events are bound; an activation from before bindings were stored
+refuses every non-agent event on drift. Agent checks stay advisory and only warn. The same rule
 covers worktree inheritance (including hooks only the linked checkout declares)
 and the recheck between handlers.
 
