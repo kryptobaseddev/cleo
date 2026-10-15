@@ -21,7 +21,9 @@ rule refuses the checkpoint, and the push says so instead of writing a delta.
 A checkpoint carries only its unresolved inbox rows, and a restore keeps them, so
 its pending transactions still apply, once. A device whose last synced snapshot
 is older than the head, when the head changed files or databases, is refused as
-behind; `--force` pushes a labelled fork.
+behind; `--force` pushes a labelled fork. On such a store `cleo cloud pull`
+brings in only the snapshot's files and databases (the journal carries
+`cleo.db`), records the head as synced, and the push then lands.
 
 `cleo cloud verify` on a store that writes the journal compares each table's
 rows with the head's counts plus the journal's tallies past it, and reports

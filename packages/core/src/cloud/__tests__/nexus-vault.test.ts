@@ -6315,11 +6315,84 @@ describe('sync enable push: the genesis checkpoint (T12343 S4-1b)', () => {
       expect(behind.fix).toContain('--force');
       expect(s.checkpoints).toHaveLength(checkpoints);
       expect(s.headCheckpointId).toBe(fromB.snapshot?.checkpointId);
-      // --force keeps this store, labelled a fork over B's snapshot.
+      // The named remedy: a pull brings in B's file and leaves the journal tables alone.
+      const pulled = await on(a, () => restoreNexusVault(vopts(a, { mode: 'pull' })));
+      expect(pulled.status).toBe('restored');
+      expect(fs.readFileSync(path.join(a.root, '.cleo', 'adrs', 'adr-b.md'), 'utf8')).toBe(
+        '# ADR B\n',
+      );
+      const aRows = async () =>
+        on(a, async () =>
+          Number(
+            (
+              (await storeOf(aDb)).prepare('SELECT count(*) AS n FROM tasks_tasks').get() as {
+                n: number;
+              }
+            ).n,
+          ),
+        );
+      expect(
+        await on(a, async () =>
+          (await storeOf(aDb)).prepare("SELECT title FROM tasks_tasks WHERE id = 'T32'").get(),
+        ),
+      ).toEqual({ title: 'from A' });
+      const after = await push(a);
+      expect(after.status).toBe('pushed');
+      expect(after.forked).toBe(false);
+      const head = s.checkpoints.at(-1);
+      // The head carries B's file and A's write.
+      expect(head?.manifest.tables['zz_vault_files']).toEqual(
+        s.checkpoints.find((c) => c.checkpointId === fromB.snapshot?.checkpointId)?.manifest.tables[
+          'zz_vault_files'
+        ],
+      );
+      expect(head?.manifest.tables['tasks_tasks']?.rows).toBe(await aRows());
+      // B adds another doc; A writes and pushes with --force: a fork labelled over B's snapshot.
+      await sync(b);
+      fs.writeFileSync(path.join(b.root, '.cleo', 'adrs', 'adr-b2.md'), '# ADR B2\n');
+      expect((await push(b)).status).toBe('pushed');
+      await on(a, async () => (await storeOf(aDb)).exec(insertTask('T33', 'from A')));
+      expect((await failure(push(a))).code).toBe('E_NEXUS_VAULT_BEHIND');
       const forced = await push(a, { force: true });
       expect(forced.status).toBe('pushed');
       expect(forced.forked).toBe(true);
       expect(isVaultForkManifest(s.checkpoints.at(-1)?.manifest ?? { tables: {} })).toBe(true);
+    });
+
+    it('a merge-joined store with no synced snapshot: refused as behind, the pull remedy brings it level, and its push lands', async () => {
+      const { a, aDb } = await journalDevices(false);
+      await on(a, async () => (await storeOf(aDb)).exec(insertTask('T3', 'from A')));
+      await sync(a);
+      const { m: b, dbPath: bDb } = await journalMachine('b');
+      const joined = await on(b, () => enableSyncPush(vopts(b, { allowUnreleased: true })));
+      expect(joined.status).toBe('joined');
+      expect(joined.merged).not.toBeNull();
+      await on(b, async () => {
+        setSyncFlag(await storeOf(bDb), 'sync.pull', true, { allowUnreleased: true });
+      });
+      const push = () => on(b, () => pushNexusVault(vopts(b, { allowUnreleased: true })));
+      const s = fake.stream(STREAM);
+      const checkpoints = s.checkpoints.length;
+      const behind = await failure(push());
+      expect(behind.code).toBe('E_NEXUS_VAULT_BEHIND');
+      expect(behind.fix).toContain('cleo cloud pull');
+      expect(s.checkpoints).toHaveLength(checkpoints);
+      const pulled = await on(b, () => restoreNexusVault(vopts(b, { mode: 'pull' })));
+      expect(pulled.status).toBe('restored');
+      const pushed = await push();
+      expect(pushed.status).toBe('pushed');
+      expect(pushed.forked).toBe(false);
+      const bRows = await on(b, async () =>
+        Number(
+          (
+            (await storeOf(bDb)).prepare('SELECT count(*) AS n FROM tasks_tasks').get() as {
+              n: number;
+            }
+          ).n,
+        ),
+      );
+      expect(s.checkpoints.at(-1)?.manifest.tables['tasks_tasks']?.rows).toBe(bRows);
+      expect(bRows).toBeGreaterThanOrEqual(3);
     });
 
     it('a checkpoint with pending transactions restores on a new device, and they apply exactly once after a sync', async () => {
