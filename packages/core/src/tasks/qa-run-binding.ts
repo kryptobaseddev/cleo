@@ -12,7 +12,7 @@
  *     that depends on a changed package is covered by a root at or above its
  *     directory, since a type change breaks importers. A workspace-wide change
  *     (a path outside every package) is refused: only a whole-project run
- *     speaks for it — unless the change is non-code only (root config, docs;
+ *     speaks for it — unless the change is non-code only (docs, editor settings;
  *     T13745), when no package is affected and a lint (or structural) receipt
  *     holding the files stands without a typecheck.
  *  4. **Identity.** HEAD and the tool-cache tree hash are recorded by the
@@ -263,7 +263,7 @@ export function qaRunCoverage(
   changed: readonly string[],
 ): QaRunBinding {
   const covered = (path: string): boolean => roots.some((r) => r === path || inPackageDir(path, r));
-  // T13745: a non-code-only change (root config, docs) affects no package; the
+  // T13745: a non-code-only change (docs, editor settings) affects no package; the
   // receipt's roots must still hold each changed non-doc file.
   if (isNonCodeOnlyChange(changed)) {
     const uncovered = changed.filter((p) => !isCiDocumentPath(p) && !covered(p));

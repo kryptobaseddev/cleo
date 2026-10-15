@@ -557,6 +557,8 @@ export function readRequiredCheckPins(
  * therefore lives in the async {@link resolveRequiredWorkflowsDetailed}; this
  * pure function is kept for callers that cannot await.
  *
+ * @throws Error when the env var starts with `[` but is not a JSON array of
+ *   named entries (T13744): an unreadable list is never an empty one.
  * @task T9764
  * @task T12014 (gh#1104)
  * @task T12104 (gh#1192)
@@ -565,7 +567,10 @@ export function resolveRequiredWorkflows(
   env: NodeJS.ProcessEnv = process.env,
   projectContext?: Record<string, unknown> | null,
 ): string[] {
-  return resolveSyncTier(env, projectContext)?.workflows ?? [...PR_REQUIRED_WORKFLOWS];
+  const tier = resolveSyncTier(env, projectContext);
+  // T13744: an unreadable env list is never an empty (accept-all) one.
+  if (tier?.source.tier === 'unknown') throw new Error(tier.source.reason);
+  return tier?.workflows ?? [...PR_REQUIRED_WORKFLOWS];
 }
 
 /**
@@ -630,16 +635,24 @@ export function describeRequiredWorkflowsSource(source: RequiredWorkflowsSource)
 /**
  * Parse a JSON-array env value (`[]`, `["CI","Lint"]`) with the same entry
  * rules as the config key, so `[]` means no required workflows (T13744).
- * Returns `null` when the value is not a JSON array (comma-list fallback).
+ * Returns `null` when the value is not meant as JSON (comma-list fallback),
+ * and an error when it starts with `[` but is not an array of named entries:
+ * guessing would turn a typo into `[]`, which accepts every merged PR.
  */
-function parseEnvWorkflowArray(raw: string): string[] | null {
+function parseEnvWorkflowArray(raw: string): string[] | { error: string } | null {
   if (!raw.trim().startsWith('[')) return null;
+  let declared: unknown;
   try {
-    const declared: unknown = JSON.parse(raw);
-    return extractProjectContextRequiredWorkflows({ release: { prRequiredWorkflows: declared } });
-  } catch {
-    return null;
+    declared = JSON.parse(raw);
+  } catch (err) {
+    return { error: `not valid JSON (${err instanceof Error ? err.message : String(err)})` };
   }
+  if (!Array.isArray(declared)) return { error: 'not a JSON array' };
+  const names =
+    extractProjectContextRequiredWorkflows({ release: { prRequiredWorkflows: declared } }) ?? [];
+  return names.length === declared.length
+    ? names
+    : { error: 'an entry has no workflow name (a non-empty string, or an object with "name")' };
 }
 
 /**
@@ -656,7 +669,15 @@ function resolveSyncTier(
   const raw = env[PR_REQUIRED_WORKFLOWS_ENV_VAR];
   if (typeof raw === 'string' && raw.trim().length > 0) {
     const fromJson = parseEnvWorkflowArray(raw);
-    if (fromJson !== null) return { workflows: fromJson, source: { tier: 'env' } };
+    if (Array.isArray(fromJson)) return { workflows: fromJson, source: { tier: 'env' } };
+    if (fromJson !== null)
+      return {
+        workflows: [],
+        source: {
+          tier: 'unknown',
+          reason: `${PR_REQUIRED_WORKFLOWS_ENV_VAR}=${raw} starts with "[" but is ${fromJson.error}; set a JSON array of names, [] for none, or a comma list`,
+        },
+      };
     return {
       workflows: raw
         .split(',')

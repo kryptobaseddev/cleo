@@ -210,25 +210,27 @@ export function standalonePackage(root: string): WorkspacePackage | null {
   return packages.length === 1 && packages[0]?.dir === '' ? packages[0] : null;
 }
 
-/** Root config files a build, test, lint or typecheck reads: never non-code. */
-const TOOLCHAIN_CONFIG =
-  /(?:^|\/)(?:package(?:-lock)?\.json|pnpm-(?:lock|workspace)\.yaml|[jt]sconfig[^/]*\.json|biome\.jsonc?|\.eslintrc[^/]*|\.prettierrc[^/]*|\.babelrc[^/]*|\.swcrc|turbo\.json|nx\.json|lerna\.json|deno\.jsonc?|Cargo\.toml|pyproject\.toml|rust-toolchain\.toml)$/;
+/**
+ * Known-inert files besides documentation: editor and dependency-bot settings
+ * nothing builds, tests, lints, runs or deploys. An allowlist, so an unknown
+ * config (CI, deploy, hooks, `.cleo/` evidence rules) stays code (T13745).
+ * shortcut: a fixed list; widen it only with a file no tool reads.
+ */
+const INERT_PATH =
+  /^(?:renovate\.json5?|\.editorconfig|\.(?:vscode|idea|zed)\/.+|[^/]+\.code-workspace)$/;
 
 /**
- * Whether a changed path is non-code (T13745): documentation, or a JSON/YAML/
- * TOML data file at the root or in a top-level dot-directory (`.cleo/`,
- * `.vscode/`) that is not a toolchain config, so no test, lint or typecheck
- * reads it. `.github/` stays code: it runs CI.
+ * Whether a changed path is non-code (T13745): documentation
+ * ({@link isCiDocumentPath}) or a known-inert editor or bot setting
+ * (renovate, .editorconfig, .vscode/, .idea/, .zed/). Everything else is code.
  *
  * @param path - Repo-relative changed path.
- * @returns True when no test, lint or typecheck reads the path.
+ * @returns True when no build, test, lint, CI or deploy reads the path.
  * @task T13745
  */
 export function isNonCodePath(path: string): boolean {
   const p = slashSeparated(path);
-  if (isCiDocumentPath(p)) return true;
-  const rootLevel = !p.includes('/') || (/^\.[^/]+\/[^/]+$/.test(p) && !p.startsWith('.github/'));
-  return rootLevel && /\.(?:jsonc?|ya?ml|toml)$/i.test(p) && !TOOLCHAIN_CONFIG.test(p);
+  return isCiDocumentPath(p) || INERT_PATH.test(p);
 }
 
 /**

@@ -2212,12 +2212,19 @@ async function validateTool(
   roots: EvidenceRoots,
   context?: EvidenceValidationContext,
 ): Promise<AtomValidation> {
-  // T13745: no test reads a non-code-only change (root config, docs), so the
-  // gate is satisfied by absence, recorded with the paths, never by a suite.
+  // T13745: no test reads a non-code-only change (docs, editor settings), so
+  // the gate is satisfied by absence, recorded with the paths, never by a
+  // suite. Pinned to the tree like a test-run: once the tree moves (code
+  // added after verify), testsPassedSupersededReason refuses it at complete.
   if (tool === 'test' || tool === 'test-affected') {
     const { isNonCodeOnlyChange, scopedChangedPaths } = await import('./affected-packages.js');
-    const changed = scopedChangedPaths(roots.executionRoot)?.paths ?? [];
-    if (isNonCodeOnlyChange(changed)) {
+    const root = context?.task.id
+      ? (await import('./change-set.js')).resolveChangeSetRoot(roots.storeRoot, context.task.id)
+          .root
+      : roots.executionRoot;
+    const changed = scopedChangedPaths(root)?.paths ?? [];
+    const treeHash = isNonCodeOnlyChange(changed) ? (await captureTree(root)).tree : null;
+    if (treeHash) {
       return {
         ok: true,
         atom: {
@@ -2226,6 +2233,7 @@ async function validateTool(
           exitCode: 0,
           notApplicable: true,
           nonCodeChange: true,
+          treeHash,
           reason: `no test reads this change: it touches only non-code files (${changed.join(', ')})`,
         },
       };

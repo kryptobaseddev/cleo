@@ -679,6 +679,19 @@ describe('resolveRequiredWorkflows', () => {
     expect(resolveRequiredWorkflows({ CLEO_PR_REQUIRED_WORKFLOWS: 'My CI' })).toEqual(['My CI']);
   });
 
+  it('refuses an env value that starts with [ but is not an array of named entries', async () => {
+    for (const bad of ['[', '["CI",', '[""]', '[{}]', '[1]', '[ "CI", 2 ]']) {
+      expect(() => resolveRequiredWorkflows({ CLEO_PR_REQUIRED_WORKFLOWS: bad }), bad).toThrow(
+        /starts with "\[" but is/,
+      );
+      const r = await resolveRequiredWorkflowsDetailed(
+        { storeRoot: '/nonexistent', executionRoot: '/nonexistent' },
+        { env: { CLEO_PR_REQUIRED_WORKFLOWS: bad }, readOnly: true },
+      );
+      expect(r.source.tier, bad).toBe('unknown');
+    }
+  });
+
   it('ignores blank env value', () => {
     const r = resolveRequiredWorkflows({ CLEO_PR_REQUIRED_WORKFLOWS: '' });
     expect(r).toContain('CI');

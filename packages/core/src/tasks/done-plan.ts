@@ -644,7 +644,12 @@ function wholeSuiteRefusedBlocker(
       `cleo verify ${taskId} --gate ${gate} --evidence 'test-run:<vitest-json-report>'`,
       'Run the tests that cover the change with a JSON reporter (vitest run <files> --reporter=json ' +
         '--outputFile=<path>) and record the report' +
-        (ciUsable ? ", or ci:<pr> once the merged PR's CI is green" : '') +
+        (ciUsable
+          ? ", or ci:<pr> once the merged PR's CI is green"
+          : // T13745: a change outside every package (root config) has no targeted
+            // run; merged CI with covering rules is its honest route.
+            ', or ci:<pr> once the PR merges if you set evidence.ciSatisfies and evidence.ciChecks ' +
+            '(evidence.ciChecks.covering maps root config paths to the CI jobs that check them)') +
         ', or declare testing.affectedCommand in .cleo/project-context.json so cleo done can plan a ' +
         'scoped tool:test-affected. A full run is your explicit choice: cleo verify --gate testsPassed --evidence tool:test.',
     ),
@@ -898,7 +903,7 @@ export async function deriveTaskEvidence(
   // T13428: a docs change set (a research or documentation deliverable) has
   // no code to test or typecheck, decision recorded yet or not: never plan a
   // whole suite or a typecheck for it.
-  // T13745: a non-code-only change (root config, docs) has no test to run and
+  // T13745: a non-code-only change (docs, editor settings) has no test to run and
   // no TypeScript to typecheck: tool:test records that by absence, and a lint
   // (or structural) qa-run receipt holding the files stands for qaPassed.
   const nonCode =

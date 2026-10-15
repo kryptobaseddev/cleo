@@ -23,10 +23,12 @@ import {
   qaPassedSupersededReason,
   qaRunTreeMismatchReason,
   scopedRunStandsAfterRedCi,
+  testsPassedSupersededReason,
 } from '../affected-scope.js';
 import { isLandedOnOriginDefault } from '../change-set.js';
 import { checkTaskEvidenceContext, validateAtom } from '../evidence.js';
 import { parseQaRunReceipt, qaRunUnionGapReason } from '../qa-run-binding.js';
+import { captureTreeHash } from '../tool-cache.js';
 
 function git(dir: string, args: string[]): string {
   return execFileSync('git', args, { cwd: dir, encoding: 'utf-8' }).trim();
@@ -587,22 +589,25 @@ describe('T13644: an earlier-tree qa-run receipt carries while the files it chec
   });
 });
 
-describe('T13745: a non-code-only change (root config) completes with targeted evidence', () => {
+describe('T13745: a non-code-only change (editor settings, docs) completes with targeted evidence', () => {
   const ctx = (gate: 'testsPassed' | 'qaPassed'): EvidenceValidationContext => ({
     task: { id: 'T1', kind: 'work', labels: [], files: [], acceptance: [] },
     gates: [gate],
     criteria: [],
   });
 
-  it('classifies root data config and docs as non-code; toolchain config and sources as code', () => {
-    for (const p of [
-      '.cleo/project-context.json',
-      'renovate.json',
-      '.vscode/settings.json',
-      'docs/a.md',
-    ])
+  it('allowlists docs and known-inert editor/bot files; every other path is code', () => {
+    for (const p of ['renovate.json', '.vscode/settings.json', '.editorconfig', 'docs/a.md'])
       expect(isNonCodePath(p), p).toBe(true);
     for (const p of [
+      '.cleo/project-context.json',
+      '.claude/settings.json',
+      '.changeset/config.json',
+      '.gitlab-ci.yml',
+      '.circleci/config.yml',
+      'wrangler.toml',
+      'vercel.json',
+      'docker-compose.yml',
       'package.json',
       'pnpm-lock.yaml',
       'tsconfig.json',
@@ -613,7 +618,7 @@ describe('T13745: a non-code-only change (root config) completes with targeted e
     ])
       expect(isNonCodePath(p), p).toBe(false);
     expect(isNonCodeOnlyChange([])).toBe(false);
-    expect(isNonCodeOnlyChange(['.cleo/project-context.json', 'src/a.ts'])).toBe(false);
+    expect(isNonCodeOnlyChange(['.vscode/settings.json', 'src/a.ts'])).toBe(false);
   });
 
   beforeEach(() => {
@@ -621,10 +626,10 @@ describe('T13745: a non-code-only change (root config) completes with targeted e
       put('pnpm-workspace.yaml', 'packages:\n  - "packages/*"\n');
       put('packages/a/package.json', JSON.stringify({ name: '@x/a' }));
       put('packages/a/src/i.ts', 'export const a = 1;\n');
-      put('.cleo/project-context.json', '{}\n');
+      put('.vscode/settings.json', '{}\n');
     });
-    put('.cleo/project-context.json', '{"release":{"prRequiredWorkflows":[]}}\n');
-    git(root, ['commit', '-q', '-am', 'T1: config only']);
+    put('.vscode/settings.json', '{"editor.tabSize":2}\n');
+    git(root, ['commit', '-q', '-am', 'T1: editor settings only']);
   });
 
   it('testsPassed: tool:test is not applicable, recorded with the paths, and stands for a code task', async () => {
@@ -634,7 +639,8 @@ describe('T13745: a non-code-only change (root config) completes with targeted e
       tool: 'test',
       notApplicable: true,
       nonCodeChange: true,
-      reason: expect.stringContaining('.cleo/project-context.json'),
+      reason: expect.stringContaining('.vscode/settings.json'),
+      treeHash: git(root, ['rev-parse', 'HEAD^{tree}']),
     });
     if (!r.ok) throw new Error('expected an atom');
     expect(checkTaskEvidenceContext(ctx('testsPassed'), 'testsPassed', [r.atom])).toBeNull();
@@ -646,12 +652,27 @@ describe('T13745: a non-code-only change (root config) completes with targeted e
     ).toMatch(/requires an actual verification result/);
   });
 
+  it('review probe: verify on the settings-only change, then commit code: complete refuses the atom', async () => {
+    const r = await validateAtom({ kind: 'tool', tool: 'test' }, root);
+    if (!r.ok) throw new Error(JSON.stringify(r));
+    const probe = {
+      mergeState: () => 'unmerged' as const,
+      currentTree: () => captureTreeHash(root),
+    };
+    expect(await testsPassedSupersededReason([r.atom], probe)).toBeNull();
+    put('packages/a/src/i.ts', 'export const a: number = "x";\n');
+    git(root, ['commit', '-q', '-am', 'T1: code with a type error']);
+    expect(await testsPassedSupersededReason([r.atom], probe)).toMatch(
+      /not applicable for a non-code-only change.*Re-verify testsPassed/,
+    );
+  });
+
   it('qaPassed: a lint (structural) receipt holding the file stands alone, no typecheck pair', async () => {
     const r = await validateAtom(
       {
         kind: 'qa-run',
         path: receipt(
-          { kind: 'lint', command: ['biome', 'check'], roots: ['.cleo'] },
+          { kind: 'lint', command: ['biome', 'check'], roots: ['.vscode'] },
           undefined,
           'lint',
         ),
@@ -670,7 +691,7 @@ describe('T13745: a non-code-only change (root config) completes with targeted e
     );
     if (!r.ok) throw new Error(JSON.stringify(r));
     expect(checkTaskEvidenceContext(ctx('qaPassed'), 'qaPassed', [r.atom])).toMatch(
-      /does not cover the changed path\(s\) \.cleo\/project-context\.json/,
+      /does not cover the changed path\(s\) \.vscode\/settings\.json/,
     );
   });
 
