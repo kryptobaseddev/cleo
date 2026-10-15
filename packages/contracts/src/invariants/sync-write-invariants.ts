@@ -338,7 +338,7 @@ export const SYNC_WRITE_INVARIANTS: readonly SyncWriteInvariant[] = Object.freez
     'derived.mirrors',
     'PAC-07',
     'T12928',
-    ['tasks_task_labels', 'brain_sticky_tags', 'docs_wikilinks', 'tasks_tasks'],
+    ['tasks_task_labels', 'brain_sticky_tags', 'tasks_tasks'],
     ['owning rows whose JSON or junction changed'],
     'junction tables equal their JSON source',
   ),

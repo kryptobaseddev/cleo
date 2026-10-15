@@ -145,6 +145,9 @@ export const SYNC_TIMESTAMP_COLUMNS: Readonly<
     // T13362 (publications ledger moves into the store): published_at moves
     // on every re-publish of the (owner, blob, path) LWW row.
     docs_publications: ['published_at'],
+    // T12919 (docs sync coverage): the doc registry and its owner refs.
+    docs_attachments: ['created_at'],
+    docs_attachment_refs: ['attached_at'],
   },
   global: {
     brain_decisions: ['created_at', 'updated_at', 'valid_at', 'invalid_at', 'tier_promoted_at'],

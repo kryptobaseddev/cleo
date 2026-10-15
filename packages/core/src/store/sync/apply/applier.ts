@@ -977,10 +977,14 @@ function applyOne(
     });
   }
   const before = loadRowState(c.db, c.api, def, op.u, c.replica);
-  const out = applyOp(before, c.replay ? op : ownEcho(op, c.st, c.replica), {
-    table: mergeSpecFor(op.t, def.columns),
-    actorOp: (c.replay ? c.replay.actor?.op : c.st.txn.actor?.op) ?? null,
-  });
+  const { out, renameLocal } = yieldDocSlug(
+    c.db,
+    op,
+    applyOp(before, c.replay ? op : ownEcho(op, c.st, c.replica), {
+      table: mergeSpecFor(op.t, def.columns),
+      actorOp: (c.replay ? c.replay.actor?.op : c.st.txn.actor?.op) ?? null,
+    }),
+  );
   const live =
     out.effect === 'delete'
       ? c.api.childRows(op.t, op.u).filter((x) => x.key.onDelete === 'CASCADE')
@@ -1003,6 +1007,7 @@ function applyOne(
   try {
     // A display key that moves leaves its referrers behind until they follow.
     if (keyMove) c.db.exec('PRAGMA defer_foreign_keys = ON');
+    if (renameLocal) c.api.writeFields(op.t, renameLocal.uid, { slug: renameLocal.slug });
     // cascade-with-ops: the remaining children go first, with ops' tombstones.
     const actor = c.st.txn.actor ? JSON.stringify(c.st.txn.actor) : null;
     for (const x of live) cascadeDelete(c, x.key.child, x.uid, op.h, actor);
@@ -1044,6 +1049,55 @@ function applyOne(
       opHlc: op.h,
     });
   }
+}
+
+/** The docs table whose UNIQUE slug two devices can both claim (T12919). */
+const DOC_SLUG_TABLE = 'docs_attachments';
+
+/**
+ * Two devices that add different docs under one slug (T12919, #2260 review):
+ * the UNIQUE slug index would void one insert and leave that doc on one
+ * replica only. Instead the row with the greater uid yields the slug, renamed
+ * `<slug>-<last 8 hex of its uid>`, on every replica alike whatever order the
+ * ops arrive in, and a `key-collision` conflict records it. Same-content docs
+ * never get here: their natural uid over sha256 is one row.
+ *
+ * @returns The outcome to apply, and the local row to rename first when the
+ *   local row yields.
+ */
+function yieldDocSlug(
+  db: DatabaseSync,
+  op: LedgerOp,
+  out: OpOutcome,
+): { readonly out: OpOutcome; readonly renameLocal: { uid: string; slug: string } | null } {
+  const none = { out, renameLocal: null };
+  if (op.t !== DOC_SLUG_TABLE || !out.next.live || !out.written.includes('slug')) return none;
+  const field = out.next.fields.slug;
+  if (!field || typeof field.value !== 'string') return none;
+  const holder = db
+    .prepare(
+      `SELECT "${UID_COLUMN}" AS uid FROM main.${DOC_SLUG_TABLE} WHERE slug = ? AND uid <> ?`,
+    )
+    .get(field.value, op.u) as { uid: string | null } | undefined;
+  if (!holder?.uid) return none;
+  const loser = holder.uid > op.u ? holder.uid : op.u;
+  const slug = `${field.value}-${loser.replaceAll('-', '').slice(-8)}`;
+  const conflicts = [
+    ...out.conflicts,
+    {
+      kind: 'key-collision' as const,
+      table: op.t,
+      uid: loser,
+      columns: ['slug'],
+      rule: 'docs.slug.yield',
+      resolution: 'incoming-applied' as const,
+      opHlc: op.h,
+    },
+  ];
+  if (loser === holder.uid)
+    return { out: { ...out, conflicts }, renameLocal: { uid: loser, slug } };
+  const fields = { ...out.next.fields, slug: { ...field, value: slug } };
+  return { out: { ...out, next: { ...out.next, fields }, conflicts }, renameLocal: null };
 }
 
 /** Decision key moves applied in the current apply call, by store (T13433). */

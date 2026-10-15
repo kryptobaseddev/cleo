@@ -24,6 +24,7 @@ const TASKS: RowIdentityRef['table'] = 'tasks_tasks';
 const SESSIONS: RowIdentityRef['table'] = 'tasks_sessions';
 const ACS: RowIdentityRef['table'] = 'tasks_task_acceptance_criteria';
 const BRAIN_DECISIONS: RowIdentityRef['table'] = 'brain_decisions';
+const DOCS_ATTACHMENTS: RowIdentityRef['table'] = 'docs_attachments';
 
 /**
  * Brain text-keyed tables (T12894), the same in both scopes: minted from their
@@ -486,6 +487,34 @@ export const ROW_IDENTITY: Readonly<Record<TableScope, readonly RowIdentitySpec[
       key: ['owner_id', 'blob_name', 'published_path'],
       task: 'T13362',
     },
+    {
+      // T12919: the doc registry. Natural on its content address: sha256 is
+      // UNIQUE and no writer changes it (a new version is a new row), so two
+      // devices that store the same bytes derive ONE uid and merge field by
+      // field instead of one losing its row to the UNIQUE index. The random
+      // UUIDv4 `id` is a local key that never travels (a received row takes
+      // its uid as id); references to it travel as uids.
+      table: DOCS_ATTACHMENTS,
+      kind: 'natural',
+      key: ['sha256'],
+      localKey: 'id',
+      refs: [
+        { column: 'supersedes', table: DOCS_ATTACHMENTS },
+        { column: 'superseded_by', table: DOCS_ATTACHMENTS },
+      ],
+      task: 'T12919',
+    },
+    {
+      // Natural over the primary key, the attachment by its uid (its local id
+      // differs per device), so a ref to a doc deleted elsewhere is held or
+      // raised as a dangling ref, never written as an orphan. The owner id is
+      // polymorphic (task, session, …) and stays raw (T13731).
+      table: 'docs_attachment_refs',
+      kind: 'natural',
+      key: ['attachment_id', 'owner_type', 'owner_id'],
+      keyRefs: [{ column: 'attachment_id', table: DOCS_ATTACHMENTS }],
+      task: 'T12919',
+    },
   ],
   global: [
     ...brainTextKeyed(),
@@ -632,7 +661,6 @@ const CONDUIT = cluster('T12913');
 const LIFECYCLE_RELEASE_GIT = cluster('T12914');
 const NEXUS_REGISTRY = cluster('T12916');
 const SKILLS = cluster('T12917');
-const DOCS = cluster('T12919');
 const PROJECT_MISC = cluster('T12920');
 
 function exempt(
@@ -745,7 +773,6 @@ export const ROW_IDENTITY_EXEMPT: Readonly<
       ],
       LIFECYCLE_RELEASE_GIT,
     ),
-    ...exempt(['docs_attachment_refs', 'docs_attachments', 'docs_wikilinks'], DOCS),
     ...exempt(
       [
         'nexus_relation_weights',
@@ -797,8 +824,9 @@ export const ROW_IDENTITY_EXEMPT: Readonly<
  * brain integer-keyed tables (6 project, 6 global), T12915 declared the
  * agent registry (1 global; 6 more reclassified derived or local-only),
  * T13354 declared the re-keyed conduit doc family (5 project, dropping 4
- * exemptions — contributors became derived and not syncing), and T13467 the
- * credential tables (4 global)
+ * exemptions — contributors became derived and not syncing), T13467 the
+ * credential tables (4 global), and T12919 the doc registry and its refs
+ * (2 project; docs_wikilinks became derived and not syncing)
  * ({@link rowIdentityExemptionSummary} prints the live numbers):
  *
  * | category             | task   | project | global |
@@ -810,16 +838,15 @@ export const ROW_IDENTITY_EXEMPT: Readonly<
  * | planned (lifecycle…) | T12914 | 16      | 0      |
  * | planned (nexus)      | T12916 | 0       | 8      |
  * | planned (skills)     | T12917 | 0       | 4      |
- * | planned (docs)       | T12919 | 3       | 0      |
  * | planned (misc)       | T12920 | 12      | 0      |
  * | twin-collapse        | T12535 | 30      | 0      |
  * | not-row-replicated   | T12918 | 1       | 1      |
- * | total                |        | 70      | 13     |
+ * | total                |        | 67      | 13     |
  *
  * @task T12897
  */
 export const ROW_IDENTITY_EXEMPT_PINNED: Readonly<Record<TableScope, number>> = {
-  project: 70,
+  project: 67,
   global: 13,
 };
 
@@ -832,7 +859,7 @@ export const ROW_IDENTITY_EXEMPT_PINNED: Readonly<Record<TableScope, number>> = 
  * @task T12897
  */
 export const ROW_IDENTITY_EXEMPT_NAMES_SHA256: Readonly<Record<TableScope, string>> = {
-  project: '03413c00c1a3a2be35c1b1c8729ceb8c89f28624e7919e6e12e2f06b5fba5ef6',
+  project: 'f19c96778032a1363a3dda72cbf837c270ecb936101feb059c32e15b560d1a02',
   global: '615415a2502708e84007335451603d186c3051cb7e8a69c0b48f561e485edd84',
 };
 
