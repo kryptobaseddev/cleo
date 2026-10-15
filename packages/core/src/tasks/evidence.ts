@@ -1378,9 +1378,9 @@ async function gitShowFileContent(
   // taskId get this order; `cleo complete` passes none.
   const refs = [`task/${taskId}`, 'main', 'master', 'HEAD'];
   for (const ref of refs) {
-    const r = await runCommand('git', ['show', `${ref}:${norm}`], projectRoot);
+    const r = await runCommandRaw('git', ['show', `${ref}:${norm}`], projectRoot);
     if (r.exitCode === 0 && r.stdout.length > 0) {
-      return Buffer.from(r.stdout, 'binary');
+      return r.stdout;
     }
   }
   return null;
@@ -1415,9 +1415,9 @@ async function gitShowFileContentAtCommit(
 ): Promise<Buffer | null> {
   // Normalise the path: strip leading "./" so git pathspec works correctly.
   const norm = relPath.replace(/^\.\//, '');
-  const r = await runCommand('git', ['cat-file', 'blob', `${sha}:${norm}`], projectRoot);
+  const r = await runCommandRaw('git', ['cat-file', 'blob', `${sha}:${norm}`], projectRoot);
   if (r.exitCode !== 0) return null;
-  return Buffer.from(r.stdout, 'binary');
+  return r.stdout;
 }
 
 /**
@@ -3832,9 +3832,18 @@ export async function revalidateEvidence(
           }
           const sha256 = createHash('sha256').update(content).digest('hex');
           if (sha256 !== f.sha256) {
+            // T13738: builds before the fix hashed git blobs after a lossy text
+            // decode. Name that cause so the remedy (re-verify) is clear; the
+            // old hash is never accepted.
+            const lossy = createHash('sha256')
+              .update(Buffer.from(content.toString('utf-8'), 'binary'))
+              .digest('hex');
             failed.push({
               atom,
-              reason: `File modified since verify: ${f.path} (expected ${f.sha256.slice(0, 8)}, got ${sha256.slice(0, 8)})`,
+              reason:
+                lossy === f.sha256
+                  ? `Recorded hash for ${f.path} likely came from a build that mis-hashed non-ASCII content (T13738); check the file, then re-run \`cleo verify\` to record the correct hash.`
+                  : `File modified since verify: ${f.path} (expected ${f.sha256.slice(0, 8)}, got ${sha256.slice(0, 8)})`,
             });
             break;
           }
@@ -4034,23 +4043,38 @@ interface CommandResult {
   stderr: string;
 }
 
-function runCommand(cmd: string, args: string[], cwd: string): Promise<CommandResult> {
+/** {@link CommandResult} with stdout kept as the raw bytes the child wrote. */
+interface RawCommandResult {
+  exitCode: number | null;
+  stdout: Buffer;
+  stderr: string;
+}
+
+async function runCommand(cmd: string, args: string[], cwd: string): Promise<CommandResult> {
+  const r = await runCommandRaw(cmd, args, cwd);
+  return { ...r, stdout: r.stdout.toString('utf-8') };
+}
+
+/**
+ * Run a command and keep stdout as raw bytes. Use it when the output is hashed
+ * (git blobs): decoding to text first replaces invalid UTF-8 and loses bytes
+ * (T13738).
+ */
+function runCommandRaw(cmd: string, args: string[], cwd: string): Promise<RawCommandResult> {
   return new Promise((resolve) => {
-    let stdout = '';
-    let stderr = '';
+    const stdout: Buffer[] = [];
+    const stderr: Buffer[] = [];
     const child = spawn(cmd, args, { cwd, stdio: ['ignore', 'pipe', 'pipe'] });
-    child.stdout?.on('data', (d) => {
-      stdout += d.toString('utf-8');
-    });
-    child.stderr?.on('data', (d) => {
-      stderr += d.toString('utf-8');
-    });
-    child.on('error', () => {
-      resolve({ exitCode: null, stdout, stderr });
-    });
-    child.on('close', (code) => {
-      resolve({ exitCode: code, stdout, stderr });
-    });
+    child.stdout?.on('data', (d: Buffer) => stdout.push(d));
+    child.stderr?.on('data', (d: Buffer) => stderr.push(d));
+    const done = (exitCode: number | null): void =>
+      resolve({
+        exitCode,
+        stdout: Buffer.concat(stdout),
+        stderr: Buffer.concat(stderr).toString('utf-8'),
+      });
+    child.on('error', () => done(null));
+    child.on('close', (code) => done(code));
   });
 }
 
