@@ -1,5 +1,19 @@
 # Changelog
 
+## [2026.10.16] (2026-10-15)
+
+> **Fix release.** Project hooks (hooks-v1) stay inert on stable builds: activation is refused with `E_HOOKS_V1_UNRELEASED` and existing receipts are not executed. The hooks-v1 fixes in this release (F1 fail-closed on drift, F2 no residue on disable) apply to canary and pilot users until the hooks-v1 promotion. Cross-device sync (Stage C: `sync.seal`, `sync.push`, `sync.pull`, `sync.strict`) stays unreleased and inert until the Stage C exit gate releases its flags. On first open, a brain vector table from an earlier build (no `model` column) is dropped and recreated tagged; its vectors are local derived data that the embedding backfill rebuilds from memory text. Doc bytes on the sync stream (T13721) ride the same unreleased sync and stay inert on stable. The local embedding model still downloads only on explicit opt-in. No schema migrations.
+
+### Added
+
+- synced docs now carry their bytes; a doc added on one device fetches with identical content on another, with no vault restore (inert on stable until Stage C) _(provenance: [T13721](https://github.com/kryptobaseddev/cleo/search?q=T13721&type=commits))_
+- Vector search embeds decisions, learnings and patterns too, and every vector records its model _(provenance: [T13740](https://github.com/kryptobaseddev/cleo/search?q=T13740&type=commits), [T13729](https://github.com/kryptobaseddev/cleo/search?q=T13729&type=commits))_
+
+### Fixed
+
+- CLEO_PR_REQUIRED_WORKFLOWS reads a JSON array ([] = none); a root-config-only change has a targeted evidence path _(provenance: [T13744](https://github.com/kryptobaseddev/cleo/search?q=T13744&type=commits), [T13745](https://github.com/kryptobaseddev/cleo/search?q=T13745&type=commits))_
+- a drifted hooks activation now refuses Git pushes, and hook sync --disable leaves no residue (canary and pilot only until the hooks-v1 promotion) _(provenance: [T13742](https://github.com/kryptobaseddev/cleo/search?q=T13742&type=commits), [T13743](https://github.com/kryptobaseddev/cleo/search?q=T13743&type=commits))_
+
 ## [2026.10.15] (2026-10-15)
 
 > **Single-fix release.** `files:` evidence resolved from git now hashes the raw blob bytes. Builds up to 2026.10.14 recorded a wrong sha256 for any file with non-ASCII bytes. Such a receipt fails at `cleo complete` with a message naming T13738: check the file, then re-run `cleo verify` to record the correct hash. Cross-device sync (Stage C: `sync.seal`, `sync.push`, `sync.pull`, `sync.strict`) stays unreleased and inert on this stable build until the Stage C exit gate releases its flags, and project hooks (hooks-v1) stay off on stable builds until their promotion. No schema migrations.
