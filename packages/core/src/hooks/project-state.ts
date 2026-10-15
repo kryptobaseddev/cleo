@@ -124,6 +124,30 @@ export async function resolveProjectHookExecutable(
   throw new Error('HOOK_EXECUTABLE_MISSING');
 }
 
+/** A project-relative hook input could not be hashed, so its approval no longer holds (T13742). */
+export class HookInputUnavailableError extends Error {
+  /**
+   * @param input - Checkout-relative path of the unavailable input.
+   * @param cause - The failure; its `HOOK_*` code, when present, is kept as the message.
+   */
+  constructor(
+    readonly input: string,
+    cause: Error | undefined,
+  ) {
+    super(cause && /^HOOK_[A-Z_]+$/.test(cause.message) ? cause.message : 'HOOK_INPUT_UNAVAILABLE');
+    this.name = 'HookInputUnavailableError';
+  }
+}
+
+/**
+ * Digest approved bindings so a corrupted activation record is detectable (T13742).
+ * @param bindings - Approved bindings by hook ID.
+ * @returns Hex SHA-256 of their serialization.
+ */
+export function hookBindingsDigest(bindings: NonNullable<HookActivation['bindings']>): string {
+  return digest(JSON.stringify(bindings));
+}
+
 function digest(content: string | Buffer): string {
   return createHash('sha256').update(content).digest('hex');
 }
@@ -188,15 +212,32 @@ export async function computeHookActivation(
       /* Absent optional lockfiles are not executable dependencies. */
     }
   }
+  // A missing or replaced project input is changed code, not an environment fault (T13742).
+  const projectInput = async <T>(input: string, read: () => Promise<T>): Promise<T> => {
+    try {
+      return await read();
+    } catch (error) {
+      if (signal?.aborted || performance.now() >= deadline) throw error;
+      // @sync-invariant none:local-only Reject unsafe machine-local hook records or executable inputs; no synced rows are written.
+      throw new HookInputUnavailableError(input, error instanceof Error ? error : undefined);
+    }
+  };
   for (const file of [...inputs].sort()) {
-    const path = await resolveProjectHookFile(context.projectRoot, file);
-    // @sync-invariant none:local-only Reject unsafe machine-local hook records or executable inputs; no synced rows are written.
-    if (!(await stat(path)).isFile()) throw new Error('HOOK_DEPENDENCY_NOT_FILE');
-    files[file] = await digestFile(path, deadline, signal);
+    files[file] = await projectInput(file, async () => {
+      const path = await resolveProjectHookFile(context.projectRoot, file);
+      // @sync-invariant none:local-only Reject unsafe machine-local hook records or executable inputs; no synced rows are written.
+      if (!(await stat(path)).isFile()) throw new Error('HOOK_DEPENDENCY_NOT_FILE');
+      return digestFile(path, deadline, signal);
+    });
   }
   const executableHashes = new Map<string, string>();
   for (const hook of manifest.hooks) {
-    const path = await resolveProjectHookExecutable(context.projectRoot, hook.executable);
+    // A missing PATH runtime stays an environment fault.
+    const resolveExecutable = (): Promise<string> =>
+      resolveProjectHookExecutable(context.projectRoot, hook.executable);
+    const path = hook.executable.includes('/')
+      ? await projectInput(hook.executable, resolveExecutable)
+      : await resolveExecutable();
     let hash = executableHashes.get(path);
     if (!hash) {
       hash = await digestFile(path, deadline, signal);
@@ -209,6 +250,7 @@ export async function computeHookActivation(
       : path;
     executables[hook.id] = `${identity}:${hash}`;
   }
+  const bindings = Object.fromEntries(manifest.hooks.map((hook) => [hook.id, hook.bindings]));
   return {
     schemaVersion: 1,
     projectRoot: await realpath(context.projectRoot),
@@ -216,7 +258,8 @@ export async function computeHookActivation(
     manifestHash: digest(JSON.stringify(manifest)),
     files,
     executables,
-    bindings: Object.fromEntries(manifest.hooks.map((hook) => [hook.id, hook.bindings])),
+    bindings,
+    bindingsHash: hookBindingsDigest(bindings),
     activatedAt: new Date().toISOString(),
   };
 }
@@ -335,8 +378,13 @@ export async function inspectProjectHooks(
   }
   const current = await computeHookActivation(context, manifest, deadline, signal);
   // manifestHash already binds the bindings; receipts written before T13742 lack them.
-  const { activatedAt: _before, bindings: _approved, ...before } = state.activation;
-  const { activatedAt: _after, bindings: _current, ...after } = current;
+  const {
+    activatedAt: _before,
+    bindings: _approved,
+    bindingsHash: _approvedHash,
+    ...before
+  } = state.activation;
+  const { activatedAt: _after, bindings: _current, bindingsHash: _currentHash, ...after } = current;
   result.activation = JSON.stringify(before) === JSON.stringify(after) ? 'active' : 'drifted';
   if (result.activation === 'drifted') result.diagnostics.push('HOOK_REACTIVATION_REQUIRED');
   return result;

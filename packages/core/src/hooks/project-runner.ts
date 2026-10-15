@@ -14,6 +14,8 @@ import { discoveryEnv } from '../git/work-tree.js';
 import { atomicWrite } from '../store/atomic.js';
 import {
   computeHookActivation,
+  HookInputUnavailableError,
+  hookBindingsDigest,
   inspectProjectHooks,
   matchesProjectHook,
   readProjectHookRecord,
@@ -88,7 +90,7 @@ function reactivationRequired(
       )
       .map((hook) => hook.id),
   );
-  if (ids.size === 0 && !id && approved?.bindings) return [];
+  if (ids.size === 0 && !id && approvedBindings(approved)) return [];
   return [...(ids.size > 0 ? ids : [id ?? 'cleo.project-hooks'])].map((hookId) => ({
     id: hookId,
     status: blocks ? 'block' : 'warn',
@@ -101,18 +103,31 @@ function reactivationRequired(
   }));
 }
 
-/** Hooks as approved at activation; a receipt from before T13742 records none. */
+/** Approved bindings whose digest verifies; a corrupted or pre-T13742 record has none. */
+function approvedBindings(activation: HookActivation | undefined): HookActivation['bindings'] {
+  const bindings = activation?.bindings;
+  return bindings && activation?.bindingsHash === hookBindingsDigest(bindings)
+    ? bindings
+    : undefined;
+}
+
+/** Hooks as approved at activation. */
 function approvedHooks(
   activation: HookActivation | undefined,
 ): Array<Pick<ProjectHookDefinition, 'id' | 'bindings'>> {
-  return Object.entries(activation?.bindings ?? {}).map(([id, bindings]) => ({ id, bindings }));
+  return Object.entries(approvedBindings(activation) ?? {}).map(([id, bindings]) => ({
+    id,
+    bindings,
+  }));
 }
 
 /**
- * A manifest that no longer parses cannot shed an approved hook (T13742): refuse the approved
- * bindings. Returns undefined for every other fault, which keeps its local allow behaviour.
+ * A manifest that no longer parses, or a project input that can no longer be hashed, cannot
+ * shed an approved hook (T13742): refuse the approved bindings. Returns undefined for every
+ * other fault, which keeps its local allow behaviour.
  */
-async function refuseInvalidManifest(
+async function refuseUnverifiableInputs(
+  error: Error | undefined,
   invocation: HookInvocation,
   id: string | undefined,
   activationRoot: string | undefined,
@@ -123,6 +138,13 @@ async function refuseInvalidManifest(
     );
     if (!state.hooks.project.enabled || !state.activation?.bindings || !hooksV1Released())
       return undefined;
+    if (error instanceof HookInputUnavailableError)
+      return reactivationRequired(
+        approvedHooks(state.activation),
+        invocation,
+        id,
+        state.activation,
+      );
     for (const root of new Set([invocation.projectRoot, activationRoot ?? invocation.projectRoot]))
       try {
         await readProjectHooksManifest(resolveProjectHookContext(root));
@@ -435,11 +457,14 @@ export async function executeProjectHooks(
       outcomes.push(fault(invocation, 'HOOK_RECEIPT_WRITE_FAILED'));
     }
     return outcomes;
-  } catch {
+  } catch (error) {
     return (
-      (await refuseInvalidManifest(invocation, id, activationRoot)) ?? [
-        fault(invocation, 'HOOK_INFRASTRUCTURE_ERROR'),
-      ]
+      (await refuseUnverifiableInputs(
+        error instanceof Error ? error : undefined,
+        invocation,
+        id,
+        activationRoot,
+      )) ?? [fault(invocation, 'HOOK_INFRASTRUCTURE_ERROR')]
     );
   }
 }

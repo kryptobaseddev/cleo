@@ -520,8 +520,8 @@ uses `cleo hook sync --activate` and binds definitions, handlers and dependencie
 current hashes. Source drift requires reactivation and runs no handler: Git, worktree, direct
 and CI refuse (naming `cleo hook sync --activate`) every event bound by the approved bindings
 recorded at activation, the current manifest or a linked checkout's, so a deleted, rebound or
-unparseable definition stays enforced; unbound events run no hooks (a pre-bindings activation
-refuses them too), and agents only warn (T13742). Agent project checks are advisory; Git applies project verdicts. Native harness trust remains separately unverified.
+unparseable definition, or a deleted handler or dependency, stays enforced; unbound events
+run no hooks (a pre-bindings activation refuses them too), and agents only warn (T13742). Agent project checks are advisory; Git applies project verdicts. Native harness trust remains separately unverified.
 Inspect with `cleo doctor hooks`; `--fix` never activates definitions or grants trust.
 `cleo hook sync --disable` disables execution and removes only verified managed entries:
 it skips providers with no delivery receipt, creates nothing, prunes only containers

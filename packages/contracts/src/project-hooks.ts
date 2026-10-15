@@ -148,6 +148,11 @@ export const HookActivationSchema = z
         z.array(z.object({ source: HookSourceSchema, event: z.string().min(1).max(128) }).strict()),
       )
       .optional(),
+    /** SHA-256 of the serialized bindings; a mismatch treats them as absent (T13742). */
+    bindingsHash: z
+      .string()
+      .regex(/^[a-f0-9]{64}$/)
+      .optional(),
     activatedAt: z.string(),
   })
   .strict();
