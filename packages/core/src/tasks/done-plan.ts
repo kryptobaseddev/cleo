@@ -51,6 +51,7 @@ import { isCiDocumentPath, readCiChecks, readCiSatisfies } from '../release/ci-e
 import { getTaskAccessor } from '../store/data-accessor.js';
 import {
   changedPathsSinceDefault,
+  isCleoConfigOnlyChange,
   isNonCodeOnlyChange,
   planScopedTestRun,
   standalonePackage,
@@ -507,9 +508,12 @@ function toolGateEvidence(
   decisionOnly: boolean,
   ciPr: string | null,
   nonCode: boolean,
+  cleoConfig: boolean,
 ): string | null {
   if (decisionOnly) return 'note:decision-only implementation, no code changed';
   if (ciPr !== null) return `ci:${ciPr}`;
+  // T13758: CLEO validates the changed CLEO config against its schema at verify.
+  if (cleoConfig) return 'tool:config-schema';
   // T13745: validates as not applicable (no test reads the change); runs nothing.
   if (nonCode && gate === 'testsPassed') return 'tool:test';
   const atoms = runs
@@ -909,7 +913,13 @@ export async function deriveTaskEvidence(
   const nonCode =
     changeSet.source !== 'docs' &&
     isNonCodeOnlyChange([...changeSet.files, ...changeSet.deletedFiles]);
-  if (!decisionOnly && changeSet.source !== 'docs' && ciPr === null && !nonCode) {
+  // T13758: a change to CLEO-owned config alone is tested by CLEO's own schema
+  // check of each file (tool:config-schema), for testsPassed and qaPassed.
+  const cleoConfig =
+    changeSet.source !== 'docs' &&
+    changeSet.deletedFiles.length === 0 &&
+    isCleoConfigOnlyChange(changeSet.files);
+  if (!decisionOnly && changeSet.source !== 'docs' && ciPr === null && !nonCode && !cleoConfig) {
     for (const gate of pending) {
       for (const tool of GATE_TOOLS[gate] ?? []) {
         // T13403: a standalone project is one package, the whole project, so
@@ -984,7 +994,7 @@ export async function deriveTaskEvidence(
       gate === 'implemented'
         ? changeSet.implementedEvidence
         : GATE_TOOLS[gate]
-          ? toolGateEvidence(gate, toolRuns, decisionOnly, ciPr, nonCode)
+          ? toolGateEvidence(gate, toolRuns, decisionOnly, ciPr, nonCode, cleoConfig)
           : null;
     return {
       gate,

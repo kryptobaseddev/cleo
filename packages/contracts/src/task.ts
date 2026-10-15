@@ -374,6 +374,12 @@ export type EvidenceAtom =
        */
       nonCodeChange?: boolean;
       /**
+       * `tool:config-schema` (T13758): the CLEO-owned config files this run
+       * validated against their CLEO schema. Pinned to `treeHash`, like a
+       * qa-run receipt: a moved tree voids it.
+       */
+      configSchema?: string[];
+      /**
        * `affected`: the run covered only the packages the branch diff touches
        * plus their dependents (D11150, T12635). It satisfies testsPassed before
        * merge; merged CI (`ci:`) or a full `tool:test` supersedes it.

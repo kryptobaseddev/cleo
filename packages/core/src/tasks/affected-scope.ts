@@ -51,26 +51,52 @@ const GH_UNREACHABLE = 'gh unreachable — check `gh auth status`';
 
 /** A full (unscoped) tool run that actually executed. */
 function isFullToolRun(a: EvidenceAtom): boolean {
-  return a.kind === 'tool' && a.scope !== 'affected' && a.notApplicable !== true;
+  return (
+    a.kind === 'tool' && a.scope !== 'affected' && a.notApplicable !== true && !isTreePinnedTool(a)
+  );
+}
+
+/**
+ * A `tool:` result that speaks only for the change it judged: not applicable
+ * for a non-code-only change (T13745), or CLEO's schema check of changed CLEO
+ * config (T13758). A moved tree voids it.
+ */
+function isTreePinnedTool(a: EvidenceAtom): boolean {
+  return a.kind === 'tool' && (a.nonCodeChange === true || a.configSchema !== undefined);
 }
 
 /**
  * A `tool:` result that holds only for the tree it was recorded on: an
- * affected-scope run, or a not-applicable result for a non-code-only change
- * (T13745), which code added later would void.
+ * affected-scope run, or a tree-pinned result ({@link isTreePinnedTool}).
  */
 function isTreeScopedTool(a: EvidenceAtom): boolean {
-  return a.kind === 'tool' && (a.scope === 'affected' || a.nonCodeChange === true);
+  return a.kind === 'tool' && (a.scope === 'affected' || isTreePinnedTool(a));
 }
 
-/** A result pinned to the tree it ran on: a test-run, or a non-code-only `tool:` (T13745). */
+/** A result pinned to the tree it ran on: a test-run, or a tree-pinned `tool:` (T13745, T13758). */
 function isTreeBoundResult(
   a: EvidenceAtom,
 ): a is Extract<EvidenceAtom, { kind: 'test-run' | 'tool' }> & { treeHash: string } {
   return (
-    (a.kind === 'test-run' || (a.kind === 'tool' && a.nonCodeChange === true)) &&
+    (a.kind === 'test-run' || (a.kind === 'tool' && isTreePinnedTool(a))) &&
     typeof a.treeHash === 'string'
   );
+}
+
+/** Why a tree-pinned `tool:` result no longer stands for `gate`, or null (T13745, T13758). */
+function treePinnedToolReason(
+  atoms: ReadonlyArray<EvidenceAtom>,
+  current: string | null,
+  gate: 'testsPassed' | 'qaPassed',
+): string | null {
+  const first = atoms
+    .filter(isTreeBoundResult)
+    .find((a) => a.kind === 'tool' && a.treeHash !== current);
+  if (!first || first.kind !== 'tool') return null;
+  const what = first.configSchema
+    ? `CLEO's schema check of ${first.configSchema.join(', ')}`
+    : `tool:${first.tool} recorded not applicable for a non-code-only change`;
+  return `${gate} rests on ${what} on tree ${first.treeHash.slice(0, 12)}, but the tree is now ${current === null ? 'unknown' : current.slice(0, 12)}; the change may have moved on. Re-verify ${gate} against the current change.`;
 }
 
 /**
@@ -153,9 +179,8 @@ export function testRunTreeMismatchReason(
   if (atoms.some((a) => a.kind === 'ci' || isFullToolRun(a))) return null;
   const first = atoms.filter(isTreeBoundResult).find((a) => a.treeHash !== current);
   if (!first) return null;
-  // T13745: a non-code-only tool:test held for that tree's change alone.
-  if (first.kind === 'tool')
-    return `testsPassed rests on tool:${first.tool} recorded not applicable for a non-code-only change on tree ${first.treeHash.slice(0, 12)}, but the tree is now ${current === null ? 'unknown' : current.slice(0, 12)}; the change may now hold code. Re-verify testsPassed against the current change.`;
+  // T13745, T13758: a tree-pinned tool: held for that tree's change alone.
+  if (first.kind === 'tool') return treePinnedToolReason(atoms, current, 'testsPassed');
   return current === null
     ? `testsPassed rests on test-run:${first.path}, bound to tree ${first.treeHash.slice(0, 12)}, and the current tree cannot be computed here (not a git checkout?); complete from the checkout the report ran in, or record ci:<pr> once the PR merges.`
     : `testsPassed rests on test-run:${first.path}, recorded on tree ${first.treeHash.slice(0, 12)}, but the tree is now ${current.slice(0, 12)}; the report no longer describes this code. Re-run the targeted tests and record a fresh test-run, or record ci:<pr> once the PR merges.`;
@@ -300,6 +325,11 @@ export async function qaPassedSupersededReason(
   atoms: ReadonlyArray<EvidenceAtom>,
   probe: Parameters<typeof testsPassedSupersededReason>[1],
 ): Promise<string | null> {
+  // T13758: CLEO's schema check of changed CLEO config holds for its tree alone.
+  if (atoms.some(isTreePinnedTool)) {
+    const pinned = treePinnedToolReason(atoms, await probe.currentTree(), 'qaPassed');
+    if (pinned) return pinned;
+  }
   if (hasTreeBoundQaRun(atoms)) {
     const current = await probe.currentTree();
     const unscoped = qaRunTreeMismatchReason(atoms, current);
