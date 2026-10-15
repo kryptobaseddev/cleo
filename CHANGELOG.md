@@ -1,5 +1,45 @@
 # Changelog
 
+## [2026.10.14] (2026-10-15)
+
+> **Stabilisation release.** Cross-device sync (Stage C: `sync.seal`, `sync.push`, `sync.pull`, `sync.strict`) stays unreleased and inert on this stable build until the Stage C exit gate releases its flags, and project hooks (hooks-v1) stay off on stable builds until their promotion. The local embedding model is no longer downloaded unless you opt in. Two additive schema migrations run on first open (`docs_attachments`/`docs_attachment_refs` gain a `uid` column; the brain tables gain `prune_candidate`).
+
+### Added
+
+- Global credentials sync with their secrets: sealed in cloud sync, re-encrypted on the receiving device _(provenance: [T13467](https://github.com/kryptobaseddev/cleo/search?q=T13467&type=commits), [T12915](https://github.com/kryptobaseddev/cleo/search?q=T12915&type=commits))_
+
+### Changed
+
+- Prove cloud vault snapshots carry the docs databases and bytes, so docs fetch works after cloud restore onto a new device _(provenance: [T13704](https://github.com/kryptobaseddev/cleo/search?q=T13704&type=commits))_
+
+### Fixed
+
+- cleo backup add and cleo restore backup --id now carry the docs blob store and attachments, so docs fetch works after a restore _(provenance: [T13704](https://github.com/kryptobaseddev/cleo/search?q=T13704&type=commits), [T13708](https://github.com/kryptobaseddev/cleo/search?q=T13708&type=commits), [T13709](https://github.com/kryptobaseddev/cleo/search?q=T13709&type=commits), [T13710](https://github.com/kryptobaseddev/cleo/search?q=T13710&type=commits))_
+- a sync joiner that never opened brain no longer refuses brain ops, and refused-schema ops retry once the schema has their columns _(provenance: [T13719](https://github.com/kryptobaseddev/cleo/search?q=T13719&type=commits))_
+- docs versions --for accepts a doc slug; dispatch keeps a CleoError's named code _(provenance: [T13725](https://github.com/kryptobaseddev/cleo/search?q=T13725&type=commits))_
+- LLM credentials now live encrypted in the synced accounts table, so a key added with cleo llm add on one device works on your others; llm-credentials.json is migrated once and removed _(provenance: [T13715](https://github.com/kryptobaseddev/cleo/search?q=T13715&type=commits), [T13528](https://github.com/kryptobaseddev/cleo/search?q=T13528&type=commits))_
+- A qa-run receipt recorded on an earlier tree carries while its checked roots, the task's current change and the shared tool configs are byte-identical; a refusal names the paths that changed _(provenance: [T13644](https://github.com/kryptobaseddev/cleo/search?q=T13644&type=commits))_
+- cleo cloud restore now turns sync on for the restored project and the home stream, so a device that joins by restore syncs with no enable step _(provenance: [T13718](https://github.com/kryptobaseddev/cleo/search?q=T13718&type=commits))_
+- a replica's own echo no longer records field conflicts on timestamps stored as legacy 'YYYY-MM-DD HH:MM:SS' text _(provenance: [T13714](https://github.com/kryptobaseddev/cleo/search?q=T13714&type=commits))_
+- qa-run receipts recorded on a main HEAD after the merge, on the current tree and covering the change, stand in for qaPassed whatever the merge CI concluded (the T13673 rule, now for qaPassed) _(provenance: [T13644](https://github.com/kryptobaseddev/cleo/search?q=T13644&type=commits))_
+- Docs wikilinks rebuild chunks past SQLite's variable cap; rebuild warnings stay bounded and never print SQL params _(provenance: [T13711](https://github.com/kryptobaseddev/cleo/search?q=T13711&type=commits))_
+
+### Also in this release (listed by hand)
+
+Merged since v2026.10.13 and reviewed, with green PR CI. These have no release-note changeset, or their tasks were still open at planning time:
+
+- T13716 #2257: the session-end embedding backfill downloads the local embedding model only on explicit opt-in; nothing reaches huggingface.co by default.
+- T13720 #2261: global-store brain memory (decisions and observations) is written and read.
+- T12919 #2260: the docs registry and refs sync across devices; wikilinks are derived (inert on stable until Stage C).
+- T12895 #2230: proof that natural-key brain rows replay across devices by derived uid.
+- T13649 #2238: typed gates honour CLEO_EVIDENCE_GIT_ROOT and key the cache to the declared worktree HEAD.
+- T13690, T13691 #2237: declared task files are literal typed-gate inputs (`app/[id]/page.tsx` no longer defeats the gate cache).
+- T13693 #2240: a typed-gate cache miss names what changed since `cleo verify --run` cached the pass.
+- T13664 #2232: `cleo lean debt` lists `shortcut:` comments and can file them as tasks.
+- T13686 #2234 #2250: the gateway client is regenerated and CI gates generated-client drift.
+- T13684 #2246: proof of fetch, concurrent update, then update with the fetched base.
+- T13624 #2251: test that keep mine on an incoming-applied conflict obeys the typed-rule probe.
+
 ## [2026.10.13] (2026-10-14)
 
 ### Added
