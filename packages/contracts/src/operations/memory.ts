@@ -25,6 +25,7 @@
 
 import type { BrainCognitiveType, BrainMemoryTier, BrainSourceConfidence } from '../brain.js';
 import type { LAFSPage } from '../lafs.js';
+import type { MemoryScope } from '../memory/search.js';
 
 // ============================================================================
 // Shared Memory types (API wire format)
@@ -777,6 +778,8 @@ export interface MemoryObserveParams {
   attachmentRefs?: string[];
   /** Cross-reference to other memory or external IDs (T794). */
   crossRef?: string[];
+  /** Store to write: `project` (default) or `global`, the synced main brain (T13720). */
+  scope?: MemoryScope;
 }
 /** Result of `memory.observe`. */
 export interface MemoryObserveResult {
@@ -841,6 +844,8 @@ export interface MemoryDecisionStoreParams {
    * Defaults to `'agent'` when not specified.
    */
   decidedBy?: 'owner' | 'council' | 'agent';
+  /** Store to write: `project` (default) or `global`, the synced main brain (T13720). */
+  scope?: MemoryScope;
 }
 /** Result of `memory.decision.store`. */
 export interface MemoryDecisionStoreResult {

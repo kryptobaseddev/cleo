@@ -23,6 +23,7 @@ import { SYNC_SCHEMA_VERSION } from '@cleocode/contracts/sync-schema.js';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { generateEd25519 } from '../../../cloud/crypto.js';
 import { readStoreSyncStream } from '../../../cloud/nexus-cloud-status.js';
+import { memoryDecisionStore, memoryObserve } from '../../../memory/engine-compat.js';
 import {
   _resetDualScopeDbCache,
   getDualScopeNativeDb,
@@ -398,6 +399,51 @@ describe('the main brain stream (home:<user>) end to end (T13370)', () => {
       known: true,
       value: stream.segments.length,
     });
+  });
+
+  it('a global observation and decision written through memory observe / decision-store --scope global on A appear on B (T13720)', async () => {
+    const { a, b } = await twoDevices();
+    const stream = fakeStream();
+    // The CLI's global store is CLEO_HOME/cleo.db: point it at device A's store.
+    vi.stubEnv('CLEO_HOME', join(dir, 'a'));
+    const observed = await memoryObserve({
+      text: 'the main brain carries this across devices',
+      title: 'main brain observation',
+      scope: 'global',
+    });
+    expect(observed.success).toBe(true);
+    const decided = await memoryDecisionStore({
+      decision: 'Keep user-wide knowledge in the main brain',
+      rationale: 'it follows the user to every device',
+      confirmationState: 'accepted',
+      scope: 'global',
+    });
+    expect(decided.success).toBe(true);
+    const obsId = (observed.data as { id: string }).id;
+    const decId = (decided.data as { id: string }).id;
+
+    await push(a, stream);
+    await pull(b, stream);
+    const row = (db: DatabaseSync, table: string, id: string) =>
+      db.prepare(`SELECT uid, * FROM ${table} WHERE id = ?`).get(id) as
+        | Record<string, unknown>
+        | undefined;
+    expect(row(b.db, 'brain_observations', obsId)).toMatchObject({
+      title: 'main brain observation',
+      narrative: 'the main brain carries this across devices',
+    });
+    expect(row(b.db, 'brain_observations', obsId)?.uid).toBe(
+      row(a.db, 'brain_observations', obsId)?.uid,
+    );
+    expect(row(b.db, 'brain_decisions', decId)).toMatchObject({
+      decision: 'Keep user-wide knowledge in the main brain',
+      confirmation_state: 'accepted',
+    });
+    // One framed transaction per command, never an unframed (foreign) singleton.
+    expect(a.db.prepare('SELECT count(*) AS n FROM _sync_txn WHERE unframed = 1').get()).toEqual({
+      n: 0,
+    });
+    expect(contentChecksums(b.db)).toEqual(contentChecksums(a.db));
   });
 
   it('a concurrent edit to one observation resolves to the same row on both, with the same conflicts', async () => {

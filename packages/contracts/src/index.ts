@@ -1138,6 +1138,7 @@ export type {
 export { BRAIN_OBSERVATION_SOURCE_TYPES } from './memory/observe.js';
 export type {
   BrainCompactHit,
+  MemoryScope,
   SearchBrainCompactParams,
   SearchBrainCompactResult,
 } from './memory/search.js';
