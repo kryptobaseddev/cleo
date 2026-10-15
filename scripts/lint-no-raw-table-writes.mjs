@@ -618,6 +618,13 @@ const MARKER_RE = /\/\/\s*gate-28:\s*staged-snapshot\s+([A-Za-z_$][\w$]*)/;
  */
 export const STAGED_SNAPSHOT = {
   'packages/core/src/store/credential-transfer.ts': {
+    accounts: {
+      redactCredentialCiphertexts: {
+        count: 1,
+        reason:
+          'blanks device-bound ciphertext in a staged backup snapshot; assertStagedCopy refuses a live store',
+      },
+    },
     agent_registry_agents: {
       redactCredentialCiphertexts: {
         count: 1,

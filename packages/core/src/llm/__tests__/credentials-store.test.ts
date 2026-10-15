@@ -1,6 +1,7 @@
 /**
- * Tests for the multi-credential pool store at
- * `~/.cleo/llm-credentials.json` (T-LLM-CRED-CENTRALIZATION Phase 2 / T9257).
+ * Tests for the multi-credential pool store: the global `accounts` table,
+ * with `~/.cleo/llm-credentials.json` as a migrated legacy source
+ * (T-LLM-CRED-CENTRALIZATION Phase 2 / T9257; T13715).
  *
  * Filesystem isolation mirrors `credentials-auth-type.test.ts`: a fresh
  * tmpdir backing `XDG_DATA_HOME` and `HOME` per test, env restored in
@@ -11,19 +12,27 @@
  * @task T9257
  */
 
-import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { dirname, join } from 'node:path';
+import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { decryptGlobal } from '../../crypto/credentials.js';
+import { _resetDualScopeDbCache } from '../../store/dual-scope-db.js';
+import { __clearGlobalSaltCache } from '../../store/global-salt.js';
+import {
+  type LlmAccountRow,
+  listLlmAccountRowsSync,
+  llmAccountSecretId,
+} from '../../store/llm-accounts-accessor.js';
 import { clearAnthropicKeyCache, resolveCredentials } from '../credentials.js';
 import {
   _resetPermsWarningForTests,
   _resetRoundRobinForTests,
   addCredential,
-  type CredentialsStoreData,
   credentialsStorePath,
   getCredentialByLabel,
   listCredentials,
+  migrateLegacyCredentialsFile,
   pickCredentialForProvider,
   pickCredentialForProviderSync,
   removeCredential,
@@ -77,6 +86,11 @@ function isolateHomes(): { xdgRoot: string; home: string } {
   return { xdgRoot, home };
 }
 
+/** The isolated home's `accounts` rows, still encrypted. */
+function accountRows(): LlmAccountRow[] {
+  return listLlmAccountRowsSync();
+}
+
 /** Seed `~/.claude/.credentials.json` under the isolated HOME. */
 function seedClaudeOauth(home: string, accessToken: string): void {
   const claudeDir = join(home, '.claude');
@@ -93,12 +107,15 @@ function seedClaudeOauth(home: string, accessToken: string): void {
 beforeEach(() => {
   saveEnv();
   clearEnv();
+  // Each test has its own home, so its own global salt.
+  __clearGlobalSaltCache();
   clearAnthropicKeyCache();
   _resetPermsWarningForTests();
   _resetRoundRobinForTests();
 });
 
 afterEach(() => {
+  _resetDualScopeDbCache();
   restoreEnv();
   clearAnthropicKeyCache();
   _resetPermsWarningForTests();
@@ -140,7 +157,7 @@ describe('missing-file behavior', () => {
 // ---------------------------------------------------------------------------
 
 describe('addCredential()', () => {
-  it('creates the file with chmod 0600 on first write', async () => {
+  it('stores the credential encrypted in accounts and writes no plaintext file (T13715)', async () => {
     isolateHomes();
     await addCredential({
       provider: 'anthropic',
@@ -148,17 +165,17 @@ describe('addCredential()', () => {
       authType: 'api_key',
       accessToken: 'sk-ant-api03-aaa',
     });
-    const path = credentialsStorePath();
-    expect(existsSync(path)).toBe(true);
-    const stats = statSync(path);
-    expect(stats.mode & 0o777).toBe(0o600);
-
-    const raw = readFileSync(path, 'utf-8');
-    const data = JSON.parse(raw) as CredentialsStoreData;
-    expect(data.version).toBe(1);
-    expect(data.defaultStrategy).toBe('priorityWithFallback');
-    expect(data.credentials).toHaveLength(1);
-    expect(data.credentials[0]?.label).toBe('personal');
+    expect(existsSync(credentialsStorePath())).toBe(false);
+    const row = accountRows()[0];
+    expect(row).toMatchObject({ provider: 'anthropic', label: 'personal', auth_type: 'api-key' });
+    expect(row?.secret_enc).not.toContain('sk-ant-api03-aaa');
+    expect(
+      await decryptGlobal(row?.secret_enc ?? '', llmAccountSecretId('anthropic', 'personal')),
+    ).toBe('sk-ant-api03-aaa');
+    await expect(getCredentialByLabel('anthropic', 'personal')).resolves.toMatchObject({
+      accessToken: 'sk-ant-api03-aaa',
+      priority: 0,
+    });
   });
 
   it('upserts on duplicate (provider, label)', async () => {
@@ -260,19 +277,6 @@ describe('removeCredential()', () => {
     });
     await expect(removeCredential('anthropic', 'nope')).resolves.toBe(false);
     await expect(listCredentials('anthropic')).resolves.toHaveLength(1);
-  });
-
-  it('chmods the file back to 0600 after a remove', async () => {
-    isolateHomes();
-    await addCredential({
-      provider: 'openai',
-      label: 'a',
-      authType: 'api_key',
-      accessToken: 'k',
-    });
-    await removeCredential('openai', 'a');
-    const mode = statSync(credentialsStorePath()).mode & 0o777;
-    expect(mode).toBe(0o600);
   });
 });
 
@@ -541,8 +545,8 @@ describe('resolveCredentials() integration — cred-file tier', () => {
 // Concurrent writes
 // ---------------------------------------------------------------------------
 
-describe('file-lock concurrent writes', () => {
-  it('two parallel addCredential calls do not corrupt the file', async () => {
+describe('concurrent writes', () => {
+  it('parallel addCredential calls all land', async () => {
     isolateHomes();
 
     const calls: Array<Promise<StoredCredential>> = [];
@@ -558,85 +562,137 @@ describe('file-lock concurrent writes', () => {
     }
     await Promise.all(calls);
 
-    // The file must parse, contain all 5 entries, and stay at 0600.
-    const raw = readFileSync(credentialsStorePath(), 'utf-8');
-    expect(() => JSON.parse(raw)).not.toThrow();
-    const parsed = JSON.parse(raw) as CredentialsStoreData;
-    expect(parsed.version).toBe(1);
-    expect(parsed.credentials).toHaveLength(5);
-    const labels = parsed.credentials.map((c) => c.label).sort();
+    const labels = (await listCredentials('openai')).map((c) => c.label).sort();
     expect(labels).toEqual(['parallel-0', 'parallel-1', 'parallel-2', 'parallel-3', 'parallel-4']);
-    const mode = statSync(credentialsStorePath()).mode & 0o777;
-    expect(mode).toBe(0o600);
   });
 });
 
 // ---------------------------------------------------------------------------
-// Security: filesystem permissions
-//
-// Regression suite for the security-review findings on T9257:
-//   S-01 — backup files leaked at 0644 (CWE-276)
-//   S-02 — TOCTOU window between atomic rename and chmod (CWE-367)
-//   S-03 — ~/.cleo parent dir created at 0755 enabled neighbor-UID
-//          enumeration of .backups/ filenames + mtimes (CWE-732)
+// Security: no plaintext at rest (T13715)
 // ---------------------------------------------------------------------------
 
-describe('security: filesystem permissions', () => {
-  it('parent dir ~/.cleo is created at 0700 (S-03)', async () => {
+describe('security: no plaintext at rest (T13715)', () => {
+  it('neither the secret nor its base64 appears in the store files', async () => {
+    isolateHomes();
+    const secret = 'sk-ant-T13715-at-rest-needle';
+    await addCredential({
+      provider: 'anthropic',
+      label: 'rest',
+      authType: 'oauth',
+      accessToken: secret,
+      refreshToken: `${secret}-refresh`,
+    });
+    const db = join(process.env['CLEO_HOME'] ?? '', 'cleo.db');
+    const bytes = Buffer.concat(
+      [db, `${db}-wal`].filter((f) => existsSync(f)).map((f) => readFileSync(f)),
+    );
+    for (const needle of [secret, Buffer.from(secret).toString('base64')]) {
+      expect(bytes.includes(needle)).toBe(false);
+    }
+    await expect(getCredentialByLabel('anthropic', 'rest')).resolves.toMatchObject({
+      accessToken: secret,
+      refreshToken: `${secret}-refresh`,
+    });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Legacy llm-credentials.json migration (T13715)
+// ---------------------------------------------------------------------------
+
+/** Write a legacy plaintext pool file. */
+function seedLegacy(credentials: Array<Partial<StoredCredential>>, raw?: string): void {
+  writeFileSync(
+    credentialsStorePath(),
+    raw ?? JSON.stringify({ version: 1, defaultStrategy: 'priorityWithFallback', credentials }),
+    { mode: 0o600 },
+  );
+}
+
+describe('legacy llm-credentials.json migration (T13715)', () => {
+  const legacy = [
+    {
+      provider: 'anthropic',
+      label: 'old',
+      authType: 'api_key',
+      accessToken: 'sk-old',
+      priority: 5,
+    },
+    {
+      provider: 'openai',
+      label: 'oa',
+      authType: 'oauth',
+      accessToken: 'tok',
+      refreshToken: 'ref',
+      priority: 1,
+      baseUrl: 'https://example.test',
+    },
+  ] as const satisfies ReadonlyArray<Partial<StoredCredential>>;
+
+  it('moves every entry into accounts once, then removes the plaintext file', async () => {
+    isolateHomes();
+    seedLegacy([...legacy]);
+    // Before any async call, the sync resolver already serves the legacy entry.
+    expect(pickCredentialForProviderSync('anthropic')?.accessToken).toBe('sk-old');
+
+    await expect(migrateLegacyCredentialsFile()).resolves.toBe(2);
+    expect(existsSync(credentialsStorePath())).toBe(false);
+    expect(accountRows().map((r) => `${r.provider}:${r.label}`)).toEqual([
+      'anthropic:old',
+      'openai:oa',
+    ]);
+    for (const r of accountRows()) expect(r.secret_enc).not.toMatch(/sk-old|^tok$/);
+    await expect(getCredentialByLabel('openai', 'oa')).resolves.toMatchObject({
+      accessToken: 'tok',
+      refreshToken: 'ref',
+      priority: 1,
+      baseUrl: 'https://example.test',
+    });
+
+    // Idempotent: nothing left to move.
+    await expect(migrateLegacyCredentialsFile()).resolves.toBe(0);
+    expect(accountRows()).toHaveLength(2);
+  });
+
+  it('a list call migrates, and an entry accounts already holds is kept', async () => {
     isolateHomes();
     await addCredential({
       provider: 'anthropic',
-      label: 'perms-parent',
+      label: 'old',
       authType: 'api_key',
-      accessToken: 'sk-ant-x',
+      accessToken: 'sk-new',
     });
-    const parentDir = dirname(credentialsStorePath());
-    const dirMode = statSync(parentDir).mode & 0o777;
-    expect(dirMode).toBe(0o700);
+    seedLegacy([...legacy]);
+    const listed = await listCredentials();
+    expect(listed.map((c) => `${c.provider}:${c.label}`).sort()).toEqual([
+      'anthropic:old',
+      'openai:oa',
+    ]);
+    expect(listed.find((c) => c.label === 'old')?.accessToken).toBe('sk-new');
+    expect(existsSync(credentialsStorePath())).toBe(false);
   });
 
-  it('rotated backup files are 0600 across multiple writes (S-01)', async () => {
+  it('a removed legacy entry does not come back', async () => {
     isolateHomes();
-    // Three writes → at least two rotated backups under .backups/.
-    for (let i = 0; i < 3; i++) {
-      await addCredential({
-        provider: 'openai',
-        label: 'rotating',
-        authType: 'api_key',
-        accessToken: `sk-${i}`,
-      });
-    }
-
-    const backupDir = join(dirname(credentialsStorePath()), '.backups');
-    expect(existsSync(backupDir)).toBe(true);
-
-    // Backup directory itself must be 0o700 — otherwise neighbor UIDs can
-    // enumerate filenames + mtimes even when each file is 0o600.
-    expect(statSync(backupDir).mode & 0o777).toBe(0o700);
-
-    const entries = readdirSync(backupDir);
-    expect(entries.length).toBeGreaterThan(0);
-    for (const name of entries) {
-      const mode = statSync(join(backupDir, name)).mode & 0o777;
-      expect(mode).toBe(0o600);
-    }
+    seedLegacy([...legacy]);
+    await expect(removeCredential('anthropic', 'old')).resolves.toBe(true);
+    await expect(listCredentials('anthropic')).resolves.toEqual([]);
   });
 
-  it('live file is 0600 immediately after every addCredential — no TOCTOU window (S-02)', async () => {
+  it('a list still serves the legacy entries when the store cannot be written', async () => {
     isolateHomes();
-    // Five sequential writes — assert 0600 after each call returns. If the
-    // implementation regresses to a post-rename chmod, the live file would
-    // be 0644 in the gap between rename + chmod; here we serialize and
-    // observe at every step.
-    for (let i = 0; i < 5; i++) {
-      await addCredential({
-        provider: 'anthropic',
-        label: `toctou-${i}`,
-        authType: 'api_key',
-        accessToken: `sk-ant-${i}`,
-      });
-      const mode = statSync(credentialsStorePath()).mode & 0o777;
-      expect(mode).toBe(0o600);
-    }
+    seedLegacy([...legacy]);
+    // A directory where the global store belongs: every open fails.
+    mkdirSync(join(process.env['CLEO_HOME'] ?? '', 'cleo.db'));
+    const listed = await listCredentials('anthropic');
+    expect(listed.map((c) => c.accessToken)).toEqual(['sk-old']);
+    expect(existsSync(credentialsStorePath())).toBe(true);
+  });
+
+  it('a malformed legacy file is left in place', async () => {
+    isolateHomes();
+    seedLegacy([], '{ not json');
+    await expect(migrateLegacyCredentialsFile()).resolves.toBe(0);
+    expect(readFileSync(credentialsStorePath(), 'utf-8')).toBe('{ not json');
   });
 });

@@ -18,7 +18,7 @@
  * @epic T11671
  */
 
-import { mkdirSync, readFileSync } from 'node:fs';
+import { mkdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { ProviderProfile, RoleName } from '@cleocode/contracts';
@@ -364,7 +364,7 @@ describe('runOnboardingLogin — integration (real pool + config, isolated home)
     // (setConfigValue) but inject a deterministic catalog + resolver so the
     // test does not depend on a fetched models.dev snapshot or live creds.
     const { getProviderProfile } = await import('../../provider-registry/index.js');
-    const { addCredential, credentialsStorePath } = await import('../../credentials-store.js');
+    const { addCredential, getCredentialByLabel } = await import('../../credentials-store.js');
     const { setConfigValue } = await import('../../../config.js');
 
     const deps: OnboardingDeps = {
@@ -393,13 +393,11 @@ describe('runOnboardingLogin — integration (real pool + config, isolated home)
     expect(result.validated).toBe(true);
     expect(result.steps.every((s) => s.status === 'ok')).toBe(true);
 
-    // Account landed on disk in the credential store…
-    const raw = readFileSync(credentialsStorePath(), 'utf-8');
-    const parsed = JSON.parse(raw) as { credentials: Array<{ provider: string; label: string }> };
-    expect(parsed.credentials.some((c) => c.provider === 'anthropic' && c.label === 'work')).toBe(
-      true,
-    );
-    // …and the on-disk store is the ONLY place the token lives — never the envelope.
+    // Account landed in the credential store (the global `accounts` table)…
+    await expect(getCredentialByLabel('anthropic', 'work')).resolves.toMatchObject({
+      accessToken: FAKE_TOKEN,
+    });
+    // …and the store is the ONLY place the token lives — never the envelope.
     expect(JSON.stringify(result)).not.toContain(FAKE_TOKEN);
   });
 });

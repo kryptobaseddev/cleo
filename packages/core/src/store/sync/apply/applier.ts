@@ -128,6 +128,7 @@ import {
   unsequencedLocalTxn,
   unsequencedLocalTxns,
 } from '../sequencing.js';
+import { canonicalStoreTimestamp } from '../timestamp-canon.js';
 import { withTriggersSuspended } from '../trigger-classes.js';
 import { followUidAliases, markAliasPlaced, recordUidAlias } from '../uid-alias.js';
 import { widenFootprint } from './footprints.js';
@@ -297,7 +298,14 @@ export function loadRowState(
   for (const [col, stored] of Object.entries(row)) {
     // The merge compares stream values: a reference reads as its target's uid.
     const target = def.refs.get(col);
-    const value = target && stored !== null ? (uidOfKey(db, target, stored) ?? stored) : stored;
+    // A timestamp reads in the form the sealer sends (T13714): a legacy
+    // `YYYY-MM-DD HH:MM:SS` row must not diverge from its own canonical echo.
+    const value =
+      target && stored !== null
+        ? (uidOfKey(db, target, stored) ?? stored)
+        : typeof stored === 'string' && def.timestamps.has(col)
+          ? (canonicalStoreTimestamp(stored) ?? stored)
+          : stored;
     const hlc = fh[col] ?? (meta && !meta.deleted ? meta.hlc : floor);
     const leave = leaves[col];
     const frontier = frontiers[col];
