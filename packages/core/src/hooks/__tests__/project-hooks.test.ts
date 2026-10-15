@@ -364,6 +364,25 @@ describe('activated project checks through actual child processes', () => {
       await executeProjectHooks({ ...invocation, source: 'worktree', event: 'post-start' }),
     ).toMatchObject([{ id: 'cleo.project-hooks', status: 'block', blocks: true }]);
   }, 20000);
+  it('a legacy activation plus a deleted handler refuses the push (T13742 F1-F)', async () => {
+    await activateProjectHooks(root);
+    const file = join(resolveProjectHookContext(root).stateDir, 'activation.json');
+    const state = JSON.parse(await readFile(file, 'utf8')) as {
+      activation: { bindings?: Record<string, unknown>; bindingsHash?: string };
+    };
+    delete state.activation.bindings;
+    delete state.activation.bindingsHash;
+    await writeFile(file, JSON.stringify(state));
+    await rm(join(root, 'handler.mjs'));
+    expect(await executeProjectHooks(invocation)).toMatchObject([
+      {
+        id: 'cleo.project-hooks',
+        status: 'block',
+        blocks: true,
+        code: 'HOOK_REACTIVATION_REQUIRED',
+      },
+    ]);
+  });
   it('a direct check of an unknown hook ID fails during drift (T13742 F1-C)', async () => {
     await activateProjectHooks(root);
     await writeFile(join(root, 'handler.mjs'), 'process.stdout.write("{}");');

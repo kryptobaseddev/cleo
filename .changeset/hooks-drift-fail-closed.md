@@ -21,7 +21,7 @@ approved ones. A missing PATH runtime is still an environment fault that allows
 locally. An event none of the bindings name runs no hooks, so worktree creation
 is not blocked unless worktree events are bound. An activation from before
 bindings were stored, or one whose bindings fail their digest, refuses every
-non-agent event on drift. The same rules cover worktree inheritance (including
+non-agent event on drift, including an unparseable manifest or a deleted input. The same rules cover worktree inheritance (including
 hooks only the linked checkout declares) and the recheck between handlers.
 
 `cleo hook sync --disable` now skips providers that have no delivery receipt and

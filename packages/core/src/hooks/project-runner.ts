@@ -136,8 +136,7 @@ async function refuseUnverifiableInputs(
     const state = await readProjectHooksLocalState(
       resolveProjectHookContext(activationRoot ?? invocation.projectRoot),
     );
-    if (!state.hooks.project.enabled || !state.activation?.bindings || !hooksV1Released())
-      return undefined;
+    if (!state.hooks.project.enabled || !state.activation || !hooksV1Released()) return undefined;
     if (error instanceof HookInputUnavailableError)
       return reactivationRequired(
         approvedHooks(state.activation),
