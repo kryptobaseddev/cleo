@@ -74,6 +74,7 @@ vi.mock('../../store/data-accessor.js', () => ({
 
 // Mock @huggingface/transformers to prevent model downloads in tests
 vi.mock('@huggingface/transformers', () => ({
+  env: { allowRemoteModels: true },
   pipeline: vi
     .fn()
     .mockResolvedValue(vi.fn().mockResolvedValue({ data: new Float32Array(384).fill(0.1) })),

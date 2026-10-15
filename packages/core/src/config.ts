@@ -89,6 +89,7 @@ const DEFAULTS: CleoConfig = {
     embedding: {
       enabled: true,
       provider: 'local' as const,
+      allowModelDownload: false,
     },
     memoryBridge: {
       autoRefresh: true,

@@ -668,10 +668,13 @@ async function extractWithTransformers(
   warnings: string[],
 ): Promise<MemoryItem[]> {
   try {
-    const { pipeline } = await import('@huggingface/transformers');
+    // T13716: no hub download unless brain.embedding.allowModelDownload is set.
+    const { importGatedTransformers } = await import('./embedding-local.js');
+    const { transformers, allowDownload } = await importGatedTransformers();
 
-    const pipe = await pipeline('text-generation', TRANSFORMERS_FALLBACK_MODEL, {
+    const pipe = await transformers.pipeline('text-generation', TRANSFORMERS_FALLBACK_MODEL, {
       dtype: 'q4',
+      local_files_only: !allowDownload,
     });
 
     const systemInstructions = `${EXTRACTION_SYSTEM_PROMPT}\n\nReturn ONLY valid JSON matching: {"memories":[{"type":"...","content":"...","importance":0.0,"entities":[],"justification":"..."}]}`;
