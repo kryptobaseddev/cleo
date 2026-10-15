@@ -1,6 +1,7 @@
 /** Project-local activation delivery, ownership and hash-guarded removal. */
 import { execFileSync, spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
+import { existsSync } from 'node:fs';
 import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -95,6 +96,61 @@ describe('project hook delivery', () => {
     expect(body).toContain('// team comment');
     expect(body).toContain(heavy);
     expect(body).not.toContain('# cleo-project-hook:v1');
+  });
+  it('disable creates nothing for a never-activated provider (T13743)', async () => {
+    const opts = await options();
+    await rm(join(opts.projectRoot, '.codex'), { recursive: true });
+    const result = (await syncProjectHookProviders({ ...opts, enabled: false, rollback: true }))[0];
+    expect(result?.state).toBe('disabled');
+    expect(existsSync(join(opts.projectRoot, '.codex'))).toBe(false);
+    expect(existsSync(join(opts.stateDir, 'provider-codex.json'))).toBe(false);
+  });
+  it('disable deletes a config activation created and restores a pre-existing one byte-identically (T13743)', async () => {
+    const opts = await options();
+    const file = join(opts.projectRoot, '.codex/hooks.json');
+    await syncProjectHookProviders(opts);
+    expect(existsSync(file)).toBe(true);
+    await syncProjectHookProviders({ ...opts, enabled: false, rollback: true });
+    expect(existsSync(file)).toBe(false);
+    expect(existsSync(join(opts.stateDir, 'provider-codex.json'))).toBe(false);
+    // A second disable finds no receipt and writes nothing.
+    await syncProjectHookProviders({ ...opts, enabled: false, rollback: true });
+    expect(existsSync(file)).toBe(false);
+    const original = '{\n  // team settings\n  "model": "o4"\n}\n';
+    await writeFile(file, original);
+    expect((await syncProjectHookProviders(opts))[0]?.state).toBe('installed');
+    expect(await readFile(file, 'utf8')).toContain('# cleo-project-hook:v1');
+    await syncProjectHookProviders({ ...opts, enabled: false, rollback: true });
+    expect(await readFile(file, 'utf8')).toBe(original);
+    // Containers the file already had are never pruned.
+    const emptyHooks = '{"hooks":{}}\n';
+    await writeFile(file, emptyHooks);
+    await syncProjectHookProviders(opts);
+    await syncProjectHookProviders({ ...opts, enabled: false, rollback: true });
+    expect(await readFile(file, 'utf8')).toBe(emptyHooks);
+  });
+  it('disable deletes a receipt that delivered no entries (T13743)', async () => {
+    const opts = await options();
+    await syncProjectHookProviders({ ...opts, events: ['NoSuchEvent'] });
+    const receipt = join(opts.stateDir, 'provider-codex.json');
+    expect(existsSync(receipt)).toBe(true);
+    await syncProjectHookProviders({ ...opts, enabled: false, rollback: true });
+    expect(existsSync(receipt)).toBe(false);
+    expect(existsSync(join(opts.projectRoot, '.codex/hooks.json'))).toBe(false);
+  });
+  it('disable removes a config directory activation created only once it is empty (T13743)', async () => {
+    const opts = await options();
+    const dir = join(opts.projectRoot, '.codex');
+    await rm(dir, { recursive: true });
+    await syncProjectHookProviders(opts);
+    expect(existsSync(join(dir, 'hooks.json'))).toBe(true);
+    await syncProjectHookProviders({ ...opts, enabled: false, rollback: true });
+    expect(existsSync(dir)).toBe(false);
+    await syncProjectHookProviders(opts);
+    await writeFile(join(dir, 'team.toml'), 'model = "o4"\n');
+    await syncProjectHookProviders({ ...opts, enabled: false, rollback: true });
+    expect(existsSync(join(dir, 'hooks.json'))).toBe(false);
+    expect(await readFile(join(dir, 'team.toml'), 'utf8')).toBe('model = "o4"\n');
   });
   it('warns and allows native invocation when CLEO is absent or lacks the protocol', async () => {
     const opts = await options();
@@ -213,6 +269,8 @@ describe('project hook delivery', () => {
       (await syncProjectHookProviders({ ...openCode, enabled: false, rollback: true }))[0]?.state,
     ).toBe('disabled');
     await expect(readFile(file)).rejects.toThrow();
+    expect(existsSync(join(opts.stateDir, 'provider-opencode.json'))).toBe(false);
+    expect(existsSync(join(opts.projectRoot, '.opencode'))).toBe(false);
   });
   it('reports Kimi project-local support unavailable without writing global hooks', async () => {
     const opts = await options();
