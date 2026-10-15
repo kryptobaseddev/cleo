@@ -394,6 +394,8 @@ export type EvidenceAtom =
       affectedPackages?: string[];
       /** The test projects the affected run actually selected (incl. non-package projects). */
       affectedProjects?: string[];
+      /** Test files outside every package the affected run named (T13754). */
+      affectedTestFiles?: string[];
       /** Affected DEPENDENT packages with no test project (a changed one refuses the scope). */
       untestedPackages?: string[];
       /**

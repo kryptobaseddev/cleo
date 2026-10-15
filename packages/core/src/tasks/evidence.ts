@@ -1757,6 +1757,7 @@ async function runAffectedTests(
           : AFFECTED_SCOPE_BASIS,
       affectedPackages: run.packages,
       affectedProjects: run.projects,
+      ...(run.testFiles ? { affectedTestFiles: run.testFiles } : {}),
       ...(run.untested.length > 0 ? { untestedPackages: run.untested } : {}),
       ...toolRunAtomFields(result),
     },

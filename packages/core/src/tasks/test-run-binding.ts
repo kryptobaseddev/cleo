@@ -42,8 +42,11 @@
  *     config or the lockfile) is refused outright: only a full-suite run
  *     speaks for it, and a report cannot show that it ran the whole suite
  *     (test configs exclude tracked test files, so per-package file counts
- *     prove nothing) — `tool:test` runs it. A report with no passed test at
- *     all is refused before any of this.
+ *     prove nothing) — `tool:test` runs it. A path outside every package
+ *     in a directory with test files (a `tooling/<tool>/` beside the
+ *     workspace) is not workspace-wide: the report must pass every test file
+ *     outside the packages under the nearest such directory (T13754). A
+ *     report with no passed test at all is refused before any of this.
  *     A standalone project (no workspace declared, T13403) is one package,
  *     its root: a change inside the root is that package's, never
  *     workspace-wide, and since that package is the whole project the report
@@ -72,6 +75,7 @@ import {
   originDefaultMergeBase,
   type ScopedChangedPaths,
   scopedChangedPaths,
+  TEST_FILE,
   type WorkspacePackage,
 } from './affected-packages.js';
 
@@ -106,9 +110,6 @@ const MAX_CHANGE_COMMITS = 1000;
 
 /** Most HEAD reflog entries read to find HEAD as of the run. */
 const MAX_REFLOG_ENTRIES = 1000;
-
-/** A tracked test file, by the names vitest and jest pick up. */
-const TEST_FILE = /\.(test|spec)\.[cm]?[jt]sx?$/;
 
 /**
  * The report's test files that ran at least one passing test, relative to
@@ -615,7 +616,7 @@ export function testRunCoversChange(
     codeName: 'E_EVIDENCE_INSUFFICIENT',
     reason,
   });
-  const scope = deriveAffectedPackages(root, changed);
+  const scope = deriveAffectedPackages(root, changed, { outsideTests: true });
   if (scope.scope === 'full') {
     // A workspace-wide change can break any package: only a full-suite run
     // speaks for it, and no report shows it ran the whole suite.
@@ -624,6 +625,19 @@ export function testRunCoversChange(
         'and a test-run report cannot show that it ran the whole suite (test configs exclude ' +
         'tracked test files, so file counts prove nothing). Record tool:test, which runs the ' +
         'full suite for a workspace-wide change, or ci:<pr> once the PR merges.',
+    );
+  }
+  // T13754: a non-workspace path is spoken for only by passing every test file
+  // of the directory that owns it (and every test file the change edited there).
+  const ran = new Set(testFiles);
+  const outsideUnrun = (scope.outsideTests ?? []).filter((f) => !ran.has(f));
+  if (outsideUnrun.length > 0) {
+    return refuse(
+      `test-run report does not run ${outsideUnrun.slice(0, 5).join(', ')}` +
+        `${outsideUnrun.length > 5 ? `, … (${outsideUnrun.length} files)` : ''}. The change ` +
+        'touches paths outside every workspace package, so a targeted report must pass every ' +
+        'test file of the directories holding them. Run them and record the report, or record ' +
+        'tool:test-affected.',
     );
   }
   if (scope.direct.length === 0) return { ok: true, untestedPackages: [] };
@@ -645,7 +659,6 @@ export function testRunCoversChange(
     // so one test file of it says nothing about the change. The report must
     // also run every test file the change adds or edits.
     const standalone = workspace.length === 1 && workspace[0]?.dir === '';
-    const ran = new Set(testFiles);
     const unrun = standalone ? changedTestFiles(root, changed).filter((f) => !ran.has(f)) : [];
     if (unrun.length === 0) return { ok: true, untestedPackages };
     return refuse(

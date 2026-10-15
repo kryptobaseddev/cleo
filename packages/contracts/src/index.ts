@@ -44,6 +44,7 @@ export {
   lintGateSchema,
   manualGateSchema,
   testCountReportSchema,
+  testCountSummarySchema,
   testGateSchema,
 } from './acceptance-gate-schema.js';
 // === Provider Adapter Contracts ===

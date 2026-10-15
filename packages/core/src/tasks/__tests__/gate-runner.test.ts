@@ -736,6 +736,138 @@ describe('minimum test count from a structured report (T12308)', () => {
   });
 });
 
+/**
+ * A structured report decides the verdict; the text heuristic never reads a
+ * test NAME (T13752). VidaPeps saw an 11/11 passing vitest-shaped run fail
+ * because a test was named "...activation failure diagnostics...".
+ */
+describe('structured counts decide the verdict over the text heuristic (T13752)', () => {
+  const names = [
+    'surfaces activation failure diagnostics',
+    'reports failing gates',
+    'throws Error: on a bad input',
+  ];
+  function fullReport(failed: number): string {
+    const assertions = names.map((fullName, i) => ({
+      fullName,
+      status: i < failed ? 'failed' : 'passed',
+    }));
+    return JSON.stringify({
+      numTotalTests: names.length,
+      numPassedTests: names.length - failed,
+      numFailedTests: failed,
+      numPendingTests: 0,
+      numTodoTests: 0,
+      numTotalTestSuites: 1,
+      numPassedTestSuites: failed > 0 ? 0 : 1,
+      numFailedTestSuites: failed > 0 ? 1 : 0,
+      numPendingTestSuites: 0,
+      success: failed === 0,
+      testResults: [
+        {
+          name: 'a.test.ts',
+          status: failed > 0 ? 'failed' : 'passed',
+          assertionResults: assertions,
+        },
+      ],
+    });
+  }
+  const run = async (stdout: string) =>
+    (
+      await runGates(
+        [
+          {
+            kind: 'test',
+            description: 'structured verdict',
+            command: process.execPath,
+            args: ['-e', `process.stdout.write(${JSON.stringify(stdout)})`],
+            expect: 'pass',
+          },
+        ],
+        { projectRoot },
+      )
+    )[0];
+
+  it('a passing report whose test names say failure passes', async () => {
+    const progress = names.map((n) => ` ✓ a.test.ts > ${n}`).join('\n');
+    const result = await run(`${progress}\n${fullReport(0)}`);
+    expect(result?.result, result?.errorMessage).toBe('pass');
+  });
+
+  it('a report counting a failed test fails on the counts even with exit 0', async () => {
+    const result = await run(fullReport(1));
+    expect(result?.result).toBe('fail');
+    expect(result?.errorMessage).toMatch(/Structured report counts 1 failing/);
+  });
+
+  it('with no report, passing-test lines naming failure do not fail the run', async () => {
+    const result = await run(
+      ' ✓ a.test.ts > reports failing gates\n ✓ a.test.ts > throws Error: on a bad input\n' +
+        'ok 3 - surfaces 2 failures\n      Tests  3 passed (3)',
+    );
+    expect(result?.result, result?.errorMessage).toBe('pass');
+  });
+
+  it.each([
+    ['a FAIL line', ' FAIL  a.test.ts > adds\n ✓ a.test.ts > other'],
+    ['TAP not ok', 'not ok 1 - adds\n# fail 1'],
+  ])('with no report, %s still fails', async (_label, out) => {
+    expect(outputReportsFailure(out)).toBe(true);
+  });
+});
+
+/**
+ * A minCount gate runs a non-runner command like any other and reads a count
+ * summary from its last stdout line (T13753). VidaPeps: a python wrapper
+ * printing `{"numPassedTests":13,...}` recorded exitCode null and no output.
+ */
+describe('minCount with a non-runner wrapper command (T13753)', () => {
+  const wrapper = (line: string, exit = 0) => ({
+    kind: 'test' as const,
+    description: 'wrapper with minCount',
+    command: process.execPath,
+    args: [
+      '-e',
+      `console.log('running wrapped suite'); console.log(${JSON.stringify(line)}); process.exit(${exit})`,
+    ],
+    expect: 'pass' as const,
+    minCount: 8,
+  });
+
+  it('passes on a count summary in the last stdout line', async () => {
+    const [result] = await runGates(
+      [wrapper(JSON.stringify({ numPassedTests: 13, numFailedTests: 0, numTotalTests: 13 }))],
+      { projectRoot },
+    );
+    expect(result?.result, result?.errorMessage).toBe('pass');
+    expect(result?.execution?.exitCode).toBe(0);
+  });
+
+  it('fails a summary below the minimum', async () => {
+    const [result] = await runGates([wrapper(JSON.stringify({ numPassedTests: 5 }))], {
+      projectRoot,
+    });
+    expect(result?.result).toBe('fail');
+    expect(result?.errorMessage).toContain('below the required minimum of 8');
+  });
+
+  it('an unprovable count is an error that keeps the real run record', async () => {
+    const [result] = await runGates([wrapper('13 tests passed')], { projectRoot });
+    expect(result?.result).toBe('error');
+    expect(result?.errorMessage).toMatch(/minCount 8 cannot be proved/);
+    expect(result?.execution?.exitCode).toBe(0);
+    expect(result?.execution?.stdout).toContain('running wrapped suite');
+  });
+
+  it('a summary contradicting itself proves nothing', async () => {
+    const [result] = await runGates(
+      [wrapper(JSON.stringify({ numPassedTests: 13, numFailedTests: 0, numTotalTests: 2 }))],
+      { projectRoot },
+    );
+    expect(result?.result).toBe('error');
+  });
+});
+
 describe('gate runner immutable lifetime and bounded evidence', () => {
   afterEach(() => {
     vi.unstubAllGlobals();

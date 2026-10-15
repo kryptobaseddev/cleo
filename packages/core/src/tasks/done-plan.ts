@@ -428,8 +428,10 @@ function planTypedGates(
     const stale =
       stored?.result === 'pass' &&
       (row === undefined || typedResultStaleReason(stored, task, gate, row, owner) !== null);
+    // T13752: an `error` is no verdict (a cache-only write found no cached
+    // pass, or the run did not finish), so it never reads as "last failed".
     const status: DonePlanTypedGate['status'] =
-      stored === undefined || stored.result === 'skipped' || stale
+      stored === undefined || stored.result === 'skipped' || stored.result === 'error' || stale
         ? 'not-run'
         : stored.result === 'pass'
           ? 'pass'

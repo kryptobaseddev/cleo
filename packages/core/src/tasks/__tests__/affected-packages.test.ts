@@ -456,6 +456,97 @@ describe('tool:test-affected evidence', () => {
     expect(!r.ok && r.codeName).toBe('E_EVIDENCE_TOOL_FAILED');
   });
 
+  describe('a change outside every package, in a directory with tests (T13754)', () => {
+    const PASS = "import { test } from 'node:test';\ntest('ok', () => {});\n";
+    const FAIL =
+      "import { test } from 'node:test';\ntest('no', () => { throw new Error('x'); });\n";
+    function tooling(queueTest = PASS): void {
+      mkdirSync(join(root, 'tooling', 'bridge'), { recursive: true });
+      writeFileSync(join(root, 'tooling', 'bridge', 'bridge.mjs'), 'export const b = 1;\n');
+      writeFileSync(join(root, 'tooling', 'bridge', 'bridge.test.mjs'), PASS);
+      writeFileSync(join(root, 'tooling', 'bridge', 'queue.test.mjs'), queueTest);
+    }
+    function changeBridge(): void {
+      writeFileSync(join(root, 'tooling', 'bridge', 'bridge.mjs'), 'export const b = 2;\n');
+      git(root, ['commit', '-q', '-am', 'T1: change the bridge']);
+    }
+
+    it('green: tool:test-affected runs every test file of that directory, not the whole suite', async () => {
+      tooling();
+      initRepo('pnpm {filters} run test', { command: 'exit-1-if-run-whole-suite' });
+      changeBridge();
+      const r = await validateAtom({ kind: 'tool', tool: 'test-affected' }, root);
+      expect(r.ok && r.atom, JSON.stringify(r)).toMatchObject({
+        tool: 'test-affected',
+        scope: 'affected',
+        affectedPackages: [],
+        affectedTestFiles: ['tooling/bridge/bridge.test.mjs', 'tooling/bridge/queue.test.mjs'],
+      });
+      const run = await planAffectedTestRun(root, root);
+      expect(run.ok && [run.command.cmd, ...run.command.args]).toEqual([
+        'node',
+        '--test',
+        'tooling/bridge/bridge.test.mjs',
+        'tooling/bridge/queue.test.mjs',
+      ]);
+    });
+
+    it('red: an untouched failing test file of that directory fails the run', async () => {
+      tooling(FAIL);
+      initRepo('pnpm {filters} run test');
+      changeBridge();
+      const r = await validateAtom({ kind: 'tool', tool: 'test-affected' }, root);
+      expect(!r.ok && r.codeName, JSON.stringify(r)).toBe('E_EVIDENCE_TOOL_FAILED');
+    });
+
+    it('a {projects} template names the files in place of the projects', async () => {
+      tooling();
+      initRepo('pnpm exec vitest run {projects}');
+      changeBridge();
+      const run = await planAffectedTestRun(root, root);
+      expect(run.ok && [run.command.cmd, ...run.command.args]).toEqual([
+        'pnpm',
+        'exec',
+        'vitest',
+        'run',
+        'tooling/bridge/bridge.test.mjs',
+        'tooling/bridge/queue.test.mjs',
+      ]);
+    });
+
+    it('red: a mixed package and tooling change names the test-run that covers both', async () => {
+      tooling();
+      initRepo('pnpm {filters} run test');
+      writeFileSync(join(root, 'packages/c/src/index.ts'), "export const n = 'changed';\n");
+      changeBridge();
+      const r = await validateAtom({ kind: 'tool', tool: 'test-affected' }, root);
+      expect(!r.ok && r.reason, JSON.stringify(r)).toMatch(
+        /@x\/c and test files outside every package \(tooling\/bridge\/bridge\.test\.mjs.*test-run:/s,
+      );
+    });
+
+    it('red: a repo-root file beside the tooling change is still workspace-wide', async () => {
+      tooling();
+      initRepo('pnpm {filters} run test');
+      writeFileSync(join(root, 'pnpm-lock.yaml'), 'lockfileVersion: 9\n');
+      git(root, ['add', 'pnpm-lock.yaml']);
+      changeBridge();
+      const r = await validateAtom({ kind: 'tool', tool: 'test-affected' }, root);
+      expect(!r.ok && r.reason, JSON.stringify(r)).toMatch(/pnpm-lock\.yaml.*tool:test/s);
+      expect(!r.ok && r.reason).not.toContain('tooling/bridge/bridge.mjs');
+    });
+
+    it('red: a directory with no test file is still workspace-wide', async () => {
+      initRepo('pnpm {filters} run test');
+      mkdirSync(join(root, 'config'), { recursive: true });
+      writeFileSync(join(root, 'config', 'deploy.json'), '{}\n');
+      git(root, ['add', 'config/deploy.json']);
+      git(root, ['commit', '-q', '-m', 'T1: config']);
+      const r = await validateAtom({ kind: 'tool', tool: 'test-affected' }, root);
+      expect(!r.ok && r.reason, JSON.stringify(r)).toMatch(/config\/deploy\.json.*tool:test/s);
+    });
+  });
+
   it('refuses a workspace-wide change, pointing at tool:test', async () => {
     initRepo('node -e 0 {packages}');
     writeFileSync(join(root, 'pnpm-lock.yaml'), 'lockfileVersion: 9\n');
