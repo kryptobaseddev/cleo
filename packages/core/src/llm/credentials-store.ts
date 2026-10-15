@@ -1,18 +1,21 @@
 /**
  * Multi-credential pool storage for the CLEO LLM layer (T-LLM-CRED Phase 2).
  *
- * Persists a versioned list of provider credentials at
- * `~/.cleo/llm-credentials.json` (XDG-aware, resolved via `getCleoHome()` so
- * the test-only `XDG_DATA_HOME` override applies identically to every CLEO
- * global file).
+ * The pool lives in the global `accounts` table (T13715), written through
+ * the encrypting accessor `store/llm-accounts-accessor.ts`: secrets are
+ * stored under the machine key and the pool syncs on the home stream.
+ *
+ * `~/.cleo/llm-credentials.json` (resolved via `getCleoHome()`) is a LEGACY
+ * source only: {@link migrateLegacyCredentialsFile} moves its entries into
+ * `accounts` once, idempotently, and removes the plaintext file after reading
+ * every entry back. Until then the sync reader also serves the file's entries
+ * that `accounts` lacks, so resolution stays correct mid-migration.
  *
  * ## Goals
  *
  * - Multiple credentials per provider (label → entry), each with priority,
  *   disabled-flag, expiry, and a free-form `metadata` bag.
- * - Strict 0600 perms on every successful write.
- * - Cross-process locking via `proper-lockfile` reused through `withLock`.
- * - Atomic writes via `writeJsonFileAtomic` (temp → rename + numbered backup).
+ * - Secrets encrypted at rest; never written in plaintext (T13715).
  * - Synchronous read path so the resolver in `credentials.ts` can call it
  *   from its existing sync function.
  *
@@ -35,17 +38,20 @@
  * @epic T-LLM-CRED-CENTRALIZATION
  */
 
-import { chmodSync, existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
+import { existsSync, readFileSync, statSync, unlinkSync } from 'node:fs';
+import { join } from 'node:path';
 // Note: `credentials.ts` already depends on `credentials-store.ts`
 // (`pickCredentialForProviderSync`). The reverse arrow here closes a
 // cycle, but every imported symbol is a function reference read at
 // call-time — ESM's late binding makes the cycle safe.
 import { getCleoHome } from '@cleocode/paths';
 import { getLogger } from '../logger.js';
-// `withLock` already calls `writeJsonFileAtomic` under the hood — we
-// piggy-back on it for atomic writes + numbered backups.
-import { withLock } from '../store/file-utils.js';
+import {
+  deleteLlmAccount,
+  listLlmAccountRowsSync,
+  llmAccountToCredentialSync,
+  upsertLlmAccount,
+} from '../store/llm-accounts-accessor.js';
 import { clearAnthropicKeyCache } from './credentials.js';
 import type { ModelTransport } from './types-config.js';
 
@@ -161,10 +167,8 @@ export interface StoredCredential {
    * that a re-add of the same `(provider, label)` pair does not silently
    * drop an existing refresh token.
    *
-   * Security: stored in plaintext alongside the access token. The same
-   * 0600 file permission that protects `accessToken` applies here. See the
-   * security-review note in the S-07 block above for the Phase 2 rationale
-   * for deferral and Phase 3 reintroduction.
+   * Security: encrypted at rest in `accounts.refresh_enc` under the same
+   * machine-key id as `accessToken` (T13715).
    *
    * @task T9266
    */
@@ -202,7 +206,8 @@ export interface CredentialsStoreData {
 // ---------------------------------------------------------------------------
 
 /**
- * Absolute path of the credential store file.
+ * Absolute path of the LEGACY credential store file (migrated into the
+ * `accounts` table by {@link migrateLegacyCredentialsFile}, T13715).
  *
  * Resolved through `getCleoHome()` so XDG overrides apply uniformly with
  * `credentials.ts`'s global-config tier.
@@ -211,49 +216,6 @@ export interface CredentialsStoreData {
  */
 export function credentialsStorePath(): string {
   return join(getCleoHome(), 'llm-credentials.json');
-}
-
-/**
- * Ensure the store file exists with a parseable empty-store body.
- *
- * `withLock` (file-utils) writes a zero-byte file when none exists so
- * `proper-lockfile` can hold the lock. The subsequent `readJsonFile` then
- * throws SyntaxError on the empty content. To avoid that, we pre-seed the
- * file with `{"version":1,"defaultStrategy":"priorityWithFallback",
- * "credentials":[]}` BEFORE acquiring the lock. The pre-seed is itself
- * race-tolerant: `writeFileSync({flag:'wx'})` makes creation idempotent
- * across concurrent callers — only the first one writes; the rest get
- * EEXIST and continue.
- *
- * @task T9257
- */
-function ensureFileInitialized(path: string): void {
-  if (existsSync(path)) return;
-  const dir = dirname(path);
-  if (!existsSync(dir)) {
-    // 0o700 so other UIDs cannot enumerate the .backups/ subdir contents
-    // even though every individual file in it is 0o600.
-    mkdirSync(dir, { recursive: true, mode: 0o700 });
-  } else {
-    // Existing dir created at a looser mode (e.g. 0o755 from an earlier
-    // CLEO release): tighten on first write. Best-effort; ignore failures
-    // (Windows, mount-points, NFS without chmod support).
-    try {
-      chmodSync(dir, 0o700);
-    } catch {
-      /* non-fatal */
-    }
-  }
-  try {
-    writeFileSync(path, `${JSON.stringify(emptyStore(), null, 2)}\n`, {
-      encoding: 'utf-8',
-      flag: 'wx',
-      mode: 0o600,
-    });
-  } catch (err) {
-    // EEXIST → another caller already initialized it; OK.
-    if ((err as NodeJS.ErrnoException).code !== 'EEXIST') throw err;
-  }
 }
 
 /**
@@ -315,27 +277,28 @@ function emptyStore(): CredentialsStoreData {
 }
 
 /**
- * Synchronous file read + parse. Never throws.
+ * Synchronous read + parse of the LEGACY file. Never throws.
  *
- * Returns an empty store when the file is missing, unreadable, malformed,
- * or has the wrong `version`.
+ * Returns an empty store when the file is missing or blank, and `null` when
+ * it is unreadable, malformed, or has the wrong `version` — such a file is
+ * never migrated away.
  *
  * @task T9257
  */
-function readStoreSync(): CredentialsStoreData {
+function readLegacyFileSync(): CredentialsStoreData | null {
   const path = credentialsStorePath();
   let raw: string;
   try {
     raw = readFileSync(path, 'utf-8');
-  } catch {
-    return emptyStore();
+  } catch (err) {
+    return (err as NodeJS.ErrnoException).code === 'ENOENT' ? emptyStore() : null;
   }
   checkPermsOnRead(path);
   if (!raw.trim()) return emptyStore();
   try {
     const parsed = JSON.parse(raw) as Partial<CredentialsStoreData>;
     if (parsed.version !== 1 || !Array.isArray(parsed.credentials)) {
-      return emptyStore();
+      return null;
     }
     return {
       version: 1,
@@ -343,8 +306,95 @@ function readStoreSync(): CredentialsStoreData {
       credentials: parsed.credentials.filter((c): c is StoredCredential => isStoredCredential(c)),
     };
   } catch {
-    return emptyStore();
+    return null;
   }
+}
+
+/** The `(provider, label)` key of a credential. */
+function keyOf(c: Pick<StoredCredential, 'provider' | 'label'>): string {
+  return `${c.provider}\u0000${c.label}`;
+}
+
+/**
+ * The pool's credentials in the `accounts` table, decrypted. Never throws: a
+ * row this machine's key cannot decrypt (a restored or copied store) is left
+ * out and logged by `(provider, label)` only.
+ *
+ * @task T13715
+ */
+function readAccountsSync(): StoredCredential[] {
+  let rows: ReturnType<typeof listLlmAccountRowsSync>;
+  try {
+    rows = listLlmAccountRowsSync();
+  } catch (err) {
+    logger.warn({ err: (err as Error).message }, 'llm-credentials-store: accounts unreadable');
+    return [];
+  }
+  const out: StoredCredential[] = [];
+  for (const row of rows) {
+    try {
+      const credential = llmAccountToCredentialSync(row);
+      if (credential !== null) out.push(credential);
+    } catch {
+      logger.warn(
+        { provider: row.provider, label: row.label },
+        "llm-credentials-store: this machine's key cannot decrypt the credential; re-add it",
+      );
+    }
+  }
+  return out;
+}
+
+/**
+ * The pool: every `accounts` credential, plus legacy-file entries `accounts`
+ * does not hold yet (an unmigrated file). Never throws.
+ *
+ * @task T13715
+ */
+function readStoreSync(): CredentialsStoreData {
+  const accounts = readAccountsSync();
+  const legacy = readLegacyFileSync() ?? emptyStore();
+  const have = new Set(accounts.map(keyOf));
+  return {
+    version: 1,
+    defaultStrategy: legacy.defaultStrategy,
+    credentials: [...accounts, ...legacy.credentials.filter((c) => !have.has(keyOf(c)))],
+  };
+}
+
+/**
+ * Move the LEGACY `llm-credentials.json` entries into the `accounts` table,
+ * once. Idempotent: an entry `accounts` already holds is kept as it is, and
+ * a missing file is a no-op. The plaintext file is removed only after every
+ * entry reads back from `accounts`; a malformed file is left in place.
+ *
+ * @returns How many entries were moved.
+ * @task T13715
+ */
+export async function migrateLegacyCredentialsFile(): Promise<number> {
+  const path = credentialsStorePath();
+  if (!existsSync(path)) return 0;
+  const legacy = readLegacyFileSync();
+  if (legacy === null) {
+    logger.warn({ path }, 'llm-credentials-store: legacy file unreadable; left in place');
+    return 0;
+  }
+  const have = new Set(readAccountsSync().map(keyOf));
+  const missing = legacy.credentials.filter((c) => !have.has(keyOf(c)));
+  for (const credential of missing) await upsertLlmAccount(credential);
+  const after = new Set(readAccountsSync().map(keyOf));
+  if (!legacy.credentials.every((c) => after.has(keyOf(c)))) {
+    logger.warn({ path }, 'llm-credentials-store: migration incomplete; legacy file kept');
+    return missing.length;
+  }
+  try {
+    unlinkSync(path);
+  } catch (err) {
+    // Another process finished the same migration first.
+    if ((err as NodeJS.ErrnoException).code !== 'ENOENT') throw err;
+  }
+  if (missing.length > 0) clearAnthropicKeyCache();
+  return missing.length;
 }
 
 /**
@@ -482,6 +532,18 @@ export function pickCredentialForProviderSync(
 // ---------------------------------------------------------------------------
 
 /**
+ * {@link migrateLegacyCredentialsFile} for read paths: a failed migration is
+ * logged, never thrown, because the reader still serves the file's entries.
+ */
+async function migrateForRead(): Promise<void> {
+  try {
+    await migrateLegacyCredentialsFile();
+  } catch (err) {
+    logger.warn({ err: (err as Error).message }, 'llm-credentials-store: migration deferred');
+  }
+}
+
+/**
  * List credentials in the pool, optionally filtered to a single provider.
  *
  * Returns `[]` when the file does not exist. Never throws.
@@ -489,6 +551,7 @@ export function pickCredentialForProviderSync(
  * @task T9257
  */
 export async function listCredentials(provider?: ModelTransport): Promise<StoredCredential[]> {
+  await migrateForRead();
   const data = readStoreSync();
   if (!provider) return [...data.credentials];
   return data.credentials.filter((c) => c.provider === provider);
@@ -504,6 +567,7 @@ export async function getCredentialByLabel(
   provider: ModelTransport,
   label: string,
 ): Promise<StoredCredential | null> {
+  await migrateForRead();
   const data = readStoreSync();
   return data.credentials.find((c) => c.provider === provider && c.label === label) ?? null;
 }
@@ -513,112 +577,58 @@ export async function getCredentialByLabel(
  *
  * - When `input.priority` is omitted, the new entry receives
  *   `max(existing priorities) + 10` so it ranks lowest by default.
- * - Acquires the file lock via `withLock`; safe under concurrent writers.
- * - chmod 0600 is enforced on the written file.
+ * - Stored in the `accounts` table with its secrets encrypted under the
+ *   machine key (T13715).
  *
- * Returns the inserted (or replaced) entry as it now lives in the file.
+ * Returns the inserted (or replaced) entry as it now lives in the pool.
  *
  * @task T9257
+ * @task T13715
  */
 export async function addCredential(
   input: Omit<StoredCredential, 'priority'> & { priority?: number },
 ): Promise<StoredCredential> {
-  const path = credentialsStorePath();
-  ensureFileInitialized(path);
-  let inserted: StoredCredential | null = null;
-
-  await withLock<CredentialsStoreData>(
-    path,
-    (current) => {
-      const data: CredentialsStoreData = current ?? emptyStore();
-      if (data.version !== 1) {
-        // Fresh / corrupt — rebuild rather than silently propagate bad version.
-        data.version = 1;
-        data.credentials = [];
-      }
-      data.defaultStrategy ??= 'priorityWithFallback';
-
-      const remaining = data.credentials.filter(
-        (c) => !(c.provider === input.provider && c.label === input.label),
-      );
-      const maxPriority = remaining.reduce((m, c) => (c.priority > m ? c.priority : m), -10);
-      const priority = typeof input.priority === 'number' ? input.priority : maxPriority + 10;
-
-      const next: StoredCredential = {
-        provider: input.provider,
-        label: input.label,
-        authType: input.authType,
-        accessToken: input.accessToken,
-        expiresAt: input.expiresAt ?? null,
-        priority,
-        source: input.source,
-        baseUrl: input.baseUrl ?? null,
-        extraHeaders: input.extraHeaders,
-        metadata: input.metadata,
-        lastStatus: input.lastStatus,
-        lastErrorCode: input.lastErrorCode,
-        lastErrorResetAt: input.lastErrorResetAt,
-        requestCount: input.requestCount,
-        disabled: input.disabled ?? false,
-        ...(input.refreshToken !== undefined && { refreshToken: input.refreshToken }),
-      };
-
-      data.credentials = [...remaining, next];
-      inserted = next;
-      return data;
-    },
-    // SECURITY (S-01/S-02): mode is plumbed all the way through to the
-    // temp file + rotated backup writes so the file never touches disk
-    // at a looser permission, even momentarily, and historical copies
-    // under .backups/ are equally locked down.
-    { mode: 0o600 },
+  await migrateLegacyCredentialsFile();
+  const remaining = readStoreSync().credentials.filter(
+    (c) => !(c.provider === input.provider && c.label === input.label),
   );
+  const maxPriority = remaining.reduce((m, c) => (c.priority > m ? c.priority : m), -10);
+  const priority = typeof input.priority === 'number' ? input.priority : maxPriority + 10;
 
-  // `inserted` is set inside the transform closure before withLock returns.
-  if (!inserted) {
-    throw new Error('credentials-store: invariant violation — insert was not recorded');
-  }
+  const next: StoredCredential = {
+    provider: input.provider,
+    label: input.label,
+    authType: input.authType,
+    accessToken: input.accessToken,
+    expiresAt: input.expiresAt ?? null,
+    priority,
+    source: input.source,
+    baseUrl: input.baseUrl ?? null,
+    extraHeaders: input.extraHeaders,
+    metadata: input.metadata,
+    lastStatus: input.lastStatus,
+    lastErrorCode: input.lastErrorCode,
+    lastErrorResetAt: input.lastErrorResetAt,
+    requestCount: input.requestCount,
+    disabled: input.disabled ?? false,
+    ...(input.refreshToken !== undefined && { refreshToken: input.refreshToken }),
+  };
+  await upsertLlmAccount(next);
   clearAnthropicKeyCache();
-  return inserted;
+  return next;
 }
 
 /**
  * Remove a credential by `(provider, label)`.
  *
  * Returns `true` when a matching entry was found and removed, `false`
- * otherwise. Does NOT create the file when it does not yet exist.
+ * otherwise. A legacy-file entry is migrated first, so it cannot reappear.
  *
  * @task T9257
  */
 export async function removeCredential(provider: ModelTransport, label: string): Promise<boolean> {
-  const path = credentialsStorePath();
-  // Quick-out: avoid acquiring a lock + creating the file when nothing to do.
-  const snapshot = readStoreSync();
-  if (!snapshot.credentials.some((c) => c.provider === provider && c.label === label)) {
-    return false;
-  }
-  ensureFileInitialized(path);
-
-  let removed = false;
-  await withLock<CredentialsStoreData>(
-    path,
-    (current) => {
-      const data: CredentialsStoreData = current ?? emptyStore();
-      if (data.version !== 1 || !Array.isArray(data.credentials)) {
-        return emptyStore();
-      }
-      const before = data.credentials.length;
-      data.credentials = data.credentials.filter(
-        (c) => !(c.provider === provider && c.label === label),
-      );
-      removed = data.credentials.length < before;
-      data.defaultStrategy ??= 'priorityWithFallback';
-      return data;
-    },
-    // SECURITY (S-01/S-02): see addCredential for rationale.
-    { mode: 0o600 },
-  );
-
+  await migrateLegacyCredentialsFile();
+  const removed = await deleteLlmAccount(provider, label);
   // S-10: invalidate the Anthropic-key cache so a removed entry stops
   // being served by the resolver in the same process.
   if (removed) clearAnthropicKeyCache();
@@ -637,5 +647,6 @@ export async function pickCredentialForProvider(
   provider: ModelTransport,
   opts: { strategy?: CredentialsStoreStrategy; preferLabel?: string } = {},
 ): Promise<StoredCredential | null> {
+  await migrateForRead();
   return pickCredentialForProviderSync(provider, opts);
 }
