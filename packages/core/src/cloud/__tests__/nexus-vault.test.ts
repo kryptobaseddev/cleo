@@ -6298,6 +6298,7 @@ describe('sync enable push: the genesis checkpoint (T12343 S4-1b)', () => {
     /** Restore A's checkpoint onto B; the relink binds and attaches B's replica, as `linkProjectToNexus` does. */
     async function restoreJoin(
       before?: (b: Machine) => void,
+      bind = true,
     ): Promise<{ b: Machine; bDb: string; warnings: CloudWarning[] }> {
       const b = await machine('b', DEVICE_B, REPLICA_B);
       before?.(b);
@@ -6311,6 +6312,11 @@ describe('sync enable push: the genesis checkpoint (T12343 S4-1b)', () => {
             into: b.root,
             allowUnreleased: true,
             relink: async () => {
+              if (!bind) {
+                // The link names a replica the store is not bound to: enable refuses.
+                link(b);
+                return [];
+              }
               b.replicaId = ensureProjectReplica(await storeOf(bDb), {
                 dbPath: bDb,
                 mode: 'live',
@@ -6360,6 +6366,18 @@ describe('sync enable push: the genesis checkpoint (T12343 S4-1b)', () => {
           (await storeOf(bDb)).prepare("SELECT title FROM tasks_tasks WHERE id = 'T1'").get(),
         ),
       ).toEqual({ title: 'from A' });
+    });
+
+    it('an enable that fails warns W_NEXUS_FIRST_RUN_SYNC; the restore still succeeds', async () => {
+      await syncingA();
+      const { bDb, warnings } = await restoreJoin(undefined, false);
+      expect(fs.existsSync(bDb)).toBe(true);
+      expect(warnings).toContainEqual(
+        expect.objectContaining({
+          code: 'W_NEXUS_FIRST_RUN_SYNC',
+          message: expect.stringContaining('sync is not on for the project store'),
+        }),
+      );
     });
 
     it('CLEO_DISABLE_AUTO_SYNC=1 keeps sync off after the restore', async () => {

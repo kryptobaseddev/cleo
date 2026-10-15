@@ -3844,7 +3844,7 @@ async function turnSyncOnAfterJoin(
   if (autoSyncSuppressedBy(process.env) !== null) return [];
   if (process.env['CLEO_DISABLE_AUTO_SYNC'] === '1') return [];
   const projectRoot =
-    restored.scope === 'project' ? restored.target : (opts.projectRoot ?? process.cwd());
+    restored.scope === 'project' ? restored.target : (opts.projectRoot ?? process.cwd()); // CWD-OK: global restore, root only feeds the cloud.autoSync lookup
   try {
     const { getConfigValue } = await import('../config/registry.js');
     if ((await getConfigValue<boolean>('cloud.autoSync', { projectRoot })) === false) return [];
