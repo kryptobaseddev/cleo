@@ -96,8 +96,20 @@ const refuse = (code: ClientErrorCode, reason: RefusalReason, message: string) =
 export const isClientRefusal = (err: unknown): err is NexusError =>
   err instanceof NexusError && err.status === 0 && typeof err.details?.reason === 'string';
 
-/** Bytes `seal` adds to a plaintext: version, salt, nonce and tag. */
-const AEAD_OVERHEAD = 1 + 32 + 12 + 16;
+/** Bytes `seal` adds to a plaintext (version, salt, nonce and tag): an attachment's ciphertext size is its size plus this. */
+export const AEAD_OVERHEAD = 1 + 32 + 12 + 16;
+
+/**
+ * Whether a refusal proves the recorded content wrong, not just its delivery: the ciphertext matched
+ * its announced sha256 and still failed the AEAD or the plaintext sha256. A size or hash mismatch of the
+ * download (a flaky proxy, a lying server) or a client cap proves nothing about the record.
+ *
+ * @param err - Anything thrown.
+ * @returns True for `decrypt` and `hash-mismatch` refusals.
+ */
+export const provesContentWrong = (err: unknown): boolean =>
+  isClientRefusal(err) &&
+  (err.details?.reason === 'decrypt' || err.details?.reason === 'hash-mismatch');
 
 function uploaderFor(fetchImpl: FetchLike): Uploader {
   return async (url, headers, bytes) => {
@@ -800,11 +812,15 @@ export class Journal {
     const path = this.attachmentPath(sha256);
     const { download: d } = await this.o.http.request('GET', path, GetStreamAttachmentResult);
     if (d !== null) {
-      try {
-        await this.readAttachment(sha256, d, plaintext.length + AEAD_OVERHEAD);
-        return 'present';
-      } catch (err) {
-        if (!isClientRefusal(err)) throw err;
+      // A record of another size cannot hold these bytes; one of the right size is downloaded and
+      // cleared only when its content is provably wrong (a delivery fault is thrown and retried).
+      if (d.sizeBytes === plaintext.length + AEAD_OVERHEAD) {
+        try {
+          await this.readAttachment(sha256, d, d.sizeBytes);
+          return 'present';
+        } catch (err) {
+          if (!provesContentWrong(err)) throw err;
+        }
       }
       try {
         await this.clearAttachment(sha256);

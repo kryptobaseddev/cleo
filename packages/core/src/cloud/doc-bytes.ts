@@ -26,7 +26,7 @@ import { dirname, join } from 'node:path';
 import type { DatabaseSync } from 'node:sqlite';
 import type { CloudWarning } from '@cleocode/contracts';
 import { NexusError } from './http.js';
-import { isClientRefusal, type Journal } from './journal.js';
+import { AEAD_OVERHEAD, isClientRefusal, type Journal, provesContentWrong } from './journal.js';
 
 /** Most network attempts per push or pull; the rest wait for the next run. */
 const DOC_BYTES_PER_RUN = 100;
@@ -52,6 +52,8 @@ export interface DocBytesOptions {
   readonly cleoDir: string;
   /** Where warnings go. */
   readonly warn: (w: CloudWarning) => void;
+  /** The largest doc ciphertext either leg moves (default 64 MiB; tests shrink it). */
+  readonly maxBytes?: number;
 }
 
 // `_sync_meta` keys: this machine's bookkeeping, never synced.
@@ -169,7 +171,17 @@ export function pushDocBytes(
     let failed = false;
     const isSent = (sha256: string) => readMeta(db, sentKey(o.stream, sha256)) === '1';
     // A body this store lacks (a row pulled before its bytes) is not ours to send.
-    const bytesOf = (sha256: string) => blobReadBySha(sha256, dirname(o.cleoDir)).catch(() => null);
+    const max = o.maxBytes ?? MAX_DOC_BYTES;
+    let tooLarge = 0;
+    // A body every puller would refuse as too large is never sent (pull has the same cap).
+    const bytesOf = async (sha256: string) => {
+      const bytes = await blobReadBySha(sha256, dirname(o.cleoDir)).catch(() => null);
+      if (bytes !== null && bytes.length + AEAD_OVERHEAD > max) {
+        tooLarge++;
+        return null;
+      }
+      return bytes;
+    };
     const put = async (sha256: string, bytes: Uint8Array): Promise<'done' | 'stop'> => {
       let outcome: Awaited<ReturnType<Journal['pushAttachment']>>;
       try {
@@ -196,7 +208,18 @@ export function pushDocBytes(
       const bytes = await bytesOf(sha256);
       return bytes === null ? 'skip' : put(sha256, bytes);
     });
-    if (failed) return { moved, refused: 0 };
+    const warnTooLarge = () => {
+      if (tooLarge > 0) {
+        o.warn({
+          code: 'W_SYNC_DOC_BYTES_TOO_LARGE',
+          message: `${o.stream}: ${tooLarge} doc bod${tooLarge === 1 ? 'y is' : 'ies are'} over the ${max}-byte stream limit and stay on this device; a vault snapshot still carries them`,
+        });
+      }
+    };
+    if (failed) {
+      warnTooLarge();
+      return { moved, refused: 0 };
+    }
     // A record cleared after this store marked it sent (a refused pull, an owner's clear).
     await walk(db, cursorKey('recheck', o.stream), RECHECKS_PER_RUN, async (sha256) => {
       if (!isSent(sha256)) return 'skip';
@@ -211,6 +234,7 @@ export function pushDocBytes(
       writeMeta(db, sentKey(o.stream, sha256), '0');
       return put(sha256, bytes);
     });
+    warnTooLarge();
     return { moved, refused: 0 };
   });
 }
@@ -240,18 +264,21 @@ export function pullDocBytes(
       if (existsSync(target)) return 'skip';
       let bytes: Buffer | null;
       try {
-        bytes = await journal.pullAttachment(sha256, MAX_DOC_BYTES);
+        bytes = await journal.pullAttachment(sha256, o.maxBytes ?? MAX_DOC_BYTES);
       } catch (err) {
         if (!isClientRefusal(err)) {
           unavailable(o, err);
           return 'stop';
         }
-        // Tampered, a squat, the wrong size: skip it, keep the rest.
+        // Skip it, keep the rest. Only provably wrong content (it matched its sha256 and still failed
+        // the AEAD or the plaintext hash) clears the record: a size or hash fault of the download, or
+        // this device's cap, proves nothing, and clearing on it would make every holder re-upload.
         refused++;
-        const cleared = await journal.clearAttachment(sha256).catch(() => false);
+        const cleared =
+          provesContentWrong(err) && (await journal.clearAttachment(sha256).catch(() => false));
         o.warn({
           code: 'W_SYNC_DOC_BYTES_REFUSED',
-          message: `${o.stream}: doc ${sha256.slice(0, 12)}… refused (${String(err.details?.reason)}): ${err.message}; nothing was written; ${cleared ? 'its record was cleared, so a device holding the bytes records them again on its next sync' : 'a device holding the bytes replaces the record on its next sync'}`,
+          message: `${o.stream}: doc ${sha256.slice(0, 12)}… refused (${String(err.details?.reason)}): ${err.message}; nothing was written; ${cleared ? 'its record was cleared, so a device holding the bytes records them again on its next sync' : 'its record is kept'}`,
         });
         return 'done';
       }

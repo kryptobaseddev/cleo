@@ -26,7 +26,11 @@ second device returned no-content.
   checks the recorded blob on its next push, clears it (Nexus E34) and records
   its own. When it may not clear it, or a racer recorded first, the body stays
   unmarked and `W_SYNC_DOC_BYTES_CONTESTED` says so; the next push checks again.
-  A pull that refuses a body clears its record when it may, and each push
+  A pull that refuses a body whose content is provably wrong (it matched its
+  sha256 and still failed decryption or the plaintext hash) clears its record
+  when it may; a size or hash fault of the download, or the 64 MiB cap, never
+  clears one. A body over the cap is never sent (`W_SYNC_DOC_BYTES_TOO_LARGE`).
+  Otherwise, and each push
   re-checks a few bodies it already marked sent, so a record cleared later is
   recorded again. A failure here never fails a sync whose segments applied: it
   becomes a warning.

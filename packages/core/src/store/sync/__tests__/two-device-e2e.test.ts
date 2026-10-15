@@ -835,8 +835,6 @@ describe('docs reach a second device (T12919)', () => {
     const warnings: CloudWarning[] = [];
     await pushDocBytes(a.db, server.journal(a), docBytes(a, 'a', warnings));
     const [[blobSha, ciphertext]] = [...server.blobs.entries()] as Array<[string, Buffer]>;
-    server.policy.deleteAllowed = false; // B (a reader here) may not clear the record
-
     // One flipped byte: the ciphertext no longer matches its announced sha256.
     const flipped = Buffer.from(ciphertext);
     flipped[flipped.length - 1] = (flipped.at(-1) ?? 0) ^ 0xff;
@@ -846,6 +844,8 @@ describe('docs reach a second device (T12919)', () => {
       refused: 1,
     });
     expect(existsSync(blobFile('b'))).toBe(false);
+    // A delivery fault proves nothing about the record: it is kept.
+    expect(server.refs.size).toBe(1);
 
     // A consistent swap (sha and size re-announced) fails the AEAD under the stream key.
     const swapped = Buffer.from(ciphertext);
@@ -858,6 +858,8 @@ describe('docs reach a second device (T12919)', () => {
       refused: 1,
     });
     expect(existsSync(blobFile('b'))).toBe(false);
+    // Content that matched its sha256 and still fails the AEAD is provably wrong: the record is cleared.
+    expect(server.refs.size).toBe(0);
     expect(warnings.map((w) => w.code)).toEqual([
       'W_SYNC_DOC_BYTES_REFUSED',
       'W_SYNC_DOC_BYTES_REFUSED',
@@ -993,6 +995,39 @@ describe('docs reach a second device (T12919)', () => {
     expect(readFileSync(blobFile('b'), 'utf8')).toBe(BODY);
     // Each run stays inside its budget (run two wraps around once it passes the real doc).
     expect(gets() - before).toBe(200);
+  });
+
+  it('a body over the pull cap never loops: B refuses it without clearing, and a capped holder never sends it (T13721)', async () => {
+    const { a, b } = await docOnBoth();
+    const server = attachmentServer();
+    const warnings: CloudWarning[] = [];
+    const capped = (r: Replica, name: string) => ({ ...docBytes(r, name, warnings), maxBytes: 50 });
+    // A holder without the cap uploaded it (BODY + overhead is over 50 bytes).
+    await pushDocBytes(a.db, server.journal(a), docBytes(a, 'a', warnings));
+    for (let cycle = 0; cycle < 3; cycle++) {
+      expect(await pullDocBytes(b.db, server.journal(b), capped(b, 'b'))).toEqual({
+        moved: 0,
+        refused: 1,
+      });
+      await pushDocBytes(a.db, server.journal(a), docBytes(a, 'a', warnings));
+    }
+    expect(server.refs.size).toBe(1);
+    expect(server.calls.filter((c) => c.startsWith('DELETE '))).toHaveLength(0);
+    expect(server.calls.filter((c) => c.endsWith('/v1/blobs/presign'))).toHaveLength(1);
+    expect(warnings.every((w) => w.message.includes('too-large'))).toBe(true);
+
+    // A holder with the same cap never sends it, and says so once per run.
+    const fresh = attachmentServer();
+    const quiet: CloudWarning[] = [];
+    expect(
+      await pushDocBytes(a.db, fresh.journal(a), {
+        ...docBytes(a, 'a', quiet),
+        stream: `${STREAM}-capped`,
+        maxBytes: 50,
+      }),
+    ).toEqual({ moved: 0, refused: 0 });
+    expect(fresh.calls).toEqual([]);
+    expect(quiet.map((w) => w.code)).toEqual(['W_SYNC_DOC_BYTES_TOO_LARGE']);
   });
 
   it('a server without the attachment routes: rows still sync, fetch is no-content, one warning says why (T13721)', async () => {
