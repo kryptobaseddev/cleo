@@ -6,6 +6,7 @@ import {
   CheckpointId,
   CompleteUploadResult,
   CreateCheckpointResult,
+  DeleteStreamAttachmentResult,
   GetStreamAttachmentResult,
   ListCheckpointsResult,
   MAX_INLINE_SEGMENT_BYTES,
@@ -84,6 +85,19 @@ export type RefusalReason =
 
 const refuse = (code: ClientErrorCode, reason: RefusalReason, message: string) =>
   new NexusError(code, message, 0, null, { reason });
+
+/**
+ * Whether `err` is this client refusing what the server sent (status 0, a {@link RefusalReason}), as
+ * opposed to a server or network error.
+ *
+ * @param err - Anything thrown.
+ * @returns True for a client refusal.
+ */
+export const isClientRefusal = (err: unknown): err is NexusError =>
+  err instanceof NexusError && err.status === 0 && typeof err.details?.reason === 'string';
+
+/** Bytes `seal` adds to a plaintext: version, salt, nonce and tag. */
+const AEAD_OVERHEAD = 1 + 32 + 12 + 16;
 
 function uploaderFor(fetchImpl: FetchLike): Uploader {
   return async (url, headers, bytes) => {
@@ -769,18 +783,36 @@ export class Journal {
   /**
    * Put a content-addressed attachment (a doc body) on the stream (T13721): encrypted under the stream
    * key, bound to the stream and its plaintext sha256, uploaded as an `attachment` blob and recorded
-   * under its ref (E32). A ref some member already recorded is not uploaded again.
+   * under its ref (E32). A ref already recorded is checked like a pull would check it: a good one is not
+   * uploaded again; a junk one (a squat, a buggy client) is cleared (E34) and replaced with these bytes.
    *
    * @param sha256 - The plaintext sha256 the synced row names.
    * @param plaintext - The bytes; they must hash to `sha256`.
-   * @returns `sent` when this call uploaded it, `present` when the stream already had it.
+   * @returns `sent` when this call recorded it, `present` when the stream already had a good copy, and
+   *   `contested` when the ref holds another blob this caller may not clear, or a racer recorded first.
    */
-  async pushAttachment(sha256: string, plaintext: Buffer): Promise<'sent' | 'present'> {
+  async pushAttachment(
+    sha256: string,
+    plaintext: Buffer,
+  ): Promise<'sent' | 'present' | 'contested'> {
     if (sha256Hex(plaintext) !== sha256)
       throw refuse('E_VALIDATION', 'payload', `attachment ${sha256} does not match its bytes`);
     const path = this.attachmentPath(sha256);
-    const have = await this.o.http.request('GET', path, GetStreamAttachmentResult);
-    if (have.download !== null) return 'present';
+    const { download: d } = await this.o.http.request('GET', path, GetStreamAttachmentResult);
+    if (d !== null) {
+      try {
+        await this.readAttachment(sha256, d, plaintext.length + AEAD_OVERHEAD);
+        return 'present';
+      } catch (err) {
+        if (!isClientRefusal(err)) throw err;
+      }
+      try {
+        await this.o.http.request('DELETE', path, DeleteStreamAttachmentResult);
+      } catch (err) {
+        if (err instanceof NexusError && err.status === 403) return 'contested';
+        throw err;
+      }
+    }
     const ciphertext = seal(
       this.o.key,
       plaintext,
@@ -788,11 +820,12 @@ export class Journal {
       attachmentContext(this.o.streamId, sha256),
     );
     const blobSha256 = await this.uploadBlob(ciphertext, 'attachment');
-    await this.o.http.request('PUT', path, PutStreamAttachmentResult, {
+    const put = await this.o.http.request('PUT', path, PutStreamAttachmentResult, {
       blobSha256,
       sizeBytes: ciphertext.length,
     });
-    return 'sent';
+    // First writer wins (E32): a racer's blob is not ours; the next push checks it like any other.
+    return put.created || put.blobSha256 === blobSha256 ? 'sent' : 'contested';
   }
 
   /**
@@ -810,7 +843,11 @@ export class Journal {
       this.attachmentPath(sha256),
       GetStreamAttachmentResult,
     );
-    if (d === null) return null;
+    return d === null ? null : this.readAttachment(sha256, d, maxBytes);
+  }
+
+  /** Download and verify the blob behind an attachment ref; any mismatch is a client refusal. */
+  private async readAttachment(sha256: string, d: BlobDownload, maxBytes: number): Promise<Buffer> {
     if (d.sizeBytes > maxBytes)
       throw refuse('E_PAYLOAD_TOO_LARGE', 'too-large', `attachment ${sha256} exceeds the limit`);
     const ciphertext = await this.down(d.url, d.sizeBytes);

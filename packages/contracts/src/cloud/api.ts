@@ -599,7 +599,7 @@ export const BlobDownload = z.object({
 });
 export type BlobDownload = z.infer<typeof BlobDownload>;
 
-// ---------- stream attachments (cleo-nexus T13721, contract v2.29) ----------
+// ---------- stream attachments (cleo-nexus T13721, contract v2.29: E32-E34) ----------
 
 /**
  * The stream-scoped handle of an attachment's bytes: HMAC-SHA256, under a key derived from the stream data
@@ -641,6 +641,15 @@ export type PutStreamAttachmentResult = z.infer<typeof PutStreamAttachmentResult
 export const GetStreamAttachmentResult = z.object({ download: BlobDownload.nullable() });
 /** The E33 result. */
 export type GetStreamAttachmentResult = z.infer<typeof GetStreamAttachmentResult>;
+
+/**
+ * E34 `DELETE /v1/streams/:streamId/attachments/:ref`: clears a ref so a holder of the real bytes can record them
+ * again (a ref squatted with junk, or recorded by a buggy client, otherwise never heals). Allowed for the user who
+ * recorded it and for a project owner. An unrecorded ref answers `deleted: false`, never 404.
+ */
+export const DeleteStreamAttachmentResult = z.object({ deleted: z.boolean() });
+/** The E34 result. */
+export type DeleteStreamAttachmentResult = z.infer<typeof DeleteStreamAttachmentResult>;
 
 // ---------- elected-writer leases (T12338) ----------
 

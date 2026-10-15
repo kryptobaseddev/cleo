@@ -31,7 +31,7 @@ import type { CloudWarning } from '@cleocode/contracts';
 import type { LedgerTxn } from '@cleocode/contracts/ledger';
 import { SYNC_SCHEMA_VERSION } from '@cleocode/contracts/sync-schema.js';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { generateEd25519, randomKey } from '../../../cloud/crypto.js';
+import { deriveKey, generateEd25519, hmacSha256, randomKey } from '../../../cloud/crypto.js';
 import { pullDocBytes, pushDocBytes } from '../../../cloud/doc-bytes.js';
 import { Http } from '../../../cloud/http.js';
 import { Journal } from '../../../cloud/journal.js';
@@ -697,12 +697,20 @@ describe('docs reach a second device (T12919)', () => {
     const blobs = new Map<string, Buffer>();
     const refs = new Map<string, { blobSha256: string; sizeBytes: number }>();
     const calls: string[] = [];
+    /** E34 answers 403 while false (the caller is neither the recorder nor an owner). */
+    const policy = { deleteAllowed: true, beforePut: (_ref: string) => {} };
     const reply = (data: unknown, status = 200) =>
       new Response(
         JSON.stringify(
           status === 200
             ? { success: true, data, meta: { requestId: 'r' } }
-            : { success: false, error: { code: 'E_NOT_FOUND', message: 'route not found' } },
+            : {
+                success: false,
+                error:
+                  status === 403
+                    ? { code: 'E_FORBIDDEN', message: 'not the recorder or an owner' }
+                    : { code: 'E_NOT_FOUND', message: 'route not found' },
+              },
         ),
         { status },
       );
@@ -728,7 +736,12 @@ describe('docs reach a second device (T12919)', () => {
         const att = /\/attachments\/([0-9a-f]{64})$/.exec(path);
         if (!att || !routes) return reply(null, 404);
         const ref = att[1] ?? '';
+        if (method === 'DELETE') {
+          if (!policy.deleteAllowed) return reply(null, 403);
+          return reply({ deleted: refs.delete(ref) });
+        }
         if (method === 'PUT') {
+          policy.beforePut(ref);
           const created = !refs.has(ref);
           if (created) refs.set(ref, body);
           return reply({ ...refs.get(ref), created });
@@ -761,7 +774,14 @@ describe('docs reach a second device (T12919)', () => {
         downloader: async (url) =>
           blobs.get(url.slice(url.lastIndexOf('/') + 1)) ?? Buffer.alloc(0),
       });
-    return { blobs, refs, calls, journal };
+    /** Record `bytes` under the ref of `sha`, as a squatting writer (or a buggy client) would. */
+    const squat = (sha: string, bytes: Buffer) => {
+      const blobSha256 = createHash('sha256').update(bytes).digest('hex');
+      blobs.set(blobSha256, bytes);
+      const ref = hmacSha256(deriveKey(key, 'attachment-ref'), Buffer.from(sha)).toString('hex');
+      refs.set(ref, { blobSha256, sizeBytes: bytes.length });
+    };
+    return { blobs, refs, calls, journal, policy, squat };
   }
 
   const docBytes = (r: Replica, name: string, warnings: CloudWarning[]) => ({
@@ -845,6 +865,63 @@ describe('docs reach a second device (T12919)', () => {
     expect(
       await new DocsReadModel({ projectRoot: join(dir, 'b') }).fetchDecoded('gate-doc'),
     ).toMatchObject({ ok: false, reason: 'no-content' });
+  });
+
+  it('a squatted ref heals: B refuses the junk, A clears it and records the real bytes, B then fetches them (T13721)', async () => {
+    const { a, b } = await docOnBoth();
+    const server = attachmentServer();
+    const warnings: CloudWarning[] = [];
+    server.squat(SHA, Buffer.from('junk recorded first by a squatting writer'));
+
+    expect(await pullDocBytes(b.db, server.journal(b), docBytes(b, 'b', warnings))).toEqual({
+      moved: 0,
+      refused: 1,
+    });
+    expect(existsSync(blobFile('b'))).toBe(false);
+
+    // A holds the bytes: it checks the recorded blob, clears it (E34) and records its own.
+    expect(await pushDocBytes(a.db, server.journal(a), docBytes(a, 'a', warnings))).toEqual({
+      moved: 1,
+      refused: 0,
+    });
+    expect(server.calls.filter((c) => c.startsWith('DELETE '))).toHaveLength(1);
+    expect(await pullDocBytes(b.db, server.journal(b), docBytes(b, 'b', warnings))).toEqual({
+      moved: 1,
+      refused: 0,
+    });
+    expect(
+      await new DocsReadModel({ projectRoot: join(dir, 'b') }).fetchDecoded('gate-doc'),
+    ).toMatchObject({ ok: true, content: BODY });
+    expect(warnings.map((w) => w.code)).toEqual(['W_SYNC_DOC_BYTES_REFUSED']);
+  });
+
+  it('a ref A may not clear, or a racer recorded first, stays contested and unmarked until it heals (T13721)', async () => {
+    const { a } = await docOnBoth();
+    const server = attachmentServer();
+    const warnings: CloudWarning[] = [];
+    const run = () => pushDocBytes(a.db, server.journal(a), docBytes(a, 'a', warnings));
+
+    // Squatted by another user, and A is not an owner: E34 is 403.
+    server.squat(SHA, Buffer.from('junk'));
+    server.policy.deleteAllowed = false;
+    expect(await run()).toEqual({ moved: 0, refused: 0 });
+
+    // L1: cleared now, but a racer records first: created false names another blob.
+    server.policy.deleteAllowed = true;
+    server.policy.beforePut = (ref) => {
+      server.policy.beforePut = () => {};
+      server.refs.set(ref, { blobSha256: 'f'.repeat(64), sizeBytes: 99 });
+    };
+    expect(await run()).toEqual({ moved: 0, refused: 0 });
+    expect(warnings.map((w) => w.code)).toEqual([
+      'W_SYNC_DOC_BYTES_CONTESTED',
+      'W_SYNC_DOC_BYTES_CONTESTED',
+    ]);
+
+    // Neither run marked the body sent, so the next one checks the racer's junk and heals.
+    server.blobs.set('f'.repeat(64), Buffer.alloc(99));
+    expect(await run()).toEqual({ moved: 1, refused: 0 });
+    expect(await run()).toEqual({ moved: 0, refused: 0 });
   });
 
   it('a server without the attachment routes: rows still sync, fetch is no-content, one warning says why (T13721)', async () => {

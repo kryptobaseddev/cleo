@@ -20,5 +20,10 @@ second device returned no-content.
   decrypted, and checked against the row's sha256 before it is written
   atomically. A body that fails any check is refused with a
   `W_SYNC_DOC_BYTES_REFUSED` warning, and nothing is written for it.
+- A ref recorded with a blob that fails these checks (a squatting writer, a buggy
+  client; the server keeps the first record) heals: a device holding the bytes
+  checks the recorded blob on its next push, clears it (Nexus E34) and records
+  its own. When it may not clear it, or a racer recorded first, the body stays
+  unmarked and `W_SYNC_DOC_BYTES_CONTESTED` says so; the next push checks again.
 - A Nexus without the stream-attachment routes answers 404: rows still sync,
   `docs fetch` reports no-content, and `W_SYNC_DOC_BYTES_UNAVAILABLE` says why.

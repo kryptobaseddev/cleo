@@ -5,7 +5,9 @@
  * stream goes up as an encrypted content-addressed blob
  * ({@link Journal.pushAttachment}); after a pull, each synced row whose body is
  * missing here is downloaded, verified and written
- * ({@link Journal.pullAttachment}).
+ * ({@link Journal.pullAttachment}). A ref recorded with junk (first writer
+ * wins on the server) is refused on pull; the next push of a device holding the
+ * bytes checks it, clears it and records the real bytes.
  *
  * A server without the stream-attachment routes (E32/E33) answers 404: the
  * rows still sync, `docs fetch` reports no-content, and one warning says why.
@@ -18,7 +20,7 @@ import { dirname, join } from 'node:path';
 import type { DatabaseSync } from 'node:sqlite';
 import type { CloudWarning } from '@cleocode/contracts';
 import { NexusError } from './http.js';
-import type { Journal } from './journal.js';
+import { isClientRefusal, type Journal } from './journal.js';
 
 /** Most doc bodies moved per push or pull; the rest wait for the next run. */
 const DOC_BYTES_PER_RUN = 100;
@@ -100,12 +102,22 @@ export async function pushDocBytes(
     // A body this store lacks (a row pulled before its bytes) is not ours to send.
     const bytes = await blobReadBySha(sha256, dirname(o.cleoDir)).catch(() => null);
     if (bytes === null) continue;
+    let outcome: Awaited<ReturnType<Journal['pushAttachment']>>;
     try {
-      if ((await journal.pushAttachment(sha256, Buffer.from(bytes))) === 'sent') moved++;
+      outcome = await journal.pushAttachment(sha256, Buffer.from(bytes));
     } catch (err) {
       unavailable(o, err);
       break;
     }
+    if (outcome === 'contested') {
+      // Not marked: the next push checks the ref again, and heals it once it may.
+      o.warn({
+        code: 'W_SYNC_DOC_BYTES_CONTESTED',
+        message: `${o.stream}: doc ${sha256.slice(0, 12)}… is recorded with a blob that is not these bytes and that this device may not clear; a project owner can clear it, then the next sync re-records it`,
+      });
+      continue;
+    }
+    if (outcome === 'sent') moved++;
     markSent(db, o.stream, sha256);
   }
   return { moved, refused: 0 };
@@ -139,11 +151,11 @@ export async function pullDocBytes(
       bytes = await journal.pullAttachment(sha256, MAX_DOC_BYTES);
     } catch (err) {
       // A refusal (tampered, wrong key, wrong size): skip it, keep the rest.
-      if (err instanceof NexusError && typeof err.details?.reason === 'string') {
+      if (isClientRefusal(err)) {
         refused++;
         o.warn({
           code: 'W_SYNC_DOC_BYTES_REFUSED',
-          message: `${o.stream}: doc ${sha256.slice(0, 12)}… refused (${err.details.reason}): ${err.message}; nothing was written`,
+          message: `${o.stream}: doc ${sha256.slice(0, 12)}… refused (${String(err.details?.reason)}): ${err.message}; nothing was written; a device holding the bytes replaces the record on its next sync`,
         });
         continue;
       }
