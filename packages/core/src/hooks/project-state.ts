@@ -216,6 +216,7 @@ export async function computeHookActivation(
     manifestHash: digest(JSON.stringify(manifest)),
     files,
     executables,
+    bindings: Object.fromEntries(manifest.hooks.map((hook) => [hook.id, hook.bindings])),
     activatedAt: new Date().toISOString(),
   };
 }
@@ -333,8 +334,9 @@ export async function inspectProjectHooks(
     return result;
   }
   const current = await computeHookActivation(context, manifest, deadline, signal);
-  const { activatedAt: _before, ...before } = state.activation;
-  const { activatedAt: _after, ...after } = current;
+  // manifestHash already binds the bindings; receipts written before T13742 lack them.
+  const { activatedAt: _before, bindings: _approved, ...before } = state.activation;
+  const { activatedAt: _after, bindings: _current, ...after } = current;
   result.activation = JSON.stringify(before) === JSON.stringify(after) ? 'active' : 'drifted';
   if (result.activation === 'drifted') result.diagnostics.push('HOOK_REACTIVATION_REQUIRED');
   return result;
@@ -385,7 +387,7 @@ export async function disableProjectHooks(cwd: string): Promise<void> {
 
 /** Match a project's binding without treating shell command text as a Git operation. */
 export function matchesProjectHook(
-  hook: ProjectHookDefinition,
+  hook: Pick<ProjectHookDefinition, 'bindings'>,
   source: string,
   event: string,
 ): boolean {

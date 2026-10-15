@@ -517,13 +517,15 @@ are delivery outputs. Until the hooks-v1 stable promotion, a stable build is ine
 cannot be activated on main either; only code passing the gate's `allowUnreleased` option
 (tests) opts in. Preview with `cleo hook sync --dry-run`; explicit local activation
 uses `cleo hook sync --activate` and binds definitions, handlers and dependencies to
-current hashes. Source drift requires reactivation and runs no handler: Git, worktree and
-CI refuse every matching check (naming `cleo hook sync --activate`) until it is reactivated,
-while agents only warn (T13742). Agent project checks are advisory; Git applies project verdicts. Native harness trust remains separately unverified.
+current hashes. Source drift requires reactivation and runs no handler: Git, worktree, direct
+and CI refuse (naming `cleo hook sync --activate`), even for an event no hook matches, and
+the approved bindings recorded at activation keep a deleted or rebound hook enforced; agents
+only warn (T13742). Agent project checks are advisory; Git applies project verdicts. Native harness trust remains separately unverified.
 Inspect with `cleo doctor hooks`; `--fix` never activates definitions or grants trust.
 `cleo hook sync --disable` disables execution and removes only verified managed entries:
-it skips providers with no delivery receipt, creates nothing, and deletes a provider config
-(and its directory) that activation created once it is empty (T13743).
+it skips providers with no delivery receipt, creates nothing, prunes only containers
+activation created, deletes a provider config (and its directory) that activation created
+once it is empty, and deletes the receipt (T13743).
 CI uses `cleo hook check <id> --ci --candidate <sha>` or an explicit JSON `--input` file;
 CLEO infrastructure failure is an unavailable check, never successful CI evidence.
 Launcher faults allow locally regardless of checker error policy. File inputs and

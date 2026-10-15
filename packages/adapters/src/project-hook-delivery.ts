@@ -157,6 +157,7 @@ function configEdits(
   config: HookConfigObject,
   prior: ProjectHookDeliveryReceipt | undefined,
   desired: ProjectHookDeliveryReceipt['entries'],
+  created: ReadonlySet<string>,
 ): HookConfigEdit[] {
   if (config.hooks !== undefined && !object(config.hooks))
     throw new Error('HOOK_CONFIG_HOOKS_SHAPE');
@@ -182,12 +183,12 @@ function configEdits(
       else edits.push({ path: ['hooks', event, index] });
     }
   }
-  // Remove containers emptied by these removals so rollback leaves no `{"hooks":{"X":[]}}` residue.
+  // Drop only containers activation created and these removals empty (T13743).
   const emptied = Object.entries(hooks)
     .filter(
       ([event, entries]) =>
+        created.has('hooks/' + event) &&
         Array.isArray(entries) &&
-        entries.length > 0 &&
         edits.filter((change) => change.path[1] === event).length === entries.length &&
         !desired.some((next) => next.event === event),
     )
@@ -195,7 +196,11 @@ function configEdits(
   if (emptied.length > 0) {
     const kept = edits.filter((change) => !emptied.includes(String(change.path[1])));
     edits.length = 0;
-    if (emptied.length === Object.keys(hooks).length && desired.length === 0)
+    if (
+      created.has('hooks') &&
+      emptied.length === Object.keys(hooks).length &&
+      desired.length === 0
+    )
       edits.push({ path: ['hooks'] });
     else edits.push(...kept, ...emptied.map((event) => ({ path: ['hooks', event] })));
   }
@@ -246,6 +251,41 @@ function pluginSource(events: string[]): string {
     '};',
     '',
   ].join('\n');
+}
+
+/** Topmost missing ancestor of a config about to be written, else the receipt's record. */
+function createdDirFor(
+  target: string,
+  prior: ProjectHookDeliveryReceipt | undefined,
+): string | undefined {
+  let created = prior?.createdDir;
+  for (let dir = dirname(target); !existsSync(dir); dir = dirname(dir)) created = dir;
+  return created;
+}
+
+/** Remove empty directories activation created, strictly inside the checkout; rmdir keeps foreign files. */
+async function removeCreatedDirs(
+  root: string,
+  target: string,
+  created: string | undefined,
+): Promise<void> {
+  const inside = created ? relative(root, created) : '';
+  if (
+    !created ||
+    !inside ||
+    inside.startsWith('..') ||
+    isAbsolute(inside) ||
+    relative(created, target).startsWith('..') ||
+    existsSync(target)
+  )
+    return;
+  for (let dir = dirname(target); dir.length >= created.length; dir = dirname(dir)) {
+    try {
+      await rmdir(dir);
+    } catch {
+      return;
+    }
+  }
 }
 
 async function deliverProvider(
@@ -321,7 +361,7 @@ async function deliverProvider(
     result.provenance = 'cleo-receipt';
   }
   // Disable undoes only what an activation receipt proves; it never creates files (T13743).
-  if (options.rollback && !prior?.entries.length) {
+  if (options.rollback && !prior) {
     result.state = 'disabled';
     return result;
   }
@@ -382,11 +422,16 @@ async function deliverProvider(
           if (current !== existing) throw new Error('HOOK_CONFIG_CONCURRENT_EDIT');
           await unlink(target);
         });
+      if (!options.dryRun) {
+        await removeCreatedDirs(options.projectRoot, target, prior?.createdDir);
+        await unlink(receiptPath);
+      }
       result.state = 'disabled';
       return result;
     }
     result.state = existing === body ? 'current' : 'planned';
     if (!options.dryRun && existing !== body) {
+      const createdDir = createdDirFor(target, prior);
       if (existing === undefined)
         excludeHookFileFromGit(
           options.projectRoot,
@@ -410,6 +455,7 @@ async function deliverProvider(
             provider,
             configPath: target,
             entries: [{ event: 'plugin', command: 'cleo hook run', hash: hash(body) }],
+            createdDir,
             recordedAt: new Date().toISOString(),
           }) + '\n',
       });
@@ -420,36 +466,20 @@ async function deliverProvider(
   }
   const config = await readManagedJsonConfigFile(target);
   result.entries = inspectEntries(config, prior);
-  const edits = configEdits(config, prior, desired);
+  const created = new Set(prior?.createdContainers ?? []);
+  const edits = configEdits(config, prior, desired, created);
   result.state = edits.length ? 'planned' : 'current';
   if (!options.dryRun && options.rollback) {
     if (existsSync(target)) {
-      await editJsonConfigFile(target, (current) => configEdits(current, prior, desired));
+      await editJsonConfigFile(target, (current) => configEdits(current, prior, desired, created));
       if (prior?.createdConfig)
         await withFileLock(target, async () => {
           await localTarget(options.projectRoot, configPath);
           if (Object.keys(await readManagedJsonConfigFile(target)).length === 0)
             await unlink(target);
         });
-      // Only an empty directory strictly inside the checkout, above the config; rmdir keeps foreign files.
-      const created = prior?.createdDir;
-      const inside = created ? relative(options.projectRoot, created) : '';
-      if (
-        created &&
-        inside &&
-        !inside.startsWith('..') &&
-        !isAbsolute(inside) &&
-        !relative(created, target).startsWith('..') &&
-        !existsSync(target)
-      )
-        for (let dir = dirname(target); dir.length >= created.length; dir = dirname(dir)) {
-          try {
-            await rmdir(dir);
-          } catch {
-            break;
-          }
-        }
     }
+    await removeCreatedDirs(options.projectRoot, target, prior?.createdDir);
     await unlink(receiptPath);
     result.state = 'disabled';
     result.entries = inspectEntries(await readManagedJsonConfigFile(target), undefined);
@@ -457,8 +487,7 @@ async function deliverProvider(
   }
   if (!options.dryRun) {
     const createdConfig = existsSync(target) ? (prior?.createdConfig ?? false) : true;
-    let createdDir = prior?.createdDir;
-    for (let dir = dirname(target); !existsSync(dir); dir = dirname(dir)) createdDir = dir;
+    const createdDir = createdDirFor(target, prior);
     if (!existsSync(target))
       excludeHookFileFromGit(
         options.projectRoot,
@@ -466,7 +495,17 @@ async function deliverProvider(
         undefined,
         options.services.gitEnvironment,
       );
-    await editJsonConfigFile(target, (current) => configEdits(current, prior, desired));
+    await editJsonConfigFile(target, (current) => {
+      const changes = configEdits(current, prior, desired, created);
+      if (current.hooks === undefined && changes.some((change) => change.value !== undefined))
+        created.add('hooks');
+      for (const change of changes) {
+        const key = change.path.slice(0, 2).join('/');
+        if (change.path.length === 2 && change.value !== undefined) created.add(key);
+        else if (change.path.length <= 2 && change.value === undefined) created.delete(key);
+      }
+      return changes;
+    });
     await writeFileAtomic({
       path: receiptPath,
       content:
@@ -477,6 +516,7 @@ async function deliverProvider(
           entries: desired,
           createdConfig,
           createdDir,
+          createdContainers: [...created],
           recordedAt: new Date().toISOString(),
         }) + '\n',
     });

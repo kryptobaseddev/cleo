@@ -69,43 +69,39 @@ function blocksFor(
 }
 
 /**
- * Changed inputs never run: each matching hook fails closed wherever its block verdict would
- * prevent the operation, and stays advisory in agents (T13742).
+ * Changed inputs never run (T13742): every approved or current hook matching the event, and an
+ * event no hook matches, fails closed for Git, worktree, direct and CI; agents only warn.
  */
 function reactivationRequired(
-  hooks: readonly ProjectHookDefinition[],
+  hooks: ReadonlyArray<Pick<ProjectHookDefinition, 'id' | 'bindings'>>,
   invocation: HookInvocation,
   id?: string,
 ): HookOutcome[] {
-  const outcomes = new Map<string, HookOutcome>();
-  for (const hook of hooks) {
-    if (id ? hook.id !== id : !matchesProjectHook(hook, invocation.source, invocation.event))
-      continue;
-    const blocks = Boolean(outcomes.get(hook.id)?.blocks) || blocksFor('block', hook, invocation);
-    outcomes.set(hook.id, {
-      id: hook.id,
-      status: blocks ? 'block' : 'warn',
-      blocks,
-      code: 'HOOK_REACTIVATION_REQUIRED',
-      message: REACTIVATE,
-      exitCode: null,
-      signal: null,
-      durationMs: 0,
-    });
-  }
-  if (outcomes.size > 0) return [...outcomes.values()];
-  return [
-    {
-      id: id ?? 'cleo.project-hooks',
-      status: 'warn',
-      blocks: invocation.source === 'ci',
-      code: 'HOOK_REACTIVATION_REQUIRED',
-      message: REACTIVATE,
-      exitCode: null,
-      signal: null,
-      durationMs: 0,
-    },
-  ];
+  const blocks = invocation.source !== 'agent';
+  const ids = new Set(
+    hooks
+      .filter((hook) =>
+        id ? hook.id === id : matchesProjectHook(hook, invocation.source, invocation.event),
+      )
+      .map((hook) => hook.id),
+  );
+  return [...(ids.size > 0 ? ids : [id ?? 'cleo.project-hooks'])].map((hookId) => ({
+    id: hookId,
+    status: blocks ? 'block' : 'warn',
+    blocks,
+    code: 'HOOK_REACTIVATION_REQUIRED',
+    message: REACTIVATE,
+    exitCode: null,
+    signal: null,
+    durationMs: 0,
+  }));
+}
+
+/** Hooks as approved at activation; a receipt from before T13742 records none. */
+function approvedHooks(
+  activation: HookActivation | undefined,
+): Array<Pick<ProjectHookDefinition, 'id' | 'bindings'>> {
+  return Object.entries(activation?.bindings ?? {}).map(([id, bindings]) => ({ id, bindings }));
 }
 
 async function executeOne(
@@ -286,9 +282,8 @@ export async function executeProjectHooks(
         JSON.stringify(target.files) !== JSON.stringify(approved.files) ||
         JSON.stringify(target.executables) !== JSON.stringify(approved.executables)
       ) {
-        // Either side declaring a blocking rule keeps it blocking.
         return reactivationRequired(
-          [...inspection.manifest.hooks, ...targetManifest.hooks],
+          [...approvedHooks(approved), ...inspection.manifest.hooks, ...targetManifest.hooks],
           invocation,
           id,
         );
@@ -312,8 +307,22 @@ export async function executeProjectHooks(
     if (inspection.activation !== 'active') {
       if (invocation.source === 'ci')
         return [fault(invocation, 'HOOK_REQUIRED_ACTIVATION_MISSING')];
-      if (inspection.activation !== 'disabled')
-        return reactivationRequired(inspection.manifest.hooks, invocation, id);
+      if (inspection.activation !== 'disabled') {
+        const approved = (await readProjectHooksLocalState(inspection.context)).activation;
+        // A linked checkout may bind hooks its drifted source no longer declares.
+        const target =
+          checkout.projectRoot === inspection.context.projectRoot
+            ? []
+            : await readProjectHooksManifest(checkout).then(
+                (manifest) => manifest.hooks,
+                () => [],
+              );
+        return reactivationRequired(
+          [...approvedHooks(approved), ...inspection.manifest.hooks, ...target],
+          invocation,
+          id,
+        );
+      }
       return [
         {
           id: id ?? 'cleo.project-hooks',

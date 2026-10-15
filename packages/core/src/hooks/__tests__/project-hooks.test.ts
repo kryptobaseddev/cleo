@@ -243,6 +243,35 @@ describe('activated project checks through actual child processes', () => {
     await disableProjectHooks(root);
     expect((await executeProjectHooks(invocation))[0].status).toBe('skip');
   });
+  it('drift that deletes or rebinds the hook still refuses the push (T13742 F1-A)', async () => {
+    await writeFile(
+      join(root, 'handler.mjs'),
+      'process.stdout.write(JSON.stringify({status:"block"}));',
+    );
+    await activateProjectHooks(root);
+    await rm(join(root, '.cleo/hooks.json'));
+    expect(await executeProjectHooks(invocation)).toMatchObject([
+      { id: 'migration-check', status: 'block', blocks: true, code: 'HOOK_REACTIVATION_REQUIRED' },
+    ]);
+    await manifest({ bindings: [{ source: 'git', event: 'pre-commit' }] });
+    expect(await executeProjectHooks(invocation)).toMatchObject([
+      { id: 'migration-check', status: 'block', blocks: true, code: 'HOOK_REACTIVATION_REQUIRED' },
+    ]);
+    // An event no approved or current hook binds still refuses outside agents.
+    expect(await executeProjectHooks({ ...invocation, event: 'post-merge' })).toMatchObject([
+      { id: 'cleo.project-hooks', status: 'block', blocks: true },
+    ]);
+    expect(
+      await executeProjectHooks({ ...invocation, source: 'agent', event: 'PreToolUse' }),
+    ).toMatchObject([{ status: 'warn', blocks: false, code: 'HOOK_REACTIVATION_REQUIRED' }]);
+  });
+  it('a direct check of an unknown hook ID fails during drift (T13742 F1-C)', async () => {
+    await activateProjectHooks(root);
+    await writeFile(join(root, 'handler.mjs'), 'process.stdout.write("{}");');
+    expect(
+      await executeProjectHooks({ ...invocation, source: 'direct', event: 'check' }, 'unknown-id'),
+    ).toMatchObject([{ id: 'unknown-id', status: 'block', blocks: true }]);
+  });
   it('declared dependencies and implicit lockfiles invalidate approval', async () => {
     await writeFile(join(root, 'dependency.mjs'), 'export const version=1;');
     await writeFile(join(root, 'pnpm-lock.yaml'), 'lockfileVersion: 9');
@@ -440,6 +469,41 @@ describe('activated project checks through actual child processes', () => {
       { id: 'migration-check', status: 'pass' },
       { id: 'later-check', code: 'HOOK_REACTIVATION_REQUIRED', blocks: true },
     ]);
+  });
+  it('a drifted source also refuses hooks only the linked checkout binds (T13742 F1-B)', async () => {
+    execFileSync('git', ['-C', root, 'config', 'user.email', 'fixture@example.invalid']);
+    execFileSync('git', ['-C', root, 'config', 'user.name', 'Fixture']);
+    execFileSync('git', ['-C', root, 'add', '.cleo/hooks.json', 'handler.mjs']);
+    execFileSync('git', ['-C', root, 'commit', '-qm', 'test(T13742): linked checkout']);
+    await activateProjectHooks(root);
+    const checkout = `${root}-wt-only`;
+    execFileSync('git', ['-C', root, 'worktree', 'add', '--detach', checkout, 'HEAD'], {
+      stdio: 'ignore',
+    });
+    try {
+      const source = JSON.parse(
+        await readFile(join(checkout, '.cleo/hooks.json'), 'utf8'),
+      ) as ProjectHooksManifest;
+      source.hooks.push({
+        ...source.hooks[0],
+        id: 'worktree-only',
+        bindings: [{ source: 'worktree', event: 'post-start' }],
+      });
+      await writeFile(join(checkout, '.cleo/hooks.json'), JSON.stringify(source));
+      await writeFile(join(root, 'handler.mjs'), 'process.exit(3);');
+      const context = resolveProjectHookContext(checkout);
+      expect(
+        await createProjectHookExecutor(root).execute({
+          schemaVersion: 1,
+          projectRoot: checkout,
+          gitCommonDir: context.gitCommonDir,
+          source: 'worktree',
+          event: 'post-start',
+        }),
+      ).toMatchObject([{ id: 'worktree-only', status: 'block', blocks: true }]);
+    } finally {
+      execFileSync('git', ['-C', root, 'worktree', 'remove', '--force', checkout]);
+    }
   });
   it('inherits approval into an identical linked checkout and rejects changed code', async () => {
     await manifest({ bindings: [{ source: 'worktree', event: 'post-start' }] });

@@ -141,6 +141,13 @@ export const HookActivationSchema = z
     manifestHash: z.string().regex(/^[a-f0-9]{64}$/),
     files: z.record(z.string(), z.string().regex(/^[a-f0-9]{64}$/)),
     executables: z.record(z.string(), z.string()),
+    /** Approved bindings by hook ID, so drift still enforces a removed or rebound hook (T13742). */
+    bindings: z
+      .record(
+        z.string(),
+        z.array(z.object({ source: HookSourceSchema, event: z.string().min(1).max(128) }).strict()),
+      )
+      .optional(),
     activatedAt: z.string(),
   })
   .strict();
