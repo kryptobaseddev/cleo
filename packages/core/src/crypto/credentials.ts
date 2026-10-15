@@ -21,7 +21,8 @@
 
 import { execFileSync } from 'node:child_process';
 import { createCipheriv, createDecipheriv, createHmac, randomBytes } from 'node:crypto';
-import { mkdir, readFile, stat } from 'node:fs/promises';
+import { readFileSync, statSync } from 'node:fs';
+import { mkdir } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { getCleoHome } from '../paths.js';
 import {
@@ -111,7 +112,7 @@ async function readOrCreateMachineKey(
   const keyPath = getMachineKeyPath(cleoHome);
   sweepStaleSecretTemps(keyPath);
   try {
-    return await readMachineKeyAt(keyPath);
+    return readMachineKeyAt(keyPath);
   } catch (err: unknown) {
     if (!(err instanceof Error && 'code' in err && err.code === 'ENOENT')) throw err;
   }
@@ -140,9 +141,9 @@ async function readOrCreateMachineKey(
  * @throws An `ENOENT` error when it does not exist; an `Error` on unsafe
  *   permissions or the wrong length.
  */
-async function readMachineKeyAt(keyPath: string): Promise<Buffer> {
+function readMachineKeyAt(keyPath: string): Buffer {
   // Verify key file permissions
-  const stats = await stat(keyPath);
+  const stats = statSync(keyPath);
   if (process.platform === 'win32') {
     // Windows: use icacls to verify the key is not world-readable.
     try {
@@ -167,7 +168,7 @@ async function readMachineKeyAt(keyPath: string): Promise<Buffer> {
       );
     }
   }
-  const key = await readFile(keyPath);
+  const key = readFileSync(keyPath);
   // F-004: validate key length
   if (key.length !== KEY_LENGTH) {
     throw new Error(
@@ -623,6 +624,36 @@ export async function decryptGlobal(
   id: string,
   options: CredentialKeyOptions = {},
 ): Promise<string> {
+  const parts = unframeGlobal(ciphertext);
+  return openGlobal(parts, await deriveGlobalKey(id, options.cleoHome));
+}
+
+/**
+ * Synchronous {@link decryptGlobal}, for read paths that cannot await (the
+ * LLM credential resolver, T13715). Never creates key material: a missing
+ * `machine-key` throws `ENOENT`, as no ciphertext can exist without it.
+ *
+ * @param ciphertext - Base64-encoded string from {@link encryptGlobal}.
+ * @param id - The identity used at encryption time.
+ * @param options - Key options (which CLEO home's machine-key + salt).
+ * @returns The original plaintext string.
+ * @throws If the key is missing or unsafe, or decryption fails.
+ * @task T13715
+ */
+export function decryptGlobalSync(
+  ciphertext: string,
+  id: string,
+  options: CredentialKeyOptions = {},
+): string {
+  const parts = unframeGlobal(ciphertext);
+  const home = options.cleoHome;
+  const machineKey = readMachineKeyAt(getMachineKeyPath(home));
+  const globalSalt = home === undefined ? getGlobalSalt() : loadGlobalSaltAt(home);
+  return openGlobal(parts, deriveGlobalKeyFromMaterial({ machineKey, globalSalt }, id));
+}
+
+/** Unframe a global ciphertext, refusing an unknown version. */
+function unframeGlobal(ciphertext: string): ReturnType<typeof unframe> {
   const parts = unframe(ciphertext);
   if (parts.version !== CIPHERTEXT_VERSION) {
     throw new Error(
@@ -630,7 +661,12 @@ export async function decryptGlobal(
         'Re-register agents to re-encrypt with the current format.',
     );
   }
-  const plaintext = openWithKey(parts, await deriveGlobalKey(id, options.cleoHome));
+  return parts;
+}
+
+/** Open unframed global ciphertext under `key`, throwing on a wrong key. */
+function openGlobal(parts: ReturnType<typeof unframe>, key: Buffer): string {
+  const plaintext = openWithKey(parts, key);
   if (plaintext === null) {
     throw new Error(
       'Cannot decrypt global credentials. Machine key / global-salt mismatch, ' +

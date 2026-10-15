@@ -38,6 +38,7 @@ import {
   openDualScopeDbAtPath,
 } from '../../dual-scope-db.js';
 import {
+  prepareRowIdentity,
   ROW_IDENTITY_META_TABLE,
   ROW_IDENTITY_RECIPE,
   ROW_IDENTITY_RECIPE_KEY,
@@ -627,6 +628,23 @@ describe('docs reach a second device (T12919)', () => {
     }
   });
 
+  it('a pre-collapse store holding duplicate sha256 rows still fills: the duplicate keeps a NULL uid', async () => {
+    const a = await open('a', 'dev-a');
+    // Before the twin collapse dedupes them, the twin may hold one sha256 twice.
+    dropCaptureTriggers(a.db);
+    a.db.exec(`DROP INDEX IF EXISTS uniq_docs_attachments_sha256;
+      INSERT INTO docs_attachments (id, sha256, attachment_json, created_at, ref_count)
+        VALUES ('dup-1', '${SHA}', '${json(SHA)}', '2026-10-01T00:00:00.000Z', 1),
+               ('dup-2', '${SHA}', '${json(SHA)}', '2026-10-02T00:00:00.000Z', 1);
+      UPDATE docs_attachments SET uid = NULL;`);
+    const report = prepareRowIdentity(a.db, 'project');
+    expect(report?.filled.docs_attachments).toBe(1);
+    expect(report?.unfilled.docs_attachments).toBe(1);
+    expect(
+      a.db.prepare('SELECT count(*) AS n FROM docs_attachments WHERE uid IS NOT NULL').get(),
+    ).toEqual({ n: 1 });
+  });
+
   it('a deref racing an attach never leaves a silent orphan ref', async () => {
     const { a, b, stream } = await docOnBoth();
     // A derefs the last owner: the ref, then the doc (ref_count 0).
@@ -663,5 +681,42 @@ describe('docs reach a second device (T12919)', () => {
     expect(orphans(b.db)).toEqual({ n: 0 });
     expect(docs(b.db)).toEqual(docs(a.db));
     expect(refs(b.db)).toEqual(refs(a.db));
+  });
+});
+
+describe('legacy-format timestamps echo without conflicts (T13714)', () => {
+  it("A's own echo of brain rows with 'YYYY-MM-DD HH:MM:SS' text records no conflict, and both devices list the same set", async () => {
+    const { a, b } = await twoDevices();
+    const stream = fakeStream();
+    write(
+      a.db,
+      `INSERT INTO brain_observations (id, type, title, created_at, updated_at) VALUES
+         ('O-t13714', 'discovery', 'legacy stamps', '2026-10-14 17:30:00', '2026-10-14 17:30:00');
+       INSERT INTO brain_page_nodes (id, node_type, label, created_at, updated_at, last_activity_at)
+         VALUES ('task:T13714', 'task', 'T13714', '2026-10-14 17:30:00', '2026-10-14 17:30:00', '2026-10-14 17:30:00');`,
+    );
+    await push(a, stream);
+    await pull(b, stream);
+    await pull(a, stream); // own echo of the inserts
+    // A command stamps the rows with SQLite's datetime('now') text.
+    write(
+      a.db,
+      `UPDATE brain_observations SET title = 'stamped', updated_at = '2026-10-14 17:32:57' WHERE id = 'O-t13714';
+       UPDATE brain_page_nodes SET updated_at = '2026-10-14 17:39:30', last_activity_at = '2026-10-14 17:39:30'
+         WHERE id = 'task:T13714';`,
+    );
+    await push(a, stream);
+    await pull(a, stream); // own echo of the updates
+    await pull(b, stream);
+
+    expect(conflictKeys(a.db)).toEqual([]);
+    expect(conflictKeys(b.db)).toEqual(conflictKeys(a.db));
+    // A keeps its local text; B holds the canonical wire form of the same instant.
+    expect(
+      a.db.prepare("SELECT updated_at FROM brain_observations WHERE id = 'O-t13714'").get(),
+    ).toEqual({ updated_at: '2026-10-14 17:32:57' });
+    expect(
+      b.db.prepare("SELECT updated_at FROM brain_observations WHERE id = 'O-t13714'").get(),
+    ).toEqual({ updated_at: '2026-10-14T17:32:57.000Z' });
   });
 });

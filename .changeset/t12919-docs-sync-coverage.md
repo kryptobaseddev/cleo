@@ -21,6 +21,9 @@ so `superseded` is never undone. A rebase that restores a row's local key now
 moves the references written meanwhile with it. The migration
 `20261014100000_t12919-docs-row-uids` adds the columns and unique indexes.
 
+The same doc now has a different local attachment id on each device, so refer to
+docs by slug across devices.
+
 `docs_wikilinks` is now derived and no longer syncs. Each device rebuilds it
 from the synced doc rows' supersession, related-task and topic columns.
 
