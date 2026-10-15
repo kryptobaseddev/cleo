@@ -24,6 +24,7 @@ import { computeHelp } from '@cleocode/core/admin/help';
 import { getContextWindow } from '@cleocode/core/context/index';
 import { configDomainHandler } from '@cleocode/core/dispatch/config-domain-handler';
 import { getLogger } from '@cleocode/core/logger';
+import { pushWarning } from '@cleocode/core/output';
 import { paginate } from '@cleocode/core/pagination';
 import { getProjectRoot } from '@cleocode/core/project-scope';
 import { getDefaultSnapshotPath } from '@cleocode/core/snapshot/index';
@@ -1123,6 +1124,29 @@ const _adminTypedHandler = defineTypedHandler<AdminOps>('admin', {
       const global = params.includeGlobal
         ? await createGlobalBackup({ type: params.type, note: params.note })
         : null;
+      // T13724: a target that failed to capture (e.g. the store VACUUM INTO
+      // denied by the T12687 worktree-build guard) must be visible, not
+      // silent. The failure is in the meta sidecar (`captureErrors`) and in
+      // the envelope data below; the warning lands in `meta.warnings` when
+      // the CLI renders the success envelope.
+      for (const failure of data.captureErrors ?? []) {
+        pushWarning({
+          code: 'W_BACKUP_CAPTURE_FAILED', // @sync-invariant none:local-only a local backup file failed to capture; no synced row is written
+          message: `backup ${data.backupId} did not capture ${failure.target}: ${failure.error}`,
+          severity: 'error',
+          context: { backupId: data.backupId, target: failure.target },
+        });
+      }
+      if (global !== null) {
+        for (const failure of global.captureErrors ?? []) {
+          pushWarning({
+            code: 'W_BACKUP_CAPTURE_FAILED', // @sync-invariant none:local-only a local backup file failed to capture; no synced row is written
+            message: `global backup ${global.backupId} did not capture ${failure.target}: ${failure.error}`,
+            severity: 'error',
+            context: { backupId: global.backupId, target: failure.target, scope: 'global' },
+          });
+        }
+      }
       return lafsSuccess({ ...data, ...(global ? { global } : {}) }, 'backup.mutate');
     } catch (err) {
       return lafsError(

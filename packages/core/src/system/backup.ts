@@ -47,6 +47,9 @@
  * @task T10315 — ratified `.cleo/backups/sqlite/` as the single canonical path
  *                (ADR-013 §10). The previous `.cleo/backups/snapshot/` is now
  *                a deprecated read-only fallthrough for one release.
+ * @task T13724 — per-target capture failures (e.g. the T12687 worktree-build
+ *                VACUUM INTO denial) are recorded in the meta sidecar under
+ *                `captureErrors` instead of being silently dropped.
  */
 
 import {
@@ -174,6 +177,21 @@ function atomicWriteSync(destPath: string, data: Buffer | string): void {
   }
 }
 
+/**
+ * A backup target that existed but failed to capture (T13724): e.g. the
+ * project store whose `VACUUM INTO` the T12687 worktree-build authorizer
+ * refuses, or a JSON file that could not be read. Recorded in the meta
+ * sidecar under `captureErrors` so a partial backup — especially a
+ * store-less one — is never silent. Mirrors how `docsBytes.error` records
+ * a failed docs capture.
+ */
+export interface BackupCaptureError {
+  /** The backup target that failed (e.g. `cleo.db`, `config.json`). */
+  target: string;
+  /** Why the capture failed (the thrown error's message). */
+  error: string;
+}
+
 /** Result shape returned by {@link createBackup}. */
 export interface BackupResult {
   /** Unique backup identifier (timestamped). */
@@ -188,6 +206,12 @@ export interface BackupResult {
   files: string[];
   /** Why the copy was discarded instead of published (T13293), when it was. */
   skipped?: string;
+  /**
+   * Per-target capture failures (T13724), present only when at least one
+   * target that existed could not be captured. Also recorded in the meta
+   * sidecar; the CLI surfaces these as `W_BACKUP_CAPTURE_FAILED` warnings.
+   */
+  captureErrors?: BackupCaptureError[];
 }
 
 /** Result shape returned by {@link restoreBackup}. */
@@ -281,6 +305,12 @@ export async function createBackup(
   ];
   const jsonTargets: string[] = ['config.json', 'project-info.json'];
   const backedUp: string[] = [];
+  /**
+   * T13724: per-target capture failures. A target that existed but failed to
+   * capture lands here (and in the meta sidecar) instead of being dropped,
+   * so a store-less backup is visible instead of plausible-looking.
+   */
+  const captureErrors: BackupCaptureError[] = [];
 
   // SQLite via VACUUM INTO.
   for (const target of sqliteTargets) {
@@ -288,13 +318,28 @@ export async function createBackup(
     // accessors point at cleo.db; absence of legacy files says nothing about
     // source availability. The project-bound native handle is authoritative.
     const dest = join(backupDir, `${target.file}.${backupId}`);
+    // The store may legitimately not exist (a fresh project) — that is a
+    // skip, not a failure. Existing-but-uncapturable is the failure.
+    const storePresent = existsSync(join(cleoDir, target.file));
     try {
       const ok = safeSqliteSnapshot(target.getDb(), dest);
       if (ok) {
         backedUp.push(target.file);
+      } else if (storePresent) {
+        captureErrors.push({
+          target: target.file,
+          error: 'no live store handle: the store open failed before the snapshot',
+        });
       }
-    } catch {
-      // skip files that fail to snapshot — backup remains partial but usable
+    } catch (err) {
+      // T13724: e.g. the T12687 worktree-build guard refuses the VACUUM INTO
+      // (the destination ATTACH inherits the refused-store decision). The
+      // backup remains partial but the missing store must be recorded, not
+      // swallowed — a backup of only config.json is not a store backup.
+      captureErrors.push({
+        target: target.file,
+        error: err instanceof Error ? err.message : String(err),
+      });
     }
   }
 
@@ -307,9 +352,16 @@ export async function createBackup(
       const content = readFileSync(src);
       atomicWriteSync(dest, content);
       backedUp.push(file);
-    } catch {
-      // skip files that fail to copy
+    } catch (err) {
+      captureErrors.push({
+        target: file,
+        error: err instanceof Error ? err.message : String(err),
+      });
     }
+  }
+
+  if (captureErrors.length > 0) {
+    getLogger('backup').warn({ backupId, captureErrors }, 'backup targets failed to capture');
   }
 
   // T13704: the docs byte surfaces live OUTSIDE the store — a backup of
@@ -347,6 +399,7 @@ export async function createBackup(
           files: backedUp,
           scope: 'project',
           ...(backedUp.includes('cleo.db') ? { contains: [...PROJECT_STORE_CONTENTS] } : {}),
+          ...(captureErrors.length > 0 ? { captureErrors } : {}),
           ...(docsMeta !== null ? { docsBytes: docsMeta } : {}),
         },
         null,
@@ -369,7 +422,14 @@ export async function createBackup(
     // non-fatal — an unswept pool file only costs space
   }
 
-  return { backupId, path: backupDir, timestamp, type: btype, files: backedUp };
+  return {
+    backupId,
+    path: backupDir,
+    timestamp,
+    type: btype,
+    files: backedUp,
+    ...(captureErrors.length > 0 ? { captureErrors } : {}),
+  };
 }
 
 /** A single backup entry returned by listSystemBackups. */
@@ -695,6 +755,10 @@ async function admitDbHeavy(): Promise<{ release: () => Promise<void> } | null> 
  *
  * @param opts - Backup type, note and rotation cap.
  * @returns What was written (`files` is empty when the store could not be opened).
+ *   A failed store capture is reported in `captureErrors` (T13724) — the
+ *   sidecar is only written when the store was captured, so a fully failed
+ *   global backup is surfaced via the result (and the CLI warning it drives),
+ *   not via a sidecar that would suppress the next hourly `auto` backup.
  * @task T13245
  */
 export async function createGlobalBackup(opts?: {
@@ -715,6 +779,8 @@ export async function createGlobalBackup(opts?: {
   const backupDir = globalBackupDir();
   mkdirSync(backupDir, { recursive: true });
   const backedUp: string[] = [];
+  /** T13724: a failed store capture is reported, never swallowed. */
+  const captureErrors: BackupCaptureError[] = [];
   try {
     const { openDualScopeDb, getDualScopeNativeDb } = await import('../store/dual-scope-db.js');
     const db = getDualScopeNativeDb(await openDualScopeDb('global'));
@@ -732,8 +798,14 @@ export async function createGlobalBackup(opts?: {
       renameSync(staged, final);
       backedUp.push('cleo.db');
     }
-  } catch {
-    // the global store could not be opened: nothing to back up
+  } catch (err) {
+    // T13724: the global store could not be opened or snapshotted — record
+    // it so the caller can surface the failure instead of skipping silently.
+    captureErrors.push({
+      target: 'cleo.db',
+      error: err instanceof Error ? err.message : String(err),
+    });
+    getLogger('backup').warn({ backupId, captureErrors }, 'global store not captured');
   }
   if (backedUp.length > 0) {
     atomicWriteSync(
@@ -747,6 +819,7 @@ export async function createGlobalBackup(opts?: {
           files: backedUp,
           scope: 'global',
           contains: ['global'],
+          ...(captureErrors.length > 0 ? { captureErrors } : {}),
         },
         null,
         2,
@@ -754,7 +827,14 @@ export async function createGlobalBackup(opts?: {
     );
     rotateBackupDir(backupDir, opts?.maxSnapshots ?? DEFAULT_MAX_SNAPSHOTS, btype);
   }
-  return { backupId, path: backupDir, timestamp, type: btype, files: backedUp };
+  return {
+    backupId,
+    path: backupDir,
+    timestamp,
+    type: btype,
+    files: backedUp,
+    ...(captureErrors.length > 0 ? { captureErrors } : {}),
+  };
 }
 
 /**
