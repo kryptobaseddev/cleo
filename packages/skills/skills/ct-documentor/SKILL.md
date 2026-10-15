@@ -1,7 +1,7 @@
 ---
 name: ct-documentor
 description: Documentation coordinator with CLEO style guide compliance. Routes every canonical-doc write (spec, adr, research, handoff, note, llm-readme) through the docs SSoT via `cleo docs add` / `cleo docs publish` / `cleo docs fetch` — never raw filesystem writes. Carries the CLEO writing and review guides as references and coordinates ct-spec-writer and ct-adr-recorder. Use when creating or updating documentation files, consolidating scattered documentation, or validating documentation against style standards. Triggers on documentation tasks, doc update requests, or style guide compliance checks.
-version: 3.25.2
+version: 3.25.3
 protocol: null
 dependencies:
   - ct-spec-writer
@@ -16,13 +16,13 @@ compatibility:
   - gemini-cli
 license: MIT
 metadata:
-  version: 3.25.2
+  version: 3.25.3
   tier: core
   install: harness
   covers:
     - packages/cleo/src/cli/commands/docs.ts
     - packages/contracts/src/docs-taxonomy.ts
-  lastReviewed: 2026-10-14
+  lastReviewed: 2026-10-15
   stability: stable
 ---
 
@@ -190,6 +190,7 @@ Before adding a new doc, ALWAYS ask: is this **a new doc**, **a change to an exi
 - **"Accept a spec that review signed off"** - `cleo docs update <slug> --status accepted` (T12654). `--status` alone changes only the lifecycle status (draft, proposed, accepted, superseded, archived, deprecated); the stored bytes are kept, so there is no need to re-supply `--file` or `--content`. Any content edit without `--status` resets the doc to `draft`.
 - **"Replace a doc's body from a pipe"** - `cat new.md | cleo docs update <slug> --content -` (T13564). As in `docs add`, `-` reads stdin; an empty or bare `-` body is refused, never stored.
 - **"Editing a doc another agent may touch"** - `cleo docs fetch <slug>` first, note `metadata.headVersionUid`, then `cleo docs update <slug> --file new.md --base-version-uid <headVersionUid>` (T13674). A stale base merges append edits into the head (`staleBaseMerged: true`) or records `sectionConflicts` — a concurrent writer's edit is never silently dropped; a base that no longer resolves is refused with `E_DOC_BASE_UNKNOWN`. `--file` must be UTF-8 text when a base is given (`E_DOC_BASE_UNSUPPORTED` otherwise). The update result's `headVersionUid` is the base for your next edit, so chained edits need no re-fetch.
+- **"`docs fetch --content` says content not retrievable"** - the doc row exists but its bytes are not in the blob store. A doc synced from another device gets its bytes on the next `cleo cloud sync` (T13721): they travel encrypted on the stream, and the sync's `W_SYNC_DOC_BYTES_UNAVAILABLE` / `W_SYNC_DOC_BYTES_REFUSED` warnings say why when they cannot. Otherwise run `cleo docs doctor --repair`.
 - **"Trace an ADR to the decisions it ratifies"** - `cleo docs link-decision <adr-slug> D####` (T13598): the slug must be an existing doc and the decision a stored one, since a link is permanent. `cleo docs fetch <adr-slug>` then lists them as `linkedDecisions`. `cleo docs unlink-decision <adr-slug> D####` cannot be undone: the revoke is a permanent tombstone, and that pair can never be re-linked.
 
 - **"Replace the entire saga-orchestration model with v2" (ADVANCED)** - `cleo docs add T9999 v2.md --type adr --slug adr-080-saga-orchestration-v2` followed by `cleo docs supersede adr-073-above-epic-naming adr-080-saga-orchestration-v2 --reason "v2 canonicalizes the SG- prefix + 4-tier hierarchy"`. Both rows survive in the attachments table; readers see `lifecycle_status=superseded` on v1 and `supersedes=adr-073` on v2.
