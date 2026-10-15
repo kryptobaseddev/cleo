@@ -6,7 +6,6 @@
  */
 
 import { createHash } from 'node:crypto';
-import type { DatabaseSync } from 'node:sqlite';
 import type {
   BrainSourceConfidence,
   ObserveBrainParams,
@@ -444,45 +443,6 @@ export async function observeBrain(
 // ============================================================================
 // Embedding Backfill Pipeline (T5387)
 // ============================================================================
-
-/**
- * Upsert computed embeddings into `brain_embeddings` on the given handle,
- * tagged with the model that produced them (T13740).
- *
- * Callers must be the brain single-writer chokepoint: the `embed` write op's
- * handler (`brain-writer-handlers.ts`, worker or inline under the lease and
- * mutex) and the host's write-time embed, which runs inside the writer.
- *
- * @param nativeDb - The writer's brain handle.
- * @param model - {@link EmbeddingProvider.model} of the provider that computed the vectors.
- * @param rows - Memory row ids and their vectors.
- * @returns Rows written.
- * @task T13218
- * @task T13740
- */
-export function upsertEmbeddingRowsNative(
-  nativeDb: DatabaseSync,
-  model: string,
-  rows: ReadonlyArray<{ id: string; vector: Float32Array }>,
-): number {
-  // vec0 rejects both UPSERT and REPLACE on its primary key, so a re-embed
-  // (model change, edited row) deletes the old vector first.
-  const del = nativeDb.prepare('DELETE FROM brain_embeddings WHERE id = ?');
-  const ins = nativeDb.prepare(
-    'INSERT INTO brain_embeddings (id, embedding, model) VALUES (?, ?, ?)',
-  );
-  let written = 0;
-  for (const row of rows) {
-    del.run(row.id);
-    ins.run(
-      row.id,
-      Buffer.from(row.vector.buffer, row.vector.byteOffset, row.vector.byteLength),
-      model,
-    );
-    written++;
-  }
-  return written;
-}
 
 /** Result from populateEmbeddings backfill. */
 export interface PopulateEmbeddingsResult {

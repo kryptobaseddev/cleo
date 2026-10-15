@@ -408,7 +408,7 @@ export async function detectSupersession(
     // when sqlite-vec is loaded. This is the primary signal; keyword Jaccard
     // is the fallback and tie-breaker.
     const embeddingScores = new Map<string, number>();
-    if (isBrainVecLoaded()) {
+    if (isBrainVecLoaded(projectRoot)) {
       try {
         const { isEmbeddingAvailable, embedText, getEmbeddingProvider } = await import(
           './brain-embedding.js'

@@ -209,7 +209,7 @@ export function scheduleEmbedding(projectRoot: string, id: string, text: string)
         // the chokepoint.
         if (isBrainWriterIsolate()) {
           const { getBrainNativeDb } = await import('../store/memory-sqlite.js');
-          const { upsertEmbeddingRowsNative } = await import('./retrieval/observe.js');
+          const { upsertEmbeddingRowsNative } = await import('../store/memory-accessor.js');
           const nativeDb = getBrainNativeDb(projectRoot);
           if (nativeDb) upsertEmbeddingRowsNative(nativeDb, model, [{ id, vector }]);
           return;

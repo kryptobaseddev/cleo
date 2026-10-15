@@ -53,6 +53,46 @@ import type {
 import * as brainSchema from './schema/memory-schema.js';
 import { assertTwinCollapseWritable } from './twin-collapse.js';
 
+/**
+ * Upsert computed embeddings into `brain_embeddings` on the given handle,
+ * tagged with the model that produced them (T13740).
+ *
+ * Lives with the brain accessor because it is a raw write on a brain table
+ * (gate 28). Callers must be the brain single-writer chokepoint: the `embed` write op's
+ * handler (`brain-writer-handlers.ts`, worker or inline under the lease and
+ * mutex) and the host's write-time embed, which runs inside the writer.
+ *
+ * @param nativeDb - The writer's brain handle.
+ * @param model - `EmbeddingProvider.model` of the provider that computed the vectors.
+ * @param rows - Memory row ids and their vectors.
+ * @returns Rows written.
+ * @task T13218
+ * @task T13740
+ */
+export function upsertEmbeddingRowsNative(
+  nativeDb: DatabaseSync,
+  model: string,
+  rows: ReadonlyArray<{ id: string; vector: Float32Array }>,
+): number {
+  // vec0 rejects both UPSERT and REPLACE on its primary key, so a re-embed
+  // (model change, edited row) deletes the old vector first.
+  const del = nativeDb.prepare('DELETE FROM brain_embeddings WHERE id = ?');
+  const ins = nativeDb.prepare(
+    'INSERT INTO brain_embeddings (id, embedding, model) VALUES (?, ?, ?)',
+  );
+  let written = 0;
+  for (const row of rows) {
+    del.run(row.id);
+    ins.run(
+      row.id,
+      Buffer.from(row.vector.buffer, row.vector.byteOffset, row.vector.byteLength),
+      model,
+    );
+    written++;
+  }
+  return written;
+}
+
 export class BrainDataAccessor {
   constructor(private db: NodeSQLiteDatabase) {}
 

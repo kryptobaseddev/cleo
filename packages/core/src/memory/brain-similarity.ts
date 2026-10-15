@@ -81,7 +81,7 @@ export async function searchSimilar(
   if (!nativeDb) return [];
 
   // Require sqlite-vec for KNN queries
-  if (!isBrainVecLoaded()) return [];
+  if (!isBrainVecLoaded(projectRoot)) return [];
 
   // Run KNN query against vec0 table
   let knnRows: BrainKnnRow[];
