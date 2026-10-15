@@ -112,7 +112,7 @@ describe.skipIf(!isSqliteVecAvailable())('brain.db sqlite-vec integration', () =
     vec[2] = 0.25;
 
     nativeDb!
-      .prepare('INSERT INTO brain_embeddings (id, embedding) VALUES (?, ?)')
+      .prepare("INSERT INTO brain_embeddings (id, embedding, model) VALUES (?, ?, 'test-model')")
       .run('test-obs-1', Buffer.from(vec.buffer));
 
     // Query: check we can read it back

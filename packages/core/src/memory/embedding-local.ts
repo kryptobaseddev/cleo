@@ -24,6 +24,12 @@ import { EMBEDDING_DIMENSIONS } from './brain-embedding.js';
 /** Model identifier for all-MiniLM-L6-v2 via Xenova hub. */
 const MODEL_NAME = 'Xenova/all-MiniLM-L6-v2';
 
+/** Hub revision loaded; part of the stored model tag (T13740). */
+const MODEL_REVISION = 'main';
+
+/** Weight dtype loaded (`onnx/model.onnx`); part of the stored model tag (T13740). */
+const MODEL_DTYPE = 'fp32';
+
 /**
  * How a user opts into the one-time model download (T13716).
  *
@@ -96,6 +102,8 @@ async function loadPipeline(): Promise<void> {
     const gated = await importGatedTransformers();
     allowDownload = gated.allowDownload;
     _pipeline = await gated.transformers.pipeline('feature-extraction', MODEL_NAME, {
+      revision: MODEL_REVISION,
+      dtype: MODEL_DTYPE,
       local_files_only: !allowDownload,
     });
     _ready = true;
@@ -155,6 +163,9 @@ export function __resetLocalEmbeddingStateForTests(): void {
 export class LocalEmbeddingProvider implements EmbeddingProvider {
   /** Number of dimensions produced — must match brain_embeddings vec0 table. */
   readonly dimensions = EMBEDDING_DIMENSIONS;
+
+  /** Model tag stored beside every vector this provider produces (T13740). */
+  readonly model = `${MODEL_NAME}@${MODEL_REVISION}:${MODEL_DTYPE}`;
 
   /**
    * Whether this provider CAN produce embeddings — not whether it already has.

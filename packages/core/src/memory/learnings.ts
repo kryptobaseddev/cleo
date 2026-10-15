@@ -12,6 +12,7 @@
 
 import { createHash, randomBytes } from 'node:crypto';
 import { getBrainAccessor } from '../store/memory-accessor.js';
+import { scheduleEmbedding } from './embedding-backfill.js';
 import { upsertGraphNode } from './graph-auto-populate.js';
 import { computeLearningQuality } from './quality-scoring.js';
 
@@ -221,6 +222,7 @@ export async function storeLearning(projectRoot: string, params: StoreLearningPa
   };
 
   const saved = await accessor.addLearning(entry);
+  scheduleEmbedding(projectRoot, saved.id, saved.insight);
 
   // Auto-populate graph node for the new learning (best-effort, T537).
   upsertGraphNode(

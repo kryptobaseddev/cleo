@@ -37,6 +37,7 @@ import {
 vi.mock('../embedding-local.js', () => ({
   LocalEmbeddingProvider: class MockLocalEmbeddingProvider {
     readonly dimensions = 384;
+    readonly model = 'test-model';
     isAvailable() {
       return true;
     }
@@ -49,6 +50,7 @@ vi.mock('../embedding-local.js', () => ({
   },
   getLocalEmbeddingProvider: () => ({
     dimensions: 384,
+    model: 'test-model',
     isAvailable: () => true,
     embed: async (_text: string) => new Float32Array(384).fill(0.1),
     embedBatch: async (texts: string[]) => texts.map(() => new Float32Array(384).fill(0.1)),
@@ -70,6 +72,7 @@ function isSqliteVecAvailable(): boolean {
 function createMockProvider(overrides?: Partial<EmbeddingProvider>): EmbeddingProvider {
   return {
     dimensions: EMBEDDING_DIMENSIONS,
+    model: 'test-model',
     isAvailable: () => true,
     embed: vi.fn(async (_text: string) => {
       // Deterministic vector: hash text length into first few positions
@@ -227,7 +230,7 @@ describe.skipIf(!isSqliteVecAvailable())('brain_embeddings vec0 table', () => {
     vec[2] = 0.25;
 
     nativeDb
-      .prepare('INSERT INTO brain_embeddings (id, embedding) VALUES (?, ?)')
+      .prepare("INSERT INTO brain_embeddings (id, embedding, model) VALUES (?, ?, 'test-model')")
       .run('test-obs-001', Buffer.from(vec.buffer));
 
     const rows = nativeDb
@@ -277,7 +280,7 @@ describe.skipIf(!isSqliteVecAvailable())('searchSimilar with mock provider', () 
 
     // Insert into brain_embeddings
     nativeDb
-      .prepare('INSERT OR REPLACE INTO brain_embeddings (id, embedding) VALUES (?, ?)')
+      .prepare("INSERT INTO brain_embeddings (id, embedding, model) VALUES (?, ?, 'test-model')")
       .run(obsId, Buffer.from(queryVec.buffer));
 
     // Register mock provider that returns same vector (distance = 0)
@@ -387,3 +390,154 @@ describe.skipIf(!isSqliteVecAvailable())('populateEmbeddings backfill', () => {
     expect(result.errors).toBe(0);
   });
 });
+
+// ============================================================================
+// T13740 — all four memory tables, model-tagged vectors
+// ============================================================================
+
+describe.skipIf(!isSqliteVecAvailable())(
+  'model-tagged embeddings of every memory table (T13740)',
+  () => {
+    async function openBrain() {
+      const { getBrainDb, getBrainNativeDb, closeBrainDb } = await import(
+        '../../store/memory-sqlite.js'
+      );
+      closeBrainDb();
+      await getBrainDb(tempDir);
+      // Let the open path's deferred default-provider registration land first,
+      // so it cannot replace the provider a test registers next.
+      for (let i = 0; i < 5; i++) await new Promise<void>((resolve) => setImmediate(resolve));
+      await new Promise<void>((resolve) => setTimeout(resolve, 50));
+      return getBrainNativeDb(tempDir)!;
+    }
+
+    function seedMemory(db: import('node:sqlite').DatabaseSync): void {
+      db.prepare(
+        "INSERT INTO brain_observations (id, type, title, narrative, content_hash, source_type, created_at) VALUES ('O-t13740-0', 'context', 'Obs', 'An observation narrative', 'h-t13740', 'agent', '2026-10-15 00:00:00')",
+      ).run();
+      db.prepare(
+        "INSERT INTO brain_decisions (id, type, decision, rationale, confidence) VALUES ('D9001', 'technical', 'Use vec0', 'It is local', 'high')",
+      ).run();
+      db.prepare(
+        "INSERT INTO brain_learnings (id, insight, source, confidence) VALUES ('L-t13740', 'Vectors drift by model', 'test', 0.8)",
+      ).run();
+      db.prepare(
+        "INSERT INTO brain_patterns (id, type, pattern, context, extracted_at) VALUES ('P-t13740', 'workflow', 'Embed on write', 'host only', '2026-10-15 00:00:00')",
+      ).run();
+    }
+
+    function storedModels(db: import('node:sqlite').DatabaseSync): Record<string, string> {
+      const rows = db.prepare('SELECT id, model FROM brain_embeddings ORDER BY id').all() as Array<{
+        id: string;
+        model: string;
+      }>;
+      return Object.fromEntries(rows.map((r) => [r.id, r.model]));
+    }
+
+    it('backfills observations, decisions, learnings and patterns, tagged with the model', async () => {
+      const db = await openBrain();
+      seedMemory(db);
+      setEmbeddingProvider(createMockProvider());
+
+      const { populateEmbeddings } = await import('../brain-retrieval.js');
+      const result = await populateEmbeddings(tempDir, { batchSize: 10 });
+
+      expect(result).toMatchObject({ processed: 4, errors: 0 });
+      expect(storedModels(db)).toEqual({
+        D9001: 'test-model',
+        'L-t13740': 'test-model',
+        'O-t13740-0': 'test-model',
+        'P-t13740': 'test-model',
+      });
+      const { countUnembeddedMemories } = await import('../embedding-backfill.js');
+      expect(await countUnembeddedMemories(tempDir)).toBe(0);
+    });
+
+    it('a model change re-embeds every row, and search never compares across models', async () => {
+      const db = await openBrain();
+      seedMemory(db);
+      setEmbeddingProvider(createMockProvider());
+      const { populateEmbeddings } = await import('../brain-retrieval.js');
+      await populateEmbeddings(tempDir, { batchSize: 10 });
+
+      setEmbeddingProvider(createMockProvider({ model: 'other-model' }));
+      const { searchSimilar } = await import('../brain-similarity.js');
+      expect(await searchSimilar('Use vec0', tempDir, 10)).toEqual([]);
+      const { countUnembeddedMemories } = await import('../embedding-backfill.js');
+      expect(await countUnembeddedMemories(tempDir)).toBe(4);
+
+      const result = await populateEmbeddings(tempDir, { batchSize: 10 });
+      expect(result).toMatchObject({ processed: 4, errors: 0 });
+      expect(new Set(Object.values(storedModels(db)))).toEqual(new Set(['other-model']));
+      expect((await searchSimilar('Use vec0', tempDir, 10)).map((r) => r.type).sort()).toEqual([
+        'decision',
+        'learning',
+        'observation',
+        'pattern',
+      ]);
+    });
+
+    it('rebuilds a vector table from before the model tag', async () => {
+      let db = await openBrain();
+      db.prepare('DROP TABLE brain_embeddings').run();
+      db.prepare(
+        'CREATE VIRTUAL TABLE brain_embeddings USING vec0(id TEXT PRIMARY KEY, embedding FLOAT[384])',
+      ).run();
+      db.prepare('INSERT INTO brain_embeddings (id, embedding) VALUES (?, ?)').run(
+        'O-legacy-0',
+        Buffer.from(new Float32Array(EMBEDDING_DIMENSIONS).buffer),
+      );
+
+      db = await openBrain();
+      const columns = db.prepare('PRAGMA table_info(brain_embeddings)').all() as Array<{
+        name: string;
+      }>;
+      expect(columns.map((c) => c.name)).toEqual(['id', 'embedding', 'model']);
+      expect(storedModels(db)).toEqual({});
+    });
+
+    it('a long-lived host embeds a new decision, learning and pattern as they are stored', async () => {
+      const db = await openBrain();
+      setEmbeddingProvider(createMockProvider());
+      const { _resetLongLivedBrainHostForTests, markLongLivedBrainHost } = await import(
+        '../brain-host.js'
+      );
+      markLongLivedBrainHost();
+      try {
+        const { storeDecision } = await import('../decisions.js');
+        const { storeLearning } = await import('../learnings.js');
+        const { storePattern } = await import('../patterns.js');
+        const decision = await storeDecision(tempDir, {
+          type: 'technical',
+          decision: 'Embed every memory table',
+          rationale: 'Rank fusion demoted unembedded decisions',
+          confidence: 'high',
+          _skipGate: true,
+        });
+        const learning = await storeLearning(tempDir, {
+          insight: 'Unembedded rows lose rank fusion',
+          source: 'test',
+          confidence: 0.8,
+        });
+        const pattern = await storePattern(tempDir, {
+          type: 'workflow',
+          pattern: 'Embed at write time in a host',
+          context: 'long-lived hosts only',
+        });
+        const ids = [decision.id, learning.id, pattern.id];
+        const deadline = Date.now() + 10_000;
+        while (Object.keys(storedModels(db)).length < ids.length && Date.now() < deadline) {
+          await new Promise((resolve) => setTimeout(resolve, 25));
+        }
+        expect(Object.keys(storedModels(db)).sort()).toEqual([...ids].sort());
+      } finally {
+        _resetLongLivedBrainHostForTests();
+        const { shutdownBrainWriter, _resetBrainWriterForTests } = await import(
+          '../brain-writer-thread.js'
+        );
+        await shutdownBrainWriter();
+        _resetBrainWriterForTests();
+      }
+    });
+  },
+);

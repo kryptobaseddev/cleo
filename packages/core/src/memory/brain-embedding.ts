@@ -18,6 +18,12 @@ export interface EmbeddingProvider {
   /** Number of dimensions the provider produces. Must match vec0 table. */
   readonly dimensions: number;
   /**
+   * Model identity stored beside every vector: `<model id>@<revision>:<dtype>`.
+   * Vectors are only ever compared with vectors of the same model, and a
+   * stored vector of any other model is re-embedded by the backfill (T13740).
+   */
+  readonly model: string;
+  /**
    * Whether the provider CAN produce embeddings — capability, not state.
    *
    * Implementations MUST NOT return "has already produced one": a provider

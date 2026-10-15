@@ -19,7 +19,7 @@ const state = vi.hoisted(() => ({
   allowModelDownload: undefined as boolean | undefined,
   enabled: true,
   cached: false,
-  pipelineOptions: [] as Array<{ local_files_only?: boolean }>,
+  pipelineOptions: [] as Array<{ revision?: string; dtype?: string; local_files_only?: boolean }>,
   fetched: [] as string[],
 }));
 
@@ -68,7 +68,9 @@ describe('local embedding model download gate (T13716)', () => {
     await expect(provider.embedBatch(['again'])).rejects.toThrow(/unavailable/);
 
     expect(state.fetched).toEqual([]);
-    expect(state.pipelineOptions).toEqual([{ local_files_only: true }]);
+    expect(state.pipelineOptions).toEqual([
+      { revision: 'main', dtype: 'fp32', local_files_only: true },
+    ]);
     expect(provider.isAvailable()).toBe(false);
   });
 
@@ -93,7 +95,9 @@ describe('local embedding model download gate (T13716)', () => {
     const vec = await new LocalEmbeddingProvider().embed('hello');
     expect(vec).toHaveLength(384);
     expect(state.fetched).toEqual([]);
-    expect(state.pipelineOptions).toEqual([{ local_files_only: true }]);
+    expect(state.pipelineOptions).toEqual([
+      { revision: 'main', dtype: 'fp32', local_files_only: true },
+    ]);
   });
 
   it('explicit opt-in: the model is downloaded', async () => {
@@ -101,7 +105,9 @@ describe('local embedding model download gate (T13716)', () => {
     const { LocalEmbeddingProvider } = await import('../embedding-local.js');
     const vec = await new LocalEmbeddingProvider().embed('hello');
     expect(vec).toHaveLength(384);
-    expect(state.pipelineOptions).toEqual([{ local_files_only: false }]);
+    expect(state.pipelineOptions).toEqual([
+      { revision: 'main', dtype: 'fp32', local_files_only: false },
+    ]);
     expect(state.fetched).toHaveLength(1);
     expect(state.fetched[0]).toContain('huggingface.co');
   });
