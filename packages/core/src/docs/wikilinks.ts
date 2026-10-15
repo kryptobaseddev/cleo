@@ -24,7 +24,7 @@
  * @see build-provenance-graph.ts — the on-the-fly BFS this table makes O(edges)
  */
 
-import { eq, or } from 'drizzle-orm';
+import { eq, getTableColumns, or } from 'drizzle-orm';
 import { getProjectRoot } from '../paths.js';
 import { type DocsWikilinkRelation, docsWikilinks } from '../store/schema/attachments.js';
 import { getDb } from '../store/sqlite.js';
@@ -146,11 +146,13 @@ export async function rebuildDocsWikilinks(
     // composite PK idempotent even if deriveWikilinkEdges emitted a duplicate.
     //
     // T13711: SQLite caps a statement's bound variables at SQLITE_MAX_VARIABLE_
-    // NUMBER (32766). With 5 columns per row, one INSERT binds at most
-    // floor(32766/5) = 6553 rows — past that (axiom-app: 8387 edges) the single
-    // statement fails and the whole rebuild rolls back. Chunk inside the SAME
-    // transaction so the rebuild stays atomic.
-    const WIKILINK_INSERT_CHUNK_ROWS = 6553; // floor(32766 / 5 columns)
+    // NUMBER (32766), so one INSERT binds at most floor(32766 / columns) rows
+    // — past that (axiom-app: 8387 edges) the single statement fails and the
+    // whole rebuild rolls back. Chunk inside the SAME transaction so the
+    // rebuild stays atomic.
+    const WIKILINK_INSERT_CHUNK_ROWS = Math.floor(
+      32766 / Object.keys(getTableColumns(docsWikilinks)).length,
+    );
     for (let i = 0; i < edges.length; i += WIKILINK_INSERT_CHUNK_ROWS) {
       tx.insert(docsWikilinks)
         .values(

@@ -133,6 +133,7 @@ describe('T11826 — deriveWikilinkEdges (pure)', () => {
 describe('T11826/T11825 — end-to-end (live DB + migration)', () => {
   let tmpRoot: string;
   let prevCwd: string;
+  let prevCleoDir: string | undefined;
 
   beforeEach(async () => {
     tmpRoot = await mkdtemp(join(tmpdir(), 'cleo-wikilinks-test-'));
@@ -142,13 +143,15 @@ describe('T11826/T11825 — end-to-end (live DB + migration)', () => {
     // Pin the store to THIS temp project — without it every temp root in the
     // vitest sandbox resolves to one shared project DB (T13711: the
     // exact-count chunked-rebuild assertion exposed the leakage).
+    prevCleoDir = process.env['CLEO_DIR'];
     process.env['CLEO_DIR'] = join(tmpRoot, '.cleo');
     process.chdir(tmpRoot);
   });
 
   afterEach(async () => {
     closeDb();
-    delete process.env['CLEO_DIR'];
+    if (prevCleoDir === undefined) delete process.env['CLEO_DIR'];
+    else process.env['CLEO_DIR'] = prevCleoDir;
     process.chdir(prevCwd);
     await rm(tmpRoot, { recursive: true, force: true });
   });

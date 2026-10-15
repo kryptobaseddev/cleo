@@ -31,13 +31,12 @@ describe('boundedErrorMessage (T13711)', () => {
     const out = boundedErrorMessage(err);
 
     expect(out).not.toContain('\n');
-    expect(out.length).toBeLessThan(600);
-    expect(out).toContain('[truncated');
+    expect(out).toBe(`line one ${'x'.repeat(491)}… [truncated 4509 chars]`);
   });
 
   it('respects a custom cap', () => {
     const err = new Error('0123456789');
-    expect(boundedErrorMessage(err, 5)).toBe('01234… [truncated 10 chars]');
+    expect(boundedErrorMessage(err, 5)).toBe('01234… [truncated 5 chars]');
   });
 
   it('formats non-Error thrown values', () => {
@@ -47,5 +46,29 @@ describe('boundedErrorMessage (T13711)', () => {
 
   it('keeps short messages untouched', () => {
     expect(boundedErrorMessage(new Error('constraint failed'))).toBe('constraint failed');
+  });
+
+  it('walks a nested cause chain to the deepest error, never printing params', () => {
+    const drizzleErr = new Error(
+      'Failed query: insert into docs_wikilinks values (?, ?)\nparams: ["secret-a","secret-b"]',
+    );
+    drizzleErr.cause = new Error('Failed query: select 1\nparams: ["secret-c"]', {
+      cause: new Error('UNIQUE constraint failed'),
+    });
+    const outer = new Error('docs write failed', { cause: drizzleErr });
+
+    const out = boundedErrorMessage(outer);
+
+    expect(out).toBe('Error: UNIQUE constraint failed');
+    expect(out).not.toContain('secret');
+  });
+
+  it('cuts the params section of a short query message with no cause', () => {
+    const err = new Error('Failed query: select * from t where id = ?\nparams: ["secret-id"]');
+    expect(boundedErrorMessage(err)).toBe('Failed query: select * from t where id = ?');
+  });
+
+  it('does not throw for a value String() cannot print', () => {
+    expect(boundedErrorMessage(Object.create(null))).toBe('[unprintable thrown value]');
   });
 });

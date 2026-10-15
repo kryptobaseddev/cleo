@@ -24,24 +24,40 @@ const DEFAULT_MAX_LENGTH = 500;
 /**
  * Format an unknown thrown value as a single-line, length-capped message.
  *
- * Prefers the wrapped driver cause (`error.cause`) — the underlying
- * SQLite/driver error, which does not contain the parameter dump — and falls
- * back to the outer message hard-capped. Whitespace runs collapse to single
- * spaces so multi-line drizzle dumps cannot flood the log even before the cap.
+ * Prefers the deepest wrapped driver cause (the end of the `error.cause`
+ * chain) — the underlying SQLite/driver error, which does not contain the
+ * parameter dump — and falls back to the outer message. Everything from a
+ * drizzle `params:` section onward is cut, then whitespace runs collapse to
+ * single spaces so multi-line dumps cannot flood the log even before the cap.
  *
  * @param err - The thrown value (anything `throw`-able).
- * @param maxLength - Character cap for the result. Default 500.
- * @returns A single-line message, at most `maxLength + 16` characters.
+ * @param maxLength - Character cap for the message body. Default 500.
+ * @returns A single-line message: at most `maxLength` characters of the
+ *   message, followed (only when cut) by `… [truncated N chars]`, where N is
+ *   the number of characters removed.
  */
 export function boundedErrorMessage(err: unknown, maxLength: number = DEFAULT_MAX_LENGTH): string {
-  const cause = err instanceof Error ? err.cause : undefined;
-  const raw =
-    cause instanceof Error
-      ? `${cause.name}: ${cause.message}`
-      : err instanceof Error
-        ? err.message
-        : String(err);
-  const singleLine = raw.replace(/\s+/g, ' ').trim();
+  let deepest = err;
+  const seen = new Set<unknown>([err]);
+  while (deepest instanceof Error && deepest.cause instanceof Error && !seen.has(deepest.cause)) {
+    deepest = deepest.cause;
+    seen.add(deepest);
+  }
+  let raw: string;
+  if (deepest instanceof Error) {
+    raw = deepest === err ? deepest.message : `${deepest.name}: ${deepest.message}`;
+  } else {
+    try {
+      raw = String(deepest);
+    } catch {
+      // String() throws for values with no toString, e.g. Object.create(null).
+      raw = '[unprintable thrown value]';
+    }
+  }
+  const singleLine = raw
+    .replace(/(?:\n| )params:[\s\S]*$/, '')
+    .replace(/\s+/g, ' ')
+    .trim();
   if (singleLine.length <= maxLength) return singleLine;
-  return `${singleLine.slice(0, maxLength)}… [truncated ${singleLine.length} chars]`;
+  return `${singleLine.slice(0, maxLength)}… [truncated ${singleLine.length - maxLength} chars]`;
 }
