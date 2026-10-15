@@ -6,7 +6,9 @@
  * its status, its conflict records, its row meta and its leaves:
  *
  * 1. **Schema.** A segment or transaction format newer than this build is
- *    `refused-schema` (E_SCHEMA_AHEAD), kept for replay after an upgrade.
+ *    `refused-schema` (E_SCHEMA_AHEAD). Every call re-opens the stream's
+ *    `refused-schema` transactions first, so one applies as soon as the
+ *    build or the store's schema has what it needs (T13719).
  * 2. **Skew (§1.3).** A transaction whose HLC is beyond the skew bound is
  *    `held-skew`, and so is every later transaction of the same origin
  *    replica in this pass (FIFO); other replicas keep flowing.
@@ -88,7 +90,14 @@ import {
 } from '../field-leave.js';
 import { accountRebaseRows, heldOp, holdOp, type KeptRow, txnHasHold, unholdOp } from '../held.js';
 import { encodeHlc, genesisHlc, isWithinSkew, parseHlc } from '../hlc.js';
-import { type InboxKey, type InboxStatus, markTxns, type StagedTxn, stagedTxns } from '../inbox.js';
+import {
+  type InboxKey,
+  type InboxStatus,
+  markTxns,
+  reopenRefusedSchema,
+  type StagedTxn,
+  stagedTxns,
+} from '../inbox.js';
 import { applyOp, checkSchemaVersion } from '../merge/engine.js';
 import { mergeSpecFor } from '../merge/rules.js';
 import {
@@ -1144,34 +1153,43 @@ function adoptNaturalRows(
 }
 
 /**
- * A staged transaction with every op's local INTEGER PRIMARY KEY removed
- * (T12896). That id is numbered on each device, so this build never sends it;
- * an older build's op still may, and the receiver drops it rather than refuse
- * the column or collide with its own row of that id.
+ * A staged transaction with every op's local-only column values removed: the
+ * local INTEGER PRIMARY KEY (T12896) and every `local-only` override
+ * (T13719). This build never sends them; an older build's op, or one captured
+ * before a column was reclassified, still may. The receiver drops them rather
+ * than refuse the column (the merge knows only captured columns), collide
+ * with its own row of that id, or overwrite a device's own value; an insert
+ * takes the local default.
  */
-function withoutLocalRowids(
+function withoutLocalColumns(
   st: StagedTxn,
   defs: (table: string) => CaptureTableDef | null,
 ): StagedTxn {
   let changed = false;
   const ops = st.txn.ops.map((op): LedgerOp => {
-    const col = defs(op.t)?.localRowid;
-    if (!col || ![op.a, op.b, op.fh].some((v) => v !== undefined && col in v)) return op;
+    const def = defs(op.t);
+    const local = def?.localOnly ?? new Set(def?.localRowid ? [def.localRowid] : []);
+    const has = (v: Readonly<Record<string, unknown>> | undefined): boolean =>
+      v !== undefined && Object.keys(v).some((k) => local.has(k));
+    if (!has(op.a) && !has(op.b) && !has(op.fh)) return op;
     changed = true;
     return {
       ...op,
-      ...(op.a ? { a: omitKey(op.a, col) } : {}),
-      ...(op.b ? { b: omitKey(op.b, col) } : {}),
-      ...(op.fh ? { fh: omitKey(op.fh, col) } : {}),
+      ...(op.a ? { a: omitKeys(op.a, local) } : {}),
+      ...(op.b ? { b: omitKeys(op.b, local) } : {}),
+      ...(op.fh ? { fh: omitKeys(op.fh, local) } : {}),
     };
   });
   return changed ? { ...st, txn: { ...st.txn, ops } } : st;
 }
 
-/** `record` without `key`. */
-function omitKey<V>(record: Readonly<Record<string, V>>, key: string): Record<string, V> {
+/** `record` without `keys`. */
+function omitKeys<V>(
+  record: Readonly<Record<string, V>>,
+  keys: ReadonlySet<string>,
+): Record<string, V> {
   const out: Record<string, V> = {};
-  for (const [k, v] of Object.entries(record)) if (k !== key) out[k] = v;
+  for (const [k, v] of Object.entries(record)) if (!keys.has(k)) out[k] = v;
   return out;
 }
 
@@ -1774,6 +1792,7 @@ export function applyStagedTxns(db: DatabaseSync, opts: ApplyStagedOptions): App
       blocked,
     };
   }
+  reopenRefusedSchema(db, opts.stream);
   opts.seal?.();
   const sequencingOn = hasTable(db, '_sync_sequenced');
   const defCache = new Map<string, CaptureTableDef | null>();
@@ -1798,7 +1817,7 @@ export function applyStagedTxns(db: DatabaseSync, opts: ApplyStagedOptions): App
         stagedTxns(db, opts.stream).map((st) =>
           followUidAliases(
             db,
-            withOpenedSecrets(withoutLocalRowids(st, defs), defs, opts.secrets),
+            withOpenedSecrets(withoutLocalColumns(st, defs), defs, opts.secrets),
             defs,
           ),
         ),

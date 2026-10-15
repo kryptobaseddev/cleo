@@ -12,8 +12,10 @@
  * - `held-skew`: its HLC is beyond the skew bound; retried, FIFO per replica;
  * - `applied`, `conflict`, `void`: tried; `conflict` and `void` carry their
  *   records in `_sync_conflict` and are revivable;
- * - `refused-schema`: written by a newer schema or format; replayed after an
- *   upgrade, never skipped.
+ * - `refused-schema`: written by a newer schema or format, or naming a table
+ *   or column this store lacks; retried by every apply call
+ *   ({@link reopenRefusedSchema}), so it applies once the schema has what it
+ *   names (T13719), never skipped.
  *
  * A split transaction (`part: [i, n]`) is returned only once all n parts are
  * staged, as one transaction whose ops are the parts' ops in order (Q18).
@@ -268,6 +270,28 @@ export function stagedTxns(db: DatabaseSync, stream: string, limit = 0): StagedT
     });
   }
   return out;
+}
+
+/**
+ * Re-open a stream's `refused-schema` transactions for one apply call
+ * (T13719). Each is planned again against the live schema: it applies once
+ * the store has the table or column it names (an upgrade, or a lazily
+ * migrated table brought current), and is refused again otherwise.
+ * shortcut: a permanently refused row is re-planned, and counted in the
+ * report's `refusedSchema`, on every apply call; gate the re-open on a schema
+ * fingerprint if refused rows ever grow past a handful.
+ *
+ * @param db - The store, outside a transaction.
+ * @param stream - The stream id.
+ * @returns How many rows were re-opened.
+ */
+export function reopenRefusedSchema(db: DatabaseSync, stream: string): number {
+  const r = db
+    .prepare(
+      `UPDATE _sync_inbox SET status = 'staged' WHERE stream = ? AND status = 'refused-schema'`,
+    )
+    .run(stream);
+  return Number(r.changes);
 }
 
 /**

@@ -324,9 +324,9 @@ export const EXEMPT = {
   },
   'packages/core/src/store/sync/inbox.ts': {
     _sync_inbox: {
-      count: 2,
+      count: 3,
       reason:
-        'receive inbox (local-only): received transactions staged in stream order with their apply status (T12344)',
+        'receive inbox (local-only): received transactions staged in stream order with their apply status (T12344); refused-schema rows re-opened per apply (T13719)',
     },
   },
   'packages/core/src/store/sync/capture.ts': {

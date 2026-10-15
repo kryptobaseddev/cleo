@@ -94,6 +94,12 @@ export interface CaptureTableDef {
   readonly localRowid?: string;
   /** A TEXT local key: an applied insert sets it to the row's uid (T12915). */
   readonly localKeyIsUid?: boolean;
+  /**
+   * Every column kept out of {@link columns}: the `local-only` overrides and
+   * {@link localRowid}. A received op's values for them are dropped before
+   * planning (T13719), so an op from a build that still sent one applies.
+   */
+  readonly localOnly?: ReadonlySet<string>;
 }
 
 /** One generated trigger. */
@@ -174,6 +180,7 @@ export function captureTableDef(
     refs,
     timestamps: timestampColumns(scope, table),
     appendOnly: (spec.content?.length ?? 0) > 0,
+    localOnly,
     ...(localRowid ? { localRowid } : {}),
     ...(localRowid && spec.localKey === localRowid && !isIntegerColumn(info, localRowid)
       ? { localKeyIsUid: true }
@@ -879,6 +886,35 @@ export function syncCaptureOpenPass(
   canonicalizeStoreTimestamps(db, scope);
   const report = installCaptureTriggers(db, scope);
   return { capture: 'on', report, conn: installCaptureStamp(db) };
+}
+
+/**
+ * Bring a project store's lazily migrated tables current before a sync step
+ * reads or writes them (T13719). The brain lineage runs when the brain domain
+ * binds, not at the store open, so a joiner that never opened brain refused
+ * every brain op naming a newer column, and a genesis cut taken before brain
+ * opened snapshotted the old shape. Its DDL runs outside a migration bracket,
+ * so the capture triggers are then regenerated for the new columns (a no-op
+ * when they already match).
+ *
+ * @param db - The store, outside any transaction.
+ * @param scope - Its scope; only `project` has lazily migrated tables.
+ *
+ * @example
+ * ```ts
+ * await establishLazySchemas(db, 'project');
+ * applyStagedTxns(db, opts);
+ * ```
+ */
+export async function establishLazySchemas(db: DatabaseSync, scope: TableScope): Promise<void> {
+  const dbPath = db.location();
+  if (scope !== 'project' || dbPath === null) return;
+  // Lazy: memory-sqlite imports the store open, which imports this module.
+  const { establishBrainSchema } = await import('../memory-sqlite.js');
+  establishBrainSchema(db, dbPath);
+  if (readSyncFlags(db)['sync.capture'] && hasTable(db, '_sync_capture')) {
+    installCaptureTriggers(db, scope);
+  }
 }
 
 /**
