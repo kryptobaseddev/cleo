@@ -386,6 +386,14 @@ const PROJECT_TABLES: Readonly<Record<string, TableRegistryEntry>> = {
       reason:
         "draft §0.3 / §F.9: peer_scope is the per-row personal/project switch. The value→class map is pending: the column defaults to 'project' on every row today, so a value route would promote every memory",
     },
+    columns: [
+      {
+        column: 'prune_candidate',
+        class: 'local-only',
+        reason:
+          'T13719: a per-device curation flag; correlateOutcomes sets it from synced citation_count and its own clock, and each device sweeps by its own',
+      },
+    ],
   },
   brain_decisions_fts: {
     class: 'derived',
@@ -413,6 +421,14 @@ const PROJECT_TABLES: Readonly<Record<string, TableRegistryEntry>> = {
       reason:
         "draft §0.3 / §F.9: peer_scope is the per-row personal/project switch. The value→class map is pending: the column defaults to 'project' on every row today, so a value route would promote every memory",
     },
+    columns: [
+      {
+        column: 'prune_candidate',
+        class: 'local-only',
+        reason:
+          'T13719: a per-device curation flag; correlateOutcomes sets it from synced citation_count and its own clock, and each device sweeps by its own',
+      },
+    ],
   },
   brain_learnings_fts: {
     class: 'derived',
@@ -453,6 +469,12 @@ const PROJECT_TABLES: Readonly<Record<string, TableRegistryEntry>> = {
         class: 'strip',
         reason: '§F.10: points at derived brain_memory_trees (AI id); null it in ops and recompute',
       },
+      {
+        column: 'prune_candidate',
+        class: 'local-only',
+        reason:
+          'T13719: a per-device curation flag; correlateOutcomes sets it from synced citation_count and its own clock, and each device sweeps by its own',
+      },
     ],
   },
   brain_observations_fts: {
@@ -483,6 +505,14 @@ const PROJECT_TABLES: Readonly<Record<string, TableRegistryEntry>> = {
     status: 'resolved',
     source: 'cleo-dev ruling 2026-09-28',
     note: 'writer verified: memory/specialists.ts (LLM Induction/CodePattern specialists) and sleep-consolidation.ts',
+    columns: [
+      {
+        column: 'prune_candidate',
+        class: 'local-only',
+        reason:
+          'T13719: a per-device curation flag; correlateOutcomes sets it from synced citation_count and its own clock, and each device sweeps by its own',
+      },
+    ],
   },
   brain_patterns_fts: {
     class: 'derived',

@@ -277,6 +277,9 @@ export function stagedTxns(db: DatabaseSync, stream: string, limit = 0): StagedT
  * (T13719). Each is planned again against the live schema: it applies once
  * the store has the table or column it names (an upgrade, or a lazily
  * migrated table brought current), and is refused again otherwise.
+ * shortcut: a permanently refused row is re-planned, and counted in the
+ * report's `refusedSchema`, on every apply call; gate the re-open on a schema
+ * fingerprint if refused rows ever grow past a handful.
  *
  * @param db - The store, outside a transaction.
  * @param stream - The stream id.

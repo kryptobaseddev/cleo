@@ -460,7 +460,7 @@ describe('brain ops reach a joiner that never opened brain (T13719)', () => {
       (c) => c.name === column,
     );
   const LAZY = ['network', 'prune_candidate'] as const;
-  const OBS = 'id, title, narrative, network, prune_candidate';
+  const OBS = 'id, title, narrative, network';
 
   it('the genesis cut and the pull bring the brain schema current; both converge with nothing pending', async () => {
     // A cuts genesis without ever binding the brain domain.
@@ -520,9 +520,12 @@ describe('brain ops reach a joiner that never opened brain (T13719)', () => {
       title: 'retitled on A',
       narrative: 'first',
       network: 'world',
-      prune_candidate: 1,
     });
     expect(row(b.db)).toEqual(row(a.db));
+    // prune_candidate is local-only: B has the column, A's flag never travels.
+    expect(
+      b.db.prepare("SELECT prune_candidate FROM brain_observations WHERE id = 'O-t13719'").get(),
+    ).toEqual({ prune_candidate: 0 });
     await pull(a, stream); // own echo
     expect(contentChecksums(b.db).brain_observations).toBe(
       contentChecksums(a.db).brain_observations,
