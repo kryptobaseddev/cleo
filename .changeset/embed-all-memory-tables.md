@@ -10,8 +10,12 @@ and patterns below observations that matched on both legs. The embedding
 backfill and the write-time embed (long-lived hosts) now cover all four memory
 tables.
 
-Each vector stores the model that produced it (`Xenova/all-MiniLM-L6-v2@main:fp32`,
-the pipeline now pins that revision and dtype). Similarity search, supersession
+Each vector stores the model that produced it
+(`Xenova/all-MiniLM-L6-v2@onnx-sha256:759c3cd2b7fe:fp32`): the version is the
+weights' content hash, pinned in full and verified once per model load. A
+cached model with any other hash latches embeddings off with a clear message,
+and search falls back to FTS5. The hub revision stays `main`, so existing
+cached models keep loading. Similarity search, supersession
 and surprisal compare only vectors of the current model, and the backfill
 re-embeds any row whose vector came from another model. A vector table from
 before the tag is rebuilt on open: its vectors named no model, and they are

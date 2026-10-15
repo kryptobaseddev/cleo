@@ -13,7 +13,11 @@
  * @task T13716
  */
 
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { createHash } from 'node:crypto';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const state = vi.hoisted(() => ({
   allowModelDownload: undefined as boolean | undefined,
@@ -21,6 +25,7 @@ const state = vi.hoisted(() => ({
   cached: false,
   pipelineOptions: [] as Array<{ revision?: string; dtype?: string; local_files_only?: boolean }>,
   fetched: [] as string[],
+  cacheDir: '',
 }));
 
 vi.mock('../../config.js', () => ({
@@ -38,7 +43,12 @@ vi.mock('../../config.js', () => ({
 }));
 
 vi.mock('@huggingface/transformers', () => ({
-  env: { allowRemoteModels: true },
+  env: {
+    allowRemoteModels: true,
+    get cacheDir() {
+      return state.cacheDir;
+    },
+  },
   pipeline: async (_task: string, model: string, opts: { local_files_only?: boolean }) => {
     state.pipelineOptions.push(opts);
     if (!state.cached) {
@@ -55,8 +65,20 @@ beforeEach(async () => {
   state.cached = false;
   state.pipelineOptions = [];
   state.fetched = [];
-  const { __resetLocalEmbeddingStateForTests } = await import('../embedding-local.js');
+  // A fake cached model file; the load verifies the weights' hash (T13740).
+  state.cacheDir = mkdtempSync(join(tmpdir(), 'cleo-model-cache-'));
+  const onnxDir = join(state.cacheDir, 'Xenova', 'all-MiniLM-L6-v2', 'onnx');
+  mkdirSync(onnxDir, { recursive: true });
+  writeFileSync(join(onnxDir, 'model.onnx'), 'fake weights');
+  const { __resetLocalEmbeddingStateForTests, __setExpectedModelSha256ForTests } = await import(
+    '../embedding-local.js'
+  );
   __resetLocalEmbeddingStateForTests();
+  __setExpectedModelSha256ForTests(createHash('sha256').update('fake weights').digest('hex'));
+});
+
+afterEach(() => {
+  rmSync(state.cacheDir, { recursive: true, force: true });
 });
 
 describe('local embedding model download gate (T13716)', () => {
@@ -127,5 +149,20 @@ describe('local embedding model download gate (T13716)', () => {
       clearEmbeddingProvider();
     }
     expect(state.pipelineOptions).toEqual([]);
+  });
+
+  it('cached weights with another hash latch the provider unavailable (T13740)', async () => {
+    state.cached = true;
+    const { LocalEmbeddingProvider } = await import('../embedding-local.js');
+    writeFileSync(
+      join(state.cacheDir, 'Xenova', 'all-MiniLM-L6-v2', 'onnx', 'model.onnx'),
+      'other weights',
+    );
+    const provider = new LocalEmbeddingProvider();
+
+    await expect(provider.embed('hello')).rejects.toThrow(/sha256 .* embeddings are off/);
+    expect(provider.isAvailable()).toBe(false);
+    await expect(provider.embed('again')).rejects.toThrow(/unavailable/);
+    expect(provider.model).toBe('Xenova/all-MiniLM-L6-v2@onnx-sha256:759c3cd2b7fe:fp32');
   });
 });

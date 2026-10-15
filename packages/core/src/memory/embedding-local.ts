@@ -17,6 +17,9 @@
  *   `prebuild-install` transitive via `sharp@0.34+`.
  */
 
+import { createHash } from 'node:crypto';
+import { readFile } from 'node:fs/promises';
+import { join } from 'node:path';
 import { getLogger } from '../logger.js';
 import type { EmbeddingProvider } from './brain-embedding.js';
 import { EMBEDDING_DIMENSIONS } from './brain-embedding.js';
@@ -24,11 +27,25 @@ import { EMBEDDING_DIMENSIONS } from './brain-embedding.js';
 /** Model identifier for all-MiniLM-L6-v2 via Xenova hub. */
 const MODEL_NAME = 'Xenova/all-MiniLM-L6-v2';
 
-/** Hub revision loaded; part of the stored model tag (T13740). */
+/**
+ * Hub revision loaded. Kept at `main`: transformers.js caches any other
+ * revision under `<model>/<revision>/`, so pinning a commit would orphan every
+ * existing cached model while downloads are opt-in (T13716). The weights'
+ * content hash below is the version instead.
+ */
 const MODEL_REVISION = 'main';
 
 /** Weight dtype loaded (`onnx/model.onnx`); part of the stored model tag (T13740). */
 const MODEL_DTYPE = 'fp32';
+
+/**
+ * sha256 of the `onnx/model.onnx` this build embeds with. Every load verifies
+ * it, and its 12-hex prefix is the version in the stored model tag (T13740).
+ */
+const MODEL_ONNX_SHA256 = '759c3cd2b7fe7e93933ad23c4c9181b7396442a2ed746ec7c1d46192c469c46e';
+
+/** The weights a load must hash to; swapped only by tests. */
+let _expectedOnnxSha256 = MODEL_ONNX_SHA256;
 
 /**
  * How a user opts into the one-time model download (T13716).
@@ -101,11 +118,26 @@ async function loadPipeline(): Promise<void> {
     // Dynamic import — only resolves when embedding is explicitly enabled
     const gated = await importGatedTransformers();
     allowDownload = gated.allowDownload;
-    _pipeline = await gated.transformers.pipeline('feature-extraction', MODEL_NAME, {
+    const pipeline = await gated.transformers.pipeline('feature-extraction', MODEL_NAME, {
       revision: MODEL_REVISION,
       dtype: MODEL_DTYPE,
       local_files_only: !allowDownload,
     });
+    // T13740: vectors are tagged with these exact weights; any other file
+    // (an updated hub `main`, a corrupt cache) must not write under that tag.
+    const onnxPath = join(gated.transformers.env.cacheDir ?? '', MODEL_NAME, 'onnx', 'model.onnx');
+    const actual = createHash('sha256')
+      .update(await readFile(onnxPath))
+      .digest('hex');
+    if (actual !== _expectedOnnxSha256) {
+      const message =
+        `Embedding model ${onnxPath} has sha256 ${actual.slice(0, 12)}…, but this CLEO ` +
+        `build embeds with ${_expectedOnnxSha256.slice(0, 12)}…; embeddings are off ` +
+        'and search uses FTS5 only. Replace the cached file or upgrade CLEO.';
+      getLogger('embedding-local').warn({ onnxPath, actual }, message);
+      throw new Error(message);
+    }
+    _pipeline = pipeline;
     _ready = true;
   } catch (err) {
     _loadFailed = true;
@@ -147,6 +179,18 @@ export function __resetLocalEmbeddingStateForTests(): void {
   _ready = false;
   _loadFailed = false;
   _loadError = null;
+  _expectedOnnxSha256 = MODEL_ONNX_SHA256;
+}
+
+/**
+ * Override the weights hash a load must match. Test-only.
+ *
+ * @param sha256 - Expected hex sha256 of `onnx/model.onnx`.
+ * @internal
+ * @task T13740
+ */
+export function __setExpectedModelSha256ForTests(sha256: string): void {
+  _expectedOnnxSha256 = sha256;
 }
 
 /**
@@ -165,7 +209,7 @@ export class LocalEmbeddingProvider implements EmbeddingProvider {
   readonly dimensions = EMBEDDING_DIMENSIONS;
 
   /** Model tag stored beside every vector this provider produces (T13740). */
-  readonly model = `${MODEL_NAME}@${MODEL_REVISION}:${MODEL_DTYPE}`;
+  readonly model = `${MODEL_NAME}@onnx-sha256:${MODEL_ONNX_SHA256.slice(0, 12)}:${MODEL_DTYPE}`;
 
   /**
    * Whether this provider CAN produce embeddings — not whether it already has.
