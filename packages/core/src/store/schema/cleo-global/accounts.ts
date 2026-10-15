@@ -3,10 +3,11 @@
  *
  * EP-PROVIDER-VAULT (epic T10410 · task T11709 · saga SG-VAULT-CORE T10409). This
  * table is the queryable, `cleo health`-visible home for the **pooled LLM provider
- * credentials** that today live as a plaintext JSON blob with no schema, no index,
- * and no health surface. Each row is one credential ("account") for one provider —
- * an API key or OAuth token pair — plus the rotation / cooldown / health metadata
- * the pool runner uses to pick the next live account and to retire dead ones.
+ * credentials**, written by `store/llm-accounts-accessor.ts` (T13715), which
+ * replaced the plaintext `llm-credentials.json` blob. Each row is one
+ * credential ("account") for one provider — an API key or OAuth token pair —
+ * plus the rotation / cooldown / health metadata the pool runner uses to pick
+ * the next live account and to retire dead ones.
  *
  * ## NOT `agent_registry_accounts` (do not confuse the two)
  *
@@ -72,7 +73,7 @@ export type AccountStatus = (typeof ACCOUNT_STATUSES)[number];
  *
  * One row per credential ("account") for one provider. Carries the encrypted
  * secret/refresh material plus the rotation, cooldown, and health metadata the
- * pool runner consults to choose the next live account (highest `priority` among
+ * pool runner consults to choose the next live account (lowest `priority` among
  * `status = 'ok'`) and to retire dead ones. The `(provider, label)` pair is unique;
  * `isActive` is the per-provider active pointer (one active row per provider,
  * enforced by the raw-SQL partial unique index in the migration).
@@ -105,7 +106,7 @@ export const accounts = sqliteTable(
     refreshEnc: text('refresh_enc'),
     /** ISO-8601 UTC expiry of the secret; NULL for a non-expiring API key. */
     expiresAt: text('expires_at'),
-    /** Selection priority — HIGHER is preferred. The pool picks the highest live priority. */
+    /** Selection priority — LOWER is preferred, as in the pool's `StoredCredential` (T13715). */
     priority: integer('priority').notNull().default(0),
     /** Provenance — where this credential came from (e.g. `env` | `oauth-flow` | `import`). */
     source: text('source'),

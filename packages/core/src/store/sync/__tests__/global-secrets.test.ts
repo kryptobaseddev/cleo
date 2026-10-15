@@ -28,11 +28,14 @@ import {
   secretValuesKey,
 } from '../../../cloud/secret-seal.js';
 import { decryptGlobal, encryptGlobal } from '../../../crypto/credentials.js';
+import { llmAdd, llmList } from '../../../llm/cli-ops.js';
+import { clearAnthropicKeyCache, resolveCredentials } from '../../../llm/credentials.js';
 import {
   _resetDualScopeDbCache,
   getDualScopeNativeDb,
   openDualScopeDbAtPath,
 } from '../../dual-scope-db.js';
+import { __clearGlobalSaltCache } from '../../global-salt.js';
 import { missingRowIdentitySchema, naturalRowUid } from '../../row-identity.js';
 import { rowIdentitySpec } from '../../row-identity-registry.js';
 import { finishCaptureFrame, openCaptureFrame, setCaptureEnabled } from '../capture.js';
@@ -86,9 +89,9 @@ const START: StreamCursor = { after: 0, knowsAllReplicas: true, replicas: {} };
 
 async function open(name: string, device: Device): Promise<Replica> {
   const home = join(dir, `home-${name}`);
-  mkdirSync(join(dir, name), { recursive: true });
   mkdirSync(home, { recursive: true });
-  const path = join(dir, name, 'cleo.db');
+  // In the home, so this device's ambient store when CLEO_HOME points at it.
+  const path = join(home, 'cleo.db');
   const db = getDualScopeNativeDb(await openDualScopeDbAtPath('global', path));
   setCaptureEnabled(db, 'global', true, { schemaRoot: SYNC_SCHEMA });
   for (const flag of ['sync.seal', 'sync.push', 'sync.pull'] as const) {
@@ -311,6 +314,47 @@ describe('global credential identity (T12915 / T13467, D4 amended)', () => {
       .prepare("SELECT op FROM _sync_capture WHERE tbl = 'accounts' ORDER BY seq")
       .all() as Array<{ op: string }>;
     expect(ops.map((o) => o.op)).toEqual(['I']);
+  });
+});
+
+/** Run as `r`: its home is the ambient CLEO home (machine key, salt, store). */
+function actAs(r: Replica): void {
+  vi.stubEnv('CLEO_HOME', r.home);
+  __clearGlobalSaltCache();
+  clearAnthropicKeyCache();
+}
+
+describe('an LLM credential added with `cleo llm add` syncs (T13715)', () => {
+  it('added on A, it is listed and resolved on B; never plaintext in a segment', async () => {
+    const { a, b } = await twoDevices();
+    const stream = fakeStream();
+    vi.stubEnv('ANTHROPIC_API_KEY', '');
+    actAs(a);
+    const added = await llmAdd({ provider: 'anthropic', label: 'work', apiKey: SECRET });
+    expect(added.success).toBe(true);
+    const aCipher = accountRow(a, 'anthropic', 'work')?.secret_enc ?? '';
+    expect(aCipher).not.toBe('');
+    expect(aCipher).not.toContain(SECRET);
+
+    await push(a, stream, await sealsOf(a));
+    expect(stream.text()).toContain('accounts');
+    for (const needle of [SECRET, Buffer.from(SECRET).toString('base64'), aCipher]) {
+      expect(stream.leaks(needle)).toBe(false);
+    }
+
+    await pull(b, stream);
+    actAs(b);
+    const listed = await llmList({});
+    expect(listed.success).toBe(true);
+    expect(listed.data?.credentials.map((c) => `${c.provider}:${c.label}`)).toEqual([
+      'anthropic:work',
+    ]);
+    expect(JSON.stringify(listed.data)).not.toContain(SECRET);
+    expect(resolveCredentials('anthropic')).toMatchObject({
+      apiKey: SECRET,
+      source: 'cred-file',
+    });
+    expect(accountRow(b, 'anthropic', 'work')?.secret_enc).not.toBe(aCipher);
   });
 });
 

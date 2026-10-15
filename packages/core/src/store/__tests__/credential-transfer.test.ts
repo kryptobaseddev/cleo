@@ -47,6 +47,7 @@ import {
   sealCredentials,
   unsealCredentials,
 } from '../credential-transfer.js';
+import { _resetDualScopeDbCache } from '../dual-scope-db.js';
 import { __clearGlobalSaltCache } from '../global-salt.js';
 
 const _require = createRequire(import.meta.url);
@@ -89,12 +90,12 @@ function makeProjectDb(dbPath: string, ciphertext: string): void {
   db.close();
 }
 
-/** Create a global `cleo.db` with one service connection. */
+/** Add one service connection to a global `cleo.db` (created when absent). */
 function makeGlobalDb(dbPath: string, ciphertext: string): void {
   fs.mkdirSync(path.dirname(dbPath), { recursive: true });
   const db = new DatabaseSync(dbPath);
   db.exec(
-    'CREATE TABLE service_connections (id INTEGER PRIMARY KEY, provider TEXT NOT NULL, label TEXT NOT NULL, credentials_enc TEXT)',
+    'CREATE TABLE IF NOT EXISTS service_connections (id INTEGER PRIMARY KEY, provider TEXT NOT NULL, label TEXT NOT NULL, credentials_enc TEXT)',
   );
   db.prepare(
     'INSERT INTO service_connections (provider, label, credentials_enc) VALUES (?, ?, ?)',
@@ -129,6 +130,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  _resetDualScopeDbCache();
   if (savedCleoHome === undefined) delete process.env['CLEO_HOME'];
   else process.env['CLEO_HOME'] = savedCleoHome;
   __clearGlobalSaltCache();
@@ -252,13 +254,15 @@ describe('sealed transfer between devices', () => {
     const projectDb = path.join(sandbox, 'a-project', '.cleo', 'cleo.db');
     const globalDb = path.join(sandbox, 'device-a', 'cleo.db');
     makeProjectDb(projectDb, await encryptProjectSecret(AGENT_SECRET, PROJECT_ID));
-    makeGlobalDb(globalDb, await encryptGlobal(SERVICE_TOKENS, 'service:github:personal'));
+    // The LLM pool lives in the global store's `accounts` table (T13715).
     await addCredential({
       provider: 'anthropic',
       label: 'work',
       authType: 'api_key',
       accessToken: LLM_SECRET,
     });
+    _resetDualScopeDbCache();
+    makeGlobalDb(globalDb, await encryptGlobal(SERVICE_TOKENS, 'service:github:personal'));
     return { projectDb, globalDb, llm: credentialsStorePath() };
   }
 
@@ -398,13 +402,16 @@ describe('unencrypted bundles carry no credentials', () => {
     const projectDb = path.join(staging, 'project-cleo.db');
     const globalDb = path.join(staging, 'global-cleo.db');
     makeProjectDb(projectDb, await encryptProjectSecret(AGENT_SECRET, PROJECT_ID));
-    makeGlobalDb(globalDb, await encryptGlobal(SERVICE_TOKENS, 'service:github:personal'));
+    // Stage a copy of the live global store, which holds the LLM pool (T13715).
     await addCredential({
       provider: 'anthropic',
       label: 'work',
       authType: 'api_key',
       accessToken: LLM_SECRET,
     });
+    _resetDualScopeDbCache();
+    fs.copyFileSync(path.join(sandbox, 'device-a', 'cleo.db'), globalDb);
+    makeGlobalDb(globalDb, await encryptGlobal(SERVICE_TOKENS, 'service:github:personal'));
 
     const listed = redactCredentialCiphertexts({
       projectDbPath: projectDb,
@@ -418,6 +425,8 @@ describe('unencrypted bundles carry no credentials', () => {
     ]);
     expect(cell(projectDb, 'SELECT api_key_encrypted FROM tasks_agent_credentials')).toBe('');
     expect(cell(globalDb, 'SELECT credentials_enc FROM service_connections')).toBeNull();
+    expect(cell(globalDb, 'SELECT secret_enc FROM accounts')).toBeNull();
+    expect(cell(globalDb, 'SELECT label FROM accounts')).toBe('work');
     // Non-secret columns survive.
     expect(cell(projectDb, 'SELECT display_name FROM tasks_agent_credentials')).toBe('Agent Alpha');
     // After redaction nothing is left to list from the DB stores.
