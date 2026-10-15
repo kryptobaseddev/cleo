@@ -6,18 +6,22 @@ import {
   CheckpointId,
   CompleteUploadResult,
   CreateCheckpointResult,
+  GetStreamAttachmentResult,
   ListCheckpointsResult,
   MAX_INLINE_SEGMENT_BYTES,
   MAX_PULL_LIMIT,
   type Manifest,
   PresignUploadResult,
   PullSegmentsResult,
+  PutStreamAttachmentResult,
   type ReplicaHeads,
   type RevocationPins,
   type Segment,
 } from '@cleocode/contracts/cloud';
 import {
   DecryptError,
+  deriveKey,
+  hmacSha256,
   type KeyPair,
   open,
   seal,
@@ -259,6 +263,8 @@ const segmentContext = (
 ) => `segment/v2\n${streamId}\n${replicaId}\n${replicaSeq}\n${metaHash}`;
 const checkpointContext = (streamId: string, checkpointId: string, coversSeq: number) =>
   `checkpoint/v2\n${streamId}\n${checkpointId}\n${coversSeq}`;
+const attachmentContext = (streamId: string, sha256: string) =>
+  `attachment/v1\n${streamId}\n${sha256}`;
 
 const metaOf = (s: SegmentMetaFields): SegmentMeta => ({
   opCount: s.opCount,
@@ -752,5 +758,74 @@ export class Journal {
       );
     }
     return bytes;
+  }
+
+  /** The stream path of an attachment's ref: an HMAC of its plaintext sha256, so the server learns nothing. */
+  private attachmentPath(sha256: string): string {
+    const ref = hmacSha256(deriveKey(this.o.key, 'attachment-ref'), utf8(sha256)).toString('hex');
+    return `${this.base}/attachments/${ref}`;
+  }
+
+  /**
+   * Put a content-addressed attachment (a doc body) on the stream (T13721): encrypted under the stream
+   * key, bound to the stream and its plaintext sha256, uploaded as an `attachment` blob and recorded
+   * under its ref (E32). A ref some member already recorded is not uploaded again.
+   *
+   * @param sha256 - The plaintext sha256 the synced row names.
+   * @param plaintext - The bytes; they must hash to `sha256`.
+   * @returns `sent` when this call uploaded it, `present` when the stream already had it.
+   */
+  async pushAttachment(sha256: string, plaintext: Buffer): Promise<'sent' | 'present'> {
+    if (sha256Hex(plaintext) !== sha256)
+      throw refuse('E_VALIDATION', 'payload', `attachment ${sha256} does not match its bytes`);
+    const path = this.attachmentPath(sha256);
+    const have = await this.o.http.request('GET', path, GetStreamAttachmentResult);
+    if (have.download !== null) return 'present';
+    const ciphertext = seal(
+      this.o.key,
+      plaintext,
+      'attachment',
+      attachmentContext(this.o.streamId, sha256),
+    );
+    const blobSha256 = await this.uploadBlob(ciphertext, 'attachment');
+    await this.o.http.request('PUT', path, PutStreamAttachmentResult, {
+      blobSha256,
+      sizeBytes: ciphertext.length,
+    });
+    return 'sent';
+  }
+
+  /**
+   * Read a content-addressed attachment from the stream (T13721), uploaded by any member (E33). The
+   * ciphertext must match the announced size and sha256, decrypt under the stream key in this stream
+   * and sha256's context, and hash to `sha256`; anything else is refused before a byte is returned.
+   *
+   * @param sha256 - The plaintext sha256 the synced row names.
+   * @param maxBytes - The largest ciphertext to download.
+   * @returns The verified plaintext, or null when no member has put it on the stream yet.
+   */
+  async pullAttachment(sha256: string, maxBytes: number): Promise<Buffer | null> {
+    const { download: d } = await this.o.http.request(
+      'GET',
+      this.attachmentPath(sha256),
+      GetStreamAttachmentResult,
+    );
+    if (d === null) return null;
+    if (d.sizeBytes > maxBytes)
+      throw refuse('E_PAYLOAD_TOO_LARGE', 'too-large', `attachment ${sha256} exceeds the limit`);
+    const ciphertext = await this.down(d.url, d.sizeBytes);
+    if (ciphertext.length !== d.sizeBytes)
+      throw refuse('E_BLOB_INTEGRITY', 'blob-size', `attachment ${sha256} does not match its size`);
+    if (sha256Hex(ciphertext) !== d.sha256)
+      throw refuse('E_BLOB_INTEGRITY', 'blob-hash', `attachment ${sha256} does not match its hash`);
+    const plaintext = this.decrypt(
+      ciphertext,
+      'attachment',
+      attachmentContext(this.o.streamId, sha256),
+      `attachment ${sha256}`,
+    );
+    if (sha256Hex(plaintext) !== sha256)
+      throw refuse('E_BLOB_INTEGRITY', 'hash-mismatch', `attachment ${sha256} has other content`);
+    return plaintext;
   }
 }

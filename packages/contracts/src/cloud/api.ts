@@ -599,6 +599,49 @@ export const BlobDownload = z.object({
 });
 export type BlobDownload = z.infer<typeof BlobDownload>;
 
+// ---------- stream attachments (cleo-nexus T13721, contract v2.29) ----------
+
+/**
+ * The stream-scoped handle of an attachment's bytes: HMAC-SHA256, under a key derived from the stream data
+ * key, of the plaintext sha256. Every member of the stream computes the same ref; the server learns nothing
+ * about the content from it.
+ */
+export const StreamAttachmentRef = Sha256Hex;
+
+/**
+ * E32 `PUT /v1/streams/:streamId/attachments/:ref`: records that the caller's verified `attachment` blob holds
+ * the stream-encrypted bytes behind `ref`. First writer wins: a ref already recorded keeps its blob, and the
+ * result names that blob with `created: false`.
+ */
+export const PutStreamAttachmentRequest = z.object({
+  blobSha256: Sha256Hex,
+  sizeBytes: z
+    .number()
+    .int()
+    .positive()
+    .max(5 * 1024 ** 3),
+});
+/** The E32 request body. */
+export type PutStreamAttachmentRequest = z.infer<typeof PutStreamAttachmentRequest>;
+
+/** The E32 result: the blob the ref names, and whether this call recorded it. */
+export const PutStreamAttachmentResult = z.object({
+  blobSha256: Sha256Hex,
+  sizeBytes: z.number().int().positive(),
+  created: z.boolean(),
+});
+/** The E32 result. */
+export type PutStreamAttachmentResult = z.infer<typeof PutStreamAttachmentResult>;
+
+/**
+ * E33 `GET /v1/streams/:streamId/attachments/:ref`: a download URL for the blob behind `ref`, or null when no
+ * member has recorded one yet. Any reader of the stream may fetch it, whoever uploaded it. An unknown ref is
+ * `download: null`, never 404, so a 404 means the server has no such route.
+ */
+export const GetStreamAttachmentResult = z.object({ download: BlobDownload.nullable() });
+/** The E33 result. */
+export type GetStreamAttachmentResult = z.infer<typeof GetStreamAttachmentResult>;
+
 // ---------- elected-writer leases (T12338) ----------
 
 /**
