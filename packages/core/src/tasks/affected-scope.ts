@@ -147,19 +147,42 @@ export function testRunTreeMismatchReason(
 }
 
 /**
+ * Root-level files a typecheck or lint reads beyond the roots it was given
+ * (compiler and linter configs, the shared base tsconfig, the lockfile): a
+ * change to any of them refuses an earlier-tree carry (T13644).
+ */
+const QA_RUN_SHARED_INPUTS = [
+  'tsconfig*.json',
+  'biome.json',
+  'biome.jsonc',
+  'package.json',
+  'pnpm-lock.yaml',
+  'pnpm-workspace.yaml',
+];
+
+/** What an earlier-tree qa-run receipt is compared over (T13644). */
+export interface QaRunCarryScope {
+  /** The execution root both trees are compared in. */
+  root: string;
+  /** The task's current changed and deleted files. */
+  changed: readonly string[];
+}
+
+/**
  * Why a recorded `qaPassed` resting on a tree-bound `qa-run:` receipt no
  * longer stands, or null when it does (T13427): a receipt proves the tree it
  * ran on. A `ci:<pr>` in the gate carries it on its own; atoms with no
- * `treeHash` (no git checkout at verify time) are not judged. Given the
- * execution root, a receipt recorded on an earlier tree carries when every
- * path under its checked `roots` is byte-identical at the current tree, the
- * changed-file comparison scoped runs carry by (T13644); otherwise the
- * refusal names the checked paths that differ.
+ * `treeHash` (no git checkout at verify time) are not judged. Given a carry
+ * scope, a receipt recorded on an earlier tree carries when its checked
+ * `roots`, the task's current changed files and the shared tool inputs are
+ * all byte-identical at the current tree (T13644): a file the change gained
+ * after the receipt differs, so coverage cannot silently lapse. Otherwise the
+ * refusal names the paths that differ.
  *
  * @param atoms - Recorded `qaPassed` atoms.
  * @param current - The current tree hash, or null when it cannot be computed.
- * @param root - The execution root both trees are compared in; without it
- *   any moved tree refuses.
+ * @param scope - The root and current change to compare over; without it any
+ *   moved tree refuses.
  * @returns The reason, or null.
  * @task T13427
  * @task T13644
@@ -167,7 +190,7 @@ export function testRunTreeMismatchReason(
 export function qaRunTreeMismatchReason(
   atoms: ReadonlyArray<EvidenceAtom>,
   current: string | null,
-  root?: string,
+  scope?: QaRunCarryScope,
 ): string | null {
   if (atoms.some((a) => a.kind === 'ci')) return null;
   for (const a of atoms) {
@@ -179,14 +202,20 @@ export function qaRunTreeMismatchReason(
     const redo =
       'Re-run the check and record a fresh qa-run, or record ci:<pr> once the PR merges.';
     const moved = `qaPassed rests on ${label}, recorded on tree ${tree}, but the tree is now ${current.slice(0, 12)}; the receipt no longer describes this code. ${redo}`;
-    if (root === undefined) return moved;
-    const paths = a.roots.map((r) => (r === '' ? '.' : r));
+    if (scope === undefined) return moved;
+    const paths = [
+      ...new Set([
+        ...a.roots.map((r) => (r === '' ? '.' : r)),
+        ...scope.changed,
+        ...QA_RUN_SHARED_INPUTS,
+      ]),
+    ];
     try {
       execFileSync(
         'git',
         ['diff', '--quiet', '--no-renames', a.treeHash, current, '--', ...paths],
         {
-          cwd: root,
+          cwd: scope.root,
           stdio: 'ignore',
         },
       );
@@ -195,9 +224,30 @@ export function qaRunTreeMismatchReason(
       // git could not compare the trees (an object pruned, not a checkout): fail closed.
       if ((err as { status?: number }).status !== 1) return moved;
     }
-    return `qaPassed rests on ${label}, recorded on tree ${tree}, but the files it checked changed in the current tree ${current.slice(0, 12)}${differingPaths(root, a.treeHash, current, paths)}. ${redo}`;
+    return `qaPassed rests on ${label}, recorded on tree ${tree}, but its checked roots, the change's files or the shared tool configs differ in the current tree ${current.slice(0, 12)}${differingPaths(scope.root, a.treeHash, current, paths)}. ${redo}`;
   }
   return null;
+}
+
+/**
+ * The carry scope of a moved receipt, from the merge verdict the caller
+ * already resolves: the task's derived change set and, once merged, its
+ * landed carry target. Undefined (refuse) when neither is known.
+ */
+async function qaRunCarryScope(
+  probe: Parameters<typeof testsPassedSupersededReason>[1],
+): Promise<QaRunCarryScope | undefined> {
+  const merge = await probe.mergeState();
+  if (typeof merge === 'string') return undefined;
+  const sets = [merge.landing, merge.changeSet].filter(
+    (s): s is LandedCarryTarget => s !== null && s !== undefined,
+  );
+  const first = sets[0];
+  if (!first) return undefined;
+  return {
+    root: first.executionRoot,
+    changed: [...new Set(sets.flatMap((s) => [...s.files, ...s.deletedFiles]))],
+  };
 }
 
 /**
@@ -216,8 +266,9 @@ export function hasTreeBoundQaRun(atoms: ReadonlyArray<EvidenceAtom>): boolean {
  * The one rule for whether a recorded `qaPassed` still stands — shared by
  * `cleo done` planning and `cleo complete`, like
  * {@link testsPassedSupersededReason}. A moved tree under a qa-run receipt
- * (T13427) is checked first; a receipt whose checked files are byte-identical
- * at the current tree carries (T13644). Then, once the change has merged, a gate resting
+ * (T13427) is checked first; a receipt whose checked roots, current changed
+ * files and shared tool configs are byte-identical at the current tree
+ * carries (T13644). Then, once the change has merged, a gate resting
  * on qa-run receipts alone (no `ci:<pr>`, no whole-project `tool:` run) stands
  * only when the receipts carry across the merge byte for byte (T13495), or
  * were recorded on the default branch after the merge, on the current tree,
@@ -232,13 +283,16 @@ export function hasTreeBoundQaRun(atoms: ReadonlyArray<EvidenceAtom>): boolean {
  */
 export async function qaPassedSupersededReason(
   atoms: ReadonlyArray<EvidenceAtom>,
-  probe: Parameters<typeof testsPassedSupersededReason>[1] & {
-    /** Lazy execution root a receipt's earlier tree is compared in (T13644). */
-    root?: () => string;
-  },
+  probe: Parameters<typeof testsPassedSupersededReason>[1],
 ): Promise<string | null> {
   if (hasTreeBoundQaRun(atoms)) {
-    const moved = qaRunTreeMismatchReason(atoms, await probe.currentTree(), probe.root?.());
+    const current = await probe.currentTree();
+    const unscoped = qaRunTreeMismatchReason(atoms, current);
+    // T13644: a moved receipt may still carry; compare it over the current change.
+    const moved =
+      unscoped && current !== null
+        ? qaRunTreeMismatchReason(atoms, current, await qaRunCarryScope(probe))
+        : unscoped;
     if (moved) return moved;
   }
   if (

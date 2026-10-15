@@ -215,7 +215,6 @@ export async function satisfyGatesFromMergedCi(
       ? await qaPassedSupersededReason(qaAtoms, {
           mergeState: mergeInfo,
           currentTree: () => (deps.currentTree ?? defaultCurrentTree)(storeRoot, task.id),
-          root: () => resolveChangeSetRoot(storeRoot, task.id).root,
         })
       : null;
   const needs = ciGates.filter(

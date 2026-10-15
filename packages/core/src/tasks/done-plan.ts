@@ -860,7 +860,7 @@ export async function deriveTaskEvidence(
   // merge, only when it carries or was recorded on main after the merge.
   const qaSupersededReason = await qaPassedSupersededReason(
     task.verification?.evidence?.qaPassed?.atoms ?? [],
-    { mergeState: mergeInfo, currentTree: () => captureTreeHash(root), root: () => root },
+    { mergeState: mergeInfo, currentTree: () => captureTreeHash(root) },
   );
   if (qaSupersededReason) changeSet.warnings.push(qaSupersededReason);
   const passed = (gate: VerificationGate): boolean =>
