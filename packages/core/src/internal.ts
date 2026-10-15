@@ -2531,10 +2531,10 @@ export type {
   BrainAnchor,
   BrainConsolidationObservationRow,
   BrainDecisionNode,
+  BrainEmbeddingSourceRow,
   BrainFtsRow,
   BrainIdCheckRow,
   BrainKnnRow,
-  BrainNarrativeRow,
   BrainSearchHit,
   BrainTimelineNeighborRow,
 } from './memory/brain-row-types.js';

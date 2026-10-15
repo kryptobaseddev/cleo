@@ -408,6 +408,10 @@ class FakeNexus {
   replicas = new Map<string, Map<string, string>>();
   streams = new Map<string, FakeStream>();
   blobs = new Map<string, { size: number; bytes: Buffer | null; verified: boolean }>();
+  /** `false` plays a server without the stream-attachment routes E32-E34 (T13721): they answer 404. */
+  attachmentRoutes = true;
+  /** `${streamId}|${ref}` -> the recorded blob (E32), first writer wins (T13721). */
+  attachments = new Map<string, { blobSha256: string; sizeBytes: number }>();
   leases = new Map<string, FakeLease>();
   activity: FakeActivity[] = [];
   /** Every mutating API request (method and path), in order. */
@@ -1343,6 +1347,32 @@ class FakeNexus {
       this.leases.delete(key);
       this.record(dev, 'lease.release', streamId);
       return this.ok({ released: m[1] ?? '' });
+    }
+    m = route.match(/^(GET|PUT|DELETE) \/attachments\/([0-9a-f]{64})$/);
+    if (m && this.attachmentRoutes) {
+      const key = `${streamId}|${m[2] ?? ''}`;
+      if (m[1] === 'DELETE') return this.ok({ deleted: this.attachments.delete(key) });
+      if (m[1] === 'PUT') {
+        const created = !this.attachments.has(key);
+        if (created) {
+          this.attachments.set(key, {
+            blobSha256: body['blobSha256'] as string,
+            sizeBytes: body['sizeBytes'] as number,
+          });
+        }
+        return this.ok({ ...this.attachments.get(key), created });
+      }
+      const a = this.attachments.get(key);
+      return this.ok({
+        download: a
+          ? {
+              url: `${BLOB_HOST}/${a.blobSha256}`,
+              sha256: a.blobSha256,
+              sizeBytes: a.sizeBytes,
+              expiresInSeconds: 300,
+            }
+          : null,
+      });
     }
     if (route === 'GET /leases') {
       const now = this.now();
@@ -6705,6 +6735,73 @@ describe('sync enable push: the genesis checkpoint (T12343 S4-1b)', () => {
     const onA = await on(a, async () => (await storeOf(aDb)).prepare(T1).get());
     expect(onA).toMatchObject({ origin: a.replicaId });
     expect(await on(b, async () => (await storeOf(bDb)).prepare(T1).get())).toEqual(onA);
+  });
+
+  it('doc bodies travel through cloud sync push and pull, project scope, unrefused legs only (T13721)', async () => {
+    const { m: a, dbPath: aDb } = await journalMachine();
+    await on(a, () => enableSyncPush(vopts(a, { allowUnreleased: true })));
+    const { b, bDb } = await restoredJoiner();
+    expect((await on(b, () => enableSyncPush(vopts(b, { allowUnreleased: true })))).status).toBe(
+      'joined',
+    );
+    const body = '# synced doc\n\nbytes from A\n';
+    const sha = sha256Hex(Buffer.from(body));
+    const blobOf = (root: string) => path.join(root, '.cleo', 'blobs', 'blobs', sha);
+    await on(a, async () => {
+      (await storeOf(aDb)).exec(
+        `INSERT INTO docs_attachments (id, sha256, attachment_json, ref_count, slug, type)
+           VALUES ('doc-a', '${sha}', '{"kind":"blob","mime":"text/markdown","sha256":"${sha}"}', 0, 'synced-doc', 'note')`,
+      );
+    });
+    fs.mkdirSync(path.dirname(blobOf(a.root)), { recursive: true });
+    fs.writeFileSync(blobOf(a.root), body);
+    const attachmentCalls = () => fake.calls.filter((c) => c.includes('/attachments/')).length;
+
+    // A refused leg (push off) moves no bytes.
+    await on(a, async () => {
+      setSyncFlag(await storeOf(aDb), 'sync.push', false, { allowUnreleased: true });
+    });
+    expect(
+      (await on(a, () => pushSyncStream(vopts(a, { allowUnreleased: true })))).refused,
+    ).not.toBeNull();
+    expect(attachmentCalls()).toBe(0);
+    await on(a, async () => {
+      setSyncFlag(await storeOf(aDb), 'sync.push', true, { allowUnreleased: true });
+    });
+
+    expect(
+      (await on(a, () => pushSyncStream(vopts(a, { allowUnreleased: true })))).refused,
+    ).toBeNull();
+    expect(fake.attachments.size).toBe(1);
+    expect((await on(b, () => pullSyncStream(vopts(b)))).refused).toBeNull();
+    expect(fs.readFileSync(blobOf(b.root), 'utf8')).toBe(body);
+    expect(
+      await on(b, async () =>
+        (await storeOf(bDb)).prepare('SELECT slug FROM docs_attachments WHERE sha256 = ?').get(sha),
+      ),
+    ).toEqual({ slug: 'synced-doc' });
+  });
+
+  it('a server without the attachment routes: cloud sync still syncs, and one warning names why (T13721)', async () => {
+    const { m: a, dbPath: aDb } = await journalMachine();
+    await on(a, () => enableSyncPush(vopts(a, { allowUnreleased: true })));
+    const sha = sha256Hex(Buffer.from('body'));
+    await on(a, async () => {
+      (await storeOf(aDb)).exec(
+        `INSERT INTO docs_attachments (id, sha256, attachment_json, ref_count) VALUES ('doc-a', '${sha}', '{}', 0)`,
+      );
+    });
+    fs.mkdirSync(path.join(a.root, '.cleo', 'blobs', 'blobs'), { recursive: true });
+    fs.writeFileSync(path.join(a.root, '.cleo', 'blobs', 'blobs', sha), 'body');
+    fake.attachmentRoutes = false;
+    const r = await on(a, () => cloudSync(vopts(a, { scope: 'project', allowUnreleased: true })));
+    expect(r.streams[0]?.status).toBe('synced');
+    expect(
+      r.warnings.filter((w) => w.code === 'W_SYNC_DOC_BYTES_UNAVAILABLE').length,
+    ).toBeGreaterThan(0);
+    expect(r.warnings.find((w) => w.code === 'W_SYNC_DOC_BYTES_UNAVAILABLE')?.message).toContain(
+      'does not carry doc bytes yet',
+    );
   });
 
   it('S4-2: a device clock ahead of the server pauses push', async () => {

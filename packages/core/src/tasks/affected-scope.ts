@@ -55,6 +55,25 @@ function isFullToolRun(a: EvidenceAtom): boolean {
 }
 
 /**
+ * A `tool:` result that holds only for the tree it was recorded on: an
+ * affected-scope run, or a not-applicable result for a non-code-only change
+ * (T13745), which code added later would void.
+ */
+function isTreeScopedTool(a: EvidenceAtom): boolean {
+  return a.kind === 'tool' && (a.scope === 'affected' || a.nonCodeChange === true);
+}
+
+/** A result pinned to the tree it ran on: a test-run, or a non-code-only `tool:` (T13745). */
+function isTreeBoundResult(
+  a: EvidenceAtom,
+): a is Extract<EvidenceAtom, { kind: 'test-run' | 'tool' }> & { treeHash: string } {
+  return (
+    (a.kind === 'test-run' || (a.kind === 'tool' && a.nonCodeChange === true)) &&
+    typeof a.treeHash === 'string'
+  );
+}
+
+/**
  * Recorded `testsPassed` evidence whose only verification results are scoped:
  * affected-scope tool runs and targeted `test-run:` reports (no `ci:` and no
  * full `tool:` result).
@@ -68,10 +87,7 @@ export function isScopedOnly(atoms: ReadonlyArray<EvidenceAtom>): boolean {
   const results = atoms.filter(
     (a) => a.kind === 'tool' || a.kind === 'test-run' || a.kind === 'ci',
   );
-  return (
-    results.length > 0 &&
-    results.every((a) => (a.kind === 'tool' && a.scope === 'affected') || a.kind === 'test-run')
-  );
+  return results.length > 0 && results.every((a) => isTreeScopedTool(a) || a.kind === 'test-run');
 }
 
 /**
@@ -135,12 +151,11 @@ export function testRunTreeMismatchReason(
   current: string | null,
 ): string | null {
   if (atoms.some((a) => a.kind === 'ci' || isFullToolRun(a))) return null;
-  const moved = atoms.filter(
-    (a): a is Extract<EvidenceAtom, { kind: 'test-run' }> =>
-      a.kind === 'test-run' && typeof a.treeHash === 'string' && a.treeHash !== current,
-  );
-  const first = moved[0];
-  if (!first?.treeHash) return null;
+  const first = atoms.filter(isTreeBoundResult).find((a) => a.treeHash !== current);
+  if (!first) return null;
+  // T13745: a non-code-only tool:test held for that tree's change alone.
+  if (first.kind === 'tool')
+    return `testsPassed rests on tool:${first.tool} recorded not applicable for a non-code-only change on tree ${first.treeHash.slice(0, 12)}, but the tree is now ${current === null ? 'unknown' : current.slice(0, 12)}; the change may now hold code. Re-verify testsPassed against the current change.`;
   return current === null
     ? `testsPassed rests on test-run:${first.path}, bound to tree ${first.treeHash.slice(0, 12)}, and the current tree cannot be computed here (not a git checkout?); complete from the checkout the report ran in, or record ci:<pr> once the PR merges.`
     : `testsPassed rests on test-run:${first.path}, recorded on tree ${first.treeHash.slice(0, 12)}, but the tree is now ${current.slice(0, 12)}; the report no longer describes this code. Re-run the targeted tests and record a fresh test-run, or record ci:<pr> once the PR merges.`;
@@ -332,7 +347,7 @@ export async function qaPassedSupersededReason(
  * @task T12965
  */
 export function hasTreeBoundTestRun(atoms: ReadonlyArray<EvidenceAtom>): boolean {
-  return atoms.some((a) => a.kind === 'test-run' && typeof a.treeHash === 'string');
+  return atoms.some(isTreeBoundResult);
 }
 
 /**
@@ -418,8 +433,7 @@ export function scopedRunCarriedAcrossMerge(
   const paths = [...new Set([...changeSet.files, ...changeSet.deletedFiles])];
   if (paths.length === 0) return { ok: false, why: 'the merged change lists no files to compare' };
   const scoped = atoms.filter(
-    (a) =>
-      a.kind === 'test-run' || a.kind === 'qa-run' || (a.kind === 'tool' && a.scope === 'affected'),
+    (a) => a.kind === 'test-run' || a.kind === 'qa-run' || isTreeScopedTool(a),
   );
   for (const atom of scoped) {
     const tree = 'treeHash' in atom && typeof atom.treeHash === 'string' ? atom.treeHash : null;

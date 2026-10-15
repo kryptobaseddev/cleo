@@ -1,5 +1,21 @@
 # Changelog
 
+## [2026.10.15] (2026-10-15)
+
+> **Single-fix release.** `files:` evidence resolved from git now hashes the raw blob bytes. Builds up to 2026.10.14 recorded a wrong sha256 for any file with non-ASCII bytes. Such a receipt fails at `cleo complete` with a message naming T13738: check the file, then re-run `cleo verify` to record the correct hash. Cross-device sync (Stage C: `sync.seal`, `sync.push`, `sync.pull`, `sync.strict`) stays unreleased and inert on this stable build until the Stage C exit gate releases its flags, and project hooks (hooks-v1) stay off on stable builds until their promotion. No schema migrations.
+
+### Fixed
+
+- File evidence read from git hashes the raw blob bytes, so non-ASCII files get correct sha256 _(provenance: [T13738](https://github.com/kryptobaseddev/cleo/search?q=T13738&type=commits))_
+
+### Verified on macOS (listed by hand)
+
+A UTF-8 multibyte file committed in a sandbox repo, with the working copy edited afterwards so that a hash read from disk would show. Each build ran `cleo verify <task> --gate implemented --evidence "commit:<sha>;files:utf8.md"`:
+
+- `git cat-file blob` sha256: `a9508f57d3d94460ad68f36c24c5ceab1ce2cc2db856bfea64e5052ddabac37e`
+- 2026.10.15 records `a9508f57d3d94460ad68f36c24c5ceab1ce2cc2db856bfea64e5052ddabac37e` (matches)
+- 2026.10.14 records `3c2842970345134e664653d209195a537c921da03c04c0175a6d366abb4a687f` (the lossy text re-encode)
+
 ## [2026.10.14] (2026-10-15)
 
 > **Stabilisation release.** Cross-device sync (Stage C: `sync.seal`, `sync.push`, `sync.pull`, `sync.strict`) stays unreleased and inert on this stable build until the Stage C exit gate releases its flags, and project hooks (hooks-v1) stay off on stable builds until their promotion. The local embedding model is no longer downloaded unless you opt in. Two additive schema migrations run on first open (`docs_attachments`/`docs_attachment_refs` gain a `uid` column; the brain tables gain `prune_candidate`).

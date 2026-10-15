@@ -38,9 +38,9 @@ afterEach(async () => {
 
 async function runEmbed(): Promise<void> {
   const { handleWriteOp } = await import('../brain-writer-handlers.js');
-  await expect(handleWriteOp({ kind: 'embed', projectRoot: OTHER, rows: [] })).rejects.toThrow(
-    /brain native DB unavailable/,
-  );
+  await expect(
+    handleWriteOp({ kind: 'embed', projectRoot: OTHER, model: 'test-model', rows: [] }),
+  ).rejects.toThrow(/brain native DB unavailable/);
 }
 
 describe('syncWorkerCleoDir gates on the writer isolate (T13251)', () => {

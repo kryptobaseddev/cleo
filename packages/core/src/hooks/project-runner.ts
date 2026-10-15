@@ -14,6 +14,8 @@ import { discoveryEnv } from '../git/work-tree.js';
 import { atomicWrite } from '../store/atomic.js';
 import {
   computeHookActivation,
+  HookInputUnavailableError,
+  hookBindingsDigest,
   inspectProjectHooks,
   matchesProjectHook,
   readProjectHookRecord,
@@ -24,11 +26,13 @@ import {
   resolveProjectHookFile,
   resolveProjectHookStateFile,
 } from './project-state.js';
-import { HOOKS_V1_UNRELEASED } from './release-gate.js';
+import { HOOKS_V1_UNRELEASED, hooksV1Released } from './release-gate.js';
 
 const MAX_INPUT_BYTES = 65536;
 const MAX_OUTPUT_BYTES = 65536;
 const MAX_INVOCATION_MS = 120000;
+const REACTIVATE =
+  'Hook inputs changed since activation; review them, then run `cleo hook sync --activate`.';
 
 function fault(invocation: HookInvocation, code: string, id = 'cleo.project-hooks'): HookOutcome {
   return {
@@ -64,6 +68,97 @@ function blocksFor(
     status === 'block' ||
     (['checker-error', 'timeout'].includes(status) && hook.checkerErrorPolicy === 'block')
   );
+}
+
+/**
+ * Changed inputs never run (T13742): every approved, current or linked hook matching the event
+ * fails closed for Git, worktree, direct and CI; agents only warn. An event none of them binds
+ * runs no hooks, except for an activation recorded before bindings were stored, which refuses
+ * it too. A direct check of an absent ID always refuses.
+ */
+function reactivationRequired(
+  hooks: ReadonlyArray<Pick<ProjectHookDefinition, 'id' | 'bindings'>>,
+  invocation: HookInvocation,
+  id: string | undefined,
+  approved: HookActivation | undefined,
+): HookOutcome[] {
+  const blocks = invocation.source !== 'agent';
+  const ids = new Set(
+    hooks
+      .filter((hook) =>
+        id ? hook.id === id : matchesProjectHook(hook, invocation.source, invocation.event),
+      )
+      .map((hook) => hook.id),
+  );
+  if (ids.size === 0 && !id && approvedBindings(approved)) return [];
+  return [...(ids.size > 0 ? ids : [id ?? 'cleo.project-hooks'])].map((hookId) => ({
+    id: hookId,
+    status: blocks ? 'block' : 'warn',
+    blocks,
+    code: 'HOOK_REACTIVATION_REQUIRED',
+    message: REACTIVATE,
+    exitCode: null,
+    signal: null,
+    durationMs: 0,
+  }));
+}
+
+/** Approved bindings whose digest verifies; a corrupted or pre-T13742 record has none. */
+function approvedBindings(activation: HookActivation | undefined): HookActivation['bindings'] {
+  const bindings = activation?.bindings;
+  return bindings && activation?.bindingsHash === hookBindingsDigest(bindings)
+    ? bindings
+    : undefined;
+}
+
+/** Hooks as approved at activation. */
+function approvedHooks(
+  activation: HookActivation | undefined,
+): Array<Pick<ProjectHookDefinition, 'id' | 'bindings'>> {
+  return Object.entries(approvedBindings(activation) ?? {}).map(([id, bindings]) => ({
+    id,
+    bindings,
+  }));
+}
+
+/**
+ * A manifest that no longer parses, or a project input that can no longer be hashed, cannot
+ * shed an approved hook (T13742): refuse the approved bindings. Returns undefined for every
+ * other fault, which keeps its local allow behaviour.
+ */
+async function refuseUnverifiableInputs(
+  error: Error | undefined,
+  invocation: HookInvocation,
+  id: string | undefined,
+  activationRoot: string | undefined,
+): Promise<HookOutcome[] | undefined> {
+  try {
+    const state = await readProjectHooksLocalState(
+      resolveProjectHookContext(activationRoot ?? invocation.projectRoot),
+    );
+    if (!state.hooks.project.enabled || !state.activation || !hooksV1Released()) return undefined;
+    if (error instanceof HookInputUnavailableError)
+      return reactivationRequired(
+        approvedHooks(state.activation),
+        invocation,
+        id,
+        state.activation,
+      );
+    for (const root of new Set([invocation.projectRoot, activationRoot ?? invocation.projectRoot]))
+      try {
+        await readProjectHooksManifest(resolveProjectHookContext(root));
+      } catch {
+        return reactivationRequired(
+          approvedHooks(state.activation),
+          invocation,
+          id,
+          state.activation,
+        );
+      }
+    return undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 async function executeOne(
@@ -231,12 +326,8 @@ export async function executeProjectHooks(
       checkout.projectRoot !== inspection.context.projectRoot &&
       inspection.activation === 'active'
     ) {
-      const target = await computeHookActivation(
-        checkout,
-        await readProjectHooksManifest(checkout),
-        deadline,
-        signal,
-      );
+      const targetManifest = await readProjectHooksManifest(checkout);
+      const target = await computeHookActivation(checkout, targetManifest, deadline, signal);
       const state = await readProjectHooksLocalState(inspection.context);
       const approved = state.activation;
       // Inherit approval only for the same project and identical executable inputs.
@@ -248,17 +339,12 @@ export async function executeProjectHooks(
         JSON.stringify(target.files) !== JSON.stringify(approved.files) ||
         JSON.stringify(target.executables) !== JSON.stringify(approved.executables)
       ) {
-        return [
-          {
-            id: id ?? 'cleo.project-hooks',
-            status: 'warn',
-            blocks: invocation.source === 'ci',
-            code: 'HOOK_REACTIVATION_REQUIRED',
-            exitCode: null,
-            signal: null,
-            durationMs: 0,
-          },
-        ];
+        return reactivationRequired(
+          [...approvedHooks(approved), ...inspection.manifest.hooks, ...targetManifest.hooks],
+          invocation,
+          id,
+          approved,
+        );
       }
     }
     if (inspection.activation === 'unreleased') {
@@ -279,13 +365,29 @@ export async function executeProjectHooks(
     if (inspection.activation !== 'active') {
       if (invocation.source === 'ci')
         return [fault(invocation, 'HOOK_REQUIRED_ACTIVATION_MISSING')];
+      if (inspection.activation !== 'disabled') {
+        const approved = (await readProjectHooksLocalState(inspection.context)).activation;
+        // A linked checkout may bind hooks its drifted source no longer declares.
+        const target =
+          checkout.projectRoot === inspection.context.projectRoot
+            ? []
+            : await readProjectHooksManifest(checkout).then(
+                (manifest) => manifest.hooks,
+                () => [],
+              );
+        return reactivationRequired(
+          [...approvedHooks(approved), ...inspection.manifest.hooks, ...target],
+          invocation,
+          id,
+          approved,
+        );
+      }
       return [
         {
           id: id ?? 'cleo.project-hooks',
-          status: inspection.activation === 'disabled' ? 'skip' : 'warn',
+          status: 'skip',
           blocks: false,
-          code:
-            inspection.activation === 'disabled' ? 'HOOK_DISABLED' : 'HOOK_REACTIVATION_REQUIRED',
+          code: 'HOOK_DISABLED',
           exitCode: null,
           signal: null,
           durationMs: 0,
@@ -298,7 +400,7 @@ export async function executeProjectHooks(
     if (id && definitions.length === 0) return [fault(invocation, 'HOOK_NOT_FOUND', id)];
     const outcomes: HookOutcome[] = [];
     const approved = (await readProjectHooksLocalState(inspection.context)).activation;
-    for (const hook of definitions) {
+    for (const [index, hook] of definitions.entries()) {
       // Recheck between handlers: an earlier checker may have changed later code.
       const fresh = await readProjectHooksLocalState(inspection.context);
       const target = await computeHookActivation(
@@ -312,15 +414,7 @@ export async function executeProjectHooks(
         !sameInputs(fresh.activation, approved) ||
         !sameInputs(target, approved)
       ) {
-        outcomes.push({
-          id: hook.id,
-          status: 'warn',
-          blocks: invocation.source === 'ci',
-          code: 'HOOK_REACTIVATION_REQUIRED',
-          exitCode: null,
-          signal: null,
-          durationMs: 0,
-        });
+        outcomes.push(...reactivationRequired(definitions.slice(index), invocation, id, approved));
         break;
       }
       const remainingMs = Math.floor(deadline - performance.now());
@@ -362,8 +456,15 @@ export async function executeProjectHooks(
       outcomes.push(fault(invocation, 'HOOK_RECEIPT_WRITE_FAILED'));
     }
     return outcomes;
-  } catch {
-    return [fault(invocation, 'HOOK_INFRASTRUCTURE_ERROR')];
+  } catch (error) {
+    return (
+      (await refuseUnverifiableInputs(
+        error instanceof Error ? error : undefined,
+        invocation,
+        id,
+        activationRoot,
+      )) ?? [fault(invocation, 'HOOK_INFRASTRUCTURE_ERROR')]
+    );
   }
 }
 

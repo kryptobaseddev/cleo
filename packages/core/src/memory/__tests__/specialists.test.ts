@@ -13,6 +13,11 @@
 import { DatabaseSync } from 'node:sqlite';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
+  clearEmbeddingProvider,
+  EMBEDDING_DIMENSIONS,
+  setEmbeddingProvider,
+} from '../brain-embedding.js';
+import {
   CodePatternSpecialist,
   DecisionSpecialist,
   DeductionSpecialist,
@@ -53,7 +58,8 @@ function setupDb(): DatabaseSync {
     );
     CREATE TABLE brain_embeddings (
       id TEXT PRIMARY KEY,
-      embedding BLOB
+      embedding BLOB,
+      model TEXT
     );
     CREATE TABLE brain_memory_trees (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -116,7 +122,10 @@ function insertObsWithEmbedding(d: DatabaseSync, id: string, type = 'change', ti
     floats[i] = Math.random();
   }
   const buf = Buffer.from(floats.buffer);
-  d.prepare(`INSERT INTO brain_embeddings (id, embedding) VALUES (?, ?)`).run(id, buf);
+  d.prepare(`INSERT INTO brain_embeddings (id, embedding, model) VALUES (?, ?, 'test-model')`).run(
+    id,
+    buf,
+  );
 }
 
 /** Insert a plain observation without embedding. */
@@ -131,9 +140,16 @@ function insertObs(d: DatabaseSync, id: string, type = 'change', title = `Obs ${
 
 beforeEach(() => {
   db = setupDb();
+  setEmbeddingProvider({
+    dimensions: EMBEDDING_DIMENSIONS,
+    model: 'test-model',
+    isAvailable: () => true,
+    embed: async () => new Float32Array(EMBEDDING_DIMENSIONS),
+  });
 });
 
 afterEach(() => {
+  clearEmbeddingProvider();
   db.close();
   vi.restoreAllMocks();
 });
@@ -191,10 +207,9 @@ describe('computeSurprisalScore', () => {
       'change',
       'Prior',
     );
-    db.prepare('INSERT INTO brain_embeddings (id, embedding) VALUES (?, ?)').run(
-      'prior-1',
-      Buffer.from(prior.buffer),
-    );
+    db.prepare(
+      "INSERT INTO brain_embeddings (id, embedding, model) VALUES (?, ?, 'test-model')",
+    ).run('prior-1', Buffer.from(prior.buffer));
 
     // Novel observation: orthogonal vector [0, 1, 0, 0, 0, 0, 0, 0]
     const novel = [0, 1, 0, 0, 0, 0, 0, 0];

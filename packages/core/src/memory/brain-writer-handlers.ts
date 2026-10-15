@@ -137,8 +137,8 @@ async function handleEmbed(op: BrainEmbedOp): Promise<BrainWriteResult> {
   const nativeDb = getBrainNativeDb(op.projectRoot);
   // @sync-invariant none:local-only the local brain handle failed to open; nothing is written
   if (!nativeDb) throw new Error('brain native DB unavailable for embed op');
-  const { upsertEmbeddingRowsNative } = await import('./retrieval/observe.js');
-  return { kind: 'embed', written: upsertEmbeddingRowsNative(nativeDb, op.rows) };
+  const { upsertEmbeddingRowsNative } = await import('../store/memory-accessor.js');
+  return { kind: 'embed', written: upsertEmbeddingRowsNative(nativeDb, op.model, op.rows) };
 }
 
 // ---------------------------------------------------------------------------

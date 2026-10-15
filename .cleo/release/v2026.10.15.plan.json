@@ -1,0 +1,121 @@
+{
+  "$schema": "https://cleocode.io/schemas/release-plan/v1.json",
+  "version": "v2026.10.15",
+  "resolvedVersion": "v2026.10.15",
+  "suffixApplied": false,
+  "scheme": "calver",
+  "channel": "latest",
+  "epicId": null,
+  "releaseKind": "regular",
+  "hooksV1Promotion": false,
+  "createdAt": "2026-10-15T18:00:41.455Z",
+  "createdBy": "keatonhoskins",
+  "previousVersion": "v2026.10.14",
+  "previousTag": "v2026.10.14",
+  "previousShippedAt": null,
+  "tasks": [
+    {
+      "id": "T13738",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "Evidence: git show file content decodes stdout as UTF-8 then Buffer.from(binary), corrupting non-ASCII blob hashes",
+      "evidenceAtoms": [
+        "pr:2270",
+        "files:.changeset/evidence-raw-git-bytes.md,packages/core/src/tasks/__tests__/evidence-raw-bytes-T13738.test.ts,packages/core/src/tasks/evidence.ts",
+        "ci:2270"
+      ],
+      "epicAncestor": "T12317",
+      "ivtrPhaseAtPlan": "contribution"
+    }
+  ],
+  "changelog": {
+    "features": [
+      "T13738"
+    ],
+    "fixes": [],
+    "chores": [],
+    "breaking": []
+  },
+  "gates": [
+    {
+      "name": "test",
+      "atom": "tool:test",
+      "status": "unresolved",
+      "lastVerifiedAt": "2026-10-15T18:00:41.455Z",
+      "resolvedCommand": "pnpm run test",
+      "resolvedSource": "project-context"
+    },
+    {
+      "name": "build",
+      "atom": "tool:build",
+      "status": "unresolved",
+      "lastVerifiedAt": "2026-10-15T18:00:41.455Z",
+      "resolvedCommand": "pnpm run build",
+      "resolvedSource": "project-context"
+    },
+    {
+      "name": "lint",
+      "atom": "tool:lint",
+      "status": "unresolved",
+      "lastVerifiedAt": "2026-10-15T18:00:41.455Z",
+      "resolvedCommand": "pnpm run lint",
+      "resolvedSource": "package-script"
+    },
+    {
+      "name": "typecheck",
+      "atom": "tool:typecheck",
+      "status": "unresolved",
+      "lastVerifiedAt": "2026-10-15T18:00:41.455Z",
+      "resolvedCommand": "pnpm run typecheck",
+      "resolvedSource": "package-script"
+    },
+    {
+      "name": "audit",
+      "atom": "tool:audit",
+      "status": "unresolved",
+      "lastVerifiedAt": "2026-10-15T18:00:41.455Z",
+      "resolvedCommand": "npm audit",
+      "resolvedSource": "language-default"
+    },
+    {
+      "name": "security-scan",
+      "atom": "tool:security-scan",
+      "status": "unresolved",
+      "lastVerifiedAt": "2026-10-15T18:00:41.455Z",
+      "resolvedCommand": "npm audit",
+      "resolvedSource": "language-default"
+    }
+  ],
+  "platformMatrix": [
+    {
+      "platform": "any",
+      "publisher": "npm",
+      "package": "@cleocode/cleo"
+    }
+  ],
+  "preflightSummary": {
+    "esbuildExternalsDrift": false,
+    "lockfileDrift": false,
+    "epicCompletenessClean": true,
+    "doubleListingClean": true,
+    "preflightWarnings": [
+      "Skipped 784 out-of-scope changeset entries whose task anchors are not part of this release plan"
+    ]
+  },
+  "workflowRunUrl": null,
+  "prUrl": null,
+  "mergeCommitSha": null,
+  "status": "planned",
+  "meta": {
+    "firstEverRelease": false,
+    "archetype": "node",
+    "releaseNotes": "## v2026.10.15 — 2026-10-15\n\n> **Single-fix release.** `files:` evidence resolved from git now hashes the raw blob bytes. Builds up to 2026.10.14 recorded a wrong sha256 for any file with non-ASCII bytes. Such a receipt fails at `cleo complete` with a message naming T13738: check the file, then re-run `cleo verify` to record the correct hash. Cross-device sync (Stage C: `sync.seal`, `sync.push`, `sync.pull`, `sync.strict`) stays unreleased and inert on this stable build until the Stage C exit gate releases its flags, and project hooks (hooks-v1) stay off on stable builds until their promotion. No schema migrations.\n\n### Fixed\n\n- File evidence read from git hashes the raw blob bytes, so non-ASCII files get correct sha256 _(provenance: [T13738](https://github.com/kryptobaseddev/cleo/search?q=T13738&type=commits))_\n\n### Verified on macOS (listed by hand)\n\nA UTF-8 multibyte file committed in a sandbox repo, with the working copy edited afterwards so that a hash read from disk would show. Each build ran `cleo verify <task> --gate implemented --evidence \"commit:<sha>;files:utf8.md\"`:\n\n- `git cat-file blob` sha256: `a9508f57d3d94460ad68f36c24c5ceab1ce2cc2db856bfea64e5052ddabac37e`\n- 2026.10.15 records `a9508f57d3d94460ad68f36c24c5ceab1ce2cc2db856bfea64e5052ddabac37e` (matches)\n- 2026.10.14 records `3c2842970345134e664653d209195a537c921da03c04c0175a6d366abb4a687f` (the lossy text re-encode)\n",
+    "changesetEntryCount": 1,
+    "changesetIds": [
+      "evidence-raw-git-bytes"
+    ],
+    "taskIds": [
+      "T13738"
+    ]
+  }
+}

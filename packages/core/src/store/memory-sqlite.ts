@@ -354,14 +354,47 @@ function loadBrainVecExtension(nativeDb: DatabaseSync): boolean {
  * The vec0 table is not managed by Drizzle (virtual tables are not
  * supported by drizzle-orm's SQLite schema). Created via raw SQL.
  *
+ * T13740: every vector carries the `model` that produced it. vec0 cannot add a
+ * column, so a table from before the tag is dropped and recreated: its vectors
+ * name no model, would never be compared, and are local derived data that the
+ * backfill rebuilds from the memory text.
+ *
+ * A store whose table is already tagged takes no lock: the bind of every
+ * brain read stays lock-free.
+ *
+ * @param nativeDb - Brain handle with sqlite-vec loaded.
+ * @internal Exported for tests.
  * @task T5157
+ * @task T13740
  */
-function initializeBrainVec(nativeDb: DatabaseSync): void {
-  nativeDb
-    .prepare(
-      'CREATE VIRTUAL TABLE IF NOT EXISTS brain_embeddings USING vec0(id TEXT PRIMARY KEY, embedding FLOAT[384])',
-    )
-    .run();
+export function initializeBrainVec(nativeDb: DatabaseSync): void {
+  const shape = (): 'tagged' | 'untagged' | 'missing' => {
+    const columns = nativeDb.prepare('PRAGMA main.table_info(brain_embeddings)').all();
+    if (columns.length === 0) return 'missing';
+    return columns.some((c) => c.name === 'model') ? 'tagged' : 'untagged';
+  };
+  // Fast path, no lock: every bind of a current store ends here, so reads
+  // never queue for the write lock.
+  if (shape() === 'tagged') return;
+  // Re-check, drop and create under one write lock, so two processes opening
+  // an old store at once cannot both see the old shape and race the rebuild.
+  const own = !nativeDb.isTransaction;
+  if (own) nativeDb.prepare('BEGIN IMMEDIATE').run();
+  try {
+    const current = shape();
+    if (current === 'untagged') {
+      nativeDb.prepare('DROP TABLE IF EXISTS main.brain_embeddings').run();
+    }
+    nativeDb
+      .prepare(
+        'CREATE VIRTUAL TABLE IF NOT EXISTS brain_embeddings USING vec0(id TEXT PRIMARY KEY, embedding FLOAT[384], model TEXT)',
+      )
+      .run();
+    if (own) nativeDb.prepare('COMMIT').run();
+  } catch (err) {
+    if (own && nativeDb.isTransaction) nativeDb.prepare('ROLLBACK').run();
+    throw err;
+  }
 }
 
 /**

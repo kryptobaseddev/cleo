@@ -2717,6 +2717,15 @@ async function pushWithSession(
         message: `${t.streamId}: capture ${h.firstSeq} is held (${h.reason}); later changes wait behind it`,
       });
     }
+    // T13721: doc rows travel in segments, their bodies as stream blobs.
+    if (t.scope === 'project' && report.refused === null) {
+      const { pushDocBytes } = await import('./doc-bytes.js');
+      await pushDocBytes(db, journal, {
+        stream: t.streamId,
+        cleoDir: path.dirname(t.dbPath),
+        warn,
+      });
+    }
     return report;
   } catch (err) {
     // The server holds a different segment at this replicaSeq, or a later one
@@ -2929,6 +2938,17 @@ async function pullWithSession(opened: StreamSession): Promise<PullStreamReport>
   });
   // Its server half at once, so this run's next push announces the retire.
   if (report.rebind !== null) await completeOwedRebinds(conn, t, db);
+  // T13721: the bodies of doc rows this pull brought, from the stream's blobs.
+  if (t.scope === 'project' && report.refused === null) {
+    const { pullDocBytes } = await import('./doc-bytes.js');
+    await pullDocBytes(db, journal, {
+      stream: t.streamId,
+      cleoDir: path.dirname(t.dbPath),
+      warn: (w) => {
+        conn.warnings.push(w);
+      },
+    });
+  }
   return report;
 }
 

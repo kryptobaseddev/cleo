@@ -1071,18 +1071,21 @@ async function runDreamerUpgrade(_projectRoot: string): Promise<DreamerUpgradeRe
     return result;
   }
 
-  // Fetch recent observations (up to 100) with their embeddings
+  // Fetch recent observations (up to 100) with their current-model embeddings
+  // (T13740: vectors of another model are not comparable). Registration is free.
+  const { ensureEmbeddingProvider, getEmbeddingProvider } = await import('./brain-embedding.js');
+  await ensureEmbeddingProvider(_projectRoot);
   const rawObs = nativeDb
     .prepare(
       `SELECT o.id, o.type, o.title, o.narrative, o.project, o.peer_id,
               o.source_session_id, e.embedding, o.created_at
        FROM brain_observations o
-       LEFT JOIN brain_embeddings e ON e.id = o.id
+       LEFT JOIN brain_embeddings e ON e.id = o.id AND e.model = ?
        WHERE o.level IS NULL OR o.level = 'explicit'
        ORDER BY o.created_at DESC
        LIMIT 100`,
     )
-    .all() as unknown as RawObsWithEmbedding[];
+    .all(getEmbeddingProvider()?.model ?? '') as unknown as RawObsWithEmbedding[];
 
   if (rawObs.length === 0) {
     return result;

@@ -172,7 +172,7 @@ export interface BrainDialecticOp {
 }
 
 /**
- * Upsert computed observation embeddings (T13218). The vectors are computed
+ * Upsert computed memory embeddings (T13218). The vectors are computed
  * BEFORE the op (model inference stays outside the chokepoint); only the
  * `brain_embeddings` writes travel through it, so a backfill never opens a
  * second write handle beside the worker's.
@@ -180,7 +180,9 @@ export interface BrainDialecticOp {
 export interface BrainEmbedOp {
   kind: 'embed';
   projectRoot: string;
-  /** One row per observation: its id and its embedding vector. */
+  /** Model tag of the provider that computed every vector in {@link rows} (T13740). */
+  model: string;
+  /** One row per memory entry: its id and its embedding vector. */
   rows: Array<{ id: string; vector: Float32Array }>;
 }
 

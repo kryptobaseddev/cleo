@@ -408,10 +408,14 @@ export async function detectSupersession(
     // when sqlite-vec is loaded. This is the primary signal; keyword Jaccard
     // is the fallback and tie-breaker.
     const embeddingScores = new Map<string, number>();
-    if (isBrainVecLoaded()) {
+    if (isBrainVecLoaded(projectRoot)) {
       try {
-        const { isEmbeddingAvailable, embedText } = await import('./brain-embedding.js');
-        if (isEmbeddingAvailable()) {
+        const { isEmbeddingAvailable, embedText, getEmbeddingProvider } = await import(
+          './brain-embedding.js'
+        );
+        // Only vectors of the query's model are comparable (T13740).
+        const model = getEmbeddingProvider()?.model;
+        if (isEmbeddingAvailable() && model) {
           const queryVector = await embedText(newEntry.text);
           if (queryVector) {
             // KNN query: returns (id, distance) where distance is L2/cosine depending on vec0 metric.
@@ -423,9 +427,10 @@ export async function detectSupersession(
             }
             const knnRows = typedAll<KnnRow>(
               nativeDb.prepare(
-                'SELECT id, distance FROM brain_embeddings WHERE embedding MATCH ? ORDER BY distance LIMIT 50',
+                'SELECT id, distance FROM brain_embeddings WHERE embedding MATCH ? AND model = ? ORDER BY distance LIMIT 50',
               ),
               new Float32Array(queryVector.buffer, queryVector.byteOffset, queryVector.length),
+              model,
             );
             for (const kr of knnRows) {
               // Cosine distance range: [0, 2]. Convert to similarity [0, 1].
