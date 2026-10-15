@@ -2,7 +2,7 @@
 import { execFileSync, spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { existsSync } from 'node:fs';
-import { lstat, realpath, unlink } from 'node:fs/promises';
+import { lstat, realpath, rmdir, unlink } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import {
@@ -431,6 +431,24 @@ async function deliverProvider(
           if (Object.keys(await readManagedJsonConfigFile(target)).length === 0)
             await unlink(target);
         });
+      // Only an empty directory strictly inside the checkout, above the config; rmdir keeps foreign files.
+      const created = prior?.createdDir;
+      const inside = created ? relative(options.projectRoot, created) : '';
+      if (
+        created &&
+        inside &&
+        !inside.startsWith('..') &&
+        !isAbsolute(inside) &&
+        !relative(created, target).startsWith('..') &&
+        !existsSync(target)
+      )
+        for (let dir = dirname(target); dir.length >= created.length; dir = dirname(dir)) {
+          try {
+            await rmdir(dir);
+          } catch {
+            break;
+          }
+        }
     }
     await unlink(receiptPath);
     result.state = 'disabled';
@@ -439,6 +457,8 @@ async function deliverProvider(
   }
   if (!options.dryRun) {
     const createdConfig = existsSync(target) ? (prior?.createdConfig ?? false) : true;
+    let createdDir = prior?.createdDir;
+    for (let dir = dirname(target); !existsSync(dir); dir = dirname(dir)) createdDir = dir;
     if (!existsSync(target))
       excludeHookFileFromGit(
         options.projectRoot,
@@ -456,6 +476,7 @@ async function deliverProvider(
           configPath: target,
           entries: desired,
           createdConfig,
+          createdDir,
           recordedAt: new Date().toISOString(),
         }) + '\n',
     });

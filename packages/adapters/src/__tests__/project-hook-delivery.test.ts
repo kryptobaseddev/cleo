@@ -123,6 +123,20 @@ describe('project hook delivery', () => {
     await syncProjectHookProviders({ ...opts, enabled: false, rollback: true });
     expect(await readFile(file, 'utf8')).toBe(original);
   });
+  it('disable removes a config directory activation created only once it is empty (T13743)', async () => {
+    const opts = await options();
+    const dir = join(opts.projectRoot, '.codex');
+    await rm(dir, { recursive: true });
+    await syncProjectHookProviders(opts);
+    expect(existsSync(join(dir, 'hooks.json'))).toBe(true);
+    await syncProjectHookProviders({ ...opts, enabled: false, rollback: true });
+    expect(existsSync(dir)).toBe(false);
+    await syncProjectHookProviders(opts);
+    await writeFile(join(dir, 'team.toml'), 'model = "o4"\n');
+    await syncProjectHookProviders({ ...opts, enabled: false, rollback: true });
+    expect(existsSync(join(dir, 'hooks.json'))).toBe(false);
+    expect(await readFile(join(dir, 'team.toml'), 'utf8')).toBe('model = "o4"\n');
+  });
   it('warns and allows native invocation when CLEO is absent or lacks the protocol', async () => {
     const opts = await options();
     await syncProjectHookProviders(opts);

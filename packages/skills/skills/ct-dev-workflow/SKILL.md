@@ -523,7 +523,7 @@ while agents only warn (T13742). Agent project checks are advisory; Git applies 
 Inspect with `cleo doctor hooks`; `--fix` never activates definitions or grants trust.
 `cleo hook sync --disable` disables execution and removes only verified managed entries:
 it skips providers with no delivery receipt, creates nothing, and deletes a provider config
-that activation created once it is empty (T13743).
+(and its directory) that activation created once it is empty (T13743).
 CI uses `cleo hook check <id> --ci --candidate <sha>` or an explicit JSON `--input` file;
 CLEO infrastructure failure is an unavailable check, never successful CI evidence.
 Launcher faults allow locally regardless of checker error policy. File inputs and

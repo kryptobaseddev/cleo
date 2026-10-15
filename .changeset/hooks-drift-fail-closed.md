@@ -15,6 +15,7 @@ inheritance and the recheck between handlers.
 
 `cleo hook sync --disable` now skips providers that have no delivery receipt and
 creates no files or directories for them. It removes hook containers that it
-emptied, deletes a provider config that activation created once nothing else is
-left in it, and deletes its own receipt. A pre-existing config returns to its
-original bytes.
+emptied, deletes a provider config, and the directory holding it, that activation
+created once nothing else is left in them, and deletes its own receipt. A
+pre-existing config returns to its original bytes. Receipts written before this
+fix record no creation, so their config is pruned but kept.
