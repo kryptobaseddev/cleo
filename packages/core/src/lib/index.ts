@@ -9,6 +9,8 @@
 
 export { runWithConcurrency } from './concurrency.js';
 
+export { boundedErrorMessage } from './error-message.js';
+
 export {
   computeDelay,
   type RetryablePredicate,
