@@ -14,7 +14,7 @@
 import type { DatabaseSync } from 'node:sqlite';
 import type { Checkpoint, TableDeltas, TxnRef } from '@cleocode/contracts/cloud';
 import { LedgerTxn } from '@cleocode/contracts/ledger';
-import { type InboxStatus, OPEN_INBOX_STATUSES } from '../store/sync/inbox.js';
+import { type InboxStatus, UNRESOLVED_INBOX_STATUSES } from '../store/sync/inbox.js';
 import { hasTable } from '../store/sync/schema.js';
 import { deltasOf } from '../store/sync/segments.js';
 import { cursorFromCheckpoint, type Journal } from './journal.js';
@@ -94,7 +94,7 @@ export interface JournalTallies {
   readonly applied: DeclaredTxn[];
 }
 
-const OPEN: ReadonlySet<InboxStatus> = new Set([...OPEN_INBOX_STATUSES, 'refused-schema']);
+const OPEN: ReadonlySet<InboxStatus> = new Set(UNRESOLVED_INBOX_STATUSES);
 
 type InboxRef = { replica_id: string; replica_seq: number; txn_idx: number };
 type InboxEntry = InboxRef & { status: InboxStatus; txn_json: string };

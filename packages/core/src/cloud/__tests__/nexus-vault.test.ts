@@ -91,6 +91,7 @@ import { readDeviceRegistry } from '../../store/sync/replica-registry.js';
 import { ensureSyncSchema } from '../../store/sync/schema.js';
 import {
   emptyVaultTableHash,
+  isVaultForkManifest,
   VAULT_FORMAT_KEY,
   VAULT_MANIFEST_FORMAT_VERSION,
   vaultFormatEntry,
@@ -6290,6 +6291,37 @@ describe('sync enable push: the genesis checkpoint (T12343 S4-1b)', () => {
       ).toEqual({ title: 'from B' });
     });
 
+    it("a stale device never drops another device's files: refused as behind, --force pushes a labelled fork; journal-only movement still pushes", async () => {
+      const { a, aDb, b, bDb } = await journalDevices(true);
+      if (!b || !bDb) throw new Error('no device B');
+      const s = fake.stream(STREAM);
+      const push = (m: Machine, extra: Record<string, unknown> = {}) =>
+        on(m, () => pushNexusVault(vopts(m, { allowUnreleased: true, ...extra })));
+      // Journal-only movement: B checkpoints; A, which never pulled that snapshot, still pushes.
+      await on(b, async () => (await storeOf(bDb)).exec(insertTask('T30', 'from B')));
+      expect((await push(b)).status).toBe('pushed');
+      await on(a, async () => (await storeOf(aDb)).exec(insertTask('T31', 'from A')));
+      expect((await push(a)).status).toBe('pushed');
+      // B adds a doc and pushes it; A never pulls, writes a task and pushes.
+      await sync(b);
+      fs.mkdirSync(path.join(b.root, '.cleo', 'adrs'), { recursive: true });
+      fs.writeFileSync(path.join(b.root, '.cleo', 'adrs', 'adr-b.md'), '# ADR B\n');
+      const fromB = await push(b);
+      expect(fromB.status).toBe('pushed');
+      await on(a, async () => (await storeOf(aDb)).exec(insertTask('T32', 'from A')));
+      const checkpoints = s.checkpoints.length;
+      const behind = await failure(push(a));
+      expect(behind.code).toBe('E_NEXUS_VAULT_BEHIND');
+      expect(behind.fix).toContain('--force');
+      expect(s.checkpoints).toHaveLength(checkpoints);
+      expect(s.headCheckpointId).toBe(fromB.snapshot?.checkpointId);
+      // --force keeps this store, labelled a fork over B's snapshot.
+      const forced = await push(a, { force: true });
+      expect(forced.status).toBe('pushed');
+      expect(forced.forked).toBe(true);
+      expect(isVaultForkManifest(s.checkpoints.at(-1)?.manifest ?? { tables: {} })).toBe(true);
+    });
+
     it('a checkpoint with pending transactions restores on a new device, and they apply exactly once after a sync', async () => {
       const { a, aDb, b, bDb } = await journalDevices(true);
       if (!b || !bDb) throw new Error('no device B');
@@ -6327,6 +6359,12 @@ describe('sync enable push: the genesis checkpoint (T12343 S4-1b)', () => {
       );
       fake.replicas.get(REMOTE_PROJECT)?.set(c.replicaId, DEVICE_C);
       link(c);
+      // Only the unresolved receive row travelled, never A's applied history.
+      expect(
+        await on(c, async () =>
+          (await storeOf(cDb)).prepare('SELECT replica_id, status FROM _sync_inbox').all(),
+        ),
+      ).toEqual([{ replica_id: held.replicaId, status: 'held-skew' }]);
       expect((await on(c, () => enableSyncPush(vopts(c, { allowUnreleased: true })))).status).toBe(
         'joined',
       );

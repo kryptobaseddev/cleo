@@ -18,8 +18,10 @@ push sync and snapshot once more, then refuse, so it is never recorded as a
 voided effect. Files and other databases, which the journal never carries, are
 snapshot-authoritative on the server (cleo-nexus #44); a server without that
 rule refuses the checkpoint, and the push says so instead of writing a delta.
-A restore keeps the checkpoint's inbox, so its pending transactions still apply,
-once.
+A checkpoint carries only its unresolved inbox rows, and a restore keeps them, so
+its pending transactions still apply, once. A device whose last synced snapshot
+is older than the head, when the head changed files or databases, is refused as
+behind; `--force` pushes a labelled fork.
 
 `cleo cloud verify` on a store that writes the journal compares each table's
 rows with the head's counts plus the journal's tallies past it, and reports

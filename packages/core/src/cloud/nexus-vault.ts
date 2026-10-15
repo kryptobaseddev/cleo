@@ -124,6 +124,7 @@ import {
   joinStream,
   readGenesisCut,
 } from '../store/sync/genesis.js';
+import { UNRESOLVED_INBOX_STATUSES } from '../store/sync/inbox.js';
 import {
   type PullStreamReport,
   pullStream,
@@ -183,7 +184,13 @@ import { autoSyncSuppressedBy } from './auto-sync.js';
 import { deriveKey, uuidv7 } from './crypto.js';
 import { NexusError } from './http.js';
 import { cursorFromCheckpoint, initialPullCursor, Journal, type PullCursor } from './journal.js';
-import { journalTallies, readJournalWindow, settleShortfalls } from './journal-tallies.js';
+import {
+  type JournalTallies,
+  type JournalWindow,
+  journalTallies,
+  readJournalWindow,
+  settleShortfalls,
+} from './journal-tallies.js';
 import { signerKeys, type TrustedSigners } from './keys.js';
 import {
   type DeclaredTxn,
@@ -847,8 +854,9 @@ function compareWithSynced(
 const JOURNAL_SNAPSHOT_CARRIED: ReadonlySet<string> = new Set([
   '_sync_row_meta',
   '_sync_field_leave',
-  // The checkpoint's unresolved transactions travel in its bundle (§2.11 §6): a
-  // restore pulls on after coversSeq, so a pending one would never arrive again (T12999).
+  // The checkpoint's unresolved transactions travel in its bundle (§2.11 §6; the
+  // export keeps only those rows): a restore pulls on after coversSeq, so a
+  // pending one would never arrive again (T12999).
   '_sync_inbox',
 ]);
 
@@ -892,6 +900,9 @@ async function exportVaultBundle(
 ): Promise<void> {
   await exportPortableBundle({
     ...(inspect ? { inspectSnapshot: inspect } : {}),
+    // Only the unresolved receive rows travel: a journal checkpoint's pending
+    // transactions, never the whole history (T12999).
+    keepRows: { _sync_inbox: { column: 'status', values: UNRESOLVED_INBOX_STATUSES } },
     scope: t.scope === 'global' ? 'global' : 'project',
     ...(t.scope === 'project' ? { projectRoot: t.storeRoot } : {}),
     ...(t.scope === 'global'
@@ -1414,24 +1425,89 @@ async function pushJournalCheckpoint(
       parent,
     );
     if (ahead) throw ahead;
-    const { state: synced } = syncedState(conn, t, [parent], head.headCheckpointId);
+    const { state: synced } = syncedState(conn, t, checkpoints, head.headCheckpointId);
+    // Another device's snapshot since this store last synced: journal movement
+    // is fine (the sync just pulled it), but its files and databases travel only
+    // in snapshots, and this one would drop them. Only `--force` pushes over
+    // them, labelled a fork on the checkpoint, as a vault push does (T13007).
+    const lastSynced = checkpoints.find((c) => c.checkpointId === synced?.lastCheckpointId);
+    const vaultOnlyMoved =
+      parent.checkpointId !== lastSynced?.checkpointId &&
+      (lastSynced === undefined ||
+        [
+          ...new Set([
+            ...Object.keys(parent.manifest.tables),
+            ...Object.keys(lastSynced.manifest.tables),
+          ]),
+        ]
+          .filter(isSnapshotAuthoritativeKey)
+          .some(
+            (k) =>
+              parent.manifest.tables[k]?.hash !== lastSynced.manifest.tables[k]?.hash ||
+              parent.manifest.tables[k]?.rows !== lastSynced.manifest.tables[k]?.rows,
+          ));
+    if (vaultOnlyMoved && opts.force !== true) {
+      throw vaultError(
+        'E_NEXUS_VAULT_BEHIND',
+        `another device pushed snapshot ${parent.checkpointId} after this machine's last sync, with files or databases this machine does not have`,
+        'run `cleo cloud pull` first (it refuses to overwrite local changes), or `--force` to push this store as a labelled fork',
+      );
+    }
     const git = gitTracking(t);
     if (git.mode === 'unknown' && attempt === 0) warnings.push(gitUnknownWarning(t));
     const work = tempDir('cleo-vault-push-');
     try {
-      let snap: { cursor: StreamCursor | null; unsent: number } | null = null;
-      const { bundlePath, vault, gitTracked, files, dbPath } = await exportAndRead(
+      type Taken = {
+        cursor: StreamCursor | null;
+        unsent: number;
+        /** Read before the export prunes the snapshot's resolved inbox rows. */
+        read: { window: JournalWindow; tallies: JournalTallies; pin: ReplayPin } | null;
+      };
+      let snap: Taken | null = null;
+      const { bundlePath, vault, gitTracked, files } = await exportAndRead(
         t,
         work,
         `cloud-vault-${scope}`,
         trackedForPush(t, git, synced),
         { masterKey: key.masterKey, warn: (w) => warnings.push(w) },
         async (snapshotPath) => {
-          snap = await snapshotJournalState(snapshotPath, t.streamId, replicaId);
+          const state = await snapshotJournalState(snapshotPath, t.streamId, replicaId);
+          let read: Taken['read'] = null;
+          if (
+            state.cursor !== null &&
+            state.unsent === 0 &&
+            parent.coversSeq <= state.cursor.after
+          ) {
+            const window = await readJournalWindow(
+              journal,
+              parent,
+              key.signers,
+              state.cursor.after,
+            );
+            const { openNativeDatabase } = await import('../store/sqlite-native.js');
+            const snapDb = openNativeDatabase(snapshotPath, { readonly: true, enableWal: false });
+            try {
+              read = {
+                window,
+                tallies: journalTallies(snapDb, t.streamId, parent, window),
+                // The journal in force from each rise: the snapshot's, which replays at the newest schema.
+                pin: replayPinOf(
+                  snapDb,
+                  schemaRises(parent.manifest.schemaVersion, window.schemaVersions).map((r) => ({
+                    ...r,
+                    journal: migrationJournalHash(snapDb),
+                  })),
+                ),
+              };
+            } finally {
+              snapDb.close();
+            }
+          }
+          snap = { ...state, read };
         },
       );
       // Read through a const: TypeScript does not see the callback assign it.
-      const taken = snap as { cursor: StreamCursor | null; unsent: number } | null;
+      const taken = snap as Taken | null;
       const cursor = taken?.cursor ?? null;
       if (taken === null || cursor === null || taken.unsent > 0) {
         if (attempt === 0) continue;
@@ -1448,7 +1524,11 @@ async function pushJournalCheckpoint(
           'run `cleo cloud sync`, then push again',
         );
       }
-      const window = await readJournalWindow(journal, parent, key.signers, cursor.after);
+      if (taken?.read == null) {
+        // @sync-invariant none:local-only unreachable: a clean snapshot at or past the parent was read
+        throw new Error('pushJournalCheckpoint: the snapshot was not read');
+      }
+      const { window, pin } = taken.read;
       const names = await deviceNames(conn);
       if (
         window.txns.length === 0 &&
@@ -1482,29 +1562,11 @@ async function pushJournalCheckpoint(
       const keys = [...new Set([...Object.keys(tables), ...Object.keys(parent.manifest.tables)])]
         .filter((k) => !isVaultAnnotationKey(k))
         .sort();
-      // The tallies and the replay pin come from the snapshot itself (its inbox survives the export).
-      const { openNativeDatabase } = await import('../store/sqlite-native.js');
-      const snapDb = openNativeDatabase(dbPath, { readonly: true, enableWal: false });
-      let settled: ReturnType<typeof settleShortfalls>;
-      let pin: ReplayPin;
-      try {
-        settled = settleShortfalls(
-          journalTallies(snapDb, t.streamId, parent, window),
-          local,
-          keys.filter((k) => !isSnapshotAuthoritativeKey(k)),
-        );
-        // The journal in force from each rise: the snapshot's, which replays at the newest schema.
-        pin = replayPinOf(
-          snapDb,
-          schemaRises(parent.manifest.schemaVersion, window.schemaVersions).map((r) => ({
-            ...r,
-            journal: migrationJournalHash(snapDb),
-          })),
-        );
-      } finally {
-        snapDb.close();
-      }
-      const { tallies, unexplained } = settled;
+      const { tallies, unexplained } = settleShortfalls(
+        taken.read.tallies,
+        local,
+        keys.filter((k) => !isSnapshotAuthoritativeKey(k)),
+      );
       if (unexplained.length > 0) {
         throw vaultError(
           'E_NEXUS_VAULT_REFUSED',
@@ -1521,6 +1583,9 @@ async function pushJournalCheckpoint(
         opts.force === true,
         opts.force === true ? 'cleo cloud push --force' : 'cleo cloud push',
       );
+      const forked = vaultOnlyMoved || acquired.forked;
+      if (forked)
+        tables[VAULT_FORK_KEY] = vaultForkEntry(hashKeyOf(t.dataKey), parent.checkpointId);
       try {
         conn.state.markPushInFlight(
           conn.apiUrl,
@@ -1584,7 +1649,7 @@ async function pushJournalCheckpoint(
           parentCheckpointId: cp.parentCheckpointId,
           deltaSegmentSeq: null,
           lease: opts.hold === true ? acquired.lease : null,
-          forked: acquired.forked,
+          forked,
           warnings,
         };
       } catch (err) {
