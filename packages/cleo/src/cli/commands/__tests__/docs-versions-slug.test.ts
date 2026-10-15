@@ -8,7 +8,8 @@
  * `AttachmentStore.findBySlug` + `listRefs` surface `docs fetch` uses.
  *
  * Drives the compiled `cleo` CLI as a subprocess against an isolated tmp
- * project and verifies:
+ * project (HOME, CLEO_HOME and XDG_* sandboxed inside it) and verifies.
+ * Skipped unless `packages/cleo/dist` is built:
  *
  *   (a) a fresh add+update doc: `--for <slug>` returns the same non-empty
  *       rows as `--for <owner-id>`;
@@ -41,8 +42,21 @@ interface CliResult {
 }
 
 function runCli(args: readonly string[], projectRoot: string): CliResult {
+  // Never let the subprocess see the real HOME, global CLEO home or an inherited session.
+  const inherited = Object.fromEntries(
+    Object.entries(process.env).filter(
+      ([key]) => !key.startsWith('CLEO_') && !key.startsWith('XDG_'),
+    ),
+  );
+  const home = join(projectRoot, '.home');
   const env = {
-    ...process.env,
+    ...inherited,
+    HOME: home,
+    CLEO_HOME: join(home, '.cleo'),
+    XDG_DATA_HOME: join(home, '.local', 'share'),
+    XDG_CONFIG_HOME: join(home, '.config'),
+    XDG_CACHE_HOME: join(home, '.cache'),
+    XDG_STATE_HOME: join(home, '.local', 'state'),
     CLEO_PROJECT_ROOT: projectRoot,
     CLEO_ROOT: projectRoot,
     CLEO_DIR: join(projectRoot, '.cleo'),

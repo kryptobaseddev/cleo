@@ -929,12 +929,13 @@ export async function rankDocs(opts: {
  * filtered by filename. Each entry carries its content-address SHA-256 so
  * callers can reconstruct history from the store.
  *
- * T13725 — `ownerId` may also be a doc slug: when the verbatim arg matches
- * no owner with mirrored blobs, it is resolved as a doc slug through the
- * same {@link AttachmentStore.findBySlug} surface `docs fetch` uses, and
- * the blobs of the task(s) the doc is attached to are listed instead. An
- * arg that is neither a known owner (with blobs) nor a known slug throws
- * `E_NOT_FOUND` rather than returning a silently empty list.
+ * T13725 — `ownerId` may also be a doc slug. Resolution order: an owner id
+ * (`T###`, `ses_*`, `O-*`) is listed verbatim, even when it has no blobs.
+ * Any other arg is listed verbatim when it owns blobs; otherwise it is
+ * resolved as a doc slug through the same {@link AttachmentStore.findBySlug}
+ * surface `docs fetch` uses, and its owning task's blobs are listed
+ * (sibling docs included; narrow with `name`). An
+ * arg that is neither throws `E_NOT_FOUND`.
  *
  * @param opts - Required `ownerId` (owner id or doc slug), optional `name`
  *   filter and `projectRoot`.
@@ -955,7 +956,7 @@ export async function listDocVersions(opts: {
   let allBlobs = await blobList(opts.ownerId, root).catch(() => []);
   let listedOwnerId = opts.ownerId;
 
-  if (allBlobs.length === 0) {
+  if (allBlobs.length === 0 && !/^(T\d+$|ses_|O-)/.test(opts.ownerId)) {
     const store = createAttachmentStore();
     const doc = await store.findBySlug(opts.ownerId, root).catch(() => null);
     if (doc === null) {
@@ -964,6 +965,9 @@ export async function listDocVersions(opts: {
         fix: 'Pass an owner id (T###, ses_*, O-*) or a doc slug from `cleo docs list`.',
       });
     }
+    // shortcut: lists the owning task's blobs, siblings included; the store keeps no link from
+    // a doc to its pre-update blobs (update re-homes the slug), so a per-doc filter would drop
+    // history. Narrow with `name`, or filter per doc once updates record their predecessor.
     const refs = await store.listRefs(doc.metadata.id, root).catch(() => []);
     for (const ref of refs) {
       const rows = await blobList(ref.ownerId, root).catch(() => []);

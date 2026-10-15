@@ -13,7 +13,7 @@
 
 export type { DispatcherConfig } from './dispatcher.js';
 export { Dispatcher } from './dispatcher.js';
-export { engineSuccess } from './engine-error.js';
+export { cleoErrorToEngineError, engineSuccess } from './engine-error.js';
 export { createGatewayHandler, type GatewayHandler } from './gateway-handler.js';
 export { createDispatchMeta } from './meta.js';
 export {

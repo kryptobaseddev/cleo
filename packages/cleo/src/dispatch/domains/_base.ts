@@ -13,7 +13,7 @@
 
 import type { LAFSPage } from '@cleocode/contracts';
 import type { EngineResult, ProblemDetails } from '@cleocode/core';
-import { cleoErrorToEngineError } from '@cleocode/runtime/gateway';
+import { cleoErrorToEngineError } from '@cleocode/runtime/gateway/dispatch';
 import type { DispatchResponse } from '../types.js';
 import { dispatchMeta } from './_meta.js';
 
@@ -290,30 +290,29 @@ export function handleErrorResult(
   error: unknown,
   startTime: number,
 ): DispatchResponse {
-  if (error !== null && typeof error === 'object' && error instanceof Error) {
-    const coded = (error as { code?: unknown }).code;
-    if (typeof coded === 'number') {
-      const result = cleoErrorToEngineError(
-        error,
-        'E_INTERNAL', // @sync-invariant none:local-only the fallback names a local dispatch error envelope; no synced table is written
-        'Dispatch operation failed',
-      );
-      if (!result.success) {
-        // @sync-invariant none:local-only forwards the mapped code into a local dispatch error envelope; no synced table is written
-        return {
-          meta: dispatchMeta(gateway, domain, operation, startTime),
-          success: false,
-          error: {
-            code: result.error.code,
-            message: result.error.message,
-            details: result.error.details as Record<string, unknown> | undefined,
-            exitCode: result.error.exitCode,
-            fix: result.error.fix,
-            alternatives: result.error.alternatives,
-            ...(result.error.problemDetails ? { problemDetails: result.error.problemDetails } : {}),
-          },
-        };
-      }
+  // Only a real CleoError (name set in core/src/errors.ts) carries a CLEO exit
+  // code; a numeric `.code` alone could be a child-process exit status.
+  if (error instanceof Error && error.name === 'CleoError') {
+    const result = cleoErrorToEngineError(
+      error,
+      'E_INTERNAL', // @sync-invariant none:local-only the fallback names a local dispatch error envelope; no synced table is written
+      'Dispatch operation failed',
+    );
+    if (!result.success) {
+      // @sync-invariant none:local-only forwards the mapped code into a local dispatch error envelope; no synced table is written
+      return {
+        meta: dispatchMeta(gateway, domain, operation, startTime),
+        success: false,
+        error: {
+          code: result.error.code,
+          message: result.error.message,
+          details: result.error.details as Record<string, unknown> | undefined,
+          exitCode: result.error.exitCode,
+          fix: result.error.fix,
+          alternatives: result.error.alternatives,
+          ...(result.error.problemDetails ? { problemDetails: result.error.problemDetails } : {}),
+        },
+      };
     }
   }
   const message = error instanceof Error ? error.message : String(error);

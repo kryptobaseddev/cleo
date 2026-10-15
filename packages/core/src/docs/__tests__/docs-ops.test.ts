@@ -301,6 +301,14 @@ describe('listDocVersions', () => {
     expect(result.versions[0].name).toBe('spec.md');
   });
 
+  it('returns empty versions list when blobList returns empty', async () => {
+    vi.mocked(blobOps.blobList).mockResolvedValue([]);
+
+    const result = await listDocVersions({ ownerId: 'T999' });
+
+    expect(result.versions).toHaveLength(0);
+  });
+
   it('throws E_NOT_FOUND when the arg is neither an owner with blobs nor a known slug (T13725)', async () => {
     vi.mocked(blobOps.blobList).mockResolvedValue([]);
     attachmentStoreMocks.findBySlug.mockResolvedValue(null);

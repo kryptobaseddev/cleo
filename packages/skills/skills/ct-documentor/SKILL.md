@@ -1,7 +1,7 @@
 ---
 name: ct-documentor
 description: Documentation coordinator with CLEO style guide compliance. Routes every canonical-doc write (spec, adr, research, handoff, note, llm-readme) through the docs SSoT via `cleo docs add` / `cleo docs publish` / `cleo docs fetch` — never raw filesystem writes. Carries the CLEO writing and review guides as references and coordinates ct-spec-writer and ct-adr-recorder. Use when creating or updating documentation files, consolidating scattered documentation, or validating documentation against style standards. Triggers on documentation tasks, doc update requests, or style guide compliance checks.
-version: 3.25.1
+version: 3.25.2
 protocol: null
 dependencies:
   - ct-spec-writer
@@ -16,7 +16,7 @@ compatibility:
   - gemini-cli
 license: MIT
 metadata:
-  version: 3.25.1
+  version: 3.25.2
   tier: core
   install: harness
   covers:
@@ -729,8 +729,15 @@ the docs graph — never grep the filesystem for the file you just wrote.
 cleo docs list --type spec --project       # canonical: every spec in this project
 cleo docs list --task T1234                # canonical: everything attached to a task
 cleo docs versions --for T1234             # ADVANCED: list every SHA version
+cleo docs versions --for my-doc-slug       # ADVANCED: same, resolved from a doc slug
 cleo docs sync --from docs/legacy.md --for T1234  # ADVANCED: back-fill on-disk file into SSoT (no --type/--slug; classify with docs add)
 ```
+
+`docs versions --for` resolves owner id first, then slug. An owner id
+(`T###`, `ses_*`, `O-*`) is listed as-is, even when empty. Any other arg is
+looked up as a doc slug and lists its owning task's blobs, sibling docs
+included (add `--name <blob>` to narrow). An arg that is neither fails with
+`E_NOT_FOUND`.
 
 ---
 
