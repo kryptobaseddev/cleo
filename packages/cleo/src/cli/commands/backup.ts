@@ -77,6 +77,8 @@ async function promptPassphrase(): Promise<string> {
  * key on the root backup command.
  *
  * @task T306
+ * @task T13724 — exposed `--note` (createBackup already accepted it; only the
+ *   CLI surface was missing).
  * @epic T299
  */
 const addCommand = defineCommand({
@@ -89,6 +91,10 @@ const addCommand = defineCommand({
     destination: {
       type: 'string',
       description: 'Backup destination directory',
+    },
+    note: {
+      type: 'string',
+      description: 'Attach a human-readable note to the backup (recorded in the meta sidecar)',
     },
     global: {
       type: 'boolean',
@@ -103,7 +109,7 @@ const addCommand = defineCommand({
       'backup',
       {
         type: 'snapshot',
-        note: args.destination ? `destination:${args.destination}` : undefined,
+        note: args.note ?? (args.destination ? `destination:${args.destination}` : undefined),
         includeGlobal: args.global === true,
       },
       { command: 'backup' },
