@@ -165,4 +165,14 @@ describe('local embedding model download gate (T13716)', () => {
     await expect(provider.embed('again')).rejects.toThrow(/unavailable/);
     expect(provider.model).toBe('Xenova/all-MiniLM-L6-v2@onnx-sha256:759c3cd2b7fe:fp32');
   });
+
+  it('weights missing from the cache latch with a clear message, not a raw ENOENT (T13740)', async () => {
+    state.cached = true;
+    rmSync(join(state.cacheDir, 'Xenova'), { recursive: true, force: true });
+    const { LocalEmbeddingProvider } = await import('../embedding-local.js');
+    const provider = new LocalEmbeddingProvider();
+
+    await expect(provider.embed('hello')).rejects.toThrow(/cannot be verified/);
+    expect(provider.isAvailable()).toBe(false);
+  });
 });

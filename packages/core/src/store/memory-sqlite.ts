@@ -359,17 +359,30 @@ function loadBrainVecExtension(nativeDb: DatabaseSync): boolean {
  * name no model, would never be compared, and are local derived data that the
  * backfill rebuilds from the memory text.
  *
+ * A store whose table is already tagged takes no lock: the bind of every
+ * brain read stays lock-free.
+ *
+ * @param nativeDb - Brain handle with sqlite-vec loaded.
+ * @internal Exported for tests.
  * @task T5157
  * @task T13740
  */
-function initializeBrainVec(nativeDb: DatabaseSync): void {
-  // Check, drop and create under one write lock, so two processes opening an
-  // old store at once cannot both see the old shape and race the rebuild.
+export function initializeBrainVec(nativeDb: DatabaseSync): void {
+  const shape = (): 'tagged' | 'untagged' | 'missing' => {
+    const columns = nativeDb.prepare('PRAGMA main.table_info(brain_embeddings)').all();
+    if (columns.length === 0) return 'missing';
+    return columns.some((c) => c.name === 'model') ? 'tagged' : 'untagged';
+  };
+  // Fast path, no lock: every bind of a current store ends here, so reads
+  // never queue for the write lock.
+  if (shape() === 'tagged') return;
+  // Re-check, drop and create under one write lock, so two processes opening
+  // an old store at once cannot both see the old shape and race the rebuild.
   const own = !nativeDb.isTransaction;
   if (own) nativeDb.prepare('BEGIN IMMEDIATE').run();
   try {
-    const columns = nativeDb.prepare('PRAGMA main.table_info(brain_embeddings)').all();
-    if (columns.length > 0 && !columns.some((c) => c.name === 'model')) {
+    const current = shape();
+    if (current === 'untagged') {
       nativeDb.prepare('DROP TABLE IF EXISTS main.brain_embeddings').run();
     }
     nativeDb

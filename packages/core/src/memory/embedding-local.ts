@@ -18,8 +18,9 @@
  */
 
 import { createHash } from 'node:crypto';
-import { readFile } from 'node:fs/promises';
+import { createReadStream } from 'node:fs';
 import { join } from 'node:path';
+import { pipeline as streamPipeline } from 'node:stream/promises';
 import { getLogger } from '../logger.js';
 import type { EmbeddingProvider } from './brain-embedding.js';
 import { EMBEDDING_DIMENSIONS } from './brain-embedding.js';
@@ -126,9 +127,7 @@ async function loadPipeline(): Promise<void> {
     // T13740: vectors are tagged with these exact weights; any other file
     // (an updated hub `main`, a corrupt cache) must not write under that tag.
     const onnxPath = join(gated.transformers.env.cacheDir ?? '', MODEL_NAME, 'onnx', 'model.onnx');
-    const actual = createHash('sha256')
-      .update(await readFile(onnxPath))
-      .digest('hex');
+    const actual = await hashModelFile(onnxPath);
     if (actual !== _expectedOnnxSha256) {
       const message =
         `Embedding model ${onnxPath} has sha256 ${actual.slice(0, 12)}…, but this CLEO ` +
@@ -152,6 +151,30 @@ async function loadPipeline(): Promise<void> {
     }
     throw err;
   }
+}
+
+/**
+ * Stream-hash the cached weights file (T13740).
+ *
+ * @param onnxPath - Cached `onnx/model.onnx`.
+ * @returns Its hex sha256.
+ * @throws When the file is not in the transformers cache (for example a model
+ *   served from `env.localModelPath`): the weights cannot be verified.
+ */
+async function hashModelFile(onnxPath: string): Promise<string> {
+  const hash = createHash('sha256');
+  try {
+    await streamPipeline(createReadStream(onnxPath), hash);
+  } catch (err) {
+    const message =
+      `Embedding model weights are not at ${onnxPath}, so they cannot be verified against ` +
+      `this CLEO build (${_expectedOnnxSha256.slice(0, 12)}…); embeddings are off and search ` +
+      'uses FTS5 only. CLEO only loads the model from the transformers cache.';
+    getLogger('embedding-local').warn({ onnxPath, err }, message);
+    // @sync-invariant none:local-only the local model file is missing; nothing is written
+    throw new Error(message);
+  }
+  return hash.digest('hex');
 }
 
 /**
