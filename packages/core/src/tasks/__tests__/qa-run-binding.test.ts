@@ -16,7 +16,12 @@ import { join } from 'node:path';
 import type { EvidenceAtom, EvidenceValidationContext } from '@cleocode/contracts';
 import { parseEvidenceString, validateEvidenceForGate } from '@cleocode/contracts';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { isNonCodeOnlyChange, isNonCodePath } from '../affected-packages.js';
+import {
+  cleoConfigSchemaFor,
+  isCleoConfigOnlyChange,
+  isNonCodeOnlyChange,
+  isNonCodePath,
+} from '../affected-packages.js';
 import {
   hasTreeBoundQaRun,
   type MergedVerdict,
@@ -703,5 +708,83 @@ describe('T13745: a non-code-only change (editor settings, docs) completes with 
       root,
     );
     expect(!r.ok && r.reason, JSON.stringify(r)).toMatch(/workspace-wide/);
+  });
+});
+
+describe('T13758: a change to CLEO-owned config alone is tested by CLEO schema validation', () => {
+  const ctx = (gate: 'testsPassed' | 'qaPassed'): EvidenceValidationContext => ({
+    task: { id: 'T1', kind: 'work', labels: [], files: [], acceptance: [] },
+    gates: [gate],
+    criteria: [],
+  });
+  const context = (body: Record<string, unknown>): string =>
+    `${JSON.stringify({ schemaVersion: '1.0.0', detectedAt: '2026-10-15T00:00:00Z', projectTypes: ['node'], ...body })}\n`;
+
+  it('names CLEO-owned config only; any other path removes the route', () => {
+    expect(cleoConfigSchemaFor('.cleo/project-context.json')).toBe('project-context.schema.json');
+    expect(cleoConfigSchemaFor('.cleo/config.json')).toBe('config.schema.json');
+    expect(cleoConfigSchemaFor('.cleo/other.json')).toBeNull();
+    expect(isCleoConfigOnlyChange(['.cleo/project-context.json'])).toBe(true);
+    expect(isCleoConfigOnlyChange(['.cleo/project-context.json', 'README.md'])).toBe(false);
+    expect(isCleoConfigOnlyChange([])).toBe(false);
+  });
+
+  beforeEach(() => {
+    initRepo(() => {
+      put('package.json', JSON.stringify({ name: 'solo' }));
+      put('src/a.ts', 'export const a = 1;\n');
+      put('.cleo/project-context.json', context({}));
+    });
+  });
+
+  function change(body: string): void {
+    put('.cleo/project-context.json', body);
+    git(root, ['commit', '-q', '-am', 'T1: config']);
+  }
+
+  it('green: a valid file validates, tree-pinned, and stands for testsPassed and qaPassed on a code task', async () => {
+    change(context({ release: { prRequiredWorkflows: [] } }));
+    const r = await validateAtom({ kind: 'tool', tool: 'config-schema' }, root);
+    expect(r.ok && r.atom, JSON.stringify(r)).toMatchObject({
+      kind: 'tool',
+      tool: 'config-schema',
+      configSchema: ['.cleo/project-context.json'],
+      treeHash: git(root, ['rev-parse', 'HEAD^{tree}']),
+    });
+    if (!r.ok) throw new Error('expected an atom');
+    expect(checkTaskEvidenceContext(ctx('testsPassed'), 'testsPassed', [r.atom])).toBeNull();
+    expect(checkTaskEvidenceContext(ctx('qaPassed'), 'qaPassed', [r.atom])).toBeNull();
+  });
+
+  it('red: a file that breaks the schema fails the check, naming the file', async () => {
+    change(context({ test: { command: 'pnpm test' } }));
+    const r = await validateAtom({ kind: 'tool', tool: 'config-schema' }, root);
+    expect(!r.ok && r.codeName, JSON.stringify(r)).toBe('E_EVIDENCE_TOOL_FAILED');
+    expect(!r.ok && r.reason).toMatch(/\.cleo\/project-context\.json/);
+  });
+
+  it('red: any other changed path removes the route', async () => {
+    put('src/a.ts', 'export const a = 2;\n');
+    change(context({ release: { prRequiredWorkflows: [] } }));
+    const r = await validateAtom({ kind: 'tool', tool: 'config-schema' }, root);
+    expect(!r.ok && r.reason, JSON.stringify(r)).toMatch(/also touches src\/a\.ts/);
+  });
+
+  it('red: once the tree moves (code committed after verify), both gates refuse the result', async () => {
+    change(context({ release: { prRequiredWorkflows: [] } }));
+    const r = await validateAtom({ kind: 'tool', tool: 'config-schema' }, root);
+    if (!r.ok) throw new Error(JSON.stringify(r));
+    const probe = {
+      mergeState: () => 'unmerged' as const,
+      currentTree: () => captureTreeHash(root),
+    };
+    expect(await testsPassedSupersededReason([r.atom], probe)).toBeNull();
+    expect(await qaPassedSupersededReason([r.atom], probe)).toBeNull();
+    put('src/a.ts', 'export const a: number = "x";\n');
+    git(root, ['commit', '-q', '-am', 'T1: code']);
+    expect(await testsPassedSupersededReason([r.atom], probe)).toMatch(
+      /CLEO's schema check of \.cleo\/project-context\.json.*Re-verify testsPassed/,
+    );
+    expect(await qaPassedSupersededReason([r.atom], probe)).toMatch(/Re-verify qaPassed/);
   });
 });

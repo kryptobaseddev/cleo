@@ -2207,11 +2207,80 @@ async function typedGateInputs(
   }
 }
 
+/**
+ * `tool:config-schema` (T13758): CLEO validates each changed CLEO-owned config
+ * file against its CLEO schema. It speaks only for a change made of those
+ * files alone, and is pinned to the tree like a qa-run receipt.
+ */
+async function validateConfigSchema(
+  roots: EvidenceRoots,
+  context?: EvidenceValidationContext,
+): Promise<AtomValidation> {
+  const { cleoConfigSchemaFor, isCleoConfigOnlyChange, scopedChangedPaths } = await import(
+    './affected-packages.js'
+  );
+  const root = context?.task.id
+    ? (await import('./change-set.js')).resolveChangeSetRoot(roots.storeRoot, context.task.id).root
+    : roots.executionRoot;
+  const changed = scopedChangedPaths(root)?.paths ?? [];
+  if (!isCleoConfigOnlyChange(changed)) {
+    const other = changed.filter((p) => cleoConfigSchemaFor(p) === null);
+    return {
+      ok: false,
+      codeName: 'E_EVIDENCE_INSUFFICIENT',
+      reason:
+        changed.length === 0
+          ? 'tool:config-schema needs a change to judge: no change against the default branch was found.'
+          : `tool:config-schema speaks only for a change made of CLEO config alone (.cleo/project-context.json, .cleo/config.json); this change also touches ${other.slice(0, 5).join(', ')}.`,
+    };
+  }
+  const { resolveSchemaPath } = await import('../schema-management.js');
+  const { checkSchema } = await import('../json-schema-validator.js');
+  const failures: string[] = [];
+  for (const path of changed) {
+    const schemaName = cleoConfigSchemaFor(path) as string;
+    const schemaPath = resolveSchemaPath(schemaName);
+    if (!schemaPath)
+      return {
+        ok: false,
+        codeName: 'E_EVIDENCE_TOOL_UNAVAILABLE',
+        reason: `tool:config-schema cannot find CLEO's ${schemaName} to validate ${path}.`,
+      };
+    let data: unknown;
+    try {
+      data = JSON.parse(await readFile(resolvePath(root, path), 'utf-8'));
+    } catch (err) {
+      failures.push(`${path}: ${err instanceof Error ? err.message : String(err)}`);
+      continue;
+    }
+    const schema = JSON.parse(await readFile(schemaPath, 'utf-8')) as Record<string, unknown>;
+    for (const error of checkSchema(data, schema)) failures.push(`${path}: ${error}`);
+  }
+  if (failures.length > 0)
+    return {
+      ok: false,
+      codeName: 'E_EVIDENCE_TOOL_FAILED',
+      reason: `tool:config-schema: CLEO's schema check failed:\n  - ${failures.join('\n  - ')}`,
+    };
+  const treeHash = (await captureTree(root)).tree;
+  if (!treeHash)
+    return {
+      ok: false,
+      codeName: 'E_EVIDENCE_INSUFFICIENT',
+      reason: `tool:config-schema cannot pin its result: the tree of ${root} cannot be computed.`,
+    };
+  return {
+    ok: true,
+    atom: { kind: 'tool', tool: 'config-schema', exitCode: 0, configSchema: changed, treeHash },
+  };
+}
+
 async function validateTool(
   tool: string,
   roots: EvidenceRoots,
   context?: EvidenceValidationContext,
 ): Promise<AtomValidation> {
+  if (tool === 'config-schema') return validateConfigSchema(roots, context);
   // T13745: no test reads a non-code-only change (docs, editor settings), so
   // the gate is satisfied by absence, recorded with the paths, never by a
   // suite. Pinned to the tree like a test-run: once the tree moves (code
