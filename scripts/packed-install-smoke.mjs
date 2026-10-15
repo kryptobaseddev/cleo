@@ -1203,8 +1203,16 @@ async function verifyPackedRuntimeInScope(app, root, env, deadlineAt) {
     writeFileSync(modelGuard, MODEL_GUARD);
     const modelCache = join(root, 'model-cache');
     mkdirSync(modelCache, { recursive: true });
+    // T13716: model downloads are opt-in; this probe proves the opted-in path.
+    const modelHome = join(root, 'model-cleo-home');
+    mkdirSync(modelHome, { recursive: true });
+    writeFileSync(
+      join(modelHome, 'config.json'),
+      JSON.stringify({ brain: { embedding: { allowModelDownload: true } } }),
+    );
     const modelEnv = {
       ...env,
+      CLEO_HOME: modelHome,
       NODE_OPTIONS: `--max-old-space-size=2048 --import=${modelGuard}`,
       CLEO_TEST_MODEL_RECEIPT: join(root, 'model-network.jsonl'),
       OMP_NUM_THREADS: '2',

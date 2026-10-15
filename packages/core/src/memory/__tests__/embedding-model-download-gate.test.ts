@@ -17,6 +17,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const state = vi.hoisted(() => ({
   allowModelDownload: undefined as boolean | undefined,
+  enabled: true,
   cached: false,
   pipelineOptions: [] as Array<{ local_files_only?: boolean }>,
   fetched: [] as string[],
@@ -26,7 +27,7 @@ vi.mock('../../config.js', () => ({
   loadConfig: async () => ({
     brain: {
       embedding: {
-        enabled: true,
+        enabled: state.enabled,
         provider: 'local',
         ...(state.allowModelDownload === undefined
           ? {}
@@ -37,6 +38,7 @@ vi.mock('../../config.js', () => ({
 }));
 
 vi.mock('@huggingface/transformers', () => ({
+  env: { allowRemoteModels: true },
   pipeline: async (_task: string, model: string, opts: { local_files_only?: boolean }) => {
     state.pipelineOptions.push(opts);
     if (!state.cached) {
@@ -49,6 +51,7 @@ vi.mock('@huggingface/transformers', () => ({
 
 beforeEach(async () => {
   state.allowModelDownload = undefined;
+  state.enabled = true;
   state.cached = false;
   state.pipelineOptions = [];
   state.fetched = [];
@@ -101,5 +104,22 @@ describe('local embedding model download gate (T13716)', () => {
     expect(state.pipelineOptions).toEqual([{ local_files_only: false }]);
     expect(state.fetched).toHaveLength(1);
     expect(state.fetched[0]).toContain('huggingface.co');
+  });
+
+  it('brain.embedding.enabled=false: ensureEmbeddingProvider refuses even with a provider', async () => {
+    state.enabled = false;
+    const { LocalEmbeddingProvider } = await import('../embedding-local.js');
+    const { clearEmbeddingProvider, ensureEmbeddingProvider, setEmbeddingProvider } = await import(
+      '../brain-embedding.js'
+    );
+    setEmbeddingProvider(new LocalEmbeddingProvider());
+    try {
+      expect(await ensureEmbeddingProvider('/p')).toBe(false);
+      state.enabled = true;
+      expect(await ensureEmbeddingProvider('/p')).toBe(true);
+    } finally {
+      clearEmbeddingProvider();
+    }
+    expect(state.pipelineOptions).toEqual([]);
   });
 });

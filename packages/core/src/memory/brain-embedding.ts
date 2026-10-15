@@ -129,7 +129,9 @@ export async function initDefaultProvider(): Promise<void> {
  * first {@link embedText}, not here. There is no cost argument for making a
  * consumer race a deferred registration it cannot see.
  *
- * @returns `true` when a provider is registered once this resolves.
+ * @param projectRoot - Project whose config decides `brain.embedding.enabled`.
+ * @returns `true` when a provider is registered once this resolves, and
+ *   `false` when `brain.embedding.enabled` is false (T13716).
  * @remarks A load failure is NOT hidden — the provider registers, and its
  * subsequent failure latches and is reported by the consumer. Returning
  * `false` here means no provider could be constructed at all.
@@ -138,7 +140,10 @@ export async function initDefaultProvider(): Promise<void> {
  * if (!(await ensureEmbeddingProvider())) reportUnavailable();
  * ```
  */
-export async function ensureEmbeddingProvider(): Promise<boolean> {
+export async function ensureEmbeddingProvider(projectRoot?: string): Promise<boolean> {
+  // T13716: `brain.embedding.enabled: false` means no embedding work at all.
+  const { loadConfig } = await import('../config.js');
+  if ((await loadConfig(projectRoot)).brain?.embedding?.enabled === false) return false;
   if (currentProvider !== null) return true;
   try {
     await initDefaultProvider();

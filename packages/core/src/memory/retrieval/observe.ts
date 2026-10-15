@@ -388,7 +388,7 @@ export async function observeBrain(
     setImmediate(() => {
       void (async () => {
         try {
-          if (!(await ensureEmbeddingProvider())) return;
+          if (!(await ensureEmbeddingProvider(projectRoot))) return;
           const vector = await embedText(text);
           if (!vector) return;
           // T13230: inside the writer isolate this IS the chokepoint's handle,
@@ -580,7 +580,7 @@ export async function populateEmbeddings(
   // T12314: registration is scheduled by a setImmediate in the DB open path,
   // so asking availability first races a registration this process cannot see.
   // Registering costs nothing — the model download happens on first embed.
-  const registered = await ensureEmbeddingProvider();
+  const registered = await ensureEmbeddingProvider(projectRoot);
   if (!registered || !isEmbeddingAvailable()) {
     pushWarning({
       code: 'W_EMBEDDINGS_UNAVAILABLE',

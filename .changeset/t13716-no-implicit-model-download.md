@@ -10,10 +10,17 @@ embedding model, and with no cached copy transformers.js downloaded it from
 huggingface.co and its AWS-hosted CDN. That is a connection CLEO made without
 being asked.
 
-The model load in `memory/embedding-local.ts` is the single place the model is
-fetched, and it now passes `local_files_only` unless
-`brain.embedding.allowModelDownload` is true (default false). A cached model
-still loads, so existing users with the model on disk keep their embeddings.
-An uncached model latches as unavailable for the process, the backfill skips
-its rows, and a debug line names the opt-in:
-`cleo config set brain.embedding.allowModelDownload true --type boolean --scope global`.
+Every CLEO model load (the embedding model and the transcript extractor's
+text-generation model) now goes through one gate, `importGatedTransformers`
+in `memory/embedding-local.ts`. It sets transformers.js's process-global
+`env.allowRemoteModels` from `brain.embedding.allowModelDownload` (default
+false) and the loaders pass `local_files_only` to match; `local_files_only`
+alone was not enough, because transformers.js 4.0.1 still fetches config and
+tokenizer metadata from the hub during file discovery. A cached model still
+loads, so users with the model on disk keep their embeddings. An uncached
+model latches as unavailable for the process, the backfill skips its rows,
+and a debug line names the opt-in:
+`cleo config set brain.embedding.allowModelDownload true --type boolean --scope global`
+(restart the CLEO process to apply it). The embedding backfill and observe
+path also honour `brain.embedding.enabled: false`, and the global config
+template carries `"allowModelDownload": false`.

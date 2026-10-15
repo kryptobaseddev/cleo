@@ -32,6 +32,30 @@ const MODEL_NAME = 'Xenova/all-MiniLM-L6-v2';
 export const ENABLE_MODEL_DOWNLOAD_HINT =
   'cleo config set brain.embedding.allowModelDownload true --type boolean --scope global';
 
+/**
+ * Import transformers.js with hub access gated on the opt-in (T13716).
+ *
+ * The one gate for every CLEO model load (this embedding model and the
+ * transcript extractor's text-generation model). transformers.js 4.0.1 still
+ * fetches config and tokenizer metadata from the hub under `local_files_only`,
+ * so the gate sets the process-global `env.allowRemoteModels` from
+ * `brain.embedding.allowModelDownload` before every load: one rule, one value,
+ * so concurrent loads cannot disagree and nothing needs restoring.
+ *
+ * @returns The transformers module and whether downloads are allowed.
+ * @task T13716
+ */
+export async function importGatedTransformers(): Promise<{
+  transformers: typeof import('@huggingface/transformers');
+  allowDownload: boolean;
+}> {
+  const transformers = await import('@huggingface/transformers');
+  const { loadConfig } = await import('../config.js');
+  const allowDownload = (await loadConfig()).brain?.embedding?.allowModelDownload === true;
+  transformers.env.allowRemoteModels = allowDownload;
+  return { transformers, allowDownload };
+}
+
 /** Pipeline singleton — initialized lazily on first call. */
 let _pipeline: import('@huggingface/transformers').FeatureExtractionPipeline | null = null;
 
@@ -69,10 +93,9 @@ async function loadPipeline(): Promise<void> {
   let allowDownload = false;
   try {
     // Dynamic import — only resolves when embedding is explicitly enabled
-    const { pipeline } = await import('@huggingface/transformers');
-    const { loadConfig } = await import('../config.js');
-    allowDownload = (await loadConfig()).brain?.embedding?.allowModelDownload === true;
-    _pipeline = await pipeline('feature-extraction', MODEL_NAME, {
+    const gated = await importGatedTransformers();
+    allowDownload = gated.allowDownload;
+    _pipeline = await gated.transformers.pipeline('feature-extraction', MODEL_NAME, {
       local_files_only: !allowDownload,
     });
     _ready = true;
@@ -83,7 +106,7 @@ async function loadPipeline(): Promise<void> {
       getLogger('embedding-local').debug(
         { err },
         'Embedding model is not cached and downloads are off; skipping embeddings. ' +
-          `To enable: ${ENABLE_MODEL_DOWNLOAD_HINT}`,
+          `To enable: ${ENABLE_MODEL_DOWNLOAD_HINT}, then restart the CLEO process.`,
       );
     }
     throw err;
