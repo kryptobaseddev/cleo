@@ -82,6 +82,7 @@ import {
   ListLeasesResult,
   type Manifest,
   ReplayPin,
+  type TableDeltas,
 } from '@cleocode/contracts/cloud';
 import {
   NEXUS_CLOUD_MAX_PAGES,
@@ -113,6 +114,7 @@ import {
 } from '../store/portable-bundle-scan.js';
 import { writeRestoreMarker } from '../store/restore-marker.js';
 import { FIRST_OPEN_LOCK_SUFFIX } from '../store/sqlite.js';
+import { withImmediateTransaction } from '../store/sync/clock-store.js';
 import { isSyncFlagOn, setSyncFlag, UNRELEASED_FLAGS } from '../store/sync/flags.js';
 import {
   completeGenesis,
@@ -131,6 +133,7 @@ import {
   type SegmentPuller,
   type StreamCursor,
   type TxnVerifier,
+  VAULT_DELTA_KIND,
 } from '../store/sync/pull.js';
 import { type PushRefusal, type PushStreamReport, pushStream } from '../store/sync/push.js';
 import {
@@ -139,17 +142,21 @@ import {
   type ReconcileCopyReport,
   reconcileCopy,
 } from '../store/sync/reconcile-copy.js';
-import { replayPinOf } from '../store/sync/replay-pin.js';
+import { migrationJournalHash, replayPinOf } from '../store/sync/replay-pin.js';
 import {
   activeReplica,
   fileIdentity,
+  persistStoreSeq,
   readActiveReplicaId,
   rebindAfterVaultRestore,
   reconcileDue,
+  storeHwm,
 } from '../store/sync/replica.js';
 import { ReplicaRegistry } from '../store/sync/replica-registry.js';
 import type { ServerRetirement } from '../store/sync/retire.js';
+import { sealBacklog } from '../store/sync/seal-backlog.js';
 import { sealPending } from '../store/sync/sealer.js';
+import { unpushedSegments } from '../store/sync/segments.js';
 import { firstBadTxnSignature, signTxn } from '../store/sync/txn-signing.js';
 import {
   buildVaultManifest,
@@ -160,6 +167,7 @@ import {
   isVaultAnnotationKey,
   isVaultForkManifest,
   sameVaultManifest,
+  VAULT_DB_KEY_PREFIX,
   VAULT_FILES_KEY,
   VAULT_FORK_KEY,
   VAULT_FORMAT_KEY,
@@ -180,8 +188,9 @@ import { autoSyncSuppressedBy } from './auto-sync.js';
 import { deriveKey, uuidv7 } from './crypto.js';
 import { NexusError } from './http.js';
 import { cursorFromCheckpoint, initialPullCursor, Journal, type PullCursor } from './journal.js';
+import { journalTallies, readJournalWindow, settleShortfalls } from './journal-tallies.js';
 import { signerKeys, type TrustedSigners } from './keys.js';
-import { manifestVersion } from './manifest-check.js';
+import { type DeclaredTxn, manifestVersion, schemaRises } from './manifest-check.js';
 import { canonicalGlobalReplicaBinder } from './nexus-attach.js';
 import { NexusAccountError } from './nexus-auth.js';
 import { nexusQueryPath } from './nexus-cloud.js';
@@ -562,7 +571,7 @@ async function replaySegments(
  * checkpoint/v3), for every message that would otherwise say "push" (T13034).
  */
 const JOURNAL_STREAM_REMEDY =
-  'on this stream local changes travel through the change journal (`sync.push`), not vault snapshots (vault snapshots of journal streams are tracked in T12999); a store that has not joined it joins with `cleo sync enable push`, which keeps its own rows and merges them into the stream (T13466); `cleo cloud pull`, `cleo cloud restore` and `cleo cloud verify` still work';
+  'on this stream local changes travel through the change journal (`sync.push`), and with it on a vault push checkpoints the journal (T12999); a store that has not joined it joins with `cleo sync enable push`, which keeps its own rows and merges them into the stream (T13466); `cleo cloud pull`, `cleo cloud restore` and `cleo cloud verify` still work';
 
 /** Whether a snapshot is checkpoint/v3: the change journal writes its stream (T13034). */
 function isJournalSnapshot(cp: Checkpoint | null | undefined): boolean {
@@ -1285,8 +1294,306 @@ async function appendCheckpoint(a: {
   return { cp, deltaSegmentSeq, cursor: pushedWith };
 }
 
+/** Whether this store's `sync.push` is on: its vault push checkpoints the journal (T12999). */
+async function journalPushOn(t: VaultTarget): Promise<boolean> {
+  const { openNativeDatabase } = await import('../store/sqlite-native.js');
+  const db = openNativeDatabase(t.dbPath, { readonly: true, enableWal: false });
+  try {
+    return isSyncFlagOn(db, 'sync.push');
+  } finally {
+    db.close();
+  }
+}
+
+/**
+ * The writes a journal checkpoint's vault manifest carries that the change
+ * journal never does: the plain-file inventory and the other databases
+ * (T12969). Their counts reconcile through a vault delta segment; every
+ * other table reconciles through the journal's tallies (T12999).
+ */
+const isVaultOnlyKey = (key: string): boolean =>
+  key === VAULT_FILES_KEY || key.startsWith(VAULT_DB_KEY_PREFIX);
+
+/** A ref and deltas in the wire's normal form: only tables with a non-zero count. */
+function normalRefDeltas(list: readonly DeclaredTxn[]): DeclaredTxn[] {
+  const out: DeclaredTxn[] = [];
+  for (const v of list) {
+    const deltas = Object.fromEntries(
+      Object.entries(v.deltas).filter(([, c]) => c.created > 0 || c.deleted > 0),
+    );
+    if (Object.keys(deltas).length > 0) out.push({ ref: v.ref, deltas });
+  }
+  return out;
+}
+
+/**
+ * `cleo cloud push` on a store that writes its stream's change journal
+ * (`sync.push` on; T12999, journal spec §2.11): seal, push and pull the
+ * journal first, then snapshot the store as a checkpoint/v3 at the journal's
+ * sealed high-water mark (the store's pull position). Its counts reconcile
+ * through the journal's tallies (pending and voided transactions of the
+ * window), never a synthetic delta segment for journal tables: the
+ * segments already declare those rows, and a delta would count them twice.
+ * Only the vault-only entries (files, other databases) the journal never
+ * carries go in a vault delta segment, when they changed.
+ */
+async function pushJournalCheckpoint(
+  conn: NexusVaultConnection,
+  key: NexusAccountKey,
+  opts: NexusVaultCommandOptions & { force?: boolean; hold?: boolean; allowUnreleased?: boolean },
+  scope: CloudVaultScope,
+  warnings: CloudWarning[],
+): Promise<CloudPushResult> {
+  const synced0 = await syncOneStream({ conn, key }, opts, scope);
+  if (synced0.status !== 'synced') {
+    throw vaultError(
+      'E_NEXUS_SYNC_REFUSED',
+      `the change journal did not sync before the snapshot (${synced0.status}${synced0.refused ? `: ${synced0.refused}` : ''})`,
+      'nothing was snapshotted; run `cleo cloud sync`, then push again',
+    );
+  }
+  // Resolved again: a pull that rebound at head moved the store to its successor replica.
+  const t = await resolveTarget(conn, key.masterKey, { ...opts, scope }, 'push');
+  const replicaId = t.replicaId;
+  if (!replicaId) {
+    throw vaultError(
+      'E_NEXUS_VAULT_NOT_LINKED',
+      'this copy of the project is not attached from this device',
+      'run `cleo project link`',
+    );
+  }
+  const { openDualScopeDbAtPath, getDualScopeNativeDb } = await import('../store/dual-scope-db.js');
+  const db = getDualScopeNativeDb(
+    t.scope === 'global'
+      ? await openDualScopeDbAtPath('global', t.dbPath)
+      : await openDualScopeDbAtPath('project', t.dbPath),
+  );
+  const cursor = readStreamCursor(db, t.streamId);
+  if (cursor === null || unpushedSegments(db, t.streamId, replicaId).length > 0) {
+    throw vaultError(
+      'E_NEXUS_SYNC_REFUSED',
+      `${t.streamId}: this store's change journal is not at the stream's head (${cursor === null ? 'no pull position' : 'segments wait to be pushed'})`,
+      'nothing was snapshotted; run `cleo cloud sync`, then push again',
+    );
+  }
+  const journal = journalFor(conn, t);
+  const head = await streamHead(conn, t.streamId);
+  const checkpoints = head.headCheckpointId ? await listCheckpoints(conn, t.streamId) : [];
+  const parent = checkpoints.find((c) => c.checkpointId === head.headCheckpointId) ?? null;
+  if (parent === null || !isJournalSnapshot(parent)) {
+    throw vaultError(
+      'E_NEXUS_VAULT_REFUSED',
+      `${t.streamId}'s head snapshot ${head.headCheckpointId ?? '(none)'} is not a journal checkpoint, but this store writes the stream's change journal`,
+    );
+  }
+  journal.verifyCheckpoint(parent, key.signers);
+  const ahead = aheadOfThisCleo(
+    t,
+    Math.max(head.maxSchemaVersion ?? 0, parent.manifest.schemaVersion),
+    parent,
+  );
+  if (ahead) throw ahead;
+  if (parent.coversSeq > cursor.after) {
+    throw vaultError(
+      'E_NEXUS_VAULT_BEHIND',
+      `another device checkpointed ${t.streamId} at seq ${parent.coversSeq}, past this store's pull position ${cursor.after}`,
+      'run `cleo cloud sync`, then push again',
+    );
+  }
+  const window = await readJournalWindow(journal, parent, key.signers, cursor.after);
+  const pin = replayPinOf(
+    db,
+    // The journal in force from each rise: this store's, which replays at the newest schema.
+    schemaRises(parent.manifest.schemaVersion, window.schemaVersions).map((r) => ({
+      ...r,
+      journal: migrationJournalHash(db),
+    })),
+  );
+  const { state: synced } = syncedState(conn, t, [parent], head.headCheckpointId);
+  const git = gitTracking(t);
+  if (git.mode === 'unknown') warnings.push(gitUnknownWarning(t));
+  const work = tempDir('cleo-vault-push-');
+  try {
+    const { bundlePath, vault, gitTracked, files } = await exportAndRead(
+      t,
+      work,
+      `cloud-vault-${scope}`,
+      trackedForPush(t, git, synced),
+      { masterKey: key.masterKey, warn: (w) => warnings.push(w) },
+    );
+    const names = await deviceNames(conn);
+    if (
+      window.txns.length === 0 &&
+      compareVaultManifests(vault, comparable(parent.manifest, git)).every((r) => r.match)
+    ) {
+      saveSynced(conn, t, parent, { gitTracked, files: syncFiles(files) });
+      warnings.push(...conn.state.drainWarnings());
+      return {
+        apiUrl: conn.apiUrl,
+        scope,
+        streamId: t.streamId,
+        status: 'up-to-date',
+        snapshot: snapshotOf(parent, names),
+        parentCheckpointId: parent.parentCheckpointId,
+        deltaSegmentSeq: null,
+        lease: null,
+        forked: false,
+        warnings,
+      };
+    }
+    const tables: Manifest['tables'] = {
+      ...vault.tables,
+      [VAULT_FORMAT_KEY]: vaultFormatEntry(hashKeyOf(t.dataKey)),
+    };
+    for (const table of Object.keys(parent.manifest.tables)) {
+      if (isVaultAnnotationKey(table)) continue;
+      tables[table] ??= { rows: 0, hash: buildEmptyHash(t, table) };
+    }
+    const local: Record<string, number> = {};
+    for (const [table, e] of Object.entries(tables)) local[table] = e.rows;
+    const keys = [...new Set([...Object.keys(tables), ...Object.keys(parent.manifest.tables)])]
+      .filter((k) => !isVaultAnnotationKey(k))
+      .sort();
+    const { tallies, unexplained } = settleShortfalls(
+      journalTallies(db, t.streamId, parent, window),
+      local,
+      keys.filter((k) => !isVaultOnlyKey(k)),
+    );
+    if (unexplained.length > 0) {
+      throw vaultError(
+        'E_NEXUS_VAULT_REFUSED',
+        `this store's rows do not reconcile with ${t.streamId}'s change journal (${unexplained.slice(0, 8).join(', ')}): a write landed after the sync, or outside the journal`,
+        'nothing was written; run `cleo cloud sync`, then push again',
+      );
+    }
+    const need: Record<string, number> = {};
+    for (const k of keys.filter(isVaultOnlyKey)) {
+      const diff = (local[k] ?? 0) - (tallies.rows[k] ?? 0);
+      if (diff !== 0) need[k] = diff;
+    }
+    const acquired = await acquireLease(
+      conn,
+      t,
+      opts.force === true,
+      opts.force === true ? 'cleo cloud push --force' : 'cleo cloud push',
+    );
+    try {
+      conn.state.markPushInFlight(
+        conn.apiUrl,
+        conn.userId,
+        t.streamId,
+        t.storeRoot,
+        parent.checkpointId,
+        { gitTracked: t.scope === 'project' ? gitTracked : [], files: syncFiles(files) },
+      );
+      let ckCursor: PullCursor = {
+        after: cursor.after,
+        knowsAllReplicas: cursor.knowsAllReplicas,
+        replicas: { ...cursor.replicas },
+      };
+      let deltaSegmentSeq: number | null = null;
+      if (Object.keys(need).length > 0) {
+        const replicaSeq =
+          Math.max(
+            ckCursor.replicas[replicaId]?.replicaSeq ?? -1,
+            storeHwm(db, replicaId)[t.streamId] ?? -1,
+          ) + 1;
+        const deltas: TableDeltas = {};
+        for (const [k, n] of Object.entries(need)) {
+          deltas[k] = { created: Math.max(0, n), deleted: Math.max(0, -n) };
+        }
+        const hlc = `${String(Date.now()).padStart(13, '0')}-000000-${replicaId}`;
+        const appended = await journal.push(
+          replicaSeq,
+          Buffer.from(
+            JSON.stringify({ kind: VAULT_DELTA_KIND, base: parent.checkpointId, tables: need }),
+            'utf8',
+          ),
+          {
+            opCount: 1,
+            hlcMin: hlc,
+            hlcMax: hlc,
+            deltas,
+            txnDeltas: [{ txn: 0, deltas }],
+            schemaVersion: SYNC_SCHEMA_VERSION,
+          },
+        );
+        // The sealer numbers this replica's next segment after it.
+        withImmediateTransaction(db, () => persistStoreSeq(db, replicaId, t.streamId, replicaSeq));
+        deltaSegmentSeq = appended.seq;
+        tallies.applied.push({ ref: { replicaId, replicaSeq, txn: 0 }, deltas });
+        ckCursor = {
+          after: appended.seq,
+          knowsAllReplicas: ckCursor.knowsAllReplicas,
+          replicas: { ...ckCursor.replicas, [replicaId]: { deviceId: conn.deviceId, replicaSeq } },
+        };
+      }
+      let cp: Checkpoint;
+      try {
+        cp = await journal.pushCheckpoint({
+          bundle: fs.readFileSync(bundlePath),
+          manifest: {
+            schemaVersion: SYNC_SCHEMA_VERSION,
+            tables,
+            pending: tallies.pending,
+            voided: normalRefDeltas(tallies.voided),
+            revived: [],
+            pruned: {},
+            replayPin: pin,
+          },
+          cursor: ckCursor,
+          parentCheckpointId: parent.checkpointId,
+        });
+      } catch (err) {
+        if (err instanceof NexusError && err.code === 'E_LINEAGE') {
+          throw vaultError(
+            'E_NEXUS_VAULT_BEHIND',
+            'another device pushed a snapshot while this one was uploading',
+            'run `cleo cloud sync`, then push again',
+          );
+        }
+        if (
+          err instanceof NexusError &&
+          (err.code === 'E_REGRESSION' || err.code === 'E_VALIDATION')
+        ) {
+          throw vaultError(
+            'E_NEXUS_VAULT_REFUSED',
+            `the server refused the snapshot: ${err.message}`,
+            'another device may have written during the push: run `cleo cloud sync`, then push again',
+          );
+        }
+        throw err;
+      }
+      saveSynced(conn, t, cp, { gitTracked, files: syncFiles(files) });
+      if (opts.hold !== true) await releaseLeaseQuietly(conn, t);
+      warnings.push(...conn.state.drainWarnings());
+      return {
+        apiUrl: conn.apiUrl,
+        scope,
+        streamId: t.streamId,
+        status: 'pushed',
+        snapshot: snapshotOf(cp, names),
+        parentCheckpointId: cp.parentCheckpointId,
+        deltaSegmentSeq,
+        lease: opts.hold === true ? acquired.lease : null,
+        forked: acquired.forked,
+        warnings,
+      };
+    } catch (err) {
+      await releaseLeaseQuietly(conn, t);
+      throw err;
+    }
+  } finally {
+    fs.rmSync(work, { recursive: true, force: true });
+  }
+}
+
 async function pushNexusVaultImpl(
-  opts: NexusVaultCommandOptions & { force?: boolean; hold?: boolean } = {},
+  opts: NexusVaultCommandOptions & {
+    force?: boolean;
+    hold?: boolean;
+    allowUnreleased?: boolean;
+  } = {},
 ): Promise<CloudPushResult> {
   const conn = await connectNexusVault(opts);
   const key = await unlockNexusAccountKey(conn);
@@ -1304,6 +1611,11 @@ async function pushNexusVaultImpl(
   // Past its genesis cut, this store's changes travel through the change
   // journal: a vault delta would count them twice (T12343 S4-1b).
   const cut = await readGenesisCut(t.dbPath, t.streamId);
+  // With sync.push on (and released), the snapshot checkpoints the journal (T12999); off, it stays refused.
+  const pushReleased = !UNRELEASED_FLAGS.has('sync.push') || opts.allowUnreleased === true;
+  if (cut !== undefined && pushReleased && (await journalPushOn(t))) {
+    return pushJournalCheckpoint(conn, key, opts, scope, warnings);
+  }
   if (cut !== undefined) {
     throw streamUpgradedError(
       `this store started ${t.streamId}'s change journal (genesis cut at capture ${cut}); its changes are pushed as journal segments, not vault snapshots`,
@@ -3529,6 +3841,36 @@ async function deepVerify(
   };
 }
 
+/**
+ * The cloud side of `cleo cloud verify` for a store that writes the stream's
+ * change journal (T12999; journal spec §2.11): the rows the journal's tallies
+ * leave past the head checkpoint (counts only: tallies carry no hashes),
+ * whether the stream holds segments this store has not pulled, and whether
+ * the store holds changes it has not pushed.
+ */
+async function journalVerifySide(
+  journal: Journal,
+  signers: TrustedSigners,
+  t: VaultTarget,
+  headCp: Checkpoint,
+): Promise<{ rows: Record<string, number>; cloudAdvanced: boolean; localChanged: boolean }> {
+  const window = await readJournalWindow(journal, headCp, signers);
+  const { openNativeDatabase } = await import('../store/sqlite-native.js');
+  const db = openNativeDatabase(t.dbPath, { readonly: true, enableWal: false });
+  try {
+    const { rows } = journalTallies(db, t.streamId, headCp, window);
+    const after = readStreamCursor(db, t.streamId)?.after ?? headCp.coversSeq;
+    const unpushed = t.replicaId ? unpushedSegments(db, t.streamId, t.replicaId).length : 0;
+    return {
+      rows,
+      cloudAdvanced: after < window.head,
+      localChanged: unpushed > 0 || sealBacklog(db).live > 0,
+    };
+  } finally {
+    db.close();
+  }
+}
+
 /** `cleo cloud verify`: local integrity, local vs head per table, and every device's newest snapshot vs the head. */
 async function verifyNexusVaultImpl(
   opts: NexusVaultCommandOptions & { deep?: boolean } = {},
@@ -3554,7 +3896,7 @@ async function verifyNexusVaultImpl(
   // Files changed since the last sync, path by path (T13038).
   const fileChanges = read ? fileChangesSinceSync(read.files, t, git, synced) : null;
   const last = synced ? trusted.find((c) => c.checkpointId === synced.lastCheckpointId) : undefined;
-  const tables = headCp
+  let tables = headCp
     ? compareWithSynced(
         local,
         headCp.manifest,
@@ -3562,11 +3904,29 @@ async function verifyNexusVaultImpl(
         headCp.checkpointId === last?.checkpointId ? fileChanges : null,
       )
     : [];
+  // A store that writes the stream's change journal is compared with the
+  // journal's tallies past the head, never the head's frozen counts (T12999).
+  const journalSide =
+    headCp &&
+    isJournalSnapshot(headCp) &&
+    (await readGenesisCut(t.dbPath, t.streamId)) !== undefined
+      ? await journalVerifySide(journal, key.signers, t, headCp)
+      : null;
+  if (journalSide !== null) {
+    tables = tables.map((r) => {
+      if (isVaultOnlyKey(r.table)) return r;
+      const cloudRows = journalSide.rows[r.table] ?? 0;
+      return { ...r, cloudRows, match: (r.localRows ?? 0) === cloudRows };
+    });
+  }
   let verdict: CloudVerifyResult['verdict'];
   if (headUntrusted) verdict = 'untrusted';
   else if (!headCp) verdict = 'empty';
   else if (tables.every((x) => x.match)) verdict = 'match';
-  else {
+  else if (journalSide !== null) {
+    const { localChanged, cloudAdvanced } = journalSide;
+    verdict = localChanged && cloudAdvanced ? 'diverged' : cloudAdvanced ? 'behind' : 'ahead';
+  } else {
     const localChanged = last
       ? compareWithSynced(local, last.manifest, git, fileChanges).some((d) => !d.match)
       : true;
@@ -3726,7 +4086,12 @@ async function mapped<T>(run: () => Promise<T>): Promise<T> {
  *   mapped API error.
  */
 export function pushNexusVault(
-  opts: NexusVaultCommandOptions & { force?: boolean; hold?: boolean } = {},
+  opts: NexusVaultCommandOptions & {
+    force?: boolean;
+    hold?: boolean;
+    /** Push the journal although `sync.push` is unreleased (tests and staging only). Never set from user input. */
+    allowUnreleased?: boolean;
+  } = {},
 ): Promise<CloudPushResult> {
   return mapped(() => pushNexusVaultImpl(opts));
 }

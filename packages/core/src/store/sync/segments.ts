@@ -128,8 +128,14 @@ function ledgerTxnOf(
   };
 }
 
-/** Per-table created/deleted counts of ops (an I creates, a D deletes; U and K count as neither). */
-function deltasOf(ops: readonly LedgerOp[]): TableDeltas {
+/**
+ * Per-table created/deleted counts of ops (an I creates, a D deletes; U and K
+ * count as neither): a transaction's declared deltas (journal spec §2.11 §1).
+ *
+ * @param ops - The transaction's ops.
+ * @returns Its declared deltas.
+ */
+export function deltasOf(ops: readonly LedgerOp[]): TableDeltas {
   const out: Record<string, { created: number; deleted: number }> = {};
   for (const op of ops) {
     if (op.o !== 'I' && op.o !== 'D') continue;
