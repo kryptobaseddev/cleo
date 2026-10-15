@@ -807,7 +807,7 @@ export class Journal {
         if (!isClientRefusal(err)) throw err;
       }
       try {
-        await this.o.http.request('DELETE', path, DeleteStreamAttachmentResult);
+        await this.clearAttachment(sha256);
       } catch (err) {
         if (err instanceof NexusError && err.status === 403) return 'contested';
         throw err;
@@ -844,6 +844,37 @@ export class Journal {
       GetStreamAttachmentResult,
     );
     return d === null ? null : this.readAttachment(sha256, d, maxBytes);
+  }
+
+  /**
+   * Whether some member has recorded a blob for an attachment (E33), without downloading it.
+   *
+   * @param sha256 - The plaintext sha256 the synced row names.
+   * @returns True when a record exists.
+   */
+  async attachmentRecorded(sha256: string): Promise<boolean> {
+    const { download } = await this.o.http.request(
+      'GET',
+      this.attachmentPath(sha256),
+      GetStreamAttachmentResult,
+    );
+    return download !== null;
+  }
+
+  /**
+   * Clear an attachment's record (E34), so a holder of the real bytes can record them again. Allowed
+   * for the member who recorded it and for a project owner; the server refuses anyone else.
+   *
+   * @param sha256 - The plaintext sha256 the synced row names.
+   * @returns True when this call removed a record.
+   */
+  async clearAttachment(sha256: string): Promise<boolean> {
+    const r = await this.o.http.request(
+      'DELETE',
+      this.attachmentPath(sha256),
+      DeleteStreamAttachmentResult,
+    );
+    return r.deleted;
   }
 
   /** Download and verify the blob behind an attachment ref; any mismatch is a client refusal. */

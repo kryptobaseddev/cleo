@@ -835,6 +835,7 @@ describe('docs reach a second device (T12919)', () => {
     const warnings: CloudWarning[] = [];
     await pushDocBytes(a.db, server.journal(a), docBytes(a, 'a', warnings));
     const [[blobSha, ciphertext]] = [...server.blobs.entries()] as Array<[string, Buffer]>;
+    server.policy.deleteAllowed = false; // B (a reader here) may not clear the record
 
     // One flipped byte: the ciphertext no longer matches its announced sha256.
     const flipped = Buffer.from(ciphertext);
@@ -922,6 +923,76 @@ describe('docs reach a second device (T12919)', () => {
     server.blobs.set('f'.repeat(64), Buffer.alloc(99));
     expect(await run()).toEqual({ moved: 1, refused: 0 });
     expect(await run()).toEqual({ moved: 0, refused: 0 });
+  });
+
+  it("a record cleared after A marked it sent is re-recorded by A's re-check (T13721)", async () => {
+    const { a, b } = await docOnBoth();
+    const server = attachmentServer();
+    const warnings: CloudWarning[] = [];
+    await pushDocBytes(a.db, server.journal(a), docBytes(a, 'a', warnings));
+    // An owner clears the good record, then a squatter records junk before A looks again.
+    server.refs.clear();
+    server.squat(SHA, Buffer.from('junk after the clear'));
+    // B refuses it and clears the junk (it may); A's next push re-checks, finds no record, records again.
+    expect(await pullDocBytes(b.db, server.journal(b), docBytes(b, 'b', warnings))).toEqual({
+      moved: 0,
+      refused: 1,
+    });
+    expect(server.refs.size).toBe(0);
+    expect(await pushDocBytes(a.db, server.journal(a), docBytes(a, 'a', warnings))).toEqual({
+      moved: 1,
+      refused: 0,
+    });
+    expect(await pullDocBytes(b.db, server.journal(b), docBytes(b, 'b', warnings))).toEqual({
+      moved: 1,
+      refused: 0,
+    });
+    expect(readFileSync(blobFile('b'), 'utf8')).toBe(BODY);
+  });
+
+  it('more than a run of byte-less rows ahead of a real doc never starve it: the cursor moves on (T13721)', async () => {
+    const { a, b } = await twoDevices();
+    const stream = fakeStream();
+    for (const r of [a, b]) uniqueDocIndexes(r.db);
+    // 120 docs no device holds bytes for, every sha sorting before the real one.
+    const empty = Array.from({ length: 120 }, (_, i) => `00${i.toString(16).padStart(62, '0')}`);
+    expect(empty.every((x) => x < SHA)).toBe(true);
+    const at = new Date(++clockMs).toISOString();
+    write(
+      a.db,
+      empty
+        .map(
+          (x, i) =>
+            `INSERT INTO docs_attachments (id, sha256, attachment_json, created_at, ref_count) VALUES ('e-${i}', '${x}', '${json(x)}', '${at}', 0);`,
+        )
+        .join('\n'),
+    );
+    addDoc(a.db, 'doc-1', SHA, 'gate-doc', 'T1');
+    mkdirSync(join(dir, 'a', '.cleo', 'blobs', 'blobs'), { recursive: true });
+    writeFileSync(join(dir, 'a', '.cleo', 'blobs', 'blobs', SHA), BODY);
+    await push(a, stream);
+    await pull(b, stream);
+    const server = attachmentServer();
+    const warnings: CloudWarning[] = [];
+    expect(await pushDocBytes(a.db, server.journal(a), docBytes(a, 'a', warnings))).toEqual({
+      moved: 1,
+      refused: 0,
+    });
+    const gets = () => server.calls.filter((c) => c.startsWith('GET ')).length;
+    const before = gets();
+    // Run one spends its 100 attempts on byte-less rows; run two resumes after them.
+    expect(await pullDocBytes(b.db, server.journal(b), docBytes(b, 'b', warnings))).toEqual({
+      moved: 0,
+      refused: 0,
+    });
+    expect(gets() - before).toBe(100);
+    expect(await pullDocBytes(b.db, server.journal(b), docBytes(b, 'b', warnings))).toEqual({
+      moved: 1,
+      refused: 0,
+    });
+    expect(readFileSync(blobFile('b'), 'utf8')).toBe(BODY);
+    // Each run stays inside its budget (run two wraps around once it passes the real doc).
+    expect(gets() - before).toBe(200);
   });
 
   it('a server without the attachment routes: rows still sync, fetch is no-content, one warning says why (T13721)', async () => {
