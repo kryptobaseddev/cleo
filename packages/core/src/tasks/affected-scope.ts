@@ -150,26 +150,54 @@ export function testRunTreeMismatchReason(
  * Why a recorded `qaPassed` resting on a tree-bound `qa-run:` receipt no
  * longer stands, or null when it does (T13427): a receipt proves the tree it
  * ran on. A `ci:<pr>` in the gate carries it on its own; atoms with no
- * `treeHash` (no git checkout at verify time) are not judged.
+ * `treeHash` (no git checkout at verify time) are not judged. Given the
+ * execution root, a receipt recorded on an earlier tree carries when every
+ * path under its checked `roots` is byte-identical at the current tree, the
+ * changed-file comparison scoped runs carry by (T13644); otherwise the
+ * refusal names the checked paths that differ.
  *
  * @param atoms - Recorded `qaPassed` atoms.
  * @param current - The current tree hash, or null when it cannot be computed.
+ * @param root - The execution root both trees are compared in; without it
+ *   any moved tree refuses.
  * @returns The reason, or null.
  * @task T13427
+ * @task T13644
  */
 export function qaRunTreeMismatchReason(
   atoms: ReadonlyArray<EvidenceAtom>,
   current: string | null,
+  root?: string,
 ): string | null {
   if (atoms.some((a) => a.kind === 'ci')) return null;
-  const first = atoms.find(
-    (a): a is Extract<EvidenceAtom, { kind: 'qa-run' }> =>
-      a.kind === 'qa-run' && typeof a.treeHash === 'string' && a.treeHash !== current,
-  );
-  if (!first?.treeHash) return null;
-  return current === null
-    ? `qaPassed rests on qa-run:${first.path}, bound to tree ${first.treeHash.slice(0, 12)}, and the current tree cannot be computed here (not a git checkout?); complete from the checkout the check ran in, or record ci:<pr> once the PR merges.`
-    : `qaPassed rests on qa-run:${first.path}, recorded on tree ${first.treeHash.slice(0, 12)}, but the tree is now ${current.slice(0, 12)}; the receipt no longer describes this code. Re-run the check and record a fresh qa-run, or record ci:<pr> once the PR merges.`;
+  for (const a of atoms) {
+    if (a.kind !== 'qa-run' || typeof a.treeHash !== 'string' || a.treeHash === current) continue;
+    const label = `qa-run:${a.path}`;
+    const tree = a.treeHash.slice(0, 12);
+    if (current === null)
+      return `qaPassed rests on ${label}, bound to tree ${tree}, and the current tree cannot be computed here (not a git checkout?); complete from the checkout the check ran in, or record ci:<pr> once the PR merges.`;
+    const redo =
+      'Re-run the check and record a fresh qa-run, or record ci:<pr> once the PR merges.';
+    const moved = `qaPassed rests on ${label}, recorded on tree ${tree}, but the tree is now ${current.slice(0, 12)}; the receipt no longer describes this code. ${redo}`;
+    if (root === undefined) return moved;
+    const paths = a.roots.map((r) => (r === '' ? '.' : r));
+    try {
+      execFileSync(
+        'git',
+        ['diff', '--quiet', '--no-renames', a.treeHash, current, '--', ...paths],
+        {
+          cwd: root,
+          stdio: 'ignore',
+        },
+      );
+      continue;
+    } catch (err) {
+      // git could not compare the trees (an object pruned, not a checkout): fail closed.
+      if ((err as { status?: number }).status !== 1) return moved;
+    }
+    return `qaPassed rests on ${label}, recorded on tree ${tree}, but the files it checked changed in the current tree ${current.slice(0, 12)}${differingPaths(root, a.treeHash, current, paths)}. ${redo}`;
+  }
+  return null;
 }
 
 /**
@@ -188,7 +216,8 @@ export function hasTreeBoundQaRun(atoms: ReadonlyArray<EvidenceAtom>): boolean {
  * The one rule for whether a recorded `qaPassed` still stands — shared by
  * `cleo done` planning and `cleo complete`, like
  * {@link testsPassedSupersededReason}. A moved tree under a qa-run receipt
- * (T13427) is checked first. Then, once the change has merged, a gate resting
+ * (T13427) is checked first; a receipt whose checked files are byte-identical
+ * at the current tree carries (T13644). Then, once the change has merged, a gate resting
  * on qa-run receipts alone (no `ci:<pr>`, no whole-project `tool:` run) stands
  * only when the receipts carry across the merge byte for byte (T13495), or
  * were recorded on the default branch after the merge, on the current tree,
@@ -203,10 +232,13 @@ export function hasTreeBoundQaRun(atoms: ReadonlyArray<EvidenceAtom>): boolean {
  */
 export async function qaPassedSupersededReason(
   atoms: ReadonlyArray<EvidenceAtom>,
-  probe: Parameters<typeof testsPassedSupersededReason>[1],
+  probe: Parameters<typeof testsPassedSupersededReason>[1] & {
+    /** Lazy execution root a receipt's earlier tree is compared in (T13644). */
+    root?: () => string;
+  },
 ): Promise<string | null> {
   if (hasTreeBoundQaRun(atoms)) {
-    const moved = qaRunTreeMismatchReason(atoms, await probe.currentTree());
+    const moved = qaRunTreeMismatchReason(atoms, await probe.currentTree(), probe.root?.());
     if (moved) return moved;
   }
   if (

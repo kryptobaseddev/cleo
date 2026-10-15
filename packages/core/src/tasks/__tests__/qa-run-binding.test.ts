@@ -478,3 +478,77 @@ describe('T13644: qa-run receipts recorded on main after the merge (T13224 shape
     expect(await judge(atoms)).toBeNull();
   });
 });
+
+describe('T13644: an earlier-tree qa-run receipt carries while the files it checked are unchanged', () => {
+  let receiptTree = '';
+  beforeEach(() => {
+    initRepo(() => {
+      put('package.json', JSON.stringify({ name: 'solo' }));
+      put('src/a/x.ts', 'export const x = 1;\n');
+      put('lib/z.ts', 'export const z = 1;\n');
+    });
+    put('src/a/x.ts', 'export const x = 2;\n');
+    git(root, ['commit', '-q', '-am', 'T1: change a']);
+    receiptTree = git(root, ['rev-parse', 'HEAD^{tree}']);
+  });
+
+  const receipts = (): EvidenceAtom[] =>
+    (['typecheck', 'lint'] as const).map((check) => ({
+      kind: 'qa-run',
+      path: `${check}.json`,
+      sha256: 'c'.repeat(64),
+      check,
+      command: ['x'],
+      roots: ['src'],
+      headSha: git(root, ['rev-parse', 'HEAD']),
+      treeHash: receiptTree,
+    }));
+  const judge = (
+    atoms: EvidenceAtom[],
+    mergeState: Parameters<typeof qaPassedSupersededReason>[1]['mergeState'],
+  ) =>
+    qaPassedSupersededReason(atoms, {
+      mergeState,
+      currentTree: () => git(root, ['rev-parse', 'HEAD^{tree}']),
+      landed: isLandedOnOriginDefault,
+      root: () => root,
+    });
+  function commitEdit(rel: string, body: string, msg: string): void {
+    put(rel, body);
+    git(root, ['add', '.']);
+    git(root, ['commit', '-q', '-m', msg]);
+  }
+
+  it('an unrelated later commit leaves the receipts standing', async () => {
+    const atoms = receipts();
+    commitEdit('lib/z.ts', 'export const z = 2;\n', 'unrelated');
+    expect(await judge(atoms, () => 'unmerged')).toBeNull();
+  });
+
+  it('a later change to a checked path refuses, naming that path', async () => {
+    const atoms = receipts();
+    commitEdit('lib/z.ts', 'export const z = 2;\n', 'unrelated');
+    commitEdit('src/a/x.ts', 'export const x = 3;\n', 'T1: edit a again');
+    const why = await judge(atoms, () => 'unmerged');
+    expect(why).toMatch(
+      /files it checked changed in the current tree [0-9a-f]{12}: src\/a\/x\.ts\./,
+    );
+    expect(why).not.toMatch(/lib\/z\.ts/);
+  });
+
+  it('after the merge, unrelated commits on main leave earlier-head receipts standing', async () => {
+    const atoms = receipts();
+    git(root, ['switch', '-q', 'main']);
+    git(root, ['merge', '-q', '--no-ff', '-m', 'Merge pull request #1911', 'task/T1']);
+    const merge = git(root, ['rev-parse', 'HEAD']);
+    commitEdit('lib/z.ts', 'export const z = 2;\n', 'a later unrelated PR');
+    git(root, ['push', '-q', 'origin', 'main']);
+    const landing = {
+      mergeCommitSha: merge,
+      files: ['src/a/x.ts'],
+      deletedFiles: [],
+      executionRoot: root,
+    };
+    expect(await judge(atoms, () => ({ state: 'merged' as const, landing }))).toBeNull();
+  });
+});
