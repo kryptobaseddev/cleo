@@ -303,7 +303,8 @@
     ],
     "brain_embeddings": [
       "embedding",
-      "id"
+      "id",
+      "model"
     ],
     "brain_embeddings_chunks": [
       "chunk_id",
@@ -314,6 +315,14 @@
     "brain_embeddings_info": [
       "key",
       "value"
+    ],
+    "brain_embeddings_metadatachunks00": [
+      "data",
+      "rowid"
+    ],
+    "brain_embeddings_metadatatext00": [
+      "data",
+      "rowid"
     ],
     "brain_embeddings_rowids": [
       "chunk_id",

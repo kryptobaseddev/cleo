@@ -112,7 +112,7 @@ describe.skipIf(!isSqliteVecAvailable())('brain.db sqlite-vec integration', () =
     vec[2] = 0.25;
 
     nativeDb!
-      .prepare('INSERT INTO brain_embeddings (id, embedding) VALUES (?, ?)')
+      .prepare("INSERT INTO brain_embeddings (id, embedding, model) VALUES (?, ?, 'test-model')")
       .run('test-obs-1', Buffer.from(vec.buffer));
 
     // Query: check we can read it back
@@ -137,5 +137,59 @@ describe.skipIf(!isSqliteVecAvailable())('brain.db sqlite-vec integration', () =
 
     close();
     expect(isBrainVecLoaded()).toBe(false);
+  });
+});
+
+describe.skipIf(!isSqliteVecAvailable())('vec0 table init and the write lock (T13740)', () => {
+  let dir: string;
+  beforeEach(async () => {
+    dir = await mkdtemp(join(tmpdir(), 'cleo-vec-lock-'));
+  });
+  afterEach(async () => {
+    await rm(dir, { recursive: true, force: true });
+  });
+
+  function openVec(file: string) {
+    const { DatabaseSync } = createRequire(import.meta.url)(
+      'node:sqlite',
+    ) as typeof import('node:sqlite');
+    const db = new DatabaseSync(file, { allowExtension: true });
+    createRequire(import.meta.url)('sqlite-vec').load(db);
+    db.exec('PRAGMA journal_mode = WAL; PRAGMA busy_timeout = 0');
+    return db;
+  }
+
+  it('a tagged table takes no write lock, so init succeeds while another writer holds one', async () => {
+    const { initializeBrainVec } = await import('../memory-sqlite.js');
+    const file = join(dir, 'cleo.db');
+    const a = openVec(file);
+    const b = openVec(file);
+    try {
+      initializeBrainVec(a);
+      b.exec('BEGIN IMMEDIATE');
+      expect(() => initializeBrainVec(a)).not.toThrow();
+      b.exec('ROLLBACK');
+    } finally {
+      a.close();
+      b.close();
+    }
+  });
+
+  it('an untagged table is rebuilt under the lock', async () => {
+    const { initializeBrainVec } = await import('../memory-sqlite.js');
+    const a = openVec(join(dir, 'cleo.db'));
+    try {
+      a.exec(
+        'CREATE VIRTUAL TABLE brain_embeddings USING vec0(id TEXT PRIMARY KEY, embedding FLOAT[384])',
+      );
+      initializeBrainVec(a);
+      const cols = a.prepare('PRAGMA table_info(brain_embeddings)').all() as Array<{
+        name: string;
+      }>;
+      expect(cols.map((c) => c.name)).toEqual(['id', 'embedding', 'model']);
+      expect(a.isTransaction).toBe(false);
+    } finally {
+      a.close();
+    }
   });
 });

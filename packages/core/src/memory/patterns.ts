@@ -14,6 +14,7 @@ import { createHash, randomBytes } from 'node:crypto';
 import { captureProjectScope, worktreeScope } from '../project-scope.js';
 import { trackBackgroundOp } from '../store/background-ops.js';
 import { getBrainAccessor } from '../store/memory-accessor.js';
+import { scheduleEmbedding } from './embedding-backfill.js';
 import { upsertGraphNode } from './graph-auto-populate.js';
 import { computePatternQuality } from './quality-scoring.js';
 
@@ -260,6 +261,10 @@ export async function storePattern(projectRoot: string, params: StorePatternPara
   };
 
   const saved = await accessor.addPattern(entry, scope.execution);
+  // A prepared operation launches no detached enrichment (as observeBrain); the backfill embeds it.
+  if (!scope.execution) {
+    scheduleEmbedding(scope.worktreeRoot, saved.id, `${saved.pattern} — ${saved.context}`);
+  }
 
   // Auto-populate graph node for the new pattern (best-effort, T537).
   trackBackgroundOp(

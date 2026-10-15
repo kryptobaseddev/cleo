@@ -52,6 +52,7 @@ vi.mock('../brain-writer-thread.js', async (importOriginal) => {
 vi.mock('../embedding-local.js', () => ({
   LocalEmbeddingProvider: class {
     readonly dimensions = 384;
+    readonly model = 'test-model';
     isAvailable() {
       return true;
     }
@@ -81,6 +82,7 @@ beforeEach(async () => {
   await getDb(tempDir);
   setEmbeddingProvider({
     dimensions: EMBEDDING_DIMENSIONS,
+    model: 'test-model',
     isAvailable: () => true,
     embed: async (text: string) => {
       const v = new Float32Array(EMBEDDING_DIMENSIONS).fill(0);

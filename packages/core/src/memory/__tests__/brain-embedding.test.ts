@@ -19,6 +19,7 @@ import {
 function createMockProvider(overrides?: Partial<EmbeddingProvider>): EmbeddingProvider {
   return {
     dimensions: EMBEDDING_DIMENSIONS,
+    model: 'test-model',
     isAvailable: () => true,
     embed: vi.fn(async (_text: string) => new Float32Array(EMBEDDING_DIMENSIONS).fill(0.1)),
     ...overrides,

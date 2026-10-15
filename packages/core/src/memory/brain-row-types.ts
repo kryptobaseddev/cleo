@@ -14,11 +14,10 @@ export interface BrainFtsRow {
   created_at: string;
 }
 
-/** Row returned by narrative backfill query (brain-retrieval.ts populateEmbeddings). */
-export interface BrainNarrativeRow {
+/** Row returned by the embedding backfill query (observe.ts populateEmbeddings). */
+export interface BrainEmbeddingSourceRow {
   id: string;
-  narrative: string;
-  title: string;
+  text: string;
 }
 
 /** Flattened FTS hit used in hybrid search scoring (brain-search.ts hybridSearch). */

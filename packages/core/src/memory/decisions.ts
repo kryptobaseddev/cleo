@@ -25,6 +25,7 @@ import { getBrainAccessor } from '../store/memory-accessor.js';
 import type { BrainDecisionRow, NewBrainDecisionRow } from '../store/schema/memory-schema.js';
 import { getDb } from '../store/sqlite.js';
 import { autoCrossLinkDecision } from './decision-cross-link.js';
+import { scheduleEmbedding } from './embedding-backfill.js';
 import { addGraphEdge, upsertGraphNode } from './graph-auto-populate.js';
 import { computeDecisionQuality } from './quality-scoring.js';
 
@@ -714,6 +715,12 @@ export async function storeDecision(
       updatedAt: now,
     });
     const updated = await accessor.getDecision(duplicate.id);
+    // The rationale changed, so the stored vector is stale (T13740).
+    scheduleEmbedding(
+      projectRoot,
+      duplicate.id,
+      `${duplicate.decision} — ${params.rationale.trim()}`,
+    );
 
     // Refresh the graph node for the updated decision (best-effort).
     const updatedQuality = computeDecisionQuality({
@@ -848,6 +855,8 @@ export async function storeDecision(
         (lastCollision instanceof Error ? `: ${lastCollision.message}` : ''),
     );
   }
+
+  scheduleEmbedding(projectRoot, saved.id, `${saved.decision} — ${saved.rationale}`);
 
   // Auto-populate graph node + edges for the new decision (best-effort, T537).
   // All graph writes are awaited on the caller's still-bound connection —
