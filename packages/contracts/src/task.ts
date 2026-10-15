@@ -348,6 +348,8 @@ export type EvidenceAtom =
       uncovered?: string[];
       /** Dependent packages this receipt's roots leave uncovered (T13580). */
       uncoveredPackages?: string[];
+      /** The change it checked is non-code only, so no typecheck is owed (T13745). */
+      nonCodeChange?: boolean;
     }
   | {
       kind: 'tool';
@@ -360,11 +362,17 @@ export type EvidenceAtom =
        *
        * Recorded explicitly so the audit trail never implies a tool ran that
        * did not. Only ever set for a GUESSED language default — a command
-       * declared in `project-context.json` is always executed.
+       * declared in `project-context.json` is always executed — or for a
+       * `tool:test` over a non-code-only change (`nonCodeChange`).
        */
       notApplicable?: boolean;
       /** Why the tool was judged inapplicable. Present iff `notApplicable`. */
       reason?: string;
+      /**
+       * Inapplicable because the change is non-code only, not because the
+       * project lacks the toolchain, so it stands for a code task (T13745).
+       */
+      nonCodeChange?: boolean;
       /**
        * `affected`: the run covered only the packages the branch diff touches
        * plus their dependents (D11150, T12635). It satisfies testsPassed before

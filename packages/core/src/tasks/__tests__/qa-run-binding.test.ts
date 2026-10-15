@@ -16,6 +16,7 @@ import { join } from 'node:path';
 import type { EvidenceAtom, EvidenceValidationContext } from '@cleocode/contracts';
 import { parseEvidenceString, validateEvidenceForGate } from '@cleocode/contracts';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { isNonCodeOnlyChange, isNonCodePath } from '../affected-packages.js';
 import {
   hasTreeBoundQaRun,
   type MergedVerdict,
@@ -583,5 +584,103 @@ describe('T13644: an earlier-tree qa-run receipt carries while the files it chec
       executionRoot: root,
     };
     expect(await judge(atoms, { state: 'merged', landing })).toBeNull();
+  });
+});
+
+describe('T13745: a non-code-only change (root config) completes with targeted evidence', () => {
+  const ctx = (gate: 'testsPassed' | 'qaPassed'): EvidenceValidationContext => ({
+    task: { id: 'T1', kind: 'work', labels: [], files: [], acceptance: [] },
+    gates: [gate],
+    criteria: [],
+  });
+
+  it('classifies root data config and docs as non-code; toolchain config and sources as code', () => {
+    for (const p of [
+      '.cleo/project-context.json',
+      'renovate.json',
+      '.vscode/settings.json',
+      'docs/a.md',
+    ])
+      expect(isNonCodePath(p), p).toBe(true);
+    for (const p of [
+      'package.json',
+      'pnpm-lock.yaml',
+      'tsconfig.json',
+      'biome.json',
+      '.github/workflows/ci.yml',
+      'packages/a/fixture.json',
+      'src/a.ts',
+    ])
+      expect(isNonCodePath(p), p).toBe(false);
+    expect(isNonCodeOnlyChange([])).toBe(false);
+    expect(isNonCodeOnlyChange(['.cleo/project-context.json', 'src/a.ts'])).toBe(false);
+  });
+
+  beforeEach(() => {
+    initRepo(() => {
+      put('pnpm-workspace.yaml', 'packages:\n  - "packages/*"\n');
+      put('packages/a/package.json', JSON.stringify({ name: '@x/a' }));
+      put('packages/a/src/i.ts', 'export const a = 1;\n');
+      put('.cleo/project-context.json', '{}\n');
+    });
+    put('.cleo/project-context.json', '{"release":{"prRequiredWorkflows":[]}}\n');
+    git(root, ['commit', '-q', '-am', 'T1: config only']);
+  });
+
+  it('testsPassed: tool:test is not applicable, recorded with the paths, and stands for a code task', async () => {
+    const r = await validateAtom({ kind: 'tool', tool: 'test' }, root);
+    expect(r.ok && r.atom, JSON.stringify(r)).toMatchObject({
+      kind: 'tool',
+      tool: 'test',
+      notApplicable: true,
+      nonCodeChange: true,
+      reason: expect.stringContaining('.cleo/project-context.json'),
+    });
+    if (!r.ok) throw new Error('expected an atom');
+    expect(checkTaskEvidenceContext(ctx('testsPassed'), 'testsPassed', [r.atom])).toBeNull();
+    // A toolchain the project lacks still does not stand for a code task.
+    expect(
+      checkTaskEvidenceContext(ctx('testsPassed'), 'testsPassed', [
+        { kind: 'tool', tool: 'test', exitCode: 0, notApplicable: true },
+      ]),
+    ).toMatch(/requires an actual verification result/);
+  });
+
+  it('qaPassed: a lint (structural) receipt holding the file stands alone, no typecheck pair', async () => {
+    const r = await validateAtom(
+      {
+        kind: 'qa-run',
+        path: receipt(
+          { kind: 'lint', command: ['biome', 'check'], roots: ['.cleo'] },
+          undefined,
+          'lint',
+        ),
+      },
+      root,
+    );
+    expect(r.ok && r.atom, JSON.stringify(r)).toMatchObject({ nonCodeChange: true });
+    if (!r.ok) throw new Error('expected an atom');
+    expect(checkTaskEvidenceContext(ctx('qaPassed'), 'qaPassed', [r.atom])).toBeNull();
+  });
+
+  it('qaPassed: a lint receipt that does not hold the changed file is refused, naming it', async () => {
+    const r = await validateAtom(
+      { kind: 'qa-run', path: receipt({ kind: 'lint', roots: ['packages/a'] }, undefined, 'lint') },
+      root,
+    );
+    if (!r.ok) throw new Error(JSON.stringify(r));
+    expect(checkTaskEvidenceContext(ctx('qaPassed'), 'qaPassed', [r.atom])).toMatch(
+      /does not cover the changed path\(s\) \.cleo\/project-context\.json/,
+    );
+  });
+
+  it('a change that also touches code still owes the typecheck pair and the workspace-wide refusal', async () => {
+    put('packages/a/src/i.ts', 'export const a = 2;\n');
+    git(root, ['commit', '-q', '-am', 'T1: and code']);
+    const r = await validateAtom(
+      { kind: 'qa-run', path: receipt({ kind: 'lint', roots: ['.'] }, undefined, 'lint') },
+      root,
+    );
+    expect(!r.ok && r.reason, JSON.stringify(r)).toMatch(/workspace-wide/);
   });
 });

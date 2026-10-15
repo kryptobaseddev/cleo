@@ -546,8 +546,8 @@ export function readRequiredCheckPins(
  * Resolve the list of required-workflow names for the current project.
  *
  * SYNC tiers only (most specific wins):
- * 1. `CLEO_PR_REQUIRED_WORKFLOWS` env var (comma-separated) — CI/operator
- *    override.
+ * 1. `CLEO_PR_REQUIRED_WORKFLOWS` env var (comma-separated, or a JSON array;
+ *    `[]` means none, T13744) — CI/operator override.
  * 2. `.cleo/project-context.json` `release.prRequiredWorkflows`
  *    ({@link PR_REQUIRED_WORKFLOWS_CONTEXT_KEY}) — committed per-project config.
  *    An explicit empty array means NO required workflows (gh#1104).
@@ -628,6 +628,21 @@ export function describeRequiredWorkflowsSource(source: RequiredWorkflowsSource)
 }
 
 /**
+ * Parse a JSON-array env value (`[]`, `["CI","Lint"]`) with the same entry
+ * rules as the config key, so `[]` means no required workflows (T13744).
+ * Returns `null` when the value is not a JSON array (comma-list fallback).
+ */
+function parseEnvWorkflowArray(raw: string): string[] | null {
+  if (!raw.trim().startsWith('[')) return null;
+  try {
+    const declared: unknown = JSON.parse(raw);
+    return extractProjectContextRequiredWorkflows({ release: { prRequiredWorkflows: declared } });
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Resolve the two SYNC tiers (env var, then project context). Returns `null`
  * when neither tier declares a list, signalling the caller to continue to the
  * async branch-protection tier and then the built-in default.
@@ -640,6 +655,8 @@ function resolveSyncTier(
 ): RequiredWorkflowsResolution | null {
   const raw = env[PR_REQUIRED_WORKFLOWS_ENV_VAR];
   if (typeof raw === 'string' && raw.trim().length > 0) {
+    const fromJson = parseEnvWorkflowArray(raw);
+    if (fromJson !== null) return { workflows: fromJson, source: { tier: 'env' } };
     return {
       workflows: raw
         .split(',')

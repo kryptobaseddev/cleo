@@ -210,6 +210,39 @@ export function standalonePackage(root: string): WorkspacePackage | null {
   return packages.length === 1 && packages[0]?.dir === '' ? packages[0] : null;
 }
 
+/** Root config files a build, test, lint or typecheck reads: never non-code. */
+const TOOLCHAIN_CONFIG =
+  /(?:^|\/)(?:package(?:-lock)?\.json|pnpm-(?:lock|workspace)\.yaml|[jt]sconfig[^/]*\.json|biome\.jsonc?|\.eslintrc[^/]*|\.prettierrc[^/]*|\.babelrc[^/]*|\.swcrc|turbo\.json|nx\.json|lerna\.json|deno\.jsonc?|Cargo\.toml|pyproject\.toml|rust-toolchain\.toml)$/;
+
+/**
+ * Whether a changed path is non-code (T13745): documentation, or a JSON/YAML/
+ * TOML data file at the root or in a top-level dot-directory (`.cleo/`,
+ * `.vscode/`) that is not a toolchain config, so no test, lint or typecheck
+ * reads it. `.github/` stays code: it runs CI.
+ *
+ * @param path - Repo-relative changed path.
+ * @returns True when no test, lint or typecheck reads the path.
+ * @task T13745
+ */
+export function isNonCodePath(path: string): boolean {
+  const p = slashSeparated(path);
+  if (isCiDocumentPath(p)) return true;
+  const rootLevel = !p.includes('/') || (/^\.[^/]+\/[^/]+$/.test(p) && !p.startsWith('.github/'));
+  return rootLevel && /\.(?:jsonc?|ya?ml|toml)$/i.test(p) && !TOOLCHAIN_CONFIG.test(p);
+}
+
+/**
+ * Whether a change set is non-empty and made only of {@link isNonCodePath}
+ * paths: no test reads it and no TypeScript changed (T13745).
+ *
+ * @param paths - The change's repo-relative paths.
+ * @returns True for a non-code-only change.
+ * @task T13745
+ */
+export function isNonCodeOnlyChange(paths: readonly string[]): boolean {
+  return paths.length > 0 && paths.every(isNonCodePath);
+}
+
 /**
  * Derive the affected-package set for a diff.
  *

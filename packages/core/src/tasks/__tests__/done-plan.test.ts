@@ -1014,6 +1014,28 @@ describe('a standalone single-package project plans a targeted test-run (T13403)
     );
   });
 
+  it('T13745: a root-config-only change plans tool:test (not applicable) and a lint qa-run, no suite, no typecheck', async () => {
+    standalone();
+    // The fixture's .cleo/ is the gitignored store, so a root config stands in.
+    const id = await seedTask(['Change renovate.json']);
+    git(root, ['switch', '-q', '-c', `task/${id}`]);
+    writeFileSync(join(root, 'renovate.json'), '{"extends":[]}\n');
+    git(root, ['add', 'renovate.json']);
+    git(root, ['commit', '-q', '-m', `${id}: config only`]);
+    const plan = await deriveTaskEvidence(id, {
+      projectRoot: root,
+      cwd: root,
+      deps,
+      satisfies: 'all',
+    });
+    expect(plan.toolRuns).toEqual([]);
+    expect(plan.gates.find((g) => g.gate === 'testsPassed')?.evidence).toMatch(/^tool:test/);
+    expect(plan.blockers.find((b) => b.code === 'test-run-needed')).toBeUndefined();
+    expect(plan.blockers.find((b) => b.code === 'qa-run-needed')?.next.command).toBe(
+      `cleo verify ${id} --gate qaPassed --evidence 'qa-run:<lint-receipt.json>'`,
+    );
+  });
+
   it('T13427: a cached lint result still binds as tool:lint; only typecheck needs a qa-run', async () => {
     standalone();
     const id = await seedTask(['Change src/a.ts']);

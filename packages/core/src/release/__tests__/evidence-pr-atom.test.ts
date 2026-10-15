@@ -669,6 +669,16 @@ describe('resolveRequiredWorkflows', () => {
     expect(r).toEqual(['My CI', 'Other Gate']);
   });
 
+  // T13744 — a JSON-array env value is a list; `[]` means none, like the config key.
+  it('reads a JSON-array env value as a list, [] as no required workflows', () => {
+    expect(resolveRequiredWorkflows({ CLEO_PR_REQUIRED_WORKFLOWS: '[]' })).toEqual([]);
+    expect(resolveRequiredWorkflows({ CLEO_PR_REQUIRED_WORKFLOWS: ' [ ] ' })).toEqual([]);
+    expect(
+      resolveRequiredWorkflows({ CLEO_PR_REQUIRED_WORKFLOWS: '["My CI", "Other Gate"]' }),
+    ).toEqual(['My CI', 'Other Gate']);
+    expect(resolveRequiredWorkflows({ CLEO_PR_REQUIRED_WORKFLOWS: 'My CI' })).toEqual(['My CI']);
+  });
+
   it('ignores blank env value', () => {
     const r = resolveRequiredWorkflows({ CLEO_PR_REQUIRED_WORKFLOWS: '' });
     expect(r).toContain('CI');
