@@ -486,6 +486,7 @@ export async function enrollOwner(
   const fileThere = readSettings(projectRoot).state !== 'absent';
   if ((existing || fileThere) && opts.reset !== true)
     return refuse(
+      // @sync-invariant none:local-only owner enrollment state is device-local and git-tracked; refused before any write
       'E_OWNER_ALREADY_ENROLLED',
       `An owner is already enrolled for this project${existing ? ` (key ${existing.fingerprint})` : ''}; re-enrolling needs \`${OWNER_ENROLL_COMMAND} --reset\`.`,
     );
@@ -559,12 +560,14 @@ export async function setOwnerOverrideCap(
   const global = readGlobal(projectRoot);
   if (read.state === 'absent' && !global)
     return refuse(
+      // @sync-invariant none:local-only owner enrollment state is device-local and git-tracked; refused before any write
       'E_OWNER_NOT_ENROLLED',
       `No owner is enrolled for this project; the owner enrolls first with \`${OWNER_ENROLL_COMMAND}\`.`,
     );
   const state = await judgeOwnerState(projectRoot);
   if (state.kind !== 'ok')
     return refuse(
+      // @sync-invariant none:local-only owner enrollment state is device-local and git-tracked; refused before any write
       'E_OWNER_SETTINGS_TAMPERED',
       `${state.kind === 'tampered' ? state.why : 'owner settings are not usable'}.`,
     );
