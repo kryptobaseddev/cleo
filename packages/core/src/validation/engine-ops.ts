@@ -590,8 +590,10 @@ export async function validateGateVerify(
     const authority = isWriteRequiringEvidence
       ? await resolveOwnerOverride(projectRoot, { surface: 'cleo verify', taskId, sessionId })
       : { requested: false as const };
-    if (authority.requested && !authority.allowed)
+    if (authority.requested && !authority.allowed) {
+      // @sync-invariant none:local-only a non-owner override is refused before any write; only the local audit log is appended
       return engineError(authority.code, authority.message);
+    }
     const override = authority.requested
       ? { override: true, reason: authority.reason }
       : { override: false, reason: 'unspecified' };
