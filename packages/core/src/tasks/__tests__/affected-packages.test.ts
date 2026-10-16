@@ -491,6 +491,23 @@ describe('tool:test-affected evidence', () => {
       ]);
     });
 
+    it('red (review of #2283): a changed shared module owes every test of its top-level directory', async () => {
+      tooling();
+      mkdirSync(join(root, 'tooling', 'shared'), { recursive: true });
+      writeFileSync(join(root, 'tooling', 'shared', 'util.mjs'), 'export const u = 1;\n');
+      initRepo('pnpm {filters} run test');
+      writeFileSync(join(root, 'tooling', 'shared', 'util.mjs'), 'export const u = 2;\n');
+      writeFileSync(join(root, 'tooling', 'shared', 'util.test.mjs'), PASS);
+      git(root, ['add', '.']);
+      git(root, ['commit', '-q', '-m', 'T1: change util, add a trivial test']);
+      const run = await planAffectedTestRun(root, root);
+      expect(run.ok && run.testFiles, JSON.stringify(run)).toEqual([
+        'tooling/bridge/bridge.test.mjs',
+        'tooling/bridge/queue.test.mjs',
+        'tooling/shared/util.test.mjs',
+      ]);
+    });
+
     it('red: an untouched failing test file of that directory fails the run', async () => {
       tooling(FAIL);
       initRepo('pnpm {filters} run test');

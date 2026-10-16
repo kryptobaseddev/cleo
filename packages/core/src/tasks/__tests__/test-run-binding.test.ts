@@ -497,6 +497,31 @@ describe('a report must be fresher than the change and cover it (T12965 review)'
         expect(full.ok, JSON.stringify(full)).toBe(true);
       });
 
+      it('red (review of #2283): a sibling test beside a shared module does not skip its consumers', async () => {
+        // bridge.test.mjs imports ../shared/util.mjs; a trivial util.test.mjs
+        // added beside it must not narrow the owed run to tooling/shared.
+        mkdirSync(join(root, 'tooling', 'shared'), { recursive: true });
+        writeFileSync(join(root, 'tooling', 'shared', 'util.mjs'), 'export const u = 1;\n');
+        writeFileSync(tool('bridge.test.mjs'), "import '../shared/util.mjs';\n");
+        git(root, ['add', '.']);
+        git(root, ['commit', '-q', '-m', 'T3: shared util']);
+        writeFileSync(join(root, 'tooling', 'shared', 'util.mjs'), 'export const u = 2;\n');
+        writeFileSync(join(root, 'tooling', 'shared', 'util.test.mjs'), 'export {};\n');
+        git(root, ['add', '.']);
+        git(root, ['commit', '-q', '-m', 'T3: change util, add a trivial test']);
+        const changed = ['tooling/shared/util.mjs', 'tooling/shared/util.test.mjs'];
+        const narrow = testRunCoversChange(root, changed, ['tooling/shared/util.test.mjs']);
+        expect(!narrow.ok && narrow.reason, JSON.stringify(narrow)).toMatch(
+          /does not run tooling\/bridge\/bridge\.test\.mjs/,
+        );
+        const whole = testRunCoversChange(root, changed, [
+          'tooling/bridge/bridge.test.mjs',
+          'tooling/bridge/queue.test.mjs',
+          'tooling/shared/util.test.mjs',
+        ]);
+        expect(whole.ok, JSON.stringify(whole)).toBe(true);
+      });
+
       it('the post-merge stand-in rule judges the same coverage', () => {
         const changed = ['tooling/bridge/bridge.mjs', 'tooling/bridge/bridge.test.mjs'];
         expect(

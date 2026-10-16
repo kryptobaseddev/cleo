@@ -26,9 +26,10 @@ real exit code and output.
 
 **T13754.** A change that touched paths outside every pnpm package (for
 example `tooling/print-bridge/*`) counted as workspace-wide, so only a
-whole-suite run could satisfy it. Such a path now belongs to the nearest
-directory above it that holds test files outside every package. A `test-run:`
+whole-suite run could satisfy it. Such a path now belongs to its top-level
+directory (`tooling/`), and owes every test file outside the packages under
+it, so a consumer elsewhere in `tooling/` is never skipped. A `test-run:`
 report, or the post-merge stand-in, must pass every one of those test files,
 plus the usual per-package coverage. `tool:test-affected` runs them directly
 with `node --test`, or through a `{projects}` vitest template. Repo-root files
-and directories with no test file still count as workspace-wide.
+and top-level directories with no test file still count as workspace-wide.

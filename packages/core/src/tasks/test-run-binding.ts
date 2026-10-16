@@ -43,9 +43,9 @@
  *     speaks for it, and a report cannot show that it ran the whole suite
  *     (test configs exclude tracked test files, so per-package file counts
  *     prove nothing) — `tool:test` runs it. A path outside every package
- *     in a directory with test files (a `tooling/<tool>/` beside the
+ *     in a top-level directory with test files (a `tooling/` beside the
  *     workspace) is not workspace-wide: the report must pass every test file
- *     outside the packages under the nearest such directory (T13754). A
+ *     outside the packages under that top-level directory (T13754). A
  *     report with no passed test at all is refused before any of this.
  *     A standalone project (no workspace declared, T13403) is one package,
  *     its root: a change inside the root is that package's, never
@@ -628,7 +628,7 @@ export function testRunCoversChange(
     );
   }
   // T13754: a non-workspace path is spoken for only by passing every test file
-  // of the directory that owns it (and every test file the change edited there).
+  // outside the packages under its top-level directory (edited ones included).
   const ran = new Set(testFiles);
   const outsideUnrun = (scope.outsideTests ?? []).filter((f) => !ran.has(f));
   if (outsideUnrun.length > 0) {
@@ -636,7 +636,7 @@ export function testRunCoversChange(
       `test-run report does not run ${outsideUnrun.slice(0, 5).join(', ')}` +
         `${outsideUnrun.length > 5 ? `, … (${outsideUnrun.length} files)` : ''}. The change ` +
         'touches paths outside every workspace package, so a targeted report must pass every ' +
-        'test file of the directories holding them. Run them and record the report, or record ' +
+        'test file outside the packages under their top-level directories. Run them and record the report, or record ' +
         'tool:test-affected.',
     );
   }

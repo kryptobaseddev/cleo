@@ -13,9 +13,9 @@
  *    workspace/build/test config, `scripts/`, `.github/`) can affect every
  *    package, so the scope becomes `full` and a full run is required —
  *    unless the consumer checks or runs files (`outsideTests`, T13754): then
- *    a path below a directory holding test files outside every package owes
- *    every such test file there, and only a repo-root file or a directory
- *    with no test file stays `full`;
+ *    a path below a top-level directory owes every test file outside every
+ *    package under that directory, and only a repo-root file or a top-level
+ *    directory with no test file stays `full`;
  *  - the dependents closure follows `dependencies`, `devDependencies`,
  *    `peerDependencies` and `optionalDependencies` between workspace packages.
  *
@@ -265,14 +265,16 @@ export function isNonCodeOnlyChange(paths: readonly string[]): boolean {
  * The test files a run must pass to speak for non-workspace paths (T13754),
  * or the paths nothing narrower than the whole suite can speak for.
  *
- * A path in a subdirectory is owned by its nearest ancestor directory holding
- * a test file outside every package (tracked, or one the change adds), and
- * owes every such test file under it. A repo-root file (lockfile, root
- * config) or a directory with no test file has no owner and stays
- * workspace-wide.
- * shortcut: a package importing a non-workspace module is not followed; a
- * run of that directory's tests is taken to speak for it, as the CI path
- * filters of a repo do.
+ * A path in a subdirectory is owned by its TOP-LEVEL directory and owes
+ * every test file outside every package under it (tracked, or one the change
+ * adds). Not the nearest directory with tests: `tooling/shared/util.mjs` is
+ * also read by `tooling/bridge/*.test.mjs`, and a trivial test beside the
+ * changed file must not narrow the run past them. A repo-root file
+ * (lockfile, root config) or a top-level directory with no test file has no
+ * owner and stays workspace-wide.
+ * shortcut: a package importing a non-workspace module is not followed
+ * (T13767); a run of that directory's tests is taken to speak for it, as the
+ * CI path filters of a repo do.
  */
 function outsideTestFiles(
   root: string,
@@ -287,12 +289,8 @@ function outsideTestFiles(
   const files = new Set<string>();
   const unscoped: string[] = [];
   for (const path of paths) {
-    const segments = path.split('/');
-    let owned: string[] = [];
-    for (let depth = segments.length - 1; depth >= 1 && owned.length === 0; depth--) {
-      const dir = segments.slice(0, depth).join('/');
-      owned = tests.filter((f) => inPackageDir(f, dir));
-    }
+    const top = path.includes('/') ? path.slice(0, path.indexOf('/')) : null;
+    const owned = top === null ? [] : tests.filter((f) => inPackageDir(f, top));
     if (owned.length === 0) unscoped.push(path);
     for (const f of owned) files.add(f);
   }
