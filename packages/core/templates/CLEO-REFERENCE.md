@@ -295,6 +295,15 @@ CLEO_OWNER_OVERRIDE=1 \ CLEO_OWNER_OVERRIDE_REASON="incident 1234 hotfix" \ cleo
 
 All overrides append a line to `.cleo/audit/force-bypass.jsonl`. Use sparingly.
 
+**Per-session cap (owner decision 2026-10-16, T13787).** A session may use at most `evidence.overrideCapPerSession` overrides (default 10, maximum 100). Past the cap, `E_OVERRIDE_CAP_EXCEEDED` names the setting. Only the owner can change it, with `cleo config set evidence.overrideCapPerSession <n>`, run in an interactive terminal in a session started with `cleo session start --owner-auth`. The command reuses the T1118 owner-auth checks: no restricted agent role, a TTY, and the password matching the session's owner-auth token.
+
+The value is never written to `config.json`. It is sealed in `.cleo/owner-settings.json` with a key derived from the owner-auth password, so it outlives the session that set it. The first set enrolls that key, and a later set with a different password is refused. These are all audited to `force-bypass.jsonl` with the old and new value:
+- every set;
+- every refused attempt (an agent shell without a TTY, a wrong password, a plain config write);
+- every hand-edited or unverifiable seal, which also falls back to 10.
+
+Limits: the seal is tamper-evident, not tamper-proof, because the enrollment file can be rewritten by the same OS user. And `CLEO_OWNER_OVERRIDE=1` itself is still accepted from any agent without a restricted role (follow-up T13789).
+
 ### Tool resolution + result cache (ADR-061)
 
 `tool:<name>` resolves through `.cleo/project-context.json`, then the project's `package.json` script of that name (`<pm> run <name>`), then `primaryType` fallbacks (references-only tsconfig → `tsc -b`, which emits). A script that writes files (an auto-fixing `lint`) edits the checkout and later fails `E_EVIDENCE_STALE`; keep verification scripts read-only. Cache `.cleo/cache/evidence/<key>.json`, keyed on the command `(canonical, cmd, args)` and the tree content under test: identical tree content shares one result across worktrees and commits, and a repeat verify on an unchanged tree never re-runs. After a failure the previously failing test files re-run first, and a failure that passes on its single rerun is recorded as `flaky`. Parallel verifies coalesce; cross-worktree semaphores: `~/.local/share/cleo/locks/tool-<canonical>/`, limit `CLEO_TOOL_CONCURRENCY_<TOOL>=<n>`. Deadlines: **1800000 ms (30 min) for `test` and `build`**, otherwise 300000 ms (5 min). Positive-integer override: `CLEO_TOOL_TIMEOUT_<TOOL>=<ms>`; invalid values explicitly fail with the tool default. Timeouts cache nothing; increase the deadline before an unchanged retry (gh#1221). `cleo verify --fresh` (or `CLEO_EVIDENCE_FRESH=1`) bypasses the cache for one call.

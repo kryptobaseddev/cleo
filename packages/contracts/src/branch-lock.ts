@@ -294,6 +294,12 @@ export interface OwnerOverrideAuditRecord {
   reason: string;
   /** Process ID. */
   pid: number;
+  /** The owner setting a set or refused set targeted (T13787). */
+  setting?: string;
+  /** The setting's value before the attempt (T13787). */
+  old_value?: number;
+  /** The value the attempt asked for, or set (T13787). */
+  new_value?: number;
 }
 
 /**

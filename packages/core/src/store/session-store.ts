@@ -77,6 +77,33 @@ export async function getSession(sessionId: string, cwd?: string): Promise<Sessi
   });
 }
 
+/**
+ * A session's name and its T1118 owner-auth token (`cleo session start
+ * --owner-auth`), which {@link getSession} does not project. The token is
+ * `HMAC(password, name)`; null when the session was started without one.
+ *
+ * @param sessionId - Session to read.
+ * @param cwd - Project root.
+ * @returns The name and token, or null when the session does not exist.
+ * @task T13787
+ */
+export async function getSessionOwnerAuth(
+  sessionId: string,
+  cwd?: string,
+): Promise<{ name: string | null; token: string | null } | null> {
+  const scope = captureProjectScope(cwd ?? getProjectRoot(), worktreeScope.getStore());
+  return worktreeScope.run(scope, async () => {
+    const db = await getDb(scope.worktreeRoot);
+    const rows = await db
+      .select({ name: schema.sessions.name, token: schema.sessions.ownerAuthToken })
+      .from(schema.sessions)
+      .where(eq(schema.sessions.id, sessionId))
+      .all();
+    const row = rows[0];
+    return row ? { name: row.name ?? null, token: row.token ?? null } : null;
+  });
+}
+
 /** Update a session. */
 export async function updateSession(
   sessionId: string,

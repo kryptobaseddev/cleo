@@ -117,78 +117,13 @@ const startCommand = defineCommand({
  * @task T1123
  */
 async function promptOwnerAuthPassword(sessionName: string): Promise<string | null> {
-  // T1118 L4c — must be a TTY.
-  if (!process.stdin.isTTY || !process.stderr.isTTY) {
-    cliError(
-      '--owner-auth requires an interactive TTY. stdin.isTTY or stderr.isTTY is false.',
-      ExitCode.GENERAL_ERROR,
-      { name: 'E_TTY_REQUIRED' },
-      { operation: 'session.start' },
-    );
-    return null;
-  }
-
-  const { createInterface } = await import('node:readline');
-  const { deriveOwnerAuthToken } = await import('@cleocode/core/internal');
-
-  // Use a temporary session ID placeholder — the real session ID comes from
-  // the dispatch response. We derive a token here keyed to a stable nonce
-  // that gets stored alongside the session. We use the session name as the
-  // "sessionId" for the HMAC derivation at this stage; the domain handler
-  // will replace it with the real session ID.
-  const rl = createInterface({
-    input: process.stdin,
-    output: process.stderr,
-    terminal: true,
-  });
-
-  process.stderr.write(`[cleo] Enter owner-auth password for session "${sessionName}": `);
-
-  const password = await new Promise<string>((resolve) => {
-    // Disable echo if we can.
-    if (
-      (process.stdin as NodeJS.ReadStream & { setRawMode?: (mode: boolean) => void }).setRawMode
-    ) {
-      (process.stdin as NodeJS.ReadStream & { setRawMode: (mode: boolean) => void }).setRawMode(
-        true,
-      );
-    }
-    let pw = '';
-    process.stdin.on('data', function onData(char: Buffer) {
-      const ch = char.toString('utf8');
-      if (ch === '\n' || ch === '\r') {
-        process.stdin.removeListener('data', onData);
-        process.stdin.pause();
-        if (
-          (process.stdin as NodeJS.ReadStream & { setRawMode?: (mode: boolean) => void }).setRawMode
-        ) {
-          (process.stdin as NodeJS.ReadStream & { setRawMode: (mode: boolean) => void }).setRawMode(
-            false,
-          );
-        }
-        process.stderr.write('\n');
-        resolve(pw);
-      } else if (ch === '\u0003') {
-        // Ctrl+C
-        process.stderr.write('\n[cleo] Cancelled.\n');
-        resolve('');
-      } else if (ch === '\u007f' || ch === '\b') {
-        pw = pw.slice(0, -1);
-      } else {
-        pw += ch;
-      }
-    });
-    process.stdin.resume();
-  });
-
-  rl.close();
-
+  const { readOwnerPassword } = await import('../lib/owner-password.js');
+  const password = await readOwnerPassword(`session "${sessionName}"`, 'session.start');
   if (!password) return null;
-
+  const { deriveOwnerAuthToken } = await import('@cleocode/core/internal');
   // Derive the HMAC token using sessionName as a temporary key.
   // The dispatch handler will re-derive with the real session ID.
-  const token = deriveOwnerAuthToken(sessionName, password);
-  return token;
+  return deriveOwnerAuthToken(sessionName, password);
 }
 
 /** cleo session end — end the current session */

@@ -48,6 +48,18 @@ import { BRANCH_LOCK_ERROR_CODES } from '@cleocode/contracts/branch-lock.js';
 export const DEFAULT_OVERRIDE_CAP_PER_SESSION = 10;
 
 /**
+ * The per-project setting that replaces the default cap (T13787). Only the
+ * owner path in `override-cap-setting.ts` may change it.
+ */
+export const OVERRIDE_CAP_SETTING = 'evidence.overrideCapPerSession';
+
+/** The largest cap the owner may set; a larger value is clamped to it (T13787). */
+export const MAX_OVERRIDE_CAP_PER_SESSION = 100;
+
+/** The owner command that changes the cap, named in every refusal (T13787). */
+export const OVERRIDE_CAP_OWNER_COMMAND = `cleo config set ${OVERRIDE_CAP_SETTING} <n>`;
+
+/**
  * Canonical worktree path segment used to detect worktree-orchestrate context
  * (T1504 / ADR-059 §D3).
  *
@@ -271,7 +283,8 @@ export interface OverrideCapResult {
  *
  * @param projectRoot - Absolute path to the project root.
  * @param sessionId - Active session ID ("global" when no session is active).
- * @param cap - Maximum overrides allowed per session (default: 10).
+ * @param cap - Maximum overrides allowed per session (default: 10); callers pass
+ *   the project's owner setting from `resolveOverrideCap` (T13787).
  * @param command - CLI command string used for worktree-context detection (optional).
  * @returns `OverrideCapResult` indicating whether the override is permitted.
  *
@@ -318,9 +331,11 @@ export function checkAndIncrementOverrideCap(
       allowed: false,
       errorCode: BRANCH_LOCK_ERROR_CODES.E_OVERRIDE_CAP_EXCEEDED,
       errorMessage:
-        `Per-session CLEO_OWNER_OVERRIDE cap exceeded: ${current} of ${cap} overrides used. ` +
-        `To proceed above the cap, set CLEO_OWNER_OVERRIDE_WAIVER=<path> to a file containing ` +
-        `'cap-waiver: true'. ` +
+        `Per-session CLEO_OWNER_OVERRIDE cap exceeded: ${current} of ${cap} overrides used ` +
+        `(${OVERRIDE_CAP_SETTING} = ${cap}). Only the owner can raise it, with ` +
+        `\`${OVERRIDE_CAP_OWNER_COMMAND}\` in an interactive terminal, in a session started ` +
+        `with \`cleo session start --owner-auth\` (T13787). To proceed above the cap once, set ` +
+        `CLEO_OWNER_OVERRIDE_WAIVER=<path> to a file containing 'cap-waiver: true'. ` +
         (waiver.reason ? `Waiver rejected: ${waiver.reason}` : ''),
     };
   }

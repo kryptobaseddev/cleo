@@ -10,9 +10,11 @@
 
 import { existsSync } from 'node:fs';
 import type { CleoConfig, ConfigSource, ResolvedValue } from '@cleocode/contracts';
+import { ExitCode } from '@cleocode/contracts/exit-codes.js';
 // Import from the dependency-free leaf (NOT ./llm/role-resolver.js) so this
 // module's eager DEFAULTS read cannot enter role-resolver's circular import
 // chain and hit a temporal-dead-zone ReferenceError. See llm/fallback-model.ts.
+import { CleoError } from './errors.js';
 import { IMPLICIT_FALLBACK_MODEL } from './llm/fallback-model.js';
 import { getConfigPath, getGlobalConfigPath } from './paths.js';
 import { atomicWriteJson } from './store/atomic.js';
@@ -402,6 +404,18 @@ export async function setConfigValue(
   cwd?: string,
   opts?: { global?: boolean },
 ): Promise<{ key: string; value: unknown; scope: 'project' | 'global' }> {
+  // T13787: the override cap is owner-only and sealed outside config.json.
+  if (key === 'evidence.overrideCapPerSession') {
+    const [{ refuseOverrideCapWrite }, { getProjectRoot }] = await Promise.all([
+      import('./security/override-cap-setting.js'),
+      import('./project-scope.js'),
+    ]);
+    // @sync-invariant none:local-only owner-only setting refused before any write; config.json is untouched
+    throw new CleoError(
+      ExitCode.VALIDATION_ERROR,
+      await refuseOverrideCapWrite(cwd ?? getProjectRoot(), parseConfigValue(value)),
+    );
+  }
   const configPath = opts?.global ? getGlobalConfigPath() : getConfigPath(cwd);
 
   // Ensure file exists atomically (crash-safe bootstrap, T11997)

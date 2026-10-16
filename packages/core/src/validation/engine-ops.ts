@@ -644,7 +644,19 @@ export async function validateGateVerify(
         }
       }
 
-      const capResult = checkAndIncrementOverrideCap(projectRoot, capSessionId, undefined, command);
+      // T13787: the cap is the owner's sealed evidence.overrideCapPerSession, else 10.
+      const { resolveOverrideCap } = await import('../security/override-cap-setting.js');
+      const capSetting = await resolveOverrideCap(projectRoot);
+      if (capSetting.warning) {
+        const { pushWarning } = await import('../output.js');
+        pushWarning({ code: 'W_OVERRIDE_CAP_SEAL_INVALID', message: capSetting.warning });
+      }
+      const capResult = checkAndIncrementOverrideCap(
+        projectRoot,
+        capSessionId,
+        capSetting.cap,
+        command,
+      );
       if (!capResult.allowed) {
         return engineError(
           capResult.errorCode ?? 'E_OVERRIDE_CAP_EXCEEDED',

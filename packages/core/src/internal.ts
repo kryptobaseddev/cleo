@@ -1224,11 +1224,24 @@ export {
   getSessionOverrideCountPath,
   isWorktreeContext,
   isWorktreeExemptionEnabled,
+  MAX_OVERRIDE_CAP_PER_SESSION,
+  OVERRIDE_CAP_OWNER_COMMAND,
+  OVERRIDE_CAP_SETTING,
   readSessionOverrideCount,
   validateWaiverDoc,
   WORKTREE_PATH_SEGMENT,
   writeSessionOverrideCount,
 } from './security/override-cap.js';
+// Owner override cap setting (T13787)
+export type {
+  OverrideCapResolution,
+  OverrideCapSetResult,
+} from './security/override-cap-setting.js';
+export {
+  refuseOverrideCapWrite,
+  resolveOverrideCap,
+  setOwnerOverrideCap,
+} from './security/override-cap-setting.js';
 // Owner-override auth (T1118 L4)
 export type { OverrideValidationResult } from './security/owner-override-auth.js';
 export {
@@ -1544,6 +1557,7 @@ export type {
 export {
   createSession,
   getActiveSession,
+  getSessionOwnerAuth,
   hasActiveSession,
   requireBoundSession,
   requireOwnedSessionForEnd,
