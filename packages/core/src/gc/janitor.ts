@@ -905,7 +905,7 @@ export async function runJanitor(opts: JanitorOptions = {}): Promise<JanitorResu
   if (!skip.worktrees && activeTaskIds !== undefined) {
     try {
       const wRoot = worktreesRoot ?? join(getCleoHome(), 'worktrees');
-      const result = pruneOrphanWorktrees({ worktreesRoot: wRoot, activeTaskIds, dryRun });
+      const result = await pruneOrphanWorktrees({ worktreesRoot: wRoot, activeTaskIds, dryRun });
       worktreesPruned = result.removed;
       worktreesQuarantined = result.quarantined;
       if (result.errors.length > 0) errors += result.errors.length;

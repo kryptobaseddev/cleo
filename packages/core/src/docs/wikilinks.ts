@@ -24,7 +24,7 @@
  * @see build-provenance-graph.ts — the on-the-fly BFS this table makes O(edges)
  */
 
-import { eq, or } from 'drizzle-orm';
+import { eq, getTableColumns, or } from 'drizzle-orm';
 import { getProjectRoot } from '../paths.js';
 import { type DocsWikilinkRelation, docsWikilinks } from '../store/schema/attachments.js';
 import { getDb } from '../store/sqlite.js';
@@ -83,7 +83,9 @@ interface DerivationRow {
  *
  * The whole table is truncated and re-derived inside a single transaction, so
  * the function is safe to call after any doc write and always converges to the
- * same edge set for a given `attachments` state.
+ * same edge set for a given `attachments` state. The edge insert is chunked at
+ * 6553 rows per statement — SQLite's 32766-variable cap with 5 bound columns
+ * per row — so stores with more than 6553 edges still rebuild fully (T13711).
  *
  * @example
  * ```ts
@@ -142,18 +144,29 @@ export async function rebuildDocsWikilinks(
     if (edges.length === 0) return;
     // Batch insert; INSERT OR IGNORE semantics via onConflictDoNothing keep the
     // composite PK idempotent even if deriveWikilinkEdges emitted a duplicate.
-    tx.insert(docsWikilinks)
-      .values(
-        edges.map((e) => ({
-          fromSlug: e.fromSlug,
-          toSlug: e.toSlug,
-          relation: e.relation,
-          toIsTask: e.toIsTask,
-          derivedAt: nowIso,
-        })),
-      )
-      .onConflictDoNothing()
-      .run();
+    //
+    // T13711: SQLite caps a statement's bound variables at SQLITE_MAX_VARIABLE_
+    // NUMBER (32766), so one INSERT binds at most floor(32766 / columns) rows
+    // — past that (axiom-app: 8387 edges) the single statement fails and the
+    // whole rebuild rolls back. Chunk inside the SAME transaction so the
+    // rebuild stays atomic.
+    const WIKILINK_INSERT_CHUNK_ROWS = Math.floor(
+      32766 / Object.keys(getTableColumns(docsWikilinks)).length,
+    );
+    for (let i = 0; i < edges.length; i += WIKILINK_INSERT_CHUNK_ROWS) {
+      tx.insert(docsWikilinks)
+        .values(
+          edges.slice(i, i + WIKILINK_INSERT_CHUNK_ROWS).map((e) => ({
+            fromSlug: e.fromSlug,
+            toSlug: e.toSlug,
+            relation: e.relation,
+            toIsTask: e.toIsTask,
+            derivedAt: nowIso,
+          })),
+        )
+        .onConflictDoNothing()
+        .run();
+    }
   });
 
   const byRelation: Record<DocsWikilinkRelation, number> = {

@@ -23,7 +23,7 @@
  *   from the seen ledger or arrived out of order; the pull stops there, loud,
  *   and never skips it as seen;
  * - stages the rest (`stageTxns`), schema-ahead ones included (the applier
- *   holds them `refused-schema` and replays them after an upgrade), and
+ *   holds them `refused-schema` and retries them on every apply), and
  *   records each `retire` at its stream seq (`_sync_retired`, T13278);
  * - advances the cursor.
  *
@@ -44,6 +44,7 @@ import { inflateRawSync } from 'node:zlib';
 import type { TableScope } from '@cleocode/contracts';
 import { LedgerTxn } from '@cleocode/contracts/ledger';
 import { type ApplyReport, type ApplyStagedOptions, applyStagedTxns } from './apply/applier.js';
+import { establishLazySchemas } from './capture.js';
 import { withImmediateTransaction } from './clock-store.js';
 import { isSyncFlagOn } from './flags.js';
 import { stageTxns } from './inbox.js';
@@ -522,6 +523,8 @@ export async function pullStream(
       rebind: null,
     };
   }
+  // T13719: every staged op is planned against this build's schema.
+  await establishLazySchemas(db, o.scope);
   ensureSeenFloor(db);
   let cursor = readStreamCursor(db, o.stream) ?? o.initialCursor;
   let segments = 0;

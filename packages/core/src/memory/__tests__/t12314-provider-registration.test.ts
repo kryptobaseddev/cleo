@@ -47,6 +47,7 @@ describe('T12314 AC1 — a consumer ensures registration rather than assuming it
   it('is idempotent and never displaces a provider already registered', async () => {
     const stub = {
       dimensions: EMBEDDING_DIMENSIONS,
+      model: 'test-model',
       isAvailable: () => true,
       embed: async () => new Float32Array(EMBEDDING_DIMENSIONS),
     };
@@ -60,6 +61,7 @@ describe('T12314 AC1 — a consumer ensures registration rather than assuming it
   it('leaves a registered-but-failed provider reporting its own failure', async () => {
     const failed = {
       dimensions: EMBEDDING_DIMENSIONS,
+      model: 'test-model',
       isAvailable: () => false,
       embed: async () => new Float32Array(EMBEDDING_DIMENSIONS),
     };

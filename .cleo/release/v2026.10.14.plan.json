@@ -1,0 +1,326 @@
+{
+  "$schema": "https://cleocode.io/schemas/release-plan/v1.json",
+  "version": "v2026.10.14",
+  "resolvedVersion": "v2026.10.14",
+  "suffixApplied": false,
+  "scheme": "calver",
+  "channel": "latest",
+  "epicId": null,
+  "releaseKind": "regular",
+  "hooksV1Promotion": false,
+  "createdAt": "2026-10-15T06:35:47.113Z",
+  "createdBy": "keatonhoskins",
+  "previousVersion": "v2026.10.13",
+  "previousTag": "v2026.10.13",
+  "previousShippedAt": null,
+  "tasks": [
+    {
+      "id": "T13467",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "Global store secrets travel sealed on the home stream (accounts, service_configs, service_connections, agent accounts)",
+      "evidenceAtoms": [
+        "pr:2252",
+        "files:packages/core/src/store/sync/__tests__/global-secrets.test.ts",
+        "ci:2252"
+      ],
+      "epicAncestor": "T12323",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T13528",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "accounts: an encrypting writer so synced account rows carry sealed secrets",
+      "evidenceAtoms": [
+        "pr:2262",
+        "files:.changeset/llm-credentials-in-accounts.md,AGENTS.md,packages/core/src/cloud/secret-seal.ts,packages/core/src/crypto/credentials.ts,packages/core/src/llm/__tests__/credentials-store.test.ts,packages/core/src/llm/credentials-store.ts,packages/core/src/llm/onboarding/__tests__/login-engine.test.ts,packages/core/src/store/__tests__/credential-transfer.test.ts,packages/core/src/store/credential-transfer.ts,packages/core/src/store/llm-accounts-accessor.ts,packages/core/src/store/schema/cleo-global/accounts.ts,packages/core/src/store/sync/__tests__/global-secrets.test.ts,scripts/.lint-sync-write-invariants-baseline.json,scripts/lint-no-raw-table-writes.mjs",
+        "ci:2262"
+      ],
+      "epicAncestor": "T12323",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T13624",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "T12997: for an incoming-applied conflict, 'keep mine' writes nothing (choice silently lost) and cloud conflicts shows mine == theirs",
+      "evidenceAtoms": [
+        "pr:2251",
+        "files:packages/core/src/store/sync/__tests__/journal-activity.test.ts",
+        "ci:2251"
+      ],
+      "epicAncestor": "T13434",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T13644",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "qa-run receipts should carry across later unrelated commits like scoped test runs",
+      "evidenceAtoms": [
+        "pr:2265",
+        "files:.changeset/qa-run-earlier-tree-carry.md,packages/core/src/tasks/__tests__/qa-run-binding.test.ts,packages/core/src/tasks/affected-scope.ts",
+        "ci:2265"
+      ],
+      "epicAncestor": "T13434",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T13704",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "Backups and the cloud vault bundle must carry the docs blob store, or restored projects cannot fetch their docs",
+      "evidenceAtoms": [
+        "pr:2255",
+        "files:packages/core/src/cloud/__tests__/nexus-vault.test.ts",
+        "ci:2255"
+      ],
+      "epicAncestor": "T12317",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T13708",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "#2249 36abddb0: cleo restore backup --id never restores the docs bytes (CLI uses restore-store, not restoreBackupById)",
+      "evidenceAtoms": [
+        "pr:2253",
+        "files:.changeset/backup-docs-bytes.md,packages/cleo/src/cli/commands/restore.ts,packages/cleo/src/dispatch/domains/admin.ts,packages/contracts/src/index.ts,packages/contracts/src/store-restore.ts,packages/core/src/store/__tests__/docs-bytes-backup.test.ts,packages/core/src/store/__tests__/portable-bundle-scan-restore-marker.test.ts,packages/core/src/store/backup-sidecar.ts,packages/core/src/store/docs-bytes-backup.ts,packages/core/src/store/restore-store.ts,packages/core/src/system/backup.ts",
+        "ci:2253"
+      ],
+      "epicAncestor": "T13434",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T13709",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "#2249 36abddb0: attachments/index.db (live SQLite) is raw-copied into backups and restored unverified over the live file; partial restores look clean",
+      "evidenceAtoms": [
+        "pr:2253",
+        "files:.changeset/backup-docs-bytes.md,packages/cleo/src/cli/commands/restore.ts,packages/cleo/src/dispatch/domains/admin.ts,packages/contracts/src/index.ts,packages/contracts/src/store-restore.ts,packages/core/src/store/__tests__/docs-bytes-backup.test.ts,packages/core/src/store/__tests__/portable-bundle-scan-restore-marker.test.ts,packages/core/src/store/backup-sidecar.ts,packages/core/src/store/docs-bytes-backup.ts,packages/core/src/store/restore-store.ts,packages/core/src/system/backup.ts",
+        "ci:2253"
+      ],
+      "epicAncestor": "T13434",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T13710",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "#2249 36abddb0: backup rotation counts payload FILES, so every cleo backup add on a real store deletes its own cleo.db snapshot and all older backups",
+      "evidenceAtoms": [
+        "pr:2253",
+        "files:.changeset/backup-docs-bytes.md,packages/cleo/src/cli/commands/restore.ts,packages/cleo/src/dispatch/domains/admin.ts,packages/contracts/src/index.ts,packages/contracts/src/store-restore.ts,packages/core/src/store/__tests__/docs-bytes-backup.test.ts,packages/core/src/store/__tests__/portable-bundle-scan-restore-marker.test.ts,packages/core/src/store/backup-sidecar.ts,packages/core/src/store/docs-bytes-backup.ts,packages/core/src/store/restore-store.ts,packages/core/src/system/backup.ts",
+        "ci:2253"
+      ],
+      "epicAncestor": "T13434",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T13711",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "docs wikilinks rebuild fails past 6553 edges: one INSERT exceeds SQLITE_MAX_VARIABLE_NUMBER; warning dumps every param",
+      "evidenceAtoms": [
+        "pr:2263",
+        "files:.changeset/wikilinks-chunk-bounded-errors.md,packages/core/src/docs/__tests__/wikilinks.test.ts,packages/core/src/docs/docs-update.ts,packages/core/src/docs/supersede.ts,packages/core/src/docs/wikilinks.ts,packages/core/src/lib/__tests__/error-message.test.ts,packages/core/src/lib/error-message.ts,packages/core/src/lib/index.ts,packages/core/src/store/attachment-store.ts",
+        "ci:2263"
+      ],
+      "epicAncestor": "T13340",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T13714",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "T13549 gate F3: self-echo field conflicts on brain ops: canonical ISO vs legacy 'YYYY-MM-DD HH:MM:SS' timestamp text",
+      "evidenceAtoms": [
+        "pr:2256",
+        "files:.changeset/sync-timestamp-echo-conflict.md,packages/core/src/store/sync/__tests__/capture.test.ts,packages/core/src/store/sync/__tests__/two-device-e2e.test.ts,packages/core/src/store/sync/apply/applier.ts,packages/core/src/store/sync/capture.ts",
+        "ci:2256"
+      ],
+      "epicAncestor": "T12323",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T13715",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "T13549 gate F5: cleo llm add writes plaintext llm-credentials.json and never syncs; accounts table has no production writer",
+      "evidenceAtoms": [
+        "pr:2262",
+        "files:.changeset/llm-credentials-in-accounts.md,AGENTS.md,packages/core/src/cloud/secret-seal.ts,packages/core/src/crypto/credentials.ts,packages/core/src/llm/__tests__/credentials-store.test.ts,packages/core/src/llm/credentials-store.ts,packages/core/src/llm/onboarding/__tests__/login-engine.test.ts,packages/core/src/store/__tests__/credential-transfer.test.ts,packages/core/src/store/credential-transfer.ts,packages/core/src/store/llm-accounts-accessor.ts,packages/core/src/store/schema/cleo-global/accounts.ts,packages/core/src/store/sync/__tests__/global-secrets.test.ts,scripts/.lint-sync-write-invariants-baseline.json,scripts/lint-no-raw-table-writes.mjs",
+        "ci:2262"
+      ],
+      "epicAncestor": "T12323",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T13718",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "T13549 gate F1: a device that joins via cloud restore never turns sync on (E_SYNC_DISABLED until manual sync enable push)",
+      "evidenceAtoms": [
+        "pr:2258",
+        "files:.changeset/restore-enables-sync.md,packages/core/src/cloud/__tests__/nexus-vault.test.ts,packages/core/src/cloud/nexus-vault.ts",
+        "ci:2258"
+      ],
+      "epicAncestor": "T12323",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T13719",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "T13549 gate F2: brain_observations ops refused-schema on a joiner whose brain migrations never ran; never replayed after the schema catches up",
+      "evidenceAtoms": [
+        "pr:2259",
+        "files:.changeset/brain-schema-before-sync-apply.md,packages/core/migrations/drizzle-brain/20261014180000_t13719-prune-candidate-column/migration.sql,packages/core/src/memory/quality-feedback.ts,packages/core/src/store/__tests__/brain-schema-partial-columns.test.ts,packages/core/src/store/__tests__/fixtures/table-classification-columns.json,packages/core/src/store/memory-sqlite.ts,packages/core/src/store/migration-manager.ts,packages/core/src/store/sync/__tests__/two-device-e2e.test.ts,packages/core/src/store/sync/apply/__tests__/applier.test.ts,packages/core/src/store/sync/apply/applier.ts,packages/core/src/store/sync/capture.ts,packages/core/src/store/sync/genesis.ts,packages/core/src/store/sync/inbox.ts,packages/core/src/store/sync/pull.ts,packages/core/src/store/table-classification.ts,scripts/.lint-dual-scope-unqualified-reads-baseline.json,scripts/lint-no-raw-table-writes.mjs",
+        "ci:2259"
+      ],
+      "epicAncestor": "T12323",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T13725",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "docs versions --for <slug> resolves slug to owner instead of empty list (lookup bug)",
+      "evidenceAtoms": [
+        "pr:2264",
+        "files:.changeset/docs-versions-slug.md,packages/cleo/src/cli/commands/__tests__/docs-versions-slug.test.ts,packages/cleo/src/cli/commands/docs.ts,packages/cleo/src/dispatch/domains/__tests__/base-handle-error.test.ts,packages/cleo/src/dispatch/domains/_base.ts,packages/core/src/docs/__tests__/docs-ops.test.ts,packages/core/src/docs/docs-ops.ts,packages/runtime/src/gateway/dispatch.ts,packages/skills/skills/ct-documentor/SKILL.md,packages/skills/skills/manifest.json",
+        "ci:2264"
+      ],
+      "epicAncestor": "T13340",
+      "ivtrPhaseAtPlan": "contribution"
+    }
+  ],
+  "changelog": {
+    "features": [
+      "T13467",
+      "T13528",
+      "T13624",
+      "T13644",
+      "T13704",
+      "T13708",
+      "T13709",
+      "T13710",
+      "T13711",
+      "T13714",
+      "T13715",
+      "T13718",
+      "T13719",
+      "T13725"
+    ],
+    "fixes": [],
+    "chores": [],
+    "breaking": []
+  },
+  "gates": [
+    {
+      "name": "test",
+      "atom": "tool:test",
+      "status": "unresolved",
+      "lastVerifiedAt": "2026-10-15T06:35:47.113Z",
+      "resolvedCommand": "pnpm run test",
+      "resolvedSource": "project-context"
+    },
+    {
+      "name": "build",
+      "atom": "tool:build",
+      "status": "unresolved",
+      "lastVerifiedAt": "2026-10-15T06:35:47.113Z",
+      "resolvedCommand": "pnpm run build",
+      "resolvedSource": "project-context"
+    },
+    {
+      "name": "lint",
+      "atom": "tool:lint",
+      "status": "unresolved",
+      "lastVerifiedAt": "2026-10-15T06:35:47.113Z",
+      "resolvedCommand": "pnpm run lint",
+      "resolvedSource": "package-script"
+    },
+    {
+      "name": "typecheck",
+      "atom": "tool:typecheck",
+      "status": "unresolved",
+      "lastVerifiedAt": "2026-10-15T06:35:47.113Z",
+      "resolvedCommand": "pnpm run typecheck",
+      "resolvedSource": "package-script"
+    },
+    {
+      "name": "audit",
+      "atom": "tool:audit",
+      "status": "unresolved",
+      "lastVerifiedAt": "2026-10-15T06:35:47.113Z",
+      "resolvedCommand": "npm audit",
+      "resolvedSource": "language-default"
+    },
+    {
+      "name": "security-scan",
+      "atom": "tool:security-scan",
+      "status": "unresolved",
+      "lastVerifiedAt": "2026-10-15T06:35:47.113Z",
+      "resolvedCommand": "npm audit",
+      "resolvedSource": "language-default"
+    }
+  ],
+  "platformMatrix": [
+    {
+      "platform": "any",
+      "publisher": "npm",
+      "package": "@cleocode/cleo"
+    }
+  ],
+  "preflightSummary": {
+    "esbuildExternalsDrift": false,
+    "lockfileDrift": false,
+    "epicCompletenessClean": true,
+    "doubleListingClean": true,
+    "preflightWarnings": [
+      "Skipped 773 out-of-scope changeset entries whose task anchors are not part of this release plan"
+    ]
+  },
+  "workflowRunUrl": null,
+  "prUrl": null,
+  "mergeCommitSha": null,
+  "status": "planned",
+  "meta": {
+    "firstEverRelease": false,
+    "archetype": "node",
+    "releaseNotes": "## v2026.10.14 — 2026-10-15\n\n> **Stabilisation release.** Cross-device sync (Stage C: `sync.seal`, `sync.push`, `sync.pull`, `sync.strict`) stays unreleased and inert on this stable build until the Stage C exit gate releases its flags, and project hooks (hooks-v1) stay off on stable builds until their promotion. The local embedding model is no longer downloaded unless you opt in. Two additive schema migrations run on first open (`docs_attachments`/`docs_attachment_refs` gain a `uid` column; the brain tables gain `prune_candidate`).\n\n### Added\n\n- Global credentials sync with their secrets: sealed in cloud sync, re-encrypted on the receiving device (inert on stable until Stage C) _(provenance: [T13467](https://github.com/kryptobaseddev/cleo/search?q=T13467&type=commits), [T12915](https://github.com/kryptobaseddev/cleo/search?q=T12915&type=commits))_\n\n### Changed\n\n- Prove cloud vault snapshots carry the docs databases and bytes, so docs fetch works after cloud restore onto a new device _(provenance: [T13704](https://github.com/kryptobaseddev/cleo/search?q=T13704&type=commits))_\n\n### Fixed\n\n- cleo backup add and cleo restore backup --id now carry the docs blob store and attachments, so docs fetch works after a restore _(provenance: [T13704](https://github.com/kryptobaseddev/cleo/search?q=T13704&type=commits), [T13708](https://github.com/kryptobaseddev/cleo/search?q=T13708&type=commits), [T13709](https://github.com/kryptobaseddev/cleo/search?q=T13709&type=commits), [T13710](https://github.com/kryptobaseddev/cleo/search?q=T13710&type=commits))_\n- a sync joiner that never opened brain no longer refuses brain ops, and refused-schema ops retry once the schema has their columns (inert on stable until Stage C) _(provenance: [T13719](https://github.com/kryptobaseddev/cleo/search?q=T13719&type=commits))_\n- docs versions --for accepts a doc slug; dispatch keeps a CleoError's named code _(provenance: [T13725](https://github.com/kryptobaseddev/cleo/search?q=T13725&type=commits))_\n- LLM credentials now live encrypted in the accounts table, and llm-credentials.json is migrated once and removed; a key added with cleo llm add reaching your other devices is inert on stable until Stage C _(provenance: [T13715](https://github.com/kryptobaseddev/cleo/search?q=T13715&type=commits), [T13528](https://github.com/kryptobaseddev/cleo/search?q=T13528&type=commits))_\n- A qa-run receipt recorded on an earlier tree carries while its checked roots, the task's current change and the shared tool configs are byte-identical; a refusal names the paths that changed _(provenance: [T13644](https://github.com/kryptobaseddev/cleo/search?q=T13644&type=commits))_\n- cleo cloud restore now turns sync on for the restored project and the home stream, so a device that joins by restore syncs with no enable step (inert on stable until Stage C) _(provenance: [T13718](https://github.com/kryptobaseddev/cleo/search?q=T13718&type=commits))_\n- a replica's own echo no longer records field conflicts on timestamps stored as legacy 'YYYY-MM-DD HH:MM:SS' text (inert on stable until Stage C) _(provenance: [T13714](https://github.com/kryptobaseddev/cleo/search?q=T13714&type=commits))_\n- qa-run receipts recorded on a main HEAD after the merge, on the current tree and covering the change, stand in for qaPassed whatever the merge CI concluded (the T13673 rule, now for qaPassed) _(provenance: [T13644](https://github.com/kryptobaseddev/cleo/search?q=T13644&type=commits))_\n- Docs wikilinks rebuild chunks past SQLite's variable cap; rebuild warnings stay bounded and never print SQL params _(provenance: [T13711](https://github.com/kryptobaseddev/cleo/search?q=T13711&type=commits))_\n\n### Also in this release (listed by hand)\n\nMerged since v2026.10.13 and reviewed, with green PR CI. These have no release-note changeset, or their tasks were still open at planning time:\n\n- T13716 #2257: the session-end embedding backfill downloads the local embedding model only on explicit opt-in; nothing reaches huggingface.co by default.\n- T13720 #2261: global-store brain memory (decisions and observations) is written and read.\n- T12919 #2260: the docs registry and refs sync across devices; wikilinks are derived (inert on stable until Stage C).\n- T12895 #2230: proof that natural-key brain rows replay across devices by derived uid.\n- T13649 #2238: typed gates honour CLEO_EVIDENCE_GIT_ROOT and key the cache to the declared worktree HEAD.\n- T13690, T13691 #2237: declared task files are literal typed-gate inputs (`app/[id]/page.tsx` no longer defeats the gate cache).\n- T13693 #2240: a typed-gate cache miss names what changed since `cleo verify --run` cached the pass.\n- T13664 #2232: `cleo lean debt` lists `shortcut:` comments and can file them as tasks.\n- T13686 #2234 #2250: the gateway client is regenerated and CI gates generated-client drift.\n- T13684 #2246: proof of fetch, concurrent update, then update with the fetched base.\n- T13624 #2251: test that keep mine on an incoming-applied conflict obeys the typed-rule probe.\n",
+    "changesetEntryCount": 11,
+    "changesetIds": [
+      "backup-docs-bytes",
+      "brain-schema-before-sync-apply",
+      "docs-versions-slug",
+      "llm-credentials-in-accounts",
+      "qa-run-earlier-tree-carry",
+      "restore-enables-sync",
+      "sync-timestamp-echo-conflict",
+      "t13467-global-secrets",
+      "t13644-qa-run-later-main-standin",
+      "vault-docs-bytes-test",
+      "wikilinks-chunk-bounded-errors"
+    ],
+    "taskIds": [
+      "T13467",
+      "T13528",
+      "T13624",
+      "T13644",
+      "T13704",
+      "T13708",
+      "T13709",
+      "T13710",
+      "T13711",
+      "T13714",
+      "T13715",
+      "T13718",
+      "T13719",
+      "T13725"
+    ]
+  }
+}

@@ -1385,8 +1385,15 @@ export function reconcileBrainMigrationsForConsolidatedDb(
 
     // Genuinely missing (an unprefixed runtime table the consolidated migration
     // omits) — execute its statements directly, then journal it. These migrations
-    // are `IF NOT EXISTS` DDL + idempotent backfills, safe to native-exec.
+    // are `IF NOT EXISTS` DDL + idempotent backfills, safe to native-exec. An ADD
+    // COLUMN whose column already exists is skipped (T13719): a partly applied
+    // column set (an interrupted run, or an older ad-hoc ALTER) must not throw
+    // "duplicate column name" on every open.
     for (const statement of m.sql) {
+      const add = /^ALTER\s+TABLE\s+[`"]?(\w+)[`"]?\s+ADD\s+COLUMN\s+[`"]?(\w+)[`"]?/i.exec(
+        stripSqlComments(statement).trim(),
+      );
+      if (add && columnExists(add[1] as string, add[2] as string)) continue;
       nativeDb.exec(statement);
     }
     insertJournalEntry(nativeDb, m.hash, m.folderMillis, m.name ?? '');

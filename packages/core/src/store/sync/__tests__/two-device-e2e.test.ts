@@ -23,20 +23,26 @@
  */
 
 import { createHash } from 'node:crypto';
-import { mkdirSync, mkdtempSync, rmSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import type { DatabaseSync } from 'node:sqlite';
+import type { CloudWarning } from '@cleocode/contracts';
 import type { LedgerTxn } from '@cleocode/contracts/ledger';
 import { SYNC_SCHEMA_VERSION } from '@cleocode/contracts/sync-schema.js';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { generateEd25519 } from '../../../cloud/crypto.js';
+import { deriveKey, generateEd25519, hmacSha256, randomKey } from '../../../cloud/crypto.js';
+import { pullDocBytes, pushDocBytes } from '../../../cloud/doc-bytes.js';
+import { Http } from '../../../cloud/http.js';
+import { Journal } from '../../../cloud/journal.js';
+import { DocsReadModel } from '../../../docs/docs-read-model.js';
 import {
   _resetDualScopeDbCache,
   getDualScopeNativeDb,
   openDualScopeDbAtPath,
 } from '../../dual-scope-db.js';
 import {
+  prepareRowIdentity,
   ROW_IDENTITY_META_TABLE,
   ROW_IDENTITY_RECIPE,
   ROW_IDENTITY_RECIPE_KEY,
@@ -51,7 +57,8 @@ import {
 } from '../capture.js';
 import { listConflicts } from '../conflicts.js';
 import { setSyncFlag, syncSetTables } from '../flags.js';
-import { completeGenesis, cutGenesis, joinStream } from '../genesis.js';
+import { completeGenesis, cutGenesis, cutGenesisWithSnapshot, joinStream } from '../genesis.js';
+import { inboxCounts } from '../inbox.js';
 import {
   type PulledStreamSegment,
   type PullStreamOptions,
@@ -401,5 +408,796 @@ describe('two devices editing one task converge (T13371)', () => {
     // A is untouched.
     const atA = planRepair(a.db, 'project', 'tasks_tasks');
     expect(atA.updates.length).toBe(0);
+  });
+});
+
+describe('natural-key brain rows replay across devices (T12895)', () => {
+  it('memory links, release links and page edges reach B by derived uid, with the same counts and hashes', async () => {
+    const NATURAL = ['brain_page_edges', 'brain_memory_links', 'tasks_brain_release_links'];
+    const count = (db: DatabaseSync, t: string) =>
+      (db.prepare(`SELECT count(*) AS n FROM "${t}"`).get() as { n: number }).n;
+    const pick = (sums: Record<string, string>) =>
+      Object.fromEntries(NATURAL.map((t) => [t, sums[t] ?? null]));
+    const expectReplayed = (want: number[]) => {
+      expect(NATURAL.map((t) => count(a.db, t))).toEqual(want);
+      expect(NATURAL.map((t) => count(b.db, t))).toEqual(want);
+      expect(pick(contentChecksums(b.db))).toEqual(pick(contentChecksums(a.db)));
+      expect(contentChecksums(b.db)).toEqual(contentChecksums(a.db));
+    };
+    const { a, b } = await twoDevices();
+    const stream = fakeStream();
+    write(
+      a.db,
+      `INSERT INTO tasks_tasks (id, title, type, status, priority, uid, birth_fp)
+         VALUES ('T1', 'linked task', 'task', 'pending', 'medium', 'uid-T1', 'fp-T1');
+       INSERT INTO brain_memory_links (memory_type, memory_id, task_id, link_type, created_at) VALUES
+         ('observation', 'O-0a1b2c3d', 'T1', 'produced_by', '2026-10-10 09:00:00'),
+         ('decision', 'D0001', 'T1', 'produced_by', '2026-10-10 09:00:01');
+       INSERT INTO tasks_brain_release_links (brain_entry_id, release_id, link_type, created_at) VALUES
+         ('O-0a1b2c3d', 'v2026.10.5', 'observed-in', '2026-10-10 09:01:00');
+       INSERT INTO brain_page_edges (from_id, to_id, edge_type, created_at) VALUES
+         ('task:T1', 'observation:O-0a1b2c3d', 'derived_from', '2026-10-10 09:02:00'),
+         ('task:T1', 'symbol:src/a.ts#f', 'code_reference', '2026-10-10 09:02:01');`,
+    );
+    await push(a, stream);
+    await pull(b, stream);
+    expectReplayed([2, 2, 1]);
+
+    write(
+      a.db,
+      `UPDATE brain_page_edges SET weight = 0.25 WHERE to_id = 'observation:O-0a1b2c3d';
+       DELETE FROM brain_page_edges WHERE to_id = 'symbol:src/a.ts#f';
+       DELETE FROM brain_memory_links WHERE memory_id = 'D0001';
+       INSERT INTO tasks_brain_release_links (brain_entry_id, release_id, link_type, created_at) VALUES
+         ('D0001', 'v2026.10.6', 'observed-in', '2026-10-10 09:03:00');`,
+    );
+    await push(a, stream);
+    await pull(b, stream);
+    expectReplayed([1, 1, 2]);
+    expect(
+      b.db.prepare("SELECT weight FROM brain_page_edges WHERE from_id = 'task:T1'").get(),
+    ).toEqual({ weight: 0.25 });
+  });
+});
+
+describe('docs reach a second device (T12919)', () => {
+  const BODY = '# Gate doc\n\nline one\n';
+  const sha = (body: string) => createHash('sha256').update(body).digest('hex');
+  const SHA = sha(BODY);
+  const NEXT_SHA = sha(`${BODY}v2\n`);
+  const json = (s: string) =>
+    JSON.stringify({ kind: 'blob', mime: 'text/markdown', sha256: s, size: BODY.length });
+  let clockMs = Date.parse('2026-10-14T18:00:00.000Z');
+
+  /** The UNIQUE indexes real stores carry (twin collapse, twin-collapse.ts). */
+  function uniqueDocIndexes(db: DatabaseSync): string[] {
+    db.exec(`CREATE UNIQUE INDEX IF NOT EXISTS uniq_docs_attachments_slug ON docs_attachments (slug) WHERE slug IS NOT NULL;
+             CREATE UNIQUE INDEX IF NOT EXISTS uniq_docs_attachments_sha256 ON docs_attachments (sha256);`);
+    return (
+      db
+        .prepare(
+          "SELECT name FROM sqlite_master WHERE type = 'index' AND name LIKE 'uniq_docs_attachments_%' ORDER BY name",
+        )
+        .all() as Array<{ name: string }>
+    ).map((r) => r.name);
+  }
+
+  /** Add a doc with one ref, as `docs add` writes them (a random local id). */
+  function addDoc(db: DatabaseSync, id: string, s: string, slug: string | null, owner: string) {
+    const at = new Date(++clockMs).toISOString();
+    write(
+      db,
+      `INSERT INTO docs_attachments (id, sha256, attachment_json, created_at, ref_count, slug, type)
+         VALUES ('${id}', '${s}', '${json(s)}', '${at}', 1, ${slug === null ? 'NULL' : `'${slug}'`}, 'note');
+       INSERT INTO docs_attachment_refs (attachment_id, owner_type, owner_id, attached_at)
+         VALUES ('${id}', 'task', '${owner}', '${at}');`,
+    );
+  }
+
+  /** Every doc row without its local id, by content address. */
+  const docs = (db: DatabaseSync) =>
+    db
+      .prepare(
+        'SELECT sha256, slug, lifecycle_status, uid, ' +
+          '(SELECT s.sha256 FROM docs_attachments s WHERE s.id = d.superseded_by) AS superseded_by_sha ' +
+          'FROM docs_attachments d ORDER BY sha256',
+      )
+      .all();
+  /** Every ref, with its doc named by content address (the local id differs per device). */
+  const refs = (db: DatabaseSync) =>
+    db
+      .prepare(
+        `SELECT d.sha256, r.owner_type, r.owner_id, r.uid FROM docs_attachment_refs r
+           LEFT JOIN docs_attachments d ON d.id = r.attachment_id ORDER BY r.uid`,
+      )
+      .all();
+  const docConflicts = (db: DatabaseSync, kind: string) =>
+    listConflicts(db, { stream: STREAM }).filter(
+      (c) => c.table.startsWith('docs_') && c.kind === kind,
+    );
+  const pick = (s: Record<string, string>) => [s.docs_attachments, s.docs_attachment_refs];
+
+  /** A adds a doc and its successor draft, B pulls them. */
+  async function docOnBoth() {
+    const { a, b } = await twoDevices();
+    const stream = fakeStream();
+    for (const r of [a, b]) uniqueDocIndexes(r.db);
+    addDoc(a.db, 'doc-1', SHA, 'gate-doc', 'T1');
+    addDoc(a.db, 'doc-2', NEXT_SHA, null, 'T1');
+    mkdirSync(join(dir, 'a', '.cleo', 'blobs', 'blobs'), { recursive: true });
+    writeFileSync(join(dir, 'a', '.cleo', 'blobs', 'blobs', SHA), BODY);
+    await push(a, stream);
+    await pull(b, stream);
+    await pull(a, stream); // own echo
+    return { a, b, stream };
+  }
+
+  it('the doc row and its ref travel with their uids; docs list and fetch resolve it on B', async () => {
+    const { a, b } = await docOnBoth();
+    expect(docs(b.db)).toEqual(docs(a.db));
+    expect(docs(b.db)).toHaveLength(2);
+    expect(refs(b.db)).toEqual(refs(a.db));
+    expect(pick(contentChecksums(b.db))).toEqual(pick(contentChecksums(a.db)));
+
+    const model = new DocsReadModel({ projectRoot: join(dir, 'b') });
+    const listed = await model.listProjectDocs();
+    expect(listed.map((d) => d.slug)).toContain('gate-doc');
+    // Segments carry no bytes (they travel as stream blobs, T13721): fetch
+    // names the doc and says its content is missing, never a fabricated body.
+    const missing = await model.fetchDecoded('gate-doc');
+    expect(missing).toMatchObject({ ok: false, reason: 'no-content' });
+    // Once the content-addressed bytes land (a vault restore carries them,
+    // T13704), the synced row serves them.
+    mkdirSync(join(dir, 'b', '.cleo', 'blobs', 'blobs'), { recursive: true });
+    writeFileSync(join(dir, 'b', '.cleo', 'blobs', 'blobs', SHA), BODY);
+    expect(await model.fetchDecoded('gate-doc')).toMatchObject({ ok: true, content: BODY });
+  });
+
+  it('a concurrent lifecycle transition converges: superseded absorbs a later accept (docs.lifecycle.transitions)', async () => {
+    const { a, b, stream } = await docOnBoth();
+    write(
+      a.db,
+      `UPDATE docs_attachments SET lifecycle_status = 'superseded',
+         superseded_by = (SELECT id FROM docs_attachments WHERE sha256 = '${NEXT_SHA}')
+       WHERE sha256 = '${SHA}'`,
+    );
+    await push(a, stream);
+    // B has not seen A's supersession; its accept carries the later HLC.
+    write(
+      b.db,
+      `UPDATE docs_attachments SET lifecycle_status = 'accepted' WHERE sha256 = '${SHA}'`,
+    );
+    await push(b, stream);
+    await pull(a, stream);
+    await pull(b, stream);
+    expect(docs(b.db)).toEqual(docs(a.db));
+    expect(docs(a.db)[SHA < NEXT_SHA ? 0 : 1]).toMatchObject({
+      sha256: SHA,
+      lifecycle_status: 'superseded',
+      superseded_by_sha: NEXT_SHA,
+    });
+  });
+
+  it('the same bytes added on both devices become one doc; no row, ref or blob owner is lost', async () => {
+    const { a, b } = await twoDevices();
+    const stream = fakeStream();
+    for (const r of [a, b]) expect(uniqueDocIndexes(r.db)).toHaveLength(2);
+    // The same repo ADR backfilled on each machine, each with its own random id.
+    addDoc(a.db, 'id-a', SHA, 'adr-001', 'T1');
+    addDoc(b.db, 'id-b', SHA, 'adr-001', 'T2');
+    await push(a, stream);
+    await push(b, stream);
+    await pull(a, stream);
+    await pull(b, stream);
+    for (const r of [a, b]) {
+      expect(docs(r.db)).toHaveLength(1);
+      // Both owners keep their ref, each pointing at the one doc.
+      expect(
+        (refs(r.db) as Array<{ sha256: string; owner_id: string }>)
+          .map((x) => [x.sha256, x.owner_id])
+          .sort(),
+      ).toEqual([
+        [SHA, 'T1'],
+        [SHA, 'T2'],
+      ]);
+      expect(docConflicts(r.db, 'guard')).toEqual([]);
+    }
+    // Each device keeps its own local id for its own row.
+    expect(a.db.prepare('SELECT id FROM docs_attachments').get()).toEqual({ id: 'id-a' });
+    expect(b.db.prepare('SELECT id FROM docs_attachments').get()).toEqual({ id: 'id-b' });
+    expect(docs(b.db)).toEqual(docs(a.db));
+    expect(refs(b.db)).toEqual(refs(a.db));
+  });
+
+  it('two different docs under one slug both survive: the greater uid yields the slug on both devices', async () => {
+    const { a, b } = await twoDevices();
+    const stream = fakeStream();
+    for (const r of [a, b]) expect(uniqueDocIndexes(r.db)).toHaveLength(2);
+    addDoc(a.db, 'id-a', SHA, 'adr-001', 'T1');
+    addDoc(b.db, 'id-b', NEXT_SHA, 'adr-001', 'T2');
+    await push(a, stream);
+    await push(b, stream);
+    await pull(a, stream);
+    await pull(b, stream);
+    const atA = docs(a.db) as Array<{ sha256: string; slug: string; uid: string }>;
+    expect(atA).toHaveLength(2);
+    expect(docs(b.db)).toEqual(atA);
+    const [keeps, yields] = [...atA].sort((x, y) => x.uid.localeCompare(y.uid));
+    expect(keeps?.slug).toBe('adr-001');
+    expect(yields?.slug).toBe(`adr-001-${yields?.uid.replaceAll('-', '').slice(-8)}`);
+    expect(refs(b.db)).toEqual(refs(a.db));
+    expect(refs(a.db)).toHaveLength(2);
+    for (const r of [a, b]) {
+      expect(docConflicts(r.db, 'guard')).toEqual([]);
+      expect(docConflicts(r.db, 'key-collision').map((c) => c.uid)).toEqual([yields?.uid]);
+    }
+  });
+
+  it('a pre-collapse store holding duplicate sha256 rows still fills: the duplicate keeps a NULL uid', async () => {
+    const a = await open('a', 'dev-a');
+    // Before the twin collapse dedupes them, the twin may hold one sha256 twice.
+    dropCaptureTriggers(a.db);
+    a.db.exec(`DROP INDEX IF EXISTS uniq_docs_attachments_sha256;
+      INSERT INTO docs_attachments (id, sha256, attachment_json, created_at, ref_count)
+        VALUES ('dup-1', '${SHA}', '${json(SHA)}', '2026-10-01T00:00:00.000Z', 1),
+               ('dup-2', '${SHA}', '${json(SHA)}', '2026-10-02T00:00:00.000Z', 1);
+      UPDATE docs_attachments SET uid = NULL;`);
+    const report = prepareRowIdentity(a.db, 'project');
+    expect(report?.filled.docs_attachments).toBe(1);
+    expect(report?.unfilled.docs_attachments).toBe(1);
+    expect(
+      a.db.prepare('SELECT count(*) AS n FROM docs_attachments WHERE uid IS NOT NULL').get(),
+    ).toEqual({ n: 1 });
+  });
+
+  it('a deref racing an attach never leaves a silent orphan ref', async () => {
+    const { a, b, stream } = await docOnBoth();
+    // A derefs the last owner: the ref, then the doc (ref_count 0).
+    write(
+      a.db,
+      `DELETE FROM docs_attachment_refs WHERE attachment_id = 'doc-2';
+       DELETE FROM docs_attachments WHERE id = 'doc-2';`,
+    );
+    await push(a, stream);
+    // B, offline, attaches the same doc to another task.
+    const local = (
+      b.db.prepare(`SELECT id FROM docs_attachments WHERE sha256 = '${NEXT_SHA}'`).get() as {
+        id: string;
+      }
+    ).id;
+    write(
+      b.db,
+      `INSERT INTO docs_attachment_refs (attachment_id, owner_type, owner_id, attached_at)
+         VALUES ('${local}', 'task', 'T9', '2026-10-14T19:00:00.000Z');
+       UPDATE docs_attachments SET ref_count = 2 WHERE id = '${local}';`,
+    );
+    await push(b, stream);
+    await pull(a, stream);
+    await pull(b, stream);
+    const orphans = (db: DatabaseSync) =>
+      db
+        .prepare(
+          'SELECT count(*) AS n FROM docs_attachment_refs r WHERE NOT EXISTS (SELECT 1 FROM docs_attachments d WHERE d.id = r.attachment_id)',
+        )
+        .get();
+    // A never writes the late ref onto the deleted doc: it records a dangling ref.
+    expect(orphans(a.db)).toEqual({ n: 0 });
+    expect(docConflicts(a.db, 'dangling-ref').length).toBeGreaterThan(0);
+    expect(orphans(b.db)).toEqual({ n: 0 });
+    expect(docs(b.db)).toEqual(docs(a.db));
+    expect(refs(b.db)).toEqual(refs(a.db));
+  });
+
+  /**
+   * A fake Nexus for doc bytes (T13721): presign/complete and the stream
+   * attachment routes (E32/E33), blobs in memory. `routes: false` is a server
+   * from before E32/E33: those paths answer 404 like any unknown route.
+   */
+  function attachmentServer(routes = true) {
+    const blobs = new Map<string, Buffer>();
+    const refs = new Map<string, { blobSha256: string; sizeBytes: number }>();
+    const calls: string[] = [];
+    /** E34 answers 403 while false (the caller is neither the recorder nor an owner). */
+    const policy = { deleteAllowed: true, beforePut: (_ref: string) => {} };
+    const reply = (data: unknown, status = 200) =>
+      new Response(
+        JSON.stringify(
+          status === 200
+            ? { success: true, data, meta: { requestId: 'r' } }
+            : {
+                success: false,
+                error:
+                  status === 403
+                    ? { code: 'E_FORBIDDEN', message: 'not the recorder or an owner' }
+                    : { code: 'E_NOT_FOUND', message: 'route not found' },
+              },
+        ),
+        { status },
+      );
+    const http = new Http({
+      baseUrl: 'https://nexus.test',
+      token: 't',
+      maxAttempts: 1,
+      fetch: async (input, init) => {
+        const path = input.replace('https://nexus.test', '');
+        const method = init?.method ?? 'GET';
+        calls.push(`${method} ${path}`);
+        const body = init?.body ? JSON.parse(String(init.body)) : undefined;
+        if (method === 'POST' && path === '/v1/blobs/presign') {
+          return reply({
+            alreadyPresent: blobs.has(body.sha256),
+            uploadUrl: `https://blob.test/${body.sha256}`,
+            uploadHeaders: {},
+            expiresAt: null,
+          });
+        }
+        const done = /^\/v1\/blobs\/([0-9a-f]{64})\/complete$/.exec(path);
+        if (method === 'POST' && done) return reply({ sha256: done[1], verified: true });
+        const att = /\/attachments\/([0-9a-f]{64})$/.exec(path);
+        if (!att || !routes) return reply(null, 404);
+        const ref = att[1] ?? '';
+        if (method === 'DELETE') {
+          if (!policy.deleteAllowed) return reply(null, 403);
+          return reply({ deleted: refs.delete(ref) });
+        }
+        if (method === 'PUT') {
+          policy.beforePut(ref);
+          const created = !refs.has(ref);
+          if (created) refs.set(ref, body);
+          return reply({ ...refs.get(ref), created });
+        }
+        const r = refs.get(ref);
+        return reply({
+          download: r
+            ? {
+                url: `https://blob.test/${r.blobSha256}`,
+                sha256: r.blobSha256,
+                sizeBytes: r.sizeBytes,
+                expiresInSeconds: 300,
+              }
+            : null,
+        });
+      },
+    });
+    const key = randomKey();
+    const journal = (r: Replica) =>
+      new Journal({
+        http,
+        streamId: STREAM,
+        replicaId: replicaOf(r),
+        deviceId: r.device,
+        signing: KEYS[r.device],
+        key,
+        uploader: async (url, _headers, bytes) => {
+          blobs.set(url.slice(url.lastIndexOf('/') + 1), Buffer.from(bytes));
+        },
+        downloader: async (url) =>
+          blobs.get(url.slice(url.lastIndexOf('/') + 1)) ?? Buffer.alloc(0),
+      });
+    /** Record `bytes` under the ref of `sha`, as a squatting writer (or a buggy client) would. */
+    const squat = (sha: string, bytes: Buffer) => {
+      const blobSha256 = createHash('sha256').update(bytes).digest('hex');
+      blobs.set(blobSha256, bytes);
+      const ref = hmacSha256(deriveKey(key, 'attachment-ref'), Buffer.from(sha)).toString('hex');
+      refs.set(ref, { blobSha256, sizeBytes: bytes.length });
+    };
+    return { blobs, refs, calls, journal, policy, squat, key };
+  }
+
+  const docBytes = (r: Replica, name: string, warnings: CloudWarning[]) => ({
+    stream: STREAM,
+    cleoDir: join(dir, name, '.cleo'),
+    warn: (w: CloudWarning) => {
+      warnings.push(w);
+    },
+  });
+  const blobFile = (name: string) => join(dir, name, '.cleo', 'blobs', 'blobs', SHA);
+
+  it('a doc body added on A reaches B through the stream, encrypted, and fetch returns identical bytes (T13721)', async () => {
+    const { a, b } = await docOnBoth();
+    const server = attachmentServer();
+    const warnings: CloudWarning[] = [];
+    // A holds the body of one of its two docs: only that one goes up.
+    expect(await pushDocBytes(a.db, server.journal(a), docBytes(a, 'a', warnings))).toEqual({
+      moved: 1,
+      refused: 0,
+    });
+    expect(server.blobs.size).toBe(1);
+    for (const stored of server.blobs.values()) {
+      expect(stored.includes(Buffer.from('Gate doc'))).toBe(false); // never plaintext
+    }
+
+    expect(await pullDocBytes(b.db, server.journal(b), docBytes(b, 'b', warnings))).toEqual({
+      moved: 1,
+      refused: 0,
+    });
+    const model = new DocsReadModel({ projectRoot: join(dir, 'b') });
+    expect(await model.fetchDecoded('gate-doc')).toMatchObject({ ok: true, content: BODY });
+    expect(readFileSync(blobFile('b'))).toEqual(readFileSync(blobFile('a')));
+
+    // Dedup: neither device uploads the body again.
+    const presigns = () => server.calls.filter((c) => c.endsWith('/v1/blobs/presign')).length;
+    expect(await pushDocBytes(a.db, server.journal(a), docBytes(a, 'a', warnings))).toEqual({
+      moved: 0,
+      refused: 0,
+    });
+    expect(await pushDocBytes(b.db, server.journal(b), docBytes(b, 'b', warnings))).toEqual({
+      moved: 0,
+      refused: 0,
+    });
+    expect(presigns()).toBe(1);
+    expect(warnings).toEqual([]);
+  });
+
+  it('a tampered or swapped doc blob is refused and nothing is written on B (T13721)', async () => {
+    const { a, b } = await docOnBoth();
+    const server = attachmentServer();
+    const warnings: CloudWarning[] = [];
+    await pushDocBytes(a.db, server.journal(a), docBytes(a, 'a', warnings));
+    const [[blobSha, ciphertext]] = [...server.blobs.entries()] as Array<[string, Buffer]>;
+    // One flipped byte: the ciphertext no longer matches its announced sha256.
+    const flipped = Buffer.from(ciphertext);
+    flipped[flipped.length - 1] = (flipped.at(-1) ?? 0) ^ 0xff;
+    server.blobs.set(blobSha, flipped);
+    expect(await pullDocBytes(b.db, server.journal(b), docBytes(b, 'b', warnings))).toEqual({
+      moved: 0,
+      refused: 1,
+    });
+    expect(existsSync(blobFile('b'))).toBe(false);
+    // A delivery fault proves nothing about the record: it is kept.
+    expect(server.refs.size).toBe(1);
+
+    // A consistent swap (sha and size re-announced) fails the AEAD under the stream key.
+    const swapped = Buffer.from(ciphertext);
+    swapped[40] = (swapped[40] ?? 0) ^ 0x01;
+    const swappedSha = createHash('sha256').update(swapped).digest('hex');
+    server.blobs.set(swappedSha, swapped);
+    for (const [ref, r] of server.refs) server.refs.set(ref, { ...r, blobSha256: swappedSha });
+    expect(await pullDocBytes(b.db, server.journal(b), docBytes(b, 'b', warnings))).toEqual({
+      moved: 0,
+      refused: 1,
+    });
+    expect(existsSync(blobFile('b'))).toBe(false);
+    // Content that matched its sha256 and still fails the AEAD is provably wrong: the record is cleared.
+    expect(server.refs.size).toBe(0);
+    expect(warnings.map((w) => w.code)).toEqual([
+      'W_SYNC_DOC_BYTES_REFUSED',
+      'W_SYNC_DOC_BYTES_REFUSED',
+    ]);
+    expect(warnings.map((w) => w.message).join('\n')).toMatch(/blob-hash[\s\S]*decrypt/);
+    expect(
+      await new DocsReadModel({ projectRoot: join(dir, 'b') }).fetchDecoded('gate-doc'),
+    ).toMatchObject({ ok: false, reason: 'no-content' });
+  });
+
+  it('a squatted ref heals: B refuses the junk, A clears it and records the real bytes, B then fetches them (T13721)', async () => {
+    const { a, b } = await docOnBoth();
+    const server = attachmentServer();
+    const warnings: CloudWarning[] = [];
+    server.squat(SHA, Buffer.from('junk recorded first by a squatting writer'));
+
+    expect(await pullDocBytes(b.db, server.journal(b), docBytes(b, 'b', warnings))).toEqual({
+      moved: 0,
+      refused: 1,
+    });
+    expect(existsSync(blobFile('b'))).toBe(false);
+
+    // A holds the bytes: it checks the recorded blob, clears it (E34) and records its own.
+    expect(await pushDocBytes(a.db, server.journal(a), docBytes(a, 'a', warnings))).toEqual({
+      moved: 1,
+      refused: 0,
+    });
+    expect(server.calls.filter((c) => c.startsWith('DELETE '))).toHaveLength(1);
+    expect(await pullDocBytes(b.db, server.journal(b), docBytes(b, 'b', warnings))).toEqual({
+      moved: 1,
+      refused: 0,
+    });
+    expect(
+      await new DocsReadModel({ projectRoot: join(dir, 'b') }).fetchDecoded('gate-doc'),
+    ).toMatchObject({ ok: true, content: BODY });
+    expect(warnings.map((w) => w.code)).toEqual(['W_SYNC_DOC_BYTES_REFUSED']);
+  });
+
+  it('a ref A may not clear, or a racer recorded first, stays contested and unmarked until it heals (T13721)', async () => {
+    const { a } = await docOnBoth();
+    const server = attachmentServer();
+    const warnings: CloudWarning[] = [];
+    const run = () => pushDocBytes(a.db, server.journal(a), docBytes(a, 'a', warnings));
+
+    // Squatted by another user, and A is not an owner: E34 is 403.
+    server.squat(SHA, Buffer.from('junk'));
+    server.policy.deleteAllowed = false;
+    expect(await run()).toEqual({ moved: 0, refused: 0 });
+
+    // L1: cleared now, but a racer records first: created false names another blob.
+    server.policy.deleteAllowed = true;
+    server.policy.beforePut = (ref) => {
+      server.policy.beforePut = () => {};
+      server.refs.set(ref, { blobSha256: 'f'.repeat(64), sizeBytes: 99 });
+    };
+    expect(await run()).toEqual({ moved: 0, refused: 0 });
+    expect(warnings.map((w) => w.code)).toEqual([
+      'W_SYNC_DOC_BYTES_CONTESTED',
+      'W_SYNC_DOC_BYTES_CONTESTED',
+    ]);
+
+    // Neither run marked the body sent, so the next one checks the racer's junk and heals.
+    server.blobs.set('f'.repeat(64), Buffer.alloc(99));
+    expect(await run()).toEqual({ moved: 1, refused: 0 });
+    expect(await run()).toEqual({ moved: 0, refused: 0 });
+  });
+
+  it("a record cleared after A marked it sent is re-recorded by A's re-check (T13721)", async () => {
+    const { a, b } = await docOnBoth();
+    const server = attachmentServer();
+    const warnings: CloudWarning[] = [];
+    await pushDocBytes(a.db, server.journal(a), docBytes(a, 'a', warnings));
+    // An owner clears the good record, then a squatter records junk before A looks again.
+    server.refs.clear();
+    server.squat(SHA, Buffer.from('junk after the clear'));
+    // B refuses it and clears the junk (it may); A's next push re-checks, finds no record, records again.
+    expect(await pullDocBytes(b.db, server.journal(b), docBytes(b, 'b', warnings))).toEqual({
+      moved: 0,
+      refused: 1,
+    });
+    expect(server.refs.size).toBe(0);
+    expect(await pushDocBytes(a.db, server.journal(a), docBytes(a, 'a', warnings))).toEqual({
+      moved: 1,
+      refused: 0,
+    });
+    expect(await pullDocBytes(b.db, server.journal(b), docBytes(b, 'b', warnings))).toEqual({
+      moved: 1,
+      refused: 0,
+    });
+    expect(readFileSync(blobFile('b'), 'utf8')).toBe(BODY);
+  });
+
+  it('more than a run of byte-less rows ahead of a real doc never starve it: the cursor moves on (T13721)', async () => {
+    const { a, b } = await twoDevices();
+    const stream = fakeStream();
+    for (const r of [a, b]) uniqueDocIndexes(r.db);
+    // 120 docs no device holds bytes for, every sha sorting before the real one.
+    const empty = Array.from({ length: 120 }, (_, i) => `00${i.toString(16).padStart(62, '0')}`);
+    expect(empty.every((x) => x < SHA)).toBe(true);
+    const at = new Date(++clockMs).toISOString();
+    write(
+      a.db,
+      empty
+        .map(
+          (x, i) =>
+            `INSERT INTO docs_attachments (id, sha256, attachment_json, created_at, ref_count) VALUES ('e-${i}', '${x}', '${json(x)}', '${at}', 0);`,
+        )
+        .join('\n'),
+    );
+    addDoc(a.db, 'doc-1', SHA, 'gate-doc', 'T1');
+    mkdirSync(join(dir, 'a', '.cleo', 'blobs', 'blobs'), { recursive: true });
+    writeFileSync(join(dir, 'a', '.cleo', 'blobs', 'blobs', SHA), BODY);
+    await push(a, stream);
+    await pull(b, stream);
+    const server = attachmentServer();
+    const warnings: CloudWarning[] = [];
+    expect(await pushDocBytes(a.db, server.journal(a), docBytes(a, 'a', warnings))).toEqual({
+      moved: 1,
+      refused: 0,
+    });
+    const gets = () => server.calls.filter((c) => c.startsWith('GET ')).length;
+    const before = gets();
+    // Run one spends its 100 attempts on byte-less rows; run two resumes after them.
+    expect(await pullDocBytes(b.db, server.journal(b), docBytes(b, 'b', warnings))).toEqual({
+      moved: 0,
+      refused: 0,
+    });
+    expect(gets() - before).toBe(100);
+    expect(await pullDocBytes(b.db, server.journal(b), docBytes(b, 'b', warnings))).toEqual({
+      moved: 1,
+      refused: 0,
+    });
+    expect(readFileSync(blobFile('b'), 'utf8')).toBe(BODY);
+    // Each run stays inside its budget (run two wraps around once it passes the real doc).
+    expect(gets() - before).toBe(200);
+  });
+
+  it('a body over the pull cap never loops: B refuses it without clearing, and a capped holder never sends it (T13721)', async () => {
+    const { a, b } = await docOnBoth();
+    const server = attachmentServer();
+    const warnings: CloudWarning[] = [];
+    const capped = (r: Replica, name: string) => ({ ...docBytes(r, name, warnings), maxBytes: 50 });
+    // A holder without the cap uploaded it (BODY + overhead is over 50 bytes).
+    await pushDocBytes(a.db, server.journal(a), docBytes(a, 'a', warnings));
+    for (let cycle = 0; cycle < 3; cycle++) {
+      expect(await pullDocBytes(b.db, server.journal(b), capped(b, 'b'))).toEqual({
+        moved: 0,
+        refused: 1,
+      });
+      await pushDocBytes(a.db, server.journal(a), docBytes(a, 'a', warnings));
+    }
+    expect(server.refs.size).toBe(1);
+    expect(server.calls.filter((c) => c.startsWith('DELETE '))).toHaveLength(0);
+    expect(server.calls.filter((c) => c.endsWith('/v1/blobs/presign'))).toHaveLength(1);
+    expect(warnings.every((w) => w.message.includes('too-large'))).toBe(true);
+
+    // A holder with the same cap never sends it, and says so once per run.
+    const fresh = attachmentServer();
+    const quiet: CloudWarning[] = [];
+    expect(
+      await pushDocBytes(a.db, fresh.journal(a), {
+        ...docBytes(a, 'a', quiet),
+        stream: `${STREAM}-capped`,
+        maxBytes: 50,
+      }),
+    ).toEqual({ moved: 0, refused: 0 });
+    expect(fresh.calls).toEqual([]);
+    expect(quiet.map((w) => w.code)).toEqual(['W_SYNC_DOC_BYTES_TOO_LARGE']);
+  });
+
+  it('a recorded blob that cannot be checked holds up only itself: the push moves on to the next doc (T13721)', async () => {
+    const { a } = await docOnBoth();
+    const server = attachmentServer();
+    const warnings: CloudWarning[] = [];
+    const NEXT = `${BODY}v2\n`;
+    writeFileSync(join(dir, 'a', '.cleo', 'blobs', 'blobs', NEXT_SHA), NEXT);
+    // The doc that sorts first is recorded with a blob of the right size whose stored bytes are
+    // damaged (a delivery fault: the download misses its announced sha256).
+    const [first, firstLen] = SHA < NEXT_SHA ? [SHA, BODY.length] : [NEXT_SHA, NEXT.length];
+    const [second] = SHA < NEXT_SHA ? [NEXT_SHA] : [SHA];
+    server.squat(first, Buffer.alloc(firstLen + 61, 1));
+    for (const r of server.refs.values()) {
+      server.blobs.set(r.blobSha256, Buffer.alloc(firstLen + 61, 2));
+    }
+    const refOf = (x: string) =>
+      hmacSha256(deriveKey(server.key, 'attachment-ref'), Buffer.from(x)).toString('hex');
+    for (let run = 0; run < 3; run++) {
+      await pushDocBytes(a.db, server.journal(a), docBytes(a, 'a', warnings));
+    }
+    // The second doc was recorded on the first run; the first stays recorded, never cleared.
+    expect(server.refs.has(refOf(second))).toBe(true);
+    expect(server.refs.has(refOf(first))).toBe(true);
+    expect(server.calls.filter((c) => c.startsWith('DELETE '))).toHaveLength(0);
+    expect(server.calls.filter((c) => c.endsWith('/v1/blobs/presign'))).toHaveLength(1);
+    expect(warnings.map((w) => w.code)).toEqual([
+      'W_SYNC_DOC_BYTES_UNVERIFIED',
+      'W_SYNC_DOC_BYTES_UNVERIFIED',
+      'W_SYNC_DOC_BYTES_UNVERIFIED',
+    ]);
+  });
+
+  it('a server without the attachment routes: rows still sync, fetch is no-content, one warning says why (T13721)', async () => {
+    const { a, b } = await docOnBoth();
+    const server = attachmentServer(false);
+    const warnings: CloudWarning[] = [];
+    expect(await pushDocBytes(a.db, server.journal(a), docBytes(a, 'a', warnings))).toEqual({
+      moved: 0,
+      refused: 0,
+    });
+    // It asked first, so nothing was uploaded for a route that is not there.
+    expect(server.calls.some((c) => c.includes('/v1/blobs/'))).toBe(false);
+    expect(await pullDocBytes(b.db, server.journal(b), docBytes(b, 'b', warnings))).toEqual({
+      moved: 0,
+      refused: 0,
+    });
+    expect(warnings.map((w) => w.code)).toEqual([
+      'W_SYNC_DOC_BYTES_UNAVAILABLE',
+      'W_SYNC_DOC_BYTES_UNAVAILABLE',
+    ]);
+    expect(warnings[0]?.message).toContain('does not carry doc bytes yet');
+    const model = new DocsReadModel({ projectRoot: join(dir, 'b') });
+    expect((await model.listProjectDocs()).map((d) => d.slug)).toContain('gate-doc');
+    expect(await model.fetchDecoded('gate-doc')).toMatchObject({ ok: false, reason: 'no-content' });
+  });
+});
+
+describe('legacy-format timestamps echo without conflicts (T13714)', () => {
+  it("A's own echo of brain rows with 'YYYY-MM-DD HH:MM:SS' text records no conflict, and both devices list the same set", async () => {
+    const { a, b } = await twoDevices();
+    const stream = fakeStream();
+    write(
+      a.db,
+      `INSERT INTO brain_observations (id, type, title, created_at, updated_at) VALUES
+         ('O-t13714', 'discovery', 'legacy stamps', '2026-10-14 17:30:00', '2026-10-14 17:30:00');
+       INSERT INTO brain_page_nodes (id, node_type, label, created_at, updated_at, last_activity_at)
+         VALUES ('task:T13714', 'task', 'T13714', '2026-10-14 17:30:00', '2026-10-14 17:30:00', '2026-10-14 17:30:00');`,
+    );
+    await push(a, stream);
+    await pull(b, stream);
+    await pull(a, stream); // own echo of the inserts
+    // A command stamps the rows with SQLite's datetime('now') text.
+    write(
+      a.db,
+      `UPDATE brain_observations SET title = 'stamped', updated_at = '2026-10-14 17:32:57' WHERE id = 'O-t13714';
+       UPDATE brain_page_nodes SET updated_at = '2026-10-14 17:39:30', last_activity_at = '2026-10-14 17:39:30'
+         WHERE id = 'task:T13714';`,
+    );
+    await push(a, stream);
+    await pull(a, stream); // own echo of the updates
+    await pull(b, stream);
+
+    expect(conflictKeys(a.db)).toEqual([]);
+    expect(conflictKeys(b.db)).toEqual(conflictKeys(a.db));
+    // A keeps its local text; B holds the canonical wire form of the same instant.
+    expect(
+      a.db.prepare("SELECT updated_at FROM brain_observations WHERE id = 'O-t13714'").get(),
+    ).toEqual({ updated_at: '2026-10-14 17:32:57' });
+    expect(
+      b.db.prepare("SELECT updated_at FROM brain_observations WHERE id = 'O-t13714'").get(),
+    ).toEqual({ updated_at: '2026-10-14T17:32:57.000Z' });
+  });
+});
+
+describe('brain ops reach a joiner that never opened brain (T13719)', () => {
+  const hasColumn = (db: DatabaseSync, table: string, column: string): boolean =>
+    (db.prepare(`PRAGMA table_info("${table}")`).all() as Array<{ name: string }>).some(
+      (c) => c.name === column,
+    );
+  const LAZY = ['network', 'prune_candidate'] as const;
+  const OBS = 'id, title, narrative, network';
+
+  it('the genesis cut and the pull bring the brain schema current; both converge with nothing pending', async () => {
+    // A cuts genesis without ever binding the brain domain.
+    const a = await open('a', 'dev-a');
+    for (const c of LAZY) expect(hasColumn(a.db, 'brain_observations', c), c).toBe(false);
+    const cut = await cutGenesisWithSnapshot(
+      a.db,
+      {
+        scope: 'project',
+        stream: STREAM,
+        dbPath: join(dir, 'a', '.cleo', 'cleo.db'),
+        now: () => ++clock,
+        env: {},
+        allowUnreleased: true,
+      },
+      async () => {},
+    );
+    expect(cut.refused).toBeNull();
+    for (const c of LAZY) expect(hasColumn(a.db, 'brain_observations', c), c).toBe(true);
+    completeGenesis(a.db, {
+      stream: STREAM,
+      replica: replicaOf(a),
+      replicaSeqFloor: null,
+      nowIso: new Date(++clock).toISOString(),
+    });
+
+    // B joins; it never binds brain either.
+    const b = await open('b', 'dev-b');
+    expect(
+      joinStream(b.db, {
+        scope: 'project',
+        stream: STREAM,
+        cursor: START,
+        now: () => ++clock,
+        allowUnreleased: true,
+      }).refused,
+    ).toBeNull();
+    for (const c of LAZY) expect(hasColumn(b.db, 'brain_observations', c), c).toBe(false);
+
+    const stream = fakeStream();
+    write(
+      a.db,
+      `INSERT INTO brain_observations (id, type, title, narrative, created_at, valid_at, network, prune_candidate)
+       VALUES ('O-t13719', 'discovery', 'joiner sees it', 'first', '2026-10-14T09:00:00.000Z',
+               '2026-10-14 09:00:00', 'world', 1)`,
+    );
+    write(a.db, "UPDATE brain_observations SET title = 'retitled on A' WHERE id = 'O-t13719'");
+    await push(a, stream);
+    const pulled = await pull(b, stream);
+    expect(pulled.apply).toMatchObject({ refusedSchema: 0, pending: 0 });
+    expect(inboxCounts(b.db, STREAM)).not.toHaveProperty('refused-schema');
+    expect(inboxCounts(b.db, STREAM)).not.toHaveProperty('pending');
+    const row = (db: DatabaseSync) =>
+      db.prepare(`SELECT ${OBS} FROM brain_observations WHERE id = 'O-t13719'`).get();
+    expect(row(b.db)).toEqual({
+      id: 'O-t13719',
+      title: 'retitled on A',
+      narrative: 'first',
+      network: 'world',
+    });
+    expect(row(b.db)).toEqual(row(a.db));
+    // prune_candidate is local-only: B has the column, A's flag never travels.
+    expect(
+      b.db.prepare("SELECT prune_candidate FROM brain_observations WHERE id = 'O-t13719'").get(),
+    ).toEqual({ prune_candidate: 0 });
+    await pull(a, stream); // own echo
+    expect(contentChecksums(b.db).brain_observations).toBe(
+      contentChecksums(a.db).brain_observations,
+    );
   });
 });

@@ -25,6 +25,9 @@
  *
  * @task T5158
  * @task T10315
+ * @task T13724 — a store VACUUM INTO denial (and any other per-target capture
+ *   failure) is recorded in the result and the meta sidecar instead of being
+ *   silently dropped.
  */
 
 import {
@@ -32,6 +35,7 @@ import {
   mkdirSync,
   readdirSync,
   readFileSync,
+  rmSync,
   utimesSync,
   writeFileSync,
 } from 'node:fs';
@@ -185,6 +189,91 @@ describe('system/backup', () => {
     expect(result.files).toContain('config.json');
     expect(result.files).not.toContain('tasks.db');
     expect(result.files).not.toContain('brain.db');
+  });
+
+  it('records a store VACUUM INTO denial in the result and meta sidecar instead of skipping silently (T13724)', async () => {
+    // Simulate the T12687 worktree-build guard: the store opens fine, but the
+    // VACUUM INTO is refused (its destination ATTACH inherits the
+    // refused-store decision).
+    const guardedExec = vi.fn((sql: string) => {
+      if (sql.includes('VACUUM INTO')) {
+        throw new Error('authorization denied: VACUUM INTO refused by the worktree build guard');
+      }
+    });
+    vi.doMock('../../store/sqlite.js', () => ({
+      getDb: vi.fn().mockResolvedValue({}),
+      getNativeDb: () => ({ exec: guardedExec }),
+    }));
+    vi.doMock('../../store/memory-sqlite.js', () => ({
+      getBrainDb: vi.fn().mockResolvedValue({}),
+      getBrainNativeDb: () => null,
+    }));
+
+    writeFileSync(join(testDir, '.cleo', 'cleo.db'), 'live-store');
+    writeFileSync(join(testDir, '.cleo', 'config.json'), '{"v":1}');
+
+    const { createBackup } = await import('../backup.js');
+    const result = await createBackup(testDir);
+
+    // The rest of the backup still proceeds.
+    expect(result.files).toContain('config.json');
+    expect(result.files).not.toContain('cleo.db');
+    // The failure is recorded on the result…
+    expect(result.captureErrors).toEqual([
+      {
+        target: 'cleo.db',
+        error: 'authorization denied: VACUUM INTO refused by the worktree build guard',
+      },
+    ]);
+    // …and in the meta sidecar, alongside the (shrunk) captured file list.
+    const meta = JSON.parse(
+      readFileSync(
+        join(testDir, '.cleo', 'backups', 'sqlite', `${result.backupId}.meta.json`),
+        'utf-8',
+      ),
+    );
+    expect(meta.files).toContain('config.json');
+    expect(meta.files).not.toContain('cleo.db');
+    expect(meta.contains).toBeUndefined();
+    expect(meta.captureErrors).toEqual([
+      {
+        target: 'cleo.db',
+        error: 'authorization denied: VACUUM INTO refused by the worktree build guard',
+      },
+    ]);
+  });
+
+  it('records an existing-but-unopenable store as a capture error, but stays silent when no store exists (T13724)', async () => {
+    vi.doMock('../../store/sqlite.js', () => ({
+      getDb: vi.fn().mockResolvedValue({}),
+      getNativeDb: () => null,
+    }));
+    vi.doMock('../../store/memory-sqlite.js', () => ({
+      getBrainDb: vi.fn().mockResolvedValue({}),
+      getBrainNativeDb: () => null,
+    }));
+
+    // Case 1: the store file exists but no live handle is available — a
+    // store-less backup must be recorded, not silent.
+    writeFileSync(join(testDir, '.cleo', 'cleo.db'), 'live-store');
+    const { createBackup } = await import('../backup.js');
+    const withStore = await createBackup(testDir);
+    expect(withStore.files).not.toContain('cleo.db');
+    expect(withStore.captureErrors).toEqual([
+      { target: 'cleo.db', error: expect.stringContaining('no live store handle') },
+    ]);
+    const meta = JSON.parse(
+      readFileSync(
+        join(testDir, '.cleo', 'backups', 'sqlite', `${withStore.backupId}.meta.json`),
+        'utf-8',
+      ),
+    );
+    expect(meta.captureErrors).toHaveLength(1);
+
+    // Case 2: no store at all (fresh project) — a skip, not a failure.
+    rmSync(join(testDir, '.cleo', 'cleo.db'));
+    const withoutStore = await createBackup(testDir);
+    expect(withoutStore.captureErrors).toBeUndefined();
   });
 
   it('listSystemBackups reads sidecars from the canonical sqlite/ directory', async () => {

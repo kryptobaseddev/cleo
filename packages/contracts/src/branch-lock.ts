@@ -17,6 +17,8 @@
  * @adr ADR-062
  */
 
+import type { WorktreeDisposalBlockers } from './operations/worktree.js';
+
 // ---------------------------------------------------------------------------
 // L1 — Worktree lifecycle types
 // ---------------------------------------------------------------------------
@@ -85,6 +87,8 @@ export interface WorktreeMergeResult {
   rebased: boolean;
   /** Whether the worktree filesystem entry was removed. */
   worktreeRemoved: boolean;
+  /** Set when the worktree was kept because something still needs its files (T13696). */
+  worktreeKept?: WorktreeDisposalBlockers;
   /** Whether `task/<taskId>` was deleted post-merge. */
   branchDeleted: boolean;
   /** Error message if any step failed (non-fatal — caller decides). */

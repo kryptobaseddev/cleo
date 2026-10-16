@@ -1,5 +1,142 @@
 # Changelog
 
+## [2026.10.17] (2026-10-16)
+
+> **hooks-v1 stable promotion.** Project hooks (hooks-v1) are released on stable: this release stamps `cleo.releasedFeatures: ["hooks-v1"]` into `@cleocode/core`, so `cleo hook sync --activate` works and activation receipts run on a stable build. The promotion was gated on the VidaPeps pilot against 2026.10.17-canary.1 (packed and published installs, read-only dev and prod ledger checks, live Claude Code and Codex sessions, hosted exact-candidate CI), bound to the same implementation source as this release. Cross-device sync (Stage C) stays unreleased and inert.
+
+### hooks-v1
+
+- Project hooks activate and run on stable builds; the hooks-v1 gate (`release-gate.ts`) opens from the promotion stamp, not a source change _(provenance: [T13350](https://github.com/kryptobaseddev/cleo/search?q=T13350&type=commits), [T13557](https://github.com/kryptobaseddev/cleo/search?q=T13557&type=commits))_
+- Codex hook delivery has known limits (T13772–T13775): hooks fire only in a standalone checkout, need a one-time hook trust step, and Codex's env filtering can let a push through ungated. Claude Code hooks are unaffected.
+- Verified for this promotion (code shipped in v2026.10.16): the release-plan guard does not refuse the post-promotion cleanup once the previous release shipped the gate open _(provenance: [T13607](https://github.com/kryptobaseddev/cleo/search?q=T13607&type=commits))_
+
+### Fixed
+
+- ci:<pr> is refused when no check is required; tool:config-schema tests a change to CLEO config alone _(provenance: [T13757](https://github.com/kryptobaseddev/cleo/search?q=T13757&type=commits), [T13758](https://github.com/kryptobaseddev/cleo/search?q=T13758&type=commits))_
+
+### Also in this release
+
+- `cleo cloud push` checkpoints the change journal and `cleo cloud verify` compares a journal store with the journal tallies (inert on stable until Stage C) _(provenance: [T12999](https://github.com/kryptobaseddev/cleo/search?q=T12999&type=commits))_
+
+## [2026.10.17-canary.1] (2026-10-16)
+
+> **hooks-v1 promotion pilot canary.** Published to the `canary` dist-tag only. This build runs project hooks (hooks-v1) for the VidaPeps pilot; its implementation-source digest `7048435a30f50b39863c74d9ed021c67afff34441d0a49abaafdc094e5988a61` (freeze commit d07fb4b0f) is the source the v2026.10.17 stable promotion must ship. Also carries the vault and change-journal coexistence work (#2269, T12999), which rides the unreleased Stage C sync and stays inert.
+
+### Fixed
+
+- ci:<pr> is refused when no check is required; tool:config-schema tests a change to CLEO config alone _(provenance: [T13757](https://github.com/kryptobaseddev/cleo/search?q=T13757&type=commits), [T13758](https://github.com/kryptobaseddev/cleo/search?q=T13758&type=commits))_
+
+## [2026.10.16] (2026-10-15)
+
+> **Fix release.** Project hooks (hooks-v1) stay inert on stable builds: activation is refused with `E_HOOKS_V1_UNRELEASED` and existing receipts are not executed. The hooks-v1 fixes in this release (F1 fail-closed on drift, F2 no residue on disable) apply to canary and pilot users until the hooks-v1 promotion. Cross-device sync (Stage C: `sync.seal`, `sync.push`, `sync.pull`, `sync.strict`) stays unreleased and inert until the Stage C exit gate releases its flags. On first open, a brain vector table from an earlier build (no `model` column) is dropped and recreated tagged; its vectors are local derived data that the embedding backfill rebuilds from memory text. Doc bytes on the sync stream (T13721) ride the same unreleased sync and stay inert on stable. The local embedding model still downloads only on explicit opt-in. No schema migrations.
+
+### Added
+
+- synced docs now carry their bytes; a doc added on one device fetches with identical content on another, with no vault restore (inert on stable until Stage C) _(provenance: [T13721](https://github.com/kryptobaseddev/cleo/search?q=T13721&type=commits))_
+- Vector search embeds decisions, learnings and patterns too, and every vector records its model _(provenance: [T13740](https://github.com/kryptobaseddev/cleo/search?q=T13740&type=commits), [T13729](https://github.com/kryptobaseddev/cleo/search?q=T13729&type=commits))_
+
+### Fixed
+
+- CLEO_PR_REQUIRED_WORKFLOWS reads a JSON array ([] = none); a root-config-only change has a targeted evidence path _(provenance: [T13744](https://github.com/kryptobaseddev/cleo/search?q=T13744&type=commits), [T13745](https://github.com/kryptobaseddev/cleo/search?q=T13745&type=commits))_
+- a drifted hooks activation now refuses Git pushes, and hook sync --disable leaves no residue (canary and pilot only until the hooks-v1 promotion) _(provenance: [T13742](https://github.com/kryptobaseddev/cleo/search?q=T13742&type=commits), [T13743](https://github.com/kryptobaseddev/cleo/search?q=T13743&type=commits))_
+
+## [2026.10.15] (2026-10-15)
+
+> **Single-fix release.** `files:` evidence resolved from git now hashes the raw blob bytes. Builds up to 2026.10.14 recorded a wrong sha256 for any file with non-ASCII bytes. Such a receipt fails at `cleo complete` with a message naming T13738: check the file, then re-run `cleo verify` to record the correct hash. Cross-device sync (Stage C: `sync.seal`, `sync.push`, `sync.pull`, `sync.strict`) stays unreleased and inert on this stable build until the Stage C exit gate releases its flags, and project hooks (hooks-v1) stay off on stable builds until their promotion. No schema migrations.
+
+### Fixed
+
+- File evidence read from git hashes the raw blob bytes, so non-ASCII files get correct sha256 _(provenance: [T13738](https://github.com/kryptobaseddev/cleo/search?q=T13738&type=commits))_
+
+### Verified on macOS (listed by hand)
+
+A UTF-8 multibyte file committed in a sandbox repo, with the working copy edited afterwards so that a hash read from disk would show. Each build ran `cleo verify <task> --gate implemented --evidence "commit:<sha>;files:utf8.md"`:
+
+- `git cat-file blob` sha256: `a9508f57d3d94460ad68f36c24c5ceab1ce2cc2db856bfea64e5052ddabac37e`
+- 2026.10.15 records `a9508f57d3d94460ad68f36c24c5ceab1ce2cc2db856bfea64e5052ddabac37e` (matches)
+- 2026.10.14 records `3c2842970345134e664653d209195a537c921da03c04c0175a6d366abb4a687f` (the lossy text re-encode)
+
+## [2026.10.14] (2026-10-15)
+
+> **Stabilisation release.** Cross-device sync (Stage C: `sync.seal`, `sync.push`, `sync.pull`, `sync.strict`) stays unreleased and inert on this stable build until the Stage C exit gate releases its flags, and project hooks (hooks-v1) stay off on stable builds until their promotion. The local embedding model is no longer downloaded unless you opt in. Two additive schema migrations run on first open (`docs_attachments`/`docs_attachment_refs` gain a `uid` column; the brain tables gain `prune_candidate`).
+
+### Added
+
+- Global credentials sync with their secrets: sealed in cloud sync, re-encrypted on the receiving device (inert on stable until Stage C) _(provenance: [T13467](https://github.com/kryptobaseddev/cleo/search?q=T13467&type=commits), [T12915](https://github.com/kryptobaseddev/cleo/search?q=T12915&type=commits))_
+
+### Changed
+
+- Prove cloud vault snapshots carry the docs databases and bytes, so docs fetch works after cloud restore onto a new device _(provenance: [T13704](https://github.com/kryptobaseddev/cleo/search?q=T13704&type=commits))_
+
+### Fixed
+
+- cleo backup add and cleo restore backup --id now carry the docs blob store and attachments, so docs fetch works after a restore _(provenance: [T13704](https://github.com/kryptobaseddev/cleo/search?q=T13704&type=commits), [T13708](https://github.com/kryptobaseddev/cleo/search?q=T13708&type=commits), [T13709](https://github.com/kryptobaseddev/cleo/search?q=T13709&type=commits), [T13710](https://github.com/kryptobaseddev/cleo/search?q=T13710&type=commits))_
+- a sync joiner that never opened brain no longer refuses brain ops, and refused-schema ops retry once the schema has their columns (inert on stable until Stage C) _(provenance: [T13719](https://github.com/kryptobaseddev/cleo/search?q=T13719&type=commits))_
+- docs versions --for accepts a doc slug; dispatch keeps a CleoError's named code _(provenance: [T13725](https://github.com/kryptobaseddev/cleo/search?q=T13725&type=commits))_
+- LLM credentials now live encrypted in the accounts table, and llm-credentials.json is migrated once and removed; a key added with cleo llm add reaching your other devices is inert on stable until Stage C _(provenance: [T13715](https://github.com/kryptobaseddev/cleo/search?q=T13715&type=commits), [T13528](https://github.com/kryptobaseddev/cleo/search?q=T13528&type=commits))_
+- A qa-run receipt recorded on an earlier tree carries while its checked roots, the task's current change and the shared tool configs are byte-identical; a refusal names the paths that changed _(provenance: [T13644](https://github.com/kryptobaseddev/cleo/search?q=T13644&type=commits))_
+- cleo cloud restore now turns sync on for the restored project and the home stream, so a device that joins by restore syncs with no enable step (inert on stable until Stage C) _(provenance: [T13718](https://github.com/kryptobaseddev/cleo/search?q=T13718&type=commits))_
+- a replica's own echo no longer records field conflicts on timestamps stored as legacy 'YYYY-MM-DD HH:MM:SS' text (inert on stable until Stage C) _(provenance: [T13714](https://github.com/kryptobaseddev/cleo/search?q=T13714&type=commits))_
+- qa-run receipts recorded on a main HEAD after the merge, on the current tree and covering the change, stand in for qaPassed whatever the merge CI concluded (the T13673 rule, now for qaPassed) _(provenance: [T13644](https://github.com/kryptobaseddev/cleo/search?q=T13644&type=commits))_
+- Docs wikilinks rebuild chunks past SQLite's variable cap; rebuild warnings stay bounded and never print SQL params _(provenance: [T13711](https://github.com/kryptobaseddev/cleo/search?q=T13711&type=commits))_
+
+### Also in this release (listed by hand)
+
+Merged since v2026.10.13 and reviewed, with green PR CI. These have no release-note changeset, or their tasks were still open at planning time:
+
+- T13716 #2257: the session-end embedding backfill downloads the local embedding model only on explicit opt-in; nothing reaches huggingface.co by default.
+- T13720 #2261: global-store brain memory (decisions and observations) is written and read.
+- T12919 #2260: the docs registry and refs sync across devices; wikilinks are derived (inert on stable until Stage C).
+- T12895 #2230: proof that natural-key brain rows replay across devices by derived uid.
+- T13649 #2238: typed gates honour CLEO_EVIDENCE_GIT_ROOT and key the cache to the declared worktree HEAD.
+- T13690, T13691 #2237: declared task files are literal typed-gate inputs (`app/[id]/page.tsx` no longer defeats the gate cache).
+- T13693 #2240: a typed-gate cache miss names what changed since `cleo verify --run` cached the pass.
+- T13664 #2232: `cleo lean debt` lists `shortcut:` comments and can file them as tasks.
+- T13686 #2234 #2250: the gateway client is regenerated and CI gates generated-client drift.
+- T13684 #2246: proof of fetch, concurrent update, then update with the fetched base.
+- T13624 #2251: test that keep mine on an incoming-applied conflict obeys the typed-rule probe.
+
+## [2026.10.13] (2026-10-14)
+
+### Added
+
+- Sync merges keep sticky notes one-way: converted or archived never returns to active _(provenance: [T12942](https://github.com/kryptobaseddev/cleo/search?q=T12942&type=commits))_
+- Sync merges never move a shipped release back to an earlier status _(provenance: [T12943](https://github.com/kryptobaseddev/cleo/search?q=T12943&type=commits))_
+- Wire the llmtxt Loro CRDT merge into the docs update write path — section merge engine, head projection under docs.head.max-hlc, append-only DAG versions _(provenance: [T13355](https://github.com/kryptobaseddev/cleo/search?q=T13355&type=commits))_
+- ct-lean levels off/lite/full/ultra: `cleo lean level`, the `lean.level` config key and CLEO_LEAN_LEVEL _(provenance: [T13663](https://github.com/kryptobaseddev/cleo/search?q=T13663&type=commits))_
+
+### Fixed
+
+- docs fetch and view heal a doc whose bytes predate the blob store on first read, instead of failing until docs doctor --repair runs _(provenance: [T13705](https://github.com/kryptobaseddev/cleo/search?q=T13705&type=commits))_
+- cleo docs update detects a stale declared base — append edits three-way merge, non-mergeable edits record a named section conflict, an unresolvable base is refused (T13674) _(provenance: [T13674](https://github.com/kryptobaseddev/cleo/search?q=T13674&type=commits), [T13684](https://github.com/kryptobaseddev/cleo/search?q=T13684&type=commits), [T13688](https://github.com/kryptobaseddev/cleo/search?q=T13688&type=commits))_
+- A migration's data backfill is never emitted, and the row-meta content hash follows it under the new sync-set version (journal B, migration half) _(provenance: [T12775](https://github.com/kryptobaseddev/cleo/search?q=T12775&type=commits))_
+- twin collapse marks the synced twin it wrote suspect (withSuspectAccounting gets its first production caller) _(provenance: [T12775](https://github.com/kryptobaseddev/cleo/search?q=T12775&type=commits))_
+- A vault restore takes the row-identity markers and the sync-schema ledger from the snapshot, so a restored store rewrites its timestamps and seals _(provenance: [T13107](https://github.com/kryptobaseddev/cleo/search?q=T13107&type=commits), [T13108](https://github.com/kryptobaseddev/cleo/search?q=T13108&type=commits))_
+- ct-lean 1.0.1 names privacy in its never-cut list and fixes small in-scope risks instead of only reporting them _(provenance: [T13424](https://github.com/kryptobaseddev/cleo/search?q=T13424&type=commits))_
+- cleo research link and update no longer replace a manifest entry's title, topics, findings and links _(provenance: [T13678](https://github.com/kryptobaseddev/cleo/search?q=T13678&type=commits))_
+- cleo run no longer flags sequential short workers as hung, reports a signal while queued, and records a signal the runner forwarded _(provenance: [T13679](https://github.com/kryptobaseddev/cleo/search?q=T13679&type=commits), [T13680](https://github.com/kryptobaseddev/cleo/search?q=T13680&type=commits), [T13681](https://github.com/kryptobaseddev/cleo/search?q=T13681&type=commits))_
+- cleo complete and cleo cancel no longer delete a task worktree that other worktrees symlink into, or that holds the only copy of the task's evidence _(provenance: [T13696](https://github.com/kryptobaseddev/cleo/search?q=T13696&type=commits), [T13700](https://github.com/kryptobaseddev/cleo/search?q=T13700&type=commits), [T13701](https://github.com/kryptobaseddev/cleo/search?q=T13701&type=commits))_
+
+### Also in this release (listed by hand)
+
+Merged since v2026.10.12 and reviewed, with green PR CI. These have no release-note changeset, or their tasks were still open at planning time:
+
+- T13325, T13656 #2213 #2220: `cleo nexus analyze` keeps its heap bounded on large projects. Parse results spool to disk, and graph publication streams in batches.
+- T13673 #2224: after a merge, a targeted `test-run:` recorded on a later main commit that covers the change stands in, whatever the merge's own CI concluded.
+- T13662, T13655 #2223 #2215: carry scope is the task's own commits plus its declared files.
+- T13641, T13647 #2207 #2209: `cleo done` never falls back to a whole test suite.
+- T13652 #2214: release-readiness timing.
+- T13585 #2218: proof of concurrent docs updates (T13675, T13685, T13688, T13689).
+- T12908 #2227: replica registry lock.
+- T12880 #2221: token store refusal.
+- T13638 #2219: migrated legacy doc versions get uids that are stable across devices.
+- T13360, T13361, T13362 #2201 #2208 #2210: legacy docs migration and read retirement.
+- T13356 #2211: leases wiring.
+- T12945 #2187: docs lifecycle in the sync merge rules.
+- T13363 #2195 #2212: council metrics and sections.
+- T13677 #2225: review follow-ups.
+- T13706 #2245: a failed self-heal write never fails a docs read.
+
 ## [2026.10.12] (2026-10-12)
 
 ### Fixed

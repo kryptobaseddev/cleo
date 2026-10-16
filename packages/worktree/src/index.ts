@@ -30,9 +30,11 @@ export type {
   ListWorktreesOptions,
   PruneWorktreesOptions,
   PruneWorktreesResult,
+  WorktreeDisposalBlockers,
   WorktreeHook,
   WorktreeHookResult,
   WorktreeIncludePattern,
+  WorktreeKeepMarker,
   WorktreeListEntry,
 } from '@cleocode/contracts';
 export type { CopyPathsOptions } from './copy-on-write.js';
@@ -69,6 +71,15 @@ export {
   WORKTREE_LIFECYCLE_AUDIT_FILE,
 } from './worktree-audit.js';
 export { createWorktree } from './worktree-create.js';
+export {
+  describeDisposalBlockers,
+  findDisposalBlockers,
+  findUnrecoverableEvidence,
+  findWorktreeDependents,
+  guardWorktreeDisposal,
+  keepMarkerPath,
+  readKeepMarker,
+} from './worktree-dependents.js';
 export { destroyWorktree } from './worktree-destroy.js';
 export { runProjectWorktreeHooks, runWorktreeHooks } from './worktree-hooks.js';
 export { applyIncludePatterns, loadWorktreeIncludePatterns } from './worktree-include.js';

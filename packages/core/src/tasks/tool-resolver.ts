@@ -201,11 +201,13 @@ const PROJECT_CONTEXT_KEY_MAP: Record<CanonicalTool, string[] | null> = {
 /**
  * `tool:<name>` payloads that are valid evidence but not resolvable through
  * {@link resolveToolCommand}: `test-affected` plans its command from the branch
- * diff (`planAffectedTestRun`) and runs under the canonical `test` class.
+ * diff (`planAffectedTestRun`) and runs under the canonical `test` class;
+ * `config-schema` is CLEO's own schema check of changed CLEO config (T13758).
  *
  * @task T12964
+ * @task T13758
  */
-const PLANNED_TOOLS = ['test-affected'] as const;
+const PLANNED_TOOLS = ['test-affected', 'config-schema'] as const;
 
 /**
  * Set of all valid `tool:<name>` payloads — canonical names, legacy aliases,

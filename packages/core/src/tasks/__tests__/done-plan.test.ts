@@ -1014,6 +1014,56 @@ describe('a standalone single-package project plans a targeted test-run (T13403)
     );
   });
 
+  it('T13758: a CLEO-config-only change plans tool:config-schema for testsPassed and qaPassed, nothing else', async () => {
+    standalone();
+    const id = await seedTask(['Change .cleo/project-context.json']);
+    git(root, ['switch', '-q', '-c', `task/${id}`]);
+    mkdirSync(join(root, '.cleo'), { recursive: true });
+    writeFileSync(
+      join(root, '.cleo', 'project-context.json'),
+      `${JSON.stringify({ schemaVersion: '1.0.0', detectedAt: '2026-10-15T00:00:00Z', projectTypes: ['node'] })}\n`,
+    );
+    // The fixture's .cleo/ is gitignored (the store); the tracked config is forced in.
+    git(root, ['add', '-f', '.cleo/project-context.json']);
+    git(root, ['commit', '-q', '-m', `${id}: config only`]);
+    const plan = await deriveTaskEvidence(id, {
+      projectRoot: root,
+      cwd: root,
+      deps,
+      satisfies: 'all',
+    });
+    expect(plan.toolRuns).toEqual([]);
+    for (const gate of ['testsPassed', 'qaPassed'])
+      expect(plan.gates.find((g) => g.gate === gate)?.evidence, gate).toMatch(
+        /^tool:config-schema/,
+      );
+    expect(
+      plan.blockers.filter((b) => b.code === 'test-run-needed' || b.code === 'qa-run-needed'),
+    ).toEqual([]);
+  });
+
+  it('T13745: a root-config-only change plans tool:test (not applicable) and a lint qa-run, no suite, no typecheck', async () => {
+    standalone();
+    // The fixture's .cleo/ is the gitignored store, so a root config stands in.
+    const id = await seedTask(['Change renovate.json']);
+    git(root, ['switch', '-q', '-c', `task/${id}`]);
+    writeFileSync(join(root, 'renovate.json'), '{"extends":[]}\n');
+    git(root, ['add', 'renovate.json']);
+    git(root, ['commit', '-q', '-m', `${id}: config only`]);
+    const plan = await deriveTaskEvidence(id, {
+      projectRoot: root,
+      cwd: root,
+      deps,
+      satisfies: 'all',
+    });
+    expect(plan.toolRuns).toEqual([]);
+    expect(plan.gates.find((g) => g.gate === 'testsPassed')?.evidence).toMatch(/^tool:test/);
+    expect(plan.blockers.find((b) => b.code === 'test-run-needed')).toBeUndefined();
+    expect(plan.blockers.find((b) => b.code === 'qa-run-needed')?.next.command).toBe(
+      `cleo verify ${id} --gate qaPassed --evidence 'qa-run:<lint-receipt.json>'`,
+    );
+  });
+
   it('T13427: a cached lint result still binds as tool:lint; only typecheck needs a qa-run', async () => {
     standalone();
     const id = await seedTask(['Change src/a.ts']);

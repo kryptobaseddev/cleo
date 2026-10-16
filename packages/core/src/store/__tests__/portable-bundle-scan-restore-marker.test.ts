@@ -34,3 +34,29 @@ describe('section scans exclude restore and genesis markers', () => {
     expect(scan.excluded.find((e) => e.relPath === marker)?.reason).toMatch(/marker/);
   });
 });
+
+describe('section scans carry the docs byte surfaces (T13704)', () => {
+  it('project .cleo walk captures .cleo/blobs and .cleo/attachments — the cloud vault bundle restores doc bytes on a fresh device', () => {
+    const root = mkdtempSync(join(tmpdir(), 'bundle-scan-docs-bytes-'));
+    mkdirSync(join(root, 'blobs', 'blobs'), { recursive: true });
+    writeFileSync(join(root, 'blobs', 'blobs', 'a'.repeat(64)), 'blob bytes');
+    writeFileSync(join(root, 'blobs', 'manifest.db'), 'SQLite format 3\0not-really');
+    mkdirSync(join(root, 'attachments', 'sha256', 'ab'), { recursive: true });
+    writeFileSync(
+      join(root, 'attachments', 'sha256', 'ab', `${'c'.repeat(62)}.md`),
+      'legacy bytes',
+    );
+
+    const scan = scanSection(root, PROJECT_SECTION_RULES);
+    const exported = [...scan.files, ...scan.sqlite, ...scan.secrets.map((s) => s.relPath)];
+
+    expect(exported).toContain(`blobs/blobs/${'a'.repeat(64)}`);
+    expect(exported).toContain(`attachments/sha256/ab/${'c'.repeat(62)}.md`);
+    // The manifest goes through the SQLite VACUUM path (it starts with the
+    // SQLite magic above), so it is captured as a database, not a raw file.
+    expect(exported).toContain('blobs/manifest.db');
+    // And nothing about either surface shows up in the exclusion report.
+    expect(scan.excluded.filter((e) => e.relPath.startsWith('blobs'))).toEqual([]);
+    expect(scan.excluded.filter((e) => e.relPath.startsWith('attachments'))).toEqual([]);
+  });
+});

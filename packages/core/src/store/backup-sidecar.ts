@@ -46,8 +46,10 @@ export function formatBackupTimestamp(d: Date): string {
 }
 
 /**
- * Rotate backups in a directory: delete the oldest files until
- * fewer than `maxSnapshots` non-meta files remain.
+ * Rotate backups in a directory: delete the oldest BACKUPS until no more than
+ * `maxSnapshots` remain. Files are grouped by backup id (`<file>.<backupId>`),
+ * and a backup's files are kept or deleted together (T13710: counting files
+ * let one backup with many payloads delete its own store snapshot).
  *
  * Only rotates files matching the `createBackup` filename scheme
  * (`<file>.<type>-YYYYMMDD-HHmmss` for the canonical timestamp shape OR
@@ -69,6 +71,7 @@ export function formatBackupTimestamp(d: Date): string {
  * @task T12727 — marker-referenced snapshots are never rotated.
  * @task T12770 — an unreadable marker keeps only `migration` backups, and says so.
  * @task T12729 — a rotated backup's `<backupId>.meta.json` sidecar goes with it.
+ * @task T13710 — the cap counts backups, not files.
  * @returns The files and sidecars deleted, and why rotation kept backups past the cap.
  */
 export function rotateBackupDir(
@@ -87,16 +90,21 @@ export function rotateBackupDir(
     //     those start with the prefix, not `.<file>.${backupType}-`.
     const escapedType = backupType.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
     const ownedPattern = new RegExp(`\\.${escapedType}-`);
-    const files = readdirSync(backupDir)
-      .filter((f) => !f.endsWith('.meta.json') && !f.endsWith('.tmp') && ownedPattern.test(f))
+    const groups = new Map<string, { names: string[]; mtimeMs: number }>();
+    for (const f of readdirSync(backupDir)) {
+      if (f.endsWith('.meta.json') || f.endsWith('.tmp') || !ownedPattern.test(f)) continue;
       // A pinned backup (T12535) is never rotated and does not count toward the cap.
-      .filter((f) => !isPinnedBackup(backupDir, f, backupType))
-      .map((f) => ({
-        name: f,
-        path: join(backupDir, f),
-        mtimeMs: statSync(join(backupDir, f)).mtimeMs,
-      }))
-      .sort((a, b) => a.mtimeMs - b.mtimeMs); // oldest first
+      if (isPinnedBackup(backupDir, f, backupType)) continue;
+      const id = backupIdOf(f, backupType) ?? f;
+      const mtimeMs = statSync(join(backupDir, f)).mtimeMs;
+      const group = groups.get(id);
+      if (group === undefined) groups.set(id, { names: [f], mtimeMs });
+      else {
+        group.names.push(f);
+        group.mtimeMs = Math.max(group.mtimeMs, mtimeMs);
+      }
+    }
+    const files = [...groups.values()].sort((a, b) => a.mtimeMs - b.mtimeMs); // oldest first
 
     if (files.length > maxSnapshots) {
       const markers = readMarkerSnapshots(backupDir);
@@ -119,17 +127,19 @@ export function rotateBackupDir(
           };
       }
       for (let i = files.length - 1; i >= 0; i--)
-        if (markers.names.has(files[i]?.name ?? '')) files.splice(i, 1);
+        if (files[i]?.names.some((n) => markers.names.has(n))) files.splice(i, 1);
     }
 
     while (files.length > maxSnapshots) {
       const oldest = files.shift();
       if (!oldest) break;
-      try {
-        unlinkSync(oldest.path);
-        deleted.push(oldest.name);
-      } catch {
-        /* non-fatal */
+      for (const name of oldest.names) {
+        try {
+          unlinkSync(join(backupDir, name));
+          deleted.push(name);
+        } catch {
+          /* non-fatal */
+        }
       }
     }
   } catch {

@@ -206,24 +206,189 @@ describe('activated project checks through actual child processes', () => {
       blocks: true,
     });
   });
-  it('changed handler content requires a new explicit activation', async () => {
+  it('changed handler content fails closed in Git until explicitly reactivated (T13742)', async () => {
     await activateProjectHooks(root);
     await writeFile(
       join(root, 'handler.mjs'),
       'process.stdout.write(JSON.stringify({status:"block"}));',
     );
-    expect((await executeProjectHooks(invocation))[0]).toMatchObject({
-      status: 'warn',
-      blocks: false,
-      code: 'HOOK_REACTIVATION_REQUIRED',
-    });
+    expect(await executeProjectHooks(invocation)).toMatchObject([
+      {
+        id: 'migration-check',
+        status: 'block',
+        blocks: true,
+        code: 'HOOK_REACTIVATION_REQUIRED',
+        message: expect.stringContaining('cleo hook sync --activate'),
+      },
+    ]);
+    // Agent checks stay advisory: the drift is reported, never enforced.
+    expect(
+      (await executeProjectHooks({ ...invocation, source: 'agent' }, 'migration-check'))[0],
+    ).toMatchObject({ status: 'warn', blocks: false, code: 'HOOK_REACTIVATION_REQUIRED' });
     await activateProjectHooks(root);
     expect((await executeProjectHooks(invocation))[0]).toMatchObject({
       status: 'block',
       blocks: true,
+      code: 'HOOK_BLOCK',
+    });
+    await writeFile(
+      join(root, 'handler.mjs'),
+      'process.stdout.write(JSON.stringify({status:"pass"}));',
+    );
+    await activateProjectHooks(root);
+    expect((await executeProjectHooks(invocation))[0]).toMatchObject({
+      status: 'pass',
+      blocks: false,
     });
     await disableProjectHooks(root);
     expect((await executeProjectHooks(invocation))[0].status).toBe('skip');
+  });
+  it('drift that deletes or rebinds the hook still refuses the push (T13742 F1-A)', async () => {
+    await writeFile(
+      join(root, 'handler.mjs'),
+      'process.stdout.write(JSON.stringify({status:"block"}));',
+    );
+    await activateProjectHooks(root);
+    await rm(join(root, '.cleo/hooks.json'));
+    expect(await executeProjectHooks(invocation)).toMatchObject([
+      { id: 'migration-check', status: 'block', blocks: true, code: 'HOOK_REACTIVATION_REQUIRED' },
+    ]);
+    await manifest({ bindings: [{ source: 'git', event: 'pre-commit' }] });
+    expect(await executeProjectHooks(invocation)).toMatchObject([
+      { id: 'migration-check', status: 'block', blocks: true, code: 'HOOK_REACTIVATION_REQUIRED' },
+    ]);
+    // A malformed manifest cannot shed the approved hook either.
+    await writeFile(join(root, '.cleo/hooks.json'), 'invalid-json');
+    expect(await executeProjectHooks(invocation)).toMatchObject([
+      { id: 'migration-check', status: 'block', blocks: true, code: 'HOOK_REACTIVATION_REQUIRED' },
+    ]);
+    expect(
+      await executeProjectHooks({ ...invocation, source: 'worktree', event: 'post-start' }),
+    ).toEqual([]);
+  });
+  it('drift refuses only bound events: worktree start passes, the push is refused (T13742)', async () => {
+    await activateProjectHooks(root);
+    await writeFile(join(root, 'handler.mjs'), 'process.exit(4);');
+    expect(
+      await executeProjectHooks({ ...invocation, source: 'worktree', event: 'post-start' }),
+    ).toEqual([]);
+    expect(
+      await executeProjectHooks({ ...invocation, source: 'agent', event: 'PreToolUse' }),
+    ).toEqual([]);
+    expect(await executeProjectHooks(invocation)).toMatchObject([
+      { id: 'migration-check', status: 'block', blocks: true, code: 'HOOK_REACTIVATION_REQUIRED' },
+    ]);
+  });
+  it('a legacy activation without stored bindings refuses every non-agent event on drift', async () => {
+    await activateProjectHooks(root);
+    const file = join(resolveProjectHookContext(root).stateDir, 'activation.json');
+    const state = JSON.parse(await readFile(file, 'utf8')) as {
+      activation: { bindings?: Record<string, unknown> };
+    };
+    delete state.activation.bindings;
+    await writeFile(file, JSON.stringify(state));
+    expect((await inspectProjectHooks(root)).activation).toBe('active');
+    await rm(join(root, '.cleo/hooks.json'));
+    expect(
+      await executeProjectHooks({ ...invocation, source: 'worktree', event: 'post-start' }),
+    ).toMatchObject([{ id: 'cleo.project-hooks', status: 'block', blocks: true }]);
+    expect(
+      await executeProjectHooks({ ...invocation, source: 'agent', event: 'PreToolUse' }),
+    ).toMatchObject([{ status: 'warn', blocks: false, code: 'HOOK_REACTIVATION_REQUIRED' }]);
+  });
+  it('a deleted or replaced project input refuses the push; a missing PATH runtime allows (T13742 F1-E)', async () => {
+    await writeFile(join(root, 'dependency.mjs'), 'export const version=1;');
+    await manifest({ dependencies: ['dependency.mjs'] });
+    await activateProjectHooks(root);
+    const refused = [
+      { id: 'migration-check', status: 'block', blocks: true, code: 'HOOK_REACTIVATION_REQUIRED' },
+    ];
+    await rm(join(root, 'handler.mjs'));
+    expect(await executeProjectHooks(invocation)).toMatchObject(refused);
+    await mkdir(join(root, 'handler.mjs'));
+    expect(await executeProjectHooks(invocation)).toMatchObject(refused);
+    await rm(join(root, 'handler.mjs'), { recursive: true });
+    await writeFile(
+      join(root, 'handler.mjs'),
+      'process.stdout.write(JSON.stringify({status:"pass"}));',
+    );
+    await rm(join(root, 'dependency.mjs'));
+    expect(await executeProjectHooks(invocation)).toMatchObject(refused);
+    // Unrelated events still run no hooks.
+    expect(
+      await executeProjectHooks({ ...invocation, source: 'worktree', event: 'post-start' }),
+    ).toEqual([]);
+    await writeFile(join(root, 'dependency.mjs'), 'export const version=1;');
+    await activateProjectHooks(root);
+    vi.stubEnv('PATH', '/nonexistent');
+    try {
+      expect((await executeProjectHooks(invocation))[0]).toMatchObject({
+        status: 'infrastructure-error',
+        blocks: false,
+      });
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+  it('an earlier checker deleting a later handler refuses the push (T13742 F1-E)', async () => {
+    await writeFile(
+      join(root, 'handler.mjs'),
+      'import{rmSync}from"node:fs";rmSync("later.mjs");process.stdout.write(JSON.stringify({status:"pass"}));',
+    );
+    await writeFile(
+      join(root, 'later.mjs'),
+      'process.stdout.write(JSON.stringify({status:"pass"}));',
+    );
+    const source = JSON.parse(
+      await readFile(join(root, '.cleo/hooks.json'), 'utf8'),
+    ) as ProjectHooksManifest;
+    source.hooks.push({ ...source.hooks[0], id: 'later-check', handler: 'later.mjs' });
+    await writeFile(join(root, '.cleo/hooks.json'), JSON.stringify(source));
+    await activateProjectHooks(root);
+    expect(await executeProjectHooks(invocation)).toMatchObject([
+      { id: 'migration-check', status: 'block', blocks: true, code: 'HOOK_REACTIVATION_REQUIRED' },
+      { id: 'later-check', status: 'block', blocks: true, code: 'HOOK_REACTIVATION_REQUIRED' },
+    ]);
+  });
+  // Activation, drift and a refused run can exceed the 5 s default under machine load.
+  it('corrupted approved bindings fail closed like a legacy activation (T13742)', async () => {
+    await activateProjectHooks(root);
+    const file = join(resolveProjectHookContext(root).stateDir, 'activation.json');
+    const state = JSON.parse(await readFile(file, 'utf8')) as {
+      activation: { bindings: Record<string, unknown> };
+    };
+    state.activation.bindings = {};
+    await writeFile(file, JSON.stringify(state));
+    await writeFile(join(root, 'handler.mjs'), 'process.exit(5);');
+    expect(
+      await executeProjectHooks({ ...invocation, source: 'worktree', event: 'post-start' }),
+    ).toMatchObject([{ id: 'cleo.project-hooks', status: 'block', blocks: true }]);
+  }, 20000);
+  it('a legacy activation plus a deleted handler refuses the push (T13742 F1-F)', async () => {
+    await activateProjectHooks(root);
+    const file = join(resolveProjectHookContext(root).stateDir, 'activation.json');
+    const state = JSON.parse(await readFile(file, 'utf8')) as {
+      activation: { bindings?: Record<string, unknown>; bindingsHash?: string };
+    };
+    delete state.activation.bindings;
+    delete state.activation.bindingsHash;
+    await writeFile(file, JSON.stringify(state));
+    await rm(join(root, 'handler.mjs'));
+    expect(await executeProjectHooks(invocation)).toMatchObject([
+      {
+        id: 'cleo.project-hooks',
+        status: 'block',
+        blocks: true,
+        code: 'HOOK_REACTIVATION_REQUIRED',
+      },
+    ]);
+  });
+  it('a direct check of an unknown hook ID fails during drift (T13742 F1-C)', async () => {
+    await activateProjectHooks(root);
+    await writeFile(join(root, 'handler.mjs'), 'process.stdout.write("{}");');
+    expect(
+      await executeProjectHooks({ ...invocation, source: 'direct', event: 'check' }, 'unknown-id'),
+    ).toMatchObject([{ id: 'unknown-id', status: 'block', blocks: true }]);
   });
   it('declared dependencies and implicit lockfiles invalidate approval', async () => {
     await writeFile(join(root, 'dependency.mjs'), 'export const version=1;');
@@ -420,8 +585,70 @@ describe('activated project checks through actual child processes', () => {
     await activateProjectHooks(root);
     expect(await executeProjectHooks(invocation)).toMatchObject([
       { id: 'migration-check', status: 'pass' },
-      { id: 'later-check', code: 'HOOK_REACTIVATION_REQUIRED', blocks: false },
+      { id: 'later-check', code: 'HOOK_REACTIVATION_REQUIRED', blocks: true },
     ]);
+  });
+  it('a drifted source also refuses hooks only the linked checkout binds (T13742 F1-B)', async () => {
+    execFileSync('git', ['-C', root, 'config', 'user.email', 'fixture@example.invalid']);
+    execFileSync('git', ['-C', root, 'config', 'user.name', 'Fixture']);
+    execFileSync('git', ['-C', root, 'add', '.cleo/hooks.json', 'handler.mjs']);
+    execFileSync('git', ['-C', root, 'commit', '-qm', 'test(T13742): linked checkout']);
+    await activateProjectHooks(root);
+    const checkout = `${root}-wt-only`;
+    execFileSync('git', ['-C', root, 'worktree', 'add', '--detach', checkout, 'HEAD'], {
+      stdio: 'ignore',
+    });
+    try {
+      const source = JSON.parse(
+        await readFile(join(checkout, '.cleo/hooks.json'), 'utf8'),
+      ) as ProjectHooksManifest;
+      source.hooks.push({
+        ...source.hooks[0],
+        id: 'worktree-only',
+        bindings: [{ source: 'worktree', event: 'post-start' }],
+      });
+      await writeFile(join(checkout, '.cleo/hooks.json'), JSON.stringify(source));
+      await writeFile(join(root, 'handler.mjs'), 'process.exit(3);');
+      const context = resolveProjectHookContext(checkout);
+      expect(
+        await createProjectHookExecutor(root).execute({
+          schemaVersion: 1,
+          projectRoot: checkout,
+          gitCommonDir: context.gitCommonDir,
+          source: 'worktree',
+          event: 'post-start',
+        }),
+      ).toMatchObject([{ id: 'worktree-only', status: 'block', blocks: true }]);
+    } finally {
+      execFileSync('git', ['-C', root, 'worktree', 'remove', '--force', checkout]);
+    }
+  });
+  it('a handler deleted in the linked checkout refuses worktree start (T13742 F1-E)', async () => {
+    await manifest({ bindings: [{ source: 'worktree', event: 'post-start' }] });
+    execFileSync('git', ['-C', root, 'config', 'user.email', 'fixture@example.invalid']);
+    execFileSync('git', ['-C', root, 'config', 'user.name', 'Fixture']);
+    execFileSync('git', ['-C', root, 'add', '.cleo/hooks.json', 'handler.mjs']);
+    execFileSync('git', ['-C', root, 'commit', '-qm', 'test(T13742): deleted linked handler']);
+    await activateProjectHooks(root);
+    const checkout = `${root}-deleted`;
+    execFileSync('git', ['-C', root, 'worktree', 'add', '--detach', checkout, 'HEAD'], {
+      stdio: 'ignore',
+    });
+    try {
+      await rm(join(checkout, 'handler.mjs'));
+      const context = resolveProjectHookContext(checkout);
+      expect(
+        await createProjectHookExecutor(root).execute({
+          schemaVersion: 1,
+          projectRoot: checkout,
+          gitCommonDir: context.gitCommonDir,
+          source: 'worktree',
+          event: 'post-start',
+        }),
+      ).toMatchObject([{ id: 'migration-check', status: 'block', blocks: true }]);
+    } finally {
+      execFileSync('git', ['-C', root, 'worktree', 'remove', '--force', checkout]);
+    }
   });
   it('inherits approval into an identical linked checkout and rejects changed code', async () => {
     await manifest({ bindings: [{ source: 'worktree', event: 'post-start' }] });
@@ -447,8 +674,9 @@ describe('activated project checks through actual child processes', () => {
       expect((await executor.execute(request))[0].status).toBe('pass');
       await writeFile(join(checkout, 'handler.mjs'), 'process.exit(9);');
       expect((await executor.execute(request))[0]).toMatchObject({
-        status: 'warn',
-        blocks: false,
+        id: 'migration-check',
+        status: 'block',
+        blocks: true,
         code: 'HOOK_REACTIVATION_REQUIRED',
       });
     } finally {

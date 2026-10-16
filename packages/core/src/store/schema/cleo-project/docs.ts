@@ -124,8 +124,14 @@ export const docsAttachments = sqliteTable(
      * column of the bare `attachments` table.
      */
     displayAlias: integer('display_alias'),
+    /**
+     * Row uid (T12919): a UUIDv8 over sha256, filled at open or by the uid
+     * trigger. Declared after the T12535 columns: the migration appends it.
+     */
+    uid: text('uid'),
   },
   (table) => [
+    uniqueIndex('uq_docs_attachments_uid').on(table.uid),
     index('idx_docs_attachments_sha256').on(table.sha256),
     index('idx_docs_attachments_lifecycle_status').on(table.lifecycleStatus),
     index('idx_docs_attachments_supersedes').on(table.supersedes),
@@ -156,9 +162,12 @@ export const docsAttachmentRefs = sqliteTable(
     attachedAt: text('attached_at').notNull(),
     /** Agent identity (or `"human"`) that created this ref. */
     attachedBy: text('attached_by'),
+    /** Row uid (T12919): a UUIDv8 over the primary key, filled at open or by the uid trigger. */
+    uid: text('uid'),
   },
   (table) => [
     primaryKey({ columns: [table.attachmentId, table.ownerType, table.ownerId] }),
+    uniqueIndex('uq_docs_attachment_refs_uid').on(table.uid),
     index('idx_docs_attachment_refs_attachment_id').on(table.attachmentId),
     index('idx_docs_attachment_refs_owner').on(table.ownerType, table.ownerId),
   ],

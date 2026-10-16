@@ -386,6 +386,14 @@ const PROJECT_TABLES: Readonly<Record<string, TableRegistryEntry>> = {
       reason:
         "draft §0.3 / §F.9: peer_scope is the per-row personal/project switch. The value→class map is pending: the column defaults to 'project' on every row today, so a value route would promote every memory",
     },
+    columns: [
+      {
+        column: 'prune_candidate',
+        class: 'local-only',
+        reason:
+          'T13719: a per-device curation flag; correlateOutcomes sets it from synced citation_count and its own clock, and each device sweeps by its own',
+      },
+    ],
   },
   brain_decisions_fts: {
     class: 'derived',
@@ -398,10 +406,10 @@ const PROJECT_TABLES: Readonly<Record<string, TableRegistryEntry>> = {
     source: 'table-classification-draft.md',
   },
   brain_embeddings: {
-    class: 'portable-personal',
-    status: 'needs-owner-call',
-    source: 'cleo-dev ruling 2026-09-28',
-    note: 'embeddings are NOT derived under the ruling (they cost money to regenerate). vec0 is a virtual table the session extension cannot capture, so it must ship as a content-addressed cache blob; its _rowids/_chunks/_vector_chunks/_info shadows stay derived by pattern',
+    class: 'derived',
+    status: 'resolved',
+    source: 'owner decision 2026-10-14 (T13729)',
+    note: 'memory-search vectors are a local cache rebuilt from the synced memory text on each machine (ADR-093 lists embeddings as derived); every vector carries its model tag and the backfill re-embeds missing or other-model rows (T13740). Supersedes the cleo-dev ruling of 2026-09-28 (portable-personal, shipped as a cache blob, T12918). Its _rowids/_chunks/_vector_chunks/_metadata*/_info shadows are derived by pattern',
   },
   brain_learnings: {
     class: 'portable-personal',
@@ -413,6 +421,14 @@ const PROJECT_TABLES: Readonly<Record<string, TableRegistryEntry>> = {
       reason:
         "draft §0.3 / §F.9: peer_scope is the per-row personal/project switch. The value→class map is pending: the column defaults to 'project' on every row today, so a value route would promote every memory",
     },
+    columns: [
+      {
+        column: 'prune_candidate',
+        class: 'local-only',
+        reason:
+          'T13719: a per-device curation flag; correlateOutcomes sets it from synced citation_count and its own clock, and each device sweeps by its own',
+      },
+    ],
   },
   brain_learnings_fts: {
     class: 'derived',
@@ -453,6 +469,12 @@ const PROJECT_TABLES: Readonly<Record<string, TableRegistryEntry>> = {
         class: 'strip',
         reason: '§F.10: points at derived brain_memory_trees (AI id); null it in ops and recompute',
       },
+      {
+        column: 'prune_candidate',
+        class: 'local-only',
+        reason:
+          'T13719: a per-device curation flag; correlateOutcomes sets it from synced citation_count and its own clock, and each device sweeps by its own',
+      },
     ],
   },
   brain_observations_fts: {
@@ -483,6 +505,14 @@ const PROJECT_TABLES: Readonly<Record<string, TableRegistryEntry>> = {
     status: 'resolved',
     source: 'cleo-dev ruling 2026-09-28',
     note: 'writer verified: memory/specialists.ts (LLM Induction/CodePattern specialists) and sleep-consolidation.ts',
+    columns: [
+      {
+        column: 'prune_candidate',
+        class: 'local-only',
+        reason:
+          'T13719: a per-device curation flag; correlateOutcomes sets it from synced citation_count and its own clock, and each device sweeps by its own',
+      },
+    ],
   },
   brain_patterns_fts: {
     class: 'derived',
@@ -740,10 +770,10 @@ const PROJECT_TABLES: Readonly<Record<string, TableRegistryEntry>> = {
     note: 'ruling: manifests; source_file is written repo-relative (memory/manifest-ingestion.ts)',
   },
   docs_wikilinks: {
-    class: 'portable-project',
+    class: 'derived',
     status: 'resolved',
-    source: 'cleo-dev ruling 2026-09-28',
-    note: 'ruling: docs_*; parsed links are not in the narrow derived set',
+    source: 'T12919 (docs sync coverage)',
+    note: 'the 2026-09-28 ruling kept it portable as parsed links, but nothing parses bodies (T11826 AC4): rebuildDocsWikilinks (docs/wikilinks.ts) truncates and re-derives every edge from the supersedes/superseded_by/related_tasks/topics columns of the synced docs_attachments rows, cheaply and without an LLM. Syncing it would replay a full delete and re-insert on every docs write and make a second source of truth. Never captured, never replicated',
   },
   evidence_ac_bindings: {
     class: 'local-only',
@@ -1824,10 +1854,10 @@ const GLOBAL_TABLES: Readonly<Record<string, TableRegistryEntry>> = {
     source: 'draft §3 (same split as project §1.8)',
   },
   brain_embeddings: {
-    class: 'portable-personal',
+    class: 'derived',
     status: 'optional-transient',
-    source: 'cleo-dev ruling 2026-09-28 (round 2)',
-    note: 'no global binder creates the vec0 table today (store/memory-sqlite.ts initializeBrainVec runs for the project brain only), so this entry is pinned optional-transient by the Gate A test. It exists so a future global vec0 table is portable-personal like its project twin, never derived by a name pattern: embeddings cost money to regenerate',
+    source: 'owner decision 2026-10-14 (T13729)',
+    note: 'no global binder creates the vec0 table today (store/memory-sqlite.ts initializeBrainVec runs for the project brain only), so this entry is pinned optional-transient by the Gate A test. Like its project twin it is a local cache rebuilt per machine; supersedes the cleo-dev ruling of 2026-09-28 (round 2) that made it portable-personal',
   },
   brain_learnings: {
     class: 'portable-personal',
@@ -2220,11 +2250,12 @@ const FTS5_RULE: TablePatternRule = {
 
 /**
  * The sqlite-vec (vec0) shadow tables of `brain_embeddings`, by their known
- * names. The `brain_embeddings` virtual table itself is an explicit
- * portable-personal entry in both scopes: embeddings are not derived.
+ * names (`metadata*` back the `model` metadata column, T13740). The `brain_embeddings` virtual table itself is an explicit
+ * derived entry in both scopes (owner decision 2026-10-14, T13729).
  */
 const VEC0_SHADOW_RULE: TablePatternRule = {
-  match: '^brain_embeddings_(chunks|info|rowids|vector_chunks[0-9]{2})$',
+  match:
+    '^brain_embeddings_(chunks|info|rowids|vector_chunks[0-9]{2}|metadatachunks[0-9]{2}|metadatatext[0-9]{2})$',
   class: 'derived',
   reason: 'sqlite-vec shadow table of brain_embeddings; rebuilt from the virtual table',
 };

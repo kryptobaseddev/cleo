@@ -1,0 +1,36 @@
+{
+  "schemaVersion": 1,
+  "check": "publishedCanary",
+  "status": "pass",
+  "exitCode": 0,
+  "checkedCount": 4,
+  "observedAt": "2026-10-16T05:54:19Z",
+  "canaryVersion": "2026.10.17-canary.1",
+  "sourceDigest": "7048435a30f50b39863c74d9ed021c67afff34441d0a49abaafdc094e5988a61",
+  "vidaCommit": "89e0d4943ddbe1b4dd428266aee576a5a23d2e14",
+  "harnessVersions": {
+    "claude": "2.1.301 (Claude Code)",
+    "codex": "codex-cli 0.163.0"
+  },
+  "mode": "published-canary",
+  "packageVersions": {
+    "@cleocode/adapters": "2026.10.17-canary.1",
+    "@cleocode/agents": "2026.10.17-canary.1",
+    "@cleocode/animations": "2026.10.17-canary.1",
+    "@cleocode/brain": "2026.10.17-canary.1",
+    "@cleocode/caamp": "2026.10.17-canary.1",
+    "@cleocode/cant": "2026.10.17-canary.1",
+    "@cleocode/cleo": "2026.10.17-canary.1",
+    "@cleocode/cleo-os": "2026.10.17-canary.1",
+    "@cleocode/contracts": "2026.10.17-canary.1",
+    "@cleocode/core": "2026.10.17-canary.1",
+    "@cleocode/git-shim": "2026.10.17-canary.1",
+    "@cleocode/lafs": "2026.10.17-canary.1",
+    "@cleocode/nexus": "2026.10.17-canary.1",
+    "@cleocode/paths": "2026.10.17-canary.1",
+    "@cleocode/playbooks": "2026.10.17-canary.1",
+    "@cleocode/runtime": "2026.10.17-canary.1",
+    "@cleocode/skills": "2026.10.17-canary.1",
+    "@cleocode/worktree": "2026.10.17-canary.1"
+  }
+}

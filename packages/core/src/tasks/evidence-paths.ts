@@ -28,7 +28,21 @@
 
 import { existsSync, realpathSync } from 'node:fs';
 import { isAbsolute, join, relative, sep } from 'node:path';
+import type { EvidenceAtom, Task } from '@cleocode/contracts';
 import { readPortableProjectId } from '@cleocode/paths';
+
+/**
+ * Every evidence atom recorded on a task, across all gates — what worktree
+ * disposal must not destroy (T13696).
+ *
+ * @param task - The task whose verification evidence to flatten.
+ * @returns The atoms, empty when nothing was recorded.
+ *
+ * @task T13696
+ */
+export function taskEvidenceAtoms(task: Pick<Task, 'verification'>): EvidenceAtom[] {
+  return Object.values(task.verification?.evidence ?? {}).flatMap((g) => g?.atoms ?? []);
+}
 
 /** Resolve symlinks when the path exists; otherwise return it unchanged. */
 function realOrSelf(path: string): string {

@@ -8,6 +8,7 @@
  * @epic T134
  */
 
+import { createHash } from 'node:crypto';
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -73,7 +74,15 @@ vi.mock('../../store/data-accessor.js', () => ({
 }));
 
 // Mock @huggingface/transformers to prevent model downloads in tests
+const modelCache = vi.hoisted(() => ({ dir: '' }));
+
 vi.mock('@huggingface/transformers', () => ({
+  env: {
+    allowRemoteModels: true,
+    get cacheDir() {
+      return modelCache.dir;
+    },
+  },
   pipeline: vi
     .fn()
     .mockResolvedValue(vi.fn().mockResolvedValue({ data: new Float32Array(384).fill(0.1) })),
@@ -702,6 +711,23 @@ describe('EmbeddingQueue', () => {
 // ============================================================================
 
 describe('LocalEmbeddingProvider', () => {
+  // A fake cached model file whose hash the load verifies (T13740).
+  beforeEach(async () => {
+    modelCache.dir = await mkdtemp(join(tmpdir(), 'cleo-model-cache-'));
+    const onnxDir = join(modelCache.dir, 'Xenova', 'all-MiniLM-L6-v2', 'onnx');
+    await mkdir(onnxDir, { recursive: true });
+    await writeFile(join(onnxDir, 'model.onnx'), 'fake weights');
+    const { __resetLocalEmbeddingStateForTests, __setExpectedModelSha256ForTests } = await import(
+      '../embedding-local.js'
+    );
+    __resetLocalEmbeddingStateForTests();
+    __setExpectedModelSha256ForTests(createHash('sha256').update('fake weights').digest('hex'));
+  });
+
+  afterEach(async () => {
+    await rm(modelCache.dir, { recursive: true, force: true });
+  });
+
   it('class exists and can be instantiated', async () => {
     const { LocalEmbeddingProvider } = await import('../embedding-local.js');
     const provider = new LocalEmbeddingProvider();

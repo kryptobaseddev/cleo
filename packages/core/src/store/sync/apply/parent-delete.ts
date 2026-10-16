@@ -48,6 +48,10 @@ export const ON_REMOTE_PARENT_DELETE: Readonly<Record<string, ParentDeletePolicy
   // with live children is a conflict, never a silent wipe.
   conduit_attachments: 'conflict',
   conduit_attachment_versions: 'conflict',
+  // T12919: the doc registry is its own parent through supersedes /
+  // superseded_by (NO ACTION, like brain_decisions), so no child cascades; a
+  // delete of a doc another doc still points at is a conflict.
+  docs_attachments: 'conflict',
 };
 
 /**

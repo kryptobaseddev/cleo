@@ -27,6 +27,7 @@
 
 import type { DatabaseSync } from 'node:sqlite';
 import { getBrainNativeDb } from '../store/memory-sqlite.js';
+import { getEmbeddingProvider } from './brain-embedding.js';
 
 // ============================================================================
 // Constants
@@ -168,10 +169,16 @@ function fetchPriorEmbeddings(
        JOIN brain_observations o ON o.id = e.id
        WHERE e.id != ?
          AND e.embedding IS NOT NULL
+         AND e.model = ?
        ORDER BY o.created_at DESC
        LIMIT ?`,
     )
-    .all(excludeObsId, MAX_PRIOR_EMBEDDINGS) as unknown as RawEmbeddingRow[];
+    // Only vectors of the current model are comparable (T13740).
+    .all(
+      excludeObsId,
+      getEmbeddingProvider()?.model ?? '',
+      MAX_PRIOR_EMBEDDINGS,
+    ) as unknown as RawEmbeddingRow[];
 
   return rows
     .filter((r) => r.embedding !== null && r.embedding.byteLength > 0)

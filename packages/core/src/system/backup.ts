@@ -1,8 +1,11 @@
 /**
  * Backup and restore core module.
  *
- * Produces full-`.cleo/` snapshots containing tasks.db, brain.db, config.json
- * and project-info.json using the safest available method for each file type:
+ * Produces full-`.cleo/` snapshots containing the consolidated project store
+ * (cleo.db), config.json and project-info.json, plus the docs byte surfaces
+ * (T13704: `.cleo/blobs/` manifest + bytes and the `.cleo/attachments/` byte
+ * tree docs fetch reads), using the safest available method for each file
+ * type:
  *
  *   - SQLite databases: `VACUUM INTO` via the live native handle (see
  *     {@link ../store/sqlite-backup.ts}). This is the ONLY safe way to
@@ -44,6 +47,9 @@
  * @task T10315 — ratified `.cleo/backups/sqlite/` as the single canonical path
  *                (ADR-013 §10). The previous `.cleo/backups/snapshot/` is now
  *                a deprecated read-only fallthrough for one release.
+ * @task T13724 — per-target capture failures (e.g. the T12687 worktree-build
+ *                VACUUM INTO denial) are recorded in the meta sidecar under
+ *                `captureErrors` instead of being silently dropped.
  */
 
 import {
@@ -64,6 +70,11 @@ import { ExitCode } from '@cleocode/contracts/exit-codes.js';
 import { CleoError } from '../errors.js';
 import { getLogger } from '../logger.js';
 import { formatBackupTimestamp, rotateBackupDir } from '../store/backup-sidecar.js';
+import {
+  backupDocsBytes,
+  type DocsBytesMeta,
+  sweepDocsBytePool,
+} from '../store/docs-bytes-backup.js';
 import { resolveDualScopeDbPath } from '../store/dual-scope-db.js';
 import type { AbandonableLock } from '../store/lock.js';
 import { getNativeDb } from '../store/sqlite.js';
@@ -166,6 +177,21 @@ function atomicWriteSync(destPath: string, data: Buffer | string): void {
   }
 }
 
+/**
+ * A backup target that existed but failed to capture (T13724): e.g. the
+ * project store whose `VACUUM INTO` the T12687 worktree-build authorizer
+ * refuses, or a JSON file that could not be read. Recorded in the meta
+ * sidecar under `captureErrors` so a partial backup — especially a
+ * store-less one — is never silent. Mirrors how `docsBytes.error` records
+ * a failed docs capture.
+ */
+export interface BackupCaptureError {
+  /** The backup target that failed (e.g. `cleo.db`, `config.json`). */
+  target: string;
+  /** Why the capture failed (the thrown error's message). */
+  error: string;
+}
+
 /** Result shape returned by {@link createBackup}. */
 export interface BackupResult {
   /** Unique backup identifier (timestamped). */
@@ -180,6 +206,12 @@ export interface BackupResult {
   files: string[];
   /** Why the copy was discarded instead of published (T13293), when it was. */
   skipped?: string;
+  /**
+   * Per-target capture failures (T13724), present only when at least one
+   * target that existed could not be captured. Also recorded in the meta
+   * sidecar; the CLI surfaces these as `W_BACKUP_CAPTURE_FAILED` warnings.
+   */
+  captureErrors?: BackupCaptureError[];
 }
 
 /** Result shape returned by {@link restoreBackup}. */
@@ -273,6 +305,12 @@ export async function createBackup(
   ];
   const jsonTargets: string[] = ['config.json', 'project-info.json'];
   const backedUp: string[] = [];
+  /**
+   * T13724: per-target capture failures. A target that existed but failed to
+   * capture lands here (and in the meta sidecar) instead of being dropped,
+   * so a store-less backup is visible instead of plausible-looking.
+   */
+  const captureErrors: BackupCaptureError[] = [];
 
   // SQLite via VACUUM INTO.
   for (const target of sqliteTargets) {
@@ -280,13 +318,28 @@ export async function createBackup(
     // accessors point at cleo.db; absence of legacy files says nothing about
     // source availability. The project-bound native handle is authoritative.
     const dest = join(backupDir, `${target.file}.${backupId}`);
+    // The store may legitimately not exist (a fresh project) — that is a
+    // skip, not a failure. Existing-but-uncapturable is the failure.
+    const storePresent = existsSync(join(cleoDir, target.file));
     try {
       const ok = safeSqliteSnapshot(target.getDb(), dest);
       if (ok) {
         backedUp.push(target.file);
+      } else if (storePresent) {
+        captureErrors.push({
+          target: target.file,
+          error: 'no live store handle: the store open failed before the snapshot',
+        });
       }
-    } catch {
-      // skip files that fail to snapshot — backup remains partial but usable
+    } catch (err) {
+      // T13724: e.g. the T12687 worktree-build guard refuses the VACUUM INTO
+      // (the destination ATTACH inherits the refused-store decision). The
+      // backup remains partial but the missing store must be recorded, not
+      // swallowed — a backup of only config.json is not a store backup.
+      captureErrors.push({
+        target: target.file,
+        error: err instanceof Error ? err.message : String(err),
+      });
     }
   }
 
@@ -299,9 +352,37 @@ export async function createBackup(
       const content = readFileSync(src);
       atomicWriteSync(dest, content);
       backedUp.push(file);
-    } catch {
-      // skip files that fail to copy
+    } catch (err) {
+      captureErrors.push({
+        target: file,
+        error: err instanceof Error ? err.message : String(err),
+      });
     }
+  }
+
+  if (captureErrors.length > 0) {
+    getLogger('backup').warn({ backupId, captureErrors }, 'backup targets failed to capture');
+  }
+
+  // T13704: the docs byte surfaces live OUTSIDE the store — a backup of
+  // cleo.db alone cannot serve `docs fetch` after a restore (the 10.13
+  // qualification finding). Their databases are snapshotted beside the store
+  // and their bytes go into the shared pool (store/docs-bytes-backup.ts).
+  // What failed is recorded in the meta, so a restore reports it (T13709).
+  let docsMeta: DocsBytesMeta | null = null;
+  try {
+    const docsBytes = backupDocsBytes(cleoDir, backupDir, backupId);
+    if (docsBytes !== null) {
+      docsMeta = {
+        dbs: docsBytes.dbs,
+        files: docsBytes.files,
+        ...(docsBytes.skipped.length > 0 ? { skipped: docsBytes.skipped } : {}),
+      };
+    }
+  } catch (err) {
+    const error = err instanceof Error ? err.message : String(err);
+    docsMeta = { error };
+    getLogger('backup').warn({ backupId, error }, 'docs byte surfaces not captured');
   }
 
   // Write metadata sidecar.
@@ -318,6 +399,8 @@ export async function createBackup(
           files: backedUp,
           scope: 'project',
           ...(backedUp.includes('cleo.db') ? { contains: [...PROJECT_STORE_CONTENTS] } : {}),
+          ...(captureErrors.length > 0 ? { captureErrors } : {}),
+          ...(docsMeta !== null ? { docsBytes: docsMeta } : {}),
         },
         null,
         2,
@@ -332,8 +415,21 @@ export async function createBackup(
   // touched.
   const maxSnapshots = opts?.maxSnapshots ?? DEFAULT_MAX_SNAPSHOTS;
   rotateBackupDir(backupDir, maxSnapshots, btype);
+  // T13710: pool bytes no surviving backup references go with the rotation.
+  try {
+    sweepDocsBytePool(backupDir);
+  } catch {
+    // non-fatal — an unswept pool file only costs space
+  }
 
-  return { backupId, path: backupDir, timestamp, type: btype, files: backedUp };
+  return {
+    backupId,
+    path: backupDir,
+    timestamp,
+    type: btype,
+    files: backedUp,
+    ...(captureErrors.length > 0 ? { captureErrors } : {}),
+  };
 }
 
 /** A single backup entry returned by listSystemBackups. */
@@ -659,6 +755,10 @@ async function admitDbHeavy(): Promise<{ release: () => Promise<void> } | null> 
  *
  * @param opts - Backup type, note and rotation cap.
  * @returns What was written (`files` is empty when the store could not be opened).
+ *   A failed store capture is reported in `captureErrors` (T13724) — the
+ *   sidecar is only written when the store was captured, so a fully failed
+ *   global backup is surfaced via the result (and the CLI warning it drives),
+ *   not via a sidecar that would suppress the next hourly `auto` backup.
  * @task T13245
  */
 export async function createGlobalBackup(opts?: {
@@ -679,6 +779,8 @@ export async function createGlobalBackup(opts?: {
   const backupDir = globalBackupDir();
   mkdirSync(backupDir, { recursive: true });
   const backedUp: string[] = [];
+  /** T13724: a failed store capture is reported, never swallowed. */
+  const captureErrors: BackupCaptureError[] = [];
   try {
     const { openDualScopeDb, getDualScopeNativeDb } = await import('../store/dual-scope-db.js');
     const db = getDualScopeNativeDb(await openDualScopeDb('global'));
@@ -696,8 +798,14 @@ export async function createGlobalBackup(opts?: {
       renameSync(staged, final);
       backedUp.push('cleo.db');
     }
-  } catch {
-    // the global store could not be opened: nothing to back up
+  } catch (err) {
+    // T13724: the global store could not be opened or snapshotted — record
+    // it so the caller can surface the failure instead of skipping silently.
+    captureErrors.push({
+      target: 'cleo.db',
+      error: err instanceof Error ? err.message : String(err),
+    });
+    getLogger('backup').warn({ backupId, captureErrors }, 'global store not captured');
   }
   if (backedUp.length > 0) {
     atomicWriteSync(
@@ -711,6 +819,7 @@ export async function createGlobalBackup(opts?: {
           files: backedUp,
           scope: 'global',
           contains: ['global'],
+          ...(captureErrors.length > 0 ? { captureErrors } : {}),
         },
         null,
         2,
@@ -718,7 +827,14 @@ export async function createGlobalBackup(opts?: {
     );
     rotateBackupDir(backupDir, opts?.maxSnapshots ?? DEFAULT_MAX_SNAPSHOTS, btype);
   }
-  return { backupId, path: backupDir, timestamp, type: btype, files: backedUp };
+  return {
+    backupId,
+    path: backupDir,
+    timestamp,
+    type: btype,
+    files: backedUp,
+    ...(captureErrors.length > 0 ? { captureErrors } : {}),
+  };
 }
 
 /**
@@ -874,9 +990,12 @@ export async function restoreBackupById(
   let store: StoreRestoreResult | null = null;
   if (storeFile) {
     const { restoreStoreSnapshot } = await import('../store/restore-store.js');
+    // A canonical backup goes by id, so its docs byte surfaces come back with
+    // the store (T13708); a legacy-dir backup predates them.
+    const canonical = dir === dirs[0];
     store = await restoreStoreSnapshot({
       projectRoot,
-      snapshot: storeFile,
+      ...(canonical ? { backupId: params.backupId } : { snapshot: storeFile }),
       confirmOwnerStore: params.confirmOwnerStore,
       cwd: params.cwd,
     });

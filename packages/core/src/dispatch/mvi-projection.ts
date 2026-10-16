@@ -167,6 +167,8 @@ const MVI_FIELDS: Record<Exclude<ProjectionKind, 'unknown'>, ReadonlySet<string>
     'createdAt',
     'refCount',
     'description',
+    // T13684: the base an edit must declare (docs.update baseVersionUid).
+    'headVersionUid',
   ]),
   // T12523: an acceptance-criterion row keeps what an agent acts on — the
   // `AC<n>` alias it cites in `satisfies:` evidence, the ordinal and the text.

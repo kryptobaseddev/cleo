@@ -67,6 +67,7 @@ type _BrainCompactHitShape = {
   rrfScore?: number;
   bm25Score?: number;
   _next?: Record<string, string>;
+  scope?: 'project' | 'global';
 };
 
 type _AssertBrainCompactHitPinned = AssertEquals1<Equals<BrainCompactHit, _BrainCompactHitShape>>;
@@ -166,6 +167,7 @@ type _FetchedBrainEntryShape = {
   id: string;
   type: string;
   data: unknown;
+  scope?: 'project' | 'global';
 };
 
 type _AssertFetchedEntryPinned = AssertEquals1<Equals<FetchedBrainEntry, _FetchedBrainEntryShape>>;

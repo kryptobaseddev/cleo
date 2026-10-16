@@ -18,6 +18,7 @@
 // Hooks framework
 // ---------------------------------------------------------------------------
 import type { HookExecutor, HookOutcome } from '../project-hooks.js';
+import type { EvidenceAtom } from '../task.js';
 
 /**
  * A declarative lifecycle hook definition for worktree events.
@@ -489,6 +490,48 @@ export interface DestroyWorktreeOptions {
    * @default 'manual'
    */
   reason?: string;
+  /**
+   * The task's recorded evidence atoms. An evidence file inside the worktree
+   * with no byte-identical copy at the same path under the project root keeps
+   * the worktree (T13696).
+   */
+  evidence?: readonly EvidenceAtom[];
+}
+
+/**
+ * Why a worktree disposal was refused (T13696). Disposal deletes the whole
+ * directory, so it is skipped while anything outside it still needs a file in it.
+ *
+ * @task T13696
+ */
+export interface WorktreeDisposalBlockers {
+  /** Paths in other worktrees (or the main checkout) that resolve into this worktree, e.g. a symlinked `node_modules`. */
+  dependents: string[];
+  /** Evidence files inside the worktree that re-validation could not find anywhere else once it is gone. */
+  evidence: string[];
+}
+
+/**
+ * Durable record that a disposal kept a worktree (T13700), stored beside the
+ * checkout at `<worktreePath>.keep.json`. Every disposal path re-checks it:
+ * the worktree stays while any blocker remains, and the marker is removed
+ * once the dependents are gone and every evidence file has a root copy.
+ *
+ * @task T13700
+ */
+export interface WorktreeKeepMarker {
+  /** Task that owned the worktree, when known. */
+  taskId: string | null;
+  /** The disposal that first kept it, e.g. `complete`, `cancel`, `orphaned-merged`. */
+  reason: string;
+  /** Main checkout evidence re-validation falls back to; `null` when unknown. */
+  projectRoot: string | null;
+  /** Links from other checkouts that resolved into the worktree at the last check. */
+  dependents: string[];
+  /** Evidence files that existed only inside the worktree at the last check, with the sha256 they were verified at. */
+  evidence: Array<{ path: string; sha256: string }>;
+  /** ISO-8601 time the worktree was first kept. */
+  keptAt: string;
 }
 
 /**
@@ -511,6 +554,8 @@ export interface DestroyWorktreeResult {
   force?: boolean;
   /** Results of pre-remove and post-destroy hooks. */
   hookResults?: WorktreeHookResult[];
+  /** Set when the worktree was kept because something still needs its files (T13696). */
+  kept?: WorktreeDisposalBlockers;
 }
 
 // ---------------------------------------------------------------------------
@@ -730,6 +775,8 @@ export interface WorktreeInfo {
    * @default 'cleo-spawn'
    */
   source: WorktreeSource;
+  /** Present when a disposal kept this worktree: what still needed it (T13701). */
+  kept?: WorktreeKeepMarker;
 }
 
 /**
@@ -909,6 +956,8 @@ export interface PrunedWorktreeOutcome {
   branchDeleted: boolean;
   /** Error message when prune failed (set only on `pruned=false` + error path). */
   error?: string;
+  /** Set (with `pruned=false`) when the worktree was kept because something still needs its files (T13700). */
+  kept?: WorktreeDisposalBlockers;
 }
 
 /**

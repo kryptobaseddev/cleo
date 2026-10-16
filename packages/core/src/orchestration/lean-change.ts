@@ -205,9 +205,8 @@ export async function setLeanLevel(opts: {
     }
     await writeSessionLeanLevel(opts.projectRoot, opts.sessionId, opts.level);
   } else {
-    const { writeConfigValue } = await import('../config/registry.js');
-    await writeConfigValue('lean.level', opts.level, {
-      projectRoot: opts.projectRoot,
+    const { setConfigValue } = await import('../config.js');
+    await setConfigValue('lean.level', opts.level, opts.projectRoot, {
       global: opts.scope === 'global',
     });
   }

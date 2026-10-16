@@ -786,7 +786,7 @@ const fetchCommand = defineCommand({
         } else {
           cliError(`Content not retrievable: ${ref}`, ExitCode.NOT_FOUND, {
             name: 'E_NOT_FOUND',
-            fix: 'The doc metadata exists but its bytes are not in the blob store. Try: cleo docs doctor --repair',
+            fix: 'The doc metadata exists but its bytes are not in the blob store. A doc synced from another device gets its bytes on the next `cleo cloud sync` (its warnings say why when they cannot travel); otherwise try: cleo docs doctor --repair',
           });
         }
         process.exit(ExitCode.NOT_FOUND);
@@ -1536,6 +1536,12 @@ const updateCommand = defineCommand({
         ...(args['dry-run'] === true ? { dryRun: true } : {}),
         ...(args.strict === true ? { strict: true } : {}),
         ...(typeof args['attached-by'] === 'string' ? { attachedBy: args['attached-by'] } : {}),
+        // T13674: the version the edit was authored against (the fetch
+        // envelope's metadata.headVersionUid). A stale base merges or
+        // conflicts instead of silently dropping a concurrent writer's edit.
+        ...(typeof args['base-version-uid'] === 'string'
+          ? { baseVersionUid: args['base-version-uid'] }
+          : {}),
       },
       { command: 'docs update' },
     );
@@ -1552,12 +1558,15 @@ const versionsCommand = defineCommand({
     name: 'versions',
     description:
       'List all SHA-256 content-address versions of attachments for an entity. ' +
+      '--for accepts an owner id or a doc slug: an owner id (T###, ses_*, O-*) is listed as-is; ' +
+      'any other arg resolves as a doc slug to its owning task, whose blobs (sibling docs included) are listed. ' +
       'Use --name to filter by a specific filename.',
   },
   args: {
     for: {
       type: 'string',
-      description: 'Owner entity ID (T###, ses_*, O-*)',
+      description:
+        'Owner entity ID (T###, ses_*, O-*) or doc slug (T13725: a slug resolves to its owning task)',
       required: true,
     },
     name: {

@@ -793,6 +793,53 @@ export function clearSnapshotTables(
   return out;
 }
 
+/** The rows of a snapshot table to keep: those whose `column` holds one of `values`. */
+export interface SnapshotRowFilter {
+  /** The column compared. */
+  readonly column: string;
+  /** The values kept. */
+  readonly values: readonly string[];
+}
+
+/**
+ * Delete from each table of a SNAPSHOT (never a live store) every row its
+ * filter does not keep, the way {@link clearSnapshotTables} empties tables:
+ * triggers suspended, then `secure_delete` + `VACUUM`. The cloud vault keeps
+ * only a journal checkpoint's unresolved inbox rows (T12999).
+ *
+ * @param snapshotPath - A VACUUM snapshot owned by the export staging area.
+ * @param keep - Per table, the rows kept; absent tables are skipped.
+ * @returns The tables that lost rows, with the count deleted.
+ * @task T12999
+ */
+export function keepSnapshotRows(
+  snapshotPath: string,
+  keep: Readonly<Record<string, SnapshotRowFilter>>,
+): ClearedSnapshotTable[] {
+  const out: ClearedSnapshotTable[] = [];
+  const db = new DatabaseSync(snapshotPath); // schema-guard-exempt: a snapshot copy this step owns; pruning local-only journal rows is DML only
+  try {
+    db.exec('PRAGMA secure_delete = ON');
+    inSnapshotWriteBracket(db, () => {
+      for (const [table, f] of Object.entries(keep)) {
+        const present =
+          db.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?").get(table) !==
+          undefined;
+        if (!present) continue;
+        const marks = f.values.map(() => '?').join(', ');
+        const r = db
+          .prepare(`DELETE FROM "${table}" WHERE "${f.column}" NOT IN (${marks})`)
+          .run(...f.values);
+        if (Number(r.changes) > 0) out.push({ table, rows: Number(r.changes) });
+      }
+    });
+    if (out.length > 0) db.exec('VACUUM');
+  } finally {
+    db.close();
+  }
+  return out;
+}
+
 // ---------------------------------------------------------------------------
 // Hashing
 // ---------------------------------------------------------------------------

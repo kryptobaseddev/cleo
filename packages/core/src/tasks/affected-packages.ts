@@ -211,6 +211,72 @@ export function standalonePackage(root: string): WorkspacePackage | null {
 }
 
 /**
+ * Known-inert files besides documentation: editor and dependency-bot settings
+ * nothing builds, tests, lints, runs or deploys. An allowlist, so an unknown
+ * config (CI, deploy, hooks, `.cleo/` evidence rules) stays code (T13745).
+ * shortcut: a fixed list; widen it only with a file no tool reads.
+ */
+const INERT_PATH =
+  /^(?:renovate\.json5?|\.editorconfig|\.(?:vscode|idea|zed)\/.+|[^/]+\.code-workspace)$/;
+
+/**
+ * Whether a changed path is non-code (T13745): documentation
+ * ({@link isCiDocumentPath}) or a known-inert editor or bot setting
+ * (renovate, .editorconfig, .vscode/, .idea/, .zed/). Everything else is code.
+ *
+ * @param path - Repo-relative changed path.
+ * @returns True when no build, test, lint, CI or deploy reads the path.
+ * @task T13745
+ */
+export function isNonCodePath(path: string): boolean {
+  const p = slashSeparated(path);
+  return isCiDocumentPath(p) || INERT_PATH.test(p);
+}
+
+/** CLEO-owned config files and the CLEO schema each is validated against (T13758). */
+const CLEO_CONFIG_SCHEMAS: Readonly<Record<string, string>> = {
+  '.cleo/project-context.json': 'project-context.schema.json',
+  '.cleo/config.json': 'config.schema.json',
+};
+
+/**
+ * The CLEO schema a CLEO-owned config file is validated against, or null for
+ * any other path (T13758). CLEO is these files' consumer, so its schema check
+ * is a real, targeted test of a change to them.
+ *
+ * @param path - Repo-relative changed path.
+ * @returns The schema file name, or null.
+ * @task T13758
+ */
+export function cleoConfigSchemaFor(path: string): string | null {
+  return CLEO_CONFIG_SCHEMAS[slashSeparated(path)] ?? null;
+}
+
+/**
+ * Whether a change set is non-empty and made only of CLEO-owned config files
+ * ({@link cleoConfigSchemaFor}); any other path removes the route (T13758).
+ *
+ * @param paths - The change's repo-relative paths.
+ * @returns True for a CLEO-config-only change.
+ * @task T13758
+ */
+export function isCleoConfigOnlyChange(paths: readonly string[]): boolean {
+  return paths.length > 0 && paths.every((p) => cleoConfigSchemaFor(p) !== null);
+}
+
+/**
+ * Whether a change set is non-empty and made only of {@link isNonCodePath}
+ * paths: no test reads it and no TypeScript changed (T13745).
+ *
+ * @param paths - The change's repo-relative paths.
+ * @returns True for a non-code-only change.
+ * @task T13745
+ */
+export function isNonCodeOnlyChange(paths: readonly string[]): boolean {
+  return paths.length > 0 && paths.every(isNonCodePath);
+}
+
+/**
  * Derive the affected-package set for a diff.
  *
  * @param root - Workspace root.

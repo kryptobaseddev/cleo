@@ -354,14 +354,47 @@ function loadBrainVecExtension(nativeDb: DatabaseSync): boolean {
  * The vec0 table is not managed by Drizzle (virtual tables are not
  * supported by drizzle-orm's SQLite schema). Created via raw SQL.
  *
+ * T13740: every vector carries the `model` that produced it. vec0 cannot add a
+ * column, so a table from before the tag is dropped and recreated: its vectors
+ * name no model, would never be compared, and are local derived data that the
+ * backfill rebuilds from the memory text.
+ *
+ * A store whose table is already tagged takes no lock: the bind of every
+ * brain read stays lock-free.
+ *
+ * @param nativeDb - Brain handle with sqlite-vec loaded.
+ * @internal Exported for tests.
  * @task T5157
+ * @task T13740
  */
-function initializeBrainVec(nativeDb: DatabaseSync): void {
-  nativeDb
-    .prepare(
-      'CREATE VIRTUAL TABLE IF NOT EXISTS brain_embeddings USING vec0(id TEXT PRIMARY KEY, embedding FLOAT[384])',
-    )
-    .run();
+export function initializeBrainVec(nativeDb: DatabaseSync): void {
+  const shape = (): 'tagged' | 'untagged' | 'missing' => {
+    const columns = nativeDb.prepare('PRAGMA main.table_info(brain_embeddings)').all();
+    if (columns.length === 0) return 'missing';
+    return columns.some((c) => c.name === 'model') ? 'tagged' : 'untagged';
+  };
+  // Fast path, no lock: every bind of a current store ends here, so reads
+  // never queue for the write lock.
+  if (shape() === 'tagged') return;
+  // Re-check, drop and create under one write lock, so two processes opening
+  // an old store at once cannot both see the old shape and race the rebuild.
+  const own = !nativeDb.isTransaction;
+  if (own) nativeDb.prepare('BEGIN IMMEDIATE').run();
+  try {
+    const current = shape();
+    if (current === 'untagged') {
+      nativeDb.prepare('DROP TABLE IF EXISTS main.brain_embeddings').run();
+    }
+    nativeDb
+      .prepare(
+        'CREATE VIRTUAL TABLE IF NOT EXISTS brain_embeddings USING vec0(id TEXT PRIMARY KEY, embedding FLOAT[384], model TEXT)',
+      )
+      .run();
+    if (own) nativeDb.prepare('COMMIT').run();
+  } catch (err) {
+    if (own && nativeDb.isTransaction) nativeDb.prepare('ROLLBACK').run();
+    throw err;
+  }
 }
 
 /**
@@ -405,6 +438,51 @@ async function initEmbeddingProvider(cwd?: string): Promise<void> {
   } catch {
     // Config load or provider init failed — non-fatal, embedding stays unavailable
   }
+}
+
+/**
+ * Bring the brain tables of a project `cleo.db` handle to this build's schema
+ * and return the legacy brain-schema drizzle instance over it.
+ *
+ * The brain lineage (`drizzle-brain`) is applied lazily, when the brain domain
+ * binds, not by the dual-scope open. The sync apply and genesis paths call
+ * this too (T13719), so a store that never opened brain neither refuses
+ * brain ops for columns this build knows nor snapshots stale brain tables.
+ * Idempotent: on a current store it only reconciles the journal.
+ *
+ * @param nativeDb - The consolidated project `cleo.db` handle.
+ * @param dbPath - Its file (safety backups and twin collapse).
+ * @returns The brain-schema drizzle instance over `nativeDb`.
+ *
+ * @task T11522
+ * @task T13719
+ */
+export function establishBrainSchema(nativeDb: DatabaseSync, dbPath: string): NodeSQLiteDatabase {
+  // Wrap the native handle with the legacy brain-schema drizzle instance so
+  // existing callers (brainSchema.* queries) continue to work unchanged.
+  const drizzle = loadNodeSqliteDrizzle()({ client: nativeDb });
+
+  // Reconcile the LEGACY brain-domain schema inside the consolidated cleo.db.
+  // Since T11647 the consolidated `cleo.db` migration already creates every
+  // `brain_*` table in the LEGACY RUNTIME shape, so this marks the
+  // `drizzle-brain` lineage applied and executes only what is missing. The
+  // legacy standalone-`brain.db` path still runs the full `drizzle-brain`
+  // migrate; the pre-T11647 DROP+recreate path is a defensive fallback.
+  // (T11522 · T11647)
+  establishLegacyBrainSchema(nativeDb, drizzle, dbPath);
+
+  // T12535: bring the prefixed twins (brain_sticky_tags among them) up to
+  // date with their bare tables before the accessor reads them. A no-op when
+  // the tasks bind already did it in this open.
+  collapseTwinTables(nativeDb, dbPath, { onFailure: 'degrade' });
+
+  // Seed schema version for new databases (no-op if already set).
+  nativeDb
+    .prepare(
+      `INSERT OR IGNORE INTO brain_schema_meta (key, value) VALUES ('schemaVersion', '${BRAIN_SCHEMA_VERSION}')`,
+    )
+    .run();
+  return drizzle;
 }
 
 /**
@@ -477,40 +555,13 @@ export async function bindBrainDomain(
     // permitted. Non-fatal if unavailable — vec0 tables simply won't be created.
     const vecLoaded = loadBrainVecExtension(nativeDb);
 
-    // Wrap the native handle with the legacy brain-schema drizzle instance so
-    // existing callers (brainSchema.* queries) continue to work unchanged.
-    const drizzle = loadNodeSqliteDrizzle()({ client: nativeDb });
-
-    // Reconcile the LEGACY brain-domain schema inside the consolidated cleo.db.
-    // Since T11647 the consolidated `cleo.db` migration already creates every
-    // `brain_*` table in the LEGACY RUNTIME shape (epoch-ms integer timestamps,
-    // no SQL CHECK constraints — the exodus target was aligned to the runtime
-    // shape in `cleo-shared/brain.ts`). So this is now a no-op reconcile: it
-    // marks the `drizzle-brain` lineage applied and skips the migrate, leaving
-    // any exodus-migrated brain rows intact. The legacy standalone-`brain.db`
-    // path (DB with no consolidated brain tables) still runs the full
-    // `drizzle-brain` migrate. The pre-T11647 DROP+recreate path is retained as
-    // a defensive fallback for any DB still carrying the old consolidated shape.
-    // (T11522 · T11647)
-    establishLegacyBrainSchema(nativeDb, drizzle, store.dbPath);
-
-    // T12535: bring the prefixed twins (brain_sticky_tags among them) up to
-    // date with their bare tables before the accessor reads them. A no-op when
-    // the tasks bind already did it in this open.
-    collapseTwinTables(nativeDb, store.dbPath, { onFailure: 'degrade' });
+    const drizzle = establishBrainSchema(nativeDb, store.dbPath);
 
     // Create the vec0 virtual table for embeddings if the extension is loaded
     // (T5157). Must run after migrations so the schema is consistent.
     if (vecLoaded) {
       initializeBrainVec(nativeDb);
     }
-
-    // Seed schema version for new databases (no-op if already set).
-    nativeDb
-      .prepare(
-        `INSERT OR IGNORE INTO brain_schema_meta (key, value) VALUES ('schemaVersion', '${BRAIN_SCHEMA_VERSION}')`,
-      )
-      .run();
 
     // Wire the default embedding provider when vec is loaded and embedding is
     // enabled. Best-effort, async, never blocks DB access. (T539)

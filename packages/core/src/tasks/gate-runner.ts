@@ -56,6 +56,7 @@ import type {
 import type {
   AcceptanceGateArtifact,
   AcceptanceGateBinding,
+  AcceptanceGateCacheInputs,
   AcceptanceGateInvocation,
   AcceptanceGateRunOptions,
   AcceptanceGateTreeBinding,
@@ -71,7 +72,7 @@ import type {
   ProcessCaptureOptions,
   ProcessCaptureResult,
 } from '@cleocode/contracts/resource-governor';
-import { gitToplevel } from '../git/work-tree.js';
+import { gitToplevel, resolveDeclaredEvidenceGitRoot } from '../git/work-tree.js';
 import { getProjectRoot } from '../paths.js';
 import { captureProjectScope, worktreeScope } from '../project-scope.js';
 import { truncateString } from '../render/helpers.js';
@@ -89,6 +90,7 @@ import { resolveCanonicalProjectRoot } from './evidence.js';
 import {
   buildGateCacheEntryBody,
   captureGateCacheState,
+  describeGateCacheMiss,
   evidenceCacheKeyPath,
   type GateCacheState,
   gateCacheEntryPath,
@@ -280,8 +282,9 @@ function writeExecutedGatePass(
   inputsHash: string,
   observed: AcceptanceGateResult,
   key: Buffer,
+  inputs?: AcceptanceGateCacheInputs,
 ): void {
-  const body = buildGateCacheEntryBody(gate, state, inputsHash, observed);
+  const body = buildGateCacheEntryBody(gate, state, inputsHash, observed, inputs);
   if (!body) return;
   try {
     const path = gateCacheEntryPath(projectRoot, gate, state, inputsHash);
@@ -327,12 +330,33 @@ export async function captureGateInputsHash(
   execution: OperationExecutionContext,
   env: NodeJS.ProcessEnv = process.env,
 ): Promise<string> {
+  return (await captureGateInputs(task, gate, execution, env)).hash;
+}
+
+/**
+ * {@link captureGateInputsHash} with the parts behind the digest, which a
+ * stored pass keeps so a later miss can say what moved (T13693).
+ *
+ * @param task - Task that owns the gate; its `files` are verifier inputs.
+ * @param gate - Gate whose invocation and inputs are captured.
+ * @param execution - Admitted lifetime whose project root scopes the capture.
+ * @param env - Environment the gate will launch with.
+ * @returns The digest and its parts.
+ * @task T13693
+ */
+export async function captureGateInputs(
+  task: Task,
+  gate: AcceptanceGate,
+  execution: OperationExecutionContext,
+  env: NodeJS.ProcessEnv = process.env,
+): Promise<{ hash: string; inputs: AcceptanceGateCacheInputs }> {
   const tree = resolveTypedGateRoot(resolve(execution.identity.projectRoot));
   const invocation = executableInvocation(gate, tree, { ...env });
-  return gateInputsHash(
-    invocation,
-    await snapshotGateInputs(task, gate, invocation, execution, tree),
-  );
+  const artifacts = await snapshotGateInputs(task, gate, invocation, execution, tree);
+  return {
+    hash: gateInputsHash(invocation, artifacts),
+    inputs: { environmentHash: invocation?.environmentHash ?? null, artifacts },
+  };
 }
 
 /**
@@ -355,14 +379,24 @@ export async function captureGateInputsHash(
  * carried to another tree by content (tracked inputs must hash identically and
  * the recorded HEAD must be merged there).
  *
+ * T13649: the evidence declaration (`CLEO_EVIDENCE_GIT_ROOT`, `GIT_WORK_TREE`
+ * or `evidence.gitRoot`) is consulted first, as `resolveEvidenceExecutionRoot`
+ * does for evidence tools. Without it, a run whose cwd had been moved to the
+ * store root keyed the gate cache to the primary checkout's HEAD even when the
+ * caller named its worktree. A declared tree is honoured only when it is this
+ * project's checkout or one of its linked worktrees, like the cwd.
+ *
  * @param projectRoot - CLEO store root (the typed gate's authority).
  * @param cwd - Invocation directory. Defaults to `process.cwd()`.
+ * @param env - Where the evidence declaration is read. Defaults to `process.env`.
  * @returns The realpath of the tree typed gates execute in.
  * @task T12625
+ * @task T13649
  */
 export function resolveTypedGateRoot(
   projectRoot: string,
   cwd: string = process.cwd(), // CWD-OK: the invocation tree is the subject (gh#1220)
+  env: NodeJS.ProcessEnv = process.env,
 ): string {
   const real = (p: string): string => {
     try {
@@ -372,9 +406,15 @@ export function resolveTypedGateRoot(
     }
   };
   const root = real(projectRoot);
-  const top = gitToplevel(cwd);
-  if (top === null || real(top) === root) return projectRoot;
-  return real(resolveCanonicalProjectRoot(top)) === root ? real(top) : projectRoot;
+  const ofThisProject = (top: string | null): string | null =>
+    top !== null && real(top) !== root && real(resolveCanonicalProjectRoot(top)) === root
+      ? real(top)
+      : null;
+  const declared = resolveDeclaredEvidenceGitRoot(projectRoot, env);
+  const declaredTop = declared ? gitToplevel(declared.path) : null;
+  // A declaration naming the store root itself is honoured as such.
+  if (declaredTop !== null && real(declaredTop) === root) return projectRoot;
+  return ofThisProject(declaredTop) ?? ofThisProject(gitToplevel(cwd)) ?? projectRoot;
 }
 
 /**
@@ -506,8 +546,22 @@ export async function runGates(
                   'It was not used. Run `cleo verify <taskId> --run` (a pass replaces the entry), or pass --run-typed on this write',
               );
           }
-          if (cacheMode === 'only' && TOOL_GATE_KINDS.has(parsed.kind))
-            throw new Error(gateNotCachedMessage(parsed, cacheState !== null, cacheKey !== null));
+          if (cacheMode === 'only' && TOOL_GATE_KINDS.has(parsed.kind)) {
+            // T13693: say which key part moved since the last stored pass.
+            const why =
+              cacheState && cacheKey
+                ? describeGateCacheMiss(
+                    projectRoot,
+                    parsed,
+                    cacheState,
+                    cacheInputsHash!,
+                    options.cacheInputs,
+                  )
+                : null;
+            throw new Error(
+              `${gateNotCachedMessage(parsed, cacheState !== null, cacheKey !== null)}${why ? ` ${why}` : ''}`,
+            );
+          }
           const observed: AcceptanceGateResult = {
             ...(await runOneGate(
               parsed,
@@ -527,6 +581,7 @@ export async function runGates(
               cacheInputsHash!,
               observed,
               cacheKey,
+              options.cacheInputs,
             );
           results.push(observed);
         } catch (error) {
@@ -822,7 +877,13 @@ export async function runTaskGates(
               env,
               execution,
               ...(options.cache && options.cache !== 'off'
-                ? { cacheInputsHash: gateInputsHash(invocation, artifacts) }
+                ? {
+                    cacheInputsHash: gateInputsHash(invocation, artifacts),
+                    cacheInputs: {
+                      environmentHash: invocation?.environmentHash ?? null,
+                      artifacts,
+                    },
+                  }
                 : {}),
             })
           )[0]!;
@@ -1398,6 +1459,9 @@ async function snapshotGateInputs(
       throw new Error('Typed invocation working directory has ambiguous symlink ownership');
   }
   const paths = new Set((task.files ?? []).map((path) => resolve(root, path)));
+  // T13690: a declared task file is a literal path; `app/[id]/page.tsx` is a
+  // Next.js route, not a glob. Only paths from other sources are refused.
+  const literal = new Set(paths);
   if (gate.kind === 'file' && gate.path) paths.add(resolve(root, gate.path));
   if (
     invocation &&
@@ -1430,7 +1494,8 @@ async function snapshotGateInputs(
   for (const path of [...paths].sort()) {
     execution.assertActive();
     execution.consume({ items: 1 });
-    if (/[?*[\]{}]/.test(path))
+    const globLike = /[?*[\]{}]/.test(path);
+    if (!literal.has(path) && globLike)
       throw new Error(`Typed input requires an explicit file path: ${path}`);
     const rel = relative(root, path);
     if (!rel || rel === '..' || rel.startsWith('../') || isAbsolute(rel))
@@ -1453,6 +1518,13 @@ async function snapshotGateInputs(
       before = await lstat(path);
     } catch (error) {
       if (error instanceof Error && 'code' in error && error.code === 'ENOENT') {
+        // T13691: an absent glob-looking entry is a pattern written by mistake
+        // (task.files are literal); recorded absent, its hash would never move.
+        if (globLike)
+          // @sync-invariant none:input-shape a declared task path that is a mistaken glob is refused before the gate runs; nothing is written
+          throw new Error(
+            `declared task file ${relative(root, path)} does not exist; list explicit paths, task.files are literal`,
+          );
         artifacts.push({ path, sha256: null, bytes: null });
         continue;
       }

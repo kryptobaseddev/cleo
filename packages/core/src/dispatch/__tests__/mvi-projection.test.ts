@@ -56,6 +56,7 @@ const FULL_DOC = {
   createdAt: '2026-05-24T00:00:00.000Z',
   refCount: 1,
   description: 'Test doc',
+  headVersionUid: 'ver_head',
   labels: ['e8'],
   ownerId: 'T9922',
   ownerType: 'task',
@@ -148,6 +149,8 @@ describe('projectMvi', () => {
     expect(out['id']).toBe('att_abc123');
     expect(out['slug']).toBe('my-doc');
     expect(out['type']).toBe('changeset');
+    // T13684: the base an edit must declare survives the default projection.
+    expect(out['headVersionUid']).toBe('ver_head');
     expect(out['ownerId']).toBeUndefined();
     expect(out['ownerType']).toBeUndefined();
     expect(out['labels']).toBeUndefined();

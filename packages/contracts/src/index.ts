@@ -898,7 +898,13 @@ export {
   isLafsSuccess,
 } from './lafs.js';
 // === ct-lean levels (T13663 / Epic T13418) ===
-export type { LeanConfig, LeanLevel, LeanLevelSource } from './lean.js';
+export type {
+  LeanConfig,
+  LeanDebtItem,
+  LeanDebtReport,
+  LeanLevel,
+  LeanLevelSource,
+} from './lean.js';
 // === Lease-IPC v1.1 (PARALLEL DbWriterLease contract — T11627 · SG-RUNTIME-UNIFICATION) ===
 export type {
   ChildKilledUnresponsiveResponse,
@@ -1132,6 +1138,7 @@ export type {
 export { BRAIN_OBSERVATION_SOURCE_TYPES } from './memory/observe.js';
 export type {
   BrainCompactHit,
+  MemoryScope,
   SearchBrainCompactParams,
   SearchBrainCompactResult,
 } from './memory/search.js';
@@ -2033,11 +2040,13 @@ export type {
   PruneOrphanedWorktreesResult,
   PruneWorktreesOptions,
   PruneWorktreesResult,
+  WorktreeDisposalBlockers,
   WorktreeHook,
   WorktreeHookResult,
   WorktreeIncludePattern,
   WorktreeInfo,
   WorktreeInstallOutcome,
+  WorktreeKeepMarker,
   WorktreeLifecycleAction,
   WorktreeLifecycleAuditEntry,
   WorktreeListEntry,
@@ -2492,6 +2501,7 @@ export {
 // === Store restore (T13240 — restore cleo.db from a named snapshot or backup id) ===
 export type {
   StoreRecoverResult,
+  StoreRestoreDocsBytes,
   StoreRestoreKept,
   StoreRestoreResult,
   StoreRestoreSource,

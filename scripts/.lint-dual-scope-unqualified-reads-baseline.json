@@ -110,6 +110,12 @@
       "brain_observations": 2,
       "brain_patterns": 2
     },
+    "packages/core/migrations/drizzle-brain/20261014180000_t13719-prune-candidate-column/migration.sql": {
+      "brain_decisions": 1,
+      "brain_learnings": 1,
+      "brain_observations": 1,
+      "brain_patterns": 1
+    },
     "packages/core/migrations/drizzle-cleo-global/20260531000001_t11363-consolidation-cleo-global/migration.sql": {
       "brain_attention": 1,
       "brain_backfill_runs": 1,

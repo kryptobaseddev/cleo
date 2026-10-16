@@ -8,12 +8,13 @@ description: >-
   gates, package boundaries, validation, data safety or anything the task asked for.
 license: MIT
 metadata:
-  version: 1.1.0
+  version: 1.2.0
   tier: core
   install: harness
   covers:
     - packages/core/src/orchestration/lean-change.ts
     - packages/cleo/src/cli/commands/lean.ts
+    - packages/core/src/orchestration/lean-debt.ts
   lastReviewed: 2026-10-13
   stability: stable
   attribution: Adapted from Ponytail 5.1.0 by DietrichGebert (MIT) — https://github.com/DietrichGebert/ponytail
@@ -76,6 +77,8 @@ callers that stop working, stores it would migrate. That is scope. Extra feature
 - New non-trivial logic (a branch, a loop, a parser, a store write, security) leaves one
   small test. Trivial changes need none. Run single test files through `cleo run --wait`.
 - A shortcut with a known limit gets a comment: `shortcut: <the limit>, <when to upgrade>`.
+  `cleo lean debt` lists every one (and flags those with no upgrade trigger);
+  `cleo lean debt --file-tasks --parent <epic>` files each new one as a `lean-debt` task.
 
 ## Never cut
 

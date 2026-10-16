@@ -740,7 +740,6 @@
     "packages/core/src/llm/credential-removal.ts :: Error": 1,
     "packages/core/src/llm/credential-seeders/env-seeder.ts :: Error": 1,
     "packages/core/src/llm/credential-seeders/index.ts :: Error": 1,
-    "packages/core/src/llm/credentials-store.ts :: Error": 1,
     "packages/core/src/llm/entity-ops.ts :: E_ACCOUNT_NOT_FOUND": 1,
     "packages/core/src/llm/entity-ops.ts :: E_CONFIG_READ_FAILED": 1,
     "packages/core/src/llm/entity-ops.ts :: E_CONFIG_WRITE_FAILED": 3,

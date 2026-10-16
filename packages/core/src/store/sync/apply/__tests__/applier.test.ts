@@ -1246,6 +1246,55 @@ describe('review #1903 LOWs', () => {
     apply(db);
     expect(statuses(db)).toEqual(['1.0:refused-schema', '2.0:refused-schema']);
   });
+
+  it('a refused-schema insert applies once the store has its column, and its pending update follows (T13719)', async () => {
+    const db = await store();
+    stage(db, segment(R1, [txn('R1:1', [insert('c1', h(1), { zz_t13719: 'v1' })])]));
+    stage(db, segment(R1, [txn('R1:2', [update('c1', h(2), { title: 'renamed' })])]));
+    expect(apply(db)).toMatchObject({ applied: 0, refusedSchema: 1, pending: 1 });
+    // No upgrade: the column arrives by a lazily run migration.
+    db.exec('ALTER TABLE tasks_tasks ADD COLUMN zz_t13719 TEXT');
+    expect(apply(db)).toMatchObject({ applied: 2, refusedSchema: 0, pending: 0 });
+    expect(inboxCounts(db, STREAM)).toEqual({ applied: 2 });
+    expect(db.prepare('SELECT title, zz_t13719 FROM tasks_tasks WHERE uid = ?').get('c1')).toEqual({
+      title: 'renamed',
+      zz_t13719: 'v1',
+    });
+  });
+
+  it('an op naming a local-only column applies with the local default, and its update follows (T13719)', async () => {
+    const db = await store();
+    // The brain lineage gives the table the column; it is local-only (never captured).
+    db.exec('ALTER TABLE brain_observations ADD COLUMN prune_candidate INTEGER DEFAULT 0');
+    const obs = (o: 'I' | 'U', at: string, a: Record<string, string | number>): LedgerOp => ({
+      t: 'brain_observations',
+      u: 'o1',
+      o,
+      h: at,
+      a,
+    });
+    // As an older build captured it: prune_candidate rides in the insert image.
+    stage(
+      db,
+      segment(R1, [
+        txn('R1:1', [
+          obs('I', h(1), {
+            id: 'O-local1',
+            type: 'discovery',
+            title: 'from an older build',
+            created_at: '2026-10-14T09:00:00.000Z',
+            birth_fp: 'fp-o1',
+            prune_candidate: 1,
+          }),
+        ]),
+      ]),
+    );
+    stage(db, segment(R1, [txn('R1:2', [obs('U', h(2), { title: 'retitled' })])]));
+    expect(apply(db)).toMatchObject({ applied: 2, refusedSchema: 0, pending: 0 });
+    expect(
+      db.prepare('SELECT title, prune_candidate FROM brain_observations WHERE uid = ?').get('o1'),
+    ).toEqual({ title: 'retitled', prune_candidate: 0 });
+  });
 });
 
 describe('T13226 shapes (#1909): journaled SET NULL and parent-keyed child deletes', () => {
