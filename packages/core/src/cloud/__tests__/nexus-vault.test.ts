@@ -1204,6 +1204,16 @@ class FakeNexus {
         throw new ApiFail(403, 'E_FORBIDDEN', { reason: 'bad-checkpoint-signature' });
       }
       const refuse = this.refuseCheckpoint.shift();
+      if (refuse === 'authoritative-omitted') {
+        // As the server words a list a child left out (cleo-nexus #45).
+        throw new ApiFail(409, 'E_MANIFEST_ACCOUNTING', {
+          verdict: {
+            ok: false,
+            code: 'E_MANIFEST_ACCOUNTING',
+            findings: [{ reason: 'authoritative-omitted', table: 'tasks_audit_log' }],
+          },
+        });
+      }
       if (refuse === 'E_STREAM_VERSION') {
         // As the server words its v3 ratchet refusal.
         throw new ApiFail(409, refuse, {
@@ -6467,6 +6477,19 @@ describe('sync enable push: the genesis checkpoint (T12343 S4-1b)', () => {
       expect(again.status).toBe('pushed');
       const next = s.checkpoints.at(-1)?.manifest.snapshotAuthoritative ?? [];
       expect(next.every((x) => cp?.manifest.snapshotAuthoritative?.includes(x))).toBe(true);
+      // A refusal for an omitted list (an older cleo on another device) names the cause and the fix.
+      await on(a, async () => {
+        (await storeOf(aDb)).exec(
+          "INSERT INTO tasks_audit_log (id, action, task_id) VALUES ('log-t13777-3', 'task_updated', 'T3')",
+        );
+      });
+      fake.refuseCheckpoint = ['authoritative-omitted'];
+      const omitted = await failure(
+        on(a, () => pushNexusVault(vopts(a, { allowUnreleased: true }))),
+      );
+      expect(omitted.code).toBe('E_NEXUS_VAULT_REFUSED');
+      expect(omitted.message).toContain('snapshot-authoritative list');
+      expect(omitted.fix).toContain('upgrade cleo on the other devices');
     });
 
     it('a checkpoint with pending transactions restores on a new device, and they apply exactly once after a sync', async () => {

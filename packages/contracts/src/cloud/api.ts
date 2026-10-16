@@ -472,6 +472,10 @@ export const Manifest = z
      * v3 only (cleocode T13777): tables this checkpoint's snapshot alone decides. They are portable but the
      * change journal does not carry them, so no segment declares their rows and the row rule skips them, as it
      * skips the vault's file and database keys. Sorted and unique; along a lineage the list only shrinks.
+     * A portable table that is neither journaled nor listed can never join it later (authoritative-grew), so a
+     * new portable table is journaled from its first release (T13801). Once one device sends the list, every
+     * device on the stream must run a client that sends it: an older client's push omits it and is refused
+     * (authoritative-omitted).
      */
     snapshotAuthoritative: z
       .array(z.string().regex(/^[a-z][a-z0-9_]{0,62}$/))
