@@ -278,6 +278,11 @@
           "items": { "type": "string", "minLength": 1 },
           "description": "Repo-relative paths or globs that never count as part of a change when evidence decides its scope (runtime state, e.g. .opencode/goals/**). CLEO's own installed hook files are always excluded (T13135)."
         },
+        "typecheckOnlyDependents": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 },
+          "description": "Repo-relative globs of files whose change affects dependents only at the type level: a generated client (lib/api-zod/**), seed or data files (T13783). A package that depends on a change only through changed packages whose every changed path matches owes a typecheck (tool:typecheck or a qa-run typecheck receipt naming it) instead of a test file. Read from the default branch only."
+        },
         "runtimePaths": {
           "type": "array",
           "items": { "type": "string", "minLength": 1 },
