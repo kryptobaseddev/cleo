@@ -17,6 +17,43 @@ import type { RowIdentityRef, RowIdentitySpec, TableScope } from '@cleocode/cont
 /** Physical name of every uid column. */
 export const UID_COLUMN = 'uid';
 
+/**
+ * The rows of a declared table that should carry a uid but lack one (a SQL
+ * predicate over `main.<table>`): not kept local by a NULL key column
+ * (`localWhenNull`), nor by an earlier row holding the same natural key
+ * (`localUnlessFirst`, T13777).
+ *
+ * @param spec - A declared table's spec.
+ * @returns The predicate, for a `WHERE` over `main.<table>`.
+ */
+export function uidMissingWhere(spec: RowIdentitySpec): string {
+  const local = (spec.localWhenNull ?? []).map((c) => ` AND ${quoteId(c)} IS NOT NULL`).join('');
+  const table = `main.${quoteId(spec.table)}`;
+  const first = spec.localUnlessFirst
+    ? ` AND NOT EXISTS (SELECT 1 FROM ${table} AS _f WHERE ${spec.key
+        .map((k) => `_f.${quoteId(k)} IS ${table}.${quoteId(k)}`)
+        .join(' AND ')} AND _f.${quoteId(UID_COLUMN)} IS NOT NULL)`
+    : '';
+  return `${quoteId(UID_COLUMN)} IS NULL${local}${first}`;
+}
+
+/**
+ * The rows of a declared table that sync (T13777): every row with a uid, and
+ * the rows still waiting for one. A row local by spec ({@link uidMissingWhere})
+ * is not one of them. `null` for a table with no local rule (all rows sync).
+ *
+ * @param spec - A declared table's spec.
+ * @returns The predicate, for a `WHERE` over `main.<table>`, or `null`.
+ */
+export function syncedRowsWhere(spec: RowIdentitySpec): string | null {
+  if (!spec.localWhenNull && !spec.localUnlessFirst) return null;
+  return `${quoteId(UID_COLUMN)} IS NOT NULL OR (${uidMissingWhere(spec)})`;
+}
+
+function quoteId(name: string): string {
+  return `"${name.replaceAll('"', '""')}"`;
+}
+
 /** Physical name of the birth fingerprint column of every minted table. */
 export const BIRTH_FP_COLUMN = 'birth_fp';
 

@@ -749,6 +749,41 @@ export {
   isTerminalGoalStatus,
   isValidGoalTargetTaskId,
 } from './goal.js';
+// === goal/v1 protocol: contract, task link, outcome (T13792 · Epic T13791) ===
+export type {
+  GoalAbsentCheck,
+  GoalAcRef,
+  GoalAmendClass,
+  GoalAssumption,
+  GoalAutonomy,
+  GoalBudget,
+  GoalCheck,
+  GoalCheckEvidence,
+  GoalCheckExpect,
+  GoalCheckKind,
+  GoalCleoGate,
+  GoalCommandCheck,
+  GoalCommandEvidence,
+  GoalContainsCheck,
+  GoalContract,
+  GoalCriterion,
+  GoalCriterionOutcome,
+  GoalDiffCheck,
+  GoalFileCheck,
+  GoalHumanCheck,
+  GoalHumanEvidence,
+  GoalOutcome,
+  GoalPathEvidence,
+  GoalPriority,
+  GoalStep,
+  GoalTaskLink,
+  GoalVerdictSource,
+  GoalVerificationMode,
+  GoalVerifierCheck,
+  GoalVerifierEvidence,
+  GoalVerifierQuote,
+} from './goal-contract.js';
+export { GOAL_CONTRACT_SCHEMA, GOAL_HOST_CHECK_KINDS } from './goal-contract.js';
 // === Graph Intelligence Types (T512, T529, T1862, T9145) ===
 export type {
   AmbiguousProvenance,

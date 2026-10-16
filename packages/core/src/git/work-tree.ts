@@ -125,6 +125,40 @@ export function isGitWorkTree(dir: string): boolean {
 }
 
 /**
+ * Why `root` looks like a checkout that git cannot open with the inherited
+ * repo pointers ignored, or `null` when it opens (or is plainly not a checkout).
+ *
+ * Evidence reads strip ambient `GIT_DIR`/`GIT_WORK_TREE` ({@link discoveryEnv}).
+ * A linked worktree whose `.git` link points at a moved main repository works
+ * for its owner only with those exported, so every evidence probe fails there
+ * and a freshness or coverage check would silently judge nothing (T13703). A
+ * root with no `.git` and no exported pointer is a genuine non-git root and
+ * returns `null`, keeping its no-binding behaviour.
+ *
+ * @param root - The resolved bind root.
+ * @param env - Environment whose exported pointers are reported. Defaults to `process.env`.
+ * @returns The refusal reason naming the remedy, or `null`.
+ * @task T13703
+ */
+export function brokenWorkTreeReason(
+  root: string,
+  env: NodeJS.ProcessEnv = process.env,
+): string | null {
+  if (isGitWorkTree(root)) return null;
+  const link = join(root, '.git');
+  const hasLink = existsSync(link);
+  const exported = (['GIT_DIR', 'GIT_WORK_TREE'] as const).filter((k) => env[k]?.trim());
+  if (!hasLink && exported.length === 0) return null;
+  return (
+    `${root} is not a git work tree git can open on its own${hasLink ? ` (its .git does not resolve)` : ''}` +
+    `${exported.length > 0 ? `; ${exported.join(' and ')} ${exported.length > 1 ? 'are' : 'is'} exported, which evidence reads ignore` : ''}. ` +
+    'Exporting GIT_DIR or GIT_WORK_TREE does not make it usable: run `git worktree repair` in it ' +
+    '(or from the main checkout), or declare a working checkout with CLEO_EVIDENCE_GIT_ROOT or ' +
+    '`evidence.gitRoot` in .cleo/project-context.json.'
+  );
+}
+
+/**
  * Absolute toplevel of the checkout containing `dir`, or `null` when there is
  * none.
  *

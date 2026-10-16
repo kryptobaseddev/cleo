@@ -73,7 +73,7 @@ import type {
   ProcessCaptureOptions,
   ProcessCaptureResult,
 } from '@cleocode/contracts/resource-governor';
-import { gitToplevel, resolveDeclaredEvidenceGitRoot } from '../git/work-tree.js';
+import { discoveryEnv, gitToplevel, resolveDeclaredEvidenceGitRoot } from '../git/work-tree.js';
 import { getProjectRoot } from '../paths.js';
 import { captureProjectScope, worktreeScope } from '../project-scope.js';
 import { truncateString } from '../render/helpers.js';
@@ -605,12 +605,18 @@ export async function runGates(
   }
 }
 
-/** `git` read in `cwd`; `null` on a non-zero exit or when git is unavailable. */
+/**
+ * `git` read in `cwd`; `null` on a non-zero exit or when git is unavailable.
+ * Ambient `GIT_DIR`/`GIT_WORK_TREE` are dropped (T13695): the tree is resolved
+ * explicitly ({@link resolveTypedGateRoot}), so an inherited repo pointer may
+ * only ever make it read another repository.
+ */
 function gitOut(cwd: string, args: readonly string[]): string | null {
   try {
     return execFileSync('git', args, {
       cwd,
       encoding: 'utf-8',
+      env: discoveryEnv(),
       stdio: ['ignore', 'pipe', 'ignore'],
     }).trim();
   } catch {
@@ -1233,8 +1239,17 @@ function gateEnvironment(
   return { ...merged, ...heavyToolEnv('test', merged) };
 }
 
-/** Resolve the actual executable inputs once using the same rules as process launch. */
-function executableInvocation(
+/**
+ * Resolve the actual executable inputs once using the same rules as process
+ * launch. Exported so `cleo goal draft` spells a gate's command exactly as it
+ * runs (T13793).
+ *
+ * @param gate - The gate.
+ * @param root - Project root its `cwd` resolves against.
+ * @param env - Environment the gate's `env` overlays.
+ * @returns The invocation, or undefined for a gate that runs no process.
+ */
+export function executableInvocation(
   gate: AcceptanceGate,
   root: string,
   env: NodeJS.ProcessEnv,
@@ -2132,8 +2147,12 @@ async function runCommandGate(
   return processGateResult(index, gate, captured, reason ? 'fail' : 'pass', reason);
 }
 
-/** Tool-specific CLI arguments and failure patterns. */
-const LINT_TOOL_DEFAULTS: Record<
+/**
+ * Tool-specific executable, default arguments and failure pattern of a typed
+ * lint gate. A gate fails on a non-zero exit, and with `expect: 'clean'` also
+ * when the output matches `errorPattern`. Shared with `cleo goal draft` (T13793).
+ */
+export const LINT_TOOL_DEFAULTS: Record<
   LintGate['tool'],
   { cmd: string; defaultArgs: string[]; errorPattern?: RegExp }
 > = {

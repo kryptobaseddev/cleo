@@ -649,7 +649,8 @@ function streamUpgradedError(message: string, fix: string): NexusAccountError {
 function formatWarning(t: VaultTarget, cp: Checkpoint | null | undefined): CloudWarning | null {
   if (!cp) return null;
   const format = vaultManifestFormat(cp.manifest, hashKeyOf(t.dataKey));
-  if (format === VAULT_MANIFEST_FORMAT_VERSION) return null;
+  // Format 2 is compared in its own terms (local rows counted, T13808).
+  if (format === VAULT_MANIFEST_FORMAT_VERSION || format === 2) return null;
   return {
     code: 'W_NEXUS_VAULT_FORMAT',
     message:
@@ -1013,12 +1014,20 @@ function comparable<M extends Pick<VaultManifest, 'tables'>>(m: M, git: GitTrack
  * The vault manifest of an extracted bundle: the syncing tables of its
  * `cleo.db`, one entry per other database of the section, and one entry for
  * its plain-file inventory (T12969), so a change anywhere in the bundle is seen.
+ * Checked against a checkpoint hashed under format 2 (`like`), rows local by
+ * row-identity spec are counted as that format did (T13808).
  */
 async function snapshotManifest(
   extractDir: string,
   manifest: PortableBundleManifest,
   t: VaultTarget,
-): Promise<{ vault: VaultManifest; dbPath: string; files: Map<string, string> }> {
+  like?: Manifest,
+): Promise<{
+  vault: VaultManifest;
+  dbPath: string;
+  files: Map<string, string>;
+  localRows: Record<string, number>;
+}> {
   const section = t.scope === 'global' ? manifest.global?.home : manifest.projects[0];
   const entry = section?.databases.find((d) => d.role === 'primary' && d.relPath === 'cleo.db');
   if (!section || !entry) {
@@ -1030,7 +1039,14 @@ async function snapshotManifest(
     t.scope === 'global' ? null : (manifest.projects[0]?.originalPath ?? section.originalRoot);
   const hashKey = hashKeyOf(t.dataKey);
   const dbPath = path.join(extractDir, entry.bundlePath);
-  const vault = buildVaultManifest(dbPath, { scope: tableScopeOf(t), hashKey, root }).manifest;
+  const likeFormat = like ? vaultManifestFormat(like, hashKey) : VAULT_MANIFEST_FORMAT_VERSION;
+  const built = buildVaultManifest(dbPath, {
+    scope: tableScopeOf(t),
+    hashKey,
+    root,
+    countLocalRows: likeFormat === 2,
+  });
+  const vault = built.manifest;
   for (const d of section.databases) {
     if (d === entry) continue;
     vault.tables[vaultDatabaseKey(d.relPath)] = vaultDatabaseEntry(
@@ -1054,7 +1070,7 @@ async function snapshotManifest(
     files.push({ relPath: f.relPath, sha256: digest });
   }
   vault.tables[VAULT_FILES_KEY] = vaultFilesEntry(files, hashKey);
-  return { vault, dbPath, files: digests };
+  return { vault, dbPath, files: digests, localRows: built.localRows };
 }
 
 /** Export and extract the store into `work`, returning its bundle and vault manifest. */
@@ -1072,6 +1088,8 @@ async function exportAndRead(
   files: Map<string, string>;
   /** The extracted snapshot's primary `cleo.db`. */
   dbPath: string;
+  /** Per table, the rows local by row-identity spec the manifest leaves out (T13808). */
+  localRows: Record<string, number>;
 }> {
   const bundlePath = path.join(work, 'snapshot.cleobundle.tar.gz');
   await exportVaultBundle(t, bundlePath, label, tracked, seal, inspect);
@@ -1081,8 +1099,15 @@ async function exportAndRead(
   const bundleManifest = JSON.parse(
     fs.readFileSync(path.join(extractDir, 'manifest.json'), 'utf8'),
   ) as PortableBundleManifest;
-  const { vault, files, dbPath } = await snapshotManifest(extractDir, bundleManifest, t);
-  return { bundlePath, vault, gitTracked: snapshotGitTracked(bundleManifest, t), files, dbPath };
+  const { vault, files, dbPath, localRows } = await snapshotManifest(extractDir, bundleManifest, t);
+  return {
+    bundlePath,
+    vault,
+    gitTracked: snapshotGitTracked(bundleManifest, t),
+    files,
+    dbPath,
+    localRows,
+  };
 }
 
 /** The paths a project snapshot's bundle marks as git-tracked; a global one has none (T13019, T13038). */
@@ -1103,18 +1128,26 @@ function snapshotGitTracked(manifest: PortableBundleManifest, t: VaultTarget): s
  * in `untracked` (git-tracked here, or marked by the snapshot it is compared
  * with) are left out of the inventory hash, and every inventory file's digest
  * is returned for a path-by-path comparison (T13038); with tracking unknown
- * the file inventory is left out entirely (T13019).
+ * the file inventory is left out entirely (T13019). Compared with a
+ * checkpoint hashed under format 2 (`like`), rows local by row-identity spec
+ * are counted as that format did (T13808).
  */
 async function localManifest(
   t: VaultTarget,
   git: GitTracking,
   untracked: ReadonlySet<string>,
+  like?: Manifest,
 ): Promise<{ manifest: VaultManifest; files: Map<string, string> } | null> {
   if (!fs.existsSync(t.dbPath)) return null;
   const { sectionRoot, scan, primaryRel } = sectionScan(t);
   const hashKey = hashKeyOf(t.dataKey);
   const root = t.scope === 'global' ? null : t.storeRoot;
-  const vault = buildVaultManifest(t.dbPath, { scope: tableScopeOf(t), hashKey, root }).manifest;
+  const vault = buildVaultManifest(t.dbPath, {
+    scope: tableScopeOf(t),
+    hashKey,
+    root,
+    countLocalRows: like !== undefined && vaultManifestFormat(like, hashKey) === 2,
+  }).manifest;
   for (const rel of scan.sqlite) {
     if (rel === primaryRel) continue;
     try {
@@ -1339,6 +1372,40 @@ function authoritativeOmitted(err: unknown): boolean {
   );
 }
 
+/**
+ * The rows a parent hashed under an older vault format counted that this
+ * format leaves out (T13808): rows local by row-identity spec. They never
+ * travelled, so the journal declares no delete for them; the checkpoint names
+ * them `pruned`, so the server's row rule takes them off the parent's count.
+ * Per table, the shortfall against the tallies, capped by the local rows this
+ * store holds now; a parent in the current format prunes nothing.
+ *
+ * @param parentFormat - The parent's {@link vaultManifestFormat}.
+ * @param tallies - The window's tallies.
+ * @param local - The store's rows per manifest key.
+ * @param localRows - Per table, the rows the manifest left out as local.
+ * @returns The tallies less the pruned rows, and the `pruned` map.
+ */
+export function formatTransitionPruned(
+  parentFormat: number | 'unknown',
+  tallies: JournalTallies,
+  local: Readonly<Record<string, number>>,
+  localRows: Readonly<Record<string, number>>,
+): { tallies: JournalTallies; pruned: Record<string, number> } {
+  const pruned: Record<string, number> = {};
+  if (parentFormat === 'unknown' || parentFormat >= VAULT_MANIFEST_FORMAT_VERSION) {
+    return { tallies, pruned };
+  }
+  const rows = { ...tallies.rows };
+  for (const [table, n] of Object.entries(localRows)) {
+    const take = Math.min(n, (rows[table] ?? 0) - (local[table] ?? 0));
+    if (take <= 0) continue;
+    pruned[table] = take;
+    rows[table] = (rows[table] ?? 0) - take;
+  }
+  return { tallies: { ...tallies, rows }, pruned };
+}
+
 /** Whether this store's `sync.push` is on: its vault push checkpoints the journal (T12999). */
 async function journalPushOn(t: VaultTarget): Promise<boolean> {
   const { openNativeDatabase } = await import('../store/sqlite-native.js');
@@ -1523,7 +1590,7 @@ async function pushJournalCheckpoint(
         read: { window: JournalWindow; tallies: JournalTallies; pin: ReplayPin } | null;
       };
       let snap: Taken | null = null;
-      const { bundlePath, vault, gitTracked, files } = await exportAndRead(
+      const { bundlePath, vault, gitTracked, files, localRows } = await exportAndRead(
         t,
         work,
         `cloud-vault-${scope}`,
@@ -1624,8 +1691,14 @@ async function pushJournalCheckpoint(
       // Portable tables the journal does not carry yet are the snapshot's alone (T13777), named in
       // the manifest only to a server that takes the list; the list only shrinks along the lineage.
       const authoritative = await snapshotAuthoritativeTables(conn, t, keys, parent);
-      const { tallies, unexplained } = settleShortfalls(
+      const formatPruned = formatTransitionPruned(
+        vaultManifestFormat(parent.manifest, hashKeyOf(t.dataKey)),
         taken.read.tallies,
+        local,
+        localRows,
+      );
+      const { tallies, unexplained } = settleShortfalls(
+        formatPruned.tallies,
         local,
         keys.filter(
           (k) => !isSnapshotAuthoritativeKey(k) && !(authoritative.list?.includes(k) ?? false),
@@ -1673,7 +1746,7 @@ async function pushJournalCheckpoint(
               pending: tallies.pending,
               voided: normalRefDeltas(tallies.voided),
               revived: [],
-              pruned: {},
+              pruned: formatPruned.pruned,
               replayPin: pin,
               ...(authoritative.list !== null ? { snapshotAuthoritative: authoritative.list } : {}),
             },
@@ -2221,7 +2294,7 @@ async function enableSyncPushImpl(
     // Unchanged since the restore: the rows match the checkpoint's manifest
     // (row data) here, and joinStream checks every row against its meta.
     const git = gitTracking(t);
-    const local = await localManifest(t, git, untrackedComparison(t, git, synced));
+    const local = await localManifest(t, git, untrackedComparison(t, git, synced), parent.manifest);
     const changed =
       local === null
         ? ['(no store)']
@@ -3521,7 +3594,7 @@ async function pullVaultOnlyEntries(a: {
   readonly names: Map<string, string>;
 }): Promise<CloudRestoreResult> {
   const { conn, key, t, journal, target, last, git, synced, warnings } = a;
-  const read = await localManifest(t, git, untrackedComparison(t, git, synced));
+  const read = await localManifest(t, git, untrackedComparison(t, git, synced), last?.manifest);
   if (read !== null && last !== undefined) {
     const fileChanges = fileChangesSinceSync(read.files, t, git, synced);
     const changed = compareWithSynced(read.manifest, last.manifest, git, fileChanges)
@@ -3547,7 +3620,7 @@ async function pullVaultOnlyEntries(a: {
     const staging = path.join(work, 'staging');
     fs.mkdirSync(staging);
     const { extractDir, manifest } = await extractPortableBundle(bundlePath, staging);
-    const staged = await snapshotManifest(extractDir, manifest, t);
+    const staged = await snapshotManifest(extractDir, manifest, t, restored.checkpoint.manifest);
     const diff = compareVaultManifests(staged.vault, restored.checkpoint.manifest).filter(
       (d) => !d.match,
     );
@@ -3684,7 +3757,8 @@ async function restoreNexusVaultImpl(opts: NexusVaultRestoreOptions): Promise<Cl
   // against its manifest here; say so instead of reporting a mismatch (T13034).
   const targetCp = trusted.find((c) => c.checkpointId === target);
   const format = targetCp ? vaultManifestFormat(targetCp.manifest, hashKeyOf(t.dataKey)) : null;
-  if (format !== null && format !== VAULT_MANIFEST_FORMAT_VERSION) {
+  // Format 2 is format 3 with local rows counted: a restore checks it that way (T13808).
+  if (format !== null && format !== VAULT_MANIFEST_FORMAT_VERSION && format !== 2) {
     throw vaultError(
       'E_NEXUS_VAULT_VERIFY_FAILED',
       format === 'unknown'
@@ -3726,7 +3800,9 @@ async function restoreNexusVaultImpl(opts: NexusVaultRestoreOptions): Promise<Cl
     });
   }
   const local =
-    hasLocal && !force ? await localManifest(t, git, untrackedComparison(t, git, synced)) : null;
+    hasLocal && !force
+      ? await localManifest(t, git, untrackedComparison(t, git, synced), last?.manifest)
+      : null;
   if (local !== null) {
     const hasRows = Object.entries(local.manifest.tables).some(
       ([name, x]) => x.rows > 0 && name !== VAULT_FILES_KEY,
@@ -3818,7 +3894,12 @@ async function restoreNexusVaultImpl(opts: NexusVaultRestoreOptions): Promise<Cl
               );
             }
           }
-          const staged = await snapshotManifest(extractDir, manifest, t);
+          const staged = await snapshotManifest(
+            extractDir,
+            manifest,
+            t,
+            restored.checkpoint.manifest,
+          );
           const diff = compareVaultManifests(staged.vault, restored.checkpoint.manifest).filter(
             (d) => !d.match,
           );
@@ -4016,7 +4097,7 @@ async function nexusVaultStatusImpl(
   const last = synced ? trusted.find((c) => c.checkpointId === synced.lastCheckpointId) : undefined;
   const git = gitTracking(t);
   if (git.mode === 'unknown') warnings.push(gitUnknownWarning(t));
-  const local = await localManifest(t, git, untrackedComparison(t, git, synced));
+  const local = await localManifest(t, git, untrackedComparison(t, git, synced), last?.manifest);
   const pendingChanges: CloudVaultTableDiff[] =
     local && last
       ? compareWithSynced(
@@ -4206,7 +4287,7 @@ async function verifyNexusVaultImpl(
   const { state: synced } = syncedState(conn, t, trusted, head.headCheckpointId);
   const git = gitTracking(t);
   if (git.mode === 'unknown') warnings.push(gitUnknownWarning(t));
-  const read = await localManifest(t, git, untrackedComparison(t, git, synced));
+  const read = await localManifest(t, git, untrackedComparison(t, git, synced), headCp?.manifest);
   const local = read?.manifest ?? { schemaVersion: SYNC_SCHEMA_VERSION, tables: {} };
   // Files changed since the last sync, path by path (T13038).
   const fileChanges = read ? fileChangesSinceSync(read.files, t, git, synced) : null;
