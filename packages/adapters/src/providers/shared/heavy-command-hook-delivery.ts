@@ -57,6 +57,7 @@ import {
   syncClaudeCodeHeavyCommandHook,
   syncCodexHeavyCommandHook,
   syncJsonAskEnforceHook,
+  syncJsonSubagentStartHook,
   syncOpencodeHeavyCommandPlugin,
   trackedFileModified,
 } from './heavy-command-hook-install.js';
@@ -193,7 +194,8 @@ function errorText(err: unknown): string {
 
 /** Sync one provider; never throws. */
 /**
- * Install (or remove) CLEO's ask-enforce Stop hook (T13420) in the same JSON
+ * Install (or remove) CLEO's ask-enforce Stop hook (T13420), and for Claude
+ * Code the SubagentStart lean hook (T13667), in the same JSON
  * config as the heavy-command hook, after that hook synced. It rides the
  * heavy-command delivery: removed when that hook's mode is `off` or when
  * `CLEO_ASK_ENFORCE=off`. Never fails the heavy-command outcome.
@@ -210,6 +212,15 @@ async function syncAskEnforceHook(
     await syncJsonAskEnforceHook(target, provider, install);
   } catch {
     // Fail open: a config the Stop hook cannot be written to keeps the heavy-command result.
+  }
+  if (provider !== 'claude-code') return;
+  // T13667: the lean rules for harness-spawned subagents. The level (`off`
+  // included) is read at run time, so the hook is installed whenever the
+  // heavy-command hook is.
+  try {
+    await syncJsonSubagentStartHook(target, mode !== 'off');
+  } catch {
+    // Fail open, as above.
   }
 }
 

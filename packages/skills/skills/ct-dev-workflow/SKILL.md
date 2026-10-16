@@ -1,7 +1,7 @@
 ---
 name: ct-dev-workflow
 description: Development workflow orchestration for task-driven development with atomic commits, conventional commit messages, and systematic release processes. Enforces task traceability, branch discipline, smart test scope selection, and GitHub Actions integration. Use when committing code, creating releases, managing branches, or following contribution protocols. Triggers on commit operations, release preparation, or workflow compliance needs.
-version: 3.1.20
+version: 3.1.21
 protocol: contribution
 dependencies: []
 sharedResources:
@@ -14,7 +14,7 @@ compatibility:
   - gemini-cli
 license: MIT
 metadata:
-  version: 3.1.20
+  version: 3.1.21
   tier: core
   install: harness
   covers:
@@ -507,6 +507,11 @@ cleo complete T1550
 
 Provider delivery receives canonical SDK file reads and Git discovery through a contracts port.
 Adapters do not acquire a runtime dependency on core for these utilities.
+
+CLEO's own harness hooks are separate from project hooks: `cleo hook heavy-command`
+(PreToolUse), `cleo hook ask-enforce` (Stop) and, for Claude Code, `cleo hook subagent-start`
+(SubagentStart, the ct-lean rules for Agent-tool subagents) are installed together by
+`cleo init`/`cleo upgrade` or `cleo doctor heavy-command-hook --fix`, and fail open.
 
 Project business rules live in tracked `.cleo/hooks.json`; generated provider entries
 are delivery outputs. Until the hooks-v1 stable promotion, a stable build is inert (T13557):

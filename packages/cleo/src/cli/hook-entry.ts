@@ -1043,7 +1043,30 @@ export function claudePreApprovalVerdict(
 
 const USAGE =
   'usage: cleo hook heavy-command [--provider claude-code|codex|kimi|opencode] < hook-input.json\n' +
-  '       cleo hook ask-enforce [--provider claude-code|codex|copilot-cli|gemini-cli|cursor|opencode|kimi] < stop-input.json\n';
+  '       cleo hook ask-enforce [--provider claude-code|codex|copilot-cli|gemini-cli|cursor|opencode|kimi] < stop-input.json\n' +
+  '       cleo hook subagent-start [--provider claude-code] < subagent-start-input.json\n';
+
+/**
+ * `cleo hook subagent-start` (T13667): the lean rules for harness-spawned
+ * subagents, in `./subagent-start-entry.ts`. Fail-open: any error exits 0
+ * with nothing on stdout.
+ */
+async function runSubagentStart(rest: readonly string[], io: HookIo): Promise<number> {
+  const entry = await import('./subagent-start-entry.js');
+  if (!entry.SUBAGENT_START_PROVIDERS.some((p) => p === providerArg(rest))) {
+    io.writeStderr(USAGE);
+    return 1;
+  }
+  try {
+    const answer = await entry.subagentStartHook(await io.readStdin(), io.env, io.cwd);
+    if (answer !== '') io.writeStdout(answer);
+  } catch (err) {
+    io.writeStderr(
+      `[cleo hook] subagent-start skipped: ${err instanceof Error ? err.message : String(err)}\n`,
+    );
+  }
+  return 0;
+}
 
 /** The `--provider` value from a hook's arguments (default `claude-code`). */
 function providerArg(rest: readonly string[]): string | undefined {
@@ -1091,6 +1114,7 @@ export async function runHookCli(
 ): Promise<number> {
   const [name, ...rest] = argv;
   if (name === 'ask-enforce') return runAskEnforce(rest, io);
+  if (name === 'subagent-start') return runSubagentStart(rest, io);
   if (name !== 'heavy-command') {
     io.writeStderr(USAGE);
     return 1;
