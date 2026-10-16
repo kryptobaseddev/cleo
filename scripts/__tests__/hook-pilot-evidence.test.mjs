@@ -396,7 +396,11 @@ describe('stable promotion evidence', () => {
   });
   it('T13818: rejects tampered receipts and Git receipts presented as native delivery', async () => {
     const index = nativeBundle();
-    write('retained/liveCodex-agent.json', { source: 'git' });
+    write('retained/liveCodex-agent.json', {
+      source: 'git',
+      event: 'PreToolUse',
+      recordedAt: '2026-10-10T00:00:05Z',
+    });
     await expect(
       validateHookPilotEvidence({ ...options(), stableVersion: '2026.10.18' }),
     ).rejects.toThrow(/hash changed/);
