@@ -1,0 +1,42 @@
+{
+  "schemaVersion": 1,
+  "canaryVersion": "2026.10.17-canary.1",
+  "sourceDigest": "7048435a30f50b39863c74d9ed021c67afff34441d0a49abaafdc094e5988a61",
+  "vidaCommit": "89e0d4943ddbe1b4dd428266aee576a5a23d2e14",
+  "harnessVersions": {
+    "claude": "2.1.301 (Claude Code)",
+    "codex": "codex-cli 0.163.0"
+  },
+  "vidaRepository": "kryptobaseddev/VidaPeps",
+  "hostedRunId": 38857801322,
+  "checks": {
+    "packedArtifact": {
+      "path": "proofs/packedArtifact.json",
+      "sha256": "7d20e6fcec415626a8296606a85503440094361832d423a8381c755cdfabebc2"
+    },
+    "publishedCanary": {
+      "path": "proofs/publishedCanary.json",
+      "sha256": "fdbe73a2d112972f55be5435112c322bad3942ff29e5c30e8ac785ebfedc239a"
+    },
+    "readOnlyDev": {
+      "path": "proofs/readOnlyDev.json",
+      "sha256": "d9eae3f159c6caa6a8aa6646263c11fd98e8bc71e7cbc72e2adf7dbab66bad11"
+    },
+    "readOnlyProd": {
+      "path": "proofs/readOnlyProd.json",
+      "sha256": "98d906ddc716c4be3d75d18192cfbb0f3991e1a3221c523847366abc88ec6f42"
+    },
+    "liveClaude": {
+      "path": "proofs/liveClaude.json",
+      "sha256": "51d5ef615313158708e1988ef532ea37b0bc4f04d72c49f057af9ae05ce00e89"
+    },
+    "liveCodex": {
+      "path": "proofs/liveCodex.json",
+      "sha256": "fc6d3e87a45cae572a70ed1a07e6531f0fe235dad9772128a474843c8079dcb7"
+    },
+    "hostedCi": {
+      "path": "proofs/hostedCi.json",
+      "sha256": "b5385b4f17c0f9ed1071f587fd941129556c9992d10e10a38df49a4f847ac1a2"
+    }
+  }
+}
