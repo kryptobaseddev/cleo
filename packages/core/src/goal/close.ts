@@ -2,23 +2,28 @@
  * `cleo goal close` — record the evidence a goal run produced against the
  * CLEO acceptance criteria its criteria `prove`.
  *
- * Honesty rules (epic T13791):
- * 1. The outcome must match the contract bytes (sha256 lock) and its head
- *    commit must exist, or nothing is recorded.
- * 2. A passing criterion's evidence goes to the gate it demonstrates, with
- *    `satisfies:<task>#AC<n>`: a test report becomes `test-run:` on
- *    `testsPassed`; a file, contains or absent check `commit:`+`files:` on
- *    `implemented`. A diff guard proves nothing was built and maps to no gate.
- * 3. A verifier verdict is a note only: it NEVER satisfies `implemented` or
- *    `testsPassed`, so an AC it alone proves stays open. A human sign-off,
- *    a failed criterion and an AC no criterion proves stay open too.
- * 4. Evidence is written through `validateGateVerify` (the `cleo verify` /
- *    `cleo done` write) and never replaces a gate already recorded.
- * 5. A task is `ready` only when `cleo done --plan` maps every one of its
+ * Honesty rules (epic T13791, agreed with OpenCode-Goal):
+ * 1. The outcome must match the contract bytes (sha256 lock), and its head
+ *    (and base) commit must exist, or nothing is recorded.
+ * 2. The outcome's `pass`, exit codes and verdicts are claims. Everything CLEO
+ *    can check it re-checks before recording:
+ *    - `file` / `contains` / `absent` re-run against the head commit's tree
+ *      → `implemented`: `commit:<head>;files:<files>`;
+ *    - a test report must hash to `reportSha256` → `testsPassed`: `test-run:`;
+ *    - the project's typecheck / lint command → `qaPassed`: `tool:typecheck` /
+ *      `tool:lint`, run by CLEO's own tool runner, never from the exit code;
+ *    - a drafted `cleo verify <id> --run --req <R>` check and a human sign-off
+ *      write nothing: the AC counts only when CLEO's own typed-gate or manual
+ *      record maps it (`cleo done --plan`);
+ *    - a verifier verdict (quotes re-read at head) and a diff guard never
+ *      satisfy a gate.
+ * 3. Evidence goes through `validateGateVerify` (the `cleo verify` / `cleo
+ *    done` write), with `satisfies:<task>#<the contract's own reference>`, and
+ *    never replaces a gate already recorded.
+ * 4. A task is `ready` only when `cleo done --plan` maps every one of its
  *    criteria; the caller then completes it through the `cleo done` path.
  *
- * Re-running with the same outcome writes nothing new: criteria already
- * linked are skipped.
+ * Re-running with the same outcome writes nothing new.
  *
  * @epic T13791
  * @task T13794
@@ -26,9 +31,15 @@
 
 import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { existsSync, readFileSync, statSync } from 'node:fs';
-import { join, resolve } from 'node:path';
+import { existsSync, readFileSync } from 'node:fs';
+import { join, posix, resolve } from 'node:path';
 import type { GoalOutcome, VerificationGate } from '@cleocode/contracts';
+import {
+  AC_ALIAS_REGEX,
+  AC_UUID_REGEX,
+  SATISFIES_TASK_ID_REGEX,
+  SATISFIES_VERSION_PIN_REGEX,
+} from '@cleocode/contracts/evidence-atom-schema.js';
 import { ExitCode } from '@cleocode/contracts/exit-codes.js';
 import { parse as parseYaml } from 'yaml';
 import { z } from 'zod';
@@ -38,6 +49,8 @@ import { cleoErrorToEngineResult } from '../errors-to-engine.js';
 import { getProjectRoot } from '../paths.js';
 import { getTaskAccessor } from '../store/data-accessor.js';
 import type { ChangeSetDeps } from '../tasks/change-set.js';
+import { joinCommandLine } from '../tasks/command-line.js';
+import { resolveToolCommand } from '../tasks/tool-resolver.js';
 
 /** One acceptance criterion a close left open, and why. */
 export interface GoalCloseOpenAc {
@@ -91,6 +104,7 @@ const evidenceSchema = z.discriminatedUnion('kind', [
     command: z.string(),
     exitCode: z.number(),
     reportPath: z.string().optional(),
+    reportSha256: z.string().optional(),
     testFiles: z.array(z.string()).optional(),
   }),
   z.object({ kind: z.enum(['file', 'contains', 'absent', 'diff']), paths: z.array(z.string()) }),
@@ -108,7 +122,10 @@ const outcomeSchema = z.object({
   goal: z.string(),
   runId: z.string().optional(),
   lock: z.string().regex(/^[0-9a-f]{64}$/),
-  baseCommit: z.string().nullable(),
+  baseCommit: z
+    .string()
+    .regex(/^[0-9a-f]{7,64}$/)
+    .nullable(),
   headCommit: z.string().regex(/^[0-9a-f]{7,64}$/),
   results: z.array(
     z.object({
@@ -121,67 +138,228 @@ const outcomeSchema = z.object({
   ),
 }) satisfies z.ZodType<GoalOutcome>;
 
+/** Whether `target` (after `T…#`) is one of the three `satisfies:` target forms. */
+function isAcTarget(target: string): boolean {
+  const [ac = '', pin, extra] = target.split('@');
+  if (extra !== undefined) return false;
+  if (pin !== undefined) return AC_ALIAS_REGEX.test(ac) && SATISFIES_VERSION_PIN_REGEX.test(pin);
+  return AC_ALIAS_REGEX.test(ac) || AC_UUID_REGEX.test(ac);
+}
+
+const acRefSchema = z.string().refine((ref) => {
+  const [task = '', target = '', extra] = ref.split('#');
+  return extra === undefined && SATISFIES_TASK_ID_REGEX.test(task) && isAcTarget(target);
+}, 'proves entries are T<id>#AC<n>, T<id>#<criterion uuid> or T<id>#AC<n>@<14-digit pin>');
+
 /** The contract fields a close reads; everything else is the runtime's. */
 const contractSchema = z.object({
   schema: z.literal('goal/v1'),
   id: z.string(),
+  workspace: z.string().optional(),
   criteria: z.array(
-    z.object({ id: z.string(), proves: z.array(z.string().regex(/^T\d+#AC\d+$/)).optional() }),
+    z.object({
+      id: z.string(),
+      check: z.object({
+        kind: z.string(),
+        run: z.string().optional(),
+        path: z.string().optional(),
+        exists: z.boolean().optional(),
+        text: z.string().optional(),
+        regex: z.string().optional(),
+        pattern: z.string().optional(),
+        paths: z.array(z.string()).optional(),
+      }),
+      proves: z.array(acRefSchema).optional(),
+    }),
   ),
   cleo: z
     .object({ tasks: z.array(z.union([z.string(), z.object({ id: z.string() })])) })
     .optional(),
 });
 
-/** What one passing criterion contributes to one AC: a gate atom, or a blocker. */
-type Contribution = { gate: VerificationGate; atoms: string[] } | { blocker: string };
+type ContractCheck = z.infer<typeof contractSchema>['criteria'][number]['check'];
+
+/**
+ * What one criterion contributes to one AC: a gate atom to record, a reason
+ * it may still count through CLEO's own record (`deferred`), or a blocker.
+ */
+type Contribution =
+  | { gate: VerificationGate; atoms: string[] }
+  | { deferred: string }
+  | { blocker: string };
 
 /** Refuse the close with a validation error. */
 function fail(message: string, fix?: string): never {
   throw new CleoError(ExitCode.VALIDATION_ERROR, message, fix ? { fix } : undefined);
 }
 
-/** The evidence a criterion's outcome contributes, per the honesty rules. */
+/** `git` in `root`, or null when it fails. */
+function git(root: string, args: string[]): string | null {
+  try {
+    return execFileSync('git', ['-C', root, ...args], {
+      encoding: 'utf-8',
+      stdio: ['ignore', 'pipe', 'ignore'],
+      maxBuffer: 64 * 1024 * 1024,
+    });
+  } catch {
+    return null;
+  }
+}
+
+/** Whether `sha` names a commit in `root`. */
+function commitExists(root: string, sha: string): boolean {
+  return git(root, ['cat-file', '-e', `${sha}^{commit}`]) !== null;
+}
+
+/** Facts read from the head commit's tree. */
+interface HeadTree {
+  /** File content at head, or null when it is not a file there. */
+  read(path: string): string | null;
+  /** Whether `pattern` matches nowhere under `paths` at head (null: search failed). */
+  absent(pattern: string, paths: readonly string[]): boolean | null;
+  /** Repo-relative path of a workspace-relative one. */
+  repoPath(path: string): string;
+}
+
+function headTree(root: string, head: string, workspace: string | undefined): HeadTree {
+  const repoPath = (p: string): string =>
+    posix.normalize(posix.join(workspace ?? '.', p.replace(/^\.\//, '')));
+  return {
+    repoPath,
+    read: (p) => git(root, ['show', `${head}:${repoPath(p)}`]),
+    absent: (pattern, paths) => {
+      try {
+        execFileSync(
+          'git',
+          [
+            '-C',
+            root,
+            'grep',
+            '-q',
+            '-I',
+            '-E',
+            '-e',
+            pattern,
+            head,
+            '--',
+            ...(paths.length ? paths.map(repoPath) : [workspace ?? '.']),
+            ':(exclude).opencode/goals',
+          ],
+          { stdio: 'ignore' },
+        );
+        return false; // exit 0: a match remains
+      } catch (err) {
+        return (err as { status?: number }).status === 1 ? true : null;
+      }
+    },
+  };
+}
+
+/** Re-run a path check against the head tree; the files it proves, or why it fails. */
+function recheckPath(check: ContractCheck, tree: HeadTree): { files: string[] } | { why: string } {
+  const path = check.path ?? '';
+  switch (check.kind) {
+    case 'file': {
+      const exists = tree.read(path) !== null;
+      if (exists !== (check.exists !== false))
+        return { why: `${path} ${exists ? 'exists' : 'does not exist'} at head` };
+      return { files: exists ? [tree.repoPath(path)] : [] };
+    }
+    case 'contains': {
+      const content = tree.read(path);
+      if (content === null) return { why: `${path} is not a file at head` };
+      const ok =
+        check.text !== undefined
+          ? content.includes(check.text)
+          : new RegExp(check.regex ?? '').test(content);
+      return ok ? { files: [tree.repoPath(path)] } : { why: `${path} does not contain it at head` };
+    }
+    case 'absent': {
+      const absent = tree.absent(check.pattern ?? '', check.paths ?? []);
+      if (absent === null) return { why: 'the search at head failed' };
+      if (!absent) return { why: `the pattern still matches at head` };
+      return { files: (check.paths ?? []).filter((p) => tree.read(p) !== null).map(tree.repoPath) };
+    }
+    default:
+      return { why: `${check.kind} is not a path check` };
+  }
+}
+
+/** Context every contribution is judged in. */
+interface JudgeContext {
+  root: string;
+  head: string;
+  tree: HeadTree;
+  /** The project's resolved lint / typecheck command lines. */
+  qaCommands: Map<string, 'lint' | 'typecheck'>;
+}
+
+/** The evidence one criterion contributes, per the honesty rules. */
 function contribution(
   criterionId: string,
+  check: ContractCheck,
   result: GoalOutcome['results'][number] | undefined,
-  root: string,
-  headCommit: string,
+  ctx: JudgeContext,
 ): Contribution {
+  if (check.kind === 'diff') {
+    return {
+      blocker: `${criterionId} is a diff guard: it proves the paths did not change, not that anything was built`,
+    };
+  }
+  if (check.kind === 'human') {
+    return {
+      deferred: `${criterionId} is an owner sign-off, which counts only with CLEO's own record: record the manual gate verdict`,
+    };
+  }
   if (!result) return { blocker: `${criterionId} has no verdict in the outcome` };
   if (!result.pass)
     return { blocker: `${criterionId} did not pass: ${result.detail ?? 'no detail'}` };
-  const ev = result.evidence;
-  switch (ev.kind) {
-    case 'command':
-      return ev.reportPath
-        ? { gate: 'testsPassed', atoms: [`test-run:${resolve(root, ev.reportPath)}`] }
-        : {
-            blocker: `${criterionId} passed a command with no test report, which is no gate evidence; attach its report or run the typed gate with cleo verify --run`,
-          };
-    case 'verifier':
-      return {
-        blocker: `${criterionId} is proven only by a verifier verdict (a note); a verifier verdict never satisfies implemented or testsPassed`,
-      };
-    case 'diff':
-      return {
-        blocker: `${criterionId} is a diff guard: it proves the paths did not change, not that anything was built`,
-      };
-    case 'human':
-      return {
-        blocker: `${criterionId} is an owner sign-off${ev.by ? ` by ${ev.by}` : ''}; record the manual gate verdict in CLEO`,
-      };
-    default: {
-      // Only real files can be hashed into a files: atom; globs and directories cannot.
-      const files = ev.paths.filter(
-        (p) =>
-          !/[*?[\]{}]/.test(p) && existsSync(join(root, p)) && statSync(join(root, p)).isFile(),
-      );
-      return files.length
-        ? { gate: 'implemented', atoms: [`commit:${headCommit}`, `files:${files.join(',')}`] }
-        : { blocker: `${criterionId} passed a ${ev.kind} check on no existing file to record` };
-    }
+  if (check.kind === 'verifier') {
+    const quotes = result.evidence.kind === 'verifier' ? result.evidence.quotes : [];
+    const found = quotes.filter((q) => ctx.tree.read(q.path)?.includes(q.quote) === true).length;
+    return {
+      blocker: `${criterionId} is proven only by a verifier verdict (a note; ${found}/${quotes.length} quotes found at head); a verifier verdict never satisfies a gate`,
+    };
   }
+  if (check.kind === 'command') {
+    const run = (check.run ?? '').trim();
+    const typed = /^cleo verify (T\d+) --run --req (\S+) --field \/data\/passed$/.exec(run);
+    if (typed) {
+      return {
+        deferred: `${criterionId} runs typed gate ${typed[2]}, which counts only with its cached pass: cleo verify ${typed[1]} --run --req ${typed[2]}`,
+      };
+    }
+    const qa = ctx.qaCommands.get(run);
+    if (qa) return { gate: 'qaPassed', atoms: [`tool:${qa}`] };
+    const ev = result.evidence;
+    if (ev.kind !== 'command' || !ev.reportPath) {
+      return {
+        blocker: `${criterionId} passed a command with no test report, which is no gate evidence; attach its report, or make it a typed gate`,
+      };
+    }
+    const report = resolve(ctx.root, ev.reportPath);
+    if (!existsSync(report))
+      return { blocker: `${criterionId}'s report ${ev.reportPath} is missing` };
+    const sha = createHash('sha256').update(readFileSync(report)).digest('hex');
+    if (!ev.reportSha256)
+      return { blocker: `${criterionId}'s report has no reportSha256 to bind it` };
+    if (sha !== ev.reportSha256)
+      return {
+        blocker: `${criterionId}'s report does not hash to its reportSha256 (it changed after the run)`,
+      };
+    return { gate: 'testsPassed', atoms: [`test-run:${report}`] };
+  }
+  const rechecked = recheckPath(check, ctx.tree);
+  if ('why' in rechecked)
+    return {
+      blocker: `${criterionId} does not hold at head ${ctx.head.slice(0, 12)}: ${rechecked.why}`,
+    };
+  if (rechecked.files.length === 0)
+    return { blocker: `${criterionId} passed a ${check.kind} check on no file to record` };
+  return {
+    gate: 'implemented',
+    atoms: [`commit:${ctx.head}`, `files:${rechecked.files.join(',')}`],
+  };
 }
 
 /**
@@ -219,35 +397,38 @@ export async function closeGoal(
         'Close with the outcome of a run of the current contract',
       );
     }
-    try {
-      execFileSync('git', ['-C', root, 'cat-file', '-e', `${outcome.headCommit}^{commit}`], {
-        stdio: 'ignore',
-      });
-    } catch {
-      fail(
-        `Head commit ${outcome.headCommit} does not exist in ${root}`,
-        'git fetch, then close again',
-      );
+    for (const sha of [outcome.headCommit, outcome.baseCommit]) {
+      if (sha !== null && !commitExists(root, sha))
+        fail(`Commit ${sha} does not exist in ${root}`, 'git fetch, then close again');
     }
     const contractParsed = contractSchema.safeParse(parseYaml(bytes.toString('utf8')));
     if (!contractParsed.success)
       fail(`${contractPath} is not a goal/v1 contract: ${contractParsed.error.message}`);
     const contract = contractParsed.data;
 
-    // Per task, per AC alias: every contribution of every criterion proving it.
+    const qaCommands = new Map<string, 'lint' | 'typecheck'>();
+    for (const tool of ['lint', 'typecheck'] as const) {
+      const r = resolveToolCommand(tool, root);
+      if (r.ok) qaCommands.set(joinCommandLine([r.command.cmd, ...r.command.args]), tool);
+    }
+    const ctx: JudgeContext = {
+      root,
+      head: outcome.headCommit,
+      tree: headTree(root, outcome.headCommit, contract.workspace),
+      qaCommands,
+    };
+
+    // Per task, per AC target (as the contract spells it): every contribution.
     const byTask = new Map<string, Map<string, Contribution[]>>();
     for (const t of contract.cleo?.tasks ?? [])
       byTask.set(typeof t === 'string' ? t : t.id, new Map());
     for (const c of contract.criteria) {
       const result = outcome.results.find((r) => r.id === c.id);
       for (const ref of c.proves ?? []) {
-        const [taskId = '', alias = ''] = ref.split('#');
+        const [taskId = '', target = ''] = ref.split('#');
         const acs = byTask.get(taskId) ?? new Map<string, Contribution[]>();
         byTask.set(taskId, acs);
-        acs.set(alias, [
-          ...(acs.get(alias) ?? []),
-          contribution(c.id, result, root, outcome.headCommit),
-        ]);
+        acs.set(target, [...(acs.get(target) ?? []), contribution(c.id, c.check, result, ctx)]);
       }
     }
 
@@ -272,37 +453,53 @@ export async function closeGoal(
         continue;
       }
       const rows = await accessor.getAcRows(taskId);
-      const rowId = new Map(rows.map((r) => [`AC${r.ordinal}`, r.id]));
+      // A target names its row by alias (optionally pinned) or by canonical uuid.
+      const rowOf = (target: string) => {
+        const ac = target.split('@')[0] ?? '';
+        return rows.find((r) => r.id === ac || `AC${r.ordinal}` === ac);
+      };
       const linked = new Set(
         Object.values(task.verification?.evidence ?? {}).flatMap(
           (e) => e?.scope?.criteria?.map((l) => l.criterionId) ?? [],
         ),
       );
       const blockers = new Map<string, string>();
-      const perGate = new Map<VerificationGate, { atoms: Set<string>; aliases: string[] }>();
-      for (const [alias, parts] of acs) {
-        if (!rowId.has(alias)) {
-          blockers.set(alias, `${taskId} has no ${alias}`);
+      const perGate = new Map<
+        VerificationGate,
+        { atoms: Set<string>; targets: string[]; aliases: string[] }
+      >();
+      for (const [target, parts] of acs) {
+        const row = rowOf(target);
+        if (!row) {
+          blockers.set(target, `${taskId} has no criterion ${target}`);
           continue;
         }
+        const alias = `AC${row.ordinal}`;
         const blocked = parts.flatMap((p) => ('blocker' in p ? [p.blocker] : []));
         if (blocked.length) {
           blockers.set(alias, blocked.join('; '));
           continue;
         }
+        const deferred = parts.flatMap((p) => ('deferred' in p ? [p.deferred] : []));
+        if (deferred.length) blockers.set(alias, deferred.join('; '));
         for (const p of parts) {
-          if ('blocker' in p) continue;
-          const entry = perGate.get(p.gate) ?? { atoms: new Set<string>(), aliases: [] };
+          if (!('gate' in p)) continue;
+          const entry = perGate.get(p.gate) ?? {
+            atoms: new Set<string>(),
+            targets: [],
+            aliases: [],
+          };
           for (const a of p.atoms) entry.atoms.add(a);
+          if (!entry.targets.includes(target)) entry.targets.push(target);
           if (!entry.aliases.includes(alias)) entry.aliases.push(alias);
           perGate.set(p.gate, entry);
         }
       }
       const gateEvidence: Partial<Record<VerificationGate, string>> = {};
-      for (const [gate, { atoms, aliases }] of perGate) {
+      for (const [gate, { atoms, targets, aliases }] of perGate) {
         // Idempotent re-run: nothing new to link on this gate.
-        if (aliases.every((a) => linked.has(rowId.get(a) ?? ''))) continue;
-        const evidence = [...atoms, ...aliases.map((a) => `satisfies:${taskId}#${a}`)].join(';');
+        if (targets.every((t) => linked.has(rowOf(t)?.id ?? ''))) continue;
+        const evidence = [...atoms, ...targets.map((t) => `satisfies:${taskId}#${t}`)].join(';');
         if (task.verification?.gates?.[gate] === true) {
           for (const a of aliases)
             blockers.set(
