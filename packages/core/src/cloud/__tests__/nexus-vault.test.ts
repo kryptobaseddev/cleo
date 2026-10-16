@@ -6906,6 +6906,60 @@ describe('sync enable push: the genesis checkpoint (T12343 S4-1b)', () => {
     ).toEqual({ slug: 'synced-doc' });
   });
 
+  it('a doc body the journal delivered is no local change: the peer pulls the snapshot, then pushes, without --force (T13813)', async () => {
+    const { m: a, dbPath: aDb } = await journalMachine();
+    await on(a, () => enableSyncPush(vopts(a, { allowUnreleased: true })));
+    await on(a, async () => {
+      setSyncFlag(await storeOf(aDb), 'sync.pull', true, { allowUnreleased: true });
+    });
+    const { b, bDb } = await restoredJoiner();
+    expect((await on(b, () => enableSyncPush(vopts(b, { allowUnreleased: true })))).status).toBe(
+      'joined',
+    );
+    // B adds a doc: its row and body travel by the journal; a file only B holds travels by snapshot.
+    const body = '# doc from B\n';
+    const sha = sha256Hex(Buffer.from(body));
+    const blobRel = path.join('.cleo', 'blobs', 'blobs', sha);
+    const onlyB = path.join(
+      '.cleo',
+      'attachments',
+      'sha256',
+      sha.slice(0, 2),
+      `${sha.slice(2)}.md`,
+    );
+    await on(b, async () => {
+      (await storeOf(bDb)).exec(
+        `INSERT INTO docs_attachments (id, sha256, attachment_json, ref_count, slug, type)
+           VALUES ('doc-b', '${sha}', '{"kind":"blob","mime":"text/markdown","sha256":"${sha}"}', 0, 'doc-b', 'note')`,
+      );
+    });
+    for (const rel of [blobRel, onlyB]) {
+      fs.mkdirSync(path.dirname(path.join(b.root, rel)), { recursive: true });
+      fs.writeFileSync(path.join(b.root, rel), body);
+    }
+    expect(
+      (await on(b, () => pushSyncStream(vopts(b, { allowUnreleased: true })))).refused,
+    ).toBeNull();
+    expect((await on(b, () => pushNexusVault(vopts(b, { allowUnreleased: true })))).status).toBe(
+      'pushed',
+    );
+    // A's sync delivers the body: the same bytes the head snapshot holds.
+    expect((await on(a, () => pullSyncStream(vopts(a)))).refused).toBeNull();
+    expect(fs.readFileSync(path.join(a.root, blobRel), 'utf8')).toBe(body);
+    const pulled = await on(a, () => restoreNexusVault(vopts(a, { mode: 'pull' })));
+    expect(pulled.status).toBe('restored');
+    expect(fs.readFileSync(path.join(a.root, onlyB), 'utf8')).toBe(body);
+    await on(a, async () =>
+      (await storeOf(aDb)).exec(
+        "INSERT INTO tasks_tasks (id, title, type, status, priority) VALUES ('T5', 'after the pull', 'task', 'pending', 'medium')",
+      ),
+    );
+    expect((await on(a, () => pushNexusVault(vopts(a, { allowUnreleased: true })))).status).toBe(
+      'pushed',
+    );
+    expect((await on(a, () => verifyNexusVault(vopts(a)))).verdict).toBe('match');
+  });
+
   it('a server without the attachment routes: cloud sync still syncs, and one warning names why (T13721)', async () => {
     const { m: a, dbPath: aDb } = await journalMachine();
     await on(a, () => enableSyncPush(vopts(a, { allowUnreleased: true })));
