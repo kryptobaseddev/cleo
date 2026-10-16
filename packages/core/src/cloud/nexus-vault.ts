@@ -3629,8 +3629,11 @@ async function pullVaultOnlyEntries(a: {
         `snapshot ${target.checkpointId} does not match its manifest (${diff.map((d) => d.table).join(', ')}); nothing was pulled`,
       );
     }
-    // A changed file the head holds byte for byte (a doc body the journal delivered) is no change to keep.
-    const ownFiles = (fileChanges ?? []).filter((p) => read?.files.get(p) !== staged.files.get(p));
+    // A changed file the head holds byte for byte (a doc body the journal delivered) is no change to keep,
+    // nor is a path the head lacks: the pull never touches it, and it travels in the next snapshot.
+    const ownFiles = (fileChanges ?? []).filter(
+      (p) => staged.files.has(p) && read?.files.get(p) !== staged.files.get(p),
+    );
     const changed = changedKeys.flatMap((k) =>
       k !== VAULT_FILES_KEY
         ? [k]

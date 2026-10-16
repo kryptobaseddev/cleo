@@ -13,5 +13,8 @@ device lacked. Without `--force` the device could do neither.
 
 A pull now judges each local change against the head snapshot's copy: a file,
 or another database, that already equals the head's is not a change to keep.
-Only changes the head does not hold refuse the pull. After the pull, the push
-goes through.
+A new local file the head does not have is not one either: the pull never
+touches it, and it travels in this device's next snapshot. So when both devices
+add a doc between syncs, the pull still goes through. Only a local change to a
+file the head also holds refuses the pull. After the pull, the push goes
+through.

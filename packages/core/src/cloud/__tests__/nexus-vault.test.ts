@@ -6960,6 +6960,65 @@ describe('sync enable push: the genesis checkpoint (T12343 S4-1b)', () => {
     expect((await on(a, () => verifyNexusVault(vopts(a)))).verdict).toBe('match');
   });
 
+  it("both devices add a doc between syncs: A's own new files are no change to keep; A pulls, pushes, and its files travel (T13813)", async () => {
+    const { m: a, dbPath: aDb } = await journalMachine();
+    await on(a, () => enableSyncPush(vopts(a, { allowUnreleased: true })));
+    await on(a, async () => {
+      setSyncFlag(await storeOf(aDb), 'sync.pull', true, { allowUnreleased: true });
+    });
+    const { b, bDb } = await restoredJoiner();
+    expect((await on(b, () => enableSyncPush(vopts(b, { allowUnreleased: true })))).status).toBe(
+      'joined',
+    );
+    /** A doc on `m`: its row, its body, and an attachment copy only `m` holds. */
+    const addDoc = async (m: Machine, dbPath: string, id: string) => {
+      const body = `# ${id}\n`;
+      const sha = sha256Hex(Buffer.from(body));
+      await on(m, async () => {
+        (await storeOf(dbPath)).exec(
+          `INSERT INTO docs_attachments (id, sha256, attachment_json, ref_count, slug, type)
+             VALUES ('${id}', '${sha}', '{"kind":"blob","mime":"text/markdown","sha256":"${sha}"}', 0, '${id}', 'note')`,
+        );
+      });
+      const own = path.join(
+        '.cleo',
+        'attachments',
+        'sha256',
+        sha.slice(0, 2),
+        `${sha.slice(2)}.md`,
+      );
+      for (const rel of [path.join('.cleo', 'blobs', 'blobs', sha), own]) {
+        fs.mkdirSync(path.dirname(path.join(m.root, rel)), { recursive: true });
+        fs.writeFileSync(path.join(m.root, rel), body);
+      }
+      return { body, own };
+    };
+    const docA = await addDoc(a, aDb, 'doc-a');
+    const docB = await addDoc(b, bDb, 'doc-b');
+    expect(
+      (await on(b, () => pushSyncStream(vopts(b, { allowUnreleased: true })))).refused,
+    ).toBeNull();
+    expect((await on(b, () => pushNexusVault(vopts(b, { allowUnreleased: true })))).status).toBe(
+      'pushed',
+    );
+    expect((await on(a, () => pullSyncStream(vopts(a)))).refused).toBeNull();
+    // A's new paths are not in the head: the pull leaves them, so they do not refuse it.
+    const pulled = await on(a, () => restoreNexusVault(vopts(a, { mode: 'pull' })));
+    expect(pulled.status).toBe('restored');
+    expect(fs.readFileSync(path.join(a.root, docB.own), 'utf8')).toBe(docB.body);
+    expect(fs.readFileSync(path.join(a.root, docA.own), 'utf8')).toBe(docA.body);
+    expect((await on(a, () => pushNexusVault(vopts(a, { allowUnreleased: true })))).status).toBe(
+      'pushed',
+    );
+    expect((await on(a, () => verifyNexusVault(vopts(a)))).verdict).toBe('match');
+    // A's files travel in its snapshot: B pulls them.
+    expect((await on(b, () => pullSyncStream(vopts(b)))).refused).toBeNull();
+    expect((await on(b, () => restoreNexusVault(vopts(b, { mode: 'pull' })))).status).toBe(
+      'restored',
+    );
+    expect(fs.readFileSync(path.join(b.root, docA.own), 'utf8')).toBe(docA.body);
+  });
+
   it('a server without the attachment routes: cloud sync still syncs, and one warning names why (T13721)', async () => {
     const { m: a, dbPath: aDb } = await journalMachine();
     await on(a, () => enableSyncPush(vopts(a, { allowUnreleased: true })));
