@@ -24,9 +24,11 @@ import type { VerificationGate } from './task.js';
  *   origin's default branch.
  * - `docs` — attached documents and linked decisions of a research, spike or
  *   documentation task.
+ * - `commit` — an explicit commit (`cleo done --commit <sha>`, T13799) that
+ *   landed on the default branch; files read from its first-parent diff.
  * - `none` — nothing references the task yet.
  */
-export type ChangeSetSource = 'pr' | 'branch' | 'docs' | 'none';
+export type ChangeSetSource = 'pr' | 'branch' | 'docs' | 'commit' | 'none';
 
 /**
  * How the repository the change set was read from was chosen.
@@ -140,7 +142,7 @@ export interface TaskChangeSet {
    * branch.
    */
   stackedOn?: { baseRef: string; basePrNumber?: number };
-  /** Branch tip commit (`source === 'branch'`). */
+  /** Branch tip commit (`source === 'branch'`), or the explicit commit (`source === 'commit'`). */
   commitSha?: string;
   /** Ref that was diffed (`HEAD` or `task/<id>`), for `source === 'branch'`. */
   headRef?: string;

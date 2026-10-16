@@ -371,6 +371,11 @@
       "import": "./dist/tasks/*.js",
       "require": "./dist/tasks/*.js"
     },
+    "./goal/*.js": {
+      "types": "./dist/goal/*.d.ts",
+      "import": "./dist/goal/*.js",
+      "require": "./dist/goal/*.js"
+    },
     "./verification/*.js": {
       "types": "./dist/verification/*.d.ts",
       "import": "./dist/verification/*.js",

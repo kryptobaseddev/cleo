@@ -1,7 +1,7 @@
 ---
 name: ct-dev-workflow
 description: Development workflow orchestration for task-driven development with atomic commits, conventional commit messages, and systematic release processes. Enforces task traceability, branch discipline, smart test scope selection, and GitHub Actions integration. Use when committing code, creating releases, managing branches, or following contribution protocols. Triggers on commit operations, release preparation, or workflow compliance needs.
-version: 3.1.21
+version: 3.1.22
 protocol: contribution
 dependencies: []
 sharedResources:
@@ -14,7 +14,7 @@ compatibility:
   - gemini-cli
 license: MIT
 metadata:
-  version: 3.1.21
+  version: 3.1.22
   tier: core
   install: harness
   covers:
@@ -530,6 +530,20 @@ CLEO infrastructure failure is an unavailable check, never successful CI evidenc
 Launcher faults allow locally regardless of checker error policy. File inputs and
 provider records use bounded regular-file reads; FIFOs are rejected. Unsupported
 provider bindings remain unsupported in delivery summaries, including mixed bindings.
+
+The Stop event has ONE CLEO entry per provider, `cleo hook stop --provider claude-code|codex`
+(T13796), in order goal tick → ask-enforce → session end. The goal runtime goes first, only when
+`.opencode/goals/` exists (`CLEO_GOAL_TICK_COMMAND`, default `ocg tick`, Stop JSON on stdin,
+JSON-only stdout, at most 60 s, its process group SIGKILLed at the deadline): a block is
+re-serialised as exactly `{decision, reason}` (reason capped) and skips the rest. Next, an ask-enforce block (T13420) wins and keeps
+the session open, because the agent still owes the owner an ask. Otherwise Claude Code's runs
+`cleo session end --quiet` as before; Codex's never ends the session (its Stop fires every turn
+and never did). Every step fails open to the session end (missing, failing or timed-out tick;
+ask-enforce error); `CLEO_GOAL_TICK=off` skips the tick; `CLEO_ASK_ENFORCE=off` or heavy-command
+mode `off` (`CLEO_HEAVY_COMMAND_HOOK` / `resources.heavyCommandHook`, read at run time) skips the
+ask check, as they removed its separate hook before.
+Sync folds the separate ask-enforce and old session-end Stop entries into it in place; Codex's
+rides the heavy-command mode, Claude Code's always stays.
 
 Init, upgrade and inspection share the commit-msg, pre-commit and pre-push installer.
 Git determines effective hooksPath and the common directory, including linked worktrees.

@@ -122,6 +122,15 @@ export interface RowIdentitySpec {
    */
   readonly localWhenNull?: readonly string[];
   /**
+   * `natural`: the order columns that pick, among rows sharing one natural
+   * key, the FIRST (T13777). Only that row gets the uid; a later row with the
+   * same key gets none and stays on its device: it is never captured, never
+   * filled and never pending. For a key the schema does not make unique (a
+   * write-once table whose legacy DDL lacks the UNIQUE), so a duplicate never
+   * wedges the fill.
+   */
+  readonly localUnlessFirst?: readonly string[];
+  /**
    * `minted`: every uid is random, never derived from content, including for
    * existing rows. Required for `portable-secret` tables.
    */

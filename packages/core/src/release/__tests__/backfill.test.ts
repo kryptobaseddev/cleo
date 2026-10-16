@@ -282,7 +282,7 @@ describe('provenanceBackfill — Phase 2 (T9528)', () => {
     expect(await countRows(projectRoot, 'tasks_release_artifacts')).toBe(3);
 
     // Audit log written per tag.
-    const auditRows = await countRows(projectRoot, 'audit_log');
+    const auditRows = await countRows(projectRoot, 'tasks_audit_log');
     expect(auditRows).toBeGreaterThanOrEqual(3);
   });
 
@@ -402,7 +402,7 @@ describe('provenanceBackfill — Phase 2 (T9528)', () => {
     expect(first.success).toBe(true);
 
     const releasesBefore = await countRows(projectRoot, 'tasks_releases');
-    const auditBefore = await countRows(projectRoot, 'audit_log');
+    const auditBefore = await countRows(projectRoot, 'tasks_audit_log');
 
     // Second run with forceOverwrite — should still no-op on row counts
     // (UPSERT semantics) but should append additional audit rows.
@@ -415,7 +415,7 @@ describe('provenanceBackfill — Phase 2 (T9528)', () => {
     expect(second.success).toBe(true);
 
     expect(await countRows(projectRoot, 'tasks_releases')).toBe(releasesBefore);
-    expect(await countRows(projectRoot, 'audit_log')).toBeGreaterThan(auditBefore);
+    expect(await countRows(projectRoot, 'tasks_audit_log')).toBeGreaterThan(auditBefore);
   });
 
   // ─────────────────────────────────────────────────────────────────────────

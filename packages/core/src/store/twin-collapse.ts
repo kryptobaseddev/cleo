@@ -222,6 +222,7 @@ import {
 } from './backup-sidecar.js';
 import { blobFileForRow, pinBlob, restoreBlob } from './blob-keep.js';
 import { planMigrationSnapshot, writeMigrationSnapshot } from './pre-repair-snapshot.js';
+import { DRAINED_TWINS } from './row-identity-registry.js';
 import { withSuspectAccounting } from './sync/structural.js';
 
 const log = getLogger('twin-collapse');
@@ -1837,71 +1838,85 @@ const DOCS: TwinPair = {
   },
 };
 
-// ── token_usage (T13115) ─────────────────────────────────────────────────────
+// ── id-keyed drains: token_usage (T13115), audit_log (T13777) ───────────────
 
-/** The bare token table and its twin (the runtime has written the twin since T13111). */
-const TOKEN_BARE = 'token_usage';
-const TOKEN_TWIN = 'tasks_token_usage';
+/** Most bare rows one drain transaction decides; a longer backlog drains in several. */
+const DRAIN_CHUNK = 2000;
 
-/** Most bare token rows one drain transaction decides; a longer backlog drains in several. */
-const TOKEN_DRAIN_CHUNK = 2000;
-
-let tokenDrainChunk = TOKEN_DRAIN_CHUNK;
+let drainChunk = DRAIN_CHUNK;
 
 /**
- * Override the token drain's chunk size, for tests (`undefined` restores it).
+ * Override the drains' chunk size (token usage and audit log), for tests
+ * (`undefined` restores it).
  *
  * @param size - Rows per drain transaction.
  * @task T13115
  */
 export function setTokenDrainChunkForTests(size: number | undefined): void {
-  tokenDrainChunk = size ?? TOKEN_DRAIN_CHUNK;
+  drainChunk = size ?? DRAIN_CHUNK;
 }
 
-/** The token columns both tables hold (a cut-down legacy shape carries what it has). */
-const tokenColumns = (db: DatabaseSync): string[] => sharedColumns(db, TOKEN_BARE, TOKEN_TWIN);
+/**
+ * A bare table drained into its twin by `id` (append-only rows with random,
+ * globally unique ids): what moves where.
+ */
+interface DrainSpec {
+  /** The bare table an older build writes. */
+  readonly bare: string;
+  /** The twin this build reads and writes. */
+  readonly twin: string;
+  /** A bare column the twin stores under another name (bare → twin). */
+  readonly rename: Readonly<Record<string, string>>;
+  /** The per-row savepoint name. */
+  readonly savepoint: string;
+}
 
 /** JSON of `cols` of one row (missing values as null). */
 const rowJson = (row: Record<string, unknown>, cols: readonly string[]): string =>
   JSON.stringify(cols.map((c) => row[c] ?? null));
 
-/** The prepared statements and column sets one plan or apply of the token pair uses. */
-interface TokenShape {
-  /** Columns both tables hold (always includes `id`). */
+/** The prepared statements and column sets one plan or apply of a drain uses. */
+interface DrainShape {
+  /** Bare columns carried (always includes `id`), in the bare table's order. */
   readonly shared: readonly string[];
+  /** The twin column each carried bare column lands in, in the same order. */
+  readonly twinCols: readonly string[];
   /** Every bare column. */
   readonly all: readonly string[];
-  /** Bare columns the twin lacks. */
+  /** Bare columns the twin has no place for. */
   readonly bareOnly: readonly string[];
-  /** The twin's shared columns for one id. */
+  /** The twin's carried columns for one id. */
   readonly twinRow: StatementSync;
   /** Every bare row with one id. */
   readonly bareById: StatementSync;
 }
 
-/** The token shape, or `null` when the tables share no `id` column (nothing is ever drained). */
-function tokenShape(db: DatabaseSync, schema: string): TokenShape | null {
-  const shared = tokenColumns(db);
+/** The drain shape, or `null` when `id` does not travel (nothing is ever drained). */
+function drainShape(db: DatabaseSync, spec: DrainSpec, schema: string): DrainShape | null {
+  const twinHas = new Set(columnsOf(db, 'main', spec.twin));
+  const all = columnsOf(db, 'main', spec.bare);
+  const shared = all.filter((c) => twinHas.has(spec.rename[c] ?? c));
   if (!shared.includes('id')) return null;
-  const all = columnsOf(db, 'main', TOKEN_BARE);
+  const twinCols = shared.map((c) => spec.rename[c] ?? c);
   const list = (cols: readonly string[]) => cols.map(quoteIdent).join(', ');
   return {
     shared,
+    twinCols,
     all,
     bareOnly: all.filter((c) => !shared.includes(c)),
-    twinRow: db.prepare(`SELECT ${list(shared)} FROM ${schema}.${TOKEN_TWIN} WHERE "id" = ?`),
-    bareById: db.prepare(`SELECT ${list(all)} FROM main.${TOKEN_BARE} WHERE "id" = ?`),
+    twinRow: db.prepare(`SELECT ${list(twinCols)} FROM ${schema}.${spec.twin} WHERE "id" = ?`),
+    bareById: db.prepare(`SELECT ${list(all)} FROM main.${spec.bare} WHERE "id" = ?`),
   };
 }
 
-/** One twin token row as the JSON of the shared columns, or `undefined` when absent. */
-function twinTokenJson(shape: TokenShape, id: string): string | undefined {
+/** One twin row as the JSON of the carried columns, or `undefined` when absent. */
+function twinRowJson(shape: DrainShape, id: string): string | undefined {
   const row = shape.twinRow.get(id) as Record<string, unknown> | undefined;
-  return row === undefined ? undefined : rowJson(row, shape.shared);
+  return row === undefined ? undefined : rowJson(row, shape.twinCols);
 }
 
 /** The hash that stands for every bare row with this id (its change identity), or `undefined`. */
-function bareTokenHash(shape: TokenShape, id: string): string | undefined {
+function bareRowHash(shape: DrainShape, id: string): string | undefined {
   const rows = shape.bareById.all(id) as Array<Record<string, unknown>>;
   if (rows.length === 0) return undefined;
   const fulls = rows.map((r) => rowJson(r, shape.all));
@@ -1909,33 +1924,33 @@ function bareTokenHash(shape: TokenShape, id: string): string | undefined {
 }
 
 /** Bare ids a cut-down table without a key holds more than once (empty when `id` is the key). */
-function duplicateTokenIds(db: DatabaseSync): string[] {
+function duplicateBareIds(db: DatabaseSync, spec: DrainSpec): string[] {
   return (
     db
       .prepare(
-        `SELECT "id" AS id FROM main.${TOKEN_BARE} WHERE "id" IS NOT NULL GROUP BY "id" HAVING count(*) > 1`,
+        `SELECT "id" AS id FROM main.${spec.bare} WHERE "id" IS NOT NULL GROUP BY "id" HAVING count(*) > 1`,
       )
       .all() as Array<{ id: unknown }>
   ).map((r) => String(r.id));
 }
 
 /**
- * Bare token rows by id, as the hash of the whole row (the change identity a
- * marker records). Read in full: used to detect a change when no change
- * counter can be trusted, and by `cleo doctor`.
+ * Bare rows by id, as the hash of the whole row (the change identity a marker
+ * records). Read in full: used to detect a change when no change counter can
+ * be trusted, and by `cleo doctor`.
  */
-function bareTokenHashes(db: DatabaseSync): Record<string, string> {
-  const shape = tokenShape(db, 'main');
+function bareRowHashes(db: DatabaseSync, spec: DrainSpec): Record<string, string> {
+  const shape = drainShape(db, spec, 'main');
   if (shape === null) return {};
-  const dups = new Set(duplicateTokenIds(db));
+  const dups = new Set(duplicateBareIds(db, spec));
   const out: Record<string, string> = {};
   for (const id of dups) {
-    const h = bareTokenHash(shape, id);
+    const h = bareRowHash(shape, id);
     if (h !== undefined) out[id] = h;
   }
   const rows = db
     .prepare(
-      `SELECT ${shape.all.map(quoteIdent).join(', ')} FROM main.${TOKEN_BARE} WHERE "id" IS NOT NULL`,
+      `SELECT ${shape.all.map(quoteIdent).join(', ')} FROM main.${spec.bare} WHERE "id" IS NOT NULL`,
     )
     .iterate() as IterableIterator<Record<string, unknown>>;
   for (const r of rows) {
@@ -1950,9 +1965,9 @@ function bareTokenHashes(db: DatabaseSync): Record<string, string> {
  * count and highest rowid. `undefined` (compare full hashes) when the table
  * has no rowid.
  */
-function tokenChangeSeq(db: DatabaseSync): string | undefined {
+function bareChangeSeq(db: DatabaseSync, spec: DrainSpec): string | undefined {
   try {
-    const r = db.prepare(`SELECT count(*) AS n, max(rowid) AS m FROM main.${TOKEN_BARE}`).get() as
+    const r = db.prepare(`SELECT count(*) AS n, max(rowid) AS m FROM main.${spec.bare}`).get() as
       | { n: number; m: number | null }
       | undefined;
     return r === undefined ? undefined : `${r.n}:${r.m ?? 0}`;
@@ -1962,9 +1977,9 @@ function tokenChangeSeq(db: DatabaseSync): string | undefined {
 }
 
 /**
- * Plan one bounded step of the drain: at most {@link TOKEN_DRAIN_CHUNK} bare
- * rows an earlier merge did not leave behind are decided, streamed rather than
- * read in full:
+ * Plan one bounded step of a drain: at most {@link DRAIN_CHUNK} bare rows an
+ * earlier merge did not leave behind are decided, streamed rather than read
+ * in full:
  *
  * - the twin lacks it → carried (`set`), then removed from the bare table;
  * - the twin holds an identical copy (a store an older build reconciled holds
@@ -1983,10 +1998,10 @@ function tokenChangeSeq(db: DatabaseSync): string | undefined {
  * remain), so a long backlog drains in several transactions without any row
  * being taken for "left behind" before it was decided.
  */
-function planTokenUsage(db: DatabaseSync, state: CollapseState | undefined): Plan {
+function planDrain(db: DatabaseSync, spec: DrainSpec, state: CollapseState | undefined): Plan {
   const plan: Plan = { ...emptyPlan(), leftBehind: new Map(), fullHashes: new Map() };
   const left = plan.leftBehind as Map<string, string>;
-  const shape = tokenShape(db, 'main');
+  const shape = drainShape(db, spec, 'main');
   if (shape === null) return plan;
   const last = state?.hashes?.bare ?? {};
   const keepLeft = (id: string, hash: string, reason: string) => {
@@ -1999,18 +2014,18 @@ function planTokenUsage(db: DatabaseSync, state: CollapseState | undefined): Pla
     );
   };
   const visited = new Set<string>();
-  const dups = duplicateTokenIds(db);
+  const dups = duplicateBareIds(db, spec);
   for (const id of dups) {
     visited.add(id);
-    const hash = bareTokenHash(shape, id);
+    const hash = bareRowHash(shape, id);
     if (hash !== undefined)
-      keepLeft(id, hash, `${id}: not carried (${TOKEN_BARE} holds this id more than once)`);
+      keepLeft(id, hash, `${id}: not carried (${spec.bare} holds this id more than once)`);
   }
   const dupSet = new Set(dups);
   let decided = 0;
   const rows = db
     .prepare(
-      `SELECT ${shape.all.map(quoteIdent).join(', ')} FROM main.${TOKEN_BARE} WHERE "id" IS NOT NULL`,
+      `SELECT ${shape.all.map(quoteIdent).join(', ')} FROM main.${spec.bare} WHERE "id" IS NOT NULL`,
     )
     .iterate() as IterableIterator<Record<string, unknown>>;
   for (const r of rows) {
@@ -2019,10 +2034,10 @@ function planTokenUsage(db: DatabaseSync, state: CollapseState | undefined): Pla
     const hash = sha(rowJson(r, shape.all));
     if (last[id] === hash) {
       visited.add(id);
-      keepLeft(id, hash, `${id}: left in ${TOKEN_BARE} by an earlier merge`);
+      keepLeft(id, hash, `${id}: left in ${spec.bare} by an earlier merge`);
       continue;
     }
-    if (decided >= tokenDrainChunk) {
+    if (decided >= drainChunk) {
       plan.truncated = true;
       break;
     }
@@ -2030,62 +2045,63 @@ function planTokenUsage(db: DatabaseSync, state: CollapseState | undefined): Pla
     decided++;
     const extra = shape.bareOnly.filter((c) => (r[c] ?? null) !== null);
     if (extra.length > 0) {
-      keepLeft(id, hash, `${id}: not carried (${TOKEN_TWIN} has no column ${extra.join(', ')})`);
+      keepLeft(id, hash, `${id}: not carried (${spec.twin} has no column ${extra.join(', ')})`);
       continue;
     }
     const json = rowJson(r, shape.shared);
-    const twin = twinTokenJson(shape, id);
+    const twin = twinRowJson(shape, id);
     if (twin === undefined) {
       plan.set.set(id, json);
       plan.fullHashes?.set(id, hash);
     } else if (twin === json) plan.del.push(id);
-    else keepLeft(id, hash, `${id}: kept in ${TOKEN_BARE} (${TOKEN_TWIN} holds another copy)`);
+    else keepLeft(id, hash, `${id}: kept in ${spec.bare} (${spec.twin} holds another copy)`);
   }
   // Rows left behind earlier that this bounded pass did not reach stay left
   // behind while they are unchanged.
   if (plan.truncated) {
     for (const [id, hash] of Object.entries(last)) {
-      if (!visited.has(id) && bareTokenHash(shape, id) === hash) left.set(id, hash);
+      if (!visited.has(id) && bareRowHash(shape, id) === hash) left.set(id, hash);
     }
   }
   return plan;
 }
 
 /**
- * Carry a token plan into `tasks_token_usage`, one row at a time, each in its
- * own savepoint and re-read before it counts. A row the twin refuses (a
- * CHECK, NOT NULL or type mismatch from a differing shape, or a value it
+ * Carry a drain plan into the twin, one row at a time, each in its own
+ * savepoint and re-read before it counts. A row the twin refuses (a CHECK,
+ * NOT NULL, UNIQUE or type mismatch from a differing shape, or a value it
  * stores differently) is rolled back, listed as a conflict and left where it
  * is (recorded in `leftBehind`): one bad row never fails the merge, so the
  * open is never blocked by it. A carried row and every row of `del` are then
  * deleted from the bare table.
  */
-function applyTokenUsage(
+function applyDrain(
   db: DatabaseSync,
+  spec: DrainSpec,
   plan: Plan,
 ): { inserted: number; replaced: number; deleted: number; refused: Set<string> } {
   const refused = new Set<string>();
-  const shape = tokenShape(db, 'main');
+  const shape = drainShape(db, spec, 'main');
   if (shape === null) return { inserted: 0, replaced: 0, deleted: 0, refused };
   const insert = db.prepare(
-    `INSERT INTO main.${TOKEN_TWIN} (${shape.shared.map(quoteIdent).join(', ')}) ` +
-      `VALUES (${shape.shared.map(() => '?').join(', ')})`,
+    `INSERT INTO main.${spec.twin} (${shape.twinCols.map(quoteIdent).join(', ')}) ` +
+      `VALUES (${shape.twinCols.map(() => '?').join(', ')})`,
   );
-  const removeBare = db.prepare(`DELETE FROM main.${TOKEN_BARE} WHERE "id" = ?`);
+  const removeBare = db.prepare(`DELETE FROM main.${spec.bare} WHERE "id" = ?`);
   let inserted = 0;
   let deleted = 0;
   for (const [id, json] of plan.set) {
-    db.exec('SAVEPOINT token_usage_row');
+    db.exec(`SAVEPOINT ${spec.savepoint}`);
     try {
       insert.run(...(JSON.parse(json) as Array<string | number | null>));
-      if (twinTokenJson(shape, id) !== json)
+      if (twinRowJson(shape, id) !== json)
         // @sync-invariant none:local-only re-reads a row this device's own drain just inserted; the savepoint rolls it back and the row stays in the bare table
         throw new Error('the stored row differs');
-      db.exec('RELEASE token_usage_row');
+      db.exec(`RELEASE ${spec.savepoint}`);
       inserted++;
     } catch (error) {
-      db.exec('ROLLBACK TO token_usage_row');
-      db.exec('RELEASE token_usage_row');
+      db.exec(`ROLLBACK TO ${spec.savepoint}`);
+      db.exec(`RELEASE ${spec.savepoint}`);
       plan.conflicts.push(`${id}: not carried (${error instanceof Error ? error.message : error})`);
       plan.skipped++;
       refused.add(id);
@@ -2100,57 +2116,83 @@ function applyTokenUsage(
 }
 
 /**
- * `token_usage` → `tasks_token_usage`, a DRAIN rather than a mirror. Token rows
- * are append-only telemetry with random ids, and since T13111 this build reads
- * and writes only the twin. So each merge moves the bare rows into the twin
- * and deletes them from the bare table, the second sanctioned bare write after
- * {@link mirrorCounterToBare}: the bare table becomes the inbox of rows an
- * older build writes, empty after every open unless a row is left behind (see
- * {@link planTokenUsage}). `cleo token` reports then cover all history, and
- * `cleo token delete` / `clear` need to touch the twin only.
+ * A lossless drain pair for {@link DrainSpec}: each merge moves the bare rows
+ * into the twin and deletes them from the bare table, so the bare table becomes
+ * the inbox of rows an older build writes, empty after every open unless a row
+ * is left behind (see {@link planDrain}).
  *
  * - Lossless: a bare row is deleted only when the twin holds every value of
  *   it, so no snapshot is taken and no marker names one.
- * - Bounded: a merge decides at most {@link TOKEN_DRAIN_CHUNK} rows per
+ * - Bounded: a merge decides at most {@link DRAIN_CHUNK} rows per
  *   `BEGIN IMMEDIATE`, so a long legacy table drains in several short
  *   transactions instead of holding the write lock for all of it.
  * - Degrades nothing: the twin is correct whatever the bare table holds, so a
  *   failed merge is recorded (`cleo doctor twin-collapse`) and retried at the
  *   next open; no shadow is built and no write is refused.
- * - Only the columns both tables hold are carried, so a cut-down legacy shape
- *   on either side drains what it can and never fails the open.
+ * - Only the columns the twin has a place for are carried, so a cut-down
+ *   legacy shape on either side drains what it can and never fails the open.
  * - An unchanged bare table costs one `count`/`max(rowid)` read.
  */
-const TOKEN_USAGE: TwinPair = {
-  table: TOKEN_BARE,
-  twin: TOKEN_TWIN,
-  kvTable: 'tasks_schema_meta',
-  tables: [TOKEN_BARE, TOKEN_TWIN, 'tasks_schema_meta'],
-  lossless: true,
-  bareHashes: (db) => bareTokenHashes(db),
-  // The twin is not tracked: the bare side is drained, never compared.
-  twinHashes: () => ({}),
-  changeSeq: (db) => tokenChangeSeq(db),
-  plan: (db, state) => planTokenUsage(db, state),
-  apply(db, plan) {
-    const { refused, ...counts } = applyTokenUsage(db, plan);
-    const shape = tokenShape(db, 'main');
-    if (shape === null) return counts;
-    const left = db.prepare(`SELECT 1 FROM main.${TOKEN_BARE} WHERE "id" = ?`);
-    for (const [id, json] of plan.set) {
-      if (refused.has(id)) continue;
-      if (twinTokenJson(shape, id) !== json)
-        // @sync-invariant none:local-only verifies this device's own collapse transaction before commit; a mismatch rolls the whole drain back
-        throw new Error(`token_usage collapse did not verify the carried row ${id}`);
-    }
-    for (const id of [...plan.set.keys(), ...plan.del]) {
-      if (!refused.has(id) && left.get(id) !== undefined)
-        // @sync-invariant none:local-only verifies this device's own collapse transaction before commit; a mismatch rolls the whole drain back
-        throw new Error(`token_usage collapse did not verify the drain of ${id}`);
-    }
-    return counts;
-  },
-};
+function drainPair(spec: DrainSpec): TwinPair {
+  return {
+    table: spec.bare,
+    twin: spec.twin,
+    kvTable: 'tasks_schema_meta',
+    tables: [spec.bare, spec.twin, 'tasks_schema_meta'],
+    lossless: true,
+    bareHashes: (db) => bareRowHashes(db, spec),
+    // The twin is not tracked: the bare side is drained, never compared.
+    twinHashes: () => ({}),
+    changeSeq: (db) => bareChangeSeq(db, spec),
+    plan: (db, state) => planDrain(db, spec, state),
+    apply(db, plan) {
+      const { refused, ...counts } = applyDrain(db, spec, plan);
+      const shape = drainShape(db, spec, 'main');
+      if (shape === null) return counts;
+      const left = db.prepare(`SELECT 1 FROM main.${spec.bare} WHERE "id" = ?`);
+      for (const [id, json] of plan.set) {
+        if (refused.has(id)) continue;
+        if (twinRowJson(shape, id) !== json)
+          // @sync-invariant none:local-only verifies this device's own collapse transaction before commit; a mismatch rolls the whole drain back
+          throw new Error(`${spec.bare} collapse did not verify the carried row ${id}`);
+      }
+      for (const id of [...plan.set.keys(), ...plan.del]) {
+        if (!refused.has(id) && left.get(id) !== undefined)
+          // @sync-invariant none:local-only verifies this device's own collapse transaction before commit; a mismatch rolls the whole drain back
+          throw new Error(`${spec.bare} collapse did not verify the drain of ${id}`);
+      }
+      return counts;
+    },
+  };
+}
+
+/**
+ * `token_usage` → `tasks_token_usage` (T13115): token rows are append-only
+ * telemetry with random ids, and since T13111 this build reads and writes only
+ * the twin, so `cleo token` reports cover all history, and `cleo token delete`
+ * / `clear` need to touch the twin only.
+ */
+const TOKEN_USAGE: TwinPair = drainPair({
+  bare: 'token_usage',
+  twin: DRAINED_TWINS['token_usage'] ?? 'tasks_token_usage',
+  rename: {},
+  savepoint: 'token_usage_row',
+});
+
+/**
+ * `audit_log` → `tasks_audit_log` (T13777): the dispatch audit, append-only
+ * with UUID ids, which this build writes into the twin, so one audit table
+ * syncs and every reader sees all history. The bare `idempotency_key` lands
+ * in `dispatch_idempotency_key`: a dispatch request may record several rows
+ * under one key (a failed attempt, then its retry), which the twin's
+ * UNIQUE(project_hash, domain, operation, idempotency_key) would refuse.
+ */
+const AUDIT_LOG: TwinPair = drainPair({
+  bare: 'audit_log',
+  twin: DRAINED_TWINS['audit_log'] ?? 'tasks_audit_log',
+  rename: { idempotency_key: 'dispatch_idempotency_key' },
+  savepoint: 'audit_log_row',
+});
 
 // ── playbook_runs + playbook_approvals ───────────────────────────────────────
 
@@ -2352,7 +2394,14 @@ const PLAYBOOKS: TwinPair = {
 };
 
 /** The pairs this build collapses, in order. */
-const PAIRS: readonly TwinPair[] = [SCHEMA_META, STICKY_TAGS, DOCS, TOKEN_USAGE, PLAYBOOKS];
+const PAIRS: readonly TwinPair[] = [
+  SCHEMA_META,
+  STICKY_TAGS,
+  DOCS,
+  TOKEN_USAGE,
+  AUDIT_LOG,
+  PLAYBOOKS,
+];
 
 // ── failure, read-only-for-users mode ────────────────────────────────────────
 

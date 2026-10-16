@@ -146,6 +146,10 @@ export function manifestCanonical(m: Manifest): string {
     },
     revived: refDeltasCanonical(m.revived ?? []),
     schemaVersion: m.schemaVersion,
+    // Signed only when present, so a manifest without it keeps its canonical form (T13777).
+    ...(m.snapshotAuthoritative !== undefined
+      ? { snapshotAuthoritative: [...m.snapshotAuthoritative].sort() }
+      : {}),
     tables,
     voided: refDeltasCanonical(m.voided ?? []),
   });

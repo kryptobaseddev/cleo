@@ -182,6 +182,9 @@ export const SYNC_TIMESTAMP_COLUMNS: Readonly<
     tasks_pr_tasks: ['created_at'],
     tasks_commits: ['authored_at', 'committed_at', 'created_at'],
     tasks_task_commits: ['created_at'],
+    // T13777 (command logs sync coverage).
+    tasks_token_usage: ['created_at'],
+    tasks_session_handoff_entries: ['created_at'],
     // T12535 (twin collapse): project sticky notes and the playbook twins.
     brain_sticky_notes: ['created_at', 'updated_at'],
     tasks_playbook_runs: ['started_at', 'completed_at'],

@@ -148,6 +148,31 @@ describe('buildVaultManifest', () => {
     expect(skipped).toEqual([]);
   });
 
+  it('leaves out rows local by row-identity spec, and counts them for format 2 (T13808)', () => {
+    const file = path.join(tmp, 'local.db');
+    const db = new DatabaseSync(file);
+    db.exec(`
+      CREATE TABLE tasks_session_handoff_entries (id INTEGER PRIMARY KEY, session_id TEXT, handoff_json TEXT, created_at TEXT, uid TEXT);
+      INSERT INTO tasks_session_handoff_entries VALUES
+        (1, 's1', '{}', '2026-10-16 09:00:01', 'u1'),
+        (2, 's1', '{"later":1}', '2026-10-16 09:00:02', NULL),
+        (3, 's2', '{}', '2026-10-16 09:00:03', NULL);
+    `);
+    db.close();
+    // Row 2 is a later handoff of s1 (local); row 3 waits for its uid (synced, counted).
+    const built = build(file);
+    expect(built.manifest.tables['tasks_session_handoff_entries']?.rows).toBe(2);
+    expect(built.localRows).toEqual({ tasks_session_handoff_entries: 1 });
+    const v2 = buildVaultManifest(file, {
+      scope: 'project',
+      hashKey: KEY,
+      root: '/a/root',
+      countLocalRows: true,
+    });
+    expect(v2.manifest.tables['tasks_session_handoff_entries']?.rows).toBe(3);
+    expect(v2.localRows).toEqual({});
+  });
+
   it('is independent of row insertion order', () => {
     const a = build(
       projectDb('a', {

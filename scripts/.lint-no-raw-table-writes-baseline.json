@@ -1,7 +1,7 @@
 {
   "note": "Raw SQL writes on SYNCING cleo.db tables outside the sanctioned accessor (T12332, T12343). Non-sync writers are exempt per (file, table) in the script, not here. Counts may only DECREASE, and a decrease must be recorded here. Regenerate with: node scripts/lint-no-raw-table-writes.mjs --update-baseline",
-  "totalFindings": 139,
-  "files": 52,
+  "totalFindings": 138,
+  "files": 51,
   "counts": {
     "packages/core/src/agents/seed-install.ts": {
       "agent_registry_agents": 1
@@ -122,9 +122,6 @@
     },
     "packages/core/src/nexus/tasks-bridge.ts": {
       "brain_page_edges": 1
-    },
-    "packages/core/src/release/backfill.ts": {
-      "audit_log": 1
     },
     "packages/core/src/release/release-manifest.ts": {
       "tasks_task_commits": 1
