@@ -2026,23 +2026,32 @@ export async function releaseReconcileV2(
         for (let i = 0; i < plan.tasks.length; i++) {
           const task = plan.tasks[i];
           const changeType = classifyChangeType(task, plan);
-          // T12914: a change is one row per (release, task, change type) on
-          // every device, so task_id always carries the plan's task id (a soft
-          // reference: the consolidated column has no FK, T11883) — a NULL would
-          // fold the changes of two absent tasks into one. The id is
-          // device-local (a change received by sync takes its uid): reuse the
-          // stored one, else mint the deterministic id so a re-run upserts.
-          const storedChange = await db
-            .select({ id: schema.releaseChanges.id })
-            .from(schema.releaseChanges)
-            .where(
-              and(
-                eq(schema.releaseChanges.releaseId, releaseId),
-                eq(schema.releaseChanges.taskId, task.id),
-                eq(schema.releaseChanges.changeType, changeType),
-              ),
-            )
-            .get();
+          // A change links its task only when the task is in the runtime
+          // store: verifyProvenance requires every release_changes.task_id to
+          // resolve or be NULL. A NULL-task row stays local (localWhenNull,
+          // T12914), so two absent tasks never fold into one synced row.
+          const safeTaskId = fkResolvableTaskIds.has(task.id) ? task.id : null;
+          if (safeTaskId === null && validTaskIds.has(task.id)) {
+            skippedTaskRefs.add(task.id);
+          }
+          // T12914: a linked change is one row per (release, task, change type)
+          // on every device, and its id is device-local (a change received by
+          // sync takes its uid): reuse the stored one, else mint the
+          // deterministic id so a re-run upserts.
+          const storedChange =
+            safeTaskId === null
+              ? undefined
+              : await db
+                  .select({ id: schema.releaseChanges.id })
+                  .from(schema.releaseChanges)
+                  .where(
+                    and(
+                      eq(schema.releaseChanges.releaseId, releaseId),
+                      eq(schema.releaseChanges.taskId, safeTaskId),
+                      eq(schema.releaseChanges.changeType, changeType),
+                    ),
+                  )
+                  .get();
           const idSeed = `${releaseId}|${task.id}|${changeType}`;
           const id =
             storedChange?.id ?? createHash('sha256').update(idSeed).digest('hex').slice(0, 32);
@@ -2051,7 +2060,7 @@ export async function releaseReconcileV2(
             .values({
               id,
               releaseId,
-              taskId: task.id,
+              taskId: safeTaskId,
               changeType,
               summary: task.userFacingSummary || `${task.id}: ${task.kind}`,
               description: null,
