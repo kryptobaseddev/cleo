@@ -18,6 +18,7 @@ import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import type { DatabaseSync } from 'node:sqlite';
 import type { SupersededStoreBareAccount, TableScope } from '@cleocode/contracts';
+import { DRAINED_TWINS } from '../drained-twins.js';
 import { legacyRowProjection } from '../exodus/column-transforms.js';
 import { resolveConsolidatedTableName } from '../exodus/table-name-map.js';
 import {
@@ -192,6 +193,8 @@ function bareTwinPairs(db: DatabaseSync): Array<{ bare: string; table: string }>
   const pairs: Array<{ bare: string; table: string }> = [];
   for (const bare of tables) {
     if (syncSet.has(bare)) continue;
+    // A drained twin's bare rows are carried by the next open, never stranded (T13777).
+    if (Object.hasOwn(DRAINED_TWINS, bare)) continue;
     const target = resolveConsolidatedTableName('tasks', bare);
     if (target.kind !== 'mapped' || target.targetName === bare) continue;
     const table = target.targetName;
