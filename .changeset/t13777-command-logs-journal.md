@@ -21,3 +21,11 @@ once the table synced.
 `nexus_devices` and `nexus_project_locations` are local-only. The cloud holds
 device presence and where projects live (/v1/status); a machine's own view and
 its paths never replicate.
+
+Portable tables the journal does not carry yet are named in a journal
+checkpoint's signed `snapshotAuthoritative` list, which the server's row rule
+skips (cleo-nexus #45). The list only shrinks along a lineage and is sent only
+to a server whose E3 status lists `manifest.snapshot-authoritative`; against
+an older server a push whose exempt tables changed is refused with that cause.
+`cleo cloud verify` compares those tables with the head snapshot, not with
+the journal's tallies.

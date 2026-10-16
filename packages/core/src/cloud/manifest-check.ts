@@ -203,7 +203,10 @@ export type AccountingFinding =
   | { reason: 'voided-exceeds-declared'; ref: TxnRef; table: string }
   | { reason: 'revived-not-voided'; ref: TxnRef }
   | { reason: 'revived-exceeds-voided'; ref: TxnRef; table: string }
-  | { reason: 'pruned-out-of-range'; table: string; pruned: number; max: number };
+  | { reason: 'pruned-out-of-range'; table: string; pruned: number; max: number }
+  | { reason: 'authoritative-not-normal' }
+  | { reason: 'authoritative-grew'; table: string }
+  | { reason: 'authoritative-declared'; table: string };
 
 /** The v3 verdict: the v2 outcomes, accounting refusals, or the stream's v3 ratchet. */
 export type ManifestVerdictV3 =
@@ -247,6 +250,8 @@ function addInto(into: Map<string, Counts>, d: TableDeltas, sign = 1): void {
  * only the named transactions need loading: Decl(window) + Decl(parent.pending) − Decl(pending).
  * The snapshot-authoritative keys ({@link isSnapshotAuthoritativeKey}: the vault's files and other
  * databases) are not reconciled: no segment declares their rows (T12999).
+ * Neither are the tables `next.snapshotAuthoritative` lists (T13777): sorted, unique, a subset of the
+ * parent's list when the parent has one, and never a table the window or the parent's pending declare.
  * A v2 manifest is the v3 one with empty lists; a v2 segment is one transaction (txn 0) with the
  * segment's deltas. Once a stream has a v3 checkpoint, a v2 one is refused (E_STREAM_VERSION): the
  * lineage is linear, so checking the parent ratchets the whole stream.
@@ -304,6 +309,19 @@ export function checkManifestV3(input: {
     }
   }
 
+  // T13777: the snapshot-authoritative list is sorted and unique, and only shrinks along the lineage (a
+  // parent without one allows any list).
+  const authoritative = next.snapshotAuthoritative ?? [];
+  if (authoritative.some((t, i) => i > 0 && t <= (authoritative[i - 1] ?? ''))) {
+    findings.push({ reason: 'authoritative-not-normal' });
+  }
+  if (parent?.snapshotAuthoritative !== undefined) {
+    const allowed = new Set(parent.snapshotAuthoritative);
+    for (const table of authoritative) {
+      if (!allowed.has(table)) findings.push({ reason: 'authoritative-grew', table });
+    }
+  }
+
   if (parent === null) {
     // Genesis snapshots the store: there is no window to account for or replay.
     const empty =
@@ -349,6 +367,17 @@ export function checkManifestV3(input: {
     else addInto(declA, t.deltas, -1);
   }
   const appliedByKey = new Map([...candidates].filter(([k]) => !pendingKeys.has(k)));
+  // A table some segment declares rows for is the journal's, never the snapshot's alone (T13777).
+  for (const table of authoritative) {
+    const declared = [
+      input.window.deltas,
+      ...[...parentPending.values()].map((t) => t.deltas),
+    ].some((d) => {
+      const c = own(d, table);
+      return c.created !== 0 || c.deleted !== 0;
+    });
+    if (declared) findings.push({ reason: 'authoritative-declared', table });
+  }
 
   for (const v of voided) {
     const declared = appliedByKey.get(txnRefKey(v.ref));
@@ -419,9 +448,10 @@ export function checkManifestV3(input: {
     ...adjust.keys(),
     ...Object.keys(next.tables),
   ]);
+  const authoritativeSet = new Set(authoritative);
   const regressions: RegressionFinding[] = [];
   for (const table of [...tables].sort()) {
-    if (isSnapshotAuthoritativeKey(table)) continue;
+    if (isSnapshotAuthoritativeKey(table) || authoritativeSet.has(table)) continue;
     const parentRows = Object.hasOwn(parent.tables, table) ? (parent.tables[table]?.rows ?? 0) : 0;
     const { created, deleted } = declA.get(table) ?? ZERO;
     const expectedRows = parentRows + created - deleted + (adjust.get(table) ?? 0);

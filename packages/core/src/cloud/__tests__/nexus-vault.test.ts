@@ -34,6 +34,7 @@ import type { DatabaseSync as _DatabaseSyncType } from 'node:sqlite';
 import { gunzipSync } from 'node:zlib';
 import {
   type CloudWarning,
+  NEXUS_FEATURE_MANIFEST_SNAPSHOT_AUTHORITATIVE,
   NEXUS_FEATURE_PROJECT_INITIAL_KEY,
   type NexusLoginResult,
   type PortableBundleManifest,
@@ -6423,6 +6424,45 @@ describe('sync enable push: the genesis checkpoint (T12343 S4-1b)', () => {
       );
       expect(s.checkpoints.at(-1)?.manifest.tables['tasks_tasks']?.rows).toBe(bRows);
       expect(bRows).toBeGreaterThanOrEqual(3);
+    });
+
+    it('T13777: a portable table the journal does not carry is named snapshot-authoritative, only to a server that takes the list', async () => {
+      const { a, aDb } = await journalDevices(false);
+      const s = fake.stream(STREAM);
+      // A command's audit row: portable, still exempt from row identity, never journaled.
+      await on(a, async () => {
+        const db = await storeOf(aDb);
+        db.exec(insertTask('T3', 'from A'));
+        db.exec(
+          "INSERT INTO tasks_audit_log (id, action, task_id) VALUES ('log-t13777-1', 'task_updated', 'T3')",
+        );
+      });
+      // A server without the list: refused, naming the cause, nothing written.
+      fake.features = undefined;
+      const old = await failure(on(a, () => pushNexusVault(vopts(a, { allowUnreleased: true }))));
+      expect(old.code).toBe('E_NEXUS_VAULT_REFUSED');
+      expect(old.message).toContain('manifest.snapshot-authoritative');
+      expect(old.message).toContain('tasks_audit_log');
+      expect(s.checkpoints).toHaveLength(1);
+      // A server that takes it: the checkpoint names the table and lands.
+      fake.features = [NEXUS_FEATURE_MANIFEST_SNAPSHOT_AUTHORITATIVE];
+      const pushed = await on(a, () => pushNexusVault(vopts(a, { allowUnreleased: true })));
+      expect(pushed.status).toBe('pushed');
+      const cp = s.checkpoints.at(-1);
+      expect(cp?.manifest.snapshotAuthoritative).toContain('tasks_audit_log');
+      expect(cp?.manifest.snapshotAuthoritative).not.toContain('tasks_tasks');
+      expect(cp?.manifest.tables['tasks_audit_log']?.rows).toBeGreaterThan(0);
+      expect((await on(a, () => verifyNexusVault(vopts(a)))).verdict).toBe('match');
+      // More audit rows later: the next checkpoint lands too, its list no longer than the parent's.
+      await on(a, async () => {
+        (await storeOf(aDb)).exec(
+          "INSERT INTO tasks_audit_log (id, action, task_id) VALUES ('log-t13777-2', 'task_updated', 'T3')",
+        );
+      });
+      const again = await on(a, () => pushNexusVault(vopts(a, { allowUnreleased: true })));
+      expect(again.status).toBe('pushed');
+      const next = s.checkpoints.at(-1)?.manifest.snapshotAuthoritative ?? [];
+      expect(next.every((x) => cp?.manifest.snapshotAuthoritative?.includes(x))).toBe(true);
     });
 
     it('a checkpoint with pending transactions restores on a new device, and they apply exactly once after a sync', async () => {

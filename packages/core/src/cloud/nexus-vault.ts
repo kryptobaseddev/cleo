@@ -85,6 +85,7 @@ import {
 } from '@cleocode/contracts/cloud';
 import {
   NEXUS_CLOUD_MAX_PAGES,
+  NEXUS_FEATURE_MANIFEST_SNAPSHOT_AUTHORITATIVE,
   NEXUS_PAGE_LIMIT_MAX,
   type NexusCloudReplica,
   nexusCloudDevicePageSchema,
@@ -112,6 +113,7 @@ import {
   sha256File,
 } from '../store/portable-bundle-scan.js';
 import { writeRestoreMarker } from '../store/restore-marker.js';
+import { ROW_IDENTITY_EXEMPT } from '../store/row-identity-registry.js';
 import { FIRST_OPEN_LOCK_SUFFIX } from '../store/sqlite.js';
 import { isSyncFlagOn, setSyncFlag, UNRELEASED_FLAGS } from '../store/sync/flags.js';
 import {
@@ -1370,6 +1372,34 @@ async function snapshotJournalState(
 }
 
 /**
+ * The tables a journal checkpoint names as snapshot-authoritative (T13777): the manifest's portable
+ * tables that are still exempt from row identity, so the change journal never carries them and no
+ * segment declares their rows. Kept to the parent's list when it has one (the server allows only a
+ * shrinking list). `list` is null when the server does not take the field
+ * ({@link NEXUS_FEATURE_MANIFEST_SNAPSHOT_AUTHORITATIVE} absent from E3), so the manifest omits it.
+ */
+async function snapshotAuthoritativeTables(
+  conn: NexusVaultConnection,
+  t: VaultTarget,
+  keys: readonly string[],
+  parent: Checkpoint,
+): Promise<{ list: string[] | null; exempt: ReadonlySet<string> }> {
+  const exempt = new Set(Object.keys(ROW_IDENTITY_EXEMPT[tableScopeOf(t)]));
+  const status = await conn.find(
+    t.projectId !== null ? nexusQueryPath('/v1/status', { projectId: t.projectId }) : '/v1/status',
+    nexusCloudStatusSchema,
+  );
+  if (!(status?.features ?? []).includes(NEXUS_FEATURE_MANIFEST_SNAPSHOT_AUTHORITATIVE)) {
+    return { list: null, exempt };
+  }
+  const allowed = parent.manifest.snapshotAuthoritative;
+  return {
+    list: keys.filter((k) => exempt.has(k) && (allowed === undefined || allowed.includes(k))),
+    exempt,
+  };
+}
+
+/**
  * `cleo cloud push` on a store that writes its stream's change journal
  * (`sync.push` on; T12999, journal spec §2.11): seal, push and pull the
  * journal first, then snapshot the store as a checkpoint/v3 at the journal's
@@ -1562,16 +1592,25 @@ async function pushJournalCheckpoint(
       const keys = [...new Set([...Object.keys(tables), ...Object.keys(parent.manifest.tables)])]
         .filter((k) => !isVaultAnnotationKey(k))
         .sort();
+      // Portable tables the journal does not carry yet are the snapshot's alone (T13777), named in
+      // the manifest only to a server that takes the list; the list only shrinks along the lineage.
+      const authoritative = await snapshotAuthoritativeTables(conn, t, keys, parent);
       const { tallies, unexplained } = settleShortfalls(
         taken.read.tallies,
         local,
-        keys.filter((k) => !isSnapshotAuthoritativeKey(k)),
+        keys.filter(
+          (k) => !isSnapshotAuthoritativeKey(k) && !(authoritative.list?.includes(k) ?? false),
+        ),
       );
       if (unexplained.length > 0) {
+        const exemptOnly =
+          authoritative.list === null && unexplained.every((k) => authoritative.exempt.has(k));
         throw vaultError(
           'E_NEXUS_VAULT_REFUSED',
-          `this store's rows do not reconcile with ${t.streamId}'s change journal (${unexplained.slice(0, 8).join(', ')}): a write landed outside the journal`,
-          'nothing was written; run `cleo cloud sync`, then push again',
+          `this store's rows do not reconcile with ${t.streamId}'s change journal (${unexplained.slice(0, 8).join(', ')}): ${exemptOnly ? 'these tables are not in the change journal yet, and this Cleo Nexus server does not take a snapshot-authoritative list (manifest.snapshot-authoritative)' : 'a write landed outside the journal'}`,
+          exemptOnly
+            ? 'nothing was written; upgrade the Cleo Nexus server, then push again'
+            : 'nothing was written; run `cleo cloud sync`, then push again',
         );
       }
       const vaultOnlyChanged = keys.some(
@@ -1607,6 +1646,7 @@ async function pushJournalCheckpoint(
               revived: [],
               pruned: {},
               replayPin: pin,
+              ...(authoritative.list !== null ? { snapshotAuthoritative: authoritative.list } : {}),
             },
             cursor: {
               after: cursor.after,
@@ -4085,7 +4125,13 @@ async function journalVerifySide(
   signers: TrustedSigners,
   t: VaultTarget,
   headCp: Checkpoint,
-): Promise<{ rows: Record<string, number>; cloudAdvanced: boolean; localChanged: boolean }> {
+): Promise<{
+  rows: Record<string, number>;
+  cloudAdvanced: boolean;
+  localChanged: boolean;
+  /** Portable tables the journal does not carry yet (T13777): compared with the head, not the tallies. */
+  authoritative: ReadonlySet<string>;
+}> {
   const window = await readJournalWindow(journal, headCp, signers);
   const { openNativeDatabase } = await import('../store/sqlite-native.js');
   const db = openNativeDatabase(t.dbPath, { readonly: true, enableWal: false });
@@ -4097,6 +4143,7 @@ async function journalVerifySide(
       rows,
       cloudAdvanced: after < window.head,
       localChanged: unpushed > 0 || sealBacklog(db).live > 0,
+      authoritative: new Set(Object.keys(ROW_IDENTITY_EXEMPT[tableScopeOf(t)])),
     };
   } finally {
     db.close();
@@ -4146,7 +4193,7 @@ async function verifyNexusVaultImpl(
       : null;
   if (journalSide !== null) {
     tables = tables.map((r) => {
-      if (isSnapshotAuthoritativeKey(r.table)) return r;
+      if (isSnapshotAuthoritativeKey(r.table) || journalSide.authoritative.has(r.table)) return r;
       const cloudRows = journalSide.rows[r.table] ?? 0;
       return { ...r, cloudRows, match: (r.localRows ?? 0) === cloudRows };
     });

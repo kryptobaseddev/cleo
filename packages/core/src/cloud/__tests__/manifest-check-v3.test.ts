@@ -100,6 +100,49 @@ describe('checkManifestV3', () => {
     expect(isSnapshotAuthoritativeKey('zz_vault_format')).toBe(false);
   });
 
+  it('does not reconcile the tables a v3 manifest lists as snapshotAuthoritative (T13777)', () => {
+    const LOG = 'tasks_audit_log';
+    const withLog = (rows: number, logRows: number, over: Partial<Manifest> = {}): Manifest => ({
+      ...v3(rows, over),
+      tables: { ...v3(rows).tables, [LOG]: { rows: logRows, hash: H } },
+    });
+    const parent = withLog(10, 2, { snapshotAuthoritative: [LOG] });
+    // Its rows changed with no segment declaring them; the journal table still reconciles.
+    expect(check(parent, withLog(13, 9, { snapshotAuthoritative: [LOG] }), [tx(ref(R1, 0), 3)])).toEqual({
+      ok: true,
+    });
+    // Not listed: it is reconciled as before.
+    const unlisted = check(parent, withLog(13, 9), [tx(ref(R1, 0), 3)]);
+    expect(unlisted.ok === false && unlisted.code === 'E_REGRESSION' && unlisted.tables.map((x) => x.table)).toEqual([
+      LOG,
+    ]);
+    // A listed table a segment declares rows for is the journal's.
+    const declared = check(parent, withLog(10, 3, { snapshotAuthoritative: [LOG] }), [
+      { ref: ref(R1, 0), deltas: { [LOG]: { created: 1, deleted: 0 } } },
+    ]);
+    expect(declared).toMatchObject({
+      ok: false,
+      code: 'E_MANIFEST_ACCOUNTING',
+      findings: [{ reason: 'authoritative-declared', table: LOG }],
+    });
+    // The list only shrinks along the lineage, and is sorted and unique.
+    expect(check(parent, withLog(10, 2, { snapshotAuthoritative: [LOG, T] }), [])).toMatchObject({
+      ok: false,
+      findings: [{ reason: 'authoritative-grew', table: T }],
+    });
+    expect(check(parent, withLog(10, 2, { snapshotAuthoritative: [] }), [])).toEqual({ ok: true });
+    expect(check(null, withLog(10, 2, { snapshotAuthoritative: [T, LOG] }), [])).toMatchObject({
+      ok: false,
+      findings: [{ reason: 'authoritative-not-normal' }],
+    });
+    // A parent without a list allows any first list.
+    expect(check(withLog(10, 2), withLog(10, 5, { snapshotAuthoritative: [LOG] }), [])).toEqual({ ok: true });
+    // v3 only, and signed only when present.
+    expect(Manifest.safeParse({ ...v2(1), snapshotAuthoritative: [LOG] }).success).toBe(false);
+    expect(manifestCanonical(v3(1))).not.toContain('snapshotAuthoritative');
+    expect(manifestCanonical(v3(1, { snapshotAuthoritative: [LOG] }))).toContain('"snapshotAuthoritative":["tasks_audit_log"]');
+  });
+
   it('concurrent inserts of the same uid: one effect voided', () => {
     // A and B both insert uid X; merged state has one row.
     const a = ref(R1, 0);
