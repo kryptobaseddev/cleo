@@ -110,7 +110,7 @@ It probes CLEO_PROJECT_HOOK_V1 before invoking the implemented CLI adapter;
 missing or incompatible runners warn and allow. `cleo hook run --probe -- execution`
 answers EXEC or INERT (older builds answer V1; stable builds before 2026.10.17 are
 inert). Every ungated push, including a hooks-inert `cleo` first on PATH, prints one
-`cleo pre-push: WARNING: push NOT gated by project hooks: <reason>` line, flagging a
+pre-push stderr line `WARNING: push NOT gated by project hooks: <reason>`, flagging a
 checkout whose activation is on (T13774). Verify nested checkout paths, linked
 worktrees, custom hook paths, historical release bodies and corrupt receipts
 with focused Git fixtures before changing this delivery path.
