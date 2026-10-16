@@ -303,6 +303,13 @@ export type EvidenceAtom =
        * longer matches, unless `ci:<pr>` or a full tool run carries the gate.
        */
       treeHash?: string;
+      /**
+       * HEAD as of the run, when it differs from `headSha` because commits
+       * landed on origin's default branch after the run (T13784). Those
+       * commits stand only while they touch none of the change's files, the
+       * test files the report ran, or the shared test configs.
+       */
+      runHeadSha?: string;
       /** Test files the report covered, relative to the bound checkout (capped, T12965). */
       testFiles?: string[];
       /** Total test files the report covered; exceeds `testFiles.length` when capped. */

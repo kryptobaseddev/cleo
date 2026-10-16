@@ -139,12 +139,14 @@ describe('uid recipes', () => {
     expect(classifyUidMatch(null, 'b')).toBe('unknown');
   });
 
-  it('declares only single-key tables as reference targets', () => {
+  it('declares only reference targets with a single local key column (its localKey, else its single key)', () => {
     for (const spec of ROW_IDENTITY.project) {
       for (const ref of [...(spec.owners ?? []), ...(spec.keyRefs ?? []), ...(spec.refs ?? [])]) {
         const target = ROW_IDENTITY.project.find((s) => s.table === ref.table);
         expect(target, `${spec.table}.${ref.column} → ${ref.table}`).toBeDefined();
-        expect(target?.key).toHaveLength(1);
+        // A natural key over several columns is fine when references point at
+        // the target's localKey (T12915; tasks_pull_requests, T12914).
+        if (target?.localKey === undefined) expect(target?.key).toHaveLength(1);
       }
     }
   });

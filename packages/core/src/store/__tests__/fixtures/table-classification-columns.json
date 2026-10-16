@@ -1688,7 +1688,8 @@
       "lines_added",
       "lines_deleted",
       "old_path",
-      "path"
+      "path",
+      "uid"
     ],
     "tasks_commits": [
       "author_email",
@@ -1708,7 +1709,8 @@
       "sha",
       "short_sha",
       "signature_verified",
-      "subject"
+      "subject",
+      "uid"
     ],
     "tasks_display_id_aliases": [
       "created_at",
@@ -1782,12 +1784,14 @@
       "uid"
     ],
     "tasks_lifecycle_evidence": [
+      "birth_fp",
       "description",
       "id",
       "recorded_at",
       "recorded_by",
       "stage_id",
       "type",
+      "uid",
       "uri"
     ],
     "tasks_lifecycle_gate_results": [
@@ -1798,7 +1802,8 @@
       "id",
       "reason",
       "result",
-      "stage_id"
+      "stage_id",
+      "uid"
     ],
     "tasks_lifecycle_pipelines": [
       "completed_at",
@@ -1807,6 +1812,7 @@
       "started_at",
       "status",
       "task_id",
+      "uid",
       "updated_at",
       "version"
     ],
@@ -1827,18 +1833,21 @@
       "stage_name",
       "started_at",
       "status",
+      "uid",
       "validated_at",
       "validated_by",
       "validation_status"
     ],
     "tasks_lifecycle_transitions": [
+      "birth_fp",
       "created_at",
       "from_stage_id",
       "id",
       "pipeline_id",
       "to_stage_id",
       "transition_type",
-      "transitioned_by"
+      "transitioned_by",
+      "uid"
     ],
     "tasks_playbook_approvals": [
       "approval_id",
@@ -1869,14 +1878,16 @@
     "tasks_pr_commits": [
       "commit_sha",
       "position",
-      "pr_id"
+      "pr_id",
+      "uid"
     ],
     "tasks_pr_tasks": [
       "created_at",
       "link_kind",
       "link_source",
       "pr_id",
-      "task_id"
+      "task_id",
+      "uid"
     ],
     "tasks_pull_requests": [
       "author_login",
@@ -1898,6 +1909,7 @@
       "repo_url",
       "state",
       "title",
+      "uid",
       "updated_at"
     ],
     "tasks_release_artifacts": [
@@ -1906,6 +1918,7 @@
       "metadata",
       "published_at",
       "release_id",
+      "uid",
       "url",
       "version"
     ],
@@ -1918,7 +1931,8 @@
       "impact",
       "release_id",
       "summary",
-      "task_id"
+      "task_id",
+      "uid"
     ],
     "tasks_release_changesets": [
       "breaking",
@@ -1930,7 +1944,8 @@
       "prs",
       "release_id",
       "summary",
-      "task_ids"
+      "task_ids",
+      "uid"
     ],
     "tasks_release_commits": [
       "commit_sha",
@@ -1938,7 +1953,8 @@
       "is_last",
       "is_release_chore",
       "position",
-      "release_id"
+      "release_id",
+      "uid"
     ],
     "tasks_releases": [
       "cancelled_at",
@@ -1970,6 +1986,7 @@
       "status",
       "tagged_at",
       "tasks_json",
+      "uid",
       "version",
       "workflow_run_url"
     ],
@@ -2059,7 +2076,8 @@
       "created_at",
       "link_kind",
       "link_source",
-      "task_id"
+      "task_id",
+      "uid"
     ],
     "tasks_task_dependencies": [
       "depends_on",

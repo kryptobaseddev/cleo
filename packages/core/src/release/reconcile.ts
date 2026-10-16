@@ -44,7 +44,7 @@ import {
   RELEASE_PERSISTED_CHANNEL,
   safeParseReleasePlan,
 } from '@cleocode/contracts/release/plan.js';
-import { eq, inArray } from 'drizzle-orm';
+import { and, eq, inArray } from 'drizzle-orm';
 import { type EngineResult, engineError, engineSuccess } from '../engine-result.js';
 import { getLogger } from '../logger.js';
 import { getProjectRoot } from '../paths.js';
@@ -1146,14 +1146,19 @@ function fetchPR(prNumber: number, projectRoot: string): ParsedPR | null {
   }
 }
 
-/** Parse `owner/repo` from an HTTPS or SSH GitHub remote URL. */
-function parseOwnerRepo(remote: string): { owner: string; repo: string } | null {
+/**
+ * Parse `owner/repo` from an HTTPS or SSH GitHub remote URL, lowercased:
+ * GitHub names are case-insensitive, and the repo URL built from them is part
+ * of a PR's row identity (T12914), so a remote spelled with another case must
+ * not make a second PR row.
+ */
+export function parseOwnerRepo(remote: string): { owner: string; repo: string } | null {
   const trimmed = remote.trim();
-  const https = trimmed.match(/^https?:\/\/github\.com\/([^/]+)\/([^/]+?)(?:\.git)?$/);
-  if (https) return { owner: https[1], repo: https[2] };
-  const ssh = trimmed.match(/^git@github\.com:([^/]+)\/([^/]+?)(?:\.git)?$/);
-  if (ssh) return { owner: ssh[1], repo: ssh[2] };
-  return null;
+  const m =
+    trimmed.match(/^https?:\/\/github\.com\/([^/]+)\/([^/]+?)(?:\.git)?$/i) ??
+    trimmed.match(/^git@github\.com:([^/]+)\/([^/]+?)(?:\.git)?$/i);
+  if (!m?.[1] || !m[2]) return null;
+  return { owner: m[1].toLowerCase(), repo: m[2].toLowerCase() };
 }
 
 // ─── Helpers — plan archive ──────────────────────────────────────────────────
@@ -1796,9 +1801,24 @@ export async function releaseReconcileV2(
       // set; if absent we either set the FK column to NULL (pullRequests)
       // or skip the row entirely (prCommits — NOT NULL FK can't be NULLed).
       const insertedShas = new Set<string>(commits.map((c) => c.sha));
+      // T12914: a PR is one row per (repo, number) on every device; its id is
+      // device-local (a PR received by sync takes its uid), so reuse the
+      // stored id before minting `<projectHash>:<number>`.
+      const prIds = new Map<number, string>();
       try {
         for (const pr of fetchedPRs) {
-          const prId = `${projectHash}:${pr.prNumber}`;
+          const storedPr = await db
+            .select({ id: schema.pullRequests.id })
+            .from(schema.pullRequests)
+            .where(
+              and(
+                eq(schema.pullRequests.repoUrl, pr.repoUrl),
+                eq(schema.pullRequests.prNumber, pr.prNumber),
+              ),
+            )
+            .get();
+          const prId = storedPr?.id ?? `${projectHash}:${pr.prNumber}`;
+          prIds.set(pr.prNumber, prId);
           const isBumpPr = !!plan.prUrl && plan.prUrl.endsWith(`/pull/${pr.prNumber}`);
           // Sanitise FK references — see `sanitisePrShasForFk` for the why.
           const safePr = sanitisePrShasForFk(pr, insertedShas);
@@ -1902,7 +1922,7 @@ export async function releaseReconcileV2(
         const bumpPrId = (() => {
           if (!plan.prUrl) return null;
           const m = plan.prUrl.match(/\/pull\/(\d+)/);
-          return m ? `${projectHash}:${m[1]}` : null;
+          return m ? (prIds.get(Number(m[1])) ?? `${projectHash}:${m[1]}`) : null;
         })();
         // FK safety (C3): releasesNew.mergeCommitSha is a soft FK to
         // commits.sha (ON DELETE SET NULL). If the plan references a
@@ -2006,17 +2026,35 @@ export async function releaseReconcileV2(
         for (let i = 0; i < plan.tasks.length; i++) {
           const task = plan.tasks[i];
           const changeType = classifyChangeType(task, plan);
-          // Build deterministic ID so re-running upserts the same row.
-          const idSeed = `${releaseId}|${task.id}|${changeType}`;
-          const id = createHash('sha256').update(idSeed).digest('hex').slice(0, 32);
-          // FK safety (DHQ-051 · T11659): `release_changes.task_id` FKs the bare
-          // `tasks` table (ON DELETE SET NULL, nullable). NULL the column when
-          // the FK parent cannot resolve the id; the change row still records
-          // the summary/impact, just without the dangling task linkage.
+          // A change links its task only when the task is in the runtime
+          // store: verifyProvenance requires every release_changes.task_id to
+          // resolve or be NULL. A NULL-task row stays local (localWhenNull,
+          // T12914), so two absent tasks never fold into one synced row.
           const safeTaskId = fkResolvableTaskIds.has(task.id) ? task.id : null;
           if (safeTaskId === null && validTaskIds.has(task.id)) {
             skippedTaskRefs.add(task.id);
           }
+          // T12914: a linked change is one row per (release, task, change type)
+          // on every device, and its id is device-local (a change received by
+          // sync takes its uid): reuse the stored one, else mint the
+          // deterministic id so a re-run upserts.
+          const storedChange =
+            safeTaskId === null
+              ? undefined
+              : await db
+                  .select({ id: schema.releaseChanges.id })
+                  .from(schema.releaseChanges)
+                  .where(
+                    and(
+                      eq(schema.releaseChanges.releaseId, releaseId),
+                      eq(schema.releaseChanges.taskId, safeTaskId),
+                      eq(schema.releaseChanges.changeType, changeType),
+                    ),
+                  )
+                  .get();
+          const idSeed = `${releaseId}|${task.id}|${changeType}`;
+          const id =
+            storedChange?.id ?? createHash('sha256').update(idSeed).digest('hex').slice(0, 32);
           await db
             .insert(schema.releaseChanges)
             .values({
