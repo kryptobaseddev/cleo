@@ -47,7 +47,14 @@
  */
 
 import { sql } from 'drizzle-orm';
-import { index, integer, primaryKey, sqliteTable, text } from 'drizzle-orm/sqlite-core';
+import {
+  index,
+  integer,
+  primaryKey,
+  sqliteTable,
+  text,
+  uniqueIndex,
+} from 'drizzle-orm/sqlite-core';
 import {
   COMMIT_CONVENTIONAL_TYPES,
   COMMIT_FILE_CHANGE_TYPES,
@@ -112,8 +119,11 @@ export const tasksCommits = sqliteTable(
     projectHash: text('project_hash'),
     /** ISO-8601 UTC insertion instant (canonical TEXT timestamp, §4). */
     createdAt: text('created_at').notNull().default(sql`(datetime('now'))`),
+    /** Row uid (T12914): a UUIDv8 over the sha, filled at open or by the uid trigger. */
+    uid: text('uid'),
   },
   (table) => [
+    uniqueIndex('uq_tasks_commits_uid').on(table.uid),
     index('idx_tasks_commits_short_sha').on(table.shortSha),
     index('idx_tasks_commits_author_email').on(table.authorEmail),
     index('idx_tasks_commits_authored_at').on(table.authoredAt),
@@ -148,8 +158,11 @@ export const tasksTaskCommits = sqliteTable(
     linkSource: text('link_source', { enum: COMMIT_LINK_SOURCES }).notNull(),
     /** ISO-8601 UTC link-creation instant (canonical TEXT timestamp, §4). */
     createdAt: text('created_at').notNull().default(sql`(datetime('now'))`),
+    /** Row uid (T12914): a UUIDv8 over (task id, commit uid, link kind), filled at open or by the uid trigger. */
+    uid: text('uid'),
   },
   (table) => [
+    uniqueIndex('uq_tasks_task_commits_uid').on(table.uid),
     primaryKey({ columns: [table.taskId, table.commitSha, table.linkKind] }),
     index('idx_tasks_task_commits_task_id').on(table.taskId),
     index('idx_tasks_task_commits_commit_sha').on(table.commitSha),
@@ -183,8 +196,11 @@ export const tasksCommitFiles = sqliteTable(
     linesDeleted: integer('lines_deleted').notNull().default(0),
     /** Whether the file is binary. E10 §3b: untyped INTEGER 0/1 → typed boolean. */
     isBinary: integer('is_binary', { mode: 'boolean' }).notNull().default(false),
+    /** Row uid (T12914): a UUIDv8 over (commit uid, path), filled at open or by the uid trigger. */
+    uid: text('uid'),
   },
   (table) => [
+    uniqueIndex('uq_tasks_commit_files_uid').on(table.uid),
     primaryKey({ columns: [table.commitSha, table.path] }),
     index('idx_tasks_commit_files_path').on(table.path),
     index('idx_tasks_commit_files_change_type').on(table.changeType),

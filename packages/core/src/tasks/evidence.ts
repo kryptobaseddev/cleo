@@ -2058,10 +2058,12 @@ async function validateTestRun(
   const headSha = treeHash ? await captureHead(bindRoot) : null;
   const identity = treeHash && headSha ? { treeHash, headSha } : null;
   let untestedPackages: string[] = [];
+  let runHeadSha: string | undefined;
   if (identity) {
     const binding = bindTestRunReport(parsed, abs, bindRoot, testFiles);
     if (!binding.ok) return { ok: false, reason: binding.reason, codeName: binding.codeName };
     untestedPackages = binding.untestedPackages;
+    runHeadSha = binding.runHeadSha;
   }
   return {
     ok: true,
@@ -2077,6 +2079,7 @@ async function validateTestRun(
       failCount: failed,
       skipCount: pending,
       ...(identity ? { headSha: identity.headSha, treeHash: identity.treeHash } : {}),
+      ...(runHeadSha ? { runHeadSha } : {}),
       ...(testFiles.length > 0
         ? {
             testFiles: testFiles.slice(0, TEST_RUN_MAX_RECORDED_FILES),
@@ -3342,6 +3345,13 @@ export function checkTaskEvidenceContext(
           !atoms.some(
             (other) => other.kind === 'tool' && canonicalToolName(other.tool) === atom.check,
           ),
+      ),
+      // T13698: a whole-project run also speaks for paths neither check reads.
+      atoms.some(
+        (atom) =>
+          atom.kind === 'tool' &&
+          !atom.notApplicable &&
+          (canonicalToolName(atom.tool) === 'lint' || canonicalToolName(atom.tool) === 'typecheck'),
       ),
     );
     if (gap !== null) return gap;

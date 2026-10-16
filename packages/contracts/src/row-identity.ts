@@ -115,6 +115,13 @@ export interface RowIdentitySpec {
   /** `natural` relation tables: the symmetric relation types. */
   readonly symmetric?: SymmetricEdge;
   /**
+   * `natural`: nullable key columns. A row whose value in one of them is NULL
+   * gets no uid and stays on its device: it is never captured, never filled
+   * and never pending (T12914). SQLite admits several NULLs in a composite
+   * primary key, so such rows would otherwise fold into one uid and diverge.
+   */
+  readonly localWhenNull?: readonly string[];
+  /**
    * `minted`: every uid is random, never derived from content, including for
    * existing rows. Required for `portable-secret` tables.
    */

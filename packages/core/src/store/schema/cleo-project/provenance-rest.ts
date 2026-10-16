@@ -53,7 +53,14 @@
 
 import { CHANGESET_KINDS } from '@cleocode/contracts/changesets.js';
 import { sql } from 'drizzle-orm';
-import { index, integer, primaryKey, sqliteTable, text } from 'drizzle-orm/sqlite-core';
+import {
+  index,
+  integer,
+  primaryKey,
+  sqliteTable,
+  text,
+  uniqueIndex,
+} from 'drizzle-orm/sqlite-core';
 import { PR_LINK_KINDS, PR_LINK_SOURCES, PR_STATES } from '../provenance/pull-requests.js';
 import {
   RELEASE_ARTIFACT_TYPES,
@@ -118,8 +125,11 @@ export const tasksPullRequests = sqliteTable(
     createdAt: text('created_at').notNull().default(sql`(datetime('now'))`),
     /** ISO-8601 UTC last-update instant (canonical TEXT, §4). */
     updatedAt: text('updated_at').notNull().default(sql`(datetime('now'))`),
+    /** Row uid (T12914): a UUIDv8 over (repo URL, PR number; `id` is device-local), filled at open or by the uid trigger. */
+    uid: text('uid'),
   },
   (table) => [
+    uniqueIndex('uq_tasks_pull_requests_uid').on(table.uid),
     index('idx_tasks_pull_requests_pr_number').on(table.prNumber),
     index('idx_tasks_pull_requests_state').on(table.state),
     index('idx_tasks_pull_requests_merge_commit_sha').on(table.mergeCommitSha),
@@ -145,8 +155,11 @@ export const tasksPrCommits = sqliteTable(
     commitSha: text('commit_sha').notNull(),
     /** Ordinal position of the commit within the PR (0-based). */
     position: integer('position').notNull(),
+    /** Row uid (T12914): a UUIDv8 over (PR uid, commit sha), filled at open or by the uid trigger. */
+    uid: text('uid'),
   },
   (table) => [
+    uniqueIndex('uq_tasks_pr_commits_uid').on(table.uid),
     primaryKey({ columns: [table.prId, table.commitSha] }),
     index('idx_tasks_pr_commits_pr_id').on(table.prId),
     index('idx_tasks_pr_commits_commit_sha').on(table.commitSha),
@@ -174,8 +187,11 @@ export const tasksPrTasks = sqliteTable(
     linkKind: text('link_kind', { enum: PR_LINK_KINDS }).notNull(),
     /** ISO-8601 UTC creation instant (canonical TEXT, §4). */
     createdAt: text('created_at').notNull().default(sql`(datetime('now'))`),
+    /** Row uid (T12914): a UUIDv8 over (PR uid, task id, link kind), filled at open or by the uid trigger. */
+    uid: text('uid'),
   },
   (table) => [
+    uniqueIndex('uq_tasks_pr_tasks_uid').on(table.uid),
     primaryKey({ columns: [table.prId, table.taskId, table.linkKind] }),
     index('idx_tasks_pr_tasks_pr_id').on(table.prId),
     index('idx_tasks_pr_tasks_task_id').on(table.taskId),
@@ -257,8 +273,11 @@ export const tasksReleases = sqliteTable(
     taggedAt: text('tagged_at'),
     /** Legacy: ISO-8601 UTC pushed instant (canonical TEXT, §4). */
     pushedAt: text('pushed_at'),
+    /** Row uid (T12914): a UUIDv8 over the version (`id` is device-local), filled at open or by the uid trigger. */
+    uid: text('uid'),
   },
   (table) => [
+    uniqueIndex('uq_tasks_releases_uid').on(table.uid),
     index('idx_tasks_releases_version').on(table.version),
     index('idx_tasks_releases_status').on(table.status),
     index('idx_tasks_releases_channel').on(table.channel),
@@ -292,8 +311,11 @@ export const tasksReleaseCommits = sqliteTable(
     isLast: integer('is_last', { mode: 'boolean' }).notNull().default(false),
     /** chore(release) version-bump commit. E10 §3b: 0/1 → boolean. */
     isReleaseChore: integer('is_release_chore', { mode: 'boolean' }).notNull().default(false),
+    /** Row uid (T12914): a UUIDv8 over (release uid, commit sha), filled at open or by the uid trigger. */
+    uid: text('uid'),
   },
   (table) => [
+    uniqueIndex('uq_tasks_release_commits_uid').on(table.uid),
     primaryKey({ columns: [table.releaseId, table.commitSha] }),
     index('idx_tasks_release_commits_release_id').on(table.releaseId),
     index('idx_tasks_release_commits_commit_sha').on(table.commitSha),
@@ -331,8 +353,11 @@ export const tasksReleaseChanges = sqliteTable(
     classifiedBy: text('classified_by', { enum: RELEASE_CLASSIFIED_BY }).notNull().default('auto'),
     /** ISO-8601 UTC classification instant (canonical TEXT, §4). */
     classifiedAt: text('classified_at').notNull().default(sql`(datetime('now'))`),
+    /** Row uid (T12914): a UUIDv8 over (release uid, task id, change type; `id` is device-local), filled at open or by the uid trigger. */
+    uid: text('uid'),
   },
   (table) => [
+    uniqueIndex('uq_tasks_release_changes_uid').on(table.uid),
     index('idx_tasks_release_changes_release_id').on(table.releaseId),
     index('idx_tasks_release_changes_task_id').on(table.taskId),
     index('idx_tasks_release_changes_change_type').on(table.changeType),
@@ -372,8 +397,11 @@ export const tasksReleaseChangesets = sqliteTable(
     breaking: text('breaking'),
     /** ISO-8601 UTC creation instant (canonical TEXT, §4). */
     createdAt: text('created_at').notNull().default(sql`(datetime('now'))`),
+    /** Row uid (T12914): a UUIDv8 over (release uid, changeset slug; `id` is device-local), filled at open or by the uid trigger. */
+    uid: text('uid'),
   },
   (table) => [
+    uniqueIndex('uq_tasks_release_changesets_uid').on(table.uid),
     index('idx_tasks_release_changesets_release_id').on(table.releaseId),
     index('idx_tasks_release_changesets_changeset_id').on(table.changesetId),
     index('idx_tasks_release_changesets_kind').on(table.kind),
@@ -404,8 +432,11 @@ export const tasksReleaseArtifacts = sqliteTable(
     publishedAt: text('published_at'),
     /** JSON type-specific metadata (TEXT per JSON audit; empty-object default). */
     metadata: text('metadata').notNull().default('{}'),
+    /** Row uid (T12914): a UUIDv8 over (release uid, artifact type, identifier), filled at open or by the uid trigger. */
+    uid: text('uid'),
   },
   (table) => [
+    uniqueIndex('uq_tasks_release_artifacts_uid').on(table.uid),
     primaryKey({ columns: [table.releaseId, table.artifactType, table.identifier] }),
     index('idx_tasks_release_artifacts_release_id').on(table.releaseId),
     index('idx_tasks_release_artifacts_artifact_type').on(table.artifactType),

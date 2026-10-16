@@ -153,7 +153,8 @@ async function getDb(cwd?: string): ReturnType<typeof import('../store/sqlite.js
  *
  * Consumers MUST handle both lifecycles. Code that needs to know which
  * pipeline owns a row can branch on `manifest.source` ('new' | 'legacy'),
- * derived from the row PK at read time.
+ * derived from `tasks_json` at read time, never from the id: a release's id
+ * is device-local (a release received by sync takes its uid, T12914).
  *
  * @task T9686
  */
@@ -994,7 +995,21 @@ export async function cancelRelease(
     };
   }
 
-  await db.delete(schema.releases).where(eq(schema.releases.version, normalizedVersion)).run();
+  // T12914: the children go first, while the release still exists, so each
+  // child's delete is captured with the release's uid. A FK cascade captures
+  // them after the release is gone, without it (the id is device-local).
+  const releaseId = rows[0]!.id;
+  db.transaction((tx) => {
+    for (const child of [
+      schema.releaseCommits,
+      schema.releaseChanges,
+      schema.releaseChangesets,
+      schema.releaseArtifacts,
+    ]) {
+      tx.delete(child).where(eq(child.releaseId, releaseId)).run();
+    }
+    tx.delete(schema.releases).where(eq(schema.releases.id, releaseId)).run();
+  });
 
   return {
     success: true,

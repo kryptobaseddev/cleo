@@ -4,17 +4,20 @@ description: >-
   Lean change discipline for CLEO work: the smallest change that fully solves the task, and
   a reply a busy owner understands in one read. Use on every coding task (writing, fixing,
   refactoring, reviewing, choosing dependencies) and when the owner asks for the simplest
-  solution, YAGNI, or complains about over-engineering or bloat. Never trades away evidence
+  solution, YAGNI, or complains about over-engineering or bloat; also for a lean code review
+  ("review this", "review my PR") or a whole-repo audit ("audit the repo", "what can I
+  delete"). Never trades away evidence
   gates, package boundaries, validation, data safety or anything the task asked for.
 license: MIT
 metadata:
-  version: 1.2.0
+  version: 1.4.0
   tier: core
   install: harness
   covers:
     - packages/core/src/orchestration/lean-change.ts
     - packages/cleo/src/cli/commands/lean.ts
     - packages/core/src/orchestration/lean-debt.ts
+    - packages/core/src/orchestration/lean-gain.ts
   lastReviewed: 2026-10-13
   stability: stable
   attribution: Adapted from Ponytail 5.1.0 by DietrichGebert (MIT) — https://github.com/DietrichGebert/ponytail
@@ -39,6 +42,8 @@ The level resolves from `CLEO_LEAN_LEVEL`, then the session level, then the `lea
 config key, then `full`. When the owner asks for a level ("go ultra", "lean off"), set it:
 `cleo lean level ultra --session` for this session, `cleo lean level lite` for the project,
 `--global` for every project. `cleo lean level` alone shows the level and its source.
+`cleo lean gain --card` shows the measured benchmark scoreboard: averages, never a number
+for this repo.
 
 ## Before you write
 
@@ -104,7 +109,9 @@ never in the reply (CLEO-INJECTION.md universal protocol step 7).
 
 - `references/examples.md` — worked CLEO examples, over-built vs lean.
 - `references/never-cut.md` — the never-cut list with the gate that enforces each row.
-- `references/reviewing.md` — a lean review checklist for PRs and your own diff.
+- `references/review.md` — review a change: correct, safe, load, tested, fast, lean, on
+  `cleo nexus` callers and blast radius; numbered four-part findings and a verdict.
+- `references/audit.md` — audit a whole repo the same way, on `cleo map` and `cleo nexus`.
 
 ---
 

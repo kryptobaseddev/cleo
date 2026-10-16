@@ -840,8 +840,13 @@ export async function deriveTaskEvidence(
   const satisfies = normaliseSatisfies(taskId, opts.satisfies, rows);
   const policy = await loadVerificationGatePolicy(storeRoot);
 
+  // T13785: a parent whose work was split across its children closes on the
+  // PRs its done children shipped, never on one picked PR.
+  const doneChildIds = (await accessor.getChildren(taskId))
+    .filter((c) => c.status === 'done')
+    .map((c) => c.id);
   const changeSet = await deriveTaskChangeSet(
-    { task, storeRoot, cwd: opts.cwd, prNumber: opts.prNumber },
+    { task, storeRoot, cwd: opts.cwd, prNumber: opts.prNumber, doneChildIds },
     opts.deps,
   );
   const root = changeSet.executionRoot;

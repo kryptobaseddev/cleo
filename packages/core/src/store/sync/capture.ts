@@ -100,6 +100,12 @@ export interface CaptureTableDef {
    * planning (T13719), so an op from a build that still sent one applies.
    */
   readonly localOnly?: ReadonlySet<string>;
+  /**
+   * Nullable key columns whose NULL keeps a row local (T12914,
+   * `RowIdentitySpec.localWhenNull`): such a row has no uid and is never
+   * captured.
+   */
+  readonly localWhenNull?: readonly string[];
 }
 
 /** One generated trigger. */
@@ -185,6 +191,7 @@ export function captureTableDef(
     ...(localRowid && spec.localKey === localRowid && !isIntegerColumn(info, localRowid)
       ? { localKeyIsUid: true }
       : {}),
+    ...(spec.localWhenNull ? { localWhenNull: spec.localWhenNull } : {}),
   };
 }
 
@@ -399,13 +406,16 @@ export function captureTriggers(def: CaptureTableDef): CaptureTrigger[] {
     `INSERT INTO _sync_capture (tbl, op, rk, uid, img, at_ms) VALUES (${lit(def.table)}, '${op}', ${rkExpr(def, row)}, ${uid}, ${img}, ${AT_MS_SQL});`;
 
   const out: CaptureTrigger[] = [];
+  // T12914: a row kept local by a NULL key column is never captured.
+  const synced = (row: string): string =>
+    (def.localWhenNull ?? []).map((c) => ` AND ${row}.${q(c)} IS NOT NULL`).join('');
 
   out.push({
     name: name('i'),
     table: def.table,
     refs,
     sql:
-      `CREATE TRIGGER ${q(name('i'))} AFTER INSERT ON ${t} WHEN ${CAPTURE_WHEN} BEGIN ` +
+      `CREATE TRIGGER ${q(name('i'))} AFTER INSERT ON ${t} WHEN ${CAPTURE_WHEN}${synced('NEW')} BEGIN ` +
       `${ins('I', 'NEW', liveUid, fullImage(def, 'NEW', true))} ` +
       `${undoInsert(def, 'I', 'NEW', liveUid, 'NULL', undoImage(def, 'NEW', true))} END`,
   });
@@ -436,7 +446,7 @@ export function captureTriggers(def: CaptureTableDef): CaptureTrigger[] {
       refs,
       sql:
         `CREATE TRIGGER ${q(name('u'))} AFTER UPDATE OF ${updatable.map(q).join(', ')} ON ${t} ` +
-        `WHEN (${changed}) AND ${CAPTURE_WHEN} BEGIN ` +
+        `WHEN (${changed}) AND ${CAPTURE_WHEN}${synced('OLD')}${synced('NEW')} BEGIN ` +
         `${ins('U', 'NEW', oldUid, img)} ` +
         `${undoInsert(def, 'U', 'NEW', oldUid, changedUndoImage(updatable, 'OLD'), changedUndoImage(updatable, 'NEW'))} END`,
     });
@@ -447,7 +457,7 @@ export function captureTriggers(def: CaptureTableDef): CaptureTrigger[] {
     table: def.table,
     refs,
     sql:
-      `CREATE TRIGGER ${q(name('d'))} AFTER DELETE ON ${t} WHEN ${CAPTURE_WHEN} BEGIN ` +
+      `CREATE TRIGGER ${q(name('d'))} AFTER DELETE ON ${t} WHEN ${CAPTURE_WHEN}${synced('OLD')} BEGIN ` +
       `${ins('D', 'OLD', oldUid, fullImage(def, 'OLD', false))} ` +
       `${undoInsert(def, 'D', 'OLD', oldUid, undoImage(def, 'OLD', false), 'NULL')} END`,
   });

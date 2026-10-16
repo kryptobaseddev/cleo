@@ -29,3 +29,6 @@ to a server whose E3 status lists `manifest.snapshot-authoritative`; against
 an older server a push whose exempt tables changed is refused with that cause.
 `cleo cloud verify` compares those tables with the head snapshot, not with
 the journal's tallies.
+
+Rows waiting in the drained bare `token_usage` never count as a legacy
+strand: `tasks_token_usage` now syncs, and the next open carries them.
