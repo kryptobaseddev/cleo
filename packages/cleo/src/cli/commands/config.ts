@@ -86,11 +86,19 @@ const ownerEnrollCommand = defineCommand({
       "Enroll this project's owner key (owner only: interactive terminal, --owner-auth session); --reset replaces one (audited)",
   },
   args: {
-    reset: { type: 'boolean', description: 'Replace an existing enrollment (audited)' },
+    reset: {
+      type: 'boolean',
+      description: "Replace an existing enrollment; needs the current owner's password (audited)",
+    },
+    confirm: {
+      type: 'boolean',
+      description:
+        'Confirm an enrollment that replaced another without proof of the previous owner',
+    },
   },
   async run({ args }) {
     const { runOwnerEnroll } = await import('../lib/owner-override-cap.js');
-    await runOwnerEnroll(args.reset === true);
+    await runOwnerEnroll(args.reset === true, args.confirm === true);
   },
 });
 

@@ -50,3 +50,8 @@ detectable, not preventable.
 - The `--owner` mark is refused in the core write path without a terminal or with `CLEO_AGENT_ROLE` set.
 - `cleo doctor` warns on a recent enrollment, a `script`/`expect` parent, or an owner-settings file that git ignores or that is untracked or uncommitted.
 - The embedded `.cleo/.gitignore` fallback tracks `owner-settings.json`.
+
+**Review round 3.**
+- The global record keeps the key's salt. While it is intact, `--reset` must prove the old owner password, even with the project file deleted.
+- A password-free reset needs both anchors removed. That reset, or a plain enroll while git still holds a committed enrollment, makes `cleo doctor` fail until `cleo config owner-enroll --confirm`. This is visibility only.
+- Legacy HMAC owner tokens are cleared at the first session start on this build, and `cleo doctor` warns while any remain.

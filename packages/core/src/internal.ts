@@ -1240,6 +1240,7 @@ export type {
   OwnerEnrollResult,
 } from './security/override-cap-setting.js';
 export {
+  confirmOwnerEnrollment,
   enrollOwner,
   OWNER_ENROLL_COMMAND,
   ownerEnrollmentStatus,

@@ -18,6 +18,7 @@ import { setConfigValue } from '../../config.js';
 import { AgentIdentity, signAuditLine } from '../../identity/cleo-identity.js';
 import { checkAndIncrementOverrideCap, OVERRIDE_CAP_SETTING } from '../override-cap.js';
 import {
+  confirmOwnerEnrollment,
   enrollOwner,
   ownerEnrollmentStatus,
   resolveOverrideCap,
@@ -167,10 +168,49 @@ describe('enrollment is explicit and anchored twice', () => {
     expect(await resolveOverrideCap(root)).toMatchObject({ cap: 10 });
   });
 
-  it('a password-less reset works only once the state is visibly tampered (file deleted)', async () => {
+  it('round 3 probe: rm owner-settings.json, then --reset with an agent password, is refused (the global record still proves the owner)', async () => {
+    await enrollOwner(root, owner());
+    await setOwnerOverrideCap(root, { ...owner(), value: 30 });
+    rmSync(settingsFile());
+    const hijack = await enrollOwner(root, owner('agent'), { reset: true });
+    expect(hijack).toMatchObject({ ok: false, code: 'E_OWNER_RESET_NOT_OWNER' });
+    expect(!hijack.ok && hijack.message).toMatch(/remove BOTH anchors/);
+    // The owner can still reset with the old password, the file gone.
+    expect(await enrollOwner(root, owner(), { reset: true })).toMatchObject({ ok: true });
+    expect((await ownerEnrollmentStatus(root)).status).toBe('enrolled');
+  });
+
+  it('a password-free reset needs BOTH anchors removed, and stays a doctor FAIL until the owner confirms', async () => {
     await enrollOwner(root, owner());
     rmSync(settingsFile());
+    rmSync(join(home, 'owner-enrollments.json'));
     expect(await enrollOwner(root, owner('new'), { reset: true })).toMatchObject({ ok: true });
+    const status = await ownerEnrollmentStatus(root);
+    expect(status.status).toBe('unconfirmed');
+    expect(status.message).toMatch(
+      /WITHOUT proof of the previous owner \(fresh-after-removal\).*--confirm.*visibility, not prevention/,
+    );
+    // Confirming needs the CURRENT owner's password; then doctor passes the enrollment.
+    expect(await confirmOwnerEnrollment(root, owner('wrong'))).toMatchObject({ ok: false });
+    expect(await confirmOwnerEnrollment(root, owner('new'))).toMatchObject({ ok: true });
+    expect(audit().at(-1)).toMatchObject({ action: 'owner-enroll-confirm' });
+    expect((await ownerEnrollmentStatus(root)).status).toBe('enrolled');
+  });
+
+  it('with both anchors gone but the enrollment still committed in git, a plain enroll is unconfirmed too', async () => {
+    const git = (...args: string[]) =>
+      execFileSync('git', ['-c', 'user.name=T', '-c', 'user.email=t@e.x', ...args], {
+        cwd: root,
+        stdio: 'ignore',
+      });
+    git('init', '-q', '-b', 'main');
+    await enrollOwner(root, owner());
+    git('add', '.cleo/owner-settings.json');
+    git('commit', '-q', '-m', 'owner');
+    rmSync(settingsFile());
+    rmSync(join(home, 'owner-enrollments.json'));
+    expect(await enrollOwner(root, owner('agent'))).toMatchObject({ ok: true });
+    expect((await ownerEnrollmentStatus(root)).status).toBe('unconfirmed');
   });
 
   it('a session started with --owner --owner-auth enrolls; a bare --owner mark (no password) does not', async () => {

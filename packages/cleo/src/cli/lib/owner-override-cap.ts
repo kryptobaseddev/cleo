@@ -39,11 +39,15 @@ async function ownerCaller(purpose: string) {
  * (T13787), explicitly — never as a side effect of a set.
  *
  * @param reset - Replace an existing enrollment (audited).
+ * @param confirm - Confirm an enrollment that replaced another without proof
+ *   of the previous owner (clears the doctor FAIL; audited).
  * @task T13787
  */
-export async function runOwnerEnroll(reset: boolean): Promise<void> {
+export async function runOwnerEnroll(reset: boolean, confirm = false): Promise<void> {
   const { core, root, caller } = await ownerCaller('owner enrollment');
-  const result = await core.enrollOwner(root, caller, { reset });
+  const result = confirm
+    ? await core.confirmOwnerEnrollment(root, caller)
+    : await core.enrollOwner(root, caller, { reset });
   if (!result.ok) {
     cliError(
       result.message,

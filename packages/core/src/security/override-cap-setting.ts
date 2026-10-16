@@ -109,6 +109,20 @@ interface GlobalEnrollment extends EnrollmentProvenance {
   ownerPubkey: string;
   fingerprint: string;
   projectRoot: string;
+  /**
+   * The key's scrypt salt (review-2253 round 3), so a reset can prove the old
+   * owner password while this record is intact, even with the project file gone.
+   */
+  salt?: string;
+  /**
+   * Set when an enrollment replaced another without proof of the old owner:
+   * `tampered` (the project file was there but unanchored) or
+   * `fresh-after-removal` (`--reset` with both anchors gone). `cleo doctor`
+   * FAILs until the owner confirms (`owner-enroll --confirm`).
+   */
+  resetFrom?: 'tampered' | 'fresh-after-removal';
+  /** When the owner confirmed an unproven reset. */
+  confirmedAt?: string;
 }
 
 /** What the override cap resolves to for a project. */
@@ -147,7 +161,7 @@ export interface OwnerCaller {
 
 /** The enrollment state `cleo doctor` reports. */
 export interface OwnerEnrollmentStatus {
-  status: 'none' | 'enrolled' | 'tampered';
+  status: 'none' | 'enrolled' | 'unconfirmed' | 'tampered';
   message: string;
   fingerprint?: string;
   enrolledAt?: string;
@@ -197,6 +211,19 @@ function trackingWarnings(projectRoot: string): string[] {
       `${rel} has uncommitted changes; review and commit them (or restore it from git if you did not make them)`,
     ];
   return [];
+}
+
+/** Whether git's HEAD holds a committed `.cleo/owner-settings.json` (an earlier enrollment). */
+function committedSettingsExist(projectRoot: string): boolean {
+  try {
+    execFileSync('git', ['cat-file', '-e', 'HEAD:.cleo/owner-settings.json'], {
+      cwd: projectRoot,
+      stdio: 'ignore',
+    });
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 function settingsPath(projectRoot: string): string {
@@ -437,6 +464,23 @@ export async function ownerEnrollmentStatus(projectRoot: string): Promise<OwnerE
     };
   const g = state.global;
   const cap = state.cap ?? DEFAULT_OVERRIDE_CAP_PER_SESSION;
+  if (g.resetFrom)
+    return {
+      status: 'unconfirmed',
+      message:
+        `Owner key ${g.fingerprint} replaced an earlier enrollment WITHOUT proof of the previous owner ` +
+        `(${g.resetFrom}) at ${g.enrolledAt}, by session ${g.sessionId ?? 'unknown'} on tty ${g.tty ?? 'unknown'} ` +
+        `(parent ${g.parent ?? 'unknown'}); ${OVERRIDE_CAP_SETTING} = ${cap}. If you did this, confirm it with ` +
+        `\`${OWNER_ENROLL_COMMAND} --confirm\`; if not, restore .cleo/owner-settings.json from git and re-enroll. ` +
+        'An agent that did the reset could also confirm it: this is visibility, not prevention.',
+      fingerprint: g.fingerprint,
+      enrolledAt: g.enrolledAt,
+      sessionId: g.sessionId,
+      tty: g.tty,
+      parent: g.parent,
+      cap,
+      warnings: [],
+    };
   const enrolledMs = Date.parse(g.enrolledAt);
   const warnings = [
     ...(Number.isFinite(enrolledMs) && Date.now() - enrolledMs < RECENT_ENROLLMENT_MS
@@ -560,21 +604,35 @@ export async function enrollOwner(
       'E_OWNER_ALREADY_ENROLLED',
       `An owner is already enrolled for this project${existing ? ` (key ${existing.fingerprint})` : ''}; re-enrolling needs \`${OWNER_ENROLL_COMMAND} --reset\`.`,
     );
-  // Review-2253 round 2: resetting an intact enrollment needs the CURRENT
-  // owner's password. A password-less reset is only possible once the state is
-  // already tampered (missing, unreadable, unanchored — visible in git and
-  // doctor); with both anchors deliberately removed it is a fresh enrollment.
+  // Review-2253 rounds 2-3: while the global record is intact, a reset must
+  // prove the old owner's password against it — even with the project file
+  // deleted. Only with both anchors gone (the global one outside the repo) is
+  // a reset password-free, and then it is recorded as unconfirmed.
+  let resetFrom: GlobalEnrollment['resetFrom'];
   if (opts.reset === true) {
-    const state = await judgeOwnerState(projectRoot);
-    if (state.kind === 'ok') {
-      const current = await ownerKey(caller.password, state.file.salt);
-      if (current.pubkeyHex !== state.file.ownerPubkey)
+    if (existing) {
+      const read = readSettings(projectRoot);
+      const oldSalt =
+        existing.salt ??
+        (read.state === 'read' && read.file.ownerPubkey === existing.ownerPubkey
+          ? read.file.salt
+          : undefined);
+      const proven =
+        oldSalt !== undefined &&
+        (await ownerKey(caller.password, oldSalt)).pubkeyHex === existing.ownerPubkey;
+      if (!proven)
         return refuse(
           // @sync-invariant none:local-only owner enrollment state is device-local and git-tracked; refused before any write
           'E_OWNER_RESET_NOT_OWNER',
-          `Resetting an intact enrollment needs the current owner's password (key ${state.global.fingerprint}). If it is lost, remove both anchors deliberately (.cleo/owner-settings.json and this project's record in the global owner-enrollments.json) and enroll again.`,
+          `Resetting needs the current owner's password (key ${existing.fingerprint}, recorded in the global owner-enrollments.json). If it is lost, remove BOTH anchors deliberately (.cleo/owner-settings.json and this project's record in the global owner-enrollments.json, outside the repo) and enroll again.`,
         );
+    } else {
+      resetFrom = fileThere ? 'tampered' : 'fresh-after-removal';
     }
+  } else if (!existing && !fileThere && committedSettingsExist(projectRoot)) {
+    // Both anchors gone but git still holds a committed enrollment: a plain
+    // enroll here replaces an owner it never proved, so it is unconfirmed too.
+    resetFrom = 'fresh-after-removal';
   }
   const salt = randomBytes(16).toString('hex');
   const key = await ownerKey(caller.password, salt);
@@ -592,7 +650,14 @@ export async function enrollOwner(
     schemaVersion: 1,
     projects: {
       ...readGlobalAll(),
-      [projectKey(projectRoot)]: { ownerPubkey: key.pubkeyHex, fingerprint, projectRoot, ...prov },
+      [projectKey(projectRoot)]: {
+        ownerPubkey: key.pubkeyHex,
+        fingerprint,
+        projectRoot,
+        salt,
+        ...prov,
+        ...(resetFrom ? { resetFrom } : {}),
+      },
     },
   });
   audit(projectRoot, opts.reset === true ? 'owner-enroll-reset' : 'owner-enroll', {
@@ -600,10 +665,60 @@ export async function enrollOwner(
     ok: true,
     reason:
       opts.reset === true
-        ? `owner key RESET to ${fingerprint}${existing ? ` (was ${existing.fingerprint})` : ''}; earlier seals dropped (tty ${prov.tty ?? 'unknown'}, parent ${prov.parent ?? 'unknown'})`
+        ? `owner key RESET to ${fingerprint}${existing ? ` (was ${existing.fingerprint}, old password proven)` : ` without proof of a previous owner (${resetFrom})`}; earlier seals dropped (tty ${prov.tty ?? 'unknown'}, parent ${prov.parent ?? 'unknown'})`
         : `owner key ${fingerprint} enrolled (tty ${prov.tty ?? 'unknown'}, parent ${prov.parent ?? 'unknown'})`,
   });
   return { ok: true, fingerprint, reset: opts.reset === true };
+}
+
+/**
+ * Confirm an enrollment that replaced another without proof of the previous
+ * owner (review-2253 round 3): the owner proves the CURRENT key's password and
+ * the `resetFrom` mark that makes `cleo doctor` FAIL is cleared, audited. An
+ * agent that did the reset could confirm it too — visibility, not prevention.
+ *
+ * @param projectRoot - Project root.
+ * @param caller - The password typed at the TTY and the bound session.
+ * @returns The confirmed key's fingerprint, or why it was refused.
+ * @task T13787
+ */
+export async function confirmOwnerEnrollment(
+  projectRoot: string,
+  caller: OwnerCaller,
+): Promise<OwnerEnrollResult> {
+  const sessionId = caller.session?.id ?? null;
+  const refuse = (code: string, message: string): OwnerEnrollResult => {
+    audit(projectRoot, 'owner-enroll-confirm-refused', { sessionId, reason: message });
+    return { ok: false, code, message: `${message} Only the owner can confirm: ${OWNER_HOW}.` };
+  };
+  const check = ownerCheck(caller);
+  if (!check.ok) return refuse(check.code, check.message);
+  const state = await judgeOwnerState(projectRoot);
+  if (state.kind !== 'ok')
+    return refuse(
+      // @sync-invariant none:local-only owner enrollment state is device-local and git-tracked; refused before any write
+      'E_OWNER_SETTINGS_TAMPERED',
+      state.kind === 'tampered' ? `${state.why}.` : 'No owner is enrolled for this project.',
+    );
+  if ((await ownerKey(caller.password, state.file.salt)).pubkeyHex !== state.file.ownerPubkey)
+    return refuse(
+      BRANCH_LOCK_ERROR_CODES.E_OVERRIDE_TOKEN_INVALID,
+      'The password does not match the owner key enrolled for this project.',
+    );
+  const { resetFrom: _cleared, ...rest } = state.global;
+  await atomicWriteJson(globalPath(), {
+    schemaVersion: 1,
+    projects: {
+      ...readGlobalAll(),
+      [projectKey(projectRoot)]: { ...rest, confirmedAt: new Date().toISOString() },
+    },
+  });
+  audit(projectRoot, 'owner-enroll-confirm', {
+    sessionId,
+    ok: true,
+    reason: `owner confirmed key ${state.global.fingerprint}${state.global.resetFrom ? ` (was reset from ${state.global.resetFrom})` : ''}`,
+  });
+  return { ok: true, fingerprint: state.global.fingerprint, reset: false };
 }
 
 /**

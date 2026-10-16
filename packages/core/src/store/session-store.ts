@@ -37,6 +37,8 @@ export async function createSession(session: Session, cwd?: string): Promise<Ses
     // exodus-on-open) refuses with the typed error and remedy.
     const native = getNativeTasksDb(scope.worktreeRoot);
     if (native) await assertExodusWriteSafe(native);
+    // Review-2253 round 3: the first session this build starts clears legacy owner HMAC tokens.
+    clearLegacyOwnerTokens(db);
     const tw = session.taskWork;
     db.insert(schema.sessions)
       .values({
@@ -104,6 +106,44 @@ export async function getSessionOwnerAuth(
   });
 }
 
+/** The `WHERE` clause for a legacy `HMAC(password, name)` owner token (neither a scrypt verifier nor the owner mark). */
+const LEGACY_OWNER_TOKEN = and(
+  isNotNull(schema.sessions.ownerAuthToken),
+  notLike(schema.sessions.ownerAuthToken, 'scrypt$v1$%'),
+  notLike(schema.sessions.ownerAuthToken, 'owner-mark$v1%'),
+);
+
+/**
+ * Clear every legacy `HMAC(password, name)` owner token (review-2253 round 3):
+ * each is a ~1M guesses/s offline oracle for the owner password. Run on every
+ * session start and owner credential write, so a store is cleaned the first
+ * time this build starts a session in it.
+ */
+function clearLegacyOwnerTokens(db: Awaited<ReturnType<typeof getDb>>): void {
+  db.update(schema.sessions).set({ ownerAuthToken: null }).where(LEGACY_OWNER_TOKEN).run();
+}
+
+/**
+ * How many sessions still hold a legacy `HMAC(password, name)` owner token,
+ * for `cleo doctor` (review-2253 round 3).
+ *
+ * @param cwd - Project root.
+ * @returns The count.
+ * @task T13787
+ */
+export async function countLegacyOwnerTokens(cwd?: string): Promise<number> {
+  const scope = captureProjectScope(cwd ?? getProjectRoot(), worktreeScope.getStore());
+  return worktreeScope.run(scope, async () => {
+    const db = await getDb(scope.worktreeRoot);
+    const rows = await db
+      .select({ id: schema.sessions.id })
+      .from(schema.sessions)
+      .where(LEGACY_OWNER_TOKEN)
+      .all();
+    return rows.length;
+  });
+}
+
 /**
  * Record a session's owner credential: the `--owner` mark (T13790), the
  * `--owner-auth` scrypt verifier (T13787), or both. Only the interactive
@@ -141,16 +181,7 @@ export async function setSessionOwnerAuthToken(
   const scope = captureProjectScope(cwd ?? getProjectRoot(), worktreeScope.getStore());
   await worktreeScope.run(scope, async () => {
     const db = await getDb(scope.worktreeRoot);
-    db.update(schema.sessions)
-      .set({ ownerAuthToken: null })
-      .where(
-        and(
-          isNotNull(schema.sessions.ownerAuthToken),
-          notLike(schema.sessions.ownerAuthToken, 'scrypt$v1$%'),
-          notLike(schema.sessions.ownerAuthToken, 'owner-mark$v1%'),
-        ),
-      )
-      .run();
+    clearLegacyOwnerTokens(db);
     db.update(schema.sessions)
       .set({ ownerAuthToken: token })
       .where(eq(schema.sessions.id, sessionId))

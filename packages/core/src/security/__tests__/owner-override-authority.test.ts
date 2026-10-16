@@ -208,6 +208,16 @@ describe('the core write path guards owner credentials (review-2253 round 2)', (
     );
   });
 
+  it('clears legacy HMAC owner tokens proactively, at the next session start on this build', async () => {
+    const old = await session('ses_old_start', false);
+    await setSessionOwnerAuthToken(old, deriveOwnerAuthToken(old, 'pw'), env.tempDir);
+    const { countLegacyOwnerTokens } = await import('../../store/session-store.js');
+    expect(await countLegacyOwnerTokens(env.tempDir)).toBe(1);
+    await session('ses_next_start', false);
+    expect(await countLegacyOwnerTokens(env.tempDir)).toBe(0);
+    expect((await getSessionOwnerAuth(old, env.tempDir))?.token).toBeNull();
+  });
+
   it('clears legacy HMAC owner tokens at the next owner credential write', async () => {
     const old = await session('ses_old', false);
     await setSessionOwnerAuthToken(old, deriveOwnerAuthToken(old, 'pw'), env.tempDir);

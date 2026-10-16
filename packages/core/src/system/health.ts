@@ -531,9 +531,20 @@ export async function getSystemHealth(
   try {
     const { ownerEnrollmentStatus } = await import('../security/override-cap-setting.js');
     const owner = await ownerEnrollmentStatus(projectRoot);
+    const { countLegacyOwnerTokens } = await import('../store/session-store.js');
+    const legacy = await countLegacyOwnerTokens(projectRoot).catch(() => 0);
+    if (legacy > 0)
+      owner.warnings.push(
+        `${legacy} session(s) still hold a legacy HMAC owner-auth token (a cheap offline password oracle); the next \`cleo session start\` clears them`,
+      );
     checks.push({
       name: 'owner_enrollment',
-      status: owner.status === 'tampered' ? 'fail' : owner.warnings.length > 0 ? 'warn' : 'pass',
+      status:
+        owner.status === 'tampered' || owner.status === 'unconfirmed'
+          ? 'fail'
+          : owner.warnings.length > 0
+            ? 'warn'
+            : 'pass',
       message:
         owner.warnings.length > 0
           ? `${owner.message} Check: ${owner.warnings.join('; ')}.`
