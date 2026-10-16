@@ -2,7 +2,7 @@
 
 ## [2026.10.18] (2026-10-16)
 
-> **Goal protocol, Codex worktree hooks, evidence fixes.** Agents can now drive a task to done through a goal contract: `cleo goal draft` writes the goal from the task's acceptance criteria and `cleo goal close` records per-criterion evidence and completes fully proven tasks. Codex project hooks now fire in linked git worktrees. Cross-device sync work in this release (Stage C) is inert on stable until Stage C releases its flags.
+> **Goal protocol, Codex worktree hooks, evidence fixes.** Agents can now drive a task to done through a goal contract: `cleo goal draft` writes the goal from the task's acceptance criteria and `cleo goal close` records per-criterion evidence and completes fully proven tasks. Codex project hooks now fire in linked git worktrees. Cross-device sync itself (Stage C) stays off on stable until Stage C releases its flags; the groundwork below adds migrations and changes audit retention now.
 
 ### Goal protocol
 
@@ -31,8 +31,9 @@
 
 - `ci:<pr>` evidence treats a merge-commit run red only on the flaky-quarantine budget as no test failure, looks past later runs red for that reason or cancelled, and refuses a quarantine-budget log whose last vitest summary follows unprefixed child output _(provenance: [T13809](https://github.com/kryptobaseddev/cleo/search?q=T13809&type=commits))_
 
-### Cross-device sync (inert on stable until Stage C)
+### Cross-device sync groundwork (sync itself stays off on stable until Stage C)
 
+- Live on stable: every command now writes its audit row to `tasks_audit_log` (existing `audit_log` rows are copied over on open); audit pruning by `logging.auditRetentionDays` now also removes task-mutation history, keeping receipts, with a 30-day floor; a second handoff for the same session is refused; `cleo release cancel` removes a release's child rows first; migrations add row-uid columns on upgrade _(provenance: [T13777](https://github.com/kryptobaseddev/cleo/search?q=T13777&type=commits), [T12914](https://github.com/kryptobaseddev/cleo/search?q=T12914&type=commits))_
 - Releases, lifecycle stages, PRs and commits get row uids and sync (16 tables) _(provenance: [T12914](https://github.com/kryptobaseddev/cleo/search?q=T12914&type=commits))_
 - Token usage, session handoffs and the Nexus audit log travel in the change journal; the dispatch audit moves into `tasks_audit_log`, and the audit prune keeps receipts with a 30-day floor _(provenance: [T13777](https://github.com/kryptobaseddev/cleo/search?q=T13777&type=commits))_
 - The vault manifest leaves out rows that stay on their device, so a store holding them pushes and verifies in sync _(provenance: [T13808](https://github.com/kryptobaseddev/cleo/search?q=T13808&type=commits), [T13777](https://github.com/kryptobaseddev/cleo/search?q=T13777&type=commits))_
@@ -43,7 +44,7 @@
 
 ### Not in this release
 
-- #2302 (targeted evidence for config edits, merged changes, redirected reports, generated clients) and #2303 (declared seed/data globs owe dependents a typecheck) ship in v2026.10.19.
+- #2302 (targeted evidence for config edits, merged changes, redirected reports, generated clients) and #2303 (declared seed/data globs owe dependents a typecheck) are not included; they are planned for a later release.
 
 ## [2026.10.17] (2026-10-16)
 
