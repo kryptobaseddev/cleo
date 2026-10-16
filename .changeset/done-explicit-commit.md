@@ -12,8 +12,9 @@ had no change set, so `cleo done` refused with `no-change-set`.
 trusted:
 - it must exist and have a parent;
 - it must have landed on origin's default branch;
-- its own first-parent diff becomes the change set, so naming an unrelated
-  commit cannot dodge the change set;
+- it must be tied to the task: its message cites the task id (the rule PR
+  selection uses), or its diff touches the task's declared files;
+- its own first-parent diff becomes the change set;
 - the checked-out tree must contain it before tools run;
 - `--pr` and `--commit` are exclusive.
 

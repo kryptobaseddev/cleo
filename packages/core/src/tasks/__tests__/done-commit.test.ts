@@ -92,10 +92,10 @@ async function cacheTestPass(): Promise<void> {
   await runToolCached(test.command, root, { executionRoot: root, skipGlobalSemaphore: true });
 }
 
-/** Land a change on main that does not cite the task; returns its sha. */
-function landUncited(): string {
+/** Land a change on main whose message cites the task, with no PR or task branch; returns its sha. */
+function landUncited(id: string, message = `fix(${id}): change a`): string {
   writeFileSync(join(root, 'src', 'a.ts'), 'export const a = 2;\n');
-  git(['commit', '-q', '-am', 'fix: change a']);
+  git(['commit', '-q', '-am', message]);
   git(['push', '-q', 'origin', 'main']);
   return git(['rev-parse', 'HEAD']);
 }
@@ -103,7 +103,7 @@ function landUncited(): string {
 describe('cleo done --commit (T13799)', () => {
   it('derives the change set from a landed commit no PR or branch cites', async () => {
     const id = await seed(['Change src/a.ts to return 2']);
-    const sha = landUncited();
+    const sha = landUncited(id);
     const without = await deriveTaskEvidence(id, { projectRoot: root, cwd: root, deps });
     expect(without.changeSet.blockers.map((b) => b.code)).toContain('no-change-set');
 
@@ -142,7 +142,7 @@ describe('cleo done --commit (T13799)', () => {
 
   it('records every gate through cleo done from the verified commit', async () => {
     const id = await seed(['Change src/a.ts to return 2']);
-    const sha = landUncited();
+    const sha = landUncited(id);
     await cacheTestPass();
     const r = await recordTaskDone(id, {
       projectRoot: root,
@@ -176,7 +176,7 @@ describe('cleo done --commit (T13799)', () => {
     await env.accessor.updateTaskFields(id, { acceptanceJson: JSON.stringify(gateOnly) });
     // OCG T091's shape: the gate-only acceptance with no criterion rows at all.
     await env.accessor.transaction((tx) => tx.deleteAcRowsForTask(id));
-    const sha = landUncited();
+    const sha = landUncited(id);
     await cacheTestPass();
     const r = await recordTaskDone(id, {
       projectRoot: root,
@@ -197,5 +197,33 @@ describe('cleo done --commit (T13799)', () => {
     expect(stored?.evidence?.testsPassed?.scope?.criteria?.map((c) => c.criterionId)).toEqual([
       row?.id,
     ]);
+  });
+
+  it('refuses a landed commit with no tie to the task; declared files tie one', async () => {
+    const id = await seed(['Change src/a.ts to return 2']);
+    // The review probe: an unrelated docs commit on main.
+    writeFileSync(join(root, 'README.md'), '# readme\n');
+    git(['add', '.']);
+    git(['commit', '-q', '-m', 'docs: readme']);
+    git(['push', '-q', 'origin', 'main']);
+    const docs = git(['rev-parse', 'HEAD']);
+    const refused = await deriveTaskEvidence(id, {
+      projectRoot: root,
+      cwd: root,
+      deps,
+      commit: docs,
+    });
+    expect(refused.changeSet.source).toBe('none');
+    expect(refused.changeSet.blockers.map((b) => b.message).join(' ')).toMatch(/neither cites/);
+
+    // A commit that does not cite the task but touches its declared files is tied.
+    const sha = landUncited(id, 'fix: change a');
+    expect(
+      (await deriveTaskEvidence(id, { projectRoot: root, cwd: root, deps, commit: sha })).changeSet
+        .source,
+    ).toBe('none');
+    await env.accessor.updateTaskFields(id, { filesJson: JSON.stringify(['src/a.ts']) });
+    const tied = await deriveTaskEvidence(id, { projectRoot: root, cwd: root, deps, commit: sha });
+    expect(tied.changeSet).toMatchObject({ source: 'commit', commitSha: sha });
   });
 });

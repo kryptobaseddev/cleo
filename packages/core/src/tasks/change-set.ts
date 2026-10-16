@@ -1428,12 +1428,18 @@ function deriveBranchChangeSet(cs: TaskChangeSet, taskId: string): boolean {
 /**
  * An explicit commit as the change set (T13799). A client may not name an
  * unrelated commit to dodge the change set, so the commit must exist, have a
- * parent and have landed on origin's default branch; the change set is then
- * its own first-parent diff, whatever the caller expected it to hold.
+ * parent, have landed on origin's default branch, and be tied to the task (its
+ * message cites the task, or its diff touches the task's declared files); the
+ * change set is then its own first-parent diff.
  * Returns whether the commit became the change set (else a blocker says why).
  */
-function deriveCommitChangeSet(cs: TaskChangeSet, taskId: string, commit: string): boolean {
+function deriveCommitChangeSet(
+  cs: TaskChangeSet,
+  task: Pick<ChangeSetTask, 'id' | 'files'>,
+  commit: string,
+): boolean {
   const root = cs.executionRoot;
+  const taskId = task.id;
   const refuse = (message: string, why: string): false => {
     cs.blockers.push(blocker('no-change-set', message, `cleo done ${taskId}`, why));
     return false;
@@ -1465,6 +1471,20 @@ function deriveCommitChangeSet(cs: TaskChangeSet, taskId: string, commit: string
       `--commit ${sha.slice(0, 12)} changes no file.`,
       'Name the commit that made the change.',
     );
+  // Tied to the task, as PR selection ties a PR: its message cites the task,
+  // or its diff touches the task's declared files. Any other landed commit
+  // would let a client swap in an unrelated change set (T13799 review).
+  const message = git(root, ['log', '-1', '--format=%B', sha]) ?? '';
+  const declared = task.files ?? [];
+  if (
+    !citesTask(message.toUpperCase(), taskId.toUpperCase()) &&
+    !(declared.length > 0 && diffIntersectsAc([...files, ...deleted], declared))
+  ) {
+    return refuse(
+      `--commit ${sha.slice(0, 12)} neither cites ${taskId} in its message nor touches its declared files.`,
+      `Name the commit that implements ${taskId} (its message cites ${taskId}), or declare the task's files.`,
+    );
+  }
   cs.source = 'commit';
   cs.commitSha = sha;
   // The commit landed directly: it is its own merge commit for carry checks.
@@ -1552,7 +1572,7 @@ export async function deriveTaskChangeSet(
   );
   const cs = emptyChangeSet(root, source);
   if (input.commit !== undefined) {
-    deriveCommitChangeSet(cs, input.task.id, input.commit);
+    deriveCommitChangeSet(cs, input.task, input.commit);
     return cs;
   }
   const roots: EvidenceRoots = { storeRoot: input.storeRoot, executionRoot: root };
