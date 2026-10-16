@@ -13,7 +13,13 @@
  *       tree was modified, deleted or moved after the run (edit, run the
  *       tests, commit, then verify). Any other commit after the run is
  *       refused — a rebase onto a newer base included, since it rewrites the
- *       files it brings in — so bind the report before committing, or re-run;
+ *       files it brings in — so bind the report before committing, or re-run.
+ *       One exception (T13784, `test-run:` only): on the default branch, when
+ *       HEAD is on origin's default branch and HEAD as of the run is its
+ *       ancestor, the commits after the run are main moving on, not the
+ *       change; the atom records HEAD as of the run (`runHeadSha`), and the
+ *       post-merge stand-in refuses it when those commits touched the
+ *       change's files or the test files it ran;
  *     - the newest working-tree modification of any path the branch changed
  *       against origin's default branch (committed, uncommitted or untracked;
  *       the report itself excluded) — or, with no origin to diff against, any
@@ -382,6 +388,20 @@ function committedAfterRunUnseen(root: string, clock: RunClock): string | null {
   return null;
 }
 
+/**
+ * HEAD as of the run, when every commit made after it is one that landed on
+ * origin's default branch (T13784): HEAD is contained in origin's default
+ * branch and HEAD as of the run is an ancestor of it — a pull of main, not a
+ * commit of the change. Null otherwise.
+ */
+function landedSinceRun(root: string, clock: RunClock): string | null {
+  const head = git(root, ['rev-parse', 'HEAD'])?.trim();
+  if (!head || originDefaultMergeBase(root)?.trim() !== head) return null;
+  const atRun = headAtRunFor(root, clock);
+  if (atRun === null || atRun === head) return null;
+  return git(root, ['merge-base', '--is-ancestor', atRun, head]) === null ? null : atRun;
+}
+
 /** The first package (of `packages`, longest directory first) whose directory holds `path`. */
 function ownerOf(
   path: string,
@@ -457,6 +477,8 @@ export type TestRunBinding =
       ok: true;
       /** Affected packages with no test file, which no report could cover (sorted). */
       untestedPackages: string[];
+      /** HEAD as of the run, when main moved on after it ({@link ReportFreshness}, T13784). */
+      runHeadSha?: string;
     };
 
 /** What the freshness check of a report or receipt decided. */
@@ -473,6 +495,13 @@ export type ReportFreshness =
       judged: boolean;
       /** The change's scoped paths, or null outside git / with no origin. */
       changes: ScopedChangedPaths | null;
+      /**
+       * HEAD as of the run, when the only commits after it landed on origin's
+       * default branch (T13784, `test-run` only): the run did not see them, so
+       * the atom records it and the post-merge stand-in refuses the report when
+       * they touched the change's files or the tests it ran.
+       */
+      runHeadSha?: string;
     };
 
 /**
@@ -515,8 +544,13 @@ export function reportFreshness(
       : 'Re-run the check and record the fresh receipt (write receipts to a gitignored path or outside the checkout).';
 
   const commit = newestChangeCommit(root);
+  let runHeadSha: string | undefined;
   if (commit !== null && clock.after(commit.at)) {
-    const unseen = committedAfterRunUnseen(root, clock);
+    // T13784: on the default branch, main moving on after the run is not the
+    // change. Record HEAD as of the run; what those commits touched is judged
+    // against the change's own files when the report stands in after merge.
+    runHeadSha = (atom === 'test-run' ? landedSinceRun(root, clock) : null) ?? undefined;
+    const unseen = runHeadSha ? null : committedAfterRunUnseen(root, clock);
     if (unseen !== null) {
       return stale(
         staleRefusal(
@@ -549,7 +583,7 @@ export function reportFreshness(
       ),
     );
   }
-  return { ok: true, judged: true, changes };
+  return { ok: true, judged: true, changes, ...(runHeadSha ? { runHeadSha } : {}) };
 }
 
 /**
@@ -573,6 +607,7 @@ export function bindTestRunReport(
   const fresh = reportFreshness(report.startTime, reportPath, root, 'test-run');
   if (!fresh.ok) return fresh;
   if (!fresh.judged) return { ok: true, untestedPackages: [] };
+  const run = fresh.runHeadSha ? { runHeadSha: fresh.runHeadSha } : {};
   const changes = fresh.changes;
   const changed = changes?.paths ?? null;
   const refuse = (reason: string): TestRunBinding => ({
@@ -589,8 +624,9 @@ export function bindTestRunReport(
         'so a test-run report cannot speak for it. Record tool:test, or ci:<pr> once the PR merges.',
     );
   }
-  if (changed === null || changed.length === 0) return { ok: true, untestedPackages: [] };
-  return testRunCoversChange(root, changed, testFiles);
+  if (changed === null || changed.length === 0) return { ok: true, untestedPackages: [], ...run };
+  const covered = testRunCoversChange(root, changed, testFiles);
+  return covered.ok ? { ...covered, ...run } : covered;
 }
 
 /**

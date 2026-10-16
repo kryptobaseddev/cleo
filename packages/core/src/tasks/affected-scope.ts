@@ -169,21 +169,101 @@ export function scopedRunSupersededReason(
  * @param atoms - Recorded `testsPassed` atoms.
  * @param current - The current tree hash of the execution root, or null when
  *   it cannot be computed (not a git checkout, or git failed).
+ * @param scope - The root and current change to compare over (T13784): a
+ *   moved report still stands while the change's files, the test files it
+ *   ran and the shared test configs are byte-identical; without it any moved
+ *   tree refuses.
  * @returns The reason, or null.
  * @task T12965
+ * @task T13784
  */
 export function testRunTreeMismatchReason(
   atoms: ReadonlyArray<EvidenceAtom>,
   current: string | null,
+  scope?: QaRunCarryScope,
 ): string | null {
   if (atoms.some((a) => a.kind === 'ci' || isFullToolRun(a))) return null;
-  const first = atoms.filter(isTreeBoundResult).find((a) => a.treeHash !== current);
-  if (!first) return null;
   // T13745, T13758: a tree-pinned tool: held for that tree's change alone.
-  if (first.kind === 'tool') return treePinnedToolReason(atoms, current, 'testsPassed');
-  return current === null
-    ? `testsPassed rests on test-run:${first.path}, bound to tree ${first.treeHash.slice(0, 12)}, and the current tree cannot be computed here (not a git checkout?); complete from the checkout the report ran in, or record ci:<pr> once the PR merges.`
-    : `testsPassed rests on test-run:${first.path}, recorded on tree ${first.treeHash.slice(0, 12)}, but the tree is now ${current.slice(0, 12)}; the report no longer describes this code. Re-run the targeted tests and record a fresh test-run, or record ci:<pr> once the PR merges.`;
+  if (atoms.filter(isTreeBoundResult).some((a) => a.kind === 'tool' && a.treeHash !== current))
+    return treePinnedToolReason(atoms, current, 'testsPassed');
+  for (const a of atoms) {
+    if (a.kind !== 'test-run' || typeof a.treeHash !== 'string') continue;
+    const why = testRunUnseenChangeReason(a, a.treeHash, current, scope);
+    if (why) return why;
+  }
+  return null;
+}
+
+/** Whether `paths` are byte-identical between two trees or commits; null when git cannot say. */
+function sameOver(
+  root: string,
+  from: string,
+  to: string,
+  paths: readonly string[],
+): boolean | null {
+  try {
+    execFileSync('git', ['diff', '--quiet', '--no-renames', from, to, '--', ...paths], {
+      cwd: root,
+      stdio: 'ignore',
+    });
+    return true;
+  } catch (err) {
+    return (err as { status?: number }).status === 1 ? false : null;
+  }
+}
+
+/**
+ * Why a tree-bound test-run no longer speaks for the change, or null (T12965,
+ * narrowed by T13784). The report describes the tree it ran on; it still
+ * stands while what it did not see — the tree moving after verify, and
+ * commits that landed on the default branch between the run and verify
+ * (`runHeadSha`) — leaves the change's own files (`scope.changed`), the test
+ * files it ran and the shared test configs byte-identical. Unrelated paths
+ * moving on main do not stale it. Fails closed: no scope, a capped test-file
+ * list, or a git failure each refuse.
+ */
+function testRunUnseenChangeReason(
+  run: Extract<EvidenceAtom, { kind: 'test-run' }>,
+  tree: string,
+  current: string | null,
+  scope: QaRunCarryScope | undefined,
+): string | null {
+  const label = `test-run:${run.path}`;
+  const redo =
+    'Re-run the targeted tests and record a fresh test-run, or record ci:<pr> once the PR merges.';
+  const pairs: Array<[string, string, string]> = [];
+  if (tree !== current) {
+    if (current === null)
+      return `testsPassed rests on ${label}, bound to tree ${tree.slice(0, 12)}, and the current tree cannot be computed here (not a git checkout?); complete from the checkout the report ran in, or record ci:<pr> once the PR merges.`;
+    pairs.push([
+      tree,
+      current,
+      `the tree it was recorded on (${tree.slice(0, 12)}) and now (${current.slice(0, 12)})`,
+    ]);
+  }
+  if (run.runHeadSha && run.headSha && run.runHeadSha !== run.headSha)
+    pairs.push([
+      run.runHeadSha,
+      run.headSha,
+      `HEAD as of the run (${run.runHeadSha.slice(0, 12)}) and at verify (${run.headSha.slice(0, 12)})`,
+    ]);
+  const first = pairs[0];
+  if (!first) return null;
+  const moved =
+    tree !== current && current !== null
+      ? `testsPassed rests on ${label}, recorded on tree ${tree.slice(0, 12)}, but the tree is now ${current.slice(0, 12)}; the report no longer describes this code. ${redo}`
+      : `testsPassed rests on ${label}, which did not see the commits between ${first[2]}, and the change they may touch is not known here. ${redo}`;
+  const testFiles = run.testFiles ?? [];
+  if (scope === undefined || (run.testFileCount ?? testFiles.length) > testFiles.length)
+    return moved;
+  const paths = [...new Set([...scope.changed, ...testFiles, ...TEST_RUN_SHARED_INPUTS])];
+  for (const [from, to, between] of pairs) {
+    const same = sameOver(scope.root, from, to, paths);
+    if (same === null) return moved;
+    if (!same)
+      return `testsPassed rests on ${label}, but the change's files, the test files it ran or the shared test configs differ between ${between}${differingPaths(scope.root, from, to, paths)}. ${redo}`;
+  }
+  return null;
 }
 
 /**
@@ -198,6 +278,18 @@ const QA_RUN_SHARED_INPUTS = [
   'package.json',
   'pnpm-lock.yaml',
   'pnpm-workspace.yaml',
+];
+
+/**
+ * Root-level files a test run reads beyond its own files: the QA shared
+ * inputs plus the test runner configs. A change to any of them refuses a
+ * moved test-run (T13784).
+ */
+const TEST_RUN_SHARED_INPUTS = [
+  ...QA_RUN_SHARED_INPUTS,
+  'vitest.config.*',
+  'vitest.workspace.*',
+  'jest.config.*',
 ];
 
 /** What an earlier-tree qa-run receipt is compared over (T13644). */
@@ -407,7 +499,13 @@ export async function testsPassedSupersededReason(
   },
 ): Promise<string | null> {
   if (hasTreeBoundTestRun(atoms)) {
-    const moved = testRunTreeMismatchReason(atoms, await probe.currentTree());
+    const current = await probe.currentTree();
+    const unscoped = testRunTreeMismatchReason(atoms, current);
+    // T13784: a moved report still stands while the change's own files did not move.
+    const moved =
+      unscoped && current !== null
+        ? testRunTreeMismatchReason(atoms, current, await qaRunCarryScope(probe))
+        : unscoped;
     if (moved) return moved;
   }
   if (!isScopedOnly(atoms)) return null;
@@ -551,7 +649,10 @@ function differingPaths(root: string, tree: string, merge: string, paths: string
  */
 export function scopedRunStandsAfterRedCi(
   atoms: ReadonlyArray<EvidenceAtom>,
-  changeSet: Pick<TaskChangeSet, 'mergeCommitSha' | 'files' | 'executionRoot'> | null,
+  changeSet:
+    | (Pick<TaskChangeSet, 'mergeCommitSha' | 'files' | 'executionRoot'> &
+        Partial<Pick<TaskChangeSet, 'deletedFiles'>>)
+    | null,
   current: string | null,
   landed: (root: string, sha: string) => boolean,
   gate: 'testsPassed' | 'qaPassed' = 'testsPassed',
@@ -577,11 +678,18 @@ export function scopedRunStandsAfterRedCi(
     const label = `${run.kind}:${run.path}`;
     if (!run.headSha || !run.treeHash)
       return { ok: false, why: `${label} records no HEAD and tree to judge` };
-    if (run.treeHash !== current)
-      return {
-        ok: false,
-        why: `${label} ran on tree ${run.treeHash.slice(0, 12)}, but the tree is now ${current?.slice(0, 12) ?? 'unknown'}`,
-      };
+    // T13784: a test-run stands while what moved since it ran leaves the
+    // change's own files and the tests it ran untouched; a qa-run needs the tree.
+    const unseen =
+      run.kind === 'test-run'
+        ? testRunUnseenChangeReason(run, run.treeHash, current, {
+            root,
+            changed: [...changeSet.files, ...(changeSet.deletedFiles ?? [])],
+          })
+        : run.treeHash !== current
+          ? `${label} ran on tree ${run.treeHash.slice(0, 12)}, but the tree is now ${current?.slice(0, 12) ?? 'unknown'}`
+          : null;
+    if (unseen) return { ok: false, why: unseen };
     try {
       execFileSync('git', ['merge-base', '--is-ancestor', merge, run.headSha], {
         cwd: root,

@@ -154,6 +154,12 @@ export interface DeriveChangeSetInput {
   cwd?: string;
   /** Explicit PR (`--pr <n>`); replaces candidate selection (discovery still runs, to find reverts). */
   prNumber?: number;
+  /**
+   * IDs of the task's children that are done (T13785). A merged PR that cites
+   * the task AND one of them is part of the task's own work split across its
+   * children, so several such PRs are not ambiguous.
+   */
+  doneChildIds?: readonly string[];
 }
 
 /** Run git read-only in `cwd`; `null` on any failure. */
@@ -1027,10 +1033,22 @@ async function derivePrChangeSet(
     const head = cs.candidates.find((c) => c.prNumber === n)?.headRefName ?? '';
     return head === `task/${task.id}` || head.startsWith(`task/${task.id}-`);
   };
+  // T13785: a PR that also cites a done child is the parent's work, split
+  // across that child (VidaPeps T1305: six child PRs cite the parent).
+  const childPr = (n: number): boolean => {
+    const pr = originals.find((o) => o.number === n);
+    const text = pr ? `${pr.title}\n${pr.body}\n${pr.headRefName}` : '';
+    return text !== '' && (input.doneChildIds ?? []).some((id) => citesTask(text, id));
+  };
   // D11151: a task shipped across several of its OWN PRs (every candidate
-  // merged from task/<id> or task/<id>-…) records one implemented attempt per
-  // PR. Candidates that merely mention the id stay ambiguous.
-  if (numbers.length > 1 && input.prNumber === undefined && numbers.every(ownBranch)) {
+  // merged from task/<id> or task/<id>-…, or citing a done child, T13785)
+  // records one implemented attempt per PR. Candidates that merely mention the
+  // id stay ambiguous.
+  if (
+    numbers.length > 1 &&
+    input.prNumber === undefined &&
+    numbers.every((n) => ownBranch(n) || childPr(n))
+  ) {
     return deriveMultiPrChangeSet(
       cs,
       numbers,
