@@ -16,6 +16,7 @@ import type { DatabaseSync as _DatabaseSyncType } from 'node:sqlite';
 import { SYNC_SCHEMA_VERSION } from '@cleocode/contracts';
 import { VAULT_REMOTE_PATH_PREFIX } from '@cleocode/paths';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { ROW_IDENTITY, syncedRowsWhere } from '../row-identity-registry.js';
 import {
   BARE_ACCOUNTS_TABLE,
   bareTableDigest,
@@ -36,6 +37,7 @@ import {
   emptyVaultTableHash,
   isVaultForkManifest,
   isVaultManifestTable,
+  LOCAL_ROW_STAMP_COLUMNS,
   sameVaultManifest,
   VAULT_FORK_KEY,
   VAULT_FORMAT_KEY,
@@ -171,6 +173,40 @@ describe('buildVaultManifest', () => {
     });
     expect(v2.manifest.tables['tasks_session_handoff_entries']?.rows).toBe(3);
     expect(v2.localRows).toEqual({});
+  });
+
+  it('counts with localAsOf only the local rows stamped at or before it, whatever the stamp format (T13816)', () => {
+    const file = path.join(tmp, 'asof.db');
+    const db = new DatabaseSync(file);
+    db.exec(`
+      CREATE TABLE tasks_session_handoff_entries (id INTEGER PRIMARY KEY, session_id TEXT, handoff_json TEXT, created_at TEXT, uid TEXT);
+      INSERT INTO tasks_session_handoff_entries VALUES
+        (1, 's1', '{}', '2026-10-16 09:00:01', 'u1'),
+        (2, 's1', '{"a":1}', '2026-10-16 09:00:02', NULL),
+        (3, 's1', '{"b":1}', '2026-10-16T10:00:00.000Z', NULL),
+        (4, 's1', '{"c":1}', '2026-10-16 11:00:00', NULL);
+    `);
+    db.close();
+    const asOf = (localAsOf: string) =>
+      buildVaultManifest(file, { scope: 'project', hashKey: KEY, root: '/a/root', localAsOf });
+    // The parent checkpoint at 10:00Z held rows 2 and 3; row 4 was written after it.
+    expect(asOf('2026-10-16T10:00:00.000Z').localRows).toEqual({
+      tasks_session_handoff_entries: 2,
+    });
+    expect(asOf('2026-10-16T09:30:00.000Z').localRows).toEqual({
+      tasks_session_handoff_entries: 1,
+    });
+    // The manifest itself is unchanged by it.
+    expect(asOf('2026-10-16T09:30:00.000Z').manifest).toEqual(build(file).manifest);
+  });
+
+  it('names a creation stamp for every table with rows local by row-identity spec (T13816)', () => {
+    const local = (['project', 'global'] as const)
+      .flatMap((scope) => ROW_IDENTITY[scope])
+      .filter((spec) => syncedRowsWhere(spec) !== null)
+      .map((spec) => spec.table)
+      .sort();
+    expect(Object.keys(LOCAL_ROW_STAMP_COLUMNS).sort()).toEqual(local);
   });
 
   it('is independent of row insertion order', () => {

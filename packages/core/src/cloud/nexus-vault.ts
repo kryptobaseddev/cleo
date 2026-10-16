@@ -1022,6 +1022,7 @@ async function snapshotManifest(
   manifest: PortableBundleManifest,
   t: VaultTarget,
   like?: Manifest,
+  localAsOf?: string,
 ): Promise<{
   vault: VaultManifest;
   dbPath: string;
@@ -1045,6 +1046,7 @@ async function snapshotManifest(
     hashKey,
     root,
     countLocalRows: likeFormat === 2,
+    localAsOf,
   });
   const vault = built.manifest;
   for (const d of section.databases) {
@@ -1081,6 +1083,7 @@ async function exportAndRead(
   tracked: ReadonlySet<string>,
   seal: VaultCredentialSeal | null,
   inspect?: (snapshotPath: string) => Promise<void>,
+  localAsOf?: string,
 ): Promise<{
   bundlePath: string;
   vault: VaultManifest;
@@ -1088,7 +1091,7 @@ async function exportAndRead(
   files: Map<string, string>;
   /** The extracted snapshot's primary `cleo.db`. */
   dbPath: string;
-  /** Per table, the rows local by row-identity spec the manifest leaves out (T13808). */
+  /** Per table, the rows local by row-identity spec the manifest leaves out (T13808), stamped by `localAsOf` when given (T13816). */
   localRows: Record<string, number>;
 }> {
   const bundlePath = path.join(work, 'snapshot.cleobundle.tar.gz');
@@ -1099,7 +1102,13 @@ async function exportAndRead(
   const bundleManifest = JSON.parse(
     fs.readFileSync(path.join(extractDir, 'manifest.json'), 'utf8'),
   ) as PortableBundleManifest;
-  const { vault, files, dbPath, localRows } = await snapshotManifest(extractDir, bundleManifest, t);
+  const { vault, files, dbPath, localRows } = await snapshotManifest(
+    extractDir,
+    bundleManifest,
+    t,
+    undefined,
+    localAsOf,
+  );
   return {
     bundlePath,
     vault,
@@ -1377,13 +1386,16 @@ function authoritativeOmitted(err: unknown): boolean {
  * format leaves out (T13808): rows local by row-identity spec. They never
  * travelled, so the journal declares no delete for them; the checkpoint names
  * them `pruned`, so the server's row rule takes them off the parent's count.
- * Per table, the shortfall against the tallies, capped by the local rows this
- * store holds now; a parent in the current format prunes nothing.
+ * Per table, the shortfall against the tallies, capped by the local rows that
+ * existed at the parent checkpoint (T13816): a local row written since was never
+ * in its count, so capping by the rows held now would mask as many lost synced
+ * rows. A parent in the current format prunes nothing.
  *
  * @param parentFormat - The parent's {@link vaultManifestFormat}.
  * @param tallies - The window's tallies.
  * @param local - The store's rows per manifest key.
- * @param localRows - Per table, the rows the manifest left out as local.
+ * @param localRows - Per table, the local rows the manifest left out that are
+ *   stamped at or before the parent's `createdAt`.
  * @returns The tallies less the pruned rows, and the `pruned` map.
  */
 export function formatTransitionPruned(
@@ -1631,6 +1643,8 @@ async function pushJournalCheckpoint(
           }
           snap = { ...state, read };
         },
+        // A parent of an older format counted the local rows it held (T13816).
+        parent.createdAt,
       );
       // Read through a const: TypeScript does not see the callback assign it.
       const taken = snap as Taken | null;
