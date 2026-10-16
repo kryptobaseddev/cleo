@@ -102,11 +102,7 @@ import { extract as tarExtract } from 'tar';
 import { z } from 'zod';
 import { getCleoHome, resolveOrCwd } from '../paths.js';
 import { withLock } from '../store/lock.js';
-import {
-  exportPortableBundle,
-  globalHomeRules,
-  LOCAL_JOURNAL_TABLES,
-} from '../store/portable-bundle.js';
+import { exportPortableBundle, globalHomeRules } from '../store/portable-bundle.js';
 import { extractPortableBundle, importPortableBundle } from '../store/portable-bundle-import.js';
 import {
   integrityCheck,
@@ -865,7 +861,12 @@ const JOURNAL_SNAPSHOT_CARRIED: ReadonlySet<string> = new Set([
 ]);
 
 const VAULT_CLEARED_JOURNAL_TABLES = [
-  ...LOCAL_JOURNAL_TABLES,
+  '_sync_capture',
+  '_sync_undo',
+  // The undo's row values (T12535): a rewound delete's secret columns.
+  '_sync_row_undo',
+  '_sync_frame',
+  '_sync_quarantine',
   '_sync_apply_intent',
   // Where this device's pull stands (T12343 S5-1): a restored store resumes
   // from the checkpoint it restored, never from another device's position.

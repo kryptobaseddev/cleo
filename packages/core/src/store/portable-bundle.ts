@@ -81,6 +81,7 @@ import {
   PROJECT_SECTION_RULES,
   pickKeyCounts,
   redactCredentials,
+  redactJournalSecrets,
   type SectionRules,
   type SnapshotRowFilter,
   scanSection,
@@ -164,23 +165,6 @@ export class PortableBundleError extends Error {
 // Input
 // ---------------------------------------------------------------------------
 
-/**
- * This device's local-only change journal: captures, undo (row values and
- * merge state), frames and quarantined captures. Their images hold the row's
- * local values, secret columns included (an approval's resume token, a
- * session's owner token), so every bundle that may leave this machine
- * unencrypted is shipped with them emptied, like the vault's snapshots
- * (T12535, T13042). A local safety bundle (`sharesIdentity: false`) keeps
- * them, so rolling a restore back keeps the changes this device has not sent.
- */
-export const LOCAL_JOURNAL_TABLES: readonly string[] = [
-  '_sync_capture',
-  '_sync_undo',
-  '_sync_row_undo',
-  '_sync_frame',
-  '_sync_quarantine',
-];
-
 /** Input for {@link exportPortableBundle}. */
 export interface ExportPortableBundleInput {
   /**
@@ -229,9 +213,7 @@ export interface ExportPortableBundleInput {
    */
   stripColumns?: Readonly<Record<string, readonly string[]>>;
   /**
-   * Tables emptied in every primary store snapshot, on top of
-   * {@link LOCAL_JOURNAL_TABLES} in an unencrypted bundle that may leave this
-   * machine. The cloud vault passes this
+   * Tables emptied in every primary store snapshot. The cloud vault passes this
    * device's local-only change journal (`_sync_capture`, `_sync_undo`,
    * `_sync_frame`, `_sync_quarantine`), whose images hold values the snapshot strips; a restore
    * takes those tables from the live store (T13042).
@@ -573,6 +555,10 @@ async function stageSection(
             ...(credentials.length > 0 ? { credentials } : {}),
           });
         }
+        // A bundle that may leave this machine carries no secret in its change
+        // journal either (T12535). A local safety copy keeps the journal whole,
+        // so rolling a restore back rewinds exactly as before.
+        if (isPrimary && state.sharesIdentity) redactJournalSecrets(staged);
       } catch (err) {
         throw new PortableBundleError(
           'E_REDACTION_FAILED',
@@ -827,10 +813,7 @@ export async function exportPortableBundle(
     passphrase: encrypt && input.passphrase ? input.passphrase : null,
     cleoHome,
     stripColumns: input.stripColumns ?? null,
-    clearTables:
-      encrypt || input.sharesIdentity === false
-        ? (input.clearTables ?? null)
-        : [...new Set([...LOCAL_JOURNAL_TABLES, ...(input.clearTables ?? [])])],
+    clearTables: input.clearTables ?? null,
     sharesIdentity: input.sharesIdentity !== false,
     sealCredentials: input.sealCredentials ?? null,
     inspectSnapshot: input.inspectSnapshot ?? null,

@@ -22,7 +22,7 @@
  * @task T13371
  */
 
-import { createHash, randomBytes } from 'node:crypto';
+import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
@@ -46,6 +46,8 @@ import {
   getDualScopeNativeDb,
   openDualScopeDbAtPath,
 } from '../../dual-scope-db.js';
+import { exportPortableBundle } from '../../portable-bundle.js';
+import { importPortableBundle } from '../../portable-bundle-import.js';
 import {
   prepareRowIdentity,
   ROW_IDENTITY_META_TABLE,
@@ -68,9 +70,11 @@ import {
   type PulledStreamSegment,
   type PullStreamOptions,
   pullStream,
+  readStreamCursor,
   type StreamCursor,
 } from '../pull.js';
 import { pushStream } from '../push.js';
+import { reconcileCopy } from '../reconcile-copy.js';
 import { planRepair } from '../repair.js';
 import { activeReplica, ensureProjectReplica } from '../replica.js';
 import { ReplicaRegistry } from '../replica-registry.js';
@@ -566,6 +570,106 @@ describe('a rewound delete of a sealed NOT NULL secret restores it (T12535)', ()
       ).toEqual({ n: 0 });
     expect(contentChecksums(b.db)).toEqual(contentChecksums(a.db));
   });
+});
+
+describe('a store moved through an unencrypted bundle keeps its unsent edits (T12535)', () => {
+  for (const concurrent of [false, true])
+    it(`A's offline edits reach B through C, and no redacted secret is overwritten${concurrent ? ' (B edits concurrently)' : ''}`, async () => {
+      const { a, b } = await twoDevices();
+      const stream = fakeStream();
+      const secretKey = secretValuesKey(randomBytes(32));
+      const pushSealed = async (r: Replica) =>
+        push(r, stream, await prepareSecretSeals(r.db, 'project', secretKey));
+      const pullOpened = (r: Replica) =>
+        pull(r, stream, () => prepareSecretOpens(r.db, 'project', STREAM, secretKey));
+      write(
+        a.db,
+        `INSERT INTO brain_sticky_notes (id, content, tags_json, created_at, updated_at) VALUES
+           ('SN-100', 'v1', '[]', '2026-10-14 17:41:24', '2026-10-14 17:41:24'),
+           ('SN-101', 'w1', '[]', '2026-10-14 17:41:25', '2026-10-14 17:41:25');
+         INSERT INTO tasks_playbook_runs (run_id, playbook_name, playbook_hash, started_at)
+           VALUES ('run-1', 'rcasd', 'hash-1', '2026-10-14 17:42:00');
+         INSERT INTO tasks_playbook_approvals (approval_id, run_id, node_id, token, requested_at)
+           VALUES ('ap1', 'run-1', 'gate', 'tok-1', '2026-10-14 17:42:01');`,
+      );
+      await pushSealed(a);
+      await pullOpened(b);
+      await pullOpened(a);
+      // Offline on A, never sealed: an edit, an insert, and an approval decided
+      // with a re-minted token (the secret column changed too).
+      write(
+        a.db,
+        `UPDATE brain_sticky_notes SET content = 'A-offline-edit' WHERE id = 'SN-100';
+         INSERT INTO brain_sticky_notes (id, content, tags_json, created_at, updated_at)
+           VALUES ('SN-200', 'A-offline-new', '[]', '2026-10-14 18:00:00', '2026-10-14 18:00:00');
+         UPDATE tasks_playbook_approvals SET status = 'approved', token = 'tok-1b' WHERE approval_id = 'ap1';`,
+      );
+      if (concurrent) {
+        write(b.db, `UPDATE brain_sticky_notes SET content = 'B-edit-101' WHERE id = 'SN-101';`);
+        await pushSealed(b);
+      }
+      const bundle = join(dir, 'move.cleobundle.tar.gz');
+      await exportPortableBundle({
+        scope: 'project',
+        projectRoot: join(dir, 'a'),
+        outputPath: bundle,
+        label: 'move',
+      });
+      mkdirSync(join(dir, 'c'), { recursive: true });
+      await importPortableBundle({
+        bundlePath: bundle,
+        target: join(dir, 'c'),
+        cwd: join(dir, 'c'),
+        force: true,
+        cleoHome: join(dir, 'cleo'),
+      });
+      const c = await open('c', 'dev-a');
+      // The copy reconcile (rule 1 reads the inherited live captures).
+      mkdirSync(join(dir, 'scratch'), { recursive: true });
+      const merged = getDualScopeNativeDb(
+        await openDualScopeDbAtPath('project', join(dir, 'scratch', 'cleo.db'), undefined, {
+          dedicated: true,
+          syncMode: 'off',
+        }),
+      );
+      setSyncFlag(merged, 'sync.pull', true, { schemaRoot: SYNC_SCHEMA, allowUnreleased: true });
+      const pulled = await pullStream(merged, {
+        scope: 'project',
+        stream: STREAM,
+        replica: randomUUID(),
+        pull: stream.pull,
+        verify: () => null,
+        initialCursor: START,
+        now: () => ++clock,
+        env: {},
+        seal: () => {},
+        openSecrets: () => prepareSecretOpens(merged, 'project', STREAM, secretKey),
+      });
+      expect(pulled.refused).toBeNull();
+      reconcileCopy(c.db, merged, {
+        scope: 'project',
+        stream: STREAM,
+        mergedCursor: readStreamCursor(merged, STREAM) ?? START,
+        now: () => ++clock,
+      });
+      await pushSealed(c);
+      await pullOpened(b);
+      const notes = 'SELECT id, content FROM brain_sticky_notes ORDER BY id';
+      const want = [
+        { id: 'SN-100', content: 'A-offline-edit' },
+        { id: 'SN-101', content: concurrent ? 'B-edit-101' : 'w1' },
+        { id: 'SN-200', content: 'A-offline-new' },
+      ];
+      expect(b.db.prepare(notes).all()).toEqual(want);
+      expect(c.db.prepare(notes).all()).toEqual(want);
+      // The decision travels; the token the bundle redacted is never sent as
+      // a NULL or empty value over B's.
+      expect(
+        b.db
+          .prepare("SELECT status, token FROM tasks_playbook_approvals WHERE approval_id = 'ap1'")
+          .get(),
+      ).toEqual({ status: 'approved', token: 'tok-1' });
+    });
 });
 
 describe('docs reach a second device (T12919)', () => {
