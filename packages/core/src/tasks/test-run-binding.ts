@@ -630,6 +630,68 @@ export function bindTestRunReport(
 }
 
 /**
+ * What a targeted test-run report must run to speak for a change — point 2 of
+ * the module doc as data. {@link testRunCoversChange} judges a report against
+ * it, and `cleo tasks changeset --test-plan` reports it, so the two cannot
+ * drift (T13795).
+ *
+ * - `full`: the change is workspace-wide; no test-run report speaks for it.
+ * - `targeted`: the report must pass every file of `outsideTests` and of
+ *   `standaloneTests` (a single-package project's changed test files), and at
+ *   least one test file of every package in `required`. `direct` lists the
+ *   changed packages; `untestedPackages` the affected ones that have no test.
+ */
+export type TestRunRequirement =
+  | { kind: 'full'; reason: string }
+  | {
+      kind: 'targeted';
+      direct: string[];
+      required: string[];
+      untestedPackages: string[];
+      outsideTests: string[];
+      standaloneTests: string[];
+    };
+
+/**
+ * The {@link TestRunRequirement} of a change.
+ *
+ * @param root - The checkout the change is relative to.
+ * @param changed - The change's paths, relative to `root`.
+ * @returns What a covering report must run.
+ * @task T13795
+ */
+export function testRunRequirement(root: string, changed: readonly string[]): TestRunRequirement {
+  const scope = deriveAffectedPackages(root, changed, { outsideTests: true });
+  if (scope.scope === 'full') return { kind: 'full', reason: scope.reason };
+  const outsideTests = scope.outsideTests ?? [];
+  if (scope.direct.length === 0) {
+    return {
+      kind: 'targeted',
+      direct: [],
+      required: [],
+      untestedPackages: [],
+      outsideTests,
+      standaloneTests: [],
+    };
+  }
+  // Longest directory first, so a file belongs to its innermost package.
+  const workspace = listWorkspacePackages(root).sort((a, b) => b.dir.length - a.dir.length);
+  const withTests = packagesWithTestFiles(root, workspace, changed);
+  // T13403: in a standalone project the one package is the whole project,
+  // so one test file of it says nothing about the change. The report must
+  // also run every test file the change adds or edits.
+  const standalone = workspace.length === 1 && workspace[0]?.dir === '';
+  return {
+    kind: 'targeted',
+    direct: scope.direct,
+    required: scope.packages.filter((name) => withTests.has(name)),
+    untestedPackages: scope.packages.filter((name) => !withTests.has(name)),
+    outsideTests,
+    standaloneTests: standalone ? changedTestFiles(root, changed) : [],
+  };
+}
+
+/**
  * Whether the test files a report ran cover a change — point 2 of the module
  * doc, applied to an explicit list of changed paths. {@link bindTestRunReport}
  * passes the branch's diff; `cleo complete` passes a merged change's own files
@@ -652,12 +714,12 @@ export function testRunCoversChange(
     codeName: 'E_EVIDENCE_INSUFFICIENT',
     reason,
   });
-  const scope = deriveAffectedPackages(root, changed, { outsideTests: true });
-  if (scope.scope === 'full') {
+  const need = testRunRequirement(root, changed);
+  if (need.kind === 'full') {
     // A workspace-wide change can break any package: only a full-suite run
     // speaks for it, and no report shows it ran the whole suite.
     return refuse(
-      `The change is workspace-wide (${scope.reason}), so only a full-suite run speaks for it, ` +
+      `The change is workspace-wide (${need.reason}), so only a full-suite run speaks for it, ` +
         'and a test-run report cannot show that it ran the whole suite (test configs exclude ' +
         'tracked test files, so file counts prove nothing). Record tool:test, which runs the ' +
         'full suite for a workspace-wide change, or ci:<pr> once the PR merges.',
@@ -666,7 +728,7 @@ export function testRunCoversChange(
   // T13754: a non-workspace path is spoken for only by passing every test file
   // outside the packages under its top-level directory (edited ones included).
   const ran = new Set(testFiles);
-  const outsideUnrun = (scope.outsideTests ?? []).filter((f) => !ran.has(f));
+  const outsideUnrun = need.outsideTests.filter((f) => !ran.has(f));
   if (outsideUnrun.length > 0) {
     return refuse(
       `test-run report does not run ${outsideUnrun.slice(0, 5).join(', ')}` +
@@ -676,26 +738,19 @@ export function testRunCoversChange(
         'tool:test-affected.',
     );
   }
-  if (scope.direct.length === 0) return { ok: true, untestedPackages: [] };
-  // Longest directory first, so a file belongs to its innermost package.
-  const workspace = listWorkspacePackages(root).sort((a, b) => b.dir.length - a.dir.length);
-  const withTests = packagesWithTestFiles(root, workspace, changed);
-  const required = scope.packages.filter((name) => withTests.has(name));
-  const untestedPackages = scope.packages.filter((name) => !withTests.has(name));
+  if (need.direct.length === 0) return { ok: true, untestedPackages: [] };
+  const { required, untestedPackages } = need;
   if (required.length === 0) {
     return refuse(
-      `No test file exists in the changed package(s) ${someNames(scope.direct)} or in any package ` +
+      `No test file exists in the changed package(s) ${someNames(need.direct)} or in any package ` +
         'that depends on them, so a targeted test-run cannot cover the change. Record tool:test.',
     );
   }
+  const workspace = listWorkspacePackages(root).sort((a, b) => b.dir.length - a.dir.length);
   const covered = new Set(testFiles.flatMap((f) => ownerOf(f, workspace)?.name ?? []));
   const missing = required.filter((name) => !covered.has(name));
   if (missing.length === 0) {
-    // T13403: in a standalone project the one package is the whole project,
-    // so one test file of it says nothing about the change. The report must
-    // also run every test file the change adds or edits.
-    const standalone = workspace.length === 1 && workspace[0]?.dir === '';
-    const unrun = standalone ? changedTestFiles(root, changed).filter((f) => !ran.has(f)) : [];
+    const unrun = need.standaloneTests.filter((f) => !ran.has(f));
     if (unrun.length === 0) return { ok: true, untestedPackages };
     return refuse(
       `test-run report does not run the changed test file(s) ${unrun.slice(0, 5).join(', ')}` +
@@ -705,7 +760,7 @@ export function testRunCoversChange(
     );
   }
   const labelled = missing.map((name) =>
-    scope.direct.includes(name) ? `${name} (changed)` : `${name} (depends on a changed package)`,
+    need.direct.includes(name) ? `${name} (changed)` : `${name} (depends on a changed package)`,
   );
   return refuse(
     `${

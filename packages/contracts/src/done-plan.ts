@@ -371,3 +371,63 @@ export interface DoneBlockedDetails {
   /** The plan, for tooling. */
   plan: DonePlan;
 }
+
+/** A test file a covering test-run report must run, and why. */
+export interface OwedTestFile {
+  /** Repo-relative test file. */
+  file: string;
+  /** Why the binding requires it. */
+  reason: string;
+}
+
+/** An affected package a covering report must run at least one test file of. */
+export interface OwedTestPackage {
+  /** Workspace package name. */
+  name: string;
+  /** Changed itself, or depends on a changed package. */
+  reason: 'changed' | 'depends on a changed package';
+  /** Test files of this package the change adds or edits (the natural choice). */
+  changedTestFiles: string[];
+}
+
+/**
+ * The tests a task's change owes, as the `test-run:` binding and
+ * `cleo done --plan` enforce them (T13795).
+ *
+ * - `targeted`: a passing report of every `files` entry plus at least one test
+ *   file of every `packages` entry binds.
+ * - `full`: the change is workspace-wide; only `tool:test` (or `ci:<pr>`) binds.
+ * - `none`: no changed path to judge (no origin default branch, or no change).
+ */
+export interface TaskTestPlan {
+  /** Changed paths judged, or null when none could be read. */
+  changedPaths: string[] | null;
+  /** How the change can be tested. */
+  scope: 'targeted' | 'full' | 'none';
+  /** Why only a full run binds (`scope === 'full'`). */
+  reason?: string;
+  /** Exact test files a covering report must run. */
+  files: OwedTestFile[];
+  /** Packages a covering report must run at least one test file of. */
+  packages: OwedTestPackage[];
+  /** Affected packages with no test file at all. */
+  untestedPackages: string[];
+  /** Whether the task already holds a standing testsPassed gate. */
+  gatePassed: boolean;
+  /** The testsPassed tool runs `cleo done` would use. */
+  toolRuns: DonePlanToolRun[];
+  /** The testsPassed blockers `cleo done --plan` reports. */
+  blockers: DonePlanBlocker[];
+}
+
+/** Result of `cleo tasks changeset <id> [--test-plan]` (T13795). */
+export interface TaskChangeSetReport {
+  /** Task id. */
+  taskId: string;
+  /** The change set `cleo done` derives. */
+  changeSet: TaskChangeSet;
+  /** Commits of the change, oldest first. */
+  commits: string[];
+  /** The tests owed (with `--test-plan`). */
+  testPlan?: TaskTestPlan;
+}
