@@ -687,6 +687,23 @@ describe('releasePlan — a shipped version is immutable (T13619)', () => {
     });
     expect(result.success).toBe(true);
   });
+
+  it('a row synced from another device keeps its id; the upsert hands that id to the changesets (T12914)', async () => {
+    await seedEpicWithChildren('T9999', 1);
+    const result = await releasePlan({
+      version: 'v2026.6.0',
+      epicId: 'T9999',
+      channel: 'latest',
+      scheme: 'calver',
+      projectRoot: testDir,
+    });
+    if (!result.success) throw new Error('unreachable');
+    const plan = parseReleasePlan(JSON.parse(readFileSync(result.data.planPath, 'utf-8')));
+    // A release received by sync takes its uid as its local id.
+    const db = await getDb(testDir);
+    await db.update(schema.releases).set({ id: 'uid-from-peer', status: 'planned' }).run();
+    expect(await planInternals.upsertReleasesRow(plan, 'latest', testDir)).toBe('uid-from-peer');
+  });
 });
 
 describe('releasePlan — error envelopes', () => {

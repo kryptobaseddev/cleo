@@ -193,6 +193,19 @@ function seed(native: DatabaseSync, shape: Shape, fillBetween: boolean): void {
     INSERT INTO docs_attachment_refs (attachment_id, owner_type, owner_id, attached_at) VALUES
       ('gbd-1', 'task', 'T2', '2026-09-01 09:10:00'),
       ('gbd-2', 'task', 'T3', '2026-09-02T09:10:00.000Z');
+
+    -- T12914: the minted lifecycle rows (evidence, transitions) and the
+    -- natural pipeline and stages they reference, in both timestamp forms.
+    INSERT INTO tasks_lifecycle_pipelines (id, task_id, started_at, updated_at) VALUES
+      ('pipeline-T2', 'T2', '2026-09-01 09:20:00', '2026-09-01 09:20:00');
+    INSERT INTO tasks_lifecycle_stages (id, pipeline_id, stage_name, sequence) VALUES
+      ('stage-T2-research', 'pipeline-T2', 'research', 1),
+      ('stage-T2-consensus', 'pipeline-T2', 'consensus', 2);
+    INSERT INTO tasks_lifecycle_evidence (id, stage_id, uri, type, recorded_at) VALUES
+      ('evidence-T2-1', 'stage-T2-research', 'docs/a.md', 'file', '2026-09-01 09:21:00'),
+      ('evidence-T2-2', 'stage-T2-research', 'docs/b.md', 'file', '2026-09-02T09:21:00.000Z');
+    INSERT INTO tasks_lifecycle_transitions (id, pipeline_id, from_stage_id, to_stage_id, created_at) VALUES
+      ('transition-gb-1', 'pipeline-T2', 'stage-T2-research', 'stage-T2-consensus', '2026-09-02 09:22:00');
   `);
   // llmtxt kept its audit events only in the bare twin; cleocode in both.
   const audit = shape === 'llmtxt' ? ['audit_log'] : ['audit_log', 'tasks_audit_log'];
