@@ -18,6 +18,7 @@ import {
   checkManifest,
   checkManifestV3,
   type DeclaredTxn,
+  isSnapshotAuthoritativeKey,
   nextVoidedSet,
   schemaRises,
   windowOf,
@@ -72,6 +73,31 @@ describe('checkManifestV3', () => {
       ok: false,
       code: 'E_REGRESSION',
     });
+  });
+
+  it('does not reconcile the snapshot-authoritative keys (zz_vault_files, zz_vault_db_*; T12999)', () => {
+    const files = (rows: number) => ({
+      zz_vault_files: { rows, hash: H },
+      zz_vault_db_blobs_manifest_db: { rows, hash: H },
+    });
+    const parent = { ...v3(10), tables: { ...v3(10).tables, ...files(2) } };
+    // Files and databases changed with no segment declaring them; the journal tables still reconcile.
+    expect(
+      check(parent, { ...v3(13), tables: { ...v3(13).tables, ...files(5) } }, [tx(ref(R1, 0), 3)]),
+    ).toEqual({
+      ok: true,
+    });
+    // Gone entirely: still not a missing table.
+    expect(check(parent, v3(13), [tx(ref(R1, 0), 3)])).toEqual({ ok: true });
+    // Every other table keeps the exact rule.
+    const off = check(parent, { ...v3(12), tables: { ...v3(12).tables, ...files(5) } }, [
+      tx(ref(R1, 0), 3),
+    ]);
+    expect(off.ok).toBe(false);
+    expect(
+      off.ok === false && off.code === 'E_REGRESSION' && off.tables.map((x) => x.table),
+    ).toEqual([T]);
+    expect(isSnapshotAuthoritativeKey('zz_vault_format')).toBe(false);
   });
 
   it('concurrent inserts of the same uid: one effect voided', () => {

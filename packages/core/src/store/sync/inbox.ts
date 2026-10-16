@@ -42,6 +42,16 @@ export type InboxStatus =
 /** The statuses the applier tries again. */
 export const OPEN_INBOX_STATUSES: readonly InboxStatus[] = ['staged', 'pending', 'held-skew'];
 
+/**
+ * The statuses of a transaction not applied yet: the open ones and
+ * `refused-schema`. A journal checkpoint lists them as pending and carries
+ * their rows in its bundle (journal spec §2.11 §6; T12999).
+ */
+export const UNRESOLVED_INBOX_STATUSES: readonly InboxStatus[] = [
+  ...OPEN_INBOX_STATUSES,
+  'refused-schema',
+];
+
 /** One staged row's position in the stream. */
 export interface InboxKey {
   readonly stream: string;
