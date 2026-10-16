@@ -1,5 +1,23 @@
 # Changelog
 
+## [2026.10.17] (2026-10-16)
+
+> **hooks-v1 stable promotion.** Project hooks (hooks-v1) are released on stable: this release stamps `cleo.releasedFeatures: ["hooks-v1"]` into `@cleocode/core`, so `cleo hook sync --activate` works and activation receipts run on a stable build. The promotion was gated on the VidaPeps pilot against 2026.10.17-canary.1 (packed and published installs, read-only dev and prod ledger checks, live Claude Code and Codex sessions, hosted exact-candidate CI), bound to the same implementation source as this release. Cross-device sync (Stage C) stays unreleased and inert.
+
+### hooks-v1
+
+- Project hooks activate and run on stable builds; the hooks-v1 gate (`release-gate.ts`) opens from the promotion stamp, not a source change _(provenance: [T13350](https://github.com/kryptobaseddev/cleo/search?q=T13350&type=commits), [T13557](https://github.com/kryptobaseddev/cleo/search?q=T13557&type=commits))_
+- Codex project hooks currently fire only in a standalone checkout: in a linked git worktree, Codex reads the managed hook from the main checkout, so CLEO's Codex hook does not run there (Claude Code hooks are unaffected; T13772).
+- Verified for this promotion (code shipped in v2026.10.16): the release-plan guard does not refuse the post-promotion cleanup once the previous release shipped the gate open _(provenance: [T13607](https://github.com/kryptobaseddev/cleo/search?q=T13607&type=commits))_
+
+### Fixed
+
+- ci:<pr> is refused when no check is required; tool:config-schema tests a change to CLEO config alone _(provenance: [T13757](https://github.com/kryptobaseddev/cleo/search?q=T13757&type=commits), [T13758](https://github.com/kryptobaseddev/cleo/search?q=T13758&type=commits))_
+
+### Also in this release
+
+- `cleo cloud push` checkpoints the change journal and `cleo cloud verify` compares a journal store with the journal tallies (inert on stable until Stage C) _(provenance: [T12999](https://github.com/kryptobaseddev/cleo/search?q=T12999&type=commits))_
+
 ## [2026.10.17-canary.1] (2026-10-16)
 
 > **hooks-v1 promotion pilot canary.** Published to the `canary` dist-tag only. This build runs project hooks (hooks-v1) for the VidaPeps pilot; its implementation-source digest `7048435a30f50b39863c74d9ed021c67afff34441d0a49abaafdc094e5988a61` (freeze commit d07fb4b0f) is the source the v2026.10.17 stable promotion must ship. Also carries the vault and change-journal coexistence work (#2269, T12999), which rides the unreleased Stage C sync and stays inert.
