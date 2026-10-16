@@ -171,7 +171,7 @@ export function scopedRunSupersededReason(
  *   it cannot be computed (not a git checkout, or git failed).
  * @param scope - The root and current change to compare over (T13784): a
  *   moved report still stands while the change's files, the test files it
- *   ran and the shared test configs are byte-identical; without it any moved
+ *   ran and their test inputs are byte-identical; without it any moved
  *   tree refuses.
  * @returns The reason, or null.
  * @task T12965
@@ -218,7 +218,7 @@ function sameOver(
  * stands while what it did not see — the tree moving after verify, and
  * commits that landed on the default branch between the run and verify
  * (`runHeadSha`) — leaves the change's own files (`scope.changed`), the test
- * files it ran and the shared test configs byte-identical. Unrelated paths
+ * files it ran and their test inputs ({@link testRunInputPaths}) byte-identical. Unrelated paths
  * moving on main do not stale it. Fails closed: no scope, a capped test-file
  * list, or a git failure each refuse.
  */
@@ -256,12 +256,18 @@ function testRunUnseenChangeReason(
   const testFiles = run.testFiles ?? [];
   if (scope === undefined || (run.testFileCount ?? testFiles.length) > testFiles.length)
     return moved;
-  const paths = [...new Set([...scope.changed, ...testFiles, ...TEST_RUN_SHARED_INPUTS])];
+  const paths = [
+    ...new Set([
+      ...scope.changed,
+      ...testFiles,
+      ...testRunInputPaths([...scope.changed, ...testFiles]),
+    ]),
+  ];
   for (const [from, to, between] of pairs) {
     const same = sameOver(scope.root, from, to, paths);
     if (same === null) return moved;
     if (!same)
-      return `testsPassed rests on ${label}, but the change's files, the test files it ran or the shared test configs differ between ${between}${differingPaths(scope.root, from, to, paths)}. ${redo}`;
+      return `testsPassed rests on ${label}, but the change's files, the test files it ran or their test inputs (configs, manifests, setup files) differ between ${between}${differingPaths(scope.root, from, to, paths)}. ${redo}`;
   }
   return null;
 }
@@ -280,17 +286,39 @@ const QA_RUN_SHARED_INPUTS = [
   'pnpm-workspace.yaml',
 ];
 
+/** Test runner configs, at the root and in every directory above a file (T13784). */
+const TEST_RUNNER_CONFIGS = ['vitest.config.*', 'vitest.workspace.*', 'jest.config.*'];
+
 /**
- * Root-level files a test run reads beyond its own files: the QA shared
- * inputs plus the test runner configs. A change to any of them refuses a
- * moved test-run (T13784).
+ * Pathspecs of the inputs a test run reads beyond the files it names
+ * (T13784, review of #2295): the QA shared inputs, runner configs and this
+ * repo's shared setup (`vitest.setup.*`, `vitest.memory-safe.*`) at the root,
+ * and in every directory above a changed or run file its `package.json`,
+ * `tsconfig*.json`, runner configs and any setup file below it (`*setup*`,
+ * the usual `setupFiles`/`globalSetup` names). Scoped to those directories so
+ * another package's manifest moving on main does not stale the run. A module
+ * the tests import but the change does not touch is not an input here — the
+ * same file-scoped limit as the byte-identity carry.
  */
-const TEST_RUN_SHARED_INPUTS = [
-  ...QA_RUN_SHARED_INPUTS,
-  'vitest.config.*',
-  'vitest.workspace.*',
-  'jest.config.*',
-];
+function testRunInputPaths(files: readonly string[]): string[] {
+  const dirs = new Set<string>();
+  for (const file of files) {
+    const parts = file.split('/').slice(0, -1);
+    for (let i = 1; i <= parts.length; i++) dirs.add(parts.slice(0, i).join('/'));
+  }
+  return [
+    ...QA_RUN_SHARED_INPUTS,
+    ...TEST_RUNNER_CONFIGS,
+    'vitest.setup.*',
+    'vitest.memory-safe.*',
+    ...[...dirs].flatMap((d) => [
+      `${d}/package.json`,
+      `${d}/tsconfig*.json`,
+      ...TEST_RUNNER_CONFIGS.map((c) => `${d}/${c}`),
+      `:(glob)${d}/**/*setup*.*`,
+    ]),
+  ];
+}
 
 /** What an earlier-tree qa-run receipt is compared over (T13644). */
 export interface QaRunCarryScope {

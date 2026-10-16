@@ -1551,6 +1551,69 @@ describe('T13784: staleness considers only the change files and the tests the ru
     }
   });
 
+  /**
+   * Review of #2295: the change is packages/a/src/x.ts; main then edits one
+   * test input of packages/a (or an unrelated package's manifest).
+   */
+  function packageMovedOn(path: string) {
+    const root = realpathSync(mkdtempSync(join(tmpdir(), 'cleo-t13784-pkg-')));
+    const git = (...a: string[]): string =>
+      execFileSync('git', ['-c', 'user.name=T', '-c', 'user.email=t@e.x', ...a], {
+        cwd: root,
+        encoding: 'utf-8',
+      }).trim();
+    const files: Record<string, string> = {
+      'package.json': '{"name":"root","private":true}\n',
+      'packages/a/package.json': '{"name":"@x/a"}\n',
+      'packages/a/vitest.config.ts': 'export default {};\n',
+      'packages/a/src/test-setup.ts': 'export {};\n',
+      'packages/a/src/x.ts': 'export const x = 1;\n',
+      'packages/a/src/x.test.ts': "import './x.js';\n",
+      'packages/b/package.json': '{"name":"@x/b"}\n',
+    };
+    git('init', '-q', '-b', 'main');
+    for (const [f, body] of Object.entries(files)) {
+      mkdirSync(join(root, f, '..'), { recursive: true });
+      writeFileSync(join(root, f), body);
+    }
+    git('add', '-A');
+    git('commit', '-q', '-m', 'init');
+    writeFileSync(join(root, 'packages/a/src/x.ts'), 'export const x = 2;\n');
+    git('commit', '-q', '-am', 'T9001');
+    const ranHead = git('rev-parse', 'HEAD');
+    const ranTree = git('rev-parse', 'HEAD^{tree}');
+    writeFileSync(join(root, path), `${files[path]?.trimEnd() ?? ''} // moved\n`);
+    git('commit', '-q', '-am', `later main commit: ${path}`);
+    const tree = git('rev-parse', 'HEAD^{tree}');
+    const scope = { root, changed: ['packages/a/src/x.ts'] };
+    const atoms = [
+      run({ headSha: ranHead, treeHash: ranTree, testFiles: ['packages/a/src/x.test.ts'] }),
+    ];
+    return { root, verdict: () => testRunTreeMismatchReason(atoms, tree, scope) };
+  }
+
+  it.each([
+    'packages/a/vitest.config.ts',
+    'packages/a/package.json',
+    'packages/a/src/test-setup.ts',
+  ])("red (review of #2295): a later commit to the package's test input %s stales the run", (path) => {
+    const c = packageMovedOn(path);
+    try {
+      expect(c.verdict()).toMatch(new RegExp(`test inputs.*: ${path.replace(/\./g, '\\.')}`));
+    } finally {
+      rmSync(c.root, { recursive: true, force: true });
+    }
+  });
+
+  it("green: another package's manifest moving on main does not stale the run", () => {
+    const c = packageMovedOn('packages/b/package.json');
+    try {
+      expect(c.verdict()).toBeNull();
+    } finally {
+      rmSync(c.root, { recursive: true, force: true });
+    }
+  });
+
   it('red: without the change scope, a moved tree or unseen commits still refuse', () => {
     const c = movedOn('tooling/print-bridge.mjs');
     try {

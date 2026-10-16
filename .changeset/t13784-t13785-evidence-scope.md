@@ -9,7 +9,9 @@ summary: "Unrelated commits on main no longer stale a test-run, and a parent tas
 commit landing after the run (VidaPeps: a print-bridge commit 90 s later) made
 `cleo verify` refuse the report, and a tree move after verify made the
 post-merge stand-in refuse it. Staleness now looks only at the change's own
-files, the test files the report ran and the root test configs. On the default
+files, the test files the report ran and their test inputs: the root configs
+and lockfile, plus the `package.json`, `tsconfig*.json`, runner configs and
+setup files of every directory above those files. On the default
 branch, a run followed by a pull of main records `runHeadSha` (HEAD as of the
 run); `cleo done --plan` and `cleo complete` refuse the report only when the
 commits it did not see touched those paths. A commit of the change itself, any
