@@ -256,6 +256,12 @@ export interface SessionBriefing {
   /** Brain memory context -- decisions/patterns/observations relevant to this scope. */
   memoryContext?: SessionMemoryContext;
   /**
+   * Brief codebase map (`cleo map --brief`): exported names per folder, so
+   * reuse needs no search. Present only when `lean.map` is on (T13666);
+   * a one-line no-index notice when the project has no code index.
+   */
+  codebaseMap?: string;
+  /**
    * PSYCHE Wave 4 multi-pass retrieval bundle.
    *
    * Contains cold (user profile), warm (peer memory), and hot (session state)
@@ -618,6 +624,25 @@ export async function computeBriefing(
     );
   }
 
+  // T13666: the brief codebase map, when `lean.map` is on (opt-in: it costs
+  // up to ~2,000 characters per briefing). Nexus graph only: a briefing never
+  // walks the tree. Best-effort.
+  let codebaseMap: string | undefined;
+  try {
+    const { getConfigValue } = await import('../config/registry.js');
+    if ((await getConfigValue<boolean>('lean.map', { projectRoot })) === true) {
+      const { buildNexusBriefMap, BRIEF_MAP_NO_INDEX } = await import('../nexus/brief-map.js');
+      try {
+        const report = await buildNexusBriefMap(projectRoot);
+        codebaseMap = report === null ? BRIEF_MAP_NO_INDEX : report.text || undefined;
+      } catch (err) {
+        codebaseMap = `code index unreadable: ${err instanceof Error ? err.message : String(err)}`;
+      }
+    }
+  } catch {
+    // Advisory only; `cleo map --brief` reports the map directly.
+  }
+
   // Build partial briefing for contract assertion
   const partialBriefing: SessionBriefing = {
     currentTask: currentTaskInfo,
@@ -637,6 +662,7 @@ export async function computeBriefing(
     ...(memoryContext && { memoryContext }),
     ...(bundle && { bundle }),
     ...(docsContext && { docsContext }),
+    ...(codebaseMap && { codebaseMap }),
   };
 
   // T1905 / BBTT-W1-3: Evaluate default briefing contract.

@@ -10,6 +10,7 @@
 
 import { defineCommand } from 'citty';
 import { dispatchFromCli } from '../../dispatch/adapters/cli.js';
+import { cliOutput } from '../renderers/index.js';
 
 /**
  * cleo map — analyze codebase structure and return structured mapping.
@@ -28,8 +29,30 @@ export const mapCommand = defineCommand({
       description:
         'Focus on one area: stack, architecture, structure, conventions, testing, integrations, concerns',
     },
+    brief: {
+      type: 'boolean',
+      description:
+        'One line per folder of exported names (nexus graph, else git-tracked walk), within --budget characters (T13666)',
+    },
+    budget: {
+      type: 'string',
+      description: 'Character budget for --brief (default 2000)',
+    },
   },
   async run({ args }) {
+    if (args.brief) {
+      const { buildBriefMap, BRIEF_MAP_DEFAULT_BUDGET } = await import(
+        '@cleocode/core/nexus/brief-map.js'
+      );
+      const { getProjectRoot } = await import('@cleocode/core/project-scope');
+      const budget = Number.parseInt(String(args.budget ?? ''), 10);
+      const report = await buildBriefMap(
+        getProjectRoot(),
+        Number.isFinite(budget) && budget > 0 ? budget : BRIEF_MAP_DEFAULT_BUDGET,
+      );
+      cliOutput(report, { command: 'map', operation: 'map.brief' });
+      return;
+    }
     const gateway = args.store ? 'mutate' : 'query';
     const params: Record<string, unknown> = {};
     if (args.focus) params.focus = args.focus;
