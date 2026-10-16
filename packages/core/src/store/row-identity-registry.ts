@@ -464,6 +464,12 @@ function lifecycleReleaseGit(): RowIdentitySpec[] {
  * carried them, and a journal checkpoint could not account for their rows on
  * any real store (T12999 staging, 2026-10-16).
  *
+ * - `tasks_audit_log`: both audits (task mutations, and since T13777 part 2
+ *   the dispatch audit, which the twin collapse drains out of the bare
+ *   `audit_log`), natural over the id (a UUID, or `log-<ms>-<hex>`) with no
+ *   refs: task and session ids stay raw. The uid is a pure function of the id,
+ *   so a drained row keeps it. The bare `audit_log` stays exempt as a drained
+ *   twin, as `token_usage` does.
  * - `tasks_token_usage`: a UUID id, so natural over it. Its session and task
  *   ids are soft (a session or task that never syncs must not hold the row
  *   pending) and stay raw. The bare `token_usage` drains into it (T13115) and
@@ -478,6 +484,7 @@ function lifecycleReleaseGit(): RowIdentitySpec[] {
  */
 function commandLogs(): RowIdentitySpec[] {
   return [
+    { table: 'tasks_audit_log', kind: 'natural', key: ['id'], task: 'T13777' },
     { table: 'tasks_token_usage', kind: 'natural', key: ['id'], task: 'T13777' },
     {
       table: 'tasks_session_handoff_entries',
@@ -893,8 +900,8 @@ function exempt(
 }
 
 /**
- * Bare tables the twin collapse DRAINS into their prefixed twin (T13115),
- * bare name → twin name. Kept here, a module every open already loads, so
+ * Bare tables the twin collapse DRAINS into their prefixed twin (T13115,
+ * T13777), bare name → twin name. Kept here, a module every open already loads, so
  * the bare-twin strand check (`sync/flags.ts`) adds nothing to the CLI's
  * startup graph (gate 39).
  *
@@ -907,6 +914,7 @@ function exempt(
  */
 export const DRAINED_TWINS: Readonly<Record<string, string>> = {
   token_usage: 'tasks_token_usage',
+  audit_log: 'tasks_audit_log',
 };
 
 /**
@@ -938,7 +946,6 @@ export const ROW_IDENTITY_EXEMPT: Readonly<
         'architecture_decisions',
         'tasks_architecture_decisions',
         'audit_log',
-        'tasks_audit_log',
         'experiments',
         'tasks_experiments',
         'manifest_entries',
@@ -1033,8 +1040,8 @@ export const ROW_IDENTITY_EXEMPT: Readonly<
  * reclassified brain_embeddings derived in both scopes (owner decision
  * 2026-10-14: vectors are a local cache), closing the T12918 blob exemption,
  * and T12914 the lifecycle, release, PR and commit tables (16 project),
- * and T13777 declared the command logs (2 project: token usage, handoff
- * entries; 1 global: the Nexus audit log)
+ * and T13777 declared the command logs (3 project: the audit log, token
+ * usage, handoff entries; 1 global: the Nexus audit log)
  * ({@link rowIdentityExemptionSummary} prints the live numbers):
  *
  * | category             | task   | project | global |
@@ -1047,13 +1054,13 @@ export const ROW_IDENTITY_EXEMPT: Readonly<
  * | planned (nexus)      | T12916 | 0       | 7      |
  * | planned (skills)     | T12917 | 0       | 4      |
  * | planned (misc)       | T12920 | 11      | 0      |
- * | twin-collapse        | T12535 | 29      | 0      |
- * | total                |        | 48      | 11     |
+ * | twin-collapse        | T12535 | 28      | 0      |
+ * | total                |        | 47      | 11     |
  *
  * @task T12897
  */
 export const ROW_IDENTITY_EXEMPT_PINNED: Readonly<Record<TableScope, number>> = {
-  project: 48,
+  project: 47,
   global: 11,
 };
 
@@ -1066,7 +1073,7 @@ export const ROW_IDENTITY_EXEMPT_PINNED: Readonly<Record<TableScope, number>> = 
  * @task T12897
  */
 export const ROW_IDENTITY_EXEMPT_NAMES_SHA256: Readonly<Record<TableScope, string>> = {
-  project: '83259fa399beb43c77b465128f4e3d987e9cfbd60146e7e879fdec580876e0af',
+  project: '544d4d25663be4798211db361a7997c9bfbd7587ec8f257da1f9920372d604a2',
   global: '2c46fe6fed00b5e15dc9323b48d448d51d2f475fe6c9480703830efb0dc63cfb',
 };
 

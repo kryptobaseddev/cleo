@@ -6,8 +6,16 @@ import { pipeline } from 'node:stream/promises';
 import { createGunzip } from 'node:zlib';
 import type { LoggingConfig } from '@cleocode/contracts';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { auditPruneCondition, pruneAuditLog } from '../audit-prune.js';
+import {
+  AUDIT_GATE_RECEIPT_ACTION,
+  AUDIT_PRUNE_EXEMPT_ACTIONS,
+  AUDIT_RETENTION_FLOOR_DAYS,
+  auditPruneCondition,
+  pruneAuditLog,
+} from '../audit-prune.js';
+import { SAGA_RECONCILE_RECEIPT_ACTION } from '../sagas/reconcile.js';
 import { AC_BINDINGS_PRUNED_ACTION } from '../store/ac-binding-prune.js';
+import { RANKING_CHANGED_ACTION } from '../tasks/ranking-audit.js';
 
 /** Insert audit_log rows with given timestamps into a test DB. */
 async function insertAuditRows(
@@ -245,5 +253,64 @@ describe('pruneAuditLog', () => {
 
     const remaining = await db.select({ id: tasksAuditLog.id }).from(tasksAuditLog);
     expect(remaining.map((r) => r.id)).toEqual(['old-binding']);
+  });
+  it("keeps the receipts code reads back, however old: saga and ranking receipts, and an open task's typed-gate receipts (T13777)", async () => {
+    const { getNativeTasksDb } = await import('../store/sqlite.js');
+    const native = getNativeTasksDb(projectRoot);
+    if (!native) throw new Error('no native handle');
+    native.exec(
+      `INSERT INTO tasks_tasks (id, title, status, priority, type, pipeline_stage) VALUES
+         ('T1', 'open', 'active', 'medium', 'task', 'implementation'),
+         ('T2', 'done', 'done', 'medium', 'task', 'contribution'),
+         ('T3', 'cancelled', 'cancelled', 'medium', 'task', 'cancelled')`,
+    );
+    const old = new Date(Date.now() - 400 * 86_400_000).toISOString();
+    await insertAuditRows(projectRoot, [
+      { id: 'plain', timestamp: old, action: 'update', taskId: 'T1' },
+      { id: 'saga', timestamp: old, action: SAGA_RECONCILE_RECEIPT_ACTION, taskId: 'T1' },
+      { id: 'ranking', timestamp: old, action: RANKING_CHANGED_ACTION, taskId: 'T1' },
+      { id: 'gate-open', timestamp: old, action: AUDIT_GATE_RECEIPT_ACTION, taskId: 'T1' },
+      { id: 'gate-done', timestamp: old, action: AUDIT_GATE_RECEIPT_ACTION, taskId: 'T2' },
+      { id: 'gate-cancelled', timestamp: old, action: AUDIT_GATE_RECEIPT_ACTION, taskId: 'T3' },
+    ]);
+
+    const result = await pruneAuditLog(cleoDir, defaultConfig);
+
+    expect(result.rowsDeleted).toBe(3);
+    const { getDb } = await import('../store/sqlite.js');
+    const { auditLog } = await import('../store/tasks-schema.js');
+    const db = await getDb(projectRoot);
+    const remaining = (await db.select({ id: auditLog.id }).from(auditLog)).map((r) => r.id);
+    expect(remaining.sort()).toEqual(['gate-open', 'ranking', 'saga']);
+  });
+
+  it('clamps a retention below the 30-day floor: a 1-day setting keeps the last 30 days (T13777)', async () => {
+    const day = 86_400_000;
+    await insertAuditRows(projectRoot, [
+      {
+        id: 'two-days',
+        timestamp: new Date(Date.now() - 2 * day).toISOString(),
+        action: 'update',
+        taskId: 'T1',
+      },
+      {
+        id: 'forty-days',
+        timestamp: new Date(Date.now() - 40 * day).toISOString(),
+        action: 'update',
+        taskId: 'T1',
+      },
+    ]);
+
+    const result = await pruneAuditLog(cleoDir, { ...defaultConfig, auditRetentionDays: 1 });
+
+    expect(AUDIT_RETENTION_FLOOR_DAYS).toBe(30);
+    expect(result.rowsDeleted).toBe(1);
+    expect(await countAuditRows(projectRoot)).toBe(1);
+  });
+
+  it('names the receipt actions by the constants their writers use (T13777)', () => {
+    expect(AUDIT_PRUNE_EXEMPT_ACTIONS).toEqual(
+      expect.arrayContaining([SAGA_RECONCILE_RECEIPT_ACTION, RANKING_CHANGED_ACTION]),
+    );
   });
 });
