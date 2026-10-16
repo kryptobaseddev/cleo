@@ -1,6 +1,6 @@
 # CLEO Protocol — on-demand reference
 
-Version: 2.24.14 | Companion to the always-loaded `CLEO-INJECTION.md` core
+Version: 2.24.15 | Companion to the always-loaded `CLEO-INJECTION.md` core
 
 Not injected into agent context. Print one section with `cleo briefing inject --section <name>`; tier-2 spawn prompts embed this whole file. Section names are the `CLEO-INJECTION:section` markers below.
 
@@ -310,8 +310,8 @@ These are same-OS-user checks. A process that emulates a terminal (`script`, `ex
 
 **Per-session cap (owner decision 2026-10-16, T13787).** A session may use at most `evidence.overrideCapPerSession` overrides (default 10, maximum 100). Past the cap, `E_OVERRIDE_CAP_EXCEEDED` names the setting. The old `CLEO_OWNER_OVERRIDE_WAIVER` file no longer lifts the cap: any agent could write one, so a set waiver is ignored and audited.
 
-Only the owner changes the cap. Both commands below require the T1118 owner-auth checks, run yourself in an interactive terminal, in a session started with `cleo session start --scope global --name owner --owner-auth`: no restricted agent role, a TTY, and the password matching the session's owner-auth verifier. That verifier is now a slow scrypt record, not a bare HMAC.
-1. **Enroll once, explicitly:** `cleo config owner-enroll`. It derives a key from your password and anchors it twice: in `.cleo/owner-settings.json` and in the global store (`owner-enrollments.json` under the CLEO home). The project file is tracked in git like `.cleo/project.json`, so commit it. A set never enrolls. Re-enrolling needs `cleo config owner-enroll --reset`, which is audited loudly and drops earlier values.
+Only the owner changes the cap. Both commands below require the T1118 owner-auth checks, run yourself in an interactive terminal, in a session started with `cleo session start --scope global --name owner --owner-auth`: no restricted agent role, a TTY, and the password matching the session's owner-auth verifier. That verifier is a slow scrypt record. A session started before T13787, which holds a bare HMAC, must start a new `--owner-auth` session; the next owner credential write clears those old tokens.
+1. **Enroll once, explicitly:** `cleo config owner-enroll`. It derives a key from your password and anchors it twice: in `.cleo/owner-settings.json` and in the global store (`owner-enrollments.json` under the CLEO home). The project file is tracked in git like `.cleo/project.json`, so commit it. A set never enrolls. Re-enrolling needs `cleo config owner-enroll --reset`. On an intact enrollment, `--reset` also needs the current owner's password. A password-less reset is possible only once the state is visibly tampered (missing or unreadable file), or after you deliberately remove both anchors for a lost password. Every reset is audited loudly and drops earlier values.
 2. **Set:** `cleo config set evidence.overrideCapPerSession <n>`. The value is sealed with your key and never written to `config.json`.
 
 The cap falls back to 10, with a warning and an audit line, whenever owner state looks tampered:
@@ -319,7 +319,10 @@ The cap falls back to 10, with a warning and an audit line, whenever owner state
 - the file names a key the global store never enrolled, or a different one;
 - a value's seal does not verify.
 
-`cleo doctor` reports the enrollment (key fingerprint, when, which session, which terminal and parent process), or why it is ignored. Every enrollment, set and refused attempt goes to `force-bypass.jsonl` with old and new values.
+`cleo doctor` reports the enrollment (key fingerprint, when, which session, which terminal and parent process), or why it is ignored. It warns when any of these holds:
+- the enrollment or reset is less than 7 days old;
+- the enrolling parent was a terminal-faking wrapper (`script`, `expect`);
+- `.cleo/owner-settings.json` is git-ignored, untracked or uncommitted. Every enrollment, set and refused attempt goes to `force-bypass.jsonl` with old and new values.
 
 Threat model: against an agent running as the same OS user, tampering is **detectable, not preventable**. Such an agent can rewrite any local file, and a pty (`script`) passes the TTY check. So an agent could enroll first in a project nobody has enrolled. That is why enrollment is explicit, git-tracked and shown by `cleo doctor`. Check the fingerprint, and `--reset` it yourself if you did not enroll it. Who may use `CLEO_OWNER_OVERRIDE` at all is the owner-only rule above (T13790).
 

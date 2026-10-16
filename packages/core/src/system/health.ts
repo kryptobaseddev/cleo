@@ -533,8 +533,11 @@ export async function getSystemHealth(
     const owner = await ownerEnrollmentStatus(projectRoot);
     checks.push({
       name: 'owner_enrollment',
-      status: owner.status === 'tampered' ? 'fail' : 'pass',
-      message: owner.message,
+      status: owner.status === 'tampered' ? 'fail' : owner.warnings.length > 0 ? 'warn' : 'pass',
+      message:
+        owner.warnings.length > 0
+          ? `${owner.message} Check: ${owner.warnings.join('; ')}.`
+          : owner.message,
       details: { ...owner },
     });
   } catch {

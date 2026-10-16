@@ -138,6 +138,23 @@ export function isOwnerSessionMark(stored: string | null | undefined): boolean {
   return stored === OWNER_SESSION_MARK || (stored ?? '').startsWith(`${OWNER_SESSION_MARK}|`);
 }
 
+/**
+ * Why this process may not mark its session as the owner's, or null (T13790):
+ * `cleo session start --owner` is password-free, so it is refused when any
+ * `CLEO_AGENT_ROLE` is set or stdin/stderr are not an interactive terminal.
+ *
+ * @param env - Process env.
+ * @returns The refusal, or null when the mark may be set.
+ * @task T13790
+ */
+export function ownerMarkRefusal(env: NodeJS.ProcessEnv = process.env): string | null {
+  if ((env['CLEO_AGENT_ROLE'] ?? '').trim() !== '')
+    return `--owner is refused: CLEO_AGENT_ROLE is set (${env['CLEO_AGENT_ROLE']}); only the owner, in their own terminal, marks a session.`;
+  if (!isTtyPresent())
+    return '--owner is refused: stdin and stderr must be an interactive terminal; only the owner, in their own terminal, marks a session.';
+  return null;
+}
+
 /** Prefix of a {@link createOwnerAuthVerifier} record. */
 const VERIFIER_PREFIX = 'scrypt$v1$';
 

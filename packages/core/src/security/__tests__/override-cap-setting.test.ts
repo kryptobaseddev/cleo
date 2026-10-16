@@ -9,6 +9,7 @@
  * @task T13787
  */
 
+import { execFileSync } from 'node:child_process';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -137,6 +138,8 @@ describe('enrollment is explicit and anchored twice', () => {
     const status = await ownerEnrollmentStatus(root);
     expect(status).toMatchObject({ status: 'enrolled', cap: 25 });
     expect(status.message).toMatch(/Owner key [0-9a-f]{16} enrolled .* by session ses_owner_/);
+    // A fresh enrollment is a doctor WARN with its provenance, until it ages.
+    expect(status.warnings.join(' ')).toMatch(/enrolled or reset recently .*confirm you did it/);
   });
 
   it('clamps a value above 100', async () => {
@@ -145,15 +148,29 @@ describe('enrollment is explicit and anchored twice', () => {
     expect(r).toMatchObject({ ok: true, value: 100, clamped: true });
   });
 
-  it('re-enrolling needs --reset, which is audited and drops earlier seals', async () => {
+  it('re-enrolling needs --reset, and resetting an intact enrollment needs the current owner password', async () => {
     await enrollOwner(root, owner());
     await setOwnerOverrideCap(root, { ...owner(), value: 30 });
-    const again = await enrollOwner(root, owner('other'));
-    expect(again).toMatchObject({ ok: false, code: 'E_OWNER_ALREADY_ENROLLED' });
-    const reset = await enrollOwner(root, owner('other'), { reset: true });
+    expect(await enrollOwner(root, owner('other'))).toMatchObject({
+      ok: false,
+      code: 'E_OWNER_ALREADY_ENROLLED',
+    });
+    // Review-2253 round 2: an agent with its own password cannot reset and set 100.
+    const hijack = await enrollOwner(root, owner('agent'), { reset: true });
+    expect(hijack).toMatchObject({ ok: false, code: 'E_OWNER_RESET_NOT_OWNER' });
+    expect(audit().at(-1)).toMatchObject({ action: 'owner-enroll-refused' });
+    expect(await resolveOverrideCap(root)).toMatchObject({ cap: 30 });
+    // The current owner may reset; it is audited and drops earlier seals.
+    const reset = await enrollOwner(root, owner(), { reset: true });
     expect(reset).toMatchObject({ ok: true, reset: true });
     expect(audit().at(-1)).toMatchObject({ action: 'owner-enroll-reset' });
     expect(await resolveOverrideCap(root)).toMatchObject({ cap: 10 });
+  });
+
+  it('a password-less reset works only once the state is visibly tampered (file deleted)', async () => {
+    await enrollOwner(root, owner());
+    rmSync(settingsFile());
+    expect(await enrollOwner(root, owner('new'), { reset: true })).toMatchObject({ ok: true });
   });
 
   it('a session started with --owner --owner-auth enrolls; a bare --owner mark (no password) does not', async () => {
@@ -173,13 +190,15 @@ describe('enrollment is explicit and anchored twice', () => {
     });
   });
 
-  it('a session started before T13787 (legacy HMAC token) still verifies', async () => {
+  it('a session started before T13787 (legacy HMAC token) cannot enroll: start a new --owner-auth session', async () => {
     const id = `ses_legacy_${++sessions}`;
     const legacy = {
       password: 'pw',
       session: { id, name: id, token: deriveOwnerAuthToken(id, 'pw') },
     };
-    expect(await enrollOwner(root, legacy)).toMatchObject({ ok: true });
+    const r = await enrollOwner(root, legacy);
+    expect(r).toMatchObject({ ok: false, code: 'E_OVERRIDE_TOKEN_INVALID' });
+    expect(!r.ok && r.message).toMatch(/start a new --owner-auth session/);
   });
 });
 
@@ -359,5 +378,30 @@ describe('cleo verify enforces the owner setting (engine wiring)', () => {
       resetDbState();
       await env.cleanup();
     }
+  });
+});
+
+describe('cleo doctor checks the project file is tracked in git', () => {
+  const git = (...args: string[]): void => {
+    execFileSync('git', ['-c', 'user.name=T', '-c', 'user.email=t@e.x', ...args], {
+      cwd: root,
+      stdio: 'ignore',
+    });
+  };
+
+  it('warns while owner-settings.json is untracked, then not once committed', async () => {
+    git('init', '-q', '-b', 'main');
+    await enrollOwner(root, owner());
+    expect((await ownerEnrollmentStatus(root)).warnings.join(' ')).toMatch(/not tracked in git/);
+    git('add', '.cleo/owner-settings.json');
+    git('commit', '-q', '-m', 'owner');
+    expect((await ownerEnrollmentStatus(root)).warnings.join(' ')).not.toMatch(/git/);
+  });
+
+  it('warns when .cleo/.gitignore ignores it', async () => {
+    git('init', '-q', '-b', 'main');
+    writeFileSync(join(root, '.cleo', '.gitignore'), '*\n');
+    await enrollOwner(root, owner());
+    expect((await ownerEnrollmentStatus(root)).warnings.join(' ')).toMatch(/git-ignored/);
   });
 });

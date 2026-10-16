@@ -30,7 +30,6 @@ export async function actAsOwner(root: string): Promise<() => void> {
     },
     root,
   );
-  await setSessionOwnerAuthToken(id, OWNER_SESSION_MARK, root);
   const saved = {
     sid: process.env['CLEO_SESSION_ID'],
     stdin: process.stdin.isTTY,
@@ -39,6 +38,8 @@ export async function actAsOwner(root: string): Promise<() => void> {
   process.env['CLEO_SESSION_ID'] = id;
   Object.defineProperty(process.stdin, 'isTTY', { value: true, configurable: true });
   Object.defineProperty(process.stderr, 'isTTY', { value: true, configurable: true });
+  // The core write path refuses the owner mark without a terminal (T13790).
+  await setSessionOwnerAuthToken(id, OWNER_SESSION_MARK, root);
   return () => {
     if (saved.sid === undefined) delete process.env['CLEO_SESSION_ID'];
     else process.env['CLEO_SESSION_ID'] = saved.sid;

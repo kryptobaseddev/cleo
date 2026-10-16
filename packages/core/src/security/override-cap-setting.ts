@@ -64,6 +64,7 @@ import {
   appendOwnerOverrideAudit,
   isTtyPresent,
   OWNER_SCRYPT_PARAMS,
+  OWNER_SESSION_MARK,
   validateOwnerOverride,
   verifyOwnerAuthPassword,
 } from './owner-override-auth.js';
@@ -154,6 +155,48 @@ export interface OwnerEnrollmentStatus {
   tty?: string | null;
   parent?: string | null;
   cap: number;
+  /**
+   * Why the owner should look (review-2253 round 2): a recent enrollment, a
+   * pty-wrapper parent, or a project file git ignores or has not committed.
+   */
+  warnings: string[];
+}
+
+/** An enrollment younger than this is reported as a doctor WARN. */
+const RECENT_ENROLLMENT_MS = 7 * 24 * 60 * 60 * 1000;
+
+/** Parent commands that wrap a fake terminal around a process. */
+const PTY_WRAPPERS = /(^|\/)(script|expect|unbuffer)$/;
+
+/** Git's view of the project file, as `cleo doctor project-identity` checks identity files. */
+function trackingWarnings(projectRoot: string): string[] {
+  const rel = '.cleo/owner-settings.json';
+  const git = (args: string[]): { ok: boolean; out: string } => {
+    try {
+      const out = execFileSync('git', args, {
+        cwd: projectRoot,
+        encoding: 'utf-8',
+        stdio: ['ignore', 'pipe', 'ignore'],
+      });
+      return { ok: true, out };
+    } catch {
+      return { ok: false, out: '' };
+    }
+  };
+  if (!git(['rev-parse', '--is-inside-work-tree']).ok) return [];
+  if (git(['check-ignore', '-q', '--', rel]).ok)
+    return [
+      `${rel} is git-ignored, so a delete or forge would not show in git; add \`!owner-settings.json\` to .cleo/.gitignore (cleo upgrade) and commit it`,
+    ];
+  if (!git(['ls-files', '--error-unmatch', '--', rel]).ok)
+    return [
+      `${rel} is not tracked in git; commit it so a delete or forge shows in git status and PR diffs`,
+    ];
+  if (git(['status', '--porcelain', '--', rel]).out.trim() !== '')
+    return [
+      `${rel} has uncommitted changes; review and commit them (or restore it from git if you did not make them)`,
+    ];
+  return [];
 }
 
 function settingsPath(projectRoot: string): string {
@@ -383,16 +426,31 @@ export async function ownerEnrollmentStatus(projectRoot: string): Promise<OwnerE
       status: 'none',
       message: `No owner is enrolled for this project; ${OVERRIDE_CAP_SETTING} is ${DEFAULT_OVERRIDE_CAP_PER_SESSION}.`,
       cap: DEFAULT_OVERRIDE_CAP_PER_SESSION,
+      warnings: [],
     };
   if (state.kind === 'tampered')
     return {
       status: 'tampered',
       message: `Owner settings ignored: ${state.why}. ${OVERRIDE_CAP_SETTING} is ${DEFAULT_OVERRIDE_CAP_PER_SESSION}.`,
       cap: DEFAULT_OVERRIDE_CAP_PER_SESSION,
+      warnings: [],
     };
   const g = state.global;
   const cap = state.cap ?? DEFAULT_OVERRIDE_CAP_PER_SESSION;
+  const enrolledMs = Date.parse(g.enrolledAt);
+  const warnings = [
+    ...(Number.isFinite(enrolledMs) && Date.now() - enrolledMs < RECENT_ENROLLMENT_MS
+      ? [
+          `owner key ${g.fingerprint} was enrolled or reset recently (${g.enrolledAt}, session ${g.sessionId ?? 'unknown'}, tty ${g.tty ?? 'unknown'}, parent ${g.parent ?? 'unknown'}); confirm you did it`,
+        ]
+      : []),
+    ...(g.parent && PTY_WRAPPERS.test(g.parent)
+      ? [`the enrolling process ran under ${g.parent}, which fakes a terminal; confirm you did it`]
+      : []),
+    ...trackingWarnings(projectRoot),
+  ];
   return {
+    warnings,
     status: 'enrolled',
     message:
       `Owner key ${g.fingerprint} enrolled ${g.enrolledAt} by session ${g.sessionId ?? 'unknown'} ` +
@@ -417,6 +475,18 @@ function ownerCheck(
       ok: false,
       code: BRANCH_LOCK_ERROR_CODES.E_OVERRIDE_TOKEN_INVALID,
       message: 'The bound session has no owner-auth token.',
+    };
+  // Review-2253 round 2: only a scrypt verifier vouches for the owner; a
+  // legacy HMAC token is a cheap offline oracle and is never accepted here.
+  const verifier = token.startsWith(`${OWNER_SESSION_MARK}|`)
+    ? token.slice(OWNER_SESSION_MARK.length + 1)
+    : token;
+  if (!verifier.startsWith('scrypt$v1$'))
+    return {
+      ok: false,
+      code: BRANCH_LOCK_ERROR_CODES.E_OVERRIDE_TOKEN_INVALID,
+      message:
+        'The bound session has no scrypt owner-auth verifier (it predates T13787 or was started with --owner alone); start a new --owner-auth session.',
     };
   const auth = validateOwnerOverride({
     sessionId: caller.session?.id ?? 'global',
@@ -490,6 +560,22 @@ export async function enrollOwner(
       'E_OWNER_ALREADY_ENROLLED',
       `An owner is already enrolled for this project${existing ? ` (key ${existing.fingerprint})` : ''}; re-enrolling needs \`${OWNER_ENROLL_COMMAND} --reset\`.`,
     );
+  // Review-2253 round 2: resetting an intact enrollment needs the CURRENT
+  // owner's password. A password-less reset is only possible once the state is
+  // already tampered (missing, unreadable, unanchored — visible in git and
+  // doctor); with both anchors deliberately removed it is a fresh enrollment.
+  if (opts.reset === true) {
+    const state = await judgeOwnerState(projectRoot);
+    if (state.kind === 'ok') {
+      const current = await ownerKey(caller.password, state.file.salt);
+      if (current.pubkeyHex !== state.file.ownerPubkey)
+        return refuse(
+          // @sync-invariant none:local-only owner enrollment state is device-local and git-tracked; refused before any write
+          'E_OWNER_RESET_NOT_OWNER',
+          `Resetting an intact enrollment needs the current owner's password (key ${state.global.fingerprint}). If it is lost, remove both anchors deliberately (.cleo/owner-settings.json and this project's record in the global owner-enrollments.json) and enroll again.`,
+        );
+    }
+  }
   const salt = randomBytes(16).toString('hex');
   const key = await ownerKey(caller.password, salt);
   const prov = provenance(sessionId);

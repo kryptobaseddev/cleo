@@ -40,22 +40,7 @@ import {
 /** How the owner marks a session, named in every refusal. */
 export const OWNER_SESSION_COMMAND = 'cleo session start --scope global --name owner --owner';
 
-/**
- * Why this process may not mark its session as the owner's, or null (T13790):
- * `cleo session start --owner` is password-free, so it is refused when any
- * `CLEO_AGENT_ROLE` is set or stdin/stderr are not an interactive terminal.
- *
- * @param env - Process env.
- * @returns The refusal, or null when the mark may be set.
- * @task T13790
- */
-export function ownerMarkRefusal(env: NodeJS.ProcessEnv = process.env): string | null {
-  if ((env['CLEO_AGENT_ROLE'] ?? '').trim() !== '')
-    return `--owner is refused: CLEO_AGENT_ROLE is set (${env['CLEO_AGENT_ROLE']}); only the owner, in their own terminal, marks a session.`;
-  if (!isTtyPresent())
-    return '--owner is refused: stdin and stderr must be an interactive terminal; only the owner, in their own terminal, marks a session.';
-  return null;
-}
+export { ownerMarkRefusal } from './owner-override-auth.js';
 
 /** Whether `CLEO_OWNER_OVERRIDE` asks for an override. */
 export function isOwnerOverrideRequested(env: NodeJS.ProcessEnv = process.env): boolean {

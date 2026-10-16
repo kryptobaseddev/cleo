@@ -43,3 +43,10 @@ names the setting and the owner command.
 
 **Limit.** Against an agent running as the same OS user, tampering is
 detectable, not preventable.
+
+**Review round 2.**
+- Resetting an intact enrollment needs the current owner's password.
+- Enroll and set accept only scrypt verifiers. Legacy HMAC owner tokens are cleared at the next owner credential write.
+- The `--owner` mark is refused in the core write path without a terminal or with `CLEO_AGENT_ROLE` set.
+- `cleo doctor` warns on a recent enrollment, a `script`/`expect` parent, or an owner-settings file that git ignores or that is untracked or uncommitted.
+- The embedded `.cleo/.gitignore` fallback tracks `owner-settings.json`.

@@ -13,7 +13,7 @@
 import { existsSync } from 'node:fs';
 import type { Session } from '@cleocode/contracts';
 import { ExitCode } from '@cleocode/contracts/exit-codes.js';
-import { and, desc, eq, inArray, isNull, lte, or } from 'drizzle-orm';
+import { and, desc, eq, inArray, isNotNull, isNull, lte, notLike, or } from 'drizzle-orm';
 import { CleoError } from '../errors.js';
 import { captureProjectScope, getProjectRoot, worktreeScope } from '../project-scope.js';
 import { getCurrentConnectionSessionId } from '../sessions/connection-session-handle.js';
@@ -105,14 +105,24 @@ export async function getSessionOwnerAuth(
 }
 
 /**
- * Record a session's T1118 owner-auth token — the owner mark of
- * `cleo session start --owner-auth` (T13790). Only the interactive session
- * start writes it; no env var or spawn path does.
+ * Record a session's owner credential: the `--owner` mark (T13790), the
+ * `--owner-auth` scrypt verifier (T13787), or both. Only the interactive
+ * session start writes it; no env var or spawn path does.
+ *
+ * The owner mark is refused here, in the core write path, unless this process
+ * has an interactive terminal and no `CLEO_AGENT_ROLE` (`ownerMarkRefusal`),
+ * so an in-process caller of `session.start` cannot plant it. Writing a
+ * credential also clears every legacy `HMAC(password, name)` token left by
+ * sessions started before T13787: those are a cheap offline oracle for the
+ * owner password.
  *
  * @param sessionId - Session to mark.
- * @param token - `HMAC(password, name)` from `deriveOwnerAuthToken`.
+ * @param token - `OWNER_SESSION_MARK`, a `createOwnerAuthVerifier` record, or
+ *   `<mark>|<verifier>`.
  * @param cwd - Project root.
+ * @throws CleoError when the owner mark is refused.
  * @task T1118
+ * @task T13787
  * @task T13790
  */
 export async function setSessionOwnerAuthToken(
@@ -120,9 +130,27 @@ export async function setSessionOwnerAuthToken(
   token: string,
   cwd?: string,
 ): Promise<void> {
+  const { isOwnerSessionMark, ownerMarkRefusal } = await import(
+    '../security/owner-override-auth.js'
+  );
+  if (isOwnerSessionMark(token)) {
+    const refusal = ownerMarkRefusal();
+    // @sync-invariant none:local-only the owner mark is refused before anything is written
+    if (refusal) throw new CleoError(ExitCode.VALIDATION_ERROR, refusal);
+  }
   const scope = captureProjectScope(cwd ?? getProjectRoot(), worktreeScope.getStore());
   await worktreeScope.run(scope, async () => {
     const db = await getDb(scope.worktreeRoot);
+    db.update(schema.sessions)
+      .set({ ownerAuthToken: null })
+      .where(
+        and(
+          isNotNull(schema.sessions.ownerAuthToken),
+          notLike(schema.sessions.ownerAuthToken, 'scrypt$v1$%'),
+          notLike(schema.sessions.ownerAuthToken, 'owner-mark$v1%'),
+        ),
+      )
+      .run();
     db.update(schema.sessions)
       .set({ ownerAuthToken: token })
       .where(eq(schema.sessions.id, sessionId))

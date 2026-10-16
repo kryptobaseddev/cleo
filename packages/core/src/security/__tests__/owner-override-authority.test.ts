@@ -12,9 +12,17 @@ import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { createTestDb, type TestDbEnv } from '../../store/__tests__/test-db-helper.js';
-import { createSession, setSessionOwnerAuthToken } from '../../store/session-store.js';
+import {
+  createSession,
+  getSessionOwnerAuth,
+  setSessionOwnerAuthToken,
+} from '../../store/session-store.js';
 import { resetDbState } from '../../store/sqlite.js';
-import { createOwnerAuthVerifier, OWNER_SESSION_MARK } from '../owner-override-auth.js';
+import {
+  createOwnerAuthVerifier,
+  deriveOwnerAuthToken,
+  OWNER_SESSION_MARK,
+} from '../owner-override-auth.js';
 import { ownerMarkRefusal, resolveOwnerOverride } from '../owner-override-authority.js';
 
 let env: TestDbEnv;
@@ -179,5 +187,33 @@ describe('cleo session start --owner: password-free, interactive only (T13790)',
     'reviewer',
   ])('is refused when CLEO_AGENT_ROLE=%s is set, even on a terminal', (role) => {
     expect(ownerMarkRefusal({ CLEO_AGENT_ROLE: role })).toMatch(/CLEO_AGENT_ROLE is set/);
+  });
+});
+
+describe('the core write path guards owner credentials (review-2253 round 2)', () => {
+  it('refuses the owner mark without a terminal, so an in-process caller cannot plant it', async () => {
+    const id = await session('ses_inproc', false);
+    setTty(false);
+    await expect(setSessionOwnerAuthToken(id, OWNER_SESSION_MARK, env.tempDir)).rejects.toThrow(
+      /interactive terminal/,
+    );
+    expect((await getSessionOwnerAuth(id, env.tempDir))?.token).toBeNull();
+  });
+
+  it('refuses the owner mark when CLEO_AGENT_ROLE is set', async () => {
+    const id = await session('ses_role', false);
+    process.env['CLEO_AGENT_ROLE'] = 'worker';
+    await expect(setSessionOwnerAuthToken(id, OWNER_SESSION_MARK, env.tempDir)).rejects.toThrow(
+      /CLEO_AGENT_ROLE is set/,
+    );
+  });
+
+  it('clears legacy HMAC owner tokens at the next owner credential write', async () => {
+    const old = await session('ses_old', false);
+    await setSessionOwnerAuthToken(old, deriveOwnerAuthToken(old, 'pw'), env.tempDir);
+    const fresh = await session('ses_fresh', false);
+    await setSessionOwnerAuthToken(fresh, createOwnerAuthVerifier('pw'), env.tempDir);
+    expect((await getSessionOwnerAuth(old, env.tempDir))?.token).toBeNull();
+    expect((await getSessionOwnerAuth(fresh, env.tempDir))?.token).toMatch(/^scrypt\$v1\$/);
   });
 });
