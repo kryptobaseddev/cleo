@@ -946,9 +946,13 @@ const failedIn = (line: string): number => Number(/(\d+) failed/.exec(line)?.[1]
 /**
  * The run's own vitest summary block in `text` (T13809): the LAST `Test Files`
  * line, followed within four lines by its `Tests`, `Start at` and `Duration`
- * lines. A summary echoed by a test's stdout lacks the timing lines; a killed
- * run has no block at all. Null when there is none.
+ * lines, with no test result or test output after it. A killed run has no
+ * block of its own; a block a test echoed (even a full one) is followed by
+ * more test output. Null when there is none.
  */
+/** A vitest per-file result, a test's captured output, or a failure line. */
+const TEST_RESULT_LINE = /^\S*\s+(?:[✓❯×✗↓]\s|stdout \||stderr \|)|\bFAIL\s{2,}/;
+
 function runSummary(text: string): { failedFiles: number; failedTests: number } | null {
   const lines = text.split('\n');
   for (let i = lines.length - 1; i >= 0; i--) {
@@ -956,7 +960,12 @@ function runSummary(text: string): { failedFiles: number; failedTests: number } 
     const block = lines.slice(i + 1, i + 5);
     const tests = block.find((l) => /\bTests\s{2,}\d/.test(l));
     if (!tests || !block.some((l) => /\bStart at\s{2,}/.test(l))) return null;
-    if (!block.some((l) => /\bDuration\s{2,}/.test(l))) return null;
+    const duration = block.findIndex((l) => /\bDuration\s{2,}/.test(l));
+    if (duration < 0) return null;
+    // The run's own summary is its LAST vitest output: a test result or test
+    // output after it means this block was echoed by a test, and the run itself
+    // died before printing its own (an OOM-killed run prints no marker).
+    if (lines.slice(i + 2 + duration).some((l) => TEST_RESULT_LINE.test(l))) return null;
     return { failedFiles: failedIn(lines[i] ?? ''), failedTests: failedIn(tests) };
   }
   return null;

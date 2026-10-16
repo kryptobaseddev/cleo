@@ -1361,6 +1361,31 @@ describe('resolveCiEvidenceAtom', () => {
         expect(
           isQuarantineBudgetOnlyLog(BUDGET_LOG.replace('### Flaky', 'Killed\n### Flaky')),
         ).toBe(true);
+        // A FULL block a child vitest echoed, followed by more results and a kill
+        // (review, T13814): the run's own summary is its last vitest output.
+        const echoedFull = [
+          ' ✓ packages/x/a.test.ts (3 tests) 20ms',
+          'stdout | packages/y/child.test.ts > runs a child vitest',
+          ' Test Files  1 passed (1)',
+          '      Tests  2 passed (2)',
+          '   Start at  10:00:00',
+          '   Duration  1.2s',
+          ' ✓ packages/x/b.test.ts (5 tests) 30ms',
+          'Killed',
+          '### Flaky quarantine over budget',
+          '',
+          '31 tests are quarantined (most 30)',
+        ].join('\n');
+        expect(isQuarantineBudgetOnlyLog(echoedFull)).toBe(false);
+        // Real logs print the script's report line between the summary and the heading.
+        expect(
+          isQuarantineBudgetOnlyLog(
+            BUDGET_LOG.replace(
+              '### Flaky',
+              'JSON report written to /tmp/flaky-quarantine-x/first.json\n### Flaky',
+            ),
+          ),
+        ).toBe(true);
         // The heading must be the script's own verdict, with its count line.
         expect(
           isQuarantineBudgetOnlyLog(BUDGET_LOG.replace('11 tests are quarantined (most 10).', '')),
