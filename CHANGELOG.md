@@ -8,7 +8,7 @@
 
 - Project hooks activate and run on stable builds; the hooks-v1 gate (`release-gate.ts`) opens from the promotion stamp, not a source change _(provenance: [T13350](https://github.com/kryptobaseddev/cleo/search?q=T13350&type=commits), [T13557](https://github.com/kryptobaseddev/cleo/search?q=T13557&type=commits))_
 - Codex project hooks currently fire only in a standalone checkout: in a linked git worktree, Codex reads the managed hook from the main checkout, so CLEO's Codex hook does not run there (Claude Code hooks are unaffected; T13772).
-- The release-plan guard no longer refuses the post-promotion cleanup once the previous release shipped the gate open _(provenance: [T13607](https://github.com/kryptobaseddev/cleo/search?q=T13607&type=commits))_
+- Verified for this promotion (code shipped in v2026.10.16): the release-plan guard does not refuse the post-promotion cleanup once the previous release shipped the gate open _(provenance: [T13607](https://github.com/kryptobaseddev/cleo/search?q=T13607&type=commits))_
 
 ### Fixed
 
