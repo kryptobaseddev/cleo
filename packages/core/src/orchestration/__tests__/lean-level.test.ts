@@ -84,13 +84,15 @@ describe('buildLeanChangeBlock per level (T13663)', () => {
 describe('session and config scope (T13663)', () => {
   let root: string;
   let home: string;
-  const saved = { CLEO_HOME: process.env.CLEO_HOME };
+  const saved = { CLEO_HOME: process.env.CLEO_HOME, CLEO_DIR: process.env.CLEO_DIR };
 
   beforeEach(() => {
     root = mkdtempSync(join(tmpdir(), 'lean-level-'));
     home = mkdtempSync(join(tmpdir(), 'lean-level-home-'));
     mkdirSync(join(root, '.cleo'));
     process.env.CLEO_HOME = home;
+    // setConfigValue honours CLEO_DIR (the suite points it at its sandbox).
+    process.env.CLEO_DIR = join(root, '.cleo');
   });
 
   afterEach(() => {
@@ -98,6 +100,8 @@ describe('session and config scope (T13663)', () => {
     rmSync(home, { recursive: true, force: true });
     if (saved.CLEO_HOME === undefined) delete process.env.CLEO_HOME;
     else process.env.CLEO_HOME = saved.CLEO_HOME;
+    if (saved.CLEO_DIR === undefined) delete process.env.CLEO_DIR;
+    else process.env.CLEO_DIR = saved.CLEO_DIR;
   });
 
   it('a session level applies to its own session only', async () => {

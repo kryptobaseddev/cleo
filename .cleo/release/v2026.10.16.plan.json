@@ -1,0 +1,214 @@
+{
+  "$schema": "https://cleocode.io/schemas/release-plan/v1.json",
+  "version": "v2026.10.16",
+  "resolvedVersion": "v2026.10.16",
+  "suffixApplied": false,
+  "scheme": "calver",
+  "channel": "latest",
+  "epicId": null,
+  "releaseKind": "regular",
+  "hooksV1Promotion": false,
+  "createdAt": "2026-10-15T21:30:49.253Z",
+  "createdBy": "keatonhoskins",
+  "previousVersion": "v2026.10.15",
+  "previousTag": "v2026.10.15",
+  "previousShippedAt": null,
+  "tasks": [
+    {
+      "id": "T13742",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "hooks-v1 F1: Git pre-push fails OPEN when the activation receipt hash has drifted",
+      "evidenceAtoms": [
+        "pr:2272",
+        "files:.changeset/hooks-drift-fail-closed.md,docs/spec/unified-project-hooks-v1.md,packages/adapters/src/__tests__/project-hook-delivery.test.ts,packages/adapters/src/project-hook-delivery.ts,packages/contracts/src/project-hook-delivery.ts,packages/contracts/src/project-hooks.ts,packages/core/src/hooks/__tests__/project-hooks.test.ts,packages/core/src/hooks/project-runner.ts,packages/core/src/hooks/project-state.ts,packages/skills/skills/ct-dev-workflow/SKILL.md,packages/skills/skills/manifest.json",
+        "ci:2272"
+      ],
+      "epicAncestor": "T12317",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T13743",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "hooks-v1 F2: cleo hook sync --disable writes residue (empty .codex/, provider-codex.json, empty settings.local.json hooks)",
+      "evidenceAtoms": [
+        "pr:2272",
+        "files:.changeset/hooks-drift-fail-closed.md,docs/spec/unified-project-hooks-v1.md,packages/adapters/src/__tests__/project-hook-delivery.test.ts,packages/adapters/src/project-hook-delivery.ts,packages/contracts/src/project-hook-delivery.ts,packages/contracts/src/project-hooks.ts,packages/core/src/hooks/__tests__/project-hooks.test.ts,packages/core/src/hooks/project-runner.ts,packages/core/src/hooks/project-state.ts,packages/skills/skills/ct-dev-workflow/SKILL.md,packages/skills/skills/manifest.json",
+        "ci:2272"
+      ],
+      "epicAncestor": "T12317",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T13740",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "Embed all four memory tables (observations, decisions, learnings, patterns) so vector search stops demoting decisions",
+      "evidenceAtoms": [
+        "pr:2271",
+        "files:.changeset/embed-all-memory-tables.md,AGENTS.md,packages/core/src/internal.ts,packages/core/src/memory/__tests__/brain-automation.test.ts,packages/core/src/memory/__tests__/brain-embedding.test.ts,packages/core/src/memory/__tests__/brain-writer-cleo-dir.test.ts,packages/core/src/memory/__tests__/embedding-availability-gh1217.test.ts,packages/core/src/memory/__tests__/embedding-chokepoint.test.ts,packages/core/src/memory/__tests__/embedding-model-download-gate.test.ts,packages/core/src/memory/__tests__/embedding-pipeline.test.ts,packages/core/src/memory/__tests__/embedding-writer-isolate.test.ts,packages/core/src/memory/__tests__/specialists.test.ts,packages/core/src/memory/__tests__/t12314-provider-registration.test.ts,packages/core/src/memory/brain-embedding.ts,packages/core/src/memory/brain-row-types.ts,packages/core/src/memory/brain-similarity.ts,packages/core/src/memory/brain-writer-handlers.ts,packages/core/src/memory/brain-writer-thread.ts,packages/core/src/memory/decisions.ts,packages/core/src/memory/embedding-backfill.ts,packages/core/src/memory/embedding-local.ts,packages/core/src/memory/learnings.ts,packages/core/src/memory/patterns.ts,packages/core/src/memory/retrieval/observe.ts,packages/core/src/memory/sleep-consolidation.ts,packages/core/src/memory/surprisal.ts,packages/core/src/memory/temporal-supersession.ts,packages/core/src/store/__tests__/fixtures/table-classification-columns.json,packages/core/src/store/__tests__/memory-vec.test.ts,packages/core/src/store/__tests__/store-fingerprint-gates.test.ts,packages/core/src/store/__tests__/table-classification-gate.test.ts,packages/core/src/store/memory-accessor.ts,packages/core/src/store/memory-sqlite.ts,packages/core/src/store/row-identity-registry.ts,packages/core/src/store/table-classification.ts,scripts/.lint-no-raw-table-writes-baseline.json",
+        "ci:2271"
+      ],
+      "epicAncestor": "T12323",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T13729",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "Reclassify brain_embeddings as derived (rebuilt per machine), close T12918 without a blob sync path",
+      "evidenceAtoms": [
+        "pr:2271",
+        "files:.changeset/embed-all-memory-tables.md,AGENTS.md,packages/core/src/internal.ts,packages/core/src/memory/__tests__/brain-automation.test.ts,packages/core/src/memory/__tests__/brain-embedding.test.ts,packages/core/src/memory/__tests__/brain-writer-cleo-dir.test.ts,packages/core/src/memory/__tests__/embedding-availability-gh1217.test.ts,packages/core/src/memory/__tests__/embedding-chokepoint.test.ts,packages/core/src/memory/__tests__/embedding-model-download-gate.test.ts,packages/core/src/memory/__tests__/embedding-pipeline.test.ts,packages/core/src/memory/__tests__/embedding-writer-isolate.test.ts,packages/core/src/memory/__tests__/specialists.test.ts,packages/core/src/memory/__tests__/t12314-provider-registration.test.ts,packages/core/src/memory/brain-embedding.ts,packages/core/src/memory/brain-row-types.ts,packages/core/src/memory/brain-similarity.ts,packages/core/src/memory/brain-writer-handlers.ts,packages/core/src/memory/brain-writer-thread.ts,packages/core/src/memory/decisions.ts,packages/core/src/memory/embedding-backfill.ts,packages/core/src/memory/embedding-local.ts,packages/core/src/memory/learnings.ts,packages/core/src/memory/patterns.ts,packages/core/src/memory/retrieval/observe.ts,packages/core/src/memory/sleep-consolidation.ts,packages/core/src/memory/surprisal.ts,packages/core/src/memory/temporal-supersession.ts,packages/core/src/store/__tests__/fixtures/table-classification-columns.json,packages/core/src/store/__tests__/memory-vec.test.ts,packages/core/src/store/__tests__/store-fingerprint-gates.test.ts,packages/core/src/store/__tests__/table-classification-gate.test.ts,packages/core/src/store/memory-accessor.ts,packages/core/src/store/memory-sqlite.ts,packages/core/src/store/row-identity-registry.ts,packages/core/src/store/table-classification.ts,scripts/.lint-no-raw-table-writes-baseline.json",
+        "ci:2271"
+      ],
+      "epicAncestor": "T12323",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T13721",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "Sync: docs content bytes travel on the stream as content-addressed blobs (synced docs_attachments rows have no bytes on B)",
+      "evidenceAtoms": [
+        "pr:2268",
+        "files:.changeset/doc-bytes-on-stream.md,packages/cleo/src/cli/commands/docs.ts,packages/contracts/src/cloud/api.ts,packages/core/src/cloud/__tests__/nexus-vault.test.ts,packages/core/src/cloud/crypto.ts,packages/core/src/cloud/doc-bytes.ts,packages/core/src/cloud/journal.ts,packages/core/src/cloud/nexus-vault.ts,packages/core/src/conduit/__tests__/fixtures/network-call-sites.json,packages/core/src/store/sync/__tests__/two-device-e2e.test.ts,packages/skills/skills/ct-documentor/SKILL.md,packages/skills/skills/manifest.json,scripts/lint-no-raw-table-writes.mjs,packages/skills/skills/manifest.json",
+        "ci:2268"
+      ],
+      "epicAncestor": "T12323",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T13744",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "CLEO_PR_REQUIRED_WORKFLOWS='[]' is read as a workflow name instead of an explicit empty list",
+      "evidenceAtoms": [
+        "pr:2274",
+        "files:.changeset/evidence-env-array-non-code-change.md,packages/contracts/src/task.ts,packages/core/src/release/__tests__/evidence-pr-atom.test.ts,packages/core/src/release/pr-evidence.ts,packages/core/src/tasks/__tests__/done-plan.test.ts,packages/core/src/tasks/__tests__/qa-run-binding.test.ts,packages/core/src/tasks/affected-packages.ts,packages/core/src/tasks/affected-scope.ts,packages/core/src/tasks/done-plan.ts,packages/core/src/tasks/evidence.ts,packages/core/src/tasks/qa-run-binding.ts,packages/core/src/tasks/evidence.ts",
+        "ci:2274"
+      ],
+      "epicAncestor": "T12317",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T13745",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "Evidence: a root-config-only change (e.g. .cleo/project-context.json) can never satisfy testsPassed/qaPassed without whole-repo runs",
+      "evidenceAtoms": [
+        "pr:2274",
+        "files:.changeset/evidence-env-array-non-code-change.md,packages/contracts/src/task.ts,packages/core/src/release/__tests__/evidence-pr-atom.test.ts,packages/core/src/release/pr-evidence.ts,packages/core/src/tasks/__tests__/done-plan.test.ts,packages/core/src/tasks/__tests__/qa-run-binding.test.ts,packages/core/src/tasks/affected-packages.ts,packages/core/src/tasks/affected-scope.ts,packages/core/src/tasks/done-plan.ts,packages/core/src/tasks/evidence.ts,packages/core/src/tasks/qa-run-binding.ts,packages/core/src/tasks/evidence.ts",
+        "ci:2274"
+      ],
+      "epicAncestor": "T12317",
+      "ivtrPhaseAtPlan": "contribution"
+    }
+  ],
+  "changelog": {
+    "features": [
+      "T13742",
+      "T13743",
+      "T13740",
+      "T13729",
+      "T13721",
+      "T13744",
+      "T13745"
+    ],
+    "fixes": [],
+    "chores": [],
+    "breaking": []
+  },
+  "gates": [
+    {
+      "name": "test",
+      "atom": "tool:test",
+      "status": "unresolved",
+      "lastVerifiedAt": "2026-10-15T21:30:49.253Z",
+      "resolvedCommand": "pnpm run test",
+      "resolvedSource": "project-context"
+    },
+    {
+      "name": "build",
+      "atom": "tool:build",
+      "status": "unresolved",
+      "lastVerifiedAt": "2026-10-15T21:30:49.253Z",
+      "resolvedCommand": "pnpm run build",
+      "resolvedSource": "project-context"
+    },
+    {
+      "name": "lint",
+      "atom": "tool:lint",
+      "status": "unresolved",
+      "lastVerifiedAt": "2026-10-15T21:30:49.253Z",
+      "resolvedCommand": "pnpm run lint",
+      "resolvedSource": "package-script"
+    },
+    {
+      "name": "typecheck",
+      "atom": "tool:typecheck",
+      "status": "unresolved",
+      "lastVerifiedAt": "2026-10-15T21:30:49.253Z",
+      "resolvedCommand": "pnpm run typecheck",
+      "resolvedSource": "package-script"
+    },
+    {
+      "name": "audit",
+      "atom": "tool:audit",
+      "status": "unresolved",
+      "lastVerifiedAt": "2026-10-15T21:30:49.253Z",
+      "resolvedCommand": "npm audit",
+      "resolvedSource": "language-default"
+    },
+    {
+      "name": "security-scan",
+      "atom": "tool:security-scan",
+      "status": "unresolved",
+      "lastVerifiedAt": "2026-10-15T21:30:49.253Z",
+      "resolvedCommand": "npm audit",
+      "resolvedSource": "language-default"
+    }
+  ],
+  "platformMatrix": [
+    {
+      "platform": "any",
+      "publisher": "npm",
+      "package": "@cleocode/cleo"
+    }
+  ],
+  "preflightSummary": {
+    "esbuildExternalsDrift": false,
+    "lockfileDrift": false,
+    "epicCompletenessClean": true,
+    "doubleListingClean": true,
+    "preflightWarnings": [
+      "Skipped 785 out-of-scope changeset entries whose task anchors are not part of this release plan"
+    ]
+  },
+  "workflowRunUrl": null,
+  "prUrl": null,
+  "mergeCommitSha": null,
+  "status": "planned",
+  "meta": {
+    "firstEverRelease": false,
+    "archetype": "node",
+    "releaseNotes": "## v2026.10.16 — 2026-10-15\n\n> **Fix release.** Project hooks (hooks-v1) stay inert on stable builds: activation is refused with `E_HOOKS_V1_UNRELEASED` and existing receipts are not executed. The hooks-v1 fixes in this release (F1 fail-closed on drift, F2 no residue on disable) apply to canary and pilot users until the hooks-v1 promotion. Cross-device sync (Stage C: `sync.seal`, `sync.push`, `sync.pull`, `sync.strict`) stays unreleased and inert until the Stage C exit gate releases its flags. On first open, a brain vector table from an earlier build (no `model` column) is dropped and recreated tagged; its vectors are local derived data that the embedding backfill rebuilds from memory text. Doc bytes on the sync stream (T13721) ride the same unreleased sync and stay inert on stable. The local embedding model still downloads only on explicit opt-in. No schema migrations.\n\n### Added\n\n- synced docs now carry their bytes; a doc added on one device fetches with identical content on another, with no vault restore (inert on stable until Stage C) _(provenance: [T13721](https://github.com/kryptobaseddev/cleo/search?q=T13721&type=commits))_\n- Vector search embeds decisions, learnings and patterns too, and every vector records its model _(provenance: [T13740](https://github.com/kryptobaseddev/cleo/search?q=T13740&type=commits), [T13729](https://github.com/kryptobaseddev/cleo/search?q=T13729&type=commits))_\n\n### Fixed\n\n- CLEO_PR_REQUIRED_WORKFLOWS reads a JSON array ([] = none); a root-config-only change has a targeted evidence path _(provenance: [T13744](https://github.com/kryptobaseddev/cleo/search?q=T13744&type=commits), [T13745](https://github.com/kryptobaseddev/cleo/search?q=T13745&type=commits))_\n- a drifted hooks activation now refuses Git pushes, and hook sync --disable leaves no residue (canary and pilot only until the hooks-v1 promotion) _(provenance: [T13742](https://github.com/kryptobaseddev/cleo/search?q=T13742&type=commits), [T13743](https://github.com/kryptobaseddev/cleo/search?q=T13743&type=commits))_\n",
+    "changesetEntryCount": 4,
+    "changesetIds": [
+      "doc-bytes-on-stream",
+      "embed-all-memory-tables",
+      "evidence-env-array-non-code-change",
+      "hooks-drift-fail-closed"
+    ],
+    "taskIds": [
+      "T13742",
+      "T13743",
+      "T13740",
+      "T13729",
+      "T13721",
+      "T13744",
+      "T13745"
+    ]
+  }
+}

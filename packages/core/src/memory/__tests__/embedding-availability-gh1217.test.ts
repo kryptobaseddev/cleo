@@ -49,6 +49,7 @@ describe('gh#1217 — availability is capability, not "has already run"', () => 
     let embedCalls = 0;
     const lazy: EmbeddingProvider = {
       dimensions: 384,
+      model: 'test-model',
       isAvailable: () => true, // capability — has not loaded anything yet
       embed: async (_t: string) => {
         embedCalls++;
@@ -65,6 +66,7 @@ describe('gh#1217 — availability is capability, not "has already run"', () => 
     let embedCalls = 0;
     setEmbeddingProvider({
       dimensions: 384,
+      model: 'test-model',
       isAvailable: () => true,
       embed: async () => {
         embedCalls++;
@@ -85,6 +87,7 @@ describe('gh#1217 — availability is capability, not "has already run"', () => 
     let embedCalls = 0;
     setEmbeddingProvider({
       dimensions: 384,
+      model: 'test-model',
       isAvailable: () => ready,
       embed: async () => {
         ready = true;
@@ -108,6 +111,7 @@ describe('gh#1217 — a failing load degrades, it does not throw', () => {
     // unhandled rejection.
     setEmbeddingProvider({
       dimensions: 384,
+      model: 'test-model',
       isAvailable: () => true,
       embed: async () => {
         throw new Error('no network and no cached model');
@@ -121,6 +125,7 @@ describe('gh#1217 — a failing load degrades, it does not throw', () => {
     let embedCalls = 0;
     setEmbeddingProvider({
       dimensions: 384,
+      model: 'test-model',
       isAvailable: () => false, // load already failed — latched
       embed: async () => {
         embedCalls++;

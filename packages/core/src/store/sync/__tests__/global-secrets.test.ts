@@ -28,11 +28,14 @@ import {
   secretValuesKey,
 } from '../../../cloud/secret-seal.js';
 import { decryptGlobal, encryptGlobal } from '../../../crypto/credentials.js';
+import { llmAdd, llmList } from '../../../llm/cli-ops.js';
+import { clearAnthropicKeyCache, resolveCredentials } from '../../../llm/credentials.js';
 import {
   _resetDualScopeDbCache,
   getDualScopeNativeDb,
   openDualScopeDbAtPath,
 } from '../../dual-scope-db.js';
+import { __clearGlobalSaltCache } from '../../global-salt.js';
 import { missingRowIdentitySchema, naturalRowUid } from '../../row-identity.js';
 import { rowIdentitySpec } from '../../row-identity-registry.js';
 import { finishCaptureFrame, openCaptureFrame, setCaptureEnabled } from '../capture.js';
@@ -86,9 +89,9 @@ const START: StreamCursor = { after: 0, knowsAllReplicas: true, replicas: {} };
 
 async function open(name: string, device: Device): Promise<Replica> {
   const home = join(dir, `home-${name}`);
-  mkdirSync(join(dir, name), { recursive: true });
   mkdirSync(home, { recursive: true });
-  const path = join(dir, name, 'cleo.db');
+  // In the home, so this device's ambient store when CLEO_HOME points at it.
+  const path = join(home, 'cleo.db');
   const db = getDualScopeNativeDb(await openDualScopeDbAtPath('global', path));
   setCaptureEnabled(db, 'global', true, { schemaRoot: SYNC_SCHEMA });
   for (const flag of ['sync.seal', 'sync.push', 'sync.pull'] as const) {
@@ -177,6 +180,13 @@ function fakeStream() {
           }
         })
         .join('\n');
+    },
+    /** Whether `needle` appears in any segment, as raw bytes or decoded. */
+    leaks(needle: string): boolean {
+      return (
+        segments.some((s) => Buffer.from(s.plaintext).includes(needle)) ||
+        this.text().includes(needle)
+      );
     },
   };
 }
@@ -307,6 +317,47 @@ describe('global credential identity (T12915 / T13467, D4 amended)', () => {
   });
 });
 
+/** Run as `r`: its home is the ambient CLEO home (machine key, salt, store). */
+function actAs(r: Replica): void {
+  vi.stubEnv('CLEO_HOME', r.home);
+  __clearGlobalSaltCache();
+  clearAnthropicKeyCache();
+}
+
+describe('an LLM credential added with `cleo llm add` syncs (T13715)', () => {
+  it('added on A, it is listed and resolved on B; never plaintext in a segment', async () => {
+    const { a, b } = await twoDevices();
+    const stream = fakeStream();
+    vi.stubEnv('ANTHROPIC_API_KEY', '');
+    actAs(a);
+    const added = await llmAdd({ provider: 'anthropic', label: 'work', apiKey: SECRET });
+    expect(added.success).toBe(true);
+    const aCipher = accountRow(a, 'anthropic', 'work')?.secret_enc ?? '';
+    expect(aCipher).not.toBe('');
+    expect(aCipher).not.toContain(SECRET);
+
+    await push(a, stream, await sealsOf(a));
+    expect(stream.text()).toContain('accounts');
+    for (const needle of [SECRET, Buffer.from(SECRET).toString('base64'), aCipher]) {
+      expect(stream.leaks(needle)).toBe(false);
+    }
+
+    await pull(b, stream);
+    actAs(b);
+    const listed = await llmList({});
+    expect(listed.success).toBe(true);
+    expect(listed.data?.credentials.map((c) => `${c.provider}:${c.label}`)).toEqual([
+      'anthropic:work',
+    ]);
+    expect(JSON.stringify(listed.data)).not.toContain(SECRET);
+    expect(resolveCredentials('anthropic')).toMatchObject({
+      apiKey: SECRET,
+      source: 'cred-file',
+    });
+    expect(accountRow(b, 'anthropic', 'work')?.secret_enc).not.toBe(aCipher);
+  });
+});
+
 describe('global secrets travel sealed on the home stream (T13467)', () => {
   it('a credential written on A is usable on B, and never in plaintext in a segment', async () => {
     const { a, b } = await twoDevices();
@@ -316,8 +367,8 @@ describe('global secrets travel sealed on the home stream (T13467)', () => {
     expect(stream.segments.length).toBeGreaterThan(0);
     const text = stream.text();
     expect(text).toContain('accounts');
-    expect(text).not.toContain(SECRET);
-    expect(text).not.toContain(aCipher);
+    expect(stream.leaks(SECRET)).toBe(false);
+    expect(stream.leaks(aCipher)).toBe(false);
     await pull(b, stream);
     const onB = accountRow(b, 'anthropic', 'work');
     expect(onB?.uid).toBe(accountRow(a, 'anthropic', 'work')?.uid);
@@ -327,6 +378,54 @@ describe('global secrets travel sealed on the home stream (T13467)', () => {
       await decryptGlobal(onB?.secret_enc ?? '', 'account:anthropic:work', { cleoHome: b.home }),
     ).toBe(SECRET);
     expect(onB?.priority).toBe(1);
+    expect(pendingInbox(b)).toBe(0);
+  });
+
+  it('a BYOC client secret (service_configs) is usable on B; an agent_registry_accounts token never travels', async () => {
+    const { a, b } = await twoDevices();
+    const stream = fakeStream();
+    const CLIENT_SECRET = 'byoc-client-secret-T13467';
+    const OAUTH_TOKEN = 'agent-registry-oauth-token-T13467';
+    const aCipher = await encryptGlobal(CLIENT_SECRET, 'service-config:github', {
+      cleoHome: a.home,
+    });
+    write(
+      a.db,
+      `INSERT INTO service_configs (provider, enabled, settings, client_secret_enc, created_at, updated_at)
+       VALUES ('github', 1, '{"client_id":"client-1"}', ?, '2026-10-11T00:00:00.000Z', '2026-10-11T00:00:00.000Z')`,
+      aCipher,
+    );
+    // Local-only (owner decision 2026-10-11): neither the user nor its OAuth row is captured.
+    write(
+      a.db,
+      `INSERT INTO agent_registry_users (id, email, password_hash, created_at, updated_at)
+       VALUES ('u-1', 'a@example.test', 'hash', '2026-10-11T00:00:00.000Z', '2026-10-11T00:00:00.000Z')`,
+    );
+    write(
+      a.db,
+      `INSERT INTO agent_registry_accounts (id, user_id, account_id, provider_id, access_token, created_at, updated_at)
+       VALUES ('acc-1', 'u-1', 'gh-1', 'github', ?, '2026-10-11T00:00:00.000Z', '2026-10-11T00:00:00.000Z')`,
+      OAUTH_TOKEN,
+    );
+    await push(a, stream, await sealsOf(a));
+    expect(stream.text()).toContain('service_configs');
+    for (const needle of [CLIENT_SECRET, aCipher, OAUTH_TOKEN, 'agent_registry_accounts']) {
+      expect(stream.leaks(needle)).toBe(false);
+    }
+    await pull(b, stream);
+    const onB = b.db
+      .prepare("SELECT settings, client_secret_enc FROM service_configs WHERE provider = 'github'")
+      .get() as { settings: string; client_secret_enc: string } | undefined;
+    expect(onB?.settings).toBe('{"client_id":"client-1"}');
+    expect(onB?.client_secret_enc).not.toBe(aCipher);
+    expect(
+      await decryptGlobal(onB?.client_secret_enc ?? '', 'service-config:github', {
+        cleoHome: b.home,
+      }),
+    ).toBe(CLIENT_SECRET);
+    expect(b.db.prepare('SELECT count(*) AS n FROM agent_registry_accounts').get()).toEqual({
+      n: 0,
+    });
     expect(pendingInbox(b)).toBe(0);
   });
 

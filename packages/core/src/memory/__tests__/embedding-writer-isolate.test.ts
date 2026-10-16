@@ -28,6 +28,23 @@ vi.mock('node:worker_threads', async (importOriginal) => {
   return { ...actual, isMainThread: false };
 });
 
+// Opening the brain DB registers the default local provider on a setImmediate,
+// which can replace the stub provider below before the deferred embed reads it
+// (T13716 made that embed await config first). Stub the local provider too, so
+// whichever registration wins embeds without loading or downloading a model.
+vi.mock('../embedding-local.js', () => ({
+  LocalEmbeddingProvider: class {
+    readonly dimensions = 384;
+    readonly model = 'test-model';
+    isAvailable(): boolean {
+      return true;
+    }
+    async embed(): Promise<Float32Array> {
+      return new Float32Array(384).fill(0.25);
+    }
+  },
+}));
+
 const recorder = vi.hoisted(() => ({ ops: [] as string[] }));
 
 vi.mock('../brain-writer-thread.js', async (importOriginal) => {
@@ -63,6 +80,7 @@ beforeEach(async () => {
   await getDb(tempDir);
   setEmbeddingProvider({
     dimensions: EMBEDDING_DIMENSIONS,
+    model: 'test-model',
     isAvailable: () => true,
     embed: async () => new Float32Array(EMBEDDING_DIMENSIONS).fill(0.25),
   });

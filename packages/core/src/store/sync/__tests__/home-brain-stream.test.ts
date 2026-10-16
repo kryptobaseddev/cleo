@@ -23,6 +23,7 @@ import { SYNC_SCHEMA_VERSION } from '@cleocode/contracts/sync-schema.js';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { generateEd25519 } from '../../../cloud/crypto.js';
 import { readStoreSyncStream } from '../../../cloud/nexus-cloud-status.js';
+import { memoryDecisionStore, memoryObserve } from '../../../memory/engine-compat.js';
 import {
   _resetDualScopeDbCache,
   getDualScopeNativeDb,
@@ -295,6 +296,53 @@ describe('the main brain stream (home:<user>) end to end (T13370)', () => {
     expect(contentChecksums(b.db)).toEqual(contentChecksums(a.db));
   });
 
+  it('natural-key rows replay on B by derived uid: same counts and hashes through insert, update and delete (T12895)', async () => {
+    const NATURAL = ['brain_page_edges', 'brain_memory_links', 'brain_sticky_tags'] as const;
+    const counts = (db: DatabaseSync) => NATURAL.map((t) => rowHashes(db, t).length);
+    const expectReplayed = () => {
+      for (const t of NATURAL) expect(rowHashes(b.db, t), t).toEqual(rowHashes(a.db, t));
+      expect(contentChecksums(b.db)).toEqual(contentChecksums(a.db));
+    };
+    const { a, b } = await twoDevices();
+    const stream = fakeStream();
+    writeBrain(a.db);
+    write(
+      a.db,
+      `INSERT INTO brain_page_edges (from_id, to_id, edge_type, created_at) VALUES
+         ('decision:D9001', 'observation:O-home0001', 'co_retrieved', '2026-10-10 09:07:00'),
+         ('decision:D9001', 'symbol:src/a.ts#f', 'code_reference', '2026-10-10 09:07:01');
+       INSERT INTO brain_memory_links (memory_type, memory_id, task_id, link_type, created_at) VALUES
+         ('observation', 'O-home0001', 'T1', 'produced_by', '2026-10-10 09:08:00'),
+         ('decision', 'D9001', 'T2', 'produced_by', '2026-10-10 09:08:01');
+       INSERT INTO brain_sticky_tags (sticky_id, tag) VALUES ('SN-901', 'sync');`,
+    );
+    await push(a, stream);
+    await pull(b, stream);
+    expect(counts(a.db)).toEqual([3, 2, 1]);
+    expectReplayed();
+
+    write(
+      a.db,
+      `UPDATE brain_page_edges SET weight = 0.4, reinforcement_count = 2,
+         last_reinforced_at = '2026-10-10 10:00:00'
+         WHERE from_id = 'observation:O-home0001' AND edge_type = 'co_retrieved';
+       DELETE FROM brain_page_edges WHERE to_id = 'symbol:src/a.ts#f';
+       DELETE FROM brain_memory_links WHERE memory_id = 'D9001';
+       INSERT INTO brain_sticky_tags (sticky_id, tag) VALUES ('SN-901', 'brain');`,
+    );
+    await push(a, stream);
+    await pull(b, stream);
+    expect(counts(a.db)).toEqual([2, 1, 2]);
+    expectReplayed();
+    expect(
+      b.db
+        .prepare(
+          "SELECT weight, reinforcement_count FROM brain_page_edges WHERE from_id = 'observation:O-home0001'",
+        )
+        .get(),
+    ).toEqual({ weight: 0.4, reinforcement_count: 2 });
+  });
+
   it("cloud status names the home stream from the store's own journal: cut, unsent ops, pushed and pulled positions", async () => {
     const { a, b } = await twoDevices();
     const stream = fakeStream();
@@ -351,6 +399,51 @@ describe('the main brain stream (home:<user>) end to end (T13370)', () => {
       known: true,
       value: stream.segments.length,
     });
+  });
+
+  it('a global observation and decision written through memory observe / decision-store --scope global on A appear on B (T13720)', async () => {
+    const { a, b } = await twoDevices();
+    const stream = fakeStream();
+    // The CLI's global store is CLEO_HOME/cleo.db: point it at device A's store.
+    vi.stubEnv('CLEO_HOME', join(dir, 'a'));
+    const observed = await memoryObserve({
+      text: 'the main brain carries this across devices',
+      title: 'main brain observation',
+      scope: 'global',
+    });
+    expect(observed.success).toBe(true);
+    const decided = await memoryDecisionStore({
+      decision: 'Keep user-wide knowledge in the main brain',
+      rationale: 'it follows the user to every device',
+      confirmationState: 'accepted',
+      scope: 'global',
+    });
+    expect(decided.success).toBe(true);
+    const obsId = (observed.data as { id: string }).id;
+    const decId = (decided.data as { id: string }).id;
+
+    await push(a, stream);
+    await pull(b, stream);
+    const row = (db: DatabaseSync, table: string, id: string) =>
+      db.prepare(`SELECT uid, * FROM ${table} WHERE id = ?`).get(id) as
+        | Record<string, unknown>
+        | undefined;
+    expect(row(b.db, 'brain_observations', obsId)).toMatchObject({
+      title: 'main brain observation',
+      narrative: 'the main brain carries this across devices',
+    });
+    expect(row(b.db, 'brain_observations', obsId)?.uid).toBe(
+      row(a.db, 'brain_observations', obsId)?.uid,
+    );
+    expect(row(b.db, 'brain_decisions', decId)).toMatchObject({
+      decision: 'Keep user-wide knowledge in the main brain',
+      confirmation_state: 'accepted',
+    });
+    // One framed transaction per command, never an unframed (foreign) singleton.
+    expect(a.db.prepare('SELECT count(*) AS n FROM _sync_txn WHERE unframed = 1').get()).toEqual({
+      n: 0,
+    });
+    expect(contentChecksums(b.db)).toEqual(contentChecksums(a.db));
   });
 
   it('a concurrent edit to one observation resolves to the same row on both, with the same conflicts', async () => {

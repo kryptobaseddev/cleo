@@ -223,8 +223,8 @@ describe('pruneOrphanWorktrees', () => {
     }
   });
 
-  it('removes task dirs not in activeTaskIds', () => {
-    const result = pruneOrphanWorktrees({
+  it('removes task dirs not in activeTaskIds', async () => {
+    const result = await pruneOrphanWorktrees({
       worktreesRoot,
       activeTaskIds: new Set(['T1001']),
     });
@@ -235,8 +235,8 @@ describe('pruneOrphanWorktrees', () => {
     expect(existsSync(join(projectDir, 'T1003'))).toBe(false);
   });
 
-  it('preserves all dirs when all IDs are in activeTaskIds', () => {
-    const result = pruneOrphanWorktrees({
+  it('preserves all dirs when all IDs are in activeTaskIds', async () => {
+    const result = await pruneOrphanWorktrees({
       worktreesRoot,
       activeTaskIds: new Set(['T1001', 'T1002', 'T1003']),
     });
@@ -247,13 +247,13 @@ describe('pruneOrphanWorktrees', () => {
     expect(existsSync(join(projectDir, 'T1003'))).toBe(true);
   });
 
-  it('removes orphan dirs when activeTaskIds is non-empty but unmatched', () => {
+  it('removes orphan dirs when activeTaskIds is non-empty but unmatched', async () => {
     // T11996: the fail-closed guard blocks removal when activeTaskIds is empty
     // (prevents mass-deletion when the task store is unreadable). Tests that
     // represent the "remove all orphans" case must use a non-empty set containing
     // a task ID that doesn't match any worktree dir — T1001/T1002/T1003 are all
     // absent from the set so they are treated as orphans and removed.
-    const result = pruneOrphanWorktrees({
+    const result = await pruneOrphanWorktrees({
       worktreesRoot,
       activeTaskIds: new Set(['T-ANCHOR']),
     });
@@ -264,9 +264,9 @@ describe('pruneOrphanWorktrees', () => {
     expect(existsSync(join(projectDir, 'T1003'))).toBe(false);
   });
 
-  it('fail-closed: skips removal when activeTaskIds is empty and worktrees exist (T11996)', () => {
+  it('fail-closed: skips removal when activeTaskIds is empty and worktrees exist (T11996)', async () => {
     // Regression: empty activeTaskIds + existing worktrees → guard fires.
-    const result = pruneOrphanWorktrees({
+    const result = await pruneOrphanWorktrees({
       worktreesRoot,
       activeTaskIds: new Set<string>(),
     });
@@ -279,10 +279,10 @@ describe('pruneOrphanWorktrees', () => {
     expect(existsSync(join(projectDir, 'T1003'))).toBe(true);
   });
 
-  it('dry-run returns paths without deleting', () => {
+  it('dry-run returns paths without deleting', async () => {
     // T11996: non-empty preserve set so fail-closed guard does not fire.
     // T1001/T1002/T1003 are not in the set → all reported as would-be-removed.
-    const result = pruneOrphanWorktrees({
+    const result = await pruneOrphanWorktrees({
       worktreesRoot,
       activeTaskIds: new Set(['T-ANCHOR']),
       dryRun: true,
@@ -296,13 +296,13 @@ describe('pruneOrphanWorktrees', () => {
     expect(existsSync(join(projectDir, 'T1003'))).toBe(true);
   });
 
-  it('scopes to projectHash when provided', () => {
+  it('scopes to projectHash when provided', async () => {
     // Create a second project hash directory.
     const other = join(worktreesRoot, 'other-hash');
     mkdirSync(join(other, 'T9999'), { recursive: true });
 
     // T11996: non-empty preserve set so fail-closed guard does not fire.
-    const result = pruneOrphanWorktrees({
+    const result = await pruneOrphanWorktrees({
       worktreesRoot,
       projectHash: PROJECT_HASH,
       activeTaskIds: new Set(['T-ANCHOR']),
@@ -314,8 +314,8 @@ describe('pruneOrphanWorktrees', () => {
     expect(existsSync(join(other, 'T9999'))).toBe(true);
   });
 
-  it('handles non-existent worktreesRoot gracefully', () => {
-    const result = pruneOrphanWorktrees({
+  it('handles non-existent worktreesRoot gracefully', async () => {
+    const result = await pruneOrphanWorktrees({
       worktreesRoot: join(worktreesRoot, 'does-not-exist'),
       activeTaskIds: new Set<string>(),
     });

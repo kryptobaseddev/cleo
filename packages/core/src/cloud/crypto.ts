@@ -29,6 +29,14 @@ const SALT = 32;
 const NONCE = 12;
 const TAG = 16;
 
+/**
+ * Bytes {@link seal} adds to a plaintext: version byte, salt, nonce and tag. Attachment records
+ * (cloud/journal.ts) are judged by `plaintext + SEAL_OVERHEAD`: a change of the AEAD envelope must
+ * also bump the attachment context (`attachment/v1`), so old and new clients never read each
+ * other's good records as the wrong size and clear them.
+ */
+export const SEAL_OVERHEAD = 1 + SALT + NONCE + TAG;
+
 export class DecryptError extends Error {
   constructor(message = 'decryption failed: wrong key, wrong context, or tampered ciphertext') {
     super(message);

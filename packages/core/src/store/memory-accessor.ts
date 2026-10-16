@@ -9,6 +9,7 @@
  * @task T5128
  */
 
+import type { DatabaseSync } from 'node:sqlite';
 import type { OperationExecutionContext } from '@cleocode/contracts/jobs';
 import type { SQL } from 'drizzle-orm';
 import { and, asc, desc, eq, gt, gte, inArray, isNull, lt, ne, or, sql } from 'drizzle-orm';
@@ -51,6 +52,55 @@ import type {
 } from './schema/memory-schema.js';
 import * as brainSchema from './schema/memory-schema.js';
 import { assertTwinCollapseWritable } from './twin-collapse.js';
+
+/**
+ * Upsert computed embeddings into `brain_embeddings` on the given handle,
+ * tagged with the model that produced them (T13740).
+ *
+ * Lives with the brain accessor because it is a raw write on a brain table
+ * (gate 28). Callers must be the brain single-writer chokepoint: the `embed` write op's
+ * handler (`brain-writer-handlers.ts`, worker or inline under the lease and
+ * mutex) and the host's write-time embed, which runs inside the writer.
+ *
+ * @param nativeDb - The writer's brain handle.
+ * @param model - `EmbeddingProvider.model` of the provider that computed the vectors.
+ * @param rows - Memory row ids and their vectors.
+ * @returns Rows written.
+ * @task T13218
+ * @task T13740
+ */
+export function upsertEmbeddingRowsNative(
+  nativeDb: DatabaseSync,
+  model: string,
+  rows: ReadonlyArray<{ id: string; vector: Float32Array }>,
+): number {
+  // vec0 rejects both UPSERT and REPLACE on its primary key, so a re-embed
+  // (model change, edited row) deletes the old vector first.
+  const del = nativeDb.prepare('DELETE FROM brain_embeddings WHERE id = ?');
+  const ins = nativeDb.prepare(
+    'INSERT INTO brain_embeddings (id, embedding, model) VALUES (?, ?, ?)',
+  );
+  // One transaction per batch: a failure leaves no row deleted but not re-inserted.
+  nativeDb.prepare('SAVEPOINT embed_upsert').run();
+  let written = 0;
+  try {
+    for (const row of rows) {
+      del.run(row.id);
+      ins.run(
+        row.id,
+        Buffer.from(row.vector.buffer, row.vector.byteOffset, row.vector.byteLength),
+        model,
+      );
+      written++;
+    }
+    nativeDb.prepare('RELEASE embed_upsert').run();
+  } catch (err) {
+    nativeDb.prepare('ROLLBACK TO embed_upsert').run();
+    nativeDb.prepare('RELEASE embed_upsert').run();
+    throw err;
+  }
+  return written;
+}
 
 export class BrainDataAccessor {
   constructor(private db: NodeSQLiteDatabase) {}
@@ -1123,6 +1173,133 @@ export class BrainDataAccessor {
 export async function getBrainAccessor(cwd?: string): Promise<BrainDataAccessor> {
   const db = await getBrainDb(cwd);
   return new BrainDataAccessor(db);
+}
+
+// ============================================================================
+// GLOBAL (MAIN BRAIN) WRITERS (T13720)
+//
+// Raw SQL rather than BrainDataAccessor: the global store's brain tables carry
+// the consolidated column set only (no drizzle-brain `expired_at` / `network`),
+// and drizzle names every schema column in an INSERT.
+// ============================================================================
+
+/** The columns a main-brain observation is written with. */
+export interface GlobalObservationInsert {
+  id: string;
+  type: string;
+  title: string;
+  narrative: string;
+  contentHash: string;
+  sourceType: string;
+  agent: string | null;
+  sourceConfidence: string;
+  verified: boolean;
+  qualityScore: number;
+  createdAt: string;
+}
+
+/** The columns a main-brain decision is written with (its id is allocated in SQL). */
+export interface GlobalDecisionInsert {
+  type: string;
+  decision: string;
+  rationale: string;
+  confidence: string;
+  outcome: string;
+  alternativesJson: string | null;
+  adrPath: string | null;
+  confirmationState: string;
+  decidedBy: string;
+  createdAt: string;
+}
+
+/**
+ * Run one write on the global store inside `BEGIN IMMEDIATE` and one capture
+ * frame, so the sealer seals it as one transaction (no frame when capture is off).
+ */
+async function inGlobalCaptureFrame<T>(write: (db: DatabaseSync) => T): Promise<T> {
+  const { getDualScopeNativeDb, openDualScopeDb } = await import('./dual-scope-db.js');
+  const { finishCaptureFrame, openCaptureFrame } = await import('./sync/capture.js');
+  const { currentWriteActorJson } = await import('./sync/write-actor.js');
+  const db = getDualScopeNativeDb(await openDualScopeDb('global'));
+  db.exec('BEGIN IMMEDIATE');
+  try {
+    const frame = openCaptureFrame(db, 'write', currentWriteActorJson());
+    const out = write(db);
+    finishCaptureFrame(db, frame);
+    db.exec('COMMIT');
+    return out;
+  } catch (err) {
+    if (db.isTransaction) db.exec('ROLLBACK');
+    throw err;
+  }
+}
+
+/**
+ * Insert one observation into the global store's `brain_observations`.
+ *
+ * @param row - The observation's columns.
+ * @task T13720
+ */
+export async function addGlobalObservation(row: GlobalObservationInsert): Promise<void> {
+  await inGlobalCaptureFrame((db) =>
+    db
+      .prepare(
+        `INSERT INTO main.brain_observations
+           (id, type, title, narrative, content_hash, source_type, agent,
+            source_confidence, verified, quality_score, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      )
+      .run(
+        row.id,
+        row.type,
+        row.title,
+        row.narrative,
+        row.contentHash,
+        row.sourceType,
+        row.agent,
+        row.sourceConfidence,
+        row.verified ? 1 : 0,
+        row.qualityScore,
+        row.createdAt,
+      ),
+  );
+}
+
+/**
+ * Insert one decision into the global store's `brain_decisions`, allocating
+ * the next `Dnnn` id inside the INSERT (race-free, as
+ * {@link BrainDataAccessor.addDecisionWithSequentialId}).
+ *
+ * @param row - The decision's columns.
+ * @returns The allocated decision id.
+ * @task T13720
+ */
+export async function addGlobalDecision(row: GlobalDecisionInsert): Promise<string> {
+  return inGlobalCaptureFrame((db) => {
+    const inserted = db
+      .prepare(
+        `INSERT INTO main.brain_decisions
+           (id, type, decision, rationale, confidence, outcome, alternatives_json,
+            adr_path, confirmation_state, decided_by, created_at)
+         VALUES ('D' || printf('%03d', COALESCE((SELECT MAX(CAST(substr(id, 2) AS INTEGER))
+                   FROM main.brain_decisions WHERE id GLOB 'D[0-9]*'), 0) + 1),
+                 ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+         RETURNING id`,
+      )
+      .get(
+        row.type,
+        row.decision,
+        row.rationale,
+        row.confidence,
+        row.outcome,
+        row.alternativesJson,
+        row.adrPath,
+        row.confirmationState,
+        row.decidedBy,
+        row.createdAt,
+      ) as { id: string };
+    return inserted.id;
+  });
 }
 
 // ============================================================================

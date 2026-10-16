@@ -11,7 +11,11 @@
  *  - documentation outside the code roots is ignored;
  *  - any other path outside every package (lockfile, root `package.json`,
  *    workspace/build/test config, `scripts/`, `.github/`) can affect every
- *    package, so the scope becomes `full` and a full run is required;
+ *    package, so the scope becomes `full` and a full run is required —
+ *    unless the consumer checks or runs files (`outsideTests`, T13754): then
+ *    a path below a top-level directory owes every test file outside every
+ *    package under that directory, and only a repo-root file or a top-level
+ *    directory with no test file stays `full`;
  *  - the dependents closure follows `dependencies`, `devDependencies`,
  *    `peerDependencies` and `optionalDependencies` between workspace packages.
  *
@@ -58,8 +62,20 @@ export interface WorkspacePackage {
 
 /** The affected set, or the reason only a full run will do. */
 export type AffectedScope =
-  | { scope: 'affected'; direct: string[]; packages: string[] }
+  | {
+      scope: 'affected';
+      direct: string[];
+      packages: string[];
+      /**
+       * Test files outside every workspace package a covering run must pass,
+       * when `outsideTests` narrowed non-workspace paths (T13754).
+       */
+      outsideTests?: string[];
+    }
   | { scope: 'full'; reason: string };
+
+/** A test file, by the names vitest, jest and node:test pick up. */
+export const TEST_FILE = /\.(test|spec)\.[cm]?[jt]sx?$/;
 
 /**
  * Workspace package patterns from `pnpm-workspace.yaml`, else
@@ -211,17 +227,124 @@ export function standalonePackage(root: string): WorkspacePackage | null {
 }
 
 /**
+ * Known-inert files besides documentation: editor and dependency-bot settings
+ * nothing builds, tests, lints, runs or deploys. An allowlist, so an unknown
+ * config (CI, deploy, hooks, `.cleo/` evidence rules) stays code (T13745).
+ * shortcut: a fixed list; widen it only with a file no tool reads.
+ */
+const INERT_PATH =
+  /^(?:renovate\.json5?|\.editorconfig|\.(?:vscode|idea|zed)\/.+|[^/]+\.code-workspace)$/;
+
+/**
+ * Whether a changed path is non-code (T13745): documentation
+ * ({@link isCiDocumentPath}) or a known-inert editor or bot setting
+ * (renovate, .editorconfig, .vscode/, .idea/, .zed/). Everything else is code.
+ *
+ * @param path - Repo-relative changed path.
+ * @returns True when no build, test, lint, CI or deploy reads the path.
+ * @task T13745
+ */
+export function isNonCodePath(path: string): boolean {
+  const p = slashSeparated(path);
+  return isCiDocumentPath(p) || INERT_PATH.test(p);
+}
+
+/** CLEO-owned config files and the CLEO schema each is validated against (T13758). */
+const CLEO_CONFIG_SCHEMAS: Readonly<Record<string, string>> = {
+  '.cleo/project-context.json': 'project-context.schema.json',
+  '.cleo/config.json': 'config.schema.json',
+};
+
+/**
+ * The CLEO schema a CLEO-owned config file is validated against, or null for
+ * any other path (T13758). CLEO is these files' consumer, so its schema check
+ * is a real, targeted test of a change to them.
+ *
+ * @param path - Repo-relative changed path.
+ * @returns The schema file name, or null.
+ * @task T13758
+ */
+export function cleoConfigSchemaFor(path: string): string | null {
+  return CLEO_CONFIG_SCHEMAS[slashSeparated(path)] ?? null;
+}
+
+/**
+ * Whether a change set is non-empty and made only of CLEO-owned config files
+ * ({@link cleoConfigSchemaFor}); any other path removes the route (T13758).
+ *
+ * @param paths - The change's repo-relative paths.
+ * @returns True for a CLEO-config-only change.
+ * @task T13758
+ */
+export function isCleoConfigOnlyChange(paths: readonly string[]): boolean {
+  return paths.length > 0 && paths.every((p) => cleoConfigSchemaFor(p) !== null);
+}
+
+/**
+ * Whether a change set is non-empty and made only of {@link isNonCodePath}
+ * paths: no test reads it and no TypeScript changed (T13745).
+ *
+ * @param paths - The change's repo-relative paths.
+ * @returns True for a non-code-only change.
+ * @task T13745
+ */
+export function isNonCodeOnlyChange(paths: readonly string[]): boolean {
+  return paths.length > 0 && paths.every(isNonCodePath);
+}
+
+/**
+ * The test files a run must pass to speak for non-workspace paths (T13754),
+ * or the paths nothing narrower than the whole suite can speak for.
+ *
+ * A path in a subdirectory is owned by its TOP-LEVEL directory and owes
+ * every test file outside every package under it (tracked, or one the change
+ * adds). Not the nearest directory with tests: `tooling/shared/util.mjs` is
+ * also read by `tooling/bridge/*.test.mjs`, and a trivial test beside the
+ * changed file must not narrow the run past them. A repo-root file
+ * (lockfile, root config) or a top-level directory with no test file has no
+ * owner and stays workspace-wide.
+ * shortcut: a package importing a non-workspace module is not followed
+ * (T13767); a run of that directory's tests is taken to speak for it, as the
+ * CI path filters of a repo do.
+ */
+function outsideTestFiles(
+  root: string,
+  paths: readonly string[],
+  packages: readonly WorkspacePackage[],
+): { files: string[] } | { unscoped: string[] } {
+  const tracked = (git(root, ['ls-files', '--', '*.test.*', '*.spec.*']) ?? '').split('\n');
+  const added = paths.filter((f) => existsSync(join(root, f)));
+  const tests = [...new Set([...tracked, ...added])].filter(
+    (f) => TEST_FILE.test(f) && !packages.some((p) => p.dir !== '' && inPackageDir(f, p.dir)),
+  );
+  const files = new Set<string>();
+  const unscoped: string[] = [];
+  for (const path of paths) {
+    const top = path.includes('/') ? path.slice(0, path.indexOf('/')) : null;
+    const owned = top === null ? [] : tests.filter((f) => inPackageDir(f, top));
+    if (owned.length === 0) unscoped.push(path);
+    for (const f of owned) files.add(f);
+  }
+  return unscoped.length > 0 ? { unscoped } : { files: [...files].sort() };
+}
+
+/**
  * Derive the affected-package set for a diff.
  *
  * @param root - Workspace root.
  * @param changedPaths - Repo-relative changed paths.
+ * @param opts - `outsideTests`: narrow a non-workspace path to the test files
+ *   of its directory ({@link AffectedScope} `outsideTests`) instead of the
+ *   whole workspace, for consumers that check or run those files (T13754).
  * @returns The directly changed packages plus their transitive dependents, or
  *   `full` naming the paths that affect the whole workspace.
  * @task T12635
+ * @task T13754
  */
 export function deriveAffectedPackages(
   root: string,
   changedPaths: readonly string[],
+  opts: { outsideTests?: boolean } = {},
 ): AffectedScope {
   const packages = listWorkspacePackages(root).sort((a, b) => b.dir.length - a.dir.length);
   const direct = new Set<string>();
@@ -235,11 +358,16 @@ export function deriveAffectedPackages(
     if (owner) direct.add(owner.name);
     else if (!isCiDocumentPath(path)) workspaceWide.push(path);
   }
+  let outsideTests: string[] | undefined;
   if (workspaceWide.length > 0) {
-    return {
-      scope: 'full',
-      reason: `outside every workspace package, so every package may be affected: ${workspaceWide.join(', ')}`,
-    };
+    const outside = opts.outsideTests ? outsideTestFiles(root, workspaceWide, packages) : null;
+    if (outside === null || 'unscoped' in outside) {
+      return {
+        scope: 'full',
+        reason: `outside every workspace package, so every package may be affected: ${(outside?.unscoped ?? workspaceWide).join(', ')}`,
+      };
+    }
+    outsideTests = outside.files;
   }
   const affected = new Set(direct);
   let grew = true;
@@ -252,7 +380,12 @@ export function deriveAffectedPackages(
       }
     }
   }
-  return { scope: 'affected', direct: [...direct].sort(), packages: [...affected].sort() };
+  return {
+    scope: 'affected',
+    direct: [...direct].sort(),
+    packages: [...affected].sort(),
+    ...(outsideTests ? { outsideTests } : {}),
+  };
 }
 
 /** A vitest project as vitest itself resolves it: its name and root directory. */
@@ -748,6 +881,8 @@ export type AffectedTestRun =
       untested: string[];
       /** The template the command came from, declared or derived (T13125). */
       template: AffectedTemplate;
+      /** Test files outside every package the run names, for a non-workspace change (T13754). */
+      testFiles?: string[];
     }
   | {
       ok: false;
@@ -826,12 +961,50 @@ export async function planAffectedTestRun(
         'use tool:test, or a test-run: report of the changed test files.',
     };
   }
-  const scope = deriveAffectedPackages(root, changed);
+  const scope = deriveAffectedPackages(root, changed, { outsideTests: true });
   if (scope.scope === 'full') {
     return {
       ok: false,
       codeName: 'E_EVIDENCE_INSUFFICIENT',
       reason: `The change touches paths ${scope.reason}. Run the full suite: tool:test.`,
+    };
+  }
+  const outside = scope.outsideTests ?? [];
+  if (outside.length > 0) {
+    // T13754: one affected command cannot both select packages and name files.
+    if (scope.packages.length > 0) {
+      return {
+        ok: false,
+        codeName: 'E_EVIDENCE_INSUFFICIENT',
+        reason:
+          `The change touches workspace package(s) ${scope.packages.join(', ')} and test files ` +
+          `outside every package (${outside.slice(0, 5).join(', ')}${outside.length > 5 ? ', …' : ''}). ` +
+          'Record a test-run: report that runs those files and a test file of each affected package',
+      };
+    }
+    // With a vitest template the files replace {projects}, so the repo's own
+    // config collects them (an uncollectable file fails the run); otherwise
+    // node's built-in runner, the one every Node project has.
+    const { cmd, args } = templateWords.includes('{projects}')
+      ? {
+          cmd: templateWords[0]!,
+          args: templateWords.slice(1).flatMap((w) => (w === '{projects}' ? outside : [w])),
+        }
+      : { cmd: 'node', args: ['--test', ...outside] };
+    return {
+      ok: true,
+      command: {
+        canonical: 'test',
+        displayName: 'test-affected',
+        cmd,
+        args,
+        source: 'project-context',
+      },
+      packages: [],
+      projects: [],
+      untested: [],
+      template: resolved,
+      testFiles: outside,
     };
   }
   if (scope.packages.length === 0) {

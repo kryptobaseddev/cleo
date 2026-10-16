@@ -59,8 +59,8 @@ const SECRET_SEAL_PURPOSE = 'secret';
 const CREDENTIAL_IDS: Readonly<
   Record<string, Readonly<Record<string, (key: Readonly<Record<string, unknown>>) => string>>>
 > = {
-  // shortcut: no writer encrypts accounts yet, so this id is defined here (and
-  // in the accounts schema doc); a future pool writer must use the same id.
+  // Must equal `llmAccountSecretId` (store/llm-accounts-accessor.ts, the pool
+  // writer); not imported, to keep the LLM module graph off the sync path.
   accounts: {
     secret_enc: (k) => `account:${String(k.provider)}:${String(k.label)}`,
     refresh_enc: (k) => `account:${String(k.provider)}:${String(k.label)}`,

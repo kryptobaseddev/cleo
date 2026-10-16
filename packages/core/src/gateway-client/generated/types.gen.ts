@@ -4,6 +4,195 @@ export type ClientOptions = {
     baseUrl: `${string}://${string}` | (string & {});
 };
 
+export type MutateTasksReqAddData = {
+    body: {
+        /**
+         * Task that owns the requirement gates
+         */
+        taskId: string;
+        /**
+         * AcceptanceGate JSON; must include kind, description and kind-specific fields
+         */
+        gate: string;
+    };
+    path?: never;
+    query?: never;
+    url: '/v1/tasks/req.add';
+};
+
+export type MutateTasksReqAddResponses = {
+    /**
+     * Generic query result — the precise /data shape is not individually contracted. Run with --full to see the verbose record, or --describe for the operation contract.
+     */
+    200: {
+        success: true;
+        data: {
+            [key: string]: unknown;
+        };
+        /**
+         * LAFS response metadata.
+         */
+        meta: {
+            [key: string]: unknown;
+        };
+        [key: string]: unknown;
+    };
+};
+
+export type MutateTasksReqAddResponse = MutateTasksReqAddResponses[keyof MutateTasksReqAddResponses];
+
+export type MutateTasksReqReplaceData = {
+    body: {
+        /**
+         * Task that owns the requirement gates
+         */
+        taskId: string;
+        /**
+         * REQ-ID of the gate to replace
+         */
+        req: string;
+        /**
+         * Replacement AcceptanceGate JSON; its req must be absent or equal the REQ-ID
+         */
+        gate: string;
+        /**
+         * Why the gate changes; required once the task is in a locked pipeline stage
+         */
+        reason?: string;
+    };
+    path?: never;
+    query?: never;
+    url: '/v1/tasks/req.replace';
+};
+
+export type MutateTasksReqReplaceResponses = {
+    /**
+     * Generic query result — the precise /data shape is not individually contracted. Run with --full to see the verbose record, or --describe for the operation contract.
+     */
+    200: {
+        success: true;
+        data: {
+            [key: string]: unknown;
+        };
+        /**
+         * LAFS response metadata.
+         */
+        meta: {
+            [key: string]: unknown;
+        };
+        [key: string]: unknown;
+    };
+};
+
+export type MutateTasksReqReplaceResponse = MutateTasksReqReplaceResponses[keyof MutateTasksReqReplaceResponses];
+
+export type QueryTasksReqListData = {
+    body: {
+        /**
+         * Task that owns the requirement gates
+         */
+        taskId: string;
+    };
+    path?: never;
+    query?: never;
+    url: '/v1/tasks/req.list';
+};
+
+export type QueryTasksReqListResponses = {
+    /**
+     * Generic query result — the precise /data shape is not individually contracted. Run with --full to see the verbose record, or --describe for the operation contract.
+     */
+    200: {
+        success: true;
+        data: {
+            [key: string]: unknown;
+        };
+        /**
+         * LAFS response metadata.
+         */
+        meta: {
+            [key: string]: unknown;
+        };
+        [key: string]: unknown;
+    };
+};
+
+export type QueryTasksReqListResponse = QueryTasksReqListResponses[keyof QueryTasksReqListResponses];
+
+export type QueryTasksReqMigratePreviewData = {
+    body: {
+        /**
+         * Task that owns the requirement gates
+         */
+        taskId: string;
+        /**
+         * Must be absent or false for preview
+         */
+        apply?: boolean;
+    };
+    path?: never;
+    query?: never;
+    url: '/v1/tasks/req.migrate.preview';
+};
+
+export type QueryTasksReqMigratePreviewResponses = {
+    /**
+     * Generic query result — the precise /data shape is not individually contracted. Run with --full to see the verbose record, or --describe for the operation contract.
+     */
+    200: {
+        success: true;
+        data: {
+            [key: string]: unknown;
+        };
+        /**
+         * LAFS response metadata.
+         */
+        meta: {
+            [key: string]: unknown;
+        };
+        [key: string]: unknown;
+    };
+};
+
+export type QueryTasksReqMigratePreviewResponse = QueryTasksReqMigratePreviewResponses[keyof QueryTasksReqMigratePreviewResponses];
+
+export type MutateTasksReqMigrateData = {
+    body: {
+        /**
+         * Task that owns the requirement gates
+         */
+        taskId: string;
+        /**
+         * Must be true to apply proposals
+         */
+        apply: boolean;
+    };
+    path?: never;
+    query?: never;
+    url: '/v1/tasks/req.migrate';
+};
+
+export type MutateTasksReqMigrateResponses = {
+    /**
+     * Generic query result — the precise /data shape is not individually contracted. Run with --full to see the verbose record, or --describe for the operation contract.
+     */
+    200: {
+        success: true;
+        data: {
+            [key: string]: unknown;
+        };
+        /**
+         * LAFS response metadata.
+         */
+        meta: {
+            [key: string]: unknown;
+        };
+        [key: string]: unknown;
+    };
+};
+
+export type MutateTasksReqMigrateResponse = MutateTasksReqMigrateResponses[keyof MutateTasksReqMigrateResponses];
+
 export type QueryTasksShowData = {
     body: {
         /**
@@ -30,7 +219,7 @@ export type QueryTasksShowData = {
 
 export type QueryTasksShowResponses = {
     /**
-     * The task record is nested under `task` — use /data/task/<field>, not /data/<field>. `view` may be null. `acRows` and `relations` are conditional.
+     * The task record is nested under `task` — use /data/task/<field>, not /data/<field>. Mutation envelopes are FLAT by contrast (/data/created/0, /data/updated/0), which is the asymmetry that produced GH #1225/#1239/#1231. `view` may be null. `acRows` and `relations` are conditional. The default (MVI) projection withholds each `acRows` UUID and names it once in `/data/_withheld` as `acRows*id` (T12523); cite a criterion by `alias` (AC1..n). `description`, `acceptance` and `verification` are withheld by the default (MVI) projection but `--field` resolves them transparently (T12108) — no `--full` needed. Evidence is NOT a task field: it lives at /data/task/verification/evidence (keyed by gate), alongside /data/task/verification/gates. T12127 (GH #1231) — the previous wording advertised `/data/task/evidence`, which does not exist, in the very text shown to an agent whose pointer had just failed.
      */
     200: {
         success: true;
@@ -45,6 +234,35 @@ export type QueryTasksShowResponses = {
                 priority?: string;
                 type?: string;
                 parentId?: string | null;
+                /**
+                 * Task version for optimistic concurrency: pass it to `cleo update|complete --if-match`. A stale version fails with E_CONFLICT (23); E_TASK_RENAMED (26) when sync re-numbered the task you read (details.expected is its new id).
+                 */
+                updatedAt?: string | null;
+                /**
+                 * Human / owner assignee. Separate from `claim`.
+                 */
+                assignee?: string | null;
+                /**
+                 * Agent claim lease (T12502): the holder session, its agent, and when the lease lapses unless renewed. Absent when unclaimed.
+                 */
+                claim?: {
+                    /**
+                     * Session holding the lease.
+                     */
+                    sessionId: string;
+                    /**
+                     * Agent identity of the holder.
+                     */
+                    agentId: string | null;
+                    /**
+                     * When the lease was taken (ISO-8601 UTC).
+                     */
+                    claimedAt: string;
+                    /**
+                     * When the lease lapses unless renewed (ISO-8601 UTC).
+                     */
+                    leaseExpiresAt: string;
+                };
             };
             /**
              * Canonical task view projection produced by computeTaskView. Null when unavailable.
@@ -57,9 +275,15 @@ export type QueryTasksShowResponses = {
              */
             attachments: Array<unknown>;
             /**
-             * Acceptance-criterion rows (id, alias AC<n>, ordinal, text). Optional.
+             * Acceptance-criterion rows (alias AC<n>, ordinal, text; the UUID id only with --full). Optional.
              */
             acRows?: Array<unknown>;
+            /**
+             * Fields the default projection withheld from list elements, e.g. `acRows*id` → UTF-8 byte total. Absent with --full.
+             */
+            _withheld?: {
+                [key: string]: unknown;
+            };
             /**
              * Expanded relation/doc lists. Present only with --relations.
              */
@@ -416,6 +640,10 @@ export type QueryTasksSubscribeResponse = QueryTasksSubscribeResponses[keyof Que
 export type QueryTasksListData = {
     body?: {
         /**
+         * Include archived rows under the same filters
+         */
+        includeArchive?: boolean;
+        /**
          * Filter by parent task ID
          */
         parent?: string;
@@ -432,6 +660,14 @@ export type QueryTasksListData = {
          */
         type?: string;
         /**
+         * Filter by severity axis (P0|P1|P2|P3); invalid values are rejected
+         */
+        severity?: string;
+        /**
+         * Filter by kind axis (work|research|experiment|bug|spike|release); invalid values are rejected
+         */
+        kind?: string;
+        /**
          * Filter by task phase
          */
         phase?: string;
@@ -440,11 +676,11 @@ export type QueryTasksListData = {
          */
         label?: string;
         /**
-         * Limit parent queries to direct children
+         * DEPRECATED (no effect; slated for removal in a future major): --parent already returns DIRECT children only, for every parent type including sagas. Do not use.
          */
         children?: boolean;
         /**
-         * Maximum number of tasks to return
+         * Maximum number of tasks to return (default 10). --all or --limit 0 returns every match.
          */
         limit?: number;
         /**
@@ -484,6 +720,23 @@ export type QueryTasksListResponses = {
              * Number of tasks after filters applied.
              */
             filtered: number;
+            population: {
+                /**
+                 * All rows matching the query before pagination.
+                 */
+                matched: number;
+                /**
+                 * Rows present in this response; also --output count.
+                 */
+                returned: number;
+                /**
+                 * Matching rows are omitted by this page.
+                 */
+                truncated: boolean;
+                archive: 'included' | 'excluded' | 'only';
+                limit: number | null;
+                offset: number;
+            };
             [key: string]: unknown;
         };
         /**
@@ -524,12 +777,29 @@ export type QueryTasksFindResponses = {
              * Total matching tasks.
              */
             total: number;
+            population: {
+                /**
+                 * All rows matching the query before pagination.
+                 */
+                matched: number;
+                /**
+                 * Rows present in this response; also --output count.
+                 */
+                returned: number;
+                /**
+                 * Matching rows are omitted by this page.
+                 */
+                truncated: boolean;
+                archive: 'included' | 'excluded' | 'only';
+                limit: number | null;
+                offset: number;
+            };
             /**
              * The query string that was searched.
              */
             query?: string;
             /**
-             * Kind of search performed (fts, semantic, ...).
+             * Requested matching mode: lexical (default), fuzzy (explicit opt-in), exact, id, or filter.
              */
             searchType?: string;
             [key: string]: unknown;
@@ -1080,7 +1350,20 @@ export type QueryTasksComplexityEstimateResponses = {
 export type QueryTasksComplexityEstimateResponse = QueryTasksComplexityEstimateResponses[keyof QueryTasksComplexityEstimateResponses];
 
 export type QueryTasksHistoryData = {
-    body?: never;
+    body?: {
+        /**
+         * Task to show history for
+         */
+        taskId?: string;
+        /**
+         * Maximum entries
+         */
+        limit?: number;
+        /**
+         * Only ranking-input changes (actor, session, reason, before/after)
+         */
+        ranking?: boolean;
+    };
     path?: never;
     query?: never;
     url: '/v1/tasks/history';
@@ -2999,6 +3282,106 @@ export type QueryCheckGateStatusData = {
 
 export type QueryCheckGateStatusResponses = {
     /**
+     * FLAT record identical in shape to check.gate.set. Read-only: reports which gates are recorded and which are still missing. /data/missingGates being empty is the precondition for `cleo complete`.
+     */
+    200: {
+        success: true;
+        data: {
+            /**
+             * The task the gates belong to.
+             */
+            taskId: string;
+            /**
+             * Task title, for operator display.
+             */
+            title?: string;
+            /**
+             * Task lifecycle status.
+             */
+            status?: string;
+            /**
+             * Task type (epic | task | subtask).
+             */
+            type?: string;
+            verification: {
+                /**
+                 * True when every required gate is set.
+                 */
+                passed?: boolean;
+                /**
+                 * IVTR round counter.
+                 */
+                round?: number;
+                /**
+                 * Gate name → whether it is recorded as passed.
+                 */
+                gates?: {
+                    [key: string]: boolean;
+                };
+                /**
+                 * Gate name → the evidence atom kinds validated for it.
+                 */
+                evidence?: {
+                    [key: string]: unknown;
+                };
+                [key: string]: unknown;
+            };
+            /**
+             * Whether every required gate is now recorded.
+             */
+            verificationStatus: 'passed' | 'pending';
+            /**
+             * Mirror of verification.passed.
+             */
+            passed: boolean;
+            /**
+             * IVTR round counter.
+             */
+            round?: number;
+            /**
+             * Gates this project requires before complete.
+             */
+            requiredGates?: Array<string>;
+            /**
+             * Required gates not yet recorded — empty means ready to complete.
+             */
+            missingGates?: Array<string>;
+            [key: string]: unknown;
+        };
+        /**
+         * LAFS response metadata.
+         */
+        meta: {
+            [key: string]: unknown;
+        };
+        [key: string]: unknown;
+    };
+};
+
+export type QueryCheckGateStatusResponse = QueryCheckGateStatusResponses[keyof QueryCheckGateStatusResponses];
+
+export type QueryCheckGateRunData = {
+    body: {
+        /**
+         * Task whose typed gates should run
+         */
+        taskId: string;
+        /**
+         * Actor attribution recorded on each gate result
+         */
+        agent?: string;
+        /**
+         * Comma-separated REQ-IDs: run and cache only these typed gates; the others are not run (T13486)
+         */
+        req?: string;
+    };
+    path?: never;
+    query?: never;
+    url: '/v1/check/gate.run';
+};
+
+export type QueryCheckGateRunResponses = {
+    /**
      * Generic query result — the precise /data shape is not individually contracted. Run with --full to see the verbose record, or --describe for the operation contract.
      */
     200: {
@@ -3016,7 +3399,7 @@ export type QueryCheckGateStatusResponses = {
     };
 };
 
-export type QueryCheckGateStatusResponse = QueryCheckGateStatusResponses[keyof QueryCheckGateStatusResponses];
+export type QueryCheckGateRunResponse = QueryCheckGateRunResponses[keyof QueryCheckGateRunResponses];
 
 export type QueryCheckArchiveStatsData = {
     body?: never;
@@ -4498,6 +4881,7 @@ export type MutateTasksAddData = {
         description?: string;
         parent?: string;
         depends?: Array<string>;
+        dependsWaiver?: string;
         priority?: 'low' | 'medium' | 'high' | 'critical';
         labels?: Array<string>;
         type?: 'saga' | 'epic' | 'task' | 'subtask';
@@ -4512,6 +4896,7 @@ export type MutateTasksAddData = {
         scope?: 'project' | 'feature' | 'unit';
         severity?: 'P0' | 'P1' | 'P2' | 'P3';
         forceDuplicate?: boolean;
+        autoDecompose?: boolean;
     };
     path?: never;
     query?: never;
@@ -4586,6 +4971,7 @@ export type MutateTasksAddBatchData = {
             scope?: 'project' | 'feature' | 'unit';
             severity?: 'P0' | 'P1' | 'P2' | 'P3';
             forceDuplicate?: boolean;
+            autoDecompose?: boolean;
         }>;
         defaultParent?: string;
         dryRun?: boolean;
@@ -4663,6 +5049,7 @@ export type MutateTasksUpdateData = {
         description?: string;
         status?: 'pending' | 'active' | 'blocked' | 'done' | 'cancelled';
         priority?: 'low' | 'medium' | 'high' | 'critical';
+        phase?: string;
         notes?: string;
         labels?: Array<string>;
         addLabels?: Array<string>;
@@ -4683,7 +5070,9 @@ export type MutateTasksUpdateData = {
         severity?: 'P0' | 'P1' | 'P2' | 'P3';
         reason?: string;
         dependsWaiver?: string;
+        blockedBy?: string;
         clearBlockedBy?: boolean;
+        noAutoComplete?: boolean;
         relates?: Array<{
             taskId: string;
             type: string;
@@ -4695,6 +5084,7 @@ export type MutateTasksUpdateData = {
             reason?: string;
         }>;
         removeRelates?: Array<string>;
+        expectedUpdatedAt?: string;
     };
     path?: never;
     query?: never;
@@ -4756,6 +5146,10 @@ export type MutateTasksCompleteData = {
          * taskId parameter
          */
         taskId: string;
+        /**
+         * Optimistic-concurrency guard: fail with E_CONFLICT unless the task updatedAt still equals this value
+         */
+        expectedUpdatedAt?: string;
     };
     path?: never;
     query?: never;
@@ -4854,6 +5248,14 @@ export type MutateTasksDeleteData = {
          * taskId parameter
          */
         taskId: string;
+        /**
+         * Allow dependents and orphan children unless cascade is enabled
+         */
+        force?: boolean;
+        /**
+         * Archive all descendants with the selected task
+         */
+        cascade?: boolean;
     };
     path?: never;
     query?: never;
@@ -4900,6 +5302,92 @@ export type MutateTasksDeleteResponses = {
 };
 
 export type MutateTasksDeleteResponse = MutateTasksDeleteResponses[keyof MutateTasksDeleteResponses];
+
+export type MutateTasksReconcileScopeData = {
+    body: {
+        /**
+         * Saga, epic or other container to sweep (its whole subtree is considered)
+         */
+        rootId: string;
+        /**
+         * Write the proposed `relates` edges (read-only without it)
+         */
+        apply?: boolean;
+        /**
+         * Report pairs at or above this similarity score, 0-1 (default 0.55)
+         */
+        threshold?: number;
+    };
+    path?: never;
+    query?: never;
+    url: '/v1/tasks/reconcile-scope';
+};
+
+export type MutateTasksReconcileScopeResponses = {
+    /**
+     * Generic query result — the precise /data shape is not individually contracted. Run with --full to see the verbose record, or --describe for the operation contract.
+     */
+    200: {
+        success: true;
+        data: {
+            [key: string]: unknown;
+        };
+        /**
+         * LAFS response metadata.
+         */
+        meta: {
+            [key: string]: unknown;
+        };
+        [key: string]: unknown;
+    };
+};
+
+export type MutateTasksReconcileScopeResponse = MutateTasksReconcileScopeResponses[keyof MutateTasksReconcileScopeResponses];
+
+export type MutateTasksDecomposeData = {
+    body: {
+        /**
+         * Task whose text acceptance criteria move to a new child
+         */
+        taskId: string;
+        /**
+         * Title for the child that inherits the criteria (default: the parent’s)
+         */
+        childTitle?: string;
+        /**
+         * Description for the child (default: the parent’s)
+         */
+        childDescription?: string;
+        /**
+         * Preview the move without writing
+         */
+        dryRun?: boolean;
+    };
+    path?: never;
+    query?: never;
+    url: '/v1/tasks/decompose';
+};
+
+export type MutateTasksDecomposeResponses = {
+    /**
+     * Generic query result — the precise /data shape is not individually contracted. Run with --full to see the verbose record, or --describe for the operation contract.
+     */
+    200: {
+        success: true;
+        data: {
+            [key: string]: unknown;
+        };
+        /**
+         * LAFS response metadata.
+         */
+        meta: {
+            [key: string]: unknown;
+        };
+        [key: string]: unknown;
+    };
+};
+
+export type MutateTasksDecomposeResponse = MutateTasksDecomposeResponses[keyof MutateTasksDecomposeResponses];
 
 export type MutateTasksArchiveData = {
     body?: never;
@@ -5182,6 +5670,47 @@ export type MutateTasksAssigneeResponses = {
 };
 
 export type MutateTasksAssigneeResponse = MutateTasksAssigneeResponses[keyof MutateTasksAssigneeResponses];
+
+export type MutateTasksRankingRevertData = {
+    body: {
+        /**
+         * ranking_changed audit row id (cleo history ranking <taskId>)
+         */
+        entryId: string;
+        /**
+         * Why it is reverted
+         */
+        reason?: string;
+        /**
+         * Revert even though a field changed again since
+         */
+        force?: boolean;
+    };
+    path?: never;
+    query?: never;
+    url: '/v1/tasks/ranking.revert';
+};
+
+export type MutateTasksRankingRevertResponses = {
+    /**
+     * Generic query result — the precise /data shape is not individually contracted. Run with --full to see the verbose record, or --describe for the operation contract.
+     */
+    200: {
+        success: true;
+        data: {
+            [key: string]: unknown;
+        };
+        /**
+         * LAFS response metadata.
+         */
+        meta: {
+            [key: string]: unknown;
+        };
+        [key: string]: unknown;
+    };
+};
+
+export type MutateTasksRankingRevertResponse = MutateTasksRankingRevertResponses[keyof MutateTasksRankingRevertResponses];
 
 export type MutateTasksRelatesAddData = {
     body: {
@@ -5656,6 +6185,14 @@ export type MutateTasksStartData = {
          * taskId parameter
          */
         taskId: string;
+        /**
+         * Take over another session's EXPIRED claim lease (audited)
+         */
+        takeOver?: boolean;
+        /**
+         * Take over another session's LIVE claim lease (audited)
+         */
+        forceClaim?: boolean;
     };
     path?: never;
     query?: never;
@@ -5664,11 +6201,40 @@ export type MutateTasksStartData = {
 
 export type MutateTasksStartResponses = {
     /**
-     * Generic query result — the precise /data shape is not individually contracted. Run with --full to see the verbose record, or --describe for the operation contract.
+     * The claim lease this start holds is at /data/claim (null when the caller is not bound to a session). Another session holding the task fails with E_TASK_CLAIMED (exit 35); error.details.holder names it.
      */
     200: {
         success: true;
         data: {
+            /**
+             * The task now active.
+             */
+            taskId: string;
+            /**
+             * The task active before, if any.
+             */
+            previousTask: string | null;
+            /**
+             * Agent claim lease (T12502): the holder session, its agent, and when the lease lapses unless renewed. Absent when unclaimed.
+             */
+            claim?: {
+                /**
+                 * Session holding the lease.
+                 */
+                sessionId: string;
+                /**
+                 * Agent identity of the holder.
+                 */
+                agentId: string | null;
+                /**
+                 * When the lease was taken (ISO-8601 UTC).
+                 */
+                claimedAt: string;
+                /**
+                 * When the lease lapses unless renewed (ISO-8601 UTC).
+                 */
+                leaseExpiresAt: string;
+            } | null;
             [key: string]: unknown;
         };
         /**
@@ -5864,11 +6430,40 @@ export type MutateTasksClaimData = {
 
 export type MutateTasksClaimResponses = {
     /**
-     * Generic query result — the precise /data shape is not individually contracted. Run with --full to see the verbose record, or --describe for the operation contract.
+     * The lease now held by your session is at /data/claim; renew it with --renew. Another holder fails with E_TASK_CLAIMED (exit 35): --take-over (expired) or --force-claim (live).
      */
     200: {
         success: true;
         data: {
+            /**
+             * The claimed task.
+             */
+            taskId: string;
+            /**
+             * Agent recorded with the lease.
+             */
+            agentId: string | null;
+            /**
+             * Agent claim lease (T12502): the holder session, its agent, and when the lease lapses unless renewed. Absent when unclaimed.
+             */
+            claim: {
+                /**
+                 * Session holding the lease.
+                 */
+                sessionId: string;
+                /**
+                 * Agent identity of the holder.
+                 */
+                agentId: string | null;
+                /**
+                 * When the lease was taken (ISO-8601 UTC).
+                 */
+                claimedAt: string;
+                /**
+                 * When the lease lapses unless renewed (ISO-8601 UTC).
+                 */
+                leaseExpiresAt: string;
+            };
             [key: string]: unknown;
         };
         /**
@@ -5889,6 +6484,10 @@ export type MutateTasksUnclaimData = {
          * Task ID to unclaim
          */
         taskId: string;
+        /**
+         * Release another session's lease (audited)
+         */
+        forceClaim?: boolean;
     };
     path?: never;
     query?: never;
@@ -5897,11 +6496,19 @@ export type MutateTasksUnclaimData = {
 
 export type MutateTasksUnclaimResponses = {
     /**
-     * Generic query result — the precise /data shape is not individually contracted. Run with --full to see the verbose record, or --describe for the operation contract.
+     * /data/released is true when a lease was cleared, false when the task was unclaimed.
      */
     200: {
         success: true;
         data: {
+            /**
+             * The released task.
+             */
+            taskId: string;
+            /**
+             * Whether a lease was cleared.
+             */
+            released: boolean;
             [key: string]: unknown;
         };
         /**
@@ -6423,6 +7030,10 @@ export type MutateMemoryObserveData = {
          * text parameter
          */
         text: string;
+        /**
+         * Store to write: project (default) or global, the synced main brain (T13720)
+         */
+        scope?: string;
     };
     path?: never;
     query?: never;
@@ -6460,6 +7071,10 @@ export type MutateMemoryDecisionStoreData = {
          * rationale parameter
          */
         rationale: string;
+        /**
+         * Store to write: project (default) or global, the synced main brain (T13720)
+         */
+        scope?: string;
     };
     path?: never;
     query?: never;
@@ -7373,7 +7988,24 @@ export type QueryMemoryBackfillListResponses = {
 export type QueryMemoryBackfillListResponse = QueryMemoryBackfillListResponses[keyof QueryMemoryBackfillListResponses];
 
 export type MutateMemoryBackfillRunData = {
-    body?: never;
+    body?: {
+        /**
+         * Source of the reviewed backfill request.
+         */
+        source?: string;
+        /**
+         * Backfill classification.
+         */
+        kind?: string;
+        /**
+         * Derived brain_page_nodes target only.
+         */
+        targetTable?: string;
+        /**
+         * Exact qualified graph node IDs to stage; all must resolve to missing, eligible typed sources.
+         */
+        nodeIds?: Array<string>;
+    };
     path?: never;
     query?: never;
     url: '/v1/memory/backfill.run';
@@ -7638,6 +8270,59 @@ export type MutatePipelineManifestAppendResponses = {
 };
 
 export type MutatePipelineManifestAppendResponse = MutatePipelineManifestAppendResponses[keyof MutatePipelineManifestAppendResponses];
+
+export type MutatePipelineManifestUpdateData = {
+    body: {
+        /**
+         * Manifest entry id
+         */
+        id: string;
+        /**
+         * Task id to add to linked_tasks
+         */
+        linkTask?: string;
+        /**
+         * New title
+         */
+        title?: string;
+        /**
+         * Replacement topics
+         */
+        topics?: Array<string>;
+        /**
+         * Replacement key findings
+         */
+        key_findings?: Array<string>;
+        /**
+         * New status
+         */
+        status?: string;
+    };
+    path?: never;
+    query?: never;
+    url: '/v1/pipeline/manifest.update';
+};
+
+export type MutatePipelineManifestUpdateResponses = {
+    /**
+     * Generic query result — the precise /data shape is not individually contracted. Run with --full to see the verbose record, or --describe for the operation contract.
+     */
+    200: {
+        success: true;
+        data: {
+            [key: string]: unknown;
+        };
+        /**
+         * LAFS response metadata.
+         */
+        meta: {
+            [key: string]: unknown;
+        };
+        [key: string]: unknown;
+    };
+};
+
+export type MutatePipelineManifestUpdateResponse = MutatePipelineManifestUpdateResponses[keyof MutatePipelineManifestUpdateResponses];
 
 export type MutatePipelineManifestArchiveData = {
     body: {
@@ -7921,11 +8606,70 @@ export type MutateCheckGateSetData = {
 
 export type MutateCheckGateSetResponses = {
     /**
-     * Generic query result — the precise /data shape is not individually contracted. Run with --full to see the verbose record, or --describe for the operation contract.
+     * FLAT record, not the nested read shape. The verification object is at /data/verification — NEVER /data/task/verification, which is how `cleo show` nests a task and does not exist here. The response is self-confirming: it returns the full verification after the write, so there is no need to re-read.
      */
     200: {
         success: true;
         data: {
+            /**
+             * The task the gates belong to.
+             */
+            taskId: string;
+            /**
+             * Task title, for operator display.
+             */
+            title?: string;
+            /**
+             * Task lifecycle status.
+             */
+            status?: string;
+            /**
+             * Task type (epic | task | subtask).
+             */
+            type?: string;
+            verification: {
+                /**
+                 * True when every required gate is set.
+                 */
+                passed?: boolean;
+                /**
+                 * IVTR round counter.
+                 */
+                round?: number;
+                /**
+                 * Gate name → whether it is recorded as passed.
+                 */
+                gates?: {
+                    [key: string]: boolean;
+                };
+                /**
+                 * Gate name → the evidence atom kinds validated for it.
+                 */
+                evidence?: {
+                    [key: string]: unknown;
+                };
+                [key: string]: unknown;
+            };
+            /**
+             * Whether every required gate is now recorded.
+             */
+            verificationStatus: 'passed' | 'pending';
+            /**
+             * Mirror of verification.passed.
+             */
+            passed: boolean;
+            /**
+             * IVTR round counter.
+             */
+            round?: number;
+            /**
+             * Gates this project requires before complete.
+             */
+            requiredGates?: Array<string>;
+            /**
+             * Required gates not yet recorded — empty means ready to complete.
+             */
+            missingGates?: Array<string>;
             [key: string]: unknown;
         };
         /**
@@ -11184,6 +11928,75 @@ export type QueryNexusProjectsListResponses = {
 
 export type QueryNexusProjectsListResponse = QueryNexusProjectsListResponses[keyof QueryNexusProjectsListResponses];
 
+export type QueryNexusProjectsFleetData = {
+    body?: {
+        /**
+         * Only locations on this device (device id, hostname, or current)
+         */
+        device?: string;
+        /**
+         * Only projects with a missing location
+         */
+        missing?: boolean;
+        /**
+         * Only projects with a dirty location
+         */
+        dirty?: boolean;
+        /**
+         * Only projects with a location behind its upstream (as of the last fetch)
+         */
+        behind?: boolean;
+        /**
+         * Only projects with a location ahead of its upstream (as of the last fetch)
+         */
+        ahead?: boolean;
+        /**
+         * Only projects with a never-probed, old-probe or old-fetch location
+         */
+        stale?: boolean;
+        /**
+         * Only projects whose last probe recorded an error
+         */
+        errored?: boolean;
+        /**
+         * Staleness window for probes, fetches and heartbeats (default 24h)
+         */
+        staleAfterMs?: number;
+        /**
+         * Page size in projects (default 50, max 500; 0 = all)
+         */
+        limit?: number;
+        /**
+         * Projects skipped before the page
+         */
+        offset?: number;
+    };
+    path?: never;
+    query?: never;
+    url: '/v1/nexus/projects.fleet';
+};
+
+export type QueryNexusProjectsFleetResponses = {
+    /**
+     * Generic query result — the precise /data shape is not individually contracted. Run with --full to see the verbose record, or --describe for the operation contract.
+     */
+    200: {
+        success: true;
+        data: {
+            [key: string]: unknown;
+        };
+        /**
+         * LAFS response metadata.
+         */
+        meta: {
+            [key: string]: unknown;
+        };
+        [key: string]: unknown;
+    };
+};
+
+export type QueryNexusProjectsFleetResponse = QueryNexusProjectsFleetResponses[keyof QueryNexusProjectsFleetResponses];
+
 export type MutateNexusProjectsRegisterData = {
     body: {
         /**
@@ -11299,6 +12112,51 @@ export type MutateNexusProjectsScanResponses = {
 
 export type MutateNexusProjectsScanResponse = MutateNexusProjectsScanResponses[keyof MutateNexusProjectsScanResponses];
 
+export type MutateNexusProjectsStatusData = {
+    body?: {
+        /**
+         * Run git fetch per location first (network; off by default)
+         */
+        fetch?: boolean;
+        /**
+         * Locations probed at once (default 8, max 64)
+         */
+        concurrency?: number;
+        /**
+         * Per-location git budget in ms (default 10000; 30000 with fetch)
+         */
+        timeoutMs?: number;
+        /**
+         * A fetch older than this marks remote state stale (default 24h)
+         */
+        staleAfterMs?: number;
+    };
+    path?: never;
+    query?: never;
+    url: '/v1/nexus/projects.status';
+};
+
+export type MutateNexusProjectsStatusResponses = {
+    /**
+     * Generic query result — the precise /data shape is not individually contracted. Run with --full to see the verbose record, or --describe for the operation contract.
+     */
+    200: {
+        success: true;
+        data: {
+            [key: string]: unknown;
+        };
+        /**
+         * LAFS response metadata.
+         */
+        meta: {
+            [key: string]: unknown;
+        };
+        [key: string]: unknown;
+    };
+};
+
+export type MutateNexusProjectsStatusResponse = MutateNexusProjectsStatusResponses[keyof MutateNexusProjectsStatusResponses];
+
 export type MutateNexusProjectsCleanData = {
     body?: {
         /**
@@ -11310,7 +12168,7 @@ export type MutateNexusProjectsCleanData = {
          */
         pattern?: string;
         /**
-         * Match .temp/ paths
+         * Match .temp/ or OS temp-directory paths
          */
         includeTemp?: boolean;
         /**
@@ -11334,7 +12192,7 @@ export type MutateNexusProjectsCleanData = {
          */
         removeFs?: boolean;
         /**
-         * After delete, run sqlite VACUUM on nexus.db to reclaim space (T9117)
+         * After delete, VACUUM the global registry store (<cleoHome>/cleo.db) to reclaim space (T9117 · T12324)
          */
         vacuum?: boolean;
     };
@@ -12708,6 +13566,80 @@ export type MutateDocsRemoveResponses = {
 
 export type MutateDocsRemoveResponse = MutateDocsRemoveResponses[keyof MutateDocsRemoveResponses];
 
+export type MutateDocsLinkDecisionData = {
+    body: {
+        /**
+         * Slug of the ADR doc
+         */
+        adrSlug: string;
+        /**
+         * The D#### brain ledger decision id the ADR ratifies
+         */
+        decisionId: string;
+    };
+    path?: never;
+    query?: never;
+    url: '/v1/docs/link-decision';
+};
+
+export type MutateDocsLinkDecisionResponses = {
+    /**
+     * Generic query result — the precise /data shape is not individually contracted. Run with --full to see the verbose record, or --describe for the operation contract.
+     */
+    200: {
+        success: true;
+        data: {
+            [key: string]: unknown;
+        };
+        /**
+         * LAFS response metadata.
+         */
+        meta: {
+            [key: string]: unknown;
+        };
+        [key: string]: unknown;
+    };
+};
+
+export type MutateDocsLinkDecisionResponse = MutateDocsLinkDecisionResponses[keyof MutateDocsLinkDecisionResponses];
+
+export type MutateDocsUnlinkDecisionData = {
+    body: {
+        /**
+         * Slug of the ADR doc
+         */
+        adrSlug: string;
+        /**
+         * The D#### brain ledger decision id to unlink
+         */
+        decisionId: string;
+    };
+    path?: never;
+    query?: never;
+    url: '/v1/docs/unlink-decision';
+};
+
+export type MutateDocsUnlinkDecisionResponses = {
+    /**
+     * Generic query result — the precise /data shape is not individually contracted. Run with --full to see the verbose record, or --describe for the operation contract.
+     */
+    200: {
+        success: true;
+        data: {
+            [key: string]: unknown;
+        };
+        /**
+         * LAFS response metadata.
+         */
+        meta: {
+            [key: string]: unknown;
+        };
+        [key: string]: unknown;
+    };
+};
+
+export type MutateDocsUnlinkDecisionResponse = MutateDocsUnlinkDecisionResponses[keyof MutateDocsUnlinkDecisionResponses];
+
 export type MutateDocsSupersedeData = {
     body: {
         /**
@@ -12748,6 +13680,712 @@ export type MutateDocsSupersedeResponses = {
 };
 
 export type MutateDocsSupersedeResponse = MutateDocsSupersedeResponses[keyof MutateDocsSupersedeResponses];
+
+export type QueryDocsStatusData = {
+    body?: never;
+    path?: never;
+    query?: never;
+    url: '/v1/docs/status';
+};
+
+export type QueryDocsStatusResponses = {
+    /**
+     * Generic query result — the precise /data shape is not individually contracted. Run with --full to see the verbose record, or --describe for the operation contract.
+     */
+    200: {
+        success: true;
+        data: {
+            [key: string]: unknown;
+        };
+        /**
+         * LAFS response metadata.
+         */
+        meta: {
+            [key: string]: unknown;
+        };
+        [key: string]: unknown;
+    };
+};
+
+export type QueryDocsStatusResponse = QueryDocsStatusResponses[keyof QueryDocsStatusResponses];
+
+export type QueryDocsExportData = {
+    body: {
+        /**
+         * Task whose document to export
+         */
+        taskId: string;
+        /**
+         * Include attachment manifest
+         */
+        includeAttachments?: boolean;
+        /**
+         * Include memory references
+         */
+        includeMemoryRefs?: boolean;
+    };
+    path?: never;
+    query?: never;
+    url: '/v1/docs/export';
+};
+
+export type QueryDocsExportResponses = {
+    /**
+     * Generic query result — the precise /data shape is not individually contracted. Run with --full to see the verbose record, or --describe for the operation contract.
+     */
+    200: {
+        success: true;
+        data: {
+            [key: string]: unknown;
+        };
+        /**
+         * LAFS response metadata.
+         */
+        meta: {
+            [key: string]: unknown;
+        };
+        [key: string]: unknown;
+    };
+};
+
+export type QueryDocsExportResponse = QueryDocsExportResponses[keyof QueryDocsExportResponses];
+
+export type QueryDocsSearchData = {
+    body: {
+        /**
+         * Document search text
+         */
+        query: string;
+        /**
+         * Optional owner scope
+         */
+        ownerId?: string;
+        /**
+         * Maximum matches
+         */
+        limit?: number;
+        /**
+         * Document kind filter
+         */
+        type?: string;
+    };
+    path?: never;
+    query?: never;
+    url: '/v1/docs/search';
+};
+
+export type QueryDocsSearchResponses = {
+    /**
+     * Generic query result — the precise /data shape is not individually contracted. Run with --full to see the verbose record, or --describe for the operation contract.
+     */
+    200: {
+        success: true;
+        data: {
+            [key: string]: unknown;
+        };
+        /**
+         * LAFS response metadata.
+         */
+        meta: {
+            [key: string]: unknown;
+        };
+        [key: string]: unknown;
+    };
+};
+
+export type QueryDocsSearchResponse = QueryDocsSearchResponses[keyof QueryDocsSearchResponses];
+
+export type QueryDocsFindData = {
+    body: {
+        /**
+         * Existing document slug to compare
+         */
+        similarSlug: string;
+        /**
+         * Maximum matches
+         */
+        limit?: number;
+        /**
+         * Minimum similarity
+         */
+        threshold?: number;
+        /**
+         * Compare all document kinds
+         */
+        allKinds?: boolean;
+    };
+    path?: never;
+    query?: never;
+    url: '/v1/docs/find';
+};
+
+export type QueryDocsFindResponses = {
+    /**
+     * Generic query result — the precise /data shape is not individually contracted. Run with --full to see the verbose record, or --describe for the operation contract.
+     */
+    200: {
+        success: true;
+        data: {
+            [key: string]: unknown;
+        };
+        /**
+         * LAFS response metadata.
+         */
+        meta: {
+            [key: string]: unknown;
+        };
+        [key: string]: unknown;
+    };
+};
+
+export type QueryDocsFindResponse = QueryDocsFindResponses[keyof QueryDocsFindResponses];
+
+export type QueryDocsMergeData = {
+    body: {
+        /**
+         * First attachment reference
+         */
+        attA: string;
+        /**
+         * Second attachment reference
+         */
+        attB: string;
+        /**
+         * three-way, cherry-pick, or multi-diff
+         */
+        strategy?: string;
+        /**
+         * Common ancestor attachment reference
+         */
+        base?: string;
+    };
+    path?: never;
+    query?: never;
+    url: '/v1/docs/merge';
+};
+
+export type QueryDocsMergeResponses = {
+    /**
+     * Generic query result — the precise /data shape is not individually contracted. Run with --full to see the verbose record, or --describe for the operation contract.
+     */
+    200: {
+        success: true;
+        data: {
+            [key: string]: unknown;
+        };
+        /**
+         * LAFS response metadata.
+         */
+        meta: {
+            [key: string]: unknown;
+        };
+        [key: string]: unknown;
+    };
+};
+
+export type QueryDocsMergeResponse = QueryDocsMergeResponses[keyof QueryDocsMergeResponses];
+
+export type QueryDocsRankData = {
+    body: {
+        /**
+         * Owner whose documents to rank
+         */
+        ownerId: string;
+        /**
+         * Optional ranking query
+         */
+        query?: string;
+    };
+    path?: never;
+    query?: never;
+    url: '/v1/docs/rank';
+};
+
+export type QueryDocsRankResponses = {
+    /**
+     * Generic query result — the precise /data shape is not individually contracted. Run with --full to see the verbose record, or --describe for the operation contract.
+     */
+    200: {
+        success: true;
+        data: {
+            [key: string]: unknown;
+        };
+        /**
+         * LAFS response metadata.
+         */
+        meta: {
+            [key: string]: unknown;
+        };
+        [key: string]: unknown;
+    };
+};
+
+export type QueryDocsRankResponse = QueryDocsRankResponses[keyof QueryDocsRankResponses];
+
+export type QueryDocsVersionsData = {
+    body: {
+        /**
+         * Document owner
+         */
+        ownerId: string;
+        /**
+         * Optional document name
+         */
+        name?: string;
+    };
+    path?: never;
+    query?: never;
+    url: '/v1/docs/versions';
+};
+
+export type QueryDocsVersionsResponses = {
+    /**
+     * Generic query result — the precise /data shape is not individually contracted. Run with --full to see the verbose record, or --describe for the operation contract.
+     */
+    200: {
+        success: true;
+        data: {
+            [key: string]: unknown;
+        };
+        /**
+         * LAFS response metadata.
+         */
+        meta: {
+            [key: string]: unknown;
+        };
+        [key: string]: unknown;
+    };
+};
+
+export type QueryDocsVersionsResponse = QueryDocsVersionsResponses[keyof QueryDocsVersionsResponses];
+
+export type MutateDocsPublishData = {
+    body?: {
+        /**
+         * Publication target: file or pr
+         */
+        target?: string;
+        /**
+         * Required for file publication
+         */
+        ownerId?: string;
+        /**
+         * Required destination for file publication
+         */
+        toPath?: string;
+        /**
+         * Attachment to publish
+         */
+        attachmentId?: string;
+        /**
+         * Required document reference for PR publication
+         */
+        slugOrId?: string;
+        /**
+         * Override document slug
+         */
+        slug?: string;
+        /**
+         * Override document kind
+         */
+        type?: string;
+        /**
+         * Override PR title
+         */
+        title?: string;
+        /**
+         * Override PR body
+         */
+        body?: string;
+        /**
+         * PR base branch
+         */
+        base?: string;
+        /**
+         * Owning task id (T####) for the PR commit subject
+         */
+        taskId?: string;
+    };
+    path?: never;
+    query?: never;
+    url: '/v1/docs/publish';
+};
+
+export type MutateDocsPublishResponses = {
+    /**
+     * Generic query result — the precise /data shape is not individually contracted. Run with --full to see the verbose record, or --describe for the operation contract.
+     */
+    200: {
+        success: true;
+        data: {
+            [key: string]: unknown;
+        };
+        /**
+         * LAFS response metadata.
+         */
+        meta: {
+            [key: string]: unknown;
+        };
+        [key: string]: unknown;
+    };
+};
+
+export type MutateDocsPublishResponse = MutateDocsPublishResponses[keyof MutateDocsPublishResponses];
+
+export type MutateDocsPublishPrData = {
+    body: {
+        /**
+         * Document reference to publish
+         */
+        slugOrId: string;
+        /**
+         * Override document slug
+         */
+        slug?: string;
+        /**
+         * Override document kind
+         */
+        type?: string;
+        /**
+         * Override PR title
+         */
+        title?: string;
+        /**
+         * Override PR body
+         */
+        body?: string;
+        /**
+         * PR base branch
+         */
+        base?: string;
+        /**
+         * Owning task id (T####) for the PR commit subject
+         */
+        taskId?: string;
+    };
+    path?: never;
+    query?: never;
+    url: '/v1/docs/publish-pr';
+};
+
+export type MutateDocsPublishPrResponses = {
+    /**
+     * Generic query result — the precise /data shape is not individually contracted. Run with --full to see the verbose record, or --describe for the operation contract.
+     */
+    200: {
+        success: true;
+        data: {
+            [key: string]: unknown;
+        };
+        /**
+         * LAFS response metadata.
+         */
+        meta: {
+            [key: string]: unknown;
+        };
+        [key: string]: unknown;
+    };
+};
+
+export type MutateDocsPublishPrResponse = MutateDocsPublishPrResponses[keyof MutateDocsPublishPrResponses];
+
+export type MutateDocsSyncData = {
+    body: {
+        /**
+         * Document owner
+         */
+        ownerId: string;
+        /**
+         * Source file path
+         */
+        fromPath: string;
+        /**
+         * Document blob name
+         */
+        blobName?: string;
+        /**
+         * Document media type
+         */
+        contentType?: string;
+    };
+    path?: never;
+    query?: never;
+    url: '/v1/docs/sync';
+};
+
+export type MutateDocsSyncResponses = {
+    /**
+     * Generic query result — the precise /data shape is not individually contracted. Run with --full to see the verbose record, or --describe for the operation contract.
+     */
+    200: {
+        success: true;
+        data: {
+            [key: string]: unknown;
+        };
+        /**
+         * LAFS response metadata.
+         */
+        meta: {
+            [key: string]: unknown;
+        };
+        [key: string]: unknown;
+    };
+};
+
+export type MutateDocsSyncResponse = MutateDocsSyncResponses[keyof MutateDocsSyncResponses];
+
+export type MutateDocsImportData = {
+    body: {
+        /**
+         * Root directory to scan
+         */
+        scanRoot: string;
+        /**
+         * Preview without writing
+         */
+        dryRun?: boolean;
+        /**
+         * Replace conflicting import mappings
+         */
+        force?: boolean;
+        /**
+         * Import manifest path
+         */
+        manifestPath?: string;
+    };
+    path?: never;
+    query?: never;
+    url: '/v1/docs/import';
+};
+
+export type MutateDocsImportResponses = {
+    /**
+     * Generic query result — the precise /data shape is not individually contracted. Run with --full to see the verbose record, or --describe for the operation contract.
+     */
+    200: {
+        success: true;
+        data: {
+            [key: string]: unknown;
+        };
+        /**
+         * LAFS response metadata.
+         */
+        meta: {
+            [key: string]: unknown;
+        };
+        [key: string]: unknown;
+    };
+};
+
+export type MutateDocsImportResponse = MutateDocsImportResponses[keyof MutateDocsImportResponses];
+
+export type QueryDocsAuditData = {
+    body?: {
+        /**
+         * Document slug whose history to inspect
+         */
+        slug?: string;
+        /**
+         * Verify the full audit chain
+         */
+        verify?: boolean;
+    };
+    path?: never;
+    query?: never;
+    url: '/v1/docs/audit';
+};
+
+export type QueryDocsAuditResponses = {
+    /**
+     * Generic query result — the precise /data shape is not individually contracted. Run with --full to see the verbose record, or --describe for the operation contract.
+     */
+    200: {
+        success: true;
+        data: {
+            [key: string]: unknown;
+        };
+        /**
+         * LAFS response metadata.
+         */
+        meta: {
+            [key: string]: unknown;
+        };
+        [key: string]: unknown;
+    };
+};
+
+export type QueryDocsAuditResponse = QueryDocsAuditResponses[keyof QueryDocsAuditResponses];
+
+export type QueryDocsDoctorData = {
+    body?: {
+        /**
+         * Age threshold in days for the stale-drafts check (default 30)
+         */
+        olderThanDays?: number;
+    };
+    path?: never;
+    query?: never;
+    url: '/v1/docs/doctor/query';
+};
+
+export type QueryDocsDoctorResponses = {
+    /**
+     * Generic query result — the precise /data shape is not individually contracted. Run with --full to see the verbose record, or --describe for the operation contract.
+     */
+    200: {
+        success: true;
+        data: {
+            [key: string]: unknown;
+        };
+        /**
+         * LAFS response metadata.
+         */
+        meta: {
+            [key: string]: unknown;
+        };
+        [key: string]: unknown;
+    };
+};
+
+export type QueryDocsDoctorResponse = QueryDocsDoctorResponses[keyof QueryDocsDoctorResponses];
+
+export type QueryDocsTriageData = {
+    body?: {
+        /**
+         * Maximum docs to scan, oldest first (default 25)
+         */
+        limit?: number;
+        /**
+         * Lifecycle status to scan (default draft)
+         */
+        status?: string;
+        /**
+         * Persist every verdict as a proposed D#### decision (default false)
+         */
+        record?: boolean;
+    };
+    path?: never;
+    query?: never;
+    url: '/v1/docs/triage';
+};
+
+export type QueryDocsTriageResponses = {
+    /**
+     * Generic query result — the precise /data shape is not individually contracted. Run with --full to see the verbose record, or --describe for the operation contract.
+     */
+    200: {
+        success: true;
+        data: {
+            [key: string]: unknown;
+        };
+        /**
+         * LAFS response metadata.
+         */
+        meta: {
+            [key: string]: unknown;
+        };
+        [key: string]: unknown;
+    };
+};
+
+export type QueryDocsTriageResponse = QueryDocsTriageResponses[keyof QueryDocsTriageResponses];
+
+export type QueryDocsStatsData = {
+    body?: never;
+    path?: never;
+    query?: never;
+    url: '/v1/docs/stats';
+};
+
+export type QueryDocsStatsResponses = {
+    /**
+     * Generic query result — the precise /data shape is not individually contracted. Run with --full to see the verbose record, or --describe for the operation contract.
+     */
+    200: {
+        success: true;
+        data: {
+            [key: string]: unknown;
+        };
+        /**
+         * LAFS response metadata.
+         */
+        meta: {
+            [key: string]: unknown;
+        };
+        [key: string]: unknown;
+    };
+};
+
+export type QueryDocsStatsResponse = QueryDocsStatsResponses[keyof QueryDocsStatsResponses];
+
+export type MutateDocsDoctorData = {
+    body?: {
+        /**
+         * Execute repairs (default false — dry-run plan only)
+         */
+        apply?: boolean;
+        /**
+         * Execute ONLY the legacy-blob-coverage backfill: mirror hash-verified legacy bytes into the blob store so unmigrated docs become readable (T13653)
+         */
+        repair?: boolean;
+        /**
+         * Age threshold in days for the stale-drafts check (default 30)
+         */
+        olderThanDays?: number;
+    };
+    path?: never;
+    query?: never;
+    url: '/v1/docs/doctor/mutate';
+};
+
+export type MutateDocsDoctorResponses = {
+    /**
+     * Generic query result — the precise /data shape is not individually contracted. Run with --full to see the verbose record, or --describe for the operation contract.
+     */
+    200: {
+        success: true;
+        data: {
+            [key: string]: unknown;
+        };
+        /**
+         * LAFS response metadata.
+         */
+        meta: {
+            [key: string]: unknown;
+        };
+        [key: string]: unknown;
+    };
+};
+
+export type MutateDocsDoctorResponse = MutateDocsDoctorResponses[keyof MutateDocsDoctorResponses];
+
+export type MutateDocsMigrateData = {
+    body?: never;
+    path?: never;
+    query?: never;
+    url: '/v1/docs/migrate';
+};
+
+export type MutateDocsMigrateResponses = {
+    /**
+     * Generic query result — the precise /data shape is not individually contracted. Run with --full to see the verbose record, or --describe for the operation contract.
+     */
+    200: {
+        success: true;
+        data: {
+            [key: string]: unknown;
+        };
+        /**
+         * LAFS response metadata.
+         */
+        meta: {
+            [key: string]: unknown;
+        };
+        [key: string]: unknown;
+    };
+};
+
+export type MutateDocsMigrateResponse = MutateDocsMigrateResponses[keyof MutateDocsMigrateResponses];
 
 export type QueryDocsGenerateData = {
     body: {
@@ -12857,6 +14495,10 @@ export type MutateDocsUpdateData = {
          * Inline UTF-8 content (mutually exclusive with file)
          */
         content?: string;
+        /**
+         * Expected base version uid — the metadata.headVersionUid from the `cleo docs fetch <slug>` envelope the edit was authored against (T13674). When the stored head has moved past it: append-shaped section edits are three-way merged through the section CRDT (both writers survive); a non-mergeable section edit is recorded as a named section conflict — nothing is silently dropped. A base that does not resolve to this doc's version history is refused with E_DOC_BASE_UNKNOWN before any write. Works with --content and with a UTF-8 text --file; a non-text --file with a base is refused with E_DOC_BASE_UNSUPPORTED. The update result carries the new headVersionUid, so edits can chain without a re-fetch. Omit only when the edit was not based on an earlier fetch (the current head is then assumed).
+         */
+        baseVersionUid?: string;
         /**
          * One-line summary describing the change (recorded in the audit log)
          */
@@ -13807,13 +15449,21 @@ export type MutateReleasePlanData = {
          */
         scheme?: string;
         /**
-         * Release channel: latest | beta | alpha | rc
+         * Release channel: latest | beta | alpha | rc | canary
          */
         channel?: string;
         /**
          * Mark plan as release_kind=hotfix
          */
         hotfix?: boolean;
+        /**
+         * Require the unified-hooks pilot for this stable promotion
+         */
+        hooksV1Promotion?: boolean;
+        /**
+         * Audited reason to ship a source change that opens the hooks-v1 gate without the promotion
+         */
+        hooksV1Waiver?: string;
         /**
          * Compute the plan without writing file or DB row
          */
@@ -13863,6 +15513,14 @@ export type MutateReleaseOpenData = {
          * Commit plan file before dispatching
          */
         commitPlan?: boolean;
+        /**
+         * Epic task ID forwarded as the plan scope (e.g. T9999)
+         */
+        epic?: string;
+        /**
+         * Comma-separated task IDs forwarded as the plan scope for a task-scoped release
+         */
+        tasks?: string;
     };
     path?: never;
     query?: never;
@@ -14869,6 +16527,34 @@ export type QueryTasksContextResponses = {
 };
 
 export type QueryTasksContextResponse = QueryTasksContextResponses[keyof QueryTasksContextResponses];
+
+export type QuerySelfimproveProbeData = {
+    body?: never;
+    path?: never;
+    query?: never;
+    url: '/v1/selfimprove/probe';
+};
+
+export type QuerySelfimproveProbeResponses = {
+    /**
+     * Generic query result — the precise /data shape is not individually contracted. Run with --full to see the verbose record, or --describe for the operation contract.
+     */
+    200: {
+        success: true;
+        data: {
+            [key: string]: unknown;
+        };
+        /**
+         * LAFS response metadata.
+         */
+        meta: {
+            [key: string]: unknown;
+        };
+        [key: string]: unknown;
+    };
+};
+
+export type QuerySelfimproveProbeResponse = QuerySelfimproveProbeResponses[keyof QuerySelfimproveProbeResponses];
 
 export type MutateSelfimproveRunData = {
     body: {
@@ -16023,3 +17709,40 @@ export type MutateProfileUseResponses = {
 };
 
 export type MutateProfileUseResponse = MutateProfileUseResponses[keyof MutateProfileUseResponses];
+
+export type MutateAdminJanitorRunData = {
+    body?: {
+        /**
+         * Report planned actions without mutating anything.
+         */
+        dryRun?: boolean;
+        /**
+         * Minimum age (ms) of an unregistered process before reap eligibility (default: 600000).
+         */
+        gracePeriodMs?: number;
+    };
+    path?: never;
+    query?: never;
+    url: '/v1/admin/janitor.run';
+};
+
+export type MutateAdminJanitorRunResponses = {
+    /**
+     * Generic query result — the precise /data shape is not individually contracted. Run with --full to see the verbose record, or --describe for the operation contract.
+     */
+    200: {
+        success: true;
+        data: {
+            [key: string]: unknown;
+        };
+        /**
+         * LAFS response metadata.
+         */
+        meta: {
+            [key: string]: unknown;
+        };
+        [key: string]: unknown;
+    };
+};
+
+export type MutateAdminJanitorRunResponse = MutateAdminJanitorRunResponses[keyof MutateAdminJanitorRunResponses];

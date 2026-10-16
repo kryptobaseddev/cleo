@@ -303,7 +303,10 @@ describe('AttachmentStore', () => {
     const db = await getDb();
     const row = db.select().from(attachments).get();
     if (!row) throw new Error('Attachment fixture did not persist');
-    await db.insert(attachments).values({ ...row, id: meta.sha256, sha256: 'f'.repeat(64) });
+    // A distinct record: the uid trigger derives its own (T12919), not the source row's.
+    await db
+      .insert(attachments)
+      .values({ ...row, id: meta.sha256, sha256: 'f'.repeat(64), uid: null });
     await expect(store.getMetadata(meta.sha256)).rejects.toMatchObject({
       code: 'E_ATTACHMENT_REFERENCE_AMBIGUOUS',
       details: {

@@ -6,7 +6,9 @@
  * its status, its conflict records, its row meta and its leaves:
  *
  * 1. **Schema.** A segment or transaction format newer than this build is
- *    `refused-schema` (E_SCHEMA_AHEAD), kept for replay after an upgrade.
+ *    `refused-schema` (E_SCHEMA_AHEAD). Every call re-opens the stream's
+ *    `refused-schema` transactions first, so one applies as soon as the
+ *    build or the store's schema has what it needs (T13719).
  * 2. **Skew (§1.3).** A transaction whose HLC is beyond the skew bound is
  *    `held-skew`, and so is every later transaction of the same origin
  *    replica in this pass (FIFO); other replicas keep flowing.
@@ -88,7 +90,14 @@ import {
 } from '../field-leave.js';
 import { accountRebaseRows, heldOp, holdOp, type KeptRow, txnHasHold, unholdOp } from '../held.js';
 import { encodeHlc, genesisHlc, isWithinSkew, parseHlc } from '../hlc.js';
-import { type InboxKey, type InboxStatus, markTxns, type StagedTxn, stagedTxns } from '../inbox.js';
+import {
+  type InboxKey,
+  type InboxStatus,
+  markTxns,
+  reopenRefusedSchema,
+  type StagedTxn,
+  stagedTxns,
+} from '../inbox.js';
 import { applyOp, checkSchemaVersion } from '../merge/engine.js';
 import { mergeSpecFor } from '../merge/rules.js';
 import {
@@ -119,6 +128,7 @@ import {
   unsequencedLocalTxn,
   unsequencedLocalTxns,
 } from '../sequencing.js';
+import { canonicalStoreTimestamp } from '../timestamp-canon.js';
 import { withTriggersSuspended } from '../trigger-classes.js';
 import { followUidAliases, markAliasPlaced, recordUidAlias } from '../uid-alias.js';
 import { widenFootprint } from './footprints.js';
@@ -288,7 +298,14 @@ export function loadRowState(
   for (const [col, stored] of Object.entries(row)) {
     // The merge compares stream values: a reference reads as its target's uid.
     const target = def.refs.get(col);
-    const value = target && stored !== null ? (uidOfKey(db, target, stored) ?? stored) : stored;
+    // A timestamp reads in the form the sealer sends (T13714): a legacy
+    // `YYYY-MM-DD HH:MM:SS` row must not diverge from its own canonical echo.
+    const value =
+      target && stored !== null
+        ? (uidOfKey(db, target, stored) ?? stored)
+        : typeof stored === 'string' && def.timestamps.has(col)
+          ? (canonicalStoreTimestamp(stored) ?? stored)
+          : stored;
     const hlc = fh[col] ?? (meta && !meta.deleted ? meta.hlc : floor);
     const leave = leaves[col];
     const frontier = frontiers[col];
@@ -960,10 +977,14 @@ function applyOne(
     });
   }
   const before = loadRowState(c.db, c.api, def, op.u, c.replica);
-  const out = applyOp(before, c.replay ? op : ownEcho(op, c.st, c.replica), {
-    table: mergeSpecFor(op.t, def.columns),
-    actorOp: (c.replay ? c.replay.actor?.op : c.st.txn.actor?.op) ?? null,
-  });
+  const { out, renameLocal } = yieldDocSlug(
+    c.db,
+    op,
+    applyOp(before, c.replay ? op : ownEcho(op, c.st, c.replica), {
+      table: mergeSpecFor(op.t, def.columns),
+      actorOp: (c.replay ? c.replay.actor?.op : c.st.txn.actor?.op) ?? null,
+    }),
+  );
   const live =
     out.effect === 'delete'
       ? c.api.childRows(op.t, op.u).filter((x) => x.key.onDelete === 'CASCADE')
@@ -986,6 +1007,7 @@ function applyOne(
   try {
     // A display key that moves leaves its referrers behind until they follow.
     if (keyMove) c.db.exec('PRAGMA defer_foreign_keys = ON');
+    if (renameLocal) c.api.writeFields(op.t, renameLocal.uid, { slug: renameLocal.slug });
     // cascade-with-ops: the remaining children go first, with ops' tombstones.
     const actor = c.st.txn.actor ? JSON.stringify(c.st.txn.actor) : null;
     for (const x of live) cascadeDelete(c, x.key.child, x.uid, op.h, actor);
@@ -1027,6 +1049,55 @@ function applyOne(
       opHlc: op.h,
     });
   }
+}
+
+/** The docs table whose UNIQUE slug two devices can both claim (T12919). */
+const DOC_SLUG_TABLE = 'docs_attachments';
+
+/**
+ * Two devices that add different docs under one slug (T12919, #2260 review):
+ * the UNIQUE slug index would void one insert and leave that doc on one
+ * replica only. Instead the row with the greater uid yields the slug, renamed
+ * `<slug>-<last 8 hex of its uid>`, on every replica alike whatever order the
+ * ops arrive in, and a `key-collision` conflict records it. Same-content docs
+ * never get here: their natural uid over sha256 is one row.
+ *
+ * @returns The outcome to apply, and the local row to rename first when the
+ *   local row yields.
+ */
+function yieldDocSlug(
+  db: DatabaseSync,
+  op: LedgerOp,
+  out: OpOutcome,
+): { readonly out: OpOutcome; readonly renameLocal: { uid: string; slug: string } | null } {
+  const none = { out, renameLocal: null };
+  if (op.t !== DOC_SLUG_TABLE || !out.next.live || !out.written.includes('slug')) return none;
+  const field = out.next.fields.slug;
+  if (!field || typeof field.value !== 'string') return none;
+  const holder = db
+    .prepare(
+      `SELECT "${UID_COLUMN}" AS uid FROM main.${DOC_SLUG_TABLE} WHERE slug = ? AND uid <> ?`,
+    )
+    .get(field.value, op.u) as { uid: string | null } | undefined;
+  if (!holder?.uid) return none;
+  const loser = holder.uid > op.u ? holder.uid : op.u;
+  const slug = `${field.value}-${loser.replaceAll('-', '').slice(-8)}`;
+  const conflicts = [
+    ...out.conflicts,
+    {
+      kind: 'key-collision' as const,
+      table: op.t,
+      uid: loser,
+      columns: ['slug'],
+      rule: 'docs.slug.yield',
+      resolution: 'incoming-applied' as const,
+      opHlc: op.h,
+    },
+  ];
+  if (loser === holder.uid)
+    return { out: { ...out, conflicts }, renameLocal: { uid: loser, slug } };
+  const fields = { ...out.next.fields, slug: { ...field, value: slug } };
+  return { out: { ...out, next: { ...out.next, fields }, conflicts }, renameLocal: null };
 }
 
 /** Decision key moves applied in the current apply call, by store (T13433). */
@@ -1136,34 +1207,43 @@ function adoptNaturalRows(
 }
 
 /**
- * A staged transaction with every op's local INTEGER PRIMARY KEY removed
- * (T12896). That id is numbered on each device, so this build never sends it;
- * an older build's op still may, and the receiver drops it rather than refuse
- * the column or collide with its own row of that id.
+ * A staged transaction with every op's local-only column values removed: the
+ * local INTEGER PRIMARY KEY (T12896) and every `local-only` override
+ * (T13719). This build never sends them; an older build's op, or one captured
+ * before a column was reclassified, still may. The receiver drops them rather
+ * than refuse the column (the merge knows only captured columns), collide
+ * with its own row of that id, or overwrite a device's own value; an insert
+ * takes the local default.
  */
-function withoutLocalRowids(
+function withoutLocalColumns(
   st: StagedTxn,
   defs: (table: string) => CaptureTableDef | null,
 ): StagedTxn {
   let changed = false;
   const ops = st.txn.ops.map((op): LedgerOp => {
-    const col = defs(op.t)?.localRowid;
-    if (!col || ![op.a, op.b, op.fh].some((v) => v !== undefined && col in v)) return op;
+    const def = defs(op.t);
+    const local = def?.localOnly ?? new Set(def?.localRowid ? [def.localRowid] : []);
+    const has = (v: Readonly<Record<string, unknown>> | undefined): boolean =>
+      v !== undefined && Object.keys(v).some((k) => local.has(k));
+    if (!has(op.a) && !has(op.b) && !has(op.fh)) return op;
     changed = true;
     return {
       ...op,
-      ...(op.a ? { a: omitKey(op.a, col) } : {}),
-      ...(op.b ? { b: omitKey(op.b, col) } : {}),
-      ...(op.fh ? { fh: omitKey(op.fh, col) } : {}),
+      ...(op.a ? { a: omitKeys(op.a, local) } : {}),
+      ...(op.b ? { b: omitKeys(op.b, local) } : {}),
+      ...(op.fh ? { fh: omitKeys(op.fh, local) } : {}),
     };
   });
   return changed ? { ...st, txn: { ...st.txn, ops } } : st;
 }
 
-/** `record` without `key`. */
-function omitKey<V>(record: Readonly<Record<string, V>>, key: string): Record<string, V> {
+/** `record` without `keys`. */
+function omitKeys<V>(
+  record: Readonly<Record<string, V>>,
+  keys: ReadonlySet<string>,
+): Record<string, V> {
   const out: Record<string, V> = {};
-  for (const [k, v] of Object.entries(record)) if (k !== key) out[k] = v;
+  for (const [k, v] of Object.entries(record)) if (!keys.has(k)) out[k] = v;
   return out;
 }
 
@@ -1766,6 +1846,7 @@ export function applyStagedTxns(db: DatabaseSync, opts: ApplyStagedOptions): App
       blocked,
     };
   }
+  reopenRefusedSchema(db, opts.stream);
   opts.seal?.();
   const sequencingOn = hasTable(db, '_sync_sequenced');
   const defCache = new Map<string, CaptureTableDef | null>();
@@ -1790,7 +1871,7 @@ export function applyStagedTxns(db: DatabaseSync, opts: ApplyStagedOptions): App
         stagedTxns(db, opts.stream).map((st) =>
           followUidAliases(
             db,
-            withOpenedSecrets(withoutLocalRowids(st, defs), defs, opts.secrets),
+            withOpenedSecrets(withoutLocalColumns(st, defs), defs, opts.secrets),
             defs,
           ),
         ),

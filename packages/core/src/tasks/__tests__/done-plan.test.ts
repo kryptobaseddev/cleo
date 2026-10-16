@@ -1014,6 +1014,56 @@ describe('a standalone single-package project plans a targeted test-run (T13403)
     );
   });
 
+  it('T13758: a CLEO-config-only change plans tool:config-schema for testsPassed and qaPassed, nothing else', async () => {
+    standalone();
+    const id = await seedTask(['Change .cleo/project-context.json']);
+    git(root, ['switch', '-q', '-c', `task/${id}`]);
+    mkdirSync(join(root, '.cleo'), { recursive: true });
+    writeFileSync(
+      join(root, '.cleo', 'project-context.json'),
+      `${JSON.stringify({ schemaVersion: '1.0.0', detectedAt: '2026-10-15T00:00:00Z', projectTypes: ['node'] })}\n`,
+    );
+    // The fixture's .cleo/ is gitignored (the store); the tracked config is forced in.
+    git(root, ['add', '-f', '.cleo/project-context.json']);
+    git(root, ['commit', '-q', '-m', `${id}: config only`]);
+    const plan = await deriveTaskEvidence(id, {
+      projectRoot: root,
+      cwd: root,
+      deps,
+      satisfies: 'all',
+    });
+    expect(plan.toolRuns).toEqual([]);
+    for (const gate of ['testsPassed', 'qaPassed'])
+      expect(plan.gates.find((g) => g.gate === gate)?.evidence, gate).toMatch(
+        /^tool:config-schema/,
+      );
+    expect(
+      plan.blockers.filter((b) => b.code === 'test-run-needed' || b.code === 'qa-run-needed'),
+    ).toEqual([]);
+  });
+
+  it('T13745: a root-config-only change plans tool:test (not applicable) and a lint qa-run, no suite, no typecheck', async () => {
+    standalone();
+    // The fixture's .cleo/ is the gitignored store, so a root config stands in.
+    const id = await seedTask(['Change renovate.json']);
+    git(root, ['switch', '-q', '-c', `task/${id}`]);
+    writeFileSync(join(root, 'renovate.json'), '{"extends":[]}\n');
+    git(root, ['add', 'renovate.json']);
+    git(root, ['commit', '-q', '-m', `${id}: config only`]);
+    const plan = await deriveTaskEvidence(id, {
+      projectRoot: root,
+      cwd: root,
+      deps,
+      satisfies: 'all',
+    });
+    expect(plan.toolRuns).toEqual([]);
+    expect(plan.gates.find((g) => g.gate === 'testsPassed')?.evidence).toMatch(/^tool:test/);
+    expect(plan.blockers.find((b) => b.code === 'test-run-needed')).toBeUndefined();
+    expect(plan.blockers.find((b) => b.code === 'qa-run-needed')?.next.command).toBe(
+      `cleo verify ${id} --gate qaPassed --evidence 'qa-run:<lint-receipt.json>'`,
+    );
+  });
+
   it('T13427: a cached lint result still binds as tool:lint; only typecheck needs a qa-run', async () => {
     standalone();
     const id = await seedTask(['Change src/a.ts']);
@@ -1645,6 +1695,7 @@ describe('a stored typed pass bound to an older definition is not a pass (T13463
   async function withStoredPass(
     bind: (text: string) => { criterionHash: string; gateHash: string },
     over: (binding: Record<string, unknown>) => Record<string, unknown> = (b) => b,
+    stored: Record<string, unknown> = { result: 'pass' },
   ) {
     const id = await seedTask(['Change src/a.ts']);
     commitOnTaskBranch(id);
@@ -1664,7 +1715,7 @@ describe('a stored typed pass bound to an older definition is not a pass (T13463
           index: 1,
           req: 'H-1',
           kind: 'command',
-          result: 'pass',
+          ...stored,
           checkedAt: '2026-10-01T00:00:00Z',
           checkedBy: 'test',
           durationMs: 1,
@@ -1697,6 +1748,22 @@ describe('a stored typed pass bound to an older definition is not a pass (T13463
   const current = (text: string) => ({
     criterionHash: acTextHash(text),
     gateHash: createHash('sha256').update(acItemToText(gate)).digest('hex'),
+  });
+
+  it('T13752: a stored error (a cache-only write found no cached pass) is not "last failed"', async () => {
+    const plan = await withStoredPass(current, (b) => b, {
+      result: 'error',
+      errorMessage: 'typed gate not cached: gate "H-1" has no cached pass for this tree.',
+    });
+    expect(plan.typedGates.map((g) => g.status)).toEqual(['not-run']);
+    expect(plan.blockers.map((b) => b.code)).not.toContain('typed-gate-failed');
+    expect(plan.blockers.map((b) => b.code)).toContain('typed-gate-not-run');
+  });
+
+  it('T13752: a stored fail still reads as last failed', async () => {
+    const plan = await withStoredPass(current, (b) => b, { result: 'fail' });
+    expect(plan.typedGates.map((g) => g.status)).toEqual(['fail']);
+    expect(plan.blockers.map((b) => b.code)).toContain('typed-gate-failed');
   });
 
   it('T13502: a binding for another task reads not-run', async () => {

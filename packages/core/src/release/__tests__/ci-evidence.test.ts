@@ -428,6 +428,21 @@ describe('resolveCiEvidenceAtom', () => {
     expect(!r.ok && r.reason).toMatch(/not required \(tests:Unit Tests\)/);
   });
 
+  it('refuses vacuous CI: an empty required-workflow set, from config or env, whatever ciSatisfies says (T13757)', async () => {
+    delete process.env[PR_REQUIRED_WORKFLOWS_ENV_VAR];
+    writeContext(optedIn);
+    const fromConfig = await resolve({ projectContext: { release: { prRequiredWorkflows: [] } } });
+    expect(!fromConfig.ok && fromConfig.codeName, JSON.stringify(fromConfig)).toBe(
+      'E_EVIDENCE_CI_VACUOUS',
+    );
+    expect(!fromConfig.ok && fromConfig.reason).toMatch(
+      /zero checks.*test-run:<report>.*qa-run:<receipt>.*tool:config-schema.*release\.prRequiredWorkflows/,
+    );
+    process.env[PR_REQUIRED_WORKFLOWS_ENV_VAR] = '[]';
+    const fromEnv = await resolve();
+    expect(!fromEnv.ok && fromEnv.codeName).toBe('E_EVIDENCE_CI_VACUOUS');
+  });
+
   it('refuses when the only CI run was posted by an app other than the pinned one (fix 3)', async () => {
     delete process.env[PR_REQUIRED_WORKFLOWS_ENV_VAR];
     writeContext(optedIn);

@@ -174,7 +174,8 @@ export type CiAtomResolution =
         | 'E_EVIDENCE_TOOL_FAILED'
         | 'E_EVIDENCE_INVALID'
         | 'E_EVIDENCE_GIT_ROOT'
-        | 'E_EVIDENCE_CONTENT_MISMATCH';
+        | 'E_EVIDENCE_CONTENT_MISMATCH'
+        | 'E_EVIDENCE_CI_VACUOUS';
     };
 
 /** Injectable I/O for {@link resolveCiEvidenceAtom}. */
@@ -1619,6 +1620,19 @@ export async function resolveCiEvidenceAtom(
       ok: false,
       codeName: 'E_EVIDENCE_INSUFFICIENT',
       reason: `Cannot determine the required checks (${required.source.reason}); ci:${prNumber} cannot be judged.`,
+    };
+  }
+  // T13757: no required check means CI vouches for nothing, whatever
+  // evidence.ciSatisfies says; never accept that as a test or QA result.
+  if (required.workflows.length === 0) {
+    return {
+      ok: false,
+      codeName: 'E_EVIDENCE_CI_VACUOUS',
+      reason:
+        `ci:${prNumber} would vouch for zero checks: the required-workflow set (${describeRequiredWorkflowsSource(required.source)}) is empty, ` +
+        'so merged CI proves nothing about this change. Record a targeted result instead: test-run:<report> or ' +
+        'tool:test-affected for testsPassed, qa-run:<receipt> or tool:lint;tool:typecheck for qaPassed ' +
+        '(tool:config-schema for a change to CLEO config only), or declare the required checks in release.prRequiredWorkflows.',
     };
   }
   const outside = gateLists.flatMap((g) =>

@@ -393,10 +393,9 @@ export class DocsReadModel {
    * (keeps list/status operations fast). Call this when you need the
    * actual text/bytes.
    *
-   * Content is read from the blob store ONLY (T13362) — the legacy
-   * `.cleo/attachments/sha256/` byte tree has no fallback path. A doc whose
-   * bytes were never mirrored/consolidated into the blob store returns
-   * `null` until migrated.
+   * Content is read from the blob store ONLY (T13362). A doc whose bytes were
+   * never mirrored into it is healed on this read from hash-verified legacy
+   * bytes when they exist (T13705, inside `blobReadBySha`); otherwise `null`.
    *
    * @param doc - A resolved doc (from any resolution method).
    * @returns The raw content as a UTF-8 string, or `null` if the blob

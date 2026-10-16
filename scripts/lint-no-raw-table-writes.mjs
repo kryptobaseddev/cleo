@@ -324,9 +324,9 @@ export const EXEMPT = {
   },
   'packages/core/src/store/sync/inbox.ts': {
     _sync_inbox: {
-      count: 2,
+      count: 3,
       reason:
-        'receive inbox (local-only): received transactions staged in stream order with their apply status (T12344)',
+        'receive inbox (local-only): received transactions staged in stream order with their apply status (T12344); refused-schema rows re-opened per apply (T13719)',
     },
   },
   'packages/core/src/store/sync/capture.ts': {
@@ -338,6 +338,13 @@ export const EXEMPT = {
     _sync_clock: { count: 1, reason: SYNC_BOOKKEEPING },
   },
   'packages/core/src/store/sync/flags.ts': { _sync_meta: { count: 1, reason: SYNC_BOOKKEEPING } },
+  'packages/core/src/cloud/doc-bytes.ts': {
+    _sync_meta: {
+      count: 1,
+      reason:
+        'doc-bytes bookkeeping (local-only): which doc bodies THIS store has put on or taken from a stream (T13721)',
+    },
+  },
   'packages/core/src/store/sync/writer-version.ts': {
     _sync_meta: { count: 1, reason: SYNC_BOOKKEEPING },
   },
@@ -618,6 +625,13 @@ const MARKER_RE = /\/\/\s*gate-28:\s*staged-snapshot\s+([A-Za-z_$][\w$]*)/;
  */
 export const STAGED_SNAPSHOT = {
   'packages/core/src/store/credential-transfer.ts': {
+    accounts: {
+      redactCredentialCiphertexts: {
+        count: 1,
+        reason:
+          'blanks device-bound ciphertext in a staged backup snapshot; assertStagedCopy refuses a live store',
+      },
+    },
     agent_registry_agents: {
       redactCredentialCiphertexts: {
         count: 1,

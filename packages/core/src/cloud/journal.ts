@@ -6,20 +6,26 @@ import {
   CheckpointId,
   CompleteUploadResult,
   CreateCheckpointResult,
+  DeleteStreamAttachmentResult,
+  GetStreamAttachmentResult,
   ListCheckpointsResult,
   MAX_INLINE_SEGMENT_BYTES,
   MAX_PULL_LIMIT,
   type Manifest,
   PresignUploadResult,
   PullSegmentsResult,
+  PutStreamAttachmentResult,
   type ReplicaHeads,
   type RevocationPins,
   type Segment,
 } from '@cleocode/contracts/cloud';
 import {
   DecryptError,
+  deriveKey,
+  hmacSha256,
   type KeyPair,
   open,
+  SEAL_OVERHEAD,
   seal,
   sha256Hex,
   signEd25519,
@@ -80,6 +86,31 @@ export type RefusalReason =
 
 const refuse = (code: ClientErrorCode, reason: RefusalReason, message: string) =>
   new NexusError(code, message, 0, null, { reason });
+
+/**
+ * Whether `err` is this client refusing what the server sent (status 0, a {@link RefusalReason}), as
+ * opposed to a server or network error.
+ *
+ * @param err - Anything thrown.
+ * @returns True for a client refusal.
+ */
+export const isClientRefusal = (err: unknown): err is NexusError =>
+  err instanceof NexusError && err.status === 0 && typeof err.details?.reason === 'string';
+
+/** An attachment's ciphertext size is its plaintext size plus this ({@link SEAL_OVERHEAD}). */
+export const AEAD_OVERHEAD = SEAL_OVERHEAD;
+
+/**
+ * Whether a refusal proves the recorded content wrong, not just its delivery: the ciphertext matched
+ * its announced sha256 and still failed the AEAD or the plaintext sha256. A size or hash mismatch of the
+ * download (a flaky proxy, a lying server) or a client cap proves nothing about the record.
+ *
+ * @param err - Anything thrown.
+ * @returns True for `decrypt` and `hash-mismatch` refusals.
+ */
+export const provesContentWrong = (err: unknown): boolean =>
+  isClientRefusal(err) &&
+  (err.details?.reason === 'decrypt' || err.details?.reason === 'hash-mismatch');
 
 function uploaderFor(fetchImpl: FetchLike): Uploader {
   return async (url, headers, bytes) => {
@@ -259,6 +290,8 @@ const segmentContext = (
 ) => `segment/v2\n${streamId}\n${replicaId}\n${replicaSeq}\n${metaHash}`;
 const checkpointContext = (streamId: string, checkpointId: string, coversSeq: number) =>
   `checkpoint/v2\n${streamId}\n${checkpointId}\n${coversSeq}`;
+const attachmentContext = (streamId: string, sha256: string) =>
+  `attachment/v1\n${streamId}\n${sha256}`;
 
 const metaOf = (s: SegmentMetaFields): SegmentMeta => ({
   opCount: s.opCount,
@@ -752,5 +785,135 @@ export class Journal {
       );
     }
     return bytes;
+  }
+
+  /** The stream path of an attachment's ref: an HMAC of its plaintext sha256, so the server learns nothing. */
+  private attachmentPath(sha256: string): string {
+    const ref = hmacSha256(deriveKey(this.o.key, 'attachment-ref'), utf8(sha256)).toString('hex');
+    return `${this.base}/attachments/${ref}`;
+  }
+
+  /**
+   * Put a content-addressed attachment (a doc body) on the stream (T13721): encrypted under the stream
+   * key, bound to the stream and its plaintext sha256, uploaded as an `attachment` blob and recorded
+   * under its ref (E32). A ref already recorded is checked like a pull would check it: a good one is not
+   * uploaded again; a junk one (a squat, a buggy client) is cleared (E34) and replaced with these bytes.
+   *
+   * @param sha256 - The plaintext sha256 the synced row names.
+   * @param plaintext - The bytes; they must hash to `sha256`.
+   * @returns `sent` when this call recorded it, `present` when the stream already had a good copy,
+   *   `contested` when the ref holds another blob this caller may not clear, or a racer recorded first,
+   *   and `unverified` when the recorded blob could not be checked (a size or hash fault of its
+   *   download): nothing is cleared, and the next push checks it again.
+   */
+  async pushAttachment(
+    sha256: string,
+    plaintext: Buffer,
+  ): Promise<'sent' | 'present' | 'contested' | 'unverified'> {
+    if (sha256Hex(plaintext) !== sha256)
+      throw refuse('E_VALIDATION', 'payload', `attachment ${sha256} does not match its bytes`);
+    const path = this.attachmentPath(sha256);
+    const { download: d } = await this.o.http.request('GET', path, GetStreamAttachmentResult);
+    if (d !== null) {
+      // A record of another size cannot hold these bytes; one of the right size is downloaded and
+      // cleared only when its content is provably wrong. A delivery fault proves nothing: unverified.
+      if (d.sizeBytes === plaintext.length + AEAD_OVERHEAD) {
+        try {
+          await this.readAttachment(sha256, d, d.sizeBytes);
+          return 'present';
+        } catch (err) {
+          if (isClientRefusal(err) && !provesContentWrong(err)) return 'unverified';
+          if (!provesContentWrong(err)) throw err;
+        }
+      }
+      try {
+        await this.clearAttachment(sha256);
+      } catch (err) {
+        if (err instanceof NexusError && err.status === 403) return 'contested';
+        throw err;
+      }
+    }
+    const ciphertext = seal(
+      this.o.key,
+      plaintext,
+      'attachment',
+      attachmentContext(this.o.streamId, sha256),
+    );
+    const blobSha256 = await this.uploadBlob(ciphertext, 'attachment');
+    const put = await this.o.http.request('PUT', path, PutStreamAttachmentResult, {
+      blobSha256,
+      sizeBytes: ciphertext.length,
+    });
+    // First writer wins (E32): a racer's blob is not ours; the next push checks it like any other.
+    return put.created || put.blobSha256 === blobSha256 ? 'sent' : 'contested';
+  }
+
+  /**
+   * Read a content-addressed attachment from the stream (T13721), uploaded by any member (E33). The
+   * ciphertext must match the announced size and sha256, decrypt under the stream key in this stream
+   * and sha256's context, and hash to `sha256`; anything else is refused before a byte is returned.
+   *
+   * @param sha256 - The plaintext sha256 the synced row names.
+   * @param maxBytes - The largest ciphertext to download.
+   * @returns The verified plaintext, or null when no member has put it on the stream yet.
+   */
+  async pullAttachment(sha256: string, maxBytes: number): Promise<Buffer | null> {
+    const { download: d } = await this.o.http.request(
+      'GET',
+      this.attachmentPath(sha256),
+      GetStreamAttachmentResult,
+    );
+    return d === null ? null : this.readAttachment(sha256, d, maxBytes);
+  }
+
+  /**
+   * Whether some member has recorded a blob for an attachment (E33), without downloading it.
+   *
+   * @param sha256 - The plaintext sha256 the synced row names.
+   * @returns True when a record exists.
+   */
+  async attachmentRecorded(sha256: string): Promise<boolean> {
+    const { download } = await this.o.http.request(
+      'GET',
+      this.attachmentPath(sha256),
+      GetStreamAttachmentResult,
+    );
+    return download !== null;
+  }
+
+  /**
+   * Clear an attachment's record (E34), so a holder of the real bytes can record them again. Allowed
+   * for the member who recorded it and for a project owner; the server refuses anyone else.
+   *
+   * @param sha256 - The plaintext sha256 the synced row names.
+   * @returns True when this call removed a record.
+   */
+  async clearAttachment(sha256: string): Promise<boolean> {
+    const r = await this.o.http.request(
+      'DELETE',
+      this.attachmentPath(sha256),
+      DeleteStreamAttachmentResult,
+    );
+    return r.deleted;
+  }
+
+  /** Download and verify the blob behind an attachment ref; any mismatch is a client refusal. */
+  private async readAttachment(sha256: string, d: BlobDownload, maxBytes: number): Promise<Buffer> {
+    if (d.sizeBytes > maxBytes)
+      throw refuse('E_PAYLOAD_TOO_LARGE', 'too-large', `attachment ${sha256} exceeds the limit`);
+    const ciphertext = await this.down(d.url, d.sizeBytes);
+    if (ciphertext.length !== d.sizeBytes)
+      throw refuse('E_BLOB_INTEGRITY', 'blob-size', `attachment ${sha256} does not match its size`);
+    if (sha256Hex(ciphertext) !== d.sha256)
+      throw refuse('E_BLOB_INTEGRITY', 'blob-hash', `attachment ${sha256} does not match its hash`);
+    const plaintext = this.decrypt(
+      ciphertext,
+      'attachment',
+      attachmentContext(this.o.streamId, sha256),
+      `attachment ${sha256}`,
+    );
+    if (sha256Hex(plaintext) !== sha256)
+      throw refuse('E_BLOB_INTEGRITY', 'hash-mismatch', `attachment ${sha256} has other content`);
+    return plaintext;
   }
 }

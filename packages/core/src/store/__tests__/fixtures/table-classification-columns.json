@@ -273,6 +273,7 @@
       "peer_id",
       "peer_scope",
       "provenance_class",
+      "prune_candidate",
       "quality_score",
       "rationale",
       "source_confidence",
@@ -302,7 +303,8 @@
     ],
     "brain_embeddings": [
       "embedding",
-      "id"
+      "id",
+      "model"
     ],
     "brain_embeddings_chunks": [
       "chunk_id",
@@ -313,6 +315,14 @@
     "brain_embeddings_info": [
       "key",
       "value"
+    ],
+    "brain_embeddings_metadatachunks00": [
+      "data",
+      "rowid"
+    ],
+    "brain_embeddings_metadatatext00": [
+      "data",
+      "rowid"
     ],
     "brain_embeddings_rowids": [
       "chunk_id",
@@ -343,6 +353,7 @@
       "peer_id",
       "peer_scope",
       "provenance_class",
+      "prune_candidate",
       "quality_score",
       "source",
       "source_confidence",
@@ -409,6 +420,7 @@
       "project",
       "provenance_chain",
       "provenance_class",
+      "prune_candidate",
       "quality_score",
       "source_confidence",
       "source_ids",
@@ -493,6 +505,7 @@
       "peer_id",
       "peer_scope",
       "provenance_class",
+      "prune_candidate",
       "quality_score",
       "source_confidence",
       "success_rate",
@@ -913,7 +926,8 @@
       "attached_by",
       "attachment_id",
       "owner_id",
-      "owner_type"
+      "owner_type",
+      "uid"
     ],
     "docs_attachments": [
       "attachment_json",
@@ -932,7 +946,8 @@
       "superseded_by",
       "supersedes",
       "topics",
-      "type"
+      "type",
+      "uid"
     ],
     "docs_manifest_entries": [
       "agent_type",

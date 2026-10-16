@@ -59,6 +59,7 @@ import {
   RESOURCE_DEFERRED_CODE,
   RUN_COMMAND_FAILED_CODE,
   RUN_DEFERRED_EXIT_CODE,
+  RUN_INTERRUPTED_CODE,
 } from '@cleocode/contracts/resource-governor.js';
 import { planRunFootprint } from '@cleocode/core/resources/admission-ledger.js';
 import {
@@ -312,9 +313,29 @@ export const runCommand = defineCommand({
       process.exit(RUN_DEFERRED_EXIT_CODE);
     }
 
+    if (result.kind === 'interrupted') {
+      // T13681: a signal while queued is reported, never a silent exit.
+      const { kind: _interrupted, ...details } = result;
+      cliError(
+        `interrupted by ${result.signal} while waiting in the queue: nothing started`,
+        RUN_INTERRUPTED_CODE,
+        { name: RUN_INTERRUPTED_CODE, details },
+        { operation: 'resources.run' },
+        { stderr: passthrough },
+      );
+      process.exit(128 + (constants.signals[result.signal] ?? 0));
+    }
+
     const code = runExitCode(result);
     if (code !== 0) exitFailed(result, code, passthrough, resources);
-    if (passthrough) return;
+    if (passthrough) {
+      // T13681: a run that said "admitted after" ends with one line too, so a
+      // finished queued run never looks like a no-op; the two always come as a
+      // pair. A run admitted at once stays byte-silent (#1777 R7): the hook
+      // rewrites every heavy command.
+      if (result.queued) notice(`exited 0 after ${Math.round(result.durationMs / 1000)}s`, 'warn');
+      return;
+    }
     const { kind: _kind, ...data } = result;
     cliOutput(resources === null ? data : { ...data, resources }, {
       command: 'run',

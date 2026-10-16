@@ -14,12 +14,14 @@
  */
 
 import { Buffer } from 'node:buffer';
+import { createHash } from 'node:crypto';
 import { mkdir, mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { eq } from 'drizzle-orm';
+import { eq, sql } from 'drizzle-orm';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { createAttachmentStore } from '../../store/attachment-store.js';
+import { docsWikilinks } from '../../store/schema/attachments.js';
 import { closeDb, getDb } from '../../store/sqlite.js';
 import { attachments } from '../../store/tasks-schema.js';
 import { DocNotFoundError, readDoc } from '../read-doc.js';
@@ -131,17 +133,25 @@ describe('T11826 — deriveWikilinkEdges (pure)', () => {
 describe('T11826/T11825 — end-to-end (live DB + migration)', () => {
   let tmpRoot: string;
   let prevCwd: string;
+  let prevCleoDir: string | undefined;
 
   beforeEach(async () => {
     tmpRoot = await mkdtemp(join(tmpdir(), 'cleo-wikilinks-test-'));
     prevCwd = process.cwd();
     await mkdir(join(tmpRoot, '.cleo'), { recursive: true });
     await mkdir(join(tmpRoot, '.git'), { recursive: true });
+    // Pin the store to THIS temp project — without it every temp root in the
+    // vitest sandbox resolves to one shared project DB (T13711: the
+    // exact-count chunked-rebuild assertion exposed the leakage).
+    prevCleoDir = process.env['CLEO_DIR'];
+    process.env['CLEO_DIR'] = join(tmpRoot, '.cleo');
     process.chdir(tmpRoot);
   });
 
   afterEach(async () => {
     closeDb();
+    if (prevCleoDir === undefined) delete process.env['CLEO_DIR'];
+    else process.env['CLEO_DIR'] = prevCleoDir;
     process.chdir(prevCwd);
     await rm(tmpRoot, { recursive: true, force: true });
   });
@@ -238,6 +248,59 @@ describe('T11826/T11825 — end-to-end (live DB + migration)', () => {
     const second = await rebuildDocsWikilinks({ projectRoot: tmpRoot });
     expect(second.edgeCount).toBe(first.edgeCount);
     expect(second.byRelation).toEqual(first.byRelation);
+  });
+
+  it('rebuilds stores with more than 6553 edges (T13711 chunked insert)', async () => {
+    // 7000 slugged rows × one related-task edge each = 7000 edges — past the
+    // 6553-row chunk (floor(32766 SQLITE_MAX_VARIABLE_NUMBER / 5 columns)) and
+    // far past the pre-fix single-statement limit. Rows are seeded directly
+    // (scaffolding) because 7000 store.put calls would each trigger the
+    // post-put rebuild hook.
+    const DOC_COUNT = 7000;
+    const db = await getDb(tmpRoot);
+    const now = new Date(0).toISOString();
+    for (let batch = 0; batch < DOC_COUNT; batch += 400) {
+      const values = [];
+      for (let i = batch; i < Math.min(batch + 400, DOC_COUNT); i++) {
+        const sha = createHash('sha256').update(`seed-${i}`).digest('hex');
+        values.push({
+          id: `seed-${i}`,
+          sha256: sha,
+          attachmentJson: JSON.stringify({ kind: 'blob', mime: 'text/markdown', sha256: sha }),
+          createdAt: now,
+          refCount: 0,
+          lifecycleStatus: 'draft',
+          docVersion: 1,
+          slug: `bulk-doc-${i}`,
+          relatedTasks: JSON.stringify([`T${i}`]),
+        });
+      }
+      await db.insert(attachments).values(values).run();
+    }
+
+    const result = await rebuildDocsWikilinks({ projectRoot: tmpRoot });
+
+    // Every edge landed — the chunked insert completed inside one transaction.
+    expect(result.edgeCount).toBe(DOC_COUNT);
+    expect(result.byRelation['related-task']).toBe(DOC_COUNT);
+
+    const tableCount = (await db.select({ n: sql<number>`count(*)` }).from(docsWikilinks).get())?.n;
+    expect(tableCount).toBe(DOC_COUNT);
+
+    // Spot-check both chunk boundaries and the tail beyond 6553.
+    for (const i of [0, 6552, 6553, 6999]) {
+      const edges = await getDocsWikilinks(`bulk-doc-${i}`, { projectRoot: tmpRoot });
+      expect(edges).toContainEqual({
+        fromSlug: `bulk-doc-${i}`,
+        toSlug: `T${i}`,
+        relation: 'related-task',
+        toIsTask: true,
+      });
+    }
+
+    // A second rebuild converges on the same full count.
+    const second = await rebuildDocsWikilinks({ projectRoot: tmpRoot });
+    expect(second.edgeCount).toBe(DOC_COUNT);
   });
 
   it('readDoc returns body + full provenance frontmatter (T11825 AC1)', async () => {

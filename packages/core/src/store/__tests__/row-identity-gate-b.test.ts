@@ -182,6 +182,17 @@ function seed(native: DatabaseSync, shape: Shape, fillBetween: boolean): void {
       ('gbv-2', 2, 'agent-gb', 'blob/gb2', 'hash-gb2', 12, 12, 4, '2026-09-02 09:01:00');
     INSERT INTO conduit_attachment_approvals (id, reviewer_agent_id, status, version_reviewed, created_at, updated_at) VALUES
       ('gba-1', 'reviewer-gb', 'approved', 2, '2026-09-02 10:00:00', '2026-09-02 10:00:00');
+
+    -- T12919: the doc registry (minted) with a supersession pair, and its
+    -- owner refs (natural), in both stored timestamp forms.
+    INSERT INTO docs_attachments (id, sha256, attachment_json, created_at, ref_count, slug, type, lifecycle_status) VALUES
+      ('gbd-1', 'sha-gbd-1', '{"kind":"blob"}', '2026-09-01 09:10:00', 1, NULL, 'adr', 'superseded'),
+      ('gbd-2', 'sha-gbd-2', '{"kind":"blob"}', '2026-09-02T09:10:00.000Z', 1, 'gate-b-adr', 'adr', 'accepted');
+    UPDATE docs_attachments SET superseded_by = 'gbd-2' WHERE id = 'gbd-1';
+    UPDATE docs_attachments SET supersedes = 'gbd-1' WHERE id = 'gbd-2';
+    INSERT INTO docs_attachment_refs (attachment_id, owner_type, owner_id, attached_at) VALUES
+      ('gbd-1', 'task', 'T2', '2026-09-01 09:10:00'),
+      ('gbd-2', 'task', 'T3', '2026-09-02T09:10:00.000Z');
   `);
   // llmtxt kept its audit events only in the bare twin; cleocode in both.
   const audit = shape === 'llmtxt' ? ['audit_log'] : ['audit_log', 'tasks_audit_log'];

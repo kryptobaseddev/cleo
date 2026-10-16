@@ -44,7 +44,10 @@
  * A grant exports `CLEO_ADMISSION=<id>.<nonce>` to its children. A request
  * made inside an admitted run's process tree rides that grant (no new budget,
  * no queue), so a `cleo verify` under `cleo run`, or a `cleo run` under an
- * evidence run, never waits for the budget its own ancestor holds. The token
+ * evidence run, never waits for the budget its own ancestor holds. Only a
+ * heavy grant, or one at least as big as the request, carries it: under a
+ * light grant (a `node` script charged 1 GiB) a heavy run queues for its own
+ * footprint (T13452). The token
  * only says which grant to check: the caller must descend from the holder
  * (ancestry, or membership of a tool process group it started), with the
  * holder's start time matching, so the env var alone grants nothing. A wrapper
@@ -105,7 +108,13 @@ import {
   type MemoryGateReporter,
 } from './pressure-gate.js';
 import { processAncestors, processGroupOf } from './run-admission.js';
-import { canonicalForClass, gitHookFor, namedTestFileCount, runFootprint } from './run-class.js';
+import {
+  canonicalForClass,
+  gitHookFor,
+  lightCommandReason,
+  namedTestFileCount,
+  runFootprint,
+} from './run-class.js';
 import { ownProcessStartedAt, type PidProbe, systemPidProbe } from './slot-holder.js';
 import { followToolGroups, isProbeableId } from './tool-groups.js';
 
@@ -296,6 +305,16 @@ export function gitHookInstalled(
   }
 }
 
+/**
+ * Workers a scoped build plans for (T13759): half of {@link heavyToolWorkers},
+ * rounded up, so a run that was multi-process stays multi-process (and heavy).
+ * On a 64 GiB Mac that is 2 workers (12 GiB) instead of 4 (24 GiB), so two
+ * scoped builds fit a pressure-halved budget together.
+ */
+function scopedBuildWorkers(totalRamGib: number, env: NodeJS.ProcessEnv): number {
+  return Math.ceil(heavyToolWorkers(totalRamGib, env) / 2);
+}
+
 /** What a `cleo run` job is planned with and charged (T13367). */
 export interface RunFootprintPlan {
   /** Env overlay for the child (heap ceiling, workers); empty for a light run. */
@@ -315,9 +334,11 @@ export interface RunFootprintPlan {
  *
  * A formatter on named files is charged {@link LIGHT_FOOTPRINT_BYTES} with no
  * heap plan. A single Node linter on files, or a one-project `tsc -p`, is
- * charged one process. Anything else gets the class's heavy-run plan, with a
- * named-file test run capped at one worker per file (T13132). An explicit
- * `full-build` is never shrunk.
+ * charged one process. A scoped build of a command that runs no heavy tool
+ * (`node x.mjs`, a hook-free `git push`) is charged light (T13452). Anything
+ * else gets the class's heavy-run plan, with a named-file test run capped at
+ * one worker per file (T13132) and a scoped build at half a heavy run's
+ * workers (T13759). An explicit `full-build` is never shrunk.
  *
  * @param cls - the resolved class.
  * @param argv - the command.
@@ -338,6 +359,10 @@ export function planRunFootprint(
     gitHookInstalled(process.cwd(), hook, globals), // CWD-OK: cleo run runs the command in its own cwd
 ): RunFootprintPlan {
   let scope = cls === 'full-build' ? null : runFootprint(argv);
+  // T13452: a scoped build of a command that runs no heavy tool (`node x.mjs`,
+  // `ls`) is charged light. An explicit test run keeps its class plan.
+  const light = cls === 'scoped-build' && scope?.size === 'class' ? lightCommandReason(argv) : null;
+  if (light !== null) scope = { size: 'light', reason: light };
   // T13452: a hooked git push/commit keeps the class plan, because whatever
   // the hook runs (tests, a build) rides this admission.
   const probe = scope?.size === 'light' ? gitHookFor(argv) : null;
@@ -365,11 +390,15 @@ export function planRunFootprint(
     };
   }
   const namedFiles = namedTestFileCount(cls, argv);
+  // T13759: a scoped build is one package; it plans half a heavy run's workers
+  // (and is spawned with them), so two fit where one whole-suite run would.
+  const maxWorkers =
+    namedFiles ?? (cls === 'scoped-build' ? scopedBuildWorkers(totalRamGib, env) : undefined);
   const { overlay, resources } = planHeavyToolEnv(
     canonicalForClass(cls),
     env,
     totalRamGib,
-    namedFiles ?? undefined,
+    maxWorkers,
   );
   return {
     overlay,
@@ -456,6 +485,11 @@ export interface LedgerEntry {
    * admitted while it is (T13237). Set for the `full-build` class.
    */
   readonly exclusive?: boolean;
+  /**
+   * The admitted entry this run is nested in, when its grant was too small to
+   * carry it (T13452). Scheduling never makes it wait on that ancestor.
+   */
+  readonly parentId?: string;
 }
 
 /**
@@ -833,6 +867,17 @@ export function budgetShare(sample: ResourceSample, gateRefuses: boolean): Budge
   return 'full';
 }
 
+/** What some admitted entries hold, for leaving them out of a check. */
+interface Held {
+  readonly used: number;
+  readonly reserved: number;
+  readonly running: number;
+  readonly heavy: number;
+  readonly exclusive: number;
+}
+
+const NOTHING_HELD: Held = { used: 0, reserved: 0, running: 0, heavy: 0, exclusive: 0 };
+
 /** Inputs to one scheduling pass. */
 export interface PassContext {
   /** The machine-wide budget in bytes. */
@@ -955,6 +1000,13 @@ function budgetPhrase(entry: LedgerEntry, budget: LedgerBudget): string {
  *   or less) that fit the memory budget (T13367). The lane is open only until
  *   the head has waited {@link TINY_LANE_WINDOWS} reservation windows, and
  *   never for a head that needs the whole budget (T13389).
+ * - A run nested in an admitted run (`parentId`, T13452) is considered first,
+ *   past any blocked head, and its ancestors are left out of every check: its
+ *   parent cannot finish until it runs, so it starts once it fits beside
+ *   everything else, or once nothing but its ancestors runs. Every left-out
+ *   ancestor is non-heavy (≤ {@link HEAVY_FOOTPRINT_BYTES}; a heavy grant is
+ *   ridden, never queued under), so the worst case runs depth × 6 GiB over
+ *   the budget, and over the capacity too.
  * - Up to {@link TINY_LANE_SLOTS} tiny runs are admitted from a reserve outside
  *   the pressure share, wherever they wait, while the capacity has room for
  *   them (T13587): their bytes do not count against the share budget, and
@@ -999,6 +1051,7 @@ export function schedulePass(entries: readonly LedgerEntry[], ctx: PassContext):
     e.exclusive !== true &&
     reserved < TINY_LANE_SLOTS &&
     used + reservedBytes + cost <= ctx.capacityBytes;
+  const reservedIds = new Set<string>();
   for (const e of entries) {
     if (e.state === 'admitted') {
       const cost = charged(e, ctx.capacityBytes);
@@ -1009,6 +1062,7 @@ export function schedulePass(entries: readonly LedgerEntry[], ctx: PassContext):
       if (reserveTakes(e, cost)) {
         reserved++;
         reservedBytes += cost;
+        reservedIds.add(e.id);
         continue;
       }
       used += cost;
@@ -1016,16 +1070,44 @@ export function schedulePass(entries: readonly LedgerEntry[], ctx: PassContext):
       if (e.exclusive === true) exclusiveRunning++;
     }
   }
-  /** Whether `cost` more fits `budget`, and the capacity beside the tiny reserve. */
-  const within = (budget: number, cost: number): boolean =>
-    used + cost <= budget && used + reservedBytes + cost <= ctx.capacityBytes;
-  const fits = (w: LedgerEntry, cost: number): boolean => {
-    if (w.exclusive === true && exclusiveRunning > 0) return false;
-    if (!isHeavy(w)) return lightShare !== 'none' && within(lightBudget, cost);
-    if (ctx.share === 'none') return false;
-    if (ctx.share === 'one' && heavyRunning > 0) return false;
-    return within(heavyBudget, cost);
+  // T13452: what a nested entry's admitted ancestors hold. The ancestors wait
+  // on the nested run, so it is never held back by them: the budget, the `one`
+  // and exclusive rules and the idle rule all leave them out.
+  const byId = new Map(entries.map((e) => [e.id, e]));
+  const ancestorsHeld = (w: LedgerEntry): Held => {
+    const held = { used: 0, reserved: 0, running: 0, heavy: 0, exclusive: 0 };
+    const seen = new Set<string>();
+    let a = w.parentId === undefined ? undefined : byId.get(w.parentId);
+    while (a !== undefined && a.state === 'admitted' && !seen.has(a.id)) {
+      seen.add(a.id);
+      const cost = charged(a, ctx.capacityBytes);
+      held.running++;
+      if (reservedIds.has(a.id)) {
+        held.reserved += cost;
+      } else {
+        held.used += cost;
+        if (isHeavy(a)) held.heavy++;
+        if (a.exclusive === true) held.exclusive++;
+      }
+      a = a.parentId === undefined ? undefined : byId.get(a.parentId);
+    }
+    return held;
   };
+  /** Whether `cost` more fits `budget`, and the capacity beside the tiny reserve. */
+  const within = (budget: number, cost: number, h: Held = NOTHING_HELD): boolean =>
+    used - h.used + cost <= budget &&
+    used - h.used + reservedBytes - h.reserved + cost <= ctx.capacityBytes;
+  const fits = (w: LedgerEntry, cost: number, h: Held = NOTHING_HELD): boolean => {
+    if (w.exclusive === true && exclusiveRunning - h.exclusive > 0) return false;
+    if (!isHeavy(w)) return lightShare !== 'none' && within(lightBudget, cost, h);
+    if (ctx.share === 'none') return false;
+    if (ctx.share === 'one' && heavyRunning - h.heavy > 0) return false;
+    return within(heavyBudget, cost, h);
+  };
+  /** Admissible now: it fits, or nothing but its own ancestors runs. */
+  const startable = (w: LedgerEntry, cost: number, h: Held): boolean =>
+    fits(w, cost, h) ||
+    (running - h.running === 0 && (isHeavy(w) ? ctx.share : lightShare) !== 'none');
   const waiting = entries
     .filter((e) => e.state === 'waiting')
     .sort((a, b) => a.enqueuedAtMs - b.enqueuedAtMs || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
@@ -1055,7 +1137,16 @@ export function schedulePass(entries: readonly LedgerEntry[], ctx: PassContext):
     if (w.exclusive === true) exclusiveRunning++;
     if (isTiny(w)) tinyRunning++;
   };
+  // T13452: a run nested in an admitted run goes first, past any blocked head:
+  // its parent cannot finish (and free its share) until it has run.
   for (const w of waiting) {
+    const held = ancestorsHeld(w);
+    if (held.running === 0) continue;
+    const cost = charged(w, ctx.capacityBytes);
+    if (startable(w, cost, held)) take(w, cost);
+  }
+  for (const w of waiting) {
+    if (admit.has(w.id)) continue;
     const cost = charged(w, ctx.capacityBytes);
     // T13587: the tiny reserve admits a tiny run wherever it waits; the memory
     // gate (`none`) still admits nothing.
@@ -1095,11 +1186,10 @@ export function schedulePass(entries: readonly LedgerEntry[], ctx: PassContext):
       }
       continue;
     }
-    const share = isHeavy(w) ? ctx.share : lightShare;
     // With nothing running, the oldest waiting run always starts (it is
     // charged at most the capacity), so pressure narrows but never stops work;
     // only the memory gate (`none`) stops it.
-    if (fits(w, cost) || (running === 0 && share !== 'none')) {
+    if (startable(w, cost, NOTHING_HELD)) {
       take(w, cost);
       continue;
     }
@@ -1239,11 +1329,17 @@ export function enclosingGrant(
   if (admitted.length === 0) return null;
   const token = parseAdmissionToken(env[ADMISSION_ENV]);
   const hinted = token ? admitted.filter((e) => e.id === token.id && e.nonce === token.nonce) : [];
-  const ordered = [...hinted, ...admitted.filter((e) => !hinted.includes(e))];
-  let ancestors: readonly number[] | null | undefined;
+  const ancestors = facts.ancestorsOf(pid);
+  // T13452: unhinted candidates nearest ancestor first, so a scrubbed token
+  // finds the enclosing run, not an older one further up the tree.
+  const depth = (e: LedgerEntry): number => {
+    const at = ancestors?.indexOf(e.pid) ?? -1;
+    return at < 0 ? Number.POSITIVE_INFINITY : at;
+  };
+  const unhinted = admitted.filter((e) => !hinted.includes(e));
+  const ordered = [...hinted, ...unhinted.sort((a, b) => depth(a) - depth(b))];
   let group: number | null | undefined;
   for (const e of ordered) {
-    ancestors ??= facts.ancestorsOf(pid);
     group ??= facts.groupOf(pid);
     const byAncestry =
       ancestors?.includes(e.pid) === true &&
@@ -1480,6 +1576,11 @@ export interface AdmitOptions {
    * wait does not let them expire (T13492). Failures are ignored.
    */
   readonly keepAlive?: () => Promise<unknown>;
+  /**
+   * Stop waiting: an aborted signal leaves the queue as a timeout does (T13681).
+   * The caller decides what a grant raced in at that moment means.
+   */
+  readonly signal?: AbortSignal;
   /** Interval for {@link AdmitOptions.keepAlive}. @defaultValue 5 minutes */
   readonly keepAliveMs?: number;
 }
@@ -1749,9 +1850,12 @@ async function admitInner(req: AdmissionRequest, opts: AdmitOptions): Promise<Ad
   const timeoutMs = opts.timeoutMs ?? 3_600_000;
   const t0 = now();
 
-  // Re-entrant: a request inside an admitted run's tree rides its grant.
+  // Re-entrant: a request inside an admitted run's tree rides its grant, when
+  // that grant is a heavy run's or covers the request. Under a light or
+  // single-process grant a bigger run queues for itself (T13452), naming the
+  // parent: schedulePass never makes it wait on its own ancestors.
   const parent = enclosingGrant(readLedger(dir), pid, env, opts.facts);
-  if (parent !== null) {
+  if (parent !== null && (isHeavy(parent) || parent.footprintBytes >= req.footprintBytes)) {
     return { admitted: true, grant: passThrough(admissionToken(parent), true, null) };
   }
 
@@ -1765,6 +1869,7 @@ async function admitInner(req: AdmissionRequest, opts: AdmitOptions): Promise<Ad
     command: req.command ?? process.argv.slice(1).join(' '),
     cwd: req.cwd === undefined ? process.cwd() : req.cwd, // CWD-OK: display only — where the run was started, shown in status and reports
     footprintBytes: Math.max(0, req.footprintBytes),
+    ...(parent !== null ? { parentId: parent.id } : {}),
     state: 'waiting',
     enqueuedAtMs: t0,
     admittedAtMs: null,
@@ -1871,7 +1976,7 @@ async function admitInner(req: AdmissionRequest, opts: AdmitOptions): Promise<Ad
       opts.notice(holderReport(first.doc, entry, pid, now() - t0, capacityBytes, now()));
     }
     const remaining = timeoutMs - (now() - t0);
-    if (remaining <= 0) {
+    if (remaining <= 0 || opts.signal?.aborted === true) {
       const raced = await leave();
       if (raced !== null) return { admitted: true, grant: holdGrant(raced, dir, now() - t0, opts) };
       return { admitted: false, refusal: refusal(first.doc, reading) };

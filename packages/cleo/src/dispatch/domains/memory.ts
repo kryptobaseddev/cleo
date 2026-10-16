@@ -1539,6 +1539,7 @@ export class MemoryHandler implements DomainHandler {
               attachmentRefs,
               // T12494: interactive observe opts in to the System One type choice.
               askTypeDecision: true,
+              scope: paramString(params, 'scope'),
             },
             projectRoot,
           );
@@ -1579,6 +1580,7 @@ export class MemoryHandler implements DomainHandler {
                 decidedByRaw === 'owner' || decidedByRaw === 'council' || decidedByRaw === 'agent'
                   ? decidedByRaw
                   : undefined,
+              scope: paramString(params, 'scope'),
             },
             projectRoot,
           );

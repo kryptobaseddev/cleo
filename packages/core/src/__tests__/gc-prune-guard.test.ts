@@ -71,7 +71,7 @@ function makeLayout(hash: string): {
 // ---------------------------------------------------------------------------
 
 describe('pruneOrphanWorktrees (gc/cleanup) — T11996 dirty guard', () => {
-  it('dirty worktree is quarantined, not deleted; clean plain dir is removed', () => {
+  it('dirty worktree is quarantined, not deleted; clean plain dir is removed', async () => {
     const { worktreesRoot, projectDir, cleanup } = makeLayout('abc123');
     try {
       // Dirty worktree (git repo with uncommitted changes).
@@ -84,7 +84,7 @@ describe('pruneOrphanWorktrees (gc/cleanup) — T11996 dirty guard', () => {
       mkdirSync(cleanWt, { recursive: true });
       writeFileSync(join(cleanWt, 'data.txt'), 'content\n');
 
-      const result = pruneOrphanWorktrees({
+      const result = await pruneOrphanWorktrees({
         worktreesRoot,
         projectHash: 'abc123',
         // Non-empty so fail-closed doesn't trigger.
@@ -115,7 +115,7 @@ describe('pruneOrphanWorktrees (gc/cleanup) — T11996 dirty guard', () => {
     }
   });
 
-  it('quarantine archive captures untracked AND ignored files (.env)', () => {
+  it('quarantine archive captures untracked AND ignored files (.env)', async () => {
     const { worktreesRoot, projectDir, cleanup } = makeLayout('abc456');
     try {
       const wt = join(projectDir, 'T9055');
@@ -124,7 +124,7 @@ describe('pruneOrphanWorktrees (gc/cleanup) — T11996 dirty guard', () => {
       writeFileSync(join(wt, '.env'), 'SECRET=topsecret\n');
       writeFileSync(join(wt, 'notes.txt'), 'local notes\n');
 
-      pruneOrphanWorktrees({
+      await pruneOrphanWorktrees({
         worktreesRoot,
         projectHash: 'abc456',
         activeTaskIds: new Set(['PRESERVED']),
@@ -146,7 +146,7 @@ describe('pruneOrphanWorktrees (gc/cleanup) — T11996 dirty guard', () => {
     }
   });
 
-  it('a symlink cycle is archived as a link, not ELOOP + a partial archive (T12604)', () => {
+  it('a symlink cycle is archived as a link, not ELOOP + a partial archive (T12604)', async () => {
     const { worktreesRoot, projectDir, cleanup } = makeLayout('abc789');
     try {
       const wt = join(projectDir, 'T9056');
@@ -155,7 +155,7 @@ describe('pruneOrphanWorktrees (gc/cleanup) — T11996 dirty guard', () => {
       mkdirSync(join(wt, 'nested'));
       symlinkSync('..', join(wt, 'nested', 'loop'));
 
-      const result = pruneOrphanWorktrees({
+      const result = await pruneOrphanWorktrees({
         worktreesRoot,
         projectHash: 'abc789',
         activeTaskIds: new Set(['PRESERVED']),
@@ -175,7 +175,7 @@ describe('pruneOrphanWorktrees (gc/cleanup) — T11996 dirty guard', () => {
     }
   });
 
-  it('an archive that overruns the 120s bound fails closed with no partial archive (T12604)', () => {
+  it('an archive that overruns the 120s bound fails closed with no partial archive (T12604)', async () => {
     const { worktreesRoot, projectDir, cleanup } = makeLayout('abcdef');
     try {
       const wt = join(projectDir, 'T9057');
@@ -189,9 +189,9 @@ describe('pruneOrphanWorktrees (gc/cleanup) — T11996 dirty guard', () => {
         now += 61_000;
         return now;
       });
-      let result: ReturnType<typeof pruneOrphanWorktrees>;
+      let result: Awaited<ReturnType<typeof pruneOrphanWorktrees>>;
       try {
-        result = pruneOrphanWorktrees({
+        result = await pruneOrphanWorktrees({
           worktreesRoot,
           projectHash: 'abcdef',
           activeTaskIds: new Set(['PRESERVED']),
@@ -220,13 +220,13 @@ describe('pruneOrphanWorktrees (gc/cleanup) — T11996 dirty guard', () => {
 // ---------------------------------------------------------------------------
 
 describe('pruneOrphanWorktrees (gc/cleanup) — T11996 fail-closed', () => {
-  it('empty activeTaskIds with existing worktrees returns skippedFailClosed', () => {
+  it('empty activeTaskIds with existing worktrees returns skippedFailClosed', async () => {
     const { worktreesRoot, projectDir, cleanup } = makeLayout('def456');
     try {
       mkdirSync(join(projectDir, 'T9060'), { recursive: true });
       mkdirSync(join(projectDir, 'T9061'), { recursive: true });
 
-      const result = pruneOrphanWorktrees({
+      const result = await pruneOrphanWorktrees({
         worktreesRoot,
         projectHash: 'def456',
         activeTaskIds: new Set<string>(),
@@ -242,10 +242,10 @@ describe('pruneOrphanWorktrees (gc/cleanup) — T11996 fail-closed', () => {
     }
   });
 
-  it('empty activeTaskIds with empty project dir does NOT trigger fail-closed', () => {
+  it('empty activeTaskIds with empty project dir does NOT trigger fail-closed', async () => {
     const { worktreesRoot, cleanup } = makeLayout('empty-hash');
     try {
-      const result = pruneOrphanWorktrees({
+      const result = await pruneOrphanWorktrees({
         worktreesRoot,
         projectHash: 'empty-hash',
         activeTaskIds: new Set<string>(),
@@ -264,7 +264,7 @@ describe('pruneOrphanWorktrees (gc/cleanup) — T11996 fail-closed', () => {
 // ---------------------------------------------------------------------------
 
 describe('pruneOrphanWorktrees (gc/cleanup) — T11996 idempotency', () => {
-  it('second run against converged state performs zero actions', () => {
+  it('second run against converged state performs zero actions', async () => {
     const { worktreesRoot, projectDir, cleanup } = makeLayout('ghi789');
     try {
       // Clean plain-dir orphan.
@@ -278,12 +278,12 @@ describe('pruneOrphanWorktrees (gc/cleanup) — T11996 idempotency', () => {
         activeTaskIds: new Set(['PRESERVED']),
       };
 
-      const first = pruneOrphanWorktrees(opts);
+      const first = await pruneOrphanWorktrees(opts);
       expect(first.removed).toBe(1);
       expect(existsSync(cleanWt)).toBe(false);
 
       // Second run — nothing left to do.
-      const second = pruneOrphanWorktrees(opts);
+      const second = await pruneOrphanWorktrees(opts);
       expect(second.removed).toBe(0);
       expect(second.quarantined).toBe(0);
       expect(second.errors).toHaveLength(0);

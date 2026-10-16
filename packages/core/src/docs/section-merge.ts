@@ -138,18 +138,24 @@ export function sectionStateText(state: Buffer): string {
 /**
  * Apply one section's new text to its stored snapshot.
  *
- * The caller discriminates single-writer from concurrent edits by comparing
- * the stored state against the section text of the PREVIOUS HEAD version
- * (`headText`): while the stored state equals the head's text it holds no
- * unlanded concurrent edit, and any difference the writer authored is an
- * ordinary edit — which the append-shaped primitives cannot express, so the
- * section is re-seeded from the input and projects EXACTLY (mid-text
- * replaces and deletions apply verbatim, never a fabricated concatenation —
- * T13589). When the stored state differs from the head's text it genuinely
- * carries a concurrent edit (T13595):
+ * `baseText` is the section text the incoming edit was AUTHORED AGAINST —
+ * the caller's concurrency reference (T13674). A base-less write passes the
+ * previous head's section text (single-writer assumption: the writer read
+ * the head and edited it). A write carrying a declared base passes the base
+ * version's section text, so a writer whose fetch predates a concurrent
+ * landing is recognized as stale instead of being mistaken for a
+ * single writer replacing the head.
+ *
+ * While the stored state equals the base text it holds no unlanded edit
+ * relative to what the writer saw, and any difference the writer authored
+ * is an ordinary edit — which the append-shaped primitives cannot express,
+ * so the section is re-seeded from the input and projects EXACTLY
+ * (mid-text replaces and deletions apply verbatim, never a fabricated
+ * concatenation — T13589). When the stored state differs from the base
+ * text, another writer's edit landed after the caller's fetch (T13674):
  *
  *   - an incoming edit that is a pure APPEND relative to the common base
- *     (`nextText` extends `headText`) composes onto the stored state, so
+ *     (`nextText` extends `baseText`) composes onto the stored state, so
  *     both tails survive — this is never a fabrication;
  *   - any NON-append incoming edit (a replace or delete relative to the
  *     base) CANNOT be expressed with append-only primitives without
@@ -164,31 +170,35 @@ export function sectionStateText(state: Buffer): string {
  *   - `stored === null` (first write of the section): seed a fresh state
  *     from the new text.
  *   - The stored text equals the new text: no-op (`changed: false`).
- *   - `headText === null` (no head text available for this section — no
- *     head yet, or the head version's blob is not resolvable locally): the
- *     single-writer assumption; re-seed from the new text (exact).
- *   - The stored text equals `headText` (single writer): re-seed from the
- *     new text — the input projects exactly, deletions included.
- *   - The stored text differs from `headText` and the incoming text equals
- *     `headText`: the writer authored nothing new; no-op.
- *   - The stored text differs from `headText` and the incoming text extends
- *     `headText` (append): compose the incoming tail onto the stored state;
- *     both edits survive, `conflicted: false`.
- *   - The stored text differs from `headText` and the incoming edit is a
- *     non-append relative to `headText`: `conflicted: true`, stored state
+ *   - `baseText === null` (no base text available for this section — no
+ *     head/base yet, or the reference version's blob is not resolvable
+ *     locally): the single-writer assumption; re-seed from the new text
+ *     (exact).
+ *   - The stored text equals `baseText` (single writer against the
+ *     reference): re-seed from the new text — the input projects exactly,
+ *     deletions included.
+ *   - The stored text differs from `baseText` and the incoming text equals
+ *     `baseText`: the writer authored nothing new; no-op.
+ *   - The stored text differs from `baseText` and the incoming text
+ *     extends `baseText` (append): compose the incoming tail onto the
+ *     stored state; both edits survive, `conflicted: false`.
+ *   - The stored text differs from `baseText` and the incoming edit is a
+ *     non-append relative to `baseText`: `conflicted: true`, stored state
  *     kept — the write path records the conflict and lands both versions.
  *
  * @param stored - The section's stored snapshot, or `null` when none exists.
  * @param nextText - The section's new full text.
- * @param headText - The section's text in the previous head version, or
- *   `null` when no head text is available.
+ * @param baseText - The section's text in the version the incoming edit was
+ *   authored against (previous head for base-less writes, declared base
+ *   otherwise), or `null` when no reference text is available.
  * @returns The resulting snapshot, whether it changed, and whether the edit
  *   is a non-append concurrent edit the caller must record as a conflict.
+ * @task T13674 (the baseText reference; T13589/T13595 for the merge shapes)
  */
 export function applySectionTextEdit(
   stored: Buffer | null,
   nextText: string,
-  headText: string | null,
+  baseText: string | null,
 ): { snapshot: Buffer; changed: boolean; conflicted: boolean } {
   if (stored === null) {
     return { snapshot: seedSectionState(nextText), changed: true, conflicted: false };
@@ -197,21 +207,21 @@ export function applySectionTextEdit(
   if (current === nextText) {
     return { snapshot: stored, changed: false, conflicted: false };
   }
-  if (headText === null || current === headText) {
+  if (baseText === null || current === baseText) {
     // Single-writer edit: project the input EXACTLY. The primitives can only
     // append, so a re-seed is the honest encoding of a replace/delete — it
     // never fabricates a concatenation no writer authored (T13589).
     return { snapshot: seedSectionState(nextText), changed: true, conflicted: false };
   }
-  if (nextText === headText) {
+  if (nextText === baseText) {
     // The writer authored nothing beyond the base; the stored (concurrent)
     // edit stands.
     return { snapshot: stored, changed: false, conflicted: false };
   }
-  if (nextText.startsWith(headText)) {
+  if (nextText.startsWith(baseText)) {
     // Concurrent append-append: compose the incoming tail onto the stored
     // state. Both tails survive and nothing is fabricated (T13585).
-    const update = makeSectionEditUpdate(stored, nextText.slice(headText.length));
+    const update = makeSectionEditUpdate(stored, nextText.slice(baseText.length));
     return { snapshot: mergeSectionUpdates(stored, [update]), changed: true, conflicted: false };
   }
   // Non-append concurrent edit (replace/delete relative to the base): not

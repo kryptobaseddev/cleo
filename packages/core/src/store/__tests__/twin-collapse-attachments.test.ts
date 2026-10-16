@@ -1479,6 +1479,9 @@ describe('Gate B: bare rows are a subset of the post-merge twin', () => {
           role,
           '--out',
           out,
+          // The bare tables have no uid columns (T12919 gives them to the
+          // twins only): the subset check compares row content, not identity.
+          '--omit-row-identity',
         ],
         { cwd: REPO_ROOT, stdio: 'pipe' },
       );

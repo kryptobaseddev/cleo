@@ -749,7 +749,7 @@ describe('backfillBlobStoreBytes crash-safety (T13654)', () => {
   const targetOf = (sha: string) => join(tempDir, '.cleo', 'blobs', 'blobs', sha);
 
   it('writes via tmp-then-rename and leaves no tmp file', async () => {
-    const { backfillBlobStoreBytes } = await import('../doctor.js');
+    const { backfillBlobStoreBytes } = await import('../../store/blob-keep.js');
     const content = '# Clean write\n';
     const { sha, sourcePath } = seedLegacySource(content);
 
@@ -763,7 +763,7 @@ describe('backfillBlobStoreBytes crash-safety (T13654)', () => {
   });
 
   it('returns present and leaves a verified existing target untouched', async () => {
-    const { backfillBlobStoreBytes } = await import('../doctor.js');
+    const { backfillBlobStoreBytes } = await import('../../store/blob-keep.js');
     const content = '# Already good\n';
     const { sha, sourcePath } = seedLegacySource(content);
     mkdirSync(dirname(targetOf(sha)), { recursive: true });
@@ -776,7 +776,7 @@ describe('backfillBlobStoreBytes crash-safety (T13654)', () => {
   });
 
   it('replaces a corrupt existing target and returns written', async () => {
-    const { backfillBlobStoreBytes } = await import('../doctor.js');
+    const { backfillBlobStoreBytes } = await import('../../store/blob-keep.js');
     const content = '# Corrupt target\n';
     const { sha, sourcePath } = seedLegacySource(content);
     mkdirSync(dirname(targetOf(sha)), { recursive: true });
@@ -795,7 +795,7 @@ describe('backfillBlobStoreBytes crash-safety (T13654)', () => {
   });
 
   it('still refuses unverified source bytes even when no target exists', async () => {
-    const { backfillBlobStoreBytes } = await import('../doctor.js');
+    const { backfillBlobStoreBytes } = await import('../../store/blob-keep.js');
     const content = '# Untrusted\n';
     const sha = createHash('sha256').update(content).digest('hex');
     const sourcePath = join(tempDir, '.cleo', 'attachments', 'sha256', sha.slice(0, 2), 'src.md');

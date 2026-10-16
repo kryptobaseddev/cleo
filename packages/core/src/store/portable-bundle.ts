@@ -73,6 +73,7 @@ import {
   clearSnapshotTables,
   countRows,
   GLOBAL_HOME_RULES,
+  keepSnapshotRows,
   LEGACY_STORE_BASENAMES,
   LEGACY_TABLE_MAP,
   MEMORY_TABLES,
@@ -81,6 +82,7 @@ import {
   pickKeyCounts,
   redactCredentials,
   type SectionRules,
+  type SnapshotRowFilter,
   scanSection,
   sha256File,
   vacuumSnapshot,
@@ -229,6 +231,18 @@ export interface ExportPortableBundleInput {
    * account key, so a joining device gets usable credentials (T13530).
    */
   sealCredentials?: (snapshotPath: string) => Promise<readonly SealedCredentialCell[]>;
+  /**
+   * Read the primary store snapshot as taken, before anything in it is sealed,
+   * stripped or cleared. The cloud vault checks a journal checkpoint's
+   * snapshot holds exactly the sealed and pushed state (T12999).
+   */
+  inspectSnapshot?: (snapshotPath: string) => Promise<void>;
+  /**
+   * Rows kept in tables of every primary store snapshot, after the inspection;
+   * the rest are deleted. The cloud vault keeps only the unresolved inbox rows
+   * a journal checkpoint must carry, never the whole receive history (T12999).
+   */
+  keepRows?: Readonly<Record<string, SnapshotRowFilter>>;
 }
 
 // ---------------------------------------------------------------------------
@@ -369,6 +383,10 @@ interface StagingState {
   sharesIdentity: boolean;
   /** Seals the primary snapshot's credential cells ({@link ExportPortableBundleInput.sealCredentials}). */
   sealCredentials: ((snapshotPath: string) => Promise<readonly SealedCredentialCell[]>) | null;
+  /** Reads the primary snapshot as taken ({@link ExportPortableBundleInput.inspectSnapshot}). */
+  inspectSnapshot: ((snapshotPath: string) => Promise<void>) | null;
+  /** Rows kept per table in the primary snapshot ({@link ExportPortableBundleInput.keepRows}). */
+  keepRows: Readonly<Record<string, SnapshotRowFilter>> | null;
 }
 
 /** Credential tables whose rows {@link listCredentialsForReentry} enumerates, by store. */
@@ -498,6 +516,17 @@ async function stageSection(
         });
       }
       continue;
+    }
+    if (isPrimary && state.inspectSnapshot !== null) await state.inspectSnapshot(staged);
+    if (isPrimary && state.keepRows !== null) {
+      try {
+        keepSnapshotRows(staged, state.keepRows);
+      } catch (err) {
+        throw new PortableBundleError(
+          'E_REDACTION_FAILED',
+          `Cannot prune local-only rows in the snapshot of ${path.join(root, relPath)}: ${err instanceof Error ? err.message : String(err)}`,
+        );
+      }
     }
     // Sealed BEFORE clearing, from the snapshot itself.
     const sealed =
@@ -782,6 +811,8 @@ export async function exportPortableBundle(
     clearTables: input.clearTables ?? null,
     sharesIdentity: input.sharesIdentity !== false,
     sealCredentials: input.sealCredentials ?? null,
+    inspectSnapshot: input.inspectSnapshot ?? null,
+    keepRows: input.keepRows ?? null,
   };
 
   try {

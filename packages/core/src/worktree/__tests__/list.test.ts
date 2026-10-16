@@ -14,6 +14,9 @@
  */
 
 import { execFileSync } from 'node:child_process';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 // ---------------------------------------------------------------------------
@@ -379,6 +382,36 @@ describe('listWorktrees — status classification', () => {
     const wt = result.data.worktrees[0];
     expect(wt?.isMerged).toBe(true);
     expect(wt?.statusCategory).toBe('merged');
+  });
+
+  it('kept: reports the keep marker a disposal left beside the worktree (T13701)', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'list-kept-'));
+    const path = join(dir, 'T250');
+    const marker = {
+      taskId: 'T250',
+      reason: 'complete',
+      projectRoot: '/tmp/project',
+      dependents: [join(dir, 'T251', 'node_modules')],
+      evidence: [],
+      keptAt: nowIso(0),
+    };
+    writeFileSync(`${path}.keep.json`, JSON.stringify(marker));
+    installGitMock({
+      porcelainOutput: porcelain([
+        { path, branch: 'task/T250' },
+        { path: join(dir, 'T251'), branch: 'task/T251' },
+      ]),
+      branchTimestamps: { 'task/T250': nowIso(0), 'task/T251': nowIso(0) },
+    });
+
+    try {
+      const result = await listWorktrees({ projectRoot: '/tmp/project' });
+      if (!result.success) throw new Error('expected success');
+      expect(result.data.worktrees[0]?.kept).toEqual(marker);
+      expect(result.data.worktrees[1]).not.toHaveProperty('kept');
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 
   it('locked detection: porcelain reports locked → status=locked', async () => {

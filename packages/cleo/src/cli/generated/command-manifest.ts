@@ -848,7 +848,7 @@ export const COMMAND_MANIFEST: readonly CommandManifestEntry[] = [
     exportName: 'leanCommand',
     name: 'lean',
     description:
-      'ct-lean (smallest complete change) levels and tools: cleo lean level [off|lite|full|ultra] [--session|--global]',
+      'ct-lean (smallest complete change) levels and tools: cleo lean level [off|lite|full|ultra] [--session|--global] · cleo lean debt [--file-tasks --parent <epic>]',
     load: async () => (await import('../commands/lean.js')).leanCommand as CommandDef,
   },
   {

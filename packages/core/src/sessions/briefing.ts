@@ -373,6 +373,21 @@ export async function computeBriefing(
       `Current guidance unavailable: ${error instanceof Error ? error.message : String(error)}`,
     );
   }
+  // T13720: accepted main-brain (global store) decisions guide every project.
+  try {
+    const { listAcceptedGlobalDecisions } = await import('../memory/global-brain.js');
+    currentGuidance.push(
+      ...(await listAcceptedGlobalDecisions(5)).map((decision) =>
+        params.memoryDetail
+          ? decision
+          : { ...decision, title: truncateString(decision.title, 240) },
+      ),
+    );
+  } catch (error) {
+    knowledgeWarnings.push(
+      `Global guidance unavailable: ${error instanceof Error ? error.message : String(error)}`,
+    );
+  }
 
   try {
     const receipts = await listKnowledgeRepairReceipts(projectRoot);

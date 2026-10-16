@@ -11,7 +11,7 @@
 
 import { getBrainAccessor } from '../store/memory-accessor.js';
 import { typedAll } from '../store/typed-query.js';
-import { embedText, isEmbeddingAvailable } from './brain-embedding.js';
+import { embedText, getEmbeddingProvider, isEmbeddingAvailable } from './brain-embedding.js';
 import type { BrainKnnRow } from './brain-row-types.js';
 import { isCurrentMemoryEntry } from './eligibility.js';
 
@@ -67,9 +67,10 @@ export async function searchSimilar(
 
   const maxResults = limit ?? 10;
 
-  // Embed the query text
+  // Embed the query text; only vectors of the same model are comparable (T13740).
+  const model = getEmbeddingProvider()?.model;
   const queryVector = await embedText(query);
-  if (!queryVector) return [];
+  if (!queryVector || !model) return [];
 
   // Ensure brain.db is initialized
   const { getBrainDb, getBrainNativeDb, isBrainVecLoaded } = await import(
@@ -80,17 +81,18 @@ export async function searchSimilar(
   if (!nativeDb) return [];
 
   // Require sqlite-vec for KNN queries
-  if (!isBrainVecLoaded()) return [];
+  if (!isBrainVecLoaded(projectRoot)) return [];
 
   // Run KNN query against vec0 table
   let knnRows: BrainKnnRow[];
   try {
     const stmt = nativeDb.prepare(
-      'SELECT id, distance FROM brain_embeddings WHERE embedding MATCH ? ORDER BY distance LIMIT ?',
+      'SELECT id, distance FROM brain_embeddings WHERE embedding MATCH ? AND model = ? ORDER BY distance LIMIT ?',
     );
     knnRows = typedAll<BrainKnnRow>(
       stmt,
       new Float32Array(queryVector.buffer, queryVector.byteOffset, queryVector.length),
+      model,
       maxResults,
     );
   } catch {

@@ -15,6 +15,7 @@
 
 import type { BrainEntrySummary, ContradictionDetail, SupersededEntry } from '@cleocode/contracts';
 import type { EngineResult } from '../engine-result.js';
+import { pushWarning } from '../output.js';
 import { getProjectRoot } from '../paths.js';
 import { getTaskAccessor } from '../store/data-accessor.js';
 // BRAIN accessor for direct table queries (T5241)
@@ -30,6 +31,12 @@ import {
 } from './brain-retrieval.js';
 // T545: Decision store with quality scoring and graph auto-population
 import { storeDecision } from './decisions.js';
+import {
+  fetchGlobalBrain,
+  findGlobalBrain,
+  observeGlobalBrain,
+  storeGlobalDecision,
+} from './global-brain.js';
 import {
   learningStats,
   type SearchLearningParams,
@@ -51,6 +58,36 @@ import {
 // ============================================================================
 // Internal helpers
 // ============================================================================
+/** A `scope` other than absent, `project` or `global` is an input error (T13720). */
+function invalidScope(scope: string | undefined): EngineResult | null {
+  if (scope === undefined || scope === 'project' || scope === 'global') return null;
+  // @sync-invariant none:input-shape an unknown scope is refused before any write
+  return {
+    success: false,
+    error: {
+      code: 'E_INVALID_INPUT',
+      message: `scope must be "project" or "global", got "${scope}"`,
+    },
+  };
+}
+
+/**
+ * Read the main brain for a project memory read. An unreadable global store
+ * warns and adds nothing, so project results still return (T13720).
+ */
+async function readGlobalBrain<T>(read: () => Promise<T[]>): Promise<T[]> {
+  try {
+    return await read();
+  } catch (error) {
+    pushWarning({
+      // @sync-invariant none:local-only a read-path warning; nothing is written
+      code: 'W_GLOBAL_BRAIN_UNAVAILABLE',
+      severity: 'warn',
+      message: `Global (main brain) memory skipped: ${error instanceof Error ? error.message : String(error)}`,
+    });
+    return [];
+  }
+}
 
 function resolveRoot(projectRoot?: string): string {
   return projectRoot || getProjectRoot();
@@ -407,9 +444,13 @@ export async function memoryDecisionStore(
     supersedes?: string | null;
     confirmationState?: 'proposed' | 'accepted' | 'superseded';
     decidedBy?: 'owner' | 'council' | 'agent';
+    /** T13720: `global` writes the main brain (global store); default `project`. */
+    scope?: string;
   },
   projectRoot?: string,
 ): Promise<EngineResult> {
+  const scopeError = invalidScope(params.scope);
+  if (scopeError) return scopeError;
   if (!params.decision) {
     return {
       success: false,
@@ -419,8 +460,22 @@ export async function memoryDecisionStore(
   if (!params.rationale) {
     return { success: false, error: { code: 'E_INVALID_INPUT', message: 'rationale is required' } };
   }
+  // Task links and supersession point at project rows; the main brain has neither.
+  if (params.scope === 'global' && (params.taskId || params.supersedes)) {
+    // @sync-invariant none:input-shape project-only links are refused before any global write
+    return {
+      success: false,
+      error: {
+        code: 'E_INVALID_INPUT',
+        message: '--linked-task and --supersedes are project-only; omit them with --scope global',
+      },
+    };
+  }
 
   try {
+    if (params.scope === 'global') {
+      return { success: true, data: await storeGlobalDecision(params) };
+    }
     const root = resolveRoot(projectRoot);
     // Route through storeDecision() so quality scoring and graph auto-population
     // (upsertGraphNode) run on every insert — fixes T545 regression where
@@ -549,6 +604,21 @@ export async function memoryFind(
       agent: params.agent,
       includeHistory: params.includeHistory,
     });
+    // T13720: main-brain hits follow the project's, under their own limit, so a
+    // busy project never hides them. Agent provenance and date windows are
+    // project-only filters, so those searches stay project-only.
+    if (params.agent === undefined && !params.dateStart && !params.dateEnd) {
+      const global = await readGlobalBrain(() =>
+        findGlobalBrain(params.query, {
+          limit: params.limit,
+          tables: params.tables,
+          includeHistory: params.includeHistory,
+        }),
+      );
+      result.results.push(...global);
+      result.total += global.length;
+      result.tokensEstimated += global.length * 50;
+    }
     return { success: true, data: result };
   } catch (error) {
     return {
@@ -623,6 +693,13 @@ export async function memoryFetch(
   try {
     const root = resolveRoot(projectRoot);
     const result = await fetchBrainEntries(root, { ids: params.ids });
+    // T13720: ids also resolve in the main brain; a project and a global row
+    // may share an id (D001), so both are returned, each with its scope.
+    const global = await readGlobalBrain(() => fetchGlobalBrain(params.ids));
+    result.results.push(...global);
+    const found = new Set(global.map((entry) => entry.id));
+    result.notFound = result.notFound.filter((id) => !found.has(id));
+    result.tokensEstimated += global.length * 500;
     return { success: true, data: result };
   } catch (error) {
     return {
@@ -668,10 +745,17 @@ export async function memoryObserve(
     attachmentRefs?: string[];
     /** T12494: opt in to a System One type choice when `type` is absent (interactive observe only). */
     askTypeDecision?: boolean;
+    /** T13720: `global` writes the main brain (global store); default `project`. */
+    scope?: string;
   },
   projectRoot?: string,
 ): Promise<EngineResult> {
+  const scopeError = invalidScope(params.scope);
+  if (scopeError) return scopeError;
   try {
+    if (params.scope === 'global') {
+      return { success: true, data: await observeGlobalBrain(params) };
+    }
     const root = resolveRoot(projectRoot);
     const observeParams: ObserveBrainParams = {
       text: params.text,

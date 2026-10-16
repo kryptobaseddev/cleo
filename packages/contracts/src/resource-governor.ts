@@ -75,6 +75,13 @@ export const RESOURCE_DEFERRED_CODE = 'E_RESOURCE_DEFERRED' as const;
 export const RUN_COMMAND_FAILED_CODE = 'E_COMMAND_FAILED' as const;
 
 /**
+ * `cleo run`: a SIGINT, SIGTERM or SIGHUP reached the runner while it waited
+ * in the queue; it left the queue and started nothing. It exits 128 + the
+ * signal number. @task T13681
+ */
+export const RUN_INTERRUPTED_CODE = 'E_RUN_INTERRUPTED' as const;
+
+/**
  * `cleo run` exit code for "not admitted, nothing started"
  * (sysexits EX_TEMPFAIL). Note a child may itself exit 75; the envelope's
  * `error.code` tells the two apart.
