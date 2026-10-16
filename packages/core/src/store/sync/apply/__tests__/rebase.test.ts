@@ -352,7 +352,8 @@ describe('rows outside the sync set survive a rewound insert (R7-2, T13267)', ()
   it("a rewound task's and session's cascade children come back with the replay and the echo", async () => {
     const [a, b, c] = await threeReplicas();
     expect(captureTableDef(a.db, 'project', 'tasks_task_work_history')).toBeUndefined();
-    expect(captureTableDef(a.db, 'project', 'tasks_session_handoff_entries')).toBeUndefined();
+    // The handoff syncs since T13777: a stream child of the session now, replayed like any other.
+    expect(captureTableDef(a.db, 'project', 'tasks_session_handoff_entries')).toBeDefined();
     // No sync-set table has a SET NULL child outside the sync set today: a
     // local table stands in for one (a column the delete would clear).
     a.db.exec(
