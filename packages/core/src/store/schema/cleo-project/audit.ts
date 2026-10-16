@@ -50,6 +50,7 @@ import {
   sqliteTable,
   text,
   unique,
+  uniqueIndex,
 } from 'drizzle-orm/sqlite-core';
 import { ADR_STATUSES, GATE_STATUSES } from '../../status-registry.js';
 import { TOKEN_USAGE_CONFIDENCE, TOKEN_USAGE_METHODS, TOKEN_USAGE_TRANSPORTS } from '../audit.js';
@@ -214,8 +215,11 @@ export const tasksTokenUsage = sqliteTable(
     responseHash: text('response_hash'),
     /** JSON metadata object (TEXT per JSON audit; empty-object default). */
     metadataJson: text('metadata_json').notNull().default('{}'),
+    /** Row uid (T13777): a UUIDv8 over the usage id, filled at open or by the uid trigger. */
+    uid: text('uid'),
   },
   (table) => [
+    uniqueIndex('uq_tasks_token_usage_uid').on(table.uid),
     index('idx_tasks_token_usage_created_at').on(table.createdAt),
     index('idx_tasks_token_usage_request_id').on(table.requestId),
     index('idx_tasks_token_usage_session_id').on(table.sessionId),

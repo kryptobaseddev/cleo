@@ -28,6 +28,7 @@ import {
   readRowIdentityRefusal,
   rowIdentityFindings,
   UID_COLUMN,
+  uidMissingWhere,
 } from '../store/row-identity.js';
 import { ROW_UID_FILL_FLAG, rowUidFillEnabled } from '../store/row-identity-flag.js';
 
@@ -99,7 +100,7 @@ export function rowIdentityDoctorCheck(projectRoot: string): RowIdentityDoctorCh
         const fp = spec.kind === 'minted' && has(BIRTH_FP_COLUMN, spec.table);
         const row = snap.db
           .prepare(
-            `SELECT count(*) AS n FROM "${spec.table}" WHERE ${UID_COLUMN} IS NULL${fp ? ` OR ${BIRTH_FP_COLUMN} IS NULL` : ''}`,
+            `SELECT count(*) AS n FROM main."${spec.table}" WHERE (${uidMissingWhere(spec)})${fp ? ` OR ${BIRTH_FP_COLUMN} IS NULL` : ''}`,
           )
           .get() as { n: number };
         if (row.n > 0) unfilled[spec.table] = row.n;

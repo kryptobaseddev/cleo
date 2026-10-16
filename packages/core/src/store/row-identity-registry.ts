@@ -422,6 +422,38 @@ function lifecycleReleaseGit(): RowIdentitySpec[] {
 }
 
 /**
+ * The logs every command writes (T13777), project scope. Portable, so every
+ * vault snapshot lists them; without row identity the change journal never
+ * carried them, and a journal checkpoint could not account for their rows on
+ * any real store (T12999 staging, 2026-10-16).
+ *
+ * - `tasks_token_usage`: a UUID id, so natural over it. Its session and task
+ *   ids are soft (a session or task that never syncs must not hold the row
+ *   pending) and stay raw. The bare `token_usage` drains into it (T13115) and
+ *   stays exempt as a twin.
+ * - `tasks_session_handoff_entries`: one write-once row per session, keyed by
+ *   its INTEGER id locally (which never travels), so natural over the session
+ *   it belongs to: a hard FK, so it travels as the session's uid. Its
+ *   write-once guard covers the content columns only, so the uid can be filled.
+ *   The legacy DDL has no UNIQUE on the session, so the first row of a session
+ *   (earliest `created_at`, then lowest id) takes the uid and a later one stays
+ *   local (`localUnlessFirst`): a duplicate never wedges the fill.
+ */
+function commandLogs(): RowIdentitySpec[] {
+  return [
+    { table: 'tasks_token_usage', kind: 'natural', key: ['id'], task: 'T13777' },
+    {
+      table: 'tasks_session_handoff_entries',
+      kind: 'natural',
+      key: ['session_id'],
+      keyRefs: [{ column: 'session_id', table: SESSIONS }],
+      localUnlessFirst: ['created_at', 'id'],
+      task: 'T13777',
+    },
+  ];
+}
+
+/**
  * Declared row identity, per scope. Every syncing table is either declared
  * here or exempt with a reason in {@link ROW_IDENTITY_EXEMPT} (T12897); the
  * row-identity coverage gate fails on a table in neither.
@@ -665,6 +697,7 @@ export const ROW_IDENTITY: Readonly<Record<TableScope, readonly RowIdentitySpec[
       task: 'T12919',
     },
     ...lifecycleReleaseGit(),
+    ...commandLogs(),
   ],
   global: [
     ...brainTextKeyed(),
@@ -732,6 +765,9 @@ export const ROW_IDENTITY: Readonly<Record<TableScope, readonly RowIdentitySpec[
       ],
       task: 'T13467',
     },
+    // The Nexus audit log (T13777): a UUID id, so natural over it; the
+    // project and session ids are soft and stay raw.
+    { table: 'nexus_audit_log', kind: 'natural', key: ['id'], task: 'T13777' },
   ],
 };
 
@@ -820,6 +856,23 @@ function exempt(
 }
 
 /**
+ * Bare tables the twin collapse DRAINS into their prefixed twin (T13115),
+ * bare name → twin name. Kept here, a module every open already loads, so
+ * the bare-twin strand check (`sync/flags.ts`) adds nothing to the CLI's
+ * startup graph (gate 39).
+ *
+ * A drained bare table is the inbox of rows an older build writes: every open
+ * moves them into the twin losslessly, and a row the drain must leave behind
+ * is reported by `cleo doctor twin-collapse`. So its rows are never a legacy
+ * strand that should refuse capture or sealing: the next open carries them.
+ *
+ * @task T13777
+ */
+export const DRAINED_TWINS: Readonly<Record<string, string>> = {
+  token_usage: 'tasks_token_usage',
+};
+
+/**
  * Every syncing table WITHOUT a {@link ROW_IDENTITY} entry, with the reason it
  * syncs without one. A syncing table in neither place fails the row-identity
  * coverage gate (`scripts/lint-row-identity-coverage.mjs` against the
@@ -860,7 +913,6 @@ export const ROW_IDENTITY_EXEMPT: Readonly<
         'playbook_runs',
         'tasks_playbook_runs',
         'token_usage',
-        'tasks_token_usage',
         'warp_chains',
         'tasks_warp_chains',
         'warp_chain_instances',
@@ -902,7 +954,6 @@ export const ROW_IDENTITY_EXEMPT: Readonly<
         'tasks_agent_credentials',
         'tasks_external_task_links',
         'tasks_goal',
-        'tasks_session_handoff_entries',
         'tasks_task_work_history',
       ],
       PROJECT_MISC,
@@ -911,7 +962,6 @@ export const ROW_IDENTITY_EXEMPT: Readonly<
   global: {
     ...exempt(
       [
-        'nexus_audit_log',
         'nexus_devices',
         'nexus_project_git_state',
         'nexus_project_id_aliases',
@@ -945,7 +995,9 @@ export const ROW_IDENTITY_EXEMPT: Readonly<
  * (2 project; docs_wikilinks became derived and not syncing), and T13729
  * reclassified brain_embeddings derived in both scopes (owner decision
  * 2026-10-14: vectors are a local cache), closing the T12918 blob exemption,
- * and T12914 the lifecycle, release, PR and commit tables (16 project)
+ * and T12914 the lifecycle, release, PR and commit tables (16 project),
+ * and T13777 declared the command logs (2 project: token usage, handoff
+ * entries; 1 global: the Nexus audit log)
  * ({@link rowIdentityExemptionSummary} prints the live numbers):
  *
  * | category             | task   | project | global |
@@ -955,17 +1007,17 @@ export const ROW_IDENTITY_EXEMPT: Readonly<
  * | planned              | T12896 | 2       | 1      |
  * | planned (conduit)    | T12913 | 8       | 0      |
  * | planned (lifecycle…) | T12914 | 0       | 0      |
- * | planned (nexus)      | T12916 | 0       | 8      |
+ * | planned (nexus)      | T12916 | 0       | 7      |
  * | planned (skills)     | T12917 | 0       | 4      |
- * | planned (misc)       | T12920 | 12      | 0      |
- * | twin-collapse        | T12535 | 30      | 0      |
- * | total                |        | 50      | 12     |
+ * | planned (misc)       | T12920 | 11      | 0      |
+ * | twin-collapse        | T12535 | 29      | 0      |
+ * | total                |        | 48      | 11     |
  *
  * @task T12897
  */
 export const ROW_IDENTITY_EXEMPT_PINNED: Readonly<Record<TableScope, number>> = {
-  project: 50,
-  global: 12,
+  project: 48,
+  global: 11,
 };
 
 /**
@@ -977,8 +1029,8 @@ export const ROW_IDENTITY_EXEMPT_PINNED: Readonly<Record<TableScope, number>> = 
  * @task T12897
  */
 export const ROW_IDENTITY_EXEMPT_NAMES_SHA256: Readonly<Record<TableScope, string>> = {
-  project: 'a6b47de8cf3fb13152653f8ca7e4a47d73dfa9c21a80e32869e1b6a121e181cf',
-  global: '09b63cf1df7591f9320e4f540c0df9a717008a7a80c17b38ef2729f09ea5f618',
+  project: '83259fa399beb43c77b465128f4e3d987e9cfbd60146e7e879fdec580876e0af',
+  global: '2c46fe6fed00b5e15dc9323b48d448d51d2f475fe6c9480703830efb0dc63cfb',
 };
 
 /**

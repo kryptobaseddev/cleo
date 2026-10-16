@@ -69,7 +69,15 @@
 
 import { USER_PROFILE_SCOPES } from '@cleocode/contracts/operations/nexus-user-profile.js';
 import { sql } from 'drizzle-orm';
-import { index, integer, primaryKey, real, sqliteTable, text } from 'drizzle-orm/sqlite-core';
+import {
+  index,
+  integer,
+  primaryKey,
+  real,
+  sqliteTable,
+  text,
+  uniqueIndex,
+} from 'drizzle-orm/sqlite-core';
 import { makeSchemaMetaTable } from '../schema-utils.js';
 
 // ---------------------------------------------------------------------------
@@ -432,8 +440,11 @@ export const nexusAuditLog = sqliteTable(
     detailsJson: text('details_json').default('{}'),
     /** Error message when the operation failed. */
     errorMessage: text('error_message'),
+    /** Row uid (T13777): a UUIDv8 over the audit id, filled at open or by the uid trigger. */
+    uid: text('uid'),
   },
   (table) => [
+    uniqueIndex('uq_nexus_audit_log_uid').on(table.uid),
     index('idx_nexus_audit_timestamp').on(table.timestamp),
     index('idx_nexus_audit_action').on(table.action),
     index('idx_nexus_audit_project_hash').on(table.projectHash),
