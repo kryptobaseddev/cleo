@@ -137,6 +137,11 @@ export interface DeriveTaskEvidenceOptions {
   satisfies?: readonly string[] | 'all';
   /** Explicit PR (`--pr <n>`). */
   prNumber?: number;
+  /**
+   * Explicit commit (`--commit <sha>`, T13799): work already on the default
+   * branch that no PR or branch cites; verified by the change-set derivation.
+   */
+  commit?: string;
   /** Injectable change-set I/O (tests). */
   deps?: ChangeSetDeps;
   /** Evidence preview (tests inject; defaults to the write's own validators). */
@@ -220,6 +225,22 @@ function checkoutBlocker(
       next: {
         command: `git -C ${shellQuote(root)} switch ${branch} && cleo done ${taskId}`,
         why: 'Tests, lint, typecheck and typed gates must run on the commit implemented records.',
+      },
+    };
+  }
+  if (cs.source === 'commit' && cs.commitSha) {
+    // T13799: a landed commit, like a merge, must be in the tested tree.
+    if (
+      head !== null &&
+      gitRead(root, ['merge-base', '--is-ancestor', cs.commitSha, 'HEAD']) !== null
+    )
+      return null;
+    return {
+      code: 'checkout-required',
+      message: `${root} has ${short(head)} checked out, which does not contain ${taskId}'s commit ${short(cs.commitSha)}; the tools would measure a tree without the change.`,
+      next: {
+        command: `git -C ${shellQuote(root)} switch --detach ${cs.baseRef ?? cs.commitSha} && cleo done ${taskId} --commit ${cs.commitSha}`,
+        why: 'Tests, lint, typecheck and typed gates must run on a tree that holds the commit implemented records.',
       },
     };
   }
@@ -467,11 +488,16 @@ function mapCriteria(
   changeSet: TaskChangeSet,
   pending: readonly VerificationGate[],
   satisfies: readonly string[] | 'all' | undefined,
+  runTyped = false,
 ): DonePlanAcMapping[] {
   const recorded = recordedCriteria(task);
   const changed = new Set(changeSet.files.map(normaliseRepoPath));
   const writable = (gates: VerificationGate[]): VerificationGate[] =>
     gates.filter((g) => pending.includes(g));
+  const typedAliases = new Set(typedGates.map((g) => g.alias));
+  // T13799: when every criterion is a typed gate (a REQ-only task), those gates
+  // are the task's whole definition, so the change and its QA serve them too.
+  const onlyTyped = rows.length > 0 && rows.every((r) => typedAliases.has(`AC${r.ordinal}`));
   return rows.map((row) => {
     const alias = `AC${row.ordinal}`;
     const base = { alias, id: row.id, text: row.text };
@@ -479,8 +505,15 @@ function mapCriteria(
       const gates = writable([...EVIDENCE_GATES]);
       return { ...base, mapped: true, gates, basis: 'agent' };
     }
-    if (typedGates.some((g) => g.alias === alias && g.status === 'pass')) {
-      return { ...base, mapped: true, gates: writable(['testsPassed']), basis: 'typed-gate' };
+    // T13799: with --run-typed, cleo done runs a not-yet-run typed gate before
+    // the write and refuses on failure, so its criterion links to that run.
+    if (
+      typedGates.some(
+        (g) => g.alias === alias && (g.status === 'pass' || (runTyped && g.status === 'not-run')),
+      )
+    ) {
+      const gates = writable(onlyTyped ? [...EVIDENCE_GATES] : ['testsPassed']);
+      return { ...base, mapped: true, gates, basis: 'typed-gate' };
     }
     const named = extractTaskAcFilesWithProvenance({ acceptance: [row.text] }).files ?? [];
     if (named.length > 0 && named.every((path) => changed.has(normaliseRepoPath(path)))) {
@@ -840,8 +873,20 @@ export async function deriveTaskEvidence(
   const satisfies = normaliseSatisfies(taskId, opts.satisfies, rows);
   const policy = await loadVerificationGatePolicy(storeRoot);
 
+  // T13785: a parent whose work was split across its children closes on the
+  // PRs its done children shipped, never on one picked PR.
+  const doneChildIds = (await accessor.getChildren(taskId))
+    .filter((c) => c.status === 'done')
+    .map((c) => c.id);
   const changeSet = await deriveTaskChangeSet(
-    { task, storeRoot, cwd: opts.cwd, prNumber: opts.prNumber },
+    {
+      task,
+      storeRoot,
+      cwd: opts.cwd,
+      prNumber: opts.prNumber,
+      doneChildIds,
+      ...(opts.commit !== undefined ? { commit: opts.commit } : {}),
+    },
     opts.deps,
   );
   const root = changeSet.executionRoot;
@@ -989,7 +1034,15 @@ export async function deriveTaskEvidence(
     testRunBlockers.push(qaRunNeededBlocker(taskId, root, ['lint'], 'this non-code change'));
   }
   const typedGates = planTypedGates(task, rows, storeRoot);
-  const acMapping = mapCriteria(task, rows, typedGates, changeSet, pending, satisfies);
+  const acMapping = mapCriteria(
+    task,
+    rows,
+    typedGates,
+    changeSet,
+    pending,
+    satisfies,
+    opts.runTyped === true,
+  );
 
   const gates: DonePlanGate[] = policy.requiredGates.map((gate) => {
     const raw =
@@ -1110,12 +1163,13 @@ export async function planTaskDone(
 }
 
 /**
- * Parse the `--satisfies` / `--pr` CLI flags shared by `cleo done` and
- * `cleo verify --auto` into planner options.
+ * Parse the `--satisfies` / `--pr` / `--commit` CLI flags shared by
+ * `cleo done` and `cleo verify --auto` into planner options.
  *
  * @param satisfies - Raw `--satisfies` value (`AC1,AC3` or `all`), if given.
  * @param pr - Raw `--pr` value, if given.
- * @returns The options, or the refusal text for an invalid PR number.
+ * @param commit - Raw `--commit` value, if given (T13799).
+ * @returns The options, or the refusal text for an invalid PR number or commit.
  * @example
  * ```ts
  * parseDoneOptions('AC1,AC3', '42'); // { ok: true, options: { satisfies: ['AC1','AC3'], prNumber: 42 } }
@@ -1125,19 +1179,28 @@ export async function planTaskDone(
 export function parseDoneOptions(
   satisfies: unknown,
   pr: unknown,
+  commit?: unknown,
 ):
-  | { ok: true; options: Pick<DeriveTaskEvidenceOptions, 'satisfies' | 'prNumber'> }
+  | { ok: true; options: Pick<DeriveTaskEvidenceOptions, 'satisfies' | 'prNumber' | 'commit'> }
   | { ok: false; message: string } {
   const raw = typeof satisfies === 'string' ? satisfies.trim() : '';
   const prNumber = typeof pr === 'string' ? Number(pr) : undefined;
   if (prNumber !== undefined && !(Number.isInteger(prNumber) && prNumber > 0)) {
     return { ok: false, message: `--pr must be a positive PR number, got "${String(pr)}"` };
   }
+  const sha = typeof commit === 'string' ? commit.trim() : undefined;
+  if (sha !== undefined && !/^[0-9a-f]{7,40}$/i.test(sha)) {
+    return { ok: false, message: `--commit must be a commit SHA (7-40 hex), got "${sha}"` };
+  }
+  if (sha !== undefined && prNumber !== undefined) {
+    return { ok: false, message: '--pr and --commit name two different change sets; pass one' };
+  }
   return {
     ok: true,
     options: {
       ...(raw === '' ? {} : { satisfies: raw.toLowerCase() === 'all' ? 'all' : raw.split(',') }),
       ...(prNumber !== undefined ? { prNumber } : {}),
+      ...(sha !== undefined ? { commit: sha } : {}),
     },
   };
 }

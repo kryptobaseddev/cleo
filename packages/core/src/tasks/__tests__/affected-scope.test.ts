@@ -1435,3 +1435,205 @@ describe('T13673: a later-main test-run stands in for any merged change (owner d
     }
   });
 });
+
+describe('T13784: staleness considers only the change files and the tests the run ran', () => {
+  /** The T13673 fixture, then main gains one more commit editing `path`. */
+  function movedOn(path: string) {
+    const root = realpathSync(mkdtempSync(join(tmpdir(), 'cleo-t13784-')));
+    const git = (...a: string[]): string =>
+      execFileSync('git', ['-c', 'user.name=T', '-c', 'user.email=t@e.x', ...a], {
+        cwd: root,
+        encoding: 'utf-8',
+      }).trim();
+    git('init', '-q', '-b', 'main');
+    mkdirSync(join(root, 'src'));
+    mkdirSync(join(root, 'tooling'));
+    writeFileSync(join(root, 'package.json'), '{"name":"x","type":"module"}\n');
+    writeFileSync(join(root, 'src/a.ts'), 'export const a = 1;\n');
+    writeFileSync(join(root, 'src/a.test.ts'), "import './a.js';\n");
+    writeFileSync(join(root, 'tooling/print-bridge.mjs'), 'export const p = 1;\n');
+    git('add', '.');
+    git('commit', '-q', '-m', 'init');
+    git('switch', '-q', '-c', 'task/T9001');
+    writeFileSync(join(root, 'src/a.ts'), 'export const a = 2;\n');
+    git('commit', '-q', '-am', 'T9001');
+    git('switch', '-q', 'main');
+    git('merge', '-q', '--no-ff', '-m', 'Merge pull request #7', 'task/T9001');
+    const merge = git('rev-parse', 'HEAD');
+    const ranHead = git('rev-parse', 'HEAD');
+    const ranTree = git('rev-parse', 'HEAD^{tree}');
+    writeFileSync(join(root, path), `// moved on ${path}\n`);
+    git('commit', '-q', '-am', `later main commit: ${path}`);
+    const head = git('rev-parse', 'HEAD');
+    const tree = git('rev-parse', 'HEAD^{tree}');
+    git('update-ref', 'refs/remotes/origin/main', head);
+    const changeSet: TaskChangeSet = {
+      source: 'pr',
+      executionRoot: root,
+      rootSource: 'store',
+      files: ['src/a.ts'],
+      deletedFiles: [],
+      docs: [],
+      decisions: [],
+      candidates: [],
+      implementedEvidence: '',
+      blockers: [],
+      warnings: [],
+      prNumber: 7,
+      mergeCommitSha: merge,
+    };
+    return { root, merge, ranHead, ranTree, head, tree, changeSet };
+  }
+
+  const run = (o: Partial<Extract<EvidenceAtom, { kind: 'test-run' }>>): EvidenceAtom => ({
+    kind: 'test-run',
+    path: 'r.json',
+    sha256: 'c'.repeat(64),
+    passCount: 1,
+    failCount: 0,
+    skipCount: 0,
+    testFiles: ['src/a.test.ts'],
+    ...o,
+  });
+
+  const judge = (c: ReturnType<typeof movedOn>, atoms: EvidenceAtom[]) =>
+    testsPassedSupersededReason(atoms, {
+      mergeState: () => ({ state: 'merged', changeSet: c.changeSet }),
+      currentTree: () => c.tree,
+      landed: isLandedOnOriginDefault,
+    });
+
+  it('green: an unrelated commit after verify (tree moved) does not stale the run', async () => {
+    const c = movedOn('tooling/print-bridge.mjs');
+    try {
+      const atoms = [run({ headSha: c.ranHead, treeHash: c.ranTree })];
+      expect(await judge(c, atoms)).toBeNull();
+      expect(
+        scopedRunStandsAfterRedCi(atoms, c.changeSet, c.tree, isLandedOnOriginDefault),
+      ).toEqual({ ok: true });
+    } finally {
+      rmSync(c.root, { recursive: true, force: true });
+    }
+  });
+
+  it('green: an unrelated commit landed between the run and verify (runHeadSha) does not stale it', async () => {
+    const c = movedOn('tooling/print-bridge.mjs');
+    try {
+      const atoms = [run({ runHeadSha: c.ranHead, headSha: c.head, treeHash: c.tree })];
+      expect(await judge(c, atoms)).toBeNull();
+    } finally {
+      rmSync(c.root, { recursive: true, force: true });
+    }
+  });
+
+  it("red: a later commit touching the change's own file stales it, on both paths", async () => {
+    const c = movedOn('src/a.ts');
+    try {
+      const after = await judge(c, [run({ headSha: c.ranHead, treeHash: c.ranTree })]);
+      expect(after).toMatch(/differ between the tree it was recorded on.*: src\/a\.ts/);
+      const between = await judge(c, [
+        run({ runHeadSha: c.ranHead, headSha: c.head, treeHash: c.tree }),
+      ]);
+      expect(between).toMatch(/differ between HEAD as of the run.*: src\/a\.ts/);
+    } finally {
+      rmSync(c.root, { recursive: true, force: true });
+    }
+  });
+
+  it('red: a later commit touching a test file the run ran stales it', async () => {
+    const c = movedOn('src/a.test.ts');
+    try {
+      expect(await judge(c, [run({ headSha: c.ranHead, treeHash: c.ranTree })])).toMatch(
+        /: src\/a\.test\.ts/,
+      );
+    } finally {
+      rmSync(c.root, { recursive: true, force: true });
+    }
+  });
+
+  /**
+   * Review of #2295: the change is packages/a/src/x.ts; main then edits one
+   * test input of packages/a (or an unrelated package's manifest).
+   */
+  function packageMovedOn(path: string) {
+    const root = realpathSync(mkdtempSync(join(tmpdir(), 'cleo-t13784-pkg-')));
+    const git = (...a: string[]): string =>
+      execFileSync('git', ['-c', 'user.name=T', '-c', 'user.email=t@e.x', ...a], {
+        cwd: root,
+        encoding: 'utf-8',
+      }).trim();
+    const files: Record<string, string> = {
+      'package.json': '{"name":"root","private":true}\n',
+      'packages/a/package.json': '{"name":"@x/a"}\n',
+      'packages/a/vitest.config.ts': 'export default {};\n',
+      'packages/a/src/test-setup.ts': 'export {};\n',
+      'packages/a/src/x.ts': 'export const x = 1;\n',
+      'packages/a/src/x.test.ts': "import './x.js';\n",
+      'packages/b/package.json': '{"name":"@x/b"}\n',
+      'packages/b/src/setup-wizard.ts': 'export const w = 1;\n',
+      'packages/b/src/b.setup.ts': 'export {};\n',
+    };
+    git('init', '-q', '-b', 'main');
+    for (const [f, body] of Object.entries(files)) {
+      mkdirSync(join(root, f, '..'), { recursive: true });
+      writeFileSync(join(root, f), body);
+    }
+    git('add', '-A');
+    git('commit', '-q', '-m', 'init');
+    writeFileSync(join(root, 'packages/a/src/x.ts'), 'export const x = 2;\n');
+    git('commit', '-q', '-am', 'T9001');
+    const ranHead = git('rev-parse', 'HEAD');
+    const ranTree = git('rev-parse', 'HEAD^{tree}');
+    writeFileSync(join(root, path), `${files[path]?.trimEnd() ?? ''} // moved\n`);
+    git('commit', '-q', '-am', `later main commit: ${path}`);
+    const tree = git('rev-parse', 'HEAD^{tree}');
+    const scope = { root, changed: ['packages/a/src/x.ts'] };
+    const atoms = [
+      run({ headSha: ranHead, treeHash: ranTree, testFiles: ['packages/a/src/x.test.ts'] }),
+    ];
+    return { root, verdict: () => testRunTreeMismatchReason(atoms, tree, scope) };
+  }
+
+  it.each([
+    'packages/a/vitest.config.ts',
+    'packages/a/package.json',
+    'packages/a/src/test-setup.ts',
+  ])("red (review of #2295): a later commit to the package's test input %s stales the run", (path) => {
+    const c = packageMovedOn(path);
+    try {
+      expect(c.verdict()).toMatch(new RegExp(`test inputs.*: ${path.replace(/\./g, '\\.')}`));
+    } finally {
+      rmSync(c.root, { recursive: true, force: true });
+    }
+  });
+
+  it.each([
+    'packages/b/package.json',
+    'packages/b/src/setup-wizard.ts',
+    'packages/b/src/b.setup.ts',
+  ])("green: another package's %s moving on main does not stale the run", (path) => {
+    const c = packageMovedOn(path);
+    try {
+      expect(c.verdict()).toBeNull();
+    } finally {
+      rmSync(c.root, { recursive: true, force: true });
+    }
+  });
+
+  it('red: without the change scope, a moved tree or unseen commits still refuse', () => {
+    const c = movedOn('tooling/print-bridge.mjs');
+    try {
+      expect(
+        testRunTreeMismatchReason([run({ headSha: c.ranHead, treeHash: c.ranTree })], c.tree),
+      ).toMatch(/but the tree is now/);
+      expect(
+        testRunTreeMismatchReason(
+          [run({ runHeadSha: c.ranHead, headSha: c.head, treeHash: c.tree })],
+          c.tree,
+        ),
+      ).toMatch(/did not see the commits/);
+    } finally {
+      rmSync(c.root, { recursive: true, force: true });
+    }
+  });
+});

@@ -4,7 +4,7 @@ exports[`T11578 AC3 — nexus DDL snapshot (post-cutover prefixed shape + FTS5) 
 [
   {
     "name": "nexus_audit_log",
-    "sql": "CREATE TABLE \`nexus_audit_log\` ( \`id\` text PRIMARY KEY, \`timestamp\` text DEFAULT (datetime('now')) NOT NULL, \`action\` text NOT NULL, \`project_hash\` text, \`project_id\` text, \`domain\` text, \`operation\` text, \`session_id\` text, \`request_id\` text, \`source\` text, \`gateway\` text, \`success\` integer, \`duration_ms\` integer, \`details_json\` text DEFAULT '{}', \`error_message\` text )",
+    "sql": "CREATE TABLE \`nexus_audit_log\` ( \`id\` text PRIMARY KEY, \`timestamp\` text DEFAULT (datetime('now')) NOT NULL, \`action\` text NOT NULL, \`project_hash\` text, \`project_id\` text, \`domain\` text, \`operation\` text, \`session_id\` text, \`request_id\` text, \`source\` text, \`gateway\` text, \`success\` integer, \`duration_ms\` integer, \`details_json\` text DEFAULT '{}', \`error_message\` text , \`uid\` text)",
     "type": "table",
   },
   {

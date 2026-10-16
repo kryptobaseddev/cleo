@@ -86,6 +86,20 @@ describe('describeGateCacheMiss (T13693)', () => {
     expect(why({}, 'inputs-2', changedFile)).toMatch(/in: inputs: \/repo\/src\/b\.ts\.$/);
   });
 
+  it('caps the changed-file list at 10 and counts the rest (#2240 review)', () => {
+    const many: AcceptanceGateCacheInputs = {
+      environmentHash: 'env-1',
+      artifacts: Array.from({ length: 13 }, (_, i) => ({
+        path: `/repo/f${String(i).padStart(2, '0')}.ts`,
+        sha256: `new-${i}`,
+        bytes: 1,
+      })),
+    };
+    const text = why({}, 'inputs-3', many) ?? '';
+    expect(text).toMatch(/in: inputs: \/repo\/src\/a\.ts, \/repo\/src\/b\.ts, .* and 5 more\.$/);
+    expect(text.match(/\/repo\//g)).toHaveLength(10);
+  });
+
   it('says nothing when this gate has no stored pass', () => {
     expect(describeGateCacheMiss(root, { ...gate, req: 'REQ-2' }, state, 'inputs-1')).toBeNull();
   });

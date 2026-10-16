@@ -46,7 +46,9 @@ import { ExitCode } from '@cleocode/contracts/exit-codes.js';
 
 import { CleoError } from '../errors.js';
 import {
+  brokenWorkTreeReason,
   describeUnusableEvidenceGitRoot,
+  discoveryEnv,
   E_EVIDENCE_GIT_ROOT,
   findNestedGitWorkTrees,
   findWorkTreeContainingCommit,
@@ -1850,6 +1852,8 @@ export function resolveEvidenceExecutionRoot(
       execFileSync('git', ['rev-parse', '--show-toplevel'], {
         cwd,
         encoding: 'utf-8',
+        // T13697: the cwd's own checkout, never an inherited GIT_DIR/GIT_WORK_TREE.
+        env: discoveryEnv(),
         stdio: ['ignore', 'pipe', 'ignore'],
       }).trim() || null;
   } catch {
@@ -2048,6 +2052,10 @@ async function validateTestRun(
   const bindRoot = taskId
     ? (await import('./change-set.js')).resolveChangeSetRoot(projectRoot, taskId).root
     : executionRoot;
+  // T13703: a checkout git cannot open with GIT_* ignored would judge nothing.
+  const broken = brokenWorkTreeReason(bindRoot);
+  // @sync-invariant none:input-shape a bind root git cannot open is refused before anything is written
+  if (broken) return { ok: false, reason: broken, codeName: E_EVIDENCE_GIT_ROOT };
   const testFiles = coveredTestFiles(parsed, bindRoot);
   // The tree hash is the tool cache's (T12958), so a bound test-run and a
   // cached tool run of the same content agree.
@@ -2058,10 +2066,12 @@ async function validateTestRun(
   const headSha = treeHash ? await captureHead(bindRoot) : null;
   const identity = treeHash && headSha ? { treeHash, headSha } : null;
   let untestedPackages: string[] = [];
+  let runHeadSha: string | undefined;
   if (identity) {
     const binding = bindTestRunReport(parsed, abs, bindRoot, testFiles);
     if (!binding.ok) return { ok: false, reason: binding.reason, codeName: binding.codeName };
     untestedPackages = binding.untestedPackages;
+    runHeadSha = binding.runHeadSha;
   }
   return {
     ok: true,
@@ -2077,6 +2087,7 @@ async function validateTestRun(
       failCount: failed,
       skipCount: pending,
       ...(identity ? { headSha: identity.headSha, treeHash: identity.treeHash } : {}),
+      ...(runHeadSha ? { runHeadSha } : {}),
       ...(testFiles.length > 0
         ? {
             testFiles: testFiles.slice(0, TEST_RUN_MAX_RECORDED_FILES),
@@ -2140,6 +2151,10 @@ async function validateQaRun(
   const bindRoot = taskId
     ? (await import('./change-set.js')).resolveChangeSetRoot(projectRoot, taskId).root
     : executionRoot;
+  // T13703: a checkout git cannot open with GIT_* ignored would judge nothing.
+  const brokenRoot = brokenWorkTreeReason(bindRoot);
+  // @sync-invariant none:input-shape a bind root git cannot open is refused before anything is written
+  if (brokenRoot) return { ok: false, reason: brokenRoot, codeName: E_EVIDENCE_GIT_ROOT };
   const capture = await captureTree(bindRoot, await typedGateInputs(projectRoot, taskId, bindRoot));
   // @sync-invariant none:input-shape a runtime-path declaration covering a protected input is refused before anything is written
   if (capture.refusal) return { ok: false, ...capture.refusal };

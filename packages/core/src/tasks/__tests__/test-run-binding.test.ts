@@ -293,6 +293,45 @@ describe('a report must be fresher than the change and cover it (T12965 review)'
     });
   });
 
+  describe('main moving on after a run on the default branch (T13784)', () => {
+    /** Run at t0+10s on main; then main gains an unrelated commit at t0+20s (a pull). */
+    function pullAfterRun(landOnOrigin: boolean) {
+      const t0 = Date.now();
+      const before = git(root, ['rev-parse', 'HEAD']);
+      git(root, ['update-ref', 'refs/remotes/origin/main', before]);
+      const path = report([join(root, 'src', 'a.test.ts')], t0 + 10_000);
+      mkdirSync(join(root, 'tooling'), { recursive: true });
+      writeFileSync(join(root, 'tooling', 'print-bridge.mjs'), 'export {};\n');
+      touch(join(root, 'tooling', 'print-bridge.mjs'), t0 + 15_000);
+      git(root, ['add', '.']);
+      commitAt(root, 'print-bridge: unrelated', t0 + 20_000);
+      const after = git(root, ['rev-parse', 'HEAD']);
+      if (landOnOrigin) git(root, ['update-ref', 'refs/remotes/origin/main', after]);
+      return { path, before, after };
+    }
+
+    it('green: a landed commit after the run does not stale it; HEAD as of the run is recorded', async () => {
+      const { path, before, after } = pullAfterRun(true);
+      const r = await validateAtom({ kind: 'test-run', path }, root);
+      expect(r.ok, JSON.stringify(r)).toBe(true);
+      expect(r.ok && r.atom).toMatchObject({ headSha: after, runHeadSha: before });
+    });
+
+    it('red: a commit after the run that is not on origin is the change, and stales it', async () => {
+      const { path } = pullAfterRun(false);
+      const r = await validateAtom({ kind: 'test-run', path }, root);
+      expect(!r.ok && r.codeName, JSON.stringify(r)).toBe('E_EVIDENCE_STALE');
+    });
+
+    it('red: a qa-run receipt keeps the strict rule (test-run only)', () => {
+      const { path } = pullAfterRun(true);
+      expect(reportFreshness(undefined, path, root, 'qa-run')).toMatchObject({
+        ok: false,
+        codeName: 'E_EVIDENCE_STALE',
+      });
+    });
+  });
+
   describe('relevance in a workspace with an origin', () => {
     const pkgTest = (name: string): string =>
       join(root, 'packages', name, 'src', `${name}.test.ts`);

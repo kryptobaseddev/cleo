@@ -20,6 +20,10 @@
  *     goal linked to the active goal via `parentGoalId`.
  *   - `cleo goal append <criterion>` — append an acceptance criterion to the
  *     active goal.
+ *   - `cleo goal draft <taskId> [--tasks …] [--out <path>]` — write a goal/v1
+ *     draft from task acceptance criteria (T13793).
+ *   - `cleo goal close <slug> --outcome <file>` — record a run's per-AC
+ *     evidence and complete fully proven tasks via `cleo done` (T13794).
  *
  * @epic T11290 EP-CLEO-GOAL-SYSTEM
  * @task T11381
@@ -232,6 +236,110 @@ const appendCommand = defineCommand({
 });
 
 /**
+ * `cleo goal draft <taskId> [--tasks T2,T3] [--out <path>]` — write a goal/v1
+ * draft from the tasks' acceptance criteria. Never starts a run; refuses to
+ * overwrite an existing file.
+ *
+ * @task T13793
+ */
+const draftCommand = defineCommand({
+  meta: {
+    name: 'draft',
+    description:
+      "Write a goal/v1 draft (goal.yaml) from tasks' acceptance criteria. Never starts a run or overwrites a file.",
+  },
+  args: {
+    taskId: { type: 'positional', description: 'Primary task id (names the goal)' },
+    tasks: { type: 'string', description: 'More task ids the goal serves, comma-separated' },
+    out: {
+      type: 'string',
+      description:
+        'Output file <id>/goal.yaml inside the project; <id> becomes the goal id (default .opencode/goals/<slug>/goal.yaml)',
+    },
+  },
+  async run({ args }) {
+    const ids = [
+      ...new Set(
+        [String(args.taskId ?? ''), ...String(args.tasks ?? '').split(',')]
+          .map((s) => s.trim())
+          .filter(Boolean),
+      ),
+    ];
+    const { draftGoal } = await import('@cleocode/core/goal/draft.js');
+    const result = await draftGoal(ids, {
+      projectRoot: getProjectRoot(),
+      ...(typeof args.out === 'string' && args.out ? { out: args.out } : {}),
+    });
+    if (!result.success) {
+      cliError(result.error.message, result.error.code, { fix: result.error.fix });
+      process.exitCode = result.error.exitCode ?? 1;
+      return;
+    }
+    cliOutput(result.data, { command: 'goal draft', operation: 'goal.draft' });
+  },
+});
+
+/**
+ * `cleo goal close <slug> --outcome <file>` — verify a goal run's outcome
+ * against its contract, record per-AC evidence, then complete every task whose
+ * criteria are all mapped through the `cleo done` path. Open criteria are
+ * named per task; nothing is completed on their behalf.
+ *
+ * @task T13794
+ */
+const closeCommand = defineCommand({
+  meta: {
+    name: 'close',
+    description:
+      "Record a goal run's per-AC evidence from its outcome file, then complete each task whose criteria are all proven (via cleo done)",
+  },
+  args: {
+    slug: { type: 'positional', description: 'Goal slug (.opencode/goals/<slug>/goal.yaml)' },
+    outcome: {
+      type: 'string',
+      description: 'Path of the goal-outcome/v1 JSON file',
+      required: true,
+    },
+  },
+  async run({ args }) {
+    const slug = String(args.slug ?? '').trim();
+    if (!slug || typeof args.outcome !== 'string' || !args.outcome) {
+      cliError('goal close needs <slug> and --outcome <file>', ExitCode.VALIDATION_ERROR, {
+        name: 'E_VALIDATION',
+      });
+      return;
+    }
+    const projectRoot = getProjectRoot();
+    const { closeGoal } = await import('@cleocode/core/goal/close.js');
+    const closed = await closeGoal(slug, { projectRoot, outcomePath: args.outcome });
+    if (!closed.success) {
+      cliError(closed.error.message, closed.error.code, { fix: closed.error.fix });
+      process.exitCode = closed.error.exitCode ?? 1;
+      return;
+    }
+    const ready = closed.data.tasks.filter((t) => t.ready).map((t) => t.taskId);
+    const completions: Array<Record<string, unknown>> = [];
+    if (ready.length > 0) {
+      const { recordTasksDone } = await import('@cleocode/core/tasks/done-record.js');
+      const { doneBatchEntry } = await import('./done.js');
+      for (const { taskId, result } of await recordTasksDone(ready, { projectRoot })) {
+        completions.push(await doneBatchEntry(taskId, result, { taskId }));
+      }
+    }
+    cliOutput(
+      {
+        ...closed.data,
+        tasks: closed.data.tasks.map((t) => ({
+          ...t,
+          completion: completions.find((c) => c.taskId === t.taskId) ?? null,
+        })),
+      },
+      { command: 'goal close', operation: 'goal.close' },
+    );
+  },
+});
+
+/**
  * Parent `cleo goal` command — routes to the set/status/advance/subgoal/append
  * subcommands; prints usage when invoked bare.
  *
@@ -242,7 +350,7 @@ export const goalCommand = defineCommand({
   meta: {
     name: 'goal',
     description:
-      'DB-persisted, per-agent, evidence-gate-aware goal loop (set/status/advance/subgoal/append).',
+      'Goal protocol (draft, close) and the per-agent goal loop (set/status/advance/subgoal/append).',
   },
   subCommands: {
     set: setCommand,
@@ -250,6 +358,8 @@ export const goalCommand = defineCommand({
     advance: advanceCommand,
     subgoal: subgoalCommand,
     append: appendCommand,
+    draft: draftCommand,
+    close: closeCommand,
   },
   async run({ cmd, rawArgs }) {
     const firstArg = rawArgs?.find((a) => !a.startsWith('-'));
