@@ -2,7 +2,7 @@
 id: t13777-command-logs-journal
 tasks: [T13777]
 kind: fix
-summary: token usage, session handoffs and the Nexus audit log travel in the change journal; Nexus device, location and registry rows stay on their machine
+summary: token usage, session handoffs and the Nexus audit log travel in the change journal; Nexus device and location rows stay on their machine
 ---
 
 Every command writes token usage, and every session end writes a handoff
@@ -18,7 +18,6 @@ belongs to. The handoff's write-once guard now covers its content columns
 only: before, it aborted the uid fill, so a session end would have failed
 once the table synced.
 
-`nexus_devices`, `nexus_project_locations` and `nexus_project_registry` are
-local-only. The cloud holds device presence, where projects live and the
-project list, and a project's display name travels in its git-tracked
-`.cleo/project.json`.
+`nexus_devices` and `nexus_project_locations` are local-only. The cloud holds
+device presence and where projects live (/v1/status); a machine's own view and
+its paths never replicate.

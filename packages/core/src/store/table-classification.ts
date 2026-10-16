@@ -2058,10 +2058,66 @@ const GLOBAL_TABLES: Readonly<Record<string, TableRegistryEntry>> = {
   },
   nexus_project_paths: { class: 'local-only', status: 'draft', source: 'draft §3' },
   nexus_project_registry: {
-    class: 'local-only',
-    status: 'resolved',
-    source: 'T13777 (team-lead decision 2026-10-16), replacing draft §3',
-    note: "this machine's project index (paths, hashes, probe and use instants). The cloud project list is the source of truth, and a project's display name travels in its git-tracked .cleo/project.json (`cleo project rename`), so the change journal never carries it",
+    class: 'portable-personal',
+    status: 'draft',
+    source: 'draft §3',
+    columns: [
+      {
+        column: 'project_path',
+        class: 'local-only',
+        reason: 'draft §3: path, host or per-device health/counter value',
+      },
+      {
+        column: 'brain_db_path',
+        class: 'local-only',
+        reason: 'draft §3: path, host or per-device health/counter value',
+      },
+      {
+        column: 'tasks_db_path',
+        class: 'local-only',
+        reason: 'draft §3: path, host or per-device health/counter value',
+      },
+      {
+        column: 'project_hash',
+        class: 'local-only',
+        reason: 'draft §3: path, host or per-device health/counter value',
+      },
+      {
+        column: 'stats_json',
+        class: 'local-only',
+        reason: 'draft §3: path, host or per-device health/counter value',
+      },
+      {
+        column: 'last_indexed',
+        class: 'local-only',
+        reason: 'draft §3: path, host or per-device health/counter value',
+      },
+      {
+        column: 'last_seen',
+        class: 'local-only',
+        reason: 'draft §3: path, host or per-device health/counter value',
+      },
+      {
+        column: 'last_sync',
+        class: 'local-only',
+        reason: 'draft §3: path, host or per-device health/counter value',
+      },
+      {
+        column: 'task_count',
+        class: 'local-only',
+        reason: 'draft §3: path, host or per-device health/counter value',
+      },
+      {
+        column: 'last_probed_at',
+        class: 'local-only',
+        reason: 'T12512: per-device probe instant (health, sync, git probe)',
+      },
+      {
+        column: 'last_opened_at',
+        class: 'local-only',
+        reason: 'T12512: per-device instant of the last real CLI use',
+      },
+    ],
   },
   nexus_relations: {
     class: 'derived',

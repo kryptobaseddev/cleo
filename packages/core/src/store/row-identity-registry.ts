@@ -812,7 +812,13 @@ export const ROW_IDENTITY_EXEMPT: Readonly<
   },
   global: {
     ...exempt(
-      ['nexus_project_git_state', 'nexus_project_id_aliases', 'nexus_sigils', 'nexus_user_profile'],
+      [
+        'nexus_project_git_state',
+        'nexus_project_id_aliases',
+        'nexus_project_registry',
+        'nexus_sigils',
+        'nexus_user_profile',
+      ],
       NEXUS_REGISTRY,
     ),
     ...exempt(
@@ -839,8 +845,8 @@ export const ROW_IDENTITY_EXEMPT: Readonly<
  * reclassified brain_embeddings derived in both scopes (owner decision
  * 2026-10-14: vectors are a local cache), closing the T12918 blob exemption,
  * and T13777 declared the command logs (2 project: token usage, handoff
- * entries; 1 global: the Nexus audit log) and reclassified the Nexus device,
- * location and registry rows local-only (3 global)
+ * entries; 1 global: the Nexus audit log) and reclassified the Nexus device
+ * and location rows local-only (2 global)
  * ({@link rowIdentityExemptionSummary} prints the live numbers):
  *
  * | category             | task   | project | global |
@@ -850,17 +856,17 @@ export const ROW_IDENTITY_EXEMPT: Readonly<
  * | planned              | T12896 | 2       | 1      |
  * | planned (conduit)    | T12913 | 8       | 0      |
  * | planned (lifecycle…) | T12914 | 16      | 0      |
- * | planned (nexus)      | T12916 | 0       | 4      |
+ * | planned (nexus)      | T12916 | 0       | 5      |
  * | planned (skills)     | T12917 | 0       | 4      |
  * | planned (misc)       | T12920 | 11      | 0      |
  * | twin-collapse        | T12535 | 29      | 0      |
- * | total                |        | 64      | 8      |
+ * | total                |        | 64      | 9      |
  *
  * @task T12897
  */
 export const ROW_IDENTITY_EXEMPT_PINNED: Readonly<Record<TableScope, number>> = {
   project: 64,
-  global: 8,
+  global: 9,
 };
 
 /**
@@ -873,7 +879,7 @@ export const ROW_IDENTITY_EXEMPT_PINNED: Readonly<Record<TableScope, number>> = 
  */
 export const ROW_IDENTITY_EXEMPT_NAMES_SHA256: Readonly<Record<TableScope, string>> = {
   project: 'b6453860c9624a041e9e9382eaacd3e07ebc6a42e383cfbc3eaf200b7da4586c',
-  global: '8c4747325f33ef7944a8b9a23d83120ee6aaaedb8cd44f2ee05230faddd3ab38',
+  global: '3f192953af29e9b698ea53d9ea3e13a03798587d1bef1f284a3495ac96d039d6',
 };
 
 /**
