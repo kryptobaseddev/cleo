@@ -90,14 +90,15 @@ async function findPersistedResponse(
     const db = getNativeDb();
     if (!db) return { kind: 'miss' };
 
-    const values = [req.domain, req.operation, idempotencyKey, projectHash];
+    // T13777: rows exodus carried over keep their key in idempotency_key.
+    const values = [req.domain, req.operation, idempotencyKey, idempotencyKey, projectHash];
     const rows = db
       .prepare(
         `SELECT after_json AS afterJson, details_json AS detailsJson
          FROM tasks_audit_log
          WHERE domain = ?
            AND operation = ?
-           AND dispatch_idempotency_key = ?
+           AND (dispatch_idempotency_key = ? OR idempotency_key = ?)
            AND success = 1
            AND project_hash = ?
          ORDER BY timestamp DESC
