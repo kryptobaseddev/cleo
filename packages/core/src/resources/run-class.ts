@@ -1318,6 +1318,90 @@ export function runFootprint(argv: readonly string[]): RunFootprint {
   return { size: 'class', reason: 'sized by its class' };
 }
 
+/** Utilities that never run a heavy tool: the only commands charged light by name. */
+const LIGHT_UTILITIES =
+  /^(ls|cat|echo|printf|head|tail|wc|pwd|true|false|date|sleep|mkdir|touch|cp|mv|rm|ln|stat|which|basename|dirname)$/;
+/** Wrappers stripped before classifying, and their flags that take a value. */
+const WRAPPERS = /^(env|nice|nohup|time|timeout|sudo|command|exec)$/;
+const WRAPPER_VALUE_FLAGS: ReadonlySet<string> = new Set([
+  '-n',
+  '-u',
+  '-g',
+  '-s',
+  '-k',
+  '-C',
+  '-p',
+]);
+/** A plain script path `node` may run light. */
+const NODE_SCRIPT = /\.[cm]?js$/;
+
+/** A `NODE_OPTIONS=` assignment that sets a heap size. */
+const HEAP_RAISING_ASSIGNMENT =
+  /^NODE_OPTIONS=.*--max[-_](old[-_]space|semi[-_]space|heap)[-_]size/;
+
+/**
+ * `argv` without leading wrappers (`timeout 60`, `sudo -u x`, `env A=1`,
+ * `nice -n 5`), or `null` when an assignment raises the heap.
+ */
+function unwrapped(argv: readonly string[]): readonly string[] | null {
+  let i = 0;
+  while (i < argv.length) {
+    const w = argv[i] as string;
+    if (/^[A-Za-z_][A-Za-z0-9_]*=/.test(w)) {
+      if (HEAP_RAISING_ASSIGNMENT.test(w)) return null;
+      i++;
+      continue;
+    }
+    const b = base(w);
+    if (!WRAPPERS.test(b)) break;
+    i++;
+    while (i < argv.length && (argv[i] as string).startsWith('-')) {
+      i += WRAPPER_VALUE_FLAGS.has(argv[i] as string) ? 2 : 1;
+    }
+    if (b === 'timeout') i++; // the duration
+  }
+  return argv.slice(i);
+}
+
+/**
+ * Why a command is known to run no heavy tool (T13452), from a small
+ * allowlist: a file utility (`ls`, `cat`, `echo`, …) or `node` running a
+ * plain `.js`/`.mjs`/`.cjs` script with no node flags (not CLEO's own CLI,
+ * not a package's bin under `node_modules/` such as `vitest.mjs`). Leading
+ * wrappers (`timeout`, `sudo`, `env`, `nice`, `command`, `exec`) are stripped
+ * first; a `NODE_OPTIONS=` that raises the heap is never light. Everything else (cargo, go, pytest, gradle, docker, a shell
+ * script, `node --test`) may be heavy and keeps its class plan. Git is sized
+ * by {@link runFootprint} and its hooks, so it is never answered here.
+ *
+ * @param argv - the command.
+ * @returns the reason, or `null` when the command may be heavy.
+ *
+ * @example
+ * ```ts
+ * lightCommandReason(['node', 'scripts/gen.mjs']);       // 'node scripts/gen.mjs runs no heavy tool'
+ * lightCommandReason(['timeout', '5', 'ls']);            // 'ls runs no heavy tool'
+ * lightCommandReason(['node', '--test', 'a.test.mjs']);  // null
+ * lightCommandReason(['cargo', 'clippy']);               // null
+ * ```
+ */
+export function lightCommandReason(argv: readonly string[]): string | null {
+  const words = unwrapped(argv);
+  if (words === null) return null;
+  const tool = base(words[0] ?? '');
+  if (LIGHT_UTILITIES.test(tool)) return `${tool} runs no heavy tool`;
+  const script = words[1];
+  if (
+    tool === 'node' &&
+    script !== undefined &&
+    NODE_SCRIPT.test(script) &&
+    !CLEO_SCRIPT.test(script) &&
+    !/(^|[\\/])node_modules[\\/]/.test(script)
+  ) {
+    return `node ${script} runs no heavy tool`;
+  }
+  return null;
+}
+
 /** git subcommands that can use gigabytes across threads (T13458): never light. */
 const HEAVY_GIT_SUBCOMMANDS: ReadonlySet<string> = new Set(['gc', 'repack', 'fsck', 'clone']);
 

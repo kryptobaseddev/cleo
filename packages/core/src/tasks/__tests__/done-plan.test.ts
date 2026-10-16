@@ -1695,6 +1695,7 @@ describe('a stored typed pass bound to an older definition is not a pass (T13463
   async function withStoredPass(
     bind: (text: string) => { criterionHash: string; gateHash: string },
     over: (binding: Record<string, unknown>) => Record<string, unknown> = (b) => b,
+    stored: Record<string, unknown> = { result: 'pass' },
   ) {
     const id = await seedTask(['Change src/a.ts']);
     commitOnTaskBranch(id);
@@ -1714,7 +1715,7 @@ describe('a stored typed pass bound to an older definition is not a pass (T13463
           index: 1,
           req: 'H-1',
           kind: 'command',
-          result: 'pass',
+          ...stored,
           checkedAt: '2026-10-01T00:00:00Z',
           checkedBy: 'test',
           durationMs: 1,
@@ -1747,6 +1748,22 @@ describe('a stored typed pass bound to an older definition is not a pass (T13463
   const current = (text: string) => ({
     criterionHash: acTextHash(text),
     gateHash: createHash('sha256').update(acItemToText(gate)).digest('hex'),
+  });
+
+  it('T13752: a stored error (a cache-only write found no cached pass) is not "last failed"', async () => {
+    const plan = await withStoredPass(current, (b) => b, {
+      result: 'error',
+      errorMessage: 'typed gate not cached: gate "H-1" has no cached pass for this tree.',
+    });
+    expect(plan.typedGates.map((g) => g.status)).toEqual(['not-run']);
+    expect(plan.blockers.map((b) => b.code)).not.toContain('typed-gate-failed');
+    expect(plan.blockers.map((b) => b.code)).toContain('typed-gate-not-run');
+  });
+
+  it('T13752: a stored fail still reads as last failed', async () => {
+    const plan = await withStoredPass(current, (b) => b, { result: 'fail' });
+    expect(plan.typedGates.map((g) => g.status)).toEqual(['fail']);
+    expect(plan.blockers.map((b) => b.code)).toContain('typed-gate-failed');
   });
 
   it('T13502: a binding for another task reads not-run', async () => {
