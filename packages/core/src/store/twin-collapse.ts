@@ -214,8 +214,8 @@ import {
   unpinBackup,
 } from './backup-sidecar.js';
 import { blobFileForRow, pinBlob, restoreBlob } from './blob-keep.js';
-import { DRAINED_TWINS } from './drained-twins.js';
 import { planMigrationSnapshot, writeMigrationSnapshot } from './pre-repair-snapshot.js';
+import { DRAINED_TWINS } from './row-identity-registry.js';
 import { withSuspectAccounting } from './sync/structural.js';
 
 const log = getLogger('twin-collapse');

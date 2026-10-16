@@ -18,14 +18,13 @@ import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import type { DatabaseSync } from 'node:sqlite';
 import type { SupersededStoreBareAccount, TableScope } from '@cleocode/contracts';
-import { DRAINED_TWINS } from '../drained-twins.js';
 import { legacyRowProjection } from '../exodus/column-transforms.js';
 import { resolveConsolidatedTableName } from '../exodus/table-name-map.js';
 import {
   PRIOR_RECOVERIES_TABLE_SQL,
   taskIdCollisionsSql,
 } from '../exodus/task-id-collision-sql.js';
-import { ROW_IDENTITY } from '../row-identity-registry.js';
+import { DRAINED_TWINS, ROW_IDENTITY } from '../row-identity-registry.js';
 import { classifyTable, isPortableTableClass } from '../table-classification.js';
 import { ensureSyncSchema, hasTable } from './schema.js';
 
