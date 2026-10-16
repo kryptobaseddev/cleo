@@ -7115,6 +7115,48 @@ describe('the main brain stream through cloud sync (T13370)', () => {
     expect(onA).toMatchObject({ title: 'from B' });
   });
 
+  it('T13777: a project registered on one device changes the registry count; the home checkpoint names it snapshot-authoritative', async () => {
+    const a = await machine('a', DEVICE_A, REPLICA_A);
+    await onM(a, async () => {
+      const db = await globalStore(a);
+      setCaptureEnabled(db, 'global', true, { schemaRoot: SYNC_JOURNAL });
+      setSyncFlag(db, 'sync.seal', true, { schemaRoot: SYNC_JOURNAL, allowUnreleased: true });
+    });
+    expect(
+      (await onM(a, () => enableSyncPush(vopts(a, { scope: 'global', allowUnreleased: true }))))
+        .status,
+    ).toBe('enabled');
+    await onM(a, async () => {
+      setSyncFlag(await globalStore(a), 'sync.pull', true, { allowUnreleased: true });
+    });
+    const register = (id: string) =>
+      onM(a, async () => {
+        (await globalStore(a)).exec(
+          `INSERT INTO nexus_project_registry (project_id, project_hash, project_path, name) VALUES ('${id}', 'hash-${id}', '/work/${id}', 'project ${id}')`,
+        );
+      });
+    const s = fake.stream(HOME_STREAM);
+    const push = () =>
+      onM(a, () => pushNexusVault(vopts(a, { scope: 'global', allowUnreleased: true })));
+    // `cleo init` of a new project: one more registry row, which no segment declares.
+    await register('p-new-1');
+    fake.features = [NEXUS_FEATURE_MANIFEST_SNAPSHOT_AUTHORITATIVE];
+    const pushed = await push();
+    expect(pushed.status).toBe('pushed');
+    const cp = s.checkpoints.at(-1);
+    expect(cp?.manifest.snapshotAuthoritative).toContain('nexus_project_registry');
+    expect(cp?.manifest.tables['nexus_project_registry']?.rows).toBe(
+      (s.checkpoints[0]?.manifest.tables['nexus_project_registry']?.rows ?? 0) + 1,
+    );
+    // Against a server without the list, another new project refuses the push, naming why.
+    await register('p-new-2');
+    fake.features = undefined;
+    const old = await failure(push());
+    expect(old.code).toBe('E_NEXUS_VAULT_REFUSED');
+    expect(old.message).toContain('nexus_project_registry');
+    expect(old.message).toContain('manifest.snapshot-authoritative');
+  });
+
   it("with sync on, two devices see each other's brain writes after a session end, with no manual cloud sync (T13468)", async () => {
     const { autoCloudSync } = await import('../auto-sync.js');
     const a = await machine('a', DEVICE_A, REPLICA_A);
