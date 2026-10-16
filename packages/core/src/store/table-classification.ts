@@ -2023,11 +2023,11 @@ const GLOBAL_TABLES: Readonly<Record<string, TableRegistryEntry>> = {
     note: 'old project ids resolve on every device the owner uses; supersedes draft §3 (local-only)',
   },
   nexus_devices: {
-    class: 'portable-personal',
+    class: 'local-only',
     status: 'resolved',
     source:
-      'cleo-dev ruling 2026-09-28 (round 2); drizzle-cleo-global t12510 (T12510, epic T12496)',
-    note: "the owner's device list: one row per machine, so each device sees the others",
+      'T13777 (team-lead decision 2026-10-16), replacing the cleo-dev ruling 2026-09-28 (round 2); drizzle-cleo-global t12510 (T12510, epic T12496)',
+    note: "this machine's view of the owner's devices. The cloud is the source of truth for device presence and which devices hold a project (Stage B device registry, /v1/status), so the change journal never carries it",
   },
   nexus_project_git_state: {
     class: 'portable-personal',
@@ -2050,73 +2050,18 @@ const GLOBAL_TABLES: Readonly<Record<string, TableRegistryEntry>> = {
     ],
   },
   nexus_project_locations: {
-    class: 'portable-personal',
+    class: 'local-only',
     status: 'resolved',
-    source: 'cleo-dev ruling 2026-09-28 (round 2); drizzle-cleo-global t12469 / t12470 (T12469)',
-    note: "per-device rows keyed (project_id, device_id, path): each device syncs its own rows so the owner can see where a project lives elsewhere; a peer never overwrites this device's path",
+    source:
+      'T13777 (team-lead decision 2026-10-16), replacing the cleo-dev ruling 2026-09-28 (round 2); drizzle-cleo-global t12469 / t12470 (T12469)',
+    note: 'per-device rows keyed (project_id, device_id, path): machine paths. Where a project lives on other devices comes from the cloud (/v1/status), so the change journal never carries them',
   },
   nexus_project_paths: { class: 'local-only', status: 'draft', source: 'draft §3' },
   nexus_project_registry: {
-    class: 'portable-personal',
-    status: 'draft',
-    source: 'draft §3',
-    columns: [
-      {
-        column: 'project_path',
-        class: 'local-only',
-        reason: 'draft §3: path, host or per-device health/counter value',
-      },
-      {
-        column: 'brain_db_path',
-        class: 'local-only',
-        reason: 'draft §3: path, host or per-device health/counter value',
-      },
-      {
-        column: 'tasks_db_path',
-        class: 'local-only',
-        reason: 'draft §3: path, host or per-device health/counter value',
-      },
-      {
-        column: 'project_hash',
-        class: 'local-only',
-        reason: 'draft §3: path, host or per-device health/counter value',
-      },
-      {
-        column: 'stats_json',
-        class: 'local-only',
-        reason: 'draft §3: path, host or per-device health/counter value',
-      },
-      {
-        column: 'last_indexed',
-        class: 'local-only',
-        reason: 'draft §3: path, host or per-device health/counter value',
-      },
-      {
-        column: 'last_seen',
-        class: 'local-only',
-        reason: 'draft §3: path, host or per-device health/counter value',
-      },
-      {
-        column: 'last_sync',
-        class: 'local-only',
-        reason: 'draft §3: path, host or per-device health/counter value',
-      },
-      {
-        column: 'task_count',
-        class: 'local-only',
-        reason: 'draft §3: path, host or per-device health/counter value',
-      },
-      {
-        column: 'last_probed_at',
-        class: 'local-only',
-        reason: 'T12512: per-device probe instant (health, sync, git probe)',
-      },
-      {
-        column: 'last_opened_at',
-        class: 'local-only',
-        reason: 'T12512: per-device instant of the last real CLI use',
-      },
-    ],
+    class: 'local-only',
+    status: 'resolved',
+    source: 'T13777 (team-lead decision 2026-10-16), replacing draft §3',
+    note: "this machine's project index (paths, hashes, probe and use instants). The cloud project list is the source of truth, and a project's display name travels in its git-tracked .cleo/project.json (`cleo project rename`), so the change journal never carries it",
   },
   nexus_relations: {
     class: 'derived',

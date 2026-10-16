@@ -148,6 +148,9 @@ export const SYNC_TIMESTAMP_COLUMNS: Readonly<
     // T12919 (docs sync coverage): the doc registry and its owner refs.
     docs_attachments: ['created_at'],
     docs_attachment_refs: ['attached_at'],
+    // T13777 (command logs sync coverage).
+    tasks_token_usage: ['created_at'],
+    tasks_session_handoff_entries: ['created_at'],
   },
   global: {
     brain_decisions: ['created_at', 'updated_at', 'valid_at', 'invalid_at', 'tier_promoted_at'],

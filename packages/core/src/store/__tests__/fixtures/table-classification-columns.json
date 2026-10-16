@@ -1985,7 +1985,8 @@
       "created_at",
       "handoff_json",
       "id",
-      "session_id"
+      "session_id",
+      "uid"
     ],
     "tasks_sessions": [
       "agent",
@@ -2151,7 +2152,8 @@
       "session_id",
       "task_id",
       "total_tokens",
-      "transport"
+      "transport",
+      "uid"
     ],
     "tasks_uid_aliases": [
       "created_at",
@@ -2874,7 +2876,8 @@
       "session_id",
       "source",
       "success",
-      "timestamp"
+      "timestamp",
+      "uid"
     ],
     "nexus_code_index": [
       "doc_summary",
