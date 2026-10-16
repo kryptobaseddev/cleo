@@ -101,6 +101,9 @@ const SUBPATH_DIRS = [
   // T13420 — the ask-enforce Stop-hook classifier, loaded by `cleo hook
   // ask-enforce` through @cleocode/core/harness/ask-enforce.js.
   'harness',
+  // T13793 — goal/v1 protocol ops (`cleo goal draft`/`close`), loaded through
+  // @cleocode/core/goal/*.js.
+  'goal',
 ];
 
 
