@@ -133,10 +133,25 @@ export type GoalCheckKind = GoalCheck['kind'];
 export const GOAL_HOST_CHECK_KINDS = ['command', 'file', 'contains', 'absent', 'diff'] as const;
 
 /**
- * A CLEO acceptance-criterion reference, `T<digits>#AC<n>`: the task id and
- * the criterion's alias, the same form a `satisfies:` evidence atom takes.
+ * A CLEO acceptance-criterion reference: exactly the three target forms of a
+ * `satisfies:` evidence atom (`evidence-atom-schema.ts`, ADR-079-r2 §2.1).
+ *
+ * - positional `T1234#AC2` — drifts when the task's ACs are renumbered;
+ * - canonical `T1234#<lowercase uuid>` — the criterion's stable id, preferred
+ *   in a hash-locked contract;
+ * - pinned `T1234#AC2@20260524223045` — an alias pinned to a 14-digit
+ *   `YYYYMMDDhhmmss` version.
+ *
+ * The template types only shape the value (`${bigint}` still admits `-2`, and
+ * the uuid part is any dashed string). Core validates every reference with the
+ * real regexes: `SATISFIES_TASK_ID_REGEX` (`^T[0-9]{1,7}$`), `AC_ALIAS_REGEX`
+ * (`^AC[0-9]{1,4}$`), `AC_UUID_REGEX` and `SATISFIES_VERSION_PIN_REGEX`
+ * (`^[0-9]{14}$`).
  */
-export type GoalAcRef = `T${number}#AC${number}`;
+export type GoalAcRef =
+  | `T${bigint}#AC${bigint}`
+  | `T${bigint}#${string}-${string}-${string}-${string}-${string}`
+  | `T${bigint}#AC${bigint}@${bigint}`;
 
 /**
  * One criterion (`C<n>`) or invariant (`I<n>`) of a goal.
@@ -329,11 +344,21 @@ export interface GoalCommandEvidence {
    * `cleo goal close` records it as a `test-run:` atom.
    */
   reportPath?: string;
+  /**
+   * sha256 (hex) of the report bytes the run produced. `cleo goal close`
+   * refuses a `test-run:` whose file does not hash to it, or that has none.
+   */
+  reportSha256?: string;
   /** Test files the report covers. */
   testFiles?: string[];
 }
 
-/** Evidence of a `file`, `contains`, `absent` or `diff` check. */
+/**
+ * Evidence of a `file`, `contains`, `absent` or `diff` check.
+ *
+ * A passing `diff` proves the paths did NOT change (a protected oracle held),
+ * so it must never become `implemented` / `files:` evidence.
+ */
 export interface GoalPathEvidence {
   /** Discriminant: the check kind that ran. */
   kind: 'file' | 'contains' | 'absent' | 'diff';
@@ -353,7 +378,11 @@ export interface GoalVerifierEvidence {
   reason?: string;
 }
 
-/** Evidence of a human sign-off. */
+/**
+ * Evidence of a human sign-off, as the runtime reports it. It is not CLEO
+ * evidence on its own: it counts only when CLEO's own owner or HITL record
+ * backs it.
+ */
 export interface GoalHumanEvidence {
   /** Discriminant. */
   kind: 'human';
