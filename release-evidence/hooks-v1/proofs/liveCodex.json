@@ -1,0 +1,18 @@
+{
+  "schemaVersion": 1,
+  "check": "liveCodex",
+  "status": "pass",
+  "exitCode": 0,
+  "checkedCount": 2,
+  "observedAt": "2026-10-16T06:04:57Z",
+  "canaryVersion": "2026.10.17-canary.1",
+  "sourceDigest": "7048435a30f50b39863c74d9ed021c67afff34441d0a49abaafdc094e5988a61",
+  "vidaCommit": "89e0d4943ddbe1b4dd428266aee576a5a23d2e14",
+  "harnessVersions": {
+    "claude": "2.1.301 (Claude Code)",
+    "codex": "codex-cli 0.163.0"
+  },
+  "mode": "live-harness",
+  "ordinaryCommands": 1,
+  "disposablePushes": 1
+}
