@@ -268,6 +268,23 @@ async function runPlannedTools(
 }
 
 /**
+ * Give a legacy task that holds acceptance but no criterion rows at all (OCG
+ * T091: a REQ-only acceptance, no rows) its rows, built exactly as `cleo add`
+ * builds them, so its typed gates can run and their results link to a
+ * criterion (T13799). A task with any row is left alone: a mismatch stays a
+ * refusal, never a silent repair.
+ */
+async function backfillMissingAcRows(storeRoot: string, taskId: string): Promise<void> {
+  const { getTaskAccessor } = await import('../store/data-accessor.js');
+  const { buildFreshAcRows } = await import('./ac-table.js');
+  const accessor = await getTaskAccessor(storeRoot);
+  const task = await accessor.loadSingleTask(taskId);
+  if (!task?.acceptance?.length || (await accessor.getAcRows(taskId)).length > 0) return;
+  const rows = buildFreshAcRows(taskId, task.acceptance);
+  await accessor.transaction((tx) => tx.insertAcRows(rows));
+}
+
+/**
  * Record every required gate a task lacks, in one write, from derived
  * evidence. Does not complete the task.
  *
@@ -290,6 +307,7 @@ export async function recordTaskDone(
   const storeRoot = opts.projectRoot ?? getProjectRoot();
   const staleOnEntry = await versionConflict(storeRoot, taskId, opts.expectedUpdatedAt);
   if (staleOnEntry) return staleOnEntry;
+  await backfillMissingAcRows(storeRoot, taskId);
   let plan: DonePlan;
   try {
     // It will run the tests anyway, so it may queue for the test slot.

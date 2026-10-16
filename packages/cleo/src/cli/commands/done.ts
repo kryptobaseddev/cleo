@@ -80,7 +80,7 @@ async function runBatchDone(
 }
 
 /**
- * `cleo done <id> [<id>…] [--plan] [--satisfies AC1,AC3|all] [--pr <n>] [complete flags]`.
+ * `cleo done <id> [<id>…] [--plan] [--satisfies AC1,AC3|all] [--pr <n> | --commit <sha>] [complete flags]`.
  */
 export const doneCommand = defineCommand({
   meta: {
@@ -109,6 +109,11 @@ export const doneCommand = defineCommand({
       type: 'string',
       description: 'The merged PR that implements the task (skips PR selection)',
     },
+    commit: {
+      type: 'string',
+      description:
+        'The commit that implements the task, already on the default branch, when no PR or branch cites it (T13799). Verified: it must exist and have landed; its own diff becomes the change set',
+    },
     'run-typed': {
       type: 'boolean',
       description:
@@ -117,7 +122,7 @@ export const doneCommand = defineCommand({
   },
   async run({ args }) {
     const { parseDoneOptions, planTaskDone } = await import('@cleocode/core/tasks/done-plan.js');
-    const parsed = parseDoneOptions(args.satisfies, args.pr);
+    const parsed = parseDoneOptions(args.satisfies, args.pr, args.commit);
     if (!parsed.ok) {
       cliError(parsed.message, 'E_INVALID_INPUT');
       process.exitCode = 2;
