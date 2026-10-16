@@ -52,6 +52,7 @@ import { getTaskAccessor } from '../store/data-accessor.js';
 import {
   changedPathsSinceDefault,
   cleoConfigSchemaFor,
+  evidenceProjectContext,
   isCleoConfigOnlyChange,
   isNonCodeOnlyChange,
   planScopedTestRun,
@@ -385,7 +386,10 @@ async function planToolRun(
 ): Promise<DonePlanToolRun> {
   const resolution = override
     ? { ok: true as const, command: override }
-    : resolveToolCommand(tool, storeRoot);
+    : resolveToolCommand(tool, storeRoot, {
+        executionRoot: root,
+        projectContext: evidenceProjectContext(storeRoot, root),
+      });
   if (!resolution.ok) {
     return {
       tool,

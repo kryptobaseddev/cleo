@@ -23,6 +23,7 @@ import { execFileSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import type { ChangeSetMergeState, EvidenceAtom, TaskChangeSet } from '@cleocode/contracts';
+import { cleoConfigSchemaFor } from './affected-packages.js';
 import type {
   ChangeSetDeps,
   ChangeSetTask,
@@ -640,6 +641,14 @@ export function scopedRunCarriedAcrossMerge(
   const scoped = atoms.filter(
     (a) => a.kind === 'test-run' || a.kind === 'qa-run' || isTreeScopedTool(a),
   );
+  // Review of #2302: config-schema speaks for CLEO config alone; the change's
+  // other files need a result of their own to carry.
+  const code = paths.filter((p) => cleoConfigSchemaFor(p) === null);
+  if (code.length > 0 && scoped.every((a) => a.kind === 'tool' && a.configSchema !== undefined))
+    return {
+      ok: false,
+      why: `tool:config-schema checks only CLEO config, and nothing else covers the change's other file(s) ${code.slice(0, 5).join(', ')}${code.length > 5 ? ', …' : ''}`,
+    };
   for (const atom of scoped) {
     // T13781: a config-schema result judged at a merged commit carries while
     // its files are unchanged at the merge.

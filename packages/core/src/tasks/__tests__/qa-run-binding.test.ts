@@ -926,9 +926,15 @@ describe('T13778-T13781: CLEO config composes with a targeted run (VidaPeps T215
       put('packages/a/package.json', JSON.stringify({ name: '@x/a' }));
       put('packages/a/src/i.ts', 'export const a = 1;\n');
       put(OTHER, 'export {};\n');
-      put('.cleo/project-context.json', config({}));
+      put('.cleo/project-context.json', config({ evidence: { scopeExcludes: ['.opencode/**'] } }));
     });
-    put('.cleo/project-context.json', config({ release: { prRequiredWorkflows: [] } }));
+    put(
+      '.cleo/project-context.json',
+      config({
+        evidence: { scopeExcludes: ['.opencode/**'] },
+        release: { prRequiredWorkflows: [] },
+      }),
+    );
     put(PARITY, 'export const pinned = 1;\n');
     git(root, ['commit', '-q', '-am', 'T1: config plus its parity test']);
   });
@@ -1017,9 +1023,55 @@ describe('T13778-T13781: CLEO config composes with a targeted run (VidaPeps T215
     expect(changedPathsSinceDefault(root)).toContain('packages/a/src/new.ts');
   });
 
-  describe('T13781: after the merge, config-schema judges the commit the write names', () => {
+  it('red (review of #2302): an untracked file under an undeclared dot-directory is the change', async () => {
+    // A new workflow left untracked at verify would join the tree with the same
+    // hash once committed, so it must be judged now.
+    put('.github/workflows/new.yml', 'on: push\n');
+    expect(changedPathsSinceDefault(root)).toContain('.github/workflows/new.yml');
+    const r = await validateAtom({ kind: 'test-run', path: report([PARITY]) }, root);
+    expect(!r.ok && r.reason, JSON.stringify(r)).toMatch(
+      /workspace-wide.*\.github\/workflows\/new\.yml/,
+    );
+  });
+
+  describe('T13781: after the merge, config-schema judges the task\u2019s own merged change', () => {
     let merge = '';
+    let own = '';
+    /** The task's context, its implemented gate recording `commits`. */
+    const owning = (commits: string[]): EvidenceValidationContext => ({
+      ...ctx,
+      task: {
+        ...ctx.task,
+        verification: {
+          passed: false,
+          round: 1,
+          gates: {},
+          lastAgent: null,
+          lastUpdated: null,
+          failureLog: [],
+          evidence: {
+            implemented: {
+              atoms: commits.map((sha): EvidenceAtom => ({ kind: 'commit', sha })),
+              capturedAt: '2026-10-16T00:00:00Z',
+              capturedBy: 'test',
+            },
+          },
+        },
+      },
+    });
+    const schemaAt = async (sha: string, commits = [own]) => {
+      const r = await validateAtom(
+        { kind: 'tool', tool: 'config-schema' },
+        root,
+        undefined,
+        sha,
+        owning(commits),
+      );
+      if (!r.ok) throw new Error(JSON.stringify(r));
+      return r.atom;
+    };
     beforeEach(() => {
+      own = git(root, ['rev-parse', 'HEAD']);
       git(root, ['switch', '-q', 'main']);
       git(root, ['merge', '-q', '--no-ff', '-m', 'Merge pull request #803', 'task/T1']);
       merge = git(root, ['rev-parse', 'HEAD']);
@@ -1033,11 +1085,11 @@ describe('T13778-T13781: CLEO config composes with a targeted run (VidaPeps T215
       );
     });
 
-    it('with commit:<sha> it validates that commit\u2019s config files, and stands after the merge', async () => {
-      const schema = await atom({ kind: 'tool', tool: 'config-schema' }, merge);
+    it('with its own commit:<sha> it validates the task\u2019s config, and stands after the merge', async () => {
+      const schema = await schemaAt(own);
       expect(schema).toMatchObject({
         configSchema: ['.cleo/project-context.json'],
-        configSchemaCommit: merge,
+        configSchemaCommit: own,
         otherPaths: [PARITY],
       });
       const landing = {
@@ -1055,9 +1107,55 @@ describe('T13778-T13781: CLEO config composes with a targeted run (VidaPeps T215
       ).toBeNull();
     });
 
+    it('red (review of #2302): an unrelated commit is refused, however its diff looks', async () => {
+      // The probe: another change relaxes the test command; the task's own
+      // merged change is code. Naming the unrelated commit must not let the
+      // task complete on config-schema alone.
+      put('.cleo/project-context.json', config({ testing: { command: 'true' } }));
+      git(root, ['commit', '-q', '-am', 'someone else: relax the tests']);
+      git(root, ['push', '-q', 'origin', 'main']);
+      const unrelated = git(root, ['rev-parse', 'HEAD']);
+      const r = await validateAtom(
+        { kind: 'tool', tool: 'config-schema' },
+        root,
+        undefined,
+        unrelated,
+        owning([own]),
+      );
+      expect(!r.ok && r.reason, JSON.stringify(r)).toMatch(
+        /only at the task's own commit.*neither a commit: nor a pr: merge recorded/,
+      );
+      const none = await validateAtom(
+        { kind: 'tool', tool: 'config-schema' },
+        root,
+        undefined,
+        unrelated,
+      );
+      expect(none.ok).toBe(false);
+    });
+
+    it('red (review of #2302): after the merge config-schema never carries the change\u2019s code files', async () => {
+      const schema = await schemaAt(own);
+      const landing = {
+        mergeCommitSha: merge,
+        files: ['.cleo/project-context.json', PARITY],
+        deletedFiles: [],
+        executionRoot: root,
+      };
+      expect(
+        await testsPassedSupersededReason([schema], {
+          mergeState: () => ({ state: 'merged' as const, landing }),
+          currentTree: () => git(root, ['rev-parse', 'HEAD^{tree}']),
+          landed: isLandedOnOriginDefault,
+        }),
+      ).toMatch(
+        /checks only CLEO config, and nothing else covers the change's other file\(s\) scripts/,
+      );
+    });
+
     it('the post-merge stand-in needs config-schema for the merged config, beside the test-run', async () => {
       const run = await atom({ kind: 'test-run', path: report([PARITY]) });
-      const schema = await atom({ kind: 'tool', tool: 'config-schema' }, merge);
+      const schema = await schemaAt(own);
       const change = {
         mergeCommitSha: merge,
         files: ['.cleo/project-context.json', PARITY],
@@ -1073,15 +1171,21 @@ describe('T13778-T13781: CLEO config composes with a targeted run (VidaPeps T215
       );
     });
 
-    it('red: a config file that breaks the schema at that commit fails', async () => {
+    it('red: a config file that breaks the schema at the task\u2019s commit fails', async () => {
       git(root, ['switch', '-q', '-c', 'task/T2']);
       put('.cleo/project-context.json', config({ test: { command: 'x' } }));
       git(root, ['commit', '-q', '-am', 'T2: bad config']);
+      const bad = git(root, ['rev-parse', 'HEAD']);
       git(root, ['switch', '-q', 'main']);
       git(root, ['merge', '-q', '--no-ff', '-m', 'Merge pull request #804', 'task/T2']);
       git(root, ['push', '-q', 'origin', 'main']);
-      const bad = git(root, ['rev-parse', 'HEAD']);
-      const r = await validateAtom({ kind: 'tool', tool: 'config-schema' }, root, undefined, bad);
+      const r = await validateAtom(
+        { kind: 'tool', tool: 'config-schema' },
+        root,
+        undefined,
+        bad,
+        owning([bad]),
+      );
       expect(!r.ok && r.codeName, JSON.stringify(r)).toBe('E_EVIDENCE_TOOL_FAILED');
     });
   });
@@ -1113,7 +1217,7 @@ describe('T13783: dependents of a regenerated generated client owe a typecheck, 
   const contextFile = (evidence: Record<string, unknown>) =>
     `${JSON.stringify({ schemaVersion: '1.0.0', detectedAt: '2026-10-16T00:00:00Z', projectTypes: ['node'], evidence })}\n`;
 
-  function setup(declared: boolean): void {
+  function setup(declared: boolean | string[]): void {
     initRepo(() => {
       put('pnpm-workspace.yaml', 'packages:\n  - "lib/*"\n  - "apps/*"\n');
       pkg('lib/api-zod', '@x/api-zod');
@@ -1122,7 +1226,11 @@ describe('T13783: dependents of a regenerated generated client owe a typecheck, 
       pkg('apps/web', '@x/web', ['@x/api-client-react', '@x/util']);
       put(
         '.cleo/project-context.json',
-        contextFile(declared ? { typecheckOnlyDependents: ['lib/api-zod/**'] } : {}),
+        contextFile(
+          declared === false
+            ? {}
+            : { typecheckOnlyDependents: declared === true ? ['lib/api-zod/**'] : declared },
+        ),
       );
     });
     put('lib/api-zod/src/index.ts', 'export const v = 2;\n');
@@ -1179,6 +1287,12 @@ describe('T13783: dependents of a regenerated generated client owe a typecheck, 
     expect(checkTaskEvidenceContext(ctx, 'testsPassed', [run.atom, narrow.atom])).toMatch(
       /leaves apps\/web to a typecheck/,
     );
+  });
+
+  it('red (review of #2302): a catch-all glob declares nothing', async () => {
+    setup(['**']);
+    const r = await validateAtom({ kind: 'test-run', path: report([ZOD_TEST]) }, root);
+    expect(!r.ok && r.reason, JSON.stringify(r)).toMatch(/depends on a changed package/);
   });
 
   it('red: a dependent whose own source changed still owes its tests', async () => {

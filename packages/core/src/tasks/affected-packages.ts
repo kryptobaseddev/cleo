@@ -33,13 +33,18 @@ import { execFile, execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { isAbsolute, join, matchesGlob, relative } from 'node:path';
-import { promisify } from 'node:util';
+import { isDeepStrictEqual, promisify } from 'node:util';
+import { pushWarning } from '../output.js';
 import { isCiDocumentPath, readCiSatisfies } from '../release/ci-evidence.js';
 import { LIGHT_FOOTPRINT_BYTES } from '../resources/admission-ledger.js';
 import type { MergeVerdict } from './affected-scope.js';
 import { type AffectedTemplate, resolveAffectedTemplate } from './affected-template.js';
 import { splitCommandLine } from './command-line.js';
-import { parseRawProjectContext, type ResolvedToolCommand } from './tool-resolver.js';
+import {
+  parseRawProjectContext,
+  type ResolvedToolCommand,
+  readRawProjectContext,
+} from './tool-resolver.js';
 import { AdmissionTimeoutError, acquireGlobalSlot, type ReleaseSlotFn } from './tool-semaphore.js';
 
 /**
@@ -365,6 +370,9 @@ export function dependentsClosure(
   return affected;
 }
 
+/** Paths no explicit typecheck-only declaration matches all of. */
+const CATCH_ALL_PROBES: readonly string[] = ['a', 'x/y/z.ts'];
+
 /**
  * The changed workspace packages whose every changed path matches a glob of
  * `evidence.typecheckOnlyDependents` on the default branch (T13783): a
@@ -385,9 +393,18 @@ export function typecheckOnlyPackages(
   workspace: readonly WorkspacePackage[],
 ): Set<string> {
   const mergeBase = originDefaultMergeBase(root);
-  const globs = mergeBase
+  const declared = mergeBase
     ? declaredEvidencePatterns(root, mergeBase, 'typecheckOnlyDependents')
     : [];
+  // A glob matching every path declares nothing: it would exempt every dependent.
+  const catchAll = declared.filter((g) => CATCH_ALL_PROBES.every((p) => matchesGlob(p, g)));
+  if (catchAll.length > 0)
+    pushWarning({
+      code: 'W_TYPECHECK_ONLY_CATCH_ALL',
+      severity: 'warn',
+      message: `evidence.typecheckOnlyDependents ignores catch-all glob(s) ${catchAll.join(', ')}: name the generated or data paths explicitly.`,
+    });
+  const globs = declared.filter((g) => !catchAll.includes(g));
   const matched = new Map<string, boolean>();
   if (globs.length === 0) return new Set();
   for (const path of changed.map(slashSeparated)) {
@@ -831,6 +848,34 @@ export function declaredEvidencePatterns(
 }
 
 /**
+ * The project context evidence reads its commands from (review of #2302): the
+ * default-branch (merge-base) copy of `.cleo/project-context.json` whenever
+ * the working copy differs from it, so a change cannot relax the test, lint
+ * or typecheck commands that judge it; the working copy otherwise. A tracked
+ * file the default branch lacks yields none (the change added it).
+ *
+ * @param storeRoot - CLEO store root (holds the working copy).
+ * @param root - Execution root (the git checkout).
+ * @returns The context to read commands from, or null.
+ * @task T13779
+ */
+export function evidenceProjectContext(
+  storeRoot: string,
+  root: string,
+): Record<string, unknown> | null {
+  const working = readRawProjectContext(storeRoot);
+  const mergeBase = originDefaultMergeBase(root);
+  if (!mergeBase) return working;
+  const raw = git(root, ['show', `${mergeBase}:./.cleo/project-context.json`]);
+  if (raw === null) {
+    const tracked = git(root, ['ls-files', '--', '.cleo/project-context.json']);
+    return tracked ? null : working;
+  }
+  const base = parseRawProjectContext(raw);
+  return isDeepStrictEqual(base, working) ? working : base;
+}
+
+/**
  * The project's declared `evidence.scopeExcludes` ({@link declaredEvidencePatterns}).
  *
  * @param root - Execution root (the CLEO root of the checkout).
@@ -869,8 +914,12 @@ export function isScopeExcluded(
   return declared.some((pattern) => pattern === rel || matchesGlob(rel, pattern));
 }
 
-/** A path under a top-level dot-directory: tool and session state when untracked (T13780). */
-const UNTRACKED_STATE_DIR = /^\.[^/]+\//;
+/**
+ * Built-in session-state directories: an untracked file under one is never
+ * part of a change (T13780). Everything else is declared through
+ * `evidence.scopeExcludes`, never by a blanket dot-directory rule.
+ */
+const UNTRACKED_STATE_DIRS: readonly string[] = ['.cleo/rcasd/', '.claude/'];
 
 /** The changed paths evidence scoping counts, and the ones it set aside. */
 export interface ScopedChangedPaths {
@@ -887,12 +936,13 @@ export interface ScopedChangedPaths {
  * — split into the ones that count and the ones set aside as out of scope
  * ({@link isScopeExcluded}, T13135).
  *
- * An untracked file under a top-level dot-directory (`.opencode/`,
- * `.cleo/rcasd/`, `.claude/`) is not the change (T13780): in a shared checkout
- * it is another session's or tool's state. It joins the change once staged or
- * committed. Untracked files elsewhere still count: a new source file a later
- * commit adds keeps the same tree hash, so leaving it out of scope would let
- * evidence recorded before the commit skip it.
+ * An untracked file that is tool or session state is not the change at all
+ * (T13780): one under {@link UNTRACKED_STATE_DIRS} (`.cleo/rcasd/`,
+ * `.claude/`), or one the default branch's `evidence.scopeExcludes` matches
+ * (this repo declares `.opencode/**`). Every other untracked file counts,
+ * whatever directory holds it (`.github/`, `.husky/`): a file a later commit
+ * adds keeps the same tree hash, so leaving it out of scope would let
+ * evidence recorded before the commit skip it (review of #2302).
  *
  * Excludes are anchored at the CLEO root: diff paths are relative to the git
  * top level, so a CLEO root in a subdirectory strips its prefix before
@@ -932,8 +982,11 @@ export function scopedChangedPaths(root: string): ScopedChangedPaths | null {
     (out(path, prefix) ? excluded : paths).add(path);
   }
   for (const path of lines(untracked)) {
-    if (UNTRACKED_STATE_DIR.test(slashSeparated(path))) continue;
-    (out(path, '') ? excluded : paths).add(path);
+    const rel = slashSeparated(path);
+    if (UNTRACKED_STATE_DIRS.some((dir) => rel.startsWith(dir))) continue;
+    // Declared or managed state: never package code (isScopeExcluded refuses those).
+    if (isScopeExcluded(rel, declared, packageDirs)) continue;
+    paths.add(path);
   }
   return { paths: [...paths].sort(), excluded: [...excluded].sort() };
 }
@@ -997,9 +1050,8 @@ export async function planAffectedTestRun(
   root: string,
   opts: { wait?: boolean } = {},
 ): Promise<AffectedTestRun> {
-  const { readRawProjectContext } = await import('./tool-resolver.js');
   const testing = (
-    readRawProjectContext(storeRoot) as {
+    evidenceProjectContext(storeRoot, root) as {
       testing?: { affectedCommand?: unknown; command?: unknown };
     } | null
   )?.testing;
@@ -1206,9 +1258,8 @@ export async function planScopedTestRun(
   root: string,
   opts: { wait?: boolean; mergeState?: () => Promise<MergeVerdict> } = {},
 ): Promise<ScopedTestRun> {
-  const { readRawProjectContext } = await import('./tool-resolver.js');
   const testing = (
-    readRawProjectContext(storeRoot) as {
+    evidenceProjectContext(storeRoot, root) as {
       testing?: { affectedCommand?: unknown; command?: unknown; preferAffected?: unknown };
     } | null
   )?.testing;
