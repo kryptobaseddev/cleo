@@ -697,6 +697,40 @@ describe('Git-native installation and recovery (T13349)', () => {
     });
     expect(result.status).toBe(0);
     expect(fs.readFileSync(marker, 'utf8')).toBe('hook run --probe\n');
-    expect(result.stderr).toContain('project runner unavailable');
+    expect(result.stderr).toContain('WARNING: push NOT gated by project hooks');
+    expect(result.stderr).toContain('has no project hook runner');
+    expect(result.stderr).not.toContain('ACTIVATED');
+  });
+
+  it('names an ungated push and flags an activated checkout (T13774)', async () => {
+    const repo = gitInit(path.join(tmpRoot, 'ungated'));
+    await installCleoHooks(repo, { templatesDir: REPO_TEMPLATES_DIR });
+    fs.mkdirSync(path.join(repo, '.git', 'cleo-project-hooks'));
+    fs.writeFileSync(
+      path.join(repo, '.git', 'cleo-project-hooks', 'activation.json'),
+      '{"hooks":{"project":{"enabled":true}}}\n',
+    );
+    // A PATH holding git and sh but no cleo, like a harness that filtered the user's PATH.
+    const bin = path.join(tmpRoot, 'no-cleo-bin');
+    fs.mkdirSync(bin);
+    for (const tool of ['git', 'sh', 'mktemp', 'cat', 'rm', 'grep', 'printf']) {
+      const found = spawnSync('/bin/sh', ['-c', `command -v ${tool}`], { encoding: 'utf8' });
+      const target = found.stdout.trim();
+      if (target.startsWith('/')) fs.symlinkSync(target, path.join(bin, tool));
+    }
+    const zero = '0'.repeat(40);
+    const result = spawnSync(posixShell(), [path.join(repo, '.git', 'hooks', 'pre-push')], {
+      cwd: repo,
+      input: `refs/heads/a ${zero} refs/heads/a ${zero}\n`,
+      env: { ...process.env, PATH: bin },
+      encoding: 'utf8',
+    });
+    expect(result.status).toBe(0);
+    expect(result.stderr).toContain(
+      'cleo pre-push: WARNING: push NOT gated by project hooks: cleo is not on PATH.',
+    );
+    expect(result.stderr).toContain(
+      'Project hooks are ACTIVATED in this checkout but did not run.',
+    );
   });
 });
