@@ -87,6 +87,32 @@ describe('Codex delivery from a linked worktree (T13772)', () => {
     expect((await syncProjectHookProviders(main))[0]?.state).toBe('current');
     expect((await syncProjectHookProviders(worktree))[0]?.state).toBe('current');
   });
+  it('a worktree only grows the shared root entry; a root sync can shrink it', async () => {
+    const { main, worktree } = await linkedWorktree();
+    const file = join(main.projectRoot, '.codex/hooks.json');
+    await syncProjectHookProviders({
+      ...main,
+      events: ['PreToolUse', 'ResponseComplete', 'SessionStart'],
+    });
+    const full = await readFile(file, 'utf8');
+    for (const event of ['PreToolUse', 'ResponseComplete', 'SessionStart'])
+      expect(full).toContain('--event ' + event);
+    // A subset activation in a worktree keeps every root event.
+    expect((await syncProjectHookProviders(worktree))[0]?.state).toBe('current');
+    expect(await readFile(file, 'utf8')).toBe(full);
+    // A worktree with no agent bindings leaves the root untouched.
+    const empty = (await syncProjectHookProviders({ ...worktree, events: [] }))[0];
+    expect(empty?.diagnostics).toContain('HOOK_NO_AGENT_BINDINGS');
+    expect(await readFile(file, 'utf8')).toBe(full);
+    // Shrinking stays with the root checkout.
+    await syncProjectHookProviders(main);
+    expect(await readFile(file, 'utf8')).not.toContain('--event ResponseComplete');
+    // A worktree event the root lacks is added alongside the root's.
+    await syncProjectHookProviders({ ...worktree, events: ['ResponseComplete'] });
+    const grown = await readFile(file, 'utf8');
+    expect(grown).toContain('--event PreToolUse');
+    expect(grown).toContain('--event ResponseComplete');
+  });
   it('worktree disable keeps the shared root entry; root disable removes it', async () => {
     const { main, worktree } = await linkedWorktree();
     await rm(join(worktree.projectRoot, '.codex'), { recursive: true, force: true });

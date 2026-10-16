@@ -14,7 +14,9 @@ hook into the worktree, so it never fired there.
 into the root checkout's `.codex/hooks.json`, under one receipt that the root
 checkout and its worktrees share, and creates the worktree's `.codex`
 directory. The hook command carries no paths: it resolves the worktree it runs
-in from its cwd. A worktree-local entry from an earlier release is removed by
+in from its cwd. A worktree only grows the shared entry (the union of the
+events already delivered and its own); an activation with no agent bindings
+leaves it untouched, and shrinking stays with a root sync. A worktree-local entry from an earlier release is removed by
 its receipt. `--disable` in a worktree keeps the shared root entry (that
 worktree's disabled activation makes it a no-op there) and removes the empty
 `.codex` directory. `--disable` in the root checkout removes the entry for all

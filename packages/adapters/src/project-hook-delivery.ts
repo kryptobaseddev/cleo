@@ -663,10 +663,35 @@ async function deliverFromLinkedWorktree(
       diagnostics: ['HOOK_ROOT_CHECKOUT_ENTRY_RETAINED'],
     };
   }
-  const result = await deliverLocked(
-    { ...root, events: worktree.events, enabled: worktree.enabled, dryRun: worktree.dryRun },
-    provider,
-  );
+  // The root entry serves the root checkout and every sibling, so a worktree only grows it;
+  // shrinking stays with a root sync or root disable. Extra events are inert in a checkout
+  // whose own activation does not bind them.
+  if (worktree.events.length === 0)
+    return {
+      provider,
+      state: 'unsupported',
+      capability: 'unverified',
+      nativeTrust: 'unverified',
+      provenance: 'unknown',
+      diagnostics: ['HOOK_NO_AGENT_BINDINGS', 'HOOK_ROOT_CHECKOUT_ENTRY_RETAINED'],
+    };
+  const receiptPath = join(root.stateDir, 'provider-' + provider + '.json');
+  const deliver = async (): Promise<ProjectHookDeliveryResult> => {
+    const prior = await receiptAt(receiptPath, root.services);
+    const delivered = (prior?.entries ?? []).flatMap(
+      (item) => /--event ([A-Za-z][A-Za-z0-9]*)/.exec(item.command)?.[1] ?? [],
+    );
+    return deliverProvider(
+      {
+        ...root,
+        events: [...new Set([...delivered, ...worktree.events])],
+        enabled: worktree.enabled,
+        dryRun: worktree.dryRun,
+      },
+      provider,
+    );
+  };
+  const result = worktree.dryRun ? await deliver() : await withFileLock(receiptPath, deliver);
   result.diagnostics.push('HOOK_ROOT_CHECKOUT_DELIVERY');
   if (
     !worktree.dryRun &&
