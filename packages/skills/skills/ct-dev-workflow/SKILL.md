@@ -1,7 +1,7 @@
 ---
 name: ct-dev-workflow
 description: Development workflow orchestration for task-driven development with atomic commits, conventional commit messages, and systematic release processes. Enforces task traceability, branch discipline, smart test scope selection, and GitHub Actions integration. Use when committing code, creating releases, managing branches, or following contribution protocols. Triggers on commit operations, release preparation, or workflow compliance needs.
-version: 3.1.21
+version: 3.1.22
 protocol: contribution
 dependencies: []
 sharedResources:
@@ -14,7 +14,7 @@ compatibility:
   - gemini-cli
 license: MIT
 metadata:
-  version: 3.1.21
+  version: 3.1.22
   tier: core
   install: harness
   covers:
@@ -530,6 +530,14 @@ CLEO infrastructure failure is an unavailable check, never successful CI evidenc
 Launcher faults allow locally regardless of checker error policy. File inputs and
 provider records use bounded regular-file reads; FIFOs are rejected. Unsupported
 provider bindings remain unsupported in delivery summaries, including mixed bindings.
+
+The Stop event has one dispatcher, `cleo hook stop --provider claude-code|codex` (T13796):
+it asks a live goal runtime first (`CLEO_GOAL_TICK_COMMAND`, default `ocg tick`, Stop JSON
+on stdin), passes a `{"decision":"block"}` answer through verbatim and keeps the session
+open, and runs `cleo session end --quiet` only when the goal says the turn is final or no
+goal is live. A missing, failing or timed-out tick fails open to the session end;
+`CLEO_GOAL_TICK=off` skips it. Claude Code's native Stop hook is the dispatcher; Codex gets
+it in `.codex/hooks.json` beside ask-enforce.
 
 Init, upgrade and inspection share the commit-msg, pre-commit and pre-push installer.
 Git determines effective hooksPath and the common directory, including linked worktrees.
