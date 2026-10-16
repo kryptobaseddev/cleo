@@ -44,7 +44,7 @@ import {
   RELEASE_PERSISTED_CHANNEL,
   safeParseReleasePlan,
 } from '@cleocode/contracts/release/plan.js';
-import { eq, inArray } from 'drizzle-orm';
+import { and, eq, inArray } from 'drizzle-orm';
 import { type EngineResult, engineError, engineSuccess } from '../engine-result.js';
 import { getLogger } from '../logger.js';
 import { getProjectRoot } from '../paths.js';
@@ -1796,9 +1796,24 @@ export async function releaseReconcileV2(
       // set; if absent we either set the FK column to NULL (pullRequests)
       // or skip the row entirely (prCommits — NOT NULL FK can't be NULLed).
       const insertedShas = new Set<string>(commits.map((c) => c.sha));
+      // T12914: a PR is one row per (repo, number) on every device; its id is
+      // device-local (a PR received by sync takes its uid), so reuse the
+      // stored id before minting `<projectHash>:<number>`.
+      const prIds = new Map<number, string>();
       try {
         for (const pr of fetchedPRs) {
-          const prId = `${projectHash}:${pr.prNumber}`;
+          const storedPr = await db
+            .select({ id: schema.pullRequests.id })
+            .from(schema.pullRequests)
+            .where(
+              and(
+                eq(schema.pullRequests.repoUrl, pr.repoUrl),
+                eq(schema.pullRequests.prNumber, pr.prNumber),
+              ),
+            )
+            .get();
+          const prId = storedPr?.id ?? `${projectHash}:${pr.prNumber}`;
+          prIds.set(pr.prNumber, prId);
           const isBumpPr = !!plan.prUrl && plan.prUrl.endsWith(`/pull/${pr.prNumber}`);
           // Sanitise FK references — see `sanitisePrShasForFk` for the why.
           const safePr = sanitisePrShasForFk(pr, insertedShas);
@@ -1902,7 +1917,7 @@ export async function releaseReconcileV2(
         const bumpPrId = (() => {
           if (!plan.prUrl) return null;
           const m = plan.prUrl.match(/\/pull\/(\d+)/);
-          return m ? `${projectHash}:${m[1]}` : null;
+          return m ? (prIds.get(Number(m[1])) ?? `${projectHash}:${m[1]}`) : null;
         })();
         // FK safety (C3): releasesNew.mergeCommitSha is a soft FK to
         // commits.sha (ON DELETE SET NULL). If the plan references a
@@ -2006,23 +2021,32 @@ export async function releaseReconcileV2(
         for (let i = 0; i < plan.tasks.length; i++) {
           const task = plan.tasks[i];
           const changeType = classifyChangeType(task, plan);
-          // Build deterministic ID so re-running upserts the same row.
+          // T12914: a change is one row per (release, task, change type) on
+          // every device, so task_id always carries the plan's task id (a soft
+          // reference: the consolidated column has no FK, T11883) — a NULL would
+          // fold the changes of two absent tasks into one. The id is
+          // device-local (a change received by sync takes its uid): reuse the
+          // stored one, else mint the deterministic id so a re-run upserts.
+          const storedChange = await db
+            .select({ id: schema.releaseChanges.id })
+            .from(schema.releaseChanges)
+            .where(
+              and(
+                eq(schema.releaseChanges.releaseId, releaseId),
+                eq(schema.releaseChanges.taskId, task.id),
+                eq(schema.releaseChanges.changeType, changeType),
+              ),
+            )
+            .get();
           const idSeed = `${releaseId}|${task.id}|${changeType}`;
-          const id = createHash('sha256').update(idSeed).digest('hex').slice(0, 32);
-          // FK safety (DHQ-051 · T11659): `release_changes.task_id` FKs the bare
-          // `tasks` table (ON DELETE SET NULL, nullable). NULL the column when
-          // the FK parent cannot resolve the id; the change row still records
-          // the summary/impact, just without the dangling task linkage.
-          const safeTaskId = fkResolvableTaskIds.has(task.id) ? task.id : null;
-          if (safeTaskId === null && validTaskIds.has(task.id)) {
-            skippedTaskRefs.add(task.id);
-          }
+          const id =
+            storedChange?.id ?? createHash('sha256').update(idSeed).digest('hex').slice(0, 32);
           await db
             .insert(schema.releaseChanges)
             .values({
               id,
               releaseId,
-              taskId: safeTaskId,
+              taskId: task.id,
               changeType,
               summary: task.userFacingSummary || `${task.id}: ${task.kind}`,
               description: null,

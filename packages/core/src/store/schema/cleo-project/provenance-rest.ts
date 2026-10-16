@@ -125,7 +125,7 @@ export const tasksPullRequests = sqliteTable(
     createdAt: text('created_at').notNull().default(sql`(datetime('now'))`),
     /** ISO-8601 UTC last-update instant (canonical TEXT, §4). */
     updatedAt: text('updated_at').notNull().default(sql`(datetime('now'))`),
-    /** Row uid (T12914): a UUIDv8 over the PR id, filled at open or by the uid trigger. */
+    /** Row uid (T12914): a UUIDv8 over (repo URL, PR number; `id` is device-local), filled at open or by the uid trigger. */
     uid: text('uid'),
   },
   (table) => [
@@ -353,7 +353,7 @@ export const tasksReleaseChanges = sqliteTable(
     classifiedBy: text('classified_by', { enum: RELEASE_CLASSIFIED_BY }).notNull().default('auto'),
     /** ISO-8601 UTC classification instant (canonical TEXT, §4). */
     classifiedAt: text('classified_at').notNull().default(sql`(datetime('now'))`),
-    /** Row uid (T12914): a UUIDv8 over the change id, filled at open or by the uid trigger. */
+    /** Row uid (T12914): a UUIDv8 over (release uid, task id, change type; `id` is device-local), filled at open or by the uid trigger. */
     uid: text('uid'),
   },
   (table) => [

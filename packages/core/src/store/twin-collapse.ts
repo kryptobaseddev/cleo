@@ -214,6 +214,7 @@ import {
   unpinBackup,
 } from './backup-sidecar.js';
 import { blobFileForRow, pinBlob, restoreBlob } from './blob-keep.js';
+import { enumNormExpr } from './exodus/column-transforms.js';
 import { planMigrationSnapshot, writeMigrationSnapshot } from './pre-repair-snapshot.js';
 import { withSuspectAccounting } from './sync/structural.js';
 
@@ -2435,6 +2436,46 @@ export interface CollapseTwinTablesOptions {
    * dispatch write guard refuse writes.
    */
   readonly onFailure?: 'throw' | 'degrade';
+}
+
+/**
+ * Copy the bare `commits` rows `tasks_commits` lacks into it (T12914), as the
+ * exodus copy normalizes them ({@link enumNormExpr}: an out-of-enum
+ * `conventional_type` becomes `chore`); an existing sha is never overwritten.
+ * `tasks_commits` syncs and bare `commits` does not, and the legacy
+ * `drizzle-tasks` migration `20260520163324_t9755-backfill-legacy-ship-commits`
+ * seeds 18 rows into the bare `commits` of every store after the consolidated
+ * schema, so without this every store holds a legacy strand
+ * (`legacyStrands`, E_SYNC_LEGACY_ONLY_STORE) from its first open. A commit is
+ * an immutable fact keyed by its sha, so the copy needs no review.
+ *
+ * @param nativeDb - The project store, after the legacy migrations.
+ * @returns Rows copied.
+ */
+export function carryBareCommits(nativeDb: DatabaseSync): number {
+  if (!hasMainTable(nativeDb, 'commits') || !hasMainTable(nativeDb, 'tasks_commits')) return 0;
+  if (!nativeDb.prepare('SELECT 1 FROM main."commits" LIMIT 1').get()) return 0;
+  const cols = (t: string): string[] =>
+    (nativeDb.prepare(`PRAGMA main.table_info("${t}")`).all() as Array<{ name: string }>).map(
+      (c) => c.name,
+    );
+  const bare = new Set(cols('commits'));
+  const src = (c: string): string => `s."${c}"`;
+  const pairs = cols('tasks_commits').flatMap((name) =>
+    name !== 'uid' && bare.has(name)
+      ? [[name, enumNormExpr('tasks_commits', name, src(name), src) ?? src(name)] as const]
+      : [],
+  );
+  return Number(
+    nativeDb
+      .prepare(
+        `INSERT INTO main."tasks_commits" (${pairs.map(([c]) => `"${c}"`).join(', ')}) ` +
+          `SELECT ${pairs.map(([, e]) => e).join(', ')} FROM main."commits" s ` +
+          'WHERE NOT EXISTS (SELECT 1 FROM main."tasks_commits" t WHERE t.sha = s.sha) ' +
+          'ON CONFLICT DO NOTHING',
+      )
+      .run().changes,
+  );
 }
 
 /**

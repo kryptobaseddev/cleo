@@ -281,17 +281,21 @@ const COMMITS: RowIdentityRef['table'] = 'tasks_commits';
 /**
  * Lifecycle, release, PR and commit tables (T12914), project scope only.
  *
- * - Natural on `id` where the writer derives the id from the entity
+ * - Natural on `id` where the writer derives the id from the entity alone
  *   (`pipeline-<task>` or `<task>`, `<pipeline>_<stage>` or
- *   `stage-<task>-<stage>`, `gate-<task>-<stage>-<gate>`, the release change
- *   hash, `<projectHash>:<pr>`), so two devices that record the same entity
- *   derive one uid and merge field by field. A sha is a natural key as is.
+ *   `stage-<task>-<stage>`, `gate-<task>-<stage>-<gate>`), so two devices
+ *   that record the same entity derive one uid and merge field by field. A
+ *   sha is a natural key as is.
  * - Minted where the id is random or clock-made (evidence, transitions).
  * - `tasks_releases` is natural on its UNIQUE `version`: the id embeds the
  *   path-derived project hash, which differs per device, so keying on it
  *   would void one device's row on the UNIQUE version index. `id` is a local
  *   key (a received release takes its uid as id); every reader and writer
- *   finds a release by version.
+ *   finds a release by version. The same holds for ids built from it or from
+ *   the hash: `tasks_pull_requests` (`<projectHash>:<pr>`) is natural on
+ *   (repo, number) and `tasks_release_changes` (a hash over the release id)
+ *   on (release, task, change type), each with a local `id` that reconcile
+ *   looks up before minting one.
  * - `tasks_release_changesets` is natural on (release, changeset slug): plan
  *   rewrites the set with fresh random ids on every run, so a re-plan on
  *   either device lands on the same rows.
@@ -354,8 +358,9 @@ function lifecycleReleaseGit(): RowIdentitySpec[] {
     {
       table: 'tasks_release_changes',
       kind: 'natural',
-      key: ['id'],
-      refs: [{ column: 'release_id', table: RELEASES }],
+      key: ['release_id', 'task_id', 'change_type'],
+      keyRefs: [{ column: 'release_id', table: RELEASES }],
+      localKey: 'id',
       task: 'T12914',
     },
     {
@@ -373,7 +378,13 @@ function lifecycleReleaseGit(): RowIdentitySpec[] {
       keyRefs: [{ column: 'release_id', table: RELEASES }],
       task: 'T12914',
     },
-    { table: PULL_REQUESTS, kind: 'natural', key: ['id'], task: 'T12914' },
+    {
+      table: PULL_REQUESTS,
+      kind: 'natural',
+      key: ['repo_url', 'pr_number'],
+      localKey: 'id',
+      task: 'T12914',
+    },
     {
       table: 'tasks_pr_commits',
       kind: 'natural',

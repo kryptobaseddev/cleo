@@ -1350,6 +1350,65 @@ describe('lifecycle, release, PR and commit rows reach a second device (T12914)'
     expect(releaseChildren(b.db)).toEqual(children);
   });
 
+  it('the same PR reconciled on both devices under different ids is one PR and one task link (#2282 review)', async () => {
+    const { a, b } = await twoDevices();
+    const stream = fakeStream();
+    const prSql = (hash: string) =>
+      `INSERT INTO tasks_pull_requests (id, pr_number, repo_url, title, state, base_ref, head_ref, opened_at, created_at, updated_at)
+         VALUES ('${hash}:7', 7, 'https://github.com/o/r', 'feat', 'merged', 'main', 'feat/T1', '${AT}', '${AT}', '${AT}');
+       INSERT INTO tasks_pr_tasks (pr_id, task_id, link_source, link_kind, created_at)
+         VALUES ('${hash}:7', 'T1', 'pr-title', 'implements', '${AT}');`;
+    write(a.db, prSql('hashA'));
+    write(b.db, prSql('hashB'));
+    await push(a, stream);
+    await push(b, stream);
+    await pull(a, stream);
+    await pull(b, stream);
+    const links = (db: DatabaseSync) =>
+      db
+        .prepare(
+          `SELECT p.pr_number, p.uid, t.task_id, t.uid AS link FROM tasks_pr_tasks t
+             JOIN tasks_pull_requests p ON p.id = t.pr_id`,
+        )
+        .all();
+    for (const r of [a, b]) {
+      expect([count(r.db, 'tasks_pull_requests'), count(r.db, 'tasks_pr_tasks')]).toEqual([1, 1]);
+      expect(conflictsOf(r.db, 'guard')).toEqual([]);
+    }
+    expect(links(b.db)).toEqual(links(a.db));
+    // Each device keeps its own local id for its own PR.
+    expect(a.db.prepare('SELECT id FROM tasks_pull_requests').get()).toEqual({ id: 'hashA:7' });
+    expect(b.db.prepare('SELECT id FROM tasks_pull_requests').get()).toEqual({ id: 'hashB:7' });
+  });
+
+  it('the same release change reconciled on both devices under different ids is one row (#2282 review)', async () => {
+    const { a, b } = await twoDevices();
+    const stream = fakeStream();
+    const changeSql = (hash: string, id: string) =>
+      `${releaseSql(hash, 'v2026.10.4')}
+       INSERT INTO tasks_release_changes (id, release_id, task_id, change_type, summary, classified_at)
+         VALUES ('${id}', '${hash}:v2026.10.4', 'T1', 'feature', 'x', '${AT}');`;
+    // reconcile's id is a hash over the device-local release id.
+    write(a.db, changeSql('hashA', 'chg-hash-a'));
+    write(b.db, changeSql('hashB', 'chg-hash-b'));
+    await push(a, stream);
+    await push(b, stream);
+    await pull(a, stream);
+    await pull(b, stream);
+    const changes = (db: DatabaseSync) =>
+      db
+        .prepare(
+          `SELECT r.version, c.task_id, c.change_type, c.uid FROM tasks_release_changes c
+             JOIN tasks_releases r ON r.id = c.release_id`,
+        )
+        .all();
+    for (const r of [a, b]) {
+      expect(count(r.db, 'tasks_release_changes')).toBe(1);
+      expect(conflictsOf(r.db, 'guard')).toEqual([]);
+    }
+    expect(changes(b.db)).toEqual(changes(a.db));
+  });
+
   it('a concurrent status change converges on the shipped status (release.status.absorbing)', async () => {
     const { a, b } = await twoDevices();
     const stream = fakeStream();

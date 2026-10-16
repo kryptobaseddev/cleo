@@ -23,6 +23,7 @@ import { _resetDualScopeDbCache, openDualScopeDbAtPath } from '../../dual-scope-
 import { runBracketedMigrations } from '../../migration-runner.js';
 import { missingRowIdentitySchema } from '../../row-identity.js';
 import { getNativeTasksDb } from '../../sqlite.js';
+import { carryBareCommits } from '../../twin-collapse.js';
 import {
   type CaptureTableDef,
   captureBracketHooks,
@@ -966,6 +967,41 @@ describe('a legacy-only store refuses sync (T13224)', () => {
     expect(() =>
       setSyncFlag(db, 'sync.seal', true, { schemaRoot: SYNC_SCHEMA, allowUnreleased: true }),
     ).toThrow(LegacyOnlyStoreError);
+  });
+
+  it('bare commits rows the legacy migrations seed are carried into tasks_commits, never overwriting (T12914)', async () => {
+    const db = await openStore();
+    db.exec(`DROP TABLE IF EXISTS commits;
+      CREATE TABLE commits (sha TEXT PRIMARY KEY, short_sha TEXT NOT NULL, authored_at TEXT NOT NULL,
+        committed_at TEXT NOT NULL, message TEXT NOT NULL, subject TEXT NOT NULL, conventional_type TEXT,
+        is_release_commit INTEGER NOT NULL DEFAULT 0, is_merge_commit INTEGER NOT NULL DEFAULT 0,
+        parent_shas TEXT NOT NULL DEFAULT '[]', created_at TEXT NOT NULL);
+      INSERT INTO commits VALUES
+        ('${'a'.repeat(40)}', 'aaaaaaa', '2026-05-01T00:00:00Z', '2026-05-01T00:00:00Z', 'release: ship', 'release: ship', 'release', 1, 0, '[]', '2026-05-20 00:00:00'),
+        ('${'b'.repeat(40)}', 'bbbbbbb', '2026-05-01T00:00:00Z', '2026-05-01T00:00:00Z', 'bare', 'bare', 'fix', 0, 0, '[]', '2026-05-20 00:00:00');
+      INSERT INTO tasks_commits (sha, short_sha, authored_at, committed_at, message, subject, created_at)
+        VALUES ('${'b'.repeat(40)}', 'bbbbbbb', '2026-05-01T00:00:00Z', '2026-05-01T00:00:00Z', 'live', 'live', '2026-05-21 00:00:00');`);
+    expect(legacyStrands(db)).toEqual([
+      { bareTable: 'commits', table: 'tasks_commits', missing: 1, shadowed: 0 },
+    ]);
+    expect(carryBareCommits(db)).toBe(1);
+    expect(carryBareCommits(db)).toBe(0);
+    expect(legacyStrands(db)).toEqual([]);
+    expect(
+      db
+        .prepare(
+          'SELECT sha, subject, conventional_type, is_release_commit FROM tasks_commits ORDER BY sha',
+        )
+        .all(),
+    ).toEqual([
+      {
+        sha: 'a'.repeat(40),
+        subject: 'release: ship',
+        conventional_type: 'chore',
+        is_release_commit: 1,
+      },
+      { sha: 'b'.repeat(40), subject: 'live', conventional_type: null, is_release_commit: 0 },
+    ]);
   });
 
   it('a bare table outside the journal pairs (audit_log, not in the sync set) never counts', async () => {

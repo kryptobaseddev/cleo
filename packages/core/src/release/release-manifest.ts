@@ -153,7 +153,8 @@ async function getDb(cwd?: string): ReturnType<typeof import('../store/sqlite.js
  *
  * Consumers MUST handle both lifecycles. Code that needs to know which
  * pipeline owns a row can branch on `manifest.source` ('new' | 'legacy'),
- * derived from the row PK at read time.
+ * derived from `tasks_json` at read time, never from the id: a release's id
+ * is device-local (a release received by sync takes its uid, T12914).
  *
  * @task T9686
  */

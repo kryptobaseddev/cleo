@@ -473,6 +473,27 @@ describe('releaseReconcileV2 — Phase 1 (T9526)', () => {
     expect(await countRows(projectRoot, 'tasks_release_changes')).toBe(changesAfterFirst);
   });
 
+  it('a re-run reuses release change rows whose ids are device-local, never adding a second row (T12914)', async () => {
+    writePlan(projectRoot, VERSION, TASK_IDS);
+    gitCommit(projectRoot, 'a.txt', '1', `feat(${TASK_IDS[0]}): ship a`);
+    gitTag(projectRoot, VERSION);
+    expect((await releaseReconcileV2(VERSION, { projectRoot })).success).toBe(true);
+    // Rows received by sync carry their uid as their local id.
+    const { getDb } = await import('../../store/sqlite.js');
+    const { sql } = await import('drizzle-orm');
+    const db = await getDb(projectRoot);
+    await db.run(sql.raw(`UPDATE tasks_release_changes SET id = 'synced-' || task_id`));
+    const before = await db.all<{ id: string }>(
+      sql.raw('SELECT id FROM tasks_release_changes ORDER BY id'),
+    );
+
+    writePlan(projectRoot, VERSION, TASK_IDS);
+    expect((await releaseReconcileV2(VERSION, { projectRoot })).success).toBe(true);
+    expect(
+      await db.all<{ id: string }>(sql.raw('SELECT id FROM tasks_release_changes ORDER BY id')),
+    ).toEqual(before);
+  });
+
   it('unknown T#### tokens are reported in meta.unknownTokens (non-fatal)', async () => {
     writePlan(projectRoot, VERSION, TASK_IDS);
     // Subject references T9999999 which is not in tasks table.
