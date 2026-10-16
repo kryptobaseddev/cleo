@@ -22,7 +22,13 @@ import { join } from 'node:path';
 import { updateJsonConfigFile } from '@cleocode/caamp';
 import { PROVIDER_NATIVE_EVENT_MAPS } from '@cleocode/caamp/hooks';
 import type { AdapterHookProvider } from '@cleocode/contracts';
-import { excludeLocalSettingsFromGit } from '../shared/heavy-command-hook-install.js';
+import {
+  applyStopDispatch,
+  excludeLocalSettingsFromGit,
+  isStopDispatchHookObject,
+  LEGACY_SESSION_END_STOP_COMMAND,
+  stopDispatchHookObject,
+} from '../shared/heavy-command-hook-install.js';
 import { appendHookEntry, hookMap, isPlainObject, projectClaudeSettingsPath } from './paths.js';
 
 /**
@@ -31,10 +37,10 @@ import { appendHookEntry, hookMap, isPlainObject, projectClaudeSettingsPath } fr
  * turn is final or no goal is live, so a goal hook and the session end never
  * fight over the event.
  */
-export const NATIVE_STOP_HOOK_COMMAND = 'cleo hook stop --provider claude-code # cleo-hook';
+export const NATIVE_STOP_HOOK_COMMAND = String(stopDispatchHookObject('claude-code').command);
 
 /** The `Stop` command before T13796; recognised so registration replaces it. */
-export const LEGACY_NATIVE_STOP_HOOK_COMMAND = 'cleo session end --quiet # cleo-hook';
+export const LEGACY_NATIVE_STOP_HOOK_COMMAND = LEGACY_SESSION_END_STOP_COMMAND;
 
 /** The `PostToolUse` (`Write|Edit`) hook command: a brain observation per file write. */
 export const NATIVE_OBSERVE_HOOK_COMMAND =
@@ -79,11 +85,6 @@ function holdsHook(hooks: Record<string, unknown>, match: (hook: unknown) => boo
 /** Whether any event of a `hooks` map already holds a native hook. */
 function hasNativeHooks(hooks: Record<string, unknown>): boolean {
   return holdsHook(hooks, isNativeHookObject);
-}
-
-/** Whether a hook object is the pre-dispatcher Stop command (T13796). */
-function isLegacyStopHook(hook: unknown): boolean {
-  return isPlainObject(hook) && hook.command === LEGACY_NATIVE_STOP_HOOK_COMMAND;
 }
 
 /**
@@ -213,15 +214,11 @@ export class ClaudeCodeHookProvider implements AdapterHookProvider {
     // untouched — never replaced with an object holding only CLEO's entries.
     const wrote = await this.updateSettings(projectDir, (settings) => {
       const hooks = hookMap(settings);
-      const legacy = holdsHook(hooks, isLegacyStopHook);
-      if (hasNativeHooks(hooks) && !legacy) return false; // Already wired — idempotent
-      // T13796: replace a pre-dispatcher set in place (its Stop ran session end directly).
-      if (legacy) removeNativeHooks(hooks);
-
-      appendHookEntry(hooks, 'Stop', {
-        matcher: '',
-        hooks: [{ type: 'command', command: NATIVE_STOP_HOOK_COMMAND }],
-      });
+      // A fresh project gets every native hook; a wired one keeps its PostToolUse as the user left it.
+      const fresh = !hasNativeHooks(hooks) && !holdsHook(hooks, isStopDispatchHookObject);
+      // T13796: one Stop hook, folding in the separate ask-enforce and old session-end hooks.
+      const stopChanged = applyStopDispatch(hooks, 'claude-code', true);
+      if (!fresh) return stopChanged;
       appendHookEntry(hooks, 'PostToolUse', {
         matcher: 'Write|Edit',
         hooks: [

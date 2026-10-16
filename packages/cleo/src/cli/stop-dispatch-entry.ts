@@ -3,8 +3,8 @@
  *
  * A goal runtime (OpenCode-Goal's `ocg tick`) and CLEO's `cleo session end`
  * both want the Stop event; as two hooks they fight (the session ends while
- * the goal keeps the turn going). This dispatcher owns the event and asks the
- * goal runtime first:
+ * the goal keeps the turn going). This dispatcher owns the event, in order
+ * goal tick → ask-enforce → session end:
  *
  * 1. Run the tick command (`CLEO_GOAL_TICK_COMMAND`, default `ocg tick`) with
  *    the harness's Stop JSON on stdin.
@@ -12,9 +12,13 @@
  *    turn. The answer goes to the harness verbatim and the session stays open.
  * 3. `{"final":false}`: a live goal that is not finished but does not
  *    continue the turn (paused, waiting on the owner). The session stays open.
- * 4. Anything else ends the session exactly as before: no output, `{"final":
- *    true}`, no goal runtime installed (exit 127), a tick that fails, times out
- *    or prints something that is not JSON. Fail open, never trap a session.
+ * 4. Otherwise ask-enforce (T13420) judges the turn. Its block wins next and
+ *    the session is NOT ended, since the agent still owes the owner an ask; a
+ *    `warn` answer is forwarded and the session still ends.
+ * 5. Otherwise the session ends exactly as before. A tick that is missing
+ *    (exit 127), fails, times out or prints non-JSON counts as no goal, and an
+ *    ask-enforce step that throws counts as no block: every step fails open to
+ *    today's behaviour, never trapping a session.
  *
  * `CLEO_GOAL_TICK=off` skips the tick. Claude Code and Codex answer a Stop
  * hook in the same `{"decision":"block","reason"}` shape.
@@ -54,6 +58,8 @@ export interface TickRun {
 export interface StopDispatchDeps {
   /** Run the tick command with the Stop JSON on stdin. */
   readonly runTick: (command: string, input: string, timeoutMs: number) => TickRun;
+  /** The ask-enforce hook's stdout for this Stop (empty when it does not answer). */
+  readonly askEnforce: (input: string) => Promise<string>;
   /** End the CLEO session, as the Stop hook always did. */
   readonly endSession: () => void;
 }
@@ -87,20 +93,30 @@ export function parseTick(run: TickRun): TickDecision {
   return answer.final === false ? { kind: 'hold' } : { kind: 'final' };
 }
 
+/** Whether a hook answer is a `{"decision":"block"}` (Claude Code and Codex). */
+function isBlock(stdout: string): boolean {
+  try {
+    const answer = JSON.parse(stdout) as HookJsonValue;
+    return isRecord(answer) && answer.decision === 'block';
+  } catch {
+    return false;
+  }
+}
+
 /**
- * Dispatch one Stop: the goal runtime first, the session end only when the
- * goal says the turn is final or no goal is live.
+ * Dispatch one Stop: the goal runtime first, then ask-enforce, and the session
+ * end only when neither keeps the turn going.
  *
  * @param stdin - The harness's Stop JSON.
- * @param env - Environment (`CLEO_GOAL_TICK*`).
- * @param deps - Tick runner and session end.
+ * @param env - Environment (`CLEO_GOAL_TICK*`; ask-enforce reads `CLEO_ASK_ENFORCE`).
+ * @param deps - Tick runner, ask-enforce and session end.
  * @returns What to print to the harness and whether the session ended.
  */
-export function stopDispatch(
+export async function stopDispatch(
   stdin: string,
   env: Readonly<Record<string, string | undefined>>,
   deps: StopDispatchDeps,
-): { readonly stdout: string; readonly sessionEnded: boolean } {
+): Promise<{ readonly stdout: string; readonly sessionEnded: boolean }> {
   const decision: TickDecision =
     env.CLEO_GOAL_TICK?.trim().toLowerCase() === 'off'
       ? { kind: 'final' }
@@ -113,19 +129,37 @@ export function stopDispatch(
         );
   if (decision.kind === 'block') return { stdout: decision.answer, sessionEnded: false };
   if (decision.kind === 'hold') return { stdout: '', sessionEnded: false };
+  const asked = await deps.askEnforce(stdin).catch(() => '');
+  if (asked !== '' && isBlock(asked)) return { stdout: asked, sessionEnded: false };
   deps.endSession();
-  return { stdout: '', sessionEnded: true };
+  return { stdout: asked, sessionEnded: true };
 }
 
 /**
  * The real side effects: the tick through the shell (the command is the
- * project's own configuration), and `cleo session end --quiet` through the
- * running CLI, its envelope kept off the harness's stdout.
+ * project's own configuration), ask-enforce in-process, and
+ * `cleo session end --quiet` through the running CLI, its envelope kept off
+ * the harness's stdout.
  *
+ * @param provider - Harness protocol ask-enforce answers in.
+ * @param env - Environment ask-enforce reads.
  * @returns The default {@link StopDispatchDeps}.
  */
-export function processStopDispatchDeps(): StopDispatchDeps {
+export function processStopDispatchDeps(
+  provider: StopDispatchProvider,
+  env: Readonly<Record<string, string | undefined>>,
+): StopDispatchDeps {
   return {
+    askEnforce: async (input) => {
+      const entry = await import('./ask-enforce-entry.js');
+      const answer = await entry.askEnforceHook(
+        provider,
+        input,
+        env,
+        await entry.caampAskToolLookup(),
+      );
+      return answer.stdout;
+    },
     runTick: (command, input, timeoutMs) => {
       const r = spawnSync(command, {
         shell: true,

@@ -1085,13 +1085,14 @@ async function runAskEnforce(rest: readonly string[], io: HookIo): Promise<numbe
 async function runStopDispatch(rest: readonly string[], io: HookIo): Promise<number> {
   const entry = await import('./stop-dispatch-entry.js');
   const value = providerArg(rest);
-  if (!entry.STOP_DISPATCH_PROVIDERS.some((p) => p === value)) {
+  const provider = entry.STOP_DISPATCH_PROVIDERS.find((p) => p === value);
+  if (provider === undefined) {
     io.writeStderr(USAGE);
     return 1;
   }
-  const deps = entry.processStopDispatchDeps();
+  const deps = entry.processStopDispatchDeps(provider, io.env);
   try {
-    const answer = entry.stopDispatch(await io.readStdin(), io.env, deps);
+    const answer = await entry.stopDispatch(await io.readStdin(), io.env, deps);
     if (answer.stdout !== '') io.writeStdout(answer.stdout);
   } catch (err) {
     io.writeStderr(

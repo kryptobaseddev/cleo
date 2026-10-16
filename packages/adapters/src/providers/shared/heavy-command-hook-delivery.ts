@@ -56,7 +56,6 @@ import {
   opencodeHeavyCommandPluginSource,
   syncClaudeCodeHeavyCommandHook,
   syncCodexHeavyCommandHook,
-  syncJsonAskEnforceHook,
   syncJsonStopDispatchHook,
   syncOpencodeHeavyCommandPlugin,
   trackedFileModified,
@@ -194,34 +193,20 @@ function errorText(err: unknown): string {
 
 /** Sync one provider; never throws. */
 /**
- * Install (or remove) CLEO's ask-enforce Stop hook (T13420) in the same JSON
- * config as the heavy-command hook, after that hook synced. It rides the
- * heavy-command delivery: removed when that hook's mode is `off` or when
- * `CLEO_ASK_ENFORCE=off`. Never fails the heavy-command outcome.
- * shortcut: no separate outcome or doctor row yet; add one when a config key replaces the env switch.
+ * Install CLEO's one Stop hook (T13796): goal tick → ask-enforce (T13420) →
+ * session end, folding the separate ask-enforce and session-end Stop hooks in
+ * place. Claude Code always keeps it (its Stop hook ended the session before
+ * the dispatcher); Codex's rides the heavy-command delivery and is removed
+ * when that mode is `off`. Ask-enforce inside it honours `CLEO_ASK_ENFORCE` at
+ * run time. Never fails the heavy-command outcome.
  */
-async function syncAskEnforceHook(
+async function syncStopDispatch(
   provider: 'claude-code' | 'codex',
   target: string,
   mode: HeavyCommandHookMode,
-  env: Env,
 ): Promise<void> {
-  const install = mode !== 'off' && env.CLEO_ASK_ENFORCE?.trim().toLowerCase() !== 'off';
   try {
-    await syncJsonAskEnforceHook(target, provider, install);
-  } catch {
-    // Fail open: a config the Stop hook cannot be written to keeps the heavy-command result.
-  }
-}
-
-/**
- * Install (or remove) CLEO's Stop dispatcher (T13796) in Codex's hook config,
- * riding the heavy-command delivery like ask-enforce. Claude Code's dispatcher
- * is its native Stop hook (`registerNativeHooks`). Never fails the outcome.
- */
-async function syncCodexStopDispatch(target: string, mode: HeavyCommandHookMode): Promise<void> {
-  try {
-    await syncJsonStopDispatchHook(target, mode !== 'off');
+    await syncJsonStopDispatchHook(target, provider, provider === 'claude-code' || mode !== 'off');
   } catch {
     // Fail open: a config the Stop hook cannot be written to keeps the heavy-command result.
   }
@@ -246,8 +231,7 @@ async function syncProvider(
         : provider === 'codex'
           ? await syncCodexHeavyCommandHook(projectDir, mode)
           : syncOpencodeHeavyCommandPlugin(projectDir, mode);
-    if (provider !== 'opencode') await syncAskEnforceHook(provider, target, mode, env);
-    if (provider === 'codex') await syncCodexStopDispatch(target, mode);
+    if (provider !== 'opencode') await syncStopDispatch(provider, target, mode);
     return { provider, status: result, target };
   } catch (err) {
     if (err instanceof HeavyHookSharedConfigError) {

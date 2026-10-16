@@ -12,6 +12,7 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'nod
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { askEnforceHookObject } from '../../shared/heavy-command-hook-install.js';
 import {
   ClaudeCodeHookProvider,
   LEGACY_NATIVE_STOP_HOOK_COMMAND,
@@ -47,12 +48,13 @@ const stopCommands = (s: Settings) =>
 
 describe('Claude Code Stop dispatcher hook (T13796)', () => {
   it('registers cleo hook stop as the Stop command', async () => {
-    expect(NATIVE_STOP_HOOK_COMMAND).toBe('cleo hook stop --provider claude-code # cleo-hook');
+    expect(NATIVE_STOP_HOOK_COMMAND).toContain('cleo hook stop --provider claude-code 2>/dev/null');
+    expect(NATIVE_STOP_HOOK_COMMAND.endsWith('exit 0 # cleo-hook')).toBe(true);
     await new ClaudeCodeHookProvider().registerNativeHooks(projectDir);
     expect(stopCommands(read())).toEqual([NATIVE_STOP_HOOK_COMMAND]);
   });
 
-  it('replaces a pre-dispatcher session-end Stop entry in place and keeps user hooks', async () => {
+  it('folds the old session-end and ask-enforce Stop entries into one dispatcher, keeping user hooks', async () => {
     writeFileSync(
       join(projectDir, '.claude', 'settings.local.json'),
       JSON.stringify({
@@ -60,6 +62,7 @@ describe('Claude Code Stop dispatcher hook (T13796)', () => {
           Stop: [
             { matcher: '', hooks: [{ type: 'command', command: LEGACY_NATIVE_STOP_HOOK_COMMAND }] },
             { matcher: '', hooks: [{ type: 'command', command: 'my-stop.sh' }] },
+            { hooks: [askEnforceHookObject('claude-code')] },
           ],
           PostToolUse: [
             {
@@ -78,6 +81,7 @@ describe('Claude Code Stop dispatcher hook (T13796)', () => {
     const after = read();
     expect(stopCommands(after).sort()).toEqual([NATIVE_STOP_HOOK_COMMAND, 'my-stop.sh'].sort());
     expect(JSON.stringify(after)).not.toContain(LEGACY_NATIVE_STOP_HOOK_COMMAND);
+    expect(JSON.stringify(after)).not.toContain('cleo hook ask-enforce');
     expect(after.hooks.PostToolUse?.flatMap((e) => e.hooks.map((h) => h.command))).toEqual([
       NATIVE_OBSERVE_HOOK_COMMAND,
       NATIVE_NEXUS_HOOK_COMMAND,

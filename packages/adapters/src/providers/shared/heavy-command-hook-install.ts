@@ -44,7 +44,7 @@ import { homedir, tmpdir } from 'node:os';
 import { dirname, isAbsolute, join, resolve } from 'node:path';
 import { updateJsonConfigFile } from '@cleocode/caamp';
 import type { HeavyCommandHookMode } from '@cleocode/contracts';
-import { CLEO_HOOK_MARKER, hookMap, isPlainObject } from './hook-config.js';
+import { appendHookEntry, CLEO_HOOK_MARKER, hookMap, isPlainObject } from './hook-config.js';
 
 /** Identifies the heavy-command hook among CLEO's hook commands. */
 export const HEAVY_COMMAND_HOOK_ID = 'cleo hook heavy-command';
@@ -460,46 +460,28 @@ export function isAskEnforceHookObject(hook: unknown): boolean {
   );
 }
 
-/**
- * Add, refresh or (`install: false`) remove CLEO's ask-enforce Stop hook in a
- * JSON hook config (`hooks.Stop`), through CAAMP's locked atomic writer. Only
- * CLEO's own hook object is touched; a malformed file throws untouched.
- *
- * @param configPath - the config file (created when missing, unless removing).
- * @param provider - `claude-code` or `codex`.
- * @param install - `false` removes the hook.
- * @returns what changed.
- */
-export async function syncJsonAskEnforceHook(
-  configPath: string,
-  provider: 'claude-code' | 'codex',
-  install: boolean,
-): Promise<HeavyHookSyncResult> {
-  return syncJsonStopHook(
-    configPath,
-    askEnforceHookObject(provider),
-    isAskEnforceHookObject,
-    install,
-  );
-}
-
 /** The command CLEO's Stop dispatcher runs (T13796); also its marker. */
 export const STOP_DISPATCH_HOOK_ID = 'cleo hook stop';
 
-/** Seconds a Stop dispatch may take: the goal tick (30 s) plus `cleo session end`. */
+/** Seconds a Stop dispatch may take: the goal tick (30 s), ask-enforce and `cleo session end`. */
 export const STOP_DISPATCH_HOOK_TIMEOUT_SEC = 120;
 
+/** Claude Code's Stop command before T13796, which ended the session on its own. */
+export const LEGACY_SESSION_END_STOP_COMMAND = 'cleo session end --quiet # cleo-hook';
+
 /**
- * CLEO's Stop dispatcher hook object for Codex (T13796), whose Stop event had
- * no CLEO session end before: the goal runtime first, then the session end.
+ * CLEO's one Stop hook object (T13796): goal tick → ask-enforce → session end.
  * Like the ask-enforce script, it forwards only a JSON answer and always exits
- * 0, so a machine without `cleo` (or with an older one) is unaffected.
+ * 0, so a machine without `cleo` (or with an older one) is never blocked.
+ *
+ * @param provider - `claude-code` or `codex` (Codex runs hooks through the login shell).
  */
-export function stopDispatchHookObject(): Record<string, unknown> {
-  const script = `command -v cleo >/dev/null 2>&1 || exit 0; out="$(${STOP_DISPATCH_HOOK_ID} --provider codex 2>/dev/null)"; case "$out" in "{"*) printf '%s\\n' "$out";; esac; exit 0`;
+export function stopDispatchHookObject(provider: 'claude-code' | 'codex'): Record<string, unknown> {
+  const script = `command -v cleo >/dev/null 2>&1 || exit 0; out="$(${STOP_DISPATCH_HOOK_ID} --provider ${provider} 2>/dev/null)"; case "$out" in "{"*) printf '%s\\n' "$out";; esac; exit 0`;
+  const line = provider === 'codex' ? `/bin/sh -c ${shellWord(script)}` : script;
   return {
     type: 'command',
-    command: `/bin/sh -c ${shellWord(script)} ${CLEO_HOOK_MARKER}`,
+    command: `${line} ${CLEO_HOOK_MARKER}`,
     timeout: STOP_DISPATCH_HOOK_TIMEOUT_SEC,
   };
 }
@@ -514,52 +496,66 @@ export function isStopDispatchHookObject(hook: unknown): boolean {
   );
 }
 
+/** The separate Stop hooks the dispatcher folds in: ask-enforce and the old session end. */
+function isFoldedStopHook(hook: unknown): boolean {
+  return (
+    isAskEnforceHookObject(hook) ||
+    (isPlainObject(hook) && hook.command === LEGACY_SESSION_END_STOP_COMMAND)
+  );
+}
+
 /**
- * Add, refresh or (`install: false`) remove CLEO's Stop dispatcher in Codex's
- * JSON hook config, through the same locked writer as ask-enforce.
+ * Leave exactly one CLEO Stop hook, the dispatcher (or, `install: false`,
+ * none), in a `hooks` map: the separate ask-enforce and legacy session-end
+ * Stop hooks are removed in place, user hooks stay.
  *
- * @param configPath - Codex's `.codex/hooks.json`.
- * @param install - `false` removes the hook.
+ * @param hooks - The config's `hooks` map (edited in place).
+ * @param provider - `claude-code` or `codex`.
+ * @param install - `false` removes the dispatcher too.
+ * @returns whether the map changed.
+ */
+export function applyStopDispatch(
+  hooks: Record<string, unknown>,
+  provider: 'claude-code' | 'codex',
+  install: boolean,
+): boolean {
+  const folded = placeHeavyHook(hooks, null, 'Stop', isFoldedStopHook).changed;
+  const desired = install ? stopDispatchHookObject(provider) : null;
+  const placed = placeHeavyHook(hooks, desired, 'Stop', isStopDispatchHookObject);
+  if (desired === null || placed.found) return folded || placed.changed;
+  appendHookEntry(hooks, 'Stop', { hooks: [desired] });
+  return true;
+}
+
+/**
+ * Sync CLEO's Stop dispatcher into a JSON hook config through CAAMP's locked
+ * atomic writer, folding the separate ask-enforce and session-end Stop hooks
+ * into it (T13796). A malformed file throws untouched.
+ *
+ * @param configPath - the config file (created when missing, unless removing).
+ * @param provider - `claude-code` or `codex`.
+ * @param install - `false` removes the dispatcher.
  * @returns what changed.
  */
 export async function syncJsonStopDispatchHook(
   configPath: string,
+  provider: 'claude-code' | 'codex',
   install: boolean,
 ): Promise<HeavyHookSyncResult> {
-  return syncJsonStopHook(configPath, stopDispatchHookObject(), isStopDispatchHookObject, install);
-}
-
-/**
- * Add, refresh or remove one CLEO hook object under `hooks.Stop` of a JSON
- * hook config, through CAAMP's locked atomic writer. Only the object `mine`
- * accepts is touched; a malformed file throws untouched.
- */
-async function syncJsonStopHook(
-  configPath: string,
-  object: Record<string, unknown>,
-  mine: (hook: unknown) => boolean,
-  install: boolean,
-): Promise<HeavyHookSyncResult> {
-  if (!install) {
-    if (!existsSync(configPath)) return 'unchanged';
-    const removed = await updateJsonConfigFile(configPath, (config) => {
-      if (config.hooks === undefined) return false;
-      return placeHeavyHook(hookMap(config), null, 'Stop', mine).changed;
-    });
-    return removed ? 'removed' : 'unchanged';
-  }
-  ensureParentDir(configPath);
+  if (!install && !existsSync(configPath)) return 'unchanged';
+  if (install) ensureParentDir(configPath);
   let result: HeavyHookSyncResult = 'unchanged';
   await updateJsonConfigFile(configPath, (config) => {
+    if (!install && config.hooks === undefined) return false;
     const hooks = hookMap(config);
-    const placed = placeHeavyHook(hooks, object, 'Stop', mine);
-    if (placed.found) {
-      if (placed.changed) result = 'updated';
-      return placed.changed;
-    }
-    const existing = hooks.Stop;
-    hooks.Stop = [...(Array.isArray(existing) ? existing : []), { hooks: [object] }];
-    result = 'installed';
+    const stop = hooks.Stop;
+    const had =
+      Array.isArray(stop) &&
+      stop.some(
+        (g) => isPlainObject(g) && Array.isArray(g.hooks) && g.hooks.some(isStopDispatchHookObject),
+      );
+    if (!applyStopDispatch(hooks, provider, install)) return false;
+    result = !install ? 'removed' : had ? 'updated' : 'installed';
     return true;
   });
   return result;

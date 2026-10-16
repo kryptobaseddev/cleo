@@ -531,13 +531,15 @@ Launcher faults allow locally regardless of checker error policy. File inputs an
 provider records use bounded regular-file reads; FIFOs are rejected. Unsupported
 provider bindings remain unsupported in delivery summaries, including mixed bindings.
 
-The Stop event has one dispatcher, `cleo hook stop --provider claude-code|codex` (T13796):
-it asks a live goal runtime first (`CLEO_GOAL_TICK_COMMAND`, default `ocg tick`, Stop JSON
-on stdin), passes a `{"decision":"block"}` answer through verbatim and keeps the session
-open, and runs `cleo session end --quiet` only when the goal says the turn is final or no
-goal is live. A missing, failing or timed-out tick fails open to the session end;
-`CLEO_GOAL_TICK=off` skips it. Claude Code's native Stop hook is the dispatcher; Codex gets
-it in `.codex/hooks.json` beside ask-enforce.
+The Stop event has ONE CLEO entry per provider, `cleo hook stop --provider claude-code|codex`
+(T13796), in order goal tick → ask-enforce → session end. The goal runtime goes first
+(`CLEO_GOAL_TICK_COMMAND`, default `ocg tick`, Stop JSON on stdin): its `{"decision":"block"}`
+passes through verbatim and skips the rest. Next, an ask-enforce block (T13420) wins and keeps
+the session open, because the agent still owes the owner an ask. Otherwise `cleo session end
+--quiet` runs. Every step fails open to the session end (missing, failing or timed-out tick;
+ask-enforce error); `CLEO_GOAL_TICK=off` skips the tick, `CLEO_ASK_ENFORCE=off` the ask check.
+Sync folds the separate ask-enforce and old session-end Stop entries into it in place; Codex's
+rides the heavy-command mode, Claude Code's always stays.
 
 Init, upgrade and inspection share the commit-msg, pre-commit and pre-push installer.
 Git determines effective hooksPath and the common directory, including linked worktrees.
