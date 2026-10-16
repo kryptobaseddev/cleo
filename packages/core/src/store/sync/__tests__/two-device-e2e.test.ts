@@ -1086,6 +1086,67 @@ describe('docs reach a second device (T12919)', () => {
   });
 });
 
+describe('the command logs reach a second device (T13777)', () => {
+  it('token usage and a session handoff travel by uid; the handoff stays write-once', async () => {
+    const LOGS = ['tasks_token_usage', 'tasks_session_handoff_entries'];
+    const count = (db: DatabaseSync, t: string) =>
+      (db.prepare(`SELECT count(*) AS n FROM "${t}"`).get() as { n: number }).n;
+    const pick = (sums: Record<string, string>) =>
+      Object.fromEntries(LOGS.map((t) => [t, sums[t] ?? null]));
+    const { a, b } = await twoDevices();
+    const stream = fakeStream();
+    // The handoff insert fires the uid trigger's UPDATE: the write-once guard
+    // must let it through (it covers the content columns only).
+    write(
+      a.db,
+      `INSERT INTO tasks_sessions (id, name, started_at) VALUES ('ses_t13777_a', 'measure', '2026-10-16 09:00:00');
+       INSERT INTO tasks_token_usage (id, created_at, provider, session_id, task_id, total_tokens) VALUES
+         ('0198f000-0000-4000-8000-000000000001', '2026-10-16 09:00:01', 'cli', 'ses_t13777_a', NULL, 12),
+         ('0198f000-0000-4000-8000-000000000002', '2026-10-16T09:00:02.000Z', 'cli', 'ses_t13777_a', 'T404', 7);
+       INSERT INTO tasks_session_handoff_entries (session_id, handoff_json, created_at) VALUES
+         ('ses_t13777_a', '{"note":"done"}', '2026-10-16 09:00:03');`,
+    );
+    expect(
+      a.db.prepare('SELECT uid IS NOT NULL AS has FROM tasks_session_handoff_entries').get(),
+    ).toEqual({ has: 1 });
+    await push(a, stream);
+    await pull(b, stream);
+    expect(LOGS.map((t) => count(b.db, t))).toEqual([2, 1]);
+    expect(pick(contentChecksums(b.db))).toEqual(pick(contentChecksums(a.db)));
+    expect(contentChecksums(b.db)).toEqual(contentChecksums(a.db));
+    expect(
+      b.db.prepare('SELECT session_id, handoff_json FROM tasks_session_handoff_entries').get(),
+    ).toEqual({ session_id: 'ses_t13777_a', handoff_json: '{"note":"done"}' });
+    // Still write-once: its content cannot change.
+    expect(() => b.db.exec("UPDATE tasks_session_handoff_entries SET handoff_json = '{}'")).toThrow(
+      /T1609_HANDOFF_IMMUTABLE/,
+    );
+  });
+
+  it('a later handoff row for the same session has no uid, is never captured and stays on its device', async () => {
+    const { a, b } = await twoDevices();
+    const stream = fakeStream();
+    write(
+      a.db,
+      `INSERT INTO tasks_sessions (id, name, started_at) VALUES ('ses_t13777_dup', 'dup', '2026-10-16 09:00:00');
+       INSERT INTO tasks_session_handoff_entries (session_id, handoff_json, created_at) VALUES
+         ('ses_t13777_dup', '{"n":"first"}', '2026-10-16 09:00:01');
+       INSERT INTO tasks_session_handoff_entries (session_id, handoff_json, created_at) VALUES
+         ('ses_t13777_dup', '{"n":"second"}', '2026-10-16 09:00:02');`,
+    );
+    expect(
+      a.db
+        .prepare('SELECT uid IS NOT NULL AS has FROM tasks_session_handoff_entries ORDER BY id')
+        .all(),
+    ).toEqual([{ has: 1 }, { has: 0 }]);
+    await push(a, stream);
+    await pull(b, stream);
+    expect(b.db.prepare('SELECT handoff_json FROM tasks_session_handoff_entries').all()).toEqual([
+      { handoff_json: '{"n":"first"}' },
+    ]);
+  });
+});
+
 describe('legacy-format timestamps echo without conflicts (T13714)', () => {
   it("A's own echo of brain rows with 'YYYY-MM-DD HH:MM:SS' text records no conflict, and both devices list the same set", async () => {
     const { a, b } = await twoDevices();

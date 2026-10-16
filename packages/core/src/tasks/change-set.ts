@@ -159,7 +159,11 @@ export interface DeriveChangeSetInput {
    * the task AND one of them is part of the task's own work split across its
    * children, so several such PRs are not ambiguous.
    */
-  doneChildIds?: readonly string[];
+  doneChildIds?: readonly string[] /**
+   * Explicit commit (`--commit <sha>`, T13799): work that landed on the default
+   * branch with no PR or branch citing the task. Verified, never trusted.
+   */;
+  commit?: string;
 }
 
 /** Run git read-only in `cwd`; `null` on any failure. */
@@ -1421,6 +1425,83 @@ function deriveBranchChangeSet(cs: TaskChangeSet, taskId: string): boolean {
   return true;
 }
 
+/**
+ * An explicit commit as the change set (T13799). A client may not name an
+ * unrelated commit to dodge the change set, so the commit must exist, have a
+ * parent, have landed on origin's default branch, and be tied to the task (its
+ * message cites the task, or its diff touches the task's declared files); the
+ * change set is then its own first-parent diff.
+ * Returns whether the commit became the change set (else a blocker says why).
+ */
+function deriveCommitChangeSet(
+  cs: TaskChangeSet,
+  task: Pick<ChangeSetTask, 'id' | 'files'>,
+  commit: string,
+): boolean {
+  const root = cs.executionRoot;
+  const taskId = task.id;
+  const refuse = (message: string, why: string): false => {
+    cs.blockers.push(blocker('no-change-set', message, `cleo done ${taskId}`, why));
+    return false;
+  };
+  const sha = git(root, ['rev-parse', '--verify', '--quiet', `${commit}^{commit}`]);
+  if (!sha)
+    return refuse(
+      `--commit ${commit} is not a commit in ${root}.`,
+      'Name a commit that exists here (git fetch first).',
+    );
+  const parent = git(root, ['rev-parse', '--verify', '--quiet', `${sha}^1`]);
+  if (!parent)
+    return refuse(
+      `--commit ${sha.slice(0, 12)} has no parent, so it has no diff to record.`,
+      'Name the commit that made the change.',
+    );
+  const baseRef = resolveOriginDefault(root);
+  if (baseRef === null || !isAncestorCommit(root, sha, baseRef)) {
+    return refuse(
+      `--commit ${sha.slice(0, 12)} has not landed on ${baseRef ?? "origin's default branch"}.`,
+      'Unmerged work is recorded from its task branch or PR; --commit names a commit already on the default branch.',
+    );
+  }
+  const { files, deleted } = parseNameStatus(
+    git(root, ['diff', '--name-status', '--no-renames', parent, sha]) ?? '',
+  );
+  if (files.length + deleted.length === 0)
+    return refuse(
+      `--commit ${sha.slice(0, 12)} changes no file.`,
+      'Name the commit that made the change.',
+    );
+  // Tied to the task, as PR selection ties a PR: its message cites the task,
+  // or its diff touches the task's declared files. Any other landed commit
+  // would let a client swap in an unrelated change set (T13799 review).
+  const message = git(root, ['log', '-1', '--format=%B', sha]) ?? '';
+  const declared = task.files ?? [];
+  if (
+    !citesTask(message.toUpperCase(), taskId.toUpperCase()) &&
+    !(declared.length > 0 && diffIntersectsAc([...files, ...deleted], declared))
+  ) {
+    return refuse(
+      `--commit ${sha.slice(0, 12)} neither cites ${taskId} in its message nor touches its declared files.`,
+      `Name the commit that implements ${taskId} (its message cites ${taskId}), or declare the task's files.`,
+    );
+  }
+  cs.source = 'commit';
+  cs.commitSha = sha;
+  // The commit landed directly: it is its own merge commit for carry checks.
+  cs.mergeCommitSha = sha;
+  cs.headRef = sha;
+  cs.baseRef = baseRef;
+  cs.mergeBase = parent;
+  cs.mergeState = 'merged';
+  cs.files = files;
+  cs.deletedFiles = deleted;
+  cs.implementedEvidence =
+    files.length > 0
+      ? `commit:${sha};files:${files.join(',')}`
+      : `commit:${sha};note:${atomSafe(`removes ${deleted.length} file(s): ${deleted.join(' ')}`)}`;
+  return true;
+}
+
 /** Step 3 — the documentary path for research, spike and documentation tasks. */
 async function deriveDocsChangeSet(
   cs: TaskChangeSet,
@@ -1490,6 +1571,10 @@ export async function deriveTaskChangeSet(
     deps.env ?? process.env,
   );
   const cs = emptyChangeSet(root, source);
+  if (input.commit !== undefined) {
+    deriveCommitChangeSet(cs, input.task, input.commit);
+    return cs;
+  }
   const roots: EvidenceRoots = { storeRoot: input.storeRoot, executionRoot: root };
   const docsDeps = {
     listTaskDocs: deps.listTaskDocs ?? defaultListTaskDocs,

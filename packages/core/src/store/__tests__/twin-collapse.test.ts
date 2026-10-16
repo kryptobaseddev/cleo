@@ -222,6 +222,7 @@ describe('fresh store', () => {
       'collapsed',
       'collapsed',
       'collapsed', // token_usage (T13115)
+      'collapsed', // audit_log (T13777)
     ]);
   });
 });
@@ -525,6 +526,7 @@ describe('(b) idempotency', () => {
       'unchanged',
       'unchanged',
       'unchanged', // token_usage (T13115)
+      'unchanged', // audit_log (T13777)
     ]);
     expect(tableDigest(db, 'tasks_schema_meta', 'key')).toBe(tasks);
     expect(tableDigest(brain, 'brain_sticky_tags', 'sticky_id, tag')).toBe(sticky);

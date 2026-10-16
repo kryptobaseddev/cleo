@@ -17,6 +17,43 @@ import type { RowIdentityRef, RowIdentitySpec, TableScope } from '@cleocode/cont
 /** Physical name of every uid column. */
 export const UID_COLUMN = 'uid';
 
+/**
+ * The rows of a declared table that should carry a uid but lack one (a SQL
+ * predicate over `main.<table>`): not kept local by a NULL key column
+ * (`localWhenNull`), nor by an earlier row holding the same natural key
+ * (`localUnlessFirst`, T13777).
+ *
+ * @param spec - A declared table's spec.
+ * @returns The predicate, for a `WHERE` over `main.<table>`.
+ */
+export function uidMissingWhere(spec: RowIdentitySpec): string {
+  const local = (spec.localWhenNull ?? []).map((c) => ` AND ${quoteId(c)} IS NOT NULL`).join('');
+  const table = `main.${quoteId(spec.table)}`;
+  const first = spec.localUnlessFirst
+    ? ` AND NOT EXISTS (SELECT 1 FROM ${table} AS _f WHERE ${spec.key
+        .map((k) => `_f.${quoteId(k)} IS ${table}.${quoteId(k)}`)
+        .join(' AND ')} AND _f.${quoteId(UID_COLUMN)} IS NOT NULL)`
+    : '';
+  return `${quoteId(UID_COLUMN)} IS NULL${local}${first}`;
+}
+
+/**
+ * The rows of a declared table that sync (T13777): every row with a uid, and
+ * the rows still waiting for one. A row local by spec ({@link uidMissingWhere})
+ * is not one of them. `null` for a table with no local rule (all rows sync).
+ *
+ * @param spec - A declared table's spec.
+ * @returns The predicate, for a `WHERE` over `main.<table>`, or `null`.
+ */
+export function syncedRowsWhere(spec: RowIdentitySpec): string | null {
+  if (!spec.localWhenNull && !spec.localUnlessFirst) return null;
+  return `${quoteId(UID_COLUMN)} IS NOT NULL OR (${uidMissingWhere(spec)})`;
+}
+
+function quoteId(name: string): string {
+  return `"${name.replaceAll('"', '""')}"`;
+}
+
 /** Physical name of the birth fingerprint column of every minted table. */
 export const BIRTH_FP_COLUMN = 'birth_fp';
 
@@ -422,6 +459,45 @@ function lifecycleReleaseGit(): RowIdentitySpec[] {
 }
 
 /**
+ * The logs every command writes (T13777), project scope. Portable, so every
+ * vault snapshot lists them; without row identity the change journal never
+ * carried them, and a journal checkpoint could not account for their rows on
+ * any real store (T12999 staging, 2026-10-16).
+ *
+ * - `tasks_audit_log`: both audits (task mutations, and since T13777 part 2
+ *   the dispatch audit, which the twin collapse drains out of the bare
+ *   `audit_log`), natural over the id (a UUID, or `log-<ms>-<hex>`) with no
+ *   refs: task and session ids stay raw. The uid is a pure function of the id,
+ *   so a drained row keeps it. The bare `audit_log` stays exempt as a drained
+ *   twin, as `token_usage` does.
+ * - `tasks_token_usage`: a UUID id, so natural over it. Its session and task
+ *   ids are soft (a session or task that never syncs must not hold the row
+ *   pending) and stay raw. The bare `token_usage` drains into it (T13115) and
+ *   stays exempt as a twin.
+ * - `tasks_session_handoff_entries`: one write-once row per session, keyed by
+ *   its INTEGER id locally (which never travels), so natural over the session
+ *   it belongs to: a hard FK, so it travels as the session's uid. Its
+ *   write-once guard covers the content columns only, so the uid can be filled.
+ *   The legacy DDL has no UNIQUE on the session, so the first row of a session
+ *   (earliest `created_at`, then lowest id) takes the uid and a later one stays
+ *   local (`localUnlessFirst`): a duplicate never wedges the fill.
+ */
+function commandLogs(): RowIdentitySpec[] {
+  return [
+    { table: 'tasks_audit_log', kind: 'natural', key: ['id'], task: 'T13777' },
+    { table: 'tasks_token_usage', kind: 'natural', key: ['id'], task: 'T13777' },
+    {
+      table: 'tasks_session_handoff_entries',
+      kind: 'natural',
+      key: ['session_id'],
+      keyRefs: [{ column: 'session_id', table: SESSIONS }],
+      localUnlessFirst: ['created_at', 'id'],
+      task: 'T13777',
+    },
+  ];
+}
+
+/**
  * Declared row identity, per scope. Every syncing table is either declared
  * here or exempt with a reason in {@link ROW_IDENTITY_EXEMPT} (T12897); the
  * row-identity coverage gate fails on a table in neither.
@@ -665,6 +741,7 @@ export const ROW_IDENTITY: Readonly<Record<TableScope, readonly RowIdentitySpec[
       task: 'T12919',
     },
     ...lifecycleReleaseGit(),
+    ...commandLogs(),
   ],
   global: [
     ...brainTextKeyed(),
@@ -732,6 +809,9 @@ export const ROW_IDENTITY: Readonly<Record<TableScope, readonly RowIdentitySpec[
       ],
       task: 'T13467',
     },
+    // The Nexus audit log (T13777): a UUID id, so natural over it; the
+    // project and session ids are soft and stay raw.
+    { table: 'nexus_audit_log', kind: 'natural', key: ['id'], task: 'T13777' },
   ],
 };
 
@@ -820,6 +900,24 @@ function exempt(
 }
 
 /**
+ * Bare tables the twin collapse DRAINS into their prefixed twin (T13115,
+ * T13777), bare name → twin name. Kept here, a module every open already loads, so
+ * the bare-twin strand check (`sync/flags.ts`) adds nothing to the CLI's
+ * startup graph (gate 39).
+ *
+ * A drained bare table is the inbox of rows an older build writes: every open
+ * moves them into the twin losslessly, and a row the drain must leave behind
+ * is reported by `cleo doctor twin-collapse`. So its rows are never a legacy
+ * strand that should refuse capture or sealing: the next open carries them.
+ *
+ * @task T13777
+ */
+export const DRAINED_TWINS: Readonly<Record<string, string>> = {
+  token_usage: 'tasks_token_usage',
+  audit_log: 'tasks_audit_log',
+};
+
+/**
  * Every syncing table WITHOUT a {@link ROW_IDENTITY} entry, with the reason it
  * syncs without one. A syncing table in neither place fails the row-identity
  * coverage gate (`scripts/lint-row-identity-coverage.mjs` against the
@@ -848,7 +946,6 @@ export const ROW_IDENTITY_EXEMPT: Readonly<
         'architecture_decisions',
         'tasks_architecture_decisions',
         'audit_log',
-        'tasks_audit_log',
         'experiments',
         'tasks_experiments',
         'manifest_entries',
@@ -860,7 +957,6 @@ export const ROW_IDENTITY_EXEMPT: Readonly<
         'playbook_runs',
         'tasks_playbook_runs',
         'token_usage',
-        'tasks_token_usage',
         'warp_chains',
         'tasks_warp_chains',
         'warp_chain_instances',
@@ -902,7 +998,6 @@ export const ROW_IDENTITY_EXEMPT: Readonly<
         'tasks_agent_credentials',
         'tasks_external_task_links',
         'tasks_goal',
-        'tasks_session_handoff_entries',
         'tasks_task_work_history',
       ],
       PROJECT_MISC,
@@ -911,7 +1006,6 @@ export const ROW_IDENTITY_EXEMPT: Readonly<
   global: {
     ...exempt(
       [
-        'nexus_audit_log',
         'nexus_devices',
         'nexus_project_git_state',
         'nexus_project_id_aliases',
@@ -945,7 +1039,9 @@ export const ROW_IDENTITY_EXEMPT: Readonly<
  * (2 project; docs_wikilinks became derived and not syncing), and T13729
  * reclassified brain_embeddings derived in both scopes (owner decision
  * 2026-10-14: vectors are a local cache), closing the T12918 blob exemption,
- * and T12914 the lifecycle, release, PR and commit tables (16 project)
+ * and T12914 the lifecycle, release, PR and commit tables (16 project),
+ * and T13777 declared the command logs (3 project: the audit log, token
+ * usage, handoff entries; 1 global: the Nexus audit log)
  * ({@link rowIdentityExemptionSummary} prints the live numbers):
  *
  * | category             | task   | project | global |
@@ -955,17 +1051,17 @@ export const ROW_IDENTITY_EXEMPT: Readonly<
  * | planned              | T12896 | 2       | 1      |
  * | planned (conduit)    | T12913 | 8       | 0      |
  * | planned (lifecycle…) | T12914 | 0       | 0      |
- * | planned (nexus)      | T12916 | 0       | 8      |
+ * | planned (nexus)      | T12916 | 0       | 7      |
  * | planned (skills)     | T12917 | 0       | 4      |
- * | planned (misc)       | T12920 | 12      | 0      |
- * | twin-collapse        | T12535 | 30      | 0      |
- * | total                |        | 50      | 12     |
+ * | planned (misc)       | T12920 | 11      | 0      |
+ * | twin-collapse        | T12535 | 28      | 0      |
+ * | total                |        | 47      | 11     |
  *
  * @task T12897
  */
 export const ROW_IDENTITY_EXEMPT_PINNED: Readonly<Record<TableScope, number>> = {
-  project: 50,
-  global: 12,
+  project: 47,
+  global: 11,
 };
 
 /**
@@ -977,8 +1073,8 @@ export const ROW_IDENTITY_EXEMPT_PINNED: Readonly<Record<TableScope, number>> = 
  * @task T12897
  */
 export const ROW_IDENTITY_EXEMPT_NAMES_SHA256: Readonly<Record<TableScope, string>> = {
-  project: 'a6b47de8cf3fb13152653f8ca7e4a47d73dfa9c21a80e32869e1b6a121e181cf',
-  global: '09b63cf1df7591f9320e4f540c0df9a717008a7a80c17b38ef2729f09ea5f618',
+  project: '544d4d25663be4798211db361a7997c9bfbd7587ec8f257da1f9920372d604a2',
+  global: '2c46fe6fed00b5e15dc9323b48d448d51d2f475fe6c9480703830efb0dc63cfb',
 };
 
 /**
