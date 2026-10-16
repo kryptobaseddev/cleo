@@ -224,7 +224,9 @@ describe('closeGoal (T13794)', () => {
       /verifier verdict \(a note; 1\/1 quotes found at head\); a verifier verdict never satisfies a gate/,
     );
     expect(tb?.open[1]?.blocker).toMatch(/C3 did not pass: exit 1/);
-    expect(tb?.open[2]?.blocker).toMatch(/C6 does not hold: src\/a\.ts does not contain it at head/);
+    expect(tb?.open[2]?.blocker).toMatch(
+      /C6 does not hold: src\/a\.ts does not contain it at head/,
+    );
     expect(tb?.open[3]?.blocker).toMatch(/does not hash to its reportSha256/);
 
     const stored = (await env.accessor.loadSingleTask(a))?.verification?.evidence;
