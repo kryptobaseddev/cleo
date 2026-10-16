@@ -400,6 +400,7 @@ export function typecheckOnlyPackages(
   const catchAll = declared.filter((g) => CATCH_ALL_PROBES.every((p) => matchesGlob(p, g)));
   if (catchAll.length > 0)
     pushWarning({
+      // @sync-invariant none:input-shape a warning on a declared glob; nothing is refused or written
       code: 'W_TYPECHECK_ONLY_CATCH_ALL',
       severity: 'warn',
       message: `evidence.typecheckOnlyDependents ignores catch-all glob(s) ${catchAll.join(', ')}: name the generated or data paths explicitly.`,
