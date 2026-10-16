@@ -68,8 +68,12 @@ describe('goal/v1 contract (T13792)', () => {
     expect(contract.criteria.flatMap((c) => c.proves ?? [])).toEqual(['T123#AC1', 'T123#AC2']);
   });
 
-  it('proves takes only the T<n>#AC<n> alias form', () => {
+  it('proves takes the positional, canonical uuid and pinned satisfies forms', () => {
     expectTypeOf<'T123#AC2'>().toMatchTypeOf<GoalAcRef>();
+    expectTypeOf<'T1234#a1b2c3d4-5e6f-4890-abcd-ef1234567890'>().toMatchTypeOf<GoalAcRef>();
+    expectTypeOf<'T1234#AC2@20260524223045'>().toMatchTypeOf<GoalAcRef>();
+    expectTypeOf<'T1.5#AC2'>().not.toMatchTypeOf<GoalAcRef>();
+    expectTypeOf<'T123/AC2'>().not.toMatchTypeOf<GoalAcRef>();
     expectTypeOf<'AC2'>().not.toMatchTypeOf<GoalAcRef>();
     expectTypeOf<'T123'>().not.toMatchTypeOf<GoalAcRef>();
     expectTypeOf<GoalCriterion['proves']>().toEqualTypeOf<GoalAcRef[] | undefined>();
@@ -92,6 +96,7 @@ describe('goal/v1 contract (T13792)', () => {
             command: 'pnpm exec vitest run a.test.ts',
             exitCode: 0,
             reportPath: 'r.json',
+            reportSha256: 'c'.repeat(64),
           },
         },
         {
