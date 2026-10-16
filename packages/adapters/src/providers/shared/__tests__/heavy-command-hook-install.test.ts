@@ -59,8 +59,11 @@ import {
   OLDER_CLEO_HOOK_ANSWER,
   OLDER_CLEO_MARKER_PREFIX,
   OPENCODE_HEAVY_COMMAND_PLUGIN,
+  STOP_DISPATCH_HOOK_ID,
+  stopDispatchHookObject,
   syncJsonAskEnforceHook,
   syncJsonHeavyCommandHook,
+  syncJsonStopDispatchHook,
   syncOpencodeHeavyCommandPlugin,
 } from '../heavy-command-hook-install.js';
 
@@ -364,6 +367,34 @@ describe('syncJsonAskEnforceHook (T13420)', () => {
     expect(claude).toContain(`${ASK_ENFORCE_HOOK_ID} --provider claude-code 2>/dev/null`);
     expect(claude.endsWith('exit 0 # cleo-hook')).toBe(true);
     expect(String(askEnforceHookObject('codex').command)).toMatch(/^\/bin\/sh -c '/);
+  });
+});
+
+describe('syncJsonStopDispatchHook (T13796)', () => {
+  const read = (p: string) => JSON.parse(readFileSync(p, 'utf-8'));
+
+  it('adds the Codex Stop dispatcher beside ask-enforce and user hooks, then removes only its own', async () => {
+    const path = join(dir, 'codex-hooks.json');
+    const user = { hooks: [{ type: 'command', command: './notify.sh' }] };
+    writeFileSync(path, JSON.stringify({ hooks: { Stop: [user] } }));
+    await syncJsonAskEnforceHook(path, 'codex', true);
+    expect(await syncJsonStopDispatchHook(path, true)).toBe('installed');
+    expect(read(path).hooks.Stop).toEqual([
+      user,
+      { hooks: [askEnforceHookObject('codex')] },
+      { hooks: [stopDispatchHookObject()] },
+    ]);
+    expect(await syncJsonStopDispatchHook(path, true)).toBe('unchanged');
+    expect(await syncJsonStopDispatchHook(path, false)).toBe('removed');
+    expect(read(path).hooks.Stop).toEqual([user, { hooks: [askEnforceHookObject('codex')] }]);
+  });
+
+  it('runs a fail-open Codex script that forwards only a JSON answer', () => {
+    const command = String(stopDispatchHookObject().command);
+    expect(command).toMatch(/^\/bin\/sh -c '/);
+    expect(command).toContain('command -v cleo >/dev/null 2>&1 || exit 0');
+    expect(command).toContain(`${STOP_DISPATCH_HOOK_ID} --provider codex 2>/dev/null`);
+    expect(command.endsWith('# cleo-hook')).toBe(true);
   });
 });
 

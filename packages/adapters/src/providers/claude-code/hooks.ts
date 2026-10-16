@@ -25,8 +25,16 @@ import type { AdapterHookProvider } from '@cleocode/contracts';
 import { excludeLocalSettingsFromGit } from '../shared/heavy-command-hook-install.js';
 import { appendHookEntry, hookMap, isPlainObject, projectClaudeSettingsPath } from './paths.js';
 
-/** The `Stop` hook command: end the CLEO session when Claude Code stops. */
-export const NATIVE_STOP_HOOK_COMMAND = 'cleo session end --quiet # cleo-hook';
+/**
+ * The `Stop` hook command: the one Stop dispatcher (T13796). It asks a live
+ * goal runtime first and ends the CLEO session only when the goal says the
+ * turn is final or no goal is live, so a goal hook and the session end never
+ * fight over the event.
+ */
+export const NATIVE_STOP_HOOK_COMMAND = 'cleo hook stop --provider claude-code # cleo-hook';
+
+/** The `Stop` command before T13796; recognised so registration replaces it. */
+export const LEGACY_NATIVE_STOP_HOOK_COMMAND = 'cleo session end --quiet # cleo-hook';
 
 /** The `PostToolUse` (`Write|Edit`) hook command: a brain observation per file write. */
 export const NATIVE_OBSERVE_HOOK_COMMAND =
@@ -43,6 +51,7 @@ export const NATIVE_NEXUS_HOOK_COMMAND =
 /** Every command {@link ClaudeCodeHookProvider.registerNativeHooks} writes, and alone may remove. */
 const NATIVE_HOOK_COMMANDS: ReadonlySet<string> = new Set([
   NATIVE_STOP_HOOK_COMMAND,
+  LEGACY_NATIVE_STOP_HOOK_COMMAND,
   NATIVE_OBSERVE_HOOK_COMMAND,
   NATIVE_NEXUS_HOOK_COMMAND,
 ]);
@@ -56,18 +65,25 @@ function isNativeHookObject(hook: unknown): boolean {
   );
 }
 
-/** Whether any event of a `hooks` map already holds a native hook. */
-function hasNativeHooks(hooks: Record<string, unknown>): boolean {
+/** Whether any event of a `hooks` map holds a hook object `match` accepts. */
+function holdsHook(hooks: Record<string, unknown>, match: (hook: unknown) => boolean): boolean {
   return Object.values(hooks).some(
     (entries) =>
       Array.isArray(entries) &&
       entries.some(
-        (entry) =>
-          isPlainObject(entry) &&
-          Array.isArray(entry.hooks) &&
-          entry.hooks.some(isNativeHookObject),
+        (entry) => isPlainObject(entry) && Array.isArray(entry.hooks) && entry.hooks.some(match),
       ),
   );
+}
+
+/** Whether any event of a `hooks` map already holds a native hook. */
+function hasNativeHooks(hooks: Record<string, unknown>): boolean {
+  return holdsHook(hooks, isNativeHookObject);
+}
+
+/** Whether a hook object is the pre-dispatcher Stop command (T13796). */
+function isLegacyStopHook(hook: unknown): boolean {
+  return isPlainObject(hook) && hook.command === LEGACY_NATIVE_STOP_HOOK_COMMAND;
 }
 
 /**
@@ -181,7 +197,8 @@ export class ClaudeCodeHookProvider implements AdapterHookProvider {
    * Idempotent: skips writing if the native hooks are already present.
    *
    * Hook entries registered:
-   * - `Stop` → `cleo session end --quiet` (triggers LLM extraction, reflector, consolidation)
+   * - `Stop` → `cleo hook stop` (the goal runtime first, then `cleo session end`,
+   *   which triggers LLM extraction, reflector, consolidation; T13796)
    * - `PostToolUse` (Write|Edit) → brain observation for file modifications
    *   and the NEXUS post-check
    *
@@ -196,7 +213,10 @@ export class ClaudeCodeHookProvider implements AdapterHookProvider {
     // untouched — never replaced with an object holding only CLEO's entries.
     const wrote = await this.updateSettings(projectDir, (settings) => {
       const hooks = hookMap(settings);
-      if (hasNativeHooks(hooks)) return false; // Already wired — idempotent
+      const legacy = holdsHook(hooks, isLegacyStopHook);
+      if (hasNativeHooks(hooks) && !legacy) return false; // Already wired — idempotent
+      // T13796: replace a pre-dispatcher set in place (its Stop ran session end directly).
+      if (legacy) removeNativeHooks(hooks);
 
       appendHookEntry(hooks, 'Stop', {
         matcher: '',
