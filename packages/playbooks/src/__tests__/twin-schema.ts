@@ -17,22 +17,30 @@ const MIGRATIONS = resolve(
   '../../../core/migrations/drizzle-cleo-project',
 );
 
-/** Create both playbook twins (with their uid columns) on `db`. */
-export function applyPlaybookTwinSchema(db: DatabaseSync): void {
+/**
+ * The DDL of both playbook twins (with their uid columns), as statements
+ * separated by `--> statement-breakpoint`.
+ */
+export function playbookTwinSql(): string {
   const consolidation = readFileSync(
     resolve(MIGRATIONS, '20260531000001_t11363-consolidation-cleo-project/migration.sql'),
     'utf8',
   );
-  for (const table of ['tasks_playbook_runs', 'tasks_playbook_approvals']) {
+  const tables = ['tasks_playbook_runs', 'tasks_playbook_approvals'].map((table) => {
     const ddl = consolidation.match(new RegExp(`CREATE TABLE \`${table}\` \\([\\s\\S]*?\\n\\);`));
     if (!ddl) throw new Error(`no CREATE TABLE for ${table} in the consolidation migration`);
-    db.exec(ddl[0]);
-  }
+    return ddl[0];
+  });
   const uids = readFileSync(
     resolve(MIGRATIONS, '20261016120000_t12535-playbook-row-uids/migration.sql'),
     'utf8',
   );
-  for (const stmt of uids.split('--> statement-breakpoint')) {
+  return [...tables, uids].join('\n--> statement-breakpoint\n');
+}
+
+/** Create both playbook twins (with their uid columns) on `db`. */
+export function applyPlaybookTwinSchema(db: DatabaseSync): void {
+  for (const stmt of playbookTwinSql().split('--> statement-breakpoint')) {
     if (stmt.split('\n').some((l) => l.trim() !== '' && !l.trim().startsWith('--'))) db.exec(stmt);
   }
 }
