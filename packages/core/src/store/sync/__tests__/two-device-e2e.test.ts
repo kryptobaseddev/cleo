@@ -1122,6 +1122,29 @@ describe('the command logs reach a second device (T13777)', () => {
       /T1609_HANDOFF_IMMUTABLE/,
     );
   });
+
+  it('a later handoff row for the same session has no uid, is never captured and stays on its device', async () => {
+    const { a, b } = await twoDevices();
+    const stream = fakeStream();
+    write(
+      a.db,
+      `INSERT INTO tasks_sessions (id, name, started_at) VALUES ('ses_t13777_dup', 'dup', '2026-10-16 09:00:00');
+       INSERT INTO tasks_session_handoff_entries (session_id, handoff_json, created_at) VALUES
+         ('ses_t13777_dup', '{"n":"first"}', '2026-10-16 09:00:01');
+       INSERT INTO tasks_session_handoff_entries (session_id, handoff_json, created_at) VALUES
+         ('ses_t13777_dup', '{"n":"second"}', '2026-10-16 09:00:02');`,
+    );
+    expect(
+      a.db
+        .prepare('SELECT uid IS NOT NULL AS has FROM tasks_session_handoff_entries ORDER BY id')
+        .all(),
+    ).toEqual([{ has: 1 }, { has: 0 }]);
+    await push(a, stream);
+    await pull(b, stream);
+    expect(b.db.prepare('SELECT handoff_json FROM tasks_session_handoff_entries').all()).toEqual([
+      { handoff_json: '{"n":"first"}' },
+    ]);
+  });
 });
 
 describe('legacy-format timestamps echo without conflicts (T13714)', () => {

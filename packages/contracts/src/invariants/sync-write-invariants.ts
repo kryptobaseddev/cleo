@@ -245,7 +245,7 @@ export const SYNC_WRITE_INVARIANTS: readonly SyncWriteInvariant[] = Object.freez
     ['tasks_session_handoff_entries'],
     ['trg_tasks_session_handoff_no_update'],
     ['H2'],
-    'handoff entries are never updated',
+    'handoff entries are never updated, and one session has one (the natural uid over the session merges a peer’s; T13777)',
   ),
   trigger(
     'task.claim.lease-iso',

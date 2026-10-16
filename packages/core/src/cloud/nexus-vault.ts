@@ -1315,6 +1315,30 @@ async function appendCheckpoint(a: {
   return { cp, deltaSegmentSeq, cursor: pushedWith };
 }
 
+/**
+ * Whether a refusal names an omitted snapshot-authoritative list (T13777): a
+ * parent checkpoint carried one and this push did not, the mark of a device on
+ * a cleo that predates the list.
+ */
+function authoritativeOmitted(err: unknown): boolean {
+  if (!(err instanceof NexusError) || err.code !== 'E_MANIFEST_ACCOUNTING') return false;
+  const verdict = err.details?.['verdict'];
+  const findings =
+    typeof verdict === 'object' && verdict !== null && 'findings' in verdict
+      ? verdict.findings
+      : null;
+  return (
+    Array.isArray(findings) &&
+    findings.some(
+      (f) =>
+        typeof f === 'object' &&
+        f !== null &&
+        'reason' in f &&
+        f.reason === 'authoritative-omitted',
+    )
+  );
+}
+
 /** Whether this store's `sync.push` is on: its vault push checkpoints the journal (T12999). */
 async function journalPushOn(t: VaultTarget): Promise<boolean> {
   const { openNativeDatabase } = await import('../store/sqlite-native.js');
@@ -1666,6 +1690,13 @@ async function pushJournalCheckpoint(
               'E_NEXUS_VAULT_BEHIND',
               'another device pushed a snapshot while this one was uploading',
               'run `cleo cloud sync`, then push again',
+            );
+          }
+          if (authoritativeOmitted(err)) {
+            throw vaultError(
+              'E_NEXUS_VAULT_REFUSED',
+              `the server refused the snapshot: a device on ${t.streamId} sent a snapshot-authoritative list and this push did not carry it (${(err as Error).message})`,
+              'nothing was written; once one device sends the list, every device on the stream must run a cleo that sends it: upgrade cleo on the other devices, then push again',
             );
           }
           if (

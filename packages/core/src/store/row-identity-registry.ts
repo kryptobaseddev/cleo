@@ -441,6 +441,9 @@ function lifecycleReleaseGit(): RowIdentitySpec[] {
  *   its INTEGER id locally (which never travels), so natural over the session
  *   it belongs to: a hard FK, so it travels as the session's uid. Its
  *   write-once guard covers the content columns only, so the uid can be filled.
+ *   The legacy DDL has no UNIQUE on the session, so the first row of a session
+ *   (earliest `created_at`, then lowest id) takes the uid and a later one stays
+ *   local (`localUnlessFirst`): a duplicate never wedges the fill.
  */
 function commandLogs(): RowIdentitySpec[] {
   return [
@@ -451,6 +454,7 @@ function commandLogs(): RowIdentitySpec[] {
       kind: 'natural',
       key: ['session_id'],
       keyRefs: [{ column: 'session_id', table: SESSIONS }],
+      localUnlessFirst: ['created_at', 'id'],
       task: 'T13777',
     },
   ];
@@ -947,8 +951,10 @@ export const ROW_IDENTITY_EXEMPT: Readonly<
   global: {
     ...exempt(
       [
+        'nexus_devices',
         'nexus_project_git_state',
         'nexus_project_id_aliases',
+        'nexus_project_locations',
         'nexus_project_registry',
         'nexus_sigils',
         'nexus_user_profile',
@@ -980,8 +986,7 @@ export const ROW_IDENTITY_EXEMPT: Readonly<
  * 2026-10-14: vectors are a local cache), closing the T12918 blob exemption,
  * and T12914 the lifecycle, release, PR and commit tables (16 project),
  * and T13777 declared the command logs (3 project: the audit log, token
- * usage, handoff entries; 1 global: the Nexus audit log) and reclassified the Nexus device
- * and location rows local-only (2 global)
+ * usage, handoff entries; 1 global: the Nexus audit log)
  * ({@link rowIdentityExemptionSummary} prints the live numbers):
  *
  * | category             | task   | project | global |
@@ -991,17 +996,17 @@ export const ROW_IDENTITY_EXEMPT: Readonly<
  * | planned              | T12896 | 2       | 1      |
  * | planned (conduit)    | T12913 | 8       | 0      |
  * | planned (lifecycle…) | T12914 | 0       | 0      |
- * | planned (nexus)      | T12916 | 0       | 5      |
+ * | planned (nexus)      | T12916 | 0       | 7      |
  * | planned (skills)     | T12917 | 0       | 4      |
  * | planned (misc)       | T12920 | 11      | 0      |
  * | twin-collapse        | T12535 | 28      | 0      |
- * | total                |        | 47      | 9      |
+ * | total                |        | 47      | 11     |
  *
  * @task T12897
  */
 export const ROW_IDENTITY_EXEMPT_PINNED: Readonly<Record<TableScope, number>> = {
   project: 47,
-  global: 9,
+  global: 11,
 };
 
 /**
@@ -1014,7 +1019,7 @@ export const ROW_IDENTITY_EXEMPT_PINNED: Readonly<Record<TableScope, number>> = 
  */
 export const ROW_IDENTITY_EXEMPT_NAMES_SHA256: Readonly<Record<TableScope, string>> = {
   project: '544d4d25663be4798211db361a7997c9bfbd7587ec8f257da1f9920372d604a2',
-  global: '3f192953af29e9b698ea53d9ea3e13a03798587d1bef1f284a3495ac96d039d6',
+  global: '2c46fe6fed00b5e15dc9323b48d448d51d2f475fe6c9480703830efb0dc63cfb',
 };
 
 /**
