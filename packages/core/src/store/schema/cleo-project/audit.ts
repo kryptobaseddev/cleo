@@ -140,8 +140,24 @@ export const tasksAuditLog = sqliteTable(
     errorMessage: text('error_message'),
     /** Project correlation hash. */
     projectHash: text('project_hash'),
+    /** Row uid (T13777): a UUIDv8 over the audit id, filled at open or by the uid trigger. */
+    uid: text('uid'),
+    /**
+     * A dispatch request's idempotency key (T13777). Outside the
+     * `uq_tasks_audit_log_idempotency_lookup` constraint: one key may record
+     * several dispatch rows (a failed attempt, then its retry); the idempotent
+     * replay reads the newest successful one.
+     */
+    dispatchIdempotencyKey: text('dispatch_idempotency_key'),
   },
   (table) => [
+    uniqueIndex('uq_tasks_audit_log_uid').on(table.uid),
+    index('idx_tasks_audit_log_dispatch_idempotency').on(
+      table.projectHash,
+      table.domain,
+      table.operation,
+      table.dispatchIdempotencyKey,
+    ),
     index('idx_tasks_audit_log_task_id').on(table.taskId),
     index('idx_tasks_audit_log_action').on(table.action),
     index('idx_tasks_audit_log_timestamp').on(table.timestamp),
