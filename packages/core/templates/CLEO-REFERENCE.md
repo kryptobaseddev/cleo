@@ -295,14 +295,18 @@ CLEO_OWNER_OVERRIDE=1 \ CLEO_OWNER_OVERRIDE_REASON="incident 1234 hotfix" \ cleo
 
 All overrides append a line to `.cleo/audit/force-bypass.jsonl`. Use sparingly.
 
-**Owner only (owner decision 2026-10-16, T13790).** The override has no password prompt of its own, but CLEO honours it only from the owner. It is refused with `E_OVERRIDE_NOT_OWNER` (or `E_OVERRIDE_FORBIDDEN_AGENT_ROLE`), and every refusal is audited. The owner is the caller for whom all three hold:
+**Owner only (owner decision 2026-10-16, T13790).** The override has no password prompt; CLEO honours it only from the owner. It is refused with `E_OVERRIDE_NOT_OWNER` (or `E_OVERRIDE_FORBIDDEN_AGENT_ROLE`), and every refusal is audited. The owner is the caller for whom all three hold:
 1. The process does not run as `worker`, `lead` or `subagent` (`CLEO_AGENT_ROLE`, as at bootstrap).
-2. The bound session is owner-marked: you started it yourself, interactively, with `cleo session start --scope global --name owner --owner-auth`. No env var marks a session, so a parent cannot hand the mark down. An agent with no `CLEO_AGENT_ROLE` therefore has no mark, and is fenced like a worker.
+2. The bound session is owner-marked: you started it yourself with `cleo session start --scope global --name owner --owner`.
+   - The mark is password-free.
+   - `--owner` is refused without an interactive terminal, or when any `CLEO_AGENT_ROLE` is set.
+   - No env var sets the mark, so a parent cannot hand it down. An agent with no `CLEO_AGENT_ROLE` therefore has no mark, and is fenced like a worker.
+   - `--owner-auth` and its password are only for the cap below; they do not mark a session.
 3. The call runs on your own terminal (stdin and stderr are a TTY).
 
 An agent spawned from your owner session binds to that same session, but its tool shell has no terminal, so it is not the owner by default.
 
-These are same-OS-user checks. A process that emulates a terminal (`script`, `expect`) and knows the owner password, or writes the session row directly, is not stopped.
+These are same-OS-user checks. A process that emulates a terminal (`script`, `expect`) can mark a session and pass the TTY check. A process that writes the session row directly is not stopped either. The owner accepted that trade-off for a password-free switch.
 
 **Per-session cap (owner decision 2026-10-16, T13787).** A session may use at most `evidence.overrideCapPerSession` overrides (default 10, maximum 100). Past the cap, `E_OVERRIDE_CAP_EXCEEDED` names the setting. The old `CLEO_OWNER_OVERRIDE_WAIVER` file no longer lifts the cap: any agent could write one, so a set waiver is ignored and audited.
 

@@ -1,7 +1,7 @@
 /**
- * Test helper: act as the owner for `CLEO_OWNER_OVERRIDE` (T13790) — an
- * owner-marked session bound through `CLEO_SESSION_ID`, on a (simulated)
- * terminal. Tests of what an override does use this; who may override is
+ * Test helper: act as the owner for `CLEO_OWNER_OVERRIDE` (T13790) — a
+ * session marked by `cleo session start --owner`, bound through
+ * `CLEO_SESSION_ID`, on a (simulated) terminal. Tests of what an override does use this; who may override is
  * tested in `owner-override-authority.test.ts`.
  *
  * @task T13790
@@ -9,7 +9,7 @@
 
 import { randomUUID } from 'node:crypto';
 import { createSession, setSessionOwnerAuthToken } from '../../store/session-store.js';
-import { deriveOwnerAuthToken } from '../owner-override-auth.js';
+import { OWNER_SESSION_MARK } from '../owner-override-auth.js';
 
 /**
  * Create an owner-marked session in `root`, bind it and simulate a TTY.
@@ -30,7 +30,7 @@ export async function actAsOwner(root: string): Promise<() => void> {
     },
     root,
   );
-  await setSessionOwnerAuthToken(id, deriveOwnerAuthToken(id, 'owner-pw'), root);
+  await setSessionOwnerAuthToken(id, OWNER_SESSION_MARK, root);
   const saved = {
     sid: process.env['CLEO_SESSION_ID'],
     stdin: process.stdin.isTTY,

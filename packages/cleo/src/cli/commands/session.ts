@@ -68,10 +68,31 @@ const startCommand = defineCommand({
     'owner-auth': {
       type: 'boolean',
       description:
-        'Prompt for a password and store a session HMAC token for owner-override authentication (T1118 L4a)',
+        'Prompt for a password and store an owner-auth verifier, used by `cleo config owner-enroll` and the override cap setting (T1118, T13787)',
+    },
+    owner: {
+      type: 'boolean',
+      description:
+        'Mark this session as the owner (T13790): only it may use CLEO_OWNER_OVERRIDE. No password; refused without an interactive terminal or with CLEO_AGENT_ROLE set',
     },
   },
   async run({ args }) {
+    // T13790: the password-free owner mark, interactive only; never from env.
+    let ownerMark = false;
+    if (args.owner) {
+      const { ownerMarkRefusal } = await import('@cleocode/core/internal');
+      const refusal = ownerMarkRefusal();
+      if (refusal) {
+        cliError(
+          refusal,
+          ExitCode.GENERAL_ERROR,
+          { name: 'E_OVERRIDE_NOT_OWNER' },
+          { operation: 'session.start' },
+        );
+        process.exit(ExitCode.GENERAL_ERROR);
+      }
+      ownerMark = true;
+    }
     // T1118 L4a — if --owner-auth is set, prompt for a password and derive the HMAC token.
     let ownerAuthToken: string | null | undefined;
     if (args['owner-auth']) {
@@ -98,7 +119,7 @@ const startCommand = defineCommand({
         // CLI-level alias normalization: --focus and --start-task both map to startTask (ADR-057 D2)
         startTask: (args['start-task'] ?? args.focus) as string | undefined,
         grade: args.grade as boolean | undefined,
-        ownerAuthToken,
+        ownerAuthToken: await ownerSessionToken(ownerMark, ownerAuthToken ?? null),
         // T9975: per-agent handle for multi-agent isolation
         agentHandle: args.agent as string | undefined,
       },
@@ -106,6 +127,19 @@ const startCommand = defineCommand({
     );
   },
 });
+
+/**
+ * The stored owner credential: the owner mark (`--owner`), the `--owner-auth`
+ * verifier, or both as `<mark>|<verifier>` (T13790).
+ */
+async function ownerSessionToken(
+  mark: boolean,
+  verifier: string | null,
+): Promise<string | undefined> {
+  if (!mark) return verifier ?? undefined;
+  const { OWNER_SESSION_MARK } = await import('@cleocode/core/internal');
+  return verifier ? `${OWNER_SESSION_MARK}|${verifier}` : OWNER_SESSION_MARK;
+}
 
 /**
  * Prompt the owner for a password via TTY readline and derive the stored

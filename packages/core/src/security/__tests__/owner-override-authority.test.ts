@@ -14,8 +14,8 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { createTestDb, type TestDbEnv } from '../../store/__tests__/test-db-helper.js';
 import { createSession, setSessionOwnerAuthToken } from '../../store/session-store.js';
 import { resetDbState } from '../../store/sqlite.js';
-import { deriveOwnerAuthToken } from '../owner-override-auth.js';
-import { resolveOwnerOverride } from '../owner-override-authority.js';
+import { createOwnerAuthVerifier, OWNER_SESSION_MARK } from '../owner-override-auth.js';
+import { ownerMarkRefusal, resolveOwnerOverride } from '../owner-override-authority.js';
 
 let env: TestDbEnv;
 const tty = { stdin: process.stdin.isTTY, stderr: process.stderr.isTTY };
@@ -25,7 +25,7 @@ function setTty(on: boolean): void {
   Object.defineProperty(process.stderr, 'isTTY', { value: on, configurable: true });
 }
 
-async function session(id: string, owner: boolean): Promise<string> {
+async function session(id: string, owner: boolean | 'owner-auth-only'): Promise<string> {
   await createSession(
     {
       id,
@@ -37,7 +37,9 @@ async function session(id: string, owner: boolean): Promise<string> {
     },
     env.tempDir,
   );
-  if (owner) await setSessionOwnerAuthToken(id, deriveOwnerAuthToken(id, 'pw'), env.tempDir);
+  if (owner === 'owner-auth-only')
+    await setSessionOwnerAuthToken(id, createOwnerAuthVerifier('pw'), env.tempDir);
+  else if (owner) await setSessionOwnerAuthToken(id, OWNER_SESSION_MARK, env.tempDir);
   return id;
 }
 
@@ -93,11 +95,16 @@ describe('resolveOwnerOverride (T13790)', () => {
       requested: true,
       allowed: false,
       code: 'E_OVERRIDE_NOT_OWNER',
-      message: expect.stringMatching(/not owner-marked.*--owner-auth/),
+      message: expect.stringMatching(/not owner-marked.*--owner\)/),
     });
     expect(lastAudit()).toMatchObject({ action: 'override-refused', session_id: id });
     // With no session at all, likewise.
     expect(await judge(null)).toMatchObject({ allowed: false, code: 'E_OVERRIDE_NOT_OWNER' });
+  });
+
+  it('red: a session started with --owner-auth only (the cap password) is not owner-marked', async () => {
+    const id = await session('ses_cap_only', 'owner-auth-only');
+    expect(await judge(id)).toMatchObject({ allowed: false, code: 'E_OVERRIDE_NOT_OWNER' });
   });
 
   it.each([
@@ -152,5 +159,25 @@ describe('cleo verify refuses a non-owner override instead of honouring it (engi
     const owner = await verify(await session('ses_owner_verify', true));
     expect(owner.success, JSON.stringify(owner)).toBe(true);
     expect(owner.success && owner.data.override).toBe(true);
+  });
+});
+
+describe('cleo session start --owner: password-free, interactive only (T13790)', () => {
+  it('is allowed on a terminal with no CLEO_AGENT_ROLE', () => {
+    expect(ownerMarkRefusal({})).toBeNull();
+  });
+
+  it('is refused without a terminal (an agent shell)', () => {
+    setTty(false);
+    expect(ownerMarkRefusal({})).toMatch(/interactive terminal/);
+  });
+
+  it.each([
+    'worker',
+    'lead',
+    'subagent',
+    'reviewer',
+  ])('is refused when CLEO_AGENT_ROLE=%s is set, even on a terminal', (role) => {
+    expect(ownerMarkRefusal({ CLEO_AGENT_ROLE: role })).toMatch(/CLEO_AGENT_ROLE is set/);
   });
 });

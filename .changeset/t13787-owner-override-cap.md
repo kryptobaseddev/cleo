@@ -9,8 +9,9 @@ Owner decisions of 2026-10-16.
 
 **Who may override (T13790).** `CLEO_OWNER_OVERRIDE=1` still works without a
 password prompt, but only for the owner: a caller with no restricted role, in a
-session they started interactively with `--owner-auth`, running on their own
-terminal. Anyone else is refused with `E_OVERRIDE_NOT_OWNER`, and the refusal is
+session they marked with `cleo session start … --owner`, running on their own
+terminal. `--owner` is password-free. It is refused without an interactive
+terminal, or with any `CLEO_AGENT_ROLE` set. No env var sets it. Anyone else is refused with `E_OVERRIDE_NOT_OWNER`, and the refusal is
 audited. That covers an agent with no `CLEO_AGENT_ROLE`, a worker, lead or
 subagent, and an agent spawned from the owner's session. This applies to
 `cleo verify`, the AC-coverage bypass in `cleo complete`, the lifecycle scope

@@ -118,6 +118,26 @@ export function verifyOwnerAuthToken(callerToken: string, storedToken: string): 
   return diff === 0;
 }
 
+/**
+ * The owner mark of `cleo session start --owner` (T13790), stored in
+ * `sessions.owner_auth_token`: alone, or as `<mark>|<verifier>` when the
+ * session was also started with `--owner-auth`. Password-free; only the
+ * interactive session start writes it.
+ */
+export const OWNER_SESSION_MARK = 'owner-mark$v1';
+
+/**
+ * Whether a stored `sessions.owner_auth_token` carries the owner mark
+ * ({@link OWNER_SESSION_MARK}); an `--owner-auth` verifier alone does not.
+ *
+ * @param stored - The stored value, or null.
+ * @returns True for an owner-marked session.
+ * @task T13790
+ */
+export function isOwnerSessionMark(stored: string | null | undefined): boolean {
+  return stored === OWNER_SESSION_MARK || (stored ?? '').startsWith(`${OWNER_SESSION_MARK}|`);
+}
+
 /** Prefix of a {@link createOwnerAuthVerifier} record. */
 const VERIFIER_PREFIX = 'scrypt$v1$';
 
@@ -158,6 +178,14 @@ export function verifyOwnerAuthPassword(
   stored: string,
   sessionName: string,
 ): boolean {
+  // T13790: an owner-marked session stores `<mark>|<verifier>`; a bare mark has no password.
+  if (stored.startsWith(`${OWNER_SESSION_MARK}|`))
+    return verifyOwnerAuthPassword(
+      password,
+      stored.slice(OWNER_SESSION_MARK.length + 1),
+      sessionName,
+    );
+  if (stored === OWNER_SESSION_MARK) return false;
   if (!stored.startsWith(VERIFIER_PREFIX))
     return verifyOwnerAuthToken(deriveOwnerAuthToken(sessionName, password), stored);
   const [saltHex, hashHex] = stored.slice(VERIFIER_PREFIX.length).split('$');

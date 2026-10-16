@@ -22,7 +22,11 @@ import {
   resolveOverrideCap,
   setOwnerOverrideCap,
 } from '../override-cap-setting.js';
-import { createOwnerAuthVerifier, deriveOwnerAuthToken } from '../owner-override-auth.js';
+import {
+  createOwnerAuthVerifier,
+  deriveOwnerAuthToken,
+  OWNER_SESSION_MARK,
+} from '../owner-override-auth.js';
 
 let root: string;
 let home: string;
@@ -150,6 +154,23 @@ describe('enrollment is explicit and anchored twice', () => {
     expect(reset).toMatchObject({ ok: true, reset: true });
     expect(audit().at(-1)).toMatchObject({ action: 'owner-enroll-reset' });
     expect(await resolveOverrideCap(root)).toMatchObject({ cap: 10 });
+  });
+
+  it('a session started with --owner --owner-auth enrolls; a bare --owner mark (no password) does not', async () => {
+    const id = `ses_both_${++sessions}`;
+    const both = {
+      password: 'pw',
+      session: { id, name: id, token: `${OWNER_SESSION_MARK}|${createOwnerAuthVerifier('pw')}` },
+    };
+    expect(await enrollOwner(root, both)).toMatchObject({ ok: true });
+    const bare = {
+      password: 'pw',
+      session: { id: 'ses_bare', name: 'b', token: OWNER_SESSION_MARK },
+    };
+    expect(await setOwnerOverrideCap(root, { ...bare, value: 20 })).toMatchObject({
+      ok: false,
+      code: 'E_OVERRIDE_TOKEN_INVALID',
+    });
   });
 
   it('a session started before T13787 (legacy HMAC token) still verifies', async () => {

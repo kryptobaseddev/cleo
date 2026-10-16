@@ -20,7 +20,13 @@ async function ownerCaller(purpose: string) {
   const root = getProjectRoot();
   const sessionId = await core.resolveBoundSessionId(root);
   const auth = sessionId ? await core.getSessionOwnerAuth(sessionId, root) : null;
-  const canAsk = Boolean(process.stdin.isTTY && process.stderr.isTTY && auth?.token);
+  // A bare --owner mark has no password to check; only an --owner-auth verifier does.
+  const canAsk = Boolean(
+    process.stdin.isTTY &&
+      process.stderr.isTTY &&
+      auth?.token &&
+      auth.token !== core.OWNER_SESSION_MARK,
+  );
   const password = canAsk ? ((await readOwnerPassword(purpose, 'config')) ?? '') : '';
   const session = sessionId
     ? { id: sessionId, name: auth?.name ?? null, token: auth?.token ?? null }

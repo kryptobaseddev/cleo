@@ -6,11 +6,13 @@
  *  1. **Role fence** (T1118 L4b): a process whose `CLEO_AGENT_ROLE` was
  *     `worker`, `lead` or `subagent` at bootstrap, or changed since, is refused.
  *  2. **Owner-marked session**: the bound session was started interactively
- *     with `cleo session start --scope global --name <n> --owner-auth` — a TTY
- *     and the owner's password at session start, recorded as the session's
- *     owner-auth token. No env var marks a session as the owner's, so a
- *     parent cannot hand the mark down. An agent session with no
- *     `CLEO_AGENT_ROLE` is therefore fenced like a worker: it has no mark.
+ *     with `cleo session start --scope global --name <n> --owner` — no
+ *     password (owner decision: lighter), but refused unless stdin and stderr
+ *     are a terminal and no `CLEO_AGENT_ROLE` is set ({@link ownerMarkRefusal}).
+ *     No env var marks a session as the owner's, so a parent cannot hand the
+ *     mark down. An agent session with no `CLEO_AGENT_ROLE` is therefore
+ *     fenced like a worker: it has no mark. (`--owner-auth` and its password
+ *     are only for the T13787 cap enrollment; they do not mark a session.)
  *  3. **The owner's own terminal**: the override call itself runs on a TTY
  *     (stdin and stderr). An agent spawned from the owner's session binds to
  *     that same session (it inherits the harness session id or
@@ -19,8 +21,10 @@
  * Every refusal is appended to `.cleo/audit/force-bypass.jsonl`.
  *
  * Limits: these are same-OS-user checks. They fence default and accidental
- * agent use; a process that emulates a terminal (`script`, `expect`) and knows
- * the owner's password, or writes the session row directly, is not stopped.
+ * agent use; a process that emulates a terminal (`script`, `expect`) can mark a
+ * session and pass the TTY check, and a process that writes the session row
+ * directly is not stopped. The owner accepted that trade-off for a
+ * password-free switch.
  *
  * @task T13790
  */
@@ -29,11 +33,29 @@ import { BRANCH_LOCK_ERROR_CODES } from '@cleocode/contracts/branch-lock.js';
 import {
   appendOwnerOverrideAudit,
   isAgentRoleForbidden,
+  isOwnerSessionMark,
   isTtyPresent,
 } from './owner-override-auth.js';
 
 /** How the owner marks a session, named in every refusal. */
-export const OWNER_SESSION_COMMAND = 'cleo session start --scope global --name owner --owner-auth';
+export const OWNER_SESSION_COMMAND = 'cleo session start --scope global --name owner --owner';
+
+/**
+ * Why this process may not mark its session as the owner's, or null (T13790):
+ * `cleo session start --owner` is password-free, so it is refused when any
+ * `CLEO_AGENT_ROLE` is set or stdin/stderr are not an interactive terminal.
+ *
+ * @param env - Process env.
+ * @returns The refusal, or null when the mark may be set.
+ * @task T13790
+ */
+export function ownerMarkRefusal(env: NodeJS.ProcessEnv = process.env): string | null {
+  if ((env['CLEO_AGENT_ROLE'] ?? '').trim() !== '')
+    return `--owner is refused: CLEO_AGENT_ROLE is set (${env['CLEO_AGENT_ROLE']}); only the owner, in their own terminal, marks a session.`;
+  if (!isTtyPresent())
+    return '--owner is refused: stdin and stderr must be an interactive terminal; only the owner, in their own terminal, marks a session.';
+  return null;
+}
 
 /** Whether `CLEO_OWNER_OVERRIDE` asks for an override. */
 export function isOwnerOverrideRequested(env: NodeJS.ProcessEnv = process.env): boolean {
@@ -110,11 +132,11 @@ export async function resolveOwnerOverride(
       'this process runs as a restricted agent role (worker, lead or subagent).',
     );
   const auth = sessionId ? await sessions.getSessionOwnerAuth(sessionId, projectRoot) : null;
-  if (!sessionId || !auth?.token)
+  if (!sessionId || !isOwnerSessionMark(auth?.token))
     return refuse(
       BRANCH_LOCK_ERROR_CODES.E_OVERRIDE_NOT_OWNER,
       sessionId
-        ? `session ${sessionId} is not owner-marked (it was not started with --owner-auth).`
+        ? `session ${sessionId} is not owner-marked (it was not started with --owner).`
         : 'no session is bound, so no owner-marked session can vouch for this call.',
     );
   if (!tty)

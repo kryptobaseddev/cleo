@@ -1257,13 +1257,23 @@ export {
   deriveOwnerAuthToken,
   getOverrideCount,
   isAgentRoleForbidden,
+  isOwnerSessionMark,
   isTtyPresent,
+  OWNER_SESSION_MARK,
   recordAndCheckOverrideLimit,
   resetOverrideCount,
   validateOwnerOverride,
   verifyOwnerAuthPassword,
   verifyOwnerAuthToken,
 } from './security/owner-override-auth.js';
+// Owner override authority (T13790)
+export type { OwnerOverrideAuthority } from './security/owner-override-authority.js';
+export {
+  isOwnerOverrideRequested,
+  OWNER_SESSION_COMMAND,
+  ownerMarkRefusal,
+  resolveOwnerOverride,
+} from './security/owner-override-authority.js';
 // Shared-evidence tracker (T1502 / P0-6)
 export type {
   SharedEvidenceCheckResult,

@@ -365,7 +365,7 @@ describe('CLEO_OWNER_OVERRIDE=1 escape hatch', () => {
   it('7. lifecycleProgress is allowed with CLEO_OWNER_OVERRIDE=1 + audit entry written', async () => {
     mocks.getActiveSession.mockResolvedValue(CHILD_SCOPED_SESSION);
     // T13790: the owner — an owner-marked session, on the owner's terminal.
-    mocks.getSessionOwnerAuth.mockResolvedValue({ name: 'owner', token: 'a'.repeat(64) });
+    mocks.getSessionOwnerAuth.mockResolvedValue({ name: 'owner', token: 'owner-mark$v1' });
     setTty(true, true);
     process.env['CLEO_OWNER_OVERRIDE'] = '1';
     process.env['CLEO_OWNER_OVERRIDE_REASON'] = 'incident-1234 hotfix';
