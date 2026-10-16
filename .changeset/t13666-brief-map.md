@@ -19,4 +19,5 @@ With `lean.map: true` in the config, `cleo briefing` carries the map as
 `codebaseMap`, so "reuse first" costs no search. It is opt-in because it adds
 up to about 2,000 characters per briefing. The briefing reads the nexus graph
 only and never walks the tree; an unindexed project gets one line, "no code
-index; run `cleo nexus analyze`".
+index; run `cleo nexus analyze`". An index that exists but cannot be read
+shows "code index unreadable: <reason>" instead.

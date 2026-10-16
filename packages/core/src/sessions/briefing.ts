@@ -632,8 +632,12 @@ export async function computeBriefing(
     const { getConfigValue } = await import('../config/registry.js');
     if ((await getConfigValue<boolean>('lean.map', { projectRoot })) === true) {
       const { buildNexusBriefMap, BRIEF_MAP_NO_INDEX } = await import('../nexus/brief-map.js');
-      const report = await buildNexusBriefMap(projectRoot);
-      codebaseMap = report === null ? BRIEF_MAP_NO_INDEX : report.text || undefined;
+      try {
+        const report = await buildNexusBriefMap(projectRoot);
+        codebaseMap = report === null ? BRIEF_MAP_NO_INDEX : report.text || undefined;
+      } catch (err) {
+        codebaseMap = `code index unreadable: ${err instanceof Error ? err.message : String(err)}`;
+      }
     }
   } catch {
     // Advisory only; `cleo map --brief` reports the map directly.

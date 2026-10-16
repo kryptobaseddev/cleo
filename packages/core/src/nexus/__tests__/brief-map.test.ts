@@ -11,10 +11,21 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 type NodeRow = { file: string | null; name: string | null; kind: string; line: number | null };
 /** Rows the stubbed nexus graph returns (already filtered to exported, non-external). */
 let nexusRows: NodeRow[] = [];
+/** When set, reading the stubbed graph throws it (a missing table or a broken index). */
+let nexusError: Error | null = null;
 vi.mock('../../store/nexus-sqlite.js', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../../store/nexus-sqlite.js')>()),
   getNexusDb: async () => ({
-    select: () => ({ from: () => ({ where: () => ({ all: () => nexusRows }) }) }),
+    select: () => ({
+      from: () => ({
+        where: () => ({
+          all: () => {
+            if (nexusError) throw nexusError;
+            return nexusRows;
+          },
+        }),
+      }),
+    }),
   }),
 }));
 
@@ -96,6 +107,7 @@ describe('fallback regex names (T13666)', () => {
 describe('buildBriefMap from the nexus graph (T13666)', () => {
   afterEach(() => {
     nexusRows = [];
+    nexusError = null;
   });
 
   it('maps indexed symbols in source order, skipping private names and non-symbol kinds', async () => {
@@ -118,6 +130,19 @@ describe('buildBriefMap from the nexus graph (T13666)', () => {
   it('returns null without an index, so a briefing can print the no-index line', async () => {
     expect(await buildNexusBriefMap('/nonexistent-repo')).toBeNull();
     expect(BRIEF_MAP_NO_INDEX).toBe('no code index; run `cleo nexus analyze`');
+  });
+
+  it('treats a missing nodes table as no index', async () => {
+    nexusError = new Error('no such table: nexus_nodes');
+    expect(await buildNexusBriefMap('/nonexistent-repo')).toBeNull();
+  });
+
+  it('rejects on a present but broken index; cleo map --brief falls back to the walk', async () => {
+    nexusError = new Error('database disk image is malformed');
+    await expect(buildNexusBriefMap('/nonexistent-repo')).rejects.toThrow(
+      'database disk image is malformed',
+    );
+    expect((await buildBriefMap('/nonexistent-repo')).source).toBe('git-walk');
   });
 });
 

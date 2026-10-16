@@ -101,7 +101,11 @@ export function formatBriefMap(
   return { text, folders: lines.length, skipped };
 }
 
-/** Exported names per file from the nexus graph; empty when the project is not indexed. */
+/**
+ * Exported names per file from the nexus graph; empty when the project is not
+ * indexed. A graph that exists but cannot be read throws, so callers never
+ * report a broken index as a missing one.
+ */
 async function filesFromNexus(projectRoot: string): Promise<BriefMapFile[]> {
   try {
     const { and, eq } = await import('drizzle-orm');
@@ -122,8 +126,9 @@ async function filesFromNexus(projectRoot: string): Promise<BriefMapFile[]> {
       file,
       names: [...new Set(names.sort((a, b) => a.line - b.line).map((n) => n.name))],
     }));
-  } catch {
-    return [];
+  } catch (err) {
+    if (err instanceof Error && /no such table/i.test(err.message)) return [];
+    throw err;
   }
 }
 
@@ -216,6 +221,7 @@ function filesFromGitWalk(projectRoot: string): BriefMapFile[] {
  * @param projectRoot - the project root.
  * @param budget - character budget (default {@link BRIEF_MAP_DEFAULT_BUDGET}).
  * @returns the report, or `null` when the project has no code index.
+ * @throws when the code index exists but cannot be read.
  */
 export async function buildNexusBriefMap(
   projectRoot: string,
@@ -237,8 +243,10 @@ export async function buildBriefMap(
   projectRoot: string,
   budget: number = BRIEF_MAP_DEFAULT_BUDGET,
 ): Promise<BriefMapReport> {
+  // An unreadable index falls back to the walk here; only the briefing reports it.
+  const fromNexus = await buildNexusBriefMap(projectRoot, budget).catch(() => null);
   return (
-    (await buildNexusBriefMap(projectRoot, budget)) ?? {
+    fromNexus ?? {
       source: 'git-walk',
       budget,
       ...formatBriefMap(filesFromGitWalk(projectRoot), budget),
