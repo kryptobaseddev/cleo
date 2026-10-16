@@ -20,7 +20,10 @@
  */
 
 import { execFileSync } from 'node:child_process';
+import { existsSync } from 'node:fs';
+import { join } from 'node:path';
 import type { ChangeSetMergeState, EvidenceAtom, TaskChangeSet } from '@cleocode/contracts';
+import { cleoConfigSchemaFor } from './affected-packages.js';
 import type {
   ChangeSetDeps,
   ChangeSetTask,
@@ -281,7 +284,7 @@ function testRunUnseenChangeReason(
     ...new Set([
       ...scope.changed,
       ...testFiles,
-      ...testRunInputPaths([...scope.changed, ...testFiles]),
+      ...testRunInputPaths(scope.root, [...scope.changed, ...testFiles]),
     ]),
   ];
   for (const [from, to, between] of pairs) {
@@ -311,21 +314,45 @@ const QA_RUN_SHARED_INPUTS = [
 const TEST_RUNNER_CONFIGS = ['vitest.config.*', 'vitest.workspace.*', 'jest.config.*'];
 
 /**
+ * Test-style setup file names (`setupFiles`/`globalSetup` conventions), so an
+ * ordinary source such as `setup-wizard.ts` is not a test input.
+ */
+const SETUP_FILE_NAMES = [
+  '*.setup.*',
+  'setup-tests.*',
+  'setupTests.*',
+  'test-setup.*',
+  'global-setup.*',
+  'setup-global.*',
+];
+
+/**
  * Pathspecs of the inputs a test run reads beyond the files it names
  * (T13784, review of #2295): the QA shared inputs, runner configs and this
- * repo's shared setup (`vitest.setup.*`, `vitest.memory-safe.*`) at the root,
- * and in every directory above a changed or run file its `package.json`,
- * `tsconfig*.json`, runner configs and any setup file below it (`*setup*`,
- * the usual `setupFiles`/`globalSetup` names). Scoped to those directories so
- * another package's manifest moving on main does not stale the run. A module
- * the tests import but the change does not touch is not an input here — the
- * same file-scoped limit as the byte-identity carry.
+ * repo's shared setup (`vitest.setup.*`, `vitest.memory-safe.*`) at the root;
+ * in every directory above a changed or run file its `package.json`,
+ * `tsconfig*.json` and runner configs; and the test-style setup files
+ * ({@link SETUP_FILE_NAMES}) from each file's owning package (its nearest
+ * directory with a `package.json`) down. Scoped so another package's manifest
+ * or setup file moving on main does not stale the run. A module the tests
+ * import but the change does not touch is not an input here — the same
+ * file-scoped limit as the byte-identity carry.
  */
-function testRunInputPaths(files: readonly string[]): string[] {
+function testRunInputPaths(root: string, files: readonly string[]): string[] {
   const dirs = new Set<string>();
+  const owners = new Set<string>();
   for (const file of files) {
     const parts = file.split('/').slice(0, -1);
     for (let i = 1; i <= parts.length; i++) dirs.add(parts.slice(0, i).join('/'));
+    let owner = '';
+    for (let i = parts.length; i >= 1; i--) {
+      const dir = parts.slice(0, i).join('/');
+      if (existsSync(join(root, dir, 'package.json'))) {
+        owner = dir;
+        break;
+      }
+    }
+    owners.add(owner);
   }
   return [
     ...QA_RUN_SHARED_INPUTS,
@@ -336,8 +363,10 @@ function testRunInputPaths(files: readonly string[]): string[] {
       `${d}/package.json`,
       `${d}/tsconfig*.json`,
       ...TEST_RUNNER_CONFIGS.map((c) => `${d}/${c}`),
-      `:(glob)${d}/**/*setup*.*`,
     ]),
+    ...[...owners].flatMap((d) =>
+      SETUP_FILE_NAMES.map((n) => `:(glob)${d === '' ? '' : `${d}/`}**/${n}`),
+    ),
   ];
 }
 
@@ -612,6 +641,14 @@ export function scopedRunCarriedAcrossMerge(
   const scoped = atoms.filter(
     (a) => a.kind === 'test-run' || a.kind === 'qa-run' || isTreeScopedTool(a),
   );
+  // Review of #2302: config-schema speaks for CLEO config alone; the change's
+  // other files need a result of their own to carry.
+  const code = paths.filter((p) => cleoConfigSchemaFor(p) === null);
+  if (code.length > 0 && scoped.every((a) => a.kind === 'tool' && a.configSchema !== undefined))
+    return {
+      ok: false,
+      why: `tool:config-schema checks only CLEO config, and nothing else covers the change's other file(s) ${code.slice(0, 5).join(', ')}${code.length > 5 ? ', …' : ''}`,
+    };
   for (const atom of scoped) {
     // T13781: a config-schema result judged at a merged commit carries while
     // its files are unchanged at the merge.

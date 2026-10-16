@@ -2250,6 +2250,49 @@ function gitOutput(cwd: string, args: readonly string[]): string | null {
 }
 
 /**
+ * The task's own merged change at `sha` (T13781, review of #2302): `sha` must
+ * be the merge commit of a `pr:` atom, or one of the `commit:` atoms, recorded
+ * on the task's `implemented` gate. A PR's change is its changed paths, read at
+ * its merge; the commits' change is the union of their own diffs, read at the
+ * newest. Any other commit is refused, however its diff looks.
+ */
+function taskOwnChange(
+  root: string,
+  context: EvidenceValidationContext | undefined,
+  sha: string,
+): { ok: true; files: string[]; read: string } | { ok: false; reason: string } {
+  const implemented = context?.task.verification?.evidence?.implemented?.atoms ?? [];
+  const pr = implemented.find(
+    (a): a is Extract<EvidenceAtom, { kind: 'pr' }> =>
+      a.kind === 'pr' && a.mergeCommitSha === sha && (a.changedPaths?.length ?? 0) > 0,
+  );
+  if (pr) return { ok: true, files: [...(pr.changedPaths ?? [])].sort(), read: sha };
+  const commits = implemented.flatMap((a) => (a.kind === 'commit' ? [a.sha] : []));
+  if (!commits.includes(sha))
+    return {
+      ok: false,
+      reason:
+        `tool:config-schema judges a merged change only at the task's own commit: ${sha.slice(0, 12)} ` +
+        "is neither a commit: nor a pr: merge recorded on this task's implemented gate. Record " +
+        'implemented first, then name one of its commit:/pr: atoms with tool:config-schema.',
+    };
+  const files = new Set<string>();
+  for (const commit of commits) {
+    const diff = gitOutput(root, ['diff', '--name-only', '--no-renames', `${commit}^1`, commit]);
+    if (diff === null)
+      return {
+        ok: false,
+        reason: `tool:config-schema cannot read the change of ${commit.slice(0, 12)} in ${root}.`,
+      };
+    for (const path of diff.split('\n').filter(Boolean)) files.add(path);
+  }
+  const newest = gitOutput(root, ['rev-list', '-1', '--date-order', ...commits]);
+  if (!newest)
+    return { ok: false, reason: `tool:config-schema cannot order the task's commits in ${root}.` };
+  return { ok: true, files: [...files].sort(), read: newest };
+}
+
+/**
  * `tool:config-schema` (T13758): CLEO validates each changed CLEO-owned config
  * file against its CLEO schema, pinned to the tree like a qa-run receipt.
  *
@@ -2270,31 +2313,23 @@ async function validateConfigSchema(
     ? (await import('./change-set.js')).resolveChangeSetRoot(roots.storeRoot, context.task.id).root
     : roots.executionRoot;
   let changed = scopedChangedPaths(root)?.paths ?? [];
-  // T13781: a merged change is judged at the commit(s) the write names.
-  const prs = context?.artifactPrs ?? [];
-  const anchors =
-    changed.length > 0
-      ? []
-      : prs.length > 0
-        ? prs.map((p) => p.mergeCommitSha)
-        : siblingCommitSha
-          ? [siblingCommitSha]
-          : [];
-  const commitOf = (path: string): string | undefined =>
-    prs.length > 0 ? prMergeCommitForPath(prs, path) : siblingCommitSha;
-  if (anchors.length > 0) {
-    const files = new Set<string>();
-    for (const sha of anchors) {
-      const diff = gitOutput(root, ['diff', '--name-only', '--no-renames', `${sha}^1`, sha]);
-      if (diff === null)
-        return {
-          ok: false,
-          codeName: 'E_EVIDENCE_INSUFFICIENT',
-          reason: `tool:config-schema cannot read the change of ${sha.slice(0, 12)} in ${root}.`,
-        };
-      for (const path of diff.split('\n').filter(Boolean)) files.add(path);
-    }
-    changed = [...files].sort();
+  // T13781: a merged change is judged at the commit(s) the write names, and
+  // only when they are the task's OWN change (review of #2302): the change is
+  // what the task merged, never an arbitrary commit's diff.
+  const prs = (context?.artifactPrs ?? []).filter((p) => (p.changedPaths?.length ?? 0) > 0);
+  let anchors: string[] = [];
+  let commitOf = (_path: string): string | undefined => undefined;
+  if (changed.length === 0 && prs.length > 0) {
+    // pr: atoms of this write: the gate refuses one not linked to the task.
+    anchors = prs.map((p) => p.mergeCommitSha);
+    changed = [...new Set(prs.flatMap((p) => p.changedPaths ?? []))].sort();
+    commitOf = (path) => prMergeCommitForPath(prs, path);
+  } else if (changed.length === 0 && siblingCommitSha) {
+    const own = taskOwnChange(root, context, siblingCommitSha);
+    if (!own.ok) return { ok: false, codeName: 'E_EVIDENCE_INSUFFICIENT', reason: own.reason };
+    anchors = [own.read];
+    changed = own.files;
+    commitOf = () => own.read;
   }
   const config = changed.filter((p) => cleoConfigSchemaFor(p) !== null);
   if (config.length === 0) {
@@ -2448,7 +2483,12 @@ async function validateTool(
   const { storeRoot: projectRoot, executionRoot } = roots;
   // T12633: project-context lives in the store; package.json scripts and
   // tsconfig describe the code under test, so they are read where it runs.
-  const resolution = resolveToolCommand(tool, projectRoot, { executionRoot });
+  // T13779: a change that edits project-context.json is judged by the default branch's commands.
+  const { evidenceProjectContext } = await import('./affected-packages.js');
+  const resolution = resolveToolCommand(tool, projectRoot, {
+    executionRoot,
+    projectContext: evidenceProjectContext(projectRoot, executionRoot),
+  });
 
   // T12083: the project has no such toolchain. This is a fact about the
   // project, not a failure of the work — a plain JavaScript project cannot

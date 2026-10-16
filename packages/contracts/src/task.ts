@@ -635,6 +635,13 @@ export type EvidenceAtom =
         baseRunId: number;
       }>;
       /**
+       * The merge commit's own run FAILED, but only on the flaky-quarantine
+       * budget: every failing job's tests all passed (T13809). `descendantSha`
+       * is the later green main run standing in. Each job records its failing
+       * merge-commit run.
+       */
+      nonTestFailures?: Array<{ name: string; mergeRunId: number }>;
+      /**
        * The PR edited a pinned workflow, so only default-branch `push` runs
        * attested it; its own `pull_request` runs (which ran the edited
        * workflow) were never consulted, and none is re-checked (T13174).

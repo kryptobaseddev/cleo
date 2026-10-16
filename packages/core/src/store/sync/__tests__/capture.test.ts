@@ -1008,6 +1008,18 @@ describe('a legacy-only store refuses sync (T13224)', () => {
     expect(legacyStrands(db)).toEqual([]);
   });
 
+  it('a drained twin never counts: bare token_usage and audit_log rows wait for the next open (T13777)', async () => {
+    const db = await openStore();
+    carry(db, 'T1');
+    // tasks_token_usage and tasks_audit_log sync; their bare tables are drained inboxes.
+    for (const bare of ['token_usage', 'audit_log']) {
+      db.exec(`DROP TABLE IF EXISTS ${bare}`);
+      db.exec(`CREATE TABLE ${bare} (id TEXT PRIMARY KEY, note TEXT)`);
+      db.exec(`INSERT INTO ${bare} VALUES ('pending-1', 'written by an older build')`);
+    }
+    expect(legacyStrands(db)).toEqual([]);
+  });
+
   it('a bare task shadowed by a different live task with its id (T001 reuse) counts', async () => {
     const db = await openStore();
     db.exec('DROP TABLE IF EXISTS tasks');

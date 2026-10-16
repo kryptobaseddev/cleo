@@ -24,7 +24,7 @@ import {
   PRIOR_RECOVERIES_TABLE_SQL,
   taskIdCollisionsSql,
 } from '../exodus/task-id-collision-sql.js';
-import { ROW_IDENTITY } from '../row-identity-registry.js';
+import { DRAINED_TWINS, ROW_IDENTITY } from '../row-identity-registry.js';
 import { classifyTable, isPortableTableClass } from '../table-classification.js';
 import { ensureSyncSchema, hasTable } from './schema.js';
 
@@ -192,6 +192,8 @@ function bareTwinPairs(db: DatabaseSync): Array<{ bare: string; table: string }>
   const pairs: Array<{ bare: string; table: string }> = [];
   for (const bare of tables) {
     if (syncSet.has(bare)) continue;
+    // A drained twin's bare rows are carried by the next open, never stranded (T13777).
+    if (Object.hasOwn(DRAINED_TWINS, bare)) continue;
     const target = resolveConsolidatedTableName('tasks', bare);
     if (target.kind !== 'mapped' || target.targetName === bare) continue;
     const table = target.targetName;

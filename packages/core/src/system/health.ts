@@ -166,7 +166,8 @@ function checkAuditLogAvailability(dbPath: string): HealthCheck {
     const db = new databaseSyncCtor(dbPath, { readOnly: true });
     try {
       const tableRow = db
-        .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='audit_log'")
+        // T13777: the audit (dispatch and task mutations) lives in tasks_audit_log.
+        .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='tasks_audit_log'")
         .get() as { name?: string } | undefined;
 
       if (!tableRow?.name) {
@@ -177,7 +178,7 @@ function checkAuditLogAvailability(dbPath: string): HealthCheck {
         };
       }
 
-      const countRow = db.prepare('SELECT COUNT(1) AS count FROM audit_log').get() as
+      const countRow = db.prepare('SELECT COUNT(1) AS count FROM tasks_audit_log').get() as
         | { count?: number }
         | undefined;
       return {

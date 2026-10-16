@@ -274,6 +274,13 @@ export const nexusCloudStatusCheckSchema = z.object({
  */
 export const NEXUS_FEATURE_PROJECT_INITIAL_KEY = 'project.initial-key';
 
+/**
+ * The E3 `features` entry of a server whose checkpoint/v3 rule skips the tables a manifest lists as
+ * `snapshotAuthoritative` (cleo-nexus #45, cleocode T13777). A journal checkpoint sends the list only to
+ * such a server.
+ */
+export const NEXUS_FEATURE_MANIFEST_SNAPSHOT_AUTHORITATIVE = 'manifest.snapshot-authoritative';
+
 /** `NexusStatus` (E3 `GET /v1/status`). */
 export const nexusCloudStatusSchema = z.object({
   serverTime: isoTime.optional(),

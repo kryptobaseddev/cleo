@@ -1570,6 +1570,8 @@ describe('T13784: staleness considers only the change files and the tests the ru
       'packages/a/src/x.ts': 'export const x = 1;\n',
       'packages/a/src/x.test.ts': "import './x.js';\n",
       'packages/b/package.json': '{"name":"@x/b"}\n',
+      'packages/b/src/setup-wizard.ts': 'export const w = 1;\n',
+      'packages/b/src/b.setup.ts': 'export {};\n',
     };
     git('init', '-q', '-b', 'main');
     for (const [f, body] of Object.entries(files)) {
@@ -1605,8 +1607,12 @@ describe('T13784: staleness considers only the change files and the tests the ru
     }
   });
 
-  it("green: another package's manifest moving on main does not stale the run", () => {
-    const c = packageMovedOn('packages/b/package.json');
+  it.each([
+    'packages/b/package.json',
+    'packages/b/src/setup-wizard.ts',
+    'packages/b/src/b.setup.ts',
+  ])("green: another package's %s moving on main does not stale the run", (path) => {
+    const c = packageMovedOn(path);
     try {
       expect(c.verdict()).toBeNull();
     } finally {

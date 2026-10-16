@@ -106,6 +106,11 @@ export interface CaptureTableDef {
    * captured.
    */
   readonly localWhenNull?: readonly string[];
+  /**
+   * A later row of a shared natural key has no uid and is never captured
+   * (T13777, `RowIdentitySpec.localUnlessFirst`).
+   */
+  readonly uidRequired?: boolean;
 }
 
 /** One generated trigger. */
@@ -192,6 +197,7 @@ export function captureTableDef(
       ? { localKeyIsUid: true }
       : {}),
     ...(spec.localWhenNull ? { localWhenNull: spec.localWhenNull } : {}),
+    ...(spec.localUnlessFirst ? { uidRequired: true } : {}),
   };
 }
 
@@ -406,9 +412,15 @@ export function captureTriggers(def: CaptureTableDef): CaptureTrigger[] {
     `INSERT INTO _sync_capture (tbl, op, rk, uid, img, at_ms) VALUES (${lit(def.table)}, '${op}', ${rkExpr(def, row)}, ${uid}, ${img}, ${AT_MS_SQL});`;
 
   const out: CaptureTrigger[] = [];
-  // T12914: a row kept local by a NULL key column is never captured.
+  // T12914: a row kept local by a NULL key column is never captured; T13777: nor
+  // one without a uid where the table requires it (a later row of a shared key).
+  // An insert reads its own row: the uid trigger filled it (or left it NULL on a clash).
+  const ownUid = `(SELECT x.${q(UID_COLUMN)} FROM ${t} x WHERE x.rowid = NEW.rowid)`;
   const synced = (row: string): string =>
-    (def.localWhenNull ?? []).map((c) => ` AND ${row}.${q(c)} IS NOT NULL`).join('');
+    (def.localWhenNull ?? []).map((c) => ` AND ${row}.${q(c)} IS NOT NULL`).join('') +
+    (def.uidRequired
+      ? ` AND ${row === 'NEW' ? ownUid : `${row}.${q(UID_COLUMN)}`} IS NOT NULL`
+      : '');
 
   out.push({
     name: name('i'),
