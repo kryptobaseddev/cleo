@@ -147,6 +147,7 @@ import {
   cloudSync,
   confirmableRetirements,
   enableSyncPush,
+  formatTransitionPruned,
   nexusVaultStatus,
   pullSyncStream,
   pushNexusVault,
@@ -6490,6 +6491,62 @@ describe('sync enable push: the genesis checkpoint (T12343 S4-1b)', () => {
       expect(omitted.code).toBe('E_NEXUS_VAULT_REFUSED');
       expect(omitted.message).toContain('snapshot-authoritative list');
       expect(omitted.fix).toContain('upgrade cleo on the other devices');
+    });
+
+    it('T13808: a row local by its row-identity spec is out of the manifest: push lands, both devices verify match', async () => {
+      const { m: a, dbPath: aDb } = await journalMachine();
+      // Legacy duplicates from before the journal: a second handoff for one session stays local (no uid).
+      await on(a, async () => {
+        const db = await storeOf(aDb);
+        db.exec(
+          "INSERT INTO tasks_sessions (id, name, started_at) VALUES ('ses_t13808', 'dup', '2026-10-16 09:00:00')",
+        );
+        db.exec(
+          `INSERT INTO tasks_session_handoff_entries (session_id, handoff_json, created_at) VALUES
+             ('ses_t13808', '{"n":"first"}', '2026-10-16 09:00:01'),
+             ('ses_t13808', '{"n":"second"}', '2026-10-16 09:00:02')`,
+        );
+      });
+      await on(a, () => enableSyncPush(vopts(a, { allowUnreleased: true })));
+      await on(a, async () => {
+        setSyncFlag(await storeOf(aDb), 'sync.pull', true, { allowUnreleased: true });
+      });
+      const genesis = fake.stream(STREAM).checkpoints[0];
+      expect(genesis?.manifest.tables['tasks_session_handoff_entries']?.rows).toBe(1);
+      const { b, bDb } = await restoredJoiner();
+      expect((await on(b, () => enableSyncPush(vopts(b, { allowUnreleased: true })))).status).toBe(
+        'joined',
+      );
+      await on(a, async () => (await storeOf(aDb)).exec(insertTask('T3', 'from A')));
+      await sync(a);
+      const pushed = await on(a, () => pushNexusVault(vopts(a, { allowUnreleased: true })));
+      expect(pushed.status).toBe('pushed');
+      expect(
+        fake.stream(STREAM).checkpoints.at(-1)?.manifest.tables['tasks_session_handoff_entries']
+          ?.rows,
+      ).toBe(1);
+      expect((await on(a, () => verifyNexusVault(vopts(a)))).verdict).toBe('match');
+      await sync(b);
+      expect((await on(b, () => verifyNexusVault(vopts(b)))).verdict).toBe('match');
+      expect(
+        await on(b, async () =>
+          (await storeOf(bDb))
+            .prepare('SELECT count(*) AS n FROM tasks_session_handoff_entries WHERE uid IS NULL')
+            .get(),
+        ),
+      ).toEqual({ n: 1 });
+    });
+
+    it('T13808: a parent of an older vault format counted local rows; the next checkpoint names them pruned and the row rule holds', () => {
+      const tallies = { rows: { t: 5, u: 3 }, pending: [], voided: [], applied: [] };
+      // The store holds 3 synced rows of t and 2 local ones the old format counted; u has none.
+      const moved = formatTransitionPruned(2, tallies, { t: 3, u: 3 }, { t: 2 });
+      expect(moved.pruned).toEqual({ t: 2 });
+      expect(moved.tallies.rows).toEqual({ t: 3, u: 3 });
+      // In the current format the parent already left them out: nothing is pruned.
+      expect(formatTransitionPruned(3, tallies, { t: 3, u: 3 }, { t: 2 }).pruned).toEqual({});
+      // Capped by the local rows held now: a shortfall they do not explain stays for the settle.
+      expect(formatTransitionPruned(2, tallies, { t: 1, u: 3 }, { t: 2 }).pruned).toEqual({ t: 2 });
     });
 
     it('a checkpoint with pending transactions restores on a new device, and they apply exactly once after a sync', async () => {
