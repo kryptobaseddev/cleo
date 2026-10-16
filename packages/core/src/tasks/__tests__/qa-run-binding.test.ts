@@ -1228,3 +1228,122 @@ describe('T13783: dependents of a regenerated generated client owe a typecheck, 
     expect(scopedRunSupersededReason([run, typecheck], 'merged')).toMatch(/scoped run/);
   });
 });
+
+/**
+ * VidaPeps T1305 / PR #875 (T13786, the T13783 owner decision extended to
+ * declared seed/data paths): editing lib/db/src/seed-data/glp1.ts must not owe
+ * a test file from every package that depends on lib/db. The declared glob
+ * makes lib/db typecheck-only for its dependents; lib/db's own tests and every
+ * edited test file are still owed.
+ */
+describe('T13786: declared seed/data globs owe dependents a typecheck, not tests', () => {
+  const ctx: EvidenceValidationContext = {
+    task: { id: 'T1305', kind: 'work', labels: [], files: [], acceptance: [] },
+    gates: ['testsPassed'],
+    criteria: [],
+  };
+  const pkg = (dir: string, name: string, deps: string[] = []) => {
+    put(
+      `${dir}/package.json`,
+      JSON.stringify({
+        name,
+        dependencies: Object.fromEntries(deps.map((d) => [d, 'workspace:*'])),
+      }),
+    );
+    put(`${dir}/src/index.ts`, 'export const v = 1;\n');
+    put(`${dir}/src/index.test.ts`, 'export {};\n');
+  };
+  const DB_TEST = 'lib/db/src/index.test.ts';
+
+  function setup(): void {
+    initRepo(() => {
+      put('pnpm-workspace.yaml', 'packages:\n  - "lib/*"\n  - "apps/*"\n');
+      pkg('lib/db', '@workspace/db');
+      put('lib/db/src/seed-data/glp1.ts', 'export const glp1 = ["a"];\n');
+      put('lib/db/src/vp-registry.test.ts', 'export {};\n');
+      pkg('lib/llm', '@workspace/llm', ['@workspace/db']);
+      pkg('lib/ui', '@workspace/ui', ['@workspace/db']);
+      pkg('apps/api-server', '@workspace/api-server', ['@workspace/db', '@workspace/llm']);
+      put(
+        '.cleo/project-context.json',
+        `${JSON.stringify({
+          schemaVersion: '1.0.0',
+          detectedAt: '2026-10-16T00:00:00Z',
+          projectTypes: ['node'],
+          evidence: { typecheckOnlyDependents: ['lib/db/src/seed-data/**'] },
+        })}\n`,
+      );
+    });
+  }
+  function report(files: string[]): string {
+    mkdirSync(join(root, 'reports'), { recursive: true });
+    const path = join(root, 'reports', 'vitest.json');
+    writeFileSync(
+      path,
+      JSON.stringify({
+        startTime: Date.now() + 5_000,
+        numTotalTests: files.length,
+        numPassedTests: files.length,
+        numFailedTests: 0,
+        numPendingTests: 0,
+        numTodoTests: 0,
+        testResults: files.map((name) => ({
+          name: join(root, name),
+          status: 'passed',
+          assertionResults: [{ fullName: 't', status: 'passed' }],
+        })),
+      }),
+    );
+    return path;
+  }
+
+  it('green (repro #875): lib/db tests plus a typecheck covering its dependents close testsPassed', async () => {
+    setup();
+    put('lib/db/src/seed-data/glp1.ts', 'export const glp1 = ["a", "b"];\n');
+    git(root, ['commit', '-q', '-am', 'T1305: seed text']);
+    const run = await validateAtom({ kind: 'test-run', path: report([DB_TEST]) }, root);
+    expect(run.ok && run.atom, JSON.stringify(run)).toMatchObject({
+      typecheckDirs: ['apps/api-server', 'lib/llm', 'lib/ui'],
+    });
+    const tc = await validateAtom(
+      { kind: 'qa-run', path: receipt({ kind: 'typecheck', roots: ['lib', 'apps'] }) },
+      root,
+    );
+    if (!run.ok || !tc.ok) throw new Error(JSON.stringify({ run, tc }));
+    expect(checkTaskEvidenceContext(ctx, 'testsPassed', [run.atom, tc.atom])).toBeNull();
+    expect(checkTaskEvidenceContext(ctx, 'testsPassed', [run.atom])).toMatch(
+      /leaves apps\/api-server, lib\/llm, lib\/ui to a typecheck/,
+    );
+  });
+
+  it("red: the owning package's tests are still owed", async () => {
+    setup();
+    put('lib/db/src/seed-data/glp1.ts', 'export const glp1 = ["a", "b"];\n');
+    git(root, ['commit', '-q', '-am', 'T1305: seed text']);
+    const r = await validateAtom(
+      { kind: 'test-run', path: report(['lib/llm/src/index.test.ts']) },
+      root,
+    );
+    expect(!r.ok && r.reason, JSON.stringify(r)).toMatch(/@workspace\/db \(changed\)/);
+  });
+
+  it('red: an edited test file must be run', async () => {
+    setup();
+    put('lib/db/src/seed-data/glp1.ts', 'export const glp1 = ["a", "b"];\n');
+    put('lib/db/src/vp-registry.test.ts', 'export const t = 2;\n');
+    git(root, ['commit', '-q', '-am', 'T1305: seed text and its test']);
+    const r = await validateAtom({ kind: 'test-run', path: report([DB_TEST]) }, root);
+    expect(!r.ok && r.reason, JSON.stringify(r)).toMatch(
+      /does not run the changed test file\(s\) lib\/db\/src\/vp-registry\.test\.ts/,
+    );
+  });
+
+  it('red: a source edit beside the seed data makes the dependents owe tests again', async () => {
+    setup();
+    put('lib/db/src/seed-data/glp1.ts', 'export const glp1 = ["a", "b"];\n');
+    put('lib/db/src/index.ts', 'export const v = 2;\n');
+    git(root, ['commit', '-q', '-am', 'T1305: seed text and code']);
+    const r = await validateAtom({ kind: 'test-run', path: report([DB_TEST]) }, root);
+    expect(!r.ok && r.reason, JSON.stringify(r)).toMatch(/depends on a changed package/);
+  });
+});

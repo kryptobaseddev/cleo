@@ -366,9 +366,11 @@ export function dependentsClosure(
 }
 
 /**
- * The changed workspace packages whose every changed path matches a glob of
- * `evidence.typecheckOnlyDependents` on the default branch (T13783): a
- * regenerated client (`lib/api-zod/**`) or declared seed/data files. A
+ * The changed workspace packages whose every changed non-test path matches a
+ * glob of `evidence.typecheckOnlyDependents` on the default branch (T13783): a
+ * regenerated client (`lib/api-zod/**`) or declared seed/data files
+ * (`lib/db/src/seed-data/**`, T13786). Edited test files are left out of the
+ * judgement; the report must run them. A
  * package depending on the change only through these owes a typecheck, not
  * a test file. Read from the merge-base copy only, so a change cannot
  * declare its own globs; never inferred from names.
@@ -378,6 +380,7 @@ export function dependentsClosure(
  * @param workspace - Workspace packages, longest directory first.
  * @returns The package names.
  * @task T13783
+ * @task T13786
  */
 export function typecheckOnlyPackages(
   root: string,
@@ -391,6 +394,9 @@ export function typecheckOnlyPackages(
   const matched = new Map<string, boolean>();
   if (globs.length === 0) return new Set();
   for (const path of changed.map(slashSeparated)) {
+    // T13786: a test file edited beside the data cannot change what dependents
+    // compile or run; it is owed to the report instead (every edited test file).
+    if (TEST_FILE.test(path)) continue;
     const owner = workspace.find((p) => p.dir !== '' && inPackageDir(path, p.dir));
     if (!owner) continue;
     const declared = globs.some((g) => g === path || matchesGlob(path, g));
