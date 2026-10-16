@@ -334,7 +334,7 @@ export function checkAndIncrementOverrideCap(
         `Per-session CLEO_OWNER_OVERRIDE cap exceeded: ${current} of ${cap} overrides used ` +
         `(${OVERRIDE_CAP_SETTING} = ${cap}). Only the owner can raise it, with ` +
         `\`${OVERRIDE_CAP_OWNER_COMMAND}\` in an interactive terminal, in a session started ` +
-        `with \`cleo session start --owner-auth\` (T13787). To proceed above the cap once, set ` +
+        `with \`cleo session start --scope global --name owner --owner-auth\` (T13787). To proceed above the cap once, set ` +
         `CLEO_OWNER_OVERRIDE_WAIVER=<path> to a file containing 'cap-waiver: true'. ` +
         (waiver.reason ? `Waiver rejected: ${waiver.reason}` : ''),
     };

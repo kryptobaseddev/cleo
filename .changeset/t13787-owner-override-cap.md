@@ -11,7 +11,7 @@ it.
 
 **How the owner sets it.** Run `cleo config set evidence.overrideCapPerSession <n>`
 in an interactive terminal, in a session started with
-`cleo session start --owner-auth`. The command reuses the T1118 owner-auth
+`cleo session start --scope global --name owner --owner-auth`. The command reuses the T1118 owner-auth
 checks: no restricted agent role, a TTY, and the password typed must match the
 session's owner-auth token.
 

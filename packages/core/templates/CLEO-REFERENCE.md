@@ -295,7 +295,7 @@ CLEO_OWNER_OVERRIDE=1 \ CLEO_OWNER_OVERRIDE_REASON="incident 1234 hotfix" \ cleo
 
 All overrides append a line to `.cleo/audit/force-bypass.jsonl`. Use sparingly.
 
-**Per-session cap (owner decision 2026-10-16, T13787).** A session may use at most `evidence.overrideCapPerSession` overrides (default 10, maximum 100). Past the cap, `E_OVERRIDE_CAP_EXCEEDED` names the setting. Only the owner can change it, with `cleo config set evidence.overrideCapPerSession <n>`, run in an interactive terminal in a session started with `cleo session start --owner-auth`. The command reuses the T1118 owner-auth checks: no restricted agent role, a TTY, and the password matching the session's owner-auth token.
+**Per-session cap (owner decision 2026-10-16, T13787).** A session may use at most `evidence.overrideCapPerSession` overrides (default 10, maximum 100). Past the cap, `E_OVERRIDE_CAP_EXCEEDED` names the setting. Only the owner can change it, with `cleo config set evidence.overrideCapPerSession <n>`, run in an interactive terminal in a session started with `cleo session start --scope global --name owner --owner-auth`. The command reuses the T1118 owner-auth checks: no restricted agent role, a TTY, and the password matching the session's owner-auth token.
 
 The value is never written to `config.json`. It is sealed in `.cleo/owner-settings.json` with a key derived from the owner-auth password, so it outlives the session that set it. The first set enrolls that key, and a later set with a different password is refused. These are all audited to `force-bypass.jsonl` with the old and new value:
 - every set;

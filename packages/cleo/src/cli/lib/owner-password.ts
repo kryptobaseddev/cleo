@@ -1,6 +1,6 @@
 /**
  * Read the owner-auth password from the terminal with echo off (T1118 L4c),
- * shared by `cleo session start --owner-auth` and the owner-only
+ * shared by `cleo session start --scope global --name owner --owner-auth` and the owner-only
  * `cleo config set evidence.overrideCapPerSession` (T13787).
  *
  * @task T1118

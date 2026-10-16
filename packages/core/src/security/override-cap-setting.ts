@@ -8,7 +8,7 @@
  * The owner-auth layer T1118 built (L4, {@link validateOwnerOverride}), as is:
  * the caller is not a restricted agent role, stdin and stderr are a TTY, and
  * the password typed now matches the owner-auth token of the bound session
- * (`cleo session start --owner-auth`). Every set and every refused attempt is
+ * (`cleo session start --scope global --name owner --owner-auth`). Every set and every refused attempt is
  * appended to `.cleo/audit/force-bypass.jsonl` with the old and new value.
  *
  * ## Why it outlives the session
@@ -51,7 +51,7 @@ import {
 
 /** How the owner runs {@link OVERRIDE_CAP_OWNER_COMMAND}. */
 const OWNER_HOW =
-  'run it yourself in an interactive terminal, in a session started with `cleo session start --owner-auth`';
+  'run it yourself in an interactive terminal, in a session started with `cleo session start --scope global --name owner --owner-auth`';
 
 /** One sealed setting. */
 interface SealedSetting {
