@@ -9,7 +9,7 @@
  * @task T12343
  */
 
-import { mkdirSync, mkdtempSync, rmSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
@@ -23,7 +23,6 @@ import { _resetDualScopeDbCache, openDualScopeDbAtPath } from '../../dual-scope-
 import { runBracketedMigrations } from '../../migration-runner.js';
 import { missingRowIdentitySchema } from '../../row-identity.js';
 import { getNativeTasksDb } from '../../sqlite.js';
-import { carryBareCommits } from '../../twin-collapse.js';
 import {
   type CaptureTableDef,
   captureBracketHooks,
@@ -41,6 +40,7 @@ import {
   BARE_STRANDS_REMEDY,
   isLegacyOnlyStore,
   LEGACY_ONLY_REMEDY,
+  LEGACY_SEEDED_COMMIT_SHAS,
   LegacyOnlyStoreError,
   legacyStrands,
   legacyStrandsCached,
@@ -969,39 +969,34 @@ describe('a legacy-only store refuses sync (T13224)', () => {
     ).toThrow(LegacyOnlyStoreError);
   });
 
-  it('bare commits rows the legacy migrations seed are carried into tasks_commits, never overwriting (T12914)', async () => {
+  it('the commits the legacy migrations seed into bare commits are never a strand; any other bare commit is (T12914)', async () => {
     const db = await openStore();
+    const row = (sha: string) =>
+      `('${sha}', '${sha.slice(0, 7)}', '2026-05-01T00:00:00Z', '2026-05-01T00:00:00Z', 'm', 's', '2026-05-20 00:00:00')`;
     db.exec(`DROP TABLE IF EXISTS commits;
       CREATE TABLE commits (sha TEXT PRIMARY KEY, short_sha TEXT NOT NULL, authored_at TEXT NOT NULL,
-        committed_at TEXT NOT NULL, message TEXT NOT NULL, subject TEXT NOT NULL, conventional_type TEXT,
-        is_release_commit INTEGER NOT NULL DEFAULT 0, is_merge_commit INTEGER NOT NULL DEFAULT 0,
-        parent_shas TEXT NOT NULL DEFAULT '[]', created_at TEXT NOT NULL);
-      INSERT INTO commits VALUES
-        ('${'a'.repeat(40)}', 'aaaaaaa', '2026-05-01T00:00:00Z', '2026-05-01T00:00:00Z', 'release: ship', 'release: ship', 'release', 1, 0, '[]', '2026-05-20 00:00:00'),
-        ('${'b'.repeat(40)}', 'bbbbbbb', '2026-05-01T00:00:00Z', '2026-05-01T00:00:00Z', 'bare', 'bare', 'fix', 0, 0, '[]', '2026-05-20 00:00:00');
-      INSERT INTO tasks_commits (sha, short_sha, authored_at, committed_at, message, subject, created_at)
-        VALUES ('${'b'.repeat(40)}', 'bbbbbbb', '2026-05-01T00:00:00Z', '2026-05-01T00:00:00Z', 'live', 'live', '2026-05-21 00:00:00');`);
+        committed_at TEXT NOT NULL, message TEXT NOT NULL, subject TEXT NOT NULL, created_at TEXT NOT NULL);
+      INSERT INTO commits VALUES ${LEGACY_SEEDED_COMMIT_SHAS.map(row).join(', ')};`);
+    expect(legacyStrands(db)).toEqual([]);
+    db.exec(`INSERT INTO commits VALUES ${row('c'.repeat(40))}`);
     expect(legacyStrands(db)).toEqual([
       { bareTable: 'commits', table: 'tasks_commits', missing: 1, shadowed: 0 },
     ]);
-    expect(carryBareCommits(db)).toBe(1);
-    expect(carryBareCommits(db)).toBe(0);
-    expect(legacyStrands(db)).toEqual([]);
-    expect(
-      db
-        .prepare(
-          'SELECT sha, subject, conventional_type, is_release_commit FROM tasks_commits ORDER BY sha',
-        )
-        .all(),
-    ).toEqual([
-      {
-        sha: 'a'.repeat(40),
-        subject: 'release: ship',
-        conventional_type: 'chore',
-        is_release_commit: 1,
-      },
-      { sha: 'b'.repeat(40), subject: 'live', conventional_type: null, is_release_commit: 0 },
-    ]);
+    // Nothing was copied: no device journals another project's commits.
+    expect(db.prepare('SELECT count(*) AS n FROM tasks_commits').get()).toEqual({ n: 0 });
+  });
+
+  it('LEGACY_SEEDED_COMMIT_SHAS is exactly what the t9755 seed migration inserts', () => {
+    const sql = readFileSync(
+      resolve(
+        import.meta.dirname,
+        '../../../../migrations/drizzle-tasks/20260520163324_t9755-backfill-legacy-ship-commits/migration.sql',
+      ),
+      'utf8',
+    );
+    const seeded = [...sql.matchAll(/\) VALUES \(\s*'([0-9a-f]{40})'/g)].map((m) => m[1]);
+    expect([...LEGACY_SEEDED_COMMIT_SHAS].sort()).toEqual(seeded.sort());
+    expect(seeded).toHaveLength(18);
   });
 
   it('a bare table outside the journal pairs (audit_log, not in the sync set) never counts', async () => {

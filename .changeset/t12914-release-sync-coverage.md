@@ -26,9 +26,12 @@ its changesets under the stored release id. Pull requests are one row per
 (repository, number) and release changes one row per (release, task, change
 type) on every device, since their ids also embed the project hash; reconcile
 reuses the stored id, and a release change now always records its task id.
-The 18 legacy ship commits the old `drizzle-tasks` migrations seed into the
-bare `commits` table are copied into `tasks_commits` at open, so a store is
-never refused for them (E_SYNC_LEGACY_ONLY_STORE). A store with other stranded
+The 18 cleocode ship commits the old `drizzle-tasks` migrations seed into the
+bare `commits` table of every store no longer count as stranded rows, so no
+store is refused for them (E_SYNC_LEGACY_ONLY_STORE); nothing is copied, and no
+project syncs another project's commits. A release change, PR link or commit
+link whose task id is NULL (legacy rows only) stays on its device, so two of
+them never collapse into one row (T13771 heals them). A store with other stranded
 bare release rows (older cleocode stores) settles them with
 `cleo doctor superseded-store --reconcile --bare-strands --apply`. The migration
 `20261015100000_t12914-lifecycle-release-row-uids` adds the columns and unique

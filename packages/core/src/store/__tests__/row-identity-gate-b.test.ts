@@ -375,6 +375,10 @@ beforeAll(async () => {
 
   for (const shape of ['cleocode', 'llmtxt'] as const) {
     unfilled[shape] = await buildFixture(shape, false, 'unfilled');
+    // The two builds open in different seconds, so a write an open stamps with
+    // the clock (#2282 review: a bare-commits carry copied datetime('now'))
+    // fails the determinism checks instead of passing by timing.
+    await new Promise((done) => setTimeout(done, 1100));
     source[shape] = await buildFixture(shape, true, 'source');
   }
 }, 300_000);

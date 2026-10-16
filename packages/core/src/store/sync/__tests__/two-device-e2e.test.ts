@@ -1409,6 +1409,46 @@ describe('lifecycle, release, PR and commit rows reach a second device (T12914)'
     expect(changes(b.db)).toEqual(changes(a.db));
   });
 
+  it('a NULL task id keeps a change or PR link local: two of them never fold into one uid (#2282 review)', async () => {
+    const { a, b } = await twoDevices();
+    const stream = fakeStream();
+    const sqlFor = (hash: string, gone: string) =>
+      `${releaseSql(hash, 'v2026.10.5')}
+       INSERT INTO tasks_release_changes (id, release_id, task_id, change_type, summary, classified_at) VALUES
+         ('chg-null-${hash}', '${hash}:v2026.10.5', NULL, 'feature', '${gone}: gone', '${AT}'),
+         ('chg-t1-${hash}', '${hash}:v2026.10.5', 'T1', 'feature', 'T1: kept', '${AT}');
+       INSERT INTO tasks_pull_requests (id, pr_number, repo_url, title, state, base_ref, head_ref, opened_at, created_at, updated_at)
+         VALUES ('${hash}:8', 8, 'https://github.com/o/r', 'feat', 'merged', 'main', 'feat/x', '${AT}', '${AT}', '${AT}');
+       INSERT INTO tasks_pr_tasks (pr_id, task_id, link_source, link_kind, created_at)
+         VALUES ('${hash}:8', NULL, 'pr-body', 'implements', '${AT}');`;
+    write(a.db, sqlFor('hashA', 'T5'));
+    write(b.db, sqlFor('hashB', 'T6'));
+    await push(a, stream);
+    await push(b, stream);
+    await pull(a, stream);
+    await pull(b, stream);
+    const nullRows = (db: DatabaseSync) => [
+      db.prepare('SELECT summary, uid FROM tasks_release_changes WHERE task_id IS NULL').all(),
+      db.prepare('SELECT uid FROM tasks_pr_tasks WHERE task_id IS NULL').all(),
+    ];
+    // Each device keeps its own local row, without a uid; nothing overwrote it.
+    expect(nullRows(a.db)).toEqual([[{ summary: 'T5: gone', uid: null }], [{ uid: null }]]);
+    expect(nullRows(b.db)).toEqual([[{ summary: 'T6: gone', uid: null }], [{ uid: null }]]);
+    for (const r of [a, b]) {
+      // The rows with a task id still sync as one row, and nothing is pending.
+      expect(
+        r.db.prepare("SELECT count(*) AS n FROM tasks_release_changes WHERE task_id = 'T1'").get(),
+      ).toEqual({ n: 1 });
+      expect(count(r.db, 'tasks_pull_requests')).toBe(1);
+      expect(inboxCounts(r.db, STREAM)).not.toHaveProperty('pending');
+      expect(conflictsOf(r.db, 'guard')).toEqual([]);
+      // The local rows were never captured, so nothing waits on a missing uid.
+      expect(
+        r.db.prepare('SELECT count(*) AS n FROM _sync_capture WHERE uid IS NULL').get(),
+      ).toEqual({ n: 0 });
+    }
+  });
+
   it('a concurrent status change converges on the shipped status (release.status.absorbing)', async () => {
     const { a, b } = await twoDevices();
     const stream = fakeStream();

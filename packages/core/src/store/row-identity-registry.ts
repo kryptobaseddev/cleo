@@ -304,7 +304,8 @@ const COMMITS: RowIdentityRef['table'] = 'tasks_commits';
  *   ref, never an orphan. Soft ids (`task_id`, `epic_id`, `pr_id`, the
  *   `commit_sha` of PR and release commits) stay raw, as
  *   `tasks_brain_release_links` does: a target that never syncs must not hold
- *   the row pending.
+ *   the row pending. A NULL task id (a legacy orphaned link or change) keeps
+ *   its row local (`localWhenNull`): two of them would share one uid.
  *
  * `birthFacts` are FROZEN for recipe v2 like every other entry.
  */
@@ -360,6 +361,7 @@ function lifecycleReleaseGit(): RowIdentitySpec[] {
       kind: 'natural',
       key: ['release_id', 'task_id', 'change_type'],
       keyRefs: [{ column: 'release_id', table: RELEASES }],
+      localWhenNull: ['task_id'],
       localKey: 'id',
       task: 'T12914',
     },
@@ -397,6 +399,7 @@ function lifecycleReleaseGit(): RowIdentitySpec[] {
       kind: 'natural',
       key: ['pr_id', 'task_id', 'link_kind'],
       keyRefs: [{ column: 'pr_id', table: PULL_REQUESTS }],
+      localWhenNull: ['task_id'],
       task: 'T12914',
     },
     { table: COMMITS, kind: 'natural', key: ['sha'], task: 'T12914' },
@@ -412,6 +415,7 @@ function lifecycleReleaseGit(): RowIdentitySpec[] {
       kind: 'natural',
       key: ['task_id', 'commit_sha', 'link_kind'],
       keyRefs: [{ column: 'commit_sha', table: COMMITS }],
+      localWhenNull: ['task_id'],
       task: 'T12914',
     },
   ];

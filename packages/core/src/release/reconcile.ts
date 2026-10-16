@@ -1146,14 +1146,19 @@ function fetchPR(prNumber: number, projectRoot: string): ParsedPR | null {
   }
 }
 
-/** Parse `owner/repo` from an HTTPS or SSH GitHub remote URL. */
-function parseOwnerRepo(remote: string): { owner: string; repo: string } | null {
+/**
+ * Parse `owner/repo` from an HTTPS or SSH GitHub remote URL, lowercased:
+ * GitHub names are case-insensitive, and the repo URL built from them is part
+ * of a PR's row identity (T12914), so a remote spelled with another case must
+ * not make a second PR row.
+ */
+export function parseOwnerRepo(remote: string): { owner: string; repo: string } | null {
   const trimmed = remote.trim();
-  const https = trimmed.match(/^https?:\/\/github\.com\/([^/]+)\/([^/]+?)(?:\.git)?$/);
-  if (https) return { owner: https[1], repo: https[2] };
-  const ssh = trimmed.match(/^git@github\.com:([^/]+)\/([^/]+?)(?:\.git)?$/);
-  if (ssh) return { owner: ssh[1], repo: ssh[2] };
-  return null;
+  const m =
+    trimmed.match(/^https?:\/\/github\.com\/([^/]+)\/([^/]+?)(?:\.git)?$/i) ??
+    trimmed.match(/^git@github\.com:([^/]+)\/([^/]+?)(?:\.git)?$/i);
+  if (!m?.[1] || !m[2]) return null;
+  return { owner: m[1].toLowerCase(), repo: m[2].toLowerCase() };
 }
 
 // ─── Helpers — plan archive ──────────────────────────────────────────────────

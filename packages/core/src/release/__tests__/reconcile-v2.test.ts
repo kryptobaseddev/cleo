@@ -32,7 +32,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { releaseReconcileV2, sanitisePrShasForFk } from '../reconcile.js';
+import { parseOwnerRepo, releaseReconcileV2, sanitisePrShasForFk } from '../reconcile.js';
 
 // Explicit project roots belong to each synthetic fixture, not the setup pin.
 beforeEach(() => {
@@ -219,6 +219,15 @@ afterEach(async () => {
 
 // C3 regression: FK-safe PR sanitisation. Verifies pull_requests INSERT no
 // longer crashes when a PR refers to commits outside the reconcile range.
+describe('parseOwnerRepo (T12914)', () => {
+  it('lowercases owner and repo, so a remote spelled in another case keys the same PR', () => {
+    const want = { owner: 'kryptobaseddev', repo: 'cleo' };
+    expect(parseOwnerRepo('https://github.com/KryptoBasedDev/Cleo.git')).toEqual(want);
+    expect(parseOwnerRepo('git@GitHub.com:kryptobaseddev/CLEO.git')).toEqual(want);
+    expect(parseOwnerRepo('https://gitlab.com/a/b')).toBeNull();
+  });
+});
+
 describe('sanitisePrShasForFk — C3 FK safety (T9686)', () => {
   it('nulls headSha when not in inserted-commits set', () => {
     const inserted = new Set(['aaa111', 'bbb222']);

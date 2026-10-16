@@ -69,7 +69,7 @@ import {
   resolveCorePackageMigrationsFolder,
 } from './resolve-migrations-folder.js';
 import { listSqliteBackups } from './sqlite-backup.js';
-import { carryBareCommits, collapseTwinTables, twinCollapseFailureOf } from './twin-collapse.js';
+import { collapseTwinTables, twinCollapseFailureOf } from './twin-collapse.js';
 import { isWorktreeBuildSchemaError } from './worktree-build-guard.js';
 import {
   assertDbPathIsNotWorktreeResident,
@@ -817,10 +817,6 @@ function runMigrations(
 
   // Defensive column safety net
   ensureColumns(nativeDb, 'tasks', REQUIRED_TASK_COLUMNS, 'sqlite');
-
-  // T12914: tasks_commits syncs; the bare `commits` rows these migrations seed
-  // go to the twin, or every store would hold a legacy strand.
-  carryBareCommits(nativeDb);
 
   // T11181 — version-ssot columns (owner_version, doc_version)
   // These columns are defined in the attachments schema but may not exist
