@@ -92,11 +92,11 @@ export interface GoalAbsentCheck {
   paths?: string[];
 }
 
-/** The host checks that the run changed the given paths since its base commit. */
+/** The host checks that the given paths are unchanged since the run's base commit (a protected oracle). */
 export interface GoalDiffCheck {
   /** Discriminant. */
   kind: 'diff';
-  /** Paths (or globs) that must appear in the diff. */
+  /** Paths (or globs) that must not change. */
   paths: string[];
 }
 
