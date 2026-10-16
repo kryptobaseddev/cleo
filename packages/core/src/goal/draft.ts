@@ -92,15 +92,19 @@ function timeoutSeconds(gate: AcceptanceGate): number {
 /**
  * Whether goal/v1 can express the gate exactly. Output scanning (`test`
  * `expect: 'pass'`, a lint `errorPattern` under `expect: 'clean'`), `minCount`,
- * `stderrMatches`, regex flags, byte sizes, sha256, attachments and http have
- * no host check, so such a gate runs as itself through `cleo verify --run`.
+ * `stderrMatches`, regex flags or anchors (OCG adds `m`), byte sizes, sha256,
+ * attachments and http have no exact host check, so such a gate runs as itself
+ * through `cleo verify --run`.
  */
 function nativelyExpressible(gate: AcceptanceGate): boolean {
+  // OCG compiles regexes with the `m` flag, so an anchor would match any line
+  // where the gate runner (no flags) anchors the whole text: weaker.
+  const anchored = (re: string | undefined): boolean => re !== undefined && /[\^$]/.test(re);
   switch (gate.kind) {
     case 'test':
       return gate.expect === 'exit0' && !gate.minCount;
     case 'command':
-      return !gate.stderrMatches;
+      return !gate.stderrMatches && !anchored(gate.stdoutMatches);
     case 'lint':
       return gate.expect === 'noErrors' || !LINT_TOOL_DEFAULTS[gate.tool].errorPattern;
     case 'file':
@@ -112,7 +116,7 @@ function nativelyExpressible(gate: AcceptanceGate): boolean {
             a.type === 'absent' ||
             a.type === 'contains' ||
             a.type === 'nonEmpty' ||
-            (a.type === 'matches' && !a.flags),
+            (a.type === 'matches' && !a.flags && !anchored(a.regex)),
         )
       );
     default:
