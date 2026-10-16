@@ -278,6 +278,12 @@ function brainIntegerKeyed(): RowIdentitySpec[] {
  * carried them, and a journal checkpoint could not account for their rows on
  * any real store (T12999 staging, 2026-10-16).
  *
+ * - `tasks_audit_log`: both audits (task mutations, and since T13777 part 2
+ *   the dispatch audit, which the twin collapse drains out of the bare
+ *   `audit_log`), natural over the id (a UUID, or `log-<ms>-<hex>`) with no
+ *   refs: task and session ids stay raw. The uid is a pure function of the id,
+ *   so a drained row keeps it. The bare `audit_log` stays exempt as a drained
+ *   twin, as `token_usage` does.
  * - `tasks_token_usage`: a UUID id, so natural over it. Its session and task
  *   ids are soft (a session or task that never syncs must not hold the row
  *   pending) and stay raw. The bare `token_usage` drains into it (T13115) and
@@ -289,6 +295,7 @@ function brainIntegerKeyed(): RowIdentitySpec[] {
  */
 function commandLogs(): RowIdentitySpec[] {
   return [
+    { table: 'tasks_audit_log', kind: 'natural', key: ['id'], task: 'T13777' },
     { table: 'tasks_token_usage', kind: 'natural', key: ['id'], task: 'T13777' },
     {
       table: 'tasks_session_handoff_entries',
@@ -731,7 +738,6 @@ export const ROW_IDENTITY_EXEMPT: Readonly<
         'architecture_decisions',
         'tasks_architecture_decisions',
         'audit_log',
-        'tasks_audit_log',
         'experiments',
         'tasks_experiments',
         'manifest_entries',
@@ -844,8 +850,8 @@ export const ROW_IDENTITY_EXEMPT: Readonly<
  * (2 project; docs_wikilinks became derived and not syncing), and T13729
  * reclassified brain_embeddings derived in both scopes (owner decision
  * 2026-10-14: vectors are a local cache), closing the T12918 blob exemption,
- * and T13777 declared the command logs (2 project: token usage, handoff
- * entries; 1 global: the Nexus audit log) and reclassified the Nexus device
+ * and T13777 declared the command logs (3 project: the audit log, token
+ * usage, handoff entries; 1 global: the Nexus audit log) and reclassified the Nexus device
  * and location rows local-only (2 global)
  * ({@link rowIdentityExemptionSummary} prints the live numbers):
  *
@@ -859,13 +865,13 @@ export const ROW_IDENTITY_EXEMPT: Readonly<
  * | planned (nexus)      | T12916 | 0       | 5      |
  * | planned (skills)     | T12917 | 0       | 4      |
  * | planned (misc)       | T12920 | 11      | 0      |
- * | twin-collapse        | T12535 | 29      | 0      |
- * | total                |        | 64      | 9      |
+ * | twin-collapse        | T12535 | 28      | 0      |
+ * | total                |        | 63      | 9      |
  *
  * @task T12897
  */
 export const ROW_IDENTITY_EXEMPT_PINNED: Readonly<Record<TableScope, number>> = {
-  project: 64,
+  project: 63,
   global: 9,
 };
 
@@ -878,7 +884,7 @@ export const ROW_IDENTITY_EXEMPT_PINNED: Readonly<Record<TableScope, number>> = 
  * @task T12897
  */
 export const ROW_IDENTITY_EXEMPT_NAMES_SHA256: Readonly<Record<TableScope, string>> = {
-  project: 'b6453860c9624a041e9e9382eaacd3e07ebc6a42e383cfbc3eaf200b7da4586c',
+  project: 'de01913f5b4e0beac97c876333edc2338f5daa4c559e58443f92ef7821f2bece',
   global: '3f192953af29e9b698ea53d9ea3e13a03798587d1bef1f284a3495ac96d039d6',
 };
 

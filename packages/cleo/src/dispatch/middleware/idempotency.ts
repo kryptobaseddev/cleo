@@ -94,10 +94,10 @@ async function findPersistedResponse(
     const rows = db
       .prepare(
         `SELECT after_json AS afterJson, details_json AS detailsJson
-         FROM audit_log
+         FROM tasks_audit_log
          WHERE domain = ?
            AND operation = ?
-           AND idempotency_key = ?
+           AND dispatch_idempotency_key = ?
            AND success = 1
            AND project_hash = ?
          ORDER BY timestamp DESC

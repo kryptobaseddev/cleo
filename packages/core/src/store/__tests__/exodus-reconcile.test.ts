@@ -582,8 +582,8 @@ describe.each(
 
   it('lands history where the RUNTIME reads it — proven through the runtime accessors', async () => {
     // Legacy lifecycle + audit history. The runtime binds lifecycle_* to the
-    // prefixed tasks_lifecycle_* twins, but still reads audit_log BARE; a
-    // reconcile that followed the consolidated map would hide the audit rows.
+    // prefixed tasks_lifecycle_* twins, and since T13777 audit_log to
+    // tasks_audit_log (the bare table is drained into it).
     const legacy = new DatabaseSync(join(cleoDir, 'tasks.db'));
     legacy.exec(`
       CREATE TABLE lifecycle_pipelines (id TEXT PRIMARY KEY, task_id TEXT NOT NULL REFERENCES tasks(id),
@@ -605,7 +605,7 @@ describe.each(
     const result = await reconcileSupersededStores(join(root, 'project'));
     expect(result.outcome).toBe('reconciled');
     const target = (t: string) => result.before.find((c) => c.sourceTable === t)?.targetTable;
-    expect(target('audit_log')).toBe('audit_log');
+    expect(target('audit_log')).toBe('tasks_audit_log');
     expect(target('lifecycle_stages')).toBe('tasks_lifecycle_stages');
 
     // Read back through the real runtime paths, not sqlite counts.
@@ -799,8 +799,17 @@ describe.each(
     expect(scalar(liveDb, "SELECT COUNT(*) FROM pragma_table_info('audit_log')")).toBeGreaterThan(
       colsBefore,
     );
-    expect(scalar(liveDb, "SELECT action FROM audit_log WHERE id='A-live'")).toBe('task_created');
-    expect(scalar(liveDb, "SELECT action FROM audit_log WHERE id='A-legacy'")).toBe('task_updated');
+    // T13777: the runtime reads tasks_audit_log; a live bare row is drained into it at the next
+    // open, so it is in one of the two tables, never lost.
+    expect(
+      scalar(
+        liveDb,
+        "SELECT action FROM (SELECT id, action FROM audit_log UNION ALL SELECT id, action FROM tasks_audit_log) WHERE id='A-live'",
+      ),
+    ).toBe('task_created');
+    expect(scalar(liveDb, "SELECT action FROM tasks_audit_log WHERE id='A-legacy'")).toBe(
+      'task_updated',
+    );
   });
 
   it('never overwrites a row already in cleo.db', async () => {

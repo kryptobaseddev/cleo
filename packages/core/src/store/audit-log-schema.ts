@@ -11,14 +11,17 @@
  */
 
 import type { z } from 'zod';
-import { auditLog } from './tasks-schema.js';
+import { tasksAuditLog } from './schema/cleo-project/audit.js';
 import { createInsertSchema } from './zod-schema-factory.js';
 
 /**
- * Zod schema for validating audit log insert payloads.
+ * Zod schema for validating audit log insert payloads: rows of
+ * `tasks_audit_log`, which the dispatch audit writes since T13777 (the bare
+ * `audit_log` is drained into it).
  * @task T4848
+ * @task T13777
  */
-export const insertAuditLogSchema = createInsertSchema(auditLog, {
+export const insertAuditLogSchema = createInsertSchema(tasksAuditLog, {
   id: (s: z.ZodString) => s.uuid(),
   timestamp: (s: z.ZodString) =>
     s.datetime({ offset: true }).or(s.regex(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/)),
