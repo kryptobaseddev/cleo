@@ -147,6 +147,13 @@
  * retried at the next open; and a long backlog drains in bounded transactions.
  * See `TOKEN_USAGE`.
  *
+ * `playbook_runs` + `playbook_approvals` → `tasks_playbook_runs` +
+ * `tasks_playbook_approvals` (T12535) is a lossless CARRY then a freeze: this
+ * build reads and writes only the twins (which sync); every bare row the twins
+ * lack is copied (at the initial collapse a differing bare row wins and the
+ * twin's value is archived), nothing is deleted, and the bare tables get the
+ * same freeze triggers as the docs pair. See `PLAYBOOKS`.
+ *
  * ## Contract
  *
  * 1. **Snapshot first** (initial collapse only, only when the merge changes
@@ -1049,14 +1056,18 @@ const STICKY_TAGS: TwinPair = {
       deleted: counts.deleted + synced.deleted,
     };
   },
+  // @sync-invariant none:local-only fills this connection's TEMP read shadow; main is never written
   shadow(db, plan) {
+    // Every column of the twin (its uid too), so a reader of the shadow sees
+    // the twin's shape (T12535: the table syncs).
     db.exec(
-      'CREATE TEMP TABLE IF NOT EXISTS brain_sticky_tags (sticky_id TEXT NOT NULL, tag TEXT NOT NULL, PRIMARY KEY (sticky_id, tag))',
+      'CREATE TEMP TABLE IF NOT EXISTS brain_sticky_tags AS SELECT * FROM main.brain_sticky_tags WHERE 0',
+    );
+    db.exec(
+      'CREATE UNIQUE INDEX IF NOT EXISTS temp.brain_sticky_tags_shadow_key ON brain_sticky_tags (sticky_id, tag)',
     );
     db.exec('DELETE FROM temp.brain_sticky_tags');
-    db.exec(
-      'INSERT INTO temp.brain_sticky_tags (sticky_id, tag) SELECT sticky_id, tag FROM main.brain_sticky_tags',
-    );
+    db.exec('INSERT INTO temp.brain_sticky_tags SELECT * FROM main.brain_sticky_tags');
     applyStickyRows(db, 'temp', plan);
     syncStickyJunction(db, 'temp');
   },
@@ -1246,7 +1257,12 @@ export const DOCS_FROZEN_BY_KEY = 'twin_collapse_frozen_by:attachments';
  * @task T12535
  */
 export function docsFrozenVersion(db: DatabaseSync): string | null {
-  const recorded = readKv(db, 'tasks_schema_meta', DOCS_FROZEN_BY_KEY);
+  return frozenVersion(db, DOCS_FROZEN_BY_KEY);
+}
+
+/** The version a freeze recorded under `byKey` names ({@link docsFrozenVersion}). */
+function frozenVersion(db: DatabaseSync, byKey: string): string | null {
+  const recorded = readKv(db, 'tasks_schema_meta', byKey);
   if (recorded !== undefined) return recorded.replace(/[^0-9A-Za-z.+-]/g, '');
   return releaseBuildVersion();
 }
@@ -1296,8 +1312,9 @@ export const DOCS_FROZEN_FORBIDDEN: readonly string[] = [
 ];
 
 /**
- * BEFORE INSERT/UPDATE/DELETE triggers on the bare docs tables that abort
- * every write with {@link docsFrozenMessage} (option (a), owner decision
+ * BEFORE INSERT/UPDATE/DELETE triggers on a pair's frozen bare tables (the
+ * docs tables, the playbook tables) that abort every write with the pair's
+ * message, e.g. {@link docsFrozenMessage} (option (a), owner decision
  * D11160). SQLite enforces them whatever build writes, so the 2026.9.20 build
  * can no longer write rows this build treats as frozen: no duplicate content
  * or slug, no split ref counts, no stale-read deletes, no ADR number reuse.
@@ -1308,28 +1325,46 @@ export const DOCS_FROZEN_FORBIDDEN: readonly string[] = [
  * the triggers go with a renamed or dropped table and are re-installed at the
  * next open, see {@link repairGuards}).
  */
-function ensureDocsFreeze(db: DatabaseSync): void {
-  if (readKv(db, 'tasks_schema_meta', DOCS_FROZEN_BY_KEY) === undefined) {
+function ensureFreeze(db: DatabaseSync, spec: FreezeSpec): void {
+  if (readKv(db, 'tasks_schema_meta', spec.byKey) === undefined) {
     const version = releaseBuildVersion();
-    if (version !== null) writeKv(db, 'tasks_schema_meta', DOCS_FROZEN_BY_KEY, version);
+    if (version !== null) writeKv(db, 'tasks_schema_meta', spec.byKey, version);
   }
-  for (const table of DOCS_BARE) {
+  for (const table of spec.tables) {
     for (const op of SHADOW_WRITE_OPS) {
       const name = freezeTrigger(table, op);
       // A trigger with another text (an older message or version) is replaced.
-      if (freezeSql(db, name) !== undefined && !freezeUpToDate(db, table, op))
+      if (freezeSql(db, name) !== undefined && !freezeUpToDate(db, spec, table, op))
         db.exec(`DROP TRIGGER main.${name}`);
       db.exec(
         `CREATE TRIGGER IF NOT EXISTS main.${name} BEFORE ${op} ON ${table} ` +
-          `BEGIN ${freezeBody(db)} END`,
+          `BEGIN ${freezeBody(db, spec)} END`,
       );
     }
   }
 }
 
+/** Frozen bare tables, the key recording the freezing release, and the abort message. */
+interface FreezeSpec {
+  readonly tables: readonly string[];
+  readonly byKey: string;
+  message(version: string | null): string;
+}
+
+const DOCS_FREEZE: FreezeSpec = {
+  tables: DOCS_BARE,
+  byKey: DOCS_FROZEN_BY_KEY,
+  message: docsFrozenMessage,
+};
+
 /** The freeze trigger's body (it carries the message). */
-const freezeBody = (db: DatabaseSync): string =>
-  `SELECT RAISE(ABORT, '${docsFrozenMessage(docsFrozenVersion(db)).replace(/'/g, "''")}');`;
+const freezeBody = (db: DatabaseSync, spec: FreezeSpec): string =>
+  `SELECT RAISE(ABORT, '${spec.message(frozenVersion(db, spec.byKey)).replace(/'/g, "''")}');`;
+
+/** Whether every freeze trigger of `spec` exists with its current text. */
+function freezeIntact(db: DatabaseSync, spec: FreezeSpec): boolean {
+  return spec.tables.every((t) => SHADOW_WRITE_OPS.every((op) => freezeUpToDate(db, spec, t, op)));
+}
 
 /** The stored SQL of a trigger, or `undefined` when it does not exist. */
 function freezeSql(db: DatabaseSync, name: string): string | undefined {
@@ -1341,9 +1376,9 @@ function freezeSql(db: DatabaseSync, name: string): string | undefined {
 }
 
 /** Whether a freeze trigger exists with the current table, event and message. */
-function freezeUpToDate(db: DatabaseSync, table: string, op: string): boolean {
+function freezeUpToDate(db: DatabaseSync, spec: FreezeSpec, table: string, op: string): boolean {
   const sql = freezeSql(db, freezeTrigger(table, op));
-  return sql?.includes(`BEFORE ${op} ON ${table} `) === true && sql.includes(freezeBody(db));
+  return sql?.includes(`BEFORE ${op} ON ${table} `) === true && sql.includes(freezeBody(db, spec));
 }
 
 /** Whether every freeze and change trigger is in place. */
@@ -1357,12 +1392,12 @@ function docsGuardsIntact(db: DatabaseSync): boolean {
       .get(...names) as { n: number }
   ).n;
   if (present !== names.length) return false;
-  return DOCS_BARE.every((t) => SHADOW_WRITE_OPS.every((op) => freezeUpToDate(db, t, op)));
+  return freezeIntact(db, DOCS_FREEZE);
 }
 
 /** Install the freeze and change triggers (idempotent). */
 function ensureDocsGuards(db: DatabaseSync): void {
-  ensureDocsFreeze(db);
+  ensureFreeze(db, DOCS_FREEZE);
   ensureDocsTracking(db);
 }
 
@@ -2117,8 +2152,207 @@ const TOKEN_USAGE: TwinPair = {
   },
 };
 
+// ── playbook_runs + playbook_approvals ───────────────────────────────────────
+
+/** The bare playbook tables, each with its twin and key column. */
+const PLAYBOOK_TABLES = [
+  { bare: 'playbook_runs', twin: 'tasks_playbook_runs', key: 'run_id' },
+  { bare: 'playbook_approvals', twin: 'tasks_playbook_approvals', key: 'approval_id' },
+] as const;
+
+/** Key recording the version of the build that first froze the bare playbook tables. */
+export const PLAYBOOKS_FROZEN_BY_KEY = 'twin_collapse_frozen_by:playbook_runs';
+
+/** Twin rows the initial collapse replaced by their bare rows, as `<bare>\t<id>` → twin JSON. */
+export const PLAYBOOKS_ARCHIVE_KEY = 'twin_collapse_archive_rows:playbook_runs';
+
+/**
+ * The message an older build's write to a frozen bare playbook table aborts
+ * with. Same rules as {@link docsFrozenMessage}: it names the upgrade and
+ * none of the {@link DOCS_FROZEN_FORBIDDEN} phrases.
+ *
+ * @param version - The release that froze the store, or `null`.
+ * @returns The abort message.
+ * @task T12535
+ */
+export function playbooksFrozenMessage(version: string | null): string {
+  const needs = version === null ? 'the latest cleo' : `cleo ${version} or newer`;
+  return (
+    `CLEO: playbook runs moved to tasks_playbook_runs (T12535); this project needs ${needs} ` +
+    'to run playbooks and record approvals. Run: npm i -g @cleocode/cleo@latest'
+  );
+}
+
+const PLAYBOOKS_FREEZE: FreezeSpec = {
+  tables: PLAYBOOK_TABLES.map((t) => t.bare),
+  byKey: PLAYBOOKS_FROZEN_BY_KEY,
+  message: playbooksFrozenMessage,
+};
+
+/** Rows of both sides of one playbook table, by key, over the columns both hold. */
+function playbookSides(
+  db: DatabaseSync,
+  t: (typeof PLAYBOOK_TABLES)[number],
+): { cols: string[]; bare: Map<string, CarriedRow>; twin: Map<string, CarriedRow> } | null {
+  const cols = sharedColumns(db, t.bare, t.twin);
+  if (!cols.includes(t.key)) return null;
+  return {
+    cols,
+    bare: carriedRowsOf(db, 'main', t.bare, cols, [t.key]),
+    twin: carriedRowsOf(db, 'main', t.twin, cols, [t.key]),
+  };
+}
+
+function playbookHashes(db: DatabaseSync): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const t of PLAYBOOK_TABLES) {
+    const cols = sharedColumns(db, t.bare, t.twin);
+    if (!cols.includes(t.key)) continue;
+    for (const [id, row] of carriedRowsOf(db, 'main', t.bare, cols, [t.key]))
+      out[`${t.bare}\t${id}`] = sha(row.json);
+  }
+  return out;
+}
+
+/** Row count and highest rowid of both bare tables: moves on any write to them. */
+function playbookChangeSeq(db: DatabaseSync): string | undefined {
+  try {
+    return PLAYBOOK_TABLES.map((t) => {
+      const r = db.prepare(`SELECT count(*) AS n, max(rowid) AS m FROM main.${t.bare}`).get() as {
+        n: number;
+        m: number | null;
+      };
+      return `${r.n}:${r.m ?? 0}`;
+    }).join('/');
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * Plan the playbook carry. A bare row the twin lacks is carried; an identical
+ * one is left alone. A row both hold with different values: at the initial
+ * collapse the bare row wins (the runtime wrote only the bare tables until
+ * this build, so the twin holds an older exodus copy), the twin's value
+ * archived under {@link PLAYBOOKS_ARCHIVE_KEY}; later (the freeze was missing
+ * while an older build wrote) the twin wins, listed as a conflict.
+ */
+function planPlaybooks(db: DatabaseSync, state: CollapseState | undefined): Plan {
+  const plan = emptyPlan();
+  for (const t of PLAYBOOK_TABLES) {
+    const sides = playbookSides(db, t);
+    if (sides === null) continue;
+    for (const [id, row] of sides.bare) {
+      const twin = sides.twin.get(id)?.json;
+      if (twin === row.json) continue;
+      const key = `${t.bare}\t${id}`;
+      if (twin === undefined) plan.set.set(key, row.json);
+      else if (state === undefined) {
+        plan.set.set(key, row.json);
+        plan.archived.push(key);
+      } else plan.conflicts.push(`${key}: kept ${t.twin} (both builds changed it)`);
+    }
+  }
+  return plan;
+}
+
+/**
+ * Upsert each planned row into its twin in its own savepoint, re-read before
+ * it counts. A row the twin refuses (a CHECK, or the UNIQUE token) is rolled
+ * back, listed as a conflict and stays in the bare table, where the strand
+ * check (`store/sync/flags.ts`) still sees it.
+ */
+function applyPlaybooks(
+  db: DatabaseSync,
+  plan: Plan,
+): { inserted: number; replaced: number; deleted: number } {
+  let inserted = 0;
+  let replaced = 0;
+  const archive = parseJson(readKv(db, 'tasks_schema_meta', PLAYBOOKS_ARCHIVE_KEY) ?? '{}');
+  const archived: Record<string, string> =
+    archive !== null && typeof archive === 'object' && !Array.isArray(archive)
+      ? (archive as Record<string, string>)
+      : {};
+  for (const t of PLAYBOOK_TABLES) {
+    const cols = sharedColumns(db, t.bare, t.twin);
+    if (!cols.includes(t.key)) continue;
+    const list = cols.map(quoteIdent).join(', ');
+    const upsert = db.prepare(
+      `INSERT INTO main.${t.twin} (${list}) VALUES (${cols.map(() => '?').join(', ')}) ` +
+        `ON CONFLICT(${quoteIdent(t.key)}) DO UPDATE SET ` +
+        cols.map((c) => `${quoteIdent(c)} = excluded.${quoteIdent(c)}`).join(', '),
+    );
+    const twinRow = db.prepare(`SELECT ${list} FROM main.${t.twin} WHERE ${quoteIdent(t.key)} = ?`);
+    const jsonOf = (id: string): string | undefined => {
+      const r = twinRow.get(id) as Record<string, unknown> | undefined;
+      return r === undefined ? undefined : rowJson(r, cols);
+    };
+    for (const [key, json] of plan.set) {
+      const [bare, id] = key.split('\t') as [string, string];
+      if (bare !== t.bare) continue;
+      const before = jsonOf(id);
+      db.exec('SAVEPOINT playbook_row');
+      try {
+        upsert.run(...(JSON.parse(json) as Array<string | number | null>));
+        if (jsonOf(id) !== json)
+          // @sync-invariant none:local-only re-reads a row this device's own collapse just wrote; the savepoint rolls it back and the row stays in the bare table
+          throw new Error('the stored row differs');
+        db.exec('RELEASE playbook_row');
+      } catch (error) {
+        db.exec('ROLLBACK TO playbook_row');
+        db.exec('RELEASE playbook_row');
+        plan.conflicts.push(
+          `${key}: not carried (${error instanceof Error ? error.message : error})`,
+        );
+        plan.skipped++;
+        continue;
+      }
+      if (before === undefined) inserted++;
+      else {
+        replaced++;
+        archived[key] = before;
+      }
+    }
+  }
+  if (replaced > 0)
+    writeKv(db, 'tasks_schema_meta', PLAYBOOKS_ARCHIVE_KEY, JSON.stringify(archived));
+  ensureFreeze(db, PLAYBOOKS_FREEZE);
+  return { inserted, replaced, deleted: 0 };
+}
+
+/**
+ * `playbook_runs` + `playbook_approvals` → `tasks_playbook_runs` +
+ * `tasks_playbook_approvals` (T12535), one pair. This build reads and writes
+ * only the twins (`packages/playbooks`), which sync; the bare tables are
+ * carried into them and then FROZEN like the docs pair (option (a), D11160),
+ * so an older build cannot start a run or decide an approval the twins would
+ * never see: it gets {@link playbooksFrozenMessage}.
+ *
+ * - Lossless: no bare row is deleted, and a twin row the initial collapse
+ *   replaces is archived, so no snapshot is taken; a failed merge degrades
+ *   nothing and is retried at the next open.
+ * - The carry is idempotent: every bare key ends in the twin, so the strand
+ *   check passes without accounting; a row the twin refuses stays a strand.
+ * - An unchanged pair costs one `count`/`max(rowid)` read per bare table.
+ */
+const PLAYBOOKS: TwinPair = {
+  table: 'playbook_runs',
+  twin: 'tasks_playbook_runs',
+  kvTable: 'tasks_schema_meta',
+  tables: [...PLAYBOOK_TABLES.flatMap((t) => [t.bare, t.twin]), 'tasks_schema_meta'],
+  lossless: true,
+  bareHashes: playbookHashes,
+  // The twins are live and written by this build; only the bare side is compared.
+  twinHashes: () => ({}),
+  changeSeq: playbookChangeSeq,
+  guardsIntact: (db) => freezeIntact(db, PLAYBOOKS_FREEZE),
+  installGuards: (db) => ensureFreeze(db, PLAYBOOKS_FREEZE),
+  plan: planPlaybooks,
+  apply: applyPlaybooks,
+};
+
 /** The pairs this build collapses, in order. */
-const PAIRS: readonly TwinPair[] = [SCHEMA_META, STICKY_TAGS, DOCS, TOKEN_USAGE];
+const PAIRS: readonly TwinPair[] = [SCHEMA_META, STICKY_TAGS, DOCS, TOKEN_USAGE, PLAYBOOKS];
 
 // ── failure, read-only-for-users mode ────────────────────────────────────────
 
@@ -2338,10 +2572,12 @@ function collapsePair(
       throw new Error(`bare ${pair.table} changed after the snapshot decision; retry the open`);
     // §2.3a rule 3 (T12775): a merge that wrote a synced twin marks its touch
     // set suspect, so the sealer's repair diff covers what capture may miss.
+    // Every table of the pair: a pair may write more than one synced twin
+    // (playbooks); only sync-set tables are ever marked.
     const { result: counts } = withSuspectAccounting(
       db,
       hasMainTable(db, 'tasks_tasks') ? 'project' : 'global',
-      [pair.twin],
+      pair.tables,
       () => pair.apply(db, plan),
     );
     const now = new Date().toISOString();

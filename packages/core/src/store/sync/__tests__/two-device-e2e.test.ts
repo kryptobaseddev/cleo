@@ -22,7 +22,7 @@
  * @task T13371
  */
 
-import { createHash } from 'node:crypto';
+import { createHash, randomBytes } from 'node:crypto';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
@@ -35,6 +35,11 @@ import { deriveKey, generateEd25519, hmacSha256, randomKey } from '../../../clou
 import { pullDocBytes, pushDocBytes } from '../../../cloud/doc-bytes.js';
 import { Http } from '../../../cloud/http.js';
 import { Journal } from '../../../cloud/journal.js';
+import {
+  prepareSecretOpens,
+  prepareSecretSeals,
+  secretValuesKey,
+} from '../../../cloud/secret-seal.js';
 import { DocsReadModel } from '../../../docs/docs-read-model.js';
 import {
   _resetDualScopeDbCache,
@@ -69,7 +74,7 @@ import { pushStream } from '../push.js';
 import { planRepair } from '../repair.js';
 import { activeReplica, ensureProjectReplica } from '../replica.js';
 import { ReplicaRegistry } from '../replica-registry.js';
-import { rowChash, sealPending } from '../sealer.js';
+import { rowChash, type SecretSeals, sealPending } from '../sealer.js';
 import { firstBadTxnSignature, signTxn } from '../txn-signing.js';
 
 const SYNC_SCHEMA = resolve(import.meta.dirname, '../../../../migrations/sync-journal');
@@ -191,7 +196,7 @@ function fakeStream() {
 }
 type Stream = ReturnType<typeof fakeStream>;
 
-async function push(r: Replica, stream: Stream) {
+async function push(r: Replica, stream: Stream, secrets?: SecretSeals) {
   const replica = replicaOf(r);
   const out = await pushStream(r.db, {
     scope: 'project',
@@ -209,12 +214,13 @@ async function push(r: Replica, stream: Stream) {
     now: () => ++clock,
     env: {},
     allowUnreleased: true,
+    ...(secrets ? { secrets } : {}),
   });
   expect(out.refused).toBeNull();
   return out;
 }
 
-async function pull(r: Replica, stream: Stream) {
+async function pull(r: Replica, stream: Stream, openSecrets?: PullStreamOptions['openSecrets']) {
   const replica = replicaOf(r);
   const opts: PullStreamOptions = {
     scope: 'project',
@@ -235,6 +241,7 @@ async function pull(r: Replica, stream: Stream) {
         allowUnreleased: true,
       });
     },
+    ...(openSecrets ? { openSecrets } : {}),
   };
   const out = await pullStream(r.db, opts);
   expect(out.refused).toBeNull();
@@ -457,6 +464,62 @@ describe('natural-key brain rows replay across devices (T12895)', () => {
     expect(
       b.db.prepare("SELECT weight FROM brain_page_edges WHERE from_id = 'task:T1'").get(),
     ).toEqual({ weight: 0.25 });
+  });
+});
+
+describe('project stickies and playbook approvals reach a second device (T12535)', () => {
+  it('a sticky with its tag and a playbook run with its approval travel, and so do their later edits', async () => {
+    const TABLES = [
+      'brain_sticky_notes',
+      'brain_sticky_tags',
+      'tasks_playbook_runs',
+      'tasks_playbook_approvals',
+    ];
+    const pick = (sums: Record<string, string>) =>
+      Object.fromEntries(TABLES.map((t) => [t, sums[t] ?? null]));
+    const { a, b } = await twoDevices();
+    const stream = fakeStream();
+    write(
+      a.db,
+      `INSERT INTO brain_sticky_notes (id, content, tags_json, created_at, updated_at)
+         VALUES ('SN-001', 'gate sticky', '["typed-rule"]', '2026-10-14 17:41:24', '2026-10-14 17:41:24');
+       INSERT INTO brain_sticky_tags (sticky_id, tag) VALUES ('SN-001', 'typed-rule');
+       INSERT INTO tasks_playbook_runs (run_id, playbook_name, playbook_hash, started_at)
+         VALUES ('run-1', 'rcasd', 'hash-1', '2026-10-14 17:42:00');
+       INSERT INTO tasks_playbook_approvals (approval_id, run_id, node_id, token, requested_at)
+         VALUES ('appr-1', 'run-1', 'gate', 'tok-1', '2026-10-14 17:42:01');`,
+    );
+    // The resume token travels sealed (phase A, as `cloud sync` runs it).
+    const secretKey = secretValuesKey(randomBytes(32));
+    await push(a, stream, await prepareSecretSeals(a.db, 'project', secretKey));
+    await pull(b, stream, () => prepareSecretOpens(b.db, 'project', STREAM, secretKey));
+    expect(
+      b.db.prepare("SELECT token FROM tasks_playbook_approvals WHERE approval_id = 'appr-1'").get(),
+    ).toEqual({ token: 'tok-1' });
+    for (const t of TABLES)
+      expect(b.db.prepare(`SELECT count(*) AS n FROM "${t}"`).get(), t).toEqual({ n: 1 });
+    expect(pick(contentChecksums(b.db))).toEqual(pick(contentChecksums(a.db)));
+
+    write(
+      a.db,
+      `UPDATE brain_sticky_notes SET status = 'archived' WHERE id = 'SN-001';
+       UPDATE tasks_playbook_approvals SET status = 'approved', approver = 'alice',
+         approved_at = '2026-10-14 17:43:00' WHERE approval_id = 'appr-1';`,
+    );
+    await push(a, stream);
+    await pull(b, stream);
+    expect(b.db.prepare("SELECT status FROM brain_sticky_notes WHERE id = 'SN-001'").get()).toEqual(
+      { status: 'archived' },
+    );
+    expect(
+      b.db
+        .prepare(
+          "SELECT status, approver FROM tasks_playbook_approvals WHERE approval_id = 'appr-1'",
+        )
+        .get(),
+    ).toEqual({ status: 'approved', approver: 'alice' });
+    expect(contentChecksums(b.db)).toEqual(contentChecksums(a.db));
+    expect(conflictKeys(b.db)).toEqual([]);
   });
 });
 

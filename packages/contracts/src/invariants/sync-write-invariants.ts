@@ -490,7 +490,6 @@ export const SYNC_WRITE_INVARIANTS: readonly SyncWriteInvariant[] = Object.freez
       ['status'],
       ['PB-1', 'PB-4', 'PB-7', 'P33'],
       'an approval goes pending→decided once',
-      ['tasks_playbook_approvals', 'playbook_approvals'],
     ),
   ),
   implemented(

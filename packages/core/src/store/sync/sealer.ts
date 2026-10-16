@@ -221,6 +221,9 @@ export const SEALED_SECRET_TABLES: ReadonlySet<string> = new Set([
   'service_connections',
   'service_configs',
   'agent_service_grants',
+  // T12535: a playbook approval's resume token is NOT NULL, so a row whose
+  // token were dropped could never be written on another device.
+  'tasks_playbook_approvals',
 ]);
 
 /** One secret column value prepared by phase A (§2.5). */

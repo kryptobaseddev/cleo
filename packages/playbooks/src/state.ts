@@ -1,5 +1,5 @@
 /**
- * State layer for playbook runtime — CRUD against playbook_runs + playbook_approvals.
+ * State layer for playbook runtime — CRUD against tasks_playbook_runs + tasks_playbook_approvals.
  * Uses node:sqlite DatabaseSync for consistency with rest of CLEO.
  *
  * All JSON-shaped columns (`bindings`, `iteration_counts`) are serialized to
@@ -111,7 +111,7 @@ function parseJsonColumn<T>(raw: string, column: string, runId: string): T {
 }
 
 /**
- * Maps a snake_case `playbook_runs` row to the contract-shaped
+ * Maps a snake_case `tasks_playbook_runs` row to the contract-shaped
  * {@link PlaybookRun}. Performs strict JSON parsing and validates the status
  * column against the enum.
  */
@@ -140,7 +140,7 @@ function rowToPlaybookRun(row: PlaybookRunRow): PlaybookRun {
 }
 
 /**
- * Maps a snake_case `playbook_approvals` row to the contract-shaped
+ * Maps a snake_case `tasks_playbook_approvals` row to the contract-shaped
  * {@link PlaybookApproval}. Converts the integer `auto_passed` column to a
  * boolean at the boundary.
  */
@@ -174,7 +174,7 @@ export function createPlaybookRun(db: DatabaseSync, input: CreatePlaybookRunInpu
   const bindingsJson = JSON.stringify(input.initialBindings ?? {});
 
   const insert = db.prepare(
-    `INSERT INTO playbook_runs (
+    `INSERT INTO tasks_playbook_runs (
        run_id, playbook_name, playbook_hash, bindings, status,
        iteration_counts, epic_id, session_id
      ) VALUES (?, ?, ?, ?, 'running', '{}', ?, ?)`,
@@ -188,7 +188,7 @@ export function createPlaybookRun(db: DatabaseSync, input: CreatePlaybookRunInpu
     input.sessionId ?? null,
   );
 
-  const row = db.prepare('SELECT * FROM playbook_runs WHERE run_id = ?').get(runId) as
+  const row = db.prepare('SELECT * FROM tasks_playbook_runs WHERE run_id = ?').get(runId) as
     | PlaybookRunRow
     | undefined;
 
@@ -203,7 +203,7 @@ export function createPlaybookRun(db: DatabaseSync, input: CreatePlaybookRunInpu
  * does not exist. Never throws on missing rows.
  */
 export function getPlaybookRun(db: DatabaseSync, runId: string): PlaybookRun | null {
-  const row = db.prepare('SELECT * FROM playbook_runs WHERE run_id = ?').get(runId) as
+  const row = db.prepare('SELECT * FROM tasks_playbook_runs WHERE run_id = ?').get(runId) as
     | PlaybookRunRow
     | undefined;
   return row ? rowToPlaybookRun(row) : null;
@@ -273,7 +273,7 @@ export function updatePlaybookRun(
 
   db.exec('BEGIN');
   try {
-    const stmt = db.prepare(`UPDATE playbook_runs SET ${sets.join(', ')} WHERE run_id = ?`);
+    const stmt = db.prepare(`UPDATE tasks_playbook_runs SET ${sets.join(', ')} WHERE run_id = ?`);
     values.push(runId);
     const result = stmt.run(...values);
     if (result.changes === 0) {
@@ -285,7 +285,7 @@ export function updatePlaybookRun(
     throw err;
   }
 
-  const row = db.prepare('SELECT * FROM playbook_runs WHERE run_id = ?').get(runId) as
+  const row = db.prepare('SELECT * FROM tasks_playbook_runs WHERE run_id = ?').get(runId) as
     | PlaybookRunRow
     | undefined;
   if (!row) {
@@ -316,19 +316,28 @@ export function listPlaybookRuns(
   const limitClause = typeof opts.limit === 'number' ? 'LIMIT ?' : '';
   if (limitClause) values.push(opts.limit ?? 0);
 
-  const sql = `SELECT * FROM playbook_runs ${where} ORDER BY started_at DESC ${limitClause}`;
+  const sql = `SELECT * FROM tasks_playbook_runs ${where} ORDER BY started_at DESC ${limitClause}`;
   const rows = db.prepare(sql).all(...values) as unknown as PlaybookRunRow[];
   return rows.map(rowToPlaybookRun);
 }
 
 /**
- * Deletes a playbook run by primary key. Returns `true` if a row was removed.
- * CASCADE wipes all associated approvals via the foreign-key constraint on
- * `playbook_approvals.run_id`.
+ * Deletes a playbook run by primary key, with its approvals, in one
+ * transaction. Returns `true` if the run was removed. `tasks_playbook_approvals`
+ * has no foreign key to the run (the bare twin cascaded), so the approvals are
+ * deleted first, explicitly: each delete is then a captured op of its own.
  */
 export function deletePlaybookRun(db: DatabaseSync, runId: string): boolean {
-  const result = db.prepare('DELETE FROM playbook_runs WHERE run_id = ?').run(runId);
-  return Number(result.changes) > 0;
+  db.exec('BEGIN');
+  try {
+    db.prepare('DELETE FROM tasks_playbook_approvals WHERE run_id = ?').run(runId);
+    const result = db.prepare('DELETE FROM tasks_playbook_runs WHERE run_id = ?').run(runId);
+    db.exec('COMMIT');
+    return Number(result.changes) > 0;
+  } catch (err) {
+    db.exec('ROLLBACK');
+    throw err;
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -348,13 +357,13 @@ export function createPlaybookApproval(
   const autoPassed = input.autoPassed ? 1 : 0;
 
   db.prepare(
-    `INSERT INTO playbook_approvals (
+    `INSERT INTO tasks_playbook_approvals (
        approval_id, run_id, node_id, token, status, auto_passed
      ) VALUES (?, ?, ?, ?, 'pending', ?)`,
   ).run(approvalId, input.runId, input.nodeId, input.token, autoPassed);
 
   const row = db
-    .prepare('SELECT * FROM playbook_approvals WHERE approval_id = ?')
+    .prepare('SELECT * FROM tasks_playbook_approvals WHERE approval_id = ?')
     .get(approvalId) as PlaybookApprovalRow | undefined;
   if (!row) {
     throw new Error(`playbook state: failed to read back approval ${approvalId} after insert`);
@@ -370,7 +379,7 @@ export function getPlaybookApprovalByToken(
   db: DatabaseSync,
   token: string,
 ): PlaybookApproval | null {
-  const row = db.prepare('SELECT * FROM playbook_approvals WHERE token = ?').get(token) as
+  const row = db.prepare('SELECT * FROM tasks_playbook_approvals WHERE token = ?').get(token) as
     | PlaybookApprovalRow
     | undefined;
   return row ? rowToPlaybookApproval(row) : null;
@@ -418,7 +427,7 @@ export function updatePlaybookApproval(
     // same guard transitionGate applies): a peer would refuse the move, so
     // the origin refuses it too (T12944).
     const current = db
-      .prepare('SELECT status FROM playbook_approvals WHERE approval_id = ?')
+      .prepare('SELECT status FROM tasks_playbook_approvals WHERE approval_id = ?')
       .get(approvalId) as { status: string } | undefined;
     if (current && current.status !== 'pending' && current.status !== patch.status) {
       // @sync-invariant playbook.approval.once a decided gate keeps its decision locally, as every peer's merge keeps it
@@ -436,7 +445,7 @@ export function updatePlaybookApproval(
 
   if (sets.length === 0) {
     const row = db
-      .prepare('SELECT * FROM playbook_approvals WHERE approval_id = ?')
+      .prepare('SELECT * FROM tasks_playbook_approvals WHERE approval_id = ?')
       .get(approvalId) as PlaybookApprovalRow | undefined;
     if (!row) {
       throw new Error(`playbook state: approval ${approvalId} not found for update`);
@@ -447,7 +456,7 @@ export function updatePlaybookApproval(
   db.exec('BEGIN');
   try {
     const stmt = db.prepare(
-      `UPDATE playbook_approvals SET ${sets.join(', ')} WHERE approval_id = ?`,
+      `UPDATE tasks_playbook_approvals SET ${sets.join(', ')} WHERE approval_id = ?`,
     );
     values.push(approvalId);
     const result = stmt.run(...values);
@@ -461,7 +470,7 @@ export function updatePlaybookApproval(
   }
 
   const row = db
-    .prepare('SELECT * FROM playbook_approvals WHERE approval_id = ?')
+    .prepare('SELECT * FROM tasks_playbook_approvals WHERE approval_id = ?')
     .get(approvalId) as PlaybookApprovalRow | undefined;
   if (!row) {
     throw new Error(`playbook state: approval ${approvalId} disappeared after update`);
@@ -476,7 +485,7 @@ export function updatePlaybookApproval(
 export function listPlaybookApprovals(db: DatabaseSync, runId: string): PlaybookApproval[] {
   const rows = db
     .prepare(
-      'SELECT * FROM playbook_approvals WHERE run_id = ? ORDER BY requested_at ASC, approval_id ASC',
+      'SELECT * FROM tasks_playbook_approvals WHERE run_id = ? ORDER BY requested_at ASC, approval_id ASC',
     )
     .all(runId) as unknown as PlaybookApprovalRow[];
   return rows.map(rowToPlaybookApproval);

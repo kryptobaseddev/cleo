@@ -173,11 +173,11 @@
       "nexus_project_registry": 1
     },
     "packages/playbooks/src/approval.ts": {
-      "playbook_approvals": 2
+      "tasks_playbook_approvals": 2
     },
     "packages/playbooks/src/state.ts": {
-      "playbook_approvals": 2,
-      "playbook_runs": 3
+      "tasks_playbook_approvals": 3,
+      "tasks_playbook_runs": 3
     },
     "packages/studio/src/routes/api/memory/decision-store/+server.ts": {
       "brain_decisions": 2
