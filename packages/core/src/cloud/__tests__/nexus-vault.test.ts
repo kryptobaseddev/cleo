@@ -1210,7 +1210,7 @@ class FakeNexus {
           verdict: {
             ok: false,
             code: 'E_MANIFEST_ACCOUNTING',
-            findings: [{ reason: 'authoritative-omitted', table: 'tasks_audit_log' }],
+            findings: [{ reason: 'authoritative-omitted', table: 'tasks_task_work_history' }],
           },
         });
       }
@@ -6443,12 +6443,15 @@ describe('sync enable push: the genesis checkpoint (T12343 S4-1b)', () => {
     it('T13777: a portable table the journal does not carry is named snapshot-authoritative, only to a server that takes the list', async () => {
       const { a, aDb } = await journalDevices(false);
       const s = fake.stream(STREAM);
-      // A command's audit row: portable, still exempt from row identity, never journaled.
+      // A session's task-work row: portable, still exempt from row identity, never journaled.
       await on(a, async () => {
         const db = await storeOf(aDb);
         db.exec(insertTask('T3', 'from A'));
         db.exec(
-          "INSERT INTO tasks_audit_log (id, action, task_id) VALUES ('log-t13777-1', 'task_updated', 'T3')",
+          "INSERT INTO tasks_sessions (id, name, started_at) VALUES ('ses_t13777', 'work', '2026-10-16 09:00:00')",
+        );
+        db.exec(
+          "INSERT INTO tasks_task_work_history (session_id, task_id, set_at) VALUES ('ses_t13777', 'T3', '2026-10-16 09:00:01')",
         );
       });
       // A server without the list: refused, naming the cause, nothing written.
@@ -6456,21 +6459,21 @@ describe('sync enable push: the genesis checkpoint (T12343 S4-1b)', () => {
       const old = await failure(on(a, () => pushNexusVault(vopts(a, { allowUnreleased: true }))));
       expect(old.code).toBe('E_NEXUS_VAULT_REFUSED');
       expect(old.message).toContain('manifest.snapshot-authoritative');
-      expect(old.message).toContain('tasks_audit_log');
+      expect(old.message).toContain('tasks_task_work_history');
       expect(s.checkpoints).toHaveLength(1);
       // A server that takes it: the checkpoint names the table and lands.
       fake.features = [NEXUS_FEATURE_MANIFEST_SNAPSHOT_AUTHORITATIVE];
       const pushed = await on(a, () => pushNexusVault(vopts(a, { allowUnreleased: true })));
       expect(pushed.status).toBe('pushed');
       const cp = s.checkpoints.at(-1);
-      expect(cp?.manifest.snapshotAuthoritative).toContain('tasks_audit_log');
+      expect(cp?.manifest.snapshotAuthoritative).toContain('tasks_task_work_history');
       expect(cp?.manifest.snapshotAuthoritative).not.toContain('tasks_tasks');
-      expect(cp?.manifest.tables['tasks_audit_log']?.rows).toBeGreaterThan(0);
+      expect(cp?.manifest.tables['tasks_task_work_history']?.rows).toBeGreaterThan(0);
       expect((await on(a, () => verifyNexusVault(vopts(a)))).verdict).toBe('match');
-      // More audit rows later: the next checkpoint lands too, its list no longer than the parent's.
+      // More work rows later: the next checkpoint lands too, its list no longer than the parent's.
       await on(a, async () => {
         (await storeOf(aDb)).exec(
-          "INSERT INTO tasks_audit_log (id, action, task_id) VALUES ('log-t13777-2', 'task_updated', 'T3')",
+          "INSERT INTO tasks_task_work_history (session_id, task_id, set_at) VALUES ('ses_t13777', 'T3', '2026-10-16 09:00:02')",
         );
       });
       const again = await on(a, () => pushNexusVault(vopts(a, { allowUnreleased: true })));
@@ -6480,7 +6483,7 @@ describe('sync enable push: the genesis checkpoint (T12343 S4-1b)', () => {
       // A refusal for an omitted list (an older cleo on another device) names the cause and the fix.
       await on(a, async () => {
         (await storeOf(aDb)).exec(
-          "INSERT INTO tasks_audit_log (id, action, task_id) VALUES ('log-t13777-3', 'task_updated', 'T3')",
+          "INSERT INTO tasks_task_work_history (session_id, task_id, set_at) VALUES ('ses_t13777', 'T3', '2026-10-16 09:00:03')",
         );
       });
       fake.refuseCheckpoint = ['authoritative-omitted'];
