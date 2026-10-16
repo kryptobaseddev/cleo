@@ -1,5 +1,13 @@
 # Changelog
 
+## [2026.10.17-canary.1] (2026-10-16)
+
+> **hooks-v1 promotion pilot canary.** Published to the `canary` dist-tag only. This build runs project hooks (hooks-v1) for the VidaPeps pilot; its implementation-source digest `7048435a30f50b39863c74d9ed021c67afff34441d0a49abaafdc094e5988a61` (freeze commit d07fb4b0f) is the source the v2026.10.17 stable promotion must ship. Also carries the vault and change-journal coexistence work (#2269, T12999), which rides the unreleased Stage C sync and stays inert.
+
+### Fixed
+
+- ci:<pr> is refused when no check is required; tool:config-schema tests a change to CLEO config alone _(provenance: [T13757](https://github.com/kryptobaseddev/cleo/search?q=T13757&type=commits), [T13758](https://github.com/kryptobaseddev/cleo/search?q=T13758&type=commits))_
+
 ## [2026.10.16] (2026-10-15)
 
 > **Fix release.** Project hooks (hooks-v1) stay inert on stable builds: activation is refused with `E_HOOKS_V1_UNRELEASED` and existing receipts are not executed. The hooks-v1 fixes in this release (F1 fail-closed on drift, F2 no residue on disable) apply to canary and pilot users until the hooks-v1 promotion. Cross-device sync (Stage C: `sync.seal`, `sync.push`, `sync.pull`, `sync.strict`) stays unreleased and inert until the Stage C exit gate releases its flags. On first open, a brain vector table from an earlier build (no `model` column) is dropped and recreated tagged; its vectors are local derived data that the embedding backfill rebuilds from memory text. Doc bytes on the sync stream (T13721) ride the same unreleased sync and stay inert on stable. The local embedding model still downloads only on explicit opt-in. No schema migrations.
