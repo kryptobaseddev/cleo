@@ -166,6 +166,44 @@ function options(readApi = transport()) {
   };
 }
 
+/** Retained native evidence, separate from a Git push succeeding inside a harness. */
+function nativeBundle() {
+  const index = bundle();
+  index.schemaVersion = 2;
+  for (const check of CHECKS) {
+    const native = check.startsWith('live')
+      ? {
+          sessionId: `${check}-session`,
+          startedAt: '2026-10-10T00:00:00Z',
+          endedAt: '2026-10-10T00:00:10Z',
+          receipt: {
+            path: `${check}-agent.json`,
+            source: 'agent',
+            event: 'PreToolUse',
+            recordedAt: '2026-10-10T00:00:05Z',
+          },
+          trust: { mode: 'persisted' },
+          contextInjection: 'unverified',
+          infrastructureFaults: [],
+        }
+      : undefined;
+    if (native) {
+      write(`retained/${native.receipt.path}`, {
+        schemaVersion: 1,
+        source: native.receipt.source,
+        event: native.receipt.event,
+        recordedAt: native.receipt.recordedAt,
+      });
+      native.receipt.sha256 = createHash('sha256')
+        .update(readFileSync(join(root, 'retained', native.receipt.path)))
+        .digest('hex');
+    }
+    replaceProof(index, check, { schemaVersion: 2, ...(native ? { native } : {}) });
+  }
+  write('retained/index.json', index);
+  return index;
+}
+
 function replaceProof(index, check, changes) {
   const path = `retained/${check}.json`;
   const proof = { ...JSON.parse(readFileSync(join(root, path), 'utf8')), ...changes };
@@ -290,6 +328,106 @@ describe('stable promotion evidence', () => {
   });
   it('holds when retained evidence is absent', async () => {
     await expect(validateHookPilotEvidence(options())).rejects.toThrow();
+  });
+  it('T13818: future promotions reject legacy counts-only evidence; historical 10.17 stays verifiable', async () => {
+    bundle();
+    await expect(
+      validateHookPilotEvidence({ ...options(), stableVersion: '2026.10.18' }),
+    ).rejects.toThrow(/schema version 2/);
+    await expect(
+      validateHookPilotEvidence({ ...options(), stableVersion: '2026.10.17' }),
+    ).resolves.toBeDefined();
+  });
+  it('T13818: accepts retained native delivery without claiming context injection', async () => {
+    nativeBundle();
+    await expect(
+      validateHookPilotEvidence({ ...options(), stableVersion: '2026.10.18' }),
+    ).resolves.toBeDefined();
+  });
+  it('T13818: keeps infrastructure faults typed and requires explicit fault/context reporting', async () => {
+    const index = nativeBundle();
+    const { HookPilotProofSchema } = await import(
+      '../../packages/contracts/dist/release/hook-pilot.js'
+    );
+    const proof = JSON.parse(readFileSync(join(root, 'retained/liveCodex.json'), 'utf8'));
+    proof.native.infrastructureFaults = [
+      { source: 'git', code: 'HOOK_RECEIPT_WRITE_FAILED' },
+      { source: 'sandbox', code: 'EPERM' },
+    ];
+    expect(HookPilotProofSchema.parse(proof).native.infrastructureFaults).toEqual(
+      proof.native.infrastructureFaults,
+    );
+    replaceProof(index, 'liveCodex', {
+      native: { ...proof.native, infrastructureFaults: undefined },
+    });
+    await expect(
+      validateHookPilotEvidence({ ...options(), stableVersion: '2026.10.18' }),
+    ).rejects.toThrow();
+    replaceProof(index, 'liveCodex', { native: { ...proof.native, contextInjection: undefined } });
+    await expect(
+      validateHookPilotEvidence({ ...options(), stableVersion: '2026.10.18' }),
+    ).rejects.toThrow();
+  });
+  it('T13818: refuses relabeled receipt times and escaping receipt paths', async () => {
+    const index = nativeBundle();
+    const proof = JSON.parse(readFileSync(join(root, 'retained/liveCodex.json'), 'utf8'));
+    replaceProof(index, 'liveCodex', {
+      native: {
+        ...proof.native,
+        receipt: { ...proof.native.receipt, recordedAt: '2026-10-10T00:00:06Z' },
+      },
+    });
+    await expect(
+      validateHookPilotEvidence({ ...options(), stableVersion: '2026.10.18' }),
+    ).rejects.toThrow(/identity mismatch/);
+    replaceProof(index, 'liveCodex', {
+      native: { ...proof.native, receipt: { ...proof.native.receipt, path: '../outside.json' } },
+    });
+    await expect(
+      validateHookPilotEvidence({ ...options(), stableVersion: '2026.10.18' }),
+    ).rejects.toThrow();
+  });
+  it('T13818: rejects a v2 live proof without its native agent receipt', async () => {
+    const index = nativeBundle();
+    replaceProof(index, 'liveCodex', { native: undefined });
+    await expect(
+      validateHookPilotEvidence({ ...options(), stableVersion: '2026.10.18' }),
+    ).rejects.toThrow(/native agent receipt/);
+  });
+  it('T13818: rejects tampered receipts and Git receipts presented as native delivery', async () => {
+    const index = nativeBundle();
+    write('retained/liveCodex-agent.json', { source: 'git' });
+    await expect(
+      validateHookPilotEvidence({ ...options(), stableVersion: '2026.10.18' }),
+    ).rejects.toThrow(/hash changed/);
+    const proof = JSON.parse(readFileSync(join(root, 'retained/liveCodex.json'), 'utf8'));
+    proof.native.receipt.sha256 = createHash('sha256')
+      .update(readFileSync(join(root, 'retained/liveCodex-agent.json')))
+      .digest('hex');
+    replaceProof(index, 'liveCodex', { native: proof.native });
+    await expect(
+      validateHookPilotEvidence({ ...options(), stableVersion: '2026.10.18' }),
+    ).rejects.toThrow();
+  });
+  it('T13818: rejects receipts outside their session and bypassed native trust', async () => {
+    const index = nativeBundle();
+    const proof = JSON.parse(readFileSync(join(root, 'retained/liveCodex.json'), 'utf8'));
+    replaceProof(index, 'liveCodex', {
+      native: { ...proof.native, endedAt: '2026-10-10T00:00:04Z' },
+    });
+    await expect(
+      validateHookPilotEvidence({ ...options(), stableVersion: '2026.10.18' }),
+    ).rejects.toThrow(/session window/);
+    replaceProof(index, 'liveCodex', {
+      native: {
+        ...proof.native,
+        trust: { mode: 'bypassed', flag: '--dangerously-bypass-hook-trust' },
+        infrastructureFaults: [{ source: 'git', code: 'HOOK_RECEIPT_WRITE_FAILED' }],
+      },
+    });
+    await expect(
+      validateHookPilotEvidence({ ...options(), stableVersion: '2026.10.18' }),
+    ).rejects.toThrow(/persisted native trust/);
   });
   it('holds after source changes even if package version is unchanged', async () => {
     bundle();
