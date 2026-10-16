@@ -15,14 +15,17 @@ never shrunk.
 
 A scoped build of a command on a small allowlist is charged the light
 footprint, with a reason naming it: file utilities (`ls`, `cat`, `echo`, …) and
-`node` running a plain `.js`/`.mjs`/`.cjs` script with no node flags. Wrappers
+`node` running a plain `.js`/`.mjs`/`.cjs` script with no node flags, outside
+`node_modules/` and without a heap-raising `NODE_OPTIONS=` prefix. Wrappers
 (`timeout`, `sudo`, `env`, `nice`, `command`, `exec`) are stripped first.
 Everything else (cargo, go, pytest, gradle, docker, shell scripts, `node
 --test`) keeps the class plan. A git push or commit with an installed hook keeps
 the plan, as before.
 
 A nested run rides an enclosing grant only when that grant is a heavy run's or
-covers the request. Under a light grant a heavier run queues for itself,
-charged at most what the parent leaves of the capacity. Typed gates, which are
+covers the request. Under a light grant a heavier run queues for itself and
+records its parent; scheduling considers it first and leaves its ancestors out
+of the budget, `one`, exclusive and idle checks, so it never waits on the run
+that is waiting for it. Typed gates, which are
 spawned with the whole heavy-run environment, are charged the whole heavy run
 for a worker-pool plan.

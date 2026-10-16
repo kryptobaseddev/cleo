@@ -1014,10 +1014,10 @@ describe('admit (one ledger, real critical section)', () => {
     const own = await nestedIn(GIB, 8 * GIB);
     expect(own.nested.admitted && own.nested.grant.nested).toBe(false);
     expect(own.ledger).toEqual([GIB, 8 * GIB]);
-    // A capacity-sized run is charged what the parent leaves, so it never waits on its parent.
+    // A capacity-sized run never waits on its own parent.
     const whole = await nestedIn(GIB, 20 * GIB);
     expect(whole.nested.admitted).toBe(true);
-    expect(whole.ledger).toEqual([GIB, capacityBytes - GIB]);
+    expect(whole.ledger).toEqual([GIB, 20 * GIB]);
     // A heavy parent's grant still carries a bigger nested run.
     const heavy = await nestedIn(8 * GIB, 9 * GIB);
     expect(heavy.nested.admitted && heavy.nested.grant.nested).toBe(true);
@@ -1573,6 +1573,7 @@ describe('a git push is charged by what actually runs (T13452)', () => {
       [['git', 'status'], 'git status runs no heavy tool'],
       [['ls', '-la'], 'ls runs no heavy tool'],
       [['timeout', '60', 'sudo', '-u', 'me', 'cat', 'a'], 'cat runs no heavy tool'],
+      [['env', 'NODE_OPTIONS=--no-warnings', 'node', 'gen.mjs'], 'node gen.mjs runs no heavy tool'],
     ] as const) {
       const plan = planRunFootprint('scoped-build', argv, {}, RAM, () => true);
       expect(plan.footprintBytes, argv.join(' ')).toBe(GIB);
@@ -1604,6 +1605,10 @@ describe('a git push is charged by what actually runs (T13452)', () => {
       ['sudo', 'pytest'],
       ['watchexec', 'ls'],
       ['parallel', 'echo', ':::', 'a'],
+      ['node', 'node_modules/vitest/vitest.mjs', 'run'],
+      ['node', './node_modules/.bin/tsc.js'],
+      ['env', 'NODE_OPTIONS=--max-old-space-size=16384', 'node', 'gen.mjs'],
+      ['NODE_OPTIONS=--max-semi-space-size=64', 'node', 'gen.mjs'],
     ]) {
       const plan = planRunFootprint('scoped-build', argv, {}, RAM);
       expect(plan.footprintBytes, argv.join(' ')).toBeGreaterThan(HEAVY_FOOTPRINT_BYTES);
@@ -1625,6 +1630,60 @@ describe('a git push is charged by what actually runs (T13452)', () => {
     );
     expect(plan.resources).not.toBeNull();
     expect(plan.footprintReason).toBe('scoped-build plan: runs the pre-commit hook');
+  });
+});
+
+describe('a nested run never waits on its own ancestors (T13452)', () => {
+  const NOW = 1_000_000;
+  const parent = entry({ id: 'parent', state: 'admitted', footprintBytes: GIB, enqueuedAtMs: 1 });
+  const others = [1, 2, 3].map((n) =>
+    entry({ id: `tiny${n}`, state: 'admitted', footprintBytes: GIB, enqueuedAtMs: 0 }),
+  );
+  const pass = (ram: number, ledger: LedgerEntry[]) => {
+    const capacityBytes = admissionCapacityBytes(ram * GIB);
+    const child = entry({
+      id: 'child',
+      parentId: 'parent',
+      footprintBytes:
+        planRunFootprint('full-build', ['pnpm', 'run', 'build'], {}, ram).footprintBytes ?? 0,
+      enqueuedAtMs: 10,
+    });
+    // An older capacity-sized head, past its reservation: it waits for an idle machine.
+    const head = entry({ id: 'head', footprintBytes: capacityBytes, enqueuedAtMs: 2 });
+    return admittedIds(
+      schedulePass([...ledger, head, child], {
+        capacityBytes,
+        share: 'half',
+        nowMs: NOW,
+      }),
+    );
+  };
+
+  for (const ram of [8, 16, 64]) {
+    it(`${ram} GiB, share half: admitted beside its light parent, past a blocked head`, () => {
+      expect(pass(ram, [parent])).toContain('child');
+    });
+  }
+
+  it('16 and 64 GiB, share half, tiny reserve full: still admitted', () => {
+    expect(pass(16, [...others, parent])).toContain('child');
+    expect(pass(64, [...others, parent])).toContain('child');
+  });
+
+  it('8 GiB, tiny reserve full: waits only for the unrelated runs, then starts', () => {
+    expect(pass(8, [...others, parent])).not.toContain('child');
+    expect(pass(8, [parent])).toContain('child');
+  });
+
+  it('a non-nested run of the same size still waits for the parent', () => {
+    const capacityBytes = admissionCapacityBytes(64 * GIB);
+    const stranger = entry({ id: 'stranger', footprintBytes: 24 * GIB, enqueuedAtMs: 10 });
+    const out = schedulePass([...others, parent, stranger], {
+      capacityBytes,
+      share: 'half',
+      nowMs: NOW,
+    });
+    expect(admittedIds(out)).not.toContain('stranger');
   });
 });
 

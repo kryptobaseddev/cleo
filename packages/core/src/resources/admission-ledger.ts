@@ -485,6 +485,11 @@ export interface LedgerEntry {
    * admitted while it is (T13237). Set for the `full-build` class.
    */
   readonly exclusive?: boolean;
+  /**
+   * The admitted entry this run is nested in, when its grant was too small to
+   * carry it (T13452). Scheduling never makes it wait on that ancestor.
+   */
+  readonly parentId?: string;
 }
 
 /**
@@ -862,6 +867,17 @@ export function budgetShare(sample: ResourceSample, gateRefuses: boolean): Budge
   return 'full';
 }
 
+/** What some admitted entries hold, for leaving them out of a check. */
+interface Held {
+  readonly used: number;
+  readonly reserved: number;
+  readonly running: number;
+  readonly heavy: number;
+  readonly exclusive: number;
+}
+
+const NOTHING_HELD: Held = { used: 0, reserved: 0, running: 0, heavy: 0, exclusive: 0 };
+
 /** Inputs to one scheduling pass. */
 export interface PassContext {
   /** The machine-wide budget in bytes. */
@@ -984,6 +1000,10 @@ function budgetPhrase(entry: LedgerEntry, budget: LedgerBudget): string {
  *   or less) that fit the memory budget (T13367). The lane is open only until
  *   the head has waited {@link TINY_LANE_WINDOWS} reservation windows, and
  *   never for a head that needs the whole budget (T13389).
+ * - A run nested in an admitted run (`parentId`, T13452) is considered first,
+ *   past any blocked head, and its ancestors are left out of every check: its
+ *   parent cannot finish until it runs, so it starts once it fits beside
+ *   everything else, or once nothing but its ancestors runs.
  * - Up to {@link TINY_LANE_SLOTS} tiny runs are admitted from a reserve outside
  *   the pressure share, wherever they wait, while the capacity has room for
  *   them (T13587): their bytes do not count against the share budget, and
@@ -1028,6 +1048,7 @@ export function schedulePass(entries: readonly LedgerEntry[], ctx: PassContext):
     e.exclusive !== true &&
     reserved < TINY_LANE_SLOTS &&
     used + reservedBytes + cost <= ctx.capacityBytes;
+  const reservedIds = new Set<string>();
   for (const e of entries) {
     if (e.state === 'admitted') {
       const cost = charged(e, ctx.capacityBytes);
@@ -1038,6 +1059,7 @@ export function schedulePass(entries: readonly LedgerEntry[], ctx: PassContext):
       if (reserveTakes(e, cost)) {
         reserved++;
         reservedBytes += cost;
+        reservedIds.add(e.id);
         continue;
       }
       used += cost;
@@ -1045,16 +1067,44 @@ export function schedulePass(entries: readonly LedgerEntry[], ctx: PassContext):
       if (e.exclusive === true) exclusiveRunning++;
     }
   }
-  /** Whether `cost` more fits `budget`, and the capacity beside the tiny reserve. */
-  const within = (budget: number, cost: number): boolean =>
-    used + cost <= budget && used + reservedBytes + cost <= ctx.capacityBytes;
-  const fits = (w: LedgerEntry, cost: number): boolean => {
-    if (w.exclusive === true && exclusiveRunning > 0) return false;
-    if (!isHeavy(w)) return lightShare !== 'none' && within(lightBudget, cost);
-    if (ctx.share === 'none') return false;
-    if (ctx.share === 'one' && heavyRunning > 0) return false;
-    return within(heavyBudget, cost);
+  // T13452: what a nested entry's admitted ancestors hold. The ancestors wait
+  // on the nested run, so it is never held back by them: the budget, the `one`
+  // and exclusive rules and the idle rule all leave them out.
+  const byId = new Map(entries.map((e) => [e.id, e]));
+  const ancestorsHeld = (w: LedgerEntry): Held => {
+    const held = { used: 0, reserved: 0, running: 0, heavy: 0, exclusive: 0 };
+    const seen = new Set<string>();
+    let a = w.parentId === undefined ? undefined : byId.get(w.parentId);
+    while (a !== undefined && a.state === 'admitted' && !seen.has(a.id)) {
+      seen.add(a.id);
+      const cost = charged(a, ctx.capacityBytes);
+      held.running++;
+      if (reservedIds.has(a.id)) {
+        held.reserved += cost;
+      } else {
+        held.used += cost;
+        if (isHeavy(a)) held.heavy++;
+        if (a.exclusive === true) held.exclusive++;
+      }
+      a = a.parentId === undefined ? undefined : byId.get(a.parentId);
+    }
+    return held;
   };
+  /** Whether `cost` more fits `budget`, and the capacity beside the tiny reserve. */
+  const within = (budget: number, cost: number, h: Held = NOTHING_HELD): boolean =>
+    used - h.used + cost <= budget &&
+    used - h.used + reservedBytes - h.reserved + cost <= ctx.capacityBytes;
+  const fits = (w: LedgerEntry, cost: number, h: Held = NOTHING_HELD): boolean => {
+    if (w.exclusive === true && exclusiveRunning - h.exclusive > 0) return false;
+    if (!isHeavy(w)) return lightShare !== 'none' && within(lightBudget, cost, h);
+    if (ctx.share === 'none') return false;
+    if (ctx.share === 'one' && heavyRunning - h.heavy > 0) return false;
+    return within(heavyBudget, cost, h);
+  };
+  /** Admissible now: it fits, or nothing but its own ancestors runs. */
+  const startable = (w: LedgerEntry, cost: number, h: Held): boolean =>
+    fits(w, cost, h) ||
+    (running - h.running === 0 && (isHeavy(w) ? ctx.share : lightShare) !== 'none');
   const waiting = entries
     .filter((e) => e.state === 'waiting')
     .sort((a, b) => a.enqueuedAtMs - b.enqueuedAtMs || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
@@ -1084,7 +1134,16 @@ export function schedulePass(entries: readonly LedgerEntry[], ctx: PassContext):
     if (w.exclusive === true) exclusiveRunning++;
     if (isTiny(w)) tinyRunning++;
   };
+  // T13452: a run nested in an admitted run goes first, past any blocked head:
+  // its parent cannot finish (and free its share) until it has run.
   for (const w of waiting) {
+    const held = ancestorsHeld(w);
+    if (held.running === 0) continue;
+    const cost = charged(w, ctx.capacityBytes);
+    if (startable(w, cost, held)) take(w, cost);
+  }
+  for (const w of waiting) {
+    if (admit.has(w.id)) continue;
     const cost = charged(w, ctx.capacityBytes);
     // T13587: the tiny reserve admits a tiny run wherever it waits; the memory
     // gate (`none`) still admits nothing.
@@ -1124,11 +1183,10 @@ export function schedulePass(entries: readonly LedgerEntry[], ctx: PassContext):
       }
       continue;
     }
-    const share = isHeavy(w) ? ctx.share : lightShare;
     // With nothing running, the oldest waiting run always starts (it is
     // charged at most the capacity), so pressure narrows but never stops work;
     // only the memory gate (`none`) stops it.
-    if (fits(w, cost) || (running === 0 && share !== 'none')) {
+    if (startable(w, cost, NOTHING_HELD)) {
       take(w, cost);
       continue;
     }
@@ -1785,17 +1843,12 @@ async function admitInner(req: AdmissionRequest, opts: AdmitOptions): Promise<Ad
 
   // Re-entrant: a request inside an admitted run's tree rides its grant, when
   // that grant is a heavy run's or covers the request. Under a light or
-  // single-process grant a bigger run queues for itself (T13452), charged at
-  // most what the parent leaves of the capacity, so it can never wait on its
-  // own parent's bytes.
+  // single-process grant a bigger run queues for itself (T13452), naming the
+  // parent: schedulePass never makes it wait on its own ancestors.
   const parent = enclosingGrant(readLedger(dir), pid, env, opts.facts);
   if (parent !== null && (isHeavy(parent) || parent.footprintBytes >= req.footprintBytes)) {
     return { admitted: true, grant: passThrough(admissionToken(parent), true, null) };
   }
-  const footprintBytes =
-    parent === null
-      ? Math.max(0, req.footprintBytes)
-      : Math.max(0, Math.min(req.footprintBytes, capacityBytes - charged(parent, capacityBytes)));
 
   const entry: LedgerEntry = {
     id: newId(pid, t0),
@@ -1806,7 +1859,8 @@ async function admitInner(req: AdmissionRequest, opts: AdmitOptions): Promise<Ad
     label: req.label,
     command: req.command ?? process.argv.slice(1).join(' '),
     cwd: req.cwd === undefined ? process.cwd() : req.cwd, // CWD-OK: display only — where the run was started, shown in status and reports
-    footprintBytes,
+    footprintBytes: Math.max(0, req.footprintBytes),
+    ...(parent !== null ? { parentId: parent.id } : {}),
     state: 'waiting',
     enqueuedAtMs: t0,
     admittedAtMs: null,

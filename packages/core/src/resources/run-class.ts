@@ -1335,12 +1335,19 @@ const WRAPPER_VALUE_FLAGS: ReadonlySet<string> = new Set([
 /** A plain script path `node` may run light. */
 const NODE_SCRIPT = /\.[cm]?js$/;
 
-/** `argv` without leading wrappers (`timeout 60`, `sudo -u x`, `env A=1`, `nice -n 5`). */
-function unwrapped(argv: readonly string[]): readonly string[] {
+/** A `NODE_OPTIONS=` assignment that sets a heap size. */
+const HEAP_RAISING_ASSIGNMENT = /^NODE_OPTIONS=.*--max-(old-space|semi-space|heap)-size/;
+
+/**
+ * `argv` without leading wrappers (`timeout 60`, `sudo -u x`, `env A=1`,
+ * `nice -n 5`), or `null` when an assignment raises the heap.
+ */
+function unwrapped(argv: readonly string[]): readonly string[] | null {
   let i = 0;
   while (i < argv.length) {
     const w = argv[i] as string;
     if (/^[A-Za-z_][A-Za-z0-9_]*=/.test(w)) {
+      if (HEAP_RAISING_ASSIGNMENT.test(w)) return null;
       i++;
       continue;
     }
@@ -1358,9 +1365,10 @@ function unwrapped(argv: readonly string[]): readonly string[] {
 /**
  * Why a command is known to run no heavy tool (T13452), from a small
  * allowlist: a file utility (`ls`, `cat`, `echo`, …) or `node` running a
- * plain `.js`/`.mjs`/`.cjs` script with no node flags (not CLEO's own CLI).
- * Leading wrappers (`timeout`, `sudo`, `env`, `nice`, `command`, `exec`) are
- * stripped first. Everything else (cargo, go, pytest, gradle, docker, a shell
+ * plain `.js`/`.mjs`/`.cjs` script with no node flags (not CLEO's own CLI,
+ * not a package's bin under `node_modules/` such as `vitest.mjs`). Leading
+ * wrappers (`timeout`, `sudo`, `env`, `nice`, `command`, `exec`) are stripped
+ * first; a `NODE_OPTIONS=` that raises the heap is never light. Everything else (cargo, go, pytest, gradle, docker, a shell
  * script, `node --test`) may be heavy and keeps its class plan. Git is sized
  * by {@link runFootprint} and its hooks, so it is never answered here.
  *
@@ -1377,6 +1385,7 @@ function unwrapped(argv: readonly string[]): readonly string[] {
  */
 export function lightCommandReason(argv: readonly string[]): string | null {
   const words = unwrapped(argv);
+  if (words === null) return null;
   const tool = base(words[0] ?? '');
   if (LIGHT_UTILITIES.test(tool)) return `${tool} runs no heavy tool`;
   const script = words[1];
@@ -1384,7 +1393,8 @@ export function lightCommandReason(argv: readonly string[]): string | null {
     tool === 'node' &&
     script !== undefined &&
     NODE_SCRIPT.test(script) &&
-    !CLEO_SCRIPT.test(script)
+    !CLEO_SCRIPT.test(script) &&
+    !/(^|\/)node_modules\//.test(script)
   ) {
     return `node ${script} runs no heavy tool`;
   }
