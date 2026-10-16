@@ -23,3 +23,12 @@ An approval's resume token travels sealed on the stream, like the credential
 tables' secrets, so it is written only by `cloud sync`. Migration
 `20261016120000_t12535-playbook-row-uids` adds the uid columns and unique
 indexes.
+
+A sync rebase that rewinds a locally deleted row now restores its secret
+columns, so a deleted approval no longer fails the rewind on its NOT NULL
+token. Every unencrypted bundle that may leave the machine (`cleo backup
+export` without `--encrypt`) now ships the local change journal
+(`_sync_capture`, `_sync_undo`, `_sync_row_undo`, `_sync_frame`,
+`_sync_quarantine`) empty, as the cloud vault already did: those tables hold
+local row values, secrets included. A local pre-restore safety bundle keeps
+them.

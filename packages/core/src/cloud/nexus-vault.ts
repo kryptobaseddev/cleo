@@ -102,7 +102,11 @@ import { extract as tarExtract } from 'tar';
 import { z } from 'zod';
 import { getCleoHome, resolveOrCwd } from '../paths.js';
 import { withLock } from '../store/lock.js';
-import { exportPortableBundle, globalHomeRules } from '../store/portable-bundle.js';
+import {
+  exportPortableBundle,
+  globalHomeRules,
+  LOCAL_JOURNAL_TABLES,
+} from '../store/portable-bundle.js';
 import { extractPortableBundle, importPortableBundle } from '../store/portable-bundle-import.js';
 import {
   integrityCheck,
@@ -861,10 +865,7 @@ const JOURNAL_SNAPSHOT_CARRIED: ReadonlySet<string> = new Set([
 ]);
 
 const VAULT_CLEARED_JOURNAL_TABLES = [
-  '_sync_capture',
-  '_sync_undo',
-  '_sync_frame',
-  '_sync_quarantine',
+  ...LOCAL_JOURNAL_TABLES,
   '_sync_apply_intent',
   // Where this device's pull stands (T12343 S5-1): a restored store resumes
   // from the checkpoint it restored, never from another device's position.
@@ -873,7 +874,7 @@ const VAULT_CLEARED_JOURNAL_TABLES = [
   // Its floor goes with it: a floor without its seen rows would refuse
   // every transaction below it (T13318).
   '_sync_seen_floor',
-] as const;
+];
 
 /** The account key a global snapshot seals its credential cells under (T13530). */
 interface VaultCredentialSeal {
