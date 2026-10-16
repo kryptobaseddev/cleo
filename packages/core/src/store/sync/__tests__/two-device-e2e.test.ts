@@ -523,6 +523,51 @@ describe('project stickies and playbook approvals reach a second device (T12535)
   });
 });
 
+describe('a rewound delete of a sealed NOT NULL secret restores it (T12535)', () => {
+  it('a run deleted on A while B adds an approval under it rebases on A without losing the token', async () => {
+    const { a, b } = await twoDevices();
+    const stream = fakeStream();
+    const secretKey = secretValuesKey(randomBytes(32));
+    const pushSealed = async (r: Replica) =>
+      push(r, stream, await prepareSecretSeals(r.db, 'project', secretKey));
+    const pullOpened = (r: Replica) =>
+      pull(r, stream, () => prepareSecretOpens(r.db, 'project', STREAM, secretKey));
+    write(
+      a.db,
+      `INSERT INTO tasks_playbook_runs (run_id, playbook_name, playbook_hash, started_at)
+         VALUES ('run-1', 'rcasd', 'hash-1', '2026-10-14 17:42:00');
+       INSERT INTO tasks_playbook_approvals (approval_id, run_id, node_id, token, requested_at)
+         VALUES ('ap1', 'run-1', 'gate', 'tok-1', '2026-10-14 17:42:01');`,
+    );
+    await pushSealed(a);
+    await pullOpened(b);
+    // deletePlaybookRun on A; concurrently B adds a second approval to the run.
+    write(
+      a.db,
+      `DELETE FROM tasks_playbook_approvals WHERE run_id = 'run-1';
+       DELETE FROM tasks_playbook_runs WHERE run_id = 'run-1';`,
+    );
+    write(
+      b.db,
+      `INSERT INTO tasks_playbook_approvals (approval_id, run_id, node_id, token, requested_at)
+         VALUES ('ap2', 'run-1', 'gate-2', 'tok-2', '2026-10-14 17:43:00');`,
+    );
+    await pushSealed(a);
+    await pushSealed(b);
+    // The pull rebases A: its delete of ap1 is rewound (ap1 re-inserted with
+    // its token) and replayed. It used to throw NOT NULL on the token.
+    await pullOpened(a);
+    await pullOpened(b);
+    for (const r of [a, b])
+      expect(
+        r.db
+          .prepare("SELECT count(*) AS n FROM tasks_playbook_approvals WHERE approval_id = 'ap1'")
+          .get(),
+      ).toEqual({ n: 0 });
+    expect(contentChecksums(b.db)).toEqual(contentChecksums(a.db));
+  });
+});
+
 describe('docs reach a second device (T12919)', () => {
   const BODY = '# Gate doc\n\nline one\n';
   const sha = (body: string) => createHash('sha256').update(body).digest('hex');

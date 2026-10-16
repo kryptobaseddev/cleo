@@ -69,6 +69,8 @@ export function undoEnabled(db: DatabaseSync): boolean {
  * @param idx - The op's index in it.
  * @param tbl - The row's table.
  * @param uid - The row's uid before the op.
+ * @param values - The values a rewind restores, when the op's own image
+ *   cannot supply them (a delete's secret columns, which never travel in it).
  */
 export function snapshotRowUndo(
   db: DatabaseSync,
@@ -76,6 +78,7 @@ export function snapshotRowUndo(
   idx: number,
   tbl: string,
   uid: string,
+  values?: Readonly<Record<string, LedgerWireValue>>,
 ): void {
   const meta = readRowMetaFull(db, tbl, uid);
   const leaves = readFieldLeaves(db, tbl, uid);
@@ -85,9 +88,17 @@ export function snapshotRowUndo(
       ? canonicalJson({ leaves, frontiers })
       : null;
   db.prepare(
-    `INSERT INTO _sync_row_undo (txn, idx, tbl, uid, meta_json, leave_json) VALUES (?, ?, ?, ?, ?, ?)
-     ON CONFLICT (txn, idx) DO NOTHING`,
-  ).run(txn, idx, tbl, uid, meta ? canonicalJson(meta) : null, state);
+    `INSERT INTO _sync_row_undo (txn, idx, tbl, uid, meta_json, leave_json, values_json)
+     VALUES (?, ?, ?, ?, ?, ?, ?) ON CONFLICT (txn, idx) DO NOTHING`,
+  ).run(
+    txn,
+    idx,
+    tbl,
+    uid,
+    meta ? canonicalJson(meta) : null,
+    state,
+    values ? canonicalJson(values) : null,
+  );
 }
 
 /**
