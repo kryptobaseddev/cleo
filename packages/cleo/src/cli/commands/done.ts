@@ -23,8 +23,11 @@ import { defineCommand } from '../lib/define-cli-command.js';
 import { cliError, cliOutput } from '../renderers/index.js';
 import { completeCommandArgs, completeDispatchParams } from './complete.js';
 
-/** One batch entry: a blocked record, or a recorded task and its completion. */
-async function batchEntry(
+/**
+ * One batch entry: a blocked record, or a recorded task and its completion
+ * through `tasks.complete`. Shared with `cleo goal close` (T13794).
+ */
+export async function doneBatchEntry(
   taskId: string,
   result: Awaited<ReturnType<typeof import('@cleocode/core/tasks/done-record.js').recordTaskDone>>,
   args: { taskId: string; [flag: string]: unknown },
@@ -63,7 +66,7 @@ async function runBatchDone(
   const { recordTasksDone } = await import('@cleocode/core/tasks/done-record.js');
   const results: Array<Record<string, unknown>> = [];
   for (const { taskId, result } of await recordTasksDone(taskIds, options)) {
-    results.push(await batchEntry(taskId, result, args));
+    results.push(await doneBatchEntry(taskId, result, args));
   }
   const blocked = results.filter((r) => r.completed !== true);
   if (blocked.length === 0)

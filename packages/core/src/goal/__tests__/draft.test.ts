@@ -170,6 +170,13 @@ describe('draftGoal (T13793)', () => {
         },
         { kind: 'command', cmd: 'node', stderrMatches: 'ok', description: 'stderr says ok' },
         {
+          kind: 'command',
+          cmd: 'node',
+          stdoutMatches: '^ok$',
+          req: 'R-ANCHOR',
+          description: 'stdout is ok',
+        },
+        {
           kind: 'file',
           path: 'a.ts',
           assertions: [{ type: 'matches', regex: 'x', flags: 'i' }],
@@ -181,7 +188,7 @@ describe('draftGoal (T13793)', () => {
     );
     const result = await draftGoal([id], { projectRoot: env.tempDir });
     if (!result.success) throw new Error(result.error.message);
-    const [prettier, clippy, slow, stderr, file] = result.data.contract.criteria;
+    const [prettier, clippy, slow, stderr, anchored, file] = result.data.contract.criteria;
     // Full executable + default args from the gate runner, never a bare binary.
     expect((prettier?.check as GoalCommandCheck).run).toBe('prettier --check .');
     expect(prettier?.statement).toBe('prettier reports no errors');
@@ -197,6 +204,10 @@ describe('draftGoal (T13793)', () => {
     });
     // No host form and no REQ-ID: a verifier asks, which never satisfies a gate at close.
     expect(stderr?.check.kind).toBe('verifier');
+    // OCG adds the m flag, so an anchored stdout regex would be weaker: run the gate itself.
+    expect((anchored?.check as GoalCommandCheck).run).toBe(
+      `cleo verify ${id} --run --req R-ANCHOR --field /data/passed`,
+    );
     expect(file?.check.kind).toBe('command');
     expect(file?.essential).toBe(false);
   });

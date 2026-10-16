@@ -752,7 +752,7 @@ export const COMMAND_MANIFEST: readonly CommandManifestEntry[] = [
     exportName: 'goalCommand',
     name: 'goal',
     description:
-      'Goal protocol (draft) and the per-agent goal loop (set/status/advance/subgoal/append).',
+      'Goal protocol (draft, close) and the per-agent goal loop (set/status/advance/subgoal/append).',
     load: async () => (await import('../commands/goal.js')).goalCommand as CommandDef,
   },
   {
