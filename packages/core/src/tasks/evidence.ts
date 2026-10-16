@@ -3343,6 +3343,13 @@ export function checkTaskEvidenceContext(
             (other) => other.kind === 'tool' && canonicalToolName(other.tool) === atom.check,
           ),
       ),
+      // T13698: a whole-project run also speaks for paths neither check reads.
+      atoms.some(
+        (atom) =>
+          atom.kind === 'tool' &&
+          !atom.notApplicable &&
+          (canonicalToolName(atom.tool) === 'lint' || canonicalToolName(atom.tool) === 'typecheck'),
+      ),
     );
     if (gap !== null) return gap;
   }
