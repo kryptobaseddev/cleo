@@ -151,6 +151,34 @@ export async function stopDispatch(
 }
 
 /**
+ * Whether the user opted out of ask-enforce the way that removed its separate
+ * Stop hook before the dispatcher: the heavy-command mode `off`
+ * (`CLEO_HEAVY_COMMAND_HOOK`, else `resources.heavyCommandHook`), read at run
+ * time with the same resolver the heavy-command hook uses. (`CLEO_ASK_ENFORCE
+ * =off` is honoured by ask-enforce itself.)
+ *
+ * @param env - Environment.
+ * @param cwd - Where the hook runs; the project config is found from here.
+ * @param configuredMode - Reads `resources.heavyCommandHook` (tests inject).
+ * @returns True when ask-enforce must be skipped.
+ */
+export async function askEnforceOptedOut(
+  env: Readonly<Record<string, string | undefined>>,
+  cwd: string,
+  configuredMode?: (projectRoot: string) => Promise<string | undefined>,
+): Promise<boolean> {
+  const core = await import('@cleocode/core/resources/heavy-command.js');
+  const envMode = env.CLEO_HEAVY_COMMAND_HOOK;
+  const projectRoot = env.CLAUDE_PROJECT_DIR || core.heavyHookProjectRoot(cwd);
+  const read = configuredMode ?? core.configuredHeavyHookMode;
+  const mode = core.resolveHeavyHookMode(
+    envMode,
+    core.isHeavyCommandHookMode(envMode) ? undefined : await read(projectRoot),
+  );
+  return mode === 'off';
+}
+
+/**
  * The real side effects: the tick through the shell (the command is the
  * project's own configuration), ask-enforce in-process, and
  * `cleo session end --quiet` through the running CLI, its envelope kept off
@@ -166,13 +194,10 @@ export function processStopDispatchDeps(
 ): StopDispatchDeps {
   return {
     askEnforce: async (input) => {
+      if (await askEnforceOptedOut(env, process.cwd())) return '';
       const entry = await import('./ask-enforce-entry.js');
-      const answer = await entry.askEnforceHook(
-        provider,
-        input,
-        env,
-        await entry.caampAskToolLookup(),
-      );
+      const lookup = await entry.caampAskToolLookup();
+      const answer = await entry.askEnforceHook(provider, input, env, lookup);
       return answer.stdout;
     },
     runTick: (command, input, timeoutMs) => {

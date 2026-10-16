@@ -21,7 +21,9 @@ It runs, in order:
 
 Each step fails open to today's behaviour: no goal runtime installed, a tick
 that fails, times out or prints non-JSON, or an ask-enforce error.
-`CLEO_GOAL_TICK=off` and `CLEO_ASK_ENFORCE=off` skip their steps.
+`CLEO_GOAL_TICK=off` skips the tick. Ask-enforce keeps its opt-outs, now read
+when the hook runs: `CLEO_ASK_ENFORCE=off`, or heavy-command mode `off`
+(`CLEO_HEAVY_COMMAND_HOOK` / `resources.heavyCommandHook`).
 
 Syncing folds the separate ask-enforce and old session-end Stop entries into
 the dispatcher in place, for Claude Code and Codex.

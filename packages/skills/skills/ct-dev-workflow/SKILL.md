@@ -538,7 +538,9 @@ passes through verbatim and skips the rest. Next, an ask-enforce block (T13420) 
 the session open, because the agent still owes the owner an ask. Otherwise Claude Code's runs
 `cleo session end --quiet` as before; Codex's never ends the session (its Stop fires every turn
 and never did). Every step fails open to the session end (missing, failing or timed-out tick;
-ask-enforce error); `CLEO_GOAL_TICK=off` skips the tick, `CLEO_ASK_ENFORCE=off` the ask check.
+ask-enforce error); `CLEO_GOAL_TICK=off` skips the tick; `CLEO_ASK_ENFORCE=off` or heavy-command
+mode `off` (`CLEO_HEAVY_COMMAND_HOOK` / `resources.heavyCommandHook`, read at run time) skips the
+ask check, as they removed its separate hook before.
 Sync folds the separate ask-enforce and old session-end Stop entries into it in place; Codex's
 rides the heavy-command mode, Claude Code's always stays.
 

@@ -9,6 +9,7 @@
 
 import { describe, expect, it, vi } from 'vitest';
 import {
+  askEnforceOptedOut,
   DEFAULT_GOAL_TICK_COMMAND,
   PROVIDER_ENDS_SESSION,
   processStopDispatchDeps,
@@ -112,6 +113,30 @@ describe('stopDispatch (T13796)', () => {
       (await stopDispatch(STOP, {}, claude.deps, PROVIDER_ENDS_SESSION['claude-code']))
         .sessionEnded,
     ).toBe(true);
+  });
+
+  it('keeps the ask-enforce opt-out: heavy-command mode off (env or config) skips it', async () => {
+    const config = (mode: string | undefined) => async () => mode;
+    expect(
+      await askEnforceOptedOut({ CLEO_HEAVY_COMMAND_HOOK: 'off' }, '/tmp', config('rewrite')),
+    ).toBe(true);
+    expect(await askEnforceOptedOut({}, '/tmp', config('off'))).toBe(true);
+    // The environment wins over the config, as for the heavy-command hook itself.
+    expect(
+      await askEnforceOptedOut({ CLEO_HEAVY_COMMAND_HOOK: 'warn' }, '/tmp', config('off')),
+    ).toBe(false);
+    expect(await askEnforceOptedOut({}, '/tmp', config(undefined))).toBe(false);
+    // Through the real deps: an opted-out project gets no ask-enforce answer at all.
+    const real = processStopDispatchDeps('claude-code', { CLEO_HEAVY_COMMAND_HOOK: 'off' });
+    const prose = JSON.stringify({
+      session_id: 's',
+      stop_hook_active: false,
+      last_assistant_message: 'Which option do you want, A or B?',
+    });
+    expect(await real.askEnforce(prose)).toBe('');
+    // Without the opt-out the same turn is blocked, so the empty answer above is the opt-out.
+    const optedIn = processStopDispatchDeps('claude-code', { CLEO_HEAVY_COMMAND_HOOK: 'rewrite' });
+    expect(await optedIn.askEnforce(prose)).toContain('"decision":"block"');
   });
 
   it('CLEO_GOAL_TICK=off skips the tick; CLEO_GOAL_TICK_COMMAND overrides it', async () => {
