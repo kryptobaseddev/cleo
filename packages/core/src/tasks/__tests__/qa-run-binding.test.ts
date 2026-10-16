@@ -345,6 +345,17 @@ describe('a qa-run kind owes coverage only for what its tool reads (T13698)', ()
     expect(qaRunChecks('typecheck', 'src/a.js')).toBe(false);
     expect(qaRunChecks('lint', 'scripts/INDEX.md')).toBe(false);
     expect(qaRunChecks('typecheck', 'data/fixture.json')).toBe(false);
+    // T13745 allowlist: no non-code path is an input of either check (one classifier each, disjoint).
+    for (const p of [
+      'renovate.json',
+      '.editorconfig',
+      '.vscode/settings.json',
+      'x.code-workspace',
+      'docs/a.md',
+    ]) {
+      expect(isNonCodePath(p), p).toBe(true);
+      expect(qaRunChecks('lint', p) || qaRunChecks('typecheck', p), p).toBe(false);
+    }
   });
 
   // axiom T1984: ESLint over the changed TS entry files, plus a generated
@@ -786,7 +797,8 @@ describe('T13745: a non-code-only change (editor settings, docs) completes with 
     );
     if (!r.ok) throw new Error(JSON.stringify(r));
     expect(checkTaskEvidenceContext(ctx('qaPassed'), 'qaPassed', [r.atom])).toMatch(
-      /does not cover the changed path\(s\) \.vscode\/settings\.json/,
+      // T13698: lint never reads a .json setting, so no receipt holding it is named.
+      /^\.vscode\/settings\.json is not read by lint or typecheck, and no qa-run receipt's roots hold it/,
     );
   });
 
