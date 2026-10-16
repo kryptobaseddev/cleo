@@ -33,7 +33,6 @@ export {
   isWorktreeContext,
   isWorktreeExemptionEnabled,
   readSessionOverrideCount,
-  validateWaiverDoc,
   WORKTREE_PATH_SEGMENT,
   writeSessionOverrideCount,
 } from './override-cap.js';

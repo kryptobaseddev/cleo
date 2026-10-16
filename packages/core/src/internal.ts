@@ -1228,7 +1228,6 @@ export {
   OVERRIDE_CAP_OWNER_COMMAND,
   OVERRIDE_CAP_SETTING,
   readSessionOverrideCount,
-  validateWaiverDoc,
   WORKTREE_PATH_SEGMENT,
   writeSessionOverrideCount,
 } from './security/override-cap.js';
@@ -1236,8 +1235,14 @@ export {
 export type {
   OverrideCapResolution,
   OverrideCapSetResult,
+  OwnerCaller,
+  OwnerEnrollmentStatus,
+  OwnerEnrollResult,
 } from './security/override-cap-setting.js';
 export {
+  enrollOwner,
+  OWNER_ENROLL_COMMAND,
+  ownerEnrollmentStatus,
   refuseOverrideCapWrite,
   resolveOverrideCap,
   setOwnerOverrideCap,
@@ -1246,6 +1251,7 @@ export {
 export type { OverrideValidationResult } from './security/owner-override-auth.js';
 export {
   appendOwnerOverrideAudit,
+  createOwnerAuthVerifier,
   DEFAULT_OVERRIDE_MAX_PER_SESSION,
   deliverOverrideWebhook,
   deriveOwnerAuthToken,
@@ -1255,6 +1261,7 @@ export {
   recordAndCheckOverrideLimit,
   resetOverrideCount,
   validateOwnerOverride,
+  verifyOwnerAuthPassword,
   verifyOwnerAuthToken,
 } from './security/owner-override-auth.js';
 // Shared-evidence tracker (T1502 / P0-6)

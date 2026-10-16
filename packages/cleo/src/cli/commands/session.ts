@@ -108,22 +108,23 @@ const startCommand = defineCommand({
 });
 
 /**
- * Prompt the owner for a password via TTY readline and derive the HMAC token.
+ * Prompt the owner for a password via TTY readline and derive the stored
+ * owner-auth verifier (scrypt, T13787).
  *
  * @param sessionName - Session name used for display purposes.
- * @returns The derived HMAC token, or null if the user cancelled.
+ * @returns The verifier, or null if the user cancelled.
  *
  * @task T1118
  * @task T1123
+ * @task T13787
  */
 async function promptOwnerAuthPassword(sessionName: string): Promise<string | null> {
   const { readOwnerPassword } = await import('../lib/owner-password.js');
   const password = await readOwnerPassword(`session "${sessionName}"`, 'session.start');
   if (!password) return null;
-  const { deriveOwnerAuthToken } = await import('@cleocode/core/internal');
-  // Derive the HMAC token using sessionName as a temporary key.
-  // The dispatch handler will re-derive with the real session ID.
-  return deriveOwnerAuthToken(sessionName, password);
+  // T13787: a slow scrypt verifier, not the bare HMAC token (offline brute force).
+  const { createOwnerAuthVerifier } = await import('@cleocode/core/internal');
+  return createOwnerAuthVerifier(password);
 }
 
 /** cleo session end — end the current session */

@@ -352,9 +352,8 @@ export const BRANCH_LOCK_ERROR_CODES = {
    */
   E_OVERRIDE_NOT_OWNER: 'E_OVERRIDE_NOT_OWNER',
   /**
-   * T1501 / P0-5: per-session cap (default 3) exceeded without a valid waiver doc.
-   * Set CLEO_OWNER_OVERRIDE_WAIVER=<absolute path> to a file containing
-   * `cap-waiver: true` in its frontmatter to bypass the cap.
+   * T1501 / P0-5: per-session cap exceeded. The cap is the owner's sealed
+   * `evidence.overrideCapPerSession` (default 10, T13787); no waiver lifts it.
    */
   E_OVERRIDE_CAP_EXCEEDED: 'E_OVERRIDE_CAP_EXCEEDED',
   /**

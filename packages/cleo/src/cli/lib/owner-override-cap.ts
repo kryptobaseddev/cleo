@@ -11,14 +11,8 @@ import { ExitCode } from '@cleocode/contracts/exit-codes.js';
 import { cliError, cliOutput } from '../renderers/index.js';
 import { readOwnerPassword } from './owner-password.js';
 
-/**
- * Set the owner override cap from the CLI, prompting for the owner-auth
- * password only where an owner can answer (a TTY and an owner-auth session).
- *
- * @param rawValue - The value as typed.
- * @task T13787
- */
-export async function runOwnerOverrideCapSet(rawValue: string): Promise<void> {
+/** The bound session with its owner-auth verifier, and the password when an owner can answer. */
+async function ownerCaller(purpose: string) {
   const [core, { getProjectRoot }] = await Promise.all([
     import('@cleocode/core/internal'),
     import('@cleocode/core/project-scope'),
@@ -27,16 +21,54 @@ export async function runOwnerOverrideCapSet(rawValue: string): Promise<void> {
   const sessionId = await core.resolveBoundSessionId(root);
   const auth = sessionId ? await core.getSessionOwnerAuth(sessionId, root) : null;
   const canAsk = Boolean(process.stdin.isTTY && process.stderr.isTTY && auth?.token);
-  const password = canAsk
-    ? ((await readOwnerPassword(core.OVERRIDE_CAP_SETTING, 'config.set')) ?? '')
-    : '';
-  const result = await core.setOwnerOverrideCap(root, {
-    value: Number(rawValue),
-    password,
-    session: sessionId
-      ? { id: sessionId, name: auth?.name ?? null, token: auth?.token ?? null }
-      : null,
-  });
+  const password = canAsk ? ((await readOwnerPassword(purpose, 'config')) ?? '') : '';
+  const session = sessionId
+    ? { id: sessionId, name: auth?.name ?? null, token: auth?.token ?? null }
+    : null;
+  return { core, root, caller: { password, session } };
+}
+
+/**
+ * `cleo config owner-enroll [--reset]`: enroll this project's owner key
+ * (T13787), explicitly — never as a side effect of a set.
+ *
+ * @param reset - Replace an existing enrollment (audited).
+ * @task T13787
+ */
+export async function runOwnerEnroll(reset: boolean): Promise<void> {
+  const { core, root, caller } = await ownerCaller('owner enrollment');
+  const result = await core.enrollOwner(root, caller, { reset });
+  if (!result.ok) {
+    cliError(
+      result.message,
+      ExitCode.GENERAL_ERROR,
+      { name: result.code },
+      { operation: 'config.owner-enroll' },
+    );
+    process.exit(ExitCode.GENERAL_ERROR);
+    return;
+  }
+  cliOutput(
+    {
+      fingerprint: result.fingerprint,
+      reset: result.reset,
+      file: '.cleo/owner-settings.json',
+      next: 'Commit .cleo/owner-settings.json so a delete or forge shows in git.',
+    },
+    { command: 'config-owner-enroll', operation: 'config.owner-enroll' },
+  );
+}
+
+/**
+ * Set the owner override cap from the CLI, prompting for the owner-auth
+ * password only where an owner can answer (a TTY and an owner-auth session).
+ *
+ * @param rawValue - The value as typed.
+ * @task T13787
+ */
+export async function runOwnerOverrideCapSet(rawValue: string): Promise<void> {
+  const { core, root, caller } = await ownerCaller('evidence.overrideCapPerSession');
+  const result = await core.setOwnerOverrideCap(root, { ...caller, value: Number(rawValue) });
   if (!result.ok) {
     const exit =
       result.code === 'E_VALIDATION' ? ExitCode.VALIDATION_ERROR : ExitCode.GENERAL_ERROR;
