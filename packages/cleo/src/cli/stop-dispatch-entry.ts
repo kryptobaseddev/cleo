@@ -244,9 +244,10 @@ export function processStopDispatchDeps(
 }
 
 /**
- * Whether `.opencode/goals/` exists at or above the Stop's project: the harness
- * project directory (`CLAUDE_PROJECT_DIR`), else the payload's `cwd`, else the
- * process's.
+ * Whether `.opencode/goals/` exists at or above the Stop's project (the harness
+ * project directory `CLAUDE_PROJECT_DIR`, else the payload's `cwd`, else the
+ * process's), searching no higher than the repository: the first directory
+ * holding `.git` or `.cleo`.
  *
  * @param input - The Stop JSON.
  * @param env - Environment.
@@ -266,6 +267,9 @@ export function hasGoalWorkspace(
   let dir = resolve(env.CLAUDE_PROJECT_DIR || cwd || process.cwd());
   for (;;) {
     if (existsSync(join(dir, '.opencode', 'goals'))) return true;
+    // The repository root bounds the search (a monorepo keeps goals there): a stray
+    // `~/.opencode/goals` above it must not turn the tick on for every project below.
+    if (existsSync(join(dir, '.git')) || existsSync(join(dir, '.cleo'))) return false;
     const up = dirname(dir);
     if (up === dir) return false;
     dir = up;

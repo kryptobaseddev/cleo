@@ -363,4 +363,50 @@ describe('closeGoal (T13794)', () => {
       rmSync(outside, { force: true });
     }
   });
+
+  it('names the head commit for cleo done --commit only once it has landed and nothing else gives a change set', async () => {
+    const a = await seed('task a', ['src/a.ts exports a = 2']);
+    writeFileSync(join(root, 'src', 'a.ts'), 'export const a = 2;\n');
+    git(['commit', '-q', '-am', `fix(${a}): change a`]);
+    const head = git(['rev-parse', 'HEAD']);
+    const slug = 'landed-fixture';
+    const criteria = [
+      `{id: C1, statement: a.ts changed, essential: true, check: {kind: contains, path: src/a.ts, text: "a = 2"}, proves: ["${a}#AC1"]}`,
+    ];
+    const outcome = (lock: string): GoalOutcome => ({
+      schema: 'goal-outcome/v1',
+      goal: slug,
+      lock,
+      baseCommit: null,
+      headCommit: head,
+      results: [pass('C1', { kind: 'contains', paths: ['src/a.ts'] })],
+    });
+    // Not on origin's default branch yet: no completion commit.
+    const lock = writeContract(slug, criteria, [a]);
+    const before = await closeGoal(slug, {
+      projectRoot: root,
+      outcomePath: writeOutcome(outcome(lock)),
+      deps,
+    });
+    if (!before.success) throw new Error(before.error.message);
+    expect(before.data.tasks[0]?.ready).toBe(true);
+    expect(before.data.tasks[0]?.completionCommit).toBeUndefined();
+
+    const origin = `${root}-origin.git`;
+    execFileSync('git', ['init', '-q', '--bare', '-b', 'main', origin]);
+    try {
+      git(['remote', 'add', 'origin', origin]);
+      git(['push', '-q', '-u', 'origin', 'main']);
+      git(['remote', 'set-head', 'origin', 'main']);
+      const after = await closeGoal(slug, {
+        projectRoot: root,
+        outcomePath: writeOutcome(outcome(lock)),
+        deps,
+      });
+      if (!after.success) throw new Error(after.error.message);
+      expect(after.data.tasks[0]?.completionCommit).toBe(head);
+    } finally {
+      rmSync(origin, { recursive: true, force: true });
+    }
+  });
 });
