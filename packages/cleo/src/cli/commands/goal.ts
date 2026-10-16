@@ -251,7 +251,8 @@ const draftCommand = defineCommand({
     tasks: { type: 'string', description: 'More task ids the goal serves, comma-separated' },
     out: {
       type: 'string',
-      description: 'Output path (default .opencode/goals/<slug>/goal.yaml)',
+      description:
+        'Output file <id>/goal.yaml inside the project; <id> becomes the goal id (default .opencode/goals/<slug>/goal.yaml)',
     },
   },
   async run({ args }) {
@@ -262,15 +263,6 @@ const draftCommand = defineCommand({
           .filter(Boolean),
       ),
     ];
-    const invalid = ids.filter((id) => !isValidGoalTargetTaskId(id));
-    if (ids.length === 0 || invalid.length > 0) {
-      cliError(
-        `goal draft needs task ids (T<digits>)${invalid.length ? `; got ${invalid.join(', ')}` : ''}`,
-        ExitCode.VALIDATION_ERROR,
-        { name: 'E_VALIDATION' },
-      );
-      return;
-    }
     const { draftGoal } = await import('@cleocode/core/goal/draft.js');
     const result = await draftGoal(ids, {
       projectRoot: getProjectRoot(),

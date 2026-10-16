@@ -1233,8 +1233,17 @@ function gateEnvironment(
   return { ...merged, ...heavyToolEnv('test', merged) };
 }
 
-/** Resolve the actual executable inputs once using the same rules as process launch. */
-function executableInvocation(
+/**
+ * Resolve the actual executable inputs once using the same rules as process
+ * launch. Exported so `cleo goal draft` spells a gate's command exactly as it
+ * runs (T13793).
+ *
+ * @param gate - The gate.
+ * @param root - Project root its `cwd` resolves against.
+ * @param env - Environment the gate's `env` overlays.
+ * @returns The invocation, or undefined for a gate that runs no process.
+ */
+export function executableInvocation(
   gate: AcceptanceGate,
   root: string,
   env: NodeJS.ProcessEnv,
@@ -2132,8 +2141,12 @@ async function runCommandGate(
   return processGateResult(index, gate, captured, reason ? 'fail' : 'pass', reason);
 }
 
-/** Tool-specific CLI arguments and failure patterns. */
-const LINT_TOOL_DEFAULTS: Record<
+/**
+ * Tool-specific executable, default arguments and failure pattern of a typed
+ * lint gate. A gate fails on a non-zero exit, and with `expect: 'clean'` also
+ * when the output matches `errorPattern`. Shared with `cleo goal draft` (T13793).
+ */
+export const LINT_TOOL_DEFAULTS: Record<
   LintGate['tool'],
   { cmd: string; defaultArgs: string[]; errorPattern?: RegExp }
 > = {
