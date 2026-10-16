@@ -868,6 +868,101 @@ describe('minCount with a non-runner wrapper command (T13753)', () => {
   });
 });
 
+/**
+ * A JSON reporter redirected to a file (vitest `outputFile`, VidaPeps T2027:
+ * `.vitest/json/output.json`) still yields this run's counts, and only this
+ * run's: a report the run did not write is never read (T13782).
+ */
+describe('minCount reads a JSON report file this run wrote (T13782)', () => {
+  const rel = join('.vitest', 'json', 'output.json');
+  function report(passing: number, startTime: number): string {
+    return JSON.stringify({
+      startTime,
+      numTotalTests: passing,
+      numPassedTests: passing,
+      numFailedTests: 0,
+      numPendingTests: 0,
+      numTodoTests: 0,
+      numTotalTestSuites: 1,
+      numPassedTestSuites: 1,
+      numFailedTestSuites: 0,
+      numPendingTestSuites: 0,
+      success: true,
+      testResults: [
+        {
+          name: 'a.test.ts',
+          status: 'passed',
+          assertionResults: Array.from({ length: passing }, (_, i) => ({
+            fullName: `t${i}`,
+            status: 'passed',
+          })),
+        },
+      ],
+    });
+  }
+  /** A gate whose command writes `body()` (evaluated in the child) to `target`. */
+  const gate = (source: string, args: string[] = []) => ({
+    kind: 'test' as const,
+    description: 'vitest json redirected to a file',
+    command: process.execPath,
+    args: ['-e', source, ...args],
+    expect: 'pass' as const,
+    minCount: 3,
+  });
+  const writer = (target: string, startTime: string) =>
+    `const fs=require('node:fs');const p=require('node:path');const t=${target};` +
+    `fs.mkdirSync(p.dirname(t),{recursive:true});` +
+    `fs.writeFileSync(t, JSON.stringify(Object.assign(${report(3, 0)},{startTime:${startTime}})));`;
+
+  beforeEach(() => rm(join(projectRoot, '.vitest'), { recursive: true, force: true }));
+
+  it('passes on the redirected report the run wrote, with its counts', async () => {
+    const [result] = await runGates([gate(writer(JSON.stringify(rel), 'Date.now()'))], {
+      projectRoot,
+    });
+    expect(result?.result, result?.errorMessage).toBe('pass');
+  });
+
+  it('reads the file a --outputFile argument names', async () => {
+    const [result] = await runGates(
+      [
+        gate(writer('process.argv.at(-1).split("=")[1]', 'Date.now()'), [
+          '--',
+          '--outputFile=out/r.json',
+        ]),
+      ],
+      { projectRoot },
+    );
+    expect(result?.result, `${result?.errorMessage} ${result?.execution?.stderr}`).toBe('pass');
+  });
+
+  it('red: a report left by an earlier run is never read', async () => {
+    await mkdir(join(projectRoot, '.vitest', 'json'), { recursive: true });
+    await writeFile(join(projectRoot, rel), report(3, Date.now() - 60_000));
+    const [result] = await runGates([gate('process.exit(0)')], { projectRoot });
+    expect(result?.result).toBe('error');
+    expect(result?.errorMessage).toMatch(/minCount 3 cannot be proved/);
+  });
+
+  it('red: rewriting the same stale bytes does not make them this run\u2019s', async () => {
+    const stale = report(3, Date.now() - 60_000);
+    await mkdir(join(projectRoot, '.vitest', 'json'), { recursive: true });
+    await writeFile(join(projectRoot, rel), stale);
+    const [result] = await runGates(
+      [gate(`require('node:fs').writeFileSync(${JSON.stringify(rel)}, ${JSON.stringify(stale)})`)],
+      { projectRoot },
+    );
+    expect(result?.result).toBe('error');
+  });
+
+  it('red: a freshly copied report whose run started before this one is refused', async () => {
+    const [result] = await runGates([gate(writer(JSON.stringify(rel), 'Date.now() - 60000'))], {
+      projectRoot,
+    });
+    expect(result?.result).toBe('error');
+  });
+});
+
 describe('gate runner immutable lifetime and bounded evidence', () => {
   afterEach(() => {
     vi.unstubAllGlobals();
