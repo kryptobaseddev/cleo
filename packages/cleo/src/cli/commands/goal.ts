@@ -317,13 +317,20 @@ const closeCommand = defineCommand({
       process.exitCode = closed.error.exitCode ?? 1;
       return;
     }
-    const ready = closed.data.tasks.filter((t) => t.ready).map((t) => t.taskId);
+    const ready = closed.data.tasks.filter((t) => t.ready);
     const completions: Array<Record<string, unknown>> = [];
     if (ready.length > 0) {
       const { recordTasksDone } = await import('@cleocode/core/tasks/done-record.js');
       const { doneBatchEntry } = await import('./done.js');
-      for (const { taskId, result } of await recordTasksDone(ready, { projectRoot })) {
-        completions.push(await doneBatchEntry(taskId, result, { taskId }));
+      for (const task of ready) {
+        // T13799: landed work no PR or branch cites completes from the run's head commit.
+        const commit = task.completionCommit ? { commit: task.completionCommit } : {};
+        for (const { taskId, result } of await recordTasksDone([task.taskId], {
+          projectRoot,
+          ...commit,
+        })) {
+          completions.push(await doneBatchEntry(taskId, result, { taskId }));
+        }
       }
     }
     cliOutput(
