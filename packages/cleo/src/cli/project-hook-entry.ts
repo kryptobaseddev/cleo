@@ -32,7 +32,14 @@ export async function runProjectHookCli(
   argv: readonly string[],
   io: HookIo = processIo(),
 ): Promise<number> {
-  if ((argv.indexOf('--') < 0 ? argv : argv.slice(0, argv.indexOf('--'))).includes('--probe')) {
+  const separator = argv.indexOf('--');
+  if ((separator < 0 ? argv : argv.slice(0, separator)).includes('--probe')) {
+    // `--probe -- execution` (T13774) says whether this build runs hooks; older builds answer V1.
+    if (separator >= 0 && argv[separator + 1] === 'execution') {
+      const { hooksV1Released } = await import('@cleocode/core/hooks/release-gate');
+      io.writeStdout(hooksV1Released() ? 'CLEO_PROJECT_HOOK_EXEC\n' : 'CLEO_PROJECT_HOOK_INERT\n');
+      return 0;
+    }
     io.writeStdout('CLEO_PROJECT_HOOK_V1\n');
     return 0;
   }

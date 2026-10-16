@@ -123,11 +123,27 @@ ungated() {
   printf 'cleo pre-push: WARNING: push NOT gated by project hooks: %s.%s Run cleo doctor hooks.\n' "$1" "$active" >&2
 }
 if command -v cleo >/dev/null 2>&1; then
-  capability=$(cleo hook run --probe < /dev/null 2>/dev/null) || capability=""
-  if [ "$capability" != "CLEO_PROJECT_HOOK_V1" ]; then
-    ungated "$(command -v cleo) has no project hook runner (a release without hooks-v1?)"
-    exit 0
-  fi
+  where=$(command -v cleo)
+  version=$(cleo --version 2>/dev/null | sed -n 's/.*"version":"\([^"]*\)".*/\1/p' | head -n 1)
+  capability=$(cleo hook run --probe -- execution < /dev/null 2>/dev/null) || capability=""
+  case "$capability" in
+    CLEO_PROJECT_HOOK_EXEC) ;;
+    CLEO_PROJECT_HOOK_INERT)
+      ungated "cleo ${version:-?} at $where runs no project hooks (hooks-v1 is not released in that build)"
+      exit 0
+      ;;
+    CLEO_PROJECT_HOOK_V1)
+      # A build before T13774: stable releases before 2026.10.17 carry the runner but keep it inert.
+      if printf '%s\n' "$version" | awk -F. '!/-canary\./ && NF >= 3 { exit !($1 * 100000 + $2 * 1000 + $3 < 202610017) } { exit 1 }'; then
+        ungated "cleo $version at $where predates hooks-v1 and runs no project hooks"
+        exit 0
+      fi
+      ;;
+    *)
+      ungated "cleo ${version:-?} at $where has no project hook runner"
+      exit 0
+      ;;
+  esac
   status=0
   cleo hook run --source git --event pre-push -- "$@" < "$REF_INPUT" || status=$?
   case "$status" in

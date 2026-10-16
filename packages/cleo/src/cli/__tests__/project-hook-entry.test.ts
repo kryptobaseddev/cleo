@@ -45,6 +45,16 @@ describe('native shared hook entry', () => {
     expect(streams.readStdin).not.toHaveBeenCalled();
     expect(execute).not.toHaveBeenCalled();
   });
+  it('answers the execution probe with whether this build runs hooks (T13774)', async () => {
+    const streams = io('');
+    expect(await runProjectHookCli(['--probe', '--', 'execution'], streams)).toBe(0);
+    const { hooksV1Released } = await import('@cleocode/core/hooks/release-gate');
+    expect(streams.writeStdout).toHaveBeenCalledWith(
+      hooksV1Released() ? 'CLEO_PROJECT_HOOK_EXEC\n' : 'CLEO_PROJECT_HOOK_INERT\n',
+    );
+    expect(streams.readStdin).not.toHaveBeenCalled();
+    expect(execute).not.toHaveBeenCalled();
+  });
   it('keeps agents advisory and returns no permission decision or updated input', async () => {
     const streams = io('{"cwd":"/checkout/nested","tool_input":{"command":"pwd"}}');
     expect(await runProjectHookCli(['--provider', 'codex'], streams)).toBe(0);
