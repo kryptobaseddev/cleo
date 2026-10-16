@@ -14,7 +14,7 @@ import type { EvidenceAtom } from '@cleocode/contracts';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { testRunTreeMismatchReason } from '../affected-scope.js';
 import { validateAtom } from '../evidence.js';
-import { reportFreshness } from '../test-run-binding.js';
+import { reportFreshness, testRunCoversChange } from '../test-run-binding.js';
 import { captureTreeHash } from '../tool-cache.js';
 
 function git(dir: string, args: string[], env: NodeJS.ProcessEnv = {}): string {
@@ -443,6 +443,104 @@ describe('a report must be fresher than the change and cover it (T12965 review)'
       const path = report([pkgTest('a'), pkgTest('c')], Date.now() + 5_000);
       const r = await validateAtom({ kind: 'test-run', path }, root);
       expect(r.ok && r.atom, JSON.stringify(r)).toMatchObject({ untestedPackages: ['@x/d'] });
+    });
+
+    describe('a change outside every package, in a directory with tests (T13754)', () => {
+      const tool = (f: string): string => join(root, 'tooling', 'bridge', f);
+      beforeEach(() => {
+        // The tool and its tests are on main; the task branch edits the tool
+        // and one of its tests (VidaPeps T2063: tooling/print-bridge/*).
+        git(root, ['switch', '-q', 'main']);
+        mkdirSync(join(root, 'tooling', 'bridge'), { recursive: true });
+        writeFileSync(tool('bridge.mjs'), 'export const b = 1;\n');
+        writeFileSync(tool('bridge.test.mjs'), 'export {};\n');
+        writeFileSync(tool('queue.test.mjs'), 'export {};\n');
+        git(root, ['add', '.']);
+        git(root, ['commit', '-q', '-m', 'tooling']);
+        git(root, ['push', '-q', 'origin', 'main']);
+        git(root, ['switch', '-q', '-c', 'task/T3']);
+        writeFileSync(tool('bridge.mjs'), 'export const b = 2;\n');
+        writeFileSync(tool('bridge.test.mjs'), 'export const t = 2;\n');
+        git(root, ['commit', '-q', '-am', 'T3: change the bridge']);
+      });
+
+      it('green: a report passing every test file of the directory stands', async () => {
+        const path = report([tool('bridge.test.mjs'), tool('queue.test.mjs')], Date.now() + 5_000);
+        const r = await validateAtom({ kind: 'test-run', path }, root);
+        expect(r.ok, JSON.stringify(r)).toBe(true);
+      });
+
+      it('red: running only the edited test file leaves the directory uncovered', async () => {
+        const path = report([tool('bridge.test.mjs')], Date.now() + 5_000);
+        const r = await validateAtom({ kind: 'test-run', path }, root);
+        expect(!r.ok && r.reason, JSON.stringify(r)).toMatch(
+          /does not run tooling\/bridge\/queue\.test\.mjs.*outside every workspace package/,
+        );
+      });
+
+      it('red: a mixed change must also cover the changed package', async () => {
+        writeFileSync(join(root, 'packages', 'a', 'src', 'index.ts'), 'export const x = 2;\n');
+        git(root, ['commit', '-q', '-am', 'T3: change a too']);
+        const tooling = [tool('bridge.test.mjs'), tool('queue.test.mjs')];
+        const short = await validateAtom(
+          { kind: 'test-run', path: report(tooling, Date.now() + 5_000) },
+          root,
+        );
+        expect(!short.ok && short.reason).toMatch(/covers no test file of @x\/a \(changed\)/);
+        const full = await validateAtom(
+          {
+            kind: 'test-run',
+            path: report([...tooling, pkgTest('a'), pkgTest('c')], Date.now() + 5_000),
+          },
+          root,
+        );
+        expect(full.ok, JSON.stringify(full)).toBe(true);
+      });
+
+      it('red (review of #2283): a sibling test beside a shared module does not skip its consumers', async () => {
+        // bridge.test.mjs imports ../shared/util.mjs; a trivial util.test.mjs
+        // added beside it must not narrow the owed run to tooling/shared.
+        mkdirSync(join(root, 'tooling', 'shared'), { recursive: true });
+        writeFileSync(join(root, 'tooling', 'shared', 'util.mjs'), 'export const u = 1;\n');
+        writeFileSync(tool('bridge.test.mjs'), "import '../shared/util.mjs';\n");
+        git(root, ['add', '.']);
+        git(root, ['commit', '-q', '-m', 'T3: shared util']);
+        writeFileSync(join(root, 'tooling', 'shared', 'util.mjs'), 'export const u = 2;\n');
+        writeFileSync(join(root, 'tooling', 'shared', 'util.test.mjs'), 'export {};\n');
+        git(root, ['add', '.']);
+        git(root, ['commit', '-q', '-m', 'T3: change util, add a trivial test']);
+        const changed = ['tooling/shared/util.mjs', 'tooling/shared/util.test.mjs'];
+        const narrow = testRunCoversChange(root, changed, ['tooling/shared/util.test.mjs']);
+        expect(!narrow.ok && narrow.reason, JSON.stringify(narrow)).toMatch(
+          /does not run tooling\/bridge\/bridge\.test\.mjs/,
+        );
+        const whole = testRunCoversChange(root, changed, [
+          'tooling/bridge/bridge.test.mjs',
+          'tooling/bridge/queue.test.mjs',
+          'tooling/shared/util.test.mjs',
+        ]);
+        expect(whole.ok, JSON.stringify(whole)).toBe(true);
+      });
+
+      it('the post-merge stand-in rule judges the same coverage', () => {
+        const changed = ['tooling/bridge/bridge.mjs', 'tooling/bridge/bridge.test.mjs'];
+        expect(
+          testRunCoversChange(root, changed, [
+            'tooling/bridge/bridge.test.mjs',
+            'tooling/bridge/queue.test.mjs',
+          ]).ok,
+        ).toBe(true);
+        expect(testRunCoversChange(root, changed, ['tooling/bridge/bridge.test.mjs']).ok).toBe(
+          false,
+        );
+        expect(
+          testRunCoversChange(
+            root,
+            ['pnpm-lock.yaml', ...changed],
+            ['tooling/bridge/bridge.test.mjs', 'tooling/bridge/queue.test.mjs'],
+          ).ok,
+        ).toBe(false);
+      });
     });
 
     describe('a workspace-wide change needs tool:test (T12965 review)', () => {

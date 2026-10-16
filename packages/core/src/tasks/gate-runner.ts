@@ -66,6 +66,7 @@ import {
   acceptanceGateResultSchema,
   acceptanceGateSchema,
   testCountReportSchema,
+  testCountSummarySchema,
 } from '@cleocode/contracts/acceptance-gate-schema.js';
 import type { OperationExecutionContext } from '@cleocode/contracts/jobs';
 import type {
@@ -1667,7 +1668,7 @@ function processGateResult(
   index: number,
   gate: AcceptanceGate,
   captured: ProcessCaptureResult,
-  verdict: 'pass' | 'fail',
+  verdict: 'pass' | 'fail' | 'error',
   reason?: string,
 ): AcceptanceGateResult {
   const incomplete =
@@ -1719,6 +1720,13 @@ function matchingBrace(text: string, start: number): number {
   return -1;
 }
 
+/** The counts a structured report (full or summary) proves. */
+interface StructuredTestCounts {
+  numPassedTests: number;
+  numFailedTests?: number;
+  success?: boolean;
+}
+
 /**
  * Structured test counts emitted by THIS gate's own process, or `null`.
  *
@@ -1736,16 +1744,27 @@ function matchingBrace(text: string, start: number): number {
  * a report file named by the task could have been produced by any run, of any
  * code, at any time. Only the bytes this invocation emitted are bound to it.
  *
+ * A non-runner command (a wrapper script) may instead print a bare count
+ * summary ({@link testCountSummarySchema}) as its last stdout line (T13753).
+ *
  * @param captured - Result of running the gate command.
  * @returns Validated counts, or `null` when the run emitted no usable report.
  * @task T12308
+ * @task T13753
  */
-function structuredTestCounts(
-  captured: ProcessCaptureResult,
-): ReturnType<typeof testCountReportSchema.parse> | null {
+function structuredTestCounts(captured: ProcessCaptureResult): StructuredTestCounts | null {
+  const lastLine = captured.stdout.trimEnd().split('\n').at(-1)?.trim() ?? '';
+  if (lastLine.startsWith('{')) {
+    try {
+      const summary = testCountSummarySchema.safeParse(JSON.parse(lastLine));
+      if (summary.success) return summary.data;
+    } catch {
+      // Not JSON: fall through to the full-report search.
+    }
+  }
   const text = `${captured.stdout}\n${captured.stderr}`.trim();
   if (text.length === 0) return null;
-  const tryParse = (candidate: string): ReturnType<typeof testCountReportSchema.parse> | null => {
+  const tryParse = (candidate: string): StructuredTestCounts | null => {
     try {
       const report = testCountReportSchema.safeParse(JSON.parse(candidate));
       return report.success ? report.data : null;
@@ -1810,10 +1829,19 @@ const ZERO_FAILURE_COUNT =
   /\b0\s+(?:fail(?:ed|ing|ures?)?)\b|\bfail(?:ed|ing|ures?)?\s*[:=]?\s*0(?![\d.])/gi;
 
 /**
+ * A runner's line for one PASSING test (vitest/jest `✓`, mocha `✔`/`√`, TAP
+ * `ok 3 - name`, jest `PASS file`): its text is a test name, never a verdict
+ * (T13752). TAP `not ok` does not match.
+ */
+const PASSING_TEST_LINE = /^\s*(?:[✓✔√]|ok\s+\d|PASS\s).*$/gmu;
+
+/**
  * Whether a test command's output reports a failure, for `expect: 'pass'`:
  * a `FAIL`, `failing` or `Error:` token, after removing summaries that report
  * zero failures (T13511 — `node --test` prints `ℹ fail 0` on success, which
- * the bare pattern read as a failure). A non-zero count still matches.
+ * the bare pattern read as a failure) and passing-test lines, whose test names
+ * routinely say "failure" (T13752). A non-zero count still matches.
+ * Only consulted when the run emitted no structured report.
  *
  * @param stdout - The command's captured stdout.
  * @returns True when the output reports a failure.
@@ -1823,12 +1851,13 @@ const ZERO_FAILURE_COUNT =
  * outputReportsFailure('ℹ pass 2\nℹ fail 1'); // true
  * ```
  * @task T13511
+ * @task T13752
  */
 export function outputReportsFailure(stdout: string): boolean {
   // T13516: a non-zero count (`3 failed`, `1 failure`) is a failure too; the
   // FAIL token alone needs a word boundary, so `failed` never matched it.
   return /\bFAIL\b|failing|Error:|\b[1-9]\d*\s+fail(?:ed|ures?)\b/i.test(
-    stdout.replace(ZERO_FAILURE_COUNT, ''),
+    stdout.replace(PASSING_TEST_LINE, '').replace(ZERO_FAILURE_COUNT, ''),
   );
 }
 
@@ -1849,47 +1878,40 @@ async function runTestGate(
     context,
     gate.env,
   );
-  const exitOk =
-    captured.exitCode === 0 && (gate.expect === 'exit0' || !outputReportsFailure(captured.stdout));
+  // T13752: a structured report decides the verdict; the text heuristic only
+  // runs without one, since report JSON and test names are full of "failure".
+  const counts = structuredTestCounts(captured);
 
-  // T12308: `minCount` was declarable, storable and never satisfiable — the
-  // runner rejected any positive value outright, so a task could carry a gate
-  // that no amount of passing tests could turn green. The counts now come from
-  // this run's own validated report; only their ABSENCE is still an error,
-  // because inferring a count from exit zero is the thing that must not happen.
+  // T12308: the counts come from this run's own validated report; only their
+  // ABSENCE is an error, because inferring a count from exit zero is the thing
+  // that must not happen. T13753: the error keeps the run's execution record.
   if (gate.minCount !== undefined && gate.minCount > 0) {
-    const report = structuredTestCounts(captured);
-    if (report === null) throw new Error(describeMissingTestCount(gate));
-    if (report.numPassedTests < gate.minCount)
+    if (counts === null)
+      return processGateResult(index, gate, captured, 'error', describeMissingTestCount(gate));
+    if (counts.numPassedTests < gate.minCount)
       return processGateResult(
         index,
         gate,
         captured,
         'fail',
-        `Structured report counts ${report.numPassedTests} passing tests, below the required minimum of ${gate.minCount}`,
+        `Structured report counts ${counts.numPassedTests} passing tests, below the required minimum of ${gate.minCount}`,
       );
-    if (!exitOk)
-      return processGateResult(
-        index,
-        gate,
-        captured,
-        'fail',
-        captured.exitCode === 0
-          ? 'Failure pattern detected in output'
-          : `Exit code ${captured.exitCode}`,
-      );
-    return processGateResult(index, gate, captured, 'pass');
   }
-
-  return processGateResult(
-    index,
-    gate,
-    captured,
-    exitOk ? 'pass' : 'fail',
-    captured.exitCode === 0
-      ? 'Failure pattern detected in output'
-      : `Exit code ${captured.exitCode}`,
-  );
+  if (captured.exitCode !== 0)
+    return processGateResult(index, gate, captured, 'fail', `Exit code ${captured.exitCode}`);
+  if (gate.expect === 'pass') {
+    if (counts !== null && ((counts.numFailedTests ?? 0) > 0 || counts.success === false))
+      return processGateResult(
+        index,
+        gate,
+        captured,
+        'fail',
+        `Structured report counts ${counts.numFailedTests ?? 0} failing tests (success: ${counts.success ?? 'unreported'})`,
+      );
+    if (counts === null && outputReportsFailure(captured.stdout))
+      return processGateResult(index, gate, captured, 'fail', 'Failure pattern detected in output');
+  }
+  return processGateResult(index, gate, captured, 'pass');
 }
 
 // ─── File gate ────────────────────────────────────────────────────────────────

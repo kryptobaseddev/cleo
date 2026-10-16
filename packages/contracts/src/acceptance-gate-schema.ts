@@ -165,6 +165,37 @@ export const testCountReportSchema = z
     }
   });
 
+/**
+ * Validates a bare count summary a non-runner gate command prints as its LAST
+ * stdout line (T13753): `{"numPassedTests":13,"numFailedTests":0}`, where
+ * `numFailedTests`, `numTotalTests` and `success` are optional but must agree
+ * when present. A document carrying `testResults` claims to be a full report
+ * and must satisfy {@link testCountReportSchema} instead.
+ *
+ * @example
+ * ```ts
+ * testCountSummarySchema.safeParse({ numPassedTests: 13, numFailedTests: 0 }).success; // true
+ * ```
+ */
+export const testCountSummarySchema = z
+  .object({
+    numPassedTests: z.number().int().nonnegative().safe(),
+    numFailedTests: z.number().int().nonnegative().safe().optional(),
+    numTotalTests: z.number().int().nonnegative().safe().optional(),
+    success: z.boolean().optional(),
+    testResults: z.undefined(),
+  })
+  .superRefine((summary, context) => {
+    const failed = summary.numFailedTests ?? 0;
+    if (
+      summary.numTotalTests !== undefined &&
+      summary.numTotalTests < summary.numPassedTests + failed
+    )
+      context.addIssue({ code: 'custom', message: 'Total is below passed plus failed' });
+    if (summary.success === true && failed > 0)
+      context.addIssue({ code: 'custom', message: 'Success status contradicts failed count' });
+  });
+
 /** Zod schema for {@link FileGate}. */
 export const fileGateSchema = gateBaseSchema.extend({
   kind: z.literal('file'),
