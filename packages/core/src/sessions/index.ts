@@ -364,7 +364,13 @@ export async function endSession(projectRoot: string, params: SessionEndParams):
           (e.domain === 'orchestrate' && e.operation === 'spawn' && e.result.success),
       ).length;
       if (delegateCount === 0) {
-        if (!process.env['CLEO_OWNER_OVERRIDE']) {
+        // T13790: only the owner (owner-marked session, own terminal) may override.
+        const { resolveOwnerOverride } = await import('../security/owner-override-authority.js');
+        const owner = await resolveOwnerOverride(projectRoot, {
+          surface: 'session end (lead bypass)',
+          sessionId: session.id,
+        });
+        if (!(owner.requested && owner.allowed)) {
           throw new LeadBypassDetectedError(completedCount, session.id);
         }
         // Override path: record to force-bypass.jsonl (best-effort)

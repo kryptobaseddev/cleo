@@ -25,8 +25,8 @@
  * The enrollment file is a file the same OS user can rewrite: an agent that
  * deliberately replaces the enrolled key and seal with its own can forge a
  * value. That is tamper-evident (the old key is gone, the audit log has no
- * matching set), not tamper-proof. And `CLEO_OWNER_OVERRIDE=1` itself is still
- * accepted from any agent without a restricted role (follow-up T13789).
+ * matching set), not tamper-proof. Who may use `CLEO_OWNER_OVERRIDE=1` at all
+ * is decided by `owner-override-authority.ts` (T13790).
  *
  * @task T13787
  */

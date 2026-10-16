@@ -346,6 +346,12 @@ export const BRANCH_LOCK_ERROR_CODES = {
   /** L4d: session override limit exceeded. */
   E_OVERRIDE_RATE_LIMIT: 'E_OVERRIDE_RATE_LIMIT',
   /**
+   * T13790: CLEO_OWNER_OVERRIDE from a caller that is not the owner — no
+   * owner-marked session (`cleo session start … --owner-auth`), or not on the
+   * owner's own terminal.
+   */
+  E_OVERRIDE_NOT_OWNER: 'E_OVERRIDE_NOT_OWNER',
+  /**
    * T1501 / P0-5: per-session cap (default 3) exceeded without a valid waiver doc.
    * Set CLEO_OWNER_OVERRIDE_WAIVER=<absolute path> to a file containing
    * `cap-waiver: true` in its frontmatter to bypass the cap.

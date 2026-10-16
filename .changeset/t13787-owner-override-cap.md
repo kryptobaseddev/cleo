@@ -1,8 +1,8 @@
 ---
 id: t13787-owner-override-cap
-tasks: [T13787]
+tasks: [T13787, T13790]
 kind: feat
-summary: "The owner override cap is a per-project owner-only setting, evidence.overrideCapPerSession (default 10, max 100)"
+summary: "Only the owner may use CLEO_OWNER_OVERRIDE, and the override cap is an owner-only per-project setting (evidence.overrideCapPerSession, default 10, max 100)"
 ---
 
 Owner decision 2026-10-16. The per-session `CLEO_OWNER_OVERRIDE` cap was a
@@ -30,6 +30,12 @@ refused. A value above 100 is clamped. The value is never written to
 
 `E_OVERRIDE_CAP_EXCEEDED` now names the setting and the owner command.
 
-**Remaining gap.** `CLEO_OWNER_OVERRIDE=1` itself is still accepted from any
-agent without a restricted role; T13789 proposes requiring the same owner-auth
-checks for it.
+**Who may override at all (T13790, owner decision 2026-10-16).**
+`CLEO_OWNER_OVERRIDE=1` keeps working without a password prompt, but only for
+the owner. The owner is a caller with no restricted role, in a session they
+started interactively with `--owner-auth`, running on their own terminal.
+Anyone else is refused with `E_OVERRIDE_NOT_OWNER`, and the refusal is audited.
+That covers an agent with no `CLEO_AGENT_ROLE`, a worker, lead or subagent, and
+an agent spawned from the owner's session. This applies to `cleo verify`, the
+AC-coverage bypass in `cleo complete`, the lifecycle scope guard, the lead
+bypass at `cleo session end`, and `cleo release reconcile`.

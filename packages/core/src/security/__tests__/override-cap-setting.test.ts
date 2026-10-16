@@ -203,6 +203,7 @@ describe('cleo verify enforces the owner setting (engine wiring)', () => {
     const { validateGateVerify } = await import('../../validation/engine-ops.js');
     const env = await createTestDb();
     process.env['CLEO_DIR'] = env.cleoDir;
+    let restoreOwner: () => void = () => {};
     try {
       const set = await setOwnerOverrideCap(env.tempDir, {
         value: 2,
@@ -222,12 +223,14 @@ describe('cleo verify enforces the owner setting (engine wiring)', () => {
       );
       process.env['CLEO_OWNER_OVERRIDE'] = '1';
       process.env['CLEO_OWNER_OVERRIDE_REASON'] = 'T13787 wiring test';
+      // T13790: the override itself needs the owner (owner-marked session).
+      const { actAsOwner } = await import('./owner-session.js');
+      restoreOwner = await actAsOwner(env.tempDir);
       const verify = () =>
         validateGateVerify(env.tempDir, {
           taskId: task.id,
           gate: 'cleanupDone',
           evidence: 'note:owner-approved cleanup',
-          sessionId: 'ses_cap_wiring',
         });
       expect((await verify()).success).toBe(true);
       expect((await verify()).success).toBe(true);
@@ -238,6 +241,7 @@ describe('cleo verify enforces the owner setting (engine wiring)', () => {
         /2 of 2 overrides used \(evidence\.overrideCapPerSession = 2\)/,
       );
     } finally {
+      restoreOwner();
       delete process.env['CLEO_OWNER_OVERRIDE'];
       delete process.env['CLEO_OWNER_OVERRIDE_REASON'];
       delete process.env['CLEO_DIR'];

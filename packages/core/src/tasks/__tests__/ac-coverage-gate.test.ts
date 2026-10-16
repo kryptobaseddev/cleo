@@ -22,6 +22,7 @@ import { join } from 'node:path';
 import { ExitCode } from '@cleocode/contracts';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { CleoError } from '../../errors.js';
+import { actAsOwner } from '../../security/__tests__/owner-session.js';
 import { createTestDb, type TestDbEnv } from '../../store/__tests__/test-db-helper.js';
 import type { DataAccessor } from '../../store/data-accessor.js';
 import { getDb, resetDbState } from '../../store/sqlite.js';
@@ -422,7 +423,14 @@ describe('completeTask — AC-coverage gate end-to-end (T10509)', () => {
     process.env['CLEO_OWNER_OVERRIDE_REASON'] = 'incident-1234 hotfix';
     process.env['CLEO_AGENT_ID'] = 'owner';
 
-    const result = await completeTask({ taskId: task.id }, env.tempDir, accessor);
+    // T13790: only the owner (owner-marked session, own terminal) may override.
+    const restore = await actAsOwner(env.tempDir);
+    let result: Awaited<ReturnType<typeof completeTask>>;
+    try {
+      result = await completeTask({ taskId: task.id }, env.tempDir, accessor);
+    } finally {
+      restore();
+    }
     expect(result.task.status).toBe('done');
 
     const rows = await readJsonl<Record<string, unknown>>(
@@ -433,6 +441,21 @@ describe('completeTask — AC-coverage gate end-to-end (T10509)', () => {
     expect(rows[0]?.['reason']).toBe('incident-1234 hotfix');
     expect(rows[0]?.['actor']).toBe('owner');
     expect(rows[0]?.['unsatisfied']).toHaveLength(2);
+  });
+
+  it('AC-5 (T13790): an override from an agent that is not the owner is refused and audited', async () => {
+    const { task } = await createTaskWithAcs(accessor, env.tempDir, 'Agent override refused', [
+      'First AC',
+    ]);
+    process.env['CLEO_OWNER_OVERRIDE'] = '1';
+    process.env['CLEO_OWNER_OVERRIDE_REASON'] = 'agent attempt';
+    await expect(completeTask({ taskId: task.id }, env.tempDir, accessor)).rejects.toMatchObject({
+      code: ExitCode.AC_COVERAGE_INCOMPLETE,
+    });
+    const rows = await readJsonl<Record<string, unknown>>(
+      join(env.tempDir, '.cleo', 'audit', 'force-bypass.jsonl'),
+    );
+    expect(rows.map((r) => r['action'])).toEqual(['override-refused']);
   });
 
   it('AC-6: mixed coverage — some ACs satisfied, others not → only the unsatisfied surface', async () => {

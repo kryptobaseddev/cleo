@@ -104,6 +104,32 @@ export async function getSessionOwnerAuth(
   });
 }
 
+/**
+ * Record a session's T1118 owner-auth token — the owner mark of
+ * `cleo session start --owner-auth` (T13790). Only the interactive session
+ * start writes it; no env var or spawn path does.
+ *
+ * @param sessionId - Session to mark.
+ * @param token - `HMAC(password, name)` from `deriveOwnerAuthToken`.
+ * @param cwd - Project root.
+ * @task T1118
+ * @task T13790
+ */
+export async function setSessionOwnerAuthToken(
+  sessionId: string,
+  token: string,
+  cwd?: string,
+): Promise<void> {
+  const scope = captureProjectScope(cwd ?? getProjectRoot(), worktreeScope.getStore());
+  await worktreeScope.run(scope, async () => {
+    const db = await getDb(scope.worktreeRoot);
+    db.update(schema.sessions)
+      .set({ ownerAuthToken: token })
+      .where(eq(schema.sessions.id, sessionId))
+      .run();
+  });
+}
+
 /** Update a session. */
 export async function updateSession(
   sessionId: string,

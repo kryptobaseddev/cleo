@@ -1573,6 +1573,7 @@ export {
   sessionAdoptedEndMessage,
   sessionLastSeenMs,
   sessionUnboundMessage,
+  setSessionOwnerAuthToken,
   touchSessionActivity,
 } from './store/session-store.js';
 export type {
