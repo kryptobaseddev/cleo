@@ -64,6 +64,7 @@ import { join, matchesGlob, resolve } from 'node:path';
 import type { HeavyToolResourcePlan } from '@cleocode/contracts';
 import { ExitCode } from '@cleocode/contracts/exit-codes.js';
 import { CleoError } from '../errors.js';
+import { discoveryEnv } from '../git/work-tree.js';
 import { ADMISSION_ENV, planFootprintBytes } from '../resources/admission-ledger.js';
 import { activeToolGroups, trackToolGroup } from '../resources/tool-groups.js';
 import { isLocked, withLock } from '../store/lock.js';
@@ -1112,6 +1113,7 @@ function spawnCmd(
   cwd: string,
   spawnTimeoutMs?: number,
   envOverlay?: Readonly<Record<string, string>>,
+  baseEnv: NodeJS.ProcessEnv = process.env,
 ): Promise<CommandResult> {
   return new Promise((resolve) => {
     const stdoutBuf = new TailBuffer(STREAM_TAIL_CAP_BYTES);
@@ -1124,7 +1126,7 @@ function spawnCmd(
       // because a consuming project cannot be relied on to bound its own test
       // runner — and CLEO's semaphore counts this whole tree as a single slot
       // even when it fans out across a workspace.
-      env: envOverlay === undefined ? process.env : { ...process.env, ...envOverlay },
+      env: envOverlay === undefined ? baseEnv : { ...baseEnv, ...envOverlay },
       // T12025: detached creates a new process group on POSIX so that
       // killProcessTree can signal every descendant. Without this a
       // tool like `pnpm test` that forks worker processes inheriting
@@ -1214,7 +1216,15 @@ function spawnCmd(
  * @task T1534
  */
 export async function captureHead(projectRoot: string): Promise<string | null> {
-  const r = await spawnCmd('git', ['rev-parse', 'HEAD'], projectRoot);
+  // T13695: the HEAD of `projectRoot` itself, never of an inherited GIT_DIR.
+  const r = await spawnCmd(
+    'git',
+    ['rev-parse', 'HEAD'],
+    projectRoot,
+    undefined,
+    undefined,
+    discoveryEnv(),
+  );
   if (r.exitCode !== 0) return null;
   return r.stdout.trim() || null;
 }
@@ -1309,7 +1319,12 @@ const FINGERPRINT_PATHSPEC: readonly string[] = [
 function hashGitStdout(args: readonly string[], cwd: string): Promise<string | null> {
   return new Promise((resolve) => {
     const hash = createHash('sha256');
-    const child = spawn('git', [...args], { cwd, stdio: ['ignore', 'pipe', 'ignore'] });
+    // T13695: fingerprint `cwd`'s own tree, never an inherited GIT_DIR/GIT_WORK_TREE.
+    const child = spawn('git', [...args], {
+      cwd,
+      env: discoveryEnv(),
+      stdio: ['ignore', 'pipe', 'ignore'],
+    });
     child.stdout?.on('data', (chunk: Buffer) => hash.update(chunk));
     child.on('error', () => resolve(null));
     child.on('close', (code) => {
@@ -1418,6 +1433,7 @@ function resolveRuntimePaths(root: string, protectedInputs: readonly string[]): 
     cwd: root,
     encoding: 'utf-8',
     maxBuffer: 64 * 1024 * 1024,
+    env: discoveryEnv(),
     stdio: ['ignore', 'pipe', 'ignore'],
   })
     .split('\0')
@@ -1528,7 +1544,17 @@ export async function captureTree(
   // `--absolute-git-dir`, not `--git-path index`: the latter answers with an
   // inherited `GIT_INDEX_FILE` (e.g. inside a git hook), which is not this
   // checkout's index.
-  const gitDir = await spawnCmd('git', ['rev-parse', '--absolute-git-dir'], root);
+  // T13697: every read below names `root`'s own repository, never an inherited
+  // GIT_DIR/GIT_WORK_TREE/GIT_INDEX_FILE (the temp index is set explicitly).
+  const base = discoveryEnv();
+  const gitDir = await spawnCmd(
+    'git',
+    ['rev-parse', '--absolute-git-dir'],
+    root,
+    undefined,
+    undefined,
+    base,
+  );
   if (gitDir.exitCode !== 0) return none();
   const realIndex = join(gitDir.stdout.trim(), 'index');
   let tmpDir: string | null = null;
@@ -1546,9 +1572,9 @@ export async function captureTree(
     } else {
       // No index yet: seed from HEAD. An unborn HEAD leaves the index empty,
       // which is correct — nothing is tracked.
-      await spawnCmd('git', ['read-tree', 'HEAD'], root, undefined, env);
+      await spawnCmd('git', ['read-tree', 'HEAD'], root, undefined, env, base);
     }
-    const tracked = await spawnCmd('git', ['add', '-u', '--', '.'], root, undefined, env);
+    const tracked = await spawnCmd('git', ['add', '-u', '--', '.'], root, undefined, env, base);
     if (tracked.exitCode !== 0) return none();
     // T13554: declared runtime files keep their HEAD content.
     runtime = resolveRuntimePaths(root, protectedInputs);
@@ -1557,6 +1583,9 @@ export async function captureTree(
         'git',
         ['diff', '--name-only', '-z', 'HEAD', '--', ...runtime.files],
         root,
+        undefined,
+        undefined,
+        base,
       );
       runtimeExcluded =
         dirty.exitCode === 0 ? dirty.stdout.split('\0').filter((p) => p !== '') : [];
@@ -1566,6 +1595,7 @@ export async function captureTree(
         root,
         undefined,
         env,
+        base,
       );
       if (reset.exitCode !== 0) return none(runtime.refusal);
     }
@@ -1575,7 +1605,7 @@ export async function captureTree(
       encoding: 'utf-8',
       maxBuffer: 256 * 1024 * 1024,
       stdio: ['ignore', 'pipe', 'ignore'],
-      env: { ...process.env, ...env },
+      env: { ...base, ...env },
     });
     const untracked = listed.split('\0').filter((p) => {
       if (p === '' || isUntrackedRuntimeOutput(p)) return false;
@@ -1590,11 +1620,11 @@ export async function captureTree(
         cwd: root,
         input: `${untracked.join('\0')}\0`,
         stdio: ['pipe', 'ignore', 'ignore'],
-        env: { ...process.env, ...env },
+        env: { ...base, ...env },
       });
     }
 
-    const tree = await spawnCmd('git', ['write-tree'], root, undefined, env);
+    const tree = await spawnCmd('git', ['write-tree'], root, undefined, env, base);
     if (tree.exitCode !== 0) return none(runtime.refusal);
     return {
       tree: tree.stdout.trim() || null,
@@ -1796,6 +1826,7 @@ function listTrackedFiles(root: string): string[] {
       cwd: root,
       encoding: 'utf-8',
       maxBuffer: 64 * 1024 * 1024,
+      env: discoveryEnv(),
       stdio: ['ignore', 'pipe', 'ignore'],
     })
       .split('\0')
