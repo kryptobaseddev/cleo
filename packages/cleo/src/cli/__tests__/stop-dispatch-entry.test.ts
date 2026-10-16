@@ -10,6 +10,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import {
   DEFAULT_GOAL_TICK_COMMAND,
+  PROVIDER_ENDS_SESSION,
   processStopDispatchDeps,
   type StopDispatchDeps,
   stopDispatch,
@@ -86,6 +87,31 @@ describe('stopDispatch (T13796)', () => {
     const d = deps(run);
     expect(await stopDispatch(STOP, {}, d.deps)).toEqual({ stdout: '', sessionEnded: true });
     expect(d.endSession).toHaveBeenCalledTimes(1);
+  });
+
+  it('Codex Stop never ends the session; Claude Code Stop does, as before', async () => {
+    expect(PROVIDER_ENDS_SESSION).toEqual({ 'claude-code': true, codex: false });
+    const warn = '{"systemMessage":"you asked in prose"}\n';
+    for (const run of [
+      { status: 0, stdout: '' },
+      { status: 127, stdout: '' },
+      { status: 0, stdout: '{"final":true}' },
+    ]) {
+      const codex = deps(run, async () => warn);
+      expect(await stopDispatch(STOP, {}, codex.deps, PROVIDER_ENDS_SESSION.codex)).toEqual({
+        stdout: warn,
+        sessionEnded: false,
+      });
+      expect(codex.endSession).not.toHaveBeenCalled();
+    }
+    // Codex still gets the goal and ask-enforce steps.
+    const ask = deps({ status: 0, stdout: '' }, async () => ASK_BLOCK);
+    expect((await stopDispatch(STOP, {}, ask.deps, false)).stdout).toBe(ASK_BLOCK);
+    const claude = deps({ status: 0, stdout: '' });
+    expect(
+      (await stopDispatch(STOP, {}, claude.deps, PROVIDER_ENDS_SESSION['claude-code']))
+        .sessionEnded,
+    ).toBe(true);
   });
 
   it('CLEO_GOAL_TICK=off skips the tick; CLEO_GOAL_TICK_COMMAND overrides it', async () => {

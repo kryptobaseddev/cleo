@@ -15,7 +15,8 @@
  * 4. Otherwise ask-enforce (T13420) judges the turn. Its block wins next and
  *    the session is NOT ended, since the agent still owes the owner an ask; a
  *    `warn` answer is forwarded and the session still ends.
- * 5. Otherwise the session ends exactly as before. A tick that is missing
+ * 5. Otherwise the session ends exactly as before, for a provider whose Stop
+ *    ended it ({@link PROVIDER_ENDS_SESSION}: Claude Code yes, Codex never). A tick that is missing
  *    (exit 127), fails, times out or prints non-JSON counts as no goal, and an
  *    ask-enforce step that throws counts as no block: every step fails open to
  *    today's behaviour, never trapping a session.
@@ -35,6 +36,17 @@ export const STOP_DISPATCH_PROVIDERS = ['claude-code', 'codex'] as const;
 
 /** One of {@link STOP_DISPATCH_PROVIDERS}. */
 export type StopDispatchProvider = (typeof STOP_DISPATCH_PROVIDERS)[number];
+
+/**
+ * Whether a provider's Stop ends the CLEO session, as its Stop hook did before
+ * the dispatcher: Claude Code's always ran `cleo session end`; Codex's never
+ * did, and its Stop fires every turn, so ending the session there would
+ * unbind a Codex session mid-work.
+ */
+export const PROVIDER_ENDS_SESSION: Readonly<Record<StopDispatchProvider, boolean>> = {
+  'claude-code': true,
+  codex: false,
+};
 
 /** The goal runtime's tick when `CLEO_GOAL_TICK_COMMAND` is unset. */
 export const DEFAULT_GOAL_TICK_COMMAND = 'ocg tick';
@@ -110,12 +122,14 @@ function isBlock(stdout: string): boolean {
  * @param stdin - The harness's Stop JSON.
  * @param env - Environment (`CLEO_GOAL_TICK*`; ask-enforce reads `CLEO_ASK_ENFORCE`).
  * @param deps - Tick runner, ask-enforce and session end.
+ * @param endsSession - Whether this provider's Stop ends the session ({@link PROVIDER_ENDS_SESSION}).
  * @returns What to print to the harness and whether the session ended.
  */
 export async function stopDispatch(
   stdin: string,
   env: Readonly<Record<string, string | undefined>>,
   deps: StopDispatchDeps,
+  endsSession = true,
 ): Promise<{ readonly stdout: string; readonly sessionEnded: boolean }> {
   const decision: TickDecision =
     env.CLEO_GOAL_TICK?.trim().toLowerCase() === 'off'
@@ -130,7 +144,8 @@ export async function stopDispatch(
   if (decision.kind === 'block') return { stdout: decision.answer, sessionEnded: false };
   if (decision.kind === 'hold') return { stdout: '', sessionEnded: false };
   const asked = await deps.askEnforce(stdin).catch(() => '');
-  if (asked !== '' && isBlock(asked)) return { stdout: asked, sessionEnded: false };
+  if ((asked !== '' && isBlock(asked)) || !endsSession)
+    return { stdout: asked, sessionEnded: false };
   deps.endSession();
   return { stdout: asked, sessionEnded: true };
 }

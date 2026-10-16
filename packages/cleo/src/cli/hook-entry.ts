@@ -1092,13 +1092,15 @@ async function runStopDispatch(rest: readonly string[], io: HookIo): Promise<num
   }
   const deps = entry.processStopDispatchDeps(provider, io.env);
   try {
-    const answer = await entry.stopDispatch(await io.readStdin(), io.env, deps);
+    const endsSession = entry.PROVIDER_ENDS_SESSION[provider];
+    const answer = await entry.stopDispatch(await io.readStdin(), io.env, deps, endsSession);
     if (answer.stdout !== '') io.writeStdout(answer.stdout);
   } catch (err) {
     io.writeStderr(
-      `[cleo hook] stop dispatch failed, ending the session: ${err instanceof Error ? err.message : String(err)}\n`,
+      `[cleo hook] stop dispatch failed: ${err instanceof Error ? err.message : String(err)}\n`,
     );
-    deps.endSession();
+    // Fail open to what this provider's Stop did before the dispatcher.
+    if (entry.PROVIDER_ENDS_SESSION[provider]) deps.endSession();
   }
   return 0;
 }

@@ -16,7 +16,8 @@ It runs, in order:
    verbatim, and nothing else runs. `{"final":false}` keeps the session open.
 2. Ask-enforce. Its block wins next, and the session is not ended while the
    agent owes the owner an ask. A warning is forwarded.
-3. `cleo session end --quiet`, exactly as before.
+3. For Claude Code, `cleo session end --quiet`, exactly as before. Codex's
+   Stop never ended the session and still does not: its Stop fires every turn.
 
 Each step fails open to today's behaviour: no goal runtime installed, a tick
 that fails, times out or prints non-JSON, or an ask-enforce error.
