@@ -86,6 +86,7 @@ import {
   rowIdentityColumns,
   rowIdentitySpec,
   UID_COLUMN,
+  uidMissingWhere,
 } from './row-identity-registry.js';
 import { readSyncFlags } from './sync/flags.js';
 import {
@@ -884,27 +885,6 @@ export interface RowUidFillReport {
   readonly refill: 'none' | 'cleared' | 'refused';
 }
 
-/** Count of rows with a NULL value in `column`. */
-/**
- * The rows of a declared table that should carry a uid but lack one (a SQL
- * predicate over `main.<table>`): not kept local by a NULL key column
- * (`localWhenNull`), nor by an earlier row holding the same natural key
- * (`localUnlessFirst`, T13777).
- *
- * @param spec - A declared table's spec.
- * @returns The predicate, for a `WHERE` over `main.<table>`.
- */
-export function uidMissingWhere(spec: RowIdentitySpec): string {
-  const local = (spec.localWhenNull ?? []).map((c) => ` AND ${q(c)} IS NOT NULL`).join('');
-  const table = `main.${q(spec.table)}`;
-  const first = spec.localUnlessFirst
-    ? ` AND NOT EXISTS (SELECT 1 FROM ${table} AS _f WHERE ${spec.key
-        .map((k) => `_f.${q(k)} IS ${table}.${q(k)}`)
-        .join(' AND ')} AND _f.${q(UID_COLUMN)} IS NOT NULL)`
-    : '';
-  return `${q(UID_COLUMN)} IS NULL${local}${first}`;
-}
-
 /** Rows of a declared table that should carry a uid but lack one ({@link uidMissingWhere}). */
 function uidMissingCount(db: DatabaseSync, spec: RowIdentitySpec): number {
   return (
@@ -914,6 +894,7 @@ function uidMissingCount(db: DatabaseSync, spec: RowIdentitySpec): number {
   ).n;
 }
 
+/** Count of rows with a NULL value in `column`. */
 function nullCount(db: DatabaseSync, table: string, column: string): number {
   const row = db
     .prepare(`SELECT count(*) AS n FROM main.${q(table)} WHERE ${q(column)} IS NULL`)
