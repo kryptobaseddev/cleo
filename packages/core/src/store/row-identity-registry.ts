@@ -148,7 +148,7 @@ function brainTextKeyed(): RowIdentitySpec[] {
  *   stays raw; `task_id` follows the task's uid where the store has tasks
  *   (project scope). The global store has no tasks table: raw there.
  * - `tasks_brain_release_links` (project only): both ids are soft and
- *   polymorphic or exempt (`tasks_releases` waits on T12535), so raw.
+ *   polymorphic, so raw (a release id is device-local since T12914).
  */
 function brainNaturalKeyed(scope: TableScope): RowIdentitySpec[] {
   return [
@@ -313,6 +313,155 @@ function brainIntegerKeyed(): RowIdentitySpec[] {
       content: ['entry_id', 'task_id', 'used', 'outcome'],
       birthFacts: ['entry_id', 'task_id', 'used', 'outcome'],
       task: 'T12896',
+    },
+  ];
+}
+
+const PIPELINES: RowIdentityRef['table'] = 'tasks_lifecycle_pipelines';
+const STAGES: RowIdentityRef['table'] = 'tasks_lifecycle_stages';
+const RELEASES: RowIdentityRef['table'] = 'tasks_releases';
+const PULL_REQUESTS: RowIdentityRef['table'] = 'tasks_pull_requests';
+const COMMITS: RowIdentityRef['table'] = 'tasks_commits';
+
+/**
+ * Lifecycle, release, PR and commit tables (T12914), project scope only.
+ *
+ * - Natural on `id` where the writer derives the id from the entity alone
+ *   (`pipeline-<task>` or `<task>`, `<pipeline>_<stage>` or
+ *   `stage-<task>-<stage>`, `gate-<task>-<stage>-<gate>`), so two devices
+ *   that record the same entity derive one uid and merge field by field. A
+ *   sha is a natural key as is.
+ * - Minted where the id is random or clock-made (evidence, transitions).
+ * - `tasks_releases` is natural on its UNIQUE `version`: the id embeds the
+ *   path-derived project hash, which differs per device, so keying on it
+ *   would void one device's row on the UNIQUE version index. `id` is a local
+ *   key (a received release takes its uid as id); every reader and writer
+ *   finds a release by version. The same holds for ids built from it or from
+ *   the hash: `tasks_pull_requests` (`<projectHash>:<pr>`) is natural on
+ *   (repo, number) and `tasks_release_changes` (a hash over the release id)
+ *   on (release, task, change type), each with a local `id` that reconcile
+ *   looks up before minting one.
+ * - `tasks_release_changesets` is natural on (release, changeset slug): plan
+ *   rewrites the set with fresh random ids on every run, so a re-plan on
+ *   either device lands on the same rows.
+ * - Hard FK columns (stage → pipeline, … → release, … → PR, … → commit)
+ *   travel as uids, so a child of a parent deleted elsewhere is a dangling
+ *   ref, never an orphan. Soft ids (`task_id`, `epic_id`, `pr_id`, the
+ *   `commit_sha` of PR and release commits) stay raw, as
+ *   `tasks_brain_release_links` does: a target that never syncs must not hold
+ *   the row pending. A NULL task id (a legacy orphaned link or change) keeps
+ *   its row local (`localWhenNull`): two of them would share one uid.
+ *
+ * `birthFacts` are FROZEN for recipe v2 like every other entry.
+ */
+function lifecycleReleaseGit(): RowIdentitySpec[] {
+  return [
+    { table: PIPELINES, kind: 'natural', key: ['id'], task: 'T12914' },
+    {
+      table: STAGES,
+      kind: 'natural',
+      key: ['id'],
+      refs: [{ column: 'pipeline_id', table: PIPELINES }],
+      task: 'T12914',
+    },
+    {
+      table: 'tasks_lifecycle_gate_results',
+      kind: 'natural',
+      key: ['id'],
+      refs: [{ column: 'stage_id', table: STAGES }],
+      task: 'T12914',
+    },
+    {
+      table: 'tasks_lifecycle_evidence',
+      kind: 'minted',
+      key: ['id'],
+      birth: 'recorded_at',
+      birthFacts: ['uri', 'type'],
+      refs: [{ column: 'stage_id', table: STAGES }],
+      task: 'T12914',
+    },
+    {
+      table: 'tasks_lifecycle_transitions',
+      kind: 'minted',
+      key: ['id'],
+      birth: 'created_at',
+      birthFacts: ['from_stage_id', 'to_stage_id', 'transition_type'],
+      refs: [
+        { column: 'pipeline_id', table: PIPELINES },
+        { column: 'from_stage_id', table: STAGES },
+        { column: 'to_stage_id', table: STAGES },
+      ],
+      task: 'T12914',
+    },
+    { table: RELEASES, kind: 'natural', key: ['version'], localKey: 'id', task: 'T12914' },
+    {
+      table: 'tasks_release_commits',
+      kind: 'natural',
+      key: ['release_id', 'commit_sha'],
+      keyRefs: [{ column: 'release_id', table: RELEASES }],
+      task: 'T12914',
+    },
+    {
+      table: 'tasks_release_changes',
+      kind: 'natural',
+      key: ['release_id', 'task_id', 'change_type'],
+      keyRefs: [{ column: 'release_id', table: RELEASES }],
+      localWhenNull: ['task_id'],
+      localKey: 'id',
+      task: 'T12914',
+    },
+    {
+      table: 'tasks_release_changesets',
+      kind: 'natural',
+      key: ['release_id', 'changeset_id'],
+      keyRefs: [{ column: 'release_id', table: RELEASES }],
+      localKey: 'id',
+      task: 'T12914',
+    },
+    {
+      table: 'tasks_release_artifacts',
+      kind: 'natural',
+      key: ['release_id', 'artifact_type', 'identifier'],
+      keyRefs: [{ column: 'release_id', table: RELEASES }],
+      task: 'T12914',
+    },
+    {
+      table: PULL_REQUESTS,
+      kind: 'natural',
+      key: ['repo_url', 'pr_number'],
+      localKey: 'id',
+      task: 'T12914',
+    },
+    {
+      table: 'tasks_pr_commits',
+      kind: 'natural',
+      key: ['pr_id', 'commit_sha'],
+      keyRefs: [{ column: 'pr_id', table: PULL_REQUESTS }],
+      task: 'T12914',
+    },
+    {
+      table: 'tasks_pr_tasks',
+      kind: 'natural',
+      key: ['pr_id', 'task_id', 'link_kind'],
+      keyRefs: [{ column: 'pr_id', table: PULL_REQUESTS }],
+      localWhenNull: ['task_id'],
+      task: 'T12914',
+    },
+    { table: COMMITS, kind: 'natural', key: ['sha'], task: 'T12914' },
+    {
+      table: 'tasks_commit_files',
+      kind: 'natural',
+      key: ['commit_sha', 'path'],
+      keyRefs: [{ column: 'commit_sha', table: COMMITS }],
+      task: 'T12914',
+    },
+    {
+      table: 'tasks_task_commits',
+      kind: 'natural',
+      key: ['task_id', 'commit_sha', 'link_kind'],
+      keyRefs: [{ column: 'commit_sha', table: COMMITS }],
+      localWhenNull: ['task_id'],
+      task: 'T12914',
     },
   ];
 }
@@ -560,6 +709,7 @@ export const ROW_IDENTITY: Readonly<Record<TableScope, readonly RowIdentitySpec[
       keyRefs: [{ column: 'attachment_id', table: DOCS_ATTACHMENTS }],
       task: 'T12919',
     },
+    ...lifecycleReleaseGit(),
     ...brainSticky(),
     ...playbooks(),
   ],
@@ -678,7 +828,6 @@ function cluster(task: string): RowIdentityExemption {
 }
 
 const CONDUIT = cluster('T12913');
-const LIFECYCLE_RELEASE_GIT = cluster('T12914');
 const NEXUS_REGISTRY = cluster('T12916');
 const SKILLS = cluster('T12917');
 const PROJECT_MISC = cluster('T12920');
@@ -757,27 +906,6 @@ export const ROW_IDENTITY_EXEMPT: Readonly<
     ),
     ...exempt(
       [
-        'tasks_commit_files',
-        'tasks_commits',
-        'tasks_lifecycle_evidence',
-        'tasks_lifecycle_gate_results',
-        'tasks_lifecycle_pipelines',
-        'tasks_lifecycle_stages',
-        'tasks_lifecycle_transitions',
-        'tasks_pr_commits',
-        'tasks_pr_tasks',
-        'tasks_pull_requests',
-        'tasks_release_artifacts',
-        'tasks_release_changes',
-        'tasks_release_changesets',
-        'tasks_release_commits',
-        'tasks_releases',
-        'tasks_task_commits',
-      ],
-      LIFECYCLE_RELEASE_GIT,
-    ),
-    ...exempt(
-      [
         'nexus_relation_weights',
         'pi_session_entries',
         'pi_session_leaf',
@@ -831,6 +959,7 @@ export const ROW_IDENTITY_EXEMPT: Readonly<
  * (2 project; docs_wikilinks became derived and not syncing), and T13729
  * reclassified brain_embeddings derived in both scopes (owner decision
  * 2026-10-14: vectors are a local cache), closing the T12918 blob exemption,
+ * and T12914 the lifecycle, release, PR and commit tables (16 project),
  * and T12535 the project sticky tables and the playbook tables (2 + 4
  * project: the bare playbook twins became frozen-legacy and not syncing)
  * ({@link rowIdentityExemptionSummary} prints the live numbers):
@@ -841,17 +970,17 @@ export const ROW_IDENTITY_EXEMPT: Readonly<
  * | planned              | T12895 | 0       | 0      |
  * | planned              | T12896 | 2       | 1      |
  * | planned (conduit)    | T12913 | 8       | 0      |
- * | planned (lifecycle…) | T12914 | 16      | 0      |
+ * | planned (lifecycle…) | T12914 | 0       | 0      |
  * | planned (nexus)      | T12916 | 0       | 8      |
  * | planned (skills)     | T12917 | 0       | 4      |
  * | planned (misc)       | T12920 | 12      | 0      |
  * | twin-collapse        | T12535 | 24      | 0      |
- * | total                |        | 60      | 12     |
+ * | total                |        | 44      | 12     |
  *
  * @task T12897
  */
 export const ROW_IDENTITY_EXEMPT_PINNED: Readonly<Record<TableScope, number>> = {
-  project: 60,
+  project: 44,
   global: 12,
 };
 
@@ -864,7 +993,7 @@ export const ROW_IDENTITY_EXEMPT_PINNED: Readonly<Record<TableScope, number>> = 
  * @task T12897
  */
 export const ROW_IDENTITY_EXEMPT_NAMES_SHA256: Readonly<Record<TableScope, string>> = {
-  project: 'd0030e735aa15c245450247a40b5446b315ac0369744cdf1153841166743d282',
+  project: 'e240e0c6249ba9c1b1f797953f7ca1363c5d93342eee5ecdf0997b3768bad868',
   global: '09b63cf1df7591f9320e4f540c0df9a717008a7a80c17b38ef2729f09ea5f618',
 };
 

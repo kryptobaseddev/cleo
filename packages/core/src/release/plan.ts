@@ -1407,13 +1407,16 @@ function escapeChangelogRegex(str: string): string {
  * written directly — the DHQ-051 FK-parent shim and its NULL-on-unresolvable
  * fallback are retired.
  *
+ * @returns The id of the stored row for the version: a row synced from
+ *   another device keeps its own id there (T12914), as a row planned from a
+ *   worktree does (T13176), so the caller must not re-derive it.
  * @internal
  */
 async function upsertReleasesRow(
   plan: ReleasePlan,
   dbChannel: 'latest' | 'beta' | 'dev' | 'hotfix',
   projectRoot: string,
-): Promise<void> {
+): Promise<string> {
   const db = await getDb(projectRoot);
   // T12557: one key for plan, reconcile and the manifest writers.
   const projectHash = getProjectHashKey(projectRoot);
@@ -1462,6 +1465,12 @@ async function upsertReleasesRow(
       ),
     })
     .run();
+  const stored = await db
+    .select({ id: releases.id })
+    .from(releases)
+    .where(eq(releases.version, plan.resolvedVersion))
+    .get();
+  return stored?.id ?? id;
 }
 
 /**
@@ -2043,12 +2052,11 @@ export async function releasePlan(
         changes: hooksGateChanges,
       });
     planPath = writePlanFile(plan, projectRoot);
-    await upsertReleasesRow(plan, dbChannel, projectRoot);
     // T9753: persist parsed changeset entries linked to the release row.
     // Runs AFTER the releases UPSERT so the FK is satisfied. Errors here are
     // logged but non-fatal — the plan file itself is the canonical source of
     // truth; release_changesets is the structured side-table.
-    const releaseId = `${getProjectHashKey(projectRoot)}:${plan.resolvedVersion}`;
+    const releaseId = await upsertReleasesRow(plan, dbChannel, projectRoot);
     try {
       await persistReleaseChangesets(releaseId, scopedChangesets.scoped, projectRoot);
     } catch (err: unknown) {

@@ -194,6 +194,19 @@ function seed(native: DatabaseSync, shape: Shape, fillBetween: boolean): void {
       ('gbd-1', 'task', 'T2', '2026-09-01 09:10:00'),
       ('gbd-2', 'task', 'T3', '2026-09-02T09:10:00.000Z');
 
+    -- T12914: the minted lifecycle rows (evidence, transitions) and the
+    -- natural pipeline and stages they reference, in both timestamp forms.
+    INSERT INTO tasks_lifecycle_pipelines (id, task_id, started_at, updated_at) VALUES
+      ('pipeline-T2', 'T2', '2026-09-01 09:20:00', '2026-09-01 09:20:00');
+    INSERT INTO tasks_lifecycle_stages (id, pipeline_id, stage_name, sequence) VALUES
+      ('stage-T2-research', 'pipeline-T2', 'research', 1),
+      ('stage-T2-consensus', 'pipeline-T2', 'consensus', 2);
+    INSERT INTO tasks_lifecycle_evidence (id, stage_id, uri, type, recorded_at) VALUES
+      ('evidence-T2-1', 'stage-T2-research', 'docs/a.md', 'file', '2026-09-01 09:21:00'),
+      ('evidence-T2-2', 'stage-T2-research', 'docs/b.md', 'file', '2026-09-02T09:21:00.000Z');
+    INSERT INTO tasks_lifecycle_transitions (id, pipeline_id, from_stage_id, to_stage_id, created_at) VALUES
+      ('transition-gb-1', 'pipeline-T2', 'stage-T2-research', 'stage-T2-consensus', '2026-09-02 09:22:00');
+
     -- T12535: project sticky notes (minted) with their tags (natural, matching
     -- tags_json, which the junction follows), and a playbook run with an
     -- approval (natural), in both timestamp forms.
@@ -374,6 +387,10 @@ beforeAll(async () => {
 
   for (const shape of ['cleocode', 'llmtxt'] as const) {
     unfilled[shape] = await buildFixture(shape, false, 'unfilled');
+    // The two builds open in different seconds, so a write an open stamps with
+    // the clock (#2282 review: a bare-commits carry copied datetime('now'))
+    // fails the determinism checks instead of passing by timing.
+    await new Promise((done) => setTimeout(done, 1100));
     source[shape] = await buildFixture(shape, true, 'source');
   }
 }, 300_000);

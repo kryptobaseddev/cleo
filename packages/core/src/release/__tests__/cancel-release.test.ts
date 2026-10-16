@@ -11,7 +11,7 @@ import { mkdir, mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { getDb } from '../../store/sqlite.js';
+import { getDb, getNativeDb } from '../../store/sqlite.js';
 import * as schema from '../../store/tasks-schema.js';
 import { cancelRelease, prepareRelease, showRelease } from '../release-manifest.js';
 
@@ -61,6 +61,26 @@ describe('cancelRelease', () => {
     const db = await getDb(testDir);
     const rows = await db.select().from(schema.releases).all();
     expect(rows).toHaveLength(0);
+  });
+
+  it('deletes the children while the release still exists, so each delete is captured with its uid (T12914)', async () => {
+    await prepareRelease('1.2.4', [], undefined, loadTasks, testDir);
+    const db = await getDb(testDir);
+    const [row] = await db.select().from(schema.releases).all();
+    await db
+      .insert(schema.releaseCommits)
+      .values({ releaseId: row!.id, commitSha: 'c'.repeat(40), position: 0 })
+      .run();
+    // A FK cascade deletes the child after its release is gone (parent count 0).
+    const native = getNativeDb(testDir)!;
+    native.exec(`CREATE TEMP TABLE parent_seen (n INTEGER);
+      CREATE TEMP TRIGGER t12914_child_d AFTER DELETE ON tasks_release_commits BEGIN
+        INSERT INTO parent_seen SELECT count(*) FROM tasks_releases WHERE id = OLD.release_id;
+      END;`);
+    expect(await cancelRelease('1.2.4', testDir)).toMatchObject({ success: true });
+    expect(native.prepare('SELECT n FROM parent_seen').all()).toEqual([{ n: 1 }]);
+    expect(await db.select().from(schema.releases).all()).toHaveLength(0);
+    native.exec('DROP TRIGGER t12914_child_d; DROP TABLE parent_seen;');
   });
 
   it('accepts version with leading v prefix', async () => {
