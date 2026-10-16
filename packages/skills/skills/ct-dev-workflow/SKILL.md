@@ -513,13 +513,11 @@ Provider delivery receives canonical SDK file reads and Git discovery through a 
 Adapters do not acquire a runtime dependency on core for these utilities.
 
 Project business rules live in tracked `.cleo/hooks.json`; generated provider entries
-are delivery outputs. Until the hooks-v1 stable promotion, a stable build is inert (T13557):
-`cleo hook sync --activate` refuses with `E_HOOKS_V1_UNRELEASED`, existing receipts report
-`unreleased` and never run (a required `--ci` check fails), and `--disable` still works; a
-`-canary.N` build or the promotion's `cleo.releasedFeatures` stamp opens the gate
-(`core/src/hooks/release-gate.ts`). A source checkout carries a stable version, so hooks
-cannot be activated on main either; only code passing the gate's `allowUnreleased` option
-(tests) opts in. Preview with `cleo hook sync --dry-run`; explicit local activation
+are delivery outputs. hooks-v1 was promoted in v2026.10.17 and is released in source
+(T13776), so every build activates and runs project hooks. The release gate
+(`core/src/hooks/release-gate.ts`, T13557) stays for a future hook feature: while one is
+unreleased, `cleo hook sync --activate` refuses with `E_HOOKS_V1_UNRELEASED` and existing
+receipts report `unreleased` and never run. Preview with `cleo hook sync --dry-run`; explicit local activation
 uses `cleo hook sync --activate` and binds definitions, handlers and dependencies to
 current hashes. Source drift requires reactivation and runs no handler: Git, worktree, direct
 and CI refuse (naming `cleo hook sync --activate`) every event bound by the approved bindings

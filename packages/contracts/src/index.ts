@@ -44,6 +44,7 @@ export {
   lintGateSchema,
   manualGateSchema,
   testCountReportSchema,
+  testCountSummarySchema,
   testGateSchema,
 } from './acceptance-gate-schema.js';
 // === Provider Adapter Contracts ===
@@ -902,6 +903,8 @@ export type {
   LeanConfig,
   LeanDebtItem,
   LeanDebtReport,
+  LeanGainMetric,
+  LeanGainReport,
   LeanLevel,
   LeanLevelSource,
 } from './lean.js';
