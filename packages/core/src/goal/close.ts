@@ -31,7 +31,7 @@
 
 import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, readFileSync, realpathSync, statSync } from 'node:fs';
 import { join, posix, resolve } from 'node:path';
 import type { GoalOutcome, VerificationGate } from '@cleocode/contracts';
 import {
@@ -46,11 +46,13 @@ import { z } from 'zod';
 import { type EngineResult, engineSuccess } from '../engine-result.js';
 import { CleoError } from '../errors.js';
 import { cleoErrorToEngineResult } from '../errors-to-engine.js';
+import { isWithin } from '../nexus/stored-roots.js';
 import { getProjectRoot } from '../paths.js';
 import { getTaskAccessor } from '../store/data-accessor.js';
 import type { ChangeSetDeps } from '../tasks/change-set.js';
 import { joinCommandLine } from '../tasks/command-line.js';
 import { resolveToolCommand } from '../tasks/tool-resolver.js';
+import { GOAL_ID } from './draft.js';
 
 /** One acceptance criterion a close left open, and why. */
 export interface GoalCloseOpenAc {
@@ -206,27 +208,40 @@ function git(root: string, args: string[]): string | null {
   }
 }
 
+/** Whether `ancestor` is `descendant` or an ancestor of it in `root`. */
+function isAncestor(root: string, ancestor: string, descendant: string): boolean {
+  return git(root, ['merge-base', '--is-ancestor', ancestor, descendant]) !== null;
+}
+
 /** Whether `sha` names a commit in `root`. */
 function commitExists(root: string, sha: string): boolean {
   return git(root, ['cat-file', '-e', `${sha}^{commit}`]) !== null;
 }
 
-/** Facts read from the head commit's tree. */
+/** Facts read from one tree: a commit's, or the working tree's. */
 interface HeadTree {
-  /** File content at head, or null when it is not a file there. */
+  /** Where the facts come from, for messages (`head <sha>` or `the working tree`). */
+  label: string;
+  /** File content, or null when it is not a file there. */
   read(path: string): string | null;
-  /** Whether `pattern` matches nowhere under `paths` at head (null: search failed). */
+  /** Whether `pattern` matches nowhere under `paths` (null: search failed). */
   absent(pattern: string, paths: readonly string[]): boolean | null;
   /** Repo-relative path of a workspace-relative one. */
   repoPath(path: string): string;
 }
 
-function headTree(root: string, head: string, workspace: string | undefined): HeadTree {
+/** The tree of commit `ref`, or the working tree (what `files:` hashes) when `ref` is null. */
+function treeAt(root: string, ref: string | null, workspace: string | undefined): HeadTree {
   const repoPath = (p: string): string =>
     posix.normalize(posix.join(workspace ?? '.', p.replace(/^\.\//, '')));
   return {
+    label: ref ? `head ${ref.slice(0, 12)}` : 'the working tree',
     repoPath,
-    read: (p) => git(root, ['show', `${head}:${repoPath(p)}`]),
+    read: (p) => {
+      if (ref) return git(root, ['show', `${ref}:${repoPath(p)}`]);
+      const abs = join(root, repoPath(p));
+      return existsSync(abs) && statSync(abs).isFile() ? readFileSync(abs, 'utf8') : null;
+    },
     absent: (pattern, paths) => {
       try {
         execFileSync(
@@ -240,7 +255,7 @@ function headTree(root: string, head: string, workspace: string | undefined): He
             '-E',
             '-e',
             pattern,
-            head,
+            ...(ref ? [ref] : []),
             '--',
             ...(paths.length ? paths.map(repoPath) : [workspace ?? '.']),
             ':(exclude).opencode/goals',
@@ -255,29 +270,31 @@ function headTree(root: string, head: string, workspace: string | undefined): He
   };
 }
 
-/** Re-run a path check against the head tree; the files it proves, or why it fails. */
+/** Re-run a path check against one tree; the files it proves, or why it fails. */
 function recheckPath(check: ContractCheck, tree: HeadTree): { files: string[] } | { why: string } {
   const path = check.path ?? '';
   switch (check.kind) {
     case 'file': {
       const exists = tree.read(path) !== null;
       if (exists !== (check.exists !== false))
-        return { why: `${path} ${exists ? 'exists' : 'does not exist'} at head` };
+        return { why: `${path} ${exists ? 'exists' : 'does not exist'} at ${tree.label}` };
       return { files: exists ? [tree.repoPath(path)] : [] };
     }
     case 'contains': {
       const content = tree.read(path);
-      if (content === null) return { why: `${path} is not a file at head` };
+      if (content === null) return { why: `${path} is not a file at ${tree.label}` };
       const ok =
         check.text !== undefined
           ? content.includes(check.text)
-          : new RegExp(check.regex ?? '').test(content);
-      return ok ? { files: [tree.repoPath(path)] } : { why: `${path} does not contain it at head` };
+          : new RegExp(check.regex ?? '', 'm').test(content); // OCG's flags
+      return ok
+        ? { files: [tree.repoPath(path)] }
+        : { why: `${path} does not contain it at ${tree.label}` };
     }
     case 'absent': {
       const absent = tree.absent(check.pattern ?? '', check.paths ?? []);
-      if (absent === null) return { why: 'the search at head failed' };
-      if (!absent) return { why: `the pattern still matches at head` };
+      if (absent === null) return { why: `the search at ${tree.label} failed` };
+      if (!absent) return { why: `the pattern still matches at ${tree.label}` };
       return { files: (check.paths ?? []).filter((p) => tree.read(p) !== null).map(tree.repoPath) };
     }
     default:
@@ -289,7 +306,10 @@ function recheckPath(check: ContractCheck, tree: HeadTree): { files: string[] } 
 interface JudgeContext {
   root: string;
   head: string;
+  /** The head commit's tree, where the run's claims are judged. */
   tree: HeadTree;
+  /** The working tree, which the recorded `files:` atom hashes. */
+  live: HeadTree;
   /** The project's resolved lint / typecheck command lines. */
   qaCommands: Map<string, 'lint' | 'typecheck'>;
 }
@@ -340,6 +360,8 @@ function contribution(
     const report = resolve(ctx.root, ev.reportPath);
     if (!existsSync(report))
       return { blocker: `${criterionId}'s report ${ev.reportPath} is missing` };
+    if (!isWithin(realpathSync(ctx.root), realpathSync(report)))
+      return { blocker: `${criterionId}'s report ${ev.reportPath} is outside the project` };
     const sha = createHash('sha256').update(readFileSync(report)).digest('hex');
     if (!ev.reportSha256)
       return { blocker: `${criterionId}'s report has no reportSha256 to bind it` };
@@ -349,12 +371,13 @@ function contribution(
       };
     return { gate: 'testsPassed', atoms: [`test-run:${report}`] };
   }
-  const rechecked = recheckPath(check, ctx.tree);
-  if ('why' in rechecked)
-    return {
-      blocker: `${criterionId} does not hold at head ${ctx.head.slice(0, 12)}: ${rechecked.why}`,
-    };
-  if (rechecked.files.length === 0)
+  // The claim must hold at the run's head AND in the tree whose bytes files: hashes.
+  for (const tree of [ctx.tree, ctx.live]) {
+    const rechecked = recheckPath(check, tree);
+    if ('why' in rechecked) return { blocker: `${criterionId} does not hold: ${rechecked.why}` };
+  }
+  const rechecked = recheckPath(check, ctx.live);
+  if (!('files' in rechecked) || rechecked.files.length === 0)
     return { blocker: `${criterionId} passed a ${check.kind} check on no file to record` };
   return {
     gate: 'implemented',
@@ -380,6 +403,8 @@ export async function closeGoal(
 ): Promise<EngineResult<GoalCloseResult>> {
   try {
     const root = opts.projectRoot ?? getProjectRoot();
+    if (!GOAL_ID.test(slug))
+      fail(`Goal slug "${slug}" is not a goal id (a-z, 0-9, hyphens, at most 64)`);
     const contractPath = join(root, '.opencode', 'goals', slug, 'goal.yaml');
     if (!existsSync(contractPath))
       fail(`No goal contract at ${contractPath}`, `cleo goal draft <taskId>`);
@@ -401,6 +426,14 @@ export async function closeGoal(
       if (sha !== null && !commitExists(root, sha))
         fail(`Commit ${sha} does not exist in ${root}`, 'git fetch, then close again');
     }
+    // A stale head would judge claims on code HEAD no longer holds.
+    if (!isAncestor(root, outcome.headCommit, 'HEAD'))
+      fail(
+        `Head commit ${outcome.headCommit.slice(0, 12)} is not HEAD or an ancestor of it in ${root}`,
+        'Close from the checkout the run produced (or one that contains its head)',
+      );
+    if (outcome.baseCommit !== null && !isAncestor(root, outcome.baseCommit, outcome.headCommit))
+      fail(`Base commit ${outcome.baseCommit.slice(0, 12)} is not an ancestor of the head commit`);
     const contractParsed = contractSchema.safeParse(parseYaml(bytes.toString('utf8')));
     if (!contractParsed.success)
       fail(`${contractPath} is not a goal/v1 contract: ${contractParsed.error.message}`);
@@ -414,7 +447,8 @@ export async function closeGoal(
     const ctx: JudgeContext = {
       root,
       head: outcome.headCommit,
-      tree: headTree(root, outcome.headCommit, contract.workspace),
+      tree: treeAt(root, outcome.headCommit, contract.workspace),
+      live: treeAt(root, null, contract.workspace),
       qaCommands,
     };
 
@@ -437,10 +471,15 @@ export async function closeGoal(
     const { validateGateVerify } = await import('../validation/engine-ops.js');
     const { resolveBoundSessionId } = await import('../store/session-store.js');
     const sessionId = (await resolveBoundSessionId(root).catch(() => null)) ?? undefined;
-    const tasks: GoalCloseTask[] = [];
+    // Resolve every task before any write, so a refusal never follows a partial write.
+    const loaded = [];
     for (const [taskId, acs] of byTask) {
       const task = await accessor.loadSingleTask(taskId);
       if (!task) fail(`Task ${taskId} named by goal ${slug} not found`, `cleo find "${taskId}"`);
+      loaded.push({ taskId, acs, task, rows: await accessor.getAcRows(taskId) });
+    }
+    const tasks: GoalCloseTask[] = [];
+    for (const { taskId, acs, task, rows } of loaded) {
       if (task.status === 'done') {
         tasks.push({
           taskId,
@@ -452,7 +491,6 @@ export async function closeGoal(
         });
         continue;
       }
-      const rows = await accessor.getAcRows(taskId);
       // A target names its row by alias (optionally pinned) or by canonical uuid.
       const rowOf = (target: string) => {
         const ac = target.split('@')[0] ?? '';

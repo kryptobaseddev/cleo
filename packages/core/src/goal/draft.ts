@@ -75,7 +75,7 @@ const SIZE_BUDGET: Record<TaskSize, { turns: number; wallMs: number }> = {
 };
 
 /** OCG goal ids: a kebab-case slug that equals the goal directory name. */
-const GOAL_ID = /^[a-z0-9][a-z0-9-]{0,63}$/;
+export const GOAL_ID = /^[a-z0-9][a-z0-9-]{0,63}$/;
 
 /** A process command as a shell line: `cd <cwd> && env K=V <words>`. */
 function shellLine(words: readonly string[], cwd?: string, env?: Record<string, string>): string {

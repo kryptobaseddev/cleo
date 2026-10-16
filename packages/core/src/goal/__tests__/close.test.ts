@@ -224,7 +224,7 @@ describe('closeGoal (T13794)', () => {
       /verifier verdict \(a note; 1\/1 quotes found at head\); a verifier verdict never satisfies a gate/,
     );
     expect(tb?.open[1]?.blocker).toMatch(/C3 did not pass: exit 1/);
-    expect(tb?.open[2]?.blocker).toMatch(/C6 does not hold at head/);
+    expect(tb?.open[2]?.blocker).toMatch(/C6 does not hold: src\/a\.ts does not contain it at head/);
     expect(tb?.open[3]?.blocker).toMatch(/does not hash to its reportSha256/);
 
     const stored = (await env.accessor.loadSingleTask(a))?.verification?.evidence;
@@ -257,11 +257,18 @@ describe('closeGoal (T13794)', () => {
       [a],
     );
     const head = git(['rev-parse', 'HEAD']);
+    git(['switch', '-q', '-c', 'side']);
+    git(['commit', '-q', '--allow-empty', '-m', 'side']);
+    const side = git(['rev-parse', 'HEAD']);
+    git(['switch', '-q', 'main']);
     const base = { schema: 'goal-outcome/v1', goal: slug, results: [] } as const;
     const cases: Array<[GoalOutcome, RegExp]> = [
       [{ ...base, lock: '0'.repeat(64), baseCommit: null, headCommit: head }, /does not match/],
       [{ ...base, lock, baseCommit: null, headCommit: 'f'.repeat(40) }, /does not exist/],
       [{ ...base, lock, baseCommit: 'e'.repeat(40), headCommit: head }, /does not exist/],
+      // A head HEAD does not contain, and a base that is not under the head.
+      [{ ...base, lock, baseCommit: null, headCommit: side }, /not HEAD or an ancestor/],
+      [{ ...base, lock, baseCommit: side, headCommit: head }, /not an ancestor of the head/],
     ];
     for (const [outcome, why] of cases) {
       const r = await closeGoal(slug, {
@@ -273,5 +280,85 @@ describe('closeGoal (T13794)', () => {
       if (!r.success) expect(r.error.message).toMatch(why);
     }
     rmSync(join(root, 'outcome.json'));
+  });
+
+  it('judges a stale head against HEAD, and refuses bad slugs, outside reports and unknown tasks before writing', async () => {
+    const a = await seed('task a', ['src/a.ts says hello', 'tests pass']);
+    writeFileSync(join(root, 'src', 'a.ts'), 'export const hello = 1;\n');
+    git(['commit', '-q', '-am', `${a}: hello`]);
+    const old = git(['rev-parse', 'HEAD']);
+    writeFileSync(join(root, 'src', 'a.ts'), 'export const a = 1;\n');
+    git(['commit', '-q', '-am', 'drop hello']);
+    const outside = join(root, '..', `outside-${a}.json`);
+    writeFileSync(outside, '{}');
+    const slug = 'stale-fixture';
+    const criteria = [
+      `{id: C1, statement: hello, essential: true, check: {kind: contains, path: src/a.ts, text: hello}, proves: ["${a}#AC1"]}`,
+      `{id: C2, statement: tests, essential: true, check: {kind: command, run: "vitest run"}, proves: ["${a}#AC2"]}`,
+    ];
+    const outcome = (lock: string): GoalOutcome => ({
+      schema: 'goal-outcome/v1',
+      goal: slug,
+      lock,
+      baseCommit: null,
+      headCommit: old,
+      results: [
+        pass('C1', { kind: 'contains', paths: ['src/a.ts'] }),
+        pass('C2', {
+          kind: 'command',
+          command: 'vitest run',
+          exitCode: 0,
+          reportPath: outside,
+          reportSha256: 'x',
+        }),
+      ],
+    });
+    try {
+      // The old head held "hello"; HEAD dropped it, so nothing is recorded.
+      const stale = await closeGoal(slug, {
+        projectRoot: root,
+        outcomePath: writeOutcome(outcome(writeContract(slug, criteria, [a]))),
+        deps,
+      });
+      if (!stale.success) throw new Error(stale.error.message);
+      const [ta] = stale.data.tasks;
+      expect(ta?.recordedGates).toEqual([]);
+      expect(ta?.open.find((o) => o.alias === 'AC1')?.blocker).toMatch(
+        /does not contain it at the working tree/,
+      );
+      expect(ta?.open.find((o) => o.alias === 'AC2')?.blocker).toMatch(/outside the project/);
+
+      // An unknown task anywhere in the contract stops the close before any write.
+      const prepass = await closeGoal(slug, {
+        projectRoot: root,
+        outcomePath: writeOutcome(
+          outcome(
+            writeContract(
+              slug,
+              [
+                criteria[0] ?? '',
+                `{id: C3, statement: x, essential: true, check: {kind: file, path: src/a.ts}, proves: ["T9999999#AC1"]}`,
+              ],
+              [a, 'T9999999'],
+            ),
+          ),
+        ),
+        deps,
+      });
+      expect(prepass.success).toBe(false);
+      expect(
+        (await env.accessor.loadSingleTask(a))?.verification?.evidence?.implemented,
+      ).toBeUndefined();
+
+      const escaped = await closeGoal('../../elsewhere/evil', {
+        projectRoot: root,
+        outcomePath: join(root, 'outcome.json'),
+        deps,
+      });
+      expect(escaped.success).toBe(false);
+      if (!escaped.success) expect(escaped.error.message).toMatch(/not a goal id/);
+    } finally {
+      rmSync(outside, { force: true });
+    }
   });
 });
