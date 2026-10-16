@@ -532,9 +532,10 @@ provider records use bounded regular-file reads; FIFOs are rejected. Unsupported
 provider bindings remain unsupported in delivery summaries, including mixed bindings.
 
 The Stop event has ONE CLEO entry per provider, `cleo hook stop --provider claude-code|codex`
-(T13796), in order goal tick → ask-enforce → session end. The goal runtime goes first
-(`CLEO_GOAL_TICK_COMMAND`, default `ocg tick`, Stop JSON on stdin): its `{"decision":"block"}`
-passes through verbatim and skips the rest. Next, an ask-enforce block (T13420) wins and keeps
+(T13796), in order goal tick → ask-enforce → session end. The goal runtime goes first, only when
+`.opencode/goals/` exists (`CLEO_GOAL_TICK_COMMAND`, default `ocg tick`, Stop JSON on stdin,
+JSON-only stdout, at most 60 s, its process group SIGKILLed at the deadline): a block is
+re-serialised as exactly `{decision, reason}` (reason capped) and skips the rest. Next, an ask-enforce block (T13420) wins and keeps
 the session open, because the agent still owes the owner an ask. Otherwise Claude Code's runs
 `cleo session end --quiet` as before; Codex's never ends the session (its Stop fires every turn
 and never did). Every step fails open to the session end (missing, failing or timed-out tick;

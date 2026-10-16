@@ -11,9 +11,15 @@ session ended while a goal or an owed owner ask kept the turn going.
 
 `cleo hook stop --provider claude-code|codex` is now the one CLEO Stop entry.
 It runs, in order:
-1. The goal tick (`CLEO_GOAL_TICK_COMMAND`, default `ocg tick`, Stop JSON on
-   stdin). A `{"decision":"block","reason"}` answer goes to the harness
-   verbatim, and nothing else runs. `{"final":false}` keeps the session open.
+1. The goal tick, only when a goal workspace (`.opencode/goals/`) exists:
+   `CLEO_GOAL_TICK_COMMAND` (default `ocg tick`) with the Stop JSON on stdin.
+   - The tick must write JSON only.
+   - A block answer is re-serialised as exactly `{decision, reason}`, with the
+     reason capped, so a tick cannot inject other hook fields. Nothing else
+     runs after it.
+   - `{"final":false}` keeps the session open.
+   - The tick runs in its own process group, which is SIGKILLed at its
+     deadline (at most 60 s).
 2. Ask-enforce. Its block wins next, and the session is not ended while the
    agent owes the owner an ask. A warning is forwarded.
 3. For Claude Code, `cleo session end --quiet`, exactly as before. Codex's
