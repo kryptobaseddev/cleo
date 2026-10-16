@@ -572,13 +572,13 @@ describe('releasePlan — hooks-v1 gate opened by source (T13555)', () => {
     });
   });
 
-  it('parses the real release-gate.ts: hooks-v1 unreleased and hooksV1Released found', () => {
+  it('parses the real release-gate.ts: hooks-v1 released (T13776) and hooksV1Released found', () => {
     const real = readFileSync(
       fileURLToPath(new URL('../../hooks/release-gate.ts', import.meta.url)),
       'utf-8',
     );
     const shape = parseHooksV1Gate(real);
-    expect(shape.unreleased).toBe(true);
+    expect(shape.unreleased).toBe(false);
     expect(shape.released).toMatch(/^export function hooksV1Released\(/);
   });
 
