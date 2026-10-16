@@ -4,18 +4,28 @@
  *
  * Nothing here is a second opinion: the change set and the testsPassed tool
  * runs and blockers come from {@link deriveTaskEvidence} (`cleo done --plan`),
- * and the owed tests from {@link testRunRequirement}, the requirement the
- * `test-run:` binding judges a report against.
+ * the merged change from {@link taskChangeMergeState} (what `cleo complete`
+ * judges), and the owed tests from {@link testRunRequirement}, the requirement
+ * the `test-run:` binding judges a report against.
  *
  * @epic T13791
  * @task T13795
  */
 
 import { execFileSync } from 'node:child_process';
-import type { TaskChangeSet, TaskChangeSetReport, TaskTestPlan } from '@cleocode/contracts';
+import type {
+  DonePlan,
+  OwedTestFile,
+  TaskChangeSet,
+  TaskChangeSetReport,
+  TaskTestPlan,
+} from '@cleocode/contracts';
 import { type EngineResult, engineSuccess } from '../engine-result.js';
 import { cleoErrorToEngineResult } from '../errors-to-engine.js';
+import { getProjectRoot } from '../paths.js';
+import { getTaskAccessor } from '../store/data-accessor.js';
 import { inPackageDir, listWorkspacePackages, scopedChangedPaths } from './affected-packages.js';
+import { taskChangeMergeState } from './affected-scope.js';
 import { type DeriveTaskEvidenceOptions, deriveTaskEvidence } from './done-plan.js';
 import { changedTestFiles, testRunRequirement } from './test-run-binding.js';
 
@@ -35,61 +45,87 @@ function changeCommits(cs: TaskChangeSet): string[] {
   }
 }
 
-/** The tests a change owes, per the `test-run:` binding. */
-function testPlanFor(
+/** The changed paths enforcement judges, and from which root. */
+interface JudgedChange {
+  root: string;
+  changed: string[] | null;
+  merged: boolean;
+}
+
+/**
+ * Before merge the binding judges the checkout's diff against the default
+ * branch; after merge `cleo complete` judges the task's own part of the landed
+ * change (`landing ?? changeSet`, scoped by `taskCarryScope`), its files only.
+ */
+async function judgedChange(
+  taskId: string,
+  storeRoot: string,
   cs: TaskChangeSet,
-  plan: Awaited<ReturnType<typeof deriveTaskEvidence>>,
-): TaskTestPlan {
-  const root = cs.executionRoot;
-  // A merged change is judged on its own files (T13623); otherwise the binding judges the checkout's diff.
-  const changed =
-    cs.source === 'pr'
-      ? [...cs.files, ...cs.deletedFiles]
-      : (scopedChangedPaths(root)?.paths ?? null);
-  const tests = {
+  opts: DeriveTaskEvidenceOptions,
+): Promise<JudgedChange> {
+  const task = await (await getTaskAccessor(storeRoot)).loadSingleTask(taskId);
+  if (task) {
+    const info = await taskChangeMergeState(task, storeRoot, {
+      derived: cs,
+      executionRoot: cs.executionRoot,
+      ...(opts.deps ? { changeSet: opts.deps } : {}),
+    });
+    if (info.state === 'merged') {
+      const target = info.landing ?? info.changeSet;
+      return {
+        root: target?.executionRoot ?? cs.executionRoot,
+        changed: target ? target.files : null,
+        merged: true,
+      };
+    }
+  }
+  return {
+    root: cs.executionRoot,
+    changed: scopedChangedPaths(cs.executionRoot)?.paths ?? null,
+    merged: false,
+  };
+}
+
+/** The tests a change owes, per the `test-run:` binding. */
+function testPlanFor(judged: JudgedChange, plan: DonePlan): TaskTestPlan {
+  const { root, changed, merged } = judged;
+  const base = {
+    changedPaths: changed,
+    files: [] as OwedTestFile[],
+    packages: [],
+    untestedPackages: [],
+    configPaths: [],
+    typecheckDirs: [],
+    merged,
     gatePassed: plan.gates.some((g) => g.gate === 'testsPassed' && g.passed),
     toolRuns: plan.toolRuns.filter((r) => r.gate === 'testsPassed'),
-    blockers: plan.blockers.filter(
-      (b) => b.code === 'test-run-needed' || b.message.startsWith('testsPassed'),
-    ),
+    blockers: plan.blockers.filter((b) => b.gate === 'testsPassed'),
   };
-  if (changed === null || changed.length === 0) {
-    return {
-      changedPaths: changed,
-      scope: 'none',
-      files: [],
-      packages: [],
-      untestedPackages: [],
-      ...tests,
-    };
-  }
+  if (changed === null || changed.length === 0) return { ...base, scope: 'none' };
   const need = testRunRequirement(root, changed);
   if (need.kind === 'full') {
-    return {
-      changedPaths: changed,
-      scope: 'full',
-      reason: need.reason,
-      files: [],
-      packages: [],
-      untestedPackages: [],
-      ...tests,
-    };
+    return { ...base, scope: 'full', reason: need.reason, configPaths: need.configPaths };
+  }
+  const changedTests = changedTestFiles(root, changed);
+  const files: OwedTestFile[] = need.outsideTests.map((file) => ({
+    file,
+    reason: 'test file outside every workspace package, under a changed top-level directory',
+  }));
+  // Merged: complete requires every test file the change adds or edits (T13623).
+  const every = merged ? changedTests : need.everyChangedTest;
+  const why = merged
+    ? 'test file the merged change adds or edits'
+    : need.standalone
+      ? 'test file the change adds or edits in a single-package project'
+      : 'test file the change adds or edits, while dependents are left to a typecheck';
+  for (const file of every) {
+    if (!files.some((f) => f.file === file)) files.push({ file, reason: why });
   }
   const workspace = listWorkspacePackages(root);
-  const changedTests = changedTestFiles(root, changed);
   return {
-    changedPaths: changed,
+    ...base,
     scope: 'targeted',
-    files: [
-      ...need.outsideTests.map((file) => ({
-        file,
-        reason: 'test file outside every workspace package, under a changed top-level directory',
-      })),
-      ...need.standaloneTests.map((file) => ({
-        file,
-        reason: 'test file the change adds or edits in a single-package project',
-      })),
-    ],
+    files,
     packages: need.required.map((name) => {
       const dir = workspace.find((p) => p.name === name)?.dir ?? '';
       return {
@@ -99,7 +135,8 @@ function testPlanFor(
       };
     }),
     untestedPackages: need.untestedPackages,
-    ...tests,
+    configPaths: need.configPaths,
+    typecheckDirs: need.typecheckDirs,
   };
 }
 
@@ -124,11 +161,14 @@ export async function planTaskChangeSet(
     const { testPlan, ...planOpts } = opts;
     const plan = await deriveTaskEvidence(taskId, planOpts);
     const cs = plan.changeSet;
+    const storeRoot = planOpts.projectRoot ?? getProjectRoot();
     return engineSuccess({
       taskId,
       changeSet: cs,
       commits: changeCommits(cs),
-      ...(testPlan ? { testPlan: testPlanFor(cs, plan) } : {}),
+      ...(testPlan
+        ? { testPlan: testPlanFor(await judgedChange(taskId, storeRoot, cs, planOpts), plan) }
+        : {}),
     });
   } catch (err) {
     return cleoErrorToEngineResult<TaskChangeSetReport>(

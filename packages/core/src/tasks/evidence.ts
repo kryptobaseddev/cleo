@@ -46,7 +46,9 @@ import { ExitCode } from '@cleocode/contracts/exit-codes.js';
 
 import { CleoError } from '../errors.js';
 import {
+  brokenWorkTreeReason,
   describeUnusableEvidenceGitRoot,
+  discoveryEnv,
   E_EVIDENCE_GIT_ROOT,
   findNestedGitWorkTrees,
   findWorkTreeContainingCommit,
@@ -61,7 +63,7 @@ import type { ViewComponentPr } from './component-pr.js';
 import { loadRecordedProjectRoots, rebaseLegacyEvidencePath } from './evidence-paths.js';
 import { HEAVY_HEAP_ENV, HEAVY_WORKERS_ENV, isHeavyTool } from './heavy-tool-env.js';
 import { DISABLE_ENV, describeMemoryLimit } from './heavy-tool-limit.js';
-import { qaRunUnionGapReason } from './qa-run-binding.js';
+import { qaRunUnionGapReason, typecheckCoverageGap } from './qa-run-binding.js';
 import {
   computeCommitRevalidationKey,
   readCommitRevalidationEntry,
@@ -69,6 +71,7 @@ import {
 } from './revalidation-cache.js';
 import {
   bindTestRunReport,
+  configSchemaCompositionGap,
   coveredTestFiles,
   TEST_RUN_MAX_RECORDED_FILES,
   type TestRunReport,
@@ -448,7 +451,7 @@ export async function validateAtom(
     case 'qa-run':
       return validateQaRun(parsed.path, roots, taskId ?? context?.task.id);
     case 'tool':
-      return validateTool(parsed.tool, roots, context);
+      return validateTool(parsed.tool, roots, context, siblingCommitSha);
     case 'url':
       return validateUrl(parsed.url);
     case 'note':
@@ -1758,6 +1761,7 @@ async function runAffectedTests(
       affectedPackages: run.packages,
       affectedProjects: run.projects,
       ...(run.testFiles ? { affectedTestFiles: run.testFiles } : {}),
+      ...(run.configPaths ? { configPaths: run.configPaths } : {}),
       ...(run.untested.length > 0 ? { untestedPackages: run.untested } : {}),
       ...toolRunAtomFields(result),
     },
@@ -1850,6 +1854,8 @@ export function resolveEvidenceExecutionRoot(
       execFileSync('git', ['rev-parse', '--show-toplevel'], {
         cwd,
         encoding: 'utf-8',
+        // T13697: the cwd's own checkout, never an inherited GIT_DIR/GIT_WORK_TREE.
+        env: discoveryEnv(),
         stdio: ['ignore', 'pipe', 'ignore'],
       }).trim() || null;
   } catch {
@@ -2048,6 +2054,10 @@ async function validateTestRun(
   const bindRoot = taskId
     ? (await import('./change-set.js')).resolveChangeSetRoot(projectRoot, taskId).root
     : executionRoot;
+  // T13703: a checkout git cannot open with GIT_* ignored would judge nothing.
+  const broken = brokenWorkTreeReason(bindRoot);
+  // @sync-invariant none:input-shape a bind root git cannot open is refused before anything is written
+  if (broken) return { ok: false, reason: broken, codeName: E_EVIDENCE_GIT_ROOT };
   const testFiles = coveredTestFiles(parsed, bindRoot);
   // The tree hash is the tool cache's (T12958), so a bound test-run and a
   // cached tool run of the same content agree.
@@ -2059,11 +2069,15 @@ async function validateTestRun(
   const identity = treeHash && headSha ? { treeHash, headSha } : null;
   let untestedPackages: string[] = [];
   let runHeadSha: string | undefined;
+  let configPaths: string[] = [];
+  let typecheckDirs: string[] = [];
   if (identity) {
     const binding = bindTestRunReport(parsed, abs, bindRoot, testFiles);
     if (!binding.ok) return { ok: false, reason: binding.reason, codeName: binding.codeName };
     untestedPackages = binding.untestedPackages;
     runHeadSha = binding.runHeadSha;
+    configPaths = binding.configPaths ?? [];
+    typecheckDirs = binding.typecheckDirs ?? [];
   }
   return {
     ok: true,
@@ -2087,6 +2101,8 @@ async function validateTestRun(
           }
         : {}),
       ...(untestedPackages.length > 0 ? { untestedPackages } : {}),
+      ...(configPaths.length > 0 ? { configPaths } : {}),
+      ...(typecheckDirs.length > 0 ? { typecheckDirs } : {}),
       ...(capture.runtimeExcluded.length > 0
         ? { runtimeExcluded: [...capture.runtimeExcluded] }
         : {}),
@@ -2143,13 +2159,21 @@ async function validateQaRun(
   const bindRoot = taskId
     ? (await import('./change-set.js')).resolveChangeSetRoot(projectRoot, taskId).root
     : executionRoot;
+  // T13703: a checkout git cannot open with GIT_* ignored would judge nothing.
+  const brokenRoot = brokenWorkTreeReason(bindRoot);
+  // @sync-invariant none:input-shape a bind root git cannot open is refused before anything is written
+  if (brokenRoot) return { ok: false, reason: brokenRoot, codeName: E_EVIDENCE_GIT_ROOT };
   const capture = await captureTree(bindRoot, await typedGateInputs(projectRoot, taskId, bindRoot));
   // @sync-invariant none:input-shape a runtime-path declaration covering a protected input is refused before anything is written
   if (capture.refusal) return { ok: false, ...capture.refusal };
   const treeHash = capture.tree;
   const headSha = treeHash ? await captureHead(bindRoot) : null;
-  let gaps: { uncovered: string[]; uncoveredPackages: string[]; nonCodeChange?: boolean } | null =
-    null;
+  let gaps: {
+    uncovered: string[];
+    uncoveredPackages: string[];
+    nonCodeChange?: boolean;
+    configPaths?: string[];
+  } | null = null;
   if (treeHash && headSha) {
     const binding = bindQaRunReceipt(receipt, abs, bindRoot);
     if (!binding.ok) return { ok: false, reason: binding.reason, codeName: binding.codeName };
@@ -2177,6 +2201,7 @@ async function validateQaRun(
         ? { uncoveredPackages: gaps.uncoveredPackages }
         : {}),
       ...(gaps?.nonCodeChange ? { nonCodeChange: true } : {}),
+      ...(gaps?.configPaths ? { configPaths: gaps.configPaths } : {}),
     },
   };
 }
@@ -2211,37 +2236,82 @@ async function typedGateInputs(
   }
 }
 
+/** Run git in `cwd`, returning trimmed stdout, or null on failure. */
+function gitOutput(cwd: string, args: readonly string[]): string | null {
+  try {
+    return execFileSync('git', args, {
+      cwd,
+      encoding: 'utf-8',
+      stdio: ['ignore', 'pipe', 'ignore'],
+    }).trim();
+  } catch {
+    return null;
+  }
+}
+
 /**
  * `tool:config-schema` (T13758): CLEO validates each changed CLEO-owned config
- * file against its CLEO schema. It speaks only for a change made of those
- * files alone, and is pinned to the tree like a qa-run receipt.
+ * file against its CLEO schema, pinned to the tree like a qa-run receipt.
+ *
+ * On a change that also touches other paths (T13778) it validates the config
+ * files and records the rest as `otherPaths`; the gate then requires another
+ * result for them (`checkTaskEvidenceContext`). With no change against the
+ * default branch (already merged, T13781) it judges the merge commit(s) of the
+ * write's `pr:` atoms, else its `commit:` atom, reading each file at that
+ * commit, and records `configSchemaCommit` instead of a tree pin.
  */
 async function validateConfigSchema(
   roots: EvidenceRoots,
   context?: EvidenceValidationContext,
+  siblingCommitSha?: string,
 ): Promise<AtomValidation> {
-  const { cleoConfigSchemaFor, isCleoConfigOnlyChange, scopedChangedPaths } = await import(
-    './affected-packages.js'
-  );
+  const { cleoConfigSchemaFor, scopedChangedPaths } = await import('./affected-packages.js');
   const root = context?.task.id
     ? (await import('./change-set.js')).resolveChangeSetRoot(roots.storeRoot, context.task.id).root
     : roots.executionRoot;
-  const changed = scopedChangedPaths(root)?.paths ?? [];
-  if (!isCleoConfigOnlyChange(changed)) {
-    const other = changed.filter((p) => cleoConfigSchemaFor(p) === null);
+  let changed = scopedChangedPaths(root)?.paths ?? [];
+  // T13781: a merged change is judged at the commit(s) the write names.
+  const prs = context?.artifactPrs ?? [];
+  const anchors =
+    changed.length > 0
+      ? []
+      : prs.length > 0
+        ? prs.map((p) => p.mergeCommitSha)
+        : siblingCommitSha
+          ? [siblingCommitSha]
+          : [];
+  const commitOf = (path: string): string | undefined =>
+    prs.length > 0 ? prMergeCommitForPath(prs, path) : siblingCommitSha;
+  if (anchors.length > 0) {
+    const files = new Set<string>();
+    for (const sha of anchors) {
+      const diff = gitOutput(root, ['diff', '--name-only', '--no-renames', `${sha}^1`, sha]);
+      if (diff === null)
+        return {
+          ok: false,
+          codeName: 'E_EVIDENCE_INSUFFICIENT',
+          reason: `tool:config-schema cannot read the change of ${sha.slice(0, 12)} in ${root}.`,
+        };
+      for (const path of diff.split('\n').filter(Boolean)) files.add(path);
+    }
+    changed = [...files].sort();
+  }
+  const config = changed.filter((p) => cleoConfigSchemaFor(p) !== null);
+  if (config.length === 0) {
     return {
       ok: false,
       codeName: 'E_EVIDENCE_INSUFFICIENT',
       reason:
         changed.length === 0
-          ? 'tool:config-schema needs a change to judge: no change against the default branch was found.'
-          : `tool:config-schema speaks only for a change made of CLEO config alone (.cleo/project-context.json, .cleo/config.json); this change also touches ${other.slice(0, 5).join(', ')}.`,
+          ? 'tool:config-schema needs a change to judge: no change against the default branch was found. ' +
+            'For an already-merged change, name it in the same write: --evidence "commit:<sha>;tool:config-schema" or "pr:<n>;tool:config-schema".'
+          : `tool:config-schema validates CLEO config (.cleo/project-context.json, .cleo/config.json); this change touches none (${changed.slice(0, 5).join(', ')}).`,
     };
   }
   const { resolveSchemaPath } = await import('../schema-management.js');
   const { checkSchema } = await import('../json-schema-validator.js');
   const failures: string[] = [];
-  for (const path of changed) {
+  for (const path of config) {
     const schemaName = cleoConfigSchemaFor(path) as string;
     const schemaPath = resolveSchemaPath(schemaName);
     if (!schemaPath)
@@ -2252,7 +2322,15 @@ async function validateConfigSchema(
       };
     let data: unknown;
     try {
-      data = JSON.parse(await readFile(resolvePath(root, path), 'utf-8'));
+      const at = anchors.length > 0 ? commitOf(path) : undefined;
+      const text = at
+        ? gitOutput(root, ['show', `${at}:${path}`])
+        : await readFile(resolvePath(root, path), 'utf-8');
+      if (text === null) {
+        failures.push(`${path}: not readable at ${at?.slice(0, 12)}`);
+        continue;
+      }
+      data = JSON.parse(text);
     } catch (err) {
       failures.push(`${path}: ${err instanceof Error ? err.message : String(err)}`);
       continue;
@@ -2266,6 +2344,20 @@ async function validateConfigSchema(
       codeName: 'E_EVIDENCE_TOOL_FAILED',
       reason: `tool:config-schema: CLEO's schema check failed:\n  - ${failures.join('\n  - ')}`,
     };
+  const otherPaths = changed.filter((p) => cleoConfigSchemaFor(p) === null);
+  const rest = otherPaths.length > 0 ? { otherPaths } : {};
+  if (anchors.length > 0)
+    return {
+      ok: true,
+      atom: {
+        kind: 'tool',
+        tool: 'config-schema',
+        exitCode: 0,
+        configSchema: config,
+        configSchemaCommit: anchors.at(-1)!,
+        ...rest,
+      },
+    };
   const treeHash = (await captureTree(root)).tree;
   if (!treeHash)
     return {
@@ -2275,7 +2367,14 @@ async function validateConfigSchema(
     };
   return {
     ok: true,
-    atom: { kind: 'tool', tool: 'config-schema', exitCode: 0, configSchema: changed, treeHash },
+    atom: {
+      kind: 'tool',
+      tool: 'config-schema',
+      exitCode: 0,
+      configSchema: config,
+      treeHash,
+      ...rest,
+    },
   };
 }
 
@@ -2283,8 +2382,9 @@ async function validateTool(
   tool: string,
   roots: EvidenceRoots,
   context?: EvidenceValidationContext,
+  siblingCommitSha?: string,
 ): Promise<AtomValidation> {
-  if (tool === 'config-schema') return validateConfigSchema(roots, context);
+  if (tool === 'config-schema') return validateConfigSchema(roots, context, siblingCommitSha);
   // T13745: no test reads a non-code-only change (docs, editor settings), so
   // the gate is satisfied by absence, recorded with the paths, never by a
   // suite. Pinned to the tree like a test-run: once the tree moves (code
@@ -3314,6 +3414,19 @@ export function checkTaskEvidenceContext(
     )
   ) {
     return `Code task ${context.task.id} requires an actual verification result for ${gate}; absence of a toolchain is not a passing result.`;
+  }
+  // T13778: CLEO config and the rest of a change are each covered by their own result.
+  if (gate === 'testsPassed' || gate === 'qaPassed') {
+    const gap = configSchemaCompositionGap(atoms);
+    if (gap !== null) return gap;
+  }
+  // T13783: generated-client dependents a test-run left to a typecheck need one.
+  if (gate === 'testsPassed' && !atoms.some((atom) => atom.kind === 'ci')) {
+    const dirs = atoms.flatMap((atom) =>
+      atom.kind === 'test-run' ? (atom.typecheckDirs ?? []) : [],
+    );
+    const gap = typecheckCoverageGap(atoms, dirs);
+    if (gap !== null) return gap;
   }
   // T13427: qa-run receipts stand for qaPassed only as a pair — a typecheck
   // and a lint, each by receipt or by a tool: atom (a not-applicable tool:

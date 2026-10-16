@@ -9,6 +9,9 @@
  * The set is derived deterministically:
  *  - each changed path maps to the workspace package whose directory holds it;
  *  - documentation outside the code roots is ignored;
+ *  - CLEO-owned config (`.cleo/project-context.json`, `.cleo/config.json`) is
+ *    judged by `tool:config-schema`, never by tests, so it is set aside as
+ *    `cleoConfig` instead of widening the scope (T13779);
  *  - any other path outside every package (lockfile, root `package.json`,
  *    workspace/build/test config, `scripts/`, `.github/`) can affect every
  *    package, so the scope becomes `full` and a full run is required —
@@ -71,6 +74,12 @@ export type AffectedScope =
        * when `outsideTests` narrowed non-workspace paths (T13754).
        */
       outsideTests?: string[];
+      /**
+       * Changed CLEO-owned config files (T13779): judged by `tool:config-schema`,
+       * never by a test run, so they do not widen the scope. Evidence that
+       * leaves them to config-schema records them as `configPaths`.
+       */
+      cleoConfig?: string[];
     }
   | { scope: 'full'; reason: string };
 
@@ -329,6 +338,68 @@ function outsideTestFiles(
 }
 
 /**
+ * `seeds` plus every workspace package that depends on one, transitively,
+ * through declared workspace dependencies.
+ *
+ * @param packages - The workspace packages.
+ * @param seeds - Package names to start from.
+ * @returns The closure, seeds included.
+ * @task T12635
+ * @task T13783
+ */
+export function dependentsClosure(
+  packages: readonly WorkspacePackage[],
+  seeds: Iterable<string>,
+): Set<string> {
+  const affected = new Set(seeds);
+  let grew = true;
+  while (grew) {
+    grew = false;
+    for (const p of packages) {
+      if (!affected.has(p.name) && p.deps.some((d) => affected.has(d))) {
+        affected.add(p.name);
+        grew = true;
+      }
+    }
+  }
+  return affected;
+}
+
+/**
+ * The changed workspace packages whose every changed path matches a glob of
+ * `evidence.typecheckOnlyDependents` on the default branch (T13783): a
+ * regenerated client (`lib/api-zod/**`) or declared seed/data files. A
+ * package depending on the change only through these owes a typecheck, not
+ * a test file. Read from the merge-base copy only, so a change cannot
+ * declare its own globs; never inferred from names.
+ *
+ * @param root - Execution root.
+ * @param changed - Root-relative changed paths.
+ * @param workspace - Workspace packages, longest directory first.
+ * @returns The package names.
+ * @task T13783
+ */
+export function typecheckOnlyPackages(
+  root: string,
+  changed: readonly string[],
+  workspace: readonly WorkspacePackage[],
+): Set<string> {
+  const mergeBase = originDefaultMergeBase(root);
+  const globs = mergeBase
+    ? declaredEvidencePatterns(root, mergeBase, 'typecheckOnlyDependents')
+    : [];
+  const matched = new Map<string, boolean>();
+  if (globs.length === 0) return new Set();
+  for (const path of changed.map(slashSeparated)) {
+    const owner = workspace.find((p) => p.dir !== '' && inPackageDir(path, p.dir));
+    if (!owner) continue;
+    const declared = globs.some((g) => g === path || matchesGlob(path, g));
+    matched.set(owner.name, (matched.get(owner.name) ?? true) && declared);
+  }
+  return new Set([...matched].filter(([, all]) => all).map(([name]) => name));
+}
+
+/**
  * Derive the affected-package set for a diff.
  *
  * @param root - Workspace root.
@@ -336,10 +407,13 @@ function outsideTestFiles(
  * @param opts - `outsideTests`: narrow a non-workspace path to the test files
  *   of its directory ({@link AffectedScope} `outsideTests`) instead of the
  *   whole workspace, for consumers that check or run those files (T13754).
+ *   CLEO-owned config files never widen the scope; they are returned as
+ *   `cleoConfig` for `tool:config-schema` to judge (T13779).
  * @returns The directly changed packages plus their transitive dependents, or
  *   `full` naming the paths that affect the whole workspace.
  * @task T12635
  * @task T13754
+ * @task T13779
  */
 export function deriveAffectedPackages(
   root: string,
@@ -349,7 +423,13 @@ export function deriveAffectedPackages(
   const packages = listWorkspacePackages(root).sort((a, b) => b.dir.length - a.dir.length);
   const direct = new Set<string>();
   const workspaceWide: string[] = [];
+  const cleoConfig: string[] = [];
   for (const path of changedPaths.map(slashSeparated)) {
+    // T13779: CLEO's own config is judged by tool:config-schema, not by tests.
+    if (cleoConfigSchemaFor(path) !== null) {
+      cleoConfig.push(path);
+      continue;
+    }
     // A standalone root package holds every path, but docs stay ignored there
     // as they are outside the packages of a workspace (T13403).
     const owner = packages.find(
@@ -369,22 +449,13 @@ export function deriveAffectedPackages(
     }
     outsideTests = outside.files;
   }
-  const affected = new Set(direct);
-  let grew = true;
-  while (grew) {
-    grew = false;
-    for (const p of packages) {
-      if (!affected.has(p.name) && p.deps.some((d) => affected.has(d))) {
-        affected.add(p.name);
-        grew = true;
-      }
-    }
-  }
+  const affected = dependentsClosure(packages, direct);
   return {
     scope: 'affected',
     direct: [...direct].sort(),
     packages: [...affected].sort(),
     ...(outsideTests ? { outsideTests } : {}),
+    ...(cleoConfig.length > 0 ? { cleoConfig } : {}),
   };
 }
 
@@ -738,14 +809,15 @@ export const CLEO_MANAGED_SCOPE_EXCLUDES: readonly string[] = Object.freeze([
  *
  * @param root - Execution root (the CLEO root of the checkout).
  * @param mergeBase - `merge-base(origin/<default>, HEAD)`.
- * @param key - `scopeExcludes` (T13135) or `runtimePaths` (T13554).
+ * @param key - `scopeExcludes` (T13135), `runtimePaths` (T13554) or
+ *   `typecheckOnlyDependents` (T13783).
  * @returns The declared patterns; none when the file or key is absent there.
  * @task T13554
  */
 export function declaredEvidencePatterns(
   root: string,
   mergeBase: string,
-  key: 'scopeExcludes' | 'runtimePaths',
+  key: 'scopeExcludes' | 'runtimePaths' | 'typecheckOnlyDependents',
 ): string[] {
   const raw = git(root, ['show', `${mergeBase}:./.cleo/project-context.json`]);
   const evidence = raw === null ? null : parseRawProjectContext(raw)?.['evidence'];
@@ -797,6 +869,9 @@ export function isScopeExcluded(
   return declared.some((pattern) => pattern === rel || matchesGlob(rel, pattern));
 }
 
+/** A path under a top-level dot-directory: tool and session state when untracked (T13780). */
+const UNTRACKED_STATE_DIR = /^\.[^/]+\//;
+
 /** The changed paths evidence scoping counts, and the ones it set aside. */
 export interface ScopedChangedPaths {
   /** Paths that count, as {@link changedPathsSinceDefault} returns them. */
@@ -811,6 +886,13 @@ export interface ScopedChangedPaths {
  * edits and untracked files — the tests run on the working tree, so all matter
  * — split into the ones that count and the ones set aside as out of scope
  * ({@link isScopeExcluded}, T13135).
+ *
+ * An untracked file under a top-level dot-directory (`.opencode/`,
+ * `.cleo/rcasd/`, `.claude/`) is not the change (T13780): in a shared checkout
+ * it is another session's or tool's state. It joins the change once staged or
+ * committed. Untracked files elsewhere still count: a new source file a later
+ * commit adds keeps the same tree hash, so leaving it out of scope would let
+ * evidence recorded before the commit skip it.
  *
  * Excludes are anchored at the CLEO root: diff paths are relative to the git
  * top level, so a CLEO root in a subdirectory strips its prefix before
@@ -849,7 +931,10 @@ export function scopedChangedPaths(root: string): ScopedChangedPaths | null {
   for (const path of [...lines(committed), ...lines(uncommitted)]) {
     (out(path, prefix) ? excluded : paths).add(path);
   }
-  for (const path of lines(untracked)) (out(path, '') ? excluded : paths).add(path);
+  for (const path of lines(untracked)) {
+    if (UNTRACKED_STATE_DIR.test(slashSeparated(path))) continue;
+    (out(path, '') ? excluded : paths).add(path);
+  }
   return { paths: [...paths].sort(), excluded: [...excluded].sort() };
 }
 
@@ -883,6 +968,8 @@ export type AffectedTestRun =
       template: AffectedTemplate;
       /** Test files outside every package the run names, for a non-workspace change (T13754). */
       testFiles?: string[];
+      /** Changed CLEO config the run leaves to `tool:config-schema` (T13779). */
+      configPaths?: string[];
     }
   | {
       ok: false;
@@ -970,6 +1057,7 @@ export async function planAffectedTestRun(
     };
   }
   const outside = scope.outsideTests ?? [];
+  const config = scope.cleoConfig ? { configPaths: scope.cleoConfig } : {};
   if (outside.length > 0) {
     // T13754: one affected command cannot both select packages and name files.
     if (scope.packages.length > 0) {
@@ -1005,14 +1093,16 @@ export async function planAffectedTestRun(
       untested: [],
       template: resolved,
       testFiles: outside,
+      ...config,
     };
   }
   if (scope.packages.length === 0) {
     return {
       ok: false,
       codeName: 'E_EVIDENCE_INSUFFICIENT',
-      reason:
-        'The change touches no workspace package, so there is nothing to test by scope; use tool:test.',
+      reason: scope.cleoConfig
+        ? `The change touches no workspace package, only CLEO config (${scope.cleoConfig.join(', ')}); use tool:config-schema.`
+        : 'The change touches no workspace package, so there is nothing to test by scope; use tool:test.',
     };
   }
   const targets = templateWords.includes('{projects}')
@@ -1044,6 +1134,7 @@ export async function planAffectedTestRun(
     projects,
     untested,
     template: resolved,
+    ...config,
   };
 }
 

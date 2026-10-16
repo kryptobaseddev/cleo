@@ -626,6 +626,9 @@ describe('tool:test-affected evidence', () => {
     mkdirSync(join(root, '.opencode', 'goals', 'dogfood'), { recursive: true });
     writeFileSync(join(root, '.opencode', 'goals', 'dogfood', 'goal.yaml'), 'goal: x\n');
     writeFileSync(join(root, 'packages/c/src/new.ts'), 'export const fresh = 1;\n');
+    // Staged, so it is part of the change; an untracked dot-directory file is
+    // not the change at all since T13780.
+    git(root, ['add', '-f', '.opencode/goals/dogfood/goal.yaml']);
     expect(scopedChangedPaths(root)).toEqual({
       paths: ['packages/c/src/new.ts'],
       excluded: ['.opencode/goals/dogfood/goal.yaml'],

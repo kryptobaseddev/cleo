@@ -87,6 +87,8 @@ export interface DonePlanBlocker {
   next: DoneNextStep;
   /** Original evidence error code when the blocker wraps a validator refusal. */
   cause?: string;
+  /** The verification gate the blocker holds back, when it is one gate's (T13795). */
+  gate?: VerificationGate;
 }
 
 /** A merged PR that cites the task. */
@@ -395,7 +397,8 @@ export interface OwedTestPackage {
  * `cleo done --plan` enforce them (T13795).
  *
  * - `targeted`: a passing report of every `files` entry plus at least one test
- *   file of every `packages` entry binds.
+ *   file of every `packages` entry binds (config files and typecheck-only
+ *   dependents are owed their own results).
  * - `full`: the change is workspace-wide; only `tool:test` (or `ci:<pr>`) binds.
  * - `none`: no changed path to judge (no origin default branch, or no change).
  */
@@ -412,6 +415,16 @@ export interface TaskTestPlan {
   packages: OwedTestPackage[];
   /** Affected packages with no test file at all. */
   untestedPackages: string[];
+  /** CLEO config files the change edits, owed `tool:config-schema` instead of a test. */
+  configPaths: string[];
+  /** Typecheck-only dependent package dirs, owed a typecheck instead of a test. */
+  typecheckDirs: string[];
+  /**
+   * Whether the change has merged. A merged change is judged as `cleo complete`
+   * judges it: the task's own part of the landed change, and every test file it
+   * adds or edits owed by a test-run recorded on the default branch.
+   */
+  merged: boolean;
   /** Whether the task already holds a standing testsPassed gate. */
   gatePassed: boolean;
   /** The testsPassed tool runs `cleo done` would use. */

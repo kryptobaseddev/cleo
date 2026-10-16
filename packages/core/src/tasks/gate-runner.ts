@@ -36,7 +36,7 @@ import {
   type Stats,
   writeFileSync,
 } from 'node:fs';
-import { lstat, open, realpath, stat } from 'node:fs/promises';
+import { lstat, open, readFile, realpath, stat } from 'node:fs/promises';
 import { basename, dirname, isAbsolute, join, relative, resolve } from 'node:path';
 import { isDeepStrictEqual } from 'node:util';
 import type {
@@ -73,7 +73,7 @@ import type {
   ProcessCaptureOptions,
   ProcessCaptureResult,
 } from '@cleocode/contracts/resource-governor';
-import { gitToplevel, resolveDeclaredEvidenceGitRoot } from '../git/work-tree.js';
+import { discoveryEnv, gitToplevel, resolveDeclaredEvidenceGitRoot } from '../git/work-tree.js';
 import { getProjectRoot } from '../paths.js';
 import { captureProjectScope, worktreeScope } from '../project-scope.js';
 import { truncateString } from '../render/helpers.js';
@@ -605,12 +605,18 @@ export async function runGates(
   }
 }
 
-/** `git` read in `cwd`; `null` on a non-zero exit or when git is unavailable. */
+/**
+ * `git` read in `cwd`; `null` on a non-zero exit or when git is unavailable.
+ * Ambient `GIT_DIR`/`GIT_WORK_TREE` are dropped (T13695): the tree is resolved
+ * explicitly ({@link resolveTypedGateRoot}), so an inherited repo pointer may
+ * only ever make it read another repository.
+ */
 function gitOut(cwd: string, args: readonly string[]): string | null {
   try {
     return execFileSync('git', args, {
       cwd,
       encoding: 'utf-8',
+      env: discoveryEnv(),
       stdio: ['ignore', 'pipe', 'ignore'],
     }).trim();
   } catch {
@@ -1793,6 +1799,75 @@ function structuredTestCounts(captured: ProcessCaptureResult): StructuredTestCou
 }
 
 /**
+ * Where vitest writes `--reporter=json` when the config sets `outputFile`
+ * (VidaPeps T2027: `.vitest/json/output.json`), relative to the gate's cwd.
+ */
+const REDIRECTED_JSON_REPORT = join('.vitest', 'json', 'output.json');
+
+/**
+ * Report files a gate's JSON reporter may write instead of stdout (T13782):
+ * every `--outputFile[.json]` the gate names, and {@link REDIRECTED_JSON_REPORT}.
+ *
+ * @param args - The gate's resolved arguments.
+ * @param cwd - The gate's working directory.
+ * @returns Absolute candidate paths.
+ */
+function reportFileCandidates(args: readonly string[], cwd: string): string[] {
+  const named = args.flatMap((arg, i) => {
+    const inline = arg.match(/^--outputFile(?:\.json)?=(.+)$/);
+    if (inline) return [inline[1]!];
+    return (arg === '--outputFile' || arg === '--outputFile.json') && args[i + 1]
+      ? [args[i + 1]!]
+      : [];
+  });
+  return [...new Set([...named, REDIRECTED_JSON_REPORT].map((p) => resolve(cwd, p)))];
+}
+
+/** A file's content hash and mtime, or null when it cannot be read. */
+async function fileStamp(path: string): Promise<{ mtimeMs: number; sha256: string } | null> {
+  try {
+    const [info, bytes] = await Promise.all([stat(path), readFile(path)]);
+    return { mtimeMs: info.mtimeMs, sha256: createHash('sha256').update(bytes).digest('hex') };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Counts from a report file THIS run wrote (T13782), or null. A candidate
+ * counts only when its bytes changed since just before the spawn (or it did
+ * not exist), its mtime is not older than the spawn, and the report's own
+ * `startTime`, when present, is not older than the spawn: a report left by an
+ * earlier run is never read as this run's result.
+ * shortcut: another process writing the same path during this run could be
+ * read; a checkout runs one gate at a time, so a shared path is not expected.
+ *
+ * @param before - Each candidate's stamp just before the spawn.
+ * @param startedAt - Epoch ms just before the spawn.
+ * @returns Validated counts, or null.
+ * @task T13782
+ */
+async function freshReportCounts(
+  before: ReadonlyMap<string, { mtimeMs: number; sha256: string } | null>,
+  startedAt: number,
+): Promise<StructuredTestCounts | null> {
+  for (const [path, was] of before) {
+    const now = await fileStamp(path);
+    if (now === null || now.mtimeMs < startedAt || (was !== null && was.sha256 === now.sha256))
+      continue;
+    try {
+      const raw: { startTime?: unknown } = JSON.parse(await readFile(path, 'utf-8'));
+      if (typeof raw.startTime === 'number' && raw.startTime < startedAt) continue;
+      const report = testCountReportSchema.safeParse(raw);
+      if (report.success) return report.data;
+    } catch {
+      // Unreadable or not JSON: not a report of this run.
+    }
+  }
+  return null;
+}
+
+/**
  * The `minCount` remediation, naming the exact reporter flag for this runner.
  *
  * The message this replaced said only that a structured count was required. A
@@ -1814,8 +1889,9 @@ function describeMissingTestCount(gate: TestGate): string {
     `minCount ${gate.minCount} cannot be proved: \`${invoked}\` emitted no machine-readable ` +
     `test report, and an exit code alone carries no count. Add a JSON reporter to the gate ` +
     `command itself (e.g. \`${invoked} ${flag}\`) so the run that is being attested is the ` +
-    `run that is counted. A report file produced by a separate invocation is deliberately not ` +
-    `accepted here \u2014 it is not bound to this execution; record that as \`test-run:<path>\` ` +
+    `run that is counted. A report file this run writes (its --outputFile, or ` +
+    `${REDIRECTED_JSON_REPORT}) is read too, but one produced by a separate invocation is ` +
+    `deliberately not accepted \u2014 it is not bound to this execution; record that as \`test-run:<path>\` ` +
     `evidence instead, or drop minCount if an exit code is the guarantee you want.`
   );
 }
@@ -1869,6 +1945,12 @@ async function runTestGate(
   context: ProcessCaptureOptions,
 ): Promise<AcceptanceGateResult> {
   const invocation = executableInvocation(gate, projectRoot, context.env ?? process.env)!;
+  // T13782: a JSON reporter redirected to a file still yields this run's counts.
+  const reportFiles = reportFileCandidates(invocation.args, invocation.cwd);
+  const before = new Map(
+    await Promise.all(reportFiles.map(async (p) => [p, await fileStamp(p)] as const)),
+  );
+  const startedAt = Date.now();
   const captured = await captureGateCommand(
     invocation.command,
     invocation.args,
@@ -1880,7 +1962,7 @@ async function runTestGate(
   );
   // T13752: a structured report decides the verdict; the text heuristic only
   // runs without one, since report JSON and test names are full of "failure".
-  const counts = structuredTestCounts(captured);
+  const counts = structuredTestCounts(captured) ?? (await freshReportCounts(before, startedAt));
 
   // T12308: the counts come from this run's own validated report; only their
   // ABSENCE is an error, because inferring a count from exit zero is the thing
