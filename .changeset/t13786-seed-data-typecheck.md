@@ -15,3 +15,7 @@ run of `lib/db`'s tests, plus a typecheck covering the dependents, closes the
 gate. A test file edited beside the data no longer makes the package count as
 code; the report must still run it. A source edit beside the data still makes
 the dependents owe tests.
+
+Also (T13784 follow-up): a moved test-run now also counts plain `setup.*`
+files (`src/test/setup.ts`, `test/setup.ts`, `./setup.ts`, the most common
+vitest `setupFiles` names) as test inputs, from the owning package down.
