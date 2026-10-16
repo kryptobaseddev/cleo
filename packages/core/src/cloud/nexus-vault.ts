@@ -1385,14 +1385,19 @@ async function snapshotAuthoritativeTables(
   parent: Checkpoint,
 ): Promise<{ list: string[] | null; exempt: ReadonlySet<string> }> {
   const exempt = new Set(Object.keys(ROW_IDENTITY_EXEMPT[tableScopeOf(t)]));
-  const status = await conn.find(
-    t.projectId !== null ? nexusQueryPath('/v1/status', { projectId: t.projectId }) : '/v1/status',
-    nexusCloudStatusSchema,
-  );
-  if (!(status?.features ?? []).includes(NEXUS_FEATURE_MANIFEST_SNAPSHOT_AUTHORITATIVE)) {
-    return { list: null, exempt };
-  }
   const allowed = parent.manifest.snapshotAuthoritative;
+  // A parent with a list proves the server takes it, and omitting it would be refused as a reset.
+  if (allowed === undefined) {
+    const status = await conn.find(
+      t.projectId !== null
+        ? nexusQueryPath('/v1/status', { projectId: t.projectId })
+        : '/v1/status',
+      nexusCloudStatusSchema,
+    );
+    if (!(status?.features ?? []).includes(NEXUS_FEATURE_MANIFEST_SNAPSHOT_AUTHORITATIVE)) {
+      return { list: null, exempt };
+    }
+  }
   return {
     list: keys.filter((k) => exempt.has(k) && (allowed === undefined || allowed.includes(k))),
     exempt,

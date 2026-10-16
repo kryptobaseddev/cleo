@@ -113,8 +113,8 @@ describe('checkManifestV3', () => {
     ).toEqual({
       ok: true,
     });
-    // Not listed: it is reconciled as before.
-    const unlisted = check(parent, withLog(13, 9), [tx(ref(R1, 0), 3)]);
+    // Not listed (under a parent without a list): it is reconciled as before.
+    const unlisted = check(withLog(10, 2), withLog(13, 9), [tx(ref(R1, 0), 3)]);
     expect(
       unlisted.ok === false &&
         unlisted.code === 'E_REGRESSION' &&
@@ -149,6 +149,46 @@ describe('checkManifestV3', () => {
     expect(manifestCanonical(v3(1, { snapshotAuthoritative: [LOG] }))).toContain(
       '"snapshotAuthoritative":["tasks_audit_log"]',
     );
+  });
+
+  it('review-nexus43 probes: no ratchet reset, no journaled table, no vault key, at genesis too (T13777)', () => {
+    const LOG = 'tasks_audit_log';
+    const withLog = (rows: number, logRows: number, over: Partial<Manifest> = {}): Manifest => ({
+      ...v3(rows, over),
+      tables: { ...v3(rows).tables, [LOG]: { rows: logRows, hash: H } },
+    });
+    const run = (parent: Manifest | null, next: Manifest, journaledTables: string[] = []) =>
+      checkManifestV3({
+        parent,
+        next,
+        window: windowOf([]),
+        parentPending: [],
+        voidedBefore: [],
+        maxAcceptedSchemaVersion: 5,
+        journaledTables,
+      });
+    // H1: omitting the list after a parent that had one is refused, never a reset to "any list".
+    expect(run(withLog(10, 2, { snapshotAuthoritative: [LOG] }), withLog(10, 2))).toMatchObject({
+      ok: false,
+      findings: [{ reason: 'authoritative-omitted' }],
+    });
+    // H2: genesis may not list a table the stream journals (it would hide a 10 -> 0 drop later).
+    expect(run(null, withLog(10, 2, { snapshotAuthoritative: [T] }), [T])).toMatchObject({
+      ok: false,
+      findings: [{ reason: 'authoritative-declared', table: T }],
+    });
+    // H2: a table journaled in an EARLIER window cannot be listed later, though this window is quiet.
+    expect(
+      run(withLog(10, 2), withLog(10, 2, { snapshotAuthoritative: [LOG] }), [LOG]),
+    ).toMatchObject({
+      ok: false,
+      findings: [{ reason: 'authoritative-declared', table: LOG }],
+    });
+    // L1: the vault keys are always the snapshot's; listing one is malformed.
+    expect(run(null, { ...v3(10), snapshotAuthoritative: ['zz_vault_files'] })).toMatchObject({
+      ok: false,
+      findings: [{ reason: 'authoritative-vault-key', table: 'zz_vault_files' }],
+    });
   });
 
   it('concurrent inserts of the same uid: one effect voided', () => {

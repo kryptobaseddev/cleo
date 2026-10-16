@@ -1254,6 +1254,10 @@ class FakeNexus {
         ),
         voidedBefore: s.voided,
         maxAcceptedSchemaVersion: this.maxSchemaVersion,
+        // As the server does (T13777): listed tables any segment at or below coversSeq declared.
+        journaledTables: (manifest.snapshotAuthoritative ?? []).filter((t) =>
+          s.segments.some((x) => x.seq <= coversSeq && Object.hasOwn(x.deltas, t)),
+        ),
       });
       // An older server reconciled the vault's file and database keys like any table.
       const legacyFindings = this.snapshotAuthoritativeKeys
@@ -7140,6 +7144,13 @@ describe('the main brain stream through cloud sync (T13370)', () => {
       onM(a, () => pushNexusVault(vopts(a, { scope: 'global', allowUnreleased: true })));
     // `cleo init` of a new project: one more registry row, which no segment declares.
     await register('p-new-1');
+    // Against a server without the list, the push is refused, naming why.
+    fake.features = undefined;
+    const old = await failure(push());
+    expect(old.code).toBe('E_NEXUS_VAULT_REFUSED');
+    expect(old.message).toContain('nexus_project_registry');
+    expect(old.message).toContain('manifest.snapshot-authoritative');
+    // A server that takes it: the home checkpoint names the registry and lands.
     fake.features = [NEXUS_FEATURE_MANIFEST_SNAPSHOT_AUTHORITATIVE];
     const pushed = await push();
     expect(pushed.status).toBe('pushed');
@@ -7148,13 +7159,13 @@ describe('the main brain stream through cloud sync (T13370)', () => {
     expect(cp?.manifest.tables['nexus_project_registry']?.rows).toBe(
       (s.checkpoints[0]?.manifest.tables['nexus_project_registry']?.rows ?? 0) + 1,
     );
-    // Against a server without the list, another new project refuses the push, naming why.
+    // Another new project later: the inherited list goes out again (an omitted list is no reset).
     await register('p-new-2');
-    fake.features = undefined;
-    const old = await failure(push());
-    expect(old.code).toBe('E_NEXUS_VAULT_REFUSED');
-    expect(old.message).toContain('nexus_project_registry');
-    expect(old.message).toContain('manifest.snapshot-authoritative');
+    const again = await push();
+    expect(again.status).toBe('pushed');
+    expect(s.checkpoints.at(-1)?.manifest.snapshotAuthoritative).toContain(
+      'nexus_project_registry',
+    );
   });
 
   it("with sync on, two devices see each other's brain writes after a session end, with no manual cloud sync (T13468)", async () => {
