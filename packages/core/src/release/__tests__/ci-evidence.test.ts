@@ -1263,6 +1263,8 @@ describe('resolveCiEvidenceAtom', () => {
       const BUDGET_LOG = [
         '2026-10-10T07:49:11.0000000Z \u001b[2m Test Files \u001b[22m \u001b[1m\u001b[32m260 passed\u001b[39m\u001b[22m\u001b[90m (260)\u001b[39m',
         '2026-10-10T07:49:11.0000000Z \u001b[2m      Tests \u001b[22m \u001b[1m\u001b[32m3335 passed\u001b[39m\u001b[22m\u001b[2m | \u001b[22m\u001b[33m3 skipped\u001b[39m (3339)',
+        '2026-10-10T07:49:11.0000000Z \u001b[2m   Start at \u001b[22m 07:45:10',
+        '2026-10-10T07:49:11.0000000Z \u001b[2m   Duration \u001b[22m 243.13s (transform 24.92s)',
         '2026-10-10T07:49:12.0000000Z ### Flaky quarantine over budget',
         '2026-10-10T07:49:12.0000000Z 11 tests are quarantined (most 10).',
         '2026-10-10T07:49:14.0000000Z ##[error]Process completed with exit code 1.',
@@ -1271,9 +1273,12 @@ describe('resolveCiEvidenceAtom', () => {
       /** One failing test that the over-budget quarantine lists: it would never have blocked. */
       const quarantinedFailure = (listed: boolean) =>
         [
+          '2026-10-10T07:34:03.9Z  ❯  @cleocode/core  src/store/__tests__/agent-resolver.test.ts (22 tests | 1 failed) 4165ms',
           '2026-10-10T07:39:45.1Z \u001b[31m FAIL \u001b[39m  @cleocode/core  src/store/__tests__/agent-resolver.test.ts > W2-4 resolveAgent > T9037 — resolves via require',
           '2026-10-10T07:39:45.2Z  Test Files  1 failed | 258 passed | 1 skipped (260)',
           '2026-10-10T07:39:45.3Z       Tests  1 failed | 4091 passed | 13 todo (4106)',
+          '2026-10-10T07:39:45.3Z    Start at  07:31:23',
+          '2026-10-10T07:39:45.3Z    Duration  501.17s (transform 43.95s)',
           '2026-10-10T07:39:45.8Z ### Flaky quarantine over budget',
           '2026-10-10T07:39:45.8Z ',
           '2026-10-10T07:39:45.8Z 11 tests are quarantined (most 10). Fix flaky tests.',
@@ -1304,7 +1309,12 @@ describe('resolveCiEvidenceAtom', () => {
         expect(
           isQuarantineBudgetOnlyLog(BUDGET_LOG.replace('### Flaky quarantine over budget', '')),
         ).toBe(false);
-        expect(isQuarantineBudgetOnlyLog(`${BUDGET_LOG}\n Unhandled Errors `)).toBe(false);
+        // vitest's own error section comes before the script's heading.
+        expect(
+          isQuarantineBudgetOnlyLog(
+            BUDGET_LOG.replace('### Flaky', ' Unhandled Errors \n### Flaky'),
+          ),
+        ).toBe(false);
         expect(isQuarantineBudgetOnlyLog('### Flaky quarantine over budget')).toBe(false);
         // A failing test the quarantine lists never blocks; one it does not list does.
         expect(isQuarantineBudgetOnlyLog(quarantinedFailure(true))).toBe(true);
@@ -1315,6 +1325,42 @@ describe('resolveCiEvidenceAtom', () => {
             quarantinedFailure(true).replace('1 failed | 258 passed', '2 failed | 257 passed'),
           ),
         ).toBe(false);
+        // A summary a test echoed never stands in for the run's own (review probe, T13814):
+        // the per-file line shows 4 failures and the shard was killed before its summary.
+        const echoed = [
+          ' ✓ packages/x/a.test.ts (3 tests) 20ms',
+          'stdout | packages/y/parse.test.ts > parses a vitest summary',
+          ' Test Files  1 passed (1)',
+          '      Tests  2 passed (2)',
+          ' ❯ packages/z/big.test.ts (12 tests | 4 failed)',
+          'Killed',
+          '### Flaky quarantine over budget',
+          '',
+          '31 tests are quarantined (most 30)',
+        ].join('\n');
+        expect(isQuarantineBudgetOnlyLog(echoed)).toBe(false);
+        // Each guard alone refuses it: no timing lines, a per-file failure, a worker crash.
+        expect(isQuarantineBudgetOnlyLog(echoed.replace('\nKilled', ''))).toBe(false);
+        expect(
+          isQuarantineBudgetOnlyLog(
+            BUDGET_LOG.replace(
+              '### Flaky',
+              ' ❯ packages/z/big.test.ts (12 tests | 4 failed)\n### Flaky',
+            ),
+          ),
+        ).toBe(false);
+        expect(
+          isQuarantineBudgetOnlyLog(
+            BUDGET_LOG.replace(
+              '### Flaky',
+              'Error: [vitest-pool]: Worker exited unexpectedly\n### Flaky',
+            ),
+          ),
+        ).toBe(false);
+        // A test's child process printing `Killed` is ordinary output, not a crash.
+        expect(
+          isQuarantineBudgetOnlyLog(BUDGET_LOG.replace('### Flaky', 'Killed\n### Flaky')),
+        ).toBe(true);
         // The heading must be the script's own verdict, with its count line.
         expect(
           isQuarantineBudgetOnlyLog(BUDGET_LOG.replace('11 tests are quarantined (most 10).', '')),

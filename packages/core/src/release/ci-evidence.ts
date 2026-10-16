@@ -940,14 +940,35 @@ const normTitle = (title: string): string =>
     .replace(/\s+/g, ' ')
     .trim();
 
-/** The failed count of every vitest summary line of one kind (`Test Files` or `Tests`). */
-function failedCounts(text: string, kind: 'Test Files' | 'Tests'): number[] | null {
-  const lines = [...text.matchAll(new RegExp(`\\b${kind}\\s{2,}(\\d.*)$`, 'gm'))].map(
-    (m) => m[1] ?? '',
-  );
-  if (lines.length === 0) return null;
-  return lines.map((line) => Number(/(\d+) failed/.exec(line)?.[1] ?? 0));
+/** The failed count in one vitest summary line (0 when it names none). */
+const failedIn = (line: string): number => Number(/(\d+) failed/.exec(line)?.[1] ?? 0);
+
+/**
+ * The run's own vitest summary block in `text` (T13809): the LAST `Test Files`
+ * line, followed within four lines by its `Tests`, `Start at` and `Duration`
+ * lines. A summary echoed by a test's stdout lacks the timing lines; a killed
+ * run has no block at all. Null when there is none.
+ */
+function runSummary(text: string): { failedFiles: number; failedTests: number } | null {
+  const lines = text.split('\n');
+  for (let i = lines.length - 1; i >= 0; i--) {
+    if (!/\bTest Files\s{2,}\d/.test(lines[i] ?? '')) continue;
+    const block = lines.slice(i + 1, i + 5);
+    const tests = block.find((l) => /\bTests\s{2,}\d/.test(l));
+    if (!tests || !block.some((l) => /\bStart at\s{2,}/.test(l))) return null;
+    if (!block.some((l) => /\bDuration\s{2,}/.test(l))) return null;
+    return { failedFiles: failedIn(lines[i] ?? ''), failedTests: failedIn(tests) };
+  }
+  return null;
 }
+
+/**
+ * vitest's own report that a worker died or ran out of memory. A test's child
+ * processes print `Killed` and signal names as ordinary output, so those are
+ * not markers; a killed vitest leaves no summary block ({@link runSummary}).
+ */
+const RUN_DIED =
+  /Worker exited unexpectedly|Worker terminated due to reaching memory limit|JavaScript heap out of memory/;
 
 /**
  * Whether a unit-test job log shows a failure caused by the flaky-quarantine
@@ -956,9 +977,11 @@ function failedCounts(text: string, kind: 'Test Files' | 'Tests'): number[] | nu
  * applies its own rule that a quarantined test's failure never blocks. So
  * the log qualifies when the budget heading is present, no error escaped a
  * test, and every failing test of that run is one the quarantine lists (no
- * failure at all is the common case). Any doubt is `false`: no summary, a
- * failing test outside the quarantine, a file that failed to load, or counts
- * that do not add up.
+ * failure at all is the common case). Only the run's own summary block counts
+ * ({@link runSummary}), never a summary a test echoed. Any doubt is `false`:
+ * no summary block, a kill or crash marker, a failing test outside the
+ * quarantine, a file that failed to load, or counts that do not add up
+ * (per-file `(N tests | M failed)` lines included).
  *
  * @param log - The job's plain-text log (ANSI colour codes allowed).
  * @returns Whether the job failed only on the quarantine budget.
@@ -975,26 +998,33 @@ export function isQuarantineBudgetOnlyLog(log: string): boolean {
   ) {
     return false;
   }
-  if (/Unhandled (Errors?|Rejection)|\bErrors\s{2,}\d/.test(text)) return false;
-  const files = failedCounts(text, 'Test Files');
-  const tests = failedCounts(text, 'Tests');
-  if (files === null || tests === null) return false;
-  const failedFiles = files.reduce((a, b) => a + b, 0);
-  const failedTests = tests.reduce((a, b) => a + b, 0);
-  if (failedFiles === 0 && failedTests === 0) return true;
+  const run = text.slice(0, heading);
+  if (/Unhandled (Errors?|Rejection)|\bErrors\s{2,}\d/.test(run) || RUN_DIED.test(run))
+    return false;
+  // Only the run's own summary counts; a summary a test echoed never stands in.
+  const summary = runSummary(run);
+  if (summary === null) return false;
+  const { failedFiles, failedTests } = summary;
   const testPath = String.raw`\S+\.(?:test|spec)\.[cm]?[jt]sx?`;
+  // Every per-file `(N tests | M failed)` line must agree with the summary.
+  const perFile = [
+    ...run.matchAll(new RegExp(`❯\\s+(?:\\S+\\s+)?(${testPath})\\s+\\([^)]*?(\\d+) failed`, 'gm')),
+  ].map((m) => ({ file: m[1] ?? '', failed: Number(m[2] ?? 0) }));
+  if (perFile.reduce((a, f) => a + f.failed, 0) !== failedTests) return false;
+  if (failedFiles === 0 && failedTests === 0) return true;
   const quarantined = [
     ...text.slice(heading).matchAll(new RegExp(`- \`(${testPath})\` > (.+)$`, 'gm')),
   ].map((m) => ({ file: m[1] ?? '', title: normTitle(m[2] ?? '') }));
   const failing = new Map<string, { file: string; title: string }>();
-  for (const m of text
-    .slice(0, heading)
-    .matchAll(new RegExp(`\\bFAIL\\s{2,}(?:\\S+\\s+)?(${testPath}) > (.+)$`, 'gm'))) {
+  for (const m of run.matchAll(
+    new RegExp(`\\bFAIL\\s{2,}(?:\\S+\\s+)?(${testPath}) > (.+)$`, 'gm'),
+  )) {
     const entry = { file: m[1] ?? '', title: normTitle(m[2] ?? '') };
     failing.set(`${entry.file}\u0000${entry.title}`, entry);
   }
   if (failing.size !== failedTests) return false;
   if (new Set([...failing.values()].map((f) => f.file)).size !== failedFiles) return false;
+  if (!perFile.every((p) => [...failing.values()].some((f) => f.file === p.file))) return false;
   return [...failing.values()].every((f) =>
     quarantined.some((q) => q.title === f.title && q.file.endsWith(f.file)),
   );
@@ -1089,7 +1119,7 @@ export async function cancelledWithoutTestFailure(
     // An unreadable log proves nothing about the job: never skip past it.
     if (log === null) return false;
     const text = log.replace(/\u001b\[[0-9;]*m/g, '');
-    if (/\bFAIL\s{2,}/.test(text) || (failedCounts(text, 'Tests') ?? []).some((n) => n > 0)) {
+    if (/\bFAIL\s{2,}|\d+ failed/.test(text) || RUN_DIED.test(text)) {
       return false;
     }
   }
