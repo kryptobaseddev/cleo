@@ -1757,6 +1757,7 @@ async function runAffectedTests(
           : AFFECTED_SCOPE_BASIS,
       affectedPackages: run.packages,
       affectedProjects: run.projects,
+      ...(run.testFiles ? { affectedTestFiles: run.testFiles } : {}),
       ...(run.untested.length > 0 ? { untestedPackages: run.untested } : {}),
       ...toolRunAtomFields(result),
     },
@@ -3341,6 +3342,13 @@ export function checkTaskEvidenceContext(
           !atoms.some(
             (other) => other.kind === 'tool' && canonicalToolName(other.tool) === atom.check,
           ),
+      ),
+      // T13698: a whole-project run also speaks for paths neither check reads.
+      atoms.some(
+        (atom) =>
+          atom.kind === 'tool' &&
+          !atom.notApplicable &&
+          (canonicalToolName(atom.tool) === 'lint' || canonicalToolName(atom.tool) === 'typecheck'),
       ),
     );
     if (gap !== null) return gap;

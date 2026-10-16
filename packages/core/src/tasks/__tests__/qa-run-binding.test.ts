@@ -32,7 +32,7 @@ import {
 } from '../affected-scope.js';
 import { isLandedOnOriginDefault } from '../change-set.js';
 import { checkTaskEvidenceContext, validateAtom } from '../evidence.js';
-import { parseQaRunReceipt, qaRunUnionGapReason } from '../qa-run-binding.js';
+import { parseQaRunReceipt, qaRunChecks, qaRunUnionGapReason } from '../qa-run-binding.js';
 import { captureTreeHash } from '../tool-cache.js';
 
 function git(dir: string, args: string[]): string {
@@ -332,6 +332,107 @@ describe('a qa-run receipt in a standalone project', () => {
     git(root, ['commit', '-q', '-m', 'T1: readme']);
     const r = await validateAtom({ kind: 'qa-run', path: receipt({ roots: ['src'] }) }, root);
     expect(r.ok, JSON.stringify(r)).toBe(true);
+  });
+});
+
+describe('a qa-run kind owes coverage only for what its tool reads (T13698)', () => {
+  it('reads sources and the configs that change a check, nothing else', () => {
+    expect(qaRunChecks('lint', 'src/a.tsx')).toBe(true);
+    expect(qaRunChecks('lint', 'packages/a/eslint.config.mjs')).toBe(true);
+    expect(qaRunChecks('lint', 'biome.json')).toBe(true);
+    expect(qaRunChecks('lint', 'packages/a/package.json')).toBe(true);
+    expect(qaRunChecks('typecheck', 'packages/a/tsconfig.build.json')).toBe(true);
+    expect(qaRunChecks('typecheck', 'src/a.js')).toBe(false);
+    expect(qaRunChecks('lint', 'scripts/INDEX.md')).toBe(false);
+    expect(qaRunChecks('typecheck', 'data/fixture.json')).toBe(false);
+    // T13745 allowlist: no non-code path is an input of either check (one classifier each, disjoint).
+    for (const p of [
+      'renovate.json',
+      '.editorconfig',
+      '.vscode/settings.json',
+      'x.code-workspace',
+      'docs/a.md',
+    ]) {
+      expect(isNonCodePath(p), p).toBe(true);
+      expect(qaRunChecks('lint', p) || qaRunChecks('typecheck', p), p).toBe(false);
+    }
+  });
+
+  // axiom T1984: ESLint over the changed TS entry files, plus a generated
+  // scripts/INDEX.md that ESLint never reads (scripts/ is a CI code root, so
+  // the .md is not set aside as documentation).
+  beforeEach(() => {
+    initRepo(() => {
+      put('package.json', JSON.stringify({ name: 'solo' }));
+      put('src/a/x.ts', 'export const x = 1;\n');
+      put('src/b/y.ts', 'export const y = 1;\n');
+      put('scripts/INDEX.md', '# index\n');
+    });
+    put('src/a/x.ts', 'export const x = 2;\n');
+    put('src/b/y.ts', 'export const y = 2;\n');
+    put('scripts/INDEX.md', '# index\n\n- x\n');
+    git(root, ['commit', '-q', '-am', 'T1: change entries and regenerate the index']);
+  });
+
+  const ctx: EvidenceValidationContext = {
+    task: { id: 'T1', kind: 'work', labels: [], files: [], acceptance: [] },
+    gates: ['qaPassed'],
+    criteria: [],
+  };
+
+  async function bound(fields: Record<string, unknown>, name: string): Promise<EvidenceAtom> {
+    const r = await validateAtom({ kind: 'qa-run', path: receipt(fields, undefined, name) }, root);
+    if (!r.ok) throw new Error(JSON.stringify(r));
+    return r.atom;
+  }
+
+  it('green: lint over the TS files passes with the .md left to the typecheck receipt that holds it', async () => {
+    const lint = await bound(
+      { kind: 'lint', command: ['eslint'], roots: ['src/a/x.ts', 'src/b/y.ts'] },
+      'lint',
+    );
+    expect(lint).toMatchObject({ uncovered: ['scripts/INDEX.md'] });
+    const types = await bound({ roots: ['src', 'scripts'] }, 'typecheck');
+    expect(checkTaskEvidenceContext(ctx, 'qaPassed', [types, lint])).toBeNull();
+  });
+
+  it('red: a changed tsconfig is owed by a typecheck receipt; a lint receipt holding it does not stand in', async () => {
+    put('tsconfig.json', '{"compilerOptions":{"strict":true}}\n');
+    git(root, ['add', '.']);
+    git(root, ['commit', '-q', '-m', 'T1: tighten tsconfig']);
+    const lint = await bound({ kind: 'lint', command: ['eslint'], roots: ['.'] }, 'lint');
+    const types = await bound({ roots: ['src', 'scripts'] }, 'typecheck');
+    expect(checkTaskEvidenceContext(ctx, 'qaPassed', [types, lint])).toMatch(
+      /qa-run typecheck receipt \(roots scripts, src\) does not cover the changed path\(s\) tsconfig\.json\./,
+    );
+  });
+
+  it('red: a lintable file the lint run missed is still refused, naming it', async () => {
+    const lint = await bound({ kind: 'lint', command: ['eslint'], roots: ['src/a/x.ts'] }, 'lint');
+    const types = await bound({ roots: ['src', 'scripts'] }, 'typecheck');
+    expect(checkTaskEvidenceContext(ctx, 'qaPassed', [types, lint])).toMatch(
+      /qa-run lint receipt \(roots src\/a\/x\.ts\) does not cover the changed path\(s\) src\/b\/y\.ts\./,
+    );
+  });
+
+  it('red: a file neither check reads and no receipt holds is named as needing its own evidence', async () => {
+    const lint = await bound(
+      { kind: 'lint', command: ['eslint'], roots: ['src/a/x.ts', 'src/b/y.ts'] },
+      'lint',
+    );
+    const types = await bound({ roots: ['src'] }, 'typecheck');
+    const gap = checkTaskEvidenceContext(ctx, 'qaPassed', [types, lint]);
+    expect(gap).toMatch(/^scripts\/INDEX\.md is not read by lint or typecheck/);
+    expect(gap).toContain('Add evidence that does');
+    // A whole-project tool: run speaks for it.
+    expect(
+      qaRunUnionGapReason(
+        [types, lint].filter(
+          (a): a is Extract<EvidenceAtom, { kind: 'qa-run' }> => a.kind === 'qa-run',
+        ),
+        true,
+      ),
+    ).toBeNull();
   });
 });
 
@@ -696,7 +797,8 @@ describe('T13745: a non-code-only change (editor settings, docs) completes with 
     );
     if (!r.ok) throw new Error(JSON.stringify(r));
     expect(checkTaskEvidenceContext(ctx('qaPassed'), 'qaPassed', [r.atom])).toMatch(
-      /does not cover the changed path\(s\) \.vscode\/settings\.json/,
+      // T13698: lint never reads a .json setting, so no receipt holding it is named.
+      /^\.vscode\/settings\.json is not read by lint or typecheck, and no qa-run receipt's roots hold it/,
     );
   });
 

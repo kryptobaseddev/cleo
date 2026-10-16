@@ -7,7 +7,7 @@ adrRefs:
   - ADR-063
   - ADR-065
 metadata:
-  version: 3.2.5
+  version: 3.2.6
   tier: on-demand
   install: harness
   covers:
@@ -15,7 +15,7 @@ metadata:
     - packages/core/src/validation/protocols/protocols-markdown/release.md
     - packages/cleo/src/cli/commands/release.ts
   loomStage: release
-  lastReviewed: 2026-10-11
+  lastReviewed: 2026-10-16
   stability: stable
 ---
 
@@ -32,8 +32,9 @@ hotfixes are exempt. The promotion gate runs before GitHub Release creation.
 That plan also makes `scripts/mark-hotfix-release.mjs` stamp
 `cleo.releasedFeatures: ["hooks-v1"]` into `@cleocode/core`, which opens the
 hooks-v1 runtime gate on the stable build (T13557); stable candidates without it
-prove the runtime inert. Remove `hooks-v1` from `UNRELEASED_HOOK_FEATURES` in a
-normal PR after the promotion, before the next stable release.
+prove the runtime inert. hooks-v1 was promoted in v2026.10.17 and is released
+in source since T13776 (`UNRELEASED_HOOK_FEATURES` is empty), so later releases
+need neither the flag nor the stamp.
 `cleo release plan` refuses a stable plan whose source opens that gate since the
 previous tag (`hooks-v1` leaving the set, a changed `hooksV1Released`, a deleted
 gate) with `E_HOOKS_V1_PROMOTION_REQUIRED`, unless it is the promotion or passes

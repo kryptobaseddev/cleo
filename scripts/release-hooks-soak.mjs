@@ -23,20 +23,6 @@ import { sandboxEnvironment } from './lib/sandbox-env.mjs';
 export const HOOKS_V1_INERT =
   'hooks-v1 unreleased on this build: activation refused by name (E_HOOKS_V1_UNRELEASED) and runtime inert verified';
 
-/**
- * Whether an installed `@cleocode/core` manifest released hooks-v1, by the
- * same release metadata the runtime gate reads (core/src/hooks/release-gate.ts).
- *
- * @param {{ version?: string, cleo?: { releasedFeatures?: string[] } }} manifest - The installed core manifest.
- * @returns {boolean} `true` for a canary build or a hooks-v1 promotion.
- */
-export function hooksV1ReleasedIn(manifest) {
-  return (
-    /-canary\.\d+$/.test(manifest.version ?? '') ||
-    manifest.cleo?.releasedFeatures?.includes('hooks-v1') === true
-  );
-}
-
 /** Exercise installed CLI delivery, native protocol, actual pushes and worktree port.
  * @param {{bin:string,project:string,installDir:string,env:NodeJS.ProcessEnv}} options Sandbox paths and environment.
  * @returns {Promise<string>} Verified fixture scenarios.
@@ -119,12 +105,13 @@ const request=JSON.parse(text);if(request.source==='worktree')appendFileSync('ho
   git('add', '-f', 'canary-check.mjs', '.cleo/hooks.json');
   if (existsSync(join(project, '.cleo/project.json'))) git('add', '-f', '.cleo/project.json');
   git('-c', 'core.hooksPath=/dev/null', 'commit', '-m', 'test(T999): installed hooks fixture');
-  // T13557: a stable build without the hooks-v1 promotion stamp is inert. Prove
-  // the refusal and stop; canary and promoted builds run the full scenario.
-  const coreManifest = JSON.parse(
-    readFileSync(join(installDir, 'node_modules', '@cleocode', 'core', 'package.json'), 'utf8'),
+  // T13557: a build whose hooks-v1 gate is closed is inert. Prove the refusal and
+  // stop; any other build runs the full scenario. Ask the installed gate itself:
+  // since T13776 hooks-v1 is released in source, with no release stamp.
+  const gate = await import(
+    pathToFileURL(require.resolve('@cleocode/core/hooks/release-gate')).href
   );
-  if (!hooksV1ReleasedIn(coreManifest)) {
+  if (!gate.hooksV1Released()) {
     const refused = JSON.parse(
       call(bin, ['hook', 'sync', '--activate', '--providers', 'codex,claude-code'], undefined, 1),
     );
