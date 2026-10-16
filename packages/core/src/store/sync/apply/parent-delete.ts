@@ -52,6 +52,14 @@ export const ON_REMOTE_PARENT_DELETE: Readonly<Record<string, ParentDeletePolicy
   // superseded_by (NO ACTION, like brain_decisions), so no child cascades; a
   // delete of a doc another doc still points at is a conflict.
   docs_attachments: 'conflict',
+  // T12914: lifecycle pipelines and stages, releases, PRs and commits own
+  // their children (ON DELETE CASCADE). A delete of one while another device
+  // added a child is a conflict, so the child is never cascaded away silently.
+  tasks_lifecycle_pipelines: 'conflict',
+  tasks_lifecycle_stages: 'conflict',
+  tasks_releases: 'conflict',
+  tasks_pull_requests: 'conflict',
+  tasks_commits: 'conflict',
 };
 
 /**

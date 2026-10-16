@@ -590,6 +590,8 @@ function uidFromArgs(
       parts.push(value);
     } else parts.push(take());
   }
+  // T12914: a NULL in a nullable key column keeps the row local (no uid).
+  if (spec.localWhenNull?.some((c) => parts[spec.key.indexOf(c)] === null)) return null;
   if (!spec.symmetric) return naturalRowUid(scope, table, parts);
   const twinExists = Number(take()) === 1;
   const typeIndex = spec.key.indexOf(spec.symmetric.column);
@@ -2334,7 +2336,9 @@ export function rowIdentityFillPending(db: DatabaseSync, scope: TableScope): str
     db.prepare(`SELECT 1 FROM main.${q(table)} WHERE ${where} LIMIT 1`).get() !== undefined;
   for (const spec of ROW_IDENTITY[scope]) {
     if (!hasTable(db, spec.table)) continue;
-    if (any(spec.table, `${q(UID_COLUMN)} IS NULL`)) pending.push(`uid:${spec.table}`);
+    // T12914: a row kept local by a NULL key column is never pending.
+    const local = (spec.localWhenNull ?? []).map((c) => ` AND ${q(c)} IS NOT NULL`).join('');
+    if (any(spec.table, `${q(UID_COLUMN)} IS NULL${local}`)) pending.push(`uid:${spec.table}`);
     if (spec.kind === 'minted' && any(spec.table, `${q(BIRTH_FP_COLUMN)} IS NULL`)) {
       pending.push(`birth_fp:${spec.table}`);
     }
