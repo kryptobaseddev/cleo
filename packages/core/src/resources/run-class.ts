@@ -1336,7 +1336,8 @@ const WRAPPER_VALUE_FLAGS: ReadonlySet<string> = new Set([
 const NODE_SCRIPT = /\.[cm]?js$/;
 
 /** A `NODE_OPTIONS=` assignment that sets a heap size. */
-const HEAP_RAISING_ASSIGNMENT = /^NODE_OPTIONS=.*--max-(old-space|semi-space|heap)-size/;
+const HEAP_RAISING_ASSIGNMENT =
+  /^NODE_OPTIONS=.*--max[-_](old[-_]space|semi[-_]space|heap)[-_]size/;
 
 /**
  * `argv` without leading wrappers (`timeout 60`, `sudo -u x`, `env A=1`,
@@ -1394,7 +1395,7 @@ export function lightCommandReason(argv: readonly string[]): string | null {
     script !== undefined &&
     NODE_SCRIPT.test(script) &&
     !CLEO_SCRIPT.test(script) &&
-    !/(^|\/)node_modules\//.test(script)
+    !/(^|[\\/])node_modules[\\/]/.test(script)
   ) {
     return `node ${script} runs no heavy tool`;
   }

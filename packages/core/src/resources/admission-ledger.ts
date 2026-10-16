@@ -1003,7 +1003,10 @@ function budgetPhrase(entry: LedgerEntry, budget: LedgerBudget): string {
  * - A run nested in an admitted run (`parentId`, T13452) is considered first,
  *   past any blocked head, and its ancestors are left out of every check: its
  *   parent cannot finish until it runs, so it starts once it fits beside
- *   everything else, or once nothing but its ancestors runs.
+ *   everything else, or once nothing but its ancestors runs. Every left-out
+ *   ancestor is non-heavy (≤ {@link HEAVY_FOOTPRINT_BYTES}; a heavy grant is
+ *   ridden, never queued under), so the worst case runs depth × 6 GiB over
+ *   the budget, and over the capacity too.
  * - Up to {@link TINY_LANE_SLOTS} tiny runs are admitted from a reserve outside
  *   the pressure share, wherever they wait, while the capacity has room for
  *   them (T13587): their bytes do not count against the share budget, and
@@ -1326,11 +1329,17 @@ export function enclosingGrant(
   if (admitted.length === 0) return null;
   const token = parseAdmissionToken(env[ADMISSION_ENV]);
   const hinted = token ? admitted.filter((e) => e.id === token.id && e.nonce === token.nonce) : [];
-  const ordered = [...hinted, ...admitted.filter((e) => !hinted.includes(e))];
-  let ancestors: readonly number[] | null | undefined;
+  const ancestors = facts.ancestorsOf(pid);
+  // T13452: unhinted candidates nearest ancestor first, so a scrubbed token
+  // finds the enclosing run, not an older one further up the tree.
+  const depth = (e: LedgerEntry): number => {
+    const at = ancestors?.indexOf(e.pid) ?? -1;
+    return at < 0 ? Number.POSITIVE_INFINITY : at;
+  };
+  const unhinted = admitted.filter((e) => !hinted.includes(e));
+  const ordered = [...hinted, ...unhinted.sort((a, b) => depth(a) - depth(b))];
   let group: number | null | undefined;
   for (const e of ordered) {
-    ancestors ??= facts.ancestorsOf(pid);
     group ??= facts.groupOf(pid);
     const byAncestry =
       ancestors?.includes(e.pid) === true &&

@@ -677,6 +677,26 @@ describe('enclosingGrant (re-entrancy)', () => {
     });
   });
 
+  it('without a token, the nearest admitted ancestor wins, not the oldest (T13452)', () => {
+    const p = entry({ id: 'P', pid: 100, state: 'admitted', footprintBytes: GIB, enqueuedAtMs: 1 });
+    const c = entry({
+      id: 'C',
+      pid: 200,
+      state: 'admitted',
+      footprintBytes: 24 * GIB,
+      enqueuedAtMs: 2,
+      parentId: 'P',
+    });
+    const tree: ProcessFacts = {
+      ancestorsOf: () => [200, 100, 1],
+      groupOf: () => null,
+      startedAt: () => p.startedAt,
+    };
+    expect(enclosingGrant([p, c], 300, {}, tree)?.id).toBe('C');
+    // The token still names the grant to check first.
+    expect(enclosingGrant([p, c], 300, { [ADMISSION_ENV]: admissionToken(p) }, tree)?.id).toBe('P');
+  });
+
   it('a holder never rides its own grant, and waiting entries grant nothing', () => {
     expect(enclosingGrant([holder], 500, {}, facts())).toBeNull();
     expect(enclosingGrant([{ ...holder, state: 'waiting' }], 1000, {}, facts())).toBeNull();
@@ -1609,6 +1629,8 @@ describe('a git push is charged by what actually runs (T13452)', () => {
       ['node', './node_modules/.bin/tsc.js'],
       ['env', 'NODE_OPTIONS=--max-old-space-size=16384', 'node', 'gen.mjs'],
       ['NODE_OPTIONS=--max-semi-space-size=64', 'node', 'gen.mjs'],
+      ['NODE_OPTIONS=--max_old_space_size=30000', 'node', 'gen.mjs'],
+      ['node', 'node_modules\\vitest\\vitest.mjs', 'run'],
     ]) {
       const plan = planRunFootprint('scoped-build', argv, {}, RAM);
       expect(plan.footprintBytes, argv.join(' ')).toBeGreaterThan(HEAVY_FOOTPRINT_BYTES);
