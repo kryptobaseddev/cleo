@@ -7,7 +7,7 @@
  * @task T13787
  */
 
-import { ExitCode } from '@cleocode/contracts';
+import { ExitCode } from '@cleocode/contracts/exit-codes.js';
 import { cliError } from '../renderers/index.js';
 
 /** A stdin that may support raw mode. */

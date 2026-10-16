@@ -649,6 +649,7 @@ export async function validateGateVerify(
       const capSetting = await resolveOverrideCap(projectRoot);
       if (capSetting.warning) {
         const { pushWarning } = await import('../output.js');
+        // @sync-invariant none:local-only a warning about the device-local cap seal; the write proceeds at the default cap
         pushWarning({ code: 'W_OVERRIDE_CAP_SEAL_INVALID', message: capSetting.warning });
       }
       const capResult = checkAndIncrementOverrideCap(

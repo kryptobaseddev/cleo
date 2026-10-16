@@ -107,6 +107,7 @@ function readSettings(projectRoot: string): OwnerSettingsFile | null {
   }
   const parsed = JSON.parse(raw) as Partial<OwnerSettingsFile>;
   if (typeof parsed.ownerPubkey !== 'string' || typeof parsed.salt !== 'string')
+    // @sync-invariant none:local-only a device-local owner-settings file without an enrolled key; nothing synced is written
     throw new Error('owner-settings.json has no enrolled owner key');
   return {
     schemaVersion: 1,
@@ -256,6 +257,7 @@ export async function setOwnerOverrideCap(
     };
   };
   if (!Number.isInteger(input.value) || input.value < 1)
+    // @sync-invariant none:input-shape the requested cap is not a positive integer
     return refuse('E_VALIDATION', `${OVERRIDE_CAP_SETTING} must be a positive integer.`);
   const token = input.session?.token ?? null;
   if (token === null)

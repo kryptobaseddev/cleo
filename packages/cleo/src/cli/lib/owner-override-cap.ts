@@ -7,7 +7,7 @@
  * @task T13787
  */
 
-import { ExitCode } from '@cleocode/contracts';
+import { ExitCode } from '@cleocode/contracts/exit-codes.js';
 import { cliError, cliOutput } from '../renderers/index.js';
 import { readOwnerPassword } from './owner-password.js';
 
