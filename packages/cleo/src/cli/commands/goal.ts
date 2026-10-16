@@ -20,6 +20,8 @@
  *     goal linked to the active goal via `parentGoalId`.
  *   - `cleo goal append <criterion>` — append an acceptance criterion to the
  *     active goal.
+ *   - `cleo goal draft <taskId> [--tasks …] [--out <path>]` — write a goal/v1
+ *     draft from task acceptance criteria (T13793).
  *
  * @epic T11290 EP-CLEO-GOAL-SYSTEM
  * @task T11381
@@ -232,6 +234,50 @@ const appendCommand = defineCommand({
 });
 
 /**
+ * `cleo goal draft <taskId> [--tasks T2,T3] [--out <path>]` — write a goal/v1
+ * draft from the tasks' acceptance criteria. Never starts a run; refuses to
+ * overwrite an existing file.
+ *
+ * @task T13793
+ */
+const draftCommand = defineCommand({
+  meta: {
+    name: 'draft',
+    description:
+      "Write a goal/v1 draft (goal.yaml) from tasks' acceptance criteria. Never starts a run or overwrites a file.",
+  },
+  args: {
+    taskId: { type: 'positional', description: 'Primary task id (names the goal)' },
+    tasks: { type: 'string', description: 'More task ids the goal serves, comma-separated' },
+    out: {
+      type: 'string',
+      description:
+        'Output file <id>/goal.yaml inside the project; <id> becomes the goal id (default .opencode/goals/<slug>/goal.yaml)',
+    },
+  },
+  async run({ args }) {
+    const ids = [
+      ...new Set(
+        [String(args.taskId ?? ''), ...String(args.tasks ?? '').split(',')]
+          .map((s) => s.trim())
+          .filter(Boolean),
+      ),
+    ];
+    const { draftGoal } = await import('@cleocode/core/goal/draft.js');
+    const result = await draftGoal(ids, {
+      projectRoot: getProjectRoot(),
+      ...(typeof args.out === 'string' && args.out ? { out: args.out } : {}),
+    });
+    if (!result.success) {
+      cliError(result.error.message, result.error.code, { fix: result.error.fix });
+      process.exitCode = result.error.exitCode ?? 1;
+      return;
+    }
+    cliOutput(result.data, { command: 'goal draft', operation: 'goal.draft' });
+  },
+});
+
+/**
  * Parent `cleo goal` command — routes to the set/status/advance/subgoal/append
  * subcommands; prints usage when invoked bare.
  *
@@ -242,7 +288,7 @@ export const goalCommand = defineCommand({
   meta: {
     name: 'goal',
     description:
-      'DB-persisted, per-agent, evidence-gate-aware goal loop (set/status/advance/subgoal/append).',
+      'Goal protocol (draft) and the per-agent goal loop (set/status/advance/subgoal/append).',
   },
   subCommands: {
     set: setCommand,
@@ -250,6 +296,7 @@ export const goalCommand = defineCommand({
     advance: advanceCommand,
     subgoal: subgoalCommand,
     append: appendCommand,
+    draft: draftCommand,
   },
   async run({ cmd, rawArgs }) {
     const firstArg = rawArgs?.find((a) => !a.startsWith('-'));
