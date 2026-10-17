@@ -752,7 +752,8 @@ describe('stale base after a section insert is refused, never silently dropped (
 
   it('F3: A inserts a section, stale B edits another one: refused, A and every section survive', async () => {
     const seed = '# Plan\n\npre.\n\n## Alpha\n\nalpha body\n\n## Beta\n\nbeta body';
-    const a = '# Plan\n\npre.\n\n## Alpha\n\nalpha body\n\n## Inserted\n\nby A\n\n## Beta\n\nbeta body';
+    const a =
+      '# Plan\n\npre.\n\n## Alpha\n\nalpha body\n\n## Inserted\n\nby A\n\n## Beta\n\nbeta body';
     const b = `${seed}\n\nB line`;
     const outcome = await race(seed, a, b);
     expectRefusedUntouched(outcome);
