@@ -32,6 +32,18 @@ vi.mock('../../store/blob-ops.js', () => ({
   blobRead: vi.fn(),
 }));
 
+const conduitHistoryMocks = vi.hoisted(() => ({
+  resolveConduitDocUid: vi.fn(async () => null),
+  listConduitAttachmentVersions: vi.fn(async () => []),
+  findConduitAttachmentByUid: vi.fn(async () => null),
+}));
+
+vi.mock('../../store/conduit-doc-history.js', () => ({
+  resolveConduitDocUid: conduitHistoryMocks.resolveConduitDocUid,
+  listConduitAttachmentVersions: conduitHistoryMocks.listConduitAttachmentVersions,
+  findConduitAttachmentByUid: conduitHistoryMocks.findConduitAttachmentByUid,
+}));
+
 const attachmentStoreMocks = vi.hoisted(() => ({
   findBySlug: vi.fn(),
   listRefs: vi.fn(async () => []),
@@ -74,6 +86,9 @@ const mockBlobs = [
   { name: 'spec.md', sha256: 'aabb', sizeBytes: 1024, mimeType: 'text/markdown', uploadedAt: 1000 },
   { name: 'design.png', sha256: 'ccdd', sizeBytes: 4096, mimeType: 'image/png', uploadedAt: 2000 },
 ];
+
+/** Slug used by the T13727 conduit-routing tests below. */
+const SLUG_FOR_CONDUIT_TEST = 't13727-conduit-doc';
 
 // ─── searchDocs ───────────────────────────────────────────────────────────────
 
@@ -278,9 +293,18 @@ describe('rankDocs', () => {
 
 describe('listDocVersions', () => {
   beforeEach(() => {
+    vi.mocked(blobOps.blobList).mockClear();
     vi.mocked(blobOps.blobList).mockResolvedValue(mockBlobs);
     attachmentStoreMocks.findBySlug.mockReset();
+    attachmentStoreMocks.findBySlug.mockResolvedValue(null);
     attachmentStoreMocks.listRefs.mockReset();
+    attachmentStoreMocks.listRefs.mockResolvedValue([]);
+    conduitHistoryMocks.resolveConduitDocUid.mockReset();
+    conduitHistoryMocks.resolveConduitDocUid.mockResolvedValue(null);
+    conduitHistoryMocks.listConduitAttachmentVersions.mockReset();
+    conduitHistoryMocks.listConduitAttachmentVersions.mockResolvedValue([]);
+    conduitHistoryMocks.findConduitAttachmentByUid.mockReset();
+    conduitHistoryMocks.findConduitAttachmentByUid.mockResolvedValue(null);
   });
 
   it('returns all blobs when no name filter given', async () => {
@@ -349,6 +373,118 @@ describe('listDocVersions', () => {
 
     expect(result.ownerId).toBe('t778-legacy-doc');
     expect(result.versions).toHaveLength(0);
+  });
+
+  it('prefers conduit history over the manifest when the slug has conduit version rows (T13727)', async () => {
+    const conduitRows = [
+      {
+        uid: 'v-3',
+        contentHash: 'hash-v3',
+        versionNumber: 1,
+        originalSize: 30,
+        createdAt: '2026-10-16T10:00:00.000Z',
+        slug: null,
+      },
+      {
+        uid: 'v-2',
+        contentHash: 'hash-v2',
+        versionNumber: 2,
+        originalSize: 20,
+        createdAt: '2026-10-15T10:00:00.000Z',
+        slug: SLUG_FOR_CONDUIT_TEST,
+      },
+      {
+        uid: 'v-1',
+        contentHash: 'hash-v1',
+        versionNumber: 1,
+        originalSize: 10,
+        createdAt: '2026-10-14T10:00:00.000Z',
+        slug: SLUG_FOR_CONDUIT_TEST,
+      },
+    ];
+    conduitHistoryMocks.resolveConduitDocUid.mockResolvedValue('doc-uid-1');
+    conduitHistoryMocks.findConduitAttachmentByUid.mockResolvedValue({
+      uid: 'doc-uid-1',
+      slug: SLUG_FOR_CONDUIT_TEST,
+    });
+    conduitHistoryMocks.listConduitAttachmentVersions.mockResolvedValue(conduitRows);
+    // The manifest ALSO has entries for this arg — conduit must win.
+    vi.mocked(blobOps.blobList).mockImplementation((ownerId: string) =>
+      Promise.resolve(ownerId === SLUG_FOR_CONDUIT_TEST ? mockBlobs : []),
+    );
+
+    const result = await listDocVersions({ ownerId: SLUG_FOR_CONDUIT_TEST });
+
+    expect(result.ownerId).toBe(SLUG_FOR_CONDUIT_TEST);
+    // Newest createdAt first; every version listed with its content hash.
+    expect(result.versions.map((v) => v.sha256)).toEqual(['hash-v3', 'hash-v2', 'hash-v1']);
+    expect(result.versions.map((v) => v.docVersion)).toEqual([1, 2, 1]);
+    for (const entry of result.versions) {
+      expect(entry.name).toBe(SLUG_FOR_CONDUIT_TEST);
+      expect(entry.attachmentId).toBe(entry.sha256);
+    }
+    expect(blobOps.blobList).not.toHaveBeenCalled();
+  });
+
+  it('honours --name against the conduit doc slug (T13727)', async () => {
+    conduitHistoryMocks.resolveConduitDocUid.mockResolvedValue('doc-uid-1');
+    conduitHistoryMocks.findConduitAttachmentByUid.mockResolvedValue({
+      uid: 'doc-uid-1',
+      slug: SLUG_FOR_CONDUIT_TEST,
+    });
+    conduitHistoryMocks.listConduitAttachmentVersions.mockResolvedValue([
+      {
+        uid: 'v-3',
+        contentHash: 'hash-v3',
+        versionNumber: 1,
+        originalSize: 30,
+        createdAt: '2026-10-16T10:00:00.000Z',
+        slug: null,
+      },
+    ]);
+
+    const miss = await listDocVersions({ ownerId: SLUG_FOR_CONDUIT_TEST, name: 'other.md' });
+    expect(miss.versions).toHaveLength(0);
+    expect(miss.nameFilter).toBe('other.md');
+
+    const hit = await listDocVersions({
+      ownerId: SLUG_FOR_CONDUIT_TEST,
+      name: SLUG_FOR_CONDUIT_TEST,
+    });
+    expect(hit.versions).toHaveLength(1);
+  });
+
+  it('falls back to the manifest when the doc has a conduit row but zero version rows (T13727)', async () => {
+    conduitHistoryMocks.resolveConduitDocUid.mockResolvedValue('doc-uid-1');
+    conduitHistoryMocks.findConduitAttachmentByUid.mockResolvedValue({
+      uid: 'doc-uid-1',
+      slug: 't779-adopted-no-history',
+    });
+    conduitHistoryMocks.listConduitAttachmentVersions.mockResolvedValue([]);
+    vi.mocked(blobOps.blobList).mockImplementation((ownerId: string) =>
+      Promise.resolve(ownerId === 'T779' ? mockBlobs : []),
+    );
+    attachmentStoreMocks.findBySlug.mockResolvedValue({
+      metadata: { id: 'att-doc-3' },
+      slug: 't779-adopted-no-history',
+    });
+    attachmentStoreMocks.listRefs.mockResolvedValue([{ ownerType: 'task', ownerId: 'T779' }]);
+
+    const result = await listDocVersions({ ownerId: 't779-adopted-no-history' });
+
+    expect(result.ownerId).toBe('T779');
+    expect(result.versions).toHaveLength(2);
+  });
+
+  it('falls back to the manifest when conduit resolution fails (T13727)', async () => {
+    conduitHistoryMocks.resolveConduitDocUid.mockRejectedValue(new Error('store unreachable'));
+
+    const slugResult = await listDocVersions({ ownerId: SLUG_FOR_CONDUIT_TEST });
+
+    // The manifest lists the arg verbatim (it owns blobs in this mock); the
+    // command must not fail because the store was unreachable.
+    expect(slugResult.versions).toHaveLength(2);
+    expect(slugResult.versions[0]!.sha256).toBe('aabb');
   });
 });
 

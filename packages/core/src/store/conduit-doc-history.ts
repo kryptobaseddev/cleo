@@ -171,6 +171,29 @@ export async function resolveConduitDocUid(
 }
 
 /**
+ * Read one `conduit_attachments` row by its immutable uid.
+ *
+ * @param projectRoot - Absolute path to the CLEO project root.
+ * @param uid - The doc's `conduit_attachments.uid`.
+ * @returns The attachment row, or `null` when unknown.
+ * @task T13727 — `docs versions` conduit routing needs the row's live slug
+ *   for display and `--name` filtering.
+ */
+export async function findConduitAttachmentByUid(
+  projectRoot: string,
+  uid: string,
+): Promise<typeof conduitAttachments.$inferSelect | null> {
+  requireNonEmpty('uid', uid);
+  const db = await getDb(projectRoot);
+  const row = await db
+    .select()
+    .from(conduitAttachments)
+    .where(eq(conduitAttachments.uid, uid))
+    .get();
+  return row ?? null;
+}
+
+/**
  * Adopt a document into the conduit family on first sight (T13355).
  *
  * The docs write path (`docs/section-write-path.ts`) projects every doc
@@ -930,13 +953,22 @@ export interface ImportMigratedConduitVersionInput {
   readonly changeSummary: string;
   /** Pre-rekey display slug (legacy carry column). */
   readonly slug: string;
+  /**
+   * Import provenance label for `origin` (free TEXT). Default `'migrated'`
+   * (the T13360 docs migration); the T13727 history backfill passes
+   * `'backfill-t13727'` so repair-synthesized rows never pose as T13360
+   * imports. Natively-written rows never come through this accessor.
+   */
+  readonly origin?: string;
 }
 
 /**
  * Import one history row for a migrated doc.
  *
- * Every imported row carries `origin: 'migrated'` (spec §5 — no imported row
- * poses as native) and a natural uid over (doc uid, content hash, event
+ * Every imported row carries an `origin` provenance label (spec §5 — no
+ * imported row poses as native): `'migrated'` for the T13360 data migration,
+ * or the caller's override (the T13727 backfill uses `'backfill-t13727'`).
+ * Row identity is the NATURAL identity over (doc uid, content hash, event
  * timestamp) — a pure function of the version's real facts (T13638). The
  * derivation never touches the device-local `docs-audit.jsonl` row position,
  * so two devices migrating the same synced legacy doc derive the SAME uid
@@ -987,7 +1019,7 @@ export async function importMigratedConduitVersion(
       tokensAdded: 0,
       tokensRemoved: 0,
       createdAt: input.createdAt,
-      origin: 'migrated',
+      origin: input.origin ?? 'migrated',
     })
     .onConflictDoNothing()
     .run();

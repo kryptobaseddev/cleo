@@ -2,7 +2,7 @@
  * `cleo docs doctor` — store health diagnostics + safe repairs — T13447.
  *
  * Audits the CleoDocs store (`cleo.db` `attachments`/`docs_wikilinks` tables
- * plus the on-disk legacy surfaces) for seven known drift classes and, when
+ * plus the on-disk legacy surfaces) for eight known drift classes and, when
  * invoked with `apply: true`, performs the repairs that are safe to run
  * in-place:
  *
@@ -49,6 +49,17 @@
  *                             `--repair` (backfill only).
  *   - `stale-drafts`        — slugged docs still `draft` after
  *                             `--older-than-days` (default 30).
+ *   - `conduit-history-gaps`— adopted docs whose `conduit_attachment_versions`
+ *                             row set is incomplete: updates written before
+ *                             the conduit adoption recorded no conduit rows,
+ *                             so a doc at docVersion N can hold fewer rows.
+ *                             Repair (`backfill-conduit-versions`, T13727)
+ *                             reconstructs the missing rows from the honest
+ *                             pre-adoption sources (the docs-versioning
+ *                             audit log + the surviving registry/blob bytes)
+ *                             and inserts them through the canonical
+ *                             accessor. Runs under `--apply`; `--repair`
+ *                             stays the T13653 blob-backfill-only mode.
  *
  * SAFETY: `apply: true` (or `repair: true`) REFUSES to run without a backup receipt
  * ({@link DocsDoctorOptions.backupReceiptPath}) whose mtime is at most
@@ -82,6 +93,11 @@ import {
 import { docsWikilinks } from '../store/schema/attachments.js';
 import { getDb } from '../store/sqlite.js';
 import { docsAttachments } from '../store/tasks-schema.js';
+import {
+  applyConduitHistoryBackfill,
+  type ConduitDocBackfillPlan,
+  planConduitHistoryBackfill,
+} from './conduit-history-backfill.js';
 import {
   type DerivedDocLinks,
   deriveDocLinks,
@@ -117,7 +133,7 @@ export const DOCS_DOCTOR_DEFAULT_OLDER_THAN_DAYS = 30;
 export const DOCS_DOCTOR_MAX_DETAIL_ITEMS = 50;
 
 /**
- * The seven diagnostic classes {@link runDocsDoctor} checks for.
+ * The eight diagnostic classes {@link runDocsDoctor} checks for.
  *
  * @task T13447
  */
@@ -128,7 +144,8 @@ export type DocsDoctorDiagnosticKind =
   | 'wikilinks-drift'
   | 'legacy-store-present'
   | 'legacy-blob-coverage'
-  | 'stale-drafts';
+  | 'stale-drafts'
+  | 'conduit-history-gaps';
 
 /**
  * One diagnostic class in the report: severity, total offender count, and a
@@ -181,7 +198,7 @@ export interface DocsDoctorReport {
   readonly olderThanDays: number;
   /** Backup receipt that authorised this run (null on dry runs). */
   readonly backupReceiptPath: string | null;
-  /** All six diagnostics, in declaration order. */
+  /** All eight diagnostics, in declaration order. */
   readonly diagnostics: readonly DocsDoctorDiagnostic[];
   /** Repair plan (dry run) or executed repairs (apply). */
   readonly repairs: readonly DocsDoctorRepairAction[];
@@ -532,6 +549,8 @@ interface DoctorScan {
    * exists, or a provenance backfill will change the derived edge set (T13561).
    */
   readonly needsWikilinksRebuild: boolean;
+  /** T13727 — per-doc conduit-history backfill plans (one per adopted doc). */
+  readonly conduitBackfill: readonly ConduitDocBackfillPlan[];
 }
 
 /**
@@ -749,6 +768,23 @@ async function scanStore(
     .slice(0, DOCS_DOCTOR_MAX_DETAIL_ITEMS)
     .map((r) => ({ attachmentId: r.id, slug: r.slug, createdAt: r.createdAt }));
 
+  // ── conduit-history-gaps (T13727) ──────────────────────────────────────────
+  // Adopted docs whose conduit version row set trails the pre-adoption chain
+  // reconstructable from the docs-versioning audit log. Pure planning — the
+  // planner reads the audit file, the registry and (hash-verified) bytes,
+  // and writes nothing.
+  const conduitBackfill = await planConduitHistoryBackfill(projectRoot);
+  const conduitActionable = conduitBackfill.filter((p) => !p.complete);
+  const conduitItems = conduitActionable.slice(0, DOCS_DOCTOR_MAX_DETAIL_ITEMS).map((p) => ({
+    slug: p.slug,
+    expectedVersions: p.expectedVersions,
+    existingVersions: p.existingVersions,
+    toBackfill: p.toBackfill.length,
+    gaps: p.gaps.length,
+    conflict: p.conflict,
+    auditGapVersions: p.auditGapVersions,
+  }));
+
   const diagnostics: DocsDoctorDiagnostic[] = [
     {
       kind: 'dangling-pointers',
@@ -799,6 +835,13 @@ async function scanStore(
       items: staleItems,
       truncated: staleRows.length > staleItems.length,
     },
+    {
+      kind: 'conduit-history-gaps',
+      severity: conduitActionable.length > 0 ? 'warn' : 'info',
+      count: conduitActionable.length,
+      items: conduitItems,
+      truncated: conduitActionable.length > conduitItems.length,
+    },
   ];
 
   return {
@@ -809,6 +852,7 @@ async function scanStore(
     blobBackfillable,
     missingEdges,
     needsWikilinksRebuild: missingEdges.length > 0 || backfillChangesLinks,
+    conduitBackfill,
   };
 }
 
@@ -927,6 +971,40 @@ export async function runDocsDoctor(
             : 'provenance backfill changes derived edges → full re-derivation',
       });
     }
+    // T13727 — conduit-history backfill: planned like every other repair in
+    // dry-run/apply mode; executed only under --apply (the --repair mode
+    // stays the T13653 blob-backfill-only fast path).
+    for (const plan of pre.conduitBackfill) {
+      if (plan.complete) continue;
+      if (plan.conflict) {
+        repairs.push({
+          kind: 'conduit-history-gaps',
+          action: 'backfill-conduit-versions',
+          applied: false,
+          slug: plan.slug,
+          detail:
+            `REFUSED — existing conduit rows contradict the audit-derived chain for '${plan.slug}' ` +
+            '(content-hash mismatch); left untouched for manual review',
+        });
+        continue;
+      }
+      const gapNote = plan.gaps.length > 0 ? `, ${plan.gaps.length} gap(s) unrecoverable` : '';
+      const auditNote =
+        plan.auditGapVersions > 0
+          ? `, ${plan.auditGapVersions} version(s) the audit log cannot account for`
+          : '';
+      repairs.push({
+        kind: 'conduit-history-gaps',
+        action: 'backfill-conduit-versions',
+        applied: apply && plan.toBackfill.length > 0,
+        slug: plan.slug,
+        detail: apply
+          ? `backfill ${plan.toBackfill.length} pre-adoption version(s) for '${plan.slug}' ` +
+            `(chain ${plan.expectedVersions}, existing ${plan.existingVersions}${gapNote}${auditNote})`
+          : `plan: backfill ${plan.toBackfill.length} pre-adoption version(s) for '${plan.slug}' ` +
+            `(chain ${plan.expectedVersions}, existing ${plan.existingVersions}${gapNote}${auditNote})`,
+      });
+    }
   }
   for (const candidate of pre.blobBackfillable) {
     repairs.push({
@@ -971,6 +1049,24 @@ export async function runDocsDoctor(
       }
     }
     if (apply) {
+      // T13727 — execute the conduit-history backfill AFTER the blob-byte
+      // backfill above so the bytes the new rows address are mirrored first;
+      // annotate each repair entry with its executed outcome (zip by slug).
+      const conduitBySlug = new Map<string, { inserted: number; gaps: number }>();
+      for (const plan of pre.conduitBackfill) {
+        if (plan.complete || plan.conflict) continue;
+        const result = await applyConduitHistoryBackfill(projectRoot, plan);
+        conduitBySlug.set(plan.slug, { inserted: result.inserted, gaps: result.gaps });
+      }
+      for (const [index, repair] of repairs.entries()) {
+        if (repair.kind !== 'conduit-history-gaps' || repair.slug === undefined) continue;
+        const outcome = conduitBySlug.get(repair.slug);
+        if (outcome === undefined) continue;
+        repairs[index] = {
+          ...repair,
+          detail: `${repair.detail} → executed: ${outcome.inserted} row(s) inserted, ${outcome.gaps} gap(s)`,
+        };
+      }
       for (const { row, expected } of pre.skewed) {
         await db
           .update(docsAttachments)
@@ -1016,12 +1112,23 @@ export async function runDocsDoctor(
   // a follow-up dry run. Dry runs keep the pre-repair scan.
   const post = mutate ? await scanStore(projectRoot, db, olderThanDays) : pre;
   const findings = post.diagnostics.reduce((sum, d) => sum + d.count, 0);
+  // T13727 — surface the conduit backfill counts in the one-line summary so
+  // operators see backfilled/skipped/gap per run without reading the report.
+  const conduitSkipped = pre.conduitBackfill.filter((p) => p.complete).length;
+  const conduitActionable = pre.conduitBackfill.filter((p) => !p.complete && !p.conflict);
+  const conduitGapTotal = conduitActionable.reduce((s, p) => s + p.gaps.length, 0);
+  const conduitBackfillNote =
+    repair || conduitActionable.length === 0
+      ? ''
+      : apply
+        ? `; conduit history backfilled across ${conduitActionable.length} doc(s) (${conduitSkipped} already complete, ${conduitGapTotal} gap(s) unrecoverable)`
+        : `; conduit history: ${conduitActionable.reduce((s, p) => s + p.toBackfill.length, 0)} version(s) to backfill across ${conduitActionable.length} doc(s) (${conduitSkipped} complete, ${conduitGapTotal} gap(s))`;
   const summary = repair
     ? `docs doctor repaired ${repairs.filter((r) => r.applied).length} blob backfill(s); ` +
       `${post.diagnostics.find((d) => d.kind === 'legacy-blob-coverage')?.count ?? 0} sha(s) still missing post-repair`
     : apply
-      ? `docs doctor applied ${repairs.filter((r) => r.applied).length} repair(s); ${findings} finding(s) remain post-repair`
-      : `docs doctor found ${findings} finding(s); ${repairs.length} repair(s) planned (dry-run — pass --apply to execute)`;
+      ? `docs doctor applied ${repairs.filter((r) => r.applied).length} repair(s); ${findings} finding(s) remain post-repair${conduitBackfillNote}`
+      : `docs doctor found ${findings} finding(s); ${repairs.length} repair(s) planned (dry-run — pass --apply to execute)${conduitBackfillNote}`;
 
   return {
     ok: true,

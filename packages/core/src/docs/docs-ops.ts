@@ -923,6 +923,53 @@ export async function rankDocs(opts: {
 }
 
 /**
+ * Try the T13727 conduit-history listing for a doc-slug arg.
+ *
+ * Returns null (caller falls back to the manifest path) when the arg does
+ * not resolve to a conduit doc, when the doc has no version rows yet, or
+ * when the project store cannot be read — the command must never regress
+ * because the store was unreachable.
+ *
+ * @internal
+ */
+async function listConduitDocVersions(
+  root: string,
+  slug: string,
+  name: string | undefined,
+): Promise<DocsVersionsResult | null> {
+  try {
+    const { findConduitAttachmentByUid, listConduitAttachmentVersions, resolveConduitDocUid } =
+      await import('../store/conduit-doc-history.js');
+    const docUid = await resolveConduitDocUid(root, slug);
+    if (docUid === null) return null;
+    const doc = await findConduitAttachmentByUid(root, docUid);
+    const rows = await listConduitAttachmentVersions(root, docUid);
+    if (rows.length === 0) return null;
+    const entryName = doc?.slug ?? slug;
+    if (name !== undefined && name !== entryName) {
+      return { ownerId: slug, nameFilter: name, versions: [] };
+    }
+    // Order by the real timestamps: display ordinals can repeat across the
+    // pre-/post-adoption seam (existing rows keep their minted local
+    // ordinals), but every row carries an honest created_at.
+    const ordered = [...rows].sort((a, b) => {
+      const byTime = b.createdAt.localeCompare(a.createdAt);
+      return byTime !== 0 ? byTime : (b.uid ?? '').localeCompare(a.uid ?? '');
+    });
+    const versions: DocsVersionEntry[] = ordered.map((row) => ({
+      attachmentId: row.contentHash,
+      name: entryName,
+      sha256: row.contentHash,
+      sizeBytes: row.originalSize,
+      docVersion: row.versionNumber,
+    }));
+    return { ownerId: slug, nameFilter: name, versions };
+  } catch {
+    return null;
+  }
+}
+
+/**
  * List all SHA-256 content-address versions of attachments for an owner.
  *
  * Reads the blob manifest for `ownerId` and returns all entries, optionally
@@ -936,6 +983,18 @@ export async function rankDocs(opts: {
  * surface `docs fetch` uses, and its owning task's blobs are listed
  * (sibling docs included; narrow with `name`). An
  * arg that is neither throws `E_NOT_FOUND`.
+ *
+ * T13727 — precedence: when the arg resolves as a doc slug that has been
+ * adopted into the conduit family AND has at least one
+ * `conduit_attachment_versions` row, the listing comes from the conduit
+ * history ({@link listConduitAttachmentVersions}) keyed on the doc's
+ * immutable uid — the canonical per-doc history — instead of the LWW blob
+ * manifest. Entries carry the version's `content_hash` and
+ * `version_number` (as `docVersion`) and are ordered newest `created_at`
+ * first (real timestamps; display ordinals can repeat across the pre-/post-
+ * adoption seam, so ordering leans on time, not the ordinal). A doc with no
+ * conduit row, or none yet adopted, keeps the manifest listing as fallback
+ * so the command never regresses.
  *
  * @param opts - Required `ownerId` (owner id or doc slug), optional `name`
  *   filter and `projectRoot`.
@@ -953,6 +1012,14 @@ export async function listDocVersions(opts: {
   projectRoot?: string;
 }): Promise<DocsVersionsResult> {
   const root = opts.projectRoot ?? getProjectRoot();
+
+  // T13727 — a doc slug with conduit history lists the canonical version
+  // rows; any failure to reach the store degrades to the manifest path.
+  if (!/^(T\d+$|ses_|O-)/.test(opts.ownerId)) {
+    const conduit = await listConduitDocVersions(root, opts.ownerId, opts.name);
+    if (conduit !== null) return conduit;
+  }
+
   let allBlobs = await blobList(opts.ownerId, root).catch(() => []);
   let listedOwnerId = opts.ownerId;
 
