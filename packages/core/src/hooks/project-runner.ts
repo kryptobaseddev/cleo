@@ -6,6 +6,7 @@ import {
   type HookExecutionReceipt,
   type HookExecutor,
   type HookInvocation,
+  HookNativeSessionSchema,
   type HookOutcome,
   type HookOutcomeStatus,
   type ProjectHookBinding,
@@ -448,8 +449,12 @@ export async function executeProjectHooks(
     // Preserve the agent binding even when the subsequent Git hook records its result.
     // A failed receipt write is visible as infrastructure fault, never a fake pass.
     try {
+      const nativeSession = invocation.nativeSession
+        ? HookNativeSessionSchema.parse(invocation.nativeSession)
+        : undefined;
       const receipt: HookExecutionReceipt = {
         schemaVersion: 1,
+        ...nativeSession,
         manifestHash: approved?.manifestHash ?? '',
         source: invocation.source,
         event: invocation.event.slice(0, 128),

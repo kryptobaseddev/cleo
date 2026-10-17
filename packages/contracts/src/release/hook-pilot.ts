@@ -1,5 +1,6 @@
 /** Bound, retained evidence required before promoting project hooks to stable (T13350). */
 import { z } from 'zod';
+import { HookExecutionReceiptSchema, HookNativeSessionSchema } from '../project-hooks.js';
 
 /** Required pilot checks; every named check must pass on the same implementation. */
 export const HOOK_PILOT_CHECKS = [
@@ -75,12 +76,13 @@ export const HookPilotEvidenceSchema = HookPilotIdentitySchema.extend({
 }).strict();
 /** Validated evidence bundle index. */
 export type HookPilotEvidence = z.infer<typeof HookPilotEvidenceSchema>;
-/** Minimal runner fields proving agent delivery, independently of a Git hook's output. */
-export const HookPilotNativeReceiptSchema = z.object({
+/** Strict runner receipt binding native agent delivery to its session and provider. */
+export const HookPilotNativeReceiptSchema = HookExecutionReceiptSchema.extend({
+  ...HookNativeSessionSchema.shape,
   source: z.literal('agent'),
   event: z.string().min(1).max(128),
   recordedAt: z.string().datetime(),
-});
+}).strict();
 /** Retained native session evidence; receipt content is read and hash-checked by the release gate. */
 export const HookPilotNativeEvidenceSchema = z
   .object({
@@ -88,7 +90,15 @@ export const HookPilotNativeEvidenceSchema = z
     checkout: z.enum(['standalone', 'linked-worktree']),
     startedAt: z.string().datetime(),
     endedAt: z.string().datetime(),
-    receipt: HookPilotProofReferenceSchema.extend(HookPilotNativeReceiptSchema.shape).strict(),
+    receipt: HookPilotProofReferenceSchema.extend(
+      HookPilotNativeReceiptSchema.pick({
+        source: true,
+        event: true,
+        recordedAt: true,
+        sessionId: true,
+        harness: true,
+      }).shape,
+    ).strict(),
     trust: z.discriminatedUnion('mode', [
       z
         .object({

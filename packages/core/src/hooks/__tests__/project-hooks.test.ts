@@ -428,7 +428,12 @@ describe('activated project checks through actual child processes', () => {
       'process.stdout.write(JSON.stringify({status:"block",message:"secret-input"}));',
     );
     await activateProjectHooks(root);
-    await executeProjectHooks({ ...invocation, source: 'agent', event: 'PreToolUse' });
+    await executeProjectHooks({
+      ...invocation,
+      source: 'agent',
+      event: 'PreToolUse',
+      nativeSession: { sessionId: 'session-a', harness: 'codex' },
+    });
     await executeProjectHooks(invocation);
     expect(await readLastProjectHookExecution(root)).toMatchObject({
       source: 'git',
@@ -438,7 +443,12 @@ describe('activated project checks through actual child processes', () => {
       source: 'agent',
       event: 'PreToolUse',
     });
-    expect(agent).toMatchObject({ source: 'agent', event: 'PreToolUse' });
+    expect(agent).toMatchObject({
+      source: 'agent',
+      event: 'PreToolUse',
+      sessionId: 'session-a',
+      harness: 'codex',
+    });
     expect(
       await readLastProjectHookExecution(root, { source: 'agent', event: 'Stop' }),
     ).toBeUndefined();

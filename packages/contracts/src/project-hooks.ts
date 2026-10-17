@@ -6,6 +6,15 @@ import type { HookJsonValue } from './heavy-command-hook.js';
 export const HookSourceSchema = z.enum(['agent', 'git', 'worktree', 'direct', 'ci']);
 /** Shared invocation origin. */
 export type HookSource = z.infer<typeof HookSourceSchema>;
+/** Native provenance supplied by the harness payload, never guessed from the working directory. */
+export const HookNativeSessionSchema = z
+  .object({
+    sessionId: z.string().min(1).max(256),
+    harness: z.string().regex(/^[a-z][a-z0-9-]{0,63}$/),
+  })
+  .strict();
+/** Session and provider carried from a native agent event into its redacted receipt. */
+export type HookNativeSession = z.infer<typeof HookNativeSessionSchema>;
 /** A checkout-relative path; runtime validation also resolves symlinks. */
 export const ProjectHookPathSchema = z
   .string()
@@ -90,6 +99,8 @@ export interface HookInvocation {
   source: HookSource;
   /** Canonical event name. */
   event: string;
+  /** Optional native harness identity; absent inputs stay unverified. */
+  nativeSession?: HookNativeSession;
   /** Optional remote name and URL/path as Git supplies them. */
   remote?: { name: string; location: string };
   /** All pushed ref updates in original order. */
@@ -170,7 +181,7 @@ export const ProjectHooksLocalStateSchema = z
 /** Local activation settings stored independently of tracked project configuration. */
 export type ProjectHooksLocalState = z.infer<typeof ProjectHooksLocalStateSchema>;
 /** Bounded last execution metadata; contains no input or arbitrary output. */
-export interface HookExecutionReceipt {
+export interface HookExecutionReceipt extends Partial<HookNativeSession> {
   /** Receipt format version. */
   schemaVersion: 1;
   /** Activated source digest. */
@@ -188,6 +199,7 @@ export interface HookExecutionReceipt {
 export const HookExecutionReceiptSchema = z
   .object({
     schemaVersion: z.literal(1),
+    ...HookNativeSessionSchema.partial().shape,
     manifestHash: z.string().regex(/^[a-f0-9]{64}$/),
     source: HookSourceSchema,
     event: z.string().max(128),

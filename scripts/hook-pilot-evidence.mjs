@@ -290,7 +290,11 @@ export async function validateHookPilotEvidence(options) {
         );
         if (
           receipt.event !== native.receipt.event ||
-          receipt.recordedAt !== native.receipt.recordedAt
+          receipt.recordedAt !== native.receipt.recordedAt ||
+          receipt.sessionId !== native.sessionId ||
+          receipt.sessionId !== native.receipt.sessionId ||
+          receipt.harness !== native.receipt.harness ||
+          receipt.harness !== (check === 'liveClaude' ? 'claude-code' : 'codex')
         )
           throw new Error('Promotion held: native agent receipt identity mismatch.');
         const start = Date.parse(native.startedAt);

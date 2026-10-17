@@ -179,6 +179,8 @@ function nativeBundle() {
           endedAt: '2026-10-10T00:00:10Z',
           receipt: {
             path: `${check}-agent.json`,
+            sessionId: `${check}-session`,
+            harness: check === 'liveClaude' ? 'claude-code' : 'codex',
             source: 'agent',
             event: 'PreToolUse',
             recordedAt: '2026-10-10T00:00:05Z',
@@ -191,6 +193,10 @@ function nativeBundle() {
     if (native) {
       write(`retained/${native.receipt.path}`, {
         schemaVersion: 1,
+        manifestHash: 'e'.repeat(64),
+        outcomes: [],
+        sessionId: native.sessionId,
+        harness: native.receipt.harness,
         source: native.receipt.source,
         event: native.receipt.event,
         recordedAt: native.receipt.recordedAt,
@@ -452,9 +458,58 @@ describe('stable promotion evidence', () => {
       validateHookPilotEvidence({ ...options(), stableVersion: '2026.10.18' }),
     ).rejects.toThrow(/native agent receipt/);
   });
+  it.each([
+    'home',
+    'prompt',
+    'token',
+  ])('T13827: strict receipt contract rejects extra %s', async (field) => {
+    nativeBundle();
+    const { HookPilotNativeReceiptSchema } = await import(
+      '../../packages/contracts/dist/release/hook-pilot.js'
+    );
+    const receipt = JSON.parse(readFileSync(join(root, 'retained/liveCodex-agent.json'), 'utf8'));
+    expect(
+      HookPilotNativeReceiptSchema.safeParse({ ...receipt, [field]: 'private-fixture' }).success,
+    ).toBe(false);
+  });
+  it('T13826: refuses a receipt from another native session', async () => {
+    const index = nativeBundle();
+    const proof = JSON.parse(readFileSync(join(root, 'retained/liveCodex.json'), 'utf8'));
+    replaceProof(index, 'liveCodex', { native: { ...proof.native, sessionId: 'another-session' } });
+    await expect(
+      validateHookPilotEvidence({ ...options(), stableVersion: '2026.10.18' }),
+    ).rejects.toThrow(/identity mismatch/);
+  });
+  it('T13826: refuses a shared receipt backing both Claude and Codex', async () => {
+    const index = nativeBundle();
+    const claude = JSON.parse(readFileSync(join(root, 'retained/liveClaude.json'), 'utf8'));
+    replaceProof(index, 'liveCodex', { native: { ...claude.native, checkout: 'linked-worktree' } });
+    await expect(
+      validateHookPilotEvidence({ ...options(), stableVersion: '2026.10.18' }),
+    ).rejects.toThrow(/identity mismatch/);
+  });
+  it.each([
+    'home',
+    'prompt',
+    'token',
+  ])('T13827: rejects undeclared receipt field %s', async (field) => {
+    const index = nativeBundle();
+    const path = join(root, 'retained/liveCodex-agent.json');
+    write('retained/liveCodex-agent.json', {
+      ...JSON.parse(readFileSync(path, 'utf8')),
+      [field]: 'private-fixture',
+    });
+    const proof = JSON.parse(readFileSync(join(root, 'retained/liveCodex.json'), 'utf8'));
+    proof.native.receipt.sha256 = createHash('sha256').update(readFileSync(path)).digest('hex');
+    replaceProof(index, 'liveCodex', { native: proof.native });
+    await expect(
+      validateHookPilotEvidence({ ...options(), stableVersion: '2026.10.18' }),
+    ).rejects.toThrow(/Unrecognized key/);
+  });
   it('T13818: rejects tampered receipts and Git receipts presented as native delivery', async () => {
     const index = nativeBundle();
     write('retained/liveCodex-agent.json', {
+      ...JSON.parse(readFileSync(join(root, 'retained/liveCodex-agent.json'), 'utf8')),
       source: 'git',
       event: 'PreToolUse',
       recordedAt: '2026-10-10T00:00:05Z',
