@@ -98,6 +98,27 @@ export const VAULT_MANIFEST_FORMAT_VERSION = 3;
  */
 export const VAULT_FORMAT_KEY = 'zz_vault_format';
 
+/**
+ * Manifest key of a snapshot's authored-state digest (T13850): one keyed hash
+ * over every `cleo.db` table's hash, with what memory reads write left out
+ * ({@link READ_SIDE_COLUMNS}, {@link READ_SIDE_TABLES}). Equal on both sides,
+ * a store's table changes since a sync are read telemetry, which a pull may
+ * replace. Zero rows and an annotation, like {@link VAULT_FORMAT_KEY}, so the
+ * server's count check and every table comparison skip it.
+ */
+export const VAULT_AUTHORED_KEY = 'zz_vault_authored';
+
+/** Columns a memory read bumps on the entries it returns (`incrementCitationCounts`). */
+const READ_SIDE_COLUMNS: Readonly<Record<string, readonly string[]>> = {
+  brain_observations: ['citation_count', 'updated_at'],
+  brain_decisions: ['citation_count', 'updated_at'],
+  brain_patterns: ['citation_count', 'updated_at'],
+  brain_learnings: ['citation_count', 'updated_at'],
+};
+
+/** Tables only read telemetry writes (`logRetrieval`, and the reward pass labelling its rows). */
+const READ_SIDE_TABLES: ReadonlySet<string> = new Set(['brain_retrieval_log']);
+
 /** A manifest key the wire contract accepts. */
 const MANIFEST_KEY = /^[a-z][a-z0-9_]{0,62}$/;
 
@@ -253,6 +274,7 @@ export function buildVaultManifest(
   const tables: Record<string, VaultTableEntry> = {};
   const skipped: string[] = [];
   const localRows: Record<string, number> = {};
+  const authored: string[] = [];
   const db = new DatabaseSync(dbPath, { readOnly: true });
   try {
     applyPerfPragmas(db, { enableWal: false });
@@ -323,23 +345,43 @@ export function buildVaultManifest(
         );
         // Integers past 2^53 (nanosecond times, inode numbers) would throw as numbers.
         select.setReadBigInts(true);
+        const readSide = new Set(READ_SIDE_COLUMNS[name] ?? []);
+        const authoredDigests: Buffer[] = [];
         for (const row of select.iterate()) {
-          const values = Object.entries(row as Record<string, unknown>).map(([col, v]) =>
+          const cells = Object.entries(row as Record<string, unknown>);
+          const values = cells.map(([col, v]) =>
             cleared.has(col) ? null : canonicalValue(v, relocatorOf(col)),
           );
           digests.push(crypto.createHash('sha256').update(JSON.stringify(values)).digest());
+          if (readSide.size > 0) {
+            const kept = values.map((v, i) => (readSide.has(cells[i]![0]) ? null : v));
+            authoredDigests.push(crypto.createHash('sha256').update(JSON.stringify(kept)).digest());
+          }
         }
-        digests.sort(Buffer.compare);
-        const mac = crypto.createHmac('sha256', key);
-        mac.update(`cleo-vault-table/v1\n${name}\n${digests.length}\n`);
-        for (const d of digests) mac.update(d);
-        tables[name] = { rows: digests.length, hash: mac.digest('hex') };
+        const tableMac = (ds: Buffer[]) => {
+          ds.sort(Buffer.compare);
+          const mac = crypto.createHmac('sha256', key);
+          mac.update(`cleo-vault-table/v1\n${name}\n${ds.length}\n`);
+          for (const d of ds) mac.update(d);
+          return mac.digest('hex');
+        };
+        tables[name] = { rows: digests.length, hash: tableMac(digests) };
+        if (!READ_SIDE_TABLES.has(name)) {
+          authored.push(
+            `${name}\n${readSide.size > 0 ? tableMac(authoredDigests) : tables[name].hash}`,
+          );
+        }
       }
     } finally {
       db.exec('COMMIT');
     }
   } finally {
     db.close();
+  }
+  if (opts.allTables !== true) {
+    const mac = crypto.createHmac('sha256', key).update('cleo-vault-authored/v1\n');
+    for (const line of authored.sort()) mac.update(`${line}\n`);
+    tables[VAULT_AUTHORED_KEY] = { rows: 0, hash: mac.digest('hex') };
   }
   return { manifest: { schemaVersion: SYNC_SCHEMA_VERSION, tables }, skipped, localRows };
 }
@@ -582,10 +624,29 @@ export function vaultManifestFormat(
  * record) rather than a table: never compared, counted or carried forward.
  *
  * @param key - A manifest key.
- * @returns `true` for {@link VAULT_FORK_KEY} and {@link VAULT_FORMAT_KEY}.
+ * @returns `true` for {@link VAULT_FORK_KEY}, {@link VAULT_FORMAT_KEY} and {@link VAULT_AUTHORED_KEY}.
  */
 export function isVaultAnnotationKey(key: string): boolean {
-  return key === VAULT_FORK_KEY || key === VAULT_FORMAT_KEY;
+  return key === VAULT_FORK_KEY || key === VAULT_FORMAT_KEY || key === VAULT_AUTHORED_KEY;
+}
+
+/**
+ * Whether two `cleo.db` manifests hold the same authored state (T13850): both
+ * carry a {@link VAULT_AUTHORED_KEY} digest and the digests agree, so any
+ * table that differs differs only in what memory reads write. A manifest
+ * without the digest (built by an older CLEO) never agrees.
+ *
+ * @param a - One manifest.
+ * @param b - The other.
+ * @returns `true` when the authored digests agree.
+ */
+export function sameVaultAuthoredState(
+  a: Pick<VaultManifest, 'tables'>,
+  b: Pick<VaultManifest, 'tables'>,
+): boolean {
+  const x = Object.hasOwn(a.tables, VAULT_AUTHORED_KEY) ? a.tables[VAULT_AUTHORED_KEY] : undefined;
+  const y = Object.hasOwn(b.tables, VAULT_AUTHORED_KEY) ? b.tables[VAULT_AUTHORED_KEY] : undefined;
+  return x !== undefined && y !== undefined && x.hash === y.hash;
 }
 
 /**

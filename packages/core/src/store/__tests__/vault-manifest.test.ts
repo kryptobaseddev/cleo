@@ -144,6 +144,7 @@ describe('buildVaultManifest', () => {
       'brain_observations',
       'tasks_sessions',
       'tasks_tasks',
+      'zz_vault_authored',
     ]);
     expect(manifest.tables['tasks_tasks']?.rows).toBe(2);
     expect(manifest.tables['tasks_tasks']?.hash).toMatch(/^[0-9a-f]{64}$/);

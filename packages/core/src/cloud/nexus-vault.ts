@@ -165,6 +165,7 @@ import {
   emptyVaultTableHash,
   isVaultAnnotationKey,
   isVaultForkManifest,
+  sameVaultAuthoredState,
   sameVaultManifest,
   VAULT_FILES_KEY,
   VAULT_FORK_KEY,
@@ -840,6 +841,23 @@ function compareWithSynced(
   const rows = compareVaultManifests(local, comparable(snapshot, git));
   if (changes === null) return rows;
   return rows.map((r) => (r.table === VAULT_FILES_KEY ? { ...r, match: changes.length === 0 } : r));
+}
+
+/**
+ * The changes a pull must not overwrite (T13850): {@link compareWithSynced},
+ * except that `cleo.db` tables count as unchanged when the authored digests
+ * agree, since then they differ only in what memory reads wrote (retrieval
+ * log, citation counters), and the snapshot may replace that.
+ */
+function changesToKeep(
+  local: Pick<VaultManifest, 'tables'>,
+  snapshot: Pick<VaultManifest, 'tables'>,
+  git: GitTracking,
+  changes: readonly string[] | null,
+): ReturnType<typeof compareVaultManifests> {
+  const rows = compareWithSynced(local, snapshot, git, changes);
+  if (!sameVaultAuthoredState(local, snapshot)) return rows;
+  return rows.map((r) => (isSnapshotAuthoritativeKey(r.table) ? r : { ...r, match: true }));
 }
 
 /**
@@ -3858,7 +3876,7 @@ async function restoreNexusVaultImpl(opts: NexusVaultRestoreOptions): Promise<Cl
       ([name, x]) => x.rows > 0 && name !== VAULT_FILES_KEY,
     );
     const fileChanges = fileChangesSinceSync(local.files, t, git, synced);
-    const rows = last ? compareWithSynced(local.manifest, last.manifest, git, fileChanges) : [];
+    const rows = last ? changesToKeep(local.manifest, last.manifest, git, fileChanges) : [];
     if ((!last && hasRows) || rows.some((d) => !d.match)) {
       const changed = rows
         .filter((d) => !d.match)
