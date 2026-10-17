@@ -23,6 +23,9 @@
  * covered (T12508 round 5). A burst therefore keeps at most two workers alive
  * (one running, one queued) and produces at most two snapshots.
  *
+ * After the snapshot the same run takes the hourly global backup and the
+ * daily audit retention prune (`autoPruneAuditLog`, T13828).
+ *
  * The worker appends its outcome as one JSON line to
  * `.cleo/logs/session-end-snapshot.log`; coalesced requests are logged there
  * too.
@@ -155,6 +158,9 @@ export async function snapshotAfterSessionEnd(
     // backup at all; it gets an hourly-debounced one here.
     const { autoGlobalBackup } = await import('../system/backup.js');
     await autoGlobalBackup();
+    // T13828: the audit retention prune, at most once a day per project.
+    const { autoPruneAuditLog } = await import('../audit-prune.js');
+    await autoPruneAuditLog(projectRoot);
     return result;
   } catch (err) {
     log.warn({ err, projectRoot }, 'Session-end snapshot failed');
