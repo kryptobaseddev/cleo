@@ -70,6 +70,9 @@ const REPO_ROOT = resolve(import.meta.dirname, '..');
 /** The built CLI entry this gate measures. */
 export const CLI_ENTRY = join(REPO_ROOT, 'packages/cleo/dist/cli/index.js');
 
+/** The installed `cleo` binary's script: its `hook` fast path runs before the CLI bootstrap. */
+const BIN_ENTRY = join(REPO_ROOT, 'packages/cleo/bin/cleo.js');
+
 /**
  * Exit code for "precondition absent locally, nothing measured". `cleo check
  * arch` reports a gate that exits with it as skipped, not failed.
@@ -119,6 +122,10 @@ const DRIZZLE_CJS = /\/drizzle-orm\/.*\.cjs$/;
  * @property {number} [expectExit] - Exit code the command must return.
  * @property {boolean} [session] - Run bound to a session started in the sandbox
  *   project (a mutation refuses without one).
+ * @property {'bin'} [entry] - Run `packages/cleo/bin/cleo.js` (the installed `cleo`,
+ *   whose `hook` fast path skips the CLI bootstrap) instead of the built CLI entry.
+ * @property {string} [input] - Stdin for the command; `{project}` is replaced with
+ *   the sandbox project directory.
  * @property {number} maxModules - Budget of loaded `file:` modules (the ratchet).
  * @property {number} maxRssMb - Ceiling on peak resident set size, in MB.
  */
@@ -159,6 +166,10 @@ const DRIZZLE_CJS = /\/drizzle-orm\/.*\.cjs$/;
  * barrel pulled the model runner and every provider SDK), `docs list` ~835
  * (~205 MB, was ~270), `nexus status` ~645 (~190 MB, was ~275) and `doctor`
  * ~925 (~210 MB, was ~280).
+ * `hook-stop-no-goal` (T13830) runs the installed `cleo` binary's Claude Code
+ * Stop hook with no goal workspace: ~260 modules (~85 MB), no store and no
+ * CORE barrel in the hook process; its synchronous `cleo session end` child
+ * is a separate process and is not counted.
  * `describe` covers
  * the `--describe` path, which loads the operation describer through
  * `require(esm)`. Lower each budget in the PR that lowers its count.
@@ -399,6 +410,21 @@ export const PROBES = Object.freeze([
     maxRssMb: 250,
   },
   {
+    // T13830: Claude Code runs `cleo hook stop` on every turn. With no goal
+    // workspace it must not open a store or load a CORE barrel; the session end
+    // runs detached in its own process, so it is not counted here.
+    name: 'hook-stop-no-goal',
+    entry: 'bin',
+    args: ['hook', 'stop', '--provider', 'claude-code'],
+    input:
+      '{"session_id":"probe","transcript_path":"/nonexistent","cwd":"{project}","hook_event_name":"Stop","stop_hook_active":false}',
+    needsProject: true,
+    forbid: [CORE_BARREL, CONTRACTS_BARREL, STORE_STACK, MODEL_SDKS, CORE_RENDER],
+    expectExit: 0,
+    maxModules: 290,
+    maxRssMb: 120,
+  },
+  {
     name: 'doctor',
     args: ['doctor'],
     needsProject: true,
@@ -505,12 +531,15 @@ function runProbe(probe, env) {
       '--disable-warning=ExperimentalWarning',
       '--import',
       pathToFileURL(env.tracer).href,
-      CLI_ENTRY,
+      probe.entry === 'bin' ? BIN_ENTRY : CLI_ENTRY,
       ...probe.args,
     ],
     {
       cwd: probe.needsProject ? env.project : env.sandbox,
       encoding: 'utf8',
+      ...(probe.input !== undefined
+        ? { input: probe.input.replaceAll('{project}', env.project) }
+        : {}),
       timeout: 120_000,
       env: {
         ...sandboxEnv(home, traceOut),
