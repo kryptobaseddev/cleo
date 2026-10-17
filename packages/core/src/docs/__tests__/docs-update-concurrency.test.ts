@@ -57,11 +57,38 @@
  */
 
 import { createHash } from 'node:crypto';
-import { readFileSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+
+/**
+ * T13842 test seams over the REAL section write path: `forcedHlc` runs the
+ * preview and the projection with an explicit HLC (a minted one always
+ * advances the head); `failPreview` / `failCommit` make that step throw.
+ */
+let forcedHlc: string | undefined;
+let failPreview = false;
+let failCommit = false;
+vi.mock('../section-write-path.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../section-write-path.js')>();
+  type Input = Parameters<typeof actual.projectDocUpdateThroughSections>[1];
+  const withHlc = (input: Input): Input =>
+    forcedHlc !== undefined ? { ...input, hlc: forcedHlc } : input;
+  return {
+    ...actual,
+    previewDocUpdateThroughSections: (root: string, input: Input) => {
+      if (failPreview) throw new Error('injected preview failure');
+      return actual.previewDocUpdateThroughSections(root, withHlc(input));
+    },
+    projectDocUpdateThroughSections: (root: string, input: Input) => {
+      if (failCommit) throw new Error('injected commit failure');
+      return actual.projectDocUpdateThroughSections(root, withHlc(input));
+    },
+  };
+});
+
 import {
   getConduitAttachmentVersion,
   getConduitDocHead,
@@ -679,6 +706,151 @@ async function seedLegacyDoc(root: string, slug: string): Promise<void> {
     })
     .run();
 }
+
+describe("docs fetch serves the merged head, not the last writer's raw input (T13842)", () => {
+  const SEED = '# Plan\n\npre.\n\n## Alpha\n\nalpha body\n\n## Beta\n\nbeta body';
+
+  async function withStore(fn: (root: string) => Promise<void>): Promise<void> {
+    const root = await mkdtemp(join(tmpdir(), 'cleo-docs-fetch-head-'));
+    process.env['CLEO_DIR'] = join(root, '.cleo');
+    closeDb();
+    try {
+      await seedLegacyDoc(root, SLUG);
+      expect((await updateDocBySlug(root, { slug: SLUG, content: SEED })).ok).toBe(true);
+      await fn(root);
+    } finally {
+      forcedHlc = undefined;
+      failPreview = false;
+      failCommit = false;
+      closeDb();
+      delete process.env['CLEO_DIR'];
+      await rm(root, { recursive: true, force: true });
+    }
+  }
+
+  async function fetchedBody(root: string): Promise<string | null> {
+    const model = new DocsReadModel({ projectRoot: root });
+    const doc = await model.resolveBySlug(SLUG);
+    return doc === null ? null : model.fetchContent(doc);
+  }
+
+  async function headText(root: string): Promise<string> {
+    const docUid = (await resolveConduitDocUid(root, SLUG)) as string;
+    const head = await getConduitDocHead(root, docUid);
+    const version = await getConduitAttachmentVersion(root, head?.headVersionUid ?? '');
+    return readFileSync(
+      join(root, '.cleo', 'attachments', 'sha256', version?.storageKey ?? ''),
+      'utf-8',
+    );
+  }
+
+  it("a stale-base append merge: the fetched body carries both writers' lines", async () => {
+    await withStore(async (root) => {
+      const docUid = (await resolveConduitDocUid(root, SLUG)) as string;
+      const base = (await getConduitDocHead(root, docUid))?.headVersionUid;
+      const a = await updateDocBySlug(root, {
+        slug: SLUG,
+        content: SEED.replace('alpha body', 'alpha body\n\nA line'),
+      });
+      expect(a.ok).toBe(true);
+      const b = await updateDocBySlug(root, {
+        slug: SLUG,
+        content: SEED.replace('beta body', 'beta body\n\nB line'),
+        baseVersionUid: base,
+      });
+      expect(b.ok && b.result.staleBaseMerged).toBe(true);
+
+      const body = await fetchedBody(root);
+      expect(body).toContain('A line');
+      expect(body).toContain('B line');
+      expect(body).toBe(await headText(root));
+    });
+  });
+
+  it('a write that loses the head race: the fetched body is the head, not the losing input', async () => {
+    await withStore(async (root) => {
+      const winner = SEED.replace('alpha body', 'alpha body\n\nwinner line');
+      forcedHlc = '9999999999999-000000-f4d5b7e5-4a36-4c39-9f8b-8e2d6a1f2c40';
+      expect((await updateDocBySlug(root, { slug: SLUG, content: winner })).ok).toBe(true);
+      // A later write with a lower HLC loses the head race; its version stays in history.
+      forcedHlc = '0000000000001-000000-f4d5b7e5-4a36-4c39-9f8b-8e2d6a1f2c40';
+      const loser = await updateDocBySlug(root, {
+        slug: SLUG,
+        content: SEED.replace('beta body', 'beta body\n\nloser line'),
+      });
+      expect(loser.ok).toBe(true);
+
+      const head = await headText(root);
+      expect(head).toContain('winner line');
+      expect(await fetchedBody(root)).toBe(head);
+    });
+  });
+
+  /** Land A's Alpha append on the seed head and return the base B fetched before it. */
+  async function landA(root: string): Promise<{ docUid: string; base: string; aText: string }> {
+    const docUid = (await resolveConduitDocUid(root, SLUG)) as string;
+    const base = (await getConduitDocHead(root, docUid))?.headVersionUid as string;
+    const aText = SEED.replace('alpha body', 'alpha body\n\nA line');
+    expect((await updateDocBySlug(root, { slug: SLUG, content: aText })).ok).toBe(true);
+    return { docUid, base, aText };
+  }
+
+  const B_TEXT = SEED.replace('beta body', 'beta body\n\nB line');
+
+  it('a blob write that fails after the merge leaves the head and history untouched', async () => {
+    await withStore(async (root) => {
+      const { docUid, base, aText } = await landA(root);
+      const headBefore = (await getConduitDocHead(root, docUid))?.headVersionUid;
+      const versionsBefore = (await listConduitAttachmentVersions(root, docUid)).length;
+      // Block the row blob of the merged text: a directory where its file goes.
+      const merged = aText.replace('beta body', 'beta body\n\nB line');
+      const sha = createHash('sha256').update(merged, 'utf-8').digest('hex');
+      mkdirSync(
+        join(root, '.cleo', 'attachments', 'sha256', sha.slice(0, 2), `${sha.slice(2)}.txt`),
+        {
+          recursive: true,
+        },
+      );
+
+      const b = await updateDocBySlug(root, { slug: SLUG, content: B_TEXT, baseVersionUid: base });
+
+      expect(b.ok).toBe(false);
+      if (b.ok) return;
+      expect(b.error.code).toBe('E_FILE_ERROR');
+      expect((await getConduitDocHead(root, docUid))?.headVersionUid).toBe(headBefore);
+      expect((await listConduitAttachmentVersions(root, docUid)).length).toBe(versionsBefore);
+      expect(await fetchedBody(root)).toBe(aText);
+    });
+  });
+
+  it('a failed merge preview writes the incoming bytes and leaves the head unchanged', async () => {
+    await withStore(async (root) => {
+      const { docUid, base } = await landA(root);
+      const headBefore = (await getConduitDocHead(root, docUid))?.headVersionUid;
+      failPreview = true;
+
+      const b = await updateDocBySlug(root, { slug: SLUG, content: B_TEXT, baseVersionUid: base });
+
+      expect(b.ok).toBe(true);
+      expect(await fetchedBody(root)).toBe(B_TEXT);
+      expect((await getConduitDocHead(root, docUid))?.headVersionUid).toBe(headBefore);
+    });
+  });
+
+  it('a failed projection commit after the row write keeps the merged row and the old head', async () => {
+    await withStore(async (root) => {
+      const { docUid, base, aText } = await landA(root);
+      const headBefore = (await getConduitDocHead(root, docUid))?.headVersionUid;
+      failCommit = true;
+
+      const b = await updateDocBySlug(root, { slug: SLUG, content: B_TEXT, baseVersionUid: base });
+
+      expect(b.ok).toBe(true);
+      expect(await fetchedBody(root)).toBe(aText.replace('beta body', 'beta body\n\nB line'));
+      expect((await getConduitDocHead(root, docUid))?.headVersionUid).toBe(headBefore);
+    });
+  });
+});
 
 describe('first update on two devices adopts one doc uid (T13586)', () => {
   it('two stores holding the same synced legacy row converge on one conduit uid through updateDocBySlug', async () => {
