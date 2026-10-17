@@ -239,7 +239,11 @@ export function ownEchoFastPath(
   local: LocalTxn,
   rows: readonly TouchedRow[],
 ): boolean {
-  if (local.position === null) return true; // nothing to rewind
+  // An unframed writer has no position to order foreign touches by (R-2). Its
+  // row undo keeps values once a rebase replayed it over a foreign write
+  // (T13866): its echo must then be decided at its stream position, as every
+  // receiver decides it, or the conflicts they record are never recorded here.
+  if (local.position === null) return !replayedOverForeign(db, local.txn);
   if (counterRestarted(db)) markIncomplete(db);
   if (
     db.prepare('SELECT 1 FROM _sync_meta WHERE key = ?').get(FOREIGN_TOUCH_INCOMPLETE_KEY) !==
@@ -251,6 +255,15 @@ export function ownEchoFastPath(
     'SELECT 1 FROM _sync_foreign_touch WHERE tbl = ? AND uid = ? AND pos >= ? LIMIT 1',
   );
   return !rows.some((r) => hit.get(r.table, r.uid, local.position) !== undefined);
+}
+
+/** Whether a rebase replayed any op of `txn` (its row undo then holds the values it sat on). */
+function replayedOverForeign(db: DatabaseSync, txn: string): boolean {
+  return (
+    db
+      .prepare('SELECT 1 FROM _sync_row_undo WHERE txn = ? AND values_json IS NOT NULL LIMIT 1')
+      .get(txn) !== undefined
+  );
 }
 
 /**
