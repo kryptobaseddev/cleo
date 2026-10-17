@@ -28,9 +28,9 @@ import {
   readRowIdentityRefusal,
   rowIdentityFindings,
   UID_COLUMN,
-  uidMissingWhere,
 } from '../store/row-identity.js';
 import { ROW_UID_FILL_FLAG, rowUidFillEnabled } from '../store/row-identity-flag.js';
+import { uidMissingWhere } from '../store/row-identity-registry.js';
 
 /** One row of the default `cleo doctor` report (the `DoctorCheck` shape). */
 export interface RowIdentityDoctorCheck {

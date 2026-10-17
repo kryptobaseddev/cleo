@@ -43,6 +43,7 @@ import {
   relocatedJsonText,
 } from './portable-bundle-relocate.js';
 import { CREDENTIAL_COLUMNS, credentialRemedy, sha256File } from './portable-bundle-scan.js';
+import { ROW_IDENTITY, syncedRowsWhere, UID_COLUMN } from './row-identity-registry.js';
 import { applyPerfPragmas } from './sqlite-pragmas.js';
 import { readBareAccounts, settleRestoredBareAccounts } from './sync/flags.js';
 import {
@@ -72,7 +73,10 @@ const { DatabaseSync } = _require('node:sqlite') as {
 /**
  * Version of the manifest computation (which cells hash, and how; which
  * pseudo-entries exist). 2: non-syncing columns hash as NULL, plus the
- * `zz_vault_db_*` and `zz_vault_files` entries (T12967, T12969).
+ * `zz_vault_db_*` and `zz_vault_files` entries (T12967, T12969). 3: a row
+ * local by its row-identity spec (no uid, by `localWhenNull` or
+ * `localUnlessFirst`) is neither counted nor hashed, as the change journal
+ * never carries it (T13808).
  *
  * It is not the manifest's wire `schemaVersion`: that is
  * {@link SYNC_SCHEMA_VERSION}, the stream data numbering the vault shares with
@@ -83,7 +87,7 @@ const { DatabaseSync } = _require('node:sqlite') as {
  * "does not match" ({@link vaultManifestFormat}). Bump it with any change to
  * what a manifest hashes.
  */
-export const VAULT_MANIFEST_FORMAT_VERSION = 2;
+export const VAULT_MANIFEST_FORMAT_VERSION = 3;
 
 /**
  * Manifest key of a snapshot's format record (T13034): which
@@ -191,6 +195,8 @@ export interface BuildVaultManifestOptions {
   hashKey: Uint8Array;
   /** The store's root as written in its rows; relocatable cells are re-rooted from it. `null`: none (a store a restore does not relocate). */
   root: string | null;
+  /** Count and hash rows local by row-identity spec too: format 2, to check a snapshot hashed under it (T13808). */
+  countLocalRows?: boolean;
 }
 
 /** The manifest plus the tables left out, for reports. */
@@ -198,6 +204,8 @@ export interface VaultManifestBuild {
   manifest: VaultManifest;
   /** Syncing tables whose name the wire contract cannot carry. */
   skipped: string[];
+  /** Per table, the rows local by row-identity spec, left out of the manifest (T13808). */
+  localRows: Record<string, number>;
 }
 
 /**
@@ -244,6 +252,7 @@ export function buildVaultManifest(
   const root = opts.root === null ? '' : opts.root.replace(/[\\/]+$/, '');
   const tables: Record<string, VaultTableEntry> = {};
   const skipped: string[] = [];
+  const localRows: Record<string, number> = {};
   const db = new DatabaseSync(dbPath, { readOnly: true });
   try {
     applyPerfPragmas(db, { enableWal: false });
@@ -288,7 +297,30 @@ export function buildVaultManifest(
           }
           return relocators.get(col) ?? null;
         };
-        const select = db.prepare(`SELECT * FROM ${quoteIdent(name)}`);
+        // T13808: a row local by its row-identity spec never syncs, so it is not the store's shared state.
+        const spec =
+          opts.allTables === true || opts.countLocalRows === true
+            ? undefined
+            : ROW_IDENTITY[opts.scope].find((s) => s.table === name);
+        const synced =
+          spec &&
+          db.prepare('SELECT 1 FROM pragma_table_info(?) WHERE name = ?').get(name, UID_COLUMN) !==
+            undefined
+            ? syncedRowsWhere(spec)
+            : null;
+        if (synced !== null) {
+          const local = (
+            db
+              .prepare(`SELECT count(*) AS n FROM main.${quoteIdent(name)} WHERE NOT (${synced})`)
+              .get() as {
+              n: number | bigint;
+            }
+          ).n;
+          if (Number(local) > 0) localRows[name] = Number(local);
+        }
+        const select = db.prepare(
+          `SELECT * FROM main.${quoteIdent(name)}${synced === null ? '' : ` WHERE ${synced}`}`,
+        );
         // Integers past 2^53 (nanosecond times, inode numbers) would throw as numbers.
         select.setReadBigInts(true);
         for (const row of select.iterate()) {
@@ -309,7 +341,7 @@ export function buildVaultManifest(
   } finally {
     db.close();
   }
-  return { manifest: { schemaVersion: SYNC_SCHEMA_VERSION, tables }, skipped };
+  return { manifest: { schemaVersion: SYNC_SCHEMA_VERSION, tables }, skipped, localRows };
 }
 
 /**

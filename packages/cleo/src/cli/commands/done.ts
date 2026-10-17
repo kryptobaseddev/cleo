@@ -115,7 +115,7 @@ export const doneCommand = defineCommand({
     commit: {
       type: 'string',
       description:
-        'The commit that implements the task, already on the default branch, when no PR or branch cites it (T13799). Verified: it must exist and have landed; its own diff becomes the change set',
+        "The commit that implements the task, already on the default branch, when no PR or branch cites it (T13799). Verified: it must exist and have landed, and its message must cite the task or its diff touch the task's declared files (a declared directory such as src/ accepts any commit under it; a glob ties only through the message); its own diff becomes the change set",
     },
     'run-typed': {
       type: 'boolean',

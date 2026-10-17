@@ -1,38 +1,20 @@
 /**
- * CLEO-native goal-system contracts (Layer 4 of SG-COGNITIVE-SUBSTRATE).
+ * CLEO goal record contracts.
  *
- * A *goal* is a DB-persisted, per-agent, turn-budgeted intent that CLEO drives
- * to completion by judging progress after every agent turn. CLEO's goal loop is
- * designed to beat two prior-art systems:
- *
- * - **Claude-Code** — a `Stop` hook + a Haiku *transcript judge* (the model
- *   reads the conversation and guesses whether the task is done). It has no
- *   turn budget and no persistence: a fresh process forgets the goal.
- * - **Hermes** — a post-turn loop with a turn budget and parse-failure
- *   auto-pause, but it still judges *fuzzy* intent against transcript text.
- *
- * CLEO's differentiator is the **evidence-gate-aware judge**: when a goal is to
- * *complete a task* (`complete T123`), the judge does NOT read the transcript.
- * It resolves the target task's actual `status` and re-uses the shipped ADR-051
- * evidence infrastructure ({@link GateEvidenceRequirement} +
- * `validateEvidenceForGate`) — the goal is satisfied ONLY when the task is
- * `done` with its required gates backed by real, validated evidence atoms
- * (commit reachable, file sha256 match, test-run hash match). Transcript text
- * can never satisfy a task-completion goal. Fuzzy goals fall back to an
- * injectable LLM judge (see {@link GoalJudge}) so the model is consulted only
- * where no machine-checkable artifact exists.
- *
- * This module is the LEAF contract: it declares the persisted record shape
- * ({@link GoalRecord}), the lifecycle status union ({@link GoalStatus}), the
- * discriminated goal-kind union ({@link GoalKind}), and the judge verdict shape
- * ({@link GoalJudgeVerdict}) that every layer (store, judge, loop, continuation,
- * CLI) agrees on. It has ZERO runtime dependencies beyond sibling contracts.
+ * CLEO owns the goal protocol and OpenCode-Goal is the goal runtime (owner
+ * decision 2026-10-16, epic T13791, ADR-097 `adr-097-goal-protocol-ocg-runtime`). The
+ * protocol's portable shapes (goal/v1 contract, task link, outcome) live in
+ * `./goal-contract.ts`. This module keeps the DB-persisted per-agent goal
+ * record ({@link GoalRecord}) and its status and kind unions. CLEO's own
+ * turn-budgeted goal loop (judge, continuation builder, Stop-hook advance) was
+ * retired in T13797, with its judge and continuation contracts.
  *
  * @packageDocumentation
  * @module @cleocode/contracts/goal
  *
  * @epic T11290 EP-CLEO-GOAL-SYSTEM
  * @task T11376
+ * @task T13797
  * @saga T11283 SG-COGNITIVE-SUBSTRATE
  */
 
@@ -82,21 +64,6 @@ export const GOAL_STATUSES: readonly GoalStatus[] = Object.freeze([
 ]);
 
 /**
- * The terminal {@link GoalStatus} values a continuation builder must NOT nudge:
- * a satisfied/abandoned/impossible goal yields no next-turn message.
- *
- * `paused` is intentionally absent — a paused goal CAN be resumed, so the
- * continuation builder still emits a nudge for it (see `buildContinuation`).
- *
- * @public
- */
-export const GOAL_TERMINAL_STATUSES: readonly GoalStatus[] = Object.freeze([
-  'satisfied',
-  'abandoned',
-  'impossible',
-]);
-
-/**
  * Discriminant tag for the {@link GoalKind} union.
  *
  * @public
@@ -125,7 +92,7 @@ export interface TaskCompletionGoal {
 
 /**
  * A goal with no machine-checkable completion artifact — satisfaction is
- * decided by the injectable LLM judge ({@link GoalJudge}) as a fallback.
+ * decided by an LLM judge as a fallback.
  *
  * The fuzzy path NEVER touches the evidence infrastructure; it exists only for
  * intents that cannot be reduced to a task + gates (e.g. "explore the auth
@@ -207,8 +174,8 @@ export interface GoalRecord {
    */
   readonly pausedReason: string | null;
   /**
-   * The most recent judge verdict, persisted so `cleo goal status` can show the
-   * last reason without re-running the judge. `null` before the first judge.
+   * The most recent judge verdict, persisted with the record. `null` before
+   * the first judge.
    */
   readonly lastVerdict: GoalJudgeVerdict | null;
   /** ISO-8601 creation timestamp. */
@@ -249,82 +216,6 @@ export interface GoalJudgeVerdict {
 }
 
 /**
- * Injectable LLM-judge interface for {@link FuzzyGoal} evaluation.
- *
- * The goal judge depends on THIS interface, never on a concrete model client,
- * so vitest can pass a deterministic mock and stay fully offline/hermetic — CI
- * must never flake on a live model call. Production wires a real LLM-backed
- * implementation; tests wire a stub that returns a canned verdict.
- *
- * @public
- */
-export interface GoalJudge {
-  /**
-   * Judge a fuzzy goal from its record alone (no transcript dependency in the
-   * contract — an implementation MAY consult external context, but the
-   * interface keeps the judge a pure function of the goal for testability).
-   *
-   * @param goal - The goal record under evaluation.
-   * @returns The verdict (same shape as the evidence path).
-   */
-  judge(goal: GoalRecord): Promise<GoalJudgeVerdict>;
-}
-
-/**
- * A single next-turn continuation message produced by the cache-safe builder.
- *
- * Critically, the role is ALWAYS `'user'`: the goal loop nudges the agent by
- * appending a user-style message, NEVER by mutating the system prompt. A stable
- * system-prompt prefix is what makes prompt-caching effective; rewriting it on
- * every turn would bust the cache. See `buildContinuation` for the full
- * prompt-cache-safety contract.
- *
- * @public
- */
-export interface GoalContinuation {
-  /** Always `'user'` — the nudge is a user message, never a system mutation. */
-  readonly role: 'user';
-  /** The continuation text: goal intent + outstanding criteria + judge reason. */
-  readonly content: string;
-}
-
-/**
- * Result of advancing a goal one turn through the turn-budgeted loop.
- *
- * @public
- */
-export interface GoalAdvanceResult {
-  /** The verdict the judge returned this turn. */
-  readonly verdict: GoalJudgeVerdict;
-  /** The status the goal transitions to after this turn. */
-  readonly nextStatus: GoalStatus;
-  /** Turns left after this one. Never negative. */
-  readonly turnsRemaining: number;
-}
-
-/**
- * Type guard: is this a {@link TaskCompletionGoal} (evidence-judged)?
- *
- * @param kind - A {@link GoalKind} discriminated union value.
- * @returns `true` when the goal is judged via task status + evidence atoms.
- * @public
- */
-export function isTaskCompletionGoal(kind: GoalKind): kind is TaskCompletionGoal {
-  return kind.kind === 'task-completion';
-}
-
-/**
- * Type guard: is this a {@link FuzzyGoal} (LLM-judged fallback)?
- *
- * @param kind - A {@link GoalKind} discriminated union value.
- * @returns `true` when the goal is judged by the injectable LLM judge.
- * @public
- */
-export function isFuzzyGoal(kind: GoalKind): kind is FuzzyGoal {
-  return kind.kind === 'fuzzy';
-}
-
-/**
  * Test whether a string is a valid goal target task id (`T` + 1–7 digits).
  *
  * @param value - Candidate task id.
@@ -333,16 +224,4 @@ export function isFuzzyGoal(kind: GoalKind): kind is FuzzyGoal {
  */
 export function isValidGoalTargetTaskId(value: string): boolean {
   return GOAL_TARGET_TASK_ID_REGEX.test(value);
-}
-
-/**
- * Test whether a {@link GoalStatus} is terminal (no further turns / nudges that
- * advance work). A terminal status yields NO continuation.
- *
- * @param status - A goal status.
- * @returns `true` for `satisfied` / `abandoned` / `impossible`.
- * @public
- */
-export function isTerminalGoalStatus(status: GoalStatus): boolean {
-  return GOAL_TERMINAL_STATUSES.includes(status);
 }

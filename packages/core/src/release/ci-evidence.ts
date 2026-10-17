@@ -34,6 +34,11 @@
  * decided first-parent ancestor, i.e. the PR merged into a red main and
  * introduced no failure of its own. See {@link inheritedOnMerge}.
  *
+ * A third (T13809): a merge commit whose run FAILED only on the flaky-quarantine
+ * budget, with every test passing, failed no test of the PR's. See
+ * {@link nonTestFailuresOn}. The stand-in search also looks past later runs red
+ * for that reason alone, up to {@link CI_DESCENDANT_MAX_CANDIDATES} commits.
+ *
  * @task T12634
  */
 
@@ -116,8 +121,9 @@ export interface EvaluateMergeCommitChecksOptions {
    */
   descendantSha?: string;
   /**
-   * The merge commit's failures were all inherited from its base (T13453):
-   * the descendant may stand in for a FAILED required check too.
+   * The merge commit's failures were not the PR's: all inherited from its
+   * base (T13453), or only the flaky-quarantine budget with every test passing
+   * (T13809). The descendant may stand in for a FAILED required check too.
    */
   inheritedFailures?: boolean;
 }
@@ -146,7 +152,7 @@ export interface MainCommit {
 }
 
 /** Most later default-branch commits examined for a green stand-in run (T12742). */
-export const CI_DESCENDANT_MAX_CANDIDATES = 10;
+export const CI_DESCENDANT_MAX_CANDIDATES = 20;
 
 /** Latest committer time after the merge commit a stand-in may have (T12742): 7 days. */
 export const CI_DESCENDANT_MAX_AGE_SECONDS = 7 * 24 * 60 * 60;
@@ -230,6 +236,11 @@ export interface ResolveCiEvidenceOptions {
     paths: readonly string[],
     cwd: string,
   ) => MainCommit[] | null;
+  /**
+   * Plain-text log of one Actions job (a check-run id), or null when it cannot
+   * be read (T13809). Defaults to `gh api repos/{owner}/{repo}/actions/jobs/<id>/logs`.
+   */
+  fetchJobLog?: (jobId: number, cwd: string) => Promise<string | null>;
 }
 
 /** Parsed `.cleo/project-context.json` of the store root, or null. */
@@ -915,6 +926,221 @@ export function inheritedOnMerge(
   return { ok: true, names, inherited };
 }
 
+/**
+ * The heading `scripts/ci-flaky-quarantine.mjs` prints when it fails a main
+ * run because the open quarantine exceeds its budget (T13145). It returns
+ * right after the first test run, whatever that run's outcome.
+ */
+const QUARANTINE_BUDGET_HEADING = '### Flaky quarantine over budget';
+
+/** Test-title form shared by vitest's ` > `-joined names and the quarantine list. */
+const normTitle = (title: string): string =>
+  title
+    .replace(/\s*>\s*/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+/** The failed count in one vitest summary line (0 when it names none). */
+const failedIn = (line: string): number => Number(/(\d+) failed/.exec(line)?.[1] ?? 0);
+
+/**
+ * The run's own vitest summary block in `text` (T13809): the LAST `Test Files`
+ * line, preceded by a blank or test-result line and followed within four lines
+ * by its `Tests`, `Start at` and `Duration` lines, with no test result or test
+ * output after it. A killed run has no block of its own; a block a test echoed
+ * (even a full one) is followed by more test output, or follows a child's
+ * unprefixed output. Null when there is none.
+ */
+/** A vitest per-file result, a test's captured output, or a failure line. */
+const TEST_RESULT_LINE = /^\S*\s+(?:[✓❯×✗↓]\s|stdout \||stderr \|)|\bFAIL\s{2,}/;
+
+/** What vitest prints right before its summary: a blank (timestamp-only) or result line. */
+const BEFORE_SUMMARY_LINE = /^(?:\d{4}-\d\d-\d\dT\S+Z)?\s*$|^\S*\s+[✓❯×✗↓]\s|\bFAIL\s{2,}/;
+
+function runSummary(text: string): { failedFiles: number; failedTests: number } | null {
+  const lines = text.split('\n');
+  for (let i = lines.length - 1; i >= 0; i--) {
+    if (!/\bTest Files\s{2,}\d/.test(lines[i] ?? '')) continue;
+    // A child vitest's echoed block may follow its unprefixed output (inherited stdio).
+    if (i > 0 && !BEFORE_SUMMARY_LINE.test(lines[i - 1] ?? '')) return null;
+    const block = lines.slice(i + 1, i + 5);
+    const tests = block.find((l) => /\bTests\s{2,}\d/.test(l));
+    if (!tests || !block.some((l) => /\bStart at\s{2,}/.test(l))) return null;
+    const duration = block.findIndex((l) => /\bDuration\s{2,}/.test(l));
+    if (duration < 0) return null;
+    // The run's own summary is its LAST vitest output: a test result or test
+    // output after it means this block was echoed by a test, and the run itself
+    // died before printing its own (an OOM-killed run prints no marker).
+    if (lines.slice(i + 2 + duration).some((l) => TEST_RESULT_LINE.test(l))) return null;
+    return { failedFiles: failedIn(lines[i] ?? ''), failedTests: failedIn(tests) };
+  }
+  return null;
+}
+
+/**
+ * vitest's own report that a worker died or ran out of memory. A test's child
+ * processes print `Killed` and signal names as ordinary output, so those are
+ * not markers; a killed vitest leaves no summary block ({@link runSummary}).
+ */
+const RUN_DIED =
+  /Worker exited unexpectedly|Worker terminated due to reaching memory limit|JavaScript heap out of memory/;
+
+/**
+ * Whether a unit-test job log shows a failure caused by the flaky-quarantine
+ * budget alone (T13809). `scripts/ci-flaky-quarantine.mjs` fails a main run
+ * whose quarantine is over budget right after the first test run, before it
+ * applies its own rule that a quarantined test's failure never blocks. So
+ * the log qualifies when the budget heading is present, no error escaped a
+ * test, and every failing test of that run is one the quarantine lists (no
+ * failure at all is the common case). Only the run's own summary block counts
+ * ({@link runSummary}), never a summary a test echoed. Any doubt is `false`:
+ * no summary block, a kill or crash marker, a failing test outside the
+ * quarantine, a file that failed to load, or counts that do not add up
+ * (per-file `(N tests | M failed)` lines included).
+ *
+ * @param log - The job's plain-text log (ANSI colour codes allowed).
+ * @returns Whether the job failed only on the quarantine budget.
+ * @task T13809
+ */
+export function isQuarantineBudgetOnlyLog(log: string): boolean {
+  const text = log.replace(/\u001b\[[0-9;]*m/g, '');
+  // The script's own verdict is the last heading, with its count line under it
+  // (a test's fixture output may carry the heading too).
+  const heading = text.lastIndexOf(QUARANTINE_BUDGET_HEADING);
+  if (heading < 0) return false;
+  if (
+    !/^[^\n]*\n(?:[^\n]*\n)?[^\n]*\d+ tests are quarantined \(most \d+\)/.test(text.slice(heading))
+  ) {
+    return false;
+  }
+  const run = text.slice(0, heading);
+  if (/Unhandled (Errors?|Rejection)|\bErrors\s{2,}\d/.test(run) || RUN_DIED.test(run))
+    return false;
+  // Only the run's own summary counts; a summary a test echoed never stands in.
+  const summary = runSummary(run);
+  if (summary === null) return false;
+  const { failedFiles, failedTests } = summary;
+  const testPath = String.raw`\S+\.(?:test|spec)\.[cm]?[jt]sx?`;
+  // Every per-file `(N tests | M failed)` line must agree with the summary.
+  const perFile = [
+    ...run.matchAll(new RegExp(`❯\\s+(?:\\S+\\s+)?(${testPath})\\s+\\([^)]*?(\\d+) failed`, 'gm')),
+  ].map((m) => ({ file: m[1] ?? '', failed: Number(m[2] ?? 0) }));
+  if (perFile.reduce((a, f) => a + f.failed, 0) !== failedTests) return false;
+  if (failedFiles === 0 && failedTests === 0) return true;
+  const quarantined = [
+    ...text.slice(heading).matchAll(new RegExp(`- \`(${testPath})\` > (.+)$`, 'gm')),
+  ].map((m) => ({ file: m[1] ?? '', title: normTitle(m[2] ?? '') }));
+  const failing = new Map<string, { file: string; title: string }>();
+  for (const m of run.matchAll(
+    new RegExp(`\\bFAIL\\s{2,}(?:\\S+\\s+)?(${testPath}) > (.+)$`, 'gm'),
+  )) {
+    const entry = { file: m[1] ?? '', title: normTitle(m[2] ?? '') };
+    failing.set(`${entry.file}\u0000${entry.title}`, entry);
+  }
+  if (failing.size !== failedTests) return false;
+  if (new Set([...failing.values()].map((f) => f.file)).size !== failedFiles) return false;
+  if (!perFile.every((p) => [...failing.values()].some((f) => f.file === p.file))) return false;
+  return [...failing.values()].every((f) =>
+    quarantined.some((q) => q.title === f.title && q.file.endsWith(f.file)),
+  );
+}
+
+/** Result of {@link nonTestFailuresOn}. */
+export type NonTestFailuresResult =
+  | { ok: true; jobs: Array<{ name: string; mergeRunId: number }> }
+  | { ok: false; reason: string };
+
+/**
+ * Whether every failure on a commit's CI is a non-test failure (T13809): each
+ * failing job of a pinned workflow failed on the flaky-quarantine budget alone
+ * ({@link isQuarantineBudgetOnlyLog}) with every test passing. The required
+ * checks themselves (the aggregate job and its workflow run) only report the
+ * jobs they need, so their failure follows; any cancelled or timed-out job, a
+ * pending run, or an unreadable log refuses.
+ *
+ * @param checks - Checks fetched for `sha`.
+ * @param sha - The commit judged.
+ * @param required - Required check names.
+ * @param pins - Required-name to app/workflow pin.
+ * @param fetchJobLog - Plain-text log of one job.
+ * @param cwd - Repository work tree for `gh`.
+ * @returns The quarantine-only jobs, or why the commit failed for real.
+ * @task T13809
+ */
+export async function nonTestFailuresOn(
+  checks: readonly CommitCheck[],
+  sha: string,
+  required: readonly string[],
+  pins: Record<string, RequiredCheckPinSpec>,
+  fetchJobLog: NonNullable<ResolveCiEvidenceOptions['fetchJobLog']>,
+  cwd: string,
+): Promise<NonTestFailuresResult> {
+  const latest = latestRuns(checks, sha, pinnedScope(required, pins));
+  const jobs: Array<{ name: string; mergeRunId: number }> = [];
+  for (const c of latest) {
+    if (c.status !== 'completed') {
+      return { ok: false, reason: `${c.name}: pending on ${sha.slice(0, 12)}` };
+    }
+    if (c.conclusion === 'success' || c.conclusion === 'skipped') continue;
+    // The required checks (the aggregate job and its workflow run) follow the jobs they need.
+    if (c.source === 'workflow-run' || required.includes(c.name)) continue;
+    const log = c.conclusion === 'failure' ? await fetchJobLog(c.id, cwd) : null;
+    if (log === null || !isQuarantineBudgetOnlyLog(log)) {
+      return {
+        ok: false,
+        reason: `${c.name}: ${c.conclusion} on ${sha.slice(0, 12)}${log === null && c.conclusion === 'failure' ? ' (its log could not be read)' : ''} — not the flaky-quarantine budget alone`,
+      };
+    }
+    jobs.push({ name: c.name, mergeRunId: c.id });
+  }
+  return jobs.length > 0
+    ? { ok: true, jobs }
+    : { ok: false, reason: `no job failed on ${sha.slice(0, 12)} for the quarantine budget` };
+}
+
+/**
+ * Whether a later commit's CI was cancelled rather than failed (T13809): its
+ * pinned workflow run concluded `cancelled` (a concurrency group stopped it)
+ * and every failing job's log is readable and names no failed test; a job a
+ * cancel interrupted often reports `failure` with nothing failed in its log. Such a run decides nothing, as a
+ * cancelled run never did (T12742).
+ *
+ * @param checks - Checks fetched for `sha`.
+ * @param sha - The later commit.
+ * @param required - Required check names.
+ * @param pins - Required-name to app/workflow pin.
+ * @param fetchJobLog - Plain-text log of one job.
+ * @param cwd - Repository work tree for `gh`.
+ * @returns Whether the run was cancelled with no test failing.
+ * @task T13809
+ */
+export async function cancelledWithoutTestFailure(
+  checks: readonly CommitCheck[],
+  sha: string,
+  required: readonly string[],
+  pins: Record<string, RequiredCheckPinSpec>,
+  fetchJobLog: NonNullable<ResolveCiEvidenceOptions['fetchJobLog']>,
+  cwd: string,
+): Promise<boolean> {
+  const latest = latestRuns(checks, sha, pinnedScope(required, pins));
+  const runs = latest.filter((c) => c.source === 'workflow-run');
+  if (!runs.some((r) => r.conclusion === 'cancelled')) return false;
+  if (runs.some((r) => r.conclusion !== 'cancelled' && r.conclusion !== 'success')) return false;
+  for (const c of latest) {
+    if (c.source === 'workflow-run' || required.includes(c.name)) continue;
+    if (c.status !== 'completed') return false;
+    if (HARMLESS_CONCLUSIONS.has(c.conclusion ?? '')) continue;
+    const log = await fetchJobLog(c.id, cwd);
+    // An unreadable log proves nothing about the job: never skip past it.
+    if (log === null) return false;
+    const text = log.replace(/\u001b\[[0-9;]*m/g, '');
+    if (/\bFAIL\s{2,}|\d+ failed/.test(text) || RUN_DIED.test(text)) {
+      return false;
+    }
+  }
+  return true;
+}
+
 /** Inputs of {@link findGreenDescendant}. */
 export interface FindGreenDescendantInput {
   /** Required check names. */
@@ -955,6 +1181,8 @@ export interface FindGreenDescendantInput {
   isAncestor: NonNullable<ResolveCiEvidenceOptions['isAncestor']>;
   /** First parent of a commit (T13453: the inherited-failure walk); absent = never inherit. */
   firstParentOf?: NonNullable<ResolveCiEvidenceOptions['firstParentOf']>;
+  /** Log of one job (T13809: the quarantine-budget check); absent = never classify. */
+  fetchJobLog?: NonNullable<ResolveCiEvidenceOptions['fetchJobLog']>;
 }
 
 /** Result of {@link findGreenDescendant}. */
@@ -974,6 +1202,8 @@ export type FindGreenDescendantResult =
       prHeadSha?: string;
       /** The merge commit's inherited failures, when it FAILED rather than being superseded (T13453). */
       inherited?: InheritedFailure[];
+      /** The merge commit's jobs that failed on the flaky-quarantine budget alone (T13809). */
+      nonTest?: Array<{ name: string; mergeRunId: number }>;
     }
   | { ok: false; reason: string };
 
@@ -999,7 +1229,9 @@ function ciDefinitionPaths(
  *
  * The stand-in's CI tested the DESCENDANT's tree, not the merge tree. It is
  * accepted only when that difference cannot matter to the PR:
- *  - the merge commit must be superseded, not failed ({@link supersededOnMerge});
+ *  - the merge commit must be superseded, not failed ({@link supersededOnMerge}),
+ *    unless its failures were inherited from main ({@link inheritedOnMerge}) or
+ *    were only the flaky-quarantine budget ({@link nonTestFailuresOn}, T13809);
  *  - the PR's own final head (`prHeadSha`) must have a green latest
  *    `pull_request` run for every superseded check — a later fix on main
  *    never rescues a broken PR;
@@ -1015,7 +1247,8 @@ function ciDefinitionPaths(
  *    failed job of a pinned workflow) refuses, and a PENDING run refuses with
  *    "wait for <sha>" — a later green run is never shopped for past one that
  *    is red or may still go red. Only cancelled, skipped and missing
- *    (never-started) runs move on to the next candidate.
+ *    (never-started) runs, and a run red only for the flaky-quarantine budget
+ *    (T13809), move on to the next candidate.
  *
  * @param input - Merge-commit checks, pins, changed paths, PR head and injected I/O.
  * @returns The stand-in SHA, its checks and proven range, or the refusal reason.
@@ -1035,6 +1268,32 @@ export async function findGreenDescendant(
     },
   );
   let inherited: InheritedFailure[] | undefined;
+  let nonTest: Array<{ name: string; mergeRunId: number }> | undefined;
+  if (!superseded.ok && input.fetchJobLog) {
+    // T13809: a merge-commit run red only because main's flaky quarantine was
+    // over budget (every test passed) failed no test of the PR's.
+    const result = await nonTestFailuresOn(
+      input.checks,
+      merge,
+      required,
+      pins,
+      input.fetchJobLog,
+      cwd,
+    );
+    if (result.ok) {
+      nonTest = result.jobs;
+      superseded = {
+        ok: true,
+        names: required.filter(
+          (name) =>
+            !judgeOnSha(
+              input.checks.filter((c) => c.name === name && pinMatches(c, pins[name])),
+              merge,
+            ).ok,
+        ),
+      };
+    }
+  }
   if (!superseded.ok && input.firstParentOf) {
     // T13453: a real failure may still be main's, inherited by a PR that
     // merged into a red main. Walk the first-parent ancestors for each
@@ -1114,6 +1373,32 @@ export async function findGreenDescendant(
     const fetched = await input.fetchChecks(sha, cwd);
     if (!fetched.ok) return { ok: false, reason: fetched.reason };
     const failedJob = firstRealFailure(fetched.checks, sha, scope);
+    if (failedJob && input.fetchJobLog) {
+      // T13809: a later run red only for the quarantine budget, or cancelled
+      // with no test failing, decides nothing; look on. Any other failure still
+      // refuses: a green run is never shopped for past a real one.
+      const quarantineOnly = await nonTestFailuresOn(
+        fetched.checks,
+        sha,
+        required,
+        pins,
+        input.fetchJobLog,
+        cwd,
+      );
+      if (quarantineOnly.ok) continue;
+      if (
+        await cancelledWithoutTestFailure(
+          fetched.checks,
+          sha,
+          required,
+          pins,
+          input.fetchJobLog,
+          cwd,
+        )
+      ) {
+        continue;
+      }
+    }
     if (failedJob) {
       return {
         ok: false,
@@ -1148,6 +1433,7 @@ export async function findGreenDescendant(
         range: `${merge}..${sha}`,
         ...(head ? { prHeadSha: head } : {}),
         ...(inherited ? { inherited } : {}),
+        ...(nonTest ? { nonTest } : {}),
       };
     }
   }
@@ -1316,6 +1602,28 @@ function ghApi(path: string, cwd: string): unknown {
         timeout: ghQueryTimeoutMs(),
       }),
     );
+  } catch {
+    return null;
+  }
+}
+
+/** Default {@link ResolveCiEvidenceOptions.fetchJobLog}: the job's plain-text log via `gh` (T13809). */
+async function defaultFetchJobLog(jobId: number, cwd: string): Promise<string | null> {
+  if (!isGitWorkTree(cwd) || !isGhCliAvailable()) return null;
+  try {
+    // Job logs carry ANSI colour; gh refuses to print them without the flag.
+    const args = [
+      'api',
+      '--allow-escape-sequences',
+      `repos/{owner}/{repo}/actions/jobs/${jobId}/logs`,
+    ];
+    return execFileSync('gh', args, {
+      cwd,
+      encoding: 'utf-8',
+      stdio: ['ignore', 'pipe', 'pipe'],
+      maxBuffer: 64 * 1024 * 1024,
+      timeout: ghQueryTimeoutMs(),
+    });
   } catch {
     return null;
   }
@@ -1715,7 +2023,13 @@ export async function resolveCiEvidenceAtom(
   // pull_request CI was green and nothing in between touched the PR's files
   // or a CI definition. That run proves the DESCENDANT's tree, not the merge's.
   let descendant:
-    | { sha: string; range: string; prHeadSha?: string; inherited?: InheritedFailure[] }
+    | {
+        sha: string;
+        range: string;
+        prHeadSha?: string;
+        inherited?: InheritedFailure[];
+        nonTest?: Array<{ name: string; mergeRunId: number }>;
+      }
     | undefined;
   let descendantReason: string | undefined;
   if (!judgedChecks.ok && onDefault.ref !== null) {
@@ -1735,6 +2049,7 @@ export async function resolveCiEvidenceAtom(
       touchingCommits: opts.touchingCommits ?? listPathTouchingMainCommits,
       isAncestor: opts.isAncestor ?? defaultIsAncestor,
       firstParentOf: opts.firstParentOf ?? defaultFirstParentOf,
+      fetchJobLog: opts.fetchJobLog ?? defaultFetchJobLog,
     });
     if (found.ok) {
       const withDescendant = [...checks, ...found.checks];
@@ -1746,7 +2061,7 @@ export async function resolveCiEvidenceAtom(
           ...(treeEqualHead ? { treeEquivalentSha: treeEqualHead } : {}),
           pins,
           descendantSha: found.sha,
-          ...(found.inherited ? { inheritedFailures: true } : {}),
+          ...(found.inherited || found.nonTest ? { inheritedFailures: true } : {}),
         },
       );
       if (rejudged.ok) {
@@ -1757,6 +2072,7 @@ export async function resolveCiEvidenceAtom(
           range: found.range,
           ...(found.prHeadSha ? { prHeadSha: found.prHeadSha } : {}),
           ...(found.inherited ? { inherited: found.inherited } : {}),
+          ...(found.nonTest ? { nonTest: found.nonTest } : {}),
         };
       } else {
         descendantReason = `later commit ${found.sha.slice(0, 12)} was green, but re-judging with it still fails: ${rejudged.reasons.join('; ')}`;
@@ -1793,6 +2109,8 @@ export async function resolveCiEvidenceAtom(
   const docsOnlyDiff = pr.changedPaths.length > 0 && pr.changedPaths.every(isCiDocumentPath);
   const isCode = !docsOnlyDiff;
   const jobsByGate: Record<string, string[]> = {};
+  const fetchJobLog = opts.fetchJobLog ?? defaultFetchJobLog;
+  let mergeNonTest: NonTestFailuresResult | undefined;
   if (isCode) {
     for (const g of gateLists) {
       const globs = readCiChecks(roots.storeRoot).jobs?.[g.key];
@@ -1818,6 +2136,26 @@ export async function resolveCiEvidenceAtom(
       }
       const scope = { ...(app !== undefined ? { app } : {}), workflows: scopeWorkflows };
       let judgedJobs = evaluateJobs(globs, checks, pr.mergeCommitSha, scope);
+      if (!judgedJobs.ok) {
+        // T13809: a job red only on the quarantine budget ran every test and
+        // they all passed; for this gate it ran and succeeded.
+        mergeNonTest ??= descendant?.nonTest
+          ? { ok: true, jobs: descendant.nonTest }
+          : await nonTestFailuresOn(
+              checks,
+              pr.mergeCommitSha,
+              required.workflows,
+              pins,
+              fetchJobLog,
+              cwd,
+            );
+        if (mergeNonTest.ok) {
+          const passed = new Set(mergeNonTest.jobs.map((j) => j.mergeRunId));
+          const asRun = checks.map((c) => (passed.has(c.id) ? { ...c, conclusion: 'success' } : c));
+          const onMerge = evaluateJobs(globs, asRun, pr.mergeCommitSha, scope);
+          if (onMerge.ok) judgedJobs = onMerge;
+        }
+      }
       if (!judgedJobs.ok && treeEqualHead && !mainOnly) {
         const onHead = evaluateJobs(globs, checks, treeEqualHead, scope, 'pull_request');
         if (onHead.ok) judgedJobs = onHead;
@@ -1880,6 +2218,7 @@ export async function resolveCiEvidenceAtom(
             descendantRange: descendant.range,
             ...(descendant.prHeadSha ? { descendantPrHeadSha: descendant.prHeadSha } : {}),
             ...(descendant.inherited ? { inheritedFailures: descendant.inherited } : {}),
+            ...(descendant.nonTest ? { nonTestFailures: descendant.nonTest } : {}),
           }
         : {}),
       ...(mainOnly ? { mainOnly: true } : {}),

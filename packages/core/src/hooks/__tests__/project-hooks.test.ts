@@ -415,6 +415,53 @@ describe('activated project checks through actual child processes', () => {
     expect(JSON.stringify(receipt)).not.toContain('secret-input');
     expect(JSON.stringify(receipt)).not.toContain('toolInput');
   });
+  it('T13818: retains native agent receipts after a Git push records its own result', async () => {
+    await manifest({
+      bindings: [
+        { source: 'agent', event: 'PreToolUse' },
+        { source: 'git', event: 'pre-push' },
+        { source: 'agent', event: 'Stop' },
+      ],
+    });
+    await writeFile(
+      join(root, 'handler.mjs'),
+      'process.stdout.write(JSON.stringify({status:"block",message:"secret-input"}));',
+    );
+    await activateProjectHooks(root);
+    await executeProjectHooks({
+      ...invocation,
+      source: 'agent',
+      event: 'PreToolUse',
+      nativeSession: { sessionId: 'session-a', harness: 'codex' },
+    });
+    await executeProjectHooks(invocation);
+    expect(await readLastProjectHookExecution(root)).toMatchObject({
+      source: 'git',
+      event: 'pre-push',
+    });
+    const agent = await readLastProjectHookExecution(root, {
+      source: 'agent',
+      event: 'PreToolUse',
+    });
+    expect(agent).toMatchObject({
+      source: 'agent',
+      event: 'PreToolUse',
+      sessionId: 'session-a',
+      harness: 'codex',
+    });
+    expect(
+      await readLastProjectHookExecution(root, { source: 'agent', event: 'Stop' }),
+    ).toBeUndefined();
+    await executeProjectHooks({ ...invocation, source: 'agent', event: 'Stop' });
+    expect(
+      await readLastProjectHookExecution(root, { source: 'agent', event: 'PreToolUse' }),
+    ).toEqual(agent);
+    expect(
+      await readLastProjectHookExecution(root, { source: 'agent', event: 'Stop' }),
+    ).toMatchObject({ source: 'agent', event: 'Stop' });
+    expect(JSON.stringify(agent)).not.toContain('toolInput');
+    expect(JSON.stringify(agent)).not.toContain('secret-input');
+  });
   it.each([
     'warn',
     'block',
