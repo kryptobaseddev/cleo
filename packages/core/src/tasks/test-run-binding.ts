@@ -670,14 +670,105 @@ export function testRunCoversChange(
   changed: readonly string[],
   testFiles: readonly string[],
 ): TestRunBinding {
+  const need = testRunRequirement(root, changed);
+  const covered = testRunMeetsRequirement(root, need, testFiles);
+  return covered.ok && need.configPaths.length > 0
+    ? { ...covered, configPaths: need.configPaths }
+    : covered;
+}
+
+/**
+ * What a targeted test-run report must run to speak for a change — point 2 of
+ * the module doc as data. {@link testRunCoversChange} judges a report against
+ * it, and `cleo tasks changeset --test-plan` reports it, so the two cannot
+ * drift (T13795).
+ *
+ * - `configPaths`: CLEO config files, left to `tool:config-schema` (T13778).
+ * - `full`: the rest is workspace-wide; no test-run report speaks for it.
+ * - `targeted`: the report must pass every file of `outsideTests` and of
+ *   `everyChangedTest`, and at least one test file of every package in
+ *   `required`. `direct` lists the changed packages; `untestedPackages` the
+ *   affected ones with no test; `typecheckDirs` the typecheck-only dependents
+ *   left to a typecheck (T13783). `standalone` marks a single-package project.
+ */
+export type TestRunRequirement =
+  | { kind: 'full'; reason: string; configPaths: string[] }
+  | {
+      kind: 'targeted';
+      configPaths: string[];
+      direct: string[];
+      required: string[];
+      untestedPackages: string[];
+      typecheckDirs: string[];
+      outsideTests: string[];
+      everyChangedTest: string[];
+      standalone: boolean;
+    };
+
+/**
+ * The {@link TestRunRequirement} of a change.
+ *
+ * @param root - The checkout the change is relative to.
+ * @param changed - The change's paths, relative to `root`.
+ * @returns What a covering report must run.
+ * @task T13795
+ */
+export function testRunRequirement(root: string, changed: readonly string[]): TestRunRequirement {
   const configPaths = changed.filter((p) => cleoConfigSchemaFor(p) !== null);
-  if (configPaths.length === 0) return testRunCoversCode(root, changed, testFiles);
   const code = changed.filter((p) => cleoConfigSchemaFor(p) === null);
-  const covered =
-    code.length === 0
-      ? { ok: true as const, untestedPackages: [] }
-      : testRunCoversCode(root, code, testFiles);
-  return covered.ok ? { ...covered, configPaths } : covered;
+  const none = {
+    kind: 'targeted' as const,
+    configPaths,
+    direct: [],
+    required: [],
+    untestedPackages: [],
+    typecheckDirs: [],
+    outsideTests: [],
+    everyChangedTest: [],
+    standalone: false,
+  };
+  if (code.length === 0) return none;
+  const scope = deriveAffectedPackages(root, code, { outsideTests: true });
+  if (scope.scope === 'full') return { kind: 'full', reason: scope.reason, configPaths };
+  const outsideTests = scope.outsideTests ?? [];
+  if (scope.direct.length === 0) return { ...none, outsideTests };
+  // Longest directory first, so a file belongs to its innermost package.
+  const workspace = listWorkspacePackages(root).sort((a, b) => b.dir.length - a.dir.length);
+  const withTests = packagesWithTestFiles(root, workspace, code);
+  // T13783 (owner decision): a dependent reached only through changed
+  // packages whose every changed path the default branch declares
+  // typecheck-only (evidence.typecheckOnlyDependents: a generated client,
+  // seed data) owes a typecheck naming it, not a test file. Its own changed
+  // source, or a path through any other changed package, keeps it owing tests.
+  const generated = typecheckOnlyPackages(root, code, workspace);
+  const viaCode =
+    generated.size > 0
+      ? dependentsClosure(
+          workspace,
+          scope.direct.filter((name) => !generated.has(name)),
+        )
+      : null;
+  const typecheckOnly = viaCode
+    ? scope.packages.filter(
+        (name) => !scope.direct.includes(name) && !viaCode.has(name) && withTests.has(name),
+      )
+    : [];
+  // T13403: in a standalone project the one package is the whole project, so
+  // one test file of it says nothing about the change; T13783: a run that
+  // leaves dependents to a typecheck runs every edited test file too.
+  const standalone = workspace.length === 1 && workspace[0]?.dir === '';
+  return {
+    ...none,
+    direct: scope.direct,
+    required: scope.packages.filter((name) => withTests.has(name) && !typecheckOnly.includes(name)),
+    untestedPackages: scope.packages.filter((name) => !withTests.has(name)),
+    typecheckDirs: typecheckOnly
+      .map((name) => workspace.find((p) => p.name === name)?.dir ?? name)
+      .sort(),
+    outsideTests,
+    everyChangedTest: standalone || typecheckOnly.length > 0 ? changedTestFiles(root, code) : [],
+    standalone,
+  };
 }
 
 /**
@@ -731,10 +822,10 @@ export function configSchemaCompositionGap(atoms: readonly EvidenceAtom[]): stri
   return null;
 }
 
-/** {@link testRunCoversChange} over a change with no CLEO config file in it. */
-function testRunCoversCode(
+/** Judge a report's test files against a {@link TestRunRequirement}. */
+function testRunMeetsRequirement(
   root: string,
-  changed: readonly string[],
+  need: TestRunRequirement,
   testFiles: readonly string[],
 ): TestRunBinding {
   const refuse = (reason: string): TestRunBinding => ({
@@ -742,12 +833,11 @@ function testRunCoversCode(
     codeName: 'E_EVIDENCE_INSUFFICIENT',
     reason,
   });
-  const scope = deriveAffectedPackages(root, changed, { outsideTests: true });
-  if (scope.scope === 'full') {
+  if (need.kind === 'full') {
     // A workspace-wide change can break any package: only a full-suite run
     // speaks for it, and no report shows it ran the whole suite.
     return refuse(
-      `The change is workspace-wide (${scope.reason}), so only a full-suite run speaks for it, ` +
+      `The change is workspace-wide (${need.reason}), so only a full-suite run speaks for it, ` +
         'and a test-run report cannot show that it ran the whole suite (test configs exclude ' +
         'tracked test files, so file counts prove nothing). Record tool:test, which runs the ' +
         'full suite for a workspace-wide change, or ci:<pr> once the PR merges.',
@@ -756,7 +846,7 @@ function testRunCoversCode(
   // T13754: a non-workspace path is spoken for only by passing every test file
   // outside the packages under its top-level directory (edited ones included).
   const ran = new Set(testFiles);
-  const outsideUnrun = (scope.outsideTests ?? []).filter((f) => !ran.has(f));
+  const outsideUnrun = need.outsideTests.filter((f) => !ran.has(f));
   if (outsideUnrun.length > 0) {
     return refuse(
       `test-run report does not run ${outsideUnrun.slice(0, 5).join(', ')}` +
@@ -766,63 +856,25 @@ function testRunCoversCode(
         'tool:test-affected.',
     );
   }
-  if (scope.direct.length === 0) return { ok: true, untestedPackages: [] };
-  // Longest directory first, so a file belongs to its innermost package.
-  const workspace = listWorkspacePackages(root).sort((a, b) => b.dir.length - a.dir.length);
-  const withTests = packagesWithTestFiles(root, workspace, changed);
-  // T13783 (owner decision): a dependent reached only through changed
-  // packages whose every changed path the default branch declares
-  // typecheck-only (evidence.typecheckOnlyDependents: a generated client,
-  // seed data) owes a typecheck naming it, not a test file. Its own changed
-  // source, or a path through any other changed package, keeps it owing tests.
-  const generated = typecheckOnlyPackages(root, changed, workspace);
-  const viaCode =
-    generated.size > 0
-      ? dependentsClosure(
-          workspace,
-          scope.direct.filter((name) => !generated.has(name)),
-        )
-      : null;
-  const typecheckOnly = viaCode
-    ? scope.packages.filter(
-        (name) => !scope.direct.includes(name) && !viaCode.has(name) && withTests.has(name),
-      )
-    : [];
-  const required = scope.packages.filter(
-    (name) => withTests.has(name) && !typecheckOnly.includes(name),
-  );
-  const untestedPackages = scope.packages.filter((name) => !withTests.has(name));
-  const typecheck =
-    typecheckOnly.length > 0
-      ? {
-          typecheckDirs: typecheckOnly
-            .map((name) => workspace.find((p) => p.name === name)?.dir ?? name)
-            .sort(),
-        }
-      : {};
+  if (need.direct.length === 0) return { ok: true, untestedPackages: [] };
+  const { required, untestedPackages } = need;
+  const typecheck = need.typecheckDirs.length > 0 ? { typecheckDirs: need.typecheckDirs } : {};
   if (required.length === 0) {
     return refuse(
-      `No test file exists in the changed package(s) ${someNames(scope.direct)} or in any package ` +
+      `No test file exists in the changed package(s) ${someNames(need.direct)} or in any package ` +
         'that depends on them, so a targeted test-run cannot cover the change. Record tool:test.',
     );
   }
+  const workspace = listWorkspacePackages(root).sort((a, b) => b.dir.length - a.dir.length);
   const covered = new Set(testFiles.flatMap((f) => ownerOf(f, workspace)?.name ?? []));
   const missing = required.filter((name) => !covered.has(name));
   if (missing.length === 0) {
-    // T13403: in a standalone project the one package is the whole project,
-    // so one test file of it says nothing about the change. The report must
-    // also run every test file the change adds or edits.
-    const standalone = workspace.length === 1 && workspace[0]?.dir === '';
-    // T13783: a run that leaves dependents to a typecheck runs every edited test file.
-    const unrun =
-      standalone || typecheckOnly.length > 0
-        ? changedTestFiles(root, changed).filter((f) => !ran.has(f))
-        : [];
+    const unrun = need.everyChangedTest.filter((f) => !ran.has(f));
     if (unrun.length === 0) return { ok: true, untestedPackages, ...typecheck };
     return refuse(
       `test-run report does not run the changed test file(s) ${unrun.slice(0, 5).join(', ')}` +
         `${unrun.length > 5 ? `, … (${unrun.length} files)` : ''}. ${
-          standalone
+          need.standalone
             ? 'In a single-package project the package is the whole project'
             : 'Dependents of a generated package are left to a typecheck'
         }, so a targeted report must run every test file the ` +
@@ -830,7 +882,7 @@ function testRunCoversCode(
     );
   }
   const labelled = missing.map((name) =>
-    scope.direct.includes(name) ? `${name} (changed)` : `${name} (depends on a changed package)`,
+    need.direct.includes(name) ? `${name} (changed)` : `${name} (depends on a changed package)`,
   );
   return refuse(
     `${

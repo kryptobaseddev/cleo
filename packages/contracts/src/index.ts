@@ -551,7 +551,11 @@ export type {
   DonePlanTypedGate,
   DoneRecordResult,
   DoneToolResult,
+  OwedTestFile,
+  OwedTestPackage,
   TaskChangeSet,
+  TaskChangeSetReport,
+  TaskTestPlan,
 } from './done-plan.js';
 export type {
   EngineErrorPayload,
