@@ -2,7 +2,7 @@
  * goal/v1 — the contract a goal runtime executes against, and what CLEO reads
  * back from a run.
  *
- * CLEO owns the goal protocol; OpenCode-Goal (OCG) is the goal runtime (owner
+ * CLEO owns the goal protocol; CLEO Goal (`@cleocode/goal`, bin `cleo-goal`, alias `ocg`) is the goal runtime (owner
  * decision 2026-10-16, epic T13791). The two stay separate packages and talk
  * only through the `cleo` CLI and LAFS envelopes:
  *
@@ -13,7 +13,7 @@
  * 3. `cleo goal close` reads the outcome and records evidence for each passing
  *    criterion on the gate it demonstrates, via {@link GoalCriterion.proves}.
  *
- * The shapes mirror OCG's `src/contract/types.ts` field for field, in OCG's
+ * The shapes mirror CLEO Goal's `src/contract/types.ts` field for field, in CLEO Goal's
  * snake_case YAML spelling, so one file means the same thing on both sides.
  * The only addition is the optional per-criterion `proves` list.
  *
@@ -30,6 +30,8 @@
  * @epic T13791
  * @task T13792
  */
+
+import type { GoalRuntimeStatus } from './goal-runtime.js';
 
 /** The schema tag every goal/v1 contract carries. */
 export const GOAL_CONTRACT_SCHEMA = 'goal/v1' as const;
@@ -243,9 +245,9 @@ export type GoalVerificationMode = 'host' | 'host+verifier' | 'strict';
 export type GoalCleoGate = 'implemented' | 'testsPassed' | 'qaPassed';
 
 /**
- * A CLEO task the goal serves (OCG `CleoTaskLink`).
+ * A CLEO task the goal serves (CLEO Goal `CleoTaskLink`).
  *
- * The bare id links the task for reporting. `acs` is OCG's older per-gate
+ * The bare id links the task for reporting. `acs` is CLEO Goal's older per-gate
  * claim of which AC aliases a gate's evidence proves; per-criterion
  * {@link GoalCriterion.proves} is the precise form and what `cleo goal draft`
  * writes. An AC neither form claims stays open.
@@ -435,4 +437,46 @@ export interface GoalOutcome {
   headCommit: string;
   /** Per-criterion and per-invariant verdicts. */
   results: GoalCriterionOutcome[];
+}
+
+/** A drafted goal and the CLEO tasks it serves, from its `goal.yaml` (T13821). */
+export interface GoalDraftEntry {
+  /** Goal slug (its directory under `.opencode/goals/`). */
+  slug: string;
+  /** Contract title, when the contract parses. */
+  title: string | null;
+  /** CLEO tasks the goal serves: `cleo.tasks` plus every task a criterion proves. */
+  tasks: string[];
+  /** Why the contract could not be read, when it could not. */
+  problem?: string;
+}
+
+/**
+ * `cleo goal status` (T13821): the drafted goals and the live run, which CLEO
+ * reads only through `cleo-goal status --json`, never the runtime's files.
+ */
+export interface GoalStatusReport {
+  /** Whether the CLEO Goal bin (`cleo-goal`, alias `ocg`) is installed. */
+  runtime: 'installed' | 'not-installed';
+  /** The commands that install it, when it is not installed. */
+  install?: string[];
+  /** The live run, from `cleo-goal status --json`; null when not installed. */
+  live: GoalRuntimeStatus | null;
+  /** The drafted goals (filtered to one task with `--task`). */
+  goals: GoalDraftEntry[];
+}
+
+/**
+ * The goal runtime (CLEO Goal) as `cleo go` finds it, and the exact next step
+ * in the current harness (T13821).
+ */
+export interface GoalRuntimeHandoff {
+  /** Whether the CLEO Goal bin (`cleo-goal`, then `ocg`) resolves. */
+  installed: boolean;
+  /** The resolved bin, when installed. */
+  bin?: string;
+  /** The commands that install it, when it is not installed. */
+  install?: string[];
+  /** The one next step, in plain words. */
+  next: string;
 }

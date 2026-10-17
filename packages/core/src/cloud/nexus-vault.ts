@@ -866,6 +866,8 @@ const JOURNAL_SNAPSHOT_CARRIED: ReadonlySet<string> = new Set([
 const VAULT_CLEARED_JOURNAL_TABLES = [
   '_sync_capture',
   '_sync_undo',
+  // The undo's row values (T12535): a rewound delete's secret columns.
+  '_sync_row_undo',
   '_sync_frame',
   '_sync_quarantine',
   '_sync_apply_intent',
@@ -876,7 +878,7 @@ const VAULT_CLEARED_JOURNAL_TABLES = [
   // Its floor goes with it: a floor without its seen rows would refuse
   // every transaction below it (T13318).
   '_sync_seen_floor',
-] as const;
+];
 
 /** The account key a global snapshot seals its credential cells under (T13530). */
 interface VaultCredentialSeal {
@@ -1088,8 +1090,6 @@ async function exportAndRead(
   files: Map<string, string>;
   /** The extracted snapshot's primary `cleo.db`. */
   dbPath: string;
-  /** Per table, the rows local by row-identity spec the manifest leaves out (T13808). */
-  localRows: Record<string, number>;
 }> {
   const bundlePath = path.join(work, 'snapshot.cleobundle.tar.gz');
   await exportVaultBundle(t, bundlePath, label, tracked, seal, inspect);
@@ -1099,14 +1099,13 @@ async function exportAndRead(
   const bundleManifest = JSON.parse(
     fs.readFileSync(path.join(extractDir, 'manifest.json'), 'utf8'),
   ) as PortableBundleManifest;
-  const { vault, files, dbPath, localRows } = await snapshotManifest(extractDir, bundleManifest, t);
+  const { vault, files, dbPath } = await snapshotManifest(extractDir, bundleManifest, t);
   return {
     bundlePath,
     vault,
     gitTracked: snapshotGitTracked(bundleManifest, t),
     files,
     dbPath,
-    localRows,
   };
 }
 
@@ -1377,13 +1376,14 @@ function authoritativeOmitted(err: unknown): boolean {
  * format leaves out (T13808): rows local by row-identity spec. They never
  * travelled, so the journal declares no delete for them; the checkpoint names
  * them `pruned`, so the server's row rule takes them off the parent's count.
- * Per table, the shortfall against the tallies, capped by the local rows this
- * store holds now; a parent in the current format prunes nothing.
+ * Per table, the shortfall against the tallies, capped by the local rows the
+ * parent itself held ({@link parentLocalRows}); a parent in the current format
+ * prunes nothing.
  *
  * @param parentFormat - The parent's {@link vaultManifestFormat}.
  * @param tallies - The window's tallies.
  * @param local - The store's rows per manifest key.
- * @param localRows - Per table, the rows the manifest left out as local.
+ * @param localRows - Per table, the local rows the parent's own store held.
  * @returns The tallies less the pruned rows, and the `pruned` map.
  */
 export function formatTransitionPruned(
@@ -1404,6 +1404,32 @@ export function formatTransitionPruned(
     rows[table] = (rows[table] ?? 0) - take;
   }
   return { tallies: { ...tallies, rows }, pruned };
+}
+
+/**
+ * The local rows a parent of an older vault format counted (T13816): rows local
+ * by row-identity spec in the parent's own `cleo.db`, read from its bundle. Exact
+ * whichever device pushed it, and no clock: the local rows this store holds
+ * are not the parent's, and counting them would mask lost synced rows.
+ */
+async function parentLocalRows(
+  journal: Journal,
+  parent: Checkpoint,
+  signers: TrustedSigners,
+  t: VaultTarget,
+): Promise<Record<string, number>> {
+  const restored = await journal.restoreCheckpoint(parent.checkpointId, signers);
+  const work = tempDir('cleo-vault-parent-');
+  try {
+    const bundlePath = path.join(work, 'parent.cleobundle.tar.gz');
+    fs.writeFileSync(bundlePath, restored.bundle);
+    const staging = path.join(work, 'staging');
+    fs.mkdirSync(staging);
+    const { extractDir, manifest } = await extractPortableBundle(bundlePath, staging);
+    return (await snapshotManifest(extractDir, manifest, t)).localRows;
+  } finally {
+    fs.rmSync(work, { recursive: true, force: true });
+  }
 }
 
 /** Whether this store's `sync.push` is on: its vault push checkpoints the journal (T12999). */
@@ -1590,7 +1616,7 @@ async function pushJournalCheckpoint(
         read: { window: JournalWindow; tallies: JournalTallies; pin: ReplayPin } | null;
       };
       let snap: Taken | null = null;
-      const { bundlePath, vault, gitTracked, files, localRows } = await exportAndRead(
+      const { bundlePath, vault, gitTracked, files } = await exportAndRead(
         t,
         work,
         `cloud-vault-${scope}`,
@@ -1691,11 +1717,13 @@ async function pushJournalCheckpoint(
       // Portable tables the journal does not carry yet are the snapshot's alone (T13777), named in
       // the manifest only to a server that takes the list; the list only shrinks along the lineage.
       const authoritative = await snapshotAuthoritativeTables(conn, t, keys, parent);
+      const parentFormat = vaultManifestFormat(parent.manifest, hashKeyOf(t.dataKey));
+      const transition = parentFormat !== 'unknown' && parentFormat < VAULT_MANIFEST_FORMAT_VERSION;
       const formatPruned = formatTransitionPruned(
-        vaultManifestFormat(parent.manifest, hashKeyOf(t.dataKey)),
+        parentFormat,
         taken.read.tallies,
         local,
-        localRows,
+        transition ? await parentLocalRows(journal, parent, key.signers, t) : {},
       );
       const { tallies, unexplained } = settleShortfalls(
         formatPruned.tallies,
@@ -1709,10 +1737,12 @@ async function pushJournalCheckpoint(
           authoritative.list === null && unexplained.every((k) => authoritative.exempt.has(k));
         throw vaultError(
           'E_NEXUS_VAULT_REFUSED',
-          `this store's rows do not reconcile with ${t.streamId}'s change journal (${unexplained.slice(0, 8).join(', ')}): ${exemptOnly ? 'these tables are not in the change journal yet, and this Cleo Nexus server does not take a snapshot-authoritative list (manifest.snapshot-authoritative)' : 'a write landed outside the journal'}`,
+          `this store's rows do not reconcile with ${t.streamId}'s change journal (${unexplained.slice(0, 8).join(', ')}): ${exemptOnly ? 'these tables are not in the change journal yet, and this Cleo Nexus server does not take a snapshot-authoritative list (manifest.snapshot-authoritative)' : transition ? `the head snapshot is vault format ${parentFormat}, and the local rows it counted do not explain the shortfall: synced rows are missing from this store` : 'a write landed outside the journal'}`,
           exemptOnly
             ? 'nothing was written; upgrade the Cleo Nexus server, then push again'
-            : 'nothing was written; run `cleo cloud sync`, then push again',
+            : transition
+              ? 'nothing was written; run `cleo cloud pull` to take the cloud copy, or `cleo cloud push --force` to keep this store as a labelled fork'
+              : 'nothing was written; run `cleo cloud sync`, then push again',
         );
       }
       const vaultOnlyChanged = keys.some(
@@ -3577,9 +3607,10 @@ function keepGlobalConfigLocalKeys(
  * them both ways), so only what snapshots alone carry is pulled: the head's
  * plain files and other databases (the snapshot-authoritative entries).
  * `cleo.db` is never touched. Refused when this store's own files or databases
- * changed since its last sync; a store that never synced keeps the files it
- * has (T13020). The head is then recorded as synced, so a journal push
- * follows it.
+ * changed since its last sync, unless each change already equals the head's
+ * copy (a doc body the journal delivered, T13813); a store that never synced
+ * keeps the files it has (T13020). The head is then recorded as synced, so a
+ * journal push follows it.
  */
 async function pullVaultOnlyEntries(a: {
   readonly conn: NexusVaultConnection;
@@ -3595,23 +3626,21 @@ async function pullVaultOnlyEntries(a: {
 }): Promise<CloudRestoreResult> {
   const { conn, key, t, journal, target, last, git, synced, warnings } = a;
   const read = await localManifest(t, git, untrackedComparison(t, git, synced), last?.manifest);
-  if (read !== null && last !== undefined) {
-    const fileChanges = fileChangesSinceSync(read.files, t, git, synced);
-    const changed = compareWithSynced(read.manifest, last.manifest, git, fileChanges)
-      .filter((d) => isSnapshotAuthoritativeKey(d.table) && !d.match)
-      .map((d) =>
-        d.table === VAULT_FILES_KEY && fileChanges !== null && fileChanges.length > 0
-          ? `${d.table}: ${fileChanges.slice(0, 5).join(', ')}${fileChanges.length > 5 ? ', …' : ''}`
-          : d.table,
-      );
-    if (changed.length > 0) {
-      throw vaultError(
-        'E_NEXUS_VAULT_LOCAL_CHANGES',
-        `this store's files or databases changed since its last cloud sync (${changed.slice(0, 8).join(', ')}); pulling the snapshot's would overwrite them`,
-        'run `cleo cloud push --force` to keep them (a labelled fork), or `cleo cloud pull --force` to take the cloud copy (a safety backup is taken first)',
-      );
-    }
-  }
+  // Local changes since the last sync, judged against the head once its files are read (T13813).
+  const fileChanges =
+    read !== null && last !== undefined ? fileChangesSinceSync(read.files, t, git, synced) : null;
+  const changedKeys =
+    read !== null && last !== undefined
+      ? compareWithSynced(read.manifest, last.manifest, git, fileChanges)
+          .filter((d) => isSnapshotAuthoritativeKey(d.table) && !d.match)
+          .map((d) => d.table)
+          // A database already holding the head's copy is no change to keep.
+          .filter(
+            (k) =>
+              k === VAULT_FILES_KEY ||
+              read.manifest.tables[k]?.hash !== target.manifest.tables[k]?.hash,
+          )
+      : [];
   const restored = await journal.restoreCheckpoint(target.checkpointId, key.signers);
   const work = tempDir('cleo-vault-pull-');
   try {
@@ -3628,6 +3657,27 @@ async function pullVaultOnlyEntries(a: {
       throw vaultError(
         'E_NEXUS_VAULT_VERIFY_FAILED',
         `snapshot ${target.checkpointId} does not match its manifest (${diff.map((d) => d.table).join(', ')}); nothing was pulled`,
+      );
+    }
+    // A changed file the head holds byte for byte (a doc body the journal delivered) is no change to keep,
+    // nor is a path the head lacks: the pull never touches it, and it travels in the next snapshot.
+    const ownFiles = (fileChanges ?? []).filter(
+      (p) => staged.files.has(p) && read?.files.get(p) !== staged.files.get(p),
+    );
+    const changed = changedKeys.flatMap((k) =>
+      k !== VAULT_FILES_KEY
+        ? [k]
+        : fileChanges === null
+          ? [k]
+          : ownFiles.length > 0
+            ? [`${k}: ${ownFiles.slice(0, 5).join(', ')}${ownFiles.length > 5 ? ', …' : ''}`]
+            : [],
+    );
+    if (changed.length > 0) {
+      throw vaultError(
+        'E_NEXUS_VAULT_LOCAL_CHANGES',
+        `this store's files or databases changed since its last cloud sync (${changed.slice(0, 8).join(', ')}); pulling the snapshot's would overwrite them`,
+        'run `cleo cloud push --force` to keep them (a labelled fork), or `cleo cloud pull --force` to take the cloud copy (a safety backup is taken first)',
       );
     }
     await assertStoreQuiescent(t);

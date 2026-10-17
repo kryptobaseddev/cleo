@@ -13,9 +13,7 @@
  *     contract)
  *
  * `createBackup` / `createGlobalBackup` and `getProjectRoot` are mocked — no
- * real store or backup file is touched. (The older admin.test.ts covers the
- * same handler with stale module mocks; it is quarantined in
- * packages/cleo/vitest.quarantine.ts.)
+ * real store or backup file is touched.
  *
  * @task T13724
  */

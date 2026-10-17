@@ -1,5 +1,6 @@
 /** Bound, retained evidence required before promoting project hooks to stable (T13350). */
 import { z } from 'zod';
+import { HookExecutionReceiptSchema, HookNativeSessionSchema } from '../project-hooks.js';
 
 /** Required pilot checks; every named check must pass on the same implementation. */
 export const HOOK_PILOT_CHECKS = [
@@ -42,6 +43,8 @@ export const HookPilotProofReferenceSchema = z
     sha256: HookPilotDigestSchema,
   })
   .strict();
+/** Hash-bound artifact reference reused by native receipts and phase proofs. */
+export type HookPilotProofReference = z.infer<typeof HookPilotProofReferenceSchema>;
 /** Common identity attached to every retained proof, never inferred from similar releases. */
 export const HookPilotIdentitySchema = z
   .object({
@@ -53,7 +56,7 @@ export const HookPilotIdentitySchema = z
   .strict();
 /** A bounded collection of actual pilot receipts. Missing or partial checks hold promotion. */
 export const HookPilotEvidenceSchema = HookPilotIdentitySchema.extend({
-  schemaVersion: z.literal(1),
+  schemaVersion: z.union([z.literal(1), z.literal(2)]),
   vidaRepository: z
     .string()
     .regex(/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/)
@@ -73,9 +76,64 @@ export const HookPilotEvidenceSchema = HookPilotIdentitySchema.extend({
 }).strict();
 /** Validated evidence bundle index. */
 export type HookPilotEvidence = z.infer<typeof HookPilotEvidenceSchema>;
+/** Strict runner receipt binding native agent delivery to its session and provider. */
+export const HookPilotNativeReceiptSchema = HookExecutionReceiptSchema.extend({
+  ...HookNativeSessionSchema.shape,
+  source: z.literal('agent'),
+  event: z.string().min(1).max(128),
+  recordedAt: z.string().datetime(),
+}).strict();
+/** Retained native session evidence; receipt content is read and hash-checked by the release gate. */
+export const HookPilotNativeEvidenceSchema = z
+  .object({
+    sessionId: z.string().min(1).max(256),
+    checkout: z.enum(['standalone', 'linked-worktree']),
+    startedAt: z.string().datetime(),
+    endedAt: z.string().datetime(),
+    receipt: HookPilotProofReferenceSchema.extend(
+      HookPilotNativeReceiptSchema.pick({
+        source: true,
+        event: true,
+        recordedAt: true,
+        sessionId: true,
+        harness: true,
+      }).shape,
+    ).strict(),
+    trust: z.discriminatedUnion('mode', [
+      z
+        .object({
+          mode: z.literal('persisted'),
+          home: z.enum(['isolated', 'user-global']),
+          grantedBy: z.enum(['native-interactive', 'native-command']),
+        })
+        .strict(),
+      z
+        .object({
+          mode: z.literal('bypassed'),
+          home: z.enum(['isolated', 'user-global']),
+          flag: z.literal('--dangerously-bypass-hook-trust'),
+        })
+        .strict(),
+    ]),
+    contextInjection: z.enum(['observed', 'unverified', 'not-observed']),
+    contextEvidence: HookPilotProofReferenceSchema.optional(),
+    infrastructureFaults: z
+      .array(
+        z
+          .object({
+            source: z.enum(['agent', 'git', 'sandbox']),
+            code: z.string().regex(/^[A-Z][A-Z0-9_]{0,127}$/),
+          })
+          .strict(),
+      )
+      .max(100),
+  })
+  .strict();
+/** Typed, redacted native delivery and its known limitations. */
+export type HookPilotNativeEvidence = z.infer<typeof HookPilotNativeEvidenceSchema>;
 /** Structured, redacted proof produced by a real check and retained with its hash. */
 export const HookPilotProofSchema = HookPilotIdentitySchema.extend({
-  schemaVersion: z.literal(1),
+  schemaVersion: z.union([z.literal(1), z.literal(2)]),
   check: z.enum(HOOK_PILOT_CHECKS),
   status: z.literal('pass'),
   observedAt: z.string().datetime(),
@@ -85,15 +143,39 @@ export const HookPilotProofSchema = HookPilotIdentitySchema.extend({
   packageVersions: z.record(z.string().max(256), z.string().max(128)).optional(),
   ordinaryCommands: z.number().int().min(1).max(100000).optional(),
   disposablePushes: z.number().int().min(1).max(100000).optional(),
+  native: HookPilotNativeEvidenceSchema.optional(),
   hostedRunId: z.number().int().positive().safe().optional(),
   url: z.string().url().max(2048).optional(),
-}).strict();
+})
+  .strict()
+  .superRefine((proof, ctx) => {
+    if (
+      proof.schemaVersion === 2 &&
+      (proof.check === 'liveClaude' || proof.check === 'liveCodex') &&
+      !proof.native
+    ) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['native'],
+        message: 'Required native agent receipt missing',
+      });
+    }
+    if (proof.native?.contextInjection === 'observed' && !proof.native.contextEvidence) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['native', 'contextEvidence'],
+        message: 'Observed context requires retained evidence',
+      });
+    }
+  });
 /** A validated retained proof. */
 export type HookPilotProof = z.infer<typeof HookPilotProofSchema>;
 /** Minimal authoritative GitHub response required for an actual successful workflow run. */
 export const HookPilotHostedRunSchema = z.object({
   id: z.number().int().positive(),
   head_sha: z.string().regex(/^[a-f0-9]{40}$/),
+  /** Historical responses may omit the trigger; future proofs require an exact-commit dispatch. */
+  event: z.string().min(1).max(64).optional(),
   status: z.literal('completed'),
   conclusion: z.literal('success'),
   path: z.string().max(4096),

@@ -7,11 +7,8 @@
  * @task T889 / T908 / W4-16
  */
 
-import { readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
-import { dirname, resolve } from 'node:path';
 import type { DatabaseSync as _DatabaseSyncType } from 'node:sqlite';
-import { fileURLToPath } from 'node:url';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
   approveGate,
@@ -23,6 +20,7 @@ import {
   getPlaybookSecret,
   rejectGate,
 } from '../approval.js';
+import { applyPlaybookTwinSchema } from './twin-schema.js';
 
 const _require = createRequire(import.meta.url);
 type DatabaseSync = _DatabaseSyncType;
@@ -30,27 +28,9 @@ const { DatabaseSync } = _require('node:sqlite') as {
   DatabaseSync: new (...args: ConstructorParameters<typeof _DatabaseSyncType>) => DatabaseSync;
 };
 
-const __dirname = dirname(fileURLToPath(import.meta.url));
-const MIGRATION_SQL = resolve(
-  __dirname,
-  '../../../core/migrations/drizzle-tasks/20260417220000_t889-playbook-tables/migration.sql',
-);
-
-function applyMigration(db: DatabaseSync, sql: string): void {
-  const statements = sql
-    .split(/--> statement-breakpoint/)
-    .map((s) => s.trim())
-    .filter((s) => s.length > 0);
-  for (const stmt of statements) {
-    const lines = stmt.split('\n');
-    const hasSql = lines.some((l) => l.trim().length > 0 && !l.trim().startsWith('--'));
-    if (hasSql) db.exec(stmt);
-  }
-}
-
 function seedRun(db: DatabaseSync, runId: string): void {
   db.prepare(
-    `INSERT INTO playbook_runs (run_id, playbook_name, playbook_hash)
+    `INSERT INTO tasks_playbook_runs (run_id, playbook_name, playbook_hash)
      VALUES (?, 'rcasd', 'hash')`,
   ).run(runId);
 }
@@ -103,7 +83,7 @@ describe('W4-16: Approval DB operations', () => {
   beforeEach(() => {
     db = new DatabaseSync(':memory:');
     db.exec('PRAGMA foreign_keys=ON');
-    applyMigration(db, readFileSync(MIGRATION_SQL, 'utf8'));
+    applyPlaybookTwinSchema(db);
     seedRun(db, 'run-1');
   });
 
@@ -143,7 +123,7 @@ describe('W4-16: Approval DB operations', () => {
     expect(approval.reason).toBe('auto-approve low-risk deterministic step');
 
     const row = db
-      .prepare('SELECT auto_passed FROM playbook_approvals WHERE approval_id = ?')
+      .prepare('SELECT auto_passed FROM tasks_playbook_approvals WHERE approval_id = ?')
       .get(approval.approvalId) as { auto_passed: number };
     expect(row.auto_passed).toBe(1);
   });
@@ -266,7 +246,7 @@ describe('W4-16: Approval DB operations', () => {
 
     // Query by token round-trips the same approvalId
     const lookup = db
-      .prepare('SELECT approval_id FROM playbook_approvals WHERE token = ?')
+      .prepare('SELECT approval_id FROM tasks_playbook_approvals WHERE token = ?')
       .get(a.token) as { approval_id: string };
     expect(lookup.approval_id).toBe(a.approvalId);
 

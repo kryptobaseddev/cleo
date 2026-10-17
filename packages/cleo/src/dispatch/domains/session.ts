@@ -30,7 +30,6 @@ import type {
 } from '@cleocode/contracts';
 import { getLogger } from '@cleocode/core/logger';
 import { getProjectRoot } from '@cleocode/core/project-scope';
-import { eq } from 'drizzle-orm';
 import {
   defineTypedHandler,
   lafsError,
@@ -432,7 +431,7 @@ const _sessionTypedHandler = defineTypedHandler<SessionOps>('session', {
         // T4959: Compute rich debrief (superset of handoff)
         let debriefResult: {
           success: boolean;
-          data?: import('@cleocode/core/internal').DebriefData;
+          data?: import('@cleocode/core/sessions/handoff.js').DebriefData;
         } | null = null;
         try {
           debriefResult = await sessionComputeDebrief(projectRoot, sessionId, {
@@ -454,7 +453,10 @@ const _sessionTypedHandler = defineTypedHandler<SessionOps>('session', {
         // Wave 3A: Persist session memory to brain.db (best-effort)
         if (debriefResult?.success && debriefResult.data) {
           try {
-            const { persistSessionMemory } = await import('@cleocode/core/internal');
+            // T13834: from its defining module — the CORE barrel cost every Stop ~1 s.
+            const { persistSessionMemory } = await import(
+              '@cleocode/core/memory/session-memory.js'
+            );
             await persistSessionMemory(projectRoot, sessionId, debriefResult.data);
           } catch {
             // Memory persistence failure should not fail session end
@@ -470,7 +472,7 @@ const _sessionTypedHandler = defineTypedHandler<SessionOps>('session', {
     // The engine path (session-engine.ts) does not go through core/sessions/index.ts
     // which has the direct refreshMemoryBridge call, so we must trigger it here.
     try {
-      const { refreshMemoryBridge } = await import('@cleocode/core/internal');
+      const { refreshMemoryBridge } = await import('@cleocode/core/memory/memory-bridge.js');
       await refreshMemoryBridge(projectRoot);
     } catch {
       // Best-effort: never block session end on bridge refresh failure
@@ -708,10 +710,8 @@ export class SessionHandler implements DomainHandler {
 // ---------------------------------------------------------------------------
 
 /**
- * Store an owner-auth HMAC token against a session row.
- *
- * Uses a raw SQL update via the native SQLite accessor to avoid coupling
- * the Session contract to the new column.
+ * Store an owner-auth HMAC token against a session row — the owner mark
+ * that `CLEO_OWNER_OVERRIDE` requires (T13790). Delegates to core.
  *
  * @param projectRoot - Absolute project root path.
  * @param sessionId - Session ID to update.
@@ -719,18 +719,13 @@ export class SessionHandler implements DomainHandler {
  *
  * @task T1118
  * @task T1123
+ * @task T13790
  */
 async function storeSessionOwnerAuthToken(
   projectRoot: string,
   sessionId: string,
   token: string,
 ): Promise<void> {
-  // The native DB is always available at this point because session.start
-  // already successfully ran.
-  const [{ getDb }, { sessions }] = await Promise.all([
-    import('@cleocode/core/store/sqlite'),
-    import('@cleocode/core/store/tasks-schema'),
-  ]);
-  const db = await getDb(projectRoot);
-  db.update(sessions).set({ ownerAuthToken: token }).where(eq(sessions.id, sessionId)).run();
+  const { setSessionOwnerAuthToken } = await import('@cleocode/core/internal');
+  await setSessionOwnerAuthToken(sessionId, token, projectRoot);
 }

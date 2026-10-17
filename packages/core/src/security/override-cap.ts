@@ -1,14 +1,12 @@
 /**
- * Per-session CLEO_OWNER_OVERRIDE cap with waiver-doc requirement (T1501 / P0-5).
+ * Per-session CLEO_OWNER_OVERRIDE cap (T1501 / P0-5).
  *
- * Enforces a hard cap (default: 10) on how many times `CLEO_OWNER_OVERRIDE` may
- * be used within a single session.  Above the cap the call is rejected with
- * `E_OVERRIDE_CAP_EXCEEDED` unless the operator sets:
- *
- *   `CLEO_OWNER_OVERRIDE_WAIVER=<absolute path to waiver doc>`
- *
- * The waiver file must exist and contain `cap-waiver: true` (YAML front-matter
- * or a plain line in the file).
+ * Enforces a hard cap (default: 10, or the owner's sealed
+ * `evidence.overrideCapPerSession`, T13787) on how many times
+ * `CLEO_OWNER_OVERRIDE` may be used within a single session. Above the cap the
+ * call is rejected with `E_OVERRIDE_CAP_EXCEEDED`. The former
+ * `CLEO_OWNER_OVERRIDE_WAIVER` file no longer lifts the cap (T13787): any agent
+ * could write one; a set waiver is ignored and audited.
  *
  * The running count is persisted in
  * `.cleo/audit/session-override-count.<sessionId>.json` so it survives across
@@ -34,6 +32,7 @@ import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node
 import { dirname, join } from 'node:path';
 
 import { BRANCH_LOCK_ERROR_CODES } from '@cleocode/contracts/branch-lock.js';
+import { appendOwnerOverrideAudit, isTtyPresent } from './owner-override-auth.js';
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -46,6 +45,18 @@ import { BRANCH_LOCK_ERROR_CODES } from '@cleocode/contracts/branch-lock.js';
  * workers that each re-verify, so the original 3 was too low.
  */
 export const DEFAULT_OVERRIDE_CAP_PER_SESSION = 10;
+
+/**
+ * The per-project setting that replaces the default cap (T13787). Only the
+ * owner path in `override-cap-setting.ts` may change it.
+ */
+export const OVERRIDE_CAP_SETTING = 'evidence.overrideCapPerSession';
+
+/** The largest cap the owner may set; a larger value is clamped to it (T13787). */
+export const MAX_OVERRIDE_CAP_PER_SESSION = 100;
+
+/** The owner command that changes the cap, named in every refusal (T13787). */
+export const OVERRIDE_CAP_OWNER_COMMAND = `cleo config set ${OVERRIDE_CAP_SETTING} <n>`;
 
 /**
  * Canonical worktree path segment used to detect worktree-orchestrate context
@@ -186,55 +197,6 @@ export function clearSessionOverrideCount(projectRoot: string, sessionId: string
 }
 
 // ---------------------------------------------------------------------------
-// Waiver validation
-// ---------------------------------------------------------------------------
-
-/**
- * Validate that a waiver document exists and contains the required marker.
- *
- * The waiver file must:
- *   1. Exist at the absolute path specified by `CLEO_OWNER_OVERRIDE_WAIVER`.
- *   2. Contain the string `cap-waiver: true` (any position in the file).
- *
- * @param waiverPath - Absolute path to the waiver document.
- * @returns `{ valid: true }` when the waiver is accepted, or
- *          `{ valid: false, reason: string }` when it is rejected.
- *
- * @task T1501
- */
-export function validateWaiverDoc(waiverPath: string): { valid: boolean; reason?: string } {
-  if (!waiverPath) {
-    return { valid: false, reason: 'CLEO_OWNER_OVERRIDE_WAIVER is empty' };
-  }
-
-  if (!existsSync(waiverPath)) {
-    return {
-      valid: false,
-      reason: `Waiver document not found at: ${waiverPath}`,
-    };
-  }
-
-  let content: string;
-  try {
-    content = readFileSync(waiverPath, 'utf-8');
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    return { valid: false, reason: `Cannot read waiver document: ${msg}` };
-  }
-
-  if (!content.includes('cap-waiver: true')) {
-    return {
-      valid: false,
-      reason:
-        "Waiver document must contain 'cap-waiver: true' (YAML front-matter or plain line). " +
-        `File: ${waiverPath}`,
-    };
-  }
-
-  return { valid: true };
-}
-
-// ---------------------------------------------------------------------------
 // Cap enforcement gate
 // ---------------------------------------------------------------------------
 
@@ -260,8 +222,8 @@ export interface OverrideCapResult {
 /**
  * Check and enforce the per-session CLEO_OWNER_OVERRIDE cap.
  *
- * Reads the persisted count, checks it against the cap, validates the waiver
- * doc when required, increments the count on success, and returns the ordinal.
+ * Reads the persisted count, checks it against the cap, increments the count
+ * on success, and returns the ordinal.
  *
  * ## Worktree-context exemption (T1504 / ADR-059 §D3)
  *
@@ -271,7 +233,8 @@ export interface OverrideCapResult {
  *
  * @param projectRoot - Absolute path to the project root.
  * @param sessionId - Active session ID ("global" when no session is active).
- * @param cap - Maximum overrides allowed per session (default: 10).
+ * @param cap - Maximum overrides allowed per session (default: 10); callers pass
+ *   the project's owner setting from `resolveOverrideCap` (T13787).
  * @param command - CLI command string used for worktree-context detection (optional).
  * @returns `OverrideCapResult` indicating whether the override is permitted.
  *
@@ -309,24 +272,32 @@ export function checkAndIncrementOverrideCap(
     return { allowed: true, sessionOverrideOrdinal: ordinal };
   }
 
-  // Above cap — check for waiver.
+  // T13787: the waiver file is gone — any agent could write one, a back door
+  // around a cap only the owner may raise. A set waiver is ignored, and audited.
   const waiverPath = (process.env['CLEO_OWNER_OVERRIDE_WAIVER'] ?? '').trim();
-  const waiver = validateWaiverDoc(waiverPath);
-
-  if (!waiver.valid) {
-    return {
-      allowed: false,
-      errorCode: BRANCH_LOCK_ERROR_CODES.E_OVERRIDE_CAP_EXCEEDED,
-      errorMessage:
-        `Per-session CLEO_OWNER_OVERRIDE cap exceeded: ${current} of ${cap} overrides used. ` +
-        `To proceed above the cap, set CLEO_OWNER_OVERRIDE_WAIVER=<path> to a file containing ` +
-        `'cap-waiver: true'. ` +
-        (waiver.reason ? `Waiver rejected: ${waiver.reason}` : ''),
-    };
-  }
-
-  // Waiver accepted — permit and increment beyond cap.
-  const ordinal = current + 1;
-  writeSessionOverrideCount(projectRoot, sessionId, ordinal);
-  return { allowed: true, sessionOverrideOrdinal: ordinal };
+  if (waiverPath)
+    appendOwnerOverrideAudit(projectRoot, {
+      timestamp: new Date().toISOString(),
+      taskId: '*',
+      gate: OVERRIDE_CAP_SETTING,
+      action: 'override-waiver-ignored',
+      agent_id: process.env['CLEO_AGENT_ID'] ?? 'unknown',
+      session_id: sessionId,
+      token_validated: false,
+      tty_present: isTtyPresent(),
+      override_count: current,
+      reason: `CLEO_OWNER_OVERRIDE_WAIVER=${waiverPath} no longer lifts the cap (removed by T13787)`,
+      pid: process.pid,
+      setting: OVERRIDE_CAP_SETTING,
+    });
+  return {
+    allowed: false,
+    errorCode: BRANCH_LOCK_ERROR_CODES.E_OVERRIDE_CAP_EXCEEDED,
+    errorMessage:
+      `Per-session CLEO_OWNER_OVERRIDE cap exceeded: ${current} of ${cap} overrides used ` +
+      `(${OVERRIDE_CAP_SETTING} = ${cap}). Only the owner can raise it, with ` +
+      `\`${OVERRIDE_CAP_OWNER_COMMAND}\` in an interactive terminal, in a session started ` +
+      `with \`cleo session start --scope global --name owner --owner-auth\` (T13787). ` +
+      `CLEO_OWNER_OVERRIDE_WAIVER no longer lifts the cap.`,
+  };
 }

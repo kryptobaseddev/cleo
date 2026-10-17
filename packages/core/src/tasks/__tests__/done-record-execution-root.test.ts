@@ -51,8 +51,11 @@ describe('done-record default tool runner (T12964)', () => {
 
     const r = await defaultRunTool('lint', '/store', '/worktree');
 
+    // T13779: the command is read from the default branch's project context
+    // (none here: no checkout), passed explicitly beside the execution root.
     expect(resolveToolCommand).toHaveBeenCalledWith('lint', '/store', {
       executionRoot: '/worktree',
+      projectContext: null,
     });
     expect(runToolCached).toHaveBeenCalledWith(command, '/store', { executionRoot: '/worktree' });
     expect(r.exitCode).toBe(0);

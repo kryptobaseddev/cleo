@@ -526,6 +526,36 @@ export async function getSystemHealth(
     });
   }
 
+  // T13787: the owner enrollment behind evidence.overrideCapPerSession —
+  // fingerprint, when, which session and terminal — so the owner can spot an
+  // enrollment an agent made, and any tampered or unanchored owner settings.
+  try {
+    const { ownerEnrollmentStatus } = await import('../security/override-cap-setting.js');
+    const owner = await ownerEnrollmentStatus(projectRoot);
+    const { countLegacyOwnerTokens } = await import('../store/session-store.js');
+    const legacy = await countLegacyOwnerTokens(projectRoot).catch(() => 0);
+    if (legacy > 0)
+      owner.warnings.push(
+        `${legacy} session(s) still hold a legacy HMAC owner-auth token (a cheap offline password oracle); the next \`cleo session start\` clears them`,
+      );
+    checks.push({
+      name: 'owner_enrollment',
+      status:
+        owner.status === 'tampered' || owner.status === 'unconfirmed'
+          ? 'fail'
+          : owner.warnings.length > 0
+            ? 'warn'
+            : 'pass',
+      message:
+        owner.warnings.length > 0
+          ? `${owner.message} Check: ${owner.warnings.join('; ')}.`
+          : owner.message,
+      details: { ...owner },
+    });
+  } catch {
+    // An unreadable enrollment must not break doctor; resolveOverrideCap audits it.
+  }
+
   // Get version
   let version = 'unknown';
   try {
@@ -907,6 +937,81 @@ export async function checkHeavyCommandHooks(projectRoot: string): Promise<Docto
 }
 
 /**
+ * The CLEO Goal runtime check (`@cleocode/goal`, bin `cleo-goal` or `ocg`):
+ * installed or missing, its version, and whether its `status --json` speaks a
+ * schema this CLEO understands. Local only: npm is asked for the latest
+ * version only with `checkUpdates` (`cleo doctor goal-runtime
+ * --check-updates`), never by a bare `cleo doctor`. CLEO works without the
+ * runtime, so a missing bin is informational (`ok`) unless an opted-in npm
+ * lookup found the package.
+ *
+ * @param projectRoot - absolute project root (cwd of `cleo-goal status --json`)
+ * @param options - `checkUpdates` asks npm for the latest version (network)
+ * @returns the `goal_runtime` check
+ * @task T13819
+ */
+export async function checkGoalRuntime(
+  projectRoot: string,
+  options: { readonly checkUpdates?: boolean } = {},
+): Promise<DoctorCheck> {
+  const { GOAL_INSTALL_COMMAND, GOAL_PACKAGE, inspectGoalRuntime, readGoalStatus } = await import(
+    '../goal/runtime.js'
+  );
+  const s = inspectGoalRuntime(process.env, options);
+  const latest =
+    options.checkUpdates !== true
+      ? ''
+      : s.latest === null
+        ? ' (not found on npm)'
+        : ` (latest ${s.latest})`;
+  if (s.bin === null) {
+    const foreign = s.foreign === null ? '' : `; found ${s.foreign}, which is not CLEO Goal`;
+    return {
+      check: 'goal_runtime',
+      status: s.latest === null && s.foreign === null ? 'ok' : 'warning',
+      message: `CLEO Goal (${GOAL_PACKAGE}) not installed${latest}${foreign}; goal runs are unavailable, the rest of CLEO is unaffected`,
+      details: { bin: null, foreign: s.foreign, version: null, latest: s.latest },
+      ...(s.latest === null && s.foreign === null ? {} : { fix: GOAL_INSTALL_COMMAND }),
+    };
+  }
+  // Bounded like --version: a slow machine reports the goal as unknown, not a slow doctor.
+  const status = readGoalStatus(projectRoot, process.env, 2000);
+  const details = {
+    bin: s.bin,
+    version: s.version,
+    latest: s.latest,
+    goal: status.success ? status.data.goal : null,
+    goalStatus: status.success ? status.data.status : null,
+  };
+  const head = `CLEO Goal ${s.version ?? '(version unknown)'} at ${s.bin}${latest}`;
+  if (!status.success && status.error.code === 'E_GOAL_RUNTIME_TIMEOUT') {
+    return {
+      check: 'goal_runtime',
+      status: s.updateAvailable ? 'warning' : 'ok',
+      message: `${head}, goal unknown (status --json did not answer within 2 s)`,
+      details,
+      ...(s.updateAvailable ? { fix: GOAL_INSTALL_COMMAND } : {}),
+    };
+  }
+  if (!status.success) {
+    return {
+      check: 'goal_runtime',
+      status: 'warning',
+      message: `${head}: status --json failed: ${status.error.message}`,
+      details,
+      ...(status.error.fix === undefined ? {} : { fix: status.error.fix }),
+    };
+  }
+  return {
+    check: 'goal_runtime',
+    status: s.updateAvailable ? 'warning' : 'ok',
+    message: `${head}, goal ${status.data.goal ?? 'none'} (${status.data.status})${s.updateAvailable ? ', update available' : ''}`,
+    details,
+    ...(s.updateAvailable ? { fix: GOAL_INSTALL_COMMAND } : {}),
+  };
+}
+
+/**
  * Run adapter health checks for all discovered adapters and return doctor
  * check entries. Returns an empty array when no adapters are initialized
  * (adapters are optional — their absence is not an error).
@@ -1182,6 +1287,8 @@ export async function coreDoctorReport(projectRoot: string): Promise<DoctorRepor
 
   // T13124: is the heavy-command hook in place for every agent harness in use?
   checks.push(...(await checkHeavyCommandHooks(projectRoot)));
+  // T13819: the optional CLEO Goal runtime (installed, version, update available).
+  checks.push(await checkGoalRuntime(projectRoot));
 
   // Contributor project channel check (ADR-029)
   checks.push(checkContributorChannel(projectRoot));

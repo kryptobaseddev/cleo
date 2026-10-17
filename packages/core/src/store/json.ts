@@ -9,6 +9,7 @@ import { createHash } from 'node:crypto';
 import { ExitCode } from '@cleocode/contracts/exit-codes.js';
 import { CleoError } from '../errors.js';
 import { atomicWrite, atomicWriteJson, safeReadFile } from './atomic.js';
+import { trackBackgroundOp } from './background-ops.js';
 import { createBackup } from './backup.js';
 import { withLock } from './lock.js';
 
@@ -100,21 +101,22 @@ export async function saveJson(
     // Atomic write
     await atomicWriteJson(filePath, data, { indent: options?.indent });
 
-    // Dispatch Notification hook (best-effort, fire-and-forget). The cwd
+    // Dispatch Notification hook (best-effort, never awaited). The cwd
     // arg is a tagged label for the hook payload, NOT a path used to write
     // files under .cleo — hooks log the dispatch cwd verbatim for observability.
+    // Tracked (T13630): handlers write the store, so teardown settles the
+    // dispatch instead of closing handles under it; a failure lands in the
+    // background ledger rather than being swallowed.
     const dispatchCwd = process.cwd(); // CWD-OK: hook payload label, not a .cleo path
-    import('../hooks/registry.js')
-      .then(({ hooks: h }) =>
+    trackBackgroundOp(() =>
+      import('../hooks/registry.js').then(({ hooks: h }) =>
         h.dispatch('Notification', dispatchCwd, {
           timestamp: new Date().toISOString(),
           filePath,
           changeType: 'write' as const,
         }),
-      )
-      .catch(() => {
-        /* hook errors are non-fatal */
-      });
+      ),
+    );
   });
 }
 

@@ -82,7 +82,7 @@ export function generateResumeToken(
  * Input for {@link createApprovalGate}.
  */
 export interface CreateApprovalGateInput {
-  /** Run identifier (FK to `playbook_runs.run_id`). */
+  /** Run identifier (FK to `tasks_playbook_runs.run_id`). */
   runId: string;
   /** Node identifier within the run graph. */
   nodeId: string;
@@ -106,7 +106,7 @@ export interface CreateApprovalGateInput {
  */
 function narrowStatus(s: string): PlaybookApprovalStatus {
   if (s === 'pending' || s === 'approved' || s === 'rejected') return s;
-  throw new Error(`invariant: unknown playbook_approvals.status '${s}'`);
+  throw new Error(`invariant: unknown tasks_playbook_approvals.status '${s}'`);
 }
 
 /**
@@ -150,7 +150,7 @@ function readOptionalString(row: Record<string, unknown>, key: string): string |
 }
 
 /**
- * Map a raw `playbook_approvals` row to the camelCase {@link PlaybookApproval}
+ * Map a raw `tasks_playbook_approvals` row to the camelCase {@link PlaybookApproval}
  * contract shape. Validates types, converts the `auto_passed` 0/1 integer to
  * a boolean, and strips nullable fields rather than emitting `null`.
  *
@@ -176,7 +176,7 @@ function rowToApproval(row: Record<string, unknown>): PlaybookApproval {
 }
 
 /**
- * Create an HITL approval gate row in `playbook_approvals`.
+ * Create an HITL approval gate row in `tasks_playbook_approvals`.
  *
  * If `autoPassed` is true, the gate is written with `status='approved'`
  * and `auto_passed=1` — used by the policy engine to short-circuit gates
@@ -196,7 +196,7 @@ export function createApprovalGate(
   const autoPassed = input.autoPassed ?? false;
   const status: PlaybookApprovalStatus = autoPassed ? 'approved' : 'pending';
   const stmt = db.prepare(`
-    INSERT INTO playbook_approvals
+    INSERT INTO tasks_playbook_approvals
       (approval_id, run_id, node_id, token, status, auto_passed, approver, reason)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?)
   `);
@@ -211,7 +211,7 @@ export function createApprovalGate(
     input.reason ?? null,
   );
   const row = db
-    .prepare('SELECT * FROM playbook_approvals WHERE approval_id = ?')
+    .prepare('SELECT * FROM tasks_playbook_approvals WHERE approval_id = ?')
     .get(approvalId) as Record<string, unknown> | undefined;
   if (row === undefined) {
     throw new Error(
@@ -275,9 +275,9 @@ function transitionGate(
   approver: string,
   reason?: string,
 ): PlaybookApproval {
-  const existing = db.prepare('SELECT * FROM playbook_approvals WHERE token = ?').get(token) as
-    | Record<string, unknown>
-    | undefined;
+  const existing = db
+    .prepare('SELECT * FROM tasks_playbook_approvals WHERE token = ?')
+    .get(token) as Record<string, unknown> | undefined;
   if (existing === undefined) {
     throw new Error(`${E_APPROVAL_NOT_FOUND}: no approval gate for token`);
   }
@@ -289,11 +289,11 @@ function transitionGate(
     );
   }
   db.prepare(
-    `UPDATE playbook_approvals
+    `UPDATE tasks_playbook_approvals
        SET status = ?, approved_at = datetime('now'), approver = ?, reason = ?
      WHERE token = ?`,
   ).run(next, approver, reason ?? null, token);
-  const row = db.prepare('SELECT * FROM playbook_approvals WHERE token = ?').get(token) as
+  const row = db.prepare('SELECT * FROM tasks_playbook_approvals WHERE token = ?').get(token) as
     | Record<string, unknown>
     | undefined;
   if (row === undefined) {
@@ -312,7 +312,7 @@ function transitionGate(
 export function getPendingApprovals(db: DatabaseSync): PlaybookApproval[] {
   const rows = db
     .prepare(
-      `SELECT * FROM playbook_approvals
+      `SELECT * FROM tasks_playbook_approvals
         WHERE status = 'pending'
         ORDER BY requested_at ASC, approval_id ASC`,
     )

@@ -564,6 +564,34 @@ describe('tool:test-affected evidence', () => {
     });
   });
 
+  it('red (review of #2302): a change cannot relax its own affected command', async () => {
+    // main declares a command that fails; the change rewrites it to `node -e 0`.
+    initRepo('node -e "process.exit(3)" {packages}');
+    const ctx = join(root, '.cleo', 'project-context.json');
+    git(root, ['switch', '-q', 'main']);
+    git(root, ['add', '-f', '.cleo/project-context.json']);
+    git(root, ['commit', '-q', '-m', 'track the project context']);
+    git(root, ['push', '-q', 'origin', 'main']);
+    git(root, ['switch', '-q', 'task/T1']);
+    git(root, ['merge', '-q', 'main']);
+    const context = JSON.parse(readFileSync(ctx, 'utf-8')) as {
+      testing: Record<string, unknown>;
+    };
+    writeFileSync(
+      ctx,
+      JSON.stringify({
+        ...context,
+        testing: { ...context.testing, affectedCommand: 'node -e 0 {packages}' },
+      }),
+    );
+    writeFileSync(join(root, 'packages/c/src/index.ts'), "export const n = 'changed';\n");
+    git(root, ['commit', '-q', '-am', 'T1: change c and relax the tests']);
+    const run = await planAffectedTestRun(root, root);
+    expect(run.ok && run.command.args, JSON.stringify(run)).toContain('process.exit(3)');
+    const r = await validateAtom({ kind: 'tool', tool: 'test-affected' }, root);
+    expect(!r.ok && r.codeName, JSON.stringify(r)).toBe('E_EVIDENCE_TOOL_FAILED');
+  });
+
   it('refuses a workspace-wide change, pointing at tool:test', async () => {
     initRepo('node -e 0 {packages}');
     writeFileSync(join(root, 'pnpm-lock.yaml'), 'lockfileVersion: 9\n');
@@ -626,6 +654,9 @@ describe('tool:test-affected evidence', () => {
     mkdirSync(join(root, '.opencode', 'goals', 'dogfood'), { recursive: true });
     writeFileSync(join(root, '.opencode', 'goals', 'dogfood', 'goal.yaml'), 'goal: x\n');
     writeFileSync(join(root, 'packages/c/src/new.ts'), 'export const fresh = 1;\n');
+    // Staged, so it is part of the change; an untracked dot-directory file is
+    // not the change at all since T13780.
+    git(root, ['add', '-f', '.opencode/goals/dogfood/goal.yaml']);
     expect(scopedChangedPaths(root)).toEqual({
       paths: ['packages/c/src/new.ts'],
       excluded: ['.opencode/goals/dogfood/goal.yaml'],

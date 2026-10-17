@@ -15,6 +15,7 @@ import type { OperationExecutionContext } from '@cleocode/contracts/jobs';
 import { generateProjectHash } from '../../nexus/hash.js';
 import { pushWarning } from '../../output.js';
 import { worktreeScope } from '../../paths.js';
+import { trackBackgroundOp } from '../../store/background-ops.js';
 import {
   sessionExistsInTasksDb,
   sessionExistsInTasksDbFresh,
@@ -383,19 +384,18 @@ export async function observeBrain(
   // Regenerate memory bridge for high-value observation types (T5240).
   // Only learning and decision types trigger bridge refresh to avoid excessive writes.
   if (type === 'decision') {
-    import('../memory-bridge.js')
-      .then(({ refreshMemoryBridge }) => refreshMemoryBridge(projectRoot))
-      .catch(() => {
-        /* Memory bridge refresh is best-effort */
-      });
+    // Tracked (T13630): settled at teardown, failures recorded in the ledger.
+    trackBackgroundOp(() =>
+      import('../memory-bridge.js').then(({ refreshMemoryBridge }) =>
+        refreshMemoryBridge(projectRoot),
+      ),
+    );
   }
 
   // Auto-link observation to the currently focused task when a session is active. (T141)
   // This is a fire-and-forget side effect — linking failure MUST NOT block the return.
   if (validSessionId) {
-    autoLinkObservationToTask(projectRoot, row.id, accessor).catch(() => {
-      /* Auto-linking is best-effort */
-    });
+    trackBackgroundOp(autoLinkObservationToTask(projectRoot, row.id, accessor));
   }
 
   // Auto-populate graph node + edges for this observation (best-effort, T537).

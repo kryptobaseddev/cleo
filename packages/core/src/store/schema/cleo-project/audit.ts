@@ -54,7 +54,7 @@ import {
 } from 'drizzle-orm/sqlite-core';
 import { ADR_STATUSES, GATE_STATUSES } from '../../status-registry.js';
 import { TOKEN_USAGE_CONFIDENCE, TOKEN_USAGE_METHODS, TOKEN_USAGE_TRANSPORTS } from '../audit.js';
-import { makeSchemaMetaTable } from '../schema-utils.js';
+import { makeSchemaMetaTable, redactedText } from '../schema-utils.js';
 
 /** ADR governance-gate kinds — promoted from inline literal (§5a). */
 export const ADR_GATE_KINDS = ['HITL', 'automated'] as const;
@@ -106,11 +106,11 @@ export const tasksAuditLog = sqliteTable(
     /** Actor identity. */
     actor: text('actor').notNull().default('system'),
     /** JSON details payload (TEXT per JSON audit; empty-object default). */
-    detailsJson: text('details_json').default('{}'),
+    detailsJson: redactedText('tasks_audit_log', 'details_json').default('{}'),
     /** JSON before-snapshot (TEXT per JSON audit). */
-    beforeJson: text('before_json'),
+    beforeJson: redactedText('tasks_audit_log', 'before_json'),
     /** JSON after-snapshot (TEXT per JSON audit). */
-    afterJson: text('after_json'),
+    afterJson: redactedText('tasks_audit_log', 'after_json'),
     /** Dispatch domain. */
     domain: text('domain'),
     /** Dispatch operation. */
@@ -137,7 +137,7 @@ export const tasksAuditLog = sqliteTable(
     /** CQRS gateway. */
     gateway: text('gateway'),
     /** Error message on failure. */
-    errorMessage: text('error_message'),
+    errorMessage: redactedText('tasks_audit_log', 'error_message'),
     /** Project correlation hash. */
     projectHash: text('project_hash'),
     /** Row uid (T13777): a UUIDv8 over the audit id, filled at open or by the uid trigger. */

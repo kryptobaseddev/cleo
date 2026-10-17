@@ -51,6 +51,8 @@ import { isCiDocumentPath, readCiChecks, readCiSatisfies } from '../release/ci-e
 import { getTaskAccessor } from '../store/data-accessor.js';
 import {
   changedPathsSinceDefault,
+  cleoConfigSchemaFor,
+  evidenceProjectContext,
   isCleoConfigOnlyChange,
   isNonCodeOnlyChange,
   planScopedTestRun,
@@ -384,7 +386,10 @@ async function planToolRun(
 ): Promise<DonePlanToolRun> {
   const resolution = override
     ? { ok: true as const, command: override }
-    : resolveToolCommand(tool, storeRoot);
+    : resolveToolCommand(tool, storeRoot, {
+        executionRoot: root,
+        projectContext: evidenceProjectContext(storeRoot, root),
+      });
   if (!resolution.ok) {
     return {
       tool,
@@ -544,6 +549,7 @@ function toolGateEvidence(
   ciPr: string | null,
   nonCode: boolean,
   cleoConfig: boolean,
+  configSuffix = '',
 ): string | null {
   if (decisionOnly) return 'note:decision-only implementation, no code changed';
   if (ciPr !== null) return `ci:${ciPr}`;
@@ -554,7 +560,7 @@ function toolGateEvidence(
   const atoms = runs
     .filter((r) => r.gate === gate && r.cache !== 'unresolved')
     .map((r) => `tool:${r.tool}`);
-  return atoms.length > 0 ? atoms.join(';') : null;
+  return atoms.length > 0 ? `${atoms.join(';')}${configSuffix}` : null;
 }
 
 /** Blockers from tool runs and typed gates, before any AC question. */
@@ -577,6 +583,7 @@ function toolAndTypedGateBlockers(
           `Re-detect the toolchain, or declare the ${run.tool} command in .cleo/project-context.json, so ${run.gate} has a real result.`,
         ),
         cause: 'E_EVIDENCE_TOOL_UNAVAILABLE',
+        gate: run.gate,
       });
     } else if (run.cache === 'fresh-fail') {
       out.push({
@@ -587,6 +594,7 @@ function toolAndTypedGateBlockers(
           `Fix the failures ${run.tool} reports.`,
         ),
         cause: 'E_EVIDENCE_TOOL_FAILED',
+        gate: run.gate,
       });
     }
   }
@@ -600,6 +608,7 @@ function toolAndTypedGateBlockers(
           `cleo verify ${taskId} --gate ${gate} --evidence 'test-run:<vitest-json-report>'`,
           'A code task cannot pass on the absence of a toolchain.',
         ),
+        gate,
       });
     }
   }
@@ -644,15 +653,17 @@ function testRunNeededBlocker(
   taskId: string,
   gate: VerificationGate,
   files: readonly string[],
+  configSuffix = '',
 ): DonePlanBlocker {
   const named = `${files.slice(0, 5).join(' ')}${files.length > 5 ? ` … (${files.length} files)` : ''}`;
   return {
     code: 'test-run-needed',
+    gate,
     message:
       `${gate}: this single-package project's tool:test would run the whole suite. Run the ` +
       `changed test file(s) ${named} with a JSON reporter and record the report as test-run:.`,
     next: step(
-      `cleo verify ${taskId} --gate ${gate} --evidence 'test-run:<vitest-json-report>'`,
+      `cleo verify ${taskId} --gate ${gate} --evidence 'test-run:<vitest-json-report>${configSuffix}'`,
       'Write the report to a gitignored path (vitest run <files> --reporter=json ' +
         '--outputFile=<path>; jest <files> --json --outputFile=<path>); it must pass every ' +
         'changed test file. tool:test (the whole suite) also satisfies the gate.',
@@ -672,15 +683,17 @@ function wholeSuiteRefusedBlocker(
   scopeReason: string | null,
   supersededReason: string | null,
   ciUsable: boolean,
+  configSuffix = '',
 ): DonePlanBlocker {
   return {
     code: 'test-run-needed',
+    gate,
     message:
       `${gate}: the only test run cleo done could plan is the whole suite ` +
       `(${scopeReason ?? 'the affected scope does not apply'}), and cleo done never runs a whole suite on its own.` +
       (supersededReason ? ` ${supersededReason}` : ''),
     next: step(
-      `cleo verify ${taskId} --gate ${gate} --evidence 'test-run:<vitest-json-report>'`,
+      `cleo verify ${taskId} --gate ${gate} --evidence 'test-run:<vitest-json-report>${configSuffix}'`,
       'Run the tests that cover the change with a JSON reporter (vitest run <files> --reporter=json ' +
         '--outputFile=<path>) and record the report' +
         (ciUsable
@@ -704,6 +717,7 @@ function qaRunNeededBlocker(
   root: string,
   checks: readonly string[],
   subject = 'this single-package project',
+  configSuffix = '',
 ): DonePlanBlocker {
   const dirs = [
     ...new Set(
@@ -713,9 +727,10 @@ function qaRunNeededBlocker(
     ),
   ].sort();
   const roots = `${dirs.slice(0, 5).join(' ')}${dirs.length > 5 ? ` … (${dirs.length} dirs)` : ''}`;
-  const atoms = checks.map((c) => `qa-run:<${c}-receipt.json>`).join(';');
+  const atoms = `${checks.map((c) => `qa-run:<${c}-receipt.json>`).join(';')}${configSuffix}`;
   return {
     code: 'qa-run-needed',
+    gate: 'qaPassed',
     message:
       `qaPassed: ${subject} has no recorded ${checks.join(' or ')} result for ` +
       `the current tree, and tool:${checks[0]} would check the whole project. Run ` +
@@ -966,6 +981,12 @@ export async function deriveTaskEvidence(
     changeSet.source !== 'docs' &&
     changeSet.deletedFiles.length === 0 &&
     isCleoConfigOnlyChange(changeSet.files);
+  // T13778: a change that also edits CLEO config composes tool:config-schema
+  // (those files) with the run that covers the rest.
+  const configSuffix =
+    !cleoConfig && changeSet.files.some((p) => cleoConfigSchemaFor(p) !== null)
+      ? ';tool:config-schema'
+      : '';
   if (!decisionOnly && changeSet.source !== 'docs' && ciPr === null && !nonCode && !cleoConfig) {
     for (const gate of pending) {
       for (const tool of GATE_TOOLS[gate] ?? []) {
@@ -975,7 +996,7 @@ export async function deriveTaskEvidence(
         // binding accepts (it must run every one of them) instead.
         const targeted = tool === 'test' ? standaloneChangedTests(root) : [];
         if (targeted.length > 0) {
-          testRunBlockers.push(testRunNeededBlocker(taskId, gate, targeted));
+          testRunBlockers.push(testRunNeededBlocker(taskId, gate, targeted, configSuffix));
           continue;
         }
         // T12635: before merge, test only the affected packages when declared.
@@ -1012,7 +1033,14 @@ export async function deriveTaskEvidence(
         // refused (T13641, T13642).
         if (scoped?.scope === 'full' && run.cache === 'miss') {
           testRunBlockers.push(
-            wholeSuiteRefusedBlocker(taskId, gate, scoped.reason, supersededReason, ciUsable),
+            wholeSuiteRefusedBlocker(
+              taskId,
+              gate,
+              scoped.reason,
+              supersededReason,
+              ciUsable,
+              configSuffix,
+            ),
           );
           continue;
         }
@@ -1028,7 +1056,7 @@ export async function deriveTaskEvidence(
     }
   }
   if (qaRunChecks.length > 0) {
-    testRunBlockers.push(qaRunNeededBlocker(taskId, root, qaRunChecks));
+    testRunBlockers.push(qaRunNeededBlocker(taskId, root, qaRunChecks, undefined, configSuffix));
   }
   if (nonCode && ciPr === null && pending.includes('qaPassed')) {
     testRunBlockers.push(qaRunNeededBlocker(taskId, root, ['lint'], 'this non-code change'));
@@ -1049,7 +1077,7 @@ export async function deriveTaskEvidence(
       gate === 'implemented'
         ? changeSet.implementedEvidence
         : GATE_TOOLS[gate]
-          ? toolGateEvidence(gate, toolRuns, decisionOnly, ciPr, nonCode, cleoConfig)
+          ? toolGateEvidence(gate, toolRuns, decisionOnly, ciPr, nonCode, cleoConfig, configSuffix)
           : null;
     return {
       gate,

@@ -51,6 +51,7 @@ import type { DatabaseSync } from 'node:sqlite';
 import type { TableScope } from '@cleocode/contracts';
 import type { LedgerWireValue } from '@cleocode/contracts/ledger';
 import { UID_COLUMN } from '../row-identity-registry.js';
+import { transformColumnValue } from '../schema/schema-utils.js';
 import { withApplyFrame } from './apply/frame.js';
 import { resolveRef, uidOfKey } from './apply/refs.js';
 import { type ApplyWriteApi, createApplyWriteApi } from './apply/write-api.js';
@@ -220,8 +221,11 @@ export function reconcileCopy(
       const fields = def.columns.filter((c) => !def.identity.includes(c) && !def.secret.has(c));
       const sameValue = (col: string, a: LedgerWireValue, b: LedgerWireValue): boolean => {
         const ref = def.refs.get(col);
-        if (ref === undefined || a === null || b === null)
-          return canonicalJson(a) === canonicalJson(b);
+        if (ref === undefined || a === null || b === null) {
+          // Both as this store holds them (T13861): a redacted column compares equal.
+          const t = (v: LedgerWireValue) => canonicalJson(transformColumnValue(def.table, col, v));
+          return t(a) === t(b);
+        }
         return uidOfKey(db, ref, a) === uidOfKey(merged, ref, b);
       };
       /** A merged value as this store must hold it, or undefined when its reference does not resolve here. */

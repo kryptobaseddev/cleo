@@ -551,7 +551,11 @@ export type {
   DonePlanTypedGate,
   DoneRecordResult,
   DoneToolResult,
+  OwedTestFile,
+  OwedTestPackage,
   TaskChangeSet,
+  TaskChangeSetReport,
+  TaskTestPlan,
 } from './done-plan.js';
 export type {
   EngineErrorPayload,
@@ -730,9 +734,6 @@ export {
 // === CLEO-native Goal System (T11376 · Epic T11290 · Saga T11283) ===
 export type {
   FuzzyGoal,
-  GoalAdvanceResult,
-  GoalContinuation,
-  GoalJudge,
   GoalJudgeVerdict,
   GoalKind,
   GoalKindTag,
@@ -743,10 +744,6 @@ export type {
 export {
   GOAL_STATUSES,
   GOAL_TARGET_TASK_ID_REGEX,
-  GOAL_TERMINAL_STATUSES,
-  isFuzzyGoal,
-  isTaskCompletionGoal,
-  isTerminalGoalStatus,
   isValidGoalTargetTaskId,
 } from './goal.js';
 // === goal/v1 protocol: contract, task link, outcome (T13792 · Epic T13791) ===
@@ -769,12 +766,15 @@ export type {
   GoalCriterion,
   GoalCriterionOutcome,
   GoalDiffCheck,
+  GoalDraftEntry,
   GoalFileCheck,
   GoalHumanCheck,
   GoalHumanEvidence,
   GoalOutcome,
   GoalPathEvidence,
   GoalPriority,
+  GoalRuntimeHandoff,
+  GoalStatusReport,
   GoalStep,
   GoalTaskLink,
   GoalVerdictSource,
@@ -784,6 +784,17 @@ export type {
   GoalVerifierQuote,
 } from './goal-contract.js';
 export { GOAL_CONTRACT_SCHEMA, GOAL_HOST_CHECK_KINDS } from './goal-contract.js';
+// === CLEO Goal runtime bin wire shapes (T13819 / T13820 / T13821) ===
+export type {
+  GoalRuntimeBudgetPart,
+  GoalRuntimeCriterion,
+  GoalRuntimeError,
+  GoalRuntimeInstall,
+  GoalRuntimePluginEntry,
+  GoalRuntimeRunStatus,
+  GoalRuntimeStatus,
+} from './goal-runtime.js';
+export { GOAL_RUNTIME_SCHEMA_VERSION } from './goal-runtime.js';
 // === Graph Intelligence Types (T512, T529, T1862, T9145) ===
 export type {
   AmbiguousProvenance,

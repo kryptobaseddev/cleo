@@ -504,6 +504,13 @@ export function evaluateCoveringJobs(
 }
 
 /**
+ * An {@link evaluateJobs} reason saying the job never ran on that SHA — not
+ * found, skipped by a change filter, or cancelled — rather than that it ran
+ * and failed (T13846).
+ */
+const JOB_NOT_RUN = /^job .+: (not found in .+|skipped|cancelled) on [0-9a-f]{12}$/;
+
+/**
  * Judge job globs on one SHA: every glob must match at least one job (check
  * run) from the allowed workflows/app, and the latest run of each matched
  * (job, event) must be `success` — a `skipped` job is refused by name.
@@ -1099,6 +1106,33 @@ export async function nonTestFailuresOn(
 }
 
 /**
+ * The number of failing jobs of a pinned workflow on `sha` (the required
+ * aggregate and workflow runs excluded) whose readable log `accepts`, or null
+ * when a job is still running, a log cannot be read, or `accepts` refuses one.
+ */
+async function everyFailedJobLog(
+  checks: readonly CommitCheck[],
+  sha: string,
+  required: readonly string[],
+  pins: Record<string, RequiredCheckPinSpec>,
+  fetchJobLog: NonNullable<ResolveCiEvidenceOptions['fetchJobLog']>,
+  cwd: string,
+  accepts: (log: string) => boolean,
+): Promise<number | null> {
+  let failed = 0;
+  for (const c of latestRuns(checks, sha, pinnedScope(required, pins))) {
+    if (c.source === 'workflow-run' || required.includes(c.name)) continue;
+    if (c.status !== 'completed') return null;
+    if (HARMLESS_CONCLUSIONS.has(c.conclusion ?? '')) continue;
+    const log = await fetchJobLog(c.id, cwd);
+    // An unreadable log proves nothing about the job: never skip past it.
+    if (log === null || !accepts(log)) return null;
+    failed++;
+  }
+  return failed;
+}
+
+/**
  * Whether a later commit's CI was cancelled rather than failed (T13809): its
  * pinned workflow run concluded `cancelled` (a concurrency group stopped it)
  * and every failing job's log is readable and names no failed test; a job a
@@ -1122,23 +1156,76 @@ export async function cancelledWithoutTestFailure(
   fetchJobLog: NonNullable<ResolveCiEvidenceOptions['fetchJobLog']>,
   cwd: string,
 ): Promise<boolean> {
-  const latest = latestRuns(checks, sha, pinnedScope(required, pins));
-  const runs = latest.filter((c) => c.source === 'workflow-run');
+  const runs = latestRuns(checks, sha, pinnedScope(required, pins)).filter(
+    (c) => c.source === 'workflow-run',
+  );
   if (!runs.some((r) => r.conclusion === 'cancelled')) return false;
   if (runs.some((r) => r.conclusion !== 'cancelled' && r.conclusion !== 'success')) return false;
-  for (const c of latest) {
-    if (c.source === 'workflow-run' || required.includes(c.name)) continue;
-    if (c.status !== 'completed') return false;
-    if (HARMLESS_CONCLUSIONS.has(c.conclusion ?? '')) continue;
-    const log = await fetchJobLog(c.id, cwd);
-    // An unreadable log proves nothing about the job: never skip past it.
-    if (log === null) return false;
+  const noTestFailed = (log: string): boolean => {
     const text = log.replace(/\u001b\[[0-9;]*m/g, '');
-    if (/\bFAIL\s{2,}|\d+ failed/.test(text) || RUN_DIED.test(text)) {
-      return false;
-    }
+    return !/\bFAIL\s{2,}|\d+ failed/.test(text) && !RUN_DIED.test(text);
+  };
+  return (
+    (await everyFailedJobLog(checks, sha, required, pins, fetchJobLog, cwd, noTestFailed)) !== null
+  );
+}
+
+/**
+ * Whether a job log shows a failure in a setup step before any test ran
+ * (T13809): its first `##[error]` sits in a remote action step
+ * (`Run owner/action@ref`, e.g. `actions/download-artifact@v4` finding no
+ * artifact), never in a `run:` script, and the log has no vitest output at
+ * all. A gate script or test failure runs in a `run:` step and never matches.
+ *
+ * @param log - The job's plain-text log (ANSI colour codes allowed).
+ * @returns Whether the job failed in an action step before any test ran.
+ * @task T13809
+ */
+export function isSetupStepFailureLog(log: string): boolean {
+  const lines = log.replace(/\u001b\[[0-9;]*m/g, '').split('\n');
+  if (lines.some((l) => /\bRUN\s+v\d|\bTest Files\s{2,}\d|\bFAIL\s{2,}/.test(l))) return false;
+  const error = lines.findIndex((l) => l.includes('##[error]'));
+  if (error < 0) return false;
+  for (let i = error - 1; i >= 0; i--) {
+    const step = /##\[group\]Run (.*)$/.exec(lines[i] ?? '');
+    if (step) return /^[\w.-]+\/[\w./-]+@\S+\s*$/.test(step[1] ?? '');
   }
-  return true;
+  return false;
+}
+
+/**
+ * Whether a later commit's CI failed before any test ran (T13809): every
+ * failing job's log is readable and failed in a setup action step
+ * ({@link isSetupStepFailureLog}), as when each unit-test shard finds no build
+ * artifact. Such a run tested nothing, so it decides nothing.
+ *
+ * @param checks - Checks fetched for `sha`.
+ * @param sha - The later commit.
+ * @param required - Required check names.
+ * @param pins - Required-name to app/workflow pin.
+ * @param fetchJobLog - Plain-text log of one job.
+ * @param cwd - Repository work tree for `gh`.
+ * @returns Whether every failing job failed before running a test.
+ * @task T13809
+ */
+export async function failedBeforeAnyTest(
+  checks: readonly CommitCheck[],
+  sha: string,
+  required: readonly string[],
+  pins: Record<string, RequiredCheckPinSpec>,
+  fetchJobLog: NonNullable<ResolveCiEvidenceOptions['fetchJobLog']>,
+  cwd: string,
+): Promise<boolean> {
+  const failed = await everyFailedJobLog(
+    checks,
+    sha,
+    required,
+    pins,
+    fetchJobLog,
+    cwd,
+    isSetupStepFailureLog,
+  );
+  return failed !== null && failed > 0;
 }
 
 /** Inputs of {@link findGreenDescendant}. */
@@ -1183,6 +1270,42 @@ export interface FindGreenDescendantInput {
   firstParentOf?: NonNullable<ResolveCiEvidenceOptions['firstParentOf']>;
   /** Log of one job (T13809: the quarantine-budget check); absent = never classify. */
   fetchJobLog?: NonNullable<ResolveCiEvidenceOptions['fetchJobLog']>;
+  /**
+   * Job globs a code task's gates need (T13846), with the workflows they must
+   * come from. A candidate whose required checks are green but whose push run
+   * never ran these jobs (a change filter skipped them, or the run was
+   * cancelled before them) decides nothing and the walk moves on; a job that
+   * failed there refuses, and a pending one waits.
+   */
+  jobs?: ReadonlyArray<{ globs: readonly string[]; scope: JobScope }>;
+}
+
+/** The app and workflow files a gate's jobs must come from. */
+export interface JobScope {
+  app?: string | number;
+  workflows: readonly string[];
+}
+
+/**
+ * The job globs and scope of each gate (T13846), as the job check below the
+ * required-check judgement reads them; a gate with no globs or no pinned
+ * workflow is left out here and refused there.
+ */
+function gateJobSpecs(
+  gateLists: ReadonlyArray<{ key: 'tests' | 'qa'; list?: readonly string[] }>,
+  storeRoot: string,
+  pins: Record<string, RequiredCheckPinSpec>,
+): Array<{ globs: readonly string[]; scope: JobScope }> {
+  const jobs = readCiChecks(storeRoot).jobs;
+  return gateLists.flatMap((g) => {
+    const globs = jobs?.[g.key];
+    const workflows = (g.list ?? []).flatMap((n) =>
+      pins[n]?.workflow ? [pins[n]!.workflow!] : [],
+    );
+    const app = (g.list ?? []).map((n) => pins[n]?.app).find((a) => a !== undefined);
+    if (!globs || globs.length === 0 || workflows.length === 0) return [];
+    return [{ globs, scope: { ...(app !== undefined ? { app } : {}), workflows } }];
+  });
 }
 
 /** Result of {@link findGreenDescendant}. */
@@ -1374,9 +1497,9 @@ export async function findGreenDescendant(
     if (!fetched.ok) return { ok: false, reason: fetched.reason };
     const failedJob = firstRealFailure(fetched.checks, sha, scope);
     if (failedJob && input.fetchJobLog) {
-      // T13809: a later run red only for the quarantine budget, or cancelled
-      // with no test failing, decides nothing; look on. Any other failure still
-      // refuses: a green run is never shopped for past a real one.
+      // T13809: a later run red only for the quarantine budget, cancelled with
+      // no test failing, or failed before any test ran decides nothing; look on.
+      // Any other failure still refuses: a green run is never shopped for past a real one.
       const quarantineOnly = await nonTestFailuresOn(
         fetched.checks,
         sha,
@@ -1396,6 +1519,9 @@ export async function findGreenDescendant(
           cwd,
         )
       ) {
+        continue;
+      }
+      if (await failedBeforeAnyTest(fetched.checks, sha, required, pins, input.fetchJobLog, cwd)) {
         continue;
       }
     }
@@ -1424,6 +1550,21 @@ export async function findGreenDescendant(
         ok: false,
         reason: `${name}: ${verdict.verdict} on later ${input.ref} commit ${sha.slice(0, 12)}`,
       };
+    }
+    // T13846: the gates' own jobs must have run on the stand-in too.
+    for (const job of decided ? (input.jobs ?? []) : []) {
+      const onSha = evaluateJobs(job.globs, fetched.checks, sha, job.scope, 'push');
+      if (onSha.ok) continue;
+      const pending = onSha.reasons.find((r) => r.includes(': pending ('));
+      if (pending) {
+        return {
+          ok: false,
+          reason: `${pending} — wait for ${sha.slice(0, 12)} to finish, then verify again`,
+        };
+      }
+      const decisive = onSha.reasons.find((r) => !JOB_NOT_RUN.test(r));
+      if (decisive) return { ok: false, reason: `${decisive} (later ${input.ref} commit)` };
+      decided = false;
     }
     if (decided) {
       return {
@@ -2032,8 +2173,14 @@ export async function resolveCiEvidenceAtom(
       }
     | undefined;
   let descendantReason: string | undefined;
+  // T13846: a code task's gates need their jobs to have run, so the stand-in
+  // must be a later main run where they did — not merely the first one whose
+  // required checks are green (a scripts-only merge skips the test jobs).
+  const docsOnlyDiff = pr.changedPaths.length > 0 && pr.changedPaths.every(isCiDocumentPath);
+  const jobSpecs = docsOnlyDiff ? [] : gateJobSpecs(gateLists, roots.storeRoot, pins);
   if (!judgedChecks.ok && onDefault.ref !== null) {
     const found = await findGreenDescendant({
+      ...(jobSpecs.length > 0 ? { jobs: jobSpecs } : {}),
       required: required.workflows,
       checks,
       mergeCommitSha: pr.mergeCommitSha,
@@ -2106,7 +2253,6 @@ export async function resolveCiEvidenceAtom(
   // docs-only PR as a code task's implementation — so its skip is honest too.
   // Round 3: the DIFF alone decides — a task label is agent-editable
   // (`cleo update --labels docs`) and must never excuse skipped jobs.
-  const docsOnlyDiff = pr.changedPaths.length > 0 && pr.changedPaths.every(isCiDocumentPath);
   const isCode = !docsOnlyDiff;
   const jobsByGate: Record<string, string[]> = {};
   const fetchJobLog = opts.fetchJobLog ?? defaultFetchJobLog;

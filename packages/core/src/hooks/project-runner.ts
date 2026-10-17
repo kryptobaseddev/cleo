@@ -1,12 +1,19 @@
 /** Ordered project executor, separate from the best-effort internal registry (T13343). */
-import { spawn } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
+import { existsSync } from 'node:fs';
+import { lstat } from 'node:fs/promises';
+import { join, relative } from 'node:path';
 import {
   type HookActivation,
   type HookExecutionReceipt,
   type HookExecutor,
   type HookInvocation,
+  HookNativeSessionSchema,
   type HookOutcome,
   type HookOutcomeStatus,
+  type ProjectHookBinding,
+  type ProjectHookContext,
   type ProjectHookDefinition,
   ProjectHookVerdictSchema,
 } from '@cleocode/contracts/project-hooks.js';
@@ -33,6 +40,94 @@ const MAX_OUTPUT_BYTES = 65536;
 const MAX_INVOCATION_MS = 120000;
 const REACTIVATE =
   'Hook inputs changed since activation; review them, then run `cleo hook sync --activate`.';
+
+/** Fixed-length per-binding slot; event text never becomes a filesystem path. */
+function executionRecordName(binding: ProjectHookBinding): string {
+  const hash = createHash('sha256').update(binding.event).digest('hex');
+  return `last-execution-${binding.source}-${hash}.json`;
+}
+
+/**
+ * Sandbox receipt fallback (T13775): Codex workspace-write keeps `.git` read-only, so a receipt the
+ * Git-private directory refuses goes to this self-ignoring checkout directory instead.
+ */
+const FALLBACK_RECEIPTS = ['.cleo', 'hook-receipts'] as const;
+
+/** Whether Git tracks a checkout path; an unanswerable probe counts as tracked. */
+function trackedByGit(context: ProjectHookContext, file: string): boolean {
+  return (
+    spawnSync(
+      'git',
+      [
+        '-C',
+        context.projectRoot,
+        'ls-files',
+        '--error-unmatch',
+        '--',
+        relative(context.projectRoot, file),
+      ],
+      { stdio: 'ignore', timeout: 5000, env: discoveryEnv() },
+    ).status !== 1
+  );
+}
+
+/**
+ * The lexical fallback path for one slot. Every component is checked with lstat before anything
+ * resolves it, so a symlinked slot or parent can never redirect a write, and a tracked file is
+ * never a destination or a source.
+ */
+async function fallbackReceiptFile(context: ProjectHookContext, name: string): Promise<string> {
+  if (!/^(?:[a-z0-9-]+\.json|\.gitignore)$/.test(name))
+    // @sync-invariant none:local-only Reject unsafe machine-local hook records or executable inputs; no synced rows are written.
+    throw new Error('HOOK_STATE_PATH_INVALID');
+  let path = context.projectRoot;
+  for (const part of [...FALLBACK_RECEIPTS, name]) {
+    path = join(path, part);
+    const info = await lstat(path).catch(() => undefined);
+    if (info && (info.isSymbolicLink() || (part === name ? !info.isFile() : !info.isDirectory())))
+      // @sync-invariant none:local-only Reject unsafe machine-local hook records or executable inputs; no synced rows are written.
+      throw new Error('HOOK_STATE_SYMLINK');
+  }
+  if (trackedByGit(context, path))
+    // @sync-invariant none:local-only Reject unsafe machine-local hook records or executable inputs; no synced rows are written.
+    throw new Error('HOOK_STATE_TRACKED');
+  return path;
+}
+
+/** Write one receipt slot to the Git-private directory, else the sandbox-writable fallback. */
+async function writeReceipt(
+  context: ProjectHookContext,
+  name: string,
+  serialized: string,
+): Promise<void> {
+  try {
+    await atomicWrite(await resolveProjectHookStateFile(context, name), serialized, {
+      mode: 0o600,
+    });
+    return;
+  } catch {
+    // Fall through to the checkout directory a workspace-write sandbox leaves writable.
+  }
+  await atomicWrite(await fallbackReceiptFile(context, name), serialized, { mode: 0o600 });
+  const ignore = await fallbackReceiptFile(context, '.gitignore');
+  if (!existsSync(ignore)) await atomicWrite(ignore, '*\n');
+}
+
+/** Resolve and read one receipt location; any fault leaves only this candidate out. */
+async function readReceipt(
+  locate: () => Promise<string>,
+): Promise<HookExecutionReceipt | undefined> {
+  try {
+    const file = await locate();
+    if ((await lstat(file)).isSymbolicLink()) return undefined;
+    const { HookExecutionReceiptSchema } = await import('@cleocode/contracts/project-hooks.js');
+    return HookExecutionReceiptSchema.parse(
+      JSON.parse(await readProjectHookRecord(file, MAX_OUTPUT_BYTES)),
+    );
+  } catch {
+    return undefined;
+  }
+}
 
 function fault(invocation: HookInvocation, code: string, id = 'cleo.project-hooks'): HookOutcome {
   return {
@@ -436,22 +531,27 @@ export async function executeProjectHooks(
       }
       outcomes.push(await executeOne(hook, invocation, remainingMs, signal));
     }
-    // A last-result record is bounded and contains only executor-owned metadata.
+    // Last-result records are bounded and contain only executor-owned metadata.
+    // Preserve the agent binding even when the subsequent Git hook records its result.
     // A failed receipt write is visible as infrastructure fault, never a fake pass.
     try {
+      const nativeSession = invocation.nativeSession
+        ? HookNativeSessionSchema.parse(invocation.nativeSession)
+        : undefined;
       const receipt: HookExecutionReceipt = {
         schemaVersion: 1,
+        ...nativeSession,
         manifestHash: approved?.manifestHash ?? '',
         source: invocation.source,
         event: invocation.event.slice(0, 128),
         recordedAt: new Date().toISOString(),
         outcomes: outcomes.map(({ message: _message, ...safe }) => safe),
       };
-      await atomicWrite(
-        await resolveProjectHookStateFile(inspection.context, 'last-execution.json'),
-        `${JSON.stringify(receipt)}\n`,
-        { mode: 0o600 },
-      );
+      const serialized = `${JSON.stringify(receipt)}\n`;
+      // Each source/event keeps its own slot, so a Git write never replaces an agent receipt.
+      await writeReceipt(inspection.context, executionRecordName(invocation), serialized);
+      // Keep the existing overall-last diagnostic API compatible.
+      await writeReceipt(inspection.context, 'last-execution.json', serialized);
     } catch {
       outcomes.push(fault(invocation, 'HOOK_RECEIPT_WRITE_FAILED'));
     }
@@ -476,18 +576,26 @@ export function createProjectHookExecutor(activationRoot: string): HookExecutor 
   return { execute: (invocation) => executeProjectHooks(invocation, undefined, activationRoot) };
 }
 
-/** Read only a bounded last execution record and validate its safe shape. */
+/**
+ * Read a bounded redacted execution record, validating its shape and optional binding.
+ * @param cwd - Active checkout whose private receipts are inspected.
+ * @param binding - Select a retained source/event result; omitted reads the overall latest result.
+ * @returns The matching record, or undefined when absent, malformed or mismatched.
+ */
 export async function readLastProjectHookExecution(
   cwd: string,
+  binding?: ProjectHookBinding,
 ): Promise<HookExecutionReceipt | undefined> {
   const inspection = await inspectProjectHooks(cwd);
-  const file = await resolveProjectHookStateFile(inspection.context, 'last-execution.json');
-  try {
-    const { HookExecutionReceiptSchema } = await import('@cleocode/contracts/project-hooks.js');
-    return HookExecutionReceiptSchema.parse(
-      JSON.parse(await readProjectHookRecord(file, MAX_OUTPUT_BYTES)),
-    );
-  } catch {
-    return undefined;
-  }
+  const name = binding ? executionRecordName(binding) : 'last-execution.json';
+  // The newer of the Git-private record and the sandbox fallback (T13775) is the latest result.
+  const candidates = [
+    await readReceipt(() => resolveProjectHookStateFile(inspection.context, name)),
+    await readReceipt(() => fallbackReceiptFile(inspection.context, name)),
+  ].filter(
+    (receipt): receipt is HookExecutionReceipt =>
+      receipt !== undefined &&
+      (!binding || (receipt.source === binding.source && receipt.event === binding.event)),
+  );
+  return candidates.sort((a, b) => b.recordedAt.localeCompare(a.recordedAt))[0];
 }

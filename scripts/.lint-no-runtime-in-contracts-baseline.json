@@ -24,7 +24,6 @@
   "packages/contracts/src/exit-codes.ts:isNoChangeCode",
   "packages/contracts/src/exit-codes.ts:isRecoverableCode",
   "packages/contracts/src/exit-codes.ts:isSuccessCode",
-  "packages/contracts/src/goal.ts:isTerminalGoalStatus",
   "packages/contracts/src/goal.ts:isValidGoalTargetTaskId",
   "packages/contracts/src/graph.ts:confidenceFromProvenance",
   "packages/contracts/src/graph.ts:confidenceLabelFromNumeric",

@@ -28,6 +28,7 @@
 import type { DatabaseSync } from 'node:sqlite';
 import type { TableScope } from '@cleocode/contracts';
 import type { LedgerOp, LedgerWireValue } from '@cleocode/contracts/ledger';
+import { transformColumnValue } from '../../schema/schema-utils.js';
 import { captureTableDef, finishCaptureFrame, openCaptureFrame } from '../capture.js';
 import { withImmediateTransaction } from '../clock-store.js';
 import { conflictIncomingOp, listConflicts, resolveConflict } from '../conflicts.js';
@@ -171,7 +172,8 @@ function resolveInTxn(
   const wire: Record<string, LedgerWireValue> = {};
   const local: Record<string, LedgerWireValue> = {};
   for (const col of toWrite) {
-    const incoming = op.a?.[col] ?? op.k?.[col] ?? null;
+    // As this store holds it (T13861), so a redacted column compares equal.
+    const incoming = transformColumnValue(c.table, col, op.a?.[col] ?? op.k?.[col] ?? null);
     if (incoming !== null && typeof incoming === 'object' && '$inc' in incoming) {
       return refuse(`${col} is a counter`, 'acknowledge it: counters merge by summing');
     }

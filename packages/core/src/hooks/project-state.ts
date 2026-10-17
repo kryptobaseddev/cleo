@@ -270,7 +270,7 @@ export async function resolveProjectHookStateFile(
   name: string,
 ): Promise<string> {
   // @sync-invariant none:local-only Reject unsafe machine-local hook records or executable inputs; no synced rows are written.
-  if (!/^[a-z-]+\.json$/.test(name)) throw new Error('HOOK_STATE_PATH_INVALID');
+  if (!/^[a-z][a-z0-9-]{0,190}\.json$/.test(name)) throw new Error('HOOK_STATE_PATH_INVALID');
   const parent = await realpath(resolve(context.stateDir, '..'));
   const stateDir = await canonicalizePath(context.stateDir);
   if (relative(parent, stateDir) !== 'cleo-project-hooks')

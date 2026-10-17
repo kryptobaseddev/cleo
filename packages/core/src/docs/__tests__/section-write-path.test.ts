@@ -32,7 +32,7 @@ import type { ResolvedDoc } from '../docs-read-model.js';
 import { updateDocBySlug } from '../docs-update.js';
 import { buildDocsFetchResult } from '../fetch-result.js';
 import { listSectionLeases, SectionLeaseManager } from '../section-leases.js';
-import { sectionStateText } from '../section-merge.js';
+import { sectionIds, sectionStateText, splitDocIntoSections } from '../section-merge.js';
 import { projectDocUpdateThroughSections, releaseSectionLeases } from '../section-write-path.js';
 
 let tempDir: string;
@@ -104,7 +104,7 @@ describe('lease coordination through the write path (T13356)', () => {
     expect(result.leaseNotices).toEqual([]);
 
     const held = await listSectionLeases(tempDir, 'plan-doc');
-    expect(held.map((l) => l.sectionId).sort()).toEqual(['s0', 's1', 's2']);
+    expect(held.map((l) => l.sectionId).sort()).toEqual(['h-alpha', 'h-beta', 's0']);
     for (const lease of held) {
       expect(lease.sessionId).toBe('ses-edit');
       expect(lease.holder).toBe('agent-edit');
@@ -114,7 +114,7 @@ describe('lease coordination through the write path (T13356)', () => {
   it('AC3: a section leased by another live session yields an advisory notice — and the edit still lands', async () => {
     // Another session holds s1.
     const other = leases('ses-other');
-    const foreign = await other.acquire('plan-doc', 's1', 60, 'editing elsewhere');
+    const foreign = await other.acquire('plan-doc', 'h-alpha', 60, 'editing elsewhere');
     expect(foreign.ok).toBe(true);
 
     const incoming = DOC_V1.replace(S1_BASE, '## Alpha\n\nREPLACED body');
@@ -128,14 +128,14 @@ describe('lease coordination through the write path (T13356)', () => {
 
     // Advisory, not a hard failure: the notice names the holder…
     expect(result.leaseNotices).toHaveLength(1);
-    expect(result.leaseNotices[0]?.sectionId).toBe('s1');
+    expect(result.leaseNotices[0]?.sectionId).toBe('h-alpha');
     expect(result.leaseNotices[0]?.sessionId).toBe('ses-other');
     expect(result.leaseNotices[0]?.expiresAt).toBeTruthy();
     // …and the edit PROCEEDED: exact projection, head advanced.
     expect(result.mergedText).toBe(incoming);
     expect(result.head.advanced).toBe(true);
     // The foreign lease stands untouched.
-    expect((await leases('ses-edit').status('plan-doc', 's1'))?.sessionId).toBe('ses-other');
+    expect((await leases('ses-edit').status('plan-doc', 'h-alpha'))?.sessionId).toBe('ses-other');
   });
 
   it('renews on continued edits within a session without a notice (AC2)', async () => {
@@ -147,7 +147,7 @@ describe('lease coordination through the write path (T13356)', () => {
       hlc: hlcAt(1000),
     });
     expect(first.leaseNotices).toEqual([]);
-    const before = await leases('ses-edit').status('plan-doc', 's1');
+    const before = await leases('ses-edit').status('plan-doc', 'h-alpha');
     expect(before?.sessionId).toBe('ses-edit');
 
     const second = await projectDocUpdateThroughSections(tempDir, {
@@ -159,7 +159,7 @@ describe('lease coordination through the write path (T13356)', () => {
     });
     // Our own held lease renews instead of conflicting — no notice.
     expect(second.leaseNotices).toEqual([]);
-    const after = await leases('ses-edit').status('plan-doc', 's1');
+    const after = await leases('ses-edit').status('plan-doc', 'h-alpha');
     expect(after?.leaseId).toBe(before?.leaseId);
     expect(after?.sessionId).toBe('ses-edit');
   });
@@ -175,7 +175,7 @@ describe('lease coordination through the write path (T13356)', () => {
     expect(await listSectionLeases(tempDir, 'plan-doc')).toHaveLength(3);
 
     const released = await releaseSectionLeases(tempDir, 'plan-doc', 'ses-edit');
-    expect(released.sort()).toEqual(['s0', 's1', 's2']);
+    expect(released.sort()).toEqual(['h-alpha', 'h-beta', 's0']);
     expect(await listSectionLeases(tempDir, 'plan-doc')).toEqual([]);
 
     // The next editor acquires without a notice.
@@ -193,7 +193,7 @@ describe('lease coordination through the write path (T13356)', () => {
     // A foreign session whose clock ran 10 s ago acquires with a 1 s TTL:
     // its lease expired before it was even written, relative to real time.
     const dead = leases('ses-dead', () => Date.now() - 10_000);
-    const stale = await dead.acquire('plan-doc', 's1', 1, 'died mid-edit');
+    const stale = await dead.acquire('plan-doc', 'h-alpha', 1, 'died mid-edit');
     expect(stale.ok).toBe(true);
 
     const incoming = DOC_V1.replace(S1_BASE, '## Alpha\n\nREPLACED body');
@@ -205,7 +205,7 @@ describe('lease coordination through the write path (T13356)', () => {
       hlc: hlcAt(2000),
     });
     expect(result.leaseNotices).toEqual([]);
-    const taken = await leases('ses-edit').status('plan-doc', 's1');
+    const taken = await leases('ses-edit').status('plan-doc', 'h-alpha');
     expect(taken?.sessionId).toBe('ses-edit');
     expect(taken?.holder).toBe('agent-edit');
   });
@@ -266,7 +266,7 @@ describe('docs-update envelope: advisory lease notices (T13356)', () => {
     // actually lands.)
     await releaseSectionLeases(tempDir, 'plan-doc', 'ses-caller');
     const other = new SectionLeaseManager(tempDir, { sessionId: 'ses-other' });
-    const foreign = await other.acquire('plan-doc', 's1', 60, 'held elsewhere');
+    const foreign = await other.acquire('plan-doc', 'h-alpha', 60, 'held elsewhere');
     expect(foreign.ok).toBe(true);
     const { drainWarnings } = await import('../../output.js');
     drainWarnings();
@@ -276,7 +276,7 @@ describe('docs-update envelope: advisory lease notices (T13356)', () => {
     expect(second.ok).toBe(true);
     if (!second.ok) throw new Error('unreachable');
     expect(second.result.leaseNotices).toHaveLength(1);
-    expect(second.result.leaseNotices?.[0]?.sectionId).toBe('s1');
+    expect(second.result.leaseNotices?.[0]?.sectionId).toBe('h-alpha');
     expect(second.result.leaseNotices?.[0]?.sessionId).toBe('ses-other');
     // The edit still landed (advisory, AC3).
     expect(second.result.changed).toBe(true);
@@ -284,7 +284,7 @@ describe('docs-update envelope: advisory lease notices (T13356)', () => {
     const warnings = drainWarnings() ?? [];
     const leaseWarning = warnings.find((w) => w.code === 'W_DOC_SECTION_LEASED');
     expect(leaseWarning).toBeDefined();
-    expect(leaseWarning?.message).toContain("'s1'");
+    expect(leaseWarning?.message).toContain("'h-alpha'");
     expect(leaseWarning?.message).toContain('ses-other');
     delete process.env['CLEO_SESSION_ID'];
   });
@@ -302,7 +302,7 @@ describe('projectDocUpdateThroughSections (T13355)', () => {
     expect(result.adopted).toBe(true);
     expect(result.docUid).not.toBe('');
     expect(result.mergedText).toBe(DOC_V1);
-    expect(result.sectionsModified).toEqual(['s0', 's1', 's2']);
+    expect(result.sectionsModified).toEqual(['s0', 'h-alpha', 'h-beta']);
     expect(result.version.parentVersionUid).toBeNull();
     expect(result.version.versionNumber).toBe(1);
     expect(result.head.advanced).toBe(true);
@@ -315,12 +315,12 @@ describe('projectDocUpdateThroughSections (T13355)', () => {
     );
     const uid = await resolveConduitDocUid(tempDir, 'plan-doc');
     expect(uid).toBe(result.docUid);
-    for (const id of ['s0', 's1', 's2']) {
+    for (const id of ['s0', 'h-alpha', 'h-beta']) {
       const row = await readSectionCrdtState(tempDir, result.docUid, id);
       expect(row).not.toBeNull();
       expect(row?.baseVersionUid).toBe(result.version.uid);
     }
-    const alpha = await readSectionCrdtState(tempDir, result.docUid, 's1');
+    const alpha = await readSectionCrdtState(tempDir, result.docUid, 'h-alpha');
     expect(sectionStateText(alpha?.snapshot ?? Buffer.alloc(0))).toContain('alpha body');
   });
 
@@ -356,7 +356,7 @@ describe('projectDocUpdateThroughSections (T13355)', () => {
     });
 
     expect(second.adopted).toBe(false);
-    expect(second.sectionsModified).toEqual(['s1']);
+    expect(second.sectionsModified).toEqual(['h-alpha']);
     expect(second.mergedText).toBe(DOC_V2);
     // DAG: the version chains onto the previous head's version.
     expect(second.version.parentVersionUid).toBe(first.version.uid);
@@ -369,11 +369,11 @@ describe('projectDocUpdateThroughSections (T13355)', () => {
     // The stored section state carries the merged edit; the untouched
     // section is byte-identical.
     const { readSectionCrdtState } = await import('../../store/conduit-doc-history.js');
-    const alpha = await readSectionCrdtState(tempDir, second.docUid, 's1');
+    const alpha = await readSectionCrdtState(tempDir, second.docUid, 'h-alpha');
     const alphaText = sectionStateText(alpha?.snapshot ?? Buffer.alloc(0));
     expect(alphaText).toContain('an appended line from agent B.');
     expect(alphaText.startsWith('## Alpha')).toBe(true);
-    const beta = await readSectionCrdtState(tempDir, second.docUid, 's2');
+    const beta = await readSectionCrdtState(tempDir, second.docUid, 'h-beta');
     expect(sectionStateText(beta?.snapshot ?? Buffer.alloc(0))).toBe('## Beta\n\nbeta body');
 
     // History is append-only: both versions present, newest ordinal first.
@@ -533,10 +533,10 @@ describe('projectDocUpdateThroughSections (T13355)', () => {
     );
     const docUid = await resolveConduitDocUid(tempDir, 'plan-doc');
     expect(docUid).not.toBeNull();
-    const stored = await readSectionCrdtState(tempDir, docUid as string, 's1');
+    const stored = await readSectionCrdtState(tempDir, docUid as string, 'h-alpha');
     await writeSectionCrdtState(tempDir, {
       attachmentUid: docUid as string,
-      sectionId: 's1',
+      sectionId: 'h-alpha',
       snapshot: seedSectionState(`${s1Base}\n\nA1`),
       baseVersionUid: stored?.baseVersionUid ?? null,
     });
@@ -595,10 +595,10 @@ describe('projectDocUpdateThroughSections (T13355)', () => {
       '../../store/conduit-doc-history.js'
     );
     const docUid = await resolveConduitDocUid(tempDir, 'plan-doc');
-    const stored = await readSectionCrdtState(tempDir, docUid as string, 's1');
+    const stored = await readSectionCrdtState(tempDir, docUid as string, 'h-alpha');
     await writeSectionCrdtState(tempDir, {
       attachmentUid: docUid as string,
-      sectionId: 's1',
+      sectionId: 'h-alpha',
       snapshot: seedSectionState(`${s1Base}\n\nA1`),
       baseVersionUid: stored?.baseVersionUid ?? null,
     });
@@ -619,7 +619,7 @@ describe('projectDocUpdateThroughSections (T13355)', () => {
     // The conflict is recorded with both version refs.
     expect(b.conflicts).toHaveLength(1);
     const conflict = b.conflicts[0]!;
-    expect(conflict.sectionId).toBe('s1');
+    expect(conflict.sectionId).toBe('h-alpha');
     expect(conflict.projectionVersionUid).toBe(b.version.uid);
     expect(conflict.incomingVersionUid).not.toBe(b.version.uid);
 
@@ -778,9 +778,9 @@ describe('projectDocUpdateThroughSections (T13355)', () => {
 
     // The section states hold the authored text exactly.
     const { readSectionCrdtState } = await import('../../store/conduit-doc-history.js');
-    const edit = await readSectionCrdtState(tempDir, second.docUid, 's1');
+    const edit = await readSectionCrdtState(tempDir, second.docUid, 'h-edit');
     expect(sectionStateText(edit?.snapshot ?? Buffer.alloc(0))).toBe('## Edit\n\nabc 123 def');
-    const cut = await readSectionCrdtState(tempDir, second.docUid, 's2');
+    const cut = await readSectionCrdtState(tempDir, second.docUid, 'h-cut');
     expect(sectionStateText(cut?.snapshot ?? Buffer.alloc(0))).toBe('## Cut\n\nkeep this.');
   });
 
@@ -815,10 +815,201 @@ describe('projectDocUpdateThroughSections (T13355)', () => {
     expect(head?.headVersionUid).toBe(first.version.uid);
     expect(head?.conflictCount).toBe(0);
     // The failed call's section-state write rolled back too.
-    const s1 = await readSectionCrdtState(tempDir, first.docUid, 's1');
+    const s1 = await readSectionCrdtState(tempDir, first.docUid, 'h-alpha');
     expect(sectionStateText(s1?.snapshot ?? Buffer.alloc(0))).not.toContain(
       'an appended line from agent B.',
     );
+  });
+
+  it('T13584: inserting a section before an approved section keeps its id, state and approval', async () => {
+    const v1 = await projectDocUpdateThroughSections(tempDir, {
+      slug: 'plan-doc',
+      authorAgentId: 'agent-a',
+      content: DOC_V1,
+      hlc: hlcAt(1000),
+    });
+    const {
+      listConduitAttachmentApprovals,
+      readSectionCrdtState,
+      recordConduitAttachmentApproval,
+    } = await import('../../store/conduit-doc-history.js');
+    await recordConduitAttachmentApproval(tempDir, {
+      attachmentUid: v1.docUid,
+      versionUid: v1.version.uid ?? '',
+      sectionId: 'h-beta',
+      reviewerAgentId: 'reviewer',
+      versionReviewed: 1,
+    });
+
+    const withGamma = DOC_V1.replace('## Beta', '## Gamma\n\ngamma body\n\n## Beta');
+    const v2 = await projectDocUpdateThroughSections(tempDir, {
+      slug: 'plan-doc',
+      authorAgentId: 'agent-b',
+      content: withGamma,
+      hlc: hlcAt(2000),
+    });
+
+    // Only the inserted section is new; Beta kept its id and its state.
+    expect(v2.sectionsModified).toEqual(['h-gamma']);
+    const beta = await readSectionCrdtState(tempDir, v2.docUid, 'h-beta');
+    expect(sectionStateText(beta?.snapshot ?? Buffer.alloc(0))).toBe('## Beta\n\nbeta body');
+    // The approval's section id still names Beta in the new version.
+    const [approval] = await listConduitAttachmentApprovals(
+      tempDir,
+      v1.version.uid ?? '',
+      'h-beta',
+    );
+    const v2Sections = splitDocIntoSections(v2.mergedText);
+    const at = sectionIds(v2Sections).indexOf(approval?.sectionId ?? '');
+    expect(v2Sections[at]).toBe('## Beta\n\nbeta body');
+  });
+
+  it('T13584: a stale-base insert before a concurrently edited section neither conflicts nor drops the edit', async () => {
+    const v1 = await projectDocUpdateThroughSections(tempDir, {
+      slug: 'plan-doc',
+      authorAgentId: 'agent-seed',
+      content: DOC_V1,
+      hlc: hlcAt(1000),
+    });
+    // A appends to Beta and lands.
+    await projectDocUpdateThroughSections(tempDir, {
+      slug: 'plan-doc',
+      authorAgentId: 'agent-a',
+      content: `${DOC_V1}\n\nA's beta line.`,
+      hlc: hlcAt(2000),
+    });
+    // B, authored against v1, inserts Gamma before Beta.
+    const b = await projectDocUpdateThroughSections(tempDir, {
+      slug: 'plan-doc',
+      authorAgentId: 'agent-b',
+      content: DOC_V1.replace('## Beta', '## Gamma\n\ngamma body\n\n## Beta'),
+      baseSections: splitDocIntoSections(DOC_V1),
+      hlc: hlcAt(3000),
+    });
+    expect(v1.version.uid).toBeTruthy();
+    expect(b.conflicts).toEqual([]);
+    expect(b.mergedText).toContain('## Gamma\n\ngamma body');
+    expect(b.mergedText).toContain("A's beta line.");
+  });
+
+  it('T13584: a doc whose states carry legacy positional ids still merges a stale-base append', async () => {
+    await projectDocUpdateThroughSections(tempDir, {
+      slug: 'plan-doc',
+      authorAgentId: 'agent-seed',
+      content: DOC_V1,
+      hlc: hlcAt(1000),
+    });
+    const a = await projectDocUpdateThroughSections(tempDir, {
+      slug: 'plan-doc',
+      authorAgentId: 'agent-a',
+      content: DOC_V2,
+      hlc: hlcAt(2000),
+    });
+    // Rewind the local states to the pre-T13584 positional keys.
+    const { getNativeDb } = await import('../../store/sqlite.js');
+    const native = getNativeDb(tempDir);
+    for (const [legacy, stable] of [
+      ['s1', 'h-alpha'],
+      ['s2', 'h-beta'],
+    ]) {
+      native
+        ?.prepare(
+          'UPDATE section_crdt_states SET section_id = ? WHERE attachment_uid = ? AND section_id = ?',
+        )
+        .run(legacy, a.docUid, stable);
+    }
+    // B, authored against v1, appends its own Alpha line: it must compose
+    // onto the landed head (A's line survives), not re-seed over it.
+    const b = await projectDocUpdateThroughSections(tempDir, {
+      slug: 'plan-doc',
+      authorAgentId: 'agent-b',
+      content: DOC_V1.replace('alpha body', 'alpha body\n\nB alpha line.'),
+      baseSections: splitDocIntoSections(DOC_V1),
+      hlc: hlcAt(3000),
+    });
+    expect(b.conflicts).toEqual([]);
+    expect(b.mergedText).toContain('an appended line from agent B.');
+    expect(b.mergedText).toContain('B alpha line.');
+  });
+
+  /** Seed `v1`, land `head` from agent A, then project stale agent B (authored on v1). */
+  async function staleMerge(v1: string, head: string, stale: string) {
+    await projectDocUpdateThroughSections(tempDir, {
+      slug: 'plan-doc',
+      authorAgentId: 'agent-seed',
+      content: v1,
+      hlc: hlcAt(1000),
+    });
+    await projectDocUpdateThroughSections(tempDir, {
+      slug: 'plan-doc',
+      authorAgentId: 'agent-a',
+      content: head,
+      hlc: hlcAt(2000),
+    });
+    return projectDocUpdateThroughSections(tempDir, {
+      slug: 'plan-doc',
+      authorAgentId: 'agent-b',
+      content: stale,
+      baseSections: splitDocIntoSections(v1),
+      hlc: hlcAt(3000),
+    });
+  }
+
+  it('T13584 (#2325 B1): a concurrent heading rename survives a stale body append onto the renamed section', async () => {
+    const b = await staleMerge(
+      DOC_V1,
+      DOC_V1.replace('## Beta', '## Beta Renamed'),
+      `${DOC_V1}\n\nB line.`,
+    );
+    expect(b.conflicts).toEqual([]);
+    expect(b.mergedText).toBe(`${DOC_V1.replace('## Beta', '## Beta Renamed')}\n\nB line.`);
+  });
+
+  it('T13584: a concurrent rename with a stale non-append edit records a conflict, the rename stands', async () => {
+    const b = await staleMerge(
+      DOC_V1,
+      DOC_V1.replace('## Beta', '## Beta Renamed'),
+      DOC_V1.replace('beta body', 'rewritten by B'),
+    );
+    expect(b.conflicts.map((c) => c.sectionId)).toEqual(['h-beta']);
+    expect(b.mergedText).toBe(DOC_V1.replace('## Beta', '## Beta Renamed'));
+  });
+
+  it('T13835: a concurrently inserted section is kept when stale B edits another section', async () => {
+    const withGamma = DOC_V1.replace('## Beta', '## Gamma\n\ngamma body\n\n## Beta');
+    const b = await staleMerge(
+      DOC_V1,
+      withGamma,
+      DOC_V1.replace('alpha body', 'alpha body\n\nB alpha line.'),
+    );
+    expect(b.conflicts).toEqual([]);
+    expect(b.mergedText).toBe(withGamma.replace('alpha body', 'alpha body\n\nB alpha line.'));
+  });
+
+  it('T13835: a section stale B deleted is kept as a conflict when A edited it', async () => {
+    const b = await staleMerge(
+      DOC_V1,
+      `${DOC_V1}\n\nA beta line.`,
+      DOC_V1.slice(0, DOC_V1.indexOf('\n## Beta')),
+    );
+    expect(b.conflicts.map((c) => c.sectionId)).toEqual(['h-beta']);
+    expect(b.mergedText).toContain('A beta line.');
+  });
+
+  it('T13836: a duplicate heading inserted earlier never loses a section; the stale edit is a named conflict', async () => {
+    const v1 = ['# Doc', '## Notes\n\nfirst', '## Notes\n\nsecond'].join('\n');
+    const head = ['# Doc', '## Notes\n\ntop', '## Notes\n\nfirst', '## Notes\n\nsecond'].join('\n');
+    const stale = ['# Doc', '## Notes\n\nfirst', '## Notes\n\nsecond\n\nB line.'].join('\n');
+    const b = await staleMerge(v1, head, stale);
+    expect(b.mergedText).toBe(head);
+    expect(b.conflicts.map((c) => c.sectionId)).toEqual(['h-notes']);
+    // B's edit is kept in history as its own version row, never dropped.
+    const { listConduitAttachmentVersions } = await import('../../store/conduit-doc-history.js');
+    expect(
+      (await listConduitAttachmentVersions(tempDir, b.docUid)).some(
+        (v) => v.uid === b.conflicts[0]?.incomingVersionUid,
+      ),
+    ).toBe(true);
   });
 
   it('T13604: updateDocBySlug threads section conflicts into the result envelope and emits a W_DOC_SECTION_CONFLICT warning', async () => {
@@ -860,10 +1051,10 @@ describe('projectDocUpdateThroughSections (T13355)', () => {
       '../../store/conduit-doc-history.js'
     );
     const docUid = await resolveConduitDocUid(tempDir, 'plan-doc');
-    const stored = await readSectionCrdtState(tempDir, docUid as string, 's1');
+    const stored = await readSectionCrdtState(tempDir, docUid as string, 'h-alpha');
     await writeSectionCrdtState(tempDir, {
       attachmentUid: docUid as string,
-      sectionId: 's1',
+      sectionId: 'h-alpha',
       snapshot: seedSectionState(`${s1Base}\n\nA1`),
       baseVersionUid: stored?.baseVersionUid ?? null,
     });
@@ -875,7 +1066,7 @@ describe('projectDocUpdateThroughSections (T13355)', () => {
     // The envelope carries the conflict with both version refs…
     expect(second.result.changed).toBe(true);
     expect(second.result.sectionConflicts).toHaveLength(1);
-    expect(second.result.sectionConflicts?.[0]?.sectionId).toBe('s1');
+    expect(second.result.sectionConflicts?.[0]?.sectionId).toBe('h-alpha');
     expect(second.result.sectionConflicts?.[0]?.incomingVersionUid).toBeTruthy();
     expect(second.result.sectionConflicts?.[0]?.projectionVersionUid).toBeTruthy();
     // …and a stderr warning names the section (stdout stays clean, ADR-086).
@@ -883,7 +1074,7 @@ describe('projectDocUpdateThroughSections (T13355)', () => {
     const warnings = drainWarnings() ?? [];
     const conflictWarning = warnings.find((w) => w.code === 'W_DOC_SECTION_CONFLICT');
     expect(conflictWarning).toBeDefined();
-    expect(conflictWarning?.message).toContain("'s1'");
+    expect(conflictWarning?.message).toContain("'h-alpha'");
     expect(conflictWarning?.message).toContain('plan-doc');
   });
 
@@ -942,10 +1133,10 @@ describe('projectDocUpdateThroughSections (T13355)', () => {
       '../../store/conduit-doc-history.js'
     );
     const docUid = await resolveConduitDocUid(tempDir, 'conflicted-doc');
-    const stored = await readSectionCrdtState(tempDir, docUid as string, 's1');
+    const stored = await readSectionCrdtState(tempDir, docUid as string, 'h-alpha');
     await writeSectionCrdtState(tempDir, {
       attachmentUid: docUid as string,
-      sectionId: 's1',
+      sectionId: 'h-alpha',
       snapshot: seedSectionState(`${s1Base}\n\nA1`),
       baseVersionUid: stored?.baseVersionUid ?? null,
     });

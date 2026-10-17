@@ -73,8 +73,11 @@
 import { execFileSync } from 'node:child_process';
 import { existsSync, realpathSync, statSync } from 'node:fs';
 import { dirname, isAbsolute, relative, resolve } from 'node:path';
+import type { EvidenceAtom } from '@cleocode/contracts';
 import { discoveryEnv } from '../git/work-tree.js';
 import {
+  cleoConfigSchemaFor,
+  dependentsClosure,
   deriveAffectedPackages,
   inPackageDir,
   listWorkspacePackages,
@@ -82,6 +85,7 @@ import {
   type ScopedChangedPaths,
   scopedChangedPaths,
   TEST_FILE,
+  typecheckOnlyPackages,
   type WorkspacePackage,
 } from './affected-packages.js';
 
@@ -489,6 +493,10 @@ export type TestRunBinding =
       untestedPackages: string[];
       /** HEAD as of the run, when main moved on after it ({@link ReportFreshness}, T13784). */
       runHeadSha?: string;
+      /** Changed CLEO config left to `tool:config-schema` (T13778). */
+      configPaths?: string[];
+      /** Dependents of a declared generated package left to a typecheck (T13783). */
+      typecheckDirs?: string[];
     };
 
 /** What the freshness check of a report or receipt decided. */
@@ -645,16 +653,179 @@ export function bindTestRunReport(
  * passes the branch's diff; `cleo complete` passes a merged change's own files
  * when it judges a run recorded after the merge (T13623).
  *
+ * CLEO-owned config files are left to `tool:config-schema` (T13778): the
+ * report is judged over the rest, and a binding names them as `configPaths`,
+ * which the gate then requires a config-schema result for.
+ *
  * @param root - The checkout the test files are relative to.
  * @param changed - The change's paths, relative to `root` (non-empty).
  * @param testFiles - Test files the report ran with a passing test.
  * @returns The refusal, or the binding with the affected packages left untested.
  * @task T12965
  * @task T13623
+ * @task T13778
  */
 export function testRunCoversChange(
   root: string,
   changed: readonly string[],
+  testFiles: readonly string[],
+): TestRunBinding {
+  const need = testRunRequirement(root, changed);
+  const covered = testRunMeetsRequirement(root, need, testFiles);
+  return covered.ok && need.configPaths.length > 0
+    ? { ...covered, configPaths: need.configPaths }
+    : covered;
+}
+
+/**
+ * What a targeted test-run report must run to speak for a change — point 2 of
+ * the module doc as data. {@link testRunCoversChange} judges a report against
+ * it, and `cleo tasks changeset --test-plan` reports it, so the two cannot
+ * drift (T13795).
+ *
+ * - `configPaths`: CLEO config files, left to `tool:config-schema` (T13778).
+ * - `full`: the rest is workspace-wide; no test-run report speaks for it.
+ * - `targeted`: the report must pass every file of `outsideTests` and of
+ *   `everyChangedTest`, and at least one test file of every package in
+ *   `required`. `direct` lists the changed packages; `untestedPackages` the
+ *   affected ones with no test; `typecheckDirs` the typecheck-only dependents
+ *   left to a typecheck (T13783). `standalone` marks a single-package project.
+ */
+export type TestRunRequirement =
+  | { kind: 'full'; reason: string; configPaths: string[] }
+  | {
+      kind: 'targeted';
+      configPaths: string[];
+      direct: string[];
+      required: string[];
+      untestedPackages: string[];
+      typecheckDirs: string[];
+      outsideTests: string[];
+      everyChangedTest: string[];
+      standalone: boolean;
+    };
+
+/**
+ * The {@link TestRunRequirement} of a change.
+ *
+ * @param root - The checkout the change is relative to.
+ * @param changed - The change's paths, relative to `root`.
+ * @returns What a covering report must run.
+ * @task T13795
+ */
+export function testRunRequirement(root: string, changed: readonly string[]): TestRunRequirement {
+  const configPaths = changed.filter((p) => cleoConfigSchemaFor(p) !== null);
+  const code = changed.filter((p) => cleoConfigSchemaFor(p) === null);
+  const none = {
+    kind: 'targeted' as const,
+    configPaths,
+    direct: [],
+    required: [],
+    untestedPackages: [],
+    typecheckDirs: [],
+    outsideTests: [],
+    everyChangedTest: [],
+    standalone: false,
+  };
+  if (code.length === 0) return none;
+  const scope = deriveAffectedPackages(root, code, { outsideTests: true });
+  if (scope.scope === 'full') return { kind: 'full', reason: scope.reason, configPaths };
+  const outsideTests = scope.outsideTests ?? [];
+  if (scope.direct.length === 0) return { ...none, outsideTests };
+  // Longest directory first, so a file belongs to its innermost package.
+  const workspace = listWorkspacePackages(root).sort((a, b) => b.dir.length - a.dir.length);
+  const withTests = packagesWithTestFiles(root, workspace, code);
+  // T13783 (owner decision): a dependent reached only through changed
+  // packages whose every changed path the default branch declares
+  // typecheck-only (evidence.typecheckOnlyDependents: a generated client,
+  // seed data) owes a typecheck naming it, not a test file. Its own changed
+  // source, or a path through any other changed package, keeps it owing tests.
+  const generated = typecheckOnlyPackages(root, code, workspace);
+  const viaCode =
+    generated.size > 0
+      ? dependentsClosure(
+          workspace,
+          scope.direct.filter((name) => !generated.has(name)),
+        )
+      : null;
+  const typecheckOnly = viaCode
+    ? scope.packages.filter(
+        (name) => !scope.direct.includes(name) && !viaCode.has(name) && withTests.has(name),
+      )
+    : [];
+  // T13403: in a standalone project the one package is the whole project, so
+  // one test file of it says nothing about the change; T13783: a run that
+  // leaves dependents to a typecheck runs every edited test file too.
+  const standalone = workspace.length === 1 && workspace[0]?.dir === '';
+  return {
+    ...none,
+    direct: scope.direct,
+    required: scope.packages.filter((name) => withTests.has(name) && !typecheckOnly.includes(name)),
+    untestedPackages: scope.packages.filter((name) => !withTests.has(name)),
+    typecheckDirs: typecheckOnly
+      .map((name) => workspace.find((p) => p.name === name)?.dir ?? name)
+      .sort(),
+    outsideTests,
+    everyChangedTest: standalone || typecheckOnly.length > 0 ? changedTestFiles(root, code) : [],
+    standalone,
+  };
+}
+
+/**
+ * Why the CLEO config and the rest of a change are not covered together in
+ * one gate write (T13778), or null. A test, QA or affected run that left CLEO
+ * config to `tool:config-schema` (`configPaths`) needs a config-schema result
+ * that validated those files; a config-schema result on a change with other
+ * paths (`otherPaths`) needs another verification result for them, so a
+ * config edit never stands in for an untested source change. Merged CI
+ * (`ci:`) covers the whole change on its own.
+ *
+ * @param atoms - The validated atoms of one gate write.
+ * @returns The refusal naming the composed route, or null.
+ * @task T13778
+ */
+export function configSchemaCompositionGap(atoms: readonly EvidenceAtom[]): string | null {
+  if (atoms.some((a) => a.kind === 'ci')) return null;
+  const validated = new Set(
+    atoms.flatMap((a) => (a.kind === 'tool' && a.configSchema ? a.configSchema : [])),
+  );
+  const left = new Set(
+    atoms.flatMap((a) =>
+      a.kind === 'test-run' || a.kind === 'qa-run' || (a.kind === 'tool' && !a.configSchema)
+        ? (a.configPaths ?? [])
+        : [],
+    ),
+  );
+  const unvalidated = [...left].filter((p) => !validated.has(p));
+  if (unvalidated.length > 0)
+    return (
+      `This change also edits CLEO config (${unvalidated.join(', ')}), which no test or QA run ` +
+      'checks. Add tool:config-schema to the same write, e.g. --evidence ' +
+      '"test-run:<report>;tool:config-schema".'
+    );
+  const rest = atoms.flatMap((a) =>
+    a.kind === 'tool' && a.configSchema ? (a.otherPaths ?? []) : [],
+  );
+  const otherResult = atoms.some(
+    (a) =>
+      a.kind === 'test-run' ||
+      a.kind === 'qa-run' ||
+      (a.kind === 'tool' && !a.configSchema && a.notApplicable !== true),
+  );
+  if (rest.length > 0 && !otherResult)
+    return (
+      `tool:config-schema checks only the CLEO config of this change; the rest ` +
+      `(${[...new Set(rest)].slice(0, 5).join(', ')}${rest.length > 5 ? ', …' : ''}) needs its own ` +
+      'result in the same write: a test-run: of the changed test files for testsPassed, or ' +
+      'qa-run: receipts for qaPassed, e.g. --evidence "test-run:<report>;tool:config-schema".'
+    );
+  return null;
+}
+
+/** Judge a report's test files against a {@link TestRunRequirement}. */
+function testRunMeetsRequirement(
+  root: string,
+  need: TestRunRequirement,
   testFiles: readonly string[],
 ): TestRunBinding {
   const refuse = (reason: string): TestRunBinding => ({
@@ -662,12 +833,11 @@ export function testRunCoversChange(
     codeName: 'E_EVIDENCE_INSUFFICIENT',
     reason,
   });
-  const scope = deriveAffectedPackages(root, changed, { outsideTests: true });
-  if (scope.scope === 'full') {
+  if (need.kind === 'full') {
     // A workspace-wide change can break any package: only a full-suite run
     // speaks for it, and no report shows it ran the whole suite.
     return refuse(
-      `The change is workspace-wide (${scope.reason}), so only a full-suite run speaks for it, ` +
+      `The change is workspace-wide (${need.reason}), so only a full-suite run speaks for it, ` +
         'and a test-run report cannot show that it ran the whole suite (test configs exclude ' +
         'tracked test files, so file counts prove nothing). Record tool:test, which runs the ' +
         'full suite for a workspace-wide change, or ci:<pr> once the PR merges.',
@@ -676,7 +846,7 @@ export function testRunCoversChange(
   // T13754: a non-workspace path is spoken for only by passing every test file
   // outside the packages under its top-level directory (edited ones included).
   const ran = new Set(testFiles);
-  const outsideUnrun = (scope.outsideTests ?? []).filter((f) => !ran.has(f));
+  const outsideUnrun = need.outsideTests.filter((f) => !ran.has(f));
   if (outsideUnrun.length > 0) {
     return refuse(
       `test-run report does not run ${outsideUnrun.slice(0, 5).join(', ')}` +
@@ -686,36 +856,33 @@ export function testRunCoversChange(
         'tool:test-affected.',
     );
   }
-  if (scope.direct.length === 0) return { ok: true, untestedPackages: [] };
-  // Longest directory first, so a file belongs to its innermost package.
-  const workspace = listWorkspacePackages(root).sort((a, b) => b.dir.length - a.dir.length);
-  const withTests = packagesWithTestFiles(root, workspace, changed);
-  const required = scope.packages.filter((name) => withTests.has(name));
-  const untestedPackages = scope.packages.filter((name) => !withTests.has(name));
+  if (need.direct.length === 0) return { ok: true, untestedPackages: [] };
+  const { required, untestedPackages } = need;
+  const typecheck = need.typecheckDirs.length > 0 ? { typecheckDirs: need.typecheckDirs } : {};
   if (required.length === 0) {
     return refuse(
-      `No test file exists in the changed package(s) ${someNames(scope.direct)} or in any package ` +
+      `No test file exists in the changed package(s) ${someNames(need.direct)} or in any package ` +
         'that depends on them, so a targeted test-run cannot cover the change. Record tool:test.',
     );
   }
+  const workspace = listWorkspacePackages(root).sort((a, b) => b.dir.length - a.dir.length);
   const covered = new Set(testFiles.flatMap((f) => ownerOf(f, workspace)?.name ?? []));
   const missing = required.filter((name) => !covered.has(name));
   if (missing.length === 0) {
-    // T13403: in a standalone project the one package is the whole project,
-    // so one test file of it says nothing about the change. The report must
-    // also run every test file the change adds or edits.
-    const standalone = workspace.length === 1 && workspace[0]?.dir === '';
-    const unrun = standalone ? changedTestFiles(root, changed).filter((f) => !ran.has(f)) : [];
-    if (unrun.length === 0) return { ok: true, untestedPackages };
+    const unrun = need.everyChangedTest.filter((f) => !ran.has(f));
+    if (unrun.length === 0) return { ok: true, untestedPackages, ...typecheck };
     return refuse(
       `test-run report does not run the changed test file(s) ${unrun.slice(0, 5).join(', ')}` +
-        `${unrun.length > 5 ? `, … (${unrun.length} files)` : ''}. In a single-package project ` +
-        'the package is the whole project, so a targeted report must run every test file the ' +
+        `${unrun.length > 5 ? `, … (${unrun.length} files)` : ''}. ${
+          need.standalone
+            ? 'In a single-package project the package is the whole project'
+            : 'Dependents of a generated package are left to a typecheck'
+        }, so a targeted report must run every test file the ` +
         'change adds or edits (passing). Run them and record the report, or record tool:test.',
     );
   }
   const labelled = missing.map((name) =>
-    scope.direct.includes(name) ? `${name} (changed)` : `${name} (depends on a changed package)`,
+    need.direct.includes(name) ? `${name} (changed)` : `${name} (depends on a changed package)`,
   );
   return refuse(
     `${

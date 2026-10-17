@@ -13,7 +13,7 @@
 import { existsSync } from 'node:fs';
 import type { Session } from '@cleocode/contracts';
 import { ExitCode } from '@cleocode/contracts/exit-codes.js';
-import { and, desc, eq, inArray, isNull, lte, or } from 'drizzle-orm';
+import { and, desc, eq, inArray, isNotNull, isNull, lte, notLike, or } from 'drizzle-orm';
 import { CleoError } from '../errors.js';
 import { captureProjectScope, getProjectRoot, worktreeScope } from '../project-scope.js';
 import { getCurrentConnectionSessionId } from '../sessions/connection-session-handle.js';
@@ -37,6 +37,8 @@ export async function createSession(session: Session, cwd?: string): Promise<Ses
     // exodus-on-open) refuses with the typed error and remedy.
     const native = getNativeTasksDb(scope.worktreeRoot);
     if (native) await assertExodusWriteSafe(native);
+    // Review-2253 round 3: the first session this build starts clears legacy owner HMAC tokens.
+    clearLegacyOwnerTokens(db);
     const tw = session.taskWork;
     db.insert(schema.sessions)
       .values({
@@ -74,6 +76,116 @@ export async function getSession(sessionId: string, cwd?: string): Promise<Sessi
 
     if (rows.length === 0) return null;
     return rowToSession(rows[0]!);
+  });
+}
+
+/**
+ * A session's name and its T1118 owner-auth token (`cleo session start
+ * --owner-auth`), which {@link getSession} does not project. The token is
+ * `HMAC(password, name)`; null when the session was started without one.
+ *
+ * @param sessionId - Session to read.
+ * @param cwd - Project root.
+ * @returns The name and token, or null when the session does not exist.
+ * @task T13787
+ */
+export async function getSessionOwnerAuth(
+  sessionId: string,
+  cwd?: string,
+): Promise<{ name: string | null; token: string | null } | null> {
+  const scope = captureProjectScope(cwd ?? getProjectRoot(), worktreeScope.getStore());
+  return worktreeScope.run(scope, async () => {
+    const db = await getDb(scope.worktreeRoot);
+    const rows = await db
+      .select({ name: schema.sessions.name, token: schema.sessions.ownerAuthToken })
+      .from(schema.sessions)
+      .where(eq(schema.sessions.id, sessionId))
+      .all();
+    const row = rows[0];
+    return row ? { name: row.name ?? null, token: row.token ?? null } : null;
+  });
+}
+
+/** The `WHERE` clause for a legacy `HMAC(password, name)` owner token (neither a scrypt verifier nor the owner mark). */
+const LEGACY_OWNER_TOKEN = and(
+  isNotNull(schema.sessions.ownerAuthToken),
+  notLike(schema.sessions.ownerAuthToken, 'scrypt$v1$%'),
+  notLike(schema.sessions.ownerAuthToken, 'owner-mark$v1%'),
+);
+
+/**
+ * Clear every legacy `HMAC(password, name)` owner token (review-2253 round 3):
+ * each is a ~1M guesses/s offline oracle for the owner password. Run on every
+ * session start and owner credential write, so a store is cleaned the first
+ * time this build starts a session in it.
+ */
+function clearLegacyOwnerTokens(db: Awaited<ReturnType<typeof getDb>>): void {
+  db.update(schema.sessions).set({ ownerAuthToken: null }).where(LEGACY_OWNER_TOKEN).run();
+}
+
+/**
+ * How many sessions still hold a legacy `HMAC(password, name)` owner token,
+ * for `cleo doctor` (review-2253 round 3).
+ *
+ * @param cwd - Project root.
+ * @returns The count.
+ * @task T13787
+ */
+export async function countLegacyOwnerTokens(cwd?: string): Promise<number> {
+  const scope = captureProjectScope(cwd ?? getProjectRoot(), worktreeScope.getStore());
+  return worktreeScope.run(scope, async () => {
+    const db = await getDb(scope.worktreeRoot);
+    const rows = await db
+      .select({ id: schema.sessions.id })
+      .from(schema.sessions)
+      .where(LEGACY_OWNER_TOKEN)
+      .all();
+    return rows.length;
+  });
+}
+
+/**
+ * Record a session's owner credential: the `--owner` mark (T13790), the
+ * `--owner-auth` scrypt verifier (T13787), or both. Only the interactive
+ * session start writes it; no env var or spawn path does.
+ *
+ * The owner mark is refused here, in the core write path, unless this process
+ * has an interactive terminal and no `CLEO_AGENT_ROLE` (`ownerMarkRefusal`),
+ * so an in-process caller of `session.start` cannot plant it. Writing a
+ * credential also clears every legacy `HMAC(password, name)` token left by
+ * sessions started before T13787: those are a cheap offline oracle for the
+ * owner password.
+ *
+ * @param sessionId - Session to mark.
+ * @param token - `OWNER_SESSION_MARK`, a `createOwnerAuthVerifier` record, or
+ *   `<mark>|<verifier>`.
+ * @param cwd - Project root.
+ * @throws CleoError when the owner mark is refused.
+ * @task T1118
+ * @task T13787
+ * @task T13790
+ */
+export async function setSessionOwnerAuthToken(
+  sessionId: string,
+  token: string,
+  cwd?: string,
+): Promise<void> {
+  const { isOwnerSessionMark, ownerMarkRefusal } = await import(
+    '../security/owner-override-auth.js'
+  );
+  if (isOwnerSessionMark(token)) {
+    const refusal = ownerMarkRefusal();
+    // @sync-invariant none:local-only the owner mark is refused before anything is written
+    if (refusal) throw new CleoError(ExitCode.VALIDATION_ERROR, refusal);
+  }
+  const scope = captureProjectScope(cwd ?? getProjectRoot(), worktreeScope.getStore());
+  await worktreeScope.run(scope, async () => {
+    const db = await getDb(scope.worktreeRoot);
+    clearLegacyOwnerTokens(db);
+    db.update(schema.sessions)
+      .set({ ownerAuthToken: token })
+      .where(eq(schema.sessions.id, sessionId))
+      .run();
   });
 }
 
