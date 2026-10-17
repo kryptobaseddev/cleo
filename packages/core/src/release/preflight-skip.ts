@@ -616,3 +616,75 @@ export function decidePreflightSkips(
     reason: `${linuxReason} ${macosReason}`,
   };
 }
+
+/**
+ * Carry a default-branch decision over to a release-plan branch (T13825).
+ *
+ * The single release PR dispatches `release-prepare` on `release/plan-<v>`,
+ * a branch holding one commit on top of the default branch's HEAD: the plan
+ * file and CHANGELOG.md. The workflow honours skips only for the commit it
+ * checks out, so the decision is re-keyed to `refSha` — and its skips are kept
+ * only when GitHub's compare shows `refSha` strictly ahead of
+ * `decision.verifiedSha` by release-plan paths alone ({@link isReleasePlanPath}).
+ * Anything else, or a failed compare, keeps `refSha` and drops every skip.
+ *
+ * @param decision - {@link decidePreflightSkips} for the default branch
+ * @param runGh - bounded `gh` runner
+ * @param cwd - repository checkout the `gh` calls resolve `{owner}/{repo}` from
+ * @param ref - the plan branch name (for the reason)
+ * @param refSha - the plan branch's HEAD commit
+ * @returns the decision, valid for `refSha`
+ */
+export function retargetPreflightSkips(
+  decision: PreflightSkipDecision,
+  runGh: PreflightGhRunner,
+  cwd: string,
+  ref: string,
+  refSha: string,
+): PreflightSkipDecision {
+  const drop = (why: string): PreflightSkipDecision => ({
+    verifiedSha: refSha,
+    skipTests: false,
+    testedSha: null,
+    testedRunId: null,
+    skipMacosTests: false,
+    reason: `Every preflight suite runs on ${ref} (${shortSha(refSha)}): ${why}`,
+  });
+  if (decision.verifiedSha === null) return drop(decision.reason);
+  if (!decision.skipTests && !decision.skipMacosTests) return { ...decision, verifiedSha: refSha };
+  let body: unknown = null;
+  try {
+    body = parseJson(
+      runGh(
+        [
+          'api',
+          `repos/{owner}/{repo}/compare/${decision.verifiedSha}...${refSha}`,
+          '--jq',
+          '{status: .status, files: [.files[] | .filename, (.previous_filename // empty)]}',
+        ],
+        cwd,
+        PREFLIGHT_CHECK_TIMEOUT_MS,
+      ),
+    );
+  } catch {
+    return drop(`the compare to ${shortSha(decision.verifiedSha)} failed.`);
+  }
+  const files = isRecord(body) && Array.isArray(body['files']) ? body['files'] : null;
+  if (
+    !isRecord(body) ||
+    body['status'] !== 'ahead' ||
+    files === null ||
+    files.length === 0 ||
+    files.length >= MAX_COMPARE_FILES ||
+    !files.every((f): f is string => typeof f === 'string' && isReleasePlanPath(f))
+  ) {
+    return drop(
+      `it is not ${shortSha(decision.verifiedSha)} plus release-plan files only, so the default branch's results do not carry over.`,
+    );
+  }
+  return {
+    ...decision,
+    verifiedSha: refSha,
+    reason: `${decision.reason} ${ref} (${shortSha(refSha)}) adds only release-plan files to ${shortSha(decision.verifiedSha)}, so these results carry over.`,
+  };
+}

@@ -15,6 +15,8 @@ import {
   PREFLIGHT_CHECK_TIMEOUT_MS,
   PREFLIGHT_IN_FLIGHT_POLL_MS,
   type PreflightGhRunner,
+  type PreflightSkipDecision,
+  retargetPreflightSkips,
 } from '../preflight-skip.js';
 
 const SHA = 'a'.repeat(40);
@@ -706,5 +708,86 @@ describe('decidePreflightSkips — failure is never a skip', () => {
     decidePreflightSkips(gh, '/repo', 'main');
     expect(gh.timeouts.length).toBeGreaterThan(0);
     expect(new Set(gh.timeouts)).toEqual(new Set([PREFLIGHT_CHECK_TIMEOUT_MS]));
+  });
+});
+
+describe('retargetPreflightSkips — the single release PR plan branch (T13825)', () => {
+  const REF_SHA = 'e'.repeat(40);
+  const main: PreflightSkipDecision = {
+    verifiedSha: SHA,
+    skipTests: true,
+    testedSha: SHA,
+    testedRunId: 10,
+    skipMacosTests: true,
+    reason: 'Linux tests skipped.',
+  };
+  /** A gh runner answering only the compare of SHA...REF_SHA. */
+  const compareGh =
+    (body: unknown): PreflightGhRunner =>
+    (args) => {
+      if (args[1] !== `repos/{owner}/{repo}/compare/${SHA}...${REF_SHA}`) {
+        throw new Error(`unexpected gh call: ${args.join(' ')}`);
+      }
+      if (body instanceof Error) throw body;
+      return JSON.stringify(body);
+    };
+
+  it('keeps the skips, re-keyed to the plan branch, when it adds release-plan files only', () => {
+    const d = retargetPreflightSkips(
+      main,
+      compareGh({ status: 'ahead', files: ['.cleo/release/v1.plan.json', 'CHANGELOG.md'] }),
+      '/repo',
+      'release/plan-v1',
+      REF_SHA,
+    );
+    expect(d).toMatchObject({
+      verifiedSha: REF_SHA,
+      skipTests: true,
+      testedRunId: 10,
+      skipMacosTests: true,
+    });
+    expect(d.reason).toContain('carry over');
+  });
+
+  it('drops every skip when the branch carries anything else, diverged, or cannot be compared', () => {
+    for (const body of [
+      { status: 'ahead', files: ['CHANGELOG.md', 'packages/core/src/x.ts'] },
+      { status: 'diverged', files: ['CHANGELOG.md'] },
+      { status: 'identical', files: [] },
+      { status: 'ahead', files: Array.from({ length: 300 }, (_, i) => `.changeset/c${i}.md`) },
+      new Error('HTTP 404'),
+    ]) {
+      const d = retargetPreflightSkips(main, compareGh(body), '/repo', 'release/plan-v1', REF_SHA);
+      expect(d, JSON.stringify(body)).toMatchObject({
+        verifiedSha: REF_SHA,
+        skipTests: false,
+        testedRunId: null,
+        skipMacosTests: false,
+      });
+      expect(d.reason).toContain('Every preflight suite runs on release/plan-v1');
+    }
+  });
+
+  it('re-keys a decision with no skips without asking GitHub', () => {
+    const none = {
+      ...main,
+      skipTests: false,
+      testedSha: null,
+      testedRunId: null,
+      skipMacosTests: false,
+    };
+    const calls: string[][] = [];
+    const d = retargetPreflightSkips(
+      none,
+      (args) => {
+        calls.push([...args]);
+        return '';
+      },
+      '/repo',
+      'r',
+      REF_SHA,
+    );
+    expect(d).toMatchObject({ verifiedSha: REF_SHA, skipTests: false, reason: main.reason });
+    expect(calls).toEqual([]);
   });
 });
