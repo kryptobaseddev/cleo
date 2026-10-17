@@ -3577,9 +3577,10 @@ function keepGlobalConfigLocalKeys(
  * them both ways), so only what snapshots alone carry is pulled: the head's
  * plain files and other databases (the snapshot-authoritative entries).
  * `cleo.db` is never touched. Refused when this store's own files or databases
- * changed since its last sync; a store that never synced keeps the files it
- * has (T13020). The head is then recorded as synced, so a journal push
- * follows it.
+ * changed since its last sync, unless each change already equals the head's
+ * copy (a doc body the journal delivered, T13813); a store that never synced
+ * keeps the files it has (T13020). The head is then recorded as synced, so a
+ * journal push follows it.
  */
 async function pullVaultOnlyEntries(a: {
   readonly conn: NexusVaultConnection;
@@ -3595,23 +3596,21 @@ async function pullVaultOnlyEntries(a: {
 }): Promise<CloudRestoreResult> {
   const { conn, key, t, journal, target, last, git, synced, warnings } = a;
   const read = await localManifest(t, git, untrackedComparison(t, git, synced), last?.manifest);
-  if (read !== null && last !== undefined) {
-    const fileChanges = fileChangesSinceSync(read.files, t, git, synced);
-    const changed = compareWithSynced(read.manifest, last.manifest, git, fileChanges)
-      .filter((d) => isSnapshotAuthoritativeKey(d.table) && !d.match)
-      .map((d) =>
-        d.table === VAULT_FILES_KEY && fileChanges !== null && fileChanges.length > 0
-          ? `${d.table}: ${fileChanges.slice(0, 5).join(', ')}${fileChanges.length > 5 ? ', …' : ''}`
-          : d.table,
-      );
-    if (changed.length > 0) {
-      throw vaultError(
-        'E_NEXUS_VAULT_LOCAL_CHANGES',
-        `this store's files or databases changed since its last cloud sync (${changed.slice(0, 8).join(', ')}); pulling the snapshot's would overwrite them`,
-        'run `cleo cloud push --force` to keep them (a labelled fork), or `cleo cloud pull --force` to take the cloud copy (a safety backup is taken first)',
-      );
-    }
-  }
+  // Local changes since the last sync, judged against the head once its files are read (T13813).
+  const fileChanges =
+    read !== null && last !== undefined ? fileChangesSinceSync(read.files, t, git, synced) : null;
+  const changedKeys =
+    read !== null && last !== undefined
+      ? compareWithSynced(read.manifest, last.manifest, git, fileChanges)
+          .filter((d) => isSnapshotAuthoritativeKey(d.table) && !d.match)
+          .map((d) => d.table)
+          // A database already holding the head's copy is no change to keep.
+          .filter(
+            (k) =>
+              k === VAULT_FILES_KEY ||
+              read.manifest.tables[k]?.hash !== target.manifest.tables[k]?.hash,
+          )
+      : [];
   const restored = await journal.restoreCheckpoint(target.checkpointId, key.signers);
   const work = tempDir('cleo-vault-pull-');
   try {
@@ -3628,6 +3627,27 @@ async function pullVaultOnlyEntries(a: {
       throw vaultError(
         'E_NEXUS_VAULT_VERIFY_FAILED',
         `snapshot ${target.checkpointId} does not match its manifest (${diff.map((d) => d.table).join(', ')}); nothing was pulled`,
+      );
+    }
+    // A changed file the head holds byte for byte (a doc body the journal delivered) is no change to keep,
+    // nor is a path the head lacks: the pull never touches it, and it travels in the next snapshot.
+    const ownFiles = (fileChanges ?? []).filter(
+      (p) => staged.files.has(p) && read?.files.get(p) !== staged.files.get(p),
+    );
+    const changed = changedKeys.flatMap((k) =>
+      k !== VAULT_FILES_KEY
+        ? [k]
+        : fileChanges === null
+          ? [k]
+          : ownFiles.length > 0
+            ? [`${k}: ${ownFiles.slice(0, 5).join(', ')}${ownFiles.length > 5 ? ', …' : ''}`]
+            : [],
+    );
+    if (changed.length > 0) {
+      throw vaultError(
+        'E_NEXUS_VAULT_LOCAL_CHANGES',
+        `this store's files or databases changed since its last cloud sync (${changed.slice(0, 8).join(', ')}); pulling the snapshot's would overwrite them`,
+        'run `cleo cloud push --force` to keep them (a labelled fork), or `cleo cloud pull --force` to take the cloud copy (a safety backup is taken first)',
       );
     }
     await assertStoreQuiescent(t);
