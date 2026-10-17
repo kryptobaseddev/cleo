@@ -159,6 +159,7 @@ export async function installGoalForHarness(
   env: Env = process.env,
 ): Promise<EngineResult<GoalInstallResult>> {
   if (!(GOAL_HARNESSES as readonly string[]).includes(harness)) {
+    // @sync-invariant none:input-shape unknown --harness value; nothing is written
     return engineError('E_VALIDATION', `Unknown harness '${harness}'`, {
       exitCode: ExitCode.VALIDATION_ERROR,
       fix: `Use --harness ${GOAL_HARNESSES.join('|')}`,
@@ -166,6 +167,7 @@ export async function installGoalForHarness(
   }
   const h = harness as GoalHarness;
   if (h === 'hermes' || h === 'kimi') {
+    // @sync-invariant none:input-shape harness not supported yet; nothing is written
     return engineError(
       'E_NOT_IMPLEMENTED',
       `cleo goal install --harness ${h} is not implemented yet; harness pilots are tracked in T13822`,
@@ -174,6 +176,7 @@ export async function installGoalForHarness(
   }
   const bin = resolveGoalBin(env);
   if (bin === null) {
+    // @sync-invariant none:local-only the goal bin is absent on this machine; nothing is written
     return engineError(
       'E_GOAL_RUNTIME_MISSING',
       `CLEO Goal is not installed: neither ${GOAL_BINS.join(' nor ')} is on PATH`,
@@ -192,6 +195,7 @@ export async function installGoalForHarness(
       }).trim();
     } catch (err) {
       const stderr = err instanceof Error && 'stderr' in err ? String(err.stderr ?? '').trim() : '';
+      // @sync-invariant none:local-only the goal bin failed writing project config; no cleo.db write
       return engineError(
         'E_GOAL_INSTALL_FAILED',
         `${bin} install --project failed${stderr ? `: ${stderr}` : ''}`,
