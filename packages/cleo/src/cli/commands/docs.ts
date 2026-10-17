@@ -20,6 +20,7 @@
  * @saga T10516
  */
 
+import { existsSync } from 'node:fs';
 import { appendFile, mkdir, readdir, readFile, writeFile } from 'node:fs/promises';
 import { dirname, isAbsolute, join, resolve } from 'node:path';
 import {
@@ -49,6 +50,7 @@ import { defineCommand, showUsage } from 'citty';
 import { dispatchFromCli, dispatchRaw, handleRawError } from '../../dispatch/adapters/cli.js';
 import { loadCanonRegistry } from '../../dispatch/domains/check/canon-docs.js';
 import { resolve as resolveOperation } from '../../dispatch/registry.js';
+import { diagnoseDocsAddSources, docsAddMissingFileError } from '../lib/docs-add-args.js';
 import { getOperationParams, paramsToCittyArgs } from '../lib/registry-args.js';
 import { assertKnownFlags, UnknownFlagError } from '../lib/strict-args.js';
 import { cliError, cliOutput, humanInfo } from '../renderers/index.js';
@@ -256,6 +258,10 @@ const addCommand = defineCommand({
   meta: {
     name: 'add',
     description:
+      'Usage: cleo docs add <OWNER-ID> [<file>] [--content <text> | --url <url>] [--slug <kebab>] [--type <kind>]\n' +
+      '  OWNER-ID is the FIRST positional; the file is the SECOND. Examples:\n' +
+      '    cleo docs add T123 ./docs/rfc.md --slug my-rfc --type spec\n' +
+      '    cleo docs add T123 --content "# Note" --slug my-note\n\n' +
       'Attach a local file or remote URL to a CLEO entity (task, session, observation). ' +
       'Owner type is inferred from the ID prefix: T### → task, ses_* → session, O-* → observation. ' +
       'Use --slug to set a human-friendly alias (unique per project) (T9636).\n\n' +
@@ -379,19 +385,15 @@ const addCommand = defineCommand({
 
     // T10965 — inline authoring. Exactly one source must be supplied; the
     // three write distinct attachment kinds so they cannot be combined.
-    const sourceCount = (fileArg ? 1 : 0) + (url ? 1 : 0) + (contentArg !== undefined ? 1 : 0);
-    if (sourceCount === 0) {
-      cliError('provide a file path (positional), --url <url>, or --content <text>', 6, {
-        name: 'E_VALIDATION',
-        fix: 'Example: cleo docs add T123 docs/rfc.md --desc "RFC draft" — or — cleo docs add T123 --content "# Note" --slug my-note',
-      });
-      process.exit(6);
-    }
-    if (sourceCount > 1) {
-      cliError('the file positional, --url, and --content are mutually exclusive', 6, {
-        name: 'E_VALIDATION',
-        fix: 'Pass exactly one source: a file path, --url <url>, or --content <text>.',
-      });
+    // T13726 — the error names which positional each value bound to.
+    const sourceError = diagnoseDocsAddSources({
+      ownerId,
+      file: fileArg,
+      url,
+      content: contentArg,
+    });
+    if (sourceError) {
+      cliError(sourceError.message, 6, { name: 'E_VALIDATION', fix: sourceError.fix });
       process.exit(6);
     }
 
@@ -466,6 +468,11 @@ const addCommand = defineCommand({
       }
 
       resolvedFile = resolveWorktreeFilePath(String(fileArg), routing);
+      if (!existsSync(resolvedFile)) {
+        const missing = docsAddMissingFileError(ownerId, String(fileArg), resolvedFile);
+        cliError(missing.message, ExitCode.FILE_ERROR, { name: 'E_FILE_ERROR', fix: missing.fix });
+        process.exit(ExitCode.FILE_ERROR);
+      }
     }
 
     // T10361 — slug similarity check. Fires only when BOTH --slug and
@@ -789,7 +796,7 @@ const fetchCommand = defineCommand({
             fix: 'The doc metadata exists but its bytes are not in the blob store. A doc synced from another device gets its bytes on the next `cleo cloud sync` (its warnings say why when they cannot travel); otherwise try: cleo docs doctor --repair',
           });
         }
-        process.exit(ExitCode.NOT_FOUND);
+        process.exit(ExitCode.FILE_ERROR);
       }
 
       // Raw document body is the user-requested output of this mode —
