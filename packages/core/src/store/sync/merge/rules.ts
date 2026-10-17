@@ -206,22 +206,6 @@ export const SYNC_MERGE_RULES: Readonly<Record<string, MergeRuleSet>> = {
       },
     },
   },
-  // The live writers (playbooks/src) write the bare twin; both sync (T12944).
-  playbook_approvals: {
-    // A decision and its stamps move together (PB-1).
-    groups: [['status', 'approved_at', 'approver', 'reason']],
-    rules: {
-      // pending → approved | rejected once (T12944); no command reopens a
-      // decision. Two devices deciding differently resolve by LWW and record
-      // the divergent decision as a conflict.
-      status: {
-        kind: 'absorbing',
-        id: 'playbook.approval.once',
-        states: ['approved', 'rejected'],
-        leaveOps: [],
-      },
-    },
-  },
   brain_sticky_notes: {
     rules: {
       // One-way and order-free (T12942): the status is the maximum of its

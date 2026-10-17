@@ -1645,6 +1645,7 @@
       "after_json",
       "before_json",
       "details_json",
+      "dispatch_idempotency_key",
       "domain",
       "duration_ms",
       "error_message",
@@ -1658,7 +1659,8 @@
       "source",
       "success",
       "task_id",
-      "timestamp"
+      "timestamp",
+      "uid"
     ],
     "tasks_background_jobs": [
       "claimed_by",
@@ -1859,7 +1861,8 @@
       "requested_at",
       "run_id",
       "status",
-      "token"
+      "token",
+      "uid"
     ],
     "tasks_playbook_runs": [
       "bindings",
@@ -1873,7 +1876,8 @@
       "run_id",
       "session_id",
       "started_at",
-      "status"
+      "status",
+      "uid"
     ],
     "tasks_pr_commits": [
       "commit_sha",

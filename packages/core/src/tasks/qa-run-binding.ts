@@ -36,14 +36,17 @@
  */
 
 import { isAbsolute } from 'node:path';
+import type { EvidenceAtom } from '@cleocode/contracts';
 import { isCiDocumentPath } from '../release/ci-evidence.js';
 import {
+  cleoConfigSchemaFor,
   deriveAffectedPackages,
   inPackageDir,
   isNonCodeOnlyChange,
   listWorkspacePackages,
 } from './affected-packages.js';
 import { reportFreshness } from './test-run-binding.js';
+import { canonicalToolName } from './tool-resolver.js';
 
 /** The QA checks a receipt can record: one of each satisfies `qaPassed`. */
 export const QA_RUN_KINDS = ['typecheck', 'lint'] as const;
@@ -221,6 +224,8 @@ export type QaRunBinding =
       uncoveredPackages: string[];
       /** The change is non-code only: no package affected, no typecheck owed (T13745). */
       nonCodeChange?: boolean;
+      /** Changed CLEO config left to `tool:config-schema` (T13778). */
+      configPaths?: string[];
     };
 
 /** Up to five items, then a count. */
@@ -277,12 +282,33 @@ export function bindQaRunReceipt(
  * @param kind - The check the receipt records.
  * @param roots - The receipt's normalised roots (`''` = the whole root).
  * @param root - The checkout the paths are relative to.
+ * CLEO-owned config files are left to `tool:config-schema` (T13778) and
+ * named as `configPaths`, which the gate then requires a config-schema result for.
+ *
  * @param changed - The changed paths (documentation paths are ignored).
  * @returns The refusal, or ok with the paths and packages left uncovered.
  * @task T13427
  * @task T13644
+ * @task T13778
  */
 export function qaRunCoverage(
+  kind: QaRunKind,
+  roots: readonly string[],
+  root: string,
+  changed: readonly string[],
+): QaRunBinding {
+  const configPaths = changed.filter((p) => cleoConfigSchemaFor(p) !== null);
+  if (configPaths.length === 0) return qaRunCoversCode(kind, roots, root, changed);
+  const code = changed.filter((p) => cleoConfigSchemaFor(p) === null);
+  const covered =
+    code.length === 0
+      ? { ok: true as const, uncovered: [], uncoveredPackages: [] }
+      : qaRunCoversCode(kind, roots, root, code);
+  return covered.ok ? { ...covered, configPaths } : covered;
+}
+
+/** {@link qaRunCoverage} over a change with no CLEO config file in it. */
+function qaRunCoversCode(
   kind: QaRunKind,
   roots: readonly string[],
   root: string,
@@ -314,6 +340,40 @@ export function qaRunCoverage(
     return dir === undefined || !covered(dir);
   });
   return { ok: true, uncovered, uncoveredPackages };
+}
+
+/**
+ * Why the package directories a test-run left to a typecheck (T13783) are not
+ * covered by a typecheck in the same write, or null: a whole-project
+ * `tool:typecheck`, or a qa-run typecheck receipt whose roots hold each one.
+ *
+ * @param atoms - The validated atoms of one gate write.
+ * @param dirs - Root-relative package directories owed a typecheck.
+ * @returns The refusal naming the directories, or null.
+ * @task T13783
+ */
+export function typecheckCoverageGap(
+  atoms: readonly EvidenceAtom[],
+  dirs: readonly string[],
+): string | null {
+  const missing = [...new Set(dirs)].filter(
+    (dir) =>
+      !atoms.some(
+        (a) =>
+          (a.kind === 'tool' &&
+            canonicalToolName(a.tool) === 'typecheck' &&
+            a.notApplicable !== true &&
+            a.scope !== 'affected') ||
+          (a.kind === 'qa-run' &&
+            a.check === 'typecheck' &&
+            a.roots.some((r) => r === '' || inPackageDir(dir, r))),
+      ),
+  );
+  return missing.length === 0
+    ? null
+    : `The test-run leaves ${some(missing)} to a typecheck (they depend on the change only through ` +
+        'changed packages declared typecheck-only, evidence.typecheckOnlyDependents), and no typecheck in this write ' +
+        `covers them. Add tool:typecheck, or a qa-run typecheck receipt whose roots hold them.`;
 }
 
 /** A bound qa-run receipt as {@link qaRunUnionGapReason} reads it. */

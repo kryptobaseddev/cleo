@@ -140,6 +140,7 @@ const NOT_A_CREDENTIAL: Readonly<Record<string, string>> = Object.fromEntries(
           'conduit_messages.idempotency_key',
           'conduit_topic_messages.idempotency_key',
           'tasks_audit_log.idempotency_key',
+          'tasks_audit_log.dispatch_idempotency_key',
           'tasks_goal.idempotency_key',
           'tasks_tasks.idempotency_key',
         ],

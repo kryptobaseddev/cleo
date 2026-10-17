@@ -433,6 +433,64 @@ describe('portable bundle v2 (T12318)', () => {
     expect(fs.existsSync(path.join(destHome, 'worktrees'))).toBe(false);
   });
 
+  it('an unencrypted bundle redacts secrets from the change journal: no deleted token survives in it (T12535)', async () => {
+    // What capture leaves after an approval holding a resume token was changed
+    // and deleted offline: the journal images hold the token.
+    const TOKEN = 'RESUME-TOKEN-SECRET-5c1d';
+    const img = `{"approval_id":"ap1","token":"${TOKEN}"}`;
+    const live = new DatabaseSync(path.join(projectRoot, '.cleo', 'cleo.db'));
+    live.exec(`
+      CREATE TABLE _sync_capture (seq INTEGER PRIMARY KEY, tbl TEXT, op TEXT, img TEXT);
+      CREATE TABLE _sync_undo (seq INTEGER PRIMARY KEY, tbl TEXT, op TEXT, before_full TEXT, after_full TEXT);
+      CREATE TABLE _sync_row_undo (txn TEXT, idx INTEGER, tbl TEXT, values_json TEXT, PRIMARY KEY (txn, idx));
+      CREATE TABLE _sync_quarantine (seq INTEGER PRIMARY KEY, tbl TEXT, img TEXT);
+    `);
+    live
+      .prepare("INSERT INTO _sync_capture VALUES (1, 'tasks_playbook_approvals', 'U', ?)")
+      .run(`{"token":["${TOKEN}","x"]}`);
+    live
+      .prepare("INSERT INTO _sync_undo VALUES (1, 'tasks_playbook_approvals', 'D', ?, NULL)")
+      .run(img);
+    live
+      .prepare("INSERT INTO _sync_row_undo VALUES ('r:1', 0, 'tasks_playbook_approvals', ?)")
+      .run(img);
+    live.prepare("INSERT INTO _sync_quarantine VALUES (1, 'tasks_playbook_approvals', ?)").run(img);
+    live.close();
+    const exportAndUnpack = async (input: { sharesIdentity?: boolean }) => {
+      const bundle = path.join(tmp, 'out', `j-${crypto.randomUUID()}.cleobundle.tar.gz`);
+      await exportPortableBundle({
+        scope: 'project',
+        projectRoot,
+        outputPath: bundle,
+        label: 'j',
+        cleoHome: home,
+        configHome,
+        ...input,
+      });
+      const unpacked = fs.mkdtempSync(path.join(tmp, 'unpacked-'));
+      await tarExtract({ file: bundle, cwd: unpacked });
+      return fs
+        .readdirSync(unpacked, { recursive: true, withFileTypes: true })
+        .filter((f) => f.isFile())
+        .map((f) => path.join(f.parentPath, f.name));
+    };
+    const hits = (files: string[]) =>
+      files.filter((f) => fs.readFileSync(f).includes(TOKEN)).length;
+    const shared = await exportAndUnpack({});
+    expect(hits(shared)).toBe(0);
+    // The journal rows travel, only the secret is gone: a moved store still
+    // reconciles its unsent changes.
+    const shipped = new DatabaseSync(shared.find((f) => f.endsWith('/cleo.db')) ?? '');
+    expect(shipped.prepare('SELECT img FROM _sync_capture').get()).toEqual({ img: '{}' });
+    expect(shipped.prepare('SELECT values_json FROM _sync_row_undo').get()).toEqual({
+      values_json: '{"approval_id":"ap1"}',
+    });
+    shipped.close();
+    // A local safety bundle keeps the journal whole: rolling a restore back
+    // rewinds exactly as before.
+    expect(hits(await exportAndUnpack({ sharesIdentity: false }))).toBeGreaterThan(0);
+  });
+
   it('encrypted bundles carry secrets and reject a wrong passphrase', async () => {
     const bundle = path.join(tmp, 'out', 'g.enc.cleobundle.tar.gz');
     const exported = await exportPortableBundle({

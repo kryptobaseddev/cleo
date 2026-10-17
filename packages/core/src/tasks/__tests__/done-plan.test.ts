@@ -1042,6 +1042,31 @@ describe('a standalone single-package project plans a targeted test-run (T13403)
     ).toEqual([]);
   });
 
+  it('T13778: a config edit plus a test file plans the targeted run composed with tool:config-schema', async () => {
+    standalone();
+    const id = await seedTask(['Change .cleo/project-context.json and src/parity.test.ts']);
+    git(root, ['switch', '-q', '-c', `task/${id}`]);
+    mkdirSync(join(root, '.cleo'), { recursive: true });
+    writeFileSync(
+      join(root, '.cleo', 'project-context.json'),
+      `${JSON.stringify({ schemaVersion: '1.0.0', detectedAt: '2026-10-15T00:00:00Z', projectTypes: ['node'] })}\n`,
+    );
+    mkdirSync(join(root, 'src'), { recursive: true });
+    writeFileSync(join(root, 'src', 'parity.test.ts'), 'export {};\n');
+    git(root, ['add', '-f', '.cleo/project-context.json', 'src/parity.test.ts']);
+    git(root, ['commit', '-q', '-m', `${id}: config plus its test`]);
+    const plan = await deriveTaskEvidence(id, {
+      projectRoot: root,
+      cwd: root,
+      deps,
+      satisfies: 'all',
+    });
+    const testRun = plan.blockers.find((b) => b.code === 'test-run-needed');
+    expect(testRun?.next.command).toContain(
+      "--evidence 'test-run:<vitest-json-report>;tool:config-schema'",
+    );
+  });
+
   it('T13745: a root-config-only change plans tool:test (not applicable) and a lint qa-run, no suite, no typecheck', async () => {
     standalone();
     // The fixture's .cleo/ is the gitignored store, so a root config stands in.

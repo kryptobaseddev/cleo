@@ -216,7 +216,9 @@ describe('createAudit middleware', () => {
     expect(mockInsertValues).toHaveBeenCalled();
     const insertedValues = (mockInsertValues.mock.calls as any)[0]![0];
     expect(insertedValues.requestId).toBe('req-001');
-    expect(insertedValues.idempotencyKey).toBe('retry-1');
+    // T13777: outside the twin's UNIQUE idempotency tuple, so a failed attempt and its retry both record.
+    expect(insertedValues.dispatchIdempotencyKey).toBe('retry-1');
+    expect(insertedValues.idempotencyKey).toBeUndefined();
     expect(JSON.parse(insertedValues.afterJson)).toEqual({
       success: true,
       data: { taskId: 'T100', applied: true },

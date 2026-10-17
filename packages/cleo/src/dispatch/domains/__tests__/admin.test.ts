@@ -1,88 +1,55 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-// Mock engine barrel — only config/init/hooks functions remain from engine.js post-T1571
-vi.mock('../../lib/engine.js', () => ({
-  configGet: vi.fn(),
-  configSet: vi.fn(),
-  configListPresets: vi.fn(),
-  configSetPreset: vi.fn(),
-  getVersion: vi.fn(),
-  initProject: vi.fn(),
-  sessionContextInject: vi.fn(),
-  systemHooksMatrix: vi.fn(),
+// T13751: every CORE module the handler loads is mocked by the exact subpath
+// specifier admin.ts imports — never the `@cleocode/core/internal` barrel, and
+// never a real backup, store or project root.
+vi.mock('@cleocode/core/project-scope', () => ({ getProjectRoot: vi.fn(() => '/mock/project') }));
+vi.mock('@cleocode/core/system/backup', () => ({
+  createBackup: vi.fn(),
+  createGlobalBackup: vi.fn(),
+  fileRestore: vi.fn(),
+  listGlobalBackups: vi.fn(),
+  listSystemBackups: vi.fn(),
+  restoreBackupById: vi.fn(),
 }));
-
-// Mock core/internal — system functions moved here in T1571
-vi.mock('@cleocode/core/internal', async () => {
-  const actual =
-    await vi.importActual<typeof import('@cleocode/core/internal')>('@cleocode/core/internal');
-  return {
-    ...actual,
-    getSystemHealth: vi.fn(),
-    getProjectStatsExtended: vi.fn(),
-    getContextWindow: vi.fn(),
-    getRuntimeDiagnostics: vi.fn(),
-    getSystemPaths: vi.fn(),
-    getDashboard: vi.fn(),
-    getAccessor: vi.fn(),
-    getTaskAccessor: vi.fn(),
-    queryAuditLog: vi.fn(),
-    showSequence: vi.fn(),
-    checkSequence: vi.fn(),
-    listSystemBackups: vi.fn(),
-    getRoadmap: vi.fn(),
-    ensureCleoOsHub: vi.fn(),
-    coreDoctorReport: vi.fn(),
-    runDoctorFixes: vi.fn(),
-    restoreBackup: vi.fn(),
-    fileRestore: vi.fn(),
-    systemCreateBackup: vi.fn(),
-    getMigrationStatus: vi.fn(),
-    cleanupSystem: vi.fn(),
-    safestop: vi.fn(),
-    generateInjection: vi.fn(),
-  };
-});
-
-// Mock getProjectRoot
-vi.mock('../../../../../core/src/paths.js', async () => {
-  const actual = await vi.importActual<typeof import('../../../../../core/src/paths.js')>(
-    '../../../../../core/src/paths.js',
-  );
-  return {
-    ...actual,
-    getProjectRoot: vi.fn(() => '/mock/project'),
-  };
-});
-
-// Mock scaffold for admin.detect
-vi.mock('../../../../../core/src/scaffold.js', () => ({
+vi.mock('@cleocode/core/init/engine-ops', () => ({ getVersion: vi.fn(), initProject: vi.fn() }));
+vi.mock('@cleocode/core/config/engine-ops', () => ({
+  configGet: vi.fn(),
+  configListPresets: vi.fn(),
+  configSet: vi.fn(),
+  configSetPreset: vi.fn(),
+}));
+vi.mock('@cleocode/core/system/health', () => ({
+  coreDoctorReport: vi.fn(),
+  getSystemHealth: vi.fn(),
+  runDoctorFixes: vi.fn(),
+}));
+vi.mock('@cleocode/core/stats/index', () => ({
+  getDashboard: vi.fn(),
+  getProjectStatsExtended: vi.fn(),
+}));
+vi.mock('@cleocode/core/context/index', () => ({ getContextWindow: vi.fn() }));
+vi.mock('@cleocode/core/system/runtime', () => ({ getRuntimeDiagnostics: vi.fn() }));
+vi.mock('@cleocode/core/store/data-accessor', () => ({ getTaskAccessor: vi.fn() }));
+vi.mock('@cleocode/core/system/audit', () => ({ queryAuditLog: vi.fn() }));
+vi.mock('@cleocode/core/sequence/index', () => ({ checkSequence: vi.fn(), showSequence: vi.fn() }));
+vi.mock('@cleocode/core/system/migrate', () => ({ getMigrationStatus: vi.fn() }));
+vi.mock('@cleocode/core/system/cleanup', () => ({ cleanupSystem: vi.fn() }));
+vi.mock('@cleocode/core/system/safestop', () => ({ safestop: vi.fn() }));
+vi.mock('@cleocode/core/system/inject-generate', () => ({ generateInjection: vi.fn() }));
+vi.mock('@cleocode/core/scaffold/ensure-skills', () => ({
   ensureProjectContext: vi
     .fn()
     .mockResolvedValue({ action: 'repaired', path: '/mock/project/.cleo/project-context.json' }),
+}));
+vi.mock('@cleocode/core/scaffold/ensure-config', () => ({
   ensureContributorMcp: vi.fn().mockResolvedValue({
     action: 'skipped',
     path: '/mock/project',
     details: 'Removed (Phase 2 production readiness)',
   }),
 }));
-
-vi.mock('../../lib/job-manager-accessor.js', () => ({
-  getJobManager: vi.fn(),
-}));
-
-vi.mock('../../../../../core/src/adrs/index.js', () => ({
-  listAdrs: vi.fn(),
-  showAdr: vi.fn(),
-  syncAdrsToDb: vi.fn(),
-  validateAllAdrs: vi.fn(),
-  findAdrs: vi.fn(),
-}));
-
-vi.mock('../../../../../core/src/sessions/session-grade.js', () => ({
-  readGrades: vi.fn(),
-  gradeSession: vi.fn(),
-}));
+vi.mock('@cleocode/runtime/gateway', () => ({ getJobManager: vi.fn(() => null) }));
 
 // Mock registry OPERATIONS for help tests
 vi.mock('../../registry.js', () => ({
@@ -160,24 +127,20 @@ vi.mock('../../registry.js', () => ({
   ],
 }));
 
-import {
-  checkSequence,
-  cleanupSystem,
-  generateInjection,
-  getAccessor,
-  getContextWindow,
-  getDashboard,
-  getMigrationStatus,
-  getProjectStatsExtended,
-  getRuntimeDiagnostics,
-  getSystemHealth,
-  queryAuditLog,
-  safestop,
-  showSequence,
-  systemCreateBackup,
-} from '@cleocode/core/internal';
-import { configSet, getVersion, initProject } from '../../lib/engine.js';
-import { getJobManager } from '../../lib/job-manager-accessor.js';
+import { configSet } from '@cleocode/core/config/engine-ops';
+import { getContextWindow } from '@cleocode/core/context/index';
+import { getVersion, initProject } from '@cleocode/core/init/engine-ops';
+import { checkSequence, showSequence } from '@cleocode/core/sequence/index';
+import { getDashboard, getProjectStatsExtended } from '@cleocode/core/stats/index';
+import { getTaskAccessor } from '@cleocode/core/store/data-accessor';
+import { queryAuditLog } from '@cleocode/core/system/audit';
+import { createBackup } from '@cleocode/core/system/backup';
+import { cleanupSystem } from '@cleocode/core/system/cleanup';
+import { getSystemHealth } from '@cleocode/core/system/health';
+import { generateInjection } from '@cleocode/core/system/inject-generate';
+import { getMigrationStatus } from '@cleocode/core/system/migrate';
+import { getRuntimeDiagnostics } from '@cleocode/core/system/runtime';
+import { safestop } from '@cleocode/core/system/safestop';
 import { AdminHandler } from '../admin.js';
 
 describe('AdminHandler', () => {
@@ -202,6 +165,9 @@ describe('AdminHandler', () => {
         'health',
         'config.show',
         'config.presets',
+        'config.get',
+        'config.list',
+        'config.validate',
         'stats',
         'context',
         'context.pull',
@@ -233,6 +199,7 @@ describe('AdminHandler', () => {
         'scaffold-hub',
         'config.set',
         'config.set-preset',
+        'config.unset',
         'backup',
         'migrate',
         'cleanup',
@@ -275,7 +242,7 @@ describe('AdminHandler', () => {
         checks: [],
         version: '1.0.0',
         installation: 'ok',
-      } as any);
+      });
 
       const res = await handler.query('health', { detailed: true });
 
@@ -353,7 +320,7 @@ describe('AdminHandler', () => {
         platform: 'linux',
         arch: 'x64',
         warnings: [],
-      } as any);
+      });
 
       const res = await handler.query('runtime', { detailed: true });
 
@@ -362,7 +329,6 @@ describe('AdminHandler', () => {
     });
 
     it('should call getDashboard for dash', async () => {
-      vi.mocked(getAccessor).mockResolvedValue({} as any);
       vi.mocked(getDashboard).mockResolvedValue({
         project: '/test',
         currentPhase: null,
@@ -382,7 +348,7 @@ describe('AdminHandler', () => {
         blockedTasks: { count: 0, limit: 5, tasks: [] },
         recentCompletions: [],
         topLabels: [],
-      } as any);
+      });
 
       const res = await handler.query('dash');
 
@@ -411,7 +377,7 @@ describe('AdminHandler', () => {
         lastId: 'T042',
         checksum: 'abc',
         nextId: 'T043',
-      } as any);
+      });
 
       const res = await handler.query('sequence');
 
@@ -420,7 +386,7 @@ describe('AdminHandler', () => {
     });
 
     it('should call checkSequence for sequence check action', async () => {
-      vi.mocked(checkSequence).mockResolvedValue({ valid: true } as any);
+      vi.mocked(checkSequence).mockResolvedValue({ valid: true });
 
       const res = await handler.query('sequence', { action: 'check' });
 
@@ -510,7 +476,7 @@ describe('AdminHandler', () => {
     });
 
     it('should handle thrown exceptions', async () => {
-      vi.mocked(getAccessor).mockRejectedValue(new Error('disk failure'));
+      vi.mocked(getTaskAccessor).mockRejectedValueOnce(new Error('disk failure'));
 
       const res = await handler.query('dash');
 
@@ -554,24 +520,26 @@ describe('AdminHandler', () => {
       expect(configSet).not.toHaveBeenCalled();
     });
 
-    it('should call systemCreateBackup for backup', async () => {
-      // T5158: systemCreateBackup is async so tasks.db + brain.db can be opened
-      // via drizzle accessors before VACUUM INTO runs. T1571: moved to core.
-      vi.mocked(systemCreateBackup).mockResolvedValue({
+    it('should call createBackup for backup', async () => {
+      // T13751: the backup lands on the mocked core/system/backup subpath —
+      // this test can never VACUUM INTO a real store.
+      vi.mocked(createBackup).mockResolvedValue({
         backupId: 'snap-1',
         path: '/mock/backup',
         timestamp: '2026-01-01',
         type: 'snapshot',
         files: ['todo.json'],
-      } as any);
+      });
 
       const res = await handler.mutate('backup', { type: 'snapshot' });
 
       expect(res.success).toBe(true);
-      expect(systemCreateBackup).toHaveBeenCalledWith('/mock/project', {
+      expect(createBackup).toHaveBeenCalledTimes(1);
+      expect(createBackup).toHaveBeenCalledWith('/mock/project', {
         type: 'snapshot',
         note: undefined,
       });
+      expect(res.data).toMatchObject({ backupId: 'snap-1', path: '/mock/backup' });
     });
 
     it('should call getMigrationStatus for migrate', async () => {
@@ -580,7 +548,7 @@ describe('AdminHandler', () => {
         to: '2.0.0',
         migrations: [],
         dryRun: true,
-      } as any);
+      });
 
       const res = await handler.mutate('migrate', { dryRun: true });
 
@@ -597,7 +565,7 @@ describe('AdminHandler', () => {
         deleted: 3,
         items: [],
         dryRun: true,
-      } as any);
+      });
 
       const res = await handler.mutate('cleanup', { target: 'backups', dryRun: true });
 
@@ -618,8 +586,6 @@ describe('AdminHandler', () => {
     });
 
     it('should return E_NOT_AVAILABLE for job.cancel when no job manager', async () => {
-      vi.mocked(getJobManager).mockReturnValue(undefined as never);
-
       const res = await handler.mutate('job.cancel', { jobId: 'job-1' });
 
       expect(res.success).toBe(false);
@@ -632,7 +598,7 @@ describe('AdminHandler', () => {
         reason: 'test',
         sessionEnded: false,
         dryRun: true,
-      } as any);
+      });
 
       const res = await handler.mutate('safestop', { reason: 'test', dryRun: true });
 
@@ -644,12 +610,11 @@ describe('AdminHandler', () => {
     });
 
     it('should call generateInjection for inject.generate', async () => {
-      vi.mocked(getAccessor).mockResolvedValue({} as any);
       vi.mocked(generateInjection).mockResolvedValue({
         injection: '...',
         sizeBytes: 100,
         version: '1.0.0',
-      } as any);
+      });
 
       const res = await handler.mutate('inject.generate');
 
@@ -681,7 +646,7 @@ describe('AdminHandler', () => {
     });
 
     it('should handle thrown exceptions in mutate', async () => {
-      vi.mocked(initProject).mockRejectedValue(new Error('init failed'));
+      vi.mocked(initProject).mockRejectedValueOnce(new Error('init failed'));
 
       const res = await handler.mutate('init');
 
@@ -719,14 +684,14 @@ describe('AdminHandler', () => {
     });
 
     it('should include correct _meta on mutate', async () => {
-      // T5158 / T1571: systemCreateBackup moved from engine to core.
-      vi.mocked(systemCreateBackup).mockResolvedValue({
+      // T5158 / T1571: createBackup moved from engine to core.
+      vi.mocked(createBackup).mockResolvedValue({
         backupId: 'snap-2',
         path: '/mock/backup',
         timestamp: '2026-01-01',
         type: 'snapshot',
         files: [],
-      } as any);
+      });
 
       const res = await handler.mutate('backup');
 

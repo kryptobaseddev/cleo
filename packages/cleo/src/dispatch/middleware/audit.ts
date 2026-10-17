@@ -104,7 +104,8 @@ async function writeToSqlite(
 ): Promise<void> {
   try {
     const { getDb } = await import('@cleocode/core/store/sqlite');
-    const { auditLog } = await import('@cleocode/core/store/schema/audit');
+    // T13777: the dispatch audit lives in tasks_audit_log, which syncs.
+    const { tasksAuditLog } = await import('@cleocode/core/store/schema/cleo-project/audit');
     const { AuditLogInsertSchema } = await import('@cleocode/core/store/audit-log-schema');
     const { randomUUID } = await import('node:crypto');
 
@@ -120,7 +121,9 @@ async function writeToSqlite(
       operation: entry.operation,
       sessionId: entry.sessionId,
       requestId: requestId ?? null,
-      idempotencyKey:
+      // Outside the twin's UNIQUE idempotency tuple: a failed attempt and its
+      // retry both record a row under one key (T13777).
+      dispatchIdempotencyKey:
         typeof entry.params['idempotencyKey'] === 'string' ? entry.params['idempotencyKey'] : null,
       durationMs: entry.result.duration,
       success: entry.result.success ? 1 : 0,
@@ -152,7 +155,7 @@ async function writeToSqlite(
     }
 
     const db = await getDb(process.cwd());
-    await db.insert(auditLog).values(parsed.data).run();
+    await db.insert(tasksAuditLog).values(parsed.data).run();
   } catch (err) {
     log.warn({ err }, 'Failed to write audit entry to SQLite');
   }

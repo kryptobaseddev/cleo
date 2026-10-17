@@ -17,6 +17,43 @@ import type { RowIdentityRef, RowIdentitySpec, TableScope } from '@cleocode/cont
 /** Physical name of every uid column. */
 export const UID_COLUMN = 'uid';
 
+/**
+ * The rows of a declared table that should carry a uid but lack one (a SQL
+ * predicate over `main.<table>`): not kept local by a NULL key column
+ * (`localWhenNull`), nor by an earlier row holding the same natural key
+ * (`localUnlessFirst`, T13777).
+ *
+ * @param spec - A declared table's spec.
+ * @returns The predicate, for a `WHERE` over `main.<table>`.
+ */
+export function uidMissingWhere(spec: RowIdentitySpec): string {
+  const local = (spec.localWhenNull ?? []).map((c) => ` AND ${quoteId(c)} IS NOT NULL`).join('');
+  const table = `main.${quoteId(spec.table)}`;
+  const first = spec.localUnlessFirst
+    ? ` AND NOT EXISTS (SELECT 1 FROM ${table} AS _f WHERE ${spec.key
+        .map((k) => `_f.${quoteId(k)} IS ${table}.${quoteId(k)}`)
+        .join(' AND ')} AND _f.${quoteId(UID_COLUMN)} IS NOT NULL)`
+    : '';
+  return `${quoteId(UID_COLUMN)} IS NULL${local}${first}`;
+}
+
+/**
+ * The rows of a declared table that sync (T13777): every row with a uid, and
+ * the rows still waiting for one. A row local by spec ({@link uidMissingWhere})
+ * is not one of them. `null` for a table with no local rule (all rows sync).
+ *
+ * @param spec - A declared table's spec.
+ * @returns The predicate, for a `WHERE` over `main.<table>`, or `null`.
+ */
+export function syncedRowsWhere(spec: RowIdentitySpec): string | null {
+  if (!spec.localWhenNull && !spec.localUnlessFirst) return null;
+  return `${quoteId(UID_COLUMN)} IS NOT NULL OR (${uidMissingWhere(spec)})`;
+}
+
+function quoteId(name: string): string {
+  return `"${name.replaceAll('"', '""')}"`;
+}
+
 /** Physical name of the birth fingerprint column of every minted table. */
 export const BIRTH_FP_COLUMN = 'birth_fp';
 
@@ -147,8 +184,6 @@ function brainTextKeyed(): RowIdentitySpec[] {
  * - `brain_memory_links.memory_id` is polymorphic (by `memory_type`), so it
  *   stays raw; `task_id` follows the task's uid where the store has tasks
  *   (project scope). The global store has no tasks table: raw there.
- * - `brain_sticky_tags` (global only; the project table waits on T12535)
- *   follows its note's uid.
  * - `tasks_brain_release_links` (project only): both ids are soft and
  *   polymorphic, so raw (a release id is device-local since T12914).
  */
@@ -181,6 +216,53 @@ function brainNaturalKeyed(scope: TableScope): RowIdentitySpec[] {
           },
         ]
       : []),
+  ];
+}
+
+/**
+ * Sticky notes and their tags, the same in both scopes. `SN-###` ids are
+ * counter-allocated, so notes are minted; a tag follows its note's uid. The
+ * project tables joined the sync set once the twin collapse's degraded-mode
+ * shadow of `brain_sticky_tags` carried every column (T12535).
+ */
+function brainSticky(): RowIdentitySpec[] {
+  return [
+    {
+      table: 'brain_sticky_notes',
+      kind: 'minted',
+      key: ['id'],
+      birth: 'created_at',
+      birthFacts: ['content'],
+      task: 'T12894',
+    },
+    {
+      table: 'brain_sticky_tags',
+      kind: 'natural',
+      key: ['sticky_id', 'tag'],
+      keyRefs: [{ column: 'sticky_id', table: 'brain_sticky_notes' }],
+      task: 'T12895',
+    },
+  ];
+}
+
+const PLAYBOOK_RUNS: RowIdentityRef['table'] = 'tasks_playbook_runs';
+
+/**
+ * Playbook runs and their HITL approvals (T12535), project scope only. Both
+ * ids are random UUIDs minted once, so each is a natural key as it is; the
+ * approval's run travels as the run's uid. The bare twins are frozen by the
+ * twin collapse and never written.
+ */
+function playbooks(): RowIdentitySpec[] {
+  return [
+    { table: PLAYBOOK_RUNS, kind: 'natural', key: ['run_id'], task: 'T12535' },
+    {
+      table: 'tasks_playbook_approvals',
+      kind: 'natural',
+      key: ['approval_id'],
+      refs: [{ column: 'run_id', table: PLAYBOOK_RUNS }],
+      task: 'T12535',
+    },
   ];
 }
 
@@ -427,6 +509,12 @@ function lifecycleReleaseGit(): RowIdentitySpec[] {
  * carried them, and a journal checkpoint could not account for their rows on
  * any real store (T12999 staging, 2026-10-16).
  *
+ * - `tasks_audit_log`: both audits (task mutations, and since T13777 part 2
+ *   the dispatch audit, which the twin collapse drains out of the bare
+ *   `audit_log`), natural over the id (a UUID, or `log-<ms>-<hex>`) with no
+ *   refs: task and session ids stay raw. The uid is a pure function of the id,
+ *   so a drained row keeps it. The bare `audit_log` stays exempt as a drained
+ *   twin, as `token_usage` does.
  * - `tasks_token_usage`: a UUID id, so natural over it. Its session and task
  *   ids are soft (a session or task that never syncs must not hold the row
  *   pending) and stay raw. The bare `token_usage` drains into it (T13115) and
@@ -441,6 +529,7 @@ function lifecycleReleaseGit(): RowIdentitySpec[] {
  */
 function commandLogs(): RowIdentitySpec[] {
   return [
+    { table: 'tasks_audit_log', kind: 'natural', key: ['id'], task: 'T13777' },
     { table: 'tasks_token_usage', kind: 'natural', key: ['id'], task: 'T13777' },
     {
       table: 'tasks_session_handoff_entries',
@@ -698,28 +787,14 @@ export const ROW_IDENTITY: Readonly<Record<TableScope, readonly RowIdentitySpec[
     },
     ...lifecycleReleaseGit(),
     ...commandLogs(),
+    ...brainSticky(),
+    ...playbooks(),
   ],
   global: [
     ...brainTextKeyed(),
     ...brainNaturalKeyed('global'),
     ...brainIntegerKeyed(),
-    {
-      // The global store has no bare sticky twin (the project table waits on
-      // the T12535 collapse). `SN-###` ids are counter-allocated.
-      table: 'brain_sticky_notes',
-      kind: 'minted',
-      key: ['id'],
-      birth: 'created_at',
-      birthFacts: ['content'],
-      task: 'T12894',
-    },
-    {
-      table: 'brain_sticky_tags',
-      kind: 'natural',
-      key: ['sticky_id', 'tag'],
-      keyRefs: [{ column: 'sticky_id', table: 'brain_sticky_notes' }],
-      task: 'T12895',
-    },
+    ...brainSticky(),
     {
       // T12915: one agent per slug (`agent_id`, UNIQUE), and seed-install creates
       // the same slug on every machine, so the slug is the natural key. The
@@ -816,17 +891,6 @@ export interface RowIdentityExemption {
   readonly task: string;
 }
 
-/** Kept from the T12341 pending reasons: the sticky tables go together. */
-const STICKY_REASON =
-  'the degraded-mode TEMP shadow tables in store/twin-collapse.ts declare its columns and must carry uid first; that file is being edited by twin-collapse slice 2 (T12535)';
-
-/** The project sticky tables wait on the twin collapse itself (#1764 review L5). */
-const STICKY_TWIN: RowIdentityExemption = {
-  category: 'twin-collapse',
-  reason: STICKY_REASON,
-  task: 'T12535',
-};
-
 const TWIN: RowIdentityExemption = {
   category: 'twin-collapse',
   reason:
@@ -856,8 +920,8 @@ function exempt(
 }
 
 /**
- * Bare tables the twin collapse DRAINS into their prefixed twin (T13115),
- * bare name → twin name. Kept here, a module every open already loads, so
+ * Bare tables the twin collapse DRAINS into their prefixed twin (T13115,
+ * T13777), bare name → twin name. Kept here, a module every open already loads, so
  * the bare-twin strand check (`sync/flags.ts`) adds nothing to the CLI's
  * startup graph (gate 39).
  *
@@ -870,6 +934,7 @@ function exempt(
  */
 export const DRAINED_TWINS: Readonly<Record<string, string>> = {
   token_usage: 'tasks_token_usage',
+  audit_log: 'tasks_audit_log',
 };
 
 /**
@@ -901,17 +966,12 @@ export const ROW_IDENTITY_EXEMPT: Readonly<
         'architecture_decisions',
         'tasks_architecture_decisions',
         'audit_log',
-        'tasks_audit_log',
         'experiments',
         'tasks_experiments',
         'manifest_entries',
         'docs_manifest_entries',
         'pipeline_manifest',
         'docs_pipeline_manifest',
-        'playbook_approvals',
-        'tasks_playbook_approvals',
-        'playbook_runs',
-        'tasks_playbook_runs',
         'token_usage',
         'warp_chains',
         'tasks_warp_chains',
@@ -921,8 +981,6 @@ export const ROW_IDENTITY_EXEMPT: Readonly<
       ],
       TWIN,
     ),
-    brain_sticky_notes: STICKY_TWIN,
-    brain_sticky_tags: STICKY_TWIN,
     brain_v2_candidate: {
       category: 'twin-collapse',
       reason:
@@ -996,8 +1054,10 @@ export const ROW_IDENTITY_EXEMPT: Readonly<
  * reclassified brain_embeddings derived in both scopes (owner decision
  * 2026-10-14: vectors are a local cache), closing the T12918 blob exemption,
  * and T12914 the lifecycle, release, PR and commit tables (16 project),
- * and T13777 declared the command logs (2 project: token usage, handoff
- * entries; 1 global: the Nexus audit log)
+ * and T13777 declared the command logs (3 project: the audit log, token
+ * usage, handoff entries; 1 global: the Nexus audit log),
+ * and T12535 the project sticky tables and the playbook tables (2 + 4
+ * project: the bare playbook twins became frozen-legacy and not syncing)
  * ({@link rowIdentityExemptionSummary} prints the live numbers):
  *
  * | category             | task   | project | global |
@@ -1010,13 +1070,13 @@ export const ROW_IDENTITY_EXEMPT: Readonly<
  * | planned (nexus)      | T12916 | 0       | 7      |
  * | planned (skills)     | T12917 | 0       | 4      |
  * | planned (misc)       | T12920 | 11      | 0      |
- * | twin-collapse        | T12535 | 29      | 0      |
- * | total                |        | 48      | 11     |
+ * | twin-collapse        | T12535 | 22      | 0      |
+ * | total                |        | 41      | 11     |
  *
  * @task T12897
  */
 export const ROW_IDENTITY_EXEMPT_PINNED: Readonly<Record<TableScope, number>> = {
-  project: 48,
+  project: 41,
   global: 11,
 };
 
@@ -1029,7 +1089,7 @@ export const ROW_IDENTITY_EXEMPT_PINNED: Readonly<Record<TableScope, number>> = 
  * @task T12897
  */
 export const ROW_IDENTITY_EXEMPT_NAMES_SHA256: Readonly<Record<TableScope, string>> = {
-  project: '83259fa399beb43c77b465128f4e3d987e9cfbd60146e7e879fdec580876e0af',
+  project: '7084ba7ec76d64abe52b5b1e1cbade75708d43814b82b215f4d2156a8f1ca530',
   global: '2c46fe6fed00b5e15dc9323b48d448d51d2f475fe6c9480703830efb0dc63cfb',
 };
 

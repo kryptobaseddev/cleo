@@ -31,12 +31,13 @@ const BUMP_PATCH = [
 ].join('\n');
 
 describe('classifyPath', () => {
-  it('recognises the three allowed path kinds', () => {
+  it('recognises the allowed path kinds', () => {
     expect(classifyPath('package.json')).toBe('package-json');
     expect(classifyPath('packages/core/package.json')).toBe('package-json');
     expect(classifyPath('CHANGELOG.md')).toBe('free');
     expect(classifyPath('packages/cleo/CHANGELOG.md')).toBe('free');
     expect(classifyPath('.changeset/foo.md')).toBe('free');
+    expect(classifyPath('.cleo/release/v2026.10.19.plan.json')).toBe('free');
   });
   it('rejects everything else, including look-alikes', () => {
     expect(classifyPath('packages/core/src/index.ts')).toBeNull();
@@ -44,6 +45,10 @@ describe('classifyPath', () => {
     expect(classifyPath('package.json.bak')).toBeNull();
     expect(classifyPath('docs/CHANGELOG.md.orig')).toBeNull();
     expect(classifyPath('x/.changeset/foo.md')).toBeNull();
+    expect(classifyPath('.cleo/release/v2026.10.19.json')).toBeNull();
+    expect(classifyPath('.cleo/release/nested/v2026.10.19.plan.json')).toBeNull();
+    expect(classifyPath('.cleo/config.json')).toBeNull();
+    expect(classifyPath('x/.cleo/release/v2026.10.19.plan.json')).toBeNull();
   });
 });
 
@@ -105,6 +110,28 @@ describe('classifyChanges', () => {
       patchFor,
     );
     expect(result.versionOnly).toBe(true);
+  });
+  it('accepts the release-plan PR and a combined plan + bump PR (T13824)', () => {
+    const plan = { status: 'A', path: '.cleo/release/v2026.10.19.plan.json' };
+    const changelog = { status: 'M', path: 'CHANGELOG.md' };
+    expect(classifyChanges([plan, changelog], patchFor).versionOnly).toBe(true);
+    expect(
+      classifyChanges([plan, changelog, { status: 'M', path: 'package.json' }], patchFor)
+        .versionOnly,
+    ).toBe(true);
+  });
+  it('rejects a source file renamed into a plan path', () => {
+    const result = classifyChanges(
+      [
+        {
+          status: 'R',
+          path: '.cleo/release/v2026.10.19.plan.json',
+          oldPath: 'packages/core/src/x.json',
+        },
+      ],
+      patchFor,
+    );
+    expect(result.versionOnly).toBe(false);
   });
   it('rejects an empty diff', () => {
     expect(classifyChanges([], patchFor).versionOnly).toBe(false);
