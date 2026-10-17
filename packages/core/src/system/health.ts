@@ -907,6 +907,59 @@ export async function checkHeavyCommandHooks(projectRoot: string): Promise<Docto
 }
 
 /**
+ * The CLEO Goal runtime check (`@cleocode/goal`, bin `cleo-goal` or `ocg`):
+ * installed or missing, its version, whether npm has a newer one, and whether
+ * its `status --json` speaks a schema this CLEO understands. CLEO works
+ * without it, so absence is a warning only when npm has the package; not
+ * published or not reachable is informational (`ok`).
+ *
+ * @param projectRoot - absolute project root (cwd of `cleo-goal status --json`)
+ * @returns the `goal_runtime` check
+ * @task T13819
+ */
+export async function checkGoalRuntime(projectRoot: string): Promise<DoctorCheck> {
+  const { GOAL_INSTALL_COMMAND, GOAL_PACKAGE, inspectGoalRuntime, readGoalStatus } = await import(
+    '../goal/runtime.js'
+  );
+  const s = inspectGoalRuntime();
+  const latest = s.latest === null ? 'not found on npm' : `latest ${s.latest}`;
+  if (s.bin === null) {
+    return {
+      check: 'goal_runtime',
+      status: s.latest === null ? 'ok' : 'warning',
+      message: `CLEO Goal (${GOAL_PACKAGE}) not installed (${latest}); goal runs are unavailable, the rest of CLEO is unaffected`,
+      details: { bin: null, version: null, latest: s.latest },
+      ...(s.latest === null ? {} : { fix: GOAL_INSTALL_COMMAND }),
+    };
+  }
+  const status = readGoalStatus(projectRoot);
+  const details = {
+    bin: s.bin,
+    version: s.version,
+    latest: s.latest,
+    goal: status.success ? status.data.goal : null,
+    goalStatus: status.success ? status.data.status : null,
+  };
+  const head = `CLEO Goal ${s.version ?? '(version unknown)'} at ${s.bin} (${latest})`;
+  if (!status.success) {
+    return {
+      check: 'goal_runtime',
+      status: 'warning',
+      message: `${head}: status --json failed: ${status.error.message}`,
+      details,
+      ...(status.error.fix === undefined ? {} : { fix: status.error.fix }),
+    };
+  }
+  return {
+    check: 'goal_runtime',
+    status: s.updateAvailable ? 'warning' : 'ok',
+    message: `${head}, goal ${status.data.goal ?? 'none'} (${status.data.status})${s.updateAvailable ? ', update available' : ''}`,
+    details,
+    ...(s.updateAvailable ? { fix: GOAL_INSTALL_COMMAND } : {}),
+  };
+}
+
+/**
  * Run adapter health checks for all discovered adapters and return doctor
  * check entries. Returns an empty array when no adapters are initialized
  * (adapters are optional — their absence is not an error).
@@ -1182,6 +1235,8 @@ export async function coreDoctorReport(projectRoot: string): Promise<DoctorRepor
 
   // T13124: is the heavy-command hook in place for every agent harness in use?
   checks.push(...(await checkHeavyCommandHooks(projectRoot)));
+  // T13819: the optional CLEO Goal runtime (installed, version, update available).
+  checks.push(await checkGoalRuntime(projectRoot));
 
   // Contributor project channel check (ADR-029)
   checks.push(checkContributorChannel(projectRoot));

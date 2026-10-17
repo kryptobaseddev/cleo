@@ -257,6 +257,17 @@ describe('stopDispatch (T13796)', () => {
       mkdirSync(join(root, '.opencode', 'goals'), { recursive: true });
       expect(hasGoalWorkspace(JSON.stringify({ cwd: sub }), {})).toBe(true);
       expect(hasGoalWorkspace('{}', { CLAUDE_PROJECT_DIR: root })).toBe(true);
+      // A goals folder ABOVE the repository root does not count.
+      const repo = join(root, 'repo');
+      mkdirSync(join(repo, '.git'), { recursive: true });
+      mkdirSync(join(repo, 'pkg'), { recursive: true });
+      expect(hasGoalWorkspace(JSON.stringify({ cwd: join(repo, 'pkg') }), {})).toBe(false);
+      // A CLEO project root bounds it too; goals at that root still count (monorepo).
+      const cleoRepo = join(root, 'cleo-repo');
+      mkdirSync(join(cleoRepo, '.cleo'), { recursive: true });
+      expect(hasGoalWorkspace('{}', { CLAUDE_PROJECT_DIR: cleoRepo })).toBe(false);
+      mkdirSync(join(repo, '.opencode', 'goals'), { recursive: true });
+      expect(hasGoalWorkspace(JSON.stringify({ cwd: join(repo, 'pkg') }), {})).toBe(true);
     } finally {
       rmSync(root, { recursive: true, force: true });
     }

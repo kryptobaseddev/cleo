@@ -752,7 +752,7 @@ export const COMMAND_MANIFEST: readonly CommandManifestEntry[] = [
     exportName: 'goalCommand',
     name: 'goal',
     description:
-      'Goal protocol verbs for the goal runtime (OpenCode-Goal): draft a goal/v1 contract from task ACs, close a run from its outcome.',
+      'Goal protocol verbs for the goal runtime (CLEO Goal): draft a goal/v1 contract from task ACs, close a run from its outcome, install the runtime for a harness.',
     load: async () => (await import('../commands/goal.js')).goalCommand as CommandDef,
   },
   {
