@@ -908,28 +908,40 @@ export async function checkHeavyCommandHooks(projectRoot: string): Promise<Docto
 
 /**
  * The CLEO Goal runtime check (`@cleocode/goal`, bin `cleo-goal` or `ocg`):
- * installed or missing, its version, whether npm has a newer one, and whether
- * its `status --json` speaks a schema this CLEO understands. CLEO works
- * without it, so absence is a warning only when npm has the package; not
- * published or not reachable is informational (`ok`).
+ * installed or missing, its version, and whether its `status --json` speaks a
+ * schema this CLEO understands. Local only: npm is asked for the latest
+ * version only with `checkUpdates` (`cleo doctor goal-runtime
+ * --check-updates`), never by a bare `cleo doctor`. CLEO works without the
+ * runtime, so a missing bin is informational (`ok`) unless an opted-in npm
+ * lookup found the package.
  *
  * @param projectRoot - absolute project root (cwd of `cleo-goal status --json`)
+ * @param options - `checkUpdates` asks npm for the latest version (network)
  * @returns the `goal_runtime` check
  * @task T13819
  */
-export async function checkGoalRuntime(projectRoot: string): Promise<DoctorCheck> {
+export async function checkGoalRuntime(
+  projectRoot: string,
+  options: { readonly checkUpdates?: boolean } = {},
+): Promise<DoctorCheck> {
   const { GOAL_INSTALL_COMMAND, GOAL_PACKAGE, inspectGoalRuntime, readGoalStatus } = await import(
     '../goal/runtime.js'
   );
-  const s = inspectGoalRuntime();
-  const latest = s.latest === null ? 'not found on npm' : `latest ${s.latest}`;
+  const s = inspectGoalRuntime(process.env, options);
+  const latest =
+    options.checkUpdates !== true
+      ? ''
+      : s.latest === null
+        ? ' (not found on npm)'
+        : ` (latest ${s.latest})`;
   if (s.bin === null) {
+    const foreign = s.foreign === null ? '' : `; found ${s.foreign}, which is not CLEO Goal`;
     return {
       check: 'goal_runtime',
-      status: s.latest === null ? 'ok' : 'warning',
-      message: `CLEO Goal (${GOAL_PACKAGE}) not installed (${latest}); goal runs are unavailable, the rest of CLEO is unaffected`,
-      details: { bin: null, version: null, latest: s.latest },
-      ...(s.latest === null ? {} : { fix: GOAL_INSTALL_COMMAND }),
+      status: s.latest === null && s.foreign === null ? 'ok' : 'warning',
+      message: `CLEO Goal (${GOAL_PACKAGE}) not installed${latest}${foreign}; goal runs are unavailable, the rest of CLEO is unaffected`,
+      details: { bin: null, foreign: s.foreign, version: null, latest: s.latest },
+      ...(s.latest === null && s.foreign === null ? {} : { fix: GOAL_INSTALL_COMMAND }),
     };
   }
   const status = readGoalStatus(projectRoot);
@@ -940,7 +952,7 @@ export async function checkGoalRuntime(projectRoot: string): Promise<DoctorCheck
     goal: status.success ? status.data.goal : null,
     goalStatus: status.success ? status.data.status : null,
   };
-  const head = `CLEO Goal ${s.version ?? '(version unknown)'} at ${s.bin} (${latest})`;
+  const head = `CLEO Goal ${s.version ?? '(version unknown)'} at ${s.bin}${latest}`;
   if (!status.success) {
     return {
       check: 'goal_runtime',

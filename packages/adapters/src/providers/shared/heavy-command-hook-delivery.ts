@@ -37,12 +37,15 @@ import type {
   HeavyHookInspection,
 } from '@cleocode/contracts';
 import { findOnPath } from '@cleocode/paths';
+import { projectClaudeSettingsPath } from '../claude-code/paths.js';
 import {
   CLAUDE_LOCAL_SETTINGS,
   CODEX_HOOKS_FILE,
   codexHookSnippet,
   codexHooksSharedReason,
   excludedByCleo,
+  excludeHookFileFromGit,
+  excludeLocalSettingsFromGit,
   HEAVY_COMMAND_HOOK_ID,
   HeavyHookPathBlockedError,
   HeavyHookSharedConfigError,
@@ -209,6 +212,53 @@ async function syncStopDispatch(
     await syncJsonStopDispatchHook(target, provider, provider === 'claude-code' || mode !== 'off');
   } catch {
     // Fail open: a config the Stop hook cannot be written to keeps the heavy-command result.
+  }
+}
+
+/**
+ * Install only CLEO's Stop dispatcher (`cleo hook stop`, T13796) for one
+ * provider in the project, whatever the heavy-command mode, and nothing
+ * else (no `PreToolUse` hook). `cleo goal install --harness claude|codex`
+ * uses it so the dispatcher runs the CLEO Goal tick (T13820). Project-level
+ * only: a project that is the home directory, a target in the user-global
+ * Claude config, or a shared `.codex/hooks.json` is refused unwritten.
+ * Never throws.
+ *
+ * @param projectDir - the project root.
+ * @param provider - `claude-code` or `codex`.
+ * @returns the outcome for that provider.
+ */
+export async function syncProjectStopDispatch(
+  projectDir: string,
+  provider: 'claude-code' | 'codex',
+): Promise<HeavyHookDeliveryOutcome> {
+  let target = heavyHookTarget(provider, projectDir);
+  if (isUserHomeDir(projectDir)) {
+    return {
+      provider,
+      status: 'skipped',
+      target,
+      reason: 'the project is the home directory, whose .claude/ and .codex/ are user-global',
+      remedy: 'run it from a project directory',
+    };
+  }
+  try {
+    if (provider === 'claude-code') target = projectClaudeSettingsPath(projectDir);
+    else {
+      const shared = codexHooksSharedReason(projectDir);
+      if (shared !== null) throw new HeavyHookSharedConfigError(target, shared);
+    }
+    const status = await syncJsonStopDispatchHook(target, provider, true);
+    if (provider === 'claude-code') excludeLocalSettingsFromGit(projectDir);
+    else excludeHookFileFromGit(projectDir, CODEX_HOOKS_FILE);
+    return { provider, status, target };
+  } catch (err) {
+    return {
+      provider,
+      status: err instanceof HeavyHookSharedConfigError ? 'needs-consent' : 'failed',
+      target,
+      reason: errorText(err),
+    };
   }
 }
 
@@ -645,6 +695,7 @@ export function probeHeavyHookCli(
 /** The delivery surface `@cleocode/core` loads at run time. */
 export const heavyHookDeliveryApi: HeavyHookDeliveryApi = Object.freeze({
   syncProjectHeavyCommandHooks,
+  syncProjectStopDispatch,
   inspectProjectHeavyCommandHooks,
   probeHeavyHookCli,
 });
