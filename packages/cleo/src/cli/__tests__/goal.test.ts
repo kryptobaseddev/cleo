@@ -135,7 +135,7 @@ interface CittyCommand {
 }
 
 describe('cleo goal — subcommand registration', () => {
-  it('exposes set, status, advance, subgoal, append, draft and close', () => {
+  it('exposes set, status, advance, subgoal, append, draft, close and install', () => {
     const cmd = goalCommand as unknown as CittyCommand;
     expect(cmd.subCommands).toBeDefined();
     expect(Object.keys(cmd.subCommands ?? {}).sort()).toEqual([
@@ -143,6 +143,7 @@ describe('cleo goal — subcommand registration', () => {
       'append',
       'close',
       'draft',
+      'install',
       'set',
       'status',
       'subgoal',
