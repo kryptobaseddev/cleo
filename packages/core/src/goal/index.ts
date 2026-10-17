@@ -1,7 +1,7 @@
 /**
  * CLEO goal record — barrel.
  *
- * CLEO owns the goal protocol and OpenCode-Goal is the goal runtime (ADR-097,
+ * CLEO owns the goal protocol and CLEO Goal is the goal runtime (ADR-097,
  * owner decision 2026-10-16, epic T13791): the protocol verbs live in
  * `./draft.js` and `./close.js`, loaded directly by `cleo goal draft|close`.
  * CLEO's own turn-budgeted goal loop (judge, continuation, Stop hook, `cleo go`

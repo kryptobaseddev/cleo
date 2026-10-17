@@ -1,7 +1,7 @@
 ---
 name: ct-dev-workflow
 description: Development workflow orchestration for task-driven development with atomic commits, conventional commit messages, and systematic release processes. Enforces task traceability, branch discipline, smart test scope selection, and GitHub Actions integration. Use when committing code, creating releases, managing branches, or following contribution protocols. Triggers on commit operations, release preparation, or workflow compliance needs.
-version: 3.1.23
+version: 3.1.25
 protocol: contribution
 dependencies: []
 sharedResources:
@@ -14,7 +14,7 @@ compatibility:
   - gemini-cli
 license: MIT
 metadata:
-  version: 3.1.23
+  version: 3.1.25
   tier: core
   install: harness
   covers:
@@ -107,7 +107,11 @@ only on a parentless first commit (T13582); a later commit with that subject, or
 longer or different subject, still needs a task ID. A template change adds the
 previously shipped hash to `legacy-hashes.json` so installed copies refresh.
 It probes CLEO_PROJECT_HOOK_V1 before invoking the implemented CLI adapter;
-missing or incompatible runners warn and allow. Verify nested checkout paths, linked
+missing or incompatible runners warn and allow. `cleo hook run --probe -- execution`
+answers EXEC or INERT (older builds answer V1; stable builds before 2026.10.17 are
+inert). Every ungated push, including a hooks-inert `cleo` first on PATH, prints one
+pre-push stderr line `WARNING: push NOT gated by project hooks: <reason>`, flagging a
+checkout whose activation is on (T13774). Verify nested checkout paths, linked
 worktrees, custom hook paths, historical release bodies and corrupt receipts
 with focused Git fixtures before changing this delivery path.
 
@@ -339,7 +343,9 @@ is polled for up to 10 minutes first (T13823). The SHA travels as
 `verified-sha` and the proving run's id as `reused-ci-run`; the workflow
 ignores the skips if it checks out another commit or `verified-sha` is empty,
 and re-reads the reused run from the API (push to main, success, every Linux
-shard green, same tree) before it skips the Linux shards, naming the run in the
+shard green, same tree: the exact commit, or one it extends only by
+whole-path-allowlisted plan, changeset `.md` and CHANGELOG.md files; T13825)
+before it skips the Linux shards, naming the run in the
 summary and the bump-PR body. Otherwise the 8 Linux and 8 macOS test shards run, and the reason names
 the newest main commit that has a green macOS run. The decision is in the run
 summary.

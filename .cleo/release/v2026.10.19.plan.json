@@ -1,0 +1,321 @@
+{
+  "$schema": "https://cleocode.io/schemas/release-plan/v1.json",
+  "version": "v2026.10.19",
+  "resolvedVersion": "v2026.10.19",
+  "suffixApplied": false,
+  "scheme": "calver",
+  "channel": "latest",
+  "epicId": null,
+  "releaseKind": "regular",
+  "hooksV1Promotion": false,
+  "createdAt": "2026-10-17T08:07:40.422Z",
+  "createdBy": "keatonhoskins",
+  "previousVersion": "v2026.10.18",
+  "previousTag": "v2026.10.18",
+  "previousShippedAt": "2026-10-17T01:31:42.201Z",
+  "tasks": [
+    {
+      "id": "T12535",
+      "kind": "fix",
+      "impact": "patch",
+      "userFacingSummary": "Twin-table collapse: 25 live bare tables still receive writes while prefixed twins exist; 31 frozen bare tables; writers into dead tables",
+      "evidenceAtoms": [
+        "pr:2288",
+        "files:.changeset/t12535-stickies-playbooks-sync.md,packages/adapters/src/__tests__/harness-interop.test.ts,packages/cleo/src/dispatch/domains/__tests__/orchestrate-approval.test.ts,packages/cleo/src/dispatch/domains/__tests__/playbook.test.ts,packages/contracts/src/invariants/sync-write-invariants.ts,packages/core/migrations/drizzle-cleo-project/20261016120000_t12535-playbook-row-uids/migration.sql,packages/core/src/cloud/nexus-vault.ts,packages/core/src/store/__tests__/brain-natural-identity.test.ts,packages/core/src/store/__tests__/brain-row-identity.test.ts,packages/core/src/store/__tests__/fixtures/table-classification-columns.json,packages/core/src/store/__tests__/portable-bundle.test.ts,packages/core/src/store/__tests__/row-identity-gate-b.test.ts,packages/core/src/store/__tests__/twin-collapse-attachments.test.ts,packages/core/src/store/__tests__/twin-collapse-failure.test.ts,packages/core/src/store/__tests__/twin-collapse-playbooks.test.ts,packages/core/src/store/__tests__/twin-collapse.test.ts,packages/core/src/store/portable-bundle-scan.ts,packages/core/src/store/portable-bundle.ts,packages/core/src/store/row-identity-registry.ts,packages/core/src/store/schema/cleo-project/runtime.ts,packages/core/src/store/sync/__tests__/two-device-e2e.test.ts,packages/core/src/store/sync/merge/__tests__/merge-engine.test.ts,packages/core/src/store/sync/merge/rules.ts,packages/core/src/store/sync/sealer.ts,packages/core/src/store/sync/sequencing.ts,packages/core/src/store/sync/timestamp-canon.ts,packages/core/src/store/table-classification.ts,packages/core/src/store/twin-collapse.ts,packages/playbooks/src/__tests__/approval.test.ts,packages/playbooks/src/__tests__/guarded-deterministic-dispatch.test.ts,packages/playbooks/src/__tests__/inputs-bindings.test.ts,packages/playbooks/src/__tests__/node-allowlist.test.ts,packages/playbooks/src/__tests__/node-profile.test.ts,packages/playbooks/src/__tests__/pi-cantbook-e2e.test.ts,packages/playbooks/src/__tests__/rcasd-one-envelope.test.ts,packages/playbooks/src/__tests__/runtime.test.ts,packages/playbooks/src/__tests__/starter.e2e.test.ts,packages/playbooks/src/__tests__/state.test.ts,packages/playbooks/src/__tests__/twin-schema.ts,packages/playbooks/src/approval.ts,packages/playbooks/src/state.ts,scripts/.lint-no-raw-table-writes-baseline.json,packages/core/src/cloud/nexus-vault.ts",
+        "ci:2288"
+      ],
+      "epicAncestor": "T12317",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T13727",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "Route docs versions through conduit history + backfill pre-adoption conduit_attachment_versions rows",
+      "evidenceAtoms": [
+        "commit:1f20152e246950905b9e817f8abc8319d8295fb2",
+        "files:packages/core/src/docs/conduit-history-backfill.ts,packages/core/src/docs/docs-ops.ts,packages/core/src/docs/doctor.ts,packages/core/src/store/conduit-doc-history.ts,packages/core/src/store/schema/cleo-project/conduit.ts,packages/contracts/src/operations/docs.ts,packages/core/src/docs/__tests__/conduit-history-backfill.test.ts,packages/core/src/docs/__tests__/docs-ops.test.ts,packages/cleo/src/cli/commands/__tests__/docs-versions-slug.test.ts",
+        "ci:2321"
+      ],
+      "epicAncestor": "T13340",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T13734",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "docs update leaves the prior version unlinked from its doc",
+      "evidenceAtoms": [
+        "pr:2326",
+        "files:packages/core/src/docs/__tests__/docs-update-version-link.test.ts,packages/core/src/docs/docs-update.ts",
+        "ci:2326"
+      ],
+      "epicAncestor": "T13340",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T13751",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "Quarantined admin.test.ts is stale (mocks old specifiers, runs real backups when forced) — fix or delete",
+      "evidenceAtoms": [
+        "pr:2320",
+        "files:packages/cleo/src/dispatch/domains/__tests__/admin.test.ts,packages/cleo/src/dispatch/domains/__tests__/backup-capture-errors-T13724.test.ts,packages/cleo/vitest.quarantine.ts",
+        "ci:2320"
+      ],
+      "epicAncestor": "T13340",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T13786",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "Evidence: let a project declare path globs (seed/data/generated) whose changes owe dependents' typecheck only, extending T13783 beyond generated packages",
+      "evidenceAtoms": [
+        "pr:2303",
+        "files:.changeset/t13786-seed-data-typecheck.md,packages/core/src/tasks/__tests__/affected-scope.test.ts,packages/core/src/tasks/__tests__/qa-run-binding.test.ts,packages/core/src/tasks/affected-packages.ts,packages/core/src/tasks/affected-scope.ts,packages/core/templates/CLEO-REFERENCE.md",
+        "ci:2303"
+      ],
+      "epicAncestor": "T12317",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T13795",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "cleo task changeset <id> --test-plan: expose the change set and exact test files owed, as data",
+      "evidenceAtoms": [
+        "pr:2301",
+        "files:.changeset/tasks-changeset-test-plan.md,packages/cleo/src/cli/commands/tasks.ts,packages/cleo/src/cli/generated/command-manifest.ts,packages/contracts/src/done-plan.ts,packages/contracts/src/index.ts,packages/core/src/tasks/__tests__/changeset-plan.test.ts,packages/core/src/tasks/changeset-plan.ts,packages/core/src/tasks/done-plan.ts,packages/core/src/tasks/test-run-binding.ts,packages/cleo/src/cli/generated/command-manifest.ts,packages/contracts/src/index.ts",
+        "ci:2301"
+      ],
+      "epicAncestor": "T13791",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T13797",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "Retire CLEO's unwired goal loop (goal-stop-hook.ts, stub fuzzy judge, cleo go goal arming); keep the goal record the protocol needs",
+      "evidenceAtoms": [
+        "pr:2314",
+        "files:.changeset/retire-goal-loop.md,packages/cleo/src/cli/__tests__/goal.test.ts,packages/cleo/src/cli/commands/goal.ts,packages/cleo/src/cli/generated/command-manifest.ts,packages/contracts/src/goal.ts,packages/contracts/src/index.ts,packages/core/src/go/__tests__/driver.test.ts,packages/core/src/go/driver.ts,packages/core/src/goal/index.ts,scripts/.lint-no-runtime-in-contracts-baseline.json,packages/cleo/src/cli/commands/goal.ts",
+        "ci:2314"
+      ],
+      "epicAncestor": "T13791",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T13813",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "cloud pull refuses a journal store over a doc blob the journal already delivered; push then refuses too (deadlock)",
+      "evidenceAtoms": [
+        "pr:2309",
+        "files:.changeset/t13813-pull-delivered-files.md,packages/core/src/cloud/__tests__/nexus-vault.test.ts,packages/core/src/cloud/nexus-vault.ts,packages/core/src/cloud/__tests__/nexus-vault.test.ts",
+        "ci:2309"
+      ],
+      "epicAncestor": "T12323",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T13823",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "release-prepare reuses main CI's green run: release open waits for the in-flight ci.yml push run, forwards its id, the workflow re-verifies and records it",
+      "evidenceAtoms": [
+        "pr:2323",
+        "files:.github/workflows/release-prepare.yml,packages/core/src/release/__tests__/preflight-skip.test.ts,packages/core/src/release/open.ts,packages/core/src/release/preflight-skip.ts,packages/core/templates/workflows/release-prepare.yml.tmpl,packages/skills/skills/ct-dev-workflow/SKILL.md,packages/skills/skills/manifest.json,scripts/__tests__/release-prepare-test-decision.test.mjs",
+        "ci:2323"
+      ],
+      "epicAncestor": "T13139",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T13824",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "Release plan PRs take the version-only CI fast path: .cleo/release/*.plan.json joins the version-only shape",
+      "evidenceAtoms": [
+        "pr:2317",
+        "files:scripts/__tests__/ci-detect-version-only.test.mjs,scripts/ci-detect-version-only.mjs",
+        "ci:2317"
+      ],
+      "epicAncestor": "T13139",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T13826",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "T13818: native receipt not bound to session or harness; one receipt can back both live checks",
+      "evidenceAtoms": [
+        "pr:2315",
+        "files:packages/adapters/src/project-hook-native.ts,packages/contracts/src/release/hook-pilot.ts,scripts/__tests__/hook-pilot-evidence.test.mjs,scripts/hook-pilot-evidence.mjs",
+        "ci:2315"
+      ],
+      "epicAncestor": "T13791",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T13827",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "T13818: native receipt schema is non-strict; unredacted extra fields pass the promotion gate",
+      "evidenceAtoms": [
+        "pr:2315",
+        "files:packages/contracts/src/project-hooks.ts,packages/contracts/src/release/hook-pilot.ts,scripts/__tests__/hook-pilot-evidence.test.mjs",
+        "ci:2315"
+      ],
+      "epicAncestor": "T13791",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T13833",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "Main push of a version-only release merge takes the CI fast path when its first parent's CI push run succeeded",
+      "evidenceAtoms": [
+        "pr:2331",
+        "files:.github/workflows/ci.yml,scripts/__tests__/ci-version-only-push.test.mjs",
+        "ci:2331"
+      ],
+      "epicAncestor": "T13139",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T13843",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "docs doctor: keep unrecoverable-gap docs visible post-apply (info-level diagnostic line)",
+      "evidenceAtoms": [
+        "pr:2342",
+        "files:packages/core/src/docs/doctor.ts,packages/core/src/docs/__tests__/conduit-history-backfill.test.ts",
+        "ci:2342"
+      ],
+      "epicAncestor": "T13340",
+      "ivtrPhaseAtPlan": "contribution"
+    }
+  ],
+  "changelog": {
+    "features": [
+      "T13727",
+      "T13734",
+      "T13751",
+      "T13786",
+      "T13795",
+      "T13797",
+      "T13813",
+      "T13823",
+      "T13824",
+      "T13826",
+      "T13827",
+      "T13833",
+      "T13843"
+    ],
+    "fixes": [
+      "T12535"
+    ],
+    "chores": [],
+    "breaking": []
+  },
+  "gates": [
+    {
+      "name": "test",
+      "atom": "tool:test",
+      "status": "unresolved",
+      "lastVerifiedAt": "2026-10-17T08:07:40.422Z",
+      "resolvedCommand": "pnpm run test",
+      "resolvedSource": "project-context"
+    },
+    {
+      "name": "build",
+      "atom": "tool:build",
+      "status": "unresolved",
+      "lastVerifiedAt": "2026-10-17T08:07:40.422Z",
+      "resolvedCommand": "pnpm run build",
+      "resolvedSource": "project-context"
+    },
+    {
+      "name": "lint",
+      "atom": "tool:lint",
+      "status": "unresolved",
+      "lastVerifiedAt": "2026-10-17T08:07:40.422Z",
+      "resolvedCommand": "pnpm run lint",
+      "resolvedSource": "package-script"
+    },
+    {
+      "name": "typecheck",
+      "atom": "tool:typecheck",
+      "status": "unresolved",
+      "lastVerifiedAt": "2026-10-17T08:07:40.422Z",
+      "resolvedCommand": "pnpm run typecheck",
+      "resolvedSource": "package-script"
+    },
+    {
+      "name": "audit",
+      "atom": "tool:audit",
+      "status": "unresolved",
+      "lastVerifiedAt": "2026-10-17T08:07:40.422Z",
+      "resolvedCommand": "npm audit",
+      "resolvedSource": "language-default"
+    },
+    {
+      "name": "security-scan",
+      "atom": "tool:security-scan",
+      "status": "unresolved",
+      "lastVerifiedAt": "2026-10-17T08:07:40.422Z",
+      "resolvedCommand": "npm audit",
+      "resolvedSource": "language-default"
+    }
+  ],
+  "platformMatrix": [
+    {
+      "platform": "any",
+      "publisher": "npm",
+      "package": "@cleocode/cleo"
+    }
+  ],
+  "preflightSummary": {
+    "esbuildExternalsDrift": false,
+    "lockfileDrift": false,
+    "epicCompletenessClean": true,
+    "doubleListingClean": true,
+    "preflightWarnings": [
+      "Skipped 829 out-of-scope changeset entries whose task anchors are not part of this release plan"
+    ]
+  },
+  "workflowRunUrl": null,
+  "prUrl": null,
+  "mergeCommitSha": null,
+  "status": "planned",
+  "meta": {
+    "firstEverRelease": false,
+    "archetype": "node",
+    "releaseNotes": "## v2026.10.19 — 2026-10-17\n\n> **Codex hook fixes, targeted evidence, faster releases.** The managed pre-push hook now says when a push went through ungated (as Codex's PATH caused) and keeps receipts under the workspace-write sandbox. Evidence routes for config edits, merged changes, redirected reports, generated clients and seed/data globs need no whole-suite run. Release plan PRs and the main push of a version-only release merge take a CI fast path, and release-prepare reuses main's green CI. Cross-device sync itself (Stage C) stays off on stable.\n\n### Upgrade note\n\n- Playbook runs and approvals move to new tables on first open, and the old tables are frozen: an older CLEO on the same project (for example a pinned stable) gets an upgrade-required error when it starts a playbook run or records an approval. Upgrade every CLEO that shares the project _(provenance: [T12535](https://github.com/kryptobaseddev/cleo/search?q=T12535&type=commits))_\n\n### Project hooks\n\n- The managed pre-push hook prints one clear WARNING line naming why a push went through without project checks, and flags a checkout whose hooks are activated _(provenance: [T13774](https://github.com/kryptobaseddev/cleo/search?q=T13774&type=commits))_\n- Project hook receipts fall back to a self-ignoring `.cleo/hook-receipts` directory when the Git-private directory is read-only, as under Codex workspace-write _(provenance: [T13775](https://github.com/kryptobaseddev/cleo/search?q=T13775&type=commits))_\n- Future hook promotions require exact-commit hosted dispatches and retained native agent receipts with explicit trust, context and fault metadata _(provenance: [T13831](https://github.com/kryptobaseddev/cleo/search?q=T13831&type=commits), [T13818](https://github.com/kryptobaseddev/cleo/search?q=T13818&type=commits))_\n- Still open from the v2026.10.17 Codex limits: the one-time hook trust step, tracked as T13773\n\n### Goal protocol\n\n- CLEO Goal is a separate package (`@cleocode/goal`, bins `cleo-goal`/`ocg`) that is not yet published on npm, and its pilots are still pending. Until it is installed, `cleo go`, `cleo goal status` and the Stop tick find no runtime and `cleo doctor` reports it as not installed.\n- `cleo doctor` reports the CLEO Goal runtime (opt-in npm update check), and `cleo goal install --harness` registers an installed CLEO Goal with a harness for this project _(provenance: [T13819](https://github.com/kryptobaseddev/cleo/search?q=T13819&type=commits), [T13820](https://github.com/kryptobaseddev/cleo/search?q=T13820&type=commits))_\n- CLEO's unwired goal loop is retired: `cleo goal` keeps only the protocol verbs `draft` and `close` (ADR-097) _(provenance: [T13797](https://github.com/kryptobaseddev/cleo/search?q=T13797&type=commits))_\n- `cleo tasks changeset <id> [--test-plan]` reports a task's change set, commits and the exact test files it owes, as data _(provenance: [T13795](https://github.com/kryptobaseddev/cleo/search?q=T13795&type=commits))_\n- `cleo go` hands the ready wave to CLEO Goal; `cleo goal status` reads the live run through `cleo-goal status --json`; the Stop tick resolves `cleo-goal`, then `ocg` _(provenance: [T13821](https://github.com/kryptobaseddev/cleo/search?q=T13821&type=commits))_\n- The Claude Code Stop hook's no-goal path stays light (about 260 modules, no store), now pinned by gate 39 _(provenance: [T13830](https://github.com/kryptobaseddev/cleo/search?q=T13830&type=commits))_\n\n### Evidence\n\n- Targeted evidence for config edits, merged changes, redirected JSON reports and generated-client dependents, with no whole-suite run _(provenance: [T13778](https://github.com/kryptobaseddev/cleo/search?q=T13778&type=commits), [T13779](https://github.com/kryptobaseddev/cleo/search?q=T13779&type=commits), [T13780](https://github.com/kryptobaseddev/cleo/search?q=T13780&type=commits), [T13781](https://github.com/kryptobaseddev/cleo/search?q=T13781&type=commits), [T13782](https://github.com/kryptobaseddev/cleo/search?q=T13782&type=commits), [T13783](https://github.com/kryptobaseddev/cleo/search?q=T13783&type=commits))_\n- Declared seed/data globs owe dependents a typecheck, not tests, and a test file edited beside the data no longer cancels that _(provenance: [T13786](https://github.com/kryptobaseddev/cleo/search?q=T13786&type=commits))_\n- `ci:<pr>` evidence looks past a later main run whose jobs failed in a setup action before any test ran _(provenance: [T13809](https://github.com/kryptobaseddev/cleo/search?q=T13809&type=commits))_\n- Only the owner may use `CLEO_OWNER_OVERRIDE`, and the override cap is an owner-only per-project setting (`evidence.overrideCapPerSession`, default 10, max 100) behind an explicit, anchored owner enrollment _(provenance: [T13787](https://github.com/kryptobaseddev/cleo/search?q=T13787&type=commits), [T13790](https://github.com/kryptobaseddev/cleo/search?q=T13790&type=commits))_\n- An unconfirmed owner enrollment no longer sets the override cap, and any committed owner-settings.json in git history marks a re-enrollment unconfirmed _(provenance: [T13829](https://github.com/kryptobaseddev/cleo/search?q=T13829&type=commits))_\n\n### Release pipeline\n\n- release-prepare reuses main CI's green run, verified server-side _(provenance: [T13823](https://github.com/kryptobaseddev/cleo/search?q=T13823&type=commits))_\n- Release plan PRs, and the main push of a version-only release merge, take the CI fast path _(provenance: [T13824](https://github.com/kryptobaseddev/cleo/search?q=T13824&type=commits), [T13833](https://github.com/kryptobaseddev/cleo/search?q=T13833&type=commits))_\n- One release PR, scripted end to end: `cleo release open <v> --ref release/plan-<v>` and `scripts/release-run.mjs` _(provenance: [T13825](https://github.com/kryptobaseddev/cleo/search?q=T13825&type=commits))_\n\n### Store\n\n- Closing the store settles in-flight best-effort writes first, so a late write can no longer stall the next writer for 30 s _(provenance: [T13630](https://github.com/kryptobaseddev/cleo/search?q=T13630&type=commits))_\n\n### Docs\n\n- `cleo docs update` keeps the prior version linked to its doc _(provenance: [T13734](https://github.com/kryptobaseddev/cleo/search?q=T13734&type=commits))_\n- `cleo docs add` errors name the bound positional and the exact fix _(provenance: [T13726](https://github.com/kryptobaseddev/cleo/search?q=T13726&type=commits))_\n- Docs CRDT section ids are anchored to headings, so inserting a section no longer shifts later ids, and a stale edit merges three-way, section by section, against the version it was authored from _(provenance: [T13584](https://github.com/kryptobaseddev/cleo/search?q=T13584&type=commits))_\n- `cleo docs versions` reads a doc's conduit history (`version` is now a display ordinal 1..N; the stored number moves to `storedVersionNumber`); `cleo docs doctor --apply` backfills versions from before the conduit adoption from the audit log, and records unrecoverable ones as gaps instead of inventing them _(provenance: [T13727](https://github.com/kryptobaseddev/cleo/search?q=T13727&type=commits))_\n- Unrecoverable conduit-history gaps are reported at info level after apply _(provenance: [T13843](https://github.com/kryptobaseddev/cleo/search?q=T13843&type=commits))_\n\n### Backups and cross-device sync\n\n- Unencrypted exports of projects with two or more playbook approvals no longer fail; a non-JSON journal image never ships _(provenance: [T13817](https://github.com/kryptobaseddev/cleo/search?q=T13817&type=commits))_\n- The first vault push over a format-2 parent prunes only the local rows in that parent's own snapshot, so a lost synced row is refused instead of hidden _(provenance: [T13816](https://github.com/kryptobaseddev/cleo/search?q=T13816&type=commits))_\n- `cleo cloud pull` judges each local change against the head snapshot's copy: a file equal to the head's, or a new file the head lacks, is no longer a change that refuses the pull, so a device can pull and then push without `--force` _(provenance: [T13813](https://github.com/kryptobaseddev/cleo/search?q=T13813&type=commits))_\n- Live on stable: playbook runs and approvals move to `tasks_playbook_runs`/`tasks_playbook_approvals` on first open (old rows are copied; where both copies of a run differ, the old one wins and the other is archived), the old tables are then frozen (see the upgrade note); deleting a run deletes its approvals; unencrypted `cleo backup export` strips credential columns from journal images _(provenance: [T12535](https://github.com/kryptobaseddev/cleo/search?q=T12535&type=commits))_\n- Sync groundwork (sync itself stays off on stable until Stage C): project sticky notes, playbook runs and playbook approvals get row uids for a second device; two devices adopting the same legacy doc, or making the first docs update on it, mint one doc uid _(provenance: [T12535](https://github.com/kryptobaseddev/cleo/search?q=T12535&type=commits), [T13586](https://github.com/kryptobaseddev/cleo/search?q=T13586&type=commits))_\n\n### Not in this release\n\n- #2338 (T13842, docs fetch serves the merged head) is not included; it is planned for a later release.\n",
+    "changesetEntryCount": 5,
+    "changesetIds": [
+      "retire-goal-loop",
+      "t12535-stickies-playbooks-sync",
+      "t13786-seed-data-typecheck",
+      "t13813-pull-delivered-files",
+      "tasks-changeset-test-plan"
+    ],
+    "taskIds": [
+      "T12535",
+      "T13727",
+      "T13734",
+      "T13751",
+      "T13786",
+      "T13795",
+      "T13797",
+      "T13813",
+      "T13823",
+      "T13824",
+      "T13826",
+      "T13827",
+      "T13833",
+      "T13843"
+    ]
+  }
+}

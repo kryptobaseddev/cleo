@@ -42,6 +42,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => ({
   getActiveSession: vi.fn(),
+  getSessionOwnerAuth: vi.fn(),
   recordStageProgress: vi.fn(),
   skipStageWithReason: vi.fn(),
   resetStage: vi.fn(),
@@ -94,6 +95,8 @@ vi.mock('../../store/session-store.js', () => ({
     return session ? { session, via: 'env' } : null;
   },
   createSession: vi.fn(),
+  // T13790: the owner mark the override authority reads.
+  getSessionOwnerAuth: mocks.getSessionOwnerAuth,
 }));
 
 // Mock pipeline-stage.ts (engine-ops.ts imports isPipelineTransitionForward from here)
@@ -352,8 +355,18 @@ describe('no active session', () => {
 // ---------------------------------------------------------------------------
 
 describe('CLEO_OWNER_OVERRIDE=1 escape hatch', () => {
+  const tty = { stdin: process.stdin.isTTY, stderr: process.stderr.isTTY };
+  const setTty = (stdin: boolean | undefined, stderr: boolean | undefined): void => {
+    Object.defineProperty(process.stdin, 'isTTY', { value: stdin, configurable: true });
+    Object.defineProperty(process.stderr, 'isTTY', { value: stderr, configurable: true });
+  };
+  afterEach(() => setTty(tty.stdin, tty.stderr));
+
   it('7. lifecycleProgress is allowed with CLEO_OWNER_OVERRIDE=1 + audit entry written', async () => {
     mocks.getActiveSession.mockResolvedValue(CHILD_SCOPED_SESSION);
+    // T13790: the owner — an owner-marked session, on the owner's terminal.
+    mocks.getSessionOwnerAuth.mockResolvedValue({ name: 'owner', token: 'owner-mark$v1' });
+    setTty(true, true);
     process.env['CLEO_OWNER_OVERRIDE'] = '1';
     process.env['CLEO_OWNER_OVERRIDE_REASON'] = 'incident-1234 hotfix';
 
@@ -372,6 +385,21 @@ describe('CLEO_OWNER_OVERRIDE=1 escape hatch', () => {
     expect(auditEntry.type).toBe('lifecycle_scope_bypass');
     expect(auditEntry.epicId).toBe(EPIC_ID);
     expect(auditEntry.overrideReason).toBe('incident-1234 hotfix');
+  });
+
+  it('7b (T13790). an agent session that is not owner-marked is denied, and the refusal audited', async () => {
+    mocks.getActiveSession.mockResolvedValue(CHILD_SCOPED_SESSION);
+    mocks.getSessionOwnerAuth.mockResolvedValue({ name: 'agent', token: null });
+    setTty(true, true);
+    process.env['CLEO_OWNER_OVERRIDE'] = '1';
+    process.env['CLEO_OWNER_OVERRIDE_REASON'] = 'agent attempt';
+
+    const result = await lifecycleProgress(EPIC_ID, 'research', 'completed', undefined, tmpDir);
+
+    expect(result.error?.code).toBe('E_LIFECYCLE_SCOPE_DENIED');
+    expect(mocks.recordStageProgress).not.toHaveBeenCalled();
+    const audit = readFileSync(join(tmpDir, '.cleo', 'audit', 'force-bypass.jsonl'), 'utf-8');
+    expect(JSON.parse(audit.trim()).action).toBe('override-refused');
   });
 });
 

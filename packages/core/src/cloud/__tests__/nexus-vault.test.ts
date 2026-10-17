@@ -91,6 +91,7 @@ import {
 import { readDeviceRegistry } from '../../store/sync/replica-registry.js';
 import { ensureSyncSchema } from '../../store/sync/schema.js';
 import {
+  buildVaultManifest,
   emptyVaultTableHash,
   isVaultForkManifest,
   VAULT_FORMAT_KEY,
@@ -3980,6 +3981,17 @@ describe('cloud vault round 4 (#1773)', () => {
   });
 });
 
+/** The project data key, as every device unwraps it. */
+function projectDataKey(): Buffer {
+  const wrapped = fake.projectKeys.get(REMOTE_PROJECT)?.[0];
+  return unwrapProjectKey(
+    fake.escrow?.mk ?? Buffer.alloc(0),
+    wrapped?.wrappedProjectKey ?? '',
+    REMOTE_PROJECT,
+    1,
+  );
+}
+
 describe('cloud vault on a stream the change journal writes (segment/v3, checkpoint/v3; T13034)', () => {
   const PIN_HASH = 'c'.repeat(64);
   const insertTask = (m: Machine, id: string) =>
@@ -3989,17 +4001,6 @@ describe('cloud vault on a stream the change journal writes (segment/v3, checkpo
   /** Stream, blob and lease writes since `from` (a refusal before the lease makes none). */
   const streamWrites = (from: number) =>
     fake.writes.slice(from).filter((w) => w.includes('/v1/streams/') || w.includes('/blobs/'));
-
-  /** The project data key, as every device unwraps it. */
-  function projectDataKey(): Buffer {
-    const wrapped = fake.projectKeys.get(REMOTE_PROJECT)?.[0];
-    return unwrapProjectKey(
-      fake.escrow?.mk ?? Buffer.alloc(0),
-      wrapped?.wrappedProjectKey ?? '',
-      REMOTE_PROJECT,
-      1,
-    );
-  }
 
   /** `m`'s replica as the change journal drives it: its own segments and checkpoints. */
   function journalOf(m: Machine): Journal {
@@ -6548,10 +6549,148 @@ describe('sync enable push: the genesis checkpoint (T12343 S4-1b)', () => {
       expect(moved.tallies.rows).toEqual({ t: 3, u: 3 });
       // In the current format the parent already left them out: nothing is pruned.
       expect(formatTransitionPruned(3, tallies, { t: 3, u: 3 }, { t: 2 }).pruned).toEqual({});
-      // Capped by the local rows held now: a shortfall they do not explain stays for the settle.
+      // Capped by the local rows the parent held: a shortfall they do not explain stays for the settle.
       expect(formatTransitionPruned(2, tallies, { t: 1, u: 3 }, { t: 2 }).pruned).toEqual({ t: 2 });
+      // T13816 probe: the parent held 98 synced + 2 local; now 95 synced + 5 local. Only the 2 the
+      // parent counted are pruned, leaving 3 rows short for the settle to refuse.
+      const probe = formatTransitionPruned(
+        2,
+        { rows: { t: 100 }, pending: [], voided: [], applied: [] },
+        { t: 95 },
+        { t: 2 },
+      );
+      expect(probe.pruned).toEqual({ t: 2 });
+      expect(probe.tallies.rows).toEqual({ t: 98 });
     });
 
+    it('T13816: over a format-2 parent another device pushed, the pruned cap is the local rows in its bundle: old local rows here do not mask a lost synced row; with nothing lost the push passes the server rule', async () => {
+      const { m: a, dbPath: aDb } = await journalMachine();
+      const HANDOFF = 'tasks_session_handoff_entries';
+      // Session x: one handoff (synced). Session y: two, the second local.
+      await on(a, async () => {
+        const db = await storeOf(aDb);
+        db.exec(
+          "INSERT INTO tasks_sessions (id, name, started_at) VALUES ('ses_x', 'x', '2026-09-30 09:00:00'), ('ses_y', 'y', '2026-09-30 09:00:00')",
+        );
+        db.exec(
+          `INSERT INTO tasks_session_handoff_entries (session_id, handoff_json, created_at) VALUES
+             ('ses_x', '{"n":"x"}', '2026-09-30 09:00:01'),
+             ('ses_y', '{"n":"y1"}', '2026-09-30 09:00:02'),
+             ('ses_y', '{"n":"y2"}', '2026-09-30 09:00:03')`,
+        );
+      });
+      await on(a, () => enableSyncPush(vopts(a, { allowUnreleased: true })));
+      await on(a, async () => {
+        setSyncFlag(await storeOf(aDb), 'sync.pull', true, { allowUnreleased: true });
+      });
+      const { b } = await restoredJoiner();
+      expect((await on(b, () => enableSyncPush(vopts(b, { allowUnreleased: true })))).status).toBe(
+        'joined',
+      );
+      const s = fake.stream(STREAM);
+      const g3 = s.checkpoints[0];
+      if (!g3) throw new Error('no genesis');
+      expect(g3.manifest.tables[HANDOFF]?.rows).toBe(2);
+
+      // B pushes the head as an older CLEO did: format 2, its one local row counted (3 rows).
+      for (const m of [a, b]) {
+        await on(m, async () => unlockNexusAccountKey(await connectNexusVault(vopts(m))));
+      }
+      const jb = new Journal({
+        http: new Http({ baseUrl: API, token: b.token, deviceId: b.deviceId, fetch: fake.fetch }),
+        streamId: STREAM,
+        replicaId: b.replicaId,
+        deviceId: b.deviceId,
+        signing: b.keys.signing,
+        key: projectDataKey(),
+        fetch: fake.fetch,
+      });
+      const { bundle } = await jb.restoreCheckpoint(
+        g3.checkpointId,
+        new Map([[a.deviceId, a.keys.signing.publicKey]]),
+      );
+      const x = path.join(b.root, 'g2x');
+      fs.mkdirSync(x);
+      fs.writeFileSync(path.join(x, 'b.tar.gz'), bundle);
+      await tarExtract({ file: path.join(x, 'b.tar.gz'), cwd: x });
+      const bm = JSON.parse(
+        fs.readFileSync(path.join(x, 'manifest.json'), 'utf8'),
+      ) as PortableBundleManifest;
+      const section = bm.projects[0];
+      const primary = section?.databases.find((d) => d.relPath === 'cleo.db');
+      if (!section || !primary) throw new Error('fixture: no primary store');
+      const hashKey = deriveKey(projectDataKey(), 'vault-manifest');
+      const v2 = buildVaultManifest(path.join(x, primary.bundlePath), {
+        scope: 'project',
+        hashKey,
+        root: section.originalPath ?? section.originalRoot,
+        countLocalRows: true,
+      });
+      expect(v2.manifest.tables[HANDOFF]?.rows).toBe(3);
+      s.checkpoints.length = 0;
+      s.headCheckpointId = null;
+      const g2 = await jb.pushCheckpoint({
+        bundle,
+        manifest: {
+          ...g3.manifest,
+          tables: {
+            ...g3.manifest.tables,
+            [HANDOFF]: v2.manifest.tables[HANDOFF] ?? { rows: 0, hash: '' },
+            [VAULT_FORMAT_KEY]: vaultFormatEntry(hashKey, 2),
+          },
+        },
+        cursor: cursorFromCheckpoint(g3),
+        parentCheckpointId: null,
+        // Under the genesis id: both stores' pull positions name it.
+        checkpointId: g3.checkpointId,
+      });
+      expect(g2.deviceId).toBe(b.deviceId);
+
+      // On A: x's synced handoff lost outside the journal, and a local row the parent never held,
+      // stamped before it. Capping by A's local rows (2) would prune both and mask the loss.
+      const lost = await on(a, async () => {
+        const db = await storeOf(aDb);
+        db.exec("INSERT INTO cleo_trigger_suspend (scope) VALUES ('capture')");
+        const row = db
+          .prepare("SELECT * FROM tasks_session_handoff_entries WHERE session_id = 'ses_x'")
+          .get() as Record<string, string | number | null>;
+        db.exec("DELETE FROM tasks_session_handoff_entries WHERE session_id = 'ses_x'");
+        db.exec("DELETE FROM cleo_trigger_suspend WHERE scope = 'capture'");
+        db.exec(
+          `INSERT INTO tasks_session_handoff_entries (session_id, handoff_json, created_at) VALUES ('ses_y', '{"n":"y3"}', '2026-09-30 09:00:04')`,
+        );
+        return row;
+      });
+      const refused = await failure(
+        on(a, () => pushNexusVault(vopts(a, { allowUnreleased: true }))),
+      );
+      expect({ code: refused.code, message: refused.message }).toMatchObject({
+        code: 'E_NEXUS_VAULT_REFUSED',
+        message: expect.stringContaining(HANDOFF),
+      });
+      expect(refused.message).toContain('vault format 2');
+      expect(refused.fix).toContain('cleo cloud pull');
+      expect(refused.fix).toContain('--force');
+      expect(refused.fix).not.toContain('cloud sync');
+      expect(s.checkpoints).toHaveLength(1);
+
+      // Nothing lost: the push prunes only the one local row the parent's bundle held.
+      await on(a, async () => {
+        const db = await storeOf(aDb);
+        db.exec("INSERT INTO cleo_trigger_suspend (scope) VALUES ('capture')");
+        const cols = Object.keys(lost);
+        db.prepare(
+          `INSERT INTO tasks_session_handoff_entries (${cols.join(', ')}) VALUES (${cols.map(() => '?').join(', ')})`,
+        ).run(...cols.map((c) => lost[c] ?? null));
+        db.exec("DELETE FROM cleo_trigger_suspend WHERE scope = 'capture'");
+      });
+      const pushed = await on(a, () => pushNexusVault(vopts(a, { allowUnreleased: true })));
+      expect(pushed.status).toBe('pushed');
+      expect(pushed.parentCheckpointId).toBe(g2.checkpointId);
+      const cp = s.checkpoints.at(-1);
+      expect(cp?.manifest.pruned).toEqual({ [HANDOFF]: 1 });
+      expect(cp?.manifest.tables[HANDOFF]?.rows).toBe(2);
+    });
     it('a checkpoint with pending transactions restores on a new device, and they apply exactly once after a sync', async () => {
       const { a, aDb, b, bDb } = await journalDevices(true);
       if (!b || !bDb) throw new Error('no device B');

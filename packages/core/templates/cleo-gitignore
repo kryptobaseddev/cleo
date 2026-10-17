@@ -48,6 +48,9 @@
 # T12716: project.json is the canonical {id, name}; project-id its legacy mirror.
 !project.json
 !project-id
+# T13787: the owner override enrollment and sealed cap. Tracked so a delete or
+# forge of the owner key shows in `git status` and PR diffs.
+!owner-settings.json
 !setup-otel.sh
 !DATA-SAFETY-IMPLEMENTATION-SUMMARY.md
 

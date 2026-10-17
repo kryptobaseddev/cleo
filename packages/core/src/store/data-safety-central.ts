@@ -21,6 +21,7 @@ import { eq } from 'drizzle-orm';
 import { getLogger } from '../logger.js';
 import { captureProjectScope, getProjectRoot, worktreeScope } from '../project-scope.js';
 import { checkSequence, repairSequence } from '../sequence/index.js';
+import { trackBackgroundOp } from './background-ops.js';
 import type { ArchiveFile, DataAccessor } from './data-accessor.js';
 import { gitCheckpoint } from './git-checkpoint.js';
 import { describeSnapshotMiss, type SnapshotGateResult } from './snapshot-gate.js';
@@ -139,7 +140,7 @@ async function checkpoint(context: string, cwd?: string, options?: SafetyOptions
     log.warn({ err }, 'Checkpoint failed (non-fatal)');
   }
 
-  vacuumIntoBackup({ cwd }).catch(() => {}); // non-fatal SQLite snapshot
+  trackBackgroundOp(vacuumIntoBackup({ cwd })); // non-fatal SQLite snapshot, settled at teardown (T13630)
 }
 
 /**
@@ -628,7 +629,7 @@ export async function triggerCheckpoint(
       log.warn({ err }, 'Checkpoint failed (non-fatal)');
     }
 
-    vacuumIntoBackup({ cwd }).catch(() => {}); // non-fatal SQLite snapshot
+    trackBackgroundOp(vacuumIntoBackup({ cwd })); // non-fatal SQLite snapshot, settled at teardown (T13630)
   });
 }
 

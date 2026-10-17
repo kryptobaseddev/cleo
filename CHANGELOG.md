@@ -1,5 +1,67 @@
 # Changelog
 
+## [2026.10.19] (2026-10-17)
+
+> **Codex hook fixes, targeted evidence, faster releases.** The managed pre-push hook now says when a push went through ungated (as Codex's PATH caused) and keeps receipts under the workspace-write sandbox. Evidence routes for config edits, merged changes, redirected reports, generated clients and seed/data globs need no whole-suite run. Release plan PRs and the main push of a version-only release merge take a CI fast path, and release-prepare reuses main's green CI. Cross-device sync itself (Stage C) stays off on stable.
+
+### Upgrade note
+
+- Playbook runs and approvals move to new tables on first open, and the old tables are frozen: an older CLEO on the same project (for example a pinned stable) gets an upgrade-required error when it starts a playbook run or records an approval. Upgrade every CLEO that shares the project _(provenance: [T12535](https://github.com/kryptobaseddev/cleo/search?q=T12535&type=commits))_
+
+### Project hooks
+
+- The managed pre-push hook prints one clear WARNING line naming why a push went through without project checks, and flags a checkout whose hooks are activated _(provenance: [T13774](https://github.com/kryptobaseddev/cleo/search?q=T13774&type=commits))_
+- Project hook receipts fall back to a self-ignoring `.cleo/hook-receipts` directory when the Git-private directory is read-only, as under Codex workspace-write _(provenance: [T13775](https://github.com/kryptobaseddev/cleo/search?q=T13775&type=commits))_
+- Future hook promotions require exact-commit hosted dispatches and retained native agent receipts with explicit trust, context and fault metadata _(provenance: [T13831](https://github.com/kryptobaseddev/cleo/search?q=T13831&type=commits), [T13818](https://github.com/kryptobaseddev/cleo/search?q=T13818&type=commits))_
+- Still open from the v2026.10.17 Codex limits: the one-time hook trust step, tracked as T13773
+
+### Goal protocol
+
+- CLEO Goal is a separate package (`@cleocode/goal`, bins `cleo-goal`/`ocg`) that is not yet published on npm, and its pilots are still pending. Until it is installed, `cleo go`, `cleo goal status` and the Stop tick find no runtime and `cleo doctor` reports it as not installed.
+- `cleo doctor` reports the CLEO Goal runtime (opt-in npm update check), and `cleo goal install --harness` registers an installed CLEO Goal with a harness for this project _(provenance: [T13819](https://github.com/kryptobaseddev/cleo/search?q=T13819&type=commits), [T13820](https://github.com/kryptobaseddev/cleo/search?q=T13820&type=commits))_
+- CLEO's unwired goal loop is retired: `cleo goal` keeps only the protocol verbs `draft` and `close` (ADR-097) _(provenance: [T13797](https://github.com/kryptobaseddev/cleo/search?q=T13797&type=commits))_
+- `cleo tasks changeset <id> [--test-plan]` reports a task's change set, commits and the exact test files it owes, as data _(provenance: [T13795](https://github.com/kryptobaseddev/cleo/search?q=T13795&type=commits))_
+- `cleo go` hands the ready wave to CLEO Goal; `cleo goal status` reads the live run through `cleo-goal status --json`; the Stop tick resolves `cleo-goal`, then `ocg` _(provenance: [T13821](https://github.com/kryptobaseddev/cleo/search?q=T13821&type=commits))_
+- The Claude Code Stop hook's no-goal path stays light (about 260 modules, no store), now pinned by gate 39 _(provenance: [T13830](https://github.com/kryptobaseddev/cleo/search?q=T13830&type=commits))_
+
+### Evidence
+
+- Targeted evidence for config edits, merged changes, redirected JSON reports and generated-client dependents, with no whole-suite run _(provenance: [T13778](https://github.com/kryptobaseddev/cleo/search?q=T13778&type=commits), [T13779](https://github.com/kryptobaseddev/cleo/search?q=T13779&type=commits), [T13780](https://github.com/kryptobaseddev/cleo/search?q=T13780&type=commits), [T13781](https://github.com/kryptobaseddev/cleo/search?q=T13781&type=commits), [T13782](https://github.com/kryptobaseddev/cleo/search?q=T13782&type=commits), [T13783](https://github.com/kryptobaseddev/cleo/search?q=T13783&type=commits))_
+- Declared seed/data globs owe dependents a typecheck, not tests, and a test file edited beside the data no longer cancels that _(provenance: [T13786](https://github.com/kryptobaseddev/cleo/search?q=T13786&type=commits))_
+- `ci:<pr>` evidence looks past a later main run whose jobs failed in a setup action before any test ran _(provenance: [T13809](https://github.com/kryptobaseddev/cleo/search?q=T13809&type=commits))_
+- Only the owner may use `CLEO_OWNER_OVERRIDE`, and the override cap is an owner-only per-project setting (`evidence.overrideCapPerSession`, default 10, max 100) behind an explicit, anchored owner enrollment _(provenance: [T13787](https://github.com/kryptobaseddev/cleo/search?q=T13787&type=commits), [T13790](https://github.com/kryptobaseddev/cleo/search?q=T13790&type=commits))_
+- An unconfirmed owner enrollment no longer sets the override cap, and any committed owner-settings.json in git history marks a re-enrollment unconfirmed _(provenance: [T13829](https://github.com/kryptobaseddev/cleo/search?q=T13829&type=commits))_
+
+### Release pipeline
+
+- release-prepare reuses main CI's green run, verified server-side _(provenance: [T13823](https://github.com/kryptobaseddev/cleo/search?q=T13823&type=commits))_
+- Release plan PRs, and the main push of a version-only release merge, take the CI fast path _(provenance: [T13824](https://github.com/kryptobaseddev/cleo/search?q=T13824&type=commits), [T13833](https://github.com/kryptobaseddev/cleo/search?q=T13833&type=commits))_
+- One release PR, scripted end to end: `cleo release open <v> --ref release/plan-<v>` and `scripts/release-run.mjs` _(provenance: [T13825](https://github.com/kryptobaseddev/cleo/search?q=T13825&type=commits))_
+
+### Store
+
+- Closing the store settles in-flight best-effort writes first, so a late write can no longer stall the next writer for 30 s _(provenance: [T13630](https://github.com/kryptobaseddev/cleo/search?q=T13630&type=commits))_
+
+### Docs
+
+- `cleo docs update` keeps the prior version linked to its doc _(provenance: [T13734](https://github.com/kryptobaseddev/cleo/search?q=T13734&type=commits))_
+- `cleo docs add` errors name the bound positional and the exact fix _(provenance: [T13726](https://github.com/kryptobaseddev/cleo/search?q=T13726&type=commits))_
+- Docs CRDT section ids are anchored to headings, so inserting a section no longer shifts later ids, and a stale edit merges three-way, section by section, against the version it was authored from _(provenance: [T13584](https://github.com/kryptobaseddev/cleo/search?q=T13584&type=commits))_
+- `cleo docs versions` reads a doc's conduit history (`version` is now a display ordinal 1..N; the stored number moves to `storedVersionNumber`); `cleo docs doctor --apply` backfills versions from before the conduit adoption from the audit log, and records unrecoverable ones as gaps instead of inventing them _(provenance: [T13727](https://github.com/kryptobaseddev/cleo/search?q=T13727&type=commits))_
+- Unrecoverable conduit-history gaps are reported at info level after apply _(provenance: [T13843](https://github.com/kryptobaseddev/cleo/search?q=T13843&type=commits))_
+
+### Backups and cross-device sync
+
+- Unencrypted exports of projects with two or more playbook approvals no longer fail; a non-JSON journal image never ships _(provenance: [T13817](https://github.com/kryptobaseddev/cleo/search?q=T13817&type=commits))_
+- The first vault push over a format-2 parent prunes only the local rows in that parent's own snapshot, so a lost synced row is refused instead of hidden _(provenance: [T13816](https://github.com/kryptobaseddev/cleo/search?q=T13816&type=commits))_
+- `cleo cloud pull` judges each local change against the head snapshot's copy: a file equal to the head's, or a new file the head lacks, is no longer a change that refuses the pull, so a device can pull and then push without `--force` _(provenance: [T13813](https://github.com/kryptobaseddev/cleo/search?q=T13813&type=commits))_
+- Live on stable: playbook runs and approvals move to `tasks_playbook_runs`/`tasks_playbook_approvals` on first open (old rows are copied; where both copies of a run differ, the old one wins and the other is archived), the old tables are then frozen (see the upgrade note); deleting a run deletes its approvals; unencrypted `cleo backup export` strips credential columns from journal images _(provenance: [T12535](https://github.com/kryptobaseddev/cleo/search?q=T12535&type=commits))_
+- Sync groundwork (sync itself stays off on stable until Stage C): project sticky notes, playbook runs and playbook approvals get row uids for a second device; two devices adopting the same legacy doc, or making the first docs update on it, mint one doc uid _(provenance: [T12535](https://github.com/kryptobaseddev/cleo/search?q=T12535&type=commits), [T13586](https://github.com/kryptobaseddev/cleo/search?q=T13586&type=commits))_
+
+### Not in this release
+
+- #2338 (T13842, docs fetch serves the merged head) is not included; it is planned for a later release.
+
 ## [2026.10.18] (2026-10-16)
 
 > **Goal protocol, Codex worktree hooks, evidence fixes.** Agents can now drive a task to done through a goal contract: `cleo goal draft` writes the goal from the task's acceptance criteria and `cleo goal close` records per-criterion evidence and completes fully proven tasks. Codex project hooks now fire in linked git worktrees. Cross-device sync itself (Stage C) stays off on stable until Stage C releases its flags; the groundwork below adds migrations and changes audit retention now.

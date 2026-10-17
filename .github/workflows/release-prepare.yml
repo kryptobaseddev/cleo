@@ -180,11 +180,12 @@ jobs:
               const run = JSON.parse(fs.readFileSync(dir + "/run.json", "utf8"));
               const cmp = JSON.parse(fs.readFileSync(dir + "/compare.json", "utf8"));
               const no = (why) => { console.log("run " + run.id + " " + why); process.exit(1); };
-              if (!String(run.path || "").endsWith("/ci.yml")) no("is not a ci.yml run (" + run.path + ")");
+              if (run.path !== ".github/workflows/ci.yml") no("is not a .github/workflows/ci.yml run (" + run.path + ")");
               if (run.event !== "push" || run.head_branch !== branch) no("is a " + run.event + " run on " + run.head_branch + ", not a push to " + branch);
               if (run.status !== "completed" || run.conclusion !== "success") no("is " + run.status + "/" + run.conclusion);
               if (run.head_sha !== head) {
-                const plan = (f) => f.startsWith(".cleo/release/") || f.startsWith(".changeset/") || f === "CHANGELOG.md" || f.endsWith("/CHANGELOG.md");
+                // Whole-path allowlist, the same as isReleasePlanPath in core (T13825).
+                const plan = (f) => [/^\.cleo\/release\/[^/]+\.plan\.json$/, /^\.changeset\/(?:[^/]+\/)*[^/]+\.md$/, /^(?:[^/]+\/)*CHANGELOG\.md$/].some((re) => re.test(f));
                 const files = (cmp.files || []).flatMap((f) => [f.filename, f.previous_filename].filter(Boolean));
                 if (cmp.status !== "ahead" || files.length === 0 || files.length >= 300 || !files.every(plan))
                   no("tested " + run.head_sha + ", and " + head + " is not that commit plus release-plan files only");

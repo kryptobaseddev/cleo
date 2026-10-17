@@ -779,9 +779,11 @@ function revalidateEvidenceStaleness(
   plan: ReleasePlan,
   tag: string,
   projectRoot: string,
+  ownerAllowed: boolean,
 ): EngineResult<true> {
+  // T13790: the override counts only for the owner (resolveOwnerOverride).
   const ownerOverride =
-    process.env['CLEO_OWNER_OVERRIDE'] === '1' &&
+    ownerAllowed &&
     typeof process.env['CLEO_OWNER_OVERRIDE_REASON'] === 'string' &&
     process.env['CLEO_OWNER_OVERRIDE_REASON'].length > 0;
 
@@ -1534,7 +1536,14 @@ export async function releaseReconcileV2(
   // T11977: synthesised plans have no evidence atoms to validate — also skip.
   // Production publish flows still pass through this check.
   if (!opts.backfill && synthReport === null) {
-    const stalenessRes = revalidateEvidenceStaleness(plan, version, projectRoot);
+    const { resolveOwnerOverride } = await import('../security/owner-override-authority.js');
+    const owner = await resolveOwnerOverride(projectRoot, { surface: 'cleo release reconcile' });
+    const stalenessRes = revalidateEvidenceStaleness(
+      plan,
+      version,
+      projectRoot,
+      owner.requested && owner.allowed,
+    );
     if (!stalenessRes.success) return stalenessRes;
   }
 

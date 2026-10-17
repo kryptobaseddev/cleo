@@ -174,6 +174,29 @@ export async function resolveConduitDocUid(
 const ADOPT_SENTINEL = 'cleodocs';
 
 /**
+ * Read one `conduit_attachments` row by its immutable uid.
+ *
+ * @param projectRoot - Absolute path to the CLEO project root.
+ * @param uid - The doc's `conduit_attachments.uid`.
+ * @returns The attachment row, or `null` when unknown.
+ * @task T13727 — `docs versions` conduit routing needs the row's live slug
+ *   for display and `--name` filtering.
+ */
+export async function findConduitAttachmentByUid(
+  projectRoot: string,
+  uid: string,
+): Promise<typeof conduitAttachments.$inferSelect | null> {
+  requireNonEmpty('uid', uid);
+  const db = await getDb(projectRoot);
+  const row = await db
+    .select()
+    .from(conduitAttachments)
+    .where(eq(conduitAttachments.uid, uid))
+    .get();
+  return row ?? null;
+}
+
+/**
  * Adopt a document into the conduit family on first sight (T13355).
  *
  * The docs write path (`docs/section-write-path.ts`) projects every doc
@@ -191,22 +214,28 @@ const ADOPT_SENTINEL = 'cleodocs';
  *
  * Convergent identity (T13586): every birth fact of an adopted shell is a
  * function of the legacy doc, never of the adopting device — `created_at` is
- * the legacy registry row's birth (earliest `docs_attachments` row for the
- * slug, which syncs with its value), and `from_agent_id` is the `cleodocs`
+ * the legacy registry row's `created_at` (a synced value), and
+ * `from_agent_id` is the `cleodocs`
  * sentinel (the adopting author is recorded on the first version row). The
  * uid and birth fingerprint follow the standard minted recipe over those
  * facts, so two devices adopting the same legacy doc mint ONE (uid, birth_fp)
  * and the receiver places the peer's shell as a duplicate. A slug with no
  * legacy row is a new doc, not an adoption, and keeps the random mint.
  *
+ * The registry holds one row per slug, and a docs update moves the slug onto
+ * a NEW row stamped with the updating device's clock. A caller adopting
+ * during an update therefore passes `legacyBirth`, the PRE-update row's
+ * `created_at` (T13586 follow-up); otherwise the current slug row is read.
+ *
  * @param projectRoot - Absolute path to the CLEO project root.
- * @param input - Slug, author and current full text of the doc.
+ * @param input - Slug, author, current full text of the doc, and the
+ *   pre-update legacy row's `created_at` when adopting mid-update.
  * @returns The doc's immutable uid and whether this call created the row.
  */
 // @sync-invariant docs.doc.adopt-once the existence probe and the identity-shell insert are one causal step; the uid is derived from the legacy doc, so a re-adopt here or on another device converges (T13586)
 export async function ensureConduitDoc(
   projectRoot: string,
-  input: { slug: string; authorAgentId: string; content: Buffer },
+  input: { slug: string; authorAgentId: string; content: Buffer; legacyBirth?: string },
 ): Promise<{ uid: string; adopted: boolean }> {
   requireNonEmpty('slug', input.slug);
   requireNonEmpty('authorAgentId', input.authorAgentId);
@@ -214,12 +243,16 @@ export async function ensureConduitDoc(
   if (existing !== null) return { uid: existing, adopted: false };
 
   const db = await getDb(projectRoot);
-  const legacy = await db
-    .select({ birth: sql<string | null>`min(${docsAttachments.createdAt})` })
-    .from(docsAttachments)
-    .where(eq(docsAttachments.slug, input.slug))
-    .get();
-  const birth = legacy?.birth ?? null;
+  const birth =
+    input.legacyBirth ??
+    (
+      await db
+        .select({ birth: docsAttachments.createdAt })
+        .from(docsAttachments)
+        .where(eq(docsAttachments.slug, input.slug))
+        .get()
+    )?.birth ??
+    null;
   const identity =
     birth === null
       ? { fromAgentId: input.authorAgentId }
@@ -954,13 +987,22 @@ export interface ImportMigratedConduitVersionInput {
   readonly changeSummary: string;
   /** Pre-rekey display slug (legacy carry column). */
   readonly slug: string;
+  /**
+   * Import provenance label for `origin` (free TEXT). Default `'migrated'`
+   * (the T13360 docs migration); the T13727 history backfill passes
+   * `'backfill-t13727'` so repair-synthesized rows never pose as T13360
+   * imports. Natively-written rows never come through this accessor.
+   */
+  readonly origin?: string;
 }
 
 /**
  * Import one history row for a migrated doc.
  *
- * Every imported row carries `origin: 'migrated'` (spec §5 — no imported row
- * poses as native) and a natural uid over (doc uid, content hash, event
+ * Every imported row carries an `origin` provenance label (spec §5 — no
+ * imported row poses as native): `'migrated'` for the T13360 data migration,
+ * or the caller's override (the T13727 backfill uses `'backfill-t13727'`).
+ * Row identity is the NATURAL identity over (doc uid, content hash, event
  * timestamp) — a pure function of the version's real facts (T13638). The
  * derivation never touches the device-local `docs-audit.jsonl` row position,
  * so two devices migrating the same synced legacy doc derive the SAME uid
@@ -1011,7 +1053,7 @@ export async function importMigratedConduitVersion(
       tokensAdded: 0,
       tokensRemoved: 0,
       createdAt: input.createdAt,
-      origin: 'migrated',
+      origin: input.origin ?? 'migrated',
     })
     .onConflictDoNothing()
     .run();

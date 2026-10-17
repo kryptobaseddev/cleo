@@ -10,13 +10,4 @@
  * @saga T11492 — SG-AUTOPILOT
  */
 
-export {
-  CLEO_GO_VIA_PLAYBOOK_ENV,
-  type CleoGoAction,
-  type CleoGoParams,
-  type CleoGoResult,
-  cleoGo,
-  type IvtrRunner,
-  type IvtrRunnerOptions,
-  type IvtrRunResult,
-} from './driver.js';
+export { type CleoGoAction, type CleoGoParams, type CleoGoResult, cleoGo } from './driver.js';
