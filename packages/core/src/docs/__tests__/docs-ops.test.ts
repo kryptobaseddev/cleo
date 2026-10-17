@@ -419,6 +419,10 @@ describe('listDocVersions', () => {
     // Newest createdAt first; every version listed with its content hash.
     expect(result.versions.map((v) => v.sha256)).toEqual(['hash-v3', 'hash-v2', 'hash-v1']);
     expect(result.versions.map((v) => v.docVersion)).toEqual([1, 2, 1]);
+    // Read-time display ordinals 1..N (chronological, uid tiebreak) — the
+    // stored ordinals repeat across the seam (1,2,1) but the display cannot.
+    expect(result.versions.map((v) => v.version)).toEqual([3, 2, 1]);
+    expect(result.versions.map((v) => v.storedVersionNumber)).toEqual([1, 2, 1]);
     for (const entry of result.versions) {
       expect(entry.name).toBe(SLUG_FOR_CONDUIT_TEST);
       expect(entry.attachmentId).toBe(entry.sha256);
@@ -474,6 +478,12 @@ describe('listDocVersions', () => {
 
     expect(result.ownerId).toBe('T779');
     expect(result.versions).toHaveLength(2);
+    // Manifest-fallback entries carry no stored version sequence — the
+    // display/stored ordinal fields are honestly absent, not fabricated.
+    for (const entry of result.versions) {
+      expect(entry.version).toBeUndefined();
+      expect(entry.storedVersionNumber).toBeUndefined();
+    }
   });
 
   it('falls back to the manifest when conduit resolution fails (T13727)', async () => {

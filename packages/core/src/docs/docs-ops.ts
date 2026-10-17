@@ -184,6 +184,25 @@ export interface DocsVersionEntry {
   readonly ownerVersion?: string;
   /** Sequential doc version counter (T11181). */
   readonly docVersion?: number;
+  /**
+   * Display ordinal 1..N over the doc's version history, assigned at READ
+   * time (T13727 display-ordinal ruling): rows are ordered by `created_at`
+   * ascending (uid tiebreak) and the oldest row gets 1, the newest N. This
+   * never repeats across the pre-/post-adoption seam the way stored
+   * ordinals can. Present only on conduit-history entries (T13727 routing);
+   * manifest-fallback entries carry no version sequence and omit the field.
+   */
+  readonly version?: number;
+  /**
+   * The row's stored `conduit_attachment_versions.version_number` — the
+   * honest local display ordinal, which MAY repeat across the
+   * pre-/post-adoption seam (backfilled head rows carry their chain
+   * position while post-adoption rows keep their minted ordinals; rows are
+   * append-only and never renumbered). Diagnostics only — user-facing
+   * ordering uses {@link DocsVersionEntry.version}. Present only on
+   * conduit-history entries.
+   */
+  readonly storedVersionNumber?: number;
 }
 
 /**
@@ -949,20 +968,27 @@ async function listConduitDocVersions(
     if (name !== undefined && name !== entryName) {
       return { ownerId: slug, nameFilter: name, versions: [] };
     }
-    // Order by the real timestamps: display ordinals can repeat across the
-    // pre-/post-adoption seam (existing rows keep their minted local
-    // ordinals), but every row carries an honest created_at.
-    const ordered = [...rows].sort((a, b) => {
-      const byTime = b.createdAt.localeCompare(a.createdAt);
-      return byTime !== 0 ? byTime : (b.uid ?? '').localeCompare(a.uid ?? '');
+    // Display-ordinal ruling (T13727): assign 1..N in chronological order
+    // (created_at ascending, uid tiebreak) — rows stay append-only and are
+    // never renumbered, so the stored version_number can repeat across the
+    // pre-/post-adoption seam; the read-time ordinal cannot. Entries are
+    // returned newest first, so the list reads N..1.
+    const chronological = [...rows].sort((a, b) => {
+      const byTime = a.createdAt.localeCompare(b.createdAt);
+      return byTime !== 0 ? byTime : (a.uid ?? '').localeCompare(b.uid ?? '');
     });
-    const versions: DocsVersionEntry[] = ordered.map((row) => ({
-      attachmentId: row.contentHash,
-      name: entryName,
-      sha256: row.contentHash,
-      sizeBytes: row.originalSize,
-      docVersion: row.versionNumber,
-    }));
+    const versions: DocsVersionEntry[] = chronological
+      .map((row, index) => ({ row, display: index + 1 }))
+      .reverse()
+      .map(({ row, display }) => ({
+        attachmentId: row.contentHash,
+        name: entryName,
+        sha256: row.contentHash,
+        sizeBytes: row.originalSize,
+        docVersion: row.versionNumber,
+        version: display,
+        storedVersionNumber: row.versionNumber,
+      }));
     return { ownerId: slug, nameFilter: name, versions };
   } catch {
     return null;
@@ -989,12 +1015,14 @@ async function listConduitDocVersions(
  * `conduit_attachment_versions` row, the listing comes from the conduit
  * history ({@link listConduitAttachmentVersions}) keyed on the doc's
  * immutable uid — the canonical per-doc history — instead of the LWW blob
- * manifest. Entries carry the version's `content_hash` and
- * `version_number` (as `docVersion`) and are ordered newest `created_at`
- * first (real timestamps; display ordinals can repeat across the pre-/post-
- * adoption seam, so ordering leans on time, not the ordinal). A doc with no
- * conduit row, or none yet adopted, keeps the manifest listing as fallback
- * so the command never regresses.
+ * manifest. Entries carry the version's `content_hash`, a read-time
+ * display ordinal (`version`, 1..N chronological — see
+ * {@link DocsVersionEntry.version}) and the stored
+ * `version_number` (`storedVersionNumber`), ordered newest first. A doc
+ * with no conduit row, or none yet adopted, keeps the manifest listing as
+ * fallback so the command never regresses; manifest entries omit
+ * `version`/`storedVersionNumber` (no stored version sequence exists
+ * there).
  *
  * @param opts - Required `ownerId` (owner id or doc slug), optional `name`
  *   filter and `projectRoot`.

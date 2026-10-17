@@ -35,10 +35,18 @@ const SHA1 = createHash('sha256').update(V1_TEXT).digest('hex');
 const SHA2 = createHash('sha256').update(V2_TEXT).digest('hex');
 const SHA3 = createHash('sha256').update(V3_TEXT).digest('hex');
 
+// Four-version seam fixture (display-ordinal ruling): the doc took TWO
+// post-adoption updates, so the conduit table holds minted tail rows
+// (versionNumber 1, 2 = chain states 3, 4) whose stored ordinals collide
+// with the backfilled head rows (chain positions 1, 2).
+const V4_TEXT = '# t13727 doc\n\nversion four\n';
+const SHA4 = createHash('sha256').update(V4_TEXT).digest('hex');
+
 /** Fixed pre-adversioning timeline: v1 created, then two changed updates. */
 const T0 = '2026-10-01T09:00:00.000Z';
 const T1 = '2026-10-02T09:00:00.000Z';
 const T2 = '2026-10-03T09:00:00.000Z';
+const T3 = '2026-10-04T09:00:00.000Z';
 
 /** Seed one docs_attachments registry row (the pre-adoption write shape). */
 async function seedRegistryRow(opts: {
@@ -164,6 +172,102 @@ async function seedPreAdoptionDoc(opts: { omitBytesForSha256?: string } = {}): P
     contentHash: SHA3,
     originalSize: V3_TEXT.length,
     compressedSize: V3_TEXT.length,
+    tokens: 5,
+  });
+  return uid;
+}
+
+/**
+ * Four-version seam fixture for the display-ordinal ruling: docVersion 4
+ * with THREE pre-adoption updates (audit chain sha1→sha2→sha3→sha4) and TWO
+ * post-adoption updates (minted conduit rows versionNumber 1=sha3 and
+ * 2=sha4). After the backfill the stored ordinals read 1,2,1,2 across the
+ * seam — the read-time display ordinals must come out 1,2,3,4.
+ */
+async function seedFourVersionSeamDoc(): Promise<string> {
+  await seedRegistryRow({
+    sha256: SHA1,
+    size: V1_TEXT.length,
+    docVersion: 1,
+    createdAt: T0,
+    slug: null,
+  });
+  await seedRegistryRow({
+    sha256: SHA2,
+    size: V2_TEXT.length,
+    docVersion: 2,
+    createdAt: T1,
+    slug: null,
+  });
+  await seedRegistryRow({
+    sha256: SHA3,
+    size: V3_TEXT.length,
+    docVersion: 3,
+    createdAt: T2,
+    slug: null,
+  });
+  await seedRegistryRow({
+    sha256: SHA4,
+    size: V4_TEXT.length,
+    docVersion: 4,
+    createdAt: T3,
+    slug: `${SLUG}-seam`,
+  });
+
+  const auditDir = join(tempDir, '.cleo', 'audit');
+  mkdirSync(auditDir, { recursive: true });
+  const line = (ts: string, previousSha256: string, sha256: string) =>
+    JSON.stringify({
+      op: 'docs.update',
+      slug: `${SLUG}-seam`,
+      firstAt: ts,
+      lastAt: ts,
+      revisions: [{ ts, previousSha256, sha256, changed: true, attachedBy: 'human' }],
+    });
+  writeFileSync(
+    join(auditDir, 'docs-versioning.jsonl'),
+    `${line(T1, SHA1, SHA2)}\n${line(T2, SHA2, SHA3)}\n${line(T3, SHA3, SHA4)}\n`,
+    'utf-8',
+  );
+
+  seedLegacyBytes(V1_TEXT, SHA1);
+  seedLegacyBytes(V2_TEXT, SHA2);
+
+  const { ensureConduitDoc, appendConduitAttachmentVersion } = await import(
+    '../../store/conduit-doc-history.js'
+  );
+  const { uid } = await ensureConduitDoc(tempDir, {
+    slug: `${SLUG}-seam`,
+    authorAgentId: 'human',
+    content: Buffer.from(V4_TEXT, 'utf-8'),
+  });
+  for (const [text, sha] of [
+    [V3_TEXT, SHA3],
+    [V4_TEXT, SHA4],
+  ] as const) {
+    const storageKey = `${sha.slice(0, 2)}/${sha.slice(2)}.md`;
+    const mergedPath = join(tempDir, '.cleo', 'attachments', 'sha256', storageKey);
+    mkdirSync(dirname(mergedPath), { recursive: true });
+    writeFileSync(mergedPath, text, 'utf-8');
+  }
+  const first = await appendConduitAttachmentVersion(tempDir, {
+    attachmentUid: uid,
+    parentVersionUid: null,
+    authorAgentId: 'human',
+    storageKey: `${SHA3.slice(0, 2)}/${SHA3.slice(2)}.md`,
+    contentHash: SHA3,
+    originalSize: V3_TEXT.length,
+    compressedSize: V3_TEXT.length,
+    tokens: 5,
+  });
+  await appendConduitAttachmentVersion(tempDir, {
+    attachmentUid: uid,
+    parentVersionUid: first.uid ?? null,
+    authorAgentId: 'human',
+    storageKey: `${SHA4.slice(0, 2)}/${SHA4.slice(2)}.md`,
+    contentHash: SHA4,
+    originalSize: V4_TEXT.length,
+    compressedSize: V4_TEXT.length,
     tokens: 5,
   });
   return uid;
@@ -383,8 +487,39 @@ describe('docs versions routing + backfill (T13727 acceptance)', () => {
       expect(entry.attachmentId).toBe(entry.sha256);
       expect(entry.sizeBytes).toBeGreaterThan(0);
     }
-    // docVersion present on every entry (display ordinal — pins the field).
+    // docVersion present on every entry (the stored ordinal, for continuity).
     expect(result.versions.map((v) => v.docVersion).sort()).toEqual([1, 1, 2]);
+    // Read-time display ordinals 1..N cannot repeat across the seam: the
+    // newest row is version 3 even though its stored ordinal is 1.
+    expect(result.versions.map((v) => v.version)).toEqual([3, 2, 1]);
+    expect(result.versions.map((v) => v.storedVersionNumber)).toEqual([1, 2, 1]);
+  });
+
+  it('seam fixture: display ordinals read 1,2,3,4 while storedVersionNumber exposes the honest stored ordinals', async () => {
+    await seedFourVersionSeamDoc();
+    const { planConduitHistoryBackfill, applyConduitHistoryBackfill } = await import(
+      '../conduit-history-backfill.js'
+    );
+    const plans = await planConduitHistoryBackfill(tempDir);
+    const plan = plans.find((p) => p.slug === `${SLUG}-seam`)!;
+    expect(plan.expectedVersions).toBe(4);
+    expect(plan.existingVersions).toBe(2);
+    expect(plan.toBackfill).toHaveLength(2);
+    await applyConduitHistoryBackfill(tempDir, plan);
+
+    const { listConduitAttachmentVersions } = await import('../../store/conduit-doc-history.js');
+    const stored = await listConduitAttachmentVersions(tempDir, plan.docUid);
+    expect(stored.map((r) => r.versionNumber).sort()).toEqual([1, 1, 2, 2]);
+
+    const { listDocVersions } = await import('../docs-ops.js');
+    const result = await listDocVersions({ ownerId: `${SLUG}-seam`, projectRoot: tempDir });
+
+    expect(result.versions).toHaveLength(4);
+    expect(result.versions.map((v) => v.sha256)).toEqual([SHA4, SHA3, SHA2, SHA1]);
+    expect(result.versions.map((v) => v.version)).toEqual([4, 3, 2, 1]);
+    // Honest stored values: minted tail rows (sha4, sha3) hold 2, 1;
+    // backfilled head rows (sha2, sha1) hold their chain positions 2, 1.
+    expect(result.versions.map((v) => v.storedVersionNumber)).toEqual([2, 1, 2, 1]);
   });
 
   it('falls back to the manifest listing for a doc slug with no conduit rows (never regresses)', async () => {
