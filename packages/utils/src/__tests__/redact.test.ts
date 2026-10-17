@@ -174,3 +174,76 @@ describe('redactSecretFields / redactJsonText (audit payloads, T13855)', () => {
     expect(redactJsonText('failed with Bearer abc.def')).toBe('failed with [REDACTED]');
   });
 });
+
+describe('audit text survives path-shaped non-secrets (T13859)', () => {
+  it.each([
+    ['process.env'],
+    ['Fix id_rsa docs'],
+    ['llm.anthropic.key'],
+  ])('keeps the non-secret string %s byte for byte', (text) => {
+    const json = JSON.stringify({ title: text, note: text });
+    expect(redactJsonText(json)).toBe(json);
+    expect(redactJsonText(text)).toBe(text);
+  });
+
+  it('keeps .env.example inside a files list', () => {
+    const json = JSON.stringify({ files: ['.env.example', 'src/index.ts'] });
+    expect(redactJsonText(json)).toBe(json);
+  });
+
+  it('is idempotent: redacting its own output changes nothing', () => {
+    const once = redactJsonText(
+      JSON.stringify({
+        token: 'abc',
+        argv: 'cleo x --token=xyz',
+        url: 'https://u:pw@host/x',
+        headers: [{ name: 'Authorization', value: 'token abc' }],
+      }),
+    );
+    expect(redactJsonText(once)).toBe(once);
+  });
+});
+
+describe('audit secrets outside secret-named fields (T13860)', () => {
+  const R = '[REDACTED]';
+
+  it('redacts value when the sibling key names a secret (config set)', () => {
+    expect(redactSecretFields({ key: 'cloud.apiToken', value: 'plain-value-1' })).toEqual({
+      key: 'cloud.apiToken',
+      value: R,
+    });
+  });
+
+  it('redacts value when the sibling name names a secret (header arrays)', () => {
+    expect(
+      redactSecretFields({ headers: [{ name: 'Authorization', value: 'plain-value-1' }] }),
+    ).toEqual({ headers: [{ name: 'Authorization', value: R }] });
+  });
+
+  it('keeps value when the sibling key is not a secret', () => {
+    const input = { key: 'ui.theme', value: 'dark' };
+    expect(redactSecretFields(input)).toBe(input);
+  });
+
+  it('redacts a GitHub-style Authorization: token header in text', () => {
+    expect(redactJsonText('sent Authorization: token abc123 upstream')).toBe(
+      `sent Authorization: token ${R} upstream`,
+    );
+  });
+
+  it('redacts a URL userinfo password', () => {
+    expect(redactSecretFields({ remote: 'https://me:hunter2@example.com/repo.git' })).toEqual({
+      remote: `https://me:${R}@example.com/repo.git`,
+    });
+  });
+
+  it.each([
+    [
+      'cleo service connect --token xyz9 --provider github',
+      `cleo service connect --token ${R} --provider github`,
+    ],
+    ['cleo service connect --token=xyz9', `cleo service connect --token=${R}`],
+  ])('redacts an argv token flag in %s', (argv, expected) => {
+    expect(redactSecretFields({ argv })).toEqual({ argv: expected });
+  });
+});

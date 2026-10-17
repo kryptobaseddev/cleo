@@ -33,6 +33,7 @@ import type { DatabaseSync, SQLInputValue } from 'node:sqlite';
 import type { TableScope } from '@cleocode/contracts';
 import type { LedgerWireValue } from '@cleocode/contracts/ledger';
 import { BIRTH_FP_COLUMN, UID_COLUMN } from '../../row-identity-registry.js';
+import { transformColumnValue } from '../../schema/schema-utils.js';
 import {
   type ApplyIntent,
   INTENT_DELETE,
@@ -93,6 +94,14 @@ export function wireToSql(v: LedgerWireValue): SQLInputValue {
     return Number(t);
   }
   return Buffer.from(v.$b, 'base64');
+}
+
+/**
+ * A wire value as the column stores it: the column's transform applied
+ * (T13861), so a received audit row is redacted exactly as a local write is.
+ */
+function asStored(table: string, column: string, v: LedgerWireValue | undefined): LedgerWireValue {
+  return transformColumnValue(table, column, v as LedgerWireValue);
 }
 
 /** What one write stored, per column, as `enc()` text. */
@@ -496,7 +505,7 @@ export function createApplyWriteApi(
           `UPDATE main.${ident(table)} SET ${cols.map((c) => `${ident(c)} = ?`).join(', ')} ` +
             `WHERE ${ident(UID_COLUMN)} = ? RETURNING ${returning(cols)}`,
         )
-        .get(...cols.map((c) => wireToSql(values[c] as LedgerWireValue)), uid) as
+        .get(...cols.map((c) => wireToSql(asStored(table, c, values[c]))), uid) as
         | Record<string, unknown>
         | undefined;
       if (!row) {
@@ -536,7 +545,7 @@ export function createApplyWriteApi(
         .get(
           uid,
           ...local.map(() => uid),
-          ...cols.map((c) => wireToSql(values[c] as LedgerWireValue)),
+          ...cols.map((c) => wireToSql(asStored(table, c, values[c]))),
         ) as Record<string, unknown>;
       const stored = unpack(row, all);
       record([

@@ -62,9 +62,9 @@ export const auditLog = sqliteTable(
     action: text('action').notNull(),
     taskId: text('task_id').notNull(),
     actor: text('actor').notNull().default('system'),
-    detailsJson: redactedText('details_json').default('{}'),
-    beforeJson: redactedText('before_json'),
-    afterJson: redactedText('after_json'),
+    detailsJson: redactedText('audit_log', 'details_json').default('{}'),
+    beforeJson: redactedText('audit_log', 'before_json'),
+    afterJson: redactedText('audit_log', 'after_json'),
     // Dispatch layer columns (migration 20260225200000_audit-log-dispatch-columns)
     domain: text('domain'),
     operation: text('operation'),
@@ -76,7 +76,7 @@ export const auditLog = sqliteTable(
     success: integer('success'),
     source: text('source'),
     gateway: text('gateway'),
-    errorMessage: redactedText('error_message'),
+    errorMessage: redactedText('audit_log', 'error_message'),
     // Project correlation (T5334)
     projectHash: text('project_hash'),
   },

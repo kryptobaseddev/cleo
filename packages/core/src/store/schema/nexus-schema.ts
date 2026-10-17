@@ -403,8 +403,8 @@ export const nexusAuditLog = sqliteTable(
     gateway: text('gateway'),
     success: integer('success'),
     durationMs: integer('duration_ms'),
-    detailsJson: redactedText('details_json').default('{}'),
-    errorMessage: redactedText('error_message'),
+    detailsJson: redactedText('nexus_audit_log', 'details_json').default('{}'),
+    errorMessage: redactedText('nexus_audit_log', 'error_message'),
   },
   (table) => [
     index('idx_nexus_audit_timestamp').on(table.timestamp),

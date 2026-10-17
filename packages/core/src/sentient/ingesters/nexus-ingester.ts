@@ -37,6 +37,7 @@
 import type { DatabaseSync } from 'node:sqlite';
 import type { ProposalCandidate } from '@cleocode/contracts';
 import { pushWarning } from '@cleocode/lafs';
+import { transformColumnValue } from '../../store/schema/schema-utils.js';
 
 // ---------------------------------------------------------------------------
 // Raw row types
@@ -146,7 +147,11 @@ function logAuditEvent(
     stmtInsert.run({
       id: `audit_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`,
       action,
-      details_json: JSON.stringify(detailsJson),
+      details_json: transformColumnValue(
+        'nexus_audit_log',
+        'details_json',
+        JSON.stringify(detailsJson),
+      ),
     });
   } catch (err) {
     // Best-effort: surface degraded-ingester signal in the envelope but never
