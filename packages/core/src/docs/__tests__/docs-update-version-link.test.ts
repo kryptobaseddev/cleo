@@ -5,8 +5,8 @@
  * conduit projection recorded only the new bytes, so v1 was reachable from
  * nothing and `docs versions --for <slug>` fell back to the owner-wide blob
  * list (sibling docs included). The update now records the pre-update bytes
- * as the root conduit version, and `listDocVersions` lists a slug's own
- * conduit history.
+ * as the root conduit version, so the doc's conduit history holds v1 → v2.
+ * (Listing that history per doc in `docs versions` is T13727's routing.)
  *
  * Isolated temp `.cleo/` per test, seeded through `createAttachmentStore`
  * (same pattern as docs-update-docversion.test.ts).
@@ -52,15 +52,13 @@ afterEach(async () => {
 });
 
 describe('docs update links the prior version to its doc (T13734)', () => {
-  it('add then update yields v1 and v2 in the doc history, and versions --for lists only them', async () => {
+  it('add then update yields v1 and v2 in the doc history', async () => {
     const { updateDocBySlug } = await import('../docs-update.js');
-    const { listDocVersions } = await import('../docs-ops.js');
     const { listConduitAttachmentVersions, resolveConduitDocUid } = await import(
       '../../store/conduit-doc-history.js'
     );
 
     const v1Sha = await seedSlug('t13734-doc', '# Doc\n\nv1 body.\n');
-    const siblingSha = await seedSlug('t13734-sibling', '# Sibling\n\nother doc.\n');
 
     const res = await updateDocBySlug(tempDir, {
       slug: 't13734-doc',
@@ -76,15 +74,13 @@ describe('docs update links the prior version to its doc (T13734)', () => {
     expect(root?.contentHash).toBe(v1Sha);
     expect(root?.parentVersionUid).toBeNull();
     expect(head?.parentVersionUid).toBe(root?.uid);
-
-    const listed = await listDocVersions({ ownerId: 't13734-doc', projectRoot: tempDir });
-    expect(listed.versions.map((v) => v.sha256)).toEqual([head?.contentHash, v1Sha]);
-    expect(listed.versions.map((v) => v.sha256)).not.toContain(siblingSha);
   });
 
   it('a second update extends the same history instead of re-rooting it', async () => {
     const { updateDocBySlug } = await import('../docs-update.js');
-    const { listDocVersions } = await import('../docs-ops.js');
+    const { listConduitAttachmentVersions, resolveConduitDocUid } = await import(
+      '../../store/conduit-doc-history.js'
+    );
 
     const v1Sha = await seedSlug('t13734-three', '# Doc\n\nv1.\n');
     expect(
@@ -94,9 +90,11 @@ describe('docs update links the prior version to its doc (T13734)', () => {
       (await updateDocBySlug(tempDir, { slug: 't13734-three', content: '# Doc\n\nv3.\n' })).ok,
     ).toBe(true);
 
-    const listed = await listDocVersions({ ownerId: 't13734-three', projectRoot: tempDir });
-    expect(listed.versions).toHaveLength(3);
-    expect(listed.versions.at(-1)?.sha256).toBe(v1Sha);
-    expect(listed.versions.map((v) => v.docVersion)).toEqual([3, 2, 1]);
+    const docUid = await resolveConduitDocUid(tempDir, 't13734-three');
+    const history = await listConduitAttachmentVersions(tempDir, docUid ?? '');
+    expect(history.map((v) => v.versionNumber)).toEqual([3, 2, 1]);
+    expect(history.at(-1)?.contentHash).toBe(v1Sha);
+    expect(history[0]?.parentVersionUid).toBe(history[1]?.uid);
+    expect(history[1]?.parentVersionUid).toBe(history[2]?.uid);
   });
 });

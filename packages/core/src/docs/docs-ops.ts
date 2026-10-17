@@ -934,8 +934,7 @@ export async function rankDocs(opts: {
  * Any other arg is listed verbatim when it owns blobs; otherwise it is
  * resolved as a doc slug through the same {@link AttachmentStore.findBySlug}
  * surface `docs fetch` uses, and its owning task's blobs are listed
- * (sibling docs included; narrow with `name`). A slug whose doc has conduit
- * history lists only that doc's versions, newest first (T13734). An
+ * (sibling docs included; narrow with `name`). An
  * arg that is neither throws `E_NOT_FOUND`.
  *
  * @param opts - Required `ownerId` (owner id or doc slug), optional `name`
@@ -966,29 +965,9 @@ export async function listDocVersions(opts: {
         fix: 'Pass an owner id (T###, ses_*, O-*) or a doc slug from `cleo docs list`.',
       });
     }
-    // T13734: a doc with conduit history lists exactly its own versions; updates record the
-    // pre-update bytes as the root version, so the history is complete from the first update.
-    const { listConduitAttachmentVersions, resolveConduitDocUid } = await import(
-      '../store/conduit-doc-history.js'
-    );
-    const docUid = await resolveConduitDocUid(root, opts.ownerId);
-    const history = docUid !== null ? await listConduitAttachmentVersions(root, docUid) : [];
-    if (history.length > 0) {
-      return {
-        ownerId: opts.ownerId,
-        nameFilter: opts.name,
-        versions: history.map((v) => ({
-          attachmentId: v.contentHash,
-          name: opts.ownerId,
-          sha256: v.contentHash,
-          sizeBytes: v.originalSize,
-          docVersion: v.versionNumber,
-        })),
-      };
-    }
-    // shortcut: a doc with no conduit history (never updated, or updated before conduit
-    // adoption) lists the owning task's blobs, siblings included; narrow with `name`. The
-    // T13727 backfill gives those docs conduit history.
+    // shortcut: lists the owning task's blobs, siblings included; the store keeps no link from
+    // a doc to its pre-update blobs (update re-homes the slug), so a per-doc filter would drop
+    // history. Narrow with `name`, or filter per doc once updates record their predecessor.
     const refs = await store.listRefs(doc.metadata.id, root).catch(() => []);
     for (const ref of refs) {
       const rows = await blobList(ref.ownerId, root).catch(() => []);
