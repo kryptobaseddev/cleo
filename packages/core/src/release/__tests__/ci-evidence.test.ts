@@ -1377,6 +1377,26 @@ describe('resolveCiEvidenceAtom', () => {
           '31 tests are quarantined (most 30)',
         ].join('\n');
         expect(isQuarantineBudgetOnlyLog(echoedFull)).toBe(false);
+        // A full block a child vitest echoed through inherited stdio (no `stdout |`
+        // prefix), then only unprefixed child output and a kill mid-test (T13809 residual).
+        const echoedUnprefixed = [
+          ' ✓ packages/x/a.test.ts (3 tests) 20ms',
+          'child: running 1 file',
+          ' Test Files  1 passed (1)',
+          '      Tests  2 passed (2)',
+          '   Start at  10:00:00',
+          '   Duration  1.2s',
+          'child: exited 0',
+          'Killed',
+          '### Flaky quarantine over budget',
+          '',
+          '31 tests are quarantined (most 30)',
+        ].join('\n');
+        expect(isQuarantineBudgetOnlyLog(echoedUnprefixed)).toBe(false);
+        // The preceding line alone refuses it: after a blank line the block reads as the run's own.
+        expect(
+          isQuarantineBudgetOnlyLog(echoedUnprefixed.replace('child: running 1 file', '')),
+        ).toBe(true);
         // Real logs print the script's report line between the summary and the heading.
         expect(
           isQuarantineBudgetOnlyLog(

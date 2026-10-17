@@ -49,7 +49,7 @@ import { cleoErrorToEngineResult } from '../errors-to-engine.js';
 import { isWithin } from '../nexus/stored-roots.js';
 import { getProjectRoot } from '../paths.js';
 import { getTaskAccessor } from '../store/data-accessor.js';
-import type { ChangeSetDeps } from '../tasks/change-set.js';
+import { type ChangeSetDeps, isLandedOnOriginDefault } from '../tasks/change-set.js';
 import { joinCommandLine } from '../tasks/command-line.js';
 import { resolveToolCommand } from '../tasks/tool-resolver.js';
 import { GOAL_ID } from './draft.js';
@@ -76,6 +76,12 @@ export interface GoalCloseTask {
   open: GoalCloseOpenAc[];
   /** Every criterion is mapped: the caller completes it through `cleo done`. */
   ready: boolean;
+  /**
+   * The commit `cleo done --commit` completes it from (T13799): the outcome's
+   * head commit, set only when that commit has landed on the default branch
+   * and no PR, branch or document gives the task a change set of its own.
+   */
+  completionCommit?: string;
 }
 
 /** Result of {@link closeGoal}. */
@@ -593,6 +599,11 @@ export async function closeGoal(
           alias: m.alias,
           blocker: blockers.get(m.alias) ?? 'no passing goal criterion proves it',
         }));
+      // Work that landed on main with no citing PR or branch completes from the run's head commit.
+      const viaCommit =
+        open.length === 0 &&
+        plan.data.changeSet.source === 'none' &&
+        isLandedOnOriginDefault(root, outcome.headCommit);
       tasks.push({
         taskId,
         alreadyDone: false,
@@ -600,6 +611,7 @@ export async function closeGoal(
         satisfied: plan.data.acMapping.filter((m) => m.mapped).map((m) => m.alias),
         open,
         ready: open.length === 0,
+        ...(viaCommit ? { completionCommit: outcome.headCommit } : {}),
       });
     }
     return engineSuccess({ goal: slug, lock, headCommit: outcome.headCommit, tasks });
