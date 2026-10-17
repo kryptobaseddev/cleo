@@ -2859,6 +2859,49 @@ describe('cloud vault global scope', () => {
     }
   }
 
+  it('a fresh device pulls the global store without --force: its own heartbeat row is not unsynced data (T13853)', async () => {
+    const a = await machine('a', DEVICE_A, REPLICA_A);
+    const b = await machine('b', DEVICE_B, REPLICA_B);
+    await seedHome(a, ['p1']);
+    await on(a, () => pushNexusVault(vopts(a, { scope: 'global' })));
+    // B is freshly logged in: an empty global store plus the heartbeat row login writes.
+    await seedHome(b, []);
+    fs.writeFileSync(path.join(b.home, 'device-id'), 'device-b-fresh\n');
+    _resetDeviceIdCacheForTests();
+    const heartbeat = (id: string) => {
+      const db = new DatabaseSync(path.join(b.home, 'cleo.db'));
+      db.prepare(
+        "INSERT INTO nexus_devices (device_id, hostname, os, arch, cleo_version) VALUES (?, 'h', 'darwin', 'arm64', '1')",
+      ).run(id);
+      db.close();
+    };
+    heartbeat('device-b-fresh');
+    // Another device's row is data this store would lose: still refused.
+    heartbeat('device-other');
+    const refused = await failure(
+      on(b, () => restoreNexusVault(vopts(b, { scope: 'global', mode: 'pull' }))),
+    );
+    expect(refused.code).toBe('E_NEXUS_VAULT_LOCAL_CHANGES');
+    homeSql(b, "DELETE FROM nexus_devices WHERE device_id = 'device-other'");
+    // So is one user-authored row.
+    homeSql(
+      b,
+      "INSERT INTO nexus_project_registry (project_id, project_hash, project_path, name) VALUES ('mine', 'h-mine', '/b/mine', 'mine')",
+    );
+    const mine = await failure(
+      on(b, () => restoreNexusVault(vopts(b, { scope: 'global', mode: 'pull' }))),
+    );
+    expect(mine.code).toBe('E_NEXUS_VAULT_LOCAL_CHANGES');
+    homeSql(b, "DELETE FROM nexus_project_registry WHERE project_id = 'mine'");
+    const pulled = await on(b, () =>
+      restoreNexusVault(vopts(b, { scope: 'global', mode: 'pull' })),
+    );
+    expect(pulled.status).toBe('restored');
+    expect(
+      homeSql<{ project_id: string }>(b, 'SELECT project_id FROM nexus_project_registry'),
+    ).toEqual([{ project_id: 'p1' }]);
+  });
+
   it('a vault snapshot carries no local change journal: capture, undo, frame, quarantine, apply intents (T13042, T12757)', async () => {
     const a = await machine('a', DEVICE_A, REPLICA_A);
     await seedHome(a, ['p1']);
