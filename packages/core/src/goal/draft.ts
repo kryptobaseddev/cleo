@@ -195,8 +195,13 @@ function gateStatement(gate: AcceptanceGate): string {
   }
 }
 
-/** Goal slug from the task ids: whole ids only, at most 64 characters. */
-function goalSlug(ids: readonly string[]): string {
+/**
+ * Goal slug from the task ids: whole ids only, at most 64 characters.
+ *
+ * @param ids - Task ids; the first names the goal.
+ * @returns The slug `cleo goal draft` writes the goal under.
+ */
+export function goalSlug(ids: readonly string[]): string {
   let slug = '';
   for (const id of ids.map((i) => i.toLowerCase())) {
     const next = slug ? `${slug}-${id}` : id;

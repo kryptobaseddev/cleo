@@ -3,13 +3,15 @@
  *
  * CLEO owns the goal protocol; OpenCode-Goal is the goal runtime (owner
  * decision 2026-10-16). These verbs are the protocol's CLI surface; CLEO's
- * own goal loop and its `set`/`status`/`advance`/`subgoal`/`append` verbs were
- * retired in T13797.
+ * own goal loop and its `set`/`advance`/`subgoal`/`append` verbs were retired
+ * in T13797; `status` now reads the runtime's goal runs.
  *
  *   - `cleo goal draft <taskId> [--tasks …] [--out <path>]` — write a goal/v1
  *     draft from task acceptance criteria (T13793).
  *   - `cleo goal close <slug> --outcome <file>` — record a run's per-AC
  *     evidence and complete fully proven tasks via `cleo done` (T13794).
+ *   - `cleo goal status [--task T123]` — the project's goal runs and the tasks
+ *     they serve, read-only from the runtime's files (T13821).
  *
  * Handlers are thin: the logic lives in `@cleocode/core/goal/*`.
  *
@@ -127,8 +129,33 @@ const closeCommand = defineCommand({
 });
 
 /**
- * Parent `cleo goal` command — routes to the protocol verbs `draft` and
- * `close`; prints usage when invoked bare.
+ * `cleo goal status [--task T123]` — the project's goal/v1 runs and the tasks
+ * they serve, read-only from the goal runtime's files (T13821).
+ *
+ * @task T13821
+ */
+const statusCommand = defineCommand({
+  meta: {
+    name: 'status',
+    description:
+      "Show the project's goal runs (OpenCode-Goal) and the CLEO tasks each serves, read-only; --task filters to one task",
+  },
+  args: {
+    task: { type: 'string', description: 'Only goals serving this task (T123)' },
+  },
+  async run({ args }) {
+    const { goalStatus } = await import('@cleocode/core/goal/status.js');
+    const goals = goalStatus({
+      projectRoot: getProjectRoot(),
+      ...(typeof args.task === 'string' && args.task ? { taskId: args.task } : {}),
+    });
+    cliOutput({ goals }, { command: 'goal status', operation: 'goal.status' });
+  },
+});
+
+/**
+ * Parent `cleo goal` command — routes to the protocol verbs `draft`, `close`
+ * and `status`; prints usage when invoked bare.
  *
  * @task T13797
  */
@@ -136,11 +163,12 @@ export const goalCommand = defineCommand({
   meta: {
     name: 'goal',
     description:
-      'Goal protocol verbs for the goal runtime (OpenCode-Goal): draft a goal/v1 contract from task ACs, close a run from its outcome.',
+      'Goal protocol verbs for the goal runtime (OpenCode-Goal): draft a goal/v1 contract from task ACs, close a run from its outcome, show run status.',
   },
   subCommands: {
     draft: draftCommand,
     close: closeCommand,
+    status: statusCommand,
   },
   async run({ cmd, rawArgs }) {
     const firstArg = rawArgs?.find((a) => !a.startsWith('-'));

@@ -436,3 +436,58 @@ export interface GoalOutcome {
   /** Per-criterion and per-invariant verdicts. */
   results: GoalCriterionOutcome[];
 }
+
+/** Per-criterion verdict counts of a goal run (OpenCode-Goal `run.json`). */
+export interface GoalRunCriteriaCounts {
+  /** Criteria the runtime has proven. */
+  pass: number;
+  /** Criteria that failed their check. */
+  fail: number;
+  /** Criteria the worker claimed, not yet verified. */
+  claimed: number;
+  /** Criteria not judged yet. */
+  unknown: number;
+}
+
+/** The live state of one goal run, as the runtime records it. */
+export interface GoalRunSummary {
+  /** Runtime status (`running`, `waiting`, `verifying`, `paused`, `complete`, …). */
+  status: string;
+  /** Turns taken. */
+  turn: number;
+  /** Last update (epoch ms), when recorded. */
+  updatedAt?: number;
+  /** Verdict counts. */
+  criteria: GoalRunCriteriaCounts;
+}
+
+/** One goal and its run, as `cleo goal status` reports it (T13821). */
+export interface GoalStatusEntry {
+  /** Goal slug (its directory under `.opencode/goals/`). */
+  slug: string;
+  /** Contract title, when the contract parses. */
+  title: string | null;
+  /** CLEO tasks the goal serves: `cleo.tasks` plus every task a criterion proves. */
+  tasks: string[];
+  /** The run, or null when the goal has not started. */
+  run: GoalRunSummary | null;
+  /** Why the contract or run could not be read, when it could not. */
+  problem?: string;
+}
+
+/**
+ * The goal runtime (OpenCode-Goal) as `cleo go` finds it, and the exact next
+ * step in the current harness (T13821).
+ */
+export interface GoalRuntimeHandoff {
+  /** The runtime CLEO hands goals to. */
+  name: 'opencode-goal';
+  /** Whether it is installed here. */
+  installed: boolean;
+  /** How it was found: the `ocg` binary on PATH, or the plugin in an OpenCode config. */
+  via?: 'path' | 'opencode-config';
+  /** The commands that install it, when it is not installed. */
+  install?: string[];
+  /** The one next step, in plain words. */
+  next: string;
+}

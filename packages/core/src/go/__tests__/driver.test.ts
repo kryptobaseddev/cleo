@@ -1,27 +1,23 @@
 /**
- * Unit tests for the `cleo go` autopilot driver (T11494).
+ * Unit tests for the `cleo go` autopilot driver (T11494, repurposed T13821).
  *
- * Tests the four outcome branches of {@link cleoGo}:
+ * Tests the outcome branches of {@link cleoGo}:
  * 1. `complete`           — no non-terminal sagas
  * 2. `needsDecomposition` — empty ready frontier + zero descendants
  * 3. `lifecycleHop`       — pre-implementation stage (research/specification/decomposition)
- * 4. `ivtrFanOut`         — implementation stage, IVTR fan-out
+ * 4. `goalHandoff`        — implementation stage: a goal/v1 contract drafted for
+ *                           the ready wave, handed to the goal runtime
  *
- * The test stubs out the imported engines (sagaNext, orchestrateReady)
- * so no DB or filesystem is touched. The IVTR seam (T11805) is now
- * an *injected* runner — the default cantbook path (T11896) — so the fan-out
- * scenarios pass a mock {@link go.IvtrRunner} via `params.ivtrRunner`. The
- * kill-switch (`CLEO_GO_VIA_PLAYBOOK=0`) fallback seeds via the retained
- * `seedIvtrForPlaybook` (byte-identical to the deleted `startIvtr`).
+ * The engines (sagaNext, orchestrateReady), the goal draft and the runtime
+ * detection are stubbed, so no DB or filesystem is touched.
  *
  * @task T11494 — E2-CLEO-GO
- * @task T11805 — IVTR seam: injected `executePlaybook(ivtr.cantbook)` runner
+ * @task T13821 — cleo go hands the ready wave to the goal runtime
  * @saga T11492 — SG-AUTOPILOT
  */
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { SagaNextResult } from '../../sagas/next.js';
-import type { IvtrRunner } from '../driver.js';
 
 // ---------------------------------------------------------------------------
 // Module mocks — must come before importing the system-under-test
@@ -29,11 +25,10 @@ import type { IvtrRunner } from '../driver.js';
 
 const mockSagaNext = vi.fn();
 const mockOrchestrateReady = vi.fn();
-const mockIvtrRunner = vi.fn();
-const mockSeedIvtr = vi.fn();
+const mockDraftGoal = vi.fn();
+const mockRuntime = vi.fn();
 
 /** Injected IVTR runner under test (T11805). */
-const ivtrRunner: IvtrRunner = (...args) => mockIvtrRunner(...args);
 
 vi.mock('../../sagas/next.js', () => ({
   sagaNext: (...args: unknown[]) => mockSagaNext(...args),
@@ -47,18 +42,21 @@ vi.mock('../../paths.js', () => ({
   getProjectRoot: (_p?: string) => _p ?? '/test/root',
 }));
 
-// T11896 — the kill-switch fallback now seeds `ivtr_state` via the retained
-// `seedIvtrForPlaybook` (byte-identical to the deleted `startIvtr`). Stub it so
-// the fallback path never touches a real DB.
-vi.mock('../../lifecycle/ivtr-loop.js', () => ({
-  seedIvtrForPlaybook: (...args: unknown[]) => mockSeedIvtr(...args),
+vi.mock('../../goal/draft.js', () => ({
+  draftGoal: (...args: unknown[]) => mockDraftGoal(...args),
+  goalSlug: (ids: readonly string[]) => ids.join('-').toLowerCase(),
+}));
+
+vi.mock('../../goal/runtime.js', async (orig) => ({
+  ...(await orig<typeof import('../../goal/runtime.js')>()),
+  detectGoalRuntime: () => mockRuntime(),
 }));
 
 // ---------------------------------------------------------------------------
 // Import SUT after mocks are registered
 // ---------------------------------------------------------------------------
 
-const { cleoGo, CLEO_GO_VIA_PLAYBOOK_ENV } = await import('../driver.js');
+const { cleoGo } = await import('../driver.js');
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -102,18 +100,23 @@ function makeReadyResult(
 describe('cleoGo driver (T11494)', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mockIvtrRunner.mockResolvedValue({ taskId: 'T999', runId: 'pbr_999' });
-    mockSeedIvtr.mockResolvedValue({ taskId: 'T999', currentPhase: 'implement' });
-    // The cantbook seam defaults ON (T11896) — leaving the env unset already
-    // exercises the seam path. We clear it here so the default-ON behaviour is
-    // what the fan-out tests assert; the dedicated kill-switch test below sets
-    // `CLEO_GO_VIA_PLAYBOOK=0` explicitly to exercise the legacy fallback.
-    delete process.env[CLEO_GO_VIA_PLAYBOOK_ENV];
+    mockRuntime.mockReturnValue({
+      name: 'opencode-goal',
+      installed: true,
+      via: 'path',
+      next: 'Start the goal with OpenCode-Goal.',
+    });
+    mockDraftGoal.mockImplementation(async (ids: string[], o: { projectRoot: string }) => ({
+      success: true,
+      data: {
+        slug: ids.join('-').toLowerCase(),
+        path: `${o.projectRoot}/.opencode/goals/x/goal.yaml`,
+      },
+    }));
   });
 
   afterEach(() => {
     vi.restoreAllMocks();
-    delete process.env[CLEO_GO_VIA_PLAYBOOK_ENV];
   });
 
   // ---- Outcome: complete ---------------------------------------------------
@@ -210,259 +213,68 @@ describe('cleoGo driver (T11494)', () => {
     });
   });
 
-  // ---- Outcome: ivtrFanOut ------------------------------------------------
+  // ---- Outcome: goalHandoff ----------------------------------------------
 
-  describe('outcome: ivtrFanOut', () => {
-    it('returns ivtrFanOut and drives each ready task through the injected IVTR runner', async () => {
+  describe('outcome: goalHandoff (T13821)', () => {
+    const implementation = () => {
       mockSagaNext.mockResolvedValue({
         success: true,
-        data: makeSagaNextResult({
-          sagaId: 'T100',
-          memberEpics: [
-            {
-              id: 'T101',
-              title: 'Implementation epic',
-              status: 'active',
-              descendantTaskCount: 2,
-              descendantDone: 0,
-              descendantActive: 2,
-              descendantBlocked: 0,
-              descendantPending: 0,
-              descendantCompletionPct: 0,
-            },
-          ],
-        }),
+        data: makeSagaNextResult({ sagaId: 'T100' }),
       });
       mockOrchestrateReady.mockResolvedValue(
         makeReadyResult([
-          { id: 'T102', pipelineStage: 'implementation', parentId: 'T101' },
-          { id: 'T103', pipelineStage: 'implementation', parentId: 'T101' },
+          { id: 'T201', pipelineStage: 'implementation', parentId: 'E1' },
+          { id: 'T202', pipelineStage: 'implementation', parentId: 'E1' },
         ]),
       );
-      mockIvtrRunner
-        .mockResolvedValueOnce({ taskId: 'T102', runId: 'pbr_102', terminalStatus: 'completed' })
-        .mockResolvedValueOnce({ taskId: 'T103', runId: 'pbr_103', terminalStatus: 'completed' });
+    };
 
-      const result = await cleoGo({ sagaId: 'T100', ivtrRunner });
-      expect(result.success).toBe(true);
-      const outcome = result.data?.outcome;
-      expect(outcome?.action).toBe('ivtrFanOut');
-      if (outcome?.action === 'ivtrFanOut') {
-        expect(outcome.tasks).toEqual(['T102', 'T103']);
-        expect(outcome.runIds).toEqual(['pbr_102', 'pbr_103']);
-        expect(outcome.currentStage).toBe('implementation');
-      }
-      expect(mockIvtrRunner).toHaveBeenCalledTimes(2);
-      // AC2: runner receives taskId + the run options (projectRoot, epicId).
-      expect(mockIvtrRunner.mock.calls[0]?.[0]).toBe('T102');
-      expect(mockIvtrRunner.mock.calls[0]?.[1]).toMatchObject({ epicId: 'T101' });
-    });
-
-    it('forwards the sessionId to the IVTR runner (evidence/provenance gate param)', async () => {
-      mockSagaNext.mockResolvedValue({
-        success: true,
-        data: makeSagaNextResult({
-          sagaId: 'T100',
-          memberEpics: [
-            {
-              id: 'T101',
-              title: 'Implementation epic',
-              status: 'active',
-              descendantTaskCount: 1,
-              descendantDone: 0,
-              descendantActive: 1,
-              descendantBlocked: 0,
-              descendantPending: 0,
-              descendantCompletionPct: 0,
-            },
-          ],
-        }),
-      });
-      mockOrchestrateReady.mockResolvedValue(
-        makeReadyResult([{ id: 'T102', pipelineStage: 'implementation', parentId: 'T101' }]),
-      );
-      mockIvtrRunner.mockResolvedValueOnce({ taskId: 'T102', runId: 'pbr_102' });
-
-      const result = await cleoGo({ sagaId: 'T100', ivtrRunner, sessionId: 'ses_abc' });
-      expect(result.success).toBe(true);
-      expect(mockIvtrRunner.mock.calls[0]?.[1]).toMatchObject({
-        epicId: 'T101',
-        sessionId: 'ses_abc',
-      });
-    });
-
-    it('falls back to the legacy seed when no runner is injected (no silent skip)', async () => {
-      mockSagaNext.mockResolvedValue({
-        success: true,
-        data: makeSagaNextResult({
-          sagaId: 'T100',
-          memberEpics: [
-            {
-              id: 'T101',
-              title: 'Implementation epic',
-              status: 'active',
-              descendantTaskCount: 1,
-              descendantDone: 0,
-              descendantActive: 1,
-              descendantBlocked: 0,
-              descendantPending: 0,
-              descendantCompletionPct: 0,
-            },
-          ],
-        }),
-      });
-      mockOrchestrateReady.mockResolvedValue(
-        makeReadyResult([{ id: 'T102', pipelineStage: 'implementation', parentId: 'T101' }]),
-      );
-
-      // Flag ON but no runner → fallback to the legacy seed (no silent skip).
+    it('drafts a goal for the ready wave and names the /goal start step', async () => {
+      implementation();
       const result = await cleoGo({ sagaId: 'T100' });
       expect(result.success).toBe(true);
       const outcome = result.data?.outcome;
-      expect(outcome?.action).toBe('ivtrFanOut');
-      if (outcome?.action === 'ivtrFanOut') {
-        // Fallback path seeds via seedIvtrForPlaybook — the task IS surfaced.
-        expect(outcome.tasks).toEqual(['T102']);
-        expect(outcome.runIds).toEqual([]);
-      }
-      expect(mockSeedIvtr).toHaveBeenCalledTimes(1);
-      expect(mockSeedIvtr.mock.calls[0]?.[0]).toBe('T102');
-      expect(mockIvtrRunner).not.toHaveBeenCalled();
-      expect(result.data?.diagnostics.some((d) => d.includes('runner not provided'))).toBe(true);
+      expect(outcome).toMatchObject({
+        action: 'goalHandoff',
+        tasks: ['T201', 'T202'],
+        goal: { slug: 't201-t202', reused: false },
+        runtime: { installed: true, next: 'In OpenCode, run: /goal start t201-t202' },
+      });
+      expect(mockDraftGoal).toHaveBeenCalledWith(['T201', 'T202'], expect.objectContaining({}));
     });
 
-    // ---- Risk #1 mitigation: feature flag gates the cantbook seam ----------
-
-    it('kill-switch CLEO_GO_VIA_PLAYBOOK=0: falls back to the legacy seed even when a runner IS injected', async () => {
-      // T11896 — the seam defaults ON; the explicit `=0` kill-switch restores
-      // the legacy seedIvtrForPlaybook seed for one deprecation cycle.
-      process.env[CLEO_GO_VIA_PLAYBOOK_ENV] = '0';
-      mockSagaNext.mockResolvedValue({
-        success: true,
-        data: makeSagaNextResult({
-          sagaId: 'T100',
-          memberEpics: [
-            {
-              id: 'T101',
-              title: 'Implementation epic',
-              status: 'active',
-              descendantTaskCount: 2,
-              descendantDone: 0,
-              descendantActive: 2,
-              descendantBlocked: 0,
-              descendantPending: 0,
-              descendantCompletionPct: 0,
-            },
-          ],
-        }),
+    it('explains how to install OpenCode-Goal when it is missing', async () => {
+      implementation();
+      mockRuntime.mockReturnValue({
+        name: 'opencode-goal',
+        installed: false,
+        install: [
+          'opencode plugin add "github:kryptobaseddev/opencode-goal#v0.5.1"',
+          'opencode reload',
+        ],
+        next: 'OpenCode-Goal is not installed. install it with: opencode plugin add …',
       });
-      mockOrchestrateReady.mockResolvedValue(
-        makeReadyResult([
-          { id: 'T102', pipelineStage: 'implementation', parentId: 'T101' },
-          { id: 'T103', pipelineStage: 'implementation', parentId: 'T101' },
-        ]),
-      );
-
-      const result = await cleoGo({ sagaId: 'T100', ivtrRunner });
-      expect(result.success).toBe(true);
+      const result = await cleoGo({ sagaId: 'T100' });
       const outcome = result.data?.outcome;
-      expect(outcome?.action).toBe('ivtrFanOut');
-      if (outcome?.action === 'ivtrFanOut') {
-        expect(outcome.tasks).toEqual(['T102', 'T103']);
-        expect(outcome.runIds).toEqual([]);
-      }
-      // The injected cantbook runner is NOT called when the flag is OFF.
-      expect(mockIvtrRunner).not.toHaveBeenCalled();
-      expect(mockSeedIvtr).toHaveBeenCalledTimes(2);
-      expect(result.data?.diagnostics.some((d) => d.includes('seam disabled'))).toBe(true);
+      expect(outcome?.action).toBe('goalHandoff');
+      if (outcome?.action !== 'goalHandoff') throw new Error('expected goalHandoff');
+      expect(outcome.runtime.installed).toBe(false);
+      expect(outcome.runtime.install?.[0]).toContain('opencode plugin add');
+      expect(outcome.runtime.next).toMatch(
+        /not installed.*then in OpenCode run: \/goal start t201-t202/,
+      );
     });
 
-    it('flag ON: drives the injected cantbook runner instead of the legacy seed', async () => {
-      process.env[CLEO_GO_VIA_PLAYBOOK_ENV] = 'true';
-      mockSagaNext.mockResolvedValue({
-        success: true,
-        data: makeSagaNextResult({
-          sagaId: 'T100',
-          memberEpics: [
-            {
-              id: 'T101',
-              title: 'Implementation epic',
-              status: 'active',
-              descendantTaskCount: 1,
-              descendantDone: 0,
-              descendantActive: 1,
-              descendantBlocked: 0,
-              descendantPending: 0,
-              descendantCompletionPct: 0,
-            },
-          ],
-        }),
-      });
-      mockOrchestrateReady.mockResolvedValue(
-        makeReadyResult([{ id: 'T102', pipelineStage: 'implementation', parentId: 'T101' }]),
-      );
-      mockIvtrRunner.mockResolvedValueOnce({
-        taskId: 'T102',
-        runId: 'pbr_102',
-        terminalStatus: 'completed',
-      });
-
-      const result = await cleoGo({ sagaId: 'T100', ivtrRunner });
+    it('a failed draft is reported, never thrown', async () => {
+      implementation();
+      mockDraftGoal.mockResolvedValue({ success: false, error: { code: 'E_X', message: 'nope' } });
+      const result = await cleoGo({ sagaId: 'T100' });
       expect(result.success).toBe(true);
       const outcome = result.data?.outcome;
-      if (outcome?.action === 'ivtrFanOut') {
-        expect(outcome.tasks).toEqual(['T102']);
-        expect(outcome.runIds).toEqual(['pbr_102']);
-      }
-      expect(mockIvtrRunner).toHaveBeenCalledTimes(1);
-      expect(mockSeedIvtr).not.toHaveBeenCalled();
-    });
-
-    it('gracefully handles IVTR start failures and reports in diagnostics', async () => {
-      mockSagaNext.mockResolvedValue({
-        success: true,
-        data: makeSagaNextResult({
-          sagaId: 'T100',
-          memberEpics: [
-            {
-              id: 'T101',
-              title: 'Implementation epic',
-              status: 'active',
-              descendantTaskCount: 2,
-              descendantDone: 0,
-              descendantActive: 2,
-              descendantBlocked: 0,
-              descendantPending: 0,
-              descendantCompletionPct: 0,
-            },
-          ],
-        }),
-      });
-      mockOrchestrateReady.mockResolvedValue(
-        makeReadyResult([
-          { id: 'T102', pipelineStage: 'implementation', parentId: 'T101' },
-          { id: 'T103', pipelineStage: 'implementation', parentId: 'T101' },
-        ]),
-      );
-      mockIvtrRunner
-        .mockResolvedValueOnce({ taskId: 'T102', runId: 'pbr_102' })
-        .mockRejectedValueOnce(new Error('E_IVTR_LOCKED'));
-
-      const result = await cleoGo({ sagaId: 'T100', ivtrRunner });
-      expect(result.success).toBe(true);
-      const outcome = result.data?.outcome;
-      expect(outcome?.action).toBe('ivtrFanOut');
-      if (outcome?.action === 'ivtrFanOut') {
-        // Only T102 succeeded
-        expect(outcome.tasks).toEqual(['T102']);
-        expect(outcome.runIds).toEqual(['pbr_102']);
-      }
-      // T103 failure is in diagnostics
-      expect(result.data?.diagnostics.some((d) => d.includes('T103'))).toBe(true);
+      expect(outcome).toMatchObject({ action: 'goalHandoff', goal: null });
+      expect(result.data?.diagnostics.join(' ')).toMatch(/goal draft failed/);
     });
   });
-
-  // ---- Error propagation --------------------------------------------------
 
   describe('error propagation', () => {
     it('surfaces sagaNext failure as EngineFailure', async () => {
@@ -493,7 +305,7 @@ describe('cleoGo driver (T11494)', () => {
   // ---- T13797: cleo go arms no goal loop (OCG is the goal runtime) ------
 
   describe('T13797: no goal loop arming', () => {
-    it('drives a saga without arming a goal', async () => {
+    it('drives a saga without arming a goal record', async () => {
       mockSagaNext.mockResolvedValue({
         success: true,
         data: makeSagaNextResult({ sagaId: 'T100', sagaTitle: 'My Saga' }),
