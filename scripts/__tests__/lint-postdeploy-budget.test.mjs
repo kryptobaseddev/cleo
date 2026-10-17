@@ -196,7 +196,10 @@ describe('post-deploy budget refusal paths', () => {
 
   it('runs in CI after locked dependency installation', () => {
     const workflow = parseYaml(readFileSync('.github/workflows/arch-boundary-check.yml', 'utf8'));
-    const steps = workflow.jobs['postdeploy-budget'].steps;
+    // T13838: the gate is a step of the consolidated installed-gates job.
+    const { steps } = Object.values(workflow.jobs).find((j) =>
+      j.steps?.some((step) => step.run === 'node scripts/lint-postdeploy-budget.mjs'),
+    );
     const install = steps.findIndex((step) => step.run === 'pnpm install --frozen-lockfile');
     const gate = steps.findIndex((step) => step.run === 'node scripts/lint-postdeploy-budget.mjs');
     expect(install).toBeGreaterThan(-1);
