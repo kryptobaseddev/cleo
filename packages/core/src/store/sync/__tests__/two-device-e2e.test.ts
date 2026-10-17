@@ -22,7 +22,7 @@
  * @task T13371
  */
 
-import { createHash } from 'node:crypto';
+import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
@@ -35,12 +35,19 @@ import { deriveKey, generateEd25519, hmacSha256, randomKey } from '../../../clou
 import { pullDocBytes, pushDocBytes } from '../../../cloud/doc-bytes.js';
 import { Http } from '../../../cloud/http.js';
 import { Journal } from '../../../cloud/journal.js';
+import {
+  prepareSecretOpens,
+  prepareSecretSeals,
+  secretValuesKey,
+} from '../../../cloud/secret-seal.js';
 import { DocsReadModel } from '../../../docs/docs-read-model.js';
 import {
   _resetDualScopeDbCache,
   getDualScopeNativeDb,
   openDualScopeDbAtPath,
 } from '../../dual-scope-db.js';
+import { exportPortableBundle } from '../../portable-bundle.js';
+import { importPortableBundle } from '../../portable-bundle-import.js';
 import {
   prepareRowIdentity,
   ROW_IDENTITY_META_TABLE,
@@ -63,13 +70,15 @@ import {
   type PulledStreamSegment,
   type PullStreamOptions,
   pullStream,
+  readStreamCursor,
   type StreamCursor,
 } from '../pull.js';
 import { pushStream } from '../push.js';
+import { reconcileCopy } from '../reconcile-copy.js';
 import { planRepair } from '../repair.js';
 import { activeReplica, ensureProjectReplica } from '../replica.js';
 import { ReplicaRegistry } from '../replica-registry.js';
-import { rowChash, sealPending } from '../sealer.js';
+import { rowChash, type SecretSeals, sealPending } from '../sealer.js';
 import { firstBadTxnSignature, signTxn } from '../txn-signing.js';
 
 const SYNC_SCHEMA = resolve(import.meta.dirname, '../../../../migrations/sync-journal');
@@ -191,7 +200,7 @@ function fakeStream() {
 }
 type Stream = ReturnType<typeof fakeStream>;
 
-async function push(r: Replica, stream: Stream) {
+async function push(r: Replica, stream: Stream, secrets?: SecretSeals) {
   const replica = replicaOf(r);
   const out = await pushStream(r.db, {
     scope: 'project',
@@ -209,12 +218,13 @@ async function push(r: Replica, stream: Stream) {
     now: () => ++clock,
     env: {},
     allowUnreleased: true,
+    ...(secrets ? { secrets } : {}),
   });
   expect(out.refused).toBeNull();
   return out;
 }
 
-async function pull(r: Replica, stream: Stream) {
+async function pull(r: Replica, stream: Stream, openSecrets?: PullStreamOptions['openSecrets']) {
   const replica = replicaOf(r);
   const opts: PullStreamOptions = {
     scope: 'project',
@@ -235,6 +245,7 @@ async function pull(r: Replica, stream: Stream) {
         allowUnreleased: true,
       });
     },
+    ...(openSecrets ? { openSecrets } : {}),
   };
   const out = await pullStream(r.db, opts);
   expect(out.refused).toBeNull();
@@ -458,6 +469,207 @@ describe('natural-key brain rows replay across devices (T12895)', () => {
       b.db.prepare("SELECT weight FROM brain_page_edges WHERE from_id = 'task:T1'").get(),
     ).toEqual({ weight: 0.25 });
   });
+});
+
+describe('project stickies and playbook approvals reach a second device (T12535)', () => {
+  it('a sticky with its tag and a playbook run with its approval travel, and so do their later edits', async () => {
+    const TABLES = [
+      'brain_sticky_notes',
+      'brain_sticky_tags',
+      'tasks_playbook_runs',
+      'tasks_playbook_approvals',
+    ];
+    const pick = (sums: Record<string, string>) =>
+      Object.fromEntries(TABLES.map((t) => [t, sums[t] ?? null]));
+    const { a, b } = await twoDevices();
+    const stream = fakeStream();
+    write(
+      a.db,
+      `INSERT INTO brain_sticky_notes (id, content, tags_json, created_at, updated_at)
+         VALUES ('SN-001', 'gate sticky', '["typed-rule"]', '2026-10-14 17:41:24', '2026-10-14 17:41:24');
+       INSERT INTO brain_sticky_tags (sticky_id, tag) VALUES ('SN-001', 'typed-rule');
+       INSERT INTO tasks_playbook_runs (run_id, playbook_name, playbook_hash, started_at)
+         VALUES ('run-1', 'rcasd', 'hash-1', '2026-10-14 17:42:00');
+       INSERT INTO tasks_playbook_approvals (approval_id, run_id, node_id, token, requested_at)
+         VALUES ('appr-1', 'run-1', 'gate', 'tok-1', '2026-10-14 17:42:01');`,
+    );
+    // The resume token travels sealed (phase A, as `cloud sync` runs it).
+    const secretKey = secretValuesKey(randomBytes(32));
+    await push(a, stream, await prepareSecretSeals(a.db, 'project', secretKey));
+    await pull(b, stream, () => prepareSecretOpens(b.db, 'project', STREAM, secretKey));
+    expect(
+      b.db.prepare("SELECT token FROM tasks_playbook_approvals WHERE approval_id = 'appr-1'").get(),
+    ).toEqual({ token: 'tok-1' });
+    for (const t of TABLES)
+      expect(b.db.prepare(`SELECT count(*) AS n FROM "${t}"`).get(), t).toEqual({ n: 1 });
+    expect(pick(contentChecksums(b.db))).toEqual(pick(contentChecksums(a.db)));
+
+    write(
+      a.db,
+      `UPDATE brain_sticky_notes SET status = 'archived' WHERE id = 'SN-001';
+       UPDATE tasks_playbook_approvals SET status = 'approved', approver = 'alice',
+         approved_at = '2026-10-14 17:43:00' WHERE approval_id = 'appr-1';`,
+    );
+    await push(a, stream);
+    await pull(b, stream);
+    expect(b.db.prepare("SELECT status FROM brain_sticky_notes WHERE id = 'SN-001'").get()).toEqual(
+      { status: 'archived' },
+    );
+    expect(
+      b.db
+        .prepare(
+          "SELECT status, approver FROM tasks_playbook_approvals WHERE approval_id = 'appr-1'",
+        )
+        .get(),
+    ).toEqual({ status: 'approved', approver: 'alice' });
+    expect(contentChecksums(b.db)).toEqual(contentChecksums(a.db));
+    expect(conflictKeys(b.db)).toEqual([]);
+  });
+});
+
+describe('a rewound delete of a sealed NOT NULL secret restores it (T12535)', () => {
+  it('a run deleted on A while B adds an approval under it rebases on A without losing the token', async () => {
+    const { a, b } = await twoDevices();
+    const stream = fakeStream();
+    const secretKey = secretValuesKey(randomBytes(32));
+    const pushSealed = async (r: Replica) =>
+      push(r, stream, await prepareSecretSeals(r.db, 'project', secretKey));
+    const pullOpened = (r: Replica) =>
+      pull(r, stream, () => prepareSecretOpens(r.db, 'project', STREAM, secretKey));
+    write(
+      a.db,
+      `INSERT INTO tasks_playbook_runs (run_id, playbook_name, playbook_hash, started_at)
+         VALUES ('run-1', 'rcasd', 'hash-1', '2026-10-14 17:42:00');
+       INSERT INTO tasks_playbook_approvals (approval_id, run_id, node_id, token, requested_at)
+         VALUES ('ap1', 'run-1', 'gate', 'tok-1', '2026-10-14 17:42:01');`,
+    );
+    await pushSealed(a);
+    await pullOpened(b);
+    // deletePlaybookRun on A; concurrently B adds a second approval to the run.
+    write(
+      a.db,
+      `DELETE FROM tasks_playbook_approvals WHERE run_id = 'run-1';
+       DELETE FROM tasks_playbook_runs WHERE run_id = 'run-1';`,
+    );
+    write(
+      b.db,
+      `INSERT INTO tasks_playbook_approvals (approval_id, run_id, node_id, token, requested_at)
+         VALUES ('ap2', 'run-1', 'gate-2', 'tok-2', '2026-10-14 17:43:00');`,
+    );
+    await pushSealed(a);
+    await pushSealed(b);
+    // The pull rebases A: its delete of ap1 is rewound (ap1 re-inserted with
+    // its token) and replayed. It used to throw NOT NULL on the token.
+    await pullOpened(a);
+    await pullOpened(b);
+    for (const r of [a, b])
+      expect(
+        r.db
+          .prepare("SELECT count(*) AS n FROM tasks_playbook_approvals WHERE approval_id = 'ap1'")
+          .get(),
+      ).toEqual({ n: 0 });
+    expect(contentChecksums(b.db)).toEqual(contentChecksums(a.db));
+  });
+});
+
+describe('a store moved through an unencrypted bundle keeps its unsent edits (T12535)', () => {
+  for (const concurrent of [false, true])
+    it(`A's offline edits reach B through C, and no redacted secret is overwritten${concurrent ? ' (B edits concurrently)' : ''}`, async () => {
+      const { a, b } = await twoDevices();
+      const stream = fakeStream();
+      const secretKey = secretValuesKey(randomBytes(32));
+      const pushSealed = async (r: Replica) =>
+        push(r, stream, await prepareSecretSeals(r.db, 'project', secretKey));
+      const pullOpened = (r: Replica) =>
+        pull(r, stream, () => prepareSecretOpens(r.db, 'project', STREAM, secretKey));
+      write(
+        a.db,
+        `INSERT INTO brain_sticky_notes (id, content, tags_json, created_at, updated_at) VALUES
+           ('SN-100', 'v1', '[]', '2026-10-14 17:41:24', '2026-10-14 17:41:24'),
+           ('SN-101', 'w1', '[]', '2026-10-14 17:41:25', '2026-10-14 17:41:25');
+         INSERT INTO tasks_playbook_runs (run_id, playbook_name, playbook_hash, started_at)
+           VALUES ('run-1', 'rcasd', 'hash-1', '2026-10-14 17:42:00');
+         INSERT INTO tasks_playbook_approvals (approval_id, run_id, node_id, token, requested_at)
+           VALUES ('ap1', 'run-1', 'gate', 'tok-1', '2026-10-14 17:42:01');`,
+      );
+      await pushSealed(a);
+      await pullOpened(b);
+      await pullOpened(a);
+      // Offline on A, never sealed: an edit, an insert, and an approval decided
+      // with a re-minted token (the secret column changed too).
+      write(
+        a.db,
+        `UPDATE brain_sticky_notes SET content = 'A-offline-edit' WHERE id = 'SN-100';
+         INSERT INTO brain_sticky_notes (id, content, tags_json, created_at, updated_at)
+           VALUES ('SN-200', 'A-offline-new', '[]', '2026-10-14 18:00:00', '2026-10-14 18:00:00');
+         UPDATE tasks_playbook_approvals SET status = 'approved', token = 'tok-1b' WHERE approval_id = 'ap1';`,
+      );
+      if (concurrent) {
+        write(b.db, `UPDATE brain_sticky_notes SET content = 'B-edit-101' WHERE id = 'SN-101';`);
+        await pushSealed(b);
+      }
+      const bundle = join(dir, 'move.cleobundle.tar.gz');
+      await exportPortableBundle({
+        scope: 'project',
+        projectRoot: join(dir, 'a'),
+        outputPath: bundle,
+        label: 'move',
+      });
+      mkdirSync(join(dir, 'c'), { recursive: true });
+      await importPortableBundle({
+        bundlePath: bundle,
+        target: join(dir, 'c'),
+        cwd: join(dir, 'c'),
+        force: true,
+        cleoHome: join(dir, 'cleo'),
+      });
+      const c = await open('c', 'dev-a');
+      // The copy reconcile (rule 1 reads the inherited live captures).
+      mkdirSync(join(dir, 'scratch'), { recursive: true });
+      const merged = getDualScopeNativeDb(
+        await openDualScopeDbAtPath('project', join(dir, 'scratch', 'cleo.db'), undefined, {
+          dedicated: true,
+          syncMode: 'off',
+        }),
+      );
+      setSyncFlag(merged, 'sync.pull', true, { schemaRoot: SYNC_SCHEMA, allowUnreleased: true });
+      const pulled = await pullStream(merged, {
+        scope: 'project',
+        stream: STREAM,
+        replica: randomUUID(),
+        pull: stream.pull,
+        verify: () => null,
+        initialCursor: START,
+        now: () => ++clock,
+        env: {},
+        seal: () => {},
+        openSecrets: () => prepareSecretOpens(merged, 'project', STREAM, secretKey),
+      });
+      expect(pulled.refused).toBeNull();
+      reconcileCopy(c.db, merged, {
+        scope: 'project',
+        stream: STREAM,
+        mergedCursor: readStreamCursor(merged, STREAM) ?? START,
+        now: () => ++clock,
+      });
+      await pushSealed(c);
+      await pullOpened(b);
+      const notes = 'SELECT id, content FROM brain_sticky_notes ORDER BY id';
+      const want = [
+        { id: 'SN-100', content: 'A-offline-edit' },
+        { id: 'SN-101', content: concurrent ? 'B-edit-101' : 'w1' },
+        { id: 'SN-200', content: 'A-offline-new' },
+      ];
+      expect(b.db.prepare(notes).all()).toEqual(want);
+      expect(c.db.prepare(notes).all()).toEqual(want);
+      // The decision travels; the token the bundle redacted is never sent as
+      // a NULL or empty value over B's.
+      expect(
+        b.db
+          .prepare("SELECT status, token FROM tasks_playbook_approvals WHERE approval_id = 'ap1'")
+          .get(),
+      ).toEqual({ status: 'approved', token: 'tok-1' });
+    });
 });
 
 describe('docs reach a second device (T12919)', () => {

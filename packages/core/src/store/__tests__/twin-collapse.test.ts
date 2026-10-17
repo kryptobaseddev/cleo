@@ -223,6 +223,7 @@ describe('fresh store', () => {
       'collapsed',
       'collapsed', // token_usage (T13115)
       'collapsed', // audit_log (T13777)
+      'collapsed', // playbooks (T12535)
     ]);
   });
 });
@@ -527,6 +528,7 @@ describe('(b) idempotency', () => {
       'unchanged',
       'unchanged', // token_usage (T13115)
       'unchanged', // audit_log (T13777)
+      'unchanged', // playbooks (T12535)
     ]);
     expect(tableDigest(db, 'tasks_schema_meta', 'key')).toBe(tasks);
     expect(tableDigest(brain, 'brain_sticky_tags', 'sticky_id, tag')).toBe(sticky);
@@ -743,6 +745,9 @@ describe('(d) Gate B: bare rows are a subset of the post-merge twin', () => {
           role,
           '--out',
           out,
+          // brain_sticky_tags syncs since T12535 and carries a uid the
+          // projection's hand-written rows lack: compare content, not identity.
+          '--omit-row-identity',
         ],
         { cwd: REPO_ROOT, stdio: 'pipe' },
       );

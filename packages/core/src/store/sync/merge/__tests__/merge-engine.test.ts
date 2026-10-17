@@ -603,13 +603,6 @@ describe('tasks_playbook_approvals: decided once (T12944)', () => {
     }
   });
 
-  it('the bare live twin playbook_approvals carries the same rule', () => {
-    expect(mergeSpecFor('playbook_approvals', APPROVAL_COLUMNS).rules?.['status']).toMatchObject({
-      kind: 'absorbing',
-      id: 'playbook.approval.once',
-    });
-  });
-
   it('opposite decisions converge to one decision, with the other recorded as a conflict', () => {
     const finals = [
       [request, approve, reject],

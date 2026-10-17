@@ -35,6 +35,7 @@ import {
   resumePlaybook,
 } from '../runtime.js';
 import { getPlaybookRun, listPlaybookApprovals } from '../state.js';
+import { applyPlaybookTwinSchema } from './twin-schema.js';
 
 const _require = createRequire(import.meta.url);
 type DatabaseSync = _DatabaseSyncType;
@@ -43,23 +44,7 @@ const { DatabaseSync } = _require('node:sqlite') as {
 };
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const MIGRATION_SQL = resolve(
-  __dirname,
-  '../../../core/migrations/drizzle-tasks/20260417220000_t889-playbook-tables/migration.sql',
-);
 const CONDITIONAL_BRANCH_CANTBOOK = resolve(__dirname, 'fixtures/conditional-branch.cantbook');
-
-function applyMigration(db: DatabaseSync, sql: string): void {
-  const statements = sql
-    .split(/--> statement-breakpoint/)
-    .map((s) => s.trim())
-    .filter((s) => s.length > 0);
-  for (const stmt of statements) {
-    const lines = stmt.split('\n');
-    const hasSql = lines.some((l) => l.trim().length > 0 && !l.trim().startsWith('--'));
-    if (hasSql) db.exec(stmt);
-  }
-}
 
 // -- Dispatcher stub helpers -------------------------------------------------
 
@@ -158,7 +143,7 @@ describe('W4-10 / T930: playbook runtime state machine', () => {
   beforeEach(() => {
     db = new DatabaseSync(':memory:');
     db.exec('PRAGMA foreign_keys=ON');
-    applyMigration(db, readFileSync(MIGRATION_SQL, 'utf8'));
+    applyPlaybookTwinSchema(db);
   });
   afterEach(() => db.close());
 
@@ -674,7 +659,7 @@ describe('W4-10 / T930: playbook runtime state machine', () => {
     // The SQLite migration stamps completedAt via JS, and updatePlaybookRun
     // writes our supplied timestamp.
     const runs = db
-      .prepare("SELECT completed_at FROM playbook_runs WHERE playbook_name = 'clock'")
+      .prepare("SELECT completed_at FROM tasks_playbook_runs WHERE playbook_name = 'clock'")
       .all() as Array<{ completed_at: string }>;
     expect(runs[0]?.completed_at).toBe('2026-04-17T22:30:00.000Z');
   });
@@ -690,7 +675,7 @@ describe('T11806: cantbook runtime guarded branching', () => {
   beforeEach(() => {
     db = new DatabaseSync(':memory:');
     db.exec('PRAGMA foreign_keys=ON');
-    applyMigration(db, readFileSync(MIGRATION_SQL, 'utf8'));
+    applyPlaybookTwinSchema(db);
   });
   afterEach(() => db.close());
 
@@ -923,7 +908,7 @@ describe('T11762 ST-2: registry-driven ensures.schema enforcement', () => {
   beforeEach(() => {
     db = new DatabaseSync(':memory:');
     db.exec('PRAGMA foreign_keys=ON');
-    applyMigration(db, readFileSync(MIGRATION_SQL, 'utf8'));
+    applyPlaybookTwinSchema(db);
     tmpRoot = mkdtempSync(join(tmpdir(), 'cleo-ensures-schema-'));
   });
   afterEach(() => {

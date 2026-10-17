@@ -60,6 +60,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { parsePlaybook } from '../parser.js';
 import { executePlaybook } from '../runtime.js';
 import { getPlaybookRun } from '../state.js';
+import { playbookTwinSql } from './twin-schema.js';
 
 const _require = createRequire(import.meta.url);
 type DatabaseSync = _DatabaseSyncType;
@@ -70,10 +71,6 @@ const { DatabaseSync } = _require('node:sqlite') as {
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
 /** Absolute path to the T889 playbook-tables migration SQL. */
-const MIGRATION_SQL_PATH = resolve(
-  __dirname,
-  '../../../core/migrations/drizzle-tasks/20260417220000_t889-playbook-tables/migration.sql',
-);
 
 /** The skill-only fixture cantbook materialised for this suite. */
 const FIXTURE_PATH = resolve(__dirname, 'fixtures/pi-skill-only.cantbook');
@@ -187,7 +184,7 @@ describe('T11945 (M4): skill-only .cantbook routes through the PiAgentAdapter', 
   beforeEach(() => {
     db = new DatabaseSync(':memory:');
     db.exec('PRAGMA foreign_keys=ON');
-    applyMigration(db, readFileSync(MIGRATION_SQL_PATH, 'utf8'));
+    applyMigration(db, playbookTwinSql());
 
     projectRoot = mkdtempSync(join(tmpdir(), 't11945-pi-e2e-'));
     writeFixtureSkill(projectRoot);

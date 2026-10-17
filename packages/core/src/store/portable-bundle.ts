@@ -81,6 +81,7 @@ import {
   PROJECT_SECTION_RULES,
   pickKeyCounts,
   redactCredentials,
+  redactJournalSecrets,
   type SectionRules,
   type SnapshotRowFilter,
   scanSection,
@@ -554,6 +555,10 @@ async function stageSection(
             ...(credentials.length > 0 ? { credentials } : {}),
           });
         }
+        // A bundle that may leave this machine carries no secret in its change
+        // journal either (T12535). A local safety copy keeps the journal whole,
+        // so rolling a restore back rewinds exactly as before.
+        if (isPrimary && state.sharesIdentity) redactJournalSecrets(staged);
       } catch (err) {
         throw new PortableBundleError(
           'E_REDACTION_FAILED',
