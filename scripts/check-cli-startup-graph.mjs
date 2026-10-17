@@ -120,6 +120,8 @@ const DRIZZLE_CJS = /\/drizzle-orm\/.*\.cjs$/;
  * @property {RegExp[]} [require] - Module URL patterns this probe must load:
  *   proof that it still exercises the code path it guards.
  * @property {number} [expectExit] - Exit code the command must return.
+ * @property {boolean} [ownSession] - Run bound to a fresh session started for this
+ *   probe alone, so another probe ending the shared session cannot break it.
  * @property {boolean} [session] - Run bound to a session started in the sandbox
  *   project (a mutation refuses without one).
  * @property {'bin'} [entry] - Run `packages/cleo/bin/cleo.js` (the installed `cleo`,
@@ -433,6 +435,20 @@ export const PROBES = Object.freeze([
     maxModules: 1015,
     maxRssMb: 260,
   },
+  {
+    // T13834: every Claude Code Stop runs `cleo session end`. It loaded the
+    // whole CORE barrel (~2,170 modules, ~1.7 s) for two post-end memory
+    // helpers; from their defining modules it is ~905. It ends a session of
+    // its own (T13847): the Stop-hook probe already ended the shared one.
+    name: 'session-end',
+    args: ['session', 'end', '--quiet'],
+    needsProject: true,
+    ownSession: true,
+    forbid: [CORE_BARREL, CONTRACTS_BARREL, MODEL_SDKS, DRIZZLE_CJS],
+    expectExit: 0,
+    maxModules: 850,
+    maxRssMb: 240,
+  },
 ]);
 
 // ---------------------------------------------------------------------------
@@ -543,7 +559,7 @@ function runProbe(probe, env) {
       timeout: 120_000,
       env: {
         ...sandboxEnv(home, traceOut),
-        ...(probe.session ? { CLEO_SESSION_ID: env.sessionId } : {}),
+        ...(probe.session || probe.ownSession ? { CLEO_SESSION_ID: env.sessionId } : {}),
         ...(probe.env ?? {}),
       },
     },
@@ -620,10 +636,22 @@ function initSandboxProject(sandbox) {
  * @param {string} project
  * @returns {string} The session id.
  */
-function startSandboxSession(sandbox, project) {
+function startSandboxSession(sandbox, project, name = 'probe') {
   const started = spawnSync(
     process.execPath,
-    [CLI_ENTRY, 'session', 'start', '--scope', 'global', '--name', 'probe', '--field', '/data/id'],
+    [
+      CLI_ENTRY,
+      'session',
+      'start',
+      '--scope',
+      'global',
+      '--name',
+      name,
+      // A probe's own session starts alongside the shared one (its own agent handle).
+      ...(name === 'probe' ? [] : ['--agent', name]),
+      '--field',
+      '/data/id',
+    ],
     {
       cwd: project,
       encoding: 'utf8',
@@ -634,7 +662,7 @@ function startSandboxSession(sandbox, project) {
   const id = started.stdout.trim();
   if (started.status !== 0 || !id.startsWith('ses_')) {
     throw new Error(
-      `cleo session start failed in the sandbox (exit ${started.status}):\n${started.stderr}`,
+      `cleo session start failed in the sandbox (exit ${started.status}):\n${started.stderr}\n${started.stdout}`,
     );
   }
   return id;
@@ -811,7 +839,11 @@ function main() {
       ? startSandboxSession(sandbox, project)
       : '';
     for (const probe of PROBES) {
-      const result = runProbe(probe, { sandbox, tracer, project, sessionId });
+      // T13847: a probe that ends its session gets one of its own.
+      const probeSession = probe.ownSession
+        ? startSandboxSession(sandbox, project, `probe-${probe.name}`)
+        : sessionId;
+      const result = runProbe(probe, { sandbox, tracer, project, sessionId: probeSession });
       results.push(result);
       const reasons = judgeProbe(probe, result);
       if (probe.noMoreModulesThan !== undefined) {
