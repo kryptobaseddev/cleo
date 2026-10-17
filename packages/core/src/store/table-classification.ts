@@ -2501,8 +2501,9 @@ export interface FileStateKeyRule {
  *
  * - `tasks_row_identity_meta`: the uid recipe the rows were derived with, the
  *   "uids have left the device" marker and the canonical-timestamp rewrite
- *   marker describe the rows; the local rename records (`renamed_from:*`)
- *   are this store's history.
+ *   marker describe the rows, and so does the audit-secret scrub marker
+ *   (`audit_secret_scrub_v1`, T13864: the rows it vouches for are the file's);
+ *   the local rename records (`renamed_from:*`) are this store's history.
  * - `_sync_meta`: the sync-schema ledger (`schema:<folder>`) describes which
  *   sync tables the file has, and the suspect marks (`suspect:<table>`) name
  *   tables whose rows the file holds writes never captured, so its repair
@@ -2521,14 +2522,22 @@ export const FILE_STATE_KEYS: Readonly<
 > = {
   project: {
     tasks_row_identity_meta: {
-      exact: ['row_identity_recipe', 'row_identity_synced'],
+      exact: ['row_identity_recipe', 'row_identity_synced', 'audit_secret_scrub_v1'],
       prefixes: ['timestamp_canon_'],
       createIfAbsent: false,
     },
-    _sync_meta: { exact: [], prefixes: ['schema:', 'suspect:'], createIfAbsent: true },
+    _sync_meta: {
+      exact: ['audit_secret_scrub_v1'],
+      prefixes: ['schema:', 'suspect:'],
+      createIfAbsent: true,
+    },
   },
   global: {
-    _sync_meta: { exact: [], prefixes: ['schema:', 'suspect:'], createIfAbsent: true },
+    _sync_meta: {
+      exact: ['audit_secret_scrub_v1'],
+      prefixes: ['schema:', 'suspect:'],
+      createIfAbsent: true,
+    },
   },
 };
 

@@ -11,8 +11,9 @@
  *   no change is captured and peers never receive an op the `audit.immutable`
  *   merge rule would refuse (design note `t13857-audit-secret-scrub-design`).
  * - Runs once per store under {@link AUDIT_SCRUB_MARKER} in the scope's
- *   local-only meta table. A restore does not carry the key, so a restored
- *   store is scrubbed again on its next open.
+ *   local-only meta table. A vault restore takes the key from the restored
+ *   file, never from the live store (`FILE_STATE_KEYS`, T13864), so a
+ *   snapshot taken before its scrub is scrubbed again on its next open.
  * - Rewrites only rows whose value changes; clean rows stay byte for byte.
  *
  * Loaded lazily by the store open pass, only when the marker is absent
