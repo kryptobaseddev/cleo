@@ -639,7 +639,10 @@ export async function updateDocBySlug(
       const headText = preview.wouldAdvance
         ? preview.mergedText
         : await readCurrentHeadText(projectRoot, slug);
-      if (headText === null) throw new Error('the current conduit head text is unreadable');
+      if (headText === null) {
+        // @sync-invariant none:input-shape caught just below: an unreadable head skips the projection and the incoming bytes are written; nothing is rejected
+        throw new Error('the current conduit head text is unreadable');
+      }
       if (headText !== text) buf = Buffer.from(headText, 'utf-8');
       projectionInput = input;
     } catch (previewErr) {
