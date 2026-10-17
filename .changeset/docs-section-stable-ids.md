@@ -1,6 +1,6 @@
 ---
 id: docs-section-stable-ids
-tasks: [T13584, T13835, T13836]
+tasks: [T13584]
 kind: fix
 summary: docs CRDT section ids are anchored to headings, so inserting a section no longer shifts later ids
 ---
@@ -18,13 +18,13 @@ from the text alone. Renaming a heading gives the section a new identity.
 A stale edit (one authored against a superseded version) is now merged
 three ways, section by section, against the version it was authored from
 and the landed head. A section another writer inserted is kept in place
-instead of being dropped (T13835). An append onto a concurrently renamed
+instead of being dropped. An append onto a concurrently renamed
 section lands on the renamed section, and any other edit to a renamed or
 deleted section is recorded as a section conflict. A section the stale edit
 deleted is kept as a conflict if another writer changed it. When writers
 disagree on how many sections share a heading, the `~N` ids no longer name
 the same sections, so the head's sections are kept and the stale change is
-recorded as a conflict on that heading (T13836). Single-writer edits behave
+recorded as a conflict on that heading. Single-writer edits behave
 exactly as before.
 
 Existing docs migrate without rewriting history. A section with no local state
