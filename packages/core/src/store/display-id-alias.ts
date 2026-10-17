@@ -91,6 +91,7 @@ import {
   rowIdentitySpec,
   UID_COLUMN,
 } from './row-identity.js';
+import { transformColumnValues } from './schema/schema-utils.js';
 import {
   advanceTaskIdSequence,
   clearRowUidNative,
@@ -1069,7 +1070,8 @@ function placeRow(db: DatabaseSync, incoming: WireRow, heldAs?: HeldRowKey): Rec
       },
     };
   }
-  const values: Record<string, WireValue> = { ...wire.values };
+  // As this store holds them (T13861): a received audit row is redacted like a local write.
+  const values: Record<string, WireValue> = { ...transformColumnValues(wire.table, wire.values) };
   // A local key of another row never comes from the sender's values (T12798);
   // a JSON column that is not an id array travels as a value.
   const arrayColumns = jsonArrayTargets(spec);

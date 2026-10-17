@@ -10,7 +10,7 @@
  * @task T13126
  */
 
-import type { z } from 'zod';
+import { z } from 'zod';
 import { tasksAuditLog } from './schema/cleo-project/audit.js';
 import { createInsertSchema } from './zod-schema-factory.js';
 
@@ -28,6 +28,11 @@ export const insertAuditLogSchema = createInsertSchema(tasksAuditLog, {
   action: (s: z.ZodString) => s.min(1).max(100),
   taskId: (s: z.ZodString) => s.min(1).max(20),
   actor: (s: z.ZodString) => s.min(1).max(50),
+  // redactedText columns (T13855) are custom types, which drizzle's zod maps to unknown.
+  detailsJson: z.string().nullish(),
+  beforeJson: z.string().nullish(),
+  afterJson: z.string().nullish(),
+  errorMessage: z.string().nullish(),
 });
 
 /**
