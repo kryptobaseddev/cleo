@@ -2,7 +2,7 @@
 
 ## [2026.10.19] (2026-10-17)
 
-> **Codex hook fixes, targeted evidence, faster releases.** Codex project hooks now say when a push went through ungated and keep receipts under the workspace-write sandbox. Evidence routes for config edits, merged changes, redirected reports, generated clients and seed/data globs need no whole-suite run. Release plan and bump PRs take a CI fast path, and release-prepare reuses main's green CI. Cross-device sync itself (Stage C) stays off on stable.
+> **Codex hook fixes, targeted evidence, faster releases.** Codex project hooks now say when a push went through ungated and keep receipts under the workspace-write sandbox. Evidence routes for config edits, merged changes, redirected reports, generated clients and seed/data globs need no whole-suite run. Release plan PRs and the main push of a version-only release merge take a CI fast path, and release-prepare reuses main's green CI. Cross-device sync itself (Stage C) stays off on stable.
 
 ### Project hooks
 
@@ -31,19 +31,18 @@
 
 - release-prepare reuses main CI's green run, verified server-side _(provenance: [T13823](https://github.com/kryptobaseddev/cleo/search?q=T13823&type=commits))_
 - Release plan PRs, and the main push of a version-only release merge, take the CI fast path _(provenance: [T13824](https://github.com/kryptobaseddev/cleo/search?q=T13824&type=commits), [T13833](https://github.com/kryptobaseddev/cleo/search?q=T13833&type=commits))_
-- One release PR, scripted end to end _(provenance: [T13825](https://github.com/kryptobaseddev/cleo/search?q=T13825&type=commits))_
+- One release PR, scripted end to end: `cleo release open <v> --ref release/plan-<v>` and `scripts/release-run.mjs` _(provenance: [T13825](https://github.com/kryptobaseddev/cleo/search?q=T13825&type=commits))_
 
 ### Store
 
 - Closing the store settles in-flight best-effort writes first, so a late write can no longer stall the next writer for 30 s _(provenance: [T13630](https://github.com/kryptobaseddev/cleo/search?q=T13630&type=commits))_
-- `schema_meta` and `sticky_tags` collapse into their prefixed twins (`tasks_schema_meta`, `brain_sticky_tags`) and stay in step with the bare tables an older build still writes; collapse never drops a twin-only or replaced value; a failed collapse keeps reads working, refuses writes with `E_TWIN_COLLAPSE_FAILED`, and `cleo doctor twin-collapse` retries it _(provenance: [T12535](https://github.com/kryptobaseddev/cleo/search?q=T12535&type=commits))_
 
 ### Docs
 
 - `cleo docs update` keeps the prior version linked to its doc _(provenance: [T13734](https://github.com/kryptobaseddev/cleo/search?q=T13734&type=commits))_
 - `cleo docs add` errors name the bound positional and the exact fix _(provenance: [T13726](https://github.com/kryptobaseddev/cleo/search?q=T13726&type=commits))_
 - Docs CRDT section ids are anchored to headings, so inserting a section no longer shifts later ids, and section edits merge three-way _(provenance: [T13584](https://github.com/kryptobaseddev/cleo/search?q=T13584&type=commits))_
-- Docs versions route through conduit history, and pre-adoption rows are backfilled _(provenance: [T13727](https://github.com/kryptobaseddev/cleo/search?q=T13727&type=commits))_
+- `cleo docs versions` reads conduit history (`version` is now a display ordinal 1..N; the stored number moves to `storedVersionNumber`); `cleo docs doctor` reports history gaps and backfills pre-adoption docs under `--apply` _(provenance: [T13727](https://github.com/kryptobaseddev/cleo/search?q=T13727&type=commits))_
 - Unrecoverable conduit-history gaps are reported at info level after apply _(provenance: [T13843](https://github.com/kryptobaseddev/cleo/search?q=T13843&type=commits))_
 
 ### Backups and cross-device sync
@@ -51,6 +50,7 @@
 - Unencrypted exports of projects with two or more playbook approvals no longer fail; a non-JSON journal image never ships _(provenance: [T13817](https://github.com/kryptobaseddev/cleo/search?q=T13817&type=commits))_
 - The first vault push over a format-2 parent prunes only the local rows in that parent's own snapshot, so a lost synced row is refused instead of hidden _(provenance: [T13816](https://github.com/kryptobaseddev/cleo/search?q=T13816&type=commits))_
 - `cleo cloud pull` judges each local change against the head snapshot's copy: a file equal to the head's, or a new file the head lacks, is no longer a change that refuses the pull, so a device can pull and then push without `--force` _(provenance: [T13813](https://github.com/kryptobaseddev/cleo/search?q=T13813&type=commits))_
+- Live on stable: playbook runs and approvals move to `tasks_playbook_runs`/`tasks_playbook_approvals` on first open (old rows are copied; where both copies of a run differ, the old one wins and the other is archived), the old tables are then frozen, so an older CLEO on the same project gets an upgrade-required error when it starts a playbook run or records an approval; deleting a run deletes its approvals; unencrypted `cleo backup export` strips credential columns from journal images _(provenance: [T12535](https://github.com/kryptobaseddev/cleo/search?q=T12535&type=commits))_
 - Sync groundwork (sync itself stays off on stable until Stage C): project sticky notes, playbook runs and playbook approvals get row uids for a second device; two devices adopting the same legacy doc, or making the first docs update on it, mint one doc uid _(provenance: [T12535](https://github.com/kryptobaseddev/cleo/search?q=T12535&type=commits), [T13586](https://github.com/kryptobaseddev/cleo/search?q=T13586&type=commits))_
 
 ### Not in this release
