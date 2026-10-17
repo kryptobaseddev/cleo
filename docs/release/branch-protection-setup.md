@@ -87,6 +87,12 @@ the job that polled the standalone prebuild run), `cleo-supervisor smoke`,
 when the `changes` job sees their paths (a skip is a pass). Only
 `cleo-supervisor prebuild` stays standalone: it needs `contents: write` to
 attach release assets on tag pushes, more than a ci.yml call can hold.
+T13838 and T13840 then folded the sub-minute gate jobs into steps of four
+jobs (`Repo Lints`, `Repo Lints (installed)`, `Arch Gates / Gates (node)`,
+`Arch Gates / Gates (installed)`), including the nine single-job workflows
+(Lockfile Check, AI SDK Surface, Boundary Registry, Dual Implementation,
+Dual-Scope Reads, Duplicate Test Filenames, Envelope Compliance, Generated
+Artifact Drift, Identity Pollution), whose workflow files are gone.
 Do NOT require a `Lockfile Check` context either: no check ever reported
 under that name (its job is `Verify pnpm-lock.yaml consistency`), so it
 would block every merge; `CI` covers it.
@@ -122,7 +128,7 @@ Common required check names for this repo:
 
 - `CI` — `.github/workflows/ci.yml` (tests + build; `ci` aggregate job)
 - `Arch Gates / Arch Boundary Check` — `.github/workflows/arch-boundary-check.yml`, called from `ci.yml` (job `arch-gates`); covered by `CI`, not a separate required context (T13263)
-- `Lockfile Check / Verify pnpm-lock.yaml consistency` — `.github/workflows/lockfile-check.yml`, called from `ci.yml` (job `lockfile-gate`); covered by `CI` (T13279)
+- Lockfile Check — a step of `ci.yml`'s `Repo Lints (installed)` job (T13840); covered by `CI`, not a context
 - `Contracts Dep Lint` — installed required context currently reported by the live branch-protection API (`app_id=15368`); `ci.yml` also carries a repo-local `contracts-dep-lint` job for parity coverage.
 
 If check names differ, update the `required_status_checks[contexts][]` values above

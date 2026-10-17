@@ -13,8 +13,9 @@
  *
  * The merge-bar GAP this gate closes: `arch-boundary-check.yml` shipped 12
  * independent lint jobs (incl. the `LLM Chokepoint Guard` / no-hardcoded-models
- * rule) with NO aggregate. Only `CI`, `Lockfile Check`, and `Contracts Dep
- * Lint` were required checks, so a failing arch-boundary lint could land on
+ * rule) with NO aggregate. Only `CI`, `Lockfile Check` (then its own
+ * workflow; since T13840 a step of ci.yml's Repo Lints (installed)), and
+ * `Contracts Dep Lint` were required checks, so a failing arch-boundary lint could land on
  * `main` green-looking — exactly what happened in #1037 (fixed #1044). The
  * structural fix is a per-workflow aggregate gate; this lint makes the gate
  * mandatory and keeps its `needs:` list complete forever.
@@ -29,8 +30,8 @@
  *   2. `needs:` EVERY other job in the workflow (no sibling omitted);
  *   3. inspects `needs.*.result` and fails on `failure`/`cancelled`.
  *
- * Single-job workflows (e.g. lockfile-check.yml) are exempt — the lone job is
- * already its own required status check.
+ * Single-job workflows are exempt — the lone job is already its own status
+ * check (T13840 folded the last single-job gates into ci.yml steps).
  *
  * Coverage (T13263)
  * -----------------
