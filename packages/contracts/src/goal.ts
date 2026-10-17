@@ -1,7 +1,7 @@
 /**
  * CLEO goal record contracts.
  *
- * CLEO owns the goal protocol and OpenCode-Goal is the goal runtime (owner
+ * CLEO owns the goal protocol and CLEO Goal is the goal runtime (owner
  * decision 2026-10-16, epic T13791, ADR-097 `adr-097-goal-protocol-ocg-runtime`). The
  * protocol's portable shapes (goal/v1 contract, task link, outcome) live in
  * `./goal-contract.ts`. This module keeps the DB-persisted per-agent goal

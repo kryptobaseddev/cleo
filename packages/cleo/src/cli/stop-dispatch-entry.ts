@@ -1,15 +1,16 @@
 /**
  * `cleo hook stop --provider <p>`: the one Stop dispatcher (T13796).
  *
- * A goal runtime (OpenCode-Goal's `ocg tick`) and CLEO's `cleo session end`
+ * A goal runtime (CLEO Goal's `cleo-goal tick`) and CLEO's `cleo session end`
  * both want the Stop event; as two hooks they fight (the session ends while
  * the goal keeps the turn going). This dispatcher owns the event, in order
  * goal tick → ask-enforce → session end:
  *
  * 1. When a goal workspace exists (`.opencode/goals/` at or above the project),
- *    run the tick command (`CLEO_GOAL_TICK_COMMAND`, default `ocg tick`) with
- *    the harness's Stop JSON on stdin. With no workspace there is no tick: the
- *    no-goal path costs nothing, and an unrelated `ocg` on PATH never sees
+ *    run the tick (`CLEO_GOAL_TICK_COMMAND`, else `<bin> tick` with the CLEO
+ *    Goal bin resolved as `cleo-goal`, then its alias `ocg`) with the
+ *    harness's Stop JSON on stdin. With no workspace, or no bin, there is no
+ *    tick: the no-goal path costs nothing, and an unrelated binary never sees
  *    Stop JSON. The tick MUST write only JSON to stdout.
  * 2. `{"decision":"block","reason":…}` on its stdout: a live goal continues the
  *    turn. CLEO re-serialises exactly `{decision, reason}` (reason capped at
@@ -60,9 +61,6 @@ export const PROVIDER_ENDS_SESSION: Readonly<Record<StopDispatchProvider, boolea
   codex: false,
 };
 
-/** The goal runtime's tick when `CLEO_GOAL_TICK_COMMAND` is unset. */
-export const DEFAULT_GOAL_TICK_COMMAND = 'ocg tick';
-
 /** Deadline for one tick when `CLEO_GOAL_TICK_TIMEOUT_MS` is unset. */
 const DEFAULT_TICK_TIMEOUT_MS = 30_000;
 
@@ -89,6 +87,8 @@ export interface TickRun {
 
 /** Side effects of the dispatcher, injectable for tests. */
 export interface StopDispatchDeps {
+  /** The CLEO Goal bin (`cleo-goal`, then `ocg`), or null when it is not installed. */
+  readonly goalBin: () => Promise<string | null>;
   /** Whether a goal workspace exists for this Stop (no workspace, no tick). */
   readonly hasGoalWorkspace: (input: string) => boolean;
   /** Run the tick command with the Stop JSON on stdin, killed at the deadline. */
@@ -131,6 +131,12 @@ export function parseTick(run: TickRun): TickDecision {
   return answer.final === false ? { kind: 'hold' } : { kind: 'final' };
 }
 
+/** `"<bin>" tick` for the resolved CLEO Goal bin, or null when there is none. */
+async function tickOf(deps: StopDispatchDeps): Promise<string | null> {
+  const bin = await deps.goalBin();
+  return bin === null ? null : `${JSON.stringify(bin)} tick`;
+}
+
 /** Whether a hook answer is a `{"decision":"block"}` (Claude Code and Codex). */
 function isBlock(stdout: string): boolean {
   try {
@@ -161,16 +167,12 @@ export async function stopDispatch(
     Number(env.CLEO_GOAL_TICK_TIMEOUT_MS) || DEFAULT_TICK_TIMEOUT_MS,
     MAX_TICK_TIMEOUT_MS,
   );
-  const decision: TickDecision =
+  const command =
     env.CLEO_GOAL_TICK?.trim().toLowerCase() === 'off' || !deps.hasGoalWorkspace(stdin)
-      ? { kind: 'final' }
-      : parseTick(
-          await deps.runTick(
-            env.CLEO_GOAL_TICK_COMMAND?.trim() || DEFAULT_GOAL_TICK_COMMAND,
-            stdin,
-            timeout,
-          ),
-        );
+      ? null
+      : env.CLEO_GOAL_TICK_COMMAND?.trim() || (await tickOf(deps));
+  const decision: TickDecision =
+    command === null ? { kind: 'final' } : parseTick(await deps.runTick(command, stdin, timeout));
   if (decision.kind === 'block') return { stdout: decision.answer, sessionEnded: false };
   if (decision.kind === 'hold') return { stdout: '', sessionEnded: false };
   const asked = await deps.askEnforce(stdin).catch(() => '');
@@ -229,6 +231,10 @@ export function processStopDispatchDeps(
       const lookup = await entry.caampAskToolLookup();
       const answer = await entry.askEnforceHook(provider, input, env, lookup);
       return answer.stdout;
+    },
+    goalBin: async () => {
+      const { resolveGoalBin } = await import('@cleocode/core/goal/runtime.js');
+      return resolveGoalBin({ ...process.env, ...env });
     },
     hasGoalWorkspace: (input) => hasGoalWorkspace(input, env),
     runTick: runTickKillable,

@@ -3,9 +3,9 @@
  *
  * A `.cantbook` agentic stage can pin its LLM via `profile:` (a named
  * `llm.profiles` entry), or the inline `model:` / `provider:` escape hatch
- * ({@link PlaybookAgenticNode}). This module is the single seam the two
- * production cantbook dispatchers (`buildDefaultDispatcher` in `playbook.ts` and
- * `buildGoDispatcher` in `go-ivtr-runner.ts`) call to turn that declaration into
+ * ({@link PlaybookAgenticNode}). This module is the single seam the
+ * production cantbook dispatcher (`buildDefaultDispatcher` in `playbook.ts`;
+ * `cleo go`'s `buildGoDispatcher` was retired in T13821) calls to turn that declaration into
  * a RESOLUTION through the E9 chokepoint.
  *
  * ## Gate-13 compliance (no transport construction here)

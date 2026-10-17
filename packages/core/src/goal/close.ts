@@ -2,7 +2,7 @@
  * `cleo goal close` — record the evidence a goal run produced against the
  * CLEO acceptance criteria its criteria `prove`.
  *
- * Honesty rules (epic T13791, agreed with OpenCode-Goal):
+ * Honesty rules (epic T13791, agreed with CLEO Goal):
  * 1. The outcome must match the contract bytes (sha256 lock), and its head
  *    (and base) commit must exist, or nothing is recorded.
  * 2. The outcome's `pass`, exit codes and verdicts are claims. Everything CLEO
@@ -292,7 +292,7 @@ function recheckPath(check: ContractCheck, tree: HeadTree): { files: string[] } 
       const ok =
         check.text !== undefined
           ? content.includes(check.text)
-          : new RegExp(check.regex ?? '', 'm').test(content); // OCG's flags
+          : new RegExp(check.regex ?? '', 'm').test(content); // CLEO Goal's flags
       return ok
         ? { files: [tree.repoPath(path)] }
         : { why: `${path} does not contain it at ${tree.label}` };

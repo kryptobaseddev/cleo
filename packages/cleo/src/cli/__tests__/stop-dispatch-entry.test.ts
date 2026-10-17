@@ -10,7 +10,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import {
   askEnforceOptedOut,
-  DEFAULT_GOAL_TICK_COMMAND,
   hasGoalWorkspace,
   MAX_REASON_CHARS,
   MAX_TICK_TIMEOUT_MS,
@@ -25,16 +24,26 @@ import {
 const STOP = JSON.stringify({ session_id: 's', stop_hook_active: false });
 const ASK_BLOCK = '{"decision":"block","reason":"Re-ask the owner with your ask tool"}\n';
 
-function deps(run: TickRun, ask: () => Promise<string> = async () => '', workspace = true) {
+/** The tick command for the default resolved bin in these tests. */
+const TICK = '"/opt/bin/cleo-goal" tick';
+
+function deps(
+  run: TickRun,
+  ask: () => Promise<string> = async () => '',
+  workspace = true,
+  bin: string | null = '/opt/bin/cleo-goal',
+) {
   const endSession = vi.fn();
   const runTick = vi.fn(async () => run);
   const askEnforce = vi.fn(ask);
   const hasGoalWorkspace = vi.fn(() => workspace);
+  const goalBin = vi.fn(async () => bin);
   return {
     endSession,
     runTick,
     askEnforce,
-    deps: { hasGoalWorkspace, runTick, askEnforce, endSession } satisfies StopDispatchDeps,
+    goalBin,
+    deps: { goalBin, hasGoalWorkspace, runTick, askEnforce, endSession } satisfies StopDispatchDeps,
   };
 }
 
@@ -48,7 +57,7 @@ describe('stopDispatch (T13796)', () => {
     });
     expect(d.askEnforce).not.toHaveBeenCalled();
     expect(d.endSession).not.toHaveBeenCalled();
-    expect(d.runTick).toHaveBeenCalledWith(DEFAULT_GOAL_TICK_COMMAND, STOP, expect.any(Number));
+    expect(d.runTick).toHaveBeenCalledWith(TICK, STOP, expect.any(Number));
   });
 
   it('a live goal that is not final but does not continue keeps the session open', async () => {
@@ -162,6 +171,7 @@ describe('stopDispatch (T13796)', () => {
     const real = processStopDispatchDeps('claude-code', env);
     const endSession = vi.fn();
     const live = {
+      goalBin: async () => null,
       hasGoalWorkspace: () => true,
       runTick: real.runTick,
       askEnforce: real.askEnforce,
@@ -222,6 +232,7 @@ describe('stopDispatch (T13796)', () => {
       STOP,
       { CLEO_GOAL_TICK_COMMAND: trap, CLEO_GOAL_TICK_TIMEOUT_MS: '400', CLEO_ASK_ENFORCE: 'off' },
       {
+        goalBin: async () => null,
         hasGoalWorkspace: () => true,
         runTick: runTickKillable,
         askEnforce: async () => '',
@@ -231,11 +242,7 @@ describe('stopDispatch (T13796)', () => {
     expect(ended.sessionEnded).toBe(true);
     const capped = deps({ status: 0, stdout: '' });
     await stopDispatch(STOP, { CLEO_GOAL_TICK_TIMEOUT_MS: '999999' }, capped.deps);
-    expect(capped.runTick).toHaveBeenCalledWith(
-      DEFAULT_GOAL_TICK_COMMAND,
-      STOP,
-      MAX_TICK_TIMEOUT_MS,
-    );
+    expect(capped.runTick).toHaveBeenCalledWith(TICK, STOP, MAX_TICK_TIMEOUT_MS);
   });
 
   it('with no goal workspace there is no tick at all', async () => {
@@ -271,5 +278,24 @@ describe('stopDispatch (T13796)', () => {
     } finally {
       rmSync(root, { recursive: true, force: true });
     }
+  });
+
+  it('ticks the resolved CLEO Goal bin (cleo-goal, then ocg); no bin means no tick', async () => {
+    const found = deps({ status: 0, stdout: '' });
+    await stopDispatch(STOP, {}, found.deps);
+    expect(found.runTick).toHaveBeenCalledWith(TICK, STOP, expect.any(Number));
+    const missing = deps(
+      { status: 0, stdout: '{"decision":"block","reason":"x"}' },
+      async () => '',
+      true,
+      null,
+    );
+    expect(await stopDispatch(STOP, {}, missing.deps)).toEqual({ stdout: '', sessionEnded: true });
+    expect(missing.runTick).not.toHaveBeenCalled();
+    // An explicit CLEO_GOAL_TICK_COMMAND needs no bin.
+    const custom = deps({ status: 0, stdout: '' }, async () => '', true, null);
+    await stopDispatch(STOP, { CLEO_GOAL_TICK_COMMAND: 'my-goal tick' }, custom.deps);
+    expect(custom.runTick).toHaveBeenCalledWith('my-goal tick', STOP, expect.any(Number));
+    expect(custom.goalBin).not.toHaveBeenCalled();
   });
 });

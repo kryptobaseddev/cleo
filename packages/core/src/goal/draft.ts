@@ -1,6 +1,6 @@
 /**
  * `cleo goal draft` — write a goal/v1 contract draft from tasks' acceptance
- * criteria, for a goal runtime (OpenCode-Goal) to execute.
+ * criteria, for a goal runtime (CLEO Goal) to execute.
  *
  * Each criterion maps to goal criteria that `prove` it (by its canonical
  * uuid), never weaker than the gate:
@@ -74,7 +74,7 @@ const SIZE_BUDGET: Record<TaskSize, { turns: number; wallMs: number }> = {
   large: { turns: 80, wallMs: 28_800_000 },
 };
 
-/** OCG goal ids: a kebab-case slug that equals the goal directory name. */
+/** CLEO Goal ids: a kebab-case slug that equals the goal directory name. */
 export const GOAL_ID = /^[a-z0-9][a-z0-9-]{0,63}$/;
 
 /** A process command as a shell line: `cd <cwd> && env K=V <words>`. */
@@ -84,7 +84,7 @@ function shellLine(words: readonly string[], cwd?: string, env?: Record<string, 
   return cwd && cwd !== '.' ? `cd ${joinCommandLine([cwd])} && ${line}` : line;
 }
 
-/** The gate's own deadline in whole seconds (OCG `timeout`). */
+/** The gate's own deadline in whole seconds (CLEO Goal `timeout`). */
 function timeoutSeconds(gate: AcceptanceGate): number {
   return Math.ceil(resolveGateTimeoutMs(gate, {}) / 1000);
 }
@@ -92,12 +92,12 @@ function timeoutSeconds(gate: AcceptanceGate): number {
 /**
  * Whether goal/v1 can express the gate exactly. Output scanning (`test`
  * `expect: 'pass'`, a lint `errorPattern` under `expect: 'clean'`), `minCount`,
- * `stderrMatches`, regex flags or anchors (OCG adds `m`), byte sizes, sha256,
+ * `stderrMatches`, regex flags or anchors (CLEO Goal adds `m`), byte sizes, sha256,
  * attachments and http have no exact host check, so such a gate runs as itself
  * through `cleo verify --run`.
  */
 function nativelyExpressible(gate: AcceptanceGate): boolean {
-  // OCG compiles regexes with the `m` flag, so an anchor would match any line
+  // CLEO Goal compiles regexes with the `m` flag, so an anchor would match any line
   // where the gate runner (no flags) anchors the whole text: weaker.
   const anchored = (re: string | undefined): boolean => re !== undefined && /[\^$]/.test(re);
   switch (gate.kind) {
@@ -195,8 +195,13 @@ function gateStatement(gate: AcceptanceGate): string {
   }
 }
 
-/** Goal slug from the task ids: whole ids only, at most 64 characters. */
-function goalSlug(ids: readonly string[]): string {
+/**
+ * Goal slug from the task ids: whole ids only, at most 64 characters.
+ *
+ * @param ids - Task ids; the first names the goal.
+ * @returns The slug `cleo goal draft` writes the goal under.
+ */
+export function goalSlug(ids: readonly string[]): string {
   let slug = '';
   for (const id of ids.map((i) => i.toLowerCase())) {
     const next = slug ? `${slug}-${id}` : id;
@@ -293,7 +298,7 @@ export function buildGoalDraft(
 }
 
 /**
- * Render a contract as `goal.yaml` text in OCG's YAML spelling (budget
+ * Render a contract as `goal.yaml` text in CLEO Goal's YAML spelling (budget
  * `wall` as minutes, e.g. `"180m"`). Lines never fold, so a command stays one line.
  *
  * @param contract - The contract.
@@ -330,7 +335,7 @@ export async function draftGoal(
         `goal draft needs task ids (T<1-7 digits>)${invalid.length ? `; got ${invalid.join(', ')}` : ''}`,
       );
     }
-    // --out names the goal file; OCG requires the id to equal its directory name.
+    // --out names the goal file; CLEO Goal requires the id to equal its directory name.
     const path = resolve(
       root,
       opts.out ?? join('.opencode', 'goals', goalSlug(taskIds), 'goal.yaml'),

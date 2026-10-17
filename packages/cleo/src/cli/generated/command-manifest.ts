@@ -745,14 +745,15 @@ export const COMMAND_MANIFEST: readonly CommandManifestEntry[] = [
   {
     exportName: 'goCommand',
     name: 'go',
-    description: 'SG-AUTOPILOT: run one turn of briefing→sagaNext→ready→stage-branch→ivtr loop',
+    description:
+      'SG-AUTOPILOT: pick the next ready wave, draft its goal/v1 contract and hand it to the goal runtime (OpenCode-Goal), or say how to install it',
     load: async () => (await import('../commands/go.js')).goCommand as CommandDef,
   },
   {
     exportName: 'goalCommand',
     name: 'goal',
     description:
-      'Goal protocol verbs for the goal runtime (CLEO Goal): draft a goal/v1 contract from task ACs, close a run from its outcome, install the runtime for a harness.',
+      'Goal protocol verbs for the goal runtime (CLEO Goal): draft a goal/v1 contract from task ACs, close a run from its outcome, install the runtime for a harness, show status.',
     load: async () => (await import('../commands/goal.js')).goalCommand as CommandDef,
   },
   {
