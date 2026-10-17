@@ -209,6 +209,13 @@ function runGoalJson<T>(
   // shortcut: no shell, so a Windows `.cmd` shim fails here; add shell resolution when Windows is supported.
   const r = spawnSync(bin, args, { cwd, encoding: 'utf-8', timeout, env: { ...env } });
   const command = `${bin} ${args.join(' ')}`;
+  if (r.error !== undefined && 'code' in r.error && r.error.code === 'ETIMEDOUT') {
+    // @sync-invariant none:local-only the goal bin did not answer in time; nothing is written
+    return engineError('E_GOAL_RUNTIME_TIMEOUT', `${command} did not answer within ${timeout} ms`, {
+      exitCode: ExitCode.GENERAL_ERROR,
+      fix: `Run ${command} in ${cwd} to see why it is slow`,
+    });
+  }
   const body = parseVersioned(r.stdout ?? '');
   if ((r.status === 0 || r.status === 1) && body === null) {
     const out = (r.stdout ?? '').trim().slice(0, 200);
@@ -272,16 +279,19 @@ function goalRuntimeMissing<T>(): EngineResult<T> {
  *
  * @param projectRoot - absolute project root (the bin's cwd)
  * @param env - environment for the bin lookup and spawn (default `process.env`)
+ * @param timeoutMs - deadline for the bin (default 15 s; `cleo doctor` passes 2 s)
  * @returns the status shape, or a failure (`E_GOAL_RUNTIME_MISSING`,
- *   `E_GOAL_RUNTIME_SCHEMA`, `E_GOAL_RUNTIME_USAGE`, `E_GOAL_RUNTIME_FAILED`)
+ *   `E_GOAL_RUNTIME_SCHEMA`, `E_GOAL_RUNTIME_USAGE`, `E_GOAL_RUNTIME_TIMEOUT`,
+ *   `E_GOAL_RUNTIME_FAILED`)
  */
 export function readGoalStatus(
   projectRoot: string,
   env: Env = process.env,
+  timeoutMs = 15_000,
 ): EngineResult<GoalRuntimeStatus> {
   const bin = resolveGoalBin(env);
   if (bin === null) return goalRuntimeMissing();
-  return runGoalJson<GoalRuntimeStatus>(bin, ['status', '--json'], projectRoot, env, 15_000);
+  return runGoalJson<GoalRuntimeStatus>(bin, ['status', '--json'], projectRoot, env, timeoutMs);
 }
 
 /** Result of {@link installGoalForHarness}. */

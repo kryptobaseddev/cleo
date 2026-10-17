@@ -944,7 +944,8 @@ export async function checkGoalRuntime(
       ...(s.latest === null && s.foreign === null ? {} : { fix: GOAL_INSTALL_COMMAND }),
     };
   }
-  const status = readGoalStatus(projectRoot);
+  // Bounded like --version: a slow machine reports the goal as unknown, not a slow doctor.
+  const status = readGoalStatus(projectRoot, process.env, 2000);
   const details = {
     bin: s.bin,
     version: s.version,
@@ -953,6 +954,15 @@ export async function checkGoalRuntime(
     goalStatus: status.success ? status.data.status : null,
   };
   const head = `CLEO Goal ${s.version ?? '(version unknown)'} at ${s.bin}${latest}`;
+  if (!status.success && status.error.code === 'E_GOAL_RUNTIME_TIMEOUT') {
+    return {
+      check: 'goal_runtime',
+      status: s.updateAvailable ? 'warning' : 'ok',
+      message: `${head}, goal unknown (status --json did not answer within 2 s)`,
+      details,
+      ...(s.updateAvailable ? { fix: GOAL_INSTALL_COMMAND } : {}),
+    };
+  }
   if (!status.success) {
     return {
       check: 'goal_runtime',

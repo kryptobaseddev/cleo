@@ -122,6 +122,17 @@ describe('cleo-goal status --json', () => {
     const refused = readGoalStatus(dir, { PATH: dir });
     expect(refused.success ? null : refused.error.code).toBe('E_GOAL_RUNTIME_SCHEMA');
   });
+
+  it('doctor reports the goal as unknown when status --json is slow', async () => {
+    bin(
+      'cleo-goal',
+      'case "$1" in --version) echo "cleo-goal 0.8.0";; *) exec /bin/sleep 5;; esac',
+    );
+    vi.stubEnv('PATH', dir);
+    const check = await checkGoalRuntime(dir);
+    expect(check).toMatchObject({ status: 'ok', details: { version: '0.8.0', goalStatus: null } });
+    expect(check.message).toContain('goal unknown');
+  });
 });
 
 describe('cleo goal install --harness', () => {

@@ -77,6 +77,15 @@ export interface GoalRuntimeStatus {
 }
 
 /**
+ * One OpenCode v2 `plugins` entry: a spec, a `[spec, options]` tuple, or a
+ * `{ package, options }` object.
+ */
+export type GoalRuntimePluginEntry =
+  | string
+  | readonly [string, Readonly<Record<string, unknown>>]
+  | { readonly package: string; readonly options?: Readonly<Record<string, unknown>> };
+
+/**
  * `cleo-goal install --project --json` stdout on exit 0. Writes only the
  * project's `.opencode/opencode.json` (OpenCode v2 `plugins` key).
  */
@@ -86,7 +95,7 @@ export interface GoalRuntimeInstall {
   readonly file: string;
   /** The npm or git spec registered (`github:…#vX.Y.Z` until npm publish). */
   readonly spec: string;
-  readonly plugins: readonly string[];
+  readonly plugins: readonly GoalRuntimePluginEntry[];
 }
 
 /** `cleo-goal` stdout on exit 1 (exit 2 is a usage error on stderr only). */
