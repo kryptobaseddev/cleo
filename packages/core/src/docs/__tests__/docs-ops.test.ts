@@ -48,6 +48,13 @@ vi.mock('../../store/attachment-store.js', () => ({
   }),
 }));
 
+const conduitHistoryMocks = vi.hoisted(() => ({
+  resolveConduitDocUid: vi.fn(async (): Promise<string | null> => null),
+  listConduitAttachmentVersions: vi.fn(async () => []),
+}));
+
+vi.mock('../../store/conduit-doc-history.js', () => conduitHistoryMocks);
+
 vi.mock('../../paths.js', () => ({
   getProjectRoot: vi.fn(() => '/tmp/test-project'),
 }));
