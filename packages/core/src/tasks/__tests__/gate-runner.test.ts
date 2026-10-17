@@ -10,7 +10,7 @@
  */
 
 import { createHash } from 'node:crypto';
-import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { chmod, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import type {
@@ -967,8 +967,8 @@ describe('minCount reads a JSON report file this run wrote (T13782)', () => {
    * package (the child's cwd), and vitest names it on stdout (T13874).
    */
   const fromPackage = (dir: string, startTime: string) =>
-    `const p=require('node:path');process.chdir(${JSON.stringify(dir)});` +
-    `const t=p.resolve(${JSON.stringify(rel)});${writer('t', startTime)}` +
+    `process.chdir(${JSON.stringify(dir)});` +
+    writer(`require('node:path').resolve(${JSON.stringify(rel)})`, startTime) +
     `console.log('JSON report written to ' + t);`;
 
   it('reads the report vitest wrote under the package it ran in (T13874)', async () => {
@@ -992,6 +992,44 @@ describe('minCount reads a JSON report file this run wrote (T13782)', () => {
       expect(result?.result).toBe('error');
     } finally {
       await rm(join(projectRoot, 'lib'), { recursive: true, force: true });
+    }
+  });
+
+  it('red: an in-project symlink to a fresh report outside is never read (T13883)', async () => {
+    const outside = await mkdtemp(join(tmpdir(), 'cleo-gate-outside-'));
+    const link = join(projectRoot, 'lib', 'db', rel);
+    await mkdir(dirname(link), { recursive: true });
+    await symlink(join(outside, 'output.json'), link);
+    try {
+      const source =
+        writer(JSON.stringify(join(outside, 'output.json')), 'Date.now()') +
+        `console.log('JSON report written to ' + ${JSON.stringify(link)});`;
+      const [result] = await runGates([gate(source)], { projectRoot });
+      expect(result?.result).toBe('error');
+    } finally {
+      await rm(join(projectRoot, 'lib'), { recursive: true, force: true });
+      await rm(outside, { recursive: true, force: true });
+    }
+  });
+
+  it('red: an earlier fabricated announcement loses to the last one (T13883)', async () => {
+    const pkg = join(projectRoot, 'lib', 'db');
+    await mkdir(pkg, { recursive: true });
+    const fake = join(projectRoot, 'fake-report.json');
+    // The fabricated report proves 3; vitest's own (announced last) proves 1.
+    const source =
+      writer(JSON.stringify(fake), 'Date.now()') +
+      `console.log('JSON report written to ' + ${JSON.stringify(fake)});` +
+      `const real=${JSON.stringify(join(pkg, rel))};` +
+      `fs.mkdirSync(p.dirname(real),{recursive:true});` +
+      `fs.writeFileSync(real, JSON.stringify(Object.assign(${report(1, 0)},{startTime:Date.now()})));` +
+      `console.log('JSON report written to ' + real);`;
+    try {
+      const [result] = await runGates([gate(source)], { projectRoot });
+      expect(result?.result).toBe('fail');
+    } finally {
+      await rm(join(projectRoot, 'lib'), { recursive: true, force: true });
+      await rm(fake, { force: true });
     }
   });
 

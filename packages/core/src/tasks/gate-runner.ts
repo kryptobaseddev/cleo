@@ -1822,20 +1822,31 @@ const REDIRECTED_JSON_REPORT = join('.vitest', 'json', 'output.json');
 const REPORT_WRITTEN_LINE = /^JSON report written to (.+?)\s*$/gm;
 
 /**
- * Report files the run's own output says it wrote (T13874), inside the
- * project only: a path the child names outside the project is never read.
+ * The report file the run's own output says it wrote (T13874), or null. Only
+ * the LAST announcement counts: vitest prints its line at the end, so an
+ * earlier one a test printed cannot stand in for it. The path is realpathed
+ * before the containment check, so a symlink inside the project that points
+ * outside it is refused.
  *
  * @param stdout - The run's captured stdout.
  * @param projectRoot - The project the gate belongs to.
- * @returns Absolute report paths, in output order.
+ * @returns The announced report's real path inside the project, or null.
  * @task T13874
+ * @task T13883
  */
-function announcedReportFiles(stdout: string, projectRoot: string): string[] {
-  return [...stdout.matchAll(REPORT_WRITTEN_LINE)].flatMap((m) => {
-    const path = resolve(projectRoot, m[1]!);
-    const rel = relative(projectRoot, path);
-    return rel.startsWith('..') || isAbsolute(rel) ? [] : [path];
-  });
+async function announcedReportFile(stdout: string, projectRoot: string): Promise<string | null> {
+  const announced = [...stdout.matchAll(REPORT_WRITTEN_LINE)].at(-1)?.[1];
+  if (announced === undefined) return null;
+  try {
+    const [root, path] = await Promise.all([
+      realpath(projectRoot),
+      realpath(resolve(projectRoot, announced)),
+    ]);
+    const rel = relative(root, path);
+    return rel.startsWith('..') || isAbsolute(rel) ? null : path;
+  } catch {
+    return null; // missing or unreadable: not a report of this run
+  }
 }
 
 /**
@@ -1998,8 +2009,8 @@ async function runTestGate(
   // runs without one, since report JSON and test names are full of "failure".
   // T13874: a path the run announced has no pre-spawn stamp; mtime and the
   // report's startTime still have to postdate the spawn.
-  for (const path of announcedReportFiles(captured.stdout, projectRoot))
-    if (!before.has(path)) before.set(path, null);
+  const announced = await announcedReportFile(captured.stdout, projectRoot);
+  if (announced !== null && !before.has(announced)) before.set(announced, null);
   const counts = structuredTestCounts(captured) ?? (await freshReportCounts(before, startedAt));
 
   // T12308: the counts come from this run's own validated report; only their
