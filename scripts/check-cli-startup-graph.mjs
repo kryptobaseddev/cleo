@@ -407,6 +407,20 @@ export const PROBES = Object.freeze([
     maxModules: 1015,
     maxRssMb: 260,
   },
+  {
+    // T13834: every Claude Code Stop runs `cleo session end`. It loaded the
+    // whole CORE barrel (~2,170 modules, ~1.7 s) for two post-end memory
+    // helpers; from their defining modules it is ~905. Last: it ends the
+    // sandbox session the earlier probes are bound to.
+    name: 'session-end',
+    args: ['session', 'end', '--quiet'],
+    needsProject: true,
+    session: true,
+    forbid: [CORE_BARREL, MODEL_SDKS, DRIZZLE_CJS],
+    expectExit: 0,
+    maxModules: 1000,
+    maxRssMb: 240,
+  },
 ]);
 
 // ---------------------------------------------------------------------------
