@@ -13,7 +13,8 @@
  * @saga T11242
  */
 
-import { sqliteTable, text } from 'drizzle-orm/sqlite-core';
+import { redactJsonText } from '@cleocode/utils';
+import { customType, sqliteTable, text } from 'drizzle-orm/sqlite-core';
 
 /**
  * The canonical two-column shape of a `*_schema_meta` key-value table:
@@ -58,3 +59,23 @@ export type SchemaMetaTable = ReturnType<typeof makeSchemaMetaTable>;
 export function makeSchemaMetaTable(tableName: string) {
   return sqliteTable(tableName, schemaMetaColumns);
 }
+
+/**
+ * A TEXT column that scrubs secrets on every Drizzle write (T13855).
+ *
+ * The audit tables record command params and responses verbatim, and
+ * `tasks_audit_log` syncs, so `service connect --token …` put the token in the
+ * cloud vault. Redacting in the column's `toDriver` covers every Drizzle
+ * writer of the column at once: secret-named JSON fields and known credential
+ * shapes become `[REDACTED]` (`redactJsonText`). The DDL is plain `text`,
+ * identical to `text(name)`.
+ *
+ * @param name - The physical column name.
+ * @returns A Drizzle column builder for the TEXT column.
+ * @task T13855
+ */
+export const redactedText = (name: string) =>
+  customType<{ data: string; driverData: string }>({
+    dataType: () => 'text',
+    toDriver: (value: string): string => redactJsonText(value),
+  })(name);

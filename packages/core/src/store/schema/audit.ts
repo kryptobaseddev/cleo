@@ -16,6 +16,7 @@ import {
 } from 'drizzle-orm/sqlite-core';
 import { ADR_STATUSES, GATE_STATUSES } from '../status-registry.js';
 import { manifestEntries } from './manifest.js';
+import { redactedText } from './schema-utils.js';
 import { sessions, tasks } from './tasks.js';
 
 /** Token measurement methods for central token telemetry. */
@@ -61,9 +62,9 @@ export const auditLog = sqliteTable(
     action: text('action').notNull(),
     taskId: text('task_id').notNull(),
     actor: text('actor').notNull().default('system'),
-    detailsJson: text('details_json').default('{}'),
-    beforeJson: text('before_json'),
-    afterJson: text('after_json'),
+    detailsJson: redactedText('details_json').default('{}'),
+    beforeJson: redactedText('before_json'),
+    afterJson: redactedText('after_json'),
     // Dispatch layer columns (migration 20260225200000_audit-log-dispatch-columns)
     domain: text('domain'),
     operation: text('operation'),
@@ -75,7 +76,7 @@ export const auditLog = sqliteTable(
     success: integer('success'),
     source: text('source'),
     gateway: text('gateway'),
-    errorMessage: text('error_message'),
+    errorMessage: redactedText('error_message'),
     // Project correlation (T5334)
     projectHash: text('project_hash'),
   },

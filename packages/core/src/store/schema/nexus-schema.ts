@@ -65,6 +65,7 @@
 import { USER_PROFILE_SCOPES } from '@cleocode/contracts/operations/nexus-user-profile.js';
 import { sql } from 'drizzle-orm';
 import { index, integer, primaryKey, real, sqliteTable, text } from 'drizzle-orm/sqlite-core';
+import { redactedText } from './schema-utils.js';
 
 // === PROJECT_REGISTRY TABLE ===
 
@@ -402,8 +403,8 @@ export const nexusAuditLog = sqliteTable(
     gateway: text('gateway'),
     success: integer('success'),
     durationMs: integer('duration_ms'),
-    detailsJson: text('details_json').default('{}'),
-    errorMessage: text('error_message'),
+    detailsJson: redactedText('details_json').default('{}'),
+    errorMessage: redactedText('error_message'),
   },
   (table) => [
     index('idx_nexus_audit_timestamp').on(table.timestamp),

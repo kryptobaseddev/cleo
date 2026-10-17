@@ -215,3 +215,75 @@ export function containsSecret(content: string): boolean {
   }
   return false;
 }
+
+// ---------------------------------------------------------------------------
+// Structured (key-aware) redaction — audit payloads (T13855)
+// ---------------------------------------------------------------------------
+
+/** A parsed JSON value. */
+export type JsonLike = string | number | boolean | null | JsonLike[] | { [key: string]: JsonLike };
+
+/**
+ * Field names whose string value is a secret, matched case-insensitively on
+ * the name's END so `refreshToken`, `client_secret` and `apiKey` match while
+ * `tokenId`, `maxTokens`, `idempotencyKey` and `keyword` do not.
+ */
+const SECRET_FIELD_RE =
+  /(?:token|secret|password|passwd|passphrase|credentials?|authorization|api[_-]?key|private[_-]?key|access[_-]?key|code[_-]?verifier)$/i;
+
+/**
+ * Redact a parsed JSON value: every string under a secret-named field becomes
+ * `[REDACTED]` (at any depth), and every other string leaf goes through
+ * {@link redact}. Numbers and booleans are kept, so `hasCredentials: true`
+ * survives. Returns the input object itself when nothing changed.
+ *
+ * @param value - Parsed JSON value to scrub.
+ * @returns The scrubbed value.
+ *
+ * @example
+ * ```ts
+ * redactSecretFields({ provider: 'github', token: 'abc123' });
+ * // → { provider: 'github', token: '[REDACTED]' }
+ * ```
+ */
+export function redactSecretFields(value: JsonLike): JsonLike {
+  if (typeof value === 'string') return redact(value);
+  if (value === null || typeof value !== 'object') return value;
+  if (Array.isArray(value)) {
+    const next = value.map(redactSecretFields);
+    return next.some((v, i) => v !== value[i]) ? next : value;
+  }
+  let changed = false;
+  const next: { [key: string]: JsonLike } = {};
+  for (const [key, child] of Object.entries(value)) {
+    const scrubbed =
+      typeof child === 'string' && SECRET_FIELD_RE.test(key) ? REDACTED : redactSecretFields(child);
+    if (scrubbed !== child) changed = true;
+    next[key] = scrubbed;
+  }
+  return changed ? next : value;
+}
+
+/**
+ * Redact a serialized JSON payload with {@link redactSecretFields}; text that
+ * is not JSON goes through {@link redact}. Returns the input string unchanged
+ * (byte for byte) when nothing was redacted.
+ *
+ * @param text - JSON text (or plain text) to scrub.
+ * @returns The scrubbed text.
+ *
+ * @example
+ * ```ts
+ * redactJsonText('{"token":"abc123"}'); // → '{"token":"[REDACTED]"}'
+ * ```
+ */
+export function redactJsonText(text: string): string {
+  let parsed: JsonLike;
+  try {
+    parsed = JSON.parse(text);
+  } catch {
+    return redact(text);
+  }
+  const scrubbed = redactSecretFields(parsed);
+  return scrubbed === parsed ? text : JSON.stringify(scrubbed);
+}

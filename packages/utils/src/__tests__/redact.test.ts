@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { containsSecret, redact, redactWithFlag } from '../redact.js';
+import {
+  containsSecret,
+  redact,
+  redactJsonText,
+  redactSecretFields,
+  redactWithFlag,
+} from '../redact.js';
 
 describe('redact (superset of both prior credential scrubbers)', () => {
   it('redacts Anthropic API keys (sk-ant-…)', () => {
@@ -100,5 +106,71 @@ describe('containsSecret', () => {
 
   it('returns false for clean content', () => {
     expect(containsSecret('just an ordinary log line')).toBe(false);
+  });
+});
+
+describe('redactSecretFields / redactJsonText (audit payloads, T13855)', () => {
+  const R = '[REDACTED]';
+
+  it.each([
+    ['token'],
+    ['refreshToken'],
+    ['ownerAuthToken'],
+    ['apiKey'],
+    ['api_key'],
+    ['password'],
+    ['passwd'],
+    ['passphrase'],
+    ['client_secret'],
+    ['credential'],
+    ['credentials'],
+    ['Authorization'],
+    ['privateKey'],
+    ['access_key'],
+    ['codeVerifier'],
+  ])('redacts a string under the secret-named field %s', (key) => {
+    expect(redactSecretFields({ provider: 'github', [key]: 'plain-value-1' })).toEqual({
+      provider: 'github',
+      [key]: R,
+    });
+  });
+
+  it('redacts secret fields at any depth, inside arrays too', () => {
+    expect(
+      redactSecretFields({ tokens: { accessToken: 'a1b2c3' }, list: [{ secret: 's' }] }),
+    ).toEqual({
+      tokens: { accessToken: R },
+      list: [{ secret: R }],
+    });
+  });
+
+  it('redacts a known credential shape under a non-secret field name', () => {
+    const value = `gho_${'a'.repeat(36)}`;
+    expect(redactSecretFields({ value })).toEqual({ value: R });
+  });
+
+  it('keeps non-secret fields, numbers and booleans, and returns the same object', () => {
+    const input = {
+      taskId: 'T1',
+      tokenId: 'tok_1',
+      maxTokens: 100,
+      idempotencyKey: 'idem-1',
+      keyword: 'auth',
+      hasCredentials: true,
+      key: 'llm.model',
+    };
+    expect(redactSecretFields(input)).toBe(input);
+  });
+
+  it('redactJsonText scrubs JSON and leaves clean text byte for byte', () => {
+    expect(redactJsonText('{"provider":"github","token":"gho_gate"}')).toBe(
+      '{"provider":"github","token":"[REDACTED]"}',
+    );
+    const clean = '{ "taskId": "T1" }';
+    expect(redactJsonText(clean)).toBe(clean);
+  });
+
+  it('redactJsonText runs plain (non-JSON) text through redact', () => {
+    expect(redactJsonText('failed with Bearer abc.def')).toBe('failed with [REDACTED]');
   });
 });
