@@ -184,6 +184,25 @@ export interface DocsVersionEntry {
   readonly ownerVersion?: string;
   /** Sequential doc version counter (T11181). */
   readonly docVersion?: number;
+  /**
+   * Display ordinal 1..N over the doc's version history, assigned at READ
+   * time (T13727 display-ordinal ruling): rows are ordered by `created_at`
+   * ascending (uid tiebreak) and the oldest row gets 1, the newest N. This
+   * never repeats across the pre-/post-adoption seam the way stored
+   * ordinals can. Present only on conduit-history entries (T13727 routing);
+   * manifest-fallback entries carry no version sequence and omit the field.
+   */
+  readonly version?: number;
+  /**
+   * The row's stored `conduit_attachment_versions.version_number` — the
+   * honest local display ordinal, which MAY repeat across the
+   * pre-/post-adoption seam (backfilled head rows carry their chain
+   * position while post-adoption rows keep their minted ordinals; rows are
+   * append-only and never renumbered). Diagnostics only — user-facing
+   * ordering uses {@link DocsVersionEntry.version}. Present only on
+   * conduit-history entries.
+   */
+  readonly storedVersionNumber?: number;
 }
 
 /**
@@ -923,6 +942,60 @@ export async function rankDocs(opts: {
 }
 
 /**
+ * Try the T13727 conduit-history listing for a doc-slug arg.
+ *
+ * Returns null (caller falls back to the manifest path) when the arg does
+ * not resolve to a conduit doc, when the doc has no version rows yet, or
+ * when the project store cannot be read — the command must never regress
+ * because the store was unreachable.
+ *
+ * @internal
+ */
+async function listConduitDocVersions(
+  root: string,
+  slug: string,
+  name: string | undefined,
+): Promise<DocsVersionsResult | null> {
+  try {
+    const { findConduitAttachmentByUid, listConduitAttachmentVersions, resolveConduitDocUid } =
+      await import('../store/conduit-doc-history.js');
+    const docUid = await resolveConduitDocUid(root, slug);
+    if (docUid === null) return null;
+    const doc = await findConduitAttachmentByUid(root, docUid);
+    const rows = await listConduitAttachmentVersions(root, docUid);
+    if (rows.length === 0) return null;
+    const entryName = doc?.slug ?? slug;
+    if (name !== undefined && name !== entryName) {
+      return { ownerId: slug, nameFilter: name, versions: [] };
+    }
+    // Display-ordinal ruling (T13727): assign 1..N in chronological order
+    // (created_at ascending, uid tiebreak) — rows stay append-only and are
+    // never renumbered, so the stored version_number can repeat across the
+    // pre-/post-adoption seam; the read-time ordinal cannot. Entries are
+    // returned newest first, so the list reads N..1.
+    const chronological = [...rows].sort((a, b) => {
+      const byTime = a.createdAt.localeCompare(b.createdAt);
+      return byTime !== 0 ? byTime : (a.uid ?? '').localeCompare(b.uid ?? '');
+    });
+    const versions: DocsVersionEntry[] = chronological
+      .map((row, index) => ({ row, display: index + 1 }))
+      .reverse()
+      .map(({ row, display }) => ({
+        attachmentId: row.contentHash,
+        name: entryName,
+        sha256: row.contentHash,
+        sizeBytes: row.originalSize,
+        docVersion: row.versionNumber,
+        version: display,
+        storedVersionNumber: row.versionNumber,
+      }));
+    return { ownerId: slug, nameFilter: name, versions };
+  } catch {
+    return null;
+  }
+}
+
+/**
  * List all SHA-256 content-address versions of attachments for an owner.
  *
  * Reads the blob manifest for `ownerId` and returns all entries, optionally
@@ -936,6 +1009,20 @@ export async function rankDocs(opts: {
  * surface `docs fetch` uses, and its owning task's blobs are listed
  * (sibling docs included; narrow with `name`). An
  * arg that is neither throws `E_NOT_FOUND`.
+ *
+ * T13727 — precedence: when the arg resolves as a doc slug that has been
+ * adopted into the conduit family AND has at least one
+ * `conduit_attachment_versions` row, the listing comes from the conduit
+ * history ({@link listConduitAttachmentVersions}) keyed on the doc's
+ * immutable uid — the canonical per-doc history — instead of the LWW blob
+ * manifest. Entries carry the version's `content_hash`, a read-time
+ * display ordinal (`version`, 1..N chronological — see
+ * {@link DocsVersionEntry.version}) and the stored
+ * `version_number` (`storedVersionNumber`), ordered newest first. A doc
+ * with no conduit row, or none yet adopted, keeps the manifest listing as
+ * fallback so the command never regresses; manifest entries omit
+ * `version`/`storedVersionNumber` (no stored version sequence exists
+ * there).
  *
  * @param opts - Required `ownerId` (owner id or doc slug), optional `name`
  *   filter and `projectRoot`.
@@ -953,6 +1040,14 @@ export async function listDocVersions(opts: {
   projectRoot?: string;
 }): Promise<DocsVersionsResult> {
   const root = opts.projectRoot ?? getProjectRoot();
+
+  // T13727 — a doc slug with conduit history lists the canonical version
+  // rows; any failure to reach the store degrades to the manifest path.
+  if (!/^(T\d+$|ses_|O-)/.test(opts.ownerId)) {
+    const conduit = await listConduitDocVersions(root, opts.ownerId, opts.name);
+    if (conduit !== null) return conduit;
+  }
+
   let allBlobs = await blobList(opts.ownerId, root).catch(() => []);
   let listedOwnerId = opts.ownerId;
 
