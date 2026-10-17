@@ -77,8 +77,9 @@ import {
 import {
   applySectionTextEdit,
   joinSections,
-  sectionId,
+  sectionIds,
   sectionStateText,
+  seedSectionState,
   splitDocIntoSections,
 } from './section-merge.js';
 
@@ -340,8 +341,10 @@ export async function projectDocUpdateThroughSections(
       holder: input.authorAgentId,
     });
     const docUidForLeases = existingUid ?? input.slug;
-    for (const [index, text] of splitDocIntoSections(input.content).entries()) {
-      const id = sectionId(index);
+    const leaseSections = splitDocIntoSections(input.content);
+    const leaseIds = sectionIds(leaseSections);
+    for (const [index, text] of leaseSections.entries()) {
+      const id = leaseIds[index] ?? '';
       const stored =
         existingUid !== null ? await readSectionCrdtState(projectRoot, docUidForLeases, id) : null;
       // Only sections the edit actually touches are coordinated: unchanged
@@ -406,20 +409,36 @@ export async function projectDocUpdateThroughSections(
         input.baseSections !== undefined && input.baseSections !== null
           ? input.baseSections
           : headSections;
+      // T13584: sections are matched by heading-anchored id, never by
+      // position, so an inserted or removed section cannot pair a section
+      // with its neighbour's reference text or state.
+      const byId = (texts: readonly string[] | null): Map<string, string> => {
+        const ids = sectionIds(texts ?? []);
+        return new Map((texts ?? []).map((text, i) => [ids[i] ?? '', text]));
+      };
+      const referenceById = byId(referenceSections);
+      const headById = byId(headSections);
 
       // Apply each section's edit onto its stored Loro state and read the
       // MERGED text back out of the state — never out of the input (T13585).
       const sections = splitDocIntoSections(input.content);
+      const ids = sectionIds(sections);
       const mergedSections: string[] = [];
       const sectionsModified: string[] = [];
       const conflictedSections: string[] = [];
       for (const [index, text] of sections.entries()) {
-        const id = sectionId(index);
+        const id = ids[index] ?? '';
         const stored = await readSectionCrdtState(projectRoot, docUid, id);
+        // A section with no local state under its id (a doc whose states were
+        // written under pre-T13584 positional ids) starts from the head's
+        // text: every committed projection leaves state equal to the head, so
+        // this is exactly what the legacy row held, and the concurrency
+        // discriminator still sees the landed edit.
+        const headText = headById.get(id);
         const { snapshot, changed, conflicted } = applySectionTextEdit(
-          stored?.snapshot ?? null,
+          stored?.snapshot ?? (headText !== undefined ? seedSectionState(headText) : null),
           text,
-          referenceSections?.[index] ?? null,
+          referenceById.get(id) ?? null,
         );
         if (changed || stored === null) {
           await writeSectionCrdtState(projectRoot, {

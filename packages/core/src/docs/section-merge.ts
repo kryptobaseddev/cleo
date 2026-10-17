@@ -31,18 +31,57 @@ import {
   crdt_make_state,
 } from 'llmtxt/crdt-primitives';
 
+/** The preamble section's id (the H1 + text before the first `## `). */
+export const PREAMBLE_SECTION_ID = 's0';
+
+/** A pre-T13584 positional id (`s1`, `s2`, …), still found in landed history. */
+const LEGACY_POSITIONAL_ID = /^s([1-9]\d*)$/;
+
 /**
- * Deterministic section id for a split index. Section ids are positional
- * (`s0` is the H1 + preamble, `s1` the first `## ` block, …): stable across
- * devices for the same document shape and independent of heading text.
- * Positional ids are a known simplification — heading-anchored ids are the
- * filed follow-up (T13584).
+ * Heading-anchored section ids for a split document (T13584).
  *
- * @param index - The section's position in {@link splitDocIntoSections}.
- * @returns The section id recorded in `sections_modified`.
+ * The preamble is {@link PREAMBLE_SECTION_ID}; each `## ` section is
+ * `h-<slug of its heading>`, with `~2`, `~3`, … on repeated headings. Ids are
+ * a pure function of the text, so every device derives the same id with no
+ * coordination, and inserting or removing a section leaves every other
+ * section's id — and so its CRDT state and per-section approvals — in place.
+ * Renaming a heading gives the section a new identity, by design.
+ *
+ * @param sections - Sections from {@link splitDocIntoSections}.
+ * @returns One id per section, in document order.
  */
-export function sectionId(index: number): string {
-  return `s${index}`;
+export function sectionIds(sections: readonly string[]): string[] {
+  const seen = new Map<string, number>();
+  return sections.map((text) => {
+    if (!text.startsWith('## ')) return PREAMBLE_SECTION_ID;
+    const heading = (text.split('\n', 1)[0] ?? '').slice(3);
+    const slug = heading
+      .toLowerCase()
+      .replace(/[^\p{L}\p{N}]+/gu, '-')
+      .replace(/^-+|-+$/g, '');
+    const base = `h-${slug}`;
+    const n = (seen.get(base) ?? 0) + 1;
+    seen.set(base, n);
+    return n === 1 ? base : `${base}~${n}`;
+  });
+}
+
+/**
+ * Translate a section id recorded in history into its heading-anchored id.
+ * Version rows' `sections_modified` and approvals written before T13584 carry
+ * positional ids (`s1` = the second section of THAT version); history is never
+ * rewritten, so readers resolve the legacy id against the version it was
+ * recorded on.
+ *
+ * @param versionSections - Sections of the version the id was recorded on.
+ * @param id - The recorded id.
+ * @returns The heading-anchored id, or `id` unchanged when it is not legacy or
+ *   is out of range for that version.
+ */
+export function resolveSectionId(versionSections: readonly string[], id: string): string {
+  const legacy = LEGACY_POSITIONAL_ID.exec(id);
+  if (legacy === null) return id;
+  return sectionIds(versionSections)[Number(legacy[1])] ?? id;
 }
 
 /**

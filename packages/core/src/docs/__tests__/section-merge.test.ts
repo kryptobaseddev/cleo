@@ -37,7 +37,8 @@ import {
   joinSections,
   makeSectionEditUpdate,
   mergeSectionUpdates,
-  sectionId,
+  resolveSectionId,
+  sectionIds,
   sectionStateText,
   seedSectionState,
   splitDocIntoSections,
@@ -64,9 +65,30 @@ describe('splitDocIntoSections', () => {
     expect(joinSections(splitDocIntoSections(original))).toBe(original);
   });
 
-  it('assigns deterministic positional section ids', () => {
-    expect(sectionId(0)).toBe('s0');
-    expect(sectionId(3)).toBe('s3');
+  it('T13584: section ids are heading-anchored, so an insert or removal leaves other ids in place', () => {
+    const before = splitDocIntoSections(DOC);
+    expect(sectionIds(before)).toEqual(['s0', 'h-alpha', 'h-beta', 'h-gamma']);
+    const inserted = [before[0], before[1], '## New Bit\n\nnew', before[2], before[3]] as string[];
+    expect(sectionIds(inserted)).toEqual(['s0', 'h-alpha', 'h-new-bit', 'h-beta', 'h-gamma']);
+    expect(sectionIds([before[0], before[2], before[3]] as string[])).toEqual([
+      's0',
+      'h-beta',
+      'h-gamma',
+    ]);
+    // Repeated headings are told apart by occurrence; a heading-led doc has no preamble.
+    expect(sectionIds(['## A\n\none', '## A\n\ntwo', '## Résumé'])).toEqual([
+      'h-a',
+      'h-a~2',
+      'h-résumé',
+    ]);
+  });
+
+  it('T13584: a legacy positional id resolves against the version it was recorded on', () => {
+    const sections = splitDocIntoSections(DOC);
+    expect(resolveSectionId(sections, 's2')).toBe('h-beta');
+    expect(resolveSectionId(sections, 's0')).toBe('s0');
+    expect(resolveSectionId(sections, 'h-beta')).toBe('h-beta');
+    expect(resolveSectionId(sections, 's9')).toBe('s9');
   });
 });
 
