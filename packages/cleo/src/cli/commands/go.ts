@@ -23,7 +23,7 @@
  *   - `lifecycleHop`       — pre-implementation stage; advance lifecycle
  *   - `goalHandoff`        — a goal/v1 contract drafted for the ready wave and
  *                            the exact next step for the goal runtime
- *                            (OpenCode-Goal), or how to install it (T13821)
+ *                            (CLEO Goal), or how to install it (T13821)
  *   - `complete`           — no non-terminal sagas remain
  *
  * @task T11494 — E2-CLEO-GO
@@ -44,7 +44,7 @@ export const goCommand = defineCommand({
   meta: {
     name: 'go',
     description:
-      'SG-AUTOPILOT: pick the next ready wave, draft its goal/v1 contract and hand it to the goal runtime (OpenCode-Goal), or say how to install it',
+      'SG-AUTOPILOT: pick the next ready wave, draft its goal/v1 contract and hand it to the goal runtime (CLEO Goal), or say how to install it',
   },
   args: {
     saga: {
