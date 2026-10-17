@@ -32,6 +32,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { actAsOwner } from '../../security/__tests__/owner-session.js';
 import { parseOwnerRepo, releaseReconcileV2, sanitisePrShasForFk } from '../reconcile.js';
 
 // Explicit project roots belong to each synthetic fixture, not the setup pin.
@@ -669,8 +670,17 @@ describe('releaseReconcileV2 — Phase 1 (T9526)', () => {
     process.env['CLEO_OWNER_OVERRIDE'] = '1';
     process.env['CLEO_OWNER_OVERRIDE_REASON'] = 'incident-test-1234';
 
-    const result = await releaseReconcileV2(VERSION, { projectRoot });
-    expect(result.success).toBe(true);
+    // T13790: an agent that is not the owner gets no bypass.
+    const refused = await releaseReconcileV2(VERSION, { projectRoot });
+    expect(!refused.success && refused.error.code).toBe('E_EVIDENCE_STALE');
+    // The owner (owner-marked session, own terminal) does.
+    const restore = await actAsOwner(projectRoot);
+    try {
+      const result = await releaseReconcileV2(VERSION, { projectRoot });
+      expect(result.success).toBe(true);
+    } finally {
+      restore();
+    }
   });
 
   it('emits envelope with meta.durationMs and meta.txSize', async () => {

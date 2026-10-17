@@ -1,12 +1,10 @@
 /**
- * Tests for T1501 / P0-5 — per-session CLEO_OWNER_OVERRIDE cap with
- * waiver-doc requirement; and T1504 — cap default tuning + worktree-context
- * exemption.
+ * Tests for T1501 / P0-5 — per-session CLEO_OWNER_OVERRIDE cap; and T1504 —
+ * cap default tuning + worktree-context exemption.
  *
  * Acceptance criteria (from T1501 task brief):
- *   1. 10 overrides succeed, 11th rejects without waiver (cap raised 3→10 by T1504)
- *   2. 11th succeeds with valid waiver path
- *   3. 11th rejects with malformed/missing waiver file
+ *   1. 10 overrides succeed, 11th rejects (cap raised 3→10 by T1504)
+ *   2. T13787: the waiver file no longer lifts the cap (any agent could write one)
  *
  * Acceptance criteria (from T1504 task brief):
  *   7. DEFAULT_OVERRIDE_CAP_PER_SESSION is 10
@@ -16,6 +14,7 @@
  *
  * @task T1501
  * @task T1504
+ * @task T13787
  * @adr ADR-059
  */
 
@@ -31,7 +30,6 @@ import {
   isWorktreeContext,
   isWorktreeExemptionEnabled,
   readSessionOverrideCount,
-  validateWaiverDoc,
   WORKTREE_PATH_SEGMENT,
 } from '../../../security/override-cap.js';
 
@@ -95,57 +93,19 @@ describe('override-cap (T1501 / P0-5)', () => {
       expect(r11.errorMessage).toContain('cap exceeded');
     });
 
-    it('3. 11th call succeeds with a valid waiver file', () => {
-      // Use up 10 overrides
+    it('3. 11th call is rejected even with a valid waiver file (T13787: no waiver lifts the cap)', () => {
       for (let i = 0; i < 10; i++) {
         checkAndIncrementOverrideCap(tmpDir, SESSION_ID);
       }
-
-      // Create a valid waiver file
+      // Any agent can write this file, so it no longer bypasses the owner's cap.
       const waiverPath = join(tmpDir, 'cap-waiver.md');
-      writeFileSync(
-        waiverPath,
-        '---\ncap-waiver: true\nrationale: Emergency incident override approval\n---\n',
-        'utf-8',
-      );
-      process.env['CLEO_OWNER_OVERRIDE_WAIVER'] = waiverPath;
-
-      const r11 = checkAndIncrementOverrideCap(tmpDir, SESSION_ID);
-      expect(r11.allowed).toBe(true);
-      expect(r11.sessionOverrideOrdinal).toBe(11);
-    });
-
-    it('4. 11th call is rejected when waiver file does not exist', () => {
-      for (let i = 0; i < 10; i++) {
-        checkAndIncrementOverrideCap(tmpDir, SESSION_ID);
-      }
-
-      process.env['CLEO_OWNER_OVERRIDE_WAIVER'] = join(tmpDir, 'nonexistent-waiver.md');
-
-      const r11 = checkAndIncrementOverrideCap(tmpDir, SESSION_ID);
-      expect(r11.allowed).toBe(false);
-      expect(r11.errorCode).toBe('E_OVERRIDE_CAP_EXCEEDED');
-      expect(r11.errorMessage).toContain('Waiver rejected');
-      expect(r11.errorMessage).toContain('not found');
-    });
-
-    it('5. 11th call is rejected when waiver file is missing cap-waiver: true', () => {
-      for (let i = 0; i < 10; i++) {
-        checkAndIncrementOverrideCap(tmpDir, SESSION_ID);
-      }
-
-      const waiverPath = join(tmpDir, 'bad-waiver.md');
-      writeFileSync(
-        waiverPath,
-        '# No marker here\nrationale: missing the required line\n',
-        'utf-8',
-      );
+      writeFileSync(waiverPath, '---\ncap-waiver: true\n---\n', 'utf-8');
       process.env['CLEO_OWNER_OVERRIDE_WAIVER'] = waiverPath;
 
       const r11 = checkAndIncrementOverrideCap(tmpDir, SESSION_ID);
       expect(r11.allowed).toBe(false);
       expect(r11.errorCode).toBe('E_OVERRIDE_CAP_EXCEEDED');
-      expect(r11.errorMessage).toContain('cap-waiver: true');
+      expect(r11.errorMessage).toContain('CLEO_OWNER_OVERRIDE_WAIVER no longer lifts the cap');
     });
 
     it('6. count persists across separate calls (simulating separate CLI invocations)', () => {
@@ -284,42 +244,6 @@ describe('override-cap (T1501 / P0-5)', () => {
     it('returns false when set to "false"', () => {
       process.env['CLEO_OVERRIDE_EXEMPT_WORKTREE'] = 'false';
       expect(isWorktreeExemptionEnabled()).toBe(false);
-    });
-  });
-
-  describe('validateWaiverDoc', () => {
-    it('rejects empty path', () => {
-      const result = validateWaiverDoc('');
-      expect(result.valid).toBe(false);
-      expect(result.reason).toContain('empty');
-    });
-
-    it('rejects nonexistent file', () => {
-      const result = validateWaiverDoc(join(tmpDir, 'missing.md'));
-      expect(result.valid).toBe(false);
-      expect(result.reason).toContain('not found');
-    });
-
-    it('rejects file without cap-waiver: true', () => {
-      const path = join(tmpDir, 'no-marker.md');
-      writeFileSync(path, '# Just a doc\nNo marker here.\n', 'utf-8');
-      const result = validateWaiverDoc(path);
-      expect(result.valid).toBe(false);
-      expect(result.reason).toContain('cap-waiver: true');
-    });
-
-    it('accepts file containing cap-waiver: true in body', () => {
-      const path = join(tmpDir, 'valid.md');
-      writeFileSync(path, 'cap-waiver: true\nrationale: approved by owner\n', 'utf-8');
-      const result = validateWaiverDoc(path);
-      expect(result.valid).toBe(true);
-    });
-
-    it('accepts file with cap-waiver: true in YAML front-matter', () => {
-      const path = join(tmpDir, 'yaml-frontmatter.md');
-      writeFileSync(path, '---\ncap-waiver: true\n---\n# Waiver doc\n', 'utf-8');
-      const result = validateWaiverDoc(path);
-      expect(result.valid).toBe(true);
     });
   });
 });

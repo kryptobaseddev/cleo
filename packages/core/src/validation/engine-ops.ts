@@ -142,35 +142,6 @@ function initVerification(): TaskVerification {
   };
 }
 
-/**
- * Evaluate CLEO_OWNER_OVERRIDE environment and return the override state +
- * reason. Documented in ADR-051 §7.4.
- *
- * T1118 L4b: If CLEO_AGENT_ROLE is a restricted role (worker|lead|subagent),
- * override is silently rejected here even if the env var is set. This prevents
- * agents from using CLEO_OWNER_OVERRIDE to bypass evidence gates.
- *
- * @task T832
- * @task T1118
- */
-function readOverrideState(): { override: boolean; reason: string } {
-  const raw = process.env['CLEO_OWNER_OVERRIDE'];
-  const override = raw === '1' || raw === 'true';
-  const reason = (process.env['CLEO_OWNER_OVERRIDE_REASON'] ?? '').trim() || 'unspecified';
-
-  // T1118 L4b — reject override for restricted agent roles.
-  if (override) {
-    const role = process.env['CLEO_AGENT_ROLE'];
-    const forbiddenRoles = new Set(['worker', 'lead', 'subagent']);
-    if (role && forbiddenRoles.has(role)) {
-      // Silently downgrade — the agent cannot use override.
-      return { override: false, reason: 'E_OVERRIDE_FORBIDDEN_AGENT_ROLE' };
-    }
-  }
-
-  return { override, reason };
-}
-
 function computePassed(
   verification: TaskVerification,
   requiredGates: VerificationGate[] = DEFAULT_REQUIRED_GATES,
@@ -604,13 +575,28 @@ export async function validateGateVerify(
     // (value=false) and resets do NOT require evidence.
     const isWriteRequiringEvidence =
       (all || multiTargets !== null || (gate && value !== false)) && !reset;
-    const override = readOverrideState();
-    if (multiTargets && override.override)
+    const { isOwnerOverrideRequested, resolveOwnerOverride } = await import(
+      '../security/owner-override-authority.js'
+    );
+    if (multiTargets && isOwnerOverrideRequested())
       return engineError(
         'E_OVERRIDE_NOT_ACCEPTED',
         'CLEO_OWNER_OVERRIDE is not accepted by a derived multi-gate write (cleo done / verify --auto). ' +
           'Unset it, or record the gate with `cleo verify <id> --gate <gate> --evidence …`, which keeps the audited override path.',
       );
+    // T13790 (owner decision 2026-10-16): only the owner — an owner-marked
+    // session on the owner's own terminal — may override; an agent without a
+    // CLEO_AGENT_ROLE is fenced like a worker. Refusals are audited.
+    const authority = isWriteRequiringEvidence
+      ? await resolveOwnerOverride(projectRoot, { surface: 'cleo verify', taskId, sessionId })
+      : { requested: false as const };
+    if (authority.requested && !authority.allowed) {
+      // @sync-invariant none:local-only a non-owner override is refused before any write; only the local audit log is appended
+      return engineError(authority.code, authority.message);
+    }
+    const override = authority.requested
+      ? { override: true, reason: authority.reason }
+      : { override: false, reason: 'unspecified' };
 
     // T1501 / P0-5 — per-session CLEO_OWNER_OVERRIDE cap.
     // Enforce before the write proceeds so the error surfaces early.
@@ -644,7 +630,20 @@ export async function validateGateVerify(
         }
       }
 
-      const capResult = checkAndIncrementOverrideCap(projectRoot, capSessionId, undefined, command);
+      // T13787: the cap is the owner's sealed evidence.overrideCapPerSession, else 10.
+      const { resolveOverrideCap } = await import('../security/override-cap-setting.js');
+      const capSetting = await resolveOverrideCap(projectRoot);
+      if (capSetting.warning) {
+        const { pushWarning } = await import('../output.js');
+        // @sync-invariant none:local-only a warning about the device-local cap seal; the write proceeds at the default cap
+        pushWarning({ code: 'W_OVERRIDE_CAP_SEAL_INVALID', message: capSetting.warning });
+      }
+      const capResult = checkAndIncrementOverrideCap(
+        projectRoot,
+        capSessionId,
+        capSetting.cap,
+        command,
+      );
       if (!capResult.allowed) {
         return engineError(
           capResult.errorCode ?? 'E_OVERRIDE_CAP_EXCEEDED',

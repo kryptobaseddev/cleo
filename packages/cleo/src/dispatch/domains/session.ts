@@ -30,7 +30,6 @@ import type {
 } from '@cleocode/contracts';
 import { getLogger } from '@cleocode/core/logger';
 import { getProjectRoot } from '@cleocode/core/project-scope';
-import { eq } from 'drizzle-orm';
 import {
   defineTypedHandler,
   lafsError,
@@ -708,10 +707,8 @@ export class SessionHandler implements DomainHandler {
 // ---------------------------------------------------------------------------
 
 /**
- * Store an owner-auth HMAC token against a session row.
- *
- * Uses a raw SQL update via the native SQLite accessor to avoid coupling
- * the Session contract to the new column.
+ * Store an owner-auth HMAC token against a session row — the owner mark
+ * that `CLEO_OWNER_OVERRIDE` requires (T13790). Delegates to core.
  *
  * @param projectRoot - Absolute project root path.
  * @param sessionId - Session ID to update.
@@ -719,18 +716,13 @@ export class SessionHandler implements DomainHandler {
  *
  * @task T1118
  * @task T1123
+ * @task T13790
  */
 async function storeSessionOwnerAuthToken(
   projectRoot: string,
   sessionId: string,
   token: string,
 ): Promise<void> {
-  // The native DB is always available at this point because session.start
-  // already successfully ran.
-  const [{ getDb }, { sessions }] = await Promise.all([
-    import('@cleocode/core/store/sqlite'),
-    import('@cleocode/core/store/tasks-schema'),
-  ]);
-  const db = await getDb(projectRoot);
-  db.update(sessions).set({ ownerAuthToken: token }).where(eq(sessions.id, sessionId)).run();
+  const { setSessionOwnerAuthToken } = await import('@cleocode/core/internal');
+  await setSessionOwnerAuthToken(sessionId, token, projectRoot);
 }
