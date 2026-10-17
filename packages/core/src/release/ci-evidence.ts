@@ -945,18 +945,24 @@ const failedIn = (line: string): number => Number(/(\d+) failed/.exec(line)?.[1]
 
 /**
  * The run's own vitest summary block in `text` (T13809): the LAST `Test Files`
- * line, followed within four lines by its `Tests`, `Start at` and `Duration`
- * lines, with no test result or test output after it. A killed run has no
- * block of its own; a block a test echoed (even a full one) is followed by
- * more test output. Null when there is none.
+ * line, preceded by a blank or test-result line and followed within four lines
+ * by its `Tests`, `Start at` and `Duration` lines, with no test result or test
+ * output after it. A killed run has no block of its own; a block a test echoed
+ * (even a full one) is followed by more test output, or follows a child's
+ * unprefixed output. Null when there is none.
  */
 /** A vitest per-file result, a test's captured output, or a failure line. */
 const TEST_RESULT_LINE = /^\S*\s+(?:[✓❯×✗↓]\s|stdout \||stderr \|)|\bFAIL\s{2,}/;
+
+/** What vitest prints right before its summary: a blank (timestamp-only) or result line. */
+const BEFORE_SUMMARY_LINE = /^(?:\d{4}-\d\d-\d\dT\S+Z)?\s*$|^\S*\s+[✓❯×✗↓]\s|\bFAIL\s{2,}/;
 
 function runSummary(text: string): { failedFiles: number; failedTests: number } | null {
   const lines = text.split('\n');
   for (let i = lines.length - 1; i >= 0; i--) {
     if (!/\bTest Files\s{2,}\d/.test(lines[i] ?? '')) continue;
+    // A child vitest's echoed block may follow its unprefixed output (inherited stdio).
+    if (i > 0 && !BEFORE_SUMMARY_LINE.test(lines[i - 1] ?? '')) return null;
     const block = lines.slice(i + 1, i + 5);
     const tests = block.find((l) => /\bTests\s{2,}\d/.test(l));
     if (!tests || !block.some((l) => /\bStart at\s{2,}/.test(l))) return null;

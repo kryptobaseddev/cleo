@@ -1861,7 +1861,8 @@
       "requested_at",
       "run_id",
       "status",
-      "token"
+      "token",
+      "uid"
     ],
     "tasks_playbook_runs": [
       "bindings",
@@ -1875,7 +1876,8 @@
       "run_id",
       "session_id",
       "started_at",
-      "status"
+      "status",
+      "uid"
     ],
     "tasks_pr_commits": [
       "commit_sha",

@@ -1,239 +1,26 @@
 /**
- * CLI `cleo goal` — the agent-facing surface for CLEO's DB-persisted, per-agent,
- * evidence-gate-aware goal loop (Layer 4 of SG-COGNITIVE-SUBSTRATE).
+ * CLI `cleo goal` — the goal protocol verbs (epic T13791).
  *
- * Every handler is a THIN dispatch into the core `goal.*` ops
- * (`@cleocode/core/goal`) — no business logic lives here, satisfying the CLI
- * package-boundary gate. Each subcommand returns a single LAFS envelope to
- * stdout (ADR-086) via `cliOutput`; diagnostics go to stderr via `cliError`.
+ * CLEO owns the goal protocol; OpenCode-Goal is the goal runtime (owner
+ * decision 2026-10-16). These verbs are the protocol's CLI surface; CLEO's
+ * own goal loop and its `set`/`status`/`advance`/`subgoal`/`append` verbs were
+ * retired in T13797.
  *
- * Subcommands:
- *   - `cleo goal set <intent> [--task T###] [--turns N]` — create the agent's
- *     goal. `--task` makes it an evidence-judged task-completion goal; without
- *     it the goal is fuzzy (LLM-judge fallback).
- *   - `cleo goal status` — the CURRENT agent's active goal (resolved per-agent
- *     via the env identity, so concurrent agents see their own goal).
- *   - `cleo goal advance <goalId>` — advance the named goal one turn through the
- *     budgeted loop, persist the result, and return a continuation nudge when
- *     the goal is still active. This is the entry point for the Stop-hook loop.
- *   - `cleo goal subgoal <intent> [--task T###] [--turns N]` — create a child
- *     goal linked to the active goal via `parentGoalId`.
- *   - `cleo goal append <criterion>` — append an acceptance criterion to the
- *     active goal.
  *   - `cleo goal draft <taskId> [--tasks …] [--out <path>]` — write a goal/v1
  *     draft from task acceptance criteria (T13793).
  *   - `cleo goal close <slug> --outcome <file>` — record a run's per-AC
  *     evidence and complete fully proven tasks via `cleo done` (T13794).
  *
- * @epic T11290 EP-CLEO-GOAL-SYSTEM
- * @task T11381
- * @task T11496 E4-GOAL-LOOP
- * @saga T11283 SG-COGNITIVE-SUBSTRATE
+ * Handlers are thin: the logic lives in `@cleocode/core/goal/*`.
+ *
+ * @epic T13791
+ * @task T13797
  */
 
-import type { GoalKind } from '@cleocode/contracts';
 import { ExitCode } from '@cleocode/contracts/exit-codes.js';
-import { isValidGoalTargetTaskId } from '@cleocode/contracts/goal.js';
-import { getProjectRoot, goal } from '@cleocode/core';
+import { getProjectRoot } from '@cleocode/core';
 import { defineCommand, showUsage } from '../lib/define-cli-command.js';
 import { cliError, cliOutput } from '../renderers/index.js';
-
-/** Default turn budget when `--turns` is omitted. */
-const DEFAULT_TURN_BUDGET = 10;
-
-/**
- * Resolve a goal-kind from the optional `--task` flag. A valid `T###` id yields
- * an evidence-judged task-completion goal; absence yields a fuzzy goal.
- *
- * @internal
- */
-function resolveGoalKind(task: unknown): { kind: GoalKind } | { error: string } {
-  if (typeof task === 'string' && task.length > 0) {
-    if (!isValidGoalTargetTaskId(task)) {
-      return { error: `--task must be a valid task id (T + 1-7 digits) — got '${task}'` };
-    }
-    return { kind: { kind: 'task-completion', targetTaskId: task } };
-  }
-  return { kind: { kind: 'fuzzy' } };
-}
-
-/**
- * Parse the optional `--turns` flag into a positive integer budget.
- *
- * @internal
- */
-function resolveTurnBudget(turns: unknown): number {
-  const n = typeof turns === 'string' ? Number.parseInt(turns, 10) : Number(turns);
-  return Number.isInteger(n) && n > 0 ? n : DEFAULT_TURN_BUDGET;
-}
-
-const setCommand = defineCommand({
-  meta: {
-    name: 'set',
-    description: "Set the current agent's goal (evidence-judged when --task given).",
-  },
-  args: {
-    intent: { type: 'positional', description: 'What the agent is trying to achieve' },
-    task: { type: 'string', description: 'Target task id (T###) — makes it evidence-judged' },
-    turns: { type: 'string', description: 'Turn budget (default 10)' },
-  },
-  async run({ args }) {
-    const intent = String(args.intent ?? '').trim();
-    if (intent.length === 0) {
-      cliError('goal set requires an <intent>', ExitCode.VALIDATION_ERROR, {
-        name: 'E_VALIDATION',
-      });
-      return;
-    }
-    const kindResult = resolveGoalKind(args.task);
-    if ('error' in kindResult) {
-      cliError(kindResult.error, ExitCode.VALIDATION_ERROR, { name: 'E_VALIDATION' });
-      return;
-    }
-    const record = await goal.createGoal(
-      { goalKind: kindResult.kind, intent, turnBudget: resolveTurnBudget(args.turns) },
-      getProjectRoot(),
-    );
-    cliOutput(record, { command: 'goal set', operation: 'goal.set' });
-  },
-});
-
-const statusCommand = defineCommand({
-  meta: {
-    name: 'status',
-    description: "Show the current agent's active goal (per-agent scoped).",
-  },
-  async run() {
-    const record = await goal.getActiveGoal(getProjectRoot());
-    cliOutput(record ?? { active: null }, { command: 'goal status', operation: 'goal.status' });
-  },
-});
-
-const subgoalCommand = defineCommand({
-  meta: {
-    name: 'subgoal',
-    description: 'Create a sub-goal linked to the active goal via parentGoalId.',
-  },
-  args: {
-    intent: { type: 'positional', description: 'The sub-goal intent' },
-    task: { type: 'string', description: 'Target task id (T###) — makes it evidence-judged' },
-    turns: { type: 'string', description: 'Turn budget (default 10)' },
-  },
-  async run({ args }) {
-    const intent = String(args.intent ?? '').trim();
-    if (intent.length === 0) {
-      cliError('goal subgoal requires an <intent>', ExitCode.VALIDATION_ERROR, {
-        name: 'E_VALIDATION',
-      });
-      return;
-    }
-    const cwd = getProjectRoot();
-    const parent = await goal.getActiveGoal(cwd);
-    if (!parent) {
-      cliError(
-        'No active goal to attach a sub-goal to. Run `cleo goal set` first.',
-        ExitCode.NOT_FOUND,
-        {
-          name: 'E_NOT_FOUND',
-        },
-      );
-      return;
-    }
-    const kindResult = resolveGoalKind(args.task);
-    if ('error' in kindResult) {
-      cliError(kindResult.error, ExitCode.VALIDATION_ERROR, { name: 'E_VALIDATION' });
-      return;
-    }
-    const record = await goal.createGoal(
-      {
-        goalKind: kindResult.kind,
-        intent,
-        turnBudget: resolveTurnBudget(args.turns),
-        parentGoalId: parent.id,
-      },
-      cwd,
-    );
-    cliOutput(record, { command: 'goal subgoal', operation: 'goal.subgoal' });
-  },
-});
-
-/**
- * `cleo goal advance <goalId>` — advance a goal one turn through the
- * turn-budgeted loop, persist the result, and return a continuation nudge.
- *
- * This is the runtime caller for the `advanceGoal` engine that previously had
- * NO callers (AC1). The returned envelope carries:
- *   - `advanceResult` — verdict, nextStatus, turnsRemaining
- *   - `goal`          — the updated goal record after persistence
- *   - `continuation`  — the nudge text when the goal is still active, or null
- *
- * The Stop-hook reads `continuation` to decide whether to emit a block
- * decision that re-injects the nudge into the next Claude turn (AC2).
- *
- * @task T11496 E4-GOAL-LOOP
- */
-const advanceCommand = defineCommand({
-  meta: {
-    name: 'advance',
-    description:
-      'Advance a goal one turn (load → judge → persist → continuation). Entry point for the Stop-hook loop.',
-  },
-  args: {
-    goalId: {
-      type: 'positional',
-      description: 'The goal id (idempotency key) to advance',
-    },
-  },
-  async run({ args }) {
-    const goalId = String(args.goalId ?? '').trim();
-    if (goalId.length === 0) {
-      cliError('goal advance requires a <goalId>', ExitCode.VALIDATION_ERROR, {
-        name: 'E_VALIDATION',
-      });
-      return;
-    }
-    const cwd = getProjectRoot();
-    const result = await goal.advanceGoalWithPersist(goalId, { cwd });
-    if (!result) {
-      cliError(`Goal '${goalId}' not found.`, ExitCode.NOT_FOUND, { name: 'E_NOT_FOUND' });
-      return;
-    }
-    cliOutput(result, { command: 'goal advance', operation: 'goal.advance' });
-  },
-});
-
-const appendCommand = defineCommand({
-  meta: {
-    name: 'append',
-    description: 'Append an acceptance criterion to the active goal.',
-  },
-  args: {
-    criterion: { type: 'positional', description: 'The criterion text to append' },
-  },
-  async run({ args }) {
-    const criterion = String(args.criterion ?? '').trim();
-    if (criterion.length === 0) {
-      cliError('goal append requires a <criterion>', ExitCode.VALIDATION_ERROR, {
-        name: 'E_VALIDATION',
-      });
-      return;
-    }
-    const cwd = getProjectRoot();
-    const active = await goal.getActiveGoal(cwd);
-    if (!active) {
-      cliError(
-        'No active goal to append a criterion to. Run `cleo goal set` first.',
-        ExitCode.NOT_FOUND,
-        {
-          name: 'E_NOT_FOUND',
-        },
-      );
-      return;
-    }
-    const record = await goal.appendCriteria(active.id, criterion, cwd);
-    cliOutput(record ?? { active: null }, { command: 'goal append', operation: 'goal.append' });
-  },
-});
 
 /**
  * `cleo goal draft <taskId> [--tasks T2,T3] [--out <path>]` — write a goal/v1
@@ -317,13 +104,20 @@ const closeCommand = defineCommand({
       process.exitCode = closed.error.exitCode ?? 1;
       return;
     }
-    const ready = closed.data.tasks.filter((t) => t.ready).map((t) => t.taskId);
+    const ready = closed.data.tasks.filter((t) => t.ready);
     const completions: Array<Record<string, unknown>> = [];
     if (ready.length > 0) {
       const { recordTasksDone } = await import('@cleocode/core/tasks/done-record.js');
       const { doneBatchEntry } = await import('./done.js');
-      for (const { taskId, result } of await recordTasksDone(ready, { projectRoot })) {
-        completions.push(await doneBatchEntry(taskId, result, { taskId }));
+      for (const task of ready) {
+        // T13799: landed work no PR or branch cites completes from the run's head commit.
+        const commit = task.completionCommit ? { commit: task.completionCommit } : {};
+        for (const { taskId, result } of await recordTasksDone([task.taskId], {
+          projectRoot,
+          ...commit,
+        })) {
+          completions.push(await doneBatchEntry(taskId, result, { taskId }));
+        }
       }
     }
     cliOutput(
@@ -340,24 +134,18 @@ const closeCommand = defineCommand({
 });
 
 /**
- * Parent `cleo goal` command — routes to the set/status/advance/subgoal/append
- * subcommands; prints usage when invoked bare.
+ * Parent `cleo goal` command — routes to the protocol verbs `draft` and
+ * `close`; prints usage when invoked bare.
  *
- * @task T11381
- * @task T11496 E4-GOAL-LOOP
+ * @task T13797
  */
 export const goalCommand = defineCommand({
   meta: {
     name: 'goal',
     description:
-      'Goal protocol (draft, close) and the per-agent goal loop (set/status/advance/subgoal/append).',
+      'Goal protocol verbs for the goal runtime (OpenCode-Goal): draft a goal/v1 contract from task ACs, close a run from its outcome.',
   },
   subCommands: {
-    set: setCommand,
-    status: statusCommand,
-    advance: advanceCommand,
-    subgoal: subgoalCommand,
-    append: appendCommand,
     draft: draftCommand,
     close: closeCommand,
   },

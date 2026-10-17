@@ -33,6 +33,7 @@ import {
   resumePlaybook,
 } from '../runtime.js';
 import { getPlaybookRun, listPlaybookApprovals } from '../state.js';
+import { playbookTwinSql } from './twin-schema.js';
 
 const _require = createRequire(import.meta.url);
 type DatabaseSync = _DatabaseSyncType;
@@ -43,10 +44,6 @@ const { DatabaseSync } = _require('node:sqlite') as {
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
 /** Absolute path to the T889 playbook-tables migration SQL. */
-const MIGRATION_SQL_PATH = resolve(
-  __dirname,
-  '../../../core/migrations/drizzle-tasks/20260417220000_t889-playbook-tables/migration.sql',
-);
 
 /** Absolute path to the `starter/` directory shipped with this package. */
 const STARTER_DIR = resolve(__dirname, '../../starter');
@@ -205,7 +202,7 @@ describe('T934: starter playbooks — E2E against stubbed dispatcher', () => {
   beforeEach(() => {
     db = new DatabaseSync(':memory:');
     db.exec('PRAGMA foreign_keys=ON');
-    applyMigration(db, readFileSync(MIGRATION_SQL_PATH, 'utf8'));
+    applyMigration(db, playbookTwinSql());
   });
   afterEach(() => db.close());
 

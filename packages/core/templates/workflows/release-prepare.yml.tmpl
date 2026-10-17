@@ -56,7 +56,7 @@ on:
           - rc
           - canary
       skip-tests:
-        description: 'Skip the Linux test shards in Preflight (use when main CI is already green for this commit — `cleo release open` sets it after checking). Lint, typecheck and build still run.'
+        description: 'Skip the Linux test shards in Preflight (use when main CI is already green for this commit — `cleo release open` sets it after checking). Honoured only with a reused-ci-run that re-verifies here. Lint, typecheck and build still run.'
         type: boolean
         required: false
         default: false
@@ -71,6 +71,10 @@ on:
         required: false
       skip-reason:
         description: 'Why the caller skipped test suites; recorded in the run summary.'
+        type: string
+        required: false
+      reused-ci-run:
+        description: 'T13823: id of the ci.yml push run on the default branch whose green Linux Unit Tests shards skip-tests reuses. Re-verified here (push to the default branch, success, every Linux shard green, for this commit or one it differs from only by release-plan files); on any doubt the shards run. Recorded in the run summary and the bump-PR body.'
         type: string
         required: false
 
@@ -130,6 +134,7 @@ jobs:
     outputs:
       run-linux-tests: ${{ steps.tests.outputs.linux }}
       run-macos-tests: ${{ steps.tests.outputs.macos }}
+      reused-ci-run-url: ${{ steps.tests.outputs.reused_url }}
     steps:
       - uses: actions/checkout@v4
       # The ONE place that decides which preflight test suites run, so the
@@ -137,6 +142,14 @@ jobs:
       # only for the commit it was verified against: `cleo release open`
       # checks CI for main's HEAD, and if main moves between that check and
       # this checkout, the green result belongs to a different tree.
+      #
+      # T13823: a Linux skip must also name the ci.yml push run it reuses
+      # (`reused-ci-run`), and that run is re-read here from the GitHub API
+      # rather than taken on the caller's word: a ci.yml run, a push to the
+      # default branch, concluded success, every Linux `Unit Tests` shard 1..N
+      # green, for this exact commit or for one this commit differs from only
+      # by release-plan files (the plan, CHANGELOG.md, `.changeset/`; T13140).
+      # Anything else, or an API error, runs the shards.
       - name: Decide which preflight test suites run
         id: tests
         env:
@@ -144,11 +157,53 @@ jobs:
           SKIP_MACOS_TESTS: ${{ inputs.skip-macos-tests }}
           VERIFIED_SHA: ${{ inputs.verified-sha }}
           SKIP_REASON: ${{ inputs.skip-reason }}
+          REUSED_RUN: ${{ inputs.reused-ci-run }}
           HEAD_SHA: ${{ github.sha }}
+          REPO: ${{ github.repository }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+          GH_TOKEN: ${{ github.token }}
         run: |
+          # Prints the reused run's URL when it proves this commit's Linux
+          # shards; otherwise prints why not and returns 1.
+          verify_reused_run() {
+            local run="$1" dir run_sha
+            if ! [[ "$run" =~ ^[0-9]+$ ]]; then echo "reused-ci-run '$run' is not a run id"; return 1; fi
+            dir=$(mktemp -d)
+            if ! gh api "repos/$REPO/actions/runs/$run" > "$dir/run.json" 2>/dev/null; then echo "run $run could not be read"; return 1; fi
+            if ! gh api --paginate "repos/$REPO/actions/runs/$run/jobs?per_page=100" --jq '.jobs[] | [.name, (.conclusion // "none")] | @tsv' > "$dir/jobs.tsv" 2>/dev/null; then echo "the jobs of run $run could not be read"; return 1; fi
+            run_sha=$(node -p 'JSON.parse(require("fs").readFileSync(process.argv[1], "utf8")).head_sha' "$dir/run.json")
+            echo '{}' > "$dir/compare.json"
+            if [ "$run_sha" != "$HEAD_SHA" ] && ! gh api "repos/$REPO/compare/$run_sha...$HEAD_SHA" > "$dir/compare.json" 2>/dev/null; then echo "run $run tested $run_sha, and its compare to $HEAD_SHA failed"; return 1; fi
+            node -e '
+              const fs = require("fs");
+              const [dir, head, branch] = process.argv.slice(1);
+              const run = JSON.parse(fs.readFileSync(dir + "/run.json", "utf8"));
+              const cmp = JSON.parse(fs.readFileSync(dir + "/compare.json", "utf8"));
+              const no = (why) => { console.log("run " + run.id + " " + why); process.exit(1); };
+              if (!String(run.path || "").endsWith("/ci.yml")) no("is not a ci.yml run (" + run.path + ")");
+              if (run.event !== "push" || run.head_branch !== branch) no("is a " + run.event + " run on " + run.head_branch + ", not a push to " + branch);
+              if (run.status !== "completed" || run.conclusion !== "success") no("is " + run.status + "/" + run.conclusion);
+              if (run.head_sha !== head) {
+                const plan = (f) => f.startsWith(".cleo/release/") || f.startsWith(".changeset/") || f === "CHANGELOG.md" || f.endsWith("/CHANGELOG.md");
+                const files = (cmp.files || []).flatMap((f) => [f.filename, f.previous_filename].filter(Boolean));
+                if (cmp.status !== "ahead" || files.length === 0 || files.length >= 300 || !files.every(plan))
+                  no("tested " + run.head_sha + ", and " + head + " is not that commit plus release-plan files only");
+              }
+              const jobs = fs.readFileSync(dir + "/jobs.tsv", "utf8").split("\n").filter(Boolean).map((l) => l.split("\t"));
+              const linux = jobs.filter(([n]) => /^Unit Tests\b/.test(n) && !/mac\s*os/i.test(n));
+              if (linux.length === 0) no("ran no Linux Unit Tests jobs");
+              const red = linux.filter(([, c]) => c !== "success");
+              if (red.length > 0) no("has " + red.length + " Linux Unit Tests job(s) that did not succeed");
+              const shards = new Set(linux.map(([n]) => Number((/shard\s+(\d+)/i.exec(n) || [])[1])));
+              if (shards.has(NaN)) no("has a Linux Unit Tests job that names no shard");
+              for (let n = 1; n <= Math.max(...shards); n++) if (!shards.has(n)) no("is missing Linux Unit Tests shard " + n);
+              console.log(run.html_url);
+            ' "$dir" "$HEAD_SHA" "$DEFAULT_BRANCH"
+          }
           linux=true
           macos=true
           note=""
+          reused_url=""
           skip_requested=false
           if [ "$SKIP_TESTS" = "true" ] || [ "$SKIP_MACOS_TESTS" = "true" ]; then skip_requested=true; fi
           if [ "$skip_requested" = "true" ] && [ -z "$VERIFIED_SHA" ]; then
@@ -159,11 +214,21 @@ jobs:
           elif [ -n "$VERIFIED_SHA" ] && [ "$VERIFIED_SHA" != "$HEAD_SHA" ]; then
             note="Skips were verified against $VERIFIED_SHA, but this run checked out $HEAD_SHA (main moved after the check). Ignoring them: every suite runs."
           else
-            if [ "$SKIP_TESTS" = "true" ]; then linux=false; fi
+            if [ "$SKIP_TESTS" = "true" ]; then
+              if [ -z "$REUSED_RUN" ]; then
+                note="skip-tests was requested without reused-ci-run, so there is no main CI run to verify. Ignoring it: the Linux shards run."
+              elif verdict=$(verify_reused_run "$REUSED_RUN"); then
+                linux=false
+                reused_url="$verdict"
+              else
+                note="skip-tests was requested, but reused-ci-run does not prove this commit's Linux shards: $verdict. Ignoring it: the Linux shards run."
+              fi
+            fi
             if [ "$SKIP_MACOS_TESTS" = "true" ]; then macos=false; fi
           fi
           echo "linux=$linux" >> "$GITHUB_OUTPUT"
           echo "macos=$macos" >> "$GITHUB_OUTPUT"
+          echo "reused_url=$reused_url" >> "$GITHUB_OUTPUT"
           describe() { if [ "$1" = "true" ]; then echo "runs"; else echo "skipped"; fi; }
           {
             echo "## Preflight test decision"
@@ -175,6 +240,7 @@ jobs:
             echo ""
             echo "Commit: \`$HEAD_SHA\`"
             if [ -n "$VERIFIED_SHA" ]; then echo "Skips verified against: \`$VERIFIED_SHA\`"; fi
+            if [ -n "$reused_url" ]; then echo "Linux shards reused from main CI run: $reused_url"; fi
             if [ -n "$SKIP_REASON" ]; then echo ""; echo "Reason: $SKIP_REASON"; fi
             if [ -n "$note" ]; then echo ""; echo "**$note**"; fi
           } >> "$GITHUB_STEP_SUMMARY"
@@ -674,18 +740,29 @@ jobs:
       # with a raw schema envelope as its description. The plan already carries
       # the rendered notes at `meta.releaseNotes` (the same text that lands in
       # CHANGELOG.md) — use that, and fall back to the JSON only if absent.
+      # T13823: the body ends with the preflight evidence, naming the main CI
+      # run whose Linux shards were reused when they were skipped.
       - name: Render PR body
         id: body
+        env:
+          REUSED_URL: ${{ needs.dispatch-preconditions.outputs.reused-ci-run-url }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
           node -e '
             const fs = require("node:fs");
             const plan = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
             const notes = plan?.meta?.releaseNotes;
+            const reused = process.env.REUSED_URL;
+            const evidence =
+              "\n\n## Preflight evidence\n\n" +
+              (reused
+                ? "Linux test shards reused from main CI run " + reused + " (re-verified by " + process.env.RUN_URL + ").\n"
+                : "Linux test shards ran in " + process.env.RUN_URL + ".\n");
             fs.writeFileSync(
               "/tmp/bump-pr-body.md",
-              typeof notes === "string" && notes.trim().length > 0
+              (typeof notes === "string" && notes.trim().length > 0
                 ? notes
-                : "```json\n" + JSON.stringify(plan, null, 2) + "\n```\n",
+                : "```json\n" + JSON.stringify(plan, null, 2) + "\n```\n") + evidence,
             );
           ' "${{ steps.plan.outputs.plan_file }}"
         timeout-minutes: 2

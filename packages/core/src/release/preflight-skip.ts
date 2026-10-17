@@ -36,6 +36,15 @@
  * jobs (ci.yml or T13143's main-push workflow, {@link MACOS_WORKFLOWS}) of any
  * commit on that walk decides.
  *
+ * T13823: `cleo release open` usually runs seconds after the release-plan PR
+ * merges, while main's push CI for that very commit is still queued. With
+ * {@link PreflightSkipOptions.inFlightWaitMs} set, a queued or in-progress
+ * push run is polled until it completes (bounded) instead of being read as
+ * "run the tests". The run that proved the Linux shards is returned as
+ * {@link PreflightSkipDecision.testedRunId} and forwarded as `reused-ci-run`,
+ * which `release-prepare` re-verifies before it skips anything. Job lists are
+ * read page by page: a ci.yml run that ran its shards has more than 100 jobs.
+ *
  * Each `gh` call is bounded by {@link PREFLIGHT_CHECK_TIMEOUT_MS}.
  *
  * @task release-speed
@@ -69,6 +78,20 @@ const CHANGES_JOB = 'Detect Changes';
  */
 export const PREFLIGHT_DEADLINE_MS = 60_000;
 
+/**
+ * How long `cleo release open` waits for a queued or in-progress push run of
+ * {@link MAIN_CI_WORKFLOW} to finish before deciding (ms). Main CI for a
+ * release-plan merge takes about 4 minutes; the preflight shards it can spare
+ * take about 13 (T13823).
+ */
+export const PREFLIGHT_IN_FLIGHT_WAIT_MS = 10 * 60_000;
+
+/** Poll interval while waiting for an in-flight push run (ms). */
+export const PREFLIGHT_IN_FLIGHT_POLL_MS = 30_000;
+
+/** Most pages of 100 jobs read for one run (a run listing more jobs is unreadable). */
+const MAX_JOB_PAGES = 3;
+
 /** Workflows whose `push`/`schedule` runs carry macOS test jobs (T13143's main-push workflow too). */
 export const MACOS_WORKFLOWS: readonly string[] = ['ci.yml', 'macos-main.yml'];
 
@@ -86,6 +109,19 @@ export interface PreflightSkipOptions {
    * is behind HEAD); defaults to `git rev-list --count` in `cwd`, null when unknown.
    */
   commitsBehind?: (from: string, to: string, cwd: string) => number | null;
+  /**
+   * T13823: how long to wait for a queued or in-progress push run to complete
+   * (default 0: an unfinished run means the tests run). Waiting time does not
+   * count against {@link deadlineMs}.
+   */
+  inFlightWaitMs?: number;
+  /** Blocks for `ms` (tests); defaults to a synchronous sleep. */
+  sleep?: (ms: number) => void;
+}
+
+/** Blocks the thread for `ms` (the decision is synchronous, like its `gh` calls). */
+function sleepSync(ms: number): void {
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
 }
 
 /**
@@ -145,6 +181,11 @@ export interface PreflightSkipDecision {
    * itself, an equivalent ancestor, or `null` when the tests run.
    */
   testedSha: string | null;
+  /**
+   * T13823: id of the {@link MAIN_CI_WORKFLOW} push run that proved the Linux
+   * shards for {@link testedSha}, forwarded as `reused-ci-run`; `null` when the tests run.
+   */
+  testedRunId: number | null;
   /** True iff every macOS job of a nightly (or push) run for {@link verifiedSha} or an equivalent ancestor succeeded. */
   skipMacosTests: boolean;
   /** Human-readable account of both decisions (lands in the run summary). */
@@ -207,27 +248,41 @@ function parseRuns(raw: string): WorkflowRunSummary[] {
 }
 
 /**
- * Extract `jobs[]` from a run-jobs response, dropping malformed rows.
+ * Read every job of run `id`, page by page, dropping malformed rows.
  *
- * Returns `null` when the body is not a jobs page or when `total_count` says
- * the page is incomplete (more jobs than one `per_page=100` page holds), so a
- * caller can never judge a run from a partial job list.
+ * Returns `null` when a page cannot be read or is not a jobs page, or when the
+ * pages read (at most {@link MAX_JOB_PAGES}) hold fewer jobs than
+ * `total_count`, so a caller can never judge a run from a partial job list.
+ * T13823: a ci.yml run that ran its unit-test shards lists 102-104 jobs, so a
+ * single `per_page=100` page made every such run unreadable.
  */
-function parseJobs(raw: string): JobSummary[] | null {
-  const body = parseJson(raw);
-  if (!isRecord(body) || !Array.isArray(body['jobs'])) return null;
-  const total = body['total_count'];
-  if (typeof total === 'number' && total > body['jobs'].length) return null;
+function fetchJobs(
+  gh: (args: readonly string[]) => string | null,
+  id: number,
+): JobSummary[] | null {
   const jobs: JobSummary[] = [];
-  for (const row of body['jobs']) {
-    if (!isRecord(row) || typeof row['name'] !== 'string') continue;
-    const conclusion = row['conclusion'];
-    jobs.push({
-      name: row['name'],
-      conclusion: typeof conclusion === 'string' ? conclusion : null,
-    });
+  let rows = 0;
+  for (let page = 1; page <= MAX_JOB_PAGES; page++) {
+    const raw = gh([
+      'api',
+      `repos/{owner}/{repo}/actions/runs/${id}/jobs?per_page=100&page=${page}`,
+    ]);
+    const body = raw === null ? null : parseJson(raw);
+    if (!isRecord(body) || !Array.isArray(body['jobs'])) return null;
+    rows += body['jobs'].length;
+    for (const row of body['jobs']) {
+      if (!isRecord(row) || typeof row['name'] !== 'string') continue;
+      const conclusion = row['conclusion'];
+      jobs.push({
+        name: row['name'],
+        conclusion: typeof conclusion === 'string' ? conclusion : null,
+      });
+    }
+    const total = body['total_count'];
+    if (typeof total !== 'number' || rows >= total) return jobs;
+    if (body['jobs'].length === 0) return null;
   }
-  return jobs;
+  return null;
 }
 
 /** A `Unit Tests (<os>, shard <n>)` job from {@link MAIN_CI_WORKFLOW}, any OS. */
@@ -362,10 +417,14 @@ export function decidePreflightSkips(
   options: PreflightSkipOptions = {},
 ): PreflightSkipDecision {
   const now = options.now ?? Date.now;
+  const sleep = options.sleep ?? sleepSync;
+  const waitBudget = options.inFlightWaitMs ?? 0;
+  /** Time spent waiting on in-flight runs, which extends the `gh` budget. */
+  let waited = 0;
   const deadline = now() + (options.deadlineMs ?? PREFLIGHT_DEADLINE_MS);
   let timedOut = false;
   const gh = (args: readonly string[]): string | null => {
-    const left = deadline - now();
+    const left = deadline + waited - now();
     if (left <= 0) {
       timedOut = true;
       return null;
@@ -385,6 +444,7 @@ export function decidePreflightSkips(
       verifiedSha: null,
       skipTests: false,
       testedSha: null,
+      testedRunId: null,
       skipMacosTests: false,
       reason: `Could not resolve the HEAD of ${branch} via gh; running every preflight suite.`,
     };
@@ -405,11 +465,25 @@ export function decidePreflightSkips(
   const equivalent: string[] = [sha];
   let skipTests = false;
   let testedSha: string | null = null;
+  let testedRunId: number | null = null;
   let linuxReason = '';
   let cur = sha;
   for (;;) {
     const at = cur === sha ? shortSha(sha) : `${shortSha(cur)} (an ancestor of ${shortSha(sha)})`;
-    const found = pushRunFor(cur);
+    let found = pushRunFor(cur);
+    // T13823: a run still queued or in progress is waited for, within budget.
+    while (
+      found.ok &&
+      found.run !== undefined &&
+      found.run.status !== 'completed' &&
+      waited < waitBudget
+    ) {
+      const pause = Math.min(PREFLIGHT_IN_FLIGHT_POLL_MS, waitBudget - waited);
+      const before = now();
+      sleep(pause);
+      waited += Math.max(now() - before, pause);
+      found = pushRunFor(cur);
+    }
     if (!found.ok) {
       linuxReason = `Linux tests run: ${timedOut ? outOfTime : `could not query ${MAIN_CI_WORKFLOW} runs for ${at}`}.`;
       break;
@@ -420,7 +494,7 @@ export function decidePreflightSkips(
       break;
     }
     if (pushRun.status !== 'completed') {
-      linuxReason = `Linux tests run: ${MAIN_CI_WORKFLOW} push run for ${at} is ${pushRun.status} (${pushRun.url}).`;
+      linuxReason = `Linux tests run: ${MAIN_CI_WORKFLOW} push run for ${at} is ${pushRun.status} (${pushRun.url})${waitBudget > 0 ? ` after waiting ${Math.round(waited / 1000)}s` : ''}.`;
       break;
     }
     if (pushRun.conclusion !== 'success') {
@@ -431,15 +505,12 @@ export function decidePreflightSkips(
     // (the `changes` gate) and still concludes `success`. Only green Linux
     // `Unit Tests` jobs — every shard present and successful — prove the
     // tree was tested.
-    const jobsRaw = gh([
-      'api',
-      `repos/{owner}/{repo}/actions/runs/${pushRun.id}/jobs?per_page=100`,
-    ]);
-    const jobs = jobsRaw === null ? null : parseJobs(jobsRaw);
+    const jobs = fetchJobs(gh, pushRun.id);
     const verdict = judgeLinuxUnitTests(jobs);
     if (verdict === null) {
       skipTests = true;
       testedSha = cur;
+      testedRunId = pushRun.id;
       const via =
         cur === sha
           ? ''
@@ -501,8 +572,7 @@ export function decidePreflightSkips(
   let skipMacosTests = false;
   let macosReason = `macOS tests run: ${timedOut ? outOfTime : `no completed run with macOS jobs for ${shortSha(sha)}${equivalent.length > 1 ? ` or the ${equivalent.length - 1} equivalent ancestor(s)` : ''}`}.`;
   for (const run of candidates.slice(0, MAX_MACOS_CANDIDATE_RUNS)) {
-    const jobsRaw = gh(['api', `repos/{owner}/{repo}/actions/runs/${run.id}/jobs?per_page=100`]);
-    const jobs = jobsRaw === null ? null : parseJobs(jobsRaw);
+    const jobs = fetchJobs(gh, run.id);
     if (jobs === null) continue;
     const macosJobs = jobs.filter((j) => isMacosJob(j.name));
     if (macosJobs.length === 0) continue;
@@ -541,6 +611,7 @@ export function decidePreflightSkips(
     verifiedSha: sha,
     skipTests,
     testedSha,
+    testedRunId,
     skipMacosTests,
     reason: `${linuxReason} ${macosReason}`,
   };

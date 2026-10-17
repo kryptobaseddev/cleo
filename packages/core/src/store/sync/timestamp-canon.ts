@@ -185,6 +185,10 @@ export const SYNC_TIMESTAMP_COLUMNS: Readonly<
     // T13777 (command logs sync coverage).
     tasks_token_usage: ['created_at'],
     tasks_session_handoff_entries: ['created_at'],
+    // T12535 (twin collapse): project sticky notes and the playbook twins.
+    brain_sticky_notes: ['created_at', 'updated_at'],
+    tasks_playbook_runs: ['started_at', 'completed_at'],
+    tasks_playbook_approvals: ['requested_at', 'approved_at'],
   },
   global: {
     brain_decisions: ['created_at', 'updated_at', 'valid_at', 'invalid_at', 'tier_promoted_at'],
