@@ -60,6 +60,14 @@ export function isSecureUrl(url: string): boolean {
 }
 
 /**
+ * The header saying this client reads journal (checkpoint/v3) streams (T13867).
+ * Cleo Nexus refuses a v3 stream's checkpoint and head reads to a request
+ * without it (T13876): such a client reads only snapshots and would report a
+ * stale store as current. Released v2026.10.19 does not send it.
+ */
+export const NEXUS_STREAM_READER_HEADER = { name: 'x-cleo-stream-reader', value: '3' } as const;
+
+/**
  * Minimal envelope-aware HTTP client. It retries only failures that are safe to retry. Every API
  * write is idempotent or lineage-checked, so a retried write either no-ops or is refused explicitly.
  * It never follows redirects, so a bearer token is never replayed to another origin.
@@ -116,6 +124,7 @@ export class Http {
       try {
         const headers: Record<string, string> = { authorization: `Bearer ${this.o.token}` };
         if (this.o.deviceId) headers['x-cleo-device-id'] = this.o.deviceId;
+        headers[NEXUS_STREAM_READER_HEADER.name] = NEXUS_STREAM_READER_HEADER.value;
         if (body !== undefined) headers['content-type'] = 'application/json';
         res = await this.fetch(`${this.o.baseUrl}${path}`, {
           method,
