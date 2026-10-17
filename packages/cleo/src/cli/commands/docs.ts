@@ -796,7 +796,7 @@ const fetchCommand = defineCommand({
             fix: 'The doc metadata exists but its bytes are not in the blob store. A doc synced from another device gets its bytes on the next `cleo cloud sync` (its warnings say why when they cannot travel); otherwise try: cleo docs doctor --repair',
           });
         }
-        process.exit(ExitCode.FILE_ERROR);
+        process.exit(ExitCode.NOT_FOUND);
       }
 
       // Raw document body is the user-requested output of this mode —

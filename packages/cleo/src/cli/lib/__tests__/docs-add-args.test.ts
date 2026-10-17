@@ -54,7 +54,7 @@ describe('docs add argument diagnostics (T13726)', () => {
     for (const id of ['T1', 't99', 'D12', 'ses_x', 'O-1', 'dec_1', 'L-1', 'pat_1']) {
       expect(looksLikeDocsOwnerId(id)).toBe(true);
     }
-    for (const v of ['plan.md', './T1.md', 'T1x', 'my-slug']) {
+    for (const v of ['plan.md', './T1.md', 'T1x', 'my-slug', 'd12', 'SES_x', 'o-1']) {
       expect(looksLikeDocsOwnerId(v)).toBe(false);
     }
   });

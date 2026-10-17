@@ -19,7 +19,7 @@ export interface DocsAddArgError {
 }
 
 /** Owner id prefixes `docs.add` infers an owner type from (mirrors dispatch `inferOwnerType`). */
-const OWNER_ID_SHAPE = /^(?:[TD]\d+$|ses_|O-|D-|dec_|L-|lrn_|P-|pat_)/i;
+const OWNER_ID_SHAPE = /^(?:[Tt]\d+$|D\d+$|ses_|O-|D-|dec_|L-|lrn_|P-|pat_)/;
 
 /**
  * Whether `value` has the shape of a `docs add` owner id (T###, D###, ses_*, O-*, ...).
