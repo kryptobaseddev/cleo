@@ -6234,14 +6234,14 @@ describe('sync enable push: the genesis checkpoint (T12343 S4-1b)', () => {
       const { a, aDb } = await journalDevices(false);
       await on(a, async () =>
         (await storeOf(aDb)).exec(
-          "INSERT INTO tasks_goal (idempotency_key, goal_kind, intent, turn_budget, created_at, updated_at) VALUES ('g-t13867', x'00', 'machine-local goal', 1, '2026-10-17', '2026-10-17')",
+          "INSERT INTO schedules (schedule_id, cron_expr, title) VALUES ('s-t13867', '0 * * * *', 'machine-local schedule')",
         ),
       );
       const v = await on(a, () => verifyNexusVault(vopts(a)));
-      expect(v.tables.find((r) => r.table === 'tasks_goal')?.match).toBe(false);
+      expect(v.tables.find((r) => r.table === 'schedules')?.match).toBe(false);
       expect(v.verdict).toBe('match');
       expect(v.warnings.find((w) => w.code === 'W_NEXUS_VAULT_SNAPSHOT_ONLY')?.message).toContain(
-        'tasks_goal',
+        'schedules',
       );
     });
 
