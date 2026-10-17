@@ -140,8 +140,10 @@ const closeCommand = defineCommand({
 /**
  * `cleo goal install --harness <h>` — register the CLEO Goal runtime
  * (`cleo-goal`) with one harness for this project, project-level config only.
+ * `--dry-run` previews the opencode change without writing.
  *
  * @task T13820
+ * @task T13869
  */
 const installCommand = defineCommand({
   meta: {
@@ -155,10 +157,19 @@ const installCommand = defineCommand({
       description: 'Harness: opencode, claude, codex, hermes or kimi',
       required: true,
     },
+    'dry-run': {
+      type: 'boolean',
+      description: 'Preview the change without writing (opencode only)',
+    },
   },
   async run({ args }) {
     const { installGoalForHarness } = await import('@cleocode/core/goal/runtime.js');
-    const result = await installGoalForHarness(getProjectRoot(), String(args.harness ?? ''));
+    const result = await installGoalForHarness(
+      getProjectRoot(),
+      String(args.harness ?? ''),
+      process.env,
+      { dryRun: args['dry-run'] === true },
+    );
     if (!result.success) {
       cliError(result.error.message, result.error.code, { fix: result.error.fix });
       process.exitCode = result.error.exitCode ?? 1;
