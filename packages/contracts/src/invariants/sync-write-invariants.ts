@@ -547,15 +547,16 @@ export const SYNC_WRITE_INVARIANTS: readonly SyncWriteInvariant[] = Object.freez
       'the projection keeps the max-HLC head; a losing concurrent head is recorded (conflict_count/last_conflict_json), never silently shadowed',
   },
   // T13355 — the docs write path adopts a legacy doc into the conduit family
-  // once (identity shell keyed by the immutable uid); the read-back guard is
-  // a local write-confirmation, not a merge rule.
+  // once (identity shell keyed by the immutable uid). T13586: the rule is
+  // about id minting across replicas, so it is identity-layer — the shell's
+  // uid and birth_fp derive from the legacy doc, not the adopting device.
   {
     id: 'docs.doc.adopt-once',
-    class: 'not-sync-relevant',
+    class: 'identity-layer',
     tables: ['conduit_attachments'],
     sites: [],
     reason:
-      'adopting a legacy doc inserts one immutable-uid identity shell; losing the write is refused loudly at the writer, not merged',
+      'two devices adopting one legacy doc must mint one uid: the shell takes the legacy birth and sentinel facts, so (uid, birth_fp) converge and receive places the peer copy as a duplicate; a lost local write is refused loudly at the writer',
   },
   // T13359 (D11165) — decisions-vs-ADRs link table; the natural composite key
   // makes identical links merge to one row, and the revoke is a one-way latch.
