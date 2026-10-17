@@ -590,7 +590,7 @@ export function journalStreamRemedy(pushReleased = !UNRELEASED_FLAGS.has('sync.p
   if (pushReleased) {
     return 'on this stream local changes travel through the change journal (`sync.push`), and with it on a vault push checkpoints the journal (T12999); a store that has not joined it joins with `cleo sync enable push`, which keeps its own rows and merges them into the stream (T13466); `cleo cloud pull`, `cleo cloud restore` and `cleo cloud verify` still work';
   }
-  return `on this stream local changes travel through the change journal (\`sync.push\`), which this CLEO cannot run: ${SYNC_PUSH_UNRELEASED_CLAUSE}; \`cleo cloud pull\`, \`cleo cloud restore\` and \`cleo cloud verify\` keep working`;
+  return `on this stream local changes travel through the change journal (\`sync.push\`), which checkpoints the stream (T12999) and which this CLEO cannot run: ${SYNC_PUSH_UNRELEASED_CLAUSE}; \`cleo cloud pull\`, \`cleo cloud restore\` and \`cleo cloud verify\` keep working`;
 }
 
 /** Why no CLEO can push while `sync.push` is unreleased (T13856): no release ships it yet. */
