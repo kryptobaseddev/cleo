@@ -526,6 +526,16 @@ describe('stable promotion evidence', () => {
       validateHookPilotEvidence({ ...options(), stableVersion: '2026.10.18' }),
     ).rejects.toThrow();
   });
+  it('T13818: refuses persisted native trust from a user-global home', async () => {
+    const index = nativeBundle();
+    const proof = JSON.parse(readFileSync(join(root, 'retained/liveCodex.json'), 'utf8'));
+    replaceProof(index, 'liveCodex', {
+      native: { ...proof.native, trust: { ...proof.native.trust, home: 'user-global' } },
+    });
+    await expect(
+      validateHookPilotEvidence({ ...options(), stableVersion: '2026.10.18' }),
+    ).rejects.toThrow(/isolated/);
+  });
   it('T13818: rejects receipts outside their session and bypassed native trust', async () => {
     const index = nativeBundle();
     const proof = JSON.parse(readFileSync(join(root, 'retained/liveCodex.json'), 'utf8'));

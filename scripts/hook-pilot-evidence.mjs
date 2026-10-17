@@ -302,9 +302,9 @@ export async function validateHookPilotEvidence(options) {
         const recorded = Date.parse(receipt.recordedAt);
         if (start > end || recorded < start || recorded > end)
           throw new Error('Promotion held: native receipt outside session window.');
-        if (native.trust.mode !== 'persisted')
+        if (native.trust.mode !== 'persisted' || native.trust.home !== 'isolated')
           throw new Error(
-            'Promotion held: persisted native trust required; bypass is diagnostic only.',
+            'Promotion held: persisted native trust in an isolated home required; other trust is diagnostic only.',
           );
         if (native.contextEvidence) retainedBytes(proofRoot, native.contextEvidence);
         if (check === 'liveCodex' && native.checkout !== 'linked-worktree')

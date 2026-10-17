@@ -18,7 +18,8 @@ compatible overall last result. A Git push no longer overwrites the native
 agent receipt. Native trust can be granted by the harness's own interactive
 flow or trust command in an isolated home; hand-seeded trust and bypass flags
 do not satisfy promotion. Observed context requires retained evidence, and
-new Codex proofs must cover a linked worktree.
+new Codex proofs must cover a linked worktree. Promotion requires an isolated
+home; user-global trust remains representable only for diagnostics.
 
 Native adapter payload session IDs and provider names are retained in the
 strict receipt format and compared with the proof's session and harness.
