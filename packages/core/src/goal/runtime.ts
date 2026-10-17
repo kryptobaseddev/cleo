@@ -6,23 +6,31 @@
  * (T13791 owner decisions). CLEO works fully without it: every function here
  * reports absence instead of throwing.
  *
- * Bin contracts used here: `cleo-goal --version` and
- * `cleo-goal install --project` (idempotent, project-local
- * `.opencode/opencode.json`, never user-global).
+ * Bin contracts used here: `cleo-goal --version`, `cleo-goal status --json`
+ * and `cleo-goal install --project --json` (idempotent, project-local
+ * `.opencode/opencode.json`, never user-global). JSON shapes live in
+ * `@cleocode/contracts/goal-runtime.js`; an unknown `schemaVersion` is refused.
  *
  * @task T13819
  * @task T13820
+ * @task T13821
  * @epic T13791
  */
 
-import { execFileSync } from 'node:child_process';
+import { execFileSync, spawnSync } from 'node:child_process';
 import type { EngineResult } from '@cleocode/contracts';
 import { engineError, engineSuccess } from '@cleocode/contracts/engine-result.js';
 import { ExitCode } from '@cleocode/contracts/exit-codes.js';
+import {
+  GOAL_RUNTIME_SCHEMA_VERSION,
+  type GoalRuntimeError,
+  type GoalRuntimeInstall,
+  type GoalRuntimeStatus,
+} from '@cleocode/contracts/goal-runtime.js';
 import { findOnPath } from '@cleocode/paths';
 import type { HeavyHookDeliveryReport } from '../resources/heavy-command-hook-delivery.js';
 
-// shortcut: @cleocode/cleo does not list this as an optionalDependency yet, since an unpublished one 404s on every install; add it once the package is on npm (T13819 note).
+// shortcut: @cleocode/cleo does not list this as an optionalDependency yet, since an unpublished one 404s on every install; add it as ">=0.8.0 <1.0.0" once the package is on npm (T13819 note).
 /** The npm package that ships the CLEO Goal runtime. */
 export const GOAL_PACKAGE = '@cleocode/goal';
 
@@ -42,7 +50,7 @@ export type GoalHarness = (typeof GOAL_HARNESSES)[number];
 type Env = Readonly<Record<string, string | undefined>>;
 
 /** What {@link inspectGoalRuntime} found. */
-export interface GoalRuntimeStatus {
+export interface GoalRuntimeHealth {
   /** Absolute path of the resolved bin, or `null` when neither bin is on PATH. */
   readonly bin: string | null;
   /** Semver from `cleo-goal --version`, or `null` when absent or it failed. */
@@ -54,13 +62,7 @@ export interface GoalRuntimeStatus {
 }
 
 /** Run a bin; its trimmed stdout, or `null` on any failure. */
-function run(
-  file: string,
-  args: readonly string[],
-  env: Env,
-  timeout: number,
-  cwd?: string,
-): string | null {
+function run(file: string, args: readonly string[], env: Env, timeout: number): string | null {
   try {
     // shortcut: no shell, so a Windows `.cmd` shim fails here; add shell resolution when Windows is supported.
     return execFileSync(file, args, {
@@ -68,7 +70,6 @@ function run(
       stdio: ['ignore', 'pipe', 'pipe'],
       timeout,
       env: { ...env },
-      ...(cwd === undefined ? {} : { cwd }),
     }).trim();
   } catch {
     return null;
@@ -101,9 +102,9 @@ export function resolveGoalBin(env: Env = process.env): string | null {
  * @param env - environment for the bin lookup and spawns (default `process.env`)
  * @returns installed path, version, npm latest and whether an update exists
  */
-export function inspectGoalRuntime(env: Env = process.env): GoalRuntimeStatus {
+export function inspectGoalRuntime(env: Env = process.env): GoalRuntimeHealth {
   const bin = resolveGoalBin(env);
-  const version = semver(bin === null ? null : run(bin, ['--version'], env, 5000));
+  const version = semver(bin === null ? null : run(bin, ['--version'], env, 10_000));
   const npm = findOnPath('npm', { env });
   // A 404 (not published yet) or no network both leave `latest` null.
   const latest = semver(
@@ -117,14 +118,93 @@ export function inspectGoalRuntime(env: Env = process.env): GoalRuntimeStatus {
   };
 }
 
-/** `text` parsed as a JSON object, or `null` (plain-text output passes through as is). */
-function parseObject(text: string): Readonly<Record<string, unknown>> | null {
+/** `text` parsed as a JSON object carrying a `schemaVersion`, or `null`. */
+function parseVersioned(text: string): { readonly schemaVersion?: number } | null {
   try {
-    const parsed: Readonly<Record<string, unknown>> | null = JSON.parse(text);
+    const parsed: { readonly schemaVersion?: number } | null = JSON.parse(text);
     return typeof parsed === 'object' && parsed !== null && !Array.isArray(parsed) ? parsed : null;
   } catch {
     return null;
   }
+}
+
+/**
+ * Run `bin args` in `cwd` and read its JSON reply per the CLEO Goal exit
+ * contract: 0 = the `T` shape, 1 = {@link GoalRuntimeError}, 2 = usage error
+ * on stderr. Any `schemaVersion` other than {@link GOAL_RUNTIME_SCHEMA_VERSION}
+ * is refused.
+ */
+function runGoalJson<T>(
+  bin: string,
+  args: readonly string[],
+  cwd: string,
+  env: Env,
+  timeout: number,
+): EngineResult<T> {
+  // shortcut: no shell, so a Windows `.cmd` shim fails here; add shell resolution when Windows is supported.
+  const r = spawnSync(bin, args, { cwd, encoding: 'utf-8', timeout, env: { ...env } });
+  const command = `${bin} ${args.join(' ')}`;
+  const body = parseVersioned(r.stdout ?? '');
+  if (r.status === 2) {
+    // @sync-invariant none:input-shape the goal bin rejected CLEO's arguments; nothing is written
+    return engineError(
+      'E_GOAL_RUNTIME_USAGE',
+      `${command}: ${(r.stderr ?? '').trim() || 'usage error'}`,
+      {
+        exitCode: ExitCode.GENERAL_ERROR,
+        fix: `${GOAL_INSTALL_COMMAND} (this CLEO needs a cleo-goal that accepts: ${args.join(' ')})`,
+      },
+    );
+  }
+  if ((r.status === 0 || r.status === 1) && body?.schemaVersion !== GOAL_RUNTIME_SCHEMA_VERSION) {
+    // @sync-invariant none:local-only the goal bin speaks an unknown schema; nothing is written
+    return engineError(
+      'E_GOAL_RUNTIME_SCHEMA',
+      `${command} replied with schemaVersion ${String(body?.schemaVersion)}; this CLEO understands ${GOAL_RUNTIME_SCHEMA_VERSION}`,
+      {
+        exitCode: ExitCode.DEPENDENCY_ERROR,
+        fix: 'Upgrade both: npm i -g @cleocode/cleo@latest @cleocode/goal@latest',
+      },
+    );
+  }
+  if (r.status === 0) return engineSuccess(body as T);
+  const reason =
+    r.status === 1
+      ? (body as GoalRuntimeError).error
+      : (r.error?.message ?? `exit ${String(r.status ?? r.signal)}`);
+  // @sync-invariant none:local-only the goal bin failed on this machine; no cleo.db write
+  return engineError('E_GOAL_RUNTIME_FAILED', `${command} failed: ${reason}`, {
+    exitCode: ExitCode.GENERAL_ERROR,
+    fix: `Run ${command} in ${cwd} to see the full error`,
+  });
+}
+
+/** The missing-bin failure, with the install command as the fix. */
+function goalRuntimeMissing<T>(): EngineResult<T> {
+  // @sync-invariant none:local-only the goal bin is absent on this machine; nothing is written
+  return engineError(
+    'E_GOAL_RUNTIME_MISSING',
+    `CLEO Goal is not installed: neither ${GOAL_BINS.join(' nor ')} is on PATH`,
+    { exitCode: ExitCode.DEPENDENCY_ERROR, fix: GOAL_INSTALL_COMMAND },
+  );
+}
+
+/**
+ * Read the live goal through `cleo-goal status --json` in the project. A
+ * project with no goal is a success with `status: 'none'`.
+ *
+ * @param projectRoot - absolute project root (the bin's cwd)
+ * @param env - environment for the bin lookup and spawn (default `process.env`)
+ * @returns the status shape, or a failure (`E_GOAL_RUNTIME_MISSING`,
+ *   `E_GOAL_RUNTIME_SCHEMA`, `E_GOAL_RUNTIME_USAGE`, `E_GOAL_RUNTIME_FAILED`)
+ */
+export function readGoalStatus(
+  projectRoot: string,
+  env: Env = process.env,
+): EngineResult<GoalRuntimeStatus> {
+  const bin = resolveGoalBin(env);
+  if (bin === null) return goalRuntimeMissing();
+  return runGoalJson<GoalRuntimeStatus>(bin, ['status', '--json'], projectRoot, env, 15_000);
 }
 
 /** Result of {@link installGoalForHarness}. */
@@ -133,8 +213,8 @@ export interface GoalInstallResult {
   readonly harness: GoalHarness;
   /** The CLEO Goal bin used. */
   readonly bin: string;
-  /** `opencode`: what `cleo-goal install --project` printed (parsed JSON, else text). */
-  readonly goal?: Readonly<Record<string, unknown>> | string;
+  /** `opencode`: the `cleo-goal install --project --json` reply. */
+  readonly goal?: GoalRuntimeInstall;
   /** `claude` / `codex`: the project hook delivery that wires the Stop dispatcher. */
   readonly delivery?: HeavyHookDeliveryReport;
 }
@@ -143,7 +223,7 @@ export interface GoalInstallResult {
  * Register CLEO Goal with one harness for this project. Writes only
  * project-level config, never `~/.claude`, `~/.codex` or `~/.config`.
  *
- * - `opencode`: runs `cleo-goal install --project` in the project.
+ * - `opencode`: runs `cleo-goal install --project --json` in the project.
  * - `claude` / `codex`: installs the project Stop dispatcher (`cleo hook stop`,
  *   T13796), which runs the goal tick; no separate Stop hook.
  * - `hermes` / `kimi`: `E_NOT_IMPLEMENTED` until the pilot (T13822).
@@ -175,34 +255,18 @@ export async function installGoalForHarness(
     );
   }
   const bin = resolveGoalBin(env);
-  if (bin === null) {
-    // @sync-invariant none:local-only the goal bin is absent on this machine; nothing is written
-    return engineError(
-      'E_GOAL_RUNTIME_MISSING',
-      `CLEO Goal is not installed: neither ${GOAL_BINS.join(' nor ')} is on PATH`,
-      { exitCode: ExitCode.DEPENDENCY_ERROR, fix: GOAL_INSTALL_COMMAND },
-    );
-  }
+  if (bin === null) return goalRuntimeMissing();
   if (h === 'opencode') {
-    let out: string;
-    try {
-      out = execFileSync(bin, ['install', '--project'], {
-        cwd: projectRoot,
-        encoding: 'utf-8',
-        stdio: ['ignore', 'pipe', 'pipe'],
-        timeout: 60_000,
-        env: { ...env },
-      }).trim();
-    } catch (err) {
-      const stderr = err instanceof Error && 'stderr' in err ? String(err.stderr ?? '').trim() : '';
-      // @sync-invariant none:local-only the goal bin failed writing project config; no cleo.db write
-      return engineError(
-        'E_GOAL_INSTALL_FAILED',
-        `${bin} install --project failed${stderr ? `: ${stderr}` : ''}`,
-        { exitCode: ExitCode.GENERAL_ERROR, fix: `Run ${bin} install --project in ${projectRoot}` },
-      );
-    }
-    return engineSuccess({ harness: h, bin, goal: parseObject(out) ?? out });
+    const installed = runGoalJson<GoalRuntimeInstall>(
+      bin,
+      ['install', '--project', '--json'],
+      projectRoot,
+      env,
+      60_000,
+    );
+    if (installed.success) return engineSuccess({ harness: h, bin, goal: installed.data });
+    // @sync-invariant none:local-only forwards the goal bin's own failure; no cleo.db write
+    return { success: false, error: installed.error };
   }
   const { deliverHeavyCommandHooks } = await import('../resources/heavy-command-hook-delivery.js');
   const delivery = await deliverHeavyCommandHooks(projectRoot, {

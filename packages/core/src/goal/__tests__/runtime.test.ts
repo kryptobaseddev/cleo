@@ -12,7 +12,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { checkGoalRuntime } from '../../system/health.js';
-import { inspectGoalRuntime, installGoalForHarness } from '../runtime.js';
+import { inspectGoalRuntime, installGoalForHarness, readGoalStatus } from '../runtime.js';
 
 vi.mock('../../resources/heavy-command-hook-delivery.js', () => ({
   deliverHeavyCommandHooks: vi.fn(async () => ({ mode: 'enforce', outcomes: [] })),
@@ -51,10 +51,21 @@ describe('cleo doctor goal_runtime check', () => {
   it('treats a missing bin and an unpublished package as info, not a failure', async () => {
     bin('npm', 'echo "npm error 404 Not Found" >&2; exit 1');
     vi.stubEnv('PATH', dir);
-    const check = await checkGoalRuntime();
+    const check = await checkGoalRuntime(dir);
     expect(check.status).toBe('ok');
     expect(check.message).toContain('not installed (not found on npm)');
     expect(check.fix).toBeUndefined();
+  });
+});
+
+describe('cleo-goal status --json', () => {
+  it('reads a no-goal status and refuses an unknown schemaVersion', () => {
+    bin('cleo-goal', 'echo \'{"schemaVersion":1,"goal":null,"runId":null,"status":"none"}\'');
+    const ok = readGoalStatus(dir, { PATH: dir });
+    expect(ok).toMatchObject({ success: true, data: { status: 'none' } });
+    bin('cleo-goal', 'echo \'{"schemaVersion":2,"goal":null}\'');
+    const refused = readGoalStatus(dir, { PATH: dir });
+    expect(refused.success ? null : refused.error.code).toBe('E_GOAL_RUNTIME_SCHEMA');
   });
 });
 
@@ -62,7 +73,7 @@ describe('cleo goal install --harness', () => {
   it('opencode: runs cleo-goal install --project in the project and passes its JSON through', async () => {
     bin(
       'cleo-goal',
-      'echo "$@" > "$PWD/args"; echo \'{"schemaVersion":1,"wrote":".opencode/opencode.json"}\'',
+      'echo "$@" > "$PWD/args"; echo \'{"schemaVersion":1,"action":"installed","file":".opencode/opencode.json","spec":"github:kryptobaseddev/opencode-goal#v0.8.0","plugins":["github:kryptobaseddev/opencode-goal#v0.8.0"]}\'',
     );
     const result = await installGoalForHarness(dir, 'opencode', { PATH: dir });
     expect(result).toEqual({
@@ -70,10 +81,28 @@ describe('cleo goal install --harness', () => {
       data: {
         harness: 'opencode',
         bin: join(dir, 'cleo-goal'),
-        goal: { schemaVersion: 1, wrote: '.opencode/opencode.json' },
+        goal: {
+          schemaVersion: 1,
+          action: 'installed',
+          file: '.opencode/opencode.json',
+          spec: 'github:kryptobaseddev/opencode-goal#v0.8.0',
+          plugins: ['github:kryptobaseddev/opencode-goal#v0.8.0'],
+        },
       },
     });
-    expect(readFileSync(join(dir, 'args'), 'utf-8').trim()).toBe('install --project');
+    expect(readFileSync(join(dir, 'args'), 'utf-8').trim()).toBe('install --project --json');
+  });
+
+  it('opencode: passes the bin exit-1 error through', async () => {
+    bin(
+      'cleo-goal',
+      'echo \'{"schemaVersion":1,"error":"opencode.json is not valid JSON"}\'; exit 1',
+    );
+    const result = await installGoalForHarness(dir, 'opencode', { PATH: dir });
+    expect(result.success ? null : result.error.code).toBe('E_GOAL_RUNTIME_FAILED');
+    expect(result.success ? null : result.error.message).toContain(
+      'opencode.json is not valid JSON',
+    );
   });
 
   it('claude: installs the project Stop dispatcher through hook delivery', async () => {
