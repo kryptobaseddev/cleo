@@ -133,10 +133,23 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
  * `@cleocode/core`. Loading the SQL directly keeps the test hermetic without
  * re-implementing the schema inline.
  */
-const MIGRATION_SQL = resolve(
-  __dirname,
-  '../../../core/migrations/drizzle-tasks/20260417220000_t889-playbook-tables/migration.sql',
-);
+const PROJECT_MIGRATIONS = resolve(__dirname, '../../../core/migrations/drizzle-cleo-project');
+
+/** The playbook twins the state layer writes, as a project store creates them (T12535). */
+function playbookTwinSql(): string {
+  const consolidation = readFileSync(
+    resolve(PROJECT_MIGRATIONS, '20260531000001_t11363-consolidation-cleo-project/migration.sql'),
+    'utf8',
+  );
+  const tables = ['tasks_playbook_runs', 'tasks_playbook_approvals'].map(
+    (t) => consolidation.match(new RegExp(`CREATE TABLE \`${t}\` \\([\\s\\S]*?\\n\\);`))?.[0] ?? '',
+  );
+  const uids = readFileSync(
+    resolve(PROJECT_MIGRATIONS, '20261016120000_t12535-playbook-row-uids/migration.sql'),
+    'utf8',
+  );
+  return [...tables, uids].join('\n--> statement-breakpoint\n');
+}
 
 /** Absolute path to the rcasd.cantbook starter playbook (T934). */
 const RCASD_CANTBOOK = resolve(__dirname, '../../../playbooks/starter/rcasd.cantbook');
@@ -263,7 +276,7 @@ describe('T937 — harness interop: playbook runtime across provider adapters', 
   beforeEach(() => {
     db = new DatabaseSync(':memory:');
     db.exec('PRAGMA foreign_keys=ON');
-    applyMigration(db, readFileSync(MIGRATION_SQL, 'utf8'));
+    applyMigration(db, playbookTwinSql());
 
     anthropicCalls.length = 0;
     openaiCalls.length = 0;
@@ -393,7 +406,7 @@ describe('T937 — harness interop: playbook runtime across provider adapters', 
       // Reset per-provider state so DB rows don't collide.
       const freshDb = new DatabaseSync(':memory:');
       freshDb.exec('PRAGMA foreign_keys=ON');
-      applyMigration(freshDb, readFileSync(MIGRATION_SQL, 'utf8'));
+      applyMigration(freshDb, playbookTwinSql());
 
       const result = await executePlaybook({
         db: freshDb,

@@ -33,10 +33,26 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
  * shipped install bundles. Prefer the core copy so this test stays aligned
  * with the runtime migration runner.
  */
-const MIGRATION_SQL = resolve(
+const PROJECT_MIGRATIONS = resolve(
   __dirname,
-  '../../../../../core/migrations/drizzle-tasks/20260417220000_t889-playbook-tables/migration.sql',
+  '../../../../../core/migrations/drizzle-cleo-project',
 );
+
+/** The playbook twins the state layer writes, as a project store creates them (T12535). */
+function playbookTwinSql(): string {
+  const consolidation = readFileSync(
+    resolve(PROJECT_MIGRATIONS, '20260531000001_t11363-consolidation-cleo-project/migration.sql'),
+    'utf8',
+  );
+  const tables = ['tasks_playbook_runs', 'tasks_playbook_approvals'].map(
+    (t) => consolidation.match(new RegExp(`CREATE TABLE \`${t}\` \\([\\s\\S]*?\\n\\);`))?.[0] ?? '',
+  );
+  const uids = readFileSync(
+    resolve(PROJECT_MIGRATIONS, '20261016120000_t12535-playbook-row-uids/migration.sql'),
+    'utf8',
+  );
+  return [...tables, uids].join('\n--> statement-breakpoint\n');
+}
 
 function applyMigration(db: DatabaseSync, sql: string): void {
   const statements = sql
@@ -119,7 +135,7 @@ describe('T935 PlaybookHandler — run/status/resume/list integration', () => {
   beforeEach(() => {
     db = new DatabaseSync(':memory:');
     db.exec('PRAGMA foreign_keys=ON');
-    applyMigration(db, readFileSync(MIGRATION_SQL, 'utf8'));
+    applyMigration(db, playbookTwinSql());
 
     tmpPlaybookDir = mkdtempSync(join(tmpdir(), 'cleo-playbook-fixture-'));
     writeFileSync(join(tmpPlaybookDir, 'linear-smoke.cantbook'), LINEAR_PLAYBOOK_YAML);

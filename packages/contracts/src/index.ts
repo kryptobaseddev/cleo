@@ -551,7 +551,11 @@ export type {
   DonePlanTypedGate,
   DoneRecordResult,
   DoneToolResult,
+  OwedTestFile,
+  OwedTestPackage,
   TaskChangeSet,
+  TaskChangeSetReport,
+  TaskTestPlan,
 } from './done-plan.js';
 export type {
   EngineErrorPayload,
@@ -730,9 +734,6 @@ export {
 // === CLEO-native Goal System (T11376 · Epic T11290 · Saga T11283) ===
 export type {
   FuzzyGoal,
-  GoalAdvanceResult,
-  GoalContinuation,
-  GoalJudge,
   GoalJudgeVerdict,
   GoalKind,
   GoalKindTag,
@@ -743,10 +744,6 @@ export type {
 export {
   GOAL_STATUSES,
   GOAL_TARGET_TASK_ID_REGEX,
-  GOAL_TERMINAL_STATUSES,
-  isFuzzyGoal,
-  isTaskCompletionGoal,
-  isTerminalGoalStatus,
   isValidGoalTargetTaskId,
 } from './goal.js';
 // === goal/v1 protocol: contract, task link, outcome (T13792 · Epic T13791) ===

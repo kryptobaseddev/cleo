@@ -33,12 +33,11 @@
  * @saga T11387
  */
 
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { mkdtempSync, rmSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
-import { dirname, join, resolve } from 'node:path';
+import { join } from 'node:path';
 import type { DatabaseSync as _DatabaseSyncType } from 'node:sqlite';
-import { fileURLToPath } from 'node:url';
 import type { PlaybookDefinition, PlaybookDeterministicNode } from '@cleocode/contracts';
 import {
   createGuardedDeterministicRunner,
@@ -47,6 +46,7 @@ import {
 } from '@cleocode/core/internal';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { type DeterministicRunner, executePlaybook } from '../runtime.js';
+import { playbookTwinSql } from './twin-schema.js';
 
 const _require = createRequire(import.meta.url);
 type DatabaseSync = _DatabaseSyncType;
@@ -54,13 +54,7 @@ const { DatabaseSync } = _require('node:sqlite') as {
   DatabaseSync: new (...args: ConstructorParameters<typeof _DatabaseSyncType>) => DatabaseSync;
 };
 
-const __dirname = dirname(fileURLToPath(import.meta.url));
-
 /** Absolute path to the T889 playbook-tables migration SQL. */
-const MIGRATION_SQL = resolve(
-  __dirname,
-  '../../../core/migrations/drizzle-tasks/20260417220000_t889-playbook-tables/migration.sql',
-);
 
 /** Apply a multi-statement Drizzle migration (split on the breakpoint token). */
 function applyMigration(db: DatabaseSync, sql: string): void {
@@ -87,7 +81,7 @@ describe('T11802 (M4): deterministic node dispatch routes through guard.ts', () 
   beforeEach(() => {
     db = new DatabaseSync(':memory:');
     db.exec('PRAGMA foreign_keys=ON');
-    applyMigration(db, readFileSync(MIGRATION_SQL, 'utf8'));
+    applyMigration(db, playbookTwinSql());
     projectRoot = mkdtempSync(join(tmpdir(), 't11802-guarded-shell-'));
   });
 

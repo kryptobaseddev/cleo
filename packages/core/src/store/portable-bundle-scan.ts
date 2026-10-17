@@ -652,9 +652,86 @@ export function redactCredentials(snapshotPath: string): CredentialRedaction[] {
 }
 
 /**
+ * This device's change-journal tables and their JSON images, each an object
+ * keyed by column (a capture's U image maps a column to `[before, after]`).
+ * Capture and undo images hold the row's local values, secret columns
+ * included (T12535).
+ */
+const JOURNAL_IMAGES: Readonly<Record<string, readonly string[]>> = {
+  _sync_capture: ['img'],
+  _sync_quarantine: ['img'],
+  _sync_undo: ['before_full', 'after_full'],
+  _sync_row_undo: ['values_json'],
+};
+
+/**
+ * Remove the given secret columns from the change-journal images of a
+ * SNAPSHOT (never a live store), as {@link redactCredentials} clears them in
+ * the rows: an unencrypted bundle that leaves the machine must not carry a
+ * deleted session or approval token in an undo image (T12535). The journal
+ * rows stay, so a store moved through the bundle still reconciles its unsent
+ * changes; reconcile never reads a secret column from an image (secret
+ * columns are left out of every field comparison). An image of such a table
+ * that is not valid JSON is replaced whole (NULL, or `{}` in a NOT NULL
+ * column), never shipped as written (T13817). Then `secure_delete` +
+ * `VACUUM`.
+ *
+ * @param snapshotPath - A VACUUM snapshot owned by the export staging area.
+ * @param columns - Table to secret column names.
+ * @returns Image values rewritten.
+ * @throws {Error} When an image cannot be rewritten; the caller must not ship the snapshot.
+ * @task T12535
+ */
+export function redactJournalSecrets(
+  snapshotPath: string,
+  columns: Readonly<Record<string, readonly string[]>> = CREDENTIAL_COLUMNS,
+): number {
+  let rewritten = 0;
+  const db = new DatabaseSync(snapshotPath); // schema-guard-exempt: a snapshot copy this step owns; journal redaction is DML only
+  try {
+    db.exec('PRAGMA secure_delete = ON');
+    inSnapshotWriteBracket(db, () => {
+      for (const [journal, images] of Object.entries(JOURNAL_IMAGES)) {
+        const present = new Map(
+          (
+            db.prepare('SELECT name, "notnull" FROM pragma_table_info(?)').all(journal) as Array<{
+              name: string;
+              notnull: number;
+            }>
+          ).map((c) => [c.name, c.notnull === 1]),
+        );
+        for (const image of images.filter((c) => present.has(c))) {
+          // An image that is not JSON cannot be redacted key by key: it ships
+          // as no values at all (T13817), never as written.
+          const empty = present.get(image) ? "'{}'" : 'NULL';
+          for (const [table, cols] of Object.entries(columns)) {
+            const paths = cols.map((c) => `'$."${c.replace(/"/g, '""')}"'`).join(', ');
+            rewritten += Number(
+              db
+                .prepare(
+                  `UPDATE "${journal}" SET "${image}" = CASE WHEN json_valid("${image}") ` +
+                    `THEN json_remove("${image}", ${paths}) ELSE ${empty} END ` +
+                    `WHERE tbl = ? AND "${image}" IS NOT NULL AND (NOT json_valid("${image}") ` +
+                    `OR json_remove("${image}", ${paths}) IS NOT "${image}")`,
+                )
+                .run(table).changes,
+            );
+          }
+        }
+      }
+    });
+    if (rewritten > 0) db.exec('VACUUM');
+  } finally {
+    db.close();
+  }
+  return rewritten;
+}
+
+/**
  * Clear the given columns in a SNAPSHOT (never a live store), as
  * {@link redactCredentials} does for the credential columns: NULL (or `''`
- * when NOT NULL), then `secure_delete` + `VACUUM`. Rows are kept.
+ * when NOT NULL, or a per-row `redacted:<rowid>` when NOT NULL and UNIQUE),
+ * then `secure_delete` + `VACUUM`. Rows are kept.
  *
  * @param snapshotPath - A VACUUM snapshot owned by the export staging area.
  * @param columns - Table to column names; absent tables and columns are skipped.
@@ -702,6 +779,23 @@ function inSnapshotWriteBracket(db: _DatabaseSyncType, fn: () => void): void {
   }
 }
 
+/** Prefix of the per-row placeholder a cleared NOT NULL UNIQUE column takes (`redacted:<rowid>`). */
+export const REDACTED_PREFIX = 'redacted:';
+
+/** Columns of `table` covered alone by a UNIQUE index (or a single-column UNIQUE constraint). */
+function uniqueColumns(db: _DatabaseSyncType, table: string): Set<string> {
+  const out = new Set<string>();
+  const indexes = db.prepare(`PRAGMA index_list("${table}")`).all() as Array<{
+    name: string;
+    unique: number;
+  }>;
+  for (const ix of indexes.filter((i) => i.unique === 1)) {
+    const cols = db.prepare(`PRAGMA index_info("${ix.name}")`).all() as Array<{ name: string }>;
+    if (cols.length === 1 && cols[0]) out.add(cols[0].name);
+  }
+  return out;
+}
+
 /** The clearing loop of {@link clearSnapshotColumns}, inside its write bracket. */
 function clearColumnsIn(
   db: _DatabaseSyncType,
@@ -716,12 +810,22 @@ function clearColumnsIn(
       }>
     ).filter((c) => wanted.includes(c.name));
     if (present.length === 0) continue;
-    const cond = present.map((c) => `("${c.name}" IS NOT NULL AND "${c.name}" <> '')`).join(' OR ');
+    const cond = present
+      .map(
+        (c) =>
+          `("${c.name}" IS NOT NULL AND "${c.name}" <> '' AND "${c.name}" IS NOT ('${REDACTED_PREFIX}' || rowid))`,
+      )
+      .join(' OR ');
     const rows = Number(
       (db.prepare(`SELECT COUNT(*) AS n FROM "${table}" WHERE ${cond}`).get() as { n: number }).n,
     );
     if (rows === 0) continue;
-    const assignments = present.map((c) => `"${c.name}" = ${c.notnull ? "''" : 'NULL'}`).join(', ');
+    // A NOT NULL UNIQUE column (an approval's resume token) cannot take one
+    // shared '' in every row: each row gets its own placeholder (T13817).
+    const unique = uniqueColumns(db, table);
+    const cleared = (c: { name: string; notnull: number }): string =>
+      unique.has(c.name) ? `'${REDACTED_PREFIX}' || rowid` : c.notnull ? "''" : 'NULL';
+    const assignments = present.map((c) => `"${c.name}" = ${cleared(c)}`).join(', ');
     db.exec(`UPDATE "${table}" SET ${assignments} WHERE ${cond}`);
     const left = Number(
       (db.prepare(`SELECT COUNT(*) AS n FROM "${table}" WHERE ${cond}`).get() as { n: number }).n,

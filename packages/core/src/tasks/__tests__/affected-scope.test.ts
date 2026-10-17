@@ -1567,11 +1567,13 @@ describe('T13784: staleness considers only the change files and the tests the ru
       'packages/a/package.json': '{"name":"@x/a"}\n',
       'packages/a/vitest.config.ts': 'export default {};\n',
       'packages/a/src/test-setup.ts': 'export {};\n',
+      'packages/a/src/test/setup.ts': 'export {};\n',
       'packages/a/src/x.ts': 'export const x = 1;\n',
       'packages/a/src/x.test.ts': "import './x.js';\n",
       'packages/b/package.json': '{"name":"@x/b"}\n',
       'packages/b/src/setup-wizard.ts': 'export const w = 1;\n',
       'packages/b/src/b.setup.ts': 'export {};\n',
+      'packages/b/src/test/setup.ts': 'export {};\n',
     };
     git('init', '-q', '-b', 'main');
     for (const [f, body] of Object.entries(files)) {
@@ -1598,6 +1600,7 @@ describe('T13784: staleness considers only the change files and the tests the ru
     'packages/a/vitest.config.ts',
     'packages/a/package.json',
     'packages/a/src/test-setup.ts',
+    'packages/a/src/test/setup.ts',
   ])("red (review of #2295): a later commit to the package's test input %s stales the run", (path) => {
     const c = packageMovedOn(path);
     try {
@@ -1611,6 +1614,7 @@ describe('T13784: staleness considers only the change files and the tests the ru
     'packages/b/package.json',
     'packages/b/src/setup-wizard.ts',
     'packages/b/src/b.setup.ts',
+    'packages/b/src/test/setup.ts',
   ])("green: another package's %s moving on main does not stale the run", (path) => {
     const c = packageMovedOn(path);
     try {

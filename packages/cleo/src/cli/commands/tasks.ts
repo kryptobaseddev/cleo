@@ -13,6 +13,7 @@
  *   cleo tasks plan            — composite planning view
  *   cleo tasks analyze         — leverage-sorted discovery
  *   cleo tasks slice <id>      — localized WorkGraph slice around a task
+ *   cleo tasks changeset <id>  — change set and tests owed (`--test-plan`)
  *
  * Note: Mutation commands (add, update, complete, delete, etc.) retain their
  * top-level flat names (`cleo add`, `cleo complete`, etc.) per the original
@@ -25,7 +26,7 @@
 import { defineCommand } from 'citty';
 import { dispatchFromCli } from '../../dispatch/adapters/cli.js';
 import { isSubCommandDispatch } from '../lib/subcommand-guard.js';
-import { cliOutput } from '../renderers/index.js';
+import { cliError, cliOutput } from '../renderers/index.js';
 
 // ---------------------------------------------------------------------------
 // Query subcommands
@@ -148,6 +149,48 @@ const sliceSub = defineCommand({
   },
 });
 
+/**
+ * `cleo tasks changeset <id> [--test-plan]` — the change set `cleo done`
+ * derives, its commits and, with `--test-plan`, the exact tests it owes (T13795).
+ */
+const changesetSub = defineCommand({
+  meta: {
+    name: 'changeset',
+    description:
+      'Show the change set cleo done derives (commits, files); --test-plan adds the exact test files owed, with reasons',
+  },
+  args: {
+    id: { type: 'positional', description: 'Task ID (e.g. T1234)', required: true },
+    'test-plan': {
+      type: 'boolean',
+      description: 'Include the tests the change owes, as the test-run: binding enforces them',
+    },
+    pr: { type: 'string', description: 'The merged PR that implements the task' },
+  },
+  async run({ args }) {
+    const { parseDoneOptions } = await import('@cleocode/core/tasks/done-plan.js');
+    const parsed = parseDoneOptions(undefined, args.pr);
+    if (!parsed.ok) {
+      cliError(parsed.message, 'E_INVALID_INPUT');
+      process.exitCode = 2;
+      return;
+    }
+    const { planTaskChangeSet } = await import('@cleocode/core/tasks/changeset-plan.js');
+    const { getProjectRoot } = await import('@cleocode/core/paths.js');
+    const result = await planTaskChangeSet(String(args.id), {
+      projectRoot: getProjectRoot(),
+      ...parsed.options,
+      testPlan: args['test-plan'] === true,
+    });
+    if (!result.success) {
+      cliError(result.error.message, result.error.code, { fix: result.error.fix });
+      process.exitCode = result.error.exitCode ?? 1;
+      return;
+    }
+    cliOutput(result.data, { command: 'tasks changeset', operation: 'tasks.changeset' });
+  },
+});
+
 // ---------------------------------------------------------------------------
 // Root command
 // ---------------------------------------------------------------------------
@@ -160,7 +203,7 @@ const sliceSub = defineCommand({
 export const tasksCommand = defineCommand({
   meta: {
     name: 'tasks',
-    description: 'Task query namespace: show, find, next, current, plan, analyze, slice',
+    description: 'Task query namespace: show, find, next, current, plan, analyze, slice, changeset',
   },
   subCommands: {
     show: showSub,
@@ -170,6 +213,7 @@ export const tasksCommand = defineCommand({
     plan: planSub,
     analyze: analyzeSub,
     slice: sliceSub,
+    changeset: changesetSub,
   },
   async run({ cmd, rawArgs }) {
     if (isSubCommandDispatch(rawArgs, cmd.subCommands)) return;

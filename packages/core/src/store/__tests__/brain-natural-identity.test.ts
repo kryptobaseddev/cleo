@@ -1,6 +1,6 @@
 /**
  * Row identity of the brain natural-key tables (T12895): page edges, memory
- * links, sticky tags (global) and release links (project). The uid is a
+ * links, sticky tags and release links (project). The uid is a
  * UUIDv8 over the primary key, so it is a pure function of the row: two
  * stores derive the same uid for the same edge whenever it was filled.
  *
@@ -196,13 +196,17 @@ describe('natural brain identity: references', () => {
     );
   });
 
-  it('the project sticky tags stay unfilled until the T12535 twin collapse declares them', async () => {
+  it('a project sticky tag follows its note uid (T12535 declared the project tables)', async () => {
     const db = await open('project', storePath('project'));
     db.exec(
       "INSERT INTO brain_sticky_notes (id, content, created_at) VALUES ('SN-001', 'n', '2026-09-01 09:10:00')",
     );
     db.exec("INSERT INTO brain_sticky_tags (sticky_id, tag) VALUES ('SN-001', 'sync')");
-    expect(uidOf(db, "SELECT uid FROM brain_sticky_tags WHERE sticky_id = 'SN-001'")).toBeNull();
+    const noteUid = uidOf(db, "SELECT uid FROM brain_sticky_notes WHERE id = 'SN-001'");
+    expect(noteUid).not.toBeNull();
+    expect(uidOf(db, "SELECT uid FROM brain_sticky_tags WHERE sticky_id = 'SN-001'")).toBe(
+      naturalRowUid('project', 'brain_sticky_tags', [noteUid as string, 'sync']),
+    );
   });
 });
 

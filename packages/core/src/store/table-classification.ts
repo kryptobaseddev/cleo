@@ -889,10 +889,12 @@ const PROJECT_TABLES: Readonly<Record<string, TableRegistryEntry>> = {
     note: 'live bare twin; ruling: pipeline_manifest',
   },
   playbook_approvals: {
-    class: 'portable-project',
-    status: 'resolved',
-    source: 'cleo-dev ruling 2026-09-28 (round 2)',
-    note: 'both twins carry the ruling (the exodus map pairs playbook_approvals with tasks_playbook_approvals)',
+    class: 'local-only',
+    status: 'frozen-legacy',
+    source: 'T12535 (playbook twin collapse)',
+    dropTask: 'T12535',
+    liveTwin: 'tasks_playbook_approvals',
+    note: 'store/twin-collapse.ts carries its rows into the live twin at every open and freezes it (an older build writing it gets the upgrade message); nothing writes it',
     columns: [
       {
         column: 'token',
@@ -902,10 +904,12 @@ const PROJECT_TABLES: Readonly<Record<string, TableRegistryEntry>> = {
     ],
   },
   playbook_runs: {
-    class: 'portable-project',
-    status: 'resolved',
-    source: 'cleo-dev ruling 2026-09-28 (round 2)',
-    note: 'both twins carry the ruling (exodus map: playbook_runs ↔ tasks_playbook_runs)',
+    class: 'local-only',
+    status: 'frozen-legacy',
+    source: 'T12535 (playbook twin collapse)',
+    dropTask: 'T12535',
+    liveTwin: 'tasks_playbook_runs',
+    note: 'store/twin-collapse.ts carries its rows into the live twin at every open and freezes it (an older build writing it gets the upgrade message); nothing writes it',
   },
   pr_commits: {
     class: 'local-only',

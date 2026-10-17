@@ -90,7 +90,8 @@ describe.each(['project', 'global'] as const)('brain row identity in the %s stor
         'brain_session_narrative',
       ]),
     );
-    expect(tables.includes('brain_sticky_notes')).toBe(scope === 'global');
+    // Both scopes since T12535 declared the project sticky tables.
+    expect(tables.includes('brain_sticky_notes')).toBe(true);
     const db = await open(scope, storePath(scope));
     expect(missingRowIdentitySchema(db, scope)).toEqual([]);
     for (const table of tables) {
