@@ -1099,6 +1099,33 @@ export async function nonTestFailuresOn(
 }
 
 /**
+ * The number of failing jobs of a pinned workflow on `sha` (the required
+ * aggregate and workflow runs excluded) whose readable log `accepts`, or null
+ * when a job is still running, a log cannot be read, or `accepts` refuses one.
+ */
+async function everyFailedJobLog(
+  checks: readonly CommitCheck[],
+  sha: string,
+  required: readonly string[],
+  pins: Record<string, RequiredCheckPinSpec>,
+  fetchJobLog: NonNullable<ResolveCiEvidenceOptions['fetchJobLog']>,
+  cwd: string,
+  accepts: (log: string) => boolean,
+): Promise<number | null> {
+  let failed = 0;
+  for (const c of latestRuns(checks, sha, pinnedScope(required, pins))) {
+    if (c.source === 'workflow-run' || required.includes(c.name)) continue;
+    if (c.status !== 'completed') return null;
+    if (HARMLESS_CONCLUSIONS.has(c.conclusion ?? '')) continue;
+    const log = await fetchJobLog(c.id, cwd);
+    // An unreadable log proves nothing about the job: never skip past it.
+    if (log === null || !accepts(log)) return null;
+    failed++;
+  }
+  return failed;
+}
+
+/**
  * Whether a later commit's CI was cancelled rather than failed (T13809): its
  * pinned workflow run concluded `cancelled` (a concurrency group stopped it)
  * and every failing job's log is readable and names no failed test; a job a
@@ -1122,23 +1149,76 @@ export async function cancelledWithoutTestFailure(
   fetchJobLog: NonNullable<ResolveCiEvidenceOptions['fetchJobLog']>,
   cwd: string,
 ): Promise<boolean> {
-  const latest = latestRuns(checks, sha, pinnedScope(required, pins));
-  const runs = latest.filter((c) => c.source === 'workflow-run');
+  const runs = latestRuns(checks, sha, pinnedScope(required, pins)).filter(
+    (c) => c.source === 'workflow-run',
+  );
   if (!runs.some((r) => r.conclusion === 'cancelled')) return false;
   if (runs.some((r) => r.conclusion !== 'cancelled' && r.conclusion !== 'success')) return false;
-  for (const c of latest) {
-    if (c.source === 'workflow-run' || required.includes(c.name)) continue;
-    if (c.status !== 'completed') return false;
-    if (HARMLESS_CONCLUSIONS.has(c.conclusion ?? '')) continue;
-    const log = await fetchJobLog(c.id, cwd);
-    // An unreadable log proves nothing about the job: never skip past it.
-    if (log === null) return false;
+  const noTestFailed = (log: string): boolean => {
     const text = log.replace(/\u001b\[[0-9;]*m/g, '');
-    if (/\bFAIL\s{2,}|\d+ failed/.test(text) || RUN_DIED.test(text)) {
-      return false;
-    }
+    return !/\bFAIL\s{2,}|\d+ failed/.test(text) && !RUN_DIED.test(text);
+  };
+  return (
+    (await everyFailedJobLog(checks, sha, required, pins, fetchJobLog, cwd, noTestFailed)) !== null
+  );
+}
+
+/**
+ * Whether a job log shows a failure in a setup step before any test ran
+ * (T13809): its first `##[error]` sits in a remote action step
+ * (`Run owner/action@ref`, e.g. `actions/download-artifact@v4` finding no
+ * artifact), never in a `run:` script, and the log has no vitest output at
+ * all. A gate script or test failure runs in a `run:` step and never matches.
+ *
+ * @param log - The job's plain-text log (ANSI colour codes allowed).
+ * @returns Whether the job failed in an action step before any test ran.
+ * @task T13809
+ */
+export function isSetupStepFailureLog(log: string): boolean {
+  const lines = log.replace(/\u001b\[[0-9;]*m/g, '').split('\n');
+  if (lines.some((l) => /\bRUN\s+v\d|\bTest Files\s{2,}\d|\bFAIL\s{2,}/.test(l))) return false;
+  const error = lines.findIndex((l) => l.includes('##[error]'));
+  if (error < 0) return false;
+  for (let i = error - 1; i >= 0; i--) {
+    const step = /##\[group\]Run (.*)$/.exec(lines[i] ?? '');
+    if (step) return /^[\w.-]+\/[\w./-]+@\S+\s*$/.test(step[1] ?? '');
   }
-  return true;
+  return false;
+}
+
+/**
+ * Whether a later commit's CI failed before any test ran (T13809): every
+ * failing job's log is readable and failed in a setup action step
+ * ({@link isSetupStepFailureLog}), as when each unit-test shard finds no build
+ * artifact. Such a run tested nothing, so it decides nothing.
+ *
+ * @param checks - Checks fetched for `sha`.
+ * @param sha - The later commit.
+ * @param required - Required check names.
+ * @param pins - Required-name to app/workflow pin.
+ * @param fetchJobLog - Plain-text log of one job.
+ * @param cwd - Repository work tree for `gh`.
+ * @returns Whether every failing job failed before running a test.
+ * @task T13809
+ */
+export async function failedBeforeAnyTest(
+  checks: readonly CommitCheck[],
+  sha: string,
+  required: readonly string[],
+  pins: Record<string, RequiredCheckPinSpec>,
+  fetchJobLog: NonNullable<ResolveCiEvidenceOptions['fetchJobLog']>,
+  cwd: string,
+): Promise<boolean> {
+  const failed = await everyFailedJobLog(
+    checks,
+    sha,
+    required,
+    pins,
+    fetchJobLog,
+    cwd,
+    isSetupStepFailureLog,
+  );
+  return failed !== null && failed > 0;
 }
 
 /** Inputs of {@link findGreenDescendant}. */
@@ -1374,9 +1454,9 @@ export async function findGreenDescendant(
     if (!fetched.ok) return { ok: false, reason: fetched.reason };
     const failedJob = firstRealFailure(fetched.checks, sha, scope);
     if (failedJob && input.fetchJobLog) {
-      // T13809: a later run red only for the quarantine budget, or cancelled
-      // with no test failing, decides nothing; look on. Any other failure still
-      // refuses: a green run is never shopped for past a real one.
+      // T13809: a later run red only for the quarantine budget, cancelled with
+      // no test failing, or failed before any test ran decides nothing; look on.
+      // Any other failure still refuses: a green run is never shopped for past a real one.
       const quarantineOnly = await nonTestFailuresOn(
         fetched.checks,
         sha,
@@ -1396,6 +1476,9 @@ export async function findGreenDescendant(
           cwd,
         )
       ) {
+        continue;
+      }
+      if (await failedBeforeAnyTest(fetched.checks, sha, required, pins, input.fetchJobLog, cwd)) {
         continue;
       }
     }
