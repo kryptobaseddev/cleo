@@ -233,12 +233,12 @@ const SECRET_FIELD_RE =
 
 /**
  * Credential shapes in free text that keep their label and lose only the
- * secret (T13860): a GitHub-style `Authorization: token <t>` header, URL
+ * secret (T13860): a GitHub-style `Authorization: token <t>` or `Authorization: Basic <b64>` header (T13863), URL
  * userinfo passwords (`scheme://user:<p>@host`) and `--token <t>` /
  * `--token=<t>` argv flags. Re-applying them to their own output is a no-op.
  */
 const LABELLED_SECRETS: ReadonlyArray<readonly [RegExp, string]> = [
-  [/\b(authorization:\s*token\s+)[^\s"',]+/gi, `$1${REDACTED}`],
+  [/\b(authorization:\s*(?:token|basic)\s+)[^\s"',]+/gi, `$1${REDACTED}`],
   [/\b([a-z][a-z0-9+.-]*:\/\/[^\s:@/]+:)[^\s@/]+@/gi, `$1${REDACTED}@`],
   [
     /(--(?:token|password|passwd|secret|api[_-]?key|access[_-]?token|auth[_-]?token|refresh[_-]?token)(?:=|\s+))[^\s"']+/gi,
