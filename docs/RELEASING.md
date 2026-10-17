@@ -71,8 +71,8 @@ On 2026-04-15, worker T665 bypassed the canonical release process and published 
 - Verifies the lockfile passes `--frozen-lockfile` check
 - Gives clear instructions to run `pnpm install` before retrying
 
-**GitHub Actions workflow** (`.github/workflows/lockfile-check.yml`):
-- Runs as a dedicated, fast gate on all PRs and pushes to `main`
+**GitHub Actions** (`ci.yml`, job `Repo Lints (installed)`, step `Lockfile Check`; T13840):
+- Runs on all PRs and pushes to `main`: the job's own `pnpm install --frozen-lockfile` is the check
 - Executes before the heavy CI matrix (tests, build, etc.)
 - Red-lights immediately if `pnpm install --frozen-lockfile` fails
 - Prevents any downstream CI job from running while lockfile is inconsistent
