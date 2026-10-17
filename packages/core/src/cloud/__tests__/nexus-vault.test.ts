@@ -3017,6 +3017,24 @@ describe('cloud vault global scope', () => {
     }
   });
 
+  it('the pushing device verifies match; a later heartbeat then reads ahead (T13852)', async () => {
+    const a = await machine('a', DEVICE_A, REPLICA_A);
+    await seedHome(a, ['p1']);
+    // The push's own CLI start heartbeats before the snapshot is taken.
+    homeSql(
+      a,
+      "INSERT INTO nexus_devices (device_id, hostname, os, arch, cleo_version, first_seen, last_heartbeat_at) VALUES ('dev-a', 'h', 'darwin', 'arm64', '1', '2026-10-17T00:00:00.000Z', '2026-10-17T00:00:00.000Z')",
+    );
+    await on(a, () => pushNexusVault(vopts(a, { scope: 'global' })));
+    const verified = await on(a, () => verifyNexusVault(vopts(a, { scope: 'global' })));
+    expect(verified.verdict).toBe('match');
+    // Any later command that heartbeats (cloud verify/status do not) is a real change.
+    homeSql(a, "UPDATE nexus_devices SET last_heartbeat_at = '2026-10-17T00:01:01.000Z'");
+    const after = await on(a, () => verifyNexusVault(vopts(a, { scope: 'global' })));
+    expect(after.verdict).toBe('ahead');
+    expect(after.tables.find((t) => t.table === 'nexus_devices')?.match).toBe(false);
+  });
+
   it('i: pushes the home stream and restores it on another device, keeping machine-local state', async () => {
     const a = await machine('a', DEVICE_A, REPLICA_A);
     const b = await machine('b', DEVICE_B, REPLICA_B);
