@@ -1814,6 +1814,42 @@ function structuredTestCounts(captured: ProcessCaptureResult): StructuredTestCou
 const REDIRECTED_JSON_REPORT = join('.vitest', 'json', 'output.json');
 
 /**
+ * The line vitest 5 prints after writing its JSON report to a file. With no
+ * `outputFile` it writes `.vitest/json/output.json` under its own root, which
+ * is the child's cwd (`pnpm --filter <pkg> exec vitest` runs in the package),
+ * not the gate's (T13874).
+ */
+const REPORT_WRITTEN_LINE = /^JSON report written to (.+?)\s*$/gm;
+
+/**
+ * The report file the run's own output says it wrote (T13874), or null. Only
+ * the LAST announcement counts: vitest prints its line at the end, so an
+ * earlier one a test printed cannot stand in for it. The path is realpathed
+ * before the containment check, so a symlink inside the project that points
+ * outside it is refused.
+ *
+ * @param stdout - The run's captured stdout.
+ * @param projectRoot - The project the gate belongs to.
+ * @returns The announced report's real path inside the project, or null.
+ * @task T13874
+ * @task T13883
+ */
+async function announcedReportFile(stdout: string, projectRoot: string): Promise<string | null> {
+  const announced = [...stdout.matchAll(REPORT_WRITTEN_LINE)].at(-1)?.[1];
+  if (announced === undefined) return null;
+  try {
+    const [root, path] = await Promise.all([
+      realpath(projectRoot),
+      realpath(resolve(projectRoot, announced)),
+    ]);
+    const rel = relative(root, path);
+    return rel.startsWith('..') || isAbsolute(rel) ? null : path;
+  } catch {
+    return null; // missing or unreadable: not a report of this run
+  }
+}
+
+/**
  * Report files a gate's JSON reporter may write instead of stdout (T13782):
  * every `--outputFile[.json]` the gate names, and {@link REDIRECTED_JSON_REPORT}.
  *
@@ -1971,6 +2007,10 @@ async function runTestGate(
   );
   // T13752: a structured report decides the verdict; the text heuristic only
   // runs without one, since report JSON and test names are full of "failure".
+  // T13874: a path the run announced has no pre-spawn stamp; mtime and the
+  // report's startTime still have to postdate the spawn.
+  const announced = await announcedReportFile(captured.stdout, projectRoot);
+  if (announced !== null && !before.has(announced)) before.set(announced, null);
   const counts = structuredTestCounts(captured) ?? (await freshReportCounts(before, startedAt));
 
   // T12308: the counts come from this run's own validated report; only their
