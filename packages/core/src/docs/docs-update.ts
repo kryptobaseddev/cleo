@@ -102,6 +102,18 @@ export type DocsUpdateError =
        */
       code: 'E_DOC_BASE_UNSUPPORTED';
       message: string;
+    }
+  | {
+      /**
+       * The head moved past the declared `baseVersionUid` AND its `## `
+       * section headings differ from the base's (a section was inserted,
+       * removed or renamed since the base). The section merge pairs sections
+       * by position, so merging would silently drop a landed section
+       * (T13835 F3, T13836 F2). Refused BEFORE any write: re-fetch the head
+       * and re-apply the edit onto it.
+       */
+      code: 'E_DOC_BASE_STALE';
+      message: string;
     };
 
 /**
@@ -551,12 +563,15 @@ export async function updateDocBySlug(
       };
     }
     const { readFile } = await import('node:fs/promises');
-    try {
-      const text = await readFile(
-        join(getCleoDirAbsolute(projectRoot), 'attachments', 'sha256', version.storageKey),
-        'utf-8',
+    const readSections = async (storageKey: string): Promise<string[]> =>
+      splitDocIntoSections(
+        await readFile(
+          join(getCleoDirAbsolute(projectRoot), 'attachments', 'sha256', storageKey),
+          'utf-8',
+        ),
       );
-      baseSections = splitDocIntoSections(text);
+    try {
+      baseSections = await readSections(version.storageKey);
     } catch (cause) {
       return {
         ok: false,
@@ -568,6 +583,41 @@ export async function updateDocBySlug(
             `(${cause instanceof Error ? cause.message : String(cause)}) — re-fetch the doc and retry`,
         },
       };
+    }
+
+    // T13835/T13836: the section merge pairs sections by POSITION. Once the
+    // head's `## ` headings differ from the base's, a stale merge would drop
+    // a landed section with no conflict recorded, so the edit is refused
+    // before any write and the writer re-applies it onto the current head.
+    const { getConduitDocHead } = await import('../store/conduit-doc-history.js');
+    const head = await getConduitDocHead(projectRoot, docUid);
+    const headVersion =
+      head !== null && head.headVersionUid !== params.baseVersionUid
+        ? await getConduitAttachmentVersion(projectRoot, head.headVersionUid)
+        : null;
+    // Unreadable head bytes leave the merge to its own head handling, as before.
+    const headSections = headVersion?.storageKey
+      ? await readSections(headVersion.storageKey).catch(() => null)
+      : null;
+    if (head !== null && headSections !== null) {
+      const headings = (sections: readonly string[]): string =>
+        sections
+          .slice(1)
+          .map((section) => section.split('\n', 1)[0])
+          .join('\n');
+      if (headings(headSections) !== headings(baseSections)) {
+        return {
+          ok: false,
+          error: {
+            // @sync-invariant none:input-shape a stale base whose section headings no longer match the head is refused before any write; nothing is merged or dropped
+            code: 'E_DOC_BASE_STALE',
+            message:
+              `base version '${params.baseVersionUid}' is stale for slug '${slug}': sections were inserted, removed or renamed since it ` +
+              `(head ${head.headVersionUid}), so merging could drop a landed section — re-fetch the head (\`cleo docs fetch ${slug}\`), ` +
+              're-apply your edit onto it, and retry with its metadata.headVersionUid',
+          },
+        };
+      }
     }
   }
 

@@ -830,7 +830,10 @@ export interface DocsUpdateParams {
    * recorded as a named section conflict (`sectionConflicts`); a concurrent
    * writer's edit is never silently dropped. A declared base that does not
    * resolve to this doc's version history is refused with
-   * `E_DOC_BASE_UNKNOWN` before any write. When omitted, the current head at
+   * `E_DOC_BASE_UNKNOWN` before any write, and a base whose `## ` section
+   * headings differ from the current head's (a section inserted, removed or
+   * renamed since) is refused with `E_DOC_BASE_STALE` (T13835/T13836): the
+   * writer re-fetches the head and re-applies. When omitted, the current head at
    * invocation time is assumed — the single-writer semantics of the
    * pre-T13674 path, safe only for callers that did not base their edit on
    * an earlier fetch. Inline content and UTF-8 text `file` bodies both

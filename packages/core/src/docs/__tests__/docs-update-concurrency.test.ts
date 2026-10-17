@@ -679,3 +679,92 @@ async function seedLegacyDoc(root: string, slug: string): Promise<void> {
     })
     .run();
 }
+
+describe('stale base after a section insert is refused, never silently dropped (T13835, T13836)', () => {
+  /** Seed a legacy doc, land it once, and return the fetched base version uid. */
+  async function seedStore(root: string, doc: string): Promise<{ docUid: string; base: string }> {
+    process.env['CLEO_DIR'] = join(root, '.cleo');
+    closeDb();
+    const db = await getDb(root);
+    const sha = createHash('sha256').update('# legacy', 'utf-8').digest('hex');
+    await db
+      .insert(attachments)
+      .values({
+        id: 'legacy-stale',
+        sha256: sha,
+        attachmentJson: JSON.stringify({ kind: 'blob', sha256: sha }),
+        createdAt: new Date().toISOString(),
+        refCount: 0,
+        slug: SLUG,
+        lifecycleStatus: 'draft',
+        docVersion: 1,
+      })
+      .run();
+    const seed = await updateDocBySlug(root, { slug: SLUG, content: doc });
+    expect(seed.ok).toBe(true);
+    const docUid = (await resolveConduitDocUid(root, SLUG)) as string;
+    const head = await getConduitDocHead(root, docUid);
+    return { docUid, base: head?.headVersionUid as string };
+  }
+
+  /** A lands `aDoc` on the current head; stale B then writes `bDoc` against the seed base. */
+  async function race(seedDoc: string, aDoc: string, bDoc: string) {
+    const root = await mkdtemp(join(tmpdir(), 'cleo-docs-stale-insert-'));
+    try {
+      const { docUid, base } = await seedStore(root, seedDoc);
+      const a = await updateDocBySlug(root, { slug: SLUG, content: aDoc });
+      expect(a.ok).toBe(true);
+      const headAfterA = (await getConduitDocHead(root, docUid))?.headVersionUid;
+      const versionsAfterA = (await listConduitAttachmentVersions(root, docUid)).length;
+
+      const b = await updateDocBySlug(root, { slug: SLUG, content: bDoc, baseVersionUid: base });
+
+      const head = await getConduitDocHead(root, docUid);
+      const headVersion = await getConduitAttachmentVersion(root, head?.headVersionUid as string);
+      const headText = readFileSync(
+        join(root, '.cleo', 'attachments', 'sha256', headVersion?.storageKey as string),
+        'utf-8',
+      );
+      return {
+        b,
+        headAfterA,
+        headNow: head?.headVersionUid,
+        versionsAfterA,
+        versionsNow: (await listConduitAttachmentVersions(root, docUid)).length,
+        headText,
+      };
+    } finally {
+      closeDb();
+      delete process.env['CLEO_DIR'];
+      await rm(root, { recursive: true, force: true });
+    }
+  }
+
+  function expectRefusedUntouched(outcome: Awaited<ReturnType<typeof race>>): void {
+    expect(outcome.b.ok).toBe(false);
+    if (outcome.b.ok) return;
+    expect(outcome.b.error.code).toBe('E_DOC_BASE_STALE');
+    expect(outcome.b.error.message).toContain('re-fetch the head');
+    // Nothing was written: A's landed head stands and no version was added.
+    expect(outcome.headNow).toBe(outcome.headAfterA);
+    expect(outcome.versionsNow).toBe(outcome.versionsAfterA);
+  }
+
+  it('F3: A inserts a section, stale B edits another one: refused, A and every section survive', async () => {
+    const seed = '# Plan\n\npre.\n\n## Alpha\n\nalpha body\n\n## Beta\n\nbeta body';
+    const a = '# Plan\n\npre.\n\n## Alpha\n\nalpha body\n\n## Inserted\n\nby A\n\n## Beta\n\nbeta body';
+    const b = `${seed}\n\nB line`;
+    const outcome = await race(seed, a, b);
+    expectRefusedUntouched(outcome);
+    expect(outcome.headText).toBe(a);
+  });
+
+  it('F2: A inserts a duplicate heading earlier, stale B appends to the second one: refused, no Notes section lost', async () => {
+    const seed = '# Plan\n\npre.\n\n## Notes\n\nfirst\n\n## Notes\n\nsecond';
+    const a = '# Plan\n\npre.\n\n## Notes\n\nzeroth\n\n## Notes\n\nfirst\n\n## Notes\n\nsecond';
+    const b = `${seed}\n\nB line`;
+    const outcome = await race(seed, a, b);
+    expectRefusedUntouched(outcome);
+    expect(outcome.headText).toBe(a);
+  });
+});
