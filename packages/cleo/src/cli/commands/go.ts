@@ -21,19 +21,19 @@
  * `outcome.action` is one of:
  *   - `needsDecomposition` — active epic has no children; decompose first
  *   - `lifecycleHop`       — pre-implementation stage; advance lifecycle
- *   - `goalHandoff`        — a goal/v1 contract drafted for the ready wave and
- *                            the exact next step for the goal runtime
- *                            (OpenCode-Goal), or how to install it (T13821)
+ *   - `ivtrFanOut`         — an IVTR cantbook run started for tasks on the
+ *                            ready frontier (T11805 — `executePlaybook`)
  *   - `complete`           — no non-terminal sagas remain
  *
  * @task T11494 — E2-CLEO-GO
  * @saga T11492 — SG-AUTOPILOT
- * @task T13821 — repurposed: hand the ready wave to the goal runtime
+ * @task T11805 — IVTR seam: inject the `executePlaybook(ivtr.cantbook)` runner
  */
 
 import { getProjectRoot, go } from '@cleocode/core';
 import { defineCommand } from '../lib/define-cli-command.js';
 import { cliOutput } from '../renderers/index.js';
+import { buildGoIvtrRunner } from './go-ivtr-runner.js';
 
 /**
  * `cleo go` root command — runs one turn of the SG-AUTOPILOT pipeline.
@@ -43,8 +43,7 @@ import { cliOutput } from '../renderers/index.js';
 export const goCommand = defineCommand({
   meta: {
     name: 'go',
-    description:
-      'SG-AUTOPILOT: pick the next ready wave, draft its goal/v1 contract and hand it to the goal runtime (OpenCode-Goal), or say how to install it',
+    description: 'SG-AUTOPILOT: run one turn of briefing→sagaNext→ready→stage-branch→ivtr loop',
   },
   args: {
     saga: {
@@ -59,11 +58,29 @@ export const goCommand = defineCommand({
     },
   },
   async run({ args }) {
+    const projectRoot = getProjectRoot();
+
+    // Resolve the session id for IVTR run provenance
+    // (`playbook_runs.session_id`). Best-effort: env first (the spawned-agent
+    // path), then the session bound to this terminal (T12500 — never the
+    // newest active row, which is another agent's when this caller is unbound).
+    const { getCurrentSessionId, resolveBoundSessionId } = await import('@cleocode/core/internal');
+    let sessionId = getCurrentSessionId(projectRoot) ?? undefined;
+    if (sessionId === undefined) {
+      try {
+        sessionId = (await resolveBoundSessionId(projectRoot)) ?? undefined;
+      } catch {
+        // No bound session — session_id stays undefined.
+      }
+    }
+
     const params: Parameters<typeof go.cleoGo>[0] = {
       headless: args.headless === true,
-      projectRoot: getProjectRoot(),
+      projectRoot,
+      ivtrRunner: buildGoIvtrRunner(),
     };
     if (typeof args.saga === 'string' && args.saga.length > 0) params.sagaId = args.saga;
+    if (sessionId !== undefined) params.sessionId = sessionId;
 
     const result = await go.cleoGo(params);
     cliOutput(result.success ? result.data : result, { command: 'go', operation: 'go.run' });

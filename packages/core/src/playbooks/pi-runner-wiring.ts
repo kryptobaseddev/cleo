@@ -1,9 +1,9 @@
 /**
  * Production wiring helper for the Pi in-process `SkillRunner` (T11945 · M4).
  *
- * THE M4 keystone seam: this is the single place the production cantbook
- * dispatcher (`buildDefaultDispatcher` in `playbook.ts`; `cleo go`'s
- * `buildGoDispatcher` was retired in T13821) reach to obtain the Pi-backed `SkillRunner` they pass
+ * THE M4 keystone seam: this is the single place the two production cantbook
+ * dispatchers (`buildDefaultDispatcher` in `playbook.ts` and `buildGoDispatcher`
+ * in `go-ivtr-runner.ts`) reach to obtain the Pi-backed `SkillRunner` they pass
  * into {@link runSkillNodeOrSpawn}'s `runner` slot. When the runner is supplied,
  * an in-process `ct-*` skill node routes THROUGH the {@link
  * import('../llm/pi/pi-agent-adapter.js').PiAgentAdapter} (the Pi agent loop);

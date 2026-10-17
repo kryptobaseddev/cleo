@@ -277,7 +277,7 @@ export default defineConfig({
       // defineSubsystem from the daemon subpath. Alias the subpath to the
       // source tree so vitest resolves it without needing the dist build.
       '@cleocode/runtime/daemon': fileURLToPath(new URL('../../packages/runtime/src/daemon/index.ts', import.meta.url)),
-      // T11805: @cleocode/runtime/gateway — CLI code dynamically
+      // T11805: @cleocode/runtime/gateway — go-ivtr-runner.ts dynamically
       // imports orchestrateSpawnExecute from the gateway subpath. Alias to the
       // source tree (mirrors the daemon subpath) so vitest can resolve — and
       // therefore vi.mock can intercept — it without the dist build. Must

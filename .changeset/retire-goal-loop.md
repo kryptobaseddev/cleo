@@ -1,28 +1,19 @@
 ---
 id: retire-goal-loop
-tasks: [T13797, T13821]
+tasks: [T13797]
 kind: refactor
-summary: "cleo goal keeps only protocol verbs (draft, close, status); cleo go hands the ready wave to OpenCode-Goal; CLEO's unwired goal loop is retired (ADR-097)"
+summary: "CLEO's unwired goal loop is retired: cleo goal keeps only the protocol verbs draft and close (ADR-097)"
 ---
 
 CLEO owns the goal protocol and OpenCode-Goal is the goal runtime (owner
-decision 2026-10-16; ADR-097, `adr-097-goal-protocol-ocg-runtime`).
+decision 2026-10-16; ADR-097, `adr-097-goal-protocol-ocg-runtime`). CLEO's own
+goal loop was never driven in production and is removed:
+- the never-wired Stop hook (`cleo-os` `goal-stop-hook.ts`);
+- the judge and its stub fuzzy judge (`StaticGoalJudge`);
+- the turn loop and the continuation builder;
+- `cleo go`'s goal arming (`armedGoalId` leaves its result);
+- the `cleo goal set|status|advance|subgoal|append` verbs;
+- the judge, continuation and advance contracts.
 
-- **`cleo goal`** keeps only the protocol verbs `draft`, `close` and a new
-  `status`. `status` reads the project's goal runs (`.opencode/goals/*/goal.yaml`
-  and `run.json`) read-only, and lists the CLEO tasks each serves (`--task`
-  filters).
-- **`cleo go`** is repurposed. For implementation-stage work it drafts a
-  goal/v1 contract for the active saga's ready wave, reusing an existing draft
-  and never overwriting it. It returns `goalHandoff` with the exact next step:
-  `/goal start <slug>` when OpenCode-Goal is installed, otherwise the commands
-  that install it. It never installs anything itself. Its IVTR cantbook fan-out
-  (`ivtrFanOut`, the injected runner, `CLEO_GO_VIA_PLAYBOOK`) is removed.
-- **Retired:**
-  - the never-wired Stop hook;
-  - the judge and stub fuzzy judge;
-  - the turn loop and the continuation builder;
-  - `cleo go`'s goal arming;
-  - the `cleo goal set|advance|subgoal|append` verbs and their contracts.
-
-  The persisted goal record (the `tasks_goal` store and `GoalRecord`) stays.
+The persisted goal record stays: the `tasks_goal` store and `GoalRecord`.
+`cleo goal` now exposes only the protocol verbs `draft` and `close`.

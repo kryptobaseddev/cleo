@@ -5,9 +5,9 @@
  *
  * ## What this proves (the M4 keystone)
  *
- * The production cantbook dispatcher (`buildDefaultDispatcher` in
- * `packages/cleo/src/dispatch/domains/playbook.ts`; `cleo go`'s
- * `buildGoDispatcher` was retired in T13821) passes
+ * The two production cantbook dispatchers (`buildDefaultDispatcher` in
+ * `packages/cleo/src/dispatch/domains/playbook.ts` and `buildGoDispatcher` in
+ * `packages/cleo/src/cli/commands/go-ivtr-runner.ts`) now pass
  * `runner: await maybeCreatePiRunner({ system, projectRoot })` into
  * {@link runSkillNodeOrSpawn}. This test reconstructs that EXACT production
  * dispatcher shape (`createToolGuard` + `runSkillNodeOrSpawn` + the
