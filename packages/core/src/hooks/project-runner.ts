@@ -3,7 +3,7 @@ import { spawn, spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { existsSync } from 'node:fs';
 import { lstat } from 'node:fs/promises';
-import { dirname, relative } from 'node:path';
+import { join, relative } from 'node:path';
 import {
   type HookActivation,
   type HookExecutionReceipt,
@@ -51,15 +51,47 @@ function executionRecordName(binding: ProjectHookBinding): string {
  * Sandbox receipt fallback (T13775): Codex workspace-write keeps `.git` read-only, so a receipt the
  * Git-private directory refuses goes to this self-ignoring checkout directory instead.
  */
-const FALLBACK_RECEIPTS = '.cleo/hook-receipts';
+const FALLBACK_RECEIPTS = ['.cleo', 'hook-receipts'] as const;
 
-/** Resolve a fallback receipt inside the checkout, refusing symlinked records. */
+/** Whether Git tracks a checkout path; an unanswerable probe counts as tracked. */
+function trackedByGit(context: ProjectHookContext, file: string): boolean {
+  return (
+    spawnSync(
+      'git',
+      [
+        '-C',
+        context.projectRoot,
+        'ls-files',
+        '--error-unmatch',
+        '--',
+        relative(context.projectRoot, file),
+      ],
+      { stdio: 'ignore', timeout: 5000, env: discoveryEnv() },
+    ).status !== 1
+  );
+}
+
+/**
+ * The lexical fallback path for one slot. Every component is checked with lstat before anything
+ * resolves it, so a symlinked slot or parent can never redirect a write, and a tracked file is
+ * never a destination or a source.
+ */
 async function fallbackReceiptFile(context: ProjectHookContext, name: string): Promise<string> {
-  const file = await resolveProjectHookFile(context.projectRoot, `${FALLBACK_RECEIPTS}/${name}`);
-  if (existsSync(file) && (await lstat(file)).isSymbolicLink())
+  if (!/^(?:[a-z0-9-]+\.json|\.gitignore)$/.test(name))
     // @sync-invariant none:local-only Reject unsafe machine-local hook records or executable inputs; no synced rows are written.
-    throw new Error('HOOK_STATE_SYMLINK');
-  return file;
+    throw new Error('HOOK_STATE_PATH_INVALID');
+  let path = context.projectRoot;
+  for (const part of [...FALLBACK_RECEIPTS, name]) {
+    path = join(path, part);
+    const info = await lstat(path).catch(() => undefined);
+    if (info && (info.isSymbolicLink() || (part === name ? !info.isFile() : !info.isDirectory())))
+      // @sync-invariant none:local-only Reject unsafe machine-local hook records or executable inputs; no synced rows are written.
+      throw new Error('HOOK_STATE_SYMLINK');
+  }
+  if (trackedByGit(context, path))
+    // @sync-invariant none:local-only Reject unsafe machine-local hook records or executable inputs; no synced rows are written.
+    throw new Error('HOOK_STATE_TRACKED');
+  return path;
 }
 
 /** Write one receipt slot to the Git-private directory, else the sandbox-writable fallback. */
@@ -76,35 +108,17 @@ async function writeReceipt(
   } catch {
     // Fall through to the checkout directory a workspace-write sandbox leaves writable.
   }
-  const file = await fallbackReceiptFile(context, name);
-  await atomicWrite(file, serialized, { mode: 0o600 });
-  const ignore = `${dirname(file)}/.gitignore`;
+  await atomicWrite(await fallbackReceiptFile(context, name), serialized, { mode: 0o600 });
+  const ignore = await fallbackReceiptFile(context, '.gitignore');
   if (!existsSync(ignore)) await atomicWrite(ignore, '*\n');
 }
 
-/** Read one bounded receipt; a fallback file Git tracks is never trusted. */
+/** Resolve and read one receipt location; any fault leaves only this candidate out. */
 async function readReceipt(
-  context: ProjectHookContext,
-  file: string,
-  refuseTracked: boolean,
+  locate: () => Promise<string>,
 ): Promise<HookExecutionReceipt | undefined> {
   try {
-    if (
-      refuseTracked &&
-      spawnSync(
-        'git',
-        [
-          '-C',
-          context.projectRoot,
-          'ls-files',
-          '--error-unmatch',
-          '--',
-          relative(context.projectRoot, file),
-        ],
-        { stdio: 'ignore', timeout: 5000, env: discoveryEnv() },
-      ).status !== 1
-    )
-      return undefined;
+    const file = await locate();
     if ((await lstat(file)).isSymbolicLink()) return undefined;
     const { HookExecutionReceiptSchema } = await import('@cleocode/contracts/project-hooks.js');
     return HookExecutionReceiptSchema.parse(
@@ -576,16 +590,8 @@ export async function readLastProjectHookExecution(
   const name = binding ? executionRecordName(binding) : 'last-execution.json';
   // The newer of the Git-private record and the sandbox fallback (T13775) is the latest result.
   const candidates = [
-    await readReceipt(
-      inspection.context,
-      await resolveProjectHookStateFile(inspection.context, name),
-      false,
-    ),
-    await readReceipt(
-      inspection.context,
-      await fallbackReceiptFile(inspection.context, name),
-      true,
-    ),
+    await readReceipt(() => resolveProjectHookStateFile(inspection.context, name)),
+    await readReceipt(() => fallbackReceiptFile(inspection.context, name)),
   ].filter(
     (receipt): receipt is HookExecutionReceipt =>
       receipt !== undefined &&

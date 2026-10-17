@@ -15,6 +15,8 @@ A receipt the Git-private directory refuses now goes to
 `*`. The per-source/event slots are unchanged
 (`last-execution-<source>-<sha256(event)>.json`), so a Git push never replaces
 an agent receipt. Reads take the newer valid receipt from the two locations.
-A fallback file that Git tracks or that is a symlink is never trusted. A
+Every component of the fallback path is checked lexically before anything
+resolves it: a symlinked slot or parent directory, or a file Git tracks, is
+never written or read. A bad location never hides a valid receipt in the other. A
 receipt that neither location accepts is still the visible
 `HOOK_RECEIPT_WRITE_FAILED` fault.
