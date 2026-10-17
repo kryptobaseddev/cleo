@@ -79,6 +79,7 @@ import {
   legacyStrands,
   recordBareAccounts,
   setSyncFlag,
+  UNRELEASED_FLAGS,
 } from '../../store/sync/flags.js';
 import { cutGenesis, genesisCutOf, genesisPending } from '../../store/sync/genesis.js';
 import { readStreamCursor } from '../../store/sync/pull.js';
@@ -149,6 +150,7 @@ import {
   confirmableRetirements,
   enableSyncPush,
   formatTransitionPruned,
+  journalStreamRemedy,
   nexusVaultStatus,
   pullSyncStream,
   pushNexusVault,
@@ -3992,6 +3994,17 @@ function projectDataKey(): Buffer {
   );
 }
 
+describe('journalStreamRemedy names only commands this build can run (T13851)', () => {
+  it('a build without sync.push says to upgrade; a build with it says to join', () => {
+    const unreleased = journalStreamRemedy(false);
+    expect(unreleased).toContain('cleo self-update');
+    expect(unreleased).not.toContain('cleo sync enable push');
+    const released = journalStreamRemedy(true);
+    expect(released).toContain('cleo sync enable push');
+    expect(released).not.toContain('cleo self-update');
+  });
+});
+
 describe('cloud vault on a stream the change journal writes (segment/v3, checkpoint/v3; T13034)', () => {
   const PIN_HASH = 'c'.repeat(64);
   const insertTask = (m: Machine, id: string) =>
@@ -4137,6 +4150,11 @@ describe('cloud vault on a stream the change journal writes (segment/v3, checkpo
     expect(behind.fix).toContain('cleo cloud pull');
     expect(behind.fix).toContain('change journal (`sync.push`)');
     expect(behind.fix).not.toContain('--force');
+    // This build has `sync.push` unreleased, so `cleo sync enable push` refuses here: the remedy
+    // names the upgrade, never the enable step it would refuse (T13851).
+    expect(UNRELEASED_FLAGS.has('sync.push')).toBe(true);
+    expect(behind.fix).toContain('cleo self-update');
+    expect(behind.fix).not.toContain('cleo sync enable push');
     const refused = await failure(on(a, () => pushNexusVault(vopts(a, { force: true }))));
     expect(refused.code).toBe('E_NEXUS_VAULT_STREAM_UPGRADED');
     expect(refused.message).toContain('checkpoint/v3');

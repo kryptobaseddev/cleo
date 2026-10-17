@@ -578,9 +578,18 @@ async function replaySegments(
 /**
  * What works on a stream the change journal writes (its head snapshot is
  * checkpoint/v3), for every message that would otherwise say "push" (T13034).
+ * A build where `sync.push` is unreleased cannot join the journal, since `cleo sync enable push`
+ * refuses there, so it is told to upgrade instead (T13851).
+ *
+ * @param pushReleased - Whether this build ships `sync.push`; defaults to the release state.
+ * @returns The remedy clause, naming only commands this build can run.
  */
-const JOURNAL_STREAM_REMEDY =
-  'on this stream local changes travel through the change journal (`sync.push`), and with it on a vault push checkpoints the journal (T12999); a store that has not joined it joins with `cleo sync enable push`, which keeps its own rows and merges them into the stream (T13466); `cleo cloud pull`, `cleo cloud restore` and `cleo cloud verify` still work';
+export function journalStreamRemedy(pushReleased = !UNRELEASED_FLAGS.has('sync.push')): string {
+  if (pushReleased) {
+    return 'on this stream local changes travel through the change journal (`sync.push`), and with it on a vault push checkpoints the journal (T12999); a store that has not joined it joins with `cleo sync enable push`, which keeps its own rows and merges them into the stream (T13466); `cleo cloud pull`, `cleo cloud restore` and `cleo cloud verify` still work';
+  }
+  return 'on this stream local changes travel through the change journal (`sync.push`), which checkpoints the stream (T12999) and which this CLEO cannot run: `sync.push` is not released in this build, so a newer CLEO on another device wrote this stream; upgrade CLEO on this machine with `cleo self-update` to a release that ships `sync.push` before pushing this store (T13851); `cleo cloud pull`, `cleo cloud restore` and `cleo cloud verify` still work';
+}
 
 /** Whether a snapshot is checkpoint/v3: the change journal writes its stream (T13034). */
 function isJournalSnapshot(cp: Checkpoint | null | undefined): boolean {
@@ -632,7 +641,7 @@ function aheadOfThisCleo(
 function journalStreamRefusal(t: VaultTarget, parent: Checkpoint): NexusAccountError {
   return streamUpgradedError(
     `${t.streamId} takes only checkpoint/v3 snapshots: its head snapshot ${parent.checkpointId} is one (the change journal writes this stream), and the server refuses the checkpoint/v2 snapshots this CLEO's vault writes after it`,
-    `nothing was written; ${JOURNAL_STREAM_REMEDY}`,
+    `nothing was written; ${journalStreamRemedy()}`,
   );
 }
 
@@ -1325,7 +1334,7 @@ async function appendCheckpoint(a: {
       if (err instanceof NexusError && err.code === 'E_STREAM_VERSION') {
         throw streamUpgradedError(
           `the server refused the snapshot: ${t.streamId} takes only checkpoint/v3 snapshots (${err.message})`,
-          JOURNAL_STREAM_REMEDY,
+          journalStreamRemedy(),
         );
       }
       const countRefusal =
@@ -1872,7 +1881,7 @@ async function pushNexusVaultImpl(
   if (cut !== undefined) {
     throw streamUpgradedError(
       `this store started ${t.streamId}'s change journal (genesis cut at capture ${cut}); its changes are pushed as journal segments, not vault snapshots`,
-      `nothing was written; ${JOURNAL_STREAM_REMEDY}`,
+      `nothing was written; ${journalStreamRemedy()}`,
     );
   }
   const force = opts.force === true;
@@ -1915,7 +1924,7 @@ async function pushNexusVaultImpl(
       'E_NEXUS_VAULT_BEHIND',
       `another device pushed snapshot ${head.headCheckpointId} after this machine's last sync`,
       isJournalSnapshot(parent)
-        ? `run \`cleo cloud pull\` first (it refuses to overwrite local changes); ${JOURNAL_STREAM_REMEDY}`
+        ? `run \`cleo cloud pull\` first (it refuses to overwrite local changes); ${journalStreamRemedy()}`
         : 'run `cleo cloud pull` first (it refuses to overwrite local changes), or `--force` to push this store as a labelled fork',
     );
   }
@@ -3873,7 +3882,7 @@ async function restoreNexusVaultImpl(opts: NexusVaultRestoreOptions): Promise<Cl
           ? `this store changed since its last cloud sync (${changed.slice(0, 8).join(', ')}); restoring would overwrite those changes`
           : 'this store holds data that was never synced with this cloud snapshot; restoring would replace it',
         isJournalSnapshot(targetCp)
-          ? `to keep them: ${JOURNAL_STREAM_REMEDY}; or pass --force to restore anyway (a safety backup is taken first)`
+          ? `to keep them: ${journalStreamRemedy()}; or pass --force to restore anyway (a safety backup is taken first)`
           : 'run `cleo cloud push` to keep them (as a fork with --force if another device pushed since), or pass --force to restore anyway (a safety backup is taken first)',
       );
     }
@@ -4088,7 +4097,7 @@ async function restoreNexusVaultImpl(opts: NexusVaultRestoreOptions): Promise<Cl
     if (keptUnsynced.length > 0) {
       warnings.push({
         code: 'W_NEXUS_VAULT_KEPT_LOCAL',
-        message: `kept ${keptUnsynced.length} local file(s) this store never synced with the cloud, in place of the snapshot's copies: ${keptUnsynced.slice(0, 8).join(', ')}${keptUnsynced.length > 8 ? ', …' : ''}; ${isJournalSnapshot(restored.checkpoint) ? `to keep them: ${JOURNAL_STREAM_REMEDY}; or` : 'push to keep them, or'} pull with --force to take the snapshot's`,
+        message: `kept ${keptUnsynced.length} local file(s) this store never synced with the cloud, in place of the snapshot's copies: ${keptUnsynced.slice(0, 8).join(', ')}${keptUnsynced.length > 8 ? ', …' : ''}; ${isJournalSnapshot(restored.checkpoint) ? `to keep them: ${journalStreamRemedy()}; or` : 'push to keep them, or'} pull with --force to take the snapshot's`,
       });
     }
     saveSynced(conn, t, restored.checkpoint, {
@@ -4164,7 +4173,7 @@ async function nexusVaultStatusImpl(
   if (headCp && isJournalSnapshot(headCp) && pendingChanges.length > 0) {
     warnings.push({
       code: 'W_NEXUS_VAULT_JOURNAL_STREAM',
-      message: `${pendingChanges.length} table(s) changed since the last sync, and the newest snapshot ${headCp.checkpointId} is checkpoint/v3 (the change journal writes this stream): ${JOURNAL_STREAM_REMEDY}`,
+      message: `${pendingChanges.length} table(s) changed since the last sync, and the newest snapshot ${headCp.checkpointId} is checkpoint/v3 (the change journal writes this stream): ${journalStreamRemedy()}`,
     });
   }
   return {
@@ -4445,11 +4454,11 @@ async function verifyNexusVaultImpl(
             ? 'run `cleo cloud pull` to bring this machine to the newest snapshot'
             : verdict === 'ahead'
               ? journalHead
-                ? `this machine changed since the newest snapshot, which is checkpoint/v3 (the change journal writes this stream): ${JOURNAL_STREAM_REMEDY}`
+                ? `this machine changed since the newest snapshot, which is checkpoint/v3 (the change journal writes this stream): ${journalStreamRemedy()}`
                 : 'run `cleo cloud push` to back up the local changes'
               : verdict === 'diverged'
                 ? journalHead
-                  ? `both sides changed, and the newest snapshot is checkpoint/v3 (the change journal writes this stream): ${JOURNAL_STREAM_REMEDY}; or \`cleo cloud pull --force\` to take the cloud (a safety backup is taken first)`
+                  ? `both sides changed, and the newest snapshot is checkpoint/v3 (the change journal writes this stream): ${journalStreamRemedy()}; or \`cleo cloud pull --force\` to take the cloud (a safety backup is taken first)`
                   : 'both sides changed: run `cleo cloud push --force` to keep this machine (a labelled fork), or `cleo cloud pull --force` to take the cloud (a safety backup is taken first)'
                 : verdict === 'empty'
                   ? 'run `cleo cloud push` to make the first snapshot'
