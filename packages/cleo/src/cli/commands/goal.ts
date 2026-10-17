@@ -24,6 +24,8 @@
  *     draft from task acceptance criteria (T13793).
  *   - `cleo goal close <slug> --outcome <file>` — record a run's per-AC
  *     evidence and complete fully proven tasks via `cleo done` (T13794).
+ *   - `cleo goal install --harness <h>` — register the CLEO Goal runtime with a
+ *     harness for this project (T13820).
  *
  * @epic T11290 EP-CLEO-GOAL-SYSTEM
  * @task T11381
@@ -347,6 +349,37 @@ const closeCommand = defineCommand({
 });
 
 /**
+ * `cleo goal install --harness <h>` — register the CLEO Goal runtime
+ * (`cleo-goal`) with one harness for this project, project-level config only.
+ *
+ * @task T13820
+ */
+const installCommand = defineCommand({
+  meta: {
+    name: 'install',
+    description:
+      'Register the CLEO Goal runtime (cleo-goal) with a harness for this project: opencode runs cleo-goal install --project; claude and codex install the project Stop dispatcher. Never writes user-global config.',
+  },
+  args: {
+    harness: {
+      type: 'string',
+      description: 'Harness: opencode, claude, codex, hermes or kimi',
+      required: true,
+    },
+  },
+  async run({ args }) {
+    const { installGoalForHarness } = await import('@cleocode/core/goal/runtime.js');
+    const result = await installGoalForHarness(getProjectRoot(), String(args.harness ?? ''));
+    if (!result.success) {
+      cliError(result.error.message, result.error.code, { fix: result.error.fix });
+      process.exitCode = result.error.exitCode ?? 1;
+      return;
+    }
+    cliOutput(result.data, { command: 'goal install', operation: 'goal.install' });
+  },
+});
+
+/**
  * Parent `cleo goal` command — routes to the set/status/advance/subgoal/append
  * subcommands; prints usage when invoked bare.
  *
@@ -357,7 +390,7 @@ export const goalCommand = defineCommand({
   meta: {
     name: 'goal',
     description:
-      'Goal protocol (draft, close) and the per-agent goal loop (set/status/advance/subgoal/append).',
+      'Goal protocol (draft, close, install) and the per-agent goal loop (set/status/advance/subgoal/append).',
   },
   subCommands: {
     set: setCommand,
@@ -367,6 +400,7 @@ export const goalCommand = defineCommand({
     append: appendCommand,
     draft: draftCommand,
     close: closeCommand,
+    install: installCommand,
   },
   async run({ cmd, rawArgs }) {
     const firstArg = rawArgs?.find((a) => !a.startsWith('-'));

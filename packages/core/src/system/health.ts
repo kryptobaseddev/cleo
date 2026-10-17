@@ -907,6 +907,40 @@ export async function checkHeavyCommandHooks(projectRoot: string): Promise<Docto
 }
 
 /**
+ * The CLEO Goal runtime check (`@cleocode/goal`, bin `cleo-goal` or `ocg`):
+ * installed or missing, its version, and whether npm has a newer one. CLEO
+ * works without it, so absence is a warning only when npm has the package;
+ * not published or not reachable is informational (`ok`).
+ *
+ * @returns the `goal_runtime` check
+ * @task T13819
+ */
+export async function checkGoalRuntime(): Promise<DoctorCheck> {
+  const { GOAL_INSTALL_COMMAND, GOAL_PACKAGE, inspectGoalRuntime } = await import(
+    '../goal/runtime.js'
+  );
+  const s = inspectGoalRuntime();
+  const latest = s.latest === null ? 'not found on npm' : `latest ${s.latest}`;
+  const details = { bin: s.bin, version: s.version, latest: s.latest };
+  if (s.bin === null) {
+    return {
+      check: 'goal_runtime',
+      status: s.latest === null ? 'ok' : 'warning',
+      message: `CLEO Goal (${GOAL_PACKAGE}) not installed (${latest}); goal runs are unavailable, the rest of CLEO is unaffected`,
+      details,
+      ...(s.latest === null ? {} : { fix: GOAL_INSTALL_COMMAND }),
+    };
+  }
+  return {
+    check: 'goal_runtime',
+    status: s.updateAvailable ? 'warning' : 'ok',
+    message: `CLEO Goal ${s.version ?? '(version unknown)'} at ${s.bin} (${latest})${s.updateAvailable ? ', update available' : ''}`,
+    details,
+    ...(s.updateAvailable ? { fix: GOAL_INSTALL_COMMAND } : {}),
+  };
+}
+
+/**
  * Run adapter health checks for all discovered adapters and return doctor
  * check entries. Returns an empty array when no adapters are initialized
  * (adapters are optional — their absence is not an error).
@@ -1182,6 +1216,8 @@ export async function coreDoctorReport(projectRoot: string): Promise<DoctorRepor
 
   // T13124: is the heavy-command hook in place for every agent harness in use?
   checks.push(...(await checkHeavyCommandHooks(projectRoot)));
+  // T13819: the optional CLEO Goal runtime (installed, version, update available).
+  checks.push(await checkGoalRuntime());
 
   // Contributor project channel check (ADR-029)
   checks.push(checkContributorChannel(projectRoot));

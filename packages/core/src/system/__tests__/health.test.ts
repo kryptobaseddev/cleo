@@ -6,6 +6,12 @@ import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { coreDoctorReport, getSystemHealth } from '../health.js';
 
+// T13819: the goal runtime check spawns `npm view`; keep the network out of these tests.
+vi.mock('../../goal/runtime.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../goal/runtime.js')>()),
+  inspectGoalRuntime: () => ({ bin: null, version: null, latest: null, updateAvailable: false }),
+}));
+
 const _require = createRequire(import.meta.url);
 const { DatabaseSync } = _require('node:sqlite') as typeof import('node:sqlite');
 
