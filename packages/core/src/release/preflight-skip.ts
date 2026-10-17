@@ -125,16 +125,24 @@ function sleepSync(ms: number): void {
 }
 
 /**
+ * The exact path shapes a release-plan change may touch: the plan file
+ * (`.cleo/release/<version>.plan.json`), a changeset (`.changeset/**.md`) and a
+ * `CHANGELOG.md`. An allowlist of whole-path patterns, none of which can match
+ * code or config (T13825; release-prepare.yml's re-verification uses the same
+ * patterns).
+ */
+const RELEASE_PLAN_PATHS: readonly RegExp[] = [
+  /^\.cleo\/release\/[^/]+\.plan\.json$/,
+  /^\.changeset\/(?:[^/]+\/)*[^/]+\.md$/,
+  /^(?:[^/]+\/)*CHANGELOG\.md$/,
+];
+
+/**
  * A path a release-plan PR changes: the plan file, a changelog, a changeset.
  * Nothing a test reads (T13140 review).
  */
 export function isReleasePlanPath(path: string): boolean {
-  return (
-    path.startsWith('.cleo/release/') ||
-    path.startsWith('.changeset/') ||
-    path === 'CHANGELOG.md' ||
-    path.endsWith('/CHANGELOG.md')
-  );
+  return RELEASE_PLAN_PATHS.some((re) => re.test(path));
 }
 
 /** The files `commit` changes against `parent`, or `null` when unknown or possibly truncated. */

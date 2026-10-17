@@ -444,6 +444,15 @@ describe('decidePreflightSkips — only release-plan commits are stepped past (T
       '.cleo/deprecations.yml',
       'packages/core/CHANGELOG.mdx',
       'docs/x.md',
+      // T13825: whole-path allowlist, no prefix that could reach code or config.
+      '.cleo/release/v1.json',
+      '.cleo/release/nested/v1.plan.json',
+      '.cleo/release/run.ts',
+      '.changeset/config.json',
+      '.changeset/x.ts',
+      'x/.changeset/a.md',
+      'x/.cleo/release/v1.plan.json',
+      'CHANGELOG.md.ts',
     ]) {
       expect(isReleasePlanPath(p), p).toBe(false);
     }
