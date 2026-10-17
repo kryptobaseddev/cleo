@@ -10,12 +10,18 @@ import {
   AUDIT_GATE_RECEIPT_ACTION,
   AUDIT_PRUNE_EXEMPT_ACTIONS,
   AUDIT_RETENTION_FLOOR_DAYS,
+  AUTO_AUDIT_PRUNE_INTERVAL_MS,
   auditPruneCondition,
   pruneAuditLog,
 } from '../audit-prune.js';
 import { SAGA_RECONCILE_RECEIPT_ACTION } from '../sagas/reconcile.js';
+import { snapshotAfterSessionEnd } from '../sessions/session-end-snapshot.js';
 import { AC_BINDINGS_PRUNED_ACTION } from '../store/ac-binding-prune.js';
 import { RANKING_CHANGED_ACTION } from '../tasks/ranking-audit.js';
+
+// The session-end path minus its snapshots: only the automatic prune runs for real (T13828).
+vi.mock('../store/sqlite-backup.js', () => ({ vacuumIntoBackupAll: async () => null }));
+vi.mock('../system/backup.js', () => ({ autoGlobalBackup: async () => null }));
 
 /** Insert audit_log rows with given timestamps into a test DB. */
 async function insertAuditRows(
@@ -312,5 +318,32 @@ describe('pruneAuditLog', () => {
     expect(AUDIT_PRUNE_EXEMPT_ACTIONS).toEqual(
       expect.arrayContaining([SAGA_RECONCILE_RECEIPT_ACTION, RANKING_CHANGED_ACTION]),
     );
+  });
+
+  it('session end prunes automatically, at most once a day: an old row goes, a receipt stays (T13828)', async () => {
+    const old = new Date(Date.now() - 400 * 86_400_000).toISOString();
+    await insertAuditRows(projectRoot, [
+      { id: 'plain', timestamp: old, action: 'update', taskId: 'T1' },
+      { id: 'saga', timestamp: old, action: SAGA_RECONCILE_RECEIPT_ACTION, taskId: 'T1' },
+    ]);
+    await snapshotAfterSessionEnd(projectRoot);
+    const { getDb } = await import('../store/sqlite.js');
+    const { auditLog } = await import('../store/tasks-schema.js');
+    const db = await getDb(projectRoot);
+    const ids = async () => (await db.select({ id: auditLog.id }).from(auditLog)).map((r) => r.id);
+    expect(await ids()).toEqual(['saga']);
+
+    // Within the day a second session end does not prune again.
+    await insertAuditRows(projectRoot, [
+      { id: 'plain-2', timestamp: old, action: 'update', taskId: 'T1' },
+    ]);
+    await snapshotAfterSessionEnd(projectRoot);
+    expect((await ids()).sort()).toEqual(['plain-2', 'saga']);
+    const { autoPruneAuditLog } = await import('../audit-prune.js');
+    expect(await autoPruneAuditLog(projectRoot)).toBeNull();
+    // A day on, it does.
+    const later = new Date(Date.now() + AUTO_AUDIT_PRUNE_INTERVAL_MS);
+    expect((await autoPruneAuditLog(projectRoot, later))?.rowsDeleted).toBe(1);
+    expect(await ids()).toEqual(['saga']);
   });
 });

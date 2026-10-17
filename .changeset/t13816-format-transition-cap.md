@@ -13,5 +13,5 @@ pushed with nothing unexplained. The same happened when another device pushed
 the parent. The cap is now the local rows in the parent's own `cleo.db`, read
 from its snapshot once, exact whoever pushed it and with no clock. That push is
 now refused, and the message names the format-2 head and the two ways out:
-`cleo cloud pull`, or `cleo cloud push --force` to keep this store as a
+`cleo cloud pull --force` to take the cloud copy, or `cleo cloud push --force` to keep this store as a
 labelled fork.
