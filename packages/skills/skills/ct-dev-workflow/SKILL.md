@@ -1,7 +1,7 @@
 ---
 name: ct-dev-workflow
 description: Development workflow orchestration for task-driven development with atomic commits, conventional commit messages, and systematic release processes. Enforces task traceability, branch discipline, smart test scope selection, and GitHub Actions integration. Use when committing code, creating releases, managing branches, or following contribution protocols. Triggers on commit operations, release preparation, or workflow compliance needs.
-version: 3.1.23
+version: 3.1.24
 protocol: contribution
 dependencies: []
 sharedResources:
@@ -14,7 +14,7 @@ compatibility:
   - gemini-cli
 license: MIT
 metadata:
-  version: 3.1.23
+  version: 3.1.24
   tier: core
   install: harness
   covers:
@@ -107,7 +107,11 @@ only on a parentless first commit (T13582); a later commit with that subject, or
 longer or different subject, still needs a task ID. A template change adds the
 previously shipped hash to `legacy-hashes.json` so installed copies refresh.
 It probes CLEO_PROJECT_HOOK_V1 before invoking the implemented CLI adapter;
-missing or incompatible runners warn and allow. Verify nested checkout paths, linked
+missing or incompatible runners warn and allow. `cleo hook run --probe -- execution`
+answers EXEC or INERT (older builds answer V1; stable builds before 2026.10.17 are
+inert). Every ungated push, including a hooks-inert `cleo` first on PATH, prints one
+pre-push stderr line `WARNING: push NOT gated by project hooks: <reason>`, flagging a
+checkout whose activation is on (T13774). Verify nested checkout paths, linked
 worktrees, custom hook paths, historical release bodies and corrupt receipts
 with focused Git fixtures before changing this delivery path.
 
