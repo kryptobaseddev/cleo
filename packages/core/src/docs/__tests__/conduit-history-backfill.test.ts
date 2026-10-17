@@ -660,6 +660,75 @@ describe('review-2253 honest-metadata findings', () => {
   });
 });
 
+describe('T13843 — post-apply gap visibility', () => {
+  function makeReceipt(): string {
+    const receipt = join(tempDir, 'backup-receipt.json');
+    writeFileSync(receipt, JSON.stringify({ backupId: 'test' }));
+    return receipt;
+  }
+
+  it('a complete-but-gapped doc stays listed at info level after --apply, with the gap hashes named', async () => {
+    await seedPreAdoptionDoc({ omitBytesForSha256: SHA2 });
+    const { runDocsDoctor } = await import('../doctor.js');
+
+    // First apply: backfills v1, hits the unrecoverable v2 gap.
+    const first = await runDocsDoctor(tempDir, { apply: true, backupReceiptPath: makeReceipt() });
+    expect(first.ok).toBe(true);
+    if (!first.ok) return;
+    const firstDiag = first.report.diagnostics.find((d) => d.kind === 'conduit-history-gaps');
+    expect(firstDiag?.count).toBe(1);
+    // Post-apply the doc is complete (nothing left to insert) — visibility
+    // only, so the diagnostic is INFO, not a warn that demands action.
+    expect(firstDiag?.severity).toBe('info');
+
+    // The NEXT run must still surface the doc (regression pin): same info
+    // line, the gap count, the missing content hashes, and an
+    // informational (applied:false) repair entry — no invented repair for
+    // unrecoverable bytes.
+    const second = await runDocsDoctor(tempDir, {});
+    expect(second.ok).toBe(true);
+    if (!second.ok) return;
+    const diag = second.report.diagnostics.find((d) => d.kind === 'conduit-history-gaps');
+    expect(diag?.count).toBe(1);
+    expect(diag?.severity).toBe('info');
+    const item = diag?.items[0];
+    expect(item).toMatchObject({
+      slug: SLUG,
+      expectedVersions: 3,
+      toBackfill: 0,
+      gaps: 1,
+      conflict: false,
+    });
+    expect(item?.['gapHashes']).toEqual([SHA2]);
+
+    const entry = second.report.repairs.find((r) => r.action === 'backfill-conduit-versions');
+    expect(entry?.applied).toBe(false);
+    expect(entry?.slug).toBe(SLUG);
+    expect(entry?.detail).toContain('nothing to backfill');
+    expect(entry?.detail).toContain(SHA2.slice(0, 12));
+
+    // A further --apply is a no-op but keeps the same info visibility.
+    const third = await runDocsDoctor(tempDir, { apply: true, backupReceiptPath: makeReceipt() });
+    expect(third.ok).toBe(true);
+    if (!third.ok) return;
+    const thirdDiag = third.report.diagnostics.find((d) => d.kind === 'conduit-history-gaps');
+    expect(thirdDiag?.count).toBe(1);
+    expect(thirdDiag?.severity).toBe('info');
+  });
+
+  it('a doc that still needs backfill keeps the diagnostic at warn level', async () => {
+    await seedPreAdoptionDoc(); // no omitted bytes — two versions to backfill
+    const { runDocsDoctor } = await import('../doctor.js');
+
+    const dry = await runDocsDoctor(tempDir, {});
+    expect(dry.ok).toBe(true);
+    if (!dry.ok) return;
+    const diag = dry.report.diagnostics.find((d) => d.kind === 'conduit-history-gaps');
+    expect(diag?.count).toBe(1);
+    expect(diag?.severity).toBe('warn');
+  });
+});
+
 describe('cleo docs doctor wiring (T13727)', () => {
   function makeReceipt(): string {
     const receipt = join(tempDir, 'backup-receipt.json');
