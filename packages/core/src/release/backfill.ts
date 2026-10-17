@@ -44,7 +44,6 @@ import {
   writeFileSync,
 } from 'node:fs';
 import { dirname, join } from 'node:path';
-import { sql } from 'drizzle-orm';
 import { type EngineResult, engineError, engineSuccess } from '../engine-result.js';
 import { getLogger } from '../logger.js';
 import { getProjectRoot } from '../paths.js';
@@ -482,12 +481,21 @@ async function appendBackfillAudit(
     const db = await getDb(projectRoot);
     const id = `backfill-${tag}-${Date.now()}`;
     const taskId = `BACKFILL-${tag}`;
-    await db.run(
-      sql`INSERT INTO audit_log (id, action, task_id, actor, details_json, domain, operation, success)
-          VALUES (${id}, ${`provenance.backfill.${status}`}, ${taskId}, ${'provenance-backfill'},
-                  ${JSON.stringify(details)}, ${'provenance'}, ${'backfill'},
-                  ${status === 'failed' ? 0 : 1})`,
-    );
+    // T13777: the audit lives in tasks_audit_log, which syncs (the bare audit_log is drained).
+    const { tasksAuditLog } = await import('../store/schema/cleo-project/audit.js');
+    await db
+      .insert(tasksAuditLog)
+      .values({
+        id,
+        action: `provenance.backfill.${status}`,
+        taskId,
+        actor: 'provenance-backfill',
+        detailsJson: JSON.stringify(details),
+        domain: 'provenance',
+        operation: 'backfill',
+        success: status === 'failed' ? 0 : 1,
+      })
+      .run();
   } catch (err) {
     log.warn(
       { tag, err: err instanceof Error ? err.message : String(err) },

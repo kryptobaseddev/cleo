@@ -167,14 +167,15 @@ export async function setSessionSpawnedBy(
  * Insert a handoff entry for a session (write-once, append-only).
  *
  * The underlying `session_handoff_entries` table enforces:
- *   - UNIQUE on `session_id` — only one handoff per session.
+ *   - One handoff per session, checked in the insert's transaction (the
+ *     DDL has no UNIQUE on `session_id`, T13777).
  *   - BEFORE UPDATE trigger — rows are immutable after insertion.
  *   - AFTER INSERT trigger — mirrors value to `sessions.handoff_json`
  *     so existing read paths continue to work without change.
  *
- * Throws a SQLite `SQLITE_CONSTRAINT_UNIQUE` error (message contains
- * "UNIQUE constraint failed") if a handoff already exists for this session.
- * Callers should catch and surface as `E_HANDOFF_ALREADY_PERSISTED`.
+ * Throws `CleoError(ALREADY_EXISTS)` if a handoff already exists for this
+ * session. The store's DDL has no UNIQUE on `session_id` (T13777), so the
+ * check and the insert share one transaction.
  *
  * @param sessionId - The session that is being handed off.
  * @param handoffJson - Serialised HandoffData or DebriefData JSON string.
@@ -189,7 +190,23 @@ export async function insertHandoffEntry(
   const scope = captureProjectScope(cwd ?? getProjectRoot(), worktreeScope.getStore());
   return worktreeScope.run(scope, async () => {
     const db = await getDb(scope.worktreeRoot);
-    db.insert(schema.sessionHandoffEntries).values({ sessionId, handoffJson }).run();
+    // The DDL has no UNIQUE on session_id (T13777): this check is the guard.
+    db.transaction((tx) => {
+      const existing = tx
+        .select({ id: schema.sessionHandoffEntries.id })
+        .from(schema.sessionHandoffEntries)
+        .where(eq(schema.sessionHandoffEntries.sessionId, sessionId))
+        .get();
+      if (existing) {
+        // @sync-invariant session.handoff.append-only a second handoff for a session is refused before any write
+        throw new CleoError(
+          ExitCode.ALREADY_EXISTS,
+          `Handoff already persisted for session '${sessionId}'. ` +
+            'session_handoff_entries is write-once (T1609).',
+        );
+      }
+      tx.insert(schema.sessionHandoffEntries).values({ sessionId, handoffJson }).run();
+    });
   });
 }
 

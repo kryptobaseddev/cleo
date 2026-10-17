@@ -20,15 +20,24 @@
  */
 
 import { execFileSync } from 'node:child_process';
+import { existsSync } from 'node:fs';
+import { join } from 'node:path';
 import type { ChangeSetMergeState, EvidenceAtom, TaskChangeSet } from '@cleocode/contracts';
+import { cleoConfigSchemaFor } from './affected-packages.js';
 import type {
   ChangeSetDeps,
   ChangeSetTask,
   CommitPr,
   PatchEquivalenceUnknown,
 } from './change-set.js';
-import { QA_RUN_KINDS, qaRunCoverage, qaRunUnionGapReason } from './qa-run-binding.js';
+import {
+  QA_RUN_KINDS,
+  qaRunCoverage,
+  qaRunUnionGapReason,
+  typecheckCoverageGap,
+} from './qa-run-binding.js';
 import { changedTestFiles, testRunCoversChange } from './test-run-binding.js';
+import { canonicalToolName } from './tool-resolver.js';
 
 /** Whether the task's change has merged to the default branch. */
 export type ChangeMergeState = ChangeSetMergeState;
@@ -52,8 +61,23 @@ const GH_UNREACHABLE = 'gh unreachable — check `gh auth status`';
 /** A full (unscoped) tool run that actually executed. */
 function isFullToolRun(a: EvidenceAtom): boolean {
   return (
-    a.kind === 'tool' && a.scope !== 'affected' && a.notApplicable !== true && !isTreePinnedTool(a)
+    a.kind === 'tool' &&
+    a.scope !== 'affected' &&
+    a.notApplicable !== true &&
+    !isTreePinnedTool(a) &&
+    !isQaTool(a)
   );
+}
+
+/**
+ * A typecheck or lint `tool:` result recorded beside a test-run (T13783): it
+ * covers dependents left to a typecheck, and is never a test run itself, so it
+ * neither carries testsPassed alone nor exempts the rest from supersession.
+ */
+function isQaTool(a: EvidenceAtom): boolean {
+  if (a.kind !== 'tool') return false;
+  const tool = canonicalToolName(a.tool);
+  return tool === 'typecheck' || tool === 'lint';
 }
 
 /**
@@ -111,7 +135,7 @@ function treePinnedToolReason(
  */
 export function isScopedOnly(atoms: ReadonlyArray<EvidenceAtom>): boolean {
   const results = atoms.filter(
-    (a) => a.kind === 'tool' || a.kind === 'test-run' || a.kind === 'ci',
+    (a) => (a.kind === 'tool' && !isQaTool(a)) || a.kind === 'test-run' || a.kind === 'ci',
   );
   return results.length > 0 && results.every((a) => isTreeScopedTool(a) || a.kind === 'test-run');
 }
@@ -169,21 +193,107 @@ export function scopedRunSupersededReason(
  * @param atoms - Recorded `testsPassed` atoms.
  * @param current - The current tree hash of the execution root, or null when
  *   it cannot be computed (not a git checkout, or git failed).
+ * @param scope - The root and current change to compare over (T13784): a
+ *   moved report still stands while the change's files, the test files it
+ *   ran and their test inputs are byte-identical; without it any moved
+ *   tree refuses.
  * @returns The reason, or null.
  * @task T12965
+ * @task T13784
  */
 export function testRunTreeMismatchReason(
   atoms: ReadonlyArray<EvidenceAtom>,
   current: string | null,
+  scope?: QaRunCarryScope,
 ): string | null {
   if (atoms.some((a) => a.kind === 'ci' || isFullToolRun(a))) return null;
-  const first = atoms.filter(isTreeBoundResult).find((a) => a.treeHash !== current);
-  if (!first) return null;
   // T13745, T13758: a tree-pinned tool: held for that tree's change alone.
-  if (first.kind === 'tool') return treePinnedToolReason(atoms, current, 'testsPassed');
-  return current === null
-    ? `testsPassed rests on test-run:${first.path}, bound to tree ${first.treeHash.slice(0, 12)}, and the current tree cannot be computed here (not a git checkout?); complete from the checkout the report ran in, or record ci:<pr> once the PR merges.`
-    : `testsPassed rests on test-run:${first.path}, recorded on tree ${first.treeHash.slice(0, 12)}, but the tree is now ${current.slice(0, 12)}; the report no longer describes this code. Re-run the targeted tests and record a fresh test-run, or record ci:<pr> once the PR merges.`;
+  if (atoms.filter(isTreeBoundResult).some((a) => a.kind === 'tool' && a.treeHash !== current))
+    return treePinnedToolReason(atoms, current, 'testsPassed');
+  for (const a of atoms) {
+    if (a.kind !== 'test-run' || typeof a.treeHash !== 'string') continue;
+    const why = testRunUnseenChangeReason(a, a.treeHash, current, scope);
+    if (why) return why;
+  }
+  return null;
+}
+
+/** Whether `paths` are byte-identical between two trees or commits; null when git cannot say. */
+function sameOver(
+  root: string,
+  from: string,
+  to: string,
+  paths: readonly string[],
+): boolean | null {
+  try {
+    execFileSync('git', ['diff', '--quiet', '--no-renames', from, to, '--', ...paths], {
+      cwd: root,
+      stdio: 'ignore',
+    });
+    return true;
+  } catch (err) {
+    return (err as { status?: number }).status === 1 ? false : null;
+  }
+}
+
+/**
+ * Why a tree-bound test-run no longer speaks for the change, or null (T12965,
+ * narrowed by T13784). The report describes the tree it ran on; it still
+ * stands while what it did not see — the tree moving after verify, and
+ * commits that landed on the default branch between the run and verify
+ * (`runHeadSha`) — leaves the change's own files (`scope.changed`), the test
+ * files it ran and their test inputs ({@link testRunInputPaths}) byte-identical. Unrelated paths
+ * moving on main do not stale it. Fails closed: no scope, a capped test-file
+ * list, or a git failure each refuse.
+ */
+function testRunUnseenChangeReason(
+  run: Extract<EvidenceAtom, { kind: 'test-run' }>,
+  tree: string,
+  current: string | null,
+  scope: QaRunCarryScope | undefined,
+): string | null {
+  const label = `test-run:${run.path}`;
+  const redo =
+    'Re-run the targeted tests and record a fresh test-run, or record ci:<pr> once the PR merges.';
+  const pairs: Array<[string, string, string]> = [];
+  if (tree !== current) {
+    if (current === null)
+      return `testsPassed rests on ${label}, bound to tree ${tree.slice(0, 12)}, and the current tree cannot be computed here (not a git checkout?); complete from the checkout the report ran in, or record ci:<pr> once the PR merges.`;
+    pairs.push([
+      tree,
+      current,
+      `the tree it was recorded on (${tree.slice(0, 12)}) and now (${current.slice(0, 12)})`,
+    ]);
+  }
+  if (run.runHeadSha && run.headSha && run.runHeadSha !== run.headSha)
+    pairs.push([
+      run.runHeadSha,
+      run.headSha,
+      `HEAD as of the run (${run.runHeadSha.slice(0, 12)}) and at verify (${run.headSha.slice(0, 12)})`,
+    ]);
+  const first = pairs[0];
+  if (!first) return null;
+  const moved =
+    tree !== current && current !== null
+      ? `testsPassed rests on ${label}, recorded on tree ${tree.slice(0, 12)}, but the tree is now ${current.slice(0, 12)}; the report no longer describes this code. ${redo}`
+      : `testsPassed rests on ${label}, which did not see the commits between ${first[2]}, and the change they may touch is not known here. ${redo}`;
+  const testFiles = run.testFiles ?? [];
+  if (scope === undefined || (run.testFileCount ?? testFiles.length) > testFiles.length)
+    return moved;
+  const paths = [
+    ...new Set([
+      ...scope.changed,
+      ...testFiles,
+      ...testRunInputPaths(scope.root, [...scope.changed, ...testFiles]),
+    ]),
+  ];
+  for (const [from, to, between] of pairs) {
+    const same = sameOver(scope.root, from, to, paths);
+    if (same === null) return moved;
+    if (!same)
+      return `testsPassed rests on ${label}, but the change's files, the test files it ran or their test inputs (configs, manifests, setup files) differ between ${between}${differingPaths(scope.root, from, to, paths)}. ${redo}`;
+  }
+  return null;
 }
 
 /**
@@ -199,6 +309,66 @@ const QA_RUN_SHARED_INPUTS = [
   'pnpm-lock.yaml',
   'pnpm-workspace.yaml',
 ];
+
+/** Test runner configs, at the root and in every directory above a file (T13784). */
+const TEST_RUNNER_CONFIGS = ['vitest.config.*', 'vitest.workspace.*', 'jest.config.*'];
+
+/**
+ * Test-style setup file names (`setupFiles`/`globalSetup` conventions), so an
+ * ordinary source such as `setup-wizard.ts` is not a test input.
+ */
+const SETUP_FILE_NAMES = [
+  '*.setup.*',
+  'setup-tests.*',
+  'setupTests.*',
+  'test-setup.*',
+  'global-setup.*',
+  'setup-global.*',
+];
+
+/**
+ * Pathspecs of the inputs a test run reads beyond the files it names
+ * (T13784, review of #2295): the QA shared inputs, runner configs and this
+ * repo's shared setup (`vitest.setup.*`, `vitest.memory-safe.*`) at the root;
+ * in every directory above a changed or run file its `package.json`,
+ * `tsconfig*.json` and runner configs; and the test-style setup files
+ * ({@link SETUP_FILE_NAMES}) from each file's owning package (its nearest
+ * directory with a `package.json`) down. Scoped so another package's manifest
+ * or setup file moving on main does not stale the run. A module the tests
+ * import but the change does not touch is not an input here — the same
+ * file-scoped limit as the byte-identity carry.
+ */
+function testRunInputPaths(root: string, files: readonly string[]): string[] {
+  const dirs = new Set<string>();
+  const owners = new Set<string>();
+  for (const file of files) {
+    const parts = file.split('/').slice(0, -1);
+    for (let i = 1; i <= parts.length; i++) dirs.add(parts.slice(0, i).join('/'));
+    let owner = '';
+    for (let i = parts.length; i >= 1; i--) {
+      const dir = parts.slice(0, i).join('/');
+      if (existsSync(join(root, dir, 'package.json'))) {
+        owner = dir;
+        break;
+      }
+    }
+    owners.add(owner);
+  }
+  return [
+    ...QA_RUN_SHARED_INPUTS,
+    ...TEST_RUNNER_CONFIGS,
+    'vitest.setup.*',
+    'vitest.memory-safe.*',
+    ...[...dirs].flatMap((d) => [
+      `${d}/package.json`,
+      `${d}/tsconfig*.json`,
+      ...TEST_RUNNER_CONFIGS.map((c) => `${d}/${c}`),
+    ]),
+    ...[...owners].flatMap((d) =>
+      SETUP_FILE_NAMES.map((n) => `:(glob)${d === '' ? '' : `${d}/`}**/${n}`),
+    ),
+  ];
+}
 
 /** What an earlier-tree qa-run receipt is compared over (T13644). */
 export interface QaRunCarryScope {
@@ -342,7 +512,7 @@ export async function qaPassedSupersededReason(
   }
   if (
     !atoms.some((a) => a.kind === 'qa-run') ||
-    atoms.some((a) => a.kind === 'ci' || a.kind === 'tool')
+    atoms.some((a) => a.kind === 'ci' || (a.kind === 'tool' && !a.configSchema))
   )
     return null;
   const merge = await probe.mergeState();
@@ -407,7 +577,13 @@ export async function testsPassedSupersededReason(
   },
 ): Promise<string | null> {
   if (hasTreeBoundTestRun(atoms)) {
-    const moved = testRunTreeMismatchReason(atoms, await probe.currentTree());
+    const current = await probe.currentTree();
+    const unscoped = testRunTreeMismatchReason(atoms, current);
+    // T13784: a moved report still stands while the change's own files did not move.
+    const moved =
+      unscoped && current !== null
+        ? testRunTreeMismatchReason(atoms, current, await qaRunCarryScope(probe))
+        : unscoped;
     if (moved) return moved;
   }
   if (!isScopedOnly(atoms)) return null;
@@ -465,7 +641,22 @@ export function scopedRunCarriedAcrossMerge(
   const scoped = atoms.filter(
     (a) => a.kind === 'test-run' || a.kind === 'qa-run' || isTreeScopedTool(a),
   );
+  // Review of #2302: config-schema speaks for CLEO config alone; the change's
+  // other files need a result of their own to carry.
+  const code = paths.filter((p) => cleoConfigSchemaFor(p) === null);
+  if (code.length > 0 && scoped.every((a) => a.kind === 'tool' && a.configSchema !== undefined))
+    return {
+      ok: false,
+      why: `tool:config-schema checks only CLEO config, and nothing else covers the change's other file(s) ${code.slice(0, 5).join(', ')}${code.length > 5 ? ', …' : ''}`,
+    };
   for (const atom of scoped) {
+    // T13781: a config-schema result judged at a merged commit carries while
+    // its files are unchanged at the merge.
+    if (atom.kind === 'tool' && atom.configSchemaCommit) {
+      const why = configSchemaCommitDiffers(atom, merge, changeSet.executionRoot);
+      if (why) return { ok: false, why };
+      continue;
+    }
     const tree = 'treeHash' in atom && typeof atom.treeHash === 'string' ? atom.treeHash : null;
     if (tree === null)
       return { ok: false, why: 'the scoped result has no recorded tree to compare with the merge' };
@@ -493,6 +684,60 @@ export function scopedRunCarriedAcrossMerge(
     }
   }
   return { ok: true };
+}
+
+/**
+ * Why the CLEO config of a merged change is not spoken for (T13778): no
+ * `tool:config-schema` result validated a path, or the one that did ran on
+ * another tree, or validated a commit whose copy differs at the merge. Null
+ * when every path is covered.
+ */
+function mergedConfigGap(
+  atoms: ReadonlyArray<EvidenceAtom>,
+  configPaths: readonly string[],
+  merge: string,
+  root: string,
+  current: string | null,
+): string | null {
+  for (const path of configPaths) {
+    const schema = atoms.find(
+      (a): a is Extract<EvidenceAtom, { kind: 'tool' }> =>
+        a.kind === 'tool' && (a.configSchema ?? []).includes(path),
+    );
+    if (!schema)
+      return `the merged change also edits CLEO config ${path}, and no tool:config-schema validated it`;
+    const differs = schema.configSchemaCommit
+      ? configSchemaCommitDiffers(schema, merge, root)
+      : schema.treeHash !== current
+        ? `tool:config-schema ran on tree ${schema.treeHash?.slice(0, 12) ?? 'unknown'}, but the tree is now ${current?.slice(0, 12) ?? 'unknown'}`
+        : null;
+    if (differs) return differs;
+  }
+  return null;
+}
+
+/**
+ * Why a commit-anchored `tool:config-schema` result does not speak for the
+ * merge (T13781): its config files differ between the commit it validated
+ * and the merge commit, or git cannot compare them. Null when identical.
+ */
+function configSchemaCommitDiffers(
+  atom: Extract<EvidenceAtom, { kind: 'tool' }>,
+  merge: string,
+  root: string,
+): string | null {
+  const at = atom.configSchemaCommit!;
+  try {
+    execFileSync('git', ['diff', '--quiet', at, merge, '--', ...(atom.configSchema ?? [])], {
+      cwd: root,
+      stdio: 'ignore',
+    });
+    return null;
+  } catch (err) {
+    return (err as { status?: number }).status === 1
+      ? `CLEO config validated at ${at.slice(0, 12)} differs at merge commit ${merge.slice(0, 12)}`
+      : `git could not compare the config validated at ${at.slice(0, 12)} with merge commit ${merge.slice(0, 12)}`;
+  }
 }
 
 /** `: a, b, …` naming the compared paths that differ, or '' when git cannot say (T13637). */
@@ -551,7 +796,10 @@ function differingPaths(root: string, tree: string, merge: string, paths: string
  */
 export function scopedRunStandsAfterRedCi(
   atoms: ReadonlyArray<EvidenceAtom>,
-  changeSet: Pick<TaskChangeSet, 'mergeCommitSha' | 'files' | 'executionRoot'> | null,
+  changeSet:
+    | (Pick<TaskChangeSet, 'mergeCommitSha' | 'files' | 'executionRoot'> &
+        Partial<Pick<TaskChangeSet, 'deletedFiles'>>)
+    | null,
   current: string | null,
   landed: (root: string, sha: string) => boolean,
   gate: 'testsPassed' | 'qaPassed' = 'testsPassed',
@@ -565,7 +813,10 @@ export function scopedRunStandsAfterRedCi(
     (a): a is Extract<EvidenceAtom, { kind: 'test-run' | 'qa-run' }> =>
       a.kind === (qa ? 'qa-run' : 'test-run'),
   );
-  if (runs.length === 0 || atoms.some((a) => a.kind === 'tool' && (qa || a.scope === 'affected')))
+  if (
+    runs.length === 0 ||
+    atoms.some((a) => a.kind === 'tool' && !a.configSchema && (qa || a.scope === 'affected'))
+  )
     return {
       ok: false,
       why: qa
@@ -577,11 +828,18 @@ export function scopedRunStandsAfterRedCi(
     const label = `${run.kind}:${run.path}`;
     if (!run.headSha || !run.treeHash)
       return { ok: false, why: `${label} records no HEAD and tree to judge` };
-    if (run.treeHash !== current)
-      return {
-        ok: false,
-        why: `${label} ran on tree ${run.treeHash.slice(0, 12)}, but the tree is now ${current?.slice(0, 12) ?? 'unknown'}`,
-      };
+    // T13784: a test-run stands while what moved since it ran leaves the
+    // change's own files and the tests it ran untouched; a qa-run needs the tree.
+    const unseen =
+      run.kind === 'test-run'
+        ? testRunUnseenChangeReason(run, run.treeHash, current, {
+            root,
+            changed: [...changeSet.files, ...(changeSet.deletedFiles ?? [])],
+          })
+        : run.treeHash !== current
+          ? `${label} ran on tree ${run.treeHash.slice(0, 12)}, but the tree is now ${current?.slice(0, 12) ?? 'unknown'}`
+          : null;
+    if (unseen) return { ok: false, why: unseen };
     try {
       execFileSync('git', ['merge-base', '--is-ancestor', merge, run.headSha], {
         cwd: root,
@@ -610,6 +868,8 @@ export function scopedRunStandsAfterRedCi(
     for (const r of receipts) {
       const cover = qaRunCoverage(r.check, r.roots, root, changeSet.files);
       if (!cover.ok) return { ok: false, why: cover.reason };
+      const configGap = mergedConfigGap(atoms, cover.configPaths ?? [], merge, root, current);
+      if (configGap) return { ok: false, why: configGap };
       bound.push({ check: r.check, roots: r.roots, ...cover });
     }
     const gap = qaRunUnionGapReason(bound);
@@ -618,6 +878,14 @@ export function scopedRunStandsAfterRedCi(
   const ran = [...new Set(runs.flatMap((r) => (r.kind === 'test-run' ? (r.testFiles ?? []) : [])))];
   const covered = testRunCoversChange(root, changeSet.files, ran);
   if (!covered.ok) return { ok: false, why: covered.reason };
+  const configGap = mergedConfigGap(atoms, covered.configPaths ?? [], merge, root, current);
+  if (configGap) return { ok: false, why: configGap };
+  // T13783: dependents left to a typecheck need one on the current tree.
+  const typecheckGap = typecheckCoverageGap(
+    atoms.filter((a) => a.kind !== 'qa-run' || a.treeHash === current),
+    covered.typecheckDirs ?? [],
+  );
+  if (typecheckGap) return { ok: false, why: typecheckGap };
   const unrun = changedTestFiles(root, changeSet.files).filter((f) => !ran.includes(f));
   if (unrun.length > 0)
     return {

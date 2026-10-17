@@ -789,7 +789,7 @@ describe('freeze (option a): older builds can no longer write the bare docs tabl
     (
       db
         .prepare(
-          "SELECT name FROM main.sqlite_master WHERE type = 'trigger' AND name LIKE 't12535_freeze_%' ORDER BY name",
+          "SELECT name FROM main.sqlite_master WHERE type = 'trigger' AND name LIKE 't12535_freeze_attachment%' ORDER BY name",
         )
         .all() as Array<{ name: string }>
     ).map((r) => r.name);
@@ -882,7 +882,7 @@ describe('freeze (option a): older builds can no longer write the bare docs tabl
     await reopen();
     const sqls = (
       tasksNative()
-        .prepare("SELECT sql FROM main.sqlite_master WHERE name LIKE 't12535_freeze_%'")
+        .prepare("SELECT sql FROM main.sqlite_master WHERE name LIKE 't12535_freeze_attachment%'")
         .all() as Array<{ sql: string }>
     ).map((r) => r.sql);
     expect(sqls).toHaveLength(6);

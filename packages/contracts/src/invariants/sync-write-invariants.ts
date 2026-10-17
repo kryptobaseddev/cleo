@@ -245,7 +245,7 @@ export const SYNC_WRITE_INVARIANTS: readonly SyncWriteInvariant[] = Object.freez
     ['tasks_session_handoff_entries'],
     ['trg_tasks_session_handoff_no_update'],
     ['H2'],
-    'handoff entries are never updated',
+    'handoff entries are never updated, and one session has one (the natural uid over the session merges a peer’s; T13777)',
   ),
   trigger(
     'task.claim.lease-iso',
@@ -490,7 +490,6 @@ export const SYNC_WRITE_INVARIANTS: readonly SyncWriteInvariant[] = Object.freez
       ['status'],
       ['PB-1', 'PB-4', 'PB-7', 'P33'],
       'an approval goes pending→decided once',
-      ['tasks_playbook_approvals', 'playbook_approvals'],
     ),
   ),
   implemented(

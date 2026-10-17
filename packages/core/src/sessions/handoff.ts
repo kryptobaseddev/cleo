@@ -253,14 +253,14 @@ function getScopeTaskIds(session: Session, tasks: Task[]): Set<string> {
  *
  * Writes the handoff JSON into `session_handoff_entries` via an INSERT.
  * The table enforces write-once semantics at the SQL level:
- *   - A UNIQUE constraint on `session_id` rejects duplicate calls.
+ *   - `insertHandoffEntry` rejects a second row for a session (T13777).
  *   - A BEFORE UPDATE trigger makes rows physically immutable.
  *   - An AFTER INSERT trigger mirrors the value to `sessions.handoff_json`
  *     so all existing read paths continue to work without modification.
  *
  * Throws `CleoError(SESSION_NOT_FOUND)` when the session does not exist.
  * Throws `CleoError(HANDOFF_ALREADY_PERSISTED)` when a handoff was already
- * written for this session (surfaced from the UNIQUE constraint violation).
+ * written for this session.
  *
  * @task T1609
  */

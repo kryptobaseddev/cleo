@@ -48,7 +48,7 @@
 
 import type { PlaybookApprovalStatus, PlaybookRunStatus } from '@cleocode/contracts';
 import { sql } from 'drizzle-orm';
-import { index, integer, sqliteTable, text } from 'drizzle-orm/sqlite-core';
+import { index, integer, sqliteTable, text, uniqueIndex } from 'drizzle-orm/sqlite-core';
 import { AGENT_INSTANCE_STATUSES, AGENT_TYPES } from '../agent-schema.js';
 import { WARP_CHAIN_INSTANCE_STATUSES } from '../chain-schema.js';
 
@@ -240,60 +240,72 @@ export const tasksAgentErrorLog = sqliteTable(
  *
  * @task T11360 (target shape) · T889 (original)
  */
-export const tasksPlaybookRuns = sqliteTable('tasks_playbook_runs', {
-  /** Run id. */
-  runId: text('run_id').primaryKey(),
-  /** Playbook name. */
-  playbookName: text('playbook_name').notNull(),
-  /** Playbook content hash. */
-  playbookHash: text('playbook_hash').notNull(),
-  /** Current node pointer. */
-  currentNode: text('current_node'),
-  /** JSON bindings (TEXT per JSON audit; empty-object default). */
-  bindings: text('bindings').notNull().default('{}'),
-  /** Optional error context. */
-  errorContext: text('error_context'),
-  /** Run status — E10 §5b CHECK-backed via {@link PLAYBOOK_RUN_STATUSES}. */
-  status: text('status', { enum: PLAYBOOK_RUN_STATUSES }).notNull().default('running'),
-  /** JSON iteration counts (TEXT per JSON audit; empty-object default). */
-  iterationCounts: text('iteration_counts').notNull().default('{}'),
-  /** Optional epic id (cross-table soft ref → `tasks_tasks.id`). */
-  epicId: text('epic_id'),
-  /** Optional session id (cross-table soft ref → `tasks_sessions.id`). */
-  sessionId: text('session_id'),
-  /** ISO-8601 UTC start instant (canonical TEXT, §4). */
-  startedAt: text('started_at').notNull().default(sql`(datetime('now'))`),
-  /** ISO-8601 UTC completion instant (canonical TEXT, §4). */
-  completedAt: text('completed_at'),
-});
+export const tasksPlaybookRuns = sqliteTable(
+  'tasks_playbook_runs',
+  {
+    /** Run id. */
+    runId: text('run_id').primaryKey(),
+    /** Playbook name. */
+    playbookName: text('playbook_name').notNull(),
+    /** Playbook content hash. */
+    playbookHash: text('playbook_hash').notNull(),
+    /** Current node pointer. */
+    currentNode: text('current_node'),
+    /** JSON bindings (TEXT per JSON audit; empty-object default). */
+    bindings: text('bindings').notNull().default('{}'),
+    /** Optional error context. */
+    errorContext: text('error_context'),
+    /** Run status — E10 §5b CHECK-backed via {@link PLAYBOOK_RUN_STATUSES}. */
+    status: text('status', { enum: PLAYBOOK_RUN_STATUSES }).notNull().default('running'),
+    /** JSON iteration counts (TEXT per JSON audit; empty-object default). */
+    iterationCounts: text('iteration_counts').notNull().default('{}'),
+    /** Optional epic id (cross-table soft ref → `tasks_tasks.id`). */
+    epicId: text('epic_id'),
+    /** Optional session id (cross-table soft ref → `tasks_sessions.id`). */
+    sessionId: text('session_id'),
+    /** ISO-8601 UTC start instant (canonical TEXT, §4). */
+    startedAt: text('started_at').notNull().default(sql`(datetime('now'))`),
+    /** ISO-8601 UTC completion instant (canonical TEXT, §4). */
+    completedAt: text('completed_at'),
+    /** Row uid (T12535): a UUIDv8 over the run id, filled at open or by the uid trigger. */
+    uid: text('uid'),
+  },
+  (table) => [uniqueIndex('uq_tasks_playbook_runs_uid').on(table.uid)],
+);
 
 /**
  * `tasks_playbook_approvals` — playbook HITL approval records.
  *
  * @task T11360 (target shape) · T889 (original)
  */
-export const tasksPlaybookApprovals = sqliteTable('tasks_playbook_approvals', {
-  /** Approval id. */
-  approvalId: text('approval_id').primaryKey(),
-  /** FK → `tasks_playbook_runs.run_id` (resolved at exodus). */
-  runId: text('run_id').notNull(),
-  /** Node id awaiting approval. */
-  nodeId: text('node_id').notNull(),
-  /** HMAC resume token (unique). */
-  token: text('token').notNull().unique(),
-  /** ISO-8601 UTC request instant (canonical TEXT, §4). */
-  requestedAt: text('requested_at').notNull().default(sql`(datetime('now'))`),
-  /** ISO-8601 UTC approval instant (canonical TEXT, §4). */
-  approvedAt: text('approved_at'),
-  /** Approver identity. */
-  approver: text('approver'),
-  /** Optional reason. */
-  reason: text('reason'),
-  /** Approval status — E10 §5b CHECK-backed via {@link PLAYBOOK_APPROVAL_STATUSES}. */
-  status: text('status', { enum: PLAYBOOK_APPROVAL_STATUSES }).notNull().default('pending'),
-  /** Whether the gate auto-passed. E10 §3b: untyped INTEGER 0/1 → typed boolean. */
-  autoPassed: integer('auto_passed', { mode: 'boolean' }).notNull().default(false),
-});
+export const tasksPlaybookApprovals = sqliteTable(
+  'tasks_playbook_approvals',
+  {
+    /** Approval id. */
+    approvalId: text('approval_id').primaryKey(),
+    /** FK → `tasks_playbook_runs.run_id` (resolved at exodus). */
+    runId: text('run_id').notNull(),
+    /** Node id awaiting approval. */
+    nodeId: text('node_id').notNull(),
+    /** HMAC resume token (unique). */
+    token: text('token').notNull().unique(),
+    /** ISO-8601 UTC request instant (canonical TEXT, §4). */
+    requestedAt: text('requested_at').notNull().default(sql`(datetime('now'))`),
+    /** ISO-8601 UTC approval instant (canonical TEXT, §4). */
+    approvedAt: text('approved_at'),
+    /** Approver identity. */
+    approver: text('approver'),
+    /** Optional reason. */
+    reason: text('reason'),
+    /** Approval status — E10 §5b CHECK-backed via {@link PLAYBOOK_APPROVAL_STATUSES}. */
+    status: text('status', { enum: PLAYBOOK_APPROVAL_STATUSES }).notNull().default('pending'),
+    /** Whether the gate auto-passed. E10 §3b: untyped INTEGER 0/1 → typed boolean. */
+    autoPassed: integer('auto_passed', { mode: 'boolean' }).notNull().default(false),
+    /** Row uid (T12535): a UUIDv8 over the approval id, filled at open or by the uid trigger. */
+    uid: text('uid'),
+  },
+  (table) => [uniqueIndex('uq_tasks_playbook_approvals_uid').on(table.uid)],
+);
 
 // === TYPE EXPORTS ===
 

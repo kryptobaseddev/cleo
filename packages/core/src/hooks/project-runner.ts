@@ -1,12 +1,15 @@
 /** Ordered project executor, separate from the best-effort internal registry (T13343). */
 import { spawn } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import {
   type HookActivation,
   type HookExecutionReceipt,
   type HookExecutor,
   type HookInvocation,
+  HookNativeSessionSchema,
   type HookOutcome,
   type HookOutcomeStatus,
+  type ProjectHookBinding,
   type ProjectHookDefinition,
   ProjectHookVerdictSchema,
 } from '@cleocode/contracts/project-hooks.js';
@@ -33,6 +36,12 @@ const MAX_OUTPUT_BYTES = 65536;
 const MAX_INVOCATION_MS = 120000;
 const REACTIVATE =
   'Hook inputs changed since activation; review them, then run `cleo hook sync --activate`.';
+
+/** Fixed-length per-binding slot; event text never becomes a filesystem path. */
+function executionRecordName(binding: ProjectHookBinding): string {
+  const hash = createHash('sha256').update(binding.event).digest('hex');
+  return `last-execution-${binding.source}-${hash}.json`;
+}
 
 function fault(invocation: HookInvocation, code: string, id = 'cleo.project-hooks'): HookOutcome {
   return {
@@ -436,20 +445,32 @@ export async function executeProjectHooks(
       }
       outcomes.push(await executeOne(hook, invocation, remainingMs, signal));
     }
-    // A last-result record is bounded and contains only executor-owned metadata.
+    // Last-result records are bounded and contain only executor-owned metadata.
+    // Preserve the agent binding even when the subsequent Git hook records its result.
     // A failed receipt write is visible as infrastructure fault, never a fake pass.
     try {
+      const nativeSession = invocation.nativeSession
+        ? HookNativeSessionSchema.parse(invocation.nativeSession)
+        : undefined;
       const receipt: HookExecutionReceipt = {
         schemaVersion: 1,
+        ...nativeSession,
         manifestHash: approved?.manifestHash ?? '',
         source: invocation.source,
         event: invocation.event.slice(0, 128),
         recordedAt: new Date().toISOString(),
         outcomes: outcomes.map(({ message: _message, ...safe }) => safe),
       };
+      const serialized = `${JSON.stringify(receipt)}\n`;
+      await atomicWrite(
+        await resolveProjectHookStateFile(inspection.context, executionRecordName(invocation)),
+        serialized,
+        { mode: 0o600 },
+      );
+      // Keep the existing overall-last diagnostic API compatible.
       await atomicWrite(
         await resolveProjectHookStateFile(inspection.context, 'last-execution.json'),
-        `${JSON.stringify(receipt)}\n`,
+        serialized,
         { mode: 0o600 },
       );
     } catch {
@@ -476,17 +497,29 @@ export function createProjectHookExecutor(activationRoot: string): HookExecutor 
   return { execute: (invocation) => executeProjectHooks(invocation, undefined, activationRoot) };
 }
 
-/** Read only a bounded last execution record and validate its safe shape. */
+/**
+ * Read a bounded redacted execution record, validating its shape and optional binding.
+ * @param cwd - Active checkout whose private receipts are inspected.
+ * @param binding - Select a retained source/event result; omitted reads the overall latest result.
+ * @returns The matching record, or undefined when absent, malformed or mismatched.
+ */
 export async function readLastProjectHookExecution(
   cwd: string,
+  binding?: ProjectHookBinding,
 ): Promise<HookExecutionReceipt | undefined> {
   const inspection = await inspectProjectHooks(cwd);
-  const file = await resolveProjectHookStateFile(inspection.context, 'last-execution.json');
+  const file = await resolveProjectHookStateFile(
+    inspection.context,
+    binding ? executionRecordName(binding) : 'last-execution.json',
+  );
   try {
     const { HookExecutionReceiptSchema } = await import('@cleocode/contracts/project-hooks.js');
-    return HookExecutionReceiptSchema.parse(
+    const receipt = HookExecutionReceiptSchema.parse(
       JSON.parse(await readProjectHookRecord(file, MAX_OUTPUT_BYTES)),
     );
+    if (binding && (receipt.source !== binding.source || receipt.event !== binding.event))
+      return undefined;
+    return receipt;
   } catch {
     return undefined;
   }

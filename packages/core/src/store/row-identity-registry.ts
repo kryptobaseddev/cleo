@@ -17,6 +17,43 @@ import type { RowIdentityRef, RowIdentitySpec, TableScope } from '@cleocode/cont
 /** Physical name of every uid column. */
 export const UID_COLUMN = 'uid';
 
+/**
+ * The rows of a declared table that should carry a uid but lack one (a SQL
+ * predicate over `main.<table>`): not kept local by a NULL key column
+ * (`localWhenNull`), nor by an earlier row holding the same natural key
+ * (`localUnlessFirst`, T13777).
+ *
+ * @param spec - A declared table's spec.
+ * @returns The predicate, for a `WHERE` over `main.<table>`.
+ */
+export function uidMissingWhere(spec: RowIdentitySpec): string {
+  const local = (spec.localWhenNull ?? []).map((c) => ` AND ${quoteId(c)} IS NOT NULL`).join('');
+  const table = `main.${quoteId(spec.table)}`;
+  const first = spec.localUnlessFirst
+    ? ` AND NOT EXISTS (SELECT 1 FROM ${table} AS _f WHERE ${spec.key
+        .map((k) => `_f.${quoteId(k)} IS ${table}.${quoteId(k)}`)
+        .join(' AND ')} AND _f.${quoteId(UID_COLUMN)} IS NOT NULL)`
+    : '';
+  return `${quoteId(UID_COLUMN)} IS NULL${local}${first}`;
+}
+
+/**
+ * The rows of a declared table that sync (T13777): every row with a uid, and
+ * the rows still waiting for one. A row local by spec ({@link uidMissingWhere})
+ * is not one of them. `null` for a table with no local rule (all rows sync).
+ *
+ * @param spec - A declared table's spec.
+ * @returns The predicate, for a `WHERE` over `main.<table>`, or `null`.
+ */
+export function syncedRowsWhere(spec: RowIdentitySpec): string | null {
+  if (!spec.localWhenNull && !spec.localUnlessFirst) return null;
+  return `${quoteId(UID_COLUMN)} IS NOT NULL OR (${uidMissingWhere(spec)})`;
+}
+
+function quoteId(name: string): string {
+  return `"${name.replaceAll('"', '""')}"`;
+}
+
 /** Physical name of the birth fingerprint column of every minted table. */
 export const BIRTH_FP_COLUMN = 'birth_fp';
 
@@ -147,10 +184,8 @@ function brainTextKeyed(): RowIdentitySpec[] {
  * - `brain_memory_links.memory_id` is polymorphic (by `memory_type`), so it
  *   stays raw; `task_id` follows the task's uid where the store has tasks
  *   (project scope). The global store has no tasks table: raw there.
- * - `brain_sticky_tags` (global only; the project table waits on T12535)
- *   follows its note's uid.
  * - `tasks_brain_release_links` (project only): both ids are soft and
- *   polymorphic or exempt (`tasks_releases` waits on T12535), so raw.
+ *   polymorphic, so raw (a release id is device-local since T12914).
  */
 function brainNaturalKeyed(scope: TableScope): RowIdentitySpec[] {
   return [
@@ -181,6 +216,53 @@ function brainNaturalKeyed(scope: TableScope): RowIdentitySpec[] {
           },
         ]
       : []),
+  ];
+}
+
+/**
+ * Sticky notes and their tags, the same in both scopes. `SN-###` ids are
+ * counter-allocated, so notes are minted; a tag follows its note's uid. The
+ * project tables joined the sync set once the twin collapse's degraded-mode
+ * shadow of `brain_sticky_tags` carried every column (T12535).
+ */
+function brainSticky(): RowIdentitySpec[] {
+  return [
+    {
+      table: 'brain_sticky_notes',
+      kind: 'minted',
+      key: ['id'],
+      birth: 'created_at',
+      birthFacts: ['content'],
+      task: 'T12894',
+    },
+    {
+      table: 'brain_sticky_tags',
+      kind: 'natural',
+      key: ['sticky_id', 'tag'],
+      keyRefs: [{ column: 'sticky_id', table: 'brain_sticky_notes' }],
+      task: 'T12895',
+    },
+  ];
+}
+
+const PLAYBOOK_RUNS: RowIdentityRef['table'] = 'tasks_playbook_runs';
+
+/**
+ * Playbook runs and their HITL approvals (T12535), project scope only. Both
+ * ids are random UUIDs minted once, so each is a natural key as it is; the
+ * approval's run travels as the run's uid. The bare twins are frozen by the
+ * twin collapse and never written.
+ */
+function playbooks(): RowIdentitySpec[] {
+  return [
+    { table: PLAYBOOK_RUNS, kind: 'natural', key: ['run_id'], task: 'T12535' },
+    {
+      table: 'tasks_playbook_approvals',
+      kind: 'natural',
+      key: ['approval_id'],
+      refs: [{ column: 'run_id', table: PLAYBOOK_RUNS }],
+      task: 'T12535',
+    },
   ];
 }
 
@@ -268,6 +350,194 @@ function brainIntegerKeyed(): RowIdentitySpec[] {
       content: ['entry_id', 'task_id', 'used', 'outcome'],
       birthFacts: ['entry_id', 'task_id', 'used', 'outcome'],
       task: 'T12896',
+    },
+  ];
+}
+
+const PIPELINES: RowIdentityRef['table'] = 'tasks_lifecycle_pipelines';
+const STAGES: RowIdentityRef['table'] = 'tasks_lifecycle_stages';
+const RELEASES: RowIdentityRef['table'] = 'tasks_releases';
+const PULL_REQUESTS: RowIdentityRef['table'] = 'tasks_pull_requests';
+const COMMITS: RowIdentityRef['table'] = 'tasks_commits';
+
+/**
+ * Lifecycle, release, PR and commit tables (T12914), project scope only.
+ *
+ * - Natural on `id` where the writer derives the id from the entity alone
+ *   (`pipeline-<task>` or `<task>`, `<pipeline>_<stage>` or
+ *   `stage-<task>-<stage>`, `gate-<task>-<stage>-<gate>`), so two devices
+ *   that record the same entity derive one uid and merge field by field. A
+ *   sha is a natural key as is.
+ * - Minted where the id is random or clock-made (evidence, transitions).
+ * - `tasks_releases` is natural on its UNIQUE `version`: the id embeds the
+ *   path-derived project hash, which differs per device, so keying on it
+ *   would void one device's row on the UNIQUE version index. `id` is a local
+ *   key (a received release takes its uid as id); every reader and writer
+ *   finds a release by version. The same holds for ids built from it or from
+ *   the hash: `tasks_pull_requests` (`<projectHash>:<pr>`) is natural on
+ *   (repo, number) and `tasks_release_changes` (a hash over the release id)
+ *   on (release, task, change type), each with a local `id` that reconcile
+ *   looks up before minting one.
+ * - `tasks_release_changesets` is natural on (release, changeset slug): plan
+ *   rewrites the set with fresh random ids on every run, so a re-plan on
+ *   either device lands on the same rows.
+ * - Hard FK columns (stage → pipeline, … → release, … → PR, … → commit)
+ *   travel as uids, so a child of a parent deleted elsewhere is a dangling
+ *   ref, never an orphan. Soft ids (`task_id`, `epic_id`, `pr_id`, the
+ *   `commit_sha` of PR and release commits) stay raw, as
+ *   `tasks_brain_release_links` does: a target that never syncs must not hold
+ *   the row pending. A NULL task id (a legacy orphaned link or change) keeps
+ *   its row local (`localWhenNull`): two of them would share one uid.
+ *
+ * `birthFacts` are FROZEN for recipe v2 like every other entry.
+ */
+function lifecycleReleaseGit(): RowIdentitySpec[] {
+  return [
+    { table: PIPELINES, kind: 'natural', key: ['id'], task: 'T12914' },
+    {
+      table: STAGES,
+      kind: 'natural',
+      key: ['id'],
+      refs: [{ column: 'pipeline_id', table: PIPELINES }],
+      task: 'T12914',
+    },
+    {
+      table: 'tasks_lifecycle_gate_results',
+      kind: 'natural',
+      key: ['id'],
+      refs: [{ column: 'stage_id', table: STAGES }],
+      task: 'T12914',
+    },
+    {
+      table: 'tasks_lifecycle_evidence',
+      kind: 'minted',
+      key: ['id'],
+      birth: 'recorded_at',
+      birthFacts: ['uri', 'type'],
+      refs: [{ column: 'stage_id', table: STAGES }],
+      task: 'T12914',
+    },
+    {
+      table: 'tasks_lifecycle_transitions',
+      kind: 'minted',
+      key: ['id'],
+      birth: 'created_at',
+      birthFacts: ['from_stage_id', 'to_stage_id', 'transition_type'],
+      refs: [
+        { column: 'pipeline_id', table: PIPELINES },
+        { column: 'from_stage_id', table: STAGES },
+        { column: 'to_stage_id', table: STAGES },
+      ],
+      task: 'T12914',
+    },
+    { table: RELEASES, kind: 'natural', key: ['version'], localKey: 'id', task: 'T12914' },
+    {
+      table: 'tasks_release_commits',
+      kind: 'natural',
+      key: ['release_id', 'commit_sha'],
+      keyRefs: [{ column: 'release_id', table: RELEASES }],
+      task: 'T12914',
+    },
+    {
+      table: 'tasks_release_changes',
+      kind: 'natural',
+      key: ['release_id', 'task_id', 'change_type'],
+      keyRefs: [{ column: 'release_id', table: RELEASES }],
+      localWhenNull: ['task_id'],
+      localKey: 'id',
+      task: 'T12914',
+    },
+    {
+      table: 'tasks_release_changesets',
+      kind: 'natural',
+      key: ['release_id', 'changeset_id'],
+      keyRefs: [{ column: 'release_id', table: RELEASES }],
+      localKey: 'id',
+      task: 'T12914',
+    },
+    {
+      table: 'tasks_release_artifacts',
+      kind: 'natural',
+      key: ['release_id', 'artifact_type', 'identifier'],
+      keyRefs: [{ column: 'release_id', table: RELEASES }],
+      task: 'T12914',
+    },
+    {
+      table: PULL_REQUESTS,
+      kind: 'natural',
+      key: ['repo_url', 'pr_number'],
+      localKey: 'id',
+      task: 'T12914',
+    },
+    {
+      table: 'tasks_pr_commits',
+      kind: 'natural',
+      key: ['pr_id', 'commit_sha'],
+      keyRefs: [{ column: 'pr_id', table: PULL_REQUESTS }],
+      task: 'T12914',
+    },
+    {
+      table: 'tasks_pr_tasks',
+      kind: 'natural',
+      key: ['pr_id', 'task_id', 'link_kind'],
+      keyRefs: [{ column: 'pr_id', table: PULL_REQUESTS }],
+      localWhenNull: ['task_id'],
+      task: 'T12914',
+    },
+    { table: COMMITS, kind: 'natural', key: ['sha'], task: 'T12914' },
+    {
+      table: 'tasks_commit_files',
+      kind: 'natural',
+      key: ['commit_sha', 'path'],
+      keyRefs: [{ column: 'commit_sha', table: COMMITS }],
+      task: 'T12914',
+    },
+    {
+      table: 'tasks_task_commits',
+      kind: 'natural',
+      key: ['task_id', 'commit_sha', 'link_kind'],
+      keyRefs: [{ column: 'commit_sha', table: COMMITS }],
+      localWhenNull: ['task_id'],
+      task: 'T12914',
+    },
+  ];
+}
+
+/**
+ * The logs every command writes (T13777), project scope. Portable, so every
+ * vault snapshot lists them; without row identity the change journal never
+ * carried them, and a journal checkpoint could not account for their rows on
+ * any real store (T12999 staging, 2026-10-16).
+ *
+ * - `tasks_audit_log`: both audits (task mutations, and since T13777 part 2
+ *   the dispatch audit, which the twin collapse drains out of the bare
+ *   `audit_log`), natural over the id (a UUID, or `log-<ms>-<hex>`) with no
+ *   refs: task and session ids stay raw. The uid is a pure function of the id,
+ *   so a drained row keeps it. The bare `audit_log` stays exempt as a drained
+ *   twin, as `token_usage` does.
+ * - `tasks_token_usage`: a UUID id, so natural over it. Its session and task
+ *   ids are soft (a session or task that never syncs must not hold the row
+ *   pending) and stay raw. The bare `token_usage` drains into it (T13115) and
+ *   stays exempt as a twin.
+ * - `tasks_session_handoff_entries`: one write-once row per session, keyed by
+ *   its INTEGER id locally (which never travels), so natural over the session
+ *   it belongs to: a hard FK, so it travels as the session's uid. Its
+ *   write-once guard covers the content columns only, so the uid can be filled.
+ *   The legacy DDL has no UNIQUE on the session, so the first row of a session
+ *   (earliest `created_at`, then lowest id) takes the uid and a later one stays
+ *   local (`localUnlessFirst`): a duplicate never wedges the fill.
+ */
+function commandLogs(): RowIdentitySpec[] {
+  return [
+    { table: 'tasks_audit_log', kind: 'natural', key: ['id'], task: 'T13777' },
+    { table: 'tasks_token_usage', kind: 'natural', key: ['id'], task: 'T13777' },
+    {
+      table: 'tasks_session_handoff_entries',
+      kind: 'natural',
+      key: ['session_id'],
+      keyRefs: [{ column: 'session_id', table: SESSIONS }],
+      localUnlessFirst: ['created_at', 'id'],
+      task: 'T13777',
     },
   ];
 }
@@ -515,28 +785,16 @@ export const ROW_IDENTITY: Readonly<Record<TableScope, readonly RowIdentitySpec[
       keyRefs: [{ column: 'attachment_id', table: DOCS_ATTACHMENTS }],
       task: 'T12919',
     },
+    ...lifecycleReleaseGit(),
+    ...commandLogs(),
+    ...brainSticky(),
+    ...playbooks(),
   ],
   global: [
     ...brainTextKeyed(),
     ...brainNaturalKeyed('global'),
     ...brainIntegerKeyed(),
-    {
-      // The global store has no bare sticky twin (the project table waits on
-      // the T12535 collapse). `SN-###` ids are counter-allocated.
-      table: 'brain_sticky_notes',
-      kind: 'minted',
-      key: ['id'],
-      birth: 'created_at',
-      birthFacts: ['content'],
-      task: 'T12894',
-    },
-    {
-      table: 'brain_sticky_tags',
-      kind: 'natural',
-      key: ['sticky_id', 'tag'],
-      keyRefs: [{ column: 'sticky_id', table: 'brain_sticky_notes' }],
-      task: 'T12895',
-    },
+    ...brainSticky(),
     {
       // T12915: one agent per slug (`agent_id`, UNIQUE), and seed-install creates
       // the same slug on every machine, so the slug is the natural key. The
@@ -582,6 +840,9 @@ export const ROW_IDENTITY: Readonly<Record<TableScope, readonly RowIdentitySpec[
       ],
       task: 'T13467',
     },
+    // The Nexus audit log (T13777): a UUID id, so natural over it; the
+    // project and session ids are soft and stay raw.
+    { table: 'nexus_audit_log', kind: 'natural', key: ['id'], task: 'T13777' },
   ],
 };
 
@@ -630,17 +891,6 @@ export interface RowIdentityExemption {
   readonly task: string;
 }
 
-/** Kept from the T12341 pending reasons: the sticky tables go together. */
-const STICKY_REASON =
-  'the degraded-mode TEMP shadow tables in store/twin-collapse.ts declare its columns and must carry uid first; that file is being edited by twin-collapse slice 2 (T12535)';
-
-/** The project sticky tables wait on the twin collapse itself (#1764 review L5). */
-const STICKY_TWIN: RowIdentityExemption = {
-  category: 'twin-collapse',
-  reason: STICKY_REASON,
-  task: 'T12535',
-};
-
 const TWIN: RowIdentityExemption = {
   category: 'twin-collapse',
   reason:
@@ -658,7 +908,6 @@ function cluster(task: string): RowIdentityExemption {
 }
 
 const CONDUIT = cluster('T12913');
-const LIFECYCLE_RELEASE_GIT = cluster('T12914');
 const NEXUS_REGISTRY = cluster('T12916');
 const SKILLS = cluster('T12917');
 const PROJECT_MISC = cluster('T12920');
@@ -669,6 +918,24 @@ function exempt(
 ): Record<string, RowIdentityExemption> {
   return Object.fromEntries(tables.map((table) => [table, exemption]));
 }
+
+/**
+ * Bare tables the twin collapse DRAINS into their prefixed twin (T13115,
+ * T13777), bare name → twin name. Kept here, a module every open already loads, so
+ * the bare-twin strand check (`sync/flags.ts`) adds nothing to the CLI's
+ * startup graph (gate 39).
+ *
+ * A drained bare table is the inbox of rows an older build writes: every open
+ * moves them into the twin losslessly, and a row the drain must leave behind
+ * is reported by `cleo doctor twin-collapse`. So its rows are never a legacy
+ * strand that should refuse capture or sealing: the next open carries them.
+ *
+ * @task T13777
+ */
+export const DRAINED_TWINS: Readonly<Record<string, string>> = {
+  token_usage: 'tasks_token_usage',
+  audit_log: 'tasks_audit_log',
+};
 
 /**
  * Every syncing table WITHOUT a {@link ROW_IDENTITY} entry, with the reason it
@@ -699,19 +966,13 @@ export const ROW_IDENTITY_EXEMPT: Readonly<
         'architecture_decisions',
         'tasks_architecture_decisions',
         'audit_log',
-        'tasks_audit_log',
         'experiments',
         'tasks_experiments',
         'manifest_entries',
         'docs_manifest_entries',
         'pipeline_manifest',
         'docs_pipeline_manifest',
-        'playbook_approvals',
-        'tasks_playbook_approvals',
-        'playbook_runs',
-        'tasks_playbook_runs',
         'token_usage',
-        'tasks_token_usage',
         'warp_chains',
         'tasks_warp_chains',
         'warp_chain_instances',
@@ -720,8 +981,6 @@ export const ROW_IDENTITY_EXEMPT: Readonly<
       ],
       TWIN,
     ),
-    brain_sticky_notes: STICKY_TWIN,
-    brain_sticky_tags: STICKY_TWIN,
     brain_v2_candidate: {
       category: 'twin-collapse',
       reason:
@@ -743,27 +1002,6 @@ export const ROW_IDENTITY_EXEMPT: Readonly<
     ),
     ...exempt(
       [
-        'tasks_commit_files',
-        'tasks_commits',
-        'tasks_lifecycle_evidence',
-        'tasks_lifecycle_gate_results',
-        'tasks_lifecycle_pipelines',
-        'tasks_lifecycle_stages',
-        'tasks_lifecycle_transitions',
-        'tasks_pr_commits',
-        'tasks_pr_tasks',
-        'tasks_pull_requests',
-        'tasks_release_artifacts',
-        'tasks_release_changes',
-        'tasks_release_changesets',
-        'tasks_release_commits',
-        'tasks_releases',
-        'tasks_task_commits',
-      ],
-      LIFECYCLE_RELEASE_GIT,
-    ),
-    ...exempt(
-      [
         'nexus_relation_weights',
         'pi_session_entries',
         'pi_session_leaf',
@@ -774,7 +1012,6 @@ export const ROW_IDENTITY_EXEMPT: Readonly<
         'tasks_agent_credentials',
         'tasks_external_task_links',
         'tasks_goal',
-        'tasks_session_handoff_entries',
         'tasks_task_work_history',
       ],
       PROJECT_MISC,
@@ -783,7 +1020,6 @@ export const ROW_IDENTITY_EXEMPT: Readonly<
   global: {
     ...exempt(
       [
-        'nexus_audit_log',
         'nexus_devices',
         'nexus_project_git_state',
         'nexus_project_id_aliases',
@@ -816,7 +1052,12 @@ export const ROW_IDENTITY_EXEMPT: Readonly<
  * credential tables (4 global), and T12919 the doc registry and its refs
  * (2 project; docs_wikilinks became derived and not syncing), and T13729
  * reclassified brain_embeddings derived in both scopes (owner decision
- * 2026-10-14: vectors are a local cache), closing the T12918 blob exemption
+ * 2026-10-14: vectors are a local cache), closing the T12918 blob exemption,
+ * and T12914 the lifecycle, release, PR and commit tables (16 project),
+ * and T13777 declared the command logs (3 project: the audit log, token
+ * usage, handoff entries; 1 global: the Nexus audit log),
+ * and T12535 the project sticky tables and the playbook tables (2 + 4
+ * project: the bare playbook twins became frozen-legacy and not syncing)
  * ({@link rowIdentityExemptionSummary} prints the live numbers):
  *
  * | category             | task   | project | global |
@@ -825,18 +1066,18 @@ export const ROW_IDENTITY_EXEMPT: Readonly<
  * | planned              | T12895 | 0       | 0      |
  * | planned              | T12896 | 2       | 1      |
  * | planned (conduit)    | T12913 | 8       | 0      |
- * | planned (lifecycle…) | T12914 | 16      | 0      |
- * | planned (nexus)      | T12916 | 0       | 8      |
+ * | planned (lifecycle…) | T12914 | 0       | 0      |
+ * | planned (nexus)      | T12916 | 0       | 7      |
  * | planned (skills)     | T12917 | 0       | 4      |
- * | planned (misc)       | T12920 | 12      | 0      |
- * | twin-collapse        | T12535 | 30      | 0      |
- * | total                |        | 66      | 12     |
+ * | planned (misc)       | T12920 | 11      | 0      |
+ * | twin-collapse        | T12535 | 22      | 0      |
+ * | total                |        | 41      | 11     |
  *
  * @task T12897
  */
 export const ROW_IDENTITY_EXEMPT_PINNED: Readonly<Record<TableScope, number>> = {
-  project: 66,
-  global: 12,
+  project: 41,
+  global: 11,
 };
 
 /**
@@ -848,8 +1089,8 @@ export const ROW_IDENTITY_EXEMPT_PINNED: Readonly<Record<TableScope, number>> = 
  * @task T12897
  */
 export const ROW_IDENTITY_EXEMPT_NAMES_SHA256: Readonly<Record<TableScope, string>> = {
-  project: 'c4832469c6cd06dfb4623accf86ba5d26fabeff8b2aa282d6131e5555cbf7897',
-  global: '09b63cf1df7591f9320e4f540c0df9a717008a7a80c17b38ef2729f09ea5f618',
+  project: '7084ba7ec76d64abe52b5b1e1cbade75708d43814b82b215f4d2156a8f1ca530',
+  global: '2c46fe6fed00b5e15dc9323b48d448d51d2f475fe6c9480703830efb0dc63cfb',
 };
 
 /**

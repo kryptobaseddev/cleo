@@ -1147,6 +1147,134 @@ describe('batch close: several tasks shipped by one PR (T12628)', () => {
     expect(writes.every((w) => !('sharedEvidence' in w))).toBe(true);
   });
 
+  /**
+   * T13785 (VidaPeps T1305): a parent whose work was split across three
+   * children, each merged as its own PR citing the child and the parent.
+   */
+  async function splitParent(childrenDone: boolean) {
+    const parent = await seedTask(['Change src/a.ts to return 2'], 'Split parent T13785');
+    const children: string[] = [];
+    const prs: Array<{ number: number; title: string; body: string; headRefName: string }> = [];
+    const merges = new Map<number, { sha: string; path: string }>();
+    for (const [i, name] of ['b', 'c', 'd'].entries()) {
+      // The first child moves the parent's own text criterion into a child of
+      // its own (PM-Core V2 design-point 3): the parent is a pure container.
+      const added = await addTask(
+        {
+          title: `Split child ${name} of the parent`,
+          description: `seeded child ${name} for the split-parent path`,
+          acceptance: [`Add src/${name}.ts`],
+          parentId: parent,
+          autoDecompose: true,
+          skipContainmentInvariant: true,
+        },
+        root,
+        env.accessor,
+      );
+      const child = added.task.id;
+      if (added.autoDecomposed?.childId)
+        await env.accessor.updateTaskFields(added.autoDecomposed.childId, {
+          status: 'done',
+          pipelineStage: 'contribution',
+        });
+      children.push(child);
+      const branch = `task/${child}`;
+      git(root, ['switch', '-q', '-c', branch]);
+      writeFileSync(join(root, 'src', `${name}.ts`), `export const ${name} = 1;\n`);
+      if (name === 'b') writeFileSync(join(root, 'src', 'a.ts'), 'export const a = 2;\n');
+      git(root, ['add', '.']);
+      git(root, ['commit', '-q', '-m', `${child}: part ${name}`]);
+      git(root, ['switch', '-q', 'main']);
+      git(root, ['merge', '-q', '--squash', branch]);
+      const number = 50 + i;
+      const title = `fix(${child}): part ${name} of ${parent} (#${number})`;
+      git(root, ['commit', '-q', '-m', title]);
+      const sha = git(root, ['rev-parse', 'HEAD']);
+      const path = name === 'b' ? 'src/a.ts,src/b.ts' : `src/${name}.ts`;
+      seedPrCache(number, title, sha, path.split(','));
+      merges.set(number, { sha, path });
+      prs.push({ number, title, body: '', headRefName: branch });
+      if (childrenDone || name !== 'd')
+        await env.accessor.updateTaskFields(child, {
+          status: 'done',
+          pipelineStage: 'contribution',
+        });
+    }
+    const prDeps: ChangeSetDeps = {
+      ...deps,
+      listMergedPrs: async () => ({ ok: true, prs }),
+      viewPr: async (n) => ({
+        number: n,
+        title: prs.find((p) => p.number === n)?.title ?? '',
+        headRefName: prs.find((p) => p.number === n)?.headRefName ?? '',
+        baseRefName: 'main',
+        state: 'MERGED',
+        mergedAt: '2026-09-28T00:00:00Z',
+        headRefOid: null,
+        mergeCommitSha: merges.get(n)?.sha ?? null,
+      }),
+      findPrByHead: async () => null,
+      resolvePr: async (n) => {
+        const paths = (merges.get(n)?.path ?? '').split(',');
+        return {
+          ok: true,
+          prNumber: n,
+          mergeCommitSha: merges.get(n)?.sha ?? '',
+          mergedAt: '2026-09-28T00:00:00Z',
+          successCount: 1,
+          totalChecks: 1,
+          cacheHit: true,
+          title: prs.find((p) => p.number === n)?.title ?? '',
+          body: '',
+          headRefName: prs.find((p) => p.number === n)?.headRefName ?? '',
+          changedPaths: paths,
+          changedFileCount: paths.length,
+        };
+      },
+    };
+    return { parent, children, prDeps };
+  }
+
+  it('T13785: a parent with three done children, each citing a PR, plans and completes without pr-ambiguous', async () => {
+    const { parent, prDeps } = await splitParent(true);
+    const writes: Array<Record<string, unknown>> = [];
+    const r = await recordTaskDone(
+      parent,
+      opts({
+        deps: prDeps,
+        steps: {
+          runTool: async () => ({
+            exitCode: 0,
+            cacheHit: false,
+            durationMs: 0,
+            timedOut: false,
+            tail: '',
+          }),
+          write: async (store, params) => {
+            writes.push(params);
+            const v = await validateGateVerify(store, params);
+            return v.success ? { success: true, data: { passed: v.data.passed } } : v;
+          },
+        },
+      }),
+    );
+    expect(r.success, JSON.stringify(r.success ? '' : r.error)).toBe(true);
+    const implemented = (writes[0]?.['gateEvidence'] as Record<string, string[]>)['implemented'];
+    expect(implemented?.map((ev) => ev.split(';satisfies:')[0])).toEqual([
+      'pr:50;files:src/a.ts,src/b.ts',
+      'pr:51;files:src/c.ts',
+      'pr:52;files:src/d.ts',
+    ]);
+    await completeTask({ taskId: parent }, root, env.accessor);
+    expect((await env.accessor.loadSingleTask(parent))?.status).toBe('done');
+  });
+
+  it('T13785: a PR of a child that is not done keeps the candidates ambiguous', async () => {
+    const { parent, prDeps } = await splitParent(false);
+    const r = await recordTaskDone(parent, opts({ deps: prDeps }));
+    expect(!r.success && (r.error.details as DoneBlockedDetails).blocker).toBe('pr-ambiguous');
+  });
+
   it('a task shipped in two own-branch PRs records one implemented attempt per PR, the earlier first (D11151)', async () => {
     const id = await seedTask(['Change src/a.ts to return 2']);
     git(root, ['switch', '-q', '-c', `task/${id}`]);

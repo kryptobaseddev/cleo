@@ -2,7 +2,7 @@
 import { execFileSync, spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { existsSync } from 'node:fs';
-import { lstat, realpath, rmdir, unlink } from 'node:fs/promises';
+import { lstat, mkdir, realpath, rmdir, unlink } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import {
@@ -580,6 +580,128 @@ async function validateStateDirectory(options: ProjectHookDeliveryOptions): Prom
     throw new Error('HOOK_STATE_DIRECTORY_INVALID');
 }
 
+/**
+ * Providers that read a linked worktree's project hooks from the root checkout. Codex replaces a
+ * worktree layer's hooks with the matching root-checkout `.codex` folder, and discovers that layer
+ * only when the worktree has its own `.codex` directory (codex-rs `merge_root_checkout_project_hooks`).
+ */
+const ROOT_CHECKOUT_HOOK_PROVIDERS = new Set(['codex']);
+
+/** Root-checkout delivery options when `projectRoot` is a linked worktree, mirroring Codex's root check. */
+async function rootCheckoutOptions(
+  options: ProjectHookDeliveryOptions,
+): Promise<ProjectHookDeliveryOptions | undefined> {
+  const git = (cwd: string, ...args: string[]): string | undefined => {
+    try {
+      return execFileSync('git', ['-C', cwd, 'rev-parse', ...args], {
+        encoding: 'utf8',
+        timeout: 2000,
+        maxBuffer: 16384,
+        stdio: ['ignore', 'pipe', 'ignore'],
+        env: options.services.gitEnvironment,
+      }).trim();
+    } catch {
+      return undefined;
+    }
+  };
+  const common = git(options.projectRoot, '--path-format=absolute', '--git-common-dir');
+  const gitDir = git(options.projectRoot, '--path-format=absolute', '--git-dir');
+  if (!common || !gitDir || (await realpath(common)) === (await realpath(gitDir))) return undefined;
+  // Like Codex, only a root whose own .git resolves to the shared common directory counts.
+  const rootGitDir = git(dirname(common), '--path-format=absolute', '--git-dir');
+  const root = git(dirname(common), '--show-toplevel');
+  const stateDir = git(
+    dirname(common),
+    '--path-format=absolute',
+    '--git-path',
+    'cleo-project-hooks',
+  );
+  if (
+    !rootGitDir ||
+    !root ||
+    !stateDir ||
+    (await realpath(rootGitDir)) !== (await realpath(common))
+  )
+    return undefined;
+  return { ...options, projectRoot: root, stateDir: resolve(root, stateDir) };
+}
+
+/** Run one provider delivery under its receipt lock (dry runs write no lock file). */
+function deliverLocked(
+  options: ProjectHookDeliveryOptions,
+  provider: string,
+): Promise<ProjectHookDeliveryResult> {
+  return options.dryRun
+    ? deliverProvider(options, provider)
+    : withFileLock(join(options.stateDir, 'provider-' + provider + '.json'), () =>
+        deliverProvider(options, provider),
+      );
+}
+
+/** Deliver into the root checkout the provider reads, keeping the worktree discoverable (T13772). */
+async function deliverFromLinkedWorktree(
+  worktree: ProjectHookDeliveryOptions,
+  root: ProjectHookDeliveryOptions,
+  provider: string,
+): Promise<ProjectHookDeliveryResult> {
+  const configPath = GENERATED_PROVIDER_HOOK_PROFILES[provider]?.projectDelivery?.configPath;
+  if (!configPath) return deliverLocked(worktree, provider);
+  // Earlier releases wrote worktree-local entries the provider never reads; undo them by receipt.
+  if (!worktree.dryRun && existsSync(join(worktree.stateDir, 'provider-' + provider + '.json')))
+    await deliverLocked({ ...worktree, rollback: true }, provider);
+  const folder = await localTarget(worktree.projectRoot, dirname(configPath));
+  if (worktree.rollback) {
+    // The root entry also serves the root checkout and sibling worktrees, so it stays; this
+    // worktree's disabled activation already makes it a no-op here. rmdir keeps foreign files.
+    if (!worktree.dryRun) await rmdir(folder).catch(() => undefined);
+    return {
+      provider,
+      state: 'disabled',
+      capability: 'unverified',
+      nativeTrust: 'unverified',
+      provenance: 'unknown',
+      diagnostics: ['HOOK_ROOT_CHECKOUT_ENTRY_RETAINED'],
+    };
+  }
+  // The root entry serves the root checkout and every sibling, so a worktree only grows it;
+  // shrinking stays with a root sync or root disable. Extra events are inert in a checkout
+  // whose own activation does not bind them.
+  if (worktree.events.length === 0)
+    return {
+      provider,
+      state: 'unsupported',
+      capability: 'unverified',
+      nativeTrust: 'unverified',
+      provenance: 'unknown',
+      diagnostics: ['HOOK_NO_AGENT_BINDINGS', 'HOOK_ROOT_CHECKOUT_ENTRY_RETAINED'],
+    };
+  const receiptPath = join(root.stateDir, 'provider-' + provider + '.json');
+  const deliver = async (): Promise<ProjectHookDeliveryResult> => {
+    const prior = await receiptAt(receiptPath, root.services);
+    const delivered = (prior?.entries ?? []).flatMap(
+      (item) => /--event ([A-Za-z][A-Za-z0-9]*)/.exec(item.command)?.[1] ?? [],
+    );
+    return deliverProvider(
+      {
+        ...root,
+        events: [...new Set([...delivered, ...worktree.events])],
+        enabled: worktree.enabled,
+        dryRun: worktree.dryRun,
+      },
+      provider,
+    );
+  };
+  const result = worktree.dryRun ? await deliver() : await withFileLock(receiptPath, deliver);
+  result.diagnostics.push('HOOK_ROOT_CHECKOUT_DELIVERY');
+  if (
+    !worktree.dryRun &&
+    (result.state === 'installed' || result.state === 'current') &&
+    !existsSync(folder)
+  )
+    await mkdir(folder);
+  return result;
+}
+
 /** Inspect or sync only project-local entries; no provider trust settings are written. */
 export async function syncProjectHookProviders(
   options: ProjectHookDeliveryOptions,
@@ -606,12 +728,14 @@ export async function syncProjectHookProviders(
       )
         throw new Error('HOOK_PROVIDER_INVALID');
       await validateStateDirectory(options);
+      const root = ROOT_CHECKOUT_HOOK_PROVIDERS.has(provider)
+        ? await rootCheckoutOptions(options)
+        : undefined;
+      if (root) await validateStateDirectory(root);
       outcomes.push(
-        options.dryRun
-          ? await deliverProvider(options, provider)
-          : await withFileLock(join(options.stateDir, 'provider-' + provider + '.json'), () =>
-              deliverProvider(options, provider),
-            ),
+        root
+          ? await deliverFromLinkedWorktree(options, root, provider)
+          : await deliverLocked(options, provider),
       );
     } catch (error) {
       outcomes.push({

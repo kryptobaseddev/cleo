@@ -286,6 +286,13 @@ describe('the degraded sticky shadow follows tags_json', () => {
     expect(
       db.prepare('SELECT tag FROM temp.brain_sticky_tags WHERE sticky_id = ?').all(note.id),
     ).toEqual([{ tag: 'from-json' }]);
+    // The shadow has the twin's shape, uid included (T12535: the table syncs).
+    const cols = (s: string) =>
+      (db.prepare(`PRAGMA ${s}.table_info(brain_sticky_tags)`).all() as Array<{ name: string }>)
+        .map((c) => c.name)
+        .sort();
+    expect(cols('temp')).toEqual(cols('main'));
+    expect(cols('temp')).toContain('uid');
     expect((await listStickies({ tags: ['from-json'] }, projectDir)).map((n) => n.id)).toEqual([
       note.id,
     ]);

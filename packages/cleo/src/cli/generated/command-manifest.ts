@@ -752,7 +752,7 @@ export const COMMAND_MANIFEST: readonly CommandManifestEntry[] = [
     exportName: 'goalCommand',
     name: 'goal',
     description:
-      'DB-persisted, per-agent, evidence-gate-aware goal loop (set/status/advance/subgoal/append).',
+      'Goal protocol verbs for the goal runtime (OpenCode-Goal): draft a goal/v1 contract from task ACs, close a run from its outcome.',
     load: async () => (await import('../commands/goal.js')).goalCommand as CommandDef,
   },
   {

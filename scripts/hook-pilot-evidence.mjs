@@ -197,6 +197,22 @@ function boundedJson(path) {
   return JSON.parse(boundedBytes(path).toString('utf8'));
 }
 
+/** Read a hash-bound regular receipt without escaping the retained evidence directory.
+ * @param {string} proofRoot
+ * @param {import('../packages/contracts/src/release/hook-pilot.js').HookPilotProofReference} reference
+ * @returns {Buffer}
+ */
+function retainedBytes(proofRoot, reference) {
+  const path = realpathSync(resolve(proofRoot, reference.path));
+  const inside = relative(proofRoot, path);
+  if (inside.startsWith('..') || isAbsolute(inside))
+    throw new Error('Promotion held: proof escapes retained artifact.');
+  const bytes = boundedBytes(path);
+  if (createHash('sha256').update(bytes).digest('hex') !== reference.sha256)
+    throw new Error('Promotion held: proof hash changed.');
+  return bytes;
+}
+
 /** Read an authoritative GitHub Actions response; unavailable or malformed responses hold promotion.
  * @param {string} endpoint
  * @returns {string}
@@ -221,6 +237,7 @@ export async function validateHookPilotEvidence(options) {
     HookPilotProofSchema,
     HookPilotHostedRunSchema,
     HookPilotHostedJobsSchema,
+    HookPilotNativeReceiptSchema,
   } = await import('../packages/contracts/dist/release/hook-pilot.js');
   const evidence = HookPilotEvidenceSchema.parse(boundedJson(options.evidencePath));
   if (evidence.vidaRepository.toLowerCase() !== options.vidaRepository.toLowerCase())
@@ -229,21 +246,20 @@ export async function validateHookPilotEvidence(options) {
   const canaryBase = evidence.canaryVersion.split('-canary.')[0];
   if (!/^\d{4}\.\d+\.\d+$/.test(stableVersion) || compareVersions(stableVersion, canaryBase) < 0)
     throw new Error('Promotion held: target must be a stable version at or after the canary base.');
+  // T13818: keep the released 10.17 evidence auditable, never reuse its counts-only format
+  // for a later promotion. A new source digest alone cannot grandfather a v1 proof.
+  if (compareVersions(stableVersion, '2026.10.17') > 0 && evidence.schemaVersion !== 2)
+    throw new Error('Promotion held: schema version 2 native evidence required after 2026.10.17.');
   const source = implementationSourceDigest(options.root);
   if (source.digest !== evidence.sourceDigest)
     throw new Error('Promotion held: implementation changed since pilot.');
   const proofRoot = realpathSync(dirname(resolve(options.evidencePath)));
   for (const check of HOOK_PILOT_CHECKS) {
     const reference = evidence.checks[check];
-    const proofPath = realpathSync(resolve(proofRoot, reference.path));
-    const inside = relative(proofRoot, proofPath);
-    if (inside.startsWith('..') || isAbsolute(inside))
-      throw new Error('Promotion held: proof escapes retained artifact.');
-    const proofBytes = boundedBytes(proofPath);
-    if (createHash('sha256').update(proofBytes).digest('hex') !== reference.sha256)
-      throw new Error('Promotion held: proof hash changed.');
+    const proofBytes = retainedBytes(proofRoot, reference);
     const proof = HookPilotProofSchema.parse(JSON.parse(proofBytes.toString('utf8')));
     if (
+      proof.schemaVersion !== evidence.schemaVersion ||
       proof.check !== check ||
       proof.canaryVersion !== evidence.canaryVersion ||
       proof.sourceDigest !== evidence.sourceDigest ||
@@ -266,6 +282,34 @@ export async function validateHookPilotEvidence(options) {
     } else if (check === 'liveClaude' || check === 'liveCodex') {
       if (proof.mode !== 'live-harness' || !proof.ordinaryCommands || !proof.disposablePushes)
         throw new Error('Promotion held: live ordinary-command and disposable-push proof missing.');
+      if (evidence.schemaVersion === 2) {
+        const native = proof.native;
+        if (!native) throw new Error('Promotion held: native agent receipt missing.');
+        const receipt = HookPilotNativeReceiptSchema.parse(
+          JSON.parse(retainedBytes(proofRoot, native.receipt).toString('utf8')),
+        );
+        if (
+          receipt.event !== native.receipt.event ||
+          receipt.recordedAt !== native.receipt.recordedAt ||
+          receipt.sessionId !== native.sessionId ||
+          receipt.sessionId !== native.receipt.sessionId ||
+          receipt.harness !== native.receipt.harness ||
+          receipt.harness !== (check === 'liveClaude' ? 'claude-code' : 'codex')
+        )
+          throw new Error('Promotion held: native agent receipt identity mismatch.');
+        const start = Date.parse(native.startedAt);
+        const end = Date.parse(native.endedAt);
+        const recorded = Date.parse(receipt.recordedAt);
+        if (start > end || recorded < start || recorded > end)
+          throw new Error('Promotion held: native receipt outside session window.');
+        if (native.trust.mode !== 'persisted' || native.trust.home !== 'isolated')
+          throw new Error(
+            'Promotion held: persisted native trust in an isolated home required; other trust is diagnostic only.',
+          );
+        if (native.contextEvidence) retainedBytes(proofRoot, native.contextEvidence);
+        if (check === 'liveCodex' && native.checkout !== 'linked-worktree')
+          throw new Error('Promotion held: native Codex linked-worktree delivery required.');
+      }
     } else if (
       proof.mode !== 'hosted-ci' ||
       proof.hostedRunId !== evidence.hostedRunId ||

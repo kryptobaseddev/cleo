@@ -13,7 +13,13 @@
  *       tree was modified, deleted or moved after the run (edit, run the
  *       tests, commit, then verify). Any other commit after the run is
  *       refused — a rebase onto a newer base included, since it rewrites the
- *       files it brings in — so bind the report before committing, or re-run;
+ *       files it brings in — so bind the report before committing, or re-run.
+ *       One exception (T13784, `test-run:` only): on the default branch, when
+ *       HEAD is on origin's default branch and HEAD as of the run is its
+ *       ancestor, the commits after the run are main moving on, not the
+ *       change; the atom records HEAD as of the run (`runHeadSha`), and the
+ *       post-merge stand-in refuses it when those commits touched the
+ *       change's files or the test files it ran;
  *     - the newest working-tree modification of any path the branch changed
  *       against origin's default branch (committed, uncommitted or untracked;
  *       the report itself excluded) — or, with no origin to diff against, any
@@ -67,8 +73,11 @@
 import { execFileSync } from 'node:child_process';
 import { existsSync, realpathSync, statSync } from 'node:fs';
 import { dirname, isAbsolute, relative, resolve } from 'node:path';
+import type { EvidenceAtom } from '@cleocode/contracts';
 import { discoveryEnv } from '../git/work-tree.js';
 import {
+  cleoConfigSchemaFor,
+  dependentsClosure,
   deriveAffectedPackages,
   inPackageDir,
   listWorkspacePackages,
@@ -76,6 +85,7 @@ import {
   type ScopedChangedPaths,
   scopedChangedPaths,
   TEST_FILE,
+  typecheckOnlyPackages,
   type WorkspacePackage,
 } from './affected-packages.js';
 
@@ -363,8 +373,18 @@ function deletedAfterRun(
  */
 function committedAfterRunUnseen(root: string, clock: RunClock): string | null {
   const atRun = headAtRunFor(root, clock);
-  if (atRun === null)
-    return 'HEAD as of the run is not in the reflog, so what the run saw is unknown';
+  if (atRun === null) {
+    // T13702: name the reflog read. It is the one of the worktree holding the
+    // report, so a receipt copied into another worktree is judged there.
+    const tree = reportWorktree(root, clock.reportPath) ?? root;
+    const log =
+      git(tree, ['rev-parse', '--path-format=absolute', '--git-path', 'logs/HEAD'])?.trim() ||
+      'its HEAD reflog';
+    return (
+      `HEAD as of the run is not in the reflog of ${tree} (${log}), so what the run saw is unknown. ` +
+      'The reflog read is that of the worktree holding the report: keep a receipt in the worktree it ran in'
+    );
+  }
   const differing = git(root, ['diff', '--name-only', '--no-renames', atRun]);
   if (differing === null)
     return `git could not diff ${atRun.slice(0, 12)} against the working tree`;
@@ -380,6 +400,20 @@ function committedAfterRunUnseen(root: string, clock: RunClock): string | null {
     return `${removed.path} was deleted or moved at ${new Date(removed.at).toISOString()}, after the run`;
   }
   return null;
+}
+
+/**
+ * HEAD as of the run, when every commit made after it is one that landed on
+ * origin's default branch (T13784): HEAD is contained in origin's default
+ * branch and HEAD as of the run is an ancestor of it — a pull of main, not a
+ * commit of the change. Null otherwise.
+ */
+function landedSinceRun(root: string, clock: RunClock): string | null {
+  const head = git(root, ['rev-parse', 'HEAD'])?.trim();
+  if (!head || originDefaultMergeBase(root)?.trim() !== head) return null;
+  const atRun = headAtRunFor(root, clock);
+  if (atRun === null || atRun === head) return null;
+  return git(root, ['merge-base', '--is-ancestor', atRun, head]) === null ? null : atRun;
 }
 
 /** The first package (of `packages`, longest directory first) whose directory holds `path`. */
@@ -457,6 +491,12 @@ export type TestRunBinding =
       ok: true;
       /** Affected packages with no test file, which no report could cover (sorted). */
       untestedPackages: string[];
+      /** HEAD as of the run, when main moved on after it ({@link ReportFreshness}, T13784). */
+      runHeadSha?: string;
+      /** Changed CLEO config left to `tool:config-schema` (T13778). */
+      configPaths?: string[];
+      /** Dependents of a declared generated package left to a typecheck (T13783). */
+      typecheckDirs?: string[];
     };
 
 /** What the freshness check of a report or receipt decided. */
@@ -473,6 +513,13 @@ export type ReportFreshness =
       judged: boolean;
       /** The change's scoped paths, or null outside git / with no origin. */
       changes: ScopedChangedPaths | null;
+      /**
+       * HEAD as of the run, when the only commits after it landed on origin's
+       * default branch (T13784, `test-run` only): the run did not see them, so
+       * the atom records it and the post-merge stand-in refuses the report when
+       * they touched the change's files or the tests it ran.
+       */
+      runHeadSha?: string;
     };
 
 /**
@@ -515,8 +562,13 @@ export function reportFreshness(
       : 'Re-run the check and record the fresh receipt (write receipts to a gitignored path or outside the checkout).';
 
   const commit = newestChangeCommit(root);
+  let runHeadSha: string | undefined;
   if (commit !== null && clock.after(commit.at)) {
-    const unseen = committedAfterRunUnseen(root, clock);
+    // T13784: on the default branch, main moving on after the run is not the
+    // change. Record HEAD as of the run; what those commits touched is judged
+    // against the change's own files when the report stands in after merge.
+    runHeadSha = (atom === 'test-run' ? landedSinceRun(root, clock) : null) ?? undefined;
+    const unseen = runHeadSha ? null : committedAfterRunUnseen(root, clock);
     if (unseen !== null) {
       return stale(
         staleRefusal(
@@ -549,7 +601,7 @@ export function reportFreshness(
       ),
     );
   }
-  return { ok: true, judged: true, changes };
+  return { ok: true, judged: true, changes, ...(runHeadSha ? { runHeadSha } : {}) };
 }
 
 /**
@@ -573,6 +625,7 @@ export function bindTestRunReport(
   const fresh = reportFreshness(report.startTime, reportPath, root, 'test-run');
   if (!fresh.ok) return fresh;
   if (!fresh.judged) return { ok: true, untestedPackages: [] };
+  const run = fresh.runHeadSha ? { runHeadSha: fresh.runHeadSha } : {};
   const changes = fresh.changes;
   const changed = changes?.paths ?? null;
   const refuse = (reason: string): TestRunBinding => ({
@@ -589,8 +642,9 @@ export function bindTestRunReport(
         'so a test-run report cannot speak for it. Record tool:test, or ci:<pr> once the PR merges.',
     );
   }
-  if (changed === null || changed.length === 0) return { ok: true, untestedPackages: [] };
-  return testRunCoversChange(root, changed, testFiles);
+  if (changed === null || changed.length === 0) return { ok: true, untestedPackages: [], ...run };
+  const covered = testRunCoversChange(root, changed, testFiles);
+  return covered.ok ? { ...covered, ...run } : covered;
 }
 
 /**
@@ -599,14 +653,86 @@ export function bindTestRunReport(
  * passes the branch's diff; `cleo complete` passes a merged change's own files
  * when it judges a run recorded after the merge (T13623).
  *
+ * CLEO-owned config files are left to `tool:config-schema` (T13778): the
+ * report is judged over the rest, and a binding names them as `configPaths`,
+ * which the gate then requires a config-schema result for.
+ *
  * @param root - The checkout the test files are relative to.
  * @param changed - The change's paths, relative to `root` (non-empty).
  * @param testFiles - Test files the report ran with a passing test.
  * @returns The refusal, or the binding with the affected packages left untested.
  * @task T12965
  * @task T13623
+ * @task T13778
  */
 export function testRunCoversChange(
+  root: string,
+  changed: readonly string[],
+  testFiles: readonly string[],
+): TestRunBinding {
+  const configPaths = changed.filter((p) => cleoConfigSchemaFor(p) !== null);
+  if (configPaths.length === 0) return testRunCoversCode(root, changed, testFiles);
+  const code = changed.filter((p) => cleoConfigSchemaFor(p) === null);
+  const covered =
+    code.length === 0
+      ? { ok: true as const, untestedPackages: [] }
+      : testRunCoversCode(root, code, testFiles);
+  return covered.ok ? { ...covered, configPaths } : covered;
+}
+
+/**
+ * Why the CLEO config and the rest of a change are not covered together in
+ * one gate write (T13778), or null. A test, QA or affected run that left CLEO
+ * config to `tool:config-schema` (`configPaths`) needs a config-schema result
+ * that validated those files; a config-schema result on a change with other
+ * paths (`otherPaths`) needs another verification result for them, so a
+ * config edit never stands in for an untested source change. Merged CI
+ * (`ci:`) covers the whole change on its own.
+ *
+ * @param atoms - The validated atoms of one gate write.
+ * @returns The refusal naming the composed route, or null.
+ * @task T13778
+ */
+export function configSchemaCompositionGap(atoms: readonly EvidenceAtom[]): string | null {
+  if (atoms.some((a) => a.kind === 'ci')) return null;
+  const validated = new Set(
+    atoms.flatMap((a) => (a.kind === 'tool' && a.configSchema ? a.configSchema : [])),
+  );
+  const left = new Set(
+    atoms.flatMap((a) =>
+      a.kind === 'test-run' || a.kind === 'qa-run' || (a.kind === 'tool' && !a.configSchema)
+        ? (a.configPaths ?? [])
+        : [],
+    ),
+  );
+  const unvalidated = [...left].filter((p) => !validated.has(p));
+  if (unvalidated.length > 0)
+    return (
+      `This change also edits CLEO config (${unvalidated.join(', ')}), which no test or QA run ` +
+      'checks. Add tool:config-schema to the same write, e.g. --evidence ' +
+      '"test-run:<report>;tool:config-schema".'
+    );
+  const rest = atoms.flatMap((a) =>
+    a.kind === 'tool' && a.configSchema ? (a.otherPaths ?? []) : [],
+  );
+  const otherResult = atoms.some(
+    (a) =>
+      a.kind === 'test-run' ||
+      a.kind === 'qa-run' ||
+      (a.kind === 'tool' && !a.configSchema && a.notApplicable !== true),
+  );
+  if (rest.length > 0 && !otherResult)
+    return (
+      `tool:config-schema checks only the CLEO config of this change; the rest ` +
+      `(${[...new Set(rest)].slice(0, 5).join(', ')}${rest.length > 5 ? ', …' : ''}) needs its own ` +
+      'result in the same write: a test-run: of the changed test files for testsPassed, or ' +
+      'qa-run: receipts for qaPassed, e.g. --evidence "test-run:<report>;tool:config-schema".'
+    );
+  return null;
+}
+
+/** {@link testRunCoversChange} over a change with no CLEO config file in it. */
+function testRunCoversCode(
   root: string,
   changed: readonly string[],
   testFiles: readonly string[],
@@ -644,8 +770,36 @@ export function testRunCoversChange(
   // Longest directory first, so a file belongs to its innermost package.
   const workspace = listWorkspacePackages(root).sort((a, b) => b.dir.length - a.dir.length);
   const withTests = packagesWithTestFiles(root, workspace, changed);
-  const required = scope.packages.filter((name) => withTests.has(name));
+  // T13783 (owner decision): a dependent reached only through changed
+  // packages whose every changed path the default branch declares
+  // typecheck-only (evidence.typecheckOnlyDependents: a generated client,
+  // seed data) owes a typecheck naming it, not a test file. Its own changed
+  // source, or a path through any other changed package, keeps it owing tests.
+  const generated = typecheckOnlyPackages(root, changed, workspace);
+  const viaCode =
+    generated.size > 0
+      ? dependentsClosure(
+          workspace,
+          scope.direct.filter((name) => !generated.has(name)),
+        )
+      : null;
+  const typecheckOnly = viaCode
+    ? scope.packages.filter(
+        (name) => !scope.direct.includes(name) && !viaCode.has(name) && withTests.has(name),
+      )
+    : [];
+  const required = scope.packages.filter(
+    (name) => withTests.has(name) && !typecheckOnly.includes(name),
+  );
   const untestedPackages = scope.packages.filter((name) => !withTests.has(name));
+  const typecheck =
+    typecheckOnly.length > 0
+      ? {
+          typecheckDirs: typecheckOnly
+            .map((name) => workspace.find((p) => p.name === name)?.dir ?? name)
+            .sort(),
+        }
+      : {};
   if (required.length === 0) {
     return refuse(
       `No test file exists in the changed package(s) ${someNames(scope.direct)} or in any package ` +
@@ -659,12 +813,19 @@ export function testRunCoversChange(
     // so one test file of it says nothing about the change. The report must
     // also run every test file the change adds or edits.
     const standalone = workspace.length === 1 && workspace[0]?.dir === '';
-    const unrun = standalone ? changedTestFiles(root, changed).filter((f) => !ran.has(f)) : [];
-    if (unrun.length === 0) return { ok: true, untestedPackages };
+    // T13783: a run that leaves dependents to a typecheck runs every edited test file.
+    const unrun =
+      standalone || typecheckOnly.length > 0
+        ? changedTestFiles(root, changed).filter((f) => !ran.has(f))
+        : [];
+    if (unrun.length === 0) return { ok: true, untestedPackages, ...typecheck };
     return refuse(
       `test-run report does not run the changed test file(s) ${unrun.slice(0, 5).join(', ')}` +
-        `${unrun.length > 5 ? `, … (${unrun.length} files)` : ''}. In a single-package project ` +
-        'the package is the whole project, so a targeted report must run every test file the ' +
+        `${unrun.length > 5 ? `, … (${unrun.length} files)` : ''}. ${
+          standalone
+            ? 'In a single-package project the package is the whole project'
+            : 'Dependents of a generated package are left to a typecheck'
+        }, so a targeted report must run every test file the ` +
         'change adds or edits (passing). Run them and record the report, or record tool:test.',
     );
   }

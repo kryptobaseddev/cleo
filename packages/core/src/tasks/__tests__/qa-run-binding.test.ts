@@ -17,7 +17,9 @@ import type { EvidenceAtom, EvidenceValidationContext } from '@cleocode/contract
 import { parseEvidenceString, validateEvidenceForGate } from '@cleocode/contracts';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
+  changedPathsSinceDefault,
   cleoConfigSchemaFor,
+  deriveAffectedPackages,
   isCleoConfigOnlyChange,
   isNonCodeOnlyChange,
   isNonCodePath,
@@ -28,11 +30,12 @@ import {
   qaPassedSupersededReason,
   qaRunTreeMismatchReason,
   scopedRunStandsAfterRedCi,
+  scopedRunSupersededReason,
   testsPassedSupersededReason,
 } from '../affected-scope.js';
 import { isLandedOnOriginDefault } from '../change-set.js';
 import { checkTaskEvidenceContext, validateAtom } from '../evidence.js';
-import { parseQaRunReceipt, qaRunUnionGapReason } from '../qa-run-binding.js';
+import { parseQaRunReceipt, qaRunChecks, qaRunUnionGapReason } from '../qa-run-binding.js';
 import { captureTreeHash } from '../tool-cache.js';
 
 function git(dir: string, args: string[]): string {
@@ -332,6 +335,107 @@ describe('a qa-run receipt in a standalone project', () => {
     git(root, ['commit', '-q', '-m', 'T1: readme']);
     const r = await validateAtom({ kind: 'qa-run', path: receipt({ roots: ['src'] }) }, root);
     expect(r.ok, JSON.stringify(r)).toBe(true);
+  });
+});
+
+describe('a qa-run kind owes coverage only for what its tool reads (T13698)', () => {
+  it('reads sources and the configs that change a check, nothing else', () => {
+    expect(qaRunChecks('lint', 'src/a.tsx')).toBe(true);
+    expect(qaRunChecks('lint', 'packages/a/eslint.config.mjs')).toBe(true);
+    expect(qaRunChecks('lint', 'biome.json')).toBe(true);
+    expect(qaRunChecks('lint', 'packages/a/package.json')).toBe(true);
+    expect(qaRunChecks('typecheck', 'packages/a/tsconfig.build.json')).toBe(true);
+    expect(qaRunChecks('typecheck', 'src/a.js')).toBe(false);
+    expect(qaRunChecks('lint', 'scripts/INDEX.md')).toBe(false);
+    expect(qaRunChecks('typecheck', 'data/fixture.json')).toBe(false);
+    // T13745 allowlist: no non-code path is an input of either check (one classifier each, disjoint).
+    for (const p of [
+      'renovate.json',
+      '.editorconfig',
+      '.vscode/settings.json',
+      'x.code-workspace',
+      'docs/a.md',
+    ]) {
+      expect(isNonCodePath(p), p).toBe(true);
+      expect(qaRunChecks('lint', p) || qaRunChecks('typecheck', p), p).toBe(false);
+    }
+  });
+
+  // axiom T1984: ESLint over the changed TS entry files, plus a generated
+  // scripts/INDEX.md that ESLint never reads (scripts/ is a CI code root, so
+  // the .md is not set aside as documentation).
+  beforeEach(() => {
+    initRepo(() => {
+      put('package.json', JSON.stringify({ name: 'solo' }));
+      put('src/a/x.ts', 'export const x = 1;\n');
+      put('src/b/y.ts', 'export const y = 1;\n');
+      put('scripts/INDEX.md', '# index\n');
+    });
+    put('src/a/x.ts', 'export const x = 2;\n');
+    put('src/b/y.ts', 'export const y = 2;\n');
+    put('scripts/INDEX.md', '# index\n\n- x\n');
+    git(root, ['commit', '-q', '-am', 'T1: change entries and regenerate the index']);
+  });
+
+  const ctx: EvidenceValidationContext = {
+    task: { id: 'T1', kind: 'work', labels: [], files: [], acceptance: [] },
+    gates: ['qaPassed'],
+    criteria: [],
+  };
+
+  async function bound(fields: Record<string, unknown>, name: string): Promise<EvidenceAtom> {
+    const r = await validateAtom({ kind: 'qa-run', path: receipt(fields, undefined, name) }, root);
+    if (!r.ok) throw new Error(JSON.stringify(r));
+    return r.atom;
+  }
+
+  it('green: lint over the TS files passes with the .md left to the typecheck receipt that holds it', async () => {
+    const lint = await bound(
+      { kind: 'lint', command: ['eslint'], roots: ['src/a/x.ts', 'src/b/y.ts'] },
+      'lint',
+    );
+    expect(lint).toMatchObject({ uncovered: ['scripts/INDEX.md'] });
+    const types = await bound({ roots: ['src', 'scripts'] }, 'typecheck');
+    expect(checkTaskEvidenceContext(ctx, 'qaPassed', [types, lint])).toBeNull();
+  });
+
+  it('red: a changed tsconfig is owed by a typecheck receipt; a lint receipt holding it does not stand in', async () => {
+    put('tsconfig.json', '{"compilerOptions":{"strict":true}}\n');
+    git(root, ['add', '.']);
+    git(root, ['commit', '-q', '-m', 'T1: tighten tsconfig']);
+    const lint = await bound({ kind: 'lint', command: ['eslint'], roots: ['.'] }, 'lint');
+    const types = await bound({ roots: ['src', 'scripts'] }, 'typecheck');
+    expect(checkTaskEvidenceContext(ctx, 'qaPassed', [types, lint])).toMatch(
+      /qa-run typecheck receipt \(roots scripts, src\) does not cover the changed path\(s\) tsconfig\.json\./,
+    );
+  });
+
+  it('red: a lintable file the lint run missed is still refused, naming it', async () => {
+    const lint = await bound({ kind: 'lint', command: ['eslint'], roots: ['src/a/x.ts'] }, 'lint');
+    const types = await bound({ roots: ['src', 'scripts'] }, 'typecheck');
+    expect(checkTaskEvidenceContext(ctx, 'qaPassed', [types, lint])).toMatch(
+      /qa-run lint receipt \(roots src\/a\/x\.ts\) does not cover the changed path\(s\) src\/b\/y\.ts\./,
+    );
+  });
+
+  it('red: a file neither check reads and no receipt holds is named as needing its own evidence', async () => {
+    const lint = await bound(
+      { kind: 'lint', command: ['eslint'], roots: ['src/a/x.ts', 'src/b/y.ts'] },
+      'lint',
+    );
+    const types = await bound({ roots: ['src'] }, 'typecheck');
+    const gap = checkTaskEvidenceContext(ctx, 'qaPassed', [types, lint]);
+    expect(gap).toMatch(/^scripts\/INDEX\.md is not read by lint or typecheck/);
+    expect(gap).toContain('Add evidence that does');
+    // A whole-project tool: run speaks for it.
+    expect(
+      qaRunUnionGapReason(
+        [types, lint].filter(
+          (a): a is Extract<EvidenceAtom, { kind: 'qa-run' }> => a.kind === 'qa-run',
+        ),
+        true,
+      ),
+    ).toBeNull();
   });
 });
 
@@ -696,7 +800,8 @@ describe('T13745: a non-code-only change (editor settings, docs) completes with 
     );
     if (!r.ok) throw new Error(JSON.stringify(r));
     expect(checkTaskEvidenceContext(ctx('qaPassed'), 'qaPassed', [r.atom])).toMatch(
-      /does not cover the changed path\(s\) \.vscode\/settings\.json/,
+      // T13698: lint never reads a .json setting, so no receipt holding it is named.
+      /^\.vscode\/settings\.json is not read by lint or typecheck, and no qa-run receipt's roots hold it/,
     );
   });
 
@@ -763,11 +868,18 @@ describe('T13758: a change to CLEO-owned config alone is tested by CLEO schema v
     expect(!r.ok && r.reason).toMatch(/\.cleo\/project-context\.json/);
   });
 
-  it('red: any other changed path removes the route', async () => {
+  it('T13778: on a mixed change it validates the config and records the rest; alone it does not stand', async () => {
     put('src/a.ts', 'export const a = 2;\n');
     change(context({ release: { prRequiredWorkflows: [] } }));
     const r = await validateAtom({ kind: 'tool', tool: 'config-schema' }, root);
-    expect(!r.ok && r.reason, JSON.stringify(r)).toMatch(/also touches src\/a\.ts/);
+    expect(r.ok && r.atom, JSON.stringify(r)).toMatchObject({
+      configSchema: ['.cleo/project-context.json'],
+      otherPaths: ['src/a.ts'],
+    });
+    if (!r.ok) throw new Error('expected an atom');
+    expect(checkTaskEvidenceContext(ctx('testsPassed'), 'testsPassed', [r.atom])).toMatch(
+      /checks only the CLEO config of this change; the rest \(src\/a\.ts\).*test-run:<report>;tool:config-schema/,
+    );
   });
 
   it('red: once the tree moves (code committed after verify), both gates refuse the result', async () => {
@@ -786,5 +898,447 @@ describe('T13758: a change to CLEO-owned config alone is tested by CLEO schema v
       /CLEO's schema check of \.cleo\/project-context\.json.*Re-verify testsPassed/,
     );
     expect(await qaPassedSupersededReason([r.atom], probe)).toMatch(/Re-verify qaPassed/);
+  });
+});
+
+/**
+ * VidaPeps T2151 (T13778-T13781): a config edit plus the test that pins it,
+ * with no CI and no whole-suite runs allowed. The config is judged by
+ * tool:config-schema and the rest by a targeted test-run, composed in one
+ * write; neither stands alone, and a config edit never hides untested code.
+ */
+describe('T13778-T13781: CLEO config composes with a targeted run (VidaPeps T2151 shape)', () => {
+  const ctx: EvidenceValidationContext = {
+    task: { id: 'T1', kind: 'work', labels: [], files: [], acceptance: [] },
+    gates: ['testsPassed'],
+    criteria: [],
+  };
+  const config = (body: Record<string, unknown>): string =>
+    `${JSON.stringify({ schemaVersion: '1.0.0', detectedAt: '2026-10-15T00:00:00Z', projectTypes: ['node'], ...body })}\n`;
+  const PARITY = 'scripts/src/test-command-parity.test.ts';
+  const OTHER = 'packages/a/src/a.test.ts';
+
+  beforeEach(() => {
+    initRepo(() => {
+      put('pnpm-workspace.yaml', 'packages:\n  - "scripts"\n  - "packages/*"\n');
+      put('scripts/package.json', JSON.stringify({ name: '@x/scripts' }));
+      put(PARITY, 'export {};\n');
+      put('packages/a/package.json', JSON.stringify({ name: '@x/a' }));
+      put('packages/a/src/i.ts', 'export const a = 1;\n');
+      put(OTHER, 'export {};\n');
+      put('.cleo/project-context.json', config({ evidence: { scopeExcludes: ['.opencode/**'] } }));
+    });
+    put(
+      '.cleo/project-context.json',
+      config({
+        evidence: { scopeExcludes: ['.opencode/**'] },
+        release: { prRequiredWorkflows: [] },
+      }),
+    );
+    put(PARITY, 'export const pinned = 1;\n');
+    git(root, ['commit', '-q', '-am', 'T1: config plus its parity test']);
+  });
+
+  /** A vitest-shaped report in which each file ran one passing test. */
+  function report(files: string[]): string {
+    mkdirSync(join(root, 'reports'), { recursive: true });
+    const path = join(root, 'reports', 'vitest.json');
+    writeFileSync(
+      path,
+      JSON.stringify({
+        startTime: Date.now() + 5_000,
+        numTotalTests: files.length,
+        numPassedTests: files.length,
+        numFailedTests: 0,
+        numPendingTests: 0,
+        numTodoTests: 0,
+        testResults: files.map((name) => ({
+          name: join(root, name),
+          status: 'passed',
+          assertionResults: [{ fullName: 't', status: 'passed' }],
+        })),
+      }),
+    );
+    return path;
+  }
+  async function atom(parsed: Parameters<typeof validateAtom>[0], sha?: string) {
+    const r = await validateAtom(parsed, root, undefined, sha);
+    if (!r.ok) throw new Error(JSON.stringify(r));
+    return r.atom;
+  }
+
+  it('T13779: the config edit does not make the change workspace-wide', () => {
+    const changed = ['.cleo/project-context.json', PARITY];
+    expect(deriveAffectedPackages(root, changed)).toEqual({
+      scope: 'affected',
+      direct: ['@x/scripts'],
+      packages: ['@x/scripts'],
+      cleoConfig: ['.cleo/project-context.json'],
+    });
+  });
+
+  it('T13778/T13779 green: the changed test file plus config-schema satisfy testsPassed together', async () => {
+    const run = await atom({ kind: 'test-run', path: report([PARITY]) });
+    expect(run).toMatchObject({ configPaths: ['.cleo/project-context.json'] });
+    const schema = await atom({ kind: 'tool', tool: 'config-schema' });
+    expect(schema).toMatchObject({
+      configSchema: ['.cleo/project-context.json'],
+      otherPaths: [PARITY],
+    });
+    expect(checkTaskEvidenceContext(ctx, 'testsPassed', [run, schema])).toBeNull();
+  });
+
+  it('red: the test-run alone leaves the config unvalidated and names the composed route', async () => {
+    const run = await atom({ kind: 'test-run', path: report([PARITY]) });
+    expect(checkTaskEvidenceContext(ctx, 'testsPassed', [run])).toMatch(
+      /also edits CLEO config \(\.cleo\/project-context\.json\).*tool:config-schema/,
+    );
+  });
+
+  it('red (trust): a config edit does not hide an untested source change', async () => {
+    put('packages/a/src/i.ts', 'export const a = 2;\n');
+    git(root, ['commit', '-q', '-am', 'T1: and a source change']);
+    const r = await validateAtom({ kind: 'test-run', path: report([PARITY]) }, root);
+    expect(!r.ok && r.reason, JSON.stringify(r)).toMatch(
+      /covers no test file of @x\/a \(changed\)/,
+    );
+    const schema = await atom({ kind: 'tool', tool: 'config-schema' });
+    expect(schema).toMatchObject({ otherPaths: ['packages/a/src/i.ts', PARITY] });
+    expect(checkTaskEvidenceContext(ctx, 'testsPassed', [schema])).toMatch(/needs its own result/);
+  });
+
+  it('T13780: untracked tool and session state does not change classification or config-schema', async () => {
+    put('.opencode/goals/g.yaml', 'goal: x\n');
+    put('.cleo/rcasd/T9/notes.md', '# other session\n');
+    expect(changedPathsSinceDefault(root)).toEqual(['.cleo/project-context.json', PARITY]);
+    const schema = await atom({ kind: 'tool', tool: 'config-schema' });
+    expect(schema).toMatchObject({
+      configSchema: ['.cleo/project-context.json'],
+      otherPaths: [PARITY],
+    });
+  });
+
+  it('T13780: an untracked source file outside a dot-directory still counts', () => {
+    put('packages/a/src/new.ts', 'export const n = 1;\n');
+    expect(changedPathsSinceDefault(root)).toContain('packages/a/src/new.ts');
+  });
+
+  it('red (review of #2302): an untracked file under an undeclared dot-directory is the change', async () => {
+    // A new workflow left untracked at verify would join the tree with the same
+    // hash once committed, so it must be judged now.
+    put('.github/workflows/new.yml', 'on: push\n');
+    expect(changedPathsSinceDefault(root)).toContain('.github/workflows/new.yml');
+    const r = await validateAtom({ kind: 'test-run', path: report([PARITY]) }, root);
+    expect(!r.ok && r.reason, JSON.stringify(r)).toMatch(
+      /workspace-wide.*\.github\/workflows\/new\.yml/,
+    );
+  });
+
+  describe('T13781: after the merge, config-schema judges the task\u2019s own merged change', () => {
+    let merge = '';
+    let own = '';
+    /** The task's context, its implemented gate recording `commits`. */
+    const owning = (commits: string[]): EvidenceValidationContext => ({
+      ...ctx,
+      task: {
+        ...ctx.task,
+        verification: {
+          passed: false,
+          round: 1,
+          gates: {},
+          lastAgent: null,
+          lastUpdated: null,
+          failureLog: [],
+          evidence: {
+            implemented: {
+              atoms: commits.map((sha): EvidenceAtom => ({ kind: 'commit', sha })),
+              capturedAt: '2026-10-16T00:00:00Z',
+              capturedBy: 'test',
+            },
+          },
+        },
+      },
+    });
+    const schemaAt = async (sha: string, commits = [own]) => {
+      const r = await validateAtom(
+        { kind: 'tool', tool: 'config-schema' },
+        root,
+        undefined,
+        sha,
+        owning(commits),
+      );
+      if (!r.ok) throw new Error(JSON.stringify(r));
+      return r.atom;
+    };
+    beforeEach(() => {
+      own = git(root, ['rev-parse', 'HEAD']);
+      git(root, ['switch', '-q', 'main']);
+      git(root, ['merge', '-q', '--no-ff', '-m', 'Merge pull request #803', 'task/T1']);
+      merge = git(root, ['rev-parse', 'HEAD']);
+      git(root, ['push', '-q', 'origin', 'main']);
+    });
+
+    it('with no commit named it refuses, naming commit:<sha> and pr:<n>', async () => {
+      const r = await validateAtom({ kind: 'tool', tool: 'config-schema' }, root);
+      expect(!r.ok && r.reason, JSON.stringify(r)).toMatch(
+        /no change against the default branch.*commit:<sha>;tool:config-schema.*pr:<n>;tool:config-schema/,
+      );
+    });
+
+    it('with its own commit:<sha> it validates the task\u2019s config, and stands after the merge', async () => {
+      const schema = await schemaAt(own);
+      expect(schema).toMatchObject({
+        configSchema: ['.cleo/project-context.json'],
+        configSchemaCommit: own,
+        otherPaths: [PARITY],
+      });
+      const landing = {
+        mergeCommitSha: merge,
+        files: ['.cleo/project-context.json'],
+        deletedFiles: [],
+        executionRoot: root,
+      };
+      expect(
+        await testsPassedSupersededReason([schema], {
+          mergeState: () => ({ state: 'merged' as const, landing }),
+          currentTree: () => git(root, ['rev-parse', 'HEAD^{tree}']),
+          landed: isLandedOnOriginDefault,
+        }),
+      ).toBeNull();
+    });
+
+    it('red (review of #2302): an unrelated commit is refused, however its diff looks', async () => {
+      // The probe: another change relaxes the test command; the task's own
+      // merged change is code. Naming the unrelated commit must not let the
+      // task complete on config-schema alone.
+      put('.cleo/project-context.json', config({ testing: { command: 'true' } }));
+      git(root, ['commit', '-q', '-am', 'someone else: relax the tests']);
+      git(root, ['push', '-q', 'origin', 'main']);
+      const unrelated = git(root, ['rev-parse', 'HEAD']);
+      const r = await validateAtom(
+        { kind: 'tool', tool: 'config-schema' },
+        root,
+        undefined,
+        unrelated,
+        owning([own]),
+      );
+      expect(!r.ok && r.reason, JSON.stringify(r)).toMatch(
+        /only at the task's own commit.*neither a commit: nor a pr: merge recorded/,
+      );
+      const none = await validateAtom(
+        { kind: 'tool', tool: 'config-schema' },
+        root,
+        undefined,
+        unrelated,
+      );
+      expect(none.ok).toBe(false);
+    });
+
+    it('red (review of #2302): after the merge config-schema never carries the change\u2019s code files', async () => {
+      const schema = await schemaAt(own);
+      const landing = {
+        mergeCommitSha: merge,
+        files: ['.cleo/project-context.json', PARITY],
+        deletedFiles: [],
+        executionRoot: root,
+      };
+      expect(
+        await testsPassedSupersededReason([schema], {
+          mergeState: () => ({ state: 'merged' as const, landing }),
+          currentTree: () => git(root, ['rev-parse', 'HEAD^{tree}']),
+          landed: isLandedOnOriginDefault,
+        }),
+      ).toMatch(
+        /checks only CLEO config, and nothing else covers the change's other file\(s\) scripts/,
+      );
+    });
+
+    it('the post-merge stand-in needs config-schema for the merged config, beside the test-run', async () => {
+      const run = await atom({ kind: 'test-run', path: report([PARITY]) });
+      const schema = await schemaAt(own);
+      const change = {
+        mergeCommitSha: merge,
+        files: ['.cleo/project-context.json', PARITY],
+        executionRoot: root,
+      };
+      const tree = git(root, ['rev-parse', 'HEAD^{tree}']);
+      expect(
+        scopedRunStandsAfterRedCi([run, schema], change, tree, isLandedOnOriginDefault),
+      ).toEqual({ ok: true });
+      const alone = scopedRunStandsAfterRedCi([run], change, tree, isLandedOnOriginDefault);
+      expect(!alone.ok && alone.why).toMatch(
+        /also edits CLEO config \.cleo\/project-context\.json, and no tool:config-schema validated it/,
+      );
+    });
+
+    it('red: a config file that breaks the schema at the task\u2019s commit fails', async () => {
+      git(root, ['switch', '-q', '-c', 'task/T2']);
+      put('.cleo/project-context.json', config({ test: { command: 'x' } }));
+      git(root, ['commit', '-q', '-am', 'T2: bad config']);
+      const bad = git(root, ['rev-parse', 'HEAD']);
+      git(root, ['switch', '-q', 'main']);
+      git(root, ['merge', '-q', '--no-ff', '-m', 'Merge pull request #804', 'task/T2']);
+      git(root, ['push', '-q', 'origin', 'main']);
+      const r = await validateAtom(
+        { kind: 'tool', tool: 'config-schema' },
+        root,
+        undefined,
+        bad,
+        owning([bad]),
+      );
+      expect(!r.ok && r.codeName, JSON.stringify(r)).toBe('E_EVIDENCE_TOOL_FAILED');
+    });
+  });
+});
+
+/**
+ * VidaPeps PR #898 (T13783, owner decision): regenerating a shared generated
+ * client must not owe a test file from every dependent. A package that
+ * depends on the change only through a declared generated client owes a
+ * typecheck naming it; anything else keeps owing tests.
+ */
+describe('T13783: dependents of a regenerated generated client owe a typecheck, not tests', () => {
+  const ctx: EvidenceValidationContext = {
+    task: { id: 'T1', kind: 'work', labels: [], files: [], acceptance: [] },
+    gates: ['testsPassed'],
+    criteria: [],
+  };
+  const pkg = (dir: string, name: string, deps: string[] = []) => {
+    put(
+      `${dir}/package.json`,
+      JSON.stringify({
+        name,
+        dependencies: Object.fromEntries(deps.map((d) => [d, 'workspace:*'])),
+      }),
+    );
+    put(`${dir}/src/index.ts`, 'export const v = 1;\n');
+    put(`${dir}/src/index.test.ts`, 'export {};\n');
+  };
+  const contextFile = (evidence: Record<string, unknown>) =>
+    `${JSON.stringify({ schemaVersion: '1.0.0', detectedAt: '2026-10-16T00:00:00Z', projectTypes: ['node'], evidence })}\n`;
+
+  function setup(declared: boolean | string[]): void {
+    initRepo(() => {
+      put('pnpm-workspace.yaml', 'packages:\n  - "lib/*"\n  - "apps/*"\n');
+      pkg('lib/api-zod', '@x/api-zod');
+      pkg('lib/api-client-react', '@x/api-client-react', ['@x/api-zod']);
+      pkg('lib/util', '@x/util');
+      pkg('apps/web', '@x/web', ['@x/api-client-react', '@x/util']);
+      put(
+        '.cleo/project-context.json',
+        contextFile(
+          declared === false
+            ? {}
+            : { typecheckOnlyDependents: declared === true ? ['lib/api-zod/**'] : declared },
+        ),
+      );
+    });
+    put('lib/api-zod/src/index.ts', 'export const v = 2;\n');
+    git(root, ['commit', '-q', '-am', 'T1: regenerate the client']);
+  }
+  function report(files: string[]): string {
+    mkdirSync(join(root, 'reports'), { recursive: true });
+    const path = join(root, 'reports', 'vitest.json');
+    writeFileSync(
+      path,
+      JSON.stringify({
+        startTime: Date.now() + 5_000,
+        numTotalTests: files.length,
+        numPassedTests: files.length,
+        numFailedTests: 0,
+        numPendingTests: 0,
+        numTodoTests: 0,
+        testResults: files.map((name) => ({
+          name: join(root, name),
+          status: 'passed',
+          assertionResults: [{ fullName: 't', status: 'passed' }],
+        })),
+      }),
+    );
+    return path;
+  }
+  const ZOD_TEST = 'lib/api-zod/src/index.test.ts';
+
+  it('green: the client\u2019s tests plus a typecheck naming its dependents satisfy testsPassed', async () => {
+    setup(true);
+    const run = await validateAtom({ kind: 'test-run', path: report([ZOD_TEST]) }, root);
+    expect(run.ok && run.atom, JSON.stringify(run)).toMatchObject({
+      typecheckDirs: ['apps/web', 'lib/api-client-react'],
+    });
+    const tc = await validateAtom(
+      { kind: 'qa-run', path: receipt({ kind: 'typecheck', roots: ['lib', 'apps'] }) },
+      root,
+    );
+    if (!run.ok || !tc.ok) throw new Error(JSON.stringify({ run, tc }));
+    expect(checkTaskEvidenceContext(ctx, 'testsPassed', [run.atom, tc.atom])).toBeNull();
+  });
+
+  it('red: without a typecheck covering the dependents the gate refuses, naming them', async () => {
+    setup(true);
+    const run = await validateAtom({ kind: 'test-run', path: report([ZOD_TEST]) }, root);
+    const narrow = await validateAtom(
+      { kind: 'qa-run', path: receipt({ kind: 'typecheck', roots: ['lib'] }) },
+      root,
+    );
+    if (!run.ok || !narrow.ok) throw new Error(JSON.stringify({ run, narrow }));
+    expect(checkTaskEvidenceContext(ctx, 'testsPassed', [run.atom])).toMatch(
+      /leaves apps\/web, lib\/api-client-react to a typecheck.*evidence\.typecheckOnlyDependents/,
+    );
+    expect(checkTaskEvidenceContext(ctx, 'testsPassed', [run.atom, narrow.atom])).toMatch(
+      /leaves apps\/web to a typecheck/,
+    );
+  });
+
+  it('red (review of #2302): a catch-all glob declares nothing', async () => {
+    setup(['**']);
+    const r = await validateAtom({ kind: 'test-run', path: report([ZOD_TEST]) }, root);
+    expect(!r.ok && r.reason, JSON.stringify(r)).toMatch(/depends on a changed package/);
+  });
+
+  it('red: a dependent whose own source changed still owes its tests', async () => {
+    setup(true);
+    put('lib/api-client-react/src/index.ts', 'export const v = 3;\n');
+    git(root, ['commit', '-q', '-am', 'T1: and the hooks']);
+    const r = await validateAtom({ kind: 'test-run', path: report([ZOD_TEST]) }, root);
+    expect(!r.ok && r.reason, JSON.stringify(r)).toMatch(
+      /covers no test file of @x\/api-client-react \(changed\)/,
+    );
+  });
+
+  it('red: a package with any changed path outside the declared globs is not typecheck-only', async () => {
+    setup(false);
+    put(
+      '.cleo/project-context.json',
+      contextFile({ typecheckOnlyDependents: ['lib/api-zod/src/index.ts'] }),
+    );
+    git(root, ['commit', '-q', '-am', 'declare']);
+    git(root, ['push', '-q', 'origin', 'HEAD:main']);
+    put('lib/api-zod/src/index.ts', 'export const v = 4;\n');
+    put('lib/api-zod/src/extra.ts', 'export const e = 1;\n');
+    git(root, ['add', '.']);
+    git(root, ['commit', '-q', '-m', 'T1: regenerate plus a hand-written file']);
+    const r = await validateAtom({ kind: 'test-run', path: report([ZOD_TEST]) }, root);
+    expect(!r.ok && r.reason, JSON.stringify(r)).toMatch(/depends on a changed package/);
+  });
+
+  it('red: a generated package declared only by the change itself counts for nothing', async () => {
+    setup(false);
+    put('.cleo/project-context.json', contextFile({ typecheckOnlyDependents: ['lib/api-zod/**'] }));
+    git(root, ['commit', '-q', '-am', 'T1: declare my own package generated']);
+    const r = await validateAtom({ kind: 'test-run', path: report([ZOD_TEST]) }, root);
+    expect(!r.ok && r.reason, JSON.stringify(r)).toMatch(/depends on a changed package/);
+  });
+
+  it('a typecheck tool result is never a test run: scoped evidence beside it is still superseded after merge', () => {
+    const run: EvidenceAtom = {
+      kind: 'test-run',
+      path: 'r.json',
+      sha256: 'x',
+      passCount: 1,
+      failCount: 0,
+      skipCount: 0,
+    };
+    const typecheck: EvidenceAtom = { kind: 'tool', tool: 'typecheck', exitCode: 0 };
+    expect(scopedRunSupersededReason([run, typecheck], 'merged')).toMatch(/scoped run/);
   });
 });

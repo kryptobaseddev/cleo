@@ -7,8 +7,12 @@
  *  1. **Result.** The receipt states exit code 0 and zero error diagnostics.
  *  2. **Freshness.** The same clock as `test-run:` ({@link reportFreshness}):
  *     the run is not older than the change's commits, edits or deletions.
- *  3. **Coverage.** Every changed code path (evidence-scoped, docs ignored)
- *     lies under one of the receipt's `roots`; in a workspace, every package
+ *  3. **Coverage.** Every changed code path the check can read (lint: JS/TS
+ *     family sources; typecheck: TS sources — {@link qaRunChecks}) lies under
+ *     a root of a receipt of that kind; a changed path neither check reads
+ *     (a generated `.md` under `scripts/`, a `.json`) lies under a root of any
+ *     receipt, or the gate names it as needing its own evidence (T13698).
+ *     Evidence-scoped, docs ignored. In a workspace, every package
  *     that depends on a changed package is covered by a root at or above its
  *     directory, since a type change breaks importers. A workspace-wide change
  *     (a path outside every package) is refused: only a whole-project run
@@ -32,14 +36,17 @@
  */
 
 import { isAbsolute } from 'node:path';
+import type { EvidenceAtom } from '@cleocode/contracts';
 import { isCiDocumentPath } from '../release/ci-evidence.js';
 import {
+  cleoConfigSchemaFor,
   deriveAffectedPackages,
   inPackageDir,
   isNonCodeOnlyChange,
   listWorkspacePackages,
 } from './affected-packages.js';
 import { reportFreshness } from './test-run-binding.js';
+import { canonicalToolName } from './tool-resolver.js';
 
 /** The QA checks a receipt can record: one of each satisfies `qaPassed`. */
 export const QA_RUN_KINDS = ['typecheck', 'lint'] as const;
@@ -76,6 +83,28 @@ export type QaRunParse =
 export const QA_RUN_SHAPE_HINT =
   '{"kind":"typecheck"|"lint","command":["tsc","--noEmit",…],"exitCode":0,' +
   '"diagnostics":{"errors":0},"roots":["src/a"],"startTime":<epoch ms>}';
+
+/**
+ * Files each QA check reads — its sources and the configs that change its
+ * result; a path no pattern matches is no check's input.
+ */
+const QA_RUN_INPUTS: Record<QaRunKind, RegExp> = {
+  lint: /\.(?:[cm]?[jt]sx?|svelte|vue)$|(?:^|\/)(?:package\.json|biome\.jsonc?|\.eslintrc[^/]*|eslint\.config\.[^/]+)$/,
+  typecheck: /\.(?:[cm]?tsx?|svelte|vue)$|(?:^|\/)(?:package\.json|[jt]sconfig[^/]*\.json)$/,
+};
+
+/**
+ * Whether a changed path is an input a QA check reads (T13698): a lint run
+ * owes coverage only for what it lints, a typecheck only for TS sources.
+ *
+ * @param check - The QA check.
+ * @param path - Repo-relative changed path.
+ * @returns True when the check reads the path.
+ * @task T13698
+ */
+export function qaRunChecks(check: QaRunKind, path: string): boolean {
+  return QA_RUN_INPUTS[check].test(path);
+}
 
 /** A root as the binding compares it: slash-separated, no `./`, no trailing `/`; `.` is `''`. */
 function normaliseRoot(root: string): string {
@@ -195,6 +224,8 @@ export type QaRunBinding =
       uncoveredPackages: string[];
       /** The change is non-code only: no package affected, no typecheck owed (T13745). */
       nonCodeChange?: boolean;
+      /** Changed CLEO config left to `tool:config-schema` (T13778). */
+      configPaths?: string[];
     };
 
 /** Up to five items, then a count. */
@@ -251,12 +282,33 @@ export function bindQaRunReceipt(
  * @param kind - The check the receipt records.
  * @param roots - The receipt's normalised roots (`''` = the whole root).
  * @param root - The checkout the paths are relative to.
+ * CLEO-owned config files are left to `tool:config-schema` (T13778) and
+ * named as `configPaths`, which the gate then requires a config-schema result for.
+ *
  * @param changed - The changed paths (documentation paths are ignored).
  * @returns The refusal, or ok with the paths and packages left uncovered.
  * @task T13427
  * @task T13644
+ * @task T13778
  */
 export function qaRunCoverage(
+  kind: QaRunKind,
+  roots: readonly string[],
+  root: string,
+  changed: readonly string[],
+): QaRunBinding {
+  const configPaths = changed.filter((p) => cleoConfigSchemaFor(p) !== null);
+  if (configPaths.length === 0) return qaRunCoversCode(kind, roots, root, changed);
+  const code = changed.filter((p) => cleoConfigSchemaFor(p) === null);
+  const covered =
+    code.length === 0
+      ? { ok: true as const, uncovered: [], uncoveredPackages: [] }
+      : qaRunCoversCode(kind, roots, root, code);
+  return covered.ok ? { ...covered, configPaths } : covered;
+}
+
+/** {@link qaRunCoverage} over a change with no CLEO config file in it. */
+function qaRunCoversCode(
   kind: QaRunKind,
   roots: readonly string[],
   root: string,
@@ -290,6 +342,40 @@ export function qaRunCoverage(
   return { ok: true, uncovered, uncoveredPackages };
 }
 
+/**
+ * Why the package directories a test-run left to a typecheck (T13783) are not
+ * covered by a typecheck in the same write, or null: a whole-project
+ * `tool:typecheck`, or a qa-run typecheck receipt whose roots hold each one.
+ *
+ * @param atoms - The validated atoms of one gate write.
+ * @param dirs - Root-relative package directories owed a typecheck.
+ * @returns The refusal naming the directories, or null.
+ * @task T13783
+ */
+export function typecheckCoverageGap(
+  atoms: readonly EvidenceAtom[],
+  dirs: readonly string[],
+): string | null {
+  const missing = [...new Set(dirs)].filter(
+    (dir) =>
+      !atoms.some(
+        (a) =>
+          (a.kind === 'tool' &&
+            canonicalToolName(a.tool) === 'typecheck' &&
+            a.notApplicable !== true &&
+            a.scope !== 'affected') ||
+          (a.kind === 'qa-run' &&
+            a.check === 'typecheck' &&
+            a.roots.some((r) => r === '' || inPackageDir(dir, r))),
+      ),
+  );
+  return missing.length === 0
+    ? null
+    : `The test-run leaves ${some(missing)} to a typecheck (they depend on the change only through ` +
+        'changed packages declared typecheck-only, evidence.typecheckOnlyDependents), and no typecheck in this write ' +
+        `covers them. Add tool:typecheck, or a qa-run typecheck receipt whose roots hold them.`;
+}
+
 /** A bound qa-run receipt as {@link qaRunUnionGapReason} reads it. */
 export interface BoundQaRun {
   /** Which check it records. */
@@ -309,11 +395,19 @@ export interface BoundQaRun {
  * roots may cover one change between them. Each receipt was already checked
  * fresh and passing on its own.
  *
+ * A kind owes coverage only for the changed paths its tool reads
+ * ({@link qaRunChecks}); a path neither kind reads must still lie under some
+ * receipt's roots, unless a whole-project tool: run speaks for the gate (T13698).
+ *
  * @param receipts - The bound qa-run receipts of one gate write.
+ * @param wholeProject - A whole-project tool:lint or tool:typecheck is in the gate.
  * @returns The refusal naming the uncovered paths or packages, or null.
  * @task T13580
  */
-export function qaRunUnionGapReason(receipts: readonly BoundQaRun[]): string | null {
+export function qaRunUnionGapReason(
+  receipts: readonly BoundQaRun[],
+  wholeProject = false,
+): string | null {
   for (const check of QA_RUN_KINDS) {
     const mine = receipts.filter((r) => r.check === check);
     if (mine.length === 0) continue;
@@ -322,7 +416,8 @@ export function qaRunUnionGapReason(receipts: readonly BoundQaRun[]): string | n
     const roots = some([...new Set(mine.flatMap((r) => r.roots.map((root) => root || '.')))]);
     const label = `qa-run ${check} receipt${mine.length > 1 ? 's' : ''} (roots ${roots})`;
     const together = mine.length > 1 ? ' together' : '';
-    const paths = everywhere((r) => r.uncovered ?? []);
+    // T13698: a kind owes coverage only for the paths its tool reads.
+    const paths = everywhere((r) => r.uncovered ?? []).filter((p) => qaRunChecks(check, p));
     if (paths.length > 0)
       return (
         `${label}${together} do${mine.length > 1 ? '' : 'es'} not cover the changed path(s) ${some(paths)}. ` +
@@ -335,5 +430,21 @@ export function qaRunUnionGapReason(receipts: readonly BoundQaRun[]): string | n
         `on a changed package. Add their directories to the run's roots, or record tool:${check}.`
       );
   }
+  // A path neither check reads is never dropped: some receipt (of either
+  // kind) must hold it under its roots, or a whole-project tool: run speak
+  // for it; otherwise it is named as needing its own evidence (T13698).
+  if (wholeProject || receipts.length === 0) return null;
+  const unread = [...new Set(receipts.flatMap((r) => r.uncovered ?? []))].filter(
+    (p) =>
+      !QA_RUN_KINDS.some((check) => qaRunChecks(check, p)) &&
+      receipts.every((r) => (r.uncovered ?? []).includes(p)),
+  );
+  if (unread.length > 0)
+    return (
+      `${some(unread)} ${unread.length > 1 ? 'are' : 'is'} not read by lint or typecheck, and no qa-run receipt's roots hold ` +
+      `${unread.length > 1 ? 'them' : 'it'}, so nothing in this gate checks ${unread.length > 1 ? 'them' : 'it'}. Add evidence ` +
+      `that does: a qa-run receipt whose roots name ${unread.length > 1 ? 'them' : 'it'} (the check that verifies ` +
+      `${unread.length > 1 ? 'them' : 'it'}), tool:lint or tool:typecheck, or ci:<pr> once the PR merges.`
+    );
   return null;
 }

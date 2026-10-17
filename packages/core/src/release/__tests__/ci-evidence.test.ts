@@ -32,6 +32,8 @@ import { checkTaskEvidenceContext, parseEvidence } from '../../tasks/evidence.js
 import {
   type CommitCheck,
   evaluateMergeCommitChecks,
+  isQuarantineBudgetOnlyLog,
+  isSetupStepFailureLog,
   listMainDescendants,
   listPathTouchingMainCommits,
   pathGlobToRegExp,
@@ -1254,6 +1256,330 @@ describe('resolveCiEvidenceAtom', () => {
       );
       const r = await run;
       expect(!r.ok && r.reason).toMatch(/only a cancelled or skipped run is stood in for/);
+    });
+
+    describe('red only on the flaky-quarantine budget, every test passing (T13809)', () => {
+      const SHARD = 'Unit Tests (ubuntu-latest, shard 1)';
+      /** A real over-budget shard log: timestamps, ANSI colour, all tests passed. */
+      const BUDGET_LOG = [
+        '2026-10-10T07:49:11.0000000Z \u001b[2m Test Files \u001b[22m \u001b[1m\u001b[32m260 passed\u001b[39m\u001b[22m\u001b[90m (260)\u001b[39m',
+        '2026-10-10T07:49:11.0000000Z \u001b[2m      Tests \u001b[22m \u001b[1m\u001b[32m3335 passed\u001b[39m\u001b[22m\u001b[2m | \u001b[22m\u001b[33m3 skipped\u001b[39m (3339)',
+        '2026-10-10T07:49:11.0000000Z \u001b[2m   Start at \u001b[22m 07:45:10',
+        '2026-10-10T07:49:11.0000000Z \u001b[2m   Duration \u001b[22m 243.13s (transform 24.92s)',
+        '2026-10-10T07:49:12.0000000Z ### Flaky quarantine over budget',
+        '2026-10-10T07:49:12.0000000Z 11 tests are quarantined (most 10).',
+        '2026-10-10T07:49:14.0000000Z ##[error]Process completed with exit code 1.',
+      ].join('\n');
+      const FAILED_LOG = BUDGET_LOG.replace('3335 passed', '1 failed | 3334 passed');
+      /** One failing test that the over-budget quarantine lists: it would never have blocked. */
+      const quarantinedFailure = (listed: boolean) =>
+        [
+          '2026-10-10T07:34:03.9Z  ❯  @cleocode/core  src/store/__tests__/agent-resolver.test.ts (22 tests | 1 failed) 4165ms',
+          '2026-10-10T07:39:45.1Z \u001b[31m FAIL \u001b[39m  @cleocode/core  src/store/__tests__/agent-resolver.test.ts > W2-4 resolveAgent > T9037 — resolves via require',
+          '2026-10-10T07:39:45.2Z  Test Files  1 failed | 258 passed | 1 skipped (260)',
+          '2026-10-10T07:39:45.3Z       Tests  1 failed | 4091 passed | 13 todo (4106)',
+          '2026-10-10T07:39:45.3Z    Start at  07:31:23',
+          '2026-10-10T07:39:45.3Z    Duration  501.17s (transform 43.95s)',
+          '2026-10-10T07:39:45.8Z ### Flaky quarantine over budget',
+          '2026-10-10T07:39:45.8Z ',
+          '2026-10-10T07:39:45.8Z 11 tests are quarantined (most 10). Fix flaky tests.',
+          '2026-10-10T07:39:45.8Z ',
+          `2026-10-10T07:39:45.9Z - \`packages/core/src/store/__tests__/${listed ? 'agent-resolver' : 'project-info'}.test.ts\` > W2-4 resolveAgent T9037 — resolves via require`,
+        ].join('\n');
+      /** CI (job + workflow run) and shard 1 failed on `sha`, everything else green. */
+      const budgetRed = (sha: string, event = 'push') =>
+        allGreen.map((c) =>
+          c.name === 'CI' || c.name === SHARD
+            ? { ...c, headSha: sha, event, conclusion: 'failure', id: c.id + 100 }
+            : { ...c, headSha: sha, event },
+        );
+      const logs =
+        (log: string) =>
+        async (jobId: number): Promise<string | null> =>
+          jobId === 101 ? log : null;
+      const checksFor =
+        (bySha: Record<string, CommitCheck[]>) =>
+        async (sha: string): Promise<{ ok: true; checks: CommitCheck[] }> => ({
+          ok: true,
+          checks: bySha[sha] ?? (sha === HEAD ? onHead : []),
+        });
+
+      it('isQuarantineBudgetOnlyLog: the budget heading with every test passed, nothing else', () => {
+        expect(isQuarantineBudgetOnlyLog(BUDGET_LOG)).toBe(true);
+        expect(isQuarantineBudgetOnlyLog(FAILED_LOG)).toBe(false);
+        expect(
+          isQuarantineBudgetOnlyLog(BUDGET_LOG.replace('### Flaky quarantine over budget', '')),
+        ).toBe(false);
+        // vitest's own error section comes before the script's heading.
+        expect(
+          isQuarantineBudgetOnlyLog(
+            BUDGET_LOG.replace('### Flaky', ' Unhandled Errors \n### Flaky'),
+          ),
+        ).toBe(false);
+        expect(isQuarantineBudgetOnlyLog('### Flaky quarantine over budget')).toBe(false);
+        // A failing test the quarantine lists never blocks; one it does not list does.
+        expect(isQuarantineBudgetOnlyLog(quarantinedFailure(true))).toBe(true);
+        expect(isQuarantineBudgetOnlyLog(quarantinedFailure(false))).toBe(false);
+        // A file that failed to load (no test named) is never the budget alone.
+        expect(
+          isQuarantineBudgetOnlyLog(
+            quarantinedFailure(true).replace('1 failed | 258 passed', '2 failed | 257 passed'),
+          ),
+        ).toBe(false);
+        // A summary a test echoed never stands in for the run's own (review probe, T13814):
+        // the per-file line shows 4 failures and the shard was killed before its summary.
+        const echoed = [
+          ' ✓ packages/x/a.test.ts (3 tests) 20ms',
+          'stdout | packages/y/parse.test.ts > parses a vitest summary',
+          ' Test Files  1 passed (1)',
+          '      Tests  2 passed (2)',
+          ' ❯ packages/z/big.test.ts (12 tests | 4 failed)',
+          'Killed',
+          '### Flaky quarantine over budget',
+          '',
+          '31 tests are quarantined (most 30)',
+        ].join('\n');
+        expect(isQuarantineBudgetOnlyLog(echoed)).toBe(false);
+        // Each guard alone refuses it: no timing lines, a per-file failure, a worker crash.
+        expect(isQuarantineBudgetOnlyLog(echoed.replace('\nKilled', ''))).toBe(false);
+        expect(
+          isQuarantineBudgetOnlyLog(
+            BUDGET_LOG.replace(
+              '### Flaky',
+              ' ❯ packages/z/big.test.ts (12 tests | 4 failed)\n### Flaky',
+            ),
+          ),
+        ).toBe(false);
+        expect(
+          isQuarantineBudgetOnlyLog(
+            BUDGET_LOG.replace(
+              '### Flaky',
+              'Error: [vitest-pool]: Worker exited unexpectedly\n### Flaky',
+            ),
+          ),
+        ).toBe(false);
+        // A test's child process printing `Killed` is ordinary output, not a crash.
+        expect(
+          isQuarantineBudgetOnlyLog(BUDGET_LOG.replace('### Flaky', 'Killed\n### Flaky')),
+        ).toBe(true);
+        // A FULL block a child vitest echoed, followed by more results and a kill
+        // (review, T13814): the run's own summary is its last vitest output.
+        const echoedFull = [
+          ' ✓ packages/x/a.test.ts (3 tests) 20ms',
+          'stdout | packages/y/child.test.ts > runs a child vitest',
+          ' Test Files  1 passed (1)',
+          '      Tests  2 passed (2)',
+          '   Start at  10:00:00',
+          '   Duration  1.2s',
+          ' ✓ packages/x/b.test.ts (5 tests) 30ms',
+          'Killed',
+          '### Flaky quarantine over budget',
+          '',
+          '31 tests are quarantined (most 30)',
+        ].join('\n');
+        expect(isQuarantineBudgetOnlyLog(echoedFull)).toBe(false);
+        // A full block a child vitest echoed through inherited stdio (no `stdout |`
+        // prefix), then only unprefixed child output and a kill mid-test (T13809 residual).
+        const echoedUnprefixed = [
+          ' ✓ packages/x/a.test.ts (3 tests) 20ms',
+          'child: running 1 file',
+          ' Test Files  1 passed (1)',
+          '      Tests  2 passed (2)',
+          '   Start at  10:00:00',
+          '   Duration  1.2s',
+          'child: exited 0',
+          'Killed',
+          '### Flaky quarantine over budget',
+          '',
+          '31 tests are quarantined (most 30)',
+        ].join('\n');
+        expect(isQuarantineBudgetOnlyLog(echoedUnprefixed)).toBe(false);
+        // The preceding line alone refuses it: after a blank line the block reads as the run's own.
+        expect(
+          isQuarantineBudgetOnlyLog(echoedUnprefixed.replace('child: running 1 file', '')),
+        ).toBe(true);
+        // Real logs print the script's report line between the summary and the heading.
+        expect(
+          isQuarantineBudgetOnlyLog(
+            BUDGET_LOG.replace(
+              '### Flaky',
+              'JSON report written to /tmp/flaky-quarantine-x/first.json\n### Flaky',
+            ),
+          ),
+        ).toBe(true);
+        // The heading must be the script's own verdict, with its count line.
+        expect(
+          isQuarantineBudgetOnlyLog(BUDGET_LOG.replace('11 tests are quarantined (most 10).', '')),
+        ).toBe(false);
+      });
+
+      it('the merge commit failed only on the budget: the green descendant stands in, the jobs recorded', async () => {
+        const { run } = descend(
+          { [DESC1]: onSha(DESC1) },
+          {
+            fetchChecks: checksFor({ [MERGE]: budgetRed(MERGE), [DESC1]: onSha(DESC1) }),
+            fetchJobLog: logs(BUDGET_LOG),
+          },
+        );
+        const r = await run;
+        expect(r.ok, JSON.stringify(r)).toBe(true);
+        const atom = r.ok && r.atom.kind === 'ci' ? r.atom : null;
+        expect(atom?.descendantSha).toBe(DESC1);
+        expect(atom?.nonTestFailures).toEqual([{ name: SHARD, mergeRunId: 101 }]);
+        expect(atom?.inheritedFailures).toBeUndefined();
+        expect(atom?.checks.find((c) => c.name === 'CI')?.sha).toBe(DESC1);
+      });
+
+      it('a shard with a failing test is a real failure: refused, the descendant never consulted', async () => {
+        const fetched: string[] = [];
+        const fetchChecks = checksFor({ [MERGE]: budgetRed(MERGE), [DESC1]: onSha(DESC1) });
+        const refused = await resolve({
+          context: context('T1', ['testsPassed', 'qaPassed']),
+          fetchChecks: async (sha) => {
+            fetched.push(sha);
+            return fetchChecks(sha);
+          },
+          listDescendants: () => [DESC1],
+          isAncestor: (a, d) => a === MERGE && d === DESC1,
+          touchingCommits: () => [],
+          fetchJobLog: logs(FAILED_LOG),
+        });
+        expect(refused.ok).toBe(false);
+        expect(!refused.ok && refused.reason).toMatch(/real failure/);
+        expect(fetched).not.toContain(DESC1);
+      });
+
+      it('looks past a later run red only on the budget to the next green one', async () => {
+        const fetchChecks = checksFor({
+          [MERGE]: budgetRed(MERGE),
+          [DESC1]: budgetRed(DESC1).map((c) => (c.id > 100 ? { ...c, id: c.id + 1000 } : c)),
+          [DESC2]: onSha(DESC2),
+        });
+        const r = await resolve({
+          context: context('T1', ['testsPassed', 'qaPassed']),
+          fetchChecks,
+          listDescendants: () => [DESC1, DESC2],
+          isAncestor: (a, d) => a === MERGE && (d === DESC1 || d === DESC2),
+          touchingCommits: () => [],
+          fetchJobLog: async (jobId) => (jobId === 101 || jobId === 1101 ? BUDGET_LOG : null),
+        });
+        expect(r.ok, JSON.stringify(r)).toBe(true);
+        expect(r.ok && r.atom.kind === 'ci' && r.atom.descendantSha).toBe(DESC2);
+      });
+
+      it('looks past a later run a concurrency group cancelled, its interrupted jobs failing with no test failed', async () => {
+        const cancelledRed = budgetRed(DESC1).map((c) => {
+          const bumped = c.id > 100 ? { ...c, id: c.id + 1000 } : c;
+          return c.source === 'workflow-run' && c.name === 'CI'
+            ? { ...bumped, conclusion: 'cancelled' }
+            : bumped;
+        });
+        const r = await resolve({
+          context: context('T1', ['testsPassed', 'qaPassed']),
+          fetchChecks: checksFor({
+            [MERGE]: budgetRed(MERGE),
+            [DESC1]: cancelledRed,
+            [DESC2]: onSha(DESC2),
+          }),
+          listDescendants: () => [DESC1, DESC2],
+          isAncestor: (a, d) => a === MERGE && (d === DESC1 || d === DESC2),
+          touchingCommits: () => [],
+          fetchJobLog: async (jobId) => (jobId === 101 ? BUDGET_LOG : jobId === 1101 ? '' : null),
+        });
+        expect(r.ok, JSON.stringify(r)).toBe(true);
+        expect(r.ok && r.atom.kind === 'ci' && r.atom.descendantSha).toBe(DESC2);
+      });
+
+      /** A real shard log (4aa2c96a5422): the build artifact was missing, no test ran. */
+      const SETUP_FAILED_LOG = [
+        '2026-10-12T13:04:44.7729273Z ##[group]Run actions/cache@v4',
+        '2026-10-12T13:04:55.5346561Z ##[group]Run actions/download-artifact@v4',
+        '2026-10-12T13:04:55.5346999Z with:',
+        '2026-10-12T13:04:55.7985540Z ##[error]Unable to download artifact(s): Artifact not found for name: build-output-ubuntu-latest',
+        '2026-10-12T13:04:55.8241304Z ##[group]Run actions/upload-artifact@v4',
+      ].join('\n');
+
+      it('isSetupStepFailureLog: an action step failing before any test ran, nothing else', () => {
+        expect(isSetupStepFailureLog(SETUP_FAILED_LOG)).toBe(true);
+        // A `run:` step failing (a gate script, a test command) is a real failure.
+        expect(
+          isSetupStepFailureLog(
+            SETUP_FAILED_LOG.replace(
+              'Run actions/download-artifact@v4',
+              'Run node scripts/lint-paths-ssot.mjs',
+            ),
+          ),
+        ).toBe(false);
+        // Any vitest output means tests ran.
+        expect(isSetupStepFailureLog(`${SETUP_FAILED_LOG}\n RUN  v4.1.4 /w`)).toBe(false);
+        expect(isSetupStepFailureLog(BUDGET_LOG)).toBe(false);
+        expect(isSetupStepFailureLog(SETUP_FAILED_LOG.replace('##[error]', ''))).toBe(false);
+      });
+
+      it('looks past a later run whose shards failed before any test ran (T12730, 4aa2c96a)', async () => {
+        const run = (descLog: string) =>
+          resolve({
+            context: context('T1', ['testsPassed', 'qaPassed']),
+            fetchChecks: checksFor({
+              [MERGE]: budgetRed(MERGE),
+              [DESC1]: budgetRed(DESC1).map((c) => (c.id > 100 ? { ...c, id: c.id + 1000 } : c)),
+              [DESC2]: onSha(DESC2),
+            }),
+            listDescendants: () => [DESC1, DESC2],
+            isAncestor: (a, d) => a === MERGE && (d === DESC1 || d === DESC2),
+            touchingCommits: () => [],
+            fetchJobLog: async (jobId) =>
+              jobId === 101 ? BUDGET_LOG : jobId === 1101 ? descLog : null,
+          });
+        const r = await run(SETUP_FAILED_LOG);
+        expect(r.ok, JSON.stringify(r)).toBe(true);
+        expect(r.ok && r.atom.kind === 'ci' && r.atom.descendantSha).toBe(DESC2);
+        // The same failure in a `run:` step still refuses.
+        const refused = await run(
+          SETUP_FAILED_LOG.replace('Run actions/download-artifact@v4', 'Run pnpm run test'),
+        );
+        expect(refused.ok).toBe(false);
+        expect(!refused.ok && refused.reason).toMatch(/failure on later origin\/main commit/);
+      });
+
+      it('a code task: a merge-commit job red only on the budget ran its tests, so the job gate holds', async () => {
+        // CI is attested by the tree-equal PR head; the PR's affected-only run skipped shard 1.
+        const headSkipped = onHead.map((c) =>
+          c.name === SHARD ? { ...c, conclusion: 'skipped' } : c,
+        );
+        const run = (fetchJobLog: ResolveCiEvidenceOptions['fetchJobLog']) =>
+          resolve({
+            fetchChecks: checksFor({ [MERGE]: budgetRed(MERGE), [HEAD]: headSkipped }),
+            treeOf: (sha) => (sha === MERGE || sha === HEAD ? TREE : null),
+            isAncestor: (a, d) => a === PARENT && d === HEAD,
+            ...(fetchJobLog ? { fetchJobLog } : {}),
+          });
+        const held = await run(logs(BUDGET_LOG));
+        expect(held.ok, JSON.stringify(held)).toBe(true);
+        const refused = await run(logs(FAILED_LOG));
+        expect(refused.ok, JSON.stringify(refused)).toBe(false);
+        expect(!refused.ok && refused.reason).toMatch(
+          /Unit Tests \(ubuntu-latest, shard 1\): failure/,
+        );
+      });
+
+      it('a later run with a real failure still refuses: no green run is shopped for past it', async () => {
+        const r = await resolve({
+          context: context('T1', ['testsPassed', 'qaPassed']),
+          fetchChecks: checksFor({
+            [MERGE]: budgetRed(MERGE),
+            [DESC1]: budgetRed(DESC1).map((c) => (c.id > 100 ? { ...c, id: c.id + 1000 } : c)),
+            [DESC2]: onSha(DESC2),
+          }),
+          listDescendants: () => [DESC1, DESC2],
+          isAncestor: (a, d) => a === MERGE && (d === DESC1 || d === DESC2),
+          touchingCommits: () => [],
+          fetchJobLog: async (jobId) =>
+            jobId === 101 ? BUDGET_LOG : jobId === 1101 ? FAILED_LOG : null,
+        });
+        expect(r.ok).toBe(false);
+        expect(!r.ok && r.reason).toMatch(/failure on later origin\/main commit 111111111111/);
+      });
     });
   });
 

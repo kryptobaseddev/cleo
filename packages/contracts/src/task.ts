@@ -303,6 +303,13 @@ export type EvidenceAtom =
        * longer matches, unless `ci:<pr>` or a full tool run carries the gate.
        */
       treeHash?: string;
+      /**
+       * HEAD as of the run, when it differs from `headSha` because commits
+       * landed on origin's default branch after the run (T13784). Those
+       * commits stand only while they touch none of the change's files, the
+       * test files the report ran, or the shared test configs.
+       */
+      runHeadSha?: string;
       /** Test files the report covered, relative to the bound checkout (capped, T12965). */
       testFiles?: string[];
       /** Total test files the report covered; exceeds `testFiles.length` when capped. */
@@ -313,6 +320,14 @@ export type EvidenceAtom =
        * `tool:test-affected`'s `untestedPackages` (T12965 review).
        */
       untestedPackages?: string[];
+      /** Changed CLEO config this result leaves to `tool:config-schema` in the same gate write (T13778). */
+      configPaths?: string[];
+      /**
+       * Dependents of a declared generated package this report left to a
+       * typecheck (T13783): a `tool:typecheck` or a qa-run typecheck receipt
+       * covering them must be in the same gate write.
+       */
+      typecheckDirs?: string[];
       /**
        * Tracked files matching `evidence.runtimePaths` whose working-tree
        * edits the tree hash left out (T13554).
@@ -348,6 +363,8 @@ export type EvidenceAtom =
       uncovered?: string[];
       /** Dependent packages this receipt's roots leave uncovered (T13580). */
       uncoveredPackages?: string[];
+      /** Changed CLEO config this result leaves to `tool:config-schema` in the same gate write (T13778). */
+      configPaths?: string[];
       /** The change it checked is non-code only, so no typecheck is owed (T13745). */
       nonCodeChange?: boolean;
     }
@@ -380,6 +397,17 @@ export type EvidenceAtom =
        */
       configSchema?: string[];
       /**
+       * `tool:config-schema` on a change that also touches other paths (T13778):
+       * those paths, which another result in the same gate write must cover.
+       */
+      otherPaths?: string[];
+      /**
+       * `tool:config-schema` judged an already-merged change (T13781): the
+       * `commit:`/`pr:` merge commit whose config files it validated, in place
+       * of a tree pin.
+       */
+      configSchemaCommit?: string;
+      /**
        * `affected`: the run covered only the packages the branch diff touches
        * plus their dependents (D11150, T12635). It satisfies testsPassed before
        * merge; merged CI (`ci:`) or a full `tool:test` supersedes it.
@@ -404,6 +432,8 @@ export type EvidenceAtom =
       affectedTestFiles?: string[];
       /** Affected DEPENDENT packages with no test project (a changed one refuses the scope). */
       untestedPackages?: string[];
+      /** Changed CLEO config this result leaves to `tool:config-schema` in the same gate write (T13778). */
+      configPaths?: string[];
       /**
        * Test files that failed and then passed on their single retry
        * (T12961). The run counts as a pass; this marks it as a FLAKY pass so
@@ -604,6 +634,13 @@ export type EvidenceAtom =
         baseSha: string;
         baseRunId: number;
       }>;
+      /**
+       * The merge commit's own run FAILED, but only on the flaky-quarantine
+       * budget: every failing job's tests all passed (T13809). `descendantSha`
+       * is the later green main run standing in. Each job records its failing
+       * merge-commit run.
+       */
+      nonTestFailures?: Array<{ name: string; mergeRunId: number }>;
       /**
        * The PR edited a pinned workflow, so only default-branch `push` runs
        * attested it; its own `pull_request` runs (which ran the edited

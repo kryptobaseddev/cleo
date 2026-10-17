@@ -221,6 +221,9 @@ export const SEALED_SECRET_TABLES: ReadonlySet<string> = new Set([
   'service_connections',
   'service_configs',
   'agent_service_grants',
+  // T12535: a playbook approval's resume token is NOT NULL, so a row whose
+  // token were dropped could never be written on another device.
+  'tasks_playbook_approvals',
 ]);
 
 /** One secret column value prepared by phase A (§2.5). */
@@ -233,6 +236,31 @@ export interface SecretSeal {
 
 /** Phase A's output, keyed by {@link secretSealKey}. */
 export type SecretSeals = ReadonlyMap<string, SecretSeal>;
+
+/**
+ * The values a rewind of a sealed delete restores (T12535): the op's before
+ * image plus the row's secret columns, which the image never carries (a
+ * sealed table's travel separately, every other one is dropped). Read from
+ * the delete capture's undo image (`_sync_undo.before_full`, the full local
+ * row). Without them a re-inserted row loses a NOT NULL secret and the rewind
+ * fails. `undefined` when the table has no secret column or no undo image.
+ */
+function deletedRowValues(
+  db: DatabaseSync,
+  def: CaptureTableDef,
+  op: { readonly b?: Readonly<Record<string, WireValue>> },
+  captureSeq: number,
+): Record<string, WireValue> | undefined {
+  if (def.secret.size === 0) return undefined;
+  const row = db
+    .prepare("SELECT before_full FROM _sync_undo WHERE seq = ? AND op = 'D'")
+    .get(captureSeq) as { before_full: string | null } | undefined;
+  if (!row?.before_full) return undefined;
+  const local = JSON.parse(row.before_full) as Record<string, string>;
+  const out: Record<string, WireValue> = { ...(op.b ?? {}) };
+  for (const col of def.secret) if (col in local) out[col] = decodeEnc(local[col] as string);
+  return out;
+}
 
 /** The key of one secret column value: its table, row uid and column (the seal's AAD). */
 export function secretSealKey(table: string, uid: string, column: string): string {
@@ -1698,7 +1726,15 @@ function sealInTransaction(
         return;
       }
       const prev = meta.get.get(op.t, op.u) as RowMetaRow | undefined;
-      if (rowUndo) snapshotRowUndo(db, txn, i, op.t, op.u);
+      if (rowUndo)
+        snapshotRowUndo(
+          db,
+          txn,
+          i,
+          op.t,
+          op.u,
+          op.o === 'D' ? deletedRowValues(db, def, op, last) : undefined,
+        );
       const keyJson = op.k ? canonicalJson(op.k) : null;
       if (op.o === 'K' && op.nu !== undefined) {
         // A K that keeps its uid changes only birth_fp: its meta stays put.

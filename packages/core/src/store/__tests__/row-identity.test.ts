@@ -15,6 +15,7 @@ process.env.CLEO_ROW_UID_FILL = '1';
 import { rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
+import { ExitCode } from '@cleocode/contracts/exit-codes.js';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { rowIdentityDoctorCheck } from '../../doctor/row-identity.js';
 import { computeAcCoverage } from '../../tasks/ac-coverage-gate.js';
@@ -39,8 +40,10 @@ import {
   ROW_IDENTITY_SYNCED_KEY,
   rekeyedChildUid,
   rowIdentityColumns,
+  rowIdentityFillPending,
   v1ReleaseBirthFp,
 } from '../row-identity.js';
+import { insertHandoffEntry } from '../session-store.js';
 import { getNativeTasksDb } from '../sqlite.js';
 import { normalizeSql, ownedTriggerDdl, suspendClause } from '../sync/trigger-classes.js';
 import { createTestDb, seedTasks, type TestDbEnv } from './test-db-helper.js';
@@ -139,12 +142,14 @@ describe('uid recipes', () => {
     expect(classifyUidMatch(null, 'b')).toBe('unknown');
   });
 
-  it('declares only single-key tables as reference targets', () => {
+  it('declares only reference targets with a single local key column (its localKey, else its single key)', () => {
     for (const spec of ROW_IDENTITY.project) {
       for (const ref of [...(spec.owners ?? []), ...(spec.keyRefs ?? []), ...(spec.refs ?? [])]) {
         const target = ROW_IDENTITY.project.find((s) => s.table === ref.table);
         expect(target, `${spec.table}.${ref.column} → ${ref.table}`).toBeDefined();
-        expect(target?.key).toHaveLength(1);
+        // A natural key over several columns is fine when references point at
+        // the target's localKey (T12915; tasks_pull_requests, T12914).
+        if (target?.localKey === undefined) expect(target?.key).toHaveLength(1);
       }
     }
   });
@@ -503,6 +508,51 @@ describe('uid fill through the open path', () => {
     const after = await env.accessor.getAcRows('T003');
     expect(after.map((r) => r.uid)).toEqual(before.map((r) => r.uid));
     expect(one('SELECT count(*) AS n FROM tasks_ac_uid_graveyard')?.n).toBe(0);
+  });
+
+  it('a legacy store with two handoffs for one session opens: the first takes the uid, the later stays local (T13777)', () => {
+    olderBuild((older) =>
+      older.exec(
+        `INSERT INTO tasks_sessions (id, name, started_at) VALUES ('ses_dup', 'dup', '2026-10-16 09:00:00');
+         INSERT INTO tasks_session_handoff_entries (id, session_id, handoff_json, created_at) VALUES
+           (1, 'ses_dup', '{"n":"later"}', '2026-10-16 09:00:05'),
+           (2, 'ses_dup', '{"n":"first"}', '2026-10-16 09:00:01'),
+           (3, 'ses_dup', '{"n":"tie"}', '2026-10-16 09:00:05');`,
+      ),
+    );
+    const report = prepareRowIdentity(db, 'project');
+    expect(report?.unfilled).toEqual({});
+    const uids = db
+      .prepare('SELECT id, uid FROM tasks_session_handoff_entries ORDER BY id')
+      .all() as { id: number; uid: string | null }[];
+    expect(uids.map((r) => r.uid !== null)).toEqual([false, true, false]);
+    expect(rowIdentityFillPending(db, 'project')).toEqual([]);
+    expect(rowIdentityDoctorCheck(env.tempDir).message).not.toContain(
+      'tasks_session_handoff_entries',
+    );
+    // A later insert on this connection (the uid trigger) never wedges the fill either.
+    db.exec(
+      "INSERT INTO tasks_session_handoff_entries (session_id, handoff_json) VALUES ('ses_dup', '{}')",
+    );
+    expect(rowIdentityFillPending(db, 'project')).toEqual([]);
+    expect(fillRowUids(db, 'project').unfilled).toEqual({});
+  });
+
+  it('a second handoff for a session is refused, though the DDL has no UNIQUE on it (T13777)', async () => {
+    db.exec(
+      "INSERT INTO tasks_sessions (id, name, started_at) VALUES ('ses_once', 'once', '2026-10-16 09:00:00')",
+    );
+    await insertHandoffEntry('ses_once', '{"n":1}', env.tempDir);
+    await expect(insertHandoffEntry('ses_once', '{"n":2}', env.tempDir)).rejects.toMatchObject({
+      code: ExitCode.ALREADY_EXISTS,
+    });
+    expect(
+      db
+        .prepare(
+          "SELECT count(*) AS n FROM tasks_session_handoff_entries WHERE session_id = 'ses_once'",
+        )
+        .get(),
+    ).toEqual({ n: 1 });
   });
 
   it('cleo doctor reports unfilled rows and flagged rows, read-only', () => {
