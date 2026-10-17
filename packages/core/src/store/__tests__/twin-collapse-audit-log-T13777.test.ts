@@ -18,6 +18,7 @@ import type { DatabaseSync } from 'node:sqlite';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { bindTasksDomain, closeDb } from '../sqlite.js';
 import { legacyStrands } from '../sync/flags.js';
+import { auditScrubPending } from '../sync/schema.js';
 import { TWIN_COLLAPSE_MARKER_PREFIX } from '../twin-collapse.js';
 import { optOutOfForeignKeys } from './test-db-helper.js';
 
@@ -115,6 +116,31 @@ describe('audit_log drain into tasks_audit_log (T13777)', () => {
     // A second open has nothing left to drain.
     db = await reopen();
     expect(twin(db)).toHaveLength(3);
+  });
+
+  it('a bare row written after the one-time scrub drains redacted, clean text byte for byte (T13857)', async () => {
+    let db = await open();
+    // The open pass already ran the scrub and set its marker.
+    expect(auditScrubPending(db)).toBe(false);
+    const token = 'gho_' + 'b'.repeat(36);
+    const clean = JSON.stringify({ note: 'Fix id_rsa docs', path: 'process.env' });
+    bare(db, '0198f100-0000-4000-8000-0000000000a1', {
+      details_json: JSON.stringify({ service: 'github', token }),
+      error_message: `push failed: --token=${token}`,
+    });
+    bare(db, '0198f100-0000-4000-8000-0000000000a2', { details_json: clean });
+    db.prepare('DELETE FROM main.tasks_schema_meta WHERE key = ?').run(MARKER);
+
+    db = await reopen();
+    expect(db.prepare('SELECT count(*) AS n FROM main.audit_log').get()).toEqual({ n: 0 });
+    const get = (id: string) =>
+      db
+        .prepare('SELECT details_json, error_message FROM tasks_audit_log WHERE id = ?')
+        .get(id) as { details_json: string; error_message: string | null };
+    const secret = get('0198f100-0000-4000-8000-0000000000a1');
+    expect(JSON.parse(secret.details_json)).toEqual({ service: 'github', token: '[REDACTED]' });
+    expect(secret.error_message).not.toContain(token);
+    expect(get('0198f100-0000-4000-8000-0000000000a2').details_json).toBe(clean);
   });
 
   it('the uid of a drained row is the uid any device computes for the same id', async () => {

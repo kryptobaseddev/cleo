@@ -4,7 +4,8 @@
  * Before T13855 the dispatch audit middleware stored mutation params verbatim
  * (`service connect --token`, `config set` values). T13855 redacts every new
  * write at the column; this pass rewrites the rows written before it, on each
- * device, with the same rule ({@link redactJsonText}).
+ * device, with the same per-column transforms the column and the sync apply
+ * path use ({@link COLUMN_TRANSFORMS}).
  *
  * - Local only: runs with the capture and side-effect triggers suspended, so
  *   no change is captured and peers never receive an op the `audit.immutable`
@@ -23,7 +24,7 @@
  */
 
 import type { DatabaseSync } from 'node:sqlite';
-import { redactJsonText } from '@cleocode/utils';
+import { COLUMN_TRANSFORMS } from '../schema/schema-utils.js';
 import { withImmediateTransaction } from './clock-store.js';
 import {
   AUDIT_SCRUB_MARKER,
@@ -32,16 +33,6 @@ import {
   hasTable,
 } from './schema.js';
 import { hasTriggerSuspendTable, withTriggersSuspended } from './trigger-classes.js';
-
-/**
- * Audit tables and the free-text columns T13855 redacts on write (its
- * `redactedText` columns). A table or column the store lacks is skipped.
- */
-export const AUDIT_SCRUB_COLUMNS: Readonly<Record<string, readonly string[]>> = {
-  tasks_audit_log: ['details_json', 'before_json', 'after_json', 'error_message'],
-  audit_log: ['details_json', 'before_json', 'after_json', 'error_message'],
-  nexus_audit_log: ['details_json', 'error_message'],
-};
 
 /** What {@link scrubAuditSecrets} did. */
 export type AuditScrubReport =
@@ -57,8 +48,8 @@ function columnsOf(db: DatabaseSync, table: string): Set<string> {
 }
 
 /**
- * The one-time scrub: every text value in {@link AUDIT_SCRUB_COLUMNS} that
- * {@link redactJsonText} changes is rewritten, in one `BEGIN IMMEDIATE` (or
+ * The one-time scrub: every text value its {@link COLUMN_TRANSFORMS} entry
+ * changes is rewritten, in one `BEGIN IMMEDIATE` (or
  * the caller's transaction) with capture and side-effect triggers suspended,
  * then the marker is recorded.
  *
@@ -77,10 +68,10 @@ export function scrubAuditSecrets(db: DatabaseSync): AuditScrubReport {
     if (!auditScrubPending(db)) return { status: 'already' };
     const rewritten: Record<string, number> = {};
     withTriggersSuspended(db, ['capture', 'side-effect'], 'forward', () => {
-      for (const [table, cols] of Object.entries(AUDIT_SCRUB_COLUMNS)) {
+      for (const [table, transforms] of Object.entries(COLUMN_TRANSFORMS)) {
         if (!hasTable(db, table)) continue;
         const present = columnsOf(db, table);
-        for (const col of cols) {
+        for (const [col, transform] of Object.entries(transforms)) {
           if (!present.has(col)) continue;
           const rows = db
             .prepare(
@@ -89,7 +80,7 @@ export function scrubAuditSecrets(db: DatabaseSync): AuditScrubReport {
             .all() as Array<{ rid: number; v: string }>;
           const update = db.prepare(`UPDATE ${q(table)} SET ${q(col)} = ? WHERE rowid = ?`);
           for (const { rid, v } of rows) {
-            const clean = redactJsonText(v);
+            const clean = transform(v);
             if (clean === v) continue;
             update.run(clean, rid);
             const key = `${table}.${col}`;

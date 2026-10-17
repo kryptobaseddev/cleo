@@ -223,6 +223,7 @@ import {
 import { blobFileForRow, pinBlob, restoreBlob } from './blob-keep.js';
 import { planMigrationSnapshot, writeMigrationSnapshot } from './pre-repair-snapshot.js';
 import { DRAINED_TWINS } from './row-identity-registry.js';
+import { transformColumnValue } from './schema/schema-utils.js';
 import { withSuspectAccounting } from './sync/structural.js';
 
 const log = getLogger('twin-collapse');
@@ -2048,7 +2049,13 @@ function planDrain(db: DatabaseSync, spec: DrainSpec, state: CollapseState | und
       keepLeft(id, hash, `${id}: not carried (${spec.twin} has no column ${extra.join(', ')})`);
       continue;
     }
-    const json = rowJson(r, shape.shared);
+    // The twin's column transforms apply (T13857): a legacy audit row written
+    // after the one-time scrub lands redacted, as any twin write would.
+    const json = JSON.stringify(
+      shape.shared.map((c, i) =>
+        transformColumnValue(spec.twin, shape.twinCols[i] as string, r[c] ?? null),
+      ),
+    );
     const twin = twinRowJson(shape, id);
     if (twin === undefined) {
       plan.set.set(id, json);

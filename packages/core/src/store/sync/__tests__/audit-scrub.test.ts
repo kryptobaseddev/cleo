@@ -92,6 +92,18 @@ describe('scrubAuditSecrets (audit_secret_scrub_v1)', () => {
     expect(row(db, 'a4').details_json).toContain(TOKEN);
   });
 
+  it('never mangles path-shaped text that names no secret (T13859)', async () => {
+    const db = await store();
+    unmark(db);
+    const texts = [
+      JSON.stringify({ title: 'Fix id_rsa docs', files: ['.env.example'] }),
+      JSON.stringify({ note: 'read process.env', key: 'llm.anthropic.key' }),
+    ];
+    for (const [i, t] of texts.entries()) addAudit(db, `p${i}`, t);
+    expect(scrubAuditSecrets(db)).toEqual({ status: 'done', rewritten: {} });
+    for (const [i, t] of texts.entries()) expect(row(db, `p${i}`).details_json).toBe(t);
+  });
+
   it('captures nothing when sync capture is on', async () => {
     const db = await store();
     setCaptureEnabled(db, 'project', true, { schemaRoot: SYNC_SCHEMA });
