@@ -7,8 +7,8 @@
  * 3. `lifecycleHop`       — pre-implementation stage (research/specification/decomposition)
  * 4. `ivtrFanOut`         — implementation stage, IVTR fan-out
  *
- * The test stubs out the imported engines (sagaNext, orchestrateReady,
- * armGoalLoop) so no DB or filesystem is touched. The IVTR seam (T11805) is now
+ * The test stubs out the imported engines (sagaNext, orchestrateReady)
+ * so no DB or filesystem is touched. The IVTR seam (T11805) is now
  * an *injected* runner — the default cantbook path (T11896) — so the fan-out
  * scenarios pass a mock {@link go.IvtrRunner} via `params.ivtrRunner`. The
  * kill-switch (`CLEO_GO_VIA_PLAYBOOK=0`) fallback seeds via the retained
@@ -30,7 +30,6 @@ import type { IvtrRunner } from '../driver.js';
 const mockSagaNext = vi.fn();
 const mockOrchestrateReady = vi.fn();
 const mockIvtrRunner = vi.fn();
-const mockArmGoalLoop = vi.fn();
 const mockSeedIvtr = vi.fn();
 
 /** Injected IVTR runner under test (T11805). */
@@ -42,10 +41,6 @@ vi.mock('../../sagas/next.js', () => ({
 
 vi.mock('../../orchestrate/query-ops.js', () => ({
   orchestrateReady: (...args: unknown[]) => mockOrchestrateReady(...args),
-}));
-
-vi.mock('../../goal/arm.js', () => ({
-  armGoalLoop: (...args: unknown[]) => mockArmGoalLoop(...args),
 }));
 
 vi.mock('../../paths.js', () => ({
@@ -108,7 +103,6 @@ describe('cleoGo driver (T11494)', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockIvtrRunner.mockResolvedValue({ taskId: 'T999', runId: 'pbr_999' });
-    mockArmGoalLoop.mockResolvedValue({ id: 'g-armed-1', status: 'active' });
     mockSeedIvtr.mockResolvedValue({ taskId: 'T999', currentPhase: 'implement' });
     // The cantbook seam defaults ON (T11896) — leaving the env unset already
     // exercises the seam path. We clear it here so the default-ON behaviour is
@@ -135,7 +129,6 @@ describe('cleoGo driver (T11494)', () => {
       expect(result.success).toBe(true);
       expect(result.data?.outcome.action).toBe('complete');
       // No saga selected → no goal to arm.
-      expect(result.data?.armedGoalId).toBeNull();
     });
   });
 
@@ -497,49 +490,21 @@ describe('cleoGo driver (T11494)', () => {
     });
   });
 
-  // ---- AC3: goal loop armed when a saga is selected ----------------------
+  // ---- T13797: cleo go arms no goal loop (OCG is the goal runtime) ------
 
-  describe('AC3: goal loop armed (T11496)', () => {
-    it('calls armGoalLoop with the selected sagaId', async () => {
+  describe('T13797: no goal loop arming', () => {
+    it('drives a saga without arming a goal', async () => {
       mockSagaNext.mockResolvedValue({
         success: true,
         data: makeSagaNextResult({ sagaId: 'T100', sagaTitle: 'My Saga' }),
       });
       mockOrchestrateReady.mockResolvedValue(makeReadyResult([]));
-      mockArmGoalLoop.mockResolvedValue({ id: 'g-armed-saga', status: 'active' });
 
       const result = await cleoGo({ sagaId: 'T100' });
 
-      expect(mockArmGoalLoop).toHaveBeenCalledOnce();
-      expect(mockArmGoalLoop.mock.calls[0]?.[0]).toMatchObject({ sagaId: 'T100' });
-      expect(result.data?.armedGoalId).toBe('g-armed-saga');
-    });
-
-    it('returns armedGoalId: null for the complete action', async () => {
-      mockSagaNext.mockResolvedValue({
-        success: true,
-        data: makeSagaNextResult({ sagaId: '', activeSagaCount: 0 }),
-      });
-
-      const result = await cleoGo();
-      expect(mockArmGoalLoop).not.toHaveBeenCalled();
-      expect(result.data?.armedGoalId).toBeNull();
-    });
-
-    it('is non-fatal: returns a result even when armGoalLoop throws', async () => {
-      mockSagaNext.mockResolvedValue({
-        success: true,
-        data: makeSagaNextResult({ sagaId: 'T100' }),
-      });
-      mockOrchestrateReady.mockResolvedValue(makeReadyResult([]));
-      mockArmGoalLoop.mockRejectedValue(new Error('DB locked'));
-
-      const result = await cleoGo({ sagaId: 'T100' });
-
-      // Driver must not fail — armedGoalId stays null when arm fails.
       expect(result.success).toBe(true);
-      expect(result.data?.armedGoalId).toBeNull();
-      expect(result.data?.diagnostics.some((d) => d.includes('non-fatal'))).toBe(true);
+      expect(result.data).not.toHaveProperty('armedGoalId');
+      expect(result.data?.diagnostics.some((d) => d.includes('goal loop'))).toBe(false);
     });
   });
 
