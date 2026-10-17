@@ -1,8 +1,10 @@
 import { execFileSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import {
   chmod,
   mkdir,
   mkdtemp,
+  readdir,
   readFile,
   realpath,
   rm,
@@ -462,6 +464,132 @@ describe('activated project checks through actual child processes', () => {
     expect(JSON.stringify(agent)).not.toContain('toolInput');
     expect(JSON.stringify(agent)).not.toContain('secret-input');
   });
+  describe.skipIf(process.getuid?.() === 0)(
+    'a read-only Git directory, as under Codex workspace-write (T13775)',
+    () => {
+      async function sandboxed(): Promise<string> {
+        await manifest({
+          bindings: [
+            { source: 'agent', event: 'PreToolUse' },
+            { source: 'git', event: 'pre-push' },
+          ],
+        });
+        await activateProjectHooks(root);
+        const state = resolveProjectHookContext(root).stateDir;
+        await chmod(state, 0o500);
+        return state;
+      }
+      afterEach(async () => {
+        await chmod(resolveProjectHookContext(root).stateDir, 0o700).catch(() => undefined);
+        await chmod(join(root, '.cleo'), 0o700).catch(() => undefined);
+      });
+      it('writes receipts to the self-ignoring checkout fallback and reads them back', async () => {
+        await sandboxed();
+        const outcomes = await executeProjectHooks({
+          ...invocation,
+          source: 'agent',
+          event: 'PreToolUse',
+          nativeSession: { sessionId: 'session-a', harness: 'codex' },
+        });
+        expect(outcomes.map((outcome) => outcome.code)).not.toContain('HOOK_RECEIPT_WRITE_FAILED');
+        const agent = await readLastProjectHookExecution(root, {
+          source: 'agent',
+          event: 'PreToolUse',
+        });
+        expect(agent).toMatchObject({ source: 'agent', sessionId: 'session-a', harness: 'codex' });
+        expect(await readFile(join(root, '.cleo/hook-receipts/.gitignore'), 'utf8')).toBe('*\n');
+        expect(
+          execFileSync('git', ['-C', root, 'status', '--porcelain', '--', '.cleo'], {
+            encoding: 'utf8',
+          }),
+        ).not.toContain('hook-receipts');
+        // The Git push lands in its own slot; the agent receipt stays as it was.
+        await executeProjectHooks(invocation);
+        expect(await readLastProjectHookExecution(root)).toMatchObject({ source: 'git' });
+        expect(
+          await readLastProjectHookExecution(root, { source: 'agent', event: 'PreToolUse' }),
+        ).toEqual(agent);
+      });
+      it('a Git receipt nowhere writable is a visible fault and never replaces the agent receipt', async () => {
+        await sandboxed();
+        await executeProjectHooks({ ...invocation, source: 'agent', event: 'PreToolUse' });
+        const agent = await readLastProjectHookExecution(root, {
+          source: 'agent',
+          event: 'PreToolUse',
+        });
+        expect(agent).toBeDefined();
+        await chmod(join(root, '.cleo/hook-receipts'), 0o500);
+        try {
+          const outcomes = await executeProjectHooks(invocation);
+          expect(outcomes.map((outcome) => outcome.code)).toContain('HOOK_RECEIPT_WRITE_FAILED');
+        } finally {
+          await chmod(join(root, '.cleo/hook-receipts'), 0o700);
+        }
+        expect(
+          await readLastProjectHookExecution(root, { source: 'agent', event: 'PreToolUse' }),
+        ).toEqual(agent);
+      });
+      const agentSlot = `last-execution-agent-${createHash('sha256').update('PreToolUse').digest('hex')}.json`;
+      it('never writes through a symlinked slot or parent, or over a tracked file', async () => {
+        await sandboxed();
+        const dir = join(root, '.cleo/hook-receipts');
+        const source = await readFile(join(root, 'handler.mjs'), 'utf8');
+        await mkdir(dir);
+        await symlink(join(root, 'handler.mjs'), join(dir, agentSlot));
+        const agentRun = { ...invocation, source: 'agent' as const, event: 'PreToolUse' };
+        expect((await executeProjectHooks(agentRun)).map((o) => o.code)).toContain(
+          'HOOK_RECEIPT_WRITE_FAILED',
+        );
+        expect(await readFile(join(root, 'handler.mjs'), 'utf8')).toBe(source);
+        // A symlinked parent directory is refused the same way.
+        await rm(dir, { recursive: true });
+        await mkdir(join(root, 'victim'));
+        await symlink(join(root, 'victim'), dir);
+        expect((await executeProjectHooks(agentRun)).map((o) => o.code)).toContain(
+          'HOOK_RECEIPT_WRITE_FAILED',
+        );
+        expect(await readdir(join(root, 'victim'))).toEqual([]);
+        // A tracked destination keeps its content.
+        await rm(dir);
+        await mkdir(dir);
+        await writeFile(join(dir, agentSlot), 'tracked\n');
+        execFileSync('git', ['-C', root, 'add', '-f', join(dir, agentSlot)]);
+        expect((await executeProjectHooks(agentRun)).map((o) => o.code)).toContain(
+          'HOOK_RECEIPT_WRITE_FAILED',
+        );
+        expect(await readFile(join(dir, agentSlot), 'utf8')).toBe('tracked\n');
+      });
+      it('one invalid location never hides a valid receipt in the other', async () => {
+        const state = await sandboxed();
+        const agentRun = { ...invocation, source: 'agent' as const, event: 'PreToolUse' };
+        const binding = { source: 'agent' as const, event: 'PreToolUse' };
+        // Valid fallback, invalid (symlinked) private slot.
+        await executeProjectHooks(agentRun);
+        const fromFallback = await readLastProjectHookExecution(root, binding);
+        expect(fromFallback).toBeDefined();
+        await chmod(state, 0o700);
+        await symlink(join(root, 'handler.mjs'), join(state, agentSlot));
+        expect(await readLastProjectHookExecution(root, binding)).toEqual(fromFallback);
+        // Valid private slot, invalid (symlinked) fallback directory.
+        await rm(join(state, agentSlot));
+        await executeProjectHooks(agentRun);
+        const fromPrivate = await readLastProjectHookExecution(root, binding);
+        await rm(join(root, '.cleo/hook-receipts'), { recursive: true });
+        await symlink(tmpdir(), join(root, '.cleo/hook-receipts'));
+        expect(await readLastProjectHookExecution(root, binding)).toEqual(fromPrivate);
+        await rm(join(root, '.cleo/hook-receipts'));
+      });
+      it('never trusts a fallback receipt Git tracks', async () => {
+        await sandboxed();
+        await executeProjectHooks({ ...invocation, source: 'agent', event: 'PreToolUse' });
+        const dir = join(root, '.cleo/hook-receipts');
+        execFileSync('git', ['-C', root, 'add', '-f', dir]);
+        expect(
+          await readLastProjectHookExecution(root, { source: 'agent', event: 'PreToolUse' }),
+        ).toBeUndefined();
+      });
+    },
+  );
   it.each([
     'warn',
     'block',
