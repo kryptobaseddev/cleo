@@ -1,10 +1,10 @@
 /**
  * CLI `cleo goal` — the goal protocol verbs (epic T13791).
  *
- * CLEO owns the goal protocol; OpenCode-Goal is the goal runtime (owner
+ * CLEO owns the goal protocol; CLEO Goal is the goal runtime (owner
  * decision 2026-10-16). These verbs are the protocol's CLI surface; CLEO's
- * own goal loop and its `set`/`status`/`advance`/`subgoal`/`append` verbs were
- * retired in T13797.
+ * own goal loop and its `set`/`advance`/`subgoal`/`append` verbs were retired
+ * in T13797; `status` now reads the runtime's live run.
  *
  *   - `cleo goal draft <taskId> [--tasks …] [--out <path>]` — write a goal/v1
  *     draft from task acceptance criteria (T13793).
@@ -12,6 +12,8 @@
  *     evidence and complete fully proven tasks via `cleo done` (T13794).
  *   - `cleo goal install --harness <h>` — register the CLEO Goal runtime with a
  *     harness for this project (T13820).
+ *   - `cleo goal status [--task T123]` — the drafted goals and the live run
+ *     from `cleo-goal status --json`, read-only (T13821).
  *
  * Handlers are thin: the logic lives in `@cleocode/core/goal/*`.
  *
@@ -167,8 +169,38 @@ const installCommand = defineCommand({
 });
 
 /**
- * Parent `cleo goal` command — routes to the protocol verbs `draft`,
- * `close` and `install`; prints usage when invoked bare.
+ * `cleo goal status [--task T123]` — the drafted goals, the tasks they serve,
+ * and the live run from `cleo-goal status --json` (T13821). Read-only.
+ *
+ * @task T13821
+ */
+const statusCommand = defineCommand({
+  meta: {
+    name: 'status',
+    description:
+      'Show the drafted goals, the CLEO tasks each serves, and the live CLEO Goal run (cleo-goal status --json); read-only, --task filters to one task',
+  },
+  args: {
+    task: { type: 'string', description: 'Only goals serving this task (T123)' },
+  },
+  async run({ args }) {
+    const { goalStatus } = await import('@cleocode/core/goal/status.js');
+    const result = goalStatus({
+      projectRoot: getProjectRoot(),
+      ...(typeof args.task === 'string' && args.task ? { taskId: args.task } : {}),
+    });
+    if (!result.success) {
+      cliError(result.error.message, result.error.code, { fix: result.error.fix });
+      process.exitCode = result.error.exitCode ?? 1;
+      return;
+    }
+    cliOutput(result.data, { command: 'goal status', operation: 'goal.status' });
+  },
+});
+
+/**
+ * Parent `cleo goal` command — routes to the protocol verbs `draft`, `close`,
+ * `install` and `status`; prints usage when invoked bare.
  *
  * @task T13797
  */
@@ -176,12 +208,13 @@ export const goalCommand = defineCommand({
   meta: {
     name: 'goal',
     description:
-      'Goal protocol verbs for the goal runtime (OpenCode-Goal): draft a goal/v1 contract from task ACs, close a run from its outcome, install the runtime into a harness.',
+      'Goal protocol verbs for the goal runtime (CLEO Goal): draft a goal/v1 contract from task ACs, close a run from its outcome, install the runtime for a harness, show status.',
   },
   subCommands: {
     draft: draftCommand,
     close: closeCommand,
     install: installCommand,
+    status: statusCommand,
   },
   async run({ cmd, rawArgs }) {
     const firstArg = rawArgs?.find((a) => !a.startsWith('-'));
