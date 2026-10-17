@@ -50,6 +50,7 @@ import {
   type ExecutePlaybookResult,
   executePlaybook,
 } from '../runtime.js';
+import { playbookTwinSql } from './twin-schema.js';
 
 const _require = createRequire(import.meta.url);
 type DatabaseSync = _DatabaseSyncType;
@@ -60,10 +61,6 @@ const { DatabaseSync } = _require('node:sqlite') as {
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const PLAYBOOKS_SRC = resolve(__dirname, '..');
 
-const MIGRATION_SQL = resolve(
-  __dirname,
-  '../../../core/migrations/drizzle-tasks/20260417220000_t889-playbook-tables/migration.sql',
-);
 const RCASD_CANTBOOK = resolve(__dirname, '../../starter/rcasd.cantbook');
 
 function applyMigration(db: DatabaseSync, sql: string): void {
@@ -155,7 +152,7 @@ describe('T11803 (M4): rcasd.cantbook → exactly ONE LAFS envelope, no GenKit',
   beforeEach(() => {
     db = new DatabaseSync(':memory:');
     db.exec('PRAGMA foreign_keys=ON');
-    applyMigration(db, readFileSync(MIGRATION_SQL, 'utf8'));
+    applyMigration(db, playbookTwinSql());
   });
   afterEach(() => db.close());
 

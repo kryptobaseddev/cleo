@@ -23,14 +23,21 @@ import { execFileSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import type { ChangeSetMergeState, EvidenceAtom, TaskChangeSet } from '@cleocode/contracts';
+import { cleoConfigSchemaFor } from './affected-packages.js';
 import type {
   ChangeSetDeps,
   ChangeSetTask,
   CommitPr,
   PatchEquivalenceUnknown,
 } from './change-set.js';
-import { QA_RUN_KINDS, qaRunCoverage, qaRunUnionGapReason } from './qa-run-binding.js';
+import {
+  QA_RUN_KINDS,
+  qaRunCoverage,
+  qaRunUnionGapReason,
+  typecheckCoverageGap,
+} from './qa-run-binding.js';
 import { changedTestFiles, testRunCoversChange } from './test-run-binding.js';
+import { canonicalToolName } from './tool-resolver.js';
 
 /** Whether the task's change has merged to the default branch. */
 export type ChangeMergeState = ChangeSetMergeState;
@@ -54,8 +61,23 @@ const GH_UNREACHABLE = 'gh unreachable — check `gh auth status`';
 /** A full (unscoped) tool run that actually executed. */
 function isFullToolRun(a: EvidenceAtom): boolean {
   return (
-    a.kind === 'tool' && a.scope !== 'affected' && a.notApplicable !== true && !isTreePinnedTool(a)
+    a.kind === 'tool' &&
+    a.scope !== 'affected' &&
+    a.notApplicable !== true &&
+    !isTreePinnedTool(a) &&
+    !isQaTool(a)
   );
+}
+
+/**
+ * A typecheck or lint `tool:` result recorded beside a test-run (T13783): it
+ * covers dependents left to a typecheck, and is never a test run itself, so it
+ * neither carries testsPassed alone nor exempts the rest from supersession.
+ */
+function isQaTool(a: EvidenceAtom): boolean {
+  if (a.kind !== 'tool') return false;
+  const tool = canonicalToolName(a.tool);
+  return tool === 'typecheck' || tool === 'lint';
 }
 
 /**
@@ -113,7 +135,7 @@ function treePinnedToolReason(
  */
 export function isScopedOnly(atoms: ReadonlyArray<EvidenceAtom>): boolean {
   const results = atoms.filter(
-    (a) => a.kind === 'tool' || a.kind === 'test-run' || a.kind === 'ci',
+    (a) => (a.kind === 'tool' && !isQaTool(a)) || a.kind === 'test-run' || a.kind === 'ci',
   );
   return results.length > 0 && results.every((a) => isTreeScopedTool(a) || a.kind === 'test-run');
 }
@@ -490,7 +512,7 @@ export async function qaPassedSupersededReason(
   }
   if (
     !atoms.some((a) => a.kind === 'qa-run') ||
-    atoms.some((a) => a.kind === 'ci' || a.kind === 'tool')
+    atoms.some((a) => a.kind === 'ci' || (a.kind === 'tool' && !a.configSchema))
   )
     return null;
   const merge = await probe.mergeState();
@@ -619,7 +641,22 @@ export function scopedRunCarriedAcrossMerge(
   const scoped = atoms.filter(
     (a) => a.kind === 'test-run' || a.kind === 'qa-run' || isTreeScopedTool(a),
   );
+  // Review of #2302: config-schema speaks for CLEO config alone; the change's
+  // other files need a result of their own to carry.
+  const code = paths.filter((p) => cleoConfigSchemaFor(p) === null);
+  if (code.length > 0 && scoped.every((a) => a.kind === 'tool' && a.configSchema !== undefined))
+    return {
+      ok: false,
+      why: `tool:config-schema checks only CLEO config, and nothing else covers the change's other file(s) ${code.slice(0, 5).join(', ')}${code.length > 5 ? ', …' : ''}`,
+    };
   for (const atom of scoped) {
+    // T13781: a config-schema result judged at a merged commit carries while
+    // its files are unchanged at the merge.
+    if (atom.kind === 'tool' && atom.configSchemaCommit) {
+      const why = configSchemaCommitDiffers(atom, merge, changeSet.executionRoot);
+      if (why) return { ok: false, why };
+      continue;
+    }
     const tree = 'treeHash' in atom && typeof atom.treeHash === 'string' ? atom.treeHash : null;
     if (tree === null)
       return { ok: false, why: 'the scoped result has no recorded tree to compare with the merge' };
@@ -647,6 +684,60 @@ export function scopedRunCarriedAcrossMerge(
     }
   }
   return { ok: true };
+}
+
+/**
+ * Why the CLEO config of a merged change is not spoken for (T13778): no
+ * `tool:config-schema` result validated a path, or the one that did ran on
+ * another tree, or validated a commit whose copy differs at the merge. Null
+ * when every path is covered.
+ */
+function mergedConfigGap(
+  atoms: ReadonlyArray<EvidenceAtom>,
+  configPaths: readonly string[],
+  merge: string,
+  root: string,
+  current: string | null,
+): string | null {
+  for (const path of configPaths) {
+    const schema = atoms.find(
+      (a): a is Extract<EvidenceAtom, { kind: 'tool' }> =>
+        a.kind === 'tool' && (a.configSchema ?? []).includes(path),
+    );
+    if (!schema)
+      return `the merged change also edits CLEO config ${path}, and no tool:config-schema validated it`;
+    const differs = schema.configSchemaCommit
+      ? configSchemaCommitDiffers(schema, merge, root)
+      : schema.treeHash !== current
+        ? `tool:config-schema ran on tree ${schema.treeHash?.slice(0, 12) ?? 'unknown'}, but the tree is now ${current?.slice(0, 12) ?? 'unknown'}`
+        : null;
+    if (differs) return differs;
+  }
+  return null;
+}
+
+/**
+ * Why a commit-anchored `tool:config-schema` result does not speak for the
+ * merge (T13781): its config files differ between the commit it validated
+ * and the merge commit, or git cannot compare them. Null when identical.
+ */
+function configSchemaCommitDiffers(
+  atom: Extract<EvidenceAtom, { kind: 'tool' }>,
+  merge: string,
+  root: string,
+): string | null {
+  const at = atom.configSchemaCommit!;
+  try {
+    execFileSync('git', ['diff', '--quiet', at, merge, '--', ...(atom.configSchema ?? [])], {
+      cwd: root,
+      stdio: 'ignore',
+    });
+    return null;
+  } catch (err) {
+    return (err as { status?: number }).status === 1
+      ? `CLEO config validated at ${at.slice(0, 12)} differs at merge commit ${merge.slice(0, 12)}`
+      : `git could not compare the config validated at ${at.slice(0, 12)} with merge commit ${merge.slice(0, 12)}`;
+  }
 }
 
 /** `: a, b, …` naming the compared paths that differ, or '' when git cannot say (T13637). */
@@ -722,7 +813,10 @@ export function scopedRunStandsAfterRedCi(
     (a): a is Extract<EvidenceAtom, { kind: 'test-run' | 'qa-run' }> =>
       a.kind === (qa ? 'qa-run' : 'test-run'),
   );
-  if (runs.length === 0 || atoms.some((a) => a.kind === 'tool' && (qa || a.scope === 'affected')))
+  if (
+    runs.length === 0 ||
+    atoms.some((a) => a.kind === 'tool' && !a.configSchema && (qa || a.scope === 'affected'))
+  )
     return {
       ok: false,
       why: qa
@@ -774,6 +868,8 @@ export function scopedRunStandsAfterRedCi(
     for (const r of receipts) {
       const cover = qaRunCoverage(r.check, r.roots, root, changeSet.files);
       if (!cover.ok) return { ok: false, why: cover.reason };
+      const configGap = mergedConfigGap(atoms, cover.configPaths ?? [], merge, root, current);
+      if (configGap) return { ok: false, why: configGap };
       bound.push({ check: r.check, roots: r.roots, ...cover });
     }
     const gap = qaRunUnionGapReason(bound);
@@ -782,6 +878,14 @@ export function scopedRunStandsAfterRedCi(
   const ran = [...new Set(runs.flatMap((r) => (r.kind === 'test-run' ? (r.testFiles ?? []) : [])))];
   const covered = testRunCoversChange(root, changeSet.files, ran);
   if (!covered.ok) return { ok: false, why: covered.reason };
+  const configGap = mergedConfigGap(atoms, covered.configPaths ?? [], merge, root, current);
+  if (configGap) return { ok: false, why: configGap };
+  // T13783: dependents left to a typecheck need one on the current tree.
+  const typecheckGap = typecheckCoverageGap(
+    atoms.filter((a) => a.kind !== 'qa-run' || a.treeHash === current),
+    covered.typecheckDirs ?? [],
+  );
+  if (typecheckGap) return { ok: false, why: typecheckGap };
   const unrun = changedTestFiles(root, changeSet.files).filter((f) => !ran.includes(f));
   if (unrun.length > 0)
     return {

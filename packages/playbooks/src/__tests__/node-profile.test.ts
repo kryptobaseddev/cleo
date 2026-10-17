@@ -16,11 +16,8 @@
  * @task T11759
  */
 
-import { readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
-import { dirname, resolve } from 'node:path';
 import type { DatabaseSync as _DatabaseSyncType } from 'node:sqlite';
-import { fileURLToPath } from 'node:url';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { parsePlaybook } from '../parser.js';
 import {
@@ -29,18 +26,13 @@ import {
   type AgentDispatchResult,
   executePlaybook,
 } from '../runtime.js';
+import { playbookTwinSql } from './twin-schema.js';
 
 const _require = createRequire(import.meta.url);
 type DatabaseSync = _DatabaseSyncType;
 const { DatabaseSync } = _require('node:sqlite') as {
   DatabaseSync: new (...args: ConstructorParameters<typeof _DatabaseSyncType>) => DatabaseSync;
 };
-
-const __dirname = dirname(fileURLToPath(import.meta.url));
-const MIGRATION_SQL = resolve(
-  __dirname,
-  '../../../core/migrations/drizzle-tasks/20260417220000_t889-playbook-tables/migration.sql',
-);
 
 function applyMigration(db: DatabaseSync, sql: string): void {
   const statements = sql
@@ -72,7 +64,7 @@ describe('T11759: node profile pin reaches the dispatch boundary', () => {
   beforeEach(() => {
     db = new DatabaseSync(':memory:');
     db.exec('PRAGMA foreign_keys=ON');
-    applyMigration(db, readFileSync(MIGRATION_SQL, 'utf8'));
+    applyMigration(db, playbookTwinSql());
   });
   afterEach(() => db.close());
 

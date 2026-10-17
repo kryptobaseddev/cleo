@@ -9,7 +9,9 @@
  *     `"version": "..."` lines;
  *   - a `CHANGELOG.md` (any directory), with any content change;
  *   - a path under `.changeset/` (adds, deletes and moves between
- *     `.changeset/` locations), with any content change.
+ *     `.changeset/` locations), with any content change;
+ *   - a release plan file, `.cleo/release/<version>.plan.json` (T13824: the
+ *     release-plan PR, and a combined plan + bump PR), with any content change.
  *
  * Anything else — including an empty diff, a binary `package.json`, a rename
  * into or out of `.changeset/`, or a git error — is NOT version-only, and CI
@@ -45,6 +47,7 @@ export function classifyPath(path) {
   if (path === 'package.json' || path.endsWith('/package.json')) return 'package-json';
   if (path === 'CHANGELOG.md' || path.endsWith('/CHANGELOG.md')) return 'free';
   if (path.startsWith('.changeset/')) return 'free';
+  if (/^\.cleo\/release\/[^/]+\.plan\.json$/.test(path)) return 'free';
   return null;
 }
 
