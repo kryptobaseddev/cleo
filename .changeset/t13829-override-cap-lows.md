@@ -16,3 +16,11 @@ The git signal for an earlier enrollment now reads the whole history
 (`git log --all`), not only HEAD. Deleting `.cleo/owner-settings.json` in a
 commit, then removing the global record, no longer re-enrolls as a clean
 `enrolled`.
+
+Review round 2:
+- The history check also reads the reflog (`git log --all --reflog`), so
+  deleting a ref cannot hide a past enrollment.
+- In a shallow clone, or when git fails inside the work tree, history cannot
+  prove absence. A fresh enrollment there is unconfirmed
+  (`history-unavailable`).
+- The unconfirmed state is audited once per state, not on every read.

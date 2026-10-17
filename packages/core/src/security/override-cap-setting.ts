@@ -120,7 +120,9 @@ interface GlobalEnrollment extends EnrollmentProvenance {
    * `fresh-after-removal` (`--reset` with both anchors gone). `cleo doctor`
    * FAILs until the owner confirms (`owner-enroll --confirm`).
    */
-  resetFrom?: 'tampered' | 'fresh-after-removal';
+  resetFrom?: 'tampered' | 'fresh-after-removal' | 'history-unavailable';
+  /** The `resetFrom` state last audited as unconfirmed, so a read audits it once. */
+  unconfirmedAudited?: string;
   /** When the owner confirmed an unproven reset. */
   confirmedAt?: string;
 }
@@ -214,21 +216,40 @@ function trackingWarnings(projectRoot: string): string[] {
 }
 
 /**
- * Whether git history holds `.cleo/owner-settings.json` on any ref (an earlier
- * enrollment), T13829: a commit that deletes the file must not hide it, so
- * this asks `git log --all`, not only HEAD.
+ * What git history says about an earlier enrollment (T13829, review-2253):
+ * `present` when `.cleo/owner-settings.json` appears on any ref or in the
+ * reflog (a commit that deleted it, or a deleted ref, cannot hide it);
+ * `unavailable` when history cannot prove absence (a shallow clone, or git
+ * erroring inside a work tree); `none` only when it is provably absent or the
+ * project is not a git work tree at all.
  */
-function committedSettingsExist(projectRoot: string): boolean {
-  try {
-    const out = execFileSync(
-      'git',
-      ['log', '--all', '--format=%H', '-n', '1', '--', '.cleo/owner-settings.json'],
-      { cwd: projectRoot, encoding: 'utf-8', stdio: ['ignore', 'pipe', 'ignore'] },
-    );
-    return out.trim() !== '';
-  } catch {
-    return false;
-  }
+function settingsHistory(projectRoot: string): 'none' | 'present' | 'unavailable' {
+  const git = (args: string[]): string | null => {
+    try {
+      return execFileSync('git', args, {
+        cwd: projectRoot,
+        encoding: 'utf-8',
+        stdio: ['ignore', 'pipe', 'ignore'],
+      }).trim();
+    } catch {
+      return null;
+    }
+  };
+  if (git(['rev-parse', '--is-inside-work-tree']) !== 'true') return 'none';
+  const shallow = git(['rev-parse', '--is-shallow-repository']);
+  if (shallow !== 'false') return 'unavailable';
+  const log = git([
+    'log',
+    '--all',
+    '--reflog',
+    '--format=%H',
+    '-n',
+    '1',
+    '--',
+    '.cleo/owner-settings.json',
+  ]);
+  if (log === null) return 'unavailable';
+  return log === '' ? 'none' : 'present';
 }
 
 function settingsPath(projectRoot: string): string {
@@ -439,7 +460,18 @@ export async function resolveOverrideCap(projectRoot: string): Promise<OverrideC
   // owner sets no cap until the owner confirms it.
   if (state.kind === 'ok' && state.global.resetFrom) {
     const warning = `owner key ${state.global.fingerprint} replaced an earlier enrollment without proof of the previous owner (${state.global.resetFrom}); ${OVERRIDE_CAP_SETTING} falls back to ${DEFAULT_OVERRIDE_CAP_PER_SESSION} until \`${OWNER_ENROLL_COMMAND} --confirm\`.`;
-    audit(projectRoot, 'owner-settings-unconfirmed', { sessionId: null, reason: warning });
+    // Audited once per unconfirmed state, not on every read.
+    const stateKey = `${state.global.fingerprint}:${state.global.resetFrom}:${state.global.enrolledAt}`;
+    if (state.global.unconfirmedAudited !== stateKey) {
+      audit(projectRoot, 'owner-settings-unconfirmed', { sessionId: null, reason: warning });
+      await atomicWriteJson(globalPath(), {
+        schemaVersion: 1,
+        projects: {
+          ...readGlobalAll(),
+          [projectKey(projectRoot)]: { ...state.global, unconfirmedAudited: stateKey },
+        },
+      });
+    }
     return { cap: DEFAULT_OVERRIDE_CAP_PER_SESSION, source: 'default', warning };
   }
   if (state.kind === 'ok' && state.cap !== null) return { cap: state.cap, source: 'owner-setting' };
@@ -641,10 +673,12 @@ export async function enrollOwner(
     } else {
       resetFrom = fileThere ? 'tampered' : 'fresh-after-removal';
     }
-  } else if (!existing && !fileThere && committedSettingsExist(projectRoot)) {
-    // Both anchors gone but git still holds a committed enrollment: a plain
-    // enroll here replaces an owner it never proved, so it is unconfirmed too.
-    resetFrom = 'fresh-after-removal';
+  } else if (!existing && !fileThere) {
+    // Both anchors gone: git history decides whether a plain enroll replaces an
+    // owner it never proved (present), or cannot tell (unavailable).
+    const history = settingsHistory(projectRoot);
+    if (history === 'present') resetFrom = 'fresh-after-removal';
+    else if (history === 'unavailable') resetFrom = 'history-unavailable';
   }
   const salt = randomBytes(16).toString('hex');
   const key = await ownerKey(caller.password, salt);

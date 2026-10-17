@@ -209,7 +209,7 @@ describe('enrollment is explicit and anchored twice', () => {
     const cap = await resolveOverrideCap(root);
     expect(cap).toMatchObject({ cap: 10, source: 'default' });
     expect(cap.warning).toMatch(/without proof of the previous owner.*until .*--confirm/);
-    expect(audit().at(-1)).toMatchObject({ action: 'owner-settings-unconfirmed' });
+    expect(audit().some((l) => l['action'] === 'owner-settings-unconfirmed')).toBe(true);
     expect((await ownerEnrollmentStatus(root)).cap).toBe(10);
     await confirmOwnerEnrollment(root, owner('new'));
     expect(await resolveOverrideCap(root)).toEqual({ cap: 60, source: 'owner-setting' });
@@ -230,6 +230,62 @@ describe('enrollment is explicit and anchored twice', () => {
     rmSync(join(home, 'owner-enrollments.json'));
     expect(await enrollOwner(root, owner('agent'))).toMatchObject({ ok: true });
     expect((await ownerEnrollmentStatus(root)).status).toBe('unconfirmed');
+  });
+
+  it('review-2253 D3: an enrollment only in the reflog (its branch deleted) still counts', async () => {
+    const git = (...args: string[]) =>
+      execFileSync('git', ['-c', 'user.name=T', '-c', 'user.email=t@e.x', ...args], {
+        cwd: root,
+        stdio: 'ignore',
+      });
+    git('init', '-q', '-b', 'main');
+    git('commit', '-q', '--allow-empty', '-m', 'init');
+    git('switch', '-q', '-c', 'side');
+    await enrollOwner(root, owner());
+    git('add', '.cleo/owner-settings.json');
+    git('commit', '-q', '-m', 'owner on a side branch');
+    git('switch', '-q', 'main');
+    git('branch', '-q', '-D', 'side');
+    rmSync(join(home, 'owner-enrollments.json'));
+    expect(existsSync(settingsFile())).toBe(false);
+    expect(await enrollOwner(root, owner('agent'))).toMatchObject({ ok: true });
+    expect((await ownerEnrollmentStatus(root)).status).toBe('unconfirmed');
+  });
+
+  it('review-2253 D4: in a shallow clone history cannot prove absence, so a fresh enroll is unconfirmed', async () => {
+    const origin = mkdtempSync(join(tmpdir(), 'override-cap-origin-'));
+    const git = (cwd: string, ...args: string[]) =>
+      execFileSync('git', ['-c', 'user.name=T', '-c', 'user.email=t@e.x', ...args], {
+        cwd,
+        stdio: 'ignore',
+      });
+    try {
+      git(origin, 'init', '-q', '-b', 'main');
+      git(origin, 'commit', '-q', '--allow-empty', '-m', 'one');
+      git(origin, 'commit', '-q', '--allow-empty', '-m', 'two');
+      rmSync(root, { recursive: true, force: true });
+      execFileSync('git', ['clone', '-q', '--depth', '1', `file://${origin}`, root], {
+        stdio: 'ignore',
+      });
+      mkdirSync(join(root, '.cleo'), { recursive: true });
+      expect(await enrollOwner(root, owner())).toMatchObject({ ok: true });
+      const status = await ownerEnrollmentStatus(root);
+      expect(status.status).toBe('unconfirmed');
+      expect(status.message).toMatch(/history-unavailable/);
+    } finally {
+      rmSync(origin, { recursive: true, force: true });
+    }
+  });
+
+  it('the unconfirmed state is audited once, not on every read', async () => {
+    await enrollOwner(root, owner());
+    rmSync(settingsFile());
+    rmSync(join(home, 'owner-enrollments.json'));
+    await enrollOwner(root, owner('new'), { reset: true });
+    await resolveOverrideCap(root);
+    await resolveOverrideCap(root);
+    await resolveOverrideCap(root);
+    expect(audit().filter((l) => l['action'] === 'owner-settings-unconfirmed')).toHaveLength(1);
   });
 
   it('with both anchors gone but the enrollment still committed in git, a plain enroll is unconfirmed too', async () => {
