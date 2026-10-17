@@ -43,7 +43,7 @@ import { attachmentRefs, docsAttachments } from '../store/tasks-schema.js';
 import { assertTwinCollapseWritable } from '../store/twin-collapse.js';
 import { writeFileAtomic } from '../tools/fs.js';
 import { deriveDocLinks, linksJsonOrNull } from './derive-links.js';
-import type { ProjectDocUpdateInput } from './section-write-path.js';
+import type { DocUpdatePreview, ProjectDocUpdateInput } from './section-write-path.js';
 import { validateDocBody } from './validate-body.js';
 import { getCanonicalCleoVersion } from './version-ssot.js';
 
@@ -633,7 +633,35 @@ export async function updateDocBySlug(
         // concurrent writer's landed edit.
         ...(baseSections !== undefined ? { baseSections } : {}),
       };
-      const preview = await previewDocUpdateThroughSections(projectRoot, input);
+      // T13881: the preview ROLLS BACK on the process-wide shared native handle,
+      // so a write another in-process writer lands on that handle during its
+      // awaits would be rolled back with it. Two guards: (1) every tracked
+      // background op (graph nodes, hook dispatches, mirrors) settles first,
+      // and the preview is skipped if one is still running; (2) the preview
+      // runs on the handle's writer queue (scheduleTaskBackground), so accessor
+      // transactions and committed background effects queued meanwhile start
+      // only after its rollback.
+      const { settleBackgroundOps } = await import('../store/background-ops.js');
+      const pending = await settleBackgroundOps(PREVIEW_SETTLE_BUDGET_MS);
+      if (pending > 0) {
+        // @sync-invariant none:input-shape caught just below: the preview is skipped and the incoming bytes are written; nothing is rejected
+        throw new Error(`${pending} background write(s) still running; the preview is skipped`);
+      }
+      const native = getNativeTasksDb(projectRoot);
+      if (!native) {
+        // @sync-invariant none:input-shape caught just below: without the store handle the preview is skipped and the incoming bytes are written; nothing is rejected
+        throw new Error('tasks database is not initialised');
+      }
+      const { scheduleTaskBackground } = await import('../store/sqlite-data-accessor.js');
+      const queued: { preview?: DocUpdatePreview } = {};
+      await scheduleTaskBackground(native, async () => {
+        queued.preview = await previewDocUpdateThroughSections(projectRoot, input);
+      });
+      const preview = queued.preview;
+      if (preview === undefined) {
+        // @sync-invariant none:input-shape caught just below: an empty preview skips the projection and the incoming bytes are written; nothing is rejected
+        throw new Error('the merge preview returned nothing');
+      }
       // The head is the merged text when this write would advance it; when it
       // loses the head race (an explicit lower HLC) the head stays where it is.
       const headText = preview.wouldAdvance
@@ -1134,6 +1162,13 @@ export async function updateDocBySlug(
     },
   };
 }
+
+/**
+ * How long a docs update waits for tracked background writes to settle before
+ * it previews a merge (T13881). A write still running after this is not
+ * rolled back by the preview: the preview is skipped instead.
+ */
+const PREVIEW_SETTLE_BUDGET_MS = 5_000;
 
 /**
  * A conduit version's text, read from its content-addressed blob (T13842).
