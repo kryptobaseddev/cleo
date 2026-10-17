@@ -932,6 +932,86 @@ describe('projectDocUpdateThroughSections (T13355)', () => {
     expect(b.mergedText).toContain('B alpha line.');
   });
 
+  /** Seed `v1`, land `head` from agent A, then project stale agent B (authored on v1). */
+  async function staleMerge(v1: string, head: string, stale: string) {
+    await projectDocUpdateThroughSections(tempDir, {
+      slug: 'plan-doc',
+      authorAgentId: 'agent-seed',
+      content: v1,
+      hlc: hlcAt(1000),
+    });
+    await projectDocUpdateThroughSections(tempDir, {
+      slug: 'plan-doc',
+      authorAgentId: 'agent-a',
+      content: head,
+      hlc: hlcAt(2000),
+    });
+    return projectDocUpdateThroughSections(tempDir, {
+      slug: 'plan-doc',
+      authorAgentId: 'agent-b',
+      content: stale,
+      baseSections: splitDocIntoSections(v1),
+      hlc: hlcAt(3000),
+    });
+  }
+
+  it('T13584 (#2325 B1): a concurrent heading rename survives a stale body append onto the renamed section', async () => {
+    const b = await staleMerge(
+      DOC_V1,
+      DOC_V1.replace('## Beta', '## Beta Renamed'),
+      `${DOC_V1}\n\nB line.`,
+    );
+    expect(b.conflicts).toEqual([]);
+    expect(b.mergedText).toBe(`${DOC_V1.replace('## Beta', '## Beta Renamed')}\n\nB line.`);
+  });
+
+  it('T13584: a concurrent rename with a stale non-append edit records a conflict, the rename stands', async () => {
+    const b = await staleMerge(
+      DOC_V1,
+      DOC_V1.replace('## Beta', '## Beta Renamed'),
+      DOC_V1.replace('beta body', 'rewritten by B'),
+    );
+    expect(b.conflicts.map((c) => c.sectionId)).toEqual(['h-beta']);
+    expect(b.mergedText).toBe(DOC_V1.replace('## Beta', '## Beta Renamed'));
+  });
+
+  it('T13835: a concurrently inserted section is kept when stale B edits another section', async () => {
+    const withGamma = DOC_V1.replace('## Beta', '## Gamma\n\ngamma body\n\n## Beta');
+    const b = await staleMerge(
+      DOC_V1,
+      withGamma,
+      DOC_V1.replace('alpha body', 'alpha body\n\nB alpha line.'),
+    );
+    expect(b.conflicts).toEqual([]);
+    expect(b.mergedText).toBe(withGamma.replace('alpha body', 'alpha body\n\nB alpha line.'));
+  });
+
+  it('T13835: a section stale B deleted is kept as a conflict when A edited it', async () => {
+    const b = await staleMerge(
+      DOC_V1,
+      `${DOC_V1}\n\nA beta line.`,
+      DOC_V1.slice(0, DOC_V1.indexOf('\n## Beta')),
+    );
+    expect(b.conflicts.map((c) => c.sectionId)).toEqual(['h-beta']);
+    expect(b.mergedText).toContain('A beta line.');
+  });
+
+  it('T13836: a duplicate heading inserted earlier never loses a section; the stale edit is a named conflict', async () => {
+    const v1 = ['# Doc', '## Notes\n\nfirst', '## Notes\n\nsecond'].join('\n');
+    const head = ['# Doc', '## Notes\n\ntop', '## Notes\n\nfirst', '## Notes\n\nsecond'].join('\n');
+    const stale = ['# Doc', '## Notes\n\nfirst', '## Notes\n\nsecond\n\nB line.'].join('\n');
+    const b = await staleMerge(v1, head, stale);
+    expect(b.mergedText).toBe(head);
+    expect(b.conflicts.map((c) => c.sectionId)).toEqual(['h-notes']);
+    // B's edit is kept in history as its own version row, never dropped.
+    const { listConduitAttachmentVersions } = await import('../../store/conduit-doc-history.js');
+    expect(
+      (await listConduitAttachmentVersions(tempDir, b.docUid)).some(
+        (v) => v.uid === b.conflicts[0]?.incomingVersionUid,
+      ),
+    ).toBe(true);
+  });
+
   it('T13604: updateDocBySlug threads section conflicts into the result envelope and emits a W_DOC_SECTION_CONFLICT warning', async () => {
     // Seed the legacy row so updateDocBySlug finds the slug.
     const v0 = '# Plan\n\nv0 body';

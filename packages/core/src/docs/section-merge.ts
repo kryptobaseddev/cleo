@@ -34,9 +34,6 @@ import {
 /** The preamble section's id (the H1 + text before the first `## `). */
 export const PREAMBLE_SECTION_ID = 's0';
 
-/** A pre-T13584 positional id (`s1`, `s2`, …), still found in landed history. */
-const LEGACY_POSITIONAL_ID = /^s([1-9]\d*)$/;
-
 /**
  * Heading-anchored section ids for a split document (T13584).
  *
@@ -64,24 +61,6 @@ export function sectionIds(sections: readonly string[]): string[] {
     seen.set(base, n);
     return n === 1 ? base : `${base}~${n}`;
   });
-}
-
-/**
- * Translate a section id recorded in history into its heading-anchored id.
- * Version rows' `sections_modified` and approvals written before T13584 carry
- * positional ids (`s1` = the second section of THAT version); history is never
- * rewritten, so readers resolve the legacy id against the version it was
- * recorded on.
- *
- * @param versionSections - Sections of the version the id was recorded on.
- * @param id - The recorded id.
- * @returns The heading-anchored id, or `id` unchanged when it is not legacy or
- *   is out of range for that version.
- */
-export function resolveSectionId(versionSections: readonly string[], id: string): string {
-  const legacy = LEGACY_POSITIONAL_ID.exec(id);
-  if (legacy === null) return id;
-  return sectionIds(versionSections)[Number(legacy[1])] ?? id;
 }
 
 /**
@@ -268,4 +247,174 @@ export function applySectionTextEdit(
   // the stored state and let the write path record the conflict, landing
   // the incoming edit as its own version row (T13595).
   return { snapshot: stored, changed: false, conflicted: true };
+}
+
+/** One step of a {@link planSectionMerge} plan, in output order. */
+export type SectionMergeStep =
+  /** Apply `text` onto section `id`'s stored state via {@link applySectionTextEdit}. */
+  | {
+      readonly kind: 'apply';
+      readonly id: string;
+      readonly text: string;
+      /** The section's text in the version the edit was authored against. */
+      readonly referenceText: string | null;
+      /** The section's landed head text (seeds a missing local state). */
+      readonly headText: string | null;
+    }
+  /** Keep the landed head section verbatim (the incoming edit left it alone). */
+  | { readonly kind: 'keep'; readonly id: string; readonly text: string };
+
+/** Output of {@link planSectionMerge}. */
+export interface SectionMergePlan {
+  /** Steps in merged-document order. */
+  readonly steps: readonly SectionMergeStep[];
+  /** Section ids (or a duplicate-heading family id) the incoming edit could not land. */
+  readonly conflicts: readonly string[];
+}
+
+/** First line removed: what a heading rename leaves unchanged. */
+function sectionBody(text: string): string {
+  const nl = text.indexOf('\n');
+  return nl < 0 ? '' : text.slice(nl);
+}
+
+/** The `~N`-free id shared by every section with the same heading. */
+function headingFamily(id: string): string {
+  return id.replace(/~\d+$/, '');
+}
+
+/**
+ * Plan a three-way, section-level merge of an incoming document against the
+ * version it was authored from (`reference`) and the landed head (`head`)
+ * (T13584, T13835, T13836).
+ *
+ * The incoming list alone cannot say what a concurrent writer did, so:
+ *
+ *   - a head section the reference lacks (a concurrent insert) is kept at its
+ *     head position, never dropped;
+ *   - a reference section the head lacks was deleted or renamed concurrently:
+ *     an untouched incoming copy is dropped; an incoming APPEND lands on the
+ *     renamed section when exactly one new head section has the same body;
+ *     anything else is a conflict and the head stands;
+ *   - a section the incoming edit deleted is dropped only if the head still
+ *     holds the reference text; a concurrently edited one is kept as a
+ *     conflict;
+ *   - when the head and the reference disagree on how many sections share a
+ *     heading, the `~N` occurrence ids no longer name the same sections, so
+ *     the head's sections of that heading are kept and an incoming change to
+ *     them is a conflict on the family id.
+ *
+ * With `reference` equal to `head` (a single writer) every rule above is
+ * inert and the plan applies the incoming sections in order.
+ *
+ * @param reference - Sections of the version the edit was authored against,
+ *   or `null` when unknown.
+ * @param head - Sections of the landed head, or `null` when unknown.
+ * @param incoming - Sections of the incoming document.
+ * @returns The ordered steps and the conflicted ids.
+ */
+export function planSectionMerge(
+  reference: readonly string[] | null,
+  head: readonly string[] | null,
+  incoming: readonly string[],
+): SectionMergePlan {
+  const toMap = (texts: readonly string[]): Map<string, string> => {
+    const ids = sectionIds(texts);
+    return new Map(texts.map((text, i) => [ids[i] ?? '', text]));
+  };
+  const ref = toMap(reference ?? []);
+  const inc = toMap(incoming);
+  if (head === null) {
+    return {
+      steps: [...inc].map(([id, text]) => ({
+        kind: 'apply' as const,
+        id,
+        text,
+        referenceText: ref.get(id) ?? null,
+        headText: null,
+      })),
+      conflicts: [],
+    };
+  }
+  const hd = toMap(head);
+  const familyTexts = (map: Map<string, string>, family: string): string[] =>
+    [...map].filter(([id]) => headingFamily(id) === family).map(([, text]) => text);
+  const ambiguous = new Set<string>();
+  for (const id of [...ref.keys(), ...hd.keys()]) {
+    const family = headingFamily(id);
+    const r = familyTexts(ref, family).length;
+    const h = familyTexts(hd, family).length;
+    if (r !== h && Math.max(r, h) > 1) ambiguous.add(family);
+  }
+
+  const steps: SectionMergeStep[] = [];
+  const conflicts = new Set<string>();
+  const emitted = new Set<string>();
+  for (const [id, text] of inc) {
+    const family = headingFamily(id);
+    if (ambiguous.has(family)) {
+      const touched =
+        familyTexts(inc, family).join('\u0000') !== familyTexts(ref, family).join('\u0000');
+      if (touched) conflicts.add(family);
+      continue;
+    }
+    const referenceText = ref.get(id);
+    const headText = hd.get(id);
+    if (referenceText !== undefined && headText === undefined) {
+      if (text === referenceText) continue;
+      const renamed = [...hd].filter(
+        ([hid, htext]) =>
+          !ref.has(hid) && !inc.has(hid) && sectionBody(htext) === sectionBody(referenceText),
+      );
+      const target = renamed.length === 1 ? renamed[0] : undefined;
+      if (target !== undefined && text.startsWith(referenceText)) {
+        const [rid, rtext] = target;
+        steps.push({
+          kind: 'apply',
+          id: rid,
+          text: rtext + text.slice(referenceText.length),
+          referenceText: rtext,
+          headText: rtext,
+        });
+        emitted.add(rid);
+      } else {
+        conflicts.add(id);
+      }
+      continue;
+    }
+    if (referenceText === undefined && headText !== undefined && headText !== text) {
+      // Both sides added a section under the same heading.
+      conflicts.add(id);
+      continue;
+    }
+    steps.push({
+      kind: 'apply',
+      id,
+      text,
+      referenceText: referenceText ?? null,
+      headText: headText ?? null,
+    });
+    emitted.add(id);
+  }
+
+  // Head sections the incoming edit did not account for, at their head position.
+  const headIds = [...hd.keys()];
+  for (const [index, id] of headIds.entries()) {
+    if (emitted.has(id)) continue;
+    const text = hd.get(id) ?? '';
+    const referenceText = ref.get(id);
+    if (!ambiguous.has(headingFamily(id)) && referenceText !== undefined) {
+      // The incoming edit deleted it: honoured unless the head changed it since.
+      if (inc.has(id) || text === referenceText) continue;
+      conflicts.add(id);
+    }
+    const before = headIds
+      .slice(0, index)
+      .reverse()
+      .find((hid) => emitted.has(hid));
+    const at = before === undefined ? 0 : steps.findIndex((s) => s.id === before) + 1;
+    steps.splice(at, 0, { kind: 'keep', id, text });
+    emitted.add(id);
+  }
+  return { steps, conflicts: [...conflicts] };
 }

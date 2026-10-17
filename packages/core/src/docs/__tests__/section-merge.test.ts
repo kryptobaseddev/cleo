@@ -37,7 +37,7 @@ import {
   joinSections,
   makeSectionEditUpdate,
   mergeSectionUpdates,
-  resolveSectionId,
+  planSectionMerge,
   sectionIds,
   sectionStateText,
   seedSectionState,
@@ -83,12 +83,16 @@ describe('splitDocIntoSections', () => {
     ]);
   });
 
-  it('T13584: a legacy positional id resolves against the version it was recorded on', () => {
-    const sections = splitDocIntoSections(DOC);
-    expect(resolveSectionId(sections, 's2')).toBe('h-beta');
-    expect(resolveSectionId(sections, 's0')).toBe('s0');
-    expect(resolveSectionId(sections, 'h-beta')).toBe('h-beta');
-    expect(resolveSectionId(sections, 's9')).toBe('s9');
+  it('T13584: a single-writer plan applies the incoming sections in order', () => {
+    const doc = splitDocIntoSections(DOC);
+    const next = [doc[0], doc[2], '## New\n\nnew'] as string[];
+    const plan = planSectionMerge(doc, doc, next);
+    expect(plan.conflicts).toEqual([]);
+    expect(plan.steps.map((s) => [s.kind, s.id])).toEqual([
+      ['apply', 's0'],
+      ['apply', 'h-beta'],
+      ['apply', 'h-new'],
+    ]);
   });
 });
 
