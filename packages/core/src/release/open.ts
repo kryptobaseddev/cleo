@@ -52,7 +52,11 @@ import { getDb } from '../store/sqlite.js';
 import { RELEASE_ABSORBING_STATUSES } from '../store/sync/merge/rules.js';
 import { releases } from '../store/tasks-schema.js';
 import { runGitWithLockRetry } from './engine-ops.js';
-import { decidePreflightSkips, type PreflightSkipDecision } from './preflight-skip.js';
+import {
+  decidePreflightSkips,
+  PREFLIGHT_IN_FLIGHT_WAIT_MS,
+  type PreflightSkipDecision,
+} from './preflight-skip.js';
 
 const log = getLogger('release:open');
 
@@ -841,7 +845,10 @@ export async function releaseOpen(
   // main's push CI for that SHA is green, the macOS shards when the nightly
   // macOS jobs for that SHA are green. The SHA rides along as `verified-sha`,
   // and the workflow ignores every skip if it checks out a different commit.
-  // Any doubt (gh error, timeout, run in progress) means the tests run.
+  // A push run still in flight is waited for (bounded, T13823); any other
+  // doubt (gh error, timeout, a run still unfinished) means the tests run.
+  // The run that proved the Linux shards rides along as `reused-ci-run`, and
+  // the workflow re-verifies it before skipping.
   const preflightBranch = dispatchBranch ?? resolveDispatchBranch(runner, projectRoot);
   const preflight: PreflightSkipDecision =
     preflightBranch === null
@@ -849,6 +856,7 @@ export async function releaseOpen(
           verifiedSha: null,
           skipTests: false,
           testedSha: null,
+          testedRunId: null,
           skipMacosTests: false,
           reason: 'Could not determine the dispatch branch; running every preflight suite.',
         }
@@ -856,9 +864,13 @@ export async function releaseOpen(
           (args, cwd, timeoutMs) => runner.runGh(args, cwd, timeoutMs),
           projectRoot,
           preflightBranch,
+          { inFlightWaitMs: PREFLIGHT_IN_FLIGHT_WAIT_MS },
         );
   if (preflight.verifiedSha !== null) {
-    if (preflight.skipTests) dispatchFields.push('--field', 'skip-tests=true');
+    if (preflight.skipTests && preflight.testedRunId !== null) {
+      dispatchFields.push('--field', 'skip-tests=true');
+      dispatchFields.push('--field', `reused-ci-run=${preflight.testedRunId}`);
+    }
     if (preflight.skipMacosTests) dispatchFields.push('--field', 'skip-macos-tests=true');
     dispatchFields.push('--field', `verified-sha=${preflight.verifiedSha}`);
     dispatchFields.push('--field', `skip-reason=${preflight.reason}`);

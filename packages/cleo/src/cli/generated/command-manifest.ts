@@ -450,6 +450,14 @@ export const COMMAND_MANIFEST: readonly CommandManifestEntry[] = [
         .doctorGlobalDeliveryCommand as CommandDef,
   },
   {
+    exportName: 'doctorGoalRuntimeCommand',
+    name: 'goal-runtime',
+    description:
+      'Report the CLEO Goal runtime (cleo-goal): installed, version, status schema. --check-updates also asks npm for the latest version.',
+    load: async () =>
+      (await import('../commands/doctor-goal-runtime.js')).doctorGoalRuntimeCommand as CommandDef,
+  },
+  {
     exportName: 'doctorHeavyCommandHookCommand',
     name: 'heavy-command-hook',
     description:

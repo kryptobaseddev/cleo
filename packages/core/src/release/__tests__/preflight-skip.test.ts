@@ -13,6 +13,7 @@ import {
   isReleasePlanPath,
   MAX_EQUIVALENT_ANCESTORS,
   PREFLIGHT_CHECK_TIMEOUT_MS,
+  PREFLIGHT_IN_FLIGHT_POLL_MS,
   type PreflightGhRunner,
 } from '../preflight-skip.js';
 
@@ -124,8 +125,12 @@ function makeGh(opts: StubOptions): PreflightGhRunner & { calls: string[][]; tim
     const jobsMatch = /actions\/runs\/(\d+)\/jobs/.exec(endpoint);
     if (jobsMatch) {
       const id = Number(jobsMatch[1]);
-      const jobs = opts.jobs?.[id] ?? [];
-      return JSON.stringify({ total_count: opts.jobTotals?.[id] ?? jobs.length, jobs });
+      const all = opts.jobs?.[id] ?? [];
+      // Pages of 100, as the jobs API serves them; a forced total repeats page 1.
+      const page = Number(/[?&]page=(\d+)/.exec(endpoint)?.[1] ?? '1');
+      const jobs =
+        opts.jobTotals?.[id] === undefined ? all.slice((page - 1) * 100, page * 100) : all;
+      return JSON.stringify({ total_count: opts.jobTotals?.[id] ?? all.length, jobs });
     }
     throw new Error(`unexpected gh call: ${args.join(' ')}`);
   };
@@ -193,6 +198,19 @@ describe('decidePreflightSkips — Linux shards', () => {
     expect(d.reason).toContain('could not be read');
   });
 
+  it('reads a job list longer than one page (a ci.yml run with its shards lists 102+ jobs)', () => {
+    const filler = Array.from({ length: 96 }, (_, i) => ({
+      name: `Gate ${i}`,
+      conclusion: 'success',
+    }));
+    const d = decidePreflightSkips(
+      makeGh({ pushRuns: [{ id: 10 }], jobs: { 10: [...filler, ...LINUX_GREEN, ...LINUX_GREEN] } }),
+      '/repo',
+      'main',
+    );
+    expect(d).toMatchObject({ skipTests: true, testedSha: SHA, testedRunId: 10 });
+  });
+
   it('judges the NEWEST run for the sha (a failed re-run supersedes a green one)', () => {
     const d = decidePreflightSkips(
       makeGh({ pushRuns: [{ id: 10 }, { id: 11, conclusion: 'failure' }] }),
@@ -200,6 +218,58 @@ describe('decidePreflightSkips — Linux shards', () => {
       'main',
     );
     expect(d.skipTests).toBe(false);
+  });
+});
+
+describe('decidePreflightSkips — waits for an in-flight push run (T13823)', () => {
+  /** A gh runner whose ci.yml push run for SHA completes after `pending` polls. */
+  function inFlight(pending: number) {
+    const done = makeGh({ pushRuns: [{ id: 10 }], jobs: { 10: LINUX_GREEN } });
+    const running = makeGh({ pushRuns: [{ id: 10, status: 'queued', conclusion: null }] });
+    let polls = 0;
+    const gh: PreflightGhRunner = (args, cwd, timeoutMs) => {
+      if (args[1]?.includes('/actions/workflows/ci.yml/runs?head_sha=')) {
+        polls += 1;
+        if (polls <= pending) return running(args, cwd, timeoutMs);
+      }
+      return done(args, cwd, timeoutMs);
+    };
+    return gh;
+  }
+
+  it('polls a queued run until it completes, then skips and names the run', () => {
+    const sleeps: number[] = [];
+    const d = decidePreflightSkips(inFlight(3), '/repo', 'main', {
+      inFlightWaitMs: 10 * 60_000,
+      sleep: (ms) => sleeps.push(ms),
+    });
+    expect(d).toMatchObject({ skipTests: true, testedSha: SHA, testedRunId: 10 });
+    expect(sleeps).toEqual([
+      PREFLIGHT_IN_FLIGHT_POLL_MS,
+      PREFLIGHT_IN_FLIGHT_POLL_MS,
+      PREFLIGHT_IN_FLIGHT_POLL_MS,
+    ]);
+  });
+
+  it('runs the tests when the run is still unfinished after the wait budget', () => {
+    const sleeps: number[] = [];
+    const d = decidePreflightSkips(inFlight(1000), '/repo', 'main', {
+      inFlightWaitMs: 75_000,
+      sleep: (ms) => sleeps.push(ms),
+    });
+    expect(d).toMatchObject({ skipTests: false, testedRunId: null });
+    expect(d.reason).toContain('is queued');
+    expect(d.reason).toContain('after waiting 75s');
+    expect(sleeps.reduce((a, b) => a + b, 0)).toBe(75_000);
+  });
+
+  it('never waits without a budget (the default)', () => {
+    const sleeps: number[] = [];
+    const d = decidePreflightSkips(inFlight(1), '/repo', 'main', {
+      sleep: (ms) => sleeps.push(ms),
+    });
+    expect(d.skipTests).toBe(false);
+    expect(sleeps).toEqual([]);
   });
 });
 
@@ -232,7 +302,7 @@ describe('decidePreflightSkips — a tested ancestor CI judged equivalent (T1314
       '/repo',
       'main',
     );
-    expect(d).toMatchObject({ verifiedSha: SHA, skipTests: true, testedSha: P1 });
+    expect(d).toMatchObject({ verifiedSha: SHA, skipTests: true, testedSha: P1, testedRunId: 9 });
     expect(d.reason).toContain('Linux tests skipped');
     expect(d.reason).toContain(`${P1.slice(0, 12)} (an ancestor of ${SHA.slice(0, 12)})`);
     expect(d.reason).toContain('differs from it only by 1 release-plan commit(s)');

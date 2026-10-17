@@ -163,7 +163,11 @@ export const defaultRunTool: DoneToolRunner = async (tool, storeRoot, executionR
   }
   // T12964: package.json scripts and tsconfig describe the code under test,
   // so they are read in the execution root, exactly as `validateTool` does.
-  const resolved = resolveToolCommand(tool, storeRoot, { executionRoot });
+  const { evidenceProjectContext } = await import('./affected-packages.js');
+  const resolved = resolveToolCommand(tool, storeRoot, {
+    executionRoot,
+    projectContext: evidenceProjectContext(storeRoot, executionRoot),
+  });
   if (!resolved.ok) {
     return {
       exitCode: null,

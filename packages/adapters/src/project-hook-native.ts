@@ -69,11 +69,25 @@ export function normalizeNativeProjectHook(
     };
   const payload = JSON.parse(body || '{}') as HookJsonValue;
   if (!object(payload)) throw new Error('HOOK_AGENT_INPUT_INVALID');
+  const sessionId = payload.session_id;
+  const nativeSession =
+    typeof sessionId === 'string' &&
+    sessionId.length > 0 &&
+    sessionId.length <= 256 &&
+    /^[a-z][a-z0-9-]{0,63}$/.test(provider)
+      ? { sessionId, harness: provider }
+      : undefined;
   return {
     cwd: typeof payload.cwd === 'string' ? payload.cwd : cwd,
     provider,
     nativeEvent: typeof payload.hook_event_name === 'string' ? payload.hook_event_name : event,
-    input: { schemaVersion: 1, source, event, toolInput: payload.tool_input ?? {} },
+    input: {
+      schemaVersion: 1,
+      source,
+      event,
+      toolInput: payload.tool_input ?? {},
+      ...(nativeSession ? { nativeSession } : {}),
+    },
   };
 }
 

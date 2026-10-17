@@ -562,6 +562,13 @@ interface ResolveOptions {
    * @task T12633
    */
   executionRoot?: string;
+  /**
+   * The project context to read declared commands from, in place of the
+   * working copy: evidence passes the default-branch copy when a change edits
+   * it (`evidenceProjectContext`, T13779), so a change cannot relax its own
+   * checks. `null` means none.
+   */
+  projectContext?: Record<string, unknown> | null;
 }
 
 /**
@@ -641,7 +648,10 @@ export function resolveToolCommand(
   const isAlias = canonical !== toolName;
 
   // Step 2 — project-context overrides
-  const ctx = loadProjectContext(projectRoot).context;
+  const ctx =
+    opts.projectContext !== undefined
+      ? opts.projectContext
+      : loadProjectContext(projectRoot).context;
 
   const pcKey = PROJECT_CONTEXT_KEY_MAP[canonical];
   if (pcKey) {
