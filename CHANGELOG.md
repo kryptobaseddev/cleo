@@ -11,7 +11,7 @@
 - `@cleocode/contracts` exports the goal/v1 protocol types: `GoalContract` with per-criterion proves, `GoalTaskLink` and `GoalOutcome` _(provenance: [T13792](https://github.com/kryptobaseddev/cleo/search?q=T13792&type=commits))_
 - `cleo done <id> --commit <sha>` closes work that landed on main with no citing PR or branch; a REQ-only task closes through `cleo done` _(provenance: [T13799](https://github.com/kryptobaseddev/cleo/search?q=T13799&type=commits))_
 - One Stop entry per provider: `cleo hook stop` runs goal tick, then ask-enforce, then session end, so they no longer fight _(provenance: [T13796](https://github.com/kryptobaseddev/cleo/search?q=T13796&type=commits))_
-- `cleo goal close` completes landed work from the run's head commit, and the Stop dispatcher's goal-workspace search stops at the repository _(provenance: [T13794](https://github.com/kryptobaseddev/cleo/search?q=T13794&type=commits), [T13796](https://github.com/kryptobaseddev/cleo/search?q=T13796&type=commits))_
+- `cleo goal close` sets a completion commit only when it has landed on origin's default branch; the Stop dispatcher's goal tick runs only inside a goal workspace bounded to the git/.cleo root (#2312).
 
 ### Project hooks
 
