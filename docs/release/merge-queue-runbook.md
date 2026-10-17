@@ -216,8 +216,40 @@ Rules:
   T12152). Record it in `.cleo/audit/force-bypass.jsonl` like any other bypass,
   with reason `release bump-PR: dispatched CI green on <sha>`.
 - `cleo release open` does not watch or merge the bump-PR (it dispatches
-  `release-prepare` and returns), so this step is documented rather than
-  automated.
+  `release-prepare` and returns). `scripts/release-run.mjs` automates this
+  procedure end to end (T13825, next section).
+
+## One release PR, scripted (T13825)
+
+```bash
+node scripts/release-run.mjs v2026.X.Y --epic T#### --notes-review review.json            # dry run
+node scripts/release-run.mjs v2026.X.Y --epic T#### --notes-review review.json --execute
+```
+
+It runs these steps in order:
+
+1. `cleo release plan`.
+2. It checks the independent notes review. `review.json` is
+   `{"reviewer", "notesSha256", "approved": true}`, written by someone other
+   than `--operator` (default `git config user.name`) for the plan's exact
+   `meta.releaseNotes`. Without it the run stops with exit 3 and prints the
+   hash to review.
+3. It creates `release/plan-<v>`: one commit on main's HEAD holding the plan and
+   CHANGELOG.md, made through the GitHub API, so nothing is pushed to main.
+4. `cleo release open <v> --ref release/plan-<v>`. release-prepare cuts
+   `release/<v>` from the plan branch, so the bump PR carries the plan and the
+   bump. There is no separate plan PR.
+5. It waits for release-prepare, then for the dispatched `CI` run on the bump
+   PR's exact head.
+6. It asserts the PR is version-only against its merge-base
+   (`ci-detect-version-only.mjs`, which accepts the plan file, T13824).
+7. It merges with `gh pr merge --admin --merge --match-head-commit <head>` and
+   appends the `.cleo/audit/force-bypass.jsonl` line.
+8. It runs `git tag -a` on the merge commit and pushes the tag.
+
+Preflight skips carry over to the plan branch only when it adds release-plan
+files alone (`retargetPreflightSkips`). The workflow re-verifies the reused run
+(T13823). A re-run resumes from the first step not yet done.
 
 ## Preflight test skips and native binary reuse
 

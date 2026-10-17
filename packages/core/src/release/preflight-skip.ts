@@ -125,16 +125,24 @@ function sleepSync(ms: number): void {
 }
 
 /**
+ * The exact path shapes a release-plan change may touch: the plan file
+ * (`.cleo/release/<version>.plan.json`), a changeset (`.changeset/**.md`) and a
+ * `CHANGELOG.md`. An allowlist of whole-path patterns, none of which can match
+ * code or config (T13825; release-prepare.yml's re-verification uses the same
+ * patterns).
+ */
+const RELEASE_PLAN_PATHS: readonly RegExp[] = [
+  /^\.cleo\/release\/[^/]+\.plan\.json$/,
+  /^\.changeset\/(?:[^/]+\/)*[^/]+\.md$/,
+  /^(?:[^/]+\/)*CHANGELOG\.md$/,
+];
+
+/**
  * A path a release-plan PR changes: the plan file, a changelog, a changeset.
  * Nothing a test reads (T13140 review).
  */
 export function isReleasePlanPath(path: string): boolean {
-  return (
-    path.startsWith('.cleo/release/') ||
-    path.startsWith('.changeset/') ||
-    path === 'CHANGELOG.md' ||
-    path.endsWith('/CHANGELOG.md')
-  );
+  return RELEASE_PLAN_PATHS.some((re) => re.test(path));
 }
 
 /** The files `commit` changes against `parent`, or `null` when unknown or possibly truncated. */
@@ -614,5 +622,77 @@ export function decidePreflightSkips(
     testedRunId,
     skipMacosTests,
     reason: `${linuxReason} ${macosReason}`,
+  };
+}
+
+/**
+ * Carry a default-branch decision over to a release-plan branch (T13825).
+ *
+ * The single release PR dispatches `release-prepare` on `release/plan-<v>`,
+ * a branch holding one commit on top of the default branch's HEAD: the plan
+ * file and CHANGELOG.md. The workflow honours skips only for the commit it
+ * checks out, so the decision is re-keyed to `refSha` — and its skips are kept
+ * only when GitHub's compare shows `refSha` strictly ahead of
+ * `decision.verifiedSha` by release-plan paths alone ({@link isReleasePlanPath}).
+ * Anything else, or a failed compare, keeps `refSha` and drops every skip.
+ *
+ * @param decision - {@link decidePreflightSkips} for the default branch
+ * @param runGh - bounded `gh` runner
+ * @param cwd - repository checkout the `gh` calls resolve `{owner}/{repo}` from
+ * @param ref - the plan branch name (for the reason)
+ * @param refSha - the plan branch's HEAD commit
+ * @returns the decision, valid for `refSha`
+ */
+export function retargetPreflightSkips(
+  decision: PreflightSkipDecision,
+  runGh: PreflightGhRunner,
+  cwd: string,
+  ref: string,
+  refSha: string,
+): PreflightSkipDecision {
+  const drop = (why: string): PreflightSkipDecision => ({
+    verifiedSha: refSha,
+    skipTests: false,
+    testedSha: null,
+    testedRunId: null,
+    skipMacosTests: false,
+    reason: `Every preflight suite runs on ${ref} (${shortSha(refSha)}): ${why}`,
+  });
+  if (decision.verifiedSha === null) return drop(decision.reason);
+  if (!decision.skipTests && !decision.skipMacosTests) return { ...decision, verifiedSha: refSha };
+  let body: unknown = null;
+  try {
+    body = parseJson(
+      runGh(
+        [
+          'api',
+          `repos/{owner}/{repo}/compare/${decision.verifiedSha}...${refSha}`,
+          '--jq',
+          '{status: .status, files: [.files[] | .filename, (.previous_filename // empty)]}',
+        ],
+        cwd,
+        PREFLIGHT_CHECK_TIMEOUT_MS,
+      ),
+    );
+  } catch {
+    return drop(`the compare to ${shortSha(decision.verifiedSha)} failed.`);
+  }
+  const files = isRecord(body) && Array.isArray(body['files']) ? body['files'] : null;
+  if (
+    !isRecord(body) ||
+    body['status'] !== 'ahead' ||
+    files === null ||
+    files.length === 0 ||
+    files.length >= MAX_COMPARE_FILES ||
+    !files.every((f): f is string => typeof f === 'string' && isReleasePlanPath(f))
+  ) {
+    return drop(
+      `it is not ${shortSha(decision.verifiedSha)} plus release-plan files only, so the default branch's results do not carry over.`,
+    );
+  }
+  return {
+    ...decision,
+    verifiedSha: refSha,
+    reason: `${decision.reason} ${ref} (${shortSha(refSha)}) adds only release-plan files to ${shortSha(decision.verifiedSha)}, so these results carry over.`,
   };
 }

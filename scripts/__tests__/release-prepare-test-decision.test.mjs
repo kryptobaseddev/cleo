@@ -178,6 +178,26 @@ describe('release-prepare preflight test decision', () => {
         },
       ],
       [
+        'a ci.yml path that only ends like the real one',
+        { run: greenRun(HEAD, { path: 'other/.github/workflows/ci.yml' }), jobs: GREEN_JOBS },
+      ],
+      [
+        'another commit plus changeset config (not a changeset)',
+        {
+          run: greenRun(OTHER),
+          jobs: GREEN_JOBS,
+          compare: { status: 'ahead', files: [{ filename: '.changeset/config.json' }] },
+        },
+      ],
+      [
+        'another commit plus a file under .cleo/release that is not a plan',
+        {
+          run: greenRun(OTHER),
+          jobs: GREEN_JOBS,
+          compare: { status: 'ahead', files: [{ filename: '.cleo/release/hook.ts' }] },
+        },
+      ],
+      [
         'a diverged commit',
         {
           run: greenRun(OTHER),
