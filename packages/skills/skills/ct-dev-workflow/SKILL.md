@@ -1,7 +1,7 @@
 ---
 name: ct-dev-workflow
 description: Development workflow orchestration for task-driven development with atomic commits, conventional commit messages, and systematic release processes. Enforces task traceability, branch discipline, smart test scope selection, and GitHub Actions integration. Use when committing code, creating releases, managing branches, or following contribution protocols. Triggers on commit operations, release preparation, or workflow compliance needs.
-version: 3.1.22
+version: 3.1.23
 protocol: contribution
 dependencies: []
 sharedResources:
@@ -14,7 +14,7 @@ compatibility:
   - gemini-cli
 license: MIT
 metadata:
-  version: 3.1.22
+  version: 3.1.23
   tier: core
   install: harness
   covers:
@@ -334,9 +334,13 @@ Linux `Unit Tests` shard green (a docs-only push that skipped the tests does
 not count). It sets `skip-macos-tests=true` when the newest completed nightly
 or `macos-main.yml` (main-push, never cancelled mid-run, pending pushes coalesce;
 T13143, T13187) run with macOS jobs for
-one of those commits is green. The SHA travels as `verified-sha`, and the
-workflow ignores the skips if it checks out another commit or `verified-sha` is
-empty. Otherwise the 8 Linux and 8 macOS test shards run, and the reason names
+one of those commits is green. A `ci.yml` push run still queued or in progress
+is polled for up to 10 minutes first (T13823). The SHA travels as
+`verified-sha` and the proving run's id as `reused-ci-run`; the workflow
+ignores the skips if it checks out another commit or `verified-sha` is empty,
+and re-reads the reused run from the API (push to main, success, every Linux
+shard green, same tree) before it skips the Linux shards, naming the run in the
+summary and the bump-PR body. Otherwise the 8 Linux and 8 macOS test shards run, and the reason names
 the newest main commit that has a green macOS run. The decision is in the run
 summary.
 
