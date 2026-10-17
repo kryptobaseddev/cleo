@@ -1814,6 +1814,31 @@ function structuredTestCounts(captured: ProcessCaptureResult): StructuredTestCou
 const REDIRECTED_JSON_REPORT = join('.vitest', 'json', 'output.json');
 
 /**
+ * The line vitest 5 prints after writing its JSON report to a file. With no
+ * `outputFile` it writes `.vitest/json/output.json` under its own root, which
+ * is the child's cwd (`pnpm --filter <pkg> exec vitest` runs in the package),
+ * not the gate's (T13874).
+ */
+const REPORT_WRITTEN_LINE = /^JSON report written to (.+?)\s*$/gm;
+
+/**
+ * Report files the run's own output says it wrote (T13874), inside the
+ * project only: a path the child names outside the project is never read.
+ *
+ * @param stdout - The run's captured stdout.
+ * @param projectRoot - The project the gate belongs to.
+ * @returns Absolute report paths, in output order.
+ * @task T13874
+ */
+function announcedReportFiles(stdout: string, projectRoot: string): string[] {
+  return [...stdout.matchAll(REPORT_WRITTEN_LINE)].flatMap((m) => {
+    const path = resolve(projectRoot, m[1]!);
+    const rel = relative(projectRoot, path);
+    return rel.startsWith('..') || isAbsolute(rel) ? [] : [path];
+  });
+}
+
+/**
  * Report files a gate's JSON reporter may write instead of stdout (T13782):
  * every `--outputFile[.json]` the gate names, and {@link REDIRECTED_JSON_REPORT}.
  *
@@ -1971,6 +1996,10 @@ async function runTestGate(
   );
   // T13752: a structured report decides the verdict; the text heuristic only
   // runs without one, since report JSON and test names are full of "failure".
+  // T13874: a path the run announced has no pre-spawn stamp; mtime and the
+  // report's startTime still have to postdate the spawn.
+  for (const path of announcedReportFiles(captured.stdout, projectRoot))
+    if (!before.has(path)) before.set(path, null);
   const counts = structuredTestCounts(captured) ?? (await freshReportCounts(before, startedAt));
 
   // T12308: the counts come from this run's own validated report; only their

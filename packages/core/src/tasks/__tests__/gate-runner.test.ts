@@ -961,6 +961,49 @@ describe('minCount reads a JSON report file this run wrote (T13782)', () => {
     });
     expect(result?.result).toBe('error');
   });
+
+  /**
+   * vitest 5 behind `pnpm --filter <pkg> exec`: the report lands under the
+   * package (the child's cwd), and vitest names it on stdout (T13874).
+   */
+  const fromPackage = (dir: string, startTime: string) =>
+    `const p=require('node:path');process.chdir(${JSON.stringify(dir)});` +
+    `const t=p.resolve(${JSON.stringify(rel)});${writer('t', startTime)}` +
+    `console.log('JSON report written to ' + t);`;
+
+  it('reads the report vitest wrote under the package it ran in (T13874)', async () => {
+    const pkg = join(projectRoot, 'lib', 'db');
+    await mkdir(pkg, { recursive: true });
+    try {
+      const [result] = await runGates([gate(fromPackage(pkg, 'Date.now()'))], { projectRoot });
+      expect(result?.result, result?.errorMessage).toBe('pass');
+    } finally {
+      await rm(join(projectRoot, 'lib'), { recursive: true, force: true });
+    }
+  });
+
+  it('red: an announced report from before the run is refused (T13874)', async () => {
+    const pkg = join(projectRoot, 'lib', 'db');
+    await mkdir(pkg, { recursive: true });
+    try {
+      const [result] = await runGates([gate(fromPackage(pkg, 'Date.now() - 60000'))], {
+        projectRoot,
+      });
+      expect(result?.result).toBe('error');
+    } finally {
+      await rm(join(projectRoot, 'lib'), { recursive: true, force: true });
+    }
+  });
+
+  it('red: an announced report outside the project is never read (T13874)', async () => {
+    const outside = await mkdtemp(join(tmpdir(), 'cleo-gate-outside-'));
+    try {
+      const [result] = await runGates([gate(fromPackage(outside, 'Date.now()'))], { projectRoot });
+      expect(result?.result).toBe('error');
+    } finally {
+      await rm(outside, { recursive: true, force: true });
+    }
+  });
 });
 
 describe('gate runner immutable lifetime and bounded evidence', () => {
