@@ -16,12 +16,14 @@ import type { DatabaseSync as _DatabaseSyncType } from 'node:sqlite';
 import { SYNC_SCHEMA_VERSION } from '@cleocode/contracts';
 import { VAULT_REMOTE_PATH_PREFIX } from '@cleocode/paths';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { scrubAuditSecrets } from '../sync/audit-scrub.js';
 import {
   BARE_ACCOUNTS_TABLE,
   bareTableDigest,
   legacyStrands,
   recordBareAccounts,
 } from '../sync/flags.js';
+import { AUDIT_SCRUB_MARKER } from '../sync/schema.js';
 import { TRIGGER_SUSPEND_TABLE_DDL } from '../sync/trigger-classes.js';
 import {
   classifyTable,
@@ -1296,6 +1298,39 @@ describe('carry takes file-state keys from the snapshot, machine keys from the l
     carryMachineState(staged, null, 'project');
     expect(kv(staged, 'tasks_row_identity_meta')).toEqual({ timestamp_canon_v1: 'done' });
     expect(kv(staged, '_sync_meta')).toEqual({ 'schema:x': 'h' });
+  });
+
+  it('the audit-scrub marker comes from the file, so a pre-scrub snapshot is scrubbed again (T13864)', () => {
+    const token = `gho_${'a'.repeat(36)}`;
+    const staged = make('staged', { row_identity_recipe: 'snap-recipe' }, null);
+    const db = new DatabaseSync(staged);
+    db.exec(TRIGGER_SUSPEND_TABLE_DDL);
+    db.exec('CREATE TABLE tasks_audit_log (id TEXT PRIMARY KEY, details_json TEXT)');
+    db.prepare('INSERT INTO tasks_audit_log VALUES (?, ?)').run('a1', JSON.stringify({ token }));
+    db.close();
+    const live = make(
+      'live',
+      { [AUDIT_SCRUB_MARKER]: 'live-done' },
+      { [AUDIT_SCRUB_MARKER]: 'live-done' },
+    );
+    carryMachineState(staged, live, 'project');
+    expect(kv(staged, 'tasks_row_identity_meta')[AUDIT_SCRUB_MARKER]).toBeUndefined();
+
+    const opened = new DatabaseSync(staged);
+    try {
+      expect(scrubAuditSecrets(opened).status).toBe('done');
+      const row = opened.prepare('SELECT details_json FROM tasks_audit_log').get() as {
+        details_json: string;
+      };
+      expect(row.details_json).not.toContain(token);
+    } finally {
+      opened.close();
+    }
+    expect(kv(staged, 'tasks_row_identity_meta')[AUDIT_SCRUB_MARKER]).toBe('done');
+
+    const global = make('global-staged', null, { 'schema:x': 'h' });
+    carryMachineState(global, live, 'global');
+    expect(kv(global, '_sync_meta')[AUDIT_SCRUB_MARKER]).toBeUndefined();
   });
 
   it('every file-state key table is local-only in its scope', () => {

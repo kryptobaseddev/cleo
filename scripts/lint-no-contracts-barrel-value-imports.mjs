@@ -64,7 +64,6 @@ export const BARREL_ENTRIES = Object.freeze([
 export const BASELINE = Object.freeze([
   'packages/cleo/src/cli/commands/docs.ts',
   'packages/cleo/src/cli/commands/nexus.ts',
-  'packages/cleo/src/cli/commands/session.ts',
   'packages/cleo/src/cli/commands/sticky.ts',
   'packages/cleo/src/cli/commands/verify.ts',
   'packages/core/src/orchestration/lead-rollup.ts',

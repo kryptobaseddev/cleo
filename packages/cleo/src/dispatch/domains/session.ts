@@ -431,7 +431,7 @@ const _sessionTypedHandler = defineTypedHandler<SessionOps>('session', {
         // T4959: Compute rich debrief (superset of handoff)
         let debriefResult: {
           success: boolean;
-          data?: import('@cleocode/core/internal').DebriefData;
+          data?: import('@cleocode/core/sessions/handoff.js').DebriefData;
         } | null = null;
         try {
           debriefResult = await sessionComputeDebrief(projectRoot, sessionId, {
@@ -453,7 +453,10 @@ const _sessionTypedHandler = defineTypedHandler<SessionOps>('session', {
         // Wave 3A: Persist session memory to brain.db (best-effort)
         if (debriefResult?.success && debriefResult.data) {
           try {
-            const { persistSessionMemory } = await import('@cleocode/core/internal');
+            // T13834: from its defining module — the CORE barrel cost every Stop ~1 s.
+            const { persistSessionMemory } = await import(
+              '@cleocode/core/memory/session-memory.js'
+            );
             await persistSessionMemory(projectRoot, sessionId, debriefResult.data);
           } catch {
             // Memory persistence failure should not fail session end
@@ -469,7 +472,7 @@ const _sessionTypedHandler = defineTypedHandler<SessionOps>('session', {
     // The engine path (session-engine.ts) does not go through core/sessions/index.ts
     // which has the direct refreshMemoryBridge call, so we must trigger it here.
     try {
-      const { refreshMemoryBridge } = await import('@cleocode/core/internal');
+      const { refreshMemoryBridge } = await import('@cleocode/core/memory/memory-bridge.js');
       await refreshMemoryBridge(projectRoot);
     } catch {
       // Best-effort: never block session end on bridge refresh failure
