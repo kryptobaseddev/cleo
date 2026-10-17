@@ -444,9 +444,9 @@ export const PROBES = Object.freeze([
     args: ['session', 'end', '--quiet'],
     needsProject: true,
     ownSession: true,
-    forbid: [CORE_BARREL, MODEL_SDKS, DRIZZLE_CJS],
+    forbid: [CORE_BARREL, CONTRACTS_BARREL, MODEL_SDKS, DRIZZLE_CJS],
     expectExit: 0,
-    maxModules: 1000,
+    maxModules: 850,
     maxRssMb: 240,
   },
 ]);
