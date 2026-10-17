@@ -16,7 +16,7 @@
  * @adr ADR-055
  */
 
-import { createHmac } from 'node:crypto';
+import { createHmac, randomBytes, scryptSync, timingSafeEqual } from 'node:crypto';
 import { appendFileSync, mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
 
@@ -116,6 +116,105 @@ export function verifyOwnerAuthToken(callerToken: string, storedToken: string): 
     diff |= (a[i] ?? 0) ^ (b[i] ?? 0);
   }
   return diff === 0;
+}
+
+/**
+ * The owner mark of `cleo session start --owner` (T13790), stored in
+ * `sessions.owner_auth_token`: alone, or as `<mark>|<verifier>` when the
+ * session was also started with `--owner-auth`. Password-free; only the
+ * interactive session start writes it.
+ */
+export const OWNER_SESSION_MARK = 'owner-mark$v1';
+
+/**
+ * Whether a stored `sessions.owner_auth_token` carries the owner mark
+ * ({@link OWNER_SESSION_MARK}); an `--owner-auth` verifier alone does not.
+ *
+ * @param stored - The stored value, or null.
+ * @returns True for an owner-marked session.
+ * @task T13790
+ */
+export function isOwnerSessionMark(stored: string | null | undefined): boolean {
+  return stored === OWNER_SESSION_MARK || (stored ?? '').startsWith(`${OWNER_SESSION_MARK}|`);
+}
+
+/**
+ * Why this process may not mark its session as the owner's, or null (T13790):
+ * `cleo session start --owner` is password-free, so it is refused when any
+ * `CLEO_AGENT_ROLE` is set or stdin/stderr are not an interactive terminal.
+ *
+ * @param env - Process env.
+ * @returns The refusal, or null when the mark may be set.
+ * @task T13790
+ */
+export function ownerMarkRefusal(env: NodeJS.ProcessEnv = process.env): string | null {
+  if ((env['CLEO_AGENT_ROLE'] ?? '').trim() !== '')
+    return `--owner is refused: CLEO_AGENT_ROLE is set (${env['CLEO_AGENT_ROLE']}); only the owner, in their own terminal, marks a session.`;
+  if (!isTtyPresent())
+    return '--owner is refused: stdin and stderr must be an interactive terminal; only the owner, in their own terminal, marks a session.';
+  return null;
+}
+
+/** Prefix of a {@link createOwnerAuthVerifier} record. */
+const VERIFIER_PREFIX = 'scrypt$v1$';
+
+/**
+ * scrypt cost for the owner-auth password (T13787 review MEDIUM 4): ~0.1 s per
+ * guess, against ~1M/s for the bare HMAC token it replaces.
+ */
+export const OWNER_SCRYPT_PARAMS = { N: 2 ** 15, r: 8, p: 1, maxmem: 64 * 1024 * 1024 } as const;
+
+/**
+ * A slow verifier for the owner-auth password, stored in
+ * `sessions.owner_auth_token` by `cleo session start --owner-auth` in place of
+ * the bare `HMAC(password, name)` (T13787): `scrypt$v1$<salt>$<hash>`.
+ *
+ * @param password - The password the owner typed.
+ * @returns The verifier record.
+ * @task T13787
+ */
+export function createOwnerAuthVerifier(password: string): string {
+  const salt = randomBytes(16);
+  const hash = scryptSync(password, salt, 32, OWNER_SCRYPT_PARAMS);
+  return `${VERIFIER_PREFIX}${salt.toString('hex')}$${hash.toString('hex')}`;
+}
+
+/**
+ * Whether `password` matches a session's stored owner-auth record: a
+ * {@link createOwnerAuthVerifier} verifier, or a legacy `HMAC(password, name)`
+ * token from sessions started before T13787.
+ *
+ * @param password - The password typed now.
+ * @param stored - `sessions.owner_auth_token`.
+ * @param sessionName - The session's name (the legacy HMAC key).
+ * @returns True when it matches.
+ * @task T13787
+ */
+export function verifyOwnerAuthPassword(
+  password: string,
+  stored: string,
+  sessionName: string,
+): boolean {
+  // T13790: an owner-marked session stores `<mark>|<verifier>`; a bare mark has no password.
+  if (stored.startsWith(`${OWNER_SESSION_MARK}|`))
+    return verifyOwnerAuthPassword(
+      password,
+      stored.slice(OWNER_SESSION_MARK.length + 1),
+      sessionName,
+    );
+  if (stored === OWNER_SESSION_MARK) return false;
+  if (!stored.startsWith(VERIFIER_PREFIX))
+    return verifyOwnerAuthToken(deriveOwnerAuthToken(sessionName, password), stored);
+  const [saltHex, hashHex] = stored.slice(VERIFIER_PREFIX.length).split('$');
+  if (!saltHex || !hashHex) return false;
+  const expected = Buffer.from(hashHex, 'hex');
+  const actual = scryptSync(
+    password,
+    Buffer.from(saltHex, 'hex'),
+    expected.length,
+    OWNER_SCRYPT_PARAMS,
+  );
+  return expected.length === actual.length && timingSafeEqual(expected, actual);
 }
 
 // ---------------------------------------------------------------------------

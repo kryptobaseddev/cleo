@@ -526,6 +526,36 @@ export async function getSystemHealth(
     });
   }
 
+  // T13787: the owner enrollment behind evidence.overrideCapPerSession —
+  // fingerprint, when, which session and terminal — so the owner can spot an
+  // enrollment an agent made, and any tampered or unanchored owner settings.
+  try {
+    const { ownerEnrollmentStatus } = await import('../security/override-cap-setting.js');
+    const owner = await ownerEnrollmentStatus(projectRoot);
+    const { countLegacyOwnerTokens } = await import('../store/session-store.js');
+    const legacy = await countLegacyOwnerTokens(projectRoot).catch(() => 0);
+    if (legacy > 0)
+      owner.warnings.push(
+        `${legacy} session(s) still hold a legacy HMAC owner-auth token (a cheap offline password oracle); the next \`cleo session start\` clears them`,
+      );
+    checks.push({
+      name: 'owner_enrollment',
+      status:
+        owner.status === 'tampered' || owner.status === 'unconfirmed'
+          ? 'fail'
+          : owner.warnings.length > 0
+            ? 'warn'
+            : 'pass',
+      message:
+        owner.warnings.length > 0
+          ? `${owner.message} Check: ${owner.warnings.join('; ')}.`
+          : owner.message,
+      details: { ...owner },
+    });
+  } catch {
+    // An unreadable enrollment must not break doctor; resolveOverrideCap audits it.
+  }
+
   // Get version
   let version = 'unknown';
   try {
