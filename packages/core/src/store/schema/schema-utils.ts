@@ -144,7 +144,10 @@ export function transformColumnValues<V>(
  */
 export const redactedText = (table: string, name: string) => {
   const transform = COLUMN_TRANSFORMS[table]?.[name];
-  if (transform === undefined) throw new Error(`redactedText: ${table}.${name} has no transform`);
+  if (transform === undefined) {
+    // @sync-invariant none:input-shape a schema declaration error, raised at module load before any write
+    throw new Error(`redactedText: ${table}.${name} has no transform`);
+  }
   return customType<{ data: string; driverData: string }>({
     dataType: () => 'text',
     toDriver: transform,
