@@ -101,6 +101,7 @@ import { SYNC_SCHEMA_VERSION } from '@cleocode/contracts/sync-schema.js';
 import { readDeclaredProjectIdentity } from '@cleocode/paths';
 import { extract as tarExtract } from 'tar';
 import { z } from 'zod';
+import { currentDeviceId } from '../nexus/path-map.js';
 import { getCleoHome, resolveOrCwd } from '../paths.js';
 import { withLock } from '../store/lock.js';
 import { exportPortableBundle, globalHomeRules } from '../store/portable-bundle.js';
@@ -1190,6 +1191,27 @@ async function localManifest(
   }
   vault.tables[VAULT_FILES_KEY] = vaultFilesEntry(files, hashKey);
   return { manifest: vault, files: digests };
+}
+
+/**
+ * Rows a store writes about this machine on its own: the device's heartbeat
+ * row in `nexus_devices`, which login and every CLI start write and the next
+ * start rewrites. A restore that replaces it loses nothing, so it never makes
+ * a never-synced store hold data of its own (T13853).
+ */
+async function ownMachineRows(t: VaultTarget): Promise<Record<string, number>> {
+  if (t.scope !== 'global') return {};
+  const { openNativeDatabase } = await import('../store/sqlite-native.js');
+  const db = openNativeDatabase(t.dbPath, { readonly: true, enableWal: false });
+  try {
+    if (!hasTable(db, 'nexus_devices')) return {};
+    const { n } = db
+      .prepare('SELECT count(*) AS n FROM nexus_devices WHERE device_id = ?')
+      .get(currentDeviceId()) as { n: number | bigint };
+    return Number(n) > 0 ? { nexus_devices: Number(n) } : {};
+  } finally {
+    db.close();
+  }
 }
 
 /**
@@ -3872,8 +3894,9 @@ async function restoreNexusVaultImpl(opts: NexusVaultRestoreOptions): Promise<Cl
       ? await localManifest(t, git, untrackedComparison(t, git, synced), last?.manifest)
       : null;
   if (local !== null) {
+    const own = last ? {} : await ownMachineRows(t);
     const hasRows = Object.entries(local.manifest.tables).some(
-      ([name, x]) => x.rows > 0 && name !== VAULT_FILES_KEY,
+      ([name, x]) => x.rows - (own[name] ?? 0) > 0 && name !== VAULT_FILES_KEY,
     );
     const fileChanges = fileChangesSinceSync(local.files, t, git, synced);
     const rows = last ? changesToKeep(local.manifest, last.manifest, git, fileChanges) : [];
