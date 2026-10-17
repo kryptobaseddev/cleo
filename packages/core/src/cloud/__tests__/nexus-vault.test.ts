@@ -80,7 +80,13 @@ import {
   recordBareAccounts,
   setSyncFlag,
 } from '../../store/sync/flags.js';
-import { cutGenesis, genesisCutOf, genesisPending } from '../../store/sync/genesis.js';
+import {
+  cutGenesis,
+  GENESIS_CUT_KEY_PREFIX,
+  genesisCutOf,
+  genesisPending,
+  readGenesisCut,
+} from '../../store/sync/genesis.js';
 import { readStreamCursor } from '../../store/sync/pull.js';
 import {
   activeReplica,
@@ -109,7 +115,7 @@ import {
   uuidv7,
   verifyEd25519,
 } from '../crypto.js';
-import { type FetchLike, Http, NexusError } from '../http.js';
+import { type FetchLike, Http, NEXUS_STREAM_READER_HEADER, NexusError } from '../http.js';
 import {
   cursorFromCheckpoint,
   Journal,
@@ -423,6 +429,8 @@ class FakeNexus {
   beforeSegment: { deviceId: string; run: () => Promise<void> } | null = null;
   /** Codes the next checkpoint creates are refused with, in order. */
   refuseCheckpoint: string[] = [];
+  /** As Cleo Nexus with T13876: a v3 stream's head and checkpoint reads need the stream-reader header. */
+  streamReaderRequired = false;
   /** Runs once before the next checkpoint create by `deviceId` (simulates a concurrent author). */
   beforeCheckpoint: { deviceId: string; run: () => Promise<void> } | null = null;
   /** Runs once after the server stored a checkpoint, before the response reaches the client. */
@@ -502,6 +510,19 @@ class FakeNexus {
       const token = (new Headers(init?.headers).get('authorization') ?? '').replace(/^Bearer /, '');
       const device = [...this.devices.values()].find((d) => d.token === token);
       if (!device) throw new ApiFail(401, 'E_UNAUTHENTICATED');
+      if (this.streamReaderRequired && method === 'GET') {
+        const sm = url.pathname.match(/^\/v1\/streams\/([^/]+)(\/checkpoints)?$/);
+        const st = sm ? this.streams.get(decodeURIComponent(sm[1] ?? '')) : undefined;
+        const headCp = st?.checkpoints.find((c) => c.checkpointId === st.headCheckpointId);
+        if (
+          headCp &&
+          manifestVersion(headCp.manifest) === 3 &&
+          new Headers(init?.headers).get(NEXUS_STREAM_READER_HEADER.name) !==
+            NEXUS_STREAM_READER_HEADER.value
+        ) {
+          throw new ApiFail(409, 'E_STREAM_VERSION');
+        }
+      }
       const body =
         typeof init?.body === 'string' ? (JSON.parse(init.body) as Record<string, unknown>) : {};
       if (method !== 'GET') this.writes.push(`${method} ${url.pathname}`);
@@ -6202,6 +6223,67 @@ describe('sync enable push: the genesis checkpoint (T12343 S4-1b)', () => {
       await sync(a);
       return { a, aDb, genesis, b, bDb };
     }
+
+    it('T13867: a store that reads snapshots only is behind once the journal moves past the head: pull refuses, verify says behind, never up-to-date or match', async () => {
+      fake.streamReaderRequired = true;
+      const { a, aDb } = await journalDevices(false);
+      // B restores the genesis and never joins the journal: it reads snapshots only.
+      const { b, bDb } = await restoredJoiner();
+      // The restored bundle carries no genesis cut of A's: B does not pass for a journal reader.
+      expect(await on(b, () => readGenesisCut(bDb, STREAM))).toBeUndefined();
+      expect((await on(b, () => restoreNexusVault(vopts(b, { mode: 'pull' })))).status).toBe(
+        'up-to-date',
+      );
+      expect((await on(b, () => verifyNexusVault(vopts(b)))).verdict).toBe('match');
+      // A writes through the journal: a segment past the head checkpoint.
+      await on(a, async () => (await storeOf(aDb)).exec(insertTask('T3', 'from A')));
+      await sync(a);
+      const pulled = await failure(on(b, () => restoreNexusVault(vopts(b, { mode: 'pull' }))));
+      expect(pulled.code).toBe('E_NEXUS_VAULT_BEHIND');
+      expect(pulled.message).toContain('reads snapshots only');
+      expect(pulled.fix).toContain('cleo sync enable push');
+      const verified = await on(b, () => verifyNexusVault(vopts(b)));
+      expect(verified.verdict).toBe('behind');
+      expect(verified.remedy).toContain('cleo sync enable push');
+      // A genesis cut alone (as a restored bundle could carry A's) does not make B a journal reader.
+      await on(b, async () => {
+        const db = await storeOf(bDb);
+        db.exec(
+          'CREATE TABLE IF NOT EXISTS _sync_meta (key TEXT PRIMARY KEY, value TEXT, updated_at TEXT)',
+        );
+        db.prepare(
+          'INSERT INTO _sync_meta (key, value, updated_at) VALUES (?, ?, ?) ON CONFLICT (key) DO UPDATE SET value = excluded.value',
+        ).run(`${GENESIS_CUT_KEY_PREFIX}${STREAM}`, '0', '2026-10-17');
+      });
+      expect(await on(b, () => readGenesisCut(bDb, STREAM))).toBe(0);
+      const cutOnly = await failure(on(b, () => restoreNexusVault(vopts(b, { mode: 'pull' }))));
+      expect(cutOnly.code).toBe('E_NEXUS_VAULT_BEHIND');
+      expect((await on(b, () => verifyNexusVault(vopts(b)))).verdict).toBe('behind');
+      // A device that writes the journal is not held behind by it.
+      expect((await on(a, () => verifyNexusVault(vopts(a)))).verdict).toBe('match');
+      // This client sent the stream-reader header throughout; a client without it (released
+      // v2026.10.19) is refused a v3 stream's reads by a T13876 server, never shown it as current.
+      const old = await fake.fetch(`${API}/v1/streams/${encodeURIComponent(STREAM)}/checkpoints`, {
+        headers: { authorization: `Bearer ${b.token}` },
+      });
+      expect(old.status).toBe(409);
+      expect(JSON.stringify(await old.json())).toContain('E_STREAM_VERSION');
+    });
+
+    it('T13867: on a journal head, a table only snapshots carry is listed but does not decide the verdict', async () => {
+      const { a, aDb } = await journalDevices(false);
+      await on(a, async () =>
+        (await storeOf(aDb)).exec(
+          "INSERT INTO tasks_goal (idempotency_key, goal_kind, intent, turn_budget, created_at, updated_at) VALUES ('g-t13867', x'00', 'machine-local goal', 1, '2026-10-17', '2026-10-17')",
+        ),
+      );
+      const v = await on(a, () => verifyNexusVault(vopts(a)));
+      expect(v.tables.find((r) => r.table === 'tasks_goal')?.match).toBe(false);
+      expect(v.verdict).toBe('match');
+      expect(v.warnings.find((w) => w.code === 'W_NEXUS_VAULT_SNAPSHOT_ONLY')?.message).toContain(
+        'tasks_goal',
+      );
+    });
 
     it('AC1: with sync.push on, cloud push checkpoints at the sealed journal hwm with no delta segment; the server v3 rule accepts it', async () => {
       const { a, aDb, genesis } = await journalDevices(true);

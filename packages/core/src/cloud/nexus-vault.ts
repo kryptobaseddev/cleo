@@ -583,6 +583,37 @@ async function replaySegments(
 const JOURNAL_STREAM_REMEDY =
   'on this stream local changes travel through the change journal (`sync.push`), and with it on a vault push checkpoints the journal (T12999); a store that has not joined it joins with `cleo sync enable push`, which keeps its own rows and merges them into the stream (T13466); `cleo cloud pull`, `cleo cloud restore` and `cleo cloud verify` still work';
 
+/** What a store that reads only snapshots does about journal changes past the head (T13867). */
+const JOURNAL_UNREAD_REMEDY =
+  'join the change journal with `cleo sync enable push` to receive them, or run `cleo cloud push` on a device that writes the journal (its push checkpoints the journal, T12999), then pull again';
+
+/**
+ * The change-journal segments past a checkpoint/v3 head that this store does
+ * not hold (T13867): it reads snapshots only, so the head is all it has, and
+ * every segment past the head's `coversSeq` is missing from it. A store is on
+ * the journal when it holds a genesis cut of the stream AND `sync.push` or
+ * `sync.pull` is on: a cut alone, as a restored bundle could carry, does not
+ * make it one. 0 for any other head, or a store on the journal.
+ */
+async function journalUnread(
+  t: VaultTarget,
+  headSeq: number,
+  headCp: Checkpoint | null | undefined,
+): Promise<number> {
+  if (!headCp || !isJournalSnapshot(headCp) || headSeq <= headCp.coversSeq) return 0;
+  if (fs.existsSync(t.dbPath)) {
+    const { openNativeDatabase } = await import('../store/sqlite-native.js');
+    const db = openNativeDatabase(t.dbPath, { readonly: true, enableWal: false });
+    try {
+      const on = isSyncFlagOn(db, 'sync.push') || isSyncFlagOn(db, 'sync.pull');
+      if (on && genesisCutOf(db, t.streamId) !== undefined) return 0;
+    } finally {
+      db.close();
+    }
+  }
+  return headSeq - headCp.coversSeq;
+}
+
 /** Whether a snapshot is checkpoint/v3: the change journal writes its stream (T13034). */
 function isJournalSnapshot(cp: Checkpoint | null | undefined): boolean {
   return cp !== null && cp !== undefined && manifestVersion(cp.manifest) === 3;
@@ -3806,6 +3837,22 @@ async function restoreNexusVaultImpl(opts: NexusVaultRestoreOptions): Promise<Cl
   const names = await deviceNames(conn);
   if (opts.mode === 'pull' && synced?.lastCheckpointId === target && opts.force !== true) {
     const cp = cps.find((c) => c.checkpointId === target) ?? null;
+    const unread =
+      target === head.headCheckpointId
+        ? await journalUnread(
+            t,
+            head.headSeq,
+            trusted.find((c) => c.checkpointId === target),
+          )
+        : 0;
+    if (unread > 0) {
+      // @sync-invariant none:local-only a read-only refusal: nothing is written
+      throw vaultError(
+        'E_NEXUS_VAULT_BEHIND',
+        `${t.streamId}: the change journal holds ${unread} segment(s) past snapshot ${target}, and this store reads snapshots only, so it is not up to date`,
+        JOURNAL_UNREAD_REMEDY,
+      );
+    }
     warnings.push(...conn.state.drainWarnings());
     return {
       apiUrl: conn.apiUrl,
@@ -4127,6 +4174,16 @@ async function restoreNexusVaultImpl(opts: NexusVaultRestoreOptions): Promise<Cl
         });
       }
     }
+    const unread =
+      restored.checkpoint.checkpointId === head.headCheckpointId
+        ? await journalUnread(t, head.headSeq, restored.checkpoint)
+        : 0;
+    if (unread > 0) {
+      warnings.push({
+        code: 'W_NEXUS_VAULT_JOURNAL_UNREAD',
+        message: `the change journal holds ${unread} segment(s) past snapshot ${restored.checkpoint.checkpointId}, which this store does not have: ${JOURNAL_UNREAD_REMEDY}`,
+      });
+    }
     warnings.push(...conn.state.drainWarnings());
     return {
       apiUrl: conn.apiUrl,
@@ -4383,16 +4440,33 @@ async function verifyNexusVaultImpl(
       return { ...r, cloudRows, match: (r.localRows ?? 0) === cloudRows };
     });
   }
+  // On a journal head, tables only snapshots carry (files, other databases, the
+  // row-identity-exempt tables) hold machine-local state: listed, never the verdict (T13867).
+  const journalHead = isJournalSnapshot(headCp);
+  const snapshotOnly = new Set(Object.keys(ROW_IDENTITY_EXEMPT[tableScopeOf(t)]));
+  const decides = (r: CloudVaultTableDiff): boolean =>
+    !journalHead || !(isSnapshotAuthoritativeKey(r.table) || snapshotOnly.has(r.table));
+  const asideDiffer = tables.filter((r) => !r.match && !decides(r)).map((r) => r.table);
+  if (asideDiffer.length > 0) {
+    warnings.push({
+      code: 'W_NEXUS_VAULT_SNAPSHOT_ONLY',
+      message: `${asideDiffer.length} table(s) only snapshots carry differ from the newest snapshot (machine-local, or not checkpointed yet), so they do not decide the verdict: ${asideDiffer.slice(0, 8).join(', ')}`,
+    });
+  }
+  const unread = await journalUnread(t, head.headSeq, headCp);
   let verdict: CloudVerifyResult['verdict'];
   if (headUntrusted) verdict = 'untrusted';
   else if (!headCp) verdict = 'empty';
-  else if (tables.every((x) => x.match)) verdict = 'match';
+  else if (unread > 0) verdict = 'behind';
+  else if (tables.filter(decides).every((x) => x.match)) verdict = 'match';
   else if (journalSide !== null) {
     const { localChanged, cloudAdvanced } = journalSide;
     verdict = localChanged && cloudAdvanced ? 'diverged' : cloudAdvanced ? 'behind' : 'ahead';
   } else {
     const localChanged = last
-      ? compareWithSynced(local, last.manifest, git, fileChanges).some((d) => !d.match)
+      ? compareWithSynced(local, last.manifest, git, fileChanges).some(
+          (d) => !d.match && decides(d),
+        )
       : true;
     const cloudAdvanced = synced?.lastCheckpointId !== headCp.checkpointId;
     verdict = localChanged && cloudAdvanced ? 'diverged' : cloudAdvanced ? 'behind' : 'ahead';
@@ -4451,7 +4525,6 @@ async function verifyNexusVaultImpl(
   // journal writes takes no push (T13034).
   const headFormat = formatWarning(t, headCp);
   if (headFormat) warnings.push(headFormat);
-  const journalHead = isJournalSnapshot(headCp);
   const remedy =
     deepFailure !== null
       ? `the cloud copy failed the deep check (${deepFailure}): do not pull it; see which device pushed the newest snapshot with \`cleo cloud vault\` and \`cleo cloud activity\`, then push a fresh snapshot from a machine whose store passes \`cleo cloud verify\``
@@ -4460,7 +4533,9 @@ async function verifyNexusVaultImpl(
         : headCp && vaultManifestFormat(headCp.manifest, hashKeyOf(t.dataKey)) === 'unknown'
           ? `the newest snapshot records a vault manifest format this CLEO does not recognise (this CLEO hashes format ${VAULT_MANIFEST_FORMAT_VERSION}): if a newer CLEO pushed it, upgrade CLEO on this machine, then verify again`
           : verdict === 'behind'
-            ? 'run `cleo cloud pull` to bring this machine to the newest snapshot'
+            ? unread > 0
+              ? `the change journal holds ${unread} segment(s) past the newest snapshot, which this store reads snapshots only and does not have: ${JOURNAL_UNREAD_REMEDY}`
+              : 'run `cleo cloud pull` to bring this machine to the newest snapshot'
             : verdict === 'ahead'
               ? journalHead
                 ? `this machine changed since the newest snapshot, which is checkpoint/v3 (the change journal writes this stream): ${JOURNAL_STREAM_REMEDY}`
