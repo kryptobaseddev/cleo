@@ -174,6 +174,8 @@ export type HookPilotProof = z.infer<typeof HookPilotProofSchema>;
 export const HookPilotHostedRunSchema = z.object({
   id: z.number().int().positive(),
   head_sha: z.string().regex(/^[a-f0-9]{40}$/),
+  /** Historical responses may omit the trigger; future proofs require an exact-commit dispatch. */
+  event: z.string().min(1).max(64).optional(),
   status: z.literal('completed'),
   conclusion: z.literal('success'),
   path: z.string().max(4096),

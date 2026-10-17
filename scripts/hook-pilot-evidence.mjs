@@ -335,6 +335,12 @@ export async function validateHookPilotEvidence(options) {
     run.html_url.toLowerCase() !== expectedUrl.toLowerCase()
   )
     throw new Error('Promotion held: hosted workflow identity differs from pilot.');
+  // A PR run reports the branch head but checks github.sha's synthetic merge.
+  // A dispatch makes the workflow's github.sha the declared run.head_sha.
+  if (evidence.schemaVersion >= 2 && run.event !== 'workflow_dispatch')
+    throw new Error(
+      'Promotion held: exact-commit workflow_dispatch required for v2 hosted evidence.',
+    );
   const actualHostedCheck = jobs.jobs.some(
     (job) =>
       job.name === 'exact-candidate' &&
