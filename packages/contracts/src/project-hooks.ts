@@ -41,6 +41,8 @@ export const ProjectHookDefinitionSchema = z
   .strict();
 /** Validated project checker configuration. Handler is executable's first argument. */
 export type ProjectHookDefinition = z.infer<typeof ProjectHookDefinitionSchema>;
+/** One source/event binding, shared by retained-receipt selectors. */
+export type ProjectHookBinding = ProjectHookDefinition['bindings'][number];
 /** Tracked single source of truth; array order defines execution order. */
 export const ProjectHooksManifestSchema = z
   .object({

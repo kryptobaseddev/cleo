@@ -85,16 +85,28 @@ export const HookPilotNativeReceiptSchema = z.object({
 export const HookPilotNativeEvidenceSchema = z
   .object({
     sessionId: z.string().min(1).max(256),
+    checkout: z.enum(['standalone', 'linked-worktree']),
     startedAt: z.string().datetime(),
     endedAt: z.string().datetime(),
     receipt: HookPilotProofReferenceSchema.extend(HookPilotNativeReceiptSchema.shape).strict(),
     trust: z.discriminatedUnion('mode', [
-      z.object({ mode: z.literal('persisted') }).strict(),
       z
-        .object({ mode: z.literal('bypassed'), flag: z.literal('--dangerously-bypass-hook-trust') })
+        .object({
+          mode: z.literal('persisted'),
+          home: z.enum(['isolated', 'user-global']),
+          grantedBy: z.enum(['native-interactive', 'native-command']),
+        })
+        .strict(),
+      z
+        .object({
+          mode: z.literal('bypassed'),
+          home: z.enum(['isolated', 'user-global']),
+          flag: z.literal('--dangerously-bypass-hook-trust'),
+        })
         .strict(),
     ]),
     contextInjection: z.enum(['observed', 'unverified', 'not-observed']),
+    contextEvidence: HookPilotProofReferenceSchema.optional(),
     infrastructureFaults: z
       .array(
         z
@@ -136,6 +148,13 @@ export const HookPilotProofSchema = HookPilotIdentitySchema.extend({
         code: 'custom',
         path: ['native'],
         message: 'Required native agent receipt missing',
+      });
+    }
+    if (proof.native?.contextInjection === 'observed' && !proof.native.contextEvidence) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['native', 'contextEvidence'],
+        message: 'Observed context requires retained evidence',
       });
     }
   });

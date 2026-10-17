@@ -302,6 +302,9 @@ export async function validateHookPilotEvidence(options) {
           throw new Error(
             'Promotion held: persisted native trust required; bypass is diagnostic only.',
           );
+        if (native.contextEvidence) retainedBytes(proofRoot, native.contextEvidence);
+        if (check === 'liveCodex' && native.checkout !== 'linked-worktree')
+          throw new Error('Promotion held: native Codex linked-worktree delivery required.');
       }
     } else if (
       proof.mode !== 'hosted-ci' ||

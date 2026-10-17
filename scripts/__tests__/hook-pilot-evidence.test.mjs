@@ -174,6 +174,7 @@ function nativeBundle() {
     const native = check.startsWith('live')
       ? {
           sessionId: `${check}-session`,
+          checkout: check === 'liveCodex' ? 'linked-worktree' : 'standalone',
           startedAt: '2026-10-10T00:00:00Z',
           endedAt: '2026-10-10T00:00:10Z',
           receipt: {
@@ -182,7 +183,7 @@ function nativeBundle() {
             event: 'PreToolUse',
             recordedAt: '2026-10-10T00:00:05Z',
           },
-          trust: { mode: 'persisted' },
+          trust: { mode: 'persisted', home: 'isolated', grantedBy: 'native-interactive' },
           contextInjection: 'unverified',
           infrastructureFaults: [],
         }
@@ -344,6 +345,63 @@ describe('stable promotion evidence', () => {
       validateHookPilotEvidence({ ...options(), stableVersion: '2026.10.18' }),
     ).resolves.toBeDefined();
   });
+  it('T13818: accepts isolated native-command trust and rejects hand-seeded trust', async () => {
+    const index = nativeBundle();
+    const proof = JSON.parse(readFileSync(join(root, 'retained/liveCodex.json'), 'utf8'));
+    replaceProof(index, 'liveCodex', {
+      native: {
+        ...proof.native,
+        trust: { mode: 'persisted', home: 'isolated', grantedBy: 'native-command' },
+      },
+    });
+    await expect(
+      validateHookPilotEvidence({ ...options(), stableVersion: '2026.10.18' }),
+    ).resolves.toBeDefined();
+    replaceProof(index, 'liveCodex', {
+      native: {
+        ...proof.native,
+        trust: { mode: 'persisted', home: 'isolated', grantedBy: 'hand-seeded' },
+      },
+    });
+    await expect(
+      validateHookPilotEvidence({ ...options(), stableVersion: '2026.10.18' }),
+    ).rejects.toThrow();
+  });
+  it('T13818: requires retained context evidence when injection is observed', async () => {
+    const index = nativeBundle();
+    const proof = JSON.parse(readFileSync(join(root, 'retained/liveClaude.json'), 'utf8'));
+    replaceProof(index, 'liveClaude', {
+      native: { ...proof.native, contextInjection: 'observed' },
+    });
+    await expect(
+      validateHookPilotEvidence({ ...options(), stableVersion: '2026.10.18' }),
+    ).rejects.toThrow(/Observed context requires retained evidence/);
+    write('retained/context.json', { hook_additional_context: 'sanitized native hook context' });
+    const contextEvidence = {
+      path: 'context.json',
+      sha256: createHash('sha256')
+        .update(readFileSync(join(root, 'retained/context.json')))
+        .digest('hex'),
+    };
+    replaceProof(index, 'liveClaude', {
+      native: { ...proof.native, contextInjection: 'observed', contextEvidence },
+    });
+    await expect(
+      validateHookPilotEvidence({ ...options(), stableVersion: '2026.10.18' }),
+    ).resolves.toBeDefined();
+    write('retained/context.json', 'tampered');
+    await expect(
+      validateHookPilotEvidence({ ...options(), stableVersion: '2026.10.18' }),
+    ).rejects.toThrow(/hash changed/);
+  });
+  it('T13818: requires Codex linked-worktree coverage in new proofs', async () => {
+    const index = nativeBundle();
+    const proof = JSON.parse(readFileSync(join(root, 'retained/liveCodex.json'), 'utf8'));
+    replaceProof(index, 'liveCodex', { native: { ...proof.native, checkout: 'standalone' } });
+    await expect(
+      validateHookPilotEvidence({ ...options(), stableVersion: '2026.10.18' }),
+    ).rejects.toThrow(/Codex linked-worktree/);
+  });
   it('T13818: keeps infrastructure faults typed and requires explicit fault/context reporting', async () => {
     const index = nativeBundle();
     const { HookPilotProofSchema } = await import(
@@ -425,7 +483,7 @@ describe('stable promotion evidence', () => {
     replaceProof(index, 'liveCodex', {
       native: {
         ...proof.native,
-        trust: { mode: 'bypassed', flag: '--dangerously-bypass-hook-trust' },
+        trust: { mode: 'bypassed', home: 'isolated', flag: '--dangerously-bypass-hook-trust' },
         infrastructureFaults: [{ source: 'git', code: 'HOOK_RECEIPT_WRITE_FAILED' }],
       },
     });
