@@ -43,6 +43,7 @@ import { spawn, spawnSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import type { HookJsonValue } from '@cleocode/contracts';
+import { GOAL_TICK_PROVIDER_ENV } from '@cleocode/contracts/goal-runtime.js';
 
 /** Harnesses `cleo hook stop` dispatches for. */
 export const STOP_DISPATCH_PROVIDERS = ['claude-code', 'codex'] as const;
@@ -231,7 +232,7 @@ export function processStopDispatchDeps(
       return goalTickCommand({ ...process.env, ...env });
     },
     hasGoalWorkspace: (input) => hasGoalWorkspace(input, env),
-    runTick: runTickKillable,
+    runTick: (command, input, timeoutMs) => runTickKillable(command, input, timeoutMs, provider),
     endSession: () => {
       const cli = process.argv[1];
       spawnSync(
@@ -285,12 +286,15 @@ export function hasGoalWorkspace(
  * @param command - The tick command line.
  * @param input - The Stop JSON for its stdin.
  * @param timeoutMs - Deadline.
+ * @param provider - The harness whose Stop this is, passed to the tick as
+ *   {@link GOAL_TICK_PROVIDER_ENV}; the rest of the environment is inherited.
  * @returns What the tick did.
  */
 export function runTickKillable(
   command: string,
   input: string,
   timeoutMs: number,
+  provider?: StopDispatchProvider,
 ): Promise<TickRun> {
   return new Promise((done) => {
     let stdout = '';
@@ -305,6 +309,9 @@ export function runTickKillable(
       shell: true,
       detached: true,
       stdio: ['pipe', 'pipe', 'ignore'],
+      ...(provider === undefined
+        ? {}
+        : { env: { ...process.env, [GOAL_TICK_PROVIDER_ENV]: provider } }),
     });
     const timer = setTimeout(() => {
       try {

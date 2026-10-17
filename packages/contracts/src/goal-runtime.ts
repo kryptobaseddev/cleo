@@ -9,6 +9,13 @@
  * @epic T13791
  */
 
+/**
+ * Environment variable naming the harness whose Stop the dispatcher is
+ * answering (`claude-code` or `codex`), set on the `cleo-goal tick` child so
+ * the tick can tell harnesses apart (T13884).
+ */
+export const GOAL_TICK_PROVIDER_ENV = 'CLEO_HOOK_PROVIDER';
+
 /** The only `schemaVersion` this CLEO understands for every shape below. */
 export const GOAL_RUNTIME_SCHEMA_VERSION = 1;
 

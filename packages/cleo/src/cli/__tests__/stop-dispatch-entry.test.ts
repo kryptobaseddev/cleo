@@ -7,6 +7,7 @@
  * @task T13796
  */
 
+import { GOAL_TICK_PROVIDER_ENV } from '@cleocode/contracts/goal-runtime.js';
 import { describe, expect, it, vi } from 'vitest';
 import {
   askEnforceOptedOut,
@@ -214,6 +215,15 @@ describe('stopDispatch (T13796)', () => {
       reason: 'x'.repeat(MAX_REASON_CHARS),
     });
     expect(r.stdout).not.toContain('pwned');
+  });
+
+  it('the tick child sees CLEO_HOOK_PROVIDER set to the dispatching harness (T13884)', async () => {
+    const echo = `node -e "process.stdout.write(JSON.stringify({p: process.env.${GOAL_TICK_PROVIDER_ENV}, h: process.env.HOME ?? null}))"`;
+    for (const provider of ['claude-code', 'codex'] as const) {
+      const run = await runTickKillable(echo, STOP, 5000, provider);
+      expect(run.status).toBe(0);
+      expect(JSON.parse(run.stdout)).toEqual({ p: provider, h: process.env.HOME ?? null });
+    }
   });
 
   it('a tick that traps SIGTERM is SIGKILLed with its group at the deadline, and fails open', async () => {
