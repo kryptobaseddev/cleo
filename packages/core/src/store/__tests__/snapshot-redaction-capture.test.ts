@@ -16,7 +16,13 @@ import { join, resolve } from 'node:path';
 import type { DatabaseSync as DatabaseSyncType } from 'node:sqlite';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { _resetDualScopeDbCache, openDualScopeDbAtPath } from '../dual-scope-db.js';
-import { clearSnapshotColumns, clearSnapshotTables } from '../portable-bundle-scan.js';
+import {
+  clearSnapshotColumns,
+  clearSnapshotTables,
+  REDACTED_PREFIX,
+  redactCredentials,
+  redactJournalSecrets,
+} from '../portable-bundle-scan.js';
 import { setCaptureEnabled } from '../sync/capture.js';
 import { TRIGGER_SUSPEND_TABLE_DDL } from '../sync/trigger-classes.js';
 
@@ -169,5 +175,58 @@ describe('snapshot redaction with capture on (T13042)', () => {
     expect(count(after, 'SELECT count(*) FROM t WHERE secret IS NOT NULL')).toBe(0);
     expect(count(after, 'SELECT count(*) FROM _sync_capture')).toBe(0);
     after.close();
+  });
+});
+
+describe('unencrypted export redaction hardening (T13817)', () => {
+  it('a NOT NULL UNIQUE credential column gets a per-row placeholder, so two approvals still clear', () => {
+    const snap = join(root, 'approvals.db');
+    const db = new DatabaseSync(snap);
+    db.exec(`CREATE TABLE tasks_playbook_approvals (approval_id TEXT PRIMARY KEY, token TEXT NOT NULL UNIQUE);
+      INSERT INTO tasks_playbook_approvals VALUES ('ap1', 'tok-secret-1'), ('ap2', 'tok-secret-2');`);
+    db.close();
+    expect(redactCredentials(snap)).toEqual([
+      expect.objectContaining({ table: 'tasks_playbook_approvals', columns: ['token'], rows: 2 }),
+    ]);
+    const after = new DatabaseSync(snap, { readOnly: true });
+    const tokens = (
+      after
+        .prepare('SELECT token FROM tasks_playbook_approvals ORDER BY approval_id')
+        .all() as Array<{
+        token: string;
+      }>
+    ).map((r) => r.token);
+    after.close();
+    expect(tokens).toEqual([`${REDACTED_PREFIX}1`, `${REDACTED_PREFIX}2`]);
+    expect(readFileSync(snap).includes('tok-secret')).toBe(false);
+    // A second pass finds nothing left to clear.
+    expect(redactCredentials(snap)).toEqual([]);
+  });
+
+  it('a credential journal image that is not JSON ships as no values, never as written', () => {
+    const snap = join(root, 'journal.db');
+    const db = new DatabaseSync(snap);
+    db.exec(`CREATE TABLE _sync_capture (seq INTEGER PRIMARY KEY, tbl TEXT NOT NULL, img TEXT NOT NULL);
+      CREATE TABLE _sync_undo (seq INTEGER PRIMARY KEY, tbl TEXT NOT NULL, before_full TEXT, after_full TEXT);`);
+    db.prepare("INSERT INTO _sync_capture VALUES (1, 'tasks_playbook_approvals', ?)").run(
+      'not json tok-secret-9',
+    );
+    db.prepare("INSERT INTO _sync_undo VALUES (1, 'tasks_playbook_approvals', ?, NULL)").run(
+      '{"token":"tok-secret-9"',
+    );
+    // Another table's non-JSON image is not a credential image: left alone.
+    db.prepare("INSERT INTO _sync_capture VALUES (2, 'tasks_tasks', 'plain text')").run();
+    db.close();
+    redactJournalSecrets(snap);
+    const after = new DatabaseSync(snap, { readOnly: true });
+    expect(after.prepare('SELECT seq, img FROM _sync_capture ORDER BY seq').all()).toEqual([
+      { seq: 1, img: '{}' },
+      { seq: 2, img: 'plain text' },
+    ]);
+    expect(after.prepare('SELECT before_full FROM _sync_undo').get()).toEqual({
+      before_full: null,
+    });
+    after.close();
+    expect(readFileSync(snap).includes('tok-secret-9')).toBe(false);
   });
 });
