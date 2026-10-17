@@ -786,6 +786,7 @@ export type {
   GoalRuntimeCriterion,
   GoalRuntimeError,
   GoalRuntimeInstall,
+  GoalRuntimePluginEntry,
   GoalRuntimeRunStatus,
   GoalRuntimeStatus,
 } from './goal-runtime.js';
