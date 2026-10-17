@@ -24,26 +24,32 @@ import {
 const STOP = JSON.stringify({ session_id: 's', stop_hook_active: false });
 const ASK_BLOCK = '{"decision":"block","reason":"Re-ask the owner with your ask tool"}\n';
 
-/** The tick command for the default resolved bin in these tests. */
-const TICK = '"/opt/bin/cleo-goal" tick';
+/** The tick command for the default resolved CLEO Goal in these tests. */
+const TICK = '/opt/bin/cleo-goal tick';
 
 function deps(
   run: TickRun,
   ask: () => Promise<string> = async () => '',
   workspace = true,
-  bin: string | null = '/opt/bin/cleo-goal',
+  tick: string | null = TICK,
 ) {
   const endSession = vi.fn();
   const runTick = vi.fn(async () => run);
   const askEnforce = vi.fn(ask);
   const hasGoalWorkspace = vi.fn(() => workspace);
-  const goalBin = vi.fn(async () => bin);
+  const goalTick = vi.fn(async () => tick);
   return {
     endSession,
     runTick,
     askEnforce,
-    goalBin,
-    deps: { goalBin, hasGoalWorkspace, runTick, askEnforce, endSession } satisfies StopDispatchDeps,
+    goalTick,
+    deps: {
+      goalTick,
+      hasGoalWorkspace,
+      runTick,
+      askEnforce,
+      endSession,
+    } satisfies StopDispatchDeps,
   };
 }
 
@@ -171,7 +177,7 @@ describe('stopDispatch (T13796)', () => {
     const real = processStopDispatchDeps('claude-code', env);
     const endSession = vi.fn();
     const live = {
-      goalBin: async () => null,
+      goalTick: async () => null,
       hasGoalWorkspace: () => true,
       runTick: real.runTick,
       askEnforce: real.askEnforce,
@@ -232,7 +238,7 @@ describe('stopDispatch (T13796)', () => {
       STOP,
       { CLEO_GOAL_TICK_COMMAND: trap, CLEO_GOAL_TICK_TIMEOUT_MS: '400', CLEO_ASK_ENFORCE: 'off' },
       {
-        goalBin: async () => null,
+        goalTick: async () => null,
         hasGoalWorkspace: () => true,
         runTick: runTickKillable,
         askEnforce: async () => '',
@@ -296,6 +302,6 @@ describe('stopDispatch (T13796)', () => {
     const custom = deps({ status: 0, stdout: '' }, async () => '', true, null);
     await stopDispatch(STOP, { CLEO_GOAL_TICK_COMMAND: 'my-goal tick' }, custom.deps);
     expect(custom.runTick).toHaveBeenCalledWith('my-goal tick', STOP, expect.any(Number));
-    expect(custom.goalBin).not.toHaveBeenCalled();
+    expect(custom.goalTick).not.toHaveBeenCalled();
   });
 });

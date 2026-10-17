@@ -87,8 +87,8 @@ export interface TickRun {
 
 /** Side effects of the dispatcher, injectable for tests. */
 export interface StopDispatchDeps {
-  /** The CLEO Goal bin (`cleo-goal`, then `ocg`), or null when it is not installed. */
-  readonly goalBin: () => Promise<string | null>;
+  /** The CLEO Goal tick command (`cleo-goal`, then `ocg`), or null when it is not installed. */
+  readonly goalTick: () => Promise<string | null>;
   /** Whether a goal workspace exists for this Stop (no workspace, no tick). */
   readonly hasGoalWorkspace: (input: string) => boolean;
   /** Run the tick command with the Stop JSON on stdin, killed at the deadline. */
@@ -131,12 +131,6 @@ export function parseTick(run: TickRun): TickDecision {
   return answer.final === false ? { kind: 'hold' } : { kind: 'final' };
 }
 
-/** `"<bin>" tick` for the resolved CLEO Goal bin, or null when there is none. */
-async function tickOf(deps: StopDispatchDeps): Promise<string | null> {
-  const bin = await deps.goalBin();
-  return bin === null ? null : `${JSON.stringify(bin)} tick`;
-}
-
 /** Whether a hook answer is a `{"decision":"block"}` (Claude Code and Codex). */
 function isBlock(stdout: string): boolean {
   try {
@@ -170,7 +164,7 @@ export async function stopDispatch(
   const command =
     env.CLEO_GOAL_TICK?.trim().toLowerCase() === 'off' || !deps.hasGoalWorkspace(stdin)
       ? null
-      : env.CLEO_GOAL_TICK_COMMAND?.trim() || (await tickOf(deps));
+      : env.CLEO_GOAL_TICK_COMMAND?.trim() || (await deps.goalTick());
   const decision: TickDecision =
     command === null ? { kind: 'final' } : parseTick(await deps.runTick(command, stdin, timeout));
   if (decision.kind === 'block') return { stdout: decision.answer, sessionEnded: false };
@@ -232,9 +226,9 @@ export function processStopDispatchDeps(
       const answer = await entry.askEnforceHook(provider, input, env, lookup);
       return answer.stdout;
     },
-    goalBin: async () => {
-      const { resolveGoalBin } = await import('@cleocode/core/goal/runtime.js');
-      return resolveGoalBin({ ...process.env, ...env });
+    goalTick: async () => {
+      const { goalTickCommand } = await import('@cleocode/core/goal/runtime.js');
+      return goalTickCommand({ ...process.env, ...env });
     },
     hasGoalWorkspace: (input) => hasGoalWorkspace(input, env),
     runTick: runTickKillable,
