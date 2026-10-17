@@ -33,7 +33,11 @@ import { updateDocBySlug } from '../docs-update.js';
 import { buildDocsFetchResult } from '../fetch-result.js';
 import { listSectionLeases, SectionLeaseManager } from '../section-leases.js';
 import { sectionIds, sectionStateText, splitDocIntoSections } from '../section-merge.js';
-import { projectDocUpdateThroughSections, releaseSectionLeases } from '../section-write-path.js';
+import {
+  previewDocUpdateThroughSections,
+  projectDocUpdateThroughSections,
+  releaseSectionLeases,
+} from '../section-write-path.js';
 
 let tempDir: string;
 
@@ -1010,6 +1014,49 @@ describe('projectDocUpdateThroughSections (T13355)', () => {
         (v) => v.uid === b.conflicts[0]?.incomingVersionUid,
       ),
     ).toBe(true);
+  });
+
+  it('T13842: previewDocUpdateThroughSections returns the merged text the projection lands, and writes nothing', async () => {
+    await projectDocUpdateThroughSections(tempDir, {
+      slug: 'plan-doc',
+      authorAgentId: 'agent-seed',
+      content: DOC_V1,
+      hlc: hlcAt(1000),
+    });
+    const a = await projectDocUpdateThroughSections(tempDir, {
+      slug: 'plan-doc',
+      authorAgentId: 'agent-a',
+      content: DOC_V2,
+      hlc: hlcAt(2000),
+    });
+    const staleB = {
+      slug: 'plan-doc',
+      authorAgentId: 'agent-b',
+      sessionId: 'ses-preview',
+      content: DOC_V1.replace('beta body', 'beta body\n\nB beta line.'),
+      baseSections: splitDocIntoSections(DOC_V1),
+      hlc: hlcAt(3000),
+    };
+    const { getConduitDocHead, listConduitAttachmentVersions, readSectionCrdtState } = await import(
+      '../../store/conduit-doc-history.js'
+    );
+    const betaBefore = await readSectionCrdtState(tempDir, a.docUid, 'h-beta');
+
+    const preview = await previewDocUpdateThroughSections(tempDir, staleB);
+    expect(preview.wouldAdvance).toBe(true);
+    expect(preview.conflicts).toEqual([]);
+    expect(preview.mergedText).toContain('an appended line from agent B.');
+    expect(preview.mergedText).toContain('B beta line.');
+    // Nothing landed: same versions, same head, same section state, no lease.
+    expect(await listConduitAttachmentVersions(tempDir, a.docUid)).toHaveLength(2);
+    expect((await getConduitDocHead(tempDir, a.docUid))?.headVersionUid).toBe(a.version.uid);
+    expect((await readSectionCrdtState(tempDir, a.docUid, 'h-beta'))?.snapshot).toEqual(
+      betaBefore?.snapshot,
+    );
+    expect(await listSectionLeases(tempDir, 'plan-doc')).toEqual([]);
+
+    const real = await projectDocUpdateThroughSections(tempDir, staleB);
+    expect(real.mergedText).toBe(preview.mergedText);
   });
 
   it('T13604: updateDocBySlug threads section conflicts into the result envelope and emits a W_DOC_SECTION_CONFLICT warning', async () => {
