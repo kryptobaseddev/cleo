@@ -1720,11 +1720,12 @@ describe('cloud vault push (lineage, regression rule)', () => {
     const cp = fake.stream(STREAM).checkpoints[0];
     expect(cp?.parentCheckpointId).toBeNull();
     // Only syncing, non-secret tables are in the plaintext manifest.
-    // (plus the plain-file inventory, T12969, and the format record, T13034).
+    // (plus the plain-file inventory, T12969, the format record, T13034, and the authored digest, T13850).
     expect(Object.keys(cp?.manifest.tables ?? {}).sort()).toEqual([
       'brain_observations',
       'tasks_sessions',
       'tasks_tasks',
+      'zz_vault_authored',
       'zz_vault_files',
       'zz_vault_format',
     ]);
@@ -1908,6 +1909,45 @@ describe('cloud vault restore and verify across two devices', () => {
     // A pull with nothing new is up-to-date.
     const again = await on(a, () => restoreNexusVault(vopts(a, { mode: 'pull' })));
     expect(again.status).toBe('up-to-date');
+  });
+
+  it('a pull takes the snapshot over what memory reads wrote, never over an edit (T13850)', async () => {
+    const { a, b } = await twoMachines();
+    exec(
+      a,
+      `ALTER TABLE brain_observations ADD COLUMN citation_count INTEGER NOT NULL DEFAULT 0;
+       ALTER TABLE brain_observations ADD COLUMN updated_at TEXT;
+       CREATE TABLE brain_retrieval_log (id INTEGER PRIMARY KEY, query TEXT NOT NULL);`,
+    );
+    await on(a, () => pushNexusVault(vopts(a)));
+    await restoreOntoB(b);
+    exec(b, "INSERT INTO tasks_tasks (id, title) VALUES ('B1', 'from b')");
+    const pushedB = await on(b, () => pushNexusVault(vopts(b)));
+    await on(b, () => releaseNexusVaultLease(vopts(b)));
+
+    // What `cleo memory fetch O1` writes on A: a retrieval log row and a citation bump.
+    exec(
+      a,
+      `INSERT INTO brain_retrieval_log (query) VALUES ('O1');
+       UPDATE brain_observations SET citation_count = citation_count + 1, updated_at = '2026-10-17 12:00:00';`,
+    );
+    const pulled = await on(a, () => restoreNexusVault(vopts(a, { mode: 'pull' })));
+    expect(pulled.status).toBe('restored');
+    expect(pulled.snapshot?.checkpointId).toBe(pushedB.snapshot?.checkpointId);
+    expect(taskCount(a)).toBe(6);
+
+    // An edit beside the telemetry is still a local change.
+    exec(b, "INSERT INTO tasks_tasks (id, title) VALUES ('B2', 'from b')");
+    await on(b, () => pushNexusVault(vopts(b)));
+    await on(b, () => releaseNexusVaultLease(vopts(b)));
+    exec(
+      a,
+      `INSERT INTO brain_retrieval_log (query) VALUES ('O1');
+       UPDATE brain_observations SET narrative = 'edited on a';`,
+    );
+    const refused = await failure(on(a, () => restoreNexusVault(vopts(a, { mode: 'pull' }))));
+    expect(refused.code).toBe('E_NEXUS_VAULT_LOCAL_CHANGES');
+    expect(refused.message).toContain('brain_observations');
   });
 
   it('a pull refuses while another live process holds the restore marker, and clears its own (T13258)', async () => {
