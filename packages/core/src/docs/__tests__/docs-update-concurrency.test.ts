@@ -851,3 +851,47 @@ describe("docs fetch serves the merged head, not the last writer's raw input (T1
     });
   });
 });
+
+describe('first update on two devices adopts one doc uid (T13586)', () => {
+  it('two stores holding the same synced legacy row converge on one conduit uid through updateDocBySlug', async () => {
+    const legacyBirth = '2026-10-01T12:00:00.000Z';
+    const uids: string[] = [];
+    for (const author of ['agent-on-a', 'agent-on-b']) {
+      const root = await mkdtemp(join(tmpdir(), 'cleo-docs-adopt-converge-'));
+      process.env['CLEO_DIR'] = join(root, '.cleo');
+      closeDb();
+      try {
+        // The same legacy registry row on both devices, as sync delivers it.
+        const v0 = '# Plan\n\nv0 body';
+        const sha0 = createHash('sha256').update(v0, 'utf-8').digest('hex');
+        await (await getDb(root))
+          .insert(attachments)
+          .values({
+            id: `legacy-${author}`,
+            sha256: sha0,
+            attachmentJson: JSON.stringify({ kind: 'blob', sha256: sha0 }),
+            createdAt: legacyBirth,
+            refCount: 0,
+            slug: SLUG,
+            lifecycleStatus: 'draft',
+            docVersion: 1,
+          })
+          .run();
+        await new Promise((resolve) => setTimeout(resolve, 20)); // each device updates at its own time
+        const first = await updateDocBySlug(root, {
+          slug: SLUG,
+          content: `${BASE_DOC}\n\nedited by ${author}`,
+          attachedBy: author,
+        });
+        expect(first.ok).toBe(true);
+        uids.push((await resolveConduitDocUid(root, SLUG)) as string);
+      } finally {
+        closeDb();
+        delete process.env['CLEO_DIR'];
+        await rm(root, { recursive: true, force: true });
+      }
+    }
+    expect(uids[0]).toBeTruthy();
+    expect(uids[1]).toBe(uids[0]);
+  });
+});

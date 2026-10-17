@@ -24,7 +24,11 @@ import { exportPortableBundle } from '../../store/portable-bundle.js';
 import { importPortableBundle } from '../../store/portable-bundle-import.js';
 import { closeDb, getDb } from '../../store/sqlite.js';
 import { tokenUsage } from '../../store/tasks-schema.js';
-import { buildVaultManifest, type VaultManifest } from '../../store/vault-manifest.js';
+import {
+  buildVaultManifest,
+  isVaultAnnotationKey,
+  type VaultManifest,
+} from '../../store/vault-manifest.js';
 import { autoRecordDispatchTokenUsage, listTokenUsage } from '../token-service.js';
 
 const HASH_KEY = randomBytes(32);
@@ -85,6 +89,7 @@ function manifest(root: string): VaultManifest {
 function changedTables(a: VaultManifest, b: VaultManifest): string[] {
   const names = new Set([...Object.keys(a.tables), ...Object.keys(b.tables)]);
   return [...names]
+    .filter((t) => !isVaultAnnotationKey(t))
     .filter((t) => JSON.stringify(a.tables[t]) !== JSON.stringify(b.tables[t]))
     .sort();
 }

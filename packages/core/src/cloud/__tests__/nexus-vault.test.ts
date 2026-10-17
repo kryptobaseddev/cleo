@@ -1720,11 +1720,12 @@ describe('cloud vault push (lineage, regression rule)', () => {
     const cp = fake.stream(STREAM).checkpoints[0];
     expect(cp?.parentCheckpointId).toBeNull();
     // Only syncing, non-secret tables are in the plaintext manifest.
-    // (plus the plain-file inventory, T12969, and the format record, T13034).
+    // (plus the plain-file inventory, T12969, the format record, T13034, and the authored digest, T13850).
     expect(Object.keys(cp?.manifest.tables ?? {}).sort()).toEqual([
       'brain_observations',
       'tasks_sessions',
       'tasks_tasks',
+      'zz_vault_authored',
       'zz_vault_files',
       'zz_vault_format',
     ]);
@@ -1908,6 +1909,45 @@ describe('cloud vault restore and verify across two devices', () => {
     // A pull with nothing new is up-to-date.
     const again = await on(a, () => restoreNexusVault(vopts(a, { mode: 'pull' })));
     expect(again.status).toBe('up-to-date');
+  });
+
+  it('a pull takes the snapshot over what memory reads wrote, never over an edit (T13850)', async () => {
+    const { a, b } = await twoMachines();
+    exec(
+      a,
+      `ALTER TABLE brain_observations ADD COLUMN citation_count INTEGER NOT NULL DEFAULT 0;
+       ALTER TABLE brain_observations ADD COLUMN updated_at TEXT;
+       CREATE TABLE brain_retrieval_log (id INTEGER PRIMARY KEY, query TEXT NOT NULL);`,
+    );
+    await on(a, () => pushNexusVault(vopts(a)));
+    await restoreOntoB(b);
+    exec(b, "INSERT INTO tasks_tasks (id, title) VALUES ('B1', 'from b')");
+    const pushedB = await on(b, () => pushNexusVault(vopts(b)));
+    await on(b, () => releaseNexusVaultLease(vopts(b)));
+
+    // What `cleo memory fetch O1` writes on A: a retrieval log row and a citation bump.
+    exec(
+      a,
+      `INSERT INTO brain_retrieval_log (query) VALUES ('O1');
+       UPDATE brain_observations SET citation_count = citation_count + 1, updated_at = '2026-10-17 12:00:00';`,
+    );
+    const pulled = await on(a, () => restoreNexusVault(vopts(a, { mode: 'pull' })));
+    expect(pulled.status).toBe('restored');
+    expect(pulled.snapshot?.checkpointId).toBe(pushedB.snapshot?.checkpointId);
+    expect(taskCount(a)).toBe(6);
+
+    // An edit beside the telemetry is still a local change.
+    exec(b, "INSERT INTO tasks_tasks (id, title) VALUES ('B2', 'from b')");
+    await on(b, () => pushNexusVault(vopts(b)));
+    await on(b, () => releaseNexusVaultLease(vopts(b)));
+    exec(
+      a,
+      `INSERT INTO brain_retrieval_log (query) VALUES ('O1');
+       UPDATE brain_observations SET narrative = 'edited on a';`,
+    );
+    const refused = await failure(on(a, () => restoreNexusVault(vopts(a, { mode: 'pull' }))));
+    expect(refused.code).toBe('E_NEXUS_VAULT_LOCAL_CHANGES');
+    expect(refused.message).toContain('brain_observations');
   });
 
   it('a pull refuses while another live process holds the restore marker, and clears its own (T13258)', async () => {
@@ -2859,6 +2899,49 @@ describe('cloud vault global scope', () => {
     }
   }
 
+  it('a fresh device pulls the global store without --force: its own heartbeat row is not unsynced data (T13853)', async () => {
+    const a = await machine('a', DEVICE_A, REPLICA_A);
+    const b = await machine('b', DEVICE_B, REPLICA_B);
+    await seedHome(a, ['p1']);
+    await on(a, () => pushNexusVault(vopts(a, { scope: 'global' })));
+    // B is freshly logged in: an empty global store plus the heartbeat row login writes.
+    await seedHome(b, []);
+    fs.writeFileSync(path.join(b.home, 'device-id'), 'device-b-fresh\n');
+    _resetDeviceIdCacheForTests();
+    const heartbeat = (id: string) => {
+      const db = new DatabaseSync(path.join(b.home, 'cleo.db'));
+      db.prepare(
+        "INSERT INTO nexus_devices (device_id, hostname, os, arch, cleo_version) VALUES (?, 'h', 'darwin', 'arm64', '1')",
+      ).run(id);
+      db.close();
+    };
+    heartbeat('device-b-fresh');
+    // Another device's row is data this store would lose: still refused.
+    heartbeat('device-other');
+    const refused = await failure(
+      on(b, () => restoreNexusVault(vopts(b, { scope: 'global', mode: 'pull' }))),
+    );
+    expect(refused.code).toBe('E_NEXUS_VAULT_LOCAL_CHANGES');
+    homeSql(b, "DELETE FROM nexus_devices WHERE device_id = 'device-other'");
+    // So is one user-authored row.
+    homeSql(
+      b,
+      "INSERT INTO nexus_project_registry (project_id, project_hash, project_path, name) VALUES ('mine', 'h-mine', '/b/mine', 'mine')",
+    );
+    const mine = await failure(
+      on(b, () => restoreNexusVault(vopts(b, { scope: 'global', mode: 'pull' }))),
+    );
+    expect(mine.code).toBe('E_NEXUS_VAULT_LOCAL_CHANGES');
+    homeSql(b, "DELETE FROM nexus_project_registry WHERE project_id = 'mine'");
+    const pulled = await on(b, () =>
+      restoreNexusVault(vopts(b, { scope: 'global', mode: 'pull' })),
+    );
+    expect(pulled.status).toBe('restored');
+    expect(
+      homeSql<{ project_id: string }>(b, 'SELECT project_id FROM nexus_project_registry'),
+    ).toEqual([{ project_id: 'p1' }]);
+  });
+
   it('a vault snapshot carries no local change journal: capture, undo, frame, quarantine, apply intents (T13042, T12757)', async () => {
     const a = await machine('a', DEVICE_A, REPLICA_A);
     await seedHome(a, ['p1']);
@@ -2932,6 +3015,24 @@ describe('cloud vault global scope', () => {
     for (const t of journal) {
       expect(homeSql<{ n: number }>(a, `SELECT count(*) AS n FROM ${t}`)).toEqual([{ n: 1 }]);
     }
+  });
+
+  it('the pushing device verifies match; a later heartbeat then reads ahead (T13852)', async () => {
+    const a = await machine('a', DEVICE_A, REPLICA_A);
+    await seedHome(a, ['p1']);
+    // The push's own CLI start heartbeats before the snapshot is taken.
+    homeSql(
+      a,
+      "INSERT INTO nexus_devices (device_id, hostname, os, arch, cleo_version, first_seen, last_heartbeat_at) VALUES ('dev-a', 'h', 'darwin', 'arm64', '1', '2026-10-17T00:00:00.000Z', '2026-10-17T00:00:00.000Z')",
+    );
+    await on(a, () => pushNexusVault(vopts(a, { scope: 'global' })));
+    const verified = await on(a, () => verifyNexusVault(vopts(a, { scope: 'global' })));
+    expect(verified.verdict).toBe('match');
+    // Any later command that heartbeats (cloud verify/status do not) is a real change.
+    homeSql(a, "UPDATE nexus_devices SET last_heartbeat_at = '2026-10-17T00:01:01.000Z'");
+    const after = await on(a, () => verifyNexusVault(vopts(a, { scope: 'global' })));
+    expect(after.verdict).toBe('ahead');
+    expect(after.tables.find((t) => t.table === 'nexus_devices')?.match).toBe(false);
   });
 
   it('i: pushes the home stream and restores it on another device, keeping machine-local state', async () => {
@@ -6669,8 +6770,8 @@ describe('sync enable push: the genesis checkpoint (T12343 S4-1b)', () => {
         message: expect.stringContaining(HANDOFF),
       });
       expect(refused.message).toContain('vault format 2');
-      expect(refused.fix).toContain('cleo cloud pull');
-      expect(refused.fix).toContain('--force');
+      expect(refused.fix).toContain('cleo cloud pull --force');
+      expect(refused.fix).toContain('cleo cloud push --force');
       expect(refused.fix).not.toContain('cloud sync');
       expect(s.checkpoints).toHaveLength(1);
 

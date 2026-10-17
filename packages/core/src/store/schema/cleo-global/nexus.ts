@@ -78,7 +78,7 @@ import {
   text,
   uniqueIndex,
 } from 'drizzle-orm/sqlite-core';
-import { makeSchemaMetaTable } from '../schema-utils.js';
+import { makeSchemaMetaTable, redactedText } from '../schema-utils.js';
 
 // ---------------------------------------------------------------------------
 // E10 §5b — enum const arrays minted in-module (no cross-package contracts SSoT)
@@ -437,9 +437,9 @@ export const nexusAuditLog = sqliteTable(
     /** Wall-clock duration in milliseconds. */
     durationMs: integer('duration_ms'),
     /** JSON detail blob (serialized TEXT). */
-    detailsJson: text('details_json').default('{}'),
+    detailsJson: redactedText('nexus_audit_log', 'details_json').default('{}'),
     /** Error message when the operation failed. */
-    errorMessage: text('error_message'),
+    errorMessage: redactedText('nexus_audit_log', 'error_message'),
     /** Row uid (T13777): a UUIDv8 over the audit id, filled at open or by the uid trigger. */
     uid: text('uid'),
   },

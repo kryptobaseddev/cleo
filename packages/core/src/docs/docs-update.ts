@@ -1254,6 +1254,9 @@ function countVersionsForSlug(projectRoot: string, slug: string): number {
  * @param slug - The doc slug being updated.
  * @param oldRow - The pre-update `attachments` row.
  * @param authorAgentId - Agent recorded as the root version's author.
+ * The doc is adopted with the prior row's `created_at` as its birth even when
+ * the bytes are missing, so its uid matches on every device (T13586).
+ *
  * @returns The root version uid, or `null` when the doc already has conduit
  *   history or the prior row has no resolvable blob bytes.
  * @internal
@@ -1268,19 +1271,29 @@ async function recordPriorVersionOnAdopt(
     '../store/conduit-doc-history.js'
   );
   if ((await resolveConduitDocUid(projectRoot, slug)) !== null) return null;
-  let storageKey: string;
-  let bytes: Buffer;
+  let storageKey: string | undefined;
+  let bytes: Buffer | undefined;
   try {
     const prior = blobAttachmentSchema.safeParse(JSON.parse(oldRow.attachmentJson));
-    if (!prior.success || !prior.data.storageKey) return null;
-    storageKey = prior.data.storageKey;
-    bytes = readFileSync(
-      join(getCleoDirAbsolute(projectRoot), 'attachments', 'sha256', storageKey),
-    );
+    if (prior.success && prior.data.storageKey) {
+      storageKey = prior.data.storageKey;
+      bytes = readFileSync(
+        join(getCleoDirAbsolute(projectRoot), 'attachments', 'sha256', storageKey),
+      );
+    }
   } catch {
-    return null; // shortcut: no parseable row or local bytes, no root row; the T13727 backfill covers these docs
+    bytes = undefined; // shortcut: no parseable row or local bytes, no root row; the T13727 backfill covers these docs
   }
-  const { uid } = await ensureConduitDoc(projectRoot, { slug, authorAgentId, content: bytes });
+  // T13586: adopt with the PRE-update row's birth even without local bytes —
+  // the slug already points at this device's new row, so letting the
+  // projection adopt would stamp a per-device birth and mint a per-device uid.
+  const { uid } = await ensureConduitDoc(projectRoot, {
+    slug,
+    authorAgentId,
+    content: bytes ?? Buffer.alloc(0),
+    legacyBirth: oldRow.createdAt,
+  });
+  if (bytes === undefined || storageKey === undefined) return null;
   const tokens = bytes
     .toString('utf-8')
     .split(/\s+/)

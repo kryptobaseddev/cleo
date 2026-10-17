@@ -11,7 +11,7 @@
  * @task T5339
  */
 
-import { createWriteStream, mkdirSync } from 'node:fs';
+import { createWriteStream, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { Readable } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
@@ -19,6 +19,7 @@ import { createGzip } from 'node:zlib';
 import type { LoggingConfig } from '@cleocode/contracts';
 import { and, lt, notInArray, type SQL, sql } from 'drizzle-orm';
 import { getLogger } from './logger.js';
+import { getCleoDir } from './paths.js';
 import { AC_BINDINGS_PRUNED_ACTION } from './store/ac-binding-prune.js';
 import type { auditLog } from './store/schema/audit.js';
 import type { tasksAuditLog } from './store/schema/cleo-project/audit.js';
@@ -199,5 +200,48 @@ export async function pruneAuditLog(cleoDir: string, config: LoggingConfig): Pro
   } catch (err) {
     log.warn({ err }, 'audit log pruning failed');
     return { rowsArchived: 0, rowsDeleted: 0 };
+  }
+}
+
+/** File under `.cleo/logs/` holding the time of the last automatic prune (T13828). */
+export const AUTO_AUDIT_PRUNE_STAMP = 'audit-prune.last';
+
+/** The least time between two automatic prunes of one project: a day (T13828). */
+export const AUTO_AUDIT_PRUNE_INTERVAL_MS = 86_400_000;
+
+/**
+ * The automatic audit prune (T13828): {@link pruneAuditLog} with the project's
+ * `logging` config, at most once per {@link AUTO_AUDIT_PRUNE_INTERVAL_MS} per
+ * project. Session end runs it after its snapshot; `cleo admin cleanup
+ * --target logs` still prunes on demand.
+ *
+ * The stamp is written before the prune, so concurrent session ends skip
+ * rather than all prune. Never throws.
+ *
+ * @param projectRoot - The project root.
+ * @param now - The current time (tests).
+ * @returns The prune result, or `null` when a prune ran within the interval or it failed.
+ */
+export async function autoPruneAuditLog(
+  projectRoot: string,
+  now: Date = new Date(),
+): Promise<PruneResult | null> {
+  try {
+    const cleoDir = getCleoDir(projectRoot);
+    const stamp = join(cleoDir, 'logs', AUTO_AUDIT_PRUNE_STAMP);
+    let last = Number.NaN;
+    try {
+      last = Date.parse(readFileSync(stamp, 'utf8').trim());
+    } catch {
+      // never pruned automatically
+    }
+    if (now.getTime() - last < AUTO_AUDIT_PRUNE_INTERVAL_MS) return null;
+    mkdirSync(join(cleoDir, 'logs'), { recursive: true });
+    writeFileSync(stamp, `${now.toISOString()}\n`);
+    const { loadConfig } = await import('./config.js');
+    return await pruneAuditLog(cleoDir, (await loadConfig(projectRoot)).logging);
+  } catch (err) {
+    log.warn({ err, projectRoot }, 'automatic audit prune failed');
+    return null;
   }
 }

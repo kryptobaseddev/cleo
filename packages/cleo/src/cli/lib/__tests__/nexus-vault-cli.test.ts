@@ -216,6 +216,41 @@ describe('flags reach the core calls', () => {
     expect(written()).toContain('project:p');
   });
 
+  it('cloud sync exits non-zero when a stream ends failed, keeping every stream in the details (T13865)', async () => {
+    const stream = {
+      scope: 'project',
+      streamId: 'project:p',
+      status: 'failed',
+      refused: 'FOREIGN KEY constraint failed',
+      skipped: [],
+      sealed: 0,
+      built: 0,
+      sent: 0,
+      duplicates: 0,
+      received: 0,
+      staged: 0,
+      redelivered: 0,
+      applied: 0,
+      held: 0,
+      conflicts: 0,
+      after: null,
+      head: null,
+    };
+    cloudSync.mockReset().mockResolvedValue({
+      apiUrl: API,
+      streams: [
+        stream,
+        { ...stream, scope: 'global', streamId: 'home:u', status: 'synced', refused: null },
+      ],
+      warnings: [],
+    });
+    await expect(runCloudSync({})).rejects.toThrow('exit:1');
+    expect(exits[0]).toBe(1);
+    expect(written()).toContain('E_SYNC_STREAM_FAILED');
+    expect(written()).toContain('project:p (FOREIGN KEY constraint failed)');
+    expect(written()).toContain('home:u');
+  });
+
   it('restore passes checkpoint, project, into and force', async () => {
     await runCloudRestore({
       scope: 'project',

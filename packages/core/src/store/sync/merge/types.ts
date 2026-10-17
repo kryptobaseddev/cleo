@@ -123,6 +123,13 @@ export interface TableMergeSpec {
   /** Typed rules by column. */
   readonly rules?: Readonly<Record<string, FieldRule>>;
   /**
+   * Bookkeeping columns a read side effect writes (T13866: a memory read bumps
+   * `citation_count` and `updated_at`). They merge by LWW like any column, but
+   * a divergent value is never a `field` conflict, since nobody edited it; a
+   * divergent edit of another column of the same op still is.
+   */
+  readonly bookkeeping?: readonly string[];
+  /**
    * Columns a terminal status fixes (T13243): whenever the merged `status`
    * column holds a key of `map`, `column` shows the mapped value, so the two
    * never disagree after a race (a task done with stage `cancelled`). The

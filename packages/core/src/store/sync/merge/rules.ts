@@ -121,6 +121,13 @@ export const TASK_STAGE_MERGE_ORDER: readonly string[] = [
 ];
 
 /**
+ * What a memory read writes on the row it returned (`incrementCitationCounts`):
+ * the citation count and its last-use time. Divergent values from two
+ * devices reading one entry are not conflicts (T13866).
+ */
+const MEMORY_READ_BOOKKEEPING: readonly string[] = ['citation_count', 'updated_at'];
+
+/**
  * The typed merge rules by sync-set table. Implemented rule ids:
  * `task.status.absorbing` (T12937), `task.pipeline-stage.max` (T12938),
  * `task.verification.frozen-on-done` (T12939),
@@ -130,6 +137,10 @@ export const TASK_STAGE_MERGE_ORDER: readonly string[] = [
  * `sticky.status.one-way` (T12942), `docs.lifecycle.transitions` (T12945).
  */
 export const SYNC_MERGE_RULES: Readonly<Record<string, MergeRuleSet>> = {
+  brain_observations: { bookkeeping: MEMORY_READ_BOOKKEEPING },
+  brain_decisions: { bookkeeping: MEMORY_READ_BOOKKEEPING },
+  brain_patterns: { bookkeeping: MEMORY_READ_BOOKKEEPING },
+  brain_learnings: { bookkeeping: MEMORY_READ_BOOKKEEPING },
   tasks_tasks: {
     // Status and its stamps move together, taken from the winning op.
     groups: [['status', 'completed_at', 'cancelled_at', 'cancellation_reason']],

@@ -62,6 +62,7 @@ import { maybePromptFirstRun } from './lib/first-run-detection.js';
 import { isInteractiveInvocation } from './lib/interactive-commands.js';
 import { settleThenExit } from './lib/settle-then-exit.js';
 import { normalizeGlobalValueFlags } from './lib/strict-args.js';
+import { isSyncProbeInvocation } from './lib/sync-probe-commands.js';
 import { resolveFormat } from './middleware/output-format.js';
 import { installModuleResolveFastPath } from './module-resolve-fast-path.js';
 import { resolveOutputMode, setOutputMode } from './output-context.js';
@@ -553,9 +554,14 @@ async function runMainWithLafsEnvelope(
     // empty store there is still refused by the store guard.)
     const isDoctor = rawArgs.find((a) => !a.startsWith('-')) === 'doctor';
     if (isDoctor) setProjectMovedRefusal(false);
+    // T13852: `cloud verify`/`cloud status` compare the store with the cloud, so
+    // they write neither the encounter nor the heartbeat (both synced rows) first.
+    const syncProbe = isSyncProbeInvocation(rawArgs);
     try {
       // T12512: real use refreshes last_opened_at; `doctor` only inspects.
-      const outcome = await recordProjectEncounter(undefined, { markOpened: !isDoctor });
+      const outcome = syncProbe
+        ? 'skipped'
+        : await recordProjectEncounter(undefined, { markOpened: !isDoctor });
       if (process.env['CLEO_DEBUG'])
         process.stderr.write(`[cleo][debug] Project encounter: ${outcome}\n`);
     } catch (error) {
@@ -567,8 +573,9 @@ async function runMainWithLafsEnvelope(
     // T12510 — heartbeat this device into `nexus_devices`. Throttled to one
     // write per minute (a `stat` inside the interval); never fails the command.
     try {
-      const { heartbeatThisDevice } = await import('@cleocode/core/nexus/devices');
-      const outcome = await heartbeatThisDevice();
+      const outcome = syncProbe
+        ? 'skipped'
+        : await (await import('@cleocode/core/nexus/devices')).heartbeatThisDevice();
       if (process.env['CLEO_DEBUG'])
         process.stderr.write(`[cleo][debug] Device heartbeat: ${outcome}\n`);
     } catch (error) {

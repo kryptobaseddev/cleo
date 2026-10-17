@@ -76,6 +76,31 @@ export function hasTable(db: DatabaseSync, table: string): boolean {
   );
 }
 
+// The audit-scrub marker read lives here, not in audit-scrub.ts: the store open
+// pass checks it on every open, and the scrub module loads only when it is
+// absent (T13857).
+
+/** Marker key recording that the one-time audit secret scrub ran (T13857). */
+export const AUDIT_SCRUB_MARKER = 'audit_secret_scrub_v1';
+
+/**
+ * The local-only table holding {@link AUDIT_SCRUB_MARKER}:
+ * `tasks_row_identity_meta` on a project store, `_sync_meta` where that is
+ * absent (a global store that has run sync). `null` when neither exists.
+ */
+export function auditScrubMarkerTable(db: DatabaseSync): string | null {
+  if (hasTable(db, 'tasks_row_identity_meta')) return 'tasks_row_identity_meta';
+  if (hasTable(db, '_sync_meta')) return '_sync_meta';
+  return null;
+}
+
+/** Whether the one-time audit scrub still has to run on this store. Read-only. */
+export function auditScrubPending(db: DatabaseSync): boolean {
+  const table = auditScrubMarkerTable(db);
+  if (table === null) return false;
+  return db.prepare(`SELECT 1 FROM "${table}" WHERE key = ?`).get(AUDIT_SCRUB_MARKER) === undefined;
+}
+
 // The uid-alias tables and the sealer's two reads of them live here, not in
 // uid-alias.ts: the sealer is on every store open's import graph and
 // uid-alias.ts is not (gate 39, T13397).

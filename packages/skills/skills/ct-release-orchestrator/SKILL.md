@@ -7,7 +7,7 @@ adrRefs:
   - ADR-063
   - ADR-065
 metadata:
-  version: 3.2.6
+  version: 3.2.7
   tier: on-demand
   install: harness
   covers:
@@ -49,7 +49,9 @@ Owns the canonical 4-verb release pipeline established by SPEC-T9345 and finalis
 
 ## Core Principle
 
-> Each verb owns exactly one state transition. No verb performs more than one mutation. Multi-step orchestration uses `ship-e2e-smoke` (validator) — never compose the verbs into a custom script.
+> Each verb owns exactly one state transition. No verb performs more than one mutation. Multi-step orchestration uses `ship-e2e-smoke` (validator) — never compose the verbs into a custom script. The one sanctioned end-to-end runner is `scripts/release-run.mjs` (below).
+
+**Single release PR (T13825, owner choice 2026-10-16).** `node scripts/release-run.mjs <ver> --epic <id> --notes-review <file> [--execute]` runs plan → independent notes review (`{"reviewer","notesSha256","approved":true}` by someone other than the operator, for the plan's exact `meta.releaseNotes`) → `release/plan-<ver>` (one commit, plan + CHANGELOG.md, on the default branch's HEAD, made through the GitHub API) → `cleo release open <ver> --ref release/plan-<ver>` → waits for release-prepare and the bump PR's dispatched `CI` on its exact head → version-only assert against the merge-base → `gh pr merge --admin --merge --match-head-commit` plus the `.cleo/audit/force-bypass.jsonl` line → explicit `git tag -a` on the merge commit and push. The bump PR carries the plan and the bump. Dry-run by default; every step resumes on re-run. `--ref` alone dispatches on any plan branch; preflight skips carry over only when it adds release-plan files alone.
 
 ## Canonical Pipeline
 

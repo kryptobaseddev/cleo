@@ -9705,6 +9705,14 @@ export const OPERATIONS: OperationDef[] = [
         description:
           'Comma-separated task IDs forwarded as the plan scope for a task-scoped release',
       },
+      // T13825: the single release PR's plan branch.
+      {
+        name: 'ref',
+        type: 'string',
+        required: false,
+        description:
+          'Branch to dispatch release-prepare on (release/plan-<version>: the plan + CHANGELOG commit on top of the default branch), so the bump PR carries the plan too',
+      },
     ] satisfies ParamDef[],
   },
 

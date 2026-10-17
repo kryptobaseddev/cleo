@@ -955,6 +955,50 @@ describe('resolveCiEvidenceAtom', () => {
       expect(r.ok && r.atom.kind === 'ci' && r.atom.descendantSha).toBe(DESC2);
     });
 
+    it('T13846: a descendant whose push run skipped the test jobs is passed over for the next one where they ran', async () => {
+      // #2330's shape: the first main commit after the merge was scripts-only,
+      // so ci.yml's aggregate went green while its Unit Tests jobs never ran.
+      const noUnitTests = onSha(DESC1).filter((c) => !c.name.startsWith('Unit Tests'));
+      const { run } = descend({ [DESC1]: noUnitTests, [DESC2]: onSha(DESC2) });
+      const r = await run;
+      expect(r.ok, JSON.stringify(r)).toBe(true);
+      expect(r.ok && r.atom.kind === 'ci' && r.atom.descendantSha).toBe(DESC2);
+      expect(r.ok && r.atom.kind === 'ci' && r.atom.gateChecks?.testsPassed).toContain(
+        'Unit Tests (ubuntu-latest, shard 1)',
+      );
+    });
+
+    it('T13846: skipped or cancelled test jobs on a descendant also move on', async () => {
+      const skipped = onSha(DESC1).map((c) =>
+        c.name.startsWith('Unit Tests') ? { ...c, conclusion: 'skipped' } : c,
+      );
+      const { run } = descend({ [DESC1]: skipped, [DESC2]: onSha(DESC2) });
+      const r = await run;
+      expect(r.ok && r.atom.kind === 'ci' && r.atom.descendantSha, JSON.stringify(r)).toBe(DESC2);
+    });
+
+    it('T13846: a test job that FAILED on the descendant refuses; no later run is shopped for', async () => {
+      const failedJob = onSha(DESC1).map((c) =>
+        c.name === 'Unit Tests (ubuntu-latest, shard 1)' ? { ...c, conclusion: 'failure' } : c,
+      );
+      const { run, fetched } = descend({ [DESC1]: failedJob, [DESC2]: onSha(DESC2) });
+      const r = await run;
+      expect(r.ok).toBe(false);
+      expect(!r.ok && r.reason).toMatch(/Unit Tests \(ubuntu-latest, shard 1\): failure/);
+      expect(fetched).not.toContain(DESC2);
+    });
+
+    it('T13846: with no descendant where the test jobs ran, it still refuses, naming why', async () => {
+      const noUnitTests = (sha: string) =>
+        onSha(sha).filter((c) => !c.name.startsWith('Unit Tests'));
+      const { run } = descend({ [DESC1]: noUnitTests(DESC1), [DESC2]: noUnitTests(DESC2) });
+      const r = await run;
+      expect(r.ok).toBe(false);
+      expect(!r.ok && r.reason).toMatch(
+        /No later main run stands in: no later origin\/main commit/,
+      );
+    });
+
     it('a FAILED merge-commit run is never stood in for, even with a green descendant', async () => {
       const failedMerge = allGreen.map((c) =>
         c.name === 'CI' ? { ...c, conclusion: 'failure' } : c,
