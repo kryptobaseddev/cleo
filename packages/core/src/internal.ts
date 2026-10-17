@@ -1224,26 +1224,57 @@ export {
   getSessionOverrideCountPath,
   isWorktreeContext,
   isWorktreeExemptionEnabled,
+  MAX_OVERRIDE_CAP_PER_SESSION,
+  OVERRIDE_CAP_OWNER_COMMAND,
+  OVERRIDE_CAP_SETTING,
   readSessionOverrideCount,
-  validateWaiverDoc,
   WORKTREE_PATH_SEGMENT,
   writeSessionOverrideCount,
 } from './security/override-cap.js';
+// Owner override cap setting (T13787)
+export type {
+  OverrideCapResolution,
+  OverrideCapSetResult,
+  OwnerCaller,
+  OwnerEnrollmentStatus,
+  OwnerEnrollResult,
+} from './security/override-cap-setting.js';
+export {
+  confirmOwnerEnrollment,
+  enrollOwner,
+  OWNER_ENROLL_COMMAND,
+  ownerEnrollmentStatus,
+  refuseOverrideCapWrite,
+  resolveOverrideCap,
+  setOwnerOverrideCap,
+} from './security/override-cap-setting.js';
 // Owner-override auth (T1118 L4)
 export type { OverrideValidationResult } from './security/owner-override-auth.js';
 export {
   appendOwnerOverrideAudit,
+  createOwnerAuthVerifier,
   DEFAULT_OVERRIDE_MAX_PER_SESSION,
   deliverOverrideWebhook,
   deriveOwnerAuthToken,
   getOverrideCount,
   isAgentRoleForbidden,
+  isOwnerSessionMark,
   isTtyPresent,
+  OWNER_SESSION_MARK,
   recordAndCheckOverrideLimit,
   resetOverrideCount,
   validateOwnerOverride,
+  verifyOwnerAuthPassword,
   verifyOwnerAuthToken,
 } from './security/owner-override-auth.js';
+// Owner override authority (T13790)
+export type { OwnerOverrideAuthority } from './security/owner-override-authority.js';
+export {
+  isOwnerOverrideRequested,
+  OWNER_SESSION_COMMAND,
+  ownerMarkRefusal,
+  resolveOwnerOverride,
+} from './security/owner-override-authority.js';
 // Shared-evidence tracker (T1502 / P0-6)
 export type {
   SharedEvidenceCheckResult,
@@ -1544,6 +1575,7 @@ export type {
 export {
   createSession,
   getActiveSession,
+  getSessionOwnerAuth,
   hasActiveSession,
   requireBoundSession,
   requireOwnedSessionForEnd,
@@ -1559,6 +1591,7 @@ export {
   sessionAdoptedEndMessage,
   sessionLastSeenMs,
   sessionUnboundMessage,
+  setSessionOwnerAuthToken,
   touchSessionActivity,
 } from './store/session-store.js';
 export type {

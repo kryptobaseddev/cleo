@@ -318,3 +318,77 @@ describe('conduit doc history accessors (T13354)', () => {
     expect(await readSectionCrdtState(tempDir, uid, 's2')).toBeNull();
   });
 });
+
+describe('ensureConduitDoc — two-device adopt converges (T13586)', () => {
+  const LEGACY_BIRTH = '2026-10-01T12:00:00.000Z';
+
+  /** Open `root` as the current store and seed the synced legacy registry row. */
+  async function openDevice(root: string): Promise<void> {
+    const { closeDb, getDb } = await import('../../store/sqlite.js');
+    const { docsAttachments } = await import('../../store/schema/cleo-project/docs.js');
+    closeDb();
+    process.env['CLEO_DIR'] = join(root, '.cleo');
+    const db = await getDb(root);
+    // The same legacy row on both devices, as sync delivers it (natural on sha256).
+    await db
+      .insert(docsAttachments)
+      .values({
+        id: `legacy-${root.length}`,
+        sha256: 'a'.repeat(64),
+        attachmentJson: JSON.stringify({ kind: 'blob', mime: 'text/markdown' }),
+        createdAt: LEGACY_BIRTH,
+        slug: 'legacy-doc',
+        type: 'note',
+      })
+      .run();
+  }
+
+  async function adopt(root: string, author: string) {
+    const { ensureConduitDoc } = await import('../../store/conduit-doc-history.js');
+    return ensureConduitDoc(root, {
+      slug: 'legacy-doc',
+      authorAgentId: author,
+      content: Buffer.from(`# legacy\n\nedited by ${author}\n`, 'utf-8'),
+    });
+  }
+
+  it('mints one uid on both devices and places the peer shell as a duplicate', async () => {
+    const { getNativeDb } = await import('../../store/sqlite.js');
+    const { receiveRow, wireRowOf } = await import('../../store/display-id-alias.js');
+    const deviceB = await mkdtemp(join(tmpdir(), 'cleo-conduit-adopt-b-'));
+    try {
+      await openDevice(tempDir);
+      const a = await adopt(tempDir, 'agent-on-a');
+      const nativeA = getNativeDb(tempDir);
+      if (!nativeA) throw new Error('device A has no native handle');
+      const wire = wireRowOf(nativeA, 'conduit_attachments', a.uid);
+
+      await new Promise((resolve) => setTimeout(resolve, 20)); // a later, separate adopt
+      await openDevice(deviceB);
+      const b = await adopt(deviceB, 'agent-on-b');
+      expect(a.adopted && b.adopted).toBe(true);
+      expect(b.uid).toBe(a.uid);
+
+      const nativeB = getNativeDb(deviceB);
+      if (!nativeB) throw new Error('device B has no native handle');
+      expect(receiveRow(nativeB, wire).status).toBe('duplicate');
+    } finally {
+      const { closeDb } = await import('../../store/sqlite.js');
+      closeDb();
+      process.env['CLEO_DIR'] = join(tempDir, '.cleo');
+      await rm(deviceB, { recursive: true, force: true });
+    }
+  });
+
+  it('a slug with no legacy row is a new doc and keeps the random mint', async () => {
+    const { ensureConduitDoc } = await import('../../store/conduit-doc-history.js');
+    const first = await ensureConduitDoc(tempDir, {
+      slug: 'brand-new',
+      authorAgentId: 'agent-a',
+      content: Buffer.from('# new\n', 'utf-8'),
+    });
+    const { mintedRowUid } = await import('../../store/row-identity.js');
+    expect(first.adopted).toBe(true);
+    expect(first.uid).not.toBe(mintedRowUid('project', 'conduit_attachments', ['brand-new'], null));
+  });
+});

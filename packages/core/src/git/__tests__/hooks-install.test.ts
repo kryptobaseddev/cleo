@@ -696,7 +696,74 @@ describe('Git-native installation and recovery (T13349)', () => {
       encoding: 'utf8',
     });
     expect(result.status).toBe(0);
-    expect(fs.readFileSync(marker, 'utf8')).toBe('hook run --probe\n');
-    expect(result.stderr).toContain('project runner unavailable');
+    expect(fs.readFileSync(marker, 'utf8')).toBe('hook run --probe -- execution\n');
+    expect(result.stderr).toContain('WARNING: push NOT gated by project hooks');
+    expect(result.stderr).toContain('has no project hook runner');
+    expect(result.stderr).not.toContain('ACTIVATED');
+  });
+
+  it.each([
+    ['CLEO_PROJECT_HOOK_V1', '2026.10.16', 'predates hooks-v1 and runs no project hooks'],
+    ['CLEO_PROJECT_HOOK_INERT', '2026.10.16', 'hooks-v1 is not released in that build'],
+  ])('names a hooks-inert cleo on PATH (%s, T13774)', async (answer, version, reason) => {
+    const repo = gitInit(path.join(tmpRoot, `inert-${answer}`));
+    await installCleoHooks(repo, { templatesDir: REPO_TEMPLATES_DIR });
+    const bin = path.join(tmpRoot, `inert-bin-${answer}`);
+    fs.mkdirSync(bin);
+    const marker = path.join(bin, 'ran');
+    fs.writeFileSync(
+      path.join(bin, 'cleo'),
+      [
+        '#!/bin/sh',
+        `if [ "$1" = "--version" ]; then printf '%s\\n' '{"success":true,"data":{"version":"${version}"}}'; exit 0; fi`,
+        `if [ "$3" = "--probe" ]; then printf '%s\\n' '${answer}'; exit 0; fi`,
+        'printf "%s\\n" "$*" > "$RAN"',
+        '',
+      ].join('\n'),
+      { mode: 0o755 },
+    );
+    const zero = '0'.repeat(40);
+    const result = spawnSync(posixShell(), [path.join(repo, '.git', 'hooks', 'pre-push')], {
+      cwd: repo,
+      input: `refs/heads/a ${zero} refs/heads/a ${zero}\n`,
+      env: { ...process.env, PATH: `${bin}${path.delimiter}${process.env.PATH}`, RAN: marker },
+      encoding: 'utf8',
+    });
+    expect(result.status).toBe(0);
+    expect(result.stderr).toContain(`WARNING: push NOT gated by project hooks: cleo ${version} at`);
+    expect(result.stderr).toContain(reason);
+    expect(fs.existsSync(marker)).toBe(false);
+  });
+
+  it('names an ungated push and flags an activated checkout (T13774)', async () => {
+    const repo = gitInit(path.join(tmpRoot, 'ungated'));
+    await installCleoHooks(repo, { templatesDir: REPO_TEMPLATES_DIR });
+    fs.mkdirSync(path.join(repo, '.git', 'cleo-project-hooks'));
+    fs.writeFileSync(
+      path.join(repo, '.git', 'cleo-project-hooks', 'activation.json'),
+      '{"hooks":{"project":{"enabled":true}}}\n',
+    );
+    // A PATH holding git and sh but no cleo, like a harness that filtered the user's PATH.
+    const bin = path.join(tmpRoot, 'no-cleo-bin');
+    fs.mkdirSync(bin);
+    for (const tool of ['git', 'sh', 'mktemp', 'cat', 'rm', 'grep', 'printf']) {
+      const found = spawnSync('/bin/sh', ['-c', `command -v ${tool}`], { encoding: 'utf8' });
+      const target = found.stdout.trim();
+      if (target.startsWith('/')) fs.symlinkSync(target, path.join(bin, tool));
+    }
+    const zero = '0'.repeat(40);
+    const result = spawnSync(posixShell(), [path.join(repo, '.git', 'hooks', 'pre-push')], {
+      cwd: repo,
+      input: `refs/heads/a ${zero} refs/heads/a ${zero}\n`,
+      env: { ...process.env, PATH: bin },
+      encoding: 'utf8',
+    });
+    expect(result.status).toBe(0);
+    expect(result.stderr).toContain(
+      'cleo pre-push: WARNING: push NOT gated by project hooks: cleo is not on PATH.',
+    );
+    expect(result.stderr).toContain(
+      'Project hooks are ACTIVATED in this checkout but did not run.',
+    );
   });
 });

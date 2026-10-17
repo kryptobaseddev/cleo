@@ -65,6 +65,8 @@ export const CLEO_GITIGNORE_FALLBACK = `# .cleo/.gitignore — Deny-by-default f
 !project-context.json
 !project.json
 !project-id
+# T13787: the owner override enrollment and sealed cap (tracked so tampering shows).
+!owner-settings.json
 !setup-otel.sh
 !DATA-SAFETY-IMPLEMENTATION-SUMMARY.md
 !adrs/

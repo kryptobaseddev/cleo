@@ -101,6 +101,12 @@ export const configSetCommand = defineCommand({
     }
 
     const rawValue = String(args['value'] ?? '');
+    // T13787: the override cap is owner-only, sealed outside config.json.
+    if (key === 'evidence.overrideCapPerSession') {
+      const { runOwnerOverrideCapSet } = await import('../../lib/owner-override-cap.js');
+      await runOwnerOverrideCapSet(rawValue);
+      return;
+    }
     const scope = parseWriteScope(args['scope'] as string | undefined);
     if (scope === null) {
       cliError(

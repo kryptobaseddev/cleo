@@ -372,7 +372,16 @@ async function enforceAcCoverageGate(
   //    the FULL unsatisfied list so the audit row captures what was
   //    skipped. The bypass is recorded BEFORE returning so a process
   //    crash between audit + completion still leaves a forensic trail.
-  const ownerReason = readOwnerOverride();
+  // T13790: the override counts only for the owner; a refusal is audited.
+  const { resolveOwnerOverride } = await import('../security/owner-override-authority.js');
+  const owner =
+    readOwnerOverride() !== null
+      ? await resolveOwnerOverride(projectRoot, {
+          surface: 'cleo complete (AC coverage)',
+          taskId: options.taskId,
+        })
+      : null;
+  const ownerReason = owner?.requested && owner.allowed ? readOwnerOverride() : null;
   if (ownerReason !== null) {
     await appendAcCoverageForceBypass(
       {

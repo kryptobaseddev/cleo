@@ -110,20 +110,48 @@ EOF
 fi
 
 # Existing projects remain unchanged: the shared runner skips disabled hooks.
+# T13774: an ungated push names its reason on one line, and says when this
+# checkout has project hooks activated, so a stale cleo on PATH is never silent.
+ungated() {
+  active=""
+  for dir in "$(git rev-parse --git-path cleo-project-hooks 2>/dev/null)" \
+    "$(git rev-parse --git-common-dir 2>/dev/null)/cleo-project-hooks"; do
+    if grep -q '"enabled":true' "$dir/activation.json" 2>/dev/null; then
+      active=" Project hooks are ACTIVATED in this checkout but did not run."
+    fi
+  done
+  printf 'cleo pre-push: WARNING: push NOT gated by project hooks: %s.%s Run cleo doctor hooks.\n' "$1" "$active" >&2
+}
 if command -v cleo >/dev/null 2>&1; then
-  capability=$(cleo hook run --probe < /dev/null 2>/dev/null) || capability=""
-  if [ "$capability" != "CLEO_PROJECT_HOOK_V1" ]; then
-    printf '%s\n' 'cleo pre-push: project runner unavailable; allowing push' >&2
-    exit 0
-  fi
+  where=$(command -v cleo)
+  version=$(cleo --version 2>/dev/null | sed -n 's/.*"version":"\([^"]*\)".*/\1/p' | head -n 1)
+  capability=$(cleo hook run --probe -- execution < /dev/null 2>/dev/null) || capability=""
+  case "$capability" in
+    CLEO_PROJECT_HOOK_EXEC) ;;
+    CLEO_PROJECT_HOOK_INERT)
+      ungated "cleo ${version:-?} at $where runs no project hooks (hooks-v1 is not released in that build)"
+      exit 0
+      ;;
+    CLEO_PROJECT_HOOK_V1)
+      # A build before T13774: stable releases before 2026.10.17 carry the runner but keep it inert.
+      if printf '%s\n' "$version" | awk -F. '!/-canary\./ && NF >= 3 { exit !($1 * 100000 + $2 * 1000 + $3 < 202610017) } { exit 1 }'; then
+        ungated "cleo $version at $where predates hooks-v1 and runs no project hooks"
+        exit 0
+      fi
+      ;;
+    *)
+      ungated "cleo ${version:-?} at $where has no project hook runner"
+      exit 0
+      ;;
+  esac
   status=0
   cleo hook run --source git --event pre-push -- "$@" < "$REF_INPUT" || status=$?
   case "$status" in
     0) ;;
     1) exit 1 ;; # An explicit project verdict/checker policy blocks.
-    *) printf '%s\n' 'cleo pre-push: runner infrastructure failure; allowing push' >&2 ;;
+    *) ungated "the project hook runner failed (exit $status)" ;;
   esac
 else
-  printf '%s\n' 'cleo pre-push: project runner missing; allowing push' >&2
+  ungated "cleo is not on PATH"
 fi
 exit 0

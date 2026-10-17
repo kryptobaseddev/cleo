@@ -6,6 +6,15 @@ import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { coreDoctorReport, getSystemHealth } from '../health.js';
 
+// T13819: a bare doctor report must never opt into the npm update check (no network).
+vi.mock('../../goal/runtime.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../goal/runtime.js')>()),
+  inspectGoalRuntime: (_env: NodeJS.ProcessEnv, options?: { checkUpdates?: boolean }) => {
+    if (options?.checkUpdates === true) throw new Error('coreDoctorReport asked npm for updates');
+    return { bin: null, foreign: null, version: null, latest: null, updateAvailable: false };
+  },
+}));
+
 const _require = createRequire(import.meta.url);
 const { DatabaseSync } = _require('node:sqlite') as typeof import('node:sqlite');
 

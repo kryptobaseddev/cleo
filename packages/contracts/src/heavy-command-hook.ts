@@ -303,4 +303,13 @@ export interface HeavyHookDeliveryApi {
     projectDir: string,
     options?: HeavyHookDeliveryOptions,
   ) => HeavyHookCliProbe;
+  /**
+   * Install only the Stop dispatcher (`cleo hook stop`) for one provider,
+   * regardless of the heavy-command mode (T13820). Optional: an older
+   * adapters build lacks it. Never throws.
+   */
+  readonly syncProjectStopDispatch?: (
+    projectDir: string,
+    provider: 'claude-code' | 'codex',
+  ) => Promise<HeavyHookDeliveryOutcome>;
 }

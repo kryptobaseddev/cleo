@@ -120,6 +120,7 @@ function transport(overrides = {}) {
   const run = {
     id: 42,
     head_sha: VIDA,
+    event: 'workflow_dispatch',
     status: 'completed',
     conclusion: 'success',
     path: '.github/workflows/migration-hook-pilot.yml',
@@ -349,6 +350,31 @@ describe('stable promotion evidence', () => {
     nativeBundle();
     await expect(
       validateHookPilotEvidence({ ...options(), stableVersion: '2026.10.18' }),
+    ).resolves.toBeDefined();
+  });
+  it.each([
+    'pull_request',
+    'push',
+    undefined,
+  ])('T13831: refuses v2 hosted evidence from trigger %s despite a matching head SHA', async (event) => {
+    nativeBundle();
+    await expect(
+      validateHookPilotEvidence({
+        ...options(transport({ run: { event } })),
+        stableVersion: '2026.10.18',
+      }),
+    ).rejects.toThrow(/workflow_dispatch/);
+  });
+  it.each([
+    'pull_request',
+    undefined,
+  ])('T13831: preserves historical v1 hosted trigger %s', async (event) => {
+    bundle();
+    await expect(
+      validateHookPilotEvidence({
+        ...options(transport({ run: { event } })),
+        stableVersion: '2026.10.17',
+      }),
     ).resolves.toBeDefined();
   });
   it('T13818: accepts isolated native-command trust and rejects hand-seeded trust', async () => {

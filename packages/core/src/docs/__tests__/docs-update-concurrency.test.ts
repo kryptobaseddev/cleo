@@ -84,7 +84,7 @@ import {
 } from '../section-merge.js';
 
 const SLUG = 'plan-doc';
-const SECTION_S1 = 's1';
+const SECTION_S1 = 'h-alpha';
 
 const S0_TEXT = '# Plan\n\npreamble.';
 const S1_BASE = '## Alpha\n\nalpha body';
