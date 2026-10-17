@@ -1811,3 +1811,65 @@ describe('lifecycle, release, PR and commit rows reach a second device (T12914)'
     }
   });
 });
+
+describe('both devices list the same conflicts after a rebase under an unframed writer (T13866)', () => {
+  /**
+   * Two brain rows both replicas hold, then concurrent unframed edits (a
+   * foreign connection, as the memory read side effects write): B edits each
+   * row once and syncs first; A edits each row once and row 1 again. With
+   * `pullFirst`, A pulls B's edits before pushing, so its edits are rewound
+   * and replayed under them, and its echo comes back in a later page.
+   */
+  async function unframedRace(
+    set: (n: 1 | 2, who: 'a' | 'b', k: number) => string,
+    pullFirst: boolean,
+  ) {
+    const { a, b } = await twoDevices();
+    const stream = fakeStream();
+    write(
+      a.db,
+      `INSERT INTO brain_observations (id, type, title, created_at, citation_count) VALUES
+         ('O-1', 'discovery', 'one', '2026-10-17T15:00:00.000Z', 0),
+         ('O-2', 'discovery', 'two', '2026-10-17T15:00:00.000Z', 0);`,
+    );
+    await push(a, stream);
+    await pull(b, stream);
+    await pull(a, stream);
+    for (const n of [1, 2] as const)
+      b.db.exec(`UPDATE brain_observations SET ${set(n, 'b', 1)} WHERE id = 'O-${n}'`);
+    for (const n of [1, 2] as const)
+      a.db.exec(`UPDATE brain_observations SET ${set(n, 'a', 1)} WHERE id = 'O-${n}'`);
+    a.db.exec(`UPDATE brain_observations SET ${set(1, 'a', 2)} WHERE id = 'O-1'`);
+    await push(b, stream);
+    await pull(b, stream);
+    if (pullFirst) await pull(a, stream);
+    await push(a, stream);
+    await pull(a, stream);
+    await pull(b, stream);
+    return { a, b };
+  }
+
+  for (const pullFirst of [true, false]) {
+    it(`a divergent edit is listed on both devices, the origin included (${pullFirst ? 'A pulls before pushing' : 'A pushes first'})`, async () => {
+      const { a, b } = await unframedRace(
+        (n, who, k) => `title = '${who}${k} edit of ${n}'`,
+        pullFirst,
+      );
+      const keys = conflictKeys(b.db);
+      expect(keys.filter((k) => k.endsWith('|title'))).toHaveLength(2);
+      expect(conflictKeys(a.db)).toEqual(keys);
+      expect(contentChecksums(a.db)).toEqual(contentChecksums(b.db));
+    });
+  }
+
+  it('memory-read bumps of citation_count and updated_at on both devices are no conflict anywhere', async () => {
+    const { a, b } = await unframedRace(
+      (_n, who, k) =>
+        `citation_count = citation_count + 1, updated_at = '2026-10-17 15:33:${who === 'a' ? 57 + k : 13}'`,
+      true,
+    );
+    expect(conflictKeys(a.db)).toEqual([]);
+    expect(conflictKeys(b.db)).toEqual([]);
+    expect(contentChecksums(a.db)).toEqual(contentChecksums(b.db));
+  });
+});

@@ -556,6 +556,7 @@ function mergeFields(d: Draft, base: RowState, op: LedgerOp, ctx: MergeContext):
       const cur = d.fields[c]?.value;
       const inc = after[c];
       if (before === undefined || inc === undefined || isIncrement(inc)) return false;
+      if (ctx.table.bookkeeping?.includes(c)) return false;
       return !same(before, cur) && !same(plain(inc), cur);
     });
     if (wins) {
