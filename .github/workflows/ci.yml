@@ -96,7 +96,7 @@ jobs:
       # package.json files, CHANGELOG.md and `.changeset/**` moves: the release
       # bump-PR shape. Heavy jobs skip on it; lint + typecheck (and the separate
       # Lockfile Check workflow) still run. See scripts/ci-detect-version-only.mjs.
-      version_only: ${{ (steps.version-only.outputs.version_only == 'true' || steps.version-only-dispatch.outputs.version_only == 'true') && 'true' || 'false' }}
+      version_only: ${{ (steps.version-only.outputs.version_only == 'true' || steps.version-only-dispatch.outputs.version_only == 'true' || steps.version-only-push.outputs.version_only == 'true') && 'true' || 'false' }}
       # T13143: the runners Build, Build & Verify and Unit Tests use, and the
       # unit-test shards per runner (scripts/ci-platform-matrix.mjs). macOS
       # runs nightly, in merge groups, and on a pull request whose change is
@@ -137,6 +137,33 @@ jobs:
           else
             echo "version_only=false" >> "$GITHUB_OUTPUT"
             echo "No merge-base with origin/${DEFAULT_BRANCH}; running the full suite."
+          fi
+      # T13833: the main push of a merged release bump PR re-ran the whole
+      # ~26 min suite (706928327, v2026.10.18) on a tree that differs from its
+      # first parent only by version lines, the plan and CHANGELOG.md. It takes
+      # the version-only set when that diff passes the same detector AND the
+      # first parent's own ci.yml push run on main concluded success, so the
+      # tested tree is the parent's. A missing, unfinished or failed parent
+      # run, an API error, or a non-version-only diff runs the full suite.
+      - name: Detect a version-only (release bump) push to main
+        id: version-only-push
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -u
+          parent=$(git rev-parse HEAD^1 2>/dev/null || true)
+          verdict=absent
+          if [ -n "$parent" ]; then
+            verdict=$(gh api "repos/$REPO/actions/workflows/ci.yml/runs?head_sha=$parent&event=push&branch=main&per_page=20" \
+              --jq "[.workflow_runs[] | select(.head_sha == \"$parent\")] | sort_by(.id) | last | \"\(.status)/\(.conclusion)\"" 2>/dev/null || echo unreadable)
+          fi
+          if [ "$verdict" = "completed/success" ]; then
+            node scripts/ci-detect-version-only.mjs HEAD^1 HEAD
+          else
+            echo "version_only=false" >> "$GITHUB_OUTPUT"
+            echo "First parent ${parent:-<none>}: ci.yml push run is ${verdict}; running the full suite."
           fi
       - name: Choose platforms and shards (T13143)
         id: platform
