@@ -197,31 +197,14 @@ export interface BuildVaultManifestOptions {
   root: string | null;
   /** Count and hash rows local by row-identity spec too: format 2, to check a snapshot hashed under it (T13808). */
   countLocalRows?: boolean;
-  /**
-   * Count in `localRows` only the local rows stamped at or before this instant (T13816): the
-   * ones a parent checkpoint created then could have counted. A local table with no
-   * {@link LOCAL_ROW_STAMP_COLUMNS} entry counts none.
-   */
-  localAsOf?: string;
 }
-
-/**
- * Per table with rows local by row-identity spec, the column stamping each row's creation
- * (T13816), so a push can tell the local rows a parent checkpoint held from ones written since.
- */
-export const LOCAL_ROW_STAMP_COLUMNS: Readonly<Record<string, string>> = {
-  tasks_pr_tasks: 'created_at',
-  tasks_release_changes: 'classified_at',
-  tasks_session_handoff_entries: 'created_at',
-  tasks_task_commits: 'created_at',
-};
 
 /** The manifest plus the tables left out, for reports. */
 export interface VaultManifestBuild {
   manifest: VaultManifest;
   /** Syncing tables whose name the wire contract cannot carry. */
   skipped: string[];
-  /** Per table, the rows local by row-identity spec, left out of the manifest (T13808); see `localAsOf`. */
+  /** Per table, the rows local by row-identity spec, left out of the manifest (T13808). */
   localRows: Record<string, number>;
 }
 
@@ -325,20 +308,11 @@ export function buildVaultManifest(
             undefined
             ? syncedRowsWhere(spec)
             : null;
-        const stamp = LOCAL_ROW_STAMP_COLUMNS[name];
-        const asOf = opts.localAsOf;
-        if (synced !== null && (asOf === undefined || stamp !== undefined)) {
-          // julianday: stamps are `datetime('now')` or ISO-8601 text, which do not sort together.
-          const [when, args] =
-            asOf === undefined || stamp === undefined
-              ? ['', []]
-              : [` AND julianday(${quoteIdent(stamp)}) <= julianday(?)`, [asOf]];
+        if (synced !== null) {
           const local = (
             db
-              .prepare(
-                `SELECT count(*) AS n FROM main.${quoteIdent(name)} WHERE NOT (${synced})${when}`,
-              )
-              .get(...args) as {
+              .prepare(`SELECT count(*) AS n FROM main.${quoteIdent(name)} WHERE NOT (${synced})`)
+              .get() as {
               n: number | bigint;
             }
           ).n;

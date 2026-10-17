@@ -6563,10 +6563,10 @@ describe('sync enable push: the genesis checkpoint (T12343 S4-1b)', () => {
       expect(probe.tallies.rows).toEqual({ t: 98 });
     });
 
-    it('T13816: over a real format-2 parent the pruned cap is the local rows the parent held, so a lost synced row is refused, not masked; the honest push passes the server rule', async () => {
+    it('T13816: over a format-2 parent another device pushed, the pruned cap is the local rows in its bundle: old local rows here do not mask a lost synced row; with nothing lost the push passes the server rule', async () => {
       const { m: a, dbPath: aDb } = await journalMachine();
       const HANDOFF = 'tasks_session_handoff_entries';
-      // Session x: one handoff (synced). Session y: two, the second local. Stamped before any checkpoint.
+      // Session x: one handoff (synced). Session y: two, the second local.
       await on(a, async () => {
         const db = await storeOf(aDb);
         db.exec(
@@ -6583,27 +6583,33 @@ describe('sync enable push: the genesis checkpoint (T12343 S4-1b)', () => {
       await on(a, async () => {
         setSyncFlag(await storeOf(aDb), 'sync.pull', true, { allowUnreleased: true });
       });
+      const { b } = await restoredJoiner();
+      expect((await on(b, () => enableSyncPush(vopts(b, { allowUnreleased: true })))).status).toBe(
+        'joined',
+      );
       const s = fake.stream(STREAM);
       const g3 = s.checkpoints[0];
       if (!g3) throw new Error('no genesis');
       expect(g3.manifest.tables[HANDOFF]?.rows).toBe(2);
 
-      // The genesis as an older CLEO pushed it: format 2, its local row counted (3 rows).
-      await on(a, async () => unlockNexusAccountKey(await connectNexusVault(vopts(a))));
-      const j = new Journal({
-        http: new Http({ baseUrl: API, token: a.token, deviceId: a.deviceId, fetch: fake.fetch }),
+      // B pushes the head as an older CLEO did: format 2, its one local row counted (3 rows).
+      for (const m of [a, b]) {
+        await on(m, async () => unlockNexusAccountKey(await connectNexusVault(vopts(m))));
+      }
+      const jb = new Journal({
+        http: new Http({ baseUrl: API, token: b.token, deviceId: b.deviceId, fetch: fake.fetch }),
         streamId: STREAM,
-        replicaId: a.replicaId,
-        deviceId: a.deviceId,
-        signing: a.keys.signing,
+        replicaId: b.replicaId,
+        deviceId: b.deviceId,
+        signing: b.keys.signing,
         key: projectDataKey(),
         fetch: fake.fetch,
       });
-      const { bundle } = await j.restoreCheckpoint(
+      const { bundle } = await jb.restoreCheckpoint(
         g3.checkpointId,
         new Map([[a.deviceId, a.keys.signing.publicKey]]),
       );
-      const x = path.join(a.root, 'g2x');
+      const x = path.join(b.root, 'g2x');
       fs.mkdirSync(x);
       fs.writeFileSync(path.join(x, 'b.tar.gz'), bundle);
       await tarExtract({ file: path.join(x, 'b.tar.gz'), cwd: x });
@@ -6623,7 +6629,7 @@ describe('sync enable push: the genesis checkpoint (T12343 S4-1b)', () => {
       expect(v2.manifest.tables[HANDOFF]?.rows).toBe(3);
       s.checkpoints.length = 0;
       s.headCheckpointId = null;
-      const g2 = await j.pushCheckpoint({
+      const g2 = await jb.pushCheckpoint({
         bundle,
         manifest: {
           ...g3.manifest,
@@ -6635,12 +6641,13 @@ describe('sync enable push: the genesis checkpoint (T12343 S4-1b)', () => {
         },
         cursor: cursorFromCheckpoint(g3),
         parentCheckpointId: null,
-        // Under the genesis id: the store's pull position names it.
+        // Under the genesis id: both stores' pull positions name it.
         checkpointId: g3.checkpointId,
       });
+      expect(g2.deviceId).toBe(b.deviceId);
 
-      // The probe: x's synced handoff lost outside the journal, and a local one written since.
-      // Old cap (local rows held now: 2) pruned both and masked the loss.
+      // On A: x's synced handoff lost outside the journal, and a local row the parent never held,
+      // stamped before it. Capping by A's local rows (2) would prune both and mask the loss.
       const lost = await on(a, async () => {
         const db = await storeOf(aDb);
         db.exec("INSERT INTO cleo_trigger_suspend (scope) VALUES ('capture')");
@@ -6650,7 +6657,7 @@ describe('sync enable push: the genesis checkpoint (T12343 S4-1b)', () => {
         db.exec("DELETE FROM tasks_session_handoff_entries WHERE session_id = 'ses_x'");
         db.exec("DELETE FROM cleo_trigger_suspend WHERE scope = 'capture'");
         db.exec(
-          `INSERT INTO tasks_session_handoff_entries (session_id, handoff_json) VALUES ('ses_y', '{"n":"y3"}')`,
+          `INSERT INTO tasks_session_handoff_entries (session_id, handoff_json, created_at) VALUES ('ses_y', '{"n":"y3"}', '2026-09-30 09:00:04')`,
         );
         return row;
       });
@@ -6661,9 +6668,13 @@ describe('sync enable push: the genesis checkpoint (T12343 S4-1b)', () => {
         code: 'E_NEXUS_VAULT_REFUSED',
         message: expect.stringContaining(HANDOFF),
       });
+      expect(refused.message).toContain('vault format 2');
+      expect(refused.fix).toContain('cleo cloud pull');
+      expect(refused.fix).toContain('--force');
+      expect(refused.fix).not.toContain('cloud sync');
       expect(s.checkpoints).toHaveLength(1);
 
-      // The lost row back: the push prunes only the one local row the parent counted.
+      // Nothing lost: the push prunes only the one local row the parent's bundle held.
       await on(a, async () => {
         const db = await storeOf(aDb);
         db.exec("INSERT INTO cleo_trigger_suspend (scope) VALUES ('capture')");
@@ -6680,7 +6691,6 @@ describe('sync enable push: the genesis checkpoint (T12343 S4-1b)', () => {
       expect(cp?.manifest.pruned).toEqual({ [HANDOFF]: 1 });
       expect(cp?.manifest.tables[HANDOFF]?.rows).toBe(2);
     });
-
     it('a checkpoint with pending transactions restores on a new device, and they apply exactly once after a sync', async () => {
       const { a, aDb, b, bDb } = await journalDevices(true);
       if (!b || !bDb) throw new Error('no device B');

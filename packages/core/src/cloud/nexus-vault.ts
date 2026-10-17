@@ -1022,7 +1022,6 @@ async function snapshotManifest(
   manifest: PortableBundleManifest,
   t: VaultTarget,
   like?: Manifest,
-  localAsOf?: string,
 ): Promise<{
   vault: VaultManifest;
   dbPath: string;
@@ -1046,7 +1045,6 @@ async function snapshotManifest(
     hashKey,
     root,
     countLocalRows: likeFormat === 2,
-    localAsOf,
   });
   const vault = built.manifest;
   for (const d of section.databases) {
@@ -1083,7 +1081,6 @@ async function exportAndRead(
   tracked: ReadonlySet<string>,
   seal: VaultCredentialSeal | null,
   inspect?: (snapshotPath: string) => Promise<void>,
-  localAsOf?: string,
 ): Promise<{
   bundlePath: string;
   vault: VaultManifest;
@@ -1091,8 +1088,6 @@ async function exportAndRead(
   files: Map<string, string>;
   /** The extracted snapshot's primary `cleo.db`. */
   dbPath: string;
-  /** Per table, the rows local by row-identity spec the manifest leaves out (T13808), stamped by `localAsOf` when given (T13816). */
-  localRows: Record<string, number>;
 }> {
   const bundlePath = path.join(work, 'snapshot.cleobundle.tar.gz');
   await exportVaultBundle(t, bundlePath, label, tracked, seal, inspect);
@@ -1102,20 +1097,13 @@ async function exportAndRead(
   const bundleManifest = JSON.parse(
     fs.readFileSync(path.join(extractDir, 'manifest.json'), 'utf8'),
   ) as PortableBundleManifest;
-  const { vault, files, dbPath, localRows } = await snapshotManifest(
-    extractDir,
-    bundleManifest,
-    t,
-    undefined,
-    localAsOf,
-  );
+  const { vault, files, dbPath } = await snapshotManifest(extractDir, bundleManifest, t);
   return {
     bundlePath,
     vault,
     gitTracked: snapshotGitTracked(bundleManifest, t),
     files,
     dbPath,
-    localRows,
   };
 }
 
@@ -1386,16 +1374,14 @@ function authoritativeOmitted(err: unknown): boolean {
  * format leaves out (T13808): rows local by row-identity spec. They never
  * travelled, so the journal declares no delete for them; the checkpoint names
  * them `pruned`, so the server's row rule takes them off the parent's count.
- * Per table, the shortfall against the tallies, capped by the local rows that
- * existed at the parent checkpoint (T13816): a local row written since was never
- * in its count, so capping by the rows held now would mask as many lost synced
- * rows. A parent in the current format prunes nothing.
+ * Per table, the shortfall against the tallies, capped by the local rows the
+ * parent itself held ({@link parentLocalRows}); a parent in the current format
+ * prunes nothing.
  *
  * @param parentFormat - The parent's {@link vaultManifestFormat}.
  * @param tallies - The window's tallies.
  * @param local - The store's rows per manifest key.
- * @param localRows - Per table, the local rows the manifest left out that are
- *   stamped at or before the parent's `createdAt`.
+ * @param localRows - Per table, the local rows the parent's own store held.
  * @returns The tallies less the pruned rows, and the `pruned` map.
  */
 export function formatTransitionPruned(
@@ -1416,6 +1402,32 @@ export function formatTransitionPruned(
     rows[table] = (rows[table] ?? 0) - take;
   }
   return { tallies: { ...tallies, rows }, pruned };
+}
+
+/**
+ * The local rows a parent of an older vault format counted (T13816): rows local
+ * by row-identity spec in the parent's own `cleo.db`, read from its bundle. Exact
+ * whichever device pushed it, and no clock: the local rows this store holds
+ * are not the parent's, and counting them would mask lost synced rows.
+ */
+async function parentLocalRows(
+  journal: Journal,
+  parent: Checkpoint,
+  signers: TrustedSigners,
+  t: VaultTarget,
+): Promise<Record<string, number>> {
+  const restored = await journal.restoreCheckpoint(parent.checkpointId, signers);
+  const work = tempDir('cleo-vault-parent-');
+  try {
+    const bundlePath = path.join(work, 'parent.cleobundle.tar.gz');
+    fs.writeFileSync(bundlePath, restored.bundle);
+    const staging = path.join(work, 'staging');
+    fs.mkdirSync(staging);
+    const { extractDir, manifest } = await extractPortableBundle(bundlePath, staging);
+    return (await snapshotManifest(extractDir, manifest, t)).localRows;
+  } finally {
+    fs.rmSync(work, { recursive: true, force: true });
+  }
 }
 
 /** Whether this store's `sync.push` is on: its vault push checkpoints the journal (T12999). */
@@ -1602,7 +1614,7 @@ async function pushJournalCheckpoint(
         read: { window: JournalWindow; tallies: JournalTallies; pin: ReplayPin } | null;
       };
       let snap: Taken | null = null;
-      const { bundlePath, vault, gitTracked, files, localRows } = await exportAndRead(
+      const { bundlePath, vault, gitTracked, files } = await exportAndRead(
         t,
         work,
         `cloud-vault-${scope}`,
@@ -1643,8 +1655,6 @@ async function pushJournalCheckpoint(
           }
           snap = { ...state, read };
         },
-        // A parent of an older format counted the local rows it held (T13816).
-        parent.createdAt,
       );
       // Read through a const: TypeScript does not see the callback assign it.
       const taken = snap as Taken | null;
@@ -1705,11 +1715,13 @@ async function pushJournalCheckpoint(
       // Portable tables the journal does not carry yet are the snapshot's alone (T13777), named in
       // the manifest only to a server that takes the list; the list only shrinks along the lineage.
       const authoritative = await snapshotAuthoritativeTables(conn, t, keys, parent);
+      const parentFormat = vaultManifestFormat(parent.manifest, hashKeyOf(t.dataKey));
+      const transition = parentFormat !== 'unknown' && parentFormat < VAULT_MANIFEST_FORMAT_VERSION;
       const formatPruned = formatTransitionPruned(
-        vaultManifestFormat(parent.manifest, hashKeyOf(t.dataKey)),
+        parentFormat,
         taken.read.tallies,
         local,
-        localRows,
+        transition ? await parentLocalRows(journal, parent, key.signers, t) : {},
       );
       const { tallies, unexplained } = settleShortfalls(
         formatPruned.tallies,
@@ -1723,10 +1735,12 @@ async function pushJournalCheckpoint(
           authoritative.list === null && unexplained.every((k) => authoritative.exempt.has(k));
         throw vaultError(
           'E_NEXUS_VAULT_REFUSED',
-          `this store's rows do not reconcile with ${t.streamId}'s change journal (${unexplained.slice(0, 8).join(', ')}): ${exemptOnly ? 'these tables are not in the change journal yet, and this Cleo Nexus server does not take a snapshot-authoritative list (manifest.snapshot-authoritative)' : 'a write landed outside the journal'}`,
+          `this store's rows do not reconcile with ${t.streamId}'s change journal (${unexplained.slice(0, 8).join(', ')}): ${exemptOnly ? 'these tables are not in the change journal yet, and this Cleo Nexus server does not take a snapshot-authoritative list (manifest.snapshot-authoritative)' : transition ? `the head snapshot is vault format ${parentFormat}, and the local rows it counted do not explain the shortfall: synced rows are missing from this store` : 'a write landed outside the journal'}`,
           exemptOnly
             ? 'nothing was written; upgrade the Cleo Nexus server, then push again'
-            : 'nothing was written; run `cleo cloud sync`, then push again',
+            : transition
+              ? 'nothing was written; run `cleo cloud pull` to take the cloud copy, or `cleo cloud push --force` to keep this store as a labelled fork'
+              : 'nothing was written; run `cleo cloud sync`, then push again',
         );
       }
       const vaultOnlyChanged = keys.some(
