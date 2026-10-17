@@ -1741,7 +1741,7 @@ async function pushJournalCheckpoint(
           exemptOnly
             ? 'nothing was written; upgrade the Cleo Nexus server, then push again'
             : transition
-              ? 'nothing was written; run `cleo cloud pull` to take the cloud copy, or `cleo cloud push --force` to keep this store as a labelled fork'
+              ? 'nothing was written; run `cleo cloud pull --force` to take the cloud copy, or `cleo cloud push --force` to keep this store as a labelled fork'
               : 'nothing was written; run `cleo cloud sync`, then push again',
         );
       }

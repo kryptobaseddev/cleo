@@ -6669,8 +6669,8 @@ describe('sync enable push: the genesis checkpoint (T12343 S4-1b)', () => {
         message: expect.stringContaining(HANDOFF),
       });
       expect(refused.message).toContain('vault format 2');
-      expect(refused.fix).toContain('cleo cloud pull');
-      expect(refused.fix).toContain('--force');
+      expect(refused.fix).toContain('cleo cloud pull --force');
+      expect(refused.fix).toContain('cleo cloud push --force');
       expect(refused.fix).not.toContain('cloud sync');
       expect(s.checkpoints).toHaveLength(1);
 
