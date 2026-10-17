@@ -958,6 +958,9 @@ export type { NodeSQLiteDatabase };
  */
 export { schema };
 
+/** Upper bound {@link closeAllDatabases} waits for tracked background writes (T13630). */
+export const CLOSE_SETTLE_BUDGET_MS = 5_000;
+
 /**
  * Close ALL database singletons (tasks.db, brain.db, nexus.db).
  *
@@ -968,6 +971,20 @@ export { schema };
  * @task T5508
  */
 export async function closeAllDatabases(): Promise<void> {
+  // T13630: settle tracked best-effort writes (graph nodes, hook dispatches)
+  // on the still-open handles first. Closed under them, a late write re-binds
+  // its domain on a FRESH connection and its writer-lease claim busy-waits
+  // the next writer for the full busy_timeout (30 s). Bounded: a producer that
+  // outlives the budget is reported, never waited for forever.
+  const { settleBackgroundOps } = await import('./background-ops.js');
+  const pending = await settleBackgroundOps(CLOSE_SETTLE_BUDGET_MS);
+  if (pending > 0) {
+    getLogger('sqlite').warn(
+      { pending },
+      'closeAllDatabases: tracked background writes still pending after the settle budget',
+    );
+  }
+
   // Close tasks.db
   closeDb();
 

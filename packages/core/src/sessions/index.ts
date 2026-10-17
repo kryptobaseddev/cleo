@@ -20,6 +20,7 @@ import { LeadBypassDetectedError } from '@cleocode/contracts/errors.js';
 import { ExitCode } from '@cleocode/contracts/exit-codes.js';
 import { CleoError } from '../errors.js';
 import { sessionListItemNext, sessionStartNext } from '../mvi-helpers.js';
+import { trackBackgroundOp } from '../store/background-ops.js';
 import type { DataAccessor } from '../store/data-accessor.js';
 import { getTaskAccessor } from '../store/data-accessor.js';
 import {
@@ -223,14 +224,16 @@ export async function startSession(
   // reconcile-on-start (re-read the authoritative project row → overwrite the
   // manifest so it can never drift into authority). Both swallow all errors — a
   // mirror failure NEVER fails session start (AC3/AC4). Fire-and-forget.
-  import('./session-manifest-mirror.js')
-    .then(async ({ mirrorSessionToManifest, reconcileSessionManifestOnStart }) => {
-      await mirrorSessionToManifest(projectRoot, session);
-      await reconcileSessionManifestOnStart(projectRoot, session.id);
-    })
-    .catch(() => {
-      /* mirror is best-effort — never block session start */
-    });
+  // Tracked (T13630): teardown settles it on the open handles; a failure is
+  // recorded in the background ledger instead of being swallowed.
+  trackBackgroundOp(() =>
+    import('./session-manifest-mirror.js').then(
+      async ({ mirrorSessionToManifest, reconcileSessionManifestOnStart }) => {
+        await mirrorSessionToManifest(projectRoot, session);
+        await reconcileSessionManifestOnStart(projectRoot, session.id);
+      },
+    ),
+  );
 
   // T947 Step 2: open a corresponding llmtxt AgentSession for audit
   // receipts. Best-effort — peer-dep absence yields `null` and leaves
@@ -268,8 +271,10 @@ export async function startSession(
 
   // Dispatch SessionStart hook (best-effort, don't await)
   const { hooks } = await import('../hooks/registry.js');
-  hooks
-    .dispatch('SessionStart', projectRoot, {
+  // Tracked (T13630): teardown settles it on the open handles; a failure is
+  // recorded in the background ledger instead of being swallowed.
+  trackBackgroundOp(
+    hooks.dispatch('SessionStart', projectRoot, {
       timestamp: new Date().toISOString(),
       sessionId: session.id,
       name: params.name ?? session.name,
@@ -279,14 +284,12 @@ export async function startSession(
       // failed runtime validation and stringifies to "[object Object]".
       scope: scope.type,
       providerId: detectedProviderId ?? undefined,
-    })
-    .catch(() => {
-      /* Hooks are best-effort */
-    });
+    }),
+  );
 
-  // T1263: Append session_start journal entry (best-effort)
-  import('./session-journal.js')
-    .then(async ({ appendSessionJournalEntry }) => {
+  // T1263: Append session_start journal entry (best-effort, tracked T13630)
+  trackBackgroundOp(() =>
+    import('./session-journal.js').then(async ({ appendSessionJournalEntry }) => {
       const { SESSION_JOURNAL_SCHEMA_VERSION } = await import(
         '@cleocode/contracts/session-journal.js'
       );
@@ -301,10 +304,8 @@ export async function startSession(
         providerId: detectedProviderId ?? undefined,
         scope: params.scope,
       });
-    })
-    .catch(() => {
-      /* Journal write is best-effort — never block session start */
-    });
+    }),
+  );
 
   // Attach _next progressive disclosure directives
   Object.assign(session, { _next: sessionStartNext() });
@@ -437,11 +438,13 @@ export async function endSession(projectRoot: string, params: SessionEndParams):
   // T11639: best-effort mirror the ENDED session into the GLOBAL session_manifest
   // (status/endedAt now reflect the close). Swallows all errors — NEVER fails
   // session end (AC3). Fire-and-forget.
-  import('./session-manifest-mirror.js')
-    .then(({ mirrorSessionToManifest }) => mirrorSessionToManifest(projectRoot, session))
-    .catch(() => {
-      /* mirror is best-effort — never block session end */
-    });
+  // Tracked (T13630): teardown settles it on the open handles; a failure is
+  // recorded in the background ledger instead of being swallowed.
+  trackBackgroundOp(() =>
+    import('./session-manifest-mirror.js').then(({ mirrorSessionToManifest }) =>
+      mirrorSessionToManifest(projectRoot, session),
+    ),
+  );
 
   // T947 Step 2: close the matching llmtxt AgentSession (if any) and
   // persist the ContributionReceipt to `.cleo/audit/receipts.jsonl`.
