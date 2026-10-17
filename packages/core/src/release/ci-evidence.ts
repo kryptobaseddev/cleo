@@ -504,6 +504,13 @@ export function evaluateCoveringJobs(
 }
 
 /**
+ * An {@link evaluateJobs} reason saying the job never ran on that SHA — not
+ * found, skipped by a change filter, or cancelled — rather than that it ran
+ * and failed (T13846).
+ */
+const JOB_NOT_RUN = /^job .+: (not found in .+|skipped|cancelled) on [0-9a-f]{12}$/;
+
+/**
  * Judge job globs on one SHA: every glob must match at least one job (check
  * run) from the allowed workflows/app, and the latest run of each matched
  * (job, event) must be `success` — a `skipped` job is refused by name.
@@ -1263,6 +1270,42 @@ export interface FindGreenDescendantInput {
   firstParentOf?: NonNullable<ResolveCiEvidenceOptions['firstParentOf']>;
   /** Log of one job (T13809: the quarantine-budget check); absent = never classify. */
   fetchJobLog?: NonNullable<ResolveCiEvidenceOptions['fetchJobLog']>;
+  /**
+   * Job globs a code task's gates need (T13846), with the workflows they must
+   * come from. A candidate whose required checks are green but whose push run
+   * never ran these jobs (a change filter skipped them, or the run was
+   * cancelled before them) decides nothing and the walk moves on; a job that
+   * failed there refuses, and a pending one waits.
+   */
+  jobs?: ReadonlyArray<{ globs: readonly string[]; scope: JobScope }>;
+}
+
+/** The app and workflow files a gate's jobs must come from. */
+export interface JobScope {
+  app?: string | number;
+  workflows: readonly string[];
+}
+
+/**
+ * The job globs and scope of each gate (T13846), as the job check below the
+ * required-check judgement reads them; a gate with no globs or no pinned
+ * workflow is left out here and refused there.
+ */
+function gateJobSpecs(
+  gateLists: ReadonlyArray<{ key: 'tests' | 'qa'; list?: readonly string[] }>,
+  storeRoot: string,
+  pins: Record<string, RequiredCheckPinSpec>,
+): Array<{ globs: readonly string[]; scope: JobScope }> {
+  const jobs = readCiChecks(storeRoot).jobs;
+  return gateLists.flatMap((g) => {
+    const globs = jobs?.[g.key];
+    const workflows = (g.list ?? []).flatMap((n) =>
+      pins[n]?.workflow ? [pins[n]!.workflow!] : [],
+    );
+    const app = (g.list ?? []).map((n) => pins[n]?.app).find((a) => a !== undefined);
+    if (!globs || globs.length === 0 || workflows.length === 0) return [];
+    return [{ globs, scope: { ...(app !== undefined ? { app } : {}), workflows } }];
+  });
 }
 
 /** Result of {@link findGreenDescendant}. */
@@ -1507,6 +1550,21 @@ export async function findGreenDescendant(
         ok: false,
         reason: `${name}: ${verdict.verdict} on later ${input.ref} commit ${sha.slice(0, 12)}`,
       };
+    }
+    // T13846: the gates' own jobs must have run on the stand-in too.
+    for (const job of decided ? (input.jobs ?? []) : []) {
+      const onSha = evaluateJobs(job.globs, fetched.checks, sha, job.scope, 'push');
+      if (onSha.ok) continue;
+      const pending = onSha.reasons.find((r) => r.includes(': pending ('));
+      if (pending) {
+        return {
+          ok: false,
+          reason: `${pending} — wait for ${sha.slice(0, 12)} to finish, then verify again`,
+        };
+      }
+      const decisive = onSha.reasons.find((r) => !JOB_NOT_RUN.test(r));
+      if (decisive) return { ok: false, reason: `${decisive} (later ${input.ref} commit)` };
+      decided = false;
     }
     if (decided) {
       return {
@@ -2115,8 +2173,14 @@ export async function resolveCiEvidenceAtom(
       }
     | undefined;
   let descendantReason: string | undefined;
+  // T13846: a code task's gates need their jobs to have run, so the stand-in
+  // must be a later main run where they did — not merely the first one whose
+  // required checks are green (a scripts-only merge skips the test jobs).
+  const docsOnlyDiff = pr.changedPaths.length > 0 && pr.changedPaths.every(isCiDocumentPath);
+  const jobSpecs = docsOnlyDiff ? [] : gateJobSpecs(gateLists, roots.storeRoot, pins);
   if (!judgedChecks.ok && onDefault.ref !== null) {
     const found = await findGreenDescendant({
+      ...(jobSpecs.length > 0 ? { jobs: jobSpecs } : {}),
       required: required.workflows,
       checks,
       mergeCommitSha: pr.mergeCommitSha,
@@ -2189,7 +2253,6 @@ export async function resolveCiEvidenceAtom(
   // docs-only PR as a code task's implementation — so its skip is honest too.
   // Round 3: the DIFF alone decides — a task label is agent-editable
   // (`cleo update --labels docs`) and must never excuse skipped jobs.
-  const docsOnlyDiff = pr.changedPaths.length > 0 && pr.changedPaths.every(isCiDocumentPath);
   const isCode = !docsOnlyDiff;
   const jobsByGate: Record<string, string[]> = {};
   const fetchJobLog = opts.fetchJobLog ?? defaultFetchJobLog;
