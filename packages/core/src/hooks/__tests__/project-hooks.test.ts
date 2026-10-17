@@ -462,6 +462,82 @@ describe('activated project checks through actual child processes', () => {
     expect(JSON.stringify(agent)).not.toContain('toolInput');
     expect(JSON.stringify(agent)).not.toContain('secret-input');
   });
+  describe.skipIf(process.getuid?.() === 0)(
+    'a read-only Git directory, as under Codex workspace-write (T13775)',
+    () => {
+      async function sandboxed(): Promise<string> {
+        await manifest({
+          bindings: [
+            { source: 'agent', event: 'PreToolUse' },
+            { source: 'git', event: 'pre-push' },
+          ],
+        });
+        await activateProjectHooks(root);
+        const state = resolveProjectHookContext(root).stateDir;
+        await chmod(state, 0o500);
+        return state;
+      }
+      afterEach(async () => {
+        await chmod(resolveProjectHookContext(root).stateDir, 0o700).catch(() => undefined);
+        await chmod(join(root, '.cleo'), 0o700).catch(() => undefined);
+      });
+      it('writes receipts to the self-ignoring checkout fallback and reads them back', async () => {
+        await sandboxed();
+        const outcomes = await executeProjectHooks({
+          ...invocation,
+          source: 'agent',
+          event: 'PreToolUse',
+          nativeSession: { sessionId: 'session-a', harness: 'codex' },
+        });
+        expect(outcomes.map((outcome) => outcome.code)).not.toContain('HOOK_RECEIPT_WRITE_FAILED');
+        const agent = await readLastProjectHookExecution(root, {
+          source: 'agent',
+          event: 'PreToolUse',
+        });
+        expect(agent).toMatchObject({ source: 'agent', sessionId: 'session-a', harness: 'codex' });
+        expect(await readFile(join(root, '.cleo/hook-receipts/.gitignore'), 'utf8')).toBe('*\n');
+        expect(
+          execFileSync('git', ['-C', root, 'status', '--porcelain', '--', '.cleo'], {
+            encoding: 'utf8',
+          }),
+        ).not.toContain('hook-receipts');
+        // The Git push lands in its own slot; the agent receipt stays as it was.
+        await executeProjectHooks(invocation);
+        expect(await readLastProjectHookExecution(root)).toMatchObject({ source: 'git' });
+        expect(
+          await readLastProjectHookExecution(root, { source: 'agent', event: 'PreToolUse' }),
+        ).toEqual(agent);
+      });
+      it('a Git receipt nowhere writable is a visible fault and never replaces the agent receipt', async () => {
+        await sandboxed();
+        await executeProjectHooks({ ...invocation, source: 'agent', event: 'PreToolUse' });
+        const agent = await readLastProjectHookExecution(root, {
+          source: 'agent',
+          event: 'PreToolUse',
+        });
+        expect(agent).toBeDefined();
+        await chmod(join(root, '.cleo/hook-receipts'), 0o500);
+        try {
+          const outcomes = await executeProjectHooks(invocation);
+          expect(outcomes.map((outcome) => outcome.code)).toContain('HOOK_RECEIPT_WRITE_FAILED');
+        } finally {
+          await chmod(join(root, '.cleo/hook-receipts'), 0o700);
+        }
+        expect(
+          await readLastProjectHookExecution(root, { source: 'agent', event: 'PreToolUse' }),
+        ).toEqual(agent);
+      });
+      it('never trusts a fallback receipt Git tracks', async () => {
+        await sandboxed();
+        await executeProjectHooks({ ...invocation, source: 'agent', event: 'PreToolUse' });
+        const dir = join(root, '.cleo/hook-receipts');
+        execFileSync('git', ['-C', root, 'add', '-f', dir]);
+        expect(
+          await readLastProjectHookExecution(root, { source: 'agent', event: 'PreToolUse' }),
+        ).toBeUndefined();
+      });
+    },
+  );
   it.each([
     'warn',
     'block',
