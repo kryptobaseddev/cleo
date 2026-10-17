@@ -310,7 +310,8 @@ export interface GoalInstallResult {
  * Register CLEO Goal with one harness for this project. Writes only
  * project-level config, never `~/.claude`, `~/.codex` or `~/.config`.
  *
- * - `opencode`: runs `cleo-goal install --project --json` in the project.
+ * - `opencode`: runs `cleo-goal install --project --json` in the project
+ *   (`--dry-run` passes through: the bin reports the planned action, writes nothing).
  * - `claude` / `codex`: installs only the project Stop dispatcher (`cleo hook
  *   stop`, T13796), which runs the goal tick, whatever the heavy-command mode;
  *   no separate Stop hook and no `PreToolUse` hook.
@@ -319,12 +320,14 @@ export interface GoalInstallResult {
  * @param projectRoot - absolute project root
  * @param harness - harness to register with
  * @param env - environment for the bin lookup and spawn (default `process.env`)
+ * @param options - `dryRun` previews without writing (opencode only, T13869)
  * @returns the registration result, or a failure with a remedy
  */
 export async function installGoalForHarness(
   projectRoot: string,
   harness: string,
   env: Env = process.env,
+  options: { readonly dryRun?: boolean } = {},
 ): Promise<EngineResult<GoalInstallResult>> {
   if (!(GOAL_HARNESSES as readonly string[]).includes(harness)) {
     // @sync-invariant none:input-shape unknown --harness value; nothing is written
@@ -342,12 +345,19 @@ export async function installGoalForHarness(
       { exitCode: ExitCode.GENERAL_ERROR, fix: 'cleo show T13822' },
     );
   }
+  if (options.dryRun === true && h !== 'opencode') {
+    // @sync-invariant none:input-shape --dry-run is opencode-only; nothing is written
+    return engineError('E_VALIDATION', `--dry-run is supported for --harness opencode only`, {
+      exitCode: ExitCode.VALIDATION_ERROR,
+      fix: `Run cleo goal install --harness ${h} without --dry-run`,
+    });
+  }
   const bin = resolveGoalBin(env);
   if (bin === null) return goalRuntimeMissing();
   if (h === 'opencode') {
     const installed = runGoalJson<GoalRuntimeInstall>(
       bin,
-      ['install', '--project', '--json'],
+      ['install', '--project', '--json', ...(options.dryRun === true ? ['--dry-run'] : [])],
       projectRoot,
       env,
       60_000,

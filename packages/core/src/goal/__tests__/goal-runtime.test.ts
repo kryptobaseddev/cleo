@@ -123,6 +123,28 @@ describe('cleo-goal status --json', () => {
     expect(refused.success ? null : refused.error.code).toBe('E_GOAL_RUNTIME_SCHEMA');
   });
 
+  it('passes an unjudged criterion through with null by and detail (T13870)', () => {
+    const live = {
+      schemaVersion: 1,
+      goal: 'g',
+      status: 'running',
+      criteria: [
+        {
+          id: 'C1',
+          statement: 's',
+          status: 'unknown',
+          essential: true,
+          invariant: false,
+          by: null,
+          detail: null,
+        },
+      ],
+    };
+    bin('cleo-goal', `echo '${JSON.stringify(live)}'`);
+    const read = readGoalStatus(dir, { PATH: dir });
+    expect(read.success && read.data.criteria[0]).toEqual(live.criteria[0]);
+  });
+
   it('doctor reports the goal as unknown when status --json is slow', async () => {
     bin(
       'cleo-goal',
@@ -144,6 +166,19 @@ describe('cleo goal install --harness', () => {
       data: { harness: 'opencode', bin: join(dir, 'cleo-goal'), goal: JSON.parse(INSTALL_V1) },
     });
     expect(readFileSync(join(dir, 'args'), 'utf-8').trim()).toBe('install --project --json');
+  });
+
+  it('opencode: --dry-run passes through and reports the planned action (T13869)', async () => {
+    const planned = INSTALL_V1.replace('"installed"', '"dry-run"');
+    bin('cleo-goal', `echo "$@" > "$PWD/args"; echo '${planned}'`);
+    const result = await installGoalForHarness(dir, 'opencode', { PATH: dir }, { dryRun: true });
+    expect(result.success && result.data.goal?.action).toBe('dry-run');
+    expect(readFileSync(join(dir, 'args'), 'utf-8').trim()).toBe(
+      'install --project --json --dry-run',
+    );
+    const claude = await installGoalForHarness(dir, 'claude', { PATH: dir }, { dryRun: true });
+    expect(claude.success ? null : claude.error.code).toBe('E_VALIDATION');
+    expect(existsSync(join(dir, '.claude'))).toBe(false);
   });
 
   it.each([

@@ -34,8 +34,10 @@ export interface GoalRuntimeCriterion {
   readonly status: string;
   readonly essential: boolean;
   readonly invariant: boolean;
-  readonly by: string;
-  readonly detail: string;
+  /** Who judged it (`host`, `verifier`, …); `null` while unjudged (T13870). */
+  readonly by: string | null;
+  /** The judge's note; `null` when there is none (T13870). */
+  readonly detail: string | null;
 }
 
 /** One budget dimension (turns, tokens, time, …). */
