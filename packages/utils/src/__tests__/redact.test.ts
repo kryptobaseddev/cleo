@@ -231,6 +231,21 @@ describe('audit secrets outside secret-named fields (T13860)', () => {
     );
   });
 
+  it.each([
+    ['curl -H "Authorization: Basic dXNlcjpwYXNz" x', `curl -H "Authorization: Basic ${R}" x`],
+    ['authorization: basic dXNlcjpwYXNz', `authorization: basic ${R}`],
+    ['AUTHORIZATION: BASIC dXNlcjpwYXNz==', `AUTHORIZATION: BASIC ${R}`],
+  ])('redacts an Authorization: Basic credential in %s (T13863)', (text, expected) => {
+    expect(redactJsonText(text)).toBe(expected);
+    expect(redactJsonText(expected)).toBe(expected);
+  });
+
+  it('keeps prose that mentions Basic without an Authorization label (T13863)', () => {
+    for (const text of ['Basic usage of the API', 'Basic dXNlcjpwYXNz']) {
+      expect(redactJsonText(text)).toBe(text);
+    }
+  });
+
   it('redacts a URL userinfo password', () => {
     expect(redactSecretFields({ remote: 'https://me:hunter2@example.com/repo.git' })).toEqual({
       remote: `https://me:${R}@example.com/repo.git`,
