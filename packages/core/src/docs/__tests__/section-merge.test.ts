@@ -96,6 +96,55 @@ describe('splitDocIntoSections', () => {
   });
 });
 
+describe('planSectionMerge section conservation (T13584)', () => {
+  /** Deterministic LCG so a failure reproduces from its iteration number. */
+  const rng = (seed: number) => () => {
+    seed = (seed * 1103515245 + 12345) % 2147483648;
+    return seed / 2147483648;
+  };
+  const pick = <T>(r: () => number, xs: readonly T[]): T => xs[Math.floor(r() * xs.length)] as T;
+
+  /** One random concurrent writer op on a section list (never the preamble). */
+  function mutate(r: () => number, doc: readonly string[], tag: string): string[] {
+    const out = [...doc];
+    const i = 1 + Math.floor(r() * (out.length - 1));
+    const op = pick(r, ['insert', 'dup', 'delete', 'rename', 'append', 'replace', 'none']);
+    if (op === 'insert') out.splice(i, 0, `## ${tag} New\n\n${tag} body`);
+    if (op === 'dup') out.splice(i, 0, `## Notes\n\n${tag} dup`);
+    if (out.length <= 1) return out;
+    const j = 1 + Math.floor(r() * (out.length - 1));
+    const text = out[j] ?? '';
+    const nl = text.indexOf('\n');
+    if (op === 'delete') out.splice(j, 1);
+    if (op === 'rename') out[j] = `## ${tag} Renamed${text.slice(nl < 0 ? text.length : nl)}`;
+    if (op === 'append') out[j] = `${text}\n\n${tag} line.`;
+    if (op === 'replace') out[j] = `${text.slice(0, nl < 0 ? text.length : nl)}\n\n${tag} rewrite`;
+    return out;
+  }
+
+  it('never drops a landed head section unless the incoming edit deleted an unchanged one', () => {
+    const base = ['# Doc', '## Alpha\n\na', '## Notes\n\nn1', '## Beta\n\nb', '## Notes\n\nn2'];
+    for (let iter = 0; iter < 2000; iter++) {
+      const r = rng(iter + 1);
+      const head = mutate(r, base, 'A');
+      const incoming = mutate(r, base, 'B');
+      const plan = planSectionMerge(base, head, incoming);
+      const refById = new Map(sectionIds(base).map((id, k) => [id, base[k]]));
+      const incIds = new Set(sectionIds(incoming));
+      const stepIds = new Set(plan.steps.map((st) => st.id));
+      const conflicted = new Set(plan.conflicts);
+      for (const [k, id] of sectionIds(head).entries()) {
+        const kept =
+          stepIds.has(id) ||
+          conflicted.has(id) ||
+          conflicted.has(id.replace(/~\d+$/, '')) ||
+          (!incIds.has(id) && refById.get(id) === head[k]);
+        expect(kept, `iteration ${iter}: head section ${id} dropped`).toBe(true);
+      }
+    }
+  });
+});
+
 describe('mergeSectionUpdates (AC1, AC2)', () => {
   it('two concurrent section updates from one base both survive the merge', () => {
     const baseText = '## Alpha\n\nalpha body';
