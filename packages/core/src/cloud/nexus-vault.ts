@@ -866,6 +866,8 @@ const JOURNAL_SNAPSHOT_CARRIED: ReadonlySet<string> = new Set([
 const VAULT_CLEARED_JOURNAL_TABLES = [
   '_sync_capture',
   '_sync_undo',
+  // The undo's row values (T12535): a rewound delete's secret columns.
+  '_sync_row_undo',
   '_sync_frame',
   '_sync_quarantine',
   '_sync_apply_intent',
@@ -876,7 +878,7 @@ const VAULT_CLEARED_JOURNAL_TABLES = [
   // Its floor goes with it: a floor without its seen rows would refuse
   // every transaction below it (T13318).
   '_sync_seen_floor',
-] as const;
+];
 
 /** The account key a global snapshot seals its credential cells under (T13530). */
 interface VaultCredentialSeal {

@@ -652,6 +652,74 @@ export function redactCredentials(snapshotPath: string): CredentialRedaction[] {
 }
 
 /**
+ * This device's change-journal tables and their JSON images, each an object
+ * keyed by column (a capture's U image maps a column to `[before, after]`).
+ * Capture and undo images hold the row's local values, secret columns
+ * included (T12535).
+ */
+const JOURNAL_IMAGES: Readonly<Record<string, readonly string[]>> = {
+  _sync_capture: ['img'],
+  _sync_quarantine: ['img'],
+  _sync_undo: ['before_full', 'after_full'],
+  _sync_row_undo: ['values_json'],
+};
+
+/**
+ * Remove the given secret columns from the change-journal images of a
+ * SNAPSHOT (never a live store), as {@link redactCredentials} clears them in
+ * the rows: an unencrypted bundle that leaves the machine must not carry a
+ * deleted session or approval token in an undo image (T12535). The journal
+ * rows stay, so a store moved through the bundle still reconciles its unsent
+ * changes; reconcile never reads a secret column from an image (secret
+ * columns are left out of every field comparison). Then `secure_delete` +
+ * `VACUUM`.
+ *
+ * @param snapshotPath - A VACUUM snapshot owned by the export staging area.
+ * @param columns - Table to secret column names.
+ * @returns Image values rewritten.
+ * @throws {Error} When an image cannot be rewritten; the caller must not ship the snapshot.
+ * @task T12535
+ */
+export function redactJournalSecrets(
+  snapshotPath: string,
+  columns: Readonly<Record<string, readonly string[]>> = CREDENTIAL_COLUMNS,
+): number {
+  let rewritten = 0;
+  const db = new DatabaseSync(snapshotPath); // schema-guard-exempt: a snapshot copy this step owns; journal redaction is DML only
+  try {
+    db.exec('PRAGMA secure_delete = ON');
+    inSnapshotWriteBracket(db, () => {
+      for (const [journal, images] of Object.entries(JOURNAL_IMAGES)) {
+        const present = new Set(
+          (
+            db.prepare('SELECT name FROM pragma_table_info(?)').all(journal) as Array<{
+              name: string;
+            }>
+          ).map((c) => c.name),
+        );
+        for (const image of images.filter((c) => present.has(c))) {
+          for (const [table, cols] of Object.entries(columns)) {
+            const paths = cols.map((c) => `'$."${c.replace(/"/g, '""')}"'`).join(', ');
+            rewritten += Number(
+              db
+                .prepare(
+                  `UPDATE "${journal}" SET "${image}" = json_remove("${image}", ${paths}) ` +
+                    `WHERE tbl = ? AND json_valid("${image}") AND json_remove("${image}", ${paths}) IS NOT "${image}"`,
+                )
+                .run(table).changes,
+            );
+          }
+        }
+      }
+    });
+    if (rewritten > 0) db.exec('VACUUM');
+  } finally {
+    db.close();
+  }
+  return rewritten;
+}
+
+/**
  * Clear the given columns in a SNAPSHOT (never a live store), as
  * {@link redactCredentials} does for the credential columns: NULL (or `''`
  * when NOT NULL), then `secure_delete` + `VACUUM`. Rows are kept.

@@ -206,6 +206,18 @@ function seed(native: DatabaseSync, shape: Shape, fillBetween: boolean): void {
       ('evidence-T2-2', 'stage-T2-research', 'docs/b.md', 'file', '2026-09-02T09:21:00.000Z');
     INSERT INTO tasks_lifecycle_transitions (id, pipeline_id, from_stage_id, to_stage_id, created_at) VALUES
       ('transition-gb-1', 'pipeline-T2', 'stage-T2-research', 'stage-T2-consensus', '2026-09-02 09:22:00');
+
+    -- T12535: project sticky notes (minted) with their tags (natural, matching
+    -- tags_json, which the junction follows), and a playbook run with an
+    -- approval (natural), in both timestamp forms.
+    INSERT INTO brain_sticky_notes (id, content, tags_json, created_at, updated_at) VALUES
+      ('SN-001', 'first sticky', '["gate-b"]', '2026-09-01 09:30:00', '2026-09-01 09:30:00'),
+      ('SN-002', 'second sticky', '[]', '2026-09-02T09:30:00.000Z', '2026-09-02T09:30:00.000Z');
+    INSERT INTO brain_sticky_tags (sticky_id, tag) VALUES ('SN-001', 'gate-b');
+    INSERT INTO tasks_playbook_runs (run_id, playbook_name, playbook_hash, started_at) VALUES
+      ('gb-run-1', 'rcasd', 'hash-gb', '2026-09-01 09:40:00');
+    INSERT INTO tasks_playbook_approvals (approval_id, run_id, node_id, token, requested_at) VALUES
+      ('gb-appr-1', 'gb-run-1', 'gate', 'tok-gb-1', '2026-09-02T09:41:00.000Z');
   `);
   // llmtxt kept its audit events only in the bare twin; cleocode in both.
   const audit = shape === 'llmtxt' ? ['audit_log'] : ['audit_log', 'tasks_audit_log'];
