@@ -579,7 +579,9 @@ async function replaySegments(
  * What works on a stream the change journal writes (its head snapshot is
  * checkpoint/v3), for every message that would otherwise say "push" (T13034).
  * A build where `sync.push` is unreleased cannot join the journal, since `cleo sync enable push`
- * refuses there, so it is told to upgrade instead (T13851).
+ * refuses there (T13851). While it is unreleased no released CLEO ships it either, so the remedy
+ * never sends the user to `cleo self-update`: a pre-release or allowUnreleased build started the
+ * journal, and pull, restore and verify keep working (T13856).
  *
  * @param pushReleased - Whether this build ships `sync.push`; defaults to the release state.
  * @returns The remedy clause, naming only commands this build can run.
@@ -588,7 +590,23 @@ export function journalStreamRemedy(pushReleased = !UNRELEASED_FLAGS.has('sync.p
   if (pushReleased) {
     return 'on this stream local changes travel through the change journal (`sync.push`), and with it on a vault push checkpoints the journal (T12999); a store that has not joined it joins with `cleo sync enable push`, which keeps its own rows and merges them into the stream (T13466); `cleo cloud pull`, `cleo cloud restore` and `cleo cloud verify` still work';
   }
-  return 'on this stream local changes travel through the change journal (`sync.push`), which checkpoints the stream (T12999) and which this CLEO cannot run: `sync.push` is not released in this build, so a newer CLEO on another device wrote this stream; upgrade CLEO on this machine with `cleo self-update` to a release that ships `sync.push` before pushing this store (T13851); `cleo cloud pull`, `cleo cloud restore` and `cleo cloud verify` still work';
+  return `on this stream local changes travel through the change journal (\`sync.push\`), which this CLEO cannot run: ${SYNC_PUSH_UNRELEASED_CLAUSE}; \`cleo cloud pull\`, \`cleo cloud restore\` and \`cleo cloud verify\` keep working`;
+}
+
+/** Why no CLEO can push while `sync.push` is unreleased (T13856): no release ships it yet. */
+const SYNC_PUSH_UNRELEASED_CLAUSE =
+  '`sync.push` is not released yet, so a pre-release or allowUnreleased CLEO build started this journal and no released CLEO can push to it yet (T13856)';
+
+/**
+ * The fix for E_SYNC_DISABLED: turn the journal on where this build can, and otherwise say that no
+ * released CLEO can yet (T13856), never naming `cleo sync enable push` where it refuses.
+ *
+ * @param pushReleased - Whether this build ships `sync.push`; defaults to the release state.
+ * @returns The fix text.
+ */
+export function syncDisabledRemedy(pushReleased = !UNRELEASED_FLAGS.has('sync.push')): string {
+  if (pushReleased) return 'turn the change journal on first: `cleo sync enable push`';
+  return `the change journal is off here and this CLEO cannot turn it on: ${SYNC_PUSH_UNRELEASED_CLAUSE}; \`cleo cloud pull\`, \`cleo cloud restore\` and \`cleo cloud verify\` keep working`;
 }
 
 /** Whether a snapshot is checkpoint/v3: the change journal writes its stream (T13034). */
@@ -3333,7 +3351,7 @@ async function cloudSyncImpl(
     throw vaultError(
       'E_SYNC_DISABLED',
       'no attached stream has sync.push or sync.pull on',
-      'turn the change journal on first: `cleo sync enable push`',
+      syncDisabledRemedy(),
     );
   }
   return { apiUrl: conn.apiUrl, streams, warnings: [...conn.warnings] };

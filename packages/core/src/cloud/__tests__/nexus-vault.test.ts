@@ -158,6 +158,7 @@ import {
   releaseNexusVaultLease,
   restoreNexusVault,
   serverRetirementsFor,
+  syncDisabledRemedy,
   verifyNexusVault,
 } from '../nexus-vault.js';
 import {
@@ -3995,13 +3996,25 @@ function projectDataKey(): Buffer {
 }
 
 describe('journalStreamRemedy names only commands this build can run (T13851)', () => {
-  it('a build without sync.push says to upgrade; a build with it says to join', () => {
+  it('a build without sync.push names no command it cannot run; a build with it says to join', () => {
+    // While sync.push is unreleased no released CLEO ships it, so self-update would loop (T13856).
     const unreleased = journalStreamRemedy(false);
-    expect(unreleased).toContain('cleo self-update');
+    expect(unreleased).not.toContain('cleo self-update');
     expect(unreleased).not.toContain('cleo sync enable push');
+    expect(unreleased).toContain('no released CLEO can push to it yet');
+    expect(unreleased).toContain('pre-release or allowUnreleased');
+    expect(unreleased).toContain('`cleo cloud pull`, `cleo cloud restore` and `cleo cloud verify`');
     const released = journalStreamRemedy(true);
     expect(released).toContain('cleo sync enable push');
     expect(released).not.toContain('cleo self-update');
+  });
+
+  it('the E_SYNC_DISABLED fix names cleo sync enable push only where this build ships sync.push (T13856)', () => {
+    const unreleased = syncDisabledRemedy(false);
+    expect(unreleased).not.toContain('cleo sync enable push');
+    expect(unreleased).not.toContain('cleo self-update');
+    expect(unreleased).toContain('no released CLEO can push to it yet');
+    expect(syncDisabledRemedy(true)).toContain('cleo sync enable push');
   });
 });
 
@@ -4153,8 +4166,9 @@ describe('cloud vault on a stream the change journal writes (segment/v3, checkpo
     // This build has `sync.push` unreleased, so `cleo sync enable push` refuses here: the remedy
     // names the upgrade, never the enable step it would refuse (T13851).
     expect(UNRELEASED_FLAGS.has('sync.push')).toBe(true);
-    expect(behind.fix).toContain('cleo self-update');
+    expect(behind.fix).not.toContain('cleo self-update');
     expect(behind.fix).not.toContain('cleo sync enable push');
+    expect(behind.fix).toContain('no released CLEO can push to it yet');
     const refused = await failure(on(a, () => pushNexusVault(vopts(a, { force: true }))));
     expect(refused.code).toBe('E_NEXUS_VAULT_STREAM_UPGRADED');
     expect(refused.message).toContain('checkpoint/v3');
@@ -6014,7 +6028,10 @@ describe('sync enable push: the genesis checkpoint (T12343 S4-1b)', () => {
     const { m } = await journalMachine();
     const refused = await failure(on(m, () => cloudSync(vopts(m, { scope: 'project' }))));
     expect(refused.code).toBe('E_SYNC_DISABLED');
-    expect(refused.fix).toContain('cleo sync enable push');
+    // This build has sync.push unreleased, where `cleo sync enable push` refuses (T13856).
+    expect(UNRELEASED_FLAGS.has('sync.push')).toBe(true);
+    expect(refused.fix).toBe(syncDisabledRemedy(false));
+    expect(refused.fix).not.toContain('cleo sync enable push');
   });
 
   it('S5-1: a store that synced a vault snapshot from before the journal genesis refuses to pull across it (T13306)', async () => {
