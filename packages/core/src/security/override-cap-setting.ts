@@ -213,14 +213,19 @@ function trackingWarnings(projectRoot: string): string[] {
   return [];
 }
 
-/** Whether git's HEAD holds a committed `.cleo/owner-settings.json` (an earlier enrollment). */
+/**
+ * Whether git history holds `.cleo/owner-settings.json` on any ref (an earlier
+ * enrollment), T13829: a commit that deletes the file must not hide it, so
+ * this asks `git log --all`, not only HEAD.
+ */
 function committedSettingsExist(projectRoot: string): boolean {
   try {
-    execFileSync('git', ['cat-file', '-e', 'HEAD:.cleo/owner-settings.json'], {
-      cwd: projectRoot,
-      stdio: 'ignore',
-    });
-    return true;
+    const out = execFileSync(
+      'git',
+      ['log', '--all', '--format=%H', '-n', '1', '--', '.cleo/owner-settings.json'],
+      { cwd: projectRoot, encoding: 'utf-8', stdio: ['ignore', 'pipe', 'ignore'] },
+    );
+    return out.trim() !== '';
   } catch {
     return false;
   }
@@ -430,6 +435,13 @@ async function judgeOwnerState(
  */
 export async function resolveOverrideCap(projectRoot: string): Promise<OverrideCapResolution> {
   const state = await judgeOwnerState(projectRoot);
+  // T13829: an enrollment that replaced another without proof of the previous
+  // owner sets no cap until the owner confirms it.
+  if (state.kind === 'ok' && state.global.resetFrom) {
+    const warning = `owner key ${state.global.fingerprint} replaced an earlier enrollment without proof of the previous owner (${state.global.resetFrom}); ${OVERRIDE_CAP_SETTING} falls back to ${DEFAULT_OVERRIDE_CAP_PER_SESSION} until \`${OWNER_ENROLL_COMMAND} --confirm\`.`;
+    audit(projectRoot, 'owner-settings-unconfirmed', { sessionId: null, reason: warning });
+    return { cap: DEFAULT_OVERRIDE_CAP_PER_SESSION, source: 'default', warning };
+  }
   if (state.kind === 'ok' && state.cap !== null) return { cap: state.cap, source: 'owner-setting' };
   if (state.kind !== 'tampered')
     return { cap: DEFAULT_OVERRIDE_CAP_PER_SESSION, source: 'default' };
@@ -470,7 +482,7 @@ export async function ownerEnrollmentStatus(projectRoot: string): Promise<OwnerE
       message:
         `Owner key ${g.fingerprint} replaced an earlier enrollment WITHOUT proof of the previous owner ` +
         `(${g.resetFrom}) at ${g.enrolledAt}, by session ${g.sessionId ?? 'unknown'} on tty ${g.tty ?? 'unknown'} ` +
-        `(parent ${g.parent ?? 'unknown'}); ${OVERRIDE_CAP_SETTING} = ${cap}. If you did this, confirm it with ` +
+        `(parent ${g.parent ?? 'unknown'}); ${OVERRIDE_CAP_SETTING} stays ${DEFAULT_OVERRIDE_CAP_PER_SESSION} until confirmed. If you did this, confirm it with ` +
         `\`${OWNER_ENROLL_COMMAND} --confirm\`; if not, restore .cleo/owner-settings.json from git and re-enroll. ` +
         'An agent that did the reset could also confirm it: this is visibility, not prevention.',
       fingerprint: g.fingerprint,
@@ -478,7 +490,7 @@ export async function ownerEnrollmentStatus(projectRoot: string): Promise<OwnerE
       sessionId: g.sessionId,
       tty: g.tty,
       parent: g.parent,
-      cap,
+      cap: DEFAULT_OVERRIDE_CAP_PER_SESSION,
       warnings: [],
     };
   const enrolledMs = Date.parse(g.enrolledAt);

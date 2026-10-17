@@ -197,6 +197,41 @@ describe('enrollment is explicit and anchored twice', () => {
     expect((await ownerEnrollmentStatus(root)).status).toBe('enrolled');
   });
 
+  it('T13829: while unconfirmed the cap falls back to 10; confirming restores the sealed value', async () => {
+    await enrollOwner(root, owner());
+    rmSync(settingsFile());
+    rmSync(join(home, 'owner-enrollments.json'));
+    await enrollOwner(root, owner('new'), { reset: true });
+    // The new key may seal a value, but it does not count until confirmed.
+    expect(await setOwnerOverrideCap(root, { ...owner('new'), value: 60 })).toMatchObject({
+      ok: true,
+    });
+    const cap = await resolveOverrideCap(root);
+    expect(cap).toMatchObject({ cap: 10, source: 'default' });
+    expect(cap.warning).toMatch(/without proof of the previous owner.*until .*--confirm/);
+    expect(audit().at(-1)).toMatchObject({ action: 'owner-settings-unconfirmed' });
+    expect((await ownerEnrollmentStatus(root)).cap).toBe(10);
+    await confirmOwnerEnrollment(root, owner('new'));
+    expect(await resolveOverrideCap(root)).toEqual({ cap: 60, source: 'owner-setting' });
+  });
+
+  it('T13829: a commit that deleted owner-settings.json still counts as an earlier enrollment', async () => {
+    const git = (...args: string[]) =>
+      execFileSync('git', ['-c', 'user.name=T', '-c', 'user.email=t@e.x', ...args], {
+        cwd: root,
+        stdio: 'ignore',
+      });
+    git('init', '-q', '-b', 'main');
+    await enrollOwner(root, owner());
+    git('add', '.cleo/owner-settings.json');
+    git('commit', '-q', '-m', 'owner');
+    git('rm', '-q', '.cleo/owner-settings.json');
+    git('commit', '-q', '-m', 'drop the owner file');
+    rmSync(join(home, 'owner-enrollments.json'));
+    expect(await enrollOwner(root, owner('agent'))).toMatchObject({ ok: true });
+    expect((await ownerEnrollmentStatus(root)).status).toBe('unconfirmed');
+  });
+
   it('with both anchors gone but the enrollment still committed in git, a plain enroll is unconfirmed too', async () => {
     const git = (...args: string[]) =>
       execFileSync('git', ['-c', 'user.name=T', '-c', 'user.email=t@e.x', ...args], {
