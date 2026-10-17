@@ -59,7 +59,10 @@
  *                             audit log + the surviving registry/blob bytes)
  *                             and inserts them through the canonical
  *                             accessor. Runs under `--apply`; `--repair`
- *                             stays the T13653 blob-backfill-only mode.
+ *                             stays the T13653 blob-backfill-only mode. A
+ *                             doc whose remaining positions are
+ *                             unrecoverable stays listed at `info` level —
+ *                             visibility only, no invented repair (T13843).
  *
  * SAFETY: `apply: true` (or `repair: true`) REFUSES to run without a backup receipt
  * ({@link DocsDoctorOptions.backupReceiptPath}) whose mtime is at most
@@ -776,16 +779,22 @@ async function scanStore(
   const conduitBackfill = await planConduitHistoryBackfill(projectRoot);
   // Actionable = anything a doctor run should surface: rows to backfill,
   // unrecoverable gaps (real, unhealed drift — reported even when the doc
-  // is otherwise complete), or a refused conflict (review-2253).
+  // is otherwise complete), or a refused conflict (review-2253). Severity:
+  // `warn` only while a doc still NEEDS action (a backfill or a conflict);
+  // a run whose only surfaceable docs are complete-but-gapped is
+  // visibility-only and reports at `info` (T13843).
   const conduitActionable = conduitBackfill.filter(
     (p) => !p.complete || p.gaps.length > 0 || p.conflict,
   );
+  const conduitNeedsAction = conduitActionable.some((p) => p.conflict || !p.complete);
   const conduitItems = conduitActionable.slice(0, DOCS_DOCTOR_MAX_DETAIL_ITEMS).map((p) => ({
     slug: p.slug,
     expectedVersions: p.expectedVersions,
     existingVersions: p.existingVersions,
     toBackfill: p.toBackfill.length,
     gaps: p.gaps.length,
+    /** Missing content addresses — what a future repair could still recover. */
+    gapHashes: p.gaps.map((g) => g.sha256),
     conflict: p.conflict,
     auditGapVersions: p.auditGapVersions,
   }));
@@ -842,7 +851,7 @@ async function scanStore(
     },
     {
       kind: 'conduit-history-gaps',
-      severity: conduitActionable.length > 0 ? 'warn' : 'info',
+      severity: conduitNeedsAction ? 'warn' : 'info',
       count: conduitActionable.length,
       items: conduitItems,
       truncated: conduitActionable.length > conduitItems.length,
@@ -994,7 +1003,13 @@ export async function runDocsDoctor(
         });
         continue;
       }
-      const gapNote = plan.gaps.length > 0 ? `, ${plan.gaps.length} gap(s) unrecoverable` : '';
+      const gapNote =
+        plan.gaps.length > 0
+          ? `, ${plan.gaps.length} gap(s) unrecoverable (sha256 ${plan.gaps
+              .slice(0, 3)
+              .map((g) => g.sha256.slice(0, 12))
+              .join('…, ')}…)` + (plan.gaps.length > 3 ? ` +${plan.gaps.length - 3} more` : '')
+          : '';
       const auditNote =
         plan.auditGapVersions > 0
           ? `, ${plan.auditGapVersions} version(s) the audit log cannot account for`
