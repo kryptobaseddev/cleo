@@ -61,7 +61,28 @@ import { readFileSync, writeFileSync } from 'node:fs';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+
+/**
+ * T13842: when set, the real projection runs with this explicit HLC, so a
+ * write can lose the head race (a minted HLC always advances the head).
+ */
+let forcedHlc: string | undefined;
+vi.mock('../section-write-path.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../section-write-path.js')>();
+  return {
+    ...actual,
+    projectDocUpdateThroughSections: (
+      root: string,
+      input: Parameters<typeof actual.projectDocUpdateThroughSections>[1],
+    ) =>
+      actual.projectDocUpdateThroughSections(
+        root,
+        forcedHlc !== undefined ? { ...input, hlc: forcedHlc } : input,
+      ),
+  };
+});
+
 import {
   getConduitAttachmentVersion,
   getConduitDocHead,
@@ -679,3 +700,81 @@ async function seedLegacyDoc(root: string, slug: string): Promise<void> {
     })
     .run();
 }
+
+describe("docs fetch serves the merged head, not the last writer's raw input (T13842)", () => {
+  const SEED = '# Plan\n\npre.\n\n## Alpha\n\nalpha body\n\n## Beta\n\nbeta body';
+
+  async function withStore(fn: (root: string) => Promise<void>): Promise<void> {
+    const root = await mkdtemp(join(tmpdir(), 'cleo-docs-fetch-head-'));
+    process.env['CLEO_DIR'] = join(root, '.cleo');
+    closeDb();
+    try {
+      await seedLegacyDoc(root, SLUG);
+      expect((await updateDocBySlug(root, { slug: SLUG, content: SEED })).ok).toBe(true);
+      await fn(root);
+    } finally {
+      forcedHlc = undefined;
+      closeDb();
+      delete process.env['CLEO_DIR'];
+      await rm(root, { recursive: true, force: true });
+    }
+  }
+
+  async function fetchedBody(root: string): Promise<string | null> {
+    const model = new DocsReadModel({ projectRoot: root });
+    const doc = await model.resolveBySlug(SLUG);
+    return doc === null ? null : model.fetchContent(doc);
+  }
+
+  async function headText(root: string): Promise<string> {
+    const docUid = (await resolveConduitDocUid(root, SLUG)) as string;
+    const head = await getConduitDocHead(root, docUid);
+    const version = await getConduitAttachmentVersion(root, head?.headVersionUid ?? '');
+    return readFileSync(
+      join(root, '.cleo', 'attachments', 'sha256', version?.storageKey ?? ''),
+      'utf-8',
+    );
+  }
+
+  it("a stale-base append merge: the fetched body carries both writers' lines", async () => {
+    await withStore(async (root) => {
+      const docUid = (await resolveConduitDocUid(root, SLUG)) as string;
+      const base = (await getConduitDocHead(root, docUid))?.headVersionUid;
+      const a = await updateDocBySlug(root, {
+        slug: SLUG,
+        content: SEED.replace('alpha body', 'alpha body\n\nA line'),
+      });
+      expect(a.ok).toBe(true);
+      const b = await updateDocBySlug(root, {
+        slug: SLUG,
+        content: SEED.replace('beta body', 'beta body\n\nB line'),
+        baseVersionUid: base,
+      });
+      expect(b.ok && b.result.staleBaseMerged).toBe(true);
+
+      const body = await fetchedBody(root);
+      expect(body).toContain('A line');
+      expect(body).toContain('B line');
+      expect(body).toBe(await headText(root));
+    });
+  });
+
+  it('a write that loses the head race: the fetched body is the head, not the losing input', async () => {
+    await withStore(async (root) => {
+      const winner = SEED.replace('alpha body', 'alpha body\n\nwinner line');
+      forcedHlc = '9999999999999-000000-f4d5b7e5-4a36-4c39-9f8b-8e2d6a1f2c40';
+      expect((await updateDocBySlug(root, { slug: SLUG, content: winner })).ok).toBe(true);
+      // A later write with a lower HLC loses the head race; its version stays in history.
+      forcedHlc = '0000000000001-000000-f4d5b7e5-4a36-4c39-9f8b-8e2d6a1f2c40';
+      const loser = await updateDocBySlug(root, {
+        slug: SLUG,
+        content: SEED.replace('beta body', 'beta body\n\nloser line'),
+      });
+      expect(loser.ok).toBe(true);
+
+      const head = await headText(root);
+      expect(head).toContain('winner line');
+      expect(await fetchedBody(root)).toBe(head);
+    });
+  });
+});

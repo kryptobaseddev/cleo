@@ -588,7 +588,7 @@ export async function updateDocBySlug(
 
   const previousAttachmentId = oldRow.id;
   const previousSha256 = oldRow.sha256;
-  const newSha256 = buf === null ? previousSha256 : sha256Of(buf);
+  let newSha256 = buf === null ? previousSha256 : sha256Of(buf);
   const wouldChange = newSha256 !== previousSha256 || oldRow.lifecycleStatus !== status;
 
   // The body schema is checked on new bytes; a lifecycle-only change keeps
@@ -695,6 +695,114 @@ export async function updateDocBySlug(
         ...(noopHead !== undefined ? { headVersionUid: noopHead } : {}),
       },
     };
+  }
+
+  // T13355: project the update through the section CRDT merge layer (spec
+  // `cleodocs-rearch-design` §2 option b). Text bodies only — inline content
+  // or a UTF-8 text file (T13688); binary files stay on the whole-doc path.
+  // T13842: it runs BEFORE the row write, and the row (what `docs fetch`
+  // reads) is written from the resulting HEAD text, not the incoming bytes —
+  // otherwise a merged concurrent edit lives only in the conduit head and
+  // readers get the last writer's raw input. Best-effort: on a projection
+  // failure the incoming bytes are written, as before.
+  // T13604: a recorded conflict is threaded into the result envelope and a
+  // stderr warning names the sections — the update reports changed:true, so
+  // without this the caller would never learn their edit is not in the head.
+  let sectionConflicts: DocsSectionConflict[] | undefined;
+  let leaseNotices: DocsSectionLeaseNotice[] | undefined;
+  let staleBaseMerged = false;
+  if (text !== null) {
+    try {
+      const { projectDocUpdateThroughSections } = await import('./section-write-path.js');
+      // T13356 AC4: the real session id drives lease acquire/renew, so a
+      // lease dies honestly with its session (TTL bound, holder-only renew).
+      // Gate 16: the bound session is resolved via resolveBoundSession —
+      // never a bare getActiveSession().
+      const boundSession = await resolveBoundSession(projectRoot);
+      const projection = await projectDocUpdateThroughSections(projectRoot, {
+        slug,
+        authorAgentId: attachedBy,
+        content: text,
+        ...(boundSession !== null ? { sessionId: boundSession.session.id } : {}),
+        ...(params.message !== undefined ? { changeSummary: params.message } : {}),
+        // T13674: the declared base replaces the previous head as the
+        // single-writer/concurrent discriminator, so a stale base merges
+        // (append) or conflicts (non-append) instead of re-seeding over a
+        // concurrent writer's landed edit.
+        ...(baseSections !== undefined ? { baseSections } : {}),
+      });
+      // The head is the merged text when this write advanced it; when it lost
+      // the head race (an explicit lower HLC) the head stays at the other
+      // version, so the row mirrors that version's text instead.
+      const headText = projection.head.advanced
+        ? projection.mergedText
+        : await readVersionText(projectRoot, projection.head.head.headVersionUid);
+      if (headText !== null && headText !== text) {
+        buf = Buffer.from(headText, 'utf-8');
+        newSha256 = sha256Of(buf);
+      }
+      // T13674: the declared base was superseded AND at least one edited
+      // section composed into the head — its text is the merge of the
+      // caller's edit and a concurrent writer's. A section that only
+      // conflicted merged nothing, so it is reported as a conflict alone.
+      const conflicted = new Set(projection.conflicts.map((c) => c.sectionId));
+      staleBaseMerged =
+        params.baseVersionUid !== undefined &&
+        projection.previousHeadVersionUid !== null &&
+        params.baseVersionUid !== projection.previousHeadVersionUid &&
+        projection.sectionsModified.some((id) => !conflicted.has(id));
+      if (staleBaseMerged) {
+        pushWarning({
+          // @sync-invariant none:input-shape the warning only names a merge the CRDT projection already performed (docs.head.max-hlc); it rejects nothing and writes nothing
+          code: 'W_DOC_STALE_BASE',
+          message:
+            `slug '${slug}' was updated against a superseded base — a concurrent writer's edit was merged ` +
+            'into the head. Re-fetch (`cleo docs fetch ' +
+            slug +
+            '`) before your next edit so it is authored against the current head.',
+        });
+      }
+      if (projection.conflicts.length > 0) {
+        sectionConflicts = projection.conflicts.map((c) => ({
+          sectionId: c.sectionId,
+          incomingVersionUid: c.incomingVersionUid,
+          projectionVersionUid: c.projectionVersionUid,
+        }));
+        pushWarning({
+          // @sync-invariant none:input-shape the warning only NAMES a conflict the CRDT projection already recorded (docs.head.max-hlc); it rejects nothing and writes nothing
+          code: 'W_DOC_SECTION_CONFLICT',
+          message:
+            `concurrent section edit(s) on slug '${slug}' did not merge into the conduit head: ` +
+            projection.conflicts
+              .map(
+                (c) =>
+                  `section '${c.sectionId}' (incoming version ${c.incomingVersionUid} kept in history; head keeps projection version ${c.projectionVersionUid})`,
+              )
+              .join('; '),
+        });
+      }
+      if (projection.leaseNotices.length > 0) {
+        leaseNotices = projection.leaseNotices.map((n) => ({
+          sectionId: n.sectionId,
+          holder: n.holder,
+          sessionId: n.sessionId,
+          expiresAt: n.expiresAt,
+        }));
+        pushWarning({
+          // @sync-invariant none:input-shape the warning only NAMES an advisory lease held by another session (T13356); it rejects nothing and writes nothing
+          code: 'W_DOC_SECTION_LEASED',
+          message:
+            `section lease(s) held by another session on slug '${slug}' (advisory — your edit still landed): ` +
+            projection.leaseNotices
+              .map((n) => `section '${n.sectionId}' held by ${n.holder} until ${n.expiresAt}`)
+              .join('; '),
+        });
+      }
+    } catch (projectionErr) {
+      process.emitWarning(
+        `docs section CRDT projection failed for update of slug '${slug}' (the incoming bytes are written): ${projectionErr instanceof Error ? projectionErr.message : String(projectionErr)}`,
+      );
+    }
   }
 
   // Write the new blob to disk BEFORE the transaction so failure here
@@ -948,101 +1056,6 @@ export async function updateDocBySlug(
     );
   }
 
-  // T13355: project the update through the section CRDT merge layer (spec
-  // `cleodocs-rearch-design` §2 option b). Text bodies only — inline content
-  // or a UTF-8 text file (T13688); binary files stay on the whole-doc path.
-  // Best-effort: a projection failure must not fail the completed update —
-  // the whole-row write above is the fallback when no section state exists.
-  // T13604: a recorded conflict is threaded into the result envelope and a
-  // stderr warning names the sections — the update reports changed:true, so
-  // without this the caller would never learn their edit is not in the head.
-  let sectionConflicts: DocsSectionConflict[] | undefined;
-  let leaseNotices: DocsSectionLeaseNotice[] | undefined;
-  let staleBaseMerged = false;
-  if (text !== null) {
-    try {
-      const { projectDocUpdateThroughSections } = await import('./section-write-path.js');
-      // T13356 AC4: the real session id drives lease acquire/renew, so a
-      // lease dies honestly with its session (TTL bound, holder-only renew).
-      // Gate 16: the bound session is resolved via resolveBoundSession —
-      // never a bare getActiveSession().
-      const boundSession = await resolveBoundSession(projectRoot);
-      const projection = await projectDocUpdateThroughSections(projectRoot, {
-        slug,
-        authorAgentId: attachedBy,
-        content: text,
-        ...(boundSession !== null ? { sessionId: boundSession.session.id } : {}),
-        ...(params.message !== undefined ? { changeSummary: params.message } : {}),
-        // T13674: the declared base replaces the previous head as the
-        // single-writer/concurrent discriminator, so a stale base merges
-        // (append) or conflicts (non-append) instead of re-seeding over a
-        // concurrent writer's landed edit.
-        ...(baseSections !== undefined ? { baseSections } : {}),
-      });
-      // T13674: the declared base was superseded AND at least one edited
-      // section composed into the head — its text is the merge of the
-      // caller's edit and a concurrent writer's. A section that only
-      // conflicted merged nothing, so it is reported as a conflict alone.
-      const conflicted = new Set(projection.conflicts.map((c) => c.sectionId));
-      staleBaseMerged =
-        params.baseVersionUid !== undefined &&
-        projection.previousHeadVersionUid !== null &&
-        params.baseVersionUid !== projection.previousHeadVersionUid &&
-        projection.sectionsModified.some((id) => !conflicted.has(id));
-      if (staleBaseMerged) {
-        pushWarning({
-          // @sync-invariant none:input-shape the warning only names a merge the CRDT projection already performed (docs.head.max-hlc); it rejects nothing and writes nothing
-          code: 'W_DOC_STALE_BASE',
-          message:
-            `slug '${slug}' was updated against a superseded base — a concurrent writer's edit was merged ` +
-            'into the head. Re-fetch (`cleo docs fetch ' +
-            slug +
-            '`) before your next edit so it is authored against the current head.',
-        });
-      }
-      if (projection.conflicts.length > 0) {
-        sectionConflicts = projection.conflicts.map((c) => ({
-          sectionId: c.sectionId,
-          incomingVersionUid: c.incomingVersionUid,
-          projectionVersionUid: c.projectionVersionUid,
-        }));
-        pushWarning({
-          // @sync-invariant none:input-shape the warning only NAMES a conflict the CRDT projection already recorded (docs.head.max-hlc); it rejects nothing and writes nothing
-          code: 'W_DOC_SECTION_CONFLICT',
-          message:
-            `concurrent section edit(s) on slug '${slug}' did not merge into the conduit head: ` +
-            projection.conflicts
-              .map(
-                (c) =>
-                  `section '${c.sectionId}' (incoming version ${c.incomingVersionUid} kept in history; head keeps projection version ${c.projectionVersionUid})`,
-              )
-              .join('; '),
-        });
-      }
-      if (projection.leaseNotices.length > 0) {
-        leaseNotices = projection.leaseNotices.map((n) => ({
-          sectionId: n.sectionId,
-          holder: n.holder,
-          sessionId: n.sessionId,
-          expiresAt: n.expiresAt,
-        }));
-        pushWarning({
-          // @sync-invariant none:input-shape the warning only NAMES an advisory lease held by another session (T13356); it rejects nothing and writes nothing
-          code: 'W_DOC_SECTION_LEASED',
-          message:
-            `section lease(s) held by another session on slug '${slug}' (advisory — your edit still landed): ` +
-            projection.leaseNotices
-              .map((n) => `section '${n.sectionId}' held by ${n.holder} until ${n.expiresAt}`)
-              .join('; '),
-        });
-      }
-    } catch (projectionErr) {
-      process.emitWarning(
-        `docs section CRDT projection failed after update of slug '${slug}': ${projectionErr instanceof Error ? projectionErr.message : String(projectionErr)}`,
-      );
-    }
-  }
-
   const { readDocHeadVersionUid } = await import('./fetch-result.js');
   const headVersionUid = await readDocHeadVersionUid(projectRoot, slug);
   return {
@@ -1068,6 +1081,22 @@ export async function updateDocBySlug(
       ...(headVersionUid !== undefined ? { headVersionUid } : {}),
     },
   };
+}
+
+/**
+ * A conduit version's text, read from its content-addressed blob (T13842).
+ * `null` when the version or its bytes cannot be read; the caller then keeps
+ * the incoming bytes.
+ */
+async function readVersionText(projectRoot: string, versionUid: string): Promise<string | null> {
+  const { getConduitAttachmentVersion } = await import('../store/conduit-doc-history.js');
+  const version = await getConduitAttachmentVersion(projectRoot, versionUid);
+  if (!version?.storageKey) return null;
+  const { readFile } = await import('node:fs/promises');
+  return readFile(
+    join(getCleoDirAbsolute(projectRoot), 'attachments', 'sha256', version.storageKey),
+    'utf-8',
+  ).catch(() => null);
 }
 
 /** The bytes as text when they are valid UTF-8 without NUL bytes; else null. */
