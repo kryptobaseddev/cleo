@@ -398,7 +398,10 @@ export function getCleoDirAbsolute(cwd?: string, opts?: { bootstrap?: boolean })
     // side-effect does not pre-register the fixture project out from under the
     // test's explicit registration state. Off by default — production always
     // auto-registers on encounter.
-    if (process.env['CLEO_DISABLE_PROJECT_AUTOREGISTER'] !== '1') {
+    // T13841: a bootstrap resolution is init choosing its target, not a use of
+    // the resolved project. From a subdirectory it resolves the PARENT, and a
+    // refused init must not register (or stamp the checkout nonce on) it.
+    if (process.env['CLEO_DISABLE_PROJECT_AUTOREGISTER'] !== '1' && !opts?.bootstrap) {
       scheduleProjectEncounter(project.projectRoot, project.projectId);
     }
     try {
