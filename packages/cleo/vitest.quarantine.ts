@@ -94,7 +94,6 @@ export const CLEO_TEST_QUARANTINE: readonly string[] = [
   'packages/cleo/src/dispatch/__tests__/registry-derivation.test.ts',
   'packages/cleo/src/dispatch/__tests__/transport-inventory.test.ts',
   'packages/cleo/src/dispatch/adapters/__tests__/cli.test.ts',
-  'packages/cleo/src/dispatch/domains/__tests__/admin.test.ts',
   'packages/cleo/src/dispatch/domains/__tests__/alias-detection.test.ts',
   'packages/cleo/src/dispatch/domains/__tests__/check-ops.test.ts',
   'packages/cleo/src/dispatch/domains/__tests__/cli-missing-commands.test.ts',
@@ -128,4 +127,4 @@ export const CLEO_TEST_QUARANTINE: readonly string[] = [
  * Pinned so a PR that repairs a file must also decrement this number, making
  * the burn-down visible in review rather than a silent edit to a long list.
  */
-export const CLEO_TEST_QUARANTINE_BASELINE = 73;
+export const CLEO_TEST_QUARANTINE_BASELINE = 72;
