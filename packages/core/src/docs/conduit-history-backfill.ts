@@ -30,11 +30,15 @@
  *     holds them), the position is recorded as a GAP and skipped — content
  *     is never fabricated. The parent chain links across a gap to the
  *     nearest present ancestor and the report counts the gap.
- *   - Existing conduit rows are NEVER updated or renumbered (append-only);
- *     they are aligned by content hash against the TAIL of the reconstructed
- *     chain. A hash mismatch refuses the doc (reported for manual review).
+ *   - Existing conduit rows are NEVER updated or renumbered (append-only).
+ *     Matching is by CONTENT HASH, never by ordinal or tail position
+ *     (review-2253): a chain position whose hash already has a row is done;
+ *     an existing row whose hash is not in the chain refuses the doc
+ *     (reported for manual review); complete means every recoverable
+ *     position is present, and unrecoverable positions stay reported as
+ *     gaps rather than being silently dropped.
  *
- * Idempotency: a doc whose conduit row count already equals the chain length
+ * Idempotency: a doc whose chain positions all have rows (by content hash)
  * is skipped; per-row natural uids (doc uid, content hash, createdAt) make a
  * partial re-run a verified no-op via `ON CONFLICT DO NOTHING`.
  *
@@ -52,7 +56,7 @@ import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { asc, eq, isNotNull } from 'drizzle-orm';
+import { and, asc, eq, isNotNull } from 'drizzle-orm';
 import { resolveCleoDir } from '../paths.js';
 import { resolveLegacyByteSource } from '../store/blob-keep.js';
 import {
@@ -60,6 +64,7 @@ import {
   listConduitAttachmentVersions,
   withConduitDocWriteTransaction,
 } from '../store/conduit-doc-history.js';
+import { naturalRowUid } from '../store/row-identity.js';
 import { conduitAttachments } from '../store/schema/cleo-project/conduit.js';
 import { getDb } from '../store/sqlite.js';
 import { docsAttachments } from '../store/tasks-schema.js';
@@ -122,11 +127,14 @@ export interface ConduitBackfillVersion extends ConduitBackfillChainState {
   /** Measured token count of the verified historical bytes. */
   readonly tokens: number;
   /**
-   * Chain position of the parent row (always a row this apply inserts), or
-   * null for the chain root. Links across gaps to the nearest present
-   * ancestor.
+   * The parent version's row uid for the DAG link — the uid of the nearest
+   * lower chain position that has (or will have, via this plan) a row, or
+   * null for the chain root. Precomputed at plan time: a present parent's
+   * uid is read from its existing row; a backfilled parent's uid is the
+   * natural row uid {@link importMigratedConduitVersion} derives, so the
+   * link is stable across a re-run.
    */
-  readonly parentPosition: number | null;
+  readonly parentVersionUid: string | null;
 }
 
 /** One chain position whose historical bytes are unrecoverable. */
@@ -150,11 +158,18 @@ export interface ConduitDocBackfillPlan {
   readonly expectedVersions: number;
   /** `conduit_attachment_versions` rows already present. */
   readonly existingVersions: number;
+  /** Chain positions whose content_hash already has a row. */
+  readonly presentVersions: number;
   /** Rows the apply pass would insert (bytes verified present). */
   readonly toBackfill: readonly ConduitBackfillVersion[];
   /** Chain positions with unrecoverable bytes — counted, never fabricated. */
   readonly gaps: readonly ConduitBackfillGap[];
-  /** True when the row set is already complete — the doc is skipped. */
+  /**
+   * True when every recoverable chain position is present — nothing left to
+   * insert. A doc with unrecoverable gaps can be complete AND still carry
+   * {@link gaps}; the gaps stay reported (they are real, unhealed drift),
+   * only the false "conflict" is gone.
+   */
   readonly complete: boolean;
   /**
    * True when the existing conduit rows contradict the reconstructed chain
@@ -299,6 +314,10 @@ async function deriveChainStates(
       .where(eq(docsAttachments.slug, slug))
       .get();
     if (!row) return [];
+    // Honest labeling (review-2253 LOW-2): the audit log records NOTHING for
+    // this doc, so the single state is the version that SURVIVED, not a
+    // recorded "original version" — chain length 1 by survival, and any
+    // earlier history is unrecoverable rather than absent-by-proof.
     return [
       {
         position: 1,
@@ -306,8 +325,8 @@ async function deriveChainStates(
         createdAt: row.createdAt,
         authorAgentId: CONDUIT_BACKFILL_AUTHOR,
         changeSummary:
-          'original version — doc predates the docs-versioning audit log ' +
-          '(pre-adoption history backfilled by T13727)',
+          'only surviving version — doc predates the docs-versioning audit log; ' +
+          'earlier history is unrecoverable (backfilled by T13727)',
       },
     ];
   }
@@ -315,10 +334,14 @@ async function deriveChainStates(
   const anchor = revisions[0]?.previousSha256;
   if (!isNonEmptyString(anchor)) return null;
   const firstTs = revisions[0]?.ts;
+  // The anchor row must be the ORIGINAL creation row (doc_version = 1), not
+  // just any row carrying the sha: content-address dedupe reuses one
+  // docs_attachments row across slugs, and a reused row's created_at belongs
+  // to another doc's timeline (review-2253 LOW-1).
   const anchorRow = await db
     .select({ createdAt: docsAttachments.createdAt })
     .from(docsAttachments)
-    .where(eq(docsAttachments.sha256, anchor))
+    .where(and(eq(docsAttachments.sha256, anchor), eq(docsAttachments.docVersion, 1)))
     .get();
   if (!anchorRow && !isNonEmptyString(firstTs)) return null;
 
@@ -357,12 +380,23 @@ async function deriveChainStates(
  * (or migrated) but its pre-adoption updates wrote no conduit rows. Pure
  * with respect to the database and the blob store: safe in dry-run planning.
  *
- * Alignment model: existing conduit rows must equal the TAIL of the
- * reconstructed chain by content hash. They keep their minted local display
- * ordinals (rows are append-only); backfilled rows carry their chain
- * position as `version_number`, so ordinals may repeat across the seam —
- * the schema defines `version_number` as a local display ordinal that is
- * never a key, and `docs versions` orders by the real timestamps.
+ * Matching model (review-2253): matching is by CONTENT HASH, never by
+ * ordinal or tail position — after a gapped apply the existing set mixes
+ * backfilled low positions with minted rows, so a positional tail check
+ * would false-conflict forever. The rules:
+ *
+ *   - a chain position whose content_hash already has a row is done;
+ *   - a position with no row and no verified bytes is a gap (counted);
+ *   - an existing row whose content_hash is not in the chain is a conflict
+ *     (the doc is refused and reported, never overwritten);
+ *   - complete means every recoverable position is present — a doc with
+ *     permanent gaps can be complete AND still report them.
+ *
+ * Existing rows keep their minted local display ordinals (rows are
+ * append-only); backfilled rows carry their chain position as
+ * `version_number`, so ordinals may repeat across the seam — the schema
+ * defines `version_number` as a local display ordinal that is never a key,
+ * and `docs versions` assigns read-time display ordinals instead.
  *
  * @param projectRoot - Absolute path to the CLEO project root.
  * @returns One plan per in-scope doc (complete, backfill, gap or conflict).
@@ -418,6 +452,7 @@ export async function planConduitHistoryBackfill(
       plans.push({
         ...base,
         expectedVersions: 0,
+        presentVersions: 0,
         toBackfill: [],
         gaps: [],
         complete: false,
@@ -429,28 +464,16 @@ export async function planConduitHistoryBackfill(
       0,
       (registryRow?.docVersion ?? states.length) - states.length,
     );
-    if (existing.length >= states.length) {
-      plans.push({
-        ...base,
-        expectedVersions: states.length,
-        auditGapVersions,
-        toBackfill: [],
-        gaps: [],
-        complete: true,
-        conflict: false,
-      });
-      continue;
-    }
 
-    // The existing rows must be the chain TAIL by content hash; anything
-    // else contradicts the honest sources and is refused, not overwritten.
-    const tailStart = states.length - existing.length;
-    const conflict = existing.some((row, j) => row.contentHash !== states[tailStart + j]?.sha256);
-    if (conflict) {
+    // An existing row whose content_hash is not in the chain contradicts
+    // the honest sources — refuse the doc and report it, never overwrite.
+    const chainHashes = new Set(states.map((s) => s.sha256));
+    if (existing.some((row) => !chainHashes.has(row.contentHash))) {
       plans.push({
         ...base,
         expectedVersions: states.length,
         auditGapVersions,
+        presentVersions: 0,
         toBackfill: [],
         gaps: [],
         complete: false,
@@ -459,33 +482,63 @@ export async function planConduitHistoryBackfill(
       continue;
     }
 
+    // Content-hash matching (review-2253): no ordinal or tail-position
+    // assumptions — a position is done when its hash already has a row.
+    const hashPresent = new Set(existing.map((r) => r.contentHash));
+    // Earliest-created row per hash is the DAG parent candidate when several
+    // rows share a content hash (a revert, a recorded conflict).
+    const uidByHash = new Map<string, string>();
+    for (const row of [...existing].sort(
+      (a, b) => a.createdAt.localeCompare(b.createdAt) || (a.uid ?? '').localeCompare(b.uid ?? ''),
+    )) {
+      if (typeof row.uid === 'string' && row.uid.length > 0 && !uidByHash.has(row.contentHash)) {
+        uidByHash.set(row.contentHash, row.uid);
+      }
+    }
+
     const toBackfill: ConduitBackfillVersion[] = [];
     const gaps: ConduitBackfillGap[] = [];
-    let parentPosition: number | null = null;
-    for (let position = 1; position <= tailStart; position++) {
-      const state = states[position - 1];
-      if (!state) continue;
+    let presentVersions = 0;
+    // The DAG parent of the next backfilled row: the uid of the nearest
+    // lower chain position that has (or will have, via this plan) a row.
+    let lastRowUid: string | null = null;
+    for (const state of states) {
+      if (hashPresent.has(state.sha256)) {
+        presentVersions += 1;
+        const uid = uidByHash.get(state.sha256);
+        if (uid !== undefined) lastRowUid = uid;
+        continue;
+      }
       const bytes = await readVerifiedVersionBytes(cleoDir, state.sha256);
       if (bytes === null) {
-        gaps.push({ position, sha256: state.sha256 });
+        gaps.push({ position: state.position, sha256: state.sha256 });
         continue;
       }
       toBackfill.push({
         ...state,
         sizeBytes: bytes.length,
         tokens: countTokens(bytes.toString('utf-8')),
-        parentPosition,
+        parentVersionUid: lastRowUid,
       });
-      parentPosition = position;
+      // The uid this row WILL have — importMigratedConduitVersion derives the
+      // same natural uid, so the link is stable across a re-run.
+      lastRowUid = naturalRowUid('project', 'conduit_attachment_versions', [
+        doc.uid,
+        state.sha256,
+        state.createdAt,
+      ]);
     }
 
     plans.push({
       ...base,
       expectedVersions: states.length,
       auditGapVersions,
+      presentVersions,
       toBackfill,
       gaps,
-      complete: false,
+      // Complete = every recoverable position is present; permanent gaps
+      // stay reported in `gaps` rather than being silently dropped.
+      complete: toBackfill.length === 0,
       conflict: false,
     });
   }
@@ -518,14 +571,10 @@ export async function applyConduitHistoryBackfill(
   }
   let inserted = 0;
   await withConduitDocWriteTransaction(projectRoot, async () => {
-    const uidByPosition = new Map<number, string>();
     for (const version of plan.toBackfill) {
-      const { uid, inserted: didInsert } = await importMigratedConduitVersion(projectRoot, {
+      const { inserted: didInsert } = await importMigratedConduitVersion(projectRoot, {
         attachmentUid: plan.docUid,
-        parentVersionUid:
-          version.parentPosition === null
-            ? null
-            : (uidByPosition.get(version.parentPosition) ?? null),
+        parentVersionUid: version.parentVersionUid,
         authorAgentId: version.authorAgentId,
         storageKey: `sha256:${version.sha256}`,
         contentHash: version.sha256,
@@ -538,7 +587,6 @@ export async function applyConduitHistoryBackfill(
         origin: CONDUIT_BACKFILL_ORIGIN,
       });
       if (didInsert) inserted += 1;
-      if (uid.length > 0) uidByPosition.set(version.position, uid);
     }
   });
   return { slug: plan.slug, docUid: plan.docUid, inserted, gaps: plan.gaps.length };

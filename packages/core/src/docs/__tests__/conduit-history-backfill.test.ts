@@ -310,12 +310,12 @@ describe('planConduitHistoryBackfill (T13727)', () => {
     expect(v1!.sha256).toBe(SHA1);
     expect(v1!.authorAgentId).toBe('cleo:backfill-t13727');
     expect(v1!.createdAt).toBe(T0); // the surviving registry row's creation instant
-    expect(v1!.parentPosition).toBeNull();
+    expect(v1!.parentVersionUid).toBeNull();
     expect(v2!.position).toBe(2);
     expect(v2!.sha256).toBe(SHA2);
     expect(v2!.authorAgentId).toBe('agent-updater-one');
     expect(v2!.createdAt).toBe(T1);
-    expect(v2!.parentPosition).toBe(1);
+    expect(typeof v2!.parentVersionUid).toBe('string');
     expect(v1!.sizeBytes).toBe(V1_TEXT.length);
     expect(v2!.tokens).toBeGreaterThan(0);
   });
@@ -441,6 +441,34 @@ describe('applyConduitHistoryBackfill (T13727)', () => {
     expect(byHash.get(SHA1)!.parentVersionUid).toBeNull();
   });
 
+  it('second plan after a gapped apply: no false conflict, gap still reported, apply is a no-op (review-2253)', async () => {
+    await seedPreAdoptionDoc({ omitBytesForSha256: SHA2 });
+    const { planConduitHistoryBackfill, applyConduitHistoryBackfill } = await import(
+      '../conduit-history-backfill.js'
+    );
+    const { listConduitAttachmentVersions } = await import('../../store/conduit-doc-history.js');
+
+    const plan1 = (await planConduitHistoryBackfill(tempDir))[0]!;
+    expect(plan1.toBackfill).toHaveLength(1);
+    expect(plan1.gaps).toEqual([{ position: 2, sha256: SHA2 }]);
+    const result1 = await applyConduitHistoryBackfill(tempDir, plan1);
+    expect(result1.inserted).toBe(1);
+
+    // The second plan must not false-conflict on the mixed existing set
+    // (backfilled head row + native tail row) and must keep reporting the
+    // real gap instead of going silent.
+    const plan2 = (await planConduitHistoryBackfill(tempDir))[0]!;
+    expect(plan2.conflict).toBe(false);
+    expect(plan2.complete).toBe(true); // every recoverable position present
+    expect(plan2.presentVersions).toBe(2);
+    expect(plan2.gaps).toEqual([{ position: 2, sha256: SHA2 }]);
+    expect(plan2.toBackfill).toHaveLength(0);
+
+    const result2 = await applyConduitHistoryBackfill(tempDir, plan2);
+    expect(result2.inserted).toBe(0);
+    expect(await listConduitAttachmentVersions(tempDir, plan1.docUid)).toHaveLength(2);
+  });
+
   it('writes nothing for a conflicting plan', async () => {
     const uid = await seedPreAdoptionDoc();
     const { getDb } = await import('../../store/sqlite.js');
@@ -541,6 +569,94 @@ describe('docs versions routing + backfill (T13727 acceptance)', () => {
     // Never adopted → no conduit rows → manifest/registry fallback, which
     // finds no blobs for the slug and lists empty rather than regressing.
     expect(result.versions).toHaveLength(0);
+  });
+});
+
+describe('review-2253 honest-metadata findings', () => {
+  it('LOW-2: a doc with no audit history and no conduit rows is the only SURVIVING version, not a recorded original', async () => {
+    // Registry row only, adopted, no audit log, no conduit version rows.
+    await seedRegistryRow({
+      sha256: SHA1,
+      size: V1_TEXT.length,
+      docVersion: 1,
+      createdAt: T0,
+      slug: 't13727-low2',
+    });
+    seedLegacyBytes(V1_TEXT, SHA1);
+    const { ensureConduitDoc } = await import('../../store/conduit-doc-history.js');
+    await ensureConduitDoc(tempDir, {
+      slug: 't13727-low2',
+      authorAgentId: 'human',
+      content: Buffer.from(V1_TEXT, 'utf-8'),
+    });
+
+    const { planConduitHistoryBackfill, applyConduitHistoryBackfill } = await import(
+      '../conduit-history-backfill.js'
+    );
+    const plan = (await planConduitHistoryBackfill(tempDir))[0]!;
+    expect(plan.slug).toBe('t13727-low2');
+    expect(plan.expectedVersions).toBe(1); // chain length 1 by survival
+    expect(plan.toBackfill).toHaveLength(1);
+    expect(plan.toBackfill[0]!.changeSummary).toContain('only surviving version');
+    expect(plan.toBackfill[0]!.changeSummary).toContain('unrecoverable');
+
+    const result = await applyConduitHistoryBackfill(tempDir, plan);
+    expect(result.inserted).toBe(1);
+    const { listConduitAttachmentVersions } = await import('../../store/conduit-doc-history.js');
+    const rows = await listConduitAttachmentVersions(tempDir, plan.docUid);
+    expect(rows[0]!.changeSummary).toContain('only surviving version');
+  });
+
+  it('LOW-1: the v1 anchor row lookup is pinned to the original creation row (doc_version = 1), not any row with the sha', async () => {
+    // Content-address dedupe reuses one docs_attachments row across slugs
+    // and bumps its docVersion — a reused row's created_at belongs to
+    // another doc's timeline and must not anchor this doc's chain.
+    await seedRegistryRow({
+      sha256: SHA1,
+      size: V1_TEXT.length,
+      docVersion: 3, // bumped by another slug's updates — NOT a creation row
+      createdAt: '2026-10-09T09:00:00.000Z',
+      slug: 't13727-low1-other',
+    });
+    await seedRegistryRow({
+      sha256: SHA3,
+      size: V3_TEXT.length,
+      docVersion: 2,
+      createdAt: T2,
+      slug: 't13727-low1',
+    });
+    const auditDir = join(tempDir, '.cleo', 'audit');
+    mkdirSync(auditDir, { recursive: true });
+    writeFileSync(
+      join(auditDir, 'docs-versioning.jsonl'),
+      JSON.stringify({
+        op: 'docs.update',
+        slug: 't13727-low1',
+        firstAt: T1,
+        lastAt: T1,
+        revisions: [
+          { ts: T1, previousSha256: SHA1, sha256: SHA3, changed: true, attachedBy: 'human' },
+        ],
+      }) + '\n',
+      'utf-8',
+    );
+    seedLegacyBytes(V1_TEXT, SHA1);
+    seedLegacyBytes(V3_TEXT, SHA3);
+    const { ensureConduitDoc } = await import('../../store/conduit-doc-history.js');
+    await ensureConduitDoc(tempDir, {
+      slug: 't13727-low1',
+      authorAgentId: 'human',
+      content: Buffer.from(V3_TEXT, 'utf-8'),
+    });
+
+    const { planConduitHistoryBackfill } = await import('../conduit-history-backfill.js');
+    const plan = (await planConduitHistoryBackfill(tempDir)).find((p) => p.slug === 't13727-low1')!;
+    const v1 = plan.toBackfill.find((v) => v.position === 1)!;
+    // The docVersion-3 reused row is distrusted: the anchor falls back to
+    // the first revision's real timestamp, with the approximation disclosed.
+    expect(v1.createdAt).toBe(T1);
+    expect(v1.createdAt).not.toBe('2026-10-09T09:00:00.000Z');
+    expect(v1.changeSummary).toContain('creation instant is unrecoverable');
   });
 });
 

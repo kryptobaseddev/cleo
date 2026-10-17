@@ -774,7 +774,12 @@ async function scanStore(
   // planner reads the audit file, the registry and (hash-verified) bytes,
   // and writes nothing.
   const conduitBackfill = await planConduitHistoryBackfill(projectRoot);
-  const conduitActionable = conduitBackfill.filter((p) => !p.complete);
+  // Actionable = anything a doctor run should surface: rows to backfill,
+  // unrecoverable gaps (real, unhealed drift — reported even when the doc
+  // is otherwise complete), or a refused conflict (review-2253).
+  const conduitActionable = conduitBackfill.filter(
+    (p) => !p.complete || p.gaps.length > 0 || p.conflict,
+  );
   const conduitItems = conduitActionable.slice(0, DOCS_DOCTOR_MAX_DETAIL_ITEMS).map((p) => ({
     slug: p.slug,
     expectedVersions: p.expectedVersions,
@@ -973,9 +978,10 @@ export async function runDocsDoctor(
     }
     // T13727 — conduit-history backfill: planned like every other repair in
     // dry-run/apply mode; executed only under --apply (the --repair mode
-    // stays the T13653 blob-backfill-only fast path).
+    // stays the T13653 blob-backfill-only fast path). A complete doc with
+    // unrecoverable gaps still gets an entry so the gap stays explained.
     for (const plan of pre.conduitBackfill) {
-      if (plan.complete) continue;
+      if (plan.complete && plan.gaps.length === 0) continue;
       if (plan.conflict) {
         repairs.push({
           kind: 'conduit-history-gaps',
@@ -993,16 +999,20 @@ export async function runDocsDoctor(
         plan.auditGapVersions > 0
           ? `, ${plan.auditGapVersions} version(s) the audit log cannot account for`
           : '';
+      const backfillNote =
+        plan.toBackfill.length > 0
+          ? `backfill ${plan.toBackfill.length} pre-adoption version(s)`
+          : 'nothing to backfill (every recoverable position present)';
       repairs.push({
         kind: 'conduit-history-gaps',
         action: 'backfill-conduit-versions',
         applied: apply && plan.toBackfill.length > 0,
         slug: plan.slug,
         detail: apply
-          ? `backfill ${plan.toBackfill.length} pre-adoption version(s) for '${plan.slug}' ` +
-            `(chain ${plan.expectedVersions}, existing ${plan.existingVersions}${gapNote}${auditNote})`
-          : `plan: backfill ${plan.toBackfill.length} pre-adoption version(s) for '${plan.slug}' ` +
-            `(chain ${plan.expectedVersions}, existing ${plan.existingVersions}${gapNote}${auditNote})`,
+          ? `${backfillNote} for '${plan.slug}' ` +
+            `(chain ${plan.expectedVersions}, present ${plan.presentVersions}${gapNote}${auditNote})`
+          : `plan: ${backfillNote} for '${plan.slug}' ` +
+            `(chain ${plan.expectedVersions}, present ${plan.presentVersions}${gapNote}${auditNote})`,
       });
     }
   }
@@ -1054,7 +1064,7 @@ export async function runDocsDoctor(
       // annotate each repair entry with its executed outcome (zip by slug).
       const conduitBySlug = new Map<string, { inserted: number; gaps: number }>();
       for (const plan of pre.conduitBackfill) {
-        if (plan.complete || plan.conflict) continue;
+        if (plan.toBackfill.length === 0 || plan.conflict) continue;
         const result = await applyConduitHistoryBackfill(projectRoot, plan);
         conduitBySlug.set(plan.slug, { inserted: result.inserted, gaps: result.gaps });
       }
@@ -1114,15 +1124,17 @@ export async function runDocsDoctor(
   const findings = post.diagnostics.reduce((sum, d) => sum + d.count, 0);
   // T13727 — surface the conduit backfill counts in the one-line summary so
   // operators see backfilled/skipped/gap per run without reading the report.
-  const conduitSkipped = pre.conduitBackfill.filter((p) => p.complete).length;
-  const conduitActionable = pre.conduitBackfill.filter((p) => !p.complete && !p.conflict);
+  const conduitActionable = pre.conduitBackfill.filter(
+    (p) => !p.complete || p.gaps.length > 0 || p.conflict,
+  );
   const conduitGapTotal = conduitActionable.reduce((s, p) => s + p.gaps.length, 0);
+  const conduitConflictTotal = conduitActionable.filter((p) => p.conflict).length;
   const conduitBackfillNote =
     repair || conduitActionable.length === 0
       ? ''
       : apply
-        ? `; conduit history backfilled across ${conduitActionable.length} doc(s) (${conduitSkipped} already complete, ${conduitGapTotal} gap(s) unrecoverable)`
-        : `; conduit history: ${conduitActionable.reduce((s, p) => s + p.toBackfill.length, 0)} version(s) to backfill across ${conduitActionable.length} doc(s) (${conduitSkipped} complete, ${conduitGapTotal} gap(s))`;
+        ? `; conduit history: ${conduitActionable.reduce((s, p) => s + p.toBackfill.length, 0)} version(s) backfilled across ${conduitActionable.length} doc(s) (${conduitGapTotal} gap(s) unrecoverable, ${conduitConflictTotal} conflict(s))`
+        : `; conduit history: ${conduitActionable.length} doc(s) need attention (${conduitActionable.reduce((s, p) => s + p.toBackfill.length, 0)} version(s) to backfill, ${conduitGapTotal} gap(s) unrecoverable, ${conduitConflictTotal} conflict(s))`;
   const summary = repair
     ? `docs doctor repaired ${repairs.filter((r) => r.applied).length} blob backfill(s); ` +
       `${post.diagnostics.find((d) => d.kind === 'legacy-blob-coverage')?.count ?? 0} sha(s) still missing post-repair`
