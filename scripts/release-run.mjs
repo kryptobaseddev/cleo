@@ -125,9 +125,16 @@ export function reviewProblem(sha, review, operator) {
 }
 
 /**
- * The `.cleo/audit/force-bypass.jsonl` line for the bump-PR admin-merge.
+ * A `.cleo/audit/force-bypass.jsonl` line for the bump-PR admin-merge.
  *
- * @param {{ ts: string, pr: number, head: string, merge: string, version: string, operator: string, reviewer: string, ciRun: string }} f
+ * Two phases (T13839): `intent` is written BEFORE `gh pr merge --admin` runs,
+ * naming the head it may merge, so a merge whose `gh` call dies after the
+ * server merged still leaves a record; `merged` is written once the PR is
+ * MERGED, with the merge commit. The notes review is an attestation, not a
+ * verified signature, so the line says "attested by" and carries the sha256
+ * of the review file as given.
+ *
+ * @param {{ ts: string, phase: 'intent' | 'merged', pr: number, head: string, merge: string | null, version: string, operator: string, reviewer: string, reviewSha256: string, ciRun: string }} f
  * @returns {string} One JSON line, newline-terminated.
  */
 export function auditLine(f) {
@@ -135,11 +142,34 @@ export function auditLine(f) {
     ts: f.ts,
     pr: f.pr,
     kind: 'admin-merge-release-bump',
+    phase: f.phase,
     head: f.head,
     merge: f.merge,
     operator: f.operator,
-    reason: `release bump-PR ${f.version}: dispatched CI green on ${f.head} (${f.ciRun}); version-only diff asserted; notes reviewed by ${f.reviewer} (scripts/release-run.mjs, T13825)`,
+    reason: `release bump-PR ${f.version}: dispatched CI green on ${f.head} (${f.ciRun}); version-only diff asserted; notes attested by ${f.reviewer} (review file sha256 ${f.reviewSha256}) (scripts/release-run.mjs, T13825)`,
   })}\n`;
+}
+
+/**
+ * Whether the audit log already holds a release-bump line of `phase` for `pr`.
+ *
+ * @param {string} logPath - Path to `.cleo/audit/force-bypass.jsonl`.
+ * @param {number} pr
+ * @param {'intent' | 'merged'} phase
+ * @returns {boolean}
+ */
+export function hasAuditLine(logPath, pr, phase) {
+  if (!existsSync(logPath)) return false;
+  return readFileSync(logPath, 'utf8')
+    .split('\n')
+    .some((line) => {
+      try {
+        const row = JSON.parse(line);
+        return row.kind === 'admin-merge-release-bump' && row.pr === pr && row.phase === phase;
+      } catch {
+        return false;
+      }
+    });
 }
 
 /**
@@ -244,8 +274,10 @@ export function runRelease(opts, io) {
   // ── 2. independent review of the notes ──
   const plan = JSON.parse(readFileSync(planPath, 'utf8'));
   const sha = notesSha256(plan);
-  const review =
-    opts.notesReview === undefined ? undefined : JSON.parse(readFileSync(opts.notesReview, 'utf8'));
+  const reviewBytes = opts.notesReview === undefined ? undefined : readFileSync(opts.notesReview);
+  const review = reviewBytes === undefined ? undefined : JSON.parse(reviewBytes.toString('utf8'));
+  const reviewSha256 =
+    reviewBytes === undefined ? '' : createHash('sha256').update(reviewBytes).digest('hex');
   const problem = reviewProblem(sha, review, operator);
   if (problem !== null) {
     throw new Stop(
@@ -253,7 +285,7 @@ export function runRelease(opts, io) {
       3,
     );
   }
-  io.log(`notes ${sha} reviewed by ${review.reviewer}`);
+  io.log(`notes ${sha} attested by ${review.reviewer} (review file sha256 ${reviewSha256})`);
 
   // ── 3. plan branch: one commit on the default branch's HEAD ──
   if (remotePlanBranch === '') {
@@ -379,37 +411,57 @@ export function runRelease(opts, io) {
   let state = JSON.parse(
     gh('pr', 'view', String(pr.number), '--json', 'state,mergeCommit,headRefOid'),
   );
-  if (state.state !== 'MERGED') {
-    if (state.headRefOid !== pr.headRefOid)
-      throw new Stop(`bump PR #${pr.number} moved to ${state.headRefOid} after CI was checked`);
-    gh(
-      'pr',
-      'merge',
-      String(pr.number),
-      '--admin',
-      '--merge',
-      '--match-head-commit',
-      pr.headRefOid,
-    );
-    state = JSON.parse(
-      gh('pr', 'view', String(pr.number), '--json', 'state,mergeCommit,headRefOid'),
-    );
-    if (state.state !== 'MERGED')
-      throw new Stop(`bump PR #${pr.number} is ${state.state} after merge`);
-    mkdirSync(dirname(join(io.root, AUDIT_LOG)), { recursive: true });
+  const logPath = join(io.root, AUDIT_LOG);
+  const audit = (phase, head, merge) => {
+    mkdirSync(dirname(logPath), { recursive: true });
     appendFileSync(
-      join(io.root, AUDIT_LOG),
+      logPath,
       auditLine({
         ts: new Date(io.now()).toISOString(),
+        phase,
         pr: pr.number,
-        head: pr.headRefOid,
-        merge: state.mergeCommit.oid,
+        head,
+        merge,
         version,
         operator,
         reviewer: review.reviewer,
+        reviewSha256,
         ciRun,
       }),
     );
+  };
+  if (state.state !== 'MERGED') {
+    if (state.headRefOid !== pr.headRefOid)
+      throw new Stop(`bump PR #${pr.number} moved to ${state.headRefOid} after CI was checked`);
+    // T13839: the intent goes on record before the irreversible call.
+    audit('intent', pr.headRefOid, null);
+    let mergeError = null;
+    try {
+      gh(
+        'pr',
+        'merge',
+        String(pr.number),
+        '--admin',
+        '--merge',
+        '--match-head-commit',
+        pr.headRefOid,
+      );
+    } catch (err) {
+      // gh can exit non-zero after the server merged; the state decides.
+      mergeError = err;
+    }
+    state = JSON.parse(
+      gh('pr', 'view', String(pr.number), '--json', 'state,mergeCommit,headRefOid'),
+    );
+    if (state.state !== 'MERGED') {
+      throw new Stop(
+        `bump PR #${pr.number} is ${state.state} after merge${mergeError ? `: ${mergeError instanceof Error ? mergeError.message : String(mergeError)}` : ''}`,
+      );
+    }
+  }
+  // T13839: also on a resumed run, a MERGED PR gets its line if it has none.
+  if (!hasAuditLine(logPath, pr.number, 'merged')) {
+    audit('merged', state.headRefOid, state.mergeCommit.oid);
   }
   const merge = state.mergeCommit.oid;
 

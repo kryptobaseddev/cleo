@@ -7,7 +7,7 @@
  */
 
 import { createHash } from 'node:crypto';
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
@@ -77,6 +77,8 @@ describe('helpers', () => {
     );
     const line = auditLine({
       ts: 't',
+      phase: 'merged',
+      reviewSha256: 'r'.repeat(64),
       pr: 7,
       head: HEAD,
       merge: MERGE,
@@ -86,6 +88,10 @@ describe('helpers', () => {
       ciRun: 'u',
     });
     expect(line.endsWith('\n')).toBe(true);
+    // T13839 LOW: the review is an attestation, named as one, with its file hash.
+    expect(JSON.parse(line).reason).toContain(
+      `notes attested by rev (review file sha256 ${'r'.repeat(64)})`,
+    );
     expect(JSON.parse(line)).toMatchObject({
       pr: 7,
       kind: 'admin-merge-release-bump',
@@ -118,9 +124,13 @@ describe('runRelease', () => {
     versionOnly = true,
     ciConclusion = 'success',
     changelogNumstat = '5\t0\tCHANGELOG.md',
+    merge = 'ok',
+    initiallyMerged = false,
   } = {}) {
     const calls = [];
-    let merged = false;
+    let merged = initiallyMerged;
+    /** The audit log as it stood when `gh pr merge` was called. */
+    const auditAtMerge = [];
     const exec = (cmd, args) => {
       const c = [cmd, ...args].join(' ');
       calls.push(c);
@@ -160,12 +170,19 @@ describe('runRelease', () => {
         );
       }
       if (c.startsWith('gh pr merge')) {
-        merged = true;
+        const log = join(root, AUDIT_LOG);
+        auditAtMerge.push(existsSync(log) ? readFileSync(log, 'utf8') : '');
+        if (merge !== 'throw-no-merge') merged = true;
+        if (merge !== 'ok') throw new Error('gh: exit 1 (connection reset)');
         return '';
       }
       return '';
     };
-    return { calls, io: { root, exec, sleep: () => {}, now: () => 0, log: () => {} } };
+    return {
+      calls,
+      auditAtMerge,
+      io: { root, exec, sleep: () => {}, now: () => 0, log: () => {} },
+    };
   }
 
   const opts = (extra = {}) => ({
@@ -189,14 +206,49 @@ describe('runRelease', () => {
     expect(at('git/refs')).toBeLessThan(at('cleo release open'));
     expect(at('ci-detect-version-only')).toBeLessThan(at('gh pr merge'));
     expect(at('gh pr merge')).toBeLessThan(at('git tag -a'));
-    const audit = JSON.parse(readFileSync(join(root, AUDIT_LOG), 'utf8'));
-    expect(audit).toMatchObject({
+    const [intent, done] = auditRows();
+    expect(intent).toMatchObject({ pr: 7, phase: 'intent', head: HEAD, merge: null });
+    expect(done).toMatchObject({
       pr: 7,
+      phase: 'merged',
       head: HEAD,
       merge: MERGE,
       kind: 'admin-merge-release-bump',
     });
-    expect(audit.reason).toContain('notes reviewed by rev');
+    expect(done.reason).toContain('notes attested by rev (review file sha256 ');
+  });
+
+  /** The parsed audit log lines. */
+  const auditRows = () =>
+    readFileSync(join(root, AUDIT_LOG), 'utf8')
+      .trim()
+      .split('\n')
+      .map((l) => JSON.parse(l));
+
+  it('T13839: writes the intent line before the merge call, and the merged line even when gh dies after the server merged', () => {
+    const { calls, auditAtMerge, io } = fakeIo({ merge: 'throw-after-merge' });
+    runRelease(opts(), io);
+    expect(JSON.parse(auditAtMerge[0])).toMatchObject({ pr: 7, phase: 'intent', head: HEAD });
+    expect(auditRows().map((r) => r.phase)).toEqual(['intent', 'merged']);
+    expect(calls).toContain(`git tag -a ${V} -m Release ${V} ${MERGE}`);
+  });
+
+  it('T13839: a merge that did not happen leaves the intent line only, and stops before tagging', () => {
+    const { calls, io } = fakeIo({ merge: 'throw-no-merge' });
+    expect(() => runRelease(opts(), io)).toThrow('is OPEN after merge: gh: exit 1');
+    expect(auditRows().map((r) => r.phase)).toEqual(['intent']);
+    expect(calls.some((c) => c.startsWith('git tag'))).toBe(false);
+  });
+
+  it('T13839: a resumed run over a MERGED PR appends the missing merged line, once', () => {
+    const first = fakeIo({ initiallyMerged: true });
+    runRelease(opts(), first.io);
+    expect(first.calls.some((c) => c.startsWith('gh pr merge'))).toBe(false);
+    expect(auditRows()).toEqual([
+      expect.objectContaining({ pr: 7, phase: 'merged', merge: MERGE }),
+    ]);
+    runRelease(opts(), fakeIo({ initiallyMerged: true }).io);
+    expect(auditRows()).toHaveLength(1);
   });
 
   it('a dry run mutates nothing', () => {
