@@ -33,6 +33,7 @@ import {
   type CommitCheck,
   evaluateMergeCommitChecks,
   isQuarantineBudgetOnlyLog,
+  isSetupStepFailureLog,
   listMainDescendants,
   listPathTouchingMainCommits,
   pathGlobToRegExp,
@@ -1487,6 +1488,58 @@ describe('resolveCiEvidenceAtom', () => {
         });
         expect(r.ok, JSON.stringify(r)).toBe(true);
         expect(r.ok && r.atom.kind === 'ci' && r.atom.descendantSha).toBe(DESC2);
+      });
+
+      /** A real shard log (4aa2c96a5422): the build artifact was missing, no test ran. */
+      const SETUP_FAILED_LOG = [
+        '2026-10-12T13:04:44.7729273Z ##[group]Run actions/cache@v4',
+        '2026-10-12T13:04:55.5346561Z ##[group]Run actions/download-artifact@v4',
+        '2026-10-12T13:04:55.5346999Z with:',
+        '2026-10-12T13:04:55.7985540Z ##[error]Unable to download artifact(s): Artifact not found for name: build-output-ubuntu-latest',
+        '2026-10-12T13:04:55.8241304Z ##[group]Run actions/upload-artifact@v4',
+      ].join('\n');
+
+      it('isSetupStepFailureLog: an action step failing before any test ran, nothing else', () => {
+        expect(isSetupStepFailureLog(SETUP_FAILED_LOG)).toBe(true);
+        // A `run:` step failing (a gate script, a test command) is a real failure.
+        expect(
+          isSetupStepFailureLog(
+            SETUP_FAILED_LOG.replace(
+              'Run actions/download-artifact@v4',
+              'Run node scripts/lint-paths-ssot.mjs',
+            ),
+          ),
+        ).toBe(false);
+        // Any vitest output means tests ran.
+        expect(isSetupStepFailureLog(`${SETUP_FAILED_LOG}\n RUN  v4.1.4 /w`)).toBe(false);
+        expect(isSetupStepFailureLog(BUDGET_LOG)).toBe(false);
+        expect(isSetupStepFailureLog(SETUP_FAILED_LOG.replace('##[error]', ''))).toBe(false);
+      });
+
+      it('looks past a later run whose shards failed before any test ran (T12730, 4aa2c96a)', async () => {
+        const run = (descLog: string) =>
+          resolve({
+            context: context('T1', ['testsPassed', 'qaPassed']),
+            fetchChecks: checksFor({
+              [MERGE]: budgetRed(MERGE),
+              [DESC1]: budgetRed(DESC1).map((c) => (c.id > 100 ? { ...c, id: c.id + 1000 } : c)),
+              [DESC2]: onSha(DESC2),
+            }),
+            listDescendants: () => [DESC1, DESC2],
+            isAncestor: (a, d) => a === MERGE && (d === DESC1 || d === DESC2),
+            touchingCommits: () => [],
+            fetchJobLog: async (jobId) =>
+              jobId === 101 ? BUDGET_LOG : jobId === 1101 ? descLog : null,
+          });
+        const r = await run(SETUP_FAILED_LOG);
+        expect(r.ok, JSON.stringify(r)).toBe(true);
+        expect(r.ok && r.atom.kind === 'ci' && r.atom.descendantSha).toBe(DESC2);
+        // The same failure in a `run:` step still refuses.
+        const refused = await run(
+          SETUP_FAILED_LOG.replace('Run actions/download-artifact@v4', 'Run pnpm run test'),
+        );
+        expect(refused.ok).toBe(false);
+        expect(!refused.ok && refused.reason).toMatch(/failure on later origin\/main commit/);
       });
 
       it('a code task: a merge-commit job red only on the budget ran its tests, so the job gate holds', async () => {
