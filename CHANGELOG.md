@@ -2,7 +2,11 @@
 
 ## [2026.10.19] (2026-10-17)
 
-> **Codex hook fixes, targeted evidence, faster releases.** Codex project hooks now say when a push went through ungated and keep receipts under the workspace-write sandbox. Evidence routes for config edits, merged changes, redirected reports, generated clients and seed/data globs need no whole-suite run. Release plan PRs and the main push of a version-only release merge take a CI fast path, and release-prepare reuses main's green CI. Cross-device sync itself (Stage C) stays off on stable.
+> **Codex hook fixes, targeted evidence, faster releases.** The managed pre-push hook now says when a push went through ungated (as Codex's PATH caused) and keeps receipts under the workspace-write sandbox. Evidence routes for config edits, merged changes, redirected reports, generated clients and seed/data globs need no whole-suite run. Release plan PRs and the main push of a version-only release merge take a CI fast path, and release-prepare reuses main's green CI. Cross-device sync itself (Stage C) stays off on stable.
+
+### Upgrade note
+
+- Playbook runs and approvals move to new tables on first open, and the old tables are frozen: an older CLEO on the same project (for example a pinned stable) gets an upgrade-required error when it starts a playbook run or records an approval. Upgrade every CLEO that shares the project _(provenance: [T12535](https://github.com/kryptobaseddev/cleo/search?q=T12535&type=commits))_
 
 ### Project hooks
 
@@ -13,7 +17,8 @@
 
 ### Goal protocol
 
-- `cleo doctor` reports the CLEO Goal runtime (opt-in npm update check), and `cleo goal install --harness` registers it per project _(provenance: [T13819](https://github.com/kryptobaseddev/cleo/search?q=T13819&type=commits), [T13820](https://github.com/kryptobaseddev/cleo/search?q=T13820&type=commits))_
+- CLEO Goal is a separate package (`@cleocode/goal`, bins `cleo-goal`/`ocg`) that is not yet published on npm, and its pilots are still pending. Until it is installed, `cleo go`, `cleo goal status` and the Stop tick find no runtime and `cleo doctor` reports it as not installed.
+- `cleo doctor` reports the CLEO Goal runtime (opt-in npm update check), and `cleo goal install --harness` registers an installed CLEO Goal with a harness for this project _(provenance: [T13819](https://github.com/kryptobaseddev/cleo/search?q=T13819&type=commits), [T13820](https://github.com/kryptobaseddev/cleo/search?q=T13820&type=commits))_
 - CLEO's unwired goal loop is retired: `cleo goal` keeps only the protocol verbs `draft` and `close` (ADR-097) _(provenance: [T13797](https://github.com/kryptobaseddev/cleo/search?q=T13797&type=commits))_
 - `cleo tasks changeset <id> [--test-plan]` reports a task's change set, commits and the exact test files it owes, as data _(provenance: [T13795](https://github.com/kryptobaseddev/cleo/search?q=T13795&type=commits))_
 - `cleo go` hands the ready wave to CLEO Goal; `cleo goal status` reads the live run through `cleo-goal status --json`; the Stop tick resolves `cleo-goal`, then `ocg` _(provenance: [T13821](https://github.com/kryptobaseddev/cleo/search?q=T13821&type=commits))_
@@ -41,8 +46,8 @@
 
 - `cleo docs update` keeps the prior version linked to its doc _(provenance: [T13734](https://github.com/kryptobaseddev/cleo/search?q=T13734&type=commits))_
 - `cleo docs add` errors name the bound positional and the exact fix _(provenance: [T13726](https://github.com/kryptobaseddev/cleo/search?q=T13726&type=commits))_
-- Docs CRDT section ids are anchored to headings, so inserting a section no longer shifts later ids, and section edits merge three-way _(provenance: [T13584](https://github.com/kryptobaseddev/cleo/search?q=T13584&type=commits))_
-- `cleo docs versions` reads conduit history (`version` is now a display ordinal 1..N; the stored number moves to `storedVersionNumber`); `cleo docs doctor` reports history gaps and backfills pre-adoption docs under `--apply` _(provenance: [T13727](https://github.com/kryptobaseddev/cleo/search?q=T13727&type=commits))_
+- Docs CRDT section ids are anchored to headings, so inserting a section no longer shifts later ids, and a stale edit merges three-way, section by section, against the version it was authored from _(provenance: [T13584](https://github.com/kryptobaseddev/cleo/search?q=T13584&type=commits))_
+- `cleo docs versions` reads a doc's conduit history (`version` is now a display ordinal 1..N; the stored number moves to `storedVersionNumber`); `cleo docs doctor --apply` backfills versions from before the conduit adoption from the audit log, and records unrecoverable ones as gaps instead of inventing them _(provenance: [T13727](https://github.com/kryptobaseddev/cleo/search?q=T13727&type=commits))_
 - Unrecoverable conduit-history gaps are reported at info level after apply _(provenance: [T13843](https://github.com/kryptobaseddev/cleo/search?q=T13843&type=commits))_
 
 ### Backups and cross-device sync
@@ -50,7 +55,7 @@
 - Unencrypted exports of projects with two or more playbook approvals no longer fail; a non-JSON journal image never ships _(provenance: [T13817](https://github.com/kryptobaseddev/cleo/search?q=T13817&type=commits))_
 - The first vault push over a format-2 parent prunes only the local rows in that parent's own snapshot, so a lost synced row is refused instead of hidden _(provenance: [T13816](https://github.com/kryptobaseddev/cleo/search?q=T13816&type=commits))_
 - `cleo cloud pull` judges each local change against the head snapshot's copy: a file equal to the head's, or a new file the head lacks, is no longer a change that refuses the pull, so a device can pull and then push without `--force` _(provenance: [T13813](https://github.com/kryptobaseddev/cleo/search?q=T13813&type=commits))_
-- Live on stable: playbook runs and approvals move to `tasks_playbook_runs`/`tasks_playbook_approvals` on first open (old rows are copied; where both copies of a run differ, the old one wins and the other is archived), the old tables are then frozen, so an older CLEO on the same project gets an upgrade-required error when it starts a playbook run or records an approval; deleting a run deletes its approvals; unencrypted `cleo backup export` strips credential columns from journal images _(provenance: [T12535](https://github.com/kryptobaseddev/cleo/search?q=T12535&type=commits))_
+- Live on stable: playbook runs and approvals move to `tasks_playbook_runs`/`tasks_playbook_approvals` on first open (old rows are copied; where both copies of a run differ, the old one wins and the other is archived), the old tables are then frozen (see the upgrade note); deleting a run deletes its approvals; unencrypted `cleo backup export` strips credential columns from journal images _(provenance: [T12535](https://github.com/kryptobaseddev/cleo/search?q=T12535&type=commits))_
 - Sync groundwork (sync itself stays off on stable until Stage C): project sticky notes, playbook runs and playbook approvals get row uids for a second device; two devices adopting the same legacy doc, or making the first docs update on it, mint one doc uid _(provenance: [T12535](https://github.com/kryptobaseddev/cleo/search?q=T12535&type=commits), [T13586](https://github.com/kryptobaseddev/cleo/search?q=T13586&type=commits))_
 
 ### Not in this release
