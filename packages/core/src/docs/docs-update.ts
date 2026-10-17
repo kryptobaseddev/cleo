@@ -714,6 +714,13 @@ export async function updateDocBySlug(
   if (text !== null) {
     try {
       const { projectDocUpdateThroughSections } = await import('./section-write-path.js');
+      // T13734: link the pre-update bytes to the doc before the first projection.
+      const priorVersionUid = await recordPriorVersionOnAdopt(
+        projectRoot,
+        slug,
+        oldRow,
+        attachedBy,
+      );
       // T13356 AC4: the real session id drives lease acquire/renew, so a
       // lease dies honestly with its session (TTL bound, holder-only renew).
       // Gate 16: the bound session is resolved via resolveBoundSession —
@@ -725,6 +732,7 @@ export async function updateDocBySlug(
         content: text,
         ...(boundSession !== null ? { sessionId: boundSession.session.id } : {}),
         ...(params.message !== undefined ? { changeSummary: params.message } : {}),
+        ...(priorVersionUid !== null ? { parentVersionUid: priorVersionUid } : {}),
         // T13674: the declared base replaces the previous head as the
         // single-writer/concurrent discriminator, so a stale base merges
         // (append) or conflicts (non-append) instead of re-seeding over a
@@ -1140,6 +1148,68 @@ function countVersionsForSlug(projectRoot: string, slug: string): number {
     total += entry.revisions.length;
   }
   return total;
+}
+
+/**
+ * Record a doc's pre-update bytes as its root conduit version (T13734).
+ *
+ * The first text update adopts a doc into the conduit history family, and the
+ * projection only records the NEW content — the update also moves the slug to
+ * a new `attachments` row, so nothing linked the prior version to the doc and
+ * `docs versions` could not list it. When the slug has no conduit doc yet and
+ * the prior row's blob bytes are on disk, this adopts the doc and appends a
+ * root version carrying the prior hash; the caller passes the returned uid as
+ * the projection's parent, giving the history v1 → v2.
+ *
+ * @param projectRoot - Absolute path to the CLEO project root.
+ * @param slug - The doc slug being updated.
+ * @param oldRow - The pre-update `attachments` row.
+ * @param authorAgentId - Agent recorded as the root version's author.
+ * @returns The root version uid, or `null` when the doc already has conduit
+ *   history or the prior row has no resolvable blob bytes.
+ * @internal
+ */
+async function recordPriorVersionOnAdopt(
+  projectRoot: string,
+  slug: string,
+  oldRow: typeof docsAttachments.$inferSelect,
+  authorAgentId: string,
+): Promise<string | null> {
+  const { appendConduitAttachmentVersion, ensureConduitDoc, resolveConduitDocUid } = await import(
+    '../store/conduit-doc-history.js'
+  );
+  if ((await resolveConduitDocUid(projectRoot, slug)) !== null) return null;
+  let storageKey: string;
+  let bytes: Buffer;
+  try {
+    const prior = blobAttachmentSchema.safeParse(JSON.parse(oldRow.attachmentJson));
+    if (!prior.success || !prior.data.storageKey) return null;
+    storageKey = prior.data.storageKey;
+    bytes = readFileSync(
+      join(getCleoDirAbsolute(projectRoot), 'attachments', 'sha256', storageKey),
+    );
+  } catch {
+    return null; // shortcut: no parseable row or local bytes, no root row; the T13727 backfill covers these docs
+  }
+  const { uid } = await ensureConduitDoc(projectRoot, { slug, authorAgentId, content: bytes });
+  const tokens = bytes
+    .toString('utf-8')
+    .split(/\s+/)
+    .filter((w) => w.length > 0).length;
+  const root = await appendConduitAttachmentVersion(projectRoot, {
+    attachmentUid: uid,
+    parentVersionUid: null,
+    authorAgentId,
+    storageKey,
+    contentHash: oldRow.sha256,
+    originalSize: bytes.length,
+    compressedSize: bytes.length,
+    tokens,
+    changeType: 'create',
+    changeSummary: `prior version of '${slug}' recorded on first update (T13734)`,
+    tokensAdded: tokens,
+  });
+  return root.uid ?? null;
 }
 
 /**

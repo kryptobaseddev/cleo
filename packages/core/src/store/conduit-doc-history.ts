@@ -34,7 +34,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import { ExitCode } from '@cleocode/contracts/exit-codes.js';
 import { and, asc, desc, eq, sql } from 'drizzle-orm';
 import { CleoError } from '../errors.js';
-import { naturalRowUid } from './row-identity.js';
+import { birthFingerprint, mintedRowUid, naturalRowUid } from './row-identity.js';
 import {
   conduitAttachmentApprovals,
   conduitAttachments,
@@ -44,7 +44,7 @@ import {
   sectionCrdtStates,
 } from './schema/cleo-project/conduit.js';
 import type { ConduitDocMigrationLedgerRow } from './schema/cleo-project/docs.js';
-import { conduitDocMigrationLedger } from './schema/cleo-project/docs.js';
+import { conduitDocMigrationLedger, docsAttachments } from './schema/cleo-project/docs.js';
 import { getDb, getNativeDb } from './sqlite.js';
 
 /**
@@ -170,6 +170,9 @@ export async function resolveConduitDocUid(
   return alias?.docUid ?? null;
 }
 
+/** Transport owner and author of an adopted identity shell (`conversation_id`, `from_agent_id`). */
+const ADOPT_SENTINEL = 'cleodocs';
+
 /**
  * Adopt a document into the conduit family on first sight (T13355).
  *
@@ -186,15 +189,21 @@ export async function resolveConduitDocUid(
  * an existing live row (or alias-resolved uid) is returned with
  * `adopted: false`.
  *
- * The adopted row's uid is the schema's random UUIDv7 default — a
- * single-device mint. Two devices adopting the same legacy slug concurrently
- * mint two uids for one doc; deduping that is the filed follow-up (T13586).
+ * Convergent identity (T13586): every birth fact of an adopted shell is a
+ * function of the legacy doc, never of the adopting device — `created_at` is
+ * the legacy registry row's birth (earliest `docs_attachments` row for the
+ * slug, which syncs with its value), and `from_agent_id` is the `cleodocs`
+ * sentinel (the adopting author is recorded on the first version row). The
+ * uid and birth fingerprint follow the standard minted recipe over those
+ * facts, so two devices adopting the same legacy doc mint ONE (uid, birth_fp)
+ * and the receiver places the peer's shell as a duplicate. A slug with no
+ * legacy row is a new doc, not an adoption, and keeps the random mint.
  *
  * @param projectRoot - Absolute path to the CLEO project root.
  * @param input - Slug, author and current full text of the doc.
  * @returns The doc's immutable uid and whether this call created the row.
  */
-// @sync-invariant docs.doc.adopt-once the existence probe and the identity-shell insert are one causal step; the uid default makes a re-adopt conflict-free
+// @sync-invariant docs.doc.adopt-once the existence probe and the identity-shell insert are one causal step; the uid is derived from the legacy doc, so a re-adopt here or on another device converges (T13586)
 export async function ensureConduitDoc(
   projectRoot: string,
   input: { slug: string; authorAgentId: string; content: Buffer },
@@ -205,12 +214,27 @@ export async function ensureConduitDoc(
   if (existing !== null) return { uid: existing, adopted: false };
 
   const db = await getDb(projectRoot);
+  const legacy = await db
+    .select({ birth: sql<string | null>`min(${docsAttachments.createdAt})` })
+    .from(docsAttachments)
+    .where(eq(docsAttachments.slug, input.slug))
+    .get();
+  const birth = legacy?.birth ?? null;
+  const identity =
+    birth === null
+      ? { fromAgentId: input.authorAgentId }
+      : {
+          fromAgentId: ADOPT_SENTINEL,
+          createdAt: birth,
+          uid: mintedRowUid('project', 'conduit_attachments', [input.slug], birth),
+          birthFp: birthFingerprint('conduit_attachments', birth, [ADOPT_SENTINEL, ADOPT_SENTINEL]),
+        };
   await db
     .insert(conduitAttachments)
     .values({
       slug: input.slug,
-      conversationId: 'cleodocs',
-      fromAgentId: input.authorAgentId,
+      conversationId: ADOPT_SENTINEL,
+      ...identity,
       content: Buffer.alloc(0),
       originalSize: input.content.length,
       compressedSize: input.content.length,

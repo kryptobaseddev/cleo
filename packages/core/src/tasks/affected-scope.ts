@@ -318,6 +318,7 @@ const TEST_RUNNER_CONFIGS = ['vitest.config.*', 'vitest.workspace.*', 'jest.conf
  * ordinary source such as `setup-wizard.ts` is not a test input.
  */
 const SETUP_FILE_NAMES = [
+  'setup.*',
   '*.setup.*',
   'setup-tests.*',
   'setupTests.*',

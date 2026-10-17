@@ -450,6 +450,14 @@ export const COMMAND_MANIFEST: readonly CommandManifestEntry[] = [
         .doctorGlobalDeliveryCommand as CommandDef,
   },
   {
+    exportName: 'doctorGoalRuntimeCommand',
+    name: 'goal-runtime',
+    description:
+      'Report the CLEO Goal runtime (cleo-goal): installed, version, status schema. --check-updates also asks npm for the latest version.',
+    load: async () =>
+      (await import('../commands/doctor-goal-runtime.js')).doctorGoalRuntimeCommand as CommandDef,
+  },
+  {
     exportName: 'doctorHeavyCommandHookCommand',
     name: 'heavy-command-hook',
     description:
@@ -752,7 +760,7 @@ export const COMMAND_MANIFEST: readonly CommandManifestEntry[] = [
     exportName: 'goalCommand',
     name: 'goal',
     description:
-      'Goal protocol verbs for the goal runtime (OpenCode-Goal): draft a goal/v1 contract from task ACs, close a run from its outcome.',
+      'Goal protocol verbs for the goal runtime (OpenCode-Goal): draft a goal/v1 contract from task ACs, close a run from its outcome, install the runtime into a harness.',
     load: async () => (await import('../commands/goal.js')).goalCommand as CommandDef,
   },
   {
@@ -1246,7 +1254,7 @@ export const COMMAND_MANIFEST: readonly CommandManifestEntry[] = [
   {
     exportName: 'tasksCommand',
     name: 'tasks',
-    description: 'Task query namespace: show, find, next, current, plan, analyze, slice',
+    description: 'Task query namespace: show, find, next, current, plan, analyze, slice, changeset',
     load: async () => (await import('../commands/tasks.js')).tasksCommand as CommandDef,
   },
   {

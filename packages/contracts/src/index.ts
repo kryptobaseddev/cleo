@@ -551,7 +551,11 @@ export type {
   DonePlanTypedGate,
   DoneRecordResult,
   DoneToolResult,
+  OwedTestFile,
+  OwedTestPackage,
   TaskChangeSet,
+  TaskChangeSetReport,
+  TaskTestPlan,
 } from './done-plan.js';
 export type {
   EngineErrorPayload,
@@ -777,6 +781,17 @@ export type {
   GoalVerifierQuote,
 } from './goal-contract.js';
 export { GOAL_CONTRACT_SCHEMA, GOAL_HOST_CHECK_KINDS } from './goal-contract.js';
+// === CLEO Goal runtime bin wire shapes (T13819 / T13820 / T13821) ===
+export type {
+  GoalRuntimeBudgetPart,
+  GoalRuntimeCriterion,
+  GoalRuntimeError,
+  GoalRuntimeInstall,
+  GoalRuntimePluginEntry,
+  GoalRuntimeRunStatus,
+  GoalRuntimeStatus,
+} from './goal-runtime.js';
+export { GOAL_RUNTIME_SCHEMA_VERSION } from './goal-runtime.js';
 // === Graph Intelligence Types (T512, T529, T1862, T9145) ===
 export type {
   AmbiguousProvenance,

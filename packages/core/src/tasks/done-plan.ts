@@ -583,6 +583,7 @@ function toolAndTypedGateBlockers(
           `Re-detect the toolchain, or declare the ${run.tool} command in .cleo/project-context.json, so ${run.gate} has a real result.`,
         ),
         cause: 'E_EVIDENCE_TOOL_UNAVAILABLE',
+        gate: run.gate,
       });
     } else if (run.cache === 'fresh-fail') {
       out.push({
@@ -593,6 +594,7 @@ function toolAndTypedGateBlockers(
           `Fix the failures ${run.tool} reports.`,
         ),
         cause: 'E_EVIDENCE_TOOL_FAILED',
+        gate: run.gate,
       });
     }
   }
@@ -606,6 +608,7 @@ function toolAndTypedGateBlockers(
           `cleo verify ${taskId} --gate ${gate} --evidence 'test-run:<vitest-json-report>'`,
           'A code task cannot pass on the absence of a toolchain.',
         ),
+        gate,
       });
     }
   }
@@ -655,6 +658,7 @@ function testRunNeededBlocker(
   const named = `${files.slice(0, 5).join(' ')}${files.length > 5 ? ` … (${files.length} files)` : ''}`;
   return {
     code: 'test-run-needed',
+    gate,
     message:
       `${gate}: this single-package project's tool:test would run the whole suite. Run the ` +
       `changed test file(s) ${named} with a JSON reporter and record the report as test-run:.`,
@@ -683,6 +687,7 @@ function wholeSuiteRefusedBlocker(
 ): DonePlanBlocker {
   return {
     code: 'test-run-needed',
+    gate,
     message:
       `${gate}: the only test run cleo done could plan is the whole suite ` +
       `(${scopeReason ?? 'the affected scope does not apply'}), and cleo done never runs a whole suite on its own.` +
@@ -725,6 +730,7 @@ function qaRunNeededBlocker(
   const atoms = `${checks.map((c) => `qa-run:<${c}-receipt.json>`).join(';')}${configSuffix}`;
   return {
     code: 'qa-run-needed',
+    gate: 'qaPassed',
     message:
       `qaPassed: ${subject} has no recorded ${checks.join(' or ')} result for ` +
       `the current tree, and tool:${checks[0]} would check the whole project. Run ` +

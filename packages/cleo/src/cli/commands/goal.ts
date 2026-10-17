@@ -10,6 +10,8 @@
  *     draft from task acceptance criteria (T13793).
  *   - `cleo goal close <slug> --outcome <file>` — record a run's per-AC
  *     evidence and complete fully proven tasks via `cleo done` (T13794).
+ *   - `cleo goal install --harness <h>` — register the CLEO Goal runtime with a
+ *     harness for this project (T13820).
  *
  * Handlers are thin: the logic lives in `@cleocode/core/goal/*`.
  *
@@ -134,8 +136,39 @@ const closeCommand = defineCommand({
 });
 
 /**
- * Parent `cleo goal` command — routes to the protocol verbs `draft` and
- * `close`; prints usage when invoked bare.
+ * `cleo goal install --harness <h>` — register the CLEO Goal runtime
+ * (`cleo-goal`) with one harness for this project, project-level config only.
+ *
+ * @task T13820
+ */
+const installCommand = defineCommand({
+  meta: {
+    name: 'install',
+    description:
+      'Register the CLEO Goal runtime (cleo-goal) with a harness for this project: opencode runs cleo-goal install --project; claude and codex install the project Stop dispatcher. Never writes user-global config.',
+  },
+  args: {
+    harness: {
+      type: 'string',
+      description: 'Harness: opencode, claude, codex, hermes or kimi',
+      required: true,
+    },
+  },
+  async run({ args }) {
+    const { installGoalForHarness } = await import('@cleocode/core/goal/runtime.js');
+    const result = await installGoalForHarness(getProjectRoot(), String(args.harness ?? ''));
+    if (!result.success) {
+      cliError(result.error.message, result.error.code, { fix: result.error.fix });
+      process.exitCode = result.error.exitCode ?? 1;
+      return;
+    }
+    cliOutput(result.data, { command: 'goal install', operation: 'goal.install' });
+  },
+});
+
+/**
+ * Parent `cleo goal` command — routes to the protocol verbs `draft`,
+ * `close` and `install`; prints usage when invoked bare.
  *
  * @task T13797
  */
@@ -143,11 +176,12 @@ export const goalCommand = defineCommand({
   meta: {
     name: 'goal',
     description:
-      'Goal protocol verbs for the goal runtime (OpenCode-Goal): draft a goal/v1 contract from task ACs, close a run from its outcome.',
+      'Goal protocol verbs for the goal runtime (OpenCode-Goal): draft a goal/v1 contract from task ACs, close a run from its outcome, install the runtime into a harness.',
   },
   subCommands: {
     draft: draftCommand,
     close: closeCommand,
+    install: installCommand,
   },
   async run({ cmd, rawArgs }) {
     const firstArg = rawArgs?.find((a) => !a.startsWith('-'));
