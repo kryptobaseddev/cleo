@@ -214,7 +214,7 @@ describe('runBackupVerify (T10319 core SDK)', () => {
     expect(result.summary.corrupt).toBeGreaterThanOrEqual(1);
   });
 
-  it('detects 3-DB mixed fixture: fresh+healthy / stale+healthy / corrupt', () => {
+  it('detects 3-DB mixed fixture: fresh+healthy / stale brain covered by the project snapshot / corrupt', () => {
     // 1. Fresh + healthy: tasks
     const now = new Date();
     const stampNow = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}${String(now.getDate()).padStart(2, '0')}-${String(now.getHours()).padStart(2, '0')}${String(now.getMinutes()).padStart(2, '0')}${String(now.getSeconds()).padStart(2, '0')}`;
@@ -241,14 +241,15 @@ describe('runBackupVerify (T10319 core SDK)', () => {
     });
 
     expect(result.dbs['tasks']?.verdict).toBe('healthy');
-    expect(result.dbs['brain']?.verdict).toBe('stale');
+    // T13891: the fresh tasks-* snapshot is the whole project store, so it is
+    // brain's freshest snapshot too; the 48h brain-* copy no longer decides.
+    expect(result.dbs['brain']?.verdict).toBe('healthy');
     expect(result.dbs['conduit']?.verdict).toBe('corrupt');
 
     // Summary must add up across all roles.
     const { healthy, stale, corrupt, missing } = result.summary;
     expect(healthy + stale + corrupt + missing).toBe(DB_INVENTORY.length);
-    expect(healthy).toBeGreaterThanOrEqual(1);
-    expect(stale).toBeGreaterThanOrEqual(1);
+    expect(healthy).toBeGreaterThanOrEqual(2);
     expect(corrupt).toBeGreaterThanOrEqual(1);
   });
 
