@@ -43,6 +43,7 @@ import { spawn } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import type { HookJsonValue } from '@cleocode/contracts';
+import { ExitCode } from '@cleocode/contracts/exit-codes.js';
 import { GOAL_TICK_PROVIDER_ENV } from '@cleocode/contracts/goal-runtime.js';
 
 /** Harnesses `cleo hook stop` dispatches for. */
@@ -292,11 +293,21 @@ export function processStopDispatchDeps(
         SESSION_END_WAIT_MS,
         'session end',
         warn,
+        SESSION_END_BENIGN_EXITS,
       );
     },
     warn,
   };
 }
+
+/**
+ * `cleo session end` exits that only mean there was no session to end (a Stop
+ * with no bound session): expected, so they print no warning.
+ */
+export const SESSION_END_BENIGN_EXITS: readonly number[] = [
+  ExitCode.SESSION_UNBOUND,
+  ExitCode.SESSION_NOT_FOUND,
+];
 
 /**
  * Run a detached process and wait for it at most `waitMs`. A non-zero exit or
@@ -308,6 +319,7 @@ export function processStopDispatchDeps(
  * @param waitMs - Longest wait.
  * @param label - Name used in the warning.
  * @param warn - Receives the diagnostic line.
+ * @param benignExits - Non-zero exit codes that are expected and get no warning.
  * @returns Resolves on exit or at the deadline, whichever comes first.
  */
 export function runBounded(
@@ -316,6 +328,7 @@ export function runBounded(
   waitMs: number,
   label: string,
   warn: (line: string) => void,
+  benignExits: readonly number[] = [],
 ): Promise<void> {
   return new Promise((done) => {
     const started = Date.now();
@@ -340,7 +353,7 @@ export function runBounded(
       if (settled) return;
       settled = true;
       clearTimeout(timer);
-      if (code !== 0) {
+      if (code !== 0 && (code === null || !benignExits.includes(code))) {
         warn(
           `[cleo hook] ${label} failed after ${Date.now() - started} ms (${signal ?? `exit ${code}`})\n`,
         );

@@ -7,6 +7,7 @@
  * @task T13796
  */
 
+import { ExitCode } from '@cleocode/contracts/exit-codes.js';
 import { GOAL_TICK_PROVIDER_ENV } from '@cleocode/contracts/goal-runtime.js';
 import { describe, expect, it, vi } from 'vitest';
 import {
@@ -19,6 +20,7 @@ import {
   processStopDispatchDeps,
   runBounded,
   runTickKillable,
+  SESSION_END_BENIGN_EXITS,
   type StopDispatchDeps,
   stopDispatch,
   type TickRun,
@@ -286,6 +288,23 @@ describe('stopDispatch (T13796)', () => {
       const failed = vi.fn();
       await runBounded(process.execPath, ['-e', 'process.exit(3)'], 5000, 'session end', failed);
       expect(failed.mock.calls[0]?.[0]).toMatch(/session end failed after \d+ ms \(exit 3\)/);
+      // A Stop with no bound session: session end's no-session exits are benign.
+      const quiet = vi.fn();
+      for (const code of SESSION_END_BENIGN_EXITS) {
+        await runBounded(
+          process.execPath,
+          ['-e', `process.exit(${code})`],
+          5000,
+          'session end',
+          quiet,
+          SESSION_END_BENIGN_EXITS,
+        );
+      }
+      expect(SESSION_END_BENIGN_EXITS).toEqual([
+        ExitCode.SESSION_UNBOUND,
+        ExitCode.SESSION_NOT_FOUND,
+      ]);
+      expect(quiet).not.toHaveBeenCalled();
     } finally {
       const { execFileSync } = await import('node:child_process');
       try {
