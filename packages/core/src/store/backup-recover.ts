@@ -38,6 +38,7 @@ import {
   recoverMalformedDb,
   resolveRoleBackupDirs,
   resolveRoleDbPath,
+  vacuumSnapshotPrefixes,
 } from './recover-malformed-db.js';
 import { ensureTriggerSuspendTableAtPath } from './sync/trigger-suspend-at-path.js';
 import {
@@ -215,11 +216,13 @@ function snapshotMatchesPin(role: DbRole, candidate: SnapshotCandidate, pin: str
     );
     if (iso.startsWith(pin)) return true;
   }
-  // Vacuum snapshot: `<role>-20260523-130026.db`.
-  const vacuumPrefix = `${role}-`;
-  if (name.startsWith(vacuumPrefix) && name.endsWith('.db')) {
-    const tail = name.slice(vacuumPrefix.length, -3); // strip ".db"
-    if (tail.startsWith(pin)) return true;
+  // Vacuum snapshot: `<prefix>-20260523-130026.db` (`tasks-*` also holds brain and conduit, T13897).
+  for (const prefix of vacuumSnapshotPrefixes(role)) {
+    const vacuumPrefix = `${prefix}-`;
+    if (name.startsWith(vacuumPrefix) && name.endsWith('.db')) {
+      const tail = name.slice(vacuumPrefix.length, -3); // strip ".db"
+      if (tail.startsWith(pin)) return true;
+    }
   }
   return false;
 }

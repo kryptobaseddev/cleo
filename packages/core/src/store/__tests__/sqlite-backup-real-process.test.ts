@@ -36,6 +36,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { collectSnapshotCandidatesForRole } from '../recover-malformed-db.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -128,5 +129,11 @@ describe('sqlite-backup real-process (T10316)', () => {
     expect(tasksSnapshots).toHaveLength(1);
     expect(brainSnapshots).toHaveLength(0);
     expect(files.filter((f) => /^conduit-\d{8}-\d{6}\.db$/.test(f))).toHaveLength(0);
+
+    // Recovery finds that snapshot for brain and conduit (T13897).
+    for (const role of ['brain', 'conduit'] as const) {
+      const candidates = collectSnapshotCandidatesForRole({ role, vacuumSnapshotDir: backupDir });
+      expect(candidates.map((c) => c.path)).toEqual([join(backupDir, tasksSnapshots[0] ?? '')]);
+    }
   });
 });
