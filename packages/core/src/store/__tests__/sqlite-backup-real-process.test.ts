@@ -13,10 +13,11 @@
  * 3. Invokes `vacuumIntoBackupAll({ cwd: tempDir })`.
  * 4. Exits cleanly.
  *
- * The parent process then asserts that a `brain-YYYYMMDD-HHmmss.db` file
- * landed in `<tempDir>/.cleo/backups/sqlite/`. Before the T10316 fix the
- * fast-path returned `null` and snapshotOne silently skipped brain — so
- * the only artifacts were `tasks-*.db` snapshots.
+ * The parent process then asserts the snapshot landed in
+ * `<tempDir>/.cleo/backups/sqlite/`. Before the T10316 fix the fast-path
+ * returned `null` and snapshotOne silently skipped brain. Since T13891 brain
+ * lives in the unified project cleo.db, so the run writes ONE `tasks-*.db`
+ * snapshot that holds it, and no separate `brain-*.db` copy.
  *
  * This test deliberately bypasses vitest mocks because the bug surfaces only
  * in a real process where module-singleton caches are empty. The mock-based
@@ -64,7 +65,7 @@ describe('sqlite-backup real-process (T10316)', () => {
     }
   });
 
-  it('produces brain-YYYYMMDD-HHmmss.db even when no caller pre-opened brain.db', () => {
+  it('covers brain in the one project snapshot even when no caller pre-opened brain.db (T10316, T13891)', () => {
     // The compiled dist MUST exist — the test depends on the real module
     // graph (no vitest module mocks). Builds run before tests via the
     // monorepo workflow; a missing dist is a clear signal to rebuild.
@@ -121,12 +122,11 @@ describe('sqlite-backup real-process (T10316)', () => {
     const brainSnapshots = files.filter((f) => /^brain-\d{8}-\d{6}\.db$/.test(f));
     const tasksSnapshots = files.filter((f) => /^tasks-\d{8}-\d{6}\.db$/.test(f));
 
-    // Headline regression check: at LEAST one brain-*.db snapshot file.
-    // Pre-fix, this count was 0 in production despite tasks-*.db being healthy.
-    expect(brainSnapshots.length).toBeGreaterThanOrEqual(1);
-
-    // Sanity: tasks snapshot should also exist — confirms the eager-open
-    // contract holds for the previously-working path too.
-    expect(tasksSnapshots.length).toBeGreaterThanOrEqual(1);
+    // T13891: brain lives in the unified project cleo.db, so the run writes
+    // ONE project snapshot (tasks-*) that holds the brain tables, and no
+    // separate brain-*.db or conduit-*.db copy.
+    expect(tasksSnapshots).toHaveLength(1);
+    expect(brainSnapshots).toHaveLength(0);
+    expect(files.filter((f) => /^conduit-\d{8}-\d{6}\.db$/.test(f))).toHaveLength(0);
   });
 });

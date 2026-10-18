@@ -141,8 +141,11 @@ function buildSnapshotPatterns(role: string): readonly RegExp[] {
     new RegExp(`^${safe}\\.db\\.[A-Za-z0-9_-]+-\\d{8}-\\d{6}$`),
     new RegExp(`^${safe}\\.db\\.snapshot-\\d{4}-\\d{2}-\\d{2}T\\d{2}-\\d{2}-\\d{2}-\\d{3}Z$`),
     // T13245: `createBackup` writes ONE `cleo.db.<backupId>` copy of the
-    // project store, which holds the tasks, brain and conduit tables.
-    ...(PROJECT_STORE_LABEL_ROLES.has(role) ? [/^cleo\.db\.[A-Za-z0-9_-]+-\d{8}-\d{6}$/] : []),
+    // project store, which holds the tasks, brain and conduit tables. T13891:
+    // `vacuumIntoBackupAll` likewise writes one `tasks-*.db` for all three.
+    ...(PROJECT_STORE_LABEL_ROLES.has(role)
+      ? [/^cleo\.db\.[A-Za-z0-9_-]+-\d{8}-\d{6}$/, /^tasks-\d{8}-\d{6}\.db$/]
+      : []),
   ];
 }
 

@@ -19,7 +19,7 @@
  * @epic T4867
  */
 
-import { chmodSync, mkdirSync, readdirSync, statSync, utimesSync, writeFileSync } from 'node:fs';
+import { chmodSync, mkdirSync, readdirSync, utimesSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
@@ -415,7 +415,13 @@ describe('sqlite-backup', () => {
       'tasks-20260102-120000.db',
       'tasks-20260101-120000.db',
     ]);
-    expect(brainList.map((e) => e.name)).toEqual(['brain-20260103-120000.db']);
+    // T13891: brain lives in the unified store, so its listing holds the
+    // project snapshots (tasks-*) plus older brain-* files, newest first.
+    expect(brainList.map((e) => e.name)).toEqual([
+      'brain-20260103-120000.db',
+      'tasks-20260102-120000.db',
+      'tasks-20260101-120000.db',
+    ]);
     // T10317: every project-tier + derived inventory row now contributes a
     // bucket to listSqliteBackupsAll(). Empty buckets surface as `[]`.
     expect(Object.keys(all).sort()).toEqual(
@@ -599,11 +605,12 @@ describe('sqlite-backup', () => {
   });
 
   /**
-   * T12508 #2: tasks, brain and conduit share ONE cleo.db handle. A run must
-   * VACUUM it once and hard-link the same file under the other prefixes, so
-   * every `<prefix>-*.db` reader still finds a file at no extra disk cost.
+   * T12508 #2 / T13891: tasks, brain and conduit share ONE cleo.db handle. A
+   * run VACUUMs it once and writes ONE project snapshot; brain and conduit are
+   * covered by that file (no hard link, no copy), so a session end costs one
+   * copy of the store, not three under per-prefix retention.
    */
-  it('one VACUUM per physical database file; other prefixes are hard links (T12508)', async () => {
+  it('one project snapshot per run for the unified store; brain and conduit are covered by it (T12508, T13891)', async () => {
     const tempDir = join(tmpdir(), `cleo-t12508-dedupe-${Date.now()}`);
     const backupDir = join(tempDir, 'backups', 'sqlite');
     mkdirSync(tempDir, { recursive: true });
@@ -639,17 +646,17 @@ describe('sqlite-backup', () => {
     expect(r?.snapshotted).toEqual(['tasks', 'brain', 'conduit']);
     expect(r?.linked).toEqual(['brain', 'conduit']);
     const files = readdirSync(backupDir).filter((f) => /^(tasks|brain|conduit)-/.test(f));
-    expect(files).toHaveLength(3);
-    const inodes = new Set(files.map((f) => statSync(join(backupDir, f)).ino));
-    expect(inodes.size).toBe(1);
+    expect(files).toHaveLength(1);
+    expect(files[0]).toMatch(/^tasks-\d{8}-\d{6}\.db$/);
   });
 
   /**
-   * T12508: on a filesystem without hard links (exFAT → ENOTSUP) the shared
-   * file is COPIED under the other prefixes instead — still one VACUUM, and
-   * `brain-*` / `conduit-*` still exist for restore and recovery.
+   * T13891: on a filesystem without hard links (exFAT → ENOTSUP) the old
+   * design COPIED the shared file under brain and conduit (three full copies
+   * per session end). Now nothing is linked or copied: one file, and
+   * `listBrainBackups` finds the brain tables in that project snapshot.
    */
-  it('falls back to a copy when hard links are unsupported (T12508)', async () => {
+  it('writes one project snapshot, never a copy, where hard links are unsupported (T13891)', async () => {
     const tempDir = join(tmpdir(), `cleo-t12508-nolink-${Date.now()}`);
     const backupDir = join(tempDir, 'backups', 'sqlite');
     mkdirSync(tempDir, { recursive: true });
@@ -696,13 +703,12 @@ describe('sqlite-backup', () => {
 
     expect(vacuums).toBe(1);
     expect(r?.failed).toEqual([]);
-    expect(r?.linked).toEqual([]);
+    expect(r?.linked).toEqual(['brain', 'conduit']);
     expect(r?.snapshotted).toEqual(['tasks', 'brain', 'conduit']);
     const files = readdirSync(backupDir).filter((f) => /^(tasks|brain|conduit)-.*\.db$/.test(f));
-    expect(files).toHaveLength(3);
-    // Three separate files (copies), and brain recovery finds its prefix.
-    expect(new Set(files.map((f) => statSync(join(backupDir, f)).ino)).size).toBe(3);
-    expect(brainList).toHaveLength(1);
+    expect(files).toHaveLength(1);
+    // The one project snapshot is what the brain listing returns.
+    expect(brainList.map((e) => e.name)).toEqual(files);
   });
 
   /**
