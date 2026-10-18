@@ -693,28 +693,24 @@ export const ROW_IDENTITY: Readonly<Record<TableScope, readonly RowIdentitySpec[
     {
       // Append-only: version identity is the uid + parent_version_uid DAG;
       // the local UUIDv4 id never travels and cannot collide across devices.
+      // attachment_uid / parent_version_uid already hold uids, so they travel
+      // verbatim like conduit_doc_heads: `refs` map LOCAL keys (slug, id) and
+      // sealed them as NULL on every peer (T13868).
       table: 'conduit_attachment_versions',
       kind: 'minted',
       key: ['id'],
       birth: 'created_at',
       birthFacts: ['author_agent_id', 'content_hash'],
-      refs: [
-        { column: 'attachment_uid', table: 'conduit_attachments' },
-        { column: 'parent_version_uid', table: 'conduit_attachment_versions' },
-      ],
       task: 'T13354',
     },
     {
       // Append-only: a revoke is a new row (tombstone), never an UPDATE/DELETE.
+      // attachment_uid / version_uid hold uids and travel verbatim (T13868).
       table: 'conduit_attachment_approvals',
       kind: 'minted',
       key: ['id'],
       birth: 'created_at',
       birthFacts: ['reviewer_agent_id'],
-      refs: [
-        { column: 'attachment_uid', table: 'conduit_attachments' },
-        { column: 'version_uid', table: 'conduit_attachment_versions' },
-      ],
       task: 'T13354',
     },
     {

@@ -34,15 +34,60 @@ import { finishCaptureFrame, openCaptureFrame } from '../capture.js';
 import { receiveClock } from '../clock-store.js';
 import { type ApplyWriteApi, createApplyWriteApi } from './write-api.js';
 
-/** A frame misuse: an async body, a nested call, or a call after the frame ended. */
+/**
+ * A frame misuse (an async body, a nested call, a call after the frame
+ * ended), or a deferred foreign key the frame's COMMIT refused, with the rows
+ * named (`E_SYNC_APPLY_FK`, T13868).
+ */
 export class ApplyFrameError extends Error {
   constructor(
-    readonly code: 'E_SYNC_APPLY_ASYNC' | 'E_SYNC_APPLY_NESTED' | 'E_SYNC_APPLY_ENDED',
+    readonly code:
+      | 'E_SYNC_APPLY_ASYNC'
+      | 'E_SYNC_APPLY_NESTED'
+      | 'E_SYNC_APPLY_ENDED'
+      | 'E_SYNC_APPLY_FK',
     message: string,
   ) {
     super(message);
     this.name = 'ApplyFrameError';
   }
+}
+
+/**
+ * The rows a failed COMMIT's deferred foreign keys point away from, named for
+ * the refusal (T13868): a bare "FOREIGN KEY constraint failed" on every sync
+ * says nothing about which row to repair. Null when `err` is no FK failure or
+ * nothing is pending (an immediate check already undid its statement).
+ */
+function namedFkFailure(db: DatabaseSync, err: unknown): ApplyFrameError | null {
+  if (!(err instanceof Error) || !err.message.includes('FOREIGN KEY constraint failed')) {
+    return null;
+  }
+  const rows = db.prepare('PRAGMA main.foreign_key_check').all() as Array<{
+    table: string;
+    rowid: number | null;
+    parent: string;
+  }>;
+  if (rows.length === 0) return null;
+  const uidOf = (table: string, rowid: number | null): string | null => {
+    try {
+      const row = db
+        .prepare(`SELECT uid FROM main."${table.replaceAll('"', '""')}" WHERE rowid = ?`)
+        .get(rowid) as { uid: string | null } | undefined;
+      return row?.uid ?? null;
+    } catch {
+      return null; // a table without a uid column: the rowid names the row
+    }
+  };
+  const named = rows
+    .slice(0, 5)
+    .map((r) => `${r.table} ${uidOf(r.table, r.rowid) ?? `rowid ${r.rowid}`} → ${r.parent}`);
+  const more = rows.length > 5 ? ` (+${rows.length - 5} more)` : '';
+  // @sync-invariant none:local-only the frame rolls back whole; this only names the rows the deferred FK check refused
+  return new ApplyFrameError(
+    'E_SYNC_APPLY_FK',
+    `FOREIGN KEY constraint failed: ${named.join('; ')}${more}`,
+  );
 }
 
 /** A synchronous result: never a thenable. */
@@ -132,7 +177,11 @@ export function withApplyFrame<T>(
     db.exec('COMMIT');
     return out;
   } catch (err) {
-    if (db.isTransaction) db.exec('ROLLBACK');
+    if (db.isTransaction) {
+      const named = namedFkFailure(db, err);
+      db.exec('ROLLBACK');
+      if (named) throw named;
+    }
     throw err;
   } finally {
     active = false;

@@ -1469,6 +1469,10 @@ function describeConflicts(cs: readonly MergeConflict[]): string {
 function rewindTxns(c: OpContext, plan: RebasePlan): Rewound {
   const kept = new Map<string, KeptRow>();
   const after = new Map<string, RowMetaFull | null>();
+  // T13868: rewind skips append-only children, so undoing a parent's INSERT
+  // leaves them pointing at it until the stream or the replay puts it back.
+  // Rewind, apply and replay share this frame's transaction: check FKs at COMMIT.
+  c.db.exec('PRAGMA defer_foreign_keys = ON');
   withTriggersSuspended(c.db, ['capture', 'guard', 'side-effect'], 'rewind', () => {
     for (const l of [...plan.rewind].reverse()) {
       adoptNaturalRows(c.db, c.api, c.defs, l.ops);

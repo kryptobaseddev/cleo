@@ -41,6 +41,7 @@ import {
   secretValuesKey,
 } from '../../../cloud/secret-seal.js';
 import { DocsReadModel } from '../../../docs/docs-read-model.js';
+import { updateDocBySlug } from '../../../docs/docs-update.js';
 import {
   _resetDualScopeDbCache,
   getDualScopeNativeDb,
@@ -899,6 +900,70 @@ describe('docs reach a second device (T12919)', () => {
     expect(docs(b.db)).toEqual(docs(a.db));
     expect(refs(b.db)).toEqual(refs(a.db));
   });
+
+  for (const firstPull of ['b', 'a'] as const) {
+    it(`concurrent first docs updates on both devices converge with no FK failure, ${firstPull} pulling first (T13868)`, async () => {
+      const storageKey = `${SHA.slice(0, 2)}/${SHA.slice(2)}.md`;
+      const blobJson = JSON.stringify({
+        kind: 'blob',
+        sha256: SHA,
+        storageKey,
+        mime: 'text/markdown',
+        size: BODY.length,
+      });
+      const { a, b } = await twoDevices();
+      const stream = fakeStream();
+      for (const r of [a, b]) uniqueDocIndexes(r.db);
+      const at = new Date(++clockMs).toISOString();
+      write(
+        a.db,
+        `INSERT INTO docs_attachments (id, sha256, attachment_json, created_at, ref_count, slug, type)
+           VALUES ('doc-1', '${SHA}', '${blobJson}', '${at}', 0, 'gate-crdt', 'note');`,
+      );
+      await push(a, stream);
+      await pull(b, stream);
+      await pull(a, stream);
+      // `docs add` left the bytes on A; a vault restore or bytes pull puts them on B.
+      for (const name of ['a', 'b']) {
+        const p = join(dir, name, '.cleo', 'attachments', 'sha256', storageKey);
+        mkdirSync(join(p, '..'), { recursive: true });
+        writeFileSync(p, BODY);
+      }
+      // Each device makes its FIRST text update of the doc before seeing the other's.
+      for (const [r, name] of [
+        [a, 'a'],
+        [b, 'b'],
+      ] as const) {
+        vi.stubEnv('CLEO_DIR', join(dir, name, '.cleo')); // the update's native handle is the ambient project
+        const out = await updateDocBySlug(join(dir, name), {
+          slug: 'gate-crdt',
+          content: `${BODY}edit from ${name}\n`,
+          attachedBy: `agent-${name}`,
+        });
+        expect(out.ok, `${name}: ${JSON.stringify(out)}`).toBe(true);
+        await push(r, stream);
+      }
+      vi.stubEnv('CLEO_DIR', undefined);
+      const order = firstPull === 'b' ? [b, a] : [a, b];
+      for (const r of order) await pull(r, stream);
+      for (const r of order) await pull(r, stream);
+      for (const r of [a, b]) {
+        expect(inboxCounts(r.db, STREAM), r.device).not.toHaveProperty('staged');
+        expect(r.db.prepare('PRAGMA foreign_key_check').all(), r.device).toEqual([]);
+      }
+      const docState = (r: Replica) => ({
+        doc: r.db.prepare('SELECT uid, slug FROM conduit_attachments ORDER BY uid').all(),
+        versions: r.db
+          .prepare('SELECT uid, attachment_uid FROM conduit_attachment_versions ORDER BY uid')
+          .all(),
+        head: r.db
+          .prepare('SELECT attachment_uid, head_version_uid FROM conduit_doc_heads ORDER BY uid')
+          .all(),
+      });
+      expect(docState(a).doc).toHaveLength(1);
+      expect(docState(b)).toEqual(docState(a));
+    }, 120_000);
+  }
 
   /**
    * A fake Nexus for doc bytes (T13721): presign/complete and the stream
