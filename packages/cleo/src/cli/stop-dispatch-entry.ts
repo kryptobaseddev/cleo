@@ -39,7 +39,7 @@
  * @task T13796
  */
 
-import { spawn, spawnSync } from 'node:child_process';
+import { spawn } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import type { HookJsonValue } from '@cleocode/contracts';
@@ -67,6 +67,13 @@ const DEFAULT_TICK_TIMEOUT_MS = 30_000;
 
 /** Longest tick deadline, kept well under the Stop hook's harness timeout (120 s). */
 export const MAX_TICK_TIMEOUT_MS = 60_000;
+
+/**
+ * Longest the ask-enforce step may take once the tick is done (T13890): it is
+ * in-process and normally instant, but nothing after the tick may stretch the
+ * Stop toward the harness's own timeout.
+ */
+export const ASK_ENFORCE_DEADLINE_MS = 5_000;
 
 /** Longest block reason forwarded to the harness. */
 export const MAX_REASON_CHARS = 4000;
@@ -96,7 +103,7 @@ export interface StopDispatchDeps {
   readonly runTick: (command: string, input: string, timeoutMs: number) => Promise<TickRun>;
   /** The ask-enforce hook's stdout for this Stop (empty when it does not answer). */
   readonly askEnforce: (input: string) => Promise<string>;
-  /** End the CLEO session, as the Stop hook always did. */
+  /** End the CLEO session, as the Stop hook always did; must not block the Stop (T13890). */
   readonly endSession: () => void;
 }
 
@@ -130,6 +137,24 @@ export function parseTick(run: TickRun): TickDecision {
     return { kind: 'block', answer: `${JSON.stringify({ decision: 'block', reason })}\n` };
   }
   return answer.final === false ? { kind: 'hold' } : { kind: 'final' };
+}
+
+/** `work`, or `fallback` once `ms` pass or `work` rejects; the timer never holds the process. */
+function withDeadline<T>(work: Promise<T>, ms: number, fallback: T): Promise<T> {
+  return new Promise((done) => {
+    const timer = setTimeout(() => done(fallback), ms);
+    timer.unref();
+    work.then(
+      (value) => {
+        clearTimeout(timer);
+        done(value);
+      },
+      () => {
+        clearTimeout(timer);
+        done(fallback);
+      },
+    );
+  });
 }
 
 /** Whether a hook answer is a `{"decision":"block"}` (Claude Code and Codex). */
@@ -170,7 +195,7 @@ export async function stopDispatch(
     command === null ? { kind: 'final' } : parseTick(await deps.runTick(command, stdin, timeout));
   if (decision.kind === 'block') return { stdout: decision.answer, sessionEnded: false };
   if (decision.kind === 'hold') return { stdout: '', sessionEnded: false };
-  const asked = await deps.askEnforce(stdin).catch(() => '');
+  const asked = await withDeadline(deps.askEnforce(stdin), ASK_ENFORCE_DEADLINE_MS, '');
   if ((asked !== '' && isBlock(asked)) || !endsSession)
     return { stdout: asked, sessionEnded: false };
   deps.endSession();
@@ -208,8 +233,8 @@ export async function askEnforceOptedOut(
 /**
  * The real side effects: the tick through the shell (the command is the
  * project's own configuration), ask-enforce in-process, and
- * `cleo session end --quiet` through the running CLI, its envelope kept off
- * the harness's stdout.
+ * `cleo session end --quiet` through the running CLI, detached and not
+ * awaited, its output kept off the harness's streams.
  *
  * @param provider - Harness protocol ask-enforce answers in.
  * @param env - Environment ask-enforce reads.
@@ -233,13 +258,14 @@ export function processStopDispatchDeps(
     },
     hasGoalWorkspace: (input) => hasGoalWorkspace(input, env),
     runTick: (command, input, timeoutMs) => runTickKillable(command, input, timeoutMs, provider),
+    // T13890: started and left running, never awaited: session end can take
+    // longer than the harness's Stop timeout, and the Stop must return now.
     endSession: () => {
       const cli = process.argv[1];
-      spawnSync(
-        cli ? process.execPath : 'cleo',
-        [...(cli ? [cli] : []), 'session', 'end', '--quiet'],
-        { stdio: ['ignore', 'ignore', 'inherit'] },
-      );
+      spawn(cli ? process.execPath : 'cleo', [...(cli ? [cli] : []), 'session', 'end', '--quiet'], {
+        detached: true,
+        stdio: 'ignore',
+      }).unref();
     },
   };
 }

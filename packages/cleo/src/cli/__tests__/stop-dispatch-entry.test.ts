@@ -10,6 +10,7 @@
 import { GOAL_TICK_PROVIDER_ENV } from '@cleocode/contracts/goal-runtime.js';
 import { describe, expect, it, vi } from 'vitest';
 import {
+  ASK_ENFORCE_DEADLINE_MS,
   askEnforceOptedOut,
   hasGoalWorkspace,
   MAX_REASON_CHARS,
@@ -223,6 +224,47 @@ describe('stopDispatch (T13796)', () => {
       const run = await runTickKillable(echo, STOP, 5000, provider);
       expect(run.status).toBe(0);
       expect(JSON.parse(run.stdout)).toEqual({ p: provider, h: process.env.HOME ?? null });
+    }
+  });
+
+  it('returns within the deadline when the tick forks a grandchild that escapes the group and holds stdout (T13890)', async () => {
+    const marker = `cleo-t13890-${process.pid}-${Date.now()}`;
+    // The grandchild calls setsid (detached), so the group SIGKILL cannot reach it,
+    // and it inherits the tick's stdout, so that pipe never reaches EOF on its own.
+    const tick = `node -e "require('child_process').spawn('node',['-e','setTimeout(()=>{},30000)','${marker}'],{detached:true,stdio:['ignore','inherit','ignore']}).unref();setInterval(()=>{},1000)"`;
+    const real = processStopDispatchDeps('codex', { CLEO_ASK_ENFORCE: 'off' });
+    const endSession = vi.fn();
+    const started = Date.now();
+    try {
+      const r = await stopDispatch(
+        STOP,
+        { CLEO_ASK_ENFORCE: 'off', CLEO_GOAL_TICK_COMMAND: tick, CLEO_GOAL_TICK_TIMEOUT_MS: '800' },
+        { ...real, hasGoalWorkspace: () => true, endSession },
+        true,
+      );
+      expect(r).toEqual({ stdout: '', sessionEnded: true });
+      expect(Date.now() - started).toBeLessThan(800 + 5000);
+      expect(endSession).toHaveBeenCalledTimes(1);
+    } finally {
+      const { execFileSync } = await import('node:child_process');
+      try {
+        execFileSync('pkill', ['-f', marker]);
+      } catch {
+        // Already gone.
+      }
+    }
+  });
+
+  it('a hung ask-enforce cannot hold the stop past its own deadline (T13890)', async () => {
+    vi.useFakeTimers();
+    try {
+      const d = deps({ status: 127, stdout: '' }, () => new Promise<string>(() => {}));
+      const pending = stopDispatch(STOP, {}, d.deps);
+      await vi.advanceTimersByTimeAsync(ASK_ENFORCE_DEADLINE_MS);
+      expect(await pending).toEqual({ stdout: '', sessionEnded: true });
+      expect(d.endSession).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.useRealTimers();
     }
   });
 
