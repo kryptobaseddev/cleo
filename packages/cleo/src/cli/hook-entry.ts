@@ -1100,7 +1100,7 @@ async function runStopDispatch(rest: readonly string[], io: HookIo): Promise<num
       `[cleo hook] stop dispatch failed: ${err instanceof Error ? err.message : String(err)}\n`,
     );
     // Fail open to what this provider's Stop did before the dispatcher.
-    if (entry.PROVIDER_ENDS_SESSION[provider]) deps.endSession();
+    if (entry.PROVIDER_ENDS_SESSION[provider]) await deps.endSession();
   }
   return 0;
 }

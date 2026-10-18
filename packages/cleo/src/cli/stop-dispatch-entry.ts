@@ -75,6 +75,13 @@ export const MAX_TICK_TIMEOUT_MS = 60_000;
  */
 export const ASK_ENFORCE_DEADLINE_MS = 5_000;
 
+/**
+ * Longest the Stop waits for `cleo session end` (T13890, T13893). Past it the
+ * session end is left to finish in the background. Tick (60 s at most) plus
+ * ask-enforce plus this stays under Claude Code's 120 s Stop timeout.
+ */
+export const SESSION_END_WAIT_MS = 20_000;
+
 /** Longest block reason forwarded to the harness. */
 export const MAX_REASON_CHARS = 4000;
 
@@ -103,8 +110,10 @@ export interface StopDispatchDeps {
   readonly runTick: (command: string, input: string, timeoutMs: number) => Promise<TickRun>;
   /** The ask-enforce hook's stdout for this Stop (empty when it does not answer). */
   readonly askEnforce: (input: string) => Promise<string>;
-  /** End the CLEO session, as the Stop hook always did; must not block the Stop (T13890). */
-  readonly endSession: () => void;
+  /** End the CLEO session, as the Stop hook always did; resolves within {@link SESSION_END_WAIT_MS} (T13890). */
+  readonly endSession: () => void | Promise<void>;
+  /** One diagnostic line to stderr (a deadline hit, a failed or overrunning session end). */
+  readonly warn?: (line: string) => void;
 }
 
 /** The goal runtime's verdict on one stop. */
@@ -139,10 +148,18 @@ export function parseTick(run: TickRun): TickDecision {
   return answer.final === false ? { kind: 'hold' } : { kind: 'final' };
 }
 
-/** `work`, or `fallback` once `ms` pass or `work` rejects; the timer never holds the process. */
-function withDeadline<T>(work: Promise<T>, ms: number, fallback: T): Promise<T> {
+/** `work`, or `fallback` once `ms` pass (calling `onTimeout`) or `work` rejects; the timer never holds the process. */
+function withDeadline<T>(
+  work: Promise<T>,
+  ms: number,
+  fallback: T,
+  onTimeout?: () => void,
+): Promise<T> {
   return new Promise((done) => {
-    const timer = setTimeout(() => done(fallback), ms);
+    const timer = setTimeout(() => {
+      onTimeout?.();
+      done(fallback);
+    }, ms);
     timer.unref();
     work.then(
       (value) => {
@@ -195,10 +212,14 @@ export async function stopDispatch(
     command === null ? { kind: 'final' } : parseTick(await deps.runTick(command, stdin, timeout));
   if (decision.kind === 'block') return { stdout: decision.answer, sessionEnded: false };
   if (decision.kind === 'hold') return { stdout: '', sessionEnded: false };
-  const asked = await withDeadline(deps.askEnforce(stdin), ASK_ENFORCE_DEADLINE_MS, '');
+  const asked = await withDeadline(deps.askEnforce(stdin), ASK_ENFORCE_DEADLINE_MS, '', () =>
+    deps.warn?.(
+      `[cleo hook] ask-enforce gave no answer within ${ASK_ENFORCE_DEADLINE_MS} ms; treated as no block\n`,
+    ),
+  );
   if ((asked !== '' && isBlock(asked)) || !endsSession)
     return { stdout: asked, sessionEnded: false };
-  deps.endSession();
+  await deps.endSession();
   return { stdout: asked, sessionEnded: true };
 }
 
@@ -233,8 +254,8 @@ export async function askEnforceOptedOut(
 /**
  * The real side effects: the tick through the shell (the command is the
  * project's own configuration), ask-enforce in-process, and
- * `cleo session end --quiet` through the running CLI, detached and not
- * awaited, its output kept off the harness's streams.
+ * `cleo session end --quiet` through the running CLI, waited for at most
+ * {@link SESSION_END_WAIT_MS}, its output kept off the harness's streams.
  *
  * @param provider - Harness protocol ask-enforce answers in.
  * @param env - Environment ask-enforce reads.
@@ -244,6 +265,9 @@ export function processStopDispatchDeps(
   provider: StopDispatchProvider,
   env: Readonly<Record<string, string | undefined>>,
 ): StopDispatchDeps {
+  const warn = (line: string): void => {
+    process.stderr.write(line);
+  };
   return {
     askEnforce: async (input) => {
       if (await askEnforceOptedOut(env, process.cwd())) return '';
@@ -258,16 +282,72 @@ export function processStopDispatchDeps(
     },
     hasGoalWorkspace: (input) => hasGoalWorkspace(input, env),
     runTick: (command, input, timeoutMs) => runTickKillable(command, input, timeoutMs, provider),
-    // T13890: started and left running, never awaited: session end can take
-    // longer than the harness's Stop timeout, and the Stop must return now.
+    // T13890: session end can outlast the harness's Stop timeout, so it is
+    // waited for at most SESSION_END_WAIT_MS, then left to finish on its own.
     endSession: () => {
       const cli = process.argv[1];
-      spawn(cli ? process.execPath : 'cleo', [...(cli ? [cli] : []), 'session', 'end', '--quiet'], {
-        detached: true,
-        stdio: 'ignore',
-      }).unref();
+      return runBounded(
+        cli ? process.execPath : 'cleo',
+        [...(cli ? [cli] : []), 'session', 'end', '--quiet'],
+        SESSION_END_WAIT_MS,
+        'session end',
+        warn,
+      );
     },
+    warn,
   };
+}
+
+/**
+ * Run a detached process and wait for it at most `waitMs`. A non-zero exit or
+ * a spawn error gets one `warn` line with the duration. Past the wait the
+ * process keeps running, unref'd, with one `warn` line. Never rejects.
+ *
+ * @param command - Executable.
+ * @param args - Its arguments.
+ * @param waitMs - Longest wait.
+ * @param label - Name used in the warning.
+ * @param warn - Receives the diagnostic line.
+ * @returns Resolves on exit or at the deadline, whichever comes first.
+ */
+export function runBounded(
+  command: string,
+  args: readonly string[],
+  waitMs: number,
+  label: string,
+  warn: (line: string) => void,
+): Promise<void> {
+  return new Promise((done) => {
+    const started = Date.now();
+    let settled = false;
+    const child = spawn(command, [...args], { detached: true, stdio: 'ignore' });
+    const timer = setTimeout(() => {
+      settled = true;
+      child.unref();
+      warn(
+        `[cleo hook] ${label} still running after ${Date.now() - started} ms; left to finish in the background\n`,
+      );
+      done();
+    }, waitMs);
+    child.on('error', (err) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      warn(`[cleo hook] ${label} failed after ${Date.now() - started} ms: ${err.message}\n`);
+      done();
+    });
+    child.on('exit', (code, signal) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      if (code !== 0) {
+        warn(
+          `[cleo hook] ${label} failed after ${Date.now() - started} ms (${signal ?? `exit ${code}`})\n`,
+        );
+      }
+      done();
+    });
+  });
 }
 
 /**
