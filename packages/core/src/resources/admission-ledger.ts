@@ -602,9 +602,10 @@ function readLedgerDoc(dir: string, strictRead = false): LedgerDoc {
   const o = parsed as Record<string, unknown>;
   const version =
     typeof o.version === 'number' && Number.isFinite(o.version) ? o.version : LEDGER_VERSION;
-  // @sync-invariant none:local-only admission cleanup cannot interpret a newer machine-local ledger
-  if (strictRead && version > LEDGER_VERSION)
+  if (strictRead && version > LEDGER_VERSION) {
+    // @sync-invariant none:local-only admission cleanup cannot interpret a newer machine-local ledger
     throw new LedgerVersionError(version, ledgerFile(dir));
+  }
   if (strictRead && !Array.isArray(o.entries)) {
     // @sync-invariant none:local-only admission cleanup needs a complete machine-local entry list
     throw new SyntaxError('admission ledger entries are not an array');
