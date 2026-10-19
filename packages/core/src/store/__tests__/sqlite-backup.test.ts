@@ -676,13 +676,29 @@ describe('sqlite-backup', () => {
     // A tasks-only snapshot refreshes the tasks debounce; the next all-snapshot
     // run admits only brain and conduit.
     await vacuumIntoBackup();
+    const [first] = readdirSync(backupDir).filter((f) => /^tasks-.*\.db$/.test(f));
+    expect(first).toBeDefined();
+    // Data written after the first snapshot must be in the brain-admitted one.
+    shared.exec("INSERT INTO tasks_schema_meta (key, value) VALUES ('t13891-marker', 'latest')");
     const r = await vacuumIntoBackupAll();
     shared.close();
 
     expect(r?.snapshotted).not.toContain('tasks');
+    expect(r?.snapshotted).toContain('brain');
+    // Same-bucket retention may drop the first snapshot; never a brain/conduit file.
     const files = readdirSync(backupDir).filter((f) => /^(tasks|brain|conduit)-.*\.db$/.test(f));
-    expect(files.length).toBe(2);
     for (const f of files) expect(f).toMatch(/^tasks-\d{8}-\d{6}\.db$/);
+    const latest = files
+      .filter((f) => f !== first)
+      .sort()
+      .at(-1);
+    expect(latest).toBeDefined();
+    const snap = new DatabaseSync(join(backupDir, latest ?? ''), { readOnly: true });
+    const row = snap
+      .prepare("SELECT value FROM tasks_schema_meta WHERE key = 't13891-marker'")
+      .get() as { value: string } | undefined;
+    snap.close();
+    expect(row?.value).toBe('latest');
   });
 
   /**
