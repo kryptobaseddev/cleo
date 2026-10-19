@@ -16,6 +16,10 @@
 - project snapshots prune legacy brain-*/conduit-* files older than the oldest retained tasks-* snapshot, so links left from before the unified snapshot no longer pin rotated-out snapshots on disk _(provenance: [T13910](https://github.com/kryptobaseddev/cleo/search?q=T13910&type=commits))_
 - verify --run proves minCount from the JSON report vitest 5 writes under the package it ran in _(provenance: [T13874](https://github.com/kryptobaseddev/cleo/search?q=T13874&type=commits))_
 
+### Also in this release
+
+- `cleo run --wait` queue admission is bounded across pending sampling and ledger locks _(provenance: [T13889](https://github.com/kryptobaseddev/cleo/search?q=T13889&type=commits))_
+
 ## [2026.10.20] (2026-10-18)
 
 > **Audit-log secret redaction.** Rotate any token you passed to `cleo service connect` on an earlier build: older builds wrote it to the synced audit log (fixed in this release, T13855/T13857). Audit tables now redact secrets on write, and each store scrubs older rows once on open. Cross-device sync itself (Stage C) stays off on stable.
