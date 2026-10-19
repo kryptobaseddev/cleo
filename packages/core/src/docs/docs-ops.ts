@@ -969,13 +969,16 @@ async function listConduitDocVersions(
       return { ownerId: slug, nameFilter: name, versions: [] };
     }
     // Display-ordinal ruling (T13727): assign 1..N in chronological order
-    // (created_at ascending, uid tiebreak) — rows stay append-only and are
-    // never renumbered, so the stored version_number can repeat across the
+    // (created_at ascending; T13907: equal timestamps break on the stored
+    // version_number, which rises along one append chain, then uid) — rows
+    // stay append-only and are never renumbered, so the stored version_number can repeat across the
     // pre-/post-adoption seam; the read-time ordinal cannot. Entries are
     // returned newest first, so the list reads N..1.
     const chronological = [...rows].sort((a, b) => {
       const byTime = a.createdAt.localeCompare(b.createdAt);
-      return byTime !== 0 ? byTime : (a.uid ?? '').localeCompare(b.uid ?? '');
+      if (byTime !== 0) return byTime;
+      const byStored = a.versionNumber - b.versionNumber;
+      return byStored !== 0 ? byStored : (a.uid ?? '').localeCompare(b.uid ?? '');
     });
     const versions: DocsVersionEntry[] = chronological
       .map((row, index) => ({ row, display: index + 1 }))
