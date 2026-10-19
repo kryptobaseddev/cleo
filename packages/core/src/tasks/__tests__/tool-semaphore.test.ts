@@ -107,7 +107,9 @@ describe('acquireGlobalSlot over the admission ledger (T13133)', () => {
       await expect(acquireGlobalSlot('test', { ...MACHINE, timeoutMs: 60 })).rejects.toThrow(
         /Timed out waiting for admission of a 'test' run: machine budget in use: 36 GiB of 36 GiB by 2 run\(s\).*Current holders — tool:test pid \d+/,
       );
-      expect(readLedger()).toHaveLength(2); // the timed-out run left the queue
+      await vi.waitFor(() => {
+        expect(readLedger()).toHaveLength(2); // the timed-out run left the queue
+      });
     } finally {
       await held();
       await also();
