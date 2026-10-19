@@ -204,6 +204,32 @@ describe('recoverMalformedBrainDb (T10303)', () => {
     expect(result.observationsRecovered).toBe(9);
   });
 
+  it('picks a newer tasks-* project snapshot over an older brain-* one (T13897)', () => {
+    const root = mkdtempSync(join(tmpdir(), 'cleo-test-recover-tasks-prefix-'));
+    const cleoDir = join(root, '.cleo');
+    const vacuumDir = join(cleoDir, 'backups', 'sqlite');
+    const snapshotDir = join(cleoDir, 'backups', 'snapshot');
+    const corruptPath = join(cleoDir, 'brain.db');
+    mkdirSync(vacuumDir, { recursive: true });
+    mkdirSync(snapshotDir, { recursive: true });
+
+    seedHealthyBrainDb(join(vacuumDir, 'brain-20260523-120000.db'), 2);
+    const newer = join(vacuumDir, 'tasks-20260523-131622.db');
+    seedHealthyBrainDb(newer, 5);
+    writeCorruptFile(corruptPath);
+
+    const result = recoverMalformedBrainDb({
+      corruptPath,
+      snapshotDir,
+      vacuumSnapshotDir: vacuumDir,
+      logger: makeLogger(),
+    });
+
+    expect(result.integrityOK).toBe(true);
+    expect(result.restoredFrom).toBe(newer);
+    expect(result.observationsRecovered).toBe(5);
+  });
+
   it('uses legacy PRE-DUP-FIX artifacts as a last-resort fallback', () => {
     const root = mkdtempSync(join(tmpdir(), 'cleo-test-recover-predup-'));
     const cleoDir = join(root, '.cleo');
