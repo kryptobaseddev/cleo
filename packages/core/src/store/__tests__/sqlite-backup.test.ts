@@ -650,6 +650,41 @@ describe('sqlite-backup', () => {
     expect(files[0]).toMatch(/^tasks-\d{8}-\d{6}\.db$/);
   });
 
+  it('a debounced tasks prefix still files the unified store as tasks-*, never brain-* (T13910)', async () => {
+    const tempDir = join(tmpdir(), `cleo-t13910-mixed-${Date.now()}`);
+    const backupDir = join(tempDir, 'backups', 'sqlite');
+    mkdirSync(tempDir, { recursive: true });
+    const shared = new DatabaseSync(join(tempDir, 'cleo.db'));
+    shared.exec('CREATE TABLE tasks_schema_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL)');
+    vi.doMock('../sqlite.js', () => ({ getNativeDb: () => shared, getDb: async () => null }));
+    vi.doMock('../memory-sqlite.js', () => ({
+      getBrainNativeDb: () => shared,
+      getBrainDb: async () => null,
+    }));
+    vi.doMock('../conduit-sqlite.js', () => ({
+      getConduitNativeDb: () => shared,
+      ensureConduitDb: () => ({ action: 'exists', path: '' }),
+    }));
+    stubOtherChokepointOpeners();
+    vi.doMock('../../paths.js', () => ({
+      getCleoDir: () => tempDir,
+      getCleoHome: () => tempDir,
+      resolveOrCwd: (cwd?: string) => cwd ?? tempDir,
+    }));
+
+    const { vacuumIntoBackup, vacuumIntoBackupAll } = await import('../sqlite-backup.js');
+    // A tasks-only snapshot refreshes the tasks debounce; the next all-snapshot
+    // run admits only brain and conduit.
+    await vacuumIntoBackup();
+    const r = await vacuumIntoBackupAll();
+    shared.close();
+
+    expect(r?.snapshotted).not.toContain('tasks');
+    const files = readdirSync(backupDir).filter((f) => /^(tasks|brain|conduit)-.*\.db$/.test(f));
+    expect(files.length).toBe(2);
+    for (const f of files) expect(f).toMatch(/^tasks-\d{8}-\d{6}\.db$/);
+  });
+
   it('legacy brain-*/conduit-* snapshots never outlive the retained tasks-* set (T13910)', async () => {
     const tempDir = join(tmpdir(), `cleo-t13910-legacy-${Date.now()}`);
     const backupDir = join(tempDir, 'backups', 'sqlite');

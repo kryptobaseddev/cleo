@@ -56,7 +56,7 @@ import {
   statSync,
   unlinkSync,
 } from 'node:fs';
-import { dirname, join, sep } from 'node:path';
+import { basename, dirname, join, sep } from 'node:path';
 import type { DatabaseSync } from 'node:sqlite';
 import type { DbInventoryEntry, DbRole } from '@cleocode/contracts';
 import { DB_INVENTORY } from '@cleocode/contracts/db-inventory.js';
@@ -977,6 +977,7 @@ async function snapshotOne(
 
   let destName: string;
   let source: string | null;
+  let filePrefix = target.prefix;
   try {
     source = sourceFileOf(db);
     if (source !== null && (target.tier === 'project' || target.tier === 'derived')) {
@@ -992,7 +993,14 @@ async function snapshotOne(
       if (opened && target.closeDb) target.closeDb(opened);
       return 'linked';
     }
-    destName = await freeSnapshotName(backupDir, target.prefix);
+    // The unified project cleo.db is always filed as `tasks-*`, whichever of
+    // tasks/brain/conduit the gate admitted first: a debounced tasks prefix
+    // must not leave the run writing a `brain-*` file that conduit recovery
+    // (conduit-* or tasks-*) never sees (T13910).
+    if (target.tier === 'project' && source !== null && basename(source) === 'cleo.db') {
+      filePrefix = 'tasks';
+    }
+    destName = await freeSnapshotName(backupDir, filePrefix);
   } catch (err) {
     if (opened && target.closeDb) target.closeDb(opened);
     throw err;
@@ -1024,9 +1032,8 @@ async function snapshotOne(
     }
 
     if (source !== null) writtenBySource.set(source, dest);
-    rotateSnapshots(backupDir, target.prefix, destName);
-    if (target.prefix === 'tasks' && target.tier === 'project')
-      pruneLegacyProjectSnapshots(backupDir);
+    rotateSnapshots(backupDir, filePrefix, destName);
+    if (filePrefix === 'tasks' && target.tier === 'project') pruneLegacyProjectSnapshots(backupDir);
     return 'written';
   } finally {
     // Release the ephemeral handle for raw-file-vacuum-readonly targets.
