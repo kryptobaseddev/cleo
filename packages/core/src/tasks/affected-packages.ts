@@ -587,8 +587,7 @@ export function listVitestProjects(
       : (canonical: 'test') =>
           acquireGlobalSlot(canonical, {
             footprintBytes: LIGHT_FOOTPRINT_BYTES,
-            timeoutMs: 1,
-            pollMs: 1,
+            timeoutMs: 0,
           }));
   const pending = resolveVitestProjects(root, acquire);
   if (key !== null) {

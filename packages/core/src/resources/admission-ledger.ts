@@ -572,7 +572,7 @@ function isCachedPressure(v: unknown): v is CachedPressure {
   );
 }
 
-function readLedgerDoc(dir: string): LedgerDoc {
+function readLedgerDoc(dir: string, strictRead = false): LedgerDoc {
   const empty: LedgerDoc = {
     version: LEDGER_VERSION,
     entries: [],
@@ -583,27 +583,43 @@ function readLedgerDoc(dir: string): LedgerDoc {
   let raw: string;
   try {
     raw = readFileSync(ledgerFile(dir), 'utf-8');
-  } catch {
+  } catch (err) {
+    if (strictRead && (err as NodeJS.ErrnoException | null)?.code !== 'ENOENT') throw err;
     return empty;
   }
   let parsed: unknown;
   try {
     parsed = JSON.parse(raw);
-  } catch {
+  } catch (err) {
+    if (strictRead) throw err;
     return { ...empty, corrupt: true };
   }
   if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
+    // @sync-invariant none:local-only admission cleanup must not replace an unreadable machine-local ledger
+    if (strictRead) throw new SyntaxError('admission ledger is not a valid document');
     return { ...empty, corrupt: true };
   }
   const o = parsed as Record<string, unknown>;
   const version =
     typeof o.version === 'number' && Number.isFinite(o.version) ? o.version : LEDGER_VERSION;
+  if (strictRead && version > LEDGER_VERSION) {
+    // @sync-invariant none:local-only admission cleanup cannot interpret a newer machine-local ledger
+    throw new LedgerVersionError(version, ledgerFile(dir));
+  }
+  if (strictRead && !Array.isArray(o.entries)) {
+    // @sync-invariant none:local-only admission cleanup needs a complete machine-local entry list
+    throw new SyntaxError('admission ledger entries are not an array');
+  }
   const entries: LedgerEntry[] = [];
   const foreign: ForeignEntry[] = [];
   for (const v of Array.isArray(o.entries) ? o.entries : []) {
     if (isEntry(v)) entries.push(v);
     else if (typeof v === 'object' && v !== null && !Array.isArray(v))
       foreign.push(v as ForeignEntry);
+    else if (strictRead) {
+      // @sync-invariant none:local-only admission cleanup cannot discard malformed machine-local entries
+      throw new SyntaxError('admission ledger contains an invalid entry');
+    }
   }
   return {
     version,
@@ -685,26 +701,59 @@ export class LedgerVersionError extends Error {
 }
 
 /** Take the ledger lock, retrying only while another process holds it. */
-async function lockLedger(file: string): Promise<() => Promise<void>> {
-  for (let attempt = 1; ; attempt++) {
-    try {
-      return await lockfile.lock(file, {
-        lockfilePath: `${file}.lock`,
-        realpath: false,
-        stale: LEDGER_CRITICAL_STALE_MS,
-        retries: 0,
-        onCompromised: (err: Error) => {
-          log().warn({ err: err.message }, 'admission ledger lock compromised; continuing');
-        },
-      });
-    } catch (err) {
-      const code = (err as NodeJS.ErrnoException | null)?.code;
-      if (code !== 'ELOCKED' || attempt >= LOCK_ATTEMPTS) throw err;
-      const backoff = Math.min(LOCK_BACKOFF_MS[1], LOCK_BACKOFF_MS[0] * 1.2 ** attempt);
-      await new Promise<void>((resolve) => {
-        setTimeout(resolve, backoff * (1 + Math.random()));
-      });
+async function lockLedger(file: string, signal?: AbortSignal): Promise<() => Promise<void>> {
+  signal?.throwIfAborted();
+  let onAbort = (): void => {};
+  const aborted = new Promise<never>((_resolve, reject) => {
+    onAbort = () => reject(signal?.reason);
+    signal?.addEventListener('abort', onAbort, { once: true });
+  });
+  try {
+    for (let attempt = 1; ; attempt++) {
+      try {
+        const pending = lockfile
+          .lock(file, {
+            lockfilePath: `${file}.lock`,
+            realpath: false,
+            stale: LEDGER_CRITICAL_STALE_MS,
+            retries: 0,
+            onCompromised: (err: Error) => {
+              log().warn({ err: err.message }, 'admission ledger lock compromised; continuing');
+            },
+          })
+          .then((unlock) => {
+            if (signal?.aborted) {
+              void unlock().catch(() => {});
+              signal.throwIfAborted();
+            }
+            return unlock;
+          });
+        const unlock = await Promise.race([pending, aborted]);
+        if (signal?.aborted) {
+          void unlock().catch(() => {});
+          signal.throwIfAborted();
+        }
+        return unlock;
+      } catch (err) {
+        signal?.throwIfAborted();
+        const code = (err as NodeJS.ErrnoException | null)?.code;
+        if (code !== 'ELOCKED' || attempt >= LOCK_ATTEMPTS) throw err;
+        const backoff = Math.min(LOCK_BACKOFF_MS[1], LOCK_BACKOFF_MS[0] * 1.2 ** attempt);
+        let timer: NodeJS.Timeout | undefined;
+        try {
+          await Promise.race([
+            new Promise<void>((resolve) => {
+              timer = setTimeout(resolve, backoff * (1 + Math.random()));
+            }),
+            aborted,
+          ]);
+        } finally {
+          clearTimeout(timer);
+        }
+      }
     }
+  } finally {
+    signal?.removeEventListener('abort', onAbort);
   }
 }
 
@@ -713,17 +762,21 @@ async function lockLedger(file: string): Promise<() => Promise<void>> {
  * must be synchronous and do no I/O of its own; its `doc` (or `null` for no
  * change) is written back before the lock is released. A file of a newer
  * format throws {@link LedgerVersionError} and is left untouched; a corrupt
- * file is moved aside before it is replaced.
+ * file is moved aside before it is replaced. Cleanup uses a strict read so
+ * unavailable or malformed state is retried without replacing the ledger.
  */
 async function withLedger<T>(
   dir: string,
   fn: (doc: LedgerDoc) => { readonly doc: LedgerDoc | null; readonly result: T },
+  signal?: AbortSignal,
+  strictRead = false,
 ): Promise<T> {
   mkdirSync(dir, { recursive: true });
   const file = ledgerFile(dir);
-  const unlock = await lockLedger(file);
+  const unlock = await lockLedger(file, signal);
   try {
-    const current = readLedgerDoc(dir);
+    signal?.throwIfAborted();
+    const current = readLedgerDoc(dir, strictRead);
     if (current.version > LEDGER_VERSION) {
       // @sync-invariant none:local-only the admission ledger is a machine-local file, not a store write
       throw new LedgerVersionError(current.version, file);
@@ -1539,7 +1592,7 @@ export interface AdmissionRequest {
 export interface AdmitOptions {
   /** Wait in the queue (`true`) or return a deferral at once. */
   readonly wait: boolean;
-  /** Give up after this long. @defaultValue 60 min */
+  /** Give up after this long; zero attempts one pass without queueing. @defaultValue 60 min */
   readonly timeoutMs?: number;
   /** Re-read cadence while waiting. @defaultValue 250 ms */
   readonly pollMs?: number;
@@ -1855,7 +1908,12 @@ async function admitInner(req: AdmissionRequest, opts: AdmitOptions): Promise<Ad
   // single-process grant a bigger run queues for itself (T13452), naming the
   // parent: schedulePass never makes it wait on its own ancestors.
   const parent = enclosingGrant(readLedger(dir), pid, env, opts.facts);
-  if (parent !== null && (isHeavy(parent) || parent.footprintBytes >= req.footprintBytes)) {
+  if (
+    parent !== null &&
+    (isHeavy(parent) || parent.footprintBytes >= req.footprintBytes) &&
+    !opts.signal?.aborted &&
+    (!opts.wait || timeoutMs <= 0 || now() - t0 < timeoutMs)
+  ) {
     return { admitted: true, grant: passThrough(admissionToken(parent), true, null) };
   }
 
@@ -1881,6 +1939,28 @@ async function admitInner(req: AdmissionRequest, opts: AdmitOptions): Promise<Ad
     ...(req.exclusive === true ? { exclusive: true } : {}),
   };
 
+  const deadline = t0 + timeoutMs;
+  const stop = new AbortController();
+  const onAbort = (): void => stop.abort();
+  opts.signal?.addEventListener('abort', onAbort, { once: true });
+  if (opts.signal?.aborted) stop.abort();
+  let timer: NodeJS.Timeout | undefined;
+  const expire = (): void => {
+    const remaining = deadline - now();
+    if (remaining <= 0) stop.abort();
+    else timer = setTimeout(expire, Math.min(2_147_483_647, remaining));
+  };
+  // Zero is the existing one-pass contract used by captured gate executions.
+  if (opts.wait && timeoutMs > 0) expire();
+  const checkDeadline = (): void => {
+    if (opts.wait && timeoutMs > 0 && now() >= deadline) stop.abort();
+  };
+  const checkQueue = (): void => {
+    checkDeadline();
+    stop.signal.throwIfAborted();
+  };
+  let lastDoc = readLedgerDoc(dir);
+  let lastReading: MemoryPressureReading | null = null;
   /** One pass: reap, (re-)enqueue ourselves, schedule; returns our entry's state. */
   const pass = async (): Promise<{
     mine: LedgerEntry | null;
@@ -1888,27 +1968,37 @@ async function admitInner(req: AdmissionRequest, opts: AdmitOptions): Promise<Ad
     reading: MemoryPressureReading | null;
   }> => {
     const before = readLedgerDoc(dir);
+    lastDoc = before;
     const nowMs = now();
     const { share, lightShare, reading, sampled } = await sampleShare(opts, before.pressure, nowMs);
-    const dead = findDead(before, nowMs, probe);
-    return withLedger(dir, (doc) => {
-      let entries = doc.entries;
-      const at = entries.findIndex((e) => e.id === entry.id);
-      if (at < 0) entries = [...entries, { ...entry, heartbeatAtMs: nowMs }];
-      else if (entries[at]?.state === 'waiting') {
-        entries = entries.map((e) => (e.id === entry.id ? { ...e, heartbeatAtMs: nowMs } : e));
-      }
-      const next = reapAndSchedule(
-        { ...doc, entries },
-        dead,
-        { capacityBytes, share, lightShare, nowMs },
-        sampled,
-      );
-      return {
-        doc: next,
-        result: { mine: next.entries.find((e) => e.id === entry.id) ?? null, doc: next, reading },
-      };
-    });
+    lastReading = reading;
+    checkQueue();
+    const dead = findDead(before, now(), probe);
+    return withLedger(
+      dir,
+      (doc) => {
+        checkQueue();
+        const nowMs = now();
+        let entries = doc.entries;
+        const at = entries.findIndex((e) => e.id === entry.id);
+        if (at < 0) entries = [...entries, { ...entry, heartbeatAtMs: nowMs }];
+        else if (entries[at]?.state === 'waiting') {
+          entries = entries.map((e) => (e.id === entry.id ? { ...e, heartbeatAtMs: nowMs } : e));
+        }
+        const next = reapAndSchedule(
+          { ...doc, entries },
+          dead,
+          { capacityBytes, share, lightShare, nowMs },
+          sampled,
+        );
+        lastDoc = next;
+        return {
+          doc: next,
+          result: { mine: next.entries.find((e) => e.id === entry.id) ?? null, doc: next, reading },
+        };
+      },
+      stop.signal,
+    );
   };
 
   const leave = async (): Promise<LedgerEntry | null> =>
@@ -1951,52 +2041,78 @@ async function admitInner(req: AdmissionRequest, opts: AdmitOptions): Promise<Ad
     };
   };
 
-  let first = await pass();
-  if (first.mine?.state === 'admitted') {
-    return { admitted: true, grant: holdGrant(first.mine, dir, now() - t0, opts) };
-  }
-  if (!opts.wait) {
-    const raced = await leave();
-    if (raced !== null) return { admitted: true, grant: holdGrant(raced, dir, now() - t0, opts) };
-    return { admitted: false, refusal: refusal(first.doc, first.reading) };
-  }
-
-  let lastPassAt = now();
-  let lastReportAt = t0;
-  let lastKeepAliveAt = Number.NEGATIVE_INFINITY;
-  let reading = first.reading;
-  for (;;) {
-    if (opts.keepAlive && now() - lastKeepAliveAt >= (opts.keepAliveMs ?? 300_000)) {
-      lastKeepAliveAt = now();
-      await opts.keepAlive().catch(() => undefined);
+  const attempt = async (): Promise<AdmissionOutcome> => {
+    checkQueue();
+    let first = await pass();
+    checkQueue();
+    if (first.mine?.state === 'admitted') {
+      return { admitted: true, grant: holdGrant(first.mine, dir, now() - t0, opts) };
     }
-    if (reading !== null) opts.memoryPressure?.waiting(reading, now() - t0);
-    if (now() - lastReportAt >= LEDGER_HOLDER_REPORT_MS && opts.notice) {
-      lastReportAt = now();
-      opts.notice(holderReport(first.doc, entry, pid, now() - t0, capacityBytes, now()));
-    }
-    const remaining = timeoutMs - (now() - t0);
-    if (remaining <= 0 || opts.signal?.aborted === true) {
+    if (!opts.wait) {
       const raced = await leave();
+      checkQueue();
       if (raced !== null) return { admitted: true, grant: holdGrant(raced, dir, now() - t0, opts) };
-      return { admitted: false, refusal: refusal(first.doc, reading) };
+      return { admitted: false, refusal: refusal(first.doc, first.reading) };
     }
-    await sleep(Math.min(opts.pollMs ?? READ_POLL_MS, remaining));
-    const seen = readLedgerDoc(dir);
-    const mine = seen.entries.find((e) => e.id === entry.id);
-    if (mine?.state === 'admitted') {
-      opts.memoryPressure?.admitted(now() - t0, null);
-      return { admitted: true, grant: holdGrant(mine, dir, now() - t0, opts) };
-    }
-    if (seen.pressure !== null && isFresh(seen.pressure, now())) reading = seen.pressure.reading;
-    if (passDue(mine === undefined, now() - lastPassAt, seen.pressure, now(), opts)) {
-      lastPassAt = now();
-      first = await pass();
-      reading = first.reading;
-      if (first.mine?.state === 'admitted') {
-        opts.memoryPressure?.admitted(now() - t0, null);
-        return { admitted: true, grant: holdGrant(first.mine, dir, now() - t0, opts) };
+
+    let lastPassAt = now();
+    let lastReportAt = t0;
+    let lastKeepAliveAt = Number.NEGATIVE_INFINITY;
+    let reading = first.reading;
+    for (;;) {
+      if (opts.keepAlive && now() - lastKeepAliveAt >= (opts.keepAliveMs ?? 300_000)) {
+        lastKeepAliveAt = now();
+        await opts.keepAlive().catch(() => undefined);
+        checkQueue();
       }
+      if (reading !== null) opts.memoryPressure?.waiting(reading, now() - t0);
+      if (now() - lastReportAt >= LEDGER_HOLDER_REPORT_MS && opts.notice) {
+        lastReportAt = now();
+        opts.notice(holderReport(first.doc, entry, pid, now() - t0, capacityBytes, now()));
+      }
+      const remaining = timeoutMs - (now() - t0);
+      if (remaining <= 0) stop.abort();
+      checkQueue();
+      await sleep(Math.min(opts.pollMs ?? READ_POLL_MS, remaining));
+      checkQueue();
+      const seen = readLedgerDoc(dir);
+      const mine = seen.entries.find((e) => e.id === entry.id);
+      if (mine?.state === 'admitted') {
+        opts.memoryPressure?.admitted(now() - t0, null);
+        checkQueue();
+        return { admitted: true, grant: holdGrant(mine, dir, now() - t0, opts) };
+      }
+      if (seen.pressure !== null && isFresh(seen.pressure, now())) reading = seen.pressure.reading;
+      if (passDue(mine === undefined, now() - lastPassAt, seen.pressure, now(), opts)) {
+        lastPassAt = now();
+        first = await pass();
+        checkQueue();
+        reading = first.reading;
+        if (first.mine?.state === 'admitted') {
+          opts.memoryPressure?.admitted(now() - t0, null);
+          checkQueue();
+          return { admitted: true, grant: holdGrant(first.mine, dir, now() - t0, opts) };
+        }
+      }
+    }
+  };
+  const aborted = new Promise<never>((_resolve, reject) => {
+    const rejectAbort = (): void => reject(stop.signal.reason);
+    if (stop.signal.aborted) rejectAbort();
+    else stop.signal.addEventListener('abort', rejectAbort, { once: true });
+  });
+  try {
+    return await Promise.race([attempt(), aborted]);
+  } catch (err) {
+    checkDeadline();
+    if (!stop.signal.aborted) throw err;
+    return { admitted: false, refusal: refusal(lastDoc, lastReading) };
+  } finally {
+    clearTimeout(timer);
+    opts.signal?.removeEventListener('abort', onAbort);
+    if (stop.signal.aborted) {
+      // A bounded deferral does not prove removal while the ledger is unavailable.
+      void releaseLedgerEntry(entry, dir, { ...opts, signal: stop.signal });
     }
   }
 }
@@ -2071,6 +2187,81 @@ function holderReport(
 /** First and longest delay between attempts to remove a released entry that failed. */
 const RELEASE_RETRY_MS: readonly [number, number] = [1_000, LEDGER_HEARTBEAT_MS];
 
+/** Retire an admission, retrying unavailable storage without keeping the runner alive. */
+async function releaseLedgerEntry(
+  entry: LedgerEntry,
+  dir: string,
+  opts: AdmitOptions,
+): Promise<void> {
+  const now = opts.now ?? Date.now;
+  /** Remove the entry and schedule the queue. Only a successful read can establish absence. */
+  const removeOnce = async (): Promise<boolean> => {
+    try {
+      const before = readLedgerDoc(dir, true);
+      if (
+        !before.entries.some((e) => e.id === entry.id) &&
+        !before.foreign.some((e) => e.id === entry.id)
+      )
+        return true;
+      if (opts.signal?.aborted) {
+        await withLedger(
+          dir,
+          (doc) => ({
+            doc: {
+              ...doc,
+              entries: doc.entries.filter((e) => e.id !== entry.id),
+              foreign: doc.foreign.filter((e) => e.id !== entry.id),
+            },
+            result: undefined,
+          }),
+          undefined,
+          true,
+        );
+        return true;
+      }
+      const nowMs = now();
+      const { share, lightShare, sampled } = await sampleShare(opts, before.pressure, nowMs);
+      const capacityBytes = opts.capacityBytes ?? admissionCapacityBytes();
+      await withLedger(
+        dir,
+        (doc) => ({
+          doc: reapAndSchedule(
+            {
+              ...doc,
+              entries: doc.entries.filter((e) => e.id !== entry.id),
+              foreign: doc.foreign.filter((e) => e.id !== entry.id),
+            },
+            NO_DEAD,
+            { capacityBytes, share, lightShare, nowMs },
+            sampled,
+          ),
+          result: undefined,
+        }),
+        undefined,
+        true,
+      );
+      return true;
+    } catch (err) {
+      log().warn(
+        { err: err instanceof Error ? err.message : String(err), id: entry.id },
+        'admission release failed; retrying in the background',
+      );
+      return false;
+    }
+  };
+  /** Keep trying in the background (never keeping the process alive) until removed. */
+  const retry = (delayMs: number): void => {
+    const t = setTimeout(() => {
+      void removeOnce().then((done) => {
+        if (!done) retry(Math.min(delayMs * 2, RELEASE_RETRY_MS[1]));
+      });
+    }, delayMs);
+    t.unref();
+  };
+
+  if (!(await removeOnce())) retry(RELEASE_RETRY_MS[0]);
+}
+
 /** Hold an admitted entry: heartbeat, follow tool groups, release. */
 function holdGrant(
   entry: LedgerEntry,
@@ -2099,44 +2290,6 @@ function holdGrant(
   if (following.groups.length > 0)
     void update((e) => ({ ...e, toolGroups: [...following.groups] }));
 
-  /** Remove the entry and schedule the queue. True when done (or never possible here). */
-  const removeOnce = async (): Promise<boolean> => {
-    try {
-      const before = readLedgerDoc(dir);
-      const nowMs = now();
-      const { share, lightShare, sampled } = await sampleShare(opts, before.pressure, nowMs);
-      const capacityBytes = opts.capacityBytes ?? admissionCapacityBytes();
-      await withLedger(dir, (doc) => ({
-        doc: reapAndSchedule(
-          { ...doc, entries: doc.entries.filter((e) => e.id !== entry.id) },
-          NO_DEAD,
-          { capacityBytes, share, lightShare, nowMs },
-          sampled,
-        ),
-        result: undefined,
-      }));
-      return true;
-    } catch (err) {
-      // State that cannot be written cannot be cleaned either: the entry is
-      // reaped once this process is gone.
-      if (admissionIoError(err) !== null) return true;
-      log().warn(
-        { err: err instanceof Error ? err.message : String(err), id: entry.id },
-        'admission release failed; retrying in the background',
-      );
-      return false;
-    }
-  };
-  /** Keep trying in the background (never keeping the process alive) until removed. */
-  const retry = (delayMs: number): void => {
-    const t = setTimeout(() => {
-      void removeOnce().then((done) => {
-        if (!done) retry(Math.min(delayMs * 2, RELEASE_RETRY_MS[1]));
-      });
-    }, delayMs);
-    t.unref();
-  };
-
   let released = false;
   return {
     id: entry.id,
@@ -2150,7 +2303,7 @@ function holdGrant(
       released = true;
       clearInterval(timer);
       following.stop();
-      if (!(await removeOnce())) retry(RELEASE_RETRY_MS[0]);
+      await releaseLedgerEntry(entry, dir, opts);
     },
   };
 }

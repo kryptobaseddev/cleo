@@ -422,6 +422,164 @@ describe('the hung/overdue watchdog (T13563)', () => {
   });
 });
 
+describe('T13889 queue deadlines', () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('bounds explicit repeated db deferrals with a non-divisible poll interval', async () => {
+    const h = harness({ admissions: ['deny'] });
+    const started = h.clock.t;
+    const result = await runGoverned(
+      base(h, { cls: 'db-heavy', wait: true, timeoutMs: 1001, queuePollMs: 400 }),
+    );
+    expect(result.kind).toBe('deferred');
+    expect(h.clock.t - started).toBe(1001);
+    expect(h.acquires).toBe(3);
+    expect(h.spawned).toEqual([]);
+  });
+
+  it('applies the default thirty-minute deadline to a pending admission', async () => {
+    vi.useFakeTimers();
+    const h = harness({});
+    let settled = false;
+    const running = runGoverned({
+      ...base(h, { wait: true }),
+      deps: { ...h.deps, now: Date.now, admit: () => new Promise(() => {}) },
+    }).then((result) => {
+      settled = true;
+      return result;
+    });
+    await vi.advanceTimersByTimeAsync(1_799_999);
+    expect(settled).toBe(false);
+    await vi.advanceTimersByTimeAsync(1);
+    expect((await running).kind).toBe('deferred');
+    expect(h.spawned).toEqual([]);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it.each([
+    false,
+    true,
+  ])('retains known pressure in a timer-driven timeout unless admitted clears it: %s', async (cleared) => {
+    vi.useFakeTimers();
+    const h = harness({});
+    const notices: string[] = [];
+    const running = runGoverned({
+      ...base(h, { wait: true, timeoutMs: 1001, notice: (line: string) => notices.push(line) }),
+      deps: {
+        ...h.deps,
+        now: Date.now,
+        admit: async (_req, opts) => {
+          opts.memoryPressure?.waiting(PRESSURE_READING, 0);
+          if (cleared) opts.memoryPressure?.admitted(0, null);
+          return new Promise(() => {});
+        },
+      },
+    });
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(notices.some((line) => line.startsWith('waiting: memory pressure'))).toBe(true);
+    await vi.advanceTimersByTimeAsync(1);
+    const result = await running;
+    expect(result.kind).toBe('deferred');
+    if (result.kind !== 'deferred') throw new Error('expected timed-out admission');
+    expect(result.details.memoryPressure).toEqual(cleared ? null : PRESSURE_READING);
+    expect(result.details.queuePosition).toBeNull();
+    if (cleared) {
+      expect(result.reason).not.toContain('last reported memory pressure');
+      expect(result.fix).not.toContain('short of memory');
+    } else {
+      expect(result.reason).toContain('last reported memory pressure 40');
+      expect(result.fix).toContain('short of memory');
+      expect(result.details.retryAfterMs).toBe(10_000);
+    }
+    expect(h.spawned).toEqual([]);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it('bounds a stalled initial sample before admission', async () => {
+    vi.useFakeTimers();
+    const h = harness({});
+    const running = runGoverned({
+      ...base(h, { wait: true, timeoutMs: 1001 }),
+      deps: { ...h.deps, now: Date.now, sample: () => new Promise(() => {}) },
+    });
+    await vi.advanceTimersByTimeAsync(1001);
+    expect(await running).toMatchObject({
+      kind: 'deferred',
+      details: { pressure: { reason: 'resource sample unavailable' } },
+    });
+    expect(h.acquires).toBe(0);
+    expect(h.spawned).toEqual([]);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it.each([
+    ['test-run', 'deadline'],
+    ['test-run', 'signal'],
+    ['db-heavy', 'deadline'],
+    ['db-heavy', 'signal'],
+  ] as const)('rejects a late %s grant after %s and releases it exactly once', async (cls, stop) => {
+    vi.useFakeTimers();
+    const h = harness({});
+    let resolveLedger: (out: AdmissionOutcome) => void = () => {};
+    let resolveSlot: (out: AdmissionResult) => void = () => {};
+    const ledger = new Promise<AdmissionOutcome>((resolve) => {
+      resolveLedger = resolve;
+    });
+    const slot = new Promise<AdmissionResult>((resolve) => {
+      resolveSlot = resolve;
+    });
+    const release = vi.fn(async () => {});
+    const running = runGoverned({
+      ...base(h, { cls, wait: true, timeoutMs: 1001 }),
+      deps: { ...h.deps, now: Date.now, admit: () => ledger, tryAcquire: () => slot },
+    });
+    await vi.advanceTimersByTimeAsync(0);
+    if (stop === 'signal') h.forward('SIGTERM');
+    else await vi.advanceTimersByTimeAsync(1001);
+    expect((await running).kind).toBe(stop === 'signal' ? 'interrupted' : 'deferred');
+    if (cls === 'test-run') {
+      resolveLedger({
+        admitted: true,
+        grant: {
+          id: 'late',
+          token: 'late.token',
+          nested: false,
+          ungoverned: null,
+          waitedMs: 1001,
+          footprintBytes: 1,
+          release,
+        },
+      });
+    } else {
+      resolveSlot({ deferred: false, class: cls, slot: 0, acquiredAtMs: Date.now(), release });
+    }
+    await vi.advanceTimersByTimeAsync(0);
+    expect(release).toHaveBeenCalledTimes(1);
+    expect(h.spawned).toEqual([]);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it.each([
+    'immediate',
+    'nested',
+    'fail-open',
+  ] as const)('preserves %s admission and lets the child run past its queue deadline', async (mode) => {
+    const h = harness({
+      ledgerNested: mode === 'nested',
+      ...(mode === 'fail-open'
+        ? { acquireThrows: Object.assign(new Error('permission denied'), { code: 'EACCES' }) }
+        : {}),
+      onSample: (n, hh) => n === 2 && hh.exit(0),
+    });
+    const result = await runGoverned(base(h, { wait: true, timeoutMs: 10, pollMs: 5000 }));
+    expect(result).toMatchObject({ kind: 'exited', exitCode: 0, durationMs: 5000 });
+    expect(h.spawned).toHaveLength(1);
+    expect(h.released).toBe(mode === 'fail-open' ? 0 : 1);
+  });
+});
+
 describe('runGoverned', () => {
   it('runs an admitted command and cleans up', async () => {
     const h = harness({ onSample: (n, hh) => n === 2 && hh.exit(0) });

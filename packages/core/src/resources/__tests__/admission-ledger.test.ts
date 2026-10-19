@@ -7,6 +7,7 @@
  */
 
 import { execFileSync } from 'node:child_process';
+import * as fileSystem from 'node:fs';
 import { chmodSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { hostname, tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -50,6 +51,11 @@ import type { ResourceSample } from '../backend.js';
 import { ResourceMonitor } from '../monitor.js';
 import { _resetMemoryGateForTest, memoryGateReporter } from '../pressure-gate.js';
 import type { PidProbe } from '../slot-holder.js';
+
+vi.mock('node:fs', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('node:fs')>();
+  return { ...actual, readFileSync: vi.fn(actual.readFileSync) };
+});
 
 const HOST = hostname();
 
@@ -917,7 +923,7 @@ describe('admit (one ledger, real critical section)', () => {
     }
   });
 
-  it('an aborted signal leaves the queue at once, as a timeout does (T13681)', async () => {
+  it('an aborted signal promptly refuses admission and the queue entry is removed (T13681)', async () => {
     const a = await admit(
       { label: 'tool:test', footprintBytes: 8 * GIB },
       { ...base, dir, wait: false },
@@ -937,7 +943,9 @@ describe('admit (one ledger, real critical section)', () => {
     stop.abort();
     const b = await waiting;
     expect(b.admitted).toBe(false);
-    expect(readLedger(dir).map((e) => e.state)).toEqual(['admitted']);
+    await vi.waitFor(() => {
+      expect(readLedger(dir).map((e) => e.state)).toEqual(['admitted']);
+    });
     await a.grant.release();
   });
 
@@ -1383,6 +1391,251 @@ describe('admit (one ledger, real critical section)', () => {
     expect(await removeLedgerEntry(held.grant.id, { dir, capacityBytes, sample: calm })).toBe(true);
     expect(readLedger(dir)).toEqual([]);
     await held.grant.release();
+  });
+
+  describe('T13889 queue deadlines and cleanup', () => {
+    beforeEach(() => {
+      vi.useFakeTimers();
+      vi.spyOn(lockfile, 'lock').mockResolvedValue(async () => {});
+    });
+    afterEach(() => {
+      vi.restoreAllMocks();
+      vi.useRealTimers();
+    });
+
+    it('bounds repeated isolated-budget deferrals at the explicit deadline', async () => {
+      const holder = await admit(
+        { label: 'holder', footprintBytes: capacityBytes },
+        { ...base, dir, wait: true, timeoutMs: 0 },
+      );
+      if (!holder.admitted) throw new Error('expected isolated holder');
+      const onePass = await admit(
+        { label: 'one-pass', footprintBytes: capacityBytes },
+        { ...base, dir, wait: true, timeoutMs: 0 },
+      );
+      expect(onePass.admitted).toBe(false);
+      const started = Date.now();
+      let settled = false;
+      const waiting = admit(
+        { label: 'waiting', footprintBytes: capacityBytes },
+        { ...base, dir, wait: true, timeoutMs: 1001, pollMs: 400 },
+      ).then((out) => {
+        settled = true;
+        return out;
+      });
+      await vi.advanceTimersByTimeAsync(1000);
+      expect(settled).toBe(false);
+      expect(
+        readLedger(dir)
+          .map((e) => e.state)
+          .sort(),
+      ).toEqual(['admitted', 'waiting']);
+      await vi.advanceTimersByTimeAsync(1);
+      expect((await waiting).admitted).toBe(false);
+      expect(Date.now() - started).toBe(1001);
+      await vi.advanceTimersByTimeAsync(0);
+      expect(readLedger(dir).map((e) => e.label)).toEqual(['holder']);
+      await holder.grant.release();
+    });
+
+    it('bounds a stalled scheduling sample and never enqueues on its late completion', async () => {
+      let resolveSample: (sample: ResourceSample) => void = () => {};
+      const pending = new Promise<ResourceSample>((resolve) => {
+        resolveSample = resolve;
+      });
+      const intervals = vi.spyOn(globalThis, 'setInterval');
+      const waiting = admit(
+        { label: 'late-sample', footprintBytes: GIB },
+        { ...base, dir, wait: true, timeoutMs: 1001, sample: () => pending },
+      );
+      await vi.advanceTimersByTimeAsync(1001);
+      expect((await waiting).admitted).toBe(false);
+      resolveSample(sampleAt(0));
+      await vi.advanceTimersByTimeAsync(0);
+      expect(readLedger(dir)).toEqual([]);
+      expect(lockfile.lock).not.toHaveBeenCalled();
+      expect(intervals).not.toHaveBeenCalled();
+      expect(vi.getTimerCount()).toBe(0);
+    });
+
+    it.each([
+      'deadline',
+      'signal',
+    ] as const)('bounds a pending lock on %s and unlocks a late acquisition exactly once', async (stop) => {
+      let resolveLock: (unlock: Awaited<ReturnType<typeof lockfile.lock>>) => void = () => {};
+      const pending = new Promise<Awaited<ReturnType<typeof lockfile.lock>>>((resolve) => {
+        resolveLock = resolve;
+      });
+      vi.mocked(lockfile.lock).mockReturnValueOnce(pending);
+      const unlock = vi.fn(async () => {});
+      const intervals = vi.spyOn(globalThis, 'setInterval');
+      const signal = new AbortController();
+      const waiting = admit(
+        { label: 'late-lock', footprintBytes: GIB },
+        { ...base, dir, wait: true, timeoutMs: 1001, signal: signal.signal },
+      );
+      await vi.advanceTimersByTimeAsync(0);
+      expect(lockfile.lock).toHaveBeenCalledTimes(1);
+      if (stop === 'signal') signal.abort();
+      else await vi.advanceTimersByTimeAsync(1001);
+      expect((await waiting).admitted).toBe(false);
+      resolveLock(unlock);
+      await vi.advanceTimersByTimeAsync(0);
+      expect(unlock).toHaveBeenCalledTimes(1);
+      expect(readLedger(dir)).toEqual([]);
+      expect(intervals).not.toHaveBeenCalled();
+      expect(vi.getTimerCount()).toBe(0);
+    });
+
+    it('rejects a peer admission observed after expiry without starting a heartbeat', async () => {
+      const holder = await admit(
+        { label: 'holder', footprintBytes: capacityBytes },
+        { ...base, dir, wait: false },
+      );
+      if (!holder.admitted) throw new Error('expected isolated holder');
+      const intervals = vi.spyOn(globalThis, 'setInterval');
+      const waiting = await admit(
+        { label: 'late-peer', footprintBytes: capacityBytes },
+        {
+          ...base,
+          dir,
+          wait: true,
+          timeoutMs: 1001,
+          sleep: async () => {
+            vi.setSystemTime(Date.now() + 1001);
+            const entries = readLedger(dir).map((e) =>
+              e.label === 'late-peer' ? { ...e, state: 'admitted', admittedAtMs: Date.now() } : e,
+            );
+            writeFileSync(join(dir, 'ledger.json'), JSON.stringify({ version: 1, entries }));
+          },
+        },
+      );
+      expect(waiting.admitted).toBe(false);
+      await vi.advanceTimersByTimeAsync(0);
+      expect(readLedger(dir).map((e) => e.label)).toEqual(['holder']);
+      expect(intervals).not.toHaveBeenCalled();
+      await holder.grant.release();
+    });
+
+    it.each([
+      {
+        name: 'expired positive budget',
+        wait: true,
+        timeoutMs: 1001,
+        elapsedMs: 1001,
+        admitted: false,
+      },
+      {
+        name: 'unexpired positive budget',
+        wait: true,
+        timeoutMs: 1001,
+        elapsedMs: 1000,
+        admitted: true,
+      },
+      { name: 'zero-budget one-pass', wait: true, timeoutMs: 0, elapsedMs: 1001, admitted: true },
+      {
+        name: 'non-waiting request',
+        wait: false,
+        timeoutMs: 1001,
+        elapsedMs: 1001,
+        admitted: true,
+      },
+    ])('checks the clock before failing open after I/O: $name', async (test) => {
+      vi.mocked(lockfile.lock).mockImplementationOnce(async () => {
+        vi.setSystemTime(Date.now() + test.elapsedMs);
+        throw Object.assign(new Error('ledger unavailable'), { code: 'EACCES' });
+      });
+      const intervals = vi.spyOn(globalThis, 'setInterval');
+      const out = await admit(
+        { label: 'failed-lock', footprintBytes: GIB },
+        { ...base, dir, wait: test.wait, timeoutMs: test.timeoutMs },
+      );
+      expect(out.admitted).toBe(test.admitted);
+      if (out.admitted) {
+        expect(out.grant.ungoverned?.code).toBe('EACCES');
+        await out.grant.release();
+      }
+      await vi.advanceTimersByTimeAsync(0);
+      expect(readLedger(dir)).toEqual([]);
+      expect(intervals).not.toHaveBeenCalled();
+      expect(vi.getTimerCount()).toBe(0);
+    });
+
+    it.each([
+      { phase: 'unlocked', failure: 'EACCES' },
+      { phase: 'locked', failure: 'EPERM' },
+      { phase: 'unlocked', failure: 'malformed JSON' },
+      { phase: 'locked', failure: 'malformed entry list' },
+    ] as const)('retries $phase cleanup reads after $failure without replacing the ledger', async (test) => {
+      const holder = await admit(
+        { label: 'holder', footprintBytes: capacityBytes },
+        { ...base, dir, wait: false },
+      );
+      if (!holder.admitted) throw new Error('expected isolated holder');
+      const intervals = vi.spyOn(globalThis, 'setInterval');
+      const waiting = admit(
+        { label: 'unreadable-cleanup', footprintBytes: capacityBytes },
+        { ...base, dir, wait: true, timeoutMs: 1001, pollMs: 400 },
+      );
+      await vi.advanceTimersByTimeAsync(1000);
+      expect(readLedger(dir).map((e) => e.label)).toEqual(['holder', 'unreadable-cleanup']);
+      const file = join(dir, 'ledger.json');
+      const { readFileSync: originalRead } =
+        await vi.importActual<typeof import('node:fs')>('node:fs');
+      const before = originalRead(file, 'utf-8');
+      let unavailable = true;
+      let reads = 0;
+      vi.spyOn(fileSystem, 'readFileSync').mockImplementation((path, options) => {
+        if (String(path) === file) {
+          reads++;
+          if (unavailable && (test.phase === 'unlocked' || reads > 1)) {
+            if (test.failure === 'malformed JSON') return '{';
+            if (test.failure === 'malformed entry list') return '{"version":1,"entries":null}';
+            throw Object.assign(new Error('ledger is unreadable'), { code: test.failure });
+          }
+        }
+        return originalRead(path, options);
+      });
+      await vi.advanceTimersByTimeAsync(1);
+      expect((await waiting).admitted).toBe(false);
+      expect(reads).toBeGreaterThanOrEqual(test.phase === 'unlocked' ? 1 : 2);
+      expect(originalRead(file, 'utf-8')).toBe(before);
+      expect(intervals).not.toHaveBeenCalled();
+      unavailable = false;
+      await vi.advanceTimersByTimeAsync(1000);
+      expect(readLedger(dir).map((e) => e.label)).toEqual(['holder']);
+      await holder.grant.release();
+      expect(vi.getTimerCount()).toBe(0);
+    });
+
+    it('returns while cleanup storage is unavailable and retries removal after recovery', async () => {
+      const holder = await admit(
+        { label: 'holder', footprintBytes: capacityBytes },
+        { ...base, dir, wait: false },
+      );
+      if (!holder.admitted) throw new Error('expected isolated holder');
+      const intervals = vi.spyOn(globalThis, 'setInterval');
+      const waiting = admit(
+        { label: 'cleanup', footprintBytes: capacityBytes },
+        { ...base, dir, wait: true, timeoutMs: 1001, pollMs: 400 },
+      );
+      await vi.advanceTimersByTimeAsync(0);
+      vi.mocked(lockfile.lock).mockRejectedValueOnce(
+        Object.assign(new Error('storage unavailable'), { code: 'EACCES' }),
+      );
+      await vi.advanceTimersByTimeAsync(1001);
+      expect((await waiting).admitted).toBe(false);
+      expect(
+        readLedger(dir)
+          .map((e) => e.label)
+          .sort(),
+      ).toEqual(['cleanup', 'holder']);
+      await vi.advanceTimersByTimeAsync(1000);
+      expect(readLedger(dir).map((e) => e.label)).toEqual(['holder']);
+      expect(intervals).not.toHaveBeenCalled();
+      await holder.grant.release();
+      expect(vi.getTimerCount()).toBe(0);
+    });
   });
 
   it('20 concurrent admitters: no lost update, no deadlock, never over budget', async () => {
