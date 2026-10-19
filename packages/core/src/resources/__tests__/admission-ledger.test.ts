@@ -1398,9 +1398,14 @@ describe('admit (one ledger, real critical section)', () => {
     it('bounds repeated isolated-budget deferrals at the explicit deadline', async () => {
       const holder = await admit(
         { label: 'holder', footprintBytes: capacityBytes },
-        { ...base, dir, wait: false },
+        { ...base, dir, wait: true, timeoutMs: 0 },
       );
       if (!holder.admitted) throw new Error('expected isolated holder');
+      const onePass = await admit(
+        { label: 'one-pass', footprintBytes: capacityBytes },
+        { ...base, dir, wait: true, timeoutMs: 0 },
+      );
+      expect(onePass.admitted).toBe(false);
       const started = Date.now();
       let settled = false;
       const waiting = admit(

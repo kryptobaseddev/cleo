@@ -1574,7 +1574,7 @@ export interface AdmissionRequest {
 export interface AdmitOptions {
   /** Wait in the queue (`true`) or return a deferral at once. */
   readonly wait: boolean;
-  /** Give up after this long. @defaultValue 60 min */
+  /** Give up after this long; zero attempts one pass without queueing. @defaultValue 60 min */
   readonly timeoutMs?: number;
   /** Re-read cadence while waiting. @defaultValue 250 ms */
   readonly pollMs?: number;
@@ -1894,7 +1894,7 @@ async function admitInner(req: AdmissionRequest, opts: AdmitOptions): Promise<Ad
     parent !== null &&
     (isHeavy(parent) || parent.footprintBytes >= req.footprintBytes) &&
     !opts.signal?.aborted &&
-    (!opts.wait || now() - t0 < timeoutMs)
+    (!opts.wait || timeoutMs <= 0 || now() - t0 < timeoutMs)
   ) {
     return { admitted: true, grant: passThrough(admissionToken(parent), true, null) };
   }
@@ -1932,9 +1932,10 @@ async function admitInner(req: AdmissionRequest, opts: AdmitOptions): Promise<Ad
     if (remaining <= 0) stop.abort();
     else timer = setTimeout(expire, Math.min(2_147_483_647, remaining));
   };
-  if (opts.wait) expire();
+  // Zero is the existing one-pass contract used by captured gate executions.
+  if (opts.wait && timeoutMs > 0) expire();
   const checkQueue = (): void => {
-    if (opts.wait && now() >= deadline) stop.abort();
+    if (opts.wait && timeoutMs > 0 && now() >= deadline) stop.abort();
     stop.signal.throwIfAborted();
   };
   let lastDoc = readLedgerDoc(dir);

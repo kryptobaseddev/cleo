@@ -529,7 +529,9 @@ describe('T13889 queue deadlines', () => {
   ] as const)('preserves %s admission and lets the child run past its queue deadline', async (mode) => {
     const h = harness({
       ledgerNested: mode === 'nested',
-      ...(mode === 'fail-open' ? { acquireThrows: ioError('EACCES') } : {}),
+      ...(mode === 'fail-open'
+        ? { acquireThrows: Object.assign(new Error('permission denied'), { code: 'EACCES' }) }
+        : {}),
       onSample: (n, hh) => n === 2 && hh.exit(0),
     });
     const result = await runGoverned(base(h, { wait: true, timeoutMs: 10, pollMs: 5000 }));
