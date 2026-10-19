@@ -572,7 +572,7 @@ function isCachedPressure(v: unknown): v is CachedPressure {
   );
 }
 
-function readLedgerDoc(dir: string): LedgerDoc {
+function readLedgerDoc(dir: string, strictRead = false): LedgerDoc {
   const empty: LedgerDoc = {
     version: LEDGER_VERSION,
     entries: [],
@@ -583,27 +583,42 @@ function readLedgerDoc(dir: string): LedgerDoc {
   let raw: string;
   try {
     raw = readFileSync(ledgerFile(dir), 'utf-8');
-  } catch {
+  } catch (err) {
+    if (strictRead && (err as NodeJS.ErrnoException | null)?.code !== 'ENOENT') throw err;
     return empty;
   }
   let parsed: unknown;
   try {
     parsed = JSON.parse(raw);
-  } catch {
+  } catch (err) {
+    if (strictRead) throw err;
     return { ...empty, corrupt: true };
   }
   if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
+    // @sync-invariant none:local-only admission cleanup must not replace an unreadable machine-local ledger
+    if (strictRead) throw new SyntaxError('admission ledger is not a valid document');
     return { ...empty, corrupt: true };
   }
   const o = parsed as Record<string, unknown>;
   const version =
     typeof o.version === 'number' && Number.isFinite(o.version) ? o.version : LEDGER_VERSION;
+  // @sync-invariant none:local-only admission cleanup cannot interpret a newer machine-local ledger
+  if (strictRead && version > LEDGER_VERSION)
+    throw new LedgerVersionError(version, ledgerFile(dir));
+  if (strictRead && !Array.isArray(o.entries)) {
+    // @sync-invariant none:local-only admission cleanup needs a complete machine-local entry list
+    throw new SyntaxError('admission ledger entries are not an array');
+  }
   const entries: LedgerEntry[] = [];
   const foreign: ForeignEntry[] = [];
   for (const v of Array.isArray(o.entries) ? o.entries : []) {
     if (isEntry(v)) entries.push(v);
     else if (typeof v === 'object' && v !== null && !Array.isArray(v))
       foreign.push(v as ForeignEntry);
+    else if (strictRead) {
+      // @sync-invariant none:local-only admission cleanup cannot discard malformed machine-local entries
+      throw new SyntaxError('admission ledger contains an invalid entry');
+    }
   }
   return {
     version,
@@ -746,19 +761,21 @@ async function lockLedger(file: string, signal?: AbortSignal): Promise<() => Pro
  * must be synchronous and do no I/O of its own; its `doc` (or `null` for no
  * change) is written back before the lock is released. A file of a newer
  * format throws {@link LedgerVersionError} and is left untouched; a corrupt
- * file is moved aside before it is replaced.
+ * file is moved aside before it is replaced. Cleanup uses a strict read so
+ * unavailable or malformed state is retried without replacing the ledger.
  */
 async function withLedger<T>(
   dir: string,
   fn: (doc: LedgerDoc) => { readonly doc: LedgerDoc | null; readonly result: T },
   signal?: AbortSignal,
+  strictRead = false,
 ): Promise<T> {
   mkdirSync(dir, { recursive: true });
   const file = ledgerFile(dir);
   const unlock = await lockLedger(file, signal);
   try {
     signal?.throwIfAborted();
-    const current = readLedgerDoc(dir);
+    const current = readLedgerDoc(dir, strictRead);
     if (current.version > LEDGER_VERSION) {
       // @sync-invariant none:local-only the admission ledger is a machine-local file, not a store write
       throw new LedgerVersionError(current.version, file);
@@ -1934,8 +1951,11 @@ async function admitInner(req: AdmissionRequest, opts: AdmitOptions): Promise<Ad
   };
   // Zero is the existing one-pass contract used by captured gate executions.
   if (opts.wait && timeoutMs > 0) expire();
-  const checkQueue = (): void => {
+  const checkDeadline = (): void => {
     if (opts.wait && timeoutMs > 0 && now() >= deadline) stop.abort();
+  };
+  const checkQueue = (): void => {
+    checkDeadline();
     stop.signal.throwIfAborted();
   };
   let lastDoc = readLedgerDoc(dir);
@@ -2083,6 +2103,7 @@ async function admitInner(req: AdmissionRequest, opts: AdmitOptions): Promise<Ad
   try {
     return await Promise.race([attempt(), aborted]);
   } catch (err) {
+    checkDeadline();
     if (!stop.signal.aborted) throw err;
     return { admitted: false, refusal: refusal(lastDoc, lastReading) };
   } finally {
@@ -2172,35 +2193,54 @@ async function releaseLedgerEntry(
   opts: AdmitOptions,
 ): Promise<void> {
   const now = opts.now ?? Date.now;
-  /** Remove the entry and schedule the queue. True when done (or never possible here). */
+  /** Remove the entry and schedule the queue. Only a successful read can establish absence. */
   const removeOnce = async (): Promise<boolean> => {
     try {
-      const before = readLedgerDoc(dir);
-      if (!before.entries.some((e) => e.id === entry.id)) return true;
+      const before = readLedgerDoc(dir, true);
+      if (
+        !before.entries.some((e) => e.id === entry.id) &&
+        !before.foreign.some((e) => e.id === entry.id)
+      )
+        return true;
       if (opts.signal?.aborted) {
-        await withLedger(dir, (doc) => ({
-          doc: { ...doc, entries: doc.entries.filter((e) => e.id !== entry.id) },
-          result: undefined,
-        }));
+        await withLedger(
+          dir,
+          (doc) => ({
+            doc: {
+              ...doc,
+              entries: doc.entries.filter((e) => e.id !== entry.id),
+              foreign: doc.foreign.filter((e) => e.id !== entry.id),
+            },
+            result: undefined,
+          }),
+          undefined,
+          true,
+        );
         return true;
       }
       const nowMs = now();
       const { share, lightShare, sampled } = await sampleShare(opts, before.pressure, nowMs);
       const capacityBytes = opts.capacityBytes ?? admissionCapacityBytes();
-      await withLedger(dir, (doc) => ({
-        doc: reapAndSchedule(
-          { ...doc, entries: doc.entries.filter((e) => e.id !== entry.id) },
-          NO_DEAD,
-          { capacityBytes, share, lightShare, nowMs },
-          sampled,
-        ),
-        result: undefined,
-      }));
+      await withLedger(
+        dir,
+        (doc) => ({
+          doc: reapAndSchedule(
+            {
+              ...doc,
+              entries: doc.entries.filter((e) => e.id !== entry.id),
+              foreign: doc.foreign.filter((e) => e.id !== entry.id),
+            },
+            NO_DEAD,
+            { capacityBytes, share, lightShare, nowMs },
+            sampled,
+          ),
+          result: undefined,
+        }),
+        undefined,
+        true,
+      );
       return true;
     } catch (err) {
-      // State that cannot be written cannot be cleaned either: the entry is
-      // reaped once this process is gone.
-      if (admissionIoError(err) !== null && !opts.signal?.aborted) return true;
       log().warn(
         { err: err instanceof Error ? err.message : String(err), id: entry.id },
         'admission release failed; retrying in the background',

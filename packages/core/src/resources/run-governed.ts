@@ -63,7 +63,7 @@ import {
 import type { ResourceSample } from './backend.js';
 import { admitFailOpen, type GovernorIoError, governor } from './governor.js';
 import { classifyPressure, type PressureState, pressureScore, ResourceMonitor } from './monitor.js';
-import { memoryGateReporter } from './pressure-gate.js';
+import { MEMORY_GATE_RETRY_AFTER_MS, memoryGateReporter } from './pressure-gate.js';
 import {
   buildRunDeferral,
   decidePause,
@@ -452,16 +452,24 @@ export async function runGoverned(opts: RunGovernedOptions): Promise<RunGoverned
       );
     });
   };
+  let waitingPressure: MemoryPressureReading | null = null;
+  const pressureReporter = memoryGateReporter((line) => notice(line, 'warn'), `${opts.cls} job`, {
+    now: d.now,
+  });
   const endQueue = (): Promise<RunGovernedResult> =>
     queuedSignal !== null
       ? Promise.resolve(interrupted(queuedSignal))
       : deferral(
           opts,
           d,
-          `timed out after ${Math.round((d.now() - t0) / 1000)}s waiting for the machine budget`,
-          2_000,
+          `timed out after ${Math.round((d.now() - t0) / 1000)}s waiting for the machine budget` +
+            (waitingPressure === null
+              ? ''
+              : `; last reported memory pressure ${waitingPressure.score} (refused above ${waitingPressure.refuseAbove}, resumes at ${waitingPressure.resumeAtOrBelow} or below): ${waitingPressure.summary}`),
+          waitingPressure === null ? 2_000 : MEMORY_GATE_RETRY_AFTER_MS,
           sample,
           null,
+          waitingPressure,
         );
   let admission: RunAdmission;
   let queued = false;
@@ -493,9 +501,16 @@ export async function runGoverned(opts: RunGovernedOptions): Promise<RunGoverned
             wait: opts.wait === true,
             timeoutMs: Math.max(1, deadline - d.now()),
             ...(opts.queuePollMs !== undefined ? { pollMs: opts.queuePollMs } : {}),
-            memoryPressure: memoryGateReporter((line) => notice(line, 'warn'), `${opts.cls} job`, {
-              now: d.now,
-            }),
+            memoryPressure: {
+              waiting: (reading, waitedMs) => {
+                waitingPressure = reading;
+                pressureReporter.waiting(reading, waitedMs);
+              },
+              admitted: (waitedMs, score) => {
+                waitingPressure = null;
+                pressureReporter.admitted(waitedMs, score);
+              },
+            },
             notice: (line) => notice(line, 'warn'),
             now: d.now,
             sleep: (ms) => d.sleep(ms, queueAbort.signal),
