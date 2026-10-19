@@ -701,6 +701,55 @@ describe('sqlite-backup', () => {
     expect(row?.value).toBe('latest');
   });
 
+  it('prunes legacy brain-*/conduit-* snapshots older than the oldest retained tasks-* (T13910)', async () => {
+    const tempDir = join(tmpdir(), `cleo-t13910-legacy-${Date.now()}`);
+    const backupDir = join(tempDir, 'backups', 'sqlite');
+    mkdirSync(backupDir, { recursive: true });
+    // Five daily tasks-* snapshots: with the new one, daily retention keeps the
+    // three newest days (new, 05, 04) and evicts 01-03.
+    for (const day of ['01', '02', '03', '04', '05']) {
+      writeFileSync(join(backupDir, `tasks-202601${day}-120000.db`), 'fake');
+    }
+    // Pre-T13891 legacy links: 01 is older than every retained tasks-*; 04 and
+    // 05 are not.
+    for (const name of [
+      'brain-20260101-120000.db',
+      'conduit-20260101-120000.db',
+      'brain-20260104-120000.db',
+      'conduit-20260105-120000.db',
+    ]) {
+      writeFileSync(join(backupDir, name), 'fake');
+    }
+    const shared = new DatabaseSync(join(tempDir, 'cleo.db'));
+    shared.exec('CREATE TABLE tasks_schema_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL)');
+    vi.doMock('../sqlite.js', () => ({ getNativeDb: () => shared, getDb: async () => null }));
+    vi.doMock('../memory-sqlite.js', () => ({
+      getBrainNativeDb: () => shared,
+      getBrainDb: async () => null,
+    }));
+    vi.doMock('../conduit-sqlite.js', () => ({
+      getConduitNativeDb: () => shared,
+      ensureConduitDb: () => ({ action: 'exists', path: '' }),
+    }));
+    stubOtherChokepointOpeners();
+    vi.doMock('../../paths.js', () => ({
+      getCleoDir: () => tempDir,
+      getCleoHome: () => tempDir,
+      resolveOrCwd: (cwd?: string) => cwd ?? tempDir,
+    }));
+
+    const { vacuumIntoBackupAll } = await import('../sqlite-backup.js');
+    await vacuumIntoBackupAll();
+    shared.close();
+
+    const files = readdirSync(backupDir);
+    const tasks = files.filter((f) => /^tasks-\d{8}-\d{6}\.db$/.test(f)).sort();
+    expect(tasks).toHaveLength(3);
+    expect(tasks.slice(0, 2)).toEqual(['tasks-20260104-120000.db', 'tasks-20260105-120000.db']);
+    const legacy = files.filter((f) => /^(brain|conduit)-\d{8}-\d{6}\.db$/.test(f)).sort();
+    expect(legacy).toEqual(['brain-20260104-120000.db', 'conduit-20260105-120000.db']);
+  });
+
   /**
    * T13891: on a filesystem without hard links (exFAT → ENOTSUP) the old
    * design COPIED the shared file under brain and conduit (three full copies
