@@ -608,6 +608,44 @@ function rotateSnapshots(backupDir: string, prefix: string, justWritten: string)
   }
 }
 
+/**
+ * Prune legacy `brain-*` / `conduit-*` project snapshots older than the oldest
+ * retained `tasks-*` one. Before T13891 each run hard-linked one cleo.db
+ * snapshot under all three prefixes; nothing writes the legacy names now, so
+ * their own rotation never runs and they would pin rotated-out `tasks-*`
+ * inodes forever. The retained `tasks-*` set covers brain and conduit
+ * recovery (T13897), so a legacy file older than all of it is redundant.
+ * Non-fatal on any filesystem error.
+ *
+ * @param backupDir - Project snapshot directory.
+ * @task T13910
+ */
+function pruneLegacyProjectSnapshots(backupDir: string): void {
+  try {
+    const names = readdirSync(backupDir);
+    const stampOf = (name: string): string => name.slice(name.indexOf('-') + 1, -'.db'.length);
+    const tasksPattern = snapshotPattern('tasks');
+    const oldestTasks = names
+      .filter((f) => tasksPattern.test(f))
+      .map(stampOf)
+      .sort()[0];
+    if (oldestTasks === undefined) return;
+    for (const prefix of ['brain', 'conduit']) {
+      const pattern = snapshotPattern(prefix);
+      for (const name of names) {
+        if (!pattern.test(name) || stampOf(name) >= oldestTasks) continue;
+        try {
+          unlinkSync(join(backupDir, name));
+        } catch {
+          // non-fatal — try the rest
+        }
+      }
+    }
+  } catch {
+    // non-fatal
+  }
+}
+
 /** Options accepted by {@link vacuumIntoBackup} and {@link vacuumIntoBackupAll}. */
 export interface VacuumOptions {
   /**
@@ -948,7 +986,8 @@ async function snapshotOne(
     // cleo.db holds the tasks, brain and conduit tables, so its one snapshot
     // covers this prefix. No second file, link or copy: per-prefix links kept
     // diverging under per-prefix retention, and a filesystem without hard
-    // links got full copies. Older `brain-*` / `conduit-*` files stay listed.
+    // links got full copies. Older `brain-*` / `conduit-*` files age out with
+    // `tasks-*` retention (pruneLegacyProjectSnapshots, T13910).
     if (source !== null && writtenBySource.has(source)) {
       if (opened && target.closeDb) target.closeDb(opened);
       return 'linked';
@@ -986,6 +1025,8 @@ async function snapshotOne(
 
     if (source !== null) writtenBySource.set(source, dest);
     rotateSnapshots(backupDir, target.prefix, destName);
+    if (target.prefix === 'tasks' && target.tier === 'project')
+      pruneLegacyProjectSnapshots(backupDir);
     return 'written';
   } finally {
     // Release the ephemeral handle for raw-file-vacuum-readonly targets.
