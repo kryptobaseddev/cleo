@@ -351,11 +351,11 @@ async function deferral(
   d: RunGovernedDeps,
   reason: string,
   retryAfterMs: number,
-  sample: ResourceSample,
+  sample: ResourceSample | null,
   queuePosition: number | null,
   memoryPressure: MemoryPressureReading | null = null,
 ): Promise<RunGovernedResult> {
-  const pressure = classifyPressure(sample);
+  const pressure = sample === null ? null : classifyPressure(sample);
   const built = buildRunDeferral({
     cls: opts.cls,
     argv: opts.argv,
@@ -364,10 +364,10 @@ async function deferral(
     queuePosition,
     memoryPressure,
     pressure: {
-      state: pressure.state,
-      score: Number(pressureScore(sample).toFixed(1)),
-      reason: pressure.reason,
-      memAvailableBytes: sample.memAvailableBytes,
+      state: pressure?.state ?? 'hold',
+      score: sample === null ? 0 : Number(pressureScore(sample).toFixed(1)),
+      reason: pressure?.reason ?? 'resource sample unavailable',
+      memAvailableBytes: sample?.memAvailableBytes ?? null,
     },
     running: runningEntries(listRunJobs(d.jobsDir, probesOf(d)), d.ledger()),
   });
@@ -394,7 +394,7 @@ export async function runGoverned(opts: RunGovernedOptions): Promise<RunGoverned
   // ---- 1. admission -------------------------------------------------------
   // Reap what dead runners left behind (never on an unreadable `ps`).
   reapOrphans(d.jobsDir, probesOf(d));
-  let sample = await d.sample();
+  let sample: ResourceSample | null = null;
 
   // A nested run (a script under `cleo run` that itself calls `cleo run`)
   // runs inside its enclosing job's process tree. Of the SAME class it rides
@@ -430,40 +430,89 @@ export async function runGoverned(opts: RunGovernedOptions): Promise<RunGoverned
         queueAbort.abort();
       })
     : () => {};
+  const queueStopped = new Promise<null>((resolve) => {
+    queueAbort.signal.addEventListener('abort', () => resolve(null), { once: true });
+  });
+  let queueTimer: NodeJS.Timeout | undefined;
+  const expireQueue = (): void => {
+    const remaining = deadline - d.now();
+    if (remaining <= 0) queueAbort.abort();
+    else queueTimer = setTimeout(expireQueue, Math.min(2_147_483_647, remaining));
+  };
+  if (opts.wait) expireQueue();
+  const queueEnded = (): boolean => {
+    if (opts.wait && d.now() >= deadline) queueAbort.abort();
+    return queueAbort.signal.aborted;
+  };
+  const releaseLate = (release: () => Promise<void>): void => {
+    void release().catch((err) => {
+      notice(
+        `admission cleanup failed: ${err instanceof Error ? err.message : String(err)}`,
+        'warn',
+      );
+    });
+  };
+  const endQueue = (): Promise<RunGovernedResult> =>
+    queuedSignal !== null
+      ? Promise.resolve(interrupted(queuedSignal))
+      : deferral(
+          opts,
+          d,
+          `timed out after ${Math.round((d.now() - t0) / 1000)}s waiting for the machine budget`,
+          2_000,
+          sample,
+          null,
+        );
   let admission: RunAdmission;
   let queued = false;
   try {
+    if (queueEnded()) return endQueue();
+    const initial = await Promise.race([d.sample(), queueStopped]);
+    if (initial === null || queueEnded()) return endQueue();
+    sample = initial;
     if (isLedgerClass(opts.cls)) {
       // T13133: one budget and one FIFO queue for every heavy run. Nested in an
       // admitted run's process tree (any class), it rides that admission; a
       // memory-pressure wait and, after a minute, the holders are warnings, so
       // --passthrough shows them.
-      const out = await d.admit(
-        {
-          label: `run:${opts.cls}`,
-          footprintBytes: opts.footprintBytes ?? footprintForClass(opts.cls),
-          ...(opts.footprintReason !== undefined ? { footprintReason: opts.footprintReason } : {}),
-          ...(opts.scope !== undefined ? { scope: opts.scope } : {}),
-          // T13237: one full-build machine-wide, whatever its footprint.
-          ...(opts.cls === 'full-build' ? { exclusive: true } : {}),
-          command,
-          cwd: opts.cwd,
-        },
-        {
-          wait: opts.wait === true,
-          timeoutMs: Math.max(1, deadline - d.now()),
-          ...(opts.queuePollMs !== undefined ? { pollMs: opts.queuePollMs } : {}),
-          memoryPressure: memoryGateReporter((line) => notice(line, 'warn'), `${opts.cls} job`, {
+      const pending = d
+        .admit(
+          {
+            label: `run:${opts.cls}`,
+            footprintBytes: opts.footprintBytes ?? footprintForClass(opts.cls),
+            ...(opts.footprintReason !== undefined
+              ? { footprintReason: opts.footprintReason }
+              : {}),
+            ...(opts.scope !== undefined ? { scope: opts.scope } : {}),
+            // T13237: one full-build machine-wide, whatever its footprint.
+            ...(opts.cls === 'full-build' ? { exclusive: true } : {}),
+            command,
+            cwd: opts.cwd,
+          },
+          {
+            wait: opts.wait === true,
+            timeoutMs: Math.max(1, deadline - d.now()),
+            ...(opts.queuePollMs !== undefined ? { pollMs: opts.queuePollMs } : {}),
+            memoryPressure: memoryGateReporter((line) => notice(line, 'warn'), `${opts.cls} job`, {
+              now: d.now,
+            }),
+            notice: (line) => notice(line, 'warn'),
             now: d.now,
-          }),
-          notice: (line) => notice(line, 'warn'),
-          now: d.now,
-          sleep: (ms) => d.sleep(ms, queueAbort.signal),
-          signal: queueAbort.signal,
-        },
-      );
+            sleep: (ms) => d.sleep(ms, queueAbort.signal),
+            signal: queueAbort.signal,
+          },
+        )
+        .then((out) => {
+          if (out.admitted && queueEnded()) {
+            releaseLate(() => out.grant.release());
+            return null;
+          }
+          return out;
+        });
+      const out = await Promise.race([pending, queueStopped]);
+      if (out === null) return endQueue();
       if (queuedSignal !== null) {
-        if (out.admitted) await out.grant.release();
+        if (out.admitted) releaseLate(() => out.grant.release());
         return interrupted(queuedSignal);
       }
       if (!out.admitted) {
@@ -481,6 +530,10 @@ export async function runGoverned(opts: RunGovernedOptions): Promise<RunGoverned
         );
       }
       const { grant } = out;
+      if (queueEnded()) {
+        releaseLate(() => grant.release());
+        return endQueue();
+      }
       if (grant.ungoverned) sayUngoverned(grant.ungoverned);
       if (grant.nested) {
         notice('nested in an admitted run: riding its admission, inside its process tree', 'info');
@@ -505,20 +558,33 @@ export async function runGoverned(opts: RunGovernedOptions): Promise<RunGoverned
         );
         admission = { release: async () => {}, slot: -1, token: '', holdsShare: false };
       } else {
-        const tryAcquire = async (s: ResourceSample): Promise<AdmissionResult> => {
-          const r = await admitFailOpen(opts.cls, () => d.tryAcquire(opts.cls, s));
-          if (r.ungoverned !== null) sayUngoverned(r.ungoverned);
-          return r.admission;
+        const tryAcquire = (s: ResourceSample): Promise<AdmissionResult | null> => {
+          const pending = admitFailOpen(opts.cls, () => d.tryAcquire(opts.cls, s)).then((r) => {
+            if (queueEnded()) {
+              const acquired = r.admission;
+              if (!acquired.deferred) releaseLate(() => acquired.release());
+              return null;
+            }
+            if (r.ungoverned !== null) sayUngoverned(r.ungoverned);
+            return r.admission;
+          });
+          return Promise.race([pending, queueStopped]);
         };
         let result = await tryAcquire(sample);
-        while (result.deferred && opts.wait && d.now() < deadline && queuedSignal === null) {
-          await d.sleep(opts.queuePollMs ?? 1000, queueAbort.signal);
-          sample = await d.sample();
+        while (result?.deferred && opts.wait && !queueEnded()) {
+          await d.sleep(Math.min(opts.queuePollMs ?? 1000, deadline - d.now()), queueAbort.signal);
+          if (queueEnded()) return endQueue();
+          const next = await Promise.race([d.sample(), queueStopped]);
+          if (next === null || queueEnded()) return endQueue();
+          sample = next;
           result = await tryAcquire(sample);
         }
-        if (queuedSignal !== null) {
-          if (!result.deferred) await result.release();
-          return interrupted(queuedSignal);
+        if (result === null || queueEnded()) {
+          if (result !== null && !result.deferred) {
+            const acquired = result;
+            releaseLate(() => acquired.release());
+          }
+          return endQueue();
         }
         if (result.deferred) {
           return deferral(
@@ -540,7 +606,12 @@ export async function runGoverned(opts: RunGovernedOptions): Promise<RunGoverned
         };
       }
     }
+    if (queueEnded()) {
+      releaseLate(admission.release);
+      return endQueue();
+    }
   } finally {
+    clearTimeout(queueTimer);
     // Every admission path, a throw or a nested ride included, drops the queue handler.
     uninstallQueue();
   }

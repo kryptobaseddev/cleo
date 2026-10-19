@@ -1385,6 +1385,155 @@ describe('admit (one ledger, real critical section)', () => {
     await held.grant.release();
   });
 
+  describe('T13889 queue deadlines and cleanup', () => {
+    beforeEach(() => {
+      vi.useFakeTimers();
+      vi.spyOn(lockfile, 'lock').mockResolvedValue(async () => {});
+    });
+    afterEach(() => {
+      vi.restoreAllMocks();
+      vi.useRealTimers();
+    });
+
+    it('bounds repeated isolated-budget deferrals at the explicit deadline', async () => {
+      const holder = await admit(
+        { label: 'holder', footprintBytes: capacityBytes },
+        { ...base, dir, wait: false },
+      );
+      if (!holder.admitted) throw new Error('expected isolated holder');
+      const started = Date.now();
+      let settled = false;
+      const waiting = admit(
+        { label: 'waiting', footprintBytes: capacityBytes },
+        { ...base, dir, wait: true, timeoutMs: 1001, pollMs: 400 },
+      ).then((out) => {
+        settled = true;
+        return out;
+      });
+      await vi.advanceTimersByTimeAsync(1000);
+      expect(settled).toBe(false);
+      expect(
+        readLedger(dir)
+          .map((e) => e.state)
+          .sort(),
+      ).toEqual(['admitted', 'waiting']);
+      await vi.advanceTimersByTimeAsync(1);
+      expect((await waiting).admitted).toBe(false);
+      expect(Date.now() - started).toBe(1001);
+      await vi.advanceTimersByTimeAsync(0);
+      expect(readLedger(dir).map((e) => e.label)).toEqual(['holder']);
+      await holder.grant.release();
+    });
+
+    it('bounds a stalled scheduling sample and never enqueues on its late completion', async () => {
+      let resolveSample: (sample: ResourceSample) => void = () => {};
+      const pending = new Promise<ResourceSample>((resolve) => {
+        resolveSample = resolve;
+      });
+      const intervals = vi.spyOn(globalThis, 'setInterval');
+      const waiting = admit(
+        { label: 'late-sample', footprintBytes: GIB },
+        { ...base, dir, wait: true, timeoutMs: 1001, sample: () => pending },
+      );
+      await vi.advanceTimersByTimeAsync(1001);
+      expect((await waiting).admitted).toBe(false);
+      resolveSample(sampleAt(0));
+      await vi.advanceTimersByTimeAsync(0);
+      expect(readLedger(dir)).toEqual([]);
+      expect(lockfile.lock).not.toHaveBeenCalled();
+      expect(intervals).not.toHaveBeenCalled();
+      expect(vi.getTimerCount()).toBe(0);
+    });
+
+    it.each([
+      'deadline',
+      'signal',
+    ] as const)('bounds a pending lock on %s and unlocks a late acquisition exactly once', async (stop) => {
+      let resolveLock: (unlock: Awaited<ReturnType<typeof lockfile.lock>>) => void = () => {};
+      const pending = new Promise<Awaited<ReturnType<typeof lockfile.lock>>>((resolve) => {
+        resolveLock = resolve;
+      });
+      vi.mocked(lockfile.lock).mockReturnValueOnce(pending);
+      const unlock = vi.fn(async () => {});
+      const intervals = vi.spyOn(globalThis, 'setInterval');
+      const signal = new AbortController();
+      const waiting = admit(
+        { label: 'late-lock', footprintBytes: GIB },
+        { ...base, dir, wait: true, timeoutMs: 1001, signal: signal.signal },
+      );
+      await vi.advanceTimersByTimeAsync(0);
+      expect(lockfile.lock).toHaveBeenCalledTimes(1);
+      if (stop === 'signal') signal.abort();
+      else await vi.advanceTimersByTimeAsync(1001);
+      expect((await waiting).admitted).toBe(false);
+      resolveLock(unlock);
+      await vi.advanceTimersByTimeAsync(0);
+      expect(unlock).toHaveBeenCalledTimes(1);
+      expect(readLedger(dir)).toEqual([]);
+      expect(intervals).not.toHaveBeenCalled();
+      expect(vi.getTimerCount()).toBe(0);
+    });
+
+    it('rejects a peer admission observed after expiry without starting a heartbeat', async () => {
+      const holder = await admit(
+        { label: 'holder', footprintBytes: capacityBytes },
+        { ...base, dir, wait: false },
+      );
+      if (!holder.admitted) throw new Error('expected isolated holder');
+      const intervals = vi.spyOn(globalThis, 'setInterval');
+      const waiting = await admit(
+        { label: 'late-peer', footprintBytes: capacityBytes },
+        {
+          ...base,
+          dir,
+          wait: true,
+          timeoutMs: 1001,
+          sleep: async () => {
+            vi.setSystemTime(Date.now() + 1001);
+            const entries = readLedger(dir).map((e) =>
+              e.label === 'late-peer' ? { ...e, state: 'admitted', admittedAtMs: Date.now() } : e,
+            );
+            writeFileSync(join(dir, 'ledger.json'), JSON.stringify({ version: 1, entries }));
+          },
+        },
+      );
+      expect(waiting.admitted).toBe(false);
+      await vi.advanceTimersByTimeAsync(0);
+      expect(readLedger(dir).map((e) => e.label)).toEqual(['holder']);
+      expect(intervals).not.toHaveBeenCalled();
+      await holder.grant.release();
+    });
+
+    it('returns while cleanup storage is unavailable and retries removal after recovery', async () => {
+      const holder = await admit(
+        { label: 'holder', footprintBytes: capacityBytes },
+        { ...base, dir, wait: false },
+      );
+      if (!holder.admitted) throw new Error('expected isolated holder');
+      const intervals = vi.spyOn(globalThis, 'setInterval');
+      const waiting = admit(
+        { label: 'cleanup', footprintBytes: capacityBytes },
+        { ...base, dir, wait: true, timeoutMs: 1001, pollMs: 400 },
+      );
+      await vi.advanceTimersByTimeAsync(0);
+      vi.mocked(lockfile.lock).mockRejectedValueOnce(
+        Object.assign(new Error('storage unavailable'), { code: 'EACCES' }),
+      );
+      await vi.advanceTimersByTimeAsync(1001);
+      expect((await waiting).admitted).toBe(false);
+      expect(
+        readLedger(dir)
+          .map((e) => e.label)
+          .sort(),
+      ).toEqual(['cleanup', 'holder']);
+      await vi.advanceTimersByTimeAsync(1000);
+      expect(readLedger(dir).map((e) => e.label)).toEqual(['holder']);
+      expect(intervals).not.toHaveBeenCalled();
+      await holder.grant.release();
+      expect(vi.getTimerCount()).toBe(0);
+    });
+  });
+
   it('20 concurrent admitters: no lost update, no deadlock, never over budget', async () => {
     const cap = 3 * GIB;
     let running = 0;
