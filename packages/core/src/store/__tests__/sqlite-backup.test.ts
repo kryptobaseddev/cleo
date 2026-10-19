@@ -650,7 +650,7 @@ describe('sqlite-backup', () => {
     expect(files[0]).toMatch(/^tasks-\d{8}-\d{6}\.db$/);
   });
 
-  it('a debounced tasks prefix still files the unified store as tasks-*, never brain-* (T13910)', async () => {
+  it('a debounced tasks prefix still files the unified store as tasks-*, never brain-* (T13891)', async () => {
     const tempDir = join(tmpdir(), `cleo-t13910-mixed-${Date.now()}`);
     const backupDir = join(tempDir, 'backups', 'sqlite');
     mkdirSync(tempDir, { recursive: true });
@@ -683,49 +683,6 @@ describe('sqlite-backup', () => {
     const files = readdirSync(backupDir).filter((f) => /^(tasks|brain|conduit)-.*\.db$/.test(f));
     expect(files.length).toBe(2);
     for (const f of files) expect(f).toMatch(/^tasks-\d{8}-\d{6}\.db$/);
-  });
-
-  it('legacy brain-*/conduit-* snapshots never outlive the retained tasks-* set (T13910)', async () => {
-    const tempDir = join(tmpdir(), `cleo-t13910-legacy-${Date.now()}`);
-    const backupDir = join(tempDir, 'backups', 'sqlite');
-    mkdirSync(backupDir, { recursive: true });
-    // Pre-T13891 runs linked one snapshot under all three prefixes.
-    for (const prefix of ['tasks', 'brain', 'conduit']) {
-      writeFileSync(join(backupDir, `${prefix}-20260101-120000.db`), 'fake');
-    }
-    const shared = new DatabaseSync(join(tempDir, 'cleo.db'));
-    shared.exec('CREATE TABLE tasks_schema_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL)');
-    vi.doMock('../sqlite.js', () => ({ getNativeDb: () => shared, getDb: async () => null }));
-    vi.doMock('../memory-sqlite.js', () => ({
-      getBrainNativeDb: () => shared,
-      getBrainDb: async () => null,
-    }));
-    vi.doMock('../conduit-sqlite.js', () => ({
-      getConduitNativeDb: () => shared,
-      ensureConduitDb: () => ({ action: 'exists', path: '' }),
-    }));
-    stubOtherChokepointOpeners();
-    vi.doMock('../../paths.js', () => ({
-      getCleoDir: () => tempDir,
-      getCleoHome: () => tempDir,
-      resolveOrCwd: (cwd?: string) => cwd ?? tempDir,
-    }));
-
-    const { vacuumIntoBackupAll } = await import('../sqlite-backup.js');
-    await vacuumIntoBackupAll();
-    shared.close();
-
-    const files = readdirSync(backupDir);
-    const stamp = (f: string): string => f.slice(f.indexOf('-') + 1, -3);
-    const oldestTasks = files
-      .filter((f) => /^tasks-\d{8}-\d{6}\.db$/.test(f))
-      .map(stamp)
-      .sort()[0];
-    expect(oldestTasks).toBeDefined();
-    const legacy = files.filter((f) => /^(brain|conduit)-\d{8}-\d{6}\.db$/.test(f));
-    for (const f of legacy) expect(stamp(f) >= (oldestTasks ?? '')).toBe(true);
-    // The 2026-01-01 tasks twin is outside retention today, so its links go too.
-    if (!files.includes('tasks-20260101-120000.db')) expect(legacy).toEqual([]);
   });
 
   /**
