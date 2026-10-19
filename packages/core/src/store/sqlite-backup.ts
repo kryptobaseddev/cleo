@@ -613,14 +613,15 @@ function rotateSnapshots(backupDir: string, prefix: string, justWritten: string)
  * retained `tasks-*` one. Before T13891 each run hard-linked one cleo.db
  * snapshot under all three prefixes; nothing writes the legacy names now, so
  * their own rotation never runs and they would pin rotated-out `tasks-*`
- * inodes forever. The retained `tasks-*` set covers brain and conduit
- * recovery (T13897), so a legacy file older than all of it is redundant.
- * Non-fatal on any filesystem error.
+ * inodes forever. Only prefixes this run proved are covered by the unified
+ * `tasks-*` snapshot are pruned: a role still held in its own database file
+ * keeps its own `<role>-*` history and rotation. Non-fatal on any error.
  *
  * @param backupDir - Project snapshot directory.
+ * @param prefixes - Legacy prefixes covered by this run's `tasks-*` snapshot.
  * @task T13910
  */
-function pruneLegacyProjectSnapshots(backupDir: string): void {
+function pruneLegacyProjectSnapshots(backupDir: string, prefixes: Iterable<string>): void {
   try {
     const names = readdirSync(backupDir);
     const stampOf = (name: string): string => name.slice(name.indexOf('-') + 1, -'.db'.length);
@@ -630,7 +631,7 @@ function pruneLegacyProjectSnapshots(backupDir: string): void {
       .map(stampOf)
       .sort()[0];
     if (oldestTasks === undefined) return;
-    for (const prefix of ['brain', 'conduit']) {
+    for (const prefix of prefixes) {
       const pattern = snapshotPattern(prefix);
       for (const name of names) {
         if (!pattern.test(name) || stampOf(name) >= oldestTasks) continue;
@@ -741,7 +742,9 @@ async function snapshotProjectTargetsGated(
   // brain and conduit share the project cleo.db handle, so only the first of
   // them writes a file. Maps source realpath → the snapshot written for it.
   const writtenBySource = new Map<string, string>();
-  return runGatedSnapshot(
+  // Prefixes whose role this run found inside the unified `tasks-*` snapshot.
+  const coveredByUnified = new Set<string>();
+  const result = await runGatedSnapshot(
     {
       backupDir,
       stateDb: await resolveGateStateDb(cwd),
@@ -754,9 +757,13 @@ async function snapshotProjectTargetsGated(
     },
     async (prefix) => {
       const target = byPrefix.get(prefix);
-      return target ? snapshotOne(target, backupDir, writtenBySource, cwd) : 'absent';
+      return target
+        ? snapshotOne(target, backupDir, writtenBySource, coveredByUnified, cwd)
+        : 'absent';
     },
   );
+  if (coveredByUnified.size > 0) pruneLegacyProjectSnapshots(backupDir, coveredByUnified);
+  return result;
 }
 
 /**
@@ -952,6 +959,7 @@ async function snapshotOne(
   target: SnapshotTarget,
   backupDir: string,
   writtenBySource: Map<string, string>,
+  coveredByUnified: Set<string>,
   cwd?: string,
 ): Promise<SnapshotOutcome> {
   if (target.strategy === 'skip-derived') {
@@ -990,6 +998,8 @@ async function snapshotOne(
     // links got full copies. Older `brain-*` / `conduit-*` files age out with
     // `tasks-*` retention (pruneLegacyProjectSnapshots, T13910).
     if (source !== null && writtenBySource.has(source)) {
+      const unified = basename(writtenBySource.get(source) ?? '').startsWith('tasks-');
+      if (target.tier === 'project' && unified) coveredByUnified.add(target.prefix);
       if (opened && target.closeDb) target.closeDb(opened);
       return 'linked';
     }
@@ -1033,7 +1043,7 @@ async function snapshotOne(
 
     if (source !== null) writtenBySource.set(source, dest);
     rotateSnapshots(backupDir, filePrefix, destName);
-    if (filePrefix === 'tasks' && target.tier === 'project') pruneLegacyProjectSnapshots(backupDir);
+    if (filePrefix === 'tasks' && target.prefix !== 'tasks') coveredByUnified.add(target.prefix);
     return 'written';
   } finally {
     // Release the ephemeral handle for raw-file-vacuum-readonly targets.
