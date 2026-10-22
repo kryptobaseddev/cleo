@@ -494,6 +494,12 @@ const openCommand = defineCommand({
       type: 'string',
       description: 'Comma-separated task IDs forwarded as the plan scope (task-scoped release)',
     },
+    // T13825: the single release PR.
+    ref: {
+      type: 'string',
+      description:
+        'Dispatch on this branch instead of the default branch: release/plan-<version>, holding the plan + CHANGELOG commit on top of it, so the bump PR carries the plan too. Implies --no-commit-plan; preflight skips carry over only when the branch adds release-plan files alone (T13825)',
+    },
   },
   async run({ args }) {
     await dispatchFromCli(
@@ -510,6 +516,7 @@ const openCommand = defineCommand({
         commitPlan: args['commit-plan'] !== false,
         epic: args.epic as string | undefined,
         tasks: args.tasks as string | undefined,
+        ref: args.ref as string | undefined,
       },
       { command: 'release' },
     );

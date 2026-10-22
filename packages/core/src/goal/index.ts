@@ -1,35 +1,19 @@
 /**
- * CLEO-native goal system — barrel (Layer 4 of SG-COGNITIVE-SUBSTRATE).
+ * CLEO goal record — barrel.
  *
- * Surfaces the DB-persisted per-agent goal store, the evidence-gate-aware judge
- * (+ injectable LLM fallback), the turn-budgeted loop, and the prompt-cache-safe
- * continuation builder. Re-exported from the core barrel as `goal.*` so the CLI
- * layer dispatches into these ops without reaching past the package boundary.
+ * CLEO owns the goal protocol and CLEO Goal is the goal runtime (ADR-097,
+ * owner decision 2026-10-16, epic T13791): the protocol verbs live in
+ * `./draft.js` and `./close.js`, loaded directly by `cleo goal draft|close`.
+ * CLEO's own turn-budgeted goal loop (judge, continuation, Stop hook, `cleo go`
+ * arming) is retired (T13797); only the persisted goal record remains here,
+ * re-exported from the core barrel as `goal.*`.
  *
  * @module @cleocode/core/goal
  *
- * @epic T11290 EP-CLEO-GOAL-SYSTEM
- * @saga T11283 SG-COGNITIVE-SUBSTRATE
+ * @epic T13791
+ * @task T13797
  */
 
-export {
-  type AdvanceWithPersistResult,
-  advanceGoalWithPersist,
-} from './advance-with-persist.js';
-export { type ArmGoalLoopParams, armGoalLoop } from './arm.js';
-export { buildContinuation, CONTINUATION_MAX_BYTES } from './continuation.js';
-export {
-  CRITICAL_GATE_COUNT,
-  CRITICAL_GATES,
-  judgeGoal,
-  judgeTaskCompletion,
-  StaticGoalJudge,
-} from './judge.js';
-export {
-  advanceGoal,
-  type GoalJudgeFn,
-  isWellFormedVerdict,
-} from './loop.js';
 export {
   appendCriteria,
   type CreateGoalParams,

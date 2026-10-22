@@ -7,6 +7,7 @@
  */
 
 import { execFileSync } from 'node:child_process';
+import * as fileSystem from 'node:fs';
 import { chmodSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { hostname, tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -50,6 +51,11 @@ import type { ResourceSample } from '../backend.js';
 import { ResourceMonitor } from '../monitor.js';
 import { _resetMemoryGateForTest, memoryGateReporter } from '../pressure-gate.js';
 import type { PidProbe } from '../slot-holder.js';
+
+vi.mock('node:fs', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('node:fs')>();
+  return { ...actual, readFileSync: vi.fn(actual.readFileSync) };
+});
 
 const HOST = hostname();
 
@@ -677,6 +683,26 @@ describe('enclosingGrant (re-entrancy)', () => {
     });
   });
 
+  it('without a token, the nearest admitted ancestor wins, not the oldest (T13452)', () => {
+    const p = entry({ id: 'P', pid: 100, state: 'admitted', footprintBytes: GIB, enqueuedAtMs: 1 });
+    const c = entry({
+      id: 'C',
+      pid: 200,
+      state: 'admitted',
+      footprintBytes: 24 * GIB,
+      enqueuedAtMs: 2,
+      parentId: 'P',
+    });
+    const tree: ProcessFacts = {
+      ancestorsOf: () => [200, 100, 1],
+      groupOf: () => null,
+      startedAt: () => p.startedAt,
+    };
+    expect(enclosingGrant([p, c], 300, {}, tree)?.id).toBe('C');
+    // The token still names the grant to check first.
+    expect(enclosingGrant([p, c], 300, { [ADMISSION_ENV]: admissionToken(p) }, tree)?.id).toBe('P');
+  });
+
   it('a holder never rides its own grant, and waiting entries grant nothing', () => {
     expect(enclosingGrant([holder], 500, {}, facts())).toBeNull();
     expect(enclosingGrant([{ ...holder, state: 'waiting' }], 1000, {}, facts())).toBeNull();
@@ -897,7 +923,7 @@ describe('admit (one ledger, real critical section)', () => {
     }
   });
 
-  it('an aborted signal leaves the queue at once, as a timeout does (T13681)', async () => {
+  it('an aborted signal promptly refuses admission and the queue entry is removed (T13681)', async () => {
     const a = await admit(
       { label: 'tool:test', footprintBytes: 8 * GIB },
       { ...base, dir, wait: false },
@@ -917,7 +943,9 @@ describe('admit (one ledger, real critical section)', () => {
     stop.abort();
     const b = await waiting;
     expect(b.admitted).toBe(false);
-    expect(readLedger(dir).map((e) => e.state)).toEqual(['admitted']);
+    await vi.waitFor(() => {
+      expect(readLedger(dir).map((e) => e.state)).toEqual(['admitted']);
+    });
     await a.grant.release();
   });
 
@@ -980,6 +1008,48 @@ describe('admit (one ledger, real critical section)', () => {
     }
     expect(readLedger(dir)).toHaveLength(1);
     await outer.grant.release();
+  });
+
+  it('under a light parent, a nested heavy run queues for its own footprint (T13452)', async () => {
+    const nestedIn = async (outerBytes: number, innerBytes: number) => {
+      const outer = await admit(
+        { label: 'run:scoped-build', footprintBytes: outerBytes },
+        { ...base, dir, wait: false },
+      );
+      if (!outer.admitted) throw new Error('expected an admission');
+      const holderPid = process.pid;
+      const nested = await admit(
+        { label: 'run:full-build', footprintBytes: innerBytes },
+        {
+          ...base,
+          dir,
+          wait: false,
+          pid: 99_999,
+          env: { [ADMISSION_ENV]: outer.grant.token },
+          facts: {
+            ancestorsOf: () => [holderPid],
+            groupOf: () => null,
+            startedAt: (pid) => readLedger(dir).find((e) => e.pid === pid)?.startedAt ?? null,
+          },
+        },
+      );
+      const ledger = readLedger(dir).map((e) => e.footprintBytes);
+      if (nested.admitted) await nested.grant.release();
+      await outer.grant.release();
+      return { nested, ledger };
+    };
+    // A 1 GiB grant does not carry an 8 GiB run: it gets its own entry.
+    const own = await nestedIn(GIB, 8 * GIB);
+    expect(own.nested.admitted && own.nested.grant.nested).toBe(false);
+    expect(own.ledger).toEqual([GIB, 8 * GIB]);
+    // A capacity-sized run never waits on its own parent.
+    const whole = await nestedIn(GIB, 20 * GIB);
+    expect(whole.nested.admitted).toBe(true);
+    expect(whole.ledger).toEqual([GIB, 20 * GIB]);
+    // A heavy parent's grant still carries a bigger nested run.
+    const heavy = await nestedIn(8 * GIB, 9 * GIB);
+    expect(heavy.nested.admitted && heavy.nested.grant.nested).toBe(true);
+    expect(heavy.ledger).toEqual([8 * GIB]);
   });
 
   it('a holder that died without releasing is reaped, and its share freed', async () => {
@@ -1323,6 +1393,251 @@ describe('admit (one ledger, real critical section)', () => {
     await held.grant.release();
   });
 
+  describe('T13889 queue deadlines and cleanup', () => {
+    beforeEach(() => {
+      vi.useFakeTimers();
+      vi.spyOn(lockfile, 'lock').mockResolvedValue(async () => {});
+    });
+    afterEach(() => {
+      vi.restoreAllMocks();
+      vi.useRealTimers();
+    });
+
+    it('bounds repeated isolated-budget deferrals at the explicit deadline', async () => {
+      const holder = await admit(
+        { label: 'holder', footprintBytes: capacityBytes },
+        { ...base, dir, wait: true, timeoutMs: 0 },
+      );
+      if (!holder.admitted) throw new Error('expected isolated holder');
+      const onePass = await admit(
+        { label: 'one-pass', footprintBytes: capacityBytes },
+        { ...base, dir, wait: true, timeoutMs: 0 },
+      );
+      expect(onePass.admitted).toBe(false);
+      const started = Date.now();
+      let settled = false;
+      const waiting = admit(
+        { label: 'waiting', footprintBytes: capacityBytes },
+        { ...base, dir, wait: true, timeoutMs: 1001, pollMs: 400 },
+      ).then((out) => {
+        settled = true;
+        return out;
+      });
+      await vi.advanceTimersByTimeAsync(1000);
+      expect(settled).toBe(false);
+      expect(
+        readLedger(dir)
+          .map((e) => e.state)
+          .sort(),
+      ).toEqual(['admitted', 'waiting']);
+      await vi.advanceTimersByTimeAsync(1);
+      expect((await waiting).admitted).toBe(false);
+      expect(Date.now() - started).toBe(1001);
+      await vi.advanceTimersByTimeAsync(0);
+      expect(readLedger(dir).map((e) => e.label)).toEqual(['holder']);
+      await holder.grant.release();
+    });
+
+    it('bounds a stalled scheduling sample and never enqueues on its late completion', async () => {
+      let resolveSample: (sample: ResourceSample) => void = () => {};
+      const pending = new Promise<ResourceSample>((resolve) => {
+        resolveSample = resolve;
+      });
+      const intervals = vi.spyOn(globalThis, 'setInterval');
+      const waiting = admit(
+        { label: 'late-sample', footprintBytes: GIB },
+        { ...base, dir, wait: true, timeoutMs: 1001, sample: () => pending },
+      );
+      await vi.advanceTimersByTimeAsync(1001);
+      expect((await waiting).admitted).toBe(false);
+      resolveSample(sampleAt(0));
+      await vi.advanceTimersByTimeAsync(0);
+      expect(readLedger(dir)).toEqual([]);
+      expect(lockfile.lock).not.toHaveBeenCalled();
+      expect(intervals).not.toHaveBeenCalled();
+      expect(vi.getTimerCount()).toBe(0);
+    });
+
+    it.each([
+      'deadline',
+      'signal',
+    ] as const)('bounds a pending lock on %s and unlocks a late acquisition exactly once', async (stop) => {
+      let resolveLock: (unlock: Awaited<ReturnType<typeof lockfile.lock>>) => void = () => {};
+      const pending = new Promise<Awaited<ReturnType<typeof lockfile.lock>>>((resolve) => {
+        resolveLock = resolve;
+      });
+      vi.mocked(lockfile.lock).mockReturnValueOnce(pending);
+      const unlock = vi.fn(async () => {});
+      const intervals = vi.spyOn(globalThis, 'setInterval');
+      const signal = new AbortController();
+      const waiting = admit(
+        { label: 'late-lock', footprintBytes: GIB },
+        { ...base, dir, wait: true, timeoutMs: 1001, signal: signal.signal },
+      );
+      await vi.advanceTimersByTimeAsync(0);
+      expect(lockfile.lock).toHaveBeenCalledTimes(1);
+      if (stop === 'signal') signal.abort();
+      else await vi.advanceTimersByTimeAsync(1001);
+      expect((await waiting).admitted).toBe(false);
+      resolveLock(unlock);
+      await vi.advanceTimersByTimeAsync(0);
+      expect(unlock).toHaveBeenCalledTimes(1);
+      expect(readLedger(dir)).toEqual([]);
+      expect(intervals).not.toHaveBeenCalled();
+      expect(vi.getTimerCount()).toBe(0);
+    });
+
+    it('rejects a peer admission observed after expiry without starting a heartbeat', async () => {
+      const holder = await admit(
+        { label: 'holder', footprintBytes: capacityBytes },
+        { ...base, dir, wait: false },
+      );
+      if (!holder.admitted) throw new Error('expected isolated holder');
+      const intervals = vi.spyOn(globalThis, 'setInterval');
+      const waiting = await admit(
+        { label: 'late-peer', footprintBytes: capacityBytes },
+        {
+          ...base,
+          dir,
+          wait: true,
+          timeoutMs: 1001,
+          sleep: async () => {
+            vi.setSystemTime(Date.now() + 1001);
+            const entries = readLedger(dir).map((e) =>
+              e.label === 'late-peer' ? { ...e, state: 'admitted', admittedAtMs: Date.now() } : e,
+            );
+            writeFileSync(join(dir, 'ledger.json'), JSON.stringify({ version: 1, entries }));
+          },
+        },
+      );
+      expect(waiting.admitted).toBe(false);
+      await vi.advanceTimersByTimeAsync(0);
+      expect(readLedger(dir).map((e) => e.label)).toEqual(['holder']);
+      expect(intervals).not.toHaveBeenCalled();
+      await holder.grant.release();
+    });
+
+    it.each([
+      {
+        name: 'expired positive budget',
+        wait: true,
+        timeoutMs: 1001,
+        elapsedMs: 1001,
+        admitted: false,
+      },
+      {
+        name: 'unexpired positive budget',
+        wait: true,
+        timeoutMs: 1001,
+        elapsedMs: 1000,
+        admitted: true,
+      },
+      { name: 'zero-budget one-pass', wait: true, timeoutMs: 0, elapsedMs: 1001, admitted: true },
+      {
+        name: 'non-waiting request',
+        wait: false,
+        timeoutMs: 1001,
+        elapsedMs: 1001,
+        admitted: true,
+      },
+    ])('checks the clock before failing open after I/O: $name', async (test) => {
+      vi.mocked(lockfile.lock).mockImplementationOnce(async () => {
+        vi.setSystemTime(Date.now() + test.elapsedMs);
+        throw Object.assign(new Error('ledger unavailable'), { code: 'EACCES' });
+      });
+      const intervals = vi.spyOn(globalThis, 'setInterval');
+      const out = await admit(
+        { label: 'failed-lock', footprintBytes: GIB },
+        { ...base, dir, wait: test.wait, timeoutMs: test.timeoutMs },
+      );
+      expect(out.admitted).toBe(test.admitted);
+      if (out.admitted) {
+        expect(out.grant.ungoverned?.code).toBe('EACCES');
+        await out.grant.release();
+      }
+      await vi.advanceTimersByTimeAsync(0);
+      expect(readLedger(dir)).toEqual([]);
+      expect(intervals).not.toHaveBeenCalled();
+      expect(vi.getTimerCount()).toBe(0);
+    });
+
+    it.each([
+      { phase: 'unlocked', failure: 'EACCES' },
+      { phase: 'locked', failure: 'EPERM' },
+      { phase: 'unlocked', failure: 'malformed JSON' },
+      { phase: 'locked', failure: 'malformed entry list' },
+    ] as const)('retries $phase cleanup reads after $failure without replacing the ledger', async (test) => {
+      const holder = await admit(
+        { label: 'holder', footprintBytes: capacityBytes },
+        { ...base, dir, wait: false },
+      );
+      if (!holder.admitted) throw new Error('expected isolated holder');
+      const intervals = vi.spyOn(globalThis, 'setInterval');
+      const waiting = admit(
+        { label: 'unreadable-cleanup', footprintBytes: capacityBytes },
+        { ...base, dir, wait: true, timeoutMs: 1001, pollMs: 400 },
+      );
+      await vi.advanceTimersByTimeAsync(1000);
+      expect(readLedger(dir).map((e) => e.label)).toEqual(['holder', 'unreadable-cleanup']);
+      const file = join(dir, 'ledger.json');
+      const { readFileSync: originalRead } =
+        await vi.importActual<typeof import('node:fs')>('node:fs');
+      const before = originalRead(file, 'utf-8');
+      let unavailable = true;
+      let reads = 0;
+      vi.spyOn(fileSystem, 'readFileSync').mockImplementation((path, options) => {
+        if (String(path) === file) {
+          reads++;
+          if (unavailable && (test.phase === 'unlocked' || reads > 1)) {
+            if (test.failure === 'malformed JSON') return '{';
+            if (test.failure === 'malformed entry list') return '{"version":1,"entries":null}';
+            throw Object.assign(new Error('ledger is unreadable'), { code: test.failure });
+          }
+        }
+        return originalRead(path, options);
+      });
+      await vi.advanceTimersByTimeAsync(1);
+      expect((await waiting).admitted).toBe(false);
+      expect(reads).toBeGreaterThanOrEqual(test.phase === 'unlocked' ? 1 : 2);
+      expect(originalRead(file, 'utf-8')).toBe(before);
+      expect(intervals).not.toHaveBeenCalled();
+      unavailable = false;
+      await vi.advanceTimersByTimeAsync(1000);
+      expect(readLedger(dir).map((e) => e.label)).toEqual(['holder']);
+      await holder.grant.release();
+      expect(vi.getTimerCount()).toBe(0);
+    });
+
+    it('returns while cleanup storage is unavailable and retries removal after recovery', async () => {
+      const holder = await admit(
+        { label: 'holder', footprintBytes: capacityBytes },
+        { ...base, dir, wait: false },
+      );
+      if (!holder.admitted) throw new Error('expected isolated holder');
+      const intervals = vi.spyOn(globalThis, 'setInterval');
+      const waiting = admit(
+        { label: 'cleanup', footprintBytes: capacityBytes },
+        { ...base, dir, wait: true, timeoutMs: 1001, pollMs: 400 },
+      );
+      await vi.advanceTimersByTimeAsync(0);
+      vi.mocked(lockfile.lock).mockRejectedValueOnce(
+        Object.assign(new Error('storage unavailable'), { code: 'EACCES' }),
+      );
+      await vi.advanceTimersByTimeAsync(1001);
+      expect((await waiting).admitted).toBe(false);
+      expect(
+        readLedger(dir)
+          .map((e) => e.label)
+          .sort(),
+      ).toEqual(['cleanup', 'holder']);
+      await vi.advanceTimersByTimeAsync(1000);
+      expect(readLedger(dir).map((e) => e.label)).toEqual(['holder']);
+      expect(intervals).not.toHaveBeenCalled();
+      await holder.grant.release();
+      expect(vi.getTimerCount()).toBe(0);
+    });
+  });
+
   it('20 concurrent admitters: no lost update, no deadlock, never over budget', async () => {
     const cap = 3 * GIB;
     let running = 0;
@@ -1410,12 +1725,13 @@ describe('cleo run is charged by its real scope (T13367)', () => {
             entry({ id: 'a', enqueuedAtMs: 1, footprintBytes: bytes }),
             entry({ id: 'b', enqueuedAtMs: 2, footprintBytes: bytes }),
             entry({ id: 'p0', enqueuedAtMs: 3, footprintBytes: bytes }),
+            entry({ id: 'p1', enqueuedAtMs: 4, footprintBytes: bytes }),
           ],
           { capacityBytes: capacity, share: 'full', nowMs: 1_000 },
         ),
       );
-    expect(two(single.footprintBytes ?? 0)).toEqual(['a', 'b', 'p0']);
-    expect(two(heavy.footprintBytes ?? 0)).not.toContain('p0');
+    expect(two(single.footprintBytes ?? 0)).toEqual(['a', 'b', 'p0', 'p1']);
+    expect(two(heavy.footprintBytes ?? 0)).not.toContain('p1');
   });
 
   it('a two-file biome check is admitted while a full build holds the budget', () => {
@@ -1522,5 +1838,171 @@ describe('a git push is charged by what actually runs (T13452)', () => {
     } finally {
       rmSync(repo, { recursive: true, force: true });
     }
+  });
+
+  it('a command looksHeavy rejects is charged light, naming it; a runner of other commands is not', () => {
+    for (const [argv, reason] of [
+      [['node', 'scripts/gen.mjs'], 'node scripts/gen.mjs runs no heavy tool'],
+      [['git', 'status'], 'git status runs no heavy tool'],
+      [['ls', '-la'], 'ls runs no heavy tool'],
+      [['timeout', '60', 'sudo', '-u', 'me', 'cat', 'a'], 'cat runs no heavy tool'],
+      [['env', 'NODE_OPTIONS=--no-warnings', 'node', 'gen.mjs'], 'node gen.mjs runs no heavy tool'],
+    ] as const) {
+      const plan = planRunFootprint('scoped-build', argv, {}, RAM, () => true);
+      expect(plan.footprintBytes, argv.join(' ')).toBe(GIB);
+      expect(plan.resources, argv.join(' ')).toBeNull();
+      expect(plan.footprintReason).toBe(reason);
+    }
+    for (const argv of [
+      ['bash', '-c', 'pnpm test'],
+      ['make', 'all'],
+      ['pnpm', 'run', 'generate'],
+      ['cleo', 'verify', 'T1'],
+      ['node', 'bin/cleo.js', 'verify', 'T1'],
+      ['pnpm', 'install'],
+      // B1 of the #2280 review: anything off the allowlist keeps the plan.
+      ['cargo', 'clippy'],
+      ['cargo', 'nextest', 'run'],
+      ['go', 'vet', './...'],
+      ['gradle', 'build'],
+      ['mvn', 'verify'],
+      ['xcodebuild', 'test'],
+      ['docker', 'build', '.'],
+      ['npx', 'tsx', 'scripts/x.ts'],
+      ['./scripts/test.sh'],
+      ['pre-commit', 'run', '--all-files'],
+      ['lefthook', 'run', 'pre-commit'],
+      ['node', '--test', 'a.test.mjs'],
+      ['node', '--max-old-space-size=8192', 'build.mjs'],
+      ['timeout', '600', 'cargo', 'check'],
+      ['sudo', 'pytest'],
+      ['watchexec', 'ls'],
+      ['parallel', 'echo', ':::', 'a'],
+      ['node', 'node_modules/vitest/vitest.mjs', 'run'],
+      ['node', './node_modules/.bin/tsc.js'],
+      ['env', 'NODE_OPTIONS=--max-old-space-size=16384', 'node', 'gen.mjs'],
+      ['NODE_OPTIONS=--max-semi-space-size=64', 'node', 'gen.mjs'],
+      ['NODE_OPTIONS=--max_old_space_size=30000', 'node', 'gen.mjs'],
+      ['node', 'node_modules\\vitest\\vitest.mjs', 'run'],
+    ]) {
+      const plan = planRunFootprint('scoped-build', argv, {}, RAM);
+      expect(plan.footprintBytes, argv.join(' ')).toBeGreaterThan(HEAVY_FOOTPRINT_BYTES);
+    }
+    // An explicit test run, or full-build, of the same command keeps its class plan.
+    for (const cls of ['test-run', 'full-build'] as const) {
+      const plan = planRunFootprint(cls, ['node', 'scripts/gen.mjs'], {}, RAM);
+      expect(plan.footprintBytes, cls).toBeGreaterThan(HEAVY_FOOTPRINT_BYTES);
+    }
+  });
+
+  it('git commit with an installed pre-commit hook keeps the class plan, naming the hook', () => {
+    const plan = planRunFootprint(
+      'scoped-build',
+      ['git', 'commit', '-m', 'x'],
+      {},
+      RAM,
+      (hook) => hook === 'pre-commit',
+    );
+    expect(plan.resources).not.toBeNull();
+    expect(plan.footprintReason).toBe('scoped-build plan: runs the pre-commit hook');
+  });
+});
+
+describe('a nested run never waits on its own ancestors (T13452)', () => {
+  const NOW = 1_000_000;
+  const parent = entry({ id: 'parent', state: 'admitted', footprintBytes: GIB, enqueuedAtMs: 1 });
+  const others = [1, 2, 3].map((n) =>
+    entry({ id: `tiny${n}`, state: 'admitted', footprintBytes: GIB, enqueuedAtMs: 0 }),
+  );
+  const pass = (ram: number, ledger: LedgerEntry[]) => {
+    const capacityBytes = admissionCapacityBytes(ram * GIB);
+    const child = entry({
+      id: 'child',
+      parentId: 'parent',
+      footprintBytes:
+        planRunFootprint('full-build', ['pnpm', 'run', 'build'], {}, ram).footprintBytes ?? 0,
+      enqueuedAtMs: 10,
+    });
+    // An older capacity-sized head, past its reservation: it waits for an idle machine.
+    const head = entry({ id: 'head', footprintBytes: capacityBytes, enqueuedAtMs: 2 });
+    return admittedIds(
+      schedulePass([...ledger, head, child], {
+        capacityBytes,
+        share: 'half',
+        nowMs: NOW,
+      }),
+    );
+  };
+
+  for (const ram of [8, 16, 64]) {
+    it(`${ram} GiB, share half: admitted beside its light parent, past a blocked head`, () => {
+      expect(pass(ram, [parent])).toContain('child');
+    });
+  }
+
+  it('16 and 64 GiB, share half, tiny reserve full: still admitted', () => {
+    expect(pass(16, [...others, parent])).toContain('child');
+    expect(pass(64, [...others, parent])).toContain('child');
+  });
+
+  it('8 GiB, tiny reserve full: waits only for the unrelated runs, then starts', () => {
+    expect(pass(8, [...others, parent])).not.toContain('child');
+    expect(pass(8, [parent])).toContain('child');
+  });
+
+  it('a non-nested run of the same size still waits for the parent', () => {
+    const capacityBytes = admissionCapacityBytes(64 * GIB);
+    const stranger = entry({ id: 'stranger', footprintBytes: 24 * GIB, enqueuedAtMs: 10 });
+    const out = schedulePass([...others, parent, stranger], {
+      capacityBytes,
+      share: 'half',
+      nowMs: NOW,
+    });
+    expect(admittedIds(out)).not.toContain('stranger');
+  });
+});
+
+describe('a scoped build is charged its own plan, not a whole heavy run (T13759)', () => {
+  it('64 GiB: a scoped build plans 2 workers (12 GiB); a test run keeps 4 (24 GiB); full-build is not shrunk', () => {
+    const scoped = planRunFootprint('scoped-build', ['pnpm', 'install'], {}, 64);
+    expect(scoped.resources?.workers).toBe(2);
+    expect(scoped.overlay.VITEST_MAX_WORKERS).toBe('2');
+    expect(scoped.footprintBytes).toBe(12 * GIB);
+    expect(planRunFootprint('test-run', ['pnpm', 'test'], {}, 64).footprintBytes).toBe(24 * GIB);
+    expect(planRunFootprint('full-build', ['pnpm', 'run', 'build'], {}, 64).footprintBytes).toBe(
+      24 * GIB,
+    );
+  });
+
+  it('a hooked commit is sized to the scoped plan it is spawned with', () => {
+    const plan = planRunFootprint('scoped-build', ['git', 'commit', '-m', 'x'], {}, 64, () => true);
+    expect(plan.footprintBytes).toBe(12 * GIB);
+  });
+
+  it('a multi-process scoped build stays heavy; a one-worker machine is unchanged', () => {
+    expect(planRunFootprint('scoped-build', ['pnpm', 'install'], {}, 48).resources?.workers).toBe(
+      2,
+    );
+    expect(planRunFootprint('scoped-build', ['pnpm', 'install'], {}, 16).resources?.workers).toBe(
+      1,
+    );
+  });
+
+  it('two scoped builds are admitted together within a pressure-halved budget', () => {
+    const capacity = admissionCapacityBytes(64 * GIB);
+    const bytes = planRunFootprint('scoped-build', ['pnpm', 'install'], {}, 64).footprintBytes ?? 0;
+    const pass = (footprintBytes: number) =>
+      admittedIds(
+        schedulePass(
+          [
+            entry({ id: 'install', enqueuedAtMs: 1, footprintBytes }),
+            entry({ id: 'commit', enqueuedAtMs: 2, footprintBytes }),
+          ],
+          { capacityBytes: capacity, share: 'half', nowMs: 1_000 },
+        ),
+      );
+    expect(pass(bytes)).toEqual(['install', 'commit']);
+    // Before T13759 each was charged 24 GiB, the whole halved budget: one at a time.
+    expect(pass(24 * GIB)).toEqual(['install']);
   });
 });

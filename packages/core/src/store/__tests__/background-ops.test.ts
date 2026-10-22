@@ -22,6 +22,7 @@ import { Worker } from 'node:worker_threads';
 import type { OperationExecutionContext } from '@cleocode/contracts/jobs';
 import { buildSync } from 'esbuild';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { hooks } from '../../hooks/registry.js';
 import { worktreeScope } from '../../project-scope.js';
 import { addTask } from '../../tasks/add.js';
 import { _resetTeardownSignalForTests, markShuttingDown } from '../../teardown-signal.js';
@@ -37,7 +38,8 @@ import {
   transferOperationContext,
 } from '../background-ops.js';
 import type { DataAccessor } from '../data-accessor.js';
-import { resetDbState } from '../sqlite.js';
+import { saveJson } from '../json.js';
+import { closeAllDatabases, getDb, resetDbState } from '../sqlite.js';
 import { createTestDb, type TestDbEnv } from './test-db-helper.js';
 
 describe('background-ops registry (T10490)', () => {
@@ -316,6 +318,65 @@ describe('addTask background ops are flushed at the test boundary (T10490)', () 
       accessor,
     );
     await awaitBackgroundOps();
+    expect(pendingBackgroundOpCount()).toBe(0);
+  });
+});
+
+describe('teardown settles fire-and-forget store writes (T13630)', () => {
+  let env: TestDbEnv;
+
+  beforeEach(async () => {
+    env = await createTestDb();
+    process.env['CLEO_DIR'] = env.cleoDir;
+  });
+
+  afterEach(async () => {
+    vi.restoreAllMocks();
+    delete process.env['CLEO_DIR'];
+    resetDbState();
+    await env.cleanup();
+  });
+
+  it('closeAllDatabases settles a tracked write on the open handles, then the next write is prompt', async () => {
+    let wrote = false;
+    // A late best-effort write like ensureTaskNode: it touches the store after
+    // the caller has returned. Closed under it, it would re-bind on a fresh
+    // connection and busy-wait the next writer.
+    trackBackgroundOp(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      await getDb(env.tempDir);
+      wrote = true;
+    });
+    await addTask(
+      {
+        title: 'teardown task',
+        description: 'graph write in flight',
+        skipContainmentInvariant: true,
+      },
+      env.tempDir,
+      env.accessor,
+    );
+
+    await closeAllDatabases();
+    expect(wrote).toBe(true);
+    expect(pendingBackgroundOpCount()).toBe(0);
+
+    const started = Date.now();
+    await addTask(
+      { title: 'next write', description: 'after teardown', skipContainmentInvariant: true },
+      env.tempDir,
+    );
+    expect(Date.now() - started).toBeLessThan(5_000);
+  }, 60_000);
+
+  it('saveJson tracks its Notification dispatch and captures its failure', async () => {
+    await awaitBackgroundOps(); // consume the ledger left by earlier work
+    vi.spyOn(hooks, 'dispatch').mockRejectedValue(new Error('hook handler failed'));
+
+    await saveJson(join(env.tempDir, 't13630.json'), { ok: true });
+    const report = await awaitBackgroundOps();
+
+    expect(report.failed).toBe(1);
     expect(pendingBackgroundOpCount()).toBe(0);
   });
 });

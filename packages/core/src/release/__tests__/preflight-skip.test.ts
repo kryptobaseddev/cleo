@@ -13,7 +13,10 @@ import {
   isReleasePlanPath,
   MAX_EQUIVALENT_ANCESTORS,
   PREFLIGHT_CHECK_TIMEOUT_MS,
+  PREFLIGHT_IN_FLIGHT_POLL_MS,
   type PreflightGhRunner,
+  type PreflightSkipDecision,
+  retargetPreflightSkips,
 } from '../preflight-skip.js';
 
 const SHA = 'a'.repeat(40);
@@ -124,8 +127,12 @@ function makeGh(opts: StubOptions): PreflightGhRunner & { calls: string[][]; tim
     const jobsMatch = /actions\/runs\/(\d+)\/jobs/.exec(endpoint);
     if (jobsMatch) {
       const id = Number(jobsMatch[1]);
-      const jobs = opts.jobs?.[id] ?? [];
-      return JSON.stringify({ total_count: opts.jobTotals?.[id] ?? jobs.length, jobs });
+      const all = opts.jobs?.[id] ?? [];
+      // Pages of 100, as the jobs API serves them; a forced total repeats page 1.
+      const page = Number(/[?&]page=(\d+)/.exec(endpoint)?.[1] ?? '1');
+      const jobs =
+        opts.jobTotals?.[id] === undefined ? all.slice((page - 1) * 100, page * 100) : all;
+      return JSON.stringify({ total_count: opts.jobTotals?.[id] ?? all.length, jobs });
     }
     throw new Error(`unexpected gh call: ${args.join(' ')}`);
   };
@@ -193,6 +200,19 @@ describe('decidePreflightSkips — Linux shards', () => {
     expect(d.reason).toContain('could not be read');
   });
 
+  it('reads a job list longer than one page (a ci.yml run with its shards lists 102+ jobs)', () => {
+    const filler = Array.from({ length: 96 }, (_, i) => ({
+      name: `Gate ${i}`,
+      conclusion: 'success',
+    }));
+    const d = decidePreflightSkips(
+      makeGh({ pushRuns: [{ id: 10 }], jobs: { 10: [...filler, ...LINUX_GREEN, ...LINUX_GREEN] } }),
+      '/repo',
+      'main',
+    );
+    expect(d).toMatchObject({ skipTests: true, testedSha: SHA, testedRunId: 10 });
+  });
+
   it('judges the NEWEST run for the sha (a failed re-run supersedes a green one)', () => {
     const d = decidePreflightSkips(
       makeGh({ pushRuns: [{ id: 10 }, { id: 11, conclusion: 'failure' }] }),
@@ -200,6 +220,58 @@ describe('decidePreflightSkips — Linux shards', () => {
       'main',
     );
     expect(d.skipTests).toBe(false);
+  });
+});
+
+describe('decidePreflightSkips — waits for an in-flight push run (T13823)', () => {
+  /** A gh runner whose ci.yml push run for SHA completes after `pending` polls. */
+  function inFlight(pending: number) {
+    const done = makeGh({ pushRuns: [{ id: 10 }], jobs: { 10: LINUX_GREEN } });
+    const running = makeGh({ pushRuns: [{ id: 10, status: 'queued', conclusion: null }] });
+    let polls = 0;
+    const gh: PreflightGhRunner = (args, cwd, timeoutMs) => {
+      if (args[1]?.includes('/actions/workflows/ci.yml/runs?head_sha=')) {
+        polls += 1;
+        if (polls <= pending) return running(args, cwd, timeoutMs);
+      }
+      return done(args, cwd, timeoutMs);
+    };
+    return gh;
+  }
+
+  it('polls a queued run until it completes, then skips and names the run', () => {
+    const sleeps: number[] = [];
+    const d = decidePreflightSkips(inFlight(3), '/repo', 'main', {
+      inFlightWaitMs: 10 * 60_000,
+      sleep: (ms) => sleeps.push(ms),
+    });
+    expect(d).toMatchObject({ skipTests: true, testedSha: SHA, testedRunId: 10 });
+    expect(sleeps).toEqual([
+      PREFLIGHT_IN_FLIGHT_POLL_MS,
+      PREFLIGHT_IN_FLIGHT_POLL_MS,
+      PREFLIGHT_IN_FLIGHT_POLL_MS,
+    ]);
+  });
+
+  it('runs the tests when the run is still unfinished after the wait budget', () => {
+    const sleeps: number[] = [];
+    const d = decidePreflightSkips(inFlight(1000), '/repo', 'main', {
+      inFlightWaitMs: 75_000,
+      sleep: (ms) => sleeps.push(ms),
+    });
+    expect(d).toMatchObject({ skipTests: false, testedRunId: null });
+    expect(d.reason).toContain('is queued');
+    expect(d.reason).toContain('after waiting 75s');
+    expect(sleeps.reduce((a, b) => a + b, 0)).toBe(75_000);
+  });
+
+  it('never waits without a budget (the default)', () => {
+    const sleeps: number[] = [];
+    const d = decidePreflightSkips(inFlight(1), '/repo', 'main', {
+      sleep: (ms) => sleeps.push(ms),
+    });
+    expect(d.skipTests).toBe(false);
+    expect(sleeps).toEqual([]);
   });
 });
 
@@ -232,7 +304,7 @@ describe('decidePreflightSkips — a tested ancestor CI judged equivalent (T1314
       '/repo',
       'main',
     );
-    expect(d).toMatchObject({ verifiedSha: SHA, skipTests: true, testedSha: P1 });
+    expect(d).toMatchObject({ verifiedSha: SHA, skipTests: true, testedSha: P1, testedRunId: 9 });
     expect(d.reason).toContain('Linux tests skipped');
     expect(d.reason).toContain(`${P1.slice(0, 12)} (an ancestor of ${SHA.slice(0, 12)})`);
     expect(d.reason).toContain('differs from it only by 1 release-plan commit(s)');
@@ -372,6 +444,15 @@ describe('decidePreflightSkips — only release-plan commits are stepped past (T
       '.cleo/deprecations.yml',
       'packages/core/CHANGELOG.mdx',
       'docs/x.md',
+      // T13825: whole-path allowlist, no prefix that could reach code or config.
+      '.cleo/release/v1.json',
+      '.cleo/release/nested/v1.plan.json',
+      '.cleo/release/run.ts',
+      '.changeset/config.json',
+      '.changeset/x.ts',
+      'x/.changeset/a.md',
+      'x/.cleo/release/v1.plan.json',
+      'CHANGELOG.md.ts',
     ]) {
       expect(isReleasePlanPath(p), p).toBe(false);
     }
@@ -636,5 +717,86 @@ describe('decidePreflightSkips — failure is never a skip', () => {
     decidePreflightSkips(gh, '/repo', 'main');
     expect(gh.timeouts.length).toBeGreaterThan(0);
     expect(new Set(gh.timeouts)).toEqual(new Set([PREFLIGHT_CHECK_TIMEOUT_MS]));
+  });
+});
+
+describe('retargetPreflightSkips — the single release PR plan branch (T13825)', () => {
+  const REF_SHA = 'e'.repeat(40);
+  const main: PreflightSkipDecision = {
+    verifiedSha: SHA,
+    skipTests: true,
+    testedSha: SHA,
+    testedRunId: 10,
+    skipMacosTests: true,
+    reason: 'Linux tests skipped.',
+  };
+  /** A gh runner answering only the compare of SHA...REF_SHA. */
+  const compareGh =
+    (body: unknown): PreflightGhRunner =>
+    (args) => {
+      if (args[1] !== `repos/{owner}/{repo}/compare/${SHA}...${REF_SHA}`) {
+        throw new Error(`unexpected gh call: ${args.join(' ')}`);
+      }
+      if (body instanceof Error) throw body;
+      return JSON.stringify(body);
+    };
+
+  it('keeps the skips, re-keyed to the plan branch, when it adds release-plan files only', () => {
+    const d = retargetPreflightSkips(
+      main,
+      compareGh({ status: 'ahead', files: ['.cleo/release/v1.plan.json', 'CHANGELOG.md'] }),
+      '/repo',
+      'release/plan-v1',
+      REF_SHA,
+    );
+    expect(d).toMatchObject({
+      verifiedSha: REF_SHA,
+      skipTests: true,
+      testedRunId: 10,
+      skipMacosTests: true,
+    });
+    expect(d.reason).toContain('carry over');
+  });
+
+  it('drops every skip when the branch carries anything else, diverged, or cannot be compared', () => {
+    for (const body of [
+      { status: 'ahead', files: ['CHANGELOG.md', 'packages/core/src/x.ts'] },
+      { status: 'diverged', files: ['CHANGELOG.md'] },
+      { status: 'identical', files: [] },
+      { status: 'ahead', files: Array.from({ length: 300 }, (_, i) => `.changeset/c${i}.md`) },
+      new Error('HTTP 404'),
+    ]) {
+      const d = retargetPreflightSkips(main, compareGh(body), '/repo', 'release/plan-v1', REF_SHA);
+      expect(d, JSON.stringify(body)).toMatchObject({
+        verifiedSha: REF_SHA,
+        skipTests: false,
+        testedRunId: null,
+        skipMacosTests: false,
+      });
+      expect(d.reason).toContain('Every preflight suite runs on release/plan-v1');
+    }
+  });
+
+  it('re-keys a decision with no skips without asking GitHub', () => {
+    const none = {
+      ...main,
+      skipTests: false,
+      testedSha: null,
+      testedRunId: null,
+      skipMacosTests: false,
+    };
+    const calls: string[][] = [];
+    const d = retargetPreflightSkips(
+      none,
+      (args) => {
+        calls.push([...args]);
+        return '';
+      },
+      '/repo',
+      'r',
+      REF_SHA,
+    );
+    expect(d).toMatchObject({ verifiedSha: REF_SHA, skipTests: false, reason: main.reason });
+    expect(calls).toEqual([]);
   });
 });

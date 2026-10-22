@@ -45,6 +45,16 @@ describe('native shared hook entry', () => {
     expect(streams.readStdin).not.toHaveBeenCalled();
     expect(execute).not.toHaveBeenCalled();
   });
+  it('answers the execution probe with whether this build runs hooks (T13774)', async () => {
+    const streams = io('');
+    expect(await runProjectHookCli(['--probe', '--', 'execution'], streams)).toBe(0);
+    const { hooksV1Released } = await import('@cleocode/core/hooks/release-gate');
+    expect(streams.writeStdout).toHaveBeenCalledWith(
+      hooksV1Released() ? 'CLEO_PROJECT_HOOK_EXEC\n' : 'CLEO_PROJECT_HOOK_INERT\n',
+    );
+    expect(streams.readStdin).not.toHaveBeenCalled();
+    expect(execute).not.toHaveBeenCalled();
+  });
   it('keeps agents advisory and returns no permission decision or updated input', async () => {
     const streams = io('{"cwd":"/checkout/nested","tool_input":{"command":"pwd"}}');
     expect(await runProjectHookCli(['--provider', 'codex'], streams)).toBe(0);
@@ -62,6 +72,33 @@ describe('native shared hook entry', () => {
     expect(answer).toContain('additionalContext');
     expect(answer).not.toContain('permissionDecision');
     expect(answer).not.toContain('updatedInput');
+  });
+  it.each([
+    'claude-code',
+    'codex',
+  ])('retains %s native session identity without retaining extra payload fields', async (provider) => {
+    const streams = io(
+      JSON.stringify({
+        session_id: 'native-session-a',
+        tool_input: { command: 'pwd' },
+        token: 'secret-payload',
+      }),
+    );
+    expect(await runProjectHookCli(['--provider', provider], streams)).toBe(0);
+    expect(execute).toHaveBeenCalledWith(
+      expect.objectContaining({
+        nativeSession: { sessionId: 'native-session-a', harness: provider },
+      }),
+      undefined,
+      undefined,
+      expect.any(AbortSignal),
+    );
+    expect(JSON.stringify(execute.mock.calls[0]?.[0])).not.toContain('secret-payload');
+  });
+  it('does not invent native identity for an absent or malformed session ID', async () => {
+    const streams = io('{"session_id":{"token":"secret-payload"},"tool_input":{"command":"pwd"}}');
+    expect(await runProjectHookCli(['--provider', 'codex'], streams)).toBe(0);
+    expect(execute.mock.calls[0]?.[0].nativeSession).toBeUndefined();
   });
   it('blocks a Git project verdict and preserves actual non-HEAD pushed refs', async () => {
     const oid = 'a'.repeat(40),

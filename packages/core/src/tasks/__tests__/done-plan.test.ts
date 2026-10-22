@@ -1042,6 +1042,31 @@ describe('a standalone single-package project plans a targeted test-run (T13403)
     ).toEqual([]);
   });
 
+  it('T13778: a config edit plus a test file plans the targeted run composed with tool:config-schema', async () => {
+    standalone();
+    const id = await seedTask(['Change .cleo/project-context.json and src/parity.test.ts']);
+    git(root, ['switch', '-q', '-c', `task/${id}`]);
+    mkdirSync(join(root, '.cleo'), { recursive: true });
+    writeFileSync(
+      join(root, '.cleo', 'project-context.json'),
+      `${JSON.stringify({ schemaVersion: '1.0.0', detectedAt: '2026-10-15T00:00:00Z', projectTypes: ['node'] })}\n`,
+    );
+    mkdirSync(join(root, 'src'), { recursive: true });
+    writeFileSync(join(root, 'src', 'parity.test.ts'), 'export {};\n');
+    git(root, ['add', '-f', '.cleo/project-context.json', 'src/parity.test.ts']);
+    git(root, ['commit', '-q', '-m', `${id}: config plus its test`]);
+    const plan = await deriveTaskEvidence(id, {
+      projectRoot: root,
+      cwd: root,
+      deps,
+      satisfies: 'all',
+    });
+    const testRun = plan.blockers.find((b) => b.code === 'test-run-needed');
+    expect(testRun?.next.command).toContain(
+      "--evidence 'test-run:<vitest-json-report>;tool:config-schema'",
+    );
+  });
+
   it('T13745: a root-config-only change plans tool:test (not applicable) and a lint qa-run, no suite, no typecheck', async () => {
     standalone();
     // The fixture's .cleo/ is the gitignored store, so a root config stands in.
@@ -1695,6 +1720,7 @@ describe('a stored typed pass bound to an older definition is not a pass (T13463
   async function withStoredPass(
     bind: (text: string) => { criterionHash: string; gateHash: string },
     over: (binding: Record<string, unknown>) => Record<string, unknown> = (b) => b,
+    stored: Record<string, unknown> = { result: 'pass' },
   ) {
     const id = await seedTask(['Change src/a.ts']);
     commitOnTaskBranch(id);
@@ -1714,7 +1740,7 @@ describe('a stored typed pass bound to an older definition is not a pass (T13463
           index: 1,
           req: 'H-1',
           kind: 'command',
-          result: 'pass',
+          ...stored,
           checkedAt: '2026-10-01T00:00:00Z',
           checkedBy: 'test',
           durationMs: 1,
@@ -1747,6 +1773,22 @@ describe('a stored typed pass bound to an older definition is not a pass (T13463
   const current = (text: string) => ({
     criterionHash: acTextHash(text),
     gateHash: createHash('sha256').update(acItemToText(gate)).digest('hex'),
+  });
+
+  it('T13752: a stored error (a cache-only write found no cached pass) is not "last failed"', async () => {
+    const plan = await withStoredPass(current, (b) => b, {
+      result: 'error',
+      errorMessage: 'typed gate not cached: gate "H-1" has no cached pass for this tree.',
+    });
+    expect(plan.typedGates.map((g) => g.status)).toEqual(['not-run']);
+    expect(plan.blockers.map((b) => b.code)).not.toContain('typed-gate-failed');
+    expect(plan.blockers.map((b) => b.code)).toContain('typed-gate-not-run');
+  });
+
+  it('T13752: a stored fail still reads as last failed', async () => {
+    const plan = await withStoredPass(current, (b) => b, { result: 'fail' });
+    expect(plan.typedGates.map((g) => g.status)).toEqual(['fail']);
+    expect(plan.blockers.map((b) => b.code)).toContain('typed-gate-failed');
   });
 
   it('T13502: a binding for another task reads not-run', async () => {

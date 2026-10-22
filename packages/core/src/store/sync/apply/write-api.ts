@@ -33,6 +33,7 @@ import type { DatabaseSync, SQLInputValue } from 'node:sqlite';
 import type { TableScope } from '@cleocode/contracts';
 import type { LedgerWireValue } from '@cleocode/contracts/ledger';
 import { BIRTH_FP_COLUMN, UID_COLUMN } from '../../row-identity-registry.js';
+import { transformColumnValue } from '../../schema/schema-utils.js';
 import {
   type ApplyIntent,
   INTENT_DELETE,
@@ -93,6 +94,14 @@ export function wireToSql(v: LedgerWireValue): SQLInputValue {
     return Number(t);
   }
   return Buffer.from(v.$b, 'base64');
+}
+
+/**
+ * A wire value as the column stores it: the column's transform applied
+ * (T13861), so a received audit row is redacted exactly as a local write is.
+ */
+function asStored(table: string, column: string, v: LedgerWireValue | undefined): LedgerWireValue {
+  return transformColumnValue(table, column, v as LedgerWireValue);
 }
 
 /** What one write stored, per column, as `enc()` text. */
@@ -190,8 +199,9 @@ export interface ApplyWriteApi {
   writeLocalOnly(table: string, uid: string, values: Readonly<Record<string, SQLInputValue>>): void;
   /**
    * What deleting the row would remove outside the sync set through FK
-   * actions (recursively through cascades), for a rebase rewind to put back
-   * after the replay (§3.5 R7-2). Empty when the row is absent.
+   * actions (recursively through cascades), and the uncaptured sync-set
+   * children with no uid it would cascade away (T12914), for a rebase rewind
+   * to put back after the replay (§3.5 R7-2). Empty when the row is absent.
    */
   readLocalDescendants(table: string, uid: string): LocalDescendants;
   /** Put back what {@link ApplyWriteApi.readLocalDescendants} saw (never captured, never intents). */
@@ -367,6 +377,20 @@ export function createApplyWriteApi(
         }
       }
     }
+    // T12914: a sync-set child with no uid (kept local by a NULL key column,
+    // `localWhenNull`) was never captured, so its cascade has no op either.
+    childKeys ??= syncSetChildKeys(db, scope);
+    for (const key of childKeys.get(table) ?? []) {
+      const v = row[key.to];
+      if (key.onDelete !== 'CASCADE' || v === undefined || v === null) continue;
+      for (const kid of rowsWhere(key.child, key.from, v)) {
+        if (kid[UID_COLUMN] !== null && kid[UID_COLUMN] !== undefined) continue;
+        const values: Record<string, SQLInputValue> = {};
+        for (const [c, x] of Object.entries(kid)) if (c !== 'rowid') values[c] = x;
+        out.rows.push({ table: key.child, values });
+        if (depth < 32) collectDescendants(key.child, kid, out, depth + 1);
+      }
+    }
   };
   const rowExists = (table: string, uid: string): boolean =>
     db.prepare(`SELECT 1 FROM main.${ident(table)} WHERE ${ident(UID_COLUMN)} = ?`).get(uid) !==
@@ -481,7 +505,7 @@ export function createApplyWriteApi(
           `UPDATE main.${ident(table)} SET ${cols.map((c) => `${ident(c)} = ?`).join(', ')} ` +
             `WHERE ${ident(UID_COLUMN)} = ? RETURNING ${returning(cols)}`,
         )
-        .get(...cols.map((c) => wireToSql(values[c] as LedgerWireValue)), uid) as
+        .get(...cols.map((c) => wireToSql(asStored(table, c, values[c]))), uid) as
         | Record<string, unknown>
         | undefined;
       if (!row) {
@@ -521,7 +545,7 @@ export function createApplyWriteApi(
         .get(
           uid,
           ...local.map(() => uid),
-          ...cols.map((c) => wireToSql(values[c] as LedgerWireValue)),
+          ...cols.map((c) => wireToSql(asStored(table, c, values[c]))),
         ) as Record<string, unknown>;
       const stored = unpack(row, all);
       record([

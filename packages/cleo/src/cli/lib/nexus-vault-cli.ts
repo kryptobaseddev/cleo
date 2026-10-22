@@ -25,6 +25,7 @@ import type {
   CloudVaultScope,
   CloudVaultStatusResult,
   CloudVerifyResult,
+  NexusAccountErrorCode,
 } from '@cleocode/contracts';
 import { failNexus, nexusApiUrlArg } from './nexus-account-cli.js';
 import { runCloudRead, stringArg } from './nexus-cloud-cli.js';
@@ -123,11 +124,27 @@ export async function runCloudSync(args: Args): Promise<void> {
   const scope = stringArg(args, 'scope') === undefined ? undefined : scopeArg(args, 'cloud.sync');
   await runCloudRead<CloudSyncResult>(
     'cloud.sync',
-    async () =>
-      (await vaultModule()).cloudSync({
+    async () => {
+      const result = await (await vaultModule()).cloudSync({
         apiUrl: nexusApiUrlArg(args),
         ...(scope !== undefined ? { scope } : {}),
-      }),
+      });
+      // A stream that failed must not exit 0 (T13865); every stream's result rides in the details.
+      const failed = result.streams.filter((st) => st.status === 'failed');
+      if (failed.length > 0) {
+        throw Object.assign(
+          new Error(
+            `cloud sync failed for ${failed.map((st) => `${st.streamId ?? st.scope} (${st.refused ?? 'no reason given'})`).join('; ')}`,
+          ),
+          {
+            code: 'E_SYNC_STREAM_FAILED' satisfies NexusAccountErrorCode,
+            fix: 'nothing after the failure was applied on that stream; run `cleo cloud sync` again, and if it fails the same way report the reason',
+            publicDetails: { streams: result.streams, warnings: result.warnings },
+          },
+        );
+      }
+      return result;
+    },
     (r) =>
       r.streams
         .map((st) =>

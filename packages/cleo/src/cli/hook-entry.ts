@@ -1043,7 +1043,8 @@ export function claudePreApprovalVerdict(
 
 const USAGE =
   'usage: cleo hook heavy-command [--provider claude-code|codex|kimi|opencode] < hook-input.json\n' +
-  '       cleo hook ask-enforce [--provider claude-code|codex|copilot-cli|gemini-cli|cursor|opencode|kimi] < stop-input.json\n';
+  '       cleo hook ask-enforce [--provider claude-code|codex|copilot-cli|gemini-cli|cursor|opencode|kimi] < stop-input.json\n' +
+  '       cleo hook stop [--provider claude-code|codex] < stop-input.json\n';
 
 /** The `--provider` value from a hook's arguments (default `claude-code`). */
 function providerArg(rest: readonly string[]): string | undefined {
@@ -1078,6 +1079,33 @@ async function runAskEnforce(rest: readonly string[], io: HookIo): Promise<numbe
 }
 
 /**
+ * `cleo hook stop` (T13796): the one Stop dispatcher in `./stop-dispatch-entry.ts`.
+ * Fail-open: an error ends the session as the Stop hook always did.
+ */
+async function runStopDispatch(rest: readonly string[], io: HookIo): Promise<number> {
+  const entry = await import('./stop-dispatch-entry.js');
+  const value = providerArg(rest);
+  const provider = entry.STOP_DISPATCH_PROVIDERS.find((p) => p === value);
+  if (provider === undefined) {
+    io.writeStderr(USAGE);
+    return 1;
+  }
+  const deps = entry.processStopDispatchDeps(provider, io.env);
+  try {
+    const endsSession = entry.PROVIDER_ENDS_SESSION[provider];
+    const answer = await entry.stopDispatch(await io.readStdin(), io.env, deps, endsSession);
+    if (answer.stdout !== '') io.writeStdout(answer.stdout);
+  } catch (err) {
+    io.writeStderr(
+      `[cleo hook] stop dispatch failed: ${err instanceof Error ? err.message : String(err)}\n`,
+    );
+    // Fail open to what this provider's Stop did before the dispatcher.
+    if (entry.PROVIDER_ENDS_SESSION[provider]) await deps.endSession();
+  }
+  return 0;
+}
+
+/**
  * Entry point for `cleo hook …` (from `bin/cleo.js` or the `hook` command).
  *
  * @param argv - the arguments after `hook`, e.g. `['heavy-command', '--provider', 'codex']`.
@@ -1091,6 +1119,7 @@ export async function runHookCli(
 ): Promise<number> {
   const [name, ...rest] = argv;
   if (name === 'ask-enforce') return runAskEnforce(rest, io);
+  if (name === 'stop') return runStopDispatch(rest, io);
   if (name !== 'heavy-command') {
     io.writeStderr(USAGE);
     return 1;

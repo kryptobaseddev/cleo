@@ -1,5 +1,6 @@
 /**
- * End-to-end tests for `cleo docs versions --for` slug resolution (T13725).
+ * End-to-end tests for `cleo docs versions --for` slug resolution (T13725,
+ * contract extended by T13727).
  *
  * Before T13725 the `--for` arg was passed verbatim as a blob-manifest owner
  * id, so `cleo docs versions --for <doc-slug>` always returned an empty list
@@ -7,17 +8,26 @@
  * when it matches no owner with mirrored blobs, via the same
  * `AttachmentStore.findBySlug` + `listRefs` surface `docs fetch` uses.
  *
+ * T13727 changed the slug contract deliberately: when the doc has been
+ * adopted into the conduit family and holds `conduit_attachment_versions`
+ * rows, `--for <slug>` returns the DOC-SCOPED conduit history (ownerId = the
+ * doc slug, that doc's versions only, siblings excluded, read-time display
+ * ordinals `version` 1..N newest-first plus the stored `version_number` as
+ * `storedVersionNumber`) instead of the owning task's blob manifest. Test
+ * (a) pins the new contract; test (c) pins the unchanged owner-id form.
+ *
  * Drives the compiled `cleo` CLI as a subprocess against an isolated tmp
  * project (HOME, CLEO_HOME and XDG_* sandboxed inside it) and verifies.
  * Skipped unless `packages/cleo/dist` is built:
  *
- *   (a) a fresh add+update doc: `--for <slug>` returns the same non-empty
- *       rows as `--for <owner-id>`;
+ *   (a) a fresh add+update doc: `--for <slug>` returns the doc-scoped
+ *       conduit rows (ownerId = the doc slug, per-doc entries only);
  *   (b) an unknown slug returns the named `E_NOT_FOUND` error, not a silent
  *       empty list;
  *   (c) the owner-id form is unchanged (back-compat).
  *
  * @task T13725
+ * @task T13727 — slug form returns the conduit history when the doc has one
  */
 
 import { spawnSync } from 'node:child_process';
@@ -105,6 +115,10 @@ interface VersionsEntry {
   sha256: string;
   sizeBytes: number;
   mimeType?: string;
+  /** Read-time display ordinal 1..N (T13727 conduit listings only). */
+  version?: number;
+  /** Stored conduit version_number — may repeat across the seam (T13727). */
+  storedVersionNumber?: number;
 }
 
 interface VersionsResultShape {
@@ -156,23 +170,31 @@ const TEST_TIMEOUT_MS = 300_000;
 
 describe.skipIf(!CLI_DIST_AVAILABLE)('T13725 — cleo docs versions --for', () => {
   it(
-    '(a) --for <slug> returns the same non-empty rows as --for <owner-id>',
+    '(a) --for <slug> returns the doc-scoped conduit rows (T13727 contract)',
     async () => {
       await seedDocWithUpdate(projectRoot);
-
-      const byOwner = runCli(['docs', 'versions', '--for', OWNER], projectRoot);
-      expect(byOwner.status, `versions failed; stdout=${byOwner.stdout}`).toBe(0);
-      const ownerEnv = parseEnvelope<VersionsResultShape>(byOwner.stdout);
-      expect(ownerEnv.success).toBe(true);
-      expect(ownerEnv.data?.versions.length).toBeGreaterThan(0);
 
       const bySlug = runCli(['docs', 'versions', '--for', SLUG], projectRoot);
       expect(bySlug.status, `versions failed; stdout=${bySlug.stdout}`).toBe(0);
       const slugEnv = parseEnvelope<VersionsResultShape>(bySlug.stdout);
       expect(slugEnv.success).toBe(true);
 
-      expect(slugEnv.data?.ownerId).toBe(OWNER);
-      expect(slugEnv.data?.versions).toEqual(ownerEnv.data?.versions);
+      // T13727: the doc holds conduit version rows (the post-adoption update
+      // projected one), so the slug form lists the canonical per-doc
+      // conduit history — ownerId is the doc itself, entries are this
+      // doc's versions only, and display ordinals read 1..N newest-first.
+      const data = slugEnv.data;
+      expect(data?.ownerId).toBe(SLUG);
+      expect(data?.versions.length).toBeGreaterThan(0);
+      for (const entry of data?.versions ?? []) {
+        expect(entry.name).toBe(SLUG);
+        expect(entry.sha256).toMatch(/^[0-9a-f]{64}$/);
+        expect(entry.attachmentId).toBe(entry.sha256);
+      }
+      const ordinals = (data?.versions ?? []).map((v) => v.version ?? 0);
+      expect(ordinals).toEqual(
+        Array.from({ length: ordinals.length }, (_, i) => ordinals.length - i),
+      );
     },
     TEST_TIMEOUT_MS,
   );

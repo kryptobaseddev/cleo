@@ -138,9 +138,11 @@ const SNAPSHOT_FILENAME_RE = /^brain\.db\.snapshot-(\d{4}-\d{2}-\d{2}T\d{2}-\d{2
 
 /**
  * Snapshot filename pattern for VACUUM INTO debounced session-end snapshots:
- * `brain-20260523-130026.db`. Format mirrors `sqlite-backup.ts:formatTimestamp`.
+ * `brain-20260523-130026.db`, and `tasks-*.db`: brain lives in the unified
+ * project store, whose one snapshot per run carries the tasks prefix
+ * (T13891, T13897). Format mirrors `sqlite-backup.ts:formatTimestamp`.
  */
-const VACUUM_FILENAME_RE = /^brain-(\d{8})-(\d{6})\.db$/;
+const VACUUM_FILENAME_RE = /^(?:brain|tasks)-(\d{8})-(\d{6})\.db$/;
 
 /** Legacy pre-T9685 dup-fix backup pattern: `brain.db.PRE-DUP-FIX-191315`. */
 const PRE_DUP_FIX_RE = /^brain\.db\.PRE-DUP-FIX-/;

@@ -89,7 +89,7 @@ export const PR_GATES: readonly PrGateDef[] = [
     args: ['install', '--frozen-lockfile'],
     heavy: false,
     tier: 'core',
-    description: 'pnpm-lock.yaml is consistent (CI: Lockfile Check)',
+    description: 'pnpm-lock.yaml is consistent (CI: Repo Lints (installed) › Lockfile Check step)',
   },
   {
     id: 'arch',

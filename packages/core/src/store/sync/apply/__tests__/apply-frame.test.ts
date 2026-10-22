@@ -146,6 +146,29 @@ describe('withApplyFrame (§3.2)', () => {
     );
   });
 
+  it('a deferred FK the COMMIT refuses names the row and its parent, and rolls back (T13868)', async () => {
+    const db = await store();
+    let thrown: unknown;
+    try {
+      withApplyFrame(db, 'project', null, () => {
+        db.exec('PRAGMA defer_foreign_keys = ON');
+        db.exec(
+          "INSERT INTO conduit_doc_slug_aliases (slug, doc_uid, uid) VALUES ('old-slug', 'no-such-doc', 'alias-uid-1')",
+        );
+      });
+    } catch (err) {
+      thrown = err;
+    }
+    expect(thrown).toMatchObject({
+      code: 'E_SYNC_APPLY_FK',
+      message: expect.stringContaining(
+        'conduit_doc_slug_aliases alias-uid-1 → conduit_attachments',
+      ),
+    });
+    expect(n(db, 'SELECT count(*) AS n FROM conduit_doc_slug_aliases')).toBe(0);
+    expect(db.isTransaction).toBe(false);
+  });
+
   it('runApplyFrame awaits the preparation, then runs the synchronous body on the handle queue', async () => {
     const db = await store();
     const out = await runApplyFrame(

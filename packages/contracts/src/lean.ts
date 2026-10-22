@@ -98,3 +98,33 @@ export interface LeanDebtReport {
   /** Keys that already had a `lean-debt` task, so none was filed. */
   readonly alreadyFiled: readonly string[];
 }
+
+/** One measured metric on the `cleo lean gain` scoreboard (T13669). */
+export interface LeanGainMetric {
+  /** What was measured, e.g. `Source lines of code`. */
+  readonly name: string;
+  /** ct-lean as a share of the no-skill baseline (0.35 = 35%). */
+  readonly ctLeanShare: number;
+  /** Ponytail 5.1.0 as a share of the same baseline, for comparison. */
+  readonly ponytailShare: number;
+}
+
+/** The measured scoreboard `cleo lean gain` prints: benchmark numbers, never per-repo ones. */
+export interface LeanGainReport {
+  /** Scoreboard heading naming the run the numbers come from. */
+  readonly heading: string;
+  /** Canonical research doc the numbers come from (`cleo docs fetch <slug>`). */
+  readonly source: string;
+  /** How the numbers were measured, in one line. */
+  readonly method: string;
+  /** Size, cost and time metrics. */
+  readonly metrics: readonly LeanGainMetric[];
+  /** Hidden checks passed per arm, e.g. `{ baseline: '23/24', ponytail: '24/24', ctLean: '24/24' }`. */
+  readonly hiddenChecks: {
+    readonly baseline: string;
+    readonly ponytail: string;
+    readonly ctLean: string;
+  };
+  /** The honesty boundary, always present. */
+  readonly note: string;
+}

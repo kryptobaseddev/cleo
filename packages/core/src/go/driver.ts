@@ -5,11 +5,10 @@
  * It is PURE GLUE: it sequences existing core engines without adding new
  * orchestration math.
  *
- * ## Pipeline (AC1)
+ * ## Pipeline
  *
  * ```
- * briefing (optional context anchor)
- *   → sagaNext() — pick highest-priority non-terminal saga
+ *   sagaNext() — pick highest-priority non-terminal saga
  *   → orchestrateReady(sagaId) — fetch readyFrontier
  *   → branch on pipelineStage of the active epic:
  *       AC-only (no children, research stage)
@@ -17,36 +16,20 @@
  *       research | specification | decomposition
  *         → { action: 'lifecycleHop', sagaId, epicId, currentStage }
  *       implementation | validation | testing | release | contribution
- *         → fan-out the injected IVTR runner over readyFrontier tasks
- *         → { action: 'ivtrFanOut', sagaId, epicId, tasks: string[], runIds: string[] }
+ *         → draft a goal/v1 contract for the ready wave and hand it to the
+ *           goal runtime (CLEO Goal) in the current harness
+ *         → { action: 'goalHandoff', sagaId, epicId, tasks, goal, runtime }
  *   → return ONE LAFS-compatible EngineResult envelope
  * ```
  *
- * ## IVTR seam (T11805 · T11896 · E-ORCH-STATE-MACHINE-COLLAPSE / T11764)
+ * ## Goal handoff (T13821 · owner decision 2026-10-16 · ADR-097)
  *
- * The implementation+ branch is gated by {@link CLEO_GO_VIA_PLAYBOOK_ENV}, which
- * now defaults **ON** (T11896): the cantbook runtime is the shipped survivor
- * state machine and `cleo go` drives IVTR through it. The flag is retained for
- * **one deprecation cycle** as an opt-OUT kill-switch — set
- * `CLEO_GO_VIA_PLAYBOOK=0` (or `false`/`no`/`off`) to restore the legacy
- * `ivtr_state` seed (`seedIvtrForPlaybook`, byte-identical to the retired
- * `startIvtr`) for a single release if a cantbook-path regression surfaces.
- *
- * - **Flag ON (default)** — fan out an injected {@link IvtrRunner} — supplied
- *   by the CLI `cleo go` handler — that drives each task through
- *   `executePlaybook(ivtr.cantbook)` (the cantbook runtime, the survivor state
- *   machine) AND mirrors the run's terminal status back into `ivtr_state`
- *   (`finalizeIvtrFromPlaybook`) so the strict `E_IVTR_INCOMPLETE` completion
- *   gate reflects the cantbook run. The runtime's
- *   `on_failure.inject_into: implement` edge reproduces the IVTR loop-back walk.
- * - **Flag OFF (opt-out kill-switch)** OR **no runner injected** — seed each
- *   ready task's `ivtr_state` via `seedIvtrForPlaybook` (byte-identical to the
- *   retired `startIvtr` seed); the seam is a no-op. This fallback is retained
- *   for one release so a cantbook-path regression can never strand autopilot.
- *
- * The driver stays in `@cleocode/core` and must NOT import `@cleocode/playbooks`
- * (that would invert the package dependency), so the runtime call is injected
- * as a callback rather than referenced directly.
+ * CLEO owns the goal protocol; CLEO Goal is the goal runtime. `cleo go`
+ * no longer drives an IVTR loop itself: for implementation-stage work it runs
+ * `cleo goal draft` over the ready wave (reusing a draft that already exists,
+ * never overwriting it) and returns the exact next step: `/goal start <slug>`
+ * when the CLEO Goal bin (`cleo-goal`, then `ocg`) resolves, otherwise the
+ * commands that install it (project-scoped; never user-global harness config).
  *
  * ## Design constraints
  *
@@ -62,112 +45,14 @@
  * @saga T11492 — SG-AUTOPILOT
  */
 
-import type { TaskViewPipelineStage } from '@cleocode/contracts';
+import { existsSync } from 'node:fs';
+import { join } from 'node:path';
+import type { GoalRuntimeHandoff, TaskViewPipelineStage } from '@cleocode/contracts';
 import { type EngineResult, engineError, engineSuccess } from '../engine-result.js';
-import { armGoalLoop } from '../goal/arm.js';
-import { seedIvtrForPlaybook } from '../lifecycle/ivtr-loop.js';
+import { GOAL_INSTALL_COMMAND, resolveGoalBin } from '../goal/runtime.js';
 import { orchestrateReady } from '../orchestrate/query-ops.js';
 import { getProjectRoot } from '../paths.js';
 import { sagaNext } from '../sagas/next.js';
-
-/**
- * Feature-flag env var gating the cantbook IVTR seam (T11805 · T11896 ·
- * collapse-plan Risk Register §7 row #1).
- *
- * As of T11896 the cantbook runtime is the **shipped default** — the flag now
- * defaults **ON** and is retained for one deprecation cycle purely as an
- * opt-OUT kill-switch. When unset (or any truthy value) the implementation-stage
- * branch drives the injected {@link IvtrRunner}
- * (`executePlaybook(ivtr.cantbook)`). Set `CLEO_GO_VIA_PLAYBOOK=0` (or
- * `false`/`no`/`off`) to restore the legacy `seedIvtrForPlaybook` seed
- * (byte-identical to the retired `startIvtr`) for a single release if a
- * cantbook-path regression surfaces. The kill-switch is removed in a follow-up
- * once the cantbook path has baked.
- */
-export const CLEO_GO_VIA_PLAYBOOK_ENV = 'CLEO_GO_VIA_PLAYBOOK' as const;
-
-/**
- * Resolve whether the cantbook IVTR seam is enabled for this `cleo go` turn.
- *
- * Defaults **ON** (T11896): the seam is disabled only by an explicit opt-OUT
- * kill-switch value of {@link CLEO_GO_VIA_PLAYBOOK_ENV} (`'0'` | `'false'` |
- * `'no'` | `'off'`, case-insensitive). Unset — and every other value — keeps
- * the cantbook runtime engaged.
- *
- * @returns `false` only when the env var is an explicit falsy kill-switch
- *   value; `true` otherwise (including when unset).
- */
-function isPlaybookSeamEnabled(): boolean {
-  const raw = process.env[CLEO_GO_VIA_PLAYBOOK_ENV];
-  if (raw === undefined) return true;
-  const v = raw.trim().toLowerCase();
-  return !(v === '0' || v === 'false' || v === 'no' || v === 'off');
-}
-
-// ---------------------------------------------------------------------------
-// Types
-// ---------------------------------------------------------------------------
-
-/**
- * Outcome of a single IVTR playbook run started by the seam (T11805).
- *
- * Returned by {@link IvtrRunner} so the driver can both report the started
- * task and surface the `playbook_runs.run_id` for resume-on-next-turn.
- *
- * @task T11805 — E-ORCH-STATE-MACHINE-COLLAPSE / T11764
- */
-export interface IvtrRunResult {
-  /** The task whose `ivtr.cantbook` run was started. */
-  taskId: string;
-  /**
-   * The `playbook_runs.run_id` of the started run, when the runtime created
-   * one. Absent only when the runner cannot reach a run id (e.g. a pre-flight
-   * failure before the run row is written).
-   */
-  runId?: string;
-  /**
-   * Terminal status reported by the cantbook runtime for this turn, when the
-   * run reached a terminal node (`completed | failed | pending_approval |
-   * exceeded_iteration_cap`). Absent when the runner only seeded the run.
-   */
-  terminalStatus?: string;
-}
-
-/**
- * Options handed to an {@link IvtrRunner} for a single task.
- *
- * @task T11805
- */
-export interface IvtrRunnerOptions {
-  /** Resolved project root for playbook resolution + audit writes. */
-  projectRoot: string;
-  /**
-   * Session id persisted onto `playbook_runs.session_id` (evidence/provenance
-   * gate parameter). Absent when no session is active.
-   */
-  sessionId?: string;
-  /** Parent epic id persisted onto `playbook_runs.epic_id` for dashboards. */
-  epicId?: string;
-}
-
-/**
- * Injected callback that drives one task's IVTR loop through the cantbook
- * runtime (`executePlaybook(ivtr.cantbook)`).
- *
- * The driver lives in `@cleocode/core`, which must not depend on
- * `@cleocode/playbooks`; the runtime call is therefore injected by the CLI
- * `cleo go` handler (which already imports `@cleocode/playbooks`). The runner
- * is responsible for:
- *   - resolving + parsing `ivtr.cantbook`,
- *   - seeding `initialContext = { taskId }`,
- *   - calling `executePlaybook` with `taskId` (via context) + `sessionId` +
- *     the evidence-gate parameters the cantbook encodes,
- *   - keeping `tasks.ivtr_state` populated so the strict `E_IVTR_INCOMPLETE`
- *     completion gate stays load-bearing (collapse-plan §3 item 4).
- *
- * @task T11805
- */
-export type IvtrRunner = (taskId: string, options: IvtrRunnerOptions) => Promise<IvtrRunResult>;
 
 /**
  * Input parameters for {@link cleoGo}.
@@ -187,24 +72,10 @@ export interface CleoGoParams {
   headless?: boolean;
   /** Override project root (useful in tests). */
   projectRoot?: string;
-  /**
-   * Drives each ready task through `executePlaybook(ivtr.cantbook)` — the
-   * shipped default path (T11896) gated by {@link CLEO_GO_VIA_PLAYBOOK_ENV}.
-   * Injected by the CLI handler so the core driver never imports the playbooks
-   * runtime. When the kill-switch is set (`CLEO_GO_VIA_PLAYBOOK=0`) or this is
-   * omitted, the driver falls back to the legacy `seedIvtrForPlaybook` seed for
-   * the implementation+ branch (no behaviour is silently skipped).
-   */
-  ivtrRunner?: IvtrRunner;
-  /**
-   * Session id forwarded to {@link IvtrRunner} for `playbook_runs.session_id`
-   * provenance. Best-effort; absent when no session is active.
-   */
-  sessionId?: string;
 }
 
 /**
- * Discriminated union of the four action outcomes `cleoGo` can produce.
+ * Discriminated union of the action outcomes `cleoGo` can produce.
  *
  * Consumers pattern-match on `action` to route further processing.
  *
@@ -212,7 +83,7 @@ export interface CleoGoParams {
  */
 export type CleoGoAction =
   | {
-      /** No children + research stage — the epic needs decomposition before IVTR. */
+      /** No children + research stage — the epic needs decomposition first. */
       action: 'needsDecomposition';
       sagaId: string;
       /** The AC-only epic that needs task children added. */
@@ -231,24 +102,19 @@ export type CleoGoAction =
     }
   | {
       /**
-       * Fan-out: an IVTR cantbook run was started for each task on the ready
-       * frontier (T11805 — `executePlaybook(ivtr.cantbook)`, no longer
-       * `startIvtr`).
+       * Implementation-stage work handed to the goal runtime: a goal/v1
+       * contract drafted for the ready wave (T13821).
        */
-      action: 'ivtrFanOut';
+      action: 'goalHandoff';
       sagaId: string;
       epicId: string;
       currentStage: TaskViewPipelineStage;
-      /** Task IDs for which an IVTR playbook run was initiated. */
+      /** The ready wave the goal serves. */
       tasks: string[];
-      /**
-       * `playbook_runs.run_id` for each started run, positionally aligned to
-       * the tasks that produced one. Lets the autopilot resume paused runs on
-       * the next turn.
-       *
-       * @task T11805
-       */
-      runIds: string[];
+      /** The drafted (or already drafted) goal, or null when none could be drafted. */
+      goal: { slug: string; path: string; reused: boolean } | null;
+      /** The goal runtime and the exact next step in the current harness. */
+      runtime: GoalRuntimeHandoff;
     }
   | {
       /** No non-terminal sagas remain — the workgraph is complete. */
@@ -259,7 +125,6 @@ export type CleoGoAction =
  * Result payload for {@link cleoGo}.
  *
  * @task T11494
- * @task T11496 E4-GOAL-LOOP
  */
 export interface CleoGoResult {
   /** The action taken by the driver in this turn. */
@@ -268,15 +133,6 @@ export interface CleoGoResult {
    * Structured diagnostics for display / logging. Always present; may be empty.
    */
   diagnostics: string[];
-  /**
-   * The id of the goal that was armed (or reused) for the Stop-hook loop.
-   *
-   * `null` when no saga was selected (workgraph `complete` action) — there is
-   * nothing to arm when the workgraph is already done.
-   *
-   * @task T11496
-   */
-  armedGoalId: string | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -284,11 +140,11 @@ export interface CleoGoResult {
 // ---------------------------------------------------------------------------
 
 /**
- * Pipeline stages that require a lifecycle hop before spawning IVTR workers.
+ * Pipeline stages that require a lifecycle hop before implementation.
  *
  * Tasks whose parent epic is still in one of these stages are not yet
- * implementation-ready; the driver signals `lifecycleHop` instead of fanning
- * out IVTR.
+ * implementation-ready; the driver signals `lifecycleHop` instead of handing
+ * a goal to the runtime.
  */
 const PRE_IMPLEMENTATION_STAGES = new Set<TaskViewPipelineStage>([
   'research',
@@ -304,9 +160,8 @@ const PRE_IMPLEMENTATION_STAGES = new Set<TaskViewPipelineStage>([
  * Run one turn of the `cleo go` autopilot pipeline.
  *
  * Returns a single LAFS-compatible {@link EngineResult} wrapping a
- * {@link CleoGoResult}. Each call is stateless (side effects — IVTR cantbook
- * runs via the injected {@link IvtrRunner}, lifecycle progression — happen
- * inside the called engines); the driver itself carries no mutable state.
+ * {@link CleoGoResult}. Its only side effect is drafting a goal/v1 contract for
+ * the ready wave (never overwriting one); the driver carries no mutable state.
  *
  * @param params - Input parameters controlling the saga scope and mode.
  * @returns EngineResult with {@link CleoGoResult}.
@@ -334,7 +189,6 @@ export async function cleoGo(params: CleoGoParams = {}): Promise<EngineResult<Cl
     return engineSuccess<CleoGoResult>({
       outcome: { action: 'complete' },
       diagnostics: ['No non-terminal sagas remain — workgraph is complete.'],
-      armedGoalId: null,
     });
   }
 
@@ -342,22 +196,6 @@ export async function cleoGo(params: CleoGoParams = {}): Promise<EngineResult<Cl
   diagnostics.push(
     `active saga: ${sagaId}${next.sagaTitle ? ` (${next.sagaTitle})` : ''} — ${next.completionPct ?? 0}% complete`,
   );
-
-  // 2b. Arm the goal loop (AC3 of T11496): create/reuse a per-saga goal that
-  //     the Stop-hook advances each turn to self-renudge until satisfied.
-  //     Best-effort: failure is non-fatal (diagnostics only).
-  let armedGoalId: string | null = null;
-  try {
-    const armedGoal = await armGoalLoop({
-      sagaId,
-      sagaTitle: next.sagaTitle,
-      cwd: root,
-    });
-    armedGoalId = armedGoal.id;
-    diagnostics.push(`goal loop armed: ${armedGoalId}`);
-  } catch (err: unknown) {
-    diagnostics.push(`goal loop arm failed (non-fatal): ${(err as Error).message}`);
-  }
 
   // 3. orchestrateReady — get the ready frontier for the saga.
   const readyResult = await orchestrateReady(sagaId, root);
@@ -401,14 +239,13 @@ export async function cleoGo(params: CleoGoParams = {}): Promise<EngineResult<Cl
         currentStage,
       },
       diagnostics,
-      armedGoalId,
     });
   }
 
   // 6. Pre-implementation stage check → lifecycle hop signal.
   if (PRE_IMPLEMENTATION_STAGES.has(currentStage)) {
     diagnostics.push(
-      `epic ${epicId} is at stage '${currentStage}' — lifecycle hop required before IVTR`,
+      `epic ${epicId} is at stage '${currentStage}' — lifecycle hop required before implementation`,
     );
     return engineSuccess<CleoGoResult>({
       outcome: {
@@ -419,111 +256,84 @@ export async function cleoGo(params: CleoGoParams = {}): Promise<EngineResult<Cl
         readyFrontier,
       },
       diagnostics,
-      armedGoalId,
     });
   }
 
-  // 7. Implementation+ → fan-out the IVTR loop over the ready frontier.
-  //
-  //    Two paths, gated by the CLEO_GO_VIA_PLAYBOOK feature flag (T11896 — the
-  //    cantbook runtime is now the shipped default; the flag is retained for one
-  //    cycle as an opt-OUT kill-switch):
-  //
-  //    - Flag ON (default) AND a runner injected → drive each ready task through
-  //      `executePlaybook(ivtr.cantbook)` via the injected runner, which also
-  //      mirrors the terminal status back into `ivtr_state`. The runner is
-  //      injected by the CLI handler so the core driver never imports
-  //      `@cleocode/playbooks`. This is the shipped autopilot hot path.
-  //    - Flag OFF (kill-switch `CLEO_GO_VIA_PLAYBOOK=0`) OR no runner injected →
-  //      seed each ready task's `ivtr_state` via `seedIvtrForPlaybook`
-  //      (byte-identical to the retired `startIvtr` seed), retained one release.
-  const ivtrStarted: string[] = [];
-  const ivtrRunIds: string[] = [];
-
-  const seamEnabled = isPlaybookSeamEnabled();
-
-  if (!seamEnabled || !params.ivtrRunner) {
-    // Fallback path: legacy `ivtr_state` seed (kill-switch set or no runner).
-    if (params.ivtrRunner && !seamEnabled) {
-      diagnostics.push(
-        `IVTR cantbook seam disabled (${CLEO_GO_VIA_PLAYBOOK_ENV}=0 kill-switch) — using legacy fallback seed`,
-      );
-    } else if (!params.ivtrRunner) {
-      diagnostics.push('IVTR runner not provided — using legacy fallback seed');
-    }
-
-    for (const taskId of readyFrontier) {
-      try {
-        // The legacy seed is now `seedIvtrForPlaybook` — byte-identical to the
-        // retired `startIvtr` (both share `buildInitialIvtrState`), so the
-        // kill-switch fallback produces the same `ivtr_state` row while the
-        // hand-rolled `startIvtr` walk function is deleted (T11896 AC3).
-        await seedIvtrForPlaybook(taskId, { cwd: root });
-        ivtrStarted.push(taskId);
-        diagnostics.push(`IVTR seeded for ${taskId} (legacy fallback seed)`);
-      } catch (err: unknown) {
-        diagnostics.push(`IVTR seed failed for ${taskId}: ${(err as Error).message}`);
-      }
-    }
-
-    if (ivtrStarted.length === 0 && readyFrontier.length > 0) {
-      diagnostics.push(`All ${readyFrontier.length} IVTR starts failed — see diagnostics`);
-    } else {
-      diagnostics.push(`IVTR started for ${ivtrStarted.length} task(s): ${ivtrStarted.join(', ')}`);
-    }
-
+  // 7. Implementation+ → draft a goal for the ready wave and hand it to the runtime.
+  const runtime = goalRuntimeHandoff(null);
+  if (readyFrontier.length === 0) {
+    diagnostics.push(`epic ${epicId} has no ready tasks — nothing to hand to the goal runtime`);
     return engineSuccess<CleoGoResult>({
       outcome: {
-        action: 'ivtrFanOut',
+        action: 'goalHandoff',
         sagaId,
         epicId,
         currentStage,
-        tasks: ivtrStarted,
-        runIds: ivtrRunIds,
+        tasks: [],
+        goal: null,
+        runtime,
       },
       diagnostics,
-      armedGoalId,
     });
   }
-
-  // Seam path: drive each ready task through `executePlaybook(ivtr.cantbook)`.
-  const runnerOptions: IvtrRunnerOptions = { projectRoot: root, epicId };
-  if (params.sessionId !== undefined) runnerOptions.sessionId = params.sessionId;
-
-  for (const taskId of readyFrontier) {
-    try {
-      const runResult = await params.ivtrRunner(taskId, runnerOptions);
-      ivtrStarted.push(runResult.taskId);
-      if (runResult.runId !== undefined) ivtrRunIds.push(runResult.runId);
-      diagnostics.push(
-        `IVTR cantbook started for ${runResult.taskId}` +
-          `${runResult.runId ? ` (run ${runResult.runId})` : ''}` +
-          `${runResult.terminalStatus ? ` → ${runResult.terminalStatus}` : ''}`,
-      );
-    } catch (err: unknown) {
-      diagnostics.push(`IVTR start failed for ${taskId}: ${(err as Error).message}`);
-    }
-  }
-
-  if (ivtrStarted.length === 0 && readyFrontier.length > 0) {
-    // All IVTR starts failed — surface the errors but return gracefully.
-    diagnostics.push(`All ${readyFrontier.length} IVTR starts failed — see diagnostics`);
-  } else {
-    diagnostics.push(
-      `IVTR cantbook started for ${ivtrStarted.length} task(s): ${ivtrStarted.join(', ')}`,
-    );
-  }
-
+  const goal = await draftForWave(readyFrontier, root, diagnostics);
+  const handoff = goal ? goalRuntimeHandoff(goal.slug) : runtime;
+  diagnostics.push(handoff.next);
   return engineSuccess<CleoGoResult>({
     outcome: {
-      action: 'ivtrFanOut',
+      action: 'goalHandoff',
       sagaId,
       epicId,
       currentStage,
-      tasks: ivtrStarted,
-      runIds: ivtrRunIds,
+      tasks: readyFrontier,
+      goal,
+      runtime: handoff,
     },
     diagnostics,
-    armedGoalId,
   });
+}
+
+/**
+ * The CLEO Goal runtime and the next step: `/goal start <slug>` when its bin
+ * resolves, else the install commands (`cleo goal install` writes only the
+ * project's harness config).
+ */
+function goalRuntimeHandoff(slug: string | null): GoalRuntimeHandoff {
+  const bin = resolveGoalBin();
+  const start = slug ? `/goal start ${slug}` : null;
+  if (bin !== null) {
+    return {
+      installed: true,
+      bin,
+      next: start ? `In your harness, run: ${start}` : 'CLEO Goal is installed.',
+    };
+  }
+  const install = [GOAL_INSTALL_COMMAND, 'cleo goal install --harness opencode'];
+  return {
+    installed: false,
+    install,
+    next: `CLEO Goal is not installed: run ${install.join(', then ')}${start ? `; then in your harness run: ${start}` : ''}`,
+  };
+}
+
+/** Draft the wave's goal, or reuse the draft already there (a draft never overwrites). */
+async function draftForWave(
+  tasks: readonly string[],
+  root: string,
+  diagnostics: string[],
+): Promise<{ slug: string; path: string; reused: boolean } | null> {
+  const { draftGoal, goalSlug } = await import('../goal/draft.js');
+  const slug = goalSlug(tasks);
+  const path = join(root, '.opencode', 'goals', slug, 'goal.yaml');
+  if (existsSync(path)) {
+    diagnostics.push(`goal ${slug} is already drafted at ${path}`);
+    return { slug, path, reused: true };
+  }
+  const drafted = await draftGoal(tasks, { projectRoot: root });
+  if (!drafted.success) {
+    diagnostics.push(`goal draft failed for ${tasks.join(', ')}: ${drafted.error.message}`);
+    return null;
+  }
+  diagnostics.push(`goal ${drafted.data.slug} drafted at ${drafted.data.path}`);
+  return { slug: drafted.data.slug, path: drafted.data.path, reused: false };
 }

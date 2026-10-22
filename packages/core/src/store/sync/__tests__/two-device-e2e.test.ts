@@ -22,7 +22,7 @@
  * @task T13371
  */
 
-import { createHash } from 'node:crypto';
+import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
@@ -35,12 +35,20 @@ import { deriveKey, generateEd25519, hmacSha256, randomKey } from '../../../clou
 import { pullDocBytes, pushDocBytes } from '../../../cloud/doc-bytes.js';
 import { Http } from '../../../cloud/http.js';
 import { Journal } from '../../../cloud/journal.js';
+import {
+  prepareSecretOpens,
+  prepareSecretSeals,
+  secretValuesKey,
+} from '../../../cloud/secret-seal.js';
 import { DocsReadModel } from '../../../docs/docs-read-model.js';
+import { updateDocBySlug } from '../../../docs/docs-update.js';
 import {
   _resetDualScopeDbCache,
   getDualScopeNativeDb,
   openDualScopeDbAtPath,
 } from '../../dual-scope-db.js';
+import { exportPortableBundle } from '../../portable-bundle.js';
+import { importPortableBundle } from '../../portable-bundle-import.js';
 import {
   prepareRowIdentity,
   ROW_IDENTITY_META_TABLE,
@@ -63,13 +71,15 @@ import {
   type PulledStreamSegment,
   type PullStreamOptions,
   pullStream,
+  readStreamCursor,
   type StreamCursor,
 } from '../pull.js';
 import { pushStream } from '../push.js';
+import { reconcileCopy } from '../reconcile-copy.js';
 import { planRepair } from '../repair.js';
 import { activeReplica, ensureProjectReplica } from '../replica.js';
 import { ReplicaRegistry } from '../replica-registry.js';
-import { rowChash, sealPending } from '../sealer.js';
+import { rowChash, type SecretSeals, sealPending } from '../sealer.js';
 import { firstBadTxnSignature, signTxn } from '../txn-signing.js';
 
 const SYNC_SCHEMA = resolve(import.meta.dirname, '../../../../migrations/sync-journal');
@@ -191,7 +201,7 @@ function fakeStream() {
 }
 type Stream = ReturnType<typeof fakeStream>;
 
-async function push(r: Replica, stream: Stream) {
+async function push(r: Replica, stream: Stream, secrets?: SecretSeals) {
   const replica = replicaOf(r);
   const out = await pushStream(r.db, {
     scope: 'project',
@@ -209,12 +219,13 @@ async function push(r: Replica, stream: Stream) {
     now: () => ++clock,
     env: {},
     allowUnreleased: true,
+    ...(secrets ? { secrets } : {}),
   });
   expect(out.refused).toBeNull();
   return out;
 }
 
-async function pull(r: Replica, stream: Stream) {
+async function pull(r: Replica, stream: Stream, openSecrets?: PullStreamOptions['openSecrets']) {
   const replica = replicaOf(r);
   const opts: PullStreamOptions = {
     scope: 'project',
@@ -235,6 +246,7 @@ async function pull(r: Replica, stream: Stream) {
         allowUnreleased: true,
       });
     },
+    ...(openSecrets ? { openSecrets } : {}),
   };
   const out = await pullStream(r.db, opts);
   expect(out.refused).toBeNull();
@@ -458,6 +470,207 @@ describe('natural-key brain rows replay across devices (T12895)', () => {
       b.db.prepare("SELECT weight FROM brain_page_edges WHERE from_id = 'task:T1'").get(),
     ).toEqual({ weight: 0.25 });
   });
+});
+
+describe('project stickies and playbook approvals reach a second device (T12535)', () => {
+  it('a sticky with its tag and a playbook run with its approval travel, and so do their later edits', async () => {
+    const TABLES = [
+      'brain_sticky_notes',
+      'brain_sticky_tags',
+      'tasks_playbook_runs',
+      'tasks_playbook_approvals',
+    ];
+    const pick = (sums: Record<string, string>) =>
+      Object.fromEntries(TABLES.map((t) => [t, sums[t] ?? null]));
+    const { a, b } = await twoDevices();
+    const stream = fakeStream();
+    write(
+      a.db,
+      `INSERT INTO brain_sticky_notes (id, content, tags_json, created_at, updated_at)
+         VALUES ('SN-001', 'gate sticky', '["typed-rule"]', '2026-10-14 17:41:24', '2026-10-14 17:41:24');
+       INSERT INTO brain_sticky_tags (sticky_id, tag) VALUES ('SN-001', 'typed-rule');
+       INSERT INTO tasks_playbook_runs (run_id, playbook_name, playbook_hash, started_at)
+         VALUES ('run-1', 'rcasd', 'hash-1', '2026-10-14 17:42:00');
+       INSERT INTO tasks_playbook_approvals (approval_id, run_id, node_id, token, requested_at)
+         VALUES ('appr-1', 'run-1', 'gate', 'tok-1', '2026-10-14 17:42:01');`,
+    );
+    // The resume token travels sealed (phase A, as `cloud sync` runs it).
+    const secretKey = secretValuesKey(randomBytes(32));
+    await push(a, stream, await prepareSecretSeals(a.db, 'project', secretKey));
+    await pull(b, stream, () => prepareSecretOpens(b.db, 'project', STREAM, secretKey));
+    expect(
+      b.db.prepare("SELECT token FROM tasks_playbook_approvals WHERE approval_id = 'appr-1'").get(),
+    ).toEqual({ token: 'tok-1' });
+    for (const t of TABLES)
+      expect(b.db.prepare(`SELECT count(*) AS n FROM "${t}"`).get(), t).toEqual({ n: 1 });
+    expect(pick(contentChecksums(b.db))).toEqual(pick(contentChecksums(a.db)));
+
+    write(
+      a.db,
+      `UPDATE brain_sticky_notes SET status = 'archived' WHERE id = 'SN-001';
+       UPDATE tasks_playbook_approvals SET status = 'approved', approver = 'alice',
+         approved_at = '2026-10-14 17:43:00' WHERE approval_id = 'appr-1';`,
+    );
+    await push(a, stream);
+    await pull(b, stream);
+    expect(b.db.prepare("SELECT status FROM brain_sticky_notes WHERE id = 'SN-001'").get()).toEqual(
+      { status: 'archived' },
+    );
+    expect(
+      b.db
+        .prepare(
+          "SELECT status, approver FROM tasks_playbook_approvals WHERE approval_id = 'appr-1'",
+        )
+        .get(),
+    ).toEqual({ status: 'approved', approver: 'alice' });
+    expect(contentChecksums(b.db)).toEqual(contentChecksums(a.db));
+    expect(conflictKeys(b.db)).toEqual([]);
+  });
+});
+
+describe('a rewound delete of a sealed NOT NULL secret restores it (T12535)', () => {
+  it('a run deleted on A while B adds an approval under it rebases on A without losing the token', async () => {
+    const { a, b } = await twoDevices();
+    const stream = fakeStream();
+    const secretKey = secretValuesKey(randomBytes(32));
+    const pushSealed = async (r: Replica) =>
+      push(r, stream, await prepareSecretSeals(r.db, 'project', secretKey));
+    const pullOpened = (r: Replica) =>
+      pull(r, stream, () => prepareSecretOpens(r.db, 'project', STREAM, secretKey));
+    write(
+      a.db,
+      `INSERT INTO tasks_playbook_runs (run_id, playbook_name, playbook_hash, started_at)
+         VALUES ('run-1', 'rcasd', 'hash-1', '2026-10-14 17:42:00');
+       INSERT INTO tasks_playbook_approvals (approval_id, run_id, node_id, token, requested_at)
+         VALUES ('ap1', 'run-1', 'gate', 'tok-1', '2026-10-14 17:42:01');`,
+    );
+    await pushSealed(a);
+    await pullOpened(b);
+    // deletePlaybookRun on A; concurrently B adds a second approval to the run.
+    write(
+      a.db,
+      `DELETE FROM tasks_playbook_approvals WHERE run_id = 'run-1';
+       DELETE FROM tasks_playbook_runs WHERE run_id = 'run-1';`,
+    );
+    write(
+      b.db,
+      `INSERT INTO tasks_playbook_approvals (approval_id, run_id, node_id, token, requested_at)
+         VALUES ('ap2', 'run-1', 'gate-2', 'tok-2', '2026-10-14 17:43:00');`,
+    );
+    await pushSealed(a);
+    await pushSealed(b);
+    // The pull rebases A: its delete of ap1 is rewound (ap1 re-inserted with
+    // its token) and replayed. It used to throw NOT NULL on the token.
+    await pullOpened(a);
+    await pullOpened(b);
+    for (const r of [a, b])
+      expect(
+        r.db
+          .prepare("SELECT count(*) AS n FROM tasks_playbook_approvals WHERE approval_id = 'ap1'")
+          .get(),
+      ).toEqual({ n: 0 });
+    expect(contentChecksums(b.db)).toEqual(contentChecksums(a.db));
+  });
+});
+
+describe('a store moved through an unencrypted bundle keeps its unsent edits (T12535)', () => {
+  for (const concurrent of [false, true])
+    it(`A's offline edits reach B through C, and no redacted secret is overwritten${concurrent ? ' (B edits concurrently)' : ''}`, async () => {
+      const { a, b } = await twoDevices();
+      const stream = fakeStream();
+      const secretKey = secretValuesKey(randomBytes(32));
+      const pushSealed = async (r: Replica) =>
+        push(r, stream, await prepareSecretSeals(r.db, 'project', secretKey));
+      const pullOpened = (r: Replica) =>
+        pull(r, stream, () => prepareSecretOpens(r.db, 'project', STREAM, secretKey));
+      write(
+        a.db,
+        `INSERT INTO brain_sticky_notes (id, content, tags_json, created_at, updated_at) VALUES
+           ('SN-100', 'v1', '[]', '2026-10-14 17:41:24', '2026-10-14 17:41:24'),
+           ('SN-101', 'w1', '[]', '2026-10-14 17:41:25', '2026-10-14 17:41:25');
+         INSERT INTO tasks_playbook_runs (run_id, playbook_name, playbook_hash, started_at)
+           VALUES ('run-1', 'rcasd', 'hash-1', '2026-10-14 17:42:00');
+         INSERT INTO tasks_playbook_approvals (approval_id, run_id, node_id, token, requested_at)
+           VALUES ('ap1', 'run-1', 'gate', 'tok-1', '2026-10-14 17:42:01');`,
+      );
+      await pushSealed(a);
+      await pullOpened(b);
+      await pullOpened(a);
+      // Offline on A, never sealed: an edit, an insert, and an approval decided
+      // with a re-minted token (the secret column changed too).
+      write(
+        a.db,
+        `UPDATE brain_sticky_notes SET content = 'A-offline-edit' WHERE id = 'SN-100';
+         INSERT INTO brain_sticky_notes (id, content, tags_json, created_at, updated_at)
+           VALUES ('SN-200', 'A-offline-new', '[]', '2026-10-14 18:00:00', '2026-10-14 18:00:00');
+         UPDATE tasks_playbook_approvals SET status = 'approved', token = 'tok-1b' WHERE approval_id = 'ap1';`,
+      );
+      if (concurrent) {
+        write(b.db, `UPDATE brain_sticky_notes SET content = 'B-edit-101' WHERE id = 'SN-101';`);
+        await pushSealed(b);
+      }
+      const bundle = join(dir, 'move.cleobundle.tar.gz');
+      await exportPortableBundle({
+        scope: 'project',
+        projectRoot: join(dir, 'a'),
+        outputPath: bundle,
+        label: 'move',
+      });
+      mkdirSync(join(dir, 'c'), { recursive: true });
+      await importPortableBundle({
+        bundlePath: bundle,
+        target: join(dir, 'c'),
+        cwd: join(dir, 'c'),
+        force: true,
+        cleoHome: join(dir, 'cleo'),
+      });
+      const c = await open('c', 'dev-a');
+      // The copy reconcile (rule 1 reads the inherited live captures).
+      mkdirSync(join(dir, 'scratch'), { recursive: true });
+      const merged = getDualScopeNativeDb(
+        await openDualScopeDbAtPath('project', join(dir, 'scratch', 'cleo.db'), undefined, {
+          dedicated: true,
+          syncMode: 'off',
+        }),
+      );
+      setSyncFlag(merged, 'sync.pull', true, { schemaRoot: SYNC_SCHEMA, allowUnreleased: true });
+      const pulled = await pullStream(merged, {
+        scope: 'project',
+        stream: STREAM,
+        replica: randomUUID(),
+        pull: stream.pull,
+        verify: () => null,
+        initialCursor: START,
+        now: () => ++clock,
+        env: {},
+        seal: () => {},
+        openSecrets: () => prepareSecretOpens(merged, 'project', STREAM, secretKey),
+      });
+      expect(pulled.refused).toBeNull();
+      reconcileCopy(c.db, merged, {
+        scope: 'project',
+        stream: STREAM,
+        mergedCursor: readStreamCursor(merged, STREAM) ?? START,
+        now: () => ++clock,
+      });
+      await pushSealed(c);
+      await pullOpened(b);
+      const notes = 'SELECT id, content FROM brain_sticky_notes ORDER BY id';
+      const want = [
+        { id: 'SN-100', content: 'A-offline-edit' },
+        { id: 'SN-101', content: concurrent ? 'B-edit-101' : 'w1' },
+        { id: 'SN-200', content: 'A-offline-new' },
+      ];
+      expect(b.db.prepare(notes).all()).toEqual(want);
+      expect(c.db.prepare(notes).all()).toEqual(want);
+      // The decision travels; the token the bundle redacted is never sent as
+      // a NULL or empty value over B's.
+      expect(
+        b.db
+          .prepare("SELECT status, token FROM tasks_playbook_approvals WHERE approval_id = 'ap1'")
+          .get(),
+      ).toEqual({ status: 'approved', token: 'tok-1' });
+    });
 });
 
 describe('docs reach a second device (T12919)', () => {
@@ -687,6 +900,70 @@ describe('docs reach a second device (T12919)', () => {
     expect(docs(b.db)).toEqual(docs(a.db));
     expect(refs(b.db)).toEqual(refs(a.db));
   });
+
+  for (const firstPull of ['b', 'a'] as const) {
+    it(`concurrent first docs updates on both devices converge with no FK failure, ${firstPull} pulling first (T13868)`, async () => {
+      const storageKey = `${SHA.slice(0, 2)}/${SHA.slice(2)}.md`;
+      const blobJson = JSON.stringify({
+        kind: 'blob',
+        sha256: SHA,
+        storageKey,
+        mime: 'text/markdown',
+        size: BODY.length,
+      });
+      const { a, b } = await twoDevices();
+      const stream = fakeStream();
+      for (const r of [a, b]) uniqueDocIndexes(r.db);
+      const at = new Date(++clockMs).toISOString();
+      write(
+        a.db,
+        `INSERT INTO docs_attachments (id, sha256, attachment_json, created_at, ref_count, slug, type)
+           VALUES ('doc-1', '${SHA}', '${blobJson}', '${at}', 0, 'gate-crdt', 'note');`,
+      );
+      await push(a, stream);
+      await pull(b, stream);
+      await pull(a, stream);
+      // `docs add` left the bytes on A; a vault restore or bytes pull puts them on B.
+      for (const name of ['a', 'b']) {
+        const p = join(dir, name, '.cleo', 'attachments', 'sha256', storageKey);
+        mkdirSync(join(p, '..'), { recursive: true });
+        writeFileSync(p, BODY);
+      }
+      // Each device makes its FIRST text update of the doc before seeing the other's.
+      for (const [r, name] of [
+        [a, 'a'],
+        [b, 'b'],
+      ] as const) {
+        vi.stubEnv('CLEO_DIR', join(dir, name, '.cleo')); // the update's native handle is the ambient project
+        const out = await updateDocBySlug(join(dir, name), {
+          slug: 'gate-crdt',
+          content: `${BODY}edit from ${name}\n`,
+          attachedBy: `agent-${name}`,
+        });
+        expect(out.ok, `${name}: ${JSON.stringify(out)}`).toBe(true);
+        await push(r, stream);
+      }
+      vi.stubEnv('CLEO_DIR', undefined);
+      const order = firstPull === 'b' ? [b, a] : [a, b];
+      for (const r of order) await pull(r, stream);
+      for (const r of order) await pull(r, stream);
+      for (const r of [a, b]) {
+        expect(inboxCounts(r.db, STREAM), r.device).not.toHaveProperty('staged');
+        expect(r.db.prepare('PRAGMA foreign_key_check').all(), r.device).toEqual([]);
+      }
+      const docState = (r: Replica) => ({
+        doc: r.db.prepare('SELECT uid, slug FROM conduit_attachments ORDER BY uid').all(),
+        versions: r.db
+          .prepare('SELECT uid, attachment_uid FROM conduit_attachment_versions ORDER BY uid')
+          .all(),
+        head: r.db
+          .prepare('SELECT attachment_uid, head_version_uid FROM conduit_doc_heads ORDER BY uid')
+          .all(),
+      });
+      expect(docState(a).doc).toHaveLength(1);
+      expect(docState(b)).toEqual(docState(a));
+    }, 120_000);
+  }
 
   /**
    * A fake Nexus for doc bytes (T13721): presign/complete and the stream
@@ -1086,6 +1363,67 @@ describe('docs reach a second device (T12919)', () => {
   });
 });
 
+describe('the command logs reach a second device (T13777)', () => {
+  it('token usage and a session handoff travel by uid; the handoff stays write-once', async () => {
+    const LOGS = ['tasks_token_usage', 'tasks_session_handoff_entries'];
+    const count = (db: DatabaseSync, t: string) =>
+      (db.prepare(`SELECT count(*) AS n FROM "${t}"`).get() as { n: number }).n;
+    const pick = (sums: Record<string, string>) =>
+      Object.fromEntries(LOGS.map((t) => [t, sums[t] ?? null]));
+    const { a, b } = await twoDevices();
+    const stream = fakeStream();
+    // The handoff insert fires the uid trigger's UPDATE: the write-once guard
+    // must let it through (it covers the content columns only).
+    write(
+      a.db,
+      `INSERT INTO tasks_sessions (id, name, started_at) VALUES ('ses_t13777_a', 'measure', '2026-10-16 09:00:00');
+       INSERT INTO tasks_token_usage (id, created_at, provider, session_id, task_id, total_tokens) VALUES
+         ('0198f000-0000-4000-8000-000000000001', '2026-10-16 09:00:01', 'cli', 'ses_t13777_a', NULL, 12),
+         ('0198f000-0000-4000-8000-000000000002', '2026-10-16T09:00:02.000Z', 'cli', 'ses_t13777_a', 'T404', 7);
+       INSERT INTO tasks_session_handoff_entries (session_id, handoff_json, created_at) VALUES
+         ('ses_t13777_a', '{"note":"done"}', '2026-10-16 09:00:03');`,
+    );
+    expect(
+      a.db.prepare('SELECT uid IS NOT NULL AS has FROM tasks_session_handoff_entries').get(),
+    ).toEqual({ has: 1 });
+    await push(a, stream);
+    await pull(b, stream);
+    expect(LOGS.map((t) => count(b.db, t))).toEqual([2, 1]);
+    expect(pick(contentChecksums(b.db))).toEqual(pick(contentChecksums(a.db)));
+    expect(contentChecksums(b.db)).toEqual(contentChecksums(a.db));
+    expect(
+      b.db.prepare('SELECT session_id, handoff_json FROM tasks_session_handoff_entries').get(),
+    ).toEqual({ session_id: 'ses_t13777_a', handoff_json: '{"note":"done"}' });
+    // Still write-once: its content cannot change.
+    expect(() => b.db.exec("UPDATE tasks_session_handoff_entries SET handoff_json = '{}'")).toThrow(
+      /T1609_HANDOFF_IMMUTABLE/,
+    );
+  });
+
+  it('a later handoff row for the same session has no uid, is never captured and stays on its device', async () => {
+    const { a, b } = await twoDevices();
+    const stream = fakeStream();
+    write(
+      a.db,
+      `INSERT INTO tasks_sessions (id, name, started_at) VALUES ('ses_t13777_dup', 'dup', '2026-10-16 09:00:00');
+       INSERT INTO tasks_session_handoff_entries (session_id, handoff_json, created_at) VALUES
+         ('ses_t13777_dup', '{"n":"first"}', '2026-10-16 09:00:01');
+       INSERT INTO tasks_session_handoff_entries (session_id, handoff_json, created_at) VALUES
+         ('ses_t13777_dup', '{"n":"second"}', '2026-10-16 09:00:02');`,
+    );
+    expect(
+      a.db
+        .prepare('SELECT uid IS NOT NULL AS has FROM tasks_session_handoff_entries ORDER BY id')
+        .all(),
+    ).toEqual([{ has: 1 }, { has: 0 }]);
+    await push(a, stream);
+    await pull(b, stream);
+    expect(b.db.prepare('SELECT handoff_json FROM tasks_session_handoff_entries').all()).toEqual([
+      { handoff_json: '{"n":"first"}' },
+    ]);
+  });
+});
+
 describe('legacy-format timestamps echo without conflicts (T13714)', () => {
   it("A's own echo of brain rows with 'YYYY-MM-DD HH:MM:SS' text records no conflict, and both devices list the same set", async () => {
     const { a, b } = await twoDevices();
@@ -1199,5 +1537,404 @@ describe('brain ops reach a joiner that never opened brain (T13719)', () => {
     expect(contentChecksums(b.db).brain_observations).toBe(
       contentChecksums(a.db).brain_observations,
     );
+  });
+});
+
+describe('lifecycle, release, PR and commit rows reach a second device (T12914)', () => {
+  const TABLES = [
+    'tasks_lifecycle_pipelines',
+    'tasks_lifecycle_stages',
+    'tasks_lifecycle_gate_results',
+    'tasks_lifecycle_evidence',
+    'tasks_lifecycle_transitions',
+    'tasks_releases',
+    'tasks_release_commits',
+    'tasks_release_changes',
+    'tasks_release_changesets',
+    'tasks_release_artifacts',
+    'tasks_pull_requests',
+    'tasks_pr_commits',
+    'tasks_pr_tasks',
+    'tasks_commits',
+    'tasks_commit_files',
+    'tasks_task_commits',
+  ];
+  const AT = '2026-10-15T10:00:00.000Z';
+  const SHA = 'a'.repeat(40);
+  const count = (db: DatabaseSync, t: string) =>
+    (db.prepare(`SELECT count(*) AS n FROM "${t}"`).get() as { n: number }).n;
+  const pick = (s: Record<string, string>) => TABLES.map((t) => [t, s[t] ?? null]);
+  const conflictsOf = (db: DatabaseSync, kind: string) =>
+    listConflicts(db, { stream: STREAM }).filter(
+      (c) => TABLES.includes(c.table) && c.kind === kind,
+    );
+  /** A release row as plan writes it: the id embeds this device's project hash. */
+  const releaseSql = (hash: string, version: string) =>
+    `INSERT INTO tasks_releases (id, version, status, planned_at, created_at)
+       VALUES ('${hash}:${version}', '${version}', 'planned', '${AT}', '${AT}');`;
+  const releaseOf = (db: DatabaseSync, version: string) =>
+    db
+      .prepare('SELECT id, uid, status, pushed_at FROM tasks_releases WHERE version = ?')
+      .get(version) as { id: string; uid: string; status: string; pushed_at: string | null };
+  /** Every release child, with its release named by version (ids differ per device). */
+  const releaseChildren = (db: DatabaseSync) =>
+    db
+      .prepare(
+        `SELECT 'commit' AS k, r.version, c.commit_sha AS v, c.uid FROM tasks_release_commits c
+           LEFT JOIN tasks_releases r ON r.id = c.release_id
+         UNION ALL
+         SELECT 'changeset', r.version, s.changeset_id, s.uid FROM tasks_release_changesets s
+           LEFT JOIN tasks_releases r ON r.id = s.release_id
+         ORDER BY 1, 3`,
+      )
+      .all();
+
+  /** One of every row of the 16 tables, written on A as the CLI writes them. */
+  function seedAll(db: DatabaseSync) {
+    write(
+      db,
+      `INSERT INTO tasks_lifecycle_pipelines (id, task_id, status, started_at, updated_at)
+         VALUES ('pipeline-T1', 'T1', 'active', '${AT}', '${AT}');
+       INSERT INTO tasks_lifecycle_stages (id, pipeline_id, stage_name, status, sequence, started_at)
+         VALUES ('stage-T1-research', 'pipeline-T1', 'research', 'completed', 1, '${AT}'),
+                ('stage-T1-consensus', 'pipeline-T1', 'consensus', 'in_progress', 2, '${AT}');
+       INSERT INTO tasks_lifecycle_gate_results (id, stage_id, gate_name, result, checked_at, checked_by)
+         VALUES ('gate-T1-research-research-done', 'stage-T1-research', 'research-done', 'pass', '${AT}', 'agent');
+       INSERT INTO tasks_lifecycle_evidence (id, stage_id, uri, type, recorded_at)
+         VALUES ('evidence-T1-research-1', 'stage-T1-research', 'docs/r.md', 'file', '${AT}');
+       INSERT INTO tasks_lifecycle_transitions (id, pipeline_id, from_stage_id, to_stage_id, transition_type, created_at)
+         VALUES ('transition-1', 'pipeline-T1', 'stage-T1-research', 'stage-T1-consensus', 'manual', '${AT}');
+       INSERT INTO tasks_commits (sha, short_sha, authored_at, committed_at, message, subject, created_at)
+         VALUES ('${SHA}', 'aaaaaaa', '${AT}', '${AT}', 'feat: x', 'feat: x', '${AT}');
+       INSERT INTO tasks_commit_files (commit_sha, path, change_type) VALUES ('${SHA}', 'src/x.ts', 'M');
+       INSERT INTO tasks_task_commits (task_id, commit_sha, link_kind, link_source, created_at)
+         VALUES ('T1', '${SHA}', 'implements', 'commit-subject', '${AT}');
+       INSERT INTO tasks_pull_requests (id, pr_number, repo_url, title, state, base_ref, head_ref, opened_at, created_at, updated_at)
+         VALUES ('hashA:7', 7, 'https://github.com/o/r', 'feat', 'merged', 'main', 'feat/T1', '${AT}', '${AT}', '${AT}');
+       INSERT INTO tasks_pr_commits (pr_id, commit_sha, position) VALUES ('hashA:7', '${SHA}', 0);
+       INSERT INTO tasks_pr_tasks (pr_id, task_id, link_source, link_kind, created_at)
+         VALUES ('hashA:7', 'T1', 'pr-title', 'implements', '${AT}');
+       ${releaseSql('hashA', 'v2026.10.1')}
+       INSERT INTO tasks_release_commits (release_id, commit_sha, position) VALUES ('hashA:v2026.10.1', '${SHA}', 0);
+       INSERT INTO tasks_release_changes (id, release_id, task_id, change_type, summary, classified_at)
+         VALUES ('chg-1', 'hashA:v2026.10.1', 'T1', 'feature', 'x', '${AT}');
+       INSERT INTO tasks_release_changesets (id, release_id, changeset_id, task_ids, kind, summary, created_at)
+         VALUES ('cs-a', 'hashA:v2026.10.1', 't1-x', '["T1"]', 'feat', 'x', '${AT}');
+       INSERT INTO tasks_release_artifacts (release_id, artifact_type, identifier, version)
+         VALUES ('hashA:v2026.10.1', 'npm', '@o/x', 'v2026.10.1');`,
+    );
+  }
+
+  it('every table travels with its uid; B holds the same rows, and a release takes its uid as its local id', async () => {
+    const { a, b } = await twoDevices();
+    const stream = fakeStream();
+    seedAll(a.db);
+    await push(a, stream);
+    await pull(b, stream);
+    await pull(a, stream); // own echo
+    const ones = TABLES.map((t) => (t === 'tasks_lifecycle_stages' ? 2 : 1));
+    expect(TABLES.map((t) => count(a.db, t))).toEqual(ones);
+    expect(TABLES.map((t) => count(b.db, t))).toEqual(ones);
+    expect(pick(contentChecksums(b.db))).toEqual(pick(contentChecksums(a.db)));
+    const atB = releaseOf(b.db, 'v2026.10.1');
+    expect(atB.id).toBe(atB.uid);
+    expect(atB.uid).toBe(releaseOf(a.db, 'v2026.10.1').uid);
+    expect(releaseChildren(b.db)).toEqual(releaseChildren(a.db));
+    expect(conflictKeys(a.db)).toEqual([]);
+    expect(conflictKeys(b.db)).toEqual([]);
+  });
+
+  it('the same release planned on both devices under different ids is one row; both changesets survive the UNIQUE version index', async () => {
+    const { a, b } = await twoDevices();
+    const stream = fakeStream();
+    const uniqueVersion = (db: DatabaseSync) =>
+      db
+        .prepare(
+          "SELECT name FROM sqlite_master WHERE type = 'index' AND name = 'uq_tasks_releases_version'",
+        )
+        .get();
+    for (const r of [a, b])
+      expect(uniqueVersion(r.db)).toEqual({ name: 'uq_tasks_releases_version' });
+    write(
+      a.db,
+      `${releaseSql('hashA', 'v2026.10.2')}
+       INSERT INTO tasks_release_changesets (id, release_id, changeset_id, task_ids, kind, summary, created_at)
+         VALUES ('cs-a', 'hashA:v2026.10.2', 't1-a', '["T1"]', 'feat', 'from A', '${AT}');`,
+    );
+    write(
+      b.db,
+      `${releaseSql('hashB', 'v2026.10.2')}
+       INSERT INTO tasks_release_changesets (id, release_id, changeset_id, task_ids, kind, summary, created_at)
+         VALUES ('cs-b', 'hashB:v2026.10.2', 't2-b', '["T2"]', 'fix', 'from B', '${AT}');`,
+    );
+    await push(a, stream);
+    await push(b, stream);
+    await pull(a, stream);
+    await pull(b, stream);
+    for (const r of [a, b]) {
+      expect(count(r.db, 'tasks_releases')).toBe(1);
+      expect(conflictsOf(r.db, 'guard')).toEqual([]);
+      expect(conflictsOf(r.db, 'dangling-ref')).toEqual([]);
+    }
+    // Each device keeps its own local id for its own row.
+    expect(releaseOf(a.db, 'v2026.10.2').id).toBe('hashA:v2026.10.2');
+    expect(releaseOf(b.db, 'v2026.10.2').id).toBe('hashB:v2026.10.2');
+    expect(releaseOf(b.db, 'v2026.10.2').uid).toBe(releaseOf(a.db, 'v2026.10.2').uid);
+    const children = releaseChildren(a.db) as Array<{ version: string; v: string }>;
+    expect(children.map((c) => [c.version, c.v])).toEqual([
+      ['v2026.10.2', 't1-a'],
+      ['v2026.10.2', 't2-b'],
+    ]);
+    expect(releaseChildren(b.db)).toEqual(children);
+  });
+
+  it('the same PR reconciled on both devices under different ids is one PR and one task link (#2282 review)', async () => {
+    const { a, b } = await twoDevices();
+    const stream = fakeStream();
+    const prSql = (hash: string) =>
+      `INSERT INTO tasks_pull_requests (id, pr_number, repo_url, title, state, base_ref, head_ref, opened_at, created_at, updated_at)
+         VALUES ('${hash}:7', 7, 'https://github.com/o/r', 'feat', 'merged', 'main', 'feat/T1', '${AT}', '${AT}', '${AT}');
+       INSERT INTO tasks_pr_tasks (pr_id, task_id, link_source, link_kind, created_at)
+         VALUES ('${hash}:7', 'T1', 'pr-title', 'implements', '${AT}');`;
+    write(a.db, prSql('hashA'));
+    write(b.db, prSql('hashB'));
+    await push(a, stream);
+    await push(b, stream);
+    await pull(a, stream);
+    await pull(b, stream);
+    const links = (db: DatabaseSync) =>
+      db
+        .prepare(
+          `SELECT p.pr_number, p.uid, t.task_id, t.uid AS link FROM tasks_pr_tasks t
+             JOIN tasks_pull_requests p ON p.id = t.pr_id`,
+        )
+        .all();
+    for (const r of [a, b]) {
+      expect([count(r.db, 'tasks_pull_requests'), count(r.db, 'tasks_pr_tasks')]).toEqual([1, 1]);
+      expect(conflictsOf(r.db, 'guard')).toEqual([]);
+    }
+    expect(links(b.db)).toEqual(links(a.db));
+    // Each device keeps its own local id for its own PR.
+    expect(a.db.prepare('SELECT id FROM tasks_pull_requests').get()).toEqual({ id: 'hashA:7' });
+    expect(b.db.prepare('SELECT id FROM tasks_pull_requests').get()).toEqual({ id: 'hashB:7' });
+  });
+
+  it('the same release change reconciled on both devices under different ids is one row (#2282 review)', async () => {
+    const { a, b } = await twoDevices();
+    const stream = fakeStream();
+    const changeSql = (hash: string, id: string) =>
+      `${releaseSql(hash, 'v2026.10.4')}
+       INSERT INTO tasks_release_changes (id, release_id, task_id, change_type, summary, classified_at)
+         VALUES ('${id}', '${hash}:v2026.10.4', 'T1', 'feature', 'x', '${AT}');`;
+    // reconcile's id is a hash over the device-local release id.
+    write(a.db, changeSql('hashA', 'chg-hash-a'));
+    write(b.db, changeSql('hashB', 'chg-hash-b'));
+    await push(a, stream);
+    await push(b, stream);
+    await pull(a, stream);
+    await pull(b, stream);
+    const changes = (db: DatabaseSync) =>
+      db
+        .prepare(
+          `SELECT r.version, c.task_id, c.change_type, c.uid FROM tasks_release_changes c
+             JOIN tasks_releases r ON r.id = c.release_id`,
+        )
+        .all();
+    for (const r of [a, b]) {
+      expect(count(r.db, 'tasks_release_changes')).toBe(1);
+      expect(conflictsOf(r.db, 'guard')).toEqual([]);
+    }
+    expect(changes(b.db)).toEqual(changes(a.db));
+  });
+
+  it('a NULL task id keeps a change or PR link local: two of them never fold into one uid (#2282 review)', async () => {
+    const { a, b } = await twoDevices();
+    const stream = fakeStream();
+    const sqlFor = (hash: string, gone: string) =>
+      `${releaseSql(hash, 'v2026.10.5')}
+       INSERT INTO tasks_release_changes (id, release_id, task_id, change_type, summary, classified_at) VALUES
+         ('chg-null-${hash}', '${hash}:v2026.10.5', NULL, 'feature', '${gone}: gone', '${AT}'),
+         ('chg-t1-${hash}', '${hash}:v2026.10.5', 'T1', 'feature', 'T1: kept', '${AT}');
+       INSERT INTO tasks_pull_requests (id, pr_number, repo_url, title, state, base_ref, head_ref, opened_at, created_at, updated_at)
+         VALUES ('${hash}:8', 8, 'https://github.com/o/r', 'feat', 'merged', 'main', 'feat/x', '${AT}', '${AT}', '${AT}');
+       INSERT INTO tasks_pr_tasks (pr_id, task_id, link_source, link_kind, created_at)
+         VALUES ('${hash}:8', NULL, 'pr-body', 'implements', '${AT}');`;
+    write(a.db, sqlFor('hashA', 'T5'));
+    write(b.db, sqlFor('hashB', 'T6'));
+    await push(a, stream);
+    await push(b, stream);
+    await pull(a, stream);
+    await pull(b, stream);
+    const nullRows = (db: DatabaseSync) => [
+      db.prepare('SELECT summary, uid FROM tasks_release_changes WHERE task_id IS NULL').all(),
+      db.prepare('SELECT uid FROM tasks_pr_tasks WHERE task_id IS NULL').all(),
+    ];
+    // Each device keeps its own local row, without a uid; nothing overwrote it.
+    expect(nullRows(a.db)).toEqual([[{ summary: 'T5: gone', uid: null }], [{ uid: null }]]);
+    expect(nullRows(b.db)).toEqual([[{ summary: 'T6: gone', uid: null }], [{ uid: null }]]);
+    for (const r of [a, b]) {
+      // The rows with a task id still sync as one row, and nothing is pending.
+      expect(
+        r.db.prepare("SELECT count(*) AS n FROM tasks_release_changes WHERE task_id = 'T1'").get(),
+      ).toEqual({ n: 1 });
+      expect(count(r.db, 'tasks_pull_requests')).toBe(1);
+      expect(inboxCounts(r.db, STREAM)).not.toHaveProperty('pending');
+      expect(conflictsOf(r.db, 'guard')).toEqual([]);
+      // The local rows were never captured, so nothing waits on a missing uid.
+      expect(
+        r.db.prepare('SELECT count(*) AS n FROM _sync_capture WHERE uid IS NULL').get(),
+      ).toEqual({ n: 0 });
+    }
+  });
+
+  it('a concurrent status change converges on the shipped status (release.status.absorbing)', async () => {
+    const { a, b } = await twoDevices();
+    const stream = fakeStream();
+    write(a.db, releaseSql('hashA', 'v2026.10.3'));
+    await push(a, stream);
+    await pull(b, stream);
+    await pull(a, stream);
+    const pushedAt = new Date(++clock).toISOString();
+    write(
+      a.db,
+      `UPDATE tasks_releases SET status = 'pushed', pushed_at = '${pushedAt}' WHERE version = 'v2026.10.3'`,
+    );
+    await push(a, stream);
+    // B, offline, cancels the release; its op carries the later HLC.
+    const cancelledAt = new Date(++clock).toISOString();
+    write(
+      b.db,
+      `UPDATE tasks_releases SET status = 'cancelled', cancelled_at = '${cancelledAt}' WHERE version = 'v2026.10.3'`,
+    );
+    await push(b, stream);
+    await pull(a, stream);
+    await pull(b, stream);
+    for (const r of [a, b]) {
+      expect(releaseOf(r.db, 'v2026.10.3')).toMatchObject({
+        status: 'pushed',
+        pushed_at: pushedAt,
+      });
+    }
+    const rules = [a, b].flatMap((r) => conflictsOf(r.db, 'typed-rule').map((c) => c.rule));
+    expect(rules).toContain('release.status.absorbing');
+  });
+
+  it('a child added on B while A deletes its parent is never lost silently: both record a revivable dangling ref, no orphan', async () => {
+    const { a, b } = await twoDevices();
+    const stream = fakeStream();
+    seedAll(a.db);
+    await push(a, stream);
+    await pull(b, stream);
+    await pull(a, stream);
+    // A cancels the release as cancelRelease does (children first, while the
+    // release exists) and deletes the pipeline (its rows cascade, with ops).
+    const atA = releaseOf(a.db, 'v2026.10.1').id;
+    write(
+      a.db,
+      `DELETE FROM tasks_release_commits WHERE release_id = '${atA}';
+       DELETE FROM tasks_release_changes WHERE release_id = '${atA}';
+       DELETE FROM tasks_release_changesets WHERE release_id = '${atA}';
+       DELETE FROM tasks_release_artifacts WHERE release_id = '${atA}';
+       DELETE FROM tasks_releases WHERE id = '${atA}';
+       DELETE FROM tasks_lifecycle_pipelines WHERE id = 'pipeline-T1';`,
+    );
+    await push(a, stream);
+    // B, offline, adds a commit to the release and a gate result to a stage.
+    const local = releaseOf(b.db, 'v2026.10.1').id;
+    write(
+      b.db,
+      `INSERT INTO tasks_release_commits (release_id, commit_sha, position) VALUES ('${local}', '${'b'.repeat(40)}', 1);
+       INSERT INTO tasks_lifecycle_gate_results (id, stage_id, gate_name, result, checked_at, checked_by)
+         VALUES ('gate-T1-research-late', 'stage-T1-research', 'late', 'pass', '${AT}', 'agent');`,
+    );
+    await push(b, stream);
+    await pull(a, stream);
+    await pull(b, stream);
+    const orphans = (db: DatabaseSync) =>
+      db
+        .prepare(
+          `SELECT
+             (SELECT count(*) FROM tasks_release_commits c WHERE NOT EXISTS (SELECT 1 FROM tasks_releases r WHERE r.id = c.release_id))
+           + (SELECT count(*) FROM tasks_lifecycle_gate_results g WHERE NOT EXISTS (SELECT 1 FROM tasks_lifecycle_stages s WHERE s.id = g.stage_id)) AS n`,
+        )
+        .get();
+    for (const r of [a, b]) expect(orphans(r.db)).toEqual({ n: 0 });
+    // Both converge on the deletes, and on both the late children are voided
+    // with a recorded, revivable dangling-ref conflict: never dropped silently.
+    expect(TABLES.map((t) => count(b.db, t))).toEqual(TABLES.map((t) => count(a.db, t)));
+    expect(count(b.db, 'tasks_releases')).toBe(0);
+    for (const r of [a, b]) {
+      expect(
+        conflictsOf(r.db, 'dangling-ref')
+          .map((c) => [c.table, c.resolution])
+          .sort(),
+      ).toEqual([
+        ['tasks_lifecycle_gate_results', 'op-voided'],
+        ['tasks_release_commits', 'op-voided'],
+      ]);
+      expect(conflictsOf(r.db, 'guard')).toEqual([]);
+    }
+  });
+});
+
+describe('both devices list the same conflicts after a rebase under an unframed writer (T13866)', () => {
+  /**
+   * Two brain rows both replicas hold, then concurrent unframed edits (a
+   * foreign connection, as the memory read side effects write): B edits each
+   * row once and syncs first; A edits each row once and row 1 again. With
+   * `pullFirst`, A pulls B's edits before pushing, so its edits are rewound
+   * and replayed under them, and its echo comes back in a later page.
+   */
+  async function unframedRace(
+    set: (n: 1 | 2, who: 'a' | 'b', k: number) => string,
+    pullFirst: boolean,
+  ) {
+    const { a, b } = await twoDevices();
+    const stream = fakeStream();
+    write(
+      a.db,
+      `INSERT INTO brain_observations (id, type, title, created_at, citation_count) VALUES
+         ('O-1', 'discovery', 'one', '2026-10-17T15:00:00.000Z', 0),
+         ('O-2', 'discovery', 'two', '2026-10-17T15:00:00.000Z', 0);`,
+    );
+    await push(a, stream);
+    await pull(b, stream);
+    await pull(a, stream);
+    for (const n of [1, 2] as const)
+      b.db.exec(`UPDATE brain_observations SET ${set(n, 'b', 1)} WHERE id = 'O-${n}'`);
+    for (const n of [1, 2] as const)
+      a.db.exec(`UPDATE brain_observations SET ${set(n, 'a', 1)} WHERE id = 'O-${n}'`);
+    a.db.exec(`UPDATE brain_observations SET ${set(1, 'a', 2)} WHERE id = 'O-1'`);
+    await push(b, stream);
+    await pull(b, stream);
+    if (pullFirst) await pull(a, stream);
+    await push(a, stream);
+    await pull(a, stream);
+    await pull(b, stream);
+    return { a, b };
+  }
+
+  for (const pullFirst of [true, false]) {
+    it(`a divergent edit is listed on both devices, the origin included (${pullFirst ? 'A pulls before pushing' : 'A pushes first'})`, async () => {
+      const { a, b } = await unframedRace(
+        (n, who, k) => `title = '${who}${k} edit of ${n}'`,
+        pullFirst,
+      );
+      const keys = conflictKeys(b.db);
+      expect(keys.filter((k) => k.endsWith('|title'))).toHaveLength(2);
+      expect(conflictKeys(a.db)).toEqual(keys);
+      expect(contentChecksums(a.db)).toEqual(contentChecksums(b.db));
+    });
+  }
+
+  it('memory-read bumps of citation_count and updated_at on both devices are no conflict anywhere', async () => {
+    const { a, b } = await unframedRace(
+      (_n, who, k) =>
+        `citation_count = citation_count + 1, updated_at = '2026-10-17 15:33:${who === 'a' ? 57 + k : 13}'`,
+      true,
+    );
+    expect(conflictKeys(a.db)).toEqual([]);
+    expect(conflictKeys(b.db)).toEqual([]);
+    expect(contentChecksums(a.db)).toEqual(contentChecksums(b.db));
   });
 });

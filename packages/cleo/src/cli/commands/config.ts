@@ -78,6 +78,30 @@ const setPresetCommand = defineCommand({
   },
 });
 
+/** cleo config owner-enroll — enroll this project's owner key (T13787) */
+const ownerEnrollCommand = defineCommand({
+  meta: {
+    name: 'owner-enroll',
+    description:
+      "Enroll this project's owner key (owner only: interactive terminal, --owner-auth session); --reset replaces one (audited)",
+  },
+  args: {
+    reset: {
+      type: 'boolean',
+      description: "Replace an existing enrollment; needs the current owner's password (audited)",
+    },
+    confirm: {
+      type: 'boolean',
+      description:
+        'Confirm an enrollment that replaced another without proof of the previous owner',
+    },
+  },
+  async run({ args }) {
+    const { runOwnerEnroll } = await import('../lib/owner-override-cap.js');
+    await runOwnerEnroll(args.reset === true, args.confirm === true);
+  },
+});
+
 /** cleo config presets — list all available strictness presets */
 const presetsCommand = defineCommand({
   meta: { name: 'presets', description: 'List all available strictness presets' },
@@ -125,6 +149,7 @@ export const configCommand = defineCommand({
     set: configSetCommand,
     validate: configValidateCommand,
     'drift-check': configDriftCheckCommand,
+    'owner-enroll': ownerEnrollCommand,
     'set-preset': setPresetCommand,
     presets: presetsCommand,
     list: listCommand,

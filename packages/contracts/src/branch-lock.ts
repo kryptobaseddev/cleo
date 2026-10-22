@@ -294,6 +294,12 @@ export interface OwnerOverrideAuditRecord {
   reason: string;
   /** Process ID. */
   pid: number;
+  /** The owner setting a set or refused set targeted (T13787). */
+  setting?: string;
+  /** The setting's value before the attempt (T13787). */
+  old_value?: number;
+  /** The value the attempt asked for, or set (T13787). */
+  new_value?: number;
 }
 
 /**
@@ -340,9 +346,14 @@ export const BRANCH_LOCK_ERROR_CODES = {
   /** L4d: session override limit exceeded. */
   E_OVERRIDE_RATE_LIMIT: 'E_OVERRIDE_RATE_LIMIT',
   /**
-   * T1501 / P0-5: per-session cap (default 3) exceeded without a valid waiver doc.
-   * Set CLEO_OWNER_OVERRIDE_WAIVER=<absolute path> to a file containing
-   * `cap-waiver: true` in its frontmatter to bypass the cap.
+   * T13790: CLEO_OWNER_OVERRIDE from a caller that is not the owner — no
+   * owner-marked session (`cleo session start … --owner-auth`), or not on the
+   * owner's own terminal.
+   */
+  E_OVERRIDE_NOT_OWNER: 'E_OVERRIDE_NOT_OWNER',
+  /**
+   * T1501 / P0-5: per-session cap exceeded. The cap is the owner's sealed
+   * `evidence.overrideCapPerSession` (default 10, T13787); no waiver lifts it.
    */
   E_OVERRIDE_CAP_EXCEEDED: 'E_OVERRIDE_CAP_EXCEEDED',
   /**

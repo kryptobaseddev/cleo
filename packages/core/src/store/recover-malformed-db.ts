@@ -256,13 +256,28 @@ function buildSystemSnapshotRegex(role: DbRole): RegExp {
 }
 
 /**
+ * VACUUM INTO filename prefixes that hold a role's data. Brain and conduit
+ * live in the unified project `cleo.db`, whose one snapshot per run is
+ * `tasks-*.db` (T13891); older runs also wrote `brain-*` / `conduit-*`.
+ *
+ * @param role - Inventory role.
+ * @returns The prefixes whose `<prefix>-YYYYMMDD-HHmmss.db` files hold it.
+ * @task T13897
+ */
+export function vacuumSnapshotPrefixes(role: DbRole): readonly string[] {
+  return role === 'brain' || role === 'conduit' ? [role, 'tasks'] : [role];
+}
+
+/**
  * Build the per-role VACUUM-INTO snapshot filename regex (matches
- * `<role>-20260523-130026.db`).
+ * `<prefix>-20260523-130026.db` for every {@link vacuumSnapshotPrefixes}
+ * prefix, so the freshest is picked across them).
  *
  * @internal
  */
 function buildVacuumSnapshotRegex(role: DbRole): RegExp {
-  return new RegExp(`^${escapeRegExpLiteral(role)}-(\\d{8})-(\\d{6})\\.db$`);
+  const prefixes = vacuumSnapshotPrefixes(role).map(escapeRegExpLiteral).join('|');
+  return new RegExp(`^(?:${prefixes})-(\\d{8})-(\\d{6})\\.db$`);
 }
 
 /**

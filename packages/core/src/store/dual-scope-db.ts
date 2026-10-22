@@ -97,6 +97,7 @@ import { syncCaptureOpenPass } from './sync/capture.js';
 import { anySyncFlagOn } from './sync/flags.js';
 import { prepareRowIdentityUnderCapture } from './sync/identity-fill.js';
 import { syncMigrationHooks } from './sync/migration-hooks.js';
+import { auditScrubPending } from './sync/schema.js';
 import { ensureTriggerSuspendTable, verifyOwnedTriggers } from './sync/trigger-classes.js';
 import { assertWriterVersion } from './sync/writer-version.js';
 import { explainSchemaWriteDenial, installSchemaWriteGuard } from './worktree-build-guard.js';
@@ -908,6 +909,16 @@ async function migrateScopeSchema(
       { scope, dropped: capture.dropped },
       'capture triggers dropped: sync.capture is off (T12343)',
     );
+  }
+  // T13857: one-time local scrub of secrets written to audit rows before
+  // T13855, with capture suspended. The module loads only while its marker is
+  // absent, so later opens pay one indexed read.
+  if (auditScrubPending(nativeDb)) {
+    const { scrubAuditSecrets } = await import('./sync/audit-scrub.js');
+    const scrub = scrubAuditSecrets(nativeDb);
+    if (scrub.status === 'done' && Object.keys(scrub.rewritten).length > 0) {
+      log.info({ scope, rewritten: scrub.rewritten }, 'audit secrets scrubbed (T13857)');
+    }
   }
   // §1.5 (T13336): the replica bind of a canonical open. With every sync.*
   // flag off it reads only the flags, so the module loads only when one is on.

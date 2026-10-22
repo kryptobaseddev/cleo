@@ -1,7 +1,7 @@
 ---
 name: ct-dev-workflow
 description: Development workflow orchestration for task-driven development with atomic commits, conventional commit messages, and systematic release processes. Enforces task traceability, branch discipline, smart test scope selection, and GitHub Actions integration. Use when committing code, creating releases, managing branches, or following contribution protocols. Triggers on commit operations, release preparation, or workflow compliance needs.
-version: 3.1.20
+version: 3.1.25
 protocol: contribution
 dependencies: []
 sharedResources:
@@ -14,7 +14,7 @@ compatibility:
   - gemini-cli
 license: MIT
 metadata:
-  version: 3.1.20
+  version: 3.1.25
   tier: core
   install: harness
   covers:
@@ -26,7 +26,7 @@ metadata:
     - packages/core/src/hooks.ts
     - packages/core/templates/git-hooks/**
     - packages/contracts/src/git-hooks.ts
-  lastReviewed: 2026-10-15
+  lastReviewed: 2026-10-16
   stability: stable
 ---
 
@@ -107,7 +107,11 @@ only on a parentless first commit (T13582); a later commit with that subject, or
 longer or different subject, still needs a task ID. A template change adds the
 previously shipped hash to `legacy-hashes.json` so installed copies refresh.
 It probes CLEO_PROJECT_HOOK_V1 before invoking the implemented CLI adapter;
-missing or incompatible runners warn and allow. Verify nested checkout paths, linked
+missing or incompatible runners warn and allow. `cleo hook run --probe -- execution`
+answers EXEC or INERT (older builds answer V1; stable builds before 2026.10.17 are
+inert). Every ungated push, including a hooks-inert `cleo` first on PATH, prints one
+pre-push stderr line `WARNING: push NOT gated by project hooks: <reason>`, flagging a
+checkout whose activation is on (T13774). Verify nested checkout paths, linked
 worktrees, custom hook paths, historical release bodies and corrupt receipts
 with focused Git fixtures before changing this delivery path.
 
@@ -334,9 +338,15 @@ Linux `Unit Tests` shard green (a docs-only push that skipped the tests does
 not count). It sets `skip-macos-tests=true` when the newest completed nightly
 or `macos-main.yml` (main-push, never cancelled mid-run, pending pushes coalesce;
 T13143, T13187) run with macOS jobs for
-one of those commits is green. The SHA travels as `verified-sha`, and the
-workflow ignores the skips if it checks out another commit or `verified-sha` is
-empty. Otherwise the 8 Linux and 8 macOS test shards run, and the reason names
+one of those commits is green. A `ci.yml` push run still queued or in progress
+is polled for up to 10 minutes first (T13823). The SHA travels as
+`verified-sha` and the proving run's id as `reused-ci-run`; the workflow
+ignores the skips if it checks out another commit or `verified-sha` is empty,
+and re-reads the reused run from the API (push to main, success, every Linux
+shard green, same tree: the exact commit, or one it extends only by
+whole-path-allowlisted plan, changeset `.md` and CHANGELOG.md files; T13825)
+before it skips the Linux shards, naming the run in the
+summary and the bump-PR body. Otherwise the 8 Linux and 8 macOS test shards run, and the reason names
 the newest main commit that has a green macOS run. The decision is in the run
 summary.
 
@@ -509,13 +519,11 @@ Provider delivery receives canonical SDK file reads and Git discovery through a 
 Adapters do not acquire a runtime dependency on core for these utilities.
 
 Project business rules live in tracked `.cleo/hooks.json`; generated provider entries
-are delivery outputs. Until the hooks-v1 stable promotion, a stable build is inert (T13557):
-`cleo hook sync --activate` refuses with `E_HOOKS_V1_UNRELEASED`, existing receipts report
-`unreleased` and never run (a required `--ci` check fails), and `--disable` still works; a
-`-canary.N` build or the promotion's `cleo.releasedFeatures` stamp opens the gate
-(`core/src/hooks/release-gate.ts`). A source checkout carries a stable version, so hooks
-cannot be activated on main either; only code passing the gate's `allowUnreleased` option
-(tests) opts in. Preview with `cleo hook sync --dry-run`; explicit local activation
+are delivery outputs. hooks-v1 was promoted in v2026.10.17 and is released in source
+(T13776), so every build activates and runs project hooks. The release gate
+(`core/src/hooks/release-gate.ts`, T13557) stays for a future hook feature: while one is
+unreleased, `cleo hook sync --activate` refuses with `E_HOOKS_V1_UNRELEASED` and existing
+receipts report `unreleased` and never run. Preview with `cleo hook sync --dry-run`; explicit local activation
 uses `cleo hook sync --activate` and binds definitions, handlers and dependencies to
 current hashes. Source drift requires reactivation and runs no handler: Git, worktree, direct
 and CI refuse (naming `cleo hook sync --activate`) every event bound by the approved bindings
@@ -532,6 +540,20 @@ CLEO infrastructure failure is an unavailable check, never successful CI evidenc
 Launcher faults allow locally regardless of checker error policy. File inputs and
 provider records use bounded regular-file reads; FIFOs are rejected. Unsupported
 provider bindings remain unsupported in delivery summaries, including mixed bindings.
+
+The Stop event has ONE CLEO entry per provider, `cleo hook stop --provider claude-code|codex`
+(T13796), in order goal tick → ask-enforce → session end. The goal runtime goes first, only when
+`.opencode/goals/` exists (`CLEO_GOAL_TICK_COMMAND`, default `ocg tick`, Stop JSON on stdin,
+JSON-only stdout, at most 60 s, its process group SIGKILLed at the deadline): a block is
+re-serialised as exactly `{decision, reason}` (reason capped) and skips the rest. Next, an ask-enforce block (T13420) wins and keeps
+the session open, because the agent still owes the owner an ask. Otherwise Claude Code's runs
+`cleo session end --quiet` as before; Codex's never ends the session (its Stop fires every turn
+and never did). Every step fails open to the session end (missing, failing or timed-out tick;
+ask-enforce error); `CLEO_GOAL_TICK=off` skips the tick; `CLEO_ASK_ENFORCE=off` or heavy-command
+mode `off` (`CLEO_HEAVY_COMMAND_HOOK` / `resources.heavyCommandHook`, read at run time) skips the
+ask check, as they removed its separate hook before.
+Sync folds the separate ask-enforce and old session-end Stop entries into it in place; Codex's
+rides the heavy-command mode, Claude Code's always stays.
 
 Init, upgrade and inspection share the commit-msg, pre-commit and pre-push installer.
 Git determines effective hooksPath and the common directory, including linked worktrees.

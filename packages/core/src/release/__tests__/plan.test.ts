@@ -572,13 +572,13 @@ describe('releasePlan — hooks-v1 gate opened by source (T13555)', () => {
     });
   });
 
-  it('parses the real release-gate.ts: hooks-v1 unreleased and hooksV1Released found', () => {
+  it('parses the real release-gate.ts: hooks-v1 released (T13776) and hooksV1Released found', () => {
     const real = readFileSync(
       fileURLToPath(new URL('../../hooks/release-gate.ts', import.meta.url)),
       'utf-8',
     );
     const shape = parseHooksV1Gate(real);
-    expect(shape.unreleased).toBe(true);
+    expect(shape.unreleased).toBe(false);
     expect(shape.released).toMatch(/^export function hooksV1Released\(/);
   });
 
@@ -686,6 +686,23 @@ describe('releasePlan — a shipped version is immutable (T13619)', () => {
       projectRoot: testDir,
     });
     expect(result.success).toBe(true);
+  });
+
+  it('a row synced from another device keeps its id; the upsert hands that id to the changesets (T12914)', async () => {
+    await seedEpicWithChildren('T9999', 1);
+    const result = await releasePlan({
+      version: 'v2026.6.0',
+      epicId: 'T9999',
+      channel: 'latest',
+      scheme: 'calver',
+      projectRoot: testDir,
+    });
+    if (!result.success) throw new Error('unreachable');
+    const plan = parseReleasePlan(JSON.parse(readFileSync(result.data.planPath, 'utf-8')));
+    // A release received by sync takes its uid as its local id.
+    const db = await getDb(testDir);
+    await db.update(schema.releases).set({ id: 'uid-from-peer', status: 'planned' }).run();
+    expect(await planInternals.upsertReleasesRow(plan, 'latest', testDir)).toBe('uid-from-peer');
   });
 });
 

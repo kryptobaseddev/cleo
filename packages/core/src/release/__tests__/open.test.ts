@@ -554,6 +554,41 @@ describe('releaseOpen — gh#1375: the plan must be on the dispatch branch', () 
     expect(dispatched?.args.some((a) => a.startsWith('plan-blob-sha256='))).toBe(true);
   });
 
+  it('T13825: --ref dispatches on the plan branch, verified there, with no local commit', async () => {
+    const version = 'v2026.6.0';
+    const planPath = writePlanFile(version, makePlan(version));
+    writeWorkflowFile();
+    await seedReleaseRow(version, 'planned');
+    attachRemote();
+    const planBranch = `release/plan-${version}`;
+    execFileSync('git', ['-C', testDir, 'checkout', '-q', '-b', planBranch]);
+    execFileSync('git', ['-C', testDir, 'add', '-f', planPath]);
+    execFileSync('git', ['-C', testDir, 'commit', '-q', '-m', 'release: plan']);
+    execFileSync('git', ['-C', testDir, 'push', '-q', 'origin', planBranch]);
+    execFileSync('git', ['-C', testDir, 'checkout', '-q', 'main']);
+    const mainHead = execFileSync('git', ['-C', testDir, 'rev-parse', 'HEAD'], {
+      encoding: 'utf-8',
+    });
+
+    const runner = makeStubRunner();
+    const result = await releaseOpen({ version, projectRoot: testDir, ref: planBranch }, runner);
+
+    expect(result.success).toBe(true);
+    const dispatched = dispatchOf(runner);
+    expect(dispatched?.args.slice(0, 5)).toEqual([
+      'workflow',
+      'run',
+      'release-prepare.yml',
+      '--ref',
+      planBranch,
+    ]);
+    expect(dispatched?.args.some((a) => a.startsWith('plan-blob-sha256='))).toBe(true);
+    // No local plan commit on the operator's branch.
+    expect(execFileSync('git', ['-C', testDir, 'rev-parse', 'HEAD'], { encoding: 'utf-8' })).toBe(
+      mainHead,
+    );
+  });
+
   it('REFUSES when origin holds a DIFFERENT plan, naming both hashes, and does not dispatch', async () => {
     const version = 'v2026.6.0';
     const planPath = writePlanFile(version, makePlan(version));

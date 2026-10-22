@@ -86,6 +86,7 @@ import {
   rowIdentityColumns,
   rowIdentitySpec,
   UID_COLUMN,
+  uidMissingWhere,
 } from './row-identity-registry.js';
 import { readSyncFlags } from './sync/flags.js';
 import {
@@ -590,6 +591,8 @@ function uidFromArgs(
       parts.push(value);
     } else parts.push(take());
   }
+  // T12914: a NULL in a nullable key column keeps the row local (no uid).
+  if (spec.localWhenNull?.some((c) => parts[spec.key.indexOf(c)] === null)) return null;
   if (!spec.symmetric) return naturalRowUid(scope, table, parts);
   const twinExists = Number(take()) === 1;
   const typeIndex = spec.key.indexOf(spec.symmetric.column);
@@ -882,6 +885,15 @@ export interface RowUidFillReport {
   readonly refill: 'none' | 'cleared' | 'refused';
 }
 
+/** Rows of a declared table that should carry a uid but lack one ({@link uidMissingWhere}). */
+function uidMissingCount(db: DatabaseSync, spec: RowIdentitySpec): number {
+  return (
+    db
+      .prepare(`SELECT count(*) AS n FROM main.${q(spec.table)} WHERE ${uidMissingWhere(spec)}`)
+      .get() as { n: number }
+  ).n;
+}
+
 /** Count of rows with a NULL value in `column`. */
 function nullCount(db: DatabaseSync, table: string, column: string): number {
   const row = db
@@ -926,8 +938,10 @@ function fillTable(
     db.exec('ROLLBACK TO SAVEPOINT row_uid_fill_table');
     db.exec('RELEASE SAVEPOINT row_uid_fill_table');
     if (!isUniqueViolation(error)) throw error;
+    // The first row of a shared natural key takes the uid (T13777): by its order columns.
+    const order = [...(spec.localUnlessFirst ?? []).map(q), 'rowid'].join(', ');
     const rowids = db
-      .prepare(`SELECT rowid AS r FROM ${table} WHERE ${q(UID_COLUMN)} IS NULL ORDER BY rowid`)
+      .prepare(`SELECT rowid AS r FROM ${table} WHERE ${q(UID_COLUMN)} IS NULL ORDER BY ${order}`)
       .all() as { r: number }[];
     const variants = spec.symmetric ? [0, 1] : [0];
     for (const { r } of rowids) {
@@ -1157,7 +1171,7 @@ export function fillRowUids(
     }
     for (const spec of order) {
       const left =
-        nullCount(db, spec.table, UID_COLUMN) +
+        uidMissingCount(db, spec) +
         (spec.kind === 'minted' ? nullCount(db, spec.table, BIRTH_FP_COLUMN) : 0);
       if (left > 0) unfilled[spec.table] = left;
     }
@@ -2334,7 +2348,8 @@ export function rowIdentityFillPending(db: DatabaseSync, scope: TableScope): str
     db.prepare(`SELECT 1 FROM main.${q(table)} WHERE ${where} LIMIT 1`).get() !== undefined;
   for (const spec of ROW_IDENTITY[scope]) {
     if (!hasTable(db, spec.table)) continue;
-    if (any(spec.table, `${q(UID_COLUMN)} IS NULL`)) pending.push(`uid:${spec.table}`);
+    // T12914, T13777: a row kept local (a NULL key column, or a later row of a shared key) is never pending.
+    if (any(spec.table, uidMissingWhere(spec))) pending.push(`uid:${spec.table}`);
     if (spec.kind === 'minted' && any(spec.table, `${q(BIRTH_FP_COLUMN)} IS NULL`)) {
       pending.push(`birth_fp:${spec.table}`);
     }

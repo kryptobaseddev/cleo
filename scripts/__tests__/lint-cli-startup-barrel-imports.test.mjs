@@ -12,7 +12,8 @@ import { parse as parseYaml } from 'yaml';
 
 const SCRIPT = 'scripts/lint-cli-startup-barrel-imports.mjs';
 const BASELINE = 'scripts/.lint-cli-startup-barrel-baseline.json';
-const JOB = 'cli-boundary-lint';
+// T13838: the CLI boundary gates are steps of the consolidated Repo Lints job.
+const JOB = 'repo-lints';
 const WORKFLOW = '.github/workflows/ci.yml';
 let directory;
 
@@ -37,7 +38,9 @@ function workflow() {
 function gateStep() {
   const step = workflow().jobs[JOB].steps.find((candidate) => candidate.run?.includes(SCRIPT));
   if (!step) throw new Error('Required CI job does not invoke the startup barrel gate');
-  expect(step.if).toBeUndefined();
+  // `!cancelled()` keeps the step running after an earlier gate failed; any other
+  // condition could disable it.
+  expect(step.if).toBe('${{ !cancelled() }}');
   expect(step['continue-on-error']).toBeUndefined();
   return step;
 }

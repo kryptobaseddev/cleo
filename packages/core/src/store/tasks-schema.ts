@@ -67,7 +67,12 @@ export type {
 // the same change. `store/twin-collapse.ts` carries the bare rows into the
 // twin (key-aware, atomic) at every open, before any read: the initial
 // collapse, then whatever an older build wrote to the bare table since.
+// TWIN COLLAPSE (T13777) — `audit_log` → `tasks_audit_log`, a DRAIN like the
+// token pair: every drizzle `schema.auditLog` reader and the dispatch audit
+// writer use the twin, which syncs; the rows an older build writes to the bare
+// table are drained into it at every open (`AUDIT_LOG` in twin-collapse.ts).
 export {
+  tasksAuditLog as auditLog,
   tasksSchemaMeta as schemaMeta,
   tasksTokenUsage as tokenUsage,
 } from './schema/cleo-project/audit.js';

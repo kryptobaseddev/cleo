@@ -128,16 +128,39 @@ const debtSubcommand = defineCommand({
   },
 });
 
+const gainSubcommand = defineCommand({
+  meta: {
+    name: 'gain',
+    description:
+      'Measured ct-lean scoreboard (benchmark vs no skill and Ponytail). Benchmark averages only, never a per-repo number.',
+  },
+  args: {
+    card: {
+      type: 'boolean',
+      description: 'Print the scoreboard as text bars instead of a LAFS envelope',
+    },
+  },
+  async run({ args }) {
+    const { LEAN_GAIN, renderLeanGain } = await import('@cleocode/core/orchestration/lean-gain.js');
+    if (args.card === true) {
+      process.stdout.write(`${renderLeanGain()}\n`); // stdout-discipline-allowed: --card prints the text scoreboard by request // stdout-write-allowed: --card prints the text scoreboard by request
+      return;
+    }
+    cliOutput(LEAN_GAIN, { command: 'lean-gain', operation: 'lean.gain' });
+  },
+});
+
 /** cleo lean — ct-lean levels and tools. */
 export const leanCommand = defineCommand({
   meta: {
     name: 'lean',
     description:
-      'ct-lean (smallest complete change) levels and tools: cleo lean level [off|lite|full|ultra] [--session|--global] · cleo lean debt [--file-tasks --parent <epic>]',
+      'ct-lean (smallest complete change) levels and tools: cleo lean level [off|lite|full|ultra] [--session|--global] · cleo lean debt [--file-tasks --parent <epic>] · cleo lean gain',
   },
   subCommands: {
     level: levelSubcommand,
     debt: debtSubcommand,
+    gain: gainSubcommand,
   },
   async run({ cmd, rawArgs }) {
     const firstArg = rawArgs?.find((a) => !a.startsWith('-'));

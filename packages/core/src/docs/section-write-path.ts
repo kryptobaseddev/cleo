@@ -77,8 +77,10 @@ import {
 import {
   applySectionTextEdit,
   joinSections,
-  sectionId,
+  planSectionMerge,
+  sectionIds,
   sectionStateText,
+  seedSectionState,
   splitDocIntoSections,
 } from './section-merge.js';
 
@@ -324,6 +326,68 @@ export async function projectDocUpdateThroughSections(
   projectRoot: string,
   input: ProjectDocUpdateInput,
 ): Promise<ProjectDocUpdateResult> {
+  return projectDocUpdate(projectRoot, input, false);
+}
+
+/** Outcome of {@link previewDocUpdateThroughSections}. */
+export interface DocUpdatePreview {
+  /** The merged text the projection would land. */
+  readonly mergedText: string;
+  /** Whether the head would advance to that text (max-HLC rule). */
+  readonly wouldAdvance: boolean;
+  /**
+   * The section conflicts the projection would record. Their version uids
+   * name rolled-back rows: use `sectionId` only.
+   */
+  readonly conflicts: readonly SectionConflict[];
+}
+
+/** Carries a preview's result out of its transaction, forcing the rollback. */
+class PreviewRollback extends Error {
+  constructor(readonly result: ProjectDocUpdateResult) {
+    super('docs projection preview rolled back by design');
+  }
+}
+
+/**
+ * Preview a docs update without committing it (T13842): runs the exact
+ * projection — merge, adopt, version append, head upsert — inside its
+ * transaction and rolls it back, so a caller can write the fetch-visible row
+ * from the merged text BEFORE the projection commits. Acquires no leases.
+ * Another writer can still land between the preview and the real
+ * projection; callers compare the committed `mergedText` with the preview.
+ * A content-addressed blob may remain as a harmless orphan.
+ *
+ * @param projectRoot - Absolute path to the CLEO project root.
+ * @param input - The update facts, exactly as for {@link projectDocUpdateThroughSections}.
+ * @returns The merged text, whether the head would advance, and the conflicts.
+ */
+export async function previewDocUpdateThroughSections(
+  projectRoot: string,
+  input: ProjectDocUpdateInput,
+): Promise<DocUpdatePreview> {
+  const result = await projectDocUpdate(projectRoot, input, true);
+  return {
+    mergedText: result.mergedText,
+    wouldAdvance: result.head.advanced,
+    conflicts: result.conflicts,
+  };
+}
+
+/**
+ * The projection behind {@link projectDocUpdateThroughSections} and
+ * {@link previewDocUpdateThroughSections}.
+ *
+ * @param projectRoot - Absolute path to the CLEO project root.
+ * @param input - The update facts.
+ * @param preview - Roll the transaction back and skip leases.
+ * @returns The merge outcome.
+ */
+async function projectDocUpdate(
+  projectRoot: string,
+  input: ProjectDocUpdateInput,
+  preview: boolean,
+): Promise<ProjectDocUpdateResult> {
   const existingUid = await resolveConduitDocUid(projectRoot, input.slug);
   const contentBuffer = Buffer.from(input.content, 'utf-8');
 
@@ -334,14 +398,16 @@ export async function projectDocUpdateThroughSections(
     input.sessionId ?? (await resolveBoundSession(projectRoot))?.session.id ?? null;
   const leaseNotices: SectionLeaseNotice[] = [];
   const acquiredThisRun: string[] = [];
-  if (boundSessionId !== null) {
+  if (boundSessionId !== null && !preview) {
     const leaseManager = new SectionLeaseManager(projectRoot, {
       sessionId: boundSessionId,
       holder: input.authorAgentId,
     });
     const docUidForLeases = existingUid ?? input.slug;
-    for (const [index, text] of splitDocIntoSections(input.content).entries()) {
-      const id = sectionId(index);
+    const leaseSections = splitDocIntoSections(input.content);
+    const leaseIds = sectionIds(leaseSections);
+    for (const [index, text] of leaseSections.entries()) {
+      const id = leaseIds[index] ?? '';
       const stored =
         existingUid !== null ? await readSectionCrdtState(projectRoot, docUidForLeases, id) : null;
       // Only sections the edit actually touches are coordinated: unchanged
@@ -406,20 +472,37 @@ export async function projectDocUpdateThroughSections(
         input.baseSections !== undefined && input.baseSections !== null
           ? input.baseSections
           : headSections;
+      // T13584/T13835/T13836: a three-way, id-keyed section plan — never
+      // positional — so a concurrent insert, rename or duplicate heading
+      // cannot pair a section with its neighbour's state, nor drop a landed
+      // section the incoming list does not mention.
+      const plan = planSectionMerge(
+        referenceSections,
+        headSections,
+        splitDocIntoSections(input.content),
+      );
 
       // Apply each section's edit onto its stored Loro state and read the
       // MERGED text back out of the state — never out of the input (T13585).
-      const sections = splitDocIntoSections(input.content);
       const mergedSections: string[] = [];
       const sectionsModified: string[] = [];
-      const conflictedSections: string[] = [];
-      for (const [index, text] of sections.entries()) {
-        const id = sectionId(index);
+      const conflictedSections: string[] = [...plan.conflicts];
+      for (const step of plan.steps) {
+        if (step.kind === 'keep') {
+          mergedSections.push(step.text);
+          continue;
+        }
+        const { id } = step;
         const stored = await readSectionCrdtState(projectRoot, docUid, id);
+        // A section with no local state under its id (a doc whose states were
+        // written under pre-T13584 positional ids) starts from the head's
+        // text: a committed projection leaves state equal to the head, so
+        // this is what the legacy row held, and the concurrency discriminator
+        // still sees the landed edit.
         const { snapshot, changed, conflicted } = applySectionTextEdit(
-          stored?.snapshot ?? null,
-          text,
-          referenceSections?.[index] ?? null,
+          stored?.snapshot ?? (step.headText !== null ? seedSectionState(step.headText) : null),
+          step.text,
+          step.referenceText,
         );
         if (changed || stored === null) {
           await writeSectionCrdtState(projectRoot, {
@@ -524,7 +607,7 @@ export async function projectDocUpdateThroughSections(
       }
       await rebuildConduitAttachmentContributors(projectRoot, docUid);
 
-      return {
+      const result: ProjectDocUpdateResult = {
         docUid,
         adopted,
         mergedText,
@@ -535,8 +618,12 @@ export async function projectDocUpdateThroughSections(
         conflicts,
         leaseNotices,
       };
+      // @sync-invariant none:input-shape a preview rolls its own transaction back by design; nothing is written
+      if (preview) throw new PreviewRollback(result);
+      return result;
     });
   } catch (err) {
+    if (err instanceof PreviewRollback) return err.result;
     // The projection rolled back: release the leases acquired for it, so a
     // failed edit leaves no stale claim. (Renewed pre-existing leases stay —
     // the session still holds them.)

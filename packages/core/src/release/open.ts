@@ -52,7 +52,12 @@ import { getDb } from '../store/sqlite.js';
 import { RELEASE_ABSORBING_STATUSES } from '../store/sync/merge/rules.js';
 import { releases } from '../store/tasks-schema.js';
 import { runGitWithLockRetry } from './engine-ops.js';
-import { decidePreflightSkips, type PreflightSkipDecision } from './preflight-skip.js';
+import {
+  decidePreflightSkips,
+  PREFLIGHT_IN_FLIGHT_WAIT_MS,
+  type PreflightSkipDecision,
+  retargetPreflightSkips,
+} from './preflight-skip.js';
 
 const log = getLogger('release:open');
 
@@ -120,6 +125,17 @@ export interface ReleaseOpenOptions {
    * `E_EVIDENCE_INSUFFICIENT`.
    */
   tasks?: string;
+  /**
+   * T13825: dispatch `release-prepare` on this branch instead of the default
+   * branch — the single release PR's `release/plan-<version>` branch, which
+   * holds the plan and CHANGELOG.md in one commit on top of the default
+   * branch's HEAD. The workflow cuts `release/<version>` from it, so the bump
+   * PR carries the plan too. Implies no local plan commit; the plan must
+   * already be on `origin/<ref>` with the local plan's exact bytes. Preflight
+   * skips carry over only when the branch adds release-plan files alone
+   * ({@link retargetPreflightSkips}).
+   */
+  ref?: string;
   /**
    * Project root override. Defaults to the canonical project root resolved
    * via {@link getProjectRoot} (walks up from `process.cwd()` for monorepo
@@ -596,7 +612,10 @@ export async function releaseOpen(
   // The committed-plan branch is the one that can succeed, so it is now the
   // default. `--no-commit-plan` remains for a caller who has arranged the plan
   // some other way; it is opt-OUT of the working path rather than opt-in.
-  const commitPlan = opts.commitPlan !== false;
+  const ref = opts.ref !== undefined && opts.ref !== '' ? opts.ref : undefined;
+  // T13825: a plan branch already carries the plan; a local commit would only
+  // strand it on whatever branch this checkout has.
+  const commitPlan = ref === undefined && opts.commitPlan !== false;
   const runner: ReleaseOpenRunner = runnerOverride ?? makeDefaultRunner();
 
   // ── R-050: plan file must exist + parse + schema-validate ─────────────
@@ -604,11 +623,11 @@ export async function releaseOpen(
   // branch (merged through a plan PR), so a checkout that has not pulled it
   // reads that copy instead of refusing; the guard below still checks it.
   let planLoad = loadPlanForOpen(opts.version, projectRoot);
-  let dispatchBranch: string | null = null;
+  let dispatchBranch: string | null = ref ?? null;
   /** The dispatch branch's plan bytes, when the fallback read them (reused by the guard). */
   let remotePlan: Buffer | null = null;
   if (!planLoad.success && !commitPlan && planLoad.error.code === E_PLAN_NOT_FOUND) {
-    dispatchBranch = resolveDispatchBranch(runner, projectRoot);
+    dispatchBranch ??= resolveDispatchBranch(runner, projectRoot);
     const relPath = `${PLAN_DIR_REL}/${opts.version}.plan.json`;
     const remote =
       dispatchBranch === null ? null : readPlanBlobOnRemote(relPath, projectRoot, dispatchBranch);
@@ -841,14 +860,23 @@ export async function releaseOpen(
   // main's push CI for that SHA is green, the macOS shards when the nightly
   // macOS jobs for that SHA are green. The SHA rides along as `verified-sha`,
   // and the workflow ignores every skip if it checks out a different commit.
-  // Any doubt (gh error, timeout, run in progress) means the tests run.
-  const preflightBranch = dispatchBranch ?? resolveDispatchBranch(runner, projectRoot);
-  const preflight: PreflightSkipDecision =
+  // A push run still in flight is waited for (bounded, T13823); any other
+  // doubt (gh error, timeout, a run still unfinished) means the tests run.
+  // The run that proved the Linux shards rides along as `reused-ci-run`, and
+  // the workflow re-verifies it before skipping.
+  // T13825: with a plan branch, the decision is made for the default branch
+  // (where main CI ran) and carried over only if the branch adds plan files alone.
+  const preflightBranch =
+    ref === undefined
+      ? (dispatchBranch ?? resolveDispatchBranch(runner, projectRoot))
+      : resolveDispatchBranch(runner, projectRoot);
+  let preflight: PreflightSkipDecision =
     preflightBranch === null
       ? {
           verifiedSha: null,
           skipTests: false,
           testedSha: null,
+          testedRunId: null,
           skipMacosTests: false,
           reason: 'Could not determine the dispatch branch; running every preflight suite.',
         }
@@ -856,9 +884,37 @@ export async function releaseOpen(
           (args, cwd, timeoutMs) => runner.runGh(args, cwd, timeoutMs),
           projectRoot,
           preflightBranch,
+          { inFlightWaitMs: PREFLIGHT_IN_FLIGHT_WAIT_MS },
         );
+  if (ref !== undefined) {
+    const runGh = (args: readonly string[], cwd: string, timeoutMs: number): string =>
+      runner.runGh(args, cwd, timeoutMs);
+    let refSha = '';
+    try {
+      refSha = runGh(
+        ['api', `repos/{owner}/{repo}/commits/${ref}`, '--jq', '.sha'],
+        projectRoot,
+        15_000,
+      ).trim();
+    } catch {
+      // handled below: an unresolved ref dispatches with every suite running
+    }
+    preflight = /^[0-9a-f]{40}$/.test(refSha)
+      ? retargetPreflightSkips(preflight, runGh, projectRoot, ref, refSha)
+      : {
+          verifiedSha: null,
+          skipTests: false,
+          testedSha: null,
+          testedRunId: null,
+          skipMacosTests: false,
+          reason: `Could not resolve the HEAD of ${ref}; running every preflight suite.`,
+        };
+  }
   if (preflight.verifiedSha !== null) {
-    if (preflight.skipTests) dispatchFields.push('--field', 'skip-tests=true');
+    if (preflight.skipTests && preflight.testedRunId !== null) {
+      dispatchFields.push('--field', 'skip-tests=true');
+      dispatchFields.push('--field', `reused-ci-run=${preflight.testedRunId}`);
+    }
     if (preflight.skipMacosTests) dispatchFields.push('--field', 'skip-macos-tests=true');
     dispatchFields.push('--field', `verified-sha=${preflight.verifiedSha}`);
     dispatchFields.push('--field', `skip-reason=${preflight.reason}`);
@@ -866,7 +922,16 @@ export async function releaseOpen(
   log.info({ version: opts.version, preflight }, 'release.open: preflight test decision');
 
   try {
-    runner.runGh(['workflow', 'run', workflow, ...dispatchFields], projectRoot);
+    runner.runGh(
+      [
+        'workflow',
+        'run',
+        workflow,
+        ...(ref === undefined ? [] : ['--ref', ref]),
+        ...dispatchFields,
+      ],
+      projectRoot,
+    );
   } catch (err) {
     return engineError<ReleaseOpenResult>(
       E_GH_NOT_AUTHENTICATED,

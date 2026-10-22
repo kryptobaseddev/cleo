@@ -24,9 +24,11 @@ import type { VerificationGate } from './task.js';
  *   origin's default branch.
  * - `docs` — attached documents and linked decisions of a research, spike or
  *   documentation task.
+ * - `commit` — an explicit commit (`cleo done --commit <sha>`, T13799) that
+ *   landed on the default branch; files read from its first-parent diff.
  * - `none` — nothing references the task yet.
  */
-export type ChangeSetSource = 'pr' | 'branch' | 'docs' | 'none';
+export type ChangeSetSource = 'pr' | 'branch' | 'docs' | 'commit' | 'none';
 
 /**
  * How the repository the change set was read from was chosen.
@@ -87,6 +89,8 @@ export interface DonePlanBlocker {
   next: DoneNextStep;
   /** Original evidence error code when the blocker wraps a validator refusal. */
   cause?: string;
+  /** The verification gate the blocker holds back, when it is one gate's (T13795). */
+  gate?: VerificationGate;
 }
 
 /** A merged PR that cites the task. */
@@ -140,7 +144,7 @@ export interface TaskChangeSet {
    * branch.
    */
   stackedOn?: { baseRef: string; basePrNumber?: number };
-  /** Branch tip commit (`source === 'branch'`). */
+  /** Branch tip commit (`source === 'branch'`), or the explicit commit (`source === 'commit'`). */
   commitSha?: string;
   /** Ref that was diffed (`HEAD` or `task/<id>`), for `source === 'branch'`. */
   headRef?: string;
@@ -370,4 +374,75 @@ export interface DoneBlockedDetails {
   recordedGates: VerificationGate[];
   /** The plan, for tooling. */
   plan: DonePlan;
+}
+
+/** A test file a covering test-run report must run, and why. */
+export interface OwedTestFile {
+  /** Repo-relative test file. */
+  file: string;
+  /** Why the binding requires it. */
+  reason: string;
+}
+
+/** An affected package a covering report must run at least one test file of. */
+export interface OwedTestPackage {
+  /** Workspace package name. */
+  name: string;
+  /** Changed itself, or depends on a changed package. */
+  reason: 'changed' | 'depends on a changed package';
+  /** Test files of this package the change adds or edits (the natural choice). */
+  changedTestFiles: string[];
+}
+
+/**
+ * The tests a task's change owes, as the `test-run:` binding and
+ * `cleo done --plan` enforce them (T13795).
+ *
+ * - `targeted`: a passing report of every `files` entry plus at least one test
+ *   file of every `packages` entry binds (config files and typecheck-only
+ *   dependents are owed their own results).
+ * - `full`: the change is workspace-wide; only `tool:test` (or `ci:<pr>`) binds.
+ * - `none`: no changed path to judge (no origin default branch, or no change).
+ */
+export interface TaskTestPlan {
+  /** Changed paths judged, or null when none could be read. */
+  changedPaths: string[] | null;
+  /** How the change can be tested. */
+  scope: 'targeted' | 'full' | 'none';
+  /** Why only a full run binds (`scope === 'full'`). */
+  reason?: string;
+  /** Exact test files a covering report must run. */
+  files: OwedTestFile[];
+  /** Packages a covering report must run at least one test file of. */
+  packages: OwedTestPackage[];
+  /** Affected packages with no test file at all. */
+  untestedPackages: string[];
+  /** CLEO config files the change edits, owed `tool:config-schema` instead of a test. */
+  configPaths: string[];
+  /** Typecheck-only dependent package dirs, owed a typecheck instead of a test. */
+  typecheckDirs: string[];
+  /**
+   * Whether the change has merged. A merged change is judged as `cleo complete`
+   * judges it: the task's own part of the landed change, and every test file it
+   * adds or edits owed by a test-run recorded on the default branch.
+   */
+  merged: boolean;
+  /** Whether the task already holds a standing testsPassed gate. */
+  gatePassed: boolean;
+  /** The testsPassed tool runs `cleo done` would use. */
+  toolRuns: DonePlanToolRun[];
+  /** The testsPassed blockers `cleo done --plan` reports. */
+  blockers: DonePlanBlocker[];
+}
+
+/** Result of `cleo tasks changeset <id> [--test-plan]` (T13795). */
+export interface TaskChangeSetReport {
+  /** Task id. */
+  taskId: string;
+  /** The change set `cleo done` derives. */
+  changeSet: TaskChangeSet;
+  /** Commits of the change, oldest first. */
+  commits: string[];
+  /** The tests owed (with `--test-plan`). */
+  testPlan?: TaskTestPlan;
 }

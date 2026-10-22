@@ -47,7 +47,6 @@ import {
   copyFileSync,
   existsSync,
   fsyncSync,
-  linkSync,
   mkdirSync,
   openSync,
   readdirSync,
@@ -57,7 +56,7 @@ import {
   statSync,
   unlinkSync,
 } from 'node:fs';
-import { dirname, join, sep } from 'node:path';
+import { basename, dirname, join, sep } from 'node:path';
 import type { DatabaseSync } from 'node:sqlite';
 import type { DbInventoryEntry, DbRole } from '@cleocode/contracts';
 import { DB_INVENTORY } from '@cleocode/contracts/db-inventory.js';
@@ -609,6 +608,45 @@ function rotateSnapshots(backupDir: string, prefix: string, justWritten: string)
   }
 }
 
+/**
+ * Prune legacy `brain-*` / `conduit-*` project snapshots older than the oldest
+ * retained `tasks-*` one. Before T13891 each run hard-linked one cleo.db
+ * snapshot under all three prefixes; nothing writes the legacy names now, so
+ * their own rotation never runs and they would pin rotated-out `tasks-*`
+ * inodes forever. Only prefixes this run proved are covered by the unified
+ * `tasks-*` snapshot are pruned: a role still held in its own database file
+ * keeps its own `<role>-*` history and rotation. Non-fatal on any error.
+ *
+ * @param backupDir - Project snapshot directory.
+ * @param prefixes - Legacy prefixes covered by this run's `tasks-*` snapshot.
+ * @task T13910
+ */
+function pruneLegacyProjectSnapshots(backupDir: string, prefixes: Iterable<string>): void {
+  try {
+    const names = readdirSync(backupDir);
+    const stampOf = (name: string): string => name.slice(name.indexOf('-') + 1, -'.db'.length);
+    const tasksPattern = snapshotPattern('tasks');
+    const oldestTasks = names
+      .filter((f) => tasksPattern.test(f))
+      .map(stampOf)
+      .sort()[0];
+    if (oldestTasks === undefined) return;
+    for (const prefix of prefixes) {
+      const pattern = snapshotPattern(prefix);
+      for (const name of names) {
+        if (!pattern.test(name) || stampOf(name) >= oldestTasks) continue;
+        try {
+          unlinkSync(join(backupDir, name));
+        } catch {
+          // non-fatal — try the rest
+        }
+      }
+    }
+  } catch {
+    // non-fatal
+  }
+}
+
 /** Options accepted by {@link vacuumIntoBackup} and {@link vacuumIntoBackupAll}. */
 export interface VacuumOptions {
   /**
@@ -700,11 +738,13 @@ async function snapshotProjectTargetsGated(
   );
   if (byPrefix.size === 0) return null;
 
-  // One VACUUM per physical database file per run (T12508): tasks, brain and
-  // conduit share the project cleo.db handle. Maps source realpath → the
-  // snapshot file written for it in this run.
+  // One snapshot per physical database file per run (T12508, T13891): tasks,
+  // brain and conduit share the project cleo.db handle, so only the first of
+  // them writes a file. Maps source realpath → the snapshot written for it.
   const writtenBySource = new Map<string, string>();
-  return runGatedSnapshot(
+  // Prefixes whose role this run found inside the unified `tasks-*` snapshot.
+  const coveredByUnified = new Set<string>();
+  const result = await runGatedSnapshot(
     {
       backupDir,
       stateDb: await resolveGateStateDb(cwd),
@@ -717,9 +757,13 @@ async function snapshotProjectTargetsGated(
     },
     async (prefix) => {
       const target = byPrefix.get(prefix);
-      return target ? snapshotOne(target, backupDir, writtenBySource, cwd) : 'absent';
+      return target
+        ? snapshotOne(target, backupDir, writtenBySource, coveredByUnified, cwd)
+        : 'absent';
     },
   );
+  if (coveredByUnified.size > 0) pruneLegacyProjectSnapshots(backupDir, coveredByUnified);
+  return result;
 }
 
 /**
@@ -765,32 +809,6 @@ function assertOwnedByProject(source: string, prefix: string, cwd?: string): voi
     throw new Error(
       `refusing to snapshot ${prefix}: its database ${source} is not inside ${cleoDir}`,
     );
-  }
-}
-
-/**
- * `link()` error codes that mean "this filesystem cannot hard-link these
- * files" rather than a real failure: permission-less link (EPERM), no link
- * support (ENOTSUP, e.g. exFAT), different devices (EXDEV), link-count cap
- * (EMLINK). The caller copies instead.
- */
-const LINK_FALLBACK_CODES = new Set(['EPERM', 'ENOTSUP', 'EXDEV', 'EMLINK']);
-
-/**
- * Hard-link `existing` to `dest`. Returns `false` when the filesystem cannot
- * hard-link (see {@link LINK_FALLBACK_CODES}); any other error throws.
- *
- * @task T12508
- */
-function tryHardLink(existing: string, dest: string): boolean {
-  try {
-    linkSync(existing, dest);
-    return true;
-  } catch (err) {
-    if (err instanceof Error && 'code' in err && typeof err.code === 'string') {
-      if (LINK_FALLBACK_CODES.has(err.code)) return false;
-    }
-    throw err;
   }
 }
 
@@ -926,12 +944,12 @@ async function freeSnapshotName(backupDir: string, prefix: string): Promise<stri
  * @param backupDir — absolute path to the snapshot directory
  * @param cwd — optional working directory propagated to `target.openDb`
  * @param writtenBySource — snapshot files already written in this run, keyed
- *        by source realpath; a second target on the same file is hard-linked.
+ *        by source realpath; a second target on the same file writes nothing.
  * @returns `'written'` when a snapshot file was written; `'linked'` when the
- *          same physical database was already snapshotted in this run and the
- *          file was hard-linked under this prefix; `'absent'` when the
- *          database does not exist in this project (or is a derived row).
- *          Opener, ownership and `VACUUM INTO` errors throw.
+ *          same physical database was already snapshotted in this run under
+ *          another prefix, so this prefix is covered by that one file (T13891);
+ *          `'absent'` when the database does not exist in this project (or
+ *          is a derived row). Opener, ownership and `VACUUM INTO` errors throw.
  *
  * @task T10316 — eager-open via openCleoDb chokepoint (Saga T10281 / E3)
  * @task T10317 — raw-file-vacuum-readonly strategy for opener-less roles
@@ -941,6 +959,7 @@ async function snapshotOne(
   target: SnapshotTarget,
   backupDir: string,
   writtenBySource: Map<string, string>,
+  coveredByUnified: Set<string>,
   cwd?: string,
 ): Promise<SnapshotOutcome> {
   if (target.strategy === 'skip-derived') {
@@ -966,12 +985,32 @@ async function snapshotOne(
 
   let destName: string;
   let source: string | null;
+  let filePrefix = target.prefix;
   try {
     source = sourceFileOf(db);
     if (source !== null && (target.tier === 'project' || target.tier === 'derived')) {
       assertOwnedByProject(source, target.prefix, cwd);
     }
-    destName = await freeSnapshotName(backupDir, target.prefix);
+    // Already snapshotted this physical file in this run (T13891): the project
+    // cleo.db holds the tasks, brain and conduit tables, so its one snapshot
+    // covers this prefix. No second file, link or copy: per-prefix links kept
+    // diverging under per-prefix retention, and a filesystem without hard
+    // links got full copies. Older `brain-*` / `conduit-*` files age out with
+    // `tasks-*` retention (pruneLegacyProjectSnapshots, T13910).
+    if (source !== null && writtenBySource.has(source)) {
+      const unified = basename(writtenBySource.get(source) ?? '').startsWith('tasks-');
+      if (target.tier === 'project' && unified) coveredByUnified.add(target.prefix);
+      if (opened && target.closeDb) target.closeDb(opened);
+      return 'linked';
+    }
+    // The unified project cleo.db is always filed as `tasks-*`, whichever of
+    // tasks/brain/conduit the gate admitted first: a debounced tasks prefix
+    // must not leave the run writing a `brain-*` file that conduit recovery
+    // (conduit-* or tasks-*) never sees (T13891).
+    if (target.tier === 'project' && source !== null && basename(source) === 'cleo.db') {
+      filePrefix = 'tasks';
+    }
+    destName = await freeSnapshotName(backupDir, filePrefix);
   } catch (err) {
     if (opened && target.closeDb) target.closeDb(opened);
     throw err;
@@ -980,33 +1019,6 @@ async function snapshotOne(
 
   // Leftovers of a snapshot killed mid-write (see commitSnapshotFile).
   removeDeadTempSnapshots(backupDir);
-
-  // Already snapshotted this physical file in this run: hard-link the same
-  // snapshot under this prefix. One VACUUM, no extra disk, and every reader
-  // that looks for `<prefix>-*.db` (restore, recover-brain-db, listing)
-  // still finds a file. A filesystem without hard links (exFAT, FAT, some
-  // network mounts) gets a copy instead.
-  const existing = source !== null ? writtenBySource.get(source) : undefined;
-  if (existing !== undefined) {
-    try {
-      if (tryHardLink(existing, dest)) {
-        rotateSnapshots(backupDir, target.prefix, destName);
-        return 'linked';
-      }
-      const tmp = tempSnapshotPath(dest);
-      try {
-        copyFileSync(existing, tmp);
-        commitSnapshotFile(tmp, dest);
-      } catch (err) {
-        rmSync(tmp, { force: true });
-        throw err;
-      }
-      rotateSnapshots(backupDir, target.prefix, destName);
-      return 'written';
-    } finally {
-      if (opened && target.closeDb) target.closeDb(opened);
-    }
-  }
 
   try {
     // TRUNCATE checkpoint: flushes all WAL frames to the main DB and truncates
@@ -1030,7 +1042,8 @@ async function snapshotOne(
     }
 
     if (source !== null) writtenBySource.set(source, dest);
-    rotateSnapshots(backupDir, target.prefix, destName);
+    rotateSnapshots(backupDir, filePrefix, destName);
+    if (filePrefix === 'tasks' && target.prefix !== 'tasks') coveredByUnified.add(target.prefix);
     return 'written';
   } finally {
     // Release the ephemeral handle for raw-file-vacuum-readonly targets.
@@ -1150,12 +1163,18 @@ export function listSqliteBackups(
 }
 
 /**
- * List existing brain.db snapshots (newest first).
+ * List existing snapshots that hold the brain tables (newest first): the
+ * project store's `tasks-*.db` snapshots, since brain lives in the unified
+ * `cleo.db` and a run writes one file for it (T13891), plus older
+ * `brain-*.db` files written before that.
  */
 export function listBrainBackups(
   cwd?: string,
 ): Array<{ name: string; path: string; mtimeMs: number }> {
-  return listSqliteBackupsForPrefix('brain', cwd);
+  return [
+    ...listSqliteBackupsForPrefix('tasks', cwd),
+    ...listSqliteBackupsForPrefix('brain', cwd),
+  ].sort((a, b) => b.mtimeMs - a.mtimeMs);
 }
 
 /**

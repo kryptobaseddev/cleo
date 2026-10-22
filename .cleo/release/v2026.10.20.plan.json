@@ -1,0 +1,433 @@
+{
+  "$schema": "https://cleocode.io/schemas/release-plan/v1.json",
+  "version": "v2026.10.20",
+  "resolvedVersion": "v2026.10.20",
+  "suffixApplied": false,
+  "scheme": "calver",
+  "channel": "latest",
+  "epicId": null,
+  "releaseKind": "regular",
+  "hooksV1Promotion": false,
+  "createdAt": "2026-10-18T02:03:26.279Z",
+  "createdBy": "keatonhoskins",
+  "previousVersion": "v2026.10.19",
+  "previousTag": "v2026.10.19",
+  "previousShippedAt": "2026-10-17T11:22:16.576Z",
+  "tasks": [
+    {
+      "id": "T13816",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "Format 2->3 transition pruned can mask real lost synced rows (cap uses local rows held now, not at the parent checkpoint)",
+      "evidenceAtoms": [
+        "pr:2311",
+        "files:.changeset/t13816-format-transition-cap.md,packages/core/src/cloud/__tests__/nexus-vault.test.ts,packages/core/src/cloud/nexus-vault.ts,packages/core/src/cloud/__tests__/nexus-vault.test.ts,packages/core/src/cloud/nexus-vault.ts",
+        "ci:2311"
+      ],
+      "epicAncestor": "T12323",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T13828",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "Run audit retention prune automatically (today only 'cleo admin cleanup --target logs')",
+      "evidenceAtoms": [
+        "pr:2354",
+        "files:.changeset/t13816-format-transition-cap.md,.changeset/t13828-auto-audit-prune.md,docs/specs/CLEO-LOGGING-CONTRACT.md,packages/core/src/__tests__/audit-prune.test.ts,packages/core/src/audit-prune.ts,packages/core/src/cloud/__tests__/nexus-vault.test.ts,packages/core/src/cloud/nexus-vault.ts,packages/core/src/sessions/session-end-snapshot.ts,packages/core/src/cloud/__tests__/nexus-vault.test.ts,packages/core/src/cloud/nexus-vault.ts",
+        "ci:2354"
+      ],
+      "epicAncestor": "T12323",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T13842",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "docs fetch serves the stale writer's raw input, not the merged head: a merged concurrent edit is invisible to readers",
+      "evidenceAtoms": [
+        "pr:2358",
+        "files:packages/core/src/docs/__tests__/section-write-path.test.ts,packages/core/src/docs/section-write-path.ts",
+        "ci:2358"
+      ],
+      "epicAncestor": "T13340",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T13846",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "done --pr: job-level ciChecks (Unit Tests*) refuse when the merge-commit main run was superseded-cancelled; apply the T12742 stand-in at job level",
+      "evidenceAtoms": [
+        "pr:2345",
+        "files:.changeset/t13846-ci-job-descendant.md,packages/core/src/release/__tests__/ci-evidence.test.ts,packages/core/src/release/ci-evidence.ts",
+        "ci:2345"
+      ],
+      "epicAncestor": "T12317",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T13847",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "#2344 9b363c90: gate 39 session-end probe exits 31 (SESSION_NOT_FOUND) in CI; Build & Verify red",
+      "evidenceAtoms": [
+        "pr:2344",
+        "files:scripts/check-cli-startup-graph.mjs",
+        "ci:2344"
+      ],
+      "epicAncestor": "T13434",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T13850",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "10.19 gate: read-only memory commands dirty the vault store, so cloud pull refuses with E_NEXUS_VAULT_LOCAL_CHANGES",
+      "evidenceAtoms": [
+        "pr:2349",
+        "files:.changeset/t13850-pull-over-memory-reads.md,packages/core/src/cloud/__tests__/nexus-vault.test.ts,packages/core/src/cloud/nexus-vault.ts,packages/core/src/metrics/__tests__/dispatch-token-usage.test.ts,packages/core/src/store/__tests__/vault-manifest.test.ts,packages/core/src/store/vault-manifest.ts,packages/core/src/store/__tests__/vault-manifest.test.ts",
+        "ci:2349"
+      ],
+      "epicAncestor": "T12323",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T13852",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "10.19 gate: a device is 'ahead' of its own push in cloud verify: audit/token-usage (project) and nexus_devices/project_locations (global) rows are written after the snapshot",
+      "evidenceAtoms": [
+        "pr:2350",
+        "files:.changeset/t13852-verify-own-push.md,packages/cleo/src/cli/__tests__/sync-probe-bookkeeping-cli.test.ts,packages/cleo/src/cli/index.ts,packages/cleo/src/cli/lib/__tests__/sync-probe-commands.test.ts,packages/cleo/src/cli/lib/sync-probe-commands.ts,packages/core/src/cloud/__tests__/nexus-vault.test.ts,packages/core/src/cloud/__tests__/nexus-vault.test.ts",
+        "ci:2350"
+      ],
+      "epicAncestor": "T12323",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T13853",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "10.19 gate: a fresh device's first global pull is refused E_NEXUS_VAULT_LOCAL_CHANGES (login/init seed rows), joining the main brain needs --force",
+      "evidenceAtoms": [
+        "pr:2347",
+        "files:.changeset/t13853-fresh-device-global-pull.md,packages/core/src/cloud/__tests__/nexus-vault.test.ts,packages/core/src/cloud/nexus-vault.ts,packages/core/src/cloud/__tests__/nexus-vault.test.ts,packages/core/src/cloud/nexus-vault.ts",
+        "ci:2347"
+      ],
+      "epicAncestor": "T12323",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T13854",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "#2344 464dce2c: gate 39 session-end probe sits at its RSS ceiling (235-241 of 240 MB); drop the contracts barrel from cleo session commands",
+      "evidenceAtoms": [
+        "pr:2344",
+        "files:packages/cleo/src/cli/commands/session.ts,scripts/check-cli-startup-graph.mjs,scripts/lint-no-contracts-barrel-value-imports.mjs",
+        "ci:2344"
+      ],
+      "epicAncestor": "T12317",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T13855",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "service connect audit row stores the token in plain text in tasks_audit_log, which syncs to the cloud",
+      "evidenceAtoms": [
+        "pr:2351",
+        "files:.changeset/t13855-audit-log-redaction.md,packages/core/src/sentient/ingesters/nexus-ingester.ts,packages/core/src/store/__tests__/audit-log-redaction-T13855.test.ts,packages/core/src/store/audit-log-schema.ts,packages/core/src/store/display-id-alias.ts,packages/core/src/store/schema/audit.ts,packages/core/src/store/schema/cleo-global/nexus.ts,packages/core/src/store/schema/cleo-project/audit.ts,packages/core/src/store/schema/nexus-schema.ts,packages/core/src/store/schema/schema-utils.ts,packages/core/src/store/sync/apply/__tests__/audit-redaction-apply.test.ts,packages/core/src/store/sync/apply/resolve-conflict.ts,packages/core/src/store/sync/apply/write-api.ts,packages/core/src/store/sync/merge/engine.ts,packages/core/src/store/sync/reconcile-copy.ts,packages/utils/src/__tests__/redact.test.ts,packages/utils/src/index.ts,packages/utils/src/redact.ts",
+        "ci:2351"
+      ],
+      "epicAncestor": "T12323",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T13859",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "#2351 47511664: audit redaction rewrites ordinary text (SECRET_PATH_RE on every string leaf) in an immutable synced log",
+      "evidenceAtoms": [
+        "pr:2351",
+        "files:packages/utils/src/__tests__/redact.test.ts,packages/utils/src/redact.ts",
+        "ci:2351"
+      ],
+      "epicAncestor": "T12323",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T13860",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "#2351 47511664: audit redaction misses config.set values and common credential strings",
+      "evidenceAtoms": [
+        "pr:2351",
+        "files:packages/utils/src/__tests__/redact.test.ts,packages/utils/src/redact.ts",
+        "ci:2351"
+      ],
+      "epicAncestor": "T12323",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T13861",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "#2351 47511664: sync apply writes audit rows with raw SQL, bypassing redactedText; pulled segments restore plaintext tokens",
+      "evidenceAtoms": [
+        "pr:2351",
+        "files:packages/core/src/store/schema/schema-utils.ts,packages/core/src/store/sync/apply/__tests__/audit-redaction-apply.test.ts,packages/core/src/store/sync/apply/resolve-conflict.ts,packages/core/src/store/sync/apply/write-api.ts,packages/core/src/store/sync/merge/engine.ts,packages/core/src/store/sync/reconcile-copy.ts",
+        "ci:2351"
+      ],
+      "epicAncestor": "T12323",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T13863",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "Redact 'Authorization: Basic <b64>' in audit redaction (residual from #2351 review)",
+      "evidenceAtoms": [
+        "pr:2352",
+        "files:.changeset/t13857-local-audit-scrub.md,packages/core/src/store/__tests__/row-identity-heal.test.ts,packages/core/src/store/__tests__/twin-collapse-audit-log-T13777.test.ts,packages/core/src/store/__tests__/vault-manifest.test.ts,packages/core/src/store/dual-scope-db.ts,packages/core/src/store/sync/__tests__/audit-scrub.test.ts,packages/core/src/store/sync/audit-scrub.ts,packages/core/src/store/sync/schema.ts,packages/core/src/store/table-classification.ts,packages/core/src/store/twin-collapse.ts,packages/utils/src/__tests__/redact.test.ts,packages/utils/src/redact.ts,scripts/lint-no-raw-table-writes.mjs",
+        "ci:2352"
+      ],
+      "epicAncestor": "T12323",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T13864",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "#2352 1143b0ec: vault restore carries the live store's audit_secret_scrub_v1 marker onto a pre-scrub snapshot, so plaintext secrets come back and are never scrubbed",
+      "evidenceAtoms": [
+        "pr:2352",
+        "files:.changeset/t13857-local-audit-scrub.md,packages/core/src/store/__tests__/vault-manifest.test.ts,packages/core/src/store/sync/__tests__/audit-scrub.test.ts,packages/core/src/store/sync/audit-scrub.ts,packages/core/src/store/table-classification.ts",
+        "ci:2352"
+      ],
+      "epicAncestor": "T12323",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T13865",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "Journal gate: cloud sync exits 0 when a stream fails (status failed, refused FOREIGN KEY constraint failed)",
+      "evidenceAtoms": [
+        "pr:2356",
+        "files:.changeset/t13865-cloud-sync-failed-exit.md,packages/cleo/src/cli/lib/__tests__/nexus-vault-cli.test.ts,packages/cleo/src/cli/lib/nexus-vault-cli.ts,packages/contracts/src/nexus-account.ts",
+        "ci:2356"
+      ],
+      "epicAncestor": "T12323",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T13866",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "Journal gate: cloud conflicts differ between devices; the origin records its own op as an incoming conflict, and memory reads bump updated_at into conflicts (T13714 AC2 not met)",
+      "evidenceAtoms": [
+        "pr:2357",
+        "files:.changeset/t13866-conflict-sets-agree.md,packages/core/src/store/sync/__tests__/two-device-e2e.test.ts,packages/core/src/store/sync/merge/engine.ts,packages/core/src/store/sync/merge/rules.ts,packages/core/src/store/sync/merge/types.ts,packages/core/src/store/sync/sequencing.ts",
+        "ci:2357"
+      ],
+      "epicAncestor": "T12323",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T13869",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "cleo goal install: pass --dry-run through to cleo-goal install --project",
+      "evidenceAtoms": [
+        "pr:2353",
+        "files:.changeset/goal-install-dry-run.md,packages/cleo/src/cli/commands/goal.ts,packages/contracts/src/goal-runtime.ts,packages/core/src/goal/__tests__/goal-runtime.test.ts,packages/core/src/goal/runtime.ts",
+        "ci:2353"
+      ],
+      "epicAncestor": "T13791",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T13870",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "contracts: GoalRuntimeCriterion.by and .detail are string | null",
+      "evidenceAtoms": [
+        "pr:2353",
+        "files:.changeset/goal-install-dry-run.md,packages/cleo/src/cli/commands/goal.ts,packages/contracts/src/goal-runtime.ts,packages/core/src/goal/__tests__/goal-runtime.test.ts,packages/core/src/goal/runtime.ts",
+        "ci:2353"
+      ],
+      "epicAncestor": "T13791",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T13878",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "#2356 c641cb2c: E_SYNC_STREAM_FAILED is a bare string, not registered in NEXUS_ACCOUNT_ERROR_CODES",
+      "evidenceAtoms": [
+        "pr:2356",
+        "files:packages/cleo/src/cli/lib/__tests__/nexus-vault-cli.test.ts,packages/cleo/src/cli/lib/nexus-vault-cli.ts,packages/contracts/src/nexus-account.ts",
+        "ci:2356"
+      ],
+      "epicAncestor": "T13434",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T13884",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "Stop dispatcher passes CLEO_HOOK_PROVIDER=<provider> to the goal tick",
+      "evidenceAtoms": [
+        "pr:2361",
+        "files:.changeset/goal-tick-provider-env.md,packages/cleo/src/cli/__tests__/stop-dispatch-entry.test.ts,packages/cleo/src/cli/stop-dispatch-entry.ts,packages/contracts/src/goal-runtime.ts",
+        "ci:2361"
+      ],
+      "epicAncestor": "T13791",
+      "ivtrPhaseAtPlan": "contribution"
+    }
+  ],
+  "changelog": {
+    "features": [
+      "T13816",
+      "T13828",
+      "T13842",
+      "T13846",
+      "T13847",
+      "T13850",
+      "T13852",
+      "T13853",
+      "T13854",
+      "T13855",
+      "T13859",
+      "T13860",
+      "T13861",
+      "T13863",
+      "T13864",
+      "T13865",
+      "T13866",
+      "T13869",
+      "T13870",
+      "T13878",
+      "T13884"
+    ],
+    "fixes": [],
+    "chores": [],
+    "breaking": []
+  },
+  "gates": [
+    {
+      "name": "test",
+      "atom": "tool:test",
+      "status": "unresolved",
+      "lastVerifiedAt": "2026-10-18T02:03:26.279Z",
+      "resolvedCommand": "pnpm run test",
+      "resolvedSource": "project-context"
+    },
+    {
+      "name": "build",
+      "atom": "tool:build",
+      "status": "unresolved",
+      "lastVerifiedAt": "2026-10-18T02:03:26.279Z",
+      "resolvedCommand": "pnpm run build",
+      "resolvedSource": "project-context"
+    },
+    {
+      "name": "lint",
+      "atom": "tool:lint",
+      "status": "unresolved",
+      "lastVerifiedAt": "2026-10-18T02:03:26.279Z",
+      "resolvedCommand": "pnpm run lint",
+      "resolvedSource": "package-script"
+    },
+    {
+      "name": "typecheck",
+      "atom": "tool:typecheck",
+      "status": "unresolved",
+      "lastVerifiedAt": "2026-10-18T02:03:26.279Z",
+      "resolvedCommand": "pnpm run typecheck",
+      "resolvedSource": "package-script"
+    },
+    {
+      "name": "audit",
+      "atom": "tool:audit",
+      "status": "unresolved",
+      "lastVerifiedAt": "2026-10-18T02:03:26.279Z",
+      "resolvedCommand": "npm audit",
+      "resolvedSource": "language-default"
+    },
+    {
+      "name": "security-scan",
+      "atom": "tool:security-scan",
+      "status": "unresolved",
+      "lastVerifiedAt": "2026-10-18T02:03:26.279Z",
+      "resolvedCommand": "npm audit",
+      "resolvedSource": "language-default"
+    }
+  ],
+  "platformMatrix": [
+    {
+      "platform": "any",
+      "publisher": "npm",
+      "package": "@cleocode/cleo"
+    }
+  ],
+  "preflightSummary": {
+    "esbuildExternalsDrift": false,
+    "lockfileDrift": false,
+    "epicCompletenessClean": true,
+    "doubleListingClean": true,
+    "preflightWarnings": [
+      "Skipped 836 out-of-scope changeset entries whose task anchors are not part of this release plan"
+    ]
+  },
+  "workflowRunUrl": null,
+  "prUrl": null,
+  "mergeCommitSha": null,
+  "status": "planned",
+  "meta": {
+    "firstEverRelease": false,
+    "archetype": "node",
+    "releaseNotes": "## v2026.10.20 — 2026-10-18\n\n> **Audit-log secret redaction.** Rotate any token you passed to `cleo service connect` on an earlier build: older builds wrote it to the synced audit log (fixed in this release, T13855/T13857). Audit tables now redact secrets on write, and each store scrubs older rows once on open. Cross-device sync itself (Stage C) stays off on stable.\n\n### Added\n\n- cleo goal install --harness opencode --dry-run previews the change through cleo-goal; criterion by/detail may be null _(provenance: [T13869](https://github.com/kryptobaseddev/cleo/search?q=T13869&type=commits), [T13870](https://github.com/kryptobaseddev/cleo/search?q=T13870&type=commits))_\n- the Stop dispatcher passes CLEO_HOOK_PROVIDER (claude-code or codex) to the goal tick _(provenance: [T13884](https://github.com/kryptobaseddev/cleo/search?q=T13884&type=commits))_\n\n### Fixed\n\n- docs fetch now returns the merged head after concurrent edits, not the last writer's raw input _(provenance: [T13842](https://github.com/kryptobaseddev/cleo/search?q=T13842&type=commits))_\n- the first push over a format-2 parent prunes only the local rows in that parent's own snapshot, so a lost synced row is refused instead of hidden _(provenance: [T13816](https://github.com/kryptobaseddev/cleo/search?q=T13816&type=commits))_\n- the audit retention prune now runs by itself at session end, at most once a day per project _(provenance: [T13828](https://github.com/kryptobaseddev/cleo/search?q=T13828&type=commits))_\n- ci:<pr> looks past a later main run that skipped the test jobs to the next one where they ran _(provenance: [T13846](https://github.com/kryptobaseddev/cleo/search?q=T13846&type=commits))_\n- cloud pull no longer refuses a store whose only changes since its last sync are what memory reads wrote (retrieval log, citation counters) _(provenance: [T13850](https://github.com/kryptobaseddev/cleo/search?q=T13850&type=commits))_\n- cloud verify and cloud status no longer write the device heartbeat or project encounter before comparing, so the device that just pushed verifies match instead of ahead _(provenance: [T13852](https://github.com/kryptobaseddev/cleo/search?q=T13852&type=commits))_\n- a fresh device's first `cloud pull --scope global` no longer needs --force: the device's own heartbeat row is not counted as unsynced local data _(provenance: [T13853](https://github.com/kryptobaseddev/cleo/search?q=T13853&type=commits))_\n- audit tables scrub secrets on write, local and pulled: secret-named params, a `value` whose sibling `key`/`name` names a secret, credential shapes, `Authorization: token`, URL passwords and `--token` flags become [REDACTED] in tasks_audit_log, audit_log and nexus_audit_log; path-shaped text such as `process.env` or `.env.example` is kept, and a re-delivered redacted row is no conflict _(provenance: [T13855](https://github.com/kryptobaseddev/cleo/search?q=T13855&type=commits), [T13859](https://github.com/kryptobaseddev/cleo/search?q=T13859&type=commits), [T13860](https://github.com/kryptobaseddev/cleo/search?q=T13860&type=commits), [T13861](https://github.com/kryptobaseddev/cleo/search?q=T13861&type=commits))_\n- store open scrubs secrets written to audit rows before T13855, once per store, with capture suspended so nothing syncs; legacy audit_log rows drained later land redacted; Authorization: Basic credentials are redacted with the label kept _(provenance: [T13857](https://github.com/kryptobaseddev/cleo/search?q=T13857&type=commits), [T13863](https://github.com/kryptobaseddev/cleo/search?q=T13863&type=commits), [T13864](https://github.com/kryptobaseddev/cleo/search?q=T13864&type=commits))_\n- cleo cloud sync exits 1 with E_SYNC_STREAM_FAILED when any stream ends failed, naming each stream and reason, with every stream's result in the error details _(provenance: [T13865](https://github.com/kryptobaseddev/cleo/search?q=T13865&type=commits))_\n- sync conflict lists agree on both devices after a rebase under an unframed writer, and memory-read bookkeeping is no conflict (inert on stable until Stage C) _(provenance: [T13866](https://github.com/kryptobaseddev/cleo/search?q=T13866&type=commits))_\n\n### Also in this release (listed by hand)\n\nMerged since v2026.10.19 and reviewed, with green PR CI; their tasks were still open at planning time:\n\n- T13834 #2344: `cleo session end` no longer loads the core barrel, so a Claude Code Stop costs about 0.7 s instead of 1.7 s.\n- T13857 #2352: the one-time scrub of audit secrets written before T13855 (its notes entry is under Fixed above).\n- T13881 (1ec71e436): no in-process writer can land on the shared database handle during a docs merge preview.\n",
+    "changesetEntryCount": 13,
+    "changesetIds": [
+      "docs-fetch-merged-head",
+      "goal-install-dry-run",
+      "goal-tick-provider-env",
+      "t13816-format-transition-cap",
+      "t13828-auto-audit-prune",
+      "t13846-ci-job-descendant",
+      "t13850-pull-over-memory-reads",
+      "t13852-verify-own-push",
+      "t13853-fresh-device-global-pull",
+      "t13855-audit-log-redaction",
+      "t13857-local-audit-scrub",
+      "t13865-cloud-sync-failed-exit",
+      "t13866-conflict-sets-agree"
+    ],
+    "taskIds": [
+      "T13816",
+      "T13828",
+      "T13842",
+      "T13846",
+      "T13847",
+      "T13850",
+      "T13852",
+      "T13853",
+      "T13854",
+      "T13855",
+      "T13859",
+      "T13860",
+      "T13861",
+      "T13863",
+      "T13864",
+      "T13865",
+      "T13866",
+      "T13869",
+      "T13870",
+      "T13878",
+      "T13884"
+    ]
+  }
+}

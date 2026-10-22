@@ -44,6 +44,7 @@ export {
   lintGateSchema,
   manualGateSchema,
   testCountReportSchema,
+  testCountSummarySchema,
   testGateSchema,
 } from './acceptance-gate-schema.js';
 // === Provider Adapter Contracts ===
@@ -550,7 +551,11 @@ export type {
   DonePlanTypedGate,
   DoneRecordResult,
   DoneToolResult,
+  OwedTestFile,
+  OwedTestPackage,
   TaskChangeSet,
+  TaskChangeSetReport,
+  TaskTestPlan,
 } from './done-plan.js';
 export type {
   EngineErrorPayload,
@@ -729,9 +734,6 @@ export {
 // === CLEO-native Goal System (T11376 · Epic T11290 · Saga T11283) ===
 export type {
   FuzzyGoal,
-  GoalAdvanceResult,
-  GoalContinuation,
-  GoalJudge,
   GoalJudgeVerdict,
   GoalKind,
   GoalKindTag,
@@ -742,12 +744,57 @@ export type {
 export {
   GOAL_STATUSES,
   GOAL_TARGET_TASK_ID_REGEX,
-  GOAL_TERMINAL_STATUSES,
-  isFuzzyGoal,
-  isTaskCompletionGoal,
-  isTerminalGoalStatus,
   isValidGoalTargetTaskId,
 } from './goal.js';
+// === goal/v1 protocol: contract, task link, outcome (T13792 · Epic T13791) ===
+export type {
+  GoalAbsentCheck,
+  GoalAcRef,
+  GoalAmendClass,
+  GoalAssumption,
+  GoalAutonomy,
+  GoalBudget,
+  GoalCheck,
+  GoalCheckEvidence,
+  GoalCheckExpect,
+  GoalCheckKind,
+  GoalCleoGate,
+  GoalCommandCheck,
+  GoalCommandEvidence,
+  GoalContainsCheck,
+  GoalContract,
+  GoalCriterion,
+  GoalCriterionOutcome,
+  GoalDiffCheck,
+  GoalDraftEntry,
+  GoalFileCheck,
+  GoalHumanCheck,
+  GoalHumanEvidence,
+  GoalOutcome,
+  GoalPathEvidence,
+  GoalPriority,
+  GoalRuntimeHandoff,
+  GoalStatusReport,
+  GoalStep,
+  GoalTaskLink,
+  GoalVerdictSource,
+  GoalVerificationMode,
+  GoalVerifierCheck,
+  GoalVerifierEvidence,
+  GoalVerifierQuote,
+} from './goal-contract.js';
+export { GOAL_CONTRACT_SCHEMA, GOAL_HOST_CHECK_KINDS } from './goal-contract.js';
+// === CLEO Goal runtime bin wire shapes (T13819 / T13820 / T13821) ===
+export type {
+  GoalRuntimeBudgetPart,
+  GoalRuntimeCriterion,
+  GoalRuntimeError,
+  GoalRuntimeInstall,
+  GoalRuntimePluginEntry,
+  GoalRuntimeRunStatus,
+  GoalRuntimeStatus,
+} from './goal-runtime.js';
+export { GOAL_RUNTIME_SCHEMA_VERSION } from './goal-runtime.js';
 // === Graph Intelligence Types (T512, T529, T1862, T9145) ===
 export type {
   AmbiguousProvenance,
@@ -904,6 +951,8 @@ export type {
   LeanConfig,
   LeanDebtItem,
   LeanDebtReport,
+  LeanGainMetric,
+  LeanGainReport,
   LeanLevel,
   LeanLevelSource,
 } from './lean.js';
@@ -3135,6 +3184,7 @@ export {
   NEXUS_DEVICE_LIST_STATES,
   NEXUS_DEVICE_STATE_UNKNOWN,
   NEXUS_DEVICE_STATES,
+  NEXUS_FEATURE_MANIFEST_SNAPSHOT_AUTHORITATIVE,
   NEXUS_FEATURE_PROJECT_INITIAL_KEY,
   NEXUS_FORBIDDEN_ERRORS,
   NEXUS_FORBIDDEN_REASONS,

@@ -29,8 +29,9 @@
  * snapshotter) write to the SAME directory: `.cleo/backups/sqlite/`. The two
  * producers use distinguishable filename schemes that coexist:
  *
- *   - `vacuumIntoBackupAll` writes `tasks-YYYYMMDD-HHmmss.db` /
- *     `brain-YYYYMMDD-HHmmss.db` (no sidecar).
+ *   - `vacuumIntoBackupAll` writes ONE `tasks-YYYYMMDD-HHmmss.db` per run for
+ *     the unified project store (no sidecar); older `brain-*` / `conduit-*`
+ *     files predate T13891.
  *   - `createBackup` writes `<file>.<backupId>` + `<backupId>.meta.json`,
  *     where `backupId = <type>-YYYYMMDD-HHmmss` (matching the same local-time
  *     timestamp format).

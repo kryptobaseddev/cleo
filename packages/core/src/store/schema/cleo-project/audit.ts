@@ -50,10 +50,11 @@ import {
   sqliteTable,
   text,
   unique,
+  uniqueIndex,
 } from 'drizzle-orm/sqlite-core';
 import { ADR_STATUSES, GATE_STATUSES } from '../../status-registry.js';
 import { TOKEN_USAGE_CONFIDENCE, TOKEN_USAGE_METHODS, TOKEN_USAGE_TRANSPORTS } from '../audit.js';
-import { makeSchemaMetaTable } from '../schema-utils.js';
+import { makeSchemaMetaTable, redactedText } from '../schema-utils.js';
 
 /** ADR governance-gate kinds — promoted from inline literal (§5a). */
 export const ADR_GATE_KINDS = ['HITL', 'automated'] as const;
@@ -105,11 +106,11 @@ export const tasksAuditLog = sqliteTable(
     /** Actor identity. */
     actor: text('actor').notNull().default('system'),
     /** JSON details payload (TEXT per JSON audit; empty-object default). */
-    detailsJson: text('details_json').default('{}'),
+    detailsJson: redactedText('tasks_audit_log', 'details_json').default('{}'),
     /** JSON before-snapshot (TEXT per JSON audit). */
-    beforeJson: text('before_json'),
+    beforeJson: redactedText('tasks_audit_log', 'before_json'),
     /** JSON after-snapshot (TEXT per JSON audit). */
-    afterJson: text('after_json'),
+    afterJson: redactedText('tasks_audit_log', 'after_json'),
     /** Dispatch domain. */
     domain: text('domain'),
     /** Dispatch operation. */
@@ -136,11 +137,27 @@ export const tasksAuditLog = sqliteTable(
     /** CQRS gateway. */
     gateway: text('gateway'),
     /** Error message on failure. */
-    errorMessage: text('error_message'),
+    errorMessage: redactedText('tasks_audit_log', 'error_message'),
     /** Project correlation hash. */
     projectHash: text('project_hash'),
+    /** Row uid (T13777): a UUIDv8 over the audit id, filled at open or by the uid trigger. */
+    uid: text('uid'),
+    /**
+     * A dispatch request's idempotency key (T13777). Outside the
+     * `uq_tasks_audit_log_idempotency_lookup` constraint: one key may record
+     * several dispatch rows (a failed attempt, then its retry); the idempotent
+     * replay reads the newest successful one.
+     */
+    dispatchIdempotencyKey: text('dispatch_idempotency_key'),
   },
   (table) => [
+    uniqueIndex('uq_tasks_audit_log_uid').on(table.uid),
+    index('idx_tasks_audit_log_dispatch_idempotency').on(
+      table.projectHash,
+      table.domain,
+      table.operation,
+      table.dispatchIdempotencyKey,
+    ),
     index('idx_tasks_audit_log_task_id').on(table.taskId),
     index('idx_tasks_audit_log_action').on(table.action),
     index('idx_tasks_audit_log_timestamp').on(table.timestamp),
@@ -214,8 +231,11 @@ export const tasksTokenUsage = sqliteTable(
     responseHash: text('response_hash'),
     /** JSON metadata object (TEXT per JSON audit; empty-object default). */
     metadataJson: text('metadata_json').notNull().default('{}'),
+    /** Row uid (T13777): a UUIDv8 over the usage id, filled at open or by the uid trigger. */
+    uid: text('uid'),
   },
   (table) => [
+    uniqueIndex('uq_tasks_token_usage_uid').on(table.uid),
     index('idx_tasks_token_usage_created_at').on(table.createdAt),
     index('idx_tasks_token_usage_request_id').on(table.requestId),
     index('idx_tasks_token_usage_session_id').on(table.sessionId),
