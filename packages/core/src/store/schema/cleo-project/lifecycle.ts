@@ -31,7 +31,8 @@
  */
 
 import { sql } from 'drizzle-orm';
-import { index, integer, sqliteTable, text } from 'drizzle-orm/sqlite-core';
+import { index, integer, sqliteTable, text, uniqueIndex } from 'drizzle-orm/sqlite-core';
+import { defaultRowUid } from '../../row-identity-flag.js';
 import { LIFECYCLE_PIPELINE_STATUSES, LIFECYCLE_STAGE_STATUSES } from '../../status-registry.js';
 import {
   LIFECYCLE_EVIDENCE_TYPES,
@@ -77,8 +78,11 @@ export const tasksLifecyclePipelines = sqliteTable(
     updatedAt: text('updated_at').default(sql`(datetime('now'))`),
     /** Optimistic-concurrency version counter. */
     version: integer('version').notNull().default(1),
+    /** Row uid (T12914): a UUIDv8 over the pipeline id, filled at open or by the uid trigger. */
+    uid: text('uid'),
   },
   (table) => [
+    uniqueIndex('uq_tasks_lifecycle_pipelines_uid').on(table.uid),
     index('idx_tasks_lifecycle_pipelines_task_id').on(table.taskId),
     index('idx_tasks_lifecycle_pipelines_status').on(table.status),
   ],
@@ -132,8 +136,11 @@ export const tasksLifecycleStages = sqliteTable(
     validationStatus: text('validation_status', { enum: LIFECYCLE_VALIDATION_STATUSES }),
     /** JSON provenance chain (TEXT per JSON audit). */
     provenanceChainJson: text('provenance_chain_json'),
+    /** Row uid (T12914): a UUIDv8 over the stage id, filled at open or by the uid trigger. */
+    uid: text('uid'),
   },
   (table) => [
+    uniqueIndex('uq_tasks_lifecycle_stages_uid').on(table.uid),
     index('idx_tasks_lifecycle_stages_pipeline_id').on(table.pipelineId),
     index('idx_tasks_lifecycle_stages_stage_name').on(table.stageName),
     index('idx_tasks_lifecycle_stages_status').on(table.status),
@@ -167,8 +174,13 @@ export const tasksLifecycleGateResults = sqliteTable(
     details: text('details'),
     /** Optional reason. */
     reason: text('reason'),
+    /** Row uid (T12914): a UUIDv8 over the gate-result id, filled at open or by the uid trigger. */
+    uid: text('uid'),
   },
-  (table) => [index('idx_tasks_lifecycle_gate_results_stage_id').on(table.stageId)],
+  (table) => [
+    uniqueIndex('uq_tasks_lifecycle_gate_results_uid').on(table.uid),
+    index('idx_tasks_lifecycle_gate_results_stage_id').on(table.stageId),
+  ],
 );
 
 /**
@@ -195,8 +207,18 @@ export const tasksLifecycleEvidence = sqliteTable(
     recordedBy: text('recorded_by'),
     /** Optional description. */
     description: text('description'),
+    /**
+     * Row uid (T12914): the merge key. A new row gets a random UUIDv7; a row
+     * written without one gets a deterministic uid at the next open.
+     */
+    uid: text('uid').$defaultFn(defaultRowUid),
+    /** Birth fingerprint (T12914): creation facts hashed once with the uid; never updated. */
+    birthFp: text('birth_fp'),
   },
-  (table) => [index('idx_tasks_lifecycle_evidence_stage_id').on(table.stageId)],
+  (table) => [
+    uniqueIndex('uq_tasks_lifecycle_evidence_uid').on(table.uid),
+    index('idx_tasks_lifecycle_evidence_stage_id').on(table.stageId),
+  ],
 );
 
 /**
@@ -229,8 +251,18 @@ export const tasksLifecycleTransitions = sqliteTable(
     transitionedBy: text('transitioned_by'),
     /** ISO-8601 UTC creation instant (canonical TEXT, §4). */
     createdAt: text('created_at').notNull().default(sql`(datetime('now'))`),
+    /**
+     * Row uid (T12914): the merge key. A new row gets a random UUIDv7; a row
+     * written without one gets a deterministic uid at the next open.
+     */
+    uid: text('uid').$defaultFn(defaultRowUid),
+    /** Birth fingerprint (T12914): creation facts hashed once with the uid; never updated. */
+    birthFp: text('birth_fp'),
   },
-  (table) => [index('idx_tasks_lifecycle_transitions_pipeline_id').on(table.pipelineId)],
+  (table) => [
+    uniqueIndex('uq_tasks_lifecycle_transitions_uid').on(table.uid),
+    index('idx_tasks_lifecycle_transitions_pipeline_id').on(table.pipelineId),
+  ],
 );
 
 // === TYPE EXPORTS ===

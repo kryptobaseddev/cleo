@@ -16,12 +16,14 @@ import type { DatabaseSync as _DatabaseSyncType } from 'node:sqlite';
 import { SYNC_SCHEMA_VERSION } from '@cleocode/contracts';
 import { VAULT_REMOTE_PATH_PREFIX } from '@cleocode/paths';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { scrubAuditSecrets } from '../sync/audit-scrub.js';
 import {
   BARE_ACCOUNTS_TABLE,
   bareTableDigest,
   legacyStrands,
   recordBareAccounts,
 } from '../sync/flags.js';
+import { AUDIT_SCRUB_MARKER } from '../sync/schema.js';
 import { TRIGGER_SUSPEND_TABLE_DDL } from '../sync/trigger-classes.js';
 import {
   classifyTable,
@@ -142,10 +144,36 @@ describe('buildVaultManifest', () => {
       'brain_observations',
       'tasks_sessions',
       'tasks_tasks',
+      'zz_vault_authored',
     ]);
     expect(manifest.tables['tasks_tasks']?.rows).toBe(2);
     expect(manifest.tables['tasks_tasks']?.hash).toMatch(/^[0-9a-f]{64}$/);
     expect(skipped).toEqual([]);
+  });
+
+  it('leaves out rows local by row-identity spec, and counts them for format 2 (T13808)', () => {
+    const file = path.join(tmp, 'local.db');
+    const db = new DatabaseSync(file);
+    db.exec(`
+      CREATE TABLE tasks_session_handoff_entries (id INTEGER PRIMARY KEY, session_id TEXT, handoff_json TEXT, created_at TEXT, uid TEXT);
+      INSERT INTO tasks_session_handoff_entries VALUES
+        (1, 's1', '{}', '2026-10-16 09:00:01', 'u1'),
+        (2, 's1', '{"later":1}', '2026-10-16 09:00:02', NULL),
+        (3, 's2', '{}', '2026-10-16 09:00:03', NULL);
+    `);
+    db.close();
+    // Row 2 is a later handoff of s1 (local); row 3 waits for its uid (synced, counted).
+    const built = build(file);
+    expect(built.manifest.tables['tasks_session_handoff_entries']?.rows).toBe(2);
+    expect(built.localRows).toEqual({ tasks_session_handoff_entries: 1 });
+    const v2 = buildVaultManifest(file, {
+      scope: 'project',
+      hashKey: KEY,
+      root: '/a/root',
+      countLocalRows: true,
+    });
+    expect(v2.manifest.tables['tasks_session_handoff_entries']?.rows).toBe(3);
+    expect(v2.localRows).toEqual({});
   });
 
   it('is independent of row insertion order', () => {
@@ -1271,6 +1299,39 @@ describe('carry takes file-state keys from the snapshot, machine keys from the l
     carryMachineState(staged, null, 'project');
     expect(kv(staged, 'tasks_row_identity_meta')).toEqual({ timestamp_canon_v1: 'done' });
     expect(kv(staged, '_sync_meta')).toEqual({ 'schema:x': 'h' });
+  });
+
+  it('the audit-scrub marker comes from the file, so a pre-scrub snapshot is scrubbed again (T13864)', () => {
+    const token = `gho_${'a'.repeat(36)}`;
+    const staged = make('staged', { row_identity_recipe: 'snap-recipe' }, null);
+    const db = new DatabaseSync(staged);
+    db.exec(TRIGGER_SUSPEND_TABLE_DDL);
+    db.exec('CREATE TABLE tasks_audit_log (id TEXT PRIMARY KEY, details_json TEXT)');
+    db.prepare('INSERT INTO tasks_audit_log VALUES (?, ?)').run('a1', JSON.stringify({ token }));
+    db.close();
+    const live = make(
+      'live',
+      { [AUDIT_SCRUB_MARKER]: 'live-done' },
+      { [AUDIT_SCRUB_MARKER]: 'live-done' },
+    );
+    carryMachineState(staged, live, 'project');
+    expect(kv(staged, 'tasks_row_identity_meta')[AUDIT_SCRUB_MARKER]).toBeUndefined();
+
+    const opened = new DatabaseSync(staged);
+    try {
+      expect(scrubAuditSecrets(opened).status).toBe('done');
+      const row = opened.prepare('SELECT details_json FROM tasks_audit_log').get() as {
+        details_json: string;
+      };
+      expect(row.details_json).not.toContain(token);
+    } finally {
+      opened.close();
+    }
+    expect(kv(staged, 'tasks_row_identity_meta')[AUDIT_SCRUB_MARKER]).toBe('done');
+
+    const global = make('global-staged', null, { 'schema:x': 'h' });
+    carryMachineState(global, live, 'global');
+    expect(kv(global, '_sync_meta')[AUDIT_SCRUB_MARKER]).toBeUndefined();
   });
 
   it('every file-state key table is local-only in its scope', () => {

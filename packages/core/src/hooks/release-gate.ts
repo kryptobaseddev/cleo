@@ -13,6 +13,9 @@
  * - after promotion, remove `hooks-v1` from {@link UNRELEASED_HOOK_FEATURES}
  *   in an ordinary PR before the next stable release, which no longer stamps it.
  *
+ * hooks-v1 was promoted in v2026.10.17 and is now released in source (T13776),
+ * so every build runs project hooks; the gate stays for a future hook feature.
+ *
  * Lightweight on purpose: the hook hot path must not load the store (the sync
  * flags module pulls in sqlite and the schema machinery).
  *
@@ -26,7 +29,7 @@ import { fileURLToPath } from 'node:url';
 export type HookFeature = 'hooks-v1';
 
 /** Hook features not released on stable builds; remove one after its promotion. */
-export const UNRELEASED_HOOK_FEATURES: ReadonlySet<HookFeature> = new Set(['hooks-v1']);
+export const UNRELEASED_HOOK_FEATURES: ReadonlySet<HookFeature> = new Set();
 
 /** The error code of a refused activation. */
 export const E_HOOKS_V1_UNRELEASED = 'E_HOOKS_V1_UNRELEASED';

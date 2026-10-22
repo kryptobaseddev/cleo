@@ -429,9 +429,10 @@ export const conduitAttachmentVersions = sqliteTable(
     /**
      * Import provenance (T13360, spec §5): NULL for natively-written
      * versions; `'migrated'` for rows imported from the legacy docs store by
-     * the T13360 data migration (`cleo docs migrate`). Every imported history
-     * row carries this label — the honesty contract that no imported row
-     * poses as native.
+     * the T13360 data migration (`cleo docs migrate`); `'backfill-t13727'`
+     * for rows synthesized from the pre-adoption audit trail by the T13727
+     * `cleo docs doctor` backfill. Every non-NULL label is the honesty
+     * contract that no imported row poses as native.
      */
     origin: text('origin'),
   },

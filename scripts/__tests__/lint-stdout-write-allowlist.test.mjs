@@ -185,7 +185,10 @@ describe('stdout jobs install their existing parser dependency', () => {
     const workflow = parseYaml(
       readFileSync(join(REPO_ROOT, '.github/workflows/arch-boundary-check.yml'), 'utf8'),
     );
-    const job = workflow.jobs[id];
+    // T13838: both gates are steps of the consolidated installed-gates job.
+    const [jobId, job] = Object.entries(workflow.jobs).find(([, j]) =>
+      j.steps?.some((step) => step.run?.startsWith(`node scripts/lint-${id}.mjs`)),
+    );
     const install = job.steps.findIndex((step) => step.run === 'pnpm install --frozen-lockfile');
     const lint = job.steps.findIndex((step) => step.run?.startsWith(`node scripts/lint-${id}.mjs`));
     expect(install).toBeGreaterThan(-1);
@@ -193,7 +196,7 @@ describe('stdout jobs install their existing parser dependency', () => {
     expect(job.steps.find((step) => step.uses === 'pnpm/action-setup@v4').with.version).toBe(
       '10.30.0',
     );
-    expect(workflow.jobs['arch-boundary-check'].needs).toContain(id);
+    expect(workflow.jobs['arch-boundary-check'].needs).toContain(jobId);
     // T13263: the arch workflow is a reusable workflow that ci.yml calls on
     // every pull_request and merge_group run, through a job the required
     // `ci` aggregate needs — so these gates still run (and gate) there.

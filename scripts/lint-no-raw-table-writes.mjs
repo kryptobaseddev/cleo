@@ -338,6 +338,13 @@ export const EXEMPT = {
     _sync_clock: { count: 1, reason: SYNC_BOOKKEEPING },
   },
   'packages/core/src/store/sync/flags.ts': { _sync_meta: { count: 1, reason: SYNC_BOOKKEEPING } },
+  'packages/core/src/store/sync/audit-scrub.ts': {
+    _sync_meta: {
+      count: 1,
+      reason:
+        'audit-scrub marker (local-only): records that the one-time audit secret scrub ran on THIS store; the key is not carried by a restore (T13857)',
+    },
+  },
   'packages/core/src/cloud/doc-bytes.ts': {
     _sync_meta: {
       count: 1,

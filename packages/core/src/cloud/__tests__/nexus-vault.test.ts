@@ -34,6 +34,7 @@ import type { DatabaseSync as _DatabaseSyncType } from 'node:sqlite';
 import { gunzipSync } from 'node:zlib';
 import {
   type CloudWarning,
+  NEXUS_FEATURE_MANIFEST_SNAPSHOT_AUTHORITATIVE,
   NEXUS_FEATURE_PROJECT_INITIAL_KEY,
   type NexusLoginResult,
   type PortableBundleManifest,
@@ -78,8 +79,15 @@ import {
   legacyStrands,
   recordBareAccounts,
   setSyncFlag,
+  UNRELEASED_FLAGS,
 } from '../../store/sync/flags.js';
-import { cutGenesis, genesisCutOf, genesisPending } from '../../store/sync/genesis.js';
+import {
+  cutGenesis,
+  GENESIS_CUT_KEY_PREFIX,
+  genesisCutOf,
+  genesisPending,
+  readGenesisCut,
+} from '../../store/sync/genesis.js';
 import { readStreamCursor } from '../../store/sync/pull.js';
 import {
   activeReplica,
@@ -90,6 +98,7 @@ import {
 import { readDeviceRegistry } from '../../store/sync/replica-registry.js';
 import { ensureSyncSchema } from '../../store/sync/schema.js';
 import {
+  buildVaultManifest,
   emptyVaultTableHash,
   isVaultForkManifest,
   VAULT_FORMAT_KEY,
@@ -107,7 +116,7 @@ import {
   uuidv7,
   verifyEd25519,
 } from '../crypto.js';
-import { type FetchLike, Http, NexusError } from '../http.js';
+import { type FetchLike, Http, NEXUS_STREAM_READER_HEADER, NexusError } from '../http.js';
 import {
   cursorFromCheckpoint,
   Journal,
@@ -146,6 +155,8 @@ import {
   cloudSync,
   confirmableRetirements,
   enableSyncPush,
+  formatTransitionPruned,
+  journalStreamRemedy,
   nexusVaultStatus,
   pullSyncStream,
   pushNexusVault,
@@ -153,6 +164,7 @@ import {
   releaseNexusVaultLease,
   restoreNexusVault,
   serverRetirementsFor,
+  syncDisabledRemedy,
   verifyNexusVault,
 } from '../nexus-vault.js';
 import {
@@ -420,6 +432,8 @@ class FakeNexus {
   beforeSegment: { deviceId: string; run: () => Promise<void> } | null = null;
   /** Codes the next checkpoint creates are refused with, in order. */
   refuseCheckpoint: string[] = [];
+  /** As Cleo Nexus with T13876: a v3 stream's head and checkpoint reads need the stream-reader header. */
+  streamReaderRequired = false;
   /** Runs once before the next checkpoint create by `deviceId` (simulates a concurrent author). */
   beforeCheckpoint: { deviceId: string; run: () => Promise<void> } | null = null;
   /** Runs once after the server stored a checkpoint, before the response reaches the client. */
@@ -499,6 +513,19 @@ class FakeNexus {
       const token = (new Headers(init?.headers).get('authorization') ?? '').replace(/^Bearer /, '');
       const device = [...this.devices.values()].find((d) => d.token === token);
       if (!device) throw new ApiFail(401, 'E_UNAUTHENTICATED');
+      if (this.streamReaderRequired && method === 'GET') {
+        const sm = url.pathname.match(/^\/v1\/streams\/([^/]+)(\/checkpoints)?$/);
+        const st = sm ? this.streams.get(decodeURIComponent(sm[1] ?? '')) : undefined;
+        const headCp = st?.checkpoints.find((c) => c.checkpointId === st.headCheckpointId);
+        if (
+          headCp &&
+          manifestVersion(headCp.manifest) === 3 &&
+          new Headers(init?.headers).get(NEXUS_STREAM_READER_HEADER.name) !==
+            NEXUS_STREAM_READER_HEADER.value
+        ) {
+          throw new ApiFail(409, 'E_STREAM_VERSION');
+        }
+      }
       const body =
         typeof init?.body === 'string' ? (JSON.parse(init.body) as Record<string, unknown>) : {};
       if (method !== 'GET') this.writes.push(`${method} ${url.pathname}`);
@@ -1203,6 +1230,16 @@ class FakeNexus {
         throw new ApiFail(403, 'E_FORBIDDEN', { reason: 'bad-checkpoint-signature' });
       }
       const refuse = this.refuseCheckpoint.shift();
+      if (refuse === 'authoritative-omitted') {
+        // As the server words a list a child left out (cleo-nexus #45).
+        throw new ApiFail(409, 'E_MANIFEST_ACCOUNTING', {
+          verdict: {
+            ok: false,
+            code: 'E_MANIFEST_ACCOUNTING',
+            findings: [{ reason: 'authoritative-omitted', table: 'tasks_task_work_history' }],
+          },
+        });
+      }
       if (refuse === 'E_STREAM_VERSION') {
         // As the server words its v3 ratchet refusal.
         throw new ApiFail(409, refuse, {
@@ -1253,6 +1290,10 @@ class FakeNexus {
         ),
         voidedBefore: s.voided,
         maxAcceptedSchemaVersion: this.maxSchemaVersion,
+        // As the server does (T13777): listed tables any segment at or below coversSeq declared.
+        journaledTables: (manifest.snapshotAuthoritative ?? []).filter((t) =>
+          s.segments.some((x) => x.seq <= coversSeq && Object.hasOwn(x.deltas, t)),
+        ),
       });
       // An older server reconciled the vault's file and database keys like any table.
       const legacyFindings = this.snapshotAuthoritativeKeys
@@ -1703,11 +1744,12 @@ describe('cloud vault push (lineage, regression rule)', () => {
     const cp = fake.stream(STREAM).checkpoints[0];
     expect(cp?.parentCheckpointId).toBeNull();
     // Only syncing, non-secret tables are in the plaintext manifest.
-    // (plus the plain-file inventory, T12969, and the format record, T13034).
+    // (plus the plain-file inventory, T12969, the format record, T13034, and the authored digest, T13850).
     expect(Object.keys(cp?.manifest.tables ?? {}).sort()).toEqual([
       'brain_observations',
       'tasks_sessions',
       'tasks_tasks',
+      'zz_vault_authored',
       'zz_vault_files',
       'zz_vault_format',
     ]);
@@ -1891,6 +1933,45 @@ describe('cloud vault restore and verify across two devices', () => {
     // A pull with nothing new is up-to-date.
     const again = await on(a, () => restoreNexusVault(vopts(a, { mode: 'pull' })));
     expect(again.status).toBe('up-to-date');
+  });
+
+  it('a pull takes the snapshot over what memory reads wrote, never over an edit (T13850)', async () => {
+    const { a, b } = await twoMachines();
+    exec(
+      a,
+      `ALTER TABLE brain_observations ADD COLUMN citation_count INTEGER NOT NULL DEFAULT 0;
+       ALTER TABLE brain_observations ADD COLUMN updated_at TEXT;
+       CREATE TABLE brain_retrieval_log (id INTEGER PRIMARY KEY, query TEXT NOT NULL);`,
+    );
+    await on(a, () => pushNexusVault(vopts(a)));
+    await restoreOntoB(b);
+    exec(b, "INSERT INTO tasks_tasks (id, title) VALUES ('B1', 'from b')");
+    const pushedB = await on(b, () => pushNexusVault(vopts(b)));
+    await on(b, () => releaseNexusVaultLease(vopts(b)));
+
+    // What `cleo memory fetch O1` writes on A: a retrieval log row and a citation bump.
+    exec(
+      a,
+      `INSERT INTO brain_retrieval_log (query) VALUES ('O1');
+       UPDATE brain_observations SET citation_count = citation_count + 1, updated_at = '2026-10-17 12:00:00';`,
+    );
+    const pulled = await on(a, () => restoreNexusVault(vopts(a, { mode: 'pull' })));
+    expect(pulled.status).toBe('restored');
+    expect(pulled.snapshot?.checkpointId).toBe(pushedB.snapshot?.checkpointId);
+    expect(taskCount(a)).toBe(6);
+
+    // An edit beside the telemetry is still a local change.
+    exec(b, "INSERT INTO tasks_tasks (id, title) VALUES ('B2', 'from b')");
+    await on(b, () => pushNexusVault(vopts(b)));
+    await on(b, () => releaseNexusVaultLease(vopts(b)));
+    exec(
+      a,
+      `INSERT INTO brain_retrieval_log (query) VALUES ('O1');
+       UPDATE brain_observations SET narrative = 'edited on a';`,
+    );
+    const refused = await failure(on(a, () => restoreNexusVault(vopts(a, { mode: 'pull' }))));
+    expect(refused.code).toBe('E_NEXUS_VAULT_LOCAL_CHANGES');
+    expect(refused.message).toContain('brain_observations');
   });
 
   it('a pull refuses while another live process holds the restore marker, and clears its own (T13258)', async () => {
@@ -2842,6 +2923,49 @@ describe('cloud vault global scope', () => {
     }
   }
 
+  it('a fresh device pulls the global store without --force: its own heartbeat row is not unsynced data (T13853)', async () => {
+    const a = await machine('a', DEVICE_A, REPLICA_A);
+    const b = await machine('b', DEVICE_B, REPLICA_B);
+    await seedHome(a, ['p1']);
+    await on(a, () => pushNexusVault(vopts(a, { scope: 'global' })));
+    // B is freshly logged in: an empty global store plus the heartbeat row login writes.
+    await seedHome(b, []);
+    fs.writeFileSync(path.join(b.home, 'device-id'), 'device-b-fresh\n');
+    _resetDeviceIdCacheForTests();
+    const heartbeat = (id: string) => {
+      const db = new DatabaseSync(path.join(b.home, 'cleo.db'));
+      db.prepare(
+        "INSERT INTO nexus_devices (device_id, hostname, os, arch, cleo_version) VALUES (?, 'h', 'darwin', 'arm64', '1')",
+      ).run(id);
+      db.close();
+    };
+    heartbeat('device-b-fresh');
+    // Another device's row is data this store would lose: still refused.
+    heartbeat('device-other');
+    const refused = await failure(
+      on(b, () => restoreNexusVault(vopts(b, { scope: 'global', mode: 'pull' }))),
+    );
+    expect(refused.code).toBe('E_NEXUS_VAULT_LOCAL_CHANGES');
+    homeSql(b, "DELETE FROM nexus_devices WHERE device_id = 'device-other'");
+    // So is one user-authored row.
+    homeSql(
+      b,
+      "INSERT INTO nexus_project_registry (project_id, project_hash, project_path, name) VALUES ('mine', 'h-mine', '/b/mine', 'mine')",
+    );
+    const mine = await failure(
+      on(b, () => restoreNexusVault(vopts(b, { scope: 'global', mode: 'pull' }))),
+    );
+    expect(mine.code).toBe('E_NEXUS_VAULT_LOCAL_CHANGES');
+    homeSql(b, "DELETE FROM nexus_project_registry WHERE project_id = 'mine'");
+    const pulled = await on(b, () =>
+      restoreNexusVault(vopts(b, { scope: 'global', mode: 'pull' })),
+    );
+    expect(pulled.status).toBe('restored');
+    expect(
+      homeSql<{ project_id: string }>(b, 'SELECT project_id FROM nexus_project_registry'),
+    ).toEqual([{ project_id: 'p1' }]);
+  });
+
   it('a vault snapshot carries no local change journal: capture, undo, frame, quarantine, apply intents (T13042, T12757)', async () => {
     const a = await machine('a', DEVICE_A, REPLICA_A);
     await seedHome(a, ['p1']);
@@ -2915,6 +3039,24 @@ describe('cloud vault global scope', () => {
     for (const t of journal) {
       expect(homeSql<{ n: number }>(a, `SELECT count(*) AS n FROM ${t}`)).toEqual([{ n: 1 }]);
     }
+  });
+
+  it('the pushing device verifies match; a later heartbeat then reads ahead (T13852)', async () => {
+    const a = await machine('a', DEVICE_A, REPLICA_A);
+    await seedHome(a, ['p1']);
+    // The push's own CLI start heartbeats before the snapshot is taken.
+    homeSql(
+      a,
+      "INSERT INTO nexus_devices (device_id, hostname, os, arch, cleo_version, first_seen, last_heartbeat_at) VALUES ('dev-a', 'h', 'darwin', 'arm64', '1', '2026-10-17T00:00:00.000Z', '2026-10-17T00:00:00.000Z')",
+    );
+    await on(a, () => pushNexusVault(vopts(a, { scope: 'global' })));
+    const verified = await on(a, () => verifyNexusVault(vopts(a, { scope: 'global' })));
+    expect(verified.verdict).toBe('match');
+    // Any later command that heartbeats (cloud verify/status do not) is a real change.
+    homeSql(a, "UPDATE nexus_devices SET last_heartbeat_at = '2026-10-17T00:01:01.000Z'");
+    const after = await on(a, () => verifyNexusVault(vopts(a, { scope: 'global' })));
+    expect(after.verdict).toBe('ahead');
+    expect(after.tables.find((t) => t.table === 'nexus_devices')?.match).toBe(false);
   });
 
   it('i: pushes the home stream and restores it on another device, keeping machine-local state', async () => {
@@ -3964,6 +4106,40 @@ describe('cloud vault round 4 (#1773)', () => {
   });
 });
 
+/** The project data key, as every device unwraps it. */
+function projectDataKey(): Buffer {
+  const wrapped = fake.projectKeys.get(REMOTE_PROJECT)?.[0];
+  return unwrapProjectKey(
+    fake.escrow?.mk ?? Buffer.alloc(0),
+    wrapped?.wrappedProjectKey ?? '',
+    REMOTE_PROJECT,
+    1,
+  );
+}
+
+describe('journalStreamRemedy names only commands this build can run (T13851)', () => {
+  it('a build without sync.push names no command it cannot run; a build with it says to join', () => {
+    // While sync.push is unreleased no released CLEO ships it, so self-update would loop (T13856).
+    const unreleased = journalStreamRemedy(false);
+    expect(unreleased).not.toContain('cleo self-update');
+    expect(unreleased).not.toContain('cleo sync enable push');
+    expect(unreleased).toContain('no released CLEO can push to it yet');
+    expect(unreleased).toContain('pre-release or allowUnreleased');
+    expect(unreleased).toContain('`cleo cloud pull`, `cleo cloud restore` and `cleo cloud verify`');
+    const released = journalStreamRemedy(true);
+    expect(released).toContain('cleo sync enable push');
+    expect(released).not.toContain('cleo self-update');
+  });
+
+  it('the E_SYNC_DISABLED fix names cleo sync enable push only where this build ships sync.push (T13856)', () => {
+    const unreleased = syncDisabledRemedy(false);
+    expect(unreleased).not.toContain('cleo sync enable push');
+    expect(unreleased).not.toContain('cleo self-update');
+    expect(unreleased).toContain('no released CLEO can push to it yet');
+    expect(syncDisabledRemedy(true)).toContain('cleo sync enable push');
+  });
+});
+
 describe('cloud vault on a stream the change journal writes (segment/v3, checkpoint/v3; T13034)', () => {
   const PIN_HASH = 'c'.repeat(64);
   const insertTask = (m: Machine, id: string) =>
@@ -3973,17 +4149,6 @@ describe('cloud vault on a stream the change journal writes (segment/v3, checkpo
   /** Stream, blob and lease writes since `from` (a refusal before the lease makes none). */
   const streamWrites = (from: number) =>
     fake.writes.slice(from).filter((w) => w.includes('/v1/streams/') || w.includes('/blobs/'));
-
-  /** The project data key, as every device unwraps it. */
-  function projectDataKey(): Buffer {
-    const wrapped = fake.projectKeys.get(REMOTE_PROJECT)?.[0];
-    return unwrapProjectKey(
-      fake.escrow?.mk ?? Buffer.alloc(0),
-      wrapped?.wrappedProjectKey ?? '',
-      REMOTE_PROJECT,
-      1,
-    );
-  }
 
   /** `m`'s replica as the change journal drives it: its own segments and checkpoints. */
   function journalOf(m: Machine): Journal {
@@ -4120,6 +4285,12 @@ describe('cloud vault on a stream the change journal writes (segment/v3, checkpo
     expect(behind.fix).toContain('cleo cloud pull');
     expect(behind.fix).toContain('change journal (`sync.push`)');
     expect(behind.fix).not.toContain('--force');
+    // This build has `sync.push` unreleased, so `cleo sync enable push` refuses here: the remedy
+    // names the upgrade, never the enable step it would refuse (T13851).
+    expect(UNRELEASED_FLAGS.has('sync.push')).toBe(true);
+    expect(behind.fix).not.toContain('cleo self-update');
+    expect(behind.fix).not.toContain('cleo sync enable push');
+    expect(behind.fix).toContain('no released CLEO can push to it yet');
     const refused = await failure(on(a, () => pushNexusVault(vopts(a, { force: true }))));
     expect(refused.code).toBe('E_NEXUS_VAULT_STREAM_UPGRADED');
     expect(refused.message).toContain('checkpoint/v3');
@@ -5979,7 +6150,10 @@ describe('sync enable push: the genesis checkpoint (T12343 S4-1b)', () => {
     const { m } = await journalMachine();
     const refused = await failure(on(m, () => cloudSync(vopts(m, { scope: 'project' }))));
     expect(refused.code).toBe('E_SYNC_DISABLED');
-    expect(refused.fix).toContain('cleo sync enable push');
+    // This build has sync.push unreleased, where `cleo sync enable push` refuses (T13856).
+    expect(UNRELEASED_FLAGS.has('sync.push')).toBe(true);
+    expect(refused.fix).toBe(syncDisabledRemedy(false));
+    expect(refused.fix).not.toContain('cleo sync enable push');
   });
 
   it('S5-1: a store that synced a vault snapshot from before the journal genesis refuses to pull across it (T13306)', async () => {
@@ -6145,6 +6319,67 @@ describe('sync enable push: the genesis checkpoint (T12343 S4-1b)', () => {
       await sync(a);
       return { a, aDb, genesis, b, bDb };
     }
+
+    it('T13867: a store that reads snapshots only is behind once the journal moves past the head: pull refuses, verify says behind, never up-to-date or match', async () => {
+      fake.streamReaderRequired = true;
+      const { a, aDb } = await journalDevices(false);
+      // B restores the genesis and never joins the journal: it reads snapshots only.
+      const { b, bDb } = await restoredJoiner();
+      // The restored bundle carries no genesis cut of A's: B does not pass for a journal reader.
+      expect(await on(b, () => readGenesisCut(bDb, STREAM))).toBeUndefined();
+      expect((await on(b, () => restoreNexusVault(vopts(b, { mode: 'pull' })))).status).toBe(
+        'up-to-date',
+      );
+      expect((await on(b, () => verifyNexusVault(vopts(b)))).verdict).toBe('match');
+      // A writes through the journal: a segment past the head checkpoint.
+      await on(a, async () => (await storeOf(aDb)).exec(insertTask('T3', 'from A')));
+      await sync(a);
+      const pulled = await failure(on(b, () => restoreNexusVault(vopts(b, { mode: 'pull' }))));
+      expect(pulled.code).toBe('E_NEXUS_VAULT_BEHIND');
+      expect(pulled.message).toContain('reads snapshots only');
+      expect(pulled.fix).toContain('cleo sync enable push');
+      const verified = await on(b, () => verifyNexusVault(vopts(b)));
+      expect(verified.verdict).toBe('behind');
+      expect(verified.remedy).toContain('cleo sync enable push');
+      // A genesis cut alone (as a restored bundle could carry A's) does not make B a journal reader.
+      await on(b, async () => {
+        const db = await storeOf(bDb);
+        db.exec(
+          'CREATE TABLE IF NOT EXISTS _sync_meta (key TEXT PRIMARY KEY, value TEXT, updated_at TEXT)',
+        );
+        db.prepare(
+          'INSERT INTO _sync_meta (key, value, updated_at) VALUES (?, ?, ?) ON CONFLICT (key) DO UPDATE SET value = excluded.value',
+        ).run(`${GENESIS_CUT_KEY_PREFIX}${STREAM}`, '0', '2026-10-17');
+      });
+      expect(await on(b, () => readGenesisCut(bDb, STREAM))).toBe(0);
+      const cutOnly = await failure(on(b, () => restoreNexusVault(vopts(b, { mode: 'pull' }))));
+      expect(cutOnly.code).toBe('E_NEXUS_VAULT_BEHIND');
+      expect((await on(b, () => verifyNexusVault(vopts(b)))).verdict).toBe('behind');
+      // A device that writes the journal is not held behind by it.
+      expect((await on(a, () => verifyNexusVault(vopts(a)))).verdict).toBe('match');
+      // This client sent the stream-reader header throughout; a client without it (released
+      // v2026.10.19) is refused a v3 stream's reads by a T13876 server, never shown it as current.
+      const old = await fake.fetch(`${API}/v1/streams/${encodeURIComponent(STREAM)}/checkpoints`, {
+        headers: { authorization: `Bearer ${b.token}` },
+      });
+      expect(old.status).toBe(409);
+      expect(JSON.stringify(await old.json())).toContain('E_STREAM_VERSION');
+    });
+
+    it('T13867: on a journal head, a table only snapshots carry is listed but does not decide the verdict', async () => {
+      const { a, aDb } = await journalDevices(false);
+      await on(a, async () =>
+        (await storeOf(aDb)).exec(
+          "INSERT INTO schedules (schedule_id, cron_expr, title) VALUES ('s-t13867', '0 * * * *', 'machine-local schedule')",
+        ),
+      );
+      const v = await on(a, () => verifyNexusVault(vopts(a)));
+      expect(v.tables.find((r) => r.table === 'schedules')?.match).toBe(false);
+      expect(v.verdict).toBe('match');
+      expect(v.warnings.find((w) => w.code === 'W_NEXUS_VAULT_SNAPSHOT_ONLY')?.message).toContain(
+        'schedules',
+      );
+    });
 
     it('AC1: with sync.push on, cloud push checkpoints at the sealed journal hwm with no delta segment; the server v3 rule accepts it', async () => {
       const { a, aDb, genesis } = await journalDevices(true);
@@ -6425,6 +6660,255 @@ describe('sync enable push: the genesis checkpoint (T12343 S4-1b)', () => {
       expect(bRows).toBeGreaterThanOrEqual(3);
     });
 
+    it('T13777: a portable table the journal does not carry is named snapshot-authoritative, only to a server that takes the list', async () => {
+      const { a, aDb } = await journalDevices(false);
+      const s = fake.stream(STREAM);
+      // A session's task-work row: portable, still exempt from row identity, never journaled.
+      await on(a, async () => {
+        const db = await storeOf(aDb);
+        db.exec(insertTask('T3', 'from A'));
+        db.exec(
+          "INSERT INTO tasks_sessions (id, name, started_at) VALUES ('ses_t13777', 'work', '2026-10-16 09:00:00')",
+        );
+        db.exec(
+          "INSERT INTO tasks_task_work_history (session_id, task_id, set_at) VALUES ('ses_t13777', 'T3', '2026-10-16 09:00:01')",
+        );
+      });
+      // A server without the list: refused, naming the cause, nothing written.
+      fake.features = undefined;
+      const old = await failure(on(a, () => pushNexusVault(vopts(a, { allowUnreleased: true }))));
+      expect(old.code).toBe('E_NEXUS_VAULT_REFUSED');
+      expect(old.message).toContain('manifest.snapshot-authoritative');
+      expect(old.message).toContain('tasks_task_work_history');
+      expect(s.checkpoints).toHaveLength(1);
+      // A server that takes it: the checkpoint names the table and lands.
+      fake.features = [NEXUS_FEATURE_MANIFEST_SNAPSHOT_AUTHORITATIVE];
+      const pushed = await on(a, () => pushNexusVault(vopts(a, { allowUnreleased: true })));
+      expect(pushed.status).toBe('pushed');
+      const cp = s.checkpoints.at(-1);
+      expect(cp?.manifest.snapshotAuthoritative).toContain('tasks_task_work_history');
+      expect(cp?.manifest.snapshotAuthoritative).not.toContain('tasks_tasks');
+      expect(cp?.manifest.tables['tasks_task_work_history']?.rows).toBeGreaterThan(0);
+      expect((await on(a, () => verifyNexusVault(vopts(a)))).verdict).toBe('match');
+      // More work rows later: the next checkpoint lands too, its list no longer than the parent's.
+      await on(a, async () => {
+        (await storeOf(aDb)).exec(
+          "INSERT INTO tasks_task_work_history (session_id, task_id, set_at) VALUES ('ses_t13777', 'T3', '2026-10-16 09:00:02')",
+        );
+      });
+      const again = await on(a, () => pushNexusVault(vopts(a, { allowUnreleased: true })));
+      expect(again.status).toBe('pushed');
+      const next = s.checkpoints.at(-1)?.manifest.snapshotAuthoritative ?? [];
+      expect(next.every((x) => cp?.manifest.snapshotAuthoritative?.includes(x))).toBe(true);
+      // A refusal for an omitted list (an older cleo on another device) names the cause and the fix.
+      await on(a, async () => {
+        (await storeOf(aDb)).exec(
+          "INSERT INTO tasks_task_work_history (session_id, task_id, set_at) VALUES ('ses_t13777', 'T3', '2026-10-16 09:00:03')",
+        );
+      });
+      fake.refuseCheckpoint = ['authoritative-omitted'];
+      const omitted = await failure(
+        on(a, () => pushNexusVault(vopts(a, { allowUnreleased: true }))),
+      );
+      expect(omitted.code).toBe('E_NEXUS_VAULT_REFUSED');
+      expect(omitted.message).toContain('snapshot-authoritative list');
+      expect(omitted.fix).toContain('upgrade cleo on the other devices');
+    });
+
+    it('T13808: a row local by its row-identity spec is out of the manifest: push lands, both devices verify match', async () => {
+      const { m: a, dbPath: aDb } = await journalMachine();
+      // Legacy duplicates from before the journal: a second handoff for one session stays local (no uid).
+      await on(a, async () => {
+        const db = await storeOf(aDb);
+        db.exec(
+          "INSERT INTO tasks_sessions (id, name, started_at) VALUES ('ses_t13808', 'dup', '2026-10-16 09:00:00')",
+        );
+        db.exec(
+          `INSERT INTO tasks_session_handoff_entries (session_id, handoff_json, created_at) VALUES
+             ('ses_t13808', '{"n":"first"}', '2026-10-16 09:00:01'),
+             ('ses_t13808', '{"n":"second"}', '2026-10-16 09:00:02')`,
+        );
+      });
+      await on(a, () => enableSyncPush(vopts(a, { allowUnreleased: true })));
+      await on(a, async () => {
+        setSyncFlag(await storeOf(aDb), 'sync.pull', true, { allowUnreleased: true });
+      });
+      const genesis = fake.stream(STREAM).checkpoints[0];
+      expect(genesis?.manifest.tables['tasks_session_handoff_entries']?.rows).toBe(1);
+      const { b, bDb } = await restoredJoiner();
+      expect((await on(b, () => enableSyncPush(vopts(b, { allowUnreleased: true })))).status).toBe(
+        'joined',
+      );
+      await on(a, async () => (await storeOf(aDb)).exec(insertTask('T3', 'from A')));
+      await sync(a);
+      const pushed = await on(a, () => pushNexusVault(vopts(a, { allowUnreleased: true })));
+      expect(pushed.status).toBe('pushed');
+      expect(
+        fake.stream(STREAM).checkpoints.at(-1)?.manifest.tables['tasks_session_handoff_entries']
+          ?.rows,
+      ).toBe(1);
+      expect((await on(a, () => verifyNexusVault(vopts(a)))).verdict).toBe('match');
+      await sync(b);
+      expect((await on(b, () => verifyNexusVault(vopts(b)))).verdict).toBe('match');
+      expect(
+        await on(b, async () =>
+          (await storeOf(bDb))
+            .prepare('SELECT count(*) AS n FROM tasks_session_handoff_entries WHERE uid IS NULL')
+            .get(),
+        ),
+      ).toEqual({ n: 1 });
+    });
+
+    it('T13808: a parent of an older vault format counted local rows; the next checkpoint names them pruned and the row rule holds', () => {
+      const tallies = { rows: { t: 5, u: 3 }, pending: [], voided: [], applied: [] };
+      // The store holds 3 synced rows of t and 2 local ones the old format counted; u has none.
+      const moved = formatTransitionPruned(2, tallies, { t: 3, u: 3 }, { t: 2 });
+      expect(moved.pruned).toEqual({ t: 2 });
+      expect(moved.tallies.rows).toEqual({ t: 3, u: 3 });
+      // In the current format the parent already left them out: nothing is pruned.
+      expect(formatTransitionPruned(3, tallies, { t: 3, u: 3 }, { t: 2 }).pruned).toEqual({});
+      // Capped by the local rows the parent held: a shortfall they do not explain stays for the settle.
+      expect(formatTransitionPruned(2, tallies, { t: 1, u: 3 }, { t: 2 }).pruned).toEqual({ t: 2 });
+      // T13816 probe: the parent held 98 synced + 2 local; now 95 synced + 5 local. Only the 2 the
+      // parent counted are pruned, leaving 3 rows short for the settle to refuse.
+      const probe = formatTransitionPruned(
+        2,
+        { rows: { t: 100 }, pending: [], voided: [], applied: [] },
+        { t: 95 },
+        { t: 2 },
+      );
+      expect(probe.pruned).toEqual({ t: 2 });
+      expect(probe.tallies.rows).toEqual({ t: 98 });
+    });
+
+    it('T13816: over a format-2 parent another device pushed, the pruned cap is the local rows in its bundle: old local rows here do not mask a lost synced row; with nothing lost the push passes the server rule', async () => {
+      const { m: a, dbPath: aDb } = await journalMachine();
+      const HANDOFF = 'tasks_session_handoff_entries';
+      // Session x: one handoff (synced). Session y: two, the second local.
+      await on(a, async () => {
+        const db = await storeOf(aDb);
+        db.exec(
+          "INSERT INTO tasks_sessions (id, name, started_at) VALUES ('ses_x', 'x', '2026-09-30 09:00:00'), ('ses_y', 'y', '2026-09-30 09:00:00')",
+        );
+        db.exec(
+          `INSERT INTO tasks_session_handoff_entries (session_id, handoff_json, created_at) VALUES
+             ('ses_x', '{"n":"x"}', '2026-09-30 09:00:01'),
+             ('ses_y', '{"n":"y1"}', '2026-09-30 09:00:02'),
+             ('ses_y', '{"n":"y2"}', '2026-09-30 09:00:03')`,
+        );
+      });
+      await on(a, () => enableSyncPush(vopts(a, { allowUnreleased: true })));
+      await on(a, async () => {
+        setSyncFlag(await storeOf(aDb), 'sync.pull', true, { allowUnreleased: true });
+      });
+      const { b } = await restoredJoiner();
+      expect((await on(b, () => enableSyncPush(vopts(b, { allowUnreleased: true })))).status).toBe(
+        'joined',
+      );
+      const s = fake.stream(STREAM);
+      const g3 = s.checkpoints[0];
+      if (!g3) throw new Error('no genesis');
+      expect(g3.manifest.tables[HANDOFF]?.rows).toBe(2);
+
+      // B pushes the head as an older CLEO did: format 2, its one local row counted (3 rows).
+      for (const m of [a, b]) {
+        await on(m, async () => unlockNexusAccountKey(await connectNexusVault(vopts(m))));
+      }
+      const jb = new Journal({
+        http: new Http({ baseUrl: API, token: b.token, deviceId: b.deviceId, fetch: fake.fetch }),
+        streamId: STREAM,
+        replicaId: b.replicaId,
+        deviceId: b.deviceId,
+        signing: b.keys.signing,
+        key: projectDataKey(),
+        fetch: fake.fetch,
+      });
+      const { bundle } = await jb.restoreCheckpoint(
+        g3.checkpointId,
+        new Map([[a.deviceId, a.keys.signing.publicKey]]),
+      );
+      const x = path.join(b.root, 'g2x');
+      fs.mkdirSync(x);
+      fs.writeFileSync(path.join(x, 'b.tar.gz'), bundle);
+      await tarExtract({ file: path.join(x, 'b.tar.gz'), cwd: x });
+      const bm = JSON.parse(
+        fs.readFileSync(path.join(x, 'manifest.json'), 'utf8'),
+      ) as PortableBundleManifest;
+      const section = bm.projects[0];
+      const primary = section?.databases.find((d) => d.relPath === 'cleo.db');
+      if (!section || !primary) throw new Error('fixture: no primary store');
+      const hashKey = deriveKey(projectDataKey(), 'vault-manifest');
+      const v2 = buildVaultManifest(path.join(x, primary.bundlePath), {
+        scope: 'project',
+        hashKey,
+        root: section.originalPath ?? section.originalRoot,
+        countLocalRows: true,
+      });
+      expect(v2.manifest.tables[HANDOFF]?.rows).toBe(3);
+      s.checkpoints.length = 0;
+      s.headCheckpointId = null;
+      const g2 = await jb.pushCheckpoint({
+        bundle,
+        manifest: {
+          ...g3.manifest,
+          tables: {
+            ...g3.manifest.tables,
+            [HANDOFF]: v2.manifest.tables[HANDOFF] ?? { rows: 0, hash: '' },
+            [VAULT_FORMAT_KEY]: vaultFormatEntry(hashKey, 2),
+          },
+        },
+        cursor: cursorFromCheckpoint(g3),
+        parentCheckpointId: null,
+        // Under the genesis id: both stores' pull positions name it.
+        checkpointId: g3.checkpointId,
+      });
+      expect(g2.deviceId).toBe(b.deviceId);
+
+      // On A: x's synced handoff lost outside the journal, and a local row the parent never held,
+      // stamped before it. Capping by A's local rows (2) would prune both and mask the loss.
+      const lost = await on(a, async () => {
+        const db = await storeOf(aDb);
+        db.exec("INSERT INTO cleo_trigger_suspend (scope) VALUES ('capture')");
+        const row = db
+          .prepare("SELECT * FROM tasks_session_handoff_entries WHERE session_id = 'ses_x'")
+          .get() as Record<string, string | number | null>;
+        db.exec("DELETE FROM tasks_session_handoff_entries WHERE session_id = 'ses_x'");
+        db.exec("DELETE FROM cleo_trigger_suspend WHERE scope = 'capture'");
+        db.exec(
+          `INSERT INTO tasks_session_handoff_entries (session_id, handoff_json, created_at) VALUES ('ses_y', '{"n":"y3"}', '2026-09-30 09:00:04')`,
+        );
+        return row;
+      });
+      const refused = await failure(
+        on(a, () => pushNexusVault(vopts(a, { allowUnreleased: true }))),
+      );
+      expect({ code: refused.code, message: refused.message }).toMatchObject({
+        code: 'E_NEXUS_VAULT_REFUSED',
+        message: expect.stringContaining(HANDOFF),
+      });
+      expect(refused.message).toContain('vault format 2');
+      expect(refused.fix).toContain('cleo cloud pull --force');
+      expect(refused.fix).toContain('cleo cloud push --force');
+      expect(refused.fix).not.toContain('cloud sync');
+      expect(s.checkpoints).toHaveLength(1);
+
+      // Nothing lost: the push prunes only the one local row the parent's bundle held.
+      await on(a, async () => {
+        const db = await storeOf(aDb);
+        db.exec("INSERT INTO cleo_trigger_suspend (scope) VALUES ('capture')");
+        const cols = Object.keys(lost);
+        db.prepare(
+          `INSERT INTO tasks_session_handoff_entries (${cols.join(', ')}) VALUES (${cols.map(() => '?').join(', ')})`,
+        ).run(...cols.map((c) => lost[c] ?? null));
+        db.exec("DELETE FROM cleo_trigger_suspend WHERE scope = 'capture'");
+      });
+      const pushed = await on(a, () => pushNexusVault(vopts(a, { allowUnreleased: true })));
+      expect(pushed.status).toBe('pushed');
+      expect(pushed.parentCheckpointId).toBe(g2.checkpointId);
+      const cp = s.checkpoints.at(-1);
+      expect(cp?.manifest.pruned).toEqual({ [HANDOFF]: 1 });
+      expect(cp?.manifest.tables[HANDOFF]?.rows).toBe(2);
+    });
     it('a checkpoint with pending transactions restores on a new device, and they apply exactly once after a sync', async () => {
       const { a, aDb, b, bDb } = await journalDevices(true);
       if (!b || !bDb) throw new Error('no device B');
@@ -6782,6 +7266,119 @@ describe('sync enable push: the genesis checkpoint (T12343 S4-1b)', () => {
     ).toEqual({ slug: 'synced-doc' });
   });
 
+  it('a doc body the journal delivered is no local change: the peer pulls the snapshot, then pushes, without --force (T13813)', async () => {
+    const { m: a, dbPath: aDb } = await journalMachine();
+    await on(a, () => enableSyncPush(vopts(a, { allowUnreleased: true })));
+    await on(a, async () => {
+      setSyncFlag(await storeOf(aDb), 'sync.pull', true, { allowUnreleased: true });
+    });
+    const { b, bDb } = await restoredJoiner();
+    expect((await on(b, () => enableSyncPush(vopts(b, { allowUnreleased: true })))).status).toBe(
+      'joined',
+    );
+    // B adds a doc: its row and body travel by the journal; a file only B holds travels by snapshot.
+    const body = '# doc from B\n';
+    const sha = sha256Hex(Buffer.from(body));
+    const blobRel = path.join('.cleo', 'blobs', 'blobs', sha);
+    const onlyB = path.join(
+      '.cleo',
+      'attachments',
+      'sha256',
+      sha.slice(0, 2),
+      `${sha.slice(2)}.md`,
+    );
+    await on(b, async () => {
+      (await storeOf(bDb)).exec(
+        `INSERT INTO docs_attachments (id, sha256, attachment_json, ref_count, slug, type)
+           VALUES ('doc-b', '${sha}', '{"kind":"blob","mime":"text/markdown","sha256":"${sha}"}', 0, 'doc-b', 'note')`,
+      );
+    });
+    for (const rel of [blobRel, onlyB]) {
+      fs.mkdirSync(path.dirname(path.join(b.root, rel)), { recursive: true });
+      fs.writeFileSync(path.join(b.root, rel), body);
+    }
+    expect(
+      (await on(b, () => pushSyncStream(vopts(b, { allowUnreleased: true })))).refused,
+    ).toBeNull();
+    expect((await on(b, () => pushNexusVault(vopts(b, { allowUnreleased: true })))).status).toBe(
+      'pushed',
+    );
+    // A's sync delivers the body: the same bytes the head snapshot holds.
+    expect((await on(a, () => pullSyncStream(vopts(a)))).refused).toBeNull();
+    expect(fs.readFileSync(path.join(a.root, blobRel), 'utf8')).toBe(body);
+    const pulled = await on(a, () => restoreNexusVault(vopts(a, { mode: 'pull' })));
+    expect(pulled.status).toBe('restored');
+    expect(fs.readFileSync(path.join(a.root, onlyB), 'utf8')).toBe(body);
+    await on(a, async () =>
+      (await storeOf(aDb)).exec(
+        "INSERT INTO tasks_tasks (id, title, type, status, priority) VALUES ('T5', 'after the pull', 'task', 'pending', 'medium')",
+      ),
+    );
+    expect((await on(a, () => pushNexusVault(vopts(a, { allowUnreleased: true })))).status).toBe(
+      'pushed',
+    );
+    expect((await on(a, () => verifyNexusVault(vopts(a)))).verdict).toBe('match');
+  });
+
+  it("both devices add a doc between syncs: A's own new files are no change to keep; A pulls, pushes, and its files travel (T13813)", async () => {
+    const { m: a, dbPath: aDb } = await journalMachine();
+    await on(a, () => enableSyncPush(vopts(a, { allowUnreleased: true })));
+    await on(a, async () => {
+      setSyncFlag(await storeOf(aDb), 'sync.pull', true, { allowUnreleased: true });
+    });
+    const { b, bDb } = await restoredJoiner();
+    expect((await on(b, () => enableSyncPush(vopts(b, { allowUnreleased: true })))).status).toBe(
+      'joined',
+    );
+    /** A doc on `m`: its row, its body, and an attachment copy only `m` holds. */
+    const addDoc = async (m: Machine, dbPath: string, id: string) => {
+      const body = `# ${id}\n`;
+      const sha = sha256Hex(Buffer.from(body));
+      await on(m, async () => {
+        (await storeOf(dbPath)).exec(
+          `INSERT INTO docs_attachments (id, sha256, attachment_json, ref_count, slug, type)
+             VALUES ('${id}', '${sha}', '{"kind":"blob","mime":"text/markdown","sha256":"${sha}"}', 0, '${id}', 'note')`,
+        );
+      });
+      const own = path.join(
+        '.cleo',
+        'attachments',
+        'sha256',
+        sha.slice(0, 2),
+        `${sha.slice(2)}.md`,
+      );
+      for (const rel of [path.join('.cleo', 'blobs', 'blobs', sha), own]) {
+        fs.mkdirSync(path.dirname(path.join(m.root, rel)), { recursive: true });
+        fs.writeFileSync(path.join(m.root, rel), body);
+      }
+      return { body, own };
+    };
+    const docA = await addDoc(a, aDb, 'doc-a');
+    const docB = await addDoc(b, bDb, 'doc-b');
+    expect(
+      (await on(b, () => pushSyncStream(vopts(b, { allowUnreleased: true })))).refused,
+    ).toBeNull();
+    expect((await on(b, () => pushNexusVault(vopts(b, { allowUnreleased: true })))).status).toBe(
+      'pushed',
+    );
+    expect((await on(a, () => pullSyncStream(vopts(a)))).refused).toBeNull();
+    // A's new paths are not in the head: the pull leaves them, so they do not refuse it.
+    const pulled = await on(a, () => restoreNexusVault(vopts(a, { mode: 'pull' })));
+    expect(pulled.status).toBe('restored');
+    expect(fs.readFileSync(path.join(a.root, docB.own), 'utf8')).toBe(docB.body);
+    expect(fs.readFileSync(path.join(a.root, docA.own), 'utf8')).toBe(docA.body);
+    expect((await on(a, () => pushNexusVault(vopts(a, { allowUnreleased: true })))).status).toBe(
+      'pushed',
+    );
+    expect((await on(a, () => verifyNexusVault(vopts(a)))).verdict).toBe('match');
+    // A's files travel in its snapshot: B pulls them.
+    expect((await on(b, () => pullSyncStream(vopts(b)))).refused).toBeNull();
+    expect((await on(b, () => restoreNexusVault(vopts(b, { mode: 'pull' })))).status).toBe(
+      'restored',
+    );
+    expect(fs.readFileSync(path.join(b.root, docA.own), 'utf8')).toBe(docA.body);
+  });
+
   it('a server without the attachment routes: cloud sync still syncs, and one warning names why (T13721)', async () => {
     const { m: a, dbPath: aDb } = await journalMachine();
     await on(a, () => enableSyncPush(vopts(a, { allowUnreleased: true })));
@@ -7073,6 +7670,55 @@ describe('the main brain stream through cloud sync (T13370)', () => {
     const onA = await read(a, observationSql);
     expect(await read(b, observationSql)).toEqual(onA);
     expect(onA).toMatchObject({ title: 'from B' });
+  });
+
+  it('T13777: a project registered on one device changes the registry count; the home checkpoint names it snapshot-authoritative', async () => {
+    const a = await machine('a', DEVICE_A, REPLICA_A);
+    await onM(a, async () => {
+      const db = await globalStore(a);
+      setCaptureEnabled(db, 'global', true, { schemaRoot: SYNC_JOURNAL });
+      setSyncFlag(db, 'sync.seal', true, { schemaRoot: SYNC_JOURNAL, allowUnreleased: true });
+    });
+    expect(
+      (await onM(a, () => enableSyncPush(vopts(a, { scope: 'global', allowUnreleased: true }))))
+        .status,
+    ).toBe('enabled');
+    await onM(a, async () => {
+      setSyncFlag(await globalStore(a), 'sync.pull', true, { allowUnreleased: true });
+    });
+    const register = (id: string) =>
+      onM(a, async () => {
+        (await globalStore(a)).exec(
+          `INSERT INTO nexus_project_registry (project_id, project_hash, project_path, name) VALUES ('${id}', 'hash-${id}', '/work/${id}', 'project ${id}')`,
+        );
+      });
+    const s = fake.stream(HOME_STREAM);
+    const push = () =>
+      onM(a, () => pushNexusVault(vopts(a, { scope: 'global', allowUnreleased: true })));
+    // `cleo init` of a new project: one more registry row, which no segment declares.
+    await register('p-new-1');
+    // Against a server without the list, the push is refused, naming why.
+    fake.features = undefined;
+    const old = await failure(push());
+    expect(old.code).toBe('E_NEXUS_VAULT_REFUSED');
+    expect(old.message).toContain('nexus_project_registry');
+    expect(old.message).toContain('manifest.snapshot-authoritative');
+    // A server that takes it: the home checkpoint names the registry and lands.
+    fake.features = [NEXUS_FEATURE_MANIFEST_SNAPSHOT_AUTHORITATIVE];
+    const pushed = await push();
+    expect(pushed.status).toBe('pushed');
+    const cp = s.checkpoints.at(-1);
+    expect(cp?.manifest.snapshotAuthoritative).toContain('nexus_project_registry');
+    expect(cp?.manifest.tables['nexus_project_registry']?.rows).toBe(
+      (s.checkpoints[0]?.manifest.tables['nexus_project_registry']?.rows ?? 0) + 1,
+    );
+    // Another new project later: the inherited list goes out again (an omitted list is no reset).
+    await register('p-new-2');
+    const again = await push();
+    expect(again.status).toBe('pushed');
+    expect(s.checkpoints.at(-1)?.manifest.snapshotAuthoritative).toContain(
+      'nexus_project_registry',
+    );
   });
 
   it("with sync on, two devices see each other's brain writes after a session end, with no manual cloud sync (T13468)", async () => {

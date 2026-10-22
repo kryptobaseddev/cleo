@@ -2,19 +2,19 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    branches: [ main ]
   pull_request:
-    branches: [main]
-  merge_group:
-  # T12094: a branch pushed and a PR opened with GITHUB_TOKEN do NOT trigger
+    branches: [ main ]
+  merge_group: # T12094: a branch pushed and a PR opened with GITHUB_TOKEN do NOT trigger
+
   # workflows — GitHub suppresses them to prevent recursive runs. The release
   # bump-PR is created exactly that way, so it opened with ZERO checks and could
   # never satisfy branch protection (which requires the `CI` context). This
   # trigger lets `release-prepare` dispatch CI for the branch explicitly; the
   # resulting check runs attach to the branch-tip SHA, which IS the PR head, so
   # protection is satisfied without a human pushing a commit.
-  workflow_dispatch:
-  # Nightly full run on main. This is where the macOS unit-test and
+  workflow_dispatch: # Nightly full run on main. This is where the macOS unit-test and
+
   # Build & Verify matrix runs (see the `os:` expressions below): macOS no
   # longer runs on every push to main, because its runner pool was the CI
   # bottleneck and its 2-shard layout outgrew `timeout-minutes`. Release
@@ -96,7 +96,7 @@ jobs:
       # package.json files, CHANGELOG.md and `.changeset/**` moves: the release
       # bump-PR shape. Heavy jobs skip on it; lint + typecheck (and the separate
       # Lockfile Check workflow) still run. See scripts/ci-detect-version-only.mjs.
-      version_only: ${{ (steps.version-only.outputs.version_only == 'true' || steps.version-only-dispatch.outputs.version_only == 'true') && 'true' || 'false' }}
+      version_only: ${{ (steps.version-only.outputs.version_only == 'true' || steps.version-only-dispatch.outputs.version_only == 'true' || steps.version-only-push.outputs.version_only == 'true') && 'true' || 'false' }}
       # T13143: the runners Build, Build & Verify and Unit Tests use, and the
       # unit-test shards per runner (scripts/ci-platform-matrix.mjs). macOS
       # runs nightly, in merge groups, and on a pull request whose change is
@@ -137,6 +137,33 @@ jobs:
           else
             echo "version_only=false" >> "$GITHUB_OUTPUT"
             echo "No merge-base with origin/${DEFAULT_BRANCH}; running the full suite."
+          fi
+      # T13833: the main push of a merged release bump PR re-ran the whole
+      # ~26 min suite (706928327, v2026.10.18) on a tree that differs from its
+      # first parent only by version lines, the plan and CHANGELOG.md. It takes
+      # the version-only set when that diff passes the same detector AND the
+      # first parent's own ci.yml push run on main concluded success, so the
+      # tested tree is the parent's. A missing, unfinished or failed parent
+      # run, an API error, or a non-version-only diff runs the full suite.
+      - name: Detect a version-only (release bump) push to main
+        id: version-only-push
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -u
+          parent=$(git rev-parse HEAD^1 2>/dev/null || true)
+          verdict=absent
+          if [ -n "$parent" ]; then
+            verdict=$(gh api "repos/$REPO/actions/workflows/ci.yml/runs?head_sha=$parent&event=push&branch=main&per_page=20" \
+              --jq "[.workflow_runs[] | select(.head_sha == \"$parent\")] | sort_by(.id) | last | \"\(.status)/\(.conclusion)\"" 2>/dev/null || echo unreadable)
+          fi
+          if [ "$verdict" = "completed/success" ]; then
+            node scripts/ci-detect-version-only.mjs HEAD^1 HEAD
+          else
+            echo "version_only=false" >> "$GITHUB_OUTPUT"
+            echo "First parent ${parent:-<none>}: ci.yml push run is ${verdict}; running the full suite."
           fi
       - name: Choose platforms and shards (T13143)
         id: platform
@@ -310,21 +337,15 @@ jobs:
           run_install: false
       - name: Validate .cleo/project-context.json against its schema
         run: >-
-          pnpm --package=ajv-cli@5.0.0 --package=ajv-formats@2.1.1 dlx
-          ajv validate --spec=draft7 --strict=false -c ajv-formats
-          -s packages/core/schemas/project-context.schema.json
-          -d .cleo/project-context.json
-
-  adr-index-jsonl-frozen-lint:
-    # T10165 / Saga T9855 SG-TEMPLATE-CONFIG-SSOT — the `.cleo/adrs/adr-index.jsonl`
-    # portability export is frozen. Canonical store for the same metadata
-    # is the `attachments` table provenance columns (T10158). The lint
-    # walks the file's frozen invariants AND diffs against origin/main to
-    # catch newly-appended data lines. Pure static analysis — no user
-    # input flows here.
-    name: ADR Index JSONL Frozen (T10165)
+          pnpm --package=ajv-cli@5.0.0 --package=ajv-formats@2.1.1 dlx ajv validate --spec=draft7 --strict=false -c ajv-formats -s packages/core/schemas/project-context.schema.json -d .cleo/project-context.json
+  # T13838: the node-only repo lints, which were 27 sub-minute jobs, each paying
+  # its own runner start and checkout. One job, one checkout, one install; every
+  # gate is its own step (named after the job it replaced) and runs even when an
+  # earlier gate failed (`!cancelled()`), so each failure stays attributable.
+  repo-lints:
+    name: Repo Lints
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
         with:
@@ -332,227 +353,427 @@ jobs:
           filter: blob:none
       - uses: actions/setup-node@v4
         with:
-          node-version: '24.16.0'
-      - name: Lint adr-index.jsonl frozen invariants
-        run: node scripts/lint-adr-index-jsonl-frozen.mjs --check-no-growth --base=origin/main
-
-  worktree-location-lint:
-    # T9809 / Saga T9800 SG-WORKTREE-CANON — D009 council verdict:
-    # Rejects any git worktree whose path is outside the canonical XDG
-    # location `<cleoHome>/worktrees/<projectHash>/<taskId>/`, and also
-    # rejects a `worktrees/` *directory* under `<repo>/.cleo/` (only the
-    # sentinel file `.cleo/worktrees.json` is allowed).
-    # Pure static analysis of live git state — no user input flows here.
-    name: Worktree Location Lint (T9809)
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    steps:
-      - uses: actions/checkout@v4
+          node-version: "24.16.0"
+      - uses: pnpm/action-setup@v4
         with:
-          fetch-depth: 0
-          filter: blob:none
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '24.16.0'
-      - name: Lint worktree locations
-        # In CI the only registered worktree is the primary checkout — no
-        # rogue worktrees should exist. The script exits 0 when clean.
-        run: node scripts/lint-worktree-location.mjs
-
-  orphan-cleo-dir-check:
-    # T10155 / Saga T9862 SG-WORKTREE-CANON Wave 5 — orphan-`.cleo/` regression
-    # guard. Scans `git diff --diff-filter=A` between the PR base and HEAD for
-    # any newly-added file matching `.claude/worktrees/<sessionId>/.cleo/**`.
-    # Fires with a clear error referencing T9550/T9580 (the two historical
-    # incidents) so the operator can find the in-source regression that
-    # synthesised the rogue path. Complementary to `lint-project-root-anti-
-    # pattern.mjs` (T9584) — that gate catches the source-level anti-pattern;
-    # this one catches the materialised symptom if a brand-new pattern slips
-    # through. Pure static analysis of `git diff` output — no untrusted input.
-    name: Orphan .cleo/ Dir Check (T10155)
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          # Full history required so `git diff origin/<base>...HEAD` resolves
-          # both ends — shallow clones drop the base ref's commit.
-          fetch-depth: 0
-          filter: blob:none
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '24.16.0'
+          version: 10.30.0
+      - name: Fetch base branch for diff
+        # NO --depth here (gh#1469). `checkout` above pins fetch-depth: 0, and a
+        # `--depth=1` fetch RE-SHALLOWS that complete clone: origin/main still
+        # resolves as a ref, but `origin/main...HEAD` needs a merge base, and a
+        # depth-1 main has no ancestors — so the merge base exists only when
+        # main's tip is ALREADY an ancestor of HEAD.
+        #
+        # HEAD here is `refs/pull/N/merge`, which GitHub rebuilds on push and NOT
+        # when main moves. So this gate broke whenever main advanced while a PR
+        # sat — a race, affecting same-repo PRs identically. Measured on #1444:
+        # merge ref built against d1f64f56, main since moved to 77cd117f, result
+        # "fatal: no merge base", and the linter's full-scan fallback then
+        # reported 110 violations against a 3-file PR that added none.
+        run: git fetch origin main
+      - name: Install validator dependencies (ajv + ajv-formats)
+        # Install only the two validation packages needed by the gate script.
+        # We install into packages/lafs/ (which already lists ajv as a dep) so
+        # the pnpm workspace protocol is satisfied without a full monorepo install.
+        run: pnpm --filter @cleocode/lafs install --prefer-offline
       - name: Resolve PR base ref
         # `github.base_ref` is unset on pushes; fall back to `main` so direct
         # pushes to feature branches are still scanned.
         run: echo "BASE_REF=origin/${{ github.base_ref || 'main' }}" >> $GITHUB_ENV
-      - name: Lint orphan .cleo/ paths in PR-added files
+      # T10165 / Saga T9855 SG-TEMPLATE-CONFIG-SSOT — the `.cleo/adrs/adr-index.jsonl`
+      # portability export is frozen. Canonical store for the same metadata
+      # is the `attachments` table provenance columns (T10158). The lint
+      # walks the file's frozen invariants AND diffs against origin/main to
+      # catch newly-appended data lines. Pure static analysis — no user
+      # input flows here.
+      - name: ADR Index JSONL Frozen (T10165)
+        if: ${{ !cancelled() }}
+        run: node scripts/lint-adr-index-jsonl-frozen.mjs --check-no-growth --base=origin/main
+      # T9809 / Saga T9800 SG-WORKTREE-CANON — D009 council verdict:
+      # Rejects any git worktree whose path is outside the canonical XDG
+      # location `<cleoHome>/worktrees/<projectHash>/<taskId>/`, and also
+      # rejects a `worktrees/` *directory* under `<repo>/.cleo/` (only the
+      # sentinel file `.cleo/worktrees.json` is allowed).
+      # Pure static analysis of live git state — no user input flows here.
+      - name: Worktree Location Lint (T9809)
+        if: ${{ !cancelled() }}
+        # In CI the only registered worktree is the primary checkout — no
+        # rogue worktrees should exist. The script exits 0 when clean.
+        run: node scripts/lint-worktree-location.mjs
+      # T10155 / Saga T9862 SG-WORKTREE-CANON Wave 5 — orphan-`.cleo/` regression
+      # guard. Scans `git diff --diff-filter=A` between the PR base and HEAD for
+      # any newly-added file matching `.claude/worktrees/<sessionId>/.cleo/**`.
+      # Fires with a clear error referencing T9550/T9580 (the two historical
+      # incidents) so the operator can find the in-source regression that
+      # synthesised the rogue path. Complementary to `lint-project-root-anti-
+      # pattern.mjs` (T9584) — that gate catches the source-level anti-pattern;
+      # this one catches the materialised symptom if a brand-new pattern slips
+      # through. Pure static analysis of `git diff` output — no untrusted input.
+      - name: Orphan .cleo/ Dir Check (T10155)
+        if: ${{ !cancelled() }}
         run: node scripts/lint-orphan-cleo-dir.mjs --base "$BASE_REF"
-
-  agent-outputs-registration:
-    # T1617: Require every .md added to .cleo/agent-outputs/ to be registered
-    # via (a) cleo docs add, (b) cleo memory observe, or (c) @no-cleo-register
-    # marker in frontmatter. Prevents markdown debt accumulation.
-    # Only newly added .md files are checked (git diff --diff-filter=A vs main).
-    # No untrusted input used — pure static analysis of checked-in source files.
-    name: Agent-Outputs Registration Lint (T1617)
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-          filter: blob:none
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '24.16.0'
-      - name: Lint agent-outputs registration
+      # T1617: Require every .md added to .cleo/agent-outputs/ to be registered
+      # via (a) cleo docs add, (b) cleo memory observe, or (c) @no-cleo-register
+      # marker in frontmatter. Prevents markdown debt accumulation.
+      # Only newly added .md files are checked (git diff --diff-filter=A vs main).
+      # No untrusted input used — pure static analysis of checked-in source files.
+      - name: Agent-Outputs Registration Lint (T1617)
+        if: ${{ !cancelled() }}
         run: node scripts/lint-agent-outputs-registration.mjs --since origin/main --severity error
-
-  ssot-lint:
-    name: Contracts/Core SSoT (ADR-057)
-    runs-on: ubuntu-latest
-    timeout-minutes: 2
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '24.16.0'
-      - name: Lint Contracts/Core SSoT (ADR-057)
+      - name: Contracts/Core SSoT (ADR-057)
+        if: ${{ !cancelled() }}
         # No untrusted input used — pure static analysis of checked-in source files.
         run: node scripts/lint-contracts-core-ssot.mjs --exit-on-fail
-
-  path-drift-lint:
-    # T9407 / E-CONFIG-AUTH-UNIFY E1 close-out: reject hard-coded CLEO data
-    # paths in packages/core/src/. Catches regressions of the T9403 →
-    # @cleocode/paths migration (cleoHomeDir(), literal ~/.local/share/cleo,
-    # and un-allowlisted bare process.env['XDG_DATA_HOME'] reads). Pure
-    # static analysis of checked-in source — no untrusted input.
-    name: Path Drift Lint (T9407)
-    runs-on: ubuntu-latest
-    timeout-minutes: 2
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '24.16.0'
-      - name: Lint CLEO data-path drift in packages/core/src
+      # T9407 / E-CONFIG-AUTH-UNIFY E1 close-out: reject hard-coded CLEO data
+      # paths in packages/core/src/. Catches regressions of the T9403 →
+      # @cleocode/paths migration (cleoHomeDir(), literal ~/.local/share/cleo,
+      # and un-allowlisted bare process.env['XDG_DATA_HOME'] reads). Pure
+      # static analysis of checked-in source — no untrusted input.
+      - name: Path Drift Lint (T9407)
+        if: ${{ !cancelled() }}
         run: node scripts/lint-path-drift.mjs
-
-  project-root-anti-pattern-lint:
-    # T9584 / E-PROJECT-ROOT-AUDIT close-out + T9685-B4 strict-mode flip:
-    # reject the T9550 anti-pattern that materialised rogue `<subdir>/.cleo/`
-    # dirs when CLI commands ran from a monorepo subdirectory. Three rules:
-    #   1. Bare `process.cwd()` in `packages/core/src/...` (suppress with
-    #      `// CWD-OK: <reason>` for legitimate non-project-root uses).
-    #   2. `join(..., process.cwd(), ..., '.cleo', ...)` anywhere in packages/.
-    #   3. `homedir()` constructing `.cleo` paths outside canonical resolvers
-    #      (suppress with `// path-drift-allowed: <reason>` for documented
-    #      escape hatches like the `~/.cleo` symlink bootstrap anchor).
-    # Strict mode (--strict): zero violations allowed. The T9584 baseline file
-    # was deleted after the long-tail batches (T9685-B1, B2, B3) shipped and
-    # the count dropped to zero. NEW violations now fail CI immediately.
-    # Pure static analysis of checked-in source — no untrusted input.
-    name: Project Root Anti-Pattern Lint (T9584)
-    runs-on: ubuntu-latest
-    timeout-minutes: 2
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '24.16.0'
-      - name: Lint project-root anti-pattern in packages/
+      # T9584 / E-PROJECT-ROOT-AUDIT close-out + T9685-B4 strict-mode flip:
+      # reject the T9550 anti-pattern that materialised rogue `<subdir>/.cleo/`
+      # dirs when CLI commands ran from a monorepo subdirectory. Three rules:
+      #   1. Bare `process.cwd()` in `packages/core/src/...` (suppress with
+      #      `// CWD-OK: <reason>` for legitimate non-project-root uses).
+      #   2. `join(..., process.cwd(), ..., '.cleo', ...)` anywhere in packages/.
+      #   3. `homedir()` constructing `.cleo` paths outside canonical resolvers
+      #      (suppress with `// path-drift-allowed: <reason>` for documented
+      #      escape hatches like the `~/.cleo` symlink bootstrap anchor).
+      # Strict mode (--strict): zero violations allowed. The T9584 baseline file
+      # was deleted after the long-tail batches (T9685-B1, B2, B3) shipped and
+      # the count dropped to zero. NEW violations now fail CI immediately.
+      # Pure static analysis of checked-in source — no untrusted input.
+      - name: Project Root Anti-Pattern Lint (T9584)
+        if: ${{ !cancelled() }}
         run: node scripts/lint-project-root-anti-pattern.mjs --strict
-
-  paths-ssot-lint:
-    # T9802 / E-WT-PATHS-SSOT — enforce `packages/paths/` as the sole source
-    # of worktree + XDG path resolution. Three rules (baseline-gated, not
-    # strict): direct `env-paths` imports, hand-rolled XDG reads, and
-    # hand-rolled worktree path calculations. The baseline records the current
-    # count at T9802 phase-1 ship; CI fails on net-add (regression prevention).
-    # Phase 2 (drive baseline to zero) is tracked in AGENTS.md.
-    # Pure static analysis of checked-in source — no untrusted input.
-    name: Paths SSoT Lint (T9802)
-    runs-on: ubuntu-latest
-    timeout-minutes: 2
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '24.16.0'
-      - name: Lint paths SSoT anti-patterns in packages/
+      # T9802 / E-WT-PATHS-SSOT — enforce `packages/paths/` as the sole source
+      # of worktree + XDG path resolution. Three rules (baseline-gated, not
+      # strict): direct `env-paths` imports, hand-rolled XDG reads, and
+      # hand-rolled worktree path calculations. The baseline records the current
+      # count at T9802 phase-1 ship; CI fails on net-add (regression prevention).
+      # Phase 2 (drive baseline to zero) is tracked in AGENTS.md.
+      # Pure static analysis of checked-in source — no untrusted input.
+      - name: Paths SSoT Lint (T9802)
+        if: ${{ !cancelled() }}
         run: node scripts/lint-paths-ssot.mjs
-
-  cwd-walkup-lint:
-    # T11019 / Saga T10295 · Epic T10297 — guard against getCleoDirAbsolute
-    # references outside the deprecated shim (packages/core/src/paths.ts) and
-    # reject getProjectRoot(process.cwd()) anti-patterns. RULE-1 pins the
-    # current migration baseline (132 callsites across ~45 files — see Epic
-    # T10297 for the resolveCanonicalCleoDir migration plan). RULE-2 pins the
-    # current 2 getProjectRoot(process.cwd()) sites. CI fails only on net-add
-    # (regression prevention). Baseline-driven via --check mode; counts are
-    # recorded in scripts/.lint-no-cwd-walkup-baseline.json. Strict mode
-    # (--strict) is the target state — flips on once baseline reaches zero.
-    # Pure static analysis of checked-in source — no untrusted input.
-    name: CWD-Walkup Lint (T11019)
-    runs-on: ubuntu-latest
-    timeout-minutes: 2
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '24.16.0'
-      - name: Lint getCleoDirAbsolute + CWD-walk-up patterns in packages/
+      # T11019 / Saga T10295 · Epic T10297 — guard against getCleoDirAbsolute
+      # references outside the deprecated shim (packages/core/src/paths.ts) and
+      # reject getProjectRoot(process.cwd()) anti-patterns. RULE-1 pins the
+      # current migration baseline (132 callsites across ~45 files — see Epic
+      # T10297 for the resolveCanonicalCleoDir migration plan). RULE-2 pins the
+      # current 2 getProjectRoot(process.cwd()) sites. CI fails only on net-add
+      # (regression prevention). Baseline-driven via --check mode; counts are
+      # recorded in scripts/.lint-no-cwd-walkup-baseline.json. Strict mode
+      # (--strict) is the target state — flips on once baseline reaches zero.
+      # Pure static analysis of checked-in source — no untrusted input.
+      - name: CWD-Walkup Lint (T11019)
+        if: ${{ !cancelled() }}
         run: node scripts/lint-no-cwd-walkup.mjs --check
-
-  saga-label-anti-pattern-lint:
-    # T10332 / Saga T10326 SG-SUBSTRATE-RECONCILIATION Wave 3A — block NEW
-    # occurrences of the legacy "Saga as label" anti-pattern in production
-    # code. Four rules (baseline-gated, not strict):
-    #   1. `labels.includes('saga')` — legacy label-encoded discriminant.
-    #   2. `hasSagaLabel(labels)`     — private helper inside enforcement.ts.
-    #   3. `isSagaEpic(task)`         — query-ops legacy helper.
-    #   4. `SAGA_LABEL`               — @deprecated string constant.
-    # Post-Wave 2 (T10330+T10331) the canonical replacement is
-    # `isSagaShape(task)` / `isSagaType(task.type)`. Baseline pins residuals;
-    # CI fails on net-add. Strict mode flips on at W3.C T10334 cutover.
-    # Pure static analysis of checked-in source — no untrusted input.
-    name: Saga Label Anti-Pattern Lint (T10332)
-    runs-on: ubuntu-latest
-    timeout-minutes: 2
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '24.16.0'
-      - name: Lint saga-label anti-patterns in packages/
+      # T10332 / Saga T10326 SG-SUBSTRATE-RECONCILIATION Wave 3A — block NEW
+      # occurrences of the legacy "Saga as label" anti-pattern in production
+      # code. Four rules (baseline-gated, not strict):
+      #   1. `labels.includes('saga')` — legacy label-encoded discriminant.
+      #   2. `hasSagaLabel(labels)`     — private helper inside enforcement.ts.
+      #   3. `isSagaEpic(task)`         — query-ops legacy helper.
+      #   4. `SAGA_LABEL`               — @deprecated string constant.
+      # Post-Wave 2 (T10330+T10331) the canonical replacement is
+      # `isSagaShape(task)` / `isSagaType(task.type)`. Baseline pins residuals;
+      # CI fails on net-add. Strict mode flips on at W3.C T10334 cutover.
+      # Pure static analysis of checked-in source — no untrusted input.
+      - name: Saga Label Anti-Pattern Lint (T10332)
+        if: ${{ !cancelled() }}
         run: node scripts/lint-saga-label-anti-pattern.mjs --strict
-
-  invariant-registry-lint:
-    # T10338 / Saga T10326 SG-SUBSTRATE-RECONCILIATION Wave 3 R4 — validate
-    # the central invariants registry at `packages/contracts/src/invariants/`
-    # in both directions:
-    #   FORWARD — every entry's runtimeGate.module, runtimeGate.functionName,
-    #             lintRule.lintScript, doctorAudit.lintScript, and tests[]
-    #             paths exist on disk and (for functionName) are exported by
-    #             the target module.
-    #   REVERSE — every numbered code declared by an ADR source file
-    #             (ADR-073 I1-I8, ADR-070 ORC-001..ORC-014, ADR-056 D1-D6)
-    #             appears in the registry, unless explicitly noted in the
-    #             script's DOCS_ONLY_OVERRIDES set with a reason.
-    # Baseline-gated (not strict): pins the current state at the T10338 ship
-    # and fails on net-add. Improvements (count drops) are always accepted.
-    # Pure static analysis of checked-in source — no untrusted input.
-    name: Invariant Registry Lint (T10338)
-    runs-on: ubuntu-latest
-    timeout-minutes: 2
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '24.16.0'
-      - name: Lint invariant registry forward + reverse symmetry
+      # T10338 / Saga T10326 SG-SUBSTRATE-RECONCILIATION Wave 3 R4 — validate
+      # the central invariants registry at `packages/contracts/src/invariants/`
+      # in both directions:
+      #   FORWARD — every entry's runtimeGate.module, runtimeGate.functionName,
+      #             lintRule.lintScript, doctorAudit.lintScript, and tests[]
+      #             paths exist on disk and (for functionName) are exported by
+      #             the target module.
+      #   REVERSE — every numbered code declared by an ADR source file
+      #             (ADR-073 I1-I8, ADR-070 ORC-001..ORC-014, ADR-056 D1-D6)
+      #             appears in the registry, unless explicitly noted in the
+      #             script's DOCS_ONLY_OVERRIDES set with a reason.
+      # Baseline-gated (not strict): pins the current state at the T10338 ship
+      # and fails on net-add. Improvements (count drops) are always accepted.
+      # Pure static analysis of checked-in source — no untrusted input.
+      - name: Invariant Registry Lint (T10338)
+        if: ${{ !cancelled() }}
         run: node scripts/lint-invariant-registry.mjs
+      # T9984 / E7-CORE-LAYERING — enforce `@cleocode/worktree` as the sole
+      # source of `git worktree` shell-outs in the workspace. Strict gate: any
+      # raw `git worktree <verb>` invocation under `packages/` that is NOT in
+      # the allowlist fails CI. Comments and test files are intentionally
+      # excluded (test fixtures legitimately construct on-disk git worktrees).
+      # Pure static analysis of checked-in source — no untrusted input.
+      - name: Raw Git Worktree Lint (T9984)
+        if: ${{ !cancelled() }}
+        run: node scripts/lint-no-raw-git-worktree.mjs
+      # T10120 / E-SAGAS-CORE-MODULE / Saga T10113 — enforce
+      # `packages/core/src/sagas/` as the SOLE source of SAGA_LABEL,
+      # SAGA_GROUPS_RELATION, and resolveSagaMemberIds. Re-defining or
+      # hand-rolling any of these outside the new SSoT (and the single
+      # compat shim at packages/core/src/tasks/list.ts) is a Package-
+      # Boundary Check violation per AGENTS.md.
+      # Pure static analysis of checked-in source — no untrusted input.
+      - name: Saga Symbol Leakage Lint (T10120)
+        if: ${{ !cancelled() }}
+        run: node scripts/lint-saga-symbol-leakage.mjs
+      # T9775 / T-JH-8 — last task of T9763 (JSON stream hygiene saga).
+      # Rejects NEW `process.stderr.write` / `console.warn` / `console.error`
+      # calls in JSON-emitting command paths (cli/commands + core call paths
+      # they invoke: memory/, nexus/, sentient/ingesters/, skills/). The 154
+      # existing long-tail sites are pinned in scripts/json-stream-hygiene-
+      # allowlist.txt with rationales; any addition (or count increase) fails
+      # CI with a `pushWarning(...)` fix snippet pointing at @cleocode/core.
+      # Pure static analysis of checked-in source — no untrusted input.
+      - name: JSON Stream Hygiene Lint (T9775)
+        if: ${{ !cancelled() }}
+        run: node scripts/lint-json-stream-hygiene.mjs
+      # T10224 / SG-BOUNDARY-REGISTRY (T10176) — enforce parity between
+      # TypeScript canonical sources and the Rust vendored copies that allow
+      # cant-core + lafs-core to ship to crates.io. `cargo publish` rejects
+      # `include_str!` / build-script paths that traverse outside the crate
+      # directory, so the canonical schema (`packages/lafs/schemas/v1/...`)
+      # and hook-mappings (`packages/caamp/providers/hook-mappings.json`) are
+      # mirrored into `crates/lafs-core/schemas/v1/` and
+      # `crates/cant-core/vendor/caamp/` respectively. Drift between the TS
+      # canonical and the Rust vendor is a wire-protocol regression vector.
+      # Pure static analysis of checked-in files — no untrusted input.
+      - name: "Rust Vendor Parity Lint (T10224): Enforce LAFS schema parity (TS canonical <-> lafs-core vendor)"
+        if: ${{ !cancelled() }}
+        run: node scripts/lint-lafs-schema-parity.mjs --exit-on-fail
+      - name: "Rust Vendor Parity Lint (T10224): Enforce hook-mappings parity (TS canonical <-> cant-core vendor)"
+        if: ${{ !cancelled() }}
+        run: node scripts/lint-cant-core-hook-mappings-parity.mjs --exit-on-fail
+      # T11422 / E7-LAFS-CANONICAL (T11394) — enforce that representative CLEO CLI
+      # output fixtures (packages/lafs/fixtures/valid-cleo-cli-*.json) are accepted
+      # by the unified envelope.schema.json which covers both the LAFS SDK shape
+      # (_meta/result) and the CLEO CLI canonical shape (meta/data, ADR-039).
+      # Pure static analysis of checked-in fixture files — no untrusted input.
+      - name: LAFS Envelope Conformance Gate (T11422)
+        if: ${{ !cancelled() }}
+        run: node scripts/lint-lafs-envelope-conformance.mjs --verbose
+      # T10074 / E-SSOT-ENFORCEMENT (T9837) — Saga T9831 SG-ARCH-SOLID:
+      # Detects `export interface` and `export type` declarations in
+      # packages/cleo/src/ and packages/core/src/ that are imported by more
+      # than 2 other packages (fan-out > 2). High-fan-out types should live in
+      # packages/contracts/ so consumers import a leaf package rather than the
+      # full cleo/core dependency graph.
+      #
+      # Baseline mode: CI compares against scripts/.lint-contracts-fan-out-baseline.json
+      # and fails only when the count INCREASES (regression prevention). A count
+      # decrease means progress and is always accepted.
+      #
+      # Pure static analysis of checked-in source — no untrusted input.
+      - name: Contracts Fan-Out Lint (T10074)
+        if: ${{ !cancelled() }}
+        run: node scripts/lint-contracts-fan-out.mjs
+      # gh#1355 — `pnpm lint` is `biome check . && node
+      # scripts/lint-no-raw-cr-writes.mjs`, and CI ran only the biome half (as
+      # the separate "Biome CI" job). The second half was wired to nothing, so a
+      # zero-tolerance gate sat red on main for 92 days with no signal: measured
+      # 2026-09-14, three unmarked `process.stderr.write('\r…')` callsites in
+      # `llm-login.ts`. A gate nothing runs is not a gate.
+      #
+      # Deliberately install-free: the script imports only node:fs and node:path,
+      # so a `pnpm install --frozen-lockfile` here would add minutes to the PR
+      # critical path to run a dependency-free static scan.
+      - name: Raw CR Writes Lint (gh#1355)
+        if: ${{ !cancelled() }}
+        run: node scripts/lint-no-raw-cr-writes.mjs
+      # T9789 / E-DOCS-FORMATERR-FIX — guard against
+      # `cliOutput(formatError(...))` and `cliError(formatError(...))`
+      # double-wrap patterns. `formatError` already produces a serialised
+      # LAFS envelope; nesting it inside `cliOutput`/`cliError` either
+      # fakes success (cliOutput) or replaces the human-readable message
+      # with a JSON blob (cliError). Pure static analysis of checked-in
+      # source — no untrusted input.
+      - name: Format-Error Misuse Lint (T9789)
+        if: ${{ !cancelled() }}
+        run: node scripts/lint-format-error-misuse.mjs
+      - name: DB Open Chokepoint Guard (ADR-068 T9047)
+        if: ${{ !cancelled() }}
+        # ADR-068: all DB opens must flow through openCleoDb(role, cwd) in packages/core/src/store/.
+        # The allowlist in scripts/lint-no-raw-db-opens.mjs covers legitimate uses
+        # (core/store, migration, brain/studio/cleo T9045 sweep complete, etc.).
+        # No untrusted input used — pure static analysis of checked-in source files.
+        run: node scripts/lint-no-raw-db-opens.mjs
+      # T10324 / Saga T10281 SG-BRAIN-DB-RESILIENCE / Epic T10285 E4-DB-CROSS-LINKS —
+      # enforce the ADR-068 "Cross-DB Reference Columns" amendment. Every Drizzle
+      # column whose value points at a row in a DIFFERENT .db file must carry an
+      # `@cross-db <targetRole>.<table>.<column>` JSDoc tag immediately above the
+      # declaration. Runs in --check mode against
+      # scripts/.lint-cross-db-annotations-baseline.json (seeded at 0); net-add of
+      # un-annotated cross-DB columns fails the gate. Pure static analysis — no
+      # untrusted input.
+      - name: Cross-DB Annotation Lint (T10324)
+        if: ${{ !cancelled() }}
+        run: node scripts/lint-cross-db-annotations.mjs --check
+      - name: CORE-First Architecture Lint (T9622 / E-CORE-FIRST-ARCH)
+        if: ${{ !cancelled() }}
+        # T9622: enforce that CLI commands and Studio routes do not issue raw SQLite
+        # calls (.prepare()) or import from @cleocode/core/internal.
+        #
+        # Running in --check mode: fails only when violations EXCEED the committed
+        # baseline in .cleo/core-first-baseline.json. Once T9616-T9621 land, the
+        # baseline shrinks to zero and --check becomes equivalent to a strict ban.
+        #
+        # No untrusted input used — pure static analysis of checked-in source files.
+        run: node scripts/lint-core-first.mjs --check
+      # T10075 / Epic T9837 / Saga T9831 SG-ARCH-SOLID — guard the SSoT-EXEMPT
+      # escape-hatch. Every NEW SSoT-EXEMPT comment added in a PR must:
+      #   (a) include a linked T#### task ID, AND
+      #   (b) point at a task that is NOT in a terminal state (completed/cancelled/deleted).
+      # Runs in --strict mode: zero new SSoT-EXEMPT comments allowed regardless of
+      # task linkage. If a genuine architectural escape-hatch is needed, the team
+      # must first file an open follow-up task and explicitly relax this gate.
+      # Pure static analysis of checked-in source — no untrusted input.
+      - name: SSoT-EXEMPT Lint (T10075 / T9837)
+        if: ${{ !cancelled() }}
+        # Diffs newly added lines in this PR against origin/main.
+        # --strict: any new SSoT-EXEMPT comment fails the gate.
+        # --base: the ref to diff against (defaults to origin/main).
+        # CLEO_BIN is not set — task-ID verification is skipped in CI since
+        # the cleo CLI requires a live database. The strict mode does not
+        # need task verification (it blocks everything unconditionally).
+        run: node scripts/lint-no-ssot-exempt.mjs --strict --base origin/main
+      # T10076 / Epic T9837 / Saga T9831 SG-ARCH-SOLID — CLI package boundary gate.
+      # Flags non-dispatch helper functions > 30 LOC in packages/cleo/src/cli/commands/.
+      # These belong in packages/core/.
+      #
+      # Running in --check mode: fails only when the violation COUNT INCREASES
+      # above the committed baseline in scripts/.lint-cli-boundary-baseline.json.
+      # Count decreases (i.e. helpers migrated to core) always pass.
+      - name: "CLI Boundary Lint (T10076 / T9837): CLI package boundary gate (baseline mode — T9837e)"
+        if: ${{ !cancelled() }}
+        # No untrusted input used — pure static analysis of checked-in source files.
+        run: node scripts/lint-cli-package-boundary.mjs --check
+      - name: "CLI Boundary Lint (T10076 / T9837): CLI startup barrel ratchet (T12076 / T12203 / gh#1439)"
+        if: ${{ !cancelled() }}
+        # This unconditional job gates CI on PRs and merge groups. Preserve
+        # the committed ratchet; never regenerate its baseline in CI.
+        run: node scripts/lint-cli-startup-barrel-imports.mjs
+      - name: "CLI Boundary Lint (T10076 / T9837): CLI startup barrel — entrypoint graph (arch gate 25 / T12455 / gh#1207)"
+        if: ${{ !cancelled() }}
+        # Zero tolerance over the modules reachable from cli/index.ts's static
+        # import graph — paid on EVERY invocation, `cleo --version` included.
+        # Complements the repo-wide ratchet above; neither subsumes the other.
+        run: node scripts/lint-cli-startup-barrel-entrypoint.mjs
+      # T10369 / Epic T10290 / Saga T10288 SG-DOCS-INTEGRITY — DocKind Writer
+      # Uniqueness gate. Enforces ONE writer per BuiltinDocKind in
+      # `packages/core/src/docs/writer-registry.ts`, asserts that every
+      # `mode: 'ssot-first'` descriptor aligns with `.cleo/canon.yml`'s
+      # `canonicalHome`, and flags raw `*.md` writes in `packages/core/src/**`
+      # that bypass the canonical writer set.
+      #
+      # Schema-parity rules (registry coverage + canon.yml drift) are ALWAYS
+      # strict — there is no baseline for those. The unregistered-md-write
+      # rule runs in baseline mode by default: it fails only when the count
+      # INCREASES above `.lint-dockind-writer-baseline.json`. Count decreases
+      # always pass.
+      - name: DocKind Writer Uniqueness (T10369)
+        if: ${{ !cancelled() }}
+        # Pure static analysis of checked-in source files — no untrusted input.
+        run: node scripts/lint-dockind-writer-uniqueness.mjs
+      # T10170 / Saga T9855 / Epic E12.C13 — Docs Similarity Lint. Blocks PRs
+      # whose new `.md` additions under any canonical doc root (publishMirror
+      # or rawMdPaths in `.cleo/canon.yml`) score >= 0.85 cosine similarity
+      # against any existing doc.
+      #
+      # The script scans ONLY the PR diff (`git diff --diff-filter=A
+      # <base>...HEAD`), so the legacy corpus is never re-scored — it acts as
+      # a forward-only enforcement. Tolerated near-dupes are recorded in
+      # `scripts/.lint-docs-similarity-baseline.json` and re-checked on every
+      # run; net-add over baseline fails with E_DOC_NEAR_DUPLICATE.
+      #
+      # Sister gates: T10369 (DocKind writer uniqueness — slug allocation),
+      # T10361 (write-time slug-similarity inside `cleo docs add`).
+      - name: Docs Similarity Lint (T10170)
+        if: ${{ !cancelled() }}
+        # Pure read of checked-in markdown — no untrusted shell expansion of
+        # diff content. The script runs `git diff --diff-filter=A` itself.
+        run: node scripts/lint-docs-similarity.mjs --check --base "$BASE_REF"
+      # Guards against the gitignore-silent-block bug that caused the CI
+      # regression fixed in c6ae85a3. Before that, a too-broad "migrations/"
+      # rule in .gitignore silently excluded new drizzle migration.sql files,
+      # leaving CI to run against pre-migration schema. This job fails if any
+      # migration.sql on disk is not tracked in git. Uses only static shell
+      # commands — no user input flows into run:.
+      - name: Migration Integrity
+        if: ${{ !cancelled() }}
+        run: |
+          set -e
+          missing=0
+          while IFS= read -r f; do
+            if ! git ls-files --error-unmatch "$f" >/dev/null 2>&1; then
+              echo "::error file=$f::Untracked migration file. Run: git add -f $f"
+              missing=$((missing + 1))
+            fi
+          done < <(find packages crates -name 'migration.sql' -not -path '*/node_modules/*' 2>/dev/null)
+          if [ "$missing" -gt 0 ]; then
+            echo "::error::$missing migration file(s) on disk are untracked in git."
+            echo "::error::The .gitignore rule 'migrations/' used to be too broad — fixed to '/migrations/' in same commit as this check."
+            echo "::error::Fix with: git add -f <path>   (one command per untracked file)"
+            exit 1
+          fi
+          echo "All migration.sql files are properly tracked."
+      - name: "AI SDK Surface: No unreviewed module reaches the AI SDK"
+        if: ${{ !cancelled() }}
+        run: node scripts/lint-ai-sdk-surface.mjs
+      - name: "Dual-Scope Reads: No new unqualified reads of both-scope tables"
+        if: ${{ !cancelled() }}
+        run: node scripts/lint-dual-scope-unqualified-reads.mjs
+      - name: "Duplicate Test Filenames: No new duplicate test filenames"
+        if: ${{ !cancelled() }}
+        run: node scripts/lint-duplicate-test-filenames.mjs
+      - name: Envelope Compliance (T11027)
+        if: ${{ !cancelled() }}
+        run: node scripts/lint-envelope-compliance.mjs
+      - name: "Identity Pollution: Determine commit range"
+        id: identity-range
+        if: ${{ !cancelled() }}
+        run: |-
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            base="${{ github.event.pull_request.base.sha }}"
+            head="${{ github.event.pull_request.head.sha }}"
+            echo "range=${base}..${head}" >> "$GITHUB_OUTPUT"
+          else
+            # push to main: scan only commits introduced by this push.
+            before="${{ github.event.before }}"
+            after="${{ github.sha }}"
+            # First push to a new ref has an all-zero `before` SHA — fall
+            # back to scanning HEAD only to avoid surfacing legacy history.
+            if [ "$before" = "0000000000000000000000000000000000000000" ] || [ -z "$before" ]; then
+              echo "range=${after}^..${after}" >> "$GITHUB_OUTPUT"
+            else
+              echo "range=${before}..${after}" >> "$GITHUB_OUTPUT"
+            fi
+          fi
+      - name: "Identity Pollution: Reject Test <test@example.com>"
+        if: ${{ !cancelled() }}
+        run: |-
+          range='${{ steps.identity-range.outputs.range }}'
+          echo "Scanning range: $range"
+          bad=$(git log "$range" --pretty=format:'%H%x09%an <%ae>%x09%cn <%ce>%x09%s' 2>/dev/null \
+            | awk -F'\t' '$2 == "Test <test@example.com>" || $3 == "Test <test@example.com>"')
+          if [ -n "$bad" ]; then
+            echo
+            echo "::error::Commits authored or committed by the polluted identity 'Test <test@example.com>' were rejected."
+            echo
+            echo "Offending commits:"
+            printf '%s\n' "$bad" | awk -F'\t' '{ printf "  %s  author=%s  committer=%s\n    %s\n", substr($1,1,12), $2, $3, $4 }'
+            echo
+            echo "Root cause: a test wrote 'user.email test@example.com' to the developer's local .git/config."
+            echo "Fix: re-author the commit with your real identity:"
+            echo "  git commit --amend --reset-author     # current commit"
+            echo "  git rebase -i --root -x 'git commit --amend --no-edit --reset-author'   # rewrite a range"
+            echo
+            exit 1
+          fi
+          echo "OK — no polluted-identity commits found in the pushed range."
 
   invariants-docs-render-drift:
     # T10342 / Saga T10326 SG-SUBSTRATE-RECONCILIATION Wave 3 R8 — keep
@@ -591,143 +812,99 @@ jobs:
         run: pnpm --filter @cleocode/contracts run build:ts
       - name: Verify docs/registry/INVARIANTS.md matches registry SSoT
         run: node packages/contracts/scripts/render-invariants-docs.mjs --check
-
-  tier-snapshot-drift:
-    # T11957 / DHQ-074 — the `cleo ops` tier-SSoT snapshot (T9845) is a
-    # regression lock over the live OPERATIONS registry. Adding an operation
-    # legitimately re-tiers its counts, which used to break CI cryptically.
-    # This dedicated gate runs the snapshot read-only and, on drift, prints the
-    # exact one-shot regen command (`pnpm run gen:tier-snapshot`) so the failure
-    # is actionable instead of a stall point. Pure static check — no untrusted
-    # input.
-    name: Tier Snapshot Drift (T11957)
+  # T13838: the repo lints that need `pnpm install`, which were 5 jobs each
+  # installing the workspace. One job, one checkout, one install; every gate is
+  # its own step (named after the job it replaced) and runs even when an earlier
+  # gate failed (`!cancelled()`), so each failure stays attributable.
+  repo-lints-installed:
+    name: Repo Lints (installed)
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          filter: blob:none
       - uses: actions/setup-node@v4
         with:
-          node-version: '24.16.0'
+          node-version: "24.16.0"
       - uses: pnpm/action-setup@v4
         with:
-          version: '10.30.0'
-          run_install: false
+          version: 10.30.0
       - name: Get pnpm store directory
         id: pnpm-cache
         run: echo "store=$(pnpm store path --silent)" >> $GITHUB_OUTPUT
       - uses: actions/cache@v4
         with:
           path: ${{ steps.pnpm-cache.outputs.store }}
-          key: ${{ runner.os }}-pnpm-store-${{ hashFiles('**/pnpm-lock.yaml') }}
-          restore-keys: |
-            ${{ runner.os }}-pnpm-store-
+          key: ${{ runner.os }}-pnpm-${{ hashFiles('pnpm-lock.yaml') }}
+          restore-keys: ${{ runner.os }}-pnpm-
       - run: pnpm install --frozen-lockfile
-      - name: Verify tier snapshot is in sync with the OPERATIONS registry
+        name: "Lockfile Check: Verify pnpm-lock.yaml consistency (pnpm install --frozen-lockfile)"
+      - uses: ./.github/actions/install-ripgrep
+      # T11957 / DHQ-074 — the `cleo ops` tier-SSoT snapshot (T9845) is a
+      # regression lock over the live OPERATIONS registry. Adding an operation
+      # legitimately re-tiers its counts, which used to break CI cryptically.
+      # This dedicated gate runs the snapshot read-only and, on drift, prints the
+      # exact one-shot regen command (`pnpm run gen:tier-snapshot`) so the failure
+      # is actionable instead of a stall point. Pure static check — no untrusted
+      # input.
+      - name: Tier Snapshot Drift (T11957)
+        if: ${{ !cancelled() }}
         run: pnpm --filter @cleocode/core run gen:tier-snapshot:check
-
-  raw-git-worktree-lint:
-    # T9984 / E7-CORE-LAYERING — enforce `@cleocode/worktree` as the sole
-    # source of `git worktree` shell-outs in the workspace. Strict gate: any
-    # raw `git worktree <verb>` invocation under `packages/` that is NOT in
-    # the allowlist fails CI. Comments and test files are intentionally
-    # excluded (test fixtures legitimately construct on-disk git worktrees).
-    # Pure static analysis of checked-in source — no untrusted input.
-    name: Raw Git Worktree Lint (T9984)
-    runs-on: ubuntu-latest
-    timeout-minutes: 2
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '24.16.0'
-      - name: Lint raw git-worktree shell-outs in packages/
-        run: node scripts/lint-no-raw-git-worktree.mjs
-
-  saga-symbol-leakage-lint:
-    # T10120 / E-SAGAS-CORE-MODULE / Saga T10113 — enforce
-    # `packages/core/src/sagas/` as the SOLE source of SAGA_LABEL,
-    # SAGA_GROUPS_RELATION, and resolveSagaMemberIds. Re-defining or
-    # hand-rolling any of these outside the new SSoT (and the single
-    # compat shim at packages/core/src/tasks/list.ts) is a Package-
-    # Boundary Check violation per AGENTS.md.
-    # Pure static analysis of checked-in source — no untrusted input.
-    name: Saga Symbol Leakage Lint (T10120)
-    runs-on: ubuntu-latest
-    timeout-minutes: 2
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '24.16.0'
-      - name: Lint saga symbol leakage in packages/
-        run: node scripts/lint-saga-symbol-leakage.mjs
-
-  json-stream-hygiene-lint:
-    # T9775 / T-JH-8 — last task of T9763 (JSON stream hygiene saga).
-    # Rejects NEW `process.stderr.write` / `console.warn` / `console.error`
-    # calls in JSON-emitting command paths (cli/commands + core call paths
-    # they invoke: memory/, nexus/, sentient/ingesters/, skills/). The 154
-    # existing long-tail sites are pinned in scripts/json-stream-hygiene-
-    # allowlist.txt with rationales; any addition (or count increase) fails
-    # CI with a `pushWarning(...)` fix snippet pointing at @cleocode/core.
-    # Pure static analysis of checked-in source — no untrusted input.
-    name: JSON Stream Hygiene Lint (T9775)
-    runs-on: ubuntu-latest
-    timeout-minutes: 2
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '24.16.0'
-      - name: Lint JSON stream hygiene in cli/commands + core JSON paths
-        run: node scripts/lint-json-stream-hygiene.mjs
-
-  rust-vendor-parity-lint:
-    # T10224 / SG-BOUNDARY-REGISTRY (T10176) — enforce parity between
-    # TypeScript canonical sources and the Rust vendored copies that allow
-    # cant-core + lafs-core to ship to crates.io. `cargo publish` rejects
-    # `include_str!` / build-script paths that traverse outside the crate
-    # directory, so the canonical schema (`packages/lafs/schemas/v1/...`)
-    # and hook-mappings (`packages/caamp/providers/hook-mappings.json`) are
-    # mirrored into `crates/lafs-core/schemas/v1/` and
-    # `crates/cant-core/vendor/caamp/` respectively. Drift between the TS
-    # canonical and the Rust vendor is a wire-protocol regression vector.
-    # Pure static analysis of checked-in files — no untrusted input.
-    name: Rust Vendor Parity Lint (T10224)
-    runs-on: ubuntu-latest
-    timeout-minutes: 2
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '24.16.0'
-      - name: Enforce LAFS schema parity (TS canonical <-> lafs-core vendor)
-        run: node scripts/lint-lafs-schema-parity.mjs --exit-on-fail
-      - name: Enforce hook-mappings parity (TS canonical <-> cant-core vendor)
-        run: node scripts/lint-cant-core-hook-mappings-parity.mjs --exit-on-fail
-
-  lafs-envelope-conformance:
-    # T11422 / E7-LAFS-CANONICAL (T11394) — enforce that representative CLEO CLI
-    # output fixtures (packages/lafs/fixtures/valid-cleo-cli-*.json) are accepted
-    # by the unified envelope.schema.json which covers both the LAFS SDK shape
-    # (_meta/result) and the CLEO CLI canonical shape (meta/data, ADR-039).
-    # Pure static analysis of checked-in fixture files — no untrusted input.
-    name: LAFS Envelope Conformance Gate (T11422)
-    runs-on: ubuntu-latest
-    timeout-minutes: 3
-    steps:
-      - uses: actions/checkout@v4
-      - uses: pnpm/action-setup@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '24.16.0'
-      - name: Install validator dependencies (ajv + ajv-formats)
-        # Install only the two validation packages needed by the gate script.
-        # We install into packages/lafs/ (which already lists ajv as a dep) so
-        # the pnpm workspace protocol is satisfied without a full monorepo install.
-        run: pnpm --filter @cleocode/lafs install --prefer-offline
-      - name: Validate CLEO CLI envelope fixtures against envelope.schema.json
-        run: node scripts/lint-lafs-envelope-conformance.mjs --verbose
+      # T9795 / Saga T9787 — guard the deprecation registry. Asserts every
+      # entry in `.cleo/deprecations.yml` points at a real file that
+      # actually carries a TSDoc `@deprecated` tag, and that the YAML
+      # conforms to `.cleo/deprecations.schema.json`. Catches drift the
+      # moment a legacy file is deleted or renamed without the registry
+      # being updated.
+      - name: Deprecations Registry Lint (T9795)
+        if: ${{ !cancelled() }}
+        run: pnpm run lint:deprecations
+      - name: SQLite Pragma Drift Guard (T9025 / T9190)
+        if: ${{ !cancelled() }}
+        # Scans all TS source files to ensure every new DatabaseSync() call
+        # has applyPerfPragmas applied within 5 lines. ADR-068 §3.
+        # Fails on any production file with a missing applyPerfPragmas call.
+        # The guard reads the whole repo, so it runs in the root config's
+        # `repo-guards` project; @cleocode/core's own config excludes it (T13142).
+        run: pnpm exec vitest run --project repo-guards --reporter=verbose packages/core/src/__tests__/pragma-drift-guard.test.ts
+      # T1168: Enforced RULE-1 gate — migration.sql files must not end with a
+      # trailing "--> statement-breakpoint" (signals a truncated migration).
+      # WARN-level findings (RULE-3 snapshot chain, RULE-4 flat SQL) are surfaced
+      # as ::warning annotations on the PR diff but do not fail the build.
+      # Only ERROR-level violations (RULE-1, RULE-2) fail the job.
+      # No untrusted input is used in run: commands — GITHUB_ACTIONS is set
+      # automatically by the runner, not from any user-controlled expression.
+      - name: Migration Lint
+        if: ${{ !cancelled() }}
+        # GITHUB_ACTIONS=true is set automatically by the runner; the linter
+        # reads it to emit ::error / ::warning inline annotations on PR diffs.
+        run: node scripts/lint-migrations.mjs --fail-on=error
+      # T1169: Schema consistency gate — uses drizzle-kit check to verify that
+      # schema files match their corresponding migration snapshots. Catches schema
+      # drift without requiring a full migration run. As of T1175 (after T1165,
+      # T1166, and T1176 baseline resets landed), this gate is now blocking —
+      # schema drift failures will fail the build and block PRs.
+      # See docs/architecture/migrations/schema-consistency.md for details.
+      - name: Drizzle Kit Schema Check
+        if: ${{ !cancelled() }}
+        id: schema-check
+        run: pnpm db:check
+      - name: Build @cleocode/contracts (Boundary Registry, Dual Implementation)
+        run: pnpm --filter @cleocode/contracts run build
+      - name: "Boundary Registry: Lint boundary registry against filesystem"
+        if: ${{ !cancelled() }}
+        run: node scripts/lint-boundary-registry.mjs
+      - name: "Boundary Registry: Run boundary registry poison tests"
+        if: ${{ !cancelled() }}
+        run: pnpm exec vitest run scripts/__tests__/lint-boundary-registry.test.mjs
+      - name: Dual Implementation Lint (T10199)
+        if: ${{ !cancelled() }}
+        run: node scripts/lint-dual-implementation.mjs
+      - name: "Generated Artifact Drift: Generated artifacts match their source"
+        if: ${{ !cancelled() }}
+        run: node scripts/lint-generated-artifact-drift.mjs
 
   contracts-dep-lint:
     name: Contracts Dep Lint
@@ -741,233 +918,6 @@ jobs:
       - name: Enforce contracts dep declarations
         # No untrusted input used — pure static analysis of checked-in source files.
         run: node scripts/lint-contracts-dep.mjs
-
-  contracts-fan-out-lint:
-    # T10074 / E-SSOT-ENFORCEMENT (T9837) — Saga T9831 SG-ARCH-SOLID:
-    # Detects `export interface` and `export type` declarations in
-    # packages/cleo/src/ and packages/core/src/ that are imported by more
-    # than 2 other packages (fan-out > 2). High-fan-out types should live in
-    # packages/contracts/ so consumers import a leaf package rather than the
-    # full cleo/core dependency graph.
-    #
-    # Baseline mode: CI compares against scripts/.lint-contracts-fan-out-baseline.json
-    # and fails only when the count INCREASES (regression prevention). A count
-    # decrease means progress and is always accepted.
-    #
-    # Pure static analysis of checked-in source — no untrusted input.
-    name: Contracts Fan-Out Lint (T10074)
-    runs-on: ubuntu-latest
-    timeout-minutes: 2
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '24.16.0'
-      - name: Detect high-fan-out types that should be in packages/contracts
-        run: node scripts/lint-contracts-fan-out.mjs
-
-  raw-cr-writes-lint:
-    # gh#1355 — `pnpm lint` is `biome check . && node
-    # scripts/lint-no-raw-cr-writes.mjs`, and CI ran only the biome half (as
-    # the separate "Biome CI" job). The second half was wired to nothing, so a
-    # zero-tolerance gate sat red on main for 92 days with no signal: measured
-    # 2026-09-14, three unmarked `process.stderr.write('\r…')` callsites in
-    # `llm-login.ts`. A gate nothing runs is not a gate.
-    #
-    # Deliberately install-free: the script imports only node:fs and node:path,
-    # so a `pnpm install --frozen-lockfile` here would add minutes to the PR
-    # critical path to run a dependency-free static scan.
-    name: Raw CR Writes Lint (gh#1355)
-    runs-on: ubuntu-latest
-    timeout-minutes: 2
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '24.16.0'
-      - name: Reject raw \r writes to stdout/stderr outside @cleocode/animations
-        run: node scripts/lint-no-raw-cr-writes.mjs
-
-  format-error-misuse-lint:
-    # T9789 / E-DOCS-FORMATERR-FIX — guard against
-    # `cliOutput(formatError(...))` and `cliError(formatError(...))`
-    # double-wrap patterns. `formatError` already produces a serialised
-    # LAFS envelope; nesting it inside `cliOutput`/`cliError` either
-    # fakes success (cliOutput) or replaces the human-readable message
-    # with a JSON blob (cliError). Pure static analysis of checked-in
-    # source — no untrusted input.
-    name: Format-Error Misuse Lint (T9789)
-    runs-on: ubuntu-latest
-    timeout-minutes: 2
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '24.16.0'
-      - name: Reject cliOutput(formatError) / cliError(formatError) double-wraps
-        run: node scripts/lint-format-error-misuse.mjs
-
-  deprecations-lint:
-    # T9795 / Saga T9787 — guard the deprecation registry. Asserts every
-    # entry in `.cleo/deprecations.yml` points at a real file that
-    # actually carries a TSDoc `@deprecated` tag, and that the YAML
-    # conforms to `.cleo/deprecations.schema.json`. Catches drift the
-    # moment a legacy file is deleted or renamed without the registry
-    # being updated.
-    name: Deprecations Registry Lint (T9795)
-    runs-on: ubuntu-latest
-    timeout-minutes: 2
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '24.16.0'
-      - uses: pnpm/action-setup@v4
-        with:
-          version: '10.30.0'
-          run_install: false
-      - name: Get pnpm store directory
-        id: pnpm-cache
-        run: echo "store=$(pnpm store path --silent)" >> $GITHUB_OUTPUT
-      - uses: actions/cache@v4
-        with:
-          path: ${{ steps.pnpm-cache.outputs.store }}
-          key: ${{ runner.os }}-pnpm-store-${{ hashFiles('**/pnpm-lock.yaml') }}
-          restore-keys: |
-            ${{ runner.os }}-pnpm-store-
-      - run: pnpm install --frozen-lockfile
-      - name: Validate .cleo/deprecations.yml against schema + path existence
-        run: pnpm run lint:deprecations
-
-  pragma-drift:
-    name: SQLite Pragma Drift Guard (T9025 / T9190)
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '24.16.0'
-      - uses: pnpm/action-setup@v4
-        with:
-          version: '10.30.0'
-          run_install: false
-      - name: Get pnpm store directory
-        id: pnpm-cache
-        run: echo "store=$(pnpm store path --silent)" >> $GITHUB_OUTPUT
-      - uses: actions/cache@v4
-        with:
-          path: ${{ steps.pnpm-cache.outputs.store }}
-          key: ${{ runner.os }}-pnpm-store-${{ hashFiles('**/pnpm-lock.yaml') }}
-          restore-keys: |
-            ${{ runner.os }}-pnpm-store-
-      - run: pnpm install --frozen-lockfile
-      - name: Run pragma-drift-guard (T9025)
-        # Scans all TS source files to ensure every new DatabaseSync() call
-        # has applyPerfPragmas applied within 5 lines. ADR-068 §3.
-        # Fails on any production file with a missing applyPerfPragmas call.
-        # The guard reads the whole repo, so it runs in the root config's
-        # `repo-guards` project; @cleocode/core's own config excludes it (T13142).
-        run: pnpm exec vitest run --project repo-guards --reporter=verbose packages/core/src/__tests__/pragma-drift-guard.test.ts
-
-  db-open-guard:
-    name: DB Open Chokepoint Guard (ADR-068 T9047)
-    runs-on: ubuntu-latest
-    timeout-minutes: 2
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '24.16.0'
-      - name: Reject raw DatabaseSync() opens outside core/store
-        # ADR-068: all DB opens must flow through openCleoDb(role, cwd) in packages/core/src/store/.
-        # The allowlist in scripts/lint-no-raw-db-opens.mjs covers legitimate uses
-        # (core/store, migration, brain/studio/cleo T9045 sweep complete, etc.).
-        # No untrusted input used — pure static analysis of checked-in source files.
-        run: node scripts/lint-no-raw-db-opens.mjs
-
-  cross-db-annotation-lint:
-    name: Cross-DB Annotation Lint (T10324)
-    # T10324 / Saga T10281 SG-BRAIN-DB-RESILIENCE / Epic T10285 E4-DB-CROSS-LINKS —
-    # enforce the ADR-068 "Cross-DB Reference Columns" amendment. Every Drizzle
-    # column whose value points at a row in a DIFFERENT .db file must carry an
-    # `@cross-db <targetRole>.<table>.<column>` JSDoc tag immediately above the
-    # declaration. Runs in --check mode against
-    # scripts/.lint-cross-db-annotations-baseline.json (seeded at 0); net-add of
-    # un-annotated cross-DB columns fails the gate. Pure static analysis — no
-    # untrusted input.
-    runs-on: ubuntu-latest
-    timeout-minutes: 2
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '24.16.0'
-      - name: Lint cross-DB columns in Drizzle schemas (baseline mode)
-        run: node scripts/lint-cross-db-annotations.mjs --check
-
-  core-first-lint:
-    name: CORE-First Architecture Lint (T9622 / E-CORE-FIRST-ARCH)
-    runs-on: ubuntu-latest
-    timeout-minutes: 2
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '24.16.0'
-      - name: CORE-first boundary check (baseline mode — T9616-T9621 in-flight)
-        # T9622: enforce that CLI commands and Studio routes do not issue raw SQLite
-        # calls (.prepare()) or import from @cleocode/core/internal.
-        #
-        # Running in --check mode: fails only when violations EXCEED the committed
-        # baseline in .cleo/core-first-baseline.json. Once T9616-T9621 land, the
-        # baseline shrinks to zero and --check becomes equivalent to a strict ban.
-        #
-        # No untrusted input used — pure static analysis of checked-in source files.
-        run: node scripts/lint-core-first.mjs --check
-
-  ssot-exempt-lint:
-    # T10075 / Epic T9837 / Saga T9831 SG-ARCH-SOLID — guard the SSoT-EXEMPT
-    # escape-hatch. Every NEW SSoT-EXEMPT comment added in a PR must:
-    #   (a) include a linked T#### task ID, AND
-    #   (b) point at a task that is NOT in a terminal state (completed/cancelled/deleted).
-    # Runs in --strict mode: zero new SSoT-EXEMPT comments allowed regardless of
-    # task linkage. If a genuine architectural escape-hatch is needed, the team
-    # must first file an open follow-up task and explicitly relax this gate.
-    # Pure static analysis of checked-in source — no untrusted input.
-    name: SSoT-EXEMPT Lint (T10075 / T9837)
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-          filter: blob:none
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '24.16.0'
-      - name: Fetch base branch for diff
-        # NO --depth here (gh#1469). `checkout` above pins fetch-depth: 0, and a
-        # `--depth=1` fetch RE-SHALLOWS that complete clone: origin/main still
-        # resolves as a ref, but `origin/main...HEAD` needs a merge base, and a
-        # depth-1 main has no ancestors — so the merge base exists only when
-        # main's tip is ALREADY an ancestor of HEAD.
-        #
-        # HEAD here is `refs/pull/N/merge`, which GitHub rebuilds on push and NOT
-        # when main moves. So this gate broke whenever main advanced while a PR
-        # sat — a race, affecting same-repo PRs identically. Measured on #1444:
-        # merge ref built against d1f64f56, main since moved to 77cd117f, result
-        # "fatal: no merge base", and the linter's full-scan fallback then
-        # reported 110 violations against a 3-file PR that added none.
-        run: git fetch origin main
-      - name: Lint SSoT-EXEMPT comments in PR diff (strict — no new exemptions)
-        # Diffs newly added lines in this PR against origin/main.
-        # --strict: any new SSoT-EXEMPT comment fails the gate.
-        # --base: the ref to diff against (defaults to origin/main).
-        # CLEO_BIN is not set — task-ID verification is skipped in CI since
-        # the cleo CLI requires a live database. The strict mode does not
-        # need task verification (it blocks everything unconditionally).
-        run: node scripts/lint-no-ssot-exempt.mjs --strict --base origin/main
 
   deployed-template-parity:
     # T9860 / Saga T9855 SG-TEMPLATE-CONFIG-SSOT — dogfood gate.
@@ -1007,96 +957,6 @@ jobs:
       - name: Lint deployed workflows against shipped templates (baseline mode)
         run: node scripts/lint-deployed-template-parity.mjs
 
-  cli-boundary-lint:
-    # T10076 / Epic T9837 / Saga T9831 SG-ARCH-SOLID — CLI package boundary gate.
-    # Flags non-dispatch helper functions > 30 LOC in packages/cleo/src/cli/commands/.
-    # These belong in packages/core/.
-    #
-    # Running in --check mode: fails only when the violation COUNT INCREASES
-    # above the committed baseline in scripts/.lint-cli-boundary-baseline.json.
-    # Count decreases (i.e. helpers migrated to core) always pass.
-    name: CLI Boundary Lint (T10076 / T9837)
-    runs-on: ubuntu-latest
-    timeout-minutes: 2
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '24.16.0'
-      - name: CLI package boundary gate (baseline mode — T9837e)
-        # No untrusted input used — pure static analysis of checked-in source files.
-        run: node scripts/lint-cli-package-boundary.mjs --check
-      - name: CLI startup barrel ratchet (T12076 / T12203 / gh#1439)
-        # This unconditional job gates CI on PRs and merge groups. Preserve
-        # the committed ratchet; never regenerate its baseline in CI.
-        run: node scripts/lint-cli-startup-barrel-imports.mjs
-      - name: CLI startup barrel — entrypoint graph (arch gate 25 / T12455 / gh#1207)
-        # Zero tolerance over the modules reachable from cli/index.ts's static
-        # import graph — paid on EVERY invocation, `cleo --version` included.
-        # Complements the repo-wide ratchet above; neither subsumes the other.
-        run: node scripts/lint-cli-startup-barrel-entrypoint.mjs
-
-  dockind-writer-uniqueness:
-    # T10369 / Epic T10290 / Saga T10288 SG-DOCS-INTEGRITY — DocKind Writer
-    # Uniqueness gate. Enforces ONE writer per BuiltinDocKind in
-    # `packages/core/src/docs/writer-registry.ts`, asserts that every
-    # `mode: 'ssot-first'` descriptor aligns with `.cleo/canon.yml`'s
-    # `canonicalHome`, and flags raw `*.md` writes in `packages/core/src/**`
-    # that bypass the canonical writer set.
-    #
-    # Schema-parity rules (registry coverage + canon.yml drift) are ALWAYS
-    # strict — there is no baseline for those. The unregistered-md-write
-    # rule runs in baseline mode by default: it fails only when the count
-    # INCREASES above `.lint-dockind-writer-baseline.json`. Count decreases
-    # always pass.
-    name: DocKind Writer Uniqueness (T10369)
-    runs-on: ubuntu-latest
-    timeout-minutes: 2
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '24.16.0'
-      - name: DocKind Writer Uniqueness gate (baseline mode)
-        # Pure static analysis of checked-in source files — no untrusted input.
-        run: node scripts/lint-dockind-writer-uniqueness.mjs
-
-  docs-similarity-lint:
-    # T10170 / Saga T9855 / Epic E12.C13 — Docs Similarity Lint. Blocks PRs
-    # whose new `.md` additions under any canonical doc root (publishMirror
-    # or rawMdPaths in `.cleo/canon.yml`) score >= 0.85 cosine similarity
-    # against any existing doc.
-    #
-    # The script scans ONLY the PR diff (`git diff --diff-filter=A
-    # <base>...HEAD`), so the legacy corpus is never re-scored — it acts as
-    # a forward-only enforcement. Tolerated near-dupes are recorded in
-    # `scripts/.lint-docs-similarity-baseline.json` and re-checked on every
-    # run; net-add over baseline fails with E_DOC_NEAR_DUPLICATE.
-    #
-    # Sister gates: T10369 (DocKind writer uniqueness — slug allocation),
-    # T10361 (write-time slug-similarity inside `cleo docs add`).
-    name: Docs Similarity Lint (T10170)
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          # Full history required so `git diff origin/main...HEAD` resolves
-          # both ends — shallow clones drop the base ref's commit.
-          fetch-depth: 0
-          filter: blob:none
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '24.16.0'
-      - name: Resolve PR base ref
-        # GHA's `github.base_ref` is unset on pushes; default to `main` so
-        # local pushes to feature branches still get scanned.
-        run: echo "BASE_REF=origin/${{ github.base_ref || 'main' }}" >> $GITHUB_ENV
-      - name: Docs Similarity gate (--check)
-        # Pure read of checked-in markdown — no untrusted shell expansion of
-        # diff content. The script runs `git diff --diff-filter=A` itself.
-        run: node scripts/lint-docs-similarity.mjs --check --base "$BASE_REF"
-
   manual-write-sweep:
     # T10372 / Epic T10293 / Saga T10288 SG-DOCS-INTEGRITY E5.2 — repo-wide
     # manual-write sweep. Walks every `.md` file added under `.cleo/canon.yml`'s
@@ -1112,7 +972,7 @@ jobs:
     # orphan cleanup migration. The report artefact is uploaded on every
     # run so reviewers can see the unresolved count trend.
     name: Manual Write Sweep (T10372)
-    needs: [changes]
+    needs: [ changes ]
     if: needs.changes.outputs.code == 'true' && needs.changes.outputs.version_only != 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -1120,7 +980,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          fetch-depth: 0  # full history required for git log --diff-filter=A
+          fetch-depth: 0 # full history required for git log --diff-filter=A
           filter: blob:none
       - uses: actions/setup-node@v4
         with:
@@ -1156,7 +1016,7 @@ jobs:
 
   canon-drift:
     name: Canon Drift Check
-    needs: [biome, changes]
+    needs: [ biome, changes ]
     if: needs.changes.outputs.version_only != 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -1196,7 +1056,7 @@ jobs:
     # `rawMdAllowed: false`. Existing legacy files (migrated by T9791) are
     # never flagged — the gate only fires on ADDITIONS. Saga T9787.
     name: Canon Drift Check (T9796)
-    needs: [changes]
+    needs: [ changes ]
     if: needs.changes.outputs.code == 'true' && needs.changes.outputs.version_only != 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -1244,7 +1104,7 @@ jobs:
     # read-only instead of checking for the JSON file. This job IS the
     # release-verify drift gate.
     name: Docs SSoT Drift Gate (T9645)
-    needs: [biome, changes]
+    needs: [ biome, changes ]
     if: needs.changes.outputs.version_only != 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -1308,73 +1168,6 @@ jobs:
           echo "::error::cleo docs status failed with exit $rc"
           exit $rc
 
-  migration-integrity:
-    # Guards against the gitignore-silent-block bug that caused the CI
-    # regression fixed in c6ae85a3. Before that, a too-broad "migrations/"
-    # rule in .gitignore silently excluded new drizzle migration.sql files,
-    # leaving CI to run against pre-migration schema. This job fails if any
-    # migration.sql on disk is not tracked in git. Uses only static shell
-    # commands — no user input flows into run:.
-    name: Migration Integrity
-    runs-on: ubuntu-latest
-    timeout-minutes: 2
-    steps:
-      - uses: actions/checkout@v4
-      - name: Verify every migration.sql on disk is tracked in git
-        run: |
-          set -e
-          missing=0
-          while IFS= read -r f; do
-            if ! git ls-files --error-unmatch "$f" >/dev/null 2>&1; then
-              echo "::error file=$f::Untracked migration file. Run: git add -f $f"
-              missing=$((missing + 1))
-            fi
-          done < <(find packages crates -name 'migration.sql' -not -path '*/node_modules/*' 2>/dev/null)
-          if [ "$missing" -gt 0 ]; then
-            echo "::error::$missing migration file(s) on disk are untracked in git."
-            echo "::error::The .gitignore rule 'migrations/' used to be too broad — fixed to '/migrations/' in same commit as this check."
-            echo "::error::Fix with: git add -f <path>   (one command per untracked file)"
-            exit 1
-          fi
-          echo "All migration.sql files are properly tracked."
-
-  migration-lint:
-    # T1168: Enforced RULE-1 gate — migration.sql files must not end with a
-    # trailing "--> statement-breakpoint" (signals a truncated migration).
-    # WARN-level findings (RULE-3 snapshot chain, RULE-4 flat SQL) are surfaced
-    # as ::warning annotations on the PR diff but do not fail the build.
-    # Only ERROR-level violations (RULE-1, RULE-2) fail the job.
-    # No untrusted input is used in run: commands — GITHUB_ACTIONS is set
-    # automatically by the runner, not from any user-controlled expression.
-    name: Migration Lint
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '24.16.0'
-      - uses: pnpm/action-setup@v4
-        with:
-          version: '10.30.0'
-          run_install: false
-      - name: Get pnpm store directory
-        id: pnpm-cache
-        run: echo "store=$(pnpm store path --silent)" >> $GITHUB_OUTPUT
-      - uses: actions/cache@v4
-        with:
-          path: ${{ steps.pnpm-cache.outputs.store }}
-          key: ${{ runner.os }}-pnpm-store-${{ hashFiles('**/pnpm-lock.yaml') }}
-          restore-keys: |
-            ${{ runner.os }}-pnpm-store-
-      - run: pnpm install --frozen-lockfile
-      - name: Install ripgrep (required for T1605 callsite-coverage validator)
-        uses: ./.github/actions/install-ripgrep
-      - name: Run migration linter (fail on RULE-1 ERRORs)
-        # GITHUB_ACTIONS=true is set automatically by the runner; the linter
-        # reads it to emit ::error / ::warning inline annotations on PR diffs.
-        run: node scripts/lint-migrations.mjs --fail-on=error
-
   exodus-parity-gate:
     # T11551 (DHQ-045) — exodus zero-loss DURABLE GUARD. Runs the actual
     # `runExodusMigrate` engine + the reusable CORE `verifyMigration()` primitive
@@ -1388,7 +1181,7 @@ jobs:
     # missed every real-schema failure; this job is the regression wall.
     # Pure test invocation — no untrusted input flows into run:.
     name: Exodus Real-Data Parity Gate (T11551)
-    needs: [changes]
+    needs: [ changes ]
     if: needs.changes.outputs.version_only != 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 8
@@ -1431,7 +1224,7 @@ jobs:
     # copy. It must stay green before CLEO_ROW_UID_FILL defaults on.
     # Pure test invocation — no untrusted input flows into run:.
     name: Row Identity Gate B on Fixture Stores (T12802)
-    needs: [changes]
+    needs: [ changes ]
     if: needs.changes.outputs.version_only != 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 8
@@ -1461,41 +1254,6 @@ jobs:
           pnpm --filter @cleocode/core exec vitest run --reporter=verbose \
             src/store/__tests__/row-identity-gate-b.test.ts
 
-  drizzle-kit-check:
-    # T1169: Schema consistency gate — uses drizzle-kit check to verify that
-    # schema files match their corresponding migration snapshots. Catches schema
-    # drift without requiring a full migration run. As of T1175 (after T1165,
-    # T1166, and T1176 baseline resets landed), this gate is now blocking —
-    # schema drift failures will fail the build and block PRs.
-    # See docs/architecture/migrations/schema-consistency.md for details.
-    name: Drizzle Kit Schema Check
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '24.16.0'
-      - uses: pnpm/action-setup@v4
-        with:
-          version: '10.30.0'
-          run_install: false
-      - name: Get pnpm store directory
-        id: pnpm-cache
-        run: echo "store=$(pnpm store path --silent)" >> $GITHUB_OUTPUT
-      - uses: actions/cache@v4
-        with:
-          path: ${{ steps.pnpm-cache.outputs.store }}
-          key: ${{ runner.os }}-pnpm-store-${{ hashFiles('**/pnpm-lock.yaml') }}
-          restore-keys: |
-            ${{ runner.os }}-pnpm-store-
-      - run: pnpm install --frozen-lockfile
-      - name: Install ripgrep (required for T1605 callsite-coverage validator)
-        uses: ./.github/actions/install-ripgrep
-      - name: Run drizzle-kit check on all 5 DB configs
-        id: schema-check
-        run: pnpm db:check
-
   changeset-lint:
     # T13281: every changeset must parse. Release Readiness (a standalone
     # workflow nothing requires) was the only PR check that ran this, so a
@@ -1504,7 +1262,7 @@ jobs:
     # and builds itself when the build was skipped (a changeset-only or
     # docs-only PR).
     name: Changeset Lint (T13281)
-    needs: [changes, build]
+    needs: [ changes, build ]
     if: always() && needs.changes.result == 'success' && (needs.build.result == 'success' || needs.build.result == 'skipped')
     runs-on: ubuntu-latest
     timeout-minutes: 25
@@ -1545,7 +1303,7 @@ jobs:
 
   typecheck:
     name: Type Check
-    needs: [biome, changes]
+    needs: [ biome, changes ]
     if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -1590,7 +1348,7 @@ jobs:
   # built; restoring tsbuildinfo would change what it checks).
   build:
     name: Build (${{ matrix.os }})
-    needs: [changes]
+    needs: [ changes ]
     if: needs.changes.outputs.code == 'true' && needs.changes.outputs.version_only != 'true'
     runs-on: ${{ matrix.os }}
     timeout-minutes: 25
@@ -1701,7 +1459,7 @@ jobs:
 
   unit-tests:
     name: Unit Tests (${{ matrix.os }}, shard ${{ matrix.shard }})
-    needs: [biome, changes, build]
+    needs: [ biome, changes, build ]
     if: needs.changes.outputs.code == 'true' && needs.changes.outputs.version_only != 'true'
     runs-on: ${{ matrix.os }}
     # T12073: raised from 35. T12070 restored 199 previously-undiscovered
@@ -1882,7 +1640,7 @@ jobs:
   # Never fails: a `gh` error is a warning.
   flaky-quarantine:
     name: Flaky Test Quarantine (T13145)
-    needs: [unit-tests]
+    needs: [ unit-tests ]
     if: always() && github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'schedule')
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -1914,7 +1672,7 @@ jobs:
 
   build-verify:
     name: Build & Verify (${{ matrix.os }})
-    needs: [biome, changes]
+    needs: [ biome, changes ]
     if: needs.changes.outputs.code == 'true' && needs.changes.outputs.version_only != 'true'
     runs-on: ${{ matrix.os }}
     # T13205: macOS cold builds vary 4.5-8+ min (runner variance), so 10 cancelled
@@ -2112,7 +1870,7 @@ jobs:
 
   packed-artifact:
     name: Packed CLI and Studio Artifact
-    needs: [biome, changes]
+    needs: [ biome, changes ]
     # Includes native and package-manager inputs, even without JavaScript changes.
     if: (needs.changes.outputs.packaging == 'true' || needs.changes.outputs.code == 'true' || needs.changes.outputs.scripts == 'true' || needs.changes.outputs.workflows == 'true') && needs.changes.outputs.version_only != 'true'
     runs-on: ubuntu-latest
@@ -2200,7 +1958,7 @@ jobs:
 
   validate-json:
     name: Validate JSON Schemas
-    needs: [biome, changes]
+    needs: [ biome, changes ]
     if: needs.changes.outputs.schemas == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -2217,7 +1975,7 @@ jobs:
 
   install-test:
     name: Install Test
-    needs: [biome, changes, build]
+    needs: [ biome, changes, build ]
     if: needs.changes.outputs.code == 'true' && needs.changes.outputs.version_only != 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -2273,13 +2031,13 @@ jobs:
     # approve (T11127, T12094). Skipped (a pass) when nothing in its scope
     # changed.
     name: Worktree NAPI Prebuild Gate (T11127)
-    needs: [changes]
+    needs: [ changes ]
     if: needs.changes.outputs.worktree_napi == 'true'
     uses: ./.github/workflows/worktree-napi-prebuild.yml
 
   forge-ts-check:
     name: Documentation Coverage (forge-ts)
-    needs: [biome, changes]
+    needs: [ biome, changes ]
     if: needs.changes.outputs.code == 'true' && needs.changes.outputs.version_only != 'true'
     runs-on: ubuntu-latest
     # A TIMEOUT concludes the job as `cancelled`, which `continue-on-error`
@@ -2362,7 +2120,7 @@ jobs:
   # ──────────────────────────────────────────────────────────────────────────
   scripts-tests:
     name: Scripts Tests
-    needs: [biome, changes]
+    needs: [ biome, changes ]
     if: needs.changes.outputs.scripts == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -2508,66 +2266,33 @@ jobs:
     name: Arch Gates
     uses: ./.github/workflows/arch-boundary-check.yml
 
-  ai-sdk-surface-gate:
-    name: AI SDK Surface
-    uses: ./.github/workflows/ai-sdk-surface.yml
-
-  boundary-registry-gate:
-    name: Boundary Registry
-    uses: ./.github/workflows/boundary-registry-lint.yml
-
-  dual-implementation-gate:
-    name: Dual Implementation
-    uses: ./.github/workflows/dual-implementation-lint.yml
-
-  dual-scope-reads-gate:
-    name: Dual-Scope Reads
-    uses: ./.github/workflows/dual-scope-unqualified-reads.yml
-
-  duplicate-test-filenames-gate:
-    name: Duplicate Test Filenames
-    uses: ./.github/workflows/duplicate-test-filenames.yml
-
-  envelope-compliance-gate:
-    name: Envelope Compliance
-    uses: ./.github/workflows/envelope-compliance-lint.yml
-
-  generated-artifact-drift-gate:
-    name: Generated Artifact Drift
-    uses: ./.github/workflows/generated-artifact-drift.yml
-
-  identity-pollution-gate:
-    name: Identity Pollution
-    uses: ./.github/workflows/identity-pollution-check.yml
-
-  # T13279: the rest of the standalone gates. Lockfile Check always runs; the
-  # path-scoped ones run when the `changes` job sees their paths (skipped is a
-  # pass for the aggregate).
-  lockfile-gate:
-    name: Lockfile Check
-    uses: ./.github/workflows/lockfile-check.yml
-
+  # T13279: the path-scoped gates run when the `changes` job sees their paths
+  # (skipped is a pass for the aggregate). T13840: the always-on single-job
+  # gates (Lockfile Check, AI SDK Surface, Boundary Registry, Dual
+  # Implementation, Dual-Scope Reads, Duplicate Test Filenames, Envelope
+  # Compliance, Generated Artifact Drift, Identity Pollution) are steps of
+  # Repo Lints and Repo Lints (installed).
   cant-napi-gate:
     name: cant-napi build
-    needs: [changes]
+    needs: [ changes ]
     if: needs.changes.outputs.cant_napi == 'true'
     uses: ./.github/workflows/cant-napi-build.yml
 
   cleo-supervisor-smoke-gate:
     name: cleo-supervisor smoke
-    needs: [changes]
+    needs: [ changes ]
     if: needs.changes.outputs.supervisor_smoke == 'true'
     uses: ./.github/workflows/cleo-supervisor-smoke.yml
 
   skills-depth-gate:
     name: Skills Depth Check
-    needs: [changes]
+    needs: [ changes ]
     if: needs.changes.outputs.skills_depth == 'true'
     uses: ./.github/workflows/skills-depth-check.yml
 
   release-pipeline-matrix-gate:
     name: Release Pipeline Matrix
-    needs: [changes]
+    needs: [ changes ]
     if: needs.changes.outputs.release_matrix == 'true'
     uses: ./.github/workflows/release-pipeline-matrix.yml
 
@@ -2578,47 +2303,17 @@ jobs:
     needs:
       - changes
       - biome
-      - adr-index-jsonl-frozen-lint
-      - worktree-location-lint
-      - orphan-cleo-dir-check
-      - agent-outputs-registration
-      - ssot-lint
-      - path-drift-lint
-      - project-root-anti-pattern-lint
-      - paths-ssot-lint
-      - cwd-walkup-lint
-      - saga-label-anti-pattern-lint
-      - invariant-registry-lint
+      - repo-lints
       - invariants-docs-render-drift
-      - tier-snapshot-drift
-      - raw-git-worktree-lint
-      - saga-symbol-leakage-lint
-      - json-stream-hygiene-lint
-      - rust-vendor-parity-lint
-      - lafs-envelope-conformance
+      - repo-lints-installed
       - contracts-dep-lint
-      - contracts-fan-out-lint
-      - raw-cr-writes-lint
-      - format-error-misuse-lint
-      - deprecations-lint
-      - pragma-drift
-      - db-open-guard
-      - cross-db-annotation-lint
-      - core-first-lint
-      - ssot-exempt-lint
       - deployed-template-parity
-      - cli-boundary-lint
-      - dockind-writer-uniqueness
-      - docs-similarity-lint
       - manual-write-sweep
       - canon-drift
       - canon-check
       - docs-drift
-      - migration-integrity
-      - migration-lint
       - exodus-parity-gate
       - row-identity-gate-b
-      - drizzle-kit-check
       - changeset-lint
       - typecheck
       - build
@@ -2632,15 +2327,6 @@ jobs:
       - worktree-napi-gate
       - forge-ts-check
       - arch-gates
-      - ai-sdk-surface-gate
-      - boundary-registry-gate
-      - dual-implementation-gate
-      - dual-scope-reads-gate
-      - duplicate-test-filenames-gate
-      - envelope-compliance-gate
-      - generated-artifact-drift-gate
-      - identity-pollution-gate
-      - lockfile-gate
       - cant-napi-gate
       - cleo-supervisor-smoke-gate
       - skills-depth-gate

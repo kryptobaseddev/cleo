@@ -25,6 +25,7 @@ import type {
 import { ExitCode } from '@cleocode/contracts/exit-codes.js';
 import { CleoError } from '../errors.js';
 import { assessKnowledgeCoverage } from '../nexus/knowledge.js';
+import { trackBackgroundOp } from '../store/background-ops.js';
 import { getTaskAccessor } from '../store/data-accessor.js';
 import { insertHandoffEntry } from '../store/session-store.js';
 import { rankTasks } from '../task-tools/score-task-priority.js';
@@ -253,14 +254,14 @@ function getScopeTaskIds(session: Session, tasks: Task[]): Set<string> {
  *
  * Writes the handoff JSON into `session_handoff_entries` via an INSERT.
  * The table enforces write-once semantics at the SQL level:
- *   - A UNIQUE constraint on `session_id` rejects duplicate calls.
+ *   - `insertHandoffEntry` rejects a second row for a session (T13777).
  *   - A BEFORE UPDATE trigger makes rows physically immutable.
  *   - An AFTER INSERT trigger mirrors the value to `sessions.handoff_json`
  *     so all existing read paths continue to work without modification.
  *
  * Throws `CleoError(SESSION_NOT_FOUND)` when the session does not exist.
  * Throws `CleoError(HANDOFF_ALREADY_PERSISTED)` when a handoff was already
- * written for this session (surfaced from the UNIQUE constraint violation).
+ * written for this session.
  *
  * @task T1609
  */
@@ -302,13 +303,13 @@ export async function persistHandoff(
   // state event). Re-reads the authoritative project row → re-projects the mirror.
   // Swallows all errors — a mirror failure NEVER fails handoff persistence (AC3).
   // Fire-and-forget.
-  import('./session-manifest-mirror.js')
-    .then(({ reconcileSessionManifestOnStart }) =>
+  // Tracked (T13630): teardown settles it on the open handles; a failure is
+  // recorded in the background ledger instead of being swallowed.
+  trackBackgroundOp(() =>
+    import('./session-manifest-mirror.js').then(({ reconcileSessionManifestOnStart }) =>
       reconcileSessionManifestOnStart(projectRoot, sessionId),
-    )
-    .catch(() => {
-      /* mirror is best-effort — never block handoff persistence */
-    });
+    ),
+  );
 }
 
 /**

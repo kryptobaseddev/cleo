@@ -27,6 +27,7 @@ import {
   validateGateVerify,
 } from '@cleocode/core/internal';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { actAsOwner } from '../../security/__tests__/owner-session.js';
 import { seedTasks } from '../../store/__tests__/test-db-helper.js';
 import { getDb } from '../../store/sqlite.js';
 import * as schema from '../../store/tasks-schema.js';
@@ -416,6 +417,7 @@ describe('validateGateVerify — critical-gate override parity (gh#1105 / T12015
   let savedOverride: string | undefined;
   let savedReason: string | undefined;
   let savedRole: string | undefined;
+  let restoreOwner: () => void = () => {};
 
   beforeEach(async () => {
     resetDbState();
@@ -423,17 +425,20 @@ describe('validateGateVerify — critical-gate override parity (gh#1105 / T12015
     await setupTestRoot();
     initGitRepoWithCommit('seed.ts');
     writeTestRunJson();
-    // Owner-override context. CLEO_AGENT_ROLE must be cleared — readOverrideState
-    // downgrades the override for worker/lead/subagent roles.
+    // Owner-override context. CLEO_AGENT_ROLE must be cleared — the role fence
+    // refuses the override for worker/lead/subagent roles.
     savedOverride = process.env.CLEO_OWNER_OVERRIDE;
     savedReason = process.env.CLEO_OWNER_OVERRIDE_REASON;
     savedRole = process.env.CLEO_AGENT_ROLE;
     process.env.CLEO_OWNER_OVERRIDE = '1';
     process.env.CLEO_OWNER_OVERRIDE_REASON = 'gh#1105 parity test';
     delete process.env.CLEO_AGENT_ROLE;
+    // T13790: only the owner (owner-marked session, own terminal) may override.
+    restoreOwner = await actAsOwner(TEST_ROOT);
   });
 
   afterEach(async () => {
+    restoreOwner();
     if (savedOverride === undefined) delete process.env.CLEO_OWNER_OVERRIDE;
     else process.env.CLEO_OWNER_OVERRIDE = savedOverride;
     if (savedReason === undefined) delete process.env.CLEO_OWNER_OVERRIDE_REASON;

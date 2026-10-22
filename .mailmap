@@ -7,7 +7,7 @@
 #
 # Scope: the polluted `test@example.com` identity that leaked from vitest
 # fixtures into the developer's local git config (root cause and guard:
-# T9149, vitest.setup.ts + .github/workflows/identity-pollution-check.yml).
+# T9149, vitest.setup.ts + the Identity Pollution step of ci.yml's Repo Lints job).
 # All three observed surface variants — `Test`, lowercase `test`, and the
 # `Drift Test` drift-watchdog leak — map back to the project owner's
 # canonical GitHub identity.

@@ -19,7 +19,7 @@
  * @epic T4867
  */
 
-import { chmodSync, mkdirSync, readdirSync, statSync, utimesSync, writeFileSync } from 'node:fs';
+import { chmodSync, mkdirSync, readdirSync, utimesSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
@@ -415,7 +415,13 @@ describe('sqlite-backup', () => {
       'tasks-20260102-120000.db',
       'tasks-20260101-120000.db',
     ]);
-    expect(brainList.map((e) => e.name)).toEqual(['brain-20260103-120000.db']);
+    // T13891: brain lives in the unified store, so its listing holds the
+    // project snapshots (tasks-*) plus older brain-* files, newest first.
+    expect(brainList.map((e) => e.name)).toEqual([
+      'brain-20260103-120000.db',
+      'tasks-20260102-120000.db',
+      'tasks-20260101-120000.db',
+    ]);
     // T10317: every project-tier + derived inventory row now contributes a
     // bucket to listSqliteBackupsAll(). Empty buckets surface as `[]`.
     expect(Object.keys(all).sort()).toEqual(
@@ -599,11 +605,12 @@ describe('sqlite-backup', () => {
   });
 
   /**
-   * T12508 #2: tasks, brain and conduit share ONE cleo.db handle. A run must
-   * VACUUM it once and hard-link the same file under the other prefixes, so
-   * every `<prefix>-*.db` reader still finds a file at no extra disk cost.
+   * T12508 #2 / T13891: tasks, brain and conduit share ONE cleo.db handle. A
+   * run VACUUMs it once and writes ONE project snapshot; brain and conduit are
+   * covered by that file (no hard link, no copy), so a session end costs one
+   * copy of the store, not three under per-prefix retention.
    */
-  it('one VACUUM per physical database file; other prefixes are hard links (T12508)', async () => {
+  it('one project snapshot per run for the unified store; brain and conduit are covered by it (T12508, T13891)', async () => {
     const tempDir = join(tmpdir(), `cleo-t12508-dedupe-${Date.now()}`);
     const backupDir = join(tempDir, 'backups', 'sqlite');
     mkdirSync(tempDir, { recursive: true });
@@ -639,17 +646,117 @@ describe('sqlite-backup', () => {
     expect(r?.snapshotted).toEqual(['tasks', 'brain', 'conduit']);
     expect(r?.linked).toEqual(['brain', 'conduit']);
     const files = readdirSync(backupDir).filter((f) => /^(tasks|brain|conduit)-/.test(f));
-    expect(files).toHaveLength(3);
-    const inodes = new Set(files.map((f) => statSync(join(backupDir, f)).ino));
-    expect(inodes.size).toBe(1);
+    expect(files).toHaveLength(1);
+    expect(files[0]).toMatch(/^tasks-\d{8}-\d{6}\.db$/);
+  });
+
+  it('a debounced tasks prefix still files the unified store as tasks-*, never brain-* (T13891)', async () => {
+    const tempDir = join(tmpdir(), `cleo-t13910-mixed-${Date.now()}`);
+    const backupDir = join(tempDir, 'backups', 'sqlite');
+    mkdirSync(tempDir, { recursive: true });
+    const shared = new DatabaseSync(join(tempDir, 'cleo.db'));
+    shared.exec('CREATE TABLE tasks_schema_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL)');
+    vi.doMock('../sqlite.js', () => ({ getNativeDb: () => shared, getDb: async () => null }));
+    vi.doMock('../memory-sqlite.js', () => ({
+      getBrainNativeDb: () => shared,
+      getBrainDb: async () => null,
+    }));
+    vi.doMock('../conduit-sqlite.js', () => ({
+      getConduitNativeDb: () => shared,
+      ensureConduitDb: () => ({ action: 'exists', path: '' }),
+    }));
+    stubOtherChokepointOpeners();
+    vi.doMock('../../paths.js', () => ({
+      getCleoDir: () => tempDir,
+      getCleoHome: () => tempDir,
+      resolveOrCwd: (cwd?: string) => cwd ?? tempDir,
+    }));
+
+    const { vacuumIntoBackup, vacuumIntoBackupAll } = await import('../sqlite-backup.js');
+    // A tasks-only snapshot refreshes the tasks debounce; the next all-snapshot
+    // run admits only brain and conduit.
+    await vacuumIntoBackup();
+    const [first] = readdirSync(backupDir).filter((f) => /^tasks-.*\.db$/.test(f));
+    expect(first).toBeDefined();
+    // Data written after the first snapshot must be in the brain-admitted one.
+    shared.exec("INSERT INTO tasks_schema_meta (key, value) VALUES ('t13891-marker', 'latest')");
+    const r = await vacuumIntoBackupAll();
+    shared.close();
+
+    expect(r?.snapshotted).not.toContain('tasks');
+    expect(r?.snapshotted).toContain('brain');
+    // Same-bucket retention may drop the first snapshot; never a brain/conduit file.
+    const files = readdirSync(backupDir).filter((f) => /^(tasks|brain|conduit)-.*\.db$/.test(f));
+    for (const f of files) expect(f).toMatch(/^tasks-\d{8}-\d{6}\.db$/);
+    const latest = files
+      .filter((f) => f !== first)
+      .sort()
+      .at(-1);
+    expect(latest).toBeDefined();
+    const snap = new DatabaseSync(join(backupDir, latest ?? ''), { readOnly: true });
+    const row = snap
+      .prepare("SELECT value FROM tasks_schema_meta WHERE key = 't13891-marker'")
+      .get() as { value: string } | undefined;
+    snap.close();
+    expect(row?.value).toBe('latest');
+  });
+
+  it('prunes legacy brain-*/conduit-* snapshots older than the oldest retained tasks-* (T13910)', async () => {
+    const tempDir = join(tmpdir(), `cleo-t13910-legacy-${Date.now()}`);
+    const backupDir = join(tempDir, 'backups', 'sqlite');
+    mkdirSync(backupDir, { recursive: true });
+    // Five daily tasks-* snapshots: with the new one, daily retention keeps the
+    // three newest days (new, 05, 04) and evicts 01-03.
+    for (const day of ['01', '02', '03', '04', '05']) {
+      writeFileSync(join(backupDir, `tasks-202601${day}-120000.db`), 'fake');
+    }
+    // Pre-T13891 legacy links: 01 is older than every retained tasks-*; 04 and
+    // 05 are not.
+    for (const name of [
+      'brain-20260101-120000.db',
+      'conduit-20260101-120000.db',
+      'brain-20260104-120000.db',
+      'conduit-20260105-120000.db',
+    ]) {
+      writeFileSync(join(backupDir, name), 'fake');
+    }
+    const shared = new DatabaseSync(join(tempDir, 'cleo.db'));
+    shared.exec('CREATE TABLE tasks_schema_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL)');
+    vi.doMock('../sqlite.js', () => ({ getNativeDb: () => shared, getDb: async () => null }));
+    vi.doMock('../memory-sqlite.js', () => ({
+      getBrainNativeDb: () => shared,
+      getBrainDb: async () => null,
+    }));
+    vi.doMock('../conduit-sqlite.js', () => ({
+      getConduitNativeDb: () => shared,
+      ensureConduitDb: () => ({ action: 'exists', path: '' }),
+    }));
+    stubOtherChokepointOpeners();
+    vi.doMock('../../paths.js', () => ({
+      getCleoDir: () => tempDir,
+      getCleoHome: () => tempDir,
+      resolveOrCwd: (cwd?: string) => cwd ?? tempDir,
+    }));
+
+    const { vacuumIntoBackupAll } = await import('../sqlite-backup.js');
+    await vacuumIntoBackupAll();
+    shared.close();
+
+    const files = readdirSync(backupDir);
+    const tasks = files.filter((f) => /^tasks-\d{8}-\d{6}\.db$/.test(f)).sort();
+    expect(tasks).toHaveLength(3);
+    expect(tasks.slice(0, 2)).toEqual(['tasks-20260104-120000.db', 'tasks-20260105-120000.db']);
+    const legacy = files.filter((f) => /^(brain|conduit)-\d{8}-\d{6}\.db$/.test(f)).sort();
+    expect(legacy).toEqual(['brain-20260104-120000.db', 'conduit-20260105-120000.db']);
   });
 
   /**
-   * T12508: on a filesystem without hard links (exFAT → ENOTSUP) the shared
-   * file is COPIED under the other prefixes instead — still one VACUUM, and
-   * `brain-*` / `conduit-*` still exist for restore and recovery.
+   * T13891: on a filesystem without hard links (exFAT → ENOTSUP) the old
+   * design COPIED the shared file under brain and conduit (three full copies
+   * per session end). Now nothing is linked or copied: one file, and
+   * `listBrainBackups` finds the brain tables in that project snapshot.
    */
-  it('falls back to a copy when hard links are unsupported (T12508)', async () => {
+  it('writes one project snapshot, never a copy, where hard links are unsupported (T13891)', async () => {
     const tempDir = join(tmpdir(), `cleo-t12508-nolink-${Date.now()}`);
     const backupDir = join(tempDir, 'backups', 'sqlite');
     mkdirSync(tempDir, { recursive: true });
@@ -696,13 +803,12 @@ describe('sqlite-backup', () => {
 
     expect(vacuums).toBe(1);
     expect(r?.failed).toEqual([]);
-    expect(r?.linked).toEqual([]);
+    expect(r?.linked).toEqual(['brain', 'conduit']);
     expect(r?.snapshotted).toEqual(['tasks', 'brain', 'conduit']);
     const files = readdirSync(backupDir).filter((f) => /^(tasks|brain|conduit)-.*\.db$/.test(f));
-    expect(files).toHaveLength(3);
-    // Three separate files (copies), and brain recovery finds its prefix.
-    expect(new Set(files.map((f) => statSync(join(backupDir, f)).ino)).size).toBe(3);
-    expect(brainList).toHaveLength(1);
+    expect(files).toHaveLength(1);
+    // The one project snapshot is what the brain listing returns.
+    expect(brainList.map((e) => e.name)).toEqual(files);
   });
 
   /**

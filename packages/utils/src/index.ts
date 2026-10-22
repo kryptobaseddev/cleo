@@ -12,4 +12,12 @@
  */
 
 export { formatBytes } from './format-bytes.js';
-export { containsSecret, type RedactionResult, redact, redactWithFlag } from './redact.js';
+export {
+  containsSecret,
+  type JsonLike,
+  type RedactionResult,
+  redact,
+  redactJsonText,
+  redactSecretFields,
+  redactWithFlag,
+} from './redact.js';

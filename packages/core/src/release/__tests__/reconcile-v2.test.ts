@@ -32,7 +32,8 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { releaseReconcileV2, sanitisePrShasForFk } from '../reconcile.js';
+import { actAsOwner } from '../../security/__tests__/owner-session.js';
+import { parseOwnerRepo, releaseReconcileV2, sanitisePrShasForFk } from '../reconcile.js';
 
 // Explicit project roots belong to each synthetic fixture, not the setup pin.
 beforeEach(() => {
@@ -219,6 +220,15 @@ afterEach(async () => {
 
 // C3 regression: FK-safe PR sanitisation. Verifies pull_requests INSERT no
 // longer crashes when a PR refers to commits outside the reconcile range.
+describe('parseOwnerRepo (T12914)', () => {
+  it('lowercases owner and repo, so a remote spelled in another case keys the same PR', () => {
+    const want = { owner: 'kryptobaseddev', repo: 'cleo' };
+    expect(parseOwnerRepo('https://github.com/KryptoBasedDev/Cleo.git')).toEqual(want);
+    expect(parseOwnerRepo('git@GitHub.com:kryptobaseddev/CLEO.git')).toEqual(want);
+    expect(parseOwnerRepo('https://gitlab.com/a/b')).toBeNull();
+  });
+});
+
 describe('sanitisePrShasForFk — C3 FK safety (T9686)', () => {
   it('nulls headSha when not in inserted-commits set', () => {
     const inserted = new Set(['aaa111', 'bbb222']);
@@ -473,6 +483,27 @@ describe('releaseReconcileV2 — Phase 1 (T9526)', () => {
     expect(await countRows(projectRoot, 'tasks_release_changes')).toBe(changesAfterFirst);
   });
 
+  it('a re-run reuses release change rows whose ids are device-local, never adding a second row (T12914)', async () => {
+    writePlan(projectRoot, VERSION, TASK_IDS);
+    gitCommit(projectRoot, 'a.txt', '1', `feat(${TASK_IDS[0]}): ship a`);
+    gitTag(projectRoot, VERSION);
+    expect((await releaseReconcileV2(VERSION, { projectRoot })).success).toBe(true);
+    // Rows received by sync carry their uid as their local id.
+    const { getDb } = await import('../../store/sqlite.js');
+    const { sql } = await import('drizzle-orm');
+    const db = await getDb(projectRoot);
+    await db.run(sql.raw(`UPDATE tasks_release_changes SET id = 'synced-' || task_id`));
+    const before = await db.all<{ id: string }>(
+      sql.raw('SELECT id FROM tasks_release_changes ORDER BY id'),
+    );
+
+    writePlan(projectRoot, VERSION, TASK_IDS);
+    expect((await releaseReconcileV2(VERSION, { projectRoot })).success).toBe(true);
+    expect(
+      await db.all<{ id: string }>(sql.raw('SELECT id FROM tasks_release_changes ORDER BY id')),
+    ).toEqual(before);
+  });
+
   it('unknown T#### tokens are reported in meta.unknownTokens (non-fatal)', async () => {
     writePlan(projectRoot, VERSION, TASK_IDS);
     // Subject references T9999999 which is not in tasks table.
@@ -639,8 +670,17 @@ describe('releaseReconcileV2 — Phase 1 (T9526)', () => {
     process.env['CLEO_OWNER_OVERRIDE'] = '1';
     process.env['CLEO_OWNER_OVERRIDE_REASON'] = 'incident-test-1234';
 
-    const result = await releaseReconcileV2(VERSION, { projectRoot });
-    expect(result.success).toBe(true);
+    // T13790: an agent that is not the owner gets no bypass.
+    const refused = await releaseReconcileV2(VERSION, { projectRoot });
+    expect(!refused.success && refused.error.code).toBe('E_EVIDENCE_STALE');
+    // The owner (owner-marked session, own terminal) does.
+    const restore = await actAsOwner(projectRoot);
+    try {
+      const result = await releaseReconcileV2(VERSION, { projectRoot });
+      expect(result.success).toBe(true);
+    } finally {
+      restore();
+    }
   });
 
   it('emits envelope with meta.durationMs and meta.txSize', async () => {

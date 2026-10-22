@@ -24,7 +24,7 @@ import {
   PRIOR_RECOVERIES_TABLE_SQL,
   taskIdCollisionsSql,
 } from '../exodus/task-id-collision-sql.js';
-import { ROW_IDENTITY } from '../row-identity-registry.js';
+import { DRAINED_TWINS, ROW_IDENTITY } from '../row-identity-registry.js';
 import { classifyTable, isPortableTableClass } from '../table-classification.js';
 import { ensureSyncSchema, hasTable } from './schema.js';
 
@@ -192,6 +192,8 @@ function bareTwinPairs(db: DatabaseSync): Array<{ bare: string; table: string }>
   const pairs: Array<{ bare: string; table: string }> = [];
   for (const bare of tables) {
     if (syncSet.has(bare)) continue;
+    // A drained twin's bare rows are carried by the next open, never stranded (T13777).
+    if (Object.hasOwn(DRAINED_TWINS, bare)) continue;
     const target = resolveConsolidatedTableName('tasks', bare);
     if (target.kind !== 'mapped' || target.targetName === bare) continue;
     const table = target.targetName;
@@ -201,13 +203,50 @@ function bareTwinPairs(db: DatabaseSync): Array<{ bare: string; table: string }>
   return pairs;
 }
 
+/**
+ * The 18 cleocode ship commits the legacy `drizzle-tasks` migration
+ * `20260520163324_t9755-backfill-legacy-ship-commits` seeds into the bare
+ * `commits` table of EVERY store, after the consolidated schema (T12914). They
+ * are not the store's history (cleocode's own `tasks_commits` holds them from
+ * git), so a twin lacking them is not a strand: nothing is copied, and no
+ * device journals another project's commits. A test pins this list to the
+ * migration.
+ */
+export const LEGACY_SEEDED_COMMIT_SHAS: readonly string[] = [
+  '9f1eac565d44818f7c803e3327aaed4d5d830c67',
+  '1e1f2302b1ad5ed764206f573b6ca07d638cfa5b',
+  '572630ee6a54b94a904ae6c79a7a86fc3a5054b0',
+  'f2b2466bf9f5f53c5ab6f619a30490621c27e903',
+  '101c0eb6f637cdc92165ade04ceef58f8f4dd014',
+  '1386636d32bfd58d90d900e2636c02cc939025a8',
+  '6607fc2cd09f0bd700bf6bdbcc7d7aac75873b4d',
+  '5638ac5f567a9420c9c18b356ed1640f4236f526',
+  'bd4bba8f654722a0e4ebd491bbb8b500cf8ae4d0',
+  '1867e9778f7c02807d543435dd6bd29fc89abddd',
+  '856353ebe45a4904e461fe00f326bd83d863ded8',
+  '018b2cd7d36c0edde68234544834d9bc076c08d8',
+  '85fa011fb08eb4e49f94be4ac92071e5b7f80b6e',
+  '8a0a0131a536730a0017cf9de056d18f4a86e800',
+  '422ff7353365f7e3ab5b2e1b7ca824e0b486ded6',
+  'd36146b979ed0c50b4275400074188dabce79c86',
+  '23dc2cc5e10176697f14f172c4ee5b94937fd7fc',
+  'ebee726e5318d3cd7407310d0c44c0b53ead392b',
+];
+
 /** Rows of `bare` the twin `table` lacks by key, and bare tasks shadowed by a reused id. */
 function strandCounts(
   db: DatabaseSync,
   bare: string,
   table: string,
 ): { readonly missing: number; readonly shadowed: number } {
-  const missing = hasRows(db, table) ? missingByKey(db, bare, table) : countRows(db, bare);
+  const exclude =
+    bare === 'commits' && table === 'tasks_commits'
+      ? ` AND s."sha" NOT IN (${LEGACY_SEEDED_COMMIT_SHAS.map((x) => `'${x}'`).join(', ')})`
+      : '';
+  const missing =
+    hasRows(db, table) || exclude !== ''
+      ? missingByKey(db, bare, table, exclude)
+      : countRows(db, bare);
   const shadowed = bare === 'tasks' && table === 'tasks_tasks' ? shadowedTasks(db) : 0;
   return { missing: missing ?? 0, shadowed };
 }
@@ -579,9 +618,10 @@ function columns(db: DatabaseSync, table: string): Array<{ name: string; pk: num
 
 /**
  * Bare rows whose twin primary key is absent from the twin, or `null` when the
- * bare table cannot produce every key column.
+ * bare table cannot produce every key column. `exclude` is an extra SQL
+ * condition on the bare row `s` (the seeded commits).
  */
-function missingByKey(db: DatabaseSync, bare: string, table: string): number | null {
+function missingByKey(db: DatabaseSync, bare: string, table: string, exclude = ''): number | null {
   const pk = columns(db, table)
     .filter((c) => c.pk > 0)
     .sort((a, b) => a.pk - b.pk)
@@ -599,7 +639,7 @@ function missingByKey(db: DatabaseSync, bare: string, table: string): number | n
     db
       .prepare(
         `SELECT COUNT(*) AS n FROM main."${bare}" s ` +
-          `WHERE NOT EXISTS (SELECT 1 FROM main."${table}" t WHERE ${match})`,
+          `WHERE NOT EXISTS (SELECT 1 FROM main."${table}" t WHERE ${match})${exclude}`,
       )
       .get() as { n: number }
   ).n;

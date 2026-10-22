@@ -1,6 +1,6 @@
 {
   "name": "@cleocode/nexus",
-  "version": "2026.10.17",
+  "version": "2026.10.21",
   "private": false,
   "type": "module",
   "description": "CLEO project registry and code intelligence — unified nexus package",

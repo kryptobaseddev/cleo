@@ -35,6 +35,7 @@ import {
   readRowIdentityHealReceipt,
 } from '../row-identity.js';
 import { setSyncFlag } from '../sync/flags.js';
+import { AUDIT_SCRUB_MARKER } from '../sync/schema.js';
 import { verifyOwnedTriggers } from '../sync/trigger-classes.js';
 import { setWorktreeBuildGuardForTests } from '../worktree-build-guard.js';
 
@@ -168,10 +169,11 @@ describe('row-identity schema heal on every open (T12878)', () => {
     expect(db.prepare("SELECT uid FROM tasks_tasks WHERE id = 'T003'").get()).toEqual({
       uid: null,
     });
-    // The only meta row is the heal's own receipt: no recipe marker (no fill).
-    expect(db.prepare('SELECT key FROM tasks_row_identity_meta').all()).toEqual([
-      { key: 'row_identity_schema_healed' },
-    ]);
+    // The only identity meta row is the heal's own receipt: no recipe marker
+    // (no fill). The open's audit-scrub marker (T13857) is not identity state.
+    expect(
+      db.prepare('SELECT key FROM tasks_row_identity_meta WHERE key <> ?').all(AUDIT_SCRUB_MARKER),
+    ).toEqual([{ key: 'row_identity_schema_healed' }]);
     expect(db.prepare('SELECT count(*) AS n FROM __drizzle_migrations').get()).toEqual(
       journalBefore,
     );

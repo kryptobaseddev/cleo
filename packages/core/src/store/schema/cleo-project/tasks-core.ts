@@ -560,8 +560,13 @@ export const tasksSessionHandoffEntries = sqliteTable(
     handoffJson: text('handoff_json').notNull(),
     /** ISO-8601 UTC creation instant (canonical TEXT, §4). */
     createdAt: text('created_at').notNull().default(sql`(datetime('now'))`),
+    /** Row uid (T13777): a UUIDv8 over the session uid, filled at open or by the uid trigger. */
+    uid: text('uid'),
   },
-  (table) => [index('idx_tasks_session_handoff_entries_session_id').on(table.sessionId)],
+  (table) => [
+    uniqueIndex('uq_tasks_session_handoff_entries_uid').on(table.uid),
+    index('idx_tasks_session_handoff_entries_session_id').on(table.sessionId),
+  ],
 );
 
 /**

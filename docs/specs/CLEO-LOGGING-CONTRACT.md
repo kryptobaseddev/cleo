@@ -118,7 +118,7 @@ Every log entry (both stores) MUST include the following correlation fields wher
 |-------|---------|-------------|---------|
 | `fatal` | 60 | Process-ending errors that require immediate termination | DB corruption, unrecoverable bootstrap failure, unsupported Node.js version |
 | `error` | 50 | Operation failures requiring attention but not process termination | Engine errors, unhandled exceptions caught at the top level, SQLite write failures in critical paths |
-| `warn` | 40 | Degraded behavior where a fallback was taken or optional config is missing | `projectHash` not provided to `initLogger()`, audit archive failure (continues with deletion), audit prune failure at startup, audit SQLite write failure (fire-and-forget) |
+| `warn` | 40 | Degraded behavior where a fallback was taken or optional config is missing | `projectHash` not provided to `initLogger()`, audit archive failure (continues with deletion), automatic audit prune failure, audit SQLite write failure (fire-and-forget) |
 | `info` | 30 | Normal operational events worth recording | Audit entries (dual-write), server startup/ready, dispatch layer initialized, audit prune completed with row counts, shutdown signals received |
 | `debug` | 20 | Detailed operation flow useful for troubleshooting | Tool call arguments, cache hit/miss decisions, budget enforcement details, tool call results |
 | `trace` | 10 | Fine-grained tracing for deep debugging | SQL queries, middleware chain execution steps |
@@ -137,7 +137,6 @@ The CLI entry point in `packages/cleo/src/cli/index.ts` uses a `preAction` hook 
 2. **preAction hook -- Logger init** (first command invocation only):
    - Loads core config via `loadCoreConfig()`.
    - Calls `initCliLogger(cwd, config.logging)` which reads `projectHash` from `project-info.json` synchronously and calls `initLogger()`.
-   - Fires `pruneAuditLog()` as fire-and-forget (failures silently caught).
    - Best-effort: if config loading fails, commands still work with the stderr fallback logger.
 3. **preAction hook -- Output format resolution**: Resolves `--json`/`--human`/`--quiet` flags.
 4. **preAction hook -- Storage migration preflight**: Checks if JSON-to-SQLite migration is needed. Warnings written to `process.stderr` (not Pino) to avoid polluting stdout JSON output. Skipped for `version`, `init`, `self-update`, `upgrade`, and `help` commands.
@@ -196,7 +195,6 @@ Required events that MUST always be logged:
 ## 8. CLI Initialization Rules
 
 - CLI startup MUST call `initLogger()` before any operations. This is done in the `preAction` hook via `initCliLogger()` in `packages/cleo/src/cli/logger-bootstrap.ts`.
-- CLI `preAction` hook MUST fire `pruneAuditLog()` as fire-and-forget after logger initialization. Failures are silently caught to avoid blocking command execution.
 - All CLI commands route through the dispatch layer via `dispatchRaw()` in `packages/cleo/src/dispatch/adapters/cli.ts`, which applies the `createAudit()` middleware to produce `audit_log` entries with `source: 'cli'`.
 - The `initCliLogger()` function in `packages/cleo/src/cli/logger-bootstrap.ts` reads `projectHash` from `project-info.json` synchronously and passes it to `initLogger()`, ensuring every CLI log entry carries the correct correlation context.
 
@@ -238,6 +236,12 @@ Retention is enforced by pino-roll via `limit.count` with `removeOtherLogFiles: 
 7. Log result at `info` level with `rowsDeleted` and `cutoff`.
 
 **Idempotency**: `pruneAuditLog()` is safe to call multiple times. It never throws -- returns zero counts on any error.
+
+**When it runs** (T13828):
+- Automatically at session end, after the session-end snapshot (`snapshotAfterSessionEnd`), through `autoPruneAuditLog()`: at most once a day per project, stamped in `.cleo/logs/audit-prune.last`.
+- On demand with `cleo admin cleanup --target logs`.
+
+Both apply the same retention days, the 30-day floor and the receipt exemptions.
 
 ---
 

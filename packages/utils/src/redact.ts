@@ -215,3 +215,126 @@ export function containsSecret(content: string): boolean {
   }
   return false;
 }
+
+// ---------------------------------------------------------------------------
+// Structured (key-aware) redaction — audit payloads (T13855)
+// ---------------------------------------------------------------------------
+
+/** A parsed JSON value. */
+export type JsonLike = string | number | boolean | null | JsonLike[] | { [key: string]: JsonLike };
+
+/**
+ * Field names whose string value is a secret, matched case-insensitively on
+ * the name's END so `refreshToken`, `client_secret` and `apiKey` match while
+ * `tokenId`, `maxTokens`, `idempotencyKey` and `keyword` do not.
+ */
+const SECRET_FIELD_RE =
+  /(?:token|secret|password|passwd|passphrase|credentials?|authorization|api[_-]?key|private[_-]?key|access[_-]?key|code[_-]?verifier)$/i;
+
+/**
+ * Credential shapes in free text that keep their label and lose only the
+ * secret (T13860): a GitHub-style `Authorization: token <t>` or `Authorization: Basic <b64>` header (T13863), URL
+ * userinfo passwords (`scheme://user:<p>@host`) and `--token <t>` /
+ * `--token=<t>` argv flags. Re-applying them to their own output is a no-op.
+ */
+const LABELLED_SECRETS: ReadonlyArray<readonly [RegExp, string]> = [
+  [/\b(authorization:\s*(?:token|basic)\s+)[^\s"',]+/gi, `$1${REDACTED}`],
+  [/\b([a-z][a-z0-9+.-]*:\/\/[^\s:@/]+:)[^\s@/]+@/gi, `$1${REDACTED}@`],
+  [
+    /(--(?:token|password|passwd|secret|api[_-]?key|access[_-]?token|auth[_-]?token|refresh[_-]?token)(?:=|\s+))[^\s"']+/gi,
+    `$1${REDACTED}`,
+  ],
+];
+
+/**
+ * Scrub credential SHAPES from a string under a non-secret field: the known
+ * token patterns, env assignments and {@link LABELLED_SECRETS}, never the
+ * secret-path patterns. Audit text is immutable once synced, so a path-shaped
+ * false positive (`process.env`, `.env.example`, `id_rsa`) would mangle it
+ * forever (T13859).
+ */
+function scrubCredentialShapes(content: string): string {
+  let result = content;
+  for (const pattern of SIMPLE_PATTERNS) {
+    pattern.lastIndex = 0;
+    result = result.replace(pattern, REDACTED);
+  }
+  ENV_ASSIGNMENT_RE.lastIndex = 0;
+  result = result.replace(
+    ENV_ASSIGNMENT_RE,
+    (_match, varName: string, eq: string) => `${varName}${eq}${REDACTED}`,
+  );
+  for (const [pattern, replacement] of LABELLED_SECRETS) {
+    pattern.lastIndex = 0;
+    result = result.replace(pattern, replacement);
+  }
+  return result;
+}
+
+/** Sibling fields that name the secret a `value` field holds: `{key, value}`, `{name, value}`. */
+const SECRET_NAME_SIBLINGS = ['key', 'name'] as const;
+
+/**
+ * Redact a parsed JSON value: every string under a secret-named field becomes
+ * `[REDACTED]` (at any depth), and so does a `value` whose sibling `key` or
+ * `name` names a secret (`{key: 'cloud.apiToken', value}`,
+ * `{name: 'Authorization', value}`). Every other string leaf has only its
+ * credential shapes scrubbed. Numbers and booleans are kept, so
+ * `hasCredentials: true` survives. Returns the input object itself when
+ * nothing changed.
+ *
+ * @param value - Parsed JSON value to scrub.
+ * @returns The scrubbed value.
+ *
+ * @example
+ * ```ts
+ * redactSecretFields({ provider: 'github', token: 'abc123' });
+ * // → { provider: 'github', token: '[REDACTED]' }
+ * ```
+ */
+export function redactSecretFields(value: JsonLike): JsonLike {
+  if (typeof value === 'string') return scrubCredentialShapes(value);
+  if (value === null || typeof value !== 'object') return value;
+  if (Array.isArray(value)) {
+    const next = value.map(redactSecretFields);
+    return next.some((v, i) => v !== value[i]) ? next : value;
+  }
+  const namesSecret = SECRET_NAME_SIBLINGS.some((k) => {
+    const sibling = value[k];
+    return typeof sibling === 'string' && SECRET_FIELD_RE.test(sibling);
+  });
+  let changed = false;
+  const next: { [key: string]: JsonLike } = {};
+  for (const [key, child] of Object.entries(value)) {
+    const secret = SECRET_FIELD_RE.test(key) || (key === 'value' && namesSecret);
+    const scrubbed = typeof child === 'string' && secret ? REDACTED : redactSecretFields(child);
+    if (scrubbed !== child) changed = true;
+    next[key] = scrubbed;
+  }
+  return changed ? next : value;
+}
+
+/**
+ * Redact a serialized JSON payload with {@link redactSecretFields}; text that
+ * is not JSON has only its credential shapes scrubbed. Returns the input
+ * string unchanged (byte for byte) when nothing was redacted, and is
+ * idempotent: redacting its own output changes nothing.
+ *
+ * @param text - JSON text (or plain text) to scrub.
+ * @returns The scrubbed text.
+ *
+ * @example
+ * ```ts
+ * redactJsonText('{"token":"abc123"}'); // → '{"token":"[REDACTED]"}'
+ * ```
+ */
+export function redactJsonText(text: string): string {
+  let parsed: JsonLike;
+  try {
+    parsed = JSON.parse(text);
+  } catch {
+    return scrubCredentialShapes(text);
+  }
+  const scrubbed = redactSecretFields(parsed);
+  return scrubbed === parsed ? text : JSON.stringify(scrubbed);
+}

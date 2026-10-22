@@ -33,6 +33,35 @@ export interface LeanConfig {
    * @defaultValue 'full'
    */
   level?: LeanLevel;
+  /**
+   * Add the brief codebase map (`cleo map --brief`) to `cleo briefing`, so
+   * "reuse first" costs no search (T13666).
+   *
+   * @defaultValue false
+   */
+  map?: boolean;
+}
+
+/** One file's exported names, the input to the brief map (T13666). */
+export interface BriefMapFile {
+  /** Repo-relative path. */
+  readonly file: string;
+  /** Exported top-level names, in source order. */
+  readonly names: readonly string[];
+}
+
+/** `cleo map --brief`: what already exists, one line per folder, within a budget. */
+export interface BriefMapReport {
+  /** Where the names came from: the parsed nexus graph, or a git-tracked regex walk. */
+  readonly source: 'nexus' | 'git-walk';
+  /** The rendered map (empty when nothing was found). */
+  readonly text: string;
+  /** Folders listed. */
+  readonly folders: number;
+  /** Folders left out to stay within the budget. */
+  readonly skipped: number;
+  /** The character budget used. */
+  readonly budget: number;
 }
 
 /**
@@ -68,4 +97,34 @@ export interface LeanDebtReport {
   readonly filed: readonly { readonly key: string; readonly taskId: string }[];
   /** Keys that already had a `lean-debt` task, so none was filed. */
   readonly alreadyFiled: readonly string[];
+}
+
+/** One measured metric on the `cleo lean gain` scoreboard (T13669). */
+export interface LeanGainMetric {
+  /** What was measured, e.g. `Source lines of code`. */
+  readonly name: string;
+  /** ct-lean as a share of the no-skill baseline (0.35 = 35%). */
+  readonly ctLeanShare: number;
+  /** Ponytail 5.1.0 as a share of the same baseline, for comparison. */
+  readonly ponytailShare: number;
+}
+
+/** The measured scoreboard `cleo lean gain` prints: benchmark numbers, never per-repo ones. */
+export interface LeanGainReport {
+  /** Scoreboard heading naming the run the numbers come from. */
+  readonly heading: string;
+  /** Canonical research doc the numbers come from (`cleo docs fetch <slug>`). */
+  readonly source: string;
+  /** How the numbers were measured, in one line. */
+  readonly method: string;
+  /** Size, cost and time metrics. */
+  readonly metrics: readonly LeanGainMetric[];
+  /** Hidden checks passed per arm, e.g. `{ baseline: '23/24', ponytail: '24/24', ctLean: '24/24' }`. */
+  readonly hiddenChecks: {
+    readonly baseline: string;
+    readonly ponytail: string;
+    readonly ctLean: string;
+  };
+  /** The honesty boundary, always present. */
+  readonly note: string;
 }

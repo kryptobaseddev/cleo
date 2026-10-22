@@ -43,6 +43,7 @@ import {
   relocatedJsonText,
 } from './portable-bundle-relocate.js';
 import { CREDENTIAL_COLUMNS, credentialRemedy, sha256File } from './portable-bundle-scan.js';
+import { ROW_IDENTITY, syncedRowsWhere, UID_COLUMN } from './row-identity-registry.js';
 import { applyPerfPragmas } from './sqlite-pragmas.js';
 import { readBareAccounts, settleRestoredBareAccounts } from './sync/flags.js';
 import {
@@ -72,7 +73,10 @@ const { DatabaseSync } = _require('node:sqlite') as {
 /**
  * Version of the manifest computation (which cells hash, and how; which
  * pseudo-entries exist). 2: non-syncing columns hash as NULL, plus the
- * `zz_vault_db_*` and `zz_vault_files` entries (T12967, T12969).
+ * `zz_vault_db_*` and `zz_vault_files` entries (T12967, T12969). 3: a row
+ * local by its row-identity spec (no uid, by `localWhenNull` or
+ * `localUnlessFirst`) is neither counted nor hashed, as the change journal
+ * never carries it (T13808).
  *
  * It is not the manifest's wire `schemaVersion`: that is
  * {@link SYNC_SCHEMA_VERSION}, the stream data numbering the vault shares with
@@ -83,7 +87,7 @@ const { DatabaseSync } = _require('node:sqlite') as {
  * "does not match" ({@link vaultManifestFormat}). Bump it with any change to
  * what a manifest hashes.
  */
-export const VAULT_MANIFEST_FORMAT_VERSION = 2;
+export const VAULT_MANIFEST_FORMAT_VERSION = 3;
 
 /**
  * Manifest key of a snapshot's format record (T13034): which
@@ -93,6 +97,27 @@ export const VAULT_MANIFEST_FORMAT_VERSION = 2;
  * the version.
  */
 export const VAULT_FORMAT_KEY = 'zz_vault_format';
+
+/**
+ * Manifest key of a snapshot's authored-state digest (T13850): one keyed hash
+ * over every `cleo.db` table's hash, with what memory reads write left out
+ * ({@link READ_SIDE_COLUMNS}, {@link READ_SIDE_TABLES}). Equal on both sides,
+ * a store's table changes since a sync are read telemetry, which a pull may
+ * replace. Zero rows and an annotation, like {@link VAULT_FORMAT_KEY}, so the
+ * server's count check and every table comparison skip it.
+ */
+export const VAULT_AUTHORED_KEY = 'zz_vault_authored';
+
+/** Columns a memory read bumps on the entries it returns (`incrementCitationCounts`). */
+const READ_SIDE_COLUMNS: Readonly<Record<string, readonly string[]>> = {
+  brain_observations: ['citation_count', 'updated_at'],
+  brain_decisions: ['citation_count', 'updated_at'],
+  brain_patterns: ['citation_count', 'updated_at'],
+  brain_learnings: ['citation_count', 'updated_at'],
+};
+
+/** Tables only read telemetry writes (`logRetrieval`, and the reward pass labelling its rows). */
+const READ_SIDE_TABLES: ReadonlySet<string> = new Set(['brain_retrieval_log']);
 
 /** A manifest key the wire contract accepts. */
 const MANIFEST_KEY = /^[a-z][a-z0-9_]{0,62}$/;
@@ -191,6 +216,8 @@ export interface BuildVaultManifestOptions {
   hashKey: Uint8Array;
   /** The store's root as written in its rows; relocatable cells are re-rooted from it. `null`: none (a store a restore does not relocate). */
   root: string | null;
+  /** Count and hash rows local by row-identity spec too: format 2, to check a snapshot hashed under it (T13808). */
+  countLocalRows?: boolean;
 }
 
 /** The manifest plus the tables left out, for reports. */
@@ -198,6 +225,8 @@ export interface VaultManifestBuild {
   manifest: VaultManifest;
   /** Syncing tables whose name the wire contract cannot carry. */
   skipped: string[];
+  /** Per table, the rows local by row-identity spec, left out of the manifest (T13808). */
+  localRows: Record<string, number>;
 }
 
 /**
@@ -244,6 +273,8 @@ export function buildVaultManifest(
   const root = opts.root === null ? '' : opts.root.replace(/[\\/]+$/, '');
   const tables: Record<string, VaultTableEntry> = {};
   const skipped: string[] = [];
+  const localRows: Record<string, number> = {};
+  const authored: string[] = [];
   const db = new DatabaseSync(dbPath, { readOnly: true });
   try {
     applyPerfPragmas(db, { enableWal: false });
@@ -288,20 +319,58 @@ export function buildVaultManifest(
           }
           return relocators.get(col) ?? null;
         };
-        const select = db.prepare(`SELECT * FROM ${quoteIdent(name)}`);
+        // T13808: a row local by its row-identity spec never syncs, so it is not the store's shared state.
+        const spec =
+          opts.allTables === true || opts.countLocalRows === true
+            ? undefined
+            : ROW_IDENTITY[opts.scope].find((s) => s.table === name);
+        const synced =
+          spec &&
+          db.prepare('SELECT 1 FROM pragma_table_info(?) WHERE name = ?').get(name, UID_COLUMN) !==
+            undefined
+            ? syncedRowsWhere(spec)
+            : null;
+        if (synced !== null) {
+          const local = (
+            db
+              .prepare(`SELECT count(*) AS n FROM main.${quoteIdent(name)} WHERE NOT (${synced})`)
+              .get() as {
+              n: number | bigint;
+            }
+          ).n;
+          if (Number(local) > 0) localRows[name] = Number(local);
+        }
+        const select = db.prepare(
+          `SELECT * FROM main.${quoteIdent(name)}${synced === null ? '' : ` WHERE ${synced}`}`,
+        );
         // Integers past 2^53 (nanosecond times, inode numbers) would throw as numbers.
         select.setReadBigInts(true);
+        const readSide = new Set(READ_SIDE_COLUMNS[name] ?? []);
+        const authoredDigests: Buffer[] = [];
         for (const row of select.iterate()) {
-          const values = Object.entries(row as Record<string, unknown>).map(([col, v]) =>
+          const cells = Object.entries(row as Record<string, unknown>);
+          const values = cells.map(([col, v]) =>
             cleared.has(col) ? null : canonicalValue(v, relocatorOf(col)),
           );
           digests.push(crypto.createHash('sha256').update(JSON.stringify(values)).digest());
+          if (readSide.size > 0) {
+            const kept = values.map((v, i) => (readSide.has(cells[i]![0]) ? null : v));
+            authoredDigests.push(crypto.createHash('sha256').update(JSON.stringify(kept)).digest());
+          }
         }
-        digests.sort(Buffer.compare);
-        const mac = crypto.createHmac('sha256', key);
-        mac.update(`cleo-vault-table/v1\n${name}\n${digests.length}\n`);
-        for (const d of digests) mac.update(d);
-        tables[name] = { rows: digests.length, hash: mac.digest('hex') };
+        const tableMac = (ds: Buffer[]) => {
+          ds.sort(Buffer.compare);
+          const mac = crypto.createHmac('sha256', key);
+          mac.update(`cleo-vault-table/v1\n${name}\n${ds.length}\n`);
+          for (const d of ds) mac.update(d);
+          return mac.digest('hex');
+        };
+        tables[name] = { rows: digests.length, hash: tableMac(digests) };
+        if (!READ_SIDE_TABLES.has(name)) {
+          authored.push(
+            `${name}\n${readSide.size > 0 ? tableMac(authoredDigests) : tables[name].hash}`,
+          );
+        }
       }
     } finally {
       db.exec('COMMIT');
@@ -309,7 +378,12 @@ export function buildVaultManifest(
   } finally {
     db.close();
   }
-  return { manifest: { schemaVersion: SYNC_SCHEMA_VERSION, tables }, skipped };
+  if (opts.allTables !== true) {
+    const mac = crypto.createHmac('sha256', key).update('cleo-vault-authored/v1\n');
+    for (const line of authored.sort()) mac.update(`${line}\n`);
+    tables[VAULT_AUTHORED_KEY] = { rows: 0, hash: mac.digest('hex') };
+  }
+  return { manifest: { schemaVersion: SYNC_SCHEMA_VERSION, tables }, skipped, localRows };
 }
 
 /**
@@ -550,10 +624,29 @@ export function vaultManifestFormat(
  * record) rather than a table: never compared, counted or carried forward.
  *
  * @param key - A manifest key.
- * @returns `true` for {@link VAULT_FORK_KEY} and {@link VAULT_FORMAT_KEY}.
+ * @returns `true` for {@link VAULT_FORK_KEY}, {@link VAULT_FORMAT_KEY} and {@link VAULT_AUTHORED_KEY}.
  */
 export function isVaultAnnotationKey(key: string): boolean {
-  return key === VAULT_FORK_KEY || key === VAULT_FORMAT_KEY;
+  return key === VAULT_FORK_KEY || key === VAULT_FORMAT_KEY || key === VAULT_AUTHORED_KEY;
+}
+
+/**
+ * Whether two `cleo.db` manifests hold the same authored state (T13850): both
+ * carry a {@link VAULT_AUTHORED_KEY} digest and the digests agree, so any
+ * table that differs differs only in what memory reads write. A manifest
+ * without the digest (built by an older CLEO) never agrees.
+ *
+ * @param a - One manifest.
+ * @param b - The other.
+ * @returns `true` when the authored digests agree.
+ */
+export function sameVaultAuthoredState(
+  a: Pick<VaultManifest, 'tables'>,
+  b: Pick<VaultManifest, 'tables'>,
+): boolean {
+  const x = Object.hasOwn(a.tables, VAULT_AUTHORED_KEY) ? a.tables[VAULT_AUTHORED_KEY] : undefined;
+  const y = Object.hasOwn(b.tables, VAULT_AUTHORED_KEY) ? b.tables[VAULT_AUTHORED_KEY] : undefined;
+  return x !== undefined && y !== undefined && x.hash === y.hash;
 }
 
 /**

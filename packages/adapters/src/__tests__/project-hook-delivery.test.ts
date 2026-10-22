@@ -2,14 +2,17 @@
 import { execFileSync, spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { existsSync } from 'node:fs';
-import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, realpath, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
   type ProjectHookDeliveryOptions,
   ProjectHookDeliveryReceiptSchema,
 } from '@cleocode/contracts/project-hook-delivery.js';
-import { createProjectHookDeliveryServices } from '@cleocode/core/hooks/project-state';
+import {
+  createProjectHookDeliveryServices,
+  resolveProjectHookContext,
+} from '@cleocode/core/hooks/project-state';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   hasUnsupportedProjectHookDelivery,
@@ -35,6 +38,128 @@ async function options(): Promise<ProjectHookDeliveryOptions> {
     dryRun: false,
   };
 }
+/** A root checkout plus a linked worktree, each with its own Git-private receipt directory. */
+async function linkedWorktree(): Promise<{
+  main: ProjectHookDeliveryOptions;
+  worktree: ProjectHookDeliveryOptions;
+}> {
+  const main = await options();
+  const git = (...args: string[]): string =>
+    execFileSync('git', ['-C', main.projectRoot, ...args], { encoding: 'utf8' }).trim();
+  git(
+    '-c',
+    'user.name=t',
+    '-c',
+    'user.email=t@example.com',
+    'commit',
+    '-q',
+    '--allow-empty',
+    '-m',
+    'T1 init',
+  );
+  const path = await realpath(main.projectRoot);
+  git('worktree', 'add', '-q', '-b', 'wt', join(path, '..', 'wt-' + path.split('/').pop()));
+  const worktreeRoot = join(path, '..', 'wt-' + path.split('/').pop());
+  dirs.push(worktreeRoot);
+  const context = resolveProjectHookContext(worktreeRoot);
+  return {
+    main: { ...main, projectRoot: path, stateDir: join(path, '.git/cleo-project-hooks') },
+    worktree: { ...main, projectRoot: context.projectRoot, stateDir: context.stateDir },
+  };
+}
+describe('Codex delivery from a linked worktree (T13772)', () => {
+  it('writes the root checkout config Codex reads and keeps the worktree layer discoverable', async () => {
+    const { main, worktree } = await linkedWorktree();
+    const result = (await syncProjectHookProviders(worktree))[0];
+    expect(result?.state).toBe('installed');
+    expect(result?.diagnostics).toContain('HOOK_ROOT_CHECKOUT_DELIVERY');
+    expect(result?.configPath).toBe(join(main.projectRoot, '.codex/hooks.json'));
+    expect(await readFile(join(main.projectRoot, '.codex/hooks.json'), 'utf8')).toContain(
+      '--provider codex --event PreToolUse',
+    );
+    // Codex discovers the layer only through the worktree's own .codex directory.
+    expect(existsSync(join(worktree.projectRoot, '.codex'))).toBe(true);
+    expect(existsSync(join(worktree.projectRoot, '.codex/hooks.json'))).toBe(false);
+    // The runner resolves the invoking worktree from its cwd, not the root checkout.
+    expect(resolveProjectHookContext(worktree.projectRoot).projectRoot).toBe(worktree.projectRoot);
+    // One shared receipt: the root checkout sees the same delivery as its own.
+    expect(existsSync(join(main.stateDir, 'provider-codex.json'))).toBe(true);
+    expect((await syncProjectHookProviders(main))[0]?.state).toBe('current');
+    expect((await syncProjectHookProviders(worktree))[0]?.state).toBe('current');
+  });
+  it('a worktree only grows the shared root entry; a root sync can shrink it', async () => {
+    const { main, worktree } = await linkedWorktree();
+    const file = join(main.projectRoot, '.codex/hooks.json');
+    await syncProjectHookProviders({
+      ...main,
+      events: ['PreToolUse', 'ResponseComplete', 'SessionStart'],
+    });
+    const full = await readFile(file, 'utf8');
+    for (const event of ['PreToolUse', 'ResponseComplete', 'SessionStart'])
+      expect(full).toContain('--event ' + event);
+    // A subset activation in a worktree keeps every root event.
+    expect((await syncProjectHookProviders(worktree))[0]?.state).toBe('current');
+    expect(await readFile(file, 'utf8')).toBe(full);
+    // A worktree with no agent bindings leaves the root untouched.
+    const empty = (await syncProjectHookProviders({ ...worktree, events: [] }))[0];
+    expect(empty?.diagnostics).toContain('HOOK_NO_AGENT_BINDINGS');
+    expect(await readFile(file, 'utf8')).toBe(full);
+    // Shrinking stays with the root checkout.
+    await syncProjectHookProviders(main);
+    expect(await readFile(file, 'utf8')).not.toContain('--event ResponseComplete');
+    // A worktree event the root lacks is added alongside the root's.
+    await syncProjectHookProviders({ ...worktree, events: ['ResponseComplete'] });
+    const grown = await readFile(file, 'utf8');
+    expect(grown).toContain('--event PreToolUse');
+    expect(grown).toContain('--event ResponseComplete');
+  });
+  it('worktree disable keeps the shared root entry; root disable removes it', async () => {
+    const { main, worktree } = await linkedWorktree();
+    await rm(join(worktree.projectRoot, '.codex'), { recursive: true, force: true });
+    await syncProjectHookProviders(worktree);
+    const off = (
+      await syncProjectHookProviders({ ...worktree, enabled: false, rollback: true })
+    )[0];
+    expect(off?.state).toBe('disabled');
+    expect(off?.diagnostics).toContain('HOOK_ROOT_CHECKOUT_ENTRY_RETAINED');
+    expect(existsSync(join(worktree.projectRoot, '.codex'))).toBe(false);
+    expect(await readFile(join(main.projectRoot, '.codex/hooks.json'), 'utf8')).toContain(
+      '# cleo-project-hook:v1',
+    );
+    await syncProjectHookProviders({ ...main, enabled: false, rollback: true });
+    expect(existsSync(join(main.projectRoot, '.codex/hooks.json'))).toBe(false);
+    expect(existsSync(join(main.stateDir, 'provider-codex.json'))).toBe(false);
+  });
+  it('removes a worktree-local entry an earlier release delivered by its receipt', async () => {
+    const { main, worktree } = await linkedWorktree();
+    // Produce the 10.17 shape: a worktree-local config plus a worktree receipt pointing at it.
+    await syncProjectHookProviders(main);
+    const legacy = join(worktree.projectRoot, '.codex/hooks.json');
+    await mkdir(join(worktree.projectRoot, '.codex'));
+    await writeFile(legacy, await readFile(join(main.projectRoot, '.codex/hooks.json'), 'utf8'));
+    const receipt = JSON.parse(await readFile(join(main.stateDir, 'provider-codex.json'), 'utf8'));
+    await mkdir(worktree.stateDir, { recursive: true });
+    await writeFile(
+      join(worktree.stateDir, 'provider-codex.json'),
+      JSON.stringify({
+        ...receipt,
+        configPath: legacy,
+        createdConfig: true,
+        createdDir: undefined,
+      }),
+    );
+    expect((await syncProjectHookProviders(worktree))[0]?.state).toBe('current');
+    expect(existsSync(legacy)).toBe(false);
+    expect(existsSync(join(worktree.stateDir, 'provider-codex.json'))).toBe(false);
+    expect(existsSync(join(worktree.projectRoot, '.codex'))).toBe(true);
+  });
+  it('leaves Claude Code delivery in the worktree itself', async () => {
+    const { main, worktree } = await linkedWorktree();
+    const result = (await syncProjectHookProviders({ ...worktree, providers: ['claude-code'] }))[0];
+    expect(result?.configPath).toBe(join(worktree.projectRoot, '.claude/settings.local.json'));
+    expect(existsSync(join(main.projectRoot, '.claude'))).toBe(false);
+  });
+});
 describe('project hook delivery', () => {
   it('discovers the checkout through injected SDK services despite ambient Git overrides', async () => {
     const opts = await options();

@@ -185,6 +185,25 @@ const askEnforceSubcommand = defineCommand({
   },
 });
 
+const stopSubcommand = defineCommand({
+  meta: {
+    name: 'stop',
+    description:
+      'Stop hook (T13796): ask the live goal runtime first (CLEO_GOAL_TICK_COMMAND, default `ocg tick`), pass its block verbatim, and end the CLEO session only when the goal says the turn is final or no goal is live. Fails open to the session end.',
+  },
+  args: {
+    provider: {
+      type: 'string',
+      description: 'Harness protocol to answer in: claude-code (default), codex',
+    },
+  },
+  async run({ args }) {
+    const { runHookCli } = await import('../hook-entry.js');
+    const provider = typeof args.provider === 'string' ? args.provider : 'claude-code';
+    process.exitCode = await runHookCli(['stop', '--provider', provider]);
+  },
+});
+
 const subagentStartSubcommand = defineCommand({
   meta: {
     name: 'subagent-start',
@@ -209,11 +228,12 @@ export const hookCommand = defineCommand({
   meta: {
     name: 'hook',
     description:
-      'Agent-harness hooks installed by cleo init/upgrade; stdout is the harness hook protocol, not LAFS: cleo hook heavy-command|ask-enforce|subagent-start --provider <harness>',
+      'Agent-harness hooks installed by cleo init/upgrade; stdout is the harness hook protocol, not LAFS: cleo hook heavy-command|ask-enforce|stop|subagent-start --provider <harness>',
   },
   subCommands: {
     'heavy-command': heavyCommandSubcommand,
     'ask-enforce': askEnforceSubcommand,
+    stop: stopSubcommand,
     'subagent-start': subagentStartSubcommand,
     sync: syncSubcommand,
     run: runSubcommand,

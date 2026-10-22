@@ -58,6 +58,7 @@ import {
   type LedgerWireValue,
 } from '@cleocode/contracts/ledger';
 import { SYNC_SCHEMA_VERSION } from '@cleocode/contracts/sync-schema.js';
+import { transformColumnValue } from '../../schema/schema-utils.js';
 import { compareHlc, parseHlc } from '../hlc.js';
 import { canonicalJson } from '../sealer-values.js';
 import type {
@@ -487,10 +488,15 @@ function mergeFields(d: Draft, base: RowState, op: LedgerOp, ctx: MergeContext):
   const cols = Object.keys(after).sort();
   if (ctx.table.immutable !== undefined) {
     // An immutable row (T12941): any change to a live value is refused whole.
+    // Judged as the column stores it (T13861): a re-delivered op whose audit
+    // text this store redacted on write is the same row, not a change.
     const changed = cols.filter((c) => {
       const cur = d.fields[c];
       const inc = after[c];
-      return inc !== undefined && (cur === undefined || !same(cur.value, plain(inc)));
+      return (
+        inc !== undefined &&
+        (cur === undefined || !same(cur.value, transformColumnValue(op.t, c, plain(inc))))
+      );
     });
     for (const c of cols)
       d.skipped.push({ column: c, reason: changed.length > 0 ? 'rule' : 'older' });
@@ -550,6 +556,7 @@ function mergeFields(d: Draft, base: RowState, op: LedgerOp, ctx: MergeContext):
       const cur = d.fields[c]?.value;
       const inc = after[c];
       if (before === undefined || inc === undefined || isIncrement(inc)) return false;
+      if (ctx.table.bookkeeping?.includes(c)) return false;
       return !same(before, cur) && !same(plain(inc), cur);
     });
     if (wins) {

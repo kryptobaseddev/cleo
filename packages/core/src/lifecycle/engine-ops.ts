@@ -153,13 +153,15 @@ export async function enforceScopeForLifecycleMutation(
 
   // Any other scope (child task, different epic, custom, etc.) is denied
   // unless the owner override env var is set.
-  const overrideRaw = process.env['CLEO_OWNER_OVERRIDE'];
-  const overrideActive = overrideRaw === '1' || overrideRaw === 'true';
-
-  // T1118 L4b — restricted agent roles cannot use owner override.
-  const agentRole = process.env['CLEO_AGENT_ROLE'];
-  const forbiddenRoles = new Set(['worker', 'lead', 'subagent']);
-  const overrideAllowed = overrideActive && !(agentRole && forbiddenRoles.has(agentRole));
+  // T13790: only the owner (owner-marked session, own terminal) may override;
+  // restricted roles and unlabelled agents are refused, and audited.
+  const { resolveOwnerOverride } = await import('../security/owner-override-authority.js');
+  const owner = await resolveOwnerOverride(getProjectRoot(projectRoot), {
+    surface: 'lifecycle scope guard',
+    taskId: epicId,
+    sessionId: session.id,
+  });
+  const overrideAllowed = owner.requested && owner.allowed;
 
   if (overrideAllowed) {
     // Emit audit trail entry and allow — best-effort, non-blocking.

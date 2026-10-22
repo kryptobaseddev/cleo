@@ -450,6 +450,14 @@ export const COMMAND_MANIFEST: readonly CommandManifestEntry[] = [
         .doctorGlobalDeliveryCommand as CommandDef,
   },
   {
+    exportName: 'doctorGoalRuntimeCommand',
+    name: 'goal-runtime',
+    description:
+      'Report the CLEO Goal runtime (cleo-goal): installed, version, status schema. --check-updates also asks npm for the latest version.',
+    load: async () =>
+      (await import('../commands/doctor-goal-runtime.js')).doctorGoalRuntimeCommand as CommandDef,
+  },
+  {
     exportName: 'doctorHeavyCommandHookCommand',
     name: 'heavy-command-hook',
     description:
@@ -745,14 +753,15 @@ export const COMMAND_MANIFEST: readonly CommandManifestEntry[] = [
   {
     exportName: 'goCommand',
     name: 'go',
-    description: 'SG-AUTOPILOT: run one turn of briefing→sagaNext→ready→stage-branch→ivtr loop',
+    description:
+      'SG-AUTOPILOT: pick the next ready wave, draft its goal/v1 contract and hand it to the goal runtime (CLEO Goal), or say how to install it',
     load: async () => (await import('../commands/go.js')).goCommand as CommandDef,
   },
   {
     exportName: 'goalCommand',
     name: 'goal',
     description:
-      'DB-persisted, per-agent, evidence-gate-aware goal loop (set/status/advance/subgoal/append).',
+      'Goal protocol verbs for the goal runtime (CLEO Goal): draft a goal/v1 contract from task ACs, close a run from its outcome, install the runtime for a harness, show status.',
     load: async () => (await import('../commands/goal.js')).goalCommand as CommandDef,
   },
   {
@@ -777,7 +786,7 @@ export const COMMAND_MANIFEST: readonly CommandManifestEntry[] = [
     exportName: 'hookCommand',
     name: 'hook',
     description:
-      'Agent-harness hooks installed by cleo init/upgrade; stdout is the harness hook protocol, not LAFS: cleo hook heavy-command|ask-enforce|subagent-start --provider <harness>',
+      'Agent-harness hooks installed by cleo init/upgrade; stdout is the harness hook protocol, not LAFS: cleo hook heavy-command|ask-enforce|stop|subagent-start --provider <harness>',
     load: async () => (await import('../commands/hook.js')).hookCommand as CommandDef,
   },
   {
@@ -848,7 +857,7 @@ export const COMMAND_MANIFEST: readonly CommandManifestEntry[] = [
     exportName: 'leanCommand',
     name: 'lean',
     description:
-      'ct-lean (smallest complete change) levels and tools: cleo lean level [off|lite|full|ultra] [--session|--global] · cleo lean debt [--file-tasks --parent <epic>]',
+      'ct-lean (smallest complete change) levels and tools: cleo lean level [off|lite|full|ultra] [--session|--global] · cleo lean debt [--file-tasks --parent <epic>] · cleo lean gain',
     load: async () => (await import('../commands/lean.js')).leanCommand as CommandDef,
   },
   {
@@ -1246,7 +1255,7 @@ export const COMMAND_MANIFEST: readonly CommandManifestEntry[] = [
   {
     exportName: 'tasksCommand',
     name: 'tasks',
-    description: 'Task query namespace: show, find, next, current, plan, analyze, slice',
+    description: 'Task query namespace: show, find, next, current, plan, analyze, slice, changeset',
     load: async () => (await import('../commands/tasks.js')).tasksCommand as CommandDef,
   },
   {

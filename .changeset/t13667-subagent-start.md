@@ -17,6 +17,5 @@ case-insensitive regex over `agent_type`. Every doubt injects, and every
 error fails open.
 
 It is installed as a `hooks.SubagentStart` entry in
-`.claude/settings.local.json` alongside the heavy-command hook, and removed
-with it. The JSON installer is generalised (`syncJsonCleoEventHook`), so the
-ask-enforce Stop hook and this hook share one code path.
+`.claude/settings.local.json` alongside the heavy-command hook and the Stop
+dispatcher, and removed when the heavy-command mode is `off`.

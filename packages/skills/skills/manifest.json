@@ -226,7 +226,7 @@
     },
     {
       "name": "ct-cleo",
-      "version": "2.24.13",
+      "version": "2.24.16",
       "description": "CLEO task management protocol - session, task, and workflow guidance. Use when managing tasks, sessions, or multi-agent workflows with the CLEO CLI protocol.",
       "path": "skills/ct-cleo",
       "tier": 0,
@@ -302,7 +302,7 @@
     },
     {
       "name": "ct-codebase-mapper",
-      "version": "2.2.1",
+      "version": "2.3.0",
       "description": "Orient in an unfamiliar or large codebase with CLEO's code-intelligence graph (cleo nexus) and project map (cleo map). Use before planning or editing unfamiliar code, for brownfield onboarding, to find what a change would break, or to map a project's structure, communities and execution flows. Triggers on \"map the codebase\", \"understand this project\", \"what calls X\", \"what would break\", \"brownfield analysis\", \"project structure\".",
       "path": "skills/ct-codebase-mapper",
       "tier": 1,
@@ -566,7 +566,7 @@
     },
     {
       "name": "ct-dev-workflow",
-      "version": "3.1.21",
+      "version": "3.1.26",
       "description": "Development workflow orchestration for task-driven development with atomic commits, conventional commit messages, and systematic release processes. Enforces task traceability, branch discipline, smart test scope selection, and GitHub Actions integration. Use when committing code, creating releases, managing branches, or following contribution protocols. Triggers on commit operations, release preparation, or workflow compliance needs.",
       "path": "skills/ct-dev-workflow",
       "tier": 0,
@@ -642,7 +642,7 @@
     },
     {
       "name": "ct-documentor",
-      "version": "3.25.3",
+      "version": "3.25.4",
       "description": "Documentation coordinator with CLEO style guide compliance. Routes every canonical-doc write (spec, adr, research, handoff, note, llm-readme) through the docs SSoT via `cleo docs add` / `cleo docs publish` / `cleo docs fetch` — never raw filesystem writes. Carries the CLEO writing and review guides as references and coordinates ct-spec-writer and ct-adr-recorder. Use when creating or updating documentation files, consolidating scattered documentation, or validating documentation against style standards. Triggers on documentation tasks, doc update requests, or style guide compliance checks.",
       "path": "skills/ct-documentor",
       "tier": 0,
@@ -984,7 +984,7 @@
     {
       "name": "ct-lean",
       "version": "1.6.0",
-      "description": "Lean change discipline for CLEO work: the smallest change that fully solves the task, and a reply a busy owner understands in one read. Use on every coding task (writing, fixing, refactoring, reviewing, choosing dependencies) and when the owner asks for the simplest solution, YAGNI, or complains about over-engineering or bloat. Never trades away evidence gates, package boundaries, validation, data safety or anything the task asked for.",
+      "description": "Lean change discipline for CLEO work: the smallest change that fully solves the task, and a reply a busy owner understands in one read. Use on every coding task (writing, fixing, refactoring, reviewing, choosing dependencies) and when the owner asks for the simplest solution, YAGNI, or complains about over-engineering or bloat; also for a lean code review (\"review this\", \"review my PR\") or a whole-repo audit (\"audit the repo\", \"what can I delete\"). Never trades away evidence gates, package boundaries, validation, data safety or anything the task asked for.",
       "path": "skills/ct-lean",
       "tier": 0,
       "deliveryTier": "core",
@@ -1168,7 +1168,7 @@
     },
     {
       "name": "ct-release-orchestrator",
-      "version": "3.2.5",
+      "version": "3.2.7",
       "description": "Orchestrates the canonical 4-verb release pipeline introduced by SPEC-T9345: cleo release plan, then cleo release open, then PR + GHA tag workflow, then cleo release reconcile. The deprecated cleo release ship monolith was deleted in T10103 — do not invoke it. Use ship-e2e-smoke to validate the full pipeline end-to-end (dry-run by default). The full verb-to-state map is in docs/release/verb-matrix.md. Use when shipping a new version, validating the release pipeline end-to-end, or promoting a completed epic to released status.",
       "path": "skills/ct-release-orchestrator",
       "tier": 1,

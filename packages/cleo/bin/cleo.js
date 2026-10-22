@@ -117,7 +117,10 @@ function heapCapApplied() {
 
 if (
   args[0] === 'hook' &&
-  (args[1] === 'heavy-command' || args[1] === 'ask-enforce' || args[1] === 'subagent-start') &&
+  (args[1] === 'heavy-command' ||
+    args[1] === 'ask-enforce' ||
+    args[1] === 'stop' ||
+    args[1] === 'subagent-start') &&
   !args.includes('--help') &&
   !args.includes('-h')
 ) {

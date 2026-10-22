@@ -39,6 +39,7 @@ import { doctorExodusCommand } from './doctor-exodus.js';
 import { doctorExodusResidueCommand } from './doctor-exodus-residue.js';
 import { doctorFkCheckCommand } from './doctor-fk-check.js';
 import { doctorGlobalDeliveryCommand } from './doctor-global-delivery.js';
+import { doctorGoalRuntimeCommand } from './doctor-goal-runtime.js';
 import { doctorHeavyCommandHookCommand } from './doctor-heavy-command-hook.js';
 import { doctorHooksCommand } from './doctor-hooks.js';
 import { doctorKnowledgeSubcommand } from './doctor-knowledge.js';
@@ -282,6 +283,7 @@ export const doctorCommand = defineCommand({
     // T13435 — machine + project health: ranked findings with exact remedies (read-only)
     system: doctorSystemCommand,
     // T13124 — the heavy-command hook per agent harness in use (+ --fix installs it)
+    'goal-runtime': doctorGoalRuntimeCommand,
     'heavy-command-hook': doctorHeavyCommandHookCommand,
     hooks: doctorHooksCommand,
     // T12353 · T12716 — tracked .cleo/project.json / project-id vs project-info.json (+ --resolve migrate / re-key)

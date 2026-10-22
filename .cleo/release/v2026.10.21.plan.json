@@ -1,0 +1,279 @@
+{
+  "$schema": "https://cleocode.io/schemas/release-plan/v1.json",
+  "version": "v2026.10.21",
+  "resolvedVersion": "v2026.10.21",
+  "suffixApplied": false,
+  "scheme": "calver",
+  "channel": "latest",
+  "epicId": null,
+  "releaseKind": "regular",
+  "hooksV1Promotion": false,
+  "createdAt": "2026-10-22T15:17:18.040Z",
+  "createdBy": "keatonhoskins",
+  "previousVersion": "v2026.10.20",
+  "previousTag": "v2026.10.20",
+  "previousShippedAt": "2026-10-18T04:26:28.464Z",
+  "tasks": [
+    {
+      "id": "T13851",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "10.19 gate: a home stream that went journal wedges older clients: global vault push refused E_NEXUS_VAULT_BEHIND, remedy names sync.push which they refuse",
+      "evidenceAtoms": [
+        "pr:2348",
+        "files:.changeset/t13851-journal-remedy-older-client.md,packages/core/src/cloud/__tests__/nexus-vault.test.ts,packages/core/src/cloud/nexus-vault.ts,packages/core/src/cloud/__tests__/nexus-vault.test.ts,packages/core/src/cloud/nexus-vault.ts",
+        "ci:2348"
+      ],
+      "epicAncestor": "T12323",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T13867",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "Mixed version: a released 10.19 device on a journal stream sees only the genesis checkpoint and reports pull up-to-date and verify match while missing every journal change",
+      "evidenceAtoms": [
+        "pr:2355",
+        "files:.changeset/t13867-journal-unread-stale.md,packages/core/src/cloud/__tests__/nexus-vault.test.ts,packages/core/src/cloud/http.ts,packages/core/src/cloud/nexus-vault.ts,packages/core/src/cloud/__tests__/nexus-vault.test.ts,packages/core/src/cloud/nexus-vault.ts",
+        "ci:2355"
+      ],
+      "epicAncestor": "T12323",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T13868",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "Journal gate: concurrent first docs update on two devices wedges the second device's project stream (FOREIGN KEY constraint failed on every cloud sync)",
+      "evidenceAtoms": [
+        "pr:2359",
+        "files:.changeset/t13868-concurrent-first-doc-update.md,packages/core/src/store/row-identity-registry.ts,packages/core/src/store/sync/__tests__/two-device-e2e.test.ts,packages/core/src/store/sync/apply/__tests__/apply-frame.test.ts,packages/core/src/store/sync/apply/applier.ts,packages/core/src/store/sync/apply/frame.ts,packages/core/src/store/sync/__tests__/two-device-e2e.test.ts",
+        "ci:2359"
+      ],
+      "epicAncestor": "T12323",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T13874",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "T13782 still reproduces on 10.19: verify --run --req minCount gate reports no machine-readable test report (VidaPeps T2018)",
+      "evidenceAtoms": [
+        "pr:2360",
+        "files:.changeset/vitest5-announced-report.md,packages/core/src/tasks/__tests__/gate-runner.test.ts,packages/core/src/tasks/gate-runner.ts",
+        "ci:2360"
+      ],
+      "epicAncestor": "T12317",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T13883",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "#2360 review: announced vitest report path must be realpath-contained and bound to the runner's own announcement",
+      "evidenceAtoms": [
+        "pr:2360",
+        "files:packages/core/src/tasks/__tests__/gate-runner.test.ts,packages/core/src/tasks/gate-runner.ts",
+        "ci:2360"
+      ],
+      "epicAncestor": "T12317",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T13890",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "Stop dispatcher tick deadline does not bound the run: cleo hook stop took 160 s (past Claude Code's 120 s Stop timeout) when ocg is a mise shim",
+      "evidenceAtoms": [
+        "pr:2363",
+        "files:.changeset/hook-stop-deadline.md,packages/cleo/src/cli/__tests__/stop-dispatch-entry.test.ts,packages/cleo/src/cli/hook-entry.ts,packages/cleo/src/cli/stop-dispatch-entry.ts",
+        "ci:2363"
+      ],
+      "epicAncestor": "T13791",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T13891",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "Session-end vacuumIntoBackupAll copies the unified cleo.db three times under legacy names (tasks-/brain-/conduit-*.db), ~4 GB per Stop on a 1.4 GB store",
+      "evidenceAtoms": [
+        "pr:2364",
+        "files:.changeset/t13891-one-project-snapshot.md,packages/cleo/src/cli/commands/__tests__/backup-verify.test.ts,packages/core/src/store/__tests__/backup-store-roundtrip.test.ts,packages/core/src/store/__tests__/recover-brain-db.test.ts,packages/core/src/store/__tests__/sqlite-backup-real-process.test.ts,packages/core/src/store/__tests__/sqlite-backup.test.ts,packages/core/src/store/backup-recover.ts,packages/core/src/store/backup-verify.ts,packages/core/src/store/recover-brain-db.ts,packages/core/src/store/recover-malformed-db.ts,packages/core/src/store/sqlite-backup.ts,packages/core/src/system/backup.ts",
+        "ci:2364"
+      ],
+      "epicAncestor": "T13121",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T13897",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "#2364: backup recover brain|conduit and recover-brain-db ignore tasks-*.db, so they pick a stale pre-upgrade brain-*/conduit-* snapshot (whole cleo.db rollback)",
+      "evidenceAtoms": [
+        "pr:2364",
+        "files:packages/cleo/src/cli/commands/__tests__/backup-verify.test.ts,packages/core/src/store/__tests__/backup-store-roundtrip.test.ts,packages/core/src/store/__tests__/recover-brain-db.test.ts,packages/core/src/store/__tests__/sqlite-backup-real-process.test.ts,packages/core/src/store/__tests__/sqlite-backup.test.ts,packages/core/src/store/backup-recover.ts,packages/core/src/store/backup-verify.ts,packages/core/src/store/recover-brain-db.ts,packages/core/src/store/recover-malformed-db.ts,packages/core/src/store/sqlite-backup.ts,packages/core/src/system/backup.ts",
+        "ci:2364"
+      ],
+      "epicAncestor": "T13121",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T13907",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "Flaky: conduit-history-backfill seam fixture version order (T13727 test)",
+      "evidenceAtoms": [
+        "pr:2371",
+        "files:.changeset/t13907-doc-version-order-tiebreak.md,packages/core/src/docs/docs-ops.ts",
+        "ci:2371"
+      ],
+      "epicAncestor": "T13340",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T13910",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "#2364 3dd9c97a: legacy brain-*/conduit-* snapshot links are never rotated again and pin up to 10 old 1.37 GB snapshots forever",
+      "evidenceAtoms": [
+        "pr:2372",
+        "files:.changeset/t13910-prune-legacy-snapshots.md,packages/core/src/store/__tests__/sqlite-backup.test.ts,packages/core/src/store/sqlite-backup.ts",
+        "ci:2372"
+      ],
+      "epicAncestor": "T13434",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T13911",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "#2372 965649f0: legacy prune deletes live conduit-*/brain-* snapshots when that role is a separate file; CI shard 4 TC-103 fails twice",
+      "evidenceAtoms": [
+        "pr:2372",
+        "files:packages/core/src/store/__tests__/sqlite-backup.test.ts,packages/core/src/store/sqlite-backup.ts",
+        "ci:2372"
+      ],
+      "epicAncestor": "T13434",
+      "ivtrPhaseAtPlan": "contribution"
+    }
+  ],
+  "changelog": {
+    "features": [
+      "T13851",
+      "T13867",
+      "T13868",
+      "T13874",
+      "T13883",
+      "T13890",
+      "T13891",
+      "T13897",
+      "T13907",
+      "T13910",
+      "T13911"
+    ],
+    "fixes": [],
+    "chores": [],
+    "breaking": []
+  },
+  "gates": [
+    {
+      "name": "test",
+      "atom": "tool:test",
+      "status": "unresolved",
+      "lastVerifiedAt": "2026-10-22T15:17:18.040Z",
+      "resolvedCommand": "pnpm run test",
+      "resolvedSource": "project-context"
+    },
+    {
+      "name": "build",
+      "atom": "tool:build",
+      "status": "unresolved",
+      "lastVerifiedAt": "2026-10-22T15:17:18.040Z",
+      "resolvedCommand": "pnpm run build",
+      "resolvedSource": "project-context"
+    },
+    {
+      "name": "lint",
+      "atom": "tool:lint",
+      "status": "unresolved",
+      "lastVerifiedAt": "2026-10-22T15:17:18.040Z",
+      "resolvedCommand": "pnpm run lint",
+      "resolvedSource": "package-script"
+    },
+    {
+      "name": "typecheck",
+      "atom": "tool:typecheck",
+      "status": "unresolved",
+      "lastVerifiedAt": "2026-10-22T15:17:18.040Z",
+      "resolvedCommand": "pnpm run typecheck",
+      "resolvedSource": "package-script"
+    },
+    {
+      "name": "audit",
+      "atom": "tool:audit",
+      "status": "unresolved",
+      "lastVerifiedAt": "2026-10-22T15:17:18.040Z",
+      "resolvedCommand": "npm audit",
+      "resolvedSource": "language-default"
+    },
+    {
+      "name": "security-scan",
+      "atom": "tool:security-scan",
+      "status": "unresolved",
+      "lastVerifiedAt": "2026-10-22T15:17:18.040Z",
+      "resolvedCommand": "npm audit",
+      "resolvedSource": "language-default"
+    }
+  ],
+  "platformMatrix": [
+    {
+      "platform": "any",
+      "publisher": "npm",
+      "package": "@cleocode/cleo"
+    }
+  ],
+  "preflightSummary": {
+    "esbuildExternalsDrift": false,
+    "lockfileDrift": false,
+    "epicCompletenessClean": true,
+    "doubleListingClean": true,
+    "preflightWarnings": [
+      "Skipped 850 out-of-scope changeset entries whose task anchors are not part of this release plan"
+    ]
+  },
+  "workflowRunUrl": null,
+  "prUrl": null,
+  "mergeCommitSha": null,
+  "status": "planned",
+  "meta": {
+    "firstEverRelease": false,
+    "archetype": "node",
+    "releaseNotes": "## v2026.10.21 \u2014 2026-10-22\n\n> **Update now: run `cleo self-update`.** Stable promotion of v2026.10.21-canary.1, same source (88dde9a6). Includes the backup fixes: one project-store snapshot per backup, and obsolete legacy brain/conduit snapshots are pruned once a canonical snapshot covers them.\n\n### Fixed\n\n- cleo hook stop no longer warns when session end finds no session to end (exit 24 or 31) _(provenance: [T13890](https://github.com/kryptobaseddev/cleo/search?q=T13890&type=commits))_\n- cleo hook stop waits at most 20 s for session end and 5 s for ask-enforce, so it returns under Claude Code's Stop timeout _(provenance: [T13890](https://github.com/kryptobaseddev/cleo/search?q=T13890&type=commits))_\n- while sync.push is unreleased, journal-stream and E_SYNC_DISABLED remedies name no command this build refuses: they say a pre-release build started the journal, no released CLEO can push yet, and pull, restore and verify keep working _(provenance: [T13851](https://github.com/kryptobaseddev/cleo/search?q=T13851&type=commits), [T13856](https://github.com/kryptobaseddev/cleo/search?q=T13856&type=commits))_\n- a store that reads only snapshots is no longer reported up to date while the change journal has moved past the newest snapshot _(provenance: [T13867](https://github.com/kryptobaseddev/cleo/search?q=T13867&type=commits))_\n- concurrent first docs updates on two devices no longer wedge the second device's stream with \"FOREIGN KEY constraint failed\"; doc version links travel as uids _(provenance: [T13868](https://github.com/kryptobaseddev/cleo/search?q=T13868&type=commits))_\n- session-end and pre-op snapshots write one tasks-*.db per run for the unified project cleo.db; brain and conduit are covered by it instead of getting hard links that diverged under per-prefix retention (or full copies where links are unsupported); listBrainBackups and backup verify read the project snapshot, and older brain-*/conduit-* files stay listed; the project cleo.db snapshot is always named tasks-*, whichever prefix the gate admitted _(provenance: [T13891](https://github.com/kryptobaseddev/cleo/search?q=T13891&type=commits), [T13897](https://github.com/kryptobaseddev/cleo/search?q=T13897&type=commits))_\n- `cleo docs versions` no longer lists two doc edits made within the same timestamp in random order: equal timestamps now break on the stored version number. _(provenance: [T13907](https://github.com/kryptobaseddev/cleo/search?q=T13907&type=commits))_\n- project snapshots prune legacy brain-*/conduit-* files older than the oldest retained tasks-* snapshot, so links left from before the unified snapshot no longer pin rotated-out snapshots on disk _(provenance: [T13910](https://github.com/kryptobaseddev/cleo/search?q=T13910&type=commits))_\n- verify --run proves minCount from the JSON report vitest 5 writes under the package it ran in _(provenance: [T13874](https://github.com/kryptobaseddev/cleo/search?q=T13874&type=commits))_\n",
+    "changesetEntryCount": 9,
+    "changesetIds": [
+      "hook-stop-benign-session-end",
+      "hook-stop-deadline",
+      "t13851-journal-remedy-older-client",
+      "t13867-journal-unread-stale",
+      "t13868-concurrent-first-doc-update",
+      "t13891-one-project-snapshot",
+      "t13907-doc-version-order-tiebreak",
+      "t13910-prune-legacy-snapshots",
+      "vitest5-announced-report"
+    ],
+    "taskIds": [
+      "T13851",
+      "T13867",
+      "T13868",
+      "T13874",
+      "T13883",
+      "T13890",
+      "T13891",
+      "T13897",
+      "T13907",
+      "T13910",
+      "T13911"
+    ]
+  }
+}

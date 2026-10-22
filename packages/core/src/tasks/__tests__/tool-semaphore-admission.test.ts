@@ -10,7 +10,7 @@
  *   holds.
  * - Under memory pressure a run waits, says "waiting: memory pressure" with
  *   the readings, and starts when it falls; lint is never refused by the gate
- *   except through the budget it shares; a 1 ms probe still gets a free share.
+ *   except through the budget it shares; a single-pass probe still gets a free share.
  *
  * @task T12963
  * @task T13127
@@ -212,7 +212,8 @@ describe('evidence runs wait out memory pressure (T13127)', () => {
     ).rejects.toThrow(
       /admission of a 'test' run: memory pressure 50 \(refused above 25, resumes at 15 or below\): memory PSI some avg10 50\.0%/,
     );
-    expect(readLedger()).toEqual([]);
+    // Observe durable removal separately from the bounded refusal.
+    await vi.waitFor(() => expect(readLedger()).toEqual([]));
   });
 
   it('typecheck and lint are refused by the gate as well: everything in the ledger is heavy work', async () => {
@@ -222,7 +223,7 @@ describe('evidence runs wait out memory pressure (T13127)', () => {
     ).rejects.toThrow(/memory pressure 50/);
   });
 
-  it('a 1 ms probe still takes a free share after a slow sample (listVitestProjects)', async () => {
+  it('a zero-budget one-pass probe still takes a free share after a slow sample (listVitestProjects)', async () => {
     vi.spyOn(ResourceMonitor.prototype, 'sample').mockImplementation(async () => {
       await new Promise((r) => setTimeout(r, 20));
       return sampleAt(0);
@@ -230,8 +231,7 @@ describe('evidence runs wait out memory pressure (T13127)', () => {
     const release = await acquireGlobalSlot('test', {
       ...MACHINE,
       footprintBytes: GIB,
-      timeoutMs: 1,
-      pollMs: 1,
+      timeoutMs: 0,
       notice: () => {},
     });
     await release();

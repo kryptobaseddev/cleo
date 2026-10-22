@@ -96,20 +96,23 @@ describe('syncProjectHeavyCommandHooks', () => {
     });
   });
 
-  it('installs the ask-enforce Stop hook beside it for Claude Code and Codex (T13420)', async () => {
+  it('installs ONE Stop dispatcher (goal → ask-enforce → session end) for Claude Code and Codex (T13796)', async () => {
     useAll();
     await syncProjectHeavyCommandHooks(project, 'rewrite', { env });
     const stop = (file: string) =>
       JSON.stringify(JSON.parse(readFileSync(file, 'utf-8')).hooks.Stop ?? []);
     const claude = join(project, '.claude', 'settings.local.json');
     const codex = join(project, '.codex', 'hooks.json');
-    expect(stop(claude)).toContain('cleo hook ask-enforce --provider claude-code');
-    expect(stop(codex)).toContain('cleo hook ask-enforce --provider codex');
-    await syncProjectHeavyCommandHooks(project, 'rewrite', {
-      env: { ...env, CLEO_ASK_ENFORCE: 'off' },
-    });
+    expect(stop(claude)).toContain('cleo hook stop --provider claude-code');
+    expect(stop(codex)).toContain('cleo hook stop --provider codex');
+    // Ask-enforce runs inside the dispatcher; there is no separate Stop entry for it.
     expect(stop(claude)).not.toContain('ask-enforce');
     expect(stop(codex)).not.toContain('ask-enforce');
+    expect(stop(claude).match(/cleo hook stop/g)).toHaveLength(1);
+    // Mode off removes Codex's dispatcher; Claude Code's keeps its session end.
+    await syncProjectHeavyCommandHooks(project, 'off', { env });
+    expect(stop(codex)).not.toContain('cleo hook stop');
+    expect(stop(claude)).toContain('cleo hook stop --provider claude-code');
   });
 
   it('installs the SubagentStart lean hook for Claude Code only (T13667)', async () => {

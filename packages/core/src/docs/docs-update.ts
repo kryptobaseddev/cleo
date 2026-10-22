@@ -43,6 +43,7 @@ import { attachmentRefs, docsAttachments } from '../store/tasks-schema.js';
 import { assertTwinCollapseWritable } from '../store/twin-collapse.js';
 import { writeFileAtomic } from '../tools/fs.js';
 import { deriveDocLinks, linksJsonOrNull } from './derive-links.js';
+import type { DocUpdatePreview, ProjectDocUpdateInput } from './section-write-path.js';
 import { validateDocBody } from './validate-body.js';
 import { getCanonicalCleoVersion } from './version-ssot.js';
 
@@ -588,6 +589,100 @@ export async function updateDocBySlug(
 
   const previousAttachmentId = oldRow.id;
   const previousSha256 = oldRow.sha256;
+  const incomingSha256 = buf === null ? previousSha256 : sha256Of(buf);
+
+  // T13842: the row written below is what `docs fetch` reads, so it must hold
+  // the HEAD text, not the incoming bytes — after a stale-base merge the head
+  // carries a concurrent writer's edit the incoming bytes lack. The merge is
+  // PREVIEWED here (the real projection, rolled back), the row is written from
+  // its result, and the projection is committed only after the row write
+  // succeeded, so a failed blob or row write never leaves the head advanced
+  // over an old row. Text bodies only (T13688); binary files stay whole-doc.
+  // A failed preview writes the incoming bytes and leaves the head unchanged.
+  let projectionInput: ProjectDocUpdateInput | null = null;
+  if (
+    text !== null &&
+    buf !== null &&
+    params.dryRun !== true &&
+    incomingSha256 !== previousSha256
+  ) {
+    try {
+      const { previewDocUpdateThroughSections } = await import('./section-write-path.js');
+      // T13734: link the pre-update bytes to the doc before the first projection.
+      const priorVersionUid = await recordPriorVersionOnAdopt(
+        projectRoot,
+        slug,
+        oldRow,
+        attachedBy,
+      );
+      // T13356 AC4: the real session id drives lease acquire/renew, so a
+      // lease dies honestly with its session (TTL bound, holder-only renew).
+      // Gate 16: the bound session is resolved via resolveBoundSession —
+      // never a bare getActiveSession().
+      const boundSession = await resolveBoundSession(projectRoot);
+      const input: ProjectDocUpdateInput = {
+        slug,
+        authorAgentId: attachedBy,
+        content: text,
+        ...(boundSession !== null ? { sessionId: boundSession.session.id } : {}),
+        ...(params.message !== undefined ? { changeSummary: params.message } : {}),
+        ...(priorVersionUid !== null ? { parentVersionUid: priorVersionUid } : {}),
+        // T13674: the declared base replaces the previous head as the
+        // single-writer/concurrent discriminator, so a stale base merges
+        // (append) or conflicts (non-append) instead of re-seeding over a
+        // concurrent writer's landed edit.
+        ...(baseSections !== undefined ? { baseSections } : {}),
+      };
+      // T13881: the preview ROLLS BACK on the process-wide shared native handle,
+      // so a write another in-process writer lands on that handle during its
+      // awaits would be rolled back with it. Two guards: (1) every tracked
+      // background op (graph nodes, hook dispatches, mirrors) settles first,
+      // and the preview is skipped if one is still running; (2) the preview
+      // runs on the handle's writer queue (scheduleTaskBackground), so accessor
+      // transactions and committed background effects queued meanwhile start
+      // only after its rollback.
+      const { settleBackgroundOps } = await import('../store/background-ops.js');
+      const pending = await settleBackgroundOps(PREVIEW_SETTLE_BUDGET_MS);
+      if (pending > 0) {
+        // @sync-invariant none:input-shape caught just below: the preview is skipped and the incoming bytes are written; nothing is rejected
+        throw new Error(`${pending} background write(s) still running; the preview is skipped`);
+      }
+      const native = getNativeTasksDb(projectRoot);
+      if (!native) {
+        // @sync-invariant none:input-shape caught just below: without the store handle the preview is skipped and the incoming bytes are written; nothing is rejected
+        throw new Error('tasks database is not initialised');
+      }
+      const { scheduleTaskBackground } = await import('../store/sqlite-data-accessor.js');
+      const queued: { preview?: DocUpdatePreview } = {};
+      await scheduleTaskBackground(native, async () => {
+        queued.preview = await previewDocUpdateThroughSections(projectRoot, input);
+      });
+      const preview = queued.preview;
+      if (preview === undefined) {
+        // @sync-invariant none:input-shape caught just below: an empty preview skips the projection and the incoming bytes are written; nothing is rejected
+        throw new Error('the merge preview returned nothing');
+      }
+      // The head is the merged text when this write would advance it; when it
+      // loses the head race (an explicit lower HLC) the head stays where it is.
+      const headText = preview.wouldAdvance
+        ? preview.mergedText
+        : await readCurrentHeadText(projectRoot, slug);
+      if (headText === null) {
+        // @sync-invariant none:input-shape caught just below: an unreadable head skips the projection and the incoming bytes are written; nothing is rejected
+        throw new Error('the current conduit head text is unreadable');
+      }
+      if (headText !== text) buf = Buffer.from(headText, 'utf-8');
+      projectionInput = input;
+    } catch (previewErr) {
+      pushWarning({
+        // @sync-invariant none:input-shape the warning only reports that the section projection was skipped; the incoming bytes are written as before and nothing is rejected
+        code: 'W_DOC_PROJECTION_FAILED',
+        message:
+          `section merge preview failed for slug '${slug}' — the incoming bytes are written and the conduit head is unchanged: ` +
+          (previewErr instanceof Error ? previewErr.message : String(previewErr)),
+      });
+    }
+  }
   const newSha256 = buf === null ? previousSha256 : sha256Of(buf);
   const wouldChange = newSha256 !== previousSha256 || oldRow.lifecycleStatus !== status;
 
@@ -646,7 +741,7 @@ export async function updateDocBySlug(
   // update if the caller asked for one, and still write an audit entry so
   // operators can see the noop attempt. A lifecycle-only update (no new
   // bytes, T12654) always takes this path.
-  if (buf === null || newSha256 === previousSha256) {
+  if (buf === null || incomingSha256 === previousSha256) {
     // Only touch lifecycle_status if it actually changes.
     if (oldRow.lifecycleStatus !== status) {
       await db
@@ -948,37 +1043,29 @@ export async function updateDocBySlug(
     );
   }
 
-  // T13355: project the update through the section CRDT merge layer (spec
-  // `cleodocs-rearch-design` §2 option b). Text bodies only — inline content
-  // or a UTF-8 text file (T13688); binary files stay on the whole-doc path.
-  // Best-effort: a projection failure must not fail the completed update —
-  // the whole-row write above is the fallback when no section state exists.
+  // T13842: commit the previewed projection now that the row holds its text.
   // T13604: a recorded conflict is threaded into the result envelope and a
   // stderr warning names the sections — the update reports changed:true, so
   // without this the caller would never learn their edit is not in the head.
   let sectionConflicts: DocsSectionConflict[] | undefined;
   let leaseNotices: DocsSectionLeaseNotice[] | undefined;
   let staleBaseMerged = false;
-  if (text !== null) {
+  if (projectionInput !== null) {
     try {
       const { projectDocUpdateThroughSections } = await import('./section-write-path.js');
-      // T13356 AC4: the real session id drives lease acquire/renew, so a
-      // lease dies honestly with its session (TTL bound, holder-only renew).
-      // Gate 16: the bound session is resolved via resolveBoundSession —
-      // never a bare getActiveSession().
-      const boundSession = await resolveBoundSession(projectRoot);
-      const projection = await projectDocUpdateThroughSections(projectRoot, {
-        slug,
-        authorAgentId: attachedBy,
-        content: text,
-        ...(boundSession !== null ? { sessionId: boundSession.session.id } : {}),
-        ...(params.message !== undefined ? { changeSummary: params.message } : {}),
-        // T13674: the declared base replaces the previous head as the
-        // single-writer/concurrent discriminator, so a stale base merges
-        // (append) or conflicts (non-append) instead of re-seeding over a
-        // concurrent writer's landed edit.
-        ...(baseSections !== undefined ? { baseSections } : {}),
-      });
+      const projection = await projectDocUpdateThroughSections(projectRoot, projectionInput);
+      const committedText = projection.head.advanced
+        ? projection.mergedText
+        : await readVersionText(projectRoot, projection.head.head.headVersionUid);
+      if (committedText !== buf.toString('utf-8')) {
+        pushWarning({
+          // @sync-invariant none:input-shape the warning only reports that another writer landed between the preview and the commit; both versions are kept and nothing is rejected
+          code: 'W_DOC_HEAD_DIVERGED',
+          message:
+            `slug '${slug}': another writer landed between the merge preview and its commit — the doc row holds the previewed text, ` +
+            `the conduit head is ${projection.head.head.headVersionUid}. Re-fetch (\`cleo docs fetch ${slug}\`) and re-apply if needed.`,
+        });
+      }
       // T13674: the declared base was superseded AND at least one edited
       // section composed into the head — its text is the merge of the
       // caller's edit and a concurrent writer's. A section that only
@@ -1037,9 +1124,15 @@ export async function updateDocBySlug(
         });
       }
     } catch (projectionErr) {
-      process.emitWarning(
-        `docs section CRDT projection failed after update of slug '${slug}': ${projectionErr instanceof Error ? projectionErr.message : String(projectionErr)}`,
-      );
+      const { readDocHeadVersionUid: readHead } = await import('./fetch-result.js');
+      const head = await readHead(projectRoot, slug);
+      pushWarning({
+        // @sync-invariant none:input-shape the warning only reports a failed projection commit after the row write; the row and the version history are intact and nothing is rejected
+        code: 'W_DOC_PROJECTION_FAILED',
+        message:
+          `slug '${slug}': the doc row was written from the previewed merge, but committing the section projection failed ` +
+          `(${projectionErr instanceof Error ? projectionErr.message : String(projectionErr)}); the conduit head stays at ${head ?? 'none'} — re-run the update to land it`,
+      });
     }
   }
 
@@ -1068,6 +1161,39 @@ export async function updateDocBySlug(
       ...(headVersionUid !== undefined ? { headVersionUid } : {}),
     },
   };
+}
+
+/**
+ * How long a docs update waits for tracked background writes to settle before
+ * it previews a merge (T13881). A write still running after this is not
+ * rolled back by the preview: the preview is skipped instead.
+ */
+const PREVIEW_SETTLE_BUDGET_MS = 5_000;
+
+/**
+ * A conduit version's text, read from its content-addressed blob (T13842).
+ * `null` when the version or its bytes cannot be read; the caller then keeps
+ * the incoming bytes.
+ */
+async function readVersionText(projectRoot: string, versionUid: string): Promise<string | null> {
+  const { getConduitAttachmentVersion } = await import('../store/conduit-doc-history.js');
+  const version = await getConduitAttachmentVersion(projectRoot, versionUid);
+  if (!version?.storageKey) return null;
+  const { readFile } = await import('node:fs/promises');
+  return readFile(
+    join(getCleoDirAbsolute(projectRoot), 'attachments', 'sha256', version.storageKey),
+    'utf-8',
+  ).catch(() => null);
+}
+
+/** The current conduit head's text for a slug (T13842), or `null` when it has none or it is unreadable. */
+async function readCurrentHeadText(projectRoot: string, slug: string): Promise<string | null> {
+  const { getConduitDocHead, resolveConduitDocUid } = await import(
+    '../store/conduit-doc-history.js'
+  );
+  const docUid = await resolveConduitDocUid(projectRoot, slug);
+  const head = docUid !== null ? await getConduitDocHead(projectRoot, docUid) : null;
+  return head !== null ? readVersionText(projectRoot, head.headVersionUid) : null;
 }
 
 /** The bytes as text when they are valid UTF-8 without NUL bytes; else null. */
@@ -1111,6 +1237,81 @@ function countVersionsForSlug(projectRoot: string, slug: string): number {
     total += entry.revisions.length;
   }
   return total;
+}
+
+/**
+ * Record a doc's pre-update bytes as its root conduit version (T13734).
+ *
+ * The first text update adopts a doc into the conduit history family, and the
+ * projection only records the NEW content — the update also moves the slug to
+ * a new `attachments` row, so nothing linked the prior version to the doc and
+ * `docs versions` could not list it. When the slug has no conduit doc yet and
+ * the prior row's blob bytes are on disk, this adopts the doc and appends a
+ * root version carrying the prior hash; the caller passes the returned uid as
+ * the projection's parent, giving the history v1 → v2.
+ *
+ * @param projectRoot - Absolute path to the CLEO project root.
+ * @param slug - The doc slug being updated.
+ * @param oldRow - The pre-update `attachments` row.
+ * @param authorAgentId - Agent recorded as the root version's author.
+ * The doc is adopted with the prior row's `created_at` as its birth even when
+ * the bytes are missing, so its uid matches on every device (T13586).
+ *
+ * @returns The root version uid, or `null` when the doc already has conduit
+ *   history or the prior row has no resolvable blob bytes.
+ * @internal
+ */
+async function recordPriorVersionOnAdopt(
+  projectRoot: string,
+  slug: string,
+  oldRow: typeof docsAttachments.$inferSelect,
+  authorAgentId: string,
+): Promise<string | null> {
+  const { appendConduitAttachmentVersion, ensureConduitDoc, resolveConduitDocUid } = await import(
+    '../store/conduit-doc-history.js'
+  );
+  if ((await resolveConduitDocUid(projectRoot, slug)) !== null) return null;
+  let storageKey: string | undefined;
+  let bytes: Buffer | undefined;
+  try {
+    const prior = blobAttachmentSchema.safeParse(JSON.parse(oldRow.attachmentJson));
+    if (prior.success && prior.data.storageKey) {
+      storageKey = prior.data.storageKey;
+      bytes = readFileSync(
+        join(getCleoDirAbsolute(projectRoot), 'attachments', 'sha256', storageKey),
+      );
+    }
+  } catch {
+    bytes = undefined; // shortcut: no parseable row or local bytes, no root row; the T13727 backfill covers these docs
+  }
+  // T13586: adopt with the PRE-update row's birth even without local bytes —
+  // the slug already points at this device's new row, so letting the
+  // projection adopt would stamp a per-device birth and mint a per-device uid.
+  const { uid } = await ensureConduitDoc(projectRoot, {
+    slug,
+    authorAgentId,
+    content: bytes ?? Buffer.alloc(0),
+    legacyBirth: oldRow.createdAt,
+  });
+  if (bytes === undefined || storageKey === undefined) return null;
+  const tokens = bytes
+    .toString('utf-8')
+    .split(/\s+/)
+    .filter((w) => w.length > 0).length;
+  const root = await appendConduitAttachmentVersion(projectRoot, {
+    attachmentUid: uid,
+    parentVersionUid: null,
+    authorAgentId,
+    storageKey,
+    contentHash: oldRow.sha256,
+    originalSize: bytes.length,
+    compressedSize: bytes.length,
+    tokens,
+    changeType: 'create',
+    changeSummary: `prior version of '${slug}' recorded on first update (T13734)`,
+    tokensAdded: tokens,
+  });
+  return root.uid ?? null;
 }
 
 /**

@@ -10,7 +10,7 @@
  */
 
 import { createHash } from 'node:crypto';
-import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { chmod, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import type {
@@ -733,6 +733,314 @@ describe('minimum test count from a structured report (T12308)', () => {
       { projectRoot },
     );
     expect(result?.result).toBe('pass');
+  });
+});
+
+/**
+ * A structured report decides the verdict; the text heuristic never reads a
+ * test NAME (T13752). VidaPeps saw an 11/11 passing vitest-shaped run fail
+ * because a test was named "...activation failure diagnostics...".
+ */
+describe('structured counts decide the verdict over the text heuristic (T13752)', () => {
+  const names = [
+    'surfaces activation failure diagnostics',
+    'reports failing gates',
+    'throws Error: on a bad input',
+  ];
+  function fullReport(failed: number): string {
+    const assertions = names.map((fullName, i) => ({
+      fullName,
+      status: i < failed ? 'failed' : 'passed',
+    }));
+    return JSON.stringify({
+      numTotalTests: names.length,
+      numPassedTests: names.length - failed,
+      numFailedTests: failed,
+      numPendingTests: 0,
+      numTodoTests: 0,
+      numTotalTestSuites: 1,
+      numPassedTestSuites: failed > 0 ? 0 : 1,
+      numFailedTestSuites: failed > 0 ? 1 : 0,
+      numPendingTestSuites: 0,
+      success: failed === 0,
+      testResults: [
+        {
+          name: 'a.test.ts',
+          status: failed > 0 ? 'failed' : 'passed',
+          assertionResults: assertions,
+        },
+      ],
+    });
+  }
+  const run = async (stdout: string) =>
+    (
+      await runGates(
+        [
+          {
+            kind: 'test',
+            description: 'structured verdict',
+            command: process.execPath,
+            args: ['-e', `process.stdout.write(${JSON.stringify(stdout)})`],
+            expect: 'pass',
+          },
+        ],
+        { projectRoot },
+      )
+    )[0];
+
+  it('a passing report whose test names say failure passes', async () => {
+    const progress = names.map((n) => ` ✓ a.test.ts > ${n}`).join('\n');
+    const result = await run(`${progress}\n${fullReport(0)}`);
+    expect(result?.result, result?.errorMessage).toBe('pass');
+  });
+
+  it('a report counting a failed test fails on the counts even with exit 0', async () => {
+    const result = await run(fullReport(1));
+    expect(result?.result).toBe('fail');
+    expect(result?.errorMessage).toMatch(/Structured report counts 1 failing/);
+  });
+
+  it('with no report, passing-test lines naming failure do not fail the run', async () => {
+    const result = await run(
+      ' ✓ a.test.ts > reports failing gates\n ✓ a.test.ts > throws Error: on a bad input\n' +
+        'ok 3 - surfaces 2 failures\n      Tests  3 passed (3)',
+    );
+    expect(result?.result, result?.errorMessage).toBe('pass');
+  });
+
+  it.each([
+    ['a FAIL line', ' FAIL  a.test.ts > adds\n ✓ a.test.ts > other'],
+    ['TAP not ok', 'not ok 1 - adds\n# fail 1'],
+  ])('with no report, %s still fails', async (_label, out) => {
+    expect(outputReportsFailure(out)).toBe(true);
+  });
+});
+
+/**
+ * A minCount gate runs a non-runner command like any other and reads a count
+ * summary from its last stdout line (T13753). VidaPeps: a python wrapper
+ * printing `{"numPassedTests":13,...}` recorded exitCode null and no output.
+ */
+describe('minCount with a non-runner wrapper command (T13753)', () => {
+  const wrapper = (line: string, exit = 0) => ({
+    kind: 'test' as const,
+    description: 'wrapper with minCount',
+    command: process.execPath,
+    args: [
+      '-e',
+      `console.log('running wrapped suite'); console.log(${JSON.stringify(line)}); process.exit(${exit})`,
+    ],
+    expect: 'pass' as const,
+    minCount: 8,
+  });
+
+  it('passes on a count summary in the last stdout line', async () => {
+    const [result] = await runGates(
+      [wrapper(JSON.stringify({ numPassedTests: 13, numFailedTests: 0, numTotalTests: 13 }))],
+      { projectRoot },
+    );
+    expect(result?.result, result?.errorMessage).toBe('pass');
+    expect(result?.execution?.exitCode).toBe(0);
+  });
+
+  it('fails a summary below the minimum', async () => {
+    const [result] = await runGates([wrapper(JSON.stringify({ numPassedTests: 5 }))], {
+      projectRoot,
+    });
+    expect(result?.result).toBe('fail');
+    expect(result?.errorMessage).toContain('below the required minimum of 8');
+  });
+
+  it('an unprovable count is an error that keeps the real run record', async () => {
+    const [result] = await runGates([wrapper('13 tests passed')], { projectRoot });
+    expect(result?.result).toBe('error');
+    expect(result?.errorMessage).toMatch(/minCount 8 cannot be proved/);
+    expect(result?.execution?.exitCode).toBe(0);
+    expect(result?.execution?.stdout).toContain('running wrapped suite');
+  });
+
+  it('a summary contradicting itself proves nothing', async () => {
+    const [result] = await runGates(
+      [wrapper(JSON.stringify({ numPassedTests: 13, numFailedTests: 0, numTotalTests: 2 }))],
+      { projectRoot },
+    );
+    expect(result?.result).toBe('error');
+  });
+});
+
+/**
+ * A JSON reporter redirected to a file (vitest `outputFile`, VidaPeps T2027:
+ * `.vitest/json/output.json`) still yields this run's counts, and only this
+ * run's: a report the run did not write is never read (T13782).
+ */
+describe('minCount reads a JSON report file this run wrote (T13782)', () => {
+  const rel = join('.vitest', 'json', 'output.json');
+  function report(passing: number, startTime: number): string {
+    return JSON.stringify({
+      startTime,
+      numTotalTests: passing,
+      numPassedTests: passing,
+      numFailedTests: 0,
+      numPendingTests: 0,
+      numTodoTests: 0,
+      numTotalTestSuites: 1,
+      numPassedTestSuites: 1,
+      numFailedTestSuites: 0,
+      numPendingTestSuites: 0,
+      success: true,
+      testResults: [
+        {
+          name: 'a.test.ts',
+          status: 'passed',
+          assertionResults: Array.from({ length: passing }, (_, i) => ({
+            fullName: `t${i}`,
+            status: 'passed',
+          })),
+        },
+      ],
+    });
+  }
+  /** A gate whose command writes `body()` (evaluated in the child) to `target`. */
+  const gate = (source: string, args: string[] = []) => ({
+    kind: 'test' as const,
+    description: 'vitest json redirected to a file',
+    command: process.execPath,
+    args: ['-e', source, ...args],
+    expect: 'pass' as const,
+    minCount: 3,
+  });
+  const writer = (target: string, startTime: string) =>
+    `const fs=require('node:fs');const p=require('node:path');const t=${target};` +
+    `fs.mkdirSync(p.dirname(t),{recursive:true});` +
+    `fs.writeFileSync(t, JSON.stringify(Object.assign(${report(3, 0)},{startTime:${startTime}})));`;
+
+  beforeEach(() => rm(join(projectRoot, '.vitest'), { recursive: true, force: true }));
+
+  it('passes on the redirected report the run wrote, with its counts', async () => {
+    const [result] = await runGates([gate(writer(JSON.stringify(rel), 'Date.now()'))], {
+      projectRoot,
+    });
+    expect(result?.result, result?.errorMessage).toBe('pass');
+  });
+
+  it('reads the file a --outputFile argument names', async () => {
+    const [result] = await runGates(
+      [
+        gate(writer('process.argv.at(-1).split("=")[1]', 'Date.now()'), [
+          '--',
+          '--outputFile=out/r.json',
+        ]),
+      ],
+      { projectRoot },
+    );
+    expect(result?.result, `${result?.errorMessage} ${result?.execution?.stderr}`).toBe('pass');
+  });
+
+  it('red: a report left by an earlier run is never read', async () => {
+    await mkdir(join(projectRoot, '.vitest', 'json'), { recursive: true });
+    await writeFile(join(projectRoot, rel), report(3, Date.now() - 60_000));
+    const [result] = await runGates([gate('process.exit(0)')], { projectRoot });
+    expect(result?.result).toBe('error');
+    expect(result?.errorMessage).toMatch(/minCount 3 cannot be proved/);
+  });
+
+  it('red: rewriting the same stale bytes does not make them this run\u2019s', async () => {
+    const stale = report(3, Date.now() - 60_000);
+    await mkdir(join(projectRoot, '.vitest', 'json'), { recursive: true });
+    await writeFile(join(projectRoot, rel), stale);
+    const [result] = await runGates(
+      [gate(`require('node:fs').writeFileSync(${JSON.stringify(rel)}, ${JSON.stringify(stale)})`)],
+      { projectRoot },
+    );
+    expect(result?.result).toBe('error');
+  });
+
+  it('red: a freshly copied report whose run started before this one is refused', async () => {
+    const [result] = await runGates([gate(writer(JSON.stringify(rel), 'Date.now() - 60000'))], {
+      projectRoot,
+    });
+    expect(result?.result).toBe('error');
+  });
+
+  /**
+   * vitest 5 behind `pnpm --filter <pkg> exec`: the report lands under the
+   * package (the child's cwd), and vitest names it on stdout (T13874).
+   */
+  const fromPackage = (dir: string, startTime: string) =>
+    `process.chdir(${JSON.stringify(dir)});` +
+    writer(`require('node:path').resolve(${JSON.stringify(rel)})`, startTime) +
+    `console.log('JSON report written to ' + t);`;
+
+  it('reads the report vitest wrote under the package it ran in (T13874)', async () => {
+    const pkg = join(projectRoot, 'lib', 'db');
+    await mkdir(pkg, { recursive: true });
+    try {
+      const [result] = await runGates([gate(fromPackage(pkg, 'Date.now()'))], { projectRoot });
+      expect(result?.result, result?.errorMessage).toBe('pass');
+    } finally {
+      await rm(join(projectRoot, 'lib'), { recursive: true, force: true });
+    }
+  });
+
+  it('red: an announced report from before the run is refused (T13874)', async () => {
+    const pkg = join(projectRoot, 'lib', 'db');
+    await mkdir(pkg, { recursive: true });
+    try {
+      const [result] = await runGates([gate(fromPackage(pkg, 'Date.now() - 60000'))], {
+        projectRoot,
+      });
+      expect(result?.result).toBe('error');
+    } finally {
+      await rm(join(projectRoot, 'lib'), { recursive: true, force: true });
+    }
+  });
+
+  it('red: an in-project symlink to a fresh report outside is never read (T13883)', async () => {
+    const outside = await mkdtemp(join(tmpdir(), 'cleo-gate-outside-'));
+    const link = join(projectRoot, 'lib', 'db', rel);
+    await mkdir(dirname(link), { recursive: true });
+    await symlink(join(outside, 'output.json'), link);
+    try {
+      const source =
+        writer(JSON.stringify(join(outside, 'output.json')), 'Date.now()') +
+        `console.log('JSON report written to ' + ${JSON.stringify(link)});`;
+      const [result] = await runGates([gate(source)], { projectRoot });
+      expect(result?.result).toBe('error');
+    } finally {
+      await rm(join(projectRoot, 'lib'), { recursive: true, force: true });
+      await rm(outside, { recursive: true, force: true });
+    }
+  });
+
+  it('red: an earlier fabricated announcement loses to the last one (T13883)', async () => {
+    const pkg = join(projectRoot, 'lib', 'db');
+    await mkdir(pkg, { recursive: true });
+    const fake = join(projectRoot, 'fake-report.json');
+    // The fabricated report proves 3; vitest's own (announced last) proves 1.
+    const source =
+      writer(JSON.stringify(fake), 'Date.now()') +
+      `console.log('JSON report written to ' + ${JSON.stringify(fake)});` +
+      `const real=${JSON.stringify(join(pkg, rel))};` +
+      `fs.mkdirSync(p.dirname(real),{recursive:true});` +
+      `fs.writeFileSync(real, JSON.stringify(Object.assign(${report(1, 0)},{startTime:Date.now()})));` +
+      `console.log('JSON report written to ' + real);`;
+    try {
+      const [result] = await runGates([gate(source)], { projectRoot });
+      expect(result?.result).toBe('fail');
+    } finally {
+      await rm(join(projectRoot, 'lib'), { recursive: true, force: true });
+      await rm(fake, { force: true });
+    }
+  });
+
+  it('red: an announced report outside the project is never read (T13874)', async () => {
+    const outside = await mkdtemp(join(tmpdir(), 'cleo-gate-outside-'));
+    try {
+      const [result] = await runGates([gate(fromPackage(outside, 'Date.now()'))], { projectRoot });
+      expect(result?.result).toBe('error');
+    } finally {
+      await rm(outside, { recursive: true, force: true });
+    }
   });
 });
 

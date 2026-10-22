@@ -144,6 +144,30 @@ describe('backups restore onto the live cleo.db (T13245)', () => {
     expect(readFileSync(decoy, 'utf8')).toBe('decoy');
   });
 
+  it.each([
+    'brain',
+    'conduit',
+  ])('backup recover %s picks a newer tasks-* project snapshot over an older %s-* file (T13897)', async (role) => {
+    // An older role-prefixed file (pre-T13891), then the store moves on and a
+    // run writes the one unified project snapshot as tasks-*.
+    const older = sessionSnapshot(role, '20261005-090000');
+    await seedTasks(env.accessor, [
+      { id: 'T003', title: 'after the older snapshot', type: 'task' },
+    ]);
+    const newer = sessionSnapshot('tasks', '20261005-100000');
+    const backedUp = fingerprint(newer);
+    expect(backedUp).not.toEqual(fingerprint(older));
+    await seedTasks(env.accessor, [
+      { id: 'T004', title: 'after the newer snapshot', type: 'task' },
+    ]);
+    resetDbState();
+
+    const result = await recoverProjectStore({ role, projectRoot: env.tempDir, cwd: env.tempDir });
+    expect(result.restored).toBe(true);
+    expect(result.source.path).toBe(newer);
+    expect(fingerprint(live)).toEqual(backedUp);
+  });
+
   it('a corrupt newest snapshot is skipped for the next valid one', async () => {
     const older = sessionSnapshot('tasks', '20261005-090000');
     const backedUp = fingerprint(older);

@@ -111,6 +111,8 @@ export const NEXUS_ACCOUNT_ERROR_CODES = [
   'E_NEXUS_SYNC_STREAM_JOURNALED',
   /** `cleo cloud sync` found no stream with `sync.push` or `sync.pull` on (`cleo sync enable`). */
   'E_SYNC_DISABLED',
+  /** `cleo cloud sync` ended with at least one stream in status `failed` (T13865); the details carry every stream. */
+  'E_SYNC_STREAM_FAILED',
   // Projects by name (`cleo cloud restore <name>`, T13102).
   /** No project of the account has that name, label or id. */
   'E_NEXUS_PROJECT_NOT_FOUND',

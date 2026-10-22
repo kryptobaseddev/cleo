@@ -414,6 +414,7 @@ export class ReleaseHandler implements DomainHandler {
             // second chokepoint that must carry it too.
             epic: typeof params?.epic === 'string' ? params.epic : undefined,
             tasks: typeof params?.tasks === 'string' ? params.tasks : undefined,
+            ref: typeof params?.ref === 'string' ? params.ref : undefined,
             projectRoot: getProjectRoot(),
           };
           return wrapResult(await releaseOpen(typed), 'mutate', 'release', operation, startTime);
