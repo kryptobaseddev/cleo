@@ -1,5 +1,21 @@
 # Changelog
 
+## [2026.10.21] (2026-10-22)
+
+> **Update now: run `cleo self-update`.** Stable promotion of v2026.10.21-canary.1, same source (88dde9a6). Includes the backup fixes: one project-store snapshot per backup, and obsolete legacy brain/conduit snapshots are pruned once a canonical snapshot covers them.
+
+### Fixed
+
+- cleo hook stop no longer warns when session end finds no session to end (exit 24 or 31) _(provenance: [T13890](https://github.com/kryptobaseddev/cleo/search?q=T13890&type=commits))_
+- cleo hook stop waits at most 20 s for session end and 5 s for ask-enforce, so it returns under Claude Code's Stop timeout _(provenance: [T13890](https://github.com/kryptobaseddev/cleo/search?q=T13890&type=commits))_
+- while sync.push is unreleased, journal-stream and E_SYNC_DISABLED remedies name no command this build refuses: they say a pre-release build started the journal, no released CLEO can push yet, and pull, restore and verify keep working _(provenance: [T13851](https://github.com/kryptobaseddev/cleo/search?q=T13851&type=commits), [T13856](https://github.com/kryptobaseddev/cleo/search?q=T13856&type=commits))_
+- a store that reads only snapshots is no longer reported up to date while the change journal has moved past the newest snapshot _(provenance: [T13867](https://github.com/kryptobaseddev/cleo/search?q=T13867&type=commits))_
+- concurrent first docs updates on two devices no longer wedge the second device's stream with "FOREIGN KEY constraint failed"; doc version links travel as uids _(provenance: [T13868](https://github.com/kryptobaseddev/cleo/search?q=T13868&type=commits))_
+- session-end and pre-op snapshots write one tasks-*.db per run for the unified project cleo.db; brain and conduit are covered by it instead of getting hard links that diverged under per-prefix retention (or full copies where links are unsupported); listBrainBackups and backup verify read the project snapshot, and older brain-*/conduit-* files stay listed; the project cleo.db snapshot is always named tasks-*, whichever prefix the gate admitted _(provenance: [T13891](https://github.com/kryptobaseddev/cleo/search?q=T13891&type=commits), [T13897](https://github.com/kryptobaseddev/cleo/search?q=T13897&type=commits))_
+- `cleo docs versions` no longer lists two doc edits made within the same timestamp in random order: equal timestamps now break on the stored version number. _(provenance: [T13907](https://github.com/kryptobaseddev/cleo/search?q=T13907&type=commits))_
+- project snapshots prune legacy brain-*/conduit-* files older than the oldest retained tasks-* snapshot, so links left from before the unified snapshot no longer pin rotated-out snapshots on disk _(provenance: [T13910](https://github.com/kryptobaseddev/cleo/search?q=T13910&type=commits))_
+- verify --run proves minCount from the JSON report vitest 5 writes under the package it ran in _(provenance: [T13874](https://github.com/kryptobaseddev/cleo/search?q=T13874&type=commits))_
+
 ## [2026.10.21-canary.1] (2026-10-19)
 
 > **hooks-v1 v2 pilot canary.** Published to the `canary` dist-tag only; `latest` is unchanged. This build is the frozen candidate for the hooks-v1 v2 native pilot: implementation-source digest `3a358efc90d8bf07907ed827de7f32f82eb87baedcb4e32ff392eb94f746f70d` (freeze commit da98de28b). Any later stable that re-promotes hooks must ship this same source. Cross-device sync itself (Stage C) stays off.
