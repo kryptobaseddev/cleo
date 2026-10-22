@@ -132,14 +132,17 @@ export const SESSION_ENV_KEY_PRECEDENCE = [
  * This function NEVER reads the database — it is synchronous and safe to call
  * in hot paths. Database fallback is the caller's responsibility.
  *
+ * @param env - Environment to read (defaults to `process.env`).
  * @returns The session ID string when an env var is set, otherwise `null`.
  *
  * @task T9975
  * @task T11344
  */
-export function resolveSessionIdFromEnv(): string | null {
+export function resolveSessionIdFromEnv(
+  env: Readonly<Record<string, string | undefined>> = process.env,
+): string | null {
   for (const key of SESSION_ENV_KEY_PRECEDENCE) {
-    const value = process.env[key];
+    const value = env[key];
     if (value !== undefined && value !== '') {
       return value;
     }

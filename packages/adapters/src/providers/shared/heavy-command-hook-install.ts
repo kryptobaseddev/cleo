@@ -561,6 +561,67 @@ export async function syncJsonStopDispatchHook(
   return result;
 }
 
+/** The command CLEO's SubagentStart lean hook runs (T13667); also its marker. */
+export const SUBAGENT_START_HOOK_ID = 'cleo hook subagent-start';
+
+/**
+ * CLEO's SubagentStart lean hook object (T13667), Claude Code only. Like the
+ * Stop dispatcher, it forwards only a JSON answer and always exits 0, so a
+ * machine without `cleo` (or with an older one) never breaks a subagent.
+ */
+export function subagentStartHookObject(): Record<string, unknown> {
+  const script = `command -v cleo >/dev/null 2>&1 || exit 0; out="$(${SUBAGENT_START_HOOK_ID} --provider claude-code 2>/dev/null)"; case "$out" in "{"*) printf '%s\\n' "$out";; esac; exit 0`;
+  return {
+    type: 'command',
+    command: `${script} ${CLEO_HOOK_MARKER}`,
+    timeout: HEAVY_COMMAND_HOOK_TIMEOUT_SEC,
+  };
+}
+
+/** Whether one hook object is CLEO's SubagentStart lean hook. */
+export function isSubagentStartHookObject(hook: unknown): boolean {
+  return (
+    isPlainObject(hook) &&
+    typeof hook.command === 'string' &&
+    hook.command.includes(CLEO_HOOK_MARKER) &&
+    hook.command.includes(`${SUBAGENT_START_HOOK_ID} `)
+  );
+}
+
+/**
+ * Add, refresh or (`install: false`) remove CLEO's SubagentStart lean hook
+ * (`hooks.SubagentStart`, T13667) through CAAMP's locked atomic writer. Claude
+ * Code only: Codex has no SubagentStart event, and CLEO-spawned agents get the
+ * rules from the spawn prompt. Only CLEO's own object is touched; a malformed
+ * file throws untouched.
+ *
+ * @param configPath - Claude Code's `.claude/settings.local.json`.
+ * @param install - `false` removes the hook.
+ * @returns what changed.
+ */
+export async function syncJsonSubagentStartHook(
+  configPath: string,
+  install: boolean,
+): Promise<HeavyHookSyncResult> {
+  if (!install && !existsSync(configPath)) return 'unchanged';
+  if (install) ensureParentDir(configPath);
+  const desired = install ? subagentStartHookObject() : null;
+  let result: HeavyHookSyncResult = 'unchanged';
+  await updateJsonConfigFile(configPath, (config) => {
+    if (!install && config.hooks === undefined) return false;
+    const hooks = hookMap(config);
+    const placed = placeHeavyHook(hooks, desired, 'SubagentStart', isSubagentStartHookObject);
+    if (desired === null || placed.found) {
+      if (placed.changed) result = install ? 'updated' : 'removed';
+      return placed.changed;
+    }
+    appendHookEntry(hooks, 'SubagentStart', { hooks: [desired] });
+    result = 'installed';
+    return true;
+  });
+  return result;
+}
+
 /** Claude Code's per-machine settings file, relative to the project. */
 export const CLAUDE_LOCAL_SETTINGS = '.claude/settings.local.json';
 

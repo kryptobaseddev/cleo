@@ -10,7 +10,7 @@ description: >-
   gates, package boundaries, validation, data safety or anything the task asked for.
 license: MIT
 metadata:
-  version: 1.5.0
+  version: 1.6.0
   tier: core
   install: harness
   covers:
@@ -45,6 +45,9 @@ config key, then `full`. When the owner asks for a level ("go ultra", "lean off"
 `--global` for every project. `cleo lean level` alone shows the level and its source.
 `cleo lean gain --card` shows the measured benchmark scoreboard: averages, never a number
 for this repo.
+Subagents get the same level: CLEO-spawned ones through the spawn prompt, Claude Code
+Agent-tool ones through the SubagentStart hook (`cleo hook subagent-start`, installed with the
+heavy-command hook; scope it with `CLEO_LEAN_SUBAGENT_MATCHER`, a regex over the agent type).
 
 ## Before you write
 

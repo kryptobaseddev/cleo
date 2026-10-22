@@ -1117,11 +1117,16 @@ export interface BoundSessionResolution {
  *
  * @param cwd - Working directory for DB resolution.
  * Never creates the project store: with no `cleo.db` the caller is unbound (T12501).
+ * @param env - Environment naming the caller (defaults to `process.env`); a
+ *   hook passes the harness's, so `CLAUDE_CODE_SESSION_ID` binds it (T13667).
  *
  * @returns The bound session and the tier that bound it, or `null` when unbound.
  * @task T12500
  */
-export async function resolveBoundSession(cwd?: string): Promise<BoundSessionResolution | null> {
+export async function resolveBoundSession(
+  cwd?: string,
+  env?: Readonly<Record<string, string | undefined>>,
+): Promise<BoundSessionResolution | null> {
   const scope = captureProjectScope(cwd ?? getProjectRoot(), worktreeScope.getStore());
   return worktreeScope.run(scope, async () => {
     // T12501: resolution is a READ. With no project store there is no session
@@ -1136,14 +1141,19 @@ export async function resolveBoundSession(cwd?: string): Promise<BoundSessionRes
       if (byConn) return { session: byConn, via: 'connection' as const };
       // connection named a session with no row yet — fall through to env.
     }
-    const envId = resolveSessionIdFromEnv();
+    const envId = resolveSessionIdFromEnv(env);
     if (envId) {
       const byEnv = await getSession(envId, scope.worktreeRoot);
       if (byEnv) return { session: byEnv, via: 'env' as const };
       // env id named a session that does not exist — fall through to the binding.
     }
     // T12499: the session this terminal started / resumed.
-    const byTerminal = await resolveTerminalBinding(scope.worktreeRoot);
+    // No env given: the default keys (the live terminal) — an explicit
+    // `{ env: process.env }` would bypass injected process-table readers.
+    const byTerminal = await resolveTerminalBinding(
+      scope.worktreeRoot,
+      env === undefined ? undefined : resolveTerminalKeys({ env }),
+    );
     if (byTerminal) {
       return {
         session: byTerminal.session,
@@ -1162,11 +1172,15 @@ export async function resolveBoundSession(cwd?: string): Promise<BoundSessionRes
  * attributed to NO session rather than to the newest active one.
  *
  * @param cwd - Working directory for DB resolution.
+ * @param env - Environment naming the caller (defaults to `process.env`).
  * @returns The bound session id, or `null` when the caller is unbound.
  * @task T12500
  */
-export async function resolveBoundSessionId(cwd?: string): Promise<string | null> {
-  return (await resolveBoundSession(cwd))?.session.id ?? null;
+export async function resolveBoundSessionId(
+  cwd?: string,
+  env?: Readonly<Record<string, string | undefined>>,
+): Promise<string | null> {
+  return (await resolveBoundSession(cwd, env))?.session.id ?? null;
 }
 
 /** Result of a read-only session resolution (T12500). */

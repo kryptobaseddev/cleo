@@ -115,6 +115,17 @@ describe('syncProjectHeavyCommandHooks', () => {
     expect(stop(claude)).toContain('cleo hook stop --provider claude-code');
   });
 
+  it('installs the SubagentStart lean hook for Claude Code only (T13667)', async () => {
+    useAll();
+    await syncProjectHeavyCommandHooks(project, 'rewrite', { env });
+    const hooks = (file: string) => JSON.parse(readFileSync(file, 'utf-8')).hooks;
+    const claude = join(project, '.claude', 'settings.local.json');
+    expect(JSON.stringify(hooks(claude).SubagentStart)).toContain('cleo hook subagent-start');
+    expect(hooks(join(project, '.codex', 'hooks.json')).SubagentStart).toBeUndefined();
+    await syncProjectHeavyCommandHooks(project, 'off', { env });
+    expect(JSON.stringify(hooks(claude).SubagentStart ?? [])).not.toContain('subagent-start');
+  });
+
   it('a .codex FILE blocks only Codex, with the reason and remedy; the others install', async () => {
     useAll();
     writeFileSync(join(project, '.codex'), '');
