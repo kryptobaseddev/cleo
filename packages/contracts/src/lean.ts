@@ -33,6 +33,35 @@ export interface LeanConfig {
    * @defaultValue 'full'
    */
   level?: LeanLevel;
+  /**
+   * Add the brief codebase map (`cleo map --brief`) to `cleo briefing`, so
+   * "reuse first" costs no search (T13666).
+   *
+   * @defaultValue false
+   */
+  map?: boolean;
+}
+
+/** One file's exported names, the input to the brief map (T13666). */
+export interface BriefMapFile {
+  /** Repo-relative path. */
+  readonly file: string;
+  /** Exported top-level names, in source order. */
+  readonly names: readonly string[];
+}
+
+/** `cleo map --brief`: what already exists, one line per folder, within a budget. */
+export interface BriefMapReport {
+  /** Where the names came from: the parsed nexus graph, or a git-tracked regex walk. */
+  readonly source: 'nexus' | 'git-walk';
+  /** The rendered map (empty when nothing was found). */
+  readonly text: string;
+  /** Folders listed. */
+  readonly folders: number;
+  /** Folders left out to stay within the budget. */
+  readonly skipped: number;
+  /** The character budget used. */
+  readonly budget: number;
 }
 
 /**

@@ -946,6 +946,8 @@ export {
 } from './lafs.js';
 // === ct-lean levels (T13663 / Epic T13418) ===
 export type {
+  BriefMapFile,
+  BriefMapReport,
   LeanConfig,
   LeanDebtItem,
   LeanDebtReport,
