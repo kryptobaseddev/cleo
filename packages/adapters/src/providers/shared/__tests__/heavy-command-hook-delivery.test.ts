@@ -109,10 +109,16 @@ describe('syncProjectHeavyCommandHooks', () => {
     expect(stop(claude)).not.toContain('ask-enforce');
     expect(stop(codex)).not.toContain('ask-enforce');
     expect(stop(claude).match(/cleo hook stop/g)).toHaveLength(1);
-    // Mode off removes Codex's dispatcher; Claude Code's keeps its session end.
+    // T13913: Claude Code ends the session on SessionEnd, never on Stop; Codex has no such event.
+    const sessionEnd = (file: string) =>
+      JSON.stringify(JSON.parse(readFileSync(file, 'utf-8')).hooks.SessionEnd ?? []);
+    expect(sessionEnd(claude)).toContain('cleo hook session-end --provider claude-code');
+    expect(sessionEnd(codex)).toBe('[]');
+    // Mode off removes Codex's dispatcher; Claude Code keeps its Stop and SessionEnd hooks.
     await syncProjectHeavyCommandHooks(project, 'off', { env });
     expect(stop(codex)).not.toContain('cleo hook stop');
     expect(stop(claude)).toContain('cleo hook stop --provider claude-code');
+    expect(sessionEnd(claude)).toContain('cleo hook session-end --provider claude-code');
   });
 
   it('installs the SubagentStart lean hook for Claude Code only (T13667)', async () => {

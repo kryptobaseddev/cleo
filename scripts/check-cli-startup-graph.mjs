@@ -413,8 +413,8 @@ export const PROBES = Object.freeze([
   },
   {
     // T13830: Claude Code runs `cleo hook stop` on every turn. With no goal
-    // workspace it must not open a store or load a CORE barrel; the session end
-    // runs detached in its own process, so it is not counted here.
+    // workspace it must not open a store or load a CORE barrel. It never ends
+    // the session (T13913).
     name: 'hook-stop-no-goal',
     entry: 'bin',
     args: ['hook', 'stop', '--provider', 'claude-code'],
@@ -436,10 +436,10 @@ export const PROBES = Object.freeze([
     maxRssMb: 260,
   },
   {
-    // T13834: every Claude Code Stop runs `cleo session end`. It loaded the
-    // whole CORE barrel (~2,170 modules, ~1.7 s) for two post-end memory
-    // helpers; from their defining modules it is ~905. It ends a session of
-    // its own (T13847): the Stop-hook probe already ended the shared one.
+    // T13834: Claude Code's SessionEnd hook runs `cleo session end` (T13913;
+    // every Stop ran it before). It loaded the whole CORE barrel (~2,170
+    // modules, ~1.7 s) for two post-end memory helpers; from their defining
+    // modules it is ~905. It ends a session of its own (T13847).
     name: 'session-end',
     args: ['session', 'end', '--quiet'],
     needsProject: true,

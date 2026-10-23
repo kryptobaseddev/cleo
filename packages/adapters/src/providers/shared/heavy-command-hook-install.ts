@@ -463,14 +463,15 @@ export function isAskEnforceHookObject(hook: unknown): boolean {
 /** The command CLEO's Stop dispatcher runs (T13796); also its marker. */
 export const STOP_DISPATCH_HOOK_ID = 'cleo hook stop';
 
-/** Seconds a Stop dispatch may take: the goal tick (30 s), ask-enforce and `cleo session end`. */
+/** Seconds a Stop dispatch may take: the goal tick (60 s at most) and ask-enforce. */
 export const STOP_DISPATCH_HOOK_TIMEOUT_SEC = 120;
 
 /** Claude Code's Stop command before T13796, which ended the session on its own. */
 export const LEGACY_SESSION_END_STOP_COMMAND = 'cleo session end --quiet # cleo-hook';
 
 /**
- * CLEO's one Stop hook object (T13796): goal tick → ask-enforce → session end.
+ * CLEO's one Stop hook object (T13796): goal tick → ask-enforce. It never ends
+ * the session (T13913); {@link sessionEndHookObject} does, on `SessionEnd`.
  * Like the ask-enforce script, it forwards only a JSON answer and always exits
  * 0, so a machine without `cleo` (or with an older one) is never blocked.
  *
@@ -599,23 +600,107 @@ export function isSubagentStartHookObject(hook: unknown): boolean {
  * @param install - `false` removes the hook.
  * @returns what changed.
  */
-export async function syncJsonSubagentStartHook(
+export function syncJsonSubagentStartHook(
   configPath: string,
   install: boolean,
 ): Promise<HeavyHookSyncResult> {
+  return syncJsonEventHook(
+    configPath,
+    'SubagentStart',
+    install ? subagentStartHookObject() : null,
+    isSubagentStartHookObject,
+  );
+}
+
+/** The command CLEO's SessionEnd hook runs (T13913); also its marker. */
+export const SESSION_END_HOOK_ID = 'cleo hook session-end';
+
+/** Seconds the SessionEnd hook may take: `cleo session end`, waited for at most 20 s, then detached. */
+export const SESSION_END_HOOK_TIMEOUT_SEC = 30;
+
+/**
+ * CLEO's SessionEnd hook object (T13913), Claude Code only: the harness
+ * session really ended, so the CLEO session ends. A turn's Stop no longer
+ * does. Prints nothing and always exits 0, so a machine without `cleo` (or
+ * with an older one) never breaks the exit.
+ */
+export function sessionEndHookObject(): Record<string, unknown> {
+  const script = `command -v cleo >/dev/null 2>&1 || exit 0; ${SESSION_END_HOOK_ID} --provider claude-code >/dev/null 2>&1; exit 0`;
+  return {
+    type: 'command',
+    command: `${script} ${CLEO_HOOK_MARKER}`,
+    timeout: SESSION_END_HOOK_TIMEOUT_SEC,
+  };
+}
+
+/** Whether one hook object is CLEO's SessionEnd hook. */
+export function isSessionEndHookObject(hook: unknown): boolean {
+  return (
+    isPlainObject(hook) &&
+    typeof hook.command === 'string' &&
+    hook.command.includes(CLEO_HOOK_MARKER) &&
+    hook.command.includes(`${SESSION_END_HOOK_ID} `)
+  );
+}
+
+/**
+ * Leave exactly one CLEO SessionEnd hook (T13913) in a `hooks` map, or
+ * (`install: false`) none; user hooks stay.
+ *
+ * @param hooks - The config's `hooks` map (edited in place).
+ * @param install - `false` removes it.
+ * @returns whether the map changed.
+ */
+export function applySessionEndHook(hooks: Record<string, unknown>, install: boolean): boolean {
+  const desired = install ? sessionEndHookObject() : null;
+  const placed = placeHeavyHook(hooks, desired, 'SessionEnd', isSessionEndHookObject);
+  if (desired === null || placed.found) return placed.changed;
+  appendHookEntry(hooks, 'SessionEnd', { hooks: [desired] });
+  return true;
+}
+
+/**
+ * Add, refresh or (`install: false`) remove CLEO's SessionEnd hook
+ * (`hooks.SessionEnd`, T13913) through CAAMP's locked atomic writer. Claude
+ * Code only: Codex has no session-end event. A malformed file throws
+ * untouched.
+ *
+ * @param configPath - Claude Code's `.claude/settings.local.json`.
+ * @param install - `false` removes the hook.
+ * @returns what changed.
+ */
+export function syncJsonSessionEndHook(
+  configPath: string,
+  install: boolean,
+): Promise<HeavyHookSyncResult> {
+  return syncJsonEventHook(
+    configPath,
+    'SessionEnd',
+    install ? sessionEndHookObject() : null,
+    isSessionEndHookObject,
+  );
+}
+
+/** Place one CLEO hook object on one event (null removes it), through CAAMP's locked writer. */
+async function syncJsonEventHook(
+  configPath: string,
+  event: string,
+  desired: Record<string, unknown> | null,
+  match: (hook: unknown) => boolean,
+): Promise<HeavyHookSyncResult> {
+  const install = desired !== null;
   if (!install && !existsSync(configPath)) return 'unchanged';
   if (install) ensureParentDir(configPath);
-  const desired = install ? subagentStartHookObject() : null;
   let result: HeavyHookSyncResult = 'unchanged';
   await updateJsonConfigFile(configPath, (config) => {
     if (!install && config.hooks === undefined) return false;
     const hooks = hookMap(config);
-    const placed = placeHeavyHook(hooks, desired, 'SubagentStart', isSubagentStartHookObject);
+    const placed = placeHeavyHook(hooks, desired, event, match);
     if (desired === null || placed.found) {
       if (placed.changed) result = install ? 'updated' : 'removed';
       return placed.changed;
     }
-    appendHookEntry(hooks, 'SubagentStart', { hooks: [desired] });
+    appendHookEntry(hooks, event, { hooks: [desired] });
     result = 'installed';
     return true;
   });

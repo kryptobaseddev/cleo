@@ -1,10 +1,13 @@
 /**
  * `cleo hook stop --provider <p>`: the one Stop dispatcher (T13796).
  *
- * A goal runtime (CLEO Goal's `cleo-goal tick`) and CLEO's `cleo session end`
- * both want the Stop event; as two hooks they fight (the session ends while
- * the goal keeps the turn going). This dispatcher owns the event, in order
- * goal tick → ask-enforce → session end:
+ * A goal runtime (CLEO Goal's `cleo-goal tick`) and CLEO's ask-enforce both
+ * want the Stop event; as two hooks they fight. This dispatcher owns the
+ * event, in order goal tick → ask-enforce. Stop fires at the end of EVERY
+ * turn, so it never ends the CLEO session (T13913): ending there deleted the
+ * terminal binding and ran the session-end snapshot work once per turn. The
+ * provider's real session-end event does it instead, through
+ * `cleo hook session-end` ({@link sessionEndHook}; Claude Code `SessionEnd`).
  *
  * 1. When a goal workspace exists (`.opencode/goals/` at or above the project),
  *    run the tick (`CLEO_GOAL_TICK_COMMAND`, else `<bin> tick` with the CLEO
@@ -15,18 +18,14 @@
  * 2. `{"decision":"block","reason":…}` on its stdout: a live goal continues the
  *    turn. CLEO re-serialises exactly `{decision, reason}` (reason capped at
  *    {@link MAX_REASON_CHARS}), so a tick can never inject other hook fields
- *    (`continue`, `stopReason`, `systemMessage`, `hookSpecificOutput`). The
- *    session stays open.
+ *    (`continue`, `stopReason`, `systemMessage`, `hookSpecificOutput`).
  * 3. `{"final":false}`: a live goal that is not finished but does not
- *    continue the turn (paused, waiting on the owner). The session stays open.
- * 4. Otherwise ask-enforce (T13420) judges the turn. Its block wins next and
- *    the session is NOT ended, since the agent still owes the owner an ask; a
- *    `warn` answer is forwarded and the session still ends.
- * 5. Otherwise the session ends exactly as before, for a provider whose Stop
- *    ended it ({@link PROVIDER_ENDS_SESSION}: Claude Code yes, Codex never). A tick that is missing
- *    (exit 127), fails, times out or prints non-JSON counts as no goal, and an
- *    ask-enforce step that throws counts as no block: every step fails open to
- *    today's behaviour, never trapping a session.
+ *    continue the turn (paused, waiting on the owner). Nothing is printed.
+ * 4. Otherwise ask-enforce (T13420) judges the turn and its answer (a block
+ *    or a `warn`) is forwarded. A tick that is missing (exit 127), fails,
+ *    times out or prints non-JSON counts as no goal, and an ask-enforce step
+ *    that throws counts as no answer: every step fails open, never trapping a
+ *    turn.
  *
  * `CLEO_GOAL_TICK=off` skips the tick. Claude Code and Codex answer a Stop
  * hook in the same `{"decision":"block","reason"}` shape. The tick runs in its
@@ -53,15 +52,11 @@ export const STOP_DISPATCH_PROVIDERS = ['claude-code', 'codex'] as const;
 export type StopDispatchProvider = (typeof STOP_DISPATCH_PROVIDERS)[number];
 
 /**
- * Whether a provider's Stop ends the CLEO session, as its Stop hook did before
- * the dispatcher: Claude Code's always ran `cleo session end`; Codex's never
- * did, and its Stop fires every turn, so ending the session there would
- * unbind a Codex session mid-work.
+ * Harnesses with a real session-end event that `cleo hook session-end` serves
+ * (T13913): Claude Code's `SessionEnd`. Codex has none, so a Codex session is
+ * ended explicitly (`cleo session end`), never by a turn's Stop.
  */
-export const PROVIDER_ENDS_SESSION: Readonly<Record<StopDispatchProvider, boolean>> = {
-  'claude-code': true,
-  codex: false,
-};
+export const SESSION_END_PROVIDERS = ['claude-code'] as const;
 
 /** Deadline for one tick when `CLEO_GOAL_TICK_TIMEOUT_MS` is unset. */
 const DEFAULT_TICK_TIMEOUT_MS = 30_000;
@@ -77,9 +72,9 @@ export const MAX_TICK_TIMEOUT_MS = 60_000;
 export const ASK_ENFORCE_DEADLINE_MS = 5_000;
 
 /**
- * Longest the Stop waits for `cleo session end` (T13890, T13893). Past it the
- * session end is left to finish in the background. Tick (60 s at most) plus
- * ask-enforce plus this stays under Claude Code's 120 s Stop timeout.
+ * Longest the session-end hook waits for `cleo session end` (T13890, T13893).
+ * Past it the session end is left to finish in the background, detached, so a
+ * harness that kills its hook sooner never cuts the session end short.
  */
 export const SESSION_END_WAIT_MS = 20_000;
 
@@ -111,9 +106,7 @@ export interface StopDispatchDeps {
   readonly runTick: (command: string, input: string, timeoutMs: number) => Promise<TickRun>;
   /** The ask-enforce hook's stdout for this Stop (empty when it does not answer). */
   readonly askEnforce: (input: string) => Promise<string>;
-  /** End the CLEO session, as the Stop hook always did; resolves within {@link SESSION_END_WAIT_MS} (T13890). */
-  readonly endSession: () => void | Promise<void>;
-  /** One diagnostic line to stderr (a deadline hit, a failed or overrunning session end). */
+  /** One diagnostic line to stderr (a deadline hit). */
   readonly warn?: (line: string) => void;
 }
 
@@ -125,8 +118,8 @@ export type TickDecision =
 
 /**
  * Read a tick's result. Only a clean exit with a JSON object counts; every
- * other outcome is `final`, so a missing or broken goal runtime ends the
- * session as before.
+ * other outcome is `final`, so a missing or broken goal runtime falls through
+ * to ask-enforce.
  *
  * @param run - What the tick command did.
  * @returns The decision.
@@ -175,32 +168,20 @@ function withDeadline<T>(
   });
 }
 
-/** Whether a hook answer is a `{"decision":"block"}` (Claude Code and Codex). */
-function isBlock(stdout: string): boolean {
-  try {
-    const answer = JSON.parse(stdout) as HookJsonValue;
-    return isRecord(answer) && answer.decision === 'block';
-  } catch {
-    return false;
-  }
-}
-
 /**
- * Dispatch one Stop: the goal runtime first, then ask-enforce, and the session
- * end only when neither keeps the turn going.
+ * Dispatch one Stop: the goal runtime first, then ask-enforce. The CLEO
+ * session is never ended here (T13913).
  *
  * @param stdin - The harness's Stop JSON.
  * @param env - Environment (`CLEO_GOAL_TICK*`; ask-enforce reads `CLEO_ASK_ENFORCE`).
- * @param deps - Tick runner, ask-enforce and session end.
- * @param endsSession - Whether this provider's Stop ends the session ({@link PROVIDER_ENDS_SESSION}).
- * @returns What to print to the harness and whether the session ended.
+ * @param deps - Tick runner and ask-enforce.
+ * @returns What to print to the harness.
  */
 export async function stopDispatch(
   stdin: string,
   env: Readonly<Record<string, string | undefined>>,
   deps: StopDispatchDeps,
-  endsSession = true,
-): Promise<{ readonly stdout: string; readonly sessionEnded: boolean }> {
+): Promise<{ readonly stdout: string }> {
   const timeout = Math.min(
     Number(env.CLEO_GOAL_TICK_TIMEOUT_MS) || DEFAULT_TICK_TIMEOUT_MS,
     MAX_TICK_TIMEOUT_MS,
@@ -211,17 +192,39 @@ export async function stopDispatch(
       : env.CLEO_GOAL_TICK_COMMAND?.trim() || (await deps.goalTick());
   const decision: TickDecision =
     command === null ? { kind: 'final' } : parseTick(await deps.runTick(command, stdin, timeout));
-  if (decision.kind === 'block') return { stdout: decision.answer, sessionEnded: false };
-  if (decision.kind === 'hold') return { stdout: '', sessionEnded: false };
+  if (decision.kind === 'block') return { stdout: decision.answer };
+  if (decision.kind === 'hold') return { stdout: '' };
   const asked = await withDeadline(deps.askEnforce(stdin), ASK_ENFORCE_DEADLINE_MS, '', () =>
     deps.warn?.(
       `[cleo hook] ask-enforce gave no answer within ${ASK_ENFORCE_DEADLINE_MS} ms; treated as no block\n`,
     ),
   );
-  if ((asked !== '' && isBlock(asked)) || !endsSession)
-    return { stdout: asked, sessionEnded: false };
-  await deps.endSession();
-  return { stdout: asked, sessionEnded: true };
+  return { stdout: asked };
+}
+
+/**
+ * `cleo hook session-end` (T13913): the provider's real session end ends the
+ * CLEO session with `cleo session end --quiet` through the running CLI,
+ * detached, waited for at most `waitMs` ({@link SESSION_END_WAIT_MS}), its
+ * output kept off the harness's streams. A Stop never calls this.
+ *
+ * @param warn - Receives a diagnostic line (failed or overrunning session end).
+ * @param waitMs - Longest wait (tests shorten it).
+ * @returns Resolves on exit or at the deadline; never rejects.
+ */
+export function sessionEndHook(
+  warn: (line: string) => void,
+  waitMs: number = SESSION_END_WAIT_MS,
+): Promise<void> {
+  const cli = process.argv[1];
+  return runBounded(
+    cli ? process.execPath : 'cleo',
+    [...(cli ? [cli] : []), 'session', 'end', '--quiet'],
+    waitMs,
+    'session end',
+    warn,
+    SESSION_END_BENIGN_EXITS,
+  );
 }
 
 /**
@@ -254,9 +257,7 @@ export async function askEnforceOptedOut(
 
 /**
  * The real side effects: the tick through the shell (the command is the
- * project's own configuration), ask-enforce in-process, and
- * `cleo session end --quiet` through the running CLI, waited for at most
- * {@link SESSION_END_WAIT_MS}, its output kept off the harness's streams.
+ * project's own configuration) and ask-enforce in-process.
  *
  * @param provider - Harness protocol ask-enforce answers in.
  * @param env - Environment ask-enforce reads.
@@ -283,26 +284,13 @@ export function processStopDispatchDeps(
     },
     hasGoalWorkspace: (input) => hasGoalWorkspace(input, env),
     runTick: (command, input, timeoutMs) => runTickKillable(command, input, timeoutMs, provider),
-    // T13890: session end can outlast the harness's Stop timeout, so it is
-    // waited for at most SESSION_END_WAIT_MS, then left to finish on its own.
-    endSession: () => {
-      const cli = process.argv[1];
-      return runBounded(
-        cli ? process.execPath : 'cleo',
-        [...(cli ? [cli] : []), 'session', 'end', '--quiet'],
-        SESSION_END_WAIT_MS,
-        'session end',
-        warn,
-        SESSION_END_BENIGN_EXITS,
-      );
-    },
     warn,
   };
 }
 
 /**
- * `cleo session end` exits that only mean there was no session to end (a Stop
- * with no bound session): expected, so they print no warning.
+ * `cleo session end` exits that only mean there was no session to end (a
+ * session end with no bound session): expected, so they print no warning.
  */
 export const SESSION_END_BENIGN_EXITS: readonly number[] = [
   ExitCode.SESSION_UNBOUND,

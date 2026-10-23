@@ -972,7 +972,7 @@ export async function sessionEnd(
 
     // T12508: request the session-end SQLite snapshot LAST — after the session
     // row is persisted as ended and the journal entry is written. A detached
-    // worker takes it, so `cleo session end` (and the host Stop hook running
+    // worker takes it, so `cleo session end` (and the SessionEnd hook running
     // it) returns without waiting for a VACUUM. Never throws.
     try {
       const { requestSessionEndSnapshot } = await import('../sessions/session-end-snapshot.js');

@@ -189,7 +189,7 @@ const stopSubcommand = defineCommand({
   meta: {
     name: 'stop',
     description:
-      'Stop hook (T13796): ask the live goal runtime first (CLEO_GOAL_TICK_COMMAND, default `ocg tick`), pass its block verbatim, and end the CLEO session only when the goal says the turn is final or no goal is live. Fails open to the session end.',
+      'Stop hook (T13796): ask the live goal runtime first (CLEO_GOAL_TICK_COMMAND, default `ocg tick`) and pass its block verbatim, else run ask-enforce. A turn end never ends the CLEO session (T13913). Fails open.',
   },
   args: {
     provider: {
@@ -201,6 +201,25 @@ const stopSubcommand = defineCommand({
     const { runHookCli } = await import('../hook-entry.js');
     const provider = typeof args.provider === 'string' ? args.provider : 'claude-code';
     process.exitCode = await runHookCli(['stop', '--provider', provider]);
+  },
+});
+
+const sessionEndSubcommand = defineCommand({
+  meta: {
+    name: 'session-end',
+    description:
+      'SessionEnd hook (T13913): the harness session really ended, so end the CLEO session (cleo session end, detached, waited for at most 20 s). Reads the hook JSON on stdin; prints nothing.',
+  },
+  args: {
+    provider: {
+      type: 'string',
+      description: 'Harness whose session ended: claude-code (default)',
+    },
+  },
+  async run({ args }) {
+    const { runHookCli } = await import('../hook-entry.js');
+    const provider = typeof args.provider === 'string' ? args.provider : 'claude-code';
+    process.exitCode = await runHookCli(['session-end', '--provider', provider]);
   },
 });
 
@@ -228,12 +247,13 @@ export const hookCommand = defineCommand({
   meta: {
     name: 'hook',
     description:
-      'Agent-harness hooks installed by cleo init/upgrade; stdout is the harness hook protocol, not LAFS: cleo hook heavy-command|ask-enforce|stop|subagent-start --provider <harness>',
+      'Agent-harness hooks installed by cleo init/upgrade; stdout is the harness hook protocol, not LAFS: cleo hook heavy-command|ask-enforce|stop|session-end|subagent-start --provider <harness>',
   },
   subCommands: {
     'heavy-command': heavyCommandSubcommand,
     'ask-enforce': askEnforceSubcommand,
     stop: stopSubcommand,
+    'session-end': sessionEndSubcommand,
     'subagent-start': subagentStartSubcommand,
     sync: syncSubcommand,
     run: runSubcommand,

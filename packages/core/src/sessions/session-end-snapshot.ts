@@ -7,7 +7,7 @@
  * paths call {@link requestSessionEndSnapshot} as their LAST step, after the
  * session row is written as ended:
  *
- *   - the CLI / dispatch path (`cleo session end`, the Claude Code Stop hook,
+ *   - the CLI / dispatch path (`cleo session end`, the Claude Code SessionEnd hook,
  *     orchestrate handoff, safestop, GC): `session/engine-ops.ts` `sessionEnd`;
  *   - the SDK path: `sessions/index.ts` `endSession`.
  *

@@ -1045,6 +1045,7 @@ const USAGE =
   'usage: cleo hook heavy-command [--provider claude-code|codex|kimi|opencode] < hook-input.json\n' +
   '       cleo hook ask-enforce [--provider claude-code|codex|copilot-cli|gemini-cli|cursor|opencode|kimi] < stop-input.json\n' +
   '       cleo hook stop [--provider claude-code|codex] < stop-input.json\n' +
+  '       cleo hook session-end [--provider claude-code] < session-end-input.json\n' +
   '       cleo hook subagent-start [--provider claude-code] < subagent-start-input.json\n';
 
 /**
@@ -1103,7 +1104,7 @@ async function runAskEnforce(rest: readonly string[], io: HookIo): Promise<numbe
 
 /**
  * `cleo hook stop` (T13796): the one Stop dispatcher in `./stop-dispatch-entry.ts`.
- * Fail-open: an error ends the session as the Stop hook always did.
+ * Fail-open: an error prints nothing. A Stop never ends the session (T13913).
  */
 async function runStopDispatch(rest: readonly string[], io: HookIo): Promise<number> {
   const entry = await import('./stop-dispatch-entry.js');
@@ -1115,16 +1116,27 @@ async function runStopDispatch(rest: readonly string[], io: HookIo): Promise<num
   }
   const deps = entry.processStopDispatchDeps(provider, io.env);
   try {
-    const endsSession = entry.PROVIDER_ENDS_SESSION[provider];
-    const answer = await entry.stopDispatch(await io.readStdin(), io.env, deps, endsSession);
+    const answer = await entry.stopDispatch(await io.readStdin(), io.env, deps);
     if (answer.stdout !== '') io.writeStdout(answer.stdout);
   } catch (err) {
     io.writeStderr(
       `[cleo hook] stop dispatch failed: ${err instanceof Error ? err.message : String(err)}\n`,
     );
-    // Fail open to what this provider's Stop did before the dispatcher.
-    if (entry.PROVIDER_ENDS_SESSION[provider]) await deps.endSession();
   }
+  return 0;
+}
+
+/**
+ * `cleo hook session-end` (T13913): the provider's real session-end event
+ * ends the CLEO session, bounded and detached. Always exits 0.
+ */
+async function runSessionEnd(rest: readonly string[], io: HookIo): Promise<number> {
+  const entry = await import('./stop-dispatch-entry.js');
+  if (!entry.SESSION_END_PROVIDERS.some((p) => p === providerArg(rest))) {
+    io.writeStderr(USAGE);
+    return 1;
+  }
+  await entry.sessionEndHook((line) => io.writeStderr(line));
   return 0;
 }
 
@@ -1143,6 +1155,7 @@ export async function runHookCli(
   const [name, ...rest] = argv;
   if (name === 'ask-enforce') return runAskEnforce(rest, io);
   if (name === 'stop') return runStopDispatch(rest, io);
+  if (name === 'session-end') return runSessionEnd(rest, io);
   if (name === 'subagent-start') return runSubagentStart(rest, io);
   if (name !== 'heavy-command') {
     io.writeStderr(USAGE);

@@ -59,6 +59,7 @@ import {
   opencodeHeavyCommandPluginSource,
   syncClaudeCodeHeavyCommandHook,
   syncCodexHeavyCommandHook,
+  syncJsonSessionEndHook,
   syncJsonStopDispatchHook,
   syncJsonSubagentStartHook,
   syncOpencodeHeavyCommandPlugin,
@@ -197,14 +198,15 @@ function errorText(err: unknown): string {
 
 /** Sync one provider; never throws. */
 /**
- * Install CLEO's one Stop hook (T13796): goal tick → ask-enforce (T13420) →
- * session end, folding the separate ask-enforce and session-end Stop hooks in
- * place. Claude Code always keeps it (its Stop hook ended the session before
- * the dispatcher); Codex's rides the heavy-command delivery and is removed
- * when that mode is `off`. Ask-enforce inside it honours `CLEO_ASK_ENFORCE` at
- * run time. For Claude Code it also installs the SubagentStart lean hook
- * (T13667), removed when the heavy-command mode is `off`. Never fails the
- * heavy-command outcome.
+ * Install CLEO's one Stop hook (T13796): goal tick → ask-enforce (T13420),
+ * folding the separate ask-enforce and old session-end Stop hooks in place.
+ * Claude Code always keeps it, with the SessionEnd hook that ends the CLEO
+ * session when the harness session really ends (T13913; a turn's Stop never
+ * does); Codex's rides the heavy-command delivery and is removed when that
+ * mode is `off`. Ask-enforce inside it honours `CLEO_ASK_ENFORCE` at run time.
+ * For Claude Code it also installs the SubagentStart lean hook (T13667),
+ * removed when the heavy-command mode is `off`. Never fails the heavy-command
+ * outcome.
  */
 async function syncStopDispatch(
   provider: 'claude-code' | 'codex',
@@ -217,6 +219,11 @@ async function syncStopDispatch(
     // Fail open: a config the Stop hook cannot be written to keeps the heavy-command result.
   }
   if (provider !== 'claude-code') return;
+  try {
+    await syncJsonSessionEndHook(target, true);
+  } catch {
+    // Fail open, as above.
+  }
   // T13667: the lean rules for harness-spawned subagents. The level (`off`
   // included) is read at run time, so the hook is installed whenever the
   // heavy-command hook is.
@@ -261,8 +268,11 @@ export async function syncProjectStopDispatch(
       if (shared !== null) throw new HeavyHookSharedConfigError(target, shared);
     }
     const status = await syncJsonStopDispatchHook(target, provider, true);
-    if (provider === 'claude-code') excludeLocalSettingsFromGit(projectDir);
-    else excludeHookFileFromGit(projectDir, CODEX_HOOKS_FILE);
+    if (provider === 'claude-code') {
+      // T13913: the Stop no longer ends the session; SessionEnd does.
+      await syncJsonSessionEndHook(target, true);
+      excludeLocalSettingsFromGit(projectDir);
+    } else excludeHookFileFromGit(projectDir, CODEX_HOOKS_FILE);
     return { provider, status, target };
   } catch (err) {
     return {
