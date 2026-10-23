@@ -1002,7 +1002,6 @@ export type {
 } from './orchestration/spawn.js';
 // Canonical spawn payload composer (T889 / T891 / T932 — single-path spawn).
 export { composeSpawnPayload } from './orchestration/spawn.js';
-export type { ConduitSubscriptionConfig } from './orchestration/spawn-prompt.js';
 export {
   computeEpicStatus,
   computeOverallStatus,

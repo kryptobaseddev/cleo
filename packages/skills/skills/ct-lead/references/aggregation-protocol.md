@@ -1,57 +1,49 @@
-# Aggregation Protocol — Conduit + Manifest Drain Semantics
+# Aggregation Protocol — AgentMBX + Manifest Drain Semantics
 
 The Phase Lead converges on wave completion via TWO complementary channels:
 
-1. **Conduit topic** (`epic-<TID>.wave-<n>`) — low-latency event stream
-   carrying terminal-status signals (`complete` / `partial` / `blocked` /
-   `failed` / `timeout`) from each worker as it returns.
+1. **AgentMBX** (the Lead's mailbox) — one completion message per worker
+   carrying its terminal status (`complete` / `partial` / `blocked` /
+   `failed` / `timeout`) and task id. Agent messages travel over AgentMBX,
+   not CONDUIT (D11172).
 2. **pipeline_manifest** (SQLite, ADR-027) — durable source of truth for
    each worker's structured output (key_findings, files, gates).
 
-Conduit drives **timing**; manifest drives **content**. `rollupWaveStatus`
-(T9082) reads BOTH and produces the authoritative wave verdict.
+Messages drive **timing**; the manifest drives **content**. `rollupWaveStatus`
+(T9082) reads the manifest and produces the authoritative wave verdict.
 
 ---
 
-## 1. Subscription timing
+## 1. Mailbox before spawn
 
-The Lead MUST subscribe to the conduit topic BEFORE issuing `delegate_task`.
-Subscription is idempotent and cheap; late subscription races against
-fast-finishing workers and silently loses early `complete` signals.
+Before issuing `delegate_task`, put your AgentMBX name in every worker's
+brief so its completion message reaches you. A mailbox keeps messages until
+they are read, so a worker that finishes first is never lost; a worker that
+does not know your name cannot report at all.
 
 ```bash
-# CORRECT — subscribe, then spawn
-cleo conduit subscribe --topic "epic-T9080.wave-2"
+# CORRECT — workers' briefs name the Lead mailbox, then fan out
 cleo orchestrate fanout T9080 --tasks T9301,T9302,T9303
-
-# WRONG — fanout, then subscribe (race window)
-cleo orchestrate fanout T9080 --tasks T9301,T9302,T9303
-cleo conduit subscribe --topic "epic-T9080.wave-2"   # may miss T9301 done
 ```
-
-The conduit retains buffered signals for `conduit.replay_window` (default 30s)
-to defend against tiny races, but relying on the buffer is brittle.
 
 ---
 
 ## 2. Drain loop
 
-There is no blocking await. The Lead polls the wave topic with
-`cleo conduit listen --topic <topic> --since <last-seen>` until the expected number of
-terminal signals has arrived OR its wall-clock budget elapses.
+There is no blocking await. Between waits the Lead reads its inbox
+(`mbx_inbox` / `mbx_read`, or `agentmbx inbox --as <you>`) until every
+worker's completion message has arrived OR its wall-clock budget elapses,
+and acks each message it acted on.
 
 ```bash
-cleo conduit listen --topic "epic-T9080.wave-2" --since "${SPAWNED_AT}" \
-  > /tmp/conduit-drain.json
-
-# Then read authoritative state from manifest — same wave number as the topic.
+# Then read authoritative state from the manifest, by the wave number
+# `cleo orchestrate waves` prints.
 cleo orchestrate roll-up T9080 --wave 2 --json > /tmp/rollup.json
 ```
 
 > **Wave contract (T12682).** One wave number `n` names everything: it is
-> the 1-based number `cleo orchestrate waves <epic>` prints, spawned workers
-> publish on `epic-<epicId>.wave-<n>`, and `cleo orchestrate roll-up <epic>
-> --wave <n>` takes the same `n` (`--wave 0` is refused with
+> the 1-based number `cleo orchestrate waves <epic>` prints, and `cleo
+> orchestrate roll-up <epic> --wave <n>` takes the same `n` (`--wave 0` is refused with
 > `E_CLEO_VALIDATION`, pointing at `cleo orchestrate waves`).
 >
 > **What a wave number guarantees (T12683).** A task's wave is its
@@ -64,8 +56,8 @@ cleo orchestrate roll-up T9080 --wave 2 --json > /tmp/rollup.json
 >   finished waves without renumbering the rest.
 > - **Not stable** when a dependency edge is added or removed anywhere
 >   upstream, including in another epic: downstream waves shift. If you
->   subscribed ahead to `epic-<epicId>.wave-<n>`, re-read `cleo orchestrate
->   waves` after any dependency change.
+>   noted a wave number ahead of time, re-read `cleo orchestrate waves`
+>   after any dependency change.
 > - **Numbers can skip, and an epic's first wave can be above 1** (a task
 >   whose external prerequisite sits at depth 3 is in wave 4). Always take
 >   `n` from `cleo orchestrate waves`; never assume the first wave is 1.
@@ -118,13 +110,11 @@ Local retry shape:
 # After first drain, identify retriable failures
 RETRIABLE=$(jq -r '.workers[] | select(.status=="failed" and (.reason|test("testsPassed|qaPassed|INFRASTRUCTURE"))) | .taskId' /tmp/rollup.json)
 
-# Re-spawn ONLY those (NEW conduit topic suffix to avoid replay collision)
-cleo conduit subscribe --topic "epic-T9080.wave-2.retry-1"
+# Re-spawn ONLY those; their briefs name the Lead mailbox and say "retry 1"
 cleo orchestrate fanout T9080 --tasks "$(echo $RETRIABLE | tr ' ' ,)"
 
-# Re-drain on the retry topic, then roll up again (the manifest holds the
-# latest status of every worker, retries included)
-cleo conduit listen --topic "epic-T9080.wave-2.retry-1" --since "${RETRY_AT}"
+# Read the retry completion messages, then roll up again (the manifest holds
+# the latest status of every worker, retries included)
 cleo orchestrate roll-up T9080 --wave 2 --json > /tmp/rollup-final.json
 ```
 
@@ -138,16 +128,16 @@ verdict — no second retry pass.
 Every leaf worker is bounded by a 600s wall-clock timeout (configurable via
 `subagentTimeoutSeconds`). The Lead's drain timeout MUST be at least equal
 to the worker timeout — typically equal, since workers report terminally
-on timeout via the conduit.
+on timeout over AgentMBX.
 
 Behaviour matrix:
 
-| Worker outcome at 600s | Conduit signal | Manifest entry | Lead action |
+| Worker outcome at 600s | AgentMBX message | Manifest entry | Lead action |
 |------------------------|----------------|----------------|-------------|
 | Worker returned a contract string in time | `complete`/`partial`/`blocked` | Present, full | Aggregate normally |
 | Worker exited cleanly past 600s (race) | None | Present | `rollupWaveStatus` reconciles via manifest |
 | Worker hung; runtime killed it | `timeout` | Stub entry with `status:timeout` | Treat as `failed` non-retriable; return `partial` |
-| Network partition between worker and conduit | None | None | Drain times out; `rollup` flags `missing` workers; return `partial` |
+| Worker could not reach AgentMBX | None | None | Drain times out; `rollup` flags `missing` workers; return `partial` |
 
 The Lead's own wall-clock budget should be `subagentTimeoutSeconds + 60s`
 of slack to allow the rollup query and manifest append to complete.
@@ -167,7 +157,7 @@ rollupWaveStatus() →
 Escalate to parent Orchestrator (return `partial` or `blocked`) when:
 - ANY worker requires HITL input (architectural decision, scope expansion)
 - Same worker fails after the single local retry
-- Conduit drain times out with `missing` workers
+- The inbox drain times out with `missing` workers
 - A worker reports `E_DEP_UNSATISFIED` (wave was mis-planned)
 - Cumulative wave wall-clock exceeds `subagentTimeoutSeconds + 60s`
 

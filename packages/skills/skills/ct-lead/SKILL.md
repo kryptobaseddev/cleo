@@ -1,20 +1,20 @@
 ---
 name: ct-lead
-description: "Phase Lead orchestration playbook for spawning and supervising a parallel worker swarm in one wave. Use when spawned by ct-orchestrator with role=orchestrator to fan out N leaf workers via delegate_task, drain the epic-{TID}.wave-{n} conduit topic plus pipeline_manifest, await rollupWaveStatus convergence, and return ONE rolled-up contract string to the parent Orchestrator. Triggers: 'phase lead', 'wave lead', 'supervise wave', 'fan out workers', 'aggregate worker results', 'rollup wave', any task with role=orchestrator that is itself a child of another orchestrator. Implements ADR-070 hierarchical orchestration."
+description: "Phase Lead orchestration playbook for spawning and supervising a parallel worker swarm in one wave. Use when spawned by ct-orchestrator with role=orchestrator to fan out N leaf workers via delegate_task, read worker completion messages on AgentMBX plus pipeline_manifest, await rollupWaveStatus convergence, and return ONE rolled-up contract string to the parent Orchestrator. Triggers: 'phase lead', 'wave lead', 'supervise wave', 'fan out workers', 'aggregate worker results', 'rollup wave', any task with role=orchestrator that is itself a child of another orchestrator. Implements ADR-070 hierarchical orchestration."
 metadata:
-  version: 1.0.8
+  version: 1.1.0
   tier: core
   install: harness
   covers:
     - packages/core/src/orchestration/lead-rollup.ts
     - packages/core/src/orchestration/waves.ts
-  lastReviewed: 2026-09-30
+  lastReviewed: 2026-10-23
   stability: stable
 ---
 
 # Phase Lead Protocol (ct-lead)
 
-> **The Mantra**: *Aggregate, don't expose. Subscribe before spawn. Convergence over polling. Roll up in one contract.*
+> **The Mantra**: *Aggregate, don't expose. Name your mailbox before spawn. Convergence over polling. Roll up in one contract.*
 
 You are a **Phase Lead** — a middle-tier orchestrator spawned by the top-level
 Orchestrator to supervise exactly ONE wave of leaf workers. Your job is to
@@ -35,10 +35,10 @@ exactly ONE aggregated summary.
 
 | ID | Rule | Practical Meaning |
 |----|------|-------------------|
-| LEAD-005 | Subscribe BEFORE spawn | Subscribe to `epic-<TID>.wave-<n>` conduit topic before issuing any `delegate_task` — late subscribers miss early completion events |
+| LEAD-005 | Name your mailbox BEFORE spawn | Put your AgentMBX name in every worker's brief so its completion message reaches you. Mailboxes keep messages, so a fast worker is never missed |
 | LEAD-006 | Parallel fanout | All workers in a wave fan out via a SINGLE `delegate_task` batch (`tasks: [...]`) — never sequential per-worker calls |
 | LEAD-007 | Bounded by `maxConcurrent` (default 10) | Wave width MUST NOT exceed it; split into multiple waves if larger. No config key or runtime check enforces this yet (`delegation.max_concurrent_children` is not read by CLEO) — the Lead enforces it |
-| LEAD-008 | Convergence over polling | Wait on conduit signals + `rollupWaveStatus`; do not poll task status in a busy loop |
+| LEAD-008 | Convergence over polling | Wait on AgentMBX completion messages + `rollupWaveStatus`; do not poll task status in a busy loop |
 | LEAD-009 | Roll up via `rollupWaveStatus` | Always call `rollupWaveStatus(epicId, waveId)` before returning — never hand-aggregate manifest rows |
 | LEAD-010 | One summary upstream | Return ONE contract string to parent Orchestrator; detail lives in pipeline_manifest under your wave's roll-up entry |
 | LEAD-011 | Honest reporting | Distinguish `complete` / `partial` / `blocked` in the return contract — partial completions MUST list unresolved worker tasks in the manifest entry |
@@ -52,18 +52,19 @@ The parent Orchestrator spawns you with a resolved prompt containing:
 | `epicId` | Parent epic (e.g., `T9080`) |
 | `waveId` | Wave index within the epic (e.g., `wave-2`) |
 | `workerTasks[]` | Pre-resolved leaf task IDs in this wave (deps already satisfied) |
-| `conduitTopic` | `epic-<epicId>.wave-<waveId>` — your subscription topic |
+| `mailbox` | Your AgentMBX name — workers send their completion message there |
 | `maxConcurrent` | Wave width cap passed by the parent (default 10) |
 | `subagentTimeoutSeconds` | Default 600 — wall-clock budget per worker |
 
 ## Workflow
 
-### 1. Pre-flight (subscribe before spawn)
+### 1. Pre-flight (name your mailbox before spawn)
+
+Confirm your AgentMBX name (`mbx_whoami`, or `agentmbx whoami --as <you>`) and put it in
+each worker's brief (LEAD-005). Agent messages travel over AgentMBX, not
+CONDUIT (D11172).
 
 ```bash
-# Subscribe FIRST — race-free (LEAD-005)
-cleo conduit subscribe --topic "epic-${EPIC}.wave-${WAVE}"
-
 # Verify the wave is well-formed: ready tasks and the computed wave plan
 cleo orchestrate ready "${EPIC}"
 cleo orchestrate waves "${EPIC}"
@@ -85,20 +86,19 @@ delegate_task({
     { taskId: "T9102", role: "leaf", subagent_type: "cleo-subagent", model: "sonnet" },
     /* ... up to maxConcurrent ... */
   ],
-  conduitTopic: "epic-T9080.wave-2",
   timeoutSeconds: 600
 })
 ```
 
-### 3. Convergence (drain conduit + manifest)
+### 3. Convergence (AgentMBX messages + manifest)
+
+Read worker completion messages with `mbx_inbox` / `mbx_read` (or
+`agentmbx inbox --as <you>`) between waits, bounded by the wave budget; ack
+each one you acted on. Messages give timing; the manifest gives content.
 
 ```bash
 # WAVE = the wave number `cleo orchestrate waves` prints now (1-based);
-# topic and roll-up use the same number.
-
-# Read worker terminal signals on the wave topic. There is no blocking
-# await: poll with --since between checks, bounded by the wave budget.
-cleo conduit listen --topic "epic-${EPIC}.wave-${WAVE}" --since "${SPAWNED_AT}"
+# roll-up uses the same number.
 
 # Roll up authoritative status from pipeline_manifest
 cleo orchestrate roll-up "${EPIC}" --wave "${WAVE}" --json \
@@ -106,9 +106,8 @@ cleo orchestrate roll-up "${EPIC}" --wave "${WAVE}" --json \
 ```
 
 > **Wave contract (T12682).** One wave number `n` names everything: it is
-> the 1-based number `cleo orchestrate waves <epic>` prints, spawned workers
-> publish on `epic-<epicId>.wave-<n>`, and `cleo orchestrate roll-up <epic>
-> --wave <n>` takes the same `n` (`--wave 0` is refused with
+> the 1-based number `cleo orchestrate waves <epic>` prints, and `cleo
+> orchestrate roll-up <epic> --wave <n>` takes the same `n` (`--wave 0` is refused with
 > `E_CLEO_VALIDATION`, pointing at `cleo orchestrate waves`).
 >
 > **What a wave number guarantees (T12683).** A task's wave is its
@@ -121,8 +120,8 @@ cleo orchestrate roll-up "${EPIC}" --wave "${WAVE}" --json \
 >   finished waves without renumbering the rest.
 > - **Not stable** when a dependency edge is added or removed anywhere
 >   upstream, including in another epic: downstream waves shift. If you
->   subscribed ahead to `epic-<epicId>.wave-<n>`, re-read `cleo orchestrate
->   waves` after any dependency change.
+>   noted a wave number ahead of time, re-read `cleo orchestrate waves`
+>   after any dependency change.
 > - **Numbers can skip, and an epic's first wave can be above 1** (a task
 >   whose external prerequisite sits at depth 3 is in wave 4). Always take
 >   `n` from `cleo orchestrate waves`; never assume the first wave is 1.
@@ -179,11 +178,11 @@ cleo manifest append \
 
 ## Pitfalls
 
-- **Late subscribe**: subscribing AFTER `delegate_task` race-loses early completers — always subscribe first (LEAD-005).
+- **Unnamed mailbox**: a worker that does not know your AgentMBX name cannot report to you — name it in every brief (LEAD-005).
 - **Sequential fanout**: spawning workers one-by-one defeats parallelism and breaks the wave model — use ONE batch (LEAD-006).
 - **Recursive Leads**: do NOT spawn a Lead from within a Lead — escalate to parent Orchestrator with a `blocked` contract instead (LEAD-003).
 - **Forwarding raw outputs**: never paste worker manifest entries upstream — parent's context budget assumes ONE rollup string per wave (LEAD-004).
-- **Polling task status**: do not `while true; sleep` on `cleo show` — read the wave topic with `cleo conduit listen --topic … --since …` and aggregate with `cleo orchestrate roll-up` (LEAD-008).
+- **Polling task status**: do not `while true; sleep` on `cleo show` — read your AgentMBX inbox and aggregate with `cleo orchestrate roll-up` (LEAD-008).
 - **Unbounded retries**: cap local retry at 1 per worker — repeated failure escalates to parent.
 
 ## Cross-references
@@ -198,4 +197,4 @@ cleo manifest append \
 | Topic | File |
 |-------|------|
 | Worker fanout examples (3 / 5 / 10) | `references/spawn-pattern.md` |
-| Conduit + manifest drain semantics, retry policy, escalation | `references/aggregation-protocol.md` |
+| AgentMBX + manifest drain semantics, retry policy, escalation | `references/aggregation-protocol.md` |

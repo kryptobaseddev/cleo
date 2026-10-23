@@ -28,8 +28,9 @@ cleo orchestrate next T1575
 
 ```bash
 # 1. Check state on conversation start
-cleo orchestrate start T1575
-# Shows: session active, current T1586, next task T1589
+cleo session status
+cleo orchestrate status --epic T1575
+# Shows: session active, epic progress, ready tasks
 
 # 2. Check for incomplete subagent work
 cleo research pending

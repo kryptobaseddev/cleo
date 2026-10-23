@@ -85,7 +85,6 @@ import { hooks } from '../hooks/registry.js';
 import { getLogger } from '../logger.js';
 import type { SpawnPayload } from '../orchestration/spawn.js';
 import { composeSpawnPayload } from '../orchestration/spawn.js';
-import type { ConduitSubscriptionConfig } from '../orchestration/spawn-prompt.js';
 import { resolveEffectiveTier } from '../orchestration/tier-selector.js';
 import { validateSpawnReadiness } from '../orchestration/validate-spawn.js';
 import { getProjectRoot } from '../paths.js';
@@ -675,14 +674,6 @@ export async function composeSpawnForTask(
     /** Branch name for the worktree (T1140). */
     worktreeBranch?: string;
     /**
-     * CONDUIT A2A subscription configuration derived from the task's parent
-     * epic. When present the spawn prompt gains a `## CONDUIT Subscription`
-     * section (tier 1+). Omit for tier-0 or top-level tasks.
-     *
-     * @task T1253
-     */
-    conduitSubscription?: ConduitSubscriptionConfig;
-    /**
      * Glob patterns excluded from the worktree (T9226). When set, a
      * `## Worktree Scope` section is injected into the spawn prompt.
      *
@@ -736,7 +727,6 @@ export async function composeSpawnForTask(
       skipAtomicityCheck: options.skipAtomicityCheck ?? false,
       worktreePath: options.worktreePath,
       worktreeBranch: options.worktreeBranch,
-      conduitSubscription: options.conduitSubscription,
       spawnCloneExclude: options.spawnCloneExclude,
       // T10430 — pass the atomicity waiver into the composer. When set to
       // 'orchestrator-defer', checkAtomicity grants the spawn for a worker
@@ -1542,27 +1532,6 @@ export async function orchestrateSpawn(
     const activeSessionId = spawnSession.identity.sessionId;
     const spawnAgentId = spawnSession.identity.agentId;
 
-    // T1253 — Derive CONDUIT subscription config from the task's parent epic.
-    //
-    // For tier-1+ spawns, the spawn prompt gains a `## CONDUIT Subscription`
-    // section so the subagent knows which wave and coordination topics to use.
-    // Derivation is best-effort: failures are silently swallowed so spawn is
-    // never blocked by a CONDUIT config read error.
-    //
-    // T12682: the wave topic is `epic-<epicId>.wave-<n>` with n the task's
-    // wave in `cleo orchestrate waves` — the topic its Lead listens on. For a
-    // top-level or unscheduled task the section is omitted entirely.
-    let conduitSubscription: ConduitSubscriptionConfig | undefined;
-    const effectiveTierForConduit = tier ?? 1; // default before composeSpawnForTask resolves it
-    if (effectiveTierForConduit >= 1) {
-      try {
-        const { deriveConduitSubscription } = await import('../orchestration/wave-topic.js');
-        conduitSubscription = await deriveConduitSubscription(taskId, accessor, root);
-      } catch {
-        // Best-effort: CONDUIT config derivation must never block spawn.
-      }
-    }
-
     // T1140 — Worktree provisioning (SDK-first per D023 / ADR-055).
     //
     // Worktrees are created by default for every spawn. The `--no-worktree`
@@ -1796,9 +1765,6 @@ export async function orchestrateSpawn(
     // composer can emit the `## Worktree Setup (REQUIRED)` section in the
     // prompt body (replacing the old preamble prepend pattern from T1118).
     //
-    // T1253: conduitSubscription derived above from task.parentId is threaded
-    // through so the `## CONDUIT Subscription` section appears on tier-1+ prompts.
-    //
     // T9545: bounded by the overall spawn budget — a stalled DB or composer
     // step now surfaces as E_TIMEOUT instead of wedging the parent.
     spawnLogger.info({ taskId, step: 'compose-prompt' }, 'generating spawn prompt');
@@ -1809,7 +1775,6 @@ export async function orchestrateSpawn(
         protocol: protocolType,
         worktreePath,
         worktreeBranch,
-        conduitSubscription,
         spawnCloneExclude: appliedWorktreeExcludePatterns,
         // T10430 — forward the atomicity waiver into the composer's scope
         // option so workers without explicit AC.files can be spawned when

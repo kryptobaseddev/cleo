@@ -2,13 +2,13 @@
 name: ct-orchestrator
 description: "Pipeline-aware orchestration skill for managing complex workflows through subagent delegation. Use when the user asks to \"orchestrate\", \"orchestrator mode\", \"run as orchestrator\", \"delegate to subagents\", \"coordinate agents\", \"spawn subagents\", \"multi-agent workflow\", \"context-protected workflow\", \"agent farm\", \"HITL orchestration\", \"pipeline management\", or needs to manage complex workflows by delegating work to subagents while protecting the main context window. Enforces ORC-001 through ORC-009 constraints. Provider-neutral — works with any AI agent runtime."
 metadata:
-  version: 4.0.15
+  version: 4.0.16
   tier: core
   install: harness
   covers:
     - packages/cleo/src/cli/commands/orchestrate.ts
     - packages/core/src/orchestration/spawn-prompt.ts
-  lastReviewed: 2026-10-13
+  lastReviewed: 2026-10-23
   stability: stable
 ---
 
@@ -203,7 +203,7 @@ blocker: none when complete; required when partial/blocked. `manifest:none` only
 cleo session status              # Resume existing?
 cleo dash                        # Project overview
 cleo current                     # Active task?
-cleo orchestrate start T1575  # Full state: session, pipeline, next task
+cleo orchestrate ready T1575  # Parallel-safe tasks in the current wave
 ```
 
 ### 2. RCASD — Plan the Work
@@ -221,24 +221,26 @@ cleo orchestrate start T1575  # Full state: session, pipeline, next task
 4. Present plan to human for approval
 ```
 
-**Stage output documents go to the store (T13363 AC2).** When a stage finishes its
-output document (research findings, consensus record, spec), keep the working copy at
-`.cleo/rcasd/<epic>/<stage>/` AND push the finished document into the CleoDocs store
-so its `##` sections land as versioned, collaboratively-mergeable sections:
+**Planning documents go to the store (T13363 AC2, T13943).** Draft the document
+(research findings, consensus record, spec, plan) in your worktree or scratch space,
+never under `.cleo/rcasd/`, and push it into the CleoDocs store so its `##` sections
+land as versioned, collaboratively-mergeable sections:
 
 ```bash
-# First time — owner is the epic task, kind matches the stage
-cleo docs add T1575 .cleo/rcasd/T1575/research/T1575-research.md \
-  --type research --slug t1575-research
+# First time — owner is the epic task, kind matches the document
+cleo docs add T1575 ./T1575-research.md --type research --slug t1575-research
 
 # Re-runs / refreshes update the same doc (noop when bytes are unchanged)
-cleo docs update t1575-research --file .cleo/rcasd/T1575/research/T1575-research.md \
-  --message "research stage refresh"
+cleo docs update t1575-research --file ./T1575-research.md \
+  --message "research refresh"
 ```
 
-Retrieve with `cleo docs fetch t1575-research`. The raw stage file stays the working
-copy and gate input; the store doc is the durable sectioned record. Skipping the store
-write is not fatal — but a stage is not "published" until the store doc exists.
+Retrieve with `cleo docs fetch t1575-research`. A document is not "published" until
+the store doc exists.
+
+**Agents talk over AgentMBX (D11172).** Spawned agents coordinate with their lead and
+peers through AgentMBX (`mbx_*` tools or the `agentmbx` CLI); spawn prompts carry an
+`## Agent Coordination (AgentMBX)` section and no CONDUIT subscription.
 
 ### 3. IVTR — Execute the Work
 
@@ -329,7 +331,6 @@ When operating without continuous HITL oversight, additional constraints apply: 
 
 | Command | Purpose |
 |---------|---------|
-| `cleo orchestrate start T1575` | Full startup: session + pipeline + next task |
 | `cleo orchestrate ready T1575` | Parallel-safe tasks in current wave |
 | `cleo orchestrate spawn T1586 --json` | Generate resolved spawn prompt |
 | `cleo orchestrate next T1575` | Suggest next task |

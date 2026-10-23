@@ -194,13 +194,14 @@ describe('buildSpawnPrompt — protocol phase matrix', () => {
 });
 
 describe('buildSpawnPrompt — stage-specific guidance', () => {
-  it('research stage points at the rcasd/research folder', () => {
+  it('research stage stores its document with cleo docs, not under .cleo/rcasd (T13943)', () => {
     const result = buildSpawnPrompt({
       task: BASE_TASK,
       protocol: 'research',
       projectRoot: PROJECT_ROOT,
     });
-    expect(normalizePromptPaths(result.prompt)).toContain('.cleo/rcasd/T9000/research/');
+    expect(result.prompt).toContain('--type research');
+    expect(normalizePromptPaths(result.prompt)).not.toContain('.cleo/rcasd');
     expect(result.prompt).toContain('Gather information and evidence');
   });
 
@@ -412,11 +413,37 @@ describe('buildSpawnPrompt — file path resolution', () => {
       projectRoot: '/abs/proj',
     });
     expect(result.prompt).toContain(join('/abs/proj', '.cleo', 'agent-outputs'));
-    expect(result.prompt).toContain(join('/abs/proj', '.cleo', 'rcasd', 'T9000'));
+    expect(result.prompt).not.toContain(join('/abs/proj', '.cleo', 'rcasd'));
     expect(result.prompt).toContain(join('/abs/proj', '.cleo', 'test-runs'));
     // ADR-027 / T1096: no flat-file manifest path is rendered.
     // ADR-027: flat-file manifest sink was retired; verify it's not referenced in generated prompts
     expect(result.prompt).not.toContain(['MANIFEST', 'jsonl'].join('.'));
+  });
+});
+
+describe('buildSpawnPrompt — agent coordination over AgentMBX (T13943)', () => {
+  it('tier 1 points coordination at AgentMBX and never at CONDUIT', () => {
+    const result = buildSpawnPrompt({
+      task: BASE_TASK,
+      protocol: 'implementation',
+      tier: 1,
+      projectRoot: PROJECT_ROOT,
+    });
+    expect(result.prompt).toContain('## Agent Coordination (AgentMBX)');
+    expect(result.prompt).toContain('mbx_inbox');
+    expect(result.prompt).toContain('agentmbx inbox --as <you>');
+    expect(result.prompt).not.toContain('CONDUIT');
+    expect(result.prompt).not.toMatch(/cleo conduit|createConduit/);
+  });
+
+  it('tier 0 stays minimal: no coordination block', () => {
+    const result = buildSpawnPrompt({
+      task: BASE_TASK,
+      protocol: 'implementation',
+      tier: 0,
+      projectRoot: PROJECT_ROOT,
+    });
+    expect(result.prompt).not.toContain('## Agent Coordination (AgentMBX)');
   });
 });
 

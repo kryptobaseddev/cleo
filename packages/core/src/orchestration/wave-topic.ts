@@ -12,7 +12,6 @@
  */
 
 import type { DataAccessor } from '../store/data-accessor.js';
-import type { ConduitSubscriptionConfig } from './spawn-prompt.js';
 import { planEpicWaves } from './waves.js';
 
 /**
@@ -57,27 +56,4 @@ export async function waveNumberOfTask(
 ): Promise<number | null> {
   const { waves } = await planEpicWaves(epicId, accessor, [epicId], undefined, cwd);
   return waves.find((w) => w.tasks.includes(taskId))?.waveNumber ?? null;
-}
-
-/**
- * The CONDUIT subscription a spawned worker is given: its parent epic and the
- * wave it belongs to in that epic's plan. Undefined for a top-level task, or
- * one the plan does not schedule — never a topic no Lead listens on.
- *
- * @param taskId - Task being spawned.
- * @param accessor - Task accessor.
- * @param cwd - Project root (T12501).
- * @returns The subscription, or undefined.
- * @task T12682
- */
-export async function deriveConduitSubscription(
-  taskId: string,
-  accessor: DataAccessor,
-  cwd?: string,
-): Promise<ConduitSubscriptionConfig | undefined> {
-  const task = await accessor.loadSingleTask(taskId);
-  if (!task?.parentId) return undefined;
-  const waveId = await waveNumberOfTask(task.parentId, taskId, accessor, cwd);
-  if (waveId === null) return undefined;
-  return { epicId: task.parentId, waveId, peerId: `cleo-agent-${taskId.toLowerCase()}` };
 }
