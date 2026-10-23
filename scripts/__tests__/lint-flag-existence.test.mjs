@@ -25,12 +25,12 @@ import {
   extractAcceptedFlags,
   extractDocumentedPointers,
   extractInvocationsWithFlags,
+  extractRegistryParamFlags,
   findFlagViolations,
   loadGlobalFlags,
   loadRegistry,
   loadRetiredFlags,
   makeFlagChecker,
-  extractRegistryParamFlags,
   readInjectionTemplates,
 } from '../lint-injection-commands.mjs';
 import { extractRunBlockText } from '../lint-workflow-cleo-commands.mjs';
