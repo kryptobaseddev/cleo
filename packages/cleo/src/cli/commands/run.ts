@@ -1,5 +1,5 @@
 /**
- * CLI command: cleo run [--class <c>] [--wait [--timeout <s>]] [--passthrough] -- <command...>
+ * CLI command: cleo run [--class <c>] [--wait [--timeout <s>]] [--urgent] [--passthrough] -- <command...>
  *
  * The one front door for heavy commands an agent runs itself: test runners,
  * compilers, builds, installs. The command is admitted through the admission
@@ -16,7 +16,9 @@
  *   printed as a warning, so it shows even with `--passthrough`.
  * - Not admitted (default): an immediate `E_RESOURCE_DEFERRED` envelope, exit
  *   75, with who is running what and concrete ways to keep making progress.
- *   Nothing was started. `--wait` joins the machine-wide FIFO queue instead.
+ *   Nothing was started. `--wait` joins the machine-wide FIFO queue instead;
+ *   `--urgent` queues ahead of routine waiters, still within the budget
+ *   (T13921).
  * - While it runs: at `backoff` only the oldest `cleo run` job keeps going;
  *   younger pausable ones are SIGSTOPped and resumed later; pressure never
  *   kills a job. (Only the orphaned group of a runner that died is stopped.)
@@ -139,7 +141,7 @@ export const runCommand = defineCommand({
   meta: {
     name: 'run',
     description:
-      'Run a heavy command (tests, builds, installs) under the machine-wide resource budget: cleo run [--class test|build|full-build] [--wait] [--passthrough] -- <command...>',
+      'Run a heavy command (tests, builds, installs) under the machine-wide resource budget: cleo run [--class test|build|full-build] [--wait] [--urgent] [--passthrough] -- <command...>',
   },
   args: {
     class: {
@@ -156,6 +158,12 @@ export const runCommand = defineCommand({
     timeout: {
       type: 'string',
       description: 'With --wait: give up after this many seconds (default 1800)',
+    },
+    urgent: {
+      type: 'boolean',
+      description:
+        'Queue ahead of routine waiters (a fix for a red main), still admitted only within the budget; nothing running is paused for it',
+      default: false,
     },
     'whole-suite': {
       type: 'boolean',
@@ -242,11 +250,8 @@ export const runCommand = defineCommand({
     // file; it is planned, charged and spawned with that many. T13367: a
     // formatter on named files is charged light, a one-process linter or
     // `tsc -p` one process, so neither queues behind a 24 GiB reservation.
-    const { overlay, resources, footprintBytes, footprintReason, namedFiles } = planRunFootprint(
-      cls,
-      argv,
-      process.env,
-    );
+    const { overlay, resources, footprintBytes, footprintReason, namedFiles, hookKey } =
+      planRunFootprint(cls, argv, process.env);
     if (resources !== null) {
       notice(
         `planned resources: ${resources.summary}`,
@@ -265,6 +270,8 @@ export const runCommand = defineCommand({
         sessionId: process.env.CLEO_SESSION_ID ?? process.env.CLAUDE_CODE_SESSION_ID ?? null,
         wait: Boolean(args.wait),
         timeoutMs,
+        urgent: args.urgent === true,
+        ...(hookKey !== undefined ? { hookKey } : {}),
         passthrough,
         // A terminal on stdin: keep the child in its foreground group.
         foreground: passthrough && process.stdin.isTTY === true,
