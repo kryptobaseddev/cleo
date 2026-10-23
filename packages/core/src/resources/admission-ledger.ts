@@ -82,6 +82,7 @@ import { hostname, totalmem } from 'node:os';
 import { isAbsolute, join } from 'node:path';
 import type {
   HeavyToolResourcePlan,
+  MemoryConsumer,
   MemoryPressureReading,
   ResourceClass,
 } from '@cleocode/contracts';
@@ -117,6 +118,7 @@ import {
 } from './run-class.js';
 import { ownProcessStartedAt, type PidProbe, systemPidProbe } from './slot-holder.js';
 import { followToolGroups, isProbeableId } from './tool-groups.js';
+import { memoryPressureCause, TOP_MEMORY_REUSE_MS, topMemoryConsumers } from './top-memory.js';
 
 let _log: ReturnType<typeof getLogger> | null = null;
 function log(): ReturnType<typeof getLogger> {
@@ -985,6 +987,11 @@ export interface LedgerBudget {
   readonly heavyBudgetBytes: number;
   /** When the pressure behind the shares was sampled (epoch ms), or null when none is cached. */
   readonly sampledAtMs: number | null;
+  /**
+   * Why the memory gate closed the budget, with the host's largest memory
+   * users and how to free them (T13914); null while it admits.
+   */
+  readonly cause: string | null;
 }
 
 /** {@link LedgerBudget} from a ledger doc's cached pressure verdict. */
@@ -999,7 +1006,16 @@ function ledgerBudget(pressure: CachedPressure | null, capacityBytes: number): L
     lightBudgetBytes,
     heavyBudgetBytes: Math.min(lightBudgetBytes, shareBudgetBytes(share, capacityBytes)),
     sampledAtMs: pressure?.sampledAtMs ?? null,
+    cause: pressure?.reading ? gateCause(pressure.reading) : null,
   };
+}
+
+/** The memory gate's refusal in words, with its cause (T13914). */
+function gateCause(reading: MemoryPressureReading): string {
+  return (
+    `memory pressure ${reading.score} (refused above ${reading.refuseAbove}, resumes at ` +
+    `${reading.resumeAtOrBelow} or below): ${memoryPressureCause(reading)}`
+  );
 }
 
 /**
@@ -1611,6 +1627,11 @@ export interface AdmitOptions {
   readonly memoryPressure?: MemoryGateReporter;
   /** Where the holder report goes while waiting. */
   readonly notice?: (line: string) => void;
+  /**
+   * The host's largest memory users, probed when the memory gate refuses
+   * (T13914). @defaultValue {@link topMemoryConsumers}
+   */
+  readonly topMemory?: () => readonly MemoryConsumer[];
   /** The ledger directory. @defaultValue {@link admissionDir} */
   readonly dir?: string;
   /** Process probes for re-entrancy (tests). */
@@ -1785,13 +1806,36 @@ async function sampleShare(
   const gate = checkMemoryGate(sample, opts.now ? { now: opts.now } : {});
   const share = budgetShare(sample, gate.refuse);
   const lightShare = lightBudgetShare(sample, gate.refuse);
-  const reading = gate.refuse ? gate.reading : null;
+  const reading =
+    gate.refuse && gate.reading !== null
+      ? withTopConsumers(gate.reading, cached, nowMs, opts)
+      : null;
   return {
     share,
     lightShare,
     reading,
     sampled: { share, lightShare, reading, sampledAtMs: nowMs },
   };
+}
+
+/**
+ * A refusing reading with the host's largest memory users (T13914), reusing
+ * the last probe for {@link TOP_MEMORY_REUSE_MS} so a long refusal costs one
+ * probe per window, not one per pass.
+ */
+function withTopConsumers(
+  reading: MemoryPressureReading,
+  cached: CachedPressure | null,
+  nowMs: number,
+  opts: AdmitOptions,
+): MemoryPressureReading {
+  const last = cached?.reading?.topConsumers;
+  if (last !== undefined) {
+    const age = nowMs - last.sampledAtMs;
+    if (age >= 0 && age < TOP_MEMORY_REUSE_MS) return { ...reading, topConsumers: last };
+  }
+  const processes = (opts.topMemory ?? topMemoryConsumers)();
+  return { ...reading, topConsumers: { sampledAtMs: nowMs, processes } };
 }
 
 function isFresh(cached: CachedPressure, nowMs: number): boolean {
@@ -2025,8 +2069,7 @@ async function admitInner(req: AdmissionRequest, opts: AdmitOptions): Promise<Ad
         : undefined;
     const reason =
       reading !== null
-        ? `memory pressure ${reading.score} (refused above ${reading.refuseAbove}, resumes at ` +
-          `${reading.resumeAtOrBelow} or below): ${reading.summary}`
+        ? gateCause(reading)
         : exclusiveHolder !== undefined
           ? `another full build holds the machine-wide full-build slot (${exclusiveHolder.label} pid ` +
             `${exclusiveHolder.pid}); one runs at a time, whatever its size${ahead > 0 ? `; ${ahead} waiting ahead` : ''}`
@@ -2068,7 +2111,9 @@ async function admitInner(req: AdmissionRequest, opts: AdmitOptions): Promise<Ad
       if (reading !== null) opts.memoryPressure?.waiting(reading, now() - t0);
       if (now() - lastReportAt >= LEDGER_HOLDER_REPORT_MS && opts.notice) {
         lastReportAt = now();
-        opts.notice(holderReport(first.doc, entry, pid, now() - t0, capacityBytes, now()));
+        opts.notice(
+          holderReport(first.doc, entry, pid, now() - t0, capacityBytes, now(), timeoutMs),
+        );
       }
       const remaining = timeoutMs - (now() - t0);
       if (remaining <= 0) stop.abort();
@@ -2160,7 +2205,11 @@ function describeLoad(doc: LedgerDoc, nowMs: number): string[] {
   return lines;
 }
 
-/** The holder report a long waiter prints. */
+/**
+ * The holder report a long waiter prints. When the memory gate closed the
+ * budget, it names the cause (the host's largest memory users, CLEO or not)
+ * and when the wait gives up (T13914).
+ */
 function holderReport(
   doc: LedgerDoc,
   mine: LedgerEntry,
@@ -2168,6 +2217,7 @@ function holderReport(
   waitedMs: number,
   capacityBytes: number,
   nowMs: number,
+  timeoutMs: number,
 ): string {
   const holders = doc.entries.filter((e) => e.state === 'admitted');
   const used = budgetLoad(doc, capacityBytes).bytes;
@@ -2178,6 +2228,13 @@ function holderReport(
     `still waiting after ${age(waitedMs)} for the machine budget (${gib(used)} of ${budgetPhrase(mine, ledgerBudget(doc.pressure, capacityBytes))} in use, ` +
       `${ahead} waiting ahead). Holders: ${describeLoad(doc, nowMs).join('; ') || 'none'}.`,
   ];
+  const reading = doc.pressure?.reading ?? null;
+  if (reading !== null) {
+    lines.push(
+      `The budget is closed by ${gateCause(reading)}. Admission resumes by itself; this wait ` +
+        `gives up in ${age(Math.max(0, timeoutMs - waitedMs))}.`,
+    );
+  }
   const table = holders.length > 0 ? processTable() : null;
   const cycle = table ? suspectCycle(pid, holders, table) : null;
   if (cycle) lines.push(cycle);

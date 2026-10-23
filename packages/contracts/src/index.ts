@@ -2362,6 +2362,8 @@ export type {
   HeavyHeapSource,
   HeavyLeverChange,
   HeavyToolResourcePlan,
+  MemoryConsumer,
+  MemoryConsumers,
   MemoryPressureReading,
   ResourceClass,
   ResourceDeferral,

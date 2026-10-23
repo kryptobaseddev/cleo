@@ -128,6 +128,32 @@ export interface MemoryPressureReading {
   readonly memAvailableBytes: number | null;
   /** The platform signals in one line (kernel level, swap, compressor, PSI). */
   readonly summary: string;
+  /**
+   * The host's largest memory users when the gate refused (T13914), so a wait
+   * names what took the memory, CLEO or not. Absent when not probed.
+   */
+  readonly topConsumers?: MemoryConsumers;
+}
+
+/** One process holding host memory (T13914). */
+export interface MemoryConsumer {
+  /** Process id. */
+  readonly pid: number;
+  /** Command name, as the process table shows it. */
+  readonly command: string;
+  /**
+   * Memory it holds in bytes: on macOS its footprint (`top` MEM: resident plus
+   * compressed and swapped pages, which `ps` RSS leaves out), on Linux its RSS.
+   */
+  readonly footprintBytes: number;
+}
+
+/** The largest memory users at one moment (T13914). */
+export interface MemoryConsumers {
+  /** When they were probed (epoch ms). */
+  readonly sampledAtMs: number;
+  /** Largest first. */
+  readonly processes: readonly MemoryConsumer[];
 }
 
 /**

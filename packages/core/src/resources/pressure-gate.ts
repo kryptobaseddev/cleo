@@ -46,6 +46,7 @@ import { dirname, join } from 'node:path';
 import type { MemoryPressureReading } from '@cleocode/contracts';
 import { getCleoHome } from '../paths.js';
 import type { ResourceSample } from './backend.js';
+import { memoryPressureCause } from './top-memory.js';
 
 /** Heavy work is refused while memory `some avg10` is above this (the governor's floor threshold). */
 export const MEMORY_GATE_REFUSE_ABOVE = 25;
@@ -299,7 +300,7 @@ export function memoryGateWaitingLine(
 ): string {
   return (
     `waiting: memory pressure ${reading.score} (refused above ${reading.refuseAbove}, ` +
-    `resumes at ${reading.resumeAtOrBelow} or below): ${reading.summary}. ` +
+    `resumes at ${reading.resumeAtOrBelow} or below): ${memoryPressureCause(reading)}. ` +
     `The ${subject} starts when pressure falls; waited ${duration(waitedMs)}. ` +
     '(CLEO_RESOURCES_MODE=off turns admission off.)'
   );
