@@ -15,3 +15,6 @@ These three checks now read a separate key, `lifecycle.stageGate`
 keeps everything else, including evidence re-validation and the epic
 creation rules. To keep the old behaviour, run
 `cleo config set lifecycle.stageGate strict`.
+
+ct-orchestrator 4.1.1 and ct-cleo 2.24.19 (planning-loop.md, CLEO-INJECTION.md
+exit 80 row) describe the opt-in stage gate.
