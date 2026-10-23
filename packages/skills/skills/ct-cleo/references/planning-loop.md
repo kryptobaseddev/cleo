@@ -20,8 +20,9 @@ gates work only where a project turns on the stage gate (below).
   stage; `advisory` only warns. An epic inherits its saga's stage, or starts at research
   when it has no parent. With the gate on, run `cleo update <epicId> --pipeline-stage
   implementation` once the plan is written and BEFORE adding children; if children
-  already sit at its stage, `cleo config set lifecycle.stageGate off` unblocks them.
-  Evidence strictness stays on `lifecycle.mode` either way.
+  already sit at its stage, report the epic to the lead or owner. The setting is their
+  choice: never change `lifecycle.stageGate` yourself. Evidence strictness stays on
+  `lifecycle.mode` either way.
 
 ## 2. Execute
 
@@ -48,7 +49,7 @@ prompt's stage guidance. They are not gates.
 - Exit 80 with unproven evidence gates (the common case in strict mode): run
   `cleo done <id> --plan`, record what it names, then complete.
 - Exit 80 naming a planning-stage parent epic: the project turned on
-  `lifecycle.stageGate`; advance the epic before children exist (above), or turn
-  the gate off with `cleo config set lifecycle.stageGate off`.
+  `lifecycle.stageGate`; advance the epic before children exist (above), otherwise
+  report it to the lead or owner, who decide on the setting.
 - Exit 83 (`E_IVTR_INCOMPLETE`): the task carries `ivtr_state` from the retired
   IVTR loop, which no command clears; report it to the lead or owner.

@@ -102,7 +102,7 @@ Check exit code (`0` = success) and `"success"` in JSON output after every comma
 | 4 | `E_NOT_FOUND` | `cleo find` to verify ID |
 | 6 | `E_VALIDATION` | Check field lengths |
 | 10 | `E_PARENT_NOT_FOUND` | `cleo exists <id>` |
-| 80 | `E_LIFECYCLE_GATE_FAILED` | Unproven evidence gates (strict): `cleo done <id> --plan`, record what it names, retry. Names a planning-stage parent epic: `cleo config set lifecycle.stageGate off` |
+| 80 | `E_LIFECYCLE_GATE_FAILED` | Unproven evidence gates (strict): `cleo done <id> --plan`, record what it names, retry. Names a planning-stage parent epic: tell the lead; never change `lifecycle.stageGate` |
 | 83 | `E_IVTR_INCOMPLETE` | Legacy IVTR state on the task (strict); no command clears it now: tell the lead |
 | — | `E_EVIDENCE_MISSING` / `E_EVIDENCE_INSUFFICIENT` | `cleo verify … --evidence <atoms>` with every atom kind the gate needs (e.g. `commit:<sha>` + `files:<list>` for `implemented`) |
 | — | `E_EVIDENCE_TESTS_FAILED` / `E_EVIDENCE_TOOL_FAILED` | Fix the source or failing tests, then re-verify |

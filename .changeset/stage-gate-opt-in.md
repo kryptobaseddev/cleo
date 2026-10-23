@@ -13,8 +13,10 @@ starts at research, so its children could never complete.
 These three checks now read a separate key, `lifecycle.stageGate`
 (`off` | `advisory` | `strict`), which defaults to `off`. `lifecycle.mode`
 keeps everything else, including evidence re-validation and the epic
-creation rules. To keep the old behaviour, run
-`cleo config set lifecycle.stageGate strict`.
+creation rules. The `strict` strictness preset opts in; to keep the old
+behaviour otherwise, an owner sets `lifecycle.stageGate` to `strict`. When the
+gate refuses a completion, the fix tells the agent to escalate, never to change
+the setting.
 
 ct-orchestrator 4.1.1 and ct-cleo 2.24.19 (planning-loop.md, CLEO-INJECTION.md
 exit 80 row) describe the opt-in stage gate.

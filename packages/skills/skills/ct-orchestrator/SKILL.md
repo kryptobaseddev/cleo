@@ -104,8 +104,9 @@ the stage gate (see Plan).
   stage; `advisory` only warns. An epic inherits its saga's stage, or starts at research
   when it has no parent. With the gate on, run `cleo update <epicId> --pipeline-stage
   implementation` once the plan is written and BEFORE adding children; if children
-  already sit at its stage, `cleo config set lifecycle.stageGate off` unblocks them.
-  Evidence strictness stays on `lifecycle.mode` either way.
+  already sit at its stage, report the epic to the lead or owner. The setting is their
+  choice: never change `lifecycle.stageGate` yourself. Evidence strictness stays on
+  `lifecycle.mode` either way.
 
 ### Execute
 

@@ -28,7 +28,7 @@
  * @epic T056
  */
 
-import type { DataAccessor, Task } from '@cleocode/contracts';
+import type { CleoConfig, DataAccessor, Task } from '@cleocode/contracts';
 import { ExitCode } from '@cleocode/contracts/exit-codes.js';
 import { loadConfig } from '../config.js';
 import { CleoError } from '../errors.js';
@@ -110,7 +110,25 @@ export async function getLifecycleMode(cwd?: string): Promise<LifecycleMode> {
  */
 export async function getStageGateMode(cwd?: string): Promise<LifecycleMode> {
   if (process.env.VITEST) return 'off';
-  const config = await loadConfig(cwd);
+  return stageGateModeFrom(await loadConfig(cwd));
+}
+
+/**
+ * Resolve `lifecycle.stageGate` from an already-loaded config: the one place
+ * the "unset means off" default lives. {@link getStageGateMode} and
+ * `completeTaskStrict` (which has its config loaded already) both use it.
+ *
+ * @param config - Loaded CLEO config (only `lifecycle` is read).
+ * @returns The stage-gate mode, `off` when unset.
+ *
+ * @example
+ * ```ts
+ * stageGateModeFrom({ lifecycle: { mode: 'strict' } }); // => 'off'
+ * ```
+ *
+ * @task T13970
+ */
+export function stageGateModeFrom(config: Pick<CleoConfig, 'lifecycle'>): LifecycleMode {
   return config.lifecycle?.stageGate ?? 'off';
 }
 

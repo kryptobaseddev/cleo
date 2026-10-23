@@ -466,6 +466,8 @@ export const STRICTNESS_PRESETS: Record<StrictnessPreset, PresetDefinition> = {
       'session.multiSession': false,
       'enforcement.acceptance.mode': 'block',
       'lifecycle.mode': 'strict',
+      // T13970: the parent-epic stage gate is opt-in; the strict preset opts in.
+      'lifecycle.stageGate': 'strict',
     },
   },
   standard: {

@@ -344,7 +344,10 @@ describe('taskCompleteStrict — parent-epic lifecycle gate (T788)', () => {
     expect(result.success).toBe(false);
     expect(result.error?.code).toBe('E_LIFECYCLE_GATE_FAILED');
     expect(result.error?.fix).toContain(`cleo show ${EPIC_ID}`);
-    expect(result.error?.fix).toContain('cleo config set lifecycle.stageGate off');
+    // T13970 review: a hit means someone chose strict; the fix escalates and
+    // never tells the agent to change the setting.
+    expect(result.error?.fix).toContain('they decide on lifecycle.stageGate');
+    expect(result.error?.fix).not.toContain('config set');
     expect(result.error?.fix).not.toContain('lifecycle complete');
   });
 
