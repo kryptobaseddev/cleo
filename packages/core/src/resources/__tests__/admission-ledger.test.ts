@@ -14,7 +14,6 @@ import { join } from 'node:path';
 import lockfile from 'proper-lockfile';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
-  URGENT_AGING_MS,
   ADMISSION_ENV,
   ADMISSION_PRESSURE_ENV,
   admissionCapacityBytes,
@@ -47,6 +46,7 @@ import {
   suspectCycle,
   TINY_LANE_SLOTS,
   TINY_LANE_WINDOWS,
+  URGENT_AGING_MS,
 } from '../admission-ledger.js';
 import type { ResourceSample } from '../backend.js';
 import { ResourceMonitor } from '../monitor.js';
