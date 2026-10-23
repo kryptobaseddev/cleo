@@ -19,6 +19,20 @@ export const TOP_MEMORY_COUNT = 3;
 /** A probe younger than this is reused while the gate keeps refusing. */
 export const TOP_MEMORY_REUSE_MS = 30_000;
 
+/** A FAILED probe is reused this long, so a hanging probe cannot block every pass. */
+export const TOP_MEMORY_FAILED_REUSE_MS = 20_000;
+
+/** Set once `top` has failed on this host: later probes go straight to `ps`. */
+let topFailed = false;
+
+/** Forget that `top` failed (tests). */
+export function _resetTopMemoryForTest(): void {
+  topFailed = false;
+}
+
+/** Runs one probe command and returns its stdout; throws on failure or timeout. */
+export type ProbeRunner = (cmd: string, args: readonly string[]) => string;
+
 const UNIT: Readonly<Record<string, number>> = { B: 1, K: 1024, M: 1024 ** 2, G: 1024 ** 3 };
 
 /**
@@ -70,26 +84,28 @@ export const TOP_MEMORY_TIMEOUT_MS = 2_000;
 
 /**
  * The host's largest memory users right now: one `top` sample on macOS
- * (footprint), falling back to `ps` RSS when `top` fails; one `ps` on Linux.
- * Each probe is SIGKILLed after {@link TOP_MEMORY_TIMEOUT_MS}. `null` when no
- * probe could list them (the caller says UNKNOWN, never "nothing").
+ * (footprint), falling back to `ps` RSS when `top` fails (and, once `top`
+ * has failed on this host, going straight to `ps`); one `ps` on Linux. Each
+ * probe is SIGKILLed after {@link TOP_MEMORY_TIMEOUT_MS}. `null` when no probe
+ * could list them (the caller says UNKNOWN, never "nothing").
  *
  * @param limit - How many. @defaultValue {@link TOP_MEMORY_COUNT}
  * @param platform - @defaultValue process.platform
+ * @param run - Runs one probe command (tests). @defaultValue a bounded execFileSync
  * @returns Largest first, or `null` when the probe failed.
  */
 export function topMemoryConsumers(
   limit: number = TOP_MEMORY_COUNT,
   platform: NodeJS.Platform = process.platform,
-): MemoryConsumer[] | null {
-  const run = (cmd: string, args: readonly string[]): string =>
+  run: ProbeRunner = (cmd, args) =>
     execFileSync(cmd, [...args], {
       encoding: 'utf8',
       stdio: ['ignore', 'pipe', 'ignore'],
       timeout: TOP_MEMORY_TIMEOUT_MS,
       killSignal: 'SIGKILL',
       maxBuffer: 16 * 1024 * 1024,
-    });
+    }),
+): MemoryConsumer[] | null {
   const ps = (): MemoryConsumer[] | null => {
     try {
       const rows = parsePsMemory(run('/bin/ps', ['-A', '-o', 'pid=,rss=,comm=']), limit);
@@ -98,7 +114,7 @@ export function topMemoryConsumers(
       return null;
     }
   };
-  if (platform === 'darwin') {
+  if (platform === 'darwin' && !topFailed) {
     try {
       const args = ['-l', '1', '-o', 'mem', '-n', String(limit), '-stats', 'pid,mem,command'];
       const rows = parseTopMemory(run('/usr/bin/top', args), limit);
@@ -106,9 +122,10 @@ export function topMemoryConsumers(
     } catch {
       // Fall back to ps below (RSS misses compressed pages, but names the process).
     }
+    topFailed = true;
     return ps();
   }
-  return platform === 'linux' ? ps() : null;
+  return platform === 'darwin' || platform === 'linux' ? ps() : null;
 }
 
 function gib(bytes: number): string {

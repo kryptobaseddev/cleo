@@ -6,7 +6,13 @@
 
 import type { MemoryPressureReading } from '@cleocode/contracts';
 import { describe, expect, it } from 'vitest';
-import { memoryPressureCause, parsePsMemory, parseTopMemory } from '../top-memory.js';
+import {
+  _resetTopMemoryForTest,
+  memoryPressureCause,
+  parsePsMemory,
+  parseTopMemory,
+  topMemoryConsumers,
+} from '../top-memory.js';
 
 const GIB = 1024 ** 3;
 
@@ -28,6 +34,26 @@ describe('top memory users (T13914)', () => {
     ]);
     expect(parseTopMemory(text, 1)).toHaveLength(1);
     expect(parseTopMemory('no header here')).toEqual([]);
+  });
+
+  it('macOS: top fails -> ps, and once top failed it goes straight to ps; ps empty -> null', () => {
+    _resetTopMemoryForTest();
+    const calls: string[] = [];
+    const run = (cmd: string): string => {
+      calls.push(cmd);
+      if (cmd.endsWith('top')) throw new Error('timed out');
+      return ' 4242 17825792 agy\n';
+    };
+    expect(topMemoryConsumers(3, 'darwin', run)).toEqual([
+      { pid: 4242, command: 'agy', footprintBytes: 17 * GIB },
+    ]);
+    expect(calls).toEqual(['/usr/bin/top', '/bin/ps']);
+    topMemoryConsumers(3, 'darwin', run);
+    expect(calls).toEqual(['/usr/bin/top', '/bin/ps', '/bin/ps']); // no second top
+    expect(topMemoryConsumers(3, 'darwin', () => '')).toBeNull();
+    expect(topMemoryConsumers(3, 'linux', () => '')).toBeNull();
+    expect(topMemoryConsumers(3, 'win32', run)).toBeNull();
+    _resetTopMemoryForTest();
   });
 
   it('parses Linux ps RSS (KiB) and keeps the largest', () => {

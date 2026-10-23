@@ -51,6 +51,7 @@ import type { ResourceSample } from '../backend.js';
 import { ResourceMonitor } from '../monitor.js';
 import { _resetMemoryGateForTest, memoryGateReporter } from '../pressure-gate.js';
 import type { PidProbe } from '../slot-holder.js';
+import { TOP_MEMORY_FAILED_REUSE_MS } from '../top-memory.js';
 
 vi.mock('node:fs', async (importOriginal) => {
   const actual = await importOriginal<typeof import('node:fs')>();
@@ -1026,14 +1027,19 @@ describe('admit (one ledger, real critical section)', () => {
     expect(notices[0]).toMatch(/Holders: none\. The budget is closed by memory pressure 40 /);
     expect(notices[0]).toContain('agy pid 4242 17.0 GiB');
     expect(notices[0]).toMatch(/this wait gives up in \d+s\.$/);
-    // One probe per 30 s window while the gate keeps refusing, not one per pass.
     // One probe per 30 s window while the gate keeps refusing (90 s of waiting), not one per pass.
     expect(topMemory.mock.calls.length).toBeLessThanOrEqual(5);
   });
 
-  it('a failed probe reads UNKNOWN and is retried; reap never probes (T13963, T13964)', async () => {
+  it('a failed probe reads UNKNOWN, is retried after a backoff; reap never probes', async () => {
     const failing = vi.fn((): null => null);
-    const pressed = { ...base, sample: async () => sampleAt(40), topMemory: failing };
+    let t = Date.now();
+    const pressed = {
+      ...base,
+      sample: async () => sampleAt(40),
+      topMemory: failing,
+      now: () => t,
+    };
     const first = await admit(
       { label: 'tool:test', footprintBytes: GIB },
       {
@@ -1045,7 +1051,10 @@ describe('admit (one ledger, real critical section)', () => {
     expect(first.admitted).toBe(false);
     if (!first.admitted) expect(first.refusal.reason).toContain('largest memory users: UNKNOWN');
     await admit({ label: 'tool:test', footprintBytes: GIB }, { ...pressed, dir, wait: false });
-    expect(failing).toHaveBeenCalledTimes(2); // a failure is not cached for 30 s
+    expect(failing).toHaveBeenCalledTimes(1); // a failure is reused, not re-run every pass
+    t += TOP_MEMORY_FAILED_REUSE_MS;
+    await admit({ label: 'tool:test', footprintBytes: GIB }, { ...pressed, dir, wait: false });
+    expect(failing).toHaveBeenCalledTimes(2); // ...but only for the shorter failure window
     // Reaping a dead holder under the same pressure never runs the probe.
     const spy = vi.fn(() => []);
     writeFileSync(

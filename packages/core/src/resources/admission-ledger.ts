@@ -118,7 +118,12 @@ import {
 } from './run-class.js';
 import { ownProcessStartedAt, type PidProbe, systemPidProbe } from './slot-holder.js';
 import { followToolGroups, isProbeableId } from './tool-groups.js';
-import { memoryPressureCause, TOP_MEMORY_REUSE_MS, topMemoryConsumers } from './top-memory.js';
+import {
+  memoryPressureCause,
+  TOP_MEMORY_FAILED_REUSE_MS,
+  TOP_MEMORY_REUSE_MS,
+  topMemoryConsumers,
+} from './top-memory.js';
 
 let _log: ReturnType<typeof getLogger> | null = null;
 function log(): ReturnType<typeof getLogger> {
@@ -1821,10 +1826,11 @@ async function sampleShare(
 
 /**
  * A refusing reading with the host's largest memory users (T13914), reusing
- * the last successful probe for {@link TOP_MEMORY_REUSE_MS} so a long refusal
- * costs one probe per window, not one per pass. Only a waiting admission
- * probes (`probe`); release, reap and remove carry the last list forward and
- * never run the probe (T13964). A failed probe is never reused.
+ * the last probe for {@link TOP_MEMORY_REUSE_MS} (a failed one for
+ * {@link TOP_MEMORY_FAILED_REUSE_MS}) so a long refusal costs one probe per
+ * window, not one per pass. Only a waiting admission probes (`probe`);
+ * release, reap and remove carry the last list forward and never run the
+ * probe (T13964).
  */
 function withTopConsumers(
   reading: MemoryPressureReading,
@@ -1834,9 +1840,12 @@ function withTopConsumers(
   probe: boolean,
 ): MemoryPressureReading {
   const last = cached?.reading?.topConsumers;
-  if (last !== undefined && last.failed !== true) {
+  if (last !== undefined) {
+    // A failure is reused for a shorter window, never every pass: a probe that
+    // hangs until its timeout must not block each waiter's event loop.
+    const window = last.failed === true ? TOP_MEMORY_FAILED_REUSE_MS : TOP_MEMORY_REUSE_MS;
     const age = nowMs - last.sampledAtMs;
-    if (age >= 0 && age < TOP_MEMORY_REUSE_MS) return { ...reading, topConsumers: last };
+    if (age >= 0 && age < window) return { ...reading, topConsumers: last };
   }
   if (!probe) return last !== undefined ? { ...reading, topConsumers: last } : reading;
   const processes = (opts.topMemory ?? topMemoryConsumers)();
