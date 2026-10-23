@@ -306,11 +306,11 @@ describe('addTask background ops are flushed at the test boundary (T10490)', () 
     expect(pendingBackgroundOpCount()).toBe(0);
   });
 
-  it('epic creation tracks + drains its initLoomForEpic op', async () => {
+  it('epic creation leaves no background op pending (no LOOM auto-init, T13944)', async () => {
     await addTask(
       {
         title: 'bg-op epic',
-        description: 'tracks a deferred LOOM init',
+        description: 'epic creation drains its deferred effects',
         type: 'epic',
         skipContainmentInvariant: true,
       },

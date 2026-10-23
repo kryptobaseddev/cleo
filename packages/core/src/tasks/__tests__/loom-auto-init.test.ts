@@ -1,8 +1,9 @@
 /**
- * Tests for LOOM auto-init on epic creation (T1634).
+ * Tests for LOOM init (T1634, T13944).
  *
  * Verifies:
- * (a) `cleo add --type epic` auto-initializes LOOM (lifecycle pipeline exists after add)
+ * (a) `cleo add --type epic` writes no lifecycle rows and no `.cleo/rcasd` stub
+ *     (T13944 stopped the T1634 auto-init on epic creation)
  * (b) `initLoomForEpic` is idempotent — re-running on an already-initialized epic is a no-op
  * (c) `backfillEpicLoom` populates LOOM for existing un-LOOMed epics
  * (d) `orchestrateStartup` correctly auto-initializes LOOM (T11493 regression — was silently
@@ -11,23 +12,28 @@
  *
  * @task T1634
  * @task T11493
+ * @task T13944
  */
 
 import { spawnSync } from 'node:child_process';
-import { mkdirSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { getLifecycleStatus } from '../../lifecycle/index.js';
-import * as lifecycleOps from '../../orchestrate/lifecycle-ops.js';
 import { initLoomForEpic, orchestrateStartup } from '../../orchestrate/lifecycle-ops.js';
 import { createTestDb, type TestDbEnv } from '../../store/__tests__/test-db-helper.js';
-import { awaitBackgroundOps, pendingBackgroundOpCount } from '../../store/background-ops.js';
+import { awaitBackgroundOps } from '../../store/background-ops.js';
 import { type DataAccessor, getTaskAccessor } from '../../store/data-accessor.js';
 import { resetDbState } from '../../store/sqlite.js';
 import { addTask } from '../add.js';
 import { backfillEpicLoom } from '../backfill-epic-loom.js';
 
-describe('LOOM auto-init on epic creation (T1634)', () => {
+/** Whether any `.cleo/rcasd/<epicId>/` stub directory exists under `root`. */
+function hasRcasdStub(root: string, epicId: string): boolean {
+  return existsSync(join(root, '.cleo', 'rcasd', epicId));
+}
+
+describe('LOOM init and epic creation (T1634, T13944)', () => {
   let env: TestDbEnv;
   let accessor: DataAccessor;
 
@@ -41,13 +47,12 @@ describe('LOOM auto-init on epic creation (T1634)', () => {
     resetDbState();
   });
 
-  // (a) Epic creation auto-initializes LOOM
-  it('auto-initializes LOOM pipeline when an epic is created via addTask', async () => {
-    // Creation commits before the tracked, best-effort LOOM effect completes.
+  // (a) Epic creation writes no lifecycle rows and no rcasd stub (T13944)
+  it('epic creation via addTask writes no lifecycle rows and no .cleo/rcasd stub', async () => {
     const result = await addTask(
       {
         title: 'My Test Epic',
-        description: 'Epic created to verify LOOM auto-init',
+        description: 'Epic created to verify no LOOM auto-init',
         type: 'epic',
         skipContainmentInvariant: true,
       },
@@ -56,63 +61,11 @@ describe('LOOM auto-init on epic creation (T1634)', () => {
     );
     const epicId = result.task.id;
     expect(epicId).toBe('T001');
-
-    // Observe completion of the actual tracked work, not elapsed event-loop ticks.
     await awaitBackgroundOps();
 
     const status = await getLifecycleStatus(env.tempDir, { epicId });
-    expect(status.initialized).toBe(true);
-    // The lifecycle pipeline is initialized (research/in_progress).
-    // currentStage tracks the *last completed or skipped* stage; since research
-    // is in_progress (not completed), currentStage is null and nextStage is 'research'.
-    expect(status.nextStage).toBe('research');
-  });
-
-  it('keeps delayed LOOM work pending until the tracked barrier observes real initialization', async () => {
-    const started = Promise.withResolvers<void>();
-    const release = Promise.withResolvers<void>();
-    const initialize = lifecycleOps.initLoomForEpic;
-    const heldInit = vi
-      .spyOn(lifecycleOps, 'initLoomForEpic')
-      .mockImplementationOnce(async (...args) => {
-        started.resolve();
-        await release.promise;
-        return initialize(...args);
-      });
-    try {
-      const result = await addTask(
-        {
-          title: 'Delayed lifecycle epic',
-          description: 'Real initialization waits behind an independently controlled barrier',
-          type: 'epic',
-          skipContainmentInvariant: true,
-        },
-        env.tempDir,
-        accessor,
-      );
-      await started.promise;
-      expect(pendingBackgroundOpCount()).toBeGreaterThan(0);
-      expect((await getLifecycleStatus(env.tempDir, { epicId: result.task.id })).initialized).toBe(
-        false,
-      );
-      let drained = false;
-      const completion = awaitBackgroundOps().then(() => {
-        drained = true;
-      });
-      await Promise.resolve();
-      expect(drained).toBe(false);
-      release.resolve();
-      await completion;
-      expect(pendingBackgroundOpCount()).toBe(0);
-      const after = await getLifecycleStatus(env.tempDir, { epicId: result.task.id });
-      expect(after.initialized).toBe(true);
-      expect(after.nextStage).toBe('research');
-      expect(heldInit).toHaveBeenCalledExactlyOnceWith(result.task.id, env.tempDir);
-    } finally {
-      release.resolve();
-      await awaitBackgroundOps();
-      heldInit.mockRestore();
-    }
+    expect(status.initialized).toBe(false);
+    expect(hasRcasdStub(env.tempDir, epicId)).toBe(false);
   });
 
   // (b) Idempotent — re-running initLoomForEpic on already-initialized epic is a no-op
@@ -130,12 +83,13 @@ describe('LOOM auto-init on epic creation (T1634)', () => {
     const epicId = result.task.id;
     await awaitBackgroundOps();
 
-    // First explicit call after auto-init
+    // First explicit call initializes (epic creation no longer does, T13944)
     const first = await initLoomForEpic(epicId, env.tempDir);
-    // Already initialized by the fire-and-forget hook in addTask
-    expect(first.alreadyInitialized).toBe(true);
-    expect(first.initialized).toBe(false);
+    expect(first.initialized).toBe(true);
+    expect(first.alreadyInitialized).toBe(false);
     expect(first.error).toBeUndefined();
+    // Rows only — no `.cleo/rcasd` stub file (T13944)
+    expect(hasRcasdStub(env.tempDir, epicId)).toBe(false);
 
     // Second explicit call — still idempotent
     const second = await initLoomForEpic(epicId, env.tempDir);
@@ -276,11 +230,11 @@ describe('backfillEpicLoom (T1634)', () => {
   });
 
   it('backfillEpicLoom skips already-initialized epics (idempotent)', async () => {
-    // Create one epic via addTask (which auto-inits LOOM)
+    // Create one epic via addTask, then initialize LOOM for it explicitly
     const result = await addTask(
       {
         title: 'Already LOOMed',
-        description: 'Epic that already has LOOM from addTask hook',
+        description: 'Epic whose LOOM was initialized explicitly',
         type: 'epic',
         skipContainmentInvariant: true,
       },
@@ -288,6 +242,7 @@ describe('backfillEpicLoom (T1634)', () => {
       accessor,
     );
     await awaitBackgroundOps();
+    await initLoomForEpic(result.task.id, env.tempDir);
 
     // Verify LOOM is already initialized
     const priorStatus = await getLifecycleStatus(env.tempDir, { epicId: result.task.id });
@@ -403,6 +358,8 @@ describe('T11493 regression: orchestrateStartup correctly auto-initializes LOOM'
       true,
       'LOOM must be initialized after orchestrateStartup (T11493 regression)',
     );
+    // T13944: the stage row is recorded without a `.cleo/rcasd` stub file.
+    expect(hasRcasdStub(env.tempDir, 'T500')).toBe(false);
   });
 
   it('orchestrateStartup.autoInitialized is true on first call and false on second (idempotent)', async () => {
