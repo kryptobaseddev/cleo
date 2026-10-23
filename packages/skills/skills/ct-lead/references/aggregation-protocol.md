@@ -32,7 +32,8 @@ cleo orchestrate spawn T9301 --lead-mbx lead-t9080-w2
 ## 2. Drain loop
 
 There is no blocking await. Between waits the Lead reads its inbox
-(`mbx_inbox` / `mbx_read`, or `agentmbx inbox --as <you>`) until every
+(`mbx_inbox` / `mbx_read`, or `agentmbx inbox --as <you>` inside the provider session that holds the
+MCP lease) until every
 worker's completion message has arrived OR its wall-clock budget elapses,
 and acks each message it acted on.
 

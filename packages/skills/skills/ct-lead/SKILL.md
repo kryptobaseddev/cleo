@@ -2,7 +2,7 @@
 name: ct-lead
 description: "Phase Lead orchestration playbook for spawning and supervising a parallel worker swarm in one wave. Use when spawned by ct-orchestrator with role=orchestrator to fan out N leaf workers via delegate_task, read worker completion messages on AgentMBX plus pipeline_manifest, await rollupWaveStatus convergence, and return ONE rolled-up contract string to the parent Orchestrator. Triggers: 'phase lead', 'wave lead', 'supervise wave', 'fan out workers', 'aggregate worker results', 'rollup wave', any task with role=orchestrator that is itself a child of another orchestrator. Implements ADR-070 hierarchical orchestration."
 metadata:
-  version: 1.1.1
+  version: 1.1.2
   tier: core
   install: harness
   covers:
@@ -99,7 +99,8 @@ delegate_task({
 ### 3. Convergence (AgentMBX messages + manifest)
 
 Read worker completion messages with `mbx_inbox` / `mbx_read` (or
-`agentmbx inbox --as <you>`) between waits, bounded by the wave budget; ack
+`agentmbx inbox --as <you>` inside the provider session that holds the MCP
+lease) between waits, bounded by the wave budget; ack
 each one you acted on. Messages give timing; the manifest gives content.
 
 ```bash
