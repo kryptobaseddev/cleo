@@ -728,15 +728,31 @@ async function ensureLifecycleContext(
 }
 
 /**
+ * Options for {@link recordStageProgress}.
+ *
+ * @task T13944
+ */
+export interface RecordStageProgressOptions {
+  /**
+   * Write the stage's `.cleo/rcasd/<epic>/<stage>/` artifact file. Defaults
+   * to true. Automatic initialization (`initLoomForEpic`) passes false:
+   * it records the stage row only, so no stub file appears on disk.
+   */
+  writeArtifact?: boolean;
+}
+
+/**
  * Record a stage status transition (progress/record).
  * SQLite-native implementation - T4801
  * @task T4785
  * @task T4801
  * @task T1455 - normalized to (projectRoot, params) shape
+ * @task T13944 - `options.writeArtifact`
  */
 export async function recordStageProgress(
   projectRoot: string,
   params: LifecycleProgressParams,
+  options: RecordStageProgressOptions = {},
 ): Promise<{ epicId: string; stage: string; status: string; timestamp: string }> {
   const epicId = params.taskId;
   let stage = params.stage as string;
@@ -767,13 +783,17 @@ export async function recordStageProgress(
     updateCurrentStage: true,
   });
 
-  const artifact = await ensureStageArtifact(epicId, stageName, projectRoot);
+  const artifact =
+    options.writeArtifact === false
+      ? null
+      : await ensureStageArtifact(epicId, stageName, projectRoot);
+  const outputFile = artifact?.outputFile ?? null;
   const provenanceChain = {
     recordedAt: now,
     source: 'pipeline.stage.record',
     stage,
     status,
-    related: artifact.related,
+    related: artifact?.related ?? [{ type: 'task', id: epicId }],
   };
 
   // Upsert stage record
@@ -791,7 +811,7 @@ export async function recordStageProgress(
     skippedAt: status === 'skipped' ? now : null,
     skipReason: status === 'skipped' ? (notes ?? null) : null,
     notesJson: notes ? JSON.stringify([notes]) : '[]',
-    outputFile: artifact.outputFile,
+    outputFile,
     provenanceChainJson: JSON.stringify(provenanceChain),
   };
 
@@ -810,7 +830,7 @@ export async function recordStageProgress(
         skippedAt: status === 'skipped' ? now : null,
         skipReason: status === 'skipped' ? (notes ?? null) : null,
         notesJson: notes ? JSON.stringify([notes]) : '[]',
-        outputFile: artifact.outputFile,
+        outputFile,
         provenanceChainJson: JSON.stringify(provenanceChain),
       })
       .run();
@@ -824,7 +844,9 @@ export async function recordStageProgress(
   }
 
   if (status === 'completed') {
-    await linkProvenance(epicId, stageName, artifact.absolutePath, projectRoot);
+    if (artifact) {
+      await linkProvenance(epicId, stageName, artifact.absolutePath, projectRoot);
+    }
 
     if (stageName === 'architecture_decision') {
       const resolvedRoot = getProjectRoot(projectRoot);

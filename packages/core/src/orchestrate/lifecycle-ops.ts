@@ -43,6 +43,9 @@ export type { EngineResult };
  *
  * Behaviour:
  * - If no pipeline exists for `epicId`, creates one at 'research/in_progress'.
+ *   It writes the stage row only, never a `.cleo/rcasd` stub file (T13944).
+ * - Epic creation no longer calls this (T13944); only `orchestrate start`
+ *   and the backfill do.
  * - If a pipeline already exists, this is a no-op — returns `{ initialized: false }`.
  * - Never throws; failures are swallowed so callers (especially fire-and-forget hooks)
  *   can treat this as best-effort. Errors are returned via the result shape.
@@ -63,11 +66,12 @@ export async function initLoomForEpic(
       if (lifecycleStatus.initialized) {
         return { initialized: false, alreadyInitialized: true };
       }
-      await recordStageProgress(scope.worktreeRoot, {
-        taskId: epicId,
-        stage: 'research',
-        status: 'in_progress',
-      });
+      // T13944: record the stage row only — no `.cleo/rcasd` stub file.
+      await recordStageProgress(
+        scope.worktreeRoot,
+        { taskId: epicId, stage: 'research', status: 'in_progress' },
+        { writeArtifact: false },
+      );
       return { initialized: true, alreadyInitialized: false };
     });
   } catch (err: unknown) {
