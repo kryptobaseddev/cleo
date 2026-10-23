@@ -1149,20 +1149,6 @@ export async function orchestrateSpawnExecute(
       /* Hook registry unavailable — non-fatal */
     }
 
-    // Best-effort: record spawn event in conduit.db so agents can observe
-    // orchestration activity. Never awaited in a blocking way — fires and
-    // the main return path continues regardless of conduit outcome.
-    void sendConduitEvent(cwd, 'cleo-core', {
-      event: 'agent.spawned',
-      taskId,
-      instanceId: result.instanceId,
-      status: result.status,
-      providerId: adapter.providerId,
-      adapterId: adapter.id,
-      tier: tier ?? null,
-      spawnedAt: new Date().toISOString(),
-    });
-
     // ---- T9548 — Auto-invoke worktree-complete post-success. --------------
     //
     // After the worker has returned a clean exit, integrate its worktree back

@@ -60,9 +60,10 @@ afterEach(async () => {
 });
 
 describe('resolveEventTransportMode', () => {
-  it('defaults to conduit when env is unset', () => {
+  it('defaults to file when env is unset (T13953)', () => {
     delete process.env['CLEO_EVENTS_TRANSPORT'];
-    expect(resolveEventTransportMode()).toBe('conduit');
+    // T13953: file is the default; conduit is opt-in while it retires.
+    expect(resolveEventTransportMode()).toBe('file');
   });
 
   it('returns file when CLEO_EVENTS_TRANSPORT=file', () => {
@@ -70,9 +71,11 @@ describe('resolveEventTransportMode', () => {
     expect(resolveEventTransportMode()).toBe('file');
   });
 
-  it('returns conduit for any other value', () => {
-    process.env['CLEO_EVENTS_TRANSPORT'] = 'something-unknown';
+  it('returns conduit only when CLEO_EVENTS_TRANSPORT=conduit', () => {
+    process.env['CLEO_EVENTS_TRANSPORT'] = 'conduit';
     expect(resolveEventTransportMode()).toBe('conduit');
+    process.env['CLEO_EVENTS_TRANSPORT'] = 'something-unknown';
+    expect(resolveEventTransportMode()).toBe('file');
   });
 });
 
