@@ -333,6 +333,57 @@ describe('Brain Search', () => {
     });
   });
 
+  describe('hybridSearch (T13948)', () => {
+    /** Seed one old decision and one recent observation sharing a term. */
+    async function seed(): Promise<void> {
+      const { closeBrainDb, getBrainNativeDb } = await import('../../store/memory-sqlite.js');
+      const { resetFts5Cache } = await import('../brain-search.js');
+      const { getBrainAccessor } = await import('../../store/memory-accessor.js');
+      closeBrainDb();
+      resetFts5Cache();
+      const accessor = await getBrainAccessor(tempDir);
+      await accessor.addDecision({
+        id: 'D-old',
+        type: 'technical',
+        decision: 'Worktree cleanup runs nightly',
+        rationale: 'Old guidance',
+        confidence: 'high',
+      });
+      await accessor.addObservation({
+        id: 'O-recent',
+        type: 'discovery',
+        title: 'Worktree cleanup incident',
+        narrative: 'cancel destroys the worktree named by the task id',
+        sourceType: 'agent',
+      });
+      getBrainNativeDb(tempDir)!
+        .prepare("UPDATE brain_decisions SET created_at = '2026-04-01 00:00:00' WHERE id = 'D-old'")
+        .run();
+    }
+
+    it('returns one list ranked by recency, with row dates, not decisions first', async () => {
+      await seed();
+      const { hybridSearch } = await import('../brain-search.js');
+      const hits = await hybridSearch('worktree cleanup', tempDir, { limit: 5 });
+      expect(hits.map((hit) => hit.id)).toEqual(['O-recent', 'D-old']);
+      expect(hits[1]?.date).toBe('2026-04-01 00:00:00');
+    });
+
+    it('reports an unavailable vector layer as a W_MEMORY_VECTOR_UNAVAILABLE warning', async () => {
+      await seed();
+      const { WarningCollector, withWarningCollector } = await import('@cleocode/lafs');
+      const { hybridSearch } = await import('../brain-search.js');
+      const collector = new WarningCollector();
+      const hits = await withWarningCollector(collector, () =>
+        hybridSearch('worktree cleanup', tempDir, { limit: 5 }),
+      );
+      expect(hits.length).toBeGreaterThan(0);
+      const warning = collector.drain()?.find((w) => w.code === 'W_MEMORY_VECTOR_UNAVAILABLE');
+      expect(warning?.context?.['reason']).toEqual(expect.any(String));
+      expect(hits.every((hit) => !hit.sources.includes('vec'))).toBe(true);
+    });
+  });
+
   describe('rebuildFts5Index', () => {
     it('should rebuild FTS indexes without error', async () => {
       const { ensureFts5Tables, rebuildFts5Index, resetFts5Cache } = await import(
