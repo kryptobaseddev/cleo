@@ -1976,7 +1976,9 @@ export async function completeTaskStrict(
           `Task ${taskId} IVTR loop is not complete — currentPhase='${ivtrState.currentPhase}', not 'released'`,
           {
             details: { taskId, currentPhase: ivtrState.currentPhase, failedPhases },
-            fix: `Drive the IVTR loop to 'released' via the cantbook runtime (T11764): 'cleo go' (autonomous, default) or 'cleo playbook run ivtr --context '{"taskId":"${taskId}"}'' (single manual run). Evidence-based bypass: CLEO_OWNER_OVERRIDE=1 on 'cleo verify' (audited, see ADR-051).`,
+            // T13945: nothing drives or clears ivtr_state since T11896 retired the
+            // IVTR loop, so the fix names what works: inspect, then escalate.
+            fix: `Task ${taskId} carries IVTR state from the retired IVTR loop (T11896); no command drives or clears it now. Inspect it with 'cleo show ${taskId} --ivtr-history' and report the task to your lead or the owner.`,
           },
         );
       }
