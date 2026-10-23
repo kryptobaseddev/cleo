@@ -1,6 +1,6 @@
 # CLEO Protocol
 
-Version: 2.24.16 | CLI-only dispatch | `cleo <command> [args]`
+Version: 2.24.17 | CLI-only dispatch | `cleo <command> [args]`
 
 <!-- CLEO-INJECTION:section=session-start -->
 ## Universal protocol
@@ -51,7 +51,6 @@ Discovery: `cleo find "query"` to search (default page 20; `--limit 0` for all),
 
 | Signal | Action |
 |--------|--------|
-| Epic with ≥ 5 child tasks just created | Run `cleo orchestrate start <epicId>` before touching any child |
 | You just ran `cleo complete <id>` for a non-trivial task | Run `cleo memory observe "..." --title "..."` with what you learned |
 | Task acceptance criterion contains "test" | Propose an `AcceptanceGate` with `kind:"test"` via `cleo req add` |
 | Session token budget ≈ 80% consumed | Run `cleo session end --note "..."` and hand off |
@@ -103,8 +102,8 @@ Check exit code (`0` = success) and `"success"` in JSON output after every comma
 | 4 | `E_NOT_FOUND` | `cleo find` to verify ID |
 | 6 | `E_VALIDATION` | Check field lengths |
 | 10 | `E_PARENT_NOT_FOUND` | `cleo exists <id>` |
-| 80 | `E_LIFECYCLE_GATE_FAILED` | Parent epic not in implementation stage yet — advance with `cleo lifecycle complete` |
-| 83 | `E_IVTR_INCOMPLETE` | IVTR loop not released — run `cleo orchestrate ivtr <id> --next` |
+| 80 | `E_LIFECYCLE_GATE_FAILED` | Unproven evidence gates (strict): `cleo done <id> --plan`, record what it names, retry. Names an early-stage parent epic (legacy): tell the lead |
+| 83 | `E_IVTR_INCOMPLETE` | Legacy IVTR state on the task (strict); no command clears it now: tell the lead |
 | — | `E_EVIDENCE_MISSING` / `E_EVIDENCE_INSUFFICIENT` | `cleo verify … --evidence <atoms>` with every atom kind the gate needs (e.g. `commit:<sha>` + `files:<list>` for `implemented`) |
 | — | `E_EVIDENCE_TESTS_FAILED` / `E_EVIDENCE_TOOL_FAILED` | Fix the source or failing tests, then re-verify |
 | — | `E_EVIDENCE_TOOL_VACUOUS` | Tool exited 0 but provably checked nothing (e.g. `tsc` without `-b` on a references-only tsconfig); run it in a covering mode |

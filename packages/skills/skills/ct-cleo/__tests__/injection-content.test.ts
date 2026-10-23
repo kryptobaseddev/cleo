@@ -7,7 +7,8 @@
  *
  * Checks:
  * - Contains `cleo memory observe` (not bare `cleo observe`)
- * - Contains `cleo orchestrate start` in Session Start section
+ * - Sends agents to no RCASD/IVTR verb (`cleo orchestrate start`,
+ *   `cleo lifecycle complete`, `cleo orchestrate ivtr`) (T13942)
  * - Contains "Memory Protocol (JIT)" H2 section
  * - Contains "Escalation" H2 section
  * - At least 6 distinct `cleo <verb>` command patterns
@@ -139,8 +140,10 @@ describe('CLEO-INJECTION.md — command correctness', () => {
     expect(bareObserveInstructions).toHaveLength(0);
   });
 
-  it('contains "cleo orchestrate start" in documentation', () => {
-    expect(injectionContent).toMatch(/cleo orchestrate start/);
+  it('sends agents to no RCASD or IVTR verb (T13942)', () => {
+    expect(injectionContent).not.toMatch(/cleo orchestrate start/);
+    expect(injectionContent).not.toMatch(/cleo lifecycle complete/);
+    expect(injectionContent).not.toMatch(/cleo orchestrate ivtr/);
   });
 
   it('contains "cleo session status" command', () => {
