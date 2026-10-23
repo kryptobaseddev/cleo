@@ -27,6 +27,7 @@ import type {
 import { getProjectRoot } from '../paths.js';
 import { truncateString } from '../render/helpers.js';
 import { getBrainNativeDb } from '../store/memory-sqlite.js';
+import { autoRowExclusionClause } from './eligibility.js';
 import { listDecisions, searchDecisions } from './decisions.js';
 import { graphStats } from './graph-queries.js';
 import { searchLearnings } from './learnings.js';
@@ -728,10 +729,10 @@ export async function getTierStats(
   }
 
   const brainTables = [
-    { name: 'brain_observations', dateCol: 'created_at' },
-    { name: 'brain_learnings', dateCol: 'created_at' },
-    { name: 'brain_patterns', dateCol: 'extracted_at' },
-    { name: 'brain_decisions', dateCol: 'created_at' },
+    { name: 'brain_observations', kind: 'observations', dateCol: 'created_at' },
+    { name: 'brain_learnings', kind: 'learnings', dateCol: 'created_at' },
+    { name: 'brain_patterns', kind: 'patterns', dateCol: 'extracted_at' },
+    { name: 'brain_decisions', kind: 'decisions', dateCol: 'created_at' },
   ] as const;
 
   const tables: TableTierCounts[] = [];
@@ -768,14 +769,14 @@ export async function getTierStats(
   }
 
   const upcoming: UpcomingPromotion[] = [];
-  for (const { name: tblName, dateCol } of brainTables) {
+  for (const { name: tblName, kind, dateCol } of brainTables) {
     try {
       const rows = db
         .prepare(
           `SELECT id, ${dateCol} as created_at, citation_count, verified
            FROM ${tblName}
            WHERE memory_tier = 'medium'
-             AND invalid_at IS NULL
+             AND invalid_at IS NULL${autoRowExclusionClause(kind, tblName)}
              AND (citation_count >= 5 OR verified = 1)
            ORDER BY ${dateCol} ASC
            LIMIT 20`,
