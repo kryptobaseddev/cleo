@@ -216,6 +216,15 @@ export interface ComposeSpawnPayloadOptions {
    */
   worktreeBranch?: string;
   /**
+   * AgentMBX mailbox name of the agent that spawned this one (its lead).
+   * When set, the `## Agent Coordination (AgentMBX)` section names it as the
+   * address for reports; when absent, the section says to ask for it through
+   * the task notes. Passed through verbatim to {@link buildSpawnPrompt}.
+   *
+   * @task T13943
+   */
+  leadMailbox?: string;
+  /**
    * Glob patterns excluded from the worktree via spawn-clone-exclude filter
    * (T9226). Passed through verbatim to {@link buildSpawnPrompt}.
    *
@@ -827,6 +836,7 @@ export async function composeSpawnPayload(
     skipCleoInjectionEmbed: !shouldEmbedInjection,
     worktreePath: options.worktreePath,
     worktreeBranch: options.worktreeBranch,
+    ...(options.leadMailbox ? { leadMailbox: options.leadMailbox } : {}),
     dashboardSummary,
     retrievalBundle,
     ...(attentionDigestLines !== undefined ? { attentionDigestLines } : {}),

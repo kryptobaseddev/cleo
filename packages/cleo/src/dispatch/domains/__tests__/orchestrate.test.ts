@@ -203,4 +203,29 @@ describe('OrchestrateHandler.mutate("spawn") — T10430 atomicityScope wiring', 
     const callArgs = spawnSpy.mock.calls[0];
     expect(callArgs?.[6]).toBeUndefined();
   });
+
+  it('forwards --lead-mbx as the tenth positional arg of orchestrateSpawn (T13943)', async () => {
+    const engine = await import('../../lib/engine.js');
+    const spawnSpy = vi.mocked(engine.orchestrateSpawn);
+    spawnSpy.mockResolvedValue({
+      success: true,
+      data: { taskId: 'T10430', prompt: 'spawn prompt', atomicity: { allowed: true } },
+    });
+
+    await handler.mutate('spawn', { taskId: 'T10430', leadMbx: 'lead-t10430' });
+
+    const callArgs = spawnSpy.mock.calls[0];
+    expect(callArgs?.[9]).toBe('lead-t10430');
+  });
+
+  it('refuses a lead mailbox that is not a plain mailbox name (T13943)', async () => {
+    const engine = await import('../../lib/engine.js');
+    const spawnSpy = vi.mocked(engine.orchestrateSpawn);
+
+    const result = await handler.mutate('spawn', { taskId: 'T10430', leadMbx: 'lead `x`' });
+
+    expect(result.success).toBe(false);
+    expect(result.error?.code).toBe('E_INVALID_INPUT');
+    expect(spawnSpy).not.toHaveBeenCalled();
+  });
 });

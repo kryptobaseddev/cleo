@@ -16,14 +16,15 @@ Messages drive **timing**; the manifest drives **content**. `rollupWaveStatus`
 
 ## 1. Mailbox before spawn
 
-Before issuing `delegate_task`, put your AgentMBX name in every worker's
-brief so its completion message reaches you. A mailbox keeps messages until
+Before issuing `delegate_task`, build each worker's prompt with `cleo
+orchestrate spawn <taskId> --lead-mbx <you>` so its completion message reaches
+you (`fanout` cannot carry the name yet, T13966: put it in the task notes). A mailbox keeps messages until
 they are read, so a worker that finishes first is never lost; a worker that
 does not know your name cannot report at all.
 
 ```bash
-# CORRECT — workers' briefs name the Lead mailbox, then fan out
-cleo orchestrate fanout T9080 --tasks T9301,T9302,T9303
+# CORRECT — each worker prompt names the Lead mailbox
+cleo orchestrate spawn T9301 --lead-mbx lead-t9080-w2
 ```
 
 ---

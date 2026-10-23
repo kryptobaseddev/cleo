@@ -2,7 +2,7 @@
 name: ct-lead
 description: "Phase Lead orchestration playbook for spawning and supervising a parallel worker swarm in one wave. Use when spawned by ct-orchestrator with role=orchestrator to fan out N leaf workers via delegate_task, read worker completion messages on AgentMBX plus pipeline_manifest, await rollupWaveStatus convergence, and return ONE rolled-up contract string to the parent Orchestrator. Triggers: 'phase lead', 'wave lead', 'supervise wave', 'fan out workers', 'aggregate worker results', 'rollup wave', any task with role=orchestrator that is itself a child of another orchestrator. Implements ADR-070 hierarchical orchestration."
 metadata:
-  version: 1.1.0
+  version: 1.1.1
   tier: core
   install: harness
   covers:
@@ -35,7 +35,7 @@ exactly ONE aggregated summary.
 
 | ID | Rule | Practical Meaning |
 |----|------|-------------------|
-| LEAD-005 | Name your mailbox BEFORE spawn | Put your AgentMBX name in every worker's brief so its completion message reaches you. Mailboxes keep messages, so a fast worker is never missed |
+| LEAD-005 | Name your mailbox BEFORE spawn | Spawn each worker with `cleo orchestrate spawn <taskId> --lead-mbx <you>` so its prompt names your AgentMBX mailbox. Mailboxes keep messages, so a fast worker is never missed |
 | LEAD-006 | Parallel fanout | All workers in a wave fan out via a SINGLE `delegate_task` batch (`tasks: [...]`) — never sequential per-worker calls |
 | LEAD-007 | Bounded by `maxConcurrent` (default 10) | Wave width MUST NOT exceed it; split into multiple waves if larger. No config key or runtime check enforces this yet (`delegation.max_concurrent_children` is not read by CLEO) — the Lead enforces it |
 | LEAD-008 | Convergence over polling | Wait on AgentMBX completion messages + `rollupWaveStatus`; do not poll task status in a busy loop |
@@ -60,8 +60,14 @@ The parent Orchestrator spawns you with a resolved prompt containing:
 
 ### 1. Pre-flight (name your mailbox before spawn)
 
-Confirm your AgentMBX name (`mbx_whoami`, or `agentmbx whoami --as <you>`) and put it in
-each worker's brief (LEAD-005). Agent messages travel over AgentMBX, not
+Run `mbx_whoami` for your AgentMBX name; if it shows no identity, claim one
+with `mbx_identity` before any other mbx tool. Then build each worker's prompt
+with `cleo orchestrate spawn <taskId> --lead-mbx <you>` (LEAD-005): the
+prompt's Agent Coordination section names your mailbox. `cleo orchestrate
+fanout` does not carry the name yet (T13966); when you use it, put your
+mailbox in the task notes, where workers are told to look. Claude Code
+Agent-tool subagents share their parent's identity, so they return results
+directly instead of mailing them. Agent messages travel over AgentMBX, not
 CONDUIT (D11172).
 
 ```bash
@@ -178,7 +184,7 @@ cleo manifest append \
 
 ## Pitfalls
 
-- **Unnamed mailbox**: a worker that does not know your AgentMBX name cannot report to you — name it in every brief (LEAD-005).
+- **Unnamed mailbox**: a worker that does not know your AgentMBX name cannot report to you — pass `--lead-mbx` on every spawn (LEAD-005).
 - **Sequential fanout**: spawning workers one-by-one defeats parallelism and breaks the wave model — use ONE batch (LEAD-006).
 - **Recursive Leads**: do NOT spawn a Lead from within a Lead — escalate to parent Orchestrator with a `blocked` contract instead (LEAD-003).
 - **Forwarding raw outputs**: never paste worker manifest entries upstream — parent's context budget assumes ONE rollup string per wave (LEAD-004).

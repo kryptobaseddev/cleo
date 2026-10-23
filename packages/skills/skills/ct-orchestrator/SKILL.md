@@ -239,8 +239,10 @@ Retrieve with `cleo docs fetch t1575-research`. A document is not "published" un
 the store doc exists.
 
 **Agents talk over AgentMBX (D11172).** Spawned agents coordinate with their lead and
-peers through AgentMBX (`mbx_*` tools or the `agentmbx` CLI); spawn prompts carry an
-`## Agent Coordination (AgentMBX)` section and no CONDUIT subscription.
+peers through AgentMBX (`mbx_*` tools; the `agentmbx` CLI can only send without the
+session's MCP lease). Spawn prompts carry an `## Agent Coordination (AgentMBX)` section and
+no CONDUIT subscription; `cleo orchestrate spawn <taskId> --lead-mbx <you>` names your
+mailbox in it.
 
 ### 3. IVTR — Execute the Work
 

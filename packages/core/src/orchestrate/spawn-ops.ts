@@ -673,6 +673,8 @@ export async function composeSpawnForTask(
     worktreePath?: string;
     /** Branch name for the worktree (T1140). */
     worktreeBranch?: string;
+    /** AgentMBX mailbox of the spawning lead, printed in the prompt (T13943). */
+    leadMailbox?: string;
     /**
      * Glob patterns excluded from the worktree (T9226). When set, a
      * `## Worktree Scope` section is injected into the spawn prompt.
@@ -727,6 +729,7 @@ export async function composeSpawnForTask(
       skipAtomicityCheck: options.skipAtomicityCheck ?? false,
       worktreePath: options.worktreePath,
       worktreeBranch: options.worktreeBranch,
+      ...(options.leadMailbox ? { leadMailbox: options.leadMailbox } : {}),
       spawnCloneExclude: options.spawnCloneExclude,
       // T10430 — pass the atomicity waiver into the composer. When set to
       // 'orchestrator-defer', checkAtomicity grants the spawn for a worker
@@ -1342,6 +1345,11 @@ export async function orchestrateSpawn(
    * envelope's `install` says so and gives the worker the command to run.
    */
   noInstall?: boolean,
+  /**
+   * T13943 — AgentMBX mailbox name of the spawning lead; the spawn prompt's
+   * Agent Coordination section names it as the address for reports.
+   */
+  leadMailbox?: string,
 ): Promise<EngineResult> {
   if (!taskId) {
     return engineError('E_INVALID_INPUT', 'taskId is required');
@@ -1775,6 +1783,7 @@ export async function orchestrateSpawn(
         protocol: protocolType,
         worktreePath,
         worktreeBranch,
+        ...(leadMailbox ? { leadMailbox } : {}),
         spawnCloneExclude: appliedWorktreeExcludePatterns,
         // T10430 — forward the atomicity waiver into the composer's scope
         // option so workers without explicit AC.files can be spawned when

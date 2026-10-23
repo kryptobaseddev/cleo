@@ -315,6 +315,15 @@ export interface BuildSpawnPromptInput {
    */
   worktreeBranch?: string;
   /**
+   * AgentMBX mailbox name of the agent that spawned this one (its lead).
+   * When set, the `## Agent Coordination (AgentMBX)` section names it as the
+   * address for reports; when absent, the section says to ask for it through
+   * the task notes.
+   *
+   * @task T13943
+   */
+  leadMailbox?: string;
+  /**
    * Compact orchestration dashboard summary.
    *
    * When provided and `tier >= 1`, a small one-line context block is injected
@@ -1451,22 +1460,29 @@ function buildDashboardContextBlock(summary: string): string {
  * Build the `## Agent Coordination (AgentMBX)` section for tier-1/2 prompts.
  *
  * Agent-to-agent messages travel over AgentMBX (owner decision D11172), not
- * CONDUIT: the `mbx_*` tools where the harness has the MCP server, otherwise
- * the `agentmbx` CLI. CLEO keeps the work record; the message carries the talk.
+ * CONDUIT. Reads, replies and acks need the session's MCP lease, so the
+ * `agentmbx` CLI is offered for sending only. CLEO keeps the work record; the
+ * message carries the talk.
  *
  * @param taskId - Task the spawned agent works on, cited in every message.
+ * @param leadMailbox - AgentMBX mailbox of the spawning lead, when known.
  * @returns Markdown section ready to concatenate into the spawn prompt.
  * @task T13943
  */
-function buildAgentCoordinationBlock(taskId: string): string {
+function buildAgentCoordinationBlock(taskId: string, leadMailbox?: string): string {
+  const lead = leadMailbox
+    ? `Your lead's mailbox: \`${leadMailbox}\`. Send your reports and your completion message there.`
+    : `No lead mailbox was given at spawn: look for it in the task notes (\`cleo show ${taskId} --full\`), otherwise name the gap in your return.`;
   return [
     '## Agent Coordination (AgentMBX)',
     '',
-    `Talk to your lead and other agents over AgentMBX, citing \`${taskId}\` in every message. Check your inbox at start and after every wait; reply in the thread and ack what you acted on.`,
+    `Talk to your lead and other agents over AgentMBX, citing \`${taskId}\` in every message. ${lead}`,
     '',
-    '- MCP tools: `mbx_inbox`, `mbx_read`, `mbx_reply`, `mbx_send`, `mbx_ack`',
-    '- No MCP server: `agentmbx inbox --as <you>`, `agentmbx read <id> --as <you>`, `agentmbx send --as <you> --to <agent> --reply-to <id>`, `agentmbx ack <id> --as <you>`',
-    '- Task state, evidence and results stay in CLEO (`cleo update`, `cleo verify`, `cleo manifest append`); a message never replaces them.',
+    "1. Identity first: `mbx_whoami`. If it shows no identity, claim one with `mbx_identity` before any other mbx tool. Claude Code Agent-tool subagents share their parent session's identity.",
+    '2. `mbx_inbox` at start and after every wait; `mbx_send` to your lead; `mbx_reply` in a thread; `mbx_ack` what you acted on.',
+    '3. Without the MCP server you can only send: `agentmbx send --as <you> --to <lead> --subject "<subject>" -m "<message>"`. Reading, replying and acking need this session\'s MCP lease.',
+    '',
+    'Task state, evidence and results stay in CLEO (`cleo update`, `cleo verify`, `cleo manifest append`); a message never replaces them.',
   ].join('\n');
 }
 
@@ -1634,7 +1650,7 @@ export function buildSpawnPrompt(input: BuildSpawnPromptInput): BuildSpawnPrompt
   // Agent Coordination (T13943, D11172) — tier 1/2 agents coordinate over
   // AgentMBX; the CONDUIT subscription block it replaces could not run.
   if (tier >= 1) {
-    authoredSections.push(buildAgentCoordinationBlock(taskId));
+    authoredSections.push(buildAgentCoordinationBlock(taskId, input.leadMailbox));
   }
   if (tier >= 1 && input.dashboardSummary) {
     authoredSections.push(buildDashboardContextBlock(input.dashboardSummary));

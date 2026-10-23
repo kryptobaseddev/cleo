@@ -200,6 +200,8 @@ interface OrchestrateSpawnParams {
   noWorktree?: boolean;
   /** T13524 — provision without installing dependencies. */
   noInstall?: boolean;
+  /** T13943 — AgentMBX mailbox of the spawning lead, named in the prompt. */
+  leadMbx?: string;
   /** T9807 — sparse-checkout scope prefix (e.g. `packages/cleo`). */
   spawnScope?: string;
   /**
@@ -326,6 +328,9 @@ interface FanoutItemResult {
   /** Error message if status is failed. */
   error?: string;
 }
+
+/** An AgentMBX mailbox name accepted for `orchestrate spawn --lead-mbx` (T13943). */
+const MBX_NAME = /^[A-Za-z0-9][A-Za-z0-9._@:-]{0,127}$/;
 
 /** Maximum number of fanout manifest entries retained in memory. */
 const FANOUT_MANIFEST_MAX_SIZE = 64;
@@ -463,6 +468,7 @@ async function orchestrateSpawnOp(params: OrchestrateSpawnParams) {
     params.atomicityScope,
     params.resume,
     params.noInstall,
+    params.leadMbx,
   );
 }
 
@@ -871,6 +877,18 @@ export class OrchestrateHandler implements DomainHandler {
           const atomicityScopeRaw = params.atomicityScope;
           const atomicityScope: 'orchestrator-defer' | undefined =
             atomicityScopeRaw === 'orchestrator-defer' ? 'orchestrator-defer' : undefined;
+          // T13943 — the lead mailbox is printed into the prompt, so accept
+          // only a plain mailbox name (no markdown or whitespace).
+          const leadMbx = params.leadMbx;
+          if (leadMbx !== undefined && !(typeof leadMbx === 'string' && MBX_NAME.test(leadMbx)))
+            return errorResult(
+              'mutate',
+              'orchestrate',
+              operation,
+              'E_INVALID_INPUT', // @sync-invariant none:input-shape a malformed lead mailbox name is refused before any write
+              'leadMbx must be an AgentMBX mailbox name (letters, digits, . _ - @ :)',
+              startTime,
+            );
           const p: OrchestrateSpawnParams = {
             taskId: params.taskId as string,
             protocolType: params.protocolType as string | undefined,
@@ -882,6 +900,7 @@ export class OrchestrateHandler implements DomainHandler {
             // normal provisioning path (and hit the worktree lock).
             ...(params.resume === true ? { resume: true } : {}),
             ...(params.noInstall === true ? { noInstall: true } : {}),
+            ...(leadMbx ? { leadMbx } : {}),
           };
           return wrapResult(await coreOps.spawn(p), 'mutate', 'orchestrate', operation, startTime);
         }

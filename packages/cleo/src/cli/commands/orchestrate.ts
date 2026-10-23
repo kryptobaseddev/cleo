@@ -476,6 +476,12 @@ const spawnCommand = defineCommand({
         'Tier-1+ orchestrators only — records auditable atomicity_waiver in the spawn manifest. ' +
         'Bypasses E_ATOMICITY_NO_SCOPE for worker tasks without explicit AC.files.',
     },
+    'lead-mbx': {
+      type: 'string',
+      description:
+        'T13943: your AgentMBX mailbox name. The spawn prompt names it as the address the worker ' +
+        'reports to; without it the prompt tells the worker to look in the task notes.',
+    },
     resume: {
       type: 'boolean',
       description:
@@ -519,6 +525,7 @@ const spawnCommand = defineCommand({
         ...(atomicityScope ? { atomicityScope } : {}),
         resume: args.resume === true,
         ...(negatedFlag(args, 'install') ? { noInstall: true } : {}),
+        ...(args['lead-mbx'] ? { leadMbx: args['lead-mbx'] } : {}),
       },
       { command: 'orchestrate' },
     );

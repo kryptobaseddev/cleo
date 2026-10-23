@@ -430,10 +430,27 @@ describe('buildSpawnPrompt — agent coordination over AgentMBX (T13943)', () =>
       projectRoot: PROJECT_ROOT,
     });
     expect(result.prompt).toContain('## Agent Coordination (AgentMBX)');
+    expect(result.prompt).toContain('mbx_whoami');
     expect(result.prompt).toContain('mbx_inbox');
-    expect(result.prompt).toContain('agentmbx inbox --as <you>');
+    // The CLI can only send without the MCP lease, and send needs a body flag.
+    expect(result.prompt).toContain('-m "<message>"');
+    expect(result.prompt).not.toMatch(/agentmbx (inbox|read|ack)/);
     expect(result.prompt).not.toContain('CONDUIT');
     expect(result.prompt).not.toMatch(/cleo conduit|createConduit/);
+    // No lead mailbox given: the worker is told where to look.
+    expect(result.prompt).toContain('No lead mailbox was given at spawn');
+  });
+
+  it('names the lead mailbox when the spawn passes one', () => {
+    const result = buildSpawnPrompt({
+      task: BASE_TASK,
+      protocol: 'implementation',
+      tier: 1,
+      projectRoot: PROJECT_ROOT,
+      leadMailbox: 'lead-t9000',
+    });
+    expect(result.prompt).toContain("Your lead's mailbox: `lead-t9000`");
+    expect(result.prompt).not.toContain('No lead mailbox was given at spawn');
   });
 
   it('tier 0 stays minimal: no coordination block', () => {
