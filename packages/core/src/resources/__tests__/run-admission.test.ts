@@ -872,6 +872,16 @@ describe('process-tree watchdog (T13563)', () => {
       processes: 3,
     });
     expect(treeUsageFromTable(table, 42)).toBeNull();
+    // With a command column (T13972) the tree's command lines come back too.
+    const withCommands = [
+      '  10     1   0:05.00  1000 git push origin x',
+      '  11    10   0:01.00   500 /bin/sh .git/hooks/pre-push',
+      '  99     1   9:00.00  9999 other',
+    ].join('\n');
+    expect(treeUsageFromTable(withCommands, 10)?.commands?.sort()).toEqual([
+      '/bin/sh .git/hooks/pre-push',
+      'git push origin x',
+    ]);
   });
 
   it('flags hung after the idle window, clears it when CPU moves, and never counts a paused run as idle', () => {

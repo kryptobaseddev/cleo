@@ -82,6 +82,34 @@ describe('hook keys (T13921)', () => {
   });
 });
 
+describe('hook switches and provisional charges (T13972)', () => {
+  it('folds hook-disabling environment variables into the key', () => {
+    const dir = repo('env', '#!/bin/sh\npnpm typecheck\n');
+    const full = hookFootprintKey(dir, 'pre-push', [], {});
+    expect(hookFootprintKey(dir, 'pre-push', [], { HUSKY: '0' })).not.toBe(full);
+    expect(hookFootprintKey(dir, 'pre-push', [], { LEFTHOOK: '0' })).not.toBe(full);
+    expect(hookFootprintKey(dir, 'pre-push', [], { UNRELATED: '1' })).toBe(full);
+  });
+
+  it('a plain hook that runs package scripts is keyed by package.json too (T13974)', () => {
+    const dir = repo('scripts', '#!/bin/sh\npnpm typecheck\n');
+    writeFileSync(join(dir, 'package.json'), '{"scripts":{"typecheck":"tsc --noEmit"}}');
+    const first = hookFootprintKey(dir, 'pre-push', [], {});
+    writeFileSync(join(dir, 'package.json'), '{"scripts":{"typecheck":"tsc -b"}}');
+    expect(hookFootprintKey(dir, 'pre-push', [], {})).not.toBe(first);
+  });
+
+  it('one run above the charge restores the plan until enough runs again', async () => {
+    const dir = join(root, 'admission');
+    await runs('k', GIB, HOOK_MIN_RUNS, dir);
+    expect(readHookPeak('k', dir)).toBe(GIB);
+    await runs('k', 4 * GIB, 1, dir); // above GIB * margin: provisional charge revoked
+    expect(readHookPeak('k', dir)).toBeNull();
+    await runs('k', GIB, HOOK_MIN_RUNS - 1, dir);
+    expect(readHookPeak('k', dir)).toBe(4 * GIB);
+  });
+});
+
 describe('hook measurements (T13921)', () => {
   it('charge after enough counted runs, keep the largest peak, skip short runs', async () => {
     const dir = join(root, 'admission');

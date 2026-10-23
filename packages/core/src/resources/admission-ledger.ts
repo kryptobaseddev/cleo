@@ -370,7 +370,7 @@ export function planRunFootprint(
   hookInstalled: (hook: string, globals: readonly string[]) => boolean = (hook, globals) =>
     gitHookInstalled(process.cwd(), hook, globals), // CWD-OK: cleo run runs the command in its own cwd
   hookPeak: (hook: string, globals: readonly string[]) => HookPeak | null = (hook, globals) => {
-    const key = hookFootprintKey(process.cwd(), hook, globals); // CWD-OK: as above
+    const key = hookFootprintKey(process.cwd(), hook, globals, env); // CWD-OK: as above
     return key === null ? null : { key, peakBytes: readHookPeak(key, admissionDir()) };
   },
 ): RunFootprintPlan {

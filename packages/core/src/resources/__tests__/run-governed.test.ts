@@ -338,9 +338,10 @@ const base = (h: Harness, over: Record<string, unknown> = {}) => ({
 describe('a hooked run records its measured peak (T13921)', () => {
   const MIB = 1024 ** 2;
   /** One hooked push: the tree reads `rssMb` per sample; it exits `code` after `ticks` polls. */
-  const push = async (rssMb: number, code: number, ticks: number) => {
+  const push = async (rssMb: number, code: number, ticks: number, hookSeen = true) => {
+    const commands = ['git push', ...(hookSeen ? ['/bin/sh .git/hooks/pre-push'] : [])];
     const h = harness({
-      treeUsage: () => ({ cpuMs: 1, rssBytes: rssMb * MIB, processes: 2 }),
+      treeUsage: () => ({ cpuMs: 1, rssBytes: rssMb * MIB, processes: 2, commands }),
       onSleep: (n, hh) => {
         if (n === ticks) hh.exit(code);
       },
@@ -354,6 +355,7 @@ describe('a hooked run records its measured peak (T13921)', () => {
   it('counts exit-0 runs sampled twice, and charges only after enough of them', async () => {
     await push(9000, 1, 4); // a failed push: not a measurement
     await push(100, 0, 1); // "Everything up-to-date": one sample at most, not counted
+    await push(100, 0, 8, false); // the hook never ran in the tree (HUSKY=0, a slow network)
     expect(readHookPeak('pre-push:k', hooks())).toBeNull();
     for (let i = 0; i < HOOK_MIN_RUNS - 1; i++) await push(3000, 0, 4);
     expect(readHookPeak('pre-push:k', hooks())).toBeNull(); // not enough counted runs yet
