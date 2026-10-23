@@ -53,7 +53,6 @@ import { autoDispatch } from './index.js';
 import { effectiveLeanLevel } from './lean-change.js';
 import {
   buildSpawnPrompt,
-  type ConduitSubscriptionConfig,
   INLINE_TEXT_SIZE_LIMIT_BYTES,
   type SpawnProtocolPhase,
   type SpawnTier,
@@ -217,16 +216,14 @@ export interface ComposeSpawnPayloadOptions {
    */
   worktreeBranch?: string;
   /**
-   * CONDUIT A2A subscription configuration.
+   * AgentMBX mailbox name of the agent that spawned this one (its lead).
+   * When set, the `## Agent Coordination (AgentMBX)` section names it as the
+   * address for reports; when absent, the section says to ask for it through
+   * the task notes. Passed through verbatim to {@link buildSpawnPrompt}.
    *
-   * When provided, a `## CONDUIT Subscription` section is injected into
-   * tier-1 and tier-2 prompts. Omitted for tier-0 prompts and when not set.
-   * Passed through verbatim to {@link buildSpawnPrompt}.
-   *
-   * @task T1252 CONDUIT A2A
-   * @task T1253 wire orchestrate-engine
+   * @task T13943
    */
-  conduitSubscription?: ConduitSubscriptionConfig;
+  leadMailbox?: string;
   /**
    * Glob patterns excluded from the worktree via spawn-clone-exclude filter
    * (T9226). Passed through verbatim to {@link buildSpawnPrompt}.
@@ -839,7 +836,7 @@ export async function composeSpawnPayload(
     skipCleoInjectionEmbed: !shouldEmbedInjection,
     worktreePath: options.worktreePath,
     worktreeBranch: options.worktreeBranch,
-    conduitSubscription: options.conduitSubscription,
+    ...(options.leadMailbox ? { leadMailbox: options.leadMailbox } : {}),
     dashboardSummary,
     retrievalBundle,
     ...(attentionDigestLines !== undefined ? { attentionDigestLines } : {}),

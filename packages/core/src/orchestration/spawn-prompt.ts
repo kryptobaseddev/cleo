@@ -51,7 +51,6 @@ import {
   buildBudgetedPsycheMemoryBlock,
   relevanceContextFromTask,
 } from './psyche-memory-budget.js';
-import { coordinationTopic, waveTopic as waveTopicName } from './wave-topic.js';
 
 /**
  * Locate `packages/core/templates/CLEO-INJECTION.md` at runtime.
@@ -219,29 +218,9 @@ export const ALL_SPAWN_PROTOCOL_PHASES: readonly SpawnProtocolPhase[] = [
 ] as const;
 
 /**
- * CONDUIT subscription configuration injected into tier-1 / tier-2 spawn prompts.
- *
- * When present, the spawn prompt includes a `## CONDUIT Subscription` section
- * that names the wave topic and coordination topic the agent should subscribe to.
- *
- * @see T1252 CONDUIT A2A
- */
-export interface ConduitSubscriptionConfig {
-  /** Parent epic ID, e.g. `"T1149"`. */
-  epicId: string;
-  /**
-   * The task's wave number as `cleo orchestrate waves` prints it (from 1) —
-   * the `n` of the `epic-<epicId>.wave-<n>` topic its Lead listens on (T12682).
-   */
-  waveId: number;
-  /** Spawned agent peer ID, e.g. `"cleo-lead-2"`. */
-  peerId: string;
-}
-
-/**
  * Input to {@link buildSpawnPrompt}.
  *
- * Absolute paths (rcasd dir, test-runs dir, output dir) are resolved by the
+ * Absolute paths (test-runs dir, output dir) are resolved by the
  * caller against the orchestrator's project root so the subagent never has
  * to guess. Manifest storage is SQLite (`pipeline_manifest`) — not a file
  * path (ADR-027 §6.2, T1096). The session id is threaded from `session.status` so the subagent
@@ -336,16 +315,14 @@ export interface BuildSpawnPromptInput {
    */
   worktreeBranch?: string;
   /**
-   * CONDUIT A2A subscription configuration.
+   * AgentMBX mailbox name of the agent that spawned this one (its lead).
+   * When set, the `## Agent Coordination (AgentMBX)` section names it as the
+   * address for reports; when absent, the section says to ask for it through
+   * the task notes.
    *
-   * When provided, a `## CONDUIT Subscription` section is injected into
-   * tier-1 and tier-2 prompts, giving the spawned agent its wave topic and
-   * coordination topic. Omitted for tier-0 prompts (minimal content) and
-   * when not set.
-   *
-   * @task T1252 CONDUIT A2A
+   * @task T13943
    */
-  conduitSubscription?: ConduitSubscriptionConfig;
+  leadMailbox?: string;
   /**
    * Compact orchestration dashboard summary.
    *
@@ -360,7 +337,7 @@ export interface BuildSpawnPromptInput {
    * Memory retrieval bundle from `buildRetrievalBundle`.
    *
    * When provided and `tier >= 1`, a `## PSYCHE-MEMORY` section is injected
-   * into the spawn prompt (between CONDUIT and File Paths blocks), carrying
+   * into the spawn prompt (before the File Paths block), carrying
    * the user profile, peer memory, and session narrative slices.
    *
    * This is the M4 injection primitive and M1 parity requirement (T1260 PSYCHE E3).
@@ -917,15 +894,15 @@ function buildTaskIdentity(task: Task): string {
  * and success criteria. The contents are inlined so the subagent does not
  * need to re-read SKILL.md at runtime.
  */
-function buildStageGuidance(protocol: string, rcasdDir: string, outputDir: string): string {
+function buildStageGuidance(protocol: string, outputDir: string): string {
   const guidance: Record<string, string> = {
     research: [
-      '## Stage-Specific Guidance — Research (RCASD)',
+      '## Stage-Specific Guidance — Research',
       '',
       '**Objective**: Gather information and evidence. Do NOT implement. Do NOT make architectural decisions.',
       '',
       'Deliverables:',
-      `- Research document at \`${rcasdDir}/research/<topic-slug>.md\``,
+      '- Research document stored with `cleo docs add <taskId> <file> --type research --slug <topic-slug>`',
       '- Cite ALL sources (files, URLs, memory IDs) with absolute paths or full URLs',
       '- Summarize findings in a top-level **Key Findings** bullet list (3–7 items)',
       '- Flag open questions in a **Needs Follow-up** bullet list',
@@ -937,40 +914,40 @@ function buildStageGuidance(protocol: string, rcasdDir: string, outputDir: strin
       '- `WebFetch`/`WebSearch` for external sources',
     ].join('\n'),
     consensus: [
-      '## Stage-Specific Guidance — Consensus (RCASD)',
+      '## Stage-Specific Guidance — Consensus',
       '',
       '**Objective**: Validate approach. Challenge claims. Vote on options.',
       '',
       'Deliverables:',
-      `- Consensus document at \`${rcasdDir}/consensus/<topic-slug>.md\``,
+      '- Consensus document stored with `cleo docs add <taskId> <file> --type note --slug <topic-slug>-consensus`',
       '- Explicit vote: APPROVE / REJECT / ABSTAIN with rationale',
       '- Risk register: 3–5 items, ranked',
       '- Alternatives considered and why rejected',
     ].join('\n'),
     architecture_decision: [
-      '## Stage-Specific Guidance — Architecture Decision (RCASD)',
+      '## Stage-Specific Guidance — Architecture Decision',
       '',
       '**Objective**: Write an ADR. Pick a pattern. Define integration points.',
       '',
       'Deliverables:',
-      `- ADR at \`.cleo/adrs/ADR-<NNN>-<slug>.md\` (next unused number)`,
+      '- ADR stored with `cleo docs add <taskId> <file> --type adr --title "<title>"` (the slug number is allocated for you)',
       '- Structure: Context → Decision → Consequences → Alternatives',
       '- Reference all contracts/interfaces touched (absolute paths)',
       '- Link back to the epic task id in the ADR front-matter',
     ].join('\n'),
     specification: [
-      '## Stage-Specific Guidance — Specification (RCASD)',
+      '## Stage-Specific Guidance — Specification',
       '',
       '**Objective**: Write an RFC-2119-compliant specification.',
       '',
       'Deliverables:',
-      `- Spec document at \`${rcasdDir}/specification/<topic-slug>-spec.md\``,
+      '- Spec document stored with `cleo docs add <taskId> <file> --type spec --slug <topic-slug>-spec`',
       '- Use MUST / MUST NOT / SHOULD / MAY consistently',
       '- Include: contracts, data shapes, error codes, acceptance criteria',
       '- Every acceptance criterion MUST be programmatically verifiable',
     ].join('\n'),
     decomposition: [
-      '## Stage-Specific Guidance — Decomposition (RCASD)',
+      '## Stage-Specific Guidance — Decomposition',
       '',
       '**Objective**: Break the epic into atomic child tasks with deps.',
       '',
@@ -978,10 +955,10 @@ function buildStageGuidance(protocol: string, rcasdDir: string, outputDir: strin
       '- Atomic tasks added via `cleo add "<title>" --type task --parent <epicId>`',
       '- Each task has: pipe-separated `--acceptance` criteria, `--size`, `--priority`',
       '- Dependencies wired via `cleo update <id> --depends <otherId>`',
-      `- Decomposition summary at \`${rcasdDir}/decomposition/<epic-slug>-plan.md\``,
+      '- Decomposition summary stored with `cleo docs add <epicId> <file> --type plan --slug <epic-slug>-plan`',
     ].join('\n'),
     implementation: [
-      '## Stage-Specific Guidance — Implementation (IVTR)',
+      '## Stage-Specific Guidance — Implementation',
       '',
       '**Objective**: Write code that satisfies every acceptance criterion.',
       '',
@@ -1004,7 +981,7 @@ function buildStageGuidance(protocol: string, rcasdDir: string, outputDir: strin
       'this task) will be rejected with `E_LEAD_AUTHORSHIP_BYPASS`.',
     ].join('\n'),
     validation: [
-      '## Stage-Specific Guidance — Validation (IVTR)',
+      '## Stage-Specific Guidance — Validation',
       '',
       '**Objective**: Verify implementation against spec + ADRs + contracts.',
       '',
@@ -1015,7 +992,7 @@ function buildStageGuidance(protocol: string, rcasdDir: string, outputDir: strin
       '- If any criterion fails, mark status `blocked` with a concrete fix plan',
     ].join('\n'),
     testing: [
-      '## Stage-Specific Guidance — Testing (IVTR)',
+      '## Stage-Specific Guidance — Testing',
       '',
       '**Objective**: Prove behavior via tests. Zero-regression mandate.',
       '',
@@ -1026,7 +1003,7 @@ function buildStageGuidance(protocol: string, rcasdDir: string, outputDir: strin
       '- Evidence atom: `ci:<pr>` once the PR merged (with `evidence.ciSatisfies`); otherwise `tool:test-affected` (affected packages; needs `testing.affectedCommand`), `test-run:<json>` (pre-recorded structured output of a targeted run), or `tool:test` (executes resolved testing.command; with an affected command configured, only for root-config changes)',
     ].join('\n'),
     release: [
-      '## Stage-Specific Guidance — Release (IVTR)',
+      '## Stage-Specific Guidance — Release',
       '',
       '**Objective**: Version, changelog, tag, publish. No partial releases.',
       '',
@@ -1279,19 +1256,13 @@ function buildManifestProtocolBlock(taskId: string, protocol: SpawnProtocolPhase
  * rendered alongside this one. T12482 dropped this block's restatement of that
  * rule (the Manifest Protocol block already says it) to fund the HITL line.
  */
-function buildFilePathsBlock(
-  taskId: string,
-  outputDir: string,
-  rcasdDir: string,
-  testRunsDir: string,
-): string {
+function buildFilePathsBlock(outputDir: string, testRunsDir: string): string {
   return [
     '## File Paths (absolute — do not guess)',
     '',
     '| Purpose | Absolute Path |',
     '|---------|---------------|',
     `| Agent output directory | \`${outputDir}\` |`,
-    `| RCASD workspace (${taskId}) | \`${rcasdDir}\` |`,
     `| Test-run captures | \`${testRunsDir}\` |`,
   ].join('\n');
 }
@@ -1480,103 +1451,38 @@ export function buildTier2SkillExcerpts(projectRoot: string): string {
   return buildTierSkillExcerpts(2, 'orchestrator', projectRoot);
 }
 
-/**
- * Build the `## CONDUIT Subscription` section for A2A wave coordination.
- *
- * Injected into tier-1 / tier-2 spawn prompts when the orchestrator
- * has configured a wave topic and coordination topic for the task.
- *
- * Follows the pattern established by `buildWorktreeSetupBlock` (T1140):
- * - Names the concrete topic strings so the agent can subscribe immediately.
- * - Provides an SDK usage example (TypeScript).
- *
- * @param config - CONDUIT subscription configuration from the orchestrator.
- * @returns Markdown section ready to concatenate into the spawn prompt.
- *
- * @task T1252 CONDUIT A2A
- */
 /** Build the compact dashboard context block injected into tier-1/2 spawns. */
 function buildDashboardContextBlock(summary: string): string {
   return ['## Orchestrate Dashboard Context', '', `- ${summary}`].join('\n');
 }
 
-function buildConduitSubscriptionBlock(config: ConduitSubscriptionConfig): string {
-  const { epicId, waveId, peerId } = config;
-  const waveTopic = waveTopicName(epicId, waveId);
-  const coordTopic = coordinationTopic(epicId);
-
+/**
+ * Build the `## Agent Coordination (AgentMBX)` section for tier-1/2 prompts.
+ *
+ * Agent-to-agent messages travel over AgentMBX (owner decision D11172), not
+ * CONDUIT. Reads, replies and acks need the session's MCP lease, so the
+ * `agentmbx` CLI is offered for sending only. CLEO keeps the work record; the
+ * message carries the talk.
+ *
+ * @param taskId - Task the spawned agent works on, cited in every message.
+ * @param leadMailbox - AgentMBX mailbox of the spawning lead, when known.
+ * @returns Markdown section ready to concatenate into the spawn prompt.
+ * @task T13943
+ */
+function buildAgentCoordinationBlock(taskId: string, leadMailbox?: string): string {
+  const lead = leadMailbox
+    ? `Your lead's mailbox: \`${leadMailbox}\`. Send your reports and your completion message there.`
+    : `No lead mailbox was given at spawn: look for it in the task notes (\`cleo show ${taskId} --full\`), otherwise name the gap in your return.`;
   return [
-    '## CONDUIT Subscription (A2A Wave Coordination · T1252)',
+    '## Agent Coordination (AgentMBX)',
     '',
-    `> Your peer identity: \`${peerId}\``,
-    `> Your wave topic: \`${waveTopic}\``,
-    `> Coordination topic: \`${coordTopic}\``,
+    `Talk to your lead and other agents over AgentMBX, citing \`${taskId}\` in every message. ${lead}`,
     '',
-    'Subscribe to both topics at startup so you receive wave-completion signals and orchestrator broadcasts.',
+    "1. Identity first: `mbx_whoami`. If it shows no identity, claim one with `mbx_identity` before any other mbx tool. Claude Code Agent-tool subagents share their parent session's identity.",
+    '2. `mbx_inbox` at start and after every wait; `mbx_send` to your lead; `mbx_reply` in a thread; `mbx_ack` what you acted on.',
+    '3. Without the MCP server you can only send: `agentmbx send --as <you> --to <lead> --subject "<subject>" -m "<message>"`. Reading, replying and acking need this session\'s MCP lease.',
     '',
-    '### Topics',
-    '',
-    `**Wave Topic** — \`${waveTopic}\``,
-    '- Role: Leads in your wave exchange findings and block/unblock signals.',
-    '- Action: Subscribe at spawn; publish findings when work completes.',
-    '',
-    `**Coordination Topic** — \`${coordTopic}\``,
-    '- Role: Orchestrator publishes wave-complete and abort signals.',
-    '- Action: Subscribe at spawn; listen for teardown signals.',
-    '',
-    '### SDK Usage (TypeScript)',
-    '',
-    '```ts',
-    "import { createConduit } from '@cleocode/core';",
-    '',
-    `const conduit = await createConduit(registry, '${peerId}');`,
-    'await conduit.connect();',
-    '',
-    '// Subscribe to your wave topic and the coordination topic',
-    `await conduit.subscribeTopic('${waveTopic}');`,
-    `await conduit.subscribeTopic('${coordTopic}');`,
-    '',
-    '// Listen for peer findings',
-    `conduit.onTopic('${waveTopic}', (msg) => {`,
-    "  if (msg.kind === 'notify' && msg.payload?.event === 'work-complete') {",
-    // biome-ignore lint/suspicious/noTemplateCurlyInString: intentional code example in a string
-    '    console.log(`Peer completed: ${msg.fromPeerId}`);',
-    '  }',
-    '});',
-    '',
-    '// Listen for orchestrator signals',
-    `conduit.onTopic('${coordTopic}', (msg) => {`,
-    "  if (msg.kind === 'notify' && msg.payload?.event === 'teardown') {",
-    '    // Wave teardown — safe to disconnect',
-    '    void conduit.disconnect();',
-    '  }',
-    '});',
-    '',
-    '// When your work is done, publish findings',
-    `await conduit.publishToTopic('${waveTopic}', 'Work complete', {`,
-    "  kind: 'notify',",
-    '  payload: {',
-    "    event: 'work-complete',",
-    `    peerId: '${peerId}',`,
-    '    findings: { /* structured output */ },',
-    '    completedAt: new Date().toISOString()',
-    '  }',
-    '});',
-    '```',
-    '',
-    '### CLI Equivalents',
-    '',
-    '```bash',
-    // T12308: the flag is `--topic`. `topicName` is the DISPATCH parameter
-    // name, and citty parses non-strictly, so every agent that followed these
-    // lines had the topic silently discarded and then failed the required-arg
-    // check on a flag it had apparently supplied. Found by the gate that now
-    // scans this file; see `scripts/lint-agent-prompt-commands.mjs`.
-    `cleo conduit subscribe --topic "${waveTopic}"`,
-    `cleo conduit subscribe --topic "${coordTopic}"`,
-    `cleo conduit publish --topic "${waveTopic}" --content "Work complete" --kind notify`,
-    `cleo conduit listen --topic "${waveTopic}"`,
-    '```',
+    'Task state, evidence and results stay in CLEO (`cleo update`, `cleo verify`, `cleo manifest append`); a message never replaces them.',
   ].join('\n');
 }
 
@@ -1657,7 +1563,6 @@ export function buildSpawnPrompt(input: BuildSpawnPromptInput): BuildSpawnPrompt
   // SQLite table is the single source of truth — subagents invoke
   // `cleo manifest append` rather than writing to any flat file.
   const outputDir = join(input.projectRoot, '.cleo', 'agent-outputs');
-  const rcasdDir = join(input.projectRoot, '.cleo', 'rcasd', taskId);
   const testRunsDir = join(input.projectRoot, '.cleo', 'test-runs');
 
   // Worktree path — injected as a token so stage-guidance templates can
@@ -1670,7 +1575,6 @@ export function buildSpawnPrompt(input: BuildSpawnPromptInput): BuildSpawnPrompt
     DATE: date,
     EPIC_ID: epicId,
     OUTPUT_DIR: outputDir,
-    RCASD_DIR: rcasdDir,
     TEST_RUNS_DIR: testRunsDir,
     PROJECT_ROOT: input.projectRoot,
     SESSION_ID: input.sessionId ?? '',
@@ -1743,10 +1647,10 @@ export function buildSpawnPrompt(input: BuildSpawnPromptInput): BuildSpawnPrompt
       authoredSections.push(constraintsBlock);
     }
   }
-  // CONDUIT Subscription (T1252) — only emitted for tier 1/2 when the
-  // orchestrator has configured A2A wave coordination for this task.
-  if (tier >= 1 && input.conduitSubscription) {
-    authoredSections.push(buildConduitSubscriptionBlock(input.conduitSubscription));
+  // Agent Coordination (T13943, D11172) — tier 1/2 agents coordinate over
+  // AgentMBX; the CONDUIT subscription block it replaces could not run.
+  if (tier >= 1) {
+    authoredSections.push(buildAgentCoordinationBlock(taskId, input.leadMailbox));
   }
   if (tier >= 1 && input.dashboardSummary) {
     authoredSections.push(buildDashboardContextBlock(input.dashboardSummary));
@@ -1760,7 +1664,7 @@ export function buildSpawnPrompt(input: BuildSpawnPromptInput): BuildSpawnPrompt
       buildPsycheMemoryBlock(input.retrievalBundle, input.task, input.attentionDigestLines),
     );
   }
-  authoredSections.push(buildFilePathsBlock(taskId, outputDir, rcasdDir, testRunsDir));
+  authoredSections.push(buildFilePathsBlock(outputDir, testRunsDir));
   // Task Documents (T1614) — only emitted when the task has attachments.
   // Text-based attachments ≤ INLINE_TEXT_SIZE_LIMIT_BYTES are inlined; others get a fetch pointer.
   // Omitted entirely when no attachments exist so the prompt stays lean.
@@ -1770,7 +1674,7 @@ export function buildSpawnPrompt(input: BuildSpawnPromptInput): BuildSpawnPrompt
       authoredSections.push(docsBlock);
     }
   }
-  authoredSections.push(buildStageGuidance(protocol, rcasdDir, outputDir));
+  authoredSections.push(buildStageGuidance(protocol, outputDir));
   authoredSections.push(buildEvidenceGateBlock(taskId));
   // T10448 partial — buildChangesetLintGateBlock() was referenced but never
   // implemented/exported. Restored as a follow-up; for now skip cleanly so the

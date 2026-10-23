@@ -1,12 +1,14 @@
 /**
- * End to end (T12682): a worker spawned by `orchestrateSpawn` publishes its
- * completion on the wave topic its spawn prompt names, and a Lead listening
- * on the documented topic — `epic-<epicId>.wave-<n>`, n from
- * `cleo orchestrate waves` — receives it. Workers used to be told
- * `wave-<last 4 digits of their task id>`, so the Lead heard nothing.
- * `orchestrate roll-up --wave n` reads the same n.
+ * End to end (T12682): a worker spawned by `orchestrateSpawn` belongs to the
+ * wave `cleo orchestrate waves` prints, and its Lead rolls that wave up by the
+ * same number (`orchestrate roll-up --wave n`). Workers used to be numbered
+ * by the last 4 digits of their task id, so a Lead never found them.
+ *
+ * T13943: the spawn prompt no longer names a CONDUIT wave topic; agents
+ * coordinate over AgentMBX (D11172).
  *
  * @task T12682
+ * @task T13943
  */
 
 import { mkdir, mkdtemp, rm } from 'node:fs/promises';
@@ -14,10 +16,8 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { orchestrateSpawn } from '@cleocode/core/internal';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { LocalTransport } from '../../conduit/local-transport.js';
 import { rollupWaveStatus } from '../../orchestration/lead-rollup.js';
 import { getEnrichedWaves } from '../../orchestration/waves.js';
-import { ensureConduitDb } from '../../store/conduit-sqlite.js';
 
 interface SeededTask {
   id: string;
@@ -107,14 +107,8 @@ afterEach(async () => {
   await rm(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 500 });
 });
 
-const conn = (agentId: string) => ({
-  agentId,
-  apiKey: 'sk_test_fake',
-  apiBaseUrl: 'http://localhost:4000',
-});
-
-describe('wave topic: spawned worker → Lead (T12682)', () => {
-  it("a spawned worker's completion reaches a Lead listening on epic-<id>.wave-<n> from `orchestrate waves`", async () => {
+describe('wave numbers: spawned worker -> Lead roll-up (T12682, T13943)', () => {
+  it('a spawned worker is told to coordinate over AgentMBX, and its Lead rolls up its wave by the `orchestrate waves` number', async () => {
     // T701 becomes spawnable once its dependency is done — the moment its
     // Lead reads the plan and spawns it.
     const { getTaskAccessor } = await import('@cleocode/core/internal');
@@ -123,64 +117,35 @@ describe('wave topic: spawned worker → Lead (T12682)', () => {
       pipelineStage: 'contribution',
     });
 
-    // Worker side: the real spawn path renders the topic into the prompt.
+    // Worker side: the real spawn path. T13943 replaced the CONDUIT wave-topic
+    // block (its snippet could not run) with AgentMBX coordination.
     const spawned = await orchestrateSpawn('T701', undefined, root, 1, true);
     expect(spawned.success, JSON.stringify(spawned.error)).toBe(true);
     const prompt = (spawned.data as { prompt: string }).prompt;
-    const workerTopic = /Your wave topic: `([^`]+)`/.exec(prompt)?.[1];
-    const peerId = /Your peer identity: `([^`]+)`/.exec(prompt)?.[1];
-    expect(workerTopic).toBeDefined();
-    expect(peerId).toBeDefined();
+    expect(prompt).toContain('## Agent Coordination (AgentMBX)');
+    expect(prompt).not.toMatch(/Your wave topic:|cleo conduit/);
 
-    // Lead side: the documented topic, from the wave number the waves listing prints.
+    // Lead side: the wave number the waves listing prints.
     const plan = await getEnrichedWaves(EPIC, root);
     const n = plan.waves.find((w) => w.taskIds.includes('T701'))?.waveNumber;
-    expect(n).toBeDefined();
-    const leadTopic = `epic-${EPIC}.wave-${n}`;
-    expect(workerTopic).toBe(leadTopic);
-
-    // The signal itself, over the local conduit transport.
-    await ensureConduitDb(root);
-    process.chdir(root);
-    const lead = new LocalTransport();
-    await lead.connect(conn('lead-t700e'));
-    await lead.subscribeTopic(leadTopic);
-    const worker = new LocalTransport();
-    await worker.connect(conn(peerId as string));
-    await worker.publishToTopic(workerTopic as string, 'T701 complete', {
-      kind: 'notify',
-      payload: { event: 'work-complete', taskId: 'T701' },
-    });
-    const heard = await lead.pollTopic(leadTopic);
-    expect(heard.map((m) => m.payload)).toContainEqual({
-      event: 'work-complete',
-      taskId: 'T701',
-    });
-    await worker.disconnect();
-    await lead.disconnect();
+    expect(n).toBe(2);
 
     // The Lead rolls up the same wave by the same number.
     const wave = await rollupWaveStatus(EPIC, n as number, root);
     expect(wave.workers.map((w) => w.taskId)).toEqual(['T701']);
   });
 
-  it('a Lead that subscribes AHEAD still hears its worker: wave numbers never shift (T12682, option A)', async () => {
-    // Plan time: wave 1 is still pending, and the Lead subscribes to wave 2 now.
+  it('wave numbers never shift: a finished wave keeps its number (T12682, option A)', async () => {
+    // Plan time: wave 1 is still pending, and T701 is in wave 2.
     const ahead = await getEnrichedWaves(EPIC, root);
-    const n = ahead.waves.find((w) => w.taskIds.includes('T701'))?.waveNumber;
-    expect(n).toBe(2);
-    const leadTopic = `epic-${EPIC}.wave-${n}`;
+    expect(ahead.waves.find((w) => w.taskIds.includes('T701'))?.waveNumber).toBe(2);
 
-    // Wave 1 finishes; T701 becomes spawnable and is spawned.
+    // Wave 1 finishes.
     const { getTaskAccessor } = await import('@cleocode/core/internal');
     await (await getTaskAccessor(root)).updateTaskFields('T700A', {
       status: 'done',
       pipelineStage: 'contribution',
     });
-    const spawned = await orchestrateSpawn('T701', undefined, root, 1, true);
-    expect(spawned.success, JSON.stringify(spawned.error)).toBe(true);
-    const prompt = (spawned.data as { prompt: string }).prompt;
-    expect(/Your wave topic: `([^`]+)`/.exec(prompt)?.[1]).toBe(leadTopic);
 
     // The finished wave is still listed, under its number.
     const after = await getEnrichedWaves(EPIC, root);

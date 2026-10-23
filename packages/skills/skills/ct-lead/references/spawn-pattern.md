@@ -2,26 +2,26 @@
 
 The Phase Lead fans out all workers in a single `delegate_task` batch.
 Width is bounded by `maxConcurrent` (default 10; a convention the Lead enforces — no runtime check exists).
-Each child carries `role=leaf` and inherits the wave's conduit topic.
+Each child carries `role=leaf`, and its brief names the Lead's AgentMBX
+mailbox so its completion message reaches the Lead.
 
 All examples assume:
 - Lead's own task ID: `T9080-lead-w2`
 - Epic: `T9080`
 - Wave: `wave-2`
-- Conduit topic: `epic-T9080.wave-2`
+- Lead mailbox (AgentMBX): `lead-t9080-w2`
 
 ---
 
 ## Example 1 — 3-worker fanout (small wave)
 
-Typical for narrowly-scoped IVTR waves where deps fan in tightly.
+Typical for narrowly-scoped waves where deps fan in tightly.
 
 ```json
 {
   "tool": "delegate_task",
   "args": {
     "parent": { "taskId": "T9080-lead-w2", "role": "orchestrator" },
-    "conduitTopic": "epic-T9080.wave-2",
     "timeoutSeconds": 600,
     "tasks": [
       { "taskId": "T9101", "role": "leaf", "subagent_type": "cleo-subagent", "model": "sonnet" },
@@ -34,11 +34,9 @@ Typical for narrowly-scoped IVTR waves where deps fan in tightly.
 
 CLI equivalent (one shell call, NOT a loop). `fanout` takes the epic and the
 task list only; role, model and timeout come from each task's spawn prompt
-(`cleo orchestrate spawn <taskId>`), and the Lead subscribes to the wave topic
-before it runs:
+(`cleo orchestrate spawn <taskId>`):
 
 ```bash
-cleo conduit subscribe --topic epic-T9080.wave-2
 cleo orchestrate fanout T9080 --tasks T9101,T9102,T9103
 ```
 
@@ -51,7 +49,6 @@ cleo orchestrate fanout T9080 --tasks T9101,T9102,T9103
   "tool": "delegate_task",
   "args": {
     "parent": { "taskId": "T9080-lead-w2", "role": "orchestrator" },
-    "conduitTopic": "epic-T9080.wave-2",
     "timeoutSeconds": 600,
     "tasks": [
       { "taskId": "T9201", "role": "leaf", "subagent_type": "cleo-subagent", "model": "sonnet" },
@@ -76,7 +73,6 @@ For wider waves, the parent Orchestrator MUST split into multiple Leads.
   "tool": "delegate_task",
   "args": {
     "parent": { "taskId": "T9080-lead-w2", "role": "orchestrator" },
-    "conduitTopic": "epic-T9080.wave-2",
     "timeoutSeconds": 600,
     "tasks": [
       { "taskId": "T9301", "role": "leaf", "subagent_type": "cleo-subagent", "model": "sonnet" },
@@ -128,6 +124,6 @@ DO NOT spawn workers with `role=orchestrator`:
 | Worker count | When to use | Notes |
 |--------------|-------------|-------|
 | 1–3 | Narrow waves; single-package changes | Minimal overhead, fast convergence |
-| 4–6 | Typical IVTR implementation waves | Sweet spot for sonnet workers |
-| 7–10 | Max-width parallel waves | Watch conduit signal volume; close to convergence-limit |
+| 4–6 | Typical implementation waves | Sweet spot for sonnet workers |
+| 7–10 | Max-width parallel waves | Watch inbox volume; close to convergence-limit |
 | >10  | Split across multiple Leads | Top Orchestrator spawns N Leads, each ≤10 workers |
