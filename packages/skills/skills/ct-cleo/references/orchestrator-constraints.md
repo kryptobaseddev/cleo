@@ -18,7 +18,6 @@
 ### CLI Spawn Operations
 
 ```bash
-cleo orchestrate start T001
 cleo orchestrate analyze T001
 cleo orchestrate ready T001
 cleo orchestrate next T001

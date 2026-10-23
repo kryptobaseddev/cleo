@@ -1,6 +1,6 @@
 # CLEO Protocol — on-demand reference
 
-Version: 2.24.16 | Companion to the always-loaded `CLEO-INJECTION.md` core
+Version: 2.24.17 | Companion to the always-loaded `CLEO-INJECTION.md` core
 
 Not injected into agent context. Print one section with `cleo briefing inject --section <name>`; tier-2 spawn prompts embed this whole file. Section names are the `CLEO-INJECTION:section` markers below.
 
@@ -200,11 +200,9 @@ HIGH/CRITICAL requires reviewing affected callers before editing. For stale, par
 
 | Goal | Command |
 |------|---------|
-| Initialize epic pipeline | `cleo orchestrate start <epicId>` (auto-inits LOOM research stage) |
 | Get parallel-safe wave | `cleo orchestrate ready <epicId>` |
 | Get spawn prompt for a task | `cleo orchestrate spawn <taskId>` |
 | Spawn without worktree (opt-out) | `cleo orchestrate spawn <taskId> --no-worktree` |
-| Multi-agent IVTR loop | `cleo orchestrate ivtr <taskId> --start` |
 | View epic wave plan | `cleo orchestrate waves <epicId>` |
 | Grant HITL approval (paused playbook) | `cleo orchestrate approve <resumeToken>` |
 | Deny HITL approval with reason | `cleo orchestrate reject <resumeToken> --reason "<r>"` |
