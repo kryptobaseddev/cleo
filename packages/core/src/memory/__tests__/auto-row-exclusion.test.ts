@@ -67,7 +67,14 @@ describe('autoRowExclusionClause (T13946)', () => {
     const insert = db.prepare(
       'INSERT INTO brain_observations (id, title, narrative, verified) VALUES (?, ?, ?, ?)',
     );
-    insert.run('O-doc', 'Doc attached: some-spec', 'Attached to T1', 0);
+    insert.run(
+      'O-doc',
+      'Doc attached: some-spec',
+      JSON.stringify({ kind: 'doc-attachment', attachmentId: 'A1', ownerId: 'T1' }),
+      0,
+    );
+    // A human note that only shares the title prefix stays in recall.
+    insert.run('O-doc-human', 'doc attached: why we dropped X', 'We dropped X because Y', 0);
     insert.run('O-stub-done', 'Task complete: T1', 'Task T1 completed with status: done', 0);
     insert.run('O-stub-start', 'Task start: T2', 'Started work on T2: ', 0);
     insert.run('O-start-real', 'Task start: T3', 'Started work on T3: reproduce the WAL desync', 0);
@@ -78,7 +85,7 @@ describe('autoRowExclusionClause (T13946)', () => {
       0,
     );
     insert.run('O-verified-stub', 'Task complete: T4', 'Task T4 completed with status: done', 1);
-    const kept = ['O-lesson', 'O-start-real', 'O-verified-stub'];
+    const kept = ['O-doc-human', 'O-lesson', 'O-start-real', 'O-verified-stub'];
     expect(
       ids(
         db,
@@ -92,7 +99,7 @@ describe('autoRowExclusionClause (T13946)', () => {
       ),
     ).toEqual(kept);
     // Nothing is deleted: the rows stay for direct fetch and a later, owner-approved quarantine.
-    expect(ids(db, 'SELECT id FROM brain_observations')).toHaveLength(6);
+    expect(ids(db, 'SELECT id FROM brain_observations')).toHaveLength(7);
     db.close();
   });
 

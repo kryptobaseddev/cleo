@@ -4,7 +4,8 @@
  * Covers:
  *   - AC1: `cleo docs add` emits a structured O-doc-<slug> memory observation
  *          with payload `{slug, ownerId, type, attachmentId, addedAt, kind}`.
- *   - AC2: `cleo memory find '<slug>'` surfaces the observation.
+ *   - AC2: `cleo memory find '<slug>'` surfaced the observation; since T13946
+ *          recall excludes doc-attachment rows and `memory fetch <id>` reads it.
  *   - AC3: `cleo memory verify <id>` round-trips and warns on missing attachment.
  *   - AC4: `cleo memory backfill-docs` sweeps existing attachments and emits
  *          observations for any not yet recorded.
@@ -151,23 +152,21 @@ describe('T9976 — docs.add emits memory observation (AC1 + AC2)', () => {
       expect(typeof payload.addedAt).toBe('string');
     }
 
-    // AC2: memory.find surfaces the entry (may use LIKE fallback in fresh DBs).
-    // Use `tables: ['observations']` to restrict search to observations table and
-    // avoid RRF cross-table fusion which requires vector index not present in tests.
+    // AC2, revised by T13946: the doc-attachment row is an auto row, so recall
+    // (memory find) leaves it out; the attachment itself is found through
+    // `cleo docs`, and the row stays readable by id.
     const findResp = await memoryHandler.query('find', {
       query: slug,
       tables: ['observations'],
     });
     expect(findResp.success).toBe(true);
-    // The compact result uses `results` field per SearchBrainCompactResult contract.
     const findData = findResp.data as { results?: Array<{ id: string; title: string }> };
-    const results = findData.results ?? [];
-    const hit = results.find((r) => r.title.includes(slug) || r.id === foundRow?.id);
-    expect(
-      hit,
-      `memory.find('${slug}', {tables: ['observations']}) did not surface the observation`,
-    ).toBeDefined();
-    expect(hit?.title).toContain(slug);
+    expect((findData.results ?? []).some((r) => r.id === foundRow?.id)).toBe(false);
+    const fetchResp = await memoryHandler.query('fetch', { ids: [foundRow?.id ?? ''] });
+    expect(fetchResp.success).toBe(true);
+    expect((fetchResp.data as { results?: Array<{ id: string }> }).results?.[0]?.id).toBe(
+      foundRow?.id,
+    );
   });
 
   it('drains actual memory.find retrieval writes before fixture teardown', async () => {
@@ -188,15 +187,16 @@ describe('T9976 — docs.add emits memory observation (AC1 + AC2)', () => {
     const slug = 't12283-retrieval-lifetime';
     let drain: Promise<void> | undefined;
     try {
-      const added = await docsHandler.mutate('add', {
-        ownerId: 'T9976',
-        file: fixtureFile,
-        slug,
-        attachedBy: 'test',
+      // A real observation: doc-attachment rows are excluded from recall (T13946).
+      const { getBrainAccessor } = await import('@cleocode/core/internal');
+      await (await getBrainAccessor(tempDir)).addObservation({
+        id: 'O-t12283',
+        type: 'discovery',
+        title: `Retrieval lifetime ${slug}`,
+        narrative: `memory find drains its retrieval log write ${slug}`,
+        sourceType: 'agent',
       });
-      expect(added.success).toBe(true);
-      expect((added.data as DocsAddResult).projection).toMatchObject({ status: 'completed' });
-      expect(await findDocObservationBySlug(slug)).toBeDefined();
+      await awaitBackgroundOps();
       const found = await memoryHandler.query('find', { query: slug, tables: ['observations'] });
       expect(found.success).toBe(true);
       await entered.promise;
@@ -216,7 +216,6 @@ describe('T9976 — docs.add emits memory observation (AC1 + AC2)', () => {
           ?.prepare('SELECT query FROM brain_retrieval_log WHERE query = ?')
           .get(slug),
       ).toMatchObject({ query: slug });
-      expect(await findDocObservationBySlug(slug)).toBeDefined();
     } finally {
       release.resolve();
       if (spy.mock.calls.length > 0) await finished.promise;

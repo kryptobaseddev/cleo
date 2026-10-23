@@ -10,9 +10,9 @@
  * ## Why this exists
  *
  * `sqlite.ts` previously declared `let _DatabaseSyncCtor = null` at module
- * scope. When Vitest eagerly traces the dynamic `import('../memory/dispatch-trace.js')`
- * in `agent-resolver.ts`, it re-enters `sqlite.ts` before the module finishes
- * initializing. Because `let` declarations in ESM are hoisted (TDZ) but not yet
+ * scope. When Vitest eagerly traced the dynamic `import('../memory/dispatch-trace.js')`
+ * that `agent-resolver.ts` had until T13946, it re-entered `sqlite.ts` before the
+ * module finished initializing. Because `let` declarations in ESM are hoisted (TDZ) but not yet
  * initialized at re-entry, any access to `_DatabaseSyncCtor` throws
  * `Cannot access '_DatabaseSyncCtor' before initialization`.
  *

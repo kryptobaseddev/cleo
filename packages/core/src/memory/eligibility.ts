@@ -45,8 +45,9 @@ export function memoryEligibilityClause(
  *
  * Excluded, without being deleted or quarantined:
  * - patterns: stored dispatch traces (99.5 % of `brain_patterns` on 2026-10-23);
- * - observations: `Doc attached:` records (the attachment row already holds the
- *   link) and the content-free task-start/complete stubs of
+ * - observations: `Doc attached:` records carrying the doc-attachment JSON
+ *   payload (the attachment row already holds the link) and the content-free
+ *   task-start/complete stubs of
  *   {@link stubObservationClause}.
  *
  * Decisions and learnings have no auto-row shape and get an empty clause.
@@ -68,7 +69,10 @@ export function autoRowExclusionClause(
     return ` AND ${alias}.pattern NOT LIKE '${DISPATCH_TRACE_TEXT_PREFIX}%'`;
   }
   if (table === 'observations') {
-    return ` AND ${alias}.title NOT LIKE 'Doc attached:%' AND ${alias}.id NOT IN (SELECT id FROM main.brain_observations WHERE ${stubObservationClause()})`;
+    // Both doc writers (docs projection, memory backfill-docs) store the
+    // DocAttachmentObservationPayload JSON as the narrative. Requiring it keeps
+    // a human note titled "Doc attached: …" in recall; GLOB is case-sensitive.
+    return ` AND NOT (${alias}.title GLOB 'Doc attached:*' AND ${alias}.narrative LIKE '%"kind":"doc-attachment"%') AND ${alias}.id NOT IN (SELECT id FROM main.brain_observations WHERE ${stubObservationClause()})`;
   }
   return '';
 }
