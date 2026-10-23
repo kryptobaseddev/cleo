@@ -315,7 +315,7 @@ const observeCommand = defineCommand({
     type: {
       type: 'string',
       description:
-        'Category: discovery (found something new), decision (choice made), bugfix (bug found/fixed), refactor (code restructured), feature (feature added), change (general change), diary (journal entry), session-summary (end-of-session recap auto-created by cleo session end)',
+        'Category: discovery (found something new), decision (choice made), bugfix (bug found/fixed), refactor (code restructured), feature (feature added), change (general change), diary (journal entry), session-summary (end-of-session recap auto-created by cleo session end), lesson (--title is the one-line rule, the text is why; defaults to --scope global)',
     },
     agent: {
       type: 'string',
@@ -2140,6 +2140,36 @@ const diaryWriteCommand = makeMemorySubcommand({
 });
 
 /**
+ * cleo memory lessons — T13949 (D11181).
+ *
+ * The curated lessons index: current `lesson` observations (one-line rule plus
+ * why), newest first, superseded lessons hidden. Reads the project brain, the
+ * global main brain, or both.
+ */
+const lessonsCommand = makeMemorySubcommand({
+  name: 'lessons',
+  description:
+    'List lessons (one-line rule + why) newest first, superseded hidden. Write one with: cleo memory observe "<why>" --type lesson --title "<rule>"',
+  args: {
+    scope: {
+      type: 'string',
+      description: 'Store to read: project, global (the main brain) or all (default)',
+    },
+    limit: {
+      type: 'string',
+      description: 'Maximum number of lessons to return (default: 50).',
+    },
+  },
+  gateway: 'query',
+  operation: 'lessons',
+  output: { command: 'memory-lessons', operation: 'memory.lessons' },
+  paramBuilder: (args) => ({
+    ...(args['scope'] !== undefined && { scope: args['scope'] as string }),
+    ...(args['limit'] !== undefined && { limit: parseInt(args['limit'] as string, 10) }),
+  }),
+});
+
+/**
  * cleo memory diary — group command hosting read / write subcommands (T1006).
  */
 const diaryCommand = defineCommand({
@@ -2370,6 +2400,7 @@ export const memoryCommand = defineCommand({
     reflect: reflectCommand,
     'dedup-scan': dedupScanCommand,
     'prune-stubs': pruneStubsCommand,
+    lessons: lessonsCommand,
     'prune-traits': pruneTraitsCommand,
     'set-trait-scope': setTraitScopeCommand,
     import: importCommand,

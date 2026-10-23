@@ -164,6 +164,16 @@ export interface ObserveBrainResult {
   typeSource?: 'caller' | 'keyword' | 'system-one';
   /** T12494: confidence behind a `keyword` (flat 0.5) or `system-one` type. */
   typeConfidence?: number;
+  /**
+   * T13949: `false` when the extraction gate stored nothing (it merged into an
+   * existing entry, deferred or rejected the write). `id` is then the existing
+   * entry, or a placeholder. Absent when a row was stored.
+   */
+  stored?: false;
+  /** T13949: the gate's decision when nothing was stored. */
+  gateAction?: 'merged' | 'pending' | 'rejected';
+  /** T13949: the gate's explanation when nothing was stored. */
+  gateReason?: string;
 }
 
 // ── DocAttachmentObservationPayload ─────────────────────────────────

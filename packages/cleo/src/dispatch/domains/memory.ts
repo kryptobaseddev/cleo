@@ -11,7 +11,7 @@
  * @epic T5149
  */
 
-import type { DocAttachmentObservationPayload } from '@cleocode/contracts';
+import type { DocAttachmentObservationPayload, ObserveBrainResult } from '@cleocode/contracts';
 import {
   OAUTH_STATUS_PROVIDERS,
   resolveCredentials,
@@ -51,6 +51,9 @@ const generateMemoryBridgeContent = lazyOperation(
 );
 const getBrainDb = lazyOperation(
   async () => (await import('@cleocode/core/store/memory-sqlite')).getBrainDb,
+);
+const listLessons = lazyOperation(
+  async () => (await import('@cleocode/core/memory/lessons')).listLessons,
 );
 const memoryDecisionFind = lazyOperation(
   async () => (await import('@cleocode/core/memory/engine-compat')).memoryDecisionFind,
@@ -1040,6 +1043,37 @@ export class MemoryHandler implements DomainHandler {
           }
         }
 
+        // T13949 — curated lessons index, newest first, superseded hidden
+        case 'lessons': {
+          const scopeParam = paramString(params, 'scope') ?? 'all';
+          if (scopeParam !== 'project' && scopeParam !== 'global' && scopeParam !== 'all') {
+            return errorResult(
+              'query',
+              'memory',
+              operation,
+              // @sync-invariant none:input-shape an unknown lessons scope is refused; a read writes nothing
+              'E_INVALID_INPUT',
+              `scope must be project, global or all (got '${scopeParam}')`,
+              startTime,
+            );
+          }
+          try {
+            const lessons = await listLessons(projectRoot, {
+              scope: scopeParam,
+              limit: paramNumber(params, 'limit') ?? 50,
+            });
+            return wrapResult(
+              { success: true, data: { count: lessons.length, scope: scopeParam, lessons } },
+              'query',
+              'memory',
+              operation,
+              startTime,
+            );
+          } catch (err) {
+            return handleErrorResult('query', 'memory', operation, err, startTime);
+          }
+        }
+
         // T1006 — read diary-typed observations
         case 'diary': {
           const limitVal = paramNumber(params, 'limit') ?? 20;
@@ -1545,6 +1579,24 @@ export class MemoryHandler implements DomainHandler {
             },
             projectRoot,
           );
+          // T13949 (D11181): observe fails loudly when the extraction gate
+          // stored nothing (a duplicate merged into an existing entry, or a
+          // deferred or rejected write), naming the entry it merged into.
+          const observed = result.success ? (result.data as ObserveBrainResult) : undefined;
+          if (observed?.stored === false) {
+            const action = observed.gateAction ?? 'declined';
+            const into = observed.gateAction === 'merged' ? ` into ${observed.id}` : '';
+            const why = observed.gateReason ? ` (${observed.gateReason})` : '';
+            return errorResult(
+              'mutate',
+              'memory',
+              operation,
+              // @sync-invariant none:input-shape the gate stored nothing; this only reports it
+              'E_OBSERVE_NOT_STORED',
+              `Nothing stored: the extraction gate ${action} the observation${into}${why}`,
+              startTime,
+            );
+          }
           return wrapResult(result, 'mutate', 'memory', operation, startTime);
         }
 
@@ -2243,6 +2295,8 @@ export class MemoryHandler implements DomainHandler {
         'recent',
         // T1006 — diary-typed observations (requires diary enum from T1005)
         'diary',
+        // T13949 — curated lessons index
+        'lessons',
         // T1006 — long-poll stream of recent brain writes (SSE-style polling stub)
         'watch',
         // T1003 — list staged backfill runs

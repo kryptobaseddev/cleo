@@ -175,6 +175,8 @@ export const BRAIN_OBSERVATION_TYPES = [
   'refactor',
   'diary',
   'session-summary',
+  /** T13949: a one-line rule (title) with its why (narrative). */
+  'lesson',
 ] as const;
 
 /** Memory entity types for the links table. */
