@@ -529,19 +529,29 @@ export interface LedgerEntry {
 }
 
 /**
- * Queue order (T13921): urgent entries first, then FIFO by `enqueuedAtMs`,
- * then id. Negative when `a` is ahead of `b`.
+ * A routine waiter that has waited this long ranks with urgent ones (T13921):
+ * a stream of urgent jobs can delay routine work, never starve it.
  */
-function queueOrder(a: LedgerEntry, b: LedgerEntry): number {
-  const rank = (e: LedgerEntry): number => (e.priority === 'urgent' ? 0 : 1);
-  return (
-    rank(a) - rank(b) || a.enqueuedAtMs - b.enqueuedAtMs || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0)
-  );
+export const URGENT_AGING_MS = 10 * 60_000;
+
+/**
+ * Queue order at `nowMs` (T13921): urgent entries, and routine ones that have
+ * waited {@link URGENT_AGING_MS}, first; then FIFO by `enqueuedAtMs`, then id.
+ * The comparator is negative when `a` is ahead of `b`.
+ *
+ * @param nowMs - the clock.
+ */
+function queueOrder(nowMs: number): (a: LedgerEntry, b: LedgerEntry) => number {
+  const rank = (e: LedgerEntry): number =>
+    e.priority === 'urgent' || nowMs - e.enqueuedAtMs >= URGENT_AGING_MS ? 0 : 1;
+  const byId = (a: LedgerEntry, b: LedgerEntry): number => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
+  return (a, b) => rank(a) - rank(b) || a.enqueuedAtMs - b.enqueuedAtMs || byId(a, b);
 }
 
-/** Waiting entries queued ahead of `mine` (its queue position is this plus one). */
-function waitingAhead(entries: readonly LedgerEntry[], mine: LedgerEntry): number {
-  return entries.filter((e) => e.state === 'waiting' && e.id !== mine.id && queueOrder(e, mine) < 0)
+/** Waiting entries queued ahead of `mine` at `nowMs` (its queue position is this plus one). */
+function waitingAhead(entries: readonly LedgerEntry[], mine: LedgerEntry, nowMs: number): number {
+  const order = queueOrder(nowMs);
+  return entries.filter((e) => e.state === 'waiting' && e.id !== mine.id && order(e, mine) < 0)
     .length;
 }
 
@@ -1229,7 +1239,7 @@ export function schedulePass(entries: readonly LedgerEntry[], ctx: PassContext):
   const startable = (w: LedgerEntry, cost: number, h: Held): boolean =>
     fits(w, cost, h) ||
     (running - h.running === 0 && (isHeavy(w) ? ctx.share : lightShare) !== 'none');
-  const waiting = entries.filter((e) => e.state === 'waiting').sort(queueOrder);
+  const waiting = entries.filter((e) => e.state === 'waiting').sort(queueOrder(ctx.nowMs));
   // T13591: the reserve is bounded like the tiny lane (T13389). While the
   // oldest non-tiny run waits, it stays open only for TINY_LANE_WINDOWS
   // reservation windows, and never for a run charged the whole capacity: its
@@ -2130,7 +2140,7 @@ async function admitInner(req: AdmissionRequest, opts: AdmitOptions): Promise<Ad
 
   const refusal = (doc: LedgerDoc, reading: MemoryPressureReading | null): AdmissionRefusal => {
     const nowMs = now();
-    const ahead = waitingAhead(doc.entries, entry);
+    const ahead = waitingAhead(doc.entries, entry, nowMs);
     const load = budgetLoad(doc, capacityBytes);
     const exclusiveHolder =
       entry.exclusive === true
@@ -2292,7 +2302,7 @@ function holderReport(
 ): string {
   const holders = doc.entries.filter((e) => e.state === 'admitted');
   const used = budgetLoad(doc, capacityBytes).bytes;
-  const ahead = waitingAhead(doc.entries, mine);
+  const ahead = waitingAhead(doc.entries, mine, nowMs);
   const lines = [
     `still waiting after ${age(waitedMs)} for the machine budget (${gib(used)} of ${budgetPhrase(mine, ledgerBudget(doc.pressure, capacityBytes))} in use, ` +
       `queue position ${ahead + 1}${mine.priority === 'urgent' ? ' (urgent)' : ''}, ${ahead} waiting ahead). Holders: ${describeLoad(doc, nowMs).join('; ') || 'none'}.`,

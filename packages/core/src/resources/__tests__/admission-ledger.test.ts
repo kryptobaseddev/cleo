@@ -14,6 +14,7 @@ import { join } from 'node:path';
 import lockfile from 'proper-lockfile';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
+  URGENT_AGING_MS,
   ADMISSION_ENV,
   ADMISSION_PRESSURE_ENV,
   admissionCapacityBytes,
@@ -423,6 +424,31 @@ describe('an urgent run queues ahead of routine work, within the budget (T13921)
     );
     // The routine run that fits may still backfill around the waiting urgent head.
     expect(admittedIds(out)).toEqual(['holder', 'push-1']);
+  });
+
+  it('several urgent runs keep FIFO order among themselves', () => {
+    const out = schedulePass(
+      [
+        entry({ id: 'holder', state: 'admitted', footprintBytes: 12 * GIB, admittedAtMs: 0 }),
+        entry({ id: 'u-2', footprintBytes: 12 * GIB, enqueuedAtMs: 5, priority: 'urgent' }),
+        entry({ id: 'u-1', footprintBytes: 12 * GIB, enqueuedAtMs: 4, priority: 'urgent' }),
+      ],
+      ctx,
+    );
+    expect(admittedIds(out)).toEqual(['holder', 'u-1']);
+  });
+
+  it('a routine run waiting URGENT_AGING_MS is no longer passed by a new urgent one', () => {
+    const nowMs = URGENT_AGING_MS + 60_000;
+    const out = schedulePass(
+      [
+        entry({ id: 'holder', state: 'admitted', footprintBytes: 12 * GIB, admittedAtMs: 0 }),
+        entry({ id: 'old-push', footprintBytes: 12 * GIB, enqueuedAtMs: 0 }),
+        entry({ id: 'fix', footprintBytes: 12 * GIB, enqueuedAtMs: nowMs - 1, priority: 'urgent' }),
+      ],
+      { ...ctx, nowMs },
+    );
+    expect(admittedIds(out)).toEqual(['holder', 'old-push']);
   });
 });
 
@@ -1308,6 +1334,33 @@ describe('admit (one ledger, real critical section)', () => {
     expect(notices[0]).toMatch(
       /^still waiting after 1m 0\ds for the machine budget \(10 GiB of 10 GiB in use, queue position 1, 0 waiting ahead\)\. Holders: tool:test pid/,
     );
+    await a.grant.release();
+  });
+
+  it('a long urgent waiter reports its queue position (T13921)', async () => {
+    const a = await admit(
+      { label: 'tool:test', footprintBytes: 10 * GIB },
+      { ...base, dir, wait: false },
+    );
+    if (!a.admitted) throw new Error('expected an admission');
+    let t = Date.now();
+    const notices: string[] = [];
+    const out = await admit(
+      { label: 'run:scoped-build', footprintBytes: 10 * GIB, urgent: true },
+      {
+        ...base,
+        dir,
+        wait: true,
+        timeoutMs: 70_000,
+        now: () => t,
+        sleep: async (ms) => {
+          t += Math.max(ms, 1_000);
+        },
+        notice: (l) => notices.push(l),
+      },
+    );
+    expect(out.admitted).toBe(false);
+    expect(notices[0]).toContain('queue position 1 (urgent), 0 waiting ahead). Holders: tool:test');
     await a.grant.release();
   });
 

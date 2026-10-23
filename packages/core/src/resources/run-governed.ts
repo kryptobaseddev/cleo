@@ -154,6 +154,8 @@ export interface RunGovernedDeps {
   readonly ancestorsOf: (pid: number) => readonly number[] | null;
   /** CPU time and resident memory of a pid's process tree (one `ps`), or null when unknown (T13563). */
   readonly treeUsage: (pid: number) => ProcessTreeUsage | null;
+  /** Where hook measurements are kept (T13921). @defaultValue the admission directory */
+  readonly hookFootprintsDir: string;
 }
 
 /** How often the watchdog measures the child's process tree (T13563). */
@@ -352,6 +354,7 @@ function defaultDeps(): RunGovernedDeps {
     groupOf: processGroupOf,
     ancestorsOf: processAncestors,
     treeUsage: processTreeUsage,
+    hookFootprintsDir: admissionDir(),
   };
 }
 
@@ -758,12 +761,16 @@ export async function runGoverned(opts: RunGovernedOptions): Promise<RunGoverned
   let watch: RunWatchState = RUN_WATCH_START;
   let treeSampledAtMs = Number.NEGATIVE_INFINITY;
   let peakRssBytes = 0;
+  let treeSamples = 0;
   const treeSampleMs = opts.hookKey !== undefined ? HOOK_SAMPLE_MS : TREE_SAMPLE_MS;
   const watchdog = (now: number): void => {
     if (childPid === undefined || now - treeSampledAtMs < treeSampleMs) return;
     treeSampledAtMs = now;
     const usage = d.treeUsage(childPid);
-    if (usage) peakRssBytes = Math.max(peakRssBytes, usage.rssBytes);
+    if (usage) {
+      treeSamples++;
+      peakRssBytes = Math.max(peakRssBytes, usage.rssBytes);
+    }
     // A pause still in progress is not run time either (T13570).
     const pausedMs = pausedTotalMs + (pausedAtMs !== null ? now - pausedAtMs : 0);
     const step = watchRun(
@@ -854,9 +861,10 @@ export async function runGoverned(opts: RunGovernedOptions): Promise<RunGoverned
   if (pausedAtMs !== null) pausedTotalMs += d.now() - pausedAtMs;
   removeRunJob(job.id, d.jobsDir);
   await grant.release();
-  // T13921: only a hook that ran to a clean exit is a measurement.
-  if (opts.hookKey !== undefined && result.code === 0 && peakRssBytes > 0) {
-    recordHookPeak(opts.hookKey, peakRssBytes, admissionDir(), d.now());
+  // T13921: only a hooked run that exited 0 and ran long enough to be sampled
+  // HOOK_MIN_SAMPLES times is a measurement (recordHookPeak decides).
+  if (opts.hookKey !== undefined && result.code === 0) {
+    await recordHookPeak(opts.hookKey, peakRssBytes, treeSamples, d.hookFootprintsDir, d.now());
   }
   return exitedResult(result.error ? result.error.message : null, result.code, result.signal);
 
