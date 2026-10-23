@@ -37,6 +37,7 @@ vi.mock('../../resources/top-memory.js', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../../resources/top-memory.js')>()),
   topMemoryConsumers: () => [],
 }));
+
 import { engineSuccess } from '../../engine-result.js';
 import { readProjectInfoAtDirectorySync } from '../../project-scope.js';
 import { ResourceMonitor } from '../../resources/monitor.js';

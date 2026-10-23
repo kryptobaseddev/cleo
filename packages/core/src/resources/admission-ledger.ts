@@ -2403,10 +2403,7 @@ function foreignId(f: ForeignEntry): string {
  * @returns the ids removed (entries of another CLEO version included).
  */
 export async function reapLedger(
-  opts: Pick<
-    AdmitOptions,
-    'dir' | 'capacityBytes' | 'probe' | 'now' | 'sample' | 'topMemory'
-  > = {},
+  opts: Pick<AdmitOptions, 'dir' | 'capacityBytes' | 'probe' | 'now' | 'sample' | 'topMemory'> = {},
 ): Promise<string[]> {
   const dir = opts.dir ?? admissionDir();
   const now = opts.now ?? Date.now;

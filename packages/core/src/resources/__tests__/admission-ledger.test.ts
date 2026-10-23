@@ -1034,11 +1034,14 @@ describe('admit (one ledger, real critical section)', () => {
   it('a failed probe reads UNKNOWN and is retried; reap never probes (T13963, T13964)', async () => {
     const failing = vi.fn((): null => null);
     const pressed = { ...base, sample: async () => sampleAt(40), topMemory: failing };
-    const first = await admit({ label: 'tool:test', footprintBytes: GIB }, {
-      ...pressed,
-      dir,
-      wait: false,
-    });
+    const first = await admit(
+      { label: 'tool:test', footprintBytes: GIB },
+      {
+        ...pressed,
+        dir,
+        wait: false,
+      },
+    );
     expect(first.admitted).toBe(false);
     if (!first.admitted) expect(first.refusal.reason).toContain('largest memory users: UNKNOWN');
     await admit({ label: 'tool:test', footprintBytes: GIB }, { ...pressed, dir, wait: false });
