@@ -11,7 +11,7 @@
  */
 
 import type { TaskStatus } from '@cleocode/contracts';
-import { memoryEligibilityClause } from '../eligibility.js';
+import { autoRowExclusionClause, memoryEligibilityClause } from '../eligibility.js';
 
 /** Default token budget for `buildRetrievalBundle` (characters / 4 ≈ tokens). */
 const DEFAULT_TOKEN_BUDGET = 4000;
@@ -191,11 +191,11 @@ export async function fetchPeerMemory(
   // T1260 PSYCHE E3: SELECT provenance_class for M6 refusal gate.
   const patternSqlWithPeer = `SELECT id, pattern, extracted_at, provenance_class, quality_score, citation_count FROM brain_patterns
            WHERE (peer_id = ? OR peer_id = 'global')
-           ${memoryEligibilityClause('patterns')} ORDER BY extracted_at DESC LIMIT 10`;
+           ${memoryEligibilityClause('patterns')}${autoRowExclusionClause('patterns')} ORDER BY extracted_at DESC LIMIT 10`;
   const patternSqlGlobal = `SELECT id, pattern, extracted_at, provenance_class, quality_score, citation_count FROM brain_patterns
            WHERE peer_id = 'global'
-           ${memoryEligibilityClause('patterns')} ORDER BY extracted_at DESC LIMIT 10`;
-  const patternSqlLegacy = `SELECT id, pattern, extracted_at FROM main.brain_patterns WHERE 1=1${memoryEligibilityClause('patterns')} ORDER BY extracted_at DESC LIMIT 10`;
+           ${memoryEligibilityClause('patterns')}${autoRowExclusionClause('patterns')} ORDER BY extracted_at DESC LIMIT 10`;
+  const patternSqlLegacy = `SELECT id, pattern, extracted_at FROM main.brain_patterns WHERE 1=1${memoryEligibilityClause('patterns')}${autoRowExclusionClause('patterns')} ORDER BY extracted_at DESC LIMIT 10`;
 
   let patternRows: RawPattern[] = [];
   try {
@@ -330,7 +330,7 @@ export async function fetchSessionState(
         .prepare(
           `SELECT id, title, narrative, created_at, provenance_class, quality_score, citation_count
            FROM brain_observations
-           WHERE source_session_id = ?${memoryEligibilityClause('observations')}
+           WHERE source_session_id = ?${memoryEligibilityClause('observations')}${autoRowExclusionClause('observations')}
            ORDER BY created_at DESC, id DESC LIMIT 10`,
         )
         .all(sessionId) as RawObs[];

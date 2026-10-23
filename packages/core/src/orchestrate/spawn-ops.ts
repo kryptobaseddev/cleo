@@ -701,8 +701,6 @@ export async function composeSpawnForTask(
      * @task T10430
      */
     atomicityScope?: 'orchestrator-defer';
-    /** Record no dispatch trace (a validation-only compose, T13510). */
-    skipDispatchTrace?: boolean;
   } = {},
 ): Promise<SpawnPayload> {
   const accessor = await getTaskAccessor(root);
@@ -742,7 +740,6 @@ export async function composeSpawnForTask(
       // 'orchestrator-defer', checkAtomicity grants the spawn for a worker
       // without declared files and stamps atomicity_waiver in the result.
       ...(options.atomicityScope ? { scope: options.atomicityScope } : {}),
-      ...(options.skipDispatchTrace ? { skipDispatchTrace: true } : {}),
     });
   } finally {
     db.close();
@@ -1489,7 +1486,6 @@ export async function orchestrateSpawn(
       composeSpawnForTask(taskId, root, {
         tier,
         protocol: protocolType,
-        skipDispatchTrace: true,
         ...(atomicityScope ? { atomicityScope } : {}),
       }),
       budgetCtrl.signal,

@@ -28,6 +28,7 @@ import type { DatabaseSync } from 'node:sqlite';
 import { pushWarning } from '@cleocode/lafs';
 import { getLastHandoff } from '../sessions/handoff.js';
 import { resolveBridgeMode } from '../system/bridge-mode.js';
+import { autoRowExclusionClause } from './eligibility.js';
 
 /** Configuration for memory bridge content generation. */
 export interface MemoryBridgeConfig {
@@ -491,7 +492,7 @@ function queryUsefulPatterns(
            AND pattern NOT LIKE 'Test pattern%'
            AND pattern NOT LIKE 'test'
            AND pattern NOT LIKE 'Audit probe:%'
-           AND LENGTH(pattern) > 20
+           AND LENGTH(pattern) > 20${autoRowExclusionClause('patterns')}
          ORDER BY extracted_at DESC
          LIMIT ?`,
       limit,
@@ -510,7 +511,7 @@ function queryRecentObservations(db: DatabaseSync, limit: number): ObservationRo
            AND title NOT LIKE 'File changed:%'
            AND title NOT LIKE 'Task start:%'
            AND title NOT LIKE 'Task complete:%'
-           AND title NOT LIKE '[hook]%'
+           AND title NOT LIKE '[hook]%'${autoRowExclusionClause('observations')}
          ORDER BY created_at DESC LIMIT ?`,
       limit,
     );

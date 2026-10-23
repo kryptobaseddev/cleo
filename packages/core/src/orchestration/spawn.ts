@@ -260,11 +260,6 @@ export interface ComposeSpawnPayloadOptions {
    * @task T1947
    */
   allowedTools?: readonly string[];
-  /**
-   * Record no dispatch trace for the agent resolution: a validation-only
-   * compose (spawn's atomicity pre-check, T13510) whose real compose traces it.
-   */
-  skipDispatchTrace?: boolean;
 }
 
 /**
@@ -607,10 +602,7 @@ export async function composeSpawnPayload(
   }
 
   // 2. Resolve the agent envelope from the 4-tier registry.
-  const resolvedAgent = resolveAgent(db, agentId, {
-    projectRoot,
-    ...(options.skipDispatchTrace ? { skipDispatchTrace: true } : {}),
-  });
+  const resolvedAgent = resolveAgent(db, agentId, { projectRoot });
 
   // 3. Role resolution:
   //    - Explicit options.role always wins.

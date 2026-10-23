@@ -4,7 +4,8 @@
  * This file MUST have no imports that transitively reach back to any CLEO
  * module that participates in the agent-resolver → dispatch-trace →
  * extraction-gate → graph-auto-populate → memory-sqlite → sqlite.ts cycle
- * (see T1325/T1331). Only node builtins are imported below this line.
+ * (see T1325/T1331; the dispatch-trace writer was removed by T13946, the
+ * leaf rule stays). Only node builtins are imported below this line.
  *
  * ## Why this exists
  *
