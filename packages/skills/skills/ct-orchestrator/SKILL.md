@@ -2,7 +2,7 @@
 name: ct-orchestrator
 description: "Pipeline-aware orchestration skill for managing complex workflows through subagent delegation. Use when the user asks to \"orchestrate\", \"orchestrator mode\", \"run as orchestrator\", \"delegate to subagents\", \"coordinate agents\", \"spawn subagents\", \"multi-agent workflow\", \"context-protected workflow\", \"agent farm\", \"HITL orchestration\", \"pipeline management\", or needs to manage complex workflows by delegating work to subagents while protecting the main context window. Enforces ORC-001 through ORC-009 constraints. Provider-neutral — works with any AI agent runtime."
 metadata:
-  version: 4.0.16
+  version: 4.1.0
   tier: core
   install: harness
   covers:
@@ -51,7 +51,7 @@ You are the **Orchestrator** — a conductor, never a musician. You coordinate c
 | ORC-005 | Context budget: 10K tokens | Use `cleo orchestrate context` to monitor; delegate at 80% |
 | ORC-006 | Max 3 files per subagent | Cross-file reasoning degrades beyond this scope |
 | ORC-007 | All work traced to epic | No orphaned tasks — every task has a parent epic |
-| ORC-008 | Zero architectural decisions | Architecture MUST be pre-decided via RCASD consensus or HITL |
+| ORC-008 | Zero architectural decisions | Architecture MUST be pre-decided in the plan document or by an owner decision (HITL) |
 | ORC-009 | Manifest-mediated handoffs | Read only `key_findings` from pipeline_manifest; subagents read full files |
 | ORC-010 | Continuous dispatch | While ready tasks exist, orchestrator MUST be spawning — never idle while work remains |
 | ORC-011 | Pre-release verification gate | NEVER `git push --tags` without full pipeline green: biome ci packages/, build, test, changelog, version |
@@ -70,7 +70,7 @@ discriminates; prefixes (`SG-`, `E-`, `T-`) are display + import-mapping only.
 | Subtask | (none) | One commit; ≤2 files; rolls up to Task's PR     | Worker (leaf)        |
 
 **I8 (load-bearing for decomposition):** A Task ships as exactly ONE PR. Subtasks contribute
-commits to that single PR — they NEVER own a PR. When decomposing under RCASD, if a unit needs
+commits to that single PR — they NEVER own a PR. When decomposing, if a unit needs
 its own PR it MUST be a Task, not a Subtask.
 
 **Tier-promotion triggers (see ADR-073 §1.3 for full decision table):**
@@ -81,46 +81,49 @@ its own PR it MUST be a Task, not a Subtask.
 Full charter (8 invariants I1–I8 + prefix registry) lives in
 `.cleo/adrs/ADR-073-above-epic-naming.md` §1–§2.
 
-## LOOM — The Core Lifecycle
+## The Work Loop
 
-**LOOM** (Logical Order of Operations Methodology) is the systematic lifecycle for ALL work. Every incoming issue, feature, bug, or idea flows through LOOM's two phases:
+Every issue, feature or bug runs the same loop: plan, execute, verify. RCASD stage
+records and the IVTR loop are retired from agent instructions (epic T13932).
+`pipeline_stage` is a label on tasks; the one place it still gates work is strict
+lifecycle mode (see Plan).
 
-### RCASD Phase (Planning)
+### Plan
 
-Runs **autonomously on every incoming issue**. Decomposes ideas into executable CLEO task scaffolding.
+- **One plan document per epic** in the CleoDocs store (`--type plan`), with sections
+  for findings, the decision, the spec (acceptance criteria) and the decomposition.
+- **Decisions** go to the BRAIN decision store
+  (`cleo memory decision-store --decision "..." --rationale "..." --linked-task <epicId>`);
+  owner decisions go through the ask tool first.
+- **Tasks**: atomic children under the epic, each with `--acceptance` and `--depends`.
+  Spawn protocols (research, consensus, specification, decomposition, ...) only pick
+  the spawn prompt's stage guidance; they are labels, not gates.
+- **Strict lifecycle mode** (the default when `lifecycle.mode` is unset; `advisory`
+  only warns, `off` skips the check): a child cannot complete (exit 80) while its parent
+  epic sits in a planning stage (research to decomposition). An epic inherits its saga's
+  stage, or starts at research when it has no parent. Once the plan is written and
+  BEFORE adding children, run `cleo update <epicId> --pipeline-stage implementation`.
+  After children sit at the epic's stage, strict mode refuses that move (T13969):
+  escalate to the lead or owner rather than driving the retired lifecycle verbs.
 
-| Stage | Purpose | Subagent Role |
-|-------|---------|---------------|
-| **Research** | Investigate codebase, gather context, explore options | Explorer (lightweight) |
-| **Consensus** | Validate approach, identify risks, get HITL alignment | Lead (reasoning) |
-| **Architecture** | Choose patterns, integration points, store decisions in BRAIN decision-store | Lead (reasoning) |
-| **Specification** | Write formal spec with RFC 2119 language, acceptance criteria | Lead (reasoning) |
-| **Decomposition** | Break into atomic tasks with deps under epic(s) | Lead (reasoning) |
+### Execute
 
-**RCASD output**: Epic(s) with child tasks, spec documents attached, dependency graph defined, acceptance criteria on every task. Architecture decisions stored in BRAIN decision-store via `cleo memory decision-store --decision "..." --rationale "..."`, not in adrs markdown blobs.
+- Waves from `cleo orchestrate waves <epicId>`, admission from `cleo orchestrate ready
+  <epicId>`, prompts from `cleo orchestrate spawn <taskId> --lead-mbx <you>`.
+- Agents coordinate over AgentMBX; task state and evidence stay in CLEO.
+- Autonomous runs go through CLEO Goal (ADR-097), not a CLEO-driven loop.
 
-### IVTR Phase (Execution)
+### Verify
 
-Runs the build-verify loop until ALL acceptance criteria pass. No partial completions.
+- Evidence gates (ADR-051): `cleo done <id> --plan`, then `cleo verify` per gate, then
+  `cleo complete`. A worker that fails its criteria is re-spawned with the feedback.
+- An independent review of each PR head before merge; the implementer never reviews
+  its own work.
 
-| Stage | Purpose | Subagent Role |
-|-------|---------|---------------|
-| **Implement** | Write code per task spec and acceptance criteria | Worker (focused) |
-| **Validate** | Check implementation against spec, ADRs, and contracts | Lead (reasoning) |
-| **Test** | Run tests, verify acceptance criteria pass | Worker (focused) |
-| **Release** | Version, deploy, verify, mark complete | Lead (reasoning) |
+### Contribution (cross-cutting)
 
-IVTR **loops** per task: if Validate or Test fails, re-Implement with feedback. Loop until ALL acceptance criteria pass.
-
-### Contribution Protocol (Cross-cutting)
-
-Runs alongside BOTH phases. Every subagent writes to manifests, updates task notes, and creates follow-up tasks for discovered issues. Nothing falls through the cracks.
-
-### Pipeline Gate Enforcement
-
-Before spawning ANY task, gates verify RCASD stages completed in order. Default mode is **strict** (blocks spawn if prerequisites missing). Advisory and off modes available for prototyping/emergencies.
-
-> Full decision tree, enforcement modes, and emergency bypass: `references/lifecycle-gates.md`
+Every subagent writes to the manifest, updates task notes and files follow-up tasks for
+what it discovers. Nothing falls through the cracks.
 
 ## Model Assignment (Preferred, Not Required)
 
@@ -206,17 +209,16 @@ cleo current                     # Active task?
 cleo orchestrate ready T1575  # Parallel-safe tasks in the current wave
 ```
 
-### 2. RCASD — Plan the Work
+### 2. Plan the Work
 
 ```
 1. Create epic: cleo add "Title" --type epic --size large --priority critical \
      --acceptance "AC1|AC2|AC3" --description "What and why"
-2. Spawn Team Lead (sonnet) to run RCASD stages:
-   - Research → explore codebase, reference apps, gather context
-   - Consensus → validate approach with HITL
-   - Architecture → ADR decisions, pattern selection
-   - Specification → formal spec with RFC 2119 language
-   - Decomposition → atomic tasks under epic with deps + acceptance criteria
+2. Spawn a Team Lead (sonnet) to write the plan document:
+   - Findings → explore codebase, reference apps, gather context
+   - Decision → approach and patterns; owner choices via the ask tool
+   - Spec → acceptance criteria every task can prove
+   - Decomposition → atomic tasks under the epic with deps + acceptance criteria
 3. Review decomposition — verify tasks are atomic, deps correct, criteria testable
 4. Present plan to human for approval
 ```
@@ -244,14 +246,14 @@ session's MCP lease). Spawn prompts carry an `## Agent Coordination (AgentMBX)` 
 no CONDUIT subscription; `cleo orchestrate spawn <taskId> --lead-mbx <you>` names your
 mailbox in it.
 
-### 3. IVTR — Execute the Work
+### 3. Execute the Work
 
 ```
 1. Read the waves: cleo orchestrate waves T1575 (take each wave n from here;
    numbers can skip and the first need not be 1), then cleo orchestrate ready T1575
 2. Spawn Workers in parallel for each ready task in the first incomplete wave
 3. On completion: read manifest, check acceptance criteria
-4. If criteria NOT met → re-spawn worker with feedback (IVTR loop)
+4. If criteria NOT met → re-spawn worker with feedback
 5. Advance to the next wave cleo orchestrate waves lists (its deps are now done)
 6. Repeat until all tasks complete
 7. Final validation with Lead across the full epic
@@ -271,7 +273,7 @@ mailbox in it.
   previously-deferred tasks promote into `admitted`. This is pull-based; never
   fail or skip a deferred task, just retry it on the next pull.
 - If a `cleo orchestrate spawn` returns `E_RESOURCE_DEFERRED` (the hard gate
-  denied an `agent-session` slot under pressure), treat it like a lifecycle gate:
+  denied an `agent-session` slot under pressure), treat it as a retryable deferral:
   wait `details.retryAfterMs` and re-spawn. No worktree/process was provisioned,
   so there is nothing to clean up.
 
@@ -323,7 +325,7 @@ Agent B reads the full file directly if details needed
 
 When operating without continuous HITL oversight, additional constraints apply: single coordination point, manifest-only reads, verify before next spawn, wave-order spawning, followup task creation for partial/blocked, auto-handoff at 80% context.
 
-**Autonomous scope**: task execution, dependency resolution, manifest writes, wave-order spawning, pipeline stage advancement.
+**Autonomous scope**: task execution, dependency resolution, manifest writes, wave-order spawning, advancing a new epic to implementation before its children exist (strict mode).
 
 **Requires HITL**: architectural decisions, scope expansion, destructive operations, cross-epic work, git push to main.
 
@@ -338,9 +340,6 @@ When operating without continuous HITL oversight, additional constraints apply: 
 | `cleo orchestrate next T1575` | Suggest next task |
 | `cleo saga rollup <sagaId>` | Cross-Epic status aggregation when orchestrating a multi-Epic Saga (ADR-073) |
 | `cleo saga members <sagaId>` | Member Epics of a Saga (parent_id containment — NOT `task_relations.groups`) |
-| `cleo pipeline stage.status --epic T1575` | Current pipeline stage |
-| `cleo pipeline stage.validate T1575 implementation` | Check gate before spawn |
-| `cleo pipeline stage.gate.pass T1575 research` | Advance pipeline stage |
 | `cleo find "query"` | Search tasks |
 | `cleo show T1234` | Full task details |
 | `cleo add "Task" --parent T1575` | Create child task |
@@ -407,7 +406,6 @@ before the verify call — audited to `.cleo/audit/force-bypass.jsonl`.
 | Token injection system | `references/orchestrator-tokens.md` |
 | Error recovery & context budget | `references/orchestrator-recovery.md` |
 | Autonomous operation | `references/autonomous-operation.md` |
-| Lifecycle gate enforcement | `references/lifecycle-gates.md` |
 | Common HITL patterns | `references/orchestrator-patterns.md` |
 | Handoff chain protocol | `references/orchestrator-handoffs.md` |
 | Subagent protocol block | `references/SUBAGENT-PROTOCOL-BLOCK.md` |

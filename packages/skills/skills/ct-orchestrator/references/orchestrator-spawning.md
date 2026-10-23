@@ -39,7 +39,7 @@ Agent({
 })
 ```
 
-**Team Lead spawn** (for RCASD planning, validation):
+**Team Lead spawn** (for planning, validation):
 ```
 Agent({
   description: "Team Lead: Auth system architecture (T1575)",

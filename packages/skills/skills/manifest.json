@@ -226,7 +226,7 @@
     },
     {
       "name": "ct-cleo",
-      "version": "2.24.17",
+      "version": "2.24.18",
       "description": "CLEO task management protocol - session, task, and workflow guidance. Use when managing tasks, sessions, or multi-agent workflows with the CLEO CLI protocol.",
       "path": "skills/ct-cleo",
       "tier": 0,
@@ -238,7 +238,7 @@
       "dependencies": [],
       "references": [
         "skills/ct-cleo/references/session-protocol.md",
-        "skills/ct-cleo/references/loom-lifecycle.md",
+        "skills/ct-cleo/references/planning-loop.md",
         "skills/ct-cleo/references/anti-patterns.md"
       ],
       "protocol": null,
@@ -965,7 +965,7 @@
     },
     {
       "name": "ct-lead",
-      "version": "1.1.1",
+      "version": "1.1.2",
       "description": "Phase Lead orchestration playbook for spawning and supervising a parallel worker swarm in one wave. Use when spawned by ct-orchestrator with role=orchestrator to fan out N leaf workers via delegate_task, read worker completion messages on AgentMBX plus pipeline_manifest, await rollupWaveStatus convergence, and return ONE rolled-up contract string to the parent Orchestrator. Triggers: 'phase lead', 'wave lead', 'supervise wave', 'fan out workers', 'aggregate worker results', 'rollup wave', any task with role=orchestrator that is itself a child of another orchestrator. Implements ADR-070 hierarchical orchestration.",
       "path": "skills/ct-lead",
       "tier": 0,
@@ -1001,7 +1001,7 @@
     },
     {
       "name": "ct-orchestrator",
-      "version": "4.0.16",
+      "version": "4.1.0",
       "description": "Pipeline-aware orchestration skill for managing complex workflows through subagent delegation. Use when the user asks to \\\"orchestrate\\\", \\\"orchestrator mode\\\", \\\"run as orchestrator\\\", \\\"delegate to subagents\\\", \\\"coordinate agents\\\", \\\"spawn subagents\\\", \\\"multi-agent workflow\\\", \\\"context-protected workflow\\\", \\\"agent farm\\\", \\\"HITL orchestration\\\", \\\"pipeline management\\\", or needs to manage complex workflows by delegating work to subagents while protecting the main context window. Enforces ORC-001 through ORC-009 constraints. Provider-neutral — works with any AI agent runtime.",
       "path": "skills/ct-orchestrator",
       "tier": 0,
@@ -1013,7 +1013,6 @@
       "dependencies": [],
       "references": [
         "skills/ct-orchestrator/references/autonomous-operation.md",
-        "skills/ct-orchestrator/references/lifecycle-gates.md",
         "skills/ct-orchestrator/references/orchestrator-compliance.md",
         "skills/ct-orchestrator/references/orchestrator-handoffs.md",
         "skills/ct-orchestrator/references/orchestrator-patterns.md",

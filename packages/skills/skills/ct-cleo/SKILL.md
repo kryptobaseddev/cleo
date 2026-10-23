@@ -2,7 +2,7 @@
 name: ct-cleo
 description: CLEO task management protocol - session, task, and workflow guidance. Use when managing tasks, sessions, or multi-agent workflows with the CLEO CLI protocol.
 metadata:
-  version: 2.24.17
+  version: 2.24.18
   tier: core
   install: harness
   covers:
@@ -234,7 +234,7 @@ This internal budget contract does not add a `--token-budget` flag to add/update
 |------|------------------|
 | `references/session-protocol.md` | start, resume or end sessions; pick skills |
 | `references/orchestrator-constraints.md` | spawn subagents from an orchestrator |
-| `references/loom-lifecycle.md` | move an epic through the LOOM stages |
+| `references/planning-loop.md` | plan an epic, run its waves, verify its tasks |
 | `references/anti-patterns.md` | check a plan against known mistakes |
 | `references/memory.md` | recall or record BRAIN memory (progressive disclosure) |
 | `references/sticky-notes.md` | capture a thought before it is a task: `cleo sticky jot "..."`, then `cleo sticky convert <id> --to-task` |

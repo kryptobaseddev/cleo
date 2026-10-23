@@ -142,14 +142,12 @@ cleo release reconcile v0.85.0
 
 See `src/protocols/release.md` for the full release protocol specification.
 
-## Full RCASD-IVTR+C Lifecycle
+## Full Epic Loop
 
 ```bash
-# RCASD-IVTR+C PIPELINE (setup phase)
-cleo orchestrate spawn T100  # research protocol
-cleo orchestrate spawn T101  # consensus protocol
-cleo orchestrate spawn T102  # specification protocol
-cleo orchestrate spawn T103  # decomposition protocol
+# PLAN (one plan document, decisions in BRAIN, tasks with AC)
+cleo orchestrate spawn T100  # research protocol: findings section
+cleo orchestrate spawn T103  # decomposition protocol: tasks with deps + AC
 
 # EXECUTION (core phase)
 cleo orchestrate spawn T104  # implementation protocol
