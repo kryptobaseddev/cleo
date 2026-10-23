@@ -323,7 +323,8 @@ describe('taskCompleteStrict — parent-epic lifecycle gate (T788)', () => {
 
     expect(result.success).toBe(false);
     expect(result.error?.code).toBe('E_LIFECYCLE_GATE_FAILED');
-    expect(result.error?.fix).toContain('lifecycle complete');
+    expect(result.error?.fix).toContain(`cleo show ${EPIC_ID}`);
+    expect(result.error?.fix).not.toContain('lifecycle complete');
   });
 
   it('E_IVTR_INCOMPLETE names commands that work, not the retired IVTR verbs (T13945)', async () => {
