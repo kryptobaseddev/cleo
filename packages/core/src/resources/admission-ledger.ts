@@ -1244,7 +1244,13 @@ export function schedulePass(entries: readonly LedgerEntry[], ctx: PassContext):
   // oldest non-tiny run waits, it stays open only for TINY_LANE_WINDOWS
   // reservation windows, and never for a run charged the whole capacity: its
   // bytes would keep that run out, and steady tiny arrivals would starve it.
-  const oldestHead = waiting.find((w) => !isTiny(w));
+  // By enqueue time, not queue order: an urgent arrival never resets it (T13971).
+  const byAge = [...waiting].sort((a, b) => a.enqueuedAtMs - b.enqueuedAtMs);
+  const oldestHead = byAge.find((w) => !isTiny(w));
+  // The FIFO head: only it, or a routine waiter, may take the reservation. A
+  // young urgent run that does not fit never removes the reservation an older
+  // routine head has earned (T13971).
+  const fifoHeadId = byAge[0]?.id;
   const reserveOpen =
     oldestHead === undefined ||
     (charged(oldestHead, ctx.capacityBytes) < ctx.capacityBytes &&
@@ -1322,7 +1328,7 @@ export function schedulePass(entries: readonly LedgerEntry[], ctx: PassContext):
       take(w, cost);
       continue;
     }
-    if (!blocked) {
+    if (!blocked && (w.priority !== 'urgent' || w.id === fifoHeadId)) {
       blocked = true;
       if (ctx.nowMs - w.enqueuedAtMs >= reservationMs) {
         // A heavy head blocked by bytes stops everything behind it. One blocked

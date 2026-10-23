@@ -426,6 +426,22 @@ describe('an urgent run queues ahead of routine work, within the budget (T13921)
     expect(admittedIds(out)).toEqual(['holder', 'push-1']);
   });
 
+  it('a young urgent run that does not fit never takes the reservation of an older head', () => {
+    const nowMs = LEDGER_RESERVATION_MS + 10_000;
+    const out = schedulePass(
+      [
+        entry({ id: 'holder', state: 'admitted', footprintBytes: 12 * GIB, admittedAtMs: 0 }),
+        // Waited past its reservation: nothing that is not tiny may pass it.
+        entry({ id: 'head', footprintBytes: 20 * GIB, enqueuedAtMs: 0 }),
+        entry({ id: 'fix', footprintBytes: 16 * GIB, enqueuedAtMs: nowMs - 1, priority: 'urgent' }),
+        entry({ id: 'small', footprintBytes: 4 * GIB, enqueuedAtMs: 5 }),
+      ],
+      { ...ctx, nowMs },
+    );
+    // Before T13971 the urgent run consumed the head's reservation and 'small' backfilled.
+    expect(admittedIds(out)).toEqual(['holder']);
+  });
+
   it('several urgent runs keep FIFO order among themselves', () => {
     const out = schedulePass(
       [
