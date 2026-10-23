@@ -71,8 +71,9 @@ export function autoRowExclusionClause(
   if (table === 'observations') {
     // Both doc writers (docs projection, memory backfill-docs) store the
     // DocAttachmentObservationPayload JSON as the narrative. Requiring it keeps
-    // a human note titled "Doc attached: …" in recall; GLOB is case-sensitive.
-    return ` AND NOT (${alias}.title GLOB 'Doc attached:*' AND ${alias}.narrative LIKE '%"kind":"doc-attachment"%') AND ${alias}.id NOT IN (SELECT id FROM main.brain_observations WHERE ${stubObservationClause()})`;
+    // a human note titled "Doc attached: …" in recall; GLOB is case-sensitive,
+    // and COALESCE keeps a NULL narrative from making the NOT(…) NULL.
+    return ` AND NOT (${alias}.title GLOB 'Doc attached:*' AND COALESCE(${alias}.narrative, '') LIKE '%"kind":"doc-attachment"%') AND ${alias}.id NOT IN (SELECT id FROM main.brain_observations WHERE ${stubObservationClause()})`;
   }
   return '';
 }

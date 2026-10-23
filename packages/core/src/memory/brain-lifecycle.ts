@@ -23,6 +23,7 @@ import { getBrainAccessor } from '../store/memory-accessor.js';
 import { typedAll } from '../store/typed-query.js';
 import type { BrainConsolidationObservationRow } from './brain-row-types.js';
 import { EDGE_TYPES } from './edge-types.js';
+import { autoRowExclusionClause } from './eligibility.js';
 
 /** Result from applying temporal decay. */
 export interface DecayResult {
@@ -431,14 +432,18 @@ export async function runTierPromotion(projectRoot: string): Promise<PromotionRe
     .slice(0, 19);
 
   // Tables + their date column name (mixed conventions in schema)
-  const tables: Array<{ table: string; dateCol: string }> = [
-    { table: 'brain_observations', dateCol: 'created_at' },
-    { table: 'brain_learnings', dateCol: 'created_at' },
-    { table: 'brain_patterns', dateCol: 'extracted_at' },
-    { table: 'brain_decisions', dateCol: 'created_at' },
-  ];
+  const tables = [
+    { table: 'brain_observations', kind: 'observations', dateCol: 'created_at' },
+    { table: 'brain_learnings', kind: 'learnings', dateCol: 'created_at' },
+    { table: 'brain_patterns', kind: 'patterns', dateCol: 'extracted_at' },
+    { table: 'brain_decisions', kind: 'decisions', dateCol: 'created_at' },
+  ] as const;
 
-  for (const { table, dateCol } of tables) {
+  for (const { table, kind, dateCol } of tables) {
+    // T13947: auto rows (dispatch traces, doc-attachment records, task stubs)
+    // are never promoted, whatever citation count they collected while reads
+    // still bumped it.
+    const notAuto = autoRowExclusionClause(kind);
     // --- short → medium promotion ---
     // Three criteria (union — verified is no longer a hard gate for A/B paths):
     //   A. citationCount >= 3 AND age > 24h  (citation track — no verified requirement)
@@ -458,7 +463,7 @@ export async function runTierPromotion(projectRoot: string): Promise<PromotionRe
           FROM ${table}
           WHERE memory_tier = 'short'
             AND invalid_at IS NULL
-            AND ${dateCol} < ?
+            AND ${dateCol} < ?${notAuto}
             AND (
               citation_count >= 3
               OR quality_score >= 0.7
@@ -506,7 +511,7 @@ export async function runTierPromotion(projectRoot: string): Promise<PromotionRe
           FROM ${table}
           WHERE memory_tier = 'medium'
             AND invalid_at IS NULL
-            AND ${dateCol} < ?
+            AND ${dateCol} < ?${notAuto}
             AND (citation_count >= 5 OR verified = 1)
         `),
         age7d,

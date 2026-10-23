@@ -9,7 +9,6 @@ import type { OperationExecutionContext } from '@cleocode/contracts/jobs';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { removeTempDirSync } from '../../__tests__/test-cleanup.js';
 import { scanBrainGraphOrphans, scanBrainNoise } from '../../memory/brain-doctor.js';
-import { incrementCitationCounts } from '../../memory/retrieval/increment-citation-counts.js';
 import { generateProjectHash } from '../../nexus/hash.js';
 import { getSymbolFullContext } from '../../nexus/living-brain.js';
 import { DurableJobStore } from '../../store/background-jobs.js';
@@ -30,6 +29,19 @@ import {
   resumePreparedKnowledgeRepair,
   runKnowledgeDoctor,
 } from '../knowledge.js';
+
+/**
+ * A legacy usage bump on one observation: what a memory read wrote before
+ * T13947 made reads pure, and what an older CLEO on another device still syncs.
+ */
+async function bumpCitation(root: string, id: string): Promise<void> {
+  await getBrainDb(root);
+  getBrainNativeDb(root)
+    ?.prepare(
+      'UPDATE main.brain_observations SET citation_count = citation_count + 1, updated_at = ? WHERE id = ?',
+    )
+    .run(new Date().toISOString().replace('T', ' ').slice(0, 19), id);
+}
 
 describe('knowledge doctor transactional repair', () => {
   let root: string;
@@ -610,7 +622,7 @@ describe('durable sourced knowledge repair preparation', () => {
     const pending = await prepareKnowledgeRepair(context, proposal);
     if (status === 'complete') await applyPreparedKnowledgeRepair(context, pending.jobId);
     else {
-      await incrementCitationCounts(root, ['O-prepared']);
+      await bumpCitation(root, 'O-prepared');
       await expect(applyPreparedKnowledgeRepair(context, pending.jobId)).rejects.toMatchObject({
         code: 'E_REPAIR_STALE',
       });
@@ -1134,7 +1146,7 @@ describe('durable sourced knowledge repair preparation', () => {
     const before = native
       .prepare("SELECT * FROM main.brain_observations WHERE id='O-prepared'")
       .get();
-    await incrementCitationCounts(root, ['O-prepared']);
+    await bumpCitation(root, 'O-prepared');
     const touched = native
       .prepare("SELECT * FROM main.brain_observations WHERE id='O-prepared'")
       .get();
@@ -1333,7 +1345,7 @@ describe('durable sourced knowledge repair preparation', () => {
     const original = await applyPreparedKnowledgeRepair(context, pending.jobId);
     const originalBytes = persisted().receipts[0].value;
     const db = getBrainNativeDb(root)!;
-    await incrementCitationCounts(root, ['O-prepared']);
+    await bumpCitation(root, 'O-prepared');
     const current = db.prepare("SELECT * FROM main.brain_observations WHERE id='O-prepared'").get();
     const recovery = await prepareRollback(original.id);
     const receipt = await applyPreparedKnowledgeRepair(context, recovery.jobId);
@@ -1467,7 +1479,7 @@ describe('durable sourced knowledge repair preparation', () => {
       pending.jobId,
     );
     if (touched) {
-      await incrementCitationCounts(root, ['O-prepared']);
+      await bumpCitation(root, 'O-prepared');
       await expect(prepareRollback(original.id)).rejects.toThrow('legacy receipts require');
     } else {
       const recovery = await prepareRollback(original.id);
@@ -1491,7 +1503,7 @@ describe('durable sourced knowledge repair preparation', () => {
       );
     const pending = await prepareKnowledgeRepair(context, proposal);
     const original = await applyPreparedKnowledgeRepair(context, pending.jobId);
-    await incrementCitationCounts(root, ['O-prepared']);
+    await bumpCitation(root, 'O-prepared');
     await expect(prepareRollback(original.id)).rejects.toMatchObject({ code: 'E_REPAIR_STALE' });
   });
 
@@ -1499,7 +1511,7 @@ describe('durable sourced knowledge repair preparation', () => {
     const pending = await prepareKnowledgeRepair(context, proposal);
     const original = await applyPreparedKnowledgeRepair(context, pending.jobId);
     const recovery = await prepareRollback(original.id);
-    await incrementCitationCounts(root, ['O-prepared']);
+    await bumpCitation(root, 'O-prepared');
     const db = getBrainNativeDb(root)!;
     const before = db.prepare("SELECT * FROM main.brain_observations WHERE id='O-prepared'").get();
     await expect(applyPreparedKnowledgeRepair(context, recovery.jobId)).rejects.toMatchObject({

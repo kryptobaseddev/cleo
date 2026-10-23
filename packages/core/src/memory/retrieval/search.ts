@@ -26,7 +26,7 @@ import {
   isCurrentMemoryEntry,
   memoryEligibilityClause,
 } from '../eligibility.js';
-import { scheduleCitationTracking, scheduleRetrievalTelemetry } from './telemetry.js';
+import { scheduleRetrievalTelemetry } from './telemetry.js';
 
 // Re-export budget types so callers that import from brain-retrieval.ts keep working.
 export type { BudgetedEntry, BudgetedResult, BudgetedRetrievalOptions } from '@cleocode/contracts';
@@ -46,8 +46,9 @@ export type { BudgetedEntry, BudgetedResult, BudgetedRetrievalOptions } from '@c
  * @param params - Search parameters
  * @returns Compact search results with token estimate
  * @remarks Explicit project ownership and the inherited operation lifetime are
- * captured before asynchronous reads. Optional citation and retrieval-log writes
- * are registered before return so the existing background barrier can await them.
+ * captured before asynchronous reads. The optional retrieval-log write is
+ * registered before return so the existing background barrier can await it; the
+ * returned rows are never written (T13947).
  * Session attribution is resolved before scheduling. Telemetry remains best-effort;
  * this result does not claim durable telemetry outcomes or complete runtime callers.
  *
@@ -433,7 +434,7 @@ async function searchBrainCompactCurrent(
     hit._next = memoryFindHitNext(hit.id);
   }
 
-  // Citation tracking + retrieval logging (non-blocking)
+  // Retrieval logging (non-blocking); the returned rows are never written.
   if (results.length > 0) {
     const returnedIds = results.map((r) => r.id);
     await scheduleRetrievalTelemetry(projectRoot, query, returnedIds, 'find', results.length * 50);
@@ -470,7 +471,7 @@ const DEFAULT_TOKEN_BUDGET = 500;
  *   - Walk list, accumulate token cost (≈ textLen/4), stop at budget.
  *   - Episodic entries dropped first when budget is tight.
  *
- * Citation tracking uses the existing background lifecycle barrier.
+ * A pure read: no citation or `updated_at` write on the returned rows (T13947).
  *
  * @param projectRoot - Project root directory
  * @param query - Text to search for
@@ -478,9 +479,7 @@ const DEFAULT_TOKEN_BUDGET = 500;
  * @param options - Optional filters (types, tiers, verified)
  * @returns Retrieved entries within budget with token accounting
  * @remarks Explicit project scope and inherited execution are captured before
- * reads. Citation writes retain that original deadline and cancellation; no new
- * maintenance budget is created. Underlying telemetry remains best-effort and is
- * not represented as a durable receipt in this result.
+ * reads.
  * @example
  * ```ts
  * const result = await retrieveWithBudget(projectRoot, 'authentication', 500);
@@ -760,14 +759,6 @@ async function retrieveWithBudgetScoped(
       memoryType: candidate.memoryType,
     });
     tokensUsed += entryTokens;
-  }
-
-  // -------------------------------------------------------------------------
-  // Citation tracking — non-blocking background increment
-  // -------------------------------------------------------------------------
-  if (result.length > 0) {
-    const returnedIds = result.map((e) => e.id);
-    scheduleCitationTracking(projectRoot, returnedIds);
   }
 
   return {

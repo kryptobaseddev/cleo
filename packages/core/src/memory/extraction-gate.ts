@@ -27,6 +27,7 @@ import type {
 } from '../store/schema/memory-schema.js';
 import { isEmbeddingAvailable } from './brain-embedding.js';
 import { searchSimilar } from './brain-similarity.js';
+import { autoRowExclusionClause } from './eligibility.js';
 
 // ============================================================================
 // Types
@@ -196,14 +197,24 @@ async function incrementCitationCount(projectRoot: string, entryId: string): Pro
   if (!nativeDb) throw new Error('E_CITATION_STORAGE_UNAVAILABLE: canonical native handle absent');
   if (scope.execution && nativeDb.isTransaction)
     throw new Error('Citation write cannot join an unowned native transaction');
-  const table =
+  const kind =
     entryId.startsWith('D-') || /^D\d/.test(entryId)
-      ? 'brain_decisions'
+      ? 'decisions'
       : entryId.startsWith('P-') || /^P\d/.test(entryId)
-        ? 'brain_patterns'
+        ? 'patterns'
         : entryId.startsWith('L-') || /^L\d/.test(entryId)
-          ? 'brain_learnings'
-          : 'brain_observations';
+          ? 'learnings'
+          : 'observations';
+  const table = `brain_${kind}`;
+  // T13947: re-observing an auto row (a backfilled doc-attachment record, a
+  // task stub) is not reinforcement; citing it would feed tier promotion.
+  // A missing row still reaches the write below and fails as before.
+  const citable = nativeDb
+    .prepare(
+      `SELECT CASE WHEN 1=1${autoRowExclusionClause(kind, `main.${table}`)} THEN 1 ELSE 0 END AS cite FROM main.${table} WHERE id = ?`,
+    )
+    .get(entryId);
+  if (citable?.cite === 0) return;
   db.transaction((tx) => {
     scope.execution?.assertActive();
     if (scope.execution) assertOperationWriteFence(tx, scope.execution);

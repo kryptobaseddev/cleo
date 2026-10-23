@@ -121,9 +121,10 @@ export const TASK_STAGE_MERGE_ORDER: readonly string[] = [
 ];
 
 /**
- * What a memory read writes on the row it returned (`incrementCitationCounts`):
- * the citation count and its last-use time. Divergent values from two
- * devices reading one entry are not conflicts (T13866).
+ * What a memory read wrote on the row it returned before T13947 made reads
+ * pure, and still does on a device running an older CLEO: the citation count
+ * and its last-use time. Divergent values from two devices reading one entry
+ * are not conflicts (T13866).
  */
 const MEMORY_READ_BOOKKEEPING: readonly string[] = ['citation_count', 'updated_at'];
 

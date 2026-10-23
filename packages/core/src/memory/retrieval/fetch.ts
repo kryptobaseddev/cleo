@@ -23,8 +23,9 @@ import { parseIdPrefix } from './timeline.js';
  * @param params - Fetch parameters with IDs
  * @returns Full entry data for each found ID, plus not-found list
  * @remarks Captures explicit ownership and inherited operation lifetime before reads.
- * Citation and retrieval-log writes are registered before return; callers can await
- * the existing background barrier. Optional telemetry has no durable outcome receipt.
+ * The retrieval-log write is registered before return; callers can await the
+ * existing background barrier. Fetched rows are never written (T13947). Optional
+ * telemetry has no durable outcome receipt.
  * @example
  * ```ts
  * const result = await fetchBrainEntries(projectRoot, { ids: ['O-example'] });
@@ -120,7 +121,7 @@ async function fetchBrainEntriesScoped(
     }
   }
 
-  // Citation tracking + retrieval logging (non-blocking)
+  // Retrieval logging (non-blocking); the fetched rows are never written.
   if (results.length > 0) {
     const fetchedIds = results.map((r) => r.id);
     await scheduleRetrievalTelemetry(
