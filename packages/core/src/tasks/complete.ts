@@ -1976,7 +1976,9 @@ export async function completeTaskStrict(
           `Task ${taskId} IVTR loop is not complete — currentPhase='${ivtrState.currentPhase}', not 'released'`,
           {
             details: { taskId, currentPhase: ivtrState.currentPhase, failedPhases },
-            fix: `Drive the IVTR loop to 'released' via the cantbook runtime (T11764): 'cleo go' (autonomous, default) or 'cleo playbook run ivtr --context '{"taskId":"${taskId}"}'' (single manual run). Evidence-based bypass: CLEO_OWNER_OVERRIDE=1 on 'cleo verify' (audited, see ADR-051).`,
+            // T13945: nothing drives or clears ivtr_state since T11896 retired the
+            // IVTR loop, so the fix names what works: inspect, then escalate.
+            fix: `Task ${taskId} carries IVTR state from the retired IVTR loop (T11896); no command drives or clears it now. Inspect it with 'cleo show ${taskId} --ivtr-history' and report the task to your lead or the owner.`,
           },
         );
       }
@@ -2020,9 +2022,14 @@ export async function completeTaskStrict(
                   epicStage,
                   requiredStages: ['implementation', 'validation', 'testing', 'release'],
                 },
+                // T13945: the RCASD lifecycle verbs are being retired, and in strict
+                // mode `cleo update --pipeline-stage` refuses while children sit at
+                // the epic's stage (validateEpicStageAdvancement, T13969), so the
+                // fix escalates instead of naming either.
                 fix:
-                  `Advance the parent epic via 'cleo lifecycle complete ${task.parentId} ${epicStage}' ` +
-                  `and then the next stages. Lifecycle advancement automatically updates the parent epic's pipelineStage (ADR-051 Decision 5).`,
+                  `Parent epic ${task.parentId} is at the planning stage '${epicStage}'; strict lifecycle mode blocks its children until it reaches implementation, ` +
+                  `and 'cleo update ${task.parentId} --pipeline-stage implementation' is refused while children sit at '${epicStage}' (T13969). ` +
+                  `Report it to your lead or the owner with 'cleo show ${task.parentId}'; do not drive the RCASD lifecycle verbs.`,
               });
             }
             getLogger('engine:lifecycle').warn(

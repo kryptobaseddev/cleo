@@ -618,14 +618,21 @@ export function extractHandWiredGuards(sources) {
  * - an `alias` contributes `-<a>` when single-character, `--<a>` otherwise,
  *   as a string or an array.
  *
+ * Args a command spreads in from the operations registry
+ * (`...paramsToCittyArgs(getOperationParams('query', 'tasks', 'show'))`) are
+ * resolved through {@link extractRegistryParamFlags} when `registrySource` is
+ * given (T13945): `cleo show --ivtr-history` is declared only there.
+ *
  * @param source - the command module source.
  * @param name   - the command's `meta.name` (root verb or sub-verb).
+ * @param registrySource - `operations-registry.ts` source, to resolve
+ *   registry-spread args; omitted, those args stay unknown.
  * @returns accepted flag tokens with leading dashes; EMPTY when the `args`
  *   block could not be located, which callers must treat as "unknown", never
  *   as "accepts nothing".
  * @task T12191
  */
-export function extractAcceptedFlags(source, name) {
+export function extractAcceptedFlags(source, name, registrySource) {
   const metaRe = new RegExp(`meta:\\s*\\{[^}]*name:\\s*'${name}'`);
   const metaAt = source.search(metaRe);
   if (metaAt === -1) return new Set();
@@ -666,6 +673,72 @@ export function extractAcceptedFlags(source, name) {
     if (arr) {
       for (const a of [...arr[1].matchAll(/'([\w-]+)'/g)].map((x) => x[1])) {
         flags.add(a.length === 1 ? `-${a}` : `--${a}`);
+      }
+    }
+  }
+  if (registrySource) {
+    const spreadRe =
+      /\.\.\.paramsToCittyArgs\(\s*getOperationParams\(\s*'(query|mutate)',\s*'([\w.-]+)',\s*'([\w.-]+)'\s*\)\s*\)/g;
+    for (const m of body.matchAll(spreadRe)) {
+      for (const f of extractRegistryParamFlags(registrySource, m[1], m[2], m[3])) flags.add(f);
+    }
+  }
+  return flags;
+}
+
+/**
+ * The long flags an operation's registry `params` contribute to a command
+ * that spreads them in with `paramsToCittyArgs(getOperationParams(...))`.
+ *
+ * Mirrors `paramsToCittyArgs` (`packages/contracts/src/operations/params.ts`):
+ * the arg name is `cli.flag` or else `name`, a `cli.short` becomes an alias,
+ * and the {@link extractAcceptedFlags} rules apply (a positional still
+ * contributes `--<name>`, a boolean also `--no-<name>`).
+ *
+ * @param registrySource - `operations-registry.ts` source.
+ * @param gateway - `query` or `mutate`.
+ * @param domain - operation domain, e.g. `tasks`.
+ * @param operation - operation name, e.g. `show`.
+ * @returns accepted flag tokens; EMPTY when the entry or its params could not
+ *   be located.
+ * @task T13945
+ */
+export function extractRegistryParamFlags(registrySource, gateway, domain, operation) {
+  const flags = new Set();
+  const entryRe = new RegExp(
+    `gateway:\\s*'${gateway}',\\s*domain:\\s*'${domain}',\\s*operation:\\s*'${operation.replace(/\./g, '\\.')}',`,
+  );
+  const entryAt = registrySource.search(entryRe);
+  if (entryAt === -1) return flags;
+  const nextEntry = registrySource.indexOf('gateway:', entryAt + 1);
+  const paramsAt = registrySource.indexOf('params: [', entryAt);
+  if (paramsAt === -1 || (nextEntry !== -1 && paramsAt > nextEntry)) return flags;
+
+  let i = paramsAt + 'params: ['.length;
+  let depth = 1;
+  let objStart = -1;
+  let braces = 0;
+  for (; i < registrySource.length && depth > 0; i++) {
+    const c = registrySource[i];
+    if (c === '[') depth++;
+    else if (c === ']') depth--;
+    else if (c === '{') {
+      if (braces === 0) objStart = i;
+      braces++;
+    } else if (c === '}') {
+      braces--;
+      if (braces === 0 && objStart !== -1) {
+        const param = registrySource.slice(objStart, i + 1);
+        const name = param.match(/\bname:\s*'([\w-]+)'/)?.[1];
+        if (name) {
+          const arg = param.match(/\bflag:\s*'([\w-]+)'/)?.[1] ?? name;
+          flags.add(`--${arg}`);
+          const positional = /\bpositional:\s*true/.test(param);
+          if (!positional && /\btype:\s*'boolean'/.test(param)) flags.add(`--no-${arg}`);
+          const short = param.match(/\bshort:\s*'-?([\w-]+)'/)?.[1];
+          if (short && !positional) flags.add(short.length === 1 ? `-${short}` : `--${short}`);
+        }
+        objStart = -1;
       }
     }
   }
@@ -802,6 +875,13 @@ export function makeFlagChecker(repoRoot) {
     );
   }
 
+  // T13945: commands that spread their args from the operations registry
+  // (`cleo show`) declare those flags only there.
+  const registrySource = readFileSync(
+    join(repoRoot, 'packages/contracts/src/dispatch/operations-registry.ts'),
+    'utf-8',
+  );
+
   const cache = new Map();
   const sourceForVerb = (verb) => {
     if (cache.has(verb)) return cache.get(verb);
@@ -844,7 +924,7 @@ export function makeFlagChecker(repoRoot) {
     const target = isGroup ? (inv.sub && subs.has(inv.sub) ? inv.sub : null) : inv.verb;
     if (target === null) return null;
 
-    const accepted = extractAcceptedFlags(source, target);
+    const accepted = extractAcceptedFlags(source, target, registrySource);
     if (accepted.size === 0) return null;
 
     const label = isGroup ? `${inv.verb} ${target}` : inv.verb;

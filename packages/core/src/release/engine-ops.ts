@@ -504,11 +504,11 @@ export async function releaseGateCheck(
         ? `IVTR gate passed for epic ${epicId}. ${released.length} task(s) released, ${unchecked.length} unchecked (non-blocking).`
         : `IVTR gate passed for epic ${epicId}. All ${released.length} task(s) are in released phase.`
       : `IVTR gate FAILED for epic ${epicId}. ${blocked.length} task(s) not yet released: ${blocked.join(', ')}.` +
-        ` Drive each blocking task to 'released' via the cantbook runtime (T11764) — \`cleo go\` (autonomous) or \`cleo playbook run ivtr --context '{"taskId":"<taskId>"}'\` (manual) — or pass --force to bypass.`;
+        ` These tasks carry IVTR state from the retired IVTR loop (T11896); no command drives it now. Report them to the owner.`;
 
     if (!passed) {
       return engineError('E_IVTR_INCOMPLETE', summary, {
-        fix: `cleo playbook run ivtr --context '{"taskId":"${blocked[0]}"}'`,
+        fix: `cleo show ${blocked[0]} --ivtr-history  # inspect the retired IVTR state, then report it to the owner`,
         details: { blocked, unchecked, epicId, tasks },
       });
     }
