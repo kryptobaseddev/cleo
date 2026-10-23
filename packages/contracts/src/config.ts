@@ -159,6 +159,18 @@ export interface LifecycleConfig {
    * @defaultValue 'critical'
    */
   depsRequiredAt?: DepsRequiredAt;
+  /**
+   * Parent-epic stage gate, separate from {@link LifecycleConfig.mode}. When
+   * `strict`, a child cannot complete while its parent epic sits in a
+   * planning stage, an epic cannot advance while children sit at its stage,
+   * and a child cannot pass its epic's stage; `advisory` only warns. Unset
+   * means `off`: those three checks are opt-in, because together they can
+   * strand an epic's children (T13969). Evidence strictness stays on `mode`.
+   *
+   * @task T13970
+   * @defaultValue 'off'
+   */
+  stageGate?: LifecycleEnforcementMode;
 }
 
 /** Sharing mode: whether .cleo/ files are committed to the project git repo. */

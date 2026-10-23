@@ -33,6 +33,7 @@ import {
   EPIC_MIN_AC,
   findEpicAncestor,
   getLifecycleMode,
+  getStageGateMode,
   validateChildStageCeiling,
   validateEpicCreation,
   validateEpicStageAdvancement,
@@ -43,10 +44,17 @@ import { updateTask } from '../update.js';
 // Config helpers
 // ---------------------------------------------------------------------------
 
-/** Config that disables session and acceptance enforcement for test isolation. */
-function makeConfig(lifecycleMode: 'strict' | 'advisory' | 'off' = 'strict'): string {
+/**
+ * Config that disables session and acceptance enforcement for test isolation.
+ * `stageGate` follows `lifecycleMode` unless given; `null` leaves it unset
+ * (T13970: the stage checks are opt-in).
+ */
+function makeConfig(
+  lifecycleMode: 'strict' | 'advisory' | 'off' = 'strict',
+  stageGate: 'strict' | 'advisory' | 'off' | null = lifecycleMode,
+): string {
   return JSON.stringify({
-    lifecycle: { mode: lifecycleMode },
+    lifecycle: stageGate === null ? { mode: lifecycleMode } : { mode: lifecycleMode, stageGate },
     enforcement: {
       session: { requiredForMutate: false },
       acceptance: { mode: 'off' },
@@ -101,6 +109,71 @@ describe('getLifecycleMode', () => {
     await writeFile(join(env.cleoDir, 'config.json'), makeConfig('off'));
     const mode = await getLifecycleMode(env.tempDir);
     expect(mode).toBe('off');
+  });
+});
+
+describe('getStageGateMode (T13970)', () => {
+  let env: TestDbEnv;
+
+  beforeEach(async () => {
+    env = await createTestDb();
+    process.env['CLEO_DIR'] = env.cleoDir;
+  });
+
+  afterEach(async () => {
+    delete process.env['CLEO_DIR'];
+    resetDbState();
+    await env.cleanup();
+  });
+
+  it('is off when no config exists', async () => {
+    await unlink(join(env.cleoDir, 'config.json'));
+    expect(await getStageGateMode(env.tempDir)).toBe('off');
+  });
+
+  it('stays off when only lifecycle.mode is strict', async () => {
+    await writeFile(join(env.cleoDir, 'config.json'), makeConfig('strict', null));
+    expect(await getStageGateMode(env.tempDir)).toBe('off');
+  });
+
+  it('reads lifecycle.stageGate when set', async () => {
+    await writeFile(join(env.cleoDir, 'config.json'), makeConfig('advisory', 'strict'));
+    expect(await getStageGateMode(env.tempDir)).toBe('strict');
+  });
+
+  it('strict lifecycle mode without a stage gate lets an epic advance past in-flight children (T13969)', async () => {
+    await writeFile(join(env.cleoDir, 'config.json'), makeConfig('strict', null));
+    const now = new Date().toISOString();
+    await env.accessor.upsertSingleTask({
+      id: 'T001',
+      title: 'Epic',
+      description: 'Epic',
+      status: 'pending',
+      priority: 'medium',
+      type: 'epic',
+      pipelineStage: 'research',
+      createdAt: now,
+      updatedAt: now,
+    });
+    await env.accessor.upsertSingleTask({
+      id: 'T002',
+      title: 'Child',
+      description: 'Child',
+      status: 'active',
+      priority: 'medium',
+      type: 'task',
+      parentId: 'T001',
+      pipelineStage: 'research',
+      createdAt: now,
+      updatedAt: now,
+    });
+
+    const result = await validateEpicStageAdvancement(
+      { epicId: 'T001', currentStage: 'research', newStage: 'implementation' },
+      env.accessor,
+      env.tempDir,
+    );
+    expect(result.valid).toBe(true);
   });
 });
 

@@ -152,7 +152,7 @@ describe('taskCompleteStrict — parent-epic lifecycle gate (T788)', () => {
     for (const stage of planningStages) {
       it(`rejects with E_LIFECYCLE_GATE_FAILED when epic is at '${stage}'`, async () => {
         vi.mocked(loadConfig).mockResolvedValue({
-          lifecycle: { mode: 'strict' },
+          lifecycle: { mode: 'strict', stageGate: 'strict' },
         } as ReturnType<typeof loadConfig> extends Promise<infer T> ? T : never);
 
         vi.mocked(getTaskAccessor).mockResolvedValue(
@@ -185,7 +185,7 @@ describe('taskCompleteStrict — parent-epic lifecycle gate (T788)', () => {
     for (const stage of allowedStages) {
       it(`allows completion when epic is at '${stage}'`, async () => {
         vi.mocked(loadConfig).mockResolvedValue({
-          lifecycle: { mode: 'strict' },
+          lifecycle: { mode: 'strict', stageGate: 'strict' },
         } as ReturnType<typeof loadConfig> extends Promise<infer T> ? T : never);
 
         vi.mocked(getTaskAccessor).mockResolvedValue(
@@ -211,7 +211,7 @@ describe('taskCompleteStrict — parent-epic lifecycle gate (T788)', () => {
 
   it('advisory mode: warns but does not reject when epic is in planning stage', async () => {
     vi.mocked(loadConfig).mockResolvedValue({
-      lifecycle: { mode: 'advisory' },
+      lifecycle: { mode: 'advisory', stageGate: 'advisory' },
     } as ReturnType<typeof loadConfig> extends Promise<infer T> ? T : never);
 
     vi.mocked(getTaskAccessor).mockResolvedValue(
@@ -232,6 +232,26 @@ describe('taskCompleteStrict — parent-epic lifecycle gate (T788)', () => {
   // -------------------------------------------------------------------------
   // Off mode — no gate check at all
   // -------------------------------------------------------------------------
+
+  it('stage gate unset: strict lifecycle mode alone no longer blocks children of a planning-stage epic (T13970)', async () => {
+    vi.mocked(loadConfig).mockResolvedValue({
+      lifecycle: { mode: 'strict' },
+    } as ReturnType<typeof loadConfig> extends Promise<infer T> ? T : never);
+
+    vi.mocked(getTaskAccessor).mockResolvedValue(
+      makeAccessorMock({
+        child: { id: CHILD_ID, parentId: EPIC_ID },
+        parent: { id: EPIC_ID, type: 'epic', pipelineStage: 'research' },
+      }) as ReturnType<typeof getAccessor> extends Promise<infer T> ? T : never,
+    );
+
+    const result = await completeTaskStrict(PROJECT_ROOT, CHILD_ID);
+
+    // Evidence strictness still applies (verification is null here), but the
+    // stage gate must not be what refuses it.
+    expect(result.success).toBe(false);
+    expect(result.error?.code).not.toBe('E_LIFECYCLE_GATE_FAILED');
+  });
 
   it('off mode: skips the lifecycle gate entirely', async () => {
     vi.mocked(loadConfig).mockResolvedValue({
@@ -306,7 +326,7 @@ describe('taskCompleteStrict — parent-epic lifecycle gate (T788)', () => {
 
   it('rejects parent-epic gate even when extra args are passed (T832)', async () => {
     vi.mocked(loadConfig).mockResolvedValue({
-      lifecycle: { mode: 'strict' },
+      lifecycle: { mode: 'strict', stageGate: 'strict' },
     } as ReturnType<typeof loadConfig> extends Promise<infer T> ? T : never);
 
     vi.mocked(getTaskAccessor).mockResolvedValue(
@@ -324,6 +344,7 @@ describe('taskCompleteStrict — parent-epic lifecycle gate (T788)', () => {
     expect(result.success).toBe(false);
     expect(result.error?.code).toBe('E_LIFECYCLE_GATE_FAILED');
     expect(result.error?.fix).toContain(`cleo show ${EPIC_ID}`);
+    expect(result.error?.fix).toContain('cleo config set lifecycle.stageGate off');
     expect(result.error?.fix).not.toContain('lifecycle complete');
   });
 

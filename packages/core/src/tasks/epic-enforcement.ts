@@ -87,6 +87,33 @@ export async function getLifecycleMode(cwd?: string): Promise<LifecycleMode> {
   return config.lifecycle?.mode ?? 'strict';
 }
 
+/**
+ * Read `lifecycle.stageGate` from config. Falls back to "off" when unset: the
+ * pipeline-stage checks (child stage ceiling, epic stage advancement, and the
+ * parent-epic check in `completeTaskStrict`) are opt-in, because together they
+ * can strand an epic's children (T13969). `lifecycle.mode` keeps governing
+ * epic creation and evidence strictness.
+ *
+ * @remarks
+ * In VITEST environments, returns "off" like {@link getLifecycleMode}.
+ *
+ * @param cwd - Working directory for config resolution
+ * @returns The resolved stage-gate mode
+ *
+ * @example
+ * ```ts
+ * const mode = await getStageGateMode();
+ * // => 'off' unless lifecycle.stageGate is set
+ * ```
+ *
+ * @task T13970
+ */
+export async function getStageGateMode(cwd?: string): Promise<LifecycleMode> {
+  if (process.env.VITEST) return 'off';
+  const config = await loadConfig(cwd);
+  return config.lifecycle?.stageGate ?? 'off';
+}
+
 // =============================================================================
 // 1. EPIC CREATION REQUIREMENTS
 // =============================================================================
@@ -204,7 +231,7 @@ export async function validateChildStageCeiling(
   accessor: DataAccessor,
   cwd?: string,
 ): Promise<EpicEnforcementResult> {
-  const mode = await getLifecycleMode(cwd);
+  const mode = await getStageGateMode(cwd);
   if (mode === 'off') return { valid: true };
 
   const epic = await accessor.loadSingleTask(options.epicId);
@@ -320,7 +347,7 @@ export async function validateEpicStageAdvancement(
   accessor: DataAccessor,
   cwd?: string,
 ): Promise<EpicEnforcementResult> {
-  const mode = await getLifecycleMode(cwd);
+  const mode = await getStageGateMode(cwd);
   if (mode === 'off') return { valid: true };
 
   const { epicId, currentStage, newStage } = options;

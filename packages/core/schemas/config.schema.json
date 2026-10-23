@@ -1119,6 +1119,16 @@
           ],
           "default": "strict",
           "description": "Enforcement mode: strict (blocks spawn if prerequisites not met), advisory (warns but allows spawn), off (disables gate checks)."
+        },
+        "stageGate": {
+          "type": "string",
+          "enum": [
+            "strict",
+            "advisory",
+            "off"
+          ],
+          "default": "off",
+          "description": "Parent-epic stage gate (T13970), separate from mode: strict blocks a child's completion while its parent epic is in a planning stage, blocks advancing an epic while children sit at its stage, and keeps children from passing their epic's stage; advisory only warns; off (default) skips them. Evidence strictness stays on mode."
         }
       }
     },
@@ -1170,6 +1180,16 @@
           ],
           "default": "strict",
           "description": "Enforcement mode: strict (blocks spawn if prerequisites not met), advisory (warns but allows spawn), off (disables gate checks)."
+        },
+        "stageGate": {
+          "type": "string",
+          "enum": [
+            "strict",
+            "advisory",
+            "off"
+          ],
+          "default": "off",
+          "description": "Parent-epic stage gate (T13970), separate from mode: strict blocks a child's completion while its parent epic is in a planning stage, blocks advancing an epic while children sit at its stage, and keeps children from passing their epic's stage; advisory only warns; off (default) skips them. Evidence strictness stays on mode."
         }
       },
       "default": {
