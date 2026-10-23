@@ -1644,18 +1644,14 @@ async function softEvictLowQualityMedium(projectRoot: string): Promise<number> {
     .replace('T', ' ')
     .slice(0, 19);
 
-  const tables = [
-    { table: 'brain_observations', kind: 'observations', dateCol: 'created_at' },
-    { table: 'brain_learnings', kind: 'learnings', dateCol: 'created_at' },
-    { table: 'brain_patterns', kind: 'patterns', dateCol: 'extracted_at' },
-    { table: 'brain_decisions', kind: 'decisions', dateCol: 'created_at' },
-  ] as const;
+  const tables: Array<{ table: string; dateCol: string }> = [
+    { table: 'brain_observations', dateCol: 'created_at' },
+    { table: 'brain_learnings', dateCol: 'created_at' },
+    { table: 'brain_patterns', dateCol: 'extracted_at' },
+    { table: 'brain_decisions', dateCol: 'created_at' },
+  ];
 
-  for (const { table, kind, dateCol } of tables) {
-    // T13947: auto rows (dispatch traces, doc-attachment records, task stubs)
-    // are never promoted, whatever citation count they collected while reads
-    // still bumped it.
-    const notAuto = autoRowExclusionClause(kind);
+  for (const { table, dateCol } of tables) {
     try {
       const stmt = nativeDb.prepare(`
         UPDATE ${table}

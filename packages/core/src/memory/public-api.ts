@@ -27,8 +27,8 @@ import type {
 import { getProjectRoot } from '../paths.js';
 import { truncateString } from '../render/helpers.js';
 import { getBrainNativeDb } from '../store/memory-sqlite.js';
-import { autoRowExclusionClause } from './eligibility.js';
 import { listDecisions, searchDecisions } from './decisions.js';
+import { autoRowExclusionClause } from './eligibility.js';
 import { graphStats } from './graph-queries.js';
 import { searchLearnings } from './learnings.js';
 import { type PatternType, searchPatterns } from './patterns.js';
