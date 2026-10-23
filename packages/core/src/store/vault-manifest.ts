@@ -108,7 +108,7 @@ export const VAULT_FORMAT_KEY = 'zz_vault_format';
  */
 export const VAULT_AUTHORED_KEY = 'zz_vault_authored';
 
-/** Columns a memory read bumps on the entries it returns (`incrementCitationCounts`). */
+/** Columns a memory read bumped on the entries it returned (before T13947; older CLEO still does). */
 const READ_SIDE_COLUMNS: Readonly<Record<string, readonly string[]>> = {
   brain_observations: ['citation_count', 'updated_at'],
   brain_decisions: ['citation_count', 'updated_at'],

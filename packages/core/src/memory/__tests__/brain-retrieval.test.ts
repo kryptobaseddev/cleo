@@ -154,6 +154,15 @@ describe('Brain Retrieval', () => {
             });
           });
         }
+        const seeded = new Map(
+          [tempDir, second].map((root) => [
+            root,
+            worktreeScope
+              .run({ worktreeRoot: root, projectHash: 'read' }, () => getBrainNativeDb(root))
+              ?.prepare('SELECT citation_count, updated_at FROM brain_observations WHERE id = ?')
+              .get('O-owner'),
+          ]),
+        );
         const first =
           method === 'fetch'
             ? await fetchBrainEntries(tempDir, { ids: ['O-owner'] })
@@ -190,11 +199,12 @@ describe('Brain Retrieval', () => {
               ?.prepare('SELECT session_id FROM brain_retrieval_log WHERE query = ?')
               .all(method === 'fetch' ? 'O-owner' : 'ownershipneedle'),
           ).toEqual([{ session_id: session }]);
+          // T13947: reads are pure; only the retrieval log is written.
           expect(
             native
-              ?.prepare('SELECT citation_count FROM brain_observations WHERE id = ?')
+              ?.prepare('SELECT citation_count, updated_at FROM brain_observations WHERE id = ?')
               .get('O-owner'),
-          ).toMatchObject({ citation_count: 1 });
+          ).toEqual(seeded.get(root));
         }
       } finally {
         release.resolve();
@@ -300,103 +310,33 @@ describe('Brain Retrieval', () => {
       }
     });
 
-    it.each([
-      'complete',
-      'cancel',
-      'deadline',
-    ])('tracks budget citation lifetime and ownership: %s', async (stop) => {
+    it('retrieveWithBudget is a pure read: no citation write, no background op (T13947)', async () => {
       const { retrieveWithBudget } = await import('../brain-retrieval.js');
       const { getBrainAccessor } = await import('../../store/memory-accessor.js');
       const { getBrainNativeDb } = await import('../../store/memory-sqlite.js');
-      const { closeAllDatabases } = await import('../../store/sqlite.js');
-      const citation = await import('../retrieval/increment-citation-counts.js');
-      const original = citation.incrementCitationCounts;
-      const entered = Promise.withResolvers<void>();
-      const release = Promise.withResolvers<void>();
-      const finished = Promise.withResolvers<void>();
-      const second = await mkdtemp(join(tmpdir(), 'cleo-budget-owner-b-'));
-      await mkdir(join(second, '.cleo'));
-      await writeFile(
-        join(cleoDir, 'project-info.json'),
-        JSON.stringify({
-          projectId: 'budget-fixture',
-          projectHash: 'budget-fixture',
-          projectRoot: tempDir,
-        }),
-      );
-      for (const root of [tempDir, second]) {
-        await worktreeScope.run({ worktreeRoot: root, projectHash: 'seed' }, async () => {
-          const accessor = await getBrainAccessor(root);
-          await accessor.addObservation({
-            id: 'O-budget',
-            type: 'discovery',
-            title: 'budgetneedle',
-            narrative: 'budgetneedle durable evidence',
-            sourceType: 'agent',
-          });
+      const scope = { worktreeRoot: tempDir, projectHash: 'budget' };
+      await worktreeScope.run(scope, async () => {
+        const accessor = await getBrainAccessor(tempDir);
+        await accessor.addObservation({
+          id: 'O-budget',
+          type: 'discovery',
+          title: 'budgetneedle',
+          narrative: 'budgetneedle durable evidence',
+          sourceType: 'agent',
         });
-      }
-      const abort = new AbortController();
-      const context = createOperationExecutionContext(
-        {
-          projectRoot: tempDir,
-          projectId: 'budget-fixture',
-          actor: 'test',
-          operation: 'memory.retrieve',
-          idempotencyKey: stop,
-        },
-        { budgetMs: 10000, signal: abort.signal },
+      });
+      const row = () =>
+        worktreeScope
+          .run(scope, () => getBrainNativeDb(tempDir))
+          ?.prepare('SELECT citation_count, updated_at FROM brain_observations WHERE id = ?')
+          .get('O-budget');
+      const before = row();
+      const result = await worktreeScope.run(scope, () =>
+        retrieveWithBudget(tempDir, 'budgetneedle', 500),
       );
-      const spy = vi
-        .spyOn(citation, 'incrementCitationCounts')
-        .mockImplementation(async (...args) => {
-          if (args[0] === tempDir) {
-            entered.resolve();
-            await release.promise;
-          }
-          try {
-            await original(...args);
-          } finally {
-            if (args[0] === tempDir) finished.resolve();
-          }
-        });
-      try {
-        const result = await worktreeScope.run(
-          { worktreeRoot: tempDir, projectHash: 'test', execution: context },
-          () => retrieveWithBudget(tempDir, 'budgetneedle', 500),
-        );
-        expect(result.entries.map((entry) => entry.id)).toContain('O-budget');
-        await entered.promise;
-        expect(pendingBackgroundOpCount()).toBeGreaterThan(0);
-        if (stop === 'complete') {
-          const next = await retrieveWithBudget(second, 'budgetneedle', 500);
-          expect(next.entries.map((entry) => entry.id)).toContain('O-budget');
-        } else if (stop === 'cancel') abort.abort();
-        else vi.spyOn(Date, 'now').mockReturnValue(context.deadlineAt + 1);
-        release.resolve();
-        await finished.promise;
-        await awaitBackgroundOps();
-        expect(pendingBackgroundOpCount()).toBe(0);
-        vi.restoreAllMocks();
-        for (const root of [tempDir, second]) {
-          const native = worktreeScope.run({ worktreeRoot: root, projectHash: 'read' }, () =>
-            getBrainNativeDb(root),
-          );
-          expect(
-            native
-              ?.prepare('SELECT citation_count FROM brain_observations WHERE id = ?')
-              .get('O-budget'),
-          ).toEqual({ citation_count: stop === 'complete' ? 1 : 0 });
-        }
-      } finally {
-        release.resolve();
-        if (spy.mock.calls.some((args) => args[0] === tempDir)) await finished.promise;
-        await awaitBackgroundOps();
-        vi.restoreAllMocks();
-        context.close();
-        await closeAllDatabases();
-        await rm(second, { recursive: true, force: true });
-      }
+      expect(result.entries.map((entry) => entry.id)).toContain('O-budget');
+      expect(pendingBackgroundOpCount()).toBe(0);
+      expect(row()).toEqual(before);
     });
 
     it('should return empty results for empty query', async () => {
