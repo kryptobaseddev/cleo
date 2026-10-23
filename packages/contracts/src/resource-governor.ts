@@ -152,8 +152,10 @@ export interface MemoryConsumer {
 export interface MemoryConsumers {
   /** When they were probed (epoch ms). */
   readonly sampledAtMs: number;
-  /** Largest first. */
+  /** Largest first; empty when the probe failed. */
   readonly processes: readonly MemoryConsumer[];
+  /** `true` when no probe could list them (the cause is then UNKNOWN). */
+  readonly failed?: boolean;
 }
 
 /**

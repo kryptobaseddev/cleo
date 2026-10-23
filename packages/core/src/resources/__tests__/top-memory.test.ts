@@ -49,6 +49,13 @@ describe('top memory users (T13914)', () => {
       summary: 'swap 8.6 GiB used',
     };
     expect(memoryPressureCause(reading)).toBe('swap 8.6 GiB used');
+    // A failed probe says UNKNOWN, never an empty "nothing" (T13963).
+    expect(
+      memoryPressureCause({
+        ...reading,
+        topConsumers: { sampledAtMs: 0, processes: [], failed: true },
+      }),
+    ).toContain('largest memory users: UNKNOWN (memory probe failed');
     expect(
       memoryPressureCause({
         ...reading,

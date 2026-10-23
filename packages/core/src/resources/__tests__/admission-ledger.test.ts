@@ -1027,7 +1027,40 @@ describe('admit (one ledger, real critical section)', () => {
     expect(notices[0]).toContain('agy pid 4242 17.0 GiB');
     expect(notices[0]).toMatch(/this wait gives up in \d+s\.$/);
     // One probe per 30 s window while the gate keeps refusing, not one per pass.
-    expect(topMemory.mock.calls.length).toBeLessThan(10);
+    // One probe per 30 s window while the gate keeps refusing (90 s of waiting), not one per pass.
+    expect(topMemory.mock.calls.length).toBeLessThanOrEqual(5);
+  });
+
+  it('a failed probe reads UNKNOWN and is retried; reap never probes (T13963, T13964)', async () => {
+    const failing = vi.fn((): null => null);
+    const pressed = { ...base, sample: async () => sampleAt(40), topMemory: failing };
+    const first = await admit({ label: 'tool:test', footprintBytes: GIB }, {
+      ...pressed,
+      dir,
+      wait: false,
+    });
+    expect(first.admitted).toBe(false);
+    if (!first.admitted) expect(first.refusal.reason).toContain('largest memory users: UNKNOWN');
+    await admit({ label: 'tool:test', footprintBytes: GIB }, { ...pressed, dir, wait: false });
+    expect(failing).toHaveBeenCalledTimes(2); // a failure is not cached for 30 s
+    // Reaping a dead holder under the same pressure never runs the probe.
+    const spy = vi.fn(() => []);
+    writeFileSync(
+      join(dir, 'ledger.json'),
+      JSON.stringify({
+        version: 1,
+        entries: [entry({ id: 'dead', pid: 999_999, state: 'admitted', admittedAtMs: 0 })],
+      }),
+    );
+    const reaped = await reapLedger({
+      dir,
+      capacityBytes,
+      sample: async () => sampleAt(40),
+      topMemory: spy,
+      probe: { liveness: () => 'gone', startedAt: () => null, groupLiveness: () => 'gone' },
+    });
+    expect(reaped).toEqual(['dead']);
+    expect(spy).not.toHaveBeenCalled();
   });
 
   it('a run nested in an admitted run rides it: no new entry, no wait', async () => {

@@ -22,6 +22,12 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+// T13964: scripted memory pressure must never run the host's real top/ps probe.
+vi.mock('../../resources/top-memory.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../resources/top-memory.js')>()),
+  topMemoryConsumers: () => [],
+}));
+
 import {
   ADMISSION_ENV,
   admissionCapacityBytes,

@@ -1631,7 +1631,7 @@ export interface AdmitOptions {
    * The host's largest memory users, probed when the memory gate refuses
    * (T13914). @defaultValue {@link topMemoryConsumers}
    */
-  readonly topMemory?: () => readonly MemoryConsumer[];
+  readonly topMemory?: () => readonly MemoryConsumer[] | null;
   /** The ledger directory. @defaultValue {@link admissionDir} */
   readonly dir?: string;
   /** Process probes for re-entrancy (tests). */
@@ -1782,6 +1782,7 @@ async function sampleShare(
   opts: AdmitOptions,
   cached: CachedPressure | null,
   nowMs: number,
+  probeTop = false,
 ): Promise<ShareVerdict> {
   if (!opts.sample) {
     if (process.env[ADMISSION_PRESSURE_ENV] === 'off') {
@@ -1808,7 +1809,7 @@ async function sampleShare(
   const lightShare = lightBudgetShare(sample, gate.refuse);
   const reading =
     gate.refuse && gate.reading !== null
-      ? withTopConsumers(gate.reading, cached, nowMs, opts)
+      ? withTopConsumers(gate.reading, cached, nowMs, opts, probeTop)
       : null;
   return {
     share,
@@ -1820,22 +1821,32 @@ async function sampleShare(
 
 /**
  * A refusing reading with the host's largest memory users (T13914), reusing
- * the last probe for {@link TOP_MEMORY_REUSE_MS} so a long refusal costs one
- * probe per window, not one per pass.
+ * the last successful probe for {@link TOP_MEMORY_REUSE_MS} so a long refusal
+ * costs one probe per window, not one per pass. Only a waiting admission
+ * probes (`probe`); release, reap and remove carry the last list forward and
+ * never run the probe (T13964). A failed probe is never reused.
  */
 function withTopConsumers(
   reading: MemoryPressureReading,
   cached: CachedPressure | null,
   nowMs: number,
   opts: AdmitOptions,
+  probe: boolean,
 ): MemoryPressureReading {
   const last = cached?.reading?.topConsumers;
-  if (last !== undefined) {
+  if (last !== undefined && last.failed !== true) {
     const age = nowMs - last.sampledAtMs;
     if (age >= 0 && age < TOP_MEMORY_REUSE_MS) return { ...reading, topConsumers: last };
   }
+  if (!probe) return last !== undefined ? { ...reading, topConsumers: last } : reading;
   const processes = (opts.topMemory ?? topMemoryConsumers)();
-  return { ...reading, topConsumers: { sampledAtMs: nowMs, processes } };
+  return {
+    ...reading,
+    topConsumers:
+      processes === null
+        ? { sampledAtMs: nowMs, processes: [], failed: true }
+        : { sampledAtMs: nowMs, processes },
+  };
 }
 
 function isFresh(cached: CachedPressure, nowMs: number): boolean {
@@ -2014,7 +2025,12 @@ async function admitInner(req: AdmissionRequest, opts: AdmitOptions): Promise<Ad
     const before = readLedgerDoc(dir);
     lastDoc = before;
     const nowMs = now();
-    const { share, lightShare, reading, sampled } = await sampleShare(opts, before.pressure, nowMs);
+    const { share, lightShare, reading, sampled } = await sampleShare(
+      opts,
+      before.pressure,
+      nowMs,
+      true,
+    );
     lastReading = reading;
     checkQueue();
     const dead = findDead(before, now(), probe);
@@ -2387,7 +2403,10 @@ function foreignId(f: ForeignEntry): string {
  * @returns the ids removed (entries of another CLEO version included).
  */
 export async function reapLedger(
-  opts: Pick<AdmitOptions, 'dir' | 'capacityBytes' | 'probe' | 'now' | 'sample'> = {},
+  opts: Pick<
+    AdmitOptions,
+    'dir' | 'capacityBytes' | 'probe' | 'now' | 'sample' | 'topMemory'
+  > = {},
 ): Promise<string[]> {
   const dir = opts.dir ?? admissionDir();
   const now = opts.now ?? Date.now;

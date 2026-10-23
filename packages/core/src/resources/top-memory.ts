@@ -65,44 +65,50 @@ export function parsePsMemory(text: string, limit: number = TOP_MEMORY_COUNT): M
   return out.sort((a, b) => b.footprintBytes - a.footprintBytes).slice(0, limit);
 }
 
+/** Longest one probe may take; it is then SIGKILLed (T13964). */
+export const TOP_MEMORY_TIMEOUT_MS = 2_000;
+
 /**
- * The host's largest memory users right now. One `top` sample on macOS, one
- * `ps` on Linux, bounded at 5 s; an empty list when the probe fails or the
- * platform has neither.
+ * The host's largest memory users right now: one `top` sample on macOS
+ * (footprint), falling back to `ps` RSS when `top` fails; one `ps` on Linux.
+ * Each probe is SIGKILLed after {@link TOP_MEMORY_TIMEOUT_MS}. `null` when no
+ * probe could list them (the caller says UNKNOWN, never "nothing").
  *
  * @param limit - How many. @defaultValue {@link TOP_MEMORY_COUNT}
  * @param platform - @defaultValue process.platform
- * @returns Largest first.
+ * @returns Largest first, or `null` when the probe failed.
  */
 export function topMemoryConsumers(
   limit: number = TOP_MEMORY_COUNT,
   platform: NodeJS.Platform = process.platform,
-): MemoryConsumer[] {
+): MemoryConsumer[] | null {
   const run = (cmd: string, args: readonly string[]): string =>
     execFileSync(cmd, [...args], {
       encoding: 'utf8',
       stdio: ['ignore', 'pipe', 'ignore'],
-      timeout: 5_000,
+      timeout: TOP_MEMORY_TIMEOUT_MS,
+      killSignal: 'SIGKILL',
+      maxBuffer: 16 * 1024 * 1024,
     });
-  try {
-    if (platform === 'darwin') {
-      const text = run('/usr/bin/top', [
-        '-l',
-        '1',
-        '-o',
-        'mem',
-        '-n',
-        String(limit),
-        '-stats',
-        'pid,mem,command',
-      ]);
-      return parseTopMemory(text, limit);
+  const ps = (): MemoryConsumer[] | null => {
+    try {
+      const rows = parsePsMemory(run('/bin/ps', ['-A', '-o', 'pid=,rss=,comm=']), limit);
+      return rows.length > 0 ? rows : null;
+    } catch {
+      return null;
     }
-    if (platform === 'linux') return parsePsMemory(run('ps', ['-eo', 'pid=,rss=,comm=']), limit);
-  } catch {
-    // No list: the wait still names the pressure readings.
+  };
+  if (platform === 'darwin') {
+    try {
+      const args = ['-l', '1', '-o', 'mem', '-n', String(limit), '-stats', 'pid,mem,command'];
+      const rows = parseTopMemory(run('/usr/bin/top', args), limit);
+      if (rows.length > 0) return rows;
+    } catch {
+      // Fall back to ps below (RSS misses compressed pages, but names the process).
+    }
+    return ps();
   }
-  return [];
+  return platform === 'linux' ? ps() : null;
 }
 
 function gib(bytes: number): string {
@@ -120,6 +126,12 @@ function gib(bytes: number): string {
  * @returns One line.
  */
 export function memoryPressureCause(reading: MemoryPressureReading): string {
+  if (reading.topConsumers?.failed === true) {
+    return (
+      `${reading.summary}; largest memory users: UNKNOWN ` +
+      '(memory probe failed; check with top -o mem)'
+    );
+  }
   // The reading is read back from the shared ledger file: trust only a list.
   const top = reading.topConsumers?.processes;
   if (!Array.isArray(top) || top.length === 0) return reading.summary;

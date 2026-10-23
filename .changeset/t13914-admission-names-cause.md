@@ -15,7 +15,10 @@ users (macOS `top` footprint, which counts compressed and swapped pages that
 pressure reading. The refusal reason, the "waiting: memory pressure" line, the
 deferral fix, the one-minute holder report (which also says when the wait
 gives up) and `cleo doctor tool-locks` (`budget.cause`) name them and how to
-free memory.
+free memory. Only a waiting admission runs the probe (never release, reap
+or remove), each probe is SIGKILLed after 2 s, macOS falls back to `ps` when
+`top` fails, and a probe that fails reads "UNKNOWN" and is retried, never
+cached.
 
 `pnpm install`, `add`, `update` and `npm ci` are charged a single-process
 plan (6 GiB on a 64 GiB Mac) instead of half a heavy run (12 GiB).
