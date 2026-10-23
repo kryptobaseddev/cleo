@@ -2024,9 +2024,11 @@ export async function completeTaskStrict(
                 },
                 // T13945: the RCASD lifecycle verbs are being retired, and in strict
                 // mode `cleo update --pipeline-stage` refuses while children sit at
-                // the epic's stage, so the fix escalates instead of naming either.
+                // the epic's stage (validateEpicStageAdvancement, T13969), so the
+                // fix escalates instead of naming either.
                 fix:
-                  `Parent epic ${task.parentId} is still at the legacy planning stage '${epicStage}' (new epics start at implementation). ` +
+                  `Parent epic ${task.parentId} is at the planning stage '${epicStage}'; strict lifecycle mode blocks its children until it reaches implementation, ` +
+                  `and 'cleo update ${task.parentId} --pipeline-stage implementation' is refused while children sit at '${epicStage}' (T13969). ` +
                   `Report it to your lead or the owner with 'cleo show ${task.parentId}'; do not drive the RCASD lifecycle verbs.`,
               });
             }

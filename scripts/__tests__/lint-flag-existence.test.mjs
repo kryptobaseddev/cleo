@@ -30,6 +30,7 @@ import {
   loadRegistry,
   loadRetiredFlags,
   makeFlagChecker,
+  extractRegistryParamFlags,
   readInjectionTemplates,
 } from '../lint-injection-commands.mjs';
 import { extractRunBlockText } from '../lint-workflow-cleo-commands.mjs';
@@ -101,6 +102,30 @@ describe('extractAcceptedFlags', () => {
     // Callers must read empty as "unknown", never as "accepts nothing" — the
     // latter would report every flag on any command this parser cannot read.
     expect(extractAcceptedFlags(initSrc(), 'no-such-command-xyz').size).toBe(0);
+  });
+});
+
+describe('registry-spread args (T13945)', () => {
+  const showSrc = () => read('packages/cleo/src/cli/commands/show.ts');
+  const registry = () => read('packages/contracts/src/dispatch/operations-registry.ts');
+
+  it('resolves `...paramsToCittyArgs(getOperationParams(...))` to the registry params', () => {
+    // `cleo show --ivtr-history` is declared only in the tasks.show registry
+    // entry; before T13945 gates 14/23 called it unknown while the CLI took it.
+    const flags = extractAcceptedFlags(showSrc(), 'show', registry());
+    expect(flags.has('--ivtr-history')).toBe(true);
+    expect(flags.has('--no-ivtr-history')).toBe(true);
+    expect(flags.has('--history')).toBe(true);
+    expect(flags.has('--full')).toBe(true);
+    expect(flags.has('--no-such-show-flag')).toBe(false);
+  });
+
+  it('leaves registry-spread args unknown when no registry source is given', () => {
+    expect(extractAcceptedFlags(showSrc(), 'show').has('--ivtr-history')).toBe(false);
+  });
+
+  it('returns EMPTY for an operation the registry does not have', () => {
+    expect(extractRegistryParamFlags(registry(), 'query', 'tasks', 'no-such-op').size).toBe(0);
   });
 });
 

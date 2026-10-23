@@ -504,11 +504,11 @@ export async function releaseGateCheck(
         ? `IVTR gate passed for epic ${epicId}. ${released.length} task(s) released, ${unchecked.length} unchecked (non-blocking).`
         : `IVTR gate passed for epic ${epicId}. All ${released.length} task(s) are in released phase.`
       : `IVTR gate FAILED for epic ${epicId}. ${blocked.length} task(s) not yet released: ${blocked.join(', ')}.` +
-        ` These tasks carry IVTR state from the retired IVTR loop (T11896); no command drives it now. Report them to the owner, or pass force to bypass (logged owner-level warning).`;
+        ` These tasks carry IVTR state from the retired IVTR loop (T11896); no command drives it now. Report them to the owner.`;
 
     if (!passed) {
       return engineError('E_IVTR_INCOMPLETE', summary, {
-        fix: `cleo show ${blocked[0]} --ivtr-history  # inspect the retired IVTR state, then report it to the owner or re-run the gate with force`,
+        fix: `cleo show ${blocked[0]} --ivtr-history  # inspect the retired IVTR state, then report it to the owner`,
         details: { blocked, unchecked, epicId, tasks },
       });
     }
