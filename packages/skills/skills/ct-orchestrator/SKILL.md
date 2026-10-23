@@ -84,8 +84,9 @@ Full charter (8 invariants I1–I8 + prefix registry) lives in
 ## The Work Loop
 
 Every issue, feature or bug runs the same loop: plan, execute, verify. RCASD stage
-records and the IVTR loop are retired from agent instructions (epic T13932);
-`pipeline_stage` stays a label on tasks, never a gate you drive.
+records and the IVTR loop are retired from agent instructions (epic T13932).
+`pipeline_stage` is a label on tasks; the one place it still gates work is strict
+lifecycle mode (see Plan).
 
 ### Plan
 
@@ -97,6 +98,13 @@ records and the IVTR loop are retired from agent instructions (epic T13932);
 - **Tasks**: atomic children under the epic, each with `--acceptance` and `--depends`.
   Spawn protocols (research, consensus, specification, decomposition, ...) only pick
   the spawn prompt's stage guidance; they are labels, not gates.
+- **Strict lifecycle mode** (the default when `lifecycle.mode` is unset; `advisory`
+  only warns, `off` skips the check): a child cannot complete (exit 80) while its parent
+  epic sits in a planning stage (research to decomposition). An epic inherits its saga's
+  stage, or starts at research when it has no parent. Once the plan is written and
+  BEFORE adding children, run `cleo update <epicId> --pipeline-stage implementation`.
+  After children sit at the epic's stage, strict mode refuses that move (T13969):
+  escalate to the lead or owner rather than driving the retired lifecycle verbs.
 
 ### Execute
 
@@ -265,7 +273,7 @@ mailbox in it.
   previously-deferred tasks promote into `admitted`. This is pull-based; never
   fail or skip a deferred task, just retry it on the next pull.
 - If a `cleo orchestrate spawn` returns `E_RESOURCE_DEFERRED` (the hard gate
-  denied an `agent-session` slot under pressure), treat it like a lifecycle gate:
+  denied an `agent-session` slot under pressure), treat it as a retryable deferral:
   wait `details.retryAfterMs` and re-spawn. No worktree/process was provisioned,
   so there is nothing to clean up.
 
@@ -317,7 +325,7 @@ Agent B reads the full file directly if details needed
 
 When operating without continuous HITL oversight, additional constraints apply: single coordination point, manifest-only reads, verify before next spawn, wave-order spawning, followup task creation for partial/blocked, auto-handoff at 80% context.
 
-**Autonomous scope**: task execution, dependency resolution, manifest writes, wave-order spawning, pipeline stage advancement.
+**Autonomous scope**: task execution, dependency resolution, manifest writes, wave-order spawning, advancing a new epic to implementation before its children exist (strict mode).
 
 **Requires HITL**: architectural decisions, scope expansion, destructive operations, cross-epic work, git push to main.
 

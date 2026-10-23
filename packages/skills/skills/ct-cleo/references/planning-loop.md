@@ -1,8 +1,8 @@
 # Planning Loop: plan, execute, verify
 
-How CLEO work flows (T13958). RCASD stage records, lifecycle gates and the IVTR
-loop are retired from agent instructions (epic T13932). `pipeline_stage` stays a
-label on tasks; never drive it to unblock work.
+How CLEO work flows (T13958). RCASD stage records and the IVTR loop are retired
+from agent instructions (epic T13932). `pipeline_stage` is a label on tasks; the
+one place it still gates work is strict lifecycle mode (below).
 
 ## 1. Plan
 
@@ -14,6 +14,13 @@ label on tasks; never drive it to unblock work.
   Owner decisions go through the ask tool first.
 - Tasks: `cleo add --type task --parent <epicId> --acceptance "A|B"`, with
   dependencies via `--depends`.
+- **Strict lifecycle mode** (the default when `lifecycle.mode` is unset; `advisory`
+  only warns, `off` skips the check): a child cannot complete (exit 80) while its parent
+  epic sits in a planning stage (research to decomposition). An epic inherits its saga's
+  stage, or starts at research when it has no parent. Once the plan is written and
+  BEFORE adding children, run `cleo update <epicId> --pipeline-stage implementation`.
+  After children sit at the epic's stage, strict mode refuses that move (T13969):
+  escalate to the lead or owner rather than driving the retired lifecycle verbs.
 
 ## 2. Execute
 
@@ -35,9 +42,11 @@ Spawn protocols (research, consensus, specification, decomposition,
 implementation, validation, testing, release, contribution) choose the spawn
 prompt's stage guidance. They are not gates.
 
-## Legacy records
+## When `cleo complete` refuses
 
-Older epics may carry lifecycle rows, an early `pipeline_stage`, or tasks with
-`ivtr_state`. `cleo complete` can then exit 80 (early-stage parent epic) or 83
-(`E_IVTR_INCOMPLETE`); neither has a self-service fix, so report the task to
-the lead or owner.
+- Exit 80 with unproven evidence gates (the common case in strict mode): run
+  `cleo done <id> --plan`, record what it names, then complete.
+- Exit 80 naming a planning-stage parent epic: advance the epic before children
+  exist (above); if children already sit at its stage, report it to the lead.
+- Exit 83 (`E_IVTR_INCOMPLETE`): the task carries `ivtr_state` from the retired
+  IVTR loop, which no command clears; report it to the lead or owner.
