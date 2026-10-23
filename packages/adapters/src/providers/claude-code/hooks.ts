@@ -23,21 +23,25 @@ import { updateJsonConfigFile } from '@cleocode/caamp';
 import { PROVIDER_NATIVE_EVENT_MAPS } from '@cleocode/caamp/hooks';
 import type { AdapterHookProvider } from '@cleocode/contracts';
 import {
+  applySessionEndHook,
   applyStopDispatch,
   excludeLocalSettingsFromGit,
   isStopDispatchHookObject,
   LEGACY_SESSION_END_STOP_COMMAND,
+  sessionEndHookObject,
   stopDispatchHookObject,
 } from '../shared/heavy-command-hook-install.js';
 import { appendHookEntry, hookMap, isPlainObject, projectClaudeSettingsPath } from './paths.js';
 
 /**
- * The `Stop` hook command: the one Stop dispatcher (T13796). It asks a live
- * goal runtime first and ends the CLEO session only when the goal says the
- * turn is final or no goal is live, so a goal hook and the session end never
- * fight over the event.
+ * The `Stop` hook command: the one Stop dispatcher (T13796): a live goal
+ * runtime first, then ask-enforce. Stop fires every turn, so it never ends
+ * the CLEO session (T13913).
  */
 export const NATIVE_STOP_HOOK_COMMAND = String(stopDispatchHookObject('claude-code').command);
+
+/** The `SessionEnd` hook command: ends the CLEO session when the Claude Code session ends (T13913). */
+export const NATIVE_SESSION_END_HOOK_COMMAND = String(sessionEndHookObject().command);
 
 /** The `Stop` command before T13796; recognised so registration replaces it. */
 export const LEGACY_NATIVE_STOP_HOOK_COMMAND = LEGACY_SESSION_END_STOP_COMMAND;
@@ -57,6 +61,7 @@ export const NATIVE_NEXUS_HOOK_COMMAND =
 /** Every command {@link ClaudeCodeHookProvider.registerNativeHooks} writes, and alone may remove. */
 const NATIVE_HOOK_COMMANDS: ReadonlySet<string> = new Set([
   NATIVE_STOP_HOOK_COMMAND,
+  NATIVE_SESSION_END_HOOK_COMMAND,
   LEGACY_NATIVE_STOP_HOOK_COMMAND,
   NATIVE_OBSERVE_HOOK_COMMAND,
   NATIVE_NEXUS_HOOK_COMMAND,
@@ -198,8 +203,9 @@ export class ClaudeCodeHookProvider implements AdapterHookProvider {
    * Idempotent: skips writing if the native hooks are already present.
    *
    * Hook entries registered:
-   * - `Stop` → `cleo hook stop` (the goal runtime first, then `cleo session end`,
-   *   which triggers LLM extraction, reflector, consolidation; T13796)
+   * - `Stop` → `cleo hook stop` (the goal runtime first, then ask-enforce; T13796)
+   * - `SessionEnd` → `cleo hook session-end` (`cleo session end`, which triggers
+   *   LLM extraction, reflector, consolidation; T13913: never per turn)
    * - `PostToolUse` (Write|Edit) → brain observation for file modifications
    *   and the NEXUS post-check
    *
@@ -218,7 +224,8 @@ export class ClaudeCodeHookProvider implements AdapterHookProvider {
       const fresh = !hasNativeHooks(hooks) && !holdsHook(hooks, isStopDispatchHookObject);
       // T13796: one Stop hook, folding in the separate ask-enforce and old session-end hooks.
       const stopChanged = applyStopDispatch(hooks, 'claude-code', true);
-      if (!fresh) return stopChanged;
+      const endChanged = applySessionEndHook(hooks, true);
+      if (!fresh) return stopChanged || endChanged;
       appendHookEntry(hooks, 'PostToolUse', {
         matcher: 'Write|Edit',
         hooks: [

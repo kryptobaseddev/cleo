@@ -1,7 +1,7 @@
 ---
 name: ct-dev-workflow
 description: Development workflow orchestration for task-driven development with atomic commits, conventional commit messages, and systematic release processes. Enforces task traceability, branch discipline, smart test scope selection, and GitHub Actions integration. Use when committing code, creating releases, managing branches, or following contribution protocols. Triggers on commit operations, release preparation, or workflow compliance needs.
-version: 3.1.26
+version: 3.1.27
 protocol: contribution
 dependencies: []
 sharedResources:
@@ -14,7 +14,7 @@ compatibility:
   - gemini-cli
 license: MIT
 metadata:
-  version: 3.1.26
+  version: 3.1.27
   tier: core
   install: harness
   covers:
@@ -26,7 +26,7 @@ metadata:
     - packages/core/src/hooks.ts
     - packages/core/templates/git-hooks/**
     - packages/contracts/src/git-hooks.ts
-  lastReviewed: 2026-10-16
+  lastReviewed: 2026-10-23
   stability: stable
 ---
 
@@ -519,8 +519,8 @@ Provider delivery receives canonical SDK file reads and Git discovery through a 
 Adapters do not acquire a runtime dependency on core for these utilities.
 
 CLEO's own harness hooks are separate from project hooks: `cleo hook heavy-command`
-(PreToolUse), `cleo hook stop` (Stop; it runs ask-enforce) and, for Claude Code, `cleo hook subagent-start`
-(SubagentStart, the ct-lean rules for Agent-tool subagents) are installed together by
+(PreToolUse), `cleo hook stop` (Stop; it runs ask-enforce) and, for Claude Code, `cleo hook session-end`
+(SessionEnd) and `cleo hook subagent-start` (SubagentStart, the ct-lean rules for Agent-tool subagents) are installed together by
 `cleo init`/`cleo upgrade` or `cleo doctor heavy-command-hook --fix`, and fail open.
 
 Project business rules live in tracked `.cleo/hooks.json`; generated provider entries
@@ -547,13 +547,14 @@ provider records use bounded regular-file reads; FIFOs are rejected. Unsupported
 provider bindings remain unsupported in delivery summaries, including mixed bindings.
 
 The Stop event has ONE CLEO entry per provider, `cleo hook stop --provider claude-code|codex`
-(T13796), in order goal tick → ask-enforce → session end. The goal runtime goes first, only when
+(T13796), in order goal tick → ask-enforce. Stop fires at every turn end, so it NEVER ends the CLEO
+session (T13913): ending there deleted the terminal binding every turn. Claude Code's `SessionEnd`
+hook (`cleo hook session-end`, always installed) runs `cleo session end --quiet` detached, waited for
+at most 20 s; Codex has no session-end event, so its sessions end explicitly. The goal runtime goes first, only when
 `.opencode/goals/` exists (`CLEO_GOAL_TICK_COMMAND`, default `ocg tick`, Stop JSON on stdin,
 JSON-only stdout, at most 60 s, its process group SIGKILLed at the deadline): a block is
-re-serialised as exactly `{decision, reason}` (reason capped) and skips the rest. Next, an ask-enforce block (T13420) wins and keeps
-the session open, because the agent still owes the owner an ask. Otherwise Claude Code's runs
-`cleo session end --quiet` as before; Codex's never ends the session (its Stop fires every turn
-and never did). Every step fails open to the session end (missing, failing or timed-out tick;
+re-serialised as exactly `{decision, reason}` (reason capped) and skips the rest. Otherwise
+ask-enforce (T13420) answers. Every step fails open (missing, failing or timed-out tick;
 ask-enforce error); `CLEO_GOAL_TICK=off` skips the tick; `CLEO_ASK_ENFORCE=off` or heavy-command
 mode `off` (`CLEO_HEAVY_COMMAND_HOOK` / `resources.heavyCommandHook`, read at run time) skips the
 ask check, as they removed its separate hook before.

@@ -786,7 +786,7 @@ export const COMMAND_MANIFEST: readonly CommandManifestEntry[] = [
     exportName: 'hookCommand',
     name: 'hook',
     description:
-      'Agent-harness hooks installed by cleo init/upgrade; stdout is the harness hook protocol, not LAFS: cleo hook heavy-command|ask-enforce|stop|subagent-start --provider <harness>',
+      'Agent-harness hooks installed by cleo init/upgrade; stdout is the harness hook protocol, not LAFS: cleo hook heavy-command|ask-enforce|stop|session-end|subagent-start --provider <harness>',
     load: async () => (await import('../commands/hook.js')).hookCommand as CommandDef,
   },
   {
