@@ -11,8 +11,8 @@
  *
  * History:
  *   v1: `let _DatabaseSyncCtor = null` lived in sqlite.ts. When Vitest eagerly
- *       traces the dynamic `import('../memory/dispatch-trace.js')` in
- *       agent-resolver.ts, it re-entered sqlite.ts before its module scope
+ *       traced the dynamic `import('../memory/dispatch-trace.js')` that
+ *       agent-resolver.ts had until T13946, it re-entered sqlite.ts before its module scope
  *       finished executing. The `let` is in TDZ → ReferenceError.
  *   v2: Moved the cache into sqlite-native.ts. Still had a static
  *       `import { getDbSyncConstructor }` in sqlite.ts → Vite SSR transforms

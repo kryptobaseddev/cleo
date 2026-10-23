@@ -49,10 +49,7 @@ import { dirname, join, resolve } from 'node:path';
 import type { DatabaseSync as _DatabaseSyncType } from 'node:sqlite';
 import { fileURLToPath } from 'node:url';
 import type { AgentTier, ResolvedAgent } from '@cleocode/contracts';
-import { resolveOrCwd } from '../paths.js';
-import { captureProjectScope, worktreeScope } from '../project-scope.js';
 import { rowToResolvedAgent } from './agent-registry-accessor.js';
-import { trackBackgroundOp } from './background-ops.js';
 
 // ---------------------------------------------------------------------------
 // node:sqlite interop (createRequire for ESM / Vitest compat)
@@ -164,12 +161,6 @@ export interface ResolveAgentOptions {
    * doctor walk, which needs to inspect the literal id on disk.
    */
   skipAliasCheck?: boolean;
-  /**
-   * When `true`, record no dispatch trace for this resolution. For a
-   * validation-only resolve (spawn's atomicity pre-check, T13510) whose
-   * routing decision is traced by the real compose that follows.
-   */
-  skipDispatchTrace?: boolean;
   /**
    * Absolute path to the bundled `templates/` directory used by the
    * `fallback` tier. When unset the resolver derives a default that climbs
@@ -294,34 +285,6 @@ export function resolveAgent(
         resolved.aliasApplied = true;
         resolved.aliasTarget = aliasTarget;
       }
-
-      if (options.skipDispatchTrace) return resolved;
-      // Optional telemetry belongs to the resolver caller's original lifetime.
-      // Track the import itself so completion cannot outrun a delayed writer.
-      const inherited = worktreeScope.getStore();
-      const projectRoot = resolveOrCwd(options.projectRoot);
-      const fallbackUsed = resolved.tier === AGENT_TIER_UNIVERSAL;
-      const trace = {
-        taskId: '',
-        predictedAgentId: agentId,
-        confidence: 0,
-        reason: fallbackUsed
-          ? `universal-base fallback engaged after tiers: ${triedTiers.slice(0, -1).join(', ')}`
-          : `resolved at tier '${resolved.tier}'`,
-        registryHit: !fallbackUsed && resolved.tier !== 'fallback',
-        fallbackUsed,
-        resolverWarning: resolved.resolverWarning,
-        resolvedAt: new Date().toISOString(),
-      };
-      trackBackgroundOp(() => {
-        const scope = captureProjectScope(projectRoot, inherited);
-        return worktreeScope.run(scope, async () => {
-          scope.execution?.assertActive();
-          const { emitDispatchTrace } = await import('../memory/dispatch-trace.js');
-          scope.execution?.assertActive();
-          await emitDispatchTrace(scope.worktreeRoot, trace);
-        });
-      }, inherited?.execution);
 
       return resolved;
     }

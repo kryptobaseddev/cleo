@@ -4,14 +4,15 @@
  * This file MUST have no imports that transitively reach back to any CLEO
  * module that participates in the agent-resolver → dispatch-trace →
  * extraction-gate → graph-auto-populate → memory-sqlite → sqlite.ts cycle
- * (see T1325/T1331). Only node builtins are imported below this line.
+ * (see T1325/T1331; the dispatch-trace writer was removed by T13946, the
+ * leaf rule stays). Only node builtins are imported below this line.
  *
  * ## Why this exists
  *
  * `sqlite.ts` previously declared `let _DatabaseSyncCtor = null` at module
- * scope. When Vitest eagerly traces the dynamic `import('../memory/dispatch-trace.js')`
- * in `agent-resolver.ts`, it re-enters `sqlite.ts` before the module finishes
- * initializing. Because `let` declarations in ESM are hoisted (TDZ) but not yet
+ * scope. When Vitest eagerly traced the dynamic `import('../memory/dispatch-trace.js')`
+ * that `agent-resolver.ts` had until T13946, it re-entered `sqlite.ts` before the
+ * module finished initializing. Because `let` declarations in ESM are hoisted (TDZ) but not yet
  * initialized at re-entry, any access to `_DatabaseSyncCtor` throws
  * `Cannot access '_DatabaseSyncCtor' before initialization`.
  *

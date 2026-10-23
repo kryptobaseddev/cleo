@@ -856,19 +856,21 @@ export class MemoryHandler implements DomainHandler {
               created_at: string;
             }
 
+            // T13946: auto rows (Doc attached, task stubs) are not digest material.
+            const { autoRowExclusionClause } = await import('@cleocode/core/memory/eligibility');
             let rows: DigestRow[] = [];
             try {
               const rawRows = nativeDb
                 .prepare(
                   `SELECT id,
                           title,
-                          text,
+                          narrative AS text,
                           citation_count,
                           quality_score,
                           memory_tier,
                           created_at
                    FROM brain_observations
-                   WHERE invalid_at IS NULL
+                   WHERE invalid_at IS NULL${autoRowExclusionClause('observations')}
                    ORDER BY citation_count DESC, quality_score DESC
                    LIMIT ?`,
                 )

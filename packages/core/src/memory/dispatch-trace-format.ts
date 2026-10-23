@@ -1,32 +1,31 @@
 /**
- * Dispatch-trace text format — the single owner of how a {@link DispatchTrace}
- * is serialized into BRAIN.
+ * Dispatch-trace text format — how a {@link DispatchTrace} was serialized into
+ * BRAIN.
  *
- * Split out of `dispatch-trace.ts` (T12519) so readers that need to RECOGNISE a
- * stored trace (the spawn-prompt PSYCHE-MEMORY budget) can import the format
- * without loading the extraction-gate write path. Stored traces carry no
- * distinguishing column — they land in `brain_patterns` as
- * `type='workflow'`, `source_confidence='agent'`, exactly like real patterns —
- * so the writer-owned text prefix is the only reliable marker.
+ * The writer (`dispatch-trace.ts`, called on every agent resolution) is gone
+ * (T13946): it produced 14,680 of 14,761 `brain_patterns` rows and no reader
+ * ever used them. The rows it left behind remain, so readers still need to
+ * RECOGNISE a stored trace: recall excludes them
+ * (`memory/eligibility.ts#autoRowExclusionClause`) and the spawn-prompt
+ * PSYCHE-MEMORY budget drops them. Stored traces carry no distinguishing
+ * column — they sit in `brain_patterns` as `type='workflow'`, exactly like real
+ * patterns — so the text prefix is the only reliable marker.
  *
  * @module dispatch-trace-format
  * @task T1325
  * @task T12519
+ * @task T13946
  */
 
 import type { DispatchTrace } from '@cleocode/contracts';
 
-/**
- * Leading text of every serialized dispatch trace. Readers use it to identify
- * stored traces; the writer uses it to produce them, so the two cannot drift.
- */
+/** Leading text of every stored dispatch trace; readers use it to identify them. */
 export const DISPATCH_TRACE_TEXT_PREFIX = 'Dispatch trace for task ';
 
 /**
  * Serialize a {@link DispatchTrace} into the plain-text format stored in BRAIN.
  *
- * The format is intentionally human-readable so the extract pipeline can parse
- * it without JSON parsing — LLM extraction works on prose, not structured data.
+ * Kept so tests can build fixtures in the exact stored shape.
  *
  * @param trace - The dispatch trace to serialize.
  * @returns Plain-text representation suitable for BRAIN storage.

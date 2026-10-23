@@ -21,7 +21,11 @@ import { memoryFindHitNext } from '../../mvi-helpers.js';
 import { captureProjectScope, worktreeScope } from '../../project-scope.js';
 import { hybridSearch, searchBrain } from '../brain-search.js';
 import { searchSimilar } from '../brain-similarity.js';
-import { isCurrentMemoryEntry, memoryEligibilityClause } from '../eligibility.js';
+import {
+  autoRowExclusionClause,
+  isCurrentMemoryEntry,
+  memoryEligibilityClause,
+} from '../eligibility.js';
 import { scheduleCitationTracking, scheduleRetrievalTelemetry } from './telemetry.js';
 
 // Re-export budget types so callers that import from brain-retrieval.ts keep working.
@@ -206,7 +210,7 @@ async function searchBrainCompactCurrent(
       const dates = filters.length ? ` AND ${filters.join(' AND ')}` : '';
       const rows = nativeDb
         .prepare(
-          `SELECT id, ${titleColumn} AS title, ${dateColumn} AS created_at FROM main.brain_${table} WHERE 1=1${memoryEligibilityClause(table, undefined, includeHistory)}${dates} ORDER BY ${dateColumn} DESC LIMIT ?`,
+          `SELECT id, ${titleColumn} AS title, ${dateColumn} AS created_at FROM main.brain_${table} WHERE 1=1${memoryEligibilityClause(table, undefined, includeHistory)}${autoRowExclusionClause(table)}${dates} ORDER BY ${dateColumn} DESC LIMIT ?`,
         )
         .all(...values, effectiveLimit * 2);
       for (const row of rows) {

@@ -129,8 +129,19 @@ function ruleClause(rule: StubPruneRule): string {
   return `(${rule.predicate}) AND length(COALESCE(narrative, '')) <= ${MAX_STUB_NARRATIVE} AND COALESCE(verified, 0) != 1 AND invalid_at IS NULL`;
 }
 
-/** Combined predicate across every rule. */
-function allRulesClause(): string {
+/**
+ * Combined SQL predicate over unaliased `brain_observations` columns matching
+ * every content-free stub, across all {@link STUB_PRUNE_RULES}.
+ *
+ * Recall uses it to exclude stubs without deleting them (T13946).
+ *
+ * @returns A parenthesis-free OR of the rule clauses; wrap it before combining.
+ * @example
+ * ```ts
+ * db.prepare(`SELECT id FROM main.brain_observations WHERE ${stubObservationClause()}`);
+ * ```
+ */
+export function stubObservationClause(): string {
   return STUB_PRUNE_RULES.map(ruleClause).join(' OR ');
 }
 
@@ -168,7 +179,7 @@ export function pruneObservationStubs(nativeDb: DatabaseSync, apply: boolean): S
     byRule[rule.id] = row.c;
   }
 
-  const combined = allRulesClause();
+  const combined = stubObservationClause();
   const matched = (
     nativeDb
       .prepare(`SELECT COUNT(*) AS c FROM main.brain_observations WHERE ${combined}`)

@@ -20,7 +20,7 @@ import type {
 import { typedAll } from '../store/typed-query.js';
 import type { SimilarityResult } from './brain-similarity.js';
 import { searchSimilar } from './brain-similarity.js';
-import { memoryEligibilityClause } from './eligibility.js';
+import { autoRowExclusionClause, memoryEligibilityClause } from './eligibility.js';
 import { QUALITY_SCORE_THRESHOLD } from './quality-scoring.js';
 
 /** Search result grouped by backing memory table. */
@@ -429,6 +429,7 @@ function searchWithFts5(
         WHERE brain_patterns_fts MATCH ?
           AND (p.quality_score IS NULL OR p.quality_score >= ?)
           ${memoryEligibilityClause('patterns', 'p', includeHistory)}
+          ${autoRowExclusionClause('patterns', 'p')}
           ${clause}
         ORDER BY bm25(brain_patterns_fts)
         LIMIT ?
@@ -493,6 +494,7 @@ function searchWithFts5(
         WHERE brain_observations_fts MATCH ?
           AND (o.quality_score IS NULL OR o.quality_score >= ?)
           ${memoryEligibilityClause('observations', 'o', includeHistory)}
+          ${autoRowExclusionClause('observations', 'o')}
           ${clause}
         ORDER BY CASE WHEN o.title LIKE 'Task start:%' OR o.title LIKE 'Task complete:%' THEN 1 ELSE 0 END, bm25(brain_observations_fts)
         LIMIT ?
@@ -623,7 +625,7 @@ function likeSearchPatterns(
 ): BrainPatternRow[] {
   const likePattern = `%${query}%`;
   const { clause, params } = buildPeerClause('brain_patterns', peerId, includeGlobal);
-  const eligibility = memoryEligibilityClause('patterns', 'brain_patterns', includeHistory);
+  const eligibility = `${memoryEligibilityClause('patterns', 'brain_patterns', includeHistory)}${autoRowExclusionClause('patterns')}`;
   return typedAll<BrainPatternRow>(
     nativeDb.prepare(`
     SELECT * FROM brain_patterns
@@ -681,7 +683,7 @@ function likeSearchObservations(
 ): BrainObservationRow[] {
   const likePattern = `%${query}%`;
   const { clause, params } = buildPeerClause('brain_observations', peerId, includeGlobal);
-  const eligibility = memoryEligibilityClause('observations', 'brain_observations', includeHistory);
+  const eligibility = `${memoryEligibilityClause('observations', 'brain_observations', includeHistory)}${autoRowExclusionClause('observations')}`;
   return typedAll<BrainObservationRow>(
     nativeDb.prepare(`
     SELECT * FROM brain_observations
@@ -1215,7 +1217,9 @@ export async function hybridSearch(
     if (!table) return true;
     return (
       nativeDb
-        .prepare(`SELECT id FROM main.brain_${table} WHERE id = ?${memoryEligibilityClause(table)}`)
+        .prepare(
+          `SELECT id FROM main.brain_${table} WHERE id = ?${memoryEligibilityClause(table)}${autoRowExclusionClause(table)}`,
+        )
         .get(hit.id) !== undefined
     );
   });

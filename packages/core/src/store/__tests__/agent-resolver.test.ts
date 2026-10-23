@@ -273,28 +273,15 @@ describe('W2-4 resolveAgent — 4-tier precedence with real sqlite', () => {
     }
   });
 
-  it('skipDispatchTrace records no dispatch trace; the default records one (T13510)', async () => {
-    const emitDispatchTrace = vi.fn(async () => undefined);
-    vi.doMock('../../memory/dispatch-trace.js', () => ({ emitDispatchTrace }));
+  it('records nothing in BRAIN: resolution schedules no background write (T13946)', async () => {
+    const { resolveAgent } = await import('../agent-resolver.js');
+    const { pendingBackgroundOpCount } = await import('../background-ops.js');
+    const db = env.openDb();
     try {
-      const { resolveAgent } = await import('../agent-resolver.js');
-      const { awaitBackgroundOps } = await import('../background-ops.js');
-      const db = env.openDb();
-      try {
-        resolveAgent(db, 'cleo-subagent', {
-          projectRoot: env.projectRoot,
-          skipDispatchTrace: true,
-        });
-        await awaitBackgroundOps();
-        expect(emitDispatchTrace).not.toHaveBeenCalled();
-        resolveAgent(db, 'cleo-subagent', { projectRoot: env.projectRoot });
-        await awaitBackgroundOps();
-        expect(emitDispatchTrace).toHaveBeenCalledTimes(1);
-      } finally {
-        db.close();
-      }
+      resolveAgent(db, 'cleo-subagent', { projectRoot: env.projectRoot });
+      expect(pendingBackgroundOpCount()).toBe(0);
     } finally {
-      vi.doUnmock('../../memory/dispatch-trace.js');
+      db.close();
     }
   });
 

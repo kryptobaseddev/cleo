@@ -10,6 +10,8 @@ import type {
   BrainObservationRow,
   BrainPatternRow,
 } from '../store/schema/memory-schema.js';
+import { stubObservationClause } from './brain-stub-prune.js';
+import { DISPATCH_TRACE_TEXT_PREFIX } from './dispatch-trace-format.js';
 
 /**
  * SQL eligibility shared by current-memory retrieval strategies.
@@ -36,6 +38,43 @@ export function memoryEligibilityClause(
   return table === 'decisions'
     ? `${current} AND ${alias}.superseded_by IS NULL AND ${alias}.confirmation_state != 'superseded'`
     : current;
+}
+
+/**
+ * SQL that keeps auto-generated rows out of recall (T13946).
+ *
+ * Excluded, without being deleted or quarantined:
+ * - patterns: stored dispatch traces (99.5 % of `brain_patterns` on 2026-10-23);
+ * - observations: `Doc attached:` records carrying the doc-attachment JSON
+ *   payload (the attachment row already holds the link) and the content-free
+ *   task-start/complete stubs of
+ *   {@link stubObservationClause}.
+ *
+ * Decisions and learnings have no auto-row shape and get an empty clause.
+ * Direct fetch by id still returns these rows.
+ *
+ * @param table - Memory table being queried.
+ * @param alias - Trusted SQL alias for that table in the caller's query.
+ * @returns A conjunctive SQL fragment with no bind parameters (may be empty).
+ * @example
+ * ```ts
+ * const sql = `SELECT * FROM brain_patterns p WHERE 1=1${autoRowExclusionClause('patterns', 'p')}`;
+ * ```
+ */
+export function autoRowExclusionClause(
+  table: NonNullable<SearchBrainCompactParams['tables']>[number],
+  alias = `brain_${table}`,
+): string {
+  if (table === 'patterns') {
+    return ` AND ${alias}.pattern NOT LIKE '${DISPATCH_TRACE_TEXT_PREFIX}%'`;
+  }
+  if (table === 'observations') {
+    // Both doc writers (docs projection, memory backfill-docs) store the
+    // DocAttachmentObservationPayload JSON as the narrative. Requiring it keeps
+    // a human note titled "Doc attached: …" in recall; GLOB is case-sensitive.
+    return ` AND NOT (${alias}.title GLOB 'Doc attached:*' AND ${alias}.narrative LIKE '%"kind":"doc-attachment"%') AND ${alias}.id NOT IN (SELECT id FROM main.brain_observations WHERE ${stubObservationClause()})`;
+  }
+  return '';
 }
 
 /**
