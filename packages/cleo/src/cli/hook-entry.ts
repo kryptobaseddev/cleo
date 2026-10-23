@@ -1045,7 +1045,7 @@ const USAGE =
   'usage: cleo hook heavy-command [--provider claude-code|codex|kimi|opencode] < hook-input.json\n' +
   '       cleo hook ask-enforce [--provider claude-code|codex|copilot-cli|gemini-cli|cursor|opencode|kimi] < stop-input.json\n' +
   '       cleo hook stop [--provider claude-code|codex] < stop-input.json\n' +
-  '       cleo hook session-end [--provider claude-code] < session-end-input.json\n' +
+  '       cleo hook session-end [--provider claude-code]\n' +
   '       cleo hook subagent-start [--provider claude-code] < subagent-start-input.json\n';
 
 /**

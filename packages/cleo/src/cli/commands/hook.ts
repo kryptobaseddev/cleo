@@ -208,7 +208,7 @@ const sessionEndSubcommand = defineCommand({
   meta: {
     name: 'session-end',
     description:
-      'SessionEnd hook (T13913): the harness session really ended, so end the CLEO session (cleo session end, detached, waited for at most 20 s). Reads the hook JSON on stdin; prints nothing.',
+      'SessionEnd hook (T13913): the harness session really ended, so end the CLEO session (cleo session end, detached, waited for at most 20 s). Its stdin is not read; it prints nothing.',
   },
   args: {
     provider: {

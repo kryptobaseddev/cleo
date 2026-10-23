@@ -236,6 +236,33 @@ describe('inspectProjectHeavyCommandHooks', () => {
     expect(state()['claude-code']).toBe('installed');
   });
 
+  it('reports outdated when a companion hook is missing or stale (T13960)', async () => {
+    mkdirSync(join(project, '.claude'));
+    await syncProjectHeavyCommandHooks(project, 'rewrite', { env });
+    const file = join(project, '.claude', 'settings.local.json');
+    const synced = readFileSync(file, 'utf-8');
+    const inspect = () => inspectProjectHeavyCommandHooks(project, 'rewrite', { env })[0];
+    for (const [event, why] of [
+      ['SessionEnd', 'its SessionEnd hook is missing'],
+      ['SubagentStart', 'its SubagentStart hook is missing'],
+      ['Stop', 'its Stop hook is missing'],
+    ] as const) {
+      const config = JSON.parse(synced);
+      delete config.hooks[event];
+      writeFileSync(file, JSON.stringify(config));
+      expect(inspect()?.state, event).toBe('outdated');
+      expect(inspect()?.detail, event).toContain(why);
+      expect(inspect()?.remedy).toBe('run: cleo doctor heavy-command-hook --fix');
+    }
+    // A Stop entry an older build wrote (it still ended the session) is stale too.
+    const old = JSON.parse(synced);
+    old.hooks.Stop[0].hooks[0].timeout = 1;
+    writeFileSync(file, JSON.stringify(old));
+    expect(inspect()?.detail).toContain('its Stop hook was written by another CLEO build');
+    await syncProjectHeavyCommandHooks(project, 'rewrite', { env });
+    expect(inspect()?.state).toBe('installed');
+  });
+
   it('reports outdated for another build, a legacy location, or a hook left while off', async () => {
     mkdirSync(join(project, '.claude'));
     const local = join(project, '.claude', 'settings.local.json');
