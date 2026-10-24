@@ -1,12 +1,18 @@
 /**
  * Background NEXUS reindex after a merge into the base branch (T14010).
  *
- * The CLEO `post-merge` hook starts `cleo nexus reindex-on-merge` detached.
- * It is opt-in (`nexus.reindexOnMerge.enabled`), runs only on the base branch,
- * runs one at a time per project (a lock file), and runs the analysis through
- * `cleo run` admission, so on a machine short of memory it waits or is
- * recorded as deferred instead of adding to the pressure. Every outcome is
- * written to `.cleo/nexus-reindex-on-merge.json` for `cleo nexus status`.
+ * The CLEO `post-merge` hook starts nothing unless the repository's git config
+ * carries the {@link REINDEX_ON_MERGE_GIT_KEY} marker and HEAD is on the base
+ * branch; both are checked in shell, so a disabled project pays no process
+ * start on a merge or pull. `cleo nexus reindex-on-merge --enable` sets that
+ * marker together with `nexus.reindexOnMerge.enabled`.
+ *
+ * When it runs, it is the lowest-priority heavy work on the machine: it never
+ * joins the `cleo run` FIFO queue. It tries admission without waiting, only
+ * when nothing is queued, and backs off between tries until its timeout
+ * (default 300s), then records `deferred`. One runs at a time per project (a
+ * lock file), and only real outcomes (ran, deferred, failed) are written to
+ * `.cleo/nexus-reindex-on-merge.json` for `cleo nexus status`.
  *
  * Code placed in `packages/core/` per Package-Boundary Check — verified against AGENTS.md.
  *
@@ -16,35 +22,45 @@
 
 import { spawnSync } from 'node:child_process';
 import {
-  closeSync,
   existsSync,
+  linkSync,
   mkdirSync,
-  openSync,
   readFileSync,
   renameSync,
   rmSync,
+  statSync,
   writeFileSync,
 } from 'node:fs';
 import { join } from 'node:path';
 import { getConfigValue } from '../config/registry.js';
+import { setConfigValue } from '../config.js';
 import { resolveBaseRef, resolveOriginDefault } from '../git/base-ref.js';
 import { getCleoDirAbsolute } from '../paths.js';
 
-/** File under `.cleo/` holding the last outcome. */
+/** File under `.cleo/` holding the last real outcome (ran, deferred, failed). */
 export const REINDEX_ON_MERGE_OUTCOME_FILE = 'nexus-reindex-on-merge.json';
 
 /** Lock file under `.cleo/`; holds the pid of the running reindex. */
 export const REINDEX_ON_MERGE_LOCK_FILE = 'nexus-reindex.lock';
 
-/** Default seconds for `cleo run --wait --timeout`. */
-export const DEFAULT_REINDEX_TIMEOUT_SECONDS = 1800;
+/** Git config key the `post-merge` hook checks before starting anything. */
+export const REINDEX_ON_MERGE_GIT_KEY = 'cleo.nexusReindexOnMerge';
 
-/** `cleo run` exit code when the command was not admitted in time. */
+/** Default seconds to keep trying for admission before recording `deferred`. */
+export const DEFAULT_REINDEX_TIMEOUT_SECONDS = 300;
+
+/** Seconds between admission attempts. */
+const RETRY_SECONDS = 30;
+
+/** A lock file younger than this with no readable pid is a holder still writing it. */
+const LOCK_WRITE_GRACE_MS = 5_000;
+
+/** `cleo run` exit code when the command was not admitted. */
 const RUN_DEFERRED_EXIT = 75;
 
-/** What the last reindex-on-merge did. */
+/** What a reindex-on-merge did. */
 export interface ReindexOnMergeOutcome {
-  /** `ran` (index refreshed), `skipped`, `deferred` (not admitted in time) or `failed`. */
+  /** `ran` (index refreshed), `skipped` (not recorded), `deferred` (machine busy) or `failed`. */
   outcome: 'ran' | 'skipped' | 'deferred' | 'failed';
   /** Why. */
   reason: string;
@@ -54,7 +70,7 @@ export interface ReindexOnMergeOutcome {
   durationMs: number;
 }
 
-/** Result of running the admitted analysis. */
+/** Result of one admission attempt. */
 export interface ReindexRunResult {
   /** Exit code of `cleo run`, or `null` when it could not start. */
   exitCode: number | null;
@@ -62,30 +78,40 @@ export interface ReindexRunResult {
   stderr: string;
 }
 
-/** Runs `cleo nexus analyze` under `cleo run` admission; replaceable in tests. */
-export type ReindexRunner = (projectRoot: string, timeoutSeconds: number) => ReindexRunResult;
+/** One admission attempt of `cleo nexus analyze`; replaceable in tests. */
+export type ReindexRunner = (projectRoot: string) => ReindexRunResult;
 
-/** The production runner: `cleo run --wait --class build -- cleo nexus analyze <root>`. */
-const runAdmittedAnalyze: ReindexRunner = (projectRoot, timeoutSeconds) => {
+/** Seams for tests: the attempt, the clock, the wait and the queue probe. */
+export interface ReindexOnMergeDeps {
+  /** One admission attempt (no `--wait`). */
+  runner?: ReindexRunner;
+  /** Clock in milliseconds. */
+  now?: () => number;
+  /** Wait between attempts. */
+  sleep?: (ms: number) => Promise<void>;
+  /** Whether any run is waiting in the `cleo run` queue. */
+  queueBusy?: () => boolean;
+}
+
+/** One attempt: `cleo run --class build -- cleo nexus analyze <root>`, never `--wait`. */
+const runAdmittedAnalyze: ReindexRunner = (projectRoot) => {
   const child = spawnSync(
     'cleo',
-    [
-      'run',
-      '--wait',
-      '--timeout',
-      String(timeoutSeconds),
-      '--class',
-      'build',
-      '--',
-      'cleo',
-      'nexus',
-      'analyze',
-      projectRoot,
-    ],
+    ['run', '--class', 'build', '--', 'cleo', 'nexus', 'analyze', projectRoot],
     { cwd: projectRoot, encoding: 'utf-8', stdio: ['ignore', 'ignore', 'pipe'] },
   );
   return { exitCode: child.status, stderr: (child.stderr ?? '').slice(-500) };
 };
+
+/** Whether anything waits in the machine-wide admission queue. */
+async function anyoneQueued(): Promise<boolean> {
+  try {
+    const { readLedger } = await import('../resources/admission-ledger.js');
+    return readLedger().some((entry) => entry.state === 'waiting');
+  } catch {
+    return true;
+  }
+}
 
 /** Whether a process with this pid is alive. */
 function alive(pid: number): boolean {
@@ -98,25 +124,35 @@ function alive(pid: number): boolean {
 }
 
 /**
- * Take the per-project lock, clearing one left by a dead process.
+ * Take the per-project lock atomically: the pid is written to a private file
+ * that is then hard-linked into place, so a reader never sees an empty lock.
+ * A lock left by a dead process is cleared once.
  *
- * @returns `null` when taken, or the pid of the live holder.
+ * @returns `null` when taken, or the pid of the live holder (`0` when unknown).
  */
 function takeLock(lockPath: string): number | null {
-  for (let attempt = 0; attempt < 2; attempt++) {
-    try {
-      const fd = openSync(lockPath, 'wx');
-      writeFileSync(fd, String(process.pid));
-      closeSync(fd);
-      return null;
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error;
-      const holder = Number.parseInt(readFileSync(lockPath, 'utf-8'), 10);
-      if (Number.isInteger(holder) && holder > 0 && alive(holder)) return holder;
-      rmSync(lockPath, { force: true });
+  const mine = `${lockPath}.${process.pid}`;
+  writeFileSync(mine, String(process.pid));
+  try {
+    for (let attempt = 0; attempt < 2; attempt++) {
+      try {
+        linkSync(mine, lockPath);
+        return null;
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error;
+        const holder = Number.parseInt(readFileSync(lockPath, 'utf-8'), 10);
+        if (Number.isInteger(holder) && holder > 0) {
+          if (alive(holder)) return holder;
+        } else if (Date.now() - statSync(lockPath).mtimeMs < LOCK_WRITE_GRACE_MS) {
+          return 0;
+        }
+        rmSync(lockPath, { force: true });
+      }
     }
+    return 0;
+  } finally {
+    rmSync(mine, { force: true });
   }
-  return -1;
 }
 
 /** The branch HEAD is on, or `null` when detached. */
@@ -157,11 +193,36 @@ function record(projectRoot: string, outcome: ReindexOnMergeOutcome): ReindexOnM
 }
 
 /**
- * Reindex after a merge, when enabled, on the base branch, alone and admitted.
+ * Turn reindex-on-merge on or off: `nexus.reindexOnMerge.enabled` and the git
+ * config marker the `post-merge` hook checks, together.
+ *
+ * @param projectRoot - Project to configure.
+ * @param enabled - The new setting.
+ * @example
+ * ```ts
+ * await setReindexOnMerge(root, true);
+ * ```
+ */
+export async function setReindexOnMerge(projectRoot: string, enabled: boolean): Promise<void> {
+  await setConfigValue('nexus.reindexOnMerge.enabled', enabled, projectRoot);
+  const args = enabled
+    ? ['config', REINDEX_ON_MERGE_GIT_KEY, 'true']
+    : ['config', '--unset', REINDEX_ON_MERGE_GIT_KEY];
+  const out = spawnSync('git', args, { cwd: projectRoot, stdio: 'ignore' });
+  // `--unset` exits 5 when the key is already absent.
+  // @sync-invariant none:local-only a git config marker; no CLEO store is written
+  if (out.status !== 0 && !(out.status === 5 && !enabled))
+    throw new Error(`git ${args.join(' ')} failed in ${projectRoot}`);
+}
+
+/**
+ * Reindex after a merge, when enabled, on the base branch, alone and admitted
+ * at the lowest priority. Skips are returned, never recorded, so `nexus status`
+ * keeps the last real outcome.
  *
  * @param projectRoot - Project whose index is refreshed.
- * @param options - `runner` replaces the admitted analysis (tests); `now` the clock.
- * @returns The recorded outcome.
+ * @param deps - Test seams (attempt, clock, sleep, queue probe).
+ * @returns The outcome.
  * @example
  * ```ts
  * const { outcome, reason } = await runReindexOnMerge(root);
@@ -169,24 +230,25 @@ function record(projectRoot: string, outcome: ReindexOnMergeOutcome): ReindexOnM
  */
 export async function runReindexOnMerge(
   projectRoot: string,
-  options: { runner?: ReindexRunner; now?: () => number } = {},
+  deps: ReindexOnMergeDeps = {},
 ): Promise<ReindexOnMergeOutcome> {
-  const now = options.now ?? Date.now;
+  const now = deps.now ?? Date.now;
+  const sleep = deps.sleep ?? ((ms: number) => new Promise<void>((r) => setTimeout(r, ms)));
+  const runner = deps.runner ?? runAdmittedAnalyze;
   const started = now();
-  const done = (outcome: ReindexOnMergeOutcome['outcome'], reason: string) =>
-    record(projectRoot, {
-      outcome,
-      reason,
-      at: new Date(now()).toISOString(),
-      durationMs: now() - started,
-    });
+  const result = (outcome: ReindexOnMergeOutcome['outcome'], reason: string) => ({
+    outcome,
+    reason,
+    at: new Date(now()).toISOString(),
+    durationMs: now() - started,
+  });
 
   if ((await config('nexus.reindexOnMerge.enabled', projectRoot)) !== true)
-    return done('skipped', 'nexus.reindexOnMerge.enabled is not true');
+    return result('skipped', 'nexus.reindexOnMerge.enabled is not true');
   const branch = currentBranch(projectRoot);
   const base = baseBranch(projectRoot);
   if (!branch || !base || branch !== base)
-    return done(
+    return result(
       'skipped',
       `HEAD is on ${branch ?? 'a detached commit'}, not the base branch ${base ?? '(unknown)'}`,
     );
@@ -194,25 +256,45 @@ export async function runReindexOnMerge(
   const rawTimeout = Number(await config('nexus.reindexOnMerge.timeoutSeconds', projectRoot));
   const timeoutSeconds =
     Number.isInteger(rawTimeout) && rawTimeout > 0 ? rawTimeout : DEFAULT_REINDEX_TIMEOUT_SECONDS;
-  const lockPath = join(getCleoDirAbsolute(projectRoot), REINDEX_ON_MERGE_LOCK_FILE);
-  mkdirSync(getCleoDirAbsolute(projectRoot), { recursive: true });
+  const cleoDir = getCleoDirAbsolute(projectRoot);
+  mkdirSync(cleoDir, { recursive: true });
+  const lockPath = join(cleoDir, REINDEX_ON_MERGE_LOCK_FILE);
   const holder = takeLock(lockPath);
   if (holder !== null)
-    return done(
+    return result(
       'skipped',
       holder > 0
         ? `a reindex is already running (pid ${holder})`
-        : 'the reindex lock could not be taken',
+        : 'another reindex holds the lock',
     );
   try {
-    const run = (options.runner ?? runAdmittedAnalyze)(projectRoot, timeoutSeconds);
-    if (run.exitCode === 0) return done('ran', `cleo nexus analyze finished on ${base}`);
-    if (run.exitCode === RUN_DEFERRED_EXIT)
-      return done('deferred', `not admitted by cleo run within ${timeoutSeconds}s (machine busy)`);
-    return done(
-      'failed',
-      `cleo nexus analyze exited ${run.exitCode ?? 'without starting'}: ${run.stderr.trim() || 'no output'}`,
-    );
+    const deadline = started + timeoutSeconds * 1000;
+    for (;;) {
+      // Lowest priority: never queue, and yield to anything already waiting.
+      const busy = deps.queueBusy ? deps.queueBusy() : await anyoneQueued();
+      if (!busy) {
+        const run = runner(projectRoot);
+        if (run.exitCode === 0)
+          return record(projectRoot, result('ran', `cleo nexus analyze finished on ${base}`));
+        if (run.exitCode !== RUN_DEFERRED_EXIT)
+          return record(
+            projectRoot,
+            result(
+              'failed',
+              `cleo nexus analyze exited ${run.exitCode ?? 'without starting'}: ${run.stderr.trim() || 'no output'}`,
+            ),
+          );
+      }
+      if (now() + RETRY_SECONDS * 1000 > deadline)
+        return record(
+          projectRoot,
+          result(
+            'deferred',
+            `not admitted within ${timeoutSeconds}s (machine busy or others queued)`,
+          ),
+        );
+      await sleep(RETRY_SECONDS * 1000);
+    }
   } finally {
     rmSync(lockPath, { force: true });
   }

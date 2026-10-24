@@ -1306,14 +1306,30 @@ const reindexOnMergeCommand = defineCommand({
   meta: {
     name: 'reindex-on-merge',
     description:
-      'Reindex after a merge into the base branch (run by the post-merge hook; opt-in via nexus.reindexOnMerge.enabled)',
+      'Reindex after a merge into the base branch (run by the post-merge hook). Off until --enable',
   },
   args: {
     json: { type: 'boolean', description: 'Output result as JSON (LAFS envelope format)' },
+    enable: {
+      type: 'boolean',
+      description:
+        'Turn it on: set nexus.reindexOnMerge.enabled and the git marker the post-merge hook checks',
+    },
+    disable: { type: 'boolean', description: 'Turn it off (config and git marker)' },
   },
   async run({ args }) {
     applyJsonFlag(args.json as boolean | undefined);
-    const { runReindexOnMerge } = await import('@cleocode/core/nexus/reindex-on-merge');
+    const { runReindexOnMerge, setReindexOnMerge } = await import(
+      '@cleocode/core/nexus/reindex-on-merge'
+    );
+    if (args.enable || args.disable) {
+      await setReindexOnMerge(getProjectRoot(), !!args.enable);
+      cliOutput(
+        { reindexOnMerge: !!args.enable },
+        { command: 'nexus-reindex-on-merge', operation: 'nexus.reindex-on-merge' },
+      );
+      return;
+    }
     const outcome = await runReindexOnMerge(getProjectRoot());
     cliOutput(
       { ...outcome },

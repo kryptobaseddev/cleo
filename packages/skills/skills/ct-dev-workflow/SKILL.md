@@ -115,12 +115,14 @@ checkout whose activation is on (T13774). Verify nested checkout paths, linked
 worktrees, custom hook paths, historical release bodies and corrupt receipts
 with focused Git fixtures before changing this delivery path.
 
-The fourth managed hook, `post-merge` (T14010), never blocks: it starts
-`cleo nexus reindex-on-merge` detached and exits 0. That command does nothing
-unless `nexus.reindexOnMerge.enabled` is true; it runs only on the base branch,
-one at a time per project (`.cleo/nexus-reindex.lock`), and runs
-`cleo nexus analyze` through `cleo run --wait --class build`, recording the
-outcome for `cleo nexus status`.
+The fourth managed hook, `post-merge` (T14010), never blocks. In shell, before
+starting anything, it requires the `cleo.nexusReindexOnMerge` git marker and
+HEAD on the base branch; otherwise it starts no process. When both hold it
+starts `cleo nexus reindex-on-merge` detached. That command runs one at a time
+per project (`.cleo/nexus-reindex.lock`) at the lowest admission priority: it
+never joins the `cleo run` queue, tries only when nothing is waiting, and
+records `deferred` after `nexus.reindexOnMerge.timeoutSeconds` (300). Turn it
+on or off with `cleo nexus reindex-on-merge --enable` / `--disable`.
 
 ---
 

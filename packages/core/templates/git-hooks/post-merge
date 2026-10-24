@@ -1,14 +1,25 @@
 #!/bin/sh
 # CLEO_MANAGED_HOOK v1
 # Post-merge: start a background NEXUS reindex after a merge into the base
-# branch (T14010). Opt-in through `nexus.reindexOnMerge.enabled`; the command
-# checks the branch, the config, the per-project lock and `cleo run`
-# admission itself, and records its outcome for `cleo nexus status`.
-#
-# Never blocks or fails the merge.
+# branch (T14010). Off unless `cleo nexus reindex-on-merge --enable` set the
+# cleo.nexusReindexOnMerge git config marker. Both checks below are plain git
+# reads, so a disabled project, or a merge on any other branch, starts no
+# process at all. Never blocks or fails the merge.
 #
 # Installation: Automatically installed via `cleo init`
 
+[ "$(git config --bool --get cleo.nexusReindexOnMerge 2>/dev/null)" = "true" ] || exit 0
+branch=$(git symbolic-ref --quiet --short HEAD 2>/dev/null) || exit 0
+base=$(git symbolic-ref --quiet --short refs/remotes/origin/HEAD 2>/dev/null)
+base=${base#origin/}
+if [ -z "$base" ]; then
+  if git show-ref --verify --quiet refs/heads/main; then
+    base=main
+  elif git show-ref --verify --quiet refs/heads/master; then
+    base=master
+  fi
+fi
+[ -n "$base" ] && [ "$branch" = "$base" ] || exit 0
 command -v cleo >/dev/null 2>&1 || exit 0
 (cleo nexus reindex-on-merge >/dev/null 2>&1 &) >/dev/null 2>&1
 exit 0
