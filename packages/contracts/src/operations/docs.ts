@@ -642,11 +642,17 @@ export const DOCS_PROJECTION_RECEIPT_SCHEMA = z
     version: z.literal(1),
     sourceHash: z.string().regex(/^[a-f0-9]{64}$/),
     graph: z.enum(['completed', 'disabled']),
-    observationId: z.string().min(1),
+    /** Legacy receipts (before T13985): the "Doc attached" observation the projection wrote. */
+    observationId: z.string().min(1).optional(),
+    /** T13985 (D11180): the canonical `llmtxt --documents--> owner` edge was written. */
+    documents: z.literal(true).optional(),
     verifiedAt: z.string().min(1),
     actor: z.string().min(1),
   })
-  .strict();
+  .strict()
+  .refine((receipt) => receipt.observationId !== undefined || receipt.documents === true, {
+    message: 'A projection receipt records its documents edge or, for legacy jobs, its observation',
+  });
 
 /** Domain verification record; this is not a cross-database atomic repair receipt. */
 export type DocsProjectionReceipt = z.infer<typeof DOCS_PROJECTION_RECEIPT_SCHEMA>;

@@ -2152,11 +2152,9 @@ export class MemoryHandler implements DomainHandler {
         case 'sweep':
           return this.query(operation, params);
 
-        // T9976 — backfill: emit memory observations for existing doc attachments
-        // that do not yet have a corresponding brain observation.
+        // T9976/T13985 (D11180) — backfill: write the `llmtxt --documents--> owner`
+        // edge for existing doc attachments that do not have it yet.
         case 'backfill-docs': {
-          // T13985 (D11180): a document link is the `llmtxt --documents--> owner`
-          // edge, no longer a "Doc attached" observation.
           try {
             const { backfillDocumentEdges } = await import('@cleocode/core/docs/document-edges');
             const backfill = await backfillDocumentEdges(projectRoot);

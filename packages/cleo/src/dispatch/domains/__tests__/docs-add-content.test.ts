@@ -194,7 +194,7 @@ describe('docs.add --content inline authoring (T10965)', () => {
         [
           '--input-type=module',
           '-e',
-          "import {DatabaseSync} from 'node:sqlite'; const db=new DatabaseSync(process.argv[1],{readOnly:true}); process.stdout.write(JSON.stringify({jobs:db.prepare('SELECT status,proposal_json,result FROM background_jobs').all(),observations:db.prepare('SELECT project,narrative FROM brain_observations').all()})); db.close();",
+          "import {DatabaseSync} from 'node:sqlite'; const db=new DatabaseSync(process.argv[1],{readOnly:true}); process.stdout.write(JSON.stringify({jobs:db.prepare('SELECT status,proposal_json,result FROM background_jobs').all(),documents:db.prepare(\"SELECT to_id FROM brain_page_edges WHERE edge_type='documents'\").all()})); db.close();",
           join(tempDir, '.cleo/cleo.db'),
         ],
         { encoding: 'utf8', timeout: 5000, stdio: ['ignore', 'pipe', 'pipe'] },
@@ -203,8 +203,8 @@ describe('docs.add --content inline authoring (T10965)', () => {
     expect(stored.jobs).toHaveLength(1);
     expect(stored.jobs[0].status).toBe('complete');
     expect(JSON.parse(stored.jobs[0].proposal_json).identity.projectRoot).toBe(tempDir);
-    expect(stored.observations).toHaveLength(1);
-    expect(stored.observations[0].project).toBe('handler-A');
+    // T13985: the captured project A holds the documents link (no observation).
+    expect(stored.documents).toEqual([{ to_id: 'task:T965' }]);
     await expect(access(other)).rejects.toThrow();
   });
 

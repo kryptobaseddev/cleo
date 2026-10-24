@@ -69,7 +69,7 @@ export function autoRowExclusionClause(
     return ` AND ${alias}.pattern NOT LIKE '${DISPATCH_TRACE_TEXT_PREFIX}%'`;
   }
   if (table === 'observations') {
-    // Both doc writers (docs projection, memory backfill-docs) store the
+    // Legacy rows (before T13985 retired them) carry the
     // DocAttachmentObservationPayload JSON as the narrative. Requiring it keeps
     // a human note titled "Doc attached: …" in recall; GLOB is case-sensitive,
     // and COALESCE keeps a NULL narrative from making the NOT(…) NULL.

@@ -200,20 +200,45 @@ describe('prepareDocumentProjection', () => {
 });
 
 describe('captured document projection execution', () => {
-  it('verifies graph and sourced observation before recording completion without changing canonical bytes', async () => {
+  it('verifies the documents link and graph before recording completion without changing canonical bytes', async () => {
     const result = await projectDocumentAttachment(context, source);
     expect(result).toMatchObject({
       status: 'completed',
       coverage: 'current',
     });
     expect(result.diagnostics).toEqual([]);
-    expect(result.receipt?.observationId).toMatch(/^O-doc-/);
+    // T13985 (D11180): the link is a documents edge; no "Doc attached" observation.
+    expect(result.receipt?.documents).toBe(true);
+    expect(result.receipt?.observationId).toBeUndefined();
+    expect(getNativeDb(root)!.prepare('SELECT id FROM brain_observations').all()).toEqual([]);
     const pending = readPending();
     expect(pending).toHaveLength(1);
     expect(pending[0].status).toBe('complete');
     expect(JSON.parse(pending[0].result)).toEqual(result.receipt);
     expect(await resumeDocumentProjection(context, result.jobId!)).toEqual(result.receipt);
     expect((await createAttachmentStore().get(source.sha256, root))?.bytes).toEqual(bytes);
+  });
+
+  it('still verifies a legacy receipt that names its Doc attached observation (T13985)', async () => {
+    const result = await projectDocumentAttachment(context, source);
+    expect(result.status).toBe('completed');
+    const [job] = readPending();
+    const proposal = JSON.parse(job.proposal_json) as { observation: unknown };
+    const { getBrainAccessor } = await import('../../store/memory-accessor.js');
+    await (await getBrainAccessor(root)).addObservation({
+      id: 'O-doc-legacy',
+      type: 'feature',
+      title: 'Doc attached: legacy',
+      narrative: JSON.stringify(proposal.observation),
+      project: context.identity.projectId,
+      sourceType: 'agent',
+    });
+    const { documents: _documents, ...rest } = result.receipt!;
+    const legacy = { ...rest, observationId: 'O-doc-legacy' };
+    getNativeDb(root)!
+      .prepare('UPDATE main.background_jobs SET result=? WHERE id=?')
+      .run(JSON.stringify(legacy), result.jobId!);
+    expect(await resumeDocumentProjection(context, result.jobId!)).toEqual(legacy);
   });
 
   it('preserves accepted bytes and prepared work when final receipt persistence fails, then resumes once', async () => {
@@ -228,14 +253,15 @@ describe('captured document projection execution', () => {
     expect(pending[0].status).toBe('running');
     expect(pending[0].result).toBeNull();
     const native = getNativeDb(root)!;
-    const before = native.prepare('SELECT id,created_at FROM brain_observations').all();
-    expect(before).toHaveLength(1);
+    const edges = 'SELECT from_id,to_id,edge_type FROM brain_page_edges ORDER BY edge_type';
+    const before = native.prepare(edges).all();
+    expect(before.map((edge) => edge.edge_type)).toEqual(['documents', 'embeds']);
     native.exec('DROP TRIGGER refuse_projection_receipt');
     native
       .prepare('UPDATE main.background_jobs SET lease_expires_at=0 WHERE id=?')
       .run(result.jobId!);
     const receipt = await resumeDocumentProjection(context, result.jobId!);
-    expect(native.prepare('SELECT id,created_at FROM brain_observations').all()).toEqual(before);
+    expect(native.prepare(edges).all()).toEqual(before);
     expect(readPending()[0].status).toBe('complete');
     expect(JSON.parse(readPending()[0].result)).toEqual(receipt);
     expect((await createAttachmentStore().get(source.sha256, root))?.bytes).toEqual(bytes);
@@ -250,7 +276,7 @@ describe('captured document projection execution', () => {
     });
     const result = await projectDocumentAttachment(context, source);
     expect(result.status).toBe('failed');
-    expect(result.diagnostics.join(' ')).toContain('graph verification failed');
+    expect(result.diagnostics.join(' ')).toContain('link verification failed');
     expect(readPending()[0].status).toBe('running');
     expect(readPending()[0].result).toBeNull();
     expect((await createAttachmentStore().get(source.sha256, root))?.bytes).toEqual(bytes);

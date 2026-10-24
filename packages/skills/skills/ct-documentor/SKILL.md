@@ -1,7 +1,7 @@
 ---
 name: ct-documentor
 description: Documentation coordinator with CLEO style guide compliance. Routes every canonical-doc write (spec, adr, research, handoff, note, llm-readme) through the docs SSoT via `cleo docs add` / `cleo docs publish` / `cleo docs fetch` — never raw filesystem writes. Carries the CLEO writing and review guides as references and coordinates ct-spec-writer and ct-adr-recorder. Use when creating or updating documentation files, consolidating scattered documentation, or validating documentation against style standards. Triggers on documentation tasks, doc update requests, or style guide compliance checks.
-version: 3.25.4
+version: 3.26.0
 protocol: null
 dependencies:
   - ct-spec-writer
@@ -16,13 +16,13 @@ compatibility:
   - gemini-cli
 license: MIT
 metadata:
-  version: 3.25.4
+  version: 3.26.0
   tier: core
   install: harness
   covers:
     - packages/cleo/src/cli/commands/docs.ts
     - packages/contracts/src/docs-taxonomy.ts
-  lastReviewed: 2026-10-16
+  lastReviewed: 2026-10-23
   stability: stable
 ---
 
@@ -577,48 +577,31 @@ three invariants: stuck-saga closure (AC1), sibling-saga isolation
 another stuck docs-canon Saga so the recovery pattern stays under
 test.
 
-### Docs->memory auto-emit (T9976 · regression-tested by T10375)
+### Docs->BRAIN link (T13985 · owner decision D11180)
 
-Every successful `cleo docs add` fires a fire-and-forget memory observation
-into `brain_observations`. The CLI never blocks on this write — a BRAIN
-failure cannot fail `docs add` — but the observation is the bridge that
-makes `cleo memory find '<slug>'` surface attached docs.
+Every successful `cleo docs add` links the document to its owner in the BRAIN
+graph as `llmtxt:<sha256> --documents--> <ownerType>:<ownerId>` (for example
+`task:T1234`). The `llmtxt:<sha256>` node carries the slug (or file name) as
+its label. The link is canonical, so it is written even when
+`brain.autoCapture` is off; the owner's `embeds` edge is automatic capture and
+follows that setting. The write runs in the docs projection after the
+attachment is stored, so a BRAIN failure never fails `docs add`.
 
-**Title shape**: `"Doc attached: <slug>"` (or `"Doc attached: <attachmentId>"`
-when no slug is provided). This is what the FTS index matches on, so the
-slug is also a memory-discovery key — not just a docs-lookup key.
+There is no "Doc attached" observation any more (T9976's auto-emit was retired
+by D11180): find a document through `cleo docs` (`list`, `find`, `fetch`), not
+`cleo memory find`. Legacy "Doc attached" rows still in a store are kept out
+of recall, and `cleo memory verify <observationId>` still round-trips one
+against the docs store.
 
-**Narrative payload** (the {@link DocAttachmentObservationPayload} contract):
+The internal `memory.backfill-docs` operation writes the missing `documents`
+edges for attachments that predate the link (idempotent). Regression coverage:
+`packages/cleo/src/dispatch/domains/__tests__/docs-memory-observation.test.ts`
+and `docs-memory-observation-retroactive.test.ts` (slug shapes from the
+T10371 + T10373 sweep).
 
-```jsonc
-{
-  "kind": "doc-attachment",        // discriminator
-  "attachmentId": "<id>",          // assigned by the docs store
-  "ownerId": "<T#### | SG-#### | …>",
-  "slug": "<kebab-slug>",          // omitted only when --slug not passed
-  "type": "<docKind>",             // omitted only when --type not passed
-  "addedAt": "<ISO 8601 timestamp>"
-}
-```
-
-The payload is consumed by `cleo memory verify <observationId>` for
-round-trip checks against the docs store — see AC3 of the original T9976
-suite at `packages/cleo/src/dispatch/domains/__tests__/docs-memory-observation.test.ts`.
-
-**Retroactive sweeps**: when migrating manual `Write`-based docs back into
-the SSoT (the T10371 + T10373 pattern), the auto-emit fires uniformly for
-the kebab-case slugs the sweep uses (`t<num>-<kebab>`, `adr-<num>-<kebab>`).
-Regression coverage lives at
-`packages/cleo/src/dispatch/domains/__tests__/docs-memory-observation-retroactive.test.ts`
-(T10375). Add a new case to that table whenever you discover a slug shape
-not yet under test.
-
-**Anti-pattern**: do NOT write a `cleo memory observe` manually after a
-`cleo docs add` — the auto-emit already happened, and the duplicate
-observation pollutes the FTS index. No CLI command back-fills that
-observation for attachments that pre-date the auto-emit feature: the
-`memory backfill-docs` verb planned in T9976 AC4 never shipped. Leave such
-attachments as they are rather than hand-writing a duplicate observation.
+**Anti-pattern**: do NOT write a `cleo memory observe` after a
+`cleo docs add` to "register" the document: the documents edge already links
+it, and an observation only adds noise to recall.
 
 #### System-managed exemptions (T10368)
 

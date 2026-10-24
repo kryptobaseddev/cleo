@@ -12,8 +12,10 @@ import {
   type DocsProjectionSource,
 } from '@cleocode/contracts/operations/docs';
 import { loadProjectInfo } from '../config/registry.js';
-import { enqueueBrainWrite } from '../memory/brain-writer-thread.js';
-import { ensureLlmtxtNodeScoped } from '../memory/graph-auto-populate.js';
+import {
+  DOCUMENTS_EDGE_PROVENANCE,
+  ensureLlmtxtNodeScoped,
+} from '../memory/graph-auto-populate.js';
 import { generateProjectHash } from '../nexus/hash.js';
 import { worktreeScope } from '../paths.js';
 import { createAttachmentStore } from '../store/attachment-store.js';
@@ -209,22 +211,44 @@ async function verifyProjection(
   receipt: DocsProjectionReceipt,
 ): Promise<void> {
   context.assertActive();
+  if (receipt.sourceHash !== proposal.source.sha256) {
+    // @sync-invariant none:input-shape a receipt for another source is refused before completion
+    throw new Error('Document projection receipt names another source');
+  }
   const accessor = await getBrainAccessor(context.identity.projectRoot);
   context.assertActive();
-  const observation = await accessor.getObservation(receipt.observationId);
-  context.assertActive();
-  if (
-    !observation ||
-    observation.narrative !== JSON.stringify(proposal.observation) ||
-    observation.project !== context.identity.projectId ||
-    observation.invalidAt !== null ||
-    observation.expiredAt !== null ||
-    receipt.sourceHash !== proposal.source.sha256
-  ) {
-    throw new Error('Document observation verification failed');
+  const nodeId = `llmtxt:${proposal.source.sha256}`;
+  const ownerId = `${proposal.source.ownerType}:${proposal.source.ownerId}`;
+  // Legacy receipts (jobs completed before T13985) verify the observation they wrote.
+  if (receipt.observationId !== undefined) {
+    const observation = await accessor.getObservation(receipt.observationId);
+    context.assertActive();
+    if (
+      !observation ||
+      observation.narrative !== JSON.stringify(proposal.observation) ||
+      observation.project !== context.identity.projectId ||
+      observation.invalidAt !== null ||
+      observation.expiredAt !== null
+    ) {
+      throw new Error('Document observation verification failed');
+    }
+  }
+  if (receipt.documents === true) {
+    const out = await accessor.getPageEdges(nodeId, 'out');
+    context.assertActive();
+    if (
+      !out.some(
+        (edge) =>
+          edge.toId === ownerId &&
+          edge.edgeType === 'documents' &&
+          edge.provenance === DOCUMENTS_EDGE_PROVENANCE,
+      )
+    ) {
+      // @sync-invariant none:local-only a missing link leaves the job unfinished; nothing is written
+      throw new Error('Document link verification failed');
+    }
   }
   if (receipt.graph === 'completed') {
-    const nodeId = `llmtxt:${proposal.source.sha256}`;
     const node = await accessor.getPageNode(nodeId);
     context.assertActive();
     const edges = await accessor.getPageEdges(nodeId, 'in');
@@ -235,7 +259,7 @@ async function verifyProjection(
       node.label !== proposal.source.label ||
       !edges.some(
         (edge) =>
-          edge.fromId === `${proposal.source.ownerType}:${proposal.source.ownerId}` &&
+          edge.fromId === ownerId &&
           edge.edgeType === 'embeds' &&
           edge.provenance === 'auto:docs-add',
       )
@@ -251,8 +275,9 @@ async function verifyProjection(
  * @param jobId - Existing durable pending or explicitly expired job identity.
  * @returns Actual verified domain result after the existing job store records completion.
  * @throws Error on stale inputs, ownership, cancellation, unavailable workers or verification failure.
- * @remarks Graph and observation writes commit separately. Lost acknowledgements leave the
- * job inspectable and require explicit resume after expiry; observation replay is idempotent.
+ * @remarks The graph writes (node, canonical `documents` edge, optional `embeds` edge) commit
+ * separately and are idempotent; a lost acknowledgement leaves the job inspectable and requires
+ * explicit resume after expiry. Since T13985 no "Doc attached" observation is written.
  * No uncertain worker write is replayed inline and no model is used. The receipt is not an
  * atomic cross-database repair guarantee. Synchronous SQLite is cooperatively guarded only.
  * @example
@@ -331,38 +356,11 @@ export async function resumeDocumentProjection(
             `${proposal.source.ownerType}:${proposal.source.ownerId}`,
             proposal.source.label,
           );
-          execution.assertActive();
-          store.checkpoint(
-            job.id,
-            JSON.stringify({ stage: 'observation', graph: graph.status }),
-            Date.now(),
-          );
-          const observation = await enqueueBrainWrite(
-            {
-              kind: 'observe',
-              projectRoot: context.identity.projectRoot,
-              params: {
-                text: JSON.stringify(proposal.observation),
-                title: `Doc attached: ${proposal.observation.slug ?? proposal.source.attachmentId}`,
-                type: 'feature',
-                sourceType: 'agent',
-                sourceConfidence: 'agent',
-                agent: proposal.identity.actor,
-                project: proposal.identity.projectId,
-                attachmentRefs: [proposal.source.sha256],
-                origin: 'docs.projection',
-                _skipGate: true,
-              },
-            },
-            execution,
-          );
-          if (observation.kind !== 'observe')
-            throw new Error('Document writer returned an unrelated result');
           const receipt: DocsProjectionReceipt = {
             version: 1,
             sourceHash: proposal.source.sha256,
             graph: graph.status,
-            observationId: observation.result.id,
+            documents: true,
             verifiedAt: new Date().toISOString(),
             actor: context.identity.actor,
           };
