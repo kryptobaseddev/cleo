@@ -2,11 +2,12 @@
  * Reversible auto-row quarantine (T13951, owner decision D11179): dry-run
  * counts, the approved-count guard, a crash mid-apply that restore can undo,
  * restore idempotency, and a human "Doc attached" note that is never touched.
+ * T14003: rule-id guards, global mid-apply skips, receipt and --expect refusals.
  *
  * @task T13951
  */
 
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { DatabaseSync } from 'node:sqlite';
@@ -17,6 +18,7 @@ import {
   AutoRowQuarantineError,
   applyAutoRowQuarantine,
   openQuarantineStores,
+  parseQuarantineExpect,
   planAutoRowQuarantine,
   type QuarantineScope,
   type QuarantineStore,
@@ -223,6 +225,51 @@ describe('auto-row quarantine (T13951)', () => {
     expect(invalidAt(stores.project.db)['P-trace-2']).toBeNull();
   });
 
+  it('skips and records a global row verified mid-apply (T14003)', async () => {
+    const stores = await seededStores();
+    const { digest } = planAutoRowQuarantine(stores);
+    let first = true;
+    const verifying = {
+      ...stores,
+      global: {
+        ...stores.global,
+        write: (...args: Parameters<QuarantineStore['write']>) => {
+          // Another process verifies a planned global trace before its first batch writes.
+          if (first) {
+            first = false;
+            stores.global.db
+              .prepare("UPDATE main.brain_patterns SET verified = 1 WHERE id = 'G-P-trace-2'")
+              .run();
+          }
+          return stores.global.write(...args);
+        },
+      },
+    };
+    const receipt = await applyAutoRowQuarantine(
+      verifying,
+      approved,
+      digest,
+      join(dir, 'receipt.json'),
+    );
+    expect(receipt.quarantined?.global.patterns).toBe(1);
+    expect(receipt.skipped?.global.patterns).toEqual(['G-P-trace-2']);
+    expect(receipt.quarantined?.project.patterns).toBe(2);
+    expect(invalidAt(stores.global.db)['G-P-trace-2']).toBeNull();
+  });
+
+  it('store writers take rule ids and refuse one for another table (T14003)', async () => {
+    const stores = await seededStores();
+    for (const scope of ['project', 'global'] as const) {
+      await expect(
+        stores[scope].write('patterns', ['P-real'], 'now', null, ['doc-attachment']),
+      ).rejects.toThrow(/No auto-row rule 'doc-attachment' for patterns/);
+      await expect(stores[scope].write('patterns', ['P-real'], 'now', null, [])).rejects.toThrow(
+        /names no rule/,
+      );
+    }
+    expect(Object.values(invalidAt(stores.project.db)).every((value) => value === null)).toBe(true);
+  });
+
   it('restore leaves a row another process invalidated (other timestamp) untouched', async () => {
     const stores = await seededStores();
     const receiptPath = join(dir, 'receipt.json');
@@ -239,6 +286,23 @@ describe('auto-row quarantine (T13951)', () => {
     const restored = await restoreAutoRowQuarantine(stores, receiptPath);
     expect(restored.project.observations).toBe(1);
     expect(invalidAt(stores.project.db)['O-doc']).toBe(later);
+  });
+
+  it('rejects a receipt that is not valid JSON with E_QUARANTINE_RECEIPT (T14003)', async () => {
+    const stores = await seededStores();
+    const broken = join(dir, 'broken.json');
+    writeFileSync(broken, '{"version": 1,');
+    await expect(restoreAutoRowQuarantine(stores, broken)).rejects.toMatchObject({
+      code: 'E_QUARANTINE_RECEIPT',
+    });
+  });
+
+  it('refuses --expect with a store:table pair given twice (T14003)', () => {
+    expect(() =>
+      parseQuarantineExpect(
+        'project:patterns=1,project:patterns=2,project:observations=0,global:patterns=0,global:observations=0',
+      ),
+    ).toThrow(expect.objectContaining({ code: 'E_QUARANTINE_EXPECT_MISMATCH' }));
   });
 
   it('rejects a file that is not a quarantine receipt', async () => {

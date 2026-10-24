@@ -39,8 +39,12 @@ import {
 import { dirname, join } from 'node:path';
 import type { DatabaseSync } from 'node:sqlite';
 import { z } from 'zod';
-import { stubObservationClause } from './brain-stub-prune.js';
-import { DISPATCH_TRACE_TEXT_PREFIX } from './dispatch-trace-format.js';
+import {
+  AUTO_ROW_RULES,
+  type AutoRowRule,
+  type AutoRowRuleId,
+  CURRENT_UNVERIFIED,
+} from './auto-row-rules.js';
 
 /** Brain stores the quarantine covers, reported separately. */
 export const QUARANTINE_SCOPES = ['project', 'global'] as const;
@@ -50,40 +54,6 @@ export type QuarantineScope = (typeof QUARANTINE_SCOPES)[number];
 export const QUARANTINE_TABLES = ['patterns', 'observations'] as const;
 /** A memory table holding auto rows. */
 export type QuarantineTable = (typeof QUARANTINE_TABLES)[number];
-
-/** Guard every rule shares: only current, unverified rows. */
-const CURRENT_UNVERIFIED = 'invalid_at IS NULL AND COALESCE(verified, 0) != 1';
-
-/** One named auto-row rule with its exact SQL predicate. */
-export interface AutoRowRule {
-  /** Stable id, reported in counts. */
-  readonly id: string;
-  /** Table the rule reads. */
-  readonly table: QuarantineTable;
-  /** SQL predicate over unaliased columns, ANDed with the current/unverified guard. */
-  readonly predicate: string;
-}
-
-/** The rules, each matching rows only machinery writes. */
-export const AUTO_ROW_RULES: readonly AutoRowRule[] = [
-  {
-    id: 'dispatch-trace',
-    table: 'patterns',
-    predicate: `pattern LIKE '${DISPATCH_TRACE_TEXT_PREFIX}%'`,
-  },
-  {
-    // Both the title and the writer's JSON payload: a human note titled
-    // "Doc attached: ..." without the payload is never matched.
-    id: 'doc-attachment',
-    table: 'observations',
-    predicate: `title GLOB 'Doc attached:*' AND COALESCE(narrative, '') LIKE '%"kind":"doc-attachment"%'`,
-  },
-  {
-    id: 'task-stub',
-    table: 'observations',
-    predicate: `(${stubObservationClause()})`,
-  },
-];
 
 /** Counts per table, and per rule, for one store. */
 export type QuarantineCounts = Record<
@@ -137,7 +107,7 @@ export type InvalidAtWriter = (
   ids: readonly string[],
   invalidAt: string | null,
   expected: string | null,
-  guard?: string,
+  guardRules?: readonly AutoRowRuleId[],
 ) => Promise<string[]>;
 
 /** Read handle and accessor-backed writer for one store. */
@@ -249,12 +219,9 @@ export function digestIds(ids: Record<QuarantineScope, QuarantineIds>): string {
   return createHash('sha256').update(JSON.stringify(canonical)).digest('hex').slice(0, 16);
 }
 
-/** The predicate a table's rows must still match when a batch writes them. */
-function tableGuard(table: QuarantineTable): string {
-  const rules = AUTO_ROW_RULES.filter((rule) => rule.table === table).map(
-    (rule) => `(${rule.predicate})`,
-  );
-  return `(${rules.join(' OR ')}) AND ${CURRENT_UNVERIFIED}`;
+/** The rules a table's rows must still match when a batch writes them. */
+function tableRules(table: QuarantineTable): AutoRowRuleId[] {
+  return AUTO_ROW_RULES.filter((rule) => rule.table === table).map((rule) => rule.id);
 }
 
 /** Ids one rule matches in one store. */
@@ -296,11 +263,11 @@ function countsFor(db: DatabaseSync, ids: QuarantineIds): QuarantineCounts {
 
 /**
  * Parse `--expect` counts: `project:patterns=N,project:observations=N,global:...`.
- * Every store/table pair must be given.
+ * Every store/table pair must be given, once.
  *
  * @param text - The flag value.
  * @returns Expected counts per store and table.
- * @throws AutoRowQuarantineError when a pair is missing or malformed.
+ * @throws AutoRowQuarantineError when a pair is missing, repeated or malformed.
  * @example
  * ```ts
  * parseQuarantineExpect('project:patterns=3,project:observations=1,global:patterns=0,global:observations=0');
@@ -316,7 +283,15 @@ export function parseQuarantineExpect(text: string): QuarantineTally {
         `Malformed --expect entry '${part}'; use <project|global>:<patterns|observations>=<count>`,
       );
     }
-    given.set(`${match[1]}:${match[2]}`, Number(match[3]));
+    const pair = `${match[1]}:${match[2]}`;
+    if (given.has(pair)) {
+      // @sync-invariant none:input-shape a doubled --expect pair is refused before any write
+      throw new AutoRowQuarantineError(
+        'E_QUARANTINE_EXPECT_MISMATCH',
+        `--expect gives ${pair} more than once; pass each count once`,
+      );
+    }
+    given.set(pair, Number(match[3]));
   }
   const count = (scope: QuarantineScope, table: QuarantineTable): number => {
     const value = given.get(`${scope}:${table}`);
@@ -441,7 +416,7 @@ export async function applyAutoRowQuarantine(
         const batch = ids.slice(start, start + batchSize);
         // Re-check the full predicate: a row verified or edited mid-apply is skipped.
         const changed = new Set(
-          await stores[scope].write(table, batch, receipt.quarantinedAt, null, tableGuard(table)),
+          await stores[scope].write(table, batch, receipt.quarantinedAt, null, tableRules(table)),
         );
         quarantined[scope][table] += changed.size;
         skipped[scope][table].push(...batch.filter((id) => !changed.has(id)));
@@ -524,7 +499,14 @@ function readReceipt(path: string): AutoRowQuarantineReceipt {
       `Cannot read quarantine receipt ${path}: ${err instanceof Error ? err.message : String(err)}`,
     );
   }
-  const parsed = receiptSchema.safeParse(JSON.parse(text));
+  let json: unknown;
+  try {
+    json = JSON.parse(text);
+  } catch {
+    // @sync-invariant none:input-shape an unparseable receipt is refused before any write
+    throw new AutoRowQuarantineError('E_QUARANTINE_RECEIPT', `Receipt ${path} is not valid JSON`);
+  }
+  const parsed = receiptSchema.safeParse(json);
   if (!parsed.success) {
     // @sync-invariant none:input-shape a malformed receipt is refused before any write
     throw new AutoRowQuarantineError('E_QUARANTINE_RECEIPT', `Not a quarantine receipt: ${path}`);
