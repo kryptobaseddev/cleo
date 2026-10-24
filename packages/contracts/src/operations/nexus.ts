@@ -1815,7 +1815,7 @@ export interface NexusProjectsCleanParams {
   includeTemp?: boolean;
   /** Match paths containing tmp/test(s)/__tests__/fixture(s)/scratch/sandbox segments. */
   includeTests?: boolean;
-  /** Also match unhealthy rows. */
+  /** Also match rows recorded unreachable whose path no longer answers (T14011). */
   matchUnhealthy?: boolean;
   /** Also match never-indexed rows. */
   matchNeverIndexed?: boolean;

@@ -745,6 +745,50 @@ export async function nexusList(
   return rows.map(rowToProject);
 }
 
+/** Registry rows by recorded health, for `cleo nexus status` (T14011). */
+export interface NexusRegistryHealthSummary {
+  /** Rows on this machine (vault placeholders for other machines excluded). */
+  total: number;
+  /** Rows per recorded health status. */
+  byStatus: Record<NexusHealthStatus, number>;
+  /** Rows recorded as unreachable: candidates for `projects clean --orphans`. */
+  unreachable: number;
+  /** The dry-run command that classifies them; present when `unreachable > 0`. */
+  cleanCommand?: string;
+}
+
+/**
+ * Count registry rows by their recorded health. Reads only: nothing is
+ * probed or removed; `projects clean --orphans --dry-run` proves which rows
+ * are gone before anything is deleted.
+ *
+ * @returns Counts per status, and the dry-run command when rows are unreachable.
+ * @throws {NexusRegistryReadError} When the registry cannot be read.
+ * @example
+ * ```ts
+ * const { unreachable, cleanCommand } = await summarizeRegistryHealth();
+ * ```
+ */
+export async function summarizeRegistryHealth(): Promise<NexusRegistryHealthSummary> {
+  const local = (await nexusList()).filter((project) => !project.remote);
+  const byStatus: Record<NexusHealthStatus, number> = {
+    unknown: 0,
+    healthy: 0,
+    degraded: 0,
+    unreachable: 0,
+  };
+  for (const project of local)
+    byStatus[project.healthStatus] = (byStatus[project.healthStatus] ?? 0) + 1;
+  return {
+    total: local.length,
+    byStatus,
+    unreachable: byStatus.unreachable,
+    ...(byStatus.unreachable > 0
+      ? { cleanCommand: 'cleo nexus projects clean --orphans --dry-run' }
+      : {}),
+  };
+}
+
 /**
  * A project NAME matched more than one registry row (T12510). Names are not
  * unique — two checkouts or two unrelated projects can share one — so the

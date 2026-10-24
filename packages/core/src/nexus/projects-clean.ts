@@ -349,7 +349,10 @@ export async function cleanProjects(opts: CleanProjectsOptions): Promise<CleanPr
       reasons.push('pattern');
     if (opts.includeTemp && temp) reasons.push('temp-path');
     if (opts.includeTests && test) reasons.push('test-path');
-    if (opts.matchUnhealthy && row.healthStatus === 'unhealthy') reasons.push('unhealthy');
+    // T14011: NexusHealthStatus has no 'unhealthy'; match rows recorded
+    // unreachable whose path does not answer now (a stale record is kept).
+    if (opts.matchUnhealthy && row.healthStatus === 'unreachable' && holding !== 'present')
+      reasons.push('unhealthy');
     if (opts.matchNeverIndexed && row.lastIndexed === null) reasons.push('never-indexed');
     if (opts.matchOrphaned && missing) reasons.push('missing-path');
     if (pollutedIds.has(row.projectId)) reasons.push('path-divergent-duplicate');
