@@ -747,7 +747,11 @@ export async function nexusList(
 
 /** Registry rows by recorded health, for `cleo nexus status` (T14011). */
 export interface NexusRegistryHealthSummary {
-  /** Rows on this machine (vault placeholders for other machines excluded). */
+  /**
+   * Registry rows, excluding only vault placeholders (rows a cloud restore
+   * brought from another machine). Rows with no host recorded are counted even
+   * when they belong to another machine.
+   */
   total: number;
   /** Rows per recorded health status. */
   byStatus: Record<NexusHealthStatus, number>;
