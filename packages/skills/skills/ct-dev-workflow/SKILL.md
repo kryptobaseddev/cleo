@@ -1,7 +1,7 @@
 ---
 name: ct-dev-workflow
 description: Development workflow orchestration for task-driven development with atomic commits, conventional commit messages, and systematic release processes. Enforces task traceability, branch discipline, smart test scope selection, and GitHub Actions integration. Use when committing code, creating releases, managing branches, or following contribution protocols. Triggers on commit operations, release preparation, or workflow compliance needs.
-version: 3.1.27
+version: 3.1.28
 protocol: contribution
 dependencies: []
 sharedResources:
@@ -14,7 +14,7 @@ compatibility:
   - gemini-cli
 license: MIT
 metadata:
-  version: 3.1.27
+  version: 3.1.28
   tier: core
   install: harness
   covers:
@@ -559,7 +559,10 @@ ask-enforce error); `CLEO_GOAL_TICK=off` skips the tick; `CLEO_ASK_ENFORCE=off` 
 mode `off` (`CLEO_HEAVY_COMMAND_HOOK` / `resources.heavyCommandHook`, read at run time) skips the
 ask check, as they removed its separate hook before.
 Sync folds the separate ask-enforce and old session-end Stop entries into it in place; Codex's
-rides the heavy-command mode, Claude Code's always stays.
+rides the heavy-command mode, Claude Code's always stays. `cleo doctor heavy-command-hook`
+reports the hook `outdated` when the Stop, SessionEnd or SubagentStart entry is missing or was
+written by another build (a binary updated without a re-sync, T13960); `--fix` re-syncs them.
+`cleo self-update` re-syncs only the project it runs in.
 
 Init, upgrade and inspection share the commit-msg, pre-commit and pre-push installer.
 Git determines effective hooksPath and the common directory, including linked worktrees.

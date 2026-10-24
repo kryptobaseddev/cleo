@@ -52,11 +52,17 @@ import {
   heavyCommandHookObject,
   hookFileVisibleToGit,
   isHeavyHookObject,
+  isSessionEndHookObject,
+  isStopDispatchHookObject,
+  isSubagentStartHookObject,
   isUserHomeDir,
   nonDirectoryAncestor,
   OLDER_CLEO_MARKER_PREFIX,
   OPENCODE_PLUGIN_FILE,
   opencodeHeavyCommandPluginSource,
+  sessionEndHookObject,
+  stopDispatchHookObject,
+  subagentStartHookObject,
   syncClaudeCodeHeavyCommandHook,
   syncCodexHeavyCommandHook,
   syncJsonSessionEndHook,
@@ -386,8 +392,71 @@ export async function syncProjectHeavyCommandHooks(
 /** What a JSON hook config holds: CLEO's hook (current or not), or why it cannot say. */
 type JsonHookPresence =
   | { readonly kind: 'absent' }
-  | { readonly kind: 'present'; readonly current: boolean }
+  | {
+      readonly kind: 'present';
+      readonly current: boolean;
+      /** Why it is not current, when a companion hook is missing or stale (T13960). */
+      readonly stale?: string;
+    }
   | { readonly kind: 'unreadable'; readonly error: string };
+
+/**
+ * The hooks CLEO installs beside the heavy-command hook (T13960): the Stop
+ * dispatcher, and for Claude Code the SessionEnd and SubagentStart hooks. A
+ * binary updated without a hook re-sync keeps the old set, e.g. a Stop that
+ * still ends the session and no SessionEnd, so each is audited too. With the
+ * heavy-command mode `off`, Claude Code keeps only its Stop and SessionEnd
+ * hooks and Codex keeps none (what sync installs).
+ */
+function companionHooks(
+  provider: 'claude-code' | 'codex',
+  modeOff = false,
+): ReadonlyArray<readonly [string, Record<string, unknown>, (hook: unknown) => boolean]> {
+  const stop = ['Stop', stopDispatchHookObject(provider), isStopDispatchHookObject] as const;
+  if (provider === 'codex') return modeOff ? [] : [stop];
+  const end = ['SessionEnd', sessionEndHookObject(), isSessionEndHookObject] as const;
+  return modeOff
+    ? [stop, end]
+    : [stop, end, ['SubagentStart', subagentStartHookObject(), isSubagentStartHookObject]];
+}
+
+/** The first companion hook that is missing or differs from this build's, named, or null. */
+function staleCompanion(
+  hooks: Record<string, unknown>,
+  provider: 'claude-code' | 'codex',
+  modeOff = false,
+): string | null {
+  for (const [event, desired, isMine] of companionHooks(provider, modeOff)) {
+    const groups = hooks[event];
+    const mine = (Array.isArray(groups) ? groups : [])
+      .flatMap((g) => (isPlainObject(g) && Array.isArray(g.hooks) ? g.hooks : []))
+      .filter(isMine);
+    if (mine.length === 0) return `its ${event} hook is missing`;
+    if (!mine.some((h) => JSON.stringify(h) === JSON.stringify(desired))) {
+      return `its ${event} hook was written by another CLEO build`;
+    }
+  }
+  return null;
+}
+
+/**
+ * With the heavy-command mode `off`: the first of Claude Code's own Stop and
+ * SessionEnd hooks that is missing or stale in `file`, or null (also when the
+ * file cannot be read: that is reported elsewhere).
+ */
+function offCompanionStale(file: string): string | null {
+  let config: unknown = {};
+  try {
+    const raw = readFileSync(file, 'utf-8');
+    if (raw.trim() !== '') config = JSON.parse(raw);
+  } catch (err) {
+    const code = (err as NodeJS.ErrnoException).code;
+    if (code !== 'ENOENT' && code !== 'ENOTDIR') return null;
+  }
+  if (!isPlainObject(config)) return null;
+  const hooks = isPlainObject(config.hooks) ? config.hooks : {};
+  return staleCompanion(hooks, 'claude-code', true);
+}
 
 /** Find CLEO's heavy-command hook in a JSON hook config (`hooks.PreToolUse[].hooks[]`). */
 function jsonHookPresence(file: string, provider: 'claude-code' | 'codex'): JsonHookPresence {
@@ -418,7 +487,12 @@ function jsonHookPresence(file: string, provider: 'claude-code' | 'codex'): Json
     if (!isPlainObject(group) || !Array.isArray(group.hooks)) continue;
     for (const hook of group.hooks) {
       if (!isHeavyHookObject(hook)) continue;
-      if (JSON.stringify(hook) === expected) return { kind: 'present', current: true };
+      if (JSON.stringify(hook) === expected) {
+        const stale = isPlainObject(hooks) ? staleCompanion(hooks, provider) : null;
+        return stale === null
+          ? { kind: 'present', current: true }
+          : { kind: 'present', current: false, stale };
+      }
       found = { kind: 'present', current: false };
     }
   }
@@ -491,6 +565,17 @@ function inspectProvider(
     };
   }
   if (mode === 'off') {
+    // T13960: Claude Code keeps its Stop and SessionEnd hooks whatever the mode,
+    // so an update without a re-sync must not read as `disabled`.
+    const stale = provider === 'claude-code' && detected ? offCompanionStale(target) : null;
+    if (stale !== null) {
+      return {
+        ...base,
+        state: 'outdated',
+        detail: `resources.heavyCommandHook is off, but ${stale} in ${target}`,
+        remedy: `run: ${HEAVY_HOOK_FIX_COMMAND}`,
+      };
+    }
     return presence.kind === 'present'
       ? {
           ...base,
@@ -501,11 +586,22 @@ function inspectProvider(
       : { ...base, state: 'disabled', detail: 'resources.heavyCommandHook is off' };
   }
   if (presence.kind === 'present') {
-    if (!presence.current) {
+    // A project's own (committed) .codex/hooks.json is the team's: CLEO never
+    // writes its Stop entry there either, so a missing or stale companion is
+    // not CLEO's to flag (--fix would refuse it); the shared-config checks
+    // below still apply.
+    const companionOnly =
+      presence.stale !== undefined &&
+      provider === 'codex' &&
+      codexHooksSharedReason(projectDir, gitChecks) !== null;
+    if (!presence.current && !companionOnly) {
       return {
         ...base,
         state: 'outdated',
-        detail: `the hook in ${target} (or a legacy location) was written by another CLEO build`,
+        detail:
+          presence.stale !== undefined
+            ? `the hook in ${target} is current, but ${presence.stale}`
+            : `the hook in ${target} (or a legacy location) was written by another CLEO build`,
         remedy: `run: ${HEAVY_HOOK_FIX_COMMAND}`,
       };
     }
