@@ -11,7 +11,7 @@
  */
 
 import { execFileSync } from 'node:child_process';
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { EvidenceAtom } from '@cleocode/contracts';
@@ -297,6 +297,22 @@ describe('repo-qualified evidence ids (T14012)', () => {
     expect(repos.repoOf(join(store, 'lib'))).toBe(sub?.repo);
   });
 
+  it('keys a non-GitHub origin by host and path, and a GitHub one by owner/repo', async () => {
+    const { createEvidenceRepoResolver } = await import('../evidence-graph-links.js');
+    await repo(join(root, 'gl'));
+    git(join(root, 'gl'), [
+      'remote',
+      'add',
+      'origin',
+      'https://GitLab.Example.com/Grp/Sub/Repo.git',
+    ]);
+    await repo(join(root, 'gh'));
+    git(join(root, 'gh'), ['remote', 'add', 'origin', 'https://github.com/Org/Tool']);
+    const repos = createEvidenceRepoResolver(root);
+    expect(repos.repoOf(join(root, 'gl'))).toBe('gitlab.example.com/grp/sub/repo');
+    expect(repos.repoOf(join(root, 'gh'))).toBe('github.com/org/tool');
+  });
+
   it('caches checkout probes by directory within one resolver', async () => {
     const { createEvidenceRepoResolver } = await import('../evidence-graph-links.js');
     await repo(join(root, 'a'), ['src/y.ts']);
@@ -355,11 +371,26 @@ describe('migrateEvidenceRepoIds (T14012)', () => {
     );
     const before = await evidenceEdges();
 
-    const plan = await migrateEvidenceRepoIds(root, { dryRun: true });
+    // Dry run by default: nothing written, no receipt.
+    const plan = await migrateEvidenceRepoIds(root);
     expect(await evidenceEdges()).toEqual(before);
+    expect(plan.dryRun).toBe(true);
+    expect(plan.receiptPath).toBeNull();
     expect(plan.moved).toHaveLength(4);
 
-    const applied = await migrateEvidenceRepoIds(root);
+    const applied = await migrateEvidenceRepoIds(root, {
+      apply: true,
+      now: new Date('2026-10-24T00:00:00.000Z'),
+    });
+    expect(applied.receiptPath).toBe(
+      join(
+        root,
+        '.cleo',
+        'backups',
+        'migrations',
+        'evidence-repo-ids-2026-10-24T00-00-00-000Z.json',
+      ),
+    );
     expect(applied.moved).toEqual(plan.moved);
     expect(applied.removedNodes.sort()).toEqual(plan.removedNodes.sort());
     expect(applied.unresolved).toEqual([
@@ -397,7 +428,16 @@ describe('migrateEvidenceRepoIds (T14012)', () => {
       ].sort(),
     );
 
-    const again = await migrateEvidenceRepoIds(root);
+    // The receipt records the moves, the ambiguous edges and the deleted rows.
+    const receipt = JSON.parse(await readFile(applied.receiptPath!, 'utf-8'));
+    expect(receipt.status).toBe('complete');
+    expect(receipt.moved).toEqual(applied.moved);
+    expect(receipt.unresolved).toEqual(applied.unresolved);
+    expect(receipt.removedNodes.map((row: { id: string }) => row.id).sort()).toEqual(
+      applied.removedNodes.sort(),
+    );
+
+    const again = await migrateEvidenceRepoIds(root, { apply: true });
     expect(again.moved).toEqual([]);
     expect(again.removedNodes).toEqual([]);
   });
@@ -421,7 +461,8 @@ describe('migrateEvidenceRepoIds (T14012)', () => {
       ],
     );
     expect(await migrateEvidenceRepoIds(root)).toEqual({
-      dryRun: false,
+      dryRun: true,
+      receiptPath: null,
       moved: [],
       unresolved: [],
       removedNodes: [],

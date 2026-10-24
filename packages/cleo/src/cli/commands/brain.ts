@@ -4,7 +4,7 @@
  * Subcommands:
  *   cleo brain maintenance   — run temporal decay + consolidation + embedding backfill
  *   cleo brain backfill      — back-fill brain graph nodes/edges from typed tables
- *   cleo brain migrate-repo-ids — repo-qualify evidence file/commit ids in a multi-repo store
+ *   cleo brain migrate-repo-ids — plan (or --apply) repo-qualified evidence ids in a multi-repo store
  *   cleo brain purge         — purge noise entries from brain.db
  *   cleo brain plasticity    — STDP plasticity operations
  *   cleo brain quality       — memory quality metrics
@@ -177,25 +177,31 @@ const migrateRepoIdsCommand = defineCommand({
   meta: {
     name: 'migrate-repo-ids',
     description:
-      'In a store that parents several repositories, move evidence file and commit graph links to repo-qualified ids (file:<repo>::<path>, commit:<repo>::<sha>). Ambiguous links are reported and left. Safe to re-run.',
+      'In a store that parents several repositories, plan moving evidence file and commit graph links to repo-qualified ids (file:<repo>::<path>, commit:<repo>::<sha>). Dry run by default; --apply writes, after a receipt under .cleo/backups/migrations/. Ambiguous links are listed and left. Safe to re-run.',
   },
   args: {
-    'dry-run': { type: 'boolean', description: 'Report the moves without writing' },
+    apply: { type: 'boolean', description: 'Write the moves (default: dry run)' },
     json: { type: 'boolean', description: 'Output results as JSON' },
   },
   async run({ args }) {
     const root = getProjectRoot();
     try {
-      const result = await migrateEvidenceRepoIds(root, { dryRun: args['dry-run'] === true });
+      const result = await migrateEvidenceRepoIds(root, { apply: args.apply === true });
+      const verb = result.dryRun ? 'Would move' : 'Moved';
+      const lines = [
+        `${verb} ${result.moved.length} evidence link(s); ${result.unresolved.length} ambiguous; ` +
+          `${result.removedNodes.length} old node(s) ${result.dryRun ? 'to remove' : 'removed'}` +
+          (result.receiptPath
+            ? `; receipt ${result.receiptPath}`
+            : '; dry run, rerun with --apply'),
+        ...result.unresolved.map((u) => `  ambiguous: ${u.from} -> ${u.target}: ${u.reason}`),
+      ];
       cliOutput(
         { ...result },
         {
           command: 'brain-migrate-repo-ids',
           operation: 'brain.migrate-repo-ids',
-          message:
-            `${result.dryRun ? 'Would move' : 'Moved'} ${result.moved.length} evidence link(s); ` +
-            `${result.unresolved.length} unresolved; ${result.removedNodes.length} old node(s) ` +
-            `${result.dryRun ? 'to remove' : 'removed'}`,
+          message: lines.join('\n'),
         },
       );
     } catch (err) {
@@ -460,7 +466,7 @@ const exportCommand = defineCommand({
  * ```ts
  * // Adds: cleo brain maintenance [--skip-decay] [--skip-consolidation] ...
  * //       cleo brain backfill [--json]
- * //       cleo brain migrate-repo-ids [--dry-run] [--json]
+ * //       cleo brain migrate-repo-ids [--apply] [--json]
  * //       cleo brain purge [--json]
  * //       cleo brain plasticity stats [--limit <n>] [--json]
  * //       cleo brain quality [--json]

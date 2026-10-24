@@ -31,7 +31,7 @@
  * @task T13950
  */
 
-import { existsSync, realpathSync } from 'node:fs';
+import { existsSync, mkdirSync, realpathSync } from 'node:fs';
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import type { EvidenceAtom } from '@cleocode/contracts';
 import { and, eq, or } from 'drizzle-orm';
@@ -45,6 +45,8 @@ import {
   gitToplevel,
 } from '../git/work-tree.js';
 import { normalizeRemoteUrl } from '../nexus/identity.js';
+import { extractRepoOwnerAndName } from '../release/github-pr.js';
+import { writeJsonFileAtomic } from '../store/file-utils.js';
 import { getBrainDb } from '../store/memory-sqlite.js';
 import type { BrainEdgeType, BrainNodeType } from '../store/schema/memory-schema.js';
 import { brainPageEdges, brainPageNodes } from '../store/schema/memory-schema.js';
@@ -127,6 +129,17 @@ export interface EvidenceRepoResolver {
   repoOf(dir: string): string | null;
 }
 
+/**
+ * Repository key of an `origin` URL: `github.com/<owner>/<repo>` through the
+ * same github.com-anchored parser the PR evidence uses, else the host and path
+ * ({@link normalizeRemoteUrl}); lowercased either way.
+ */
+function originRepoKey(url: string): string | null {
+  const github = extractRepoOwnerAndName(url);
+  if (github) return `github.com/${github.owner}/${github.repo}`.toLowerCase();
+  return normalizeRemoteUrl(url);
+}
+
 /** Classification of a checkout toplevel relative to the store. */
 type CheckoutClass = { kind: 'store' } | { kind: 'ignored' } | { kind: 'repo'; key: string };
 
@@ -190,8 +203,9 @@ export function createEvidenceRepoResolver(storeRoot: string): EvidenceRepoResol
     else {
       const main = common !== null && basename(common) === '.git' ? dirname(common) : top;
       const rel = posixInside(relative(real(storeRoot), real(main)));
+      const origin = gitOriginUrl(top);
       const key =
-        normalizeRemoteUrl(gitOriginUrl(top)) ??
+        (origin !== null ? originRepoKey(origin) : null) ??
         (rel !== null && rel !== '' ? rel : basename(main));
       result = { kind: 'repo', key };
     }
@@ -369,14 +383,60 @@ export async function linkVerifiedEvidence(
 
 /** What {@link migrateEvidenceRepoIds} moved, left and removed. */
 export interface EvidenceRepoMigrationResult {
-  /** True when nothing was written. */
+  /** True when nothing was written (the default; `apply` writes). */
   dryRun: boolean;
+  /** Receipt an apply wrote before its first write, or `null` for a dry run. */
+  receiptPath: string | null;
   /** Evidence edges re-pointed from an unqualified node to a repo-qualified one. */
   moved: Array<{ from: string; oldTarget: string; newTarget: string }>;
   /** Evidence edges left unchanged because their repository cannot be told. */
   unresolved: Array<{ from: string; target: string; reason: string }>;
-  /** Old nodes deleted because no edge used them any more. */
+  /** Old nodes deleted (or, in a dry run, that would be) because no edge uses them. */
   removedNodes: string[];
+}
+
+/** Receipt of an applied {@link migrateEvidenceRepoIds} run, enough to reverse it. */
+export interface EvidenceRepoMigrationReceipt {
+  /** Receipt format version. */
+  version: 1;
+  /** ISO timestamp of the apply. */
+  migratedAt: string;
+  /** `started` before the first write; `complete` once the transaction committed. */
+  status: 'started' | 'complete';
+  /** Edges re-pointed (planned, then done). */
+  moved: EvidenceRepoMigrationResult['moved'];
+  /** Edges left unchanged. */
+  unresolved: EvidenceRepoMigrationResult['unresolved'];
+  /** Full rows of the old nodes deleted, so a rollback can restore them. */
+  removedNodes: Array<typeof brainPageNodes.$inferSelect>;
+}
+
+/**
+ * Default receipt path of an applied evidence repo-id migration.
+ *
+ * @param projectRoot - Project root.
+ * @param migratedAt - ISO timestamp of the apply.
+ * @returns Absolute receipt path under `.cleo/backups/migrations/`.
+ * @example
+ * ```ts
+ * defaultEvidenceRepoReceiptPath(root, '2026-10-24T00:00:00.000Z');
+ * ```
+ * @task T14012
+ */
+export function defaultEvidenceRepoReceiptPath(projectRoot: string, migratedAt: string): string {
+  return join(
+    projectRoot,
+    '.cleo',
+    'backups',
+    'migrations',
+    `evidence-repo-ids-${migratedAt.replace(/[:.]/g, '-')}.json`,
+  );
+}
+
+/** Write a receipt atomically, creating its directory. */
+function writeReceipt(path: string, receipt: EvidenceRepoMigrationReceipt): void {
+  mkdirSync(dirname(path), { recursive: true });
+  writeJsonFileAtomic(path, receipt);
 }
 
 /**
@@ -391,22 +451,28 @@ export interface EvidenceRepoMigrationResult {
  * absent everywhere is reported in `unresolved` and left as it is. A store with
  * no repository but its own has nothing to migrate. Re-running is a no-op.
  *
+ * A dry run is the default; only `apply` writes, after recording a receipt
+ * (status `started`, the planned moves) and completing it with the deleted
+ * node rows once the single transaction commits. It never runs automatically.
+ *
  * @param projectRoot - CLEO store root.
- * @param options - `dryRun` reports the plan without writing.
- * @returns The moves, the unresolved edges and the removed nodes.
+ * @param options - `apply` writes; `receiptPath` overrides the default; `now` for tests.
+ * @returns The moves, the unresolved edges, the removed nodes and the receipt path.
  * @example
  * ```ts
- * const plan = await migrateEvidenceRepoIds(root, { dryRun: true });
+ * const plan = await migrateEvidenceRepoIds(root);
+ * const done = await migrateEvidenceRepoIds(root, { apply: true });
  * ```
  * @task T14012
  */
 export async function migrateEvidenceRepoIds(
   projectRoot: string,
-  options: { dryRun?: boolean } = {},
+  options: { apply?: boolean; receiptPath?: string; now?: Date } = {},
 ): Promise<EvidenceRepoMigrationResult> {
-  const dryRun = options.dryRun ?? false;
+  const dryRun = options.apply !== true;
   const result: EvidenceRepoMigrationResult = {
     dryRun,
+    receiptPath: null,
     moved: [],
     unresolved: [],
     removedNodes: [],
@@ -415,7 +481,24 @@ export async function migrateEvidenceRepoIds(
   const storeTop = gitToplevel(projectRoot);
   const tops = [...(storeTop ? [storeTop] : []), ...findNestedGitWorkTrees(projectRoot)];
   const checkouts = [...new Set(tops.flatMap((top) => [top, ...gitSubmoduleToplevels(top)]))];
-  if (!checkouts.some((checkout) => repos.repoOf(checkout) !== null)) return result;
+  const multiRepo = checkouts.some((checkout) => repos.repoOf(checkout) !== null);
+  const at = (options.now ?? new Date()).toISOString();
+  const receiptPath = options.receiptPath ?? defaultEvidenceRepoReceiptPath(projectRoot, at);
+  const receipt = (status: EvidenceRepoMigrationReceipt['status']) => ({
+    version: 1 as const,
+    migratedAt: at,
+    status,
+    moved: result.moved,
+    unresolved: result.unresolved,
+    removedNodes: [] as EvidenceRepoMigrationReceipt['removedNodes'],
+  });
+  if (!multiRepo) {
+    if (!dryRun) {
+      writeReceipt(receiptPath, receipt('complete'));
+      result.receiptPath = receiptPath;
+    }
+    return result;
+  }
 
   const db = await getBrainDb(projectRoot);
   const evidenceEdges = db
@@ -506,7 +589,6 @@ export async function migrateEvidenceRepoIds(
   for (const { edge, newTarget } of moves) {
     result.moved.push({ from: edge.fromId, oldTarget: edge.toId, newTarget });
   }
-  if (moves.length === 0) return result;
 
   const oldIds = [...new Set(moves.map((m) => m.edge.toId))];
   // An old node goes once no edge uses it; a dry run predicts that from the moves.
@@ -521,6 +603,9 @@ export async function migrateEvidenceRepoIds(
     }
   }
   if (dryRun) return result;
+  const started = receipt('started');
+  writeReceipt(receiptPath, started);
+  result.receiptPath = receiptPath;
   // @sync-side-effect identity.local-minting renames evidence file and commit nodes and re-points their edges (T14012)
   db.transaction((tx) => {
     for (const { edge, newTarget } of moves) {
@@ -561,9 +646,13 @@ export async function migrateEvidenceRepoIds(
         .where(or(eq(brainPageEdges.fromId, id), eq(brainPageEdges.toId, id)))
         .get();
       if (used) continue;
+      const row = tx.select().from(brainPageNodes).where(eq(brainPageNodes.id, id)).get();
+      if (!row) continue;
       tx.delete(brainPageNodes).where(eq(brainPageNodes.id, id)).run();
+      started.removedNodes.push(row);
       result.removedNodes.push(id);
     }
   });
+  writeReceipt(receiptPath, { ...started, status: 'complete' });
   return result;
 }
