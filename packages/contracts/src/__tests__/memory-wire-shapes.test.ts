@@ -224,6 +224,9 @@ type _ObserveBrainResultShape = {
   createdAt: string;
   typeSource?: 'caller' | 'keyword' | 'system-one';
   typeConfidence?: number;
+  stored?: false;
+  gateAction?: 'merged' | 'pending' | 'rejected';
+  gateReason?: string;
 };
 
 type _AssertObserveResultPinned = AssertEquals1<

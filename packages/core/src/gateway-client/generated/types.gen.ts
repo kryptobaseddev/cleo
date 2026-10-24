@@ -7812,6 +7812,43 @@ export type QueryMemoryDiaryResponses = {
 
 export type QueryMemoryDiaryResponse = QueryMemoryDiaryResponses[keyof QueryMemoryDiaryResponses];
 
+export type QueryMemoryLessonsData = {
+    body?: {
+        /**
+         * Store to read: project, global (the main brain) or all (default)
+         */
+        scope?: string;
+        /**
+         * Max lessons to return (default: 50)
+         */
+        limit?: number;
+    };
+    path?: never;
+    query?: never;
+    url: '/v1/memory/lessons';
+};
+
+export type QueryMemoryLessonsResponses = {
+    /**
+     * Generic query result — the precise /data shape is not individually contracted. Run with --full to see the verbose record, or --describe for the operation contract.
+     */
+    200: {
+        success: true;
+        data: {
+            [key: string]: unknown;
+        };
+        /**
+         * LAFS response metadata.
+         */
+        meta: {
+            [key: string]: unknown;
+        };
+        [key: string]: unknown;
+    };
+};
+
+export type QueryMemoryLessonsResponse = QueryMemoryLessonsResponses[keyof QueryMemoryLessonsResponses];
+
 export type QueryMemoryWatchData = {
     body?: {
         /**
