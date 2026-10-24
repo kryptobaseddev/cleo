@@ -29,6 +29,7 @@ import { existsSync, statSync } from 'node:fs';
 import { lstat, rm } from 'node:fs/promises';
 import path from 'node:path';
 import type {
+  NexusProjectsCleanOtherHost,
   NexusProjectsCleanReason,
   NexusProjectsCleanReceipt,
   NexusProjectsCleanRelocated,
@@ -261,6 +262,14 @@ export async function cleanProjects(opts: CleanProjectsOptions): Promise<CleanPr
   } catch (error) {
     throw toRegistryReadError('read projects to clean', error);
   }
+  // T14013: rows record no host; recorded locations say which device holds a project.
+  const { classifyRegistryRowHost } = await import('./registry-host.js');
+  const { currentDeviceId } = await import('./path-map.js');
+  const hostLocations = db
+    .select({ projectId: locationTable.projectId, deviceId: locationTable.deviceId })
+    .from(locationTable)
+    .all();
+  const thisDevice = currentDeviceId();
 
   const pollutedIds: Set<string> = new Set();
   if (opts.matchPolluted) {
@@ -376,11 +385,20 @@ export async function cleanProjects(opts: CleanProjectsOptions): Promise<CleanPr
       ? [{ projectId: r.projectId, projectPath: r.projectPath, declares }]
       : [];
   });
+  // T14013: a project that lives on another machine is never removed from here.
+  const otherHost: NexusProjectsCleanOtherHost[] = [];
+  for (const r of matchedRows) {
+    const { host, devices } = classifyRegistryRowHost(r, hostLocations, thisDevice);
+    if (host === 'other-host' || host === 'foreign-root')
+      otherHost.push({ projectId: r.projectId, projectPath: r.projectPath, host, devices });
+  }
+  const otherHostIds = new Set(otherHost.map((r) => r.projectId));
   const removals = matchedRows.filter(
     (r) =>
       !relocatedIds.has(r.projectId) &&
       !unreadableIds.has(r.projectId) &&
-      !mismatchOf.has(r.projectId),
+      !mismatchOf.has(r.projectId) &&
+      !otherHostIds.has(r.projectId),
   );
   for (const removal of removals)
     for (const reason of removal.reasons)
@@ -394,6 +412,7 @@ export async function cleanProjects(opts: CleanProjectsOptions): Promise<CleanPr
     ...(relocated.length > 0 ? { relocated } : {}),
     ...(unreadable.length > 0 ? { unreadable } : {}),
     ...(idMismatch.length > 0 ? { idMismatch } : {}),
+    ...(otherHost.length > 0 ? { otherHost } : {}),
   };
 
   if (opts.dryRun || matched === 0) {

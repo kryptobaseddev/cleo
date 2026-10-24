@@ -1649,6 +1649,7 @@ export type {
   NexusProjectRecord,
   NexusProjectStats,
   NexusProjectsCleanIdMismatch,
+  NexusProjectsCleanOtherHost,
   NexusProjectsCleanParams,
   NexusProjectsCleanReason,
   NexusProjectsCleanReceipt,

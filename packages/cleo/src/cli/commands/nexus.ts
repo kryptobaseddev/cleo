@@ -1696,6 +1696,7 @@ const projectsCleanCommand = defineCommand({
             ...(preview.relocated ? { relocated: preview.relocated } : {}),
             ...(preview.unreadable ? { unreadable: preview.unreadable } : {}),
             ...(preview.idMismatch ? { idMismatch: preview.idMismatch } : {}),
+            ...(preview.otherHost ? { otherHost: preview.otherHost } : {}),
           },
           {
             command: 'nexus-projects-clean-preview',
@@ -1719,6 +1720,7 @@ const projectsCleanCommand = defineCommand({
             ...(preview.relocated ? { relocated: preview.relocated } : {}),
             ...(preview.unreadable ? { unreadable: preview.unreadable } : {}),
             ...(preview.idMismatch ? { idMismatch: preview.idMismatch } : {}),
+            ...(preview.otherHost ? { otherHost: preview.otherHost } : {}),
           },
           {
             command: 'nexus-projects-clean',
@@ -1788,6 +1790,7 @@ const projectsCleanCommand = defineCommand({
           ...(result.relocated ? { relocated: result.relocated } : {}),
           ...(result.unreadable ? { unreadable: result.unreadable } : {}),
           ...(result.idMismatch ? { idMismatch: result.idMismatch } : {}),
+          ...(result.otherHost ? { otherHost: result.otherHost } : {}),
         },
         {
           command: 'nexus-projects-clean',

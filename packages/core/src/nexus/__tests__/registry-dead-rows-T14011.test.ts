@@ -90,6 +90,7 @@ describe('dead registry rows (T14011)', () => {
       total: 3,
       byStatus: { unknown: 0, healthy: 1, degraded: 0, unreachable: 2 },
       unreachable: 2,
+      otherHost: 0,
       cleanCommand: 'cleo nexus projects clean --orphans --dry-run',
     });
   });
@@ -116,5 +117,46 @@ describe('dead registry rows (T14011)', () => {
     expect(preview.sample).toEqual([gone]);
     expect(preview.matchedByReason).toEqual({ unhealthy: 1 });
     expect(preview.purged).toBe(0);
+  });
+
+  it('keeps and reports rows that live on another machine (T14013)', async () => {
+    const { gone } = await seedRegistry();
+    const fedora = join(testDir, 'fedora-only');
+    await seedRow('fedora-id', fedora, 'unreachable');
+    await seedRow('legacy-id', '/zz-cleo-no-such-root/projects/app', 'unreachable');
+    const { getNexusRegistryDb } = await import('../../store/nexus-sqlite.js');
+    const { getCleoHome } = await import('../../paths.js');
+    const { projectLocations } = await import('../../store/schema/nexus-schema.js');
+    const { currentDeviceId } = await import('../path-map.js');
+    const db = await getNexusRegistryDb(getCleoHome());
+    db.insert(projectLocations)
+      .values([
+        { projectId: 'fedora-id', deviceId: 'fedora-device', path: fedora },
+        { projectId: 'gone-id', deviceId: currentDeviceId(), path: gone },
+      ])
+      .run();
+    const { cleanProjects } = await import('../projects-clean.js');
+
+    const preview = await cleanProjects({ dryRun: true, matchOrphaned: true });
+
+    expect(preview.sample).toEqual([gone]);
+    expect(preview.otherHost).toEqual([
+      {
+        projectId: 'fedora-id',
+        projectPath: fedora,
+        host: 'other-host',
+        devices: ['fedora-device'],
+      },
+      {
+        projectId: 'legacy-id',
+        projectPath: '/zz-cleo-no-such-root/projects/app',
+        host: 'foreign-root',
+        devices: [],
+      },
+    ]);
+    const { summarizeRegistryHealth } = await import('../registry.js');
+    const summary = await summarizeRegistryHealth();
+    expect(summary.otherHost).toBe(2);
+    expect(summary.unreachable).toBe(2);
   });
 });

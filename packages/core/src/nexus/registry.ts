@@ -63,6 +63,7 @@ import {
 } from './identity.js';
 import { registryAliasClaimants, resolveProjectAlias } from './legacy-alias.js';
 import {
+  currentDeviceId,
   isSupersededRegistryPath,
   recordCandidateLocation,
   recordProjectCheckout,
@@ -73,6 +74,7 @@ import {
   NexusRegistryReadError,
   toRegistryReadError,
 } from './registry-errors.js';
+import { classifyRegistryRowHost } from './registry-host.js';
 import { registryStorePath } from './registry-hygiene.js';
 
 // ── Domain types ─────────────────────────────────────────────────────
@@ -755,8 +757,17 @@ export interface NexusRegistryHealthSummary {
   total: number;
   /** Rows per recorded health status. */
   byStatus: Record<NexusHealthStatus, number>;
-  /** Rows recorded as unreachable: candidates for `projects clean --orphans`. */
+  /**
+   * Rows recorded as unreachable whose project lives on this machine (or whose
+   * host is unknown): candidates for `projects clean --orphans`.
+   */
   unreachable: number;
+  /**
+   * Rows whose project lives on another machine (T14013): recorded only on
+   * other devices, or with no record and a path root absent here. Never
+   * candidates for removal from this machine.
+   */
+  otherHost: number;
   /** The dry-run command that classifies them; present when `unreachable > 0`. */
   cleanCommand?: string;
 }
@@ -775,21 +786,37 @@ export interface NexusRegistryHealthSummary {
  */
 export async function summarizeRegistryHealth(): Promise<NexusRegistryHealthSummary> {
   const local = (await nexusList()).filter((project) => !project.remote);
+  const locations = await withLiveNexusDb(async (db) =>
+    db
+      .select({ projectId: projectLocations.projectId, deviceId: projectLocations.deviceId })
+      .from(projectLocations)
+      .all(),
+  );
+  const thisDevice = currentDeviceId();
   const byStatus: Record<NexusHealthStatus, number> = {
     unknown: 0,
     healthy: 0,
     degraded: 0,
     unreachable: 0,
   };
-  for (const project of local)
+  let unreachable = 0;
+  let otherHost = 0;
+  for (const project of local) {
     byStatus[project.healthStatus] = (byStatus[project.healthStatus] ?? 0) + 1;
+    const { host } = classifyRegistryRowHost(
+      { projectId: project.projectId, projectPath: project.path },
+      locations,
+      thisDevice,
+    );
+    if (host === 'other-host' || host === 'foreign-root') otherHost++;
+    else if (project.healthStatus === 'unreachable') unreachable++;
+  }
   return {
     total: local.length,
     byStatus,
-    unreachable: byStatus.unreachable,
-    ...(byStatus.unreachable > 0
-      ? { cleanCommand: 'cleo nexus projects clean --orphans --dry-run' }
-      : {}),
+    unreachable,
+    otherHost,
+    ...(unreachable > 0 ? { cleanCommand: 'cleo nexus projects clean --orphans --dry-run' } : {}),
   };
 }
 

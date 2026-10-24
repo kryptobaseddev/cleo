@@ -1957,6 +1957,25 @@ export interface NexusProjectsCleanResult {
    * path proves a project gone. Absent when none.
    */
   idMismatch?: NexusProjectsCleanIdMismatch[];
+  /**
+   * Matched rows that were NOT removed because the project lives on another
+   * machine (T14013): its recorded locations are all on other devices
+   * (`other-host`), or it has none and its path root does not exist here
+   * (`foreign-root`). Absent when none.
+   */
+  otherHost?: NexusProjectsCleanOtherHost[];
+}
+
+/** A registry row `nexus.projects.clean` kept because it belongs to another machine (T14013). */
+export interface NexusProjectsCleanOtherHost {
+  /** Immutable registry project ID. */
+  projectId: string;
+  /** Registered path. */
+  projectPath: string;
+  /** `other-host` (recorded on other devices only) or `foreign-root` (no record; path root absent here). */
+  host: 'other-host' | 'foreign-root';
+  /** Devices holding a recorded location (empty for `foreign-root`). */
+  devices: string[];
 }
 
 /** A registry row `nexus.projects.clean` kept because its path declares another id (T12471). */
