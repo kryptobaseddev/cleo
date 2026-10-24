@@ -2,11 +2,11 @@
  * Tests for T9976 — auto-emit memory observation on `cleo docs add`.
  *
  * Covers:
- *   - AC1: `cleo docs add` emits a structured O-doc-<slug> memory observation
- *          with payload `{slug, ownerId, type, attachmentId, addedAt, kind}`.
- *   - AC2: `cleo memory find '<slug>'` surfaced the observation; since T13946
- *          recall excludes doc-attachment rows and `memory fetch <id>` reads it.
- *   - AC3: `cleo memory verify <id>` round-trips and warns on missing attachment.
+ *   - AC1/AC2: retired by T13985 (owner decision D11180): `cleo docs add`
+ *          records the link as an `llmtxt --documents--> owner` edge and no
+ *          longer writes a "Doc attached" observation.
+ *   - AC3: `cleo memory verify <id>` round-trips a legacy doc-attachment
+ *          observation and warns on a missing attachment.
  *   - AC4: `cleo memory backfill-docs` sweeps existing attachments; since
  *          T13985 it writes the missing `llmtxt --documents--> owner` edges.
  *
@@ -69,6 +69,30 @@ async function findDocObservationBySlug(
   return row;
 }
 
+/** Seed a legacy (pre-T13985) Doc attached observation for `memory verify` round-trips. */
+async function seedLegacyDocObservation(
+  attachmentId: string,
+  slug: string,
+): Promise<{ id: string }> {
+  const { getBrainAccessor } = await import('@cleocode/core/internal');
+  const payload: DocAttachmentObservationPayload = {
+    kind: 'doc-attachment',
+    attachmentId,
+    ownerId: 'T9976',
+    addedAt: new Date().toISOString(),
+    slug,
+  };
+  const id = `O-doc-legacy-${slug}`;
+  await (await getBrainAccessor(tempDir)).addObservation({
+    id,
+    type: 'feature',
+    title: `Doc attached: ${slug}`,
+    narrative: JSON.stringify(payload),
+    sourceType: 'agent',
+  });
+  return { id };
+}
+
 /** `llmtxt --documents--> owner` edges pointing at an owner node (T13985). */
 async function documentsEdgesFor(ownerNodeId: string): Promise<Array<{ from_id: string }>> {
   const { getBrainDb, getBrainNativeDb } = await import('@cleocode/core/internal');
@@ -123,11 +147,11 @@ afterEach(async () => {
 });
 
 // ---------------------------------------------------------------------------
-// AC1 + AC2 — docs.add emits observation; memory find surfaces it
+// AC1 + AC2 — retired by T13985 (D11180): docs.add writes a documents edge
 // ---------------------------------------------------------------------------
 
-describe('T9976 — docs.add emits memory observation (AC1 + AC2)', () => {
-  it('emits a doc-attachment observation after docs.add with slug', async () => {
+describe('T9976/T13985 — docs.add records the documents link', () => {
+  it('docs.add records a documents edge and no Doc attached observation (T13985)', async () => {
     const slug = 'my-t9976-spec';
 
     const addResp = await docsHandler.mutate('add', {
@@ -138,46 +162,15 @@ describe('T9976 — docs.add emits memory observation (AC1 + AC2)', () => {
       attachedBy: 'test',
     });
     expect(addResp.success, `docs.add failed: ${JSON.stringify(addResp.error)}`).toBe(true);
-    expect((addResp.data as DocsAddResult).projection, JSON.stringify(addResp.data)).toMatchObject({
-      status: 'completed',
-    });
-    const addData = addResp.data as DocsAddResult;
+    const projection = (addResp.data as DocsAddResult).projection;
+    expect(projection, JSON.stringify(addResp.data)).toMatchObject({ status: 'completed' });
+    expect(projection?.receipt).toMatchObject({ documents: true });
 
-    // Completed projection makes its persisted observation immediately readable.
-    const foundRow = await findDocObservationBySlug(slug);
-
-    expect(
-      foundRow,
-      `expected docs.add to emit an observation containing slug '${slug}'`,
-    ).toBeDefined();
-
-    // AC1: validate structured payload in the narrative
-    expect(typeof foundRow?.narrative).toBe('string');
-    if (foundRow?.narrative) {
-      const payload = JSON.parse(foundRow.narrative) as Partial<DocAttachmentObservationPayload>;
-      expect(payload.kind).toBe('doc-attachment');
-      expect(payload.attachmentId).toBe(addData.attachmentId);
-      expect(payload.slug).toBe(slug);
-      expect(payload.ownerId).toBe('T9976');
-      expect(payload.type).toBe('spec');
-      expect(typeof payload.addedAt).toBe('string');
-    }
-
-    // AC2, revised by T13946: the doc-attachment row is an auto row, so recall
-    // (memory find) leaves it out; the attachment itself is found through
-    // `cleo docs`, and the row stays readable by id.
-    const findResp = await memoryHandler.query('find', {
-      query: slug,
-      tables: ['observations'],
-    });
-    expect(findResp.success).toBe(true);
-    const findData = findResp.data as { results?: Array<{ id: string; title: string }> };
-    expect((findData.results ?? []).some((r) => r.id === foundRow?.id)).toBe(false);
-    const fetchResp = await memoryHandler.query('fetch', { ids: [foundRow?.id ?? ''] });
-    expect(fetchResp.success).toBe(true);
-    expect((fetchResp.data as { results?: Array<{ id: string }> }).results?.[0]?.id).toBe(
-      foundRow?.id,
-    );
+    // D11180 retired T9976 AC1: the link is the edge, not an observation.
+    expect(await findDocObservationBySlug(slug)).toBeUndefined();
+    const edges = await documentsEdgesFor('task:T9976');
+    expect(edges).toHaveLength(1);
+    expect(edges[0]?.from_id).toMatch(/^llmtxt:[a-f0-9]{64}$/);
   });
 
   it('drains actual memory.find retrieval writes before fixture teardown', async () => {
@@ -235,7 +228,7 @@ describe('T9976 — docs.add emits memory observation (AC1 + AC2)', () => {
     }
   });
 
-  it('emits a doc-attachment observation for URL attachments', async () => {
+  it('writes no Doc attached observation for URL attachments (T13985)', async () => {
     const slug = 't9976-url-slug';
 
     const addResp = await docsHandler.mutate('add', {
@@ -248,21 +241,7 @@ describe('T9976 — docs.add emits memory observation (AC1 + AC2)', () => {
     expect((addResp.data as DocsAddResult).projection, JSON.stringify(addResp.data)).toMatchObject({
       status: 'completed',
     });
-    const addData = addResp.data as DocsAddResult;
-
-    const foundRow = await findDocObservationBySlug(slug);
-
-    expect(
-      foundRow,
-      `expected docs.add URL to emit an observation containing slug '${slug}'`,
-    ).toBeDefined();
-
-    if (foundRow?.narrative) {
-      const payload = JSON.parse(foundRow.narrative) as Partial<DocAttachmentObservationPayload>;
-      expect(payload.kind).toBe('doc-attachment');
-      expect(payload.attachmentId).toBe(addData.attachmentId);
-      expect(payload.slug).toBe(slug);
-    }
+    expect(await findDocObservationBySlug(slug)).toBeUndefined();
   });
 });
 
@@ -285,11 +264,12 @@ describe('T9976 — memory.verify round-trips against docs store (AC3)', () => {
       status: 'completed',
     });
 
-    // Verify the actual awaited projection, with no polling or missing-row skip.
-    const foundRow = await findDocObservationBySlug(slug);
-
-    expect(foundRow).toBeDefined();
-    if (!foundRow) throw new Error('Completed projection lacks its observation');
+    // Since T13985 docs add writes no observation; verify keeps its round-trip
+    // for the legacy Doc attached rows still in stores, so seed one.
+    const foundRow = await seedLegacyDocObservation(
+      (addResp.data as DocsAddResult).attachmentId,
+      slug,
+    );
 
     const verifyResp = await memoryHandler.mutate('verify', { id: foundRow.id });
     expect(verifyResp.success).toBe(true);
@@ -319,11 +299,7 @@ describe('T9976 — memory.verify round-trips against docs store (AC3)', () => {
       status: 'completed',
     });
     const addData = addResp.data as DocsAddResult;
-
-    const foundRow = await findDocObservationBySlug(slug);
-
-    expect(foundRow).toBeDefined();
-    if (!foundRow) throw new Error('Completed projection lacks its observation');
+    const foundRow = await seedLegacyDocObservation(addData.attachmentId, slug);
 
     // Remove the attachment so the next verify finds it missing
     const removeResp = await docsHandler.mutate('remove', {

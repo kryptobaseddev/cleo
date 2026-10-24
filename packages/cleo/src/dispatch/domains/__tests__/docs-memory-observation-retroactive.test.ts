@@ -1,10 +1,14 @@
 /**
  * Regression test for T10375 (Saga T10288 → Epic T10293 E5.5).
  *
- * Verifies that the T9976 docs->memory auto-emit fires correctly for the
- * specific class of slug shapes used during the retroactive-normalization
- * sweep performed by T10371 + T10373 — kebab-case task/ADR identifiers like
+ * Verifies that `cleo docs add` links documents correctly for the specific
+ * class of slug shapes used during the retroactive-normalization sweep
+ * performed by T10371 + T10373 — kebab-case task/ADR identifiers like
  * `t10268-saga-closeout`, `adr-085-cross-db-invariants`, and friends.
+ *
+ * T13985 (owner decision D11180) retired the "Doc attached" observation this
+ * suite used to pin: the link is now an `llmtxt:<sha> --documents--> owner`
+ * edge, and the cases assert that edge (and the absence of an observation).
  *
  * Real-world end-to-end confirmation (against the project brain.db) was
  * collected as part of this task's closeout — the test below pins the
@@ -17,9 +21,8 @@
  *   1. The slug shapes used by the T10371/T10373 normalization sweep
  *      (`t<digits>-<kebab>`, `adr-<digits>-<kebab>`) flow through the
  *      auto-emit without surprise (FTS-friendly, no escaping issues).
- *   2. The {@link DocAttachmentObservationPayload} contract is preserved
- *      end-to-end: every required field lands in `brain_observations.narrative`
- *      with the exact shape consumers depend on.
+ *   2. Each document is linked to its owner by a `documents` edge whose
+ *      `llmtxt:<sha>` node carries the slug as its label.
  *   3. Both `type='adr'` and `type='note'` (the dominant retroactive types)
  *      round-trip correctly.
  *
@@ -34,7 +37,6 @@
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import type { DocAttachmentObservationPayload } from '@cleocode/contracts';
 import type { DocsAddResult } from '@cleocode/contracts/operations/docs';
 import {
   _resetBrainWriterForTests,
@@ -161,9 +163,9 @@ const RETROACTIVE_SLUG_CASES: RetroactiveSlugCase[] = [
 // Tests
 // ---------------------------------------------------------------------------
 
-describe('T10375 — auto-emit on retroactively-normalized docs (E5.5)', () => {
+describe('T10375/T13985 — documents link for retroactively-normalized docs (E5.5)', () => {
   for (const testCase of RETROACTIVE_SLUG_CASES) {
-    it(`emits a complete doc-attachment payload for ${testCase.label}`, async () => {
+    it(`links ${testCase.label} by a documents edge, with no observation`, async () => {
       const addResp = await docsHandler.mutate('add', {
         ownerId: testCase.ownerId,
         file: fixtureFile,
@@ -175,71 +177,22 @@ describe('T10375 — auto-emit on retroactively-normalized docs (E5.5)', () => {
       expect(
         (addResp.data as DocsAddResult).projection,
         JSON.stringify(addResp.data),
-      ).toMatchObject({ status: 'completed' });
-      const addData = addResp.data as DocsAddResult;
+      ).toMatchObject({ status: 'completed', receipt: { documents: true } });
 
-      const foundRow = await findDocObservationBySlug(testCase.slug);
+      // D11180 (T13985): no "Doc attached" observation, whatever the slug shape.
+      expect(await findDocObservationBySlug(testCase.slug)).toBeUndefined();
 
-      // Auto-emit landed.
-      expect(
-        foundRow,
-        `expected docs.add to emit a doc-attachment observation for slug '${testCase.slug}'`,
-      ).toBeDefined();
-      if (!foundRow) throw new Error('Completed projection lacks its observation');
-
-      // Title shape — what `cleo memory find '<slug>'` matches on via FTS.
-      expect(foundRow.title).toBe(`Doc attached: ${testCase.slug}`);
-
-      // Narrative — full structured payload.
-      expect(typeof foundRow.narrative).toBe('string');
-      if (!foundRow.narrative) throw new Error('Completed observation lacks its payload');
-      const payload = JSON.parse(foundRow.narrative) as DocAttachmentObservationPayload;
-
-      // Every required field of the contract must be present and correct.
-      expect(payload.kind).toBe('doc-attachment');
-      expect(payload.attachmentId).toBe(addData.attachmentId);
-      expect(payload.ownerId).toBe(testCase.ownerId);
-      expect(payload.slug).toBe(testCase.slug);
-      expect(payload.type).toBe(testCase.type);
-      expect(typeof payload.addedAt).toBe('string');
-      // addedAt must be ISO 8601 — the contract calls for it and `verify`
-      // round-tripping against the docs store depends on it.
-      expect(() => new Date(payload.addedAt).toISOString()).not.toThrow();
+      const { getBrainDb, getBrainNativeDb } = await import('@cleocode/core/internal');
+      await getBrainDb();
+      const edge = getBrainNativeDb()
+        ?.prepare(
+          `SELECT e.from_id, n.label FROM brain_page_edges e
+           JOIN brain_page_nodes n ON n.id = e.from_id
+           WHERE e.to_id = ? AND e.edge_type = 'documents'`,
+        )
+        .get(`task:${testCase.ownerId}`);
+      expect(edge?.from_id).toMatch(/^llmtxt:[a-f0-9]{64}$/);
+      expect(edge?.label).toBe(testCase.slug);
     });
   }
-
-  it('payload shape stays stable across the retroactive batch (sanity check)', async () => {
-    // This is an explicit guard against silent contract-drift — if a future
-    // change drops a field from the payload, this test catches it without
-    // having to update every per-slug case above.
-    const slug = 't10999-shape-sanity-fixture';
-    const addResp = await docsHandler.mutate('add', {
-      ownerId: 'T10999',
-      file: fixtureFile,
-      slug,
-      type: 'note',
-      attachedBy: 'test-T10375',
-    });
-    expect(addResp.success).toBe(true);
-    expect((addResp.data as DocsAddResult).projection, JSON.stringify(addResp.data)).toMatchObject({
-      status: 'completed',
-    });
-
-    const foundRow = await findDocObservationBySlug(slug);
-
-    expect(foundRow).toBeDefined();
-    if (!foundRow?.narrative) throw new Error('Completed observation lacks its payload');
-    const payload = JSON.parse(foundRow.narrative) as DocAttachmentObservationPayload;
-
-    // Exact key set — extra keys are tolerated (forward-compatible) but
-    // every required key MUST be present.
-    expect(payload).toMatchObject({
-      kind: 'doc-attachment',
-      attachmentId: expect.any(String),
-      ownerId: 'T10999',
-      slug,
-      type: 'note',
-      addedAt: expect.any(String),
-    });
-  });
 });

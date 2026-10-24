@@ -524,7 +524,7 @@
     "packages/core/src/docs/import/slug.ts :: SlugCollisionLimitError": 1,
     "packages/core/src/docs/import/slug.ts :: SlugReservedError": 2,
     "packages/core/src/docs/numbering.ts :: Error": 1,
-    "packages/core/src/docs/projection.ts :: Error": 13,
+    "packages/core/src/docs/projection.ts :: Error": 12,
     "packages/core/src/docs/projection.ts :: RangeError": 1,
     "packages/core/src/docs/publish-pr.ts :: E_BRANCH_COLLISION": 2,
     "packages/core/src/docs/publish-pr.ts :: E_INVALID_TASK_ID": 1,
