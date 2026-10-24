@@ -534,6 +534,7 @@ export function cliOutput(data: unknown, opts: CliOutputOptions): void {
       // If extracted is a primitive, render directly
       if (typeof extracted !== 'object' || extracted === null) {
         process.stdout.write(String(extracted) + '\n');
+        showPushedWarningsToHumans();
         return;
       }
       // If extracted is an array, wrap it for renderGeneric
@@ -590,14 +591,7 @@ export function cliOutput(data: unknown, opts: CliOutputOptions): void {
       const footer = metaFooter(combinedMeta);
       if (footer) process.stdout.write(`${footer}\n`);
     }
-    // T13987: warnings pushed via `pushWarning` (deprecations such as
-    // `cleo conduit *` or `cleo docs supersede`) only reached JSON consumers
-    // through meta.warnings; formatSuccess never runs on this path, so drain
-    // them here and show them to the person. stderr keeps stdout clean.
-    const pushed = drainWarnings();
-    if (!ctx.quiet && pushed) {
-      for (const w of pushed) process.stderr.write(`warning: ${w.message}\n`);
-    }
+    showPushedWarningsToHumans();
     return;
   }
 
@@ -737,6 +731,23 @@ export function humanInfo(message: string): void {
   process.stderr.write(`${message}\n`);
 }
 
+/**
+ * Drain warnings pushed via `pushWarning` (deprecations and other notices) and
+ * show them to a person on stderr through {@link humanWarn}. The human paths
+ * never build an envelope, so without this the notices reached only JSON
+ * consumers through `meta.warnings`, and a failing or `--field` call showed
+ * nothing. Always drains, so a warning cannot leak into a later envelope;
+ * `--quiet` and JSON mode print nothing (humanWarn's rule).
+ *
+ * @task T13987
+ * @task T13991
+ */
+function showPushedWarningsToHumans(): void {
+  const pushed = drainWarnings();
+  if (!pushed) return;
+  for (const w of pushed) humanWarn(`warning: ${w.message}`);
+}
+
 /** Warning to stderr. Silent in --json / --quiet. Use for non-fatal chrome. */
 export function humanWarn(message: string): void {
   if (!humanEnabled()) return;
@@ -842,6 +853,7 @@ export function cliError(
     if (typeof details?.fix === 'string') {
       process.stderr.write(`Fix: ${details.fix}\n`);
     }
+    showPushedWarningsToHumans();
     return;
   }
 
