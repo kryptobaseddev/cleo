@@ -104,6 +104,18 @@ describe('main brain (global store) memory (T13720)', () => {
     expect(noRule.error?.code).toBe('E_INVALID_INPUT');
   });
 
+  it('stores a lesson whose text already exists as a plain observation (T13988)', async () => {
+    const text = 'a lesson text first observed as a plain discovery';
+    const plain = await memoryObserve({ text, type: 'discovery', scope: 'global' }, project);
+    const lesson = await memoryObserve({ text, title: 'Rule', type: 'lesson' }, project);
+    expect((lesson.data as { stored?: boolean }).stored).toBeUndefined();
+    expect((lesson.data as { id: string }).id).not.toBe((plain.data as { id: string }).id);
+    const db = await globalDb();
+    expect(db.prepare("SELECT id FROM brain_observations WHERE type = 'lesson'").all()).toEqual([
+      { id: (lesson.data as { id: string }).id },
+    ]);
+  });
+
   it('find and fetch return global entries beside project ones, tagged scope global', async () => {
     const local = await memoryObserve({ text: 'zebra notes for this project' }, project);
     expect(local.success).toBe(true);

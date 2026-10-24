@@ -280,9 +280,14 @@ export async function importMemoryFiles(
                 type: observeType(entryType),
                 sourceType: 'manual',
               });
-        // T13949: observe refuses a duplicate with E_OBSERVE_NOT_STORED; the
-        // entry is already in BRAIN, so it is skipped, not imported.
-        if (!response.success && response.error?.code === 'E_OBSERVE_NOT_STORED') {
+        // T13949: observe refuses a duplicate with E_OBSERVE_NOT_STORED; a merge
+        // means the entry is already in BRAIN, so it is skipped, not imported. A
+        // deferred or rejected write carries no real id and stays an error.
+        if (
+          !response.success &&
+          response.error?.code === 'E_OBSERVE_NOT_STORED' &&
+          response.error.details?.['gateAction'] === 'merged'
+        ) {
           importedHashes.add(hash);
           stats.skipped++;
           const existing = response.error.details?.['id'];

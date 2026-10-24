@@ -1253,20 +1253,31 @@ async function emitBrainObservation(
 
 /**
  * The existing entry id from a `cleo memory observe` that refused a duplicate
- * (`E_OBSERVE_NOT_STORED`), read from the error envelope on the failed
- * subprocess's stdout.
+ * (`E_OBSERVE_NOT_STORED` with `gateAction: 'merged'`), read from the error
+ * envelope on the failed subprocess's stdout. A deferred or rejected write
+ * carries no real id and yields `null`.
+ *
+ * @param err - The error `execFile` rejected with (its `stdout` holds the envelope).
+ * @returns The existing observation id, or `null`.
+ * @example
+ * ```ts
+ * const id = existingObservationId(err); // 'O-abc' after a duplicate
+ * ```
+ * @task T13988
  */
-function existingObservationId(err: unknown): string | null {
+export function existingObservationId(err: unknown): string | null {
   const stdout =
     typeof err === 'object' && err !== null && 'stdout' in err && typeof err.stdout === 'string'
       ? err.stdout
       : '';
   try {
     const parsed = JSON.parse(stdout) as {
-      error?: { codeName?: string; details?: { id?: unknown } };
+      error?: { codeName?: string; details?: { id?: unknown; gateAction?: unknown } };
     };
-    const id = parsed.error?.details?.id;
-    return parsed.error?.codeName === 'E_OBSERVE_NOT_STORED' && typeof id === 'string' ? id : null;
+    const details = parsed.error?.details;
+    if (parsed.error?.codeName !== 'E_OBSERVE_NOT_STORED') return null;
+    if (details?.gateAction !== 'merged') return null;
+    return typeof details.id === 'string' ? details.id : null;
   } catch {
     return null;
   }
