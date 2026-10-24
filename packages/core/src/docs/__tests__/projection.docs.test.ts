@@ -5,7 +5,10 @@ import { access, mkdir, mkdtemp, rename, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { OperationExecutionContext } from '@cleocode/contracts/jobs';
-import type { DocsProjectionSource } from '@cleocode/contracts/operations/docs';
+import {
+  DOCS_PROJECTION_RECEIPT_SCHEMA,
+  type DocsProjectionSource,
+} from '@cleocode/contracts/operations/docs';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createAttachmentStore } from '../../store/attachment-store.js';
 import { createOperationExecutionContext } from '../../store/background-ops.js';
@@ -239,6 +242,63 @@ describe('captured document projection execution', () => {
       .prepare('UPDATE main.background_jobs SET result=? WHERE id=?')
       .run(JSON.stringify(legacy), result.jobId!);
     expect(await resumeDocumentProjection(context, result.jobId!)).toEqual(legacy);
+  });
+
+  it('rejects a receipt that records neither its documents edge nor a legacy observation (T13992)', () => {
+    const base = {
+      version: 1,
+      sourceHash: 'a'.repeat(64),
+      graph: 'completed',
+      verifiedAt: '2026-10-24T00:00:00.000Z',
+      actor: 'fixture',
+    };
+    expect(DOCS_PROJECTION_RECEIPT_SCHEMA.safeParse(base).success).toBe(false);
+    expect(DOCS_PROJECTION_RECEIPT_SCHEMA.safeParse({ ...base, documents: true }).success).toBe(
+      true,
+    );
+    expect(
+      DOCS_PROJECTION_RECEIPT_SCHEMA.safeParse({ ...base, observationId: 'O-1' }).success,
+    ).toBe(true);
+  });
+
+  it('completes a job the old code left at stage observation, with its observation written (T13992)', async () => {
+    // Leave a prepared job running mid-way, as an interrupted pre-T13985 run did.
+    const native = getNativeDb(root)!;
+    native.exec(`CREATE TRIGGER hold_projection BEFORE UPDATE ON background_jobs
+      WHEN NEW.status='complete' BEGIN SELECT RAISE(ABORT, 'interrupted'); END`);
+    const result = await projectDocumentAttachment(context, source);
+    expect(result.status).toBe('failed');
+    native.exec('DROP TRIGGER hold_projection');
+    const [job] = readPending();
+    const proposal = JSON.parse(job.proposal_json) as { observation: unknown };
+    const { getBrainAccessor } = await import('../../store/memory-accessor.js');
+    await (await getBrainAccessor(root)).addObservation({
+      id: 'O-doc-interrupted',
+      type: 'feature',
+      title: 'Doc attached: interrupted',
+      narrative: JSON.stringify(proposal.observation),
+      project: context.identity.projectId,
+      sourceType: 'agent',
+    });
+    native
+      .prepare(
+        "UPDATE main.background_jobs SET checkpoint_json=?, lease_expires_at=0, status='running' WHERE id=?",
+      )
+      .run(JSON.stringify({ stage: 'observation', sourceHash: source.sha256 }), result.jobId!);
+
+    const receipt = await resumeDocumentProjection(context, result.jobId!);
+
+    expect(receipt).toMatchObject({ documents: true, graph: 'completed' });
+    expect(receipt.observationId).toBeUndefined();
+    expect(readPending()[0].status).toBe('complete');
+    const edges = native
+      .prepare("SELECT edge_type FROM brain_page_edges WHERE edge_type = 'documents'")
+      .all();
+    expect(edges).toHaveLength(1);
+    // The legacy observation is left for the auto-row quarantine, not rewritten.
+    expect(
+      native.prepare("SELECT id FROM brain_observations WHERE id = 'O-doc-interrupted'").all(),
+    ).toHaveLength(1);
   });
 
   it('preserves accepted bytes and prepared work when final receipt persistence fails, then resumes once', async () => {
