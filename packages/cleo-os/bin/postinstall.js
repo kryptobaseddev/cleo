@@ -53,7 +53,6 @@ function resolveCleoOsPaths() {
         config,
         agentDir: data,
         extensions: join(data, 'extensions'),
-        cant: join(data, 'cant'),
         auth: join(config, 'auth'),
     };
 }
@@ -203,15 +202,6 @@ function linkExtensionNodeModules(pkgRoot, extensionsDir) {
     }
 }
 // ---------------------------------------------------------------------------
-// Default CANT file scaffolding
-// ---------------------------------------------------------------------------
-// ---------------------------------------------------------------------------
-// Starter bundle deployment
-// ---------------------------------------------------------------------------
-// ---------------------------------------------------------------------------
-// Skill installation
-// ---------------------------------------------------------------------------
-// ---------------------------------------------------------------------------
 // Main
 // ---------------------------------------------------------------------------
 /**
@@ -244,9 +234,10 @@ function main() {
     // bare-specifier imports against the cleo-os dependency tree.
     linkExtensionNodeModules(pkgRoot, paths.extensions);
     // T13996 (ADR-098): the CleoOS harness is retiring. The postinstall no
-    // longer seeds .cant files (model-routing stub, starter team bundle) or
-    // runs `cleo skills install`; it only deploys the extensions `cleoos`
-    // itself needs to start.
+    // longer creates the cant/ directory, seeds .cant files (model-routing
+    // stub, starter team bundle) or runs `cleo skills install`. It still
+    // deploys the extensions the `cleoos` launcher loads, so an installed
+    // cleoos keeps starting until the package is removed.
     process.stdout.write('CleoOS: @cleocode/cleo-os is deprecated (ADR-098). Use the cleo CLI with your own harness; ' +
         'CLEO Goal drives autonomous runs.\n');
     process.stdout.write('CleoOS: postinstall complete\n');

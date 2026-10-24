@@ -11,7 +11,7 @@
  *   - T394: tsconfig files cover extensions/ and postinstall compilation
  *   - T395: XDG paths resolve to expected locations
  *   - T396: THIS FILE — the empirical gate itself
- *   - T397: postinstall.ts contains skill install logic
+ *   - T397: postinstall.ts no longer contains skill install logic (T13996)
  *   - T398: CLEAN-INSTALL.md exists with docker procedure
  *
  * NOTE: These tests do NOT start a real Pi session. They validate the
@@ -147,10 +147,11 @@ describe("T392 — postinstall.ts source", () => {
     expect(content).toContain("cleo-chatroom");
   });
 
-  it("creates model-routing.cant stub", () => {
+  it("no longer seeds a model-routing.cant stub (T13996, ADR-098)", () => {
     const src = join(PKG_ROOT, "src", "postinstall.ts");
     const content = readFileSync(src, "utf-8");
-    expect(content).toContain("model-routing.cant");
+    expect(content).not.toContain("scaffoldDefaultCant");
+    expect(content).not.toContain("deployStarterBundle");
   });
 });
 
@@ -217,27 +218,12 @@ describe("T395 — XDG path resolution", () => {
 // T397: Skill install in postinstall
 // ---------------------------------------------------------------------------
 
-describe("T397 — skill install via postinstall", () => {
-  it("postinstall.ts calls installSkills", () => {
+describe("T397 — skill install via postinstall (removed by T13996)", () => {
+  it("postinstall.ts no longer runs cleo skills install (ADR-098)", () => {
     const src = join(PKG_ROOT, "src", "postinstall.ts");
     const content = readFileSync(src, "utf-8");
-    expect(content).toContain("installSkills");
-  });
-
-  it("skill install uses execFileSync (not exec) to prevent injection", () => {
-    const src = join(PKG_ROOT, "src", "postinstall.ts");
-    const content = readFileSync(src, "utf-8");
-    expect(content).toContain("execFileSync");
-    // Must NOT use exec() with template strings
-    expect(content).not.toContain('exec(`');
-    expect(content).not.toContain("exec(`");
-  });
-
-  it("skill install invokes cleo skills install", () => {
-    const src = join(PKG_ROOT, "src", "postinstall.ts");
-    const content = readFileSync(src, "utf-8");
-    expect(content).toContain("skills");
-    expect(content).toContain("install");
+    expect(content).not.toContain("installSkills");
+    expect(content).not.toContain("execFileSync");
   });
 });
 
