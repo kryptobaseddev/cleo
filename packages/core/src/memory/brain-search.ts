@@ -8,7 +8,7 @@
  * @epic T5149
  */
 
-import type { DatabaseSync } from 'node:sqlite';
+import type { DatabaseSync, StatementSync } from 'node:sqlite';
 import { pushWarning } from '@cleocode/lafs';
 import { getBrainAccessor } from '../store/memory-accessor.js';
 import { brainFtsUpdateTriggerSql, upgradeBrainFtsUpdateTriggers } from '../store/row-identity.js';
@@ -1000,7 +1000,11 @@ export interface HybridSearchOptions {
    * @task T1058
    */
   includeCode?: boolean;
-  /** Restrict the FTS source to these tables (vector and graph hits are not filtered). */
+  /**
+   * Restrict every memory source (FTS, vector and graph) to these tables,
+   * before fusion and the limit, so a filtered search still fills its limit
+   * (T13978). Code-symbol hits are not memory rows and are unaffected.
+   */
   tables?: BrainSearchOptions['tables'];
   /** Peer isolation, applied to every source (see {@link BrainSearchOptions.peerId}). */
   peerId?: string;
@@ -1027,6 +1031,8 @@ const MEMORY_NODE_TABLES: Readonly<
  * @param type - Hit type (`decision`, `pattern`, `learning`, `observation`).
  * @param id - Row id.
  * @param peer - Optional peer clause over `brain_<table>` with its parameters.
+ * @param statements - Optional cache of prepared statements, keyed by table and
+ *   peer clause, reused across the hits of one search (T13978).
  * @returns The row's date, `''` when the type is not a memory table, or `null`.
  * @example
  * ```ts
@@ -1038,15 +1044,20 @@ export function recallEligibleDate(
   type: string,
   id: string,
   peer: { clause: string; params: string[] } = { clause: '', params: [] },
+  statements?: Map<string, StatementSync>,
 ): string | null {
   const table = MEMORY_NODE_TABLES[type];
   if (!table) return '';
-  const row = nativeDb
-    .prepare(
+  const key = `${table}\0${peer.clause}`;
+  let statement = statements?.get(key);
+  if (!statement) {
+    statement = nativeDb.prepare(
       `SELECT ${table === 'patterns' ? 'extracted_at' : 'created_at'} AS date FROM main.brain_${table}
        WHERE id = ? AND (quality_score IS NULL OR quality_score >= ?)${memoryEligibilityClause(table)}${autoRowExclusionClause(table)}${peer.clause}`,
-    )
-    .get(id, QUALITY_SCORE_THRESHOLD, ...peer.params);
+    );
+    statements?.set(key, statement);
+  }
+  const row = statement.get(id, QUALITY_SCORE_THRESHOLD, ...peer.params);
   if (!row) return null;
   return typeof row.date === 'string' ? row.date : '';
 }
@@ -1063,6 +1074,8 @@ const GRAPH_SEED_HITS = 3;
  * 2. Rank the FTS hits of all four tables as ONE list by BM25 order, recency
  *    and source (T13948, {@link rankFtsAcrossTables}) — no per-type quota.
  * 3. Expand graph neighbours of the query's own nodes and of the top FTS hits.
+ *    Only memory rows are returned: task, concept and doc nodes seed the
+ *    expansion but are never results (T13948, documented in T13978).
  * 4. Fuse all ranked lists with RRF: score = Σ 1/(rank+rrfK).
  * 5. Keep current, quality-passing, peer-visible, non-auto memory rows; return top-N.
  *
@@ -1138,12 +1151,19 @@ export async function hybridSearch(
   const ftsHits = rankFtsAcrossTables(ftsResults);
 
   // --- 3. Vector and code hits in their own rank order ---
-  const vecHits: RrfHit[] = vector.results.map((r) => ({
-    id: r.id,
-    type: r.type,
-    title: r.title,
-    text: r.text,
-  }));
+  // T13978: a table filter applies to every memory source before the limit.
+  const wanted = (type: string): boolean => {
+    const table = MEMORY_NODE_TABLES[type];
+    return !table || !options?.tables?.length || options.tables.includes(table);
+  };
+  const vecHits: RrfHit[] = vector.results
+    .filter((r) => wanted(r.type))
+    .map((r) => ({
+      id: r.id,
+      type: r.type,
+      title: r.title,
+      text: r.text,
+    }));
   const codeHits: RrfHit[] = codeResults.map((r) => ({
     id: r.id,
     type: 'code-symbol',
@@ -1171,7 +1191,9 @@ export async function hybridSearch(
       const node = await accessor.getPageNode(nodeId);
       if (!node) continue;
       for (const neighbor of await accessor.getNeighbors(nodeId)) {
-        if (!MEMORY_NODE_TABLES[neighbor.nodeType]) continue;
+        // Only memory rows: recall returns decisions, patterns, learnings and
+        // observations; task, concept and doc nodes are seeds, not results (T13948).
+        if (!MEMORY_NODE_TABLES[neighbor.nodeType] || !wanted(neighbor.nodeType)) continue;
         const id = neighbor.id.startsWith(`${neighbor.nodeType}:`)
           ? neighbor.id.slice(neighbor.nodeType.length + 1)
           : neighbor.id;
@@ -1197,6 +1219,7 @@ export async function hybridSearch(
   const nativeDb = getBrainNativeDb(projectRoot);
   if (!nativeDb) throw new Error('BRAIN database unavailable while checking retrieval eligibility');
   const results: HybridResult[] = [];
+  const statements = new Map<string, StatementSync>();
   for (const hit of fused) {
     if (results.length >= maxResults) break;
     const table = MEMORY_NODE_TABLES[hit.type];
@@ -1207,6 +1230,7 @@ export async function hybridSearch(
         hit.type,
         hit.id,
         buildPeerClause(`brain_${table}`, peerId, includeGlobal),
+        statements,
       );
       if (eligible === null) continue;
       date = eligible;
