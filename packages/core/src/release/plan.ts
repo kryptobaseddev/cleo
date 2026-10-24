@@ -76,6 +76,7 @@ import {
 } from '../store/tasks-schema.js';
 import { resolveToolCommand } from '../tasks/tool-resolver.js';
 import {
+  classifyEvidenceTask,
   type EvidenceTaskKind,
   loadVerificationGatePolicy,
   missingRequiredGates,
@@ -1867,7 +1868,13 @@ export async function releasePlan(
   // Already-done tasks are grandfathered (ADR-051 §11.1 blocks adding
   // evidence to completed tasks) — reported, never blocking.
   const { taskEvidenceKind } = await import('../tasks/evidence.js');
-  const kinds = await Promise.all(tasks.map((t) => taskEvidenceKind(t, projectRoot)));
+  // T14006: a done task is grandfathered, so its declared kind is enough; only
+  // open tasks pay for the git and GitHub search of their own work.
+  const kinds = await Promise.all(
+    tasks.map((t) =>
+      t.status === 'done' ? classifyEvidenceTask({ task: t }) : taskEvidenceKind(t, projectRoot),
+    ),
+  );
   const taskGates: ReleasePlanTaskGateState[] = tasks.map((t, i) =>
     assessTaskGateState(
       t,

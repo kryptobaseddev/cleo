@@ -1519,8 +1519,9 @@ export type TaskOwnWork = { ok: true; paths: string[] } | { ok: false; reason: s
  *
  * 1. the checked-out branch citing the task (step 2 of
  *    {@link deriveTaskChangeSet}), with its uncommitted tracked edits;
- * 2. every other local branch whose name cites the task (`task/`, `feat/`,
- *    `fix/`, …), diffed from its merge-base with origin's default branch;
+ * 2. every other local or `origin/` branch whose name cites the task
+ *    (`task/`, `feat/`, `fix/`, …), diffed from its merge-base with origin's
+ *    default branch;
  * 3. first-parent commits on origin's default branch whose subject cites the
  *    task, case-insensitively: merge commits of its branches, squash merges
  *    (`feat(T…): … (#n)`) and direct commits, each read first-parent;
@@ -1531,7 +1532,8 @@ export type TaskOwnWork = { ok: true; paths: string[] } | { ok: false; reason: s
  * It fails closed: when nothing was found but the search could not finish
  * (no origin default branch, or the GitHub lookup failed), or a commit git
  * cannot read, the answer is not ok, with the reason. A store outside git has
- * no history to search and answers no paths.
+ * no history to search and answers no paths. An answer is reused for a
+ * minute in the same process while HEAD stays put (T14006).
  *
  * @param storeRoot - CLEO store root.
  * @param taskId - Task whose work to list.
@@ -1547,7 +1549,44 @@ export async function taskOwnWorkPaths(
   deps: Pick<ChangeSetDeps, 'listMergedPrHeads'> = {},
 ): Promise<TaskOwnWork> {
   const { root, source } = resolveChangeSetRoot(storeRoot, taskId, cwd);
-  if (git(root, ['rev-parse', '--git-dir']) === null) return { ok: true, paths: [] };
+  const head = git(root, ['rev-parse', 'HEAD']);
+  if (head === null) return { ok: true, paths: [] };
+  // T14006: one search per task per checkout state, reused for a minute in
+  // this process (verify asks twice; release plan asks for every task).
+  // Injected discovery (tests) always searches afresh.
+  if (deps.listMergedPrHeads !== undefined) return searchOwnWork(root, source, taskId, deps);
+  const key = `${root}\0${taskId}\0${head}`;
+  const now = Date.now();
+  const hit = ownWorkCache.get(key);
+  if (hit && now - hit.at < OWN_WORK_TTL_MS) return hit.work;
+  const work = searchOwnWork(root, source, taskId, deps);
+  ownWorkCache.set(key, { at: now, work });
+  work.catch(() => ownWorkCache.delete(key));
+  return work;
+}
+
+/** How long {@link taskOwnWorkPaths} reuses an answer in one process (T14006). */
+const OWN_WORK_TTL_MS = 60_000;
+
+/** {@link taskOwnWorkPaths} answers by store root, task and HEAD (T14006). */
+const ownWorkCache = new Map<string, { at: number; work: Promise<TaskOwnWork> }>();
+
+/**
+ * Forget every cached {@link taskOwnWorkPaths} answer (tests).
+ *
+ * @task T14006
+ */
+export function resetTaskOwnWorkCache(): void {
+  ownWorkCache.clear();
+}
+
+/** The uncached search behind {@link taskOwnWorkPaths}. */
+async function searchOwnWork(
+  root: string,
+  source: ChangeSetRootSource,
+  taskId: string,
+  deps: Pick<ChangeSetDeps, 'listMergedPrHeads'>,
+): Promise<TaskOwnWork> {
   const cites = (text: string): boolean => citesTask(text.toUpperCase(), taskId.toUpperCase());
   const paths = new Set<string>();
   const unreadable = (what: string): TaskOwnWork => ({
@@ -1586,7 +1625,13 @@ export async function taskOwnWorkPaths(
   if (baseRef === null) {
     return incomplete(`${root} has no origin default branch to search for ${taskId}'s work`);
   }
-  const refs = git(root, ['for-each-ref', '--format=%(refname:short)', 'refs/heads']);
+  // Local branches and origin's (T14006: a pushed branch with no local copy).
+  const refs = git(root, [
+    'for-each-ref',
+    '--format=%(refname:short)',
+    'refs/heads',
+    'refs/remotes/origin',
+  ]);
   if (refs === null) return unreadable('its branches');
   for (const ref of refs.split('\n').filter(cites)) {
     const mergeBase = git(root, ['merge-base', baseRef, ref]);
