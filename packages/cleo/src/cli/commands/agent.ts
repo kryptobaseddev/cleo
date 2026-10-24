@@ -58,6 +58,7 @@ import {
 import { startWorkLoop } from '@cleocode/core/agents/work-loop.js';
 import { openCleoDb } from '@cleocode/core/store/open-cleo-db';
 import { defineCommand, showUsage } from 'citty';
+import { warnConduitDeprecated } from '../lib/conduit-deprecation.js';
 import { AGENTS_SUBDIR, CANT_AGENTS_SUBDIR, CLEO_DIR_NAME } from '../paths.js';
 import { cliError, cliOutput, humanLine, humanWarn } from '../renderers/index.js';
 import { computeProfileStatus, type ProfileValidation } from './agent-profile-status.js';
@@ -666,6 +667,7 @@ const assignCommand = defineCommand({
     },
   },
   async run({ args }) {
+    warnConduitDeprecated('agent assign');
     try {
       const { AgentRegistryAccessor, createConduit } = await import('@cleocode/core/agents');
       await openCleoDb('project');
@@ -725,6 +727,7 @@ const wakeCommand = defineCommand({
     },
   },
   async run({ args }) {
+    warnConduitDeprecated('agent wake');
     try {
       const { AgentRegistryAccessor, createConduit } = await import('@cleocode/core/agents');
       await openCleoDb('project');
@@ -863,6 +866,7 @@ const reassignCommand = defineCommand({
     },
   },
   async run({ args }) {
+    warnConduitDeprecated('agent reassign');
     try {
       const { AgentRegistryAccessor, createConduit } = await import('@cleocode/core/agents');
       await openCleoDb('project');
@@ -1740,6 +1744,7 @@ const pollCommand = defineCommand({
     },
   },
   async run({ args }) {
+    warnConduitDeprecated('agent poll');
     try {
       const { AgentRegistryAccessor, createConduit } = await import('@cleocode/core/agents');
       await openCleoDb('project');
@@ -1796,6 +1801,7 @@ const sendCommand = defineCommand({
     },
   },
   async run({ args }) {
+    warnConduitDeprecated('agent send');
     try {
       const { AgentRegistryAccessor, createConduit } = await import('@cleocode/core/agents');
       await openCleoDb('project');

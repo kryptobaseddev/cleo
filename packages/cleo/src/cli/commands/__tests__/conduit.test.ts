@@ -10,13 +10,19 @@
  * @task T469
  */
 
+import { drainWarnings } from '@cleocode/core/output';
+import type { Warning } from '@cleocode/lafs';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 // ---------------------------------------------------------------------------
 // Mock dispatchFromCli before importing the command under test
 // ---------------------------------------------------------------------------
 
-const mockDispatchFromCli = vi.fn().mockResolvedValue(undefined);
+/** Warnings pending when dispatch ran — what the real dispatch drains into meta.warnings. */
+let warningsAtDispatch: Warning[] = [];
+const mockDispatchFromCli = vi.fn().mockImplementation(async () => {
+  warningsAtDispatch = drainWarnings() ?? [];
+});
 
 vi.mock('../../../dispatch/adapters/cli.js', () => ({
   dispatchFromCli: (...args: unknown[]) => mockDispatchFromCli(...args),
@@ -272,5 +278,22 @@ describe('conduit command group (T469)', () => {
     ];
     expect(typeof params.limit).toBe('number');
     expect(params.limit).toBe(5);
+  });
+
+  // -------------------------------------------------------------------------
+  // T13982 / T13986: the deprecation warning is pending when dispatch builds
+  // the envelope, so it lands in meta.warnings.
+  // -------------------------------------------------------------------------
+
+  it('status leaves a W_DEPRECATED_COMMAND warning for the envelope (T13986)', async () => {
+    drainWarnings();
+    warningsAtDispatch = [];
+    const subs = await getSubCommands();
+    await invokeSubCommand(subs, 'status', {});
+    expect(mockDispatchFromCli).toHaveBeenCalledTimes(1);
+    expect(warningsAtDispatch.map((w) => w.code)).toContain('W_DEPRECATED_COMMAND');
+    expect(warningsAtDispatch.find((w) => w.code === 'W_DEPRECATED_COMMAND')?.message).toContain(
+      'AgentMBX',
+    );
   });
 });

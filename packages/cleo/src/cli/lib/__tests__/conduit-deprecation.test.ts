@@ -51,6 +51,12 @@ describe('warnConduitDeprecated (T13982)', () => {
     ),
     ['nexus.ts', 'conduit-scan', 'nexus conduit-scan'],
     ['graph.ts', 'conduit-scan', 'graph living conduit-scan'],
+    // T13986: agent verbs that call createConduit.
+    ...['assign', 'wake', 'reassign', 'poll', 'send'].map((v): [string, string, string] => [
+      'agent.ts',
+      v,
+      `agent ${v}`,
+    ]),
   ];
 
   it.each(verbs)('%s `%s` warns before dispatching', (file, name, label) => {
