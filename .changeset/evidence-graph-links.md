@@ -13,3 +13,10 @@ gives `task --touches_code--> commit:<sha>`, `files:` gives
 and are idempotent, so re-verifying adds nothing. They run after the
 verification is committed: a graph failure leaves the verify successful with a
 `W_EVIDENCE_GRAPH_LINK_FAILED` warning.
+
+File nodes are keyed by the path relative to the evidence repository, in POSIX
+form (`./a.ts`, `a.ts` and an absolute path inside the repo are one node); a
+path outside the repository gets no node and is named in the warning. File and
+decision links are written in one brain transaction, an existing commit node is
+never rewritten by a later verify, and a failed commit link raises the warning
+instead of being logged and counted.

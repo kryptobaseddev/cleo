@@ -1,7 +1,8 @@
 /**
  * Accepted verification evidence becomes brain graph links (T13950):
  * commits (and a PR's merge commit), files and decisions, written whatever
- * `brain.autoCapture` says, and idempotent on re-verify.
+ * `brain.autoCapture` says, and idempotent on re-verify. File nodes are keyed
+ * by repo-relative POSIX path; commit failures propagate.
  *
  * @task T13950
  */
@@ -18,6 +19,8 @@ beforeEach(async () => {
   root = await mkdtemp(join(tmpdir(), 'cleo-evidence-links-'));
   await mkdir(join(root, '.cleo'), { recursive: true });
   process.env['CLEO_DIR'] = join(root, '.cleo');
+  // The evidence repository is the temp root, whatever the test's cwd is.
+  process.env['CLEO_EVIDENCE_GIT_ROOT'] = root;
   // Automatic capture off: evidence links are written anyway.
   await writeFile(
     join(root, '.cleo', 'config.json'),
@@ -29,6 +32,7 @@ afterEach(async () => {
   const { closeBrainDb } = await import('../../store/memory-sqlite.js');
   closeBrainDb();
   delete process.env['CLEO_DIR'];
+  delete process.env['CLEO_EVIDENCE_GIT_ROOT'];
   await rm(root, { recursive: true, force: true });
 });
 
@@ -64,6 +68,7 @@ describe('linkVerifiedEvidence (T13950)', () => {
       commits: 1,
       files: 1,
       decisions: 1,
+      skipped: [],
     });
     const expected = [
       { from: 'decision:D42', to: 'task:T1', type: 'applies_to' },
@@ -89,5 +94,53 @@ describe('linkVerifiedEvidence (T13950)', () => {
     expect(await evidenceEdges()).toEqual([
       { from: 'task:T2', to: `commit:${merge}`, type: 'touches_code' },
     ]);
+  });
+
+  it('keys file nodes by repo-relative POSIX path and skips paths outside the repo', async () => {
+    const { linkVerifiedEvidence } = await import('../evidence-graph-links.js');
+    const c = 'c'.repeat(64);
+    const result = await linkVerifiedEvidence(root, 'T3', [
+      {
+        kind: 'files',
+        files: [
+          { path: './packages/core/src/x.ts', sha256: c },
+          { path: join(root, 'packages', 'core', 'src', 'x.ts'), sha256: c },
+          { path: 'packages//core/src/../src/x.ts', sha256: c },
+          { path: '/elsewhere/y.ts', sha256: c },
+          { path: '../outside.ts', sha256: c },
+        ],
+      },
+    ]);
+    expect(result.skipped).toEqual(['/elsewhere/y.ts', '../outside.ts']);
+    expect(await evidenceEdges()).toEqual([
+      { from: 'task:T3', to: 'file:packages/core/src/x.ts', type: 'touches_code' },
+    ]);
+  });
+
+  it('keeps an existing commit node when another task re-links it', async () => {
+    const { linkVerifiedEvidence } = await import('../evidence-graph-links.js');
+    const { getBrainNativeDb } = await import('../../store/memory-sqlite.js');
+    await linkVerifiedEvidence(root, 'T4', [atoms[0]!]);
+    const node = () =>
+      getBrainNativeDb(root)!
+        .prepare('SELECT label, metadata_json FROM brain_page_nodes WHERE id = ?')
+        .get(`commit:${sha}`);
+    const before = node();
+    await linkVerifiedEvidence(root, 'T5', [atoms[0]!]);
+    expect(node()).toEqual(before);
+    expect(String(before?.label)).toContain('(T4)');
+  });
+
+  it('propagates a failed commit link so the caller can warn', async () => {
+    const { linkVerifiedEvidence } = await import('../evidence-graph-links.js');
+    const { getBrainDb, getBrainNativeDb } = await import('../../store/memory-sqlite.js');
+    await getBrainDb(root);
+    getBrainNativeDb(root)!.exec(
+      "CREATE TRIGGER t_fail BEFORE INSERT ON brain_page_nodes WHEN NEW.id LIKE 'commit:%' BEGIN SELECT RAISE(ABORT, 'commit node refused'); END",
+    );
+    // Drizzle wraps the trigger's message as "Failed query: insert into ...".
+    await expect(linkVerifiedEvidence(root, 'T6', [atoms[0]!])).rejects.toThrow(
+      /insert into "brain_page_nodes"/,
+    );
   });
 });
