@@ -384,6 +384,23 @@ describe('worktrees and declared git roots (AC4)', () => {
     });
     const branchBase = git(repo, ['rev-parse', 'main']);
     expect(await boundHeadGapReason(task, [run(mine)], repo)).toBeNull();
+    // Two implemented commits: a run that saw only the first never saw the work.
+    const both = {
+      ...task,
+      verification: {
+        ...task.verification,
+        evidence: {
+          implemented: {
+            ...task.verification.evidence.implemented,
+            atoms: [
+              { kind: 'commit' as const, sha: mine },
+              { kind: 'commit' as const, sha: other },
+            ],
+          },
+        },
+      },
+    };
+    expect(await boundHeadGapReason(both, [run(mine)], repo)).not.toBeNull();
     expect(await boundHeadGapReason(task, [run(other)], repo)).toMatch(
       /never saw T909's implemented commit/,
     );

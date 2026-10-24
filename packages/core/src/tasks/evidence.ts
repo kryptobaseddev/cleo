@@ -3880,7 +3880,7 @@ export async function boundHeadGapReason(
   for (const run of runs) {
     const head = run.headSha as string;
     missing = null;
-    if (implemented.some((atom) => sawWork(head, atom))) continue;
+    if (implemented.every((atom) => sawWork(head, atom))) continue;
     const bound = `${run.kind}:${run.path} was bound at ${head.slice(0, 12)}`;
     if (missing !== null) {
       return (
