@@ -9,6 +9,7 @@
  */
 
 import type { DatabaseSync } from 'node:sqlite';
+import { pushWarning } from '@cleocode/lafs';
 import { getBrainAccessor } from '../store/memory-accessor.js';
 import { brainFtsUpdateTriggerSql, upgradeBrainFtsUpdateTriggers } from '../store/row-identity.js';
 import type {
@@ -18,10 +19,11 @@ import type {
   BrainPatternRow,
 } from '../store/schema/memory-schema.js';
 import { typedAll } from '../store/typed-query.js';
-import type { SimilarityResult } from './brain-similarity.js';
-import { searchSimilar } from './brain-similarity.js';
+import type { SimilaritySearch } from './brain-similarity.js';
+import { searchSimilarWithStatus } from './brain-similarity.js';
 import { autoRowExclusionClause, memoryEligibilityClause } from './eligibility.js';
 import { QUALITY_SCORE_THRESHOLD } from './quality-scoring.js';
+import { rankFtsAcrossTables } from './recall-ranking.js';
 
 /** Search result grouped by backing memory table. */
 export interface BrainMemorySearchResult {
@@ -860,36 +862,6 @@ export interface RrfHit {
   text: string;
 }
 
-/**
- * Round-robin interleave several independently-ranked lists.
- *
- * Takes rank 1 from every list, then rank 2 from every list, and so on, so a
- * downstream consumer that scores by array position does not systematically
- * favour whichever list happened to be concatenated first.
- *
- * @param lists - per-source lists, each already ordered best-first.
- * @returns a single list preserving each source's internal order.
- *
- * @example
- * ```ts
- * interleaveRanked([['a1', 'a2'], ['b1'], ['c1', 'c2', 'c3']]);
- * // ['a1', 'b1', 'c1', 'a2', 'c2', 'c3']
- * ```
- *
- * @task T12073
- */
-export function interleaveRanked<T>(lists: ReadonlyArray<readonly T[]>): T[] {
-  const out: T[] = [];
-  const longest = lists.reduce((max, l) => Math.max(max, l.length), 0);
-  for (let i = 0; i < longest; i++) {
-    for (const list of lists) {
-      const item = list[i];
-      if (item !== undefined) out.push(item);
-    }
-  }
-  return out;
-}
-
 /** Fused result produced by reciprocalRankFusion. */
 export interface RrfResult {
   id: string;
@@ -1009,6 +981,8 @@ export interface HybridResult {
   ftsRank?: number;
   /** Raw vector rank (0-based) for transparency — undefined if vector did not return this item. */
   vecRank?: number;
+  /** Row date (`created_at`, or `extracted_at` for patterns); undefined for code symbols. */
+  date?: string;
 }
 
 /** Options for hybridSearch. */
@@ -1026,27 +1000,50 @@ export interface HybridSearchOptions {
    * @task T1058
    */
   includeCode?: boolean;
+  /** Restrict the FTS source to these tables (vector and graph hits are not filtered). */
+  tables?: BrainSearchOptions['tables'];
+  /** Peer isolation, applied to every source (see {@link BrainSearchOptions.peerId}). */
+  peerId?: string;
+  /** Include the `global` peer pool when `peerId` is set. Default true. */
+  includeGlobal?: boolean;
 }
+
+/** Graph node types that are BRAIN memory rows, mapped to their table. */
+const MEMORY_NODE_TABLES: Readonly<
+  Record<string, 'decisions' | 'patterns' | 'learnings' | 'observations'>
+> = {
+  decision: 'decisions',
+  pattern: 'patterns',
+  learning: 'learnings',
+  observation: 'observations',
+};
+
+/** How many top FTS hits seed graph-neighbour expansion. */
+const GRAPH_SEED_HITS = 3;
 
 /**
  * Hybrid search across FTS5, vector similarity, graph neighbors, and optionally code symbols.
  * Uses Reciprocal Rank Fusion (RRF) for result combination.
  *
  * Algorithm:
- * 1. Run FTS5 search, vector similarity search, and optionally code symbol search in parallel.
- * 2. Optionally expand via graph neighbors (best-effort).
- * 3. Fuse all ranked lists with RRF: score = Σ 1/(rank+rrfK).
- * 4. Return top-N sorted by fused RRF score.
+ * 1. Run FTS5, vector similarity and optionally code symbol search in parallel.
+ * 2. Rank the FTS hits of all four tables as ONE list by BM25 order, recency
+ *    and source (T13948, {@link rankFtsAcrossTables}) — no per-type quota.
+ * 3. Expand graph neighbours of the query's own nodes and of the top FTS hits.
+ * 4. Fuse all ranked lists with RRF: score = Σ 1/(rank+rrfK).
+ * 5. Keep current, quality-passing, peer-visible, non-auto memory rows; return top-N.
  *
- * Graceful degradation: vector, graph, and code sources are silently skipped when
- * unavailable — RRF naturally handles partial source lists.
+ * An unavailable vector layer is reported as a `W_MEMORY_VECTOR_UNAVAILABLE`
+ * envelope warning naming the missing piece (T13948), never silently dropped:
+ * the owner decided on 2026-10-15 to keep vectors (O-mv9luqgk-0). Graph and
+ * code sources are best-effort.
  *
  * @param query - Search query text
  * @param projectRoot - Project root directory
- * @param options - Limit, RRF tuning, and includeCode flag for code symbol search
+ * @param options - Limit, RRF tuning, table and peer scope, and includeCode
  * @returns Array of hybrid results ranked by RRF score descending
  *
- * @task T5130 (hybrid search), T1058 (code symbol integration)
+ * @task T5130 (hybrid search), T1058 (code symbol integration), T13948 (ranking)
  */
 export async function hybridSearch(
   query: string,
@@ -1058,102 +1055,62 @@ export async function hybridSearch(
   const maxResults = options?.limit ?? 10;
   const rrfK = options?.rrfK ?? RRF_K;
   const includeCode = options?.includeCode ?? false;
+  const peerId = options?.peerId;
+  const includeGlobal = options?.includeGlobal ?? true;
 
   // --- 1. Run FTS5, vector, and code symbol search in parallel ---
-  const searches: Promise<unknown>[] = [
-    searchBrain(projectRoot, query, { limit: maxResults * 3 }),
-    searchSimilar(query, projectRoot, maxResults * 3).catch(() => [] as SimilarityResult[]),
-  ];
-
-  // Optionally search code symbols
-  let codeSearchPromise: Promise<
+  const codeSearch = async (): Promise<
     Array<{ id: string; title: string; kind: string; score: number }>
-  > | null = null;
-  if (includeCode) {
-    codeSearchPromise = (async () => {
-      try {
-        const { smartSearch } = await import('@cleocode/nexus');
-        const results = smartSearch(query, {
-          maxResults: maxResults * 2,
-          rootDir: projectRoot,
-        });
-        return results.map((r) => ({
-          id: `code:${r.symbol.filePath}:${r.symbol.name}:${r.symbol.startLine}`,
-          title: r.symbol.name,
-          kind: r.symbol.kind,
-          score: r.score,
-        }));
-      } catch {
-        return [];
-      }
-    })();
-    searches.push(codeSearchPromise);
+  > => {
+    if (!includeCode) return [];
+    try {
+      const { smartSearch } = await import('@cleocode/nexus');
+      return smartSearch(query, { maxResults: maxResults * 2, rootDir: projectRoot }).map((r) => ({
+        id: `code:${r.symbol.filePath}:${r.symbol.name}:${r.symbol.startLine}`,
+        title: r.symbol.name,
+        kind: r.symbol.kind,
+        score: r.score,
+      }));
+    } catch {
+      return [];
+    }
+  };
+  const [ftsResults, vector, codeResults] = await Promise.all([
+    searchBrain(projectRoot, query, {
+      limit: maxResults * 3,
+      tables: options?.tables,
+      peerId,
+      includeGlobal,
+    }),
+    searchSimilarWithStatus(query, projectRoot, maxResults * 3).catch(
+      (err): SimilaritySearch => ({
+        results: [],
+        unavailable: err instanceof Error ? err.message : String(err),
+      }),
+    ),
+    codeSearch(),
+  ]);
+
+  if (vector.unavailable) {
+    pushWarning({
+      // @sync-invariant none:local-only a read-path warning; nothing is written
+      code: 'W_MEMORY_VECTOR_UNAVAILABLE',
+      severity: 'warn',
+      message: `Vector search unavailable (${vector.unavailable}); results come from full-text and graph only`,
+      context: { reason: vector.unavailable },
+    });
   }
 
-  const allResults = await Promise.all(searches);
-  const ftsResults = allResults[0] as BrainMemorySearchResult;
-  const vecResults = allResults[1] as SimilarityResult[];
-  const codeResults = (includeCode ? (allResults[2] ?? []) : []) as Array<{
-    id: string;
-    title: string;
-    kind: string;
-    score: number;
-  }>;
+  // --- 2. FTS hits of all tables as one ranked list (T13948) ---
+  const ftsHits = rankFtsAcrossTables(ftsResults);
 
-  // --- 2. Project FTS results into ranked RrfHit list ---
-  //
-  // T12073: INTERLEAVE the four tables instead of concatenating them.
-  //
-  // RRF scores a hit by its POSITION in this array. Concatenating
-  // decisions → patterns → learnings → observations therefore encoded a fixed
-  // precedence that has nothing to do with relevance: every decision outranked
-  // every observation, always. With 128 decisions and 6,985 observations, the
-  // largest and most recent store was structurally the least reachable —
-  // `cleo memory find "caamp marker"` returned unrelated learnings while the
-  // ONE observation matching both terms (verified by direct MATCH) never
-  // placed.
-  //
-  // Each table is already BM25-ordered internally. Round-robin interleaving
-  // preserves that intra-table ordering while removing the inter-table bias,
-  // and avoids comparing BM25 scores across separate indexes — which is not
-  // meaningful, since each has its own corpus statistics.
-  const ftsRanked: RrfHit[][] = [
-    ftsResults.decisions.map((d) => ({
-      id: d.id,
-      type: 'decision' as const,
-      title: d.decision,
-      text: `${d.decision} — ${d.rationale}`,
-    })),
-    ftsResults.patterns.map((p) => ({
-      id: p.id,
-      type: 'pattern' as const,
-      title: p.pattern,
-      text: `${p.pattern} — ${p.context}`,
-    })),
-    ftsResults.learnings.map((l) => ({
-      id: l.id,
-      type: 'learning' as const,
-      title: l.insight,
-      text: `${l.insight} (source: ${l.source})`,
-    })),
-    ftsResults.observations.map((o) => ({
-      id: o.id,
-      type: 'observation' as const,
-      title: o.title,
-      text: o.narrative ?? o.title,
-    })),
-  ];
-  const ftsHits: RrfHit[] = interleaveRanked(ftsRanked);
-
-  // --- 3. Project vector results into ranked RrfHit list (ascending distance = descending quality) ---
-  const vecHits: RrfHit[] = vecResults.map((r) => ({
+  // --- 3. Vector and code hits in their own rank order ---
+  const vecHits: RrfHit[] = vector.results.map((r) => ({
     id: r.id,
     type: r.type,
     title: r.title,
     text: r.text,
   }));
-
-  // --- 4. Project code symbol results into RrfHit list ---
   const codeHits: RrfHit[] = codeResults.map((r) => ({
     id: r.id,
     type: 'code-symbol',
@@ -1161,31 +1118,34 @@ export async function hybridSearch(
     text: `${r.title} (${r.kind})`,
   }));
 
-  // --- 5. Build source list for RRF ---
   const rrfSources: Array<{ source: 'fts' | 'vec' | 'graph' | 'code'; hits: RrfHit[] }> = [];
   if (ftsHits.length > 0) rrfSources.push({ source: 'fts', hits: ftsHits });
   if (vecHits.length > 0) rrfSources.push({ source: 'vec', hits: vecHits });
   if (codeHits.length > 0) rrfSources.push({ source: 'code', hits: codeHits });
 
-  // --- 6. Graph neighbor expansion (best-effort) ---
+  // --- 4. Graph neighbours of the query's nodes and of the top FTS hits (best-effort) ---
   try {
     const accessor = await getBrainAccessor(projectRoot);
-    const possibleNodeIds = [
+    const seeds = [
       `concept:${query.toLowerCase().replace(/\s+/g, '-')}`,
       `task:${query}`,
       `doc:${query}`,
+      ...ftsHits.slice(0, GRAPH_SEED_HITS).map((hit) => `${hit.type}:${hit.id}`),
     ];
-
     const graphHits: RrfHit[] = [];
-    for (const nodeId of possibleNodeIds) {
+    const seen = new Set<string>();
+    for (const nodeId of seeds) {
       const node = await accessor.getPageNode(nodeId);
       if (!node) continue;
-      const neighbors = await accessor.getNeighbors(nodeId);
-      for (const neighbor of neighbors) {
+      for (const neighbor of await accessor.getNeighbors(nodeId)) {
+        if (!MEMORY_NODE_TABLES[neighbor.nodeType]) continue;
+        const id = neighbor.id.startsWith(`${neighbor.nodeType}:`)
+          ? neighbor.id.slice(neighbor.nodeType.length + 1)
+          : neighbor.id;
+        if (seen.has(id)) continue;
+        seen.add(id);
         graphHits.push({
-          id: neighbor.id.startsWith(`${neighbor.nodeType}:`)
-            ? neighbor.id.slice(neighbor.nodeType.length + 1)
-            : neighbor.id,
+          id,
           type: neighbor.nodeType,
           title: neighbor.label,
           text: neighbor.label,
@@ -1197,41 +1157,39 @@ export async function hybridSearch(
     // Graph unavailable — RRF handles gracefully with remaining sources
   }
 
-  // --- 7. Fuse with RRF and return top-N ---
+  // --- 5. Fuse with RRF; keep only rows recall may show ---
   const fused = reciprocalRankFusion(rrfSources, rrfK);
 
   const { getBrainNativeDb } = await import('../store/memory-sqlite.js');
   const nativeDb = getBrainNativeDb(projectRoot);
   if (!nativeDb) throw new Error('BRAIN database unavailable while checking retrieval eligibility');
-  const eligible = fused.filter((hit) => {
-    const table =
-      hit.type === 'decision'
-        ? 'decisions'
-        : hit.type === 'pattern'
-          ? 'patterns'
-          : hit.type === 'learning'
-            ? 'learnings'
-            : hit.type === 'observation'
-              ? 'observations'
-              : undefined;
-    if (!table) return true;
-    return (
-      nativeDb
+  const results: HybridResult[] = [];
+  for (const hit of fused) {
+    if (results.length >= maxResults) break;
+    const table = MEMORY_NODE_TABLES[hit.type];
+    let date: string | undefined;
+    if (table) {
+      const { clause, params } = buildPeerClause(`brain_${table}`, peerId, includeGlobal);
+      const row = nativeDb
         .prepare(
-          `SELECT id FROM main.brain_${table} WHERE id = ?${memoryEligibilityClause(table)}${autoRowExclusionClause(table)}`,
+          `SELECT ${table === 'patterns' ? 'extracted_at' : 'created_at'} AS date FROM main.brain_${table}
+           WHERE id = ? AND (quality_score IS NULL OR quality_score >= ?)${memoryEligibilityClause(table)}${autoRowExclusionClause(table)}${clause}`,
         )
-        .get(hit.id) !== undefined
-    );
-  });
-
-  return eligible.slice(0, maxResults).map((r) => ({
-    id: r.id,
-    score: r.rrfScore,
-    type: r.type,
-    title: r.title,
-    text: r.text,
-    sources: r.sources,
-    ftsRank: r.ftsRank,
-    vecRank: r.vecRank,
-  }));
+        .get(hit.id, QUALITY_SCORE_THRESHOLD, ...params);
+      if (!row) continue;
+      date = typeof row.date === 'string' ? row.date : '';
+    }
+    results.push({
+      id: hit.id,
+      score: hit.rrfScore,
+      type: hit.type,
+      title: hit.title,
+      text: hit.text,
+      sources: hit.sources,
+      ftsRank: hit.ftsRank,
+      vecRank: hit.vecRank,
+      ...(date !== undefined ? { date } : {}),
+    });
+  }
+  return results;
 }

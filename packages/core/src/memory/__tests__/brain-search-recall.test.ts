@@ -6,18 +6,14 @@
  *
  *   1. exact-match terms, so morphological variants were invisible; and
  *   2. a fixed table concatenation, so the largest store was structurally
- *      unreachable regardless of relevance.
+ *      unreachable regardless of relevance (now covered by
+ *      `recall-ranking.test.ts`, T13948).
  *
  * @task T12073
  */
 
 import { describe, expect, it } from 'vitest';
-import {
-  buildFts5Queries,
-  escapeFts5Query,
-  interleaveRanked,
-  matchConjunctiveFirst,
-} from '../brain-search.js';
+import { buildFts5Queries, escapeFts5Query, matchConjunctiveFirst } from '../brain-search.js';
 
 describe('buildFts5Queries (T12073)', () => {
   it('emits prefix-matching terms so morphological variants are reachable', () => {
@@ -92,50 +88,5 @@ describe('matchConjunctiveFirst (T12073)', () => {
       return [];
     }, buildFts5Queries('orphan'));
     expect(calls).toBe(1);
-  });
-});
-
-describe('interleaveRanked (T12073)', () => {
-  it('round-robins so no source is systematically last', () => {
-    expect(interleaveRanked([['a1', 'a2'], ['b1'], ['c1', 'c2', 'c3']])).toEqual([
-      'a1',
-      'b1',
-      'c1',
-      'a2',
-      'c2',
-      'c3',
-    ]);
-  });
-
-  it('preserves each source internal ordering', () => {
-    const out = interleaveRanked([
-      ['a1', 'a2', 'a3'],
-      ['b1', 'b2', 'b3'],
-    ]);
-    expect(out.filter((x) => x.startsWith('a'))).toEqual(['a1', 'a2', 'a3']);
-    expect(out.filter((x) => x.startsWith('b'))).toEqual(['b1', 'b2', 'b3']);
-  });
-
-  it('reaches the LAST source within the first round — the regression', () => {
-    // Concatenation put observations after decisions+patterns+learnings, so
-    // with those three saturating the result window an observation could never
-    // place, however relevant. With 128 decisions and ~5,000 observations that
-    // made the largest store the least reachable.
-    const decisions = Array.from({ length: 10 }, (_, i) => `D${i}`);
-    const patterns = Array.from({ length: 10 }, (_, i) => `P${i}`);
-    const learnings = Array.from({ length: 10 }, (_, i) => `L${i}`);
-    const observations = ['O-relevant'];
-
-    const concatenated = [...decisions, ...patterns, ...learnings, ...observations];
-    expect(concatenated.slice(0, 10)).not.toContain('O-relevant');
-
-    const interleaved = interleaveRanked([decisions, patterns, learnings, observations]);
-    expect(interleaved.slice(0, 10)).toContain('O-relevant');
-  });
-
-  it('handles empty and single-source inputs', () => {
-    expect(interleaveRanked([])).toEqual([]);
-    expect(interleaveRanked([[], []])).toEqual([]);
-    expect(interleaveRanked([['only']])).toEqual(['only']);
   });
 });

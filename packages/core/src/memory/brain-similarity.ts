@@ -43,14 +43,19 @@ function parseIdPrefix(id: string): 'decision' | 'pattern' | 'learning' | 'obser
 // Implementation
 // ============================================================================
 
+/** Vector search outcome: the hits, or why the vector layer could not answer. */
+export interface SimilaritySearch {
+  /** Hits ranked by distance (ascending); empty when unavailable. */
+  results: SimilarityResult[];
+  /** Set when the vector layer is unavailable, naming the missing piece (T13948). */
+  unavailable?: string;
+}
+
 /**
  * Search for entries similar to a query string using vector similarity.
  *
- * 1. Embeds the query text via the registered embedding provider.
- * 2. Runs KNN query against brain_embeddings vec0 table.
- * 3. Joins with observation/decision/pattern/learning tables for full entries.
- *
- * Returns empty array when embedding is unavailable (graceful fallback).
+ * Returns an empty array when the vector layer is unavailable; use
+ * {@link searchSimilarWithStatus} to learn why.
  *
  * @param query - Text to find similar entries for
  * @param projectRoot - Project root directory
@@ -62,15 +67,43 @@ export async function searchSimilar(
   projectRoot: string,
   limit?: number,
 ): Promise<SimilarityResult[]> {
-  if (!query?.trim()) return [];
-  if (!isEmbeddingAvailable()) return [];
+  return (await searchSimilarWithStatus(query, projectRoot, limit)).results;
+}
+
+/**
+ * Vector similarity search that reports an unavailable vector layer instead
+ * of returning a silent empty list (T13948).
+ *
+ * 1. Embeds the query text via the registered embedding provider.
+ * 2. Runs KNN query against brain_embeddings vec0 table.
+ * 3. Joins with observation/decision/pattern/learning tables for full entries.
+ *
+ * @param query - Text to find similar entries for
+ * @param projectRoot - Project root directory
+ * @param limit - Maximum results to return (default 10)
+ * @returns The hits, plus `unavailable` when no provider, vector, extension or
+ *   embedding for the active model exists, or the KNN query failed.
+ * @example
+ * ```ts
+ * const { results, unavailable } = await searchSimilarWithStatus('worktree', root, 10);
+ * ```
+ */
+export async function searchSimilarWithStatus(
+  query: string,
+  projectRoot: string,
+  limit?: number,
+): Promise<SimilaritySearch> {
+  if (!query?.trim()) return { results: [] };
+  if (!isEmbeddingAvailable()) return { results: [], unavailable: 'no embedding provider' };
 
   const maxResults = limit ?? 10;
 
   // Embed the query text; only vectors of the same model are comparable (T13740).
   const model = getEmbeddingProvider()?.model;
   const queryVector = await embedText(query);
-  if (!queryVector || !model) return [];
+  if (!queryVector || !model) {
+    return { results: [], unavailable: 'the embedding provider returned no vector' };
+  }
 
   // Ensure brain.db is initialized
   const { getBrainDb, getBrainNativeDb, isBrainVecLoaded } = await import(
@@ -78,10 +111,12 @@ export async function searchSimilar(
   );
   await getBrainDb(projectRoot);
   const nativeDb = getBrainNativeDb(projectRoot);
-  if (!nativeDb) return [];
+  if (!nativeDb) return { results: [], unavailable: 'BRAIN database unavailable' };
 
   // Require sqlite-vec for KNN queries
-  if (!isBrainVecLoaded(projectRoot)) return [];
+  if (!isBrainVecLoaded(projectRoot)) {
+    return { results: [], unavailable: 'sqlite-vec extension not loaded' };
+  }
 
   // Run KNN query against vec0 table
   let knnRows: BrainKnnRow[];
@@ -95,12 +130,17 @@ export async function searchSimilar(
       model,
       maxResults,
     );
-  } catch {
-    // vec0 query failed — table may not exist or extension not loaded
-    return [];
+  } catch (err) {
+    return {
+      results: [],
+      unavailable: `vector query failed: ${err instanceof Error ? err.message : String(err)}`,
+    };
   }
 
-  if (knnRows.length === 0) return [];
+  // KNN returns up to LIMIT rows whenever any vector of this model exists.
+  if (knnRows.length === 0) {
+    return { results: [], unavailable: `no embeddings stored for model ${model}` };
+  }
 
   // Resolve each ID to its full entry
   const accessor = await getBrainAccessor(projectRoot);
@@ -170,5 +210,5 @@ export async function searchSimilar(
     }
   }
 
-  return results;
+  return { results };
 }

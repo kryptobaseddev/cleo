@@ -26,6 +26,7 @@ import {
   isCurrentMemoryEntry,
   memoryEligibilityClause,
 } from '../eligibility.js';
+import { rankFtsAcrossTables } from '../recall-ranking.js';
 import { scheduleRetrievalTelemetry } from './telemetry.js';
 
 // Re-export budget types so callers that import from brain-retrieval.ts keep working.
@@ -255,36 +256,15 @@ async function searchBrainCompactCurrent(
     !includeHistory &&
     ((useRRF && !agentFilter && mode !== 'lexical') || (mode === 'hybrid' && !agentFilter))
   ) {
-    // Run FTS (for dates + table-level data) and RRF fusion in parallel.
-    // FTS gives us row-level dates; RRF gives us the fused ranking order.
-    const [ftsResult, rrfResults] = await Promise.all([
-      searchBrain(projectRoot, query, {
-        limit: effectiveLimit * 3,
-        tables,
-        peerId,
-        includeGlobal,
-      }),
-      hybridSearch(query, projectRoot, { limit: effectiveLimit * 2 }),
-    ]);
-
-    // Build a date map from FTS rows (id -> date string)
-    const dateMap = new Map<string, string>();
-    for (const d of ftsResult.decisions) {
-      const raw = d as Record<string, unknown>;
-      dateMap.set(d.id, (d.createdAt ?? (raw['created_at'] as string)) || '');
-    }
-    for (const p of ftsResult.patterns) {
-      const raw = p as Record<string, unknown>;
-      dateMap.set(p.id, (p.extractedAt ?? (raw['extracted_at'] as string)) || '');
-    }
-    for (const l of ftsResult.learnings) {
-      const raw = l as Record<string, unknown>;
-      dateMap.set(l.id, (l.createdAt ?? (raw['created_at'] as string)) || '');
-    }
-    for (const o of ftsResult.observations) {
-      const raw = o as Record<string, unknown>;
-      dateMap.set(o.id, (o.createdAt ?? (raw['created_at'] as string)) || '');
-    }
+    // One fused list (T13948): FTS of all tables ranked together by recency and
+    // source, plus vector and graph hits. hybridSearch applies quality, peer,
+    // lifecycle and auto-row gating to every source and returns row dates.
+    const rrfResults = await hybridSearch(query, projectRoot, {
+      limit: effectiveLimit * 2,
+      tables,
+      peerId,
+      includeGlobal,
+    });
 
     // Apply table filter when specified (map singular type names to plural table names)
     const singularToTable: Record<string, string> = {
@@ -314,16 +294,13 @@ async function searchBrainCompactCurrent(
           id: r.id,
           type: r.type as 'decision' | 'pattern' | 'learning' | 'observation',
           title: r.title.slice(0, 80),
-          date: dateMap.get(r.id) ?? '',
+          date: r.date ?? '',
           relevance,
           rrfScore,
           bm25Score,
         };
       })
-      .filter((r) => {
-        // Only include items that the FTS scan returned (ensures quality gating is respected)
-        return dateMap.has(r.id);
-      });
+      .filter((r) => r.type in singularToTable);
 
     if (tables && tables.length > 0) {
       results = results.filter((r) =>
@@ -371,63 +348,27 @@ async function searchBrainCompactCurrent(
     includeHistory,
   });
 
-  // Project full results to compact format.
-  // Note: searchBrain() returns rows from raw SQL (nativeDb) which use
-  // snake_case column names, but the TypeScript types are camelCase.
-  // We handle both naming conventions for robustness.
-  let results: BrainCompactHit[] = [];
-
-  if (!agentFilter) {
-    for (const d of searchResult.decisions) {
-      const raw = d as Record<string, unknown>;
-      results.push({
-        id: d.id,
-        type: 'decision',
-        title: d.decision.slice(0, 80),
-        date: (d.createdAt ?? (raw['created_at'] as string)) || '',
-      });
-    }
-
-    for (const p of searchResult.patterns) {
-      const raw = p as Record<string, unknown>;
-      results.push({
-        id: p.id,
-        type: 'pattern',
-        title: p.pattern.slice(0, 80),
-        date: (p.extractedAt ?? (raw['extracted_at'] as string)) || '',
-      });
-    }
-
-    for (const l of searchResult.learnings) {
-      const raw = l as Record<string, unknown>;
-      results.push({
-        id: l.id,
-        type: 'learning',
-        title: l.insight.slice(0, 80),
-        date: (l.createdAt ?? (raw['created_at'] as string)) || '',
-      });
-    }
+  // T418: the agent filter applies to observations only.
+  if (agentFilter) {
+    searchResult.observations = searchResult.observations.filter(
+      (o) => (o.agent ?? null) === agent,
+    );
   }
 
-  for (const o of searchResult.observations) {
-    const raw = o as Record<string, unknown>;
-    // T418: apply agent post-filter when specified
-    if (agentFilter) {
-      const rowAgent = o.agent ?? (raw['agent'] as string | null) ?? null;
-      if (rowAgent !== agent) continue;
-    }
-    results.push({
-      id: o.id,
-      type: 'observation',
-      title: o.title.slice(0, 80),
-      date: (o.createdAt ?? (raw['created_at'] as string)) || '',
-    });
-  }
+  // One list across tables, ranked by BM25 order, recency and source (T13948).
+  let results: BrainCompactHit[] = rankFtsAcrossTables(searchResult).map((hit) => ({
+    id: hit.id,
+    type: hit.type as BrainCompactHit['type'],
+    title: hit.title.slice(0, 80),
+    date: hit.date,
+  }));
 
   // Apply date filters client-side if provided (T1900: since also applied here)
   if (since) results = results.filter((r) => r.date >= since);
   if (dateStart) results = results.filter((r) => r.date >= dateStart);
   if (dateEnd) results = results.filter((r) => r.date <= dateEnd);
+
+  results = results.slice(0, effectiveLimit);
 
   // Enrich each hit with _next progressive disclosure directives
   for (const hit of results) {
