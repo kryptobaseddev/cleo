@@ -23,6 +23,7 @@ import {
   isCleoConfigOnlyChange,
   isNonCodeOnlyChange,
   isNonCodePath,
+  scopedChangedPaths,
 } from '../affected-packages.js';
 import {
   hasTreeBoundQaRun,
@@ -1023,15 +1024,36 @@ describe('T13778-T13781: CLEO config composes with a targeted run (VidaPeps T215
     expect(changedPathsSinceDefault(root)).toContain('packages/a/src/new.ts');
   });
 
-  it('red (review of #2302): an untracked file under an undeclared dot-directory is the change', async () => {
-    // A new workflow left untracked at verify would join the tree with the same
-    // hash once committed, so it must be judged now.
+  it('red (review of #2302, T14000): an untracked file set aside at verify is refused at complete once committed', async () => {
+    // A new workflow left untracked at verify joins the tree with the same hash
+    // once committed. It is outside the change's directories, so the binding
+    // sets it aside (a shared checkout's stray file never refuses the run) and
+    // records it; the superseded check refuses the run once it is tracked.
     put('.github/workflows/new.yml', 'on: push\n');
     expect(changedPathsSinceDefault(root)).toContain('.github/workflows/new.yml');
-    const r = await validateAtom({ kind: 'test-run', path: report([PARITY]) }, root);
-    expect(!r.ok && r.reason, JSON.stringify(r)).toMatch(
-      /workspace-wide.*\.github\/workflows\/new\.yml/,
+    const run = await atom({ kind: 'test-run', path: report([PARITY]) });
+    expect(run).toMatchObject({ untrackedSetAside: ['.github/workflows/new.yml'] });
+    const probe = {
+      mergeState: () => 'unmerged' as const,
+      currentTree: () => captureTreeHash(root),
+      root: () => root,
+    };
+    expect(await testsPassedSupersededReason([run], probe)).toBeNull();
+    git(root, ['add', '.github/workflows/new.yml']);
+    git(root, ['commit', '-q', '-m', 'T1: and a workflow']);
+    expect(await testsPassedSupersededReason([run], probe)).toMatch(
+      /\.github\/workflows\/new\.yml was untracked and outside the change.*now tracked/,
     );
+  });
+
+  it('T14000: an untracked file inside a directory the change touches still counts at verify', async () => {
+    put('scripts/src/new-helper.test.ts', 'export {};\n');
+    expect(scopedChangedPaths(root, { narrowUntracked: true })).toMatchObject({
+      paths: expect.arrayContaining(['scripts/src/new-helper.test.ts']),
+      untrackedSetAside: [],
+    });
+    const r = await validateAtom({ kind: 'test-run', path: report([PARITY]) }, root);
+    expect(!r.ok && r.reason, JSON.stringify(r)).toMatch(/scripts\/src\/new-helper\.test\.ts/);
   });
 
   describe('T13781: after the merge, config-schema judges the task\u2019s own merged change', () => {

@@ -968,6 +968,7 @@ export async function deriveTaskEvidence(
       // T12965 review M2: the change-set root, as `cleo complete` and the
       // `test-run:` binding compute it.
       currentTree: () => captureTreeHash(root),
+      root: () => root,
     },
   );
   const superseded = supersededReason !== null;
@@ -976,7 +977,7 @@ export async function deriveTaskEvidence(
   // merge, only when it carries or was recorded on main after the merge.
   const qaSupersededReason = await qaPassedSupersededReason(
     task.verification?.evidence?.qaPassed?.atoms ?? [],
-    { mergeState: mergeInfo, currentTree: () => captureTreeHash(root) },
+    { mergeState: mergeInfo, currentTree: () => captureTreeHash(root), root: () => root },
   );
   if (qaSupersededReason) changeSet.warnings.push(qaSupersededReason);
   const passed = (gate: VerificationGate): boolean =>

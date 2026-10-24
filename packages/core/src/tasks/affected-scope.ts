@@ -23,6 +23,7 @@ import { execFileSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import type { ChangeSetMergeState, EvidenceAtom, TaskChangeSet } from '@cleocode/contracts';
+import { discoveryEnv } from '../git/work-tree.js';
 import { cleoConfigSchemaFor } from './affected-packages.js';
 import type {
   ChangeSetDeps,
@@ -474,6 +475,56 @@ export function hasTreeBoundQaRun(atoms: ReadonlyArray<EvidenceAtom>): boolean {
 }
 
 /**
+ * Why a test-run or qa-run no longer stands because a file it set aside as
+ * untracked and outside the change is now tracked (T14000), or null. The tree
+ * hash includes untracked files, so committing one moves nothing the tree
+ * check sees: without this, a run that never covered the file would carry it
+ * (the review of #2302 hazard). Fails open to null when git cannot answer,
+ * because the tree check still applies.
+ *
+ * @param atoms - Recorded gate atoms.
+ * @param root - The bound checkout, lazily; null result when absent.
+ * @returns The reason, or null.
+ * @task T14000
+ */
+export function setAsideJoinedReason(
+  atoms: ReadonlyArray<EvidenceAtom>,
+  root: (() => string) | undefined,
+): string | null {
+  const runs = atoms.filter(
+    (a): a is Extract<EvidenceAtom, { kind: 'test-run' | 'qa-run' }> =>
+      (a.kind === 'test-run' || a.kind === 'qa-run') && (a.untrackedSetAside?.length ?? 0) > 0,
+  );
+  if (runs.length === 0 || root === undefined) return null;
+  const cwd = root();
+  for (const run of runs) {
+    const paths = run.untrackedSetAside ?? [];
+    let tracked: string[];
+    try {
+      tracked = execFileSync('git', ['ls-files', '--', ...paths], {
+        cwd,
+        encoding: 'utf-8',
+        env: discoveryEnv(),
+        stdio: ['ignore', 'pipe', 'ignore'],
+      })
+        .split('\n')
+        .filter(Boolean);
+    } catch {
+      continue;
+    }
+    if (tracked.length > 0) {
+      const named = `${tracked.slice(0, 5).join(', ')}${tracked.length > 5 ? ', …' : ''}`;
+      return (
+        `${run.kind}:${run.path} was recorded while ${named} ${tracked.length === 1 ? 'was' : 'were'} ` +
+        'untracked and outside the change, so the run never judged it; it is now tracked. ' +
+        'Re-run and record a fresh result.'
+      );
+    }
+  }
+  return null;
+}
+
+/**
  * The one rule for whether a recorded `qaPassed` still stands — shared by
  * `cleo done` planning and `cleo complete`, like
  * {@link testsPassedSupersededReason}. A moved tree under a qa-run receipt
@@ -496,6 +547,8 @@ export async function qaPassedSupersededReason(
   atoms: ReadonlyArray<EvidenceAtom>,
   probe: Parameters<typeof testsPassedSupersededReason>[1],
 ): Promise<string | null> {
+  const joined = setAsideJoinedReason(atoms, probe.root);
+  if (joined) return joined;
   // T13758: CLEO's schema check of changed CLEO config holds for its tree alone.
   if (atoms.some(isTreePinnedTool)) {
     const pinned = treePinnedToolReason(atoms, await probe.currentTree(), 'qaPassed');
@@ -575,8 +628,16 @@ export async function testsPassedSupersededReason(
      * stand-in, T13673); defaults to `isLandedOnOriginDefault`.
      */
     landed?: (root: string, sha: string) => boolean;
+    /**
+     * The bound checkout, for the set-aside check (T14000): a run recorded
+     * while a file was untracked and outside the change stops standing once
+     * that file is tracked. Skipped when absent.
+     */
+    root?: () => string;
   },
 ): Promise<string | null> {
+  const joined = setAsideJoinedReason(atoms, probe.root);
+  if (joined) return joined;
   if (hasTreeBoundTestRun(atoms)) {
     const current = await probe.currentTree();
     const unscoped = testRunTreeMismatchReason(atoms, current);

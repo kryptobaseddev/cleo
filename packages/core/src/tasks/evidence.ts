@@ -2072,6 +2072,7 @@ async function validateTestRun(
   let runHeadSha: string | undefined;
   let configPaths: string[] = [];
   let typecheckDirs: string[] = [];
+  let untrackedSetAside: string[] = [];
   if (identity) {
     const binding = bindTestRunReport(parsed, abs, bindRoot, testFiles);
     if (!binding.ok) return { ok: false, reason: binding.reason, codeName: binding.codeName };
@@ -2079,6 +2080,7 @@ async function validateTestRun(
     runHeadSha = binding.runHeadSha;
     configPaths = binding.configPaths ?? [];
     typecheckDirs = binding.typecheckDirs ?? [];
+    untrackedSetAside = binding.untrackedSetAside ?? [];
   }
   return {
     ok: true,
@@ -2107,6 +2109,7 @@ async function validateTestRun(
       ...(capture.runtimeExcluded.length > 0
         ? { runtimeExcluded: [...capture.runtimeExcluded] }
         : {}),
+      ...(untrackedSetAside.length > 0 ? { untrackedSetAside } : {}),
     },
   };
 }
@@ -2174,6 +2177,7 @@ async function validateQaRun(
     uncoveredPackages: string[];
     nonCodeChange?: boolean;
     configPaths?: string[];
+    untrackedSetAside?: string[];
   } | null = null;
   if (treeHash && headSha) {
     const binding = bindQaRunReceipt(receipt, abs, bindRoot);
@@ -2203,6 +2207,7 @@ async function validateQaRun(
         : {}),
       ...(gaps?.nonCodeChange ? { nonCodeChange: true } : {}),
       ...(gaps?.configPaths ? { configPaths: gaps.configPaths } : {}),
+      ...(gaps?.untrackedSetAside ? { untrackedSetAside: gaps.untrackedSetAside } : {}),
     },
   };
 }

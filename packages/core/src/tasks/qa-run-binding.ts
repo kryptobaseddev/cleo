@@ -226,6 +226,8 @@ export type QaRunBinding =
       nonCodeChange?: boolean;
       /** Changed CLEO config left to `tool:config-schema` (T13778). */
       configPaths?: string[];
+      /** Untracked files outside the change, set aside at bind time (T14000). */
+      untrackedSetAside?: string[];
     };
 
 /** Up to five items, then a count. */
@@ -268,9 +270,14 @@ export function bindQaRunReceipt(
     );
   }
   const changed = changes?.paths ?? [];
+  const setAside =
+    changes !== null && changes.untrackedSetAside.length > 0
+      ? { untrackedSetAside: changes.untrackedSetAside }
+      : {};
   if (!fresh.judged || changed.length === 0)
-    return { ok: true, uncovered: [], uncoveredPackages: [] };
-  return qaRunCoverage(receipt.kind, receipt.roots, root, changed);
+    return { ok: true, uncovered: [], uncoveredPackages: [], ...setAside };
+  const coverage = qaRunCoverage(receipt.kind, receipt.roots, root, changed);
+  return coverage.ok ? { ...coverage, ...setAside } : coverage;
 }
 
 /**

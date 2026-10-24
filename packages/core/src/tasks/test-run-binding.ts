@@ -497,6 +497,8 @@ export type TestRunBinding =
       configPaths?: string[];
       /** Dependents of a declared generated package left to a typecheck (T13783). */
       typecheckDirs?: string[];
+      /** Untracked files outside the change, set aside at bind time (T14000). */
+      untrackedSetAside?: string[];
     };
 
 /** What the freshness check of a report or receipt decided. */
@@ -581,7 +583,9 @@ export function reportFreshness(
       );
     }
   }
-  const changes = scopedChangedPaths(root);
+  // T14000: untracked files outside the change's directories are set aside
+  // (and recorded by the binding), never judged as this change.
+  const changes = scopedChangedPaths(root, { narrowUntracked: true });
   const newest = modifiedAfterRun(
     root,
     (changes?.paths ?? dirtyTracked(root)).filter((p) => p !== clock.reportRel),
@@ -642,9 +646,14 @@ export function bindTestRunReport(
         'so a test-run report cannot speak for it. Record tool:test, or ci:<pr> once the PR merges.',
     );
   }
-  if (changed === null || changed.length === 0) return { ok: true, untestedPackages: [], ...run };
+  const setAside =
+    changes !== null && changes.untrackedSetAside.length > 0
+      ? { untrackedSetAside: changes.untrackedSetAside }
+      : {};
+  if (changed === null || changed.length === 0)
+    return { ok: true, untestedPackages: [], ...run, ...setAside };
   const covered = testRunCoversChange(root, changed, testFiles);
-  return covered.ok ? { ...covered, ...run } : covered;
+  return covered.ok ? { ...covered, ...run, ...setAside } : covered;
 }
 
 /**
