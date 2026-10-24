@@ -586,7 +586,15 @@ function inspectProvider(
       : { ...base, state: 'disabled', detail: 'resources.heavyCommandHook is off' };
   }
   if (presence.kind === 'present') {
-    if (!presence.current) {
+    // A project's own (committed) .codex/hooks.json is the team's: CLEO never
+    // writes its Stop entry there either, so a missing or stale companion is
+    // not CLEO's to flag (--fix would refuse it); the shared-config checks
+    // below still apply.
+    const companionOnly =
+      presence.stale !== undefined &&
+      provider === 'codex' &&
+      codexHooksSharedReason(projectDir, gitChecks) !== null;
+    if (!presence.current && !companionOnly) {
       return {
         ...base,
         state: 'outdated',
@@ -594,11 +602,7 @@ function inspectProvider(
           presence.stale !== undefined
             ? `the hook in ${target} is current, but ${presence.stale}`
             : `the hook in ${target} (or a legacy location) was written by another CLEO build`,
-        // A committed .codex/hooks.json is the team's: --fix refuses it (needs-consent).
-        remedy:
-          provider === 'codex' && codexHooksSharedReason(projectDir, gitChecks) !== null
-            ? `${target} is the project's own config, so --fix does not write it; replace CLEO's Stop entry there by hand with: ${JSON.stringify({ hooks: [stopDispatchHookObject('codex')] })}`
-            : `run: ${HEAVY_HOOK_FIX_COMMAND}`,
+        remedy: `run: ${HEAVY_HOOK_FIX_COMMAND}`,
       };
     }
     if (!gitChecks) return { ...base, state: 'installed', detail: `installed in ${target}` };

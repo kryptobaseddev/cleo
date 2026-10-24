@@ -97,9 +97,15 @@ describe('a turn end keeps the bound session (T13962)', () => {
     expect((await requireBoundSession('test', project))?.id).toBe(id);
     const added = await addTask(
       {
-        title: 'Task created after two turn ends',
+        // A fresh project's first task must be a root saga (T11811).
+        type: 'saga',
+        title: 'Saga created after two turn ends',
         description: 'Proves the bound session survived two Stop hooks (T13962).',
-        acceptance: ['AC1: created without a session resume'],
+        acceptance: [
+          'AC1: created without a session resume',
+          'AC2: the session is still active',
+          'AC3: the terminal binding still resolves',
+        ],
       },
       project,
     );
