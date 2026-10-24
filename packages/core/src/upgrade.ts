@@ -1276,20 +1276,8 @@ export async function runUpgrade(
       });
     }
 
-    // Ensure the global CleoOS Hub exists (idempotent)
-    try {
-      const { ensureCleoOsHub } = await import('./scaffold.js');
-      const hubResult = await ensureCleoOsHub();
-      if (hubResult.action === 'created') {
-        actions.push({
-          action: 'cleoos_hub',
-          status: 'applied',
-          details: hubResult.details ?? 'CleoOS hub scaffolded',
-        });
-      }
-    } catch {
-      /* best-effort */
-    }
+    // T13994 (ADR-098): upgrade no longer seeds the CleoOS hub; the Pi/CleoOS
+    // harness is retiring (`cleo admin scaffold-hub` still seeds it).
   } else {
     // Dry-run reporting for new steps
     const { existsSync: fsExistsSync } = await import('node:fs');

@@ -81,7 +81,6 @@ import { captureProjectScope } from './project-scope.js';
 import {
   ensureBrainDb,
   ensureCleoGitRepo,
-  ensureCleoOsHub,
   ensureCleoStructure,
   ensureConfig,
   ensureGitignore,
@@ -1960,7 +1959,7 @@ async function scaffoldInitTarget(
   }
 
   // ────────────────────────────────────────────────────────────────────
-  // Phase 5 — Finalize classification report + CleoOS hub bootstrap
+  // Phase 5 — Finalize classification report
   // (Classification already ran at the TOP of init, before file creation)
   // ────────────────────────────────────────────────────────────────────
   if (classification) {
@@ -1969,17 +1968,9 @@ async function scaffoldInitTarget(
     );
   }
 
-  // Ensure the CleoOS Hub exists globally (idempotent — only writes once)
-  try {
-    const hubResult = await ensureCleoOsHub();
-    if (hubResult.action === 'created') {
-      created.push(`cleoos-hub: ${hubResult.details ?? 'scaffolded'}`);
-    }
-  } catch (err) {
-    warnings.push(
-      `CleoOS hub scaffold failed: ${err instanceof Error ? err.message : String(err)}`,
-    );
-  }
+  // T13994 (ADR-098): init no longer scaffolds the CleoOS hub
+  // (pi-extensions/, cant-workflows/, global-recipes/). The Pi/CleoOS harness
+  // is retiring; `cleo admin scaffold-hub` still creates it on request.
 
   // E8 (T11734): seed the models_catalog SSoT from the shipped OFFLINE seed
   // (`curated-catalog.json`). Idempotent + version-skipped — no network. Catalog

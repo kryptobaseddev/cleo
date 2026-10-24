@@ -268,7 +268,12 @@ export async function ensureCleoOsHub(): Promise<ScaffoldResult> {
 }
 
 /**
- * Perform a complete global scaffold operation: home + templates + CleoOS hub.
+ * Perform a complete global scaffold operation: home + templates.
+ *
+ * The CleoOS hub is no longer seeded here (T13994, ADR-098: the Pi/CleoOS
+ * harness is retiring). `cleoosHub` stays in the result for compatibility
+ * and always reports `skipped`; `cleo admin scaffold-hub` still seeds it on
+ * request.
  *
  * @returns Combined scaffold results
  */
@@ -279,7 +284,12 @@ export async function ensureGlobalScaffold(): Promise<{
 }> {
   const home = await ensureGlobalHome();
   const templates = await ensureGlobalTemplates();
-  const cleoosHub = await ensureCleoOsHub();
+  const cleoosHub: ScaffoldResult = {
+    action: 'skipped',
+    path: getCleoGlobalRecipesDir(),
+    details:
+      'CleoOS hub is no longer seeded automatically (ADR-098); run `cleo admin scaffold-hub` to seed it',
+  };
 
   return { home, templates, cleoosHub };
 }
