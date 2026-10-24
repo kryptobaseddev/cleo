@@ -928,6 +928,13 @@ export interface ScopedChangedPaths {
 }
 
 /**
+ * The most untracked files a binding sets aside (T14000, review of #2426).
+ * Above it the run is not narrowed: every untracked file counts, as before,
+ * so an atom never carries thousands of paths.
+ */
+export const MAX_UNTRACKED_SET_ASIDE = 500;
+
+/**
  * Whether an untracked path lies in a directory the tracked change touches
  * (T14000): under the directory of a changed path, or at the root next to a
  * changed root-level path.
@@ -964,7 +971,8 @@ function nearTrackedChange(path: string, dirs: ReadonlySet<string>): boolean {
  * untracked file counts only when it lies in a directory the tracked change
  * touches ({@link nearTrackedChange}); the rest is returned as
  * `untrackedSetAside`, so a shared dirty checkout cannot refuse a run the
- * plan asked for, and the binding records what it left out.
+ * plan asked for, and the binding records what it left out. More than
+ * {@link MAX_UNTRACKED_SET_ASIDE} such files are not set aside at all.
  *
  * @param root - Execution root.
  * @param opts - `narrowUntracked` for the bindings (T14000).
@@ -1021,6 +1029,11 @@ export function scopedChangedPaths(
       continue;
     }
     paths.add(path);
+  }
+  // Too many to record: judge them all, as an un-narrowed run does.
+  if (setAside.size > MAX_UNTRACKED_SET_ASIDE) {
+    for (const path of setAside) paths.add(path);
+    setAside.clear();
   }
   return {
     paths: [...paths].sort(),

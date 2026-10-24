@@ -16,3 +16,10 @@ The tree hash includes untracked files, so committing one moves nothing the
 tree check sees. `cleo complete` and `cleo done --plan` (the superseded check)
 now refuse the run as stale once any set-aside file is tracked. This keeps
 the review-of-#2302 guarantee.
+
+The check reads the tracked file list once and compares names literally, so
+a SvelteKit path like `routes/[id]/+page.svelte` matches only itself, and
+the list never goes through argv. It fails closed: when git cannot list
+tracked files, the run is refused as stale. A run never sets aside more than
+500 files. Above that count, every untracked file is judged, as it was
+before this change.

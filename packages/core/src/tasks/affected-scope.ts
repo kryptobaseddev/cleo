@@ -479,8 +479,12 @@ export function hasTreeBoundQaRun(atoms: ReadonlyArray<EvidenceAtom>): boolean {
  * untracked and outside the change is now tracked (T14000), or null. The tree
  * hash includes untracked files, so committing one moves nothing the tree
  * check sees: without this, a run that never covered the file would carry it
- * (the review of #2302 hazard). Fails open to null when git cannot answer,
- * because the tree check still applies.
+ * (the review of #2302 hazard).
+ *
+ * The tracked list is read once (`git ls-files -z`, no pathspecs, so no argv
+ * limit and no glob matching of names like `routes/[id]/+page.svelte`) and
+ * compared literally. It fails closed: when git cannot answer, the run is
+ * refused as stale.
  *
  * @param atoms - Recorded gate atoms.
  * @param root - The bound checkout, lazily; null result when absent.
@@ -495,27 +499,34 @@ export function setAsideJoinedReason(
     (a): a is Extract<EvidenceAtom, { kind: 'test-run' | 'qa-run' }> =>
       (a.kind === 'test-run' || a.kind === 'qa-run') && (a.untrackedSetAside?.length ?? 0) > 0,
   );
-  if (runs.length === 0 || root === undefined) return null;
+  const first = runs[0];
+  if (first === undefined || root === undefined) return null;
   const cwd = root();
-  for (const run of runs) {
-    const paths = run.untrackedSetAside ?? [];
-    let tracked: string[];
-    try {
-      tracked = execFileSync('git', ['ls-files', '--', ...paths], {
+  let tracked: Set<string>;
+  try {
+    tracked = new Set(
+      execFileSync('git', ['-c', 'core.quotePath=false', 'ls-files', '-z'], {
         cwd,
         encoding: 'utf-8',
         env: discoveryEnv(),
         stdio: ['ignore', 'pipe', 'ignore'],
+        maxBuffer: 256 * 1024 * 1024,
       })
-        .split('\n')
-        .filter(Boolean);
-    } catch {
-      continue;
-    }
-    if (tracked.length > 0) {
-      const named = `${tracked.slice(0, 5).join(', ')}${tracked.length > 5 ? ', …' : ''}`;
+        .split('\0')
+        .filter(Boolean),
+    );
+  } catch {
+    return (
+      `${first.kind}:${first.path} set untracked files aside, and git cannot list the tracked ` +
+      `files in ${cwd} to check whether one was since committed. Re-run and record a fresh result.`
+    );
+  }
+  for (const run of runs) {
+    const joined = (run.untrackedSetAside ?? []).filter((path) => tracked.has(path));
+    if (joined.length > 0) {
+      const named = `${joined.slice(0, 5).join(', ')}${joined.length > 5 ? ', …' : ''}`;
       return (
-        `${run.kind}:${run.path} was recorded while ${named} ${tracked.length === 1 ? 'was' : 'were'} ` +
+        `${run.kind}:${run.path} was recorded while ${named} ${joined.length === 1 ? 'was' : 'were'} ` +
         'untracked and outside the change, so the run never judged it; it is now tracked. ' +
         'Re-run and record a fresh result.'
       );

@@ -23,6 +23,7 @@ import {
   isCleoConfigOnlyChange,
   isNonCodeOnlyChange,
   isNonCodePath,
+  MAX_UNTRACKED_SET_ASIDE,
   scopedChangedPaths,
 } from '../affected-packages.js';
 import {
@@ -32,6 +33,7 @@ import {
   qaRunTreeMismatchReason,
   scopedRunStandsAfterRedCi,
   scopedRunSupersededReason,
+  setAsideJoinedReason,
   testsPassedSupersededReason,
 } from '../affected-scope.js';
 import { isLandedOnOriginDefault } from '../change-set.js';
@@ -1054,6 +1056,36 @@ describe('T13778-T13781: CLEO config composes with a targeted run (VidaPeps T215
     });
     const r = await validateAtom({ kind: 'test-run', path: report([PARITY]) }, root);
     expect(!r.ok && r.reason, JSON.stringify(r)).toMatch(/scripts\/src\/new-helper\.test\.ts/);
+  });
+
+  it('T14000: set-aside paths match literally, and git failing refuses the run', () => {
+    put('routes/i/+page.svelte', '<p>i</p>\n');
+    git(root, ['add', 'routes/i/+page.svelte']);
+    git(root, ['commit', '-q', '-m', 'T1: a route']);
+    const run: EvidenceAtom = {
+      kind: 'test-run',
+      path: 'report.json',
+      sha256: 'x',
+      passCount: 1,
+      failCount: 0,
+      skipCount: 0,
+      untrackedSetAside: ['routes/[id]/+page.svelte'],
+    };
+    // As a pathspec, `[id]` would match the tracked routes/i/; literally it does not.
+    expect(setAsideJoinedReason([run], () => root)).toBeNull();
+    const outside = mkdtempSync(join(tmpdir(), 'cleo-t14000-nogit-'));
+    try {
+      expect(setAsideJoinedReason([run], () => outside)).toMatch(/git cannot list the tracked/);
+    } finally {
+      rmSync(outside, { recursive: true, force: true });
+    }
+  });
+
+  it('T14000: too many stray untracked files are judged, not set aside', () => {
+    for (let i = 0; i <= MAX_UNTRACKED_SET_ASIDE; i++) put(`stray/f${i}.txt`, 'x\n');
+    const changes = scopedChangedPaths(root, { narrowUntracked: true });
+    expect(changes?.untrackedSetAside).toEqual([]);
+    expect(changes?.paths).toContain('stray/f0.txt');
   });
 
   describe('T13781: after the merge, config-schema judges the task\u2019s own merged change', () => {
