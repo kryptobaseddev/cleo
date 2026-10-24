@@ -68,7 +68,7 @@ export const tuiCommand = defineCommand({
     },
   },
   async run({ args }) {
-    process.stderr.write(`${TUI_DEPRECATION_NOTICE}\n`);
+    process.stderr.write(`${TUI_DEPRECATION_NOTICE}\n`); // json-stream-hygiene-allowed: interactive TUI with no envelope (T13996)
     // Lazy import keeps the gateway SDK + pi-tui loader off the `cleo --help`
     // fast path (the command module only loads when `cleo tui` actually runs).
     const { runCockpit } = await import('../lib/tui/cockpit.js');

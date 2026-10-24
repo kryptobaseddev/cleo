@@ -204,6 +204,9 @@ function linkExtensionNodeModules(pkgRoot, extensionsDir) {
 // ---------------------------------------------------------------------------
 // Main
 // ---------------------------------------------------------------------------
+/** Deprecation notice the postinstall prints (T13996, ADR-098). */
+const DEPRECATION_NOTICE = 'CleoOS: @cleocode/cleo-os is deprecated (ADR-098). Use the cleo CLI with your own harness; ' +
+    'CLEO Goal drives autonomous runs.\n';
 /**
  * Entry point for the CleoOS postinstall script.
  *
@@ -238,8 +241,7 @@ function main() {
     // stub, starter team bundle) or runs `cleo skills install`. It still
     // deploys the extensions the `cleoos` launcher loads, so an installed
     // cleoos keeps starting until the package is removed.
-    process.stdout.write('CleoOS: @cleocode/cleo-os is deprecated (ADR-098). Use the cleo CLI with your own harness; ' +
-        'CLEO Goal drives autonomous runs.\n');
+    process.stdout.write(DEPRECATION_NOTICE); // stdout-discipline-allowed: npm postinstall output, not a CLI envelope (T13996) // stdout-write-allowed: npm postinstall output (T13996)
     process.stdout.write('CleoOS: postinstall complete\n');
 }
 main();
