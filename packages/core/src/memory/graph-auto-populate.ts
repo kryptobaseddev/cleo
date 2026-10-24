@@ -581,16 +581,23 @@ export async function ensureMessageNode(
  * @param projectRoot - Absolute path to the project root directory.
  * @param sha - Full git commit SHA (40 hex chars; short SHAs accepted).
  * @param taskId - CLEO task ID this commit resolves (`T###`).
+ * @param options - `provenance` of the edge (default `auto:commit-hook`); `explicit`
+ *   writes even when `brain.autoCapture` is off (validated evidence, T13950).
  *
  * @task T945
+ * @task T13950
  */
 export async function ensureCommitNode(
   projectRoot: string,
   sha: string,
   taskId: string,
+  options: { provenance?: string; explicit?: boolean } = {},
 ): Promise<void> {
   try {
     const nodeId = `commit:${sha}`;
+    // An explicit link keeps an existing commit node: re-verifying never
+    // rewrites its label or moves it to another task (T13950).
+    const write = { explicit: options.explicit ?? false, ifAbsent: options.explicit ?? false };
     await upsertGraphNode(
       projectRoot,
       nodeId,
@@ -599,6 +606,8 @@ export async function ensureCommitNode(
       1.0, // commits are immutable ground truth
       sha,
       { sha, taskId },
+      undefined,
+      write,
     );
     await addGraphEdge(
       projectRoot,
@@ -606,9 +615,67 @@ export async function ensureCommitNode(
       nodeId,
       'touches_code',
       1.0,
-      'auto:commit-hook',
+      options.provenance ?? 'auto:commit-hook',
+      undefined,
+      write,
     );
   } catch (err) {
+    if (options.explicit) throw err;
     log.warn({ err }, 'ensureCommitNode failed');
   }
+}
+
+/**
+ * Write graph nodes (created only when absent) and edges (idempotent) in one
+ * brain transaction, whatever `brain.autoCapture` says; failures throw.
+ *
+ * @param projectRoot - Project whose brain graph is written.
+ * @param nodes - Nodes to create when absent.
+ * @param edges - Edges to add.
+ * @example
+ * ```ts
+ * await writeGraphBatch(root, [{ id: 'file:a.ts', nodeType: 'file', label: 'a.ts', qualityScore: 0.8 }], []);
+ * ```
+ * @task T13950
+ */
+export async function writeGraphBatch(
+  projectRoot: string,
+  nodes: ReadonlyArray<{
+    id: string;
+    nodeType: BrainNodeType;
+    label: string;
+    qualityScore: number;
+  }>,
+  edges: ReadonlyArray<{
+    fromId: string;
+    toId: string;
+    edgeType: BrainEdgeType;
+    provenance: string;
+  }>,
+): Promise<void> {
+  if (nodes.length === 0 && edges.length === 0) return;
+  const db = await getBrainDb(projectRoot);
+  const now = new Date().toISOString().replace('T', ' ').slice(0, 19);
+  db.transaction((tx) => {
+    for (const node of nodes) {
+      tx.insert(brainPageNodes)
+        .values({
+          id: node.id,
+          nodeType: node.nodeType,
+          label: node.label.substring(0, 200),
+          qualityScore: node.qualityScore,
+          lastActivityAt: now,
+          createdAt: now,
+          updatedAt: now,
+        })
+        .onConflictDoNothing()
+        .run();
+    }
+    for (const edge of edges) {
+      tx.insert(brainPageEdges)
+        .values({ ...edge, weight: 1, createdAt: now })
+        .onConflictDoNothing()
+        .run();
+    }
+  });
 }

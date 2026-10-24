@@ -1221,6 +1221,31 @@ export async function validateGateVerify(
       }
     }
 
+    // T13950: accepted evidence is the most reliable record of what the task
+    // touched; link its commits, files and decisions in the brain graph. The
+    // verification is already committed, so a graph failure only warns.
+    if ((action === 'set_gate' || action === 'set_all') && evidenceStored.length > 0) {
+      try {
+        const { linkVerifiedEvidence } = await import('../memory/evidence-graph-links.js');
+        const links = await linkVerifiedEvidence(projectRoot, taskId, evidenceStored);
+        if (links.skipped.length > 0) {
+          const { pushWarning } = await import('../output.js');
+          pushWarning({
+            // @sync-invariant none:local-only a warning; the verification already committed
+            code: 'W_EVIDENCE_GRAPH_LINK_FAILED',
+            message: `Evidence accepted; no graph node for paths outside the evidence repository: ${links.skipped.join(', ')}`,
+          });
+        }
+      } catch (err) {
+        const { pushWarning } = await import('../output.js');
+        pushWarning({
+          // @sync-invariant none:local-only a warning; the verification already committed
+          code: 'W_EVIDENCE_GRAPH_LINK_FAILED',
+          message: `Evidence accepted; graph links not written: ${err instanceof Error ? err.message : String(err)}`,
+        });
+      }
+    }
+
     const missing = getMissingGates(verification, configGates);
     const result: GateVerifyResult = {
       knowledgeCoverage: await assessKnowledgeCoverage(projectRoot),
