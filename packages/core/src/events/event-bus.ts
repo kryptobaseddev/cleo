@@ -153,8 +153,8 @@ async function appendEventToConduit(event: CleoAgentEvent, _projectRoot: string)
  * Append a structured lifecycle event from an autonomous worker.
  *
  * Transport is selected by {@link resolveEventTransportMode}:
- * - `conduit` (default): publishes to `agent.events.<agentId>` topic.
- * - `file`: appends to `.cleo/agent-events/<agentId>.jsonl`.
+ * - `file` (default, T13953): appends to `.cleo/agent-events/<agentId>.jsonl`.
+ * - `conduit` (opt-in while conduit retires): publishes to `agent.events.<agentId>`.
  *
  * Conduit failures silently fall back to file transport and log a warning.
  * All failures are swallowed — observability code MUST NOT crash a worker.
