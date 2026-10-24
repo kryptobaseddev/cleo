@@ -26,7 +26,7 @@ import { worktreeScope } from '../paths.js';
 import { assertOperationWriteFence } from '../store/background-jobs.js';
 import { getBrainDb } from '../store/memory-sqlite.js';
 import type { BrainEdgeType, BrainNodeType } from '../store/schema/memory-schema.js';
-import { brainPageEdges, brainPageNodes } from '../store/schema/memory-schema.js';
+import { BRAIN_NODE_TYPES, brainPageEdges, brainPageNodes } from '../store/schema/memory-schema.js';
 
 // Structured (pino) logger — writes directly to stderr, NOT through `console.*`.
 // These are BEST-EFFORT graph side-effects fired from deferred/fire-and-forget
@@ -419,6 +419,40 @@ export async function ensureLlmtxtNode(
 export const DOCUMENTS_EDGE_PROVENANCE = 'docs-add';
 
 /**
+ * Create the owner node of a `documents` edge when it is absent, so the edge
+ * never dangles: with `brain.autoCapture` off nothing else creates `task:<id>`
+ * (T13985). An existing node is left unchanged.
+ *
+ * @param projectRoot - Project whose brain is written.
+ * @param ownerId - Qualified owner node id, e.g. `task:T123`.
+ * @param context - Captured scope for projection writes; omitted by the backfill.
+ * @example
+ * ```ts
+ * await ensureDocumentOwnerNode(root, 'task:T123');
+ * ```
+ */
+export async function ensureDocumentOwnerNode(
+  projectRoot: string,
+  ownerId: string,
+  context?: OperationExecutionContext,
+): Promise<void> {
+  const separator = ownerId.indexOf(':');
+  const nodeType = BRAIN_NODE_TYPES.find((type) => type === ownerId.slice(0, separator));
+  if (separator < 1 || !nodeType) return;
+  await upsertGraphNode(
+    projectRoot,
+    ownerId,
+    nodeType,
+    ownerId.slice(separator + 1),
+    0.7,
+    '',
+    undefined,
+    context,
+    { explicit: true, ifAbsent: true },
+  );
+}
+
+/**
  * Project a canonical document into the graph with captured scope and visible failures.
  *
  * Always writes the `llmtxt:<sha>` node and its `llmtxt --documents--> owner`
@@ -464,6 +498,7 @@ export async function ensureLlmtxtNodeScoped(
     context,
     { explicit: true },
   );
+  await ensureDocumentOwnerNode(identity.projectRoot, ownerId, context);
   await addGraphEdge(
     identity.projectRoot,
     nodeId,

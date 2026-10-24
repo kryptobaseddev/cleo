@@ -12,7 +12,11 @@ Owner decision D11180 records document links as a graph edge instead of a
 `brain.autoCapture`; with it off the projection reports `graph: disabled`
 but the canonical link is there.
 
+The owner node (`task:<id>`, ...) is created when absent, so the edge never
+dangles even when automatic capture never made that node.
+
 The internal `memory.backfill-docs` operation writes the missing `documents`
-edges (idempotent) instead of emitting observations; its result reports
-`written` and `skipped`. The "Doc attached" observation itself is retired in
+edges (idempotent) instead of emitting observations. Its result fields change:
+`emitted` and `emittedAttachmentIds` become `written` and
+`writtenAttachmentIds`; `total`, `skipped` and `hint` remain. The "Doc attached" observation itself is retired in
 a follow-up.

@@ -320,8 +320,15 @@ describe('scoped document graph projection', () => {
       // T13985: the canonical documents link is written even with autoCapture off;
       // only the auto-captured embeds edge is skipped.
       const { getBrainDb } = await import('../../store/memory-sqlite.js');
-      const { brainPageEdges } = await import('../../store/schema/memory-schema.js');
+      const { brainPageEdges, brainPageNodes } = await import(
+        '../../store/schema/memory-schema.js'
+      );
       const edges = await (await getBrainDb(tempDir)).select().from(brainPageEdges);
+      // Both ends exist, so memory doctor sees no orphan edge.
+      const nodes = await (await getBrainDb(tempDir)).select().from(brainPageNodes);
+      expect(nodes.map((node) => node.id)).toEqual(
+        expect.arrayContaining(['llmtxt:disabled', 'task:T945']),
+      );
       expect(
         edges.filter((e) => e.fromId === 'llmtxt:disabled' || e.toId === 'llmtxt:disabled'),
       ).toEqual([

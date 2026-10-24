@@ -16,6 +16,7 @@
 import {
   addGraphEdge,
   DOCUMENTS_EDGE_PROVENANCE,
+  ensureDocumentOwnerNode,
   upsertGraphNode,
 } from '../memory/graph-auto-populate.js';
 import { createAttachmentStore } from '../store/attachment-store.js';
@@ -83,6 +84,7 @@ export async function backfillDocumentEdges(
       undefined,
       { explicit: true, ifAbsent: true },
     );
+    await ensureDocumentOwnerNode(projectRoot, ownerId);
     await addGraphEdge(
       projectRoot,
       nodeId,
