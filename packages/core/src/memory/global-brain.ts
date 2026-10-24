@@ -16,11 +16,7 @@
 
 import { createHash, randomBytes } from 'node:crypto';
 import type { DatabaseSync, SQLOutputValue } from 'node:sqlite';
-import type {
-  BrainCompactHit,
-  FetchedBrainEntry,
-  ObserveBrainResult,
-} from '@cleocode/contracts';
+import type { BrainCompactHit, FetchedBrainEntry, ObserveBrainResult } from '@cleocode/contracts';
 import { addGlobalDecision, addGlobalObservation } from '../store/memory-accessor.js';
 import type { BrainSourceConfidence } from '../store/schema/memory-schema.js';
 import { classifyObservationTypeByKeywords } from './observation-type-decision.js';
