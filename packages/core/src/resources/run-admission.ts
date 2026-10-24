@@ -454,19 +454,22 @@ export function processGroupOf(pid: number): number | null {
 export function processGroupsOf(pids: readonly number[]): Map<number, number> {
   const groups = new Map<number, number>();
   if (pids.length === 0) return groups;
+  let out = '';
   try {
-    const out = execFileSync('/bin/ps', ['-o', 'pid=,pgid=', '-p', pids.join(',')], {
+    out = execFileSync('/bin/ps', ['-o', 'pid=,pgid=', '-p', pids.join(',')], {
       encoding: 'utf-8',
       timeout: 2000,
       stdio: ['ignore', 'pipe', 'ignore'],
       env: PS_ENV,
     });
-    for (const line of out.split('\n')) {
-      const [pid, pgid] = line.trim().split(/\s+/).map((w) => Number.parseInt(w, 10));
-      if (pid !== undefined && pgid !== undefined && pgid > 0) groups.set(pid, pgid);
-    }
-  } catch {
+  } catch (err) {
     // ps exits non-zero when any pid is gone, but still prints the others.
+    const stdout = (err as { stdout?: unknown }).stdout;
+    out = typeof stdout === 'string' ? stdout : '';
+  }
+  for (const line of out.split('\n')) {
+    const [pid, pgid] = line.trim().split(/\s+/).map((w) => Number.parseInt(w, 10));
+    if (pid !== undefined && pgid !== undefined && pgid > 0) groups.set(pid, pgid);
   }
   return groups;
 }
