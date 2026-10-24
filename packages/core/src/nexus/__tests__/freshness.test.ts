@@ -167,6 +167,13 @@ describe('index freshness (T12316)', () => {
     );
   });
 
+  it('a budgeted analysis past its deadline skips communities and says so in the summary (T14016)', async () => {
+    const { summary } = await runNexusAnalysis({ repoPath: repo, deadlineAt: Date.now() - 1 });
+    expect(summary.communitiesSkipped).toMatch(/^community detection skipped: estimated/);
+    const unbudgeted = await runNexusAnalysis({ repoPath: repo, full: true });
+    expect(unbudgeted.summary.communitiesSkipped).toBeUndefined();
+  });
+
   it('treats a touched-but-identical file as fresh by falling back to its hash', async () => {
     await runNexusAnalysis({ repoPath: repo });
     const later = new Date(Date.now() + 60_000);

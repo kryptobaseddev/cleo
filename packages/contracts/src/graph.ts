@@ -866,6 +866,12 @@ export interface GraphIndexRunSummary {
   resolvedFiles: number;
   /** Wall-clock milliseconds per pipeline phase, for cost disclosure. */
   phaseMs: Record<string, number>;
+  /**
+   * Set when community detection was skipped because its estimate exceeded
+   * the run's remaining budget (T14016); the generation then has no
+   * communities until an unbudgeted analysis.
+   */
+  communitiesSkipped?: string;
 }
 
 /**

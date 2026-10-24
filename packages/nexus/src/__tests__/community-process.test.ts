@@ -150,6 +150,52 @@ describe('detectCommunities — empty graph', () => {
 // detectCommunities — two connected clusters
 // ---------------------------------------------------------------------------
 
+describe('detectCommunities — budget (T14016)', () => {
+  /** Two 4-cliques: 12 undirected call edges. */
+  function cliques() {
+    const graph = createKnowledgeGraph();
+    for (const prefix of ['a', 'b']) {
+      for (let i = 1; i <= 4; i++)
+        graph.addNode(
+          makeNode({ id: `${prefix}${i}`, kind: 'function', filePath: `src/${prefix}.ts` }),
+        );
+      for (let i = 1; i <= 4; i++)
+        for (let j = i + 1; j <= 4; j++)
+          graph.addRelation(makeRel(`${prefix}${i}`, `${prefix}${j}`, 'calls'));
+    }
+    return graph;
+  }
+
+  it('skips Leiden, and says why, when the measured estimate exceeds the budget left', async () => {
+    const graph = cliques();
+    const result = await detectCommunities(graph, undefined, {
+      deadlineAt: Date.now() + 1_000,
+      estimateMs: 60_000,
+    });
+    expect(result.communities).toHaveLength(0);
+    expect(result.memberships).toHaveLength(0);
+    expect(result.skipped).toMatch(
+      /^community detection skipped: estimated 60000ms for \d+ edges exceeds the \d+ms left in the budget$/,
+    );
+    expect([...graph.nodes.values()].some((node) => node.kind === 'community')).toBe(false);
+  });
+
+  it('skips on the per-edge floor when the deadline has passed and nothing was measured', async () => {
+    const result = await detectCommunities(cliques(), undefined, { deadlineAt: Date.now() - 1 });
+    expect(result.skipped).toMatch(/exceeds the 0ms left in the budget$/);
+  });
+
+  it('runs Leiden when the estimate fits, or when there is no deadline', async () => {
+    const fits = await detectCommunities(cliques(), undefined, {
+      deadlineAt: Date.now() + 60_000,
+      estimateMs: 5,
+    });
+    expect(fits.skipped).toBeUndefined();
+    expect(fits.stats.nodesProcessed).toBeGreaterThan(0);
+    expect((await detectCommunities(cliques())).skipped).toBeUndefined();
+  });
+});
+
 describe('detectCommunities — two clusters', () => {
   it('processes connected graph and returns valid results', async () => {
     const graph = createKnowledgeGraph();

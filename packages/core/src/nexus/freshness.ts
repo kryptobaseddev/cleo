@@ -518,6 +518,8 @@ export async function runRefreshInProcess(input: NexusRefreshInput): Promise<Nex
     repoPath: input.repoPath,
     ...(input.includedRepositories ? { includedRepositories: input.includedRepositories } : {}),
     parserLimits: { signal: AbortSignal.timeout(input.budgetMs) },
+    // T14016: the same budget, as a deadline uninterruptible phases can check.
+    deadlineAt: Date.now() + input.budgetMs,
   });
   return { mode: summary.mode, reason: summary.reason };
 }

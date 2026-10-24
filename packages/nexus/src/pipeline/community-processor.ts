@@ -163,7 +163,30 @@ export interface CommunityDetectionResult {
     /** Duration of Leiden algorithm in milliseconds. */
     durationMs?: number;
   };
+  /**
+   * Why community detection was skipped to stay within the run's budget
+   * (T14016); absent when it ran.
+   */
+  skipped?: string;
 }
+
+/**
+ * The run's wall-clock budget for community detection (T14016). Leiden is
+ * synchronous and cannot be interrupted, so it is only started when its
+ * estimated duration fits what is left.
+ */
+export interface CommunityBudget {
+  /** Epoch milliseconds at which the run's budget ends. */
+  deadlineAt?: number;
+  /** The previous run's community phase duration, a measured estimate. */
+  estimateMs?: number;
+}
+
+/**
+ * Conservative Leiden cost per undirected edge, the floor of the estimate when
+ * no previous run measured the phase (T14016).
+ */
+export const LEIDEN_MS_PER_EDGE = 0.01;
 
 // ============================================================================
 // CONSTANTS
@@ -221,11 +244,13 @@ const LEIDEN_RESOLUTION = 1.0;
  *
  * @param graph - The in-memory KnowledgeGraph to read edges from and write to
  * @param signal - Budget signal, checked before and after the (synchronous) Leiden run (T14009)
+ * @param budget - Deadline and measured estimate; Leiden is skipped when it would not fit (T14016)
  * @returns Detection result with community nodes, memberships, and stats
  */
 export async function detectCommunities(
   graph: KnowledgeGraph,
   signal?: AbortSignal,
+  budget: CommunityBudget = {},
 ): Promise<CommunityDetectionResult> {
   // Count symbol nodes to decide whether to enable large-graph mode
   let symbolCount = 0;
@@ -242,19 +267,35 @@ export async function detectCommunities(
   // is checked on both sides of it.
   signal?.throwIfAborted();
 
+  const none = (skipped?: string): CommunityDetectionResult => ({
+    communities: [],
+    memberships: [],
+    stats: {
+      totalCommunities: 0,
+      modularity: 0,
+      nodesProcessed: 0,
+      refinementIterations: 0,
+      durationMs: 0,
+    },
+    ...(skipped ? { skipped } : {}),
+  });
+
   if (gGraph.order === 0) {
     process.stderr.write('[nexus] Phase 5: No eligible nodes — skipping community detection\n');
-    return {
-      communities: [],
-      memberships: [],
-      stats: {
-        totalCommunities: 0,
-        modularity: 0,
-        nodesProcessed: 0,
-        refinementIterations: 0,
-        durationMs: 0,
-      },
-    };
+    return none();
+  }
+
+  // T14016: an uninterruptible phase starts only when it fits the budget left.
+  if (budget.deadlineAt !== undefined) {
+    const estimateMs = Math.max(budget.estimateMs ?? 0, gGraph.size * LEIDEN_MS_PER_EDGE);
+    const remainingMs = budget.deadlineAt - Date.now();
+    if (estimateMs > remainingMs) {
+      const skipped =
+        `community detection skipped: estimated ${Math.round(estimateMs)}ms for ${gGraph.size} edges ` +
+        `exceeds the ${Math.max(0, Math.round(remainingMs))}ms left in the budget`;
+      process.stderr.write(`[nexus] Phase 5: ${skipped}\n`);
+      return none(skipped);
+    }
   }
 
   process.stderr.write(

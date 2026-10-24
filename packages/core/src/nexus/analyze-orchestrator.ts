@@ -41,6 +41,7 @@ import {
   buildFileManifest,
   clearFileManifest,
   type GraphFileManifest,
+  readRunCost,
   writeFileManifest,
   writeRunCost,
 } from './graph-manifest.js';
@@ -508,6 +509,11 @@ function recordVerifiedProvenance(
 export interface NexusAnalysisParams {
   /** Per-file parser bounds and cancellation; native RSS containment is unverified. */
   parserLimits?: ParserExecutionLimits;
+  /**
+   * Epoch milliseconds at which the run's budget ends (T14016): uninterruptible
+   * phases start only when their estimate fits what is left.
+   */
+  deadlineAt?: number;
   /** Absolute path to the repository to analyze. */
   repoPath: string;
   /** Stable identity parent; defaults to repoPath and can differ from the analyzed source. */
@@ -769,6 +775,12 @@ async function runScopedNexusAnalysis(
   const result = await runPipeline(repoPath, projectId, db, tables, onProgress, {
     parserExecution: createParserExecutionPort(),
     parserLimits: { ...params.parserLimits, signal },
+    ...(params.deadlineAt !== undefined
+      ? {
+          deadlineAt: params.deadlineAt,
+          communityEstimateMs: readRunCost(db)?.summary.phaseMs['communities'],
+        }
+      : {}),
     incremental: useIncremental,
     ...(fullReason ? { fullReason } : {}),
     ...(params.requireIncremental ? { requireIncremental: true } : {}),

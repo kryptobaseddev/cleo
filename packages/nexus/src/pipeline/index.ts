@@ -202,6 +202,14 @@ import { processStructure } from './structure-processor.js';
 export interface PipelineOptions {
   /** Per-file parser bounds and cancellation propagated into isolated execution. */
   parserLimits?: ParserExecutionLimits;
+  /**
+   * Epoch milliseconds at which the run's budget ends (T14016). Synchronous
+   * phases that cannot be interrupted (community detection) start only when
+   * their estimate fits what is left, and are skipped otherwise.
+   */
+  deadlineAt?: number;
+  /** The previous run's community phase duration, the measured estimate for {@link deadlineAt}. */
+  communityEstimateMs?: number;
   /** Existing runtime process launcher; required for isolated production parsing. */
   parserExecution?: ParserExecutionPort;
   /**
@@ -1002,7 +1010,12 @@ export async function runPipeline(
 
   // Phase 5: Community detection (Louvain)
   process.stderr.write('[nexus] Phase 5: Detecting communities...\n');
-  const communityResult = await detectCommunities(graph, abortSignal);
+  const communityResult = await detectCommunities(graph, abortSignal, {
+    ...(options?.deadlineAt !== undefined ? { deadlineAt: options.deadlineAt } : {}),
+    ...(options?.communityEstimateMs !== undefined
+      ? { estimateMs: options.communityEstimateMs }
+      : {}),
+  });
   process.stderr.write(
     `[nexus] Communities: ${communityResult.stats.totalCommunities} detected, modularity=${communityResult.stats.modularity.toFixed(3)}, nodes=${communityResult.stats.nodesProcessed}\n`,
   );
@@ -1143,6 +1156,7 @@ export async function runPipeline(
       reusedFiles: reusedFileCount,
       resolvedFiles: parsedFileCount + reusedFileCount,
       phaseMs,
+      ...(communityResult.skipped ? { communitiesSkipped: communityResult.skipped } : {}),
     },
   };
 }
