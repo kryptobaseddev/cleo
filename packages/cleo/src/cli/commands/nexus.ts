@@ -1155,7 +1155,7 @@ function refuseStaleImpact(refusal: NexusStaleRefusal, startTime: number): void 
   cliError(
     refusal.message,
     ExitCode.NEXUS_INDEX_STALE,
-    { name: refusal.code, fix: refusal.fix, details: refusal.details },
+    { name: refusal.code, fix: refusal.fix, details: { ...refusal.details } },
     { operation: 'nexus.impact', duration_ms: Date.now() - startTime },
   );
   process.exitCode = ExitCode.NEXUS_INDEX_STALE;

@@ -1029,7 +1029,7 @@ function staleRefusalResponse(
       code: refusal.code,
       message: refusal.message,
       fix: refusal.fix,
-      details: refusal.details,
+      details: { ...refusal.details },
     },
   };
 }
