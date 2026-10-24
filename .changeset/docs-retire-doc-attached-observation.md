@@ -2,7 +2,7 @@
 id: docs-retire-doc-attached-observation
 tasks: [T13985]
 kind: feat
-summary: `cleo docs add` no longer writes a "Doc attached" memory observation; the document is linked by its documents edge
+summary: "`cleo docs add` no longer writes a Doc attached memory observation; the document is linked by its documents edge"
 ---
 
 Owner decision D11180 retires the "Doc attached" observation that T9976 added

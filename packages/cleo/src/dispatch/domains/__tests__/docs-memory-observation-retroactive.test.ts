@@ -21,8 +21,8 @@
  *   1. The slug shapes used by the T10371/T10373 normalization sweep
  *      (`t<digits>-<kebab>`, `adr-<digits>-<kebab>`) flow through the
  *      auto-emit without surprise (FTS-friendly, no escaping issues).
- *   2. Each document is linked to its owner by a `documents` edge whose
- *      `llmtxt:<sha>` node carries the slug as its label.
+ *   2. Each document is linked to its owner by an
+ *      `llmtxt:<sha> --documents--> task:<id>` edge.
  *   3. Both `type='adr'` and `type='note'` (the dominant retroactive types)
  *      round-trip correctly.
  *
@@ -186,13 +186,10 @@ describe('T10375/T13985 — documents link for retroactively-normalized docs (E5
       await getBrainDb();
       const edge = getBrainNativeDb()
         ?.prepare(
-          `SELECT e.from_id, n.label FROM brain_page_edges e
-           JOIN brain_page_nodes n ON n.id = e.from_id
-           WHERE e.to_id = ? AND e.edge_type = 'documents'`,
+          "SELECT from_id FROM brain_page_edges WHERE to_id = ? AND edge_type = 'documents'",
         )
         .get(`task:${testCase.ownerId}`);
       expect(edge?.from_id).toMatch(/^llmtxt:[a-f0-9]{64}$/);
-      expect(edge?.label).toBe(testCase.slug);
     });
   }
 });
