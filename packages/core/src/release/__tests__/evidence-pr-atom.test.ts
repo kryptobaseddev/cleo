@@ -259,6 +259,29 @@ describe('PR numbers are per repository (T13912)', () => {
     }
   });
 
+  it('an ssh origin resolves and caches under its slug (T14018)', async () => {
+    const app = mkdtempSync(join(tmpdir(), 'cleo-pr-ssh-'));
+    execFileSync('git', ['init', '-q', app]);
+    execFileSync('git', ['-C', app, 'remote', 'add', 'origin', 'git@github.com:Acme/App.git']);
+    try {
+      expect(prRepoIdentity(app)).toBe('acme/app');
+      fetchSpy.mockResolvedValue({ ok: true, payload: makePrPayload() });
+      const resolve = () =>
+        resolvePrEvidenceAtom(
+          87,
+          { storeRoot: projectRoot, executionRoot: app },
+          { fetchGhPrPayload: mockFetch },
+        );
+      expect((await resolve()).ok).toBe(true);
+      expect(existsSync(prCacheEntryPath(projectRoot, 87, 'acme/app'))).toBe(true);
+      const again = await resolve();
+      expect(again.ok && again.cacheHit).toBe(true);
+      expect(fetchSpy).toHaveBeenCalledTimes(1);
+    } finally {
+      rmSync(app, { recursive: true, force: true });
+    }
+  });
+
   it('a legacy repo-less entry is refetched, never trusted', async () => {
     const app = repoWithOrigin('acme/app');
     try {
