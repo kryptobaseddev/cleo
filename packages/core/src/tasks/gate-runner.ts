@@ -73,6 +73,7 @@ import type {
   ProcessCaptureOptions,
   ProcessCaptureResult,
 } from '@cleocode/contracts/resource-governor';
+import { resolveOriginDefault } from '../git/base-ref.js';
 import { discoveryEnv, gitToplevel, resolveDeclaredEvidenceGitRoot } from '../git/work-tree.js';
 import { getProjectRoot } from '../paths.js';
 import { captureProjectScope, worktreeScope } from '../project-scope.js';
@@ -653,7 +654,7 @@ function captureTreeBinding(
   const headSha = gitOut(tree, ['rev-parse', 'HEAD']);
   if (headSha === null || !/^[0-9a-f]{40}$/.test(headSha)) return undefined;
   const dirty = gitOut(tree, ['status', '--porcelain', '--untracked-files=no']);
-  const base = originDefault(tree);
+  const base = resolveOriginDefault(tree);
   const baseSha = base ? gitOut(tree, ['merge-base', base, headSha]) : null;
   return {
     headSha,
@@ -662,17 +663,6 @@ function captureTreeBinding(
     inputsHash: treeInputsHash(tree, invocation, artifacts),
     ...(baseSha && /^[0-9a-f]{40}$/.test(baseSha) ? { baseSha } : {}),
   };
-}
-
-/** `origin/<default>` from `origin/HEAD`, else origin/main or origin/master. */
-function originDefault(tree: string): string | null {
-  const symbolic = gitOut(tree, ['symbolic-ref', '--quiet', 'refs/remotes/origin/HEAD']);
-  if (symbolic) return symbolic.replace(/^refs\/remotes\//, '');
-  for (const ref of ['origin/main', 'origin/master']) {
-    if (gitOut(tree, ['rev-parse', '--verify', '--quiet', `refs/remotes/${ref}`]) !== null)
-      return ref;
-  }
-  return null;
 }
 
 /**

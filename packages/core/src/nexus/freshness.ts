@@ -26,7 +26,12 @@ import { readEnvOverride } from '../config.js';
 import { pushWarning } from '../output.js';
 import { getNexusDb } from '../store/nexus-sqlite.js';
 import { runNexusAnalysis } from './analyze-orchestrator.js';
-import { type GraphRunCost, readFileManifest, readRunCost } from './graph-manifest.js';
+import {
+  type GraphRunCost,
+  readFileManifest,
+  readIndexedRevision,
+  readRunCost,
+} from './graph-manifest.js';
 
 /** Command that refreshes the index; incremental by default since T12315. */
 export const NEXUS_REFRESH_COMMAND = 'cleo nexus analyze';
@@ -138,6 +143,45 @@ export async function assessNexusIndexFreshness(
   return judgeSymbolFiles(assessment, options.symbolFiles ?? []);
 }
 
+/** Milliseconds per day, for {@link GraphIndexFreshness.ageDays}. */
+const DAY_MS = 86_400_000;
+
+/**
+ * Where the index stands against the base branch (T14007): the indexed
+ * revision, the base ref and its commit, the commits the index has not seen,
+ * and its age. Measured against the base ref, never the working tree or HEAD,
+ * so a checkout on an old branch cannot make a stale index look fresh.
+ *
+ * @param db - Project graph database.
+ * @param sourceRoot - Repository the index describes.
+ * @param lastIndexedAt - Assessment time of the published generation.
+ * @returns The revision fields of {@link GraphIndexFreshness}.
+ */
+export async function measureAgainstBase(
+  db: Awaited<ReturnType<typeof getNexusDb>>,
+  sourceRoot: string,
+  lastIndexedAt: string | null,
+): Promise<
+  Pick<
+    GraphIndexFreshness,
+    'indexedRevision' | 'baseRef' | 'baseRevision' | 'commitsBehind' | 'ageDays'
+  >
+> {
+  const { commitsBetween, resolveBaseRef, revParse } = await import('../git/base-ref.js');
+  const indexedRevision = readIndexedRevision(db);
+  const baseRef = resolveBaseRef(sourceRoot);
+  const baseRevision = baseRef ? revParse(sourceRoot, baseRef) : null;
+  const commitsBehind =
+    indexedRevision && baseRevision
+      ? commitsBetween(sourceRoot, indexedRevision, baseRevision)
+      : null;
+  const indexedMs = lastIndexedAt ? Date.parse(lastIndexedAt) : Number.NaN;
+  const ageDays = Number.isFinite(indexedMs)
+    ? Math.max(0, Math.floor((Date.now() - indexedMs) / DAY_MS))
+    : null;
+  return { indexedRevision, baseRef, baseRevision, commitsBehind, ageDays };
+}
+
 /** Walk the tree once and keep the full stale set alongside the disclosed facts. */
 async function assessWithStaleSet(
   projectRoot: string,
@@ -205,6 +249,7 @@ async function assessWithStaleSet(
     // T12474: an unreachable source root is an unassessable index, never a crash.
     const freshness: GraphIndexFreshness = {
       ...base,
+      ...(await measureAgainstBase(db, manifest.sourceRoot, manifest.assessedAt)),
       indexed: true,
       status: 'unknown',
       lastIndexedAt: manifest.assessedAt,
@@ -231,6 +276,7 @@ async function assessWithStaleSet(
   const estimate = estimateRefreshMs(readRunCost(db), stale.size, fileCount);
   const freshness: GraphIndexFreshness = {
     ...base,
+    ...(await measureAgainstBase(db, manifest.sourceRoot, manifest.assessedAt)),
     indexed: true,
     status: stale.size === 0 ? 'fresh' : 'stale',
     lastIndexedAt: manifest.assessedAt,

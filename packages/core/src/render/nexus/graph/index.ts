@@ -58,6 +58,20 @@ export function renderNexusStatus(data: Record<string, unknown>, quiet: boolean)
       : staleFileCount === 0
         ? 'up to date'
         : `${staleFileCount} stale`;
+  // T14007: how far the index trails the base branch, and how old it is.
+  const freshness = (data['freshness'] ?? {}) as {
+    baseRef?: string | null;
+    indexedRevision?: string | null;
+    commitsBehind?: number | null;
+    ageDays?: number | null;
+  };
+  const behindLabel =
+    typeof freshness.commitsBehind === 'number' && freshness.baseRef
+      ? `${freshness.commitsBehind} commit(s) behind ${freshness.baseRef}` +
+        (freshness.indexedRevision ? ` (indexed ${freshness.indexedRevision.slice(0, 9)})` : '')
+      : 'unknown';
+  const ageLabel =
+    typeof freshness.ageDays === 'number' ? `${freshness.ageDays} day(s)` : 'unknown';
   return (
     `[nexus] Index status for: ${repoPath}\n` +
     `  Project ID:   ${projectId}\n` +
@@ -65,7 +79,9 @@ export function renderNexusStatus(data: Record<string, unknown>, quiet: boolean)
     `  Relations:    ${str(data['relationCount'])}\n` +
     `  Files:        ${str(data['fileCount'])}\n` +
     `  Last indexed: ${str(data['lastIndexedAt'], 'never')}\n` +
-    `  Staleness:    ${staleLabel}`
+    `  Staleness:    ${staleLabel}\n` +
+    `  Behind base:  ${behindLabel}\n` +
+    `  Index age:    ${ageLabel}`
   );
 }
 

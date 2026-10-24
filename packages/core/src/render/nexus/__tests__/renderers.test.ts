@@ -407,6 +407,32 @@ describe('nexus status — human renderer', () => {
     expect(output).toContain('3 stale');
   });
 
+  it('shows commits behind the base ref and the index age (T14007)', () => {
+    const output = renderNexusStatus(
+      {
+        projectId: 'proj-123',
+        repoPath: '/my/repo',
+        indexed: true,
+        staleFileCount: 0,
+        freshness: {
+          baseRef: 'origin/main',
+          indexedRevision: '8ad8b52a1b2c3d4e',
+          commitsBehind: 3239,
+          ageDays: 29,
+        },
+      },
+      false,
+    );
+    expect(output).toContain('Behind base:  3239 commit(s) behind origin/main (indexed 8ad8b52a1)');
+    expect(output).toContain('Index age:    29 day(s)');
+  });
+
+  it('says unknown when the base or the age cannot be measured (T14007)', () => {
+    const output = renderNexusStatus({ repoPath: '/my/repo', indexed: true }, false);
+    expect(output).toContain('Behind base:  unknown');
+    expect(output).toContain('Index age:    unknown');
+  });
+
   it('shows "up to date" when staleFileCount is 0', () => {
     const data = {
       projectId: 'p',
