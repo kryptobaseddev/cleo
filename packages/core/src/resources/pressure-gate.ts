@@ -276,7 +276,7 @@ export interface MemoryGateReporter {
    * The gate refused: report it at once, then at most every
    * {@link MEMORY_GATE_NOTICE_INTERVAL_MS} with fresh readings.
    */
-  waiting(reading: MemoryPressureReading, waitedMs: number): void;
+  waiting(reading: MemoryPressureReading, waitedMs: number, remainingMs?: number): void;
   /** Admitted: say so when a wait was reported. `score` is the latest reading, when known. */
   admitted(waitedMs: number, score: number | null): void;
 }
@@ -292,16 +292,20 @@ function duration(ms: number): string {
  * @param reading - the gate's readings.
  * @param subject - what is waiting, e.g. `test run`.
  * @param waitedMs - how long it has waited so far.
+ * @param remainingMs - how long until the wait gives up, when it has a deadline (T13965).
  */
 export function memoryGateWaitingLine(
   reading: MemoryPressureReading,
   subject: string,
   waitedMs: number,
+  remainingMs?: number,
 ): string {
+  const deadline =
+    remainingMs === undefined ? '' : `, gives up in ${duration(Math.max(0, remainingMs))}`;
   return (
     `waiting: memory pressure ${reading.score} (refused above ${reading.refuseAbove}, ` +
     `resumes at ${reading.resumeAtOrBelow} or below): ${memoryPressureCause(reading)}. ` +
-    `The ${subject} starts when pressure falls; waited ${duration(waitedMs)}. ` +
+    `The ${subject} starts when pressure falls; waited ${duration(waitedMs)}${deadline}. ` +
     '(CLEO_RESOURCES_MODE=off turns admission off.)'
   );
 }
@@ -322,11 +326,11 @@ export function memoryGateReporter(
   const interval = opts.intervalMs ?? MEMORY_GATE_NOTICE_INTERVAL_MS;
   let lastAt: number | null = null;
   return {
-    waiting(reading, waitedMs) {
+    waiting(reading, waitedMs, remainingMs) {
       const t = now();
       if (lastAt !== null && t - lastAt < interval) return;
       lastAt = t;
-      emit(memoryGateWaitingLine(reading, subject, waitedMs));
+      emit(memoryGateWaitingLine(reading, subject, waitedMs, remainingMs));
     },
     admitted(waitedMs, score) {
       if (lastAt === null) return;
