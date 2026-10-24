@@ -30,6 +30,7 @@ import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, readdirSync, readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname, join } from 'node:path';
+import type { ObserveBrainParams } from '@cleocode/contracts/memory/observe.js';
 import { writeJsonFileAtomic } from '../store/file-utils.js';
 import { parseMemoryFileFrontmatter } from './import-from-provider.js';
 import { lessonRuleError } from './lessons.js';
@@ -51,7 +52,7 @@ export type LessonImportScope = 'global' | 'project';
  * confidence in both brains. Each lesson's provenance line names its source
  * file.
  */
-const LESSON_IMPORT_SOURCE_TYPE = 'agent' as const;
+const LESSON_IMPORT_SOURCE_TYPE: NonNullable<ObserveBrainParams['sourceType']> = 'agent';
 
 /** A frontmatter scalar without its surrounding YAML quotes. */
 function unquote(value: string): string {
