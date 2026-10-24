@@ -115,7 +115,7 @@ export {
 } from './parse-cache.js';
 // Parse loop (T534, T536)
 export type { ParseLoopOptions, ParseLoopResult } from './parse-loop.js';
-export { runParseLoop } from './parse-loop.js';
+export { isParseablePath, runParseLoop } from './parse-loop.js';
 // Process detection (T538)
 export type {
   ProcessDetectionConfig,
@@ -906,6 +906,7 @@ export async function runPipeline(
     parsedFileCount,
     reusedFileCount,
     reusedPaths,
+    reuseDecodeMs,
   } = parsed;
   if (mode === 'incremental') {
     process.stderr.write(
@@ -913,6 +914,12 @@ export async function runPipeline(
     );
   }
   endPhase('parse');
+  // T14014: decoding reused extractions is not parsing; report it apart so a
+  // cost estimate's per-file parse rate counts parsing only.
+  if (reuseDecodeMs > 0) {
+    phaseMs['parse'] = Math.max(0, (phaseMs['parse'] ?? 0) - reuseDecodeMs);
+    phaseMs['reuseDecode'] = reuseDecodeMs;
+  }
   // T14009: the budget is honoured between and inside the whole-graph phases.
   const abortSignal = options?.parserLimits?.signal;
   abortSignal?.throwIfAborted();

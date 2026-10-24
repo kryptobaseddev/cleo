@@ -14,7 +14,8 @@
  * @module nexus/freshness
  */
 
-import { existsSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { performance } from 'node:perf_hooks';
 import { fileURLToPath } from 'node:url';
 import { getHeapStatistics } from 'node:v8';
@@ -25,29 +26,37 @@ import type {
 } from '@cleocode/contracts';
 import { PARSER_WORKER_HEAP_MAX_MB } from '@cleocode/contracts/code-symbol.js';
 import type { KnownFileFingerprint } from '@cleocode/nexus/pipeline';
+import { sql } from 'drizzle-orm';
 import { getConfigValue } from '../config/registry.js';
 import { readEnvOverride } from '../config.js';
 import { pushWarning } from '../output.js';
+import { getCleoDirAbsolute } from '../paths.js';
 import { getNexusDb } from '../store/nexus-sqlite.js';
 import { runNexusAnalysis } from './analyze-orchestrator.js';
 import {
   type GraphRunCost,
+  type RefreshCooldown,
+  readActiveRefreshCooldown,
   readFileManifest,
   readIndexedRevision,
   readRunCost,
+  refreshCooldownApplies,
+  writeRefreshCooldown,
 } from './graph-manifest.js';
+import { releasePidLock, takePidLock } from './pid-lock.js';
 
 /** Command that refreshes the index; incremental by default since T12315. */
 export const NEXUS_REFRESH_COMMAND = 'cleo nexus analyze';
 
-/** Default number of stale files an index query may refresh inline. */
+/**
+ * Retired file-count cap for an inline refresh (T14014): the size-scaled cost
+ * estimate against the budget decides. Kept as the reported default of the
+ * ignored `nexus.autoRefresh.maxFiles`.
+ */
 export const DEFAULT_AUTO_REFRESH_MAX_FILES = 25;
 
 /** Default wall-clock budget for an inline refresh. */
 export const DEFAULT_AUTO_REFRESH_BUDGET_MS = 60_000;
-
-/** Share of changed files above which analysis rebuilds fully (mirrors the pipeline). */
-const FULL_REBUILD_RATIO = 0.3;
 
 /** Options for {@link assessNexusIndexFreshness}. */
 export interface NexusFreshnessOptions {
@@ -66,6 +75,21 @@ export interface NexusFreshnessAssessment {
   freshness: GraphIndexFreshness;
   /** Every stale path (modified, added, deleted or unreadable). */
   staleFiles: ReadonlySet<string>;
+  /**
+   * What a refresh would cost (T14014): files it must parse (stale ones and
+   * any without a reusable cache entry), files it can reuse, and the estimate.
+   */
+  refreshPlan?: NexusRefreshPlan;
+}
+
+/** What an inline refresh would parse, reuse and cost (T14014). */
+export interface NexusRefreshPlan {
+  /** Files that must be parsed: stale, or with no exact cache entry for this build. */
+  toParse: number;
+  /** Unchanged files with an exact cache entry for this build. */
+  reusable: number;
+  /** Estimated milliseconds, or `null` when no previous run cost is recorded. */
+  estimateMs: number | null;
 }
 
 /**
@@ -92,7 +116,10 @@ export function judgeSymbolFiles(
 export interface NexusAutoRefreshPolicy {
   /** Whether queries may refresh the index inline. @defaultValue true */
   enabled: boolean;
-  /** Most stale files a query refreshes inline. @defaultValue 25 */
+  /**
+   * Retired (T14014): the size-scaled cost estimate against `budgetMs` decides.
+   * Still read from `nexus.autoRefresh.maxFiles` for compatibility; ignored.
+   */
   maxFiles: number;
   /** Wall-clock budget; a refresh estimated to exceed it is not started. @defaultValue 60000 */
   budgetMs: number;
@@ -100,29 +127,81 @@ export interface NexusAutoRefreshPolicy {
   disabledBy?: string;
 }
 
-/** Estimate a refresh from the last recorded run, or `null` when nothing is recorded. */
+/** Largest factor a recorded run's whole-graph cost is scaled up by (T14014). */
+const MAX_COST_SCALE = 4;
+
+/**
+ * Estimate a refresh from the last recorded run, or `null` when nothing is
+ * recorded (T14014).
+ *
+ * Every refresh re-resolves, re-clusters and republishes the whole graph, so
+ * that cost is scaled from the last run's per-file rate to today's file count
+ * (at most {@link MAX_COST_SCALE} times, so one small sample cannot vouch for
+ * a far larger repository). Files without an exact cache entry for this build
+ * are parsed at the last run's parse rate, whatever their staleness: a wiped
+ * cache or an extractor upgrade means a full parse. Decoding reused
+ * extractions is recorded apart (`reuseDecode`) and never inflates that rate.
+ */
 function estimateRefreshMs(
   cost: GraphRunCost | null,
-  staleFiles: number,
+  toParse: number,
+  reusable: number,
   fileCount: number,
 ): number | null {
   if (!cost) return null;
   const parseMs = cost.summary.phaseMs['parse'] ?? 0;
+  const decodeMs = cost.summary.phaseMs['reuseDecode'] ?? 0;
   const parsed = cost.summary.parsedFiles;
-  const fixedMs = Math.max(0, cost.durationMs - parseMs);
+  const resolved = Math.max(1, cost.summary.resolvedFiles);
+  const wholeGraphMs = Math.max(0, cost.durationMs - parseMs - decodeMs);
+  const scale = Math.max(1, fileCount / resolved);
+  if (scale > MAX_COST_SCALE) return null;
   const perFileMs = parsed > 0 ? parseMs / parsed : 0;
-  const full = fileCount > 0 && staleFiles / fileCount > FULL_REBUILD_RATIO;
-  const reparsed = full ? Math.max(parsed, cost.summary.resolvedFiles) : staleFiles;
-  return Math.round(fixedMs + reparsed * perFileMs);
+  const perReusedMs = cost.summary.reusedFiles > 0 ? decodeMs / cost.summary.reusedFiles : 0;
+  return Math.round(wholeGraphMs * scale + toParse * perFileMs + reusable * perReusedMs);
+}
+
+/**
+ * Split the parseable files of the manifest (T14014) into those a refresh must
+ * parse (stale, or without an exact cache entry for this build) and those it
+ * can reuse (unchanged, same content hash, this build's extractor fingerprint).
+ * Files no extractor parses are neither.
+ */
+async function planParse(
+  db: Awaited<ReturnType<typeof getNexusDb>>,
+  manifestFiles: readonly (readonly [string, number, number, string])[],
+  stale: ReadonlySet<string>,
+): Promise<{ toParse: number; reusable: number }> {
+  const { computeExtractorFingerprint, isParseablePath } = await import('@cleocode/nexus/pipeline');
+  const fingerprint = computeExtractorFingerprint();
+  const cached = new Map<string, string>();
+  for (const [path, contentHash, entryFingerprint] of db.values(
+    sql`SELECT path, content_hash, fingerprint FROM main._nexus_parse_cache`,
+  )) {
+    if (
+      entryFingerprint === fingerprint &&
+      typeof path === 'string' &&
+      typeof contentHash === 'string'
+    )
+      cached.set(path, contentHash);
+  }
+  let reusable = 0;
+  let toParse = 0;
+  for (const [path, , , contentHash] of manifestFiles) {
+    if (!isParseablePath(path)) continue;
+    if (!stale.has(path) && cached.get(path) === contentHash) reusable++;
+    else toParse++;
+  }
+  // A new parseable file is stale but not yet in the manifest.
+  const known = new Set(manifestFiles.map(([path]) => path));
+  for (const path of stale) if (isParseablePath(path) && !known.has(path)) toParse++;
+  return { toParse, reusable };
 }
 
 /** Render an estimate for humans and agents alike. */
-function describeEstimate(ms: number | null, staleFiles: number, fileCount: number): string {
+function describeEstimate(ms: number | null, staleFiles: number, toParse: number): string {
   if (staleFiles === 0) return 'none needed';
-  const kind =
-    fileCount > 0 && staleFiles / fileCount > FULL_REBUILD_RATIO
-      ? 'full rebuild'
-      : `incremental, re-parses ~${staleFiles} file(s)`;
+  const kind = `re-parses ~${toParse} file(s), re-resolves the whole graph`;
   if (ms === null) return `unknown duration (${kind}; no previous analysis cost recorded)`;
   return `~${Math.max(1, Math.round(ms / 1000))}s (${kind})`;
 }
@@ -173,10 +252,13 @@ export async function measureAgainstBase(
     | 'baseRevision'
     | 'commitsBehind'
     | 'commitsBehindHead'
+    | 'changedFilesSinceIndex'
     | 'ageDays'
   >
 > {
-  const { commitsBetween, resolveBaseRef, revParse } = await import('../git/base-ref.js');
+  const { changedFilesSince, commitsBetween, resolveBaseRef, revParse } = await import(
+    '../git/base-ref.js'
+  );
   const indexedRevision = readIndexedRevision(db);
   const baseRef = resolveBaseRef(sourceRoot);
   const baseRevision = baseRef ? revParse(sourceRoot, baseRef) : null;
@@ -188,11 +270,23 @@ export async function measureAgainstBase(
   const commitsBehindHead = indexedRevision
     ? commitsBetween(sourceRoot, indexedRevision, 'HEAD')
     : null;
+  // T14014: a cheap, walk-free count for reporting; the walk stays authoritative.
+  const changedFilesSinceIndex = indexedRevision
+    ? changedFilesSince(sourceRoot, indexedRevision)
+    : null;
   const indexedMs = lastIndexedAt ? Date.parse(lastIndexedAt) : Number.NaN;
   const ageDays = Number.isFinite(indexedMs)
     ? Math.max(0, Math.floor((Date.now() - indexedMs) / DAY_MS))
     : null;
-  return { indexedRevision, baseRef, baseRevision, commitsBehind, commitsBehindHead, ageDays };
+  return {
+    indexedRevision,
+    baseRef,
+    baseRevision,
+    commitsBehind,
+    commitsBehindHead,
+    changedFilesSinceIndex,
+    ageDays,
+  };
 }
 
 /** Walk the tree once and keep the full stale set alongside the disclosed facts. */
@@ -286,7 +380,9 @@ async function assessWithStaleSet(
   for (const path of known.keys()) if (!seen.has(path)) stale.add(path);
 
   const fileCount = manifest.files.length;
-  const estimate = estimateRefreshMs(readRunCost(db), stale.size, fileCount);
+  const { toParse, reusable } =
+    stale.size > 0 ? await planParse(db, manifest.files, stale) : { toParse: 0, reusable: 0 };
+  const estimate = estimateRefreshMs(readRunCost(db), toParse, reusable, fileCount);
   const freshness: GraphIndexFreshness = {
     ...base,
     ...(await measureAgainstBase(db, manifest.sourceRoot, manifest.assessedAt)),
@@ -296,10 +392,10 @@ async function assessWithStaleSet(
     fileCount,
     staleFileCount: stale.size,
     stalePaths: [...stale].sort().slice(0, sampleLimit),
-    refreshEstimate: describeEstimate(estimate, stale.size, fileCount),
+    refreshEstimate: describeEstimate(estimate, stale.size, toParse),
     checkMs: Math.round(performance.now() - started),
   };
-  return { freshness, staleFiles: stale };
+  return { freshness, staleFiles: stale, refreshPlan: { toParse, reusable, estimateMs: estimate } };
 }
 
 /** Default for `nexus.freshness.maxCommitsBehind` (T14008, lead decision 2026-10-24). */
@@ -362,6 +458,8 @@ export function answerFreshness(freshness: GraphIndexFreshness): NexusAnswerFres
     baseRef: freshness.baseRef ?? null,
     commitsBehind: freshness.commitsBehind ?? null,
     commitsBehindHead: freshness.commitsBehindHead ?? null,
+    changedFilesSinceIndex: freshness.changedFilesSinceIndex ?? null,
+    refreshCooldownUntil: freshness.refreshCooldownUntil ?? null,
     ageDays: freshness.ageDays ?? null,
     lastIndexedAt: freshness.lastIndexedAt,
   };
@@ -503,8 +601,8 @@ export interface NexusRefreshSummary {
 export type NexusRefreshRunner = (input: NexusRefreshInput) => Promise<NexusRefreshSummary>;
 
 /**
- * Run a refresh in this thread, incrementally or not at all. Unbounded in
- * memory: {@link runRefreshInChild} runs it inside a heap-limited child process.
+ * Run a refresh in this thread, bounded by its budget. Unbounded in memory:
+ * {@link runRefreshInChild} runs it inside a heap-limited child process.
  *
  * @param input - The refresh to run.
  * @returns The refresh summary.
@@ -515,7 +613,6 @@ export async function runRefreshInProcess(input: NexusRefreshInput): Promise<Nex
     repoPath: input.repoPath,
     ...(input.includedRepositories ? { includedRepositories: input.includedRepositories } : {}),
     parserLimits: { signal: AbortSignal.timeout(input.budgetMs) },
-    requireIncremental: true,
   });
   return { mode: summary.mode, reason: summary.reason };
 }
@@ -596,35 +693,139 @@ export async function runRefreshInChild(
   }
 }
 
+/** Cooldown after an inline refresh fails or is aborted (T14014). */
+export const INLINE_REFRESH_COOLDOWN_MS = 30 * 60_000;
+
+/** A refresh parsing more than this many files (or 30% of them) needs `cleo run` admission. */
+const ADMISSION_FREE_PARSE_FILES = 25;
+
+/** Share of files above which a refresh needs `cleo run` admission. */
+const ADMISSION_FREE_PARSE_RATIO = 0.3;
+
+/** Fallback cooldown file under `.cleo/` when `_nexus_meta` cannot be written (T14014). */
+export const INLINE_REFRESH_COOLDOWN_FILE = 'nexus-refresh-cooldown.json';
+
+/** Last resort when neither the store nor the file can hold a cooldown. */
+let inProcessCooldown: RefreshCooldown | null = null;
+
 /**
- * Assess freshness and, when only a few files are stale, refresh the index
+ * Record a cooldown: in `_nexus_meta`, else (SQLITE_BUSY while another
+ * analysis publishes, a read-only store) in a file under `.cleo/`, else in
+ * this process. Never throws: a failed write must not fail the query or lose
+ * the cooldown.
+ */
+function recordCooldown(
+  db: Awaited<ReturnType<typeof getNexusDb>>,
+  cleoDir: string,
+  cooldown: RefreshCooldown,
+): void {
+  try {
+    writeRefreshCooldown(db, cooldown);
+    return;
+  } catch {
+    // fall through to the file
+  }
+  try {
+    mkdirSync(cleoDir, { recursive: true });
+    writeFileSync(join(cleoDir, INLINE_REFRESH_COOLDOWN_FILE), JSON.stringify(cooldown));
+  } catch {
+    inProcessCooldown = cooldown;
+  }
+}
+
+/** The cooldown in force from the store, its fallback file, or this process. */
+function activeCooldown(
+  db: Awaited<ReturnType<typeof getNexusDb>>,
+  cleoDir: string,
+): RefreshCooldown | null {
+  const applies = (cooldown: RefreshCooldown | null): RefreshCooldown | null => {
+    try {
+      return cooldown && refreshCooldownApplies(db, cooldown) ? cooldown : null;
+    } catch {
+      return null;
+    }
+  };
+  let stored: RefreshCooldown | null = null;
+  try {
+    stored = readActiveRefreshCooldown(db);
+  } catch {
+    stored = null;
+  }
+  if (stored) return stored;
+  let filed: RefreshCooldown | null = null;
+  try {
+    filed = JSON.parse(
+      readFileSync(join(cleoDir, INLINE_REFRESH_COOLDOWN_FILE), 'utf-8'),
+    ) as RefreshCooldown;
+  } catch {
+    filed = null;
+  }
+  return applies(filed) ?? applies(inProcessCooldown);
+}
+
+/** Lock file under `.cleo/`: one inline refresh at a time per project. */
+export const INLINE_REFRESH_LOCK_FILE = 'nexus-inline-refresh.lock';
+
+/** Admits a heavy inline refresh without waiting; `null` when refused (T14014). */
+export type NexusRefreshAdmitter = (
+  projectRoot: string,
+) => Promise<{ release(): Promise<void> } | { refused: string }>;
+
+/** The production admitter: one non-waiting `cleo run` admission pass, class build. */
+const admitRefresh: NexusRefreshAdmitter = async (projectRoot) => {
+  const { admit, footprintForClass } = await import('../resources/admission-ledger.js');
+  const outcome = await admit(
+    {
+      label: 'nexus:inline-refresh',
+      footprintBytes: footprintForClass('scoped-build'),
+      cwd: projectRoot,
+      footprintReason: 'inline NEXUS refresh beyond a small incremental set (T14014)',
+    },
+    { wait: false, timeoutMs: 0 },
+  );
+  return outcome.admitted ? outcome.grant : { refused: outcome.refusal.reason };
+};
+
+/**
+ * Assess freshness and, when the refresh is affordable, refresh the index
  * inline before the caller answers from it.
  *
- * A refresh runs only when `0 < stale ≤ maxFiles` and the recorded cost
- * estimate fits `budgetMs`; the budget also cancels the run at its next phase
- * boundary, and publication is atomic, so an abandoned refresh leaves the
- * previous graph intact. Every decision — refreshed, skipped or failed — is
- * disclosed in `autoRefresh`, and the returned freshness describes the index
- * the caller is about to read.
+ * A refresh runs when the recorded cost, scaled to the repository and to the
+ * files it must parse (T14014), fits `budgetMs`. It is guarded so a stale
+ * index never turns every query into another heavy run:
+ * - one inline refresh at a time per project (a pid lock; a concurrent query
+ *   answers from the stale index);
+ * - a refresh beyond a small incremental set needs a non-waiting `cleo run`
+ *   admission, and is skipped when the machine is busy;
+ * - a refresh that fails or is aborted sets a cooldown: no inline refresh for
+ *   {@link INLINE_REFRESH_COOLDOWN_MS}, or until an analysis publishes a new
+ *   generation. The cooldown is reported as `refreshCooldownUntil`.
+ * The budget also cancels a run at its next check, and publication is atomic,
+ * so an abandoned refresh leaves the previous graph intact. Every decision is
+ * disclosed in `autoRefresh`.
  *
  * @param projectRoot - Project whose graph is about to be queried.
  * @param policy - Explicit policy; read from config when omitted.
  * @param runRefresh - Runs the refresh; a heap-bounded worker unless supplied (T13537).
+ * @param admitter - Admits a heavy refresh; `cleo run` admission unless supplied.
  * @returns Freshness of the index as it stands after any refresh, with its stale set.
  */
 export async function ensureNexusIndexFresh(
   projectRoot: string,
   policy?: NexusAutoRefreshPolicy,
   runRefresh: NexusRefreshRunner = runRefreshInChild,
+  admitter: NexusRefreshAdmitter = admitRefresh,
 ): Promise<NexusFreshnessAssessment> {
   const initial = await assessWithStaleSet(projectRoot);
   const before = initial.freshness;
   if (before.status !== 'stale') return initial;
   const effective = policy ?? (await readNexusAutoRefreshPolicy(projectRoot));
-  const skip = (reason: string): NexusFreshnessAssessment => ({
+  const skip = (reason: string, cooldownUntil?: string): NexusFreshnessAssessment => ({
     staleFiles: initial.staleFiles,
+    ...(initial.refreshPlan ? { refreshPlan: initial.refreshPlan } : {}),
     freshness: {
       ...before,
+      ...(cooldownUntil ? { refreshCooldownUntil: cooldownUntil } : {}),
       autoRefresh: { refreshed: false, staleFiles: before.staleFileCount, durationMs: 0, reason },
     },
   });
@@ -632,24 +833,21 @@ export async function ensureNexusIndexFresh(
     return skip(
       `auto-refresh is disabled (${effective.disabledBy ?? 'nexus.autoRefresh.enabled = false'}); answered from the stale index`,
     );
-  if (before.staleFileCount > effective.maxFiles)
-    return skip(
-      `${before.staleFileCount} stale files exceed nexus.autoRefresh.maxFiles = ${effective.maxFiles}; ` +
-        'answered from the stale index',
-    );
-  // T13523: a read query never runs a full rebuild inline; the pipeline also
-  // refuses one it would fall back to (requireIncremental below).
-  if (before.fileCount > 0 && before.staleFileCount / before.fileCount > FULL_REBUILD_RATIO)
-    return skip(
-      `${before.staleFileCount} of ${before.fileCount} files are stale, which needs a full rebuild; answered from the stale index (run ${NEXUS_REFRESH_COMMAND})`,
-    );
   const db = await getNexusDb(projectRoot);
-  const estimate = estimateRefreshMs(readRunCost(db), before.staleFileCount, before.fileCount);
-  // T13523: with no recorded cost there is no bound on the run (a full
-  // analysis, Leiden included, can exhaust the CLI heap), so do not start one.
+  const cleoDir = getCleoDirAbsolute(projectRoot);
+  const cooldown = activeCooldown(db, cleoDir);
+  if (cooldown)
+    return skip(
+      `a recent inline refresh did not finish (${cooldown.reason}); no inline refresh until ${cooldown.until} or the next ${NEXUS_REFRESH_COMMAND}; answered from the stale index`,
+      cooldown.until,
+    );
+  const plan = initial.refreshPlan;
+  const estimate = plan?.estimateMs ?? null;
+  // T13523: with no comparable recorded cost there is no bound on the run, so
+  // do not start one.
   if (estimate === null)
     return skip(
-      `no previous analysis cost recorded, so the refresh cannot be bounded; answered from the stale index (run ${NEXUS_REFRESH_COMMAND} to refresh and record one)`,
+      `no previous analysis cost recorded (or the repository has grown more than ${MAX_COST_SCALE}x since), so the refresh cannot be bounded; answered from the stale index (run ${NEXUS_REFRESH_COMMAND} to refresh and record one)`,
     );
   if (estimate > effective.budgetMs)
     return skip(
@@ -657,41 +855,81 @@ export async function ensureNexusIndexFresh(
         `${effective.budgetMs}; answered from the stale index`,
     );
 
-  const manifest = readFileManifest(db, projectRoot);
-  const started = performance.now();
+  mkdirSync(cleoDir, { recursive: true });
+  const lockPath = join(cleoDir, INLINE_REFRESH_LOCK_FILE);
+  const holder = takePidLock(lockPath);
+  if (holder !== null)
+    return skip(
+      `an inline refresh is already running${holder > 0 ? ` (pid ${holder})` : ''}; answered from the stale index`,
+    );
+  let grant: { release(): Promise<void> } | null = null;
   try {
-    const summary = await runRefresh({
-      projectRoot,
-      repoPath: manifest?.sourceRoot ?? projectRoot,
-      ...(manifest ? { includedRepositories: manifest.includedRepositories } : {}),
-      budgetMs: effective.budgetMs,
-    });
-    const after = await assessWithStaleSet(projectRoot);
-    return {
-      staleFiles: after.staleFiles,
-      freshness: {
-        ...after.freshness,
-        autoRefresh: {
-          refreshed: summary.mode !== 'unchanged',
-          staleFiles: before.staleFileCount,
-          durationMs: Math.round(performance.now() - started),
-          reason: `${summary.mode}: ${summary.reason}`,
+    const toParse = plan?.toParse ?? before.staleFileCount;
+    const heavy =
+      toParse > ADMISSION_FREE_PARSE_FILES ||
+      (before.fileCount > 0 && toParse / before.fileCount > ADMISSION_FREE_PARSE_RATIO);
+    if (heavy) {
+      const admitted = await admitter(projectRoot);
+      if ('refused' in admitted)
+        return skip(
+          `a refresh parsing ~${toParse} file(s) needs cleo run admission and the machine is busy (${admitted.refused}); answered from the stale index`,
+        );
+      grant = admitted;
+    }
+    const manifest = readFileManifest(db, projectRoot);
+    const started = performance.now();
+    const generation = db.values(
+      sql`SELECT value FROM main._nexus_meta WHERE key = 'graph_generation'`,
+    )[0]?.[0];
+    try {
+      const summary = await runRefresh({
+        projectRoot,
+        repoPath: manifest?.sourceRoot ?? projectRoot,
+        ...(manifest ? { includedRepositories: manifest.includedRepositories } : {}),
+        budgetMs: effective.budgetMs,
+      });
+      const after = await assessWithStaleSet(projectRoot);
+      return {
+        staleFiles: after.staleFiles,
+        ...(after.refreshPlan ? { refreshPlan: after.refreshPlan } : {}),
+        freshness: {
+          ...after.freshness,
+          autoRefresh: {
+            refreshed: summary.mode !== 'unchanged',
+            staleFiles: before.staleFileCount,
+            durationMs: Math.round(performance.now() - started),
+            reason: `${summary.mode}: ${summary.reason}`,
+          },
         },
-      },
-    };
-  } catch (error) {
-    return {
-      staleFiles: initial.staleFiles,
-      freshness: {
-        ...before,
-        autoRefresh: {
-          refreshed: false,
-          staleFiles: before.staleFileCount,
-          durationMs: Math.round(performance.now() - started),
-          reason: `refresh failed, previous graph retained: ${error instanceof Error ? error.message : String(error)}`,
+      };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      // T14014: an aborted or failed refresh records no cost, so without a
+      // cooldown every query would start another one.
+      const until = new Date(Date.now() + INLINE_REFRESH_COOLDOWN_MS).toISOString();
+      recordCooldown(db, cleoDir, {
+        until,
+        generation: typeof generation === 'string' ? generation : null,
+        reason: message.slice(0, 300),
+      });
+      return {
+        staleFiles: initial.staleFiles,
+        ...(initial.refreshPlan ? { refreshPlan: initial.refreshPlan } : {}),
+        freshness: {
+          ...before,
+          refreshCooldownUntil: until,
+          autoRefresh: {
+            refreshed: false,
+            staleFiles: before.staleFileCount,
+            durationMs: Math.round(performance.now() - started),
+            reason: `refresh failed, previous graph retained: ${message}; inline refresh paused until ${until}`,
+          },
         },
-      },
-    };
+      };
+    }
+  } finally {
+    await grant?.release();
+    releasePidLock(lockPath);
   }
 }
 

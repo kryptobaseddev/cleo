@@ -17,6 +17,7 @@ import { drizzle } from 'drizzle-orm/node-sqlite';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { measureAgainstBase } from '../../nexus/freshness.js';
 import {
+  changedFilesSince,
   commitsBetween,
   originDefaultMergeBase,
   resolveBaseRef,
@@ -115,6 +116,14 @@ describe('base ref (T14007)', () => {
     expect(resolveBaseRef(clone)).toBe('origin/master');
   });
 
+  it('counts tracked files changed since a revision without a walk (T14014)', () => {
+    const { clone, shas } = behindClone();
+    expect(changedFilesSince(clone, shas[1]!)).toBe(0);
+    writeFileSync(join(clone, 'f.txt'), 'edited\n');
+    expect(changedFilesSince(clone, shas[1]!)).toBe(1);
+    expect(changedFilesSince(clone, 'f'.repeat(40))).toBeNull();
+  });
+
   it('answers null for an unknown revision or a directory without commits', () => {
     const empty = join(dir, 'empty');
     git(dir, ['init', '-q', empty]);
@@ -143,6 +152,7 @@ describe('base ref (T14007)', () => {
       baseRevision: shas[4],
       commitsBehind: 3,
       commitsBehindHead: 0,
+      changedFilesSinceIndex: 0,
       ageDays: 3,
     });
     native.close();
@@ -164,6 +174,7 @@ describe('base ref (T14007)', () => {
       baseRevision: shas[0],
       commitsBehind: null,
       commitsBehindHead: null,
+      changedFilesSinceIndex: null,
       ageDays: null,
     });
     native.close();

@@ -21,21 +21,13 @@
  */
 
 import { spawnSync } from 'node:child_process';
-import {
-  existsSync,
-  linkSync,
-  mkdirSync,
-  readFileSync,
-  renameSync,
-  rmSync,
-  statSync,
-  writeFileSync,
-} from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { getConfigValue } from '../config/registry.js';
 import { setConfigValue } from '../config.js';
 import { resolveBaseRef, resolveOriginDefault } from '../git/base-ref.js';
 import { getCleoDirAbsolute } from '../paths.js';
+import { releasePidLock, takePidLock } from './pid-lock.js';
 
 /** File under `.cleo/` holding the last real outcome (ran, deferred, failed). */
 export const REINDEX_ON_MERGE_OUTCOME_FILE = 'nexus-reindex-on-merge.json';
@@ -51,9 +43,6 @@ export const DEFAULT_REINDEX_TIMEOUT_SECONDS = 300;
 
 /** Seconds between admission attempts. */
 const RETRY_SECONDS = 30;
-
-/** A lock file younger than this with no readable pid is a holder still writing it. */
-const LOCK_WRITE_GRACE_MS = 5_000;
 
 /** `cleo run` exit code when the command was not admitted. */
 const RUN_DEFERRED_EXIT = 75;
@@ -110,48 +99,6 @@ async function anyoneQueued(): Promise<boolean> {
     return readLedger().some((entry) => entry.state === 'waiting');
   } catch {
     return true;
-  }
-}
-
-/** Whether a process with this pid is alive. */
-function alive(pid: number): boolean {
-  try {
-    process.kill(pid, 0);
-    return true;
-  } catch (error) {
-    return (error as NodeJS.ErrnoException).code === 'EPERM';
-  }
-}
-
-/**
- * Take the per-project lock atomically: the pid is written to a private file
- * that is then hard-linked into place, so a reader never sees an empty lock.
- * A lock left by a dead process is cleared once.
- *
- * @returns `null` when taken, or the pid of the live holder (`0` when unknown).
- */
-function takeLock(lockPath: string): number | null {
-  const mine = `${lockPath}.${process.pid}`;
-  writeFileSync(mine, String(process.pid));
-  try {
-    for (let attempt = 0; attempt < 2; attempt++) {
-      try {
-        linkSync(mine, lockPath);
-        return null;
-      } catch (error) {
-        if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error;
-        const holder = Number.parseInt(readFileSync(lockPath, 'utf-8'), 10);
-        if (Number.isInteger(holder) && holder > 0) {
-          if (alive(holder)) return holder;
-        } else if (Date.now() - statSync(lockPath).mtimeMs < LOCK_WRITE_GRACE_MS) {
-          return 0;
-        }
-        rmSync(lockPath, { force: true });
-      }
-    }
-    return 0;
-  } finally {
-    rmSync(mine, { force: true });
   }
 }
 
@@ -259,7 +206,7 @@ export async function runReindexOnMerge(
   const cleoDir = getCleoDirAbsolute(projectRoot);
   mkdirSync(cleoDir, { recursive: true });
   const lockPath = join(cleoDir, REINDEX_ON_MERGE_LOCK_FILE);
-  const holder = takeLock(lockPath);
+  const holder = takePidLock(lockPath);
   if (holder !== null)
     return result(
       'skipped',
@@ -296,7 +243,7 @@ export async function runReindexOnMerge(
       await sleep(RETRY_SECONDS * 1000);
     }
   } finally {
-    rmSync(lockPath, { force: true });
+    releasePidLock(lockPath);
   }
 }
 

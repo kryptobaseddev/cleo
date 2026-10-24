@@ -789,8 +789,10 @@ export interface NexusAutoRefreshConfig {
    */
   enabled?: boolean;
   /**
-   * Most stale files a query refreshes inline.
+   * Retired (T14014) and ignored: a query refreshes inline whenever the
+   * size-scaled cost estimate fits `budgetMs`.
    *
+   * @deprecated The cost estimate against `budgetMs` decides.
    * @defaultValue 25
    */
   maxFiles?: number;

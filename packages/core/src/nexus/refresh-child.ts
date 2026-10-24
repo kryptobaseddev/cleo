@@ -17,6 +17,11 @@ import {
   runRefreshInProcess,
 } from './freshness.js';
 
+// T14014: a parent killed outright (SIGKILL) never stops this child; the IPC
+// channel closing is the signal, so the refresh never outlives the query and
+// its single-flight lock.
+process.once('disconnect', () => process.exit(1));
+
 process.once('message', async (input: NexusRefreshInput) => {
   let reply: NexusRefreshReply;
   try {

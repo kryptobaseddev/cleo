@@ -1,6 +1,6 @@
 ---
 name: ct-codebase-mapper
-version: 2.3.4
+version: 2.3.5
 description: Orient in an unfamiliar or large codebase with CLEO's code-intelligence graph (cleo nexus) and project map (cleo map). Use before planning or editing unfamiliar code, for brownfield onboarding, to find what a change would break, or to map a project's structure, communities and execution flows. Triggers on "map the codebase", "understand this project", "what calls X", "what would break", "brownfield analysis", "project structure".
 protocol: null
 dependencies: []
@@ -17,7 +17,7 @@ triggers:
   - project structure
   - blast radius
 metadata:
-  version: 2.3.4
+  version: 2.3.5
   tier: on-demand
   install: harness
   covers:
@@ -47,8 +47,10 @@ cleo nexus status
 Read `nodeCount`, `lastIndexedAt` and `staleFileCount` against `fileCount`,
 and `freshness.commitsBehind` (commits on `freshness.baseRef` the index has
 not seen) with `freshness.ageDays`.
-Queries auto-refresh up to 25 stale files; beyond that they warn
-`W_NEXUS_INDEX_STALE`. Refresh with `cleo nexus analyze` (incremental; `--full`
+Queries refresh a stale index inline when the last run's cost, scaled to the
+repository and the stale set, fits `nexus.autoRefresh.budgetMs`; otherwise they
+warn `W_NEXUS_INDEX_STALE`. `freshness.changedFilesSinceIndex` is a quick
+git-diff count of tracked files changed since the indexed revision. Refresh with `cleo nexus analyze` (incremental; `--full`
 rebuilds). An empty or stale index gives confident-looking but incomplete
 answers — say which you relied on.
 
@@ -116,9 +118,12 @@ caller, so an empty footprint alone never establishes that a change is safe.
 When a symbol name is ambiguous, pass the qualified candidate the command
 returns and confirm against the source.
 
-On a stale index, `impact` and `context` refresh it inline only when the last
-analysis recorded a cost that bounds the run; otherwise they answer from the
-stale index and say so. `--no-refresh` (or `CLEO_NEXUS_AUTO_REFRESH=false`)
+On a stale index, `impact` and `context` refresh it inline when the size-scaled
+cost estimate fits the budget: one refresh at a time per project, a larger one
+only when `cleo run` admits it, and none for 30 minutes after one fails or is
+aborted (`freshness.refreshCooldownUntil`; the next `cleo nexus analyze` ends
+the pause). An aborted refresh keeps its parse work for the next run. Otherwise
+they answer from the stale index and say so. `--no-refresh` (or `CLEO_NEXUS_AUTO_REFRESH=false`)
 always answers from the index as it stands.
 
 Every graph answer carries `data.freshness` (`indexedRevision`, `baseRef`,

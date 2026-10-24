@@ -106,6 +106,24 @@ export function commitsBetween(root: string, from: string, to: string): number |
 }
 
 /**
+ * Tracked files that differ between `rev` and the working tree (`git diff
+ * --name-only rev`), counted without walking the tree (T14014).
+ *
+ * @param root - Repository to ask.
+ * @param rev - The revision to compare against (e.g. an index's revision).
+ * @returns The count, or `null` when `rev` is unknown here.
+ * @example
+ * ```ts
+ * changedFilesSince('/repo', indexedSha); // 2656
+ * ```
+ */
+export function changedFilesSince(root: string, rev: string): number | null {
+  const out = git(root, ['diff', '--name-only', rev]);
+  if (out === null) return null;
+  return out === '' ? 0 : out.split('\n').length;
+}
+
+/**
  * The merge-base of HEAD and origin's default branch: where the branch's own
  * commits begin.
  *
