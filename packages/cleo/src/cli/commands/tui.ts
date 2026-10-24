@@ -30,6 +30,17 @@
 import { defineCommand } from '../lib/define-cli-command.js';
 
 /**
+ * Deprecation notice `cleo tui` prints on stderr before the cockpit starts
+ * (T13996, ADR-098: the Pi/CleoOS harness is retiring). The cockpit itself
+ * behaves as before.
+ *
+ * @task T13996
+ */
+export const TUI_DEPRECATION_NOTICE =
+  'warning: cleo tui is deprecated (ADR-098): the Pi-powered cockpit is retiring with the ' +
+  'Pi/CleoOS harness and will be removed in a later release. Use the cleo CLI.';
+
+/**
  * `cleo tui` — launch the keyboard-first terminal cockpit.
  *
  * Boots the gateway SDK client, renders the Kanban home view, and (when
@@ -57,6 +68,7 @@ export const tuiCommand = defineCommand({
     },
   },
   async run({ args }) {
+    process.stderr.write(`${TUI_DEPRECATION_NOTICE}\n`); // json-stream-hygiene-allowed: interactive TUI with no envelope (T13996)
     // Lazy import keeps the gateway SDK + pi-tui loader off the `cleo --help`
     // fast path (the command module only loads when `cleo tui` actually runs).
     const { runCockpit } = await import('../lib/tui/cockpit.js');

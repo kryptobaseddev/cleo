@@ -21,6 +21,17 @@ import { registerPiSessionsCommands } from './sessions.js';
 import { registerPiThemesCommands } from './themes.js';
 
 /**
+ * Deprecation notice every `caamp pi` verb prints on stderr before it runs
+ * (T13996, ADR-098: the Pi/CleoOS harness is retiring). The verbs behave as
+ * before.
+ *
+ * @public
+ */
+export const PI_VERBS_DEPRECATION_NOTICE =
+  'Warning: caamp pi verbs are deprecated (ADR-098): the Pi/CleoOS harness is retiring and ' +
+  'they will be removed in a later release.';
+
+/**
  * Register the `pi` command group and all Wave-1 sub-verbs on the root
  * program.
  *
@@ -51,7 +62,13 @@ import { registerPiThemesCommands } from './themes.js';
 export function registerPiCommands(program: Command): void {
   const pi = program
     .command('pi')
-    .description('Pi harness operations (extensions, sessions, models, prompts, themes, cant)');
+    .description(
+      '[DEPRECATED — ADR-098] Pi harness operations (extensions, sessions, models, prompts, themes, cant)',
+    );
+  // T13996: every `caamp pi` verb still works and warns first.
+  pi.hook('preAction', () => {
+    console.warn(PI_VERBS_DEPRECATION_NOTICE);
+  });
 
   registerPiExtensionsCommands(pi);
   registerPiSessionsCommands(pi);
