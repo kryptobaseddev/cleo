@@ -51,12 +51,9 @@ vi.mock('../brain-writer-thread.js', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../brain-writer-thread.js')>();
   return {
     ...actual,
-    enqueueBrainWrite: async (
-      op: Parameters<typeof actual.enqueueBrainWrite>[0],
-      execution?: Parameters<typeof actual.enqueueBrainWrite>[1],
-    ) => {
+    enqueueBrainWrite: async (op: Parameters<typeof actual.enqueueBrainWrite>[0]) => {
       recorder.ops.push(op.kind);
-      return actual.enqueueBrainWrite(op, execution);
+      return actual.enqueueBrainWrite(op);
     },
   };
 });

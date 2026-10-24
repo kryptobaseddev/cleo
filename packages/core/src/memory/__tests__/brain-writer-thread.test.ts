@@ -13,7 +13,6 @@
  */
 
 import { execFileSync } from 'node:child_process';
-import { createHash } from 'node:crypto';
 import { once } from 'node:events';
 import { existsSync } from 'node:fs';
 import { mkdir, mkdtemp, rm, symlink, writeFile } from 'node:fs/promises';
@@ -177,17 +176,12 @@ describe('enqueueBrainWrite — concurrent writes', () => {
   }, 30_000);
 });
 
-describe('scoped source worker execution (T12265)', () => {
+describe('worker execution through the bundled writer (T12265, unscoped since T14017)', () => {
   it.each([
-    'current',
+    'worker',
     'manager',
-    'cancel-after-commit',
-    'lost-ack',
-    'cancelled',
-    'stale-owner',
-    'malformed',
-  ] as const)('reports %s through the actual worker without writing another project', async (mode) => {
-    const root = await mkdtemp(join(tmpdir(), 'cleo-scoped-writer-'));
+  ] as const)('writes an observation through the %s path into the op project only', async (mode) => {
+    const root = await mkdtemp(join(tmpdir(), 'cleo-writer-worker-'));
     const project = join(root, 'A');
     const other = join(root, 'B');
     const artifact = join(root, 'artifact');
@@ -198,11 +192,7 @@ describe('scoped source worker execution (T12265)', () => {
     await symlink(join(coreRoot, 'migrations'), join(artifact, 'migrations'));
     await writeFile(
       join(artifact, 'package.json'),
-      JSON.stringify({
-        name: '@cleocode/core',
-        type: 'module',
-        exports: './dist/index.js',
-      }),
+      JSON.stringify({ name: '@cleocode/core', type: 'module', exports: './dist/index.js' }),
     );
     buildSync({
       entryPoints: {
@@ -218,152 +208,46 @@ describe('scoped source worker execution (T12265)', () => {
     });
     const { worktreeScope } = await import('../../paths.js');
     const { generateProjectHash } = await import('../../nexus/hash.js');
-    const { getDb, closeAllDatabases } = await import('../../store/sqlite.js');
-    const { getBrainDb, getBrainNativeDb } = await import('../../store/memory-sqlite.js');
-    const { DurableJobStore } = await import('../../store/background-jobs.js');
-    const { createOperationExecutionContext, bindOperationWriteFence, transferOperationContext } =
-      await import('../../store/background-ops.js');
-    const db = await worktreeScope.run(
-      { worktreeRoot: project, projectHash: generateProjectHash(project) },
-      () => getDb(project),
-    );
+    const { closeAllDatabases } = await import('../../store/sqlite.js');
+    const { getBrainDb } = await import('../../store/memory-sqlite.js');
     await worktreeScope.run(
       { worktreeRoot: project, projectHash: generateProjectHash(project) },
       () => getBrainDb(project),
     );
-    const native = worktreeScope.run(
-      { worktreeRoot: project, projectHash: generateProjectHash(project) },
-      () => getBrainNativeDb(project),
-    )!;
-    const jobs = new DurableJobStore(db, { projectId: 'A', actor: 'fixture' });
-    const proposalJson = JSON.stringify({ document: 'source 😀', project: 'A' });
-    const job = jobs.defer('worker-proof', 'docs.projection', Date.now(), {
-      projectId: 'A',
-      idempotencyKey: mode,
-      proposalJson,
-    });
-    const original = createOperationExecutionContext(
-      {
-        projectId: 'A',
-        projectRoot: project,
-        actor: 'fixture',
-        operation: 'docs.projection',
-        idempotencyKey: mode,
+    const op = {
+      kind: 'observe' as const,
+      projectRoot: project,
+      params: {
+        text: 'Canonical worker payload 😀',
+        title: 'Worker writer',
+        sourceType: 'agent' as const,
+        agent: 'fixture',
+        _skipGate: true,
       },
-      { budgetMs: 15000 },
-    );
-    const execution = bindOperationWriteFence(original, {
-      dbPath: join(project, '.cleo/cleo.db'),
-      proposalHash: createHash('sha256').update(proposalJson).digest('hex'),
-      lease: jobs.claim(job.id, Date.now()),
-    });
-    const link = transferOperationContext(execution, { items: 1 });
-    if (mode === 'cancelled') original.close();
-    if (mode === 'stale-owner') {
-      native.prepare('UPDATE main.background_jobs SET lease_expires_at=0 WHERE id=?').run(job.id);
-      new DurableJobStore(db, { projectId: 'A' }).claim(job.id, Date.now());
-    }
-    const committed =
-      mode === 'current' ||
-      mode === 'manager' ||
-      mode === 'cancel-after-commit' ||
-      mode === 'lost-ack';
-    const latch = new SharedArrayBuffer(4);
-    const wrapper = join(artifact, 'dist/worker-wrapper.js');
-    await writeFile(
-      wrapper,
-      `
-        import { parentPort, workerData } from 'node:worker_threads';
-        const post = parentPort.postMessage.bind(parentPort);
-        parentPort.postMessage = (message) => {
-          if (message.ok && workerData.pause) {
-            post({ committed: true });
-            Atomics.wait(new Int32Array(workerData.latch), 0, 0, 5000);
-          }
-          post(message);
-        };
-        await import('./brain-writer-worker.js');
-      `,
-    );
-    let worker =
-      mode === 'manager'
-        ? undefined
-        : new Worker(wrapper, {
-            resourceLimits: { maxOldGenerationSizeMb: 256 },
-            workerData: { pause: mode === 'cancel-after-commit' || mode === 'lost-ack', latch },
-            env: { ...process.env, CLEO_ROOT: other, CLEO_DIR: join(other, '.cleo') },
-          });
+    };
+    let worker: Worker | undefined;
     let manager: typeof import('../brain-writer-thread.js') | undefined;
     try {
-      const envelope = {
-        seq: 1,
-        execution: mode === 'malformed' ? { ...link.transfer, deadlineAt: NaN } : link.transfer,
-        op: {
-          kind: 'observe' as const,
-          projectRoot: project,
-          params: {
-            text: 'Canonical worker payload 😀',
-            title: 'Scoped writer',
-            sourceType: 'agent' as const,
-            agent: 'fixture',
-            _skipGate: true,
-          },
-        },
-      };
       let response: import('../brain-writer-thread.js').WriterResponseEnvelope;
-      if (worker) {
+      if (mode === 'worker') {
+        // The worker's own env points at another project; the op's root must win.
+        worker = new Worker(join(artifact, 'dist/brain-writer-worker.js'), {
+          resourceLimits: { maxOldGenerationSizeMb: 256 },
+          env: { ...process.env, CLEO_ROOT: other, CLEO_DIR: join(other, '.cleo') },
+        });
         const reply = once(worker, 'message', { signal: AbortSignal.timeout(10000) });
-        worker.postMessage(envelope);
-        if (mode === 'cancel-after-commit') {
-          expect((await reply)[0]).toEqual({ committed: true });
-          const final = once(worker, 'message', { signal: AbortSignal.timeout(10000) });
-          original.close();
-          Atomics.store(new Int32Array(latch), 0, 1);
-          Atomics.notify(new Int32Array(latch), 0);
-          [response] = await final;
-        } else if (mode === 'lost-ack') {
-          expect((await reply)[0]).toEqual({ committed: true });
-          await worker.terminate(); // Real committed write, deliberately no successful acknowledgement.
-          original.close();
-          const before = native.prepare('SELECT id,created_at FROM brain_observations').all();
-          expect(before).toHaveLength(1);
-          native
-            .prepare('UPDATE main.background_jobs SET lease_expires_at=0 WHERE id=?')
-            .run(job.id);
-          const resumedStore = new DurableJobStore(db, { projectId: 'A', actor: 'resumer' });
-          const resumed = createOperationExecutionContext(original.identity, { budgetMs: 15000 });
-          const resumedExecution = bindOperationWriteFence(resumed, {
-            ...execution.writeFence!,
-            lease: resumedStore.claim(job.id, Date.now()),
-          });
-          const resumedLink = transferOperationContext(resumedExecution, { items: 1 });
-          worker = new Worker(join(artifact, 'dist/brain-writer-worker.js'), {
-            resourceLimits: { maxOldGenerationSizeMb: 256 },
-            env: { ...process.env, CLEO_ROOT: other, CLEO_DIR: join(other, '.cleo') },
-          });
-          try {
-            const replay = once(worker, 'message', { signal: AbortSignal.timeout(10000) });
-            worker.postMessage({ ...envelope, execution: resumedLink.transfer });
-            [response] = await replay;
-            expect(native.prepare('SELECT id,created_at FROM brain_observations').all()).toEqual(
-              before,
-            );
-          } finally {
-            resumedLink.release();
-            resumed.close();
-          }
-        } else [response] = await reply;
+        worker.postMessage({ seq: 1, op });
+        [response] = await reply;
       } else {
         manager = await import(
           /* @vite-ignore */ pathToFileURL(join(artifact, 'dist/brain-writer-thread.js')).href
         );
         // The manager path is the worker path only in an opted-in host (T13126).
         manager!.useBrainWriterThread();
-        const result = await manager!.enqueueBrainWrite(envelope.op, execution);
+        const result = await manager!.enqueueBrainWrite(op);
         response = { seq: 1, ok: true, result };
       }
-      expect(response.seq).toBe(1);
-      expect(response.ok).toBe(committed);
+      expect(response).toMatchObject({ seq: 1, ok: true });
       const rows = JSON.parse(
         execFileSync(
           process.execPath,
@@ -381,22 +265,13 @@ describe('scoped source worker execution (T12265)', () => {
           { encoding: 'utf8', timeout: 5000 },
         ),
       );
-      if (response.ok) {
-        expect(rows).toEqual([
-          { title: 'Scoped writer', narrative: 'Canonical worker payload 😀' },
-        ]);
-        expect(response.result.kind).toBe('observe');
-        if (response.result.kind === 'observe') expect(response.result.result.id).toMatch(/^O-/);
-      } else {
-        expect(rows).toEqual([]);
-        expect(response.error).toBeTruthy();
-      }
+      expect(rows).toEqual([{ title: 'Worker writer', narrative: 'Canonical worker payload 😀' }]);
+      if (response.ok && response.result.kind === 'observe')
+        expect(response.result.result.id).toMatch(/^O-/);
       expect(existsSync(join(other, '.cleo'))).toBe(false);
     } finally {
       await worker?.terminate();
       await manager?.shutdownBrainWriter();
-      link.release();
-      original.close();
       await closeAllDatabases();
       await rm(root, { recursive: true, force: true });
     }

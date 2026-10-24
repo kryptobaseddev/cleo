@@ -29,7 +29,6 @@
  */
 
 import { createHash } from 'node:crypto';
-import { existsSync } from 'node:fs';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -249,61 +248,39 @@ describe('captured observation write boundary', () => {
     });
   }
 
-  it('keeps all supplied provenance and canonical text without detached enrichment', async () => {
-    const execution = context();
+  it('keeps all supplied provenance and canonical text (unscoped since T14017)', async () => {
     const attachments = ['a'.repeat(64)];
-    try {
-      const stored = await observeBrain(
-        tempDir,
-        {
-          text: 'Unicode 😀 | canonical documentary statement',
-          title: 'Sourced document',
-          type: 'decision',
-          project: 'observation-fixture',
-          sourceType: 'agent',
-          agent: 'fixture',
-          sourceConfidence: 'agent',
-          attachmentRefs: attachments,
-          provenanceChain: ['O-source'],
-          origin: 'test',
-          crossRef: ['T12265'],
-          _skipGate: true,
-          _skipQueue: true,
-        },
-        execution,
-      );
-      const accessor = await accessorModule.getBrainAccessor(tempDir);
-      const row = await accessor.getObservation(stored.id);
-      expect(row).toMatchObject({
-        narrative: 'Unicode 😀 | canonical documentary statement',
-        title: 'Sourced document',
-        type: 'decision',
-        project: 'observation-fixture',
-        agent: 'fixture',
-        sourceType: 'agent',
-        sourceConfidence: 'agent',
-        origin: 'test',
-        verified: false,
-        attachmentsJson: JSON.stringify(attachments),
-        provenanceChain: JSON.stringify(['O-source']),
-        memoryTier: 'medium',
-      });
-      const { getBrainNativeDb } = await import('../../store/memory-sqlite.js');
-      const native = getBrainNativeDb(tempDir)!;
-      expect(
-        native
-          .prepare('SELECT count(*) AS count FROM brain_page_nodes WHERE id=?')
-          .get('observation:' + stored.id)?.count,
-      ).toBe(0);
-      execution.close();
-      const { closeAllDatabases } = await import('../../store/sqlite.js');
-      await closeAllDatabases();
-      await rm(join(tempDir, '.cleo'), { recursive: true });
-      await new Promise<void>((resolve) => setTimeout(resolve, 25));
-      expect(existsSync(join(tempDir, '.cleo'))).toBe(false);
-    } finally {
-      execution.close();
-    }
+    const stored = await observeBrain(tempDir, {
+      text: 'Unicode 😀 | canonical documentary statement',
+      title: 'Sourced document',
+      type: 'decision',
+      project: 'observation-fixture',
+      sourceType: 'agent',
+      agent: 'fixture',
+      sourceConfidence: 'agent',
+      attachmentRefs: attachments,
+      provenanceChain: ['O-source'],
+      origin: 'test',
+      crossRef: ['T12265'],
+      _skipGate: true,
+      _skipQueue: true,
+    });
+    const accessor = await accessorModule.getBrainAccessor(tempDir);
+    const row = await accessor.getObservation(stored.id);
+    expect(row).toMatchObject({
+      narrative: 'Unicode 😀 | canonical documentary statement',
+      title: 'Sourced document',
+      type: 'decision',
+      project: 'observation-fixture',
+      agent: 'fixture',
+      sourceType: 'agent',
+      sourceConfidence: 'agent',
+      origin: 'test',
+      verified: false,
+      attachmentsJson: JSON.stringify(attachments),
+      provenanceChain: JSON.stringify(['O-source']),
+      memoryTier: 'medium',
+    });
   });
 
   it('rejects a borrowed native transaction and preserves its unrelated write', async () => {
@@ -375,54 +352,6 @@ describe('captured observation write boundary', () => {
     } finally {
       execution.close();
       native.exec('DROP TRIGGER fail_observation_after_insert');
-    }
-  });
-
-  it('pins actual storage while mutable CLEO_DIR and CLEO_ROOT move to another project', async () => {
-    const execution = context();
-    const original = accessorModule.getBrainAccessor;
-    let release = () => {};
-    let entered = () => {};
-    const gate = new Promise<void>((resolve) => {
-      release = resolve;
-    });
-    const ready = new Promise<void>((resolve) => {
-      entered = resolve;
-    });
-    const spy = vi.spyOn(accessorModule, 'getBrainAccessor').mockImplementation(async (root) => {
-      entered();
-      await gate;
-      return original(root);
-    });
-    const other = join(tempDir, 'other-project');
-    const pending = observeBrain(
-      tempDir,
-      { text: 'Project A evidence', _skipGate: true, _skipQueue: true },
-      execution,
-    );
-    try {
-      await ready;
-      vi.stubEnv('CLEO_DIR', join(other, '.cleo'));
-      vi.stubEnv('CLEO_ROOT', other);
-      release();
-      const stored = await pending;
-      const { DatabaseSync } = await import('node:sqlite');
-      const fresh = new DatabaseSync(join(tempDir, '.cleo', 'cleo.db'), { readOnly: true });
-      try {
-        expect(
-          fresh.prepare('SELECT narrative FROM brain_observations WHERE id=?').get(stored.id)
-            ?.narrative,
-        ).toBe('Project A evidence');
-      } finally {
-        fresh.close();
-      }
-      expect(existsSync(join(other, '.cleo'))).toBe(false);
-    } finally {
-      release();
-      await Promise.allSettled([pending]);
-      execution.close();
-      spy.mockRestore();
-      vi.unstubAllEnvs();
     }
   });
 
@@ -510,14 +439,14 @@ describe('captured observation write boundary', () => {
       proposalHash: createHash('sha256').update(proposalJson).digest('hex'),
       lease: jobs.claim(job.id, Date.now()),
     };
-    const params = {
-      text: 'Sourced immutable 😀',
+    const accessor = await accessorModule.getBrainAccessor(tempDir);
+    const row = {
+      id: 'O-doc-replay',
+      type: 'discovery' as const,
       title: 'Replay proof',
-      sourceType: 'agent' as const,
-      _skipGate: true,
-      _skipQueue: true,
+      narrative: 'Sourced immutable 😀',
     };
-    const stored = await observeBrain(tempDir, params, bindOperationWriteFence(first, fence));
+    const stored = await accessor.addObservation(row, bindOperationWriteFence(first, fence));
     first.close(); // Simulated caller loss after the domain commit, before recording a result.
     const native = getBrainNativeDb(tempDir)!;
     native.prepare('UPDATE main.background_jobs SET lease_expires_at=0 WHERE id=?').run(job.id);
@@ -532,66 +461,25 @@ describe('captured observation write boundary', () => {
     });
     try {
       expect(execution.writeFence!.lease.epoch).toBeGreaterThan(fence.lease.epoch);
-      const repeated = await observeBrain(tempDir, params, execution);
-      expect(repeated).toEqual(stored);
+      const repeated = await accessor.addObservation(row, execution);
+      expect(repeated.id).toBe(stored.id);
       await expect(
-        observeBrain(tempDir, { ...params, text: 'Conflicting payload' }, execution),
+        accessor.addObservation({ ...row, narrative: 'Conflicting payload' }, execution),
       ).rejects.toThrow('replay conflicts');
       expect(native.prepare('SELECT count(*) AS n FROM brain_observations').get()?.n).toBe(1);
       expect(
         native.prepare('SELECT narrative FROM brain_observations WHERE id=?').get(stored.id)
           ?.narrative,
-      ).toBe(params.text);
+      ).toBe(row.narrative);
       native
         .prepare('UPDATE brain_observations SET invalid_at=? WHERE id=?')
         .run('2020-01-01 00:00:00', stored.id);
-      await expect(observeBrain(tempDir, params, execution)).rejects.toThrow('retracted');
+      await expect(accessor.addObservation(row, execution)).rejects.toThrow('retracted');
       native.prepare('UPDATE brain_observations SET invalid_at=NULL WHERE id=?').run(stored.id);
       resumedStore.requestCancel(job.id, Date.now());
-      await expect(observeBrain(tempDir, params, execution)).rejects.toThrow(
-        'Domain write refused',
-      );
+      await expect(accessor.addObservation(row, execution)).rejects.toThrow('Domain write refused');
     } finally {
       resumed.close();
-    }
-  });
-
-  it('refuses delayed accessor continuation after cancellation and cleanup', async () => {
-    const accessor = await accessorModule.getBrainAccessor(tempDir);
-    let release = () => {};
-    let entered = () => {};
-    const gate = new Promise<void>((resolve) => {
-      release = resolve;
-    });
-    const ready = new Promise<void>((resolve) => {
-      entered = resolve;
-    });
-    const spy = vi.spyOn(accessorModule, 'getBrainAccessor').mockImplementation(async () => {
-      entered();
-      await gate;
-      return accessor;
-    });
-    const execution = context();
-    const pending = observeBrain(
-      tempDir,
-      { text: 'Cancelled continuation', _skipGate: true, _skipQueue: true },
-      execution,
-    );
-    try {
-      await ready;
-      execution.close();
-      const { closeAllDatabases } = await import('../../store/sqlite.js');
-      await closeAllDatabases();
-      await rm(join(tempDir, '.cleo'), { recursive: true });
-      const rejected = expect(pending).rejects.toThrow();
-      release();
-      await rejected;
-      expect(existsSync(join(tempDir, '.cleo'))).toBe(false);
-    } finally {
-      release();
-      await Promise.allSettled([pending]);
-      execution.close();
-      spy.mockRestore();
     }
   });
 });
