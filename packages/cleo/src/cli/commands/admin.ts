@@ -13,6 +13,7 @@
  * @task T480 — add cleanup, job, job.cancel, install.global, context.inject subcommands.
  */
 
+import { pushWarning } from '@cleocode/core/output';
 import { defineCommand, showUsage } from 'citty';
 import { dispatchFromCli } from '../../dispatch/adapters/cli.js';
 import { cliError } from '../renderers/index.js';
@@ -129,10 +130,23 @@ const pathsCommand = defineCommand({
 const scaffoldHubCommand = defineCommand({
   meta: {
     name: 'scaffold-hub',
+    // T13994 (ADR-098): hidden from `cleo admin --help`; still runs on request.
+    hidden: true,
     description:
-      'Create CleoOS Hub dirs (global-recipes, pi-extensions, cant-workflows, agents) and seed starter justfile',
+      '[DEPRECATED — ADR-098, the Pi/CleoOS harness is retiring] Create CleoOS Hub dirs (global-recipes, pi-extensions, cant-workflows, agents) and seed starter justfile',
   },
   async run() {
+    // T13994 (ADR-098): `cleo init` no longer runs this; it still works on
+    // request until the hub templates are removed.
+    pushWarning({
+      code: 'W_DEPRECATED_COMMAND',
+      message:
+        'cleo admin scaffold-hub is deprecated: the Pi/CleoOS harness is retiring (ADR-098) and the hub will be removed in a later release.',
+      severity: 'warn',
+      deprecated: 'cleo admin scaffold-hub',
+      replacement: 'none (CLI + per-harness hooks; CLEO Goal for autonomous runs)',
+      context: { task: 'T13994', adr: 'ADR-098' },
+    });
     await dispatchFromCli('mutate', 'admin', 'scaffold-hub', {}, { command: 'admin' });
   },
 });

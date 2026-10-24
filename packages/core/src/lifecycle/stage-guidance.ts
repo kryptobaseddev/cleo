@@ -150,7 +150,7 @@ function buildFallbackPrompt(stage: Stage, primarySkill: string): string {
   lines.push('');
   lines.push('### Primary Skill');
   lines.push(
-    `- **${primarySkill}** — protocol unavailable at runtime. Install \`@cleocode/skills\` or run \`cleo admin scaffold-hub\` to provision.`,
+    `- **${primarySkill}** — protocol unavailable at runtime. Install \`@cleocode/skills\` or run \`cleo doctor global-delivery --repair\` to relink the installed skills.`,
   );
   lines.push('');
   lines.push('### Tier 0 Skills (always loaded)');
