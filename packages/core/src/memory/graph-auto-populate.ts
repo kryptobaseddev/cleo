@@ -568,6 +568,32 @@ export async function ensureMessageNode(
   }
 }
 
+/** Separator between the repository key and the path or sha of a repo-qualified node id (T14012). */
+export const REPO_ID_SEPARATOR = '::';
+
+/**
+ * Graph node id for a file path or commit sha, qualified by its repository in a
+ * multi-repo store: `<prefix>:<repo>::<key>`, or `<prefix>:<key>` when `repo` is
+ * `null` (the store's own repository, so single-repo stores keep their ids).
+ *
+ * @param prefix - Node id prefix, `file` or `commit`.
+ * @param repo - Repository key, or `null` for the store's own repository.
+ * @param key - Repo-relative POSIX path or commit sha.
+ * @returns The node id.
+ * @example
+ * ```ts
+ * repoQualifiedNodeId('file', 'github.com/o/r', 'src/x.ts'); // 'file:github.com/o/r::src/x.ts'
+ * ```
+ * @task T14012
+ */
+export function repoQualifiedNodeId(
+  prefix: 'file' | 'commit',
+  repo: string | null,
+  key: string,
+): string {
+  return repo === null ? `${prefix}:${key}` : `${prefix}:${repo}${REPO_ID_SEPARATOR}${key}`;
+}
+
 /**
  * Upsert a `commit:<sha>` graph node for a git commit and emit a `touches_code`
  * edge from the associated task to the commit node.
@@ -582,7 +608,9 @@ export async function ensureMessageNode(
  * @param sha - Full git commit SHA (40 hex chars; short SHAs accepted).
  * @param taskId - CLEO task ID this commit resolves (`T###`).
  * @param options - `provenance` of the edge (default `auto:commit-hook`); `explicit`
- *   writes even when `brain.autoCapture` is off (validated evidence, T13950).
+ *   writes even when `brain.autoCapture` is off (validated evidence, T13950);
+ *   `repo` qualifies the node id with a repository key in a multi-repo store
+ *   (T14012).
  *
  * @task T945
  * @task T13950
@@ -591,10 +619,10 @@ export async function ensureCommitNode(
   projectRoot: string,
   sha: string,
   taskId: string,
-  options: { provenance?: string; explicit?: boolean } = {},
+  options: { provenance?: string; explicit?: boolean; repo?: string | null } = {},
 ): Promise<void> {
   try {
-    const nodeId = `commit:${sha}`;
+    const nodeId = repoQualifiedNodeId('commit', options.repo ?? null, sha);
     // An explicit link keeps an existing commit node: re-verifying never
     // rewrites its label or moves it to another task (T13950).
     const write = { explicit: options.explicit ?? false, ifAbsent: options.explicit ?? false };
@@ -605,7 +633,7 @@ export async function ensureCommitNode(
       `${sha.substring(0, 12)} (${taskId})`,
       1.0, // commits are immutable ground truth
       sha,
-      { sha, taskId },
+      options.repo ? { sha, taskId, repo: options.repo } : { sha, taskId },
       undefined,
       write,
     );

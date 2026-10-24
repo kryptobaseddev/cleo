@@ -2,9 +2,12 @@
  * Accepted verification evidence becomes brain graph links (T13950):
  * commits (and a PR's merge commit), files and decisions, written whatever
  * `brain.autoCapture` says, and idempotent on re-verify. File nodes are keyed
- * by repo-relative POSIX path; commit failures propagate.
+ * by repo-relative POSIX path; commit failures propagate. In a store that
+ * parents several repositories, file and commit ids carry a repository key and
+ * a forward migration moves existing links (T14012).
  *
  * @task T13950
+ * @task T14012
  */
 
 import { execFileSync } from 'node:child_process';
@@ -12,7 +15,20 @@ import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { EvidenceAtom } from '@cleocode/contracts';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+
+// Counts checkout probes so the per-directory cache is observable (T14012).
+const probes = vi.hoisted(() => ({ toplevel: 0 }));
+vi.mock('../../git/work-tree.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../git/work-tree.js')>();
+  return {
+    ...actual,
+    gitToplevel: (dir: string): string | null => {
+      probes.toplevel++;
+      return actual.gitToplevel(dir);
+    },
+  };
+});
 
 let root: string;
 
@@ -162,23 +178,27 @@ describe('linkVerifiedEvidence (T13950)', () => {
   });
 });
 
-describe('repoRelativeEvidencePath (T14005)', () => {
-  const git = (cwd: string, args: string[]): void => {
-    execFileSync('git', args, { cwd, stdio: 'ignore' });
-  };
+const git = (cwd: string, args: string[]): string =>
+  execFileSync('git', args, { cwd, encoding: 'utf-8', stdio: ['ignore', 'pipe', 'ignore'] }).trim();
 
-  /** A git repo at `dir` with `src/x.ts` committed. */
-  async function repo(dir: string): Promise<void> {
-    await mkdir(join(dir, 'src'), { recursive: true });
-    await writeFile(join(dir, 'src', 'x.ts'), 'x\n');
-    git(dir, ['init', '-q']);
-    git(dir, ['config', 'user.name', 't']);
-    git(dir, ['config', 'user.email', 't@example.com']);
-    git(dir, ['config', 'commit.gpgsign', 'false']);
-    git(dir, ['add', '.']);
-    git(dir, ['commit', '-q', '-m', 'init']);
+/** A git repo at `dir` with `src/x.ts` (and any `extra` files) committed; returns HEAD. */
+async function repo(dir: string, extra: string[] = []): Promise<string> {
+  await mkdir(join(dir, 'src'), { recursive: true });
+  await writeFile(join(dir, 'src', 'x.ts'), `${dir}\n`);
+  for (const file of extra) {
+    await mkdir(join(dir, file, '..'), { recursive: true });
+    await writeFile(join(dir, file), `${file}\n`);
   }
+  git(dir, ['init', '-q']);
+  git(dir, ['config', 'user.name', 't']);
+  git(dir, ['config', 'user.email', 't@example.com']);
+  git(dir, ['config', 'commit.gpgsign', 'false']);
+  git(dir, ['add', '.']);
+  git(dir, ['commit', '-q', '-m', 'init']);
+  return git(dir, ['rev-parse', 'HEAD']);
+}
 
+describe('repoRelativeEvidencePath (T14005)', () => {
   it('keys a file in the main checkout, verified from a worktree, by its repo path', async () => {
     const { repoRelativeEvidencePath } = await import('../evidence-graph-links.js');
     const main = join(root, 'main');
@@ -202,5 +222,209 @@ describe('repoRelativeEvidencePath (T14005)', () => {
     // Commit-anchored evidence: the execution root is the child checkout.
     expect(repoRelativeEvidencePath('src/x.ts', child, store)).toBe('src/x.ts');
     expect(repoRelativeEvidencePath('/elsewhere/x.ts', child, store)).toBeNull();
+  });
+});
+
+describe('repo-qualified evidence ids (T14012)', () => {
+  const c = 'c'.repeat(64);
+
+  it('gives same-named files and commits in two child repos separate nodes', async () => {
+    // Discover the execution root per commit instead of the declared store root.
+    delete process.env['CLEO_EVIDENCE_GIT_ROOT'];
+    const { linkVerifiedEvidence } = await import('../evidence-graph-links.js');
+    const shaA = await repo(join(root, 'a'));
+    await repo(join(root, 'b'));
+    git(join(root, 'b'), ['remote', 'add', 'origin', 'git@github.com:Org/B-Repo.git']);
+    await linkVerifiedEvidence(root, 'T1', [
+      { kind: 'commit', sha: shaA, shortSha: shaA.slice(0, 7) },
+      { kind: 'files', files: [{ path: 'src/x.ts', sha256: c }] },
+    ]);
+    await linkVerifiedEvidence(root, 'T2', [
+      { kind: 'files', files: [{ path: 'b/src/x.ts', sha256: c }] },
+    ]);
+    expect(await evidenceEdges()).toEqual([
+      { from: 'task:T1', to: `commit:a::${shaA}`, type: 'touches_code' },
+      { from: 'task:T1', to: 'file:a::src/x.ts', type: 'touches_code' },
+      { from: 'task:T2', to: 'file:github.com/org/b-repo::src/x.ts', type: 'touches_code' },
+    ]);
+  });
+
+  it('keeps unqualified ids in a single-repo store', async () => {
+    delete process.env['CLEO_EVIDENCE_GIT_ROOT'];
+    const { linkVerifiedEvidence } = await import('../evidence-graph-links.js');
+    const head = await repo(root);
+    await linkVerifiedEvidence(root, 'T1', [
+      { kind: 'commit', sha: head, shortSha: head.slice(0, 7) },
+      { kind: 'files', files: [{ path: 'src/x.ts', sha256: c }] },
+    ]);
+    expect(await evidenceEdges()).toEqual([
+      { from: 'task:T1', to: `commit:${head}`, type: 'touches_code' },
+      { from: 'task:T1', to: 'file:src/x.ts', type: 'touches_code' },
+    ]);
+  });
+
+  it('ignores an outer repo that tracks nothing under the store, but honours one that does', async () => {
+    const { createEvidenceRepoResolver } = await import('../evidence-graph-links.js');
+    const home = join(root, 'home');
+    await repo(home);
+    const store = join(home, 'projects', 'store');
+    await mkdir(join(store, 'notes'), { recursive: true });
+    await writeFile(join(store, 'notes', 'a.md'), 'a\n');
+    expect(createEvidenceRepoResolver(store).file('notes/a.md', store)).toEqual({
+      repo: null,
+      path: 'notes/a.md',
+    });
+    // A store inside a monorepo that tracks it keys files by the monorepo path.
+    const mono = join(root, 'mono');
+    await repo(mono, ['pkg/src/y.ts']);
+    expect(
+      createEvidenceRepoResolver(join(mono, 'pkg')).file('src/y.ts', join(mono, 'pkg')),
+    ).toEqual({ repo: null, path: 'pkg/src/y.ts' });
+  });
+
+  it('keys a submodule file by the submodule, apart from the superproject file', async () => {
+    const { createEvidenceRepoResolver } = await import('../evidence-graph-links.js');
+    const lib = join(root, 'lib-src');
+    await repo(lib);
+    const store = join(root, 'store');
+    await repo(store);
+    git(store, ['-c', 'protocol.file.allow=always', 'submodule', 'add', '-q', lib, 'lib']);
+    const repos = createEvidenceRepoResolver(store);
+    expect(repos.file('src/x.ts', store)).toEqual({ repo: null, path: 'src/x.ts' });
+    const sub = repos.file('lib/src/x.ts', store);
+    expect(sub?.path).toBe('src/x.ts');
+    expect(sub?.repo).toBeTruthy();
+    expect(repos.repoOf(join(store, 'lib'))).toBe(sub?.repo);
+  });
+
+  it('caches checkout probes by directory within one resolver', async () => {
+    const { createEvidenceRepoResolver } = await import('../evidence-graph-links.js');
+    await repo(join(root, 'a'), ['src/y.ts']);
+    await repo(join(root, 'b'));
+    const repos = createEvidenceRepoResolver(root);
+    expect(repos.file('a/src/x.ts', root)?.repo).toBe('a');
+    const after = probes.toplevel;
+    expect(repos.file('a/src/y.ts', root)?.repo).toBe('a');
+    expect(repos.repoOf(join(root, 'a', 'src'))).toBe('a');
+    expect(probes.toplevel).toBe(after);
+  });
+});
+
+describe('migrateEvidenceRepoIds (T14012)', () => {
+  it('moves evidence links to repo-qualified ids without losing any, and is idempotent', async () => {
+    const { migrateEvidenceRepoIds, EVIDENCE_EDGE_PROVENANCE } = await import(
+      '../evidence-graph-links.js'
+    );
+    const { writeGraphBatch } = await import('../graph-auto-populate.js');
+    const shaA = await repo(join(root, 'a'), ['src/only-a.ts']);
+    const shaB = await repo(join(root, 'b'));
+    const node = (id: string, nodeType: 'task' | 'file' | 'commit' | 'decision') => ({
+      id,
+      nodeType,
+      label: id,
+      qualityScore: 0.8,
+    });
+    const edge = (fromId: string, toId: string, provenance = EVIDENCE_EDGE_PROVENANCE) => ({
+      fromId,
+      toId,
+      edgeType: 'touches_code' as const,
+      provenance,
+    });
+    await writeGraphBatch(
+      root,
+      [
+        node('task:T1', 'task'),
+        node('task:T2', 'task'),
+        node('task:T3', 'task'),
+        node('decision:D1', 'decision'),
+        node('file:src/only-a.ts', 'file'),
+        node('file:src/x.ts', 'file'),
+        node(`commit:${shaA}`, 'commit'),
+        node(`commit:${shaB}`, 'commit'),
+      ],
+      [
+        edge('task:T1', 'file:src/only-a.ts'),
+        edge('task:T1', `commit:${shaA}`),
+        edge('task:T2', `commit:${shaB}`),
+        edge('task:T2', 'file:src/x.ts'),
+        // Two checkouts have src/x.ts and T3 has no commit to decide.
+        edge('task:T3', 'file:src/x.ts'),
+        // Another writer's edge stays on the old node.
+        edge('decision:D1', 'file:src/x.ts', 'auto:decision-cross-link'),
+      ],
+    );
+    const before = await evidenceEdges();
+
+    const plan = await migrateEvidenceRepoIds(root, { dryRun: true });
+    expect(await evidenceEdges()).toEqual(before);
+    expect(plan.moved).toHaveLength(4);
+
+    const applied = await migrateEvidenceRepoIds(root);
+    expect(applied.moved).toEqual(plan.moved);
+    expect(applied.removedNodes.sort()).toEqual(plan.removedNodes.sort());
+    expect(applied.unresolved).toEqual([
+      {
+        from: 'task:T3',
+        target: 'file:src/x.ts',
+        reason: "more than one checkout has this path and the task's commits do not decide",
+      },
+    ]);
+    expect(await evidenceEdges()).toEqual([
+      { from: 'task:T1', to: `commit:a::${shaA}`, type: 'touches_code' },
+      { from: 'task:T1', to: 'file:a::src/only-a.ts', type: 'touches_code' },
+      { from: 'task:T2', to: `commit:b::${shaB}`, type: 'touches_code' },
+      { from: 'task:T2', to: 'file:b::src/x.ts', type: 'touches_code' },
+      { from: 'task:T3', to: 'file:src/x.ts', type: 'touches_code' },
+    ]);
+    // Old nodes go only once nothing uses them.
+    expect(applied.removedNodes.sort()).toEqual(
+      [`commit:${shaA}`, `commit:${shaB}`, 'file:src/only-a.ts'].sort(),
+    );
+    const { getBrainNativeDb } = await import('../../store/memory-sqlite.js');
+    const ids = getBrainNativeDb(root)!
+      .prepare(
+        "SELECT id FROM brain_page_nodes WHERE id LIKE 'file:%' OR id LIKE 'commit:%' ORDER BY id",
+      )
+      .all()
+      .map((row) => String(row.id));
+    expect(ids).toEqual(
+      [
+        `commit:a::${shaA}`,
+        `commit:b::${shaB}`,
+        'file:a::src/only-a.ts',
+        'file:b::src/x.ts',
+        'file:src/x.ts',
+      ].sort(),
+    );
+
+    const again = await migrateEvidenceRepoIds(root);
+    expect(again.moved).toEqual([]);
+    expect(again.removedNodes).toEqual([]);
+  });
+
+  it('does nothing in a single-repo store', async () => {
+    const { migrateEvidenceRepoIds, EVIDENCE_EDGE_PROVENANCE } = await import(
+      '../evidence-graph-links.js'
+    );
+    const { writeGraphBatch } = await import('../graph-auto-populate.js');
+    await repo(root);
+    await writeGraphBatch(
+      root,
+      [{ id: 'file:src/x.ts', nodeType: 'file', label: 'src/x.ts', qualityScore: 0.8 }],
+      [
+        {
+          fromId: 'task:T1',
+          toId: 'file:src/x.ts',
+          edgeType: 'touches_code',
+          provenance: EVIDENCE_EDGE_PROVENANCE,
+        },
+      ],
+    );
+    expect(await migrateEvidenceRepoIds(root)).toEqual({
+      dryRun: false,
+      moved: [],
+      unresolved: [],
+      removedNodes: [],
+    });
   });
 });
