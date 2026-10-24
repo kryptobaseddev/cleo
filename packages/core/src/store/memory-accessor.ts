@@ -1236,7 +1236,9 @@ async function inGlobalCaptureFrame<T>(write: (db: DatabaseSync) => T): Promise<
 
 /**
  * Insert one observation into the global store's `brain_observations`, unless a
- * current observation with the same content hash already exists there.
+ * current observation of the same type with the same content hash already exists
+ * there. The type is part of the match, so a lesson whose text also lives as a
+ * plain observation is still stored as a lesson (T13988).
  *
  * The check and the insert run in one `BEGIN IMMEDIATE` transaction, so two
  * writers observing the same text cannot both insert (T13949).
@@ -1252,9 +1254,10 @@ export async function addGlobalObservation(row: GlobalObservationInsert): Promis
   return inGlobalCaptureFrame((db) => {
     const existing = db
       .prepare(
-        'SELECT id FROM main.brain_observations WHERE content_hash = ? AND invalid_at IS NULL LIMIT 1',
+        `SELECT id FROM main.brain_observations
+         WHERE content_hash = ? AND type = ? AND invalid_at IS NULL LIMIT 1`,
       )
-      .get(row.contentHash);
+      .get(row.contentHash, row.type);
     if (existing) return String(existing.id);
     db.prepare(
       `INSERT INTO main.brain_observations
