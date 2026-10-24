@@ -26,8 +26,8 @@ vi.mock('@cleocode/core/injection.js', () => ({
 import { sessionStart } from '@cleocode/core/session/engine-ops.js';
 import { SESSION_ENV_KEY_PRECEDENCE } from '@cleocode/core/sessions/session-id.js';
 import { TERMINAL_KEY_SOURCES } from '@cleocode/core/sessions/terminal-identity.js';
-import { addTask } from '@cleocode/core/tasks/add.js';
 import { getSession, requireBoundSession } from '@cleocode/core/store/session-store.js';
+import { addTask } from '@cleocode/core/tasks/add.js';
 import { type HookIo, runHookCli } from '../hook-entry.js';
 
 /** Every env var the session resolvers read, cleared so the host terminal cannot leak in. */
