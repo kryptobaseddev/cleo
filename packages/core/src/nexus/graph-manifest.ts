@@ -269,12 +269,28 @@ export function readActiveRefreshCooldown(
   } catch {
     return null;
   }
-  if (!(Date.parse(cooldown.until) > nowMs)) return null;
+  return refreshCooldownApplies(db, cooldown, nowMs) ? cooldown : null;
+}
+
+/**
+ * Whether a cooldown is still in force: before its `until`, and no analysis
+ * has published a new generation since it was recorded (T14014).
+ *
+ * @param db - Project graph database.
+ * @param cooldown - A recorded cooldown (from `_nexus_meta` or its fallback file).
+ * @param nowMs - The clock.
+ * @returns True while it applies.
+ */
+export function refreshCooldownApplies(
+  db: NodeSQLiteDatabase,
+  cooldown: RefreshCooldown,
+  nowMs: number = Date.now(),
+): boolean {
+  if (!(Date.parse(cooldown.until) > nowMs)) return false;
   const generation = db.values(
     sql`SELECT value FROM main._nexus_meta WHERE key = 'graph_generation'`,
   )[0]?.[0];
-  const current = typeof generation === 'string' ? generation : null;
-  return current === cooldown.generation ? cooldown : null;
+  return (typeof generation === 'string' ? generation : null) === cooldown.generation;
 }
 
 /**

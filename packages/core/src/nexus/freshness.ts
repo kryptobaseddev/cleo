@@ -14,7 +14,7 @@
  * @module nexus/freshness
  */
 
-import { existsSync, mkdirSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { performance } from 'node:perf_hooks';
 import { fileURLToPath } from 'node:url';
@@ -35,10 +35,12 @@ import { getNexusDb } from '../store/nexus-sqlite.js';
 import { runNexusAnalysis } from './analyze-orchestrator.js';
 import {
   type GraphRunCost,
+  type RefreshCooldown,
   readActiveRefreshCooldown,
   readFileManifest,
   readIndexedRevision,
   readRunCost,
+  refreshCooldownApplies,
   writeRefreshCooldown,
 } from './graph-manifest.js';
 import { releasePidLock, takePidLock } from './pid-lock.js';
@@ -700,6 +702,67 @@ const ADMISSION_FREE_PARSE_FILES = 25;
 /** Share of files above which a refresh needs `cleo run` admission. */
 const ADMISSION_FREE_PARSE_RATIO = 0.3;
 
+/** Fallback cooldown file under `.cleo/` when `_nexus_meta` cannot be written (T14014). */
+export const INLINE_REFRESH_COOLDOWN_FILE = 'nexus-refresh-cooldown.json';
+
+/** Last resort when neither the store nor the file can hold a cooldown. */
+let inProcessCooldown: RefreshCooldown | null = null;
+
+/**
+ * Record a cooldown: in `_nexus_meta`, else (SQLITE_BUSY while another
+ * analysis publishes, a read-only store) in a file under `.cleo/`, else in
+ * this process. Never throws: a failed write must not fail the query or lose
+ * the cooldown.
+ */
+function recordCooldown(
+  db: Awaited<ReturnType<typeof getNexusDb>>,
+  cleoDir: string,
+  cooldown: RefreshCooldown,
+): void {
+  try {
+    writeRefreshCooldown(db, cooldown);
+    return;
+  } catch {
+    // fall through to the file
+  }
+  try {
+    mkdirSync(cleoDir, { recursive: true });
+    writeFileSync(join(cleoDir, INLINE_REFRESH_COOLDOWN_FILE), JSON.stringify(cooldown));
+  } catch {
+    inProcessCooldown = cooldown;
+  }
+}
+
+/** The cooldown in force from the store, its fallback file, or this process. */
+function activeCooldown(
+  db: Awaited<ReturnType<typeof getNexusDb>>,
+  cleoDir: string,
+): RefreshCooldown | null {
+  const applies = (cooldown: RefreshCooldown | null): RefreshCooldown | null => {
+    try {
+      return cooldown && refreshCooldownApplies(db, cooldown) ? cooldown : null;
+    } catch {
+      return null;
+    }
+  };
+  let stored: RefreshCooldown | null = null;
+  try {
+    stored = readActiveRefreshCooldown(db);
+  } catch {
+    stored = null;
+  }
+  if (stored) return stored;
+  let filed: RefreshCooldown | null = null;
+  try {
+    filed = JSON.parse(
+      readFileSync(join(cleoDir, INLINE_REFRESH_COOLDOWN_FILE), 'utf-8'),
+    ) as RefreshCooldown;
+  } catch {
+    filed = null;
+  }
+  return applies(filed) ?? applies(inProcessCooldown);
+}
+
 /** Lock file under `.cleo/`: one inline refresh at a time per project. */
 export const INLINE_REFRESH_LOCK_FILE = 'nexus-inline-refresh.lock';
 
@@ -771,7 +834,8 @@ export async function ensureNexusIndexFresh(
       `auto-refresh is disabled (${effective.disabledBy ?? 'nexus.autoRefresh.enabled = false'}); answered from the stale index`,
     );
   const db = await getNexusDb(projectRoot);
-  const cooldown = readActiveRefreshCooldown(db);
+  const cleoDir = getCleoDirAbsolute(projectRoot);
+  const cooldown = activeCooldown(db, cleoDir);
   if (cooldown)
     return skip(
       `a recent inline refresh did not finish (${cooldown.reason}); no inline refresh until ${cooldown.until} or the next ${NEXUS_REFRESH_COMMAND}; answered from the stale index`,
@@ -791,7 +855,6 @@ export async function ensureNexusIndexFresh(
         `${effective.budgetMs}; answered from the stale index`,
     );
 
-  const cleoDir = getCleoDirAbsolute(projectRoot);
   mkdirSync(cleoDir, { recursive: true });
   const lockPath = join(cleoDir, INLINE_REFRESH_LOCK_FILE);
   const holder = takePidLock(lockPath);
@@ -844,7 +907,7 @@ export async function ensureNexusIndexFresh(
       // T14014: an aborted or failed refresh records no cost, so without a
       // cooldown every query would start another one.
       const until = new Date(Date.now() + INLINE_REFRESH_COOLDOWN_MS).toISOString();
-      writeRefreshCooldown(db, {
+      recordCooldown(db, cleoDir, {
         until,
         generation: typeof generation === 'string' ? generation : null,
         reason: message.slice(0, 300),

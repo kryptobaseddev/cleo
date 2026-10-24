@@ -245,6 +245,24 @@ describe('index freshness (T12316)', () => {
     expect(after.freshness.status).toBe('fresh');
   });
 
+  it('a cooldown the store cannot hold is still recorded, and the query still answers (T14014)', async () => {
+    await runNexusAnalysis({ repoPath: repo });
+    await put('src/a.ts', 'export const a11 = 1;\n');
+    // The store refuses the cooldown write, as SQLITE_BUSY would during a publish.
+    native.exec(`CREATE TRIGGER refuse_cooldown BEFORE INSERT ON _nexus_meta
+      WHEN NEW.key = 'inline_refresh_cooldown' BEGIN SELECT RAISE(ABORT, 'database is locked'); END`);
+    let runs = 0;
+    const abort = async (): Promise<never> => {
+      runs++;
+      throw new Error('aborted by the budget');
+    };
+    const first = await ensureNexusIndexFresh(repo, ON, abort, admitAll);
+    expect(first.freshness.refreshCooldownUntil).toBeDefined();
+    const second = await ensureNexusIndexFresh(repo, ON, abort, admitAll);
+    expect(second.freshness.autoRefresh?.reason).toMatch(/a recent inline refresh did not finish/);
+    expect(runs).toBe(1);
+  });
+
   it('one inline refresh at a time: a concurrent query answers from the stale index (T14014)', async () => {
     await runNexusAnalysis({ repoPath: repo });
     await put('src/a.ts', 'export const a7 = 1;\n');
