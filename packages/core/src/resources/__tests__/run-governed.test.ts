@@ -42,6 +42,7 @@ import {
 } from '../admission-ledger.js';
 import type { ResourceSample } from '../backend.js';
 import { _resetGovernorStateForTest, governorSlotDir, ResourceGovernor } from '../governor.js';
+import { HOOK_MIN_RUNS, readHookPeak } from '../hook-footprint.js';
 import { type RunJob, writeRunJob } from '../run-admission.js';
 import { type GovernedChild, type RunGovernedDeps, runGoverned } from '../run-governed.js';
 import {
@@ -296,6 +297,7 @@ function harness(opts: {
     groupOf: opts.groupOf ?? (() => null),
     ancestorsOf: opts.ancestorsOf ?? (() => []),
     treeUsage: opts.treeUsage ?? (() => null),
+    hookFootprintsDir: join(dir, 'hooks'),
   };
   return h;
 }
@@ -331,6 +333,33 @@ const base = (h: Harness, over: Record<string, unknown> = {}) => ({
   pollMs: 5000,
   deps: h.deps,
   ...over,
+});
+
+describe('a hooked run records its measured peak (T13921)', () => {
+  const MIB = 1024 ** 2;
+  /** One hooked push: the tree reads `rssMb` per sample; it exits `code` after `ticks` polls. */
+  const push = async (rssMb: number, code: number, ticks: number) => {
+    const h = harness({
+      treeUsage: () => ({ cpuMs: 1, rssBytes: rssMb * MIB, processes: 2 }),
+      onSleep: (n, hh) => {
+        if (n === ticks) hh.exit(code);
+      },
+    });
+    await runGoverned(
+      base(h, { argv: ['git', 'push'], cls: 'scoped-build', hookKey: 'pre-push:k' }),
+    );
+  };
+  const hooks = () => join(dir, 'hooks');
+
+  it('counts exit-0 runs sampled twice, and charges only after enough of them', async () => {
+    await push(9000, 1, 4); // a failed push: not a measurement
+    await push(100, 0, 1); // "Everything up-to-date": one sample at most, not counted
+    expect(readHookPeak('pre-push:k', hooks())).toBeNull();
+    for (let i = 0; i < HOOK_MIN_RUNS - 1; i++) await push(3000, 0, 4);
+    expect(readHookPeak('pre-push:k', hooks())).toBeNull(); // not enough counted runs yet
+    await push(500, 0, 4); // a light counted run never lowers the peak
+    expect(readHookPeak('pre-push:k', hooks())).toBe(3000 * MIB);
+  });
 });
 
 describe('the hung/overdue watchdog (T13563)', () => {

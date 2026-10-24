@@ -46,6 +46,7 @@ import {
   suspectCycle,
   TINY_LANE_SLOTS,
   TINY_LANE_WINDOWS,
+  URGENT_AGING_MS,
 } from '../admission-ledger.js';
 import type { ResourceSample } from '../backend.js';
 import { ResourceMonitor } from '../monitor.js';
@@ -393,6 +394,61 @@ describe('schedulePass', () => {
       lightShare: 'half',
     });
     expect(admittedIds(half)).toEqual(['h']);
+  });
+});
+
+describe('an urgent run queues ahead of routine work, within the budget (T13921)', () => {
+  const ctx = { capacityBytes: 24 * GIB, share: 'full' as const, nowMs: 1_000 };
+
+  it('is admitted before older routine waiters when only one fits', () => {
+    const out = schedulePass(
+      [
+        entry({ id: 'holder', state: 'admitted', footprintBytes: 12 * GIB, admittedAtMs: 0 }),
+        entry({ id: 'push-1', footprintBytes: 12 * GIB, enqueuedAtMs: 1 }),
+        entry({ id: 'push-2', footprintBytes: 12 * GIB, enqueuedAtMs: 2 }),
+        entry({ id: 'fix', footprintBytes: 12 * GIB, enqueuedAtMs: 3, priority: 'urgent' }),
+      ],
+      ctx,
+    );
+    expect(admittedIds(out)).toEqual(['holder', 'fix']);
+  });
+
+  it('never exceeds the budget: with no room it waits, at the head of the queue', () => {
+    const out = schedulePass(
+      [
+        entry({ id: 'holder', state: 'admitted', footprintBytes: 20 * GIB, admittedAtMs: 0 }),
+        entry({ id: 'push-1', footprintBytes: 2 * GIB, enqueuedAtMs: 1 }),
+        entry({ id: 'fix', footprintBytes: 12 * GIB, enqueuedAtMs: 3, priority: 'urgent' }),
+      ],
+      ctx,
+    );
+    // The routine run that fits may still backfill around the waiting urgent head.
+    expect(admittedIds(out)).toEqual(['holder', 'push-1']);
+  });
+
+  it('several urgent runs keep FIFO order among themselves', () => {
+    const out = schedulePass(
+      [
+        entry({ id: 'holder', state: 'admitted', footprintBytes: 12 * GIB, admittedAtMs: 0 }),
+        entry({ id: 'u-2', footprintBytes: 12 * GIB, enqueuedAtMs: 5, priority: 'urgent' }),
+        entry({ id: 'u-1', footprintBytes: 12 * GIB, enqueuedAtMs: 4, priority: 'urgent' }),
+      ],
+      ctx,
+    );
+    expect(admittedIds(out)).toEqual(['holder', 'u-1']);
+  });
+
+  it('a routine run waiting URGENT_AGING_MS is no longer passed by a new urgent one', () => {
+    const nowMs = URGENT_AGING_MS + 60_000;
+    const out = schedulePass(
+      [
+        entry({ id: 'holder', state: 'admitted', footprintBytes: 12 * GIB, admittedAtMs: 0 }),
+        entry({ id: 'old-push', footprintBytes: 12 * GIB, enqueuedAtMs: 0 }),
+        entry({ id: 'fix', footprintBytes: 12 * GIB, enqueuedAtMs: nowMs - 1, priority: 'urgent' }),
+      ],
+      { ...ctx, nowMs },
+    );
+    expect(admittedIds(out)).toEqual(['holder', 'old-push']);
   });
 });
 
@@ -1276,8 +1332,35 @@ describe('admit (one ledger, real critical section)', () => {
     );
     expect(out.admitted).toBe(false);
     expect(notices[0]).toMatch(
-      /^still waiting after 1m 0\ds for the machine budget \(10 GiB of 10 GiB in use, 0 waiting ahead\)\. Holders: tool:test pid/,
+      /^still waiting after 1m 0\ds for the machine budget \(10 GiB of 10 GiB in use, queue position 1, 0 waiting ahead\)\. Holders: tool:test pid/,
     );
+    await a.grant.release();
+  });
+
+  it('a long urgent waiter reports its queue position (T13921)', async () => {
+    const a = await admit(
+      { label: 'tool:test', footprintBytes: 10 * GIB },
+      { ...base, dir, wait: false },
+    );
+    if (!a.admitted) throw new Error('expected an admission');
+    let t = Date.now();
+    const notices: string[] = [];
+    const out = await admit(
+      { label: 'run:scoped-build', footprintBytes: 10 * GIB, urgent: true },
+      {
+        ...base,
+        dir,
+        wait: true,
+        timeoutMs: 70_000,
+        now: () => t,
+        sleep: async (ms) => {
+          t += Math.max(ms, 1_000);
+        },
+        notice: (l) => notices.push(l),
+      },
+    );
+    expect(out.admitted).toBe(false);
+    expect(notices[0]).toContain('queue position 1 (urgent), 0 waiting ahead). Holders: tool:test');
     await a.grant.release();
   });
 
@@ -1873,8 +1956,72 @@ describe('cleo run is charged by its real scope (T13367)', () => {
   });
 });
 
+/** A hook never measured (T13921): tests must not read this machine's measurements. */
+const unmeasured = (): null => null;
+
 describe('a git push is charged by what actually runs (T13452)', () => {
   const RAM = 48;
+
+  it('a measured hook is charged its peak plus the margin, capped at its plan (T13921)', () => {
+    const measured = (peakBytes: number) => () => ({ key: 'pre-push:abc', peakBytes });
+    const plan = planRunFootprint(
+      'scoped-build',
+      ['git', 'push'],
+      {},
+      RAM,
+      () => true,
+      measured(4 * GIB),
+    );
+    expect(plan.footprintBytes).toBe(5 * GIB);
+    expect(plan.footprintReason).toBe(
+      'scoped-build plan: runs the pre-push hook, measured peak 4.0 GiB + 25%',
+    );
+    expect(plan.hookKey).toBe('pre-push:abc');
+    // The heap and worker plan it is spawned with is unchanged.
+    expect(plan.resources).not.toBeNull();
+    // A peak above the plan is charged the plan; a tiny one at least the light footprint.
+    const planned = planRunFootprint(
+      'scoped-build',
+      ['git', 'push'],
+      {},
+      RAM,
+      () => true,
+      unmeasured,
+    );
+    const big = planRunFootprint(
+      'scoped-build',
+      ['git', 'push'],
+      {},
+      RAM,
+      () => true,
+      measured(64 * GIB),
+    );
+    expect(big.footprintBytes).toBe(planned.footprintBytes);
+    expect(big.footprintReason).toBe('scoped-build plan: runs the pre-push hook');
+    const tiny = planRunFootprint(
+      'scoped-build',
+      ['git', 'push'],
+      {},
+      RAM,
+      () => true,
+      measured(1024),
+    );
+    expect(tiny.footprintBytes).toBe(GIB);
+    // Not measured yet: the class plan, and the key to record under.
+    const fresh = planRunFootprint(
+      'scoped-build',
+      ['git', 'push'],
+      {},
+      RAM,
+      () => true,
+      () => ({
+        key: 'pre-push:abc',
+        peakBytes: null,
+      }),
+    );
+    expect(fresh.footprintBytes).toBe(planned.footprintBytes);
+    expect(fresh.hookKey).toBe('pre-push:abc');
+  });
 
   it('without a hook: the light footprint, with the reason', () => {
     const plan = planRunFootprint(
@@ -1900,6 +2047,7 @@ describe('a git push is charged by what actually runs (T13452)', () => {
         calls.push([hook, globals]);
         return true;
       },
+      unmeasured,
     );
     expect(calls).toEqual([['pre-push', ['-C', '/wt']]]);
     expect(plan.footprintReason).toBe('scoped-build plan: runs the pre-push hook');
@@ -1907,10 +2055,17 @@ describe('a git push is charged by what actually runs (T13452)', () => {
 
   it('with an installed pre-push hook: the class plan, naming the hook', () => {
     const seen: string[] = [];
-    const plan = planRunFootprint('scoped-build', ['git', 'push'], {}, RAM, (hook) => {
-      seen.push(hook);
-      return true;
-    });
+    const plan = planRunFootprint(
+      'scoped-build',
+      ['git', 'push'],
+      {},
+      RAM,
+      (hook) => {
+        seen.push(hook);
+        return true;
+      },
+      unmeasured,
+    );
     expect(seen).toEqual(['pre-push']);
     expect(plan.footprintBytes).toBeGreaterThan(HEAVY_FOOTPRINT_BYTES);
     expect(plan.footprintReason).toBe('scoped-build plan: runs the pre-push hook');
@@ -1944,7 +2099,7 @@ describe('a git push is charged by what actually runs (T13452)', () => {
       [['timeout', '60', 'sudo', '-u', 'me', 'cat', 'a'], 'cat runs no heavy tool'],
       [['env', 'NODE_OPTIONS=--no-warnings', 'node', 'gen.mjs'], 'node gen.mjs runs no heavy tool'],
     ] as const) {
-      const plan = planRunFootprint('scoped-build', argv, {}, RAM, () => true);
+      const plan = planRunFootprint('scoped-build', argv, {}, RAM, () => true, unmeasured);
       expect(plan.footprintBytes, argv.join(' ')).toBe(GIB);
       expect(plan.resources, argv.join(' ')).toBeNull();
       expect(plan.footprintReason).toBe(reason);
@@ -1997,6 +2152,7 @@ describe('a git push is charged by what actually runs (T13452)', () => {
       {},
       RAM,
       (hook) => hook === 'pre-commit',
+      unmeasured,
     );
     expect(plan.resources).not.toBeNull();
     expect(plan.footprintReason).toBe('scoped-build plan: runs the pre-commit hook');
@@ -2085,7 +2241,14 @@ describe('a scoped build is charged its own plan, not a whole heavy run (T13759)
   });
 
   it('a hooked commit is sized to the scoped plan it is spawned with', () => {
-    const plan = planRunFootprint('scoped-build', ['git', 'commit', '-m', 'x'], {}, 64, () => true);
+    const plan = planRunFootprint(
+      'scoped-build',
+      ['git', 'commit', '-m', 'x'],
+      {},
+      64,
+      () => true,
+      unmeasured,
+    );
     expect(plan.footprintBytes).toBe(12 * GIB);
   });
 

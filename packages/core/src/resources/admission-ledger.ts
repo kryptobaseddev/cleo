@@ -79,7 +79,7 @@ import {
   writeFileSync,
 } from 'node:fs';
 import { hostname, totalmem } from 'node:os';
-import { isAbsolute, join } from 'node:path';
+import { join } from 'node:path';
 import type {
   HeavyToolResourcePlan,
   MemoryConsumer,
@@ -102,6 +102,7 @@ import {
 } from '../tasks/heavy-tool-env.js';
 import type { CanonicalTool } from '../tasks/tool-resolver.js';
 import type { ResourceSample } from './backend.js';
+import { gitHookPath, HOOK_PEAK_MARGIN, hookFootprintKey, readHookPeak } from './hook-footprint.js';
 import { pressureScore, ResourceMonitor } from './monitor.js';
 import {
   checkMemoryGate,
@@ -297,14 +298,7 @@ export function gitHookInstalled(
   globals: readonly string[] = [],
 ): boolean {
   try {
-    // The command's own global options (`-C <dir>`, `-c core.hooksPath=…`)
-    // pick the repository and hooks directory it will use (T13458).
-    const path = execFileSync(
-      'git',
-      [...globals, 'rev-parse', '--path-format=absolute', '--git-path', `hooks/${hook}`],
-      { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'], timeout: 5_000 },
-    ).trim();
-    accessSync(isAbsolute(path) ? path : join(cwd, path), fsConstants.X_OK);
+    accessSync(gitHookPath(cwd, hook, globals), fsConstants.X_OK);
     return true;
   } catch (err) {
     const code = (err as NodeJS.ErrnoException).code;
@@ -334,6 +328,17 @@ export interface RunFootprintPlan {
   readonly footprintReason: string;
   /** Test files the run names, when it names them (T13132). */
   readonly namedFiles: number | null;
+  /**
+   * The git hook this run carries, keyed by its content (T13921): record the
+   * run's measured peak under it so the next run is charged by it.
+   */
+  readonly hookKey?: string;
+}
+
+/** A hook's content key and its measured peak, when measured (T13921). */
+export interface HookPeak {
+  readonly key: string;
+  readonly peakBytes: number | null;
 }
 
 /**
@@ -364,6 +369,10 @@ export function planRunFootprint(
   totalRamGib: number = totalmem() / GIB,
   hookInstalled: (hook: string, globals: readonly string[]) => boolean = (hook, globals) =>
     gitHookInstalled(process.cwd(), hook, globals), // CWD-OK: cleo run runs the command in its own cwd
+  hookPeak: (hook: string, globals: readonly string[]) => HookPeak | null = (hook, globals) => {
+    const key = hookFootprintKey(process.cwd(), hook, globals); // CWD-OK: as above
+    return key === null ? null : { key, peakBytes: readHookPeak(key, admissionDir()) };
+  },
 ): RunFootprintPlan {
   let scope = cls === 'full-build' ? null : runFootprint(argv);
   // T13452: a scoped build of a command that runs no heavy tool (`node x.mjs`,
@@ -374,6 +383,7 @@ export function planRunFootprint(
   // the hook runs (tests, a build) rides this admission.
   const probe = scope?.size === 'light' ? gitHookFor(argv) : null;
   const hook = probe?.hooks.find((h) => hookInstalled(h, probe.globals));
+  const measured = hook !== undefined && probe !== null ? hookPeak(hook, probe.globals) : null;
   if (hook !== undefined) {
     scope = { size: 'class', reason: `runs the ${hook} hook` };
   }
@@ -407,17 +417,30 @@ export function planRunFootprint(
     totalRamGib,
     maxWorkers,
   );
+  const reason =
+    namedFiles !== null
+      ? `${namedFiles} named test file${namedFiles === 1 ? '' : 's'}`
+      : scope?.size === 'class' && scope.reason !== 'sized by its class'
+        ? `${cls} plan: ${scope.reason}`
+        : `${cls} plan`;
+  const planned = resources !== null ? planFootprintBytes(resources) : undefined;
+  // T13921: a measured hook is charged its peak plus a margin, never more than
+  // the plan it runs under (which still bounds its heap and workers).
+  const peak = measured?.peakBytes ?? null;
+  const charged =
+    peak !== null && planned !== undefined
+      ? Math.min(planned, Math.max(LIGHT_FOOTPRINT_BYTES, Math.ceil(peak * HOOK_PEAK_MARGIN)))
+      : planned;
   return {
     overlay,
     resources,
-    ...(resources !== null ? { footprintBytes: planFootprintBytes(resources) } : {}),
+    ...(charged !== undefined ? { footprintBytes: charged } : {}),
     footprintReason:
-      namedFiles !== null
-        ? `${namedFiles} named test file${namedFiles === 1 ? '' : 's'}`
-        : scope?.size === 'class' && scope.reason !== 'sized by its class'
-          ? `${cls} plan: ${scope.reason}`
-          : `${cls} plan`,
+      peak !== null && charged !== planned
+        ? `${reason}, measured peak ${gib(peak)} + ${Math.round((HOOK_PEAK_MARGIN - 1) * 100)}%`
+        : reason,
     namedFiles,
+    ...(measured !== null ? { hookKey: measured.key } : {}),
   };
 }
 
@@ -497,6 +520,39 @@ export interface LedgerEntry {
    * carry it (T13452). Scheduling never makes it wait on that ancestor.
    */
   readonly parentId?: string;
+  /**
+   * `urgent` queues ahead of every routine waiter (T13921): a one-file fix for
+   * a red main does not wait behind routine pushes. It is still admitted only
+   * within the budget; nothing running is paused or displaced for it.
+   */
+  readonly priority?: 'urgent';
+}
+
+/**
+ * A routine waiter that has waited this long ranks with urgent ones (T13921):
+ * a stream of urgent jobs can delay routine work, never starve it.
+ */
+export const URGENT_AGING_MS = 10 * 60_000;
+
+/**
+ * Queue order at `nowMs` (T13921): urgent entries, and routine ones that have
+ * waited {@link URGENT_AGING_MS}, first; then FIFO by `enqueuedAtMs`, then id.
+ * The comparator is negative when `a` is ahead of `b`.
+ *
+ * @param nowMs - the clock.
+ */
+function queueOrder(nowMs: number): (a: LedgerEntry, b: LedgerEntry) => number {
+  const rank = (e: LedgerEntry): number =>
+    e.priority === 'urgent' || nowMs - e.enqueuedAtMs >= URGENT_AGING_MS ? 0 : 1;
+  const byId = (a: LedgerEntry, b: LedgerEntry): number => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
+  return (a, b) => rank(a) - rank(b) || a.enqueuedAtMs - b.enqueuedAtMs || byId(a, b);
+}
+
+/** Waiting entries queued ahead of `mine` at `nowMs` (its queue position is this plus one). */
+function waitingAhead(entries: readonly LedgerEntry[], mine: LedgerEntry, nowMs: number): number {
+  const order = queueOrder(nowMs);
+  return entries.filter((e) => e.state === 'waiting' && e.id !== mine.id && order(e, mine) < 0)
+    .length;
 }
 
 /**
@@ -1060,7 +1116,8 @@ function budgetPhrase(entry: LedgerEntry, budget: LedgerBudget): string {
  * One scheduling pass: admit every waiting entry the budget and the queue
  * order allow. Pure.
  *
- * - FIFO by `enqueuedAtMs`. A later entry may be admitted ahead of an older
+ * - Urgent entries first (T13921), then FIFO by `enqueuedAtMs`
+ *   ({@link queueOrder}). A later entry may be admitted ahead of an older
  *   one that does not fit (backfill) until that older one has waited
  *   `reservationMs`; from then on nothing passes it.
  * - A footprint above the capacity is charged the capacity (it runs alone).
@@ -1182,9 +1239,7 @@ export function schedulePass(entries: readonly LedgerEntry[], ctx: PassContext):
   const startable = (w: LedgerEntry, cost: number, h: Held): boolean =>
     fits(w, cost, h) ||
     (running - h.running === 0 && (isHeavy(w) ? ctx.share : lightShare) !== 'none');
-  const waiting = entries
-    .filter((e) => e.state === 'waiting')
-    .sort((a, b) => a.enqueuedAtMs - b.enqueuedAtMs || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+  const waiting = entries.filter((e) => e.state === 'waiting').sort(queueOrder(ctx.nowMs));
   // T13591: the reserve is bounded like the tiny lane (T13389). While the
   // oldest non-tiny run waits, it stays open only for TINY_LANE_WINDOWS
   // reservation windows, and never for a run charged the whole capacity: its
@@ -1607,6 +1662,8 @@ export interface AdmissionRequest {
   readonly footprintReason?: string;
   /** Take the machine-wide exclusive slot (T13237: a `full-build`). */
   readonly exclusive?: boolean;
+  /** Queue ahead of routine waiters, within the budget (T13921). */
+  readonly urgent?: boolean;
 }
 
 /** How to wait, and where to report. */
@@ -2001,6 +2058,7 @@ async function admitInner(req: AdmissionRequest, opts: AdmitOptions): Promise<Ad
     ...(req.task !== undefined ? { task: req.task } : {}),
     ...(req.footprintReason !== undefined ? { footprintReason: req.footprintReason } : {}),
     ...(req.exclusive === true ? { exclusive: true } : {}),
+    ...(req.urgent === true ? { priority: 'urgent' as const } : {}),
   };
 
   const deadline = t0 + timeoutMs;
@@ -2082,9 +2140,7 @@ async function admitInner(req: AdmissionRequest, opts: AdmitOptions): Promise<Ad
 
   const refusal = (doc: LedgerDoc, reading: MemoryPressureReading | null): AdmissionRefusal => {
     const nowMs = now();
-    const ahead = doc.entries.filter(
-      (e) => e.state === 'waiting' && e.id !== entry.id && e.enqueuedAtMs <= entry.enqueuedAtMs,
-    ).length;
+    const ahead = waitingAhead(doc.entries, entry, nowMs);
     const load = budgetLoad(doc, capacityBytes);
     const exclusiveHolder =
       entry.exclusive === true
@@ -2246,12 +2302,10 @@ function holderReport(
 ): string {
   const holders = doc.entries.filter((e) => e.state === 'admitted');
   const used = budgetLoad(doc, capacityBytes).bytes;
-  const ahead = doc.entries.filter(
-    (e) => e.state === 'waiting' && e.id !== mine.id && e.enqueuedAtMs <= mine.enqueuedAtMs,
-  ).length;
+  const ahead = waitingAhead(doc.entries, mine, nowMs);
   const lines = [
     `still waiting after ${age(waitedMs)} for the machine budget (${gib(used)} of ${budgetPhrase(mine, ledgerBudget(doc.pressure, capacityBytes))} in use, ` +
-      `${ahead} waiting ahead). Holders: ${describeLoad(doc, nowMs).join('; ') || 'none'}.`,
+      `queue position ${ahead + 1}${mine.priority === 'urgent' ? ' (urgent)' : ''}, ${ahead} waiting ahead). Holders: ${describeLoad(doc, nowMs).join('; ') || 'none'}.`,
   ];
   const reading = doc.pressure?.reading ?? null;
   if (reading !== null) {
