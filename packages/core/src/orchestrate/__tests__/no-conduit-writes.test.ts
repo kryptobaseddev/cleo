@@ -31,8 +31,10 @@ describe('spawn and handoff write no conduit messages (T13981)', () => {
     });
   }
 
-  it('the orchestrate barrel no longer exports sendConduitEvent', async () => {
+  it('neither the orchestrate barrel nor @cleocode/core/internal exports sendConduitEvent', async () => {
     const barrel = await import('../index.js');
     expect('sendConduitEvent' in barrel).toBe(false);
+    const internal = await import('../../internal.js');
+    expect('sendConduitEvent' in internal).toBe(false);
   });
 });
