@@ -63,6 +63,9 @@ jobs:
           for i in $(seq 1 20); do
             cleo memory observe "Canary observation $i: testing freshness sentinel" --title "Canary $i" --output silent
           done
+          # A fresh store that never dreamed is overdue by definition; the
+          # check is that one cycle consolidates the seeded observations.
+          cleo memory dream
         env:
           CLEO_PROJECT_ROOT: /tmp/cleo-canary
 
