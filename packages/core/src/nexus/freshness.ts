@@ -141,6 +141,11 @@ export interface NexusAutoRefreshPolicy {
   budgetMs: number;
   /** What turned refresh off, when not the config key (`--no-refresh`, `CLEO_NEXUS_AUTO_REFRESH`). */
   disabledBy?: string;
+  /**
+   * Indexed files above which any inline refresh needs `cleo run` admission,
+   * however few files it parses (T14019). @defaultValue {@link ADMISSION_GRAPH_FILES}
+   */
+  admissionGraphFiles?: number;
 }
 
 /** Largest factor a recorded run's whole-graph cost is scaled up by (T14014). */
@@ -617,6 +622,38 @@ const ADMISSION_FREE_PARSE_FILES = 25;
 /** Share of files above which a refresh needs `cleo run` admission. */
 const ADMISSION_FREE_PARSE_RATIO = 0.3;
 
+/**
+ * Indexed files above which every inline refresh needs `cleo run` admission
+ * (T14019): resolve, communities, flows and the republish run over the whole
+ * graph, so on a large repository they dominate memory even when one file is
+ * re-parsed.
+ */
+export const ADMISSION_GRAPH_FILES = 2_000;
+
+/** Admission footprint per indexed file of an inline refresh (T14019). */
+const REFRESH_BYTES_PER_INDEXED_FILE = 256 * 1024;
+
+/** Smallest admission footprint of an inline refresh (T14019). */
+const REFRESH_MIN_FOOTPRINT_BYTES = 256 * 1024 * 1024;
+
+/**
+ * The memory an inline refresh asks `cleo run` admission for (T14019): scaled
+ * to the graph it re-resolves (indexed files), at least
+ * {@link REFRESH_MIN_FOOTPRINT_BYTES}, at most the build class's footprint.
+ *
+ * @param indexedFiles - Files in the published generation.
+ * @param classBytes - Footprint of the `scoped-build` class on this machine.
+ * @returns Footprint in bytes.
+ * @example
+ * ```ts
+ * inlineRefreshFootprintBytes(10_000, footprintForClass('scoped-build'));
+ * ```
+ */
+export function inlineRefreshFootprintBytes(indexedFiles: number, classBytes: number): number {
+  const scaled = Math.max(0, indexedFiles) * REFRESH_BYTES_PER_INDEXED_FILE;
+  return Math.min(classBytes, Math.max(REFRESH_MIN_FOOTPRINT_BYTES, scaled));
+}
+
 /** Fallback cooldown file under `.cleo/` when `_nexus_meta` cannot be written (T14014). */
 export const INLINE_REFRESH_COOLDOWN_FILE = 'nexus-refresh-cooldown.json';
 
@@ -681,20 +718,24 @@ function activeCooldown(
 /** Lock file under `.cleo/`: one inline refresh at a time per project. */
 export const INLINE_REFRESH_LOCK_FILE = 'nexus-inline-refresh.lock';
 
-/** Admits a heavy inline refresh without waiting; `null` when refused (T14014). */
+/**
+ * Admits a heavy inline refresh without waiting; `{ refused }` when the machine
+ * is busy (T14014). `indexedFiles` sizes the footprint (T14019).
+ */
 export type NexusRefreshAdmitter = (
   projectRoot: string,
+  indexedFiles: number,
 ) => Promise<{ release(): Promise<void> } | { refused: string }>;
 
-/** The production admitter: one non-waiting `cleo run` admission pass, class build. */
-const admitRefresh: NexusRefreshAdmitter = async (projectRoot) => {
+/** The production admitter: one non-waiting `cleo run` admission pass, sized to the graph. */
+const admitRefresh: NexusRefreshAdmitter = async (projectRoot, indexedFiles) => {
   const { admit, footprintForClass } = await import('../resources/admission-ledger.js');
   const outcome = await admit(
     {
       label: 'nexus:inline-refresh',
-      footprintBytes: footprintForClass('scoped-build'),
+      footprintBytes: inlineRefreshFootprintBytes(indexedFiles, footprintForClass('scoped-build')),
       cwd: projectRoot,
-      footprintReason: 'inline NEXUS refresh beyond a small incremental set (T14014)',
+      footprintReason: `inline NEXUS refresh re-resolving a ${indexedFiles}-file graph (T14014, T14019)`,
     },
     { wait: false, timeoutMs: 0 },
   );
@@ -780,14 +821,17 @@ export async function ensureNexusIndexFresh(
   let grant: { release(): Promise<void> } | null = null;
   try {
     const toParse = plan?.toParse ?? before.staleFileCount;
+    // T14019: the whole-graph phases make a large graph heavy even for one file.
+    const largeGraph = before.fileCount > (effective.admissionGraphFiles ?? ADMISSION_GRAPH_FILES);
     const heavy =
+      largeGraph ||
       toParse > ADMISSION_FREE_PARSE_FILES ||
       (before.fileCount > 0 && toParse / before.fileCount > ADMISSION_FREE_PARSE_RATIO);
     if (heavy) {
-      const admitted = await admitter(projectRoot);
+      const admitted = await admitter(projectRoot, before.fileCount);
       if ('refused' in admitted)
         return skip(
-          `a refresh parsing ~${toParse} file(s) needs cleo run admission and the machine is busy (${admitted.refused}); answered from the stale index`,
+          `a refresh ${largeGraph ? `re-resolving a ${before.fileCount}-file graph` : `parsing ~${toParse} file(s)`} needs cleo run admission and the machine is busy (${admitted.refused}); answered from the stale index`,
         );
       grant = admitted;
     }
