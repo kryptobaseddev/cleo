@@ -402,15 +402,21 @@ export async function computeBriefing(
   let lessons: BriefingLesson[] = [];
   try {
     const { listLessons } = await import('../memory/lessons.js');
-    lessons = (await listLessons(projectRoot, { scope: 'all', limit: MAX_BRIEFING_LESSONS })).map(
-      (lesson) => ({
-        id: lesson.id,
-        rule: lesson.rule,
-        scope: lesson.scope,
-        date: lesson.createdAt,
-        _next: { fetch: `cleo memory fetch ${lesson.id}` },
-      }),
-    );
+    const listed = await listLessons(projectRoot, {
+      scope: 'all',
+      limit: MAX_BRIEFING_LESSONS,
+      // A broken store never hides the other store's lessons.
+      onStoreError: (store, error) =>
+        knowledgeWarnings.push(`Lessons unavailable from the ${store} brain: ${error.message}`),
+    });
+    lessons = listed.map((lesson) => ({
+      id: lesson.id,
+      // Imported rules can be long; the full text is one fetch away.
+      rule: truncateString(lesson.rule, 240),
+      scope: lesson.scope,
+      date: lesson.createdAt,
+      _next: { fetch: `cleo memory fetch ${lesson.id}` },
+    }));
   } catch (error) {
     knowledgeWarnings.push(
       `Lessons unavailable: ${error instanceof Error ? error.message : String(error)}`,

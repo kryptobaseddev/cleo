@@ -14,6 +14,7 @@ import type { OperationExecutionContext } from '@cleocode/contracts/jobs';
 import type { SQL } from 'drizzle-orm';
 import { and, asc, desc, eq, gt, gte, inArray, isNull, lt, ne, or, sql } from 'drizzle-orm';
 import type { NodeSQLiteDatabase } from 'drizzle-orm/node-sqlite';
+import { type AutoRowRuleId, autoRowGuard } from '../memory/auto-row-rules.js';
 import { memoryEligibilityClause } from '../memory/eligibility.js';
 import { assertOperationWriteFence } from './background-jobs.js';
 import { getBrainDb } from './memory-sqlite.js';
@@ -555,8 +556,8 @@ export class BrainDataAccessor {
    * @param ids - Row ids, written in one transaction.
    * @param invalidAt - New value: the quarantine timestamp, or `null` to restore.
    * @param expected - Required current value: `null` to quarantine, the timestamp to restore.
-   * @param guard - Optional trusted SQL predicate over unaliased columns, re-checked in
-   *   the same statement (a row that stopped matching is skipped).
+   * @param guardRules - Optional auto-row rule ids; a row must still match one of them,
+   *   current and unverified, in the same statement (a row that stopped matching is skipped).
    * @returns Ids of the rows that changed.
    * @example
    * ```ts
@@ -568,18 +569,17 @@ export class BrainDataAccessor {
     ids: readonly string[],
     invalidAt: string | null,
     expected: string | null,
-    guard?: string,
+    guardRules?: readonly AutoRowRuleId[],
   ): Promise<string[]> {
     if (ids.length === 0) return [];
+    const guard = guardRules ? sql.raw(`(${autoRowGuard(table, guardRules)})`) : undefined;
     const target = table === 'patterns' ? brainSchema.brainPatterns : brainSchema.brainObservations;
     const current = expected === null ? isNull(target.invalidAt) : eq(target.invalidAt, expected);
     return this.db.transaction((tx) =>
       tx
         .update(target)
         .set({ invalidAt })
-        .where(
-          and(inArray(target.id, [...ids]), current, guard ? sql.raw(`(${guard})`) : undefined),
-        )
+        .where(and(inArray(target.id, [...ids]), current, guard))
         .returning({ id: target.id })
         .all()
         .map((row) => row.id),
@@ -1330,8 +1330,8 @@ export async function addGlobalObservation(row: GlobalObservationInsert): Promis
  * @param ids - Row ids.
  * @param invalidAt - New value: the quarantine timestamp, or `null` to restore.
  * @param expected - Required current value: `null` to quarantine, the timestamp to restore.
- * @param guard - Optional trusted SQL predicate over unaliased columns, re-checked in
- *   the same statement (a row that stopped matching is skipped).
+ * @param guardRules - Optional auto-row rule ids; a row must still match one of them,
+ *   current and unverified, in the same statement (a row that stopped matching is skipped).
  * @returns Ids of the rows that changed.
  * @task T13951
  */
@@ -1340,11 +1340,11 @@ export async function setGlobalInvalidAtWhere(
   ids: readonly string[],
   invalidAt: string | null,
   expected: string | null,
-  guard?: string,
+  guardRules?: readonly AutoRowRuleId[],
 ): Promise<string[]> {
   if (ids.length === 0) return [];
   const placeholders = ids.map(() => '?').join(',');
-  const recheck = guard ? ` AND (${guard})` : '';
+  const recheck = guardRules ? ` AND (${autoRowGuard(table, guardRules)})` : '';
   return inGlobalCaptureFrame((db) =>
     db
       .prepare(
