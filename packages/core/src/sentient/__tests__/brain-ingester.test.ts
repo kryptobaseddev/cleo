@@ -30,7 +30,9 @@ function createBrainDb(): DatabaseSync {
       type TEXT NOT NULL DEFAULT 'decision',
       citation_count INTEGER NOT NULL DEFAULT 0,
       quality_score REAL NOT NULL DEFAULT 0.5,
-      created_at TEXT NOT NULL
+      created_at TEXT NOT NULL,
+      verified INTEGER NOT NULL DEFAULT 0,
+      invalid_at TEXT
     )
   `);
   return db;
@@ -45,6 +47,7 @@ function insertObservation(
     qualityScore?: number;
     daysAgo?: number;
     title?: string;
+    narrative?: string;
   } = {},
 ) {
   const {
@@ -53,13 +56,14 @@ function insertObservation(
     qualityScore = 0.8,
     daysAgo = 0,
     title = `Observation ${id}`,
+    narrative = `Narrative ${id}`,
   } = opts;
 
   const date = new Date(Date.now() - daysAgo * 86_400_000).toISOString();
   db.prepare(
-    `INSERT INTO brain_observations (id, title, type, citation_count, quality_score, created_at)
-     VALUES (:id, :title, :type, :citationCount, :qualityScore, :createdAt)`,
-  ).run({ id, title, type, citationCount, qualityScore, createdAt: date });
+    `INSERT INTO brain_observations (id, title, narrative, type, citation_count, quality_score, created_at)
+     VALUES (:id, :title, :narrative, :type, :citationCount, :qualityScore, :createdAt)`,
+  ).run({ id, title, narrative, type, citationCount, qualityScore, createdAt: date });
 }
 
 // ---------------------------------------------------------------------------
@@ -87,6 +91,23 @@ describe('runBrainIngester', () => {
     expect(results).toHaveLength(2);
     expect(results.every((r) => r.source === 'brain')).toBe(true);
     db.close();
+  });
+
+  it('excludes auto rows (doc-attachment records, task stubs) whatever their citations (T13977)', () => {
+    const db = createBrainDb();
+    insertObservation(db, 'O-real', { citationCount: 9 });
+    insertObservation(db, 'O-doc', {
+      citationCount: 9,
+      title: 'Doc attached: spec',
+      narrative: JSON.stringify({ kind: 'doc-attachment', attachmentId: 'A1', ownerId: 'T1' }),
+    });
+    insertObservation(db, 'O-stub', {
+      citationCount: 9,
+      title: 'Task complete: T1',
+      narrative: 'Task T1 completed with status: done',
+    });
+    const result = runBrainIngester(db);
+    expect(result.map((r) => r.title)).toEqual(['[T2-BRAIN] Recurring issue: Observation O-real']);
   });
 
   it('excludes entries older than 7 days even if citation_count >= 3', () => {

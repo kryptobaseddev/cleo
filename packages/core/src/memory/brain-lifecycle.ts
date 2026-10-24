@@ -699,7 +699,7 @@ export async function promoteObservationsToTyped(
           AND NOT EXISTS (
             SELECT 1 FROM brain_promotion_log p
             WHERE p.observation_id = o.id
-          )
+          )${autoRowExclusionClause('observations', 'o')}
         ORDER BY o.created_at DESC
         LIMIT ?
       `),
