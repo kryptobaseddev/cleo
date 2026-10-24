@@ -21,6 +21,7 @@ import type { DataAccessor, TransactionAccessor } from '../../store/data-accesso
 import { getNativeTasksDb, resetDbState } from '../../store/sqlite.js';
 import { validateGateVerify } from '../../validation/engine-ops.js';
 import { buildFreshAcRows } from '../ac-table.js';
+import { resetTaskOwnWorkCache } from '../change-set.js';
 import { completeTask, completeTaskStrict, withTaskWriteTransaction } from '../complete.js';
 import { taskEvidenceKind, taskEvidenceKindReport } from '../evidence.js';
 import { reqAdd } from '../req.js';
@@ -1411,6 +1412,31 @@ describe('completeTask', () => {
       expect(
         (await taskEvidenceKindReport(spike, env.tempDir, [], undefined, heads(null))).reason,
       ).toMatch(/PR #7's merge commit/);
+    });
+
+    it('a pushed origin/ branch citing the task counts, with no local copy (T14006)', async () => {
+      await initRepo();
+      git('checkout', '-q', '-b', 'feat/T001-remote');
+      await commitFile('foo.ts', 'remote work');
+      git('update-ref', 'refs/remotes/origin/feat/T001-remote', 'HEAD');
+      git('checkout', '-q', 'main');
+      git('branch', '-q', '-D', 'feat/T001-remote');
+      expect(await taskEvidenceKind({ id: 'T001', kind: 'spike' }, env.tempDir)).toBe('code');
+    });
+
+    it('reuses one search per task while HEAD stays put (T14006)', async () => {
+      const spike = { id: 'T001', kind: 'spike' as const };
+      await initRepo();
+      resetTaskOwnWorkCache();
+      expect(await taskEvidenceKind(spike, env.tempDir)).toBe('research');
+      // A new branch moves no HEAD: the cached answer stands until reset or HEAD moves.
+      git('branch', 'feat/T001-later');
+      git('checkout', '-q', 'feat/T001-later');
+      await commitFile('foo.ts', 'later');
+      git('checkout', '-q', 'main');
+      expect(await taskEvidenceKind(spike, env.tempDir)).toBe('research');
+      resetTaskOwnWorkCache();
+      expect(await taskEvidenceKind(spike, env.tempDir)).toBe('code');
     });
 
     it('a commit atom on a merge commit is read through its first parent', async () => {
