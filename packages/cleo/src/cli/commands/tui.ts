@@ -38,7 +38,7 @@ import { defineCommand } from '../lib/define-cli-command.js';
  */
 export const TUI_DEPRECATION_NOTICE =
   'warning: cleo tui is deprecated (ADR-098): the Pi-powered cockpit is retiring with the ' +
-  'Pi/CleoOS harness and will be removed in a later release. Use the cleo CLI or CLEO Studio.';
+  'Pi/CleoOS harness and will be removed in a later release. Use the cleo CLI.';
 
 /**
  * `cleo tui` — launch the keyboard-first terminal cockpit.
