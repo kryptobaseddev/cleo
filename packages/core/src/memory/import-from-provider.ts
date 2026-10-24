@@ -35,16 +35,32 @@ export interface ImportMemoryFilesOptions {
   /** File name for the import-hash dedup state (default: `migrate-memory-hashes.json`). */
   hasheFileName?: string;
   /**
-   * Dispatch function — matches the `dispatchFromCli` signature from the CLI
-   * adapter. Injected here to keep the core module decoupled from CLI internals.
+   * Dispatch function — matches the `dispatchRaw` signature from the CLI
+   * adapter: it returns the response instead of printing it or exiting, so a
+   * failure (or a duplicate) is handled per entry. Injected here to keep the
+   * core module decoupled from CLI internals.
    */
   dispatch: (
     gateway: 'mutate' | 'query',
     domain: string,
     operation: string,
     params: Record<string, unknown>,
-    output: { command: string; operation: string },
-  ) => Promise<void>;
+  ) => Promise<ImportDispatchResponse>;
+}
+
+/** The part of a dispatch response the importer reads (T13949). */
+export interface ImportDispatchResponse {
+  /** Whether the operation succeeded. */
+  success: boolean;
+  /** The failure, when it did not. */
+  error?: {
+    /** Machine-readable error code. */
+    code: string;
+    /** Human-readable message. */
+    message: string;
+    /** Structured details; `E_OBSERVE_NOT_STORED` carries the existing entry's `id`. */
+    details?: Record<string, unknown>;
+  };
 }
 
 /** Per-entry import record. */
@@ -171,6 +187,13 @@ function saveImportHashes(stateFile: string, hashes: Set<string>): void {
 // Public API
 // ---------------------------------------------------------------------------
 
+/** Observation type for a provider memory entry (`feedback` entries become learnings). */
+function observeType(entryType: string): 'feature' | 'discovery' | 'change' {
+  if (entryType === 'project') return 'feature';
+  if (entryType === 'user') return 'change';
+  return 'discovery';
+}
+
 /**
  * Import `*.md` memory files from a provider directory into `brain.db`.
  *
@@ -243,42 +266,31 @@ export async function importMemoryFiles(
       const entryType = type ?? 'project';
 
       if (!dryRun) {
-        if (entryType === 'feedback') {
-          await dispatch(
-            'mutate',
-            'memory',
-            'learning.store',
-            {
-              insight: `[MIGRATED] ${title}: ${fullText}`,
-              source: 'manual',
-              confidence: 0.8,
-              actionable: false,
-            },
-            { command: 'memory', operation: 'memory.learning.store' },
-          );
-        } else {
-          const observeType =
-            entryType === 'project'
-              ? 'feature'
-              : entryType === 'reference'
-                ? 'discovery'
-                : entryType === 'user'
-                  ? 'change'
-                  : 'discovery';
-
-          await dispatch(
-            'mutate',
-            'memory',
-            'observe',
-            {
-              text: `[MIGRATED] ${title}: ${fullText}`,
-              title: `[MIGRATED] ${title}`,
-              type: observeType,
-              sourceType: 'manual',
-            },
-            { command: 'memory', operation: 'memory.observe' },
-          );
+        const response =
+          entryType === 'feedback'
+            ? await dispatch('mutate', 'memory', 'learning.store', {
+                insight: `[MIGRATED] ${title}: ${fullText}`,
+                source: 'manual',
+                confidence: 0.8,
+                actionable: false,
+              })
+            : await dispatch('mutate', 'memory', 'observe', {
+                text: `[MIGRATED] ${title}: ${fullText}`,
+                title: `[MIGRATED] ${title}`,
+                type: observeType(entryType),
+                sourceType: 'manual',
+              });
+        // T13949: observe refuses a duplicate with E_OBSERVE_NOT_STORED; the
+        // entry is already in BRAIN, so it is skipped, not imported.
+        if (!response.success && response.error?.code === 'E_OBSERVE_NOT_STORED') {
+          importedHashes.add(hash);
+          stats.skipped++;
+          const existing = response.error.details?.['id'];
+          const into = typeof existing === 'string' ? existing : 'an existing entry';
+          skippedEntries.push({ file: fileName, reason: `already in BRAIN as ${into}` });
+          continue;
         }
+        if (!response.success) throw new Error(response.error?.message ?? 'Import write failed');
         importedHashes.add(hash);
       }
 

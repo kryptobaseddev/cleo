@@ -4815,6 +4815,32 @@ export const OPERATIONS: OperationDef[] = [
       },
     ],
   },
+  // T13949 — curated lessons index (D11181)
+  {
+    gateway: 'query',
+    domain: 'memory',
+    operation: 'lessons',
+    description:
+      "memory.lessons (query) — list current type='lesson' observations (one-line rule + why), newest first, superseded hidden",
+    tier: 1,
+    idempotent: true,
+    sessionRequired: false,
+    requiredParams: [],
+    params: [
+      {
+        name: 'scope',
+        type: 'string',
+        required: false,
+        description: 'Store to read: project, global (the main brain) or all (default)',
+      },
+      {
+        name: 'limit',
+        type: 'number',
+        required: false,
+        description: 'Max lessons to return (default: 50)',
+      },
+    ],
+  },
   // T1006 — long-poll stream of recent brain writes (SSE-style polling stub)
   {
     gateway: 'query',

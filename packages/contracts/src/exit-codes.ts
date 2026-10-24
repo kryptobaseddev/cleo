@@ -325,6 +325,19 @@ export enum ExitCode {
    * @saga T10538 (PM-Core V2 agent-trust)
    */
   CANCELLED_CHILD_NO_WAIVER = 109,
+
+  /**
+   * E_OBSERVE_NOT_STORED — `cleo memory observe` stored nothing: the
+   * extraction gate merged the text into an existing entry (a duplicate),
+   * deferred it or rejected it.
+   *
+   * `error.details.id` names the existing entry for a duplicate, so a script
+   * can treat this code as "already known" and keep that id.
+   *
+   * @codeName E_OBSERVE_NOT_STORED
+   * @task T13949
+   */
+  OBSERVE_NOT_STORED = 110,
 }
 
 // ---------------------------------------------------------------------------

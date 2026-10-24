@@ -80,6 +80,30 @@ describe('main brain (global store) memory (T13720)', () => {
     );
   });
 
+  it('a lesson defaults to the main brain and is stored once (T13949)', async () => {
+    const lesson = {
+      text: 'cancel destroys the worktree named by the task id',
+      title: 'One task per worktree directory',
+      type: 'lesson',
+    };
+    const first = await memoryObserve(lesson, project);
+    expect(first.success).toBe(true);
+    expect(first.data).toMatchObject({ scope: 'global' });
+    expect((first.data as { stored?: boolean }).stored).toBeUndefined();
+    const firstId = (first.data as { id: string }).id;
+
+    // Same text again: nothing new is written; the existing id comes back.
+    const again = await memoryObserve(lesson, project);
+    expect(again.data).toMatchObject({ id: firstId, stored: false, gateAction: 'merged' });
+    const db = await globalDb();
+    expect(db.prepare("SELECT id FROM brain_observations WHERE type = 'lesson'").all()).toEqual([
+      { id: firstId },
+    ]);
+
+    const noRule = await memoryObserve({ text: 'why', type: 'lesson' }, project);
+    expect(noRule.error?.code).toBe('E_INVALID_INPUT');
+  });
+
   it('find and fetch return global entries beside project ones, tagged scope global', async () => {
     const local = await memoryObserve({ text: 'zebra notes for this project' }, project);
     expect(local.success).toBe(true);

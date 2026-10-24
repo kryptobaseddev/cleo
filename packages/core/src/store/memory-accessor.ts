@@ -1235,34 +1235,47 @@ async function inGlobalCaptureFrame<T>(write: (db: DatabaseSync) => T): Promise<
 }
 
 /**
- * Insert one observation into the global store's `brain_observations`.
+ * Insert one observation into the global store's `brain_observations`, unless a
+ * current observation with the same content hash already exists there.
+ *
+ * The check and the insert run in one `BEGIN IMMEDIATE` transaction, so two
+ * writers observing the same text cannot both insert (T13949).
  *
  * @param row - The observation's columns.
+ * @returns The id of the existing duplicate (nothing inserted), or `null` when
+ *   the row was inserted.
  * @task T13720
+ * @task T13949
  */
-export async function addGlobalObservation(row: GlobalObservationInsert): Promise<void> {
-  await inGlobalCaptureFrame((db) =>
-    db
+export async function addGlobalObservation(row: GlobalObservationInsert): Promise<string | null> {
+  // @sync-invariant none:input-shape the content_hash read only refuses a duplicate insert
+  return inGlobalCaptureFrame((db) => {
+    const existing = db
       .prepare(
-        `INSERT INTO main.brain_observations
-           (id, type, title, narrative, content_hash, source_type, agent,
-            source_confidence, verified, quality_score, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        'SELECT id FROM main.brain_observations WHERE content_hash = ? AND invalid_at IS NULL LIMIT 1',
       )
-      .run(
-        row.id,
-        row.type,
-        row.title,
-        row.narrative,
-        row.contentHash,
-        row.sourceType,
-        row.agent,
-        row.sourceConfidence,
-        row.verified ? 1 : 0,
-        row.qualityScore,
-        row.createdAt,
-      ),
-  );
+      .get(row.contentHash);
+    if (existing) return String(existing.id);
+    db.prepare(
+      `INSERT INTO main.brain_observations
+         (id, type, title, narrative, content_hash, source_type, agent,
+          source_confidence, verified, quality_score, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    ).run(
+      row.id,
+      row.type,
+      row.title,
+      row.narrative,
+      row.contentHash,
+      row.sourceType,
+      row.agent,
+      row.sourceConfidence,
+      row.verified ? 1 : 0,
+      row.qualityScore,
+      row.createdAt,
+    );
+    return null;
+  });
 }
 
 /**

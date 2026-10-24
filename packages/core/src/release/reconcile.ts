@@ -1239,10 +1239,35 @@ async function emitBrainObservation(
     const parsed = JSON.parse(stdout) as { data?: { id?: string } };
     return parsed.data?.id ?? null;
   } catch (err) {
+    // T13949: a re-run observes the same text; observe exits non-zero with
+    // E_OBSERVE_NOT_STORED and names the entry already holding it.
+    const existing = existingObservationId(err);
+    if (existing) return existing;
     log.warn(
       { err: err instanceof Error ? err.message : String(err), version },
       'BRAIN observation auto-emit failed — non-fatal',
     );
+    return null;
+  }
+}
+
+/**
+ * The existing entry id from a `cleo memory observe` that refused a duplicate
+ * (`E_OBSERVE_NOT_STORED`), read from the error envelope on the failed
+ * subprocess's stdout.
+ */
+function existingObservationId(err: unknown): string | null {
+  const stdout =
+    typeof err === 'object' && err !== null && 'stdout' in err && typeof err.stdout === 'string'
+      ? err.stdout
+      : '';
+  try {
+    const parsed = JSON.parse(stdout) as {
+      error?: { codeName?: string; details?: { id?: unknown } };
+    };
+    const id = parsed.error?.details?.id;
+    return parsed.error?.codeName === 'E_OBSERVE_NOT_STORED' && typeof id === 'string' ? id : null;
+  } catch {
     return null;
   }
 }

@@ -44,6 +44,7 @@ import {
   searchLearnings,
   storeLearning,
 } from './learnings.js';
+import { lessonRuleError } from './lessons.js';
 // T419: async reinforcement queue for mental-model writes (ULTRAPLAN L5)
 import { isMentalModelObservation, mentalModelQueue } from './mental-model-queue.js';
 // BRAIN memory imports (T4770)
@@ -752,8 +753,17 @@ export async function memoryObserve(
 ): Promise<EngineResult> {
   const scopeError = invalidScope(params.scope);
   if (scopeError) return scopeError;
+  if (params.type === 'lesson') {
+    const ruleError = lessonRuleError(params.title);
+    if (ruleError) {
+      // @sync-invariant none:input-shape a lesson without a one-line rule is refused before any write
+      return { success: false, error: { code: 'E_INVALID_INPUT', message: ruleError } };
+    }
+  }
+  // T13949: process lessons are cross-project, so they default to the main brain.
+  const scope = params.scope ?? (params.type === 'lesson' ? 'global' : undefined);
   try {
-    if (params.scope === 'global') {
+    if (scope === 'global') {
       return { success: true, data: await observeGlobalBrain(params) };
     }
     const root = resolveRoot(projectRoot);

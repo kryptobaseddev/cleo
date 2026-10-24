@@ -254,13 +254,17 @@ export async function observeBrain(
       sourceConfidence: resolvedSourceConf,
       trusted: resolvedSourceConf === 'owner' || resolvedSourceConf === 'task-outcome',
     });
-    if (gateResult.action !== 'stored') {
+    const gateAction = gateResult.action;
+    if (gateAction !== 'stored') {
       // Gate merged, rejected, or queued — return the existing/null id
       const now = new Date().toISOString().replace('T', ' ').slice(0, 19);
       return {
         id: gateResult.id ?? `O-gate-${Date.now().toString(36)}`,
         type: typeParam ?? 'observation',
         createdAt: now,
+        stored: false,
+        gateAction,
+        gateReason: gateResult.reason,
       };
     }
     // Gate approved — fall through to native storage below (no recursion needed).
