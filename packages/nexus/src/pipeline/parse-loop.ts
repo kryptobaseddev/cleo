@@ -544,6 +544,18 @@ const SQL_CAPABILITIES: GraphAnalysisCapability[] = [
   'sql-dynamic-references',
 ];
 const PARSEABLE_LANGUAGES = new Set(['typescript', 'javascript', 'python', 'go', 'rust']);
+
+/**
+ * Whether the parse loop extracts symbols from this path (its language has an
+ * extractor), so a refresh estimate counts only files a run would parse
+ * (T14014). Capability classification can still skip a file at run time.
+ *
+ * @param path - Repository-relative path.
+ * @returns True for a parseable language.
+ */
+export function isParseablePath(path: string): boolean {
+  return PARSEABLE_LANGUAGES.has(detectLanguageFromPath(path) ?? '');
+}
 const EXECUTABLE_LANGUAGES = new Set([
   ...PARSEABLE_LANGUAGES,
   'java',

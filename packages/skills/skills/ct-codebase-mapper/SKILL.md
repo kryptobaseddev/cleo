@@ -119,8 +119,11 @@ When a symbol name is ambiguous, pass the qualified candidate the command
 returns and confirm against the source.
 
 On a stale index, `impact` and `context` refresh it inline when the size-scaled
-cost estimate fits the budget; an aborted refresh keeps its parse work for the
-next run. Otherwise they answer from the stale index and say so. `--no-refresh` (or `CLEO_NEXUS_AUTO_REFRESH=false`)
+cost estimate fits the budget: one refresh at a time per project, a larger one
+only when `cleo run` admits it, and none for 30 minutes after one fails or is
+aborted (`freshness.refreshCooldownUntil`; the next `cleo nexus analyze` ends
+the pause). An aborted refresh keeps its parse work for the next run. Otherwise
+they answer from the stale index and say so. `--no-refresh` (or `CLEO_NEXUS_AUTO_REFRESH=false`)
 always answers from the index as it stands.
 
 Every graph answer carries `data.freshness` (`indexedRevision`, `baseRef`,

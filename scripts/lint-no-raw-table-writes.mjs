@@ -225,7 +225,7 @@ export const EXEMPT = {
     nexus_symbols_fts: { count: 1, reason: FTS5 },
   },
   'packages/core/src/nexus/assessment-store.ts': { _nexus_meta: { count: 3, reason: NEXUS_META } },
-  'packages/core/src/nexus/graph-manifest.ts': { _nexus_meta: { count: 3, reason: NEXUS_META } },
+  'packages/core/src/nexus/graph-manifest.ts': { _nexus_meta: { count: 4, reason: NEXUS_META } },
   'packages/core/src/nexus/tasks-bridge.ts': { _nexus_meta: { count: 1, reason: NEXUS_META } },
   'packages/core/src/sentient/ingesters/nexus-ingester.ts': {
     nexus_schema_meta: { count: 2, reason: SCHEMA_STAMP },

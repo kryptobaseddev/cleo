@@ -119,6 +119,7 @@ describe('stale nexus answers (T14008)', () => {
         commitsBehind: 3239,
         commitsBehindHead: 3239,
         changedFilesSinceIndex: null,
+        refreshCooldownUntil: null,
         ageDays: 29,
         lastIndexedAt: '2026-09-25T00:00:00.000Z',
       });

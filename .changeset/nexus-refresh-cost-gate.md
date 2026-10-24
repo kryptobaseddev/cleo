@@ -19,3 +19,12 @@ Freshness also reports `changedFilesSinceIndex`: tracked files changed since the
 indexed revision, from `git diff --name-only`, without walking the tree. It is
 reporting only; the manifest walk and the publication's hash checks stay
 authoritative.
+
+Inline refresh is guarded so a stale index never turns every query into another
+heavy run: one inline refresh at a time per project (a pid lock; a concurrent
+query answers from the stale index), a refresh that parses more than 25 files
+or 30% of them only when a non-waiting `cleo run` admission grants it, and a
+30-minute cooldown after a refresh fails or is aborted (reported as
+`freshness.refreshCooldownUntil`, lifted by the next successful analysis). The
+estimate counts files without an exact cache entry for this build at the parse
+rate, and declines to scale a recorded run more than 4x.

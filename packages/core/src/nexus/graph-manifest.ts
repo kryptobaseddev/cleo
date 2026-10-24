@@ -26,6 +26,21 @@ import { canonicalProjectRoot, fromStoredPath, isWithin, toStoredPath } from './
 const MANIFEST_KEY = 'graph_file_manifest';
 /** `_nexus_meta` key of the last analysis run summary. */
 const RUN_SUMMARY_KEY = 'graph_run_summary';
+/** `_nexus_meta` key of the inline-refresh cooldown (T14014). */
+const REFRESH_COOLDOWN_KEY = 'inline_refresh_cooldown';
+
+/**
+ * An inline refresh failed or was aborted (T14014): skip inline refreshes until
+ * `until`, or until a successful analysis publishes a new generation.
+ */
+export interface RefreshCooldown {
+  /** ISO 8601 instant the cooldown ends. */
+  until: string;
+  /** Graph generation the failed refresh started from. */
+  generation: string | null;
+  /** Why the refresh did not finish. */
+  reason: string;
+}
 
 /** One indexed file: `[path, size, mtimeMs, contentHash]`. */
 export type GraphManifestEntry = [path: string, size: number, mtimeMs: number, hash: string];
@@ -219,6 +234,47 @@ export function readIndexedRevision(db: NodeSQLiteDatabase): string | null {
   } catch {
     return null;
   }
+}
+
+/**
+ * Record an inline-refresh cooldown (T14014).
+ *
+ * @param db - Project graph database.
+ * @param cooldown - Until when, from which generation, and why.
+ */
+export function writeRefreshCooldown(db: NodeSQLiteDatabase, cooldown: RefreshCooldown): void {
+  db.run(sql`INSERT INTO main._nexus_meta (key, value) VALUES (${REFRESH_COOLDOWN_KEY}, ${JSON.stringify(cooldown)})
+    ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = strftime('%s', 'now')`);
+}
+
+/**
+ * The inline-refresh cooldown in force, or `null` (T14014). It lapses at its
+ * `until`, or as soon as a successful analysis publishes a new generation.
+ *
+ * @param db - Project graph database.
+ * @param nowMs - The clock.
+ * @returns The active cooldown, or `null`.
+ */
+export function readActiveRefreshCooldown(
+  db: NodeSQLiteDatabase,
+  nowMs: number = Date.now(),
+): RefreshCooldown | null {
+  const value = db.values(
+    sql`SELECT value FROM main._nexus_meta WHERE key = ${REFRESH_COOLDOWN_KEY}`,
+  )[0]?.[0];
+  if (typeof value !== 'string') return null;
+  let cooldown: RefreshCooldown;
+  try {
+    cooldown = JSON.parse(value) as RefreshCooldown;
+  } catch {
+    return null;
+  }
+  if (!(Date.parse(cooldown.until) > nowMs)) return null;
+  const generation = db.values(
+    sql`SELECT value FROM main._nexus_meta WHERE key = 'graph_generation'`,
+  )[0]?.[0];
+  const current = typeof generation === 'string' ? generation : null;
+  return current === cooldown.generation ? cooldown : null;
 }
 
 /**

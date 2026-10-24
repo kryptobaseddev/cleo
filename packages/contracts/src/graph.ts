@@ -910,6 +910,11 @@ export interface GraphIndexFreshness {
    * only: `staleFileCount` (manifest walk) stays authoritative.
    */
   changedFilesSinceIndex?: number | null;
+  /**
+   * Set while inline refreshes are paused after one failed or was aborted
+   * (T14014): until this instant, or the next successful analysis.
+   */
+  refreshCooldownUntil?: string;
   /** Whole days since {@link GraphIndexFreshness.lastIndexedAt}; `null` when never indexed. */
   ageDays?: number | null;
   /** Files recorded in the published generation's assessment. */
@@ -960,6 +965,8 @@ export interface NexusAnswerFreshness {
   commitsBehindHead: number | null;
   /** Tracked files changed since the indexed revision (walk-free, reporting only; T14014). */
   changedFilesSinceIndex: number | null;
+  /** Inline refreshes are paused until this instant after one failed (T14014). */
+  refreshCooldownUntil: string | null;
   /** Whole days since the index was built. */
   ageDays: number | null;
   /** When the index was built. */

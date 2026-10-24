@@ -115,7 +115,7 @@ export {
 } from './parse-cache.js';
 // Parse loop (T534, T536)
 export type { ParseLoopOptions, ParseLoopResult } from './parse-loop.js';
-export { runParseLoop } from './parse-loop.js';
+export { isParseablePath, runParseLoop } from './parse-loop.js';
 // Process detection (T538)
 export type {
   ProcessDetectionConfig,

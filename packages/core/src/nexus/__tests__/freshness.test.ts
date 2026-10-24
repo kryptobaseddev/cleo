@@ -96,6 +96,9 @@ async function put(path: string, content: string): Promise<void> {
 
 const ON = { enabled: true, maxFiles: 25, budgetMs: 60_000 };
 
+/** Admits every heavy refresh (T14014); the real one asks the machine-wide ledger. */
+const admitAll = async () => ({ release: async () => undefined });
+
 describe('index freshness (T12316)', () => {
   it('reports unknown — never fresh — before any generation records a manifest', async () => {
     const freshness = await assessNexusIndexFreshness(repo);
@@ -127,9 +130,9 @@ describe('index freshness (T12316)', () => {
     expect(freshness.staleFileCount).toBe(3);
     expect(freshness.stalePaths).toEqual(['README.md', 'src/a.ts', 'src/c.ts']);
     expect(freshness).toMatchObject({ symbolFileStale: true, symbolFile: 'src/a.ts' });
-    // T14014: re-parse only the stale files; the whole graph is re-resolved.
+    // T14014: re-parse the stale parseable files (not the deleted README); the whole graph is re-resolved.
     expect(freshness.refreshEstimate).toMatch(
-      /^~\d+s \(re-parses ~3 file\(s\), re-resolves the whole graph\)$/,
+      /^~\d+s \(re-parses ~2 file\(s\), re-resolves the whole graph\)$/,
     );
     const other = await assessNexusIndexFreshness(repo, { symbolFiles: ['src/b.ts'] });
     expect(other).toMatchObject({ symbolFileStale: false, symbolFile: 'src/b.ts' });
@@ -204,13 +207,13 @@ describe('index freshness (T12316)', () => {
     await runNexusAnalysis({ repoPath: repo });
     for (const name of ['a', 'd', 'e']) await put(`src/${name}.ts`, `export const ${name}2 = 1;\n`);
     // Half the files are stale: no ratio gate any more; the budget decides.
-    const many = await ensureNexusIndexFresh(repo, ON, runRefreshInProcess);
+    const many = await ensureNexusIndexFresh(repo, ON, runRefreshInProcess, admitAll);
     expect(many.freshness.status).toBe('fresh');
     expect(many.freshness.autoRefresh?.refreshed).toBe(true);
     // No parse cache: the pipeline falls back to a rebuild, bounded by the same budget.
     native.exec('DELETE FROM _nexus_parse_cache');
     await put('src/a.ts', 'export const a3 = 1;\n');
-    const fallback = await ensureNexusIndexFresh(repo, ON, runRefreshInProcess);
+    const fallback = await ensureNexusIndexFresh(repo, ON, runRefreshInProcess, admitAll);
     expect(fallback.freshness.status).toBe('fresh');
     expect(fallback.freshness.autoRefresh?.reason).toMatch(/^full: /);
     // The same stale set over budget is refused, not started.
@@ -218,6 +221,90 @@ describe('index freshness (T12316)', () => {
     const over = await ensureNexusIndexFresh(repo, { ...ON, budgetMs: 1 }, runRefreshInProcess);
     expect(over.freshness.status).toBe('stale');
     expect(over.freshness.autoRefresh).toMatchObject({ refreshed: false, durationMs: 0 });
+  });
+
+  it('an aborted inline refresh pauses inline refresh until the next analysis (T14014)', async () => {
+    await runNexusAnalysis({ repoPath: repo });
+    await put('src/a.ts', 'export const a5 = 1;\n');
+    let runs = 0;
+    const abort = async (): Promise<never> => {
+      runs++;
+      throw new Error('aborted by the budget');
+    };
+    const first = await ensureNexusIndexFresh(repo, ON, abort, admitAll);
+    expect(first.freshness.autoRefresh?.reason).toMatch(/inline refresh paused until/);
+    expect(first.freshness.refreshCooldownUntil).toBeDefined();
+    const second = await ensureNexusIndexFresh(repo, ON, abort, admitAll);
+    expect(second.freshness.autoRefresh?.reason).toMatch(/a recent inline refresh did not finish/);
+    expect(second.freshness.refreshCooldownUntil).toBe(first.freshness.refreshCooldownUntil);
+    expect(runs).toBe(1);
+    // A successful analysis publishes a new generation, which ends the pause.
+    await runNexusAnalysis({ repoPath: repo });
+    await put('src/a.ts', 'export const a6 = 1;\n');
+    const after = await ensureNexusIndexFresh(repo, ON, runRefreshInProcess, admitAll);
+    expect(after.freshness.status).toBe('fresh');
+  });
+
+  it('one inline refresh at a time: a concurrent query answers from the stale index (T14014)', async () => {
+    await runNexusAnalysis({ repoPath: repo });
+    await put('src/a.ts', 'export const a7 = 1;\n');
+    const { getCleoDirAbsolute } = await import('../../paths.js');
+    const { INLINE_REFRESH_LOCK_FILE } = await import('../freshness.js');
+    const lock = join(getCleoDirAbsolute(repo), INLINE_REFRESH_LOCK_FILE);
+    await mkdir(join(lock, '..'), { recursive: true });
+    await writeFile(lock, String(process.pid));
+    let runs = 0;
+    const result = await ensureNexusIndexFresh(
+      repo,
+      ON,
+      async () => {
+        runs++;
+        return { mode: 'incremental', reason: 'x' };
+      },
+      admitAll,
+    );
+    expect(runs).toBe(0);
+    expect(result.freshness.autoRefresh?.reason).toMatch(/an inline refresh is already running/);
+    await unlink(lock);
+  });
+
+  it('a refresh beyond a small incremental set needs admission and is skipped when refused (T14014)', async () => {
+    await runNexusAnalysis({ repoPath: repo });
+    for (const name of ['a', 'd', 'e']) await put(`src/${name}.ts`, `export const ${name}8 = 1;\n`);
+    let runs = 0;
+    const result = await ensureNexusIndexFresh(
+      repo,
+      ON,
+      async () => {
+        runs++;
+        return { mode: 'incremental', reason: 'x' };
+      },
+      async () => ({ refused: 'memory pressure 27' }),
+    );
+    expect(runs).toBe(0);
+    expect(result.freshness.autoRefresh?.reason).toMatch(
+      /needs cleo run admission.*memory pressure 27/,
+    );
+    // A small incremental set needs no admission.
+    await runNexusAnalysis({ repoPath: repo });
+    await put('src/a.ts', 'export const a9 = 1;\n');
+    const small = await ensureNexusIndexFresh(repo, ON, runRefreshInProcess, async () => ({
+      refused: 'never asked',
+    }));
+    expect(small.freshness.status).toBe('fresh');
+  });
+
+  it('counts files without a reusable cache entry at the parse rate (T14014)', async () => {
+    await runNexusAnalysis({ repoPath: repo });
+    await put('src/a.ts', 'export const a10 = 1;\n');
+    const cached = await assessNexusFreshnessForQuery(repo, { refresh: false });
+    native.exec('DELETE FROM _nexus_parse_cache');
+    const uncached = await assessNexusFreshnessForQuery(repo, { refresh: false });
+    expect(cached.refreshPlan).toMatchObject({ toParse: 1, reusable: 4 });
+    // With the cache wiped every parseable file (the five .ts sources, not the
+    // README) must be parsed, not just the stale one.
+    expect(uncached.refreshPlan).toMatchObject({ toParse: 5, reusable: 0 });
+    expect(uncached.freshness.refreshEstimate).toMatch(/re-parses ~5 file/);
   });
 
   it('a refresh that exceeds its heap bound answers from the stale index; the process survives (T13537)', async () => {
