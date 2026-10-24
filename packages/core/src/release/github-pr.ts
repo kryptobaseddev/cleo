@@ -104,30 +104,23 @@ export function isGhCliAvailable(): boolean {
 
 /**
  * Parse a GitHub remote URL (HTTPS or SSH) into owner and repo components.
- * Returns null if the URL cannot be parsed.
+ * Returns null if the URL cannot be parsed, or names a host other than
+ * github.com exactly (`evilgithub.com`, GitHub Enterprise, ssh aliases).
  *
  * Supported formats:
- *   https://github.com/owner/repo.git
- *   https://github.com/owner/repo
- *   git@github.com:owner/repo.git
- *   git@github.com:owner/repo
+ *   https://github.com/owner/repo[.git][/]
+ *   https://<user or token>@github.com/owner/repo[.git]
+ *   git@github.com:owner/repo[.git]
+ *   ssh://git@github.com/owner/repo[.git]
+ *
+ * @task T13912 (host anchored, review of #2428)
  */
 export function extractRepoOwnerAndName(remote: string): RepoIdentity | null {
   const trimmed = remote.trim();
-
-  // HTTPS pattern: https://github.com/owner/repo[.git]
-  const httpsMatch = trimmed.match(/^https?:\/\/github\.com\/([^/]+)\/([^/]+?)(?:\.git)?$/);
-  if (httpsMatch) {
-    return { owner: httpsMatch[1], repo: httpsMatch[2] };
-  }
-
-  // SSH pattern: git@github.com:owner/repo[.git]
-  const sshMatch = trimmed.match(/^git@github\.com:([^/]+)\/([^/]+?)(?:\.git)?$/);
-  if (sshMatch) {
-    return { owner: sshMatch[1], repo: sshMatch[2] };
-  }
-
-  return null;
+  const match =
+    /^https?:\/\/(?:[^@/\s]+@)?github\.com\/([^/\s]+)\/([^/\s]+?)(?:\.git)?\/?$/i.exec(trimmed) ??
+    /^(?:ssh:\/\/)?git@github\.com[:/]([^/\s]+)\/([^/\s]+?)(?:\.git)?\/?$/i.exec(trimmed);
+  return match?.[1] && match[2] ? { owner: match[1], repo: match[2] } : null;
 }
 
 /**

@@ -16,3 +16,11 @@ branch-protection cache is keyed the same way.
 `pr:<owner>/<repo>#<n>` and `ci:<owner>/<repo>#<n>` name the repository
 explicitly. They are refused when the evidence git root's origin is a
 different repository.
+
+Every `gh` query now names the origin repository explicitly (`--repo
+<owner>/<repo>`, or `repos/<owner>/<repo>/…`). In a fork checkout, `gh`
+would otherwise resolve `upstream` or `gh repo set-default` instead of the
+repository that the cache key and the selector name. Only an origin on
+`github.com` itself counts as a GitHub repository. Other hosts, such as
+`evilgithub.com`, GitHub Enterprise or ssh aliases, use the checkout's
+path identity, and `gh` resolves them itself.

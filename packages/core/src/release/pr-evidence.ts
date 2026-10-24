@@ -30,7 +30,7 @@
  * keyed on `(repo, prNumber, mergedAt)` so re-verifies skip the network round
  * trip and two repositories' PR #N never collide (T13912).
  * The branch-protection tier is cached separately at
- * `<projectRoot>/.cleo/cache/evidence/pr-required-checks.json` (1h TTL).
+ * `<projectRoot>/.cleo/cache/evidence/pr-required-checks-<repo>.json` (1h TTL, per repository).
  *
  * @task T9764
  * @task T12104
@@ -64,7 +64,13 @@ import {
 } from '../git/work-tree.js';
 import type { EvidenceRoots } from '../tasks/evidence.js';
 
-import { ghQueryTimeoutMs, ghTimeoutReason, isGhCliAvailable, isGhTimeout } from './github-pr.js';
+import {
+  extractRepoOwnerAndName,
+  ghQueryTimeoutMs,
+  ghTimeoutReason,
+  isGhCliAvailable,
+  isGhTimeout,
+} from './github-pr.js';
 
 // ---------------------------------------------------------------------------
 // Public result shape
@@ -147,8 +153,9 @@ export function prRepoIdentity(executionRoot: string): string {
 }
 
 /**
- * The `owner/repo` slug of a checkout's `origin` remote (GitHub https or ssh
- * form), lowercased, or null when there is none. Ambient GIT_* is ignored.
+ * The `owner/repo` slug of a checkout's `origin` remote on github.com (https,
+ * `ssh://` or `git@github.com:` form), lowercased, or null when there is none
+ * or it is another host. Ambient GIT_* is ignored.
  *
  * @param root - The checkout.
  * @task T13912
@@ -165,8 +172,31 @@ export function originRepoSlug(root: string): string | null {
   } catch {
     return null;
   }
-  const m = /github\.com[:/]+([^/\s]+)\/([^/\s]+?)(?:\.git)?\/?$/i.exec(url);
-  return m ? `${m[1]}/${m[2]}`.toLowerCase() : null;
+  // github.com exactly; other hosts get the path identity instead.
+  const id = extractRepoOwnerAndName(url);
+  return id ? `${id.owner}/${id.repo}`.toLowerCase() : null;
+}
+
+/**
+ * The `gh` repository a checkout's PR queries go to (T13912, review of
+ * #2428): its {@link originRepoSlug}, passed explicitly so `gh` never
+ * resolves another repository (an `upstream` remote or `gh repo set-default`
+ * in a fork) than the one the cache key and the `pr:<owner>/<repo>#<n>`
+ * selector name. Null when origin is not on github.com; `gh` then resolves
+ * the repository itself and the cache uses the checkout's path identity.
+ *
+ * @param cwd - The checkout `gh` runs in.
+ * @returns The `owner/repo` slug, or null.
+ * @task T13912
+ */
+function ghRepo(cwd: string): string | null {
+  return originRepoSlug(cwd);
+}
+
+/** `--repo <owner/repo>` for {@link ghRepo}, or nothing when it is null. */
+function repoFlag(cwd: string): string[] {
+  const repo = ghRepo(cwd);
+  return repo ? ['--repo', repo] : [];
 }
 
 /**
@@ -336,6 +366,7 @@ export const defaultFetchGhPrPayload: FetchGhPrPayload = async (
         'pr',
         'view',
         String(prNumber),
+        ...repoFlag(cwd),
         '--json',
         'state,mergedAt,mergeable,headRefOid,mergeCommit,title,body,headRefName,files,changedFiles,statusCheckRollup',
       ],
@@ -445,7 +476,7 @@ export const defaultFetchGhPrFilesPage: FetchGhPrFilesPage = async (
       'gh',
       [
         'api',
-        `repos/{owner}/{repo}/pulls/${prNumber}/files?per_page=${PR_FILES_PAGE_SIZE}&page=${page}`,
+        `repos/${ghRepo(cwd) ?? '{owner}/{repo}'}/pulls/${prNumber}/files?per_page=${PR_FILES_PAGE_SIZE}&page=${page}`,
       ],
       { encoding: 'utf-8', stdio: ['ignore', 'pipe', 'pipe'], cwd, timeout: ghQueryTimeoutMs() },
     );
@@ -812,9 +843,10 @@ export const defaultFetchGhBranchProtection: FetchGhBranchProtection = async (cw
     return { ok: false, reason: 'gh CLI is not available on PATH' };
   }
   try {
+    const target = ghRepo(cwd);
     const repoStdout = execFileSync(
       'gh',
-      ['repo', 'view', '--json', 'nameWithOwner,defaultBranchRef'],
+      ['repo', 'view', ...(target ? [target] : []), '--json', 'nameWithOwner,defaultBranchRef'],
       { encoding: 'utf-8', stdio: ['ignore', 'pipe', 'pipe'], cwd, timeout: ghQueryTimeoutMs() },
     );
     const repoInfo = JSON.parse(repoStdout) as {
@@ -1303,7 +1335,7 @@ export const defaultFetchGhCommitCheckRuns: FetchGhCommitCheckRuns = async (sha,
       [
         'api',
         '--paginate',
-        `repos/{owner}/{repo}/commits/${sha}/check-runs?per_page=100`,
+        `repos/${ghRepo(cwd) ?? '{owner}/{repo}'}/commits/${sha}/check-runs?per_page=100`,
         '--jq',
         '.check_runs[] | {name, status, conclusion, started_at, completed_at}',
       ],

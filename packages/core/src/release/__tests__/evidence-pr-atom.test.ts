@@ -47,11 +47,16 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { checkGateEvidenceMinimum, parseEvidence, validateAtom } from '../../tasks/evidence.js';
 import {
   branchProtectionCachePath,
+  defaultFetchGhBranchProtection,
+  defaultFetchGhCommitCheckRuns,
+  defaultFetchGhPrFilesPage,
+  defaultFetchGhPrPayload,
   evaluateRollup,
   type FetchGhBranchProtection,
   type FetchGhCommitCheckRuns,
   type FetchGhPrFilesPage,
   type FetchGhPrPayload,
+  originRepoSlug,
   prCacheEntryPath,
   prRepoIdentity,
   resolvePrEvidenceAtom,
@@ -142,6 +147,76 @@ afterEach(() => {
 // ---------------------------------------------------------------------------
 // Parser
 // ---------------------------------------------------------------------------
+
+describe('the repository gh is asked about is the one the cache key names (T13912, review of #2428)', () => {
+  /** A git checkout whose origin is `url`. */
+  function checkout(url: string): string {
+    const dir = mkdtempSync(join(tmpdir(), 'cleo-pr-origin-'));
+    execFileSync('git', ['init', '-q', dir]);
+    execFileSync('git', ['-C', dir, 'remote', 'add', 'origin', url]);
+    return dir;
+  }
+
+  it('matches github.com exactly, in https, token, scp and ssh:// forms', () => {
+    const cases: Array<[string, string | null]> = [
+      ['https://github.com/Acme/App.git', 'acme/app'],
+      ['https://x-access-token:t@github.com/acme/app', 'acme/app'],
+      ['git@github.com:Acme/App.git', 'acme/app'],
+      ['ssh://git@github.com/acme/app.git', 'acme/app'],
+      ['https://evilgithub.com/acme/app.git', null],
+      ['git@github.example.com:acme/app.git', null],
+      ['gh-alias:acme/app.git', null],
+    ];
+    for (const [url, slug] of cases) {
+      const dir = checkout(url);
+      try {
+        expect(originRepoSlug(dir), url).toBe(slug);
+        if (slug === null) expect(prRepoIdentity(dir), url).toMatch(/^path:/);
+      } finally {
+        rmSync(dir, { recursive: true, force: true });
+      }
+    }
+  });
+
+  it('every gh query names the origin repository explicitly', async () => {
+    const bin = mkdtempSync(join(tmpdir(), 'cleo-fake-gh-'));
+    const log = join(bin, 'argv.log');
+    writeFileSync(
+      join(bin, 'gh'),
+      `#!/bin/sh\n[ "$1" = "--version" ] && exit 0\necho "$@" >> '${log}'\nexit 1\n`,
+      { mode: 0o755 },
+    );
+    const dir = checkout('git@github.com:Acme/Fork.git');
+    // A fork: gh would otherwise resolve upstream (or a set-default repo).
+    execFileSync('git', [
+      '-C',
+      dir,
+      'remote',
+      'add',
+      'upstream',
+      'https://github.com/acme/app.git',
+    ]);
+    const path = process.env.PATH;
+    process.env.PATH = `${bin}:${path ?? ''}`;
+    try {
+      await defaultFetchGhPrPayload(87, dir);
+      await defaultFetchGhPrFilesPage(87, 1, dir);
+      await defaultFetchGhBranchProtection(dir);
+      await defaultFetchGhCommitCheckRuns('a'.repeat(40), dir);
+      const calls = readFileSync(log, 'utf-8').trim().split('\n');
+      expect(calls).toEqual([
+        expect.stringMatching(/^pr view 87 --repo acme\/fork /),
+        expect.stringMatching(/^api repos\/acme\/fork\/pulls\/87\/files/),
+        expect.stringMatching(/^repo view acme\/fork /),
+        expect.stringMatching(/^api --paginate repos\/acme\/fork\/commits\//),
+      ]);
+    } finally {
+      process.env.PATH = path;
+      rmSync(bin, { recursive: true, force: true });
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});
 
 describe('PR numbers are per repository (T13912)', () => {
   /** A checkout whose origin is github.com/<slug>. */
