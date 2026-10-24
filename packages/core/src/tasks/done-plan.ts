@@ -50,7 +50,6 @@ import { isCiDocumentPath, readCiChecks, readCiSatisfies } from '../release/ci-e
 
 import { getTaskAccessor } from '../store/data-accessor.js';
 import {
-  changedPathsSinceDefault,
   cleoConfigSchemaFor,
   evidenceProjectContext,
   isCleoConfigOnlyChange,
@@ -641,11 +640,51 @@ function toolAndTypedGateBlockers(
 
 /**
  * The changed test files of a standalone (non-workspace) project, or none in
- * a workspace, outside git, or with no test file changed (T13403).
+ * a workspace, outside git, or with no test file changed (T13403). Read from
+ * the task's change set only, never the working tree (T13917: a shared dirty
+ * checkout handed a record-only task 18 unrelated tests).
  */
-function standaloneChangedTests(root: string): string[] {
+function standaloneChangedTests(root: string, files: readonly string[]): string[] {
   if (standalonePackage(root) === null) return [];
-  return changedTestFiles(root, changedPathsSinceDefault(root) ?? []);
+  return changedTestFiles(root, files);
+}
+
+/**
+ * The blocker for a task with no change set (T13917). A non-code task
+ * (research, documentation) is closed by its document or decision, never by
+ * a new branch; a code task may still be record-only, so both routes are
+ * named.
+ */
+function noChangeSetBlocker(
+  task: Task,
+  kind: ReturnType<typeof classifyEvidenceTask>,
+): DonePlanBlocker {
+  const id = task.id;
+  const record =
+    `cleo docs add ${id} <file> --type ${kind === 'research' ? 'research' : 'note'} --slug <kebab>` +
+    ` (or: cleo memory decision-store --decision "<what>" --rationale "<why>" --linked-task ${id})`;
+  if (kind !== 'code') {
+    return {
+      code: 'no-change-set',
+      message:
+        `${id} is a ${kind} task with no attached document or linked decision, and its evidence ` +
+        'is that document or decision: no test, lint or typecheck applies.',
+      next: step(
+        record,
+        'implemented then binds as files:<doc> or decision:<id>; testsPassed and qaPassed follow it.',
+      ),
+    };
+  }
+  return {
+    code: 'no-change-set',
+    message:
+      `No merged PR, task branch or attached document references ${id}. If ${id} changed code, ` +
+      `commit it on task/${id} (or pass --pr <n>); if it changed none, attach its record or link a decision.`,
+    next: step(
+      `git switch -c task/${id}`,
+      `Or, for a task with no code change: ${record}. cleo done never plans tests or lint from the working tree.`,
+    ),
+  };
 }
 
 /** The step that binds a targeted run of a standalone project's changed tests (T13403). */
@@ -714,14 +753,15 @@ function wholeSuiteRefusedBlocker(
  */
 function qaRunNeededBlocker(
   taskId: string,
-  root: string,
+  files: readonly string[],
   checks: readonly string[],
   subject = 'this single-package project',
   configSuffix = '',
 ): DonePlanBlocker {
   const dirs = [
     ...new Set(
-      (changedPathsSinceDefault(root) ?? [])
+      // T13917: the task's change set, never the whole working tree.
+      files
         .filter((p) => !isCiDocumentPath(p))
         .map((p) => (p.includes('/') ? p.slice(0, p.lastIndexOf('/')) : '.')),
     ),
@@ -987,14 +1027,24 @@ export async function deriveTaskEvidence(
     !cleoConfig && changeSet.files.some((p) => cleoConfigSchemaFor(p) !== null)
       ? ';tool:config-schema'
       : '';
-  if (!decisionOnly && changeSet.source !== 'docs' && ciPr === null && !nonCode && !cleoConfig) {
+  // T13917: with no change set there is nothing of the task's to test, lint
+  // or typecheck; the working tree may hold anyone's work.
+  const noChangeSet = changeSet.source === 'none';
+  if (
+    !noChangeSet &&
+    !decisionOnly &&
+    changeSet.source !== 'docs' &&
+    ciPr === null &&
+    !nonCode &&
+    !cleoConfig
+  ) {
     for (const gate of pending) {
       for (const tool of GATE_TOOLS[gate] ?? []) {
         // T13403: a standalone project is one package, the whole project, so
         // tool:test and tool:test-affected both run its whole suite. When the
         // change adds or edits test files, plan the targeted test-run the
         // binding accepts (it must run every one of them) instead.
-        const targeted = tool === 'test' ? standaloneChangedTests(root) : [];
+        const targeted = tool === 'test' ? standaloneChangedTests(root, changeSet.files) : [];
         if (targeted.length > 0) {
           testRunBlockers.push(testRunNeededBlocker(taskId, gate, targeted, configSuffix));
           continue;
@@ -1056,10 +1106,14 @@ export async function deriveTaskEvidence(
     }
   }
   if (qaRunChecks.length > 0) {
-    testRunBlockers.push(qaRunNeededBlocker(taskId, root, qaRunChecks, undefined, configSuffix));
+    testRunBlockers.push(
+      qaRunNeededBlocker(taskId, changeSet.files, qaRunChecks, undefined, configSuffix),
+    );
   }
-  if (nonCode && ciPr === null && pending.includes('qaPassed')) {
-    testRunBlockers.push(qaRunNeededBlocker(taskId, root, ['lint'], 'this non-code change'));
+  if (!noChangeSet && nonCode && ciPr === null && pending.includes('qaPassed')) {
+    testRunBlockers.push(
+      qaRunNeededBlocker(taskId, changeSet.files, ['lint'], 'this non-code change'),
+    );
   }
   const typedGates = planTypedGates(task, rows, storeRoot);
   const acMapping = mapCriteria(
@@ -1087,10 +1141,13 @@ export async function deriveTaskEvidence(
     };
   });
 
-  const isCode = classifyEvidenceTask({ task }) === 'code';
+  const kind = classifyEvidenceTask({ task });
+  const isCode = kind === 'code';
   const acBlocker = acMappingBlocker(taskId, acMapping, pending);
   const derivedBlockers = orderBlockers([
-    ...changeSet.blockers,
+    ...changeSet.blockers.map((b) =>
+      b.code === 'no-change-set' ? noChangeSetBlocker(task, kind) : b,
+    ),
     ...toolAndTypedGateBlockers(taskId, isCode, toolRuns, typedGates, root, opts.runTyped === true),
     ...testRunBlockers,
     ...(acBlocker ? [acBlocker] : []),
