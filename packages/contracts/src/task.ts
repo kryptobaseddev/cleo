@@ -333,6 +333,14 @@ export type EvidenceAtom =
        * edits the tree hash left out (T13554).
        */
       runtimeExcluded?: string[];
+      /**
+       * Untracked files outside every directory the change touches, which the
+       * binding did not judge as this change (T14000): another agent's work
+       * in a shared checkout. The tree hash includes them, so `cleo complete`
+       * and the superseded check refuse this atom as stale once any of them
+       * is tracked (committed into the change): the run never covered it.
+       */
+      untrackedSetAside?: string[];
     }
   | {
       /**
@@ -367,6 +375,8 @@ export type EvidenceAtom =
       configPaths?: string[];
       /** The change it checked is non-code only, so no typecheck is owed (T13745). */
       nonCodeChange?: boolean;
+      /** Untracked files set aside at bind time, as for `test-run` (T14000). */
+      untrackedSetAside?: string[];
     }
   | {
       kind: 'tool';

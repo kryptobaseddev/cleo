@@ -918,6 +918,34 @@ export interface ScopedChangedPaths {
   readonly paths: string[];
   /** Changed paths set aside as out of scope (managed hook files, declared excludes). */
   readonly excluded: string[];
+  /**
+   * With `narrowUntracked` (T14000): untracked files outside every directory
+   * the tracked change touches — another agent's work in a shared checkout,
+   * not this change. Evidence records them so `cleo complete` can refuse it
+   * once one of them is committed. Empty otherwise.
+   */
+  readonly untrackedSetAside: string[];
+}
+
+/**
+ * The most untracked files a binding sets aside (T14000, review of #2426).
+ * Above it the run is not narrowed: every untracked file counts, as before,
+ * so an atom never carries thousands of paths.
+ */
+export const MAX_UNTRACKED_SET_ASIDE = 500;
+
+/**
+ * Whether an untracked path lies in a directory the tracked change touches
+ * (T14000): under the directory of a changed path, or at the root next to a
+ * changed root-level path.
+ */
+function nearTrackedChange(path: string, dirs: ReadonlySet<string>): boolean {
+  const at = path.lastIndexOf('/');
+  if (at < 0) return dirs.has('');
+  for (const dir of dirs) {
+    if (dir !== '' && (path === dir || path.startsWith(`${dir}/`))) return true;
+  }
+  return false;
 }
 
 /**
@@ -939,12 +967,23 @@ export interface ScopedChangedPaths {
  * top level, so a CLEO root in a subdirectory strips its prefix before
  * matching; untracked paths are already root-relative.
  *
+ * With `narrowUntracked` (T14000, the test-run and qa-run bindings), an
+ * untracked file counts only when it lies in a directory the tracked change
+ * touches ({@link nearTrackedChange}); the rest is returned as
+ * `untrackedSetAside`, so a shared dirty checkout cannot refuse a run the
+ * plan asked for, and the binding records what it left out. More than
+ * {@link MAX_UNTRACKED_SET_ASIDE} such files are not set aside at all.
+ *
  * @param root - Execution root.
+ * @param opts - `narrowUntracked` for the bindings (T14000).
  * @returns The split, or null when no origin default branch exists or git fails.
  * @task T12635
  * @task T13135
  */
-export function scopedChangedPaths(root: string): ScopedChangedPaths | null {
+export function scopedChangedPaths(
+  root: string,
+  opts: { readonly narrowUntracked?: boolean } = {},
+): ScopedChangedPaths | null {
   const mergeBase = originDefaultMergeBase(root);
   if (!mergeBase) return null;
   // A git failure is not an empty diff (T12657): no answer, so no scoped run.
@@ -969,17 +1008,38 @@ export function scopedChangedPaths(root: string): ScopedChangedPaths | null {
   const lines = (text: string): string[] => text.split('\n').filter(Boolean);
   const paths = new Set<string>();
   const excluded = new Set<string>();
+  const setAside = new Set<string>();
   for (const path of [...lines(committed), ...lines(uncommitted)]) {
     (out(path, prefix) ? excluded : paths).add(path);
   }
+  const trackedDirs = new Set(
+    [...paths].map((p) => {
+      const slashed = slashSeparated(p);
+      const at = slashed.lastIndexOf('/');
+      return at < 0 ? '' : slashed.slice(0, at);
+    }),
+  );
   for (const path of lines(untracked)) {
     const rel = slashSeparated(path);
     if (UNTRACKED_STATE_DIRS.some((dir) => rel.startsWith(dir))) continue;
     // Declared or managed state: never package code (isScopeExcluded refuses those).
     if (isScopeExcluded(rel, declared, packageDirs)) continue;
+    if (opts.narrowUntracked === true && !nearTrackedChange(slashSeparated(path), trackedDirs)) {
+      setAside.add(path);
+      continue;
+    }
     paths.add(path);
   }
-  return { paths: [...paths].sort(), excluded: [...excluded].sort() };
+  // Too many to record: judge them all, as an un-narrowed run does.
+  if (setAside.size > MAX_UNTRACKED_SET_ASIDE) {
+    for (const path of setAside) paths.add(path);
+    setAside.clear();
+  }
+  return {
+    paths: [...paths].sort(),
+    excluded: [...excluded].sort(),
+    untrackedSetAside: [...setAside].sort(),
+  };
 }
 
 /**

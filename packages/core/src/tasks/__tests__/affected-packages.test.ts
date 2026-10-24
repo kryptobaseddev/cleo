@@ -660,6 +660,7 @@ describe('tool:test-affected evidence', () => {
     expect(scopedChangedPaths(root)).toEqual({
       paths: ['packages/c/src/new.ts'],
       excluded: ['.opencode/goals/dogfood/goal.yaml'],
+      untrackedSetAside: [],
     });
   });
 
@@ -726,6 +727,7 @@ describe('tool:test-affected evidence', () => {
       expect(scopedChangedPaths(app)).toEqual({
         paths: ['app/src/x.ts'],
         excluded: ['app/.claude/settings.local.json'],
+        untrackedSetAside: [],
       });
       rmSync(origin, { recursive: true, force: true });
     } finally {
