@@ -179,18 +179,20 @@ export interface ObserveBrainResult {
 // ── DocAttachmentObservationPayload ─────────────────────────────────
 
 /**
- * Structured payload stored in the `narrative` of a doc-attachment memory
- * observation emitted by `cleo docs add` (T9976).
+ * Source metadata of a document projection: the attachment, its owner, when
+ * it was added, and its slug and type.
  *
- * The observation title is `"Doc attached: <slug>"` (or
- * `"Doc attached: <attachmentId>"` when no slug is set) so
- * `cleo memory find '<slug>'` reliably surfaces the entry via FTS.
+ * Since T13985 (D11180) `cleo docs add` records the link as a `documents`
+ * graph edge and writes no "Doc attached" observation; this payload is the
+ * projection proposal's source metadata (`DocsProjectionProposal.observation`).
+ * Legacy observations written before T13985 still carry it as JSON in their
+ * `narrative`, which the auto-row filters and the quarantine match on.
  *
- * The payload is serialised as JSON and embedded in the observation
- * `narrative` field so it can be recovered by `cleo memory verify`
- * for round-trip attachment-existence checks.
+ * The name is kept deliberately (T13992): it is a published `@cleocode/contracts`
+ * type, and renaming it would break consumers for no behavioural gain.
  *
  * @task T9976
+ * @task T13992
  */
 export interface DocAttachmentObservationPayload {
   /** Slug recorded for this attachment (optional — omitted when none set). */
