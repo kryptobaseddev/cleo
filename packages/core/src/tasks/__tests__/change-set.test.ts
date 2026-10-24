@@ -276,10 +276,7 @@ describe('worktrees and declared git roots (AC4)', () => {
     const deps = { listMergedPrs: noPrs, ...noDocs, env: {} };
 
     // Invoked inside the worktree: that checkout, not the declared main one.
-    const here = await deriveTaskChangeSet(
-      { task: task('T907'), storeRoot: store, cwd: wt },
-      deps,
-    );
+    const here = await deriveTaskChangeSet({ task: task('T907'), storeRoot: store, cwd: wt }, deps);
     expect(here.rootSource).toBe('invocation-worktree');
     expect(here.executionRoot).toBe(realpathSync(wt));
     expect(here.commitSha).toBe(head);
