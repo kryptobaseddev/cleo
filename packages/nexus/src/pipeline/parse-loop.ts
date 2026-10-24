@@ -482,6 +482,12 @@ export interface ParseLoopOptions {
    * extraction ({@link encodeExtraction}) — the parse-cache payload.
    */
   onFileExtracted?: (path: string, payload: Uint8Array) => void;
+  /**
+   * Called as each file's extraction arrives from the parser, during the parse
+   * pass rather than after it (T14009), so the caller can persist progress that
+   * survives an aborted or killed run.
+   */
+  onFileParsed?: (path: string, payload: Uint8Array) => void;
 }
 
 /**
@@ -1159,8 +1165,11 @@ async function extractInParallel(
         for (const report of result.reports) {
           if (report.status !== 'analyzed') pass.failures.set(report.path, report);
         }
-        for (const file of result.files)
-          pass.extracted.set(file.path, encodeExtraction(file.extraction));
+        for (const file of result.files) {
+          const payload = encodeExtraction(file.extraction);
+          pass.extracted.set(file.path, payload);
+          options.onFileParsed?.(file.path, payload);
+        }
         received += result.reports.length;
         heapGuard.check(received, total);
       },
@@ -1267,10 +1276,9 @@ async function extractSequentially(
         createHash('sha256').update(source).digest('hex'),
         options.publicationGeneration,
       );
-      pass.extracted.set(
-        file.path,
-        encodeExtraction(completeExtraction({ ...extracted, parseLimitations })),
-      );
+      const payload = encodeExtraction(completeExtraction({ ...extracted, parseLimitations }));
+      pass.extracted.set(file.path, payload);
+      options.onFileParsed?.(file.path, payload);
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       fail(file.path, `extract: ${msg}`);

@@ -293,9 +293,11 @@ describe('incremental analysis equals a full rebuild (T12315)', () => {
 
   it('rebuilds an unchanged tree whose graph came from a different extractor build', async () => {
     await runNexusAnalysis({ repoPath: repo });
+    // An older build produced both the graph and its cache entries.
     native.exec(
       "UPDATE _nexus_meta SET value = 'older-build' WHERE key = 'graph_extractor_fingerprint'",
     );
+    native.exec("UPDATE _nexus_parse_cache SET fingerprint = 'older-build'");
     const result = await runNexusAnalysis({ repoPath: repo });
     expect(result.summary.mode).toBe('full');
     expect(result.summary.reason).toMatch(/produced by a different extractor build/);
@@ -335,5 +337,143 @@ describe('incremental analysis equals a full rebuild (T12315)', () => {
     // The driver wraps the trigger's abort as the failed query's cause.
     expect(String(failure?.cause ?? failure)).toMatch(/injected publication failure/);
     expect(snapshot()).toEqual(before);
+  });
+});
+
+describe('resumable analysis (T14009)', () => {
+  /** The published graph only: nodes, relations, file report and generation. */
+  function published(): { generation: string; nodes: string[]; relations: string[] } {
+    const { nodes, relations } = snapshot();
+    const generation = String(
+      (native.prepare("SELECT value FROM _nexus_meta WHERE key = 'graph_generation'").get() as Row)
+        .value,
+    );
+    return { generation, nodes, relations };
+  }
+
+  it('an analysis aborted mid-parse keeps its parse work, and the next run resumes it', async () => {
+    const controller = new AbortController();
+    // onProgress also reports the scan; abort on the third file of the parse itself.
+    let parsing = false;
+    const write = process.stderr.write.bind(process.stderr);
+    const spy = vi.spyOn(process.stderr, 'write').mockImplementation((chunk, ...rest) => {
+      if (String(chunk).includes('[nexus] Phase 3: Parsing files')) parsing = true;
+      return write(chunk as string, ...(rest as []));
+    });
+    const aborted = await runNexusAnalysis({
+      repoPath: repo,
+      parserLimits: { signal: controller.signal },
+      onProgress: (current) => {
+        if (parsing && current === 3) controller.abort();
+      },
+    })
+      .then(
+        () => null,
+        (error: Error) => error,
+      )
+      .finally(() => spy.mockRestore());
+    expect(aborted?.name).toBe('AbortError');
+    // Nothing was published, but the files parsed before the abort are cached.
+    expect(
+      native.prepare("SELECT value FROM _nexus_meta WHERE key = 'graph_generation'").get(),
+    ).toBeUndefined();
+    const checkpointed = (
+      native.prepare('SELECT COUNT(*) AS n FROM _nexus_parse_cache').get() as Row
+    ).n;
+    expect(Number(checkpointed)).toBeGreaterThan(0);
+
+    const resumed = await runNexusAnalysis({ repoPath: repo });
+    expect(resumed.summary.mode).toBe('full');
+    expect(resumed.summary.reason).toMatch(
+      /resumed \d+ cached extraction\(s\) from an earlier run/,
+    );
+    expect(resumed.summary.reusedFiles).toBe(Number(checkpointed));
+    expect(resumed.summary.parsedFiles + resumed.summary.reusedFiles).toBe(5);
+
+    // The resumed publication is exactly what a clean full rebuild publishes.
+    const afterResume = snapshot();
+    await runNexusAnalysis({ repoPath: repo, full: true });
+    const afterFull = snapshot();
+    expect(afterResume.nodes).toEqual(afterFull.nodes);
+    expect(afterResume.relations).toEqual(afterFull.relations);
+    expect(afterResume.cache).toEqual(afterFull.cache);
+  });
+
+  it('a rebuild after an extractor upgrade that is aborted mid-parse resumes next run', async () => {
+    await runNexusAnalysis({ repoPath: repo });
+    // The published graph and its cache came from an older extractor build.
+    native.exec(
+      "UPDATE _nexus_meta SET value = 'older-build' WHERE key = 'graph_extractor_fingerprint'",
+    );
+    native.exec("UPDATE _nexus_parse_cache SET fingerprint = 'older-build'");
+    const controller = new AbortController();
+    let parsing = false;
+    const write = process.stderr.write.bind(process.stderr);
+    const spy = vi.spyOn(process.stderr, 'write').mockImplementation((chunk, ...rest) => {
+      if (String(chunk).includes('[nexus] Phase 3: Parsing files')) parsing = true;
+      return write(chunk as string, ...(rest as []));
+    });
+    const aborted = await runNexusAnalysis({
+      repoPath: repo,
+      parserLimits: { signal: controller.signal },
+      onProgress: (current) => {
+        if (parsing && current === 3) controller.abort();
+      },
+    })
+      .then(
+        () => null,
+        (error: Error) => error,
+      )
+      .finally(() => spy.mockRestore());
+    expect(aborted?.name).toBe('AbortError');
+    const current = Number(
+      (
+        native
+          .prepare(
+            "SELECT COUNT(*) AS n FROM _nexus_parse_cache WHERE fingerprint != 'older-build'",
+          )
+          .get() as Row
+      ).n,
+    );
+    expect(current).toBeGreaterThan(0);
+
+    const resumed = await runNexusAnalysis({ repoPath: repo });
+    expect(resumed.summary.mode).toBe('full');
+    expect(resumed.summary.reason).toMatch(/different extractor build.*resumed \d+ cached/);
+    expect(resumed.summary.reusedFiles).toBe(current);
+    expect(resumed.summary.parsedFiles).toBe(5 - current);
+    expect((await runNexusAnalysis({ repoPath: repo })).summary.mode).toBe('unchanged');
+  });
+
+  it.each([
+    ['resolve', '[nexus] Phase 3c: Resolving heritage'],
+    ['communities', '[nexus] Phase 5: Detecting communities'],
+    ['flows', '[nexus] Phase 6: Detecting execution flows'],
+  ])('an abort inside %s ends the run cleanly with the previous graph intact', async (_phase, marker) => {
+    await runNexusAnalysis({ repoPath: repo });
+    const before = published();
+    await put('src/app.ts', `${FIXTURE['src/app.ts']}\n// edited\n`);
+    const controller = new AbortController();
+    const write = process.stderr.write.bind(process.stderr);
+    const spy = vi.spyOn(process.stderr, 'write').mockImplementation((chunk, ...rest) => {
+      if (String(chunk).includes(marker)) controller.abort();
+      return write(chunk as string, ...(rest as []));
+    });
+    try {
+      const failure = await runNexusAnalysis({
+        repoPath: repo,
+        parserLimits: { signal: controller.signal },
+      }).then(
+        () => null,
+        (error: Error) => error,
+      );
+      expect(failure?.name).toBe('AbortError');
+    } finally {
+      spy.mockRestore();
+    }
+    expect(published()).toEqual(before);
+    // The edited file's extraction was checkpointed: the next run parses nothing.
+    const next = await runNexusAnalysis({ repoPath: repo });
+    expect(next.summary).toMatchObject({ mode: 'incremental', parsedFiles: 0 });
   });
 });

@@ -129,9 +129,40 @@ export function readNexusParseCache(db: NodeSQLiteDatabase): GraphParseCacheEntr
     });
 }
 
+/** Upsert one parse-cache entry (inside the caller's transaction). */
+function upsertParseCacheEntry(tx: NodeSQLiteDatabase, entry: GraphParseCacheEntry): void {
+  tx.run(sql`INSERT INTO main._nexus_parse_cache (path, content_hash, fingerprint, generation, payload)
+    VALUES (${entry.path}, ${entry.contentHash}, ${entry.fingerprint}, ${entry.generation}, ${entry.payload})
+    ON CONFLICT(path) DO UPDATE SET content_hash = excluded.content_hash,
+      fingerprint = excluded.fingerprint, generation = excluded.generation, payload = excluded.payload`);
+}
+
+/**
+ * Persist a batch of parsed extractions outside the graph publication
+ * (T14009), so an aborted or killed analysis keeps its parse work. Entries are
+ * exact by path, content hash and extractor fingerprint; the next run reuses
+ * them, and the publication keeps only its own generation's files.
+ *
+ * @param db - Project graph database.
+ * @param entries - Extractions parsed since the last checkpoint.
+ */
+export function checkpointNexusParseCache(
+  db: NodeSQLiteDatabase,
+  entries: readonly GraphParseCacheEntry[],
+): void {
+  if (entries.length === 0) return;
+  db.transaction((tx) => {
+    for (const entry of entries) upsertParseCacheEntry(tx, entry);
+  });
+}
+
 /** Apply a parse-cache mutation inside the caller's publication transaction. */
 function applyParseCacheUpdate(tx: NodeSQLiteDatabase, update: GraphParseCacheUpdate): void {
   if (update.reset) tx.run(sql`DELETE FROM main._nexus_parse_cache`);
+  if (update.retainPaths)
+    tx.run(
+      sql`DELETE FROM main._nexus_parse_cache WHERE path NOT IN (SELECT value FROM json_each(${JSON.stringify(update.retainPaths)}))`,
+    );
   for (let offset = 0; offset < update.deletePaths.length; offset += 500) {
     const batch = update.deletePaths.slice(offset, offset + 500);
     tx.run(
@@ -144,10 +175,7 @@ function applyParseCacheUpdate(tx: NodeSQLiteDatabase, update: GraphParseCacheUp
   for (const entry of update.upserts) {
     if (entry.fingerprint !== update.fingerprint)
       throw new Error(`Parse cache entry ${entry.path} carries a foreign extractor fingerprint`);
-    tx.run(sql`INSERT INTO main._nexus_parse_cache (path, content_hash, fingerprint, generation, payload)
-      VALUES (${entry.path}, ${entry.contentHash}, ${entry.fingerprint}, ${entry.generation}, ${entry.payload})
-      ON CONFLICT(path) DO UPDATE SET content_hash = excluded.content_hash,
-        fingerprint = excluded.fingerprint, generation = excluded.generation, payload = excluded.payload`);
+    upsertParseCacheEntry(tx, entry);
   }
 }
 
@@ -745,6 +773,12 @@ async function runScopedNexusAnalysis(
     ...(fullReason ? { fullReason } : {}),
     ...(params.requireIncremental ? { requireIncremental: true } : {}),
     loadParseCache: () => readNexusParseCache(db),
+    // T14009: a rebuild resumes provably exact cached extractions (this build's
+    // fingerprint, same content hash) unless the owner asked for --full or the
+    // graph is being re-bound to a new root.
+    resumeParseCache: !full && !reboundFrom,
+    checkpointParseCache: (entries: readonly GraphParseCacheEntry[]) =>
+      checkpointNexusParseCache(db, entries),
     publishedFingerprint: publishedExtractorFingerprint(db),
     assessedRevision,
     sourceRoots,
