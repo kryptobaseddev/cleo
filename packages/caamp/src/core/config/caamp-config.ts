@@ -15,7 +15,7 @@
  *
  * 1. Programmatic override via {@link setExclusivityMode} (highest priority).
  * 2. Environment variable `CAAMP_EXCLUSIVITY_MODE`.
- * 3. Default value `'auto'`.
+ * 3. Default value `'legacy'` (T13995, ADR-098).
  *
  * The programmatic override exists primarily for tests and for future
  * `caamp config set` integration; production code should prefer the
@@ -30,14 +30,15 @@ import type { ExclusivityMode } from '../harness/types.js';
  * Default exclusivity mode used when no override is configured.
  *
  * @remarks
- * `auto` mirrors the v2026.4.5+ behaviour: Pi is preferred when installed,
- * but explicit non-Pi targets remain functional. This is the value the
- * accessor returns when neither {@link setExclusivityMode} nor the
- * `CAAMP_EXCLUSIVITY_MODE` environment variable is set.
+ * `legacy` since T13995 (ADR-098 retires the Pi/CleoOS harness): CAAMP
+ * prefers no harness and targets the installed high-tier providers, with no
+ * Pi warnings. `auto` (Pi preferred when installed) and `force-pi` remain
+ * available as explicit opt-ins through {@link setExclusivityMode} or the
+ * `CAAMP_EXCLUSIVITY_MODE` environment variable.
  *
  * @public
  */
-export const DEFAULT_EXCLUSIVITY_MODE: ExclusivityMode = 'auto';
+export const DEFAULT_EXCLUSIVITY_MODE: ExclusivityMode = 'legacy';
 
 /**
  * Environment variable name read by {@link getExclusivityMode} when no

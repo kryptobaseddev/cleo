@@ -57,9 +57,9 @@ afterEach(() => {
 // ── 1. Default + accessor sanity ─────────────────────────────────────
 
 describe("getExclusivityMode", () => {
-  it("defaults to 'auto' when no override and no env var are set", () => {
+  it("defaults to 'legacy' when no override and no env var are set (T13995, ADR-098)", () => {
     expect(getExclusivityMode()).toBe(DEFAULT_EXCLUSIVITY_MODE);
-    expect(getExclusivityMode()).toBe("auto");
+    expect(getExclusivityMode()).toBe("legacy");
   });
 
   it("reads the CAAMP_EXCLUSIVITY_MODE environment variable", () => {
@@ -69,7 +69,7 @@ describe("getExclusivityMode", () => {
 
   it("ignores invalid env var values and falls through to the default", () => {
     process.env[EXCLUSIVITY_MODE_ENV_VAR] = "nonsense";
-    expect(getExclusivityMode()).toBe("auto");
+    expect(getExclusivityMode()).toBe("legacy");
   });
 
   it("programmatic override beats the env var", () => {
@@ -223,6 +223,21 @@ describe("resolveDefaultTargetProviders — legacy mode", () => {
 
     expect(result).toHaveLength(1);
     expect(result[0]?.id).toBe("pi");
+    expect(warnSpy).not.toHaveBeenCalled();
+    warnSpy.mockRestore();
+  });
+
+  it("does not prefer Pi over high-tier providers when both are installed (T13995)", () => {
+    const pi = getProvider("pi");
+    const claude = getProvider("claude-code");
+    if (!pi || !claude) throw new Error("registry missing fixtures");
+    mocks.getInstalledProviders.mockReturnValue([pi, claude]);
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    setExclusivityMode("legacy");
+    const result = resolveDefaultTargetProviders();
+
+    expect(result.map((p) => p.id)).toEqual(["claude-code"]);
     expect(warnSpy).not.toHaveBeenCalled();
     warnSpy.mockRestore();
   });

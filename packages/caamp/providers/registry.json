@@ -1884,7 +1884,7 @@
           "$HOME/.pi/agent"
         ]
       },
-      "priority": "primary",
+      "priority": "medium",
       "status": "active",
       "agentSkillsCompatible": true,
       "capabilities": {

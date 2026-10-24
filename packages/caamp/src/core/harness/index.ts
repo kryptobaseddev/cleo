@@ -24,7 +24,7 @@ import {
   PiRequiredError,
 } from '../config/caamp-config.js';
 import { getInstalledProviders } from '../registry/detection.js';
-import { getAllProviders, getPrimaryProvider } from '../registry/providers.js';
+import { getAllProviders, getPrimaryProvider, getProvider } from '../registry/providers.js';
 import {
   installSkill as genericInstallSkill,
   removeSkill as genericRemoveSkill,
@@ -177,11 +177,19 @@ export function resolveDefaultTargetProviders(
 ): Provider[] {
   const mode: ExclusivityMode = getExclusivityMode();
 
+  // T13995 (ADR-098): Pi is no longer the registry's primary provider, so
+  // `auto` and `force-pi`, which exist to prefer Pi, resolve the Pi harness
+  // by id. `legacy` (the default) uses the registry primary, which is now
+  // none, so it prefers no harness.
   let primary: Harness | null = null;
+  let registryPrimary: Harness | null = null;
   try {
-    primary = getPrimaryHarness();
+    registryPrimary = getPrimaryHarness();
+    const pi = getProvider('pi');
+    primary = pi ? getHarnessFor(pi) : null;
   } catch {
     primary = null;
+    registryPrimary = null;
   }
 
   let installed: Provider[];
@@ -205,8 +213,11 @@ export function resolveDefaultTargetProviders(
   // exclusivity matrix below has a single call site for both paths
   // without introducing a new top-level symbol.
   const legacyFallback = (): Provider[] => {
-    if (primary !== null && primaryInstalled) {
-      return [primary.provider];
+    if (
+      registryPrimary !== null &&
+      installed.some((provider) => provider.id === registryPrimary?.provider.id)
+    ) {
+      return [registryPrimary.provider];
     }
     const highTier = installed.filter(
       (provider) => provider.priority === 'primary' || provider.priority === 'high',
@@ -233,7 +244,7 @@ export function resolveDefaultTargetProviders(
     return legacyFallback();
   }
 
-  // ── auto (default) ──────────────────────────────────────────────────
+  // ── auto (opt-in since T13995; Pi preferred when installed) ─────────
   // Emit a one-time deprecation warning when an explicit non-Pi target is
   // supplied while Pi is installed. This is the user-visible nudge that
   // direct provider targeting will be deprecated in a future major.
