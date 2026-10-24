@@ -658,7 +658,7 @@ erDiagram
 
     brain_observations {
         text id PK
-        text type "discovery|change|feature|bugfix|decision|refactor"
+        text type "discovery|change|feature|bugfix|decision|refactor|diary|session-summary|lesson"
         text title
         text subtitle
         text narrative
@@ -1043,7 +1043,7 @@ The status_registry table (tasks.db) stores all valid status values. The canonic
 | `brain_decisions.outcome` | success, failure, mixed, pending | |
 | `brain_patterns.type` | workflow, blocker, success, failure, optimization | |
 | `brain_patterns.impact` | low, medium, high | |
-| `brain_observations.type` | discovery, change, feature, bugfix, decision, refactor | |
+| `brain_observations.type` | discovery, change, feature, bugfix, decision, refactor, diary, session-summary, lesson | |
 | `brain_observations.source_type` | agent, session-debrief, claude-mem, manual | Default: agent |
 | `brain_memory_links.memory_type` | decision, pattern, learning, observation | |
 | `brain_memory_links.link_type` | produced_by, applies_to, informed_by, contradicts | |
