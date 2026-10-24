@@ -1018,6 +1018,39 @@ const MEMORY_NODE_TABLES: Readonly<
   observation: 'observations',
 };
 
+/**
+ * The date of a memory row recall may show, or `null` when it may not: below
+ * the quality threshold, not current, or an auto row (T13968). Hits from any
+ * source (FTS, vector, graph) pass this one gate before they are returned.
+ *
+ * @param nativeDb - The project brain.
+ * @param type - Hit type (`decision`, `pattern`, `learning`, `observation`).
+ * @param id - Row id.
+ * @param peer - Optional peer clause over `brain_<table>` with its parameters.
+ * @returns The row's date, `''` when the type is not a memory table, or `null`.
+ * @example
+ * ```ts
+ * if (recallEligibleDate(db, 'pattern', 'P-1') === null) continue;
+ * ```
+ */
+export function recallEligibleDate(
+  nativeDb: DatabaseSync,
+  type: string,
+  id: string,
+  peer: { clause: string; params: string[] } = { clause: '', params: [] },
+): string | null {
+  const table = MEMORY_NODE_TABLES[type];
+  if (!table) return '';
+  const row = nativeDb
+    .prepare(
+      `SELECT ${table === 'patterns' ? 'extracted_at' : 'created_at'} AS date FROM main.brain_${table}
+       WHERE id = ? AND (quality_score IS NULL OR quality_score >= ?)${memoryEligibilityClause(table)}${autoRowExclusionClause(table)}${peer.clause}`,
+    )
+    .get(id, QUALITY_SCORE_THRESHOLD, ...peer.params);
+  if (!row) return null;
+  return typeof row.date === 'string' ? row.date : '';
+}
+
 /** How many top FTS hits seed graph-neighbour expansion. */
 const GRAPH_SEED_HITS = 3;
 
@@ -1169,15 +1202,14 @@ export async function hybridSearch(
     const table = MEMORY_NODE_TABLES[hit.type];
     let date: string | undefined;
     if (table) {
-      const { clause, params } = buildPeerClause(`brain_${table}`, peerId, includeGlobal);
-      const row = nativeDb
-        .prepare(
-          `SELECT ${table === 'patterns' ? 'extracted_at' : 'created_at'} AS date FROM main.brain_${table}
-           WHERE id = ? AND (quality_score IS NULL OR quality_score >= ?)${memoryEligibilityClause(table)}${autoRowExclusionClause(table)}${clause}`,
-        )
-        .get(hit.id, QUALITY_SCORE_THRESHOLD, ...params);
-      if (!row) continue;
-      date = typeof row.date === 'string' ? row.date : '';
+      const eligible = recallEligibleDate(
+        nativeDb,
+        hit.type,
+        hit.id,
+        buildPeerClause(`brain_${table}`, peerId, includeGlobal),
+      );
+      if (eligible === null) continue;
+      date = eligible;
     }
     results.push({
       id: hit.id,
