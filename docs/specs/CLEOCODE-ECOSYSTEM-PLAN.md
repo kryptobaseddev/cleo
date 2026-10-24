@@ -45,6 +45,8 @@ cleocode/packages/
 
 #### Core Protocol Crates (rlib — pure Rust libraries)
 
+> **Removed (T13954, 2026-10-24):** the `conduit-core` crate (later renamed `cleo-conduit-core`) is no longer in the cleocode monorepo. Conduit messaging is retiring (epic T13933) and agents message each other over AgentMBX. External consumers that still need the types pin the crates.io release `=2026.5.105`. Mentions of `conduit-core` below are historical.
+
 ```
 cleocode/crates/
   lafs-core/             lafs-core               LAFS envelope types + validation (Rust SSoT)

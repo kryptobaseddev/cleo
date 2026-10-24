@@ -10,8 +10,8 @@
 //! - `cant_parse_full` — representative real-world CANT message with a
 //!   directive, multiple addresses, task refs, tags, plus a multi-line
 //!   body that itself contains task references and addresses. Mirrors
-//!   the on-wire shape conduit-core / signaldock-protocol consumers
-//!   actually receive.
+//!   the on-wire shape signaldock-protocol consumers actually receive
+//!   (the conduit-core crate was removed in T13954).
 //!
 //! Each bench calls [`cant_core::parse`] end-to-end so the measured time
 //! captures header/body split, header element extraction, body scanning,
