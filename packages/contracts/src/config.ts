@@ -820,8 +820,36 @@ export interface NexusFreshnessConfig {
   maxCommitsBehind?: number;
 }
 
+/**
+ * Background reindex after a merge into the base branch (T14010). Started by
+ * the CLEO `post-merge` hook only when the `cleo.nexusReindexOnMerge` git
+ * marker is set (`cleo nexus reindex-on-merge --enable` sets both); runs at
+ * the lowest admission priority, one at a time per project, and records its
+ * outcome for `cleo nexus status`.
+ *
+ * @task T14010
+ */
+export interface NexusReindexOnMergeConfig {
+  /**
+   * Whether a merge into the base branch starts a background reindex. Off by
+   * default: a heavy analysis after every merge must be a choice.
+   *
+   * @defaultValue false
+   */
+  enabled?: boolean;
+  /**
+   * Seconds the reindex keeps trying for `cleo run` admission (never queueing,
+   * only when nothing else waits) before it is recorded as deferred.
+   *
+   * @defaultValue 300
+   */
+  timeoutSeconds?: number;
+}
+
 /** Code-graph (`cleo nexus`) configuration. */
 export interface NexusConfig {
+  /** Background reindex after a merge into the base branch (T14010). */
+  reindexOnMerge?: NexusReindexOnMergeConfig;
   /** Inline refresh of a slightly stale index before graph queries answer. */
   autoRefresh?: NexusAutoRefreshConfig;
   /** When an answer from a stale index is refused instead of returned. */

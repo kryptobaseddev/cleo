@@ -104,7 +104,7 @@ function runCommitMsgHook(repo: string, subject: string): number {
 }
 
 describe('installCleoHooks (T1588)', () => {
-  it('installs all three hooks cleanly on a fresh git repo', async () => {
+  it('installs every managed hook cleanly on a fresh git repo', async () => {
     const repo = gitInit(path.join(tmpRoot, 'fresh'));
 
     const res = await installCleoHooks(repo, {
@@ -619,19 +619,19 @@ describe('Git-native installation and recovery (T13349)', () => {
     execFileSync('git', ['worktree', 'add', '-q', '-b', 'other', linked], { cwd: repo });
     execFileSync('git', ['config', 'core.hooksPath', 'team-hooks'], { cwd: repo });
     const options = { templatesDir: REPO_TEMPLATES_DIR, allowTrackedHooksPath: true };
-    expect((await installCleoHooks(repo, options)).installed).toHaveLength(3);
-    expect((await installCleoHooks(linked, options)).installed).toHaveLength(3);
-    expect((await installCleoHooks(repo, options)).installed).toHaveLength(3);
+    expect((await installCleoHooks(repo, options)).installed).toHaveLength(CLEO_HOOK_NAMES.length);
+    expect((await installCleoHooks(linked, options)).installed).toHaveLength(
+      CLEO_HOOK_NAMES.length,
+    );
+    expect((await installCleoHooks(repo, options)).installed).toHaveLength(CLEO_HOOK_NAMES.length);
     expect(
       fs
         .readdirSync(path.join(repo, '.git', 'cleo-git-hooks'))
         .filter((file) => file.endsWith('.json')),
     ).toHaveLength(2);
-    expect(fs.readdirSync(path.join(linked, 'team-hooks')).sort()).toEqual([
-      'commit-msg',
-      'pre-commit',
-      'pre-push',
-    ]);
+    expect(fs.readdirSync(path.join(linked, 'team-hooks')).sort()).toEqual(
+      [...CLEO_HOOK_NAMES].sort(),
+    );
   });
 
   it('keeps bare repository installation Git-private', async () => {
@@ -662,16 +662,21 @@ describe('Git-native installation and recovery (T13349)', () => {
       templatesDir: REPO_TEMPLATES_DIR,
       allowTrackedHooksPath: true,
     });
-    expect(result.installed).toEqual(['commit-msg', 'pre-commit']);
+    expect(result.installed).toEqual(['commit-msg', 'pre-commit', 'post-merge']);
     expect(result.skipped).toEqual(['pre-push']);
     expect(fs.existsSync(privateReceiptPath(repo, hooks))).toBe(true);
-    expect(fs.readdirSync(hooks).sort()).toEqual(['commit-msg', 'pre-commit', 'pre-push']);
+    expect(fs.readdirSync(hooks).sort()).toEqual([
+      'commit-msg',
+      'post-merge',
+      'pre-commit',
+      'pre-push',
+    ]);
     const rollback = await installCleoHooks(repo, {
       templatesDir: REPO_TEMPLATES_DIR,
       allowTrackedHooksPath: true,
       rollbackReceipt: result.receipt,
     });
-    expect(rollback.installed).toEqual(['commit-msg', 'pre-commit']);
+    expect(rollback.installed).toEqual(['commit-msg', 'pre-commit', 'post-merge']);
     expect(fs.readFileSync(path.join(hooks, 'pre-push'), 'utf8')).toBe(original);
   });
 

@@ -422,6 +422,7 @@ const statusCommand = defineCommand({
       // classifies them; a registry read failure never fails the status.
       const { summarizeRegistryHealth } = await import('@cleocode/core/nexus/registry');
       const registry = await summarizeRegistryHealth().catch(() => undefined);
+      const { readReindexOnMergeOutcome } = await import('@cleocode/core/nexus/reindex-on-merge');
       const durationMs = Date.now() - startTime;
 
       cliOutput(
@@ -433,6 +434,8 @@ const statusCommand = defineCommand({
           freshness,
           assessment,
           ...(registry ? { registry } : {}),
+          // T14010: what the last background reindex after a merge did.
+          reindexOnMerge: readReindexOnMergeOutcome(currentRoot),
         },
         {
           command: 'nexus-status',
@@ -1291,6 +1294,50 @@ const impactCommand = defineCommand({
       );
       process.exitCode = 1;
     }
+  },
+});
+
+/**
+ * cleo nexus reindex-on-merge — the opt-in background reindex the CLEO
+ * `post-merge` hook starts (T14010). Base branch only, one at a time per
+ * project, through `cleo run` admission; the outcome shows in `nexus status`.
+ */
+const reindexOnMergeCommand = defineCommand({
+  meta: {
+    name: 'reindex-on-merge',
+    description:
+      'Reindex after a merge into the base branch (run by the post-merge hook). Off until --enable',
+  },
+  args: {
+    json: { type: 'boolean', description: 'Output result as JSON (LAFS envelope format)' },
+    enable: {
+      type: 'boolean',
+      description:
+        'Turn it on: set nexus.reindexOnMerge.enabled and the git marker the post-merge hook checks',
+    },
+    disable: { type: 'boolean', description: 'Turn it off (config and git marker)' },
+  },
+  async run({ args }) {
+    applyJsonFlag(args.json as boolean | undefined);
+    const { runReindexOnMerge, setReindexOnMerge } = await import(
+      '@cleocode/core/nexus/reindex-on-merge'
+    );
+    if (args.enable || args.disable) {
+      await setReindexOnMerge(getProjectRoot(), !!args.enable);
+      cliOutput(
+        { reindexOnMerge: !!args.enable },
+        { command: 'nexus-reindex-on-merge', operation: 'nexus.reindex-on-merge' },
+      );
+      return;
+    }
+    const outcome = await runReindexOnMerge(getProjectRoot());
+    cliOutput(
+      { ...outcome },
+      {
+        command: 'nexus-reindex-on-merge',
+        operation: 'nexus.reindex-on-merge',
+      },
+    );
   },
 });
 
@@ -3389,6 +3436,7 @@ export const nexusCommand = defineCommand({
     context: contextCommand,
     impact: impactCommand,
     analyze: analyzeCommand,
+    'reindex-on-merge': reindexOnMergeCommand,
     query: queryCommand,
     projects: projectsCommand,
     'refresh-bridge': refreshBridgeCommand,

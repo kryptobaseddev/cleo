@@ -1,6 +1,6 @@
 ---
 name: ct-codebase-mapper
-version: 2.3.3
+version: 2.3.4
 description: Orient in an unfamiliar or large codebase with CLEO's code-intelligence graph (cleo nexus) and project map (cleo map). Use before planning or editing unfamiliar code, for brownfield onboarding, to find what a change would break, or to map a project's structure, communities and execution flows. Triggers on "map the codebase", "understand this project", "what calls X", "what would break", "brownfield analysis", "project structure".
 protocol: null
 dependencies: []
@@ -17,7 +17,7 @@ triggers:
   - project structure
   - blast radius
 metadata:
-  version: 2.3.3
+  version: 2.3.4
   tier: on-demand
   install: harness
   covers:
@@ -129,6 +129,12 @@ stale for this checkout, the query fails with
 `E_NEXUS_INDEX_STALE` (exit 111) and `error.fix` names the reindex command. Run
 it, then repeat the query. `--allow-stale` (`impact`, `context`) or
 `CLEO_NEXUS_ALLOW_STALE=1` accepts the stale answer; say that you did.
+
+`cleo nexus reindex-on-merge --enable` opts a project into a background
+reindex after each merge into the base branch (the CLEO `post-merge` hook; it
+waits for idle `cleo run` admission and gives up after 300s). `cleo nexus
+status` shows the last real outcome as `reindexOnMerge` (ran, deferred or
+failed, with the reason); skips are not recorded.
 
 ## 5. Across projects: where each one lives, and its state
 

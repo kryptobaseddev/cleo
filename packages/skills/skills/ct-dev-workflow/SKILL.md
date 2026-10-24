@@ -1,7 +1,7 @@
 ---
 name: ct-dev-workflow
 description: Development workflow orchestration for task-driven development with atomic commits, conventional commit messages, and systematic release processes. Enforces task traceability, branch discipline, smart test scope selection, and GitHub Actions integration. Use when committing code, creating releases, managing branches, or following contribution protocols. Triggers on commit operations, release preparation, or workflow compliance needs.
-version: 3.1.28
+version: 3.1.29
 protocol: contribution
 dependencies: []
 sharedResources:
@@ -14,7 +14,7 @@ compatibility:
   - gemini-cli
 license: MIT
 metadata:
-  version: 3.1.28
+  version: 3.1.29
   tier: core
   install: harness
   covers:
@@ -26,7 +26,7 @@ metadata:
     - packages/core/src/hooks.ts
     - packages/core/templates/git-hooks/**
     - packages/contracts/src/git-hooks.ts
-  lastReviewed: 2026-10-23
+  lastReviewed: 2026-10-24
   stability: stable
 ---
 
@@ -114,6 +114,15 @@ pre-push stderr line `WARNING: push NOT gated by project hooks: <reason>`, flagg
 checkout whose activation is on (T13774). Verify nested checkout paths, linked
 worktrees, custom hook paths, historical release bodies and corrupt receipts
 with focused Git fixtures before changing this delivery path.
+
+The fourth managed hook, `post-merge` (T14010), never blocks. In shell, before
+starting anything, it requires the `cleo.nexusReindexOnMerge` git marker and
+HEAD on the base branch; otherwise it starts no process. When both hold it
+starts `cleo nexus reindex-on-merge` detached. That command runs one at a time
+per project (`.cleo/nexus-reindex.lock`) at the lowest admission priority: it
+never joins the `cleo run` queue, tries only when nothing is waiting, and
+records `deferred` after `nexus.reindexOnMerge.timeoutSeconds` (300). Turn it
+on or off with `cleo nexus reindex-on-merge --enable` / `--disable`.
 
 ---
 

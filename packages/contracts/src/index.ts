@@ -302,6 +302,7 @@ export type {
   NexusAutoRefreshConfig,
   NexusConfig,
   NexusFreshnessConfig,
+  NexusReindexOnMergeConfig,
   OutputConfig,
   OutputFormat,
   ProviderConfig,

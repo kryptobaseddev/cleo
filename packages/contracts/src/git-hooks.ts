@@ -1,8 +1,11 @@
 /** Hash-guarded Git hook installation and recovery contracts. */
 import { z } from 'zod';
 
-/** Canonical names of the three shipped Git checks. */
-export const CLEO_GIT_HOOK_NAMES = ['commit-msg', 'pre-commit', 'pre-push'] as const;
+/**
+ * Canonical names of the shipped Git hooks: three checks, and `post-merge`,
+ * which starts an opt-in background NEXUS reindex (T14010).
+ */
+export const CLEO_GIT_HOOK_NAMES = ['commit-msg', 'pre-commit', 'pre-push', 'post-merge'] as const;
 
 /** One recoverable managed Git hook change. */
 export const GitHookChangeSchema = z.object({
