@@ -130,6 +130,12 @@ stale for this checkout, the query fails with
 it, then repeat the query. `--allow-stale` (`impact`, `context`) or
 `CLEO_NEXUS_ALLOW_STALE=1` accepts the stale answer; say that you did.
 
+`nexus.reindexOnMerge.enabled: true` opts a project into a background reindex
+after each merge into the base branch (the CLEO `post-merge` hook runs
+`cleo nexus reindex-on-merge` through `cleo run` admission, one at a time).
+`cleo nexus status` shows the last outcome as `reindexOnMerge` (ran, skipped,
+deferred or failed, with the reason).
+
 ## 5. Across projects: where each one lives, and its state
 
 ```bash
