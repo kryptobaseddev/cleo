@@ -28,8 +28,9 @@ import {
   deriveTaskChangeSet,
   type MergedPrSummary,
   type PrDetails,
+  resolveChangeSetRoot,
 } from '../change-set.js';
-import { parseEvidence, validateAtom } from '../evidence.js';
+import { boundHeadGapReason, parseEvidence, validateAtom } from '../evidence.js';
 import { coveredTestFiles } from '../test-run-binding.js';
 
 function git(dir: string, args: string[]): string {
@@ -304,6 +305,87 @@ describe('worktrees and declared git roots (AC4)', () => {
       deps,
     );
     expect(elsewhere.rootSource).toBe('task-worktree');
+  });
+
+  it('T14004: cwd = the declared main checkout, and an ambient GIT_WORK_TREE, resolve the same way', () => {
+    const store = join(base, 'store-env');
+    mkdirSync(join(store, '.cleo'), { recursive: true });
+    const app = repoWithOrigin(store, 'app');
+    writeFileSync(
+      join(store, '.cleo', 'project-context.json'),
+      JSON.stringify({ evidence: { gitRoot: 'app' } }),
+    );
+    // No task worktree yet: invoked from the declared main checkout, it is the root.
+    expect(resolveChangeSetRoot(store, 'T908', app)).toEqual({
+      root: realpathSync(app),
+      source: 'declared',
+    });
+    const wt = join(base, 'wt-T908');
+    git(app, ['worktree', 'add', '-q', '-b', 'task/T908', wt]);
+    // From the main checkout, the task's registered worktree.
+    expect(resolveChangeSetRoot(store, 'T908', app).root).toBe(realpathSync(wt));
+    // An exported GIT_DIR / GIT_WORK_TREE naming the main checkout is ignored:
+    // the invocation's own worktree still wins.
+    const env = {
+      ...process.env,
+      GIT_DIR: join(app, '.git'),
+      GIT_WORK_TREE: app,
+    };
+    const saved = { dir: process.env.GIT_DIR, tree: process.env.GIT_WORK_TREE };
+    process.env.GIT_DIR = env.GIT_DIR;
+    process.env.GIT_WORK_TREE = env.GIT_WORK_TREE;
+    try {
+      expect(resolveChangeSetRoot(store, 'T908', wt, env)).toEqual({
+        root: realpathSync(wt),
+        source: 'invocation-worktree',
+      });
+    } finally {
+      if (saved.dir === undefined) delete process.env.GIT_DIR;
+      else process.env.GIT_DIR = saved.dir;
+      if (saved.tree === undefined) delete process.env.GIT_WORK_TREE;
+      else process.env.GIT_WORK_TREE = saved.tree;
+    }
+  });
+
+  it('T14004: a run bound in the checkout of another task is not evidence for this one', async () => {
+    const repo = repoWithOrigin(base, 'repo-heads');
+    git(repo, ['switch', '-q', '-c', 'task/T909']);
+    const mine = commitTaskWork(repo, 'T909');
+    git(repo, ['switch', '-q', 'main']);
+    git(repo, ['switch', '-q', '-c', 'task/T910']);
+    const other = commitTaskWork(repo, 'T910');
+    git(repo, ['switch', '-q', 'task/T909']);
+    const task = {
+      id: 'T909',
+      verification: {
+        passed: false,
+        round: 1,
+        gates: {},
+        lastAgent: null,
+        lastUpdated: null,
+        failureLog: [],
+        evidence: {
+          implemented: {
+            atoms: [{ kind: 'commit' as const, sha: mine }],
+            capturedAt: '2026-10-24T00:00:00Z',
+            capturedBy: 'test',
+          },
+        },
+      },
+    };
+    const run = (headSha: string): EvidenceAtom => ({
+      kind: 'test-run',
+      path: '/tmp/r.json',
+      sha256: 'x',
+      passCount: 1,
+      failCount: 0,
+      skipCount: 0,
+      headSha,
+    });
+    expect(await boundHeadGapReason(task, [run(mine)], repo)).toBeNull();
+    expect(await boundHeadGapReason(task, [run(other)], repo)).toMatch(
+      /neither contains nor merged into T909's implemented commit/,
+    );
   });
 });
 
