@@ -484,10 +484,7 @@ export function parsePsTime(value: string): number {
  * @returns The summed usage.
  */
 export function treeUsageFromTable(table: string, rootPid: number): ProcessTreeUsage | null {
-  const rows = new Map<
-    number,
-    { ppid: number; cpuMs: number; rssKiB: number; command: string }
-  >();
+  const rows = new Map<number, { ppid: number; cpuMs: number; rssKiB: number; command: string }>();
   for (const line of table.split('\n')) {
     const [pid, ppid, time, rss, ...command] = line.trim().split(/\s+/);
     const row = {
@@ -533,10 +530,7 @@ export function treeUsageFromTable(table: string, rootPid: number): ProcessTreeU
  *   hook). The table is then much larger, so it is read only when asked.
  * @returns The summed usage.
  */
-export function processTreeUsage(
-  rootPid: number,
-  withCommands = false,
-): ProcessTreeUsage | null {
+export function processTreeUsage(rootPid: number, withCommands = false): ProcessTreeUsage | null {
   try {
     const columns = withCommands ? 'pid=,ppid=,time=,rss=,command=' : 'pid=,ppid=,time=,rss=';
     const out = execFileSync('/bin/ps', ['-A', '-o', columns], {
