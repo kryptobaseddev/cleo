@@ -590,6 +590,14 @@ export function cliOutput(data: unknown, opts: CliOutputOptions): void {
       const footer = metaFooter(combinedMeta);
       if (footer) process.stdout.write(`${footer}\n`);
     }
+    // T13987: warnings pushed via `pushWarning` (deprecations such as
+    // `cleo conduit *` or `cleo docs supersede`) only reached JSON consumers
+    // through meta.warnings; formatSuccess never runs on this path, so drain
+    // them here and show them to the person. stderr keeps stdout clean.
+    const pushed = drainWarnings();
+    if (!ctx.quiet && pushed) {
+      for (const w of pushed) process.stderr.write(`warning: ${w.message}\n`);
+    }
     return;
   }
 
