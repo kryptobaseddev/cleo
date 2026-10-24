@@ -1,6 +1,6 @@
 # CLEO Protocol
 
-Version: 2.24.19 | CLI-only dispatch | `cleo <command> [args]`
+Version: 2.24.20 | CLI-only dispatch | `cleo <command> [args]`
 
 <!-- CLEO-INJECTION:section=session-start -->
 ## Universal protocol
@@ -10,7 +10,7 @@ Version: 2.24.19 | CLI-only dispatch | `cleo <command> [args]`
 3. **Inspect evidence.** Before editing, inspect impact and its coverage. `UNKNOWN` means assessment is incomplete; `NONE` means no impact detected in the assessed graph. Static analysis cannot prove all runtime callers. Resolve ambiguous symbols using qualified candidate identifiers and verify against source.
 4. **Act.** Use the repair matrix: scope, evidence, repair class, proposed operation, prerequisites, verification, and recovery. Automatic repairs must be bounded and reversible. The calling agent supplies sourced resolutions for ambiguous findings; owner decisions stay explicit. No background LLM is required for repair.
 5. **Verify.** Run relevant checks, record validated evidence, then complete. Report unresolved and failed findings and missing coverage rather than claiming success.
-6. **Learn.** Record actionable incident knowledge with source, project, revision, observation, correction, and verification through `cleo memory observe`. Preserve historical handoffs; present corrections separately. Avoid empty completion traces.
+6. **Learn.** Record incidents (source, project, revision, observation, correction, verification) via `cleo memory observe`; rules: `--type lesson` (`cleo memory lessons`). Keep historical handoffs; show corrections separately. Avoid empty completion traces.
 7. **Ask the owner.** Every owner answer, decision, approval or choice goes through the ask tool (`AskUserQuestion` or the provider equivalent) with concrete selectable options, recommended first, each stating what happens and its trade-offs. Never ask in prose or bury a question in a response. Subagents never ask the human; they return the question and options to their orchestrator, which asks. No ask tool: emit one LAFS `hitl.request` envelope `{question, options[{label, description}], recommended}` and stop.
 8. **Reply lean.** Answer first: line one is the result, answer or decision; then only the evidence the reader needs and what was skipped or unverified. No preamble, recap or routine status chatter: report when done or when a decision is needed. Owner questions go only through the ask tool (step 7), with 2-4 populated options.
 

@@ -173,6 +173,20 @@ export interface BriefingDocsContext {
   totalDocs: number;
 }
 
+/** One row of the briefing lessons index (T13949). */
+export interface BriefingLesson {
+  /** Observation id. */
+  id: string;
+  /** The one-line rule. */
+  rule: string;
+  /** Store holding the lesson. */
+  scope: 'project' | 'global';
+  /** Creation time. */
+  date: string;
+  /** Progressive disclosure: fetch the why. */
+  _next: { fetch: string };
+}
+
 /**
  * Last session info with handoff data.
  */
@@ -226,6 +240,11 @@ export interface SessionBriefing {
   knowledgeHealth?: KnowledgeHealthSummary;
   /** Accepted, currently eligible decisions, separate from historical handoffs. */
   currentGuidance?: BrainCompactHit[];
+  /**
+   * The curated lessons index (T13949, D11181): current one-line rules from the
+   * project and main brains, newest first. The why is one `fetch` away.
+   */
+  lessons?: BriefingLesson[];
   /** Receipt-backed corrections presented separately from immutable historical handoffs. */
   corrections?: KnowledgeReplacement[];
   lastSession: LastSessionInfo | null;
@@ -377,6 +396,24 @@ export async function computeBriefing(
   } catch (error) {
     knowledgeWarnings.push(
       `Current guidance unavailable: ${error instanceof Error ? error.message : String(error)}`,
+    );
+  }
+  // T13949 (D11181): the curated lessons index, newest first, project and global.
+  let lessons: BriefingLesson[] = [];
+  try {
+    const { listLessons } = await import('../memory/lessons.js');
+    lessons = (await listLessons(projectRoot, { scope: 'all', limit: MAX_BRIEFING_LESSONS })).map(
+      (lesson) => ({
+        id: lesson.id,
+        rule: lesson.rule,
+        scope: lesson.scope,
+        date: lesson.createdAt,
+        _next: { fetch: `cleo memory fetch ${lesson.id}` },
+      }),
+    );
+  } catch (error) {
+    knowledgeWarnings.push(
+      `Lessons unavailable: ${error instanceof Error ? error.message : String(error)}`,
     );
   }
   // T13720: accepted main-brain (global store) decisions guide every project.
@@ -648,6 +685,7 @@ export async function computeBriefing(
     currentTask: currentTaskInfo,
     knowledgeCoverage: compactKnowledgeCoverage(knowledgeCoverage),
     currentGuidance,
+    ...(lessons.length > 0 && { lessons }),
     corrections: compactKnowledgeCorrections(corrections),
     nextTasks,
     lastSession: cleanedLastSession,
@@ -1300,6 +1338,9 @@ const MAX_ACTIVE_EPICS_DIET = 3;
  * urgent backlog should run `cleo find --urgent`.
  */
 const MAX_URGENT_TASKS_DIET = 5;
+
+/** Lessons listed in a briefing (T13949); `cleo memory lessons` lists the rest. */
+const MAX_BRIEFING_LESSONS = 8;
 /** Maximum title length (chars) for blockedTasks/activeEpics entries in diet mode. */
 const MAX_TITLE_LEN_DIET = 60;
 /** Maximum memoryContext title length (chars) in diet mode. */
