@@ -12,14 +12,14 @@
  * All handlers are best-effort — failures are silently swallowed so that
  * conduit writes NEVER crash or block agent orchestration.
  *
- * Auto-registers on module load.
+ * Not registered since T13953: conduit messaging is being retired (epic T13933).
  *
  * @task T268
+ * @task T13953
  */
 
 import { LocalTransport } from '../../conduit/local-transport.js';
 import { getLogger } from '../../logger.js';
-import { hooks } from '../registry.js';
 import type { SessionEndPayload, SubagentStartPayload, SubagentStopPayload } from '../types.js';
 
 /** Well-known system agent ID used as the "from" sender for lifecycle messages. */
@@ -231,28 +231,11 @@ export async function handleConduitSessionEnd(
 }
 
 // ---------------------------------------------------------------------------
-// Auto-registration
+// Registration
 // ---------------------------------------------------------------------------
-
-hooks.register({
-  id: 'conduit-subagent-start',
-  event: 'SubagentStart',
-  handler: handleConduitSubagentStart,
-  // Priority 50: runs after brain capture (100) but before low-priority bookkeeping
-  priority: 50,
-});
-
-hooks.register({
-  id: 'conduit-subagent-stop',
-  event: 'SubagentStop',
-  handler: handleConduitSubagentStop,
-  priority: 50,
-});
-
-hooks.register({
-  id: 'conduit-session-end',
-  event: 'SessionEnd',
-  handler: handleConduitSessionEnd,
-  // Priority 8: runs after brain (100), backup (10), but before consolidation (5)
-  priority: 8,
-});
+//
+// T13953 (D11172, mirrors agentmbx D008-D010 as D11176-D11178): these
+// handlers are no longer registered. Agent messages travel over AgentMBX, and
+// conduit messaging is being retired (epic T13933), so no lifecycle event
+// writes to the conduit tables any more. The handlers stay exported until the
+// verbs and tables go (T13955, T13956).

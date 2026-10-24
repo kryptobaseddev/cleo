@@ -52,7 +52,7 @@ function resolveProjectRoot(arg: string | undefined): string {
  * `cleo event append` — emit a structured lifecycle event from an agent.
  *
  * Accepts `--kind`, `--task`, `--agent`, and optional `--payload` (JSON string).
- * Transport is determined by `CLEO_EVENTS_TRANSPORT` env var (default: conduit).
+ * Transport is determined by `CLEO_EVENTS_TRANSPORT` env var (default: file, T13953).
  *
  * @task T1651
  */

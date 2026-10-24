@@ -39,6 +39,7 @@ vi.mock('../../../conduit/local-transport.js', () => {
 // Subject under test — imported AFTER mocks are registered
 // ---------------------------------------------------------------------------
 
+import { hooks } from '../../registry.js';
 import {
   handleConduitSessionEnd,
   handleConduitSubagentStart,
@@ -352,5 +353,14 @@ describe('handleConduitSessionEnd', () => {
     });
 
     expect(transportMocks.disconnectFn).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('registration (T13953)', () => {
+  it('loading the module registers no conduit hook: conduit messaging is retiring', () => {
+    const ids = (['SubagentStart', 'SubagentStop', 'SessionEnd'] as const).flatMap((event) =>
+      hooks.listHandlers(event).map((h) => h.id),
+    );
+    expect(ids.filter((id) => id.startsWith('conduit-'))).toEqual([]);
   });
 });

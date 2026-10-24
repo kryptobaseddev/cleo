@@ -4,12 +4,12 @@
  * Provides `appendEvent` — a zero-dependency SDK operation that emits
  * structured lifecycle events from autonomous workers. Two transports:
  *
- * - **Conduit** (default, `CLEO_EVENTS_TRANSPORT=conduit`):
+ * - **Conduit** (opt-in, `CLEO_EVENTS_TRANSPORT=conduit`; retiring, T13953):
  *   Publishes to the `agent.events.<agentId>` topic via LocalTransport
  *   (SQLite) or HttpTransport (cloud), enabling live streaming and
  *   distributed orchestration.
  *
- * - **File** (`CLEO_EVENTS_TRANSPORT=file`):
+ * - **File** (default, `CLEO_EVENTS_TRANSPORT=file`):
  *   Appends NDJSON lines to `.cleo/agent-events/<agentId>.jsonl`.
  *   Zero-infra fallback for bare harnesses that cannot initialize Conduit.
  *
@@ -86,12 +86,13 @@ export type EventTransportMode = 'conduit' | 'file';
  *
  * Priority:
  * 1. `CLEO_EVENTS_TRANSPORT` environment variable (`conduit` | `file`).
- * 2. Default: `conduit`.
+ * 2. Default: `file` (T13953): `cleo event watch` reads `.cleo/agent-events/`,
+ *    and conduit messaging is being retired (epic T13933).
  */
 export function resolveEventTransportMode(): EventTransportMode {
   const env = process.env['CLEO_EVENTS_TRANSPORT'];
-  if (env === 'file') return 'file';
-  return 'conduit';
+  if (env === 'conduit') return 'conduit';
+  return 'file';
 }
 
 // ---------------------------------------------------------------------------

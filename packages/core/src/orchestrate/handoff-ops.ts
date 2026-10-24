@@ -16,7 +16,7 @@ import type { Session, TaskWorkState } from '@cleocode/contracts';
 import type { OrchestrateHandoffParams } from '@cleocode/contracts/operations/orchestrate';
 import { type EngineResult, engineError } from '../engine-result.js';
 import { getProjectRoot } from '../paths.js';
-import { orchestrateSpawn, sendConduitEvent } from './spawn-ops.js';
+import { orchestrateSpawn } from './spawn-ops.js';
 
 export type { EngineResult };
 
@@ -288,19 +288,6 @@ export async function orchestrateHandoff(
 
   steps.spawn.status = 'completed';
   steps.spawn.message = `Spawn prepared for ${params.taskId}`;
-
-  // Best-effort: record handoff event in conduit.db so orchestrators and
-  // observers can track session transitions. Never blocks the return.
-  void sendConduitEvent(root, 'cleo-core', {
-    event: 'orchestrate.handoff',
-    taskId: params.taskId,
-    protocolType: params.protocolType,
-    predecessorSessionId: activeSessionId,
-    endedSessionId,
-    note: params.note ?? null,
-    nextAction: params.nextAction ?? null,
-    handoffAt: new Date().toISOString(),
-  });
 
   return {
     success: true,
