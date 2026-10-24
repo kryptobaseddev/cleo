@@ -520,9 +520,9 @@ export async function runGoverned(opts: RunGovernedOptions): Promise<RunGoverned
             timeoutMs: Math.max(1, deadline - d.now()),
             ...(opts.queuePollMs !== undefined ? { pollMs: opts.queuePollMs } : {}),
             memoryPressure: {
-              waiting: (reading, waitedMs) => {
+              waiting: (reading, waitedMs, remainingMs) => {
                 waitingPressure = reading;
-                pressureReporter.waiting(reading, waitedMs);
+                pressureReporter.waiting(reading, waitedMs, remainingMs);
               },
               admitted: (waitedMs, score) => {
                 waitingPressure = null;

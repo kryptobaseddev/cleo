@@ -1103,6 +1103,34 @@ describe('admit (one ledger, real critical section)', () => {
     expect(topMemory.mock.calls.length).toBeLessThanOrEqual(5);
   });
 
+  it('the memory users named leave out the runs CLEO holds (T13965)', async () => {
+    const holder = await admit(
+      { label: 'tool:test', footprintBytes: GIB },
+      {
+        ...base,
+        dir,
+        wait: false,
+        pid: 4_100_001,
+        facts: { ancestorsOf: () => [], groupOf: () => null, startedAt: () => null },
+      },
+    );
+    expect(holder.admitted).toBe(true);
+    const topMemory = vi.fn(() => [
+      { pid: 4_100_001, command: 'node', footprintBytes: 20 * GIB }, // CLEO's own run
+      { pid: 4242, command: 'agy', footprintBytes: 17 * GIB },
+    ]);
+    const refused = await admit(
+      { label: 'tool:test', footprintBytes: GIB },
+      { ...base, dir, wait: false, sample: async () => sampleAt(40), topMemory },
+    );
+    expect(refused.admitted).toBe(false);
+    if (!refused.admitted) {
+      expect(refused.refusal.reason).toContain('largest memory users: agy pid 4242 17.0 GiB (');
+      expect(refused.refusal.reason).not.toContain('pid 4100001');
+    }
+    if (holder.admitted) await holder.grant.release();
+  });
+
   it('a failed probe reads UNKNOWN, is retried after a backoff; reap never probes', async () => {
     const failing = vi.fn((): null => null);
     let t = Date.now();

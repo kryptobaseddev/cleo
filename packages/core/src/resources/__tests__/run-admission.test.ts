@@ -33,6 +33,7 @@ import {
   parentRunJob,
   parsePsTime,
   processAncestors,
+  processGroupsOf,
   RUN_WATCH_START,
   type RunJob,
   reapOrphans,
@@ -857,6 +858,13 @@ describe('process-tree watchdog (T13563)', () => {
     expect(parsePsTime('01:02:03')).toBe(3_723_000);
     expect(parsePsTime('2-00:00:01')).toBe(172_801_000);
     expect(Number.isNaN(parsePsTime('junk'))).toBe(true);
+  });
+
+  it('resolves several process groups with one ps, skipping a gone pid (T13965)', () => {
+    const groups = processGroupsOf([process.pid, 2_147_483_000]);
+    expect(groups.get(process.pid)).toEqual(expect.any(Number));
+    expect(groups.has(2_147_483_000)).toBe(false);
+    expect(processGroupsOf([]).size).toBe(0);
   });
 
   it('sums a tree from one ps table, ignoring other processes', () => {

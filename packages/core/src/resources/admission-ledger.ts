@@ -109,7 +109,7 @@ import {
   MEMORY_GATE_RETRY_AFTER_MS,
   type MemoryGateReporter,
 } from './pressure-gate.js';
-import { processAncestors, processGroupOf } from './run-admission.js';
+import { processAncestors, processGroupOf, processGroupsOf } from './run-admission.js';
 import {
   canonicalForClass,
   gitHookFor,
@@ -121,6 +121,7 @@ import { ownProcessStartedAt, type PidProbe, systemPidProbe } from './slot-holde
 import { followToolGroups, isProbeableId } from './tool-groups.js';
 import {
   memoryPressureCause,
+  TOP_MEMORY_COUNT,
   TOP_MEMORY_FAILED_REUSE_MS,
   TOP_MEMORY_REUSE_MS,
   topMemoryConsumers,
@@ -1850,7 +1851,7 @@ async function sampleShare(
   opts: AdmitOptions,
   cached: CachedPressure | null,
   nowMs: number,
-  probeTop = false,
+  probeFor: readonly LedgerEntry[] | null = null,
 ): Promise<ShareVerdict> {
   if (!opts.sample) {
     if (process.env[ADMISSION_PRESSURE_ENV] === 'off') {
@@ -1877,7 +1878,7 @@ async function sampleShare(
   const lightShare = lightBudgetShare(sample, gate.refuse);
   const reading =
     gate.refuse && gate.reading !== null
-      ? withTopConsumers(gate.reading, cached, nowMs, opts, probeTop)
+      ? withTopConsumers(gate.reading, cached, nowMs, opts, probeFor)
       : null;
   return {
     share,
@@ -1900,7 +1901,7 @@ function withTopConsumers(
   cached: CachedPressure | null,
   nowMs: number,
   opts: AdmitOptions,
-  probe: boolean,
+  cleoEntries: readonly LedgerEntry[] | null,
 ): MemoryPressureReading {
   const last = cached?.reading?.topConsumers;
   if (last !== undefined) {
@@ -1910,8 +1911,12 @@ function withTopConsumers(
     const age = nowMs - last.sampledAtMs;
     if (age >= 0 && age < window) return { ...reading, topConsumers: last };
   }
-  if (!probe) return last !== undefined ? { ...reading, topConsumers: last } : reading;
-  const processes = (opts.topMemory ?? topMemoryConsumers)();
+  if (cleoEntries === null) {
+    return last !== undefined ? { ...reading, topConsumers: last } : reading;
+  }
+  // Ask for more than are named: CLEO's own runs are left out (T13965).
+  const probed = (opts.topMemory ?? (() => topMemoryConsumers(TOP_MEMORY_COUNT * 3)))();
+  const processes = probed === null ? null : outsideCleo(probed, cleoEntries, opts);
   return {
     ...reading,
     topConsumers:
@@ -1919,6 +1924,33 @@ function withTopConsumers(
         ? { sampledAtMs: nowMs, processes: [], failed: true }
         : { sampledAtMs: nowMs, processes },
   };
+}
+
+/**
+ * The memory users outside CLEO's own runs (T13965): a ledger entry's pid,
+ * a process in one of its tool groups, and this process are CLEO's, so a
+ * wait names what else took the memory. At most {@link TOP_MEMORY_COUNT}.
+ */
+function outsideCleo(
+  processes: readonly MemoryConsumer[],
+  entries: readonly LedgerEntry[],
+  opts: AdmitOptions,
+): MemoryConsumer[] {
+  const pids = new Set([opts.pid ?? process.pid, ...entries.map((e) => e.pid)]);
+  const left = processes.filter((p) => !pids.has(p.pid));
+  const groups = new Set(entries.flatMap((e) => e.toolGroups));
+  if (groups.size === 0) return left.slice(0, TOP_MEMORY_COUNT);
+  // One `ps` for every candidate's group, never one per process (T13965).
+  const injected = opts.facts?.groupOf;
+  const batch = injected === undefined ? processGroupsOf(left.map((p) => p.pid)) : null;
+  const groupOf = (pid: number): number | undefined =>
+    batch !== null ? batch.get(pid) : (injected?.(pid) ?? undefined);
+  return left
+    .filter((p) => {
+      const g = groupOf(p.pid);
+      return g === undefined || !groups.has(g);
+    })
+    .slice(0, TOP_MEMORY_COUNT);
 }
 
 function isFresh(cached: CachedPressure, nowMs: number): boolean {
@@ -2102,7 +2134,7 @@ async function admitInner(req: AdmissionRequest, opts: AdmitOptions): Promise<Ad
       opts,
       before.pressure,
       nowMs,
-      true,
+      before.entries,
     );
     lastReading = reading;
     checkQueue();
@@ -2195,7 +2227,10 @@ async function admitInner(req: AdmissionRequest, opts: AdmitOptions): Promise<Ad
         await opts.keepAlive().catch(() => undefined);
         checkQueue();
       }
-      if (reading !== null) opts.memoryPressure?.waiting(reading, now() - t0);
+      // T13965: the first waiting line already says when the wait gives up.
+      if (reading !== null) {
+        opts.memoryPressure?.waiting(reading, now() - t0, timeoutMs - (now() - t0));
+      }
       if (now() - lastReportAt >= LEDGER_HOLDER_REPORT_MS && opts.notice) {
         lastReportAt = now();
         opts.notice(

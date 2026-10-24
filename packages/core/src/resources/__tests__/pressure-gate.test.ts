@@ -259,4 +259,13 @@ describe('memoryGateReporter', () => {
       'memory pressure fell (now 12) after waiting 1m 05s: admitting the test run.',
     );
   });
+
+  it('the first waiting line already says when the wait gives up (T13965)', () => {
+    const lines: string[] = [];
+    const r = memoryGateReporter((l) => lines.push(l), 'test run', { now: () => 0 });
+    const reading = evaluateMemoryGate(sampleAt(30), false).reading;
+    if (reading === null) throw new Error('expected a reading');
+    r.waiting(reading, 0, 1_800_000);
+    expect(lines[0]).toContain('waited 0s, gives up in 30m 00s.');
+  });
 });
