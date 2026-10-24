@@ -1757,7 +1757,9 @@ describe('a task with no change set gets no targets from the working tree (T1391
     expect(plan.changeSet.source).toBe('none');
     expect(plan.toolRuns).toEqual([]);
     const none = plan.blockers.find((b) => b.code === 'no-change-set');
-    expect(none?.message).toMatch(/is a research task with no attached document or linked decision/);
+    expect(none?.message).toMatch(
+      /is a research task with no attached document or linked decision/,
+    );
     expect(none?.next.command).toMatch(new RegExp(`^cleo docs add ${id} <file> --type research`));
     expect(plan.next?.command).not.toMatch(/git switch/);
   });
