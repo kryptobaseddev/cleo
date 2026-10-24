@@ -7,8 +7,8 @@
  *   - AC2: `cleo memory find '<slug>'` surfaced the observation; since T13946
  *          recall excludes doc-attachment rows and `memory fetch <id>` reads it.
  *   - AC3: `cleo memory verify <id>` round-trips and warns on missing attachment.
- *   - AC4: `cleo memory backfill-docs` sweeps existing attachments and emits
- *          observations for any not yet recorded.
+ *   - AC4: `cleo memory backfill-docs` sweeps existing attachments; since
+ *          T13985 it writes the missing `llmtxt --documents--> owner` edges.
  *
  * Strategy: real tasks.db + real brain.db via temp CLEO_DIR so FTS search
  * and brain writes exercise the actual storage layer without CLI overhead.
@@ -67,6 +67,17 @@ async function findDocObservationBySlug(
     )
     .get(likePattern, likePattern) as { id: string; narrative: string | null } | undefined;
   return row;
+}
+
+/** `llmtxt --documents--> owner` edges pointing at an owner node (T13985). */
+async function documentsEdgesFor(ownerNodeId: string): Promise<Array<{ from_id: string }>> {
+  const { getBrainDb, getBrainNativeDb } = await import('@cleocode/core/internal');
+  await getBrainDb();
+  const db = getBrainNativeDb();
+  if (!db) return [];
+  return db
+    .prepare("SELECT from_id FROM brain_page_edges WHERE to_id = ? AND edge_type = 'documents'")
+    .all(ownerNodeId) as Array<{ from_id: string }>;
 }
 
 // ---------------------------------------------------------------------------
@@ -342,45 +353,49 @@ describe('T9976 — memory.verify round-trips against docs store (AC3)', () => {
 // ---------------------------------------------------------------------------
 
 describe('T9976 — memory.backfill-docs sweeps existing attachments (AC4)', () => {
-  it('backfill-docs emits observations and is idempotent on re-run', async () => {
-    // Add an attachment without a slug (plain file attach)
+  it('backfill-docs writes missing documents edges and is idempotent (T13985)', async () => {
     const addA = await docsHandler.mutate('add', {
       ownerId: 'T9976',
       file: fixtureFile,
       attachedBy: 'test',
     });
     expect(addA.success).toBe(true);
-    expect((addA.data as DocsAddResult).projection, JSON.stringify(addA.data)).toMatchObject({
-      status: 'completed',
+    const added = addA.data as DocsAddResult;
+    expect(added.projection, JSON.stringify(added)).toMatchObject({ status: 'completed' });
+
+    // docs add already wrote the canonical edge, so the first backfill writes nothing.
+    const first = await memoryHandler.mutate('backfill-docs', {});
+    expect(first.success, `backfill-docs failed: ${JSON.stringify(first.error)}`).toBe(true);
+    const firstData = first.data as { total: number; written: number; skipped: number };
+    expect(firstData.total).toBeGreaterThanOrEqual(1);
+    expect(firstData.written).toBe(0);
+    expect(firstData.skipped).toBe(firstData.total);
+
+    // An attachment that lost (or predates) its edge gets it back, once.
+    const { getBrainNativeDb } = await import('@cleocode/core/internal');
+    const db = getBrainNativeDb(tempDir)!;
+    expect(await documentsEdgesFor('task:T9976')).toHaveLength(1);
+    db.prepare("DELETE FROM brain_page_edges WHERE edge_type = 'documents'").run();
+    const second = await memoryHandler.mutate('backfill-docs', {});
+    expect((second.data as { written: number; writtenAttachmentIds: string[] }).written).toBe(1);
+    expect(await documentsEdgesFor('task:T9976')).toHaveLength(1);
+    const third = await memoryHandler.mutate('backfill-docs', {});
+    expect((third.data as { written: number }).written).toBe(0);
+  });
+
+  it('docs add writes the documents edge even with brain.autoCapture off (T13985)', async () => {
+    await writeFile(
+      join(tempDir, '.cleo/config.json'),
+      JSON.stringify({ brain: { autoCapture: false } }),
+    );
+    const added = await docsHandler.mutate('add', {
+      ownerId: 'T9976',
+      file: fixtureFile,
+      slug: 't13985-autocapture-off',
+      attachedBy: 'test',
     });
-
-    // First backfill retains the already verified attachment observation.
-    const backfillResp = await memoryHandler.mutate('backfill-docs', {});
-    expect(
-      backfillResp.success,
-      `backfill-docs failed: ${JSON.stringify(backfillResp.error)}`,
-    ).toBe(true);
-    const backfillData = backfillResp.data as {
-      total: number;
-      emitted: number;
-      skipped: number;
-      emittedAttachmentIds: string[];
-      hint: string;
-    };
-
-    expect(backfillData.total).toBeGreaterThanOrEqual(1);
-    // Conservation: emitted + skipped == total
-    expect(backfillData.emitted + backfillData.skipped).toBe(backfillData.total);
-    expect(typeof backfillData.hint).toBe('string');
-    expect(backfillData.hint.length).toBeGreaterThan(0);
-
-    // Existing attachment observations must make repeated backfill immediately idempotent.
-
-    // Second run must be fully idempotent — 0 emitted, all skipped
-    const backfill2 = await memoryHandler.mutate('backfill-docs', {});
-    expect(backfill2.success).toBe(true);
-    const backfill2Data = backfill2.data as { emitted: number; skipped: number; total: number };
-    expect(backfill2Data.emitted).toBe(0);
-    expect(backfill2Data.skipped).toBe(backfill2Data.total);
+    expect(added.success).toBe(true);
+    expect((added.data as DocsAddResult).projection).toMatchObject({ status: 'completed' });
+    expect(await documentsEdgesFor('task:T9976')).toHaveLength(1);
   });
 });

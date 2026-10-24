@@ -26,7 +26,7 @@ import { worktreeScope } from '../paths.js';
 import { assertOperationWriteFence } from '../store/background-jobs.js';
 import { getBrainDb } from '../store/memory-sqlite.js';
 import type { BrainEdgeType, BrainNodeType } from '../store/schema/memory-schema.js';
-import { brainPageEdges, brainPageNodes } from '../store/schema/memory-schema.js';
+import { BRAIN_NODE_TYPES, brainPageEdges, brainPageNodes } from '../store/schema/memory-schema.js';
 
 // Structured (pino) logger — writes directly to stderr, NOT through `console.*`.
 // These are BEST-EFFORT graph side-effects fired from deferred/fire-and-forget
@@ -415,8 +415,50 @@ export async function ensureLlmtxtNode(
   }
 }
 
+/** Provenance of the canonical `llmtxt --documents--> owner` link (T13985). */
+export const DOCUMENTS_EDGE_PROVENANCE = 'docs-add';
+
+/**
+ * Create the owner node of a `documents` edge when it is absent, so the edge
+ * never dangles: with `brain.autoCapture` off nothing else creates `task:<id>`
+ * (T13985). An existing node is left unchanged.
+ *
+ * @param projectRoot - Project whose brain is written.
+ * @param ownerId - Qualified owner node id, e.g. `task:T123`.
+ * @param context - Captured scope for projection writes; omitted by the backfill.
+ * @example
+ * ```ts
+ * await ensureDocumentOwnerNode(root, 'task:T123');
+ * ```
+ */
+export async function ensureDocumentOwnerNode(
+  projectRoot: string,
+  ownerId: string,
+  context?: OperationExecutionContext,
+): Promise<void> {
+  const separator = ownerId.indexOf(':');
+  const nodeType = BRAIN_NODE_TYPES.find((type) => type === ownerId.slice(0, separator));
+  if (separator < 1 || !nodeType) return;
+  await upsertGraphNode(
+    projectRoot,
+    ownerId,
+    nodeType,
+    ownerId.slice(separator + 1),
+    0.7,
+    '',
+    undefined,
+    context,
+    { explicit: true, ifAbsent: true },
+  );
+}
+
 /**
  * Project a canonical document into the graph with captured scope and visible failures.
+ *
+ * Always writes the `llmtxt:<sha>` node and its `llmtxt --documents--> owner`
+ * edge: the document link is canonical (T13985, D11180). The owner's `embeds`
+ * edge is auto-capture and follows `brain.autoCapture`; `status: 'disabled'`
+ * reports that only the canonical link was written.
  *
  * @remarks Each synchronous write checks the same absolute deadline. This does not preempt
  * SQLite or promise atomicity across the node and edge; a failed edge leaves an
@@ -441,8 +483,10 @@ export async function ensureLlmtxtNodeScoped(
 ): Promise<DocsGraphProjectionResult> {
   const identity = context.identity;
   const result = { projectId: identity.projectId, projectRoot: identity.projectRoot };
-  if (!(await scopedGraphEnabled(context))) return { ...result, status: 'disabled' };
+  const autoCapture = await scopedGraphEnabled(context);
   const nodeId = `llmtxt:${sha256}`;
+  // T13985 (D11180): the document link is canonical, not auto-capture, so the
+  // node and its `documents` edge are written whatever brain.autoCapture says.
   await upsertGraphNode(
     identity.projectRoot,
     nodeId,
@@ -452,7 +496,20 @@ export async function ensureLlmtxtNodeScoped(
     sha256,
     { sha256 },
     context,
+    { explicit: true },
   );
+  await ensureDocumentOwnerNode(identity.projectRoot, ownerId, context);
+  await addGraphEdge(
+    identity.projectRoot,
+    nodeId,
+    ownerId,
+    'documents',
+    1,
+    DOCUMENTS_EDGE_PROVENANCE,
+    context,
+    { explicit: true },
+  );
+  if (!autoCapture) return { ...result, status: 'disabled' };
   await addGraphEdge(identity.projectRoot, ownerId, nodeId, 'embeds', 1, 'auto:docs-add', context);
   return { ...result, status: 'completed' };
 }
