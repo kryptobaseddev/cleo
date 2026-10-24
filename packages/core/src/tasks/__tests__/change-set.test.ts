@@ -28,8 +28,9 @@ import {
   deriveTaskChangeSet,
   type MergedPrSummary,
   type PrDetails,
+  resolveChangeSetRoot,
 } from '../change-set.js';
-import { parseEvidence, validateAtom } from '../evidence.js';
+import { boundHeadGapReason, parseEvidence, validateAtom } from '../evidence.js';
 import { coveredTestFiles } from '../test-run-binding.js';
 
 function git(dir: string, args: string[]): string {
@@ -304,6 +305,177 @@ describe('worktrees and declared git roots (AC4)', () => {
       deps,
     );
     expect(elsewhere.rootSource).toBe('task-worktree');
+  });
+
+  it('T14004: cwd = the declared main checkout, and an ambient GIT_WORK_TREE, resolve the same way', () => {
+    const store = join(base, 'store-env');
+    mkdirSync(join(store, '.cleo'), { recursive: true });
+    const app = repoWithOrigin(store, 'app');
+    writeFileSync(
+      join(store, '.cleo', 'project-context.json'),
+      JSON.stringify({ evidence: { gitRoot: 'app' } }),
+    );
+    // No task worktree yet: invoked from the declared main checkout, it is the root.
+    expect(resolveChangeSetRoot(store, 'T908', app)).toEqual({
+      root: realpathSync(app),
+      source: 'declared',
+    });
+    const wt = join(base, 'wt-T908');
+    git(app, ['worktree', 'add', '-q', '-b', 'task/T908', wt]);
+    // From the main checkout, the task's registered worktree.
+    expect(resolveChangeSetRoot(store, 'T908', app).root).toBe(realpathSync(wt));
+    // An exported GIT_DIR / GIT_WORK_TREE naming the main checkout is ignored:
+    // the invocation's own worktree still wins.
+    const env = {
+      ...process.env,
+      GIT_DIR: join(app, '.git'),
+      GIT_WORK_TREE: app,
+    };
+    const saved = { dir: process.env.GIT_DIR, tree: process.env.GIT_WORK_TREE };
+    process.env.GIT_DIR = env.GIT_DIR;
+    process.env.GIT_WORK_TREE = env.GIT_WORK_TREE;
+    try {
+      expect(resolveChangeSetRoot(store, 'T908', wt, env)).toEqual({
+        root: realpathSync(wt),
+        source: 'invocation-worktree',
+      });
+    } finally {
+      if (saved.dir === undefined) delete process.env.GIT_DIR;
+      else process.env.GIT_DIR = saved.dir;
+      if (saved.tree === undefined) delete process.env.GIT_WORK_TREE;
+      else process.env.GIT_WORK_TREE = saved.tree;
+    }
+  });
+
+  it('T14004: a run bound in the checkout of another task is not evidence for this one', async () => {
+    const repo = repoWithOrigin(base, 'repo-heads');
+    git(repo, ['switch', '-q', '-c', 'task/T909']);
+    const mine = commitTaskWork(repo, 'T909');
+    git(repo, ['switch', '-q', 'main']);
+    git(repo, ['switch', '-q', '-c', 'task/T910']);
+    const other = commitTaskWork(repo, 'T910');
+    git(repo, ['switch', '-q', 'task/T909']);
+    const task = {
+      id: 'T909',
+      verification: {
+        passed: false,
+        round: 1,
+        gates: {},
+        lastAgent: null,
+        lastUpdated: null,
+        failureLog: [],
+        evidence: {
+          implemented: {
+            atoms: [{ kind: 'commit' as const, sha: mine }],
+            capturedAt: '2026-10-24T00:00:00Z',
+            capturedBy: 'test',
+          },
+        },
+      },
+    };
+    const run = (headSha: string): EvidenceAtom => ({
+      kind: 'test-run',
+      path: '/tmp/r.json',
+      sha256: 'x',
+      passCount: 1,
+      failCount: 0,
+      skipCount: 0,
+      headSha,
+    });
+    const branchBase = git(repo, ['rev-parse', 'main']);
+    expect(await boundHeadGapReason(task, [run(mine)], repo)).toBeNull();
+    // Two implemented commits: a run that saw only the first never saw the work.
+    const both = {
+      ...task,
+      verification: {
+        ...task.verification,
+        evidence: {
+          implemented: {
+            ...task.verification.evidence.implemented,
+            atoms: [
+              { kind: 'commit' as const, sha: mine },
+              { kind: 'commit' as const, sha: other },
+            ],
+          },
+        },
+      },
+    };
+    expect(await boundHeadGapReason(both, [run(mine)], repo)).not.toBeNull();
+    expect(await boundHeadGapReason(task, [run(other)], repo)).toMatch(
+      /never saw T909's implemented commit/,
+    );
+    // The branch base is an ancestor of the work, but a run there never saw it.
+    expect(await boundHeadGapReason(task, [run(branchBase)], repo)).toMatch(/never saw/);
+    // A commit git lacks is named as such, still refused.
+    expect(await boundHeadGapReason(task, [run('f'.repeat(40))], repo)).toMatch(
+      /git cannot read .* shallow clone/,
+    );
+    // After an amend or rebase the run is on this task's own, newer history.
+    git(repo, ['commit', '-q', '--amend', '-m', 'T909: work, amended']);
+    const amended = git(repo, ['rev-parse', 'HEAD']);
+    expect(await boundHeadGapReason(task, [run(amended)], repo)).toMatch(
+      /rebased, amended or squash-merged.*Re-record implemented/,
+    );
+
+    /** T909's implemented evidence as one `pr:` atom. */
+    const viaPr = (mergeCommitSha: string, headSha?: string) => ({
+      ...task,
+      verification: {
+        ...task.verification,
+        evidence: {
+          implemented: {
+            ...task.verification.evidence.implemented,
+            atoms: [
+              {
+                kind: 'pr' as const,
+                prNumber: 1,
+                mergeCommitSha,
+                ...(headSha !== undefined ? { headSha } : {}),
+                mergedAt: '2026-10-24T00:00:00Z',
+                successCount: 1,
+                totalChecks: 1,
+              },
+            ],
+          },
+        },
+      },
+    });
+    git(repo, ['switch', '-q', 'main']);
+    git(repo, ['merge', '-q', '--no-ff', '-m', 'Merge task/T909', mine]);
+    const merge = git(repo, ['rev-parse', 'HEAD']);
+    // A merge: its branch side saw the work, its first parent did not.
+    expect(await boundHeadGapReason(viaPr(merge), [run(merge)], repo)).toBeNull();
+    expect(await boundHeadGapReason(viaPr(merge), [run(mine)], repo)).toBeNull();
+    expect(await boundHeadGapReason(viaPr(merge), [run(branchBase)], repo)).toMatch(/never saw/);
+    // A squash: only the PR's recorded head ties the branch run to it.
+    git(repo, ['switch', '-q', '-c', 'squashed', branchBase]);
+    git(repo, ['merge', '-q', '--squash', mine]);
+    git(repo, ['commit', '-q', '-m', 'squash (#1)']);
+    const squash = git(repo, ['rev-parse', 'HEAD']);
+    expect(await boundHeadGapReason(viaPr(squash), [run(mine)], repo)).toMatch(
+      /Re-record implemented/,
+    );
+    expect(await boundHeadGapReason(viaPr(squash, mine), [run(mine)], repo)).toBeNull();
+    // A two-commit branch: a run on its first commit never saw the second.
+    git(repo, ['switch', '-q', '-c', 'two', branchBase]);
+    writeFileSync(join(repo, 'one.ts'), 'export const one = 1;\n');
+    git(repo, ['add', '-A']);
+    git(repo, ['commit', '-q', '-m', 'part one']);
+    const partOne = git(repo, ['rev-parse', 'HEAD']);
+    writeFileSync(join(repo, 'two.ts'), 'export const two = 2;\n');
+    git(repo, ['add', '-A']);
+    git(repo, ['commit', '-q', '-m', 'part two']);
+    const partTwo = git(repo, ['rev-parse', 'HEAD']);
+    git(repo, ['switch', '-q', 'main']);
+    git(repo, ['merge', '-q', '--no-ff', '-m', 'Merge two', partTwo]);
+    const twoMerge = git(repo, ['rev-parse', 'HEAD']);
+    expect(await boundHeadGapReason(viaPr(twoMerge), [run(partOne)], repo)).toMatch(/never saw/);
+    expect(await boundHeadGapReason(viaPr(twoMerge, partTwo), [run(partOne)], repo)).toMatch(
+      /never saw/,
+    );
+    expect(await boundHeadGapReason(viaPr(twoMerge), [run(partTwo)], repo)).toBeNull();
+    // An empty recorded head matches nothing.
+    expect(await boundHeadGapReason(viaPr(squash, ''), [run(mine)], repo)).not.toBeNull();
   });
 });
 

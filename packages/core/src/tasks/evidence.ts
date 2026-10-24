@@ -34,6 +34,7 @@ import type {
   GateEvidence,
   HeavyToolResourcePlan,
   EvidenceAtomInput as ParsedEvidenceAtom,
+  Task,
   VerificationGate,
 } from '@cleocode/contracts';
 import {
@@ -3216,6 +3217,9 @@ async function validatePrAtom(
       kind: 'pr',
       prNumber: result.prNumber,
       mergeCommitSha: result.mergeCommitSha,
+      ...(componentPrNumber === undefined && result.headRefOid
+        ? { headSha: result.headRefOid }
+        : {}),
       mergedAt: result.mergedAt,
       successCount: result.successCount,
       totalChecks: result.totalChecks,
@@ -3788,6 +3792,124 @@ export interface RevalidationResult {
 }
 
 /**
+ * Why a `test-run:`/`qa-run:` result does not describe this task's work
+ * (T14004), or null. The binding records the HEAD it was bound to, and that
+ * HEAD must have seen the task's `implemented` work:
+ *
+ * - `commit:` — the run head is that commit or contains it. An older commit
+ *   (the branch base, main before the work) never saw the work.
+ * - `pr:` — the run head is, or contains, the merge commit or the PR's final
+ *   head: its recorded `headSha` (a squash merge too), else the merge's second
+ *   parent. An earlier branch commit never saw the whole change.
+ *
+ * Evidence bound in another task's worktree is refused even when `cleo
+ * complete` runs from that same worktree. A commit git cannot read (a shallow
+ * clone) is refused and said so. Skipped while no implemented commit is
+ * recorded, or for an atom with no HEAD.
+ *
+ * @param task - The task (its recorded `implemented` evidence is read).
+ * @param atoms - The gate's atoms.
+ * @param projectRoot - The CLEO store root (the task's checkout is resolved from it).
+ * @returns The refusal, or null.
+ * @task T14004
+ */
+export async function boundHeadGapReason(
+  task: Pick<Task, 'id' | 'verification'>,
+  atoms: readonly EvidenceAtom[],
+  projectRoot: string,
+): Promise<string | null> {
+  const runs = atoms.filter(
+    (a): a is Extract<EvidenceAtom, { kind: 'test-run' | 'qa-run' }> =>
+      (a.kind === 'test-run' || a.kind === 'qa-run') && typeof a.headSha === 'string',
+  );
+  if (runs.length === 0) return null;
+  const implemented = (task.verification?.evidence?.implemented?.atoms ?? []).filter(
+    (a): a is Extract<EvidenceAtom, { kind: 'commit' | 'pr' }> =>
+      a.kind === 'commit' || a.kind === 'pr',
+  );
+  if (implemented.length === 0) return null;
+  const { resolveChangeSetRoot } = await import('./change-set.js');
+  const root = resolveChangeSetRoot(projectRoot, task.id).root;
+  const gitOut = (args: string[]): string | null => {
+    try {
+      return execFileSync('git', args, {
+        cwd: root,
+        encoding: 'utf-8',
+        env: discoveryEnv(),
+        stdio: ['ignore', 'pipe', 'ignore'],
+      }).trim();
+    } catch {
+      return null;
+    }
+  };
+  // Exit 1 is "not an ancestor"; anything else (128) is an object git lacks.
+  let missing: string | null = null;
+  const contains = (descendant: string, ancestor: string): boolean => {
+    try {
+      execFileSync('git', ['merge-base', '--is-ancestor', ancestor, descendant], {
+        cwd: root,
+        env: discoveryEnv(),
+        stdio: 'ignore',
+      });
+      return true;
+    } catch (err) {
+      const status = err instanceof Error && 'status' in err ? err.status : undefined;
+      if (status !== 1) missing ??= `${ancestor}..${descendant}`;
+      return false;
+    }
+  };
+  // A prefix match needs at least 7 hex characters on both sides: '' matches everything.
+  const sameCommit = (a: string, b: string): boolean =>
+    a.length >= 7 && b.length >= 7 && (a.startsWith(b) || b.startsWith(a));
+  const reached = (head: string, sha: string): boolean =>
+    sameCommit(head, sha) || contains(head, sha);
+  // Only positive checks accept: the run head is, or contains, the work's tip.
+  const sawWork = (head: string, atom: (typeof implemented)[number]): boolean => {
+    if (atom.kind === 'commit') return reached(head, atom.sha);
+    const merge = atom.mergeCommitSha;
+    if (reached(head, merge)) return true;
+    // The PR's final head; a legacy atom without it falls back to the merge's
+    // second parent. An ancestor of either (an earlier branch commit) never
+    // saw the whole change.
+    const tip = atom.headSha ?? gitOut(['rev-parse', '--verify', '--quiet', `${merge}^2`]);
+    return tip !== null && tip !== '' && reached(head, tip);
+  };
+  const shas = implemented
+    .map((a) => (a.kind === 'commit' ? a.sha : a.mergeCommitSha).slice(0, 12))
+    .join(', ');
+  for (const run of runs) {
+    const head = run.headSha as string;
+    missing = null;
+    if (implemented.every((atom) => sawWork(head, atom))) continue;
+    const bound = `${run.kind}:${run.path} was bound at ${head.slice(0, 12)}`;
+    if (missing !== null) {
+      return (
+        `${bound}, and git cannot read the commits that relate it to ${task.id}'s implemented ` +
+        `commit ${shas} (missing object, or a shallow clone: ${missing}). ` +
+        'Fetch the full history (git fetch --unshallow) and verify again.'
+      );
+    }
+    // A head carrying this task's own work, but not the recorded commit: the
+    // implemented evidence went stale (a rebase, an amend, or a squash merge
+    // recorded before the PR head was).
+    const message = gitOut(['log', '-n', '20', '--format=%B', head]) ?? '';
+    if (new RegExp(`\\b${task.id}\\b`).test(message)) {
+      return (
+        `${bound}, which carries ${task.id}'s work but not its implemented commit ${shas}: ` +
+        'the branch was rebased, amended or squash-merged after implemented was recorded. ' +
+        `Re-record implemented (cleo verify ${task.id} --gate implemented ...), then the run.`
+      );
+    }
+    return (
+      `${bound}, which never saw ${task.id}'s implemented commit ${shas}: it tested other ` +
+      "work (another task's checkout, or a commit before the change). Run the tests on this " +
+      "task's checkout and record that report."
+    );
+  }
+  return null;
+}
+
+/**
  * Options for {@link revalidateEvidence}.
  *
  * @task T12102
@@ -3938,6 +4060,8 @@ export async function revalidateEvidence(
       criteria: await accessor.getAcRows(taskId),
     };
     let reason = checkTaskEvidenceContext(context, gate, evidence.atoms);
+    // T14004: a run bound in another task's checkout is not this task's evidence.
+    reason ??= await boundHeadGapReason(task, evidence.atoms, projectRoot);
     if (
       !reason &&
       !(

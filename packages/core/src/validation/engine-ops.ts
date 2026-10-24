@@ -43,6 +43,7 @@ import {
 } from '../store/background-ops.js';
 import { getTaskAccessor } from '../store/data-accessor.js';
 import {
+  boundHeadGapReason,
   checkCallsiteCoverageAtom,
   checkEngineMigrationLocDrop,
   checkGateEvidenceMinimumDetailed,
@@ -925,7 +926,9 @@ export async function validateGateVerify(
         for (const attempt of evidenceAttempts(params.gateEvidence?.[targetGate])) {
           const atoms = await validateEvidenceFor(attempt, [targetGate]);
           if (!Array.isArray(atoms)) return atoms;
-          const contextualFailure = checkTaskEvidenceContext(evidenceContext, targetGate, atoms);
+          const contextualFailure =
+            checkTaskEvidenceContext(evidenceContext, targetGate, atoms) ??
+            (await boundHeadGapReason(task, atoms, projectRoot));
           if (contextualFailure)
             return engineError('E_EVIDENCE_CONTENT_MISMATCH', contextualFailure);
           evidenceStored.push(...atoms);
@@ -950,7 +953,8 @@ export async function validateGateVerify(
         const contextualFailure =
           override.override && targetGate !== 'implemented' && targetGate !== 'testsPassed'
             ? null
-            : checkTaskEvidenceContext(evidenceContext, targetGate, validatedAtoms);
+            : (checkTaskEvidenceContext(evidenceContext, targetGate, validatedAtoms) ??
+              (await boundHeadGapReason(task, validatedAtoms, projectRoot)));
         if (contextualFailure) return engineError('E_EVIDENCE_CONTENT_MISMATCH', contextualFailure);
         verification.gates[targetGate] = true;
         verification.evidence![targetGate] = composeGateEvidence(
