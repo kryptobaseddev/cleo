@@ -43,6 +43,7 @@ import type { NodeSQLiteDatabase } from 'drizzle-orm/node-sqlite';
 import { type EngineResult, engineError, engineSuccess } from '../engine-result.js';
 import { getCleoHome } from '../paths.js';
 import { toRegistryReadError } from './registry-errors.js';
+import { classifyRegistryRowHost, type RegistryLocationRef } from './registry-host.js';
 import { isEphemeralPath } from './registry-hygiene.js';
 
 /** Thrown when no filter criteria are provided to cleanProjects. */
@@ -263,12 +264,21 @@ export async function cleanProjects(opts: CleanProjectsOptions): Promise<CleanPr
     throw toRegistryReadError('read projects to clean', error);
   }
   // T14013: rows record no host; recorded locations say which device holds a project.
-  const { classifyRegistryRowHost } = await import('./registry-host.js');
   const { currentDeviceId } = await import('./path-map.js');
-  const hostLocations = db
-    .select({ projectId: locationTable.projectId, deviceId: locationTable.deviceId })
-    .from(locationTable)
-    .all();
+  let hostLocations: RegistryLocationRef[];
+  try {
+    hostLocations = db
+      .select({
+        projectId: locationTable.projectId,
+        deviceId: locationTable.deviceId,
+        state: locationTable.state,
+      })
+      .from(locationTable)
+      .all();
+  } catch (error) {
+    // @sync-invariant none:local-only an unreadable location table refuses the clean before any write
+    throw toRegistryReadError('read project locations to clean', error);
+  }
   const thisDevice = currentDeviceId();
 
   const pollutedIds: Set<string> = new Set();

@@ -3,15 +3,19 @@
  *
  * `nexus_project_registry` is one row per project, shared by every device that
  * syncs the global store, and records no host. `nexus_project_locations`
- * records every checkout with the device it is on, so a row's host is read
- * from there: a project with a location on this device is local; one whose
- * locations are all on other devices belongs to another host. A legacy row
- * with no location at all is judged by its path: when even the first two
- * levels of the path do not exist here (`/mnt/projects/...` or
- * `/home/<user>/...` on a Mac), it was never created on this machine.
+ * records every checkout with the device it is on and its state, so a row's
+ * host is read from there. A project with a LIVE location on another device
+ * belongs to another host, even when this device also recorded it (a clone
+ * here that is now `missing`): removing the row would delete that device's
+ * project and its locations, and the deletion syncs. Otherwise a project this
+ * device recorded is local. A row with no location at all (a legacy row) is
+ * judged only by its path: when even the first two levels of the path do not
+ * exist here (`/mnt/projects/...` or `/home/<user>/...` on a Mac), it was never
+ * created on this machine; a path under the same username on another machine
+ * cannot be told apart and stays removable.
  *
- * `projects clean` removes a row only when it is local (or unknown with a
- * path root that exists here); every other row is kept and reported.
+ * `projects clean` removes a row only when it is `local` or `unknown`; every
+ * other row is kept and reported.
  *
  * Code placed in `packages/core/` per Package-Boundary Check — verified against AGENTS.md.
  *
@@ -26,12 +30,14 @@ import { isEphemeralPath } from './registry-hygiene.js';
 /** Where a registry row's project lives, as far as this device can tell. */
 export type RegistryRowHost = 'local' | 'other-host' | 'foreign-root' | 'unknown';
 
-/** One recorded checkout location (project, device). */
+/** One recorded checkout location (project, device, state). */
 export interface RegistryLocationRef {
   /** Project id. */
   projectId: string;
   /** Device the checkout is on. */
   deviceId: string;
+  /** `live`, `missing`, `superseded` or `candidate`; only `live` proves a checkout exists. */
+  state: string;
 }
 
 /** A row's host, with the devices that hold it when known. */
@@ -67,7 +73,9 @@ export function hasForeignPathRoot(path: string): boolean {
 }
 
 /**
- * Classify a registry row's host from the recorded locations.
+ * Classify a registry row's host from the recorded locations: a live
+ * location on another device makes it `other-host`; else a location on this
+ * device (any state) makes it `local`; else its path root decides.
  *
  * @param row - The registry row.
  * @param locations - Every recorded location (any project).
@@ -83,10 +91,15 @@ export function classifyRegistryRowHost(
   locations: readonly RegistryLocationRef[],
   thisDevice: string,
 ): RegistryRowHostVerdict {
-  const devices = [
-    ...new Set(locations.filter((l) => l.projectId === row.projectId).map((l) => l.deviceId)),
+  const recorded = locations.filter((l) => l.projectId === row.projectId);
+  const liveElsewhere = [
+    ...new Set(
+      recorded
+        .filter((l) => l.state === 'live' && l.deviceId !== thisDevice)
+        .map((l) => l.deviceId),
+    ),
   ];
-  if (devices.includes(thisDevice)) return { host: 'local', devices: [] };
-  if (devices.length > 0) return { host: 'other-host', devices: devices.sort() };
+  if (liveElsewhere.length > 0) return { host: 'other-host', devices: liveElsewhere.sort() };
+  if (recorded.some((l) => l.deviceId === thisDevice)) return { host: 'local', devices: [] };
   return { host: hasForeignPathRoot(row.projectPath) ? 'foreign-root' : 'unknown', devices: [] };
 }

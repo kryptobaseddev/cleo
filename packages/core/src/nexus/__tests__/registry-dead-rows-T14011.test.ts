@@ -135,6 +135,20 @@ describe('dead registry rows (T14011)', () => {
         { projectId: 'gone-id', deviceId: currentDeviceId(), path: gone },
       ])
       .run();
+    // Cloned here once (now missing here), still live on Fedora: never removed from here.
+    const cloned = join(testDir, 'cloned-here-once');
+    await seedRow('cloned-id', cloned, 'unreachable');
+    db.insert(projectLocations)
+      .values([
+        { projectId: 'cloned-id', deviceId: currentDeviceId(), path: cloned, state: 'missing' },
+        {
+          projectId: 'cloned-id',
+          deviceId: 'fedora-device',
+          path: '/home/k/cloned',
+          state: 'live',
+        },
+      ])
+      .run();
     const { cleanProjects } = await import('../projects-clean.js');
 
     const preview = await cleanProjects({ dryRun: true, matchOrphaned: true });
@@ -153,10 +167,16 @@ describe('dead registry rows (T14011)', () => {
         host: 'foreign-root',
         devices: [],
       },
+      {
+        projectId: 'cloned-id',
+        projectPath: cloned,
+        host: 'other-host',
+        devices: ['fedora-device'],
+      },
     ]);
     const { summarizeRegistryHealth } = await import('../registry.js');
     const summary = await summarizeRegistryHealth();
-    expect(summary.otherHost).toBe(2);
+    expect(summary.otherHost).toBe(3);
     expect(summary.unreachable).toBe(2);
   });
 });

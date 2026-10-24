@@ -54,8 +54,11 @@ answers — say which you relied on.
 `registry.unreachable` is above zero, `registry.cleanCommand` is the dry run
 (`cleo nexus projects clean --orphans --dry-run`) that shows which rows are
 really gone; report it, and leave removal to the owner. `registry.otherHost`
-counts rows whose project lives on another machine sharing the store; `projects
-clean` never removes those and lists them under `otherHost`.
+counts rows whose project lives on another machine sharing the store (a live
+location on another device); `projects clean` never removes those and lists
+them under `otherHost`. A legacy row with no location record is judged only by
+its path root, so a same-username path from another machine stays removable:
+read the dry run before removing.
 
 `assessment.referenceCount` is how many static references the graph could not
 resolve, so known callers are incomplete. Inspect them a page at a time:

@@ -788,7 +788,11 @@ export async function summarizeRegistryHealth(): Promise<NexusRegistryHealthSumm
   const local = (await nexusList()).filter((project) => !project.remote);
   const locations = await withLiveNexusDb(async (db) =>
     db
-      .select({ projectId: projectLocations.projectId, deviceId: projectLocations.deviceId })
+      .select({
+        projectId: projectLocations.projectId,
+        deviceId: projectLocations.deviceId,
+        state: projectLocations.state,
+      })
       .from(projectLocations)
       .all(),
   );
