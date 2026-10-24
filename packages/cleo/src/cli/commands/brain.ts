@@ -177,7 +177,7 @@ const migrateRepoIdsCommand = defineCommand({
   meta: {
     name: 'migrate-repo-ids',
     description:
-      'In a store that parents several repositories, plan moving evidence file and commit graph links to repo-qualified ids (file:<repo>::<path>, commit:<repo>::<sha>). Dry run by default; --apply writes, after a receipt under .cleo/backups/migrations/. Ambiguous links are listed and left. Safe to re-run.',
+      'Plan moving evidence file and commit graph links of repositories other than the primary one to repo-qualified ids (file:<repo>::<path>, commit:<repo>::<sha>). Dry run by default; --apply writes, after a receipt under .cleo/backups/migrations/. Ambiguous links are listed and left. Safe to re-run.',
   },
   args: {
     apply: { type: 'boolean', description: 'Write the moves (default: dry run)' },
@@ -187,21 +187,17 @@ const migrateRepoIdsCommand = defineCommand({
     const root = getProjectRoot();
     try {
       const result = await migrateEvidenceRepoIds(root, { apply: args.apply === true });
-      const verb = result.dryRun ? 'Would move' : 'Moved';
-      const lines = [
-        `${verb} ${result.moved.length} evidence link(s); ${result.unresolved.length} ambiguous; ` +
-          `${result.removedNodes.length} old node(s) ${result.dryRun ? 'to remove' : 'removed'}` +
-          (result.receiptPath
-            ? `; receipt ${result.receiptPath}`
-            : '; dry run, rerun with --apply'),
-        ...result.unresolved.map((u) => `  ambiguous: ${u.from} -> ${u.target}: ${u.reason}`),
-      ];
       cliOutput(
         { ...result },
         {
           command: 'brain-migrate-repo-ids',
           operation: 'brain.migrate-repo-ids',
-          message: lines.join('\n'),
+          message:
+            `${result.dryRun ? 'Would move' : 'Moved'} ${result.moved.length} evidence link(s); ` +
+            `${result.unresolved.length} ambiguous` +
+            (result.receiptPath
+              ? `; receipt ${result.receiptPath}`
+              : '; dry run, rerun with --apply'),
         },
       );
     } catch (err) {

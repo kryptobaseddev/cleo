@@ -20,10 +20,10 @@
  * Node ids are permanent and sync between devices, so a file node is keyed by
  * its POSIX path relative to the checkout that holds it. A path outside both
  * the evidence repository and the store root gets no node and is reported in
- * `skipped`. In a store that parents several repositories, file and commit ids
- * of every repository but the store's own carry a repository key
- * (`file:<repo>::<path>`, `commit:<repo>::<sha>`; T14012), so same-named files
- * in two child repositories stay separate nodes.
+ * `skipped`. File and commit ids of every repository but the store's primary
+ * one carry a repository key (`file:<repo>::<path>`, `commit:<repo>::<sha>`;
+ * T14012, {@link createEvidenceRepoResolver}), so same-named files in two child
+ * repositories stay separate nodes.
  *
  * Code placed in `packages/core/` per Package-Boundary Check — verified against AGENTS.md.
  *
@@ -34,17 +34,17 @@
 import { existsSync, mkdirSync, realpathSync } from 'node:fs';
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import type { EvidenceAtom } from '@cleocode/contracts';
-import { and, eq, or } from 'drizzle-orm';
+import { and, eq } from 'drizzle-orm';
 import {
   findNestedGitWorkTrees,
-  findWorkTreeContainingCommit,
   gitCommonDir,
+  gitHasCommit,
   gitHeadHasPath,
   gitOriginUrl,
   gitSubmoduleToplevels,
   gitToplevel,
+  resolveDeclaredEvidenceGitRoot,
 } from '../git/work-tree.js';
-import { normalizeRemoteUrl } from '../nexus/identity.js';
 import { extractRepoOwnerAndName } from '../release/github-pr.js';
 import { writeJsonFileAtomic } from '../store/file-utils.js';
 import { getBrainDb } from '../store/memory-sqlite.js';
@@ -118,43 +118,76 @@ export interface EvidenceFileKey {
 export interface EvidenceRepoResolver {
   /**
    * Node key of an evidence file, or `null` when it lies outside both the
-   * execution and the store root.
+   * execution and the store root, or its path contains the id separator.
    */
   file(path: string, executionRoot: string): EvidenceFileKey | null;
   /**
-   * Repository key of the checkout holding `dir`: `null` for the store's own
+   * Repository key of the checkout holding `dir`: `null` for the primary
    * repository, for a directory in no checkout, and for an outer repository
    * that tracks nothing under the store root.
    */
   repoOf(dir: string): string | null;
+  /**
+   * Repository of a commit, by the same rule as files: the key of the
+   * checkout that contains it (`repo: null` for the primary repository), or
+   * `null` when no known checkout, or checkouts of more than one repository,
+   * contain it.
+   */
+  commit(sha: string): { repo: string | null } | null;
+  /** The checkouts the store knows: primary, its children, and their submodules. */
+  checkouts(): readonly string[];
 }
 
 /**
- * Repository key of an `origin` URL: `github.com/<owner>/<repo>` through the
- * same github.com-anchored parser the PR evidence uses, else the host and path
- * ({@link normalizeRemoteUrl}); lowercased either way.
+ * Repository key of an `origin` URL, the same on every device for the same
+ * repository: `github.com/<owner>/<repo>` through the github.com-anchored
+ * {@link extractRepoOwnerAndName} the PR evidence uses, else `<host>/<path>`.
+ * Scheme, user, port and `.git` are dropped and the key is lowercased, so
+ * `git@github.com:O/R.git`, `https://github.com/o/r` and
+ * `ssh://git@github.com:22/o/r` agree. A local-path remote has no key.
+ *
+ * @param url - Raw `origin` URL.
+ * @returns The key, or `null`.
+ * @example
+ * ```ts
+ * originRepoKey('ssh://git@github.com:22/O/R.git'); // 'github.com/o/r'
+ * ```
+ * @task T14012
  */
-function originRepoKey(url: string): string | null {
-  const github = extractRepoOwnerAndName(url);
-  if (github) return `github.com/${github.owner}/${github.repo}`.toLowerCase();
-  return normalizeRemoteUrl(url);
+export function originRepoKey(url: string): string | null {
+  const rest = url
+    .trim()
+    .replace(/^[a-z][a-z0-9+.-]*:\/\//i, '')
+    .replace(/^[^@/]+@/, '');
+  const match = /^([^/:]+)(?::\d+(?=\/))?[:/]+(.+)$/.exec(rest);
+  const host = match?.[1]?.toLowerCase();
+  const path = match?.[2]?.replace(/\/+$/, '').replace(/\.git$/i, '');
+  if (!host || !path || /^\.+$/.test(host)) return null;
+  if (host === 'github.com') {
+    const github = extractRepoOwnerAndName(`https://github.com/${path}`);
+    return github ? `github.com/${github.owner}/${github.repo}`.toLowerCase() : null;
+  }
+  return `${host}/${path}`.toLowerCase();
 }
 
 /** Classification of a checkout toplevel relative to the store. */
-type CheckoutClass = { kind: 'store' } | { kind: 'ignored' } | { kind: 'repo'; key: string };
+type CheckoutClass = { kind: 'primary' } | { kind: 'ignored' } | { kind: 'repo'; key: string };
 
 /**
  * Create an {@link EvidenceRepoResolver} for one CLEO store.
  *
- * The store's own repository is the checkout whose toplevel is the store root,
- * any worktree of it, or an outer repository that tracks files under the store
- * root (a store inside a monorepo). Its files and commits keep unqualified ids,
- * so single-repo stores never change. Every other checkout — a child
- * repository of a store that parents several, or a submodule — is keyed by its
- * normalised `origin` URL, which is the same on every device; without an
- * origin, by its main checkout's directory relative to the store root. An outer
- * repository that tracks nothing under the store root (a dotfiles repository at
- * `~`) is ignored: files under the store root are keyed against the store root.
+ * The primary repository is the store root's own: the checkout whose toplevel
+ * is the store root, or an outer repository that tracks files under it (a
+ * store inside a monorepo); failing that, the declared evidence git root
+ * (`evidence.gitRoot` or `CLEO_EVIDENCE_GIT_ROOT`). Its files and commits, in
+ * any of its worktrees, keep unqualified ids, so single-repo stores never
+ * change. Without either, nothing is primary: the id of a child repository
+ * never depends on how many repositories the store holds, so adding one later
+ * moves nothing. Every other checkout (a child repository, a submodule) is
+ * keyed by {@link originRepoKey}; without a usable origin, by its main
+ * checkout's directory relative to the store root. An outer repository that
+ * tracks nothing under the store root (a dotfiles repository at `~`) is
+ * ignored: files under the store root are keyed against the store root.
  *
  * @param storeRoot - CLEO store root.
  * @returns The resolver.
@@ -168,37 +201,47 @@ type CheckoutClass = { kind: 'store' } | { kind: 'ignored' } | { kind: 'repo'; k
 export function createEvidenceRepoResolver(storeRoot: string): EvidenceRepoResolver {
   const toplevels = new Map<string, string | null>();
   const classes = new Map<string, CheckoutClass>();
-  let storeCommonDir: string | null | undefined;
+  const commits = new Map<string, { repo: string | null } | null>();
+  let primaryCommonDir: string | null | undefined;
+  let known: string[] | undefined;
 
   const toplevelOf = (dir: string): string | null => {
     let top = toplevels.get(dir);
     if (top === undefined) {
-      top = gitToplevel(dir);
+      top = existsSync(dir) ? gitToplevel(dir) : null;
       toplevels.set(dir, top);
     }
     return top;
   };
 
-  const storeCommon = (): string | null => {
-    if (storeCommonDir !== undefined) return storeCommonDir;
-    storeCommonDir = null;
-    const top = existsSync(storeRoot) ? toplevelOf(storeRoot) : null;
-    if (top !== null) {
-      const rel = posixInside(relative(real(top), real(storeRoot)));
-      if (rel === '' || (rel !== null && gitHeadHasPath(top, rel))) {
-        storeCommonDir = gitCommonDir(top);
-      }
+  /** The store root's own checkout (its toplevel or a tracking outer repository). */
+  const storeTop = (): string | null => {
+    const top = toplevelOf(storeRoot);
+    if (top === null) return null;
+    const rel = posixInside(relative(real(top), real(storeRoot)));
+    return rel === '' || (rel !== null && gitHeadHasPath(top, rel)) ? top : null;
+  };
+
+  const declaredTop = (): string | null => {
+    const declared = resolveDeclaredEvidenceGitRoot(storeRoot);
+    return declared === null ? null : toplevelOf(declared.path);
+  };
+
+  const primaryCommon = (): string | null => {
+    if (primaryCommonDir === undefined) {
+      const top = storeTop() ?? declaredTop();
+      primaryCommonDir = top === null ? null : gitCommonDir(top);
     }
-    return storeCommonDir;
+    return primaryCommonDir;
   };
 
   const classify = (top: string): CheckoutClass => {
     const cached = classes.get(top);
     if (cached) return cached;
     const common = gitCommonDir(top);
-    const store = storeCommon();
+    const primary = primaryCommon();
     let result: CheckoutClass;
-    if (common !== null && common === store) result = { kind: 'store' };
+    if (common !== null && common === primary) result = { kind: 'primary' };
     else if (top !== real(storeRoot) && within(top, storeRoot)) result = { kind: 'ignored' };
     else {
       const main = common !== null && basename(common) === '.git' ? dirname(common) : top;
@@ -220,8 +263,19 @@ export function createEvidenceRepoResolver(storeRoot: string): EvidenceRepoResol
     return toplevelOf(dir);
   };
 
+  const checkouts = (): readonly string[] => {
+    if (known === undefined) {
+      const tops = [storeTop(), declaredTop(), ...findNestedGitWorkTrees(storeRoot)].filter(
+        (top): top is string => top !== null,
+      );
+      known = [...new Set(tops.flatMap((top) => [top, ...gitSubmoduleToplevels(top)]))];
+    }
+    return known;
+  };
+
   return {
     file(path, executionRoot) {
+      if (path.includes(REPO_ID_SEPARATOR)) return null;
       const fromExecution = isAbsolute(path) ? path : resolve(executionRoot, path);
       const fromStore = resolve(storeRoot, path);
       const abs = existsSync(fromExecution) || !existsSync(fromStore) ? fromExecution : fromStore;
@@ -239,11 +293,27 @@ export function createEvidenceRepoResolver(storeRoot: string): EvidenceRepoResol
       return rel === null || rel === '' ? null : { repo, path: rel };
     },
     repoOf(dir) {
-      const top = existsSync(dir) ? toplevelOf(dir) : null;
+      const top = toplevelOf(dir);
       if (top === null) return null;
       const cls = classify(top);
       return cls.kind === 'repo' ? cls.key : null;
     },
+    commit(sha) {
+      const cached = commits.get(sha);
+      if (cached !== undefined) return cached;
+      const repos = new Set<string | null>();
+      for (const checkout of checkouts()) {
+        const cls = classify(checkout);
+        if (cls.kind !== 'ignored' && gitHasCommit(checkout, sha)) {
+          repos.add(cls.kind === 'repo' ? cls.key : null);
+        }
+      }
+      const [only] = repos;
+      const result = repos.size === 1 && only !== undefined ? { repo: only } : null;
+      commits.set(sha, result);
+      return result;
+    },
+    checkouts,
   };
 }
 
@@ -355,14 +425,11 @@ export async function linkVerifiedEvidence(
   const failed: Array<{ sha: string; error: unknown }> = [];
   for (const sha of shas) {
     try {
-      // Each commit is anchored in the checkout that holds it, as validateAtom did.
-      const repo = repos.repoOf(
-        resolveEvidenceExecutionRoot(projectRoot, undefined, { commitSha: sha }),
-      );
+      // The same rule as files; a commit no single repository holds stays unqualified.
       await ensureCommitNode(projectRoot, sha, taskId, {
         provenance: EVIDENCE_EDGE_PROVENANCE,
         explicit: true,
-        repo,
+        repo: repos.commit(sha)?.repo ?? null,
       });
       result.commits++;
     } catch (error) {
@@ -381,21 +448,31 @@ export async function linkVerifiedEvidence(
   return result;
 }
 
-/** What {@link migrateEvidenceRepoIds} moved, left and removed. */
+/** One evidence edge re-pointed by {@link migrateEvidenceRepoIds}. */
+export interface EvidenceRepoMove {
+  /** Source node of the edge (`task:<id>`). */
+  from: string;
+  /** Unqualified node id the edge pointed at. */
+  oldTarget: string;
+  /** Repo-qualified node id it points at now. */
+  newTarget: string;
+}
+
+/** What {@link migrateEvidenceRepoIds} moved and left. */
 export interface EvidenceRepoMigrationResult {
   /** True when nothing was written (the default; `apply` writes). */
   dryRun: boolean;
   /** Receipt an apply wrote before its first write, or `null` for a dry run. */
   receiptPath: string | null;
-  /** Evidence edges re-pointed from an unqualified node to a repo-qualified one. */
-  moved: Array<{ from: string; oldTarget: string; newTarget: string }>;
+  /** Evidence edges re-pointed (or, in a dry run, that would be). */
+  moved: EvidenceRepoMove[];
+  /** Repo-qualified nodes created, each from the old node it copies. */
+  nodes: Array<{ oldId: string; newId: string }>;
   /** Evidence edges left unchanged because their repository cannot be told. */
   unresolved: Array<{ from: string; target: string; reason: string }>;
-  /** Old nodes deleted (or, in a dry run, that would be) because no edge uses them. */
-  removedNodes: string[];
 }
 
-/** Receipt of an applied {@link migrateEvidenceRepoIds} run, enough to reverse it. */
+/** Receipt of an applied {@link migrateEvidenceRepoIds} run: every old id → new id. */
 export interface EvidenceRepoMigrationReceipt {
   /** Receipt format version. */
   version: 1;
@@ -403,12 +480,12 @@ export interface EvidenceRepoMigrationReceipt {
   migratedAt: string;
   /** `started` before the first write; `complete` once the transaction committed. */
   status: 'started' | 'complete';
-  /** Edges re-pointed (planned, then done). */
-  moved: EvidenceRepoMigrationResult['moved'];
+  /** Edges re-pointed, old target → new target. */
+  moved: EvidenceRepoMove[];
+  /** Nodes created, old id → new id. Old nodes are kept for a later prune. */
+  nodes: Array<{ oldId: string; newId: string }>;
   /** Edges left unchanged. */
   unresolved: EvidenceRepoMigrationResult['unresolved'];
-  /** Full rows of the old nodes deleted, so a rollback can restore them. */
-  removedNodes: Array<typeof brainPageNodes.$inferSelect>;
 }
 
 /**
@@ -433,6 +510,19 @@ export function defaultEvidenceRepoReceiptPath(projectRoot: string, migratedAt: 
   );
 }
 
+/** A node's metadata object, or an empty one when absent or not an object. */
+function parseMetadata(json: string | null): Record<string, unknown> {
+  if (json === null) return {};
+  try {
+    const parsed: unknown = JSON.parse(json);
+    return typeof parsed === 'object' && parsed !== null && !Array.isArray(parsed)
+      ? Object.fromEntries(Object.entries(parsed))
+      : {};
+  } catch {
+    return {};
+  }
+}
+
 /** Write a receipt atomically, creating its directory. */
 function writeReceipt(path: string, receipt: EvidenceRepoMigrationReceipt): void {
   mkdirSync(dirname(path), { recursive: true });
@@ -441,23 +531,23 @@ function writeReceipt(path: string, receipt: EvidenceRepoMigrationReceipt): void
 
 /**
  * Forward migration of evidence file and commit node ids to repo-qualified ids
- * in a store that parents several repositories (T14012).
+ * (T14012), by the rule {@link createEvidenceRepoResolver} applies to new links.
  *
- * Only `evidence:verify` edges move; edges from other writers (decision text
- * references, for example) stay on the old node, which is deleted only when no
- * edge uses it any more. A commit belongs to the one checkout that contains it.
- * A file belongs to the one checkout that has its path, or, when several do,
- * to the one the same task's commits belong to; anything still ambiguous or
- * absent everywhere is reported in `unresolved` and left as it is. A store with
- * no repository but its own has nothing to migrate. Re-running is a no-op.
+ * Only `evidence:verify` edges move. A commit belongs to the repository whose
+ * checkout contains it. A file belongs to the one repository whose checkout has
+ * its path, or, when several do, to the one the same task's commits belong to.
+ * Anything still ambiguous or absent everywhere is reported in `unresolved`
+ * and left as it is. Old nodes are never deleted here (other tables and
+ * writers may still reference them; a later prune owns that); a copied commit
+ * node records its `repo` in its metadata. Re-running is a no-op.
  *
  * A dry run is the default; only `apply` writes, after recording a receipt
- * (status `started`, the planned moves) and completing it with the deleted
- * node rows once the single transaction commits. It never runs automatically.
+ * (status `started`, every old id → new id) and completing it once the single
+ * transaction commits. It never runs automatically.
  *
  * @param projectRoot - CLEO store root.
  * @param options - `apply` writes; `receiptPath` overrides the default; `now` for tests.
- * @returns The moves, the unresolved edges, the removed nodes and the receipt path.
+ * @returns The moves, the created nodes, the unresolved edges and the receipt path.
  * @example
  * ```ts
  * const plan = await migrateEvidenceRepoIds(root);
@@ -469,37 +559,15 @@ export async function migrateEvidenceRepoIds(
   projectRoot: string,
   options: { apply?: boolean; receiptPath?: string; now?: Date } = {},
 ): Promise<EvidenceRepoMigrationResult> {
-  const dryRun = options.apply !== true;
   const result: EvidenceRepoMigrationResult = {
-    dryRun,
+    dryRun: options.apply !== true,
     receiptPath: null,
     moved: [],
+    nodes: [],
     unresolved: [],
-    removedNodes: [],
   };
   const repos = createEvidenceRepoResolver(projectRoot);
-  const storeTop = gitToplevel(projectRoot);
-  const tops = [...(storeTop ? [storeTop] : []), ...findNestedGitWorkTrees(projectRoot)];
-  const checkouts = [...new Set(tops.flatMap((top) => [top, ...gitSubmoduleToplevels(top)]))];
-  const multiRepo = checkouts.some((checkout) => repos.repoOf(checkout) !== null);
-  const at = (options.now ?? new Date()).toISOString();
-  const receiptPath = options.receiptPath ?? defaultEvidenceRepoReceiptPath(projectRoot, at);
-  const receipt = (status: EvidenceRepoMigrationReceipt['status']) => ({
-    version: 1 as const,
-    migratedAt: at,
-    status,
-    moved: result.moved,
-    unresolved: result.unresolved,
-    removedNodes: [] as EvidenceRepoMigrationReceipt['removedNodes'],
-  });
-  if (!multiRepo) {
-    if (!dryRun) {
-      writeReceipt(receiptPath, receipt('complete'));
-      result.receiptPath = receiptPath;
-    }
-    return result;
-  }
-
+  const checkouts = repos.checkouts();
   const db = await getBrainDb(projectRoot);
   const evidenceEdges = db
     .select()
@@ -512,51 +580,37 @@ export async function migrateEvidenceRepoIds(
     )
     .all();
 
-  const owners = new Map<string, string | null>();
-  const ownerOf = (sha: string): string | null => {
-    let owner = owners.get(sha);
-    if (owner === undefined) {
-      owner = findWorkTreeContainingCommit(checkouts, sha);
-      owners.set(sha, owner);
-    }
-    return owner;
-  };
-  const qualified = (id: string): boolean => id.includes(REPO_ID_SEPARATOR);
-  // Repositories each task's commits belong to (`null` = the store's own).
+  // Repositories each task's commits belong to (`null` = the primary repository).
   const taskRepos = new Map<string, Set<string | null>>();
   for (const edge of evidenceEdges) {
     if (!edge.toId.startsWith('commit:')) continue;
     const rest = edge.toId.slice('commit:'.length);
     const at = rest.lastIndexOf(REPO_ID_SEPARATOR);
-    let repo: string | null = at === -1 ? null : rest.slice(0, at);
-    if (at === -1) {
-      const owner = ownerOf(rest);
-      if (owner === null) continue;
-      repo = repos.repoOf(owner);
-    }
+    const owner = at === -1 ? repos.commit(rest) : { repo: rest.slice(0, at) };
+    if (owner === null) continue;
     const set = taskRepos.get(edge.fromId) ?? new Set<string | null>();
-    set.add(repo);
+    set.add(owner.repo);
     taskRepos.set(edge.fromId, set);
   }
 
   const moves: Array<{ edge: (typeof evidenceEdges)[number]; newTarget: string }> = [];
   for (const edge of evidenceEdges) {
     const target = edge.toId;
-    if (qualified(target)) continue;
+    if (target.includes(REPO_ID_SEPARATOR)) continue;
     let newTarget: string | null = null;
     if (target.startsWith('commit:')) {
       const sha = target.slice('commit:'.length);
-      const owner = ownerOf(sha);
+      const owner = repos.commit(sha);
       if (owner === null) {
         result.unresolved.push({
           from: edge.fromId,
           target,
-          reason: 'no checkout, or more than one, contains this commit',
+          reason:
+            'no known checkout, or checkouts of more than one repository, contain this commit',
         });
         continue;
       }
-      const repo = repos.repoOf(owner);
-      if (repo !== null) newTarget = repoQualifiedNodeId('commit', repo, sha);
+      if (owner.repo !== null) newTarget = repoQualifiedNodeId('commit', owner.repo, sha);
     } else if (target.startsWith('file:')) {
       const path = target.slice('file:'.length);
       const candidates = new Map<string, string | null>();
@@ -589,42 +643,43 @@ export async function migrateEvidenceRepoIds(
   for (const { edge, newTarget } of moves) {
     result.moved.push({ from: edge.fromId, oldTarget: edge.toId, newTarget });
   }
+  const pairs = new Map(moves.map((m) => [m.newTarget, m.edge.toId]));
+  result.nodes = [...pairs].map(([newId, oldId]) => ({ oldId, newId }));
+  if (result.dryRun) return result;
 
-  const oldIds = [...new Set(moves.map((m) => m.edge.toId))];
-  // An old node goes once no edge uses it; a dry run predicts that from the moves.
-  if (dryRun) {
-    for (const id of oldIds) {
-      const uses = db
-        .select({ fromId: brainPageEdges.fromId })
-        .from(brainPageEdges)
-        .where(or(eq(brainPageEdges.fromId, id), eq(brainPageEdges.toId, id)))
-        .all().length;
-      if (uses === moves.filter((m) => m.edge.toId === id).length) result.removedNodes.push(id);
-    }
-  }
-  if (dryRun) return result;
-  const started = receipt('started');
-  writeReceipt(receiptPath, started);
+  const at = (options.now ?? new Date()).toISOString();
+  const receiptPath = options.receiptPath ?? defaultEvidenceRepoReceiptPath(projectRoot, at);
+  const receipt: EvidenceRepoMigrationReceipt = {
+    version: 1,
+    migratedAt: at,
+    status: 'started',
+    moved: result.moved,
+    nodes: result.nodes,
+    unresolved: result.unresolved,
+  };
+  writeReceipt(receiptPath, receipt);
   result.receiptPath = receiptPath;
-  // @sync-side-effect identity.local-minting renames evidence file and commit nodes and re-points their edges (T14012)
+  // @sync-side-effect identity.local-minting copies evidence file and commit nodes to repo-qualified ids and re-points their edges (T14012)
   db.transaction((tx) => {
-    for (const { edge, newTarget } of moves) {
-      const old = tx.select().from(brainPageNodes).where(eq(brainPageNodes.id, edge.toId)).get();
-      const label = newTarget.slice(
-        newTarget.lastIndexOf(REPO_ID_SEPARATOR) + REPO_ID_SEPARATOR.length,
-      );
+    for (const { oldId, newId } of result.nodes) {
+      const old = tx.select().from(brainPageNodes).where(eq(brainPageNodes.id, oldId)).get();
+      const sep = newId.lastIndexOf(REPO_ID_SEPARATOR);
+      const repo = newId.slice(newId.indexOf(':') + 1, sep);
+      const label = newId.slice(sep + REPO_ID_SEPARATOR.length);
+      const isCommit = newId.startsWith('commit:');
+      const metadataJson = isCommit
+        ? JSON.stringify({ ...parseMetadata(old?.metadataJson ?? null), repo })
+        : (old?.metadataJson ?? null);
       tx.insert(brainPageNodes)
         .values(
           old
-            ? { ...old, id: newTarget }
-            : {
-                id: newTarget,
-                nodeType: newTarget.startsWith('commit:') ? 'commit' : 'file',
-                label,
-              },
+            ? { ...old, id: newId, metadataJson }
+            : { id: newId, nodeType: isCommit ? 'commit' : 'file', label, metadataJson },
         )
         .onConflictDoNothing()
         .run();
+    }
+    for (const { edge, newTarget } of moves) {
       tx.insert(brainPageEdges)
         .values({ ...edge, toId: newTarget })
         .onConflictDoNothing()
@@ -639,20 +694,7 @@ export async function migrateEvidenceRepoIds(
         )
         .run();
     }
-    for (const id of oldIds) {
-      const used = tx
-        .select({ fromId: brainPageEdges.fromId })
-        .from(brainPageEdges)
-        .where(or(eq(brainPageEdges.fromId, id), eq(brainPageEdges.toId, id)))
-        .get();
-      if (used) continue;
-      const row = tx.select().from(brainPageNodes).where(eq(brainPageNodes.id, id)).get();
-      if (!row) continue;
-      tx.delete(brainPageNodes).where(eq(brainPageNodes.id, id)).run();
-      started.removedNodes.push(row);
-      result.removedNodes.push(id);
-    }
   });
-  writeReceipt(receiptPath, { ...started, status: 'complete' });
+  writeReceipt(receiptPath, { ...receipt, status: 'complete' });
   return result;
 }

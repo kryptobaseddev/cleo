@@ -2,7 +2,7 @@
  * Brain-family human renderers.
  *
  * Migrated from `packages/cleo/src/cli/renderers/system.ts` (T10131 — B6,
- * subtask T10149). Covers the brain maintenance, backfill, purge,
+ * subtask T10149). Covers the brain maintenance, backfill, migrate-repo-ids, purge,
  * plasticity-stats, quality, and export subcommands surfaced under
  * `cleo brain ...`.
  *
@@ -22,6 +22,7 @@ import { registerRenderer } from '../registry.js';
 import { renderBrainBackfill } from './backfill.js';
 import { renderBrainExport } from './export.js';
 import { renderBrainMaintenance } from './maintenance.js';
+import { renderBrainMigrateRepoIds } from './migrate-repo-ids.js';
 import { renderBrainPlasticityStats } from './plasticity-stats.js';
 import { renderBrainPurge } from './purge.js';
 import { renderBrainQuality } from './quality.js';
@@ -29,6 +30,11 @@ import { renderBrainQuality } from './quality.js';
 // Side-effect registration on module load.
 registerRenderer('brain-maintenance', 'generic', wrapLegacyRenderer(renderBrainMaintenance));
 registerRenderer('brain-backfill', 'generic', wrapLegacyRenderer(renderBrainBackfill));
+registerRenderer(
+  'brain-migrate-repo-ids',
+  'generic',
+  wrapLegacyRenderer(renderBrainMigrateRepoIds),
+);
 registerRenderer('brain-purge', 'generic', wrapLegacyRenderer(renderBrainPurge));
 registerRenderer(
   'brain-plasticity-stats',
@@ -42,6 +48,7 @@ export {
   renderBrainBackfill,
   renderBrainExport,
   renderBrainMaintenance,
+  renderBrainMigrateRepoIds,
   renderBrainPlasticityStats,
   renderBrainPurge,
   renderBrainQuality,

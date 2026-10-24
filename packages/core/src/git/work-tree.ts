@@ -286,13 +286,20 @@ export function findWorkTreeContainingCommit(
   candidates: readonly string[],
   sha: string,
 ): string | null {
-  if (!/^[0-9a-f]{7,40}$/i.test(sha)) return null;
-  const matches: string[] = [];
-  for (const candidate of candidates) {
-    if (gitProbe(candidate, ['cat-file', '-e', `${sha}^{commit}`]) !== null)
-      matches.push(candidate);
-  }
+  const matches = candidates.filter((candidate) => gitHasCommit(candidate, sha));
   return matches.length === 1 ? matches[0]! : null;
+}
+
+/**
+ * True when the checkout containing `dir` has commit `sha` (a 7–40 hex sha).
+ *
+ * @param dir - Checkout to probe.
+ * @param sha - Commit SHA.
+ * @task T14012
+ */
+export function gitHasCommit(dir: string, sha: string): boolean {
+  if (!/^[0-9a-f]{7,40}$/i.test(sha)) return false;
+  return gitProbe(dir, ['cat-file', '-e', `${sha}^{commit}`]) !== null;
 }
 
 /** An evidence git root the operator declared, and where the declaration came from. */

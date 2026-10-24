@@ -11,6 +11,7 @@
  */
 
 import { execFileSync } from 'node:child_process';
+import { existsSync } from 'node:fs';
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -313,6 +314,49 @@ describe('repo-qualified evidence ids (T14012)', () => {
     expect(repos.repoOf(join(root, 'gh'))).toBe('github.com/org/tool');
   });
 
+  it('keeps unqualified ids for the declared git root of a single-child store', async () => {
+    const { linkVerifiedEvidence } = await import('../evidence-graph-links.js');
+    const head = await repo(join(root, 'app'));
+    process.env['CLEO_EVIDENCE_GIT_ROOT'] = join(root, 'app');
+    await linkVerifiedEvidence(root, 'T1', [
+      { kind: 'commit', sha: head, shortSha: head.slice(0, 7) },
+      { kind: 'files', files: [{ path: 'src/x.ts', sha256: c }] },
+    ]);
+    expect(await evidenceEdges()).toEqual([
+      { from: 'task:T1', to: `commit:${head}`, type: 'touches_code' },
+      { from: 'task:T1', to: 'file:src/x.ts', type: 'touches_code' },
+    ]);
+  });
+
+  it('refuses a path containing the id separator', async () => {
+    const { linkVerifiedEvidence } = await import('../evidence-graph-links.js');
+    const result = await linkVerifiedEvidence(root, 'T1', [
+      { kind: 'files', files: [{ path: 'src/a::b.ts', sha256: c }] },
+    ]);
+    expect(result.skipped).toEqual(['src/a::b.ts']);
+  });
+
+  it('derives one origin key per repository whatever the URL form', async () => {
+    const { originRepoKey } = await import('../evidence-graph-links.js');
+    for (const url of [
+      'git@github.com:Org/Tool.git',
+      'https://github.com/org/tool',
+      'https://token@github.com/Org/Tool.git/',
+      'ssh://git@github.com:22/org/tool',
+      'ssh://git@github.com/Org/Tool.git',
+    ]) {
+      expect(originRepoKey(url)).toBe('github.com/org/tool');
+    }
+    expect(originRepoKey('ssh://git@GitLab.example.com:2222/Grp/Sub/Repo.git')).toBe(
+      'gitlab.example.com/grp/sub/repo',
+    );
+    expect(originRepoKey('https://gitlab.example.com/grp/repo')).toBe(
+      'gitlab.example.com/grp/repo',
+    );
+    expect(originRepoKey('/srv/git/repo.git')).toBeNull();
+    expect(originRepoKey('../repo')).toBeNull();
+  });
+
   it('caches checkout probes by directory within one resolver', async () => {
     const { createEvidenceRepoResolver } = await import('../evidence-graph-links.js');
     await repo(join(root, 'a'), ['src/y.ts']);
@@ -327,7 +371,18 @@ describe('repo-qualified evidence ids (T14012)', () => {
 });
 
 describe('migrateEvidenceRepoIds (T14012)', () => {
-  it('moves evidence links to repo-qualified ids without losing any, and is idempotent', async () => {
+  /** Ids of file and commit nodes, sorted. */
+  async function nodeIds(): Promise<string[]> {
+    const { getBrainNativeDb } = await import('../../store/memory-sqlite.js');
+    return getBrainNativeDb(root)!
+      .prepare(
+        "SELECT id FROM brain_page_nodes WHERE id LIKE 'file:%' OR id LIKE 'commit:%' ORDER BY id",
+      )
+      .all()
+      .map((row) => String(row.id));
+  }
+
+  it('previews by default, then moves evidence links on apply without losing any', async () => {
     const { migrateEvidenceRepoIds, EVIDENCE_EDGE_PROVENANCE } = await import(
       '../evidence-graph-links.js'
     );
@@ -369,19 +424,31 @@ describe('migrateEvidenceRepoIds (T14012)', () => {
         edge('decision:D1', 'file:src/x.ts', 'auto:decision-cross-link'),
       ],
     );
-    const before = await evidenceEdges();
+    const edgesBefore = await evidenceEdges();
+    const nodesBefore = await nodeIds();
 
-    // Dry run by default: nothing written, no receipt.
+    // The default is a dry run: nothing written, no receipt.
     const plan = await migrateEvidenceRepoIds(root);
-    expect(await evidenceEdges()).toEqual(before);
     expect(plan.dryRun).toBe(true);
     expect(plan.receiptPath).toBeNull();
+    expect(await evidenceEdges()).toEqual(edgesBefore);
+    expect(await nodeIds()).toEqual(nodesBefore);
+    expect(existsSync(join(root, '.cleo', 'backups', 'migrations'))).toBe(false);
     expect(plan.moved).toHaveLength(4);
+    expect(plan.unresolved).toEqual([
+      {
+        from: 'task:T3',
+        target: 'file:src/x.ts',
+        reason: "more than one checkout has this path and the task's commits do not decide",
+      },
+    ]);
 
     const applied = await migrateEvidenceRepoIds(root, {
       apply: true,
       now: new Date('2026-10-24T00:00:00.000Z'),
     });
+    expect(applied.moved).toEqual(plan.moved);
+    expect(applied.nodes).toEqual(plan.nodes);
     expect(applied.receiptPath).toBe(
       join(
         root,
@@ -391,15 +458,6 @@ describe('migrateEvidenceRepoIds (T14012)', () => {
         'evidence-repo-ids-2026-10-24T00-00-00-000Z.json',
       ),
     );
-    expect(applied.moved).toEqual(plan.moved);
-    expect(applied.removedNodes.sort()).toEqual(plan.removedNodes.sort());
-    expect(applied.unresolved).toEqual([
-      {
-        from: 'task:T3',
-        target: 'file:src/x.ts',
-        reason: "more than one checkout has this path and the task's commits do not decide",
-      },
-    ]);
     expect(await evidenceEdges()).toEqual([
       { from: 'task:T1', to: `commit:a::${shaA}`, type: 'touches_code' },
       { from: 'task:T1', to: 'file:a::src/only-a.ts', type: 'touches_code' },
@@ -407,42 +465,39 @@ describe('migrateEvidenceRepoIds (T14012)', () => {
       { from: 'task:T2', to: 'file:b::src/x.ts', type: 'touches_code' },
       { from: 'task:T3', to: 'file:src/x.ts', type: 'touches_code' },
     ]);
-    // Old nodes go only once nothing uses them.
-    expect(applied.removedNodes.sort()).toEqual(
-      [`commit:${shaA}`, `commit:${shaB}`, 'file:src/only-a.ts'].sort(),
-    );
-    const { getBrainNativeDb } = await import('../../store/memory-sqlite.js');
-    const ids = getBrainNativeDb(root)!
-      .prepare(
-        "SELECT id FROM brain_page_nodes WHERE id LIKE 'file:%' OR id LIKE 'commit:%' ORDER BY id",
-      )
-      .all()
-      .map((row) => String(row.id));
-    expect(ids).toEqual(
+    // Old nodes are kept for a later prune; the new ones are added.
+    expect(await nodeIds()).toEqual(
       [
+        ...nodesBefore,
         `commit:a::${shaA}`,
         `commit:b::${shaB}`,
         'file:a::src/only-a.ts',
         'file:b::src/x.ts',
-        'file:src/x.ts',
       ].sort(),
     );
+    const { getBrainNativeDb } = await import('../../store/memory-sqlite.js');
+    const meta = getBrainNativeDb(root)!
+      .prepare('SELECT metadata_json FROM brain_page_nodes WHERE id = ?')
+      .get(`commit:a::${shaA}`);
+    expect(JSON.parse(String(meta?.metadata_json))).toEqual({ repo: 'a' });
 
-    // The receipt records the moves, the ambiguous edges and the deleted rows.
+    // The receipt maps every old id to its new id.
     const receipt = JSON.parse(await readFile(applied.receiptPath!, 'utf-8'));
     expect(receipt.status).toBe('complete');
     expect(receipt.moved).toEqual(applied.moved);
-    expect(receipt.unresolved).toEqual(applied.unresolved);
-    expect(receipt.removedNodes.map((row: { id: string }) => row.id).sort()).toEqual(
-      applied.removedNodes.sort(),
+    expect(receipt.nodes).toEqual(
+      expect.arrayContaining([
+        { oldId: 'file:src/x.ts', newId: 'file:b::src/x.ts' },
+        { oldId: `commit:${shaA}`, newId: `commit:a::${shaA}` },
+      ]),
     );
+    expect(receipt.unresolved).toEqual(applied.unresolved);
 
     const again = await migrateEvidenceRepoIds(root, { apply: true });
     expect(again.moved).toEqual([]);
-    expect(again.removedNodes).toEqual([]);
   });
 
-  it('does nothing in a single-repo store', async () => {
+  it('moves nothing in a single-repo store', async () => {
     const { migrateEvidenceRepoIds, EVIDENCE_EDGE_PROVENANCE } = await import(
       '../evidence-graph-links.js'
     );
@@ -464,8 +519,8 @@ describe('migrateEvidenceRepoIds (T14012)', () => {
       dryRun: true,
       receiptPath: null,
       moved: [],
+      nodes: [],
       unresolved: [],
-      removedNodes: [],
     });
   });
 });
