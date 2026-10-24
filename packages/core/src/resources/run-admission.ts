@@ -445,8 +445,12 @@ export function processGroupOf(pid: number): number | null {
 
 /**
  * The process groups of several pids from ONE `ps` exec (T13965); a pid that
- * is gone or unreadable is absent from the map, and a failed `ps` yields an
- * empty map.
+ * is gone or unreadable is absent from the map.
+ *
+ * Linux `ps` exits non-zero for a gone pid but still prints the others. macOS
+ * `ps` prints nothing at all when any pid is out of range ("process id too
+ * large"), so a failed exec that printed nothing falls back to one `ps` per
+ * pid ({@link processGroupOf}).
  *
  * @param pids - The pids to look up.
  * @returns pid → process group.
@@ -463,9 +467,16 @@ export function processGroupsOf(pids: readonly number[]): Map<number, number> {
       env: PS_ENV,
     });
   } catch (err) {
-    // ps exits non-zero when any pid is gone, but still prints the others.
-    const stdout = (err as { stdout?: unknown }).stdout;
+    // Linux ps exits non-zero when any pid is gone, but still prints the others.
+    const stdout = err instanceof Error && 'stdout' in err ? err.stdout : undefined;
     out = typeof stdout === 'string' ? stdout : '';
+    if (out.trim() === '' && pids.length > 1) {
+      for (const pid of pids) {
+        const pgid = processGroupOf(pid);
+        if (pgid !== null) groups.set(pid, pgid);
+      }
+      return groups;
+    }
   }
   for (const line of out.split('\n')) {
     const [pid, pgid] = line
