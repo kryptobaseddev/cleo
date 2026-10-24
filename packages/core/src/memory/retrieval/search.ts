@@ -19,7 +19,7 @@ import type {
 } from '@cleocode/contracts';
 import { memoryFindHitNext } from '../../mvi-helpers.js';
 import { captureProjectScope, worktreeScope } from '../../project-scope.js';
-import { hybridSearch, searchBrain } from '../brain-search.js';
+import { hybridSearch, recallEligibleDate, searchBrain } from '../brain-search.js';
 import { searchSimilar } from '../brain-similarity.js';
 import {
   autoRowExclusionClause,
@@ -567,13 +567,16 @@ async function retrieveWithBudgetScoped(
     });
   }
 
-  // B. Merge vector scores (distance → similarity: similarity = 1 - distance)
+  // B. Merge vector scores (distance → similarity: similarity = 1 - distance).
+  // A vector-only hit passes the gate FTS hits passed in searchBrain (T13968).
+  const { getBrainNativeDb } = await import('../../store/memory-sqlite.js');
+  const nativeDb = getBrainNativeDb(projectRoot);
   for (const v of vecResults) {
     const simScore = Math.max(0, 1 - v.distance);
     const existing = candidateMap.get(v.id);
     if (existing) {
       existing.vecScore = simScore;
-    } else {
+    } else if (nativeDb && recallEligibleDate(nativeDb, v.type, v.id) !== null) {
       candidateMap.set(v.id, {
         id: v.id,
         type: v.type,
