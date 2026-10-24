@@ -17,6 +17,11 @@ import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { CLEO_HOOK_NAMES, defaultTemplatesDir } from '../git/hooks-install.js';
 import { initProject } from '../init.js';
+import {
+  getCleoCantWorkflowsDir,
+  getCleoGlobalRecipesDir,
+  getCleoPiExtensionsDir,
+} from '../paths.js';
 import { showSequence } from '../sequence/index.js';
 
 async function fileExists(path: string): Promise<boolean> {
@@ -82,6 +87,27 @@ describe('E2E: cleo init in fresh project (T4694)', () => {
       else process.env['CLAUDE_HOME'] = saved.home;
       if (saved.code === undefined) delete process.env['CLAUDECODE'];
       else process.env['CLAUDECODE'] = saved.code;
+    }
+  });
+
+  it('does not scaffold the CleoOS hub into the global home (T13994, ADR-098)', async () => {
+    const cleoHome = join(testDir, 'cleo-home');
+    const saved = process.env['CLEO_HOME'];
+    process.env['CLEO_HOME'] = cleoHome;
+    try {
+      const result = await initProject({ name: 'test-project' });
+      expect(result.created.some((entry) => entry.startsWith('cleoos-hub'))).toBe(false);
+      for (const dir of [
+        getCleoPiExtensionsDir(),
+        getCleoCantWorkflowsDir(),
+        getCleoGlobalRecipesDir(),
+      ]) {
+        expect(dir.startsWith(cleoHome), dir).toBe(true);
+        expect(existsSync(dir), dir).toBe(false);
+      }
+    } finally {
+      if (saved === undefined) delete process.env['CLEO_HOME'];
+      else process.env['CLEO_HOME'] = saved;
     }
   });
 

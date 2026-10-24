@@ -35,9 +35,10 @@ export type { ScaffoldGlobalResult };
  * Steps:
  * - `home`      — `~/.local/share/cleo/` (or platform equivalent)
  * - `templates` — `~/.local/share/cleo/templates/`
- * - `cleoosHub` — CleoOS hub directory tree copied from npm package templates
+ * - `cleoosHub` — always `skipped`: the CleoOS hub is no longer seeded
+ *   automatically (T13994, ADR-098); `cleo admin scaffold-hub` seeds it
  *
- * All three steps are idempotent and never overwrite existing files.
+ * Every step is idempotent and never overwrites existing files.
  *
  * @returns Typed result for each global scaffold step plus `success` flag.
  */

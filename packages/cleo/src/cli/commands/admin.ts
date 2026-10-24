@@ -130,6 +130,8 @@ const pathsCommand = defineCommand({
 const scaffoldHubCommand = defineCommand({
   meta: {
     name: 'scaffold-hub',
+    // T13994 (ADR-098): hidden from `cleo admin --help`; still runs on request.
+    hidden: true,
     description:
       '[DEPRECATED — ADR-098, the Pi/CleoOS harness is retiring] Create CleoOS Hub dirs (global-recipes, pi-extensions, cant-workflows, agents) and seed starter justfile',
   },
