@@ -133,9 +133,11 @@ describe('hook measurements (T13921)', () => {
 
   it('concurrent writers lose no run and no peak', async () => {
     const dir = join(root, 'admission');
-    const peaks = [1, 2, 3, 4, 5, 6, 7, 8].map((g) => g * GIB);
+    // Peaks within the 25% margin of each other, so no run resets the count
+    // (a run above the charge does, T13972).
+    const peaks = [0, 1, 2, 3, 4, 5, 6, 7].map((i) => GIB + i * 32 * 1024 ** 2);
     await Promise.all(peaks.map((p) => recordHookPeak('k', p, HOOK_MIN_SAMPLES, dir)));
-    expect(readHookPeak('k', dir)).toBe(8 * GIB);
+    expect(readHookPeak('k', dir)).toBe(GIB + 7 * 32 * 1024 ** 2);
     const { readFileSync } = await import('node:fs');
     const doc = JSON.parse(readFileSync(join(dir, 'hook-footprints.json'), 'utf8'));
     expect(doc.k.runs).toBe(peaks.length);
