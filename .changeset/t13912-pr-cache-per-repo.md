@@ -2,7 +2,7 @@
 id: t13912-pr-cache-per-repo
 tasks: [T13912]
 kind: fix
-summary: The pr:/ci: evidence cache is per repository, and pr:<owner>/<repo>#<n> names the repository
+summary: 'The pr/ci evidence cache is per repository, and pr:<owner>/<repo>#<n> names the repository'
 ---
 
 PR numbers are only unique per repository, but the `pr:`/`ci:` result cache
