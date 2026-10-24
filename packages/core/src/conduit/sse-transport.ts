@@ -12,7 +12,7 @@
  */
 
 import type { ConduitMessage, Transport, TransportConnectConfig } from '@cleocode/contracts';
-import { assertCloudUrlAllowed, conduitFetch } from './cloud-endpoint.js';
+import { assertCloudUrlAllowed, conduitFetch } from '../cloud/cloud-endpoint.js';
 
 /** Maximum reconnect attempts before permanent HTTP fallback. */
 const MAX_RECONNECT_ATTEMPTS = 3;

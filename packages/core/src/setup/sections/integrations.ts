@@ -42,7 +42,7 @@ import {
   assertCloudUrlAllowed,
   retiredCloudHost,
   SignalDockRetiredError,
-} from '../../conduit/cloud-endpoint.js';
+} from '../../cloud/cloud-endpoint.js';
 import { getConfigValue, setConfigValue } from '../../config.js';
 import type {
   WizardIO,

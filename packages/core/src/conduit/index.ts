@@ -21,7 +21,7 @@ export {
   RETIRED_CLOUD_HOSTS,
   retiredCloudHost,
   SignalDockRetiredError,
-} from './cloud-endpoint.js';
+} from '../cloud/cloud-endpoint.js';
 export { ConduitClient } from './conduit-client.js';
 export {
   DeliveryRouter,

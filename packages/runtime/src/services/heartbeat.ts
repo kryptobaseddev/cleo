@@ -9,7 +9,7 @@
  * @task T218
  */
 
-import { conduitFetch } from '@cleocode/core/conduit/cloud-endpoint.js';
+import { conduitFetch } from '@cleocode/core/cloud/cloud-endpoint.js';
 
 /** Heartbeat service configuration. */
 export interface HeartbeatConfig {

@@ -41,7 +41,7 @@ import {
   conduitFetch,
   retiredCloudHost,
   SignalDockRetiredError,
-} from '../../conduit/cloud-endpoint.js';
+} from '../../cloud/cloud-endpoint.js';
 import { getConfigValue, loadConfig } from '../../config.js';
 import { getCredentialPool } from '../../llm/credential-pool.js';
 import { resolveCleoDir } from '../../paths.js';

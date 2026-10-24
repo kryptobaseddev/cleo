@@ -9,7 +9,7 @@
  */
 
 import type { ConduitMessage, Transport } from '@cleocode/contracts';
-import { conduitFetch } from '@cleocode/core/conduit/cloud-endpoint.js';
+import { conduitFetch } from '@cleocode/core/cloud/cloud-endpoint.js';
 
 /** Message handler callback. */
 export type MessageHandler = (message: ConduitMessage) => void;

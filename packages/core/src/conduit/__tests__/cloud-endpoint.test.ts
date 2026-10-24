@@ -10,9 +10,6 @@
 
 import type { AgentCredential, AgentRegistryAPI } from '@cleocode/contracts';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { agents as legacyAgents } from '../../store/schema/agent-registry-schema.js';
-import { agentRegistryAgents } from '../../store/schema/cleo-global/agent-registry.js';
-import { tasksAgentCredentials } from '../../store/schema/cleo-project/provenance-orphans.js';
 import {
   conduitFetch,
   E_SIGNALDOCK_RETIRED,
@@ -21,7 +18,10 @@ import {
   MAX_CONDUIT_REDIRECTS,
   retiredCloudHost,
   SignalDockRetiredError,
-} from '../cloud-endpoint.js';
+} from '../../cloud/cloud-endpoint.js';
+import { agents as legacyAgents } from '../../store/schema/agent-registry-schema.js';
+import { agentRegistryAgents } from '../../store/schema/cleo-global/agent-registry.js';
+import { tasksAgentCredentials } from '../../store/schema/cleo-project/provenance-orphans.js';
 import { ConduitClient } from '../conduit-client.js';
 import { createConduit, resolveTransport } from '../factory.js';
 import { HttpTransport } from '../http-transport.js';

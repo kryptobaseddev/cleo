@@ -10,7 +10,7 @@
  */
 
 import type { ConduitMessage, Transport, TransportConnectConfig } from '@cleocode/contracts';
-import { assertCloudUrlAllowed, conduitFetch } from './cloud-endpoint.js';
+import { assertCloudUrlAllowed, conduitFetch } from '../cloud/cloud-endpoint.js';
 
 /** Internal connection state. */
 interface HttpTransportState {

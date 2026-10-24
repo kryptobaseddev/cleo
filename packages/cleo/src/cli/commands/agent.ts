@@ -103,7 +103,7 @@ const registerCommand = defineCommand({
   async run({ args }) {
     try {
       const { AgentRegistryAccessor } = await import('@cleocode/core/agents');
-      const { assertCloudUrlAllowed } = await import('@cleocode/core/conduit/cloud-endpoint.js');
+      const { assertCloudUrlAllowed } = await import('@cleocode/core/cloud/cloud-endpoint.js');
       // SignalDock is retired (T13169): it is never the default, and a
       // SignalDock --api-url is refused rather than stored.
       const apiBaseUrl = args['api-url'] ?? 'local';
@@ -204,7 +204,7 @@ agent ${agentId}:
         { command: 'agent register' },
       );
     } catch (err) {
-      const { isSignalDockRetiredError } = await import('@cleocode/core/conduit/cloud-endpoint.js');
+      const { isSignalDockRetiredError } = await import('@cleocode/core/cloud/cloud-endpoint.js');
       cliOutput(
         {
           success: false,
@@ -267,7 +267,7 @@ const signinCommand = defineCommand({
       // Attempt to set online status on cloud (best-effort, don't fail if offline).
       // conduitFetch refuses a retired SignalDock host without a network call (T13169).
       const apiUrl = args['api-url'] ?? credential.apiBaseUrl;
-      const { conduitFetch } = await import('@cleocode/core/conduit/cloud-endpoint.js');
+      const { conduitFetch } = await import('@cleocode/core/cloud/cloud-endpoint.js');
       try {
         await conduitFetch(`${apiUrl}/agents/${args.agentId}/status`, {
           method: 'PUT',
@@ -355,6 +355,7 @@ const startCommand = defineCommand({
     },
   },
   async run({ args }) {
+    warnConduitDeprecated('agent start');
     try {
       const { AgentRegistryAccessor } = await import('@cleocode/core/agents');
       const { createRuntime } = await import('@cleocode/runtime');
@@ -423,7 +424,7 @@ const startCommand = defineCommand({
 
       // 4. Set cloud status (best-effort). conduitFetch refuses a retired
       //    SignalDock host without a network call (T13169).
-      const { conduitFetch } = await import('@cleocode/core/conduit/cloud-endpoint.js');
+      const { conduitFetch } = await import('@cleocode/core/cloud/cloud-endpoint.js');
       try {
         await conduitFetch(`${credential.apiBaseUrl}/agents/${args.agentId}/status`, {
           method: 'PUT',
@@ -492,7 +493,7 @@ const startCommand = defineCommand({
       // Keep alive
       await new Promise(() => {});
     } catch (err) {
-      const { isSignalDockRetiredError } = await import('@cleocode/core/conduit/cloud-endpoint.js');
+      const { isSignalDockRetiredError } = await import('@cleocode/core/cloud/cloud-endpoint.js');
       cliOutput(
         {
           success: false,
@@ -545,7 +546,7 @@ const stopCommand = defineCommand({
 
       // Set cloud status offline (best-effort). conduitFetch refuses a retired
       // SignalDock host without a network call (T13169).
-      const { conduitFetch } = await import('@cleocode/core/conduit/cloud-endpoint.js');
+      const { conduitFetch } = await import('@cleocode/core/cloud/cloud-endpoint.js');
       try {
         await conduitFetch(`${credential.apiBaseUrl}/agents/${args.agentId}/status`, {
           method: 'PUT',
@@ -916,7 +917,7 @@ const stopAllCommand = defineCommand({
       const registry = new AgentRegistryAccessor(getProjectRoot());
       const agents = await registry.list({ active: true });
       // conduitFetch refuses a retired SignalDock host without a network call (T13169).
-      const { conduitFetch } = await import('@cleocode/core/conduit/cloud-endpoint.js');
+      const { conduitFetch } = await import('@cleocode/core/cloud/cloud-endpoint.js');
       let stopped = 0;
       for (const a of agents) {
         await registry.update(a.agentId, { isActive: false });
@@ -988,6 +989,7 @@ const workCommand = defineCommand({
     },
   },
   async run({ args }) {
+    warnConduitDeprecated('agent work');
     try {
       const { AgentRegistryAccessor } = await import('@cleocode/core/agents');
       const { createRuntime } = await import('@cleocode/runtime');
@@ -1529,7 +1531,7 @@ const rotateKeyCommand = defineCommand({
         { command: 'agent rotate-key' },
       );
     } catch (err) {
-      const { isSignalDockRetiredError } = await import('@cleocode/core/conduit/cloud-endpoint.js');
+      const { isSignalDockRetiredError } = await import('@cleocode/core/cloud/cloud-endpoint.js');
       cliOutput(
         {
           success: false,
@@ -1577,7 +1579,7 @@ const claimCodeCommand = defineCommand({
         return;
       }
 
-      const { conduitFetch } = await import('@cleocode/core/conduit/cloud-endpoint.js');
+      const { conduitFetch } = await import('@cleocode/core/cloud/cloud-endpoint.js');
       const response = await conduitFetch(
         `${credential.apiBaseUrl}/agents/${args.agentId}/claim-code`,
         {
@@ -1613,7 +1615,7 @@ const claimCodeCommand = defineCommand({
         { command: 'agent claim-code' },
       );
     } catch (err) {
-      const { isSignalDockRetiredError } = await import('@cleocode/core/conduit/cloud-endpoint.js');
+      const { isSignalDockRetiredError } = await import('@cleocode/core/cloud/cloud-endpoint.js');
       cliOutput(
         {
           success: false,
@@ -1652,6 +1654,7 @@ const watchCommand = defineCommand({
     },
   },
   async run({ args }) {
+    warnConduitDeprecated('agent watch');
     try {
       const { AgentRegistryAccessor } = await import('@cleocode/core/agents');
       const { createRuntime } = await import('@cleocode/runtime');

@@ -9,7 +9,7 @@
  */
 
 import type { AgentCredential, AgentRegistryAPI, Conduit, Transport } from '@cleocode/contracts';
-import { isRetiredCloudUrl } from './cloud-endpoint.js';
+import { isRetiredCloudUrl } from '../cloud/cloud-endpoint.js';
 import { ConduitClient } from './conduit-client.js';
 import { HttpTransport } from './http-transport.js';
 import { LocalTransport } from './local-transport.js';

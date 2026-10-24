@@ -56,7 +56,7 @@ async function validateCommandPath(
  * graph free of core modules.
  */
 async function installRetiredHostGuard(): Promise<void> {
-  const { installRetiredHostFetchGuard } = await import('@cleocode/core/conduit/cloud-endpoint.js');
+  const { installRetiredHostFetchGuard } = await import('@cleocode/core/cloud/cloud-endpoint.js');
   installRetiredHostFetchGuard();
 }
 

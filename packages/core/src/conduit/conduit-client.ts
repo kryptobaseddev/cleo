@@ -20,7 +20,7 @@ import type {
   ConduitUnsubscribe,
   Transport,
 } from '@cleocode/contracts';
-import { conduitFetch } from './cloud-endpoint.js';
+import { conduitFetch } from '../cloud/cloud-endpoint.js';
 
 /** ConduitClient wraps a Transport, adding high-level messaging semantics. */
 export class ConduitClient implements Conduit {

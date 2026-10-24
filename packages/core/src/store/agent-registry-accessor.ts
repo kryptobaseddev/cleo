@@ -56,7 +56,7 @@ import type {
   ResolvedAgent,
   TransportConfig,
 } from '@cleocode/contracts';
-import { conduitFetch } from '../conduit/cloud-endpoint.js';
+import { conduitFetch } from '../cloud/cloud-endpoint.js';
 import { openAgentApiKey, sealAgentApiKey } from './agent-api-key.js';
 import {
   ensureGlobalAgentRegistryDb,
