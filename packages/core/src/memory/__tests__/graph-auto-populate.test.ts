@@ -414,18 +414,31 @@ describe('scoped document graph projection', () => {
             [
               '--input-type=module',
               '-e',
-              "import { DatabaseSync } from 'node:sqlite'; const db = new DatabaseSync(process.argv[1], { readOnly: true }); process.stdout.write(JSON.stringify([db.prepare('SELECT id FROM brain_page_nodes').all(), db.prepare('SELECT to_id FROM brain_page_edges').all()])); db.close();",
+              "import { DatabaseSync } from 'node:sqlite'; const db = new DatabaseSync(process.argv[1], { readOnly: true }); process.stdout.write(JSON.stringify([db.prepare('SELECT id FROM brain_page_nodes ORDER BY id').all(), db.prepare('SELECT to_id, edge_type FROM brain_page_edges ORDER BY to_id').all()])); db.close();",
               join(cleoDir, 'cleo.db'),
             ],
             { encoding: 'utf8', timeout: 5000, stdio: ['ignore', 'pipe', 'pipe'] },
           ),
         );
-      expect(read()).toEqual([[{ id: 'llmtxt:resumable' }], []]);
+      // Both nodes commit before the first edge write fails (T13985 creates the
+      // owner node so the documents edge never dangles); no edge is written.
+      const nodes = [{ id: 'llmtxt:resumable' }, { id: 'task:T945' }];
+      expect(read()).toEqual([nodes, []]);
       native.exec('DROP TRIGGER fail_projection');
       expect(
         (await ensureLlmtxtNodeScoped(context, 'resumable', 'task:T945', 'Resumable')).status,
       ).toBe('completed');
-      expect(read()).toEqual([[{ id: 'llmtxt:resumable' }], [{ to_id: 'llmtxt:resumable' }]]);
+      const complete = [
+        nodes,
+        [
+          { to_id: 'llmtxt:resumable', edge_type: 'embeds' },
+          { to_id: 'task:T945', edge_type: 'documents' },
+        ],
+      ];
+      expect(read()).toEqual(complete);
+      // Resuming again changes nothing: node upserts and edge inserts are idempotent.
+      await ensureLlmtxtNodeScoped(context, 'resumable', 'task:T945', 'Resumable');
+      expect(read()).toEqual(complete);
     } finally {
       context.close();
     }
