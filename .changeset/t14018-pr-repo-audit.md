@@ -20,19 +20,26 @@ cleo list --status active --output id --limit 0
 cleo list --status pending --output id --limit 0
 ```
 
-For each task, read its recorded implementation evidence:
+For each task, read its whole verification record:
 
 ```bash
-cleo show <id> --field /data/task/verification/evidence/implemented
+cleo show <id> --field /data/task/verification
 ```
 
-Re-record any `pr:` or `ci:` atom that names a PR from a repository other
-than the one the evidence git root points at. Name the repository explicitly,
-so the check runs against the right origin:
+This pointer resolves for every task. Evidence sits under `evidence`, keyed
+by gate: `pr:` atoms under `implemented`, and `ci:` atoms under
+`testsPassed` and `qaPassed`. A task with no `evidence` key has nothing to
+audit. A narrower pointer such as `/data/task/verification/evidence/implemented`
+fails with `E_FIELD_NOT_FOUND` when that gate has no evidence.
+
+Re-record any `pr:` or `ci:` atom, under any gate, that names a PR from a
+repository other than the one the evidence git root points at. Name the
+repository explicitly, so the check runs against the right origin:
 
 ```bash
 cleo verify <id> --gate implemented --evidence "pr:<owner>/<repo>#<n>;files:<paths>"
 cleo verify <id> --gate testsPassed --evidence "ci:<owner>/<repo>#<n>"
+cleo verify <id> --gate qaPassed --evidence "ci:<owner>/<repo>#<n>"
 ```
 
 Done tasks keep their history; nothing is re-verified for them. Also covered by tests now:
