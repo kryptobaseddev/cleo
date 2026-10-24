@@ -112,6 +112,7 @@ export {
   computeExtractorFingerprint,
   decodeParseCacheEntry,
   encodeParseCacheEntry,
+  parseCacheFingerprint,
 } from './parse-cache.js';
 // Parse loop (T534, T536)
 export type { ParseLoopOptions, ParseLoopResult } from './parse-loop.js';
@@ -184,7 +185,7 @@ import {
 } from './import-processor.js';
 import type { KnowledgeGraph, NexusDbInsert, NexusTables } from './knowledge-graph.js';
 import { createKnowledgeGraph } from './knowledge-graph.js';
-import { computeExtractorFingerprint } from './parse-cache.js';
+import { computeExtractorFingerprint, parseCacheFingerprint } from './parse-cache.js';
 import { oversizedFileCoverage, runParseLoop } from './parse-loop.js';
 import { detectProcesses } from './process-processor.js';
 import { resolveAccesses } from './processors/access-processor.js';
@@ -687,7 +688,10 @@ export async function runPipeline(
 
   // Mode decision (T12315). Extraction is reused only where it is provably what
   // re-parsing would produce; everything downstream of extraction always reruns.
-  const fingerprint = options?.publishGraph ? computeExtractorFingerprint() : null;
+  // T14016: the cache identity includes the parser limits that decide whether a file extracts.
+  const fingerprint = options?.publishGraph
+    ? parseCacheFingerprint(computeExtractorFingerprint(), options.parserLimits)
+    : null;
   let mode: 'incremental' | 'full' = 'full';
   let reason = options?.fullReason ?? 'full rebuild requested';
   let changedFiles = 0;
@@ -716,7 +720,7 @@ export async function runPipeline(
       reason = 'no previous index to reuse';
     } else if (differing === 0 && !currentBuild) {
       reason = fingerprint
-        ? 'no source changed, but the published generation was produced by a different extractor build'
+        ? 'no source changed, but the published generation was produced by a different extractor build or parser limits'
         : 'no source changed, but the extractor build could not be fingerprinted to prove the published generation current';
     } else if (differing === 0) {
       process.stderr.write(
@@ -777,7 +781,7 @@ export async function runPipeline(
         reason = 'no parse cache was committed with the previous generation';
       } else if (matching.length === 0) {
         reason =
-          'the extractor build changed since the cached parse, so no cached extraction is current';
+          'the extractor build or parser limits changed since the cached parse, so no cached extraction is current';
       } else {
         // Decoded lazily, one file at a time, by the parse loop (T13656).
         for (const entry of matching) {

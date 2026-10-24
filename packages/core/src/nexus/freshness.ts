@@ -188,8 +188,11 @@ async function planParse(
   manifestFiles: readonly (readonly [string, number, number, string])[],
   stale: ReadonlySet<string>,
 ): Promise<{ toParse: number; reusable: number }> {
-  const { computeExtractorFingerprint, isParseablePath } = await import('@cleocode/nexus/pipeline');
-  const fingerprint = computeExtractorFingerprint();
+  const { computeExtractorFingerprint, isParseablePath, parseCacheFingerprint } = await import(
+    '@cleocode/nexus/pipeline'
+  );
+  // The inline refresh parses under the default limits (T14016).
+  const fingerprint = parseCacheFingerprint(computeExtractorFingerprint());
   const cached = new Map<string, string>();
   for (const [path, contentHash, entryFingerprint] of db.values(
     sql`SELECT path, content_hash, fingerprint FROM main._nexus_parse_cache`,

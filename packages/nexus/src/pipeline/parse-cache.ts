@@ -28,7 +28,8 @@ import { createRequire } from 'node:module';
 import { join, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { gunzipSync, gzipSync } from 'node:zlib';
-import type { GraphParseCacheEntry } from '@cleocode/contracts';
+import type { GraphParseCacheEntry, ParserExecutionLimits } from '@cleocode/contracts';
+import { DEFAULT_MAX_SOURCE_BYTES, DEFAULT_PARSE_TIMEOUT_MS } from '../code/parser.js';
 import type { CommonExtractionResult } from './parse-loop.js';
 
 /**
@@ -78,6 +79,36 @@ function collectModuleFiles(directory: string, out: string[]): void {
     )
       out.push(full);
   }
+}
+
+/**
+ * The parse-cache identity of an extraction: the extractor build plus the
+ * per-file parser limits that decide whether a file extracts at all (T14016).
+ * A file over `maxSourceBytes`, or slower than `timeoutMs`, fails under tighter
+ * limits, so an entry cached under looser ones must not be reused. The default
+ * limits live in the fingerprinted parser module, so they keep the plain build
+ * fingerprint; `workerHeapMb` is a resource bound, not part of the identity.
+ *
+ * @param extractor - Build fingerprint from {@link computeExtractorFingerprint}.
+ * @param limits - The run's parser limits.
+ * @returns The cache identity, or `null` when the build has no fingerprint.
+ * @example
+ * ```ts
+ * const identity = parseCacheFingerprint(computeExtractorFingerprint(), { maxSourceBytes: 1_000_000 });
+ * ```
+ */
+export function parseCacheFingerprint(
+  extractor: string | null,
+  limits: Pick<ParserExecutionLimits, 'maxSourceBytes' | 'timeoutMs'> = {},
+): string | null {
+  if (extractor === null) return null;
+  const maxSourceBytes = limits.maxSourceBytes ?? DEFAULT_MAX_SOURCE_BYTES;
+  const timeoutMs = limits.timeoutMs ?? DEFAULT_PARSE_TIMEOUT_MS;
+  if (maxSourceBytes === DEFAULT_MAX_SOURCE_BYTES && timeoutMs === DEFAULT_PARSE_TIMEOUT_MS)
+    return extractor;
+  return createHash('sha256')
+    .update(`${extractor}\0maxSourceBytes=${maxSourceBytes}\0timeoutMs=${timeoutMs}`)
+    .digest('hex');
 }
 
 /**
