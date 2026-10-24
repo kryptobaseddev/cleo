@@ -42,6 +42,7 @@
  * @epic T4763 T627
  */
 
+import { existsSync } from 'node:fs';
 import { runConsolidation } from '@cleocode/core/memory/brain-lifecycle';
 import { getDreamStatus, triggerManualDream } from '@cleocode/core/memory/dream-cycle';
 import { importMemoryFiles } from '@cleocode/core/memory/import-from-provider.js';
@@ -1219,19 +1220,23 @@ const quarantineAutoRowsCommand = defineCommand({
   meta: {
     name: 'quarantine-auto-rows',
     description:
-      'Report (default), quarantine (--apply --expect …) or restore (--restore <receipt>) ' +
+      'Report (default), quarantine (--apply --expect … --expect-digest …) or restore (--restore <receipt>) ' +
       'auto-generated BRAIN rows: dispatch traces, Doc attached records and task stubs. ' +
       'Sets invalid_at only; nothing is deleted.',
   },
   args: {
     apply: {
       type: 'boolean',
-      description: 'Quarantine the matched rows (requires --expect)',
+      description: 'Quarantine the matched rows (requires --expect and --expect-digest)',
     },
     expect: {
       type: 'string',
       description:
         'Counts from the approved dry run: project:patterns=N,project:observations=N,global:patterns=N,global:observations=N',
+    },
+    'expect-digest': {
+      type: 'string',
+      description: 'Id-set digest from the approved dry run',
     },
     restore: {
       type: 'string',
@@ -1239,32 +1244,56 @@ const quarantineAutoRowsCommand = defineCommand({
     },
   },
   async run({ args }) {
-    const root = getProjectRoot();
-    const q = await import('@cleocode/core/memory/auto-row-quarantine');
     const output = {
       command: 'memory-quarantine-auto-rows',
       operation: 'memory.quarantine-auto-rows',
     };
+    const restore = typeof args.restore === 'string' ? args.restore : undefined;
+    const expectText = typeof args.expect === 'string' ? args.expect : undefined;
+    const expectDigest =
+      typeof args['expect-digest'] === 'string' ? args['expect-digest'] : undefined;
+    if (restore !== undefined && args.apply) {
+      cliError('--restore and --apply cannot be combined', 6, { name: 'E_INVALID_INPUT' });
+      return;
+    }
+    if (!args.apply && (expectText !== undefined || expectDigest !== undefined)) {
+      cliError('--expect and --expect-digest only apply with --apply', 6, {
+        name: 'E_INVALID_INPUT',
+      });
+      return;
+    }
+    const root = getProjectRoot();
+    const q = await import('@cleocode/core/memory/auto-row-quarantine');
+    const now = new Date();
+    const receiptPath = q.defaultQuarantineReceiptPath(root, now.toISOString());
     try {
       const stores = await q.openQuarantineStores(root);
-      if (typeof args.restore === 'string') {
-        const restored = await q.restoreAutoRowQuarantine(stores, args.restore);
-        cliOutput({ receipt: args.restore, restored }, output);
+      if (restore !== undefined) {
+        const restored = await q.restoreAutoRowQuarantine(stores, restore);
+        cliOutput({ receipt: restore, restored }, output);
         return;
       }
       if (!args.apply) {
-        const { counts, predicates } = q.planAutoRowQuarantine(stores);
-        cliOutput({ dryRun: true, counts, predicates }, output);
+        const { counts, predicates, digest } = q.planAutoRowQuarantine(stores);
+        cliOutput({ dryRun: true, counts, digest, predicates }, output);
         return;
       }
-      const expect = q.parseQuarantineExpect(String(args.expect ?? ''));
-      const now = new Date();
-      const receiptPath = q.defaultQuarantineReceiptPath(root, now.toISOString());
-      const receipt = await q.applyAutoRowQuarantine(stores, expect, receiptPath, { now });
+      if (expectText === undefined || expectDigest === undefined) {
+        cliError('--apply needs --expect and --expect-digest from the approved dry run', 6, {
+          name: 'E_INVALID_INPUT',
+        });
+        return;
+      }
+      const expect = q.parseQuarantineExpect(expectText);
+      const receipt = await q.applyAutoRowQuarantine(stores, expect, expectDigest, receiptPath, {
+        now,
+      });
       cliOutput({ receipt: receiptPath, ...receipt, ids: undefined }, output);
     } catch (err) {
       const code = err instanceof q.AutoRowQuarantineError ? err.code : 'E_QUARANTINE';
-      cliError(err instanceof Error ? err.message : String(err), 6, { name: code });
+      // An interrupted apply leaves its receipt; name it so --restore needs no search.
+      const details = existsSync(receiptPath) ? { receiptPath } : undefined;
+      cliError(err instanceof Error ? err.message : String(err), 6, { name: code, details });
     }
   },
 });

@@ -116,7 +116,8 @@ describe('auto-row quarantine (T13951)', () => {
     const stores = await seededStores();
     const receipt = join(dir, 'receipt.json');
     const stale = { ...approved, project: { patterns: 1, observations: 2 } };
-    await expect(applyAutoRowQuarantine(stores, stale, receipt)).rejects.toMatchObject({
+    const digest = planAutoRowQuarantine(stores).digest;
+    await expect(applyAutoRowQuarantine(stores, stale, digest, receipt)).rejects.toMatchObject({
       code: 'E_QUARANTINE_EXPECT_MISMATCH',
     });
     expect(existsSync(receipt)).toBe(false);
@@ -126,7 +127,10 @@ describe('auto-row quarantine (T13951)', () => {
   it('quarantines exactly the planned rows, and restore is idempotent', async () => {
     const stores = await seededStores();
     const receiptPath = join(dir, 'receipt.json');
-    const receipt = await applyAutoRowQuarantine(stores, approved, receiptPath, { batchSize: 1 });
+    const { digest } = planAutoRowQuarantine(stores);
+    const receipt = await applyAutoRowQuarantine(stores, approved, digest, receiptPath, {
+      batchSize: 1,
+    });
     expect(receipt.status).toBe('complete');
     expect(receipt.quarantined).toEqual(approved);
     const after = invalidAt(stores.project.db);
@@ -162,7 +166,13 @@ describe('auto-row quarantine (T13951)', () => {
     };
     const receiptPath = join(dir, 'receipt.json');
     await expect(
-      applyAutoRowQuarantine(crashing, approved, receiptPath, { batchSize: 1 }),
+      applyAutoRowQuarantine(
+        crashing,
+        approved,
+        planAutoRowQuarantine(stores).digest,
+        receiptPath,
+        { batchSize: 1 },
+      ),
     ).rejects.toThrow('simulated crash');
     const receipt = JSON.parse(readFileSync(receiptPath, 'utf8')) as { status: string };
     expect(receipt.status).toBe('started');
@@ -171,6 +181,64 @@ describe('auto-row quarantine (T13951)', () => {
     const restored = await restoreAutoRowQuarantine(stores, receiptPath);
     expect(restored.project.patterns).toBe(1);
     expect(Object.values(invalidAt(stores.project.db)).every((v) => v === null)).toBe(true);
+  });
+
+  it('refuses an apply whose approved id digest no longer matches', async () => {
+    const stores = await seededStores();
+    const receipt = join(dir, 'receipt.json');
+    await expect(
+      applyAutoRowQuarantine(stores, approved, '0000000000000000', receipt),
+    ).rejects.toMatchObject({ code: 'E_QUARANTINE_EXPECT_MISMATCH' });
+    expect(existsSync(receipt)).toBe(false);
+  });
+
+  it('skips and records a row verified mid-apply', async () => {
+    const stores = await seededStores();
+    const { digest } = planAutoRowQuarantine(stores);
+    let first = true;
+    const verifying = {
+      ...stores,
+      project: {
+        ...stores.project,
+        write: (...args: Parameters<QuarantineStore['write']>) => {
+          // Another process verifies a planned trace before the first batch writes.
+          if (first) {
+            first = false;
+            stores.project.db
+              .prepare("UPDATE main.brain_patterns SET verified = 1 WHERE id = 'P-trace-2'")
+              .run();
+          }
+          return stores.project.write(...args);
+        },
+      },
+    };
+    const receipt = await applyAutoRowQuarantine(
+      verifying,
+      approved,
+      digest,
+      join(dir, 'receipt.json'),
+    );
+    expect(receipt.quarantined?.project.patterns).toBe(1);
+    expect(receipt.skipped?.project.patterns).toEqual(['P-trace-2']);
+    expect(invalidAt(stores.project.db)['P-trace-2']).toBeNull();
+  });
+
+  it('restore leaves a row another process invalidated (other timestamp) untouched', async () => {
+    const stores = await seededStores();
+    const receiptPath = join(dir, 'receipt.json');
+    await applyAutoRowQuarantine(
+      stores,
+      approved,
+      planAutoRowQuarantine(stores).digest,
+      receiptPath,
+    );
+    const later = '2030-01-01T00:00:00.000Z';
+    stores.project.db
+      .prepare("UPDATE main.brain_observations SET invalid_at = ? WHERE id = 'O-doc'")
+      .run(later);
+    const restored = await restoreAutoRowQuarantine(stores, receiptPath);
+    expect(restored.project.observations).toBe(1);
+    expect(invalidAt(stores.project.db)['O-doc']).toBe(later);
   });
 
   it('rejects a file that is not a quarantine receipt', async () => {

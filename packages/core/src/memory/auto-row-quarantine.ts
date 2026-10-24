@@ -26,6 +26,7 @@
  * @task T13951
  */
 
+import { createHash } from 'node:crypto';
 import {
   closeSync,
   fsyncSync,
@@ -104,6 +105,8 @@ export interface AutoRowQuarantinePlan {
   predicates: Record<string, string>;
   /** Ids per store and table (kept out of CLI output; written to the receipt). */
   ids: Record<QuarantineScope, QuarantineIds>;
+  /** Short digest of the exact id set; `--expect-digest` binds an apply to it. */
+  digest: string;
 }
 
 /** Durable record of an apply, written before the first write. */
@@ -120,8 +123,12 @@ export interface AutoRowQuarantineReceipt {
   counts: QuarantineTally;
   /** Ids per store and table. */
   ids: Record<QuarantineScope, QuarantineIds>;
+  /** Digest of the approved id set. */
+  digest: string;
   /** Rows actually quarantined, once complete. */
   quarantined?: QuarantineTally;
+  /** Planned rows a batch skipped because they stopped matching (e.g. verified mid-apply). */
+  skipped?: Record<QuarantineScope, QuarantineIds>;
 }
 
 /** Writes a store's `invalid_at` for listed rows; returns the ids that changed. */
@@ -130,6 +137,7 @@ export type InvalidAtWriter = (
   ids: readonly string[],
   invalidAt: string | null,
   expected: string | null,
+  guard?: string,
 ) => Promise<string[]>;
 
 /** Read handle and accessor-backed writer for one store. */
@@ -218,7 +226,35 @@ export function planAutoRowQuarantine(
       AUTO_ROW_RULES.map((rule) => [rule.id, `${rule.predicate} AND ${CURRENT_UNVERIFIED}`]),
     ),
     ids,
+    digest: digestIds(ids),
   };
+}
+
+/**
+ * Short, stable digest of an id set (sha256 of the sorted ids per store and
+ * table, first 16 hex characters). Approval binds to it, so an apply cannot
+ * quarantine a different set of rows with the same counts.
+ *
+ * @param ids - Ids per store and table.
+ * @returns 16 hex characters.
+ * @example
+ * ```ts
+ * digestIds(plan.ids); // '3f2a9c0d1b7e4a55'
+ * ```
+ */
+export function digestIds(ids: Record<QuarantineScope, QuarantineIds>): string {
+  const canonical = QUARANTINE_SCOPES.flatMap((scope) =>
+    QUARANTINE_TABLES.map((table) => [scope, table, [...ids[scope][table]].sort()]),
+  );
+  return createHash('sha256').update(JSON.stringify(canonical)).digest('hex').slice(0, 16);
+}
+
+/** The predicate a table's rows must still match when a batch writes them. */
+function tableGuard(table: QuarantineTable): string {
+  const rules = AUTO_ROW_RULES.filter((rule) => rule.table === table).map(
+    (rule) => `(${rule.predicate})`,
+  );
+  return `(${rules.join(' OR ')}) AND ${CURRENT_UNVERIFIED}`;
 }
 
 /** Ids one rule matches in one store. */
@@ -310,6 +346,17 @@ function writeDurably(path: string, value: AutoRowQuarantineReceipt): void {
     closeSync(fd);
   }
   renameSync(temp, path);
+  // Best effort: make the rename itself durable (not supported on every platform).
+  try {
+    const dirFd = openSync(dirname(path), 'r');
+    try {
+      fsyncSync(dirFd);
+    } finally {
+      closeSync(dirFd);
+    }
+  } catch {
+    // A directory fsync is unavailable here; the receipt file itself is synced.
+  }
 }
 
 /**
@@ -338,6 +385,7 @@ export function defaultQuarantineReceiptPath(projectRoot: string, quarantinedAt:
  *
  * @param stores - Project and global stores.
  * @param expect - Counts from the approved dry run; any difference refuses.
+ * @param expectDigest - Id-set digest from the approved dry run; any difference refuses.
  * @param receiptPath - Where the receipt is written (before the first write).
  * @param options - `batchSize` per write transaction; `now` for tests.
  * @returns The completed receipt.
@@ -350,10 +398,18 @@ export function defaultQuarantineReceiptPath(projectRoot: string, quarantinedAt:
 export async function applyAutoRowQuarantine(
   stores: Record<QuarantineScope, QuarantineStore>,
   expect: QuarantineTally,
+  expectDigest: string,
   receiptPath: string,
   options: { batchSize?: number; now?: Date } = {},
 ): Promise<AutoRowQuarantineReceipt> {
   const plan = planAutoRowQuarantine(stores);
+  if (plan.digest !== expectDigest) {
+    // @sync-invariant none:input-shape the approved row set no longer holds; nothing is written
+    throw new AutoRowQuarantineError(
+      'E_QUARANTINE_EXPECT_MISMATCH',
+      `The matched rows now digest to ${plan.digest}, not the approved ${expectDigest}; run the dry run again`,
+    );
+  }
   for (const scope of QUARANTINE_SCOPES) {
     for (const table of QUARANTINE_TABLES) {
       if (plan.counts[scope][table].count !== expect[scope][table]) {
@@ -372,25 +428,32 @@ export async function applyAutoRowQuarantine(
     predicates: plan.predicates,
     counts: expect,
     ids: plan.ids,
+    digest: plan.digest,
   };
   writeDurably(receiptPath, receipt);
   const batchSize = options.batchSize ?? QUARANTINE_BATCH_SIZE;
   const quarantined = zeroTally();
+  const skipped = perScope((): QuarantineIds => ({ patterns: [], observations: [] }));
   for (const scope of QUARANTINE_SCOPES) {
     for (const table of QUARANTINE_TABLES) {
       const ids = plan.ids[scope][table];
       for (let start = 0; start < ids.length; start += batchSize) {
-        const changed = await stores[scope].write(
-          table,
-          ids.slice(start, start + batchSize),
-          receipt.quarantinedAt,
-          null,
+        const batch = ids.slice(start, start + batchSize);
+        // Re-check the full predicate: a row verified or edited mid-apply is skipped.
+        const changed = new Set(
+          await stores[scope].write(table, batch, receipt.quarantinedAt, null, tableGuard(table)),
         );
-        quarantined[scope][table] += changed.length;
+        quarantined[scope][table] += changed.size;
+        skipped[scope][table].push(...batch.filter((id) => !changed.has(id)));
       }
     }
   }
-  const complete: AutoRowQuarantineReceipt = { ...receipt, status: 'complete', quarantined };
+  const complete: AutoRowQuarantineReceipt = {
+    ...receipt,
+    status: 'complete',
+    quarantined,
+    skipped,
+  };
   writeDurably(receiptPath, complete);
   return complete;
 }
@@ -444,7 +507,9 @@ const receiptSchema = z.object({
   predicates: z.record(z.string(), z.string()),
   counts: z.object({ project: tallySchema, global: tallySchema }),
   ids: z.object({ project: idsSchema, global: idsSchema }),
+  digest: z.string(),
   quarantined: z.object({ project: tallySchema, global: tallySchema }).optional(),
+  skipped: z.object({ project: idsSchema, global: idsSchema }).optional(),
 });
 
 /** Read and validate a receipt. */
