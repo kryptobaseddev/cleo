@@ -263,6 +263,20 @@ describe('inspectProjectHeavyCommandHooks', () => {
     expect(inspect()?.state).toBe('installed');
   });
 
+  it('with the mode off, the Claude Code Stop and SessionEnd hooks are still audited', async () => {
+    mkdirSync(join(project, '.claude'));
+    await syncProjectHeavyCommandHooks(project, 'off', { env });
+    expect(state('off')['claude-code']).toBe('disabled');
+    const file = join(project, '.claude', 'settings.local.json');
+    const config = JSON.parse(readFileSync(file, 'utf-8'));
+    delete config.hooks.SessionEnd;
+    writeFileSync(file, JSON.stringify(config));
+    const off = inspectProjectHeavyCommandHooks(project, 'off', { env })[0];
+    expect(off?.state).toBe('outdated');
+    expect(off?.detail).toContain('its SessionEnd hook is missing');
+    expect(off?.remedy).toBe('run: cleo doctor heavy-command-hook --fix');
+  });
+
   it('reports outdated for another build, a legacy location, or a hook left while off', async () => {
     mkdirSync(join(project, '.claude'));
     const local = join(project, '.claude', 'settings.local.json');

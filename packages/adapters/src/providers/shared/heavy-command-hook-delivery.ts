@@ -404,27 +404,29 @@ type JsonHookPresence =
  * The hooks CLEO installs beside the heavy-command hook (T13960): the Stop
  * dispatcher, and for Claude Code the SessionEnd and SubagentStart hooks. A
  * binary updated without a hook re-sync keeps the old set, e.g. a Stop that
- * still ends the session and no SessionEnd, so each is audited too.
+ * still ends the session and no SessionEnd, so each is audited too. With the
+ * heavy-command mode `off`, Claude Code keeps only its Stop and SessionEnd
+ * hooks and Codex keeps none (what sync installs).
  */
 function companionHooks(
   provider: 'claude-code' | 'codex',
+  modeOff = false,
 ): ReadonlyArray<readonly [string, Record<string, unknown>, (hook: unknown) => boolean]> {
   const stop = ['Stop', stopDispatchHookObject(provider), isStopDispatchHookObject] as const;
-  return provider === 'codex'
-    ? [stop]
-    : [
-        stop,
-        ['SessionEnd', sessionEndHookObject(), isSessionEndHookObject],
-        ['SubagentStart', subagentStartHookObject(), isSubagentStartHookObject],
-      ];
+  if (provider === 'codex') return modeOff ? [] : [stop];
+  const end = ['SessionEnd', sessionEndHookObject(), isSessionEndHookObject] as const;
+  return modeOff
+    ? [stop, end]
+    : [stop, end, ['SubagentStart', subagentStartHookObject(), isSubagentStartHookObject]];
 }
 
 /** The first companion hook that is missing or differs from this build's, named, or null. */
 function staleCompanion(
   hooks: Record<string, unknown>,
   provider: 'claude-code' | 'codex',
+  modeOff = false,
 ): string | null {
-  for (const [event, desired, isMine] of companionHooks(provider)) {
+  for (const [event, desired, isMine] of companionHooks(provider, modeOff)) {
     const groups = hooks[event];
     const mine = (Array.isArray(groups) ? groups : [])
       .flatMap((g) => (isPlainObject(g) && Array.isArray(g.hooks) ? g.hooks : []))
@@ -435,6 +437,25 @@ function staleCompanion(
     }
   }
   return null;
+}
+
+/**
+ * With the heavy-command mode `off`: the first of Claude Code's own Stop and
+ * SessionEnd hooks that is missing or stale in `file`, or null (also when the
+ * file cannot be read: that is reported elsewhere).
+ */
+function offCompanionStale(file: string): string | null {
+  let config: unknown = {};
+  try {
+    const raw = readFileSync(file, 'utf-8');
+    if (raw.trim() !== '') config = JSON.parse(raw);
+  } catch (err) {
+    const code = (err as NodeJS.ErrnoException).code;
+    if (code !== 'ENOENT' && code !== 'ENOTDIR') return null;
+  }
+  if (!isPlainObject(config)) return null;
+  const hooks = isPlainObject(config.hooks) ? config.hooks : {};
+  return staleCompanion(hooks, 'claude-code', true);
 }
 
 /** Find CLEO's heavy-command hook in a JSON hook config (`hooks.PreToolUse[].hooks[]`). */
@@ -544,6 +565,17 @@ function inspectProvider(
     };
   }
   if (mode === 'off') {
+    // T13960: Claude Code keeps its Stop and SessionEnd hooks whatever the mode,
+    // so an update without a re-sync must not read as `disabled`.
+    const stale = provider === 'claude-code' && detected ? offCompanionStale(target) : null;
+    if (stale !== null) {
+      return {
+        ...base,
+        state: 'outdated',
+        detail: `resources.heavyCommandHook is off, but ${stale} in ${target}`,
+        remedy: `run: ${HEAVY_HOOK_FIX_COMMAND}`,
+      };
+    }
     return presence.kind === 'present'
       ? {
           ...base,
@@ -562,7 +594,11 @@ function inspectProvider(
           presence.stale !== undefined
             ? `the hook in ${target} is current, but ${presence.stale}`
             : `the hook in ${target} (or a legacy location) was written by another CLEO build`,
-        remedy: `run: ${HEAVY_HOOK_FIX_COMMAND}`,
+        // A committed .codex/hooks.json is the team's: --fix refuses it (needs-consent).
+        remedy:
+          provider === 'codex' && codexHooksSharedReason(projectDir, gitChecks) !== null
+            ? `${target} is the project's own config, so --fix does not write it; replace CLEO's Stop entry there by hand with: ${JSON.stringify({ hooks: [stopDispatchHookObject('codex')] })}`
+            : `run: ${HEAVY_HOOK_FIX_COMMAND}`,
       };
     }
     if (!gitChecks) return { ...base, state: 'installed', detail: `installed in ${target}` };

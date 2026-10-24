@@ -26,6 +26,7 @@ vi.mock('@cleocode/core/injection.js', () => ({
 import { sessionStart } from '@cleocode/core/session/engine-ops.js';
 import { SESSION_ENV_KEY_PRECEDENCE } from '@cleocode/core/sessions/session-id.js';
 import { TERMINAL_KEY_SOURCES } from '@cleocode/core/sessions/terminal-identity.js';
+import { addTask } from '@cleocode/core/tasks/add.js';
 import { getSession, requireBoundSession } from '@cleocode/core/store/session-store.js';
 import { type HookIo, runHookCli } from '../hook-entry.js';
 
@@ -50,6 +51,7 @@ describe('a turn end keeps the bound session (T13962)', () => {
     project = await mkdtemp(join(tmpdir(), 'cleo-t13962-'));
     home = await mkdtemp(join(tmpdir(), 'cleo-t13962-home-'));
     vi.stubEnv('CLEO_HOME', home);
+    vi.stubEnv('HOME', home);
     await mkdir(join(project, '.cleo', 'backups', 'operational'), { recursive: true });
     await writeFile(
       join(project, '.cleo', 'config.json'),
@@ -90,7 +92,17 @@ describe('a turn end keeps the bound session (T13962)', () => {
     expect(await runHookCli(['stop', '--provider', 'claude-code'], io)).toBe(0);
 
     expect((await getSession(id, project))?.status).toBe('active');
-    // The gate every mutation goes through still finds this terminal's session.
+    // The gate every mutation goes through still finds this terminal's session,
+    // and a real mutation succeeds without `cleo session resume`.
     expect((await requireBoundSession('test', project))?.id).toBe(id);
+    const added = await addTask(
+      {
+        title: 'Task created after two turn ends',
+        description: 'Proves the bound session survived two Stop hooks (T13962).',
+        acceptance: ['AC1: created without a session resume'],
+      },
+      project,
+    );
+    expect(added.task.id).toMatch(/^T\d+$/);
   });
 });
