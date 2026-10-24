@@ -13,13 +13,19 @@
  */
 
 import { execFileSync } from 'node:child_process';
+import { discoveryEnv } from './work-tree.js';
 
-/** Run `git` in `root`; trimmed stdout, or `null` on any failure. */
+/**
+ * Run `git` in `root`; trimmed stdout, or `null` on any failure. An ambient
+ * `GIT_DIR`/`GIT_WORK_TREE` (set inside a git hook) is stripped, so `root`'s
+ * own repository answers, never the hook's.
+ */
 function git(root: string, args: readonly string[]): string | null {
   try {
     return execFileSync('git', args, {
       cwd: root,
       encoding: 'utf-8',
+      env: discoveryEnv(),
       stdio: ['ignore', 'pipe', 'ignore'],
     }).trim();
   } catch {

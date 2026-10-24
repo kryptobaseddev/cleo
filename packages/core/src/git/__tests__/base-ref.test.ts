@@ -84,6 +84,37 @@ describe('base ref (T14007)', () => {
     expect(commitsBetween(local, shas[0]!, 'main')).toBe(2);
   });
 
+  it('answers for its own repository even with an ambient GIT_DIR (inside a git hook)', () => {
+    const { clone } = behindClone();
+    const other = join(dir, 'other');
+    repo(other, 1);
+    const saved = process.env['GIT_DIR'];
+    process.env['GIT_DIR'] = join(other, '.git');
+    try {
+      expect(resolveOriginDefault(clone)).toBe('origin/main');
+      expect(resolveBaseRef(clone)).toBe('origin/main');
+    } finally {
+      if (saved === undefined) delete process.env['GIT_DIR'];
+      else process.env['GIT_DIR'] = saved;
+    }
+  });
+
+  it('falls back to origin/master when origin/HEAD is missing', () => {
+    const upstream = join(dir, 'upstream-master');
+    git(dir, ['init', '-q', '-b', 'master', upstream]);
+    git(upstream, ['config', 'user.name', 't']);
+    git(upstream, ['config', 'user.email', 't@example.com']);
+    git(upstream, ['config', 'commit.gpgsign', 'false']);
+    writeFileSync(join(upstream, 'f.txt'), 'x\n');
+    git(upstream, ['add', 'f.txt']);
+    git(upstream, ['commit', '-q', '-m', 'c0']);
+    const clone = join(dir, 'clone-master');
+    git(dir, ['clone', '-q', upstream, clone]);
+    git(clone, ['remote', 'set-head', 'origin', '--delete']);
+    expect(resolveOriginDefault(clone)).toBe('origin/master');
+    expect(resolveBaseRef(clone)).toBe('origin/master');
+  });
+
   it('answers null for an unknown revision or a directory without commits', () => {
     const empty = join(dir, 'empty');
     git(dir, ['init', '-q', empty]);
