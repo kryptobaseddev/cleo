@@ -30,6 +30,7 @@ import {
   type PrDetails,
 } from '../change-set.js';
 import { parseEvidence, validateAtom } from '../evidence.js';
+import { coveredTestFiles } from '../test-run-binding.js';
 
 function git(dir: string, args: string[]): string {
   return execFileSync('git', args, { cwd: dir, encoding: 'utf-8' }).trim();
@@ -258,6 +259,54 @@ describe('worktrees and declared git roots (AC4)', () => {
     expect(declared.rootSource).toBe('declared');
     expect(declared.executionRoot).toBe(appB);
     expect(declared.commitSha).toBe(headB);
+  });
+
+  it('a linked worktree of the declared repo is the root, and a report run there covers its tests (T13926)', async () => {
+    // The axiom layout: the CLEO root parents the git repo, declared as evidence.gitRoot.
+    const store = join(base, 'store-nested');
+    mkdirSync(join(store, '.cleo'), { recursive: true });
+    const app = repoWithOrigin(store, 'app');
+    writeFileSync(
+      join(store, '.cleo', 'project-context.json'),
+      JSON.stringify({ evidence: { gitRoot: 'app' } }),
+    );
+    const wt = join(base, 'wt-T907');
+    git(app, ['worktree', 'add', '-q', '-b', 'task/T907', wt]);
+    const head = commitTaskWork(wt, 'T907');
+    const deps = { listMergedPrs: noPrs, ...noDocs, env: {} };
+
+    // Invoked inside the worktree: that checkout, not the declared main one.
+    const here = await deriveTaskChangeSet(
+      { task: task('T907'), storeRoot: store, cwd: wt },
+      deps,
+    );
+    expect(here.rootSource).toBe('invocation-worktree');
+    expect(here.executionRoot).toBe(realpathSync(wt));
+    expect(here.commitSha).toBe(head);
+    // Invoked from the CLEO root: the task's registered worktree of the declared repo.
+    const fromStore = await deriveTaskChangeSet(
+      { task: task('T907'), storeRoot: store, cwd: store },
+      deps,
+    );
+    expect(fromStore.rootSource).toBe('task-worktree');
+    expect(fromStore.executionRoot).toBe(realpathSync(wt));
+    // A report written by a run in that worktree names its test files there.
+    const report = {
+      testResults: [
+        {
+          name: join(realpathSync(wt), 'src', 'a.test.ts'),
+          assertionResults: [{ status: 'passed' }],
+        },
+      ],
+    };
+    expect(coveredTestFiles(report, here.executionRoot)).toEqual(['src/a.test.ts']);
+    // Another repository's worktree never stands in for the declared one.
+    const other = repoWithOrigin(base, 'other');
+    const elsewhere = await deriveTaskChangeSet(
+      { task: task('T907'), storeRoot: store, cwd: other },
+      deps,
+    );
+    expect(elsewhere.rootSource).toBe('task-worktree');
   });
 });
 

@@ -39,7 +39,7 @@ import type {
   Task,
   TaskChangeSet,
 } from '@cleocode/contracts';
-import { gitToplevel, resolveDeclaredEvidenceGitRoot } from '../git/work-tree.js';
+import { discoveryEnv, gitToplevel, resolveDeclaredEvidenceGitRoot } from '../git/work-tree.js';
 import { ghQueryTimeoutMs } from '../release/github-pr.js';
 import type { PrAtomResolution } from '../release/pr-evidence.js';
 import { enumerateWorktrees } from '../worktree/list.js';
@@ -303,9 +303,60 @@ function blocker(
 }
 
 /**
+ * The git common directory of the checkout at `dir`, canonical, or null.
+ * Ambient GIT_DIR / GIT_WORK_TREE are ignored, as every evidence probe does.
+ */
+function commonDirOf(dir: string): string | null {
+  try {
+    const args = ['rev-parse', '--path-format=absolute', '--git-common-dir'];
+    const common = execFileSync('git', args, {
+      cwd: dir,
+      encoding: 'utf-8',
+      env: discoveryEnv(),
+      stdio: ['ignore', 'pipe', 'ignore'],
+    }).trim();
+    return common === '' ? null : canonical(common);
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * A linked worktree of the declared repository at `top` (T13926): the
+ * invocation's own when `cwd` is in one, else the task's registered
+ * `task/<id>` worktree; null when neither applies.
+ */
+function declaredWorktree(
+  top: string,
+  taskId: string,
+  cwd: string,
+): { root: string; source: ChangeSetRootSource } | null {
+  const common = commonDirOf(top);
+  if (common === null) return null;
+  const here = gitToplevel(cwd);
+  if (here !== null && canonical(here) !== canonical(top) && commonDirOf(here) === common) {
+    return { root: here, source: 'invocation-worktree' };
+  }
+  let worktrees: ReturnType<typeof enumerateWorktrees> = [];
+  try {
+    worktrees = enumerateWorktrees(top);
+  } catch {
+    return null;
+  }
+  const own = worktrees.find(
+    (entry) =>
+      (entry.branch === `task/${taskId}` || entry.branch.startsWith(`task/${taskId}-`)) &&
+      existsSync(entry.path) &&
+      canonical(entry.path) !== canonical(top),
+  );
+  return own ? { root: own.path, source: 'task-worktree' } : null;
+}
+
+/**
  * Resolve the repository a task's change set is read from.
  *
- * Order: declared git root → the invocation's own worktree of this project →
+ * Order: declared git root (or a linked worktree of it: the invocation's,
+ * else the task's, T13926) → the invocation's own worktree of this project →
  * the task's registered worktree (only when invoked from the main checkout)
  * → the store root or its single child checkout, as
  * {@link resolveEvidenceExecutionRoot} already decides.
@@ -325,7 +376,11 @@ export function resolveChangeSetRoot(
 ): { root: string; source: ChangeSetRootSource } {
   const declared = resolveDeclaredEvidenceGitRoot(storeRoot, env);
   if (declared !== null) {
-    return { root: gitToplevel(declared.path) ?? declared.path, source: 'declared' };
+    const top = gitToplevel(declared.path) ?? declared.path;
+    // T13926: a linked worktree of the DECLARED repository (the invocation's,
+    // else the task's own) is where the work and its test runs live; the
+    // declared root names the repository, not which checkout of it.
+    return declaredWorktree(top, taskId, cwd) ?? { root: top, source: 'declared' };
   }
   const base = resolveEvidenceExecutionRoot(storeRoot, cwd);
   const mainCheckout = git(base, ['rev-parse', '--path-format=absolute', '--git-common-dir']);
