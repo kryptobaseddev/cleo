@@ -85,10 +85,11 @@ describe("harness dispatcher", () => {
     expect(getHarnessFor(claude!)).toBeNull();
   });
 
-  it("getPrimaryHarness returns the pi harness", () => {
-    const primary = getPrimaryHarness();
-    expect(primary).not.toBeNull();
-    expect(primary?.id).toBe("pi");
+  it("getPrimaryHarness returns null: no provider is primary since T13995 (ADR-098)", () => {
+    expect(getPrimaryHarness()).toBeNull();
+    const pi = getProvider("pi");
+    expect(pi).toBeDefined();
+    expect(getHarnessFor(pi!)?.id).toBe("pi");
   });
 
   it("getAllHarnesses returns at least the pi harness", () => {

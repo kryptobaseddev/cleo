@@ -132,7 +132,8 @@ describe("Provider Registry", () => {
     const pi = getProvider("pi");
     expect(pi).toBeDefined();
     expect(pi?.capabilities.mcp).toBeNull();
-    expect(pi?.priority).toBe("primary");
+    // T13995 (ADR-098): Pi is no longer the primary provider.
+    expect(pi?.priority).toBe("medium");
     expect(pi?.capabilities.harness).not.toBeNull();
     expect(pi?.capabilities.harness?.kind).toBe("orchestrator");
   });

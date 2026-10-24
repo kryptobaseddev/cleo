@@ -62,17 +62,19 @@ Single source of truth for 44+ AI coding agents in `providers/registry.json`.
 - File paths (global and project scopes)
 - Supported transports and capabilities
 
-### 3.4 Exclusivity Mode (Pi-first runtime)
+### 3.4 Exclusivity Mode
 
 CAAMP supports three exclusivity modes for runtime command dispatch, introduced
 by ADR-035 §D7. The mode controls how `resolveDefaultTargetProviders()` selects
-target providers when CAAMP needs to invoke an underlying agent.
+target providers when CAAMP needs to invoke an underlying agent. The Pi/CleoOS
+harness is retiring (ADR-098), so the default is `legacy`, which prefers no
+harness; `auto` and `force-pi` remain explicit opt-ins.
 
 | Mode | Pi installed | Pi absent |
 |------|--------------|-----------|
-| `auto` (default) | Returns Pi as the sole runtime target. Explicit `--agent <non-pi>` selections are honoured but emit a one-time deprecation warning per process. | Falls back to detected high-priority providers and emits a one-time boot warning so users know orchestration is not engaged. |
-| `force-pi` | Returns Pi as the sole runtime target. | Throws `PiRequiredError` (LAFS code `E_NOT_FOUND_RESOURCE`); the CLI surfaces this as exit code 4. |
-| `legacy` | Returns Pi (matches v2026.4.5 behaviour exactly). | Returns the detected high-priority provider set. No warnings, no hard requirement. |
+| `legacy` (default since T13995) | Returns the detected high-priority provider set; Pi is not preferred (its registry priority is `medium`). No warnings. | Returns the detected high-priority provider set. No warnings, no hard requirement. |
+| `auto` (opt-in) | Returns Pi as the sole runtime target. Explicit `--agent <non-pi>` selections are honoured but emit a one-time deprecation warning per process. | Falls back to detected high-priority providers and emits a one-time boot warning so users know orchestration is not engaged. |
+| `force-pi` (opt-in) | Returns Pi as the sole runtime target. | Throws `PiRequiredError` (LAFS code `E_NOT_FOUND_RESOURCE`); the CLI surfaces this as exit code 4. |
 
 Set the mode via the `CAAMP_EXCLUSIVITY_MODE` environment variable:
 
