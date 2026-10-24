@@ -9,11 +9,16 @@
  * records a receipt (file, sha256, lesson id) before and after writing, and
  * never deletes or edits a source file.
  *
- * Mapping: a `feedback` or `project` memory is a lesson. Its frontmatter
- * `description` is the one-line rule (the lesson title), and its body is the
- * why. `user` and `reference` memories are not lessons and are skipped. Each
- * lesson's text ends with its provenance line (source file and content hash),
- * so the same file imported twice is deduplicated by the main brain.
+ * Mapping: a `feedback` memory is a process rule and becomes a lesson in the
+ * main (global) brain; a `project` memory is a fact about one project and
+ * becomes a lesson in that project's brain, so it never reaches other
+ * projects' recall or syncs to them. Its frontmatter `description` is the
+ * one-line rule (the lesson title) and its body the why. `user` and
+ * `reference` memories are not lessons. A memory marked wrong or superseded
+ * (its description or first body line starts with PARTLY WRONG, WRONG or
+ * SUPERSEDED) and any file the reviewer excludes are skipped. Each lesson's
+ * text ends with its provenance line (source file and content hash), so the
+ * same file imported twice is deduplicated.
  *
  * Code placed in `packages/core/` per Package-Boundary Check — verified against AGENTS.md.
  *
@@ -29,8 +34,17 @@ import { writeJsonFileAtomic } from '../store/file-utils.js';
 import { parseMemoryFileFrontmatter } from './import-from-provider.js';
 import { lessonRuleError } from './lessons.js';
 
-/** Memory types imported as lessons; the rest are skipped. */
-const LESSON_MEMORY_TYPES: ReadonlySet<string> = new Set(['feedback', 'project']);
+/** Where each memory type lands as a lesson; other types are skipped. */
+const LESSON_SCOPE_BY_TYPE: Readonly<Record<string, LessonImportScope>> = {
+  feedback: 'global',
+  project: 'project',
+};
+
+/** A memory its author marked as no longer true. */
+const RETRACTED = /^(?:partly\s+wrong|wrong|superseded)\b/i;
+
+/** Brain a lesson is written to. */
+export type LessonImportScope = 'global' | 'project';
 
 /** Source type stamped on imported lessons. */
 export const LESSON_IMPORT_SOURCE_TYPE = 'claude-memory-import';
@@ -55,6 +69,8 @@ export interface LessonImportCandidate {
   name: string | null;
   /** Frontmatter memory type (`feedback` or `project`). */
   memoryType: string;
+  /** Brain the lesson is written to: `global` for feedback, `project` for project memories. */
+  scope: LessonImportScope;
   /** The one-line rule (lesson title). */
   rule: string;
   /** The why, ending with the provenance line (lesson text). */
@@ -77,7 +93,7 @@ export interface LessonImportPlan {
   candidates: LessonImportCandidate[];
   /** Files left out, sorted by file name. */
   skipped: LessonImportSkip[];
-  /** Digest of the candidate set (file and content hash); an apply must match it. */
+  /** Digest of the candidate set (file, content hash, scope); an apply must match it. */
   digest: string;
 }
 
@@ -87,7 +103,9 @@ export interface LessonImportWrite {
   file: string;
   /** Source content hash. */
   sha256: string;
-  /** Lesson id in the main brain. */
+  /** Brain the lesson was written to. */
+  scope: LessonImportScope;
+  /** Lesson id in that brain. */
   id: string;
   /** False when the same lesson already existed (the id names that entry). */
   stored: boolean;
@@ -142,17 +160,23 @@ export function defaultLessonImportDir(projectRoot: string, home: string = homed
 
 /**
  * Plan an import: read every `*.md` file except `MEMORY.md` and decide which
- * become lessons. Reads only.
+ * become lessons, and where. Reads only.
  *
  * @param sourceDir - Memory directory to import.
+ * @param options - `exclude`: file names the reviewer dropped; they are skipped
+ *   before the digest, so the digest pins the final set.
  * @returns The plan with its digest.
  * @throws LessonImportError when the directory does not exist.
  * @example
  * ```ts
- * const plan = planLessonImport(defaultLessonImportDir(root));
+ * const plan = planLessonImport(defaultLessonImportDir(root), { exclude: ['old.md'] });
  * ```
  */
-export function planLessonImport(sourceDir: string): LessonImportPlan {
+export function planLessonImport(
+  sourceDir: string,
+  options: { exclude?: readonly string[] } = {},
+): LessonImportPlan {
+  const excluded = new Set(options.exclude ?? []);
   if (!existsSync(sourceDir))
     // @sync-invariant none:input-shape a missing source directory is refused before any write
     throw new LessonImportError(
@@ -165,14 +189,28 @@ export function planLessonImport(sourceDir: string): LessonImportPlan {
     .filter((file) => file.endsWith('.md') && file !== 'MEMORY.md')
     .sort();
   for (const file of files) {
+    if (excluded.has(file)) {
+      skipped.push({ file, reason: 'excluded by the reviewer' });
+      continue;
+    }
     const bytes = readFileSync(join(sourceDir, file));
     const sha256 = createHash('sha256').update(bytes).digest('hex');
     const { name, description, type, body } = parseMemoryFileFrontmatter(bytes.toString('utf-8'));
-    if (!type || !LESSON_MEMORY_TYPES.has(type)) {
+    const scope = type ? LESSON_SCOPE_BY_TYPE[type] : undefined;
+    if (!type || !scope) {
       skipped.push({ file, reason: `memory type ${type ?? '(none)'} is not a lesson` });
       continue;
     }
     const rule = unquote(description ?? name ?? '');
+    const firstLine =
+      body
+        .trim()
+        .split('\n')[0]
+        ?.replace(/^[#>*\s-]+/, '') ?? '';
+    if (RETRACTED.test(rule) || RETRACTED.test(firstLine)) {
+      skipped.push({ file, reason: 'marked wrong or superseded by its author' });
+      continue;
+    }
     const ruleError = lessonRuleError(rule);
     if (ruleError) {
       skipped.push({ file, reason: `no usable one-line rule: ${ruleError}` });
@@ -188,31 +226,35 @@ export function planLessonImport(sourceDir: string): LessonImportPlan {
       sha256,
       name: name ?? null,
       memoryType: type,
+      scope,
       rule,
       text: `${body.trim()}\n\n${provenance}`,
     });
   }
   const digest = createHash('sha256')
-    .update(candidates.map((c) => `${c.file}\0${c.sha256}`).join('\n'))
+    .update(candidates.map((c) => `${c.file}\0${c.sha256}\0${c.scope}`).join('\n'))
     .digest('hex')
     .slice(0, 16);
   return { sourceDir, candidates, skipped, digest };
 }
 
-/** The global-brain writer the apply uses; injectable for tests. */
+/** Writes one lesson to the brain its scope names; injectable for tests. */
 export type LessonWriter = (lesson: {
   text: string;
   title: string;
+  scope: LessonImportScope;
 }) => Promise<{ id: string; stored?: boolean }>;
 
 /**
- * Apply an approved import: re-plan the directory, refuse unless the digest
- * still matches, record a receipt, then write each lesson to the main brain.
+ * Apply an approved import: re-plan the directory with the same exclusions,
+ * refuse unless the digest still matches, record a receipt, then write each
+ * lesson to the main brain (feedback) or the project brain (project).
  *
+ * @param projectRoot - Project whose brain receives project lessons.
  * @param sourceDir - Memory directory to import.
  * @param expectDigest - Digest of the approved dry run.
  * @param receiptPath - Where the receipt is written (before the first write).
- * @param options - `write` overrides the main-brain writer; `now` for tests.
+ * @param options - `exclude` as in the dry run; `write` overrides the brain writers; `now` for tests.
  * @returns The completed receipt.
  * @throws LessonImportError when the directory changed since the approved plan.
  * @example
@@ -221,12 +263,13 @@ export type LessonWriter = (lesson: {
  * ```
  */
 export async function applyLessonImport(
+  projectRoot: string,
   sourceDir: string,
   expectDigest: string,
   receiptPath: string,
-  options: { write?: LessonWriter; now?: Date } = {},
+  options: { exclude?: readonly string[]; write?: LessonWriter; now?: Date } = {},
 ): Promise<LessonImportReceipt> {
-  const plan = planLessonImport(sourceDir);
+  const plan = planLessonImport(sourceDir, { exclude: options.exclude ?? [] });
   if (plan.digest !== expectDigest)
     // @sync-invariant none:input-shape the approved plan no longer holds; nothing is written
     throw new LessonImportError(
@@ -235,13 +278,14 @@ export async function applyLessonImport(
     );
   const write: LessonWriter =
     options.write ??
-    (async (lesson) => {
-      const { observeGlobalBrain } = await import('./global-brain.js');
-      return observeGlobalBrain({
-        ...lesson,
-        type: 'lesson',
-        sourceType: LESSON_IMPORT_SOURCE_TYPE,
-      });
+    (async ({ scope, ...lesson }) => {
+      const params = { ...lesson, type: 'lesson' as const, sourceType: LESSON_IMPORT_SOURCE_TYPE };
+      if (scope === 'global') {
+        const { observeGlobalBrain } = await import('./global-brain.js');
+        return observeGlobalBrain(params);
+      }
+      const { observeBrain } = await import('./retrieval/observe.js');
+      return observeBrain(projectRoot, params);
     });
   const receipt: LessonImportReceipt = {
     version: 1,
@@ -254,10 +298,15 @@ export async function applyLessonImport(
   mkdirSync(dirname(receiptPath), { recursive: true });
   writeJsonFileAtomic(receiptPath, receipt);
   for (const candidate of plan.candidates) {
-    const result = await write({ text: candidate.text, title: candidate.rule });
+    const result = await write({
+      text: candidate.text,
+      title: candidate.rule,
+      scope: candidate.scope,
+    });
     receipt.written.push({
       file: candidate.file,
       sha256: candidate.sha256,
+      scope: candidate.scope,
       id: result.id,
       stored: result.stored !== false,
     });

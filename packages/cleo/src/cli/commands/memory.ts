@@ -42,7 +42,7 @@
  * @epic T4763 T627
  */
 
-import { existsSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { runConsolidation } from '@cleocode/core/memory/brain-lifecycle';
 import { getDreamStatus, triggerManualDream } from '@cleocode/core/memory/dream-cycle';
 import { importMemoryFiles } from '@cleocode/core/memory/import-from-provider.js';
@@ -1328,9 +1328,25 @@ const importLessonsCommand = defineCommand({
       type: 'string',
       description: 'Plan digest from the approved dry run',
     },
+    exclude: {
+      type: 'string',
+      description: 'Comma-separated memory file names to leave out (applied before the digest)',
+    },
+    'exclude-from': {
+      type: 'string',
+      description: 'File listing memory file names to leave out, one per line (# comments)',
+    },
   },
   async run({ args }) {
     const output = { command: 'memory-import-lessons', operation: 'memory.import-lessons' };
+    const exclude = [
+      ...(typeof args.exclude === 'string' ? args.exclude.split(',') : []),
+      ...(typeof args['exclude-from'] === 'string'
+        ? readFileSync(args['exclude-from'], 'utf-8').split('\n')
+        : []),
+    ]
+      .map((line) => line.replace(/#.*$/, '').trim())
+      .filter((line) => line.length > 0);
     const expectDigest =
       typeof args['expect-digest'] === 'string' ? args['expect-digest'] : undefined;
     if (!args.apply && expectDigest !== undefined) {
@@ -1343,13 +1359,16 @@ const importLessonsCommand = defineCommand({
       typeof args.from === 'string' ? args.from : lessons.defaultLessonImportDir(root);
     try {
       if (!args.apply) {
-        const plan = lessons.planLessonImport(sourceDir);
+        const plan = lessons.planLessonImport(sourceDir, { exclude });
         cliOutput(
           {
             dryRun: true,
             sourceDir: plan.sourceDir,
             digest: plan.digest,
+            excluded: exclude,
             lessons: plan.candidates.length,
+            globalLessons: plan.candidates.filter((c) => c.scope === 'global').length,
+            projectLessons: plan.candidates.filter((c) => c.scope === 'project').length,
             skipped: plan.skipped.length,
             candidates: plan.candidates.map(({ text: _text, ...rest }) => rest),
             skippedFiles: plan.skipped,
@@ -1366,7 +1385,8 @@ const importLessonsCommand = defineCommand({
       }
       const now = new Date();
       const receiptPath = lessons.defaultLessonImportReceiptPath(root, now.toISOString());
-      const receipt = await lessons.applyLessonImport(sourceDir, expectDigest, receiptPath, {
+      const receipt = await lessons.applyLessonImport(root, sourceDir, expectDigest, receiptPath, {
+        exclude,
         now,
       });
       cliOutput(

@@ -45,6 +45,8 @@ beforeEach(() => {
   memory('no-type.md', null, 'A note', 'Body.');
   memory('long-rule.md', 'feedback', 'x'.repeat(201), 'Body.');
   memory('empty-why.md', 'feedback', 'A rule with no why', '');
+  memory('retracted.md', 'project', '"PARTLY WRONG — superseded by a later entry"', 'Old claim.');
+  memory('wrong-body.md', 'feedback', 'Old rule', 'Superseded: see the newer entry.');
 });
 
 afterEach(() => {
@@ -55,9 +57,14 @@ afterEach(() => {
 describe('planLessonImport (T13949)', () => {
   it('plans feedback and project memories as lessons, with provenance, and says why the rest are skipped', () => {
     const plan = planLessonImport(dir);
-    expect(plan.candidates.map((c) => [c.file, c.memoryType, c.rule])).toEqual([
-      ['biome-before-push.md', 'feedback', 'Biome the exact changed set before "every" push'],
-      ['main-ci-red.md', 'project', 'Main CI red ~8 h while the queue merged'],
+    expect(plan.candidates.map((c) => [c.file, c.memoryType, c.scope, c.rule])).toEqual([
+      [
+        'biome-before-push.md',
+        'feedback',
+        'global',
+        'Biome the exact changed set before "every" push',
+      ],
+      ['main-ci-red.md', 'project', 'project', 'Main CI red ~8 h while the queue merged'],
     ]);
     const biome = plan.candidates[0]!;
     expect(biome.sha256).toMatch(/^[0-9a-f]{64}$/);
@@ -75,6 +82,8 @@ describe('planLessonImport (T13949)', () => {
         reason: 'no usable one-line rule: A lesson rule (--title) must be at most 200 characters',
       },
       { file: 'no-type.md', reason: 'memory type (none) is not a lesson' },
+      { file: 'retracted.md', reason: 'marked wrong or superseded by its author' },
+      { file: 'wrong-body.md', reason: 'marked wrong or superseded by its author' },
     ]);
     expect(plan.digest).toMatch(/^[0-9a-f]{16}$/);
     expect(planLessonImport(dir).digest).toBe(plan.digest);
@@ -87,6 +96,27 @@ describe('planLessonImport (T13949)', () => {
     expect(() => planLessonImport(join(dir, 'nope'))).toThrow(LessonImportError);
   });
 
+  it("pins exclusions and each lesson's scope in the digest", () => {
+    const all = planLessonImport(dir);
+    const excluded = planLessonImport(dir, { exclude: ['main-ci-red.md'] });
+    expect(excluded.candidates.map((c) => c.file)).toEqual(['biome-before-push.md']);
+    expect(excluded.skipped).toContainEqual({
+      file: 'main-ci-red.md',
+      reason: 'excluded by the reviewer',
+    });
+    expect(excluded.digest).not.toBe(all.digest);
+    // Same text, now a feedback memory: its scope moves and so does the digest.
+    memory(
+      'main-ci-red.md',
+      'feedback',
+      'Main CI red ~8 h while the queue merged',
+      'Watch main CI.',
+    );
+    const rescoped = planLessonImport(dir);
+    expect(rescoped.candidates.find((c) => c.file === 'main-ci-red.md')?.scope).toBe('global');
+    expect(rescoped.digest).not.toBe(all.digest);
+  });
+
   it('defaults to the project-keyed Claude memory directory', () => {
     expect(defaultLessonImportDir('/Users/me/repo', '/home/me')).toBe(
       '/home/me/.claude/projects/-Users-me-repo/memory',
@@ -97,7 +127,7 @@ describe('planLessonImport (T13949)', () => {
 describe('applyLessonImport (T13949)', () => {
   it('writes each planned lesson to the main brain and records a receipt', async () => {
     const plan = planLessonImport(dir);
-    const writes: Array<{ title: string; text: string }> = [];
+    const writes: Array<{ title: string; text: string; scope: string }> = [];
     const write: LessonWriter = async (lesson) => {
       writes.push(lesson);
       return writes.length === 2
@@ -105,15 +135,23 @@ describe('applyLessonImport (T13949)', () => {
         : { id: `O-${writes.length}` };
     };
     const receiptPath = join(out, 'migrations', 'lessons.json');
-    const receipt = await applyLessonImport(dir, plan.digest, receiptPath, { write });
+    const receipt = await applyLessonImport('/project', dir, plan.digest, receiptPath, { write });
     expect(writes.map((w) => w.title)).toEqual(plan.candidates.map((c) => c.rule));
     expect(writes.map((w) => w.text)).toEqual(plan.candidates.map((c) => c.text));
+    expect(writes.map((w) => w.scope)).toEqual(['global', 'project']);
     expect(receipt).toMatchObject({ status: 'complete', digest: plan.digest, sourceDir: dir });
     expect(receipt.written).toEqual([
-      { file: 'biome-before-push.md', sha256: plan.candidates[0]!.sha256, id: 'O-1', stored: true },
+      {
+        file: 'biome-before-push.md',
+        sha256: plan.candidates[0]!.sha256,
+        scope: 'global',
+        id: 'O-1',
+        stored: true,
+      },
       {
         file: 'main-ci-red.md',
         sha256: plan.candidates[1]!.sha256,
+        scope: 'project',
         id: 'O-existing',
         stored: false,
       },
@@ -128,6 +166,8 @@ describe('applyLessonImport (T13949)', () => {
       'long-rule.md',
       'main-ci-red.md',
       'no-type.md',
+      'retracted.md',
+      'wrong-body.md',
     ]);
   });
 
@@ -137,7 +177,7 @@ describe('applyLessonImport (T13949)', () => {
     let writes = 0;
     const receiptPath = join(out, 'lessons.json');
     await expect(
-      applyLessonImport(dir, plan.digest, receiptPath, {
+      applyLessonImport('/project', dir, plan.digest, receiptPath, {
         write: async () => {
           writes++;
           return { id: 'O-x' };
@@ -146,5 +186,24 @@ describe('applyLessonImport (T13949)', () => {
     ).rejects.toMatchObject({ code: 'E_LESSON_IMPORT_DIGEST_MISMATCH' });
     expect(writes).toBe(0);
     expect(() => readFileSync(receiptPath)).toThrow();
+  });
+
+  it('applies the approved exclusions: the digest only matches with the same set', async () => {
+    const approved = planLessonImport(dir, { exclude: ['main-ci-red.md'] });
+    const titles: string[] = [];
+    const write: LessonWriter = async (lesson) => {
+      titles.push(lesson.title);
+      return { id: 'O-1' };
+    };
+    // Without the exclusion the plan differs, so nothing is written.
+    await expect(
+      applyLessonImport('/project', dir, approved.digest, join(out, 'a.json'), { write }),
+    ).rejects.toMatchObject({ code: 'E_LESSON_IMPORT_DIGEST_MISMATCH' });
+    expect(titles).toEqual([]);
+    await applyLessonImport('/project', dir, approved.digest, join(out, 'b.json'), {
+      exclude: ['main-ci-red.md'],
+      write,
+    });
+    expect(titles).toEqual(['Biome the exact changed set before "every" push']);
   });
 });
