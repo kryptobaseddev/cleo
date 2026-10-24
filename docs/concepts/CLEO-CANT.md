@@ -461,6 +461,8 @@ SignalDock (the Rust backend at `api.signaldock.io`) is the first and currently 
 | Directive-to-CLEO mapping | NOT shipped | Awaiting NEXUS Phase B in `@cleocode/core` |
 | LAFS response envelopes | NOT shipped | **14 divergences** — `data` vs `result`, `meta` vs `_meta`, wrong pagination model. Requires `lafs-core` migration. |
 
+> **Removed (T13954, 2026-10-24):** the `conduit-core` crate (later renamed `cleo-conduit-core`) is no longer in the cleocode monorepo. Conduit messaging is retiring (epic T13933) and agents message each other over AgentMBX. External consumers that still need the types pin the crates.io release `=2026.5.105`. Mentions of `conduit-core` below are historical.
+
 **Target**: SignalDock replaces `extract_from_content()` with `cant-core::parse()`, replaces `envelope.rs` with `lafs-core`, and replaces `conduit.rs` with `conduit-core`. All three are git deps from the `cleocode/` monorepo. See [CLEOCODE-ECOSYSTEM-PLAN.md](../specs/CLEOCODE-ECOSYSTEM-PLAN.md) Section 3.
 
 ### 5.2 Where SignalDock Fits

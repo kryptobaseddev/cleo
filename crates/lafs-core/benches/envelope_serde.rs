@@ -30,7 +30,7 @@ fn make_success_envelope() -> LafsEnvelope {
     let result = serde_json::json!({
         "tasks": [
             { "id": "T10224", "title": "Publish flips", "status": "in_progress" },
-            { "id": "T10206", "title": "conduit-core flip", "status": "done" },
+            { "id": "T10206", "title": "lafs-core flip", "status": "done" },
             { "id": "T10194", "title": "E3 epic", "status": "in_progress" },
         ],
         "totalCount": 3,
