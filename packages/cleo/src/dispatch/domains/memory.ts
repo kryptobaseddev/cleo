@@ -2080,100 +2080,20 @@ export class MemoryHandler implements DomainHandler {
         // T9976 — backfill: emit memory observations for existing doc attachments
         // that do not yet have a corresponding brain observation.
         case 'backfill-docs': {
+          // T13985 (D11180): a document link is the `llmtxt --documents--> owner`
+          // edge, no longer a "Doc attached" observation.
           try {
-            const store = createAttachmentStore();
-            const allAttachments = await store.listAllInProject();
-
-            // Collect existing doc-attachment observation narratives to avoid
-            // duplicates. We search for existing entries by fetching the native
-            // brain DB and scanning narratives that contain `"kind":"doc-attachment"`.
-            await getBrainDb(projectRoot);
-            const nativeDb = getBrainNativeDb(projectRoot);
-
-            const existingAttachmentIds = new Set<string>();
-            if (nativeDb) {
-              try {
-                const existing = nativeDb
-                  .prepare(
-                    `SELECT narrative FROM brain_observations
-                     WHERE narrative LIKE '%"kind":"doc-attachment"%'
-                       AND invalid_at IS NULL`,
-                  )
-                  .all() as Array<{ narrative: string | null }>;
-                for (const row of existing) {
-                  if (!row.narrative) continue;
-                  try {
-                    const p = JSON.parse(row.narrative) as Partial<DocAttachmentObservationPayload>;
-                    if (p.kind === 'doc-attachment' && typeof p.attachmentId === 'string') {
-                      existingAttachmentIds.add(p.attachmentId);
-                    }
-                  } catch {
-                    /* malformed JSON — skip */
-                  }
-                }
-              } catch {
-                /* brain_observations query failed — proceed with backfill */
-              }
-            }
-
-            let emitted = 0;
-            let skipped = 0;
-            const emittedIds: string[] = [];
-
-            for (const item of allAttachments) {
-              const attId = item.metadata.id;
-              if (existingAttachmentIds.has(attId)) {
-                skipped++;
-                continue;
-              }
-
-              const extras = await store.getExtras(attId);
-              const slug = extras?.slug ?? undefined;
-              const type = extras?.type ?? undefined;
-
-              const payload: DocAttachmentObservationPayload = {
-                kind: 'doc-attachment',
-                attachmentId: attId,
-                ownerId: item.ownerId,
-                addedAt: item.metadata.createdAt,
-                ...(slug !== undefined ? { slug } : {}),
-                ...(type !== undefined ? { type } : {}),
-              };
-
-              const { memoryObserve: brainObserve } = await import(
-                '@cleocode/core/memory/engine-compat'
-              );
-              await brainObserve(
-                {
-                  text: JSON.stringify(payload),
-                  title: `Doc attached: ${slug ?? attId}`,
-                  type: 'feature',
-                  // sourceType: 'manual' avoids the mental-model queue (5s flush interval).
-                  // The mental-model queue is only entered when `agent` is set + type is in
-                  // MENTAL_MODEL_TYPES. Using 'manual' bypasses this path entirely.
-                  sourceType: 'manual',
-                },
-                projectRoot,
-              ).catch(() => {
-                /* best-effort — skip on failure */
-              });
-
-              emittedIds.push(attId);
-              emitted++;
-            }
-
+            const { backfillDocumentEdges } = await import('@cleocode/core/docs/document-edges');
+            const backfill = await backfillDocumentEdges(projectRoot);
             return wrapResult(
               {
                 success: true,
                 data: {
-                  total: allAttachments.length,
-                  emitted,
-                  skipped,
-                  emittedAttachmentIds: emittedIds,
+                  ...backfill,
                   hint:
-                    emitted === 0
-                      ? 'All existing attachments already have memory observations — nothing to backfill.'
-                      : `Emitted ${emitted} new doc-attachment observations. Use 'cleo memory find <slug>' to verify.`,
+                    backfill.written === 0
+                      ? 'Every attachment already has its documents edge — nothing to backfill.'
+                      : `Wrote ${backfill.written} missing documents edge(s).`,
                 },
               },
               'mutate',
