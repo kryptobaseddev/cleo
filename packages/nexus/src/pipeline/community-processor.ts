@@ -220,9 +220,13 @@ const LEIDEN_RESOLUTION = 1.0;
  * comment for the full diagnosis and benchmark data.
  *
  * @param graph - The in-memory KnowledgeGraph to read edges from and write to
+ * @param signal - Budget signal, checked before and after the (synchronous) Leiden run (T14009)
  * @returns Detection result with community nodes, memberships, and stats
  */
-export async function detectCommunities(graph: KnowledgeGraph): Promise<CommunityDetectionResult> {
+export async function detectCommunities(
+  graph: KnowledgeGraph,
+  signal?: AbortSignal,
+): Promise<CommunityDetectionResult> {
   // Count symbol nodes to decide whether to enable large-graph mode
   let symbolCount = 0;
   for (const node of graph.nodes.values()) {
@@ -234,6 +238,9 @@ export async function detectCommunities(graph: KnowledgeGraph): Promise<Communit
 
   // Build the undirected graphology graph for Leiden
   const gGraph = buildGraphologyGraph(graph, isLarge);
+  // T14009: Leiden itself is synchronous and cannot be interrupted; the budget
+  // is checked on both sides of it.
+  signal?.throwIfAborted();
 
   if (gGraph.order === 0) {
     process.stderr.write('[nexus] Phase 5: No eligible nodes — skipping community detection\n');
@@ -265,6 +272,7 @@ export async function detectCommunities(graph: KnowledgeGraph): Promise<Communit
   });
 
   const durationMs = performance.now() - t0;
+  signal?.throwIfAborted();
 
   process.stderr.write(
     `[nexus] Phase 5: Leiden found ${details.count} raw communities in ${durationMs.toFixed(0)}ms\n`,

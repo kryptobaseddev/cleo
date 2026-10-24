@@ -307,12 +307,14 @@ function sanitizeId(s: string): string {
  * @param graph - The in-memory KnowledgeGraph (mutated in-place)
  * @param memberships - Community memberships from Phase 5 (may be empty)
  * @param config - Optional override for detection parameters
+ * @param signal - Budget signal, checked before each entry point's trace (T14009)
  * @returns Detection result with process nodes, steps, and stats
  */
 export async function detectProcesses(
   graph: KnowledgeGraph,
   memberships: CommunityMembership[],
   config: Partial<ProcessDetectionConfig> = {},
+  signal?: AbortSignal,
 ): Promise<ProcessDetectionResult> {
   const cfg: ProcessDetectionConfig = { ...DEFAULT_CONFIG, ...config };
 
@@ -343,6 +345,7 @@ export async function detectProcesses(
   const allTraces: string[][] = [];
 
   for (let i = 0; i < entryPoints.length && allTraces.length < cfg.maxProcesses * 2; i++) {
+    signal?.throwIfAborted();
     const entryId = entryPoints[i];
     const traces = traceFromEntryPoint(entryId, callsEdges, cfg);
     for (const t of traces) {

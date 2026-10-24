@@ -218,8 +218,9 @@ export const EXEMPT = {
   'packages/core/src/nexus/analyze-orchestrator.ts': {
     _nexus_meta: { count: 4, reason: NEXUS_META },
     _nexus_parse_cache: {
-      count: 3,
-      reason: 'nexus parse cache (local-only): keyed by file stat on this checkout',
+      count: 4,
+      reason:
+        'nexus parse cache (local-only): keyed by file stat on this checkout; T14009 adds the retain-only prune',
     },
     nexus_symbols_fts: { count: 1, reason: FTS5 },
   },

@@ -831,6 +831,12 @@ export interface GraphParseCacheUpdate {
   upserts: GraphParseCacheEntry[];
   /** Paths whose entries no longer describe a current, successfully parsed file. */
   deletePaths: string[];
+  /**
+   * When present, delete every entry whose path is not listed (T14009): a
+   * checkpointing run already stored what it parsed during the run, so it keeps
+   * exactly this generation's files instead of rewriting them.
+   */
+  retainPaths?: string[];
 }
 
 /** Why and how an index run chose between reusing prior extraction and parsing everything. */

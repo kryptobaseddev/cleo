@@ -240,6 +240,22 @@ export interface PipelineOptions {
    */
   loadParseCache?: () => GraphParseCacheEntry[] | Promise<GraphParseCacheEntry[]>;
   /**
+   * Let a full rebuild reuse cache entries that are provably exact (same path,
+   * content hash and extractor fingerprint), such as those an earlier aborted
+   * run checkpointed (T14009). The owner sets it unless the rebuild was
+   * explicitly requested (`--full`) or the graph is being re-bound.
+   *
+   * @default false
+   */
+  resumeParseCache?: boolean;
+  /**
+   * Persist parsed extractions as they arrive, in small batches and outside the
+   * graph publication, so an aborted or killed run keeps its parse work
+   * (T14009). A throw disables checkpointing for the rest of the run; the
+   * publication still carries every entry.
+   */
+  checkpointParseCache?: (entries: readonly GraphParseCacheEntry[]) => void;
+  /**
    * Extractor fingerprint recorded with the published generation (`null` when
    * none was recorded). An unchanged tree is reported `unchanged` only when it
    * equals the current build's fingerprint; otherwise the published graph was
@@ -373,6 +389,12 @@ export interface PipelineResult {
 
 /** Default share of changed files above which an incremental run rebuilds fully. */
 export const DEFAULT_MAX_INCREMENTAL_CHANGE_RATIO = 0.3;
+
+/** Parsed extractions per checkpoint write (T14009). */
+const PARSE_CHECKPOINT_BATCH = 64;
+
+/** Resolution sites between abort checks (T14009). */
+const ABORT_CHECK_EVERY = 256;
 
 // ---------------------------------------------------------------------------
 // getIndexStats
@@ -753,6 +775,28 @@ export async function runPipeline(
   }
   if (options?.requireIncremental && mode === 'full')
     throw new Error(`a full rebuild is required (${reason}); run cleo nexus analyze`);
+  // T14009: a full rebuild still reuses extractions that are provably exact,
+  // e.g. those an earlier run checkpointed before it was aborted. Not when the
+  // published graph came from another extractor build: that rebuild re-parses.
+  const sameBuild = !options?.publishedFingerprint || options.publishedFingerprint === fingerprint;
+  if (
+    mode === 'full' &&
+    options?.resumeParseCache &&
+    sameBuild &&
+    fingerprint &&
+    options.loadParseCache
+  ) {
+    const entries = await options.loadParseCache();
+    cachedPaths = entries.map((entry) => entry.path);
+    for (const entry of entries) {
+      if (entry.fingerprint !== fingerprint) continue;
+      const scanned = scannedFiles.get(entry.path);
+      if (scanned?.contentHash && scanned.contentHash === entry.contentHash)
+        reusableEntries.set(entry.path, entry);
+    }
+    if (reusableEntries.size > 0)
+      reason += `; resumed ${reusableEntries.size} cached extraction(s) from an earlier run`;
+  }
 
   // Phase 2: Build File + Folder nodes with CONTAINS edges
   // Include all files so the replacement graph has complete structure.
@@ -789,15 +833,26 @@ export async function runPipeline(
   // resolve imports and barrels over the MERGED extraction of every file.
   process.stderr.write('[nexus] Phase 3: Parsing files...\n');
   const cacheUpserts: GraphParseCacheEntry[] = [];
-  const {
-    allHeritage,
-    allCalls,
-    allAccesses,
-    barrelMap,
-    parsedFileCount,
-    reusedFileCount,
-    reusedPaths,
-  } = await runParseLoop(files, graph, symbolTable, importCtx, repoPath, {
+  // T14009: checkpoint parsed extractions as they arrive.
+  const checkpoint = fingerprint ? options?.checkpointParseCache : undefined;
+  let checkpointing = checkpoint !== undefined;
+  const checkpointed = new Set<string>();
+  let pendingCheckpoint: GraphParseCacheEntry[] = [];
+  const flushCheckpoint = (): void => {
+    if (!checkpointing || !checkpoint || pendingCheckpoint.length === 0) return;
+    const batch = pendingCheckpoint;
+    pendingCheckpoint = [];
+    try {
+      checkpoint(batch);
+      for (const entry of batch) checkpointed.add(entry.path);
+    } catch (error) {
+      checkpointing = false;
+      process.stderr.write(
+        `[nexus] Parse checkpointing stopped (${error instanceof Error ? error.message : String(error)}); the publication still carries every extraction.\n`,
+      );
+    }
+  };
+  const parseLoop = runParseLoop(files, graph, symbolTable, importCtx, repoPath, {
     tsconfigPaths,
     namedImportMap,
     publicationGeneration,
@@ -818,6 +873,20 @@ export async function runPipeline(
             });
         }
       : undefined,
+    onFileParsed: checkpoint
+      ? (path, payload) => {
+          const contentHash = scannedFiles.get(path)?.contentHash;
+          if (!checkpointing || !contentHash || !fingerprint) return;
+          pendingCheckpoint.push({
+            path,
+            contentHash,
+            fingerprint,
+            generation: publicationGeneration,
+            payload,
+          });
+          if (pendingCheckpoint.length >= PARSE_CHECKPOINT_BATCH) flushCheckpoint();
+        }
+      : undefined,
     onFileReport: (report) => {
       const file = scannedFiles.get(report.path);
       reports.set(report.path, {
@@ -828,12 +897,31 @@ export async function runPipeline(
       });
     },
   });
+  let parsed: Awaited<typeof parseLoop>;
+  try {
+    parsed = await parseLoop;
+  } finally {
+    // An aborted parse keeps what it finished.
+    flushCheckpoint();
+  }
+  const {
+    allHeritage,
+    allCalls,
+    allAccesses,
+    barrelMap,
+    parsedFileCount,
+    reusedFileCount,
+    reusedPaths,
+  } = parsed;
   if (mode === 'incremental') {
     process.stderr.write(
       `[nexus] Incremental: parsed ${parsedFileCount} file(s), reused ${reusedFileCount} cached extraction(s); resolving all ${parsedFileCount + reusedFileCount} against the merged symbol table\n`,
     );
   }
   endPhase('parse');
+  // T14009: the budget is honoured between and inside the whole-graph phases.
+  const abortSignal = options?.parserLimits?.signal;
+  abortSignal?.throwIfAborted();
 
   // Phase 3c: Heritage resolution — emit EXTENDS + IMPLEMENTS edges
   // Uses resolutionCtx (fully populated after parse loop) for parent type lookup.
@@ -860,7 +948,9 @@ export async function runPipeline(
     type: 'calls' | 'accesses',
     sites: Iterable<T>,
   ): Generator<T> {
+    let seen = 0;
     for (const site of sites) {
+      if (++seen % ABORT_CHECK_EVERY === 0) abortSignal?.throwIfAborted();
       syntaxScopes.set(`${type}\0${site.sourceId}`, site.filePath);
       yield site;
     }
@@ -879,6 +969,8 @@ export async function runPipeline(
   process.stderr.write(
     `[nexus] Class members: has_method=${callResult.hasMethodCount}, has_property=${callResult.hasPropertyCount}\n`,
   );
+
+  abortSignal?.throwIfAborted();
 
   // Phase 3f: Access resolution — emit ACCESSES edges (T1837)
   // Runs after call resolution so the SymbolTable is fully populated with all
@@ -905,10 +997,11 @@ export async function runPipeline(
     );
   }
   endPhase('resolve');
+  abortSignal?.throwIfAborted();
 
   // Phase 5: Community detection (Louvain)
   process.stderr.write('[nexus] Phase 5: Detecting communities...\n');
-  const communityResult = await detectCommunities(graph);
+  const communityResult = await detectCommunities(graph, abortSignal);
   process.stderr.write(
     `[nexus] Communities: ${communityResult.stats.totalCommunities} detected, modularity=${communityResult.stats.modularity.toFixed(3)}, nodes=${communityResult.stats.nodesProcessed}\n`,
   );
@@ -916,7 +1009,8 @@ export async function runPipeline(
 
   // Phase 6: Process (execution flow) detection
   process.stderr.write('[nexus] Phase 6: Detecting execution flows...\n');
-  const processResult = await detectProcesses(graph, communityResult.memberships);
+  abortSignal?.throwIfAborted();
+  const processResult = await detectProcesses(graph, communityResult.memberships, {}, abortSignal);
   process.stderr.write(
     `[nexus] Processes: ${processResult.stats.totalProcesses} flows, cross-community=${processResult.stats.crossCommunityCount}, avg-steps=${processResult.stats.avgStepCount}\n`,
   );
@@ -1003,6 +1097,7 @@ export async function runPipeline(
       cacheUpserts,
       reusedPaths,
       cachedPaths,
+      checkpointing ? checkpointed : undefined,
     );
     publication.references = storedReferences;
     options.parserLimits?.signal?.throwIfAborted();
@@ -1054,10 +1149,13 @@ export async function runPipeline(
 /**
  * Derive the parse-cache mutation to commit with a generation.
  *
- * A full rebuild replaces the cache wholesale. An incremental run upserts what
+ * A full rebuild that reused nothing replaces the cache wholesale. An
+ * incremental run, or a full rebuild that resumed cached entries, upserts what
  * it parsed and deletes every previously cached path it neither reused nor
  * re-parsed successfully (deleted files, files that now fail, entries from an
- * older extractor build), so the committed cache describes exactly this
+ * older extractor build). A checkpointing run (T14009) has already stored what
+ * it parsed, so it writes only the rest and keeps exactly this run's files
+ * (`retainPaths`). Either way the committed cache describes exactly this
  * generation's successfully extracted files.
  */
 function buildParseCacheUpdate(
@@ -1066,10 +1164,23 @@ function buildParseCacheUpdate(
   upserts: GraphParseCacheEntry[],
   reused: ReadonlySet<string>,
   cachedPaths: readonly string[],
+  checkpointed?: ReadonlySet<string>,
 ): GraphParseCacheUpdate {
   // Without a fingerprint nothing can be proven current; clear rather than keep.
   if (!fingerprint) return { fingerprint: '', reset: true, upserts: [], deletePaths: [] };
-  if (mode === 'full') return { fingerprint, reset: true, upserts, deletePaths: [] };
+  // T14009: checkpointed entries are already stored; keep exactly this run's
+  // files and write only what was not checkpointed.
+  if (checkpointed)
+    return {
+      fingerprint,
+      reset: false,
+      upserts: upserts.filter((entry) => !checkpointed.has(entry.path)),
+      deletePaths: [],
+      retainPaths: [...new Set([...reused, ...upserts.map((entry) => entry.path)])],
+    };
+  // A full rebuild that resumed cached entries keeps them.
+  if (mode === 'full' && reused.size === 0)
+    return { fingerprint, reset: true, upserts, deletePaths: [] };
   const written = new Set(upserts.map((entry) => entry.path));
   return {
     fingerprint,
