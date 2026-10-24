@@ -772,13 +772,15 @@ async function runScopedNexusAnalysis(
     return currentFiles;
   };
 
+  // T14016: the last measured community phase, the estimate a budgeted run checks.
+  const previousCommunityMs = readRunCost(db)?.summary.phaseMs['communities'];
   const result = await runPipeline(repoPath, projectId, db, tables, onProgress, {
     parserExecution: createParserExecutionPort(),
     parserLimits: { ...params.parserLimits, signal },
     ...(params.deadlineAt !== undefined
       ? {
           deadlineAt: params.deadlineAt,
-          communityEstimateMs: readRunCost(db)?.summary.phaseMs['communities'],
+          communityEstimateMs: previousCommunityMs,
         }
       : {}),
     incremental: useIncremental,
@@ -856,8 +858,23 @@ async function runScopedNexusAnalysis(
   // can estimate a refresh before starting one (T12316).
   if (result.summary.mode !== 'unchanged') {
     try {
+      // T14016: a skipped community phase measured nothing; keep the last real
+      // measurement so the next budgeted run's estimate is not ~0.
+      const summary =
+        result.summary.communitiesSkipped && previousCommunityMs !== undefined
+          ? {
+              ...result.summary,
+              phaseMs: {
+                ...result.summary.phaseMs,
+                communities: Math.max(
+                  result.summary.phaseMs['communities'] ?? 0,
+                  previousCommunityMs,
+                ),
+              },
+            }
+          : result.summary;
       writeRunCost(db, {
-        summary: result.summary,
+        summary,
         durationMs: Date.now() - startTime,
         recordedAt: new Date().toISOString(),
       });
