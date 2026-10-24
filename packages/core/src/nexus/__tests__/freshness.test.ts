@@ -16,6 +16,7 @@ import {
   assessNexusIndexFreshness,
   discloseNexusFreshness,
   ensureNexusIndexFresh,
+  inlineRefreshFootprintBytes,
   judgeSymbolFiles,
   probeNexusIndexHealth,
   querySymbolFiles,
@@ -339,6 +340,45 @@ describe('index freshness (T12316)', () => {
       refused: 'never asked',
     }));
     expect(small.freshness.status).toBe('fresh');
+  });
+
+  it('a one-file refresh on a large graph needs admission, sized to the graph (T14019)', async () => {
+    await runNexusAnalysis({ repoPath: repo });
+    await put('src/a.ts', 'export const a10 = 1;\n');
+    const asked: number[] = [];
+    let runs = 0;
+    // The fixture's 6 indexed files count as a large graph above a threshold of 3.
+    const large = await ensureNexusIndexFresh(
+      repo,
+      { ...ON, admissionGraphFiles: 3 },
+      async () => {
+        runs++;
+        return { mode: 'incremental', reason: 'x' };
+      },
+      async (_root, indexedFiles) => {
+        asked.push(indexedFiles);
+        return { refused: 'memory pressure 31' };
+      },
+    );
+    expect(runs).toBe(0);
+    expect(asked).toEqual([6]);
+    expect(large.freshness.autoRefresh?.reason).toMatch(
+      /re-resolving a 6-file graph needs cleo run admission.*memory pressure 31/,
+    );
+    // The same one-file refresh on a small graph runs without asking.
+    const small = await ensureNexusIndexFresh(repo, ON, runRefreshInProcess, async () => ({
+      refused: 'never asked',
+    }));
+    expect(small.freshness.status).toBe('fresh');
+  });
+
+  it('scales the refresh footprint with the graph, between a floor and the build class (T14019)', () => {
+    const MiB = 1024 * 1024;
+    const classBytes = 4096 * MiB;
+    expect(inlineRefreshFootprintBytes(10, classBytes)).toBe(256 * MiB);
+    expect(inlineRefreshFootprintBytes(4_000, classBytes)).toBe(1000 * MiB);
+    expect(inlineRefreshFootprintBytes(8_000, classBytes)).toBe(2000 * MiB);
+    expect(inlineRefreshFootprintBytes(100_000, classBytes)).toBe(classBytes);
   });
 
   it('counts files without a reusable cache entry at the parse rate (T14014)', async () => {
