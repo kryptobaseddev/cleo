@@ -543,6 +543,13 @@ export type EvidenceAtom =
       prNumber: number;
       /** Merge commit SHA (full 40-char hex) — captured at validate time. */
       mergeCommitSha: string;
+      /**
+       * The PR's final head commit, when GitHub reported it (T14004). A run
+       * bound on this head (or a descendant) tested the PR's work, even when
+       * a squash merge left the merge commit unrelated to it. Absent on atoms
+       * recorded before T14004 and on component PRs.
+       */
+      headSha?: string;
       /** ISO 8601 timestamp when the PR was merged. */
       mergedAt: string;
       /** Number of `SUCCESS` checks across all required workflows. */

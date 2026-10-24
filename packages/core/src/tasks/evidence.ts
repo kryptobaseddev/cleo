@@ -3217,6 +3217,9 @@ async function validatePrAtom(
       kind: 'pr',
       prNumber: result.prNumber,
       mergeCommitSha: result.mergeCommitSha,
+      ...(componentPrNumber === undefined && result.headRefOid
+        ? { headSha: result.headRefOid }
+        : {}),
       mergedAt: result.mergedAt,
       successCount: result.successCount,
       totalChecks: result.totalChecks,
@@ -3790,12 +3793,19 @@ export interface RevalidationResult {
 
 /**
  * Why a `test-run:`/`qa-run:` result does not describe this task's work
- * (T14004), or null. The binding records the HEAD it was bound to; that HEAD
- * must be related to the task's `implemented` commit: it contains it (the
- * run saw the work), or the implemented merge commit contains it (a run on
- * the branch head that merged). Evidence bound in another task's worktree is
- * refused even when `cleo complete` runs from that same worktree. Skipped
- * while no implemented commit is recorded, or for an atom with no HEAD.
+ * (T14004), or null. The binding records the HEAD it was bound to, and that
+ * HEAD must have seen the task's `implemented` work:
+ *
+ * - `commit:` — the run head is that commit or contains it. An older commit
+ *   (the branch base, main before the work) never saw the work.
+ * - `pr:` — the run head contains the merge commit; or is reachable from the
+ *   merge's second parent but not its first (the branch work it merged); or
+ *   is, or contains, the PR's recorded head (a squash merge, T14004 review).
+ *
+ * Evidence bound in another task's worktree is refused even when `cleo
+ * complete` runs from that same worktree. A commit git cannot read (a shallow
+ * clone) is refused and said so. Skipped while no implemented commit is
+ * recorded, or for an atom with no HEAD.
  *
  * @param task - The task (its recorded `implemented` evidence is read).
  * @param atoms - The gate's atoms.
@@ -3813,38 +3823,85 @@ export async function boundHeadGapReason(
       (a.kind === 'test-run' || a.kind === 'qa-run') && typeof a.headSha === 'string',
   );
   if (runs.length === 0) return null;
-  const implemented = (task.verification?.evidence?.implemented?.atoms ?? []).flatMap((a) =>
-    a.kind === 'commit' ? [a.sha] : a.kind === 'pr' ? [a.mergeCommitSha] : [],
+  const implemented = (task.verification?.evidence?.implemented?.atoms ?? []).filter(
+    (a): a is Extract<EvidenceAtom, { kind: 'commit' | 'pr' }> =>
+      a.kind === 'commit' || a.kind === 'pr',
   );
   if (implemented.length === 0) return null;
   const { resolveChangeSetRoot } = await import('./change-set.js');
   const root = resolveChangeSetRoot(projectRoot, task.id).root;
-  const ancestor = (a: string, b: string): boolean => {
+  const gitOut = (args: string[]): string | null => {
     try {
-      execFileSync('git', ['merge-base', '--is-ancestor', a, b], {
+      return execFileSync('git', args, {
+        cwd: root,
+        encoding: 'utf-8',
+        env: discoveryEnv(),
+        stdio: ['ignore', 'pipe', 'ignore'],
+      }).trim();
+    } catch {
+      return null;
+    }
+  };
+  // Exit 1 is "not an ancestor"; anything else (128) is an object git lacks.
+  let missing: string | null = null;
+  const contains = (descendant: string, ancestor: string): boolean => {
+    try {
+      execFileSync('git', ['merge-base', '--is-ancestor', ancestor, descendant], {
         cwd: root,
         env: discoveryEnv(),
         stdio: 'ignore',
       });
       return true;
-    } catch {
+    } catch (err) {
+      const status = err instanceof Error && 'status' in err ? err.status : undefined;
+      if (status !== 1) missing ??= `${ancestor}..${descendant}`;
       return false;
     }
   };
+  const sameCommit = (a: string, b: string): boolean => a.startsWith(b) || b.startsWith(a);
+  const sawWork = (head: string, atom: (typeof implemented)[number]): boolean => {
+    if (atom.kind === 'commit') return sameCommit(head, atom.sha) || contains(head, atom.sha);
+    const merge = atom.mergeCommitSha;
+    if (sameCommit(head, merge) || contains(head, merge)) return true;
+    if (atom.headSha && (sameCommit(head, atom.headSha) || contains(head, atom.headSha))) {
+      return true;
+    }
+    const first = gitOut(['rev-parse', '--verify', '--quiet', `${merge}^1`]);
+    const second = gitOut(['rev-parse', '--verify', '--quiet', `${merge}^2`]);
+    if (!first || !second) return false;
+    return (sameCommit(head, second) || contains(second, head)) && !contains(first, head);
+  };
+  const shas = implemented
+    .map((a) => (a.kind === 'commit' ? a.sha : a.mergeCommitSha).slice(0, 12))
+    .join(', ');
   for (const run of runs) {
     const head = run.headSha as string;
-    const related = implemented.some(
-      (sha) =>
-        head.startsWith(sha) || sha.startsWith(head) || ancestor(sha, head) || ancestor(head, sha),
-    );
-    if (!related) {
+    missing = null;
+    if (implemented.some((atom) => sawWork(head, atom))) continue;
+    const bound = `${run.kind}:${run.path} was bound at ${head.slice(0, 12)}`;
+    if (missing !== null) {
       return (
-        `${run.kind}:${run.path} was bound at ${head.slice(0, 12)}, which neither contains nor ` +
-        `merged into ${task.id}'s implemented commit ` +
-        `${implemented.map((s) => s.slice(0, 12)).join(', ')}: ` +
-        "it tested other work (another task's checkout?). Run the tests on this task's checkout and record that report."
+        `${bound}, and git cannot read the commits that relate it to ${task.id}'s implemented ` +
+        `commit ${shas} (missing object, or a shallow clone: ${missing}). ` +
+        'Fetch the full history (git fetch --unshallow) and verify again.'
       );
     }
+    // A head carrying this task's own work, but not the recorded commit: the
+    // implemented evidence went stale (a rebase, an amend, or a squash merge
+    // recorded before the PR head was).
+    const message = gitOut(['log', '-n', '20', '--format=%B', head]) ?? '';
+    if (new RegExp(`\\b${task.id}\\b`).test(message)) {
+      return (
+        `${bound}, which carries ${task.id}'s work but not its implemented commit ${shas}: ` +
+        'the branch was rebased, amended or squash-merged after implemented was recorded. ' +
+        `Re-record implemented (cleo verify ${task.id} --gate implemented ...), then the run.`
+      );
+    }
+    return (
+      `${bound}, which never saw ${task.id}'s implemented commit ${shas}: it tested other ` +
+      "work (another task's checkout, or a commit before the change). Run the tests on this " +
+      "task's checkout and record that report."
+    );
   }
   return null;
 }

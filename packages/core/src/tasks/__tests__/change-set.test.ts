@@ -382,10 +382,63 @@ describe('worktrees and declared git roots (AC4)', () => {
       skipCount: 0,
       headSha,
     });
+    const branchBase = git(repo, ['rev-parse', 'main']);
     expect(await boundHeadGapReason(task, [run(mine)], repo)).toBeNull();
     expect(await boundHeadGapReason(task, [run(other)], repo)).toMatch(
-      /neither contains nor merged into T909's implemented commit/,
+      /never saw T909's implemented commit/,
     );
+    // The branch base is an ancestor of the work, but a run there never saw it.
+    expect(await boundHeadGapReason(task, [run(branchBase)], repo)).toMatch(/never saw/);
+    // A commit git lacks is named as such, still refused.
+    expect(await boundHeadGapReason(task, [run('f'.repeat(40))], repo)).toMatch(
+      /git cannot read .* shallow clone/,
+    );
+    // After an amend or rebase the run is on this task's own, newer history.
+    git(repo, ['commit', '-q', '--amend', '-m', 'T909: work, amended']);
+    const amended = git(repo, ['rev-parse', 'HEAD']);
+    expect(await boundHeadGapReason(task, [run(amended)], repo)).toMatch(
+      /rebased, amended or squash-merged.*Re-record implemented/,
+    );
+
+    /** T909's implemented evidence as one `pr:` atom. */
+    const viaPr = (mergeCommitSha: string, headSha?: string) => ({
+      ...task,
+      verification: {
+        ...task.verification,
+        evidence: {
+          implemented: {
+            ...task.verification.evidence.implemented,
+            atoms: [
+              {
+                kind: 'pr' as const,
+                prNumber: 1,
+                mergeCommitSha,
+                ...(headSha ? { headSha } : {}),
+                mergedAt: '2026-10-24T00:00:00Z',
+                successCount: 1,
+                totalChecks: 1,
+              },
+            ],
+          },
+        },
+      },
+    });
+    git(repo, ['switch', '-q', 'main']);
+    git(repo, ['merge', '-q', '--no-ff', '-m', 'Merge task/T909', mine]);
+    const merge = git(repo, ['rev-parse', 'HEAD']);
+    // A merge: its branch side saw the work, its first parent did not.
+    expect(await boundHeadGapReason(viaPr(merge), [run(merge)], repo)).toBeNull();
+    expect(await boundHeadGapReason(viaPr(merge), [run(mine)], repo)).toBeNull();
+    expect(await boundHeadGapReason(viaPr(merge), [run(branchBase)], repo)).toMatch(/never saw/);
+    // A squash: only the PR's recorded head ties the branch run to it.
+    git(repo, ['switch', '-q', '-c', 'squashed', branchBase]);
+    git(repo, ['merge', '-q', '--squash', mine]);
+    git(repo, ['commit', '-q', '-m', 'squash (#1)']);
+    const squash = git(repo, ['rev-parse', 'HEAD']);
+    expect(await boundHeadGapReason(viaPr(squash), [run(mine)], repo)).toMatch(
+      /Re-record implemented/,
+    );
+    expect(await boundHeadGapReason(viaPr(squash, mine), [run(mine)], repo)).toBeNull();
   });
 });
 
