@@ -1715,6 +1715,54 @@ describe('research and no-change-set tasks', () => {
   });
 });
 
+describe('a task with no change set gets no targets from the working tree (T13917)', () => {
+  /** The axiom T2504 shape: one package, and a shared checkout dirty with others' work. */
+  function dirtySharedCheckout(): void {
+    writeFileSync(
+      join(root, 'package.json'),
+      JSON.stringify({ name: 'solo', scripts: { test: 'vitest run' } }),
+    );
+    git(root, ['add', '.']);
+    git(root, ['commit', '-q', '-m', 'solo']);
+    git(root, ['push', '-q', 'origin', 'main']);
+    // Someone else's uncommitted edits, tests among them.
+    for (const n of [1, 2, 3]) {
+      mkdirSync(join(root, `pkg${n}`), { recursive: true });
+      writeFileSync(join(root, `pkg${n}`, `x${n}.test.ts`), 'export {};\n');
+      writeFileSync(join(root, `pkg${n}`, `x${n}.ts`), 'export const x = 1;\n');
+    }
+  }
+
+  it('a record-only work task: no test-run, qa-run or tool run, and the decision route is named', async () => {
+    dirtySharedCheckout();
+    const id = await seedTask(['Record the billing correction']);
+    const plan = await deriveTaskEvidence(id, { projectRoot: root, cwd: root, deps });
+    expect(plan.changeSet.source).toBe('none');
+    expect(plan.toolRuns).toEqual([]);
+    const codes = plan.blockers.map((b) => b.code);
+    expect(codes).not.toContain('test-run-needed');
+    expect(codes).not.toContain('qa-run-needed');
+    const none = plan.blockers.find((b) => b.code === 'no-change-set');
+    expect(none?.message).toContain('if it changed none, attach its record or link a decision');
+    expect(none?.next.why).toContain(`--linked-task ${id}`);
+    // Nothing of the dirty tree is offered as this task's tests or roots.
+    const named = [...plan.blockers.map((b) => `${b.message} ${b.next.command}`), ...plan.commands];
+    expect(named.join('\n')).not.toMatch(/x[123]\.test\.ts|pkg[123]/);
+  });
+
+  it('a research task with no document: its route is the document or decision, never a branch', async () => {
+    dirtySharedCheckout();
+    const id = await seedTask(['Report the findings'], 'research');
+    const plan = await deriveTaskEvidence(id, { projectRoot: root, cwd: root, deps });
+    expect(plan.changeSet.source).toBe('none');
+    expect(plan.toolRuns).toEqual([]);
+    const none = plan.blockers.find((b) => b.code === 'no-change-set');
+    expect(none?.message).toMatch(/is a research task with no attached document or linked decision/);
+    expect(none?.next.command).toMatch(new RegExp(`^cleo docs add ${id} <file> --type research`));
+    expect(plan.next?.command).not.toMatch(/git switch/);
+  });
+});
+
 describe('a stored typed pass bound to an older definition is not a pass (T13463 review LOW)', () => {
   const gate = {
     kind: 'command' as const,
