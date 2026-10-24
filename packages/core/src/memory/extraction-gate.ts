@@ -68,6 +68,13 @@ export interface MemoryCandidate {
    * Automatically set for 'manual' source and 'owner'/'task-outcome' sourceConfidence.
    */
   trusted?: boolean;
+  /**
+   * The observation type the caller asked for, when it did. A `lesson`
+   * deduplicates only against lessons, and any other observation only against
+   * non-lessons, so a lesson is never merged into a plain observation with the
+   * same text (T13989; the main brain matches type since T13988).
+   */
+  observationType?: string;
 }
 
 /** Result of passing a candidate through the verification gate. */
@@ -258,6 +265,7 @@ async function hashDedupCheck(
   projectRoot: string,
   text: string,
   table: HashDedupTable = 'brain_observations',
+  lesson?: boolean,
 ): Promise<{ matched: true; id: string } | { matched: false }> {
   const scope = captureProjectScope(projectRoot, worktreeScope.getStore());
   const { getBrainNativeDb, getBrainDb } = await import('../store/memory-sqlite.js');
@@ -267,8 +275,11 @@ async function hashDedupCheck(
   const nativeDb = getBrainNativeDb(scope.worktreeRoot);
   if (!nativeDb) throw new Error('E_DEDUP_STORAGE_UNAVAILABLE: canonical native handle absent');
   const hash = contentHashPrefix(text);
+  // T13989: lessons and other observations never merge into each other.
+  const kind =
+    lesson === undefined ? '' : lesson ? " AND type = 'lesson'" : " AND type != 'lesson'";
   const row = nativeDb
-    .prepare(`SELECT id FROM ${table} WHERE content_hash = ? AND invalid_at IS NULL LIMIT 1`)
+    .prepare(`SELECT id FROM ${table} WHERE content_hash = ? AND invalid_at IS NULL${kind} LIMIT 1`)
     .all(hash)[0];
   if (!row) return { matched: false };
   if (typeof row.id !== 'string' || !row.id)
@@ -370,7 +381,12 @@ export async function verifyCandidate(
             ? 'brain_patterns'
             : 'brain_observations'; // episodic → observations
 
-      const hashCheck = await hashDedupCheck(scope.worktreeRoot, candidate.text, dedupTable);
+      const hashCheck = await hashDedupCheck(
+        scope.worktreeRoot,
+        candidate.text,
+        dedupTable,
+        dedupTable === 'brain_observations' ? candidate.observationType === 'lesson' : undefined,
+      );
       if (hashCheck.matched) {
         // A merged result is truthful only after its citation write settles.
         await incrementCitationCount(scope.worktreeRoot, hashCheck.id);
