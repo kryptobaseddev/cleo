@@ -1054,8 +1054,10 @@ describe('T13778-T13781: CLEO config composes with a targeted run (VidaPeps T215
       paths: expect.arrayContaining(['scripts/src/new-helper.test.ts']),
       untrackedSetAside: [],
     });
+    // Judged with the change, as before T14000: the run binds without setting it aside.
     const r = await validateAtom({ kind: 'test-run', path: report([PARITY]) }, root);
-    expect(!r.ok && r.reason, JSON.stringify(r)).toMatch(/scripts\/src\/new-helper\.test\.ts/);
+    expect(r.ok, JSON.stringify(r)).toBe(true);
+    expect(r.ok && r.atom).not.toHaveProperty('untrackedSetAside');
   });
 
   it('T14000: set-aside paths match literally, and git failing refuses the run', () => {
