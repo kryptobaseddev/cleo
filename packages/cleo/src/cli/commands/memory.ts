@@ -1298,6 +1298,94 @@ const quarantineAutoRowsCommand = defineCommand({
   },
 });
 
+/**
+ * `cleo memory import-lessons` — one-time import of a Claude Code memory
+ * directory as BRAIN lessons (T13949 part (c), owner decision D11181).
+ *
+ * Dry run by default: lists each lesson (rule, source file, content hash) and
+ * each skipped file with its reason, plus the plan digest. `--apply` needs
+ * `--expect-digest` from the approved dry run and writes a receipt first. See
+ * `packages/core/src/memory/lessons-import.ts`.
+ */
+const importLessonsCommand = defineCommand({
+  meta: {
+    name: 'import-lessons',
+    description:
+      'Plan (default) or apply (--apply --expect-digest …) a one-time import of a Claude Code memory directory ' +
+      'as lessons in the main brain: feedback and project memories become lessons (description = rule, body = why), ' +
+      'with source provenance per row. Never deletes or edits a source file.',
+  },
+  args: {
+    from: {
+      type: 'string',
+      description: 'Memory directory (default: ~/.claude/projects/<this project root>/memory)',
+    },
+    apply: {
+      type: 'boolean',
+      description: 'Write the planned lessons (requires --expect-digest)',
+    },
+    'expect-digest': {
+      type: 'string',
+      description: 'Plan digest from the approved dry run',
+    },
+  },
+  async run({ args }) {
+    const output = { command: 'memory-import-lessons', operation: 'memory.import-lessons' };
+    const expectDigest =
+      typeof args['expect-digest'] === 'string' ? args['expect-digest'] : undefined;
+    if (!args.apply && expectDigest !== undefined) {
+      cliError('--expect-digest only applies with --apply', 6, { name: 'E_INVALID_INPUT' });
+      return;
+    }
+    const root = getProjectRoot();
+    const lessons = await import('@cleocode/core/memory/lessons-import');
+    const sourceDir =
+      typeof args.from === 'string' ? args.from : lessons.defaultLessonImportDir(root);
+    try {
+      if (!args.apply) {
+        const plan = lessons.planLessonImport(sourceDir);
+        cliOutput(
+          {
+            dryRun: true,
+            sourceDir: plan.sourceDir,
+            digest: plan.digest,
+            lessons: plan.candidates.length,
+            skipped: plan.skipped.length,
+            candidates: plan.candidates.map(({ text: _text, ...rest }) => rest),
+            skippedFiles: plan.skipped,
+          },
+          output,
+        );
+        return;
+      }
+      if (expectDigest === undefined) {
+        cliError('--apply needs --expect-digest from the approved dry run', 6, {
+          name: 'E_INVALID_INPUT',
+        });
+        return;
+      }
+      const now = new Date();
+      const receiptPath = lessons.defaultLessonImportReceiptPath(root, now.toISOString());
+      const receipt = await lessons.applyLessonImport(sourceDir, expectDigest, receiptPath, {
+        now,
+      });
+      cliOutput(
+        {
+          receipt: receiptPath,
+          digest: receipt.digest,
+          stored: receipt.written.filter((w) => w.stored).length,
+          alreadyPresent: receipt.written.filter((w) => !w.stored).length,
+          written: receipt.written,
+        },
+        output,
+      );
+    } catch (err) {
+      const code = err instanceof lessons.LessonImportError ? err.code : 'E_LESSON_IMPORT';
+      cliError(err instanceof Error ? err.message : String(err), 6, { name: code });
+    }
+  },
+});
+
 /** cleo memory dedup-scan — scan brain.db for potential duplicate entries (T745) */
 /**
  * `cleo memory prune-stubs` — remove content-free observation stubs (T12073).
@@ -2496,6 +2584,7 @@ export const memoryCommand = defineCommand({
     'prune-stubs': pruneStubsCommand,
     lessons: lessonsCommand,
     'quarantine-auto-rows': quarantineAutoRowsCommand,
+    'import-lessons': importLessonsCommand,
     'prune-traits': pruneTraitsCommand,
     'set-trait-scope': setTraitScopeCommand,
     import: importCommand,
