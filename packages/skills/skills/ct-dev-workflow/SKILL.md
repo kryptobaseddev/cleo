@@ -1,7 +1,7 @@
 ---
 name: ct-dev-workflow
 description: Development workflow orchestration for task-driven development with atomic commits, conventional commit messages, and systematic release processes. Enforces task traceability, branch discipline, smart test scope selection, and GitHub Actions integration. Use when committing code, creating releases, managing branches, or following contribution protocols. Triggers on commit operations, release preparation, or workflow compliance needs.
-version: 3.1.30
+version: 3.1.31
 protocol: contribution
 dependencies: []
 sharedResources:
@@ -14,7 +14,7 @@ compatibility:
   - gemini-cli
 license: MIT
 metadata:
-  version: 3.1.30
+  version: 3.1.31
   tier: core
   install: harness
   covers:
@@ -106,6 +106,10 @@ subject `initial: cleo init` (the empty commit `cleo init` makes so HEAD resolve
 only on a parentless first commit (T13582); a later commit with that subject, or any
 longer or different subject, still needs a task ID. A template change adds the
 previously shipped hash to `legacy-hashes.json` so installed copies refresh.
+
+`cleo init` and `cleo upgrade` no longer seed the CleoOS hub (Pi extensions, CANT
+workflows, justfile) into the global CLEO home (T13994, ADR-098); only the deprecated
+`cleo admin scaffold-hub` still does.
 It probes CLEO_PROJECT_HOOK_V1 before invoking the implemented CLI adapter;
 missing or incompatible runners warn and allow. `cleo hook run --probe -- execution`
 answers EXEC or INERT (older builds answer V1; stable builds before 2026.10.17 are
