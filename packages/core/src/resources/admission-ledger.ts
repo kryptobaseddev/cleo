@@ -109,7 +109,7 @@ import {
   MEMORY_GATE_RETRY_AFTER_MS,
   type MemoryGateReporter,
 } from './pressure-gate.js';
-import { processAncestors, processGroupOf } from './run-admission.js';
+import { processAncestors, processGroupOf, processGroupsOf } from './run-admission.js';
 import {
   canonicalForClass,
   gitHookFor,
@@ -1931,11 +1931,19 @@ function outsideCleo(
   opts: AdmitOptions,
 ): MemoryConsumer[] {
   const pids = new Set([opts.pid ?? process.pid, ...entries.map((e) => e.pid)]);
+  const left = processes.filter((p) => !pids.has(p.pid));
   const groups = new Set(entries.flatMap((e) => e.toolGroups));
-  const groupOf = opts.facts?.groupOf ?? processGroupOf;
-  return processes
-    .filter((p) => !pids.has(p.pid))
-    .filter((p) => groups.size === 0 || !groups.has(groupOf(p.pid) ?? -1))
+  if (groups.size === 0) return left.slice(0, TOP_MEMORY_COUNT);
+  // One `ps` for every candidate's group, never one per process (T13965).
+  const injected = opts.facts?.groupOf;
+  const batch = injected === undefined ? processGroupsOf(left.map((p) => p.pid)) : null;
+  const groupOf = (pid: number): number | undefined =>
+    batch !== null ? batch.get(pid) : (injected?.(pid) ?? undefined);
+  return left
+    .filter((p) => {
+      const g = groupOf(p.pid);
+      return g === undefined || !groups.has(g);
+    })
     .slice(0, TOP_MEMORY_COUNT);
 }
 

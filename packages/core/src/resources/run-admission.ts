@@ -443,6 +443,34 @@ export function processGroupOf(pid: number): number | null {
   }
 }
 
+/**
+ * The process groups of several pids from ONE `ps` exec (T13965); a pid that
+ * is gone or unreadable is absent from the map, and a failed `ps` yields an
+ * empty map.
+ *
+ * @param pids - The pids to look up.
+ * @returns pid → process group.
+ */
+export function processGroupsOf(pids: readonly number[]): Map<number, number> {
+  const groups = new Map<number, number>();
+  if (pids.length === 0) return groups;
+  try {
+    const out = execFileSync('/bin/ps', ['-o', 'pid=,pgid=', '-p', pids.join(',')], {
+      encoding: 'utf-8',
+      timeout: 2000,
+      stdio: ['ignore', 'pipe', 'ignore'],
+      env: PS_ENV,
+    });
+    for (const line of out.split('\n')) {
+      const [pid, pgid] = line.trim().split(/\s+/).map((w) => Number.parseInt(w, 10));
+      if (pid !== undefined && pgid !== undefined && pgid > 0) groups.set(pid, pgid);
+    }
+  } catch {
+    // ps exits non-zero when any pid is gone, but still prints the others.
+  }
+  return groups;
+}
+
 /** CPU time and resident memory of a process and every descendant (T13563). */
 export interface ProcessTreeUsage {
   /** Summed CPU time (user + system), ms. */
