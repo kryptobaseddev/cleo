@@ -228,6 +228,15 @@ export const prAtomSchema = z.object({
   kind: z.literal('pr'),
   prNumber: z.number().int().positive('pr atom requires a positive integer PR number'),
   componentPrNumber: z.number().int().positive().optional(),
+  /**
+   * `pr:<owner>/<repo>#<n>` (T13912): the GitHub repository the PR number
+   * belongs to, lowercased. Validated against the evidence git root's
+   * `origin`, since PR numbers are only unique per repository.
+   */
+  repo: z
+    .string()
+    .regex(/^[a-z0-9._-]+\/[a-z0-9._-]+$/)
+    .optional(),
 });
 
 /**
@@ -246,6 +255,11 @@ export const ciAtomSchema = z.object({
   kind: z.literal('ci'),
   prNumber: z.number().int().positive('ci atom requires a positive integer PR number'),
   componentPrNumber: z.number().int().positive().optional(),
+  /** `ci:<owner>/<repo>#<n>`, as for `pr:` (T13912). */
+  repo: z
+    .string()
+    .regex(/^[a-z0-9._-]+\/[a-z0-9._-]+$/)
+    .optional(),
 });
 
 /**
@@ -803,18 +817,22 @@ export class EvidenceParseError extends Error {
  * @adr ADR-051
  */
 /**
- * `<n>` or `<component>@<integration>` (T12671), each a positive integer.
- * The integration PR is the atom's `prNumber`.
+ * `<n>` or `<component>@<integration>` (T12671), each a positive integer,
+ * optionally prefixed `<owner>/<repo>#` (T13912). The integration PR is the
+ * atom's `prNumber`.
  */
 function parsePrReference(
   payload: string,
-): { prNumber: number; componentPrNumber?: number } | null {
-  const match = /^(\d+)(?:@(\d+))?$/.exec(payload);
+): { prNumber: number; componentPrNumber?: number; repo?: string } | null {
+  const match = /^(?:([A-Za-z0-9._-]+\/[A-Za-z0-9._-]+)#)?(\d+)(?:@(\d+))?$/.exec(payload);
   if (!match) return null;
-  const first = Number(match[1]);
-  const second = match[2] === undefined ? null : Number(match[2]);
+  const repo = match[1] === undefined ? {} : { repo: match[1].toLowerCase() };
+  const first = Number(match[2]);
+  const second = match[3] === undefined ? null : Number(match[3]);
   if (first <= 0 || (second !== null && (second <= 0 || second === first))) return null;
-  return second === null ? { prNumber: first } : { prNumber: second, componentPrNumber: first };
+  return second === null
+    ? { prNumber: first, ...repo }
+    : { prNumber: second, componentPrNumber: first, ...repo };
 }
 
 export function parseEvidenceString(raw: string): EvidenceAtom[] {
@@ -895,7 +913,7 @@ export function parseEvidenceString(raw: string): EvidenceAtom[] {
         if (!ref) {
           throw new EvidenceParseError(
             `${kind} atom requires a positive integer PR number, got "${payload}" in "${chunk}"`,
-            `Use format: ${kind}:<number> e.g. ${kind}:357, or ${kind}:<component>@<integration> e.g. ${kind}:356@357`,
+            `Use format: ${kind}:<number> e.g. ${kind}:357, ${kind}:<component>@<integration> e.g. ${kind}:356@357, or ${kind}:<owner>/<repo>#<number>`,
           );
         }
         atoms.push(kind === 'pr' ? { kind: 'pr', ...ref } : { kind: 'ci', ...ref });

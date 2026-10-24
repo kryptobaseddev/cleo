@@ -25,7 +25,16 @@
  * @epic T9762
  */
 
-import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
@@ -38,12 +47,18 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { checkGateEvidenceMinimum, parseEvidence, validateAtom } from '../../tasks/evidence.js';
 import {
   branchProtectionCachePath,
+  defaultFetchGhBranchProtection,
+  defaultFetchGhCommitCheckRuns,
+  defaultFetchGhPrFilesPage,
+  defaultFetchGhPrPayload,
   evaluateRollup,
   type FetchGhBranchProtection,
   type FetchGhCommitCheckRuns,
   type FetchGhPrFilesPage,
   type FetchGhPrPayload,
+  originRepoSlug,
   prCacheEntryPath,
+  prRepoIdentity,
   resolvePrEvidenceAtom,
   resolveRequiredWorkflows,
   resolveRequiredWorkflowsDetailed,
@@ -133,6 +148,160 @@ afterEach(() => {
 // Parser
 // ---------------------------------------------------------------------------
 
+describe('the repository gh is asked about is the one the cache key names (T13912, review of #2428)', () => {
+  /** A git checkout whose origin is `url`. */
+  function checkout(url: string): string {
+    const dir = mkdtempSync(join(tmpdir(), 'cleo-pr-origin-'));
+    execFileSync('git', ['init', '-q', dir]);
+    execFileSync('git', ['-C', dir, 'remote', 'add', 'origin', url]);
+    return dir;
+  }
+
+  it('matches github.com exactly, in https, token, scp and ssh:// forms', () => {
+    const cases: Array<[string, string | null]> = [
+      ['https://github.com/Acme/App.git', 'acme/app'],
+      ['https://x-access-token:t@github.com/acme/app', 'acme/app'],
+      ['git@github.com:Acme/App.git', 'acme/app'],
+      ['ssh://git@github.com/acme/app.git', 'acme/app'],
+      ['https://evilgithub.com/acme/app.git', null],
+      ['git@github.example.com:acme/app.git', null],
+      ['gh-alias:acme/app.git', null],
+    ];
+    for (const [url, slug] of cases) {
+      const dir = checkout(url);
+      try {
+        expect(originRepoSlug(dir), url).toBe(slug);
+        if (slug === null) expect(prRepoIdentity(dir), url).toMatch(/^path:/);
+      } finally {
+        rmSync(dir, { recursive: true, force: true });
+      }
+    }
+  });
+
+  it('every gh query names the origin repository explicitly', async () => {
+    const bin = mkdtempSync(join(tmpdir(), 'cleo-fake-gh-'));
+    const log = join(bin, 'argv.log');
+    writeFileSync(
+      join(bin, 'gh'),
+      `#!/bin/sh\n[ "$1" = "--version" ] && exit 0\necho "$@" >> '${log}'\nexit 1\n`,
+      { mode: 0o755 },
+    );
+    const dir = checkout('git@github.com:Acme/Fork.git');
+    // A fork: gh would otherwise resolve upstream (or a set-default repo).
+    execFileSync('git', [
+      '-C',
+      dir,
+      'remote',
+      'add',
+      'upstream',
+      'https://github.com/acme/app.git',
+    ]);
+    const path = process.env.PATH;
+    process.env.PATH = `${bin}:${path ?? ''}`;
+    try {
+      await defaultFetchGhPrPayload(87, dir);
+      await defaultFetchGhPrFilesPage(87, 1, dir);
+      await defaultFetchGhBranchProtection(dir);
+      await defaultFetchGhCommitCheckRuns('a'.repeat(40), dir);
+      const calls = readFileSync(log, 'utf-8').trim().split('\n');
+      expect(calls).toEqual([
+        expect.stringMatching(/^pr view 87 --repo acme\/fork /),
+        expect.stringMatching(/^api repos\/acme\/fork\/pulls\/87\/files/),
+        expect.stringMatching(/^repo view acme\/fork /),
+        expect.stringMatching(/^api --paginate repos\/acme\/fork\/commits\//),
+      ]);
+    } finally {
+      process.env.PATH = path;
+      rmSync(bin, { recursive: true, force: true });
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});
+
+describe('PR numbers are per repository (T13912)', () => {
+  /** A checkout whose origin is github.com/<slug>. */
+  function repoWithOrigin(slug: string): string {
+    const dir = mkdtempSync(join(tmpdir(), 'cleo-pr-repo-'));
+    execFileSync('git', ['init', '-q', dir]);
+    execFileSync('git', ['-C', dir, 'remote', 'add', 'origin', `https://github.com/${slug}.git`]);
+    return dir;
+  }
+
+  it('two repos sharing PR #87 each resolve their own merge commit, through pr: and ci:', async () => {
+    const app = repoWithOrigin('Acme/App');
+    const cloud = repoWithOrigin('acme/app-cloud');
+    try {
+      expect(prRepoIdentity(app)).toBe('acme/app');
+      expect(prRepoIdentity(cloud)).toBe('acme/app-cloud');
+      fetchSpy.mockImplementation(async (_n: number, cwd: string) => ({
+        ok: true,
+        payload: makePrPayload({ mergeCommit: { oid: (cwd === app ? 'a' : 'c').repeat(40) } }),
+      }));
+      const resolve = (root: string) =>
+        resolvePrEvidenceAtom(
+          87,
+          { storeRoot: projectRoot, executionRoot: root },
+          { fetchGhPrPayload: mockFetch },
+        );
+      const first = await resolve(app);
+      const other = await resolve(cloud);
+      const again = await resolve(app);
+      expect(first.ok && first.mergeCommitSha).toBe('a'.repeat(40));
+      // AC1: the cloud repo's #87 is never the app's cached entry.
+      expect(other.ok && [other.mergeCommitSha, other.cacheHit]).toEqual(['c'.repeat(40), false]);
+      // AC2: both entries coexist; the app's still hits.
+      expect(again.ok && [again.mergeCommitSha, again.cacheHit]).toEqual(['a'.repeat(40), true]);
+      expect(existsSync(prCacheEntryPath(projectRoot, 87, 'acme/app'))).toBe(true);
+      expect(existsSync(prCacheEntryPath(projectRoot, 87, 'acme/app-cloud'))).toBe(true);
+    } finally {
+      rmSync(app, { recursive: true, force: true });
+      rmSync(cloud, { recursive: true, force: true });
+    }
+  });
+
+  it('a legacy repo-less entry is refetched, never trusted', async () => {
+    const app = repoWithOrigin('acme/app');
+    try {
+      const legacy = join(projectRoot, '.cleo', 'cache', 'evidence', 'pr-87.json');
+      mkdirSync(join(projectRoot, '.cleo', 'cache', 'evidence'), { recursive: true });
+      writeFileSync(legacy, JSON.stringify({ schemaVersion: 2, prNumber: 87 }));
+      fetchSpy.mockResolvedValue({ ok: true, payload: makePrPayload() });
+      const r = await resolvePrEvidenceAtom(
+        87,
+        { storeRoot: projectRoot, executionRoot: app },
+        { fetchGhPrPayload: mockFetch },
+      );
+      expect(r.ok && r.cacheHit).toBe(false);
+      expect(fetchSpy).toHaveBeenCalledTimes(1);
+    } finally {
+      rmSync(app, { recursive: true, force: true });
+    }
+  });
+
+  it('AC3: pr:<owner>/<repo>#<n> parses, and is refused against another origin', async () => {
+    expect(parseEvidence('pr:Acme/App#87').atoms).toEqual([
+      { kind: 'pr', prNumber: 87, repo: 'acme/app' },
+    ]);
+    expect(parseEvidence('ci:acme/app-cloud#87').atoms).toEqual([
+      { kind: 'ci', prNumber: 87, repo: 'acme/app-cloud' },
+    ]);
+    const app = repoWithOrigin('acme/app');
+    try {
+      process.env.CLEO_EVIDENCE_GIT_ROOT = app;
+      const r = await validateAtom(
+        { kind: 'pr', prNumber: 87, repo: 'acme/app-cloud' },
+        projectRoot,
+      );
+      expect(!r.ok && r.reason).toMatch(
+        /names acme\/app-cloud, but the evidence git root .* has origin acme\/app\./,
+      );
+    } finally {
+      delete process.env.CLEO_EVIDENCE_GIT_ROOT;
+      rmSync(app, { recursive: true, force: true });
+    }
+  });
+});
+
 describe('parseEvidence — pr atom (T9764)', () => {
   it('parses a single pr atom', () => {
     const r = parseEvidence('pr:357');
@@ -193,7 +362,7 @@ describe('resolvePrEvidenceAtom — happy path', () => {
       { fetchGhPrPayload: mockFetch },
     );
 
-    const cachePath = prCacheEntryPath(projectRoot, 357);
+    const cachePath = prCacheEntryPath(projectRoot, 357, prRepoIdentity(projectRoot));
     expect(existsSync(cachePath)).toBe(true);
     const entry = JSON.parse(readFileSync(cachePath, 'utf-8'));
     expect(entry).toMatchObject({
@@ -211,7 +380,7 @@ describe('resolvePrEvidenceAtom — happy path', () => {
       { fetchGhPrPayload: mockFetch, readOnly: true },
     );
     expect(r.ok).toBe(true);
-    expect(existsSync(prCacheEntryPath(projectRoot, 357))).toBe(false);
+    expect(existsSync(prCacheEntryPath(projectRoot, 357, prRepoIdentity(projectRoot)))).toBe(false);
   });
 
   it('accepts a merged PR with mixed SUCCESS+FAILURE inside the CI workflow (PR-357 reality)', async () => {
@@ -628,9 +797,10 @@ describe('resolvePrEvidenceAtom — cache', () => {
     // first mergedAt, a normal call will return the cached (first) result —
     // demonstrating that mergedAt is part of the cache key on the WRITE
     // side. Verify by inspecting the persisted entry.
-    const cachePath = prCacheEntryPath(projectRoot, 357);
+    const cachePath = prCacheEntryPath(projectRoot, 357, prRepoIdentity(projectRoot));
     const persisted = JSON.parse(readFileSync(cachePath, 'utf-8'));
-    expect(persisted.key).toBe('pr-357@2026-05-20T17:14:35Z');
+    // T13912: the key names the repository too, so another repo's #357 never matches.
+    expect(persisted.key).toBe(`pr-${prRepoIdentity(projectRoot)}#357@2026-05-20T17:14:35Z`);
   });
 });
 
@@ -1137,7 +1307,9 @@ describe('resolvePrEvidenceAtom — branch-protection tier (gh#1192)', () => {
     expect(first.ok).toBe(true);
     expect(second.ok).toBe(true);
     expect(spy).toHaveBeenCalledTimes(1);
-    expect(existsSync(branchProtectionCachePath(projectRoot))).toBe(true);
+    expect(existsSync(branchProtectionCachePath(projectRoot, prRepoIdentity(projectRoot)))).toBe(
+      true,
+    );
   });
 });
 
@@ -1418,7 +1590,7 @@ describe('resolvePrEvidenceAtom — changed-file pagination (T12358)', () => {
     expect(r.changedFileCount).toBe(152);
     expect(r.changedPaths).toEqual(allPaths);
     expect(r.changedFilesError).toBeUndefined();
-    expect(existsSync(prCacheEntryPath(projectRoot, 1541))).toBe(true);
+    expect(existsSync(prCacheEntryPath(projectRoot, 1541, prRepoIdentity(projectRoot)))).toBe(true);
   });
 
   it('records the implemented gate for a 152-file PR through validateAtom', async () => {
@@ -1458,7 +1630,9 @@ describe('resolvePrEvidenceAtom — changed-file pagination (T12358)', () => {
     expect(r.changedPaths).toHaveLength(100);
     expect(r.changedFileCount).toBe(152);
     expect(r.changedFilesError).toContain('HTTP 502');
-    expect(existsSync(prCacheEntryPath(projectRoot, 1541))).toBe(false);
+    expect(existsSync(prCacheEntryPath(projectRoot, 1541, prRepoIdentity(projectRoot)))).toBe(
+      false,
+    );
   });
 
   it('reports a short total when the pages hold fewer files than changedFiles', async () => {
@@ -1475,7 +1649,9 @@ describe('resolvePrEvidenceAtom — changed-file pagination (T12358)', () => {
     if (!r.ok) return;
     expect(r.changedPaths).toHaveLength(140);
     expect(r.changedFilesError).toBe('PR files API returned 140 of 152 changed files.');
-    expect(existsSync(prCacheEntryPath(projectRoot, 1541))).toBe(false);
+    expect(existsSync(prCacheEntryPath(projectRoot, 1541, prRepoIdentity(projectRoot)))).toBe(
+      false,
+    );
   });
 
   it('ignores a cached truncated inventory written before pagination existed', async () => {
@@ -1484,7 +1660,7 @@ describe('resolvePrEvidenceAtom — changed-file pagination (T12358)', () => {
       fetchGhPrPayload: mockFetch,
       fetchGhPrFilesPage: pagedFetcher,
     });
-    const cachePath = prCacheEntryPath(projectRoot, 1541);
+    const cachePath = prCacheEntryPath(projectRoot, 1541, prRepoIdentity(projectRoot));
     const entry = JSON.parse(readFileSync(cachePath, 'utf-8'));
     writeFileSync(
       cachePath,

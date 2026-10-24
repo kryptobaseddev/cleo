@@ -22,6 +22,7 @@ import { existsSync, mkdirSync, readFileSync, realpathSync, rmSync, writeFileSyn
 import { join } from 'node:path';
 import type { DoneBlockedDetails } from '@cleocode/contracts';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { prCacheEntryPath, prRepoIdentity } from '../../release/pr-evidence.js';
 import { createTestDb, type TestDbEnv } from '../../store/__tests__/test-db-helper.js';
 import { resetDbState } from '../../store/sqlite.js';
 import { validateGateVerify } from '../../validation/engine-ops.js';
@@ -1034,8 +1035,10 @@ describe('batch close: several tasks shipped by one PR (T12628)', () => {
   function seedPrCache(prNumber: number, title: string, merge: string, paths: string[]): void {
     const mergedAt = '2026-09-28T00:00:00Z';
     mkdirSync(join(root, '.cleo', 'cache', 'evidence'), { recursive: true });
+    // T13912: the cache is per repository.
+    const repo = prRepoIdentity(root);
     writeFileSync(
-      join(root, '.cleo', 'cache', 'evidence', `pr-${prNumber}.json`),
+      prCacheEntryPath(root, prNumber, repo),
       JSON.stringify({
         schemaVersion: 2,
         title,
@@ -1043,7 +1046,8 @@ describe('batch close: several tasks shipped by one PR (T12628)', () => {
         headRefName: 'feat/batch',
         changedPaths: paths,
         changedFileCount: paths.length,
-        key: `pr-${prNumber}@${mergedAt}`,
+        key: `pr-${repo}#${prNumber}@${mergedAt}`,
+        repo,
         prNumber,
         mergeCommitSha: merge,
         mergedAt,
