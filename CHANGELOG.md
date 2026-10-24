@@ -12,12 +12,13 @@
   - The `@cleocode/cleo-os` postinstall stops seeding `.cant` files and skills.
   - `cleo tui` and every `caamp pi` verb print a deprecation notice and otherwise work as before.
 - **BRAIN and NEXUS.**
-  - NEXUS measures index freshness against the base branch. Every index-sensitive answer carries it, and an index too far behind fails with exit 111.
+  - NEXUS measures index freshness against the base branch and reports it on every index-sensitive answer. A query first refreshes a stale index inline when the size-scaled cost estimate allows it; on a large graph that refresh needs `cleo run` admission. An answer is refused with `E_NEXUS_INDEX_STALE` (exit 111) only when the index trails the checked-out HEAD by more than `nexus.freshness.maxCommitsBehind` (default 50), or the queried symbol is missing from a stale index. `--allow-stale` (`nexus impact`, `nexus context`) or `CLEO_NEXUS_ALLOW_STALE=1` accepts the stale answer, and an answer from an index whose communities were skipped carries a warning.
   - Analysis is resumable, and an opt-in background reindex runs after merges (`cleo nexus reindex-on-merge --enable`).
   - Dead registry rows are reported. A registry row records its host, so `projects clean` never removes another host's rows.
   - Memory retrieval uses one fused ranking and skips auto, low-quality and invalidated rows on the vector path.
   - Accepted evidence links tasks to their commits, files and decisions in the BRAIN graph, with repository-qualified ids in multi-repo stores.
   - `cleo docs add` links documents with a `documents` edge.
+- **Conduit freeze.** The `cleo conduit` verbs, `orchestrate conduit-*` and the conduit-backed `cleo agent` verbs still work but warn that they are deprecated; agents message each other over AgentMBX (`mbx_*` tools, `agentmbx send`). CLEO no longer writes conduit messages: the conduit lifecycle hooks are not registered, spawn and handoff send no conduit events, and `cleo event append` defaults to the file transport. The unused `cleo-conduit-core` Rust crate is removed.
 - **Freshness Sentinel repaired.** The daily freshness sentinel runs again and fails honestly; it had failed every day since 2026-05-18.
 - **Evidence.**
   - Research and documentation tasks owe only the gates that fit them. Any code in their work still needs the code gates, and if a task's work can't be inspected it is treated as code.
