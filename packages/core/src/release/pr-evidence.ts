@@ -217,11 +217,7 @@ function buildCacheKey(repo: string, prNumber: number, mergedAt: string): string
   return `pr-${repo}#${prNumber}@${mergedAt}`;
 }
 
-function readCacheEntry(
-  projectRoot: string,
-  prNumber: number,
-  repo: string,
-): PrCacheEntry | null {
+function readCacheEntry(projectRoot: string, prNumber: number, repo: string): PrCacheEntry | null {
   const path = prCacheEntryPath(projectRoot, prNumber, repo);
   if (!existsSync(path)) return null;
   try {

@@ -173,15 +173,9 @@ describe('PR numbers are per repository (T13912)', () => {
       const again = await resolve(app);
       expect(first.ok && first.mergeCommitSha).toBe('a'.repeat(40));
       // AC1: the cloud repo's #87 is never the app's cached entry.
-      expect(other.ok && [other.mergeCommitSha, other.cacheHit]).toEqual([
-        'c'.repeat(40),
-        false,
-      ]);
+      expect(other.ok && [other.mergeCommitSha, other.cacheHit]).toEqual(['c'.repeat(40), false]);
       // AC2: both entries coexist; the app's still hits.
-      expect(again.ok && [again.mergeCommitSha, again.cacheHit]).toEqual([
-        'a'.repeat(40),
-        true,
-      ]);
+      expect(again.ok && [again.mergeCommitSha, again.cacheHit]).toEqual(['a'.repeat(40), true]);
       expect(existsSync(prCacheEntryPath(projectRoot, 87, 'acme/app'))).toBe(true);
       expect(existsSync(prCacheEntryPath(projectRoot, 87, 'acme/app-cloud'))).toBe(true);
     } finally {
