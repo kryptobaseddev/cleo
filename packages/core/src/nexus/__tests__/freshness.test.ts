@@ -170,8 +170,18 @@ describe('index freshness (T12316)', () => {
   it('a budgeted analysis past its deadline skips communities and says so in the summary (T14016)', async () => {
     const { summary } = await runNexusAnalysis({ repoPath: repo, deadlineAt: Date.now() - 1 });
     expect(summary.communitiesSkipped).toMatch(/^community detection skipped: estimated/);
+    // Every answer from that generation says it has no communities, and how to fix it.
+    const skipped = await assessNexusIndexFreshness(repo);
+    expect(skipped.communitiesSkipped).toBe(summary.communitiesSkipped);
+    drainWarnings();
+    discloseNexusFreshness('nexus context', skipped);
+    const warning = (drainWarnings() ?? []).find((w) => w.code === 'W_NEXUS_COMMUNITIES_SKIPPED');
+    expect(warning?.message).toMatch(
+      /no communities: community detection skipped.*cleo nexus analyze runs without a budget/,
+    );
     const unbudgeted = await runNexusAnalysis({ repoPath: repo, full: true });
     expect(unbudgeted.summary.communitiesSkipped).toBeUndefined();
+    expect((await assessNexusIndexFreshness(repo)).communitiesSkipped).toBeUndefined();
   });
 
   it('a skip keeps the last measured community cost, so the next budgeted run still skips (T14016)', async () => {

@@ -341,7 +341,8 @@ async function assessWithStaleSet(
   const fileCount = manifest.files.length;
   const { toParse, reusable } =
     stale.size > 0 ? await planParse(db, manifest.files, stale) : { toParse: 0, reusable: 0 };
-  const estimate = estimateRefreshMs(readRunCost(db), toParse, reusable, fileCount);
+  const cost = readRunCost(db);
+  const estimate = estimateRefreshMs(cost, toParse, reusable, fileCount);
   const freshness: GraphIndexFreshness = {
     ...base,
     ...(await measureAgainstBase(db, manifest.sourceRoot, manifest.assessedAt)),
@@ -353,6 +354,9 @@ async function assessWithStaleSet(
     stalePaths: [...stale].sort().slice(0, sampleLimit),
     missingFileCount: missing.length,
     missingPaths: missing.slice(0, sampleLimit),
+    ...(cost?.summary.communitiesSkipped
+      ? { communitiesSkipped: cost.summary.communitiesSkipped }
+      : {}),
     refreshEstimate: describeEstimate(estimate, stale.size, toParse),
     checkMs: Math.round(performance.now() - started),
   };
@@ -378,6 +382,7 @@ export function answerFreshness(freshness: GraphIndexFreshness): NexusAnswerFres
     lastIndexedAt: freshness.lastIndexedAt,
     missingFileCount: freshness.missingFileCount ?? null,
     missingPaths: freshness.missingPaths ?? [],
+    communitiesSkipped: freshness.communitiesSkipped ?? null,
   };
 }
 
@@ -955,6 +960,15 @@ export function discloseNexusFreshness(subject: string, freshness: GraphIndexFre
         `${subject} answered from an index that still holds ${missing} file(s) no longer on disk ` +
         `(e.g. ${(freshness.missingPaths ?? []).slice(0, 3).join(', ')}); results may cite deleted code. ` +
         `Refresh: ${freshness.refreshCommand}.`,
+    });
+  }
+  if (freshness.communitiesSkipped) {
+    pushWarning({
+      code: 'W_NEXUS_COMMUNITIES_SKIPPED',
+      severity: 'warn',
+      message:
+        `${subject} answered from an index with no communities: ${freshness.communitiesSkipped}. ` +
+        `Community-based results are missing until ${freshness.refreshCommand} runs without a budget.`,
     });
   }
   if (freshness.status === 'fresh') return;

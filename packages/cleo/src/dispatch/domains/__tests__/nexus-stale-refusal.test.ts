@@ -124,6 +124,7 @@ describe('stale nexus answers (T14008)', () => {
         lastIndexedAt: '2026-09-25T00:00:00.000Z',
         missingFileCount: null,
         missingPaths: [],
+        communitiesSkipped: null,
       });
     }
   });
