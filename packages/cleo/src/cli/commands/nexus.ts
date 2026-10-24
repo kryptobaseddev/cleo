@@ -412,6 +412,10 @@ const statusCommand = defineCommand({
           : null;
       const assessment =
         projected && referencePage ? withReferencePage(projected, referencePage) : projected;
+      // T14011: dead registry rows are reported here, with the dry-run that
+      // classifies them; a registry read failure never fails the status.
+      const { summarizeRegistryHealth } = await import('@cleocode/core/nexus/registry');
+      const registry = await summarizeRegistryHealth().catch(() => undefined);
       const durationMs = Date.now() - startTime;
 
       cliOutput(
@@ -422,6 +426,7 @@ const statusCommand = defineCommand({
           ...(freshness.status === 'unknown' ? {} : { staleFileCount: freshness.staleFileCount }),
           freshness,
           assessment,
+          ...(registry ? { registry } : {}),
         },
         {
           command: 'nexus-status',
@@ -1604,7 +1609,8 @@ const projectsCleanCommand = defineCommand({
     },
     unhealthy: {
       type: 'boolean',
-      description: 'Also match rows where health_status is "unhealthy"',
+      description:
+        'Also match rows recorded unreachable whose path no longer answers (moved or unreadable rows are kept)',
     },
     'never-indexed': {
       type: 'boolean',

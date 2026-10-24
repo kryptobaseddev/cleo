@@ -191,7 +191,7 @@ describe('cleanProjects — T9117 removeFs', () => {
       name: 'dangerous',
       registeredAt: now,
       lastSeen: now,
-      healthStatus: 'unhealthy',
+      healthStatus: 'unreachable',
       healthLastCheck: null,
       permissions: 'read',
       lastSync: now,
@@ -205,9 +205,11 @@ describe('cleanProjects — T9117 removeFs', () => {
       fileCount: 0,
     });
 
+    // The root exists, so only an explicit pattern matches this row (T14011:
+    // --unhealthy no longer matches a path that still answers).
     const result = await cleanProjects({
       dryRun: false,
-      matchUnhealthy: true,
+      pattern: `^${dangerousPath.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`,
       removeFs: true,
     });
     // DB row purged but fs guard refused the rm
