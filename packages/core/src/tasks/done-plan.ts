@@ -66,15 +66,16 @@ import {
 import { type ChangeSetDeps, deriveTaskChangeSet } from './change-set.js';
 import {
   checkGateEvidenceMinimumDetailed,
-  classifyEvidenceTask,
+  type classifyEvidenceTask,
   extractTaskAcFilesWithProvenance,
+  taskEvidenceKindReport,
 } from './evidence.js';
 import { extractTypedGates, typedResultStaleReason } from './gate-runner.js';
 import { changedTestFiles } from './test-run-binding.js';
 import { captureTreeHash, computeCacheKey, readCacheEntry } from './tool-cache.js';
 import { captureEnvFingerprint, captureResourceEnv } from './tool-cache-env.js';
 import { type ResolvedToolCommand, resolveToolCommand } from './tool-resolver.js';
-import { loadVerificationGatePolicy } from './verification-policy.js';
+import { loadVerificationGatePolicy, requiredGatesFor } from './verification-policy.js';
 
 /**
  * Whether `ci:<pr>` can attest both tool gates for this change set (T12634):
@@ -671,7 +672,9 @@ function noChangeSetBlocker(
         'is that document or decision: no test, lint or typecheck applies.',
       next: step(
         record,
-        'implemented then binds as files:<doc> or decision:<id>; testsPassed and qaPassed follow it.',
+        kind === 'research'
+          ? 'implemented then binds as files:<doc> or decision:<id>, the only gate a research task needs (verification.requiredGatesByKind).'
+          : 'implemented and documented then bind as files:<doc>, the gates a documentation task needs (verification.requiredGatesByKind).',
       ),
     };
   }
@@ -945,6 +948,20 @@ export async function deriveTaskEvidence(
     opts.deps,
   );
   const root = changeSet.executionRoot;
+  // T14001: the gates fit the task's kind (research: its doc or decision),
+  // unless its change set or implemented evidence touches code (#2413 review).
+  const evidenceKind = await taskEvidenceKindReport(
+    task,
+    storeRoot,
+    [...changeSet.files, ...changeSet.deletedFiles],
+    opts.cwd,
+    opts.deps,
+  );
+  if (evidenceKind.reason) {
+    changeSet.warnings.push(`${task.id} owes the code gates: ${evidenceKind.reason}.`);
+  }
+  const kind = evidenceKind.kind;
+  const requiredGates = requiredGatesFor(policy, kind);
   // T12656 AC2: whether the LATEST implementation merged, and through which
   // PR, is judged by the one function `cleo complete` and `tool:test` use —
   // on the change set derived above, resolved only when needed.
@@ -984,7 +1001,7 @@ export async function deriveTaskEvidence(
     task.verification?.gates?.[gate] === true &&
     !(gate === 'testsPassed' && superseded) &&
     !(gate === 'qaPassed' && qaSupersededReason !== null);
-  const pending = policy.requiredGates.filter((g) => !passed(g));
+  const pending = requiredGates.filter((g) => !passed(g));
   const decisionOnly =
     changeSet.source === 'docs' && (changeSet.implementedEvidence ?? '').startsWith('decision:');
 
@@ -1127,7 +1144,7 @@ export async function deriveTaskEvidence(
     opts.runTyped === true,
   );
 
-  const gates: DonePlanGate[] = policy.requiredGates.map((gate) => {
+  const gates: DonePlanGate[] = requiredGates.map((gate) => {
     const raw =
       gate === 'implemented'
         ? changeSet.implementedEvidence
@@ -1142,7 +1159,6 @@ export async function deriveTaskEvidence(
     };
   });
 
-  const kind = classifyEvidenceTask({ task });
   const isCode = kind === 'code';
   const acBlocker = acMappingBlocker(taskId, acMapping, pending);
   const derivedBlockers = orderBlockers([

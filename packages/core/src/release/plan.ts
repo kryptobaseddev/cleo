@@ -76,8 +76,10 @@ import {
 } from '../store/tasks-schema.js';
 import { resolveToolCommand } from '../tasks/tool-resolver.js';
 import {
+  type EvidenceTaskKind,
   loadVerificationGatePolicy,
   missingRequiredGates,
+  requiredGatesFor,
   type VerificationGatePolicy,
 } from '../tasks/verification-policy.js';
 import { aggregateChangesetsForRelease } from './changesets-aggregator.js';
@@ -759,6 +761,8 @@ function serializeAtom(atom: EvidenceAtom): string | null {
  * @param gatesApplyToEpics - True in leaf-Epic mode, where the Epic itself is
  *   the shipped unit; container epics are otherwise exempt from gates, as in
  *   `cleo complete`.
+ * @param kind - The task's evidence kind as `cleo complete` reads it
+ *   (`taskEvidenceKind`, T14001): code whenever its work touched code.
  * @internal
  */
 function assessTaskGateState(
@@ -766,9 +770,11 @@ function assessTaskGateState(
   evidenceAtoms: string[],
   policy: VerificationGatePolicy,
   gatesApplyToEpics: boolean,
+  kind: EvidenceTaskKind,
 ): ReleasePlanTaskGateState {
   const gates = task.verification?.gates ?? {};
-  const missingGates = missingRequiredGates(gates, policy.requiredGates);
+  // T14001: the gates the task's kind requires, as cleo complete reads them.
+  const missingGates = missingRequiredGates(gates, requiredGatesFor(policy, kind));
   const base = { id: task.id, status: task.status, gates, missingGates, evidenceAtoms };
   if (task.status === 'done') {
     return { ...base, verdict: 'grandfathered', reasons: [] };
@@ -1860,8 +1866,16 @@ export async function releasePlan(
   const gatePolicy = await loadVerificationGatePolicy(projectRoot);
   // Already-done tasks are grandfathered (ADR-051 §11.1 blocks adding
   // evidence to completed tasks) — reported, never blocking.
+  const { taskEvidenceKind } = await import('../tasks/evidence.js');
+  const kinds = await Promise.all(tasks.map((t) => taskEvidenceKind(t, projectRoot)));
   const taskGates: ReleasePlanTaskGateState[] = tasks.map((t, i) =>
-    assessTaskGateState(t, planTasks[i]?.evidenceAtoms ?? [], gatePolicy, leafEpicMode),
+    assessTaskGateState(
+      t,
+      planTasks[i]?.evidenceAtoms ?? [],
+      gatePolicy,
+      leafEpicMode,
+      kinds[i] ?? 'code',
+    ),
   );
   const unverifiedTasks = taskGates.filter((g) => g.verdict === 'unverified');
   const evidenceComplete = unverifiedTasks.length === 0;

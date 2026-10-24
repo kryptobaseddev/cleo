@@ -1150,9 +1150,8 @@ describe('a standalone single-package project plans a targeted test-run (T13403)
     expect(plan.changeSet.source).toBe('docs');
     expect(plan.toolRuns).toEqual([]);
     expect(plan.blockers.map((b) => b.code)).not.toContain('test-run-needed');
-    expect(plan.gates.find((g) => g.gate === 'testsPassed')?.evidence).toBe(
-      `note:decision-only implementation, no code changed;satisfies:${id}#AC1`,
-    );
+    // T14001: a research task's gate is its document or decision alone.
+    expect(plan.gates.map((g) => g.gate)).toEqual(['implemented']);
   });
 
   it('T13647: with no changed test file, a whole-suite tool:test is refused and cleo done spawns nothing', async () => {
@@ -1584,10 +1583,41 @@ describe('research and no-change-set tasks', () => {
     expect(evidence['implemented']).toBe(
       `decision:D900;files:.cleo/blobs/blobs/${sha};note:Deliverable: findings;satisfies:${id}#AC1`,
     );
+    // T14001: implemented is the only gate a research task needs by default.
+    expect(Object.keys(evidence)).toEqual(['implemented']);
+    expect(plan.blockers).toEqual([]);
+    expect(plan.ready).toBe(true);
+  });
+
+  it('T14001: a project that requires tests of research tasks still gets the decision-only gates', async () => {
+    const configPath = join(env.cleoDir, 'config.json');
+    const config = JSON.parse(readFileSync(configPath, 'utf8'));
+    config.verification = {
+      ...config.verification,
+      requiredGatesByKind: { research: ['implemented', 'testsPassed', 'qaPassed'] },
+    };
+    writeFileSync(configPath, JSON.stringify(config));
+    const id = await seedTask(['Report the findings'], 'research');
+    const content = '# findings\n';
+    const sha = createHash('sha256').update(content).digest('hex');
+    mkdirSync(join(root, '.cleo', 'blobs', 'blobs'), { recursive: true });
+    writeFileSync(join(root, '.cleo', 'blobs', 'blobs', sha), content);
+    const plan = await deriveTaskEvidence(id, {
+      projectRoot: root,
+      cwd: root,
+      satisfies: 'all',
+      previewEvidence: async () => ({ ok: true }),
+      deps: {
+        ...deps,
+        listTaskDocs: async () => [{ id: 'att', slug: 'findings', sha256: sha }],
+        listTaskDecisions: async () => ['D900'],
+      },
+    });
+    const evidence = Object.fromEntries(plan.gates.map((g) => [g.gate, g.evidence]));
+    expect(Object.keys(evidence)).toEqual(['implemented', 'testsPassed', 'qaPassed']);
     expect(evidence['testsPassed']).toBe(
       `note:decision-only implementation, no code changed;satisfies:${id}#AC1`,
     );
-    expect(plan.blockers).toEqual([]);
   });
 
   describe('T13428: a research task is judged on its review artifact, never a citing PR', () => {
@@ -1762,6 +1792,61 @@ describe('a task with no change set gets no targets from the working tree (T1391
     );
     expect(none?.next.command).toMatch(new RegExp(`^cleo docs add ${id} <file> --type research`));
     expect(plan.next?.command).not.toMatch(/git switch/);
+  });
+
+  it('T14002: a code task with a change set keeps its committed targets, never the dirty files', async () => {
+    dirtySharedCheckout();
+    const id = await seedTask(['Change src/a.ts and its test']);
+    git(root, ['switch', '-q', '-c', `task/${id}`]);
+    mkdirSync(join(root, 'src'), { recursive: true });
+    writeFileSync(join(root, 'src', 'a.ts'), 'export const a = 3;\n');
+    writeFileSync(join(root, 'src', 'a.test.ts'), 'export const t = 3;\n');
+    git(root, ['add', 'src/a.ts', 'src/a.test.ts']);
+    git(root, ['commit', '-q', '-m', `${id}: a and its test`]);
+    const plan = await deriveTaskEvidence(id, { projectRoot: root, cwd: root, deps });
+    expect(plan.changeSet.files).toEqual(['src/a.test.ts', 'src/a.ts']);
+    const testRun = plan.blockers.find((b) => b.code === 'test-run-needed');
+    expect(testRun?.message).toContain('src/a.test.ts');
+    const named = [...plan.blockers.map((b) => `${b.message} ${b.next.command}`), ...plan.commands];
+    expect(named.join('\n')).not.toMatch(/x[123]\.test\.ts|pkg[123]/);
+  });
+
+  it('T14001: a research task whose work touches code owes the code gates (plan and verify)', async () => {
+    const id = await seedTask(['Report the findings'], 'research');
+    const sha = commitOnTaskBranch(id);
+    const plan = await deriveTaskEvidence(id, { projectRoot: root, cwd: root, deps });
+    expect(plan.gates.map((g) => g.gate)).toEqual(['implemented', 'testsPassed', 'qaPassed']);
+    const r = await validateGateVerify(root, {
+      taskId: id,
+      gate: 'implemented',
+      evidence: `commit:${sha};files:src/a.ts;satisfies:${id}#AC1`,
+    });
+    expect(r.success, JSON.stringify(r)).toBe(true);
+    resetDbState();
+    const after = await (await getTaskAccessor(root)).loadSingleTask(id);
+    expect(after?.verification?.gates?.implemented).toBe(true);
+    // A code change never passes on implemented alone, whatever the kind.
+    expect(after?.verification?.passed).toBe(false);
+  });
+
+  it('T14002: a research task with an attached doc completes on the doc alone', async () => {
+    dirtySharedCheckout();
+    const id = await seedTask(['Report the findings'], 'research');
+    const content = '# findings\n';
+    const sha = createHash('sha256').update(content).digest('hex');
+    mkdirSync(join(root, '.cleo', 'blobs', 'blobs'), { recursive: true });
+    writeFileSync(join(root, '.cleo', 'blobs', 'blobs', sha), content);
+    const plan = await deriveTaskEvidence(id, {
+      projectRoot: root,
+      cwd: root,
+      satisfies: 'all',
+      previewEvidence: async () => ({ ok: true }),
+      deps: { ...deps, listTaskDocs: async () => [{ id: 'att', slug: 'findings', sha256: sha }] },
+    });
+    expect(plan.changeSet.source).toBe('docs');
+    expect(plan.gates.map((g) => g.gate)).toEqual(['implemented']);
+    expect(plan.gates[0]?.evidence).toContain(`files:.cleo/blobs/blobs/${sha}`);
+    expect(plan.commands.at(-1)).toBe(`cleo complete ${id}`);
   });
 });
 

@@ -7,7 +7,7 @@
 import { spawnSync } from 'node:child_process';
 import { writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import type { AcceptanceGate } from '@cleocode/contracts';
+import type { AcceptanceGate, EvidenceAtom } from '@cleocode/contracts';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   captureProjectScope,
@@ -22,6 +22,7 @@ import { getNativeTasksDb, resetDbState } from '../../store/sqlite.js';
 import { validateGateVerify } from '../../validation/engine-ops.js';
 import { buildFreshAcRows } from '../ac-table.js';
 import { completeTask, completeTaskStrict, withTaskWriteTransaction } from '../complete.js';
+import { taskEvidenceKind, taskEvidenceKindReport } from '../evidence.js';
 import { reqAdd } from '../req.js';
 
 /** T12960: a switchable `ci:<pr>` resolver; null delegates to the real one. */
@@ -1204,5 +1205,235 @@ describe('completeTask', () => {
     await expect(Promise.all([first, second])).resolves.toEqual(['first', 'second']);
     expect(maxActiveWriters).toBe(1);
     expect(events).toEqual(['first-enter', 'first-exit', 'second-enter']);
+  });
+
+  describe('per-kind gates never let a code change skip its tests (T14001, review of #2413)', () => {
+    /** Seed one task whose only recorded gate is `implemented`, backed by `paths`. */
+    async function seedImplementedOnly(task: Record<string, unknown>, paths: string[]) {
+      const now = new Date().toISOString();
+      const files = paths.map((path) => ({ path, sha256: 'f'.repeat(64) }));
+      await seedTasks(accessor, [
+        {
+          id: 'T001',
+          title: 'Per-kind gate task',
+          status: 'active',
+          priority: 'medium',
+          createdAt: now,
+          type: 'task',
+          ...task,
+          verification: {
+            passed: true,
+            round: 1,
+            gates: { implemented: true },
+            lastAgent: 'testing',
+            lastUpdated: now,
+            failureLog: [],
+            evidence: {
+              implemented: {
+                atoms: [{ kind: 'files', files }],
+                capturedAt: now,
+                capturedBy: 'test',
+              },
+            },
+          },
+        } as Parameters<typeof seedTasks>[1][number],
+      ]);
+      await writeConfig({
+        enforcement: { acceptance: { mode: 'off' } },
+        lifecycle: { mode: 'off' },
+        verification: { enabled: true, requiredGates: ['implemented', 'testsPassed'] },
+      });
+    }
+
+    it('a task re-kinded to spike whose implemented evidence touches code still owes testsPassed', async () => {
+      await seedImplementedOnly({ kind: 'spike' }, ['src/x.ts']);
+      await expect(completeTask({ taskId: 'T001' }, env.tempDir, accessor)).rejects.toThrow(
+        /failed verification gates: testsPassed/,
+      );
+    });
+
+    it('a docs label does not hide a declared code file', async () => {
+      await seedImplementedOnly({ labels: ['docs'], files: ['src/x.ts'] }, ['docs/x.md']);
+      await expect(completeTask({ taskId: 'T001' }, env.tempDir, accessor)).rejects.toThrow(
+        /failed verification gates: testsPassed/,
+      );
+    });
+
+    /** A spike whose recorded `implemented` evidence is the one `atom`. */
+    function spikeWith(atom: EvidenceAtom): Parameters<typeof taskEvidenceKind>[0] {
+      const now = new Date().toISOString();
+      return {
+        id: 'T001',
+        kind: 'spike',
+        verification: {
+          passed: false,
+          round: 1,
+          gates: { implemented: true },
+          lastAgent: null,
+          lastUpdated: now,
+          failureLog: [],
+          evidence: { implemented: { atoms: [atom], capturedAt: now, capturedBy: 'test' } },
+        },
+      };
+    }
+
+    /** Run git in the store, with a fixed identity. */
+    function git(...args: string[]): string {
+      const r = spawnSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@t', ...args], {
+        cwd: env.tempDir,
+        encoding: 'utf-8',
+      });
+      if (r.status !== 0) throw new Error(`git ${args.join(' ')}: ${r.stderr}`);
+      return r.stdout.trim();
+    }
+
+    /** Make the store a repo whose origin/main holds one doc commit. */
+    async function initRepo(): Promise<void> {
+      git('init', '-q', '-b', 'main');
+      await writeFile(join(env.tempDir, 'README.md'), '# r\n');
+      git('add', 'README.md');
+      git('commit', '-q', '-m', 'root');
+      git('update-ref', 'refs/remotes/origin/main', 'HEAD');
+    }
+
+    /** Commit `path` on the current branch. */
+    async function commitFile(path: string, message: string): Promise<string> {
+      await writeFile(join(env.tempDir, path), 'x\n');
+      git('add', path);
+      git('commit', '-q', '-m', message);
+      return git('rev-parse', 'HEAD');
+    }
+
+    it('a spike whose own branch commits code owes testsPassed though its evidence is a doc', async () => {
+      await seedImplementedOnly({ kind: 'spike' }, ['docs/plan.md']);
+      await initRepo();
+      git('checkout', '-q', '-b', 'task/T001-spike');
+      await commitFile('foo.ts', 'spike code');
+      expect(await taskEvidenceKind({ id: 'T001', kind: 'spike' }, env.tempDir)).toBe('code');
+      // verify computes `passed` against the code gates too.
+      const verified = await validateGateVerify(env.tempDir, {
+        taskId: 'T001',
+        gate: 'cleanupDone',
+        evidence: 'note:spike notes filed',
+      });
+      expect(verified.success, verified.success ? undefined : verified.error.message).toBe(true);
+      expect((await accessor.loadSingleTask('T001'))?.verification?.passed).toBe(false);
+      await expect(completeTask({ taskId: 'T001' }, env.tempDir, accessor)).rejects.toThrow(
+        /failed verification gates: testsPassed/,
+      );
+    });
+
+    it('code merged from the task branch keeps the code gates after the branch is gone', async () => {
+      await initRepo();
+      git('checkout', '-q', '-b', 'task/T001-spike');
+      await commitFile('foo.ts', 'spike code');
+      git('checkout', '-q', 'main');
+      const message = 'Merge pull request #1 from o/task/T001-spike';
+      git('merge', '-q', '--no-ff', '-m', message, 'task/T001-spike');
+      git('branch', '-q', '-D', 'task/T001-spike');
+      git('update-ref', 'refs/remotes/origin/main', 'HEAD');
+      expect(await taskEvidenceKind({ id: 'T001', kind: 'spike' }, env.tempDir)).toBe('code');
+      expect(await taskEvidenceKind({ id: 'T00', kind: 'spike' }, env.tempDir)).toBe('research');
+    });
+
+    it('a feat/ or fix/ branch citing the task makes it code, live or merged and deleted', async () => {
+      const spike = { id: 'T001', kind: 'spike' as const };
+      await initRepo();
+      git('checkout', '-q', '-b', 'feat/T001-probe');
+      await commitFile('foo.ts', 'probe');
+      git('checkout', '-q', 'main');
+      expect(await taskEvidenceKind(spike, env.tempDir)).toBe('code');
+      git(
+        'merge',
+        '-q',
+        '--no-ff',
+        '-m',
+        'Merge pull request #2 from o/fix/T001-x',
+        'feat/T001-probe',
+      );
+      git('branch', '-q', '-D', 'feat/T001-probe');
+      git('update-ref', 'refs/remotes/origin/main', 'HEAD');
+      expect(await taskEvidenceKind(spike, env.tempDir)).toBe('code');
+    });
+
+    it('a squash merge or a direct commit on main citing the task makes it code', async () => {
+      const spike = { id: 'T001', kind: 'spike' as const };
+      await initRepo();
+      await commitFile('notes.md', 'docs(T001): findings (#4)');
+      git('update-ref', 'refs/remotes/origin/main', 'HEAD');
+      expect(await taskEvidenceKind(spike, env.tempDir)).toBe('research');
+      await commitFile('foo.ts', 'feat(T001): probe (#5)');
+      git('update-ref', 'refs/remotes/origin/main', 'HEAD');
+      expect(await taskEvidenceKind(spike, env.tempDir)).toBe('code');
+      expect(await taskEvidenceKind({ id: 'T002', kind: 'spike' }, env.tempDir)).toBe('research');
+      await commitFile('bar.ts', 'fix: wire the t002 probe');
+      git('update-ref', 'refs/remotes/origin/main', 'HEAD');
+      expect(await taskEvidenceKind({ id: 'T002', kind: 'spike' }, env.tempDir)).toBe('code');
+    });
+
+    it('fails closed to code, with the reason, when the search cannot finish', async () => {
+      const spike = { id: 'T001', kind: 'spike' as const };
+      git('init', '-q', '-b', 'main');
+      await commitFile('README.md', 'root');
+      // No origin default branch: nothing can be searched.
+      expect(await taskEvidenceKindReport(spike, env.tempDir)).toEqual({
+        kind: 'code',
+        reason: expect.stringMatching(/no origin default branch/),
+      });
+      git('update-ref', 'refs/remotes/origin/main', 'HEAD');
+      git('remote', 'add', 'origin', 'https://github.com/o/r.git');
+      const failed = { listMergedPrHeads: async () => null };
+      expect(await taskEvidenceKindReport(spike, env.tempDir, [], undefined, failed)).toEqual({
+        kind: 'code',
+        reason: expect.stringMatching(/GitHub lookup of merged PRs for T001 failed/),
+      });
+      const none = { listMergedPrHeads: async () => [] };
+      expect(await taskEvidenceKindReport(spike, env.tempDir, [], undefined, none)).toEqual({
+        kind: 'research',
+      });
+    });
+
+    it('a squash-merged PR from a feat/ branch whose title does not cite the task is code', async () => {
+      const spike = { id: 'T001', kind: 'spike' as const };
+      await initRepo();
+      git('remote', 'add', 'origin', 'https://github.com/o/r.git');
+      const squash = await commitFile('foo.ts', 'probe the cache (#7)');
+      git('update-ref', 'refs/remotes/origin/main', 'HEAD');
+      const heads = (sha: string | null) => ({
+        listMergedPrHeads: async () => [
+          { number: 6, headRefName: 'fix/T0010-other', mergeCommitSha: squash },
+          { number: 7, headRefName: 'feat/T001-probe', mergeCommitSha: sha },
+        ],
+      });
+      expect(
+        (await taskEvidenceKindReport(spike, env.tempDir, [], undefined, heads(squash))).reason,
+      ).toBe('its work touches foo.ts');
+      expect(
+        (await taskEvidenceKindReport(spike, env.tempDir, [], undefined, heads(null))).reason,
+      ).toMatch(/PR #7's merge commit/);
+    });
+
+    it('a commit atom on a merge commit is read through its first parent', async () => {
+      await initRepo();
+      git('checkout', '-q', '-b', 'side');
+      await commitFile('foo.ts', 'code');
+      git('checkout', '-q', 'main');
+      git('merge', '-q', '--no-ff', '-m', 'merge side', 'side');
+      const sha = git('rev-parse', 'HEAD');
+      const atom: EvidenceAtom = { kind: 'commit', sha, shortSha: sha.slice(0, 7) };
+      expect(await taskEvidenceKind(spikeWith(atom), env.tempDir)).toBe('code');
+    });
+
+    it('a legacy pr atom without changed paths counts as code', async () => {
+      const atom: EvidenceAtom = {
+        kind: 'pr',
+        prNumber: 1,
+        mergeCommitSha: 'a'.repeat(40),
+        mergedAt: new Date().toISOString(),
+        successCount: 1,
+        totalChecks: 1,
+      };
+      expect(await taskEvidenceKind(spikeWith(atom), env.tempDir)).toBe('code');
+    });
   });
 });

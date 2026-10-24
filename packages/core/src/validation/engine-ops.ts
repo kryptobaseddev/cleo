@@ -25,7 +25,6 @@ import type {
 } from '@cleocode/contracts';
 import { ExitCode } from '@cleocode/contracts/exit-codes.js';
 import type { OperationExecutionContext } from '@cleocode/contracts/jobs';
-import { loadConfig } from '../config.js';
 import { type EngineResult, engineError, engineSuccess } from '../engine-result.js';
 import { CleoError } from '../errors.js';
 import { assessKnowledgeCoverage } from '../nexus/knowledge.js';
@@ -54,6 +53,7 @@ import {
   isHardAtom,
   type ParsedAtom,
   parseEvidence,
+  taskEvidenceKind,
   validateAtom,
 } from '../tasks/evidence.js';
 import { appendForceBypassLine, appendGateAuditLine } from '../tasks/gate-audit.js';
@@ -67,6 +67,7 @@ import {
   runTaskGates,
   typedGateAdmissionMs,
 } from '../tasks/gate-runner.js';
+import { loadVerificationGatePolicy, requiredGatesFor } from '../tasks/verification-policy.js';
 import {
   hasCallsiteCoverageLabel,
   hasEngineMigrationLabel,
@@ -188,22 +189,6 @@ function buildSatisfiesAcBindingRows(
       },
     ];
   });
-}
-
-/** Load required gates from project config, falling back to hardcoded defaults. */
-async function loadRequiredGates(projectRoot: string): Promise<VerificationGate[]> {
-  try {
-    const config = await loadConfig(projectRoot);
-    const cfgGates = config.verification?.requiredGates;
-    if (Array.isArray(cfgGates) && cfgGates.length > 0) {
-      return cfgGates.filter((g): g is VerificationGate =>
-        DEFAULT_REQUIRED_GATES.includes(g as VerificationGate),
-      );
-    }
-  } catch {
-    // fallback
-  }
-  return [...DEFAULT_REQUIRED_GATES];
 }
 
 // ---------------------------------------------------------------------------
@@ -509,7 +494,10 @@ export async function validateGateVerify(
           )
         : validateAtom(...args);
 
-    const configGates = await loadRequiredGates(projectRoot);
+    // T14001: the gates the task's kind requires, as cleo complete and
+    // cleo done --plan read them (a research task: its doc or decision).
+    const gatePolicy = await loadVerificationGatePolicy(projectRoot);
+    let configGates = requiredGatesFor(gatePolicy, await taskEvidenceKind(task, projectRoot));
 
     // T12625: a multi-gate write names its gates by the keys of gateEvidence.
     const multiTargets = params.gateEvidence
@@ -1058,6 +1046,13 @@ export async function validateGateVerify(
       typedExecution.assertActive();
       typedPhase = 'persisting the verification';
     }
+    // T14001: the gates owed follow the evidence just recorded: an
+    // implemented change that touches code owes the code gates, whatever the
+    // task's kind (review of #2413).
+    configGates = requiredGatesFor(
+      gatePolicy,
+      await taskEvidenceKind({ ...task, verification }, projectRoot),
+    );
     verification.passed =
       computePassed(verification, configGates) &&
       (task.acceptance ?? []).every(

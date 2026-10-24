@@ -1,7 +1,7 @@
 ---
 name: ct-dev-workflow
 description: Development workflow orchestration for task-driven development with atomic commits, conventional commit messages, and systematic release processes. Enforces task traceability, branch discipline, smart test scope selection, and GitHub Actions integration. Use when committing code, creating releases, managing branches, or following contribution protocols. Triggers on commit operations, release preparation, or workflow compliance needs.
-version: 3.1.29
+version: 3.1.30
 protocol: contribution
 dependencies: []
 sharedResources:
@@ -14,7 +14,7 @@ compatibility:
   - gemini-cli
 license: MIT
 metadata:
-  version: 3.1.29
+  version: 3.1.30
   tier: core
   install: harness
   covers:
@@ -200,7 +200,7 @@ fix/T456-token-validation          # Bug fix
 
 ## Gate System (Simplified)
 
-Not all gates apply to all changes. Follow the decision matrix.
+Not all gates apply to all changes. Follow the decision matrix. Required gates also follow the task's evidence kind (`verification.requiredGatesByKind`): research and documentation tasks owe the required gates without `testsPassed`/`qaPassed` until their work touches any non-document path, which restores the full code gates.
 
 ### G0: Pre-Flight Check
 

@@ -76,6 +76,16 @@ export interface MergedPrSummary {
   mergedAt?: string | null;
 }
 
+/** A merged PR's head branch and merge commit (T14001). */
+export interface MergedPrHead {
+  /** PR number. */
+  number: number;
+  /** Head branch. */
+  headRefName: string;
+  /** Merge commit, or null when GitHub reported none. */
+  mergeCommitSha: string | null;
+}
+
 /** One PR as `gh pr view` reports it: where it merged, and its commits. */
 export interface PrDetails {
   /** PR number. */
@@ -120,6 +130,12 @@ export interface ChangeSetDeps {
   ) => Promise<{ ok: true; prs: MergedPrSummary[] } | { ok: false; reason: string }>;
   /** One PR's base branch, state and commits (`gh pr view`); null when unknown. */
   viewPr?: (prNumber: number, executionRoot: string) => Promise<PrDetails | null>;
+  /**
+   * The most recent merged PRs with their head branch and merge commit
+   * (T14001): what {@link taskOwnWorkPaths} matches branch names against,
+   * which a `--search` of titles and bodies cannot. Null when `gh` failed.
+   */
+  listMergedPrHeads?: (executionRoot: string) => Promise<MergedPrHead[] | null>;
   /**
    * PRs GitHub associates with a commit, whatever they cite (T12959): empty
    * when GitHub has none (or does not know the commit), null when the lookup
@@ -620,6 +636,33 @@ function ghJson(args: readonly string[], cwd: string): unknown {
   } catch {
     return null;
   }
+}
+
+/** How many merged PRs {@link defaultListMergedPrHeads} reads, newest first. */
+const MERGED_PR_HEADS_LIMIT = 200;
+
+/**
+ * Default {@link ChangeSetDeps.listMergedPrHeads}: the newest
+ * {@link MERGED_PR_HEADS_LIMIT} merged PRs (`gh pr list --json headRefName`).
+ *
+ * @param executionRoot - Repository `gh` runs in.
+ * @returns The PRs, or null when `gh` failed.
+ * @task T14001
+ */
+export async function defaultListMergedPrHeads(
+  executionRoot: string,
+): Promise<MergedPrHead[] | null> {
+  const fields = 'number,headRefName,mergeCommit';
+  const limit = String(MERGED_PR_HEADS_LIMIT);
+  const args = ['pr', 'list', '--state', 'merged', '--limit', limit, '--json', fields];
+  const rows = ghJson(args, executionRoot);
+  if (!Array.isArray(rows)) return null;
+  return rows.flatMap((row) => {
+    const pr = toPrDetails(row);
+    return pr
+      ? [{ number: pr.number, headRefName: pr.headRefName, mergeCommitSha: pr.mergeCommitSha }]
+      : [];
+  });
 }
 
 /**
@@ -1465,6 +1508,121 @@ function deriveBranchChangeSet(cs: TaskChangeSet, taskId: string): boolean {
       ? `commit:${commitSha};files:${files.join(',')}`
       : `commit:${commitSha};note:${atomSafe(`removes ${deleted.length} file(s): ${deleted.join(' ')}`)}`;
   return true;
+}
+
+/** What {@link taskOwnWorkPaths} found, or why it could not know. */
+export type TaskOwnWork = { ok: true; paths: string[] } | { ok: false; reason: string };
+
+/**
+ * Every path a task's own work changed, whatever its evidence cites (T14001,
+ * reviews of #2413), found the way the planner finds a change set:
+ *
+ * 1. the checked-out branch citing the task (step 2 of
+ *    {@link deriveTaskChangeSet}), with its uncommitted tracked edits;
+ * 2. every other local branch whose name cites the task (`task/`, `feat/`,
+ *    `fix/`, …), diffed from its merge-base with origin's default branch;
+ * 3. first-parent commits on origin's default branch whose subject cites the
+ *    task, case-insensitively: merge commits of its branches, squash merges
+ *    (`feat(T…): … (#n)`) and direct commits, each read first-parent;
+ * 4. for a GitHub origin, recent merged PRs whose head branch cites the task
+ *    ({@link defaultListMergedPrHeads}), read at their merge commits: a squash
+ *    whose title does not cite it.
+ *
+ * It fails closed: when nothing was found but the search could not finish
+ * (no origin default branch, or the GitHub lookup failed), or a commit git
+ * cannot read, the answer is not ok, with the reason. A store outside git has
+ * no history to search and answers no paths.
+ *
+ * @param storeRoot - CLEO store root.
+ * @param taskId - Task whose work to list.
+ * @param cwd - Invocation directory, which locates the task's worktree.
+ * @param deps - Merged-PR discovery (tests inject; defaults to `gh`).
+ * @returns The paths, or why they are unknown.
+ * @task T14001
+ */
+export async function taskOwnWorkPaths(
+  storeRoot: string,
+  taskId: string,
+  cwd?: string,
+  deps: Pick<ChangeSetDeps, 'listMergedPrHeads'> = {},
+): Promise<TaskOwnWork> {
+  const { root, source } = resolveChangeSetRoot(storeRoot, taskId, cwd);
+  if (git(root, ['rev-parse', '--git-dir']) === null) return { ok: true, paths: [] };
+  const cites = (text: string): boolean => citesTask(text.toUpperCase(), taskId.toUpperCase());
+  const paths = new Set<string>();
+  const unreadable = (what: string): TaskOwnWork => ({
+    ok: false,
+    reason: `git cannot read ${what} in ${root}`,
+  });
+  /** Add each line of a git answer; false when git failed. */
+  const add = (text: string | null): boolean => {
+    if (text === null) return false;
+    for (const line of text.split('\n').filter(Boolean)) paths.add(line);
+    return true;
+  };
+  const commitFiles = (sha: string): string | null =>
+    git(root, [
+      'diff-tree',
+      '--root',
+      '--no-commit-id',
+      '-r',
+      '--name-only',
+      '-m',
+      '--first-parent',
+      sha,
+    ]);
+  /** Nothing found and the search could not finish: unknown, so not ok. */
+  const incomplete = (reason: string): TaskOwnWork =>
+    paths.size > 0 ? { ok: true, paths: [...paths] } : { ok: false, reason };
+
+  const cs = emptyChangeSet(root, source);
+  if (deriveBranchChangeSet(cs, taskId)) {
+    for (const path of [...cs.files, ...cs.deletedFiles]) paths.add(path);
+    if (cs.headRef === 'HEAD' && !add(git(root, ['diff', '--name-only', '--no-renames', 'HEAD']))) {
+      return unreadable('the uncommitted changes');
+    }
+  }
+  const baseRef = resolveOriginDefault(root);
+  if (baseRef === null) {
+    return incomplete(`${root} has no origin default branch to search for ${taskId}'s work`);
+  }
+  const refs = git(root, ['for-each-ref', '--format=%(refname:short)', 'refs/heads']);
+  if (refs === null) return unreadable('its branches');
+  for (const ref of refs.split('\n').filter(cites)) {
+    const mergeBase = git(root, ['merge-base', baseRef, ref]);
+    if (mergeBase === null) return unreadable(`the merge-base of ${ref}`);
+    if (!add(git(root, ['diff', '--name-only', '--no-renames', mergeBase, ref]))) {
+      return unreadable(`the diff of ${ref}`);
+    }
+  }
+  const log = git(root, [
+    'log',
+    baseRef,
+    '--first-parent',
+    '-i',
+    `--grep=${taskId}`,
+    '--format=%H%x00%s',
+  ]);
+  if (log === null) return unreadable(`the history of ${baseRef}`);
+  for (const [sha, subject] of log.split('\n').map((line) => line.split('\0'))) {
+    if (sha && subject !== undefined && cites(subject) && !add(commitFiles(sha))) {
+      return unreadable(`commit ${sha}`);
+    }
+  }
+  // Only a GitHub origin has PRs to find.
+  if (!/github\.com[:/]/.test(git(root, ['remote', 'get-url', 'origin']) ?? '')) {
+    return { ok: true, paths: [...paths] };
+  }
+  const heads = await (deps.listMergedPrHeads ?? defaultListMergedPrHeads)(root);
+  if (heads === null) {
+    return incomplete(`the GitHub lookup of merged PRs for ${taskId} failed (gh pr list)`);
+  }
+  for (const pr of heads.filter((p) => cites(p.headRefName))) {
+    if (!pr.mergeCommitSha || !add(commitFiles(pr.mergeCommitSha))) {
+      return unreadable(`PR #${pr.number}'s merge commit (fetch origin)`);
+    }
+  }
+  return { ok: true, paths: [...paths] };
 }
 
 /**

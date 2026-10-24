@@ -60,6 +60,7 @@ import {
 import { pushWarning } from '../output.js';
 import { getEffectiveHead } from '../worktree/effective-head.js';
 import type { AffectedTestRun } from './affected-packages.js';
+import type { ChangeSetDeps } from './change-set.js';
 import type { ViewComponentPr } from './component-pr.js';
 import { loadRecordedProjectRoots, rebaseLegacyEvidencePath } from './evidence-paths.js';
 import { HEAVY_HEAP_ENV, HEAVY_WORKERS_ENV, isHeavyTool } from './heavy-tool-env.js';
@@ -92,6 +93,11 @@ import {
   resolveToolCommand,
 } from './tool-resolver.js';
 import { detectStaticVacuity, probeTscFileCount, VACUOUS_TOOL_FIX } from './tool-vacuity.js';
+import {
+  classifyEvidenceTask,
+  isDocumentArtifact,
+  isDocumentEvidencePath,
+} from './verification-policy.js';
 
 /**
  * Valid tool names recognised by the `tool:<name>` evidence atom.
@@ -1110,6 +1116,19 @@ export function extractTaskAcFilesWithProvenance(task: {
  * @task T11959 (DHQ-083 companion b — merge-commit first-parent diff)
  */
 async function gitShowFiles(sha: string, projectRoot: string): Promise<string[]> {
+  return (await commitFilesOrNull(sha, projectRoot)) ?? [];
+}
+
+/**
+ * {@link gitShowFiles}, but null when git fails, so a caller can tell an
+ * unreadable commit from one that touched nothing (T14001, review of #2413).
+ *
+ * @param sha - Commit SHA to inspect.
+ * @param projectRoot - Working directory for git operations.
+ * @returns File paths touched by the commit, or null on git failure.
+ * @task T14001
+ */
+async function commitFilesOrNull(sha: string, projectRoot: string): Promise<string[] | null> {
   // diff-tree with --first-parent gives a clean single-parent diff for both
   // regular commits and merge commits (compares merge result to first parent,
   // i.e. the branch tip before the PR was merged).
@@ -1125,7 +1144,7 @@ async function gitShowFiles(sha: string, projectRoot: string): Promise<string[]>
     ['diff-tree', '--root', '--no-commit-id', '-r', '--name-only', '-m', '--first-parent', sha],
     projectRoot,
   );
-  if (r.exitCode !== 0) return [];
+  if (r.exitCode !== 0) return null;
   return r.stdout
     .split('\n')
     .map((s) => s.trim())
@@ -3309,43 +3328,9 @@ export async function linkedPrChange(
   };
 }
 
-/**
- * Whether a path is a documentation artifact (`.md`/`.mdx`/`.rst`/`.adoc`/`.txt`,
- * README, LICENSE, CHANGELOG) — the rule `pr:` uses to refuse a docs-only PR
- * as implementation of a code task.
- *
- * @param path - Repo-relative path.
- * @returns True for a documentation artifact.
- */
-export function isDocumentArtifact(path: string): boolean {
-  return (
-    /\.(md|mdx|rst|adoc|txt)$/i.test(path) ||
-    /(?:^|\/)(README|LICENSE|CHANGELOG)(?:\.[^/]*)?$/i.test(path)
-  );
-}
-
-/**
- * Classify a task for evidence purposes: `research` (research/spike kind),
- * `documentation` (docs-only declared files or a docs label) or `code`.
- *
- * Exported so the read-only `cleo done --plan` planner chooses the same
- * documentary path the validators accept — one classification, not two.
- *
- * @param context - Task context; only `task` is read.
- * @returns The evidence classification.
- * @task T12624
- */
-export function classifyEvidenceTask(
-  context: Pick<EvidenceValidationContext, 'task'>,
-): 'code' | 'documentation' | 'research' {
-  if (context.task.kind === 'research' || context.task.kind === 'spike') return 'research';
-  if (context.task.files?.length && context.task.files.every(isDocumentArtifact))
-    return 'documentation';
-  if (context.task.kind === 'bug') return 'code';
-  if (context.task.labels?.some((label) => label === 'docs' || label === 'documentation'))
-    return 'documentation';
-  return 'code';
-}
+// T14001: the evidence kind and the document rule live with the gate policy,
+// which every gate reader (verify, done --plan, complete, release plan) shares.
+export { classifyEvidenceTask, isDocumentArtifact };
 
 /**
  * Normalise an evidence path for comparison with PR changed paths: strip a
@@ -3912,6 +3897,94 @@ export async function boundHeadGapReason(
     );
   }
   return null;
+}
+
+/**
+ * The evidence kind whose gates a task owes now, and why a non-code kind was
+ * raised to `code` (T14001, reviews of #2413).
+ *
+ * @task T14001
+ */
+export interface TaskEvidenceKindReport {
+  /** The kind to read {@link requiredGatesFor} with. */
+  kind: ReturnType<typeof classifyEvidenceTask>;
+  /** Why a research or documentation task owes the code gates, when it does. */
+  reason?: string;
+}
+
+/**
+ * The evidence kind whose gates a task owes now (T14001, reviews of #2413):
+ * {@link classifyEvidenceTask}, raised to `code` when its recorded
+ * `implemented` evidence or `extraPaths` (a change set) touch any
+ * non-document path — `files:` paths, a `pr:` atom's changed paths, a
+ * `commit:` atom's diff (merge and root commits included) — or when the
+ * task's own work does ({@link taskOwnWorkPaths}: branches citing it, commits
+ * on the default branch whose subject cites it, and its merged PRs). A kind
+ * or label set by any agent never lets a code change skip its tests, and
+ * work that cannot be inspected fails closed to `code`, with the reason.
+ *
+ * @param task - The task (kind, files, labels and recorded evidence are read).
+ * @param projectRoot - The CLEO store root (commits are read in the task's checkout).
+ * @param extraPaths - Further paths the work touched (a derived change set).
+ * @param cwd - Invocation directory, which locates the task's worktree.
+ * @param deps - Merged-PR discovery (tests inject; defaults to `gh`).
+ * @returns The kind, and the reason when a non-code kind owes the code gates.
+ * @task T14001
+ */
+export async function taskEvidenceKindReport(
+  task: Pick<Task, 'id' | 'kind' | 'files' | 'labels' | 'verification'>,
+  projectRoot: string,
+  extraPaths: readonly string[] = [],
+  cwd?: string,
+  deps: Pick<ChangeSetDeps, 'listMergedPrHeads'> = {},
+): Promise<TaskEvidenceKindReport> {
+  const kind = classifyEvidenceTask({ task });
+  if (kind === 'code') return { kind };
+  const code = (reason: string): TaskEvidenceKindReport => ({ kind: 'code', reason });
+  const { resolveChangeSetRoot, taskOwnWorkPaths } = await import('./change-set.js');
+  // The task's own branches, commits and merged PRs, whatever its evidence
+  // cites: a spike that commits code and records `decision:` owes tests.
+  const ownWork = await taskOwnWorkPaths(projectRoot, task.id, cwd, deps);
+  if (!ownWork.ok) return code(`its work could not be inspected: ${ownWork.reason}`);
+  const paths: string[] = [...extraPaths, ...ownWork.paths];
+  const atoms = task.verification?.evidence?.implemented?.atoms ?? [];
+  const root = resolveChangeSetRoot(projectRoot, task.id, cwd).root;
+  for (const atom of atoms) {
+    if (atom.kind === 'files') paths.push(...atom.files.map((f) => f.path));
+    // A legacy `pr:` atom without its changed paths proves nothing about documents.
+    else if (atom.kind === 'pr') {
+      if (atom.changedPaths === undefined) {
+        return code(`pr:${atom.prNumber} was recorded without its changed files`);
+      }
+      paths.push(...atom.changedPaths);
+    } else if (atom.kind === 'commit') {
+      // An unreadable commit proves nothing about documents: owe the code gates.
+      const files = await commitFilesOrNull(atom.sha, root);
+      if (files === null) return code(`git cannot read commit:${atom.sha} in ${root}`);
+      paths.push(...files);
+    }
+  }
+  const codePath = paths.find((path) => !isDocumentEvidencePath(path));
+  return codePath === undefined ? { kind } : code(`its work touches ${codePath}`);
+}
+
+/**
+ * {@link taskEvidenceKindReport}'s kind alone.
+ *
+ * @param task - The task (kind, files, labels and recorded evidence are read).
+ * @param projectRoot - The CLEO store root.
+ * @param extraPaths - Further paths the work touched (a derived change set).
+ * @param cwd - Invocation directory, which locates the task's worktree.
+ * @returns The kind to read {@link requiredGatesFor} with.
+ * @task T14001
+ */
+export async function taskEvidenceKind(
+  task: Pick<Task, 'id' | 'kind' | 'files' | 'labels' | 'verification'>,
+  projectRoot: string,
+  extraPaths: readonly string[] = [],
+  cwd?: string,
+): Promise<ReturnType<typeof classifyEvidenceTask>> {
+  return (await taskEvidenceKindReport(task, projectRoot, extraPaths, cwd)).kind;
 }
 
 /**

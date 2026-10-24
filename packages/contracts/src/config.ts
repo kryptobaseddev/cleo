@@ -126,6 +126,14 @@ export interface VerificationConfig {
   maxRounds: number;
   /** Gate names required for completion. */
   requiredGates: string[];
+  /**
+   * Gates required per evidence kind (T14001), overriding `requiredGates`
+   * for that kind. Defaults: research and documentation get `requiredGates`
+   * without `testsPassed`/`qaPassed`; code gets `requiredGates`. A task whose
+   * implemented evidence or change set touches any non-document path owes
+   * the code gates whatever its kind.
+   */
+  requiredGatesByKind?: Partial<Record<'code' | 'documentation' | 'research', string[]>>;
 }
 
 /** Lifecycle enforcement mode. */
