@@ -91,6 +91,23 @@ describe('listLessons (T13949)', () => {
       expect(lessons.map((lesson) => lesson.id)).toEqual(['O-rule']);
       expect(failed).toEqual(['global']);
       await expect(listLessons(root, { scope: 'global' })).rejects.toThrow();
+      // T14005: with both stores broken, one error names each, and no per-store report.
+      const { closeBrainDb } = await import('../../store/memory-sqlite.js');
+      closeBrainDb();
+      const savedDir = process.env['CLEO_DIR'];
+      process.env['CLEO_DIR'] = home;
+      failed.length = 0;
+      try {
+        await expect(
+          listLessons(join(root, 'nowhere'), {
+            scope: 'all',
+            onStoreError: (store) => failed.push(store),
+          }),
+        ).rejects.toThrow(/^project brain: .+; global brain: /);
+        expect(failed).toEqual([]);
+      } finally {
+        process.env['CLEO_DIR'] = savedDir;
+      }
     } finally {
       delete process.env['CLEO_HOME'];
       _resetDualScopeDbCache();

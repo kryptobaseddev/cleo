@@ -7,6 +7,7 @@
  * @task T13950
  */
 
+import { execFileSync } from 'node:child_process';
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -142,5 +143,64 @@ describe('linkVerifiedEvidence (T13950)', () => {
     await expect(linkVerifiedEvidence(root, 'T6', [atoms[0]!])).rejects.toThrow(
       /insert into "brain_page_nodes"/,
     );
+  });
+
+  it('says which links were written when a commit link fails (T14005)', async () => {
+    const { linkVerifiedEvidence } = await import('../evidence-graph-links.js');
+    const { getBrainDb, getBrainNativeDb } = await import('../../store/memory-sqlite.js');
+    await getBrainDb(root);
+    getBrainNativeDb(root)!.exec(
+      "CREATE TRIGGER t_fail BEFORE INSERT ON brain_page_nodes WHEN NEW.id LIKE 'commit:%' BEGIN SELECT RAISE(ABORT, 'commit node refused'); END",
+    );
+    await expect(linkVerifiedEvidence(root, 'T7', atoms)).rejects.toThrow(
+      `commit links failed for ${sha.slice(0, 12)}; written: task, 1 file, 1 decision and 0 commit link(s): `,
+    );
+    expect(await evidenceEdges()).toEqual([
+      { from: 'decision:D42', to: 'task:T7', type: 'applies_to' },
+      { from: 'task:T7', to: 'file:packages/core/src/x.ts', type: 'touches_code' },
+    ]);
+  });
+});
+
+describe('repoRelativeEvidencePath (T14005)', () => {
+  const git = (cwd: string, args: string[]): void => {
+    execFileSync('git', args, { cwd, stdio: 'ignore' });
+  };
+
+  /** A git repo at `dir` with `src/x.ts` committed. */
+  async function repo(dir: string): Promise<void> {
+    await mkdir(join(dir, 'src'), { recursive: true });
+    await writeFile(join(dir, 'src', 'x.ts'), 'x\n');
+    git(dir, ['init', '-q']);
+    git(dir, ['config', 'user.name', 't']);
+    git(dir, ['config', 'user.email', 't@example.com']);
+    git(dir, ['config', 'commit.gpgsign', 'false']);
+    git(dir, ['add', '.']);
+    git(dir, ['commit', '-q', '-m', 'init']);
+  }
+
+  it('keys a file in the main checkout, verified from a worktree, by its repo path', async () => {
+    const { repoRelativeEvidencePath } = await import('../evidence-graph-links.js');
+    const main = join(root, 'main');
+    await repo(main);
+    const wt = join(root, 'wt');
+    git(main, ['worktree', 'add', '-q', wt]);
+    // Present only in the main checkout (uncommitted), as validateFiles found it.
+    await writeFile(join(main, 'src', 'only-main.ts'), 'm\n');
+    expect(repoRelativeEvidencePath('src/only-main.ts', wt, main)).toBe('src/only-main.ts');
+    expect(repoRelativeEvidencePath(join(wt, 'src', 'x.ts'), wt, main)).toBe('src/x.ts');
+    expect(repoRelativeEvidencePath('./src/x.ts', wt, main)).toBe('src/x.ts');
+  });
+
+  it('keys a child repo file the same with or without a commit anchor', async () => {
+    const { repoRelativeEvidencePath } = await import('../evidence-graph-links.js');
+    const child = join(root, 'store', 'child');
+    await repo(child);
+    const store = join(root, 'store');
+    // Files-only evidence: the store root parents the repositories.
+    expect(repoRelativeEvidencePath('child/src/x.ts', store, store)).toBe('src/x.ts');
+    // Commit-anchored evidence: the execution root is the child checkout.
+    expect(repoRelativeEvidencePath('src/x.ts', child, store)).toBe('src/x.ts');
+    expect(repoRelativeEvidencePath('/elsewhere/x.ts', child, store)).toBeNull();
   });
 });
