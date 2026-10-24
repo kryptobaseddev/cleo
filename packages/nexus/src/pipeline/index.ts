@@ -775,17 +775,11 @@ export async function runPipeline(
   }
   if (options?.requireIncremental && mode === 'full')
     throw new Error(`a full rebuild is required (${reason}); run cleo nexus analyze`);
-  // T14009: a full rebuild still reuses extractions that are provably exact,
-  // e.g. those an earlier run checkpointed before it was aborted. Not when the
-  // published graph came from another extractor build: that rebuild re-parses.
-  const sameBuild = !options?.publishedFingerprint || options.publishedFingerprint === fingerprint;
-  if (
-    mode === 'full' &&
-    options?.resumeParseCache &&
-    sameBuild &&
-    fingerprint &&
-    options.loadParseCache
-  ) {
+  // T14009: a full rebuild still reuses extractions that are provably exact
+  // (this build's fingerprint and the file's content hash), e.g. those an
+  // earlier run checkpointed before it was aborted, whatever build produced
+  // the published graph: entries from an older build never match.
+  if (mode === 'full' && options?.resumeParseCache && fingerprint && options.loadParseCache) {
     const entries = await options.loadParseCache();
     cachedPaths = entries.map((entry) => entry.path);
     for (const entry of entries) {

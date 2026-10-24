@@ -773,10 +773,12 @@ async function runScopedNexusAnalysis(
     ...(fullReason ? { fullReason } : {}),
     ...(params.requireIncremental ? { requireIncremental: true } : {}),
     loadParseCache: () => readNexusParseCache(db),
-    // T14009: a rebuild resumes provably exact cached extractions unless the
-    // owner asked for --full or the graph is being re-bound to a new root.
+    // T14009: a rebuild resumes provably exact cached extractions (this build's
+    // fingerprint, same content hash) unless the owner asked for --full or the
+    // graph is being re-bound to a new root.
     resumeParseCache: !full && !reboundFrom,
-    checkpointParseCache: (entries) => checkpointNexusParseCache(db, entries),
+    checkpointParseCache: (entries: readonly GraphParseCacheEntry[]) =>
+      checkpointNexusParseCache(db, entries),
     publishedFingerprint: publishedExtractorFingerprint(db),
     assessedRevision,
     sourceRoots,
