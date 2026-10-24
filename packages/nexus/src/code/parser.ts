@@ -42,6 +42,12 @@ function tryRequire(id: string): unknown {
   }
 }
 
+/** Default per-file source-size bound of {@link parseOriginalSource} (UTF-8 bytes). */
+export const DEFAULT_MAX_SOURCE_BYTES = 512 * 1024;
+
+/** Default per-file native parse deadline of {@link parseOriginalSource} (milliseconds). */
+export const DEFAULT_PARSE_TIMEOUT_MS = 1000;
+
 /**
  * Parse original Unicode through bounded UTF-16 input chunks and a native deadline.
  * @param parser - Configured native parser; the caller selects its grammar.
@@ -69,8 +75,8 @@ export function parseOriginalSource(
 ): Parser.Tree {
   if (parseText.length !== source.length)
     throw new Error('E_PARSE_LIMIT: substitute parse text must keep the source length');
-  const maxSourceBytes = limits.maxSourceBytes ?? 512 * 1024;
-  const timeoutMs = limits.timeoutMs ?? 1000;
+  const maxSourceBytes = limits.maxSourceBytes ?? DEFAULT_MAX_SOURCE_BYTES;
+  const timeoutMs = limits.timeoutMs ?? DEFAULT_PARSE_TIMEOUT_MS;
   if (
     !Number.isSafeInteger(maxSourceBytes) ||
     maxSourceBytes <= 0 ||

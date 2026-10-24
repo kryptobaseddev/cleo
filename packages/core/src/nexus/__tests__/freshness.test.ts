@@ -167,6 +167,50 @@ describe('index freshness (T12316)', () => {
     );
   });
 
+  it('a budgeted analysis past its deadline skips communities and says so in the summary (T14016)', async () => {
+    const { summary } = await runNexusAnalysis({ repoPath: repo, deadlineAt: Date.now() - 1 });
+    expect(summary.communitiesSkipped).toMatch(/^community detection skipped: estimated/);
+    // Every answer from that generation says it has no communities, and how to fix it.
+    const skipped = await assessNexusIndexFreshness(repo);
+    expect(skipped.communitiesSkipped).toBe(summary.communitiesSkipped);
+    drainWarnings();
+    discloseNexusFreshness('nexus context', skipped);
+    const warning = (drainWarnings() ?? []).find((w) => w.code === 'W_NEXUS_COMMUNITIES_SKIPPED');
+    expect(warning?.message).toMatch(
+      /no communities: community detection skipped.*cleo nexus analyze runs without a budget/,
+    );
+    const unbudgeted = await runNexusAnalysis({ repoPath: repo, full: true });
+    expect(unbudgeted.summary.communitiesSkipped).toBeUndefined();
+    expect((await assessNexusIndexFreshness(repo)).communitiesSkipped).toBeUndefined();
+  });
+
+  it('a skip keeps the last measured community cost, so the next budgeted run still skips (T14016)', async () => {
+    await runNexusAnalysis({ repoPath: repo });
+    // The last real measurement: Leiden took ten minutes on this graph.
+    native.exec(
+      "UPDATE _nexus_meta SET value = json_set(value, '$.summary.phaseMs.communities', 600000) WHERE key = 'graph_run_summary'",
+    );
+    const storedCommunityMs = (): number =>
+      Number(
+        (
+          native
+            .prepare(
+              "SELECT json_extract(value, '$.summary.phaseMs.communities') AS ms FROM _nexus_meta WHERE key = 'graph_run_summary'",
+            )
+            .get() as { ms: number }
+        ).ms,
+      );
+    for (const edit of [1, 2]) {
+      await put('src/d.ts', `export const d = 'd${edit}';\n`);
+      const { summary } = await runNexusAnalysis({
+        repoPath: repo,
+        deadlineAt: Date.now() + 60_000,
+      });
+      expect(summary.communitiesSkipped).toMatch(/estimated 600000ms/);
+      expect(storedCommunityMs()).toBe(600000);
+    }
+  });
+
   it('treats a touched-but-identical file as fresh by falling back to its hash', async () => {
     await runNexusAnalysis({ repoPath: repo });
     const later = new Date(Date.now() + 60_000);

@@ -305,6 +305,24 @@ describe('incremental analysis equals a full rebuild (T12315)', () => {
     expect((await runNexusAnalysis({ repoPath: repo })).summary.mode).toBe('unchanged');
   });
 
+  it('reuses a cached extraction only under the parser limits it was made with (T14016)', async () => {
+    await runNexusAnalysis({ repoPath: repo });
+    // Same tree, a different source-size bound: nothing cached is provably current.
+    const limits = { maxSourceBytes: 4096 };
+    const changed = await runNexusAnalysis({ repoPath: repo, parserLimits: limits });
+    expect(changed.summary.mode).toBe('full');
+    expect(changed.summary.reason).toMatch(/different extractor build or parser limits/);
+    expect(changed.summary).toMatchObject({ parsedFiles: 5, reusedFiles: 0 });
+    // Under the same limits again, the generation is current.
+    expect((await runNexusAnalysis({ repoPath: repo, parserLimits: limits })).summary.mode).toBe(
+      'unchanged',
+    );
+    // An edit under those limits reuses the other four files' entries.
+    await put('src/app.ts', `${FIXTURE['src/app.ts']}\n// edited\n`);
+    const edited = await runNexusAnalysis({ repoPath: repo, parserLimits: limits });
+    expect(edited.summary).toMatchObject({ mode: 'incremental', parsedFiles: 1, reusedFiles: 4 });
+  });
+
   it('falls back to a full rebuild when the parse cache is missing', async () => {
     await runNexusAnalysis({ repoPath: repo });
     native.exec('DELETE FROM _nexus_parse_cache');

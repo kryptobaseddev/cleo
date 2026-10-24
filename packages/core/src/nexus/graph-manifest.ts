@@ -91,6 +91,7 @@ const runCostSchema = z.object({
     reusedFiles: z.number(),
     resolvedFiles: z.number(),
     phaseMs: z.record(z.string(), z.number()),
+    communitiesSkipped: z.string().optional(),
   }),
   durationMs: z.number(),
   recordedAt: z.string(),

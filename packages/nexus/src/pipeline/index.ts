@@ -112,6 +112,7 @@ export {
   computeExtractorFingerprint,
   decodeParseCacheEntry,
   encodeParseCacheEntry,
+  parseCacheFingerprint,
 } from './parse-cache.js';
 // Parse loop (T534, T536)
 export type { ParseLoopOptions, ParseLoopResult } from './parse-loop.js';
@@ -184,7 +185,7 @@ import {
 } from './import-processor.js';
 import type { KnowledgeGraph, NexusDbInsert, NexusTables } from './knowledge-graph.js';
 import { createKnowledgeGraph } from './knowledge-graph.js';
-import { computeExtractorFingerprint } from './parse-cache.js';
+import { computeExtractorFingerprint, parseCacheFingerprint } from './parse-cache.js';
 import { oversizedFileCoverage, runParseLoop } from './parse-loop.js';
 import { detectProcesses } from './process-processor.js';
 import { resolveAccesses } from './processors/access-processor.js';
@@ -202,6 +203,14 @@ import { processStructure } from './structure-processor.js';
 export interface PipelineOptions {
   /** Per-file parser bounds and cancellation propagated into isolated execution. */
   parserLimits?: ParserExecutionLimits;
+  /**
+   * Epoch milliseconds at which the run's budget ends (T14016). Synchronous
+   * phases that cannot be interrupted (community detection) start only when
+   * their estimate fits what is left, and are skipped otherwise.
+   */
+  deadlineAt?: number;
+  /** The previous run's community phase duration, the measured estimate for {@link deadlineAt}. */
+  communityEstimateMs?: number;
   /** Existing runtime process launcher; required for isolated production parsing. */
   parserExecution?: ParserExecutionPort;
   /**
@@ -249,12 +258,18 @@ export interface PipelineOptions {
    */
   resumeParseCache?: boolean;
   /**
-   * Persist parsed extractions as they arrive, in small batches and outside the
-   * graph publication, so an aborted or killed run keeps its parse work
-   * (T14009). A throw disables checkpointing for the rest of the run; the
-   * publication still carries every entry.
+   * Persist parsed extractions outside the graph publication, so an aborted or
+   * killed run keeps its parse work (T14009). Writes run on a timer, never
+   * inside a parse-result callback (T14016). A throw disables checkpointing for
+   * the rest of the run; the publication still carries every entry.
    */
   checkpointParseCache?: (entries: readonly GraphParseCacheEntry[]) => void;
+  /**
+   * Milliseconds between checkpoint writes (T14016).
+   *
+   * @default PARSE_CHECKPOINT_INTERVAL_MS
+   */
+  checkpointIntervalMs?: number;
   /**
    * Extractor fingerprint recorded with the published generation (`null` when
    * none was recorded). An unchanged tree is reported `unchanged` only when it
@@ -390,8 +405,18 @@ export interface PipelineResult {
 /** Default share of changed files above which an incremental run rebuilds fully. */
 export const DEFAULT_MAX_INCREMENTAL_CHANGE_RATIO = 0.3;
 
-/** Parsed extractions per checkpoint write (T14009). */
-const PARSE_CHECKPOINT_BATCH = 64;
+/**
+ * Milliseconds between parse-cache checkpoint writes (T14016). A write is one
+ * synchronous transaction, so it runs on a timer, off the parse-result path;
+ * a kill loses at most this much parse work.
+ */
+export const PARSE_CHECKPOINT_INTERVAL_MS = 2_000;
+
+/**
+ * Pending extractions that schedule an early checkpoint (T14016), bounding the
+ * memory a slow timer can hold. The write itself is still deferred.
+ */
+const PARSE_CHECKPOINT_MAX_PENDING = 2_048;
 
 /** Resolution sites between abort checks (T14009). */
 const ABORT_CHECK_EVERY = 256;
@@ -663,7 +688,10 @@ export async function runPipeline(
 
   // Mode decision (T12315). Extraction is reused only where it is provably what
   // re-parsing would produce; everything downstream of extraction always reruns.
-  const fingerprint = options?.publishGraph ? computeExtractorFingerprint() : null;
+  // T14016: the cache identity includes the parser limits that decide whether a file extracts.
+  const fingerprint = options?.publishGraph
+    ? parseCacheFingerprint(computeExtractorFingerprint(), options.parserLimits)
+    : null;
   let mode: 'incremental' | 'full' = 'full';
   let reason = options?.fullReason ?? 'full rebuild requested';
   let changedFiles = 0;
@@ -692,7 +720,7 @@ export async function runPipeline(
       reason = 'no previous index to reuse';
     } else if (differing === 0 && !currentBuild) {
       reason = fingerprint
-        ? 'no source changed, but the published generation was produced by a different extractor build'
+        ? 'no source changed, but the published generation was produced by a different extractor build or parser limits'
         : 'no source changed, but the extractor build could not be fingerprinted to prove the published generation current';
     } else if (differing === 0) {
       process.stderr.write(
@@ -753,7 +781,7 @@ export async function runPipeline(
         reason = 'no parse cache was committed with the previous generation';
       } else if (matching.length === 0) {
         reason =
-          'the extractor build changed since the cached parse, so no cached extraction is current';
+          'the extractor build or parser limits changed since the cached parse, so no cached extraction is current';
       } else {
         // Decoded lazily, one file at a time, by the parse loop (T13656).
         for (const entry of matching) {
@@ -832,7 +860,9 @@ export async function runPipeline(
   let checkpointing = checkpoint !== undefined;
   const checkpointed = new Set<string>();
   let pendingCheckpoint: GraphParseCacheEntry[] = [];
+  let earlyFlush = false;
   const flushCheckpoint = (): void => {
+    earlyFlush = false;
     if (!checkpointing || !checkpoint || pendingCheckpoint.length === 0) return;
     const batch = pendingCheckpoint;
     pendingCheckpoint = [];
@@ -878,7 +908,11 @@ export async function runPipeline(
             generation: publicationGeneration,
             payload,
           });
-          if (pendingCheckpoint.length >= PARSE_CHECKPOINT_BATCH) flushCheckpoint();
+          // T14016: never write here; a full buffer only brings the write forward.
+          if (pendingCheckpoint.length >= PARSE_CHECKPOINT_MAX_PENDING && !earlyFlush) {
+            earlyFlush = true;
+            setImmediate(flushCheckpoint);
+          }
         }
       : undefined,
     onFileReport: (report) => {
@@ -891,10 +925,15 @@ export async function runPipeline(
       });
     },
   });
+  const checkpointTimer = checkpoint
+    ? setInterval(flushCheckpoint, options?.checkpointIntervalMs ?? PARSE_CHECKPOINT_INTERVAL_MS)
+    : undefined;
+  checkpointTimer?.unref();
   let parsed: Awaited<typeof parseLoop>;
   try {
     parsed = await parseLoop;
   } finally {
+    clearInterval(checkpointTimer);
     // An aborted parse keeps what it finished.
     flushCheckpoint();
   }
@@ -1002,7 +1041,12 @@ export async function runPipeline(
 
   // Phase 5: Community detection (Louvain)
   process.stderr.write('[nexus] Phase 5: Detecting communities...\n');
-  const communityResult = await detectCommunities(graph, abortSignal);
+  const communityResult = await detectCommunities(graph, abortSignal, {
+    ...(options?.deadlineAt !== undefined ? { deadlineAt: options.deadlineAt } : {}),
+    ...(options?.communityEstimateMs !== undefined
+      ? { estimateMs: options.communityEstimateMs }
+      : {}),
+  });
   process.stderr.write(
     `[nexus] Communities: ${communityResult.stats.totalCommunities} detected, modularity=${communityResult.stats.modularity.toFixed(3)}, nodes=${communityResult.stats.nodesProcessed}\n`,
   );
@@ -1143,6 +1187,7 @@ export async function runPipeline(
       reusedFiles: reusedFileCount,
       resolvedFiles: parsedFileCount + reusedFileCount,
       phaseMs,
+      ...(communityResult.skipped ? { communitiesSkipped: communityResult.skipped } : {}),
     },
   };
 }

@@ -866,6 +866,12 @@ export interface GraphIndexRunSummary {
   resolvedFiles: number;
   /** Wall-clock milliseconds per pipeline phase, for cost disclosure. */
   phaseMs: Record<string, number>;
+  /**
+   * Set when community detection was skipped because its estimate exceeded
+   * the run's remaining budget (T14016); the generation then has no
+   * communities until an unbudgeted analysis.
+   */
+  communitiesSkipped?: string;
 }
 
 /**
@@ -930,6 +936,12 @@ export interface GraphIndexFreshness {
   missingFileCount?: number;
   /** Up to a bounded sample of {@link GraphIndexFreshness.missingFileCount}'s paths. */
   missingPaths?: string[];
+  /**
+   * Set when the published generation was analyzed under a budget that skipped
+   * community detection (T14016): it has no communities until an unbudgeted
+   * `cleo nexus analyze`. Carries the reason.
+   */
+  communitiesSkipped?: string;
   /** Whether the queried symbol's own file is stale; absent when no symbol file is known. */
   symbolFileStale?: boolean;
   /** The symbol file the `symbolFileStale` verdict describes. */
@@ -982,6 +994,8 @@ export interface NexusAnswerFreshness {
   missingFileCount: number | null;
   /** A bounded sample of those paths. */
   missingPaths: string[];
+  /** Why the generation has no communities (a budgeted run skipped them); `null` otherwise (T14016). */
+  communitiesSkipped: string | null;
 }
 
 // ---------------------------------------------------------------------------

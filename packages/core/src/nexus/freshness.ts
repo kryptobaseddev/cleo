@@ -188,8 +188,11 @@ async function planParse(
   manifestFiles: readonly (readonly [string, number, number, string])[],
   stale: ReadonlySet<string>,
 ): Promise<{ toParse: number; reusable: number }> {
-  const { computeExtractorFingerprint, isParseablePath } = await import('@cleocode/nexus/pipeline');
-  const fingerprint = computeExtractorFingerprint();
+  const { computeExtractorFingerprint, isParseablePath, parseCacheFingerprint } = await import(
+    '@cleocode/nexus/pipeline'
+  );
+  // The inline refresh parses under the default limits (T14016).
+  const fingerprint = parseCacheFingerprint(computeExtractorFingerprint());
   const cached = new Map<string, string>();
   for (const [path, contentHash, entryFingerprint] of db.values(
     sql`SELECT path, content_hash, fingerprint FROM main._nexus_parse_cache`,
@@ -338,7 +341,8 @@ async function assessWithStaleSet(
   const fileCount = manifest.files.length;
   const { toParse, reusable } =
     stale.size > 0 ? await planParse(db, manifest.files, stale) : { toParse: 0, reusable: 0 };
-  const estimate = estimateRefreshMs(readRunCost(db), toParse, reusable, fileCount);
+  const cost = readRunCost(db);
+  const estimate = estimateRefreshMs(cost, toParse, reusable, fileCount);
   const freshness: GraphIndexFreshness = {
     ...base,
     ...(await measureAgainstBase(db, manifest.sourceRoot, manifest.assessedAt)),
@@ -350,6 +354,9 @@ async function assessWithStaleSet(
     stalePaths: [...stale].sort().slice(0, sampleLimit),
     missingFileCount: missing.length,
     missingPaths: missing.slice(0, sampleLimit),
+    ...(cost?.summary.communitiesSkipped
+      ? { communitiesSkipped: cost.summary.communitiesSkipped }
+      : {}),
     refreshEstimate: describeEstimate(estimate, stale.size, toParse),
     checkMs: Math.round(performance.now() - started),
   };
@@ -375,6 +382,7 @@ export function answerFreshness(freshness: GraphIndexFreshness): NexusAnswerFres
     lastIndexedAt: freshness.lastIndexedAt,
     missingFileCount: freshness.missingFileCount ?? null,
     missingPaths: freshness.missingPaths ?? [],
+    communitiesSkipped: freshness.communitiesSkipped ?? null,
   };
 }
 
@@ -518,6 +526,8 @@ export async function runRefreshInProcess(input: NexusRefreshInput): Promise<Nex
     repoPath: input.repoPath,
     ...(input.includedRepositories ? { includedRepositories: input.includedRepositories } : {}),
     parserLimits: { signal: AbortSignal.timeout(input.budgetMs) },
+    // T14016: the same budget, as a deadline uninterruptible phases can check.
+    deadlineAt: Date.now() + input.budgetMs,
   });
   return { mode: summary.mode, reason: summary.reason };
 }
@@ -950,6 +960,15 @@ export function discloseNexusFreshness(subject: string, freshness: GraphIndexFre
         `${subject} answered from an index that still holds ${missing} file(s) no longer on disk ` +
         `(e.g. ${(freshness.missingPaths ?? []).slice(0, 3).join(', ')}); results may cite deleted code. ` +
         `Refresh: ${freshness.refreshCommand}.`,
+    });
+  }
+  if (freshness.communitiesSkipped) {
+    pushWarning({
+      code: 'W_NEXUS_COMMUNITIES_SKIPPED',
+      severity: 'warn',
+      message:
+        `${subject} answered from an index with no communities: ${freshness.communitiesSkipped}. ` +
+        `Community-based results are missing until ${freshness.refreshCommand} runs without a budget.`,
     });
   }
   if (freshness.status === 'fresh') return;
