@@ -1,0 +1,14 @@
+#!/bin/sh
+# CLEO_MANAGED_HOOK v1
+# Post-merge: start a background NEXUS reindex after a merge into the base
+# branch (T14010). Opt-in through `nexus.reindexOnMerge.enabled`; the command
+# checks the branch, the config, the per-project lock and `cleo run`
+# admission itself, and records its outcome for `cleo nexus status`.
+#
+# Never blocks or fails the merge.
+#
+# Installation: Automatically installed via `cleo init`
+
+command -v cleo >/dev/null 2>&1 || exit 0
+(cleo nexus reindex-on-merge >/dev/null 2>&1 &) >/dev/null 2>&1
+exit 0
