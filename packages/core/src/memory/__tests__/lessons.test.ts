@@ -114,3 +114,63 @@ describe('listLessons (T13949)', () => {
     }
   });
 });
+
+describe('project-scope lessons keep their kind through the extraction gate (T13989)', () => {
+  let root: string;
+
+  beforeEach(async () => {
+    root = await mkdtemp(join(tmpdir(), 'cleo-lessons-dedup-'));
+    await mkdir(join(root, '.cleo'), { recursive: true });
+    process.env['CLEO_DIR'] = join(root, '.cleo');
+  });
+
+  afterEach(async () => {
+    const { closeBrainDb, resetBrainDbState } = await import('../../store/memory-sqlite.js');
+    closeBrainDb();
+    resetBrainDbState();
+    delete process.env['CLEO_DIR'];
+    await rm(root, { recursive: true, force: true });
+  });
+
+  const why = 'Two PRs went red because biome was skipped on scripts/ before the push.';
+
+  it('stores a lesson whose text already exists as a plain observation, and lists it', async () => {
+    const { observeBrain } = await import('../retrieval/observe.js');
+    const plain = await observeBrain(root, { text: why, type: 'discovery', sourceType: 'manual' });
+    expect(plain.stored).not.toBe(false);
+    const lesson = await observeBrain(root, {
+      text: why,
+      title: 'Biome the exact changed set before every push',
+      type: 'lesson',
+      sourceType: 'manual',
+    });
+    expect(lesson.stored).not.toBe(false);
+    expect(lesson.id).not.toBe(plain.id);
+    const lessons = await listLessons(root, { scope: 'project' });
+    expect(lessons.map((l) => [l.id, l.rule])).toEqual([
+      [lesson.id, 'Biome the exact changed set before every push'],
+    ]);
+  });
+
+  it('still merges an identical lesson, and keeps a plain duplicate out of the lesson', async () => {
+    const { observeBrain } = await import('../retrieval/observe.js');
+    const first = await observeBrain(root, {
+      text: why,
+      title: 'Biome the exact changed set before every push',
+      type: 'lesson',
+      sourceType: 'manual',
+    });
+    const again = await observeBrain(root, {
+      text: why,
+      title: 'Biome the exact changed set before every push',
+      type: 'lesson',
+      sourceType: 'manual',
+    });
+    expect(again).toMatchObject({ id: first.id, stored: false, gateAction: 'merged' });
+    // A plain observation of the same text is stored on its own, not merged into the lesson.
+    const plain = await observeBrain(root, { text: why, type: 'discovery', sourceType: 'manual' });
+    expect(plain.stored).not.toBe(false);
+    expect(plain.id).not.toBe(first.id);
+    expect((await listLessons(root, { scope: 'project' })).map((l) => l.id)).toEqual([first.id]);
+  });
+});

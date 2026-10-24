@@ -253,6 +253,7 @@ export async function observeBrain(
       sourceSessionId,
       sourceConfidence: resolvedSourceConf,
       trusted: resolvedSourceConf === 'owner' || resolvedSourceConf === 'task-outcome',
+      ...(typeParam !== undefined ? { observationType: typeParam } : {}),
     });
     const gateAction = gateResult.action;
     if (gateAction !== 'stored') {
