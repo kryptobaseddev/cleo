@@ -18,8 +18,9 @@
  * existing edge is left unchanged, so re-verifying adds nothing.
  *
  * Node ids are permanent and sync between devices, so a file node is keyed by
- * its repo-relative POSIX path (relative to the evidence git root). A path
- * outside that repository gets no node and is reported in `skipped`.
+ * its POSIX path relative to the checkout that holds it. A path outside both
+ * the evidence repository and the store root gets no node and is reported in
+ * `skipped`.
  *
  * Code placed in `packages/core/` per Package-Boundary Check — verified against AGENTS.md.
  *
@@ -30,6 +31,7 @@
 import { existsSync, realpathSync } from 'node:fs';
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import type { EvidenceAtom } from '@cleocode/contracts';
+import { gitToplevel } from '../git/work-tree.js';
 import type { BrainEdgeType, BrainNodeType } from '../store/schema/memory-schema.js';
 import { resolveEvidenceExecutionRoot } from '../tasks/evidence.js';
 import { ensureCommitNode, writeGraphBatch } from './graph-auto-populate.js';
@@ -66,10 +68,28 @@ function real(path: string): string {
   return join(real(parent), basename(abs));
 }
 
+/** True when `child` is `root` or lies below it. */
+function within(root: string, child: string): boolean {
+  const rel = relative(real(root), real(child));
+  return !(rel === '..' || rel.startsWith(`..${sep}`) || isAbsolute(rel));
+}
+
+/** Toplevel of the git checkout holding `abs` (via its nearest existing directory). */
+function checkoutOf(abs: string): string | null {
+  let dir = dirname(abs);
+  while (!existsSync(dir) && dirname(dir) !== dir) dir = dirname(dir);
+  return gitToplevel(dir);
+}
+
 /**
- * The repo-relative POSIX form of an evidence path, or `null` when it lies
- * outside the repository. Relative paths resolve as `validateFiles` resolves
- * them: against the execution root when the file exists there, else the store root.
+ * The POSIX path of an evidence file relative to the checkout that holds it,
+ * or `null` when it lies outside both the execution and the store root.
+ *
+ * The file is located as `validateFiles` located it: the execution root when it
+ * exists there, else the store root, else (validated at a commit only) the
+ * execution root. Keying by the holding checkout makes a file verified from a
+ * worktree, from the main checkout, or through a store that parents several
+ * repositories (T14005) one node with the commit-anchored form.
  *
  * @param path - Path as the `files:` atom stored it.
  * @param executionRoot - Root of the repository the evidence is about.
@@ -86,8 +106,12 @@ export function repoRelativeEvidencePath(
   storeRoot: string,
 ): string | null {
   const fromExecution = isAbsolute(path) ? path : resolve(executionRoot, path);
-  const abs = existsSync(fromExecution) ? fromExecution : resolve(storeRoot, path);
-  const rel = relative(real(executionRoot), real(abs));
+  const fromStore = resolve(storeRoot, path);
+  const abs = existsSync(fromExecution) || !existsSync(fromStore) ? fromExecution : fromStore;
+  const insideExecution = within(executionRoot, abs);
+  if (!insideExecution && !within(storeRoot, abs)) return null;
+  const base = checkoutOf(abs) ?? (insideExecution ? executionRoot : storeRoot);
+  const rel = relative(real(base), real(abs));
   if (rel === '' || rel === '..' || rel.startsWith(`..${sep}`) || isAbsolute(rel)) return null;
   return rel.split(sep).join('/');
 }
@@ -167,12 +191,26 @@ export async function linkVerifiedEvidence(
     }
   }
   await writeGraphBatch(projectRoot, nodes, edges);
+  const failed: Array<{ sha: string; error: unknown }> = [];
   for (const sha of shas) {
-    await ensureCommitNode(projectRoot, sha, taskId, {
-      provenance: EVIDENCE_EDGE_PROVENANCE,
-      explicit: true,
-    });
-    result.commits++;
+    try {
+      await ensureCommitNode(projectRoot, sha, taskId, {
+        provenance: EVIDENCE_EDGE_PROVENANCE,
+        explicit: true,
+      });
+      result.commits++;
+    } catch (error) {
+      failed.push({ sha, error });
+    }
+  }
+  if (failed.length > 0) {
+    const first = failed[0]?.error;
+    // @sync-invariant none:local-only the verification already committed; the caller warns
+    throw new Error(
+      `commit links failed for ${failed.map((f) => f.sha.slice(0, 12)).join(', ')}; ` +
+        `written: task, ${result.files} file, ${result.decisions} decision and ${result.commits} commit link(s): ` +
+        (first instanceof Error ? first.message : String(first)),
+    );
   }
   return result;
 }

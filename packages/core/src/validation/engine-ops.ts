@@ -1241,7 +1241,7 @@ export async function validateGateVerify(
         pushWarning({
           // @sync-invariant none:local-only a warning; the verification already committed
           code: 'W_EVIDENCE_GRAPH_LINK_FAILED',
-          message: `Evidence accepted; graph links not written: ${err instanceof Error ? err.message : String(err)}`,
+          message: `Evidence accepted; graph linking failed: ${err instanceof Error ? err.message : String(err)}`,
         });
       }
     }

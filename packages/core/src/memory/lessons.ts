@@ -79,7 +79,8 @@ function readLessons(db: DatabaseSync, scope: 'project' | 'global', limit: numbe
  *
  * With scope `all` each store is read on its own: a store that fails is
  * reported to `onStoreError` and the other store's lessons are still listed.
- * Only when every store fails does the call throw.
+ * When every store fails the call throws one error naming each store's cause,
+ * and `onStoreError` is not called.
  *
  * @param projectRoot - Project whose brain is read for `project` / `all`.
  * @param options - `scope` (default `all`), `limit` (default 50) and
@@ -124,19 +125,21 @@ export async function listLessons(
     ]);
   }
   const lessons: LessonEntry[] = [];
-  const errors: Error[] = [];
+  const errors: Array<['project' | 'global', Error]> = [];
   for (const [store, read] of readers) {
     try {
       lessons.push(...(await read()));
     } catch (err) {
       const error = err instanceof Error ? err : new Error(String(err));
       if (readers.length === 1) throw error;
-      errors.push(error);
-      options.onStoreError?.(store, error);
+      errors.push([store, error]);
     }
   }
-  // @sync-invariant none:local-only a read that reached no store writes nothing
-  if (errors.length === readers.length) throw errors[0];
+  if (errors.length === readers.length) {
+    // @sync-invariant none:local-only a read that reached no store writes nothing
+    throw new Error(errors.map(([store, error]) => `${store} brain: ${error.message}`).join('; '));
+  }
+  for (const [store, error] of errors) options.onStoreError?.(store, error);
   return lessons
     .sort((a, b) => (a.createdAt < b.createdAt ? 1 : a.createdAt > b.createdAt ? -1 : 0))
     .slice(0, limit);
