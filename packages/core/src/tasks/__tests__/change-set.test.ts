@@ -413,7 +413,7 @@ describe('worktrees and declared git roots (AC4)', () => {
                 kind: 'pr' as const,
                 prNumber: 1,
                 mergeCommitSha,
-                ...(headSha ? { headSha } : {}),
+                ...(headSha !== undefined ? { headSha } : {}),
                 mergedAt: '2026-10-24T00:00:00Z',
                 successCount: 1,
                 totalChecks: 1,
@@ -439,6 +439,26 @@ describe('worktrees and declared git roots (AC4)', () => {
       /Re-record implemented/,
     );
     expect(await boundHeadGapReason(viaPr(squash, mine), [run(mine)], repo)).toBeNull();
+    // A two-commit branch: a run on its first commit never saw the second.
+    git(repo, ['switch', '-q', '-c', 'two', branchBase]);
+    writeFileSync(join(repo, 'one.ts'), 'export const one = 1;\n');
+    git(repo, ['add', '-A']);
+    git(repo, ['commit', '-q', '-m', 'part one']);
+    const partOne = git(repo, ['rev-parse', 'HEAD']);
+    writeFileSync(join(repo, 'two.ts'), 'export const two = 2;\n');
+    git(repo, ['add', '-A']);
+    git(repo, ['commit', '-q', '-m', 'part two']);
+    const partTwo = git(repo, ['rev-parse', 'HEAD']);
+    git(repo, ['switch', '-q', 'main']);
+    git(repo, ['merge', '-q', '--no-ff', '-m', 'Merge two', partTwo]);
+    const twoMerge = git(repo, ['rev-parse', 'HEAD']);
+    expect(await boundHeadGapReason(viaPr(twoMerge), [run(partOne)], repo)).toMatch(/never saw/);
+    expect(await boundHeadGapReason(viaPr(twoMerge, partTwo), [run(partOne)], repo)).toMatch(
+      /never saw/,
+    );
+    expect(await boundHeadGapReason(viaPr(twoMerge), [run(partTwo)], repo)).toBeNull();
+    // An empty recorded head matches nothing.
+    expect(await boundHeadGapReason(viaPr(squash, ''), [run(mine)], repo)).not.toBeNull();
   });
 });
 

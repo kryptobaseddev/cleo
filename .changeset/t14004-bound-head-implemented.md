@@ -10,10 +10,11 @@ must now have seen the task's recorded `implemented` work:
 
 - `commit:`: the run head is that commit or contains it. A run on the
   branch base, or on any older commit, is refused.
-- `pr:`: the run head contains the merge commit; or it sits on the merge's
-  branch side (reachable from its second parent, not its first); or it is,
-  or contains, the PR's final head. `pr:` atoms now record that head
-  (`headSha`), so a squash-merged PR's branch run still counts.
+- `pr:`: the run head is, or contains, the merge commit or the PR's final
+  head. `pr:` atoms now record that head (`headSha`), so a squash-merged
+  PR's branch run still counts; a legacy atom without it uses the merge's
+  second parent. An earlier commit on the branch is refused: it never saw
+  the whole change. Short SHAs need at least 7 characters to match.
 
 A run that fits none of these is refused at `cleo verify` and again at
 `cleo complete`, even when complete runs from the same other checkout. The

@@ -3798,9 +3798,9 @@ export interface RevalidationResult {
  *
  * - `commit:` — the run head is that commit or contains it. An older commit
  *   (the branch base, main before the work) never saw the work.
- * - `pr:` — the run head contains the merge commit; or is reachable from the
- *   merge's second parent but not its first (the branch work it merged); or
- *   is, or contains, the PR's recorded head (a squash merge, T14004 review).
+ * - `pr:` — the run head is, or contains, the merge commit or the PR's final
+ *   head: its recorded `headSha` (a squash merge too), else the merge's second
+ *   parent. An earlier branch commit never saw the whole change.
  *
  * Evidence bound in another task's worktree is refused even when `cleo
  * complete` runs from that same worktree. A commit git cannot read (a shallow
@@ -3858,18 +3858,21 @@ export async function boundHeadGapReason(
       return false;
     }
   };
-  const sameCommit = (a: string, b: string): boolean => a.startsWith(b) || b.startsWith(a);
+  // A prefix match needs at least 7 hex characters on both sides: '' matches everything.
+  const sameCommit = (a: string, b: string): boolean =>
+    a.length >= 7 && b.length >= 7 && (a.startsWith(b) || b.startsWith(a));
+  const reached = (head: string, sha: string): boolean =>
+    sameCommit(head, sha) || contains(head, sha);
+  // Only positive checks accept: the run head is, or contains, the work's tip.
   const sawWork = (head: string, atom: (typeof implemented)[number]): boolean => {
-    if (atom.kind === 'commit') return sameCommit(head, atom.sha) || contains(head, atom.sha);
+    if (atom.kind === 'commit') return reached(head, atom.sha);
     const merge = atom.mergeCommitSha;
-    if (sameCommit(head, merge) || contains(head, merge)) return true;
-    if (atom.headSha && (sameCommit(head, atom.headSha) || contains(head, atom.headSha))) {
-      return true;
-    }
-    const first = gitOut(['rev-parse', '--verify', '--quiet', `${merge}^1`]);
-    const second = gitOut(['rev-parse', '--verify', '--quiet', `${merge}^2`]);
-    if (!first || !second) return false;
-    return (sameCommit(head, second) || contains(second, head)) && !contains(first, head);
+    if (reached(head, merge)) return true;
+    // The PR's final head; a legacy atom without it falls back to the merge's
+    // second parent. An ancestor of either (an earlier branch commit) never
+    // saw the whole change.
+    const tip = atom.headSha ?? gitOut(['rev-parse', '--verify', '--quiet', `${merge}^2`]);
+    return tip !== null && tip !== '' && reached(head, tip);
   };
   const shas = implemented
     .map((a) => (a.kind === 'commit' ? a.sha : a.mergeCommitSha).slice(0, 12))
