@@ -183,6 +183,52 @@ describe('checkProjectHealth', () => {
     expect(report.files.projectInfo.parseable).toBe(true);
   });
 
+  it('lists a stale nexus index as an issue without changing overall (T14021)', async () => {
+    const projectPath = join(testDir, 'stale-index');
+    const cleoDir = join(projectPath, '.cleo');
+    await mkdir(join(projectPath, 'src'), { recursive: true });
+    await mkdir(cleoDir, { recursive: true });
+    await writeFile(join(projectPath, 'src', 'kept.ts'), 'export {};\n');
+    makeHealthyDb(join(cleoDir, 'cleo.db'), 1);
+    makeHealthyDb(join(cleoDir, 'brain.db'), 1);
+    makeHealthyDb(join(cleoDir, 'conduit.db'), 1);
+    await writeFile(join(cleoDir, 'config.json'), JSON.stringify({ a: 1 }));
+    await writeFile(join(cleoDir, 'project-info.json'), JSON.stringify({ projectId: 'abc' }));
+    // An index that still holds a file deleted since (the deleted-clone case).
+    const db = new DatabaseSync(join(cleoDir, 'cleo.db'));
+    try {
+      db.exec('CREATE TABLE _nexus_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL)');
+      db.prepare('INSERT INTO _nexus_meta (key, value) VALUES (?, ?)').run(
+        'graph_file_manifest',
+        JSON.stringify({
+          generation: 'g1',
+          sourceRoot: '.',
+          includedRepositories: [],
+          assessedAt: new Date().toISOString(),
+          files: [
+            ['src/kept.ts', 10, 0, 'h1'],
+            ['clone/gone.ts', 10, 0, 'h2'],
+          ],
+        }),
+      );
+    } finally {
+      db.close();
+    }
+
+    const report = await checkProjectHealth(projectPath, 'staleidx0001');
+
+    expect(report.overall).toBe('healthy');
+    expect(report.nexusIndex).toMatchObject({
+      indexed: true,
+      stale: true,
+      missingFileCount: 1,
+      missingPaths: ['clone/gone.ts'],
+    });
+    expect(report.issues).toEqual([
+      'nexus index stale: 1 indexed file(s) no longer on disk (indexed 0d ago); run cleo nexus analyze',
+    ]);
+  });
+
   it('returns overall=degraded when config.json is malformed', async () => {
     const projectPath = join(testDir, 'bad-config');
     const cleoDir = join(projectPath, '.cleo');

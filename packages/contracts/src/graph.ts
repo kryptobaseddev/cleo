@@ -923,6 +923,13 @@ export interface GraphIndexFreshness {
   staleFileCount: number;
   /** Up to a bounded sample of stale paths, for disclosure. */
   stalePaths: string[];
+  /**
+   * Indexed files that no longer exist on disk (a deleted file or a removed
+   * clone the index still answers from; T14021). A subset of the stale set.
+   */
+  missingFileCount?: number;
+  /** Up to a bounded sample of {@link GraphIndexFreshness.missingFileCount}'s paths. */
+  missingPaths?: string[];
   /** Whether the queried symbol's own file is stale; absent when no symbol file is known. */
   symbolFileStale?: boolean;
   /** The symbol file the `symbolFileStale` verdict describes. */
@@ -971,6 +978,10 @@ export interface NexusAnswerFreshness {
   ageDays: number | null;
   /** When the index was built. */
   lastIndexedAt: string | null;
+  /** Indexed files that no longer exist on disk; `null` when unassessed (T14021). */
+  missingFileCount: number | null;
+  /** A bounded sample of those paths. */
+  missingPaths: string[];
 }
 
 // ---------------------------------------------------------------------------

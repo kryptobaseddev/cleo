@@ -38,12 +38,28 @@ import {
   type RefreshCooldown,
   readActiveRefreshCooldown,
   readFileManifest,
-  readIndexedRevision,
   readRunCost,
   refreshCooldownApplies,
   writeRefreshCooldown,
 } from './graph-manifest.js';
+import {
+  envSwitch,
+  measureAgainstBase,
+  missingIndexedPaths,
+  NEXUS_ALLOW_STALE_ENV,
+  type NexusStalePolicy,
+} from './index-health.js';
 import { releasePidLock, takePidLock } from './pid-lock.js';
+
+export {
+  DEFAULT_MAX_COMMITS_BEHIND,
+  measureAgainstBase,
+  NEXUS_ALLOW_STALE_ENV,
+  type NexusIndexHealth,
+  type NexusStalePolicy,
+  probeNexusIndexHealth,
+  readNexusStalePolicy,
+} from './index-health.js';
 
 /** Command that refreshes the index; incremental by default since T12315. */
 export const NEXUS_REFRESH_COMMAND = 'cleo nexus analyze';
@@ -226,69 +242,6 @@ export async function assessNexusIndexFreshness(
   return judgeSymbolFiles(assessment, options.symbolFiles ?? []);
 }
 
-/** Milliseconds per day, for {@link GraphIndexFreshness.ageDays}. */
-const DAY_MS = 86_400_000;
-
-/**
- * Where the index stands against the base branch (T14007): the indexed
- * revision, the base ref and its commit, the commits the index has not seen,
- * and its age. Measured against the base ref, never the working tree or HEAD,
- * so a checkout on an old branch cannot make a stale index look fresh.
- *
- * @param db - Project graph database.
- * @param sourceRoot - Repository the index describes.
- * @param lastIndexedAt - Assessment time of the published generation.
- * @returns The revision fields of {@link GraphIndexFreshness}.
- */
-export async function measureAgainstBase(
-  db: Awaited<ReturnType<typeof getNexusDb>>,
-  sourceRoot: string,
-  lastIndexedAt: string | null,
-): Promise<
-  Pick<
-    GraphIndexFreshness,
-    | 'indexedRevision'
-    | 'baseRef'
-    | 'baseRevision'
-    | 'commitsBehind'
-    | 'commitsBehindHead'
-    | 'changedFilesSinceIndex'
-    | 'ageDays'
-  >
-> {
-  const { changedFilesSince, commitsBetween, resolveBaseRef, revParse } = await import(
-    '../git/base-ref.js'
-  );
-  const indexedRevision = readIndexedRevision(db);
-  const baseRef = resolveBaseRef(sourceRoot);
-  const baseRevision = baseRef ? revParse(sourceRoot, baseRef) : null;
-  const commitsBehind =
-    indexedRevision && baseRevision
-      ? commitsBetween(sourceRoot, indexedRevision, baseRevision)
-      : null;
-  // T14008: what is checked out is what a query is about; the base distance is report-only.
-  const commitsBehindHead = indexedRevision
-    ? commitsBetween(sourceRoot, indexedRevision, 'HEAD')
-    : null;
-  // T14014: a cheap, walk-free count for reporting; the walk stays authoritative.
-  const changedFilesSinceIndex = indexedRevision
-    ? changedFilesSince(sourceRoot, indexedRevision)
-    : null;
-  const indexedMs = lastIndexedAt ? Date.parse(lastIndexedAt) : Number.NaN;
-  const ageDays = Number.isFinite(indexedMs)
-    ? Math.max(0, Math.floor((Date.now() - indexedMs) / DAY_MS))
-    : null;
-  return {
-    indexedRevision,
-    baseRef,
-    baseRevision,
-    commitsBehind,
-    commitsBehindHead,
-    changedFilesSinceIndex,
-    ageDays,
-  };
-}
-
 /** Walk the tree once and keep the full stale set alongside the disclosed facts. */
 async function assessWithStaleSet(
   projectRoot: string,
@@ -377,7 +330,10 @@ async function assessWithStaleSet(
     seen.add(file.path);
     if (known.get(file.path)?.contentHash !== file.contentHash) stale.add(file.path);
   }
-  for (const path of known.keys()) if (!seen.has(path)) stale.add(path);
+  const unseen = [...known.keys()].filter((path) => !seen.has(path));
+  for (const path of unseen) stale.add(path);
+  // T14021: unseen paths can be excluded files still on disk; only absent ones are missing.
+  const missing = missingIndexedPaths(manifest.sourceRoot, unseen);
 
   const fileCount = manifest.files.length;
   const { toParse, reusable } =
@@ -392,57 +348,12 @@ async function assessWithStaleSet(
     fileCount,
     staleFileCount: stale.size,
     stalePaths: [...stale].sort().slice(0, sampleLimit),
+    missingFileCount: missing.length,
+    missingPaths: missing.slice(0, sampleLimit),
     refreshEstimate: describeEstimate(estimate, stale.size, toParse),
     checkMs: Math.round(performance.now() - started),
   };
   return { freshness, staleFiles: stale, refreshPlan: { toParse, reusable, estimateMs: estimate } };
-}
-
-/** Default for `nexus.freshness.maxCommitsBehind` (T14008, lead decision 2026-10-24). */
-export const DEFAULT_MAX_COMMITS_BEHIND = 50;
-
-/** Env var that accepts a stale answer for any graph query (T14008). */
-export const NEXUS_ALLOW_STALE_ENV = 'CLEO_NEXUS_ALLOW_STALE';
-
-/** When a graph answer from a stale index is refused (T14008). */
-export interface NexusStalePolicy {
-  /** Most commits the index may trail the base branch. */
-  maxCommitsBehind: number;
-  /** The caller accepted a stale answer (`--allow-stale` or {@link NEXUS_ALLOW_STALE_ENV}). */
-  allowStale: boolean;
-}
-
-/**
- * Read the stale-answer policy: `nexus.freshness.maxCommitsBehind` (default
- * {@link DEFAULT_MAX_COMMITS_BEHIND}) and the caller's opt-out.
- *
- * @param projectRoot - Project whose merged config is read.
- * @param options - `allowStale` from the caller's flag.
- * @returns The effective policy.
- * @example
- * ```ts
- * const policy = await readNexusStalePolicy(root, { allowStale: args['allow-stale'] });
- * ```
- */
-export async function readNexusStalePolicy(
-  projectRoot: string,
-  options: { allowStale?: boolean } = {},
-): Promise<NexusStalePolicy> {
-  let raw: unknown;
-  try {
-    raw = await getConfigValue('nexus.freshness.maxCommitsBehind', { projectRoot });
-  } catch {
-    raw = undefined;
-  }
-  const configured = Number(raw);
-  return {
-    maxCommitsBehind:
-      raw !== undefined && raw !== null && Number.isInteger(configured) && configured >= 0
-        ? configured
-        : DEFAULT_MAX_COMMITS_BEHIND,
-    allowStale:
-      options.allowStale === true || envSwitch(process.env[NEXUS_ALLOW_STALE_ENV]) === true,
-  };
 }
 
 /**
@@ -462,6 +373,8 @@ export function answerFreshness(freshness: GraphIndexFreshness): NexusAnswerFres
     refreshCooldownUntil: freshness.refreshCooldownUntil ?? null,
     ageDays: freshness.ageDays ?? null,
     lastIndexedAt: freshness.lastIndexedAt,
+    missingFileCount: freshness.missingFileCount ?? null,
+    missingPaths: freshness.missingPaths ?? [],
   };
 }
 
@@ -548,14 +461,6 @@ export async function readNexusAutoRefreshPolicy(
   if (env === false)
     return { ...policyFrom(false, maxFiles, budgetMs), disabledBy: 'CLEO_NEXUS_AUTO_REFRESH' };
   return policyFrom(enabled, maxFiles, budgetMs);
-}
-
-/** Read an on/off env value (`true`/`false`, `1`/`0`, `yes`/`no`, `on`/`off`); `undefined` otherwise. */
-function envSwitch(value: unknown): boolean | undefined {
-  const text = String(value).trim().toLowerCase();
-  if (['true', '1', 'yes', 'on'].includes(text)) return true;
-  if (['false', '0', 'no', 'off'].includes(text)) return false;
-  return undefined;
 }
 
 /** Apply defaults to raw `nexus.autoRefresh.*` values. */
@@ -1034,6 +939,17 @@ export function discloseNexusFreshness(subject: string, freshness: GraphIndexFre
       code: 'W_NEXUS_INDEX_REFRESHED',
       severity: 'info',
       message: `Refreshed the index inline before answering (${refresh.staleFiles} stale file(s), ${refresh.durationMs}ms): ${refresh.reason}`,
+    });
+  }
+  const missing = freshness.missingFileCount ?? 0;
+  if (missing > 0) {
+    pushWarning({
+      code: 'W_NEXUS_INDEX_MISSING_PATHS',
+      severity: 'warn',
+      message:
+        `${subject} answered from an index that still holds ${missing} file(s) no longer on disk ` +
+        `(e.g. ${(freshness.missingPaths ?? []).slice(0, 3).join(', ')}); results may cite deleted code. ` +
+        `Refresh: ${freshness.refreshCommand}.`,
     });
   }
   if (freshness.status === 'fresh') return;
