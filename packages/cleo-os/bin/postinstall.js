@@ -1,16 +1,16 @@
 /**
- * CleoOS postinstall — scaffolds the global XDG hub and deploys extensions.
+ * CleoOS postinstall — deploys the extensions `cleoos` needs to start.
  *
  * Runs automatically after `npm install -g @cleocode/cleo-os`.
- * Creates an XDG-compliant directory structure, copies the compiled CANT
- * bridge extension to the extensions directory, and optionally invokes
- * `cleo skills install` for any bundled CleoOS skills.
+ * Creates the XDG directories and copies the compiled extensions. Since
+ * T13996 (ADR-098: the Pi/CleoOS harness is retiring) it no longer seeds
+ * `.cant` files or runs `cleo skills install`, and it prints a deprecation
+ * notice.
  *
  * Behaviour:
  *   - Skips silently during workspace/dev installs (non-global).
  *   - All directory creation is idempotent (no-op if directory exists).
- *   - Extensions and starter bundle files are always overwritten on upgrade.
- *   - Skill install is best-effort; failures are logged but not fatal.
+ *   - Extensions are always overwritten on upgrade.
  *   - Missing `@mariozechner/pi-coding-agent` is handled gracefully.
  *
  * This source compiles to `bin/postinstall.js` via a dedicated tsconfig
@@ -19,8 +19,7 @@
  *
  * @packageDocumentation
  */
-import { execFileSync } from 'node:child_process';
-import { cpSync, existsSync, lstatSync, mkdirSync, readdirSync, readlinkSync, symlinkSync, unlinkSync, writeFileSync, } from 'node:fs';
+import { cpSync, existsSync, lstatSync, mkdirSync, readlinkSync, symlinkSync, unlinkSync, } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import envPaths from 'env-paths';
@@ -206,142 +205,20 @@ function linkExtensionNodeModules(pkgRoot, extensionsDir) {
 // ---------------------------------------------------------------------------
 // Default CANT file scaffolding
 // ---------------------------------------------------------------------------
-/**
- * Write a default `model-routing.cant` stub to the XDG CANT directory if
- * no `.cant` files are present. This gives the user a starting point for
- * CANT declarations without overwriting any existing work.
- *
- * @param cantDir - Absolute path to the XDG CANT directory.
- */
-function scaffoldDefaultCant(cantDir) {
-    const modelRoutingPath = join(cantDir, 'model-routing.cant');
-    if (existsSync(modelRoutingPath))
-        return;
-    const stub = [
-        '# CleoOS default model-routing.cant',
-        '# Declare agents, teams, and routing rules here.',
-        '# See: https://github.com/kryptobaseddev/cleo/blob/main/docs/cant-dsl.md',
-        '',
-    ].join('\n');
-    try {
-        writeFileSync(modelRoutingPath, stub, 'utf-8');
-        process.stdout.write(`CleoOS: created default ${modelRoutingPath}\n`);
-    }
-    catch {
-        // Best-effort: non-fatal.
-    }
-}
 // ---------------------------------------------------------------------------
 // Starter bundle deployment
 // ---------------------------------------------------------------------------
-/**
- * Resolve the starter-bundle source directory.
- *
- * Per D035 (v2026.4.111) the starter-bundle lives in `@cleocode/agents/`
- * (NOT in `@cleocode/cleo-os/`) so universal agent content lives with the
- * rest of the agent surface area. This helper walks a short candidate list
- * so both workspace (dev) and globally-installed layouts resolve.
- *
- * Order of precedence:
- *  1. `<pkgRoot>/../agents/starter-bundle` — sibling workspace package
- *  2. `<pkgRoot>/node_modules/@cleocode/agents/starter-bundle` — global install
- *  3. `<pkgRoot>/../../@cleocode/agents/starter-bundle` — hoisted global install
- *
- * @param pkgRoot - Absolute path to the installed cleo-os package root.
- * @returns Absolute path to the starter-bundle directory, or `null` when not found.
- */
-function resolveStarterBundleSrc(pkgRoot) {
-    const candidates = [
-        join(pkgRoot, '..', 'agents', 'starter-bundle'),
-        join(pkgRoot, 'node_modules', '@cleocode', 'agents', 'starter-bundle'),
-        join(pkgRoot, '..', '..', '@cleocode', 'agents', 'starter-bundle'),
-    ];
-    return candidates.find((p) => existsSync(p)) ?? null;
-}
-/**
- * Deploy the starter CANT bundle to the global XDG CANT directory.
- *
- * Copies `starter-bundle/` contents (team.cant + agents/*.cant) to
- * `~/.local/share/cleo/cant/starter/`. Always overwrites existing files
- * so that upgrades deploy the latest bundle versions. These are managed
- * files in the global tier, not user-editable project configs.
- *
- * @param pkgRoot - Absolute path to the installed package root.
- * @param cantDir - Absolute path to the XDG CANT directory.
- */
-function deployStarterBundle(pkgRoot, cantDir) {
-    const bundleSrc = resolveStarterBundleSrc(pkgRoot);
-    if (!bundleSrc) {
-        process.stdout.write('CleoOS: skipping starter bundle (source not found)\n');
-        return;
-    }
-    const starterDest = join(cantDir, 'starter');
-    const agentsDest = join(starterDest, 'agents');
-    // Ensure destination directories exist
-    ensureDir(starterDest);
-    ensureDir(agentsDest);
-    // Copy team.cant (always overwrite on upgrade)
-    const teamSrc = join(bundleSrc, 'team.cant');
-    const teamDest = join(starterDest, 'team.cant');
-    if (existsSync(teamSrc)) {
-        const updating = existsSync(teamDest);
-        cpSync(teamSrc, teamDest, { force: true });
-        process.stdout.write(updating
-            ? `CleoOS: updating extension: starter team.cant\n`
-            : `CleoOS: deployed starter team.cant to ${teamDest}\n`);
-    }
-    // Copy agent .cant files (always overwrite on upgrade)
-    const agentsSrcDir = join(bundleSrc, 'agents');
-    if (existsSync(agentsSrcDir)) {
-        try {
-            const entries = readdirSync(agentsSrcDir);
-            for (const entry of entries) {
-                if (!entry.endsWith('.cant'))
-                    continue;
-                const src = join(agentsSrcDir, entry);
-                const dest = join(agentsDest, entry);
-                const updating = existsSync(dest);
-                cpSync(src, dest, { force: true });
-                process.stdout.write(updating
-                    ? `CleoOS: updating extension: starter ${entry}\n`
-                    : `CleoOS: deployed starter ${entry} to ${dest}\n`);
-            }
-        }
-        catch {
-            // Best-effort: non-fatal.
-        }
-    }
-}
 // ---------------------------------------------------------------------------
 // Skill installation
 // ---------------------------------------------------------------------------
-/**
- * Invoke `cleo skills install` via `execFileSync` to register the CleoOS
- * bundled skills with the project. This is best-effort — if `cleo` is not
- * on PATH or the command fails, we log and continue.
- *
- * Uses `execFileSync` (not `exec`) to prevent shell injection: the command
- * and arguments are passed as separate parameters so no shell is spawned.
- */
-function installSkills() {
-    try {
-        execFileSync('cleo', ['skills', 'install'], { stdio: 'inherit' });
-        process.stdout.write('CleoOS: skills install complete\n');
-    }
-    catch {
-        // cleo may not be installed or skills may already be up to date.
-        process.stdout.write('CleoOS: skipping skills install (cleo not found or already installed)\n');
-    }
-}
 // ---------------------------------------------------------------------------
 // Main
 // ---------------------------------------------------------------------------
 /**
  * Entry point for the CleoOS postinstall script.
  *
- * Orchestrates directory scaffolding, extension deployment, node_modules
- * linking, CANT stub creation, and optional skill installation. All
- * operations are idempotent.
+ * Orchestrates directory scaffolding, extension deployment and
+ * node_modules linking. All operations are idempotent.
  */
 function main() {
     if (!isGlobalInstall()) {
@@ -351,7 +228,7 @@ function main() {
     const paths = resolveCleoOsPaths();
     const pkgRoot = resolve(__dirname, '..');
     // 1. Scaffold XDG directories
-    for (const dir of [paths.data, paths.config, paths.extensions, paths.cant, paths.auth]) {
+    for (const dir of [paths.data, paths.config, paths.extensions, paths.auth]) {
         ensureDir(dir);
     }
     // 2. Deploy compiled extensions
@@ -366,12 +243,12 @@ function main() {
     // deployed extensions can resolve @cleocode/* and @mariozechner/*
     // bare-specifier imports against the cleo-os dependency tree.
     linkExtensionNodeModules(pkgRoot, paths.extensions);
-    // 3. Write default CANT stub (only if file does not exist)
-    scaffoldDefaultCant(paths.cant);
-    // 4. Deploy starter CANT bundle (team + agents) to global tier
-    deployStarterBundle(pkgRoot, paths.cant);
-    // 5. Install CleoOS skills (best-effort)
-    installSkills();
+    // T13996 (ADR-098): the CleoOS harness is retiring. The postinstall no
+    // longer seeds .cant files (model-routing stub, starter team bundle) or
+    // runs `cleo skills install`; it only deploys the extensions `cleoos`
+    // itself needs to start.
+    process.stdout.write('CleoOS: @cleocode/cleo-os is deprecated (ADR-098). Use the cleo CLI with your own harness; ' +
+        'CLEO Goal drives autonomous runs.\n');
     process.stdout.write('CleoOS: postinstall complete\n');
 }
 main();
