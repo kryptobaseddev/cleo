@@ -43,6 +43,7 @@ import * as orchestration from '@cleocode/core/orchestration/index';
 import { getProjectRoot } from '@cleocode/core/project-scope';
 import { defineCommand, showUsage } from 'citty';
 import { dispatchFromCli } from '../../dispatch/adapters/cli.js';
+import { warnConduitDeprecated } from '../lib/conduit-deprecation.js';
 import { negatedFlag } from '../lib/negated-flag.js';
 import { cliOutput } from '../renderers/index.js';
 
@@ -942,6 +943,7 @@ const worktreeCompleteCommand = defineCommand({
 const conduitStatusCommand = defineCommand({
   meta: { name: 'conduit-status', description: 'Get conduit messaging status' },
   async run() {
+    warnConduitDeprecated('orchestrate conduit-status');
     await dispatchFromCli('query', 'conduit', 'status', {}, { command: 'orchestrate' });
   },
 });
@@ -960,6 +962,7 @@ const conduitPeekCommand = defineCommand({
     },
   },
   async run({ args }) {
+    warnConduitDeprecated('orchestrate conduit-peek');
     await dispatchFromCli(
       'query',
       'conduit',
@@ -984,6 +987,7 @@ const conduitStartCommand = defineCommand({
     },
   },
   async run({ args }) {
+    warnConduitDeprecated('orchestrate conduit-start');
     await dispatchFromCli(
       'mutate',
       'conduit',
@@ -1007,6 +1011,7 @@ const conduitStartCommand = defineCommand({
 const conduitStopCommand = defineCommand({
   meta: { name: 'conduit-stop', description: 'Stop the conduit message loop' },
   async run() {
+    warnConduitDeprecated('orchestrate conduit-stop');
     await dispatchFromCli('mutate', 'conduit', 'stop', {}, { command: 'orchestrate' });
   },
 });
@@ -1121,6 +1126,7 @@ const conduitSendCommand = defineCommand({
     },
   },
   async run({ args }) {
+    warnConduitDeprecated('orchestrate conduit-send');
     await dispatchFromCli(
       'mutate',
       'conduit',

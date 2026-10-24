@@ -52,6 +52,7 @@ import { dispatchFromCli, dispatchRaw } from '../../dispatch/adapters/cli.js';
 import { buildNexusMetaExtensions } from '../../dispatch/nexus-decorator.js';
 import { asCleoErrorLike, cleoErrorCodeName } from '../cleo-error-like.js';
 import { getFormatContext, setFormatContext } from '../format-context.js';
+import { warnConduitDeprecated } from '../lib/conduit-deprecation.js';
 import { negatedFlag } from '../lib/negated-flag.js';
 import { cliError, cliOutput, humanInfo, humanWarn } from '../renderers/index.js';
 
@@ -2634,6 +2635,7 @@ const conduitScanCommand = defineCommand({
     },
   },
   async run({ args }) {
+    warnConduitDeprecated('nexus conduit-scan');
     applyJsonFlag(args.json as boolean | undefined);
     const startTime = Date.now();
     const response = await dispatchRaw('mutate', 'nexus', 'conduit-scan', {});

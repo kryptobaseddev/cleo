@@ -21,6 +21,7 @@
 
 import { defineCommand, showUsage } from 'citty';
 import { dispatchFromCli } from '../../dispatch/adapters/cli.js';
+import { warnConduitDeprecated } from '../lib/conduit-deprecation.js';
 
 /** cleo conduit status — show conduit daemon health and queue depth */
 const statusCommand = defineCommand({
@@ -33,6 +34,7 @@ const statusCommand = defineCommand({
     },
   },
   async run({ args }) {
+    warnConduitDeprecated('conduit status');
     await dispatchFromCli(
       'query',
       'conduit',
@@ -64,6 +66,7 @@ const peekCommand = defineCommand({
     },
   },
   async run({ args }) {
+    warnConduitDeprecated('conduit peek');
     await dispatchFromCli(
       'query',
       'conduit',
@@ -93,6 +96,7 @@ const startCommand = defineCommand({
     },
   },
   async run({ args }) {
+    warnConduitDeprecated('conduit start');
     await dispatchFromCli(
       'mutate',
       'conduit',
@@ -110,6 +114,7 @@ const startCommand = defineCommand({
 const stopCommand = defineCommand({
   meta: { name: 'stop', description: 'Stop the active Conduit polling daemon' },
   async run() {
+    warnConduitDeprecated('conduit stop');
     await dispatchFromCli(
       'mutate',
       'conduit',
@@ -146,6 +151,7 @@ const sendCommand = defineCommand({
     },
   },
   async run({ args }) {
+    warnConduitDeprecated('conduit send');
     await dispatchFromCli(
       'mutate',
       'conduit',
@@ -197,6 +203,7 @@ const publishCommand = defineCommand({
     },
   },
   async run({ args }) {
+    warnConduitDeprecated('conduit publish');
     // When --content is omitted, fall back to --payload so the caller can
     // supply just a JSON payload without duplicating it in --content.
     const content = (args.content as string | undefined) ?? args.payload ?? '{}';
@@ -248,6 +255,7 @@ const subscribeCommand = defineCommand({
     },
   },
   async run({ args }) {
+    warnConduitDeprecated('conduit subscribe');
     await dispatchFromCli(
       'mutate',
       'conduit',
@@ -293,6 +301,7 @@ const listenCommand = defineCommand({
     },
   },
   async run({ args }) {
+    warnConduitDeprecated('conduit listen');
     await dispatchFromCli(
       'query',
       'conduit',
