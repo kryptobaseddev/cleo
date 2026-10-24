@@ -1,5 +1,86 @@
 # Changelog
 
+## [2026.10.22] (2026-10-24)
+
+> **Update now: run `cleo self-update`.**
+
+### Highlights
+
+- **Pi/CleoOS harness freeze (ADR-098).**
+  - `cleo init` and `cleo upgrade` no longer seed the CleoOS hub, and `cleo admin scaffold-hub` is hidden and deprecated.
+  - CAAMP no longer defaults to Pi: Pi's registry priority is `medium` and the default exclusivity mode is `legacy`. With Pi and another high-tier provider installed, the default target is now that provider.
+  - The `@cleocode/cleo-os` postinstall stops seeding `.cant` files and skills.
+  - `cleo tui` and every `caamp pi` verb print a deprecation notice and otherwise work as before.
+- **BRAIN and NEXUS.**
+  - NEXUS measures index freshness against the base branch. Every index-sensitive answer carries it, and an index too far behind fails with exit 111.
+  - Analysis is resumable, and an opt-in background reindex runs after merges (`cleo nexus reindex-on-merge --enable`).
+  - Dead registry rows are reported. A registry row records its host, so `projects clean` never removes another host's rows.
+  - Memory retrieval uses one fused ranking and skips auto, low-quality and invalidated rows on the vector path.
+  - Accepted evidence links tasks to their commits, files and decisions in the BRAIN graph, with repository-qualified ids in multi-repo stores.
+  - `cleo docs add` links documents with a `documents` edge.
+- **Freshness Sentinel repaired.** The daily freshness sentinel runs again and fails honestly; it had failed every day since 2026-05-18.
+- **Evidence.**
+  - Research and documentation tasks owe only the gates that fit them. Any code in their work still needs the code gates, and if a task's work can't be inspected it is treated as code.
+  - Test and QA runs must have seen the task's implemented work.
+  - `pr:`/`ci:` evidence is cached per repository, and `pr:<owner>/<repo>#<n>` names the repository.
+- **`node_modules` symlinks are ignored.** `.gitignore` patterns now cover the `node_modules` symlink a CLEO worktree links in, so `git add -A` can no longer commit it.
+
+### Also in this release
+
+These shipped as commits, but their tasks are still open, so their changesets stay pending:
+
+- T13994, T13995, T13996: the three Pi/CleoOS freeze steps above. They stay open until the ADR-098 task T13993 completes.
+- T13666, T13667, T13949, T13951, T13981, T13986, T13987, T13991: merged, but their evidence is not recorded yet. T13991 also waits on T13987.
+
+### Added
+
+- a document attached with `cleo docs add` is linked in BRAIN by an `llmtxt:<sha> --documents--> owner` edge, written whatever brain.autoCapture says _(provenance: [T13985](https://github.com/kryptobaseddev/cleo/search?q=T13985&type=commits))_
+- `cleo docs add` no longer writes a Doc attached memory observation; the document is linked by its documents edge _(provenance: [T13985](https://github.com/kryptobaseddev/cleo/search?q=T13985&type=commits))_
+- `cleo verify` links a task to the commits, files and decisions its accepted evidence names, in the BRAIN graph _(provenance: [T13950](https://github.com/kryptobaseddev/cleo/search?q=T13950&type=commits))_
+- Evidence file and commit graph ids carry a repository key for every repository but the store's primary one; `cleo brain migrate-repo-ids --apply` moves existing links _(provenance: [T14012](https://github.com/kryptobaseddev/cleo/search?q=T14012&type=commits))_
+- memory find ranks one list across tables by recency and source, fuses vector and graph hits, and warns when the vector layer is unavailable _(provenance: [T13948](https://github.com/kryptobaseddev/cleo/search?q=T13948&type=commits))_
+- NEXUS freshness reports how many commits the index trails the base branch, and its age _(provenance: [T14007](https://github.com/kryptobaseddev/cleo/search?q=T14007&type=commits))_
+- Graph answers report indexed files gone from disk, and `cleo doctor --all-projects` flags stale NEXUS indexes per project _(provenance: [T14021](https://github.com/kryptobaseddev/cleo/search?q=T14021&type=commits), [T13922](https://github.com/kryptobaseddev/cleo/search?q=T13922&type=commits))_
+- NEXUS inline refresh is gated by a size-scaled cost estimate, not a 25-file cap and a 30% stale gate _(provenance: [T14014](https://github.com/kryptobaseddev/cleo/search?q=T14014&type=commits))_
+- Opt-in background NEXUS reindex after a merge into the base branch (`cleo nexus reindex-on-merge --enable`) _(provenance: [T14010](https://github.com/kryptobaseddev/cleo/search?q=T14010&type=commits))_
+- NEXUS analysis keeps its parse work across an abort, and honours its budget in every phase _(provenance: [T14009](https://github.com/kryptobaseddev/cleo/search?q=T14009&type=commits))_
+- Graph answers carry `data.freshness` and fail with E_NEXUS_INDEX_STALE (exit 111) when the index is too far behind the base branch _(provenance: [T14008](https://github.com/kryptobaseddev/cleo/search?q=T14008&type=commits), [T13922](https://github.com/kryptobaseddev/cleo/search?q=T13922&type=commits))_
+- cleo run --urgent queues ahead of routine work, and a hooked git push is charged its measured peak _(provenance: [T13921](https://github.com/kryptobaseddev/cleo/search?q=T13921&type=commits))_
+- Research and documentation tasks no longer owe testsPassed/qaPassed unless their work touches code _(provenance: [T14001](https://github.com/kryptobaseddev/cleo/search?q=T14001&type=commits), [T14002](https://github.com/kryptobaseddev/cleo/search?q=T14002&type=commits))_
+
+### Changed
+
+- core skills teach plan, execute, verify instead of RCASD stages and the IVTR loop _(provenance: [T13958](https://github.com/kryptobaseddev/cleo/search?q=T13958&type=commits))_
+- cleo conduit, orchestrate conduit-*, nexus conduit-scan and graph living conduit-scan are deprecated and will be removed in the next release _(provenance: [T13982](https://github.com/kryptobaseddev/cleo/search?q=T13982&type=commits))_
+- remove the unused cleo-conduit-core Rust crate _(provenance: [T13954](https://github.com/kryptobaseddev/cleo/search?q=T13954&type=commits))_
+
+### Fixed
+
+- Budgeted retrieval no longer returns auto rows, low-quality or invalidated rows that only the vector search found _(provenance: [T13968](https://github.com/kryptobaseddev/cleo/search?q=T13968&type=commits))_
+- cleo add --type epic no longer writes lifecycle rows or a .cleo/rcasd stub; orchestrate start records the research row without a stub file _(provenance: [T13944](https://github.com/kryptobaseddev/cleo/search?q=T13944&type=commits))_
+- Evidence file nodes are keyed by the checkout that holds the file; clearer graph-link and lessons warnings _(provenance: [T14005](https://github.com/kryptobaseddev/cleo/search?q=T14005&type=commits))_
+- E_IVTR_INCOMPLETE fixes and the parent-epic E_LIFECYCLE_GATE_FAILED fix no longer point at cleo go, cleo playbook run ivtr or cleo lifecycle complete _(provenance: [T13945](https://github.com/kryptobaseddev/cleo/search?q=T13945&type=commits))_
+- Budgeted NEXUS analyses skip community detection instead of overrunning, parse-cache checkpoints leave the parse hot path, and parser limits are part of the cache identity _(provenance: [T14016](https://github.com/kryptobaseddev/cleo/search?q=T14016&type=commits))_
+- An inline NEXUS refresh on a large graph asks `cleo run` admission even when it re-parses few files, with a footprint scaled to the graph _(provenance: [T14019](https://github.com/kryptobaseddev/cleo/search?q=T14019&type=commits))_
+- `cleo nexus status` reports unreachable registry rows; `projects clean --unhealthy` matches them _(provenance: [T14011](https://github.com/kryptobaseddev/cleo/search?q=T14011&type=commits))_
+- `projects clean` never removes a registry row whose project lives on another machine _(provenance: [T14013](https://github.com/kryptobaseddev/cleo/search?q=T14013&type=commits))_
+- Auto-row quarantine guards are rule ids, not SQL; lessons survive a broken brain store _(provenance: [T14003](https://github.com/kryptobaseddev/cleo/search?q=T14003&type=commits))_
+- CLEO stops writing conduit messages: no lifecycle hooks, no spawn or handoff events, and agent events default to the file transport _(provenance: [T13953](https://github.com/kryptobaseddev/cleo/search?q=T13953&type=commits))_
+- spawn prompts send agents to AgentMBX for coordination and to cleo docs for planning documents; the CONDUIT subscription block and .cleo/rcasd paths are gone _(provenance: [T13943](https://github.com/kryptobaseddev/cleo/search?q=T13943&type=commits))_
+- the parent-epic stage gate is opt-in (lifecycle.stageGate, default off), so strict projects no longer strand an epic's children _(provenance: [T13970](https://github.com/kryptobaseddev/cleo/search?q=T13970&type=commits))_
+- The pr/ci evidence cache is per repository, and pr:<owner>/<repo>#<n> names the repository _(provenance: [T13912](https://github.com/kryptobaseddev/cleo/search?q=T13912&type=commits))_
+- A Claude Code turn end no longer ends the CLEO session; the SessionEnd hook does _(provenance: [T13913](https://github.com/kryptobaseddev/cleo/search?q=T13913&type=commits))_
+- An admission wait closed by memory pressure names the host's largest memory users, and an install is charged one process _(provenance: [T13914](https://github.com/kryptobaseddev/cleo/search?q=T13914&type=commits))_
+- cleo done --plan never takes test or lint targets from the working tree; a no-change-set task is told its doc or decision route _(provenance: [T13917](https://github.com/kryptobaseddev/cleo/search?q=T13917&type=commits))_
+- A declared evidence.gitRoot no longer hides the task's worktree, so a test-run report produced there binds _(provenance: [T13926](https://github.com/kryptobaseddev/cleo/search?q=T13926&type=commits))_
+- The first memory-pressure waiting line says when the wait gives up, and the named memory users leave out CLEO's own runs _(provenance: [T13965](https://github.com/kryptobaseddev/cleo/search?q=T13965&type=commits))_
+- test-run and qa-run bindings set aside untracked files outside the change, and refuse at complete once one is committed _(provenance: [T14000](https://github.com/kryptobaseddev/cleo/search?q=T14000&type=commits))_
+- A test-run or qa-run that never saw the task's implemented work is refused as its evidence _(provenance: [T14004](https://github.com/kryptobaseddev/cleo/search?q=T14004&type=commits))_
+- The own-work search is reused per task within a process, skips done tasks in release plan, and reads origin branches _(provenance: [T14006](https://github.com/kryptobaseddev/cleo/search?q=T14006&type=commits))_
+- Process-group lookup works on macOS when one pid is out of range _(provenance: [T14015](https://github.com/kryptobaseddev/cleo/search?q=T14015&type=commits))_
+- Release note: re-verify pr/ci evidence recorded before the per-repository PR cache in projects that span repositories _(provenance: [T14018](https://github.com/kryptobaseddev/cleo/search?q=T14018&type=commits))_
+- node_modules symlinks are ignored: .gitignore patterns drop the trailing slash _(provenance: [T14022](https://github.com/kryptobaseddev/cleo/search?q=T14022&type=commits))_
+
 ## [2026.10.21] (2026-10-22)
 
 > **Update now: run `cleo self-update`.** Stable promotion of v2026.10.21-canary.1, same source (88dde9a6). Includes the backup fixes: one project-store snapshot per backup, and obsolete legacy brain/conduit snapshots are pruned once a canonical snapshot covers them.

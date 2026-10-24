@@ -1,0 +1,779 @@
+{
+  "$schema": "https://cleocode.io/schemas/release-plan/v1.json",
+  "version": "v2026.10.22",
+  "resolvedVersion": "v2026.10.22",
+  "suffixApplied": false,
+  "scheme": "calver",
+  "channel": "latest",
+  "epicId": null,
+  "releaseKind": "regular",
+  "hooksV1Promotion": false,
+  "createdAt": "2026-10-24T19:06:26.280Z",
+  "createdBy": "keatonhoskins",
+  "previousVersion": "v2026.10.21",
+  "previousTag": "v2026.10.21",
+  "previousShippedAt": "2026-10-22T17:06:42.358Z",
+  "tasks": [
+    {
+      "id": "T13912",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "pr:/ci: evidence cache keyed by PR number only: cross-repo PR numbers collide",
+      "evidenceAtoms": [
+        "pr:2428",
+        "files:.changeset/t13912-pr-cache-per-repo.md,packages/contracts/src/evidence-atom-schema.ts,packages/contracts/src/task.ts,packages/core/src/release/__tests__/evidence-pr-atom.test.ts,packages/core/src/release/github-pr.ts,packages/core/src/release/pr-evidence.ts,packages/core/src/tasks/__tests__/done-record.test.ts,packages/core/src/tasks/evidence.ts,packages/contracts/src/task.ts,packages/core/src/tasks/evidence.ts",
+        "ci:2428"
+      ],
+      "epicAncestor": "T13928",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T13913",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "Claude Code Stop hook ends the CLEO session at every turn end",
+      "evidenceAtoms": [
+        "pr:2380",
+        "files:.changeset/t13913-stop-keeps-session.md,packages/adapters/src/providers/claude-code/__tests__/stop-dispatch-hook.test.ts,packages/adapters/src/providers/claude-code/hooks.ts,packages/adapters/src/providers/shared/__tests__/heavy-command-hook-delivery.test.ts,packages/adapters/src/providers/shared/heavy-command-hook-delivery.ts,packages/adapters/src/providers/shared/heavy-command-hook-install.ts,packages/cleo/bin/cleo.js,packages/cleo/src/cli/__tests__/stop-dispatch-entry.test.ts,packages/cleo/src/cli/commands/hook.ts,packages/cleo/src/cli/generated/command-manifest.ts,packages/cleo/src/cli/hook-entry.ts,packages/cleo/src/cli/stop-dispatch-entry.ts,packages/core/src/session/engine-ops.ts,packages/core/src/sessions/session-end-snapshot.ts,packages/skills/skills/ct-dev-workflow/SKILL.md,packages/skills/skills/manifest.json,scripts/check-cli-startup-graph.mjs",
+        "ci:2380"
+      ],
+      "epicAncestor": "T13940",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T13914",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "Admission budget drops to zero under host pressure from a non-CLEO process, freezing every project",
+      "evidenceAtoms": [
+        "pr:2383",
+        "files:.changeset/t13914-admission-names-cause.md,packages/contracts/src/index.ts,packages/contracts/src/resource-governor.ts,packages/core/src/resources/__tests__/admission-ledger.test.ts,packages/core/src/resources/__tests__/run-class.test.ts,packages/core/src/resources/__tests__/top-memory.test.ts,packages/core/src/resources/admission-ledger.ts,packages/core/src/resources/pressure-gate.ts,packages/core/src/resources/run-admission.ts,packages/core/src/resources/run-class.ts,packages/core/src/resources/run-governed.ts,packages/core/src/resources/top-memory.ts,packages/core/src/tasks/__tests__/done-plan.test.ts,packages/core/src/tasks/__tests__/tool-semaphore-admission.test.ts",
+        "ci:2383"
+      ],
+      "epicAncestor": "T13940",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T13917",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "done --plan picks unrelated dirty-tree tests and code gates for a no-code task",
+      "evidenceAtoms": [
+        "pr:2410",
+        "files:.changeset/t13917-done-plan-no-change-set.md,packages/core/src/tasks/__tests__/done-plan.test.ts,packages/core/src/tasks/done-plan.ts",
+        "ci:2410"
+      ],
+      "epicAncestor": "T13928",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T13921",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "cleo run has no priority, and a git push is charged as a 12 GiB scoped build",
+      "evidenceAtoms": [
+        "pr:2386",
+        "files:.changeset/t13921-run-urgent-measured-hook.md,packages/cleo/src/cli/commands/run.ts,packages/cleo/src/cli/generated/command-manifest.ts,packages/core/src/resources/__tests__/admission-ledger.test.ts,packages/core/src/resources/__tests__/hook-footprint.test.ts,packages/core/src/resources/__tests__/run-governed.test.ts,packages/core/src/resources/admission-ledger.ts,packages/core/src/resources/hook-footprint.ts,packages/core/src/resources/run-governed.ts",
+        "ci:2386"
+      ],
+      "epicAncestor": "T13940",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T13922",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "nexus answers from a stale index without warning (axiom-app last indexed 2026-08-30, entries in deleted clones)",
+      "evidenceAtoms": [
+        "pr:2434",
+        "files:.changeset/nexus-missing-paths-doctor.md,packages/cleo/src/dispatch/domains/__tests__/nexus-stale-refusal.test.ts,packages/contracts/src/graph.ts,packages/core/src/nexus/__tests__/freshness.test.ts,packages/core/src/nexus/freshness.ts,packages/core/src/nexus/index-health.ts,packages/core/src/system/__tests__/project-health.test.ts,packages/core/src/system/project-health.ts,packages/nexus/src/__tests__/freshness-walk-parity.test.ts",
+        "ci:2434"
+      ],
+      "epicAncestor": "T13939",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T13926",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "test-run evidence refused in a nested-git-root project: 'covers no test file of axiom-analytics'",
+      "evidenceAtoms": [
+        "pr:2411",
+        "files:.changeset/t13926-declared-root-worktree.md,packages/core/src/tasks/__tests__/change-set.test.ts,packages/core/src/tasks/change-set.ts",
+        "ci:2411"
+      ],
+      "epicAncestor": "T13928",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T13927",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "freshness-sentinel workflow fails daily since 2026-05-18: tsx not installed, Node 22 below engines floor, cleo never on PATH",
+      "evidenceAtoms": [
+        "pr:2433",
+        "files:.github/workflows/freshness-sentinel.yml",
+        "ci:2433"
+      ],
+      "epicAncestor": "T13935",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T13943",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "Spawn prompt and ct-lead: drop CONDUIT block and RCASD pointers, use AgentMBX",
+      "evidenceAtoms": [
+        "pr:2382",
+        "files:.changeset/spawn-prompt-agentmbx.md,packages/cleo/src/cli/commands/orchestrate.ts,packages/cleo/src/dispatch/domains/__tests__/orchestrate.test.ts,packages/cleo/src/dispatch/domains/orchestrate.ts,packages/core/src/internal.ts,packages/core/src/orchestrate/__tests__/wave-topic-e2e.test.ts,packages/core/src/orchestrate/spawn-ops.ts,packages/core/src/orchestration/__tests__/spawn-prompt.test.ts,packages/core/src/orchestration/spawn-prompt.ts,packages/core/src/orchestration/spawn.ts,packages/core/src/orchestration/wave-topic.ts,packages/skills/skills/ct-lead/SKILL.md,packages/skills/skills/ct-lead/references/aggregation-protocol.md,packages/skills/skills/ct-lead/references/spawn-pattern.md,packages/skills/skills/ct-orchestrator/SKILL.md,packages/skills/skills/ct-orchestrator/references/orchestrator-patterns.md,packages/skills/skills/manifest.json",
+        "ci:2382"
+      ],
+      "epicAncestor": "T13932",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T13944",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "Stop epic auto-init writing .cleo/rcasd stub files",
+      "evidenceAtoms": [
+        "pr:2385",
+        "files:.changeset/epic-no-rcasd-stubs.md,packages/core/src/lifecycle/index.ts,packages/core/src/orchestrate/lifecycle-ops.ts,packages/core/src/store/__tests__/background-ops.test.ts,packages/core/src/tasks/__tests__/loom-auto-init.test.ts,packages/core/src/tasks/add.ts",
+        "ci:2385"
+      ],
+      "epicAncestor": "T13932",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T13945",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "IVTR error fixes in complete.ts and release engine-ops point at working commands",
+      "evidenceAtoms": [
+        "pr:2388",
+        "files:.changeset/ivtr-fix-text.md,packages/core/src/release/engine-ops.ts,packages/core/src/tasks/__tests__/task-complete-lifecycle-gate.test.ts,packages/core/src/tasks/complete.ts,scripts/__tests__/lint-flag-existence.test.mjs,scripts/lint-injection-commands.mjs",
+        "ci:2388"
+      ],
+      "epicAncestor": "T13932",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T13948",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "Memory ranking: one fused list with recency and source weight; report missing vector layer",
+      "evidenceAtoms": [
+        "pr:2390",
+        "files:.changeset/memory-recall-ranking.md,packages/core/src/memory/__tests__/brain-search-recall.test.ts,packages/core/src/memory/__tests__/brain-search.test.ts,packages/core/src/memory/__tests__/recall-ranking.test.ts,packages/core/src/memory/brain-search.ts,packages/core/src/memory/brain-similarity.ts,packages/core/src/memory/recall-ranking.ts,packages/core/src/memory/retrieval/search.ts",
+        "ci:2390"
+      ],
+      "epicAncestor": "T13938",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T13950",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "Auto-link graph edges from accepted evidence atoms",
+      "evidenceAtoms": [
+        "pr:2412",
+        "pr:2396",
+        "pr:2400",
+        "files:packages/core/src/memory/evidence-graph-links.ts,packages/core/src/memory/graph-auto-populate.ts,packages/core/src/validation/engine-ops.ts,packages/core/src/docs/document-edges.ts,packages/core/src/docs/projection.ts,packages/cleo/src/dispatch/domains/memory.ts",
+        "ci:2412"
+      ],
+      "epicAncestor": "T13938",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T13953",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "Conduit retirement 1: silence conduit messaging writers",
+      "evidenceAtoms": [
+        "pr:2392",
+        "files:.changeset/silence-conduit-writers.md,packages/cleo/src/cli/commands/event.ts,packages/core/src/events/__tests__/event-bus.test.ts,packages/core/src/events/event-bus.ts,packages/core/src/hooks/handlers/__tests__/conduit-hooks.test.ts,packages/core/src/hooks/handlers/conduit-hooks.ts,packages/core/src/orchestrate/handoff-ops.ts",
+        "ci:2392"
+      ],
+      "epicAncestor": "T13933",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T13954",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "Conduit retirement 2: delete the CI-dark cleo-conduit-core crate",
+      "evidenceAtoms": [
+        "pr:2394",
+        "files:.changeset/drop-conduit-crate.md,crates/integration-tests/src/lib.rs,packages/contracts/src/boundary.ts",
+        "ci:2394"
+      ],
+      "epicAncestor": "T13933",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T13958",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "Core skills: rewrite RCASD/IVTR planning text to the real loop",
+      "evidenceAtoms": [
+        "ci:2389",
+        "pr:2389",
+        "files:.changeset/core-skills-work-loop.md,packages/core/templates/CLEO-INJECTION.md,packages/core/templates/CLEO-REFERENCE.md,packages/skills/skills/ct-cleo/SKILL.md,packages/skills/skills/ct-cleo/references/planning-loop.md,packages/skills/skills/ct-lead/SKILL.md,packages/skills/skills/ct-lead/references/aggregation-protocol.md,packages/skills/skills/ct-orchestrator/SKILL.md,packages/skills/skills/ct-orchestrator/orchestrator-prompt.txt,packages/skills/skills/ct-orchestrator/references/orchestrator-patterns.md,packages/skills/skills/ct-orchestrator/references/orchestrator-spawning.md,packages/skills/skills/manifest.json"
+      ],
+      "epicAncestor": "T13932",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T13965",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "Immediate wait line shows the deadline; external list excludes CLEO",
+      "evidenceAtoms": [
+        "pr:2409",
+        "files:.changeset/t13965-wait-deadline-external.md,packages/core/src/resources/__tests__/admission-ledger.test.ts,packages/core/src/resources/__tests__/pressure-gate.test.ts,packages/core/src/resources/__tests__/run-admission.test.ts,packages/core/src/resources/admission-ledger.ts,packages/core/src/resources/pressure-gate.ts,packages/core/src/resources/run-admission.ts,packages/core/src/resources/run-governed.ts,packages/core/src/resources/__tests__/admission-ledger.test.ts,packages/core/src/resources/__tests__/run-admission.test.ts,packages/core/src/resources/admission-ledger.ts,packages/core/src/resources/run-admission.ts,packages/core/src/resources/run-governed.ts",
+        "ci:2409"
+      ],
+      "epicAncestor": "T13940",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T13968",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "retrieveWithBudget vector branch skips the auto-row filter",
+      "evidenceAtoms": [
+        "pr:2417",
+        "files:packages/core/src/memory/brain-search.ts,packages/core/src/memory/retrieval/search.ts",
+        "ci:2417"
+      ],
+      "epicAncestor": "T13938",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T13970",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "Make the parent-epic stage gate opt-in, not the strict default",
+      "evidenceAtoms": [
+        "pr:2391",
+        "files:.changeset/stage-gate-opt-in.md,packages/contracts/src/config.ts,packages/core/schemas/config.schema.json,packages/core/src/config.ts,packages/core/src/tasks/__tests__/epic-enforcement.test.ts,packages/core/src/tasks/__tests__/task-complete-lifecycle-gate.test.ts,packages/core/src/tasks/complete.ts,packages/core/src/tasks/epic-enforcement.ts,packages/core/templates/CLEO-INJECTION.md,packages/core/templates/CLEO-REFERENCE.md,packages/skills/skills/ct-cleo/SKILL.md,packages/skills/skills/ct-cleo/references/planning-loop.md,packages/skills/skills/ct-orchestrator/SKILL.md,packages/skills/skills/manifest.json",
+        "ci:2391"
+      ],
+      "epicAncestor": "T13936",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T13982",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "Conduit retirement 3b: deprecate cleo conduit and orchestrate conduit-* verbs",
+      "evidenceAtoms": [
+        "pr:2397",
+        "files:.changeset/deprecate-conduit-verbs.md,packages/cleo/src/cli/commands/conduit.ts,packages/cleo/src/cli/commands/graph.ts,packages/cleo/src/cli/commands/nexus.ts,packages/cleo/src/cli/commands/orchestrate.ts,packages/cleo/src/cli/lib/__tests__/conduit-deprecation.test.ts,packages/cleo/src/cli/lib/conduit-deprecation.ts,packages/skills/skills/ct-orchestrator/SKILL.md,packages/skills/skills/manifest.json",
+        "ci:2397"
+      ],
+      "epicAncestor": "T13933",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T13985",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "Record doc links as a documents edge and retire the Doc attached observation (D11180)",
+      "evidenceAtoms": [
+        "pr:2396",
+        "pr:2400",
+        "files:packages/core/src/docs/document-edges.ts,packages/core/src/memory/graph-auto-populate.ts,packages/cleo/src/dispatch/domains/memory.ts,packages/core/src/docs/projection.ts,packages/contracts/src/operations/docs.ts",
+        "ci:2396",
+        "ci:2400"
+      ],
+      "epicAncestor": "T13938",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T14000",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "test-run and qa-run bindings judge against the task's change set, as done --plan does",
+      "evidenceAtoms": [
+        "pr:2426",
+        "files:.changeset/t14000-untracked-set-aside.md,packages/contracts/src/task.ts,packages/core/src/tasks/__tests__/affected-packages.test.ts,packages/core/src/tasks/__tests__/qa-run-binding.test.ts,packages/core/src/tasks/affected-packages.ts,packages/core/src/tasks/affected-scope.ts,packages/core/src/tasks/complete-ci.ts,packages/core/src/tasks/done-plan.ts,packages/core/src/tasks/evidence.ts,packages/core/src/tasks/qa-run-binding.ts,packages/core/src/tasks/test-run-binding.ts",
+        "ci:2426"
+      ],
+      "epicAncestor": "T13928",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T14001",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "verification.requiredGatesByKind: doc-backed research and docs tasks can complete",
+      "evidenceAtoms": [
+        "pr:2413",
+        "files:.changeset/t14001-required-gates-by-kind.md,packages/contracts/src/config.ts,packages/core/schemas/config.schema.json,packages/core/src/release/__tests__/plan.test.ts,packages/core/src/release/plan.ts,packages/core/src/tasks/__tests__/complete.test.ts,packages/core/src/tasks/__tests__/done-plan.test.ts,packages/core/src/tasks/__tests__/verification-policy.test.ts,packages/core/src/tasks/change-set.ts,packages/core/src/tasks/complete.ts,packages/core/src/tasks/done-plan.ts,packages/core/src/tasks/evidence.ts,packages/core/src/tasks/verification-policy.ts,packages/core/src/validation/engine-ops.ts,packages/core/templates/CLEO-INJECTION.md,packages/core/templates/CLEO-REFERENCE.md,packages/skills/skills/ct-cleo/SKILL.md,packages/skills/skills/ct-dev-workflow/SKILL.md,packages/skills/skills/ct-task-executor/SKILL.md,packages/skills/skills/manifest.json,packages/contracts/src/config.ts,packages/core/src/tasks/done-plan.ts,packages/core/src/tasks/evidence.ts,packages/skills/skills/manifest.json",
+        "ci:2413"
+      ],
+      "epicAncestor": "T13928",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T14002",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "done --plan tests: code task with a change set beside a dirty shared checkout; doc-attached research route",
+      "evidenceAtoms": [
+        "pr:2413",
+        "files:.changeset/t14001-required-gates-by-kind.md,packages/contracts/src/config.ts,packages/core/schemas/config.schema.json,packages/core/src/release/__tests__/plan.test.ts,packages/core/src/release/plan.ts,packages/core/src/tasks/__tests__/complete.test.ts,packages/core/src/tasks/__tests__/done-plan.test.ts,packages/core/src/tasks/__tests__/verification-policy.test.ts,packages/core/src/tasks/change-set.ts,packages/core/src/tasks/complete.ts,packages/core/src/tasks/done-plan.ts,packages/core/src/tasks/evidence.ts,packages/core/src/tasks/verification-policy.ts,packages/core/src/validation/engine-ops.ts,packages/core/templates/CLEO-INJECTION.md,packages/core/templates/CLEO-REFERENCE.md,packages/skills/skills/ct-cleo/SKILL.md,packages/skills/skills/ct-dev-workflow/SKILL.md,packages/skills/skills/ct-task-executor/SKILL.md,packages/skills/skills/manifest.json,packages/contracts/src/config.ts,packages/core/src/tasks/done-plan.ts,packages/core/src/tasks/evidence.ts,packages/skills/skills/manifest.json",
+        "ci:2413"
+      ],
+      "epicAncestor": "T13928",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T14003",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "Auto-row quarantine follow-ups from #2407 review",
+      "evidenceAtoms": [
+        "pr:2416",
+        "files:packages/core/src/memory/auto-row-quarantine.ts,packages/core/src/memory/auto-row-rules.ts,packages/core/src/memory/lessons.ts,packages/core/src/sessions/briefing.ts,packages/core/src/store/memory-accessor.ts",
+        "ci:2416"
+      ],
+      "epicAncestor": "T13938",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T14004",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "test-run/qa-run binding checks its bound HEAD against the task's implemented commit",
+      "evidenceAtoms": [
+        "pr:2415",
+        "files:.changeset/t14004-bound-head-implemented.md,packages/contracts/src/task.ts,packages/core/src/tasks/__tests__/change-set.test.ts,packages/core/src/tasks/evidence.ts,packages/core/src/validation/engine-ops.ts,packages/core/src/validation/engine-ops.ts",
+        "ci:2415"
+      ],
+      "epicAncestor": "T13928",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T14005",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "Evidence graph links and lessons follow-ups from #2412/#2416 review",
+      "evidenceAtoms": [
+        "pr:2418",
+        "files:packages/core/src/memory/evidence-graph-links.ts,packages/core/src/memory/lessons.ts,packages/core/src/validation/engine-ops.ts",
+        "ci:2418"
+      ],
+      "epicAncestor": "T13938",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T14006",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "Cache taskOwnWorkPaths per process per task; skip done tasks in release plan; include origin branches",
+      "evidenceAtoms": [
+        "pr:2431",
+        "files:.changeset/t14006-own-work-cache.md,packages/core/src/release/plan.ts,packages/core/src/tasks/__tests__/complete.test.ts,packages/core/src/tasks/change-set.ts",
+        "ci:2431"
+      ],
+      "epicAncestor": "T13928",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T14007",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "NEXUS freshness against the base ref: indexedRevision, commitsBehind, ageDays",
+      "evidenceAtoms": [
+        "pr:2420",
+        "files:packages/contracts/src/graph.ts,packages/core/src/git/base-ref.ts,packages/core/src/nexus/freshness.ts,packages/core/src/nexus/graph-manifest.ts,packages/core/src/render/nexus/graph/index.ts,packages/core/src/tasks/affected-packages.ts,packages/core/src/tasks/change-set.ts,packages/core/src/tasks/gate-runner.ts",
+        "ci:2420"
+      ],
+      "epicAncestor": "T13939",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T14008",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "Every index-sensitive nexus answer carries freshness at top level and exits non-zero when stale",
+      "evidenceAtoms": [
+        "pr:2422",
+        "files:.changeset/nexus-stale-exit.md,packages/cleo/src/cli/commands/__tests__/nexus-impact-stale.test.ts,packages/cleo/src/cli/commands/graph.ts,packages/cleo/src/cli/commands/nexus.ts,packages/cleo/src/dispatch/adapters/cli.ts,packages/cleo/src/dispatch/domains/__tests__/nexus-stale-refusal.test.ts,packages/cleo/src/dispatch/domains/nexus.ts,packages/contracts/src/config.ts,packages/contracts/src/exit-codes.ts,packages/contracts/src/graph.ts,packages/contracts/src/index.ts,packages/core/src/git/__tests__/base-ref.test.ts,packages/core/src/nexus/freshness.ts,packages/core/src/nexus/hooks-augment.ts,packages/skills/skills/ct-codebase-mapper/SKILL.md,packages/skills/skills/manifest.json",
+        "ci:2422"
+      ],
+      "epicAncestor": "T13939",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T14009",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "Resumable NEXUS analysis: parse cache committed as it goes, budget honoured in every phase",
+      "evidenceAtoms": [
+        "pr:2424",
+        "files:.changeset/nexus-resumable-analysis.md,packages/contracts/src/graph.ts,packages/core/src/nexus/__tests__/incremental-equivalence.test.ts,packages/core/src/nexus/analyze-orchestrator.ts,packages/nexus/src/pipeline/community-processor.ts,packages/nexus/src/pipeline/index.ts,packages/nexus/src/pipeline/parse-loop.ts,packages/nexus/src/pipeline/process-processor.ts,scripts/lint-no-raw-table-writes.mjs",
+        "ci:2424"
+      ],
+      "epicAncestor": "T13939",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T14010",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "Reindex NEXUS incrementally on merge to the base branch",
+      "evidenceAtoms": [
+        "pr:2423",
+        "files:.changeset/nexus-reindex-on-merge.md,packages/cleo/src/cli/commands/nexus.ts,packages/contracts/src/config.ts,packages/contracts/src/git-hooks.ts,packages/contracts/src/index.ts,packages/core/src/__tests__/hooks.test.ts,packages/core/src/git/__tests__/hooks-install.test.ts,packages/core/src/git/__tests__/post-merge-hook.test.ts,packages/core/src/nexus/__tests__/reindex-on-merge.test.ts,packages/core/src/nexus/reindex-on-merge.ts,packages/core/templates/git-hooks/post-merge,packages/skills/skills/ct-codebase-mapper/SKILL.md,packages/skills/skills/ct-dev-workflow/SKILL.md,packages/skills/skills/manifest.json",
+        "ci:2423"
+      ],
+      "epicAncestor": "T13939",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T14011",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "Report dead NEXUS registry rows and fix projects clean --unhealthy",
+      "evidenceAtoms": [
+        "pr:2419",
+        "files:packages/cleo/src/cli/commands/nexus.ts,packages/contracts/src/operations/nexus.ts,packages/core/src/nexus/projects-clean.ts,packages/core/src/nexus/registry.ts,packages/skills/skills/ct-codebase-mapper/SKILL.md,packages/skills/skills/manifest.json",
+        "ci:2419"
+      ],
+      "epicAncestor": "T13939",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T14012",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "Repo identity in evidence file and commit graph node ids for multi-repo stores",
+      "evidenceAtoms": [
+        "pr:2430",
+        "files:.changeset/evidence-repo-qualified-ids.md,packages/cleo/src/cli/commands/brain.ts,packages/cleo/src/cli/renderers/index.ts,packages/core/src/git/work-tree.ts,packages/core/src/memory/__tests__/evidence-graph-links.test.ts,packages/core/src/memory/evidence-graph-links.ts,packages/core/src/memory/graph-auto-populate.ts,packages/core/src/render/__tests__/brain-migrate-repo-ids.test.ts,packages/core/src/render/brain/index.ts,packages/core/src/render/brain/migrate-repo-ids.ts",
+        "ci:2430"
+      ],
+      "epicAncestor": "T13938",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T14013",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "Registry rows record their host; projects clean never removes another host's rows",
+      "evidenceAtoms": [
+        "pr:2421",
+        "files:packages/cleo/src/cli/commands/nexus.ts,packages/contracts/src/index.ts,packages/contracts/src/operations/nexus.ts,packages/core/src/nexus/projects-clean.ts,packages/core/src/nexus/registry-host.ts,packages/core/src/nexus/registry.ts,packages/skills/skills/ct-codebase-mapper/SKILL.md",
+        "ci:2421"
+      ],
+      "epicAncestor": "T13939",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T14014",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "Inline NEXUS refresh gated by a size-scaled cost estimate instead of the 25-file cap and 30% gate",
+      "evidenceAtoms": [
+        "pr:2427",
+        "files:.changeset/nexus-refresh-cost-gate.md,packages/cleo/src/dispatch/domains/__tests__/nexus-stale-refusal.test.ts,packages/contracts/src/config.ts,packages/contracts/src/graph.ts,packages/core/src/git/__tests__/base-ref.test.ts,packages/core/src/git/base-ref.ts,packages/core/src/nexus/__tests__/freshness.test.ts,packages/core/src/nexus/__tests__/pid-lock.test.ts,packages/core/src/nexus/freshness.ts,packages/core/src/nexus/graph-manifest.ts,packages/core/src/nexus/pid-lock.ts,packages/core/src/nexus/refresh-child.ts,packages/core/src/nexus/reindex-on-merge.ts,packages/nexus/src/pipeline/index.ts,packages/nexus/src/pipeline/parse-loop.ts,packages/skills/skills/ct-codebase-mapper/SKILL.md,packages/skills/skills/manifest.json,scripts/lint-no-raw-table-writes.mjs",
+        "ci:2427"
+      ],
+      "epicAncestor": "T13939",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T14015",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "processGroupsOf returns nothing on macOS when one pid is out of range",
+      "evidenceAtoms": [
+        "pr:2425",
+        "files:.changeset/t14015-macos-ps-groups.md,packages/core/src/resources/run-admission.ts",
+        "ci:2425"
+      ],
+      "epicAncestor": "T13940",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T14016",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "Resumable analysis follow-ups: bound Leiden, non-blocking checkpoints, parser limits in the fingerprint",
+      "evidenceAtoms": [
+        "pr:2438",
+        "files:.changeset/nexus-analysis-budget-followups.md,packages/cleo/src/dispatch/domains/__tests__/nexus-stale-refusal.test.ts,packages/contracts/src/graph.ts,packages/core/src/nexus/__tests__/freshness.test.ts,packages/core/src/nexus/__tests__/incremental-equivalence.test.ts,packages/core/src/nexus/analyze-orchestrator.ts,packages/core/src/nexus/freshness.ts,packages/core/src/nexus/graph-manifest.ts,packages/nexus/src/__tests__/community-process.test.ts,packages/nexus/src/__tests__/parse-cache-fingerprint.test.ts,packages/nexus/src/__tests__/parse-checkpoint.test.ts,packages/nexus/src/code/parser.ts,packages/nexus/src/pipeline/community-processor.ts,packages/nexus/src/pipeline/index.ts,packages/nexus/src/pipeline/parse-cache.ts",
+        "ci:2438"
+      ],
+      "epicAncestor": "T13939",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T14018",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "Audit pr:/ci: atoms verified before T13912's per-repository cache; selector, ssh and ci: tests",
+      "evidenceAtoms": [
+        "pr:2432",
+        "files:.changeset/t14018-pr-repo-audit.md,packages/core/src/release/__tests__/evidence-pr-atom.test.ts,packages/core/src/tasks/__tests__/evidence-pr-repo-selector.test.ts",
+        "ci:2432"
+      ],
+      "epicAncestor": "T13928",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T14019",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "Inline refresh admission should key on whole-graph size, not only parse count",
+      "evidenceAtoms": [
+        "pr:2440",
+        "files:.changeset/nexus-refresh-admission-graph-size.md,packages/core/src/nexus/__tests__/freshness.test.ts,packages/core/src/nexus/freshness.ts,packages/core/src/nexus/__tests__/freshness.test.ts,packages/core/src/nexus/freshness.ts",
+        "ci:2440"
+      ],
+      "epicAncestor": "T13939",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T14021",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "NEXUS: warn when indexed entries point at deleted paths; per-project stale-index check in cleo doctor",
+      "evidenceAtoms": [
+        "pr:2434",
+        "files:.changeset/nexus-missing-paths-doctor.md,packages/cleo/src/dispatch/domains/__tests__/nexus-stale-refusal.test.ts,packages/contracts/src/graph.ts,packages/core/src/nexus/__tests__/freshness.test.ts,packages/core/src/nexus/freshness.ts,packages/core/src/nexus/index-health.ts,packages/core/src/system/__tests__/project-health.test.ts,packages/core/src/system/project-health.ts,packages/nexus/src/__tests__/freshness-walk-parity.test.ts",
+        "ci:2434"
+      ],
+      "epicAncestor": "T13939",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T14022",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "Ignore node_modules symlinks: .gitignore patterns without the trailing slash",
+      "evidenceAtoms": [
+        "pr:2437",
+        "files:.changeset/t14022-gitignore-node-modules.md,.gitignore,packages/caamp/.gitignore,packages/lafs/.gitignore,scripts/__tests__/gitignore-node-modules-symlink.test.mjs",
+        "ci:2437"
+      ],
+      "epicAncestor": "T13939",
+      "ivtrPhaseAtPlan": "contribution"
+    }
+  ],
+  "changelog": {
+    "features": [
+      "T13912",
+      "T13913",
+      "T13914",
+      "T13917",
+      "T13921",
+      "T13922",
+      "T13926",
+      "T13927",
+      "T13943",
+      "T13944",
+      "T13945",
+      "T13948",
+      "T13950",
+      "T13953",
+      "T13954",
+      "T13958",
+      "T13965",
+      "T13968",
+      "T13970",
+      "T13982",
+      "T13985",
+      "T14000",
+      "T14001",
+      "T14002",
+      "T14003",
+      "T14004",
+      "T14005",
+      "T14006",
+      "T14007",
+      "T14008",
+      "T14009",
+      "T14010",
+      "T14011",
+      "T14012",
+      "T14013",
+      "T14014",
+      "T14015",
+      "T14016",
+      "T14018",
+      "T14019",
+      "T14021",
+      "T14022"
+    ],
+    "fixes": [],
+    "chores": [],
+    "breaking": []
+  },
+  "gates": [
+    {
+      "name": "test",
+      "atom": "tool:test",
+      "status": "unresolved",
+      "lastVerifiedAt": "2026-10-24T19:06:26.280Z",
+      "resolvedCommand": "pnpm run test",
+      "resolvedSource": "project-context"
+    },
+    {
+      "name": "build",
+      "atom": "tool:build",
+      "status": "unresolved",
+      "lastVerifiedAt": "2026-10-24T19:06:26.280Z",
+      "resolvedCommand": "pnpm run build",
+      "resolvedSource": "project-context"
+    },
+    {
+      "name": "lint",
+      "atom": "tool:lint",
+      "status": "unresolved",
+      "lastVerifiedAt": "2026-10-24T19:06:26.280Z",
+      "resolvedCommand": "pnpm run lint",
+      "resolvedSource": "package-script"
+    },
+    {
+      "name": "typecheck",
+      "atom": "tool:typecheck",
+      "status": "unresolved",
+      "lastVerifiedAt": "2026-10-24T19:06:26.280Z",
+      "resolvedCommand": "pnpm run typecheck",
+      "resolvedSource": "package-script"
+    },
+    {
+      "name": "audit",
+      "atom": "tool:audit",
+      "status": "unresolved",
+      "lastVerifiedAt": "2026-10-24T19:06:26.280Z",
+      "resolvedCommand": "npm audit",
+      "resolvedSource": "language-default"
+    },
+    {
+      "name": "security-scan",
+      "atom": "tool:security-scan",
+      "status": "unresolved",
+      "lastVerifiedAt": "2026-10-24T19:06:26.280Z",
+      "resolvedCommand": "npm audit",
+      "resolvedSource": "language-default"
+    }
+  ],
+  "platformMatrix": [
+    {
+      "platform": "any",
+      "publisher": "npm",
+      "package": "@cleocode/cleo"
+    }
+  ],
+  "preflightSummary": {
+    "esbuildExternalsDrift": false,
+    "lockfileDrift": false,
+    "epicCompletenessClean": true,
+    "doubleListingClean": true,
+    "preflightWarnings": [
+      "Skipped 871 out-of-scope changeset entries whose task anchors are not part of this release plan"
+    ]
+  },
+  "workflowRunUrl": null,
+  "prUrl": null,
+  "mergeCommitSha": null,
+  "status": "planned",
+  "meta": {
+    "firstEverRelease": false,
+    "archetype": "node",
+    "releaseNotes": "## v2026.10.22 — 2026-10-24\n\n> **Update now: run `cleo self-update`.**\n\n### Highlights\n\n- **Pi/CleoOS harness freeze (ADR-098).**\n  - `cleo init` and `cleo upgrade` no longer seed the CleoOS hub, and `cleo admin scaffold-hub` is hidden and deprecated.\n  - CAAMP no longer defaults to Pi: Pi's registry priority is `medium` and the default exclusivity mode is `legacy`. With Pi and another high-tier provider installed, the default target is now that provider.\n  - The `@cleocode/cleo-os` postinstall stops seeding `.cant` files and skills.\n  - `cleo tui` and every `caamp pi` verb print a deprecation notice and otherwise work as before.\n- **BRAIN and NEXUS.**\n  - NEXUS measures index freshness against the base branch. Every index-sensitive answer carries it, and an index too far behind fails with exit 111.\n  - Analysis is resumable, and an opt-in background reindex runs after merges (`cleo nexus reindex-on-merge --enable`).\n  - Dead registry rows are reported. A registry row records its host, so `projects clean` never removes another host's rows.\n  - Memory retrieval uses one fused ranking and skips auto, low-quality and invalidated rows on the vector path.\n  - Accepted evidence links tasks to their commits, files and decisions in the BRAIN graph, with repository-qualified ids in multi-repo stores.\n  - `cleo docs add` links documents with a `documents` edge.\n- **Freshness Sentinel repaired.** The daily freshness sentinel runs again and fails honestly; it had failed every day since 2026-05-18.\n- **Evidence.**\n  - Research and documentation tasks owe only the gates that fit them. Any code in their work still needs the code gates, and if a task's work can't be inspected it is treated as code.\n  - Test and QA runs must have seen the task's implemented work.\n  - `pr:`/`ci:` evidence is cached per repository, and `pr:<owner>/<repo>#<n>` names the repository.\n- **`node_modules` symlinks are ignored.** `.gitignore` patterns now cover the `node_modules` symlink a CLEO worktree links in, so `git add -A` can no longer commit it.\n\n### Also in this release\n\nThese shipped as commits, but their tasks are still open, so their changesets stay pending:\n\n- T13994, T13995, T13996: the three Pi/CleoOS freeze steps above. They stay open until the ADR-098 task T13993 completes.\n- T13666, T13667, T13949, T13951, T13981, T13986, T13987, T13991: merged, but their evidence is not recorded yet. T13991 also waits on T13987.\n\n### Added\n\n- a document attached with `cleo docs add` is linked in BRAIN by an `llmtxt:<sha> --documents--> owner` edge, written whatever brain.autoCapture says _(provenance: [T13985](https://github.com/kryptobaseddev/cleo/search?q=T13985&type=commits))_\n- `cleo docs add` no longer writes a Doc attached memory observation; the document is linked by its documents edge _(provenance: [T13985](https://github.com/kryptobaseddev/cleo/search?q=T13985&type=commits))_\n- `cleo verify` links a task to the commits, files and decisions its accepted evidence names, in the BRAIN graph _(provenance: [T13950](https://github.com/kryptobaseddev/cleo/search?q=T13950&type=commits))_\n- Evidence file and commit graph ids carry a repository key for every repository but the store's primary one; `cleo brain migrate-repo-ids --apply` moves existing links _(provenance: [T14012](https://github.com/kryptobaseddev/cleo/search?q=T14012&type=commits))_\n- memory find ranks one list across tables by recency and source, fuses vector and graph hits, and warns when the vector layer is unavailable _(provenance: [T13948](https://github.com/kryptobaseddev/cleo/search?q=T13948&type=commits))_\n- NEXUS freshness reports how many commits the index trails the base branch, and its age _(provenance: [T14007](https://github.com/kryptobaseddev/cleo/search?q=T14007&type=commits))_\n- Graph answers report indexed files gone from disk, and `cleo doctor --all-projects` flags stale NEXUS indexes per project _(provenance: [T14021](https://github.com/kryptobaseddev/cleo/search?q=T14021&type=commits), [T13922](https://github.com/kryptobaseddev/cleo/search?q=T13922&type=commits))_\n- NEXUS inline refresh is gated by a size-scaled cost estimate, not a 25-file cap and a 30% stale gate _(provenance: [T14014](https://github.com/kryptobaseddev/cleo/search?q=T14014&type=commits))_\n- Opt-in background NEXUS reindex after a merge into the base branch (`cleo nexus reindex-on-merge --enable`) _(provenance: [T14010](https://github.com/kryptobaseddev/cleo/search?q=T14010&type=commits))_\n- NEXUS analysis keeps its parse work across an abort, and honours its budget in every phase _(provenance: [T14009](https://github.com/kryptobaseddev/cleo/search?q=T14009&type=commits))_\n- Graph answers carry `data.freshness` and fail with E_NEXUS_INDEX_STALE (exit 111) when the index is too far behind the base branch _(provenance: [T14008](https://github.com/kryptobaseddev/cleo/search?q=T14008&type=commits), [T13922](https://github.com/kryptobaseddev/cleo/search?q=T13922&type=commits))_\n- cleo run --urgent queues ahead of routine work, and a hooked git push is charged its measured peak _(provenance: [T13921](https://github.com/kryptobaseddev/cleo/search?q=T13921&type=commits))_\n- Research and documentation tasks no longer owe testsPassed/qaPassed unless their work touches code _(provenance: [T14001](https://github.com/kryptobaseddev/cleo/search?q=T14001&type=commits), [T14002](https://github.com/kryptobaseddev/cleo/search?q=T14002&type=commits))_\n\n### Changed\n\n- core skills teach plan, execute, verify instead of RCASD stages and the IVTR loop _(provenance: [T13958](https://github.com/kryptobaseddev/cleo/search?q=T13958&type=commits))_\n- cleo conduit, orchestrate conduit-*, nexus conduit-scan and graph living conduit-scan are deprecated and will be removed in the next release _(provenance: [T13982](https://github.com/kryptobaseddev/cleo/search?q=T13982&type=commits))_\n- remove the unused cleo-conduit-core Rust crate _(provenance: [T13954](https://github.com/kryptobaseddev/cleo/search?q=T13954&type=commits))_\n\n### Fixed\n\n- Budgeted retrieval no longer returns auto rows, low-quality or invalidated rows that only the vector search found _(provenance: [T13968](https://github.com/kryptobaseddev/cleo/search?q=T13968&type=commits))_\n- cleo add --type epic no longer writes lifecycle rows or a .cleo/rcasd stub; orchestrate start records the research row without a stub file _(provenance: [T13944](https://github.com/kryptobaseddev/cleo/search?q=T13944&type=commits))_\n- Evidence file nodes are keyed by the checkout that holds the file; clearer graph-link and lessons warnings _(provenance: [T14005](https://github.com/kryptobaseddev/cleo/search?q=T14005&type=commits))_\n- E_IVTR_INCOMPLETE fixes and the parent-epic E_LIFECYCLE_GATE_FAILED fix no longer point at cleo go, cleo playbook run ivtr or cleo lifecycle complete _(provenance: [T13945](https://github.com/kryptobaseddev/cleo/search?q=T13945&type=commits))_\n- Budgeted NEXUS analyses skip community detection instead of overrunning, parse-cache checkpoints leave the parse hot path, and parser limits are part of the cache identity _(provenance: [T14016](https://github.com/kryptobaseddev/cleo/search?q=T14016&type=commits))_\n- An inline NEXUS refresh on a large graph asks `cleo run` admission even when it re-parses few files, with a footprint scaled to the graph _(provenance: [T14019](https://github.com/kryptobaseddev/cleo/search?q=T14019&type=commits))_\n- `cleo nexus status` reports unreachable registry rows; `projects clean --unhealthy` matches them _(provenance: [T14011](https://github.com/kryptobaseddev/cleo/search?q=T14011&type=commits))_\n- `projects clean` never removes a registry row whose project lives on another machine _(provenance: [T14013](https://github.com/kryptobaseddev/cleo/search?q=T14013&type=commits))_\n- Auto-row quarantine guards are rule ids, not SQL; lessons survive a broken brain store _(provenance: [T14003](https://github.com/kryptobaseddev/cleo/search?q=T14003&type=commits))_\n- CLEO stops writing conduit messages: no lifecycle hooks, no spawn or handoff events, and agent events default to the file transport _(provenance: [T13953](https://github.com/kryptobaseddev/cleo/search?q=T13953&type=commits))_\n- spawn prompts send agents to AgentMBX for coordination and to cleo docs for planning documents; the CONDUIT subscription block and .cleo/rcasd paths are gone _(provenance: [T13943](https://github.com/kryptobaseddev/cleo/search?q=T13943&type=commits))_\n- the parent-epic stage gate is opt-in (lifecycle.stageGate, default off), so strict projects no longer strand an epic's children _(provenance: [T13970](https://github.com/kryptobaseddev/cleo/search?q=T13970&type=commits))_\n- The pr/ci evidence cache is per repository, and pr:<owner>/<repo>#<n> names the repository _(provenance: [T13912](https://github.com/kryptobaseddev/cleo/search?q=T13912&type=commits))_\n- A Claude Code turn end no longer ends the CLEO session; the SessionEnd hook does _(provenance: [T13913](https://github.com/kryptobaseddev/cleo/search?q=T13913&type=commits))_\n- An admission wait closed by memory pressure names the host's largest memory users, and an install is charged one process _(provenance: [T13914](https://github.com/kryptobaseddev/cleo/search?q=T13914&type=commits))_\n- cleo done --plan never takes test or lint targets from the working tree; a no-change-set task is told its doc or decision route _(provenance: [T13917](https://github.com/kryptobaseddev/cleo/search?q=T13917&type=commits))_\n- A declared evidence.gitRoot no longer hides the task's worktree, so a test-run report produced there binds _(provenance: [T13926](https://github.com/kryptobaseddev/cleo/search?q=T13926&type=commits))_\n- The first memory-pressure waiting line says when the wait gives up, and the named memory users leave out CLEO's own runs _(provenance: [T13965](https://github.com/kryptobaseddev/cleo/search?q=T13965&type=commits))_\n- test-run and qa-run bindings set aside untracked files outside the change, and refuse at complete once one is committed _(provenance: [T14000](https://github.com/kryptobaseddev/cleo/search?q=T14000&type=commits))_\n- A test-run or qa-run that never saw the task's implemented work is refused as its evidence _(provenance: [T14004](https://github.com/kryptobaseddev/cleo/search?q=T14004&type=commits))_\n- The own-work search is reused per task within a process, skips done tasks in release plan, and reads origin branches _(provenance: [T14006](https://github.com/kryptobaseddev/cleo/search?q=T14006&type=commits))_\n- Process-group lookup works on macOS when one pid is out of range _(provenance: [T14015](https://github.com/kryptobaseddev/cleo/search?q=T14015&type=commits))_\n- Release note: re-verify pr/ci evidence recorded before the per-repository PR cache in projects that span repositories _(provenance: [T14018](https://github.com/kryptobaseddev/cleo/search?q=T14018&type=commits))_\n- node_modules symlinks are ignored: .gitignore patterns drop the trailing slash _(provenance: [T14022](https://github.com/kryptobaseddev/cleo/search?q=T14022&type=commits))_\n",
+    "changesetEntryCount": 40,
+    "changesetIds": [
+      "budget-vector-gate",
+      "core-skills-work-loop",
+      "deprecate-conduit-verbs",
+      "docs-documents-edge",
+      "docs-retire-doc-attached-observation",
+      "drop-conduit-crate",
+      "epic-no-rcasd-stubs",
+      "evidence-graph-links",
+      "evidence-link-followups",
+      "evidence-repo-qualified-ids",
+      "ivtr-fix-text",
+      "memory-recall-ranking",
+      "nexus-analysis-budget-followups",
+      "nexus-base-freshness",
+      "nexus-missing-paths-doctor",
+      "nexus-refresh-admission-graph-size",
+      "nexus-refresh-cost-gate",
+      "nexus-registry-dead-rows",
+      "nexus-registry-host",
+      "nexus-reindex-on-merge",
+      "nexus-resumable-analysis",
+      "nexus-stale-exit",
+      "quarantine-followups",
+      "silence-conduit-writers",
+      "spawn-prompt-agentmbx",
+      "stage-gate-opt-in",
+      "t13912-pr-cache-per-repo",
+      "t13913-stop-keeps-session",
+      "t13914-admission-names-cause",
+      "t13917-done-plan-no-change-set",
+      "t13921-run-urgent-measured-hook",
+      "t13926-declared-root-worktree",
+      "t13965-wait-deadline-external",
+      "t14000-untracked-set-aside",
+      "t14001-required-gates-by-kind",
+      "t14004-bound-head-implemented",
+      "t14006-own-work-cache",
+      "t14015-macos-ps-groups",
+      "t14018-pr-repo-audit",
+      "t14022-gitignore-node-modules"
+    ],
+    "taskIds": [
+      "T13912",
+      "T13913",
+      "T13914",
+      "T13917",
+      "T13921",
+      "T13922",
+      "T13926",
+      "T13927",
+      "T13943",
+      "T13944",
+      "T13945",
+      "T13948",
+      "T13950",
+      "T13953",
+      "T13954",
+      "T13958",
+      "T13965",
+      "T13968",
+      "T13970",
+      "T13982",
+      "T13985",
+      "T14000",
+      "T14001",
+      "T14002",
+      "T14003",
+      "T14004",
+      "T14005",
+      "T14006",
+      "T14007",
+      "T14008",
+      "T14009",
+      "T14010",
+      "T14011",
+      "T14012",
+      "T14013",
+      "T14014",
+      "T14015",
+      "T14016",
+      "T14018",
+      "T14019",
+      "T14021",
+      "T14022"
+    ]
+  }
+}
