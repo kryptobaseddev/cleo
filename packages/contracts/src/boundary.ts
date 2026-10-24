@@ -301,22 +301,6 @@ export const BOUNDARY_REGISTRY: readonly BoundaryEntry[] = [
       'Verified-dead code: 531 LOC Rust crate referenced ONLY by packages/core/src/llm/rust/__tests__/. Production transports (chat-completions/gemini/openai) import StreamingThinkScrubber from the TS think-scrubber.js path. CLEO_USE_RUST gate is never set in any workflow. Scheduled for deletion in T10205; see ADR-078 implementation tasks.',
   },
   {
-    module: 'cleo-conduit-core',
-    intent: 'data-manifest',
-    rustCore: 'crates/cleo-conduit-core',
-    canonicalHome: 'cleocode',
-    perfBudget: {
-      latency_p50_ms: 10,
-    },
-    safetyBudget: {
-      panic_unwind: 'forbidden',
-      root_escape: 'forbidden',
-    },
-    amendments: [],
-    rationale:
-      'Conduit serde-types crate (681 LOC) — renamed from conduit-core to cleo-conduit-core (T10185, saga T10180) because conduit-core is squatted on crates.io. Stable contract surface consumed by cant-core, signaldock-protocol, signaldock-core, integration-tests, AND external /mnt/projects/signaldock-core + /mnt/projects/signaldock/backend via git deps. Mirrors @cleocode/contracts/conduit.ts. Forced KEEP+publish=true: deleting breaks production, and signaldock-protocol publish requires it.',
-  },
-  {
     module: 'cleo-supervisor',
     intent: 'scaffold-pending-consumer',
     rustCore: 'crates/cleo-supervisor',
@@ -349,7 +333,7 @@ export const BOUNDARY_REGISTRY: readonly BoundaryEntry[] = [
     },
     amendments: [],
     rationale:
-      'Internal Rust test harness over lafs-core/cleo-conduit-core/cant-core. publish=false intentional — test code never ships.',
+      'Internal Rust test harness over lafs-core/cant-core (cleo-conduit-core removed in T13954). publish=false intentional — test code never ships.',
   },
   {
     module: 'lafs-core',
@@ -367,7 +351,7 @@ export const BOUNDARY_REGISTRY: readonly BoundaryEntry[] = [
     },
     amendments: [],
     rationale:
-      'LAFS envelope serialization core (1,432 LOC) consumed by cleo-conduit-core, signaldock-protocol, lafs-napi, integration-tests. Mirrors @cleocode/lafs/src/envelope.ts. Flip publish=true to expose canonical envelope spec as a Rust library.',
+      'LAFS envelope serialization core (1,432 LOC) consumed by signaldock-protocol, lafs-napi, integration-tests. Mirrors @cleocode/lafs/src/envelope.ts. Flip publish=true to expose canonical envelope spec as a Rust library.',
   },
   {
     module: 'lafs-napi',

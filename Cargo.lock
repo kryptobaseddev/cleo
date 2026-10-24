@@ -305,16 +305,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c8d4a3bb8b1e0c1050499d1815f5ab16d04f0959b233085fb31653fbfc9d98f9"
 
 [[package]]
-name = "cleo-conduit-core"
-version = "2026.5.105"
-dependencies = [
- "criterion",
- "lafs-core",
- "serde",
- "serde_json",
-]
-
-[[package]]
 name = "cleo-supervisor"
 version = "2026.5.105"
 dependencies = [
@@ -1037,7 +1027,6 @@ name = "integration-tests"
 version = "2026.5.105"
 dependencies = [
  "cant-core",
- "cleo-conduit-core",
  "lafs-core",
  "serde_json",
 ]

@@ -40,6 +40,5 @@ pre-release-replacements = [
   # cleocode/Cargo.toml workspace.dependencies pins for in-workspace
   # publishable crates.
   { file = "Cargo.toml", search = "(lafs-core\\s*=\\s*\\{[^}]*version\\s*=\\s*)\"=?[^\"]+\"", replace = "$1\"={{version}}\"", min = 0 },
-  { file = "Cargo.toml", search = "(cleo-conduit-core\\s*=\\s*\\{[^}]*version\\s*=\\s*)\"=?[^\"]+\"", replace = "$1\"={{version}}\"", min = 0 },
   { file = "Cargo.toml", search = "(cant-core\\s*=\\s*\\{[^}]*version\\s*=\\s*)\"=?[^\"]+\"", replace = "$1\"={{version}}\"", min = 0 },
 ]
