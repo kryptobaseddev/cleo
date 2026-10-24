@@ -25,6 +25,7 @@ import { resolveNexusQueryProjectId } from '@cleocode/core/nexus/registry.js';
 import { defineCommand, showUsage } from 'citty';
 import { dispatchFromCli, dispatchRaw } from '../../dispatch/adapters/cli.js';
 import { getFormatContext, setFormatContext } from '../format-context.js';
+import { warnConduitDeprecated } from '../lib/conduit-deprecation.js';
 import { cliError, cliOutput, humanWarn } from '../renderers/index.js';
 
 // ── helpers ──────────────────────────────────────────────────────────────────
@@ -912,6 +913,7 @@ const livingConduitScanCommand = defineCommand({
     json: { type: 'boolean', description: 'Output as JSON' },
   },
   async run({ args }) {
+    warnConduitDeprecated('graph living conduit-scan');
     applyJsonFlag(args.json as boolean | undefined);
     await dispatchFromCli(
       'mutate',
