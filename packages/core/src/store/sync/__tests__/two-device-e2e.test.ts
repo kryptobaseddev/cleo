@@ -1877,6 +1877,12 @@ describe('lifecycle, release, PR and commit rows reach a second device (T12914)'
   });
 });
 
+/** Resolve once the wall clock (and SQLite's capture time) has moved past the current millisecond. */
+async function nextMillisecond(): Promise<void> {
+  const start = Date.now();
+  while (Date.now() <= start + 1) await new Promise((r) => setTimeout(r, 1));
+}
+
 describe('both devices list the same conflicts after a rebase under an unframed writer (T13866)', () => {
   /**
    * Two brain rows both replicas hold, then concurrent unframed edits (a
@@ -1888,6 +1894,7 @@ describe('both devices list the same conflicts after a rebase under an unframed 
   async function unframedRace(
     set: (n: 1 | 2, who: 'a' | 'b', k: number) => string,
     pullFirst: boolean,
+    aAfterB = true,
   ) {
     const { a, b } = await twoDevices();
     const stream = fakeStream();
@@ -1902,6 +1909,11 @@ describe('both devices list the same conflicts after a rebase under an unframed 
     await pull(a, stream);
     for (const n of [1, 2] as const)
       b.db.exec(`UPDATE brain_observations SET ${set(n, 'b', 1)} WHERE id = 'O-${n}'`);
+    // gh#2366, gh#2405: A's edits must be LATER than B's. In the same
+    // millisecond the HLCs can tie on (phys, ctr) and fall to the random
+    // replica ids: when B won the tie, A's second edit of row 1 beat B again
+    // and recorded a second conflict for that row (3 listed, not 2).
+    if (aAfterB) await nextMillisecond();
     for (const n of [1, 2] as const)
       a.db.exec(`UPDATE brain_observations SET ${set(n, 'a', 1)} WHERE id = 'O-${n}'`);
     a.db.exec(`UPDATE brain_observations SET ${set(1, 'a', 2)} WHERE id = 'O-1'`);
@@ -1926,6 +1938,24 @@ describe('both devices list the same conflicts after a rebase under an unframed 
       expect(contentChecksums(a.db)).toEqual(contentChecksums(b.db));
     });
   }
+
+  it('in the same millisecond the devices still agree: one conflict per concurrent overwrite', async () => {
+    // A true HLC tie falls to the (random) replica ids. Either way both devices
+    // converge and list the same conflicts: row 2 once, row 1 once when A's
+    // first edit won the tie, twice when B's did and A's second edit beat it.
+    const { a, b } = await unframedRace(
+      (n, who, k) => `title = '${who}${k} edit of ${n}'`,
+      true,
+      false,
+    );
+    const keys = conflictKeys(b.db).filter((k) => k.endsWith('|title'));
+    expect(conflictKeys(a.db)).toEqual(conflictKeys(b.db));
+    expect(contentChecksums(a.db)).toEqual(contentChecksums(b.db));
+    const perRow = new Map<string, number>();
+    for (const k of keys) perRow.set(k, (perRow.get(k) ?? 0) + 1);
+    expect([...perRow.values()].sort()).toEqual(keys.length === 2 ? [1, 1] : [1, 2]);
+    expect([2, 3]).toContain(keys.length);
+  });
 
   it('memory-read bumps of citation_count and updated_at on both devices are no conflict anywhere', async () => {
     const { a, b } = await unframedRace(
