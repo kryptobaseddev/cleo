@@ -436,6 +436,28 @@ export async function validateAtom(
     storeRoot: projectRoot,
     executionRoot: resolveEvidenceExecutionRoot(projectRoot, undefined, executionRootHints),
   };
+  // T13912: `pr:<owner>/<repo>#<n>` names the repository the number belongs
+  // to; it must be the evidence git root's origin, never another repo's PR #n.
+  if ((parsed.kind === 'pr' || parsed.kind === 'ci') && parsed.repo !== undefined) {
+    const { originRepoSlug } = await import('../release/pr-evidence.js');
+    const origin = originRepoSlug(roots.executionRoot);
+    if (origin !== parsed.repo) {
+      return {
+        ok: false,
+        codeName: 'E_EVIDENCE_INVALID',
+        reason:
+          `${parsed.kind}:${parsed.repo}#${parsed.prNumber} names ${parsed.repo}, but the evidence ` +
+          `git root (${roots.executionRoot}) has origin ${origin ?? 'none on GitHub'}. Run it from ` +
+          "that repository's checkout, or declare it with CLEO_EVIDENCE_GIT_ROOT / evidence.gitRoot.",
+      };
+    }
+    const { repo, ...bare } = parsed;
+    const named = await validateAtom(bare, projectRoot, taskId, siblingCommitSha, context);
+    if (named.ok && (named.atom.kind === 'pr' || named.atom.kind === 'ci')) {
+      return { ...named, atom: { ...named.atom, repo } };
+    }
+    return named;
+  }
   switch (parsed.kind) {
     case 'commit':
       return validateCommit(parsed.sha, roots, taskId);

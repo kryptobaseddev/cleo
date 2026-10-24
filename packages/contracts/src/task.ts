@@ -564,6 +564,8 @@ export type EvidenceAtom =
       changedPaths?: string[];
       /** Explicit task relationship established when this atom was accepted. */
       taskId?: string;
+      /** `owner/repo` the atom named (`pr:<owner>/<repo>#<n>`, T13912), lowercased. */
+      repo?: string;
       /**
        * Component PR this (integration) PR landed on the default branch
        * (T12671): the task is linked through it and its files are the change.
@@ -588,6 +590,8 @@ export type EvidenceAtom =
       kind: 'ci';
       /** PR number (positive integer). */
       prNumber: number;
+      /** `owner/repo` the atom named (`ci:<owner>/<repo>#<n>`, T13912), lowercased. */
+      repo?: string;
       /** Merge commit SHA (full 40-char hex) the checks ran on. */
       mergeCommitSha: string;
       /**

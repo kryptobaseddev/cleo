@@ -26,8 +26,9 @@
  *      required_status_checks` and cached for 1h.
  *   4. {@link PR_REQUIRED_WORKFLOWS} built-in default (cleocode's own gates).
  *
- * Results are cached under `<projectRoot>/.cleo/cache/evidence/pr-<num>.json`,
- * keyed on `(prNumber, mergedAt)` so re-verifies skip the network round trip.
+ * Results are cached under `<projectRoot>/.cleo/cache/evidence/pr-<repo>-<num>.json`,
+ * keyed on `(repo, prNumber, mergedAt)` so re-verifies skip the network round
+ * trip and two repositories' PR #N never collide (T13912).
  * The branch-protection tier is cached separately at
  * `<projectRoot>/.cleo/cache/evidence/pr-required-checks.json` (1h TTL).
  *
@@ -38,7 +39,15 @@
  */
 
 import { execFileSync } from 'node:child_process';
-import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
+import { createHash } from 'node:crypto';
+import {
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  realpathSync,
+  renameSync,
+  writeFileSync,
+} from 'node:fs';
 import { join } from 'node:path';
 import type { GhPrViewPayload } from '@cleocode/contracts';
 import {
@@ -49,6 +58,7 @@ import {
 } from '@cleocode/contracts/release/evidence-atoms.js';
 import {
   describeUnusableEvidenceGitRoot,
+  discoveryEnv,
   E_EVIDENCE_GIT_ROOT,
   isGitWorkTree,
 } from '../git/work-tree.js';
@@ -115,14 +125,65 @@ export type PrAtomResolution =
 // ---------------------------------------------------------------------------
 
 /**
- * Filesystem location for the cached PR validation result.
+ * The repository a PR number belongs to, for the PR cache (T13912): the
+ * execution root's `origin` as a lowercased `owner/repo` slug, else
+ * `path:<sha256 prefix of the canonical root>` for a checkout with no GitHub
+ * origin. Two repositories' PR #N never share a cache entry.
  *
- * Path: `<projectRoot>/.cleo/cache/evidence/pr-<num>.json`.
- *
- * @task T9764
+ * @param executionRoot - The checkout `gh` runs in.
+ * @returns The repository identity.
+ * @task T13912
  */
-export function prCacheEntryPath(projectRoot: string, prNumber: number): string {
-  return join(projectRoot, '.cleo', 'cache', 'evidence', `pr-${prNumber}.json`);
+export function prRepoIdentity(executionRoot: string): string {
+  const slug = originRepoSlug(executionRoot);
+  if (slug !== null) return slug;
+  let root = executionRoot;
+  try {
+    root = realpathSync(executionRoot);
+  } catch {
+    // Not resolvable: the given spelling still names it.
+  }
+  return `path:${createHash('sha256').update(root).digest('hex').slice(0, 16)}`;
+}
+
+/**
+ * The `owner/repo` slug of a checkout's `origin` remote (GitHub https or ssh
+ * form), lowercased, or null when there is none. Ambient GIT_* is ignored.
+ *
+ * @param root - The checkout.
+ * @task T13912
+ */
+export function originRepoSlug(root: string): string | null {
+  let url: string;
+  try {
+    url = execFileSync('git', ['remote', 'get-url', 'origin'], {
+      cwd: root,
+      encoding: 'utf-8',
+      env: discoveryEnv(),
+      stdio: ['ignore', 'pipe', 'ignore'],
+    }).trim();
+  } catch {
+    return null;
+  }
+  const m = /github\.com[:/]+([^/\s]+)\/([^/\s]+?)(?:\.git)?\/?$/i.exec(url);
+  return m ? `${m[1]}/${m[2]}`.toLowerCase() : null;
+}
+
+/**
+ * Filesystem location for the cached PR validation result, per repository
+ * (T13912): `<projectRoot>/.cleo/cache/evidence/pr-<repo tag>-<num>.json`.
+ * Entries written before T13912 (`pr-<num>.json`, no repository) are never
+ * read, so they are refetched, never trusted.
+ *
+ * @param projectRoot - The store root holding the cache.
+ * @param prNumber - The PR number.
+ * @param repo - {@link prRepoIdentity} of the checkout the PR belongs to.
+ * @task T9764
+ * @task T13912
+ */
+export function prCacheEntryPath(projectRoot: string, prNumber: number, repo: string): string {
+  const tag = repo.replace(/[^a-z0-9._-]+/gi, '_');
+  return join(projectRoot, '.cleo', 'cache', 'evidence', `pr-${tag}-${prNumber}.json`);
 }
 
 /**
@@ -142,6 +203,8 @@ interface PrCacheEntry {
   readonly changedPaths: string[];
   readonly changedFileCount: number;
   readonly key: string;
+  /** {@link prRepoIdentity} of the repository the PR belongs to (T13912). */
+  readonly repo: string;
   readonly prNumber: number;
   readonly mergeCommitSha: string;
   readonly mergedAt: string;
@@ -150,12 +213,16 @@ interface PrCacheEntry {
   readonly capturedAt: string;
 }
 
-function buildCacheKey(prNumber: number, mergedAt: string): string {
-  return `pr-${prNumber}@${mergedAt}`;
+function buildCacheKey(repo: string, prNumber: number, mergedAt: string): string {
+  return `pr-${repo}#${prNumber}@${mergedAt}`;
 }
 
-function readCacheEntry(projectRoot: string, prNumber: number): PrCacheEntry | null {
-  const path = prCacheEntryPath(projectRoot, prNumber);
+function readCacheEntry(
+  projectRoot: string,
+  prNumber: number,
+  repo: string,
+): PrCacheEntry | null {
+  const path = prCacheEntryPath(projectRoot, prNumber, repo);
   if (!existsSync(path)) return null;
   try {
     const parsed = JSON.parse(readFileSync(path, 'utf-8')) as Partial<PrCacheEntry>;
@@ -180,7 +247,9 @@ function readCacheEntry(projectRoot: string, prNumber: number): PrCacheEntry | n
     if (typeof parsed.mergedAt !== 'string' || parsed.mergedAt === '') return null;
     if (typeof parsed.mergeCommitSha !== 'string' || parsed.mergeCommitSha === '') return null;
     if (typeof parsed.key !== 'string') return null;
-    if (parsed.key !== buildCacheKey(prNumber, parsed.mergedAt)) return null;
+    // T13912: an entry of another repository (or a repo-less legacy one) is a miss.
+    if (parsed.repo !== repo) return null;
+    if (parsed.key !== buildCacheKey(repo, prNumber, parsed.mergedAt)) return null;
     return parsed as PrCacheEntry;
   } catch {
     return null;
@@ -192,7 +261,7 @@ function writeCacheEntry(projectRoot: string, entry: PrCacheEntry): void {
   if (!existsSync(dir)) {
     mkdirSync(dir, { recursive: true });
   }
-  const finalPath = prCacheEntryPath(projectRoot, entry.prNumber);
+  const finalPath = prCacheEntryPath(projectRoot, entry.prNumber, entry.repo);
   const tmpPath = `${finalPath}.${process.pid}.tmp`;
   writeFileSync(tmpPath, JSON.stringify(entry, null, 2), 'utf-8');
   renameSync(tmpPath, finalPath);
@@ -809,14 +878,17 @@ export const defaultFetchGhBranchProtection: FetchGhBranchProtection = async (cw
 };
 
 /**
- * Filesystem location for the cached branch-protection required-checks list.
+ * Filesystem location for the cached branch-protection required-checks list,
+ * per repository (T13912): `<projectRoot>/.cleo/cache/evidence/pr-required-checks-<repo tag>.json`.
  *
- * Path: `<projectRoot>/.cleo/cache/evidence/pr-required-checks.json`.
- *
+ * @param projectRoot - The store root holding the cache.
+ * @param repo - {@link prRepoIdentity} of the checkout `gh` runs in.
  * @task T12104 (gh#1192)
+ * @task T13912
  */
-export function branchProtectionCachePath(projectRoot: string): string {
-  return join(projectRoot, '.cleo', 'cache', 'evidence', 'pr-required-checks.json');
+export function branchProtectionCachePath(projectRoot: string, repo: string): string {
+  const tag = repo.replace(/[^a-z0-9._-]+/gi, '_');
+  return join(projectRoot, '.cleo', 'cache', 'evidence', `pr-required-checks-${tag}.json`);
 }
 
 /**
@@ -831,6 +903,8 @@ export const BRANCH_PROTECTION_CACHE_TTL_MS = 60 * 60 * 1000;
 
 interface BranchProtectionCacheEntry {
   readonly schemaVersion: 1;
+  /** {@link prRepoIdentity} of the checkout it was read for (T13912). */
+  readonly identity?: string;
   readonly repo: string;
   readonly branch: string;
   readonly contexts: string[];
@@ -839,12 +913,17 @@ interface BranchProtectionCacheEntry {
   readonly capturedAt: string;
 }
 
-function readBranchProtectionCache(projectRoot: string): BranchProtectionCacheEntry | null {
-  const path = branchProtectionCachePath(projectRoot);
+function readBranchProtectionCache(
+  projectRoot: string,
+  identity: string,
+): BranchProtectionCacheEntry | null {
+  const path = branchProtectionCachePath(projectRoot, identity);
   if (!existsSync(path)) return null;
   try {
     const parsed = JSON.parse(readFileSync(path, 'utf-8')) as Partial<BranchProtectionCacheEntry>;
     if (parsed.schemaVersion !== 1) return null;
+    // T13912: another repository's protection (or a legacy entry) is a miss.
+    if (parsed.identity !== identity) return null;
     if (typeof parsed.repo !== 'string' || parsed.repo === '') return null;
     if (typeof parsed.branch !== 'string' || parsed.branch === '') return null;
     if (!Array.isArray(parsed.contexts) || parsed.contexts.length === 0) return null;
@@ -864,7 +943,7 @@ function writeBranchProtectionCache(projectRoot: string, entry: BranchProtection
   if (!existsSync(dir)) {
     mkdirSync(dir, { recursive: true });
   }
-  const finalPath = branchProtectionCachePath(projectRoot);
+  const finalPath = branchProtectionCachePath(projectRoot, entry.identity ?? '');
   const tmpPath = `${finalPath}.${process.pid}.tmp`;
   writeFileSync(tmpPath, JSON.stringify(entry, null, 2), 'utf-8');
   renameSync(tmpPath, finalPath);
@@ -903,8 +982,9 @@ export async function resolveRequiredWorkflowsDetailed(
   const syncTier = resolveSyncTier(opts.env ?? process.env, opts.projectContext);
   if (syncTier) return syncTier;
 
+  const identity = prRepoIdentity(executionRoot);
   if (!opts.bypassProtectionCache) {
-    const cached = readBranchProtectionCache(projectRoot);
+    const cached = readBranchProtectionCache(projectRoot, identity);
     if (cached) {
       return {
         workflows: [...cached.contexts],
@@ -923,6 +1003,7 @@ export async function resolveRequiredWorkflowsDetailed(
       if (!opts.readOnly)
         writeBranchProtectionCache(projectRoot, {
           schemaVersion: 1,
+          identity,
           repo: fetched.repo,
           branch: fetched.branch,
           contexts: fetched.contexts,
@@ -1363,9 +1444,10 @@ export async function resolvePrEvidenceAtom(
     };
   }
 
-  // Cache lookup
+  // Cache lookup, per repository (T13912): PR numbers are only unique per repo.
+  const repo = prRepoIdentity(executionRoot);
   if (!opts.bypassCache) {
-    const cached = readCacheEntry(projectRoot, prNumber);
+    const cached = readCacheEntry(projectRoot, prNumber, repo);
     if (cached) {
       return {
         ok: true,
@@ -1540,7 +1622,8 @@ export async function resolvePrEvidenceAtom(
   const entry: PrCacheEntry = {
     schemaVersion: 2,
     ...changes,
-    key: buildCacheKey(prNumber, payload.mergedAt),
+    key: buildCacheKey(repo, prNumber, payload.mergedAt),
+    repo,
     prNumber,
     mergeCommitSha,
     mergedAt: payload.mergedAt,
