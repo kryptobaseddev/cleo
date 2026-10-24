@@ -16,7 +16,11 @@
 
 import { createHash, randomBytes } from 'node:crypto';
 import type { DatabaseSync, SQLOutputValue } from 'node:sqlite';
-import type { BrainCompactHit, FetchedBrainEntry } from '@cleocode/contracts';
+import type {
+  BrainCompactHit,
+  FetchedBrainEntry,
+  ObserveBrainResult,
+} from '@cleocode/contracts';
 import { addGlobalDecision, addGlobalObservation } from '../store/memory-accessor.js';
 import type { BrainSourceConfidence } from '../store/schema/memory-schema.js';
 import { classifyObservationTypeByKeywords } from './observation-type-decision.js';
@@ -34,7 +38,8 @@ async function globalNativeDb(): Promise<DatabaseSync> {
  * Save an observation to the main brain (global store).
  *
  * @param params - Observation text plus optional title, type, agent and source type.
- * @returns The new observation's id, type and creation time, tagged `scope: 'global'`.
+ * @returns The new observation's id, type and creation time, tagged `scope: 'global'`; when the
+ *   same text is already in the main brain, that entry's id with `stored: false` (T13949).
  * @example
  * ```ts
  * const { id } = await observeGlobalBrain({ text: 'pnpm 11 reads only pnpm_config_*' });
@@ -46,7 +51,7 @@ export async function observeGlobalBrain(params: {
   type?: string;
   agent?: string;
   sourceType?: string;
-}): Promise<{ id: string; type: string; createdAt: string; scope: 'global' }> {
+}): Promise<ObserveBrainResult & { scope: 'global' }> {
   const text = params.text.trim();
   // @sync-invariant none:input-shape empty observation text is rejected before any write
   if (!text) throw new Error('Observation text is required');
@@ -58,7 +63,7 @@ export async function observeGlobalBrain(params: {
   // Random, not clock-based: two devices observing in one millisecond must not
   // collide, and sync never re-mints O- ids.
   const id = `O-${randomBytes(4).toString('hex')}`;
-  await addGlobalObservation({
+  const duplicateOf = await addGlobalObservation({
     id,
     type,
     title,
@@ -76,6 +81,18 @@ export async function observeGlobalBrain(params: {
     }),
     createdAt,
   });
+  // T13949: the same text already lives in the main brain; report it, write nothing.
+  if (duplicateOf !== null) {
+    return {
+      id: duplicateOf,
+      type,
+      createdAt,
+      scope: 'global',
+      stored: false,
+      gateAction: 'merged',
+      gateReason: 'same content already in the main brain',
+    };
+  }
   return { id, type, createdAt, scope: 'global' };
 }
 

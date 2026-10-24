@@ -1416,7 +1416,9 @@ const importCommand = defineCommand({
         projectRoot,
         cleoDirName: CLEO_DIR_NAME,
         hasheFileName: MIGRATE_MEMORY_HASHES_JSON,
-        dispatch: dispatchFromCli,
+        // dispatchRaw: one failing (or duplicate) entry must not print an
+        // envelope or exit the whole import (T13949).
+        dispatch: dispatchRaw,
       });
 
       cliOutput(

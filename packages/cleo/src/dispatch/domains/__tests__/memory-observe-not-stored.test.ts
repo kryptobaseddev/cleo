@@ -35,6 +35,8 @@ describe('memory.observe when nothing is stored (T13949)', () => {
     expect(result.success).toBe(false);
     expect(result.error?.code).toBe('E_OBSERVE_NOT_STORED');
     expect(result.error?.message).toContain('O-existing');
+    // Scripts read the existing entry from the error details.
+    expect(result.error?.details).toMatchObject({ id: 'O-existing', gateAction: 'merged' });
   });
 
   it('still succeeds with the new id when a row is stored', async () => {

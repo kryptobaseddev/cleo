@@ -755,9 +755,10 @@ export async function memoryObserve(
   if (scopeError) return scopeError;
   if (params.type === 'lesson') {
     const ruleError = lessonRuleError(params.title);
-    // @sync-invariant none:input-shape a lesson without a one-line rule is refused before any write
-    if (ruleError)
+    if (ruleError) {
+      // @sync-invariant none:input-shape a lesson without a one-line rule is refused before any write
       return { success: false, error: { code: 'E_INVALID_INPUT', message: ruleError } };
+    }
   }
   // T13949: process lessons are cross-project, so they default to the main brain.
   const scope = params.scope ?? (params.type === 'lesson' ? 'global' : undefined);

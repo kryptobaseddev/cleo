@@ -1057,11 +1057,20 @@ export class MemoryHandler implements DomainHandler {
               startTime,
             );
           }
+          const limit = paramNumber(params, 'limit') ?? 50;
+          if (!Number.isInteger(limit) || limit < 1) {
+            return errorResult(
+              'query',
+              'memory',
+              operation,
+              // @sync-invariant none:input-shape an invalid lessons limit is refused; a read writes nothing
+              'E_INVALID_INPUT',
+              'limit must be a positive integer',
+              startTime,
+            );
+          }
           try {
-            const lessons = await listLessons(projectRoot, {
-              scope: scopeParam,
-              limit: paramNumber(params, 'limit') ?? 50,
-            });
+            const lessons = await listLessons(projectRoot, { scope: scopeParam, limit });
             return wrapResult(
               { success: true, data: { count: lessons.length, scope: scopeParam, lessons } },
               'query',
@@ -1587,7 +1596,7 @@ export class MemoryHandler implements DomainHandler {
             const action = observed.gateAction ?? 'declined';
             const into = observed.gateAction === 'merged' ? ` into ${observed.id}` : '';
             const why = observed.gateReason ? ` (${observed.gateReason})` : '';
-            return errorResult(
+            const refused = errorResult(
               'mutate',
               'memory',
               operation,
@@ -1596,6 +1605,20 @@ export class MemoryHandler implements DomainHandler {
               `Nothing stored: the extraction gate ${action} the observation${into}${why}`,
               startTime,
             );
+            // Scripts read the entry that already holds this content from details.id.
+            return {
+              ...refused,
+              error: {
+                // @sync-invariant none:input-shape the gate stored nothing; this only reports it
+                code: 'E_OBSERVE_NOT_STORED',
+                message: refused.error?.message ?? 'Nothing stored',
+                details: {
+                  id: observed.id,
+                  ...(observed.gateAction ? { gateAction: observed.gateAction } : {}),
+                  ...(observed.gateReason ? { gateReason: observed.gateReason } : {}),
+                },
+              },
+            };
           }
           return wrapResult(result, 'mutate', 'memory', operation, startTime);
         }
