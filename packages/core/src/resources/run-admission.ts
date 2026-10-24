@@ -468,7 +468,10 @@ export function processGroupsOf(pids: readonly number[]): Map<number, number> {
     out = typeof stdout === 'string' ? stdout : '';
   }
   for (const line of out.split('\n')) {
-    const [pid, pgid] = line.trim().split(/\s+/).map((w) => Number.parseInt(w, 10));
+    const [pid, pgid] = line
+      .trim()
+      .split(/\s+/)
+      .map((w) => Number.parseInt(w, 10));
     if (pid !== undefined && pgid !== undefined && pgid > 0) groups.set(pid, pgid);
   }
   return groups;
