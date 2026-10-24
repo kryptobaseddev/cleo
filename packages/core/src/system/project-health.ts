@@ -31,6 +31,7 @@ import { dirname, join } from 'node:path';
 import type { DatabaseSync as _DatabaseSyncType } from 'node:sqlite';
 import { runWithConcurrency } from '../lib/concurrency.js';
 import { getLogger } from '../logger.js';
+import type { NexusIndexHealth } from '../nexus/index-health.js';
 import { getCleoHome, tryResolveCleoDir } from '../paths.js';
 
 // Cross-OS correct: createRequire for node:sqlite (Vitest/Vite cannot resolve
@@ -205,6 +206,12 @@ export interface ProjectHealthReport {
     config: JsonFileProbe;
     projectInfo: JsonFileProbe;
   };
+  /**
+   * The project's code index (T14021): age, commits behind, missing files and
+   * a stale flag. Absent for an unreachable project. A stale index is listed in
+   * {@link ProjectHealthReport.issues} but does not change {@link ProjectHealthReport.overall}.
+   */
+  nexusIndex?: NexusIndexHealth;
   /** Overall verdict — folded from all probes via {@link deriveOverallStatus}. */
   overall: ProjectHealthStatus;
   /** Human-readable summary strings suitable for a table column. */
@@ -448,6 +455,16 @@ function collectProjectIssues(report: Omit<ProjectHealthReport, 'issues' | 'over
     issues.push(
       `config.json: schema drift (version=${report.files.config.schemaVersion ?? '?'} != expected=${report.files.config.expectedVersion ?? '?'})`,
     );
+  }
+  if (report.nexusIndex?.stale) {
+    const index = report.nexusIndex;
+    issues.push(
+      `nexus index stale: ${index.reason ?? 'unknown'}` +
+        (index.ageDays !== null ? ` (indexed ${index.ageDays}d ago)` : '') +
+        '; run cleo nexus analyze',
+    );
+  } else if (report.nexusIndex?.reason && report.dbs.tasks.integrityOk) {
+    issues.push(`nexus index: ${report.nexusIndex.reason}`);
   }
   if (report.files.projectInfo.exists && !report.files.projectInfo.parseable) {
     issues.push(`project-info.json: ${report.files.projectInfo.error ?? 'parse error'}`);
@@ -745,12 +762,17 @@ export async function checkProjectHealth(
     probeJsonFile(join(cleoDir, PROJECT_INFO_JSON), JSON_EXPECTED_VERSIONS[PROJECT_INFO_JSON]),
   ]);
 
+  // T14021: read-only, walk-free; a store that cannot be read reports a reason, never throws.
+  const { probeNexusIndexHealth } = await import('../nexus/index-health.js');
+  const nexusIndex = await probeNexusIndexHealth(projectPath, join(cleoDir, TASKS_DB));
+
   const base: Omit<ProjectHealthReport, 'issues' | 'overall'> = {
     projectHash,
     projectPath,
     reachable: true,
     dbs: { tasks, brain, conduit },
     files: { config: configProbe, projectInfo: infoProbe },
+    nexusIndex,
     checkedAt,
   };
   return {

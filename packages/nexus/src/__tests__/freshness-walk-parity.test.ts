@@ -102,6 +102,22 @@ describe('freshness walk parity (T12348)', () => {
     expect(hashed).toEqual([]);
   });
 
+  it('skips a nested linked worktree, whose .git is a file, unless included (T14021)', async () => {
+    // A linked worktree or a submodule checkout marks itself with a `.git` FILE.
+    put('wt/w.ts');
+    writeFileSync(join(repo, 'wt', '.git'), 'gitdir: /elsewhere/.git/worktrees/wt\n');
+    const reported: string[] = [];
+    const indexWalk = await walkRepositoryPaths(repo, undefined, (report) => {
+      if (report.status === 'excluded') reported.push(`${report.path}: ${report.reason}`);
+    });
+    const freshness = await walkRepositoryPaths(repo, undefined, undefined, [], {
+      knownFiles: new Map(),
+    });
+    expect(indexWalk.map((file) => file.path)).not.toContain('wt/w.ts');
+    expect(identity(freshness)).toEqual(identity(indexWalk));
+    expect(reported).toContain('wt: Nested repository requires explicit inclusion');
+  });
+
   it('includes an explicitly included nested repository in both walks', async () => {
     const indexWalk = await walkRepositoryPaths(repo, undefined, undefined, ['nested']);
     const freshness = await walkRepositoryPaths(repo, undefined, undefined, ['nested'], {

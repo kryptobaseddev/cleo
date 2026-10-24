@@ -1,6 +1,7 @@
 /**
  * Index freshness disclosure and bounded inline refresh (T12316).
  */
+import { execFileSync } from 'node:child_process';
 import { mkdir, mkdtemp, rm, unlink, utimes, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -16,6 +17,7 @@ import {
   discloseNexusFreshness,
   ensureNexusIndexFresh,
   judgeSymbolFiles,
+  probeNexusIndexHealth,
   querySymbolFiles,
   runRefreshInChild,
   runRefreshInProcess,
@@ -116,6 +118,8 @@ describe('index freshness (T12316)', () => {
       staleFileCount: 0,
       refreshCommand: 'cleo nexus analyze',
       refreshEstimate: 'none needed',
+      missingFileCount: 0,
+      missingPaths: [],
     });
     expect(freshness.lastIndexedAt).toEqual(expect.any(String));
   });
@@ -129,6 +133,8 @@ describe('index freshness (T12316)', () => {
     expect(freshness.status).toBe('stale');
     expect(freshness.staleFileCount).toBe(3);
     expect(freshness.stalePaths).toEqual(['README.md', 'src/a.ts', 'src/c.ts']);
+    // T14021: only the deleted file is missing; modified and added files are stale, not missing.
+    expect(freshness).toMatchObject({ missingFileCount: 1, missingPaths: ['README.md'] });
     expect(freshness).toMatchObject({ symbolFileStale: true, symbolFile: 'src/a.ts' });
     // T14014: re-parse the stale parseable files (not the deleted README); the whole graph is re-resolved.
     expect(freshness.refreshEstimate).toMatch(
@@ -136,6 +142,29 @@ describe('index freshness (T12316)', () => {
     );
     const other = await assessNexusIndexFreshness(repo, { symbolFiles: ['src/b.ts'] });
     expect(other).toMatchObject({ symbolFileStale: false, symbolFile: 'src/b.ts' });
+  });
+
+  it('reports indexed files gone from disk, not files merely excluded since, and warns (T14021)', async () => {
+    await runNexusAnalysis({ repoPath: repo });
+    // Deleted since indexing (a removed clone looks the same, file by file).
+    await unlink(join(repo, 'src/d.ts'));
+    await unlink(join(repo, 'src/e.ts'));
+    // Excluded since indexing, but still on disk: stale, never missing.
+    await put('.gitignore', 'src/f.ts\n');
+    const freshness = await assessNexusIndexFreshness(repo);
+    expect(freshness).toMatchObject({
+      status: 'stale',
+      missingFileCount: 2,
+      missingPaths: ['src/d.ts', 'src/e.ts'],
+    });
+    expect(freshness.stalePaths).toContain('src/f.ts');
+    drainWarnings();
+    discloseNexusFreshness('nexus impact', freshness);
+    const warnings = drainWarnings() ?? [];
+    expect(warnings.map((w) => w.code)).toContain('W_NEXUS_INDEX_MISSING_PATHS');
+    expect(warnings.find((w) => w.code === 'W_NEXUS_INDEX_MISSING_PATHS')?.message).toMatch(
+      /2 file\(s\) no longer on disk \(e\.g\. src\/d\.ts, src\/e\.ts\)/,
+    );
   });
 
   it('treats a touched-but-identical file as fresh by falling back to its hash', async () => {
@@ -469,5 +498,83 @@ describe('discloseNexusFreshness keeps stdout/stderr clean (T9775 · T12316)', (
     });
     expect(stderrCalls).toBe(0);
     expect(warnings.map((w) => w.code)).toEqual(['W_NEXUS_INDEX_STALE']);
+  });
+});
+
+describe('probeNexusIndexHealth (T14021)', () => {
+  /** Copy the analysed index's `_nexus_meta` into a project `cleo.db` file. */
+  function writeStore(withMeta = true): string {
+    const path = join(repo, '.cleo', 'cleo.db');
+    const file = new DatabaseSync(path);
+    try {
+      file.exec('CREATE TABLE IF NOT EXISTS tasks_tasks (id TEXT PRIMARY KEY)');
+      if (withMeta) {
+        file.exec(
+          'CREATE TABLE _nexus_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at INTEGER DEFAULT 0)',
+        );
+        const insert = file.prepare('INSERT INTO _nexus_meta (key, value) VALUES (?, ?)');
+        for (const row of native.prepare('SELECT key, value FROM _nexus_meta').all())
+          insert.run(String(row.key), String(row.value));
+      }
+    } finally {
+      file.close();
+    }
+    return path;
+  }
+
+  const git = (...args: string[]): string =>
+    execFileSync('git', args, {
+      cwd: repo,
+      encoding: 'utf-8',
+      stdio: ['ignore', 'pipe', 'ignore'],
+    });
+
+  it('is not stale for a project that was never indexed, or has no store', async () => {
+    expect((await probeNexusIndexHealth(repo, join(repo, '.cleo', 'cleo.db'))).indexed).toBe(false);
+    const health = await probeNexusIndexHealth(repo, writeStore(false));
+    expect(health).toMatchObject({ indexed: false, stale: false, missingFileCount: 0 });
+  });
+
+  it('reports a fresh index as not stale, and deleted indexed files as stale', async () => {
+    await runNexusAnalysis({ repoPath: repo });
+    const dbPath = writeStore();
+    expect(await probeNexusIndexHealth(repo, dbPath)).toMatchObject({
+      indexed: true,
+      stale: false,
+      missingFileCount: 0,
+      ageDays: 0,
+    });
+    await unlink(join(repo, 'src/d.ts'));
+    const health = await probeNexusIndexHealth(repo, dbPath);
+    expect(health).toMatchObject({
+      stale: true,
+      missingFileCount: 1,
+      missingPaths: ['src/d.ts'],
+      reason: '1 indexed file(s) no longer on disk',
+    });
+  });
+
+  it('flags an index further behind HEAD than nexus.freshness.maxCommitsBehind', async () => {
+    git('init', '-q');
+    git('config', 'user.name', 't');
+    git('config', 'user.email', 't@example.com');
+    git('config', 'commit.gpgsign', 'false');
+    git('add', '-A');
+    git('commit', '-q', '-m', 'init');
+    await runNexusAnalysis({ repoPath: repo });
+    const dbPath = writeStore();
+    await writeFile(
+      join(repo, '.cleo', 'config.json'),
+      JSON.stringify({ nexus: { freshness: { maxCommitsBehind: 1 } } }),
+    );
+    for (const n of [1, 2]) {
+      await put(`src/n${n}.ts`, `export const n${n} = ${n};\n`);
+      git('add', '-A');
+      git('commit', '-q', '-m', `c${n}`);
+    }
+    const health = await probeNexusIndexHealth(repo, dbPath);
+    expect(health).toMatchObject({ commitsBehindHead: 2, stale: true });
+    expect(health.reason).toBe('2 commit(s) behind HEAD (max 1)');
+    expect(health.indexedRevision).toMatch(/^[0-9a-f]{40}$/);
   });
 });

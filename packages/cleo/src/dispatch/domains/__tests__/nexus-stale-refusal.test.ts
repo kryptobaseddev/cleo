@@ -122,8 +122,30 @@ describe('stale nexus answers (T14008)', () => {
         refreshCooldownUntil: null,
         ageDays: 29,
         lastIndexedAt: '2026-09-25T00:00:00.000Z',
+        missingFileCount: null,
+        missingPaths: [],
       });
     }
+  });
+
+  it('carries indexed files gone from disk in data.freshness (T14021)', async () => {
+    const withMissing = assessment(10);
+    mockAssess.mockResolvedValue({
+      ...withMissing,
+      freshness: {
+        ...withMissing.freshness,
+        missingFileCount: 2,
+        missingPaths: ['clone/a.ts', 'clone/b.ts'],
+      },
+    });
+    mockContext.mockResolvedValue(found);
+
+    const result = await handler.query('context', { symbol: 'alpha', projectId: 'proj' });
+
+    expect(result.success).toBe(true);
+    expect(result.data).toMatchObject({
+      freshness: { missingFileCount: 2, missingPaths: ['clone/a.ts', 'clone/b.ts'] },
+    });
   });
 
   it('answers within the threshold and carries the freshness block', async () => {
