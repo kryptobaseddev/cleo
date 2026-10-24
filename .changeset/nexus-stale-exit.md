@@ -17,3 +17,11 @@ branch or worktree reindexed where it stands answers normally.
 `error.fix` names the reindex command (`cleo nexus analyze "<root>"`).
 `--allow-stale` on `nexus impact` and `nexus context`, or
 `CLEO_NEXUS_ALLOW_STALE=1` for any graph query, accepts the stale answer.
+
+The nexus and graph commands that report a dispatch error themselves (`why`,
+`impact-full`, `clusters`, `flows`, `route-map`, `shape-check`, `full-context`,
+`task-footprint`, `brain-anchors`, `task-symbols`, `hot-paths`, `hot-nodes`,
+`cold-symbols`) now exit with the shared code mapping on any error, not always
+1: for example `cleo nexus why <unknown symbol>` (`E_NOT_FOUND`) exits 4. Their
+error envelopes also carry `requestId` and the session fields, and keep
+`error.fix`.
