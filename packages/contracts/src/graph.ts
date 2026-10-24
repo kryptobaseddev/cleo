@@ -925,6 +925,25 @@ export interface GraphIndexFreshness {
   };
 }
 
+/**
+ * How current the graph behind an answer is, returned at the top level of
+ * every index-sensitive `cleo nexus` answer as `data.freshness` (T14008).
+ */
+export interface NexusAnswerFreshness {
+  /** Working-tree verdict of {@link GraphIndexFreshness.status}. */
+  status: GraphIndexFreshness['status'];
+  /** Revision the index was built from. */
+  indexedRevision: string | null;
+  /** Ref the index is measured against. */
+  baseRef: string | null;
+  /** Commits on the base ref the index has not seen. */
+  commitsBehind: number | null;
+  /** Whole days since the index was built. */
+  ageDays: number | null;
+  /** When the index was built. */
+  lastIndexedAt: string | null;
+}
+
 // ---------------------------------------------------------------------------
 // Impact analysis result
 // ---------------------------------------------------------------------------

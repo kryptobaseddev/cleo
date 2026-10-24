@@ -338,6 +338,18 @@ export enum ExitCode {
    * @task T13949
    */
   OBSERVE_NOT_STORED = 110,
+
+  /**
+   * E_NEXUS_INDEX_STALE — a `cleo nexus` graph answer was refused because the
+   * index trails the base branch by more than
+   * `nexus.freshness.maxCommitsBehind`, or the queried symbol is missing from a
+   * stale index. `error.fix` names the reindex command; `--allow-stale` (or
+   * `CLEO_NEXUS_ALLOW_STALE=1`) accepts the stale answer.
+   *
+   * @codeName E_NEXUS_INDEX_STALE
+   * @task T14008
+   */
+  NEXUS_INDEX_STALE = 111,
 }
 
 // ---------------------------------------------------------------------------

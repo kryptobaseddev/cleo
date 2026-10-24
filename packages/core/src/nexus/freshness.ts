@@ -18,7 +18,11 @@ import { existsSync } from 'node:fs';
 import { performance } from 'node:perf_hooks';
 import { fileURLToPath } from 'node:url';
 import { getHeapStatistics } from 'node:v8';
-import type { GraphIndexFreshness, ParserExecutionPort } from '@cleocode/contracts';
+import type {
+  GraphIndexFreshness,
+  NexusAnswerFreshness,
+  ParserExecutionPort,
+} from '@cleocode/contracts';
 import { PARSER_WORKER_HEAP_MAX_MB } from '@cleocode/contracts/code-symbol.js';
 import type { KnownFileFingerprint } from '@cleocode/nexus/pipeline';
 import { getConfigValue } from '../config/registry.js';
@@ -287,6 +291,123 @@ async function assessWithStaleSet(
     checkMs: Math.round(performance.now() - started),
   };
   return { freshness, staleFiles: stale };
+}
+
+/** Default for `nexus.freshness.maxCommitsBehind` (T14008, lead decision 2026-10-24). */
+export const DEFAULT_MAX_COMMITS_BEHIND = 50;
+
+/** Env var that accepts a stale answer for any graph query (T14008). */
+export const NEXUS_ALLOW_STALE_ENV = 'CLEO_NEXUS_ALLOW_STALE';
+
+/** When a graph answer from a stale index is refused (T14008). */
+export interface NexusStalePolicy {
+  /** Most commits the index may trail the base branch. */
+  maxCommitsBehind: number;
+  /** The caller accepted a stale answer (`--allow-stale` or {@link NEXUS_ALLOW_STALE_ENV}). */
+  allowStale: boolean;
+}
+
+/**
+ * Read the stale-answer policy: `nexus.freshness.maxCommitsBehind` (default
+ * {@link DEFAULT_MAX_COMMITS_BEHIND}) and the caller's opt-out.
+ *
+ * @param projectRoot - Project whose merged config is read.
+ * @param options - `allowStale` from the caller's flag.
+ * @returns The effective policy.
+ * @example
+ * ```ts
+ * const policy = await readNexusStalePolicy(root, { allowStale: args['allow-stale'] });
+ * ```
+ */
+export async function readNexusStalePolicy(
+  projectRoot: string,
+  options: { allowStale?: boolean } = {},
+): Promise<NexusStalePolicy> {
+  let raw: unknown;
+  try {
+    raw = await getConfigValue('nexus.freshness.maxCommitsBehind', { projectRoot });
+  } catch {
+    raw = undefined;
+  }
+  const configured = Number(raw);
+  return {
+    maxCommitsBehind:
+      raw !== undefined && raw !== null && Number.isInteger(configured) && configured >= 0
+        ? configured
+        : DEFAULT_MAX_COMMITS_BEHIND,
+    allowStale:
+      options.allowStale === true || envSwitch(process.env[NEXUS_ALLOW_STALE_ENV]) === true,
+  };
+}
+
+/**
+ * The freshness block every index-sensitive answer carries as `data.freshness`.
+ *
+ * @param freshness - The assessment behind the answer.
+ * @returns Revision, base, commits behind, age and verdict.
+ */
+export function answerFreshness(freshness: GraphIndexFreshness): NexusAnswerFreshness {
+  return {
+    status: freshness.status,
+    indexedRevision: freshness.indexedRevision ?? null,
+    baseRef: freshness.baseRef ?? null,
+    commitsBehind: freshness.commitsBehind ?? null,
+    ageDays: freshness.ageDays ?? null,
+    lastIndexedAt: freshness.lastIndexedAt,
+  };
+}
+
+/** A refused graph answer: the index is too far behind to answer from (T14008). */
+export interface NexusStaleRefusal {
+  /** Stable error code. */
+  code: 'E_NEXUS_INDEX_STALE';
+  /** Why the answer was refused. */
+  message: string;
+  /** The exact reindex command, and the opt-out. */
+  fix: string;
+  /** The freshness facts and the threshold that refused. */
+  details: NexusAnswerFreshness & { maxCommitsBehind: number };
+}
+
+/**
+ * Whether a graph answer must be refused as stale: the index trails the base
+ * branch by more than the policy allows, or the target is missing from an
+ * index that is stale (it may exist in code the index never saw).
+ *
+ * @param freshness - The assessment behind the answer.
+ * @param policy - The stale-answer policy.
+ * @param options - `targetMissing` when the query found no symbol; `projectRoot`
+ *   names the checkout in the reindex command.
+ * @returns The refusal, or `null` when the answer may stand.
+ * @example
+ * ```ts
+ * const refusal = staleIndexRefusal(freshness, policy, { projectRoot: root });
+ * if (refusal) return refusalEnvelope(refusal);
+ * ```
+ */
+export function staleIndexRefusal(
+  freshness: GraphIndexFreshness,
+  policy: NexusStalePolicy,
+  options: { targetMissing?: boolean; projectRoot?: string } = {},
+): NexusStaleRefusal | null {
+  if (policy.allowStale) return null;
+  const behind = freshness.commitsBehind ?? null;
+  const tooFar = behind !== null && behind > policy.maxCommitsBehind;
+  const staleIndex = freshness.status === 'stale' || (behind !== null && behind > 0);
+  if (!tooFar && !(options.targetMissing && staleIndex)) return null;
+  const where = freshness.baseRef ? ` ${freshness.baseRef}` : ' the base branch';
+  const reason = tooFar
+    ? `The index is ${behind} commit(s) behind${where} (more than nexus.freshness.maxCommitsBehind = ${policy.maxCommitsBehind})`
+    : `The symbol is missing from an index that is stale (${behind ?? 0} commit(s) behind${where}, ${freshness.staleFileCount} changed file(s)); it may exist in code the index has not seen`;
+  const reindex = options.projectRoot
+    ? `${NEXUS_REFRESH_COMMAND} ${JSON.stringify(options.projectRoot)}`
+    : NEXUS_REFRESH_COMMAND;
+  return {
+    code: 'E_NEXUS_INDEX_STALE',
+    message: `${reason}; this answer would describe code that has changed.`,
+    fix: `${reindex} (then repeat the query); to accept the stale answer, pass --allow-stale (nexus impact, nexus context) or set ${NEXUS_ALLOW_STALE_ENV}=1`,
+    details: { ...answerFreshness(freshness), maxCommitsBehind: policy.maxCommitsBehind },
+  };
 }
 
 /**

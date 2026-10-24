@@ -19,6 +19,7 @@ import { appendFile, mkdir } from 'node:fs/promises';
 import path from 'node:path';
 import {
   ExitCode,
+  type GraphIndexFreshness,
   type NexusProjectsCleanResult,
   type NexusProjectsStatusResult,
   type NexusTaskSymbolsResult,
@@ -35,11 +36,16 @@ import {
 } from '@cleocode/core/nexus/assessment-projection.js';
 import { exportNexusGraph } from '@cleocode/core/nexus/export.js';
 import {
+  answerFreshness,
   assessNexusFreshnessForQuery,
   assessNexusIndexFreshness,
   discloseNexusFreshness,
   judgeSymbolFiles,
+  type NexusStalePolicy,
+  type NexusStaleRefusal,
   querySymbolFiles,
+  readNexusStalePolicy,
+  staleIndexRefusal,
   withNexusFreshnessMeta,
 } from '@cleocode/core/nexus/freshness.js';
 import { KnowledgeSymbolAmbiguityError } from '@cleocode/core/nexus/knowledge.js';
@@ -1090,6 +1096,12 @@ const contextCommand = defineCommand({
       description: 'Answer from the index as it stands, without an inline refresh (T13523)',
       default: false,
     },
+    'allow-stale': {
+      type: 'boolean',
+      description:
+        'Answer even when the index is more than nexus.freshness.maxCommitsBehind commits behind the base branch (T14008)',
+      default: false,
+    },
   },
   async run({ args }) {
     applyJsonFlag(args.json as boolean | undefined);
@@ -1108,18 +1120,26 @@ const contextCommand = defineCommand({
       limit,
       content: showContent,
       ...(negatedFlag(args, 'refresh') ? { noRefresh: true } : {}),
+      ...(args['allow-stale'] ? { allowStale: true } : {}),
       _legacyAliasFor: 'cleo graph context',
     });
     const durationMs = Date.now() - startTime;
     if (!response.success) {
       const msg = response.error?.message ?? 'Unknown error';
+      // T14008: a stale index refuses with its own exit code and the reindex command.
+      const exitCode =
+        response.error?.code === 'E_NEXUS_INDEX_STALE' ? ExitCode.NEXUS_INDEX_STALE : 1;
       cliError(
         msg,
-        1,
-        { name: response.error?.code ?? 'E_CONTEXT_FAILED', details: response.error?.details },
+        exitCode,
+        {
+          name: response.error?.code ?? 'E_CONTEXT_FAILED',
+          details: response.error?.details,
+          ...(response.error?.fix ? { fix: response.error.fix } : {}),
+        },
         { operation: 'nexus.context', duration_ms: durationMs },
       );
-      process.exitCode = 1;
+      process.exitCode = exitCode;
       return;
     }
     const result = response.data as { matchCount: number; results: unknown[] };
@@ -1142,6 +1162,17 @@ const contextCommand = defineCommand({
   },
 });
 
+/** Report a graph answer refused as stale (T14008): exit 111 with the reindex command. */
+function refuseStaleImpact(refusal: NexusStaleRefusal, startTime: number): void {
+  cliError(
+    refusal.message,
+    ExitCode.NEXUS_INDEX_STALE,
+    { name: refusal.code, fix: refusal.fix, details: refusal.details },
+    { operation: 'nexus.impact', duration_ms: Date.now() - startTime },
+  );
+  process.exitCode = ExitCode.NEXUS_INDEX_STALE;
+}
+
 /** cleo nexus impact — show blast radius for a code symbol */
 const impactCommand = defineCommand({
   meta: {
@@ -1163,6 +1194,12 @@ const impactCommand = defineCommand({
       description: 'Answer from the index as it stands, without an inline refresh (T13523)',
       default: false,
     },
+    'allow-stale': {
+      type: 'boolean',
+      description:
+        'Answer even when the index is more than nexus.freshness.maxCommitsBehind commits behind the base branch (T14008)',
+      default: false,
+    },
   },
   async run({ args }) {
     applyJsonFlag(args.json as boolean | undefined);
@@ -1173,29 +1210,61 @@ const impactCommand = defineCommand({
     const projectId = await resolveNexusQueryProjectId(repoPath, projectIdOverride);
     const maxDepth = Math.min(parseInt(args.depth as string, 10), 5);
     const symbolName = args.symbol as string;
+    let stalePolicy: NexusStalePolicy | undefined;
+    let staleAssessment: GraphIndexFreshness | undefined;
+    /** Refuse when the target is missing from a stale index (T14008); true when refused. */
+    const refusedAsMissing = (): boolean => {
+      if (!stalePolicy || !staleAssessment) return false;
+      const missing = staleIndexRefusal(staleAssessment, stalePolicy, {
+        projectRoot: repoPath,
+        targetMissing: true,
+      });
+      if (missing) refuseStaleImpact(missing, startTime);
+      return missing !== null;
+    };
     try {
       // T12316: disclose how current the graph behind this answer is.
       const assessment = await assessNexusFreshnessForQuery(repoPath, {
         refresh: !negatedFlag(args, 'refresh'),
       });
+      // T14008: an index too far behind the base branch answers nothing.
+      stalePolicy = await readNexusStalePolicy(repoPath, { allowStale: !!args['allow-stale'] });
+      staleAssessment = assessment.freshness;
+      const tooStale = staleIndexRefusal(assessment.freshness, stalePolicy, {
+        projectRoot: repoPath,
+      });
+      if (tooStale) {
+        refuseStaleImpact(tooStale, startTime);
+        return;
+      }
       const result = await getSymbolImpact(symbolName, projectId, repoPath, {
         maxDepth,
         why: whyFlag,
       });
+      // T13922: a symbol absent from a stale index is not "no impact".
+      if (result.targetNodeId === null && refusedAsMissing()) return;
       const freshness = judgeSymbolFiles(assessment, querySymbolFiles(result));
       discloseNexusFreshness('nexus impact', freshness);
       const durationMs = Date.now() - startTime;
-      cliOutput({ ...result, _symbolName: symbolName, _why: whyFlag } as Record<string, unknown>, {
-        command: 'nexus-impact',
-        operation: 'nexus.impact',
-        extensions: withNexusFreshnessMeta(
-          {
-            duration_ms: durationMs,
-            ...buildNexusMetaExtensions('impact', { symbol: symbolName, projectId }),
-          },
-          freshness,
-        ),
-      });
+      cliOutput(
+        {
+          ...result,
+          freshness: answerFreshness(freshness),
+          _symbolName: symbolName,
+          _why: whyFlag,
+        } as Record<string, unknown>,
+        {
+          command: 'nexus-impact',
+          operation: 'nexus.impact',
+          extensions: withNexusFreshnessMeta(
+            {
+              duration_ms: durationMs,
+              ...buildNexusMetaExtensions('impact', { symbol: symbolName, projectId }),
+            },
+            freshness,
+          ),
+        },
+      );
     } catch (err) {
       const code =
         err instanceof Error && 'code' in err ? (err as { code?: string }).code : undefined;
@@ -1216,6 +1285,7 @@ const impactCommand = defineCommand({
         return;
       }
       if (code === 'E_NOT_FOUND') {
+        if (refusedAsMissing()) return;
         cliError(
           msg,
           4,
