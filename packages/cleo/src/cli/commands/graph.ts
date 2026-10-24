@@ -23,7 +23,7 @@ import path from 'node:path';
 import { pushWarning } from '@cleocode/core';
 import { resolveNexusQueryProjectId } from '@cleocode/core/nexus/registry.js';
 import { defineCommand, showUsage } from 'citty';
-import { dispatchFromCli, dispatchRaw } from '../../dispatch/adapters/cli.js';
+import { dispatchFromCli, dispatchRaw, reportRawError } from '../../dispatch/adapters/cli.js';
 import { getFormatContext, setFormatContext } from '../format-context.js';
 import { warnConduitDeprecated } from '../lib/conduit-deprecation.js';
 import { cliError, cliOutput, humanWarn } from '../renderers/index.js';
@@ -348,13 +348,11 @@ const impactFullCommand = defineCommand({
     const response = await dispatchRaw('query', 'nexus', 'impact-full', { symbol: args.symbol });
     const durationMs = Date.now() - startTime;
     if (!response.success) {
-      cliError(
-        response.error?.message ?? 'Unknown error',
-        1,
-        { name: response.error?.code ?? 'E_IMPACT_FULL_FAILED' },
-        { operation: 'nexus.impact-full', duration_ms: durationMs },
-      );
-      process.exitCode = 1;
+      // T14008: the shared path keeps exit 111 and the reindex fix for a stale index.
+      reportRawError(response, {
+        operation: 'nexus.impact-full',
+        fallbackCode: 'E_IMPACT_FULL_FAILED',
+      });
       return;
     }
     cliOutput(
@@ -524,13 +522,11 @@ const hotPathsCommand = defineCommand({
     const response = await dispatchRaw('query', 'nexus', 'hot-paths', { limit });
     const durationMs = Date.now() - startTime;
     if (!response.success) {
-      cliError(
-        response.error?.message ?? 'Unknown error',
-        1,
-        { name: response.error?.code ?? 'E_HOT_PATHS_FAILED' },
-        { operation: 'nexus.hot-paths', duration_ms: durationMs },
-      );
-      process.exitCode = 1;
+      // T14008: the shared path keeps exit 111 and the reindex fix for a stale index.
+      reportRawError(response, {
+        operation: 'nexus.hot-paths',
+        fallbackCode: 'E_HOT_PATHS_FAILED',
+      });
       return;
     }
     cliOutput(response.data as Record<string, unknown>, {
@@ -555,13 +551,11 @@ const hotNodesCommand = defineCommand({
     const response = await dispatchRaw('query', 'nexus', 'hot-nodes', { limit });
     const durationMs = Date.now() - startTime;
     if (!response.success) {
-      cliError(
-        response.error?.message ?? 'Unknown error',
-        1,
-        { name: response.error?.code ?? 'E_HOT_NODES_FAILED' },
-        { operation: 'nexus.hot-nodes', duration_ms: durationMs },
-      );
-      process.exitCode = 1;
+      // T14008: the shared path keeps exit 111 and the reindex fix for a stale index.
+      reportRawError(response, {
+        operation: 'nexus.hot-nodes',
+        fallbackCode: 'E_HOT_NODES_FAILED',
+      });
       return;
     }
     cliOutput(response.data as Record<string, unknown>, {
@@ -621,6 +615,11 @@ const queryCommand = defineCommand({
       params: ctParams,
     });
     const durationMs = Date.now() - startTime;
+    if (!response.success && response.error?.code === 'E_NEXUS_INDEX_STALE') {
+      // T14008: the shared path keeps exit 111 and the reindex fix for a stale index.
+      reportRawError(response, { operation: 'nexus.query-cte' });
+      return;
+    }
     if (!response.success) {
       const code = response.error?.code;
       const msg = response.error?.message ?? 'Unknown error';
@@ -755,13 +754,11 @@ const livingFullContextCommand = defineCommand({
     const symbolId = args.symbol as string;
     const response = await dispatchRaw('query', 'nexus', 'full-context', { symbol: symbolId });
     if (!response.success) {
-      cliError(
-        response.error?.message ?? 'Unknown error',
-        1,
-        { name: response.error?.code ?? 'E_FULL_CONTEXT_FAILED' },
-        { operation: 'nexus.full-context' },
-      );
-      process.exitCode = 1;
+      // T14008: the shared path keeps exit 111 and the reindex fix for a stale index.
+      reportRawError(response, {
+        operation: 'nexus.full-context',
+        fallbackCode: 'E_FULL_CONTEXT_FAILED',
+      });
       return;
     }
     const durationMs = Date.now() - startTime;
@@ -797,13 +794,11 @@ const livingTaskFootprintCommand = defineCommand({
     const taskId = args.taskId as string;
     const response = await dispatchRaw('query', 'nexus', 'task-footprint', { taskId });
     if (!response.success) {
-      cliError(
-        response.error?.message ?? 'Unknown error',
-        1,
-        { name: response.error?.code ?? 'E_TASK_FOOTPRINT_FAILED' },
-        { operation: 'nexus.task-footprint' },
-      );
-      process.exitCode = 1;
+      // T14008: the shared path keeps exit 111 and the reindex fix for a stale index.
+      reportRawError(response, {
+        operation: 'nexus.task-footprint',
+        fallbackCode: 'E_TASK_FOOTPRINT_FAILED',
+      });
       return;
     }
     const durationMs = Date.now() - startTime;
@@ -839,13 +834,11 @@ const livingBrainAnchorsCommand = defineCommand({
     const entryId = args.entryId as string;
     const response = await dispatchRaw('query', 'nexus', 'brain-anchors', { entryId });
     if (!response.success) {
-      cliError(
-        response.error?.message ?? 'Unknown error',
-        1,
-        { name: response.error?.code ?? 'E_BRAIN_ANCHORS_FAILED' },
-        { operation: 'nexus.brain-anchors' },
-      );
-      process.exitCode = 1;
+      // T14008: the shared path keeps exit 111 and the reindex fix for a stale index.
+      reportRawError(response, {
+        operation: 'nexus.brain-anchors',
+        fallbackCode: 'E_BRAIN_ANCHORS_FAILED',
+      });
       return;
     }
     const durationMs = Date.now() - startTime;
@@ -881,13 +874,8 @@ const livingWhyCommand = defineCommand({
     const symbolId = args.symbol as string;
     const response = await dispatchRaw('query', 'nexus', 'why', { symbol: symbolId });
     if (!response.success) {
-      cliError(
-        response.error?.message ?? 'Unknown error',
-        1,
-        { name: response.error?.code ?? 'E_WHY_FAILED' },
-        { operation: 'nexus.why' },
-      );
-      process.exitCode = 1;
+      // T14008: the shared path keeps exit 111 and the reindex fix for a stale index.
+      reportRawError(response, { operation: 'nexus.why', fallbackCode: 'E_WHY_FAILED' });
       return;
     }
     const durationMs = Date.now() - startTime;

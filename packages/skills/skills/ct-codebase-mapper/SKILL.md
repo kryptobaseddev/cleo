@@ -122,9 +122,10 @@ stale index and say so. `--no-refresh` (or `CLEO_NEXUS_AUTO_REFRESH=false`)
 always answers from the index as it stands.
 
 Every graph answer carries `data.freshness` (`indexedRevision`, `baseRef`,
-`commitsBehind`, `ageDays`). When the index is more than
-`nexus.freshness.maxCommitsBehind` (default 50) commits behind the base branch,
-or the symbol is missing from a stale index, the query fails with
+`commitsBehind` to the base branch, `commitsBehindHead`, `ageDays`). When the
+index is more than `nexus.freshness.maxCommitsBehind` (default 50) commits
+behind the checked-out HEAD, or the symbol is missing from an index that is
+stale for this checkout, the query fails with
 `E_NEXUS_INDEX_STALE` (exit 111) and `error.fix` names the reindex command. Run
 it, then repeat the query. `--allow-stale` (`impact`, `context`) or
 `CLEO_NEXUS_ALLOW_STALE=1` accepts the stale answer; say that you did.

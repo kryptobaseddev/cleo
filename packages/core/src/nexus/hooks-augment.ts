@@ -81,9 +81,13 @@ if [[ -z "\${PATTERN}" ]]; then
   exit 0
 fi
 
-# Call cleo nexus augment and emit to stderr
-# If cleo is not available or nexus.db is absent, this will exit 0 silently
-cleo nexus augment "\${PATTERN}" 2>&1 >&2 || true
+# Call cleo nexus augment and emit to stderr only when it answered.
+# A missing cleo, an absent index, or a refusal because the index is stale
+# (E_NEXUS_INDEX_STALE, T14008) prints nothing: no stale context, no noise on
+# every tool call.
+if OUT="$(cleo nexus augment "\${PATTERN}" 2>/dev/null)" && [[ -n "\${OUT}" ]]; then
+  printf '%s\n' "\${OUT}" >&2
+fi
 
 exit 0
 `;

@@ -34,8 +34,15 @@ vi.mock('@cleocode/core/project-scope', async (importOriginal) => ({
 
 import { NexusHandler } from '../nexus.js';
 
-/** An indexed project `behind` commits behind origin/main. */
-function assessment(behind: number, status: GraphIndexFreshness['status'] = 'stale') {
+/**
+ * An indexed project `behindHead` commits behind its checked-out HEAD, and
+ * `behindBase` (default the same) behind origin/main.
+ */
+function assessment(
+  behindHead: number,
+  status: GraphIndexFreshness['status'] = 'stale',
+  behindBase = behindHead,
+) {
   return {
     staleFiles: new Set<string>(),
     freshness: {
@@ -45,7 +52,8 @@ function assessment(behind: number, status: GraphIndexFreshness['status'] = 'sta
       indexedRevision: '8ad8b52',
       baseRef: 'origin/main',
       baseRevision: 'abc1234',
-      commitsBehind: behind,
+      commitsBehind: behindBase,
+      commitsBehindHead: behindHead,
       ageDays: 29,
       fileCount: 10,
       staleFileCount: status === 'stale' ? 3 : 0,
@@ -84,7 +92,7 @@ describe('stale nexus answers (T14008)', () => {
 
     expect(result.success).toBe(false);
     expect(result.error?.code).toBe('E_NEXUS_INDEX_STALE');
-    expect(result.error?.message).toContain('3239 commit(s) behind origin/main');
+    expect(result.error?.message).toContain('3239 commit(s) behind the checked-out HEAD');
     expect(result.error?.fix).toContain(`cleo nexus analyze ${JSON.stringify(root.path)}`);
     expect(result.error?.details).toMatchObject({ commitsBehind: 3239, maxCommitsBehind: 50 });
     expect(mockContext).not.toHaveBeenCalled();
@@ -109,6 +117,7 @@ describe('stale nexus answers (T14008)', () => {
         indexedRevision: '8ad8b52',
         baseRef: 'origin/main',
         commitsBehind: 3239,
+        commitsBehindHead: 3239,
         ageDays: 29,
         lastIndexedAt: '2026-09-25T00:00:00.000Z',
       });
@@ -130,11 +139,26 @@ describe('stale nexus answers (T14008)', () => {
     mockAssess.mockResolvedValue(assessment(10));
     const stale = await handler.query('context', { symbol: 'newSymbol', projectId: 'proj' });
     expect(stale.error?.code).toBe('E_NEXUS_INDEX_STALE');
-    expect(stale.error?.message).toContain('missing from an index that is stale');
+    expect(stale.error?.message).toContain('missing from an index that is stale for this checkout');
 
-    mockAssess.mockResolvedValue(assessment(0, 'fresh'));
+    // Fresh for this checkout, though its branch is far behind main: a genuine no-match.
+    mockAssess.mockResolvedValue(assessment(0, 'fresh', 3239));
     const fresh = await handler.query('context', { symbol: 'newSymbol', projectId: 'proj' });
     expect(fresh.success).toBe(true);
-    expect(fresh.data).toMatchObject({ matchCount: 0, freshness: { commitsBehind: 0 } });
+    expect(fresh.data).toMatchObject({
+      matchCount: 0,
+      freshness: { commitsBehindHead: 0, commitsBehind: 3239 },
+    });
+  });
+
+  it('a fresh index on a branch or worktree far behind main answers normally', async () => {
+    // Reindexed where it stands after main moved on: nothing to refuse.
+    mockAssess.mockResolvedValue(assessment(0, 'fresh', 3239));
+    mockContext.mockResolvedValue(found);
+
+    const result = await handler.query('context', { symbol: 'alpha', projectId: 'proj' });
+
+    expect(result.success).toBe(true);
+    expect(result.data).toMatchObject({ matchCount: 1, freshness: { commitsBehind: 3239 } });
   });
 });

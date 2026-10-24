@@ -811,8 +811,8 @@ export interface NexusAutoRefreshConfig {
  */
 export interface NexusFreshnessConfig {
   /**
-   * Most commits the index may trail the base branch before graph queries
-   * fail with `E_NEXUS_INDEX_STALE` (`--allow-stale` or
+   * Most commits the index may trail the checked-out HEAD before graph
+   * queries fail with `E_NEXUS_INDEX_STALE` (`--allow-stale` or
    * `CLEO_NEXUS_ALLOW_STALE=1` accepts the stale answer).
    *
    * @defaultValue 50

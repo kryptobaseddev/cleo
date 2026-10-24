@@ -588,6 +588,56 @@ export async function dispatchFromCli(
 }
 
 /**
+ * Report an error response from dispatchRaw() without exiting: the mapped
+ * exit code (e.g. 111 for `E_NEXUS_INDEX_STALE`), `fix` and `alternatives`
+ * reach the envelope, and `process.exitCode` is set (T14008).
+ *
+ * @param response - A failed dispatch response.
+ * @param opts - Operation name, and the code used when the response has none.
+ * @returns The exit code set.
+ */
+export function reportRawError(
+  response: DispatchResponse,
+  opts: { operation: string; fallbackCode?: string },
+): number {
+  const errorCode = response.error?.code ?? opts.fallbackCode ?? 'E_GENERAL';
+  const exitCode = response.error?.exitCode ?? ERROR_CODE_TO_EXIT[errorCode] ?? 1;
+  emitRawError(response, errorCode, exitCode, opts.operation);
+  process.exitCode = exitCode;
+  return exitCode;
+}
+
+/** The shared error envelope for a failed dispatchRaw() response. */
+function emitRawError(
+  response: DispatchResponse,
+  errorCode: string,
+  exitCode: number,
+  operation: string,
+): void {
+  cliError(
+    response.error?.message ?? 'Unknown error',
+    exitCode,
+    {
+      name: errorCode,
+      details: response.error?.details,
+      fix: response.error?.fix,
+      alternatives: response.error?.alternatives,
+    },
+    {
+      operation,
+      requestId: response.meta.requestId,
+      duration_ms: response.meta.duration_ms,
+      timestamp: response.meta.timestamp,
+      ...(response.meta.sessionId ? { sessionId: response.meta.sessionId } : {}),
+      ...(response.meta.originSessionId ? { originSessionId: response.meta.originSessionId } : {}),
+      ...(response.meta.executionSessionId
+        ? { executionSessionId: response.meta.executionSessionId }
+        : {}),
+    },
+  );
+}
+
+/**
  * Handle an error response from dispatchRaw().
  *
  * Calls cliError() and process.exit() when the response indicates failure.
@@ -600,27 +650,7 @@ export function handleRawError(
   if (response.success) return;
   const errorCode = response.error?.code ?? 'E_GENERAL';
   const exitCode = response.error?.exitCode ?? ERROR_CODE_TO_EXIT[errorCode] ?? 1;
-  cliError(
-    response.error?.message ?? 'Unknown error',
-    exitCode,
-    {
-      name: errorCode,
-      details: response.error?.details,
-      fix: response.error?.fix,
-      alternatives: response.error?.alternatives,
-    },
-    {
-      operation: _opts.operation,
-      requestId: response.meta.requestId,
-      duration_ms: response.meta.duration_ms,
-      timestamp: response.meta.timestamp,
-      ...(response.meta.sessionId ? { sessionId: response.meta.sessionId } : {}),
-      ...(response.meta.originSessionId ? { originSessionId: response.meta.originSessionId } : {}),
-      ...(response.meta.executionSessionId
-        ? { executionSessionId: response.meta.executionSessionId }
-        : {}),
-    },
-  );
+  emitRawError(response, errorCode, exitCode, _opts.operation);
   process.exit(exitCode);
 }
 

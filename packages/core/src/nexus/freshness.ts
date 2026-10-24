@@ -168,7 +168,12 @@ export async function measureAgainstBase(
 ): Promise<
   Pick<
     GraphIndexFreshness,
-    'indexedRevision' | 'baseRef' | 'baseRevision' | 'commitsBehind' | 'ageDays'
+    | 'indexedRevision'
+    | 'baseRef'
+    | 'baseRevision'
+    | 'commitsBehind'
+    | 'commitsBehindHead'
+    | 'ageDays'
   >
 > {
   const { commitsBetween, resolveBaseRef, revParse } = await import('../git/base-ref.js');
@@ -179,11 +184,15 @@ export async function measureAgainstBase(
     indexedRevision && baseRevision
       ? commitsBetween(sourceRoot, indexedRevision, baseRevision)
       : null;
+  // T14008: what is checked out is what a query is about; the base distance is report-only.
+  const commitsBehindHead = indexedRevision
+    ? commitsBetween(sourceRoot, indexedRevision, 'HEAD')
+    : null;
   const indexedMs = lastIndexedAt ? Date.parse(lastIndexedAt) : Number.NaN;
   const ageDays = Number.isFinite(indexedMs)
     ? Math.max(0, Math.floor((Date.now() - indexedMs) / DAY_MS))
     : null;
-  return { indexedRevision, baseRef, baseRevision, commitsBehind, ageDays };
+  return { indexedRevision, baseRef, baseRevision, commitsBehind, commitsBehindHead, ageDays };
 }
 
 /** Walk the tree once and keep the full stale set alongside the disclosed facts. */
@@ -352,6 +361,7 @@ export function answerFreshness(freshness: GraphIndexFreshness): NexusAnswerFres
     indexedRevision: freshness.indexedRevision ?? null,
     baseRef: freshness.baseRef ?? null,
     commitsBehind: freshness.commitsBehind ?? null,
+    commitsBehindHead: freshness.commitsBehindHead ?? null,
     ageDays: freshness.ageDays ?? null,
     lastIndexedAt: freshness.lastIndexedAt,
   };
@@ -370,9 +380,12 @@ export interface NexusStaleRefusal {
 }
 
 /**
- * Whether a graph answer must be refused as stale: the index trails the base
- * branch by more than the policy allows, or the target is missing from an
- * index that is stale (it may exist in code the index never saw).
+ * Whether a graph answer must be refused as stale: the index trails the
+ * checked-out HEAD by more than the policy allows, or the target is missing
+ * from an index that is stale for this checkout (commits behind HEAD or
+ * changed files), so it may exist in code the index never saw. Distance to the
+ * base branch (`commitsBehind`) is reported only: on a feature branch or
+ * worktree it grows as the base moves, and no reindex here could clear it.
  *
  * @param freshness - The assessment behind the answer.
  * @param policy - The stale-answer policy.
@@ -391,14 +404,15 @@ export function staleIndexRefusal(
   options: { targetMissing?: boolean; projectRoot?: string } = {},
 ): NexusStaleRefusal | null {
   if (policy.allowStale) return null;
-  const behind = freshness.commitsBehind ?? null;
+  // Judged against what is checked out: a reindex here clears it on any branch
+  // or worktree. Distance to the base branch is reported, never refused on.
+  const behind = freshness.commitsBehindHead ?? null;
   const tooFar = behind !== null && behind > policy.maxCommitsBehind;
-  const staleIndex = freshness.status === 'stale' || (behind !== null && behind > 0);
-  if (!tooFar && !(options.targetMissing && staleIndex)) return null;
-  const where = freshness.baseRef ? ` ${freshness.baseRef}` : ' the base branch';
+  const staleHere = freshness.status === 'stale' || (behind !== null && behind > 0);
+  if (!tooFar && !(options.targetMissing && staleHere)) return null;
   const reason = tooFar
-    ? `The index is ${behind} commit(s) behind${where} (more than nexus.freshness.maxCommitsBehind = ${policy.maxCommitsBehind})`
-    : `The symbol is missing from an index that is stale (${behind ?? 0} commit(s) behind${where}, ${freshness.staleFileCount} changed file(s)); it may exist in code the index has not seen`;
+    ? `The index is ${behind} commit(s) behind the checked-out HEAD (more than nexus.freshness.maxCommitsBehind = ${policy.maxCommitsBehind})`
+    : `The symbol is missing from an index that is stale for this checkout (${behind ?? 0} commit(s) behind HEAD, ${freshness.staleFileCount} changed file(s)); it may exist in code the index has not seen`;
   const reindex = options.projectRoot
     ? `${NEXUS_REFRESH_COMMAND} ${JSON.stringify(options.projectRoot)}`
     : NEXUS_REFRESH_COMMAND;
