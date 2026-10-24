@@ -19,6 +19,7 @@
 import type { DatabaseSync } from 'node:sqlite';
 import type { ProposalCandidate } from '@cleocode/contracts';
 import { pushWarning } from '@cleocode/lafs';
+import { autoRowExclusionClause } from '../../memory/eligibility.js';
 
 // ---------------------------------------------------------------------------
 // Brain observation row (raw SQL result)
@@ -85,7 +86,7 @@ export function runBrainIngester(nativeDb: DatabaseSync | null): ProposalCandida
       SELECT id, title, narrative, citation_count, quality_score
       FROM brain_observations
       WHERE type IN ('bugfix', 'decision')
-        AND citation_count >= :minCitations
+        AND citation_count >= :minCitations${autoRowExclusionClause('observations')}
         AND created_at >= datetime('now', :lookback)
         AND quality_score >= :minQuality
       ORDER BY citation_count DESC, quality_score DESC
