@@ -142,8 +142,9 @@ export interface EvidenceRepoResolver {
  * Repository key of an `origin` URL, the same on every device for the same
  * repository: `github.com/<owner>/<repo>` through the github.com-anchored
  * {@link extractRepoOwnerAndName} the PR evidence uses, else `<host>/<path>`.
- * Scheme, user, port and `.git` are dropped and the key is lowercased, so
- * `git@github.com:O/R.git`, `https://github.com/o/r` and
+ * Scheme, user, port (only a `scheme://` URL has one; in scp form the digits
+ * after the colon are an owner) and `.git` are dropped and the key is
+ * lowercased, so `git@github.com:O/R.git`, `https://github.com/o/r` and
  * `ssh://git@github.com:22/o/r` agree. A local-path remote has no key.
  *
  * @param url - Raw `origin` URL.
@@ -155,11 +156,12 @@ export interface EvidenceRepoResolver {
  * @task T14012
  */
 export function originRepoKey(url: string): string | null {
-  const rest = url
-    .trim()
-    .replace(/^[a-z][a-z0-9+.-]*:\/\//i, '')
-    .replace(/^[^@/]+@/, '');
-  const match = /^([^/:]+)(?::\d+(?=\/))?[:/]+(.+)$/.exec(rest);
+  const trimmed = url.trim();
+  const scheme = /^[a-z][a-z0-9+.-]*:\/\//i.exec(trimmed);
+  const rest = trimmed.slice(scheme?.[0].length ?? 0).replace(/^[^@/]+@/, '');
+  // Only a URL with a scheme has a port; in scp form (`git@host:1234/repo`)
+  // the digits after the colon are an owner or group (T14012).
+  const match = scheme ? /^([^/:]+)(?::\d+)?\/+(.+)$/.exec(rest) : /^([^/:]+)[:/]+(.+)$/.exec(rest);
   const host = match?.[1]?.toLowerCase();
   const path = match?.[2]?.replace(/\/+$/, '').replace(/\.git$/i, '');
   if (!host || !path || /^\.+$/.test(host)) return null;

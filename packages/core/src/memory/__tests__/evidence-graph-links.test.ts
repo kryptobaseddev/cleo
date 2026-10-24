@@ -353,6 +353,12 @@ describe('repo-qualified evidence ids (T14012)', () => {
     expect(originRepoKey('https://gitlab.example.com/grp/repo')).toBe(
       'gitlab.example.com/grp/repo',
     );
+    // scp form has no port: numeric owners and groups stay in the path.
+    expect(originRepoKey('git@github.com:1234/repo.git')).toBe('github.com/1234/repo');
+    expect(originRepoKey('https://github.com/1234/repo')).toBe('github.com/1234/repo');
+    expect(originRepoKey('git@gitlab.example.com:2024/grp/repo')).toBe(
+      'gitlab.example.com/2024/grp/repo',
+    );
     expect(originRepoKey('/srv/git/repo.git')).toBeNull();
     expect(originRepoKey('../repo')).toBeNull();
   });
