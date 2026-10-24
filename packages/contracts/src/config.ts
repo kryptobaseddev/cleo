@@ -804,10 +804,28 @@ export interface NexusAutoRefreshConfig {
   budgetMs?: number;
 }
 
+/**
+ * When a graph answer from a stale index is refused (T14008).
+ *
+ * @task T14008
+ */
+export interface NexusFreshnessConfig {
+  /**
+   * Most commits the index may trail the checked-out HEAD before graph
+   * queries fail with `E_NEXUS_INDEX_STALE` (`--allow-stale` or
+   * `CLEO_NEXUS_ALLOW_STALE=1` accepts the stale answer).
+   *
+   * @defaultValue 50
+   */
+  maxCommitsBehind?: number;
+}
+
 /** Code-graph (`cleo nexus`) configuration. */
 export interface NexusConfig {
   /** Inline refresh of a slightly stale index before graph queries answer. */
   autoRefresh?: NexusAutoRefreshConfig;
+  /** When an answer from a stale index is refused instead of returned. */
+  freshness?: NexusFreshnessConfig;
 }
 
 /**

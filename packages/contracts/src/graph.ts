@@ -892,6 +892,12 @@ export interface GraphIndexFreshness {
    * indexedRevision..baseRef`); `null` when either revision is unknown here.
    */
   commitsBehind?: number | null;
+  /**
+   * Commits on the checked-out HEAD the index has not seen (`git rev-list
+   * --count indexedRevision..HEAD`); `null` when unknown. A stale refusal is
+   * judged on this, never on {@link GraphIndexFreshness.commitsBehind} (T14008).
+   */
+  commitsBehindHead?: number | null;
   /** Whole days since {@link GraphIndexFreshness.lastIndexedAt}; `null` when never indexed. */
   ageDays?: number | null;
   /** Files recorded in the published generation's assessment. */
@@ -923,6 +929,27 @@ export interface GraphIndexFreshness {
     /** Why the refresh ran, was skipped, or failed. */
     reason: string;
   };
+}
+
+/**
+ * How current the graph behind an answer is, returned at the top level of
+ * every index-sensitive `cleo nexus` answer as `data.freshness` (T14008).
+ */
+export interface NexusAnswerFreshness {
+  /** Working-tree verdict of {@link GraphIndexFreshness.status}. */
+  status: GraphIndexFreshness['status'];
+  /** Revision the index was built from. */
+  indexedRevision: string | null;
+  /** Ref the index is measured against. */
+  baseRef: string | null;
+  /** Commits on the base ref the index has not seen (reported only). */
+  commitsBehind: number | null;
+  /** Commits on the checked-out HEAD the index has not seen; the stale refusal is judged on this. */
+  commitsBehindHead: number | null;
+  /** Whole days since the index was built. */
+  ageDays: number | null;
+  /** When the index was built. */
+  lastIndexedAt: string | null;
 }
 
 // ---------------------------------------------------------------------------

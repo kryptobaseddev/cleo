@@ -27,9 +27,13 @@ import type { nexus as coreNexus } from '@cleocode/core';
 import type { NexusFreshnessAssessment, NexusPermissionLevel } from '@cleocode/core/internal';
 import { getLogger } from '@cleocode/core/logger';
 import {
+  answerFreshness,
   discloseNexusFreshness,
   judgeSymbolFiles,
+  type NexusStaleRefusal,
   querySymbolFiles,
+  readNexusStalePolicy,
+  staleIndexRefusal,
   withNexusFreshnessMeta,
 } from '@cleocode/core/nexus/freshness';
 import { resolveNexusQueryProjectId } from '@cleocode/core/nexus/registry.js';
@@ -966,7 +970,11 @@ function answersFromGraph(operation: string): boolean {
   return getNexusDescriptor(operation).indexSensitive === true;
 }
 
-/** Stamp the freshness verdict onto `meta._nexus`, judging the answer's own symbol files. */
+/**
+ * Stamp the freshness verdict onto `meta._nexus`, judging the answer's own
+ * symbol files, and carry it at the top level of the answer as
+ * `data.freshness` (T14008).
+ */
 function withFreshness(
   response: DispatchResponse,
   operation: string,
@@ -974,9 +982,55 @@ function withFreshness(
 ): DispatchResponse {
   const freshness = judgeSymbolFiles(assessment, querySymbolFiles(response.data));
   discloseNexusFreshness(`nexus ${operation}`, freshness);
+  const data =
+    response.success &&
+    response.data &&
+    typeof response.data === 'object' &&
+    !Array.isArray(response.data)
+      ? { ...(response.data as Record<string, unknown>), freshness: answerFreshness(freshness) }
+      : response.data;
   return {
     ...response,
+    ...(data !== undefined ? { data } : {}),
     meta: { ...response.meta, ...withNexusFreshnessMeta(response.meta, freshness) },
+  };
+}
+
+/** The answer found no target: a not-found error, or a lookup with zero matches. */
+function targetMissing(response: DispatchResponse): boolean {
+  if (!response.success) return response.error?.code === 'E_NOT_FOUND';
+  const data = response.data;
+  return (
+    !!data &&
+    typeof data === 'object' &&
+    !Array.isArray(data) &&
+    (data as Record<string, unknown>)['matchCount'] === 0
+  );
+}
+
+/** A graph answer refused because the index is too stale to answer from (T14008). */
+function staleRefusalResponse(
+  operation: string,
+  refusal: NexusStaleRefusal,
+  startTime: number,
+): DispatchResponse {
+  const refused = errorResult(
+    'query',
+    'nexus',
+    operation,
+    refusal.code,
+    refusal.message,
+    startTime,
+  );
+  return {
+    ...refused,
+    error: {
+      // @sync-invariant none:local-only a refused read; nothing is written
+      code: refusal.code,
+      message: refusal.message,
+      fix: refusal.fix,
+      details: { ...refusal.details },
+    },
   };
 }
 
@@ -1005,10 +1059,29 @@ export class NexusHandler implements DomainHandler {
     }
     // T12316: every answer from the published graph says how current it is.
     if (answersFromGraph(operation)) {
-      const assessment = await assessNexusFreshnessForQuery(getProjectRoot(), {
+      const graphRoot = getProjectRoot();
+      const assessment = await assessNexusFreshnessForQuery(graphRoot, {
         refresh: params?.['noRefresh'] !== true,
       });
-      return withFreshness(await this.answer(operation, params, startTime), operation, assessment);
+      // T14008: an index too far behind the base branch answers nothing.
+      // (Distinct local names: gate 38 resolves identifiers by name file-wide.)
+      const stalePolicy = await readNexusStalePolicy(graphRoot, {
+        allowStale: params?.['allowStale'] === true,
+      });
+      const tooStale = staleIndexRefusal(assessment.freshness, stalePolicy, {
+        projectRoot: graphRoot,
+      });
+      if (tooStale) return staleRefusalResponse(operation, tooStale, startTime);
+      const graphAnswer = await this.answer(operation, params, startTime);
+      // A symbol missing from a stale index may exist in code it never saw.
+      if (targetMissing(graphAnswer)) {
+        const missingFromStale = staleIndexRefusal(assessment.freshness, stalePolicy, {
+          projectRoot: graphRoot,
+          targetMissing: true,
+        });
+        if (missingFromStale) return staleRefusalResponse(operation, missingFromStale, startTime);
+      }
+      return withFreshness(graphAnswer, operation, assessment);
     }
     return this.answer(operation, params, startTime);
   }

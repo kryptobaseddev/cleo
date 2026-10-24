@@ -19,6 +19,7 @@ import { appendFile, mkdir } from 'node:fs/promises';
 import path from 'node:path';
 import {
   ExitCode,
+  type GraphIndexFreshness,
   type NexusProjectsCleanResult,
   type NexusProjectsStatusResult,
   type NexusTaskSymbolsResult,
@@ -35,11 +36,16 @@ import {
 } from '@cleocode/core/nexus/assessment-projection.js';
 import { exportNexusGraph } from '@cleocode/core/nexus/export.js';
 import {
+  answerFreshness,
   assessNexusFreshnessForQuery,
   assessNexusIndexFreshness,
   discloseNexusFreshness,
   judgeSymbolFiles,
+  type NexusStalePolicy,
+  type NexusStaleRefusal,
   querySymbolFiles,
+  readNexusStalePolicy,
+  staleIndexRefusal,
   withNexusFreshnessMeta,
 } from '@cleocode/core/nexus/freshness.js';
 import { KnowledgeSymbolAmbiguityError } from '@cleocode/core/nexus/knowledge.js';
@@ -48,7 +54,7 @@ import { runNexusWiki } from '@cleocode/core/nexus/wiki-orchestrator.js';
 import { getProjectRoot } from '@cleocode/core/project-scope';
 import { getCleoStateDir } from '@cleocode/paths';
 import { defineCommand, showUsage } from 'citty';
-import { dispatchFromCli, dispatchRaw } from '../../dispatch/adapters/cli.js';
+import { dispatchFromCli, dispatchRaw, reportRawError } from '../../dispatch/adapters/cli.js';
 import { buildNexusMetaExtensions } from '../../dispatch/nexus-decorator.js';
 import { asCleoErrorLike, cleoErrorCodeName } from '../cleo-error-like.js';
 import { getFormatContext, setFormatContext } from '../format-context.js';
@@ -1004,14 +1010,8 @@ const clustersCommand = defineCommand({
     const response = await dispatchRaw('query', 'nexus', 'clusters', { projectId, repoPath });
     const durationMs = Date.now() - startTime;
     if (!response.success) {
-      const msg = response.error?.message ?? 'Unknown error';
-      cliError(
-        msg,
-        1,
-        { name: response.error?.code ?? 'E_CLUSTERS_FAILED', details: response.error?.details },
-        { operation: 'nexus.clusters', duration_ms: durationMs },
-      );
-      process.exitCode = 1;
+      // T14008: the shared path keeps exit 111 and the reindex fix for a stale index.
+      reportRawError(response, { operation: 'nexus.clusters', fallbackCode: 'E_CLUSTERS_FAILED' });
       return;
     }
     cliOutput(response.data as Record<string, unknown>, {
@@ -1050,14 +1050,8 @@ const flowsCommand = defineCommand({
     const response = await dispatchRaw('query', 'nexus', 'flows', { projectId, repoPath });
     const durationMs = Date.now() - startTime;
     if (!response.success) {
-      const msg = response.error?.message ?? 'Unknown error';
-      cliError(
-        msg,
-        1,
-        { name: response.error?.code ?? 'E_FLOWS_FAILED', details: response.error?.details },
-        { operation: 'nexus.flows', duration_ms: durationMs },
-      );
-      process.exitCode = 1;
+      // T14008: the shared path keeps exit 111 and the reindex fix for a stale index.
+      reportRawError(response, { operation: 'nexus.flows', fallbackCode: 'E_FLOWS_FAILED' });
       return;
     }
     cliOutput(response.data as Record<string, unknown>, {
@@ -1090,6 +1084,12 @@ const contextCommand = defineCommand({
       description: 'Answer from the index as it stands, without an inline refresh (T13523)',
       default: false,
     },
+    'allow-stale': {
+      type: 'boolean',
+      description:
+        'Answer even when the index is more than nexus.freshness.maxCommitsBehind commits behind the checked-out HEAD (T14008)',
+      default: false,
+    },
   },
   async run({ args }) {
     applyJsonFlag(args.json as boolean | undefined);
@@ -1108,18 +1108,26 @@ const contextCommand = defineCommand({
       limit,
       content: showContent,
       ...(negatedFlag(args, 'refresh') ? { noRefresh: true } : {}),
+      ...(args['allow-stale'] ? { allowStale: true } : {}),
       _legacyAliasFor: 'cleo graph context',
     });
     const durationMs = Date.now() - startTime;
     if (!response.success) {
       const msg = response.error?.message ?? 'Unknown error';
+      // T14008: a stale index refuses with its own exit code and the reindex command.
+      const exitCode =
+        response.error?.code === 'E_NEXUS_INDEX_STALE' ? ExitCode.NEXUS_INDEX_STALE : 1;
       cliError(
         msg,
-        1,
-        { name: response.error?.code ?? 'E_CONTEXT_FAILED', details: response.error?.details },
+        exitCode,
+        {
+          name: response.error?.code ?? 'E_CONTEXT_FAILED',
+          details: response.error?.details,
+          ...(response.error?.fix ? { fix: response.error.fix } : {}),
+        },
         { operation: 'nexus.context', duration_ms: durationMs },
       );
-      process.exitCode = 1;
+      process.exitCode = exitCode;
       return;
     }
     const result = response.data as { matchCount: number; results: unknown[] };
@@ -1142,6 +1150,17 @@ const contextCommand = defineCommand({
   },
 });
 
+/** Report a graph answer refused as stale (T14008): exit 111 with the reindex command. */
+function refuseStaleImpact(refusal: NexusStaleRefusal, startTime: number): void {
+  cliError(
+    refusal.message,
+    ExitCode.NEXUS_INDEX_STALE,
+    { name: refusal.code, fix: refusal.fix, details: { ...refusal.details } },
+    { operation: 'nexus.impact', duration_ms: Date.now() - startTime },
+  );
+  process.exitCode = ExitCode.NEXUS_INDEX_STALE;
+}
+
 /** cleo nexus impact — show blast radius for a code symbol */
 const impactCommand = defineCommand({
   meta: {
@@ -1163,6 +1182,12 @@ const impactCommand = defineCommand({
       description: 'Answer from the index as it stands, without an inline refresh (T13523)',
       default: false,
     },
+    'allow-stale': {
+      type: 'boolean',
+      description:
+        'Answer even when the index is more than nexus.freshness.maxCommitsBehind commits behind the checked-out HEAD (T14008)',
+      default: false,
+    },
   },
   async run({ args }) {
     applyJsonFlag(args.json as boolean | undefined);
@@ -1173,29 +1198,61 @@ const impactCommand = defineCommand({
     const projectId = await resolveNexusQueryProjectId(repoPath, projectIdOverride);
     const maxDepth = Math.min(parseInt(args.depth as string, 10), 5);
     const symbolName = args.symbol as string;
+    let stalePolicy: NexusStalePolicy | undefined;
+    let staleAssessment: GraphIndexFreshness | undefined;
+    /** Refuse when the target is missing from a stale index (T14008); true when refused. */
+    const refusedAsMissing = (): boolean => {
+      if (!stalePolicy || !staleAssessment) return false;
+      const missing = staleIndexRefusal(staleAssessment, stalePolicy, {
+        projectRoot: repoPath,
+        targetMissing: true,
+      });
+      if (missing) refuseStaleImpact(missing, startTime);
+      return missing !== null;
+    };
     try {
       // T12316: disclose how current the graph behind this answer is.
       const assessment = await assessNexusFreshnessForQuery(repoPath, {
         refresh: !negatedFlag(args, 'refresh'),
       });
+      // T14008: an index too far behind the base branch answers nothing.
+      stalePolicy = await readNexusStalePolicy(repoPath, { allowStale: !!args['allow-stale'] });
+      staleAssessment = assessment.freshness;
+      const tooStale = staleIndexRefusal(assessment.freshness, stalePolicy, {
+        projectRoot: repoPath,
+      });
+      if (tooStale) {
+        refuseStaleImpact(tooStale, startTime);
+        return;
+      }
       const result = await getSymbolImpact(symbolName, projectId, repoPath, {
         maxDepth,
         why: whyFlag,
       });
+      // T13922: a symbol absent from a stale index is not "no impact".
+      if (result.targetNodeId === null && refusedAsMissing()) return;
       const freshness = judgeSymbolFiles(assessment, querySymbolFiles(result));
       discloseNexusFreshness('nexus impact', freshness);
       const durationMs = Date.now() - startTime;
-      cliOutput({ ...result, _symbolName: symbolName, _why: whyFlag } as Record<string, unknown>, {
-        command: 'nexus-impact',
-        operation: 'nexus.impact',
-        extensions: withNexusFreshnessMeta(
-          {
-            duration_ms: durationMs,
-            ...buildNexusMetaExtensions('impact', { symbol: symbolName, projectId }),
-          },
-          freshness,
-        ),
-      });
+      cliOutput(
+        {
+          ...result,
+          freshness: answerFreshness(freshness),
+          _symbolName: symbolName,
+          _why: whyFlag,
+        } as Record<string, unknown>,
+        {
+          command: 'nexus-impact',
+          operation: 'nexus.impact',
+          extensions: withNexusFreshnessMeta(
+            {
+              duration_ms: durationMs,
+              ...buildNexusMetaExtensions('impact', { symbol: symbolName, projectId }),
+            },
+            freshness,
+          ),
+        },
+      );
     } catch (err) {
       const code =
         err instanceof Error && 'code' in err ? (err as { code?: string }).code : undefined;
@@ -1216,6 +1273,7 @@ const impactCommand = defineCommand({
         return;
       }
       if (code === 'E_NOT_FOUND') {
+        if (refusedAsMissing()) return;
         cliError(
           msg,
           4,
@@ -2206,6 +2264,11 @@ const queryCommand = defineCommand({
       params,
     });
     const durationMs = Date.now() - startTime;
+    if (!response.success && response.error?.code === 'E_NEXUS_INDEX_STALE') {
+      // T14008: the shared path keeps exit 111 and the reindex fix for a stale index.
+      reportRawError(response, { operation: 'nexus.query-cte' });
+      return;
+    }
     if (!response.success) {
       const code = response.error?.code;
       const msg = response.error?.message ?? 'Unknown error';
@@ -2285,14 +2348,11 @@ const routeMapCommand = defineCommand({
     const response = await dispatchRaw('query', 'nexus', 'route-map', { projectId });
     const durationMs = Date.now() - startTime;
     if (!response.success) {
-      const msg = response.error?.message ?? 'Unknown error';
-      cliError(
-        msg,
-        1,
-        { name: response.error?.code ?? 'E_ROUTE_MAP_FAILED', details: response.error?.details },
-        { operation: 'nexus.route-map', duration_ms: durationMs },
-      );
-      process.exitCode = 1;
+      // T14008: the shared path keeps exit 111 and the reindex fix for a stale index.
+      reportRawError(response, {
+        operation: 'nexus.route-map',
+        fallbackCode: 'E_ROUTE_MAP_FAILED',
+      });
       return;
     }
     cliOutput(
@@ -2345,14 +2405,11 @@ const shapeCheckCommand = defineCommand({
     const response = await dispatchRaw('query', 'nexus', 'shape-check', { routeSymbol, projectId });
     const durationMs = Date.now() - startTime;
     if (!response.success) {
-      const msg = response.error?.message ?? 'Unknown error';
-      cliError(
-        msg,
-        1,
-        { name: response.error?.code ?? 'E_SHAPE_CHECK_FAILED', details: response.error?.details },
-        { operation: 'nexus.shape-check', duration_ms: durationMs },
-      );
-      process.exitCode = 1;
+      // T14008: the shared path keeps exit 111 and the reindex fix for a stale index.
+      reportRawError(response, {
+        operation: 'nexus.shape-check',
+        fallbackCode: 'E_SHAPE_CHECK_FAILED',
+      });
       return;
     }
     cliOutput(
@@ -2402,13 +2459,11 @@ const fullContextCommand = defineCommand({
     const symbolId = args.symbol as string;
     const response = await dispatchRaw('query', 'nexus', 'full-context', { symbol: symbolId });
     if (!response.success) {
-      cliError(
-        response.error?.message ?? 'Unknown error',
-        1,
-        { name: response.error?.code ?? 'E_FULL_CONTEXT_FAILED', details: response.error?.details },
-        { operation: 'nexus.full-context' },
-      );
-      process.exitCode = 1;
+      // T14008: the shared path keeps exit 111 and the reindex fix for a stale index.
+      reportRawError(response, {
+        operation: 'nexus.full-context',
+        fallbackCode: 'E_FULL_CONTEXT_FAILED',
+      });
       return;
     }
     const durationMs = Date.now() - startTime;
@@ -2448,16 +2503,11 @@ const taskFootprintCommand = defineCommand({
     const taskId = args.taskId as string;
     const response = await dispatchRaw('query', 'nexus', 'task-footprint', { taskId });
     if (!response.success) {
-      cliError(
-        response.error?.message ?? 'Unknown error',
-        1,
-        {
-          name: response.error?.code ?? 'E_TASK_FOOTPRINT_FAILED',
-          details: response.error?.details,
-        },
-        { operation: 'nexus.task-footprint' },
-      );
-      process.exitCode = 1;
+      // T14008: the shared path keeps exit 111 and the reindex fix for a stale index.
+      reportRawError(response, {
+        operation: 'nexus.task-footprint',
+        fallbackCode: 'E_TASK_FOOTPRINT_FAILED',
+      });
       return;
     }
     const durationMs = Date.now() - startTime;
@@ -2497,16 +2547,11 @@ const brainAnchorsCommand = defineCommand({
     const entryId = args.entryId as string;
     const response = await dispatchRaw('query', 'nexus', 'brain-anchors', { entryId });
     if (!response.success) {
-      cliError(
-        response.error?.message ?? 'Unknown error',
-        1,
-        {
-          name: response.error?.code ?? 'E_BRAIN_ANCHORS_FAILED',
-          details: response.error?.details,
-        },
-        { operation: 'nexus.brain-anchors' },
-      );
-      process.exitCode = 1;
+      // T14008: the shared path keeps exit 111 and the reindex fix for a stale index.
+      reportRawError(response, {
+        operation: 'nexus.brain-anchors',
+        fallbackCode: 'E_BRAIN_ANCHORS_FAILED',
+      });
       return;
     }
     const durationMs = Date.now() - startTime;
@@ -2550,13 +2595,8 @@ const whyCommand = defineCommand({
     const symbolId = args.symbol as string;
     const response = await dispatchRaw('query', 'nexus', 'why', { symbol: symbolId });
     if (!response.success) {
-      cliError(
-        response.error?.message ?? 'Unknown error',
-        1,
-        { name: response.error?.code ?? 'E_WHY_FAILED', details: response.error?.details },
-        { operation: 'nexus.why' },
-      );
-      process.exitCode = 1;
+      // T14008: the shared path keeps exit 111 and the reindex fix for a stale index.
+      reportRawError(response, { operation: 'nexus.why', fallbackCode: 'E_WHY_FAILED' });
       return;
     }
     const durationMs = Date.now() - startTime;
@@ -2596,13 +2636,11 @@ const impactFullCommand = defineCommand({
     const symbolId = args.symbol as string;
     const response = await dispatchRaw('query', 'nexus', 'impact-full', { symbol: symbolId });
     if (!response.success) {
-      cliError(
-        response.error?.message ?? 'Unknown error',
-        1,
-        { name: response.error?.code ?? 'E_IMPACT_FULL_FAILED', details: response.error?.details },
-        { operation: 'nexus.impact-full' },
-      );
-      process.exitCode = 1;
+      // T14008: the shared path keeps exit 111 and the reindex fix for a stale index.
+      reportRawError(response, {
+        operation: 'nexus.impact-full',
+        fallbackCode: 'E_IMPACT_FULL_FAILED',
+      });
       return;
     }
     const durationMs = Date.now() - startTime;
@@ -2707,14 +2745,11 @@ const taskSymbolsCommand = defineCommand({
     const response = await dispatchRaw('query', 'nexus', 'task-symbols', { taskId });
     const durationMs = Date.now() - startTime;
     if (!response.success) {
-      const msg = response.error?.message ?? 'Unknown error';
-      cliError(
-        msg,
-        1,
-        { name: response.error?.code ?? 'E_TASK_SYMBOLS_FAILED', details: response.error?.details },
-        { operation: 'nexus.task-symbols', duration_ms: durationMs },
-      );
-      process.exitCode = 1;
+      // T14008: the shared path keeps exit 111 and the reindex fix for a stale index.
+      reportRawError(response, {
+        operation: 'nexus.task-symbols',
+        fallbackCode: 'E_TASK_SYMBOLS_FAILED',
+      });
       return;
     }
     const data = response.data as NexusTaskSymbolsResult;
@@ -3099,13 +3134,11 @@ const hotPathsCommand = defineCommand({
     const response = await dispatchRaw('query', 'nexus', 'hot-paths', { limit });
     const durationMs = Date.now() - startTime;
     if (!response.success) {
-      cliError(
-        response.error?.message ?? 'Unknown error',
-        1,
-        { name: response.error?.code ?? 'E_HOT_PATHS_FAILED', details: response.error?.details },
-        { operation: 'nexus.hot-paths', duration_ms: durationMs },
-      );
-      process.exitCode = 1;
+      // T14008: the shared path keeps exit 111 and the reindex fix for a stale index.
+      reportRawError(response, {
+        operation: 'nexus.hot-paths',
+        fallbackCode: 'E_HOT_PATHS_FAILED',
+      });
       return;
     }
     cliOutput(response.data as Record<string, unknown>, {
@@ -3151,13 +3184,11 @@ const hotNodesCommand = defineCommand({
     const response = await dispatchRaw('query', 'nexus', 'hot-nodes', { limit });
     const durationMs = Date.now() - startTime;
     if (!response.success) {
-      cliError(
-        response.error?.message ?? 'Unknown error',
-        1,
-        { name: response.error?.code ?? 'E_HOT_NODES_FAILED', details: response.error?.details },
-        { operation: 'nexus.hot-nodes', duration_ms: durationMs },
-      );
-      process.exitCode = 1;
+      // T14008: the shared path keeps exit 111 and the reindex fix for a stale index.
+      reportRawError(response, {
+        operation: 'nexus.hot-nodes',
+        fallbackCode: 'E_HOT_NODES_FAILED',
+      });
       return;
     }
     cliOutput(response.data as Record<string, unknown>, {
@@ -3204,13 +3235,11 @@ const coldSymbolsCommand = defineCommand({
     const response = await dispatchRaw('query', 'nexus', 'cold-symbols', { days: thresholdDays });
     const durationMs = Date.now() - startTime;
     if (!response.success) {
-      cliError(
-        response.error?.message ?? 'Unknown error',
-        1,
-        { name: response.error?.code ?? 'E_COLD_SYMBOLS_FAILED', details: response.error?.details },
-        { operation: 'nexus.cold-symbols', duration_ms: durationMs },
-      );
-      process.exitCode = 1;
+      // T14008: the shared path keeps exit 111 and the reindex fix for a stale index.
+      reportRawError(response, {
+        operation: 'nexus.cold-symbols',
+        fallbackCode: 'E_COLD_SYMBOLS_FAILED',
+      });
       return;
     }
     cliOutput(response.data as Record<string, unknown>, {

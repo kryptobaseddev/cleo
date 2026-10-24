@@ -142,6 +142,7 @@ describe('base ref (T14007)', () => {
       baseRef: 'origin/main',
       baseRevision: shas[4],
       commitsBehind: 3,
+      commitsBehindHead: 0,
       ageDays: 3,
     });
     native.close();
@@ -162,6 +163,7 @@ describe('base ref (T14007)', () => {
       baseRef: 'main',
       baseRevision: shas[0],
       commitsBehind: null,
+      commitsBehindHead: null,
       ageDays: null,
     });
     native.close();
