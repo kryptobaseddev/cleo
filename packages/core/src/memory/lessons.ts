@@ -77,8 +77,13 @@ function readLessons(db: DatabaseSync, scope: 'project' | 'global', limit: numbe
  * List current lessons, newest first, from the project brain, the global
  * (main) brain, or both.
  *
+ * With scope `all` each store is read on its own: a store that fails is
+ * reported to `onStoreError` and the other store's lessons are still listed.
+ * Only when every store fails does the call throw.
+ *
  * @param projectRoot - Project whose brain is read for `project` / `all`.
- * @param options - `scope` (default `all`) and `limit` (default 50).
+ * @param options - `scope` (default `all`), `limit` (default 50) and
+ *   `onStoreError`, told which store failed under scope `all`.
  * @returns Lessons merged across the requested stores, newest first.
  * @example
  * ```ts
@@ -87,24 +92,51 @@ function readLessons(db: DatabaseSync, scope: 'project' | 'global', limit: numbe
  */
 export async function listLessons(
   projectRoot: string,
-  options: { scope?: LessonScope; limit?: number } = {},
+  options: {
+    scope?: LessonScope;
+    limit?: number;
+    onStoreError?: (scope: 'project' | 'global', error: Error) => void;
+  } = {},
 ): Promise<LessonEntry[]> {
   const scope = options.scope ?? 'all';
   const limit = options.limit ?? 50;
-  const lessons: LessonEntry[] = [];
+  const readers: Array<['project' | 'global', () => Promise<LessonEntry[]>]> = [];
   if (scope !== 'global') {
-    const { getBrainDb, getBrainNativeDb } = await import('../store/memory-sqlite.js');
-    await getBrainDb(projectRoot);
-    const db = getBrainNativeDb(projectRoot);
-    // @sync-invariant none:local-only a read that cannot open the brain writes nothing
-    if (!db) throw new Error('BRAIN database unavailable while listing lessons');
-    lessons.push(...readLessons(db, 'project', limit));
+    readers.push([
+      'project',
+      async () => {
+        const { getBrainDb, getBrainNativeDb } = await import('../store/memory-sqlite.js');
+        await getBrainDb(projectRoot);
+        const db = getBrainNativeDb(projectRoot);
+        // @sync-invariant none:local-only a read that cannot open the brain writes nothing
+        if (!db) throw new Error('BRAIN database unavailable while listing lessons');
+        return readLessons(db, 'project', limit);
+      },
+    ]);
   }
   if (scope !== 'project') {
-    const { getDualScopeNativeDb, openDualScopeDb } = await import('../store/dual-scope-db.js');
-    const globalDb = getDualScopeNativeDb(await openDualScopeDb('global'));
-    lessons.push(...readLessons(globalDb, 'global', limit));
+    readers.push([
+      'global',
+      async () => {
+        const { getDualScopeNativeDb, openDualScopeDb } = await import('../store/dual-scope-db.js');
+        return readLessons(getDualScopeNativeDb(await openDualScopeDb('global')), 'global', limit);
+      },
+    ]);
   }
+  const lessons: LessonEntry[] = [];
+  const errors: Error[] = [];
+  for (const [store, read] of readers) {
+    try {
+      lessons.push(...(await read()));
+    } catch (err) {
+      const error = err instanceof Error ? err : new Error(String(err));
+      if (readers.length === 1) throw error;
+      errors.push(error);
+      options.onStoreError?.(store, error);
+    }
+  }
+  // @sync-invariant none:local-only a read that reached no store writes nothing
+  if (errors.length === readers.length) throw errors[0];
   return lessons
     .sort((a, b) => (a.createdAt < b.createdAt ? 1 : a.createdAt > b.createdAt ? -1 : 0))
     .slice(0, limit);

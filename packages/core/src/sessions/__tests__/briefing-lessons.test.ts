@@ -82,7 +82,10 @@ describe('computeBriefing lessons index', () => {
 
     const briefing = await computeBriefing('/fake/project', { scope: 'global' });
 
-    expect(mockListLessons).toHaveBeenCalledWith('/fake/project', { scope: 'all', limit: 8 });
+    expect(mockListLessons).toHaveBeenCalledWith(
+      '/fake/project',
+      expect.objectContaining({ scope: 'all', limit: 8 }),
+    );
     expect(briefing.lessons).toEqual([
       {
         id: 'O-abc',
@@ -99,6 +102,33 @@ describe('computeBriefing lessons index', () => {
         _next: { fetch: 'cleo memory fetch GO-def' },
       },
     ]);
+  });
+
+  it('truncates a long rule and warns about a failing store (T14003)', async () => {
+    mockListLessons.mockImplementation(
+      async (
+        _root: string,
+        options: { onStoreError?: (store: 'project' | 'global', error: Error) => void },
+      ) => {
+        options.onStoreError?.('project', new Error('project brain locked'));
+        return [
+          {
+            id: 'GO-long',
+            rule: 'r'.repeat(400),
+            why: '',
+            createdAt: '2026-10-22 09:00:00',
+            scope: 'global',
+          },
+        ];
+      },
+    );
+
+    const briefing = await computeBriefing('/fake/project', { scope: 'global' });
+
+    expect(briefing.lessons?.[0]?.rule.length).toBeLessThanOrEqual(240);
+    expect(briefing.warnings).toContain(
+      'Lessons unavailable from the project brain: project brain locked',
+    );
   });
 
   it('omits lessons when there are none', async () => {

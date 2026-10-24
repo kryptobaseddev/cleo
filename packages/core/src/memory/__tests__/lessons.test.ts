@@ -64,4 +64,36 @@ describe('listLessons (T13949)', () => {
     expect(lessons.map((l) => l.id)).toEqual(['O-new', 'O-old']);
     expect(lessons[0]).toMatchObject({ rule: 'New rule', why: 'why O-new', scope: 'project' });
   });
+
+  it('still lists project lessons when the global brain fails under scope all (T14003)', async () => {
+    const { writeFile } = await import('node:fs/promises');
+    const { _resetDualScopeDbCache } = await import('../../store/dual-scope-db.js');
+    const { getBrainAccessor } = await import('../../store/memory-accessor.js');
+    const accessor = await getBrainAccessor(root);
+    await accessor.addObservation({
+      id: 'O-rule',
+      type: 'lesson',
+      title: 'Project rule',
+      narrative: 'why',
+      sourceType: 'manual',
+    });
+    // CLEO_HOME is a file, so the global store cannot open.
+    const home = join(root, 'home-is-a-file');
+    await writeFile(home, '');
+    _resetDualScopeDbCache();
+    process.env['CLEO_HOME'] = home;
+    try {
+      const failed: string[] = [];
+      const lessons = await listLessons(root, {
+        scope: 'all',
+        onStoreError: (store) => failed.push(store),
+      });
+      expect(lessons.map((lesson) => lesson.id)).toEqual(['O-rule']);
+      expect(failed).toEqual(['global']);
+      await expect(listLessons(root, { scope: 'global' })).rejects.toThrow();
+    } finally {
+      delete process.env['CLEO_HOME'];
+      _resetDualScopeDbCache();
+    }
+  });
 });
