@@ -200,7 +200,7 @@ fix/T456-token-validation          # Bug fix
 
 ## Gate System (Simplified)
 
-Not all gates apply to all changes. Follow the decision matrix.
+Not all gates apply to all changes. Follow the decision matrix. Required gates also follow the task's evidence kind (`verification.requiredGatesByKind`): research and documentation tasks owe the required gates without `testsPassed`/`qaPassed` until their work touches any non-document path, which restores the full code gates.
 
 ### G0: Pre-Flight Check
 

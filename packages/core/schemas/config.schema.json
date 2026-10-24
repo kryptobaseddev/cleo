@@ -352,6 +352,55 @@
           ],
           "description": "Gates required to pass for verification.passed = true. cleanupDone excluded by default."
         },
+        "requiredGatesByKind": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "code": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "enum": [
+                  "implemented",
+                  "testsPassed",
+                  "qaPassed",
+                  "cleanupDone",
+                  "securityPassed",
+                  "documented"
+                ]
+              }
+            },
+            "documentation": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "enum": [
+                  "implemented",
+                  "testsPassed",
+                  "qaPassed",
+                  "cleanupDone",
+                  "securityPassed",
+                  "documented"
+                ]
+              }
+            },
+            "research": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "enum": [
+                  "implemented",
+                  "testsPassed",
+                  "qaPassed",
+                  "cleanupDone",
+                  "securityPassed",
+                  "documented"
+                ]
+              }
+            }
+          },
+          "description": "Gates required per evidence kind (T14001), overriding requiredGates for that kind. Defaults: research and documentation get requiredGates without testsPassed and qaPassed; code gets requiredGates. A task whose implemented evidence or change set touches any non-document path owes the code gates whatever its kind."
+        },
         "autoSetImplementedOnComplete": {
           "type": "boolean",
           "default": true,

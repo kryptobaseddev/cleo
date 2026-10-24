@@ -60,7 +60,7 @@ import { acItemToText } from './ac-table.js';
 import { buildRollupEvidence, isCoordinationParent } from './coordination-parent.js';
 import { createAcceptanceEnforcement } from './enforcement.js';
 import { stageGateModeFrom } from './epic-enforcement.js';
-import { revalidateEvidence } from './evidence.js';
+import { revalidateEvidence, taskEvidenceKindReport } from './evidence.js';
 import { taskEvidenceAtoms } from './evidence-paths.js';
 import { readAllowCachedGates } from './gate-result-cache.js';
 import {
@@ -73,6 +73,8 @@ import { isTerminalPipelineStage, isValidPipelineStage } from './pipeline-stage.
 import {
   missingRequiredGates as findMissingRequiredGates,
   loadVerificationGatePolicy,
+  requiredGatesFor,
+  type VerificationGatePolicy,
 } from './verification-policy.js';
 
 /**
@@ -205,7 +207,8 @@ interface CompletionEnforcement {
   acceptanceMode: 'off' | 'warn' | 'block';
   acceptanceRequiredForPriorities: string[];
   verificationEnabled: boolean;
-  verificationRequiredGates: VerificationGate[];
+  /** Gates per evidence kind; a task's are {@link requiredGatesFor} its kind (T14001). */
+  verificationPolicy: Pick<VerificationGatePolicy, 'requiredGatesByKind'>;
   verificationMaxRounds: number;
   lifecycleMode: 'strict' | 'warn' | 'advisory' | 'none' | 'off';
 }
@@ -222,7 +225,7 @@ async function loadCompletionEnforcement(cwd?: string): Promise<CompletionEnforc
   const acceptanceRequiredForPriorities =
     acceptance?.requiredForPriorities ?? (isTest ? [] : ['critical', 'high', 'medium', 'low']);
   // Shared with `cleo release plan` (T12359) so both agree on what "verified" means.
-  const { enabled: verificationEnabled, requiredGates: verificationRequiredGates } =
+  const { enabled: verificationEnabled, requiredGatesByKind } =
     await loadVerificationGatePolicy(cwd);
   const verificationMaxRounds = verificationCfg?.maxRounds ?? 5;
   const lifecycleMode = config.lifecycle?.mode ?? (isTest ? 'off' : 'strict');
@@ -231,7 +234,7 @@ async function loadCompletionEnforcement(cwd?: string): Promise<CompletionEnforc
     acceptanceMode,
     acceptanceRequiredForPriorities,
     verificationEnabled,
-    verificationRequiredGates,
+    verificationPolicy: { requiredGatesByKind },
     verificationMaxRounds,
     lifecycleMode,
   };
@@ -643,6 +646,9 @@ export async function completeTask(
     // never by sending the agent to run the whole suite locally. Gates recorded
     // here persist if a later check below refuses (see complete-ci.ts).
     let verification: TaskVerification = task.verification;
+    // T14001: a research task needs its doc or decision, not a test run.
+    const evidenceKind = await taskEvidenceKindReport(task, completionRoot);
+    const requiredGates = requiredGatesFor(enforcement.verificationPolicy, evidenceKind.kind);
     const { satisfyGatesFromMergedCi } = await import('./complete-ci.js');
     // T13637: with `cleo done --pr <n>`, derive the change set through that PR
     // as the plan did, so plan and completion judge the same carrier.
@@ -657,7 +663,7 @@ export async function completeTask(
     const mergedCi = await satisfyGatesFromMergedCi(
       task,
       completionRoot,
-      enforcement.verificationRequiredGates,
+      requiredGates,
       derived ? { merge: { derived } } : {},
     );
     if (mergedCi.kind === 'wait-for-ci' || mergedCi.kind === 'ci-red') {
@@ -686,10 +692,7 @@ export async function completeTask(
       initialTask = structuredClone(task);
     }
 
-    const missingRequiredGates = findMissingRequiredGates(
-      verification.gates,
-      enforcement.verificationRequiredGates,
-    );
+    const missingRequiredGates = findMissingRequiredGates(verification.gates, requiredGates);
 
     if (missingRequiredGates.length > 0 || verification.passed !== true) {
       const exitCode =
@@ -702,9 +705,16 @@ export async function completeTask(
         `Task ${options.taskId} failed verification gates: ${missingRequiredGates.join(', ') || 'verification.passed=false'}` +
           (mergedCi.kind === 'skipped' && mergedCi.ciUnavailable
             ? ` (merged CI could not stand in: ${mergedCi.ciUnavailable})`
-            : ''),
+            : '') +
+          (evidenceKind.reason ? ` (owes the code gates: ${evidenceKind.reason})` : ''),
         {
-          fix: `Set required verification gates before completion: ${enforcement.verificationRequiredGates.join(', ')}`,
+          // T14001: a task verified under an older gate policy (e.g. before
+          // research tasks stopped owing tests) keeps its stored passed=false
+          // until one verify recomputes it against the current policy.
+          fix:
+            missingRequiredGates.length === 0
+              ? `Every required gate (${requiredGates.join(', ')}) is set, but passed was computed under an older policy or a typed gate has no pass: re-record one gate (cleo verify ${options.taskId} --gate implemented --evidence "<atoms>") or run cleo verify ${options.taskId} --run to recompute it.`
+              : `Set required verification gates before completion: ${requiredGates.join(', ')}`,
         },
       );
     }

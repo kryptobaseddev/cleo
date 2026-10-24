@@ -850,6 +850,67 @@ describe('releasePlan — error envelopes', () => {
     expect(result.error.details).toBeDefined();
   });
 
+  it('T14001: a spike whose implemented evidence touches code still owes testsPassed', async () => {
+    writeFileSync(
+      join(testDir, '.cleo', 'config.json'),
+      JSON.stringify({
+        enforcement: { session: { requiredForMutate: false } },
+        lifecycle: { mode: 'off' },
+        verification: { enabled: true, requiredGates: ['implemented', 'testsPassed'] },
+      }),
+    );
+    const accessor = await createSqliteDataAccessor(testDir);
+    try {
+      await accessor.setMetaValue('schema_version', '2.10.0');
+      await accessor.upsertSingleTask(makeTask({ id: 'T9999', type: 'epic', title: 'Epic' }));
+      const implementedOnly = (id: string, path: string) =>
+        makeTask({
+          id,
+          parentId: 'T9999',
+          status: 'active',
+          kind: 'spike',
+          verification: {
+            passed: true,
+            round: 1,
+            gates: { implemented: true },
+            evidence: {
+              implemented: {
+                atoms: [{ kind: 'files', files: [{ path, sha256: 'f'.repeat(64) }] }],
+                capturedAt: new Date().toISOString(),
+                capturedBy: 'test-agent',
+              },
+            },
+            lastAgent: null,
+            lastUpdated: new Date().toISOString(),
+            failureLog: [],
+          },
+        });
+      await accessor.upsertSingleTask(implementedOnly('T10003', 'src/x.ts'));
+      await accessor.upsertSingleTask(implementedOnly('T10004', 'docs/findings.md'));
+    } finally {
+      await accessor.close();
+    }
+    // An origin default branch to search: without one a non-code task fails closed.
+    execFileSync('git', ['-C', testDir, 'commit', '-q', '--allow-empty', '-m', 'init']);
+    execFileSync('git', ['-C', testDir, 'update-ref', 'refs/remotes/origin/main', 'HEAD']);
+    const result = await releasePlan({
+      version: 'v2026.6.0',
+      epicId: 'T9999',
+      channel: 'latest',
+      scheme: 'calver',
+      projectRoot: testDir,
+    });
+    expect(result.success).toBe(false);
+    if (result.success) throw new Error('unreachable');
+    const details = result.error.details as {
+      tasks: Array<{ id: string; missingGates: string[] }>;
+    };
+    // The code-touching spike blocks on testsPassed; the doc-only spike does not.
+    expect(details.tasks).toEqual([
+      expect.objectContaining({ id: 'T10003', missingGates: ['testsPassed'] }),
+    ]);
+  });
+
   it('refuses when a task carries atoms but its implemented gate is false (T12359)', async () => {
     // Enforce verification the way a real project does (the default outside
     // VITEST): the plan must judge gate OUTCOMES with the policy

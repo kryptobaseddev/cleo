@@ -1,6 +1,6 @@
 # CLEO Protocol — on-demand reference
 
-Version: 2.24.20 | Companion to the always-loaded `CLEO-INJECTION.md` core
+Version: 2.24.21 | Companion to the always-loaded `CLEO-INJECTION.md` core
 
 Not injected into agent context. Print one section with `cleo briefing inject --section <name>`; tier-2 spawn prompts embed this whole file. Section names are the `CLEO-INJECTION:section` markers below.
 
@@ -338,7 +338,7 @@ The evidence run is the one run. Start with `cleo done <id> --plan`, which picks
 
 ### `pr:<number>` retroactive atom (T9764)
 
-`pr:` proves merge provenance, not completion. CLEO checks actual `mergeCommit`, task linkage and changed files; incomplete inventories or unavailable merge artifacts remain unverified. Fetch the merge commit before `files:` evidence. Task `files` must intersect its diff; prose mentions cannot establish scope. Explicit research/spike and documentation scope retain documentary evidence.
+`pr:` proves merge provenance, not completion. CLEO checks actual `mergeCommit`, task linkage and changed files; incomplete inventories or unavailable merge artifacts remain unverified. Fetch the merge commit before `files:` evidence. Task `files` must intersect its diff; prose mentions cannot establish scope. Explicit research/spike and documentation scope retain documentary evidence. Such a task owes `verification.requiredGatesByKind` for its kind (default: the required gates without `testsPassed`/`qaPassed`, T14001), but any non-document path its work touches restores the full code gates: `files:` paths, a `pr:` atom's changed files (a legacy atom without them counts as code), a `commit:` diff, any branch whose name cites the task (`task/`, `feat/`, `fix/`, …), default-branch commits whose subject cites it (merges, squash merges, direct commits), and merged PRs from such a branch. Work CLEO cannot inspect (no origin default branch, a failed GitHub lookup, an unreadable commit) counts as code, and `cleo complete` and `cleo done --plan` say why. A README, LICENSE or CHANGELOG counts as a document only when bare or with a document extension, and a bare `.txt` never does.
 
 A task PR merged into an integration branch is a component: `pr:<component>@<integration>` (and `ci:<component>@<integration>`) takes the merge commit and CI from the integration PR that landed it, and the task linkage and changed files from the component PR — only its files that survive the integration merge, never the whole integration diff (T12671). `cleo done` derives this from either PR number. A file a later change also edited still counts while the component's own hunks apply to the landed version. A component that only deleted files implements with `pr:<component>@<integration>;note:<deleted paths>`, because a deletion has no bytes for `files:`.
 
