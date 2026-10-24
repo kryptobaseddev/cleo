@@ -44,7 +44,9 @@ Two instruments, used together:
 cleo nexus status
 ```
 
-Read `nodeCount`, `lastIndexedAt` and `staleFileCount` against `fileCount`.
+Read `nodeCount`, `lastIndexedAt` and `staleFileCount` against `fileCount`,
+and `freshness.commitsBehind` (commits on `freshness.baseRef` the index has
+not seen) with `freshness.ageDays`.
 Queries auto-refresh up to 25 stale files; beyond that they warn
 `W_NEXUS_INDEX_STALE`. Refresh with `cleo nexus analyze` (incremental; `--full`
 rebuilds). An empty or stale index gives confident-looking but incomplete
@@ -118,6 +120,14 @@ On a stale index, `impact` and `context` refresh it inline only when the last
 analysis recorded a cost that bounds the run; otherwise they answer from the
 stale index and say so. `--no-refresh` (or `CLEO_NEXUS_AUTO_REFRESH=false`)
 always answers from the index as it stands.
+
+Every graph answer carries `data.freshness` (`indexedRevision`, `baseRef`,
+`commitsBehind`, `ageDays`). When the index is more than
+`nexus.freshness.maxCommitsBehind` (default 50) commits behind the base branch,
+or the symbol is missing from a stale index, the query fails with
+`E_NEXUS_INDEX_STALE` (exit 111) and `error.fix` names the reindex command. Run
+it, then repeat the query. `--allow-stale` (`impact`, `context`) or
+`CLEO_NEXUS_ALLOW_STALE=1` accepts the stale answer; say that you did.
 
 ## 5. Across projects: where each one lives, and its state
 
