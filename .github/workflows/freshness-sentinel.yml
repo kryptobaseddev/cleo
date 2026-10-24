@@ -1,9 +1,11 @@
 name: Freshness Sentinel
 
 # @task T10102
-# Owner-CI cron — see docs/release/workflow-inventory.md §7 (T10102) for
-# the known-broken status (failing daily since 2026-05-18). A follow-up
-# task under T10102 will diagnose the cause.
+# @task T13927
+# Owner-CI cron (docs/release/workflow-inventory.md §7). It failed daily from
+# 2026-05-18 because `tsx` is not installed, Node 22 is below the engines
+# floor, and `cleo` was never on PATH while every canary step ran `|| true`
+# (T13927). Each step now fails on its own error.
 
 on:
   schedule:
@@ -20,7 +22,7 @@ jobs:
   check-dream-freshness:
     name: Check BRAIN dream cycle health
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 25
 
     steps:
       - name: Checkout
@@ -29,7 +31,7 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '22'
+          node-version: '24.16.0'
 
       - name: Install pnpm
         uses: pnpm/action-setup@v4
@@ -37,23 +39,36 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Install CLEO globally
-        run: pnpm --filter @cleocode/cleo exec node build.mjs 2>/dev/null || true
+      - name: Build CLEO CLI
+        run: pnpm run build
+
+      - name: Put cleo on PATH
+        run: |
+          set -euo pipefail
+          bin="$RUNNER_TEMP/cleo-bin"
+          mkdir -p "$bin"
+          printf '#!/usr/bin/env bash\nexec node "%s/packages/cleo/dist/cli/index.js" "$@"\n' "$GITHUB_WORKSPACE" > "$bin/cleo"
+          chmod +x "$bin/cleo"
+          echo "$bin" >> "$GITHUB_PATH"
+          "$bin/cleo" --version
 
       - name: Initialize canary CLEO project
         run: |
+          set -euo pipefail
           mkdir -p /tmp/cleo-canary
           cd /tmp/cleo-canary
-          cleo init || true
+          git init -q
+          cleo init
           # Seed a handful of observations so status is meaningful
           for i in $(seq 1 20); do
-            cleo memory observe "Canary observation $i — testing freshness sentinel" --title "Canary $i" 2>/dev/null || true
+            cleo memory observe "Canary observation $i: testing freshness sentinel" --title "Canary $i" --output silent
           done
         env:
           CLEO_PROJECT_ROOT: /tmp/cleo-canary
 
       - name: Run freshness sentinel
-        run: pnpm exec tsx scripts/freshness-sentinel.ts
+        # Node 24 strips TypeScript types natively; no tsx needed.
+        run: node scripts/freshness-sentinel.ts
         env:
           CLEO_PROJECT_ROOT: /tmp/cleo-canary
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
