@@ -46,8 +46,12 @@ const RETRACTED = /^(?:partly\s+wrong|wrong|superseded)\b/i;
 /** Brain a lesson is written to. */
 export type LessonImportScope = 'global' | 'project';
 
-/** Source type stamped on imported lessons. */
-export const LESSON_IMPORT_SOURCE_TYPE = 'claude-memory-import';
+/**
+ * Source type of imported lessons: agent-written memories, so `agent`
+ * confidence in both brains. Each lesson's provenance line names its source
+ * file.
+ */
+const LESSON_IMPORT_SOURCE_TYPE = 'agent' as const;
 
 /** A frontmatter scalar without its surrounding YAML quotes. */
 function unquote(value: string): string {
