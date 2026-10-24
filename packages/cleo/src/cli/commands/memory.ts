@@ -1206,6 +1206,69 @@ const reflectCommand = defineCommand({
   },
 });
 
+/**
+ * `cleo memory quarantine-auto-rows` — reversible quarantine of auto-generated
+ * rows (dispatch traces, Doc attached records, task stubs) in the project and
+ * global brains (T13951, owner decision D11179).
+ *
+ * Dry run by default. `--apply` needs `--expect` with every count from the
+ * approved dry run; `--restore <receipt>` reverses an apply. See
+ * `packages/core/src/memory/auto-row-quarantine.ts` for the safety contract.
+ */
+const quarantineAutoRowsCommand = defineCommand({
+  meta: {
+    name: 'quarantine-auto-rows',
+    description:
+      'Report (default), quarantine (--apply --expect …) or restore (--restore <receipt>) ' +
+      'auto-generated BRAIN rows: dispatch traces, Doc attached records and task stubs. ' +
+      'Sets invalid_at only; nothing is deleted.',
+  },
+  args: {
+    apply: {
+      type: 'boolean',
+      description: 'Quarantine the matched rows (requires --expect)',
+    },
+    expect: {
+      type: 'string',
+      description:
+        'Counts from the approved dry run: project:patterns=N,project:observations=N,global:patterns=N,global:observations=N',
+    },
+    restore: {
+      type: 'string',
+      description: 'Restore the rows recorded in this receipt file',
+    },
+  },
+  async run({ args }) {
+    const root = getProjectRoot();
+    const q = await import('@cleocode/core/memory/auto-row-quarantine');
+    const output = {
+      command: 'memory-quarantine-auto-rows',
+      operation: 'memory.quarantine-auto-rows',
+    };
+    try {
+      const stores = await q.openQuarantineStores(root);
+      if (typeof args.restore === 'string') {
+        const restored = await q.restoreAutoRowQuarantine(stores, args.restore);
+        cliOutput({ receipt: args.restore, restored }, output);
+        return;
+      }
+      if (!args.apply) {
+        const { counts, predicates } = q.planAutoRowQuarantine(stores);
+        cliOutput({ dryRun: true, counts, predicates }, output);
+        return;
+      }
+      const expect = q.parseQuarantineExpect(String(args.expect ?? ''));
+      const now = new Date();
+      const receiptPath = q.defaultQuarantineReceiptPath(root, now.toISOString());
+      const receipt = await q.applyAutoRowQuarantine(stores, expect, receiptPath, { now });
+      cliOutput({ receipt: receiptPath, ...receipt, ids: undefined }, output);
+    } catch (err) {
+      const code = err instanceof q.AutoRowQuarantineError ? err.code : 'E_QUARANTINE';
+      cliError(err instanceof Error ? err.message : String(err), 6, { name: code });
+    }
+  },
+});
+
 /** cleo memory dedup-scan — scan brain.db for potential duplicate entries (T745) */
 /**
  * `cleo memory prune-stubs` — remove content-free observation stubs (T12073).
@@ -2403,6 +2466,7 @@ export const memoryCommand = defineCommand({
     'dedup-scan': dedupScanCommand,
     'prune-stubs': pruneStubsCommand,
     lessons: lessonsCommand,
+    'quarantine-auto-rows': quarantineAutoRowsCommand,
     'prune-traits': pruneTraitsCommand,
     'set-trait-scope': setTraitScopeCommand,
     import: importCommand,
