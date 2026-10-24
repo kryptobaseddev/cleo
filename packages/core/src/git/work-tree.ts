@@ -171,6 +171,58 @@ export function gitToplevel(dir: string): string | null {
 }
 
 /**
+ * Absolute git common directory of the checkout containing `dir` — shared by a
+ * repository's main checkout and its linked worktrees — or `null` when none.
+ *
+ * @param dir - Directory to resolve from.
+ * @task T14012
+ */
+export function gitCommonDir(dir: string): string | null {
+  const common = gitProbe(dir, ['rev-parse', '--path-format=absolute', '--git-common-dir']);
+  return common === null || common.length === 0 ? null : canonical(common);
+}
+
+/**
+ * Raw `origin` remote URL of the checkout containing `dir`, or `null`.
+ *
+ * @param dir - Directory to resolve from.
+ * @task T14012
+ */
+export function gitOriginUrl(dir: string): string | null {
+  const url = gitProbe(dir, ['remote', 'get-url', 'origin']);
+  return url === null || url.length === 0 ? null : url;
+}
+
+/**
+ * True when `HEAD` of the checkout at `toplevel` contains `relPath` (a file or
+ * directory), i.e. the repository tracks something there.
+ *
+ * @param toplevel - Checkout toplevel.
+ * @param relPath - POSIX path relative to `toplevel`.
+ * @task T14012
+ */
+export function gitHeadHasPath(toplevel: string, relPath: string): boolean {
+  return gitProbe(toplevel, ['cat-file', '-e', `HEAD:${relPath}`]) !== null;
+}
+
+/**
+ * Toplevels of the submodules checked out below `toplevel`, recursively.
+ *
+ * @param toplevel - Superproject checkout toplevel.
+ * @returns Canonical absolute paths; empty when there are none.
+ * @task T14012
+ */
+export function gitSubmoduleToplevels(toplevel: string): string[] {
+  const out = gitProbe(toplevel, ['submodule', '--quiet', 'foreach', '--recursive', 'pwd']);
+  if (!out) return [];
+  return out
+    .split('\n')
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0)
+    .map(canonical);
+}
+
+/**
  * Every git work tree directly below `dir`, in stable sorted order.
  *
  * One level only, on purpose. A CLEO root that parents its checkouts — the
@@ -234,13 +286,20 @@ export function findWorkTreeContainingCommit(
   candidates: readonly string[],
   sha: string,
 ): string | null {
-  if (!/^[0-9a-f]{7,40}$/i.test(sha)) return null;
-  const matches: string[] = [];
-  for (const candidate of candidates) {
-    if (gitProbe(candidate, ['cat-file', '-e', `${sha}^{commit}`]) !== null)
-      matches.push(candidate);
-  }
+  const matches = candidates.filter((candidate) => gitHasCommit(candidate, sha));
   return matches.length === 1 ? matches[0]! : null;
+}
+
+/**
+ * True when the checkout containing `dir` has commit `sha` (a 7–40 hex sha).
+ *
+ * @param dir - Checkout to probe.
+ * @param sha - Commit SHA.
+ * @task T14012
+ */
+export function gitHasCommit(dir: string, sha: string): boolean {
+  if (!/^[0-9a-f]{7,40}$/i.test(sha)) return false;
+  return gitProbe(dir, ['cat-file', '-e', `${sha}^{commit}`]) !== null;
 }
 
 /** An evidence git root the operator declared, and where the declaration came from. */

@@ -4,6 +4,7 @@
  * Subcommands:
  *   cleo brain maintenance   — run temporal decay + consolidation + embedding backfill
  *   cleo brain backfill      — back-fill brain graph nodes/edges from typed tables
+ *   cleo brain migrate-repo-ids — plan (or --apply) repo-qualified evidence ids in a multi-repo store
  *   cleo brain purge         — purge noise entries from brain.db
  *   cleo brain plasticity    — STDP plasticity operations
  *   cleo brain quality       — memory quality metrics
@@ -22,6 +23,7 @@ import { exportBrainAsGexf, exportBrainAsJson } from '@cleocode/core/memory/brai
 import { runBrainMaintenance } from '@cleocode/core/memory/brain-maintenance';
 import { purgeBrainNoise } from '@cleocode/core/memory/brain-purge';
 import { getPlasticityStats } from '@cleocode/core/memory/brain-stdp';
+import { migrateEvidenceRepoIds } from '@cleocode/core/memory/evidence-graph-links';
 import { getMemoryQualityReport } from '@cleocode/core/memory/quality-feedback';
 import { getProjectRoot } from '@cleocode/core/project-scope';
 import { defineCommand, showUsage } from 'citty';
@@ -164,6 +166,47 @@ const backfillBrainCommand = defineCommand({
         {
           operation: 'brain.backfill',
         },
+      );
+      process.exit(1);
+    }
+  },
+});
+
+/** cleo brain migrate-repo-ids — repo-qualify evidence file and commit ids (T14012) */
+const migrateRepoIdsCommand = defineCommand({
+  meta: {
+    name: 'migrate-repo-ids',
+    description:
+      'Plan moving evidence file and commit graph links of repositories other than the primary one to repo-qualified ids (file:<repo>::<path>, commit:<repo>::<sha>). Dry run by default; --apply writes, after a receipt under .cleo/backups/migrations/. Ambiguous links are listed and left. Safe to re-run.',
+  },
+  args: {
+    apply: { type: 'boolean', description: 'Write the moves (default: dry run)' },
+    json: { type: 'boolean', description: 'Output results as JSON' },
+  },
+  async run({ args }) {
+    const root = getProjectRoot();
+    try {
+      const result = await migrateEvidenceRepoIds(root, { apply: args.apply === true });
+      cliOutput(
+        { ...result },
+        {
+          command: 'brain-migrate-repo-ids',
+          operation: 'brain.migrate-repo-ids',
+          message:
+            `${result.dryRun ? 'Would move' : 'Moved'} ${result.moved.length} evidence link(s); ` +
+            `${result.unresolved.length} ambiguous` +
+            (result.receiptPath
+              ? `; receipt ${result.receiptPath}`
+              : '; dry run, rerun with --apply'),
+        },
+      );
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      cliError(
+        `Evidence repo-id migration failed: ${message}`,
+        'E_INTERNAL',
+        { name: 'E_INTERNAL' },
+        { operation: 'brain.migrate-repo-ids' },
       );
       process.exit(1);
     }
@@ -419,6 +462,7 @@ const exportCommand = defineCommand({
  * ```ts
  * // Adds: cleo brain maintenance [--skip-decay] [--skip-consolidation] ...
  * //       cleo brain backfill [--json]
+ * //       cleo brain migrate-repo-ids [--apply] [--json]
  * //       cleo brain purge [--json]
  * //       cleo brain plasticity stats [--limit <n>] [--json]
  * //       cleo brain quality [--json]
@@ -430,6 +474,7 @@ export const brainCommand = defineCommand({
   subCommands: {
     maintenance: maintenanceCommand,
     backfill: backfillBrainCommand,
+    'migrate-repo-ids': migrateRepoIdsCommand,
     purge: purgeCommand,
     plasticity: plasticityCommand,
     quality: qualityCommand,

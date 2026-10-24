@@ -143,6 +143,7 @@ function humanRenderers(): Record<string, HumanRenderer> {
     // Brain subcommands (T1722)
     'brain-maintenance': r.renderBrainMaintenance,
     'brain-backfill': r.renderBrainBackfill,
+    'brain-migrate-repo-ids': r.renderBrainMigrateRepoIds,
     'brain-purge': r.renderBrainPurge,
     'brain-plasticity-stats': r.renderBrainPlasticityStats,
     'brain-quality': r.renderBrainQuality,
