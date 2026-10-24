@@ -27,7 +27,6 @@
  * @epic T1042
  */
 
-import { existsSync } from 'node:fs';
 import type {
   BrainRiskNote,
   CodeAnchorResult,
@@ -44,7 +43,6 @@ import { reasonWhySymbol } from '../memory/brain-reasoning.js';
 import { isCurrentDecisionCodeEvidence } from '../memory/decision-cross-link.js';
 import { EDGE_TYPES } from '../memory/edge-types.js';
 import { graphMemoryAuthority, memoryEligibilityClause } from '../memory/eligibility.js';
-import { getConduitDbPath } from '../store/conduit-sqlite.js';
 import { getBrainDb, getBrainNativeDb } from '../store/memory-sqlite.js';
 import { getNexusDb, getNexusNativeDb } from '../store/nexus-sqlite.js';
 import { typedAll, typedGet } from '../store/typed-query.js';
@@ -492,18 +490,8 @@ export async function getSymbolFullContext(
   }
 
   // ---- CONDUIT substrate ----
-  // conduitThreads were already populated above from brain_page_edges with
-  // edge_type = conduit_mentions_symbol. If conduit.db is absent, we return [].
-  // Additional check: if conduit.db exists, verify the threads are real.
-  try {
-    const conduitDbPath = getConduitDbPath(projectRoot);
-    if (!existsSync(conduitDbPath) && result.conduitThreads.length > 0) {
-      // conduit.db is absent but we found stub edges — still valid to return them
-      // (they were written by the conduit ingester which already checked availability)
-    }
-  } catch {
-    // Non-fatal: conduit check is best-effort
-  }
+  // conduitThreads come only from brain_page_edges (conduit_mentions_symbol)
+  // gathered above; nothing reads the conduit tables here (T13981).
 
   if (!result.nexus)
     recordKnowledgeGap(coverage, 'missing', `No indexed symbol matches '${symbolId}'.`);

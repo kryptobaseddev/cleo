@@ -56,6 +56,9 @@ import { planEpicWaves } from './waves.js';
 /**
  * Optional conduit message used to enrich the rollup with live status
  * events that may not yet be reflected in the manifest table.
+ *
+ * @deprecated Conduit messaging is retiring (epic T13933, T13981); see
+ * {@link RollupWaveStatusOptions.conduitMessages}. Removal target: T13957.
  */
 export interface ConduitStatusMessage {
   /** Task ID the event refers to. */
@@ -73,6 +76,10 @@ export interface RollupWaveStatusOptions {
    * caller (Lead) is expected to drain its subscription and pass messages
    * here. When omitted, rollup is computed from manifest + verification
    * only.
+   *
+   * @deprecated Conduit messaging is retiring (epic T13933, T13981); agents
+   * report over AgentMBX and the roll-up reads the manifest. No CLEO caller
+   * passes this. Removal target: the conduit public-API release (T13957).
    */
   conduitMessages?: ConduitStatusMessage[];
   /**

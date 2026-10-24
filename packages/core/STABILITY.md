@@ -277,7 +277,7 @@ When a stable symbol is scheduled for removal:
 
 | Symbol / Subpath | Deprecated in | Removal target | Replacement |
 |---|---|---|---|
-| _(none at the time of writing)_ | — | — | — |
+| `orchestration.ConduitStatusMessage`, `orchestration.RollupWaveStatusOptions.conduitMessages` | 2026.10 (T13981) | conduit public-API removal release (T13957) | AgentMBX completion messages; the roll-up reads the manifest |
 
 ---
 

@@ -4,7 +4,7 @@
  * Re-exports from all 7 orchestrate sub-modules:
  * - query-ops.ts   — status, analyze, ready, next, waves, context, validate
  * - lifecycle-ops.ts — initLoomForEpic, startup, bootstrap, criticalPath, unblock, check, skillInject, parallel*
- * - spawn-ops.ts   — spawnSelectProvider, spawnExecute, spawn, sendConduitEvent, composeSpawnForTask
+ * - spawn-ops.ts   — spawnSelectProvider, spawnExecute, spawn, composeSpawnForTask
  * - handoff-ops.ts — handoff + HandoffStep types
  * - plan.ts        — orchestratePlan + 4 interfaces + plan helpers
  * - pivot.ts       — pivotTask (existing)
@@ -55,13 +55,11 @@ export {
   orchestrateValidate,
   orchestrateWaves,
 } from './query-ops.js';
-export type { ConduitOrchestrationEvent } from './spawn-ops.js';
 export {
   composeSpawnForTask,
   orchestrateSpawn,
   orchestrateSpawnExecute,
   orchestrateSpawnSelectProvider,
-  sendConduitEvent,
 } from './spawn-ops.js';
 export type {
   ReVerifyOptions,

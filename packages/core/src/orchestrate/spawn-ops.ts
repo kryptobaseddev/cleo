@@ -497,46 +497,6 @@ async function loadWorktreeHooks(projectRoot: string): Promise<WorktreeHook[]> {
 }
 
 // ---------------------------------------------------------------------------
-// Conduit event helper — best-effort, never throws, never blocks orchestration
-// ---------------------------------------------------------------------------
-
-/** Structured payload for a conduit orchestration event message. */
-export interface ConduitOrchestrationEvent {
-  event: 'agent.spawned' | 'orchestrate.handoff';
-  taskId: string;
-  [key: string]: unknown;
-}
-
-/**
- * Send a structured orchestration event to conduit.db via the active agent
- * credential. Failures are silently swallowed — conduit events MUST NOT block
- * or alter orchestration outcomes.
- *
- * @param cwd   - Project root used to locate conduit.db and the agent registry.
- * @param to    - Recipient agent ID (e.g. 'cleo-core').
- * @param event - Structured event payload (LAFS-shaped JSON).
- */
-export async function sendConduitEvent(
-  cwd: string,
-  to: string,
-  event: ConduitOrchestrationEvent,
-): Promise<void> {
-  try {
-    const { AgentRegistryAccessor, createConduit } = await import('../internal.js');
-    const registry = new AgentRegistryAccessor(cwd);
-
-    const conduit = await createConduit(registry);
-    try {
-      await conduit.send(to, JSON.stringify(event));
-    } finally {
-      await conduit.disconnect();
-    }
-  } catch {
-    // Best-effort: conduit failures must never surface to callers
-  }
-}
-
-// ---------------------------------------------------------------------------
 // CANT body substitution (T1238)
 // ---------------------------------------------------------------------------
 
