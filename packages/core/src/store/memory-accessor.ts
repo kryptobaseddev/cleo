@@ -546,6 +546,46 @@ export class BrainDataAccessor {
       .where(eq(brainSchema.brainObservations.id, id));
   }
 
+  /**
+   * Set or clear `invalid_at` on listed rows of one memory table, changing only
+   * rows whose current `invalid_at` equals `expected` (T13951 auto-row
+   * quarantine). Nothing else on the row is written.
+   *
+   * @param table - `patterns` or `observations`.
+   * @param ids - Row ids, written in one transaction.
+   * @param invalidAt - New value: the quarantine timestamp, or `null` to restore.
+   * @param expected - Required current value: `null` to quarantine, the timestamp to restore.
+   * @param guard - Optional trusted SQL predicate over unaliased columns, re-checked in
+   *   the same statement (a row that stopped matching is skipped).
+   * @returns Ids of the rows that changed.
+   * @example
+   * ```ts
+   * await accessor.setInvalidAtWhere('patterns', ['P-1'], quarantinedAt, null);
+   * ```
+   */
+  async setInvalidAtWhere(
+    table: 'patterns' | 'observations',
+    ids: readonly string[],
+    invalidAt: string | null,
+    expected: string | null,
+    guard?: string,
+  ): Promise<string[]> {
+    if (ids.length === 0) return [];
+    const target = table === 'patterns' ? brainSchema.brainPatterns : brainSchema.brainObservations;
+    const current = expected === null ? isNull(target.invalidAt) : eq(target.invalidAt, expected);
+    return this.db.transaction((tx) =>
+      tx
+        .update(target)
+        .set({ invalidAt })
+        .where(
+          and(inArray(target.id, [...ids]), current, guard ? sql.raw(`(${guard})`) : undefined),
+        )
+        .returning({ id: target.id })
+        .all()
+        .map((row) => row.id),
+    );
+  }
+
   // =========================================================================
   // Memory Links CRUD
   // =========================================================================
@@ -1279,6 +1319,41 @@ export async function addGlobalObservation(row: GlobalObservationInsert): Promis
     );
     return null;
   });
+}
+
+/**
+ * Set or clear `invalid_at` on listed rows of one main-brain memory table,
+ * changing only rows whose current `invalid_at` equals `expected` (T13951).
+ * Runs in one capture frame so the change syncs as one transaction.
+ *
+ * @param table - `patterns` or `observations`.
+ * @param ids - Row ids.
+ * @param invalidAt - New value: the quarantine timestamp, or `null` to restore.
+ * @param expected - Required current value: `null` to quarantine, the timestamp to restore.
+ * @param guard - Optional trusted SQL predicate over unaliased columns, re-checked in
+ *   the same statement (a row that stopped matching is skipped).
+ * @returns Ids of the rows that changed.
+ * @task T13951
+ */
+export async function setGlobalInvalidAtWhere(
+  table: 'patterns' | 'observations',
+  ids: readonly string[],
+  invalidAt: string | null,
+  expected: string | null,
+  guard?: string,
+): Promise<string[]> {
+  if (ids.length === 0) return [];
+  const placeholders = ids.map(() => '?').join(',');
+  const recheck = guard ? ` AND (${guard})` : '';
+  return inGlobalCaptureFrame((db) =>
+    db
+      .prepare(
+        `UPDATE main.brain_${table} SET invalid_at = ?
+         WHERE id IN (${placeholders}) AND invalid_at IS ?${recheck} RETURNING id`,
+      )
+      .all(invalidAt, ...ids, expected)
+      .map((row) => String(row.id)),
+  );
 }
 
 /**
