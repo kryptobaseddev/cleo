@@ -34,6 +34,7 @@ import { createHash } from 'node:crypto';
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { isAbsolute, join, matchesGlob, relative } from 'node:path';
 import { isDeepStrictEqual, promisify } from 'node:util';
+import { originDefaultMergeBase } from '../git/base-ref.js';
 import { pushWarning } from '../output.js';
 import { isCiDocumentPath, readCiSatisfies } from '../release/ci-evidence.js';
 import { LIGHT_FOOTPRINT_BYTES } from '../resources/admission-ledger.js';
@@ -789,24 +790,8 @@ function git(cwd: string, args: readonly string[]): string | null {
   }
 }
 
-/**
- * The merge-base of HEAD and origin's default branch — where the branch's own
- * commits begin.
- *
- * @param root - Execution root.
- * @returns The merge-base commit, or null when no origin default branch
- *   exists or git fails.
- * @task T12965
- */
-export function originDefaultMergeBase(root: string): string | null {
-  const symbolic = git(root, ['symbolic-ref', '--quiet', 'refs/remotes/origin/HEAD']);
-  const base =
-    symbolic?.replace(/^refs\/remotes\//, '') ??
-    ['origin/main', 'origin/master'].find(
-      (ref) => git(root, ['rev-parse', '--verify', '--quiet', `refs/remotes/${ref}`]) !== null,
-    );
-  return base ? git(root, ['merge-base', base, 'HEAD']) || null : null;
-}
+// T14007: one home for origin's default branch (git/base-ref.ts); re-exported for callers.
+export { originDefaultMergeBase };
 
 /**
  * Files CLEO itself writes into a project for its harness hooks (T12983,

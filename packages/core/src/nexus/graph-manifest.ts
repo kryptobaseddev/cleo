@@ -201,6 +201,27 @@ export function writeRunCost(db: NodeSQLiteDatabase, cost: GraphRunCost): void {
 }
 
 /**
+ * The revision the published generation indexed (T14007). Lenient: a missing,
+ * unparseable or revision-less assessment reads as `null`, never a throw, so a
+ * freshness answer is never lost to it.
+ *
+ * @param db - Project graph database.
+ * @returns The recorded `assessedRevision`, or `null`.
+ */
+export function readIndexedRevision(db: NodeSQLiteDatabase): string | null {
+  const value = db.values(
+    sql`SELECT value FROM main._nexus_meta WHERE key = ${ASSESSMENT_KEY}`,
+  )[0]?.[0];
+  if (typeof value !== 'string') return null;
+  try {
+    const revision = (JSON.parse(value) as { assessedRevision?: unknown }).assessedRevision;
+    return typeof revision === 'string' && revision.length > 0 ? revision : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Read the last recorded run cost.
  * @param db - Project graph database.
  * @returns The cost, or `null` when none (or an unreadable one) is recorded.

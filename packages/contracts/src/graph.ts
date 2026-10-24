@@ -875,6 +875,25 @@ export interface GraphIndexFreshness {
   status: 'fresh' | 'stale' | 'unknown';
   /** Assessment timestamp of the published generation. */
   lastIndexedAt: string | null;
+  /**
+   * Revision the published generation indexed; `null` when no revision was
+   * recorded (T14007).
+   */
+  indexedRevision?: string | null;
+  /**
+   * Ref freshness is measured against: origin's default branch, else a local
+   * `main`/`master`, else `HEAD` (T14007).
+   */
+  baseRef?: string | null;
+  /** Commit {@link GraphIndexFreshness.baseRef} names. */
+  baseRevision?: string | null;
+  /**
+   * Commits on the base ref the index has not seen (`git rev-list --count
+   * indexedRevision..baseRef`); `null` when either revision is unknown here.
+   */
+  commitsBehind?: number | null;
+  /** Whole days since {@link GraphIndexFreshness.lastIndexedAt}; `null` when never indexed. */
+  ageDays?: number | null;
   /** Files recorded in the published generation's assessment. */
   fileCount: number;
   /** Modified, added and deleted source files. */

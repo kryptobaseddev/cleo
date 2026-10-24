@@ -39,6 +39,7 @@ import type {
   Task,
   TaskChangeSet,
 } from '@cleocode/contracts';
+import { resolveOriginDefault } from '../git/base-ref.js';
 import { discoveryEnv, gitToplevel, resolveDeclaredEvidenceGitRoot } from '../git/work-tree.js';
 import { ghQueryTimeoutMs } from '../release/github-pr.js';
 import type { PrAtomResolution } from '../release/pr-evidence.js';
@@ -420,22 +421,8 @@ function parseNameStatus(output: string): { files: string[]; deleted: string[] }
   return { files, deleted };
 }
 
-/**
- * `origin/<default>` from `origin/HEAD`, never from a possibly stale local branch.
- *
- * @param root - Repository to ask.
- * @returns The remote-tracking ref (e.g. `origin/main`), or null when none exists.
- * @task T12624
- */
-export function resolveOriginDefault(root: string): string | null {
-  const symbolic = git(root, ['symbolic-ref', '--quiet', 'refs/remotes/origin/HEAD']);
-  if (symbolic) return symbolic.replace(/^refs\/remotes\//, '');
-  for (const candidate of ['origin/main', 'origin/master']) {
-    if (git(root, ['rev-parse', '--verify', '--quiet', `refs/remotes/${candidate}`]) !== null)
-      return candidate;
-  }
-  return null;
-}
+// T14007: one home for origin's default branch (git/base-ref.ts); re-exported for callers.
+export { resolveOriginDefault };
 
 /**
  * Whether `sha` has landed on origin's default branch in `root`.
