@@ -235,6 +235,8 @@ export type ParsedAtom =
       prNumber: number;
       /** Component PR the integration PR landed (`pr:<component>@<integration>`, T12671). */
       componentPrNumber?: number;
+      /** `pr:<owner>/<repo>#<n>`: the lowercased repository the number belongs to (T13912). */
+      repo?: string;
     }
   | {
       /**
@@ -248,6 +250,8 @@ export type ParsedAtom =
       prNumber: number;
       /** Component PR the integration PR landed (`ci:<component>@<integration>`, T12671). */
       componentPrNumber?: number;
+      /** `ci:<owner>/<repo>#<n>`: the lowercased repository the number belongs to (T13912). */
+      repo?: string;
     }
   | {
       /**
