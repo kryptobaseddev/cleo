@@ -1,7 +1,7 @@
 ---
 name: ct-dev-workflow
 description: Development workflow orchestration for task-driven development with atomic commits, conventional commit messages, and systematic release processes. Enforces task traceability, branch discipline, smart test scope selection, and GitHub Actions integration. Use when committing code, creating releases, managing branches, or following contribution protocols. Triggers on commit operations, release preparation, or workflow compliance needs.
-version: 3.1.28
+version: 3.1.29
 protocol: contribution
 dependencies: []
 sharedResources:
@@ -14,7 +14,7 @@ compatibility:
   - gemini-cli
 license: MIT
 metadata:
-  version: 3.1.28
+  version: 3.1.29
   tier: core
   install: harness
   covers:
@@ -26,7 +26,7 @@ metadata:
     - packages/core/src/hooks.ts
     - packages/core/templates/git-hooks/**
     - packages/contracts/src/git-hooks.ts
-  lastReviewed: 2026-10-23
+  lastReviewed: 2026-10-24
   stability: stable
 ---
 
@@ -114,6 +114,13 @@ pre-push stderr line `WARNING: push NOT gated by project hooks: <reason>`, flagg
 checkout whose activation is on (T13774). Verify nested checkout paths, linked
 worktrees, custom hook paths, historical release bodies and corrupt receipts
 with focused Git fixtures before changing this delivery path.
+
+The fourth managed hook, `post-merge` (T14010), never blocks: it starts
+`cleo nexus reindex-on-merge` detached and exits 0. That command does nothing
+unless `nexus.reindexOnMerge.enabled` is true; it runs only on the base branch,
+one at a time per project (`.cleo/nexus-reindex.lock`), and runs
+`cleo nexus analyze` through `cleo run --wait --class build`, recording the
+outcome for `cleo nexus status`.
 
 ---
 
