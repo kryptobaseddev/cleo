@@ -153,7 +153,7 @@ export interface RunGovernedDeps {
   /** Ancestors of a pid, nearest first (one `ps` of the process table), or null when unknown. */
   readonly ancestorsOf: (pid: number) => readonly number[] | null;
   /** CPU time and resident memory of a pid's process tree (one `ps`), or null when unknown (T13563). */
-  readonly treeUsage: (pid: number) => ProcessTreeUsage | null;
+  readonly treeUsage: (pid: number, withCommands?: boolean) => ProcessTreeUsage | null;
   /** Where hook measurements are kept (T13921). @defaultValue the admission directory */
   readonly hookFootprintsDir: string;
 }
@@ -762,12 +762,18 @@ export async function runGoverned(opts: RunGovernedOptions): Promise<RunGoverned
   let treeSampledAtMs = Number.NEGATIVE_INFINITY;
   let peakRssBytes = 0;
   let treeSamples = 0;
+  // T13972: a sample counts toward the hook's measurement only while the hook
+  // itself runs in the tree (a no-op push or a disabled hook never does).
+  const hookName = opts.hookKey?.split(':')[0];
+  const hookInTree = (commands: readonly string[] | undefined): boolean =>
+    hookName !== undefined &&
+    (commands ?? []).some((c) => c.split(/\s+/).some((w) => w.endsWith(`/${hookName}`)));
   const treeSampleMs = opts.hookKey !== undefined ? HOOK_SAMPLE_MS : TREE_SAMPLE_MS;
   const watchdog = (now: number): void => {
     if (childPid === undefined || now - treeSampledAtMs < treeSampleMs) return;
     treeSampledAtMs = now;
-    const usage = d.treeUsage(childPid);
-    if (usage) {
+    const usage = d.treeUsage(childPid, hookName !== undefined);
+    if (usage && hookInTree(usage.commands)) {
       treeSamples++;
       peakRssBytes = Math.max(peakRssBytes, usage.rssBytes);
     }
@@ -861,8 +867,8 @@ export async function runGoverned(opts: RunGovernedOptions): Promise<RunGoverned
   if (pausedAtMs !== null) pausedTotalMs += d.now() - pausedAtMs;
   removeRunJob(job.id, d.jobsDir);
   await grant.release();
-  // T13921: only a hooked run that exited 0 and ran long enough to be sampled
-  // HOOK_MIN_SAMPLES times is a measurement (recordHookPeak decides).
+  // T13921/T13972: only a hooked run that exited 0, with its hook seen in the
+  // tree at HOOK_MIN_SAMPLES samples, is a measurement (recordHookPeak decides).
   if (opts.hookKey !== undefined && result.code === 0) {
     await recordHookPeak(opts.hookKey, peakRssBytes, treeSamples, d.hookFootprintsDir, d.now());
   }

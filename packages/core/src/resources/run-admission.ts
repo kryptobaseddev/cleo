@@ -451,6 +451,11 @@ export interface ProcessTreeUsage {
   readonly rssBytes: number;
   /** Processes in the tree. */
   readonly processes: number;
+  /**
+   * The tree's command lines, when the table carried them (T13972: whether a
+   * git hook is running in it).
+   */
+  readonly commands?: readonly string[];
 }
 
 /**
@@ -471,18 +476,23 @@ export function parsePsTime(value: string): number {
 }
 
 /**
- * The usage of `rootPid`'s tree from a `ps -A -o pid=,ppid=,time=,rss=` table
- * (rss in KiB); null when the root is not in it.
+ * The usage of `rootPid`'s tree from a `ps -A -o pid=,ppid=,time=,rss=[,command=]`
+ * table (rss in KiB); null when the root is not in it.
  *
  * @param table - The `ps` output.
  * @param rootPid - The tree's root.
  * @returns The summed usage.
  */
 export function treeUsageFromTable(table: string, rootPid: number): ProcessTreeUsage | null {
-  const rows = new Map<number, { ppid: number; cpuMs: number; rssKiB: number }>();
+  const rows = new Map<number, { ppid: number; cpuMs: number; rssKiB: number; command: string }>();
   for (const line of table.split('\n')) {
-    const [pid, ppid, time, rss] = line.trim().split(/\s+/);
-    const row = { ppid: Number(ppid), cpuMs: parsePsTime(time ?? ''), rssKiB: Number(rss) };
+    const [pid, ppid, time, rss, ...command] = line.trim().split(/\s+/);
+    const row = {
+      ppid: Number(ppid),
+      cpuMs: parsePsTime(time ?? ''),
+      rssKiB: Number(rss),
+      command: command.join(' '),
+    };
     if (Number.isInteger(Number(pid)) && Number.isFinite(row.cpuMs) && Number.isFinite(row.rssKiB))
       rows.set(Number(pid), row);
   }
@@ -492,6 +502,7 @@ export function treeUsageFromTable(table: string, rootPid: number): ProcessTreeU
   let cpuMs = 0;
   let rssKiB = 0;
   let processes = 0;
+  const commands: string[] = [];
   const seen = new Set<number>();
   const stack = [rootPid];
   while (stack.length > 0) {
@@ -503,9 +514,11 @@ export function treeUsageFromTable(table: string, rootPid: number): ProcessTreeU
     cpuMs += r.cpuMs;
     rssKiB += r.rssKiB;
     processes++;
+    if (r.command !== '') commands.push(r.command);
     stack.push(...(children.get(pid) ?? []));
   }
-  return { cpuMs, rssBytes: rssKiB * 1024, processes };
+  const named = commands.length > 0 ? { commands } : {};
+  return { cpuMs, rssBytes: rssKiB * 1024, processes, ...named };
 }
 
 /**
@@ -513,15 +526,19 @@ export function treeUsageFromTable(table: string, rootPid: number): ProcessTreeU
  * `ps` fails or the root is gone.
  *
  * @param rootPid - The run's child.
+ * @param withCommands - Also read every command line (T13972: a measured git
+ *   hook). The table is then much larger, so it is read only when asked.
  * @returns The summed usage.
  */
-export function processTreeUsage(rootPid: number): ProcessTreeUsage | null {
+export function processTreeUsage(rootPid: number, withCommands = false): ProcessTreeUsage | null {
   try {
-    const out = execFileSync('/bin/ps', ['-A', '-o', 'pid=,ppid=,time=,rss='], {
+    const columns = withCommands ? 'pid=,ppid=,time=,rss=,command=' : 'pid=,ppid=,time=,rss=';
+    const out = execFileSync('/bin/ps', ['-A', '-o', columns], {
       encoding: 'utf-8',
       timeout: 2000,
       stdio: ['ignore', 'pipe', 'ignore'],
       env: PS_ENV,
+      maxBuffer: 32 * 1024 * 1024,
     });
     return treeUsageFromTable(out, rootPid);
   } catch {

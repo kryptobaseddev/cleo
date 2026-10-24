@@ -40,6 +40,21 @@ export const HOOK_MIN_SAMPLES = 2;
 /** Counted runs before the charge may fall below the class plan. */
 export const HOOK_MIN_RUNS = 3;
 
+/**
+ * Environment variables that switch a hook manager off or narrow what it runs
+ * (T13972): their values are part of the key, so `HUSKY=0 git push` is never
+ * measured as the same hook as a full one.
+ */
+export const HOOK_ENV_KEYS = [
+  'HUSKY',
+  'HUSKY_SKIP_HOOKS',
+  'LEFTHOOK',
+  'LEFTHOOK_EXCLUDE',
+  'LEFTHOOK_ONLY',
+  'SKIP',
+  'PRE_COMMIT_ALLOW_NO_CONFIG',
+] as const;
+
 /** Hooks kept in the file; the least recently measured are dropped. */
 const MAX_HOOKS = 200;
 
@@ -123,7 +138,8 @@ const LEFTHOOK_CONFIGS = [
 
 /**
  * The hook manager's real script or config for a shim, as `[path, content]`
- * pairs; `[]` for a hook that is its own script; `null` when the shim names a
+ * pairs; the root package.json for a plain hook that runs package scripts;
+ * `[]` for a hook that is its own script; `null` when the shim names a
  * manager whose real script cannot be found (then nothing is measured).
  */
 function managedSources(
@@ -151,24 +167,29 @@ function managedSources(
     const sources = found(['.pre-commit-config.yaml']);
     return sources.length > 0 ? sources : null;
   }
-  return [];
+  // T13974: a plain hook that runs package scripts (`pnpm typecheck`) is keyed
+  // by the package.json that defines them, so editing a script re-measures.
+  return /\b(npm|pnpm|yarn|bun)\b/.test(shim) ? found(['package.json']) : [];
 }
 
 /**
  * The key for a hook as installed in the repository at `cwd`: `<hook>:<sha256>`
  * over the repository root, the hook name, the file git calls
- * ({@link gitHookPath}) and the hook manager's real script or config. `null`
- * when any of them cannot be read, or the file names a manager whose real
- * script is missing: such a hook is never measured.
+ * ({@link gitHookPath}), the hook manager's real script or config, and the
+ * {@link HOOK_ENV_KEYS} the run sees. `null` when any of them cannot be read,
+ * or the file names a manager whose real script is missing: such a hook is
+ * never measured.
  *
  * @param cwd - Where the git command runs.
  * @param hook - Hook name (`pre-push`).
  * @param globals - The command's git global options.
+ * @param env - The environment the run inherits. @defaultValue process.env
  */
 export function hookFootprintKey(
   cwd: string,
   hook: string,
   globals: readonly string[] = [],
+  env: NodeJS.ProcessEnv = process.env,
 ): string | null {
   try {
     const top = git(cwd, globals, ['rev-parse', '--show-toplevel']);
@@ -176,7 +197,10 @@ export function hookFootprintKey(
     const managed = managedSources(shim, top, hook);
     if (managed === null) return null;
     const hash = createHash('sha256');
-    for (const part of [top, hook, shim, ...managed.flat()]) hash.update(part).update('\0');
+    const switches = HOOK_ENV_KEYS.map((k) => `${k}=${env[k] ?? ''}`);
+    for (const part of [top, hook, shim, ...managed.flat(), ...switches]) {
+      hash.update(part).update('\0');
+    }
     return `${hook}:${hash.digest('hex')}`;
   } catch {
     return null;
@@ -197,9 +221,13 @@ export function readHookPeak(key: string, dir: string): number | null {
 
 /**
  * Record one run of a hook: counted only with at least
- * {@link HOOK_MIN_SAMPLES} tree samples; the stored peak is the maximum of
- * every counted run. Taken under a lock, re-read inside it; a failure is
- * ignored (the next run keeps the class plan).
+ * {@link HOOK_MIN_SAMPLES} samples that saw the hook running; the stored peak
+ * is the maximum of every counted run. A lowered charge is provisional: a run
+ * whose peak exceeds what the hook was charged ({@link HOOK_PEAK_MARGIN} over
+ * the stored peak) resets the count to that one run, so the class plan
+ * applies again until it has {@link HOOK_MIN_RUNS} counted runs (T13972).
+ * Taken under a lock, re-read
+ * inside it; a failure is ignored (the next run keeps the class plan).
  *
  * @param key - From {@link hookFootprintKey}.
  * @param peakBytes - The run's largest sampled tree RSS.
@@ -224,12 +252,15 @@ export async function recordHookPeak(
       realpath: false,
       stale: 10_000,
       retries: { retries: 20, minTimeout: 25, maxTimeout: 250 },
+      // A compromised lock must never throw from proper-lockfile's timer (T13973).
+      onCompromised: () => {},
     });
     const all = readAll(dir);
     const last = all[key];
+    const exceeded = last !== undefined && peakBytes > last.peakBytes * HOOK_PEAK_MARGIN;
     const next: HookMeasurement = {
       peakBytes: Math.max(peakBytes, last?.peakBytes ?? 0),
-      runs: (last?.runs ?? 0) + 1,
+      runs: exceeded ? 1 : (last?.runs ?? 0) + 1,
       measuredAtMs: nowMs,
     };
     const kept = Object.entries({ ...all, [key]: next })
