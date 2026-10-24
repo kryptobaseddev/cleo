@@ -724,7 +724,8 @@ describe('resolvePrEvidenceAtom — cache', () => {
     // side. Verify by inspecting the persisted entry.
     const cachePath = prCacheEntryPath(projectRoot, 357, prRepoIdentity(projectRoot));
     const persisted = JSON.parse(readFileSync(cachePath, 'utf-8'));
-    expect(persisted.key).toBe('pr-357@2026-05-20T17:14:35Z');
+    // T13912: the key names the repository too, so another repo's #357 never matches.
+    expect(persisted.key).toBe(`pr-${prRepoIdentity(projectRoot)}#357@2026-05-20T17:14:35Z`);
   });
 });
 
@@ -1231,9 +1232,9 @@ describe('resolvePrEvidenceAtom — branch-protection tier (gh#1192)', () => {
     expect(first.ok).toBe(true);
     expect(second.ok).toBe(true);
     expect(spy).toHaveBeenCalledTimes(1);
-    expect(
-      existsSync(branchProtectionCachePath(projectRoot, prRepoIdentity(projectRoot))),
-    ).toBe(true);
+    expect(existsSync(branchProtectionCachePath(projectRoot, prRepoIdentity(projectRoot)))).toBe(
+      true,
+    );
   });
 });
 
@@ -1554,9 +1555,9 @@ describe('resolvePrEvidenceAtom — changed-file pagination (T12358)', () => {
     expect(r.changedPaths).toHaveLength(100);
     expect(r.changedFileCount).toBe(152);
     expect(r.changedFilesError).toContain('HTTP 502');
-    expect(
-      existsSync(prCacheEntryPath(projectRoot, 1541, prRepoIdentity(projectRoot))),
-    ).toBe(false);
+    expect(existsSync(prCacheEntryPath(projectRoot, 1541, prRepoIdentity(projectRoot)))).toBe(
+      false,
+    );
   });
 
   it('reports a short total when the pages hold fewer files than changedFiles', async () => {
@@ -1573,9 +1574,9 @@ describe('resolvePrEvidenceAtom — changed-file pagination (T12358)', () => {
     if (!r.ok) return;
     expect(r.changedPaths).toHaveLength(140);
     expect(r.changedFilesError).toBe('PR files API returned 140 of 152 changed files.');
-    expect(
-      existsSync(prCacheEntryPath(projectRoot, 1541, prRepoIdentity(projectRoot))),
-    ).toBe(false);
+    expect(existsSync(prCacheEntryPath(projectRoot, 1541, prRepoIdentity(projectRoot)))).toBe(
+      false,
+    );
   });
 
   it('ignores a cached truncated inventory written before pagination existed', async () => {
