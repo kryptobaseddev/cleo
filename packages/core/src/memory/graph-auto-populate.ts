@@ -581,16 +581,21 @@ export async function ensureMessageNode(
  * @param projectRoot - Absolute path to the project root directory.
  * @param sha - Full git commit SHA (40 hex chars; short SHAs accepted).
  * @param taskId - CLEO task ID this commit resolves (`T###`).
+ * @param options - `provenance` of the edge (default `auto:commit-hook`); `explicit`
+ *   writes even when `brain.autoCapture` is off (validated evidence, T13950).
  *
  * @task T945
+ * @task T13950
  */
 export async function ensureCommitNode(
   projectRoot: string,
   sha: string,
   taskId: string,
+  options: { provenance?: string; explicit?: boolean } = {},
 ): Promise<void> {
   try {
     const nodeId = `commit:${sha}`;
+    const write = { explicit: options.explicit ?? false };
     await upsertGraphNode(
       projectRoot,
       nodeId,
@@ -599,6 +604,8 @@ export async function ensureCommitNode(
       1.0, // commits are immutable ground truth
       sha,
       { sha, taskId },
+      undefined,
+      write,
     );
     await addGraphEdge(
       projectRoot,
@@ -606,7 +613,9 @@ export async function ensureCommitNode(
       nodeId,
       'touches_code',
       1.0,
-      'auto:commit-hook',
+      options.provenance ?? 'auto:commit-hook',
+      undefined,
+      write,
     );
   } catch (err) {
     log.warn({ err }, 'ensureCommitNode failed');
