@@ -92,6 +92,7 @@ import {
   writeRunJob,
 } from './run-admission.js';
 import { trackToolGroup } from './tool-groups.js';
+import { memoryPressureCause } from './top-memory.js';
 
 /** Niceness applied to the command (children inherit it). */
 export const RUN_NICENESS = 10;
@@ -465,7 +466,7 @@ export async function runGoverned(opts: RunGovernedOptions): Promise<RunGoverned
           `timed out after ${Math.round((d.now() - t0) / 1000)}s waiting for the machine budget` +
             (waitingPressure === null
               ? ''
-              : `; last reported memory pressure ${waitingPressure.score} (refused above ${waitingPressure.refuseAbove}, resumes at ${waitingPressure.resumeAtOrBelow} or below): ${waitingPressure.summary}`),
+              : `; last reported memory pressure ${waitingPressure.score} (refused above ${waitingPressure.refuseAbove}, resumes at ${waitingPressure.resumeAtOrBelow} or below): ${memoryPressureCause(waitingPressure)}`),
           waitingPressure === null ? 2_000 : MEMORY_GATE_RETRY_AFTER_MS,
           sample,
           null,

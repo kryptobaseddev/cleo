@@ -47,6 +47,7 @@ import type { MemoryPressureReading, ResourceClass } from '@cleocode/contracts';
 import { getCleoHome } from '../paths.js';
 import type { AdmissionScope, LedgerEntry } from './admission-ledger.js';
 import type { PressureState } from './monitor.js';
+import { memoryPressureCause } from './top-memory.js';
 
 // Class resolution lives in the dependency-free run-class module (the provider
 // hook imports it on every Bash call); re-exported here for existing callers.
@@ -996,7 +997,7 @@ function deferralFix(
 ): string {
   if (memory !== null) {
     return (
-      `The machine is short of memory (${memory.summary}); nothing was started. ` +
+      `The machine is short of memory (${memoryPressureCause(memory)}); nothing was started. ` +
       `Heavy work starts again once memory pressure falls to ${memory.resumeAtOrBelow} or below ` +
       `(now ${memory.score}): continue other work, close memory-heavy apps, or re-run with --wait to start automatically ` +
       '(CLEO_RESOURCES_MODE=off turns admission off).'

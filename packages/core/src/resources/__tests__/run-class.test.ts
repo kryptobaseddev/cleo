@@ -736,6 +736,16 @@ describe('runFootprint sizes by real scope (T13367)', () => {
     expect(size('pnpm', '-F', 'core', 'exec', 'tsc', '--noEmit')).toBe('class');
   });
 
+  it('a package-manager install, add or update is one process (T13914)', () => {
+    expect(size('pnpm', 'install', '--lockfile-only')).toBe('single-process');
+    expect(size('pnpm', 'add', '-D', 'left-pad')).toBe('single-process');
+    expect(size('npm', 'ci')).toBe('single-process');
+    expect(size('pnpm', '--filter', 'core', 'install')).toBe('single-process');
+    expect(runFootprint(['pnpm', 'install']).reason).toBe(
+      'pnpm install (one package-manager process)',
+    );
+  });
+
   it('builds and test runs keep their class', () => {
     expect(size('pnpm', 'run', 'build')).toBe('class');
     expect(size('pnpm', 'run', 'typecheck')).toBe('class');

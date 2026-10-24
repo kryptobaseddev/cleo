@@ -31,6 +31,13 @@ import { createRequire } from 'node:module';
 import { dirname, join } from 'node:path';
 import type { EvidenceAtom, VerificationGate } from '@cleocode/contracts';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+
+// T13964: scripted memory pressure must never run the host's real top/ps probe.
+vi.mock('../../resources/top-memory.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../resources/top-memory.js')>()),
+  topMemoryConsumers: () => [],
+}));
+
 import { engineSuccess } from '../../engine-result.js';
 import { readProjectInfoAtDirectorySync } from '../../project-scope.js';
 import { ResourceMonitor } from '../../resources/monitor.js';

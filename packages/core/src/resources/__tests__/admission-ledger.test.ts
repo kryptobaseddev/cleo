@@ -51,6 +51,7 @@ import type { ResourceSample } from '../backend.js';
 import { ResourceMonitor } from '../monitor.js';
 import { _resetMemoryGateForTest, memoryGateReporter } from '../pressure-gate.js';
 import type { PidProbe } from '../slot-holder.js';
+import { TOP_MEMORY_FAILED_REUSE_MS } from '../top-memory.js';
 
 vi.mock('node:fs', async (importOriginal) => {
   const actual = await importOriginal<typeof import('node:fs')>();
@@ -792,7 +793,8 @@ describe('admit (one ledger, real critical section)', () => {
     _resetMemoryGateForTest();
   });
 
-  const base = { capacityBytes, sample: calm, env: {}, pollMs: 5 };
+  // No real `top`/`ps` probe in these tests: a refusal names an empty list.
+  const base = { capacityBytes, sample: calm, env: {}, pollMs: 5, topMemory: () => [] };
 
   it('a half-share ledger names the narrowed budget and its share in the refusal and status (T13572)', async () => {
     const halved = { ...base, sample: async () => sampleAt(15) };
@@ -977,6 +979,100 @@ describe('admit (one ledger, real critical section)', () => {
     if (out.admitted) await out.grant.release();
     expect(lines[0]).toMatch(/^waiting: memory pressure 40 /);
     expect(lines.at(-1)).toMatch(/^memory pressure fell after waiting/);
+  });
+
+  it('external pressure with zero CLEO usage: the refusal, the wait and the status name the cause (T13914)', async () => {
+    const agy = { pid: 4242, command: 'agy', footprintBytes: 17 * GIB };
+    const node = { pid: 77, command: 'node', footprintBytes: 2 * GIB };
+    const topMemory = vi.fn(() => [agy, node]);
+    const pressed = { ...base, sample: async () => sampleAt(40), topMemory };
+    const refused = await admit(
+      { label: 'tool:test', footprintBytes: GIB },
+      {
+        ...pressed,
+        dir,
+        wait: false,
+      },
+    );
+    expect(refused.admitted).toBe(false);
+    if (!refused.admitted) {
+      expect(refused.refusal.holders).toEqual([]); // no CLEO run holds anything
+      expect(refused.refusal.reason).toContain(
+        'largest memory users: agy pid 4242 17.0 GiB, node pid 77 2.0 GiB (quit or restart them',
+      );
+      expect(refused.refusal.memoryPressure?.topConsumers?.processes).toEqual([agy, node]);
+    }
+    // `cleo doctor tool-locks` reads the same cause from the ledger.
+    const budget = readLedgerBudget(dir, capacityBytes);
+    expect(budget.lightShare).toBe('none');
+    expect(budget.cause).toMatch(/^memory pressure 40 \(refused above 25.*agy pid 4242 17\.0 GiB/);
+    // A long waiter names the cause and when it gives up, not just "Holders: none".
+    let t = Date.now();
+    const notices: string[] = [];
+    const out = await admit(
+      { label: 'tool:build', footprintBytes: GIB },
+      {
+        ...pressed,
+        dir,
+        wait: true,
+        timeoutMs: 90_000,
+        now: () => t,
+        sleep: async (ms) => {
+          t += Math.max(ms, 1_000);
+        },
+        notice: (l) => notices.push(l),
+      },
+    );
+    expect(out.admitted).toBe(false);
+    expect(notices[0]).toMatch(/Holders: none\. The budget is closed by memory pressure 40 /);
+    expect(notices[0]).toContain('agy pid 4242 17.0 GiB');
+    expect(notices[0]).toMatch(/this wait gives up in \d+s\.$/);
+    // One probe per 30 s window while the gate keeps refusing (90 s of waiting), not one per pass.
+    expect(topMemory.mock.calls.length).toBeLessThanOrEqual(5);
+  });
+
+  it('a failed probe reads UNKNOWN, is retried after a backoff; reap never probes', async () => {
+    const failing = vi.fn((): null => null);
+    let t = Date.now();
+    const pressed = {
+      ...base,
+      sample: async () => sampleAt(40),
+      topMemory: failing,
+      now: () => t,
+    };
+    const first = await admit(
+      { label: 'tool:test', footprintBytes: GIB },
+      {
+        ...pressed,
+        dir,
+        wait: false,
+      },
+    );
+    expect(first.admitted).toBe(false);
+    if (!first.admitted) expect(first.refusal.reason).toContain('largest memory users: UNKNOWN');
+    await admit({ label: 'tool:test', footprintBytes: GIB }, { ...pressed, dir, wait: false });
+    expect(failing).toHaveBeenCalledTimes(1); // a failure is reused, not re-run every pass
+    t += TOP_MEMORY_FAILED_REUSE_MS;
+    await admit({ label: 'tool:test', footprintBytes: GIB }, { ...pressed, dir, wait: false });
+    expect(failing).toHaveBeenCalledTimes(2); // ...but only for the shorter failure window
+    // Reaping a dead holder under the same pressure never runs the probe.
+    const spy = vi.fn(() => []);
+    writeFileSync(
+      join(dir, 'ledger.json'),
+      JSON.stringify({
+        version: 1,
+        entries: [entry({ id: 'dead', pid: 999_999, state: 'admitted', admittedAtMs: 0 })],
+      }),
+    );
+    const reaped = await reapLedger({
+      dir,
+      capacityBytes,
+      sample: async () => sampleAt(40),
+      topMemory: spy,
+      probe: { liveness: () => 'gone', startedAt: () => null, groupLiveness: () => 'gone' },
+    });
+    expect(reaped).toEqual(['dead']);
+    expect(spy).not.toHaveBeenCalled();
   });
 
   it('a run nested in an admitted run rides it: no new entry, no wait', async () => {
@@ -1859,7 +1955,6 @@ describe('a git push is charged by what actually runs (T13452)', () => {
       ['pnpm', 'run', 'generate'],
       ['cleo', 'verify', 'T1'],
       ['node', 'bin/cleo.js', 'verify', 'T1'],
-      ['pnpm', 'install'],
       // B1 of the #2280 review: anything off the allowlist keeps the plan.
       ['cargo', 'clippy'],
       ['cargo', 'nextest', 'run'],
@@ -1962,9 +2057,24 @@ describe('a nested run never waits on its own ancestors (T13452)', () => {
   });
 });
 
+describe('an install is charged one process, not half a heavy run (T13914)', () => {
+  it('pnpm install --lockfile-only and pnpm add -D are charged a single-process plan', () => {
+    const one = planRunFootprint('scoped-build', ['tsc', '--noEmit'], {}, 64).footprintBytes;
+    for (const argv of [
+      ['pnpm', 'install', '--lockfile-only'],
+      ['pnpm', 'add', '-D', 'left-pad'],
+    ]) {
+      const plan = planRunFootprint('scoped-build', argv, {}, 64);
+      expect(plan.footprintBytes, argv.join(' ')).toBe(one);
+      expect(plan.footprintBytes, argv.join(' ')).toBeLessThan(12 * GIB);
+      expect(plan.footprintReason).toMatch(/one package-manager process/);
+    }
+  });
+});
+
 describe('a scoped build is charged its own plan, not a whole heavy run (T13759)', () => {
   it('64 GiB: a scoped build plans 2 workers (12 GiB); a test run keeps 4 (24 GiB); full-build is not shrunk', () => {
-    const scoped = planRunFootprint('scoped-build', ['pnpm', 'install'], {}, 64);
+    const scoped = planRunFootprint('scoped-build', ['pnpm', 'run', 'build'], {}, 64);
     expect(scoped.resources?.workers).toBe(2);
     expect(scoped.overlay.VITEST_MAX_WORKERS).toBe('2');
     expect(scoped.footprintBytes).toBe(12 * GIB);
@@ -1980,29 +2090,30 @@ describe('a scoped build is charged its own plan, not a whole heavy run (T13759)
   });
 
   it('a multi-process scoped build stays heavy; a one-worker machine is unchanged', () => {
-    expect(planRunFootprint('scoped-build', ['pnpm', 'install'], {}, 48).resources?.workers).toBe(
-      2,
-    );
-    expect(planRunFootprint('scoped-build', ['pnpm', 'install'], {}, 16).resources?.workers).toBe(
-      1,
-    );
+    expect(
+      planRunFootprint('scoped-build', ['pnpm', 'run', 'build'], {}, 48).resources?.workers,
+    ).toBe(2);
+    expect(
+      planRunFootprint('scoped-build', ['pnpm', 'run', 'build'], {}, 16).resources?.workers,
+    ).toBe(1);
   });
 
   it('two scoped builds are admitted together within a pressure-halved budget', () => {
     const capacity = admissionCapacityBytes(64 * GIB);
-    const bytes = planRunFootprint('scoped-build', ['pnpm', 'install'], {}, 64).footprintBytes ?? 0;
+    const bytes =
+      planRunFootprint('scoped-build', ['pnpm', 'run', 'build'], {}, 64).footprintBytes ?? 0;
     const pass = (footprintBytes: number) =>
       admittedIds(
         schedulePass(
           [
-            entry({ id: 'install', enqueuedAtMs: 1, footprintBytes }),
+            entry({ id: 'build', enqueuedAtMs: 1, footprintBytes }),
             entry({ id: 'commit', enqueuedAtMs: 2, footprintBytes }),
           ],
           { capacityBytes: capacity, share: 'half', nowMs: 1_000 },
         ),
       );
-    expect(pass(bytes)).toEqual(['install', 'commit']);
+    expect(pass(bytes)).toEqual(['build', 'commit']);
     // Before T13759 each was charged 24 GiB, the whole halved budget: one at a time.
-    expect(pass(24 * GIB)).toEqual(['install']);
+    expect(pass(24 * GIB)).toEqual(['build']);
   });
 });

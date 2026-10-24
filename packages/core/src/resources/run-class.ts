@@ -1264,6 +1264,7 @@ function files(n: number): string {
  * runFootprint(['pnpm', 'biome', 'check', 'a.ts', 'b.ts']).size;   // 'light'
  * runFootprint(['pnpm', 'exec', 'tsc', '-p', 'packages/core']).size; // 'single-process'
  * runFootprint(['pnpm', 'run', 'build']).size;                      // 'class'
+ * runFootprint(['pnpm', 'install', '--lockfile-only']).size;         // 'single-process'
  * ```
  */
 export function runFootprint(argv: readonly string[]): RunFootprint {
@@ -1278,6 +1279,12 @@ export function runFootprint(argv: readonly string[]): RunFootprint {
       return { size: 'light', reason: `git ${git.sub} runs no heavy tool` };
     }
     return { size: 'class', reason: git?.sub ? `git ${git.sub} is heavy` : 'sized by its class' };
+  }
+  // T13914: an install, add or update is one package-manager process (its
+  // lifecycle scripts run under the same heap plan); `pnpm install
+  // --lockfile-only` and `pnpm add -D` were charged half a heavy run (12 GiB).
+  if (t.pm !== null && t.script !== null && INSTALL_VERBS.test(t.script)) {
+    return { size: 'single-process', reason: `${t.pm} ${t.script} (one package-manager process)` };
   }
   // `pnpm prettier --check a.ts`: a package manager running a bin that is not
   // in BUILD_TOOLS reads as a script; treat a file tool's name as the tool.
