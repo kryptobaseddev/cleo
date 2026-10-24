@@ -40,14 +40,15 @@ import {
 /** Command that refreshes the index; incremental by default since T12315. */
 export const NEXUS_REFRESH_COMMAND = 'cleo nexus analyze';
 
-/** Default number of stale files an index query may refresh inline. */
+/**
+ * Retired file-count cap for an inline refresh (T14014): the size-scaled cost
+ * estimate against the budget decides. Kept as the reported default of the
+ * ignored `nexus.autoRefresh.maxFiles`.
+ */
 export const DEFAULT_AUTO_REFRESH_MAX_FILES = 25;
 
 /** Default wall-clock budget for an inline refresh. */
 export const DEFAULT_AUTO_REFRESH_BUDGET_MS = 60_000;
-
-/** Share of changed files above which analysis rebuilds fully (mirrors the pipeline). */
-const FULL_REBUILD_RATIO = 0.3;
 
 /** Options for {@link assessNexusIndexFreshness}. */
 export interface NexusFreshnessOptions {
@@ -92,7 +93,10 @@ export function judgeSymbolFiles(
 export interface NexusAutoRefreshPolicy {
   /** Whether queries may refresh the index inline. @defaultValue true */
   enabled: boolean;
-  /** Most stale files a query refreshes inline. @defaultValue 25 */
+  /**
+   * Retired (T14014): the size-scaled cost estimate against `budgetMs` decides.
+   * Still read from `nexus.autoRefresh.maxFiles` for compatibility; ignored.
+   */
   maxFiles: number;
   /** Wall-clock budget; a refresh estimated to exceed it is not started. @defaultValue 60000 */
   budgetMs: number;
@@ -100,7 +104,16 @@ export interface NexusAutoRefreshPolicy {
   disabledBy?: string;
 }
 
-/** Estimate a refresh from the last recorded run, or `null` when nothing is recorded. */
+/**
+ * Estimate a refresh from the last recorded run, or `null` when nothing is
+ * recorded (T14014).
+ *
+ * Every refresh re-resolves, re-clusters and republishes the whole graph, so
+ * that cost is scaled from the last run's per-file rate to today's file count;
+ * only stale files are re-parsed (unchanged ones are reused, also by a rebuild
+ * since T14009), at the last run's parse rate. Decoding reused extractions is
+ * recorded apart (`reuseDecode`) and never inflates the parse rate.
+ */
 function estimateRefreshMs(
   cost: GraphRunCost | null,
   staleFiles: number,
@@ -108,21 +121,21 @@ function estimateRefreshMs(
 ): number | null {
   if (!cost) return null;
   const parseMs = cost.summary.phaseMs['parse'] ?? 0;
+  const decodeMs = cost.summary.phaseMs['reuseDecode'] ?? 0;
   const parsed = cost.summary.parsedFiles;
-  const fixedMs = Math.max(0, cost.durationMs - parseMs);
+  const resolved = Math.max(1, cost.summary.resolvedFiles);
+  const wholeGraphMs = Math.max(0, cost.durationMs - parseMs - decodeMs);
+  const scaledWholeGraphMs = (wholeGraphMs / resolved) * Math.max(resolved, fileCount);
   const perFileMs = parsed > 0 ? parseMs / parsed : 0;
-  const full = fileCount > 0 && staleFiles / fileCount > FULL_REBUILD_RATIO;
-  const reparsed = full ? Math.max(parsed, cost.summary.resolvedFiles) : staleFiles;
-  return Math.round(fixedMs + reparsed * perFileMs);
+  const perReusedMs = cost.summary.reusedFiles > 0 ? decodeMs / cost.summary.reusedFiles : 0;
+  const reused = Math.max(0, fileCount - staleFiles);
+  return Math.round(scaledWholeGraphMs + staleFiles * perFileMs + reused * perReusedMs);
 }
 
 /** Render an estimate for humans and agents alike. */
-function describeEstimate(ms: number | null, staleFiles: number, fileCount: number): string {
+function describeEstimate(ms: number | null, staleFiles: number): string {
   if (staleFiles === 0) return 'none needed';
-  const kind =
-    fileCount > 0 && staleFiles / fileCount > FULL_REBUILD_RATIO
-      ? 'full rebuild'
-      : `incremental, re-parses ~${staleFiles} file(s)`;
+  const kind = `re-parses ~${staleFiles} file(s), re-resolves the whole graph`;
   if (ms === null) return `unknown duration (${kind}; no previous analysis cost recorded)`;
   return `~${Math.max(1, Math.round(ms / 1000))}s (${kind})`;
 }
@@ -173,10 +186,13 @@ export async function measureAgainstBase(
     | 'baseRevision'
     | 'commitsBehind'
     | 'commitsBehindHead'
+    | 'changedFilesSinceIndex'
     | 'ageDays'
   >
 > {
-  const { commitsBetween, resolveBaseRef, revParse } = await import('../git/base-ref.js');
+  const { changedFilesSince, commitsBetween, resolveBaseRef, revParse } = await import(
+    '../git/base-ref.js'
+  );
   const indexedRevision = readIndexedRevision(db);
   const baseRef = resolveBaseRef(sourceRoot);
   const baseRevision = baseRef ? revParse(sourceRoot, baseRef) : null;
@@ -188,11 +204,23 @@ export async function measureAgainstBase(
   const commitsBehindHead = indexedRevision
     ? commitsBetween(sourceRoot, indexedRevision, 'HEAD')
     : null;
+  // T14014: a cheap, walk-free count for reporting; the walk stays authoritative.
+  const changedFilesSinceIndex = indexedRevision
+    ? changedFilesSince(sourceRoot, indexedRevision)
+    : null;
   const indexedMs = lastIndexedAt ? Date.parse(lastIndexedAt) : Number.NaN;
   const ageDays = Number.isFinite(indexedMs)
     ? Math.max(0, Math.floor((Date.now() - indexedMs) / DAY_MS))
     : null;
-  return { indexedRevision, baseRef, baseRevision, commitsBehind, commitsBehindHead, ageDays };
+  return {
+    indexedRevision,
+    baseRef,
+    baseRevision,
+    commitsBehind,
+    commitsBehindHead,
+    changedFilesSinceIndex,
+    ageDays,
+  };
 }
 
 /** Walk the tree once and keep the full stale set alongside the disclosed facts. */
@@ -296,7 +324,7 @@ async function assessWithStaleSet(
     fileCount,
     staleFileCount: stale.size,
     stalePaths: [...stale].sort().slice(0, sampleLimit),
-    refreshEstimate: describeEstimate(estimate, stale.size, fileCount),
+    refreshEstimate: describeEstimate(estimate, stale.size),
     checkMs: Math.round(performance.now() - started),
   };
   return { freshness, staleFiles: stale };
@@ -362,6 +390,7 @@ export function answerFreshness(freshness: GraphIndexFreshness): NexusAnswerFres
     baseRef: freshness.baseRef ?? null,
     commitsBehind: freshness.commitsBehind ?? null,
     commitsBehindHead: freshness.commitsBehindHead ?? null,
+    changedFilesSinceIndex: freshness.changedFilesSinceIndex ?? null,
     ageDays: freshness.ageDays ?? null,
     lastIndexedAt: freshness.lastIndexedAt,
   };
@@ -503,8 +532,8 @@ export interface NexusRefreshSummary {
 export type NexusRefreshRunner = (input: NexusRefreshInput) => Promise<NexusRefreshSummary>;
 
 /**
- * Run a refresh in this thread, incrementally or not at all. Unbounded in
- * memory: {@link runRefreshInChild} runs it inside a heap-limited child process.
+ * Run a refresh in this thread, bounded by its budget. Unbounded in memory:
+ * {@link runRefreshInChild} runs it inside a heap-limited child process.
  *
  * @param input - The refresh to run.
  * @returns The refresh summary.
@@ -515,7 +544,6 @@ export async function runRefreshInProcess(input: NexusRefreshInput): Promise<Nex
     repoPath: input.repoPath,
     ...(input.includedRepositories ? { includedRepositories: input.includedRepositories } : {}),
     parserLimits: { signal: AbortSignal.timeout(input.budgetMs) },
-    requireIncremental: true,
   });
   return { mode: summary.mode, reason: summary.reason };
 }
@@ -600,9 +628,9 @@ export async function runRefreshInChild(
  * Assess freshness and, when only a few files are stale, refresh the index
  * inline before the caller answers from it.
  *
- * A refresh runs only when `0 < stale ≤ maxFiles` and the recorded cost
- * estimate fits `budgetMs`; the budget also cancels the run at its next phase
- * boundary, and publication is atomic, so an abandoned refresh leaves the
+ * A refresh runs when the recorded cost, scaled to the repository and the
+ * stale set (T14014), fits `budgetMs`; the budget also cancels the run at its
+ * next check, and publication is atomic, so an abandoned refresh leaves the
  * previous graph intact. Every decision — refreshed, skipped or failed — is
  * disclosed in `autoRefresh`, and the returned freshness describes the index
  * the caller is about to read.
@@ -632,17 +660,10 @@ export async function ensureNexusIndexFresh(
     return skip(
       `auto-refresh is disabled (${effective.disabledBy ?? 'nexus.autoRefresh.enabled = false'}); answered from the stale index`,
     );
-  if (before.staleFileCount > effective.maxFiles)
-    return skip(
-      `${before.staleFileCount} stale files exceed nexus.autoRefresh.maxFiles = ${effective.maxFiles}; ` +
-        'answered from the stale index',
-    );
-  // T13523: a read query never runs a full rebuild inline; the pipeline also
-  // refuses one it would fall back to (requireIncremental below).
-  if (before.fileCount > 0 && before.staleFileCount / before.fileCount > FULL_REBUILD_RATIO)
-    return skip(
-      `${before.staleFileCount} of ${before.fileCount} files are stale, which needs a full rebuild; answered from the stale index (run ${NEXUS_REFRESH_COMMAND})`,
-    );
+  // T14014: no file-count cap or stale-ratio gate; the size-scaled cost
+  // estimate against the budget decides. The refresh runs in a heap-bounded
+  // child (T13537), resumes cached extractions (T14009) and honours the budget
+  // in every phase, so a large stale set that fits the budget is refreshed.
   const db = await getNexusDb(projectRoot);
   const estimate = estimateRefreshMs(readRunCost(db), before.staleFileCount, before.fileCount);
   // T13523: with no recorded cost there is no bound on the run (a full

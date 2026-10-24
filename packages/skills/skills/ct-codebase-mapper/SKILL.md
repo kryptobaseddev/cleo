@@ -47,8 +47,10 @@ cleo nexus status
 Read `nodeCount`, `lastIndexedAt` and `staleFileCount` against `fileCount`,
 and `freshness.commitsBehind` (commits on `freshness.baseRef` the index has
 not seen) with `freshness.ageDays`.
-Queries auto-refresh up to 25 stale files; beyond that they warn
-`W_NEXUS_INDEX_STALE`. Refresh with `cleo nexus analyze` (incremental; `--full`
+Queries refresh a stale index inline when the last run's cost, scaled to the
+repository and the stale set, fits `nexus.autoRefresh.budgetMs`; otherwise they
+warn `W_NEXUS_INDEX_STALE`. `freshness.changedFilesSinceIndex` is a quick
+git-diff count of tracked files changed since the indexed revision. Refresh with `cleo nexus analyze` (incremental; `--full`
 rebuilds). An empty or stale index gives confident-looking but incomplete
 answers — say which you relied on.
 
@@ -116,9 +118,9 @@ caller, so an empty footprint alone never establishes that a change is safe.
 When a symbol name is ambiguous, pass the qualified candidate the command
 returns and confirm against the source.
 
-On a stale index, `impact` and `context` refresh it inline only when the last
-analysis recorded a cost that bounds the run; otherwise they answer from the
-stale index and say so. `--no-refresh` (or `CLEO_NEXUS_AUTO_REFRESH=false`)
+On a stale index, `impact` and `context` refresh it inline when the size-scaled
+cost estimate fits the budget; an aborted refresh keeps its parse work for the
+next run. Otherwise they answer from the stale index and say so. `--no-refresh` (or `CLEO_NEXUS_AUTO_REFRESH=false`)
 always answers from the index as it stands.
 
 Every graph answer carries `data.freshness` (`indexedRevision`, `baseRef`,

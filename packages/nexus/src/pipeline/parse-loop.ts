@@ -519,6 +519,11 @@ export interface ParseLoopResult {
   reusedFileCount: number;
   /** Paths of those files. */
   reusedPaths: Set<string>;
+  /**
+   * Milliseconds spent decoding reused extractions (T14014), so a cost
+   * estimate's per-file parse rate counts parsing only.
+   */
+  reuseDecodeMs: number;
 }
 
 const EXECUTABLE_CAPABILITIES: GraphAnalysisCapability[] = [
@@ -1428,12 +1433,14 @@ export async function runParseLoop(
   const staged: { payload: Uint8Array; generation?: string }[] = [];
   const reusedPaths = new Set<string>();
   let reparsedCount = 0;
+  let reuseDecodeMs = 0;
   for (const file of parseableFiles) {
     let payload = pass.extracted.get(file.path);
     let extracted: ExtractionHead | undefined;
     let generation: string | undefined;
     const cached = payload ? undefined : reused.get(file.path);
     if (cached) {
+      const decodeStart = performance.now();
       try {
         if (!cached.generation) throw new Error('Parse cache entry lacks its generation');
         // Decoded whole once, so an unreadable section is re-parsed now, not met in resolution.
@@ -1446,6 +1453,7 @@ export async function runParseLoop(
         payload = cached.payload;
         generation = cached.generation;
         reusedPaths.add(file.path);
+        reuseDecodeMs += performance.now() - decodeStart;
       } catch (error) {
         // An undecodable entry is re-parsed, never trusted.
         process.stderr.write(
@@ -1512,6 +1520,7 @@ export async function runParseLoop(
     barrelMap,
     parsedFileCount: toParse.length + reparsedCount,
     reusedFileCount: reusedPaths.size,
+    reuseDecodeMs: Math.round(reuseDecodeMs),
     reusedPaths,
   };
 }

@@ -904,6 +904,12 @@ export interface GraphIndexFreshness {
    * judged on this, never on {@link GraphIndexFreshness.commitsBehind} (T14008).
    */
   commitsBehindHead?: number | null;
+  /**
+   * Tracked files that differ between the indexed revision and the working
+   * tree (`git diff --name-only`), counted without a walk (T14014). Reporting
+   * only: `staleFileCount` (manifest walk) stays authoritative.
+   */
+  changedFilesSinceIndex?: number | null;
   /** Whole days since {@link GraphIndexFreshness.lastIndexedAt}; `null` when never indexed. */
   ageDays?: number | null;
   /** Files recorded in the published generation's assessment. */
@@ -952,6 +958,8 @@ export interface NexusAnswerFreshness {
   commitsBehind: number | null;
   /** Commits on the checked-out HEAD the index has not seen; the stale refusal is judged on this. */
   commitsBehindHead: number | null;
+  /** Tracked files changed since the indexed revision (walk-free, reporting only; T14014). */
+  changedFilesSinceIndex: number | null;
   /** Whole days since the index was built. */
   ageDays: number | null;
   /** When the index was built. */
