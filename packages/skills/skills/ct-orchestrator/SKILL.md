@@ -2,7 +2,7 @@
 name: ct-orchestrator
 description: "Pipeline-aware orchestration skill for managing complex workflows through subagent delegation. Use when the user asks to \"orchestrate\", \"orchestrator mode\", \"run as orchestrator\", \"delegate to subagents\", \"coordinate agents\", \"spawn subagents\", \"multi-agent workflow\", \"context-protected workflow\", \"agent farm\", \"HITL orchestration\", \"pipeline management\", or needs to manage complex workflows by delegating work to subagents while protecting the main context window. Enforces ORC-001 through ORC-009 constraints. Provider-neutral — works with any AI agent runtime."
 metadata:
-  version: 4.1.0
+  version: 4.1.1
   tier: core
   install: harness
   covers:
@@ -85,8 +85,8 @@ Full charter (8 invariants I1–I8 + prefix registry) lives in
 
 Every issue, feature or bug runs the same loop: plan, execute, verify. RCASD stage
 records and the IVTR loop are retired from agent instructions (epic T13932).
-`pipeline_stage` is a label on tasks; the one place it still gates work is strict
-lifecycle mode (see Plan).
+`pipeline_stage` is a label on tasks; it gates work only where a project turns on
+the stage gate (see Plan).
 
 ### Plan
 
@@ -98,13 +98,15 @@ lifecycle mode (see Plan).
 - **Tasks**: atomic children under the epic, each with `--acceptance` and `--depends`.
   Spawn protocols (research, consensus, specification, decomposition, ...) only pick
   the spawn prompt's stage guidance; they are labels, not gates.
-- **Strict lifecycle mode** (the default when `lifecycle.mode` is unset; `advisory`
-  only warns, `off` skips the check): a child cannot complete (exit 80) while its parent
-  epic sits in a planning stage (research to decomposition). An epic inherits its saga's
-  stage, or starts at research when it has no parent. Once the plan is written and
-  BEFORE adding children, run `cleo update <epicId> --pipeline-stage implementation`.
-  After children sit at the epic's stage, strict mode refuses that move (T13969):
-  escalate to the lead or owner rather than driving the retired lifecycle verbs.
+- **Stage gate** (`lifecycle.stageGate`, off by default, T13970): when a project sets it
+  to `strict`, a child cannot complete (exit 80) while its parent epic sits in a planning
+  stage (research to decomposition), and the epic cannot advance once children sit at its
+  stage; `advisory` only warns. An epic inherits its saga's stage, or starts at research
+  when it has no parent. With the gate on, run `cleo update <epicId> --pipeline-stage
+  implementation` once the plan is written and BEFORE adding children; if children
+  already sit at its stage, report the epic to the lead or owner. The setting is their
+  choice: never change `lifecycle.stageGate` yourself. Evidence strictness stays on
+  `lifecycle.mode` either way.
 
 ### Execute
 
@@ -325,7 +327,7 @@ Agent B reads the full file directly if details needed
 
 When operating without continuous HITL oversight, additional constraints apply: single coordination point, manifest-only reads, verify before next spawn, wave-order spawning, followup task creation for partial/blocked, auto-handoff at 80% context.
 
-**Autonomous scope**: task execution, dependency resolution, manifest writes, wave-order spawning, advancing a new epic to implementation before its children exist (strict mode).
+**Autonomous scope**: task execution, dependency resolution, manifest writes, wave-order spawning, advancing a new epic to implementation before its children exist (when the stage gate is on).
 
 **Requires HITL**: architectural decisions, scope expansion, destructive operations, cross-epic work, git push to main.
 

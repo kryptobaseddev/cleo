@@ -1,8 +1,8 @@
 # Planning Loop: plan, execute, verify
 
 How CLEO work flows (T13958). RCASD stage records and the IVTR loop are retired
-from agent instructions (epic T13932). `pipeline_stage` is a label on tasks; the
-one place it still gates work is strict lifecycle mode (below).
+from agent instructions (epic T13932). `pipeline_stage` is a label on tasks; it
+gates work only where a project turns on the stage gate (below).
 
 ## 1. Plan
 
@@ -14,13 +14,15 @@ one place it still gates work is strict lifecycle mode (below).
   Owner decisions go through the ask tool first.
 - Tasks: `cleo add --type task --parent <epicId> --acceptance "A|B"`, with
   dependencies via `--depends`.
-- **Strict lifecycle mode** (the default when `lifecycle.mode` is unset; `advisory`
-  only warns, `off` skips the check): a child cannot complete (exit 80) while its parent
-  epic sits in a planning stage (research to decomposition). An epic inherits its saga's
-  stage, or starts at research when it has no parent. Once the plan is written and
-  BEFORE adding children, run `cleo update <epicId> --pipeline-stage implementation`.
-  After children sit at the epic's stage, strict mode refuses that move (T13969):
-  escalate to the lead or owner rather than driving the retired lifecycle verbs.
+- **Stage gate** (`lifecycle.stageGate`, off by default, T13970): when a project sets it
+  to `strict`, a child cannot complete (exit 80) while its parent epic sits in a planning
+  stage (research to decomposition), and the epic cannot advance once children sit at its
+  stage; `advisory` only warns. An epic inherits its saga's stage, or starts at research
+  when it has no parent. With the gate on, run `cleo update <epicId> --pipeline-stage
+  implementation` once the plan is written and BEFORE adding children; if children
+  already sit at its stage, report the epic to the lead or owner. The setting is their
+  choice: never change `lifecycle.stageGate` yourself. Evidence strictness stays on
+  `lifecycle.mode` either way.
 
 ## 2. Execute
 
@@ -46,7 +48,8 @@ prompt's stage guidance. They are not gates.
 
 - Exit 80 with unproven evidence gates (the common case in strict mode): run
   `cleo done <id> --plan`, record what it names, then complete.
-- Exit 80 naming a planning-stage parent epic: advance the epic before children
-  exist (above); if children already sit at its stage, report it to the lead.
+- Exit 80 naming a planning-stage parent epic: the project turned on
+  `lifecycle.stageGate`; advance the epic before children exist (above), otherwise
+  report it to the lead or owner, who decide on the setting.
 - Exit 83 (`E_IVTR_INCOMPLETE`): the task carries `ivtr_state` from the retired
   IVTR loop, which no command clears; report it to the lead or owner.

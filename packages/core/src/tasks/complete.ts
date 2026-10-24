@@ -59,6 +59,7 @@ import {
 import { acItemToText } from './ac-table.js';
 import { buildRollupEvidence, isCoordinationParent } from './coordination-parent.js';
 import { createAcceptanceEnforcement } from './enforcement.js';
+import { stageGateModeFrom } from './epic-enforcement.js';
 import { revalidateEvidence } from './evidence.js';
 import { taskEvidenceAtoms } from './evidence-paths.js';
 import { readAllowCachedGates } from './gate-result-cache.js';
@@ -1853,8 +1854,8 @@ export async function taskComplete(
  * Enforcement path (T832 / ADR-051 Decision 3+8):
  * 1. Evidence staleness re-check: every verification.evidence record is re-validated.
  * 2. IVTR enforcement in strict mode: ivtr_state.currentPhase MUST be 'released'.
- * 3. Parent-epic lifecycle gate: child task completion is blocked while the parent
- *    epic is still in a planning stage.
+ * 3. Parent-epic stage gate (opt-in via `lifecycle.stageGate`, T13970): child task
+ *    completion is blocked while the parent epic is still in a planning stage.
  * 4. Verification_json null check.
  *
  * @param projectRoot - Absolute path to the project root
@@ -1984,8 +1985,11 @@ export async function completeTaskStrict(
       }
     }
 
-    // 3. Parent-epic lifecycle gate check on child complete (T788 LOOM-04).
-    if (lifecycleMode === 'strict' || lifecycleMode === 'advisory') {
+    // 3. Parent-epic stage gate on child complete (T788 LOOM-04). T13970: it
+    // reads `lifecycle.stageGate` (default off), not `lifecycle.mode`, so the
+    // strict default no longer strands an epic's children (T13969).
+    const stageGate = stageGateModeFrom(config);
+    if (stageGate === 'strict' || stageGate === 'advisory') {
       const accessor = await getTaskAccessor(projectRoot);
       const task = await accessor.loadSingleTask(taskId);
       if (task?.parentId) {
@@ -2009,7 +2013,7 @@ export async function completeTaskStrict(
             const msg =
               `Task ${taskId} cannot complete: parent epic ${task.parentId} is still in ` +
               `'${epicStage}' stage. Advance the epic past decomposition before completing children.`;
-            if (lifecycleMode === 'strict') {
+            if (stageGate === 'strict') {
               return engineError<{
                 task: TaskRecord;
                 autoCompleted?: string[];
@@ -2022,18 +2026,19 @@ export async function completeTaskStrict(
                   epicStage,
                   requiredStages: ['implementation', 'validation', 'testing', 'release'],
                 },
-                // T13945: the RCASD lifecycle verbs are being retired, and in strict
-                // mode `cleo update --pipeline-stage` refuses while children sit at
-                // the epic's stage (validateEpicStageAdvancement, T13969), so the
-                // fix escalates instead of naming either.
+                // T13945/T13970: the RCASD lifecycle verbs are being retired, and with
+                // the stage gate on `cleo update --pipeline-stage` refuses while
+                // children sit at the epic's stage (T13969). The gate is opt-in, so a
+                // hit means someone chose strict: the fix escalates rather than
+                // telling the agent to undo that choice.
                 fix:
-                  `Parent epic ${task.parentId} is at the planning stage '${epicStage}'; strict lifecycle mode blocks its children until it reaches implementation, ` +
-                  `and 'cleo update ${task.parentId} --pipeline-stage implementation' is refused while children sit at '${epicStage}' (T13969). ` +
-                  `Report it to your lead or the owner with 'cleo show ${task.parentId}'; do not drive the RCASD lifecycle verbs.`,
+                  `Parent epic ${task.parentId} is at the planning stage '${epicStage}', and this project set lifecycle.stageGate=strict, which blocks its children until the epic reaches implementation. ` +
+                  `'cleo update ${task.parentId} --pipeline-stage implementation' works only before children sit at '${epicStage}'. ` +
+                  `Report the epic to your lead or the owner with 'cleo show ${task.parentId}'; they decide on lifecycle.stageGate. Do not change that setting yourself or drive the RCASD lifecycle verbs.`,
               });
             }
             getLogger('engine:lifecycle').warn(
-              { taskId, parentEpicId: task.parentId, epicStage, mode: lifecycleMode },
+              { taskId, parentEpicId: task.parentId, epicStage, mode: stageGate },
               `[ADVISORY] parent-epic lifecycle gate: ${msg}`,
             );
           }

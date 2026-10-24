@@ -28,7 +28,7 @@
  * @epic T056
  */
 
-import type { DataAccessor, Task } from '@cleocode/contracts';
+import type { CleoConfig, DataAccessor, Task } from '@cleocode/contracts';
 import { ExitCode } from '@cleocode/contracts/exit-codes.js';
 import { loadConfig } from '../config.js';
 import { CleoError } from '../errors.js';
@@ -85,6 +85,51 @@ export async function getLifecycleMode(cwd?: string): Promise<LifecycleMode> {
   if (process.env.VITEST) return 'off';
   const config = await loadConfig(cwd);
   return config.lifecycle?.mode ?? 'strict';
+}
+
+/**
+ * Read `lifecycle.stageGate` from config. Falls back to "off" when unset: the
+ * pipeline-stage checks (child stage ceiling, epic stage advancement, and the
+ * parent-epic check in `completeTaskStrict`) are opt-in, because together they
+ * can strand an epic's children (T13969). `lifecycle.mode` keeps governing
+ * epic creation and evidence strictness.
+ *
+ * @remarks
+ * In VITEST environments, returns "off" like {@link getLifecycleMode}.
+ *
+ * @param cwd - Working directory for config resolution
+ * @returns The resolved stage-gate mode
+ *
+ * @example
+ * ```ts
+ * const mode = await getStageGateMode();
+ * // => 'off' unless lifecycle.stageGate is set
+ * ```
+ *
+ * @task T13970
+ */
+export async function getStageGateMode(cwd?: string): Promise<LifecycleMode> {
+  if (process.env.VITEST) return 'off';
+  return stageGateModeFrom(await loadConfig(cwd));
+}
+
+/**
+ * Resolve `lifecycle.stageGate` from an already-loaded config: the one place
+ * the "unset means off" default lives. {@link getStageGateMode} and
+ * `completeTaskStrict` (which has its config loaded already) both use it.
+ *
+ * @param config - Loaded CLEO config (only `lifecycle` is read).
+ * @returns The stage-gate mode, `off` when unset.
+ *
+ * @example
+ * ```ts
+ * stageGateModeFrom({ lifecycle: { mode: 'strict' } }); // => 'off'
+ * ```
+ *
+ * @task T13970
+ */
+export function stageGateModeFrom(config: Pick<CleoConfig, 'lifecycle'>): LifecycleMode {
+  return config.lifecycle?.stageGate ?? 'off';
 }
 
 // =============================================================================
@@ -204,7 +249,7 @@ export async function validateChildStageCeiling(
   accessor: DataAccessor,
   cwd?: string,
 ): Promise<EpicEnforcementResult> {
-  const mode = await getLifecycleMode(cwd);
+  const mode = await getStageGateMode(cwd);
   if (mode === 'off') return { valid: true };
 
   const epic = await accessor.loadSingleTask(options.epicId);
@@ -320,7 +365,7 @@ export async function validateEpicStageAdvancement(
   accessor: DataAccessor,
   cwd?: string,
 ): Promise<EpicEnforcementResult> {
-  const mode = await getLifecycleMode(cwd);
+  const mode = await getStageGateMode(cwd);
   if (mode === 'off') return { valid: true };
 
   const { epicId, currentStage, newStage } = options;
