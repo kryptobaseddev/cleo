@@ -282,6 +282,44 @@ export function componentLandedChanges(
   }
 }
 
+/**
+ * The deletions of a PR merged directly into its base (T14024): each changed
+ * path the merge commit's tree lacks, split by whether HEAD lacks it too.
+ * Reading the merged tree rather than one commit's diff works for merge,
+ * squash and rebase merges alike, since the PR's changed paths come from its
+ * file inventory.
+ *
+ * @param root - Git checkout holding the merge commit.
+ * @param mergeCommitSha - The PR's merge commit.
+ * @param changedPaths - The PR's complete changed-file inventory.
+ * @returns The PR's deletions and those of them that exist again at HEAD;
+ *   both empty when the merge commit is not available locally or git times
+ *   out (fails closed).
+ * @task T14024
+ */
+export function directMergeDeletions(
+  root: string,
+  mergeCommitSha: string,
+  changedPaths: readonly string[],
+): { deleted: string[]; restored: string[] } {
+  const none = { deleted: [], restored: [] };
+  try {
+    if (changedPaths.length === 0 || !hasCommit(root, mergeCommitSha)) return none;
+    const present = (commit: string): Set<string> | null => {
+      const out = git(root, ['ls-tree', '-r', '--name-only', '-z', commit, '--', ...changedPaths]);
+      return out === null ? null : new Set(out.split('\0').filter(Boolean));
+    };
+    const merged = present(mergeCommitSha);
+    const head = present('HEAD');
+    if (merged === null || head === null) return none;
+    const deleted = [...new Set(changedPaths)].filter((path) => !merged.has(path));
+    return { deleted, restored: deleted.filter((path) => head.has(path)) };
+  } catch (err) {
+    if (err instanceof GitTimeoutError) return none;
+    throw err;
+  }
+}
+
 /** {@link componentLandedChanges}, letting a git timeout propagate. */
 function landedChangesOfMerge(
   root: string,

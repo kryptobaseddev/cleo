@@ -12,7 +12,7 @@ import { mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from '
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { type ComponentPrView, resolveComponentPr } from '../component-pr.js';
+import { type ComponentPrView, directMergeDeletions, resolveComponentPr } from '../component-pr.js';
 import { checkPrTaskLinkage, linkedPrChange } from '../evidence.js';
 
 function git(cwd: string, args: string[]): string {
@@ -309,5 +309,33 @@ describe('linkedPrChange: the task links through the component, not the integrat
     expect(linked.ok && linked.pr.changedPaths).toEqual(['a.ts', 'old.ts']);
     expect(linked.ok && linked.pr.deletedPaths).toEqual(['old.ts']);
     expect(linked.ok && checkPrTaskLinkage(linked.prNumber, linked.pr, ctx)).toBeNull();
+  });
+});
+
+describe('directMergeDeletions: a PR merged straight into main (T14024)', () => {
+  const changed = ['a.ts', 'integration-only.ts', 'old.ts'];
+
+  it('reports the paths the merged tree and HEAD both lack', () => {
+    expect(directMergeDeletions(repo, integrationMerge, changed)).toEqual({
+      deleted: ['old.ts'],
+      restored: [],
+    });
+  });
+
+  it('marks a deletion that exists again at HEAD as restored', () => {
+    writeFileSync(join(repo, 'old.ts'), 'export const old = 2;\n');
+    git(repo, ['add', '.']);
+    git(repo, ['commit', '-q', '-m', 'restore old.ts']);
+    expect(directMergeDeletions(repo, integrationMerge, changed)).toEqual({
+      deleted: ['old.ts'],
+      restored: ['old.ts'],
+    });
+  });
+
+  it('credits nothing when the merge commit is not available', () => {
+    expect(directMergeDeletions(repo, 'f'.repeat(40), changed)).toEqual({
+      deleted: [],
+      restored: [],
+    });
   });
 });

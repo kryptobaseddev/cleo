@@ -3250,6 +3250,16 @@ async function validatePrAtom(
   const unlinked = checkPrTaskLinkage(linked.prNumber, linked.pr, context);
   if (unlinked) return unlinked;
   const changedPaths = linked.pr.changedPaths;
+  // T14024: a PR merged straight into its base records its deletions too, so
+  // a deletion-only PR implements with `pr:<n>;note:<deleted paths>`.
+  let deletedPaths = linked.pr.deletedPaths ?? [];
+  let restoredPaths: string[] = [];
+  if (componentPrNumber === undefined && context.gates.includes('implemented')) {
+    const { directMergeDeletions } = await import('./component-pr.js');
+    const direct = directMergeDeletions(roots.executionRoot, result.mergeCommitSha, changedPaths);
+    deletedPaths = direct.deleted;
+    restoredPaths = direct.restored;
+  }
   if (
     context.gates.includes('implemented') &&
     classifyEvidenceTask(context) === 'code' &&
@@ -3276,7 +3286,8 @@ async function validatePrAtom(
       changedPaths,
       taskId: context.task.id,
       ...(componentPrNumber !== undefined ? { componentPrNumber } : {}),
-      ...(linked.pr.deletedPaths?.length ? { deletedPaths: linked.pr.deletedPaths } : {}),
+      ...(deletedPaths.length > 0 ? { deletedPaths } : {}),
+      ...(restoredPaths.length > 0 ? { restoredPaths } : {}),
     },
   };
 }
@@ -3415,6 +3426,38 @@ function isDeletionOnlyPr(atom: Extract<EvidenceAtom, { kind: 'pr' }>): boolean 
 }
 
 /**
+ * Check the `note:` a deletion-only PR implements with (T14024): it lists the
+ * deleted paths (after its last `:`, separated by commas or spaces), at least
+ * one, and every listed path is one the PR deleted that stays deleted.
+ *
+ * @param atom - The deletion-only PR atom.
+ * @param notes - Every `note:` of the evidence write.
+ * @returns A refusal naming the offending paths, otherwise null.
+ */
+function deletionNoteRefusal(
+  atom: Extract<EvidenceAtom, { kind: 'pr' }>,
+  notes: readonly string[],
+): string | null {
+  const pr = `PR #${atom.componentPrNumber ?? atom.prNumber}`;
+  const deleted = atom.deletedPaths ?? [];
+  const listed = notes
+    .flatMap((note) => note.slice(note.lastIndexOf(':') + 1).split(/[\s,]+/))
+    .filter(Boolean)
+    .map(normalizeEvidencePath);
+  const restoredSet = new Set((atom.restoredPaths ?? []).map(normalizeEvidencePath));
+  const restored = listed.filter((path) => restoredSet.has(path));
+  if (restored.length > 0)
+    return `${pr} deleted ${restored.join(', ')}, but it exists again at HEAD: a restored path is not a deletion that implements the task.`;
+  const deletedSet = new Set(deleted.map(normalizeEvidencePath));
+  const stray = listed.filter((path) => !deletedSet.has(path));
+  if (stray.length > 0)
+    return `${pr} did not delete ${stray.join(', ')}: note: may list only the paths ${pr} deleted (${deleted.join(', ')}).`;
+  if (listed.length === 0)
+    return `${pr} only deleted files: list them as note:<deleted paths> (${deleted.join(', ')}).`;
+  return null;
+}
+
+/**
  * Require explicit criterion linkage to inspected artifacts and real gate results.
  * @param context - Current task classification, requested gates and criterion records.
  * @param gate - Individual gate whose evidence is being assessed.
@@ -3453,6 +3496,13 @@ export function checkTaskEvidenceContext(
         return `PR #${atom.prNumber} requires files evidence for an artifact actually changed by that PR.`;
       if (!ownFiles.some((path) => prMergeCommitForPath(prAtoms, path) === atom.mergeCommitSha))
         return `PR #${atom.prNumber} has no listed file read at its own merge commit: every file it changed that you listed (${ownFiles.join(', ')}) is read at a later PR's merge. List a file PR #${atom.prNumber} changed last, or record PR #${atom.prNumber} in a separate attempt.`;
+    }
+    if (gate === 'implemented' && isDeletionOnlyPr(atom)) {
+      const refusal = deletionNoteRefusal(
+        atom,
+        atoms.flatMap((a) => (a.kind === 'note' ? [a.note] : [])),
+      );
+      if (refusal) return refusal;
     }
     if (
       gate === 'implemented' &&
