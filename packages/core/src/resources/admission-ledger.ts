@@ -99,6 +99,7 @@ import {
   isHeavyTool,
   isMemoryBoundTool,
   planHeavyToolEnv,
+  vitestWorkerCeiling,
 } from '../tasks/heavy-tool-env.js';
 import type { CanonicalTool } from '../tasks/tool-resolver.js';
 import type { ResourceSample } from './backend.js';
@@ -351,12 +352,18 @@ export interface HookPeak {
  * (`node x.mjs`, a hook-free `git push`) is charged light (T13452). Anything
  * else gets the class's heavy-run plan, with a named-file test run capped at
  * one worker per file (T13132) and a scoped build at half a heavy run's
- * workers (T13759). An explicit `full-build` is never shrunk.
+ * workers (T13759). A test run is also capped at the project's own vitest
+ * limit ({@link vitestWorkerCeiling}, T14033). An explicit `full-build` is
+ * never shrunk.
  *
  * @param cls - the resolved class.
  * @param argv - the command.
  * @param env - the environment the child would inherit. @defaultValue process.env
  * @param totalRamGib - total RAM in GiB, for tests. @defaultValue os.totalmem()
+ * @param hookInstalled - whether a git hook is installed. @defaultValue probes the cwd
+ * @param hookPeak - a hook's measured peak. @defaultValue reads the hook footprint store
+ * @param cwd - the directory the command runs in, read for the project's vitest
+ *   limit (T14033). @defaultValue process.cwd()
  *
  * @example
  * ```ts
@@ -374,6 +381,7 @@ export function planRunFootprint(
     const key = hookFootprintKey(process.cwd(), hook, globals, env); // CWD-OK: as above
     return key === null ? null : { key, peakBytes: readHookPeak(key, admissionDir()) };
   },
+  cwd: string = process.cwd(), // CWD-OK: cleo run runs the command in its own cwd
 ): RunFootprintPlan {
   let scope = cls === 'full-build' ? null : runFootprint(argv);
   // T13452: a scoped build of a command that runs no heavy tool (`node x.mjs`,
@@ -410,8 +418,12 @@ export function planRunFootprint(
   const namedFiles = namedTestFileCount(cls, argv);
   // T13759: a scoped build is one package; it plans half a heavy run's workers
   // (and is spawned with them), so two fit where one whole-suite run would.
-  const maxWorkers =
+  const cap =
     namedFiles ?? (cls === 'scoped-build' ? scopedBuildWorkers(totalRamGib, env) : undefined);
+  // T14033: a test run never exceeds the project's own vitest limit, which
+  // VITEST_MAX_WORKERS would otherwise override.
+  const ceiling = cls === 'test-run' ? vitestWorkerCeiling(cwd, argv) : null;
+  const maxWorkers = ceiling === null ? cap : Math.min(cap ?? ceiling, ceiling);
   const { overlay, resources } = planHeavyToolEnv(
     canonicalForClass(cls),
     env,

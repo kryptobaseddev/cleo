@@ -9,9 +9,13 @@
  *
  * @task T12096
  * @task T13122
+ * @task T14033
  */
 
-import { describe, expect, it } from 'vitest';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { afterEach, describe, expect, it } from 'vitest';
 import {
   admissionCapacityBytes,
   boundMakeflags,
@@ -30,6 +34,7 @@ import {
   PER_RUN_BUDGET_SHARE,
   perRunBudgetShare,
   planHeavyToolEnv,
+  vitestWorkerCeiling,
   WORKSPACE_CONCURRENCY,
   withHeapCeiling,
   withoutNpmEnvConfigWarnings,
@@ -548,5 +553,68 @@ describe('planHeavyToolEnv (T13122)', () => {
     // CLEO_HEAVY_WORKERS means nothing to a single process and is not read.
     const ignored = planHeavyToolEnv('typecheck', { CLEO_HEAVY_WORKERS: 'x' }, 64);
     expect(ignored.resources?.summary).not.toContain('ignored');
+  });
+});
+
+describe('vitestWorkerCeiling (T14033)', () => {
+  const dirs: string[] = [];
+  /** A throwaway project tree: `{ 'apps/api/vitest.config.ts': '…' }`. */
+  const project = (files: Record<string, string>): string => {
+    const root = mkdtempSync(join(tmpdir(), 'cleo-vitest-ceiling-'));
+    dirs.push(root);
+    for (const [rel, text] of Object.entries(files)) {
+      mkdirSync(join(root, rel, '..'), { recursive: true });
+      writeFileSync(join(root, rel), text);
+    }
+    return root;
+  };
+  afterEach(() => {
+    for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true });
+  });
+
+  it('reads fileParallelism: false as one worker, in the run dir or a workspace package', () => {
+    const serial = 'export default defineConfig({ test: { fileParallelism: false } });\n';
+    expect(vitestWorkerCeiling(project({ 'vitest.config.ts': serial }))).toBe(1);
+    // A root run (`pnpm --filter api test`) sees apps/api's config.
+    expect(vitestWorkerCeiling(project({ 'apps/api/vitest.config.mts': serial }))).toBe(1);
+  });
+
+  it('reads a literal maxWorkers and keeps the lowest across configs', () => {
+    const root = project({
+      'packages/a/vitest.config.ts': 'test: { maxWorkers: 3 }',
+      'packages/b/vite.config.js': 'test: { maxWorkers: 1, minWorkers: 1 }',
+    });
+    expect(vitestWorkerCeiling(root)).toBe(1);
+  });
+
+  it('reads the vitest command line', () => {
+    const root = project({});
+    expect(vitestWorkerCeiling(root, ['pnpm', 'vitest', 'run', '--no-file-parallelism'])).toBe(1);
+    expect(vitestWorkerCeiling(root, ['vitest', 'run', '--maxWorkers=2'])).toBe(2);
+    expect(vitestWorkerCeiling(root, ['vitest', 'run', '--maxWorkers', '3'])).toBe(3);
+  });
+
+  it('is null when nothing limits workers, and skips node_modules', () => {
+    const root = project({
+      'vitest.config.ts': "test: { maxWorkers: '50%', pool: 'forks' }",
+      'node_modules/dep/vitest.config.ts': 'test: { fileParallelism: false }',
+    });
+    expect(vitestWorkerCeiling(root)).toBeNull();
+    expect(vitestWorkerCeiling(join(root, 'missing'))).toBeNull();
+  });
+
+  it('caps the planned VITEST_MAX_WORKERS so a serial suite stays serial', () => {
+    const serial = project({ 'vitest.config.ts': 'test: { fileParallelism: false }' });
+    const ceiling = vitestWorkerCeiling(serial) ?? undefined;
+    // 62 GiB would otherwise plan 3 workers (heavyToolWorkers above).
+    const { overlay, resources } = planHeavyToolEnv('test', {}, 62, ceiling);
+    expect(overlay.VITEST_MAX_WORKERS).toBe('1');
+    expect(resources?.workers).toBe(1);
+    // An inherited count is clamped to the project's limit, never kept above it.
+    expect(
+      planHeavyToolEnv('test', { VITEST_MAX_WORKERS: '2' }, 62, ceiling).overlay.VITEST_MAX_WORKERS,
+    ).toBe('1');
+    // A ceiling above the CLEO plan does not raise it.
+    expect(planHeavyToolEnv('test', {}, 62, 6).overlay.VITEST_MAX_WORKERS).toBe('3');
   });
 });
