@@ -483,6 +483,13 @@ const spawnCommand = defineCommand({
         'T13943: your AgentMBX mailbox name. The spawn prompt names it as the address the worker ' +
         'reports to; without it the prompt tells the worker to look in the task notes.',
     },
+    base: {
+      type: 'string',
+      description:
+        'T14027: create the task branch from this ref (branch, tag or sha) instead of HEAD. ' +
+        'The ref must resolve to a commit; the primary checkout is never moved. An existing ' +
+        'worktree or branch for the task with a different base is refused, never reset.',
+    },
     resume: {
       type: 'boolean',
       description:
@@ -527,6 +534,7 @@ const spawnCommand = defineCommand({
         resume: args.resume === true,
         ...(negatedFlag(args, 'install') ? { noInstall: true } : {}),
         ...(args['lead-mbx'] ? { leadMbx: args['lead-mbx'] } : {}),
+        ...(args.base !== undefined ? { baseRef: args.base } : {}),
       },
       { command: 'orchestrate' },
     );

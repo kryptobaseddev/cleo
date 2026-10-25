@@ -48,7 +48,11 @@ import {
   resolveTaskWorktreePath,
   resolveWorktreeRootForHash,
 } from './paths.js';
-import { addWorktreeToSentinelIndex, appendWorktreeAuditLog } from './worktree-audit.js';
+import {
+  addWorktreeToSentinelIndex,
+  appendWorktreeAuditLog,
+  readRecordedWorktreeBase,
+} from './worktree-audit.js';
 import { acquireWorktreeTaskLock, releaseWorktreeTaskLock } from './worktree-lock.js';
 import { assertNoWorktreeConfigLeak, ensureWorktreeBuildReady } from './worktree-preflight.js';
 
@@ -296,6 +300,74 @@ function runWorktreeInstall(
 }
 
 /**
+ * Resolve an explicit spawn base to a commit sha (T14027).
+ *
+ * @param gitRoot - Repository root.
+ * @param ref - The ref the caller named (branch, tag, sha, ...).
+ * @returns The full commit sha.
+ * @throws `E_WORKTREE_BASE_INVALID` when the ref does not name a commit.
+ */
+function resolveBaseCommit(gitRoot: string, ref: string): string {
+  const sha = ref.startsWith('-') ? null : tryRevParse(gitRoot, `${ref}^{commit}`);
+  if (sha) return sha;
+  throw Object.assign(
+    new Error(
+      `${BRANCH_LOCK_ERROR_CODES.E_WORKTREE_BASE_INVALID}: base "${ref}" does not resolve to a ` +
+        `commit in ${gitRoot}. Nothing was created; fetch the ref or pass an existing branch, tag or sha.`,
+    ),
+    { code: BRANCH_LOCK_ERROR_CODES.E_WORKTREE_BASE_INVALID, baseRef: ref },
+  );
+}
+
+/** `git rev-parse --verify` a ref, or `null` when it does not resolve. */
+function tryRevParse(gitRoot: string, ref: string): string | null {
+  try {
+    return gitSync(['rev-parse', '--verify', '--quiet', ref], gitRoot) || null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Refuse to reuse a task's existing worktree or branch under an explicit base
+ * it was not cut from (T14027). Its base is the `baseSha` recorded when it was
+ * created; without a record, the requested base must at least be in its
+ * history. A refusal leaves it untouched: it is never rebased, reset or
+ * removed (T12506).
+ *
+ * @param projectRoot - Project root (the audit log).
+ * @param taskId - Task whose worktree or branch exists.
+ * @param ctx - Provisioning context (`explicitBaseSha` null: no check).
+ * @param tip - Commit the existing worktree or branch points at.
+ * @throws `E_WORKTREE_BASE_MISMATCH` when the bases differ.
+ */
+function assertExistingBase(
+  projectRoot: string,
+  taskId: string,
+  ctx: ProvisionContext,
+  tip: string,
+): void {
+  const requested = ctx.explicitBaseSha;
+  if (requested === null) return;
+  const recorded = readRecordedWorktreeBase(projectRoot, taskId, ctx.worktreePath);
+  const contained = gitSilent(['merge-base', '--is-ancestor', requested, tip], ctx.gitRoot);
+  if (contained && (recorded === null || recorded === requested)) return;
+  throw Object.assign(
+    new Error(
+      `${BRANCH_LOCK_ERROR_CODES.E_WORKTREE_BASE_MISMATCH}: ${ctx.branch} already exists ` +
+        `(at ${tip}${recorded ? `, created from ${recorded}` : ''}) and is not based on ${requested}. ` +
+        `It was left untouched. Spawn without --base to reuse it, or integrate it yourself first.`,
+    ),
+    {
+      code: BRANCH_LOCK_ERROR_CODES.E_WORKTREE_BASE_MISMATCH,
+      requestedBase: requested,
+      recordedBase: recorded,
+      tip,
+    },
+  );
+}
+
+/**
  * Create a git worktree for an agent task.
  *
  * Steps:
@@ -341,7 +413,12 @@ export async function createWorktree(
   mkdirSync(worktreeRoot, { recursive: true });
 
   const branch = options.branchName ?? `task/${taskId}`;
-  const baseRef = options.baseRef ?? resolveHeadRef(gitRoot);
+  // T14027: an explicit base is resolved to a commit before anything is
+  // touched, and the branch is created from that sha, so a ref that moves
+  // mid-spawn cannot change what the worker starts from.
+  const explicitBaseSha =
+    options.baseRef !== undefined ? resolveBaseCommit(gitRoot, options.baseRef) : null;
+  const baseRef = explicitBaseSha ?? resolveHeadRef(gitRoot);
   const worktreePath = resolveTaskWorktreePath(projectHash, taskId);
 
   // AC1 / T9809: reject any path outside the canonical XDG worktrees root.
@@ -374,6 +451,7 @@ export async function createWorktree(
     projectHash,
     branch,
     baseRef,
+    explicitBaseSha,
     worktreePath,
     hooks,
     lockWorktree,
@@ -401,6 +479,8 @@ interface ProvisionContext {
   projectHash: string;
   branch: string;
   baseRef: string;
+  /** The commit an explicit `options.baseRef` resolved to; `null` for the HEAD default (T14027). */
+  explicitBaseSha: string | null;
   worktreePath: string;
   hooks: WorktreeHook[];
   lockWorktree: boolean;
@@ -447,6 +527,7 @@ async function provisionUnderLock(
         { code: BRANCH_LOCK_ERROR_CODES.E_WORKTREE_INVALID, worktreePath },
       );
     }
+    assertExistingBase(projectRoot, taskId, ctx, gitSync(['rev-parse', 'HEAD'], worktreePath));
     process.stderr.write(
       `[worktree] re-attaching existing worktree at ${worktreePath} (lock ${lock.status}` +
         `${lock.reclaimReason ? `: previous holder ${lock.reclaimReason}` : ''}); nothing removed\n`,
@@ -464,6 +545,7 @@ async function provisionUnderLock(
     const branchExists = gitSync(['branch', '--list', branch], gitRoot).trim() !== '';
 
     if (branchExists) {
+      assertExistingBase(projectRoot, taskId, ctx, gitSync(['rev-parse', branch], gitRoot));
       // T1927: detect orphan history — commits on task/<taskId> that are not
       // reachable from baseRef. Merging such a branch would import garbage
       // history into the integration base.
@@ -768,12 +850,19 @@ async function provisionUnderLock(
   ].join('\n');
 
   // T9805 AC3: Append audit log entry for every worktree creation.
+  // T14027: a created branch records the commit it was cut from; a reused one
+  // records the explicit base it was checked against.
+  const baseSha = reused
+    ? ctx.explicitBaseSha
+    : (ctx.explicitBaseSha ?? tryRevParse(gitRoot, baseRef));
   appendWorktreeAuditLog(projectRoot, {
     action: reused ? 'adopt' : 'create',
     xdgPath: worktreePath,
     taskId,
     branch,
     reason: reattached ? 'worktree-reattach' : reused ? 'branch-reuse' : 'spawn',
+    ...(options.baseRef !== undefined ? { baseRef: options.baseRef } : {}),
+    ...(baseSha ? { baseSha } : {}),
     success: true,
   });
 

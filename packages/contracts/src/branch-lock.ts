@@ -387,6 +387,17 @@ export const BRANCH_LOCK_ERROR_CODES = {
    * holder. Exit code `ExitCode.WORKTREE_LOCKED` (25).
    */
   E_WORKTREE_LOCKED: 'E_WORKTREE_LOCKED',
+  /**
+   * T14027: an explicit spawn base (`--base <ref>`) does not resolve to a
+   * commit. Nothing was created.
+   */
+  E_WORKTREE_BASE_INVALID: 'E_WORKTREE_BASE_INVALID',
+  /**
+   * T14027: the task already has a worktree or branch whose base is not the
+   * requested `--base` commit. It is left untouched: never rebased, reset or
+   * removed.
+   */
+  E_WORKTREE_BASE_MISMATCH: 'E_WORKTREE_BASE_MISMATCH',
 } as const;
 
 /** Union of all branch-lock error code strings. */

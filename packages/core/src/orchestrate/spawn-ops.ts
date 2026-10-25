@@ -1293,9 +1293,23 @@ export async function orchestrateSpawn(
    * Agent Coordination section names it as the address for reports.
    */
   leadMailbox?: string,
+  /**
+   * T14027 — create the task branch from this ref instead of HEAD. Resolved
+   * to a commit before anything is created; incompatible with `--resume` and
+   * `--no-worktree`.
+   */
+  baseRef?: string,
 ): Promise<EngineResult> {
   if (!taskId) {
     return engineError('E_INVALID_INPUT', 'taskId is required');
+  }
+  if (baseRef !== undefined && (resume || noWorktree)) {
+    // @sync-invariant none:input-shape a contradictory flag set is refused before any write
+    return engineError(
+      'E_INVALID_INPUT',
+      `--base cannot be combined with ${resume ? '--resume' : '--no-worktree'}: it sets the commit a new worktree branch starts from`,
+      { fix: `cleo orchestrate spawn ${taskId} --base <ref>` },
+    );
   }
 
   // T9545 — overall budget supervisor. Fires once SPAWN_BUDGET_MS elapses;
@@ -1621,6 +1635,8 @@ export async function orchestrateSpawn(
             // T13425 — an ended holder session releases the lock.
             sessionProbe: await resolveLockSessionProbe(root, taskId),
             ...(noInstall ? { skipInstall: true } : {}),
+            // T14027 — only the base commit differs from a normal spawn.
+            ...(baseRef !== undefined ? { baseRef } : {}),
           }),
           budgetCtrl.signal,
           'provision-worktree',
