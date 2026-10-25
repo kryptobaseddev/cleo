@@ -26,7 +26,19 @@ envelope's `worktreeAutoComplete` reported that it had been skipped.
   `CLEO_NO_AUTO_WORKTREE_COMPLETE=1` skip the integration call itself.
 - The completion runs one integration call and reports one result,
   `integration: {action, mergeCommit?, targetBranch, pushed: false, reason}`.
-  This replaces `worktreeAutoComplete`. The merge is never pushed.
+  The merge is never pushed.
+
+**Breaking output change.** The `cleo complete` envelope no longer carries
+`worktreeAutoComplete`. Read `integration` instead. The exports
+`maybeAutoCompleteWorktreeForTask` and `AutoCompleteWorktreeResult` were
+removed from `@cleocode/core`.
+
+**Stricter than before.** A clean main checkout that is on a branch other than
+the default is refused, not switched. A worktree created before this change has
+no lifecycle `create` row, so it is now skipped rather than merged. To recover,
+run `cleo worktree adopt <worktree path> --task-id <id>`, which records an
+`adopt` row that counts as provisioned. You can also land the branch through a
+PR.
 
 `cleo orchestrate worktree-complete` uses the same rules: it reports a branch
 CLEO did not provision as `noop` and a refused checkout as `conflict`, with

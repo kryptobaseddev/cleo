@@ -14,6 +14,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { integrationDisabledReason } from '../../orchestrate/worktree-complete.js';
+import { appendWorktreeAuditEntry } from '../../worktree/audit.js';
 import {
   completeAgentWorktreeIntegration,
   createAgentWorktree,
@@ -101,7 +102,7 @@ describe('worktree integration on completion (T14053)', () => {
     expect(integrationDisabledReason(false, { CLEO_NO_AUTO_WORKTREE_COMPLETE: '1' })).toMatch(
       /CLEO_NO_AUTO_WORKTREE_COMPLETE/,
     );
-    for (const off of ['', '0', 'false']) {
+    for (const off of ['', '0', 'false', 'FALSE']) {
       expect(integrationDisabledReason(false, { CLEO_NO_AUTO_WORKTREE_COMPLETE: off })).toBe(
         undefined,
       );
@@ -144,6 +145,24 @@ describe('worktree integration on completion (T14053)', () => {
     expect(integrationOutcome(result).action).toBe('skip');
     expect(git(root, 'rev-parse', 'main')).toBe(mainBefore);
     expect(git(root, 'rev-parse', 'task/T14053C')).toBe(strayTip);
+  });
+
+  it('a worktree adopted with `cleo worktree adopt` counts as provisioned', () => {
+    const root = makeRepo();
+    const wt = provisioned(root, 'T14053H');
+    // A worktree from before provisioning was recorded: drop its create row.
+    rmSync(join(root, '.cleo', 'audit', 'worktree-lifecycle.jsonl'));
+    expect(planWorktreeIntegration('T14053H', root, { targetBranch: 'main' }).action).toBe('skip');
+
+    appendWorktreeAuditEntry(root, {
+      actor: 'cleo',
+      action: 'adopt',
+      target: `${wt}/`,
+      branch: 'task/T14053H',
+      taskId: 'T14053H',
+      success: true,
+    });
+    expect(planWorktreeIntegration('T14053H', root, { targetBranch: 'main' }).action).toBe('merge');
   });
 
   it("completing one task leaves another task's worktree alone, and a linked worktree is never the merge target", () => {

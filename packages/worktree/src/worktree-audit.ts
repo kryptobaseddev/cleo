@@ -17,7 +17,7 @@
  */
 
 import { appendFileSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
 import type { WorktreeLifecycleAction } from '@cleocode/contracts';
 
 /** Relative path within the project root for the worktree lifecycle audit log. */
@@ -136,7 +136,7 @@ function findWorktreeAuditRow(
   taskId: string,
   xdgPath: string,
   actions: readonly WorktreeLifecycleAction[],
-): Partial<Record<'action' | 'taskId' | 'xdgPath' | 'baseSha', string>> | null {
+): Partial<Record<'action' | 'taskId' | 'xdgPath' | 'target' | 'baseSha', string>> | null {
   let lines: string[];
   try {
     lines = readFileSync(join(projectRoot, WORKTREE_LIFECYCLE_AUDIT_FILE), 'utf-8').split('\n');
@@ -148,12 +148,15 @@ function findWorktreeAuditRow(
     if (!line?.includes(taskId) || !actions.some((a) => line.includes(`"${a}"`))) continue;
     try {
       const row = JSON.parse(line) as Partial<
-        Record<'action' | 'taskId' | 'xdgPath' | 'baseSha', string>
+        Record<'action' | 'taskId' | 'xdgPath' | 'target' | 'baseSha', string>
       > & { success?: boolean };
+      // `cleo worktree adopt` (core audit writer) records the path as `target`.
+      const rowPath = row.xdgPath ?? row.target;
       if (
         actions.includes(row.action as WorktreeLifecycleAction) &&
         row.taskId === taskId &&
-        row.xdgPath === xdgPath &&
+        rowPath !== undefined &&
+        resolve(rowPath) === resolve(xdgPath) &&
         row.success !== false
       ) {
         return row;
@@ -188,9 +191,10 @@ export function readRecordedWorktreeBase(
 
 /**
  * Whether CLEO provisioned the task's worktree at `xdgPath`: the lifecycle
- * audit log records a `create` (new branch) or `adopt` (existing branch
- * reused) for it. A `task/<id>` branch made by hand has no such row, so
- * completion never merges it (T14053).
+ * audit log records a `create` (new branch), or an `adopt` (an existing
+ * branch reused at spawn, or `cleo worktree adopt <path> --task-id <id>`) for
+ * it. A `task/<id>` branch made by hand has no such row, so completion never
+ * merges it (T14053).
  *
  * @param projectRoot - Absolute path to the CLEO project root.
  * @param taskId - Task whose worktree is looked up.
