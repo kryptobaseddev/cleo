@@ -2,7 +2,7 @@
 id: t14025-multi-pr-own-hunks
 tasks: [T14025]
 kind: fix
-summary: a pr: atom whose listed files a later cited PR also edited is proven while the read version still carries its own hunks
+summary: "a `pr:` atom whose listed files a later cited PR also edited is proven while the read version still carries its own hunks"
 ---
 
 With several `pr:` atoms in one evidence write, each `files:` path is read at the
