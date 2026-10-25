@@ -151,21 +151,23 @@ describe('a deletion-only PR merged directly implements with pr + note (T14024)'
     ).toBeNull();
   });
 
-  it('refuses a listed path the PR did not delete, naming it', () => {
+  it('refuses a listed path the PR did not delete, naming it and quoting the parse', () => {
     expect(
       checkTaskEvidenceContext(ctx, 'implemented', [
         direct(['db/schema.ts']),
-        noteOf('deleted: db/schema.ts db/other.ts'),
+        noteOf('deleted: db/schema.ts, db/other.ts'),
         satisfies(AC1),
       ]),
-    ).toMatch(/PR #49 did not delete db\/other\.ts/);
+    ).toMatch(
+      /PR #49 did not delete db\/other\.ts: .*parsed note paths: "db\/schema\.ts", "db\/other\.ts"/,
+    );
   });
 
   it('refuses a listed path that exists again at HEAD, naming it', () => {
     expect(
       checkTaskEvidenceContext(ctx, 'implemented', [
         direct(['db/schema.ts', 'db/relations.ts'], ['db/relations.ts']),
-        noteOf('db/schema.ts,db/relations.ts'),
+        noteOf('removed: db/schema.ts,db/relations.ts'),
         satisfies(AC1),
       ]),
     ).toMatch(/PR #49 deleted db\/relations\.ts, but it exists again at HEAD/);
@@ -178,6 +180,28 @@ describe('a deletion-only PR merged directly implements with pr + note (T14024)'
         noteOf('removed:'),
         satisfies(AC1),
       ]),
-    ).toMatch(/list them as note:<deleted paths> \(db\/schema\.ts\)/);
+    ).toMatch(/list them as note:\[label:\]<path>,<path> \(db\/schema\.ts\)/);
+  });
+
+  it('reads the note as one comma-separated list: trailing prose is a stray entry, quoted', () => {
+    expect(
+      checkTaskEvidenceContext(ctx, 'implemented', [
+        direct(['db/schema.ts']),
+        noteOf('db/schema.ts (old backup)'),
+        satisfies(AC1),
+      ]),
+    ).toMatch(
+      /did not delete db\/schema\.ts \(old backup\):.*parsed note paths: "db\/schema\.ts \(old backup\)"/,
+    );
+  });
+
+  it('keeps the component form free-form: a prose note still implements', () => {
+    expect(
+      checkTaskEvidenceContext(ctx, 'implemented', [
+        pr(['old.ts'], ['old.ts']),
+        noteOf('removed the legacy drizzle schema'),
+        satisfies(AC1),
+      ]),
+    ).toBeNull();
   });
 });

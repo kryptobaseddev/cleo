@@ -3426,34 +3426,38 @@ function isDeletionOnlyPr(atom: Extract<EvidenceAtom, { kind: 'pr' }>): boolean 
 }
 
 /**
- * Check the `note:` a deletion-only PR implements with (T14024): it lists the
- * deleted paths (after its last `:`, separated by commas or spaces), at least
- * one, and every listed path is one the PR deleted that stays deleted.
+ * Check the `note:` a deletion-only PR merged directly into its base
+ * implements with (T14024). The note is a comma-separated list of paths,
+ * optionally after a `label:` prefix (up to its first `:`): at least one path,
+ * and every listed path one the PR deleted that does not exist again at HEAD.
+ * The component form keeps its free-form note: its deletions are already
+ * pinned to the landing commit.
  *
- * @param atom - The deletion-only PR atom.
+ * @param atom - The deletion-only direct-merge PR atom.
  * @param notes - Every `note:` of the evidence write.
- * @returns A refusal naming the offending paths, otherwise null.
+ * @returns A refusal quoting the parsed paths, otherwise null.
  */
 function deletionNoteRefusal(
   atom: Extract<EvidenceAtom, { kind: 'pr' }>,
   notes: readonly string[],
 ): string | null {
-  const pr = `PR #${atom.componentPrNumber ?? atom.prNumber}`;
+  const pr = `PR #${atom.prNumber}`;
   const deleted = atom.deletedPaths ?? [];
   const listed = notes
-    .flatMap((note) => note.slice(note.lastIndexOf(':') + 1).split(/[\s,]+/))
-    .filter(Boolean)
-    .map(normalizeEvidencePath);
+    .flatMap((note) => note.slice(note.indexOf(':') + 1).split(','))
+    .map((path) => normalizeEvidencePath(path.trim()))
+    .filter(Boolean);
+  const parsed = `parsed note paths: ${listed.map((path) => `"${path}"`).join(', ') || 'none'}`;
   const restoredSet = new Set((atom.restoredPaths ?? []).map(normalizeEvidencePath));
   const restored = listed.filter((path) => restoredSet.has(path));
   if (restored.length > 0)
-    return `${pr} deleted ${restored.join(', ')}, but it exists again at HEAD: a restored path is not a deletion that implements the task.`;
+    return `${pr} deleted ${restored.join(', ')}, but it exists again at HEAD: a restored path is not a deletion that implements the task (${parsed}).`;
   const deletedSet = new Set(deleted.map(normalizeEvidencePath));
   const stray = listed.filter((path) => !deletedSet.has(path));
   if (stray.length > 0)
-    return `${pr} did not delete ${stray.join(', ')}: note: may list only the paths ${pr} deleted (${deleted.join(', ')}).`;
+    return `${pr} did not delete ${stray.join(', ')}: note:[label:]<path>,<path> may list only the paths ${pr} deleted (${deleted.join(', ')}; ${parsed}).`;
   if (listed.length === 0)
-    return `${pr} only deleted files: list them as note:<deleted paths> (${deleted.join(', ')}).`;
+    return `${pr} only deleted files: list them as note:[label:]<path>,<path> (${deleted.join(', ')}).`;
   return null;
 }
 
@@ -3497,7 +3501,7 @@ export function checkTaskEvidenceContext(
       if (!ownFiles.some((path) => prMergeCommitForPath(prAtoms, path) === atom.mergeCommitSha))
         return `PR #${atom.prNumber} has no listed file read at its own merge commit: every file it changed that you listed (${ownFiles.join(', ')}) is read at a later PR's merge. List a file PR #${atom.prNumber} changed last, or record PR #${atom.prNumber} in a separate attempt.`;
     }
-    if (gate === 'implemented' && isDeletionOnlyPr(atom)) {
+    if (gate === 'implemented' && atom.componentPrNumber === undefined && isDeletionOnlyPr(atom)) {
       const refusal = deletionNoteRefusal(
         atom,
         atoms.flatMap((a) => (a.kind === 'note' ? [a.note] : [])),
