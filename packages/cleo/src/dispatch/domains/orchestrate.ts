@@ -202,6 +202,8 @@ interface OrchestrateSpawnParams {
   noInstall?: boolean;
   /** T13943 — AgentMBX mailbox of the spawning lead, named in the prompt. */
   leadMbx?: string;
+  /** T14027 — ref the task branch is created from instead of HEAD. */
+  baseRef?: string;
   /** T9807 — sparse-checkout scope prefix (e.g. `packages/cleo`). */
   spawnScope?: string;
   /**
@@ -469,6 +471,7 @@ async function orchestrateSpawnOp(params: OrchestrateSpawnParams) {
     params.resume,
     params.noInstall,
     params.leadMbx,
+    params.baseRef,
   );
 }
 
@@ -901,6 +904,7 @@ export class OrchestrateHandler implements DomainHandler {
             ...(params.resume === true ? { resume: true } : {}),
             ...(params.noInstall === true ? { noInstall: true } : {}),
             ...(leadMbx ? { leadMbx } : {}),
+            ...(typeof params.baseRef === 'string' ? { baseRef: params.baseRef } : {}),
           };
           return wrapResult(await coreOps.spawn(p), 'mutate', 'orchestrate', operation, startTime);
         }

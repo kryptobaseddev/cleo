@@ -55,6 +55,10 @@ export interface WorktreeAuditPayload {
   agentId?: string;
   /** Free-form reason string (e.g. `pr-merged`, `idle-timeout`, `manual`). */
   reason?: string;
+  /** Base ref the branch was created from, as the caller named it (T14027). */
+  baseRef?: string;
+  /** Commit {@link baseRef} resolved to when the branch was created (T14027). */
+  baseSha?: string;
   /** Whether the action succeeded. */
   success: boolean;
   /** Error message when {@link success} is false. */
@@ -112,6 +116,8 @@ export function appendWorktreeAuditLog(
       ...(payload.branch !== undefined ? { branch: payload.branch } : {}),
       agentId: payload.agentId ?? process.env['CLEO_AGENT_ID'] ?? 'cleo',
       ...(payload.reason !== undefined ? { reason: payload.reason } : {}),
+      ...(payload.baseRef !== undefined ? { baseRef: payload.baseRef } : {}),
+      ...(payload.baseSha !== undefined ? { baseSha: payload.baseSha } : {}),
       success: payload.success,
       ...(payload.error !== undefined ? { error: payload.error } : {}),
     };
@@ -119,6 +125,47 @@ export function appendWorktreeAuditLog(
   } catch {
     // Intentionally swallowed — audit writes must never block lifecycle ops.
   }
+}
+
+/**
+ * The base commit recorded when a task's worktree branch was created: the
+ * `baseSha` of the newest `create` entry for `taskId` at `xdgPath` in the
+ * lifecycle audit log (T14027). `null` when none was recorded (a worktree
+ * created before bases were recorded, or an unreadable log).
+ *
+ * @param projectRoot - Absolute path to the CLEO project root.
+ * @param taskId - Task whose worktree is looked up.
+ * @param xdgPath - The task's canonical worktree path.
+ * @returns The recorded base sha, or `null`.
+ *
+ * @task T14027
+ */
+export function readRecordedWorktreeBase(
+  projectRoot: string,
+  taskId: string,
+  xdgPath: string,
+): string | null {
+  let lines: string[];
+  try {
+    lines = readFileSync(join(projectRoot, WORKTREE_LIFECYCLE_AUDIT_FILE), 'utf-8').split('\n');
+  } catch {
+    return null;
+  }
+  for (let i = lines.length - 1; i >= 0; i--) {
+    const line = lines[i];
+    if (!line?.includes('"create"') || !line.includes(taskId)) continue;
+    try {
+      const row = JSON.parse(line) as Partial<
+        Record<'action' | 'taskId' | 'xdgPath' | 'baseSha', string>
+      >;
+      if (row.action === 'create' && row.taskId === taskId && row.xdgPath === xdgPath) {
+        return row.baseSha ?? null;
+      }
+    } catch {
+      // A torn line is skipped; older entries still count.
+    }
+  }
+  return null;
 }
 
 /**

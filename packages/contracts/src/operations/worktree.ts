@@ -231,7 +231,15 @@ export type WorktreeLockSessionProbe = (sessionId: string) => WorktreeLockSessio
 export interface CreateWorktreeOptions {
   /** The task ID that will own this worktree. */
   taskId: string;
-  /** The base ref to branch from (default: current HEAD). */
+  /**
+   * The base ref to branch from (default: current HEAD). An explicit ref is
+   * resolved to a commit before anything is created and must exist
+   * (`E_WORKTREE_BASE_INVALID`); the branch is created from that sha. An
+   * existing worktree or branch for the task is reused only when its base is
+   * that commit, else `E_WORKTREE_BASE_MISMATCH` and it is left untouched.
+   *
+   * @task T14027
+   */
   baseRef?: string;
   /** Explicit branch name. Defaults to `task/<taskId>`. */
   branchName?: string;
@@ -384,7 +392,7 @@ export interface CreateWorktreeResult {
   path: string;
   /** Branch name created for this worktree (format: `task/<taskId>`). */
   branch: string;
-  /** Base ref the branch was created from. */
+  /** Base ref the branch was created from (the resolved sha for an explicit base, T14027). */
   baseRef: string;
   /** Task ID that owns this worktree. */
   taskId: string;

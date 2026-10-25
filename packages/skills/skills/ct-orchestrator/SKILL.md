@@ -2,13 +2,13 @@
 name: ct-orchestrator
 description: "Pipeline-aware orchestration skill for managing complex workflows through subagent delegation. Use when the user asks to \"orchestrate\", \"orchestrator mode\", \"run as orchestrator\", \"delegate to subagents\", \"coordinate agents\", \"spawn subagents\", \"multi-agent workflow\", \"context-protected workflow\", \"agent farm\", \"HITL orchestration\", \"pipeline management\", or needs to manage complex workflows by delegating work to subagents while protecting the main context window. Enforces ORC-001 through ORC-009 constraints. Provider-neutral — works with any AI agent runtime."
 metadata:
-  version: 4.1.2
+  version: 4.1.3
   tier: core
   install: harness
   covers:
     - packages/cleo/src/cli/commands/orchestrate.ts
     - packages/core/src/orchestration/spawn-prompt.ts
-  lastReviewed: 2026-10-23
+  lastReviewed: 2026-10-25
   stability: stable
 ---
 
@@ -158,6 +158,8 @@ The prompt's `## Lean Change` block follows the effective ct-lean level (T13663)
 then `full`. At `off` the block is omitted, so set the level before spawning, not after.
 
 The spawn provisions the worker's worktree, and its `pnpm install` is admitted through the heavy queue or deferred to the worker; the envelope's `install.status` says which. `cleo orchestrate spawn T1586 --no-install` provisions without installing, and the envelope names the command the worker runs instead (T13524).
+
+To start a worker from its dependencies' work, `cleo orchestrate spawn T1586 --base task/T1585` creates the task branch from that ref (branch, tag or sha) instead of HEAD; everything else (lock, session, guards) matches a normal spawn. The ref is resolved to a commit first and must exist (`E_WORKTREE_BASE_INVALID`), the primary checkout never moves, and the sha is recorded as `baseSha` in `.cleo/audit/worktree-lifecycle.jsonl`. An existing worktree or branch for the task with another base is refused with `E_WORKTREE_BASE_MISMATCH` and left untouched (T14027).
 
 ### Step 2: Execute (Provider-Specific)
 
