@@ -39,6 +39,14 @@
  * {@link nonTestFailuresOn}. The stand-in search also looks past later runs red
  * for that reason alone, up to {@link CI_DESCENDANT_MAX_CANDIDATES} commits.
  *
+ * A fourth (T14032, owner decision D11192), for a WORKSPACE-WIDE change only
+ * (one a targeted test-run cannot speak for: a lockfile, a root config): when
+ * the merge commit is not green and no T12742 descendant stands in, a green
+ * push run of every required check on the default branch's CURRENT head (or
+ * on a commit differing from it only in documentation) that descends from the
+ * merge stands in, whatever the merge's own run concluded and whatever later
+ * commits touched. See {@link findGreenCurrentHead}.
+ *
  * @task T12634
  */
 
@@ -130,6 +138,11 @@ export interface EvaluateMergeCommitChecksOptions {
    * (T13809). The descendant may stand in for a FAILED required check too.
    */
   inheritedFailures?: boolean;
+  /**
+   * The descendant is the default branch's current head standing in for a
+   * workspace-wide change (T14032): it stands in for any merge-commit verdict.
+   */
+  currentHead?: boolean;
 }
 
 /** One failing merge-commit job and the base run it was inherited from (T13453). */
@@ -251,6 +264,22 @@ export interface ResolveCiEvidenceOptions {
    * be read (T13809). Defaults to `gh api repos/{owner}/{repo}/actions/jobs/<id>/logs`.
    */
   fetchJobLog?: (jobId: number, cwd: string) => Promise<string | null>;
+  /**
+   * The current head of the default-branch ref (T14032); null when unknown.
+   * Defaults to GitHub's branch head via `gh`, else `git rev-parse <ref>`.
+   */
+  defaultBranchHead?: (ref: string, cwd: string) => string | null;
+  /**
+   * Paths that differ between two commits, or null when git cannot tell
+   * (T14032). Defaults to `git diff --name-only --no-renames`.
+   */
+  changedBetween?: (from: string, to: string, cwd: string) => string[] | null;
+  /**
+   * Why a change is workspace-wide (only a full run speaks for it), or null
+   * when it is scoped (T14032). Defaults to the `test-run:` requirement rule
+   * (`testRunRequirement` kind `full`).
+   */
+  workspaceWideReason?: (root: string, paths: readonly string[]) => Promise<string | null>;
 }
 
 /** Parsed `.cleo/project-context.json` of the store root, or null. */
@@ -648,6 +677,7 @@ export function evaluateMergeCommitChecks(
       descendantSha !== undefined &&
       descendantSha !== mergeCommitSha &&
       (SUPERSEDED_VERDICTS.has(onMerge.verdict) ||
+        opts.currentHead === true ||
         (opts.inheritedFailures === true &&
           onMerge.verdict !== 'missing' &&
           !onMerge.verdict.startsWith('pending')))
@@ -1575,56 +1605,185 @@ export async function findGreenDescendant(
         reason: `${failedJob.name}: ${failedJob.conclusion} on later ${input.ref} commit ${sha.slice(0, 12)}`,
       };
     }
-    let decided = true;
-    for (const name of supersededNames) {
-      const pinned = fetched.checks.filter((c) => c.name === name && pinMatches(c, pins[name]));
-      const verdict = judgeOnSha(pinned, sha, 'push');
-      if (verdict.ok) continue;
-      if (verdict.verdict.startsWith('pending')) {
-        return {
-          ok: false,
-          reason: `${name}: ${verdict.verdict} on later ${input.ref} commit ${sha.slice(0, 12)} — wait for ${sha.slice(0, 12)} to finish, then verify again`,
-        };
-      }
-      if (verdict.verdict === 'missing' || SUPERSEDED_VERDICTS.has(verdict.verdict)) {
-        decided = false;
-        break;
-      }
-      return {
-        ok: false,
-        reason: `${name}: ${verdict.verdict} on later ${input.ref} commit ${sha.slice(0, 12)}`,
-      };
-    }
-    // T13846: the gates' own jobs must have run on the stand-in too.
-    for (const job of decided ? (input.jobs ?? []) : []) {
-      const onSha = evaluateJobs(job.globs, fetched.checks, sha, job.scope, 'push');
-      if (onSha.ok) continue;
-      const pending = onSha.reasons.find((r) => r.includes(': pending ('));
-      if (pending) {
-        return {
-          ok: false,
-          reason: `${pending} — wait for ${sha.slice(0, 12)} to finish, then verify again`,
-        };
-      }
-      const decisive = onSha.reasons.find((r) => !JOB_NOT_RUN.test(r));
-      if (decisive) return { ok: false, reason: `${decisive} (later ${input.ref} commit)` };
-      decided = false;
-    }
-    if (decided) {
-      return {
-        ok: true,
-        sha,
-        checks: [...fetched.checks, ...headChecks],
-        range: `${merge}..${sha}`,
-        ...(head ? { prHeadSha: head } : {}),
-        ...(inherited ? { inherited } : {}),
-        ...(nonTest ? { nonTest } : {}),
-      };
-    }
+    const verdict = judgeStandIn(fetched.checks, sha, supersededNames, pins, input.jobs, input.ref);
+    if (verdict === 'undecided') continue;
+    if (!verdict.ok) return verdict;
+    return {
+      ok: true,
+      sha,
+      checks: [...fetched.checks, ...headChecks],
+      range: `${merge}..${sha}`,
+      ...(head ? { prHeadSha: head } : {}),
+      ...(inherited ? { inherited } : {}),
+      ...(nonTest ? { nonTest } : {}),
+    };
   }
   return {
     ok: false,
     reason: `no later ${input.ref} commit (first ${CI_DESCENDANT_MAX_CANDIDATES} within 7 days) has a completed push run of ${supersededNames.join(', ')}`,
+  };
+}
+
+/**
+ * Judge one later default-branch commit's own `push` runs as a stand-in
+ * (T12742, T14032): every named check green, and the gates' jobs run and
+ * green (T13846). A pending run refuses with "wait"; a failed one refuses —
+ * a green run is never shopped for past one that is red or may still go red.
+ * Cancelled, skipped and missing (never-started) runs leave it undecided, so
+ * the caller looks at the next candidate.
+ */
+function judgeStandIn(
+  checks: readonly CommitCheck[],
+  sha: string,
+  names: readonly string[],
+  pins: Record<string, RequiredCheckPinSpec>,
+  jobs: FindGreenDescendantInput['jobs'],
+  ref: string,
+): { ok: true } | { ok: false; reason: string } | 'undecided' {
+  for (const name of names) {
+    const pinned = checks.filter((c) => c.name === name && pinMatches(c, pins[name]));
+    const verdict = judgeOnSha(pinned, sha, 'push');
+    if (verdict.ok) continue;
+    if (verdict.verdict.startsWith('pending')) {
+      return {
+        ok: false,
+        reason: `${name}: ${verdict.verdict} on later ${ref} commit ${sha.slice(0, 12)} — wait for ${sha.slice(0, 12)} to finish, then verify again`,
+      };
+    }
+    if (verdict.verdict === 'missing' || SUPERSEDED_VERDICTS.has(verdict.verdict)) {
+      return 'undecided';
+    }
+    return {
+      ok: false,
+      reason: `${name}: ${verdict.verdict} on later ${ref} commit ${sha.slice(0, 12)}`,
+    };
+  }
+  // T13846: the gates' own jobs must have run on the stand-in too.
+  let decided = true;
+  for (const job of jobs ?? []) {
+    const onSha = evaluateJobs(job.globs, checks, sha, job.scope, 'push');
+    if (onSha.ok) continue;
+    const pending = onSha.reasons.find((r) => r.includes(': pending ('));
+    if (pending) {
+      return {
+        ok: false,
+        reason: `${pending} — wait for ${sha.slice(0, 12)} to finish, then verify again`,
+      };
+    }
+    const decisive = onSha.reasons.find((r) => !JOB_NOT_RUN.test(r));
+    if (decisive) return { ok: false, reason: `${decisive} (later ${ref} commit)` };
+    decided = false;
+  }
+  return decided ? { ok: true } : 'undecided';
+}
+
+/** Inputs of {@link findGreenCurrentHead}. */
+export interface FindGreenCurrentHeadInput {
+  /** Required check names; every one must be green on the stand-in's push runs. */
+  required: readonly string[];
+  /** The merge commit. */
+  mergeCommitSha: string;
+  /** Required-name → app/workflow pin. */
+  pins: Record<string, RequiredCheckPinSpec>;
+  /** Job globs the gates need, as for {@link findGreenDescendant} (T13846). */
+  jobs?: FindGreenDescendantInput['jobs'];
+  /** Default-branch ref (`origin/main`). */
+  ref: string;
+  /** Repository work tree. */
+  cwd: string;
+  /** Checks for one SHA. */
+  fetchChecks: NonNullable<ResolveCiEvidenceOptions['fetchChecks']>;
+  /** The default branch's current head. */
+  defaultBranchHead: NonNullable<ResolveCiEvidenceOptions['defaultBranchHead']>;
+  /** Paths that differ between two commits. */
+  changedBetween: NonNullable<ResolveCiEvidenceOptions['changedBetween']>;
+  /** First parent of a commit. */
+  firstParentOf: NonNullable<ResolveCiEvidenceOptions['firstParentOf']>;
+  /** Ancestry test. */
+  isAncestor: NonNullable<ResolveCiEvidenceOptions['isAncestor']>;
+}
+
+/** Result of {@link findGreenCurrentHead}. */
+export type FindGreenCurrentHeadResult =
+  | {
+      ok: true;
+      /** The commit whose push CI stands in: HEAD, or one differing from it only in documentation. */
+      sha: string;
+      /** Checks fetched for it. */
+      checks: CommitCheck[];
+      /** `<merge>..<sha>`. */
+      range: string;
+      /** The default branch's head at verify time. */
+      head: string;
+    }
+  | { ok: false; reason: string };
+
+/**
+ * Find the green required-CI push run on the default branch's CURRENT head
+ * that stands in for a workspace-wide change's merge-commit CI (T14032, owner
+ * decision D11192). A workspace-wide change (a lockfile, a root config, a CI
+ * definition) only a full run speaks for; when its merge-commit run was red
+ * for a reason that is not the change (a secrets job failing on a re-run) and
+ * later commits touched its files, {@link findGreenDescendant} refuses, yet a
+ * full green CI on today's HEAD tests the merged change as it is now — the
+ * same reasoning as the targeted test-run stand-in (T13673), which also
+ * allows later edits.
+ *
+ * Candidates are HEAD, then its first parents while they differ from HEAD only
+ * in documentation ({@link isCiDocumentPath}, the T13784 rule: nothing a test
+ * reads moved), up to {@link CI_DESCENDANT_MAX_CANDIDATES}. Each must descend
+ * from the merge commit. The first decisive verdict decides, as in
+ * {@link findGreenDescendant}: every required check green on its own `push`
+ * runs (and the gates' jobs run, T13846) accepts; a failed or pending one
+ * refuses; cancelled, skipped or missing runs move to the parent.
+ *
+ * @param input - Required checks, pins, merge commit and injected I/O.
+ * @returns The stand-in commit, its checks and the head, or the refusal reason.
+ * @task T14032
+ */
+export async function findGreenCurrentHead(
+  input: FindGreenCurrentHeadInput,
+): Promise<FindGreenCurrentHeadResult> {
+  const { mergeCommitSha: merge, ref, cwd } = input;
+  const head = input.defaultBranchHead(ref, cwd);
+  if (!head) return { ok: false, reason: `cannot read the current head of ${ref}` };
+  let sha: string | null = head;
+  for (let n = 0; n < CI_DESCENDANT_MAX_CANDIDATES && sha; n++) {
+    const at = sha === head ? `${ref} HEAD ${head.slice(0, 12)}` : `${sha.slice(0, 12)}`;
+    if (sha === merge || !input.isAncestor(merge, sha, cwd)) {
+      return {
+        ok: false,
+        reason:
+          sha === head
+            ? `${at} does not descend from merge commit ${merge.slice(0, 12)} here (git fetch origin, then verify again)`
+            : `no push run between merge commit ${merge.slice(0, 12)} and ${ref} HEAD ${head.slice(0, 12)} decided the required checks`,
+      };
+    }
+    if (sha !== head) {
+      const moved = input.changedBetween(sha, head, cwd);
+      if (moved === null) {
+        return { ok: false, reason: `cannot diff ${sha.slice(0, 12)}..${head.slice(0, 12)}` };
+      }
+      const testInput = moved.find((p) => !isCiDocumentPath(p));
+      if (testInput) {
+        return {
+          ok: false,
+          reason: `${ref} HEAD ${head.slice(0, 12)} has no completed push run of the required checks, and ${sha.slice(0, 12)}..${head.slice(0, 12)} changes ${testInput}, so an earlier run does not test HEAD — wait for HEAD's push CI to finish, then verify again`,
+        };
+      }
+    }
+    const fetched = await input.fetchChecks(sha, cwd);
+    if (!fetched.ok) return { ok: false, reason: fetched.reason };
+    const verdict = judgeStandIn(fetched.checks, sha, input.required, input.pins, input.jobs, ref);
+    if (verdict !== 'undecided') {
+      if (!verdict.ok) return verdict;
+      return { ok: true, sha, checks: fetched.checks, range: `${merge}..${sha}`, head };
+    }
+    sha = input.firstParentOf(sha, cwd);
+  }
+  return {
+    ok: false,
+    reason: `no commit within ${CI_DESCENDANT_MAX_CANDIDATES} first parents of ${ref} HEAD ${head.slice(0, 12)} has a completed push run of ${input.required.join(', ')}`,
   };
 }
 
@@ -1770,6 +1929,44 @@ function defaultNextMainCommitAt(mergeSha: string, ref: string, cwd: string): st
     `${mergeSha}..${ref}`,
   ]);
   return out?.split('\n')[0] || null;
+}
+
+/**
+ * Default {@link ResolveCiEvidenceOptions.defaultBranchHead} (T14032): the
+ * branch head GitHub reports, so a stale local ref never passes for the
+ * current one; `git rev-parse <ref>` only when `gh` cannot answer.
+ */
+function defaultBranchHeadOf(ref: string, cwd: string): string | null {
+  const branch = ref.replace(/^origin\//, '');
+  if (isGitWorkTree(cwd) && isGhCliAvailable()) {
+    const commit = ghApi(`repos/{owner}/{repo}/commits/${encodeURIComponent(branch)}`, cwd);
+    if (
+      typeof commit === 'object' &&
+      commit !== null &&
+      'sha' in commit &&
+      typeof commit.sha === 'string' &&
+      /^[0-9a-f]{40}$/.test(commit.sha)
+    ) {
+      return commit.sha;
+    }
+  }
+  return gitRead(cwd, ['rev-parse', '--verify', '--quiet', `${ref}^{commit}`]);
+}
+
+/** Default {@link ResolveCiEvidenceOptions.changedBetween} (T14032). */
+function defaultChangedBetween(from: string, to: string, cwd: string): string[] | null {
+  const out = gitRead(cwd, ['diff', '--name-only', '--no-renames', from, to]);
+  return out === null ? null : out.split('\n').filter(Boolean);
+}
+
+/** Default {@link ResolveCiEvidenceOptions.workspaceWideReason}: the `test-run:` rule (T14032). */
+async function defaultWorkspaceWideReason(
+  root: string,
+  paths: readonly string[],
+): Promise<string | null> {
+  const { testRunRequirement } = await import('../tasks/test-run-binding.js');
+  const need = testRunRequirement(root, paths);
+  return need.kind === 'full' ? need.reason : null;
 }
 
 function defaultFirstParentOf(sha: string, cwd: string): string | null {
@@ -1953,7 +2150,8 @@ export async function recheckCiDescendantAtom(
   const descendant = atom.descendantSha;
   if (!descendant) return { ok: true };
   const head = atom.descendantPrHeadSha;
-  if (!head && !atom.mainOnly) {
+  // T14032: a workspace-wide current-HEAD stand-in consulted main's push runs only.
+  if (!head && !atom.mainOnly && !atom.workspaceWide) {
     return {
       ok: false,
       reason: `ci:${atom.prNumber} leans on ${descendant.slice(0, 12)} but records no PR head; verify again`,
@@ -2305,6 +2503,59 @@ export async function resolveCiEvidenceAtom(
       descendantReason = found.reason;
     }
   }
+  // T14032 (owner decision D11192): a workspace-wide change, which only a full
+  // run speaks for, is stood in for by a green push run of every required
+  // check on the default branch's current head, descending from the merge,
+  // whatever the merge's own run concluded and whatever later commits touched:
+  // that run tested the merged change as it is now (as the T13673 test-run
+  // stand-in does). A scoped change keeps the T12742 rule alone.
+  let workspaceWide: string | undefined;
+  let currentHeadReason: string | undefined;
+  if (!judgedChecks.ok && onDefault.ref !== null && !docsOnlyDiff) {
+    const wide = await (opts.workspaceWideReason ?? defaultWorkspaceWideReason)(
+      cwd,
+      pr.changedPaths,
+    );
+    if (wide !== null) {
+      const found = await findGreenCurrentHead({
+        ...(jobSpecs.length > 0 ? { jobs: jobSpecs } : {}),
+        required: required.workflows,
+        mergeCommitSha: pr.mergeCommitSha,
+        pins,
+        ref: onDefault.ref,
+        cwd,
+        fetchChecks,
+        defaultBranchHead: opts.defaultBranchHead ?? defaultBranchHeadOf,
+        changedBetween: opts.changedBetween ?? defaultChangedBetween,
+        firstParentOf: opts.firstParentOf ?? defaultFirstParentOf,
+        isAncestor: opts.isAncestor ?? defaultIsAncestor,
+      });
+      const rejudged = found.ok
+        ? evaluateMergeCommitChecks(
+            required.workflows,
+            [...checks, ...found.checks],
+            pr.mergeCommitSha,
+            {
+              ...(treeEqualHead ? { treeEquivalentSha: treeEqualHead } : {}),
+              pins,
+              descendantSha: found.sha,
+              currentHead: true,
+            },
+          )
+        : null;
+      if (found.ok && rejudged?.ok) {
+        checks = [...checks, ...found.checks];
+        judgedChecks = rejudged;
+        descendant = { sha: found.sha, range: found.range };
+        workspaceWide = wide;
+      } else {
+        const why = found.ok
+          ? `${found.sha.slice(0, 12)} was green, but re-judging with it still fails: ${rejudged && !rejudged.ok ? rejudged.reasons.join('; ') : ''}`
+          : found.reason;
+        currentHeadReason = `the change is workspace-wide (${wide}), so a green push run of the required checks on the current ${onDefault.ref} HEAD would stand in (T14032), but ${why}`;
+      }
+    }
+  }
   if (!judgedChecks.ok) {
     const waiting = judgedChecks.reasons.some((r) => /pending|not found|missing/.test(r));
     return {
@@ -2314,6 +2565,7 @@ export async function resolveCiEvidenceAtom(
         `Required CI on PR #${prNumber}'s merge commit ${pr.mergeCommitSha.slice(0, 12)} is not green ` +
         `(source: ${describeRequiredWorkflowsSource(required.source)}):\n  - ${judgedChecks.reasons.join('\n  - ')}` +
         (descendantReason ? `\n  No later main run stands in: ${descendantReason}` : '') +
+        (currentHeadReason ? `\n  No current-HEAD run stands in: ${currentHeadReason}` : '') +
         (mainOnly
           ? `\n  PR #${prNumber} edits the pinned workflow ${editedWorkflows.join(', ')}, so only main's push CI attests it (T13174)` +
             (waiting
@@ -2444,6 +2696,7 @@ export async function resolveCiEvidenceAtom(
             ...(descendant.nonTest ? { nonTestFailures: descendant.nonTest } : {}),
           }
         : {}),
+      ...(workspaceWide ? { workspaceWide } : {}),
       ...(mainOnly ? { mainOnly: true } : {}),
       requiredSource: required.source.tier,
       taskId: context.task.id,

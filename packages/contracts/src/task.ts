@@ -681,6 +681,15 @@ export type EvidenceAtom =
        * workflow) were never consulted, and none is re-checked (T13174).
        */
       mainOnly?: boolean;
+      /**
+       * Why the change is workspace-wide (T14032): only a full run speaks for
+       * it, and `descendantSha` is the default branch's head at verify time
+       * (or a commit differing from it only in documentation), descending
+       * from the merge, whose green `push` runs of every required check stood
+       * in whatever the merge commit's own run concluded. Only those push
+       * runs are re-checked.
+       */
+      workspaceWide?: string;
       /** Task the PR was verified to be linked to (T12634). */
       taskId?: string;
       /** Component PR the task is linked through; its CI ran as this integration PR's (T12671). */
