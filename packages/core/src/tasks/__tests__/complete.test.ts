@@ -1014,7 +1014,9 @@ describe('completeTask', () => {
         });
         await seedMerged([affected]);
         const refusal = completeTask({ taskId: 'T001' }, env.tempDir, accessor);
-        await expect(refusal).rejects.toThrow(/ci:42 does not hold.*CI: failure.*can stand in/s);
+        await expect(refusal).rejects.toThrow(
+          /The ci:42 fallback also does not hold: .*CI: failure.*stands in for testsPassed/s,
+        );
         await expect(refusal).rejects.toMatchObject({
           fix: expect.stringMatching(/fix CI .*test-run:.*cover every file of the change.*qa-run:/),
         });

@@ -32,6 +32,7 @@ import { checkTaskEvidenceContext, parseEvidence } from '../../tasks/evidence.js
 import {
   type CommitCheck,
   evaluateMergeCommitChecks,
+  inheritedOnMerge,
   isQuarantineBudgetOnlyLog,
   isSetupStepFailureLog,
   listMainDescendants,
@@ -1842,5 +1843,58 @@ describe('git defaults for the descendant rule, on a real repository (T12742)', 
     history();
     expect(listPathTouchingMainCommits('f'.repeat(40), 'main', ['a.ts'], repo)).toBeNull();
     expect(listMainDescendants('f'.repeat(40), 'main', repo)).toBeNull();
+  });
+});
+
+describe('inheritedOnMerge: a late failing run is not blamed on the PR (T14026)', () => {
+  const MERGE = '7'.repeat(40);
+  const BASE = '1'.repeat(40);
+  const job = (sha: string, conclusion: string, over: Partial<CommitCheck> = {}): CommitCheck => ({
+    name: 'Doppler secrets (dev)',
+    source: 'check-run',
+    status: 'completed',
+    conclusion,
+    headSha: sha,
+    id: sha === MERGE ? 20 : 10,
+    event: 'push',
+    ...over,
+  });
+  const judge = (merge: CommitCheck, nextMainCommitAt: string | null = null) =>
+    inheritedOnMerge(
+      ['Doppler secrets (dev)'],
+      [merge],
+      MERGE,
+      [{ sha: BASE, checks: [job(BASE, 'success')] }],
+      {},
+      nextMainCommitAt,
+    );
+
+  it('a first-attempt run on time: the PR introduced the failure', () => {
+    expect(judge(job(MERGE, 'failure', { runAttempt: 1 }))).toEqual({
+      ok: false,
+      reason: expect.stringMatching(
+        /success on its base 111111111111 — the PR introduced this failure$/,
+      ),
+    });
+  });
+
+  it("a re-run refuses, but says the failure may not be the PR's", () => {
+    const r = judge(job(MERGE, 'failure', { runAttempt: 2 }));
+    expect(r.ok).toBe(false);
+    expect(!r.ok && r.reason).toMatch(
+      /the failing run is re-run attempt 2, so it may have failed on something that changed after the merge/,
+    );
+    expect(!r.ok && r.reason).not.toMatch(/the PR introduced/);
+  });
+
+  it('a run started after a later default-branch commit landed refuses without blaming the PR', () => {
+    const r = judge(
+      job(MERGE, 'failure', { startedAt: '2026-10-20T00:00:00Z' }),
+      '2026-08-01T00:00:00Z',
+    );
+    expect(!r.ok && r.reason).toMatch(
+      /started at 2026-10-20T00:00:00Z, after a later default-branch commit landed \(2026-08-01T00:00:00Z\)/,
+    );
+    expect(!r.ok && r.reason).not.toMatch(/the PR introduced/);
   });
 });

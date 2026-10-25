@@ -8,6 +8,7 @@
  * @task T12656
  * @task T12965
  * @task T13644
+ * @task T14026
  */
 
 import { execFileSync } from 'node:child_process';
@@ -336,7 +337,7 @@ describe('satisfyGatesFromMergedCi', () => {
       );
       expect(out.kind).toBe('ci-red');
       expect(out.kind === 'ci-red' && out.reason).toMatch(
-        /CI: failure\. A targeted test-run recorded on the default branch after the merge.*can stand in for testsPassed \(T13623\), but the test-run did not run src\/a\.test\.ts/s,
+        /^the test-run did not run src\/a\.test\.ts\. The ci:42 fallback also does not hold: Required CI on PR #42's merge commit is not green:.*CI: failure\. A targeted test-run recorded on the default branch after the merge.*stands in for testsPassed \(T13623\)$/s,
       );
     });
 
@@ -349,7 +350,7 @@ describe('satisfyGatesFromMergedCi', () => {
         REQUIRED,
         deps({ recordGates: red().recordGates }),
       );
-      expect(out.kind === 'ci-red' && out.reason).toMatch(/but qaPassed still needs evidence/);
+      expect(out.kind === 'ci-red' && out.reason).toMatch(/^qaPassed still needs evidence/);
     });
   });
 
@@ -720,7 +721,7 @@ describe('satisfyGatesFromMergedCi', () => {
         );
         expect(out.kind).toBe('ci-red');
         expect(out.kind === 'ci-red' && out.reason).toMatch(
-          /CI: cancelled.*qaPassed still needs evidence \(qaPassed rests on qa-run receipts.*qa-run:typecheck\.json was recorded at \w+, which does not descend from merge commit/s,
+          /^qaPassed still needs evidence \(qaPassed rests on qa-run receipts.*qa-run:typecheck\.json was recorded at \w+, which does not descend from merge commit.*The ci:42 fallback also does not hold: .*CI: cancelled/s,
         );
       } finally {
         rmSync(c.root, { recursive: true, force: true });
@@ -763,6 +764,280 @@ describe('satisfyGatesFromMergedCi', () => {
           deps({ ciSatisfies: () => false, currentTree: () => c.tree }),
         );
         expect(out.kind === 'skipped' && out.qaPassedReason).toMatch(/does not descend/);
+      } finally {
+        rmSync(c.root, { recursive: true, force: true });
+      }
+    });
+  });
+
+  describe('T14026: pr: + test-run + tool:lint, red merge CI (the T740 / PR #160 shape)', () => {
+    /**
+     * T740: implemented rests on a recorded pr:160 atom alone (no commit
+     * atoms, so no change set is derived), CI on merge commit 7e517edf5464 is
+     * red, and testsPassed is a test-run recorded on the default branch after
+     * the merge, qaPassed a tool:lint run.
+     */
+    function landed() {
+      const root = realpathSync(mkdtempSync(join(tmpdir(), 'cleo-t14026-')));
+      const git = (...a: string[]): string =>
+        execFileSync('git', ['-c', 'user.name=T', '-c', 'user.email=t@e.x', ...a], {
+          cwd: root,
+          encoding: 'utf-8',
+        }).trim();
+      git('init', '-q', '-b', 'main');
+      mkdirSync(join(root, 'src'));
+      writeFileSync(join(root, 'package.json'), '{"name":"x","type":"module"}\n');
+      writeFileSync(join(root, 'src/a.ts'), 'export const a = 1;\n');
+      writeFileSync(join(root, 'src/a.test.ts'), "import './a.js';\n");
+      writeFileSync(join(root, 'src/b.test.ts'), 'export {};\n');
+      git('add', '.');
+      git('commit', '-q', '-m', 'init');
+      git('switch', '-q', '-c', 'task/T9001');
+      writeFileSync(join(root, 'src/a.ts'), 'export const a = 2;\n');
+      writeFileSync(join(root, 'src/a.test.ts'), "import './a.js'; // 2\n");
+      git('commit', '-q', '-am', 'T9001');
+      git('switch', '-q', 'main');
+      git('merge', '-q', '--no-ff', '-m', 'Merge pull request #160', 'task/T9001');
+      const merge = git('rev-parse', 'HEAD');
+      // A later PR edits a.ts again, so byte-identity carry fails and only the
+      // later-main stand-in can hold.
+      writeFileSync(join(root, 'src/a.ts'), 'export const a = 3;\n');
+      git('commit', '-q', '-am', 'a later PR');
+      const head = git('rev-parse', 'HEAD');
+      const tree = git('rev-parse', 'HEAD^{tree}');
+      git('update-ref', 'refs/remotes/origin/main', head);
+      const pr: EvidenceAtom = {
+        kind: 'pr',
+        prNumber: 160,
+        mergeCommitSha: merge,
+        mergedAt: now,
+        successCount: 1,
+        totalChecks: 2,
+        changedPaths: ['src/a.test.ts', 'src/a.ts'],
+      };
+      return { root, head, tree, pr };
+    }
+    const testRun = (
+      headSha: string,
+      treeHash: string,
+      testFiles = ['src/a.test.ts'],
+    ): EvidenceAtom => ({
+      kind: 'test-run',
+      path: 'r.json',
+      sha256: 'c'.repeat(64),
+      passCount: 1,
+      failCount: 0,
+      skipCount: 0,
+      headSha,
+      treeHash,
+      testFiles,
+    });
+    const lint: EvidenceAtom = { kind: 'tool', tool: 'lint', exitCode: 0 };
+    const red = () =>
+      recorder(
+        engineError<GateVerifyResult>(
+          'E_EVIDENCE_TESTS_FAILED',
+          "Required CI on PR #160's merge commit is not green:\n  - Doppler secrets (dev): failure",
+        ),
+      );
+
+    it('a covering test-run on main after the merge and tool:lint stand: complete never re-derives ci:<pr>', async () => {
+      const c = landed();
+      try {
+        const w = red();
+        const out = await satisfyGatesFromMergedCi(
+          task({ implemented: [c.pr], tests: [testRun(c.head, c.tree)], qa: [lint] }),
+          c.root,
+          REQUIRED,
+          deps({
+            recordGates: w.recordGates,
+            currentTree: () => c.tree,
+            merge: { executionRoot: c.root },
+          }),
+        );
+        expect(out).toEqual({ kind: 'skipped', testsPassedReason: null, qaPassedReason: null });
+        expect(w.calls).toHaveLength(0);
+      } finally {
+        rmSync(c.root, { recursive: true, force: true });
+      }
+    });
+
+    it('a run that cannot stand in is refused with its own reason, judged at the merge the pr: atom names', async () => {
+      const c = landed();
+      try {
+        const w = red();
+        const out = await satisfyGatesFromMergedCi(
+          task({
+            implemented: [c.pr],
+            tests: [testRun(c.head, c.tree, ['src/b.test.ts'])],
+            qa: [lint],
+          }),
+          c.root,
+          REQUIRED,
+          deps({
+            recordGates: w.recordGates,
+            currentTree: () => c.tree,
+            merge: { executionRoot: c.root },
+          }),
+        );
+        expect(w.calls).toHaveLength(1);
+        expect(out.kind).toBe('ci-red');
+        const reason = out.kind === 'ci-red' ? out.reason : '';
+        expect(reason).not.toMatch(/merge commit is not known here/);
+        expect(reason).toMatch(
+          /^test-run report does not run the change.*src\/a\.test\.ts.*\. The ci:160 fallback also does not hold: .*Doppler secrets \(dev\): failure\./s,
+        );
+      } finally {
+        rmSync(c.root, { recursive: true, force: true });
+      }
+    });
+  });
+
+  describe("T14026: the escapeplan PR #160 history (later merges edit the PR's files)", () => {
+    /**
+     * PR #160 (T740) adds form primitives, two test files and a changeset to
+     * the escapeplan-web app of a pnpm workspace. Later PRs (#169, #172, #188,
+     * #202, #226) edit five of its files again before the test-run is
+     * recorded on the development HEAD, so byte-identity carry fails.
+     */
+    const FORM = 'apps/web/src/lib/components/form';
+    function history() {
+      const root = realpathSync(mkdtempSync(join(tmpdir(), 'cleo-t14026-ep-')));
+      const git = (...a: string[]): string =>
+        execFileSync('git', ['-c', 'user.name=T', '-c', 'user.email=t@e.x', ...a], {
+          cwd: root,
+          encoding: 'utf-8',
+        }).trim();
+      const write = (path: string, body: string): void => {
+        mkdirSync(join(root, path, '..'), { recursive: true });
+        writeFileSync(join(root, path), body);
+      };
+      const mergePr = (n: number, branch: string, edit: () => void, subject: string): string => {
+        git('switch', '-q', '-c', branch);
+        edit();
+        git('add', '.');
+        git('commit', '-q', '-m', subject);
+        git('switch', '-q', 'development');
+        git('merge', '-q', '--no-ff', '-m', `Merge pull request #${n} from o/${branch}`, branch);
+        return git('rev-parse', 'HEAD');
+      };
+      git('init', '-q', '-b', 'development');
+      write('package.json', '{"name":"escapeplan","private":true}\n');
+      write('pnpm-workspace.yaml', 'packages:\n  - apps/*\n  - packages/*\n');
+      write('apps/web/package.json', '{"name":"escapeplan-web","type":"module"}\n');
+      write('apps/web/src/app.css', ':root{}\n');
+      write('packages/contracts/package.json', '{"name":"@escapeplan/contracts"}\n');
+      write('packages/contracts/src/index.ts', 'export {};\n');
+      git('add', '.');
+      git('commit', '-q', '-m', 'init');
+      const merge = mergePr(
+        160,
+        'feat/T733-form-fields',
+        () => {
+          write('.changeset/t733-form-fields.md', '---\n---\nform fields\n');
+          write('apps/web/src/app.css', ':root{--a:1}\n');
+          for (const f of ['FieldShell.svelte', 'TextField.svelte', 'form.css', 'index.ts'])
+            write(`${FORM}/${f}`, `// ${f} v1\n`);
+          write(`${FORM}/format.ts`, 'export const f = 1;\n');
+          write(`${FORM}/format.test.ts`, "import './format.js';\n");
+          write(`${FORM}/fields.test.ts`, "import './index.js';\n");
+          write('apps/web/src/routes/dev/forms/+page.svelte', '<p>v1</p>\n');
+        },
+        'feat(T9001): floating-label form field primitives',
+      );
+      const changed = git('diff', '--name-only', `${merge}^1`, merge).split('\n');
+      let n = 169;
+      for (const f of [
+        'apps/web/src/app.css',
+        `${FORM}/FieldShell.svelte`,
+        `${FORM}/form.css`,
+        `${FORM}/index.ts`,
+        'apps/web/src/routes/dev/forms/+page.svelte',
+      ])
+        mergePr(
+          n,
+          `feat/T7${n}`,
+          () => write(f, `// later edit by #${n}\n`),
+          `feat(T7${n++}): later`,
+        );
+      const head = git('rev-parse', 'HEAD');
+      const tree = git('rev-parse', 'HEAD^{tree}');
+      git('update-ref', 'refs/remotes/origin/development', head);
+      git('symbolic-ref', 'refs/remotes/origin/HEAD', 'refs/remotes/origin/development');
+      const pr: EvidenceAtom = {
+        kind: 'pr',
+        prNumber: 160,
+        mergeCommitSha: merge,
+        mergedAt: now,
+        successCount: 1,
+        totalChecks: 2,
+        changedPaths: changed,
+      };
+      return { root, git, write, head, tree, pr };
+    }
+    const testRun = (headSha: string, treeHash: string): EvidenceAtom => ({
+      kind: 'test-run',
+      path: '/tmp/vitest.json',
+      sha256: 'c'.repeat(64),
+      passCount: 9,
+      failCount: 0,
+      skipCount: 0,
+      headSha,
+      treeHash,
+      testFiles: [`${FORM}/fields.test.ts`, `${FORM}/format.test.ts`],
+    });
+    const lint: EvidenceAtom = { kind: 'tool', tool: 'lint', exitCode: 0 };
+    const red = () =>
+      recorder(
+        engineError<GateVerifyResult>(
+          'E_EVIDENCE_TESTS_FAILED',
+          "Required CI on PR #160's merge commit is not green:\n  - Doppler secrets (dev): failure",
+        ),
+      );
+
+    it("a run of the PR's test files on the development HEAD stands in, though later merges edited its files", async () => {
+      const c = history();
+      try {
+        const w = red();
+        const out = await satisfyGatesFromMergedCi(
+          task({ implemented: [c.pr], tests: [testRun(c.head, c.tree)], qa: [lint] }),
+          c.root,
+          REQUIRED,
+          deps({
+            recordGates: w.recordGates,
+            currentTree: () => c.tree,
+            merge: { executionRoot: c.root },
+          }),
+        );
+        expect(out).toEqual({ kind: 'skipped', testsPassedReason: null, qaPassedReason: null });
+        expect(w.calls).toHaveLength(0);
+      } finally {
+        rmSync(c.root, { recursive: true, force: true });
+      }
+    });
+
+    it("a run recorded before a later merge edited the PR's files no longer stands, and says which file moved", async () => {
+      const c = history();
+      try {
+        c.write(`${FORM}/FieldShell.svelte`, '// edited after the run by #230\n');
+        c.git('commit', '-q', '-am', 'feat(T7230): after the run');
+        const now2 = c.git('rev-parse', 'HEAD');
+        const tree2 = c.git('rev-parse', 'HEAD^{tree}');
+        c.git('update-ref', 'refs/remotes/origin/development', now2);
+        const out = await satisfyGatesFromMergedCi(
+          task({ implemented: [c.pr], tests: [testRun(c.head, c.tree)], qa: [lint] }),
+          c.root,
+          REQUIRED,
+          deps({
+            recordGates: red().recordGates,
+            currentTree: () => tree2,
+            merge: { executionRoot: c.root },
+          }),
+        );
+        expect(out.kind).toBe('ci-red');
+        expect(out.kind === 'ci-red' && out.reason).toMatch(
+          /^testsPassed rests on test-run:\/tmp\/vitest\.json, but the change's files.*differ between the tree it was recorded on .*FieldShell\.svelte.*\. The ci:160 fallback also does not hold: Required CI on PR #160's merge commit is not green:.*Doppler secrets \(dev\): failure\./s,
+        );
       } finally {
         rmSync(c.root, { recursive: true, force: true });
       }

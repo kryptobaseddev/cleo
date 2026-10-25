@@ -86,6 +86,10 @@ export interface CommitCheck {
   workflowPath?: string;
   /** Triggering event (`push`, `pull_request`, …), when known. */
   event?: string;
+  /** Workflow attempt (1 = first run, above 1 = a re-run), when known (T14026). */
+  runAttempt?: number;
+  /** ISO 8601 time the run (or this attempt of it) started, when known (T14026). */
+  startedAt?: string;
 }
 
 /** A judged check: which run, on which commit, attests a required name. */
@@ -224,6 +228,12 @@ export interface ResolveCiEvidenceOptions {
    * Defaults to `git log --first-parent`.
    */
   listDescendants?: (mergeSha: string, ref: string, cwd: string) => string[] | null;
+  /**
+   * ISO 8601 commit time of the first first-parent commit of `ref` after
+   * `mergeSha`, or null when there is none or git cannot tell (T14026).
+   * Defaults to `git log --first-parent --ancestry-path`.
+   */
+  nextMainCommitAt?: (mergeSha: string, ref: string, cwd: string) => string | null;
   /**
    * First-parent commits in `from..to` whose diff against their first parent
    * touches any of `paths`; null when git cannot tell (T12742). Any hit —
@@ -845,6 +855,18 @@ function latestRuns(
   return [...latest.values()];
 }
 
+/**
+ * Why a merge-commit run did not test the merge as it was when it landed
+ * (T14026): a re-run, or a start after a later default-branch commit landed.
+ * Null when neither is known.
+ */
+function lateRun(run: CommitCheck, nextMainCommitAt: string | null): string | null {
+  if ((run.runAttempt ?? 1) > 1) return `is re-run attempt ${run.runAttempt}`;
+  if (run.startedAt && nextMainCommitAt && Date.parse(run.startedAt) > Date.parse(nextMainCommitAt))
+    return `started at ${run.startedAt}, after a later default-branch commit landed (${nextMainCommitAt})`;
+  return null;
+}
+
 /** Result of {@link inheritedOnMerge}. */
 export type InheritedOnMergeResult =
   | { ok: true; names: string[]; inherited: InheritedFailure[] }
@@ -861,13 +883,21 @@ export type InheritedOnMergeResult =
  * the PR may have introduced and refuses. A pending merge-commit run refuses.
  * Pure: the ancestors' checks are passed in, nearest first.
  *
+ * The refusal blames the PR only when the failing run could have seen nothing
+ * but the PR's change (T14026): a re-run, or a run that started after a later
+ * default-branch commit landed, ran in a world that moved on since the merge
+ * (rotated secrets, external services), so it still refuses but says the
+ * failure may not be the PR's.
+ *
  * @param required - Required check names.
  * @param checks - Checks fetched for the merge commit.
  * @param mergeCommitSha - The merge commit.
  * @param ancestors - First-parent ancestors of the merge, nearest first, with their checks.
  * @param pins - Required-name to app/workflow pin.
+ * @param nextMainCommitAt - When the next default-branch commit after the merge landed, if known.
  * @returns The required names to stand in for and the inherited jobs, or why not.
  * @task T13453
+ * @task T14026
  */
 export function inheritedOnMerge(
   required: readonly string[],
@@ -875,6 +905,7 @@ export function inheritedOnMerge(
   mergeCommitSha: string,
   ancestors: ReadonlyArray<{ sha: string; checks: readonly CommitCheck[] }>,
   pins: Record<string, RequiredCheckPinSpec>,
+  nextMainCommitAt: string | null = null,
 ): InheritedOnMergeResult {
   const scope = pinnedScope(required, pins);
   const onMerge = latestRuns(checks, mergeCommitSha, scope);
@@ -911,9 +942,13 @@ export function inheritedOnMerge(
       };
     }
     if (base.run.conclusion === 'success') {
+      const at = `${job.name}: ${job.conclusion} on merge commit ${mergeCommitSha.slice(0, 12)} but success on its base ${base.sha.slice(0, 12)}`;
+      const late = lateRun(job, nextMainCommitAt);
       return {
         ok: false,
-        reason: `${job.name}: ${job.conclusion} on merge commit ${mergeCommitSha.slice(0, 12)} but success on its base ${base.sha.slice(0, 12)} — the PR introduced this failure`,
+        reason: late
+          ? `${at}; the failing run ${late}, so it may have failed on something that changed after the merge (secrets, external services) rather than on the PR`
+          : `${at} — the PR introduced this failure`,
       };
     }
     inherited.push({
@@ -1270,6 +1305,8 @@ export interface FindGreenDescendantInput {
   firstParentOf?: NonNullable<ResolveCiEvidenceOptions['firstParentOf']>;
   /** Log of one job (T13809: the quarantine-budget check); absent = never classify. */
   fetchJobLog?: NonNullable<ResolveCiEvidenceOptions['fetchJobLog']>;
+  /** When the next default-branch commit after the merge landed (T14026); absent = unknown. */
+  nextMainCommitAt?: NonNullable<ResolveCiEvidenceOptions['nextMainCommitAt']>;
   /**
    * Job globs a code task's gates need (T13846), with the workflows they must
    * come from. A candidate whose required checks are green but whose push run
@@ -1430,7 +1467,14 @@ export async function findGreenDescendant(
       if (!fetched.ok) break;
       ancestors.push({ sha: at, checks: fetched.checks });
     }
-    const result = inheritedOnMerge(required, input.checks, merge, ancestors, pins);
+    const result = inheritedOnMerge(
+      required,
+      input.checks,
+      merge,
+      ancestors,
+      pins,
+      input.nextMainCommitAt?.(merge, input.ref, cwd) ?? null,
+    );
     if (result.ok) {
       superseded = { ok: true, names: result.names };
       inherited = result.inherited;
@@ -1715,6 +1759,19 @@ export function ghDefaultBranch(cwd: string): string | null {
   }
 }
 
+/** Default {@link ResolveCiEvidenceOptions.nextMainCommitAt} (T14026). */
+function defaultNextMainCommitAt(mergeSha: string, ref: string, cwd: string): string | null {
+  const out = gitRead(cwd, [
+    'log',
+    '--first-parent',
+    '--ancestry-path',
+    '--reverse',
+    '--format=%cI',
+    `${mergeSha}..${ref}`,
+  ]);
+  return out?.split('\n')[0] || null;
+}
+
 function defaultFirstParentOf(sha: string, cwd: string): string | null {
   return gitRead(cwd, ['rev-parse', '--verify', '--quiet', `${sha}^1`]);
 }
@@ -1808,11 +1865,17 @@ async function defaultFetchChecks(
   } | null;
   if (wf === null) return { ok: false, reason: `gh api workflow runs for ${sha} failed` };
   const checks: CommitCheck[] = [];
-  const bySuite = new Map<number, { event?: string; path?: string }>();
+  const bySuite = new Map<
+    number,
+    { event?: string; path?: string; attempt?: number; startedAt?: string }
+  >();
   for (const r of wf.workflow_runs ?? []) {
     const event = typeof r.event === 'string' ? r.event : undefined;
     const path = typeof r.path === 'string' ? r.path.replace(/@.*$/, '') : undefined;
-    if (typeof r.check_suite_id === 'number') bySuite.set(r.check_suite_id, { event, path });
+    const attempt = typeof r.run_attempt === 'number' ? r.run_attempt : undefined;
+    const startedAt = typeof r.run_started_at === 'string' ? r.run_started_at : undefined;
+    if (typeof r.check_suite_id === 'number')
+      bySuite.set(r.check_suite_id, { event, path, attempt, startedAt });
     checks.push({
       name: String(r.name ?? ''),
       source: 'workflow-run',
@@ -1823,6 +1886,8 @@ async function defaultFetchChecks(
       appSlug: 'github-actions',
       ...(path ? { workflowPath: path } : {}),
       ...(event ? { event } : {}),
+      ...(attempt !== undefined ? { runAttempt: attempt } : {}),
+      ...(startedAt ? { startedAt } : {}),
     });
   }
   for (let page = 1; page <= 10; page++) {
@@ -1836,6 +1901,15 @@ async function defaultFetchChecks(
       const app = r.app as { id?: unknown; slug?: unknown } | null | undefined;
       const suite = (r.check_suite as { id?: unknown } | null | undefined)?.id;
       const origin = typeof suite === 'number' ? bySuite.get(suite) : undefined;
+      const startedAt = typeof r.started_at === 'string' ? r.started_at : undefined;
+      // A job started before its workflow's latest attempt belongs to an earlier one.
+      const attempt =
+        origin?.attempt !== undefined &&
+        startedAt &&
+        origin.startedAt &&
+        Date.parse(startedAt) >= Date.parse(origin.startedAt)
+          ? origin.attempt
+          : undefined;
       checks.push({
         name: String(r.name ?? ''),
         source: 'check-run',
@@ -1847,6 +1921,8 @@ async function defaultFetchChecks(
         ...(typeof app?.id === 'number' ? { appId: app.id } : {}),
         ...(origin?.path ? { workflowPath: origin.path } : {}),
         ...(origin?.event ? { event: origin.event } : {}),
+        ...(attempt !== undefined ? { runAttempt: attempt } : {}),
+        ...(startedAt ? { startedAt } : {}),
       });
     }
     if (runs.length < 100) break;
@@ -2197,6 +2273,7 @@ export async function resolveCiEvidenceAtom(
       isAncestor: opts.isAncestor ?? defaultIsAncestor,
       firstParentOf: opts.firstParentOf ?? defaultFirstParentOf,
       fetchJobLog: opts.fetchJobLog ?? defaultFetchJobLog,
+      nextMainCommitAt: opts.nextMainCommitAt ?? defaultNextMainCommitAt,
     });
     if (found.ok) {
       const withDescendant = [...checks, ...found.checks];
