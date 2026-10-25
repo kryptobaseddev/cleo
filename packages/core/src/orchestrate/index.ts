@@ -76,7 +76,6 @@ export {
   WORKER_MISMATCH_AUDIT_FILE,
 } from './worker-verify.js';
 export type {
-  AutoCompleteWorktreeResult,
   CompleteWorktreeForTaskOpts,
   CompleteWorktreeForTaskResult,
   WorktreeCompleteResolveMode,
@@ -84,7 +83,7 @@ export type {
 export {
   AUTO_WORKTREE_COMPLETE_ENV,
   completeWorktreeForTask,
+  integrationDisabledReason,
   isAutoWorktreeCompleteDisabled,
-  maybeAutoCompleteWorktreeForTask,
   WORKTREE_LIFECYCLE_AUDIT_FILE,
 } from './worktree-complete.js';

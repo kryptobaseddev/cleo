@@ -39,6 +39,7 @@ import type {
   Task,
   TaskChangeSet,
   VerificationGate,
+  WorktreeIntegrationPlan,
 } from '@cleocode/contracts';
 import { ExitCode } from '@cleocode/contracts/exit-codes.js';
 import { type EngineResult, engineSuccess } from '../engine-result.js';
@@ -160,6 +161,8 @@ export interface DeriveTaskEvidenceOptions {
    * current pass is not yet a blocker (T13655).
    */
   runTyped?: boolean;
+  /** `--no-integrate`: the plan shows the worktree integration as skipped (T14053). */
+  noIntegrate?: boolean;
 }
 
 /**
@@ -926,7 +929,9 @@ export async function deriveTaskEvidence(
       fix: `cleo find "${taskId}"`,
     });
   }
-  if (task.type === 'epic') return epicPlan(task, storeRoot);
+  // T14053: what completion will do with the worktree branch, from local refs.
+  const integration = await planCompletionIntegration(taskId, storeRoot, opts.noIntegrate);
+  if (task.type === 'epic') return { ...(await epicPlan(task, storeRoot)), integration };
   const rows = [...(await accessor.getAcRows(taskId))].sort((a, b) => a.ordinal - b.ordinal);
   const satisfies = normaliseSatisfies(taskId, opts.satisfies, rows);
   const policy = await loadVerificationGatePolicy(storeRoot);
@@ -1235,7 +1240,23 @@ export async function deriveTaskEvidence(
     commands,
     ready: blockers.length === 0 && commands.length > 0,
     next,
+    integration,
   };
+}
+
+/**
+ * The worktree integration `cleo complete` would run for `taskId`, decided by
+ * the same function, without changing git (T14053).
+ */
+async function planCompletionIntegration(
+  taskId: string,
+  storeRoot: string,
+  noIntegrate: boolean | undefined,
+): Promise<WorktreeIntegrationPlan> {
+  const { planWorktreeIntegration } = await import('../spawn/branch-lock.js');
+  const { integrationDisabledReason } = await import('../orchestrate/worktree-complete.js');
+  const disabledReason = integrationDisabledReason(noIntegrate);
+  return planWorktreeIntegration(taskId, storeRoot, disabledReason ? { disabledReason } : {});
 }
 
 /**

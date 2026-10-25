@@ -26,6 +26,7 @@
 
 import { defineCommand } from 'citty';
 import { dispatchRaw, handleRawError, maybeEmitDescribe } from '../../dispatch/adapters/cli.js';
+import { negatedFlag } from '../lib/negated-flag.js';
 import { cliOutput } from '../renderers/index.js';
 
 /**
@@ -87,6 +88,13 @@ export const completeCommandArgs = {
     description:
       'Fail with E_CONFLICT unless the task updatedAt still equals this version (from cleo show). Guards against completing over a concurrent edit.',
   },
+  // T14053 — `--no-integrate` leaves the task branch and worktree untouched
+  integrate: {
+    type: 'boolean',
+    default: true,
+    description:
+      'Merge a CLEO-provisioned task/<id> worktree into the local default branch on completion (never pushed). --no-integrate (or CLEO_NO_AUTO_WORKTREE_COMPLETE=1) leaves branch and worktree untouched; cleo done --plan shows the decision.',
+  },
 } as const;
 
 /**
@@ -119,6 +127,8 @@ export function completeDispatchParams(args: {
     expectedUpdatedAt: str('if-match'),
     // T13637 — `cleo done --pr <n>`: complete through the PR the plan judged
     prNumber: args.pr === undefined ? undefined : Number(args.pr),
+    // T14053 — skip worktree integration
+    ...(negatedFlag(args, 'integrate') ? { noIntegrate: true } : {}),
   };
 }
 
@@ -196,16 +206,12 @@ export const completeCommand = defineCommand({
     if (Array.isArray(unblockedTasks) && unblockedTasks.length > 0) {
       output['unblockedTasks'] = unblockedTasks;
     }
-    // T9548 — surface auto-invoke worktree-complete diagnostics on the CLI
-    // envelope so the operator can see what happened to the worktree (merged,
-    // noop, env-disabled, conflict, etc.). The field is always present when
-    // task completion succeeded; it's omitted on failure paths.
     // T12660 — completing the focused task clears the pointer.
     if (typeof data?.focusCleared === 'boolean') output['focusCleared'] = data.focusCleared;
     if (data?.nextSuggested !== undefined) output['nextSuggested'] = data.nextSuggested;
-    const worktreeAutoComplete = data?.worktreeAutoComplete;
-    if (worktreeAutoComplete && typeof worktreeAutoComplete === 'object') {
-      output['worktreeAutoComplete'] = worktreeAutoComplete;
+    // T14053 — the one worktree integration result (merge/skip/refuse).
+    if (data?.integration && typeof data.integration === 'object') {
+      output['integration'] = data.integration;
     }
 
     cliOutput(output, { command: 'complete', operation: 'tasks.complete' });

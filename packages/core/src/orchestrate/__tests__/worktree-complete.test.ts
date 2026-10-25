@@ -290,7 +290,10 @@ describe('completeWorktreeForTask (T9548)', () => {
     expect(result.outcome).toBe('manual');
     expect(result.integration).toBeNull();
 
-    const lifecycleEntries = readAuditLines(lifecycleAuditPath);
+    // T14053: createAgentWorktree records its provisioning row first.
+    const lifecycleEntries = readAuditLines(lifecycleAuditPath).filter(
+      (r) => r.action !== 'create',
+    );
     expect(lifecycleEntries).toHaveLength(1);
     expect(lifecycleEntries[0]?.action).toBe('complete-manual');
     expect(lifecycleEntries[0]?.taskId).toBe('T9548-manual');

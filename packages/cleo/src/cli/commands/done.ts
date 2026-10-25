@@ -20,6 +20,7 @@ import type { DoneBlockedDetails } from '@cleocode/contracts';
 import { dispatchRaw } from '../../dispatch/adapters/cli.js';
 import { withoutOutputPointer } from '../field-context.js';
 import { defineCommand } from '../lib/define-cli-command.js';
+import { negatedFlag } from '../lib/negated-flag.js';
 import { cliError, cliOutput } from '../renderers/index.js';
 import { completeCommandArgs, completeDispatchParams } from './complete.js';
 
@@ -136,6 +137,8 @@ export const doneCommand = defineCommand({
       projectRoot: getProjectRoot(),
       ...parsed.options,
       ...(args['run-typed'] === true ? { runTyped: true } : {}),
+      // T14053: the plan shows integration as skipped under --no-integrate.
+      ...(negatedFlag(args, 'integrate') ? { noIntegrate: true } : {}),
     };
     // T12628: `cleo done T1 T2 T3 [--pr N]` closes several tasks in one call.
     // Every id must be a task id — a silently dropped `t2` would report success.

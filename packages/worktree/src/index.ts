@@ -65,6 +65,7 @@ export type { WorktreeAuditPayload } from './worktree-audit.js';
 export {
   addWorktreeToSentinelIndex,
   appendWorktreeAuditLog,
+  isCleoProvisionedWorktree,
   removeWorktreeFromSentinelIndex,
   resolveWorktreeIndexPath,
   WORKTREE_INDEX_RELATIVE_PATH,

@@ -128,6 +128,44 @@ export function appendWorktreeAuditLog(
 }
 
 /**
+ * The newest successful lifecycle-audit row for `taskId` at `xdgPath` whose
+ * action is one of `actions`, or `null` (none, or an unreadable log).
+ */
+function findWorktreeAuditRow(
+  projectRoot: string,
+  taskId: string,
+  xdgPath: string,
+  actions: readonly WorktreeLifecycleAction[],
+): Partial<Record<'action' | 'taskId' | 'xdgPath' | 'baseSha', string>> | null {
+  let lines: string[];
+  try {
+    lines = readFileSync(join(projectRoot, WORKTREE_LIFECYCLE_AUDIT_FILE), 'utf-8').split('\n');
+  } catch {
+    return null;
+  }
+  for (let i = lines.length - 1; i >= 0; i--) {
+    const line = lines[i];
+    if (!line?.includes(taskId) || !actions.some((a) => line.includes(`"${a}"`))) continue;
+    try {
+      const row = JSON.parse(line) as Partial<
+        Record<'action' | 'taskId' | 'xdgPath' | 'baseSha', string>
+      > & { success?: boolean };
+      if (
+        actions.includes(row.action as WorktreeLifecycleAction) &&
+        row.taskId === taskId &&
+        row.xdgPath === xdgPath &&
+        row.success !== false
+      ) {
+        return row;
+      }
+    } catch {
+      // A torn line is skipped; older entries still count.
+    }
+  }
+  return null;
+}
+
+/**
  * The base commit recorded when a task's worktree branch was created: the
  * `baseSha` of the newest `create` entry for `taskId` at `xdgPath` in the
  * lifecycle audit log (T14027). `null` when none was recorded (a worktree
@@ -145,27 +183,28 @@ export function readRecordedWorktreeBase(
   taskId: string,
   xdgPath: string,
 ): string | null {
-  let lines: string[];
-  try {
-    lines = readFileSync(join(projectRoot, WORKTREE_LIFECYCLE_AUDIT_FILE), 'utf-8').split('\n');
-  } catch {
-    return null;
-  }
-  for (let i = lines.length - 1; i >= 0; i--) {
-    const line = lines[i];
-    if (!line?.includes('"create"') || !line.includes(taskId)) continue;
-    try {
-      const row = JSON.parse(line) as Partial<
-        Record<'action' | 'taskId' | 'xdgPath' | 'baseSha', string>
-      >;
-      if (row.action === 'create' && row.taskId === taskId && row.xdgPath === xdgPath) {
-        return row.baseSha ?? null;
-      }
-    } catch {
-      // A torn line is skipped; older entries still count.
-    }
-  }
-  return null;
+  return findWorktreeAuditRow(projectRoot, taskId, xdgPath, ['create'])?.baseSha ?? null;
+}
+
+/**
+ * Whether CLEO provisioned the task's worktree at `xdgPath`: the lifecycle
+ * audit log records a `create` (new branch) or `adopt` (existing branch
+ * reused) for it. A `task/<id>` branch made by hand has no such row, so
+ * completion never merges it (T14053).
+ *
+ * @param projectRoot - Absolute path to the CLEO project root.
+ * @param taskId - Task whose worktree is looked up.
+ * @param xdgPath - The task's canonical worktree path.
+ * @returns `true` when a provisioning row exists.
+ *
+ * @task T14053
+ */
+export function isCleoProvisionedWorktree(
+  projectRoot: string,
+  taskId: string,
+  xdgPath: string,
+): boolean {
+  return findWorktreeAuditRow(projectRoot, taskId, xdgPath, ['create', 'adopt']) !== null;
 }
 
 /**

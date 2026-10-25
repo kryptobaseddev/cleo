@@ -1,7 +1,7 @@
 ---
 name: ct-task-executor
 description: General implementation task execution for completing assigned CLEO tasks by following instructions and producing concrete deliverables. Handles coding, configuration, documentation work with quality verification against acceptance criteria and progress reporting. Use when executing implementation tasks, completing assigned work, or producing task deliverables. Triggers on implementation tasks, general execution needs, or task completion work.
-version: 2.8.6
+version: 2.8.7
 protocol: implementation
 adrRefs:
   - ADR-070
@@ -17,7 +17,7 @@ compatibility:
   - gemini-cli
 license: MIT
 metadata:
-  version: 2.8.6
+  version: 2.8.7
   tier: core
   install: harness
   covers:
@@ -29,7 +29,7 @@ metadata:
     - packages/core/src/validation/protocols/cant/implementation.cant
     - packages/core/src/validation/protocols/protocols-markdown/implementation.md
   loomStage: implementation
-  lastReviewed: 2026-10-24
+  lastReviewed: 2026-10-25
   stability: stable
 ---
 
@@ -148,6 +148,13 @@ A database or service started for a test run must not outlive it. A `docker run`
 4. **Complete task** - Mark task done in task system. `cleo done <id> --pr <n>` completes
    through PR `<n>`: the plan and the completion judge a scoped test run against the same
    merge commit, so a ready plan is not refused by a different carrier.
+   Completion merges the task branch into the local default branch only for a worktree
+   CLEO provisioned, only when the main checkout is already on that branch with no
+   uncommitted tracked changes, and never pushes; a hand-made `task/<id>` branch is
+   skipped. `cleo done <id> --plan` shows the decision under `integration`
+   (`merge`/`skip`/`refuse` and why); `cleo complete --no-integrate` or
+   `CLEO_NO_AUTO_WORKTREE_COMPLETE=1` leaves branch and worktree untouched, and the
+   envelope's `integration` reports what happened.
 
 ---
 

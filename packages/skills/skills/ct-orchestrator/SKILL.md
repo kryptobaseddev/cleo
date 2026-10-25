@@ -2,7 +2,7 @@
 name: ct-orchestrator
 description: "Pipeline-aware orchestration skill for managing complex workflows through subagent delegation. Use when the user asks to \"orchestrate\", \"orchestrator mode\", \"run as orchestrator\", \"delegate to subagents\", \"coordinate agents\", \"spawn subagents\", \"multi-agent workflow\", \"context-protected workflow\", \"agent farm\", \"HITL orchestration\", \"pipeline management\", or needs to manage complex workflows by delegating work to subagents while protecting the main context window. Enforces ORC-001 through ORC-009 constraints. Provider-neutral — works with any AI agent runtime."
 metadata:
-  version: 4.1.3
+  version: 4.1.4
   tier: core
   install: harness
   covers:
@@ -383,6 +383,13 @@ cleo verify <taskId> --gate qaPassed   --evidence "ci:<pr>"   # merged + evidenc
 # 3. Close:
 cleo complete <taskId>
 ```
+
+`cleo complete` merges a worker's `task/<id>` branch into the local default
+branch only when CLEO provisioned its worktree and the main checkout is on that
+branch with no uncommitted tracked changes; otherwise it skips or refuses, never
+switches the checkout and never pushes. Check `integration` in
+`cleo done <taskId> --plan` first; pass `--no-integrate` (or set
+`CLEO_NO_AUTO_WORKTREE_COMPLETE=1`) when the branch lands through a PR.
 
 Never re-run a worker's full suite to "double-check": a worker's
 `tool:test-affected` or `tool:test` result for the same tree and the
