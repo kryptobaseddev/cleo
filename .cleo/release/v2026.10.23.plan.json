@@ -8,7 +8,7 @@
   "epicId": null,
   "releaseKind": "regular",
   "hooksV1Promotion": false,
-  "createdAt": "2026-10-25T21:27:27.509Z",
+  "createdAt": "2026-10-25T21:40:07.867Z",
   "createdBy": "keatonhoskins",
   "previousVersion": "v2026.10.22",
   "previousTag": "v2026.10.22",
@@ -154,7 +154,7 @@
       "name": "test",
       "atom": "tool:test",
       "status": "unresolved",
-      "lastVerifiedAt": "2026-10-25T21:27:27.509Z",
+      "lastVerifiedAt": "2026-10-25T21:40:07.867Z",
       "resolvedCommand": "pnpm run test",
       "resolvedSource": "project-context"
     },
@@ -162,7 +162,7 @@
       "name": "build",
       "atom": "tool:build",
       "status": "unresolved",
-      "lastVerifiedAt": "2026-10-25T21:27:27.509Z",
+      "lastVerifiedAt": "2026-10-25T21:40:07.867Z",
       "resolvedCommand": "pnpm run build",
       "resolvedSource": "project-context"
     },
@@ -170,7 +170,7 @@
       "name": "lint",
       "atom": "tool:lint",
       "status": "unresolved",
-      "lastVerifiedAt": "2026-10-25T21:27:27.509Z",
+      "lastVerifiedAt": "2026-10-25T21:40:07.867Z",
       "resolvedCommand": "pnpm run lint",
       "resolvedSource": "package-script"
     },
@@ -178,7 +178,7 @@
       "name": "typecheck",
       "atom": "tool:typecheck",
       "status": "unresolved",
-      "lastVerifiedAt": "2026-10-25T21:27:27.509Z",
+      "lastVerifiedAt": "2026-10-25T21:40:07.867Z",
       "resolvedCommand": "pnpm run typecheck",
       "resolvedSource": "package-script"
     },
@@ -186,7 +186,7 @@
       "name": "audit",
       "atom": "tool:audit",
       "status": "unresolved",
-      "lastVerifiedAt": "2026-10-25T21:27:27.509Z",
+      "lastVerifiedAt": "2026-10-25T21:40:07.867Z",
       "resolvedCommand": "npm audit",
       "resolvedSource": "language-default"
     },
@@ -194,7 +194,7 @@
       "name": "security-scan",
       "atom": "tool:security-scan",
       "status": "unresolved",
-      "lastVerifiedAt": "2026-10-25T21:27:27.509Z",
+      "lastVerifiedAt": "2026-10-25T21:40:07.867Z",
       "resolvedCommand": "npm audit",
       "resolvedSource": "language-default"
     }
