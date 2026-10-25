@@ -129,6 +129,13 @@
                     "additionalProperties": {
                       "type": "string"
                     }
+                  },
+                  "envKeys": {
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
+                    }
                   }
                 },
                 "required": [
@@ -372,6 +379,13 @@
                     },
                     "additionalProperties": {
                       "type": "string"
+                    }
+                  },
+                  "envKeys": {
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
                     }
                   }
                 },

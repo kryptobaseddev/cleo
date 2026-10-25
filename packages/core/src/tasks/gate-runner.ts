@@ -1220,13 +1220,50 @@ function assertCriterionProjection(task: Task, rows: readonly AcRow[]): void {
     );
 }
 
-/** Effective child environment shared by launch and verification input hashing. */
+/** Effective child environment a gate launches with; its cache key is {@link gateEnvironmentHash}. */
 function gateEnvironment(
   env: NodeJS.ProcessEnv,
   overlay?: Readonly<Record<string, string>>,
 ): NodeJS.ProcessEnv {
   const merged = { ...env, ...overlay };
   return { ...merged, ...heavyToolEnv('test', merged) };
+}
+
+/** Inherited variables every process gate's cache key covers (T14034). */
+const GATE_HASHED_ENV_KEYS: readonly string[] = ['PATH', 'NODE_OPTIONS', 'CI', 'LANG'];
+
+/**
+ * Digest of the environment a gate's cached pass depends on (T14034).
+ *
+ * Hashing the whole launch env made a `--run` pass unusable from any other
+ * shell (`PWD`, `SHLVL`, `TERM_SESSION_ID`, harness ids differ), so evidence
+ * writes refused with `E_GATE_NOT_CACHED`. Only the gate's `env` keys, its
+ * declared `envKeys`, the heavy-run overlay and a fixed tool-input set count;
+ * the launch env stays whole.
+ */
+function gateEnvironmentHash(
+  env: NodeJS.ProcessEnv,
+  overlay: Readonly<Record<string, string>> | undefined,
+  envKeys: readonly string[] | undefined,
+): string {
+  const merged = { ...env, ...overlay };
+  const heavy = heavyToolEnv('test', merged);
+  const effective: NodeJS.ProcessEnv = { ...merged, ...heavy };
+  const keys = new Set([
+    ...GATE_HASHED_ENV_KEYS,
+    ...Object.keys(overlay ?? {}),
+    ...(envKeys ?? []),
+    ...Object.keys(heavy),
+  ]);
+  return createHash('sha256')
+    .update(
+      JSON.stringify(
+        Object.entries(effective)
+          .filter(([key, value]) => value !== undefined && (keys.has(key) || key.startsWith('LC_')))
+          .sort(([a], [b]) => a.localeCompare(b)),
+      ),
+    )
+    .digest('hex');
 }
 
 /**
@@ -1265,20 +1302,14 @@ export function executableInvocation(
       : gate.kind === 'lint'
         ? LINT_TOOL_DEFAULTS[gate.tool].defaultArgs
         : []);
-  const effective = gateEnvironment(env, gate.kind === 'lint' ? undefined : gate.env);
   return {
     command,
     args: [...args],
     cwd: resolveCwd(root, gate.cwd),
-    environmentHash: createHash('sha256')
-      .update(
-        JSON.stringify(
-          Object.entries(effective)
-            .filter(([, value]) => value !== undefined)
-            .sort(([a], [b]) => a.localeCompare(b)),
-        ),
-      )
-      .digest('hex'),
+    environmentHash:
+      gate.kind === 'lint'
+        ? gateEnvironmentHash(env, undefined, undefined)
+        : gateEnvironmentHash(env, gate.env, gate.envKeys),
   };
 }
 

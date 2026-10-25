@@ -34,7 +34,7 @@ const addCommand = defineCommand({
     gate: {
       type: 'string',
       description:
-        'AcceptanceGate JSON string (must match the AcceptanceGate schema; include "req" for a REQ-ID)',
+        'AcceptanceGate JSON string (must match the AcceptanceGate schema; include "req" for a REQ-ID). A test or command gate whose result depends on an inherited variable, such as a database URL, declares it in "envKeys" (e.g. ["DATABASE_URL"]) so a cached --run pass misses when it changes; other shell variables never key the cache',
       required: true,
     },
   },

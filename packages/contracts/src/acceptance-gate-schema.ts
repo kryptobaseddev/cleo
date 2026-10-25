@@ -66,6 +66,12 @@ export type FileAssertionInput = z.input<typeof fileAssertionSchema>;
 // ─── Individual gate schemas ──────────────────────────────────────────────────
 
 /**
+ * Inherited environment variable names a process gate's cached pass depends
+ * on (T14034), e.g. a database URL. Names only; values are read at run time.
+ */
+const gateEnvKeysSchema = z.array(z.string().regex(/^[A-Za-z_][A-Za-z0-9_]*$/)).optional();
+
+/**
  * Zod schema for {@link TestGate}.
  *
  * Validates that `command` is present and `expect` is one of the two allowed
@@ -79,6 +85,7 @@ export const testGateSchema = gateBaseSchema.extend({
   minCount: z.number().int().nonnegative().optional(),
   cwd: z.string().optional(),
   env: z.record(z.string(), z.string()).optional(),
+  envKeys: gateEnvKeysSchema,
 });
 
 /**
@@ -222,6 +229,7 @@ export const commandGateSchema = gateBaseSchema.extend({
   stderrMatches: z.string().optional(),
   cwd: z.string().optional(),
   env: z.record(z.string(), z.string()).optional(),
+  envKeys: gateEnvKeysSchema,
 });
 
 /** Zod schema for {@link LintGate}. */
