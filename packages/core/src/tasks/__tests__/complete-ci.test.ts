@@ -337,7 +337,7 @@ describe('satisfyGatesFromMergedCi', () => {
       );
       expect(out.kind).toBe('ci-red');
       expect(out.kind === 'ci-red' && out.reason).toMatch(
-        /CI: failure\. A targeted test-run recorded on the default branch after the merge.*can stand in for testsPassed \(T13623\), but the test-run did not run src\/a\.test\.ts/s,
+        /^the test-run did not run src\/a\.test\.ts\. The ci:42 fallback also does not hold: Required CI on PR #42's merge commit is not green:.*CI: failure\. A targeted test-run recorded on the default branch after the merge.*stands in for testsPassed \(T13623\)$/s,
       );
     });
 
@@ -350,7 +350,7 @@ describe('satisfyGatesFromMergedCi', () => {
         REQUIRED,
         deps({ recordGates: red().recordGates }),
       );
-      expect(out.kind === 'ci-red' && out.reason).toMatch(/but qaPassed still needs evidence/);
+      expect(out.kind === 'ci-red' && out.reason).toMatch(/^qaPassed still needs evidence/);
     });
   });
 
@@ -721,7 +721,7 @@ describe('satisfyGatesFromMergedCi', () => {
         );
         expect(out.kind).toBe('ci-red');
         expect(out.kind === 'ci-red' && out.reason).toMatch(
-          /CI: cancelled.*qaPassed still needs evidence \(qaPassed rests on qa-run receipts.*qa-run:typecheck\.json was recorded at \w+, which does not descend from merge commit/s,
+          /^qaPassed still needs evidence \(qaPassed rests on qa-run receipts.*qa-run:typecheck\.json was recorded at \w+, which does not descend from merge commit.*The ci:42 fallback also does not hold: .*CI: cancelled/s,
         );
       } finally {
         rmSync(c.root, { recursive: true, force: true });
@@ -885,7 +885,7 @@ describe('satisfyGatesFromMergedCi', () => {
         const reason = out.kind === 'ci-red' ? out.reason : '';
         expect(reason).not.toMatch(/merge commit is not known here/);
         expect(reason).toMatch(
-          /Doppler secrets \(dev\): failure\. A targeted test-run.*but .*src\/a\.test\.ts/s,
+          /^test-run report does not run the change.*src\/a\.test\.ts.*\. The ci:160 fallback also does not hold: .*Doppler secrets \(dev\): failure\./s,
         );
       } finally {
         rmSync(c.root, { recursive: true, force: true });
@@ -1036,7 +1036,7 @@ describe('satisfyGatesFromMergedCi', () => {
         );
         expect(out.kind).toBe('ci-red');
         expect(out.kind === 'ci-red' && out.reason).toMatch(
-          /Doppler secrets \(dev\): failure\..*differ between the tree it was recorded on .*FieldShell\.svelte/s,
+          /^testsPassed rests on test-run:\/tmp\/vitest\.json, but the change's files.*differ between the tree it was recorded on .*FieldShell\.svelte.*\. The ci:160 fallback also does not hold: Required CI on PR #160's merge commit is not green:.*Doppler secrets \(dev\): failure\./s,
         );
       } finally {
         rmSync(c.root, { recursive: true, force: true });

@@ -256,11 +256,15 @@ export async function satisfyGatesFromMergedCi(
     } else if (!needs.includes('testsPassed')) {
       why = `${needs.join(', ')} still needs evidence (${qaNeed})`;
     }
+    // T14026: lead with why the recorded evidence does not stand (a stale
+    // test-run, say); the ci:<pr> fallback's result comes second.
+    const fallback = prRef === null ? 'The merged-CI fallback' : `The ci:${prRef} fallback`;
     return {
       kind: 'ci-red',
       reason:
-        `${refusal.reason}. A targeted test-run recorded on the default branch after the merge, ` +
-        `covering every file of the change, can stand in for testsPassed (T13623), but ${why}`,
+        `${why}. ${fallback} also does not hold: ${refusal.reason.replace(/^ci:\S+ does not hold: /, '')}. ` +
+        'A targeted test-run recorded on the default branch after the merge, covering every file ' +
+        'of the change, stands in for testsPassed (T13623)',
     };
   };
   if (state !== 'merged') return { kind: 'skipped', testsPassedReason, qaPassedReason };
