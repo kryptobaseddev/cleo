@@ -1,5 +1,34 @@
 # Changelog
 
+## [2026.10.23] (2026-10-25)
+
+> **Update now: run `cleo self-update`.**
+
+### Highlights
+
+- **`cleo complete` names the real reason a recorded test-run no longer stands.** For a task implemented by a `pr:` atom, an after-merge `test-run:` is judged at that PR's merge, and the refusal leads with why the evidence does not stand. It no longer blames the PR for a re-run or late merge-commit job that failed on something that changed after the merge, such as secrets (T14026).
+- **Deletion-only direct merges can implement.** A PR merged straight into the default branch that only deleted files implements with `pr:<n>;note:<deleted paths>`; every listed path must be one the PR deleted and still absent at HEAD (T14024, T14028).
+- **Multi-PR evidence credits earlier PRs.** In a write citing several `pr:` atoms, an earlier PR is credited while the file version read still carries its own hunks, even when a later cited PR also edited that file (T14025).
+- **Workspace-wide changes can stand on current CI.** When a workspace-wide change (lockfile, root config, a path outside every package) has a red merge-commit run, `ci:<pr>` accepts green required CI on the default branch's current HEAD (owner decision D11192, T14032).
+- **Typed-gate cache key covers only declared env.** A cached `cleo verify --run` pass is keyed on the gate's `env`, its new `envKeys` field and a fixed tool-input set, so another shell can reuse it. Declare result-changing inputs such as `DATABASE_URL` in `envKeys` (T14034, T14035).
+- **`cleo run` never raises a project's own vitest worker limit.** A serial suite (`fileParallelism: false`, `maxWorkers: 1`) stays serial under `cleo run` and `tool:test` (T14033).
+- **`cleo orchestrate spawn --base <ref>`** creates the task branch from a branch, tag or sha instead of HEAD, without moving the primary checkout (T14027).
+
+### Added
+
+- ci:<pr> for a workspace-wide change accepts green required CI on the current default-branch HEAD when the merge commit's CI is red _(provenance: [T14032](https://github.com/kryptobaseddev/cleo/search?q=T14032&type=commits))_
+
+### Changed
+
+- CLEO-REFERENCE states that an undeclared env var lets a cached typed-gate pass be reused under a different value _(provenance: [T14035](https://github.com/kryptobaseddev/cleo/search?q=T14035&type=commits))_
+
+### Fixed
+
+- cleo complete judges an after-merge test-run at the merge a recorded pr: atom names, leads its refusal with why the evidence does not stand, and stops blaming the PR for a re-run or late failing merge-commit job _(provenance: [T14026](https://github.com/kryptobaseddev/cleo/search?q=T14026&type=commits))_
+- a `pr:` atom whose listed files a later cited PR also edited is proven while the read version still carries its own hunks _(provenance: [T14025](https://github.com/kryptobaseddev/cleo/search?q=T14025&type=commits))_
+- Typed-gate cache key hashes only declared and tool-input env, so a --run pass is reusable from another shell _(provenance: [T14034](https://github.com/kryptobaseddev/cleo/search?q=T14034&type=commits))_
+- cleo run and tool:test no longer turn a serial vitest suite (fileParallelism: false, maxWorkers 1) parallel _(provenance: [T14033](https://github.com/kryptobaseddev/cleo/search?q=T14033&type=commits))_
+
 ## [2026.10.22] (2026-10-24)
 
 > **Update now: run `cleo self-update`.**
