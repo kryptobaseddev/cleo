@@ -893,6 +893,157 @@ describe('satisfyGatesFromMergedCi', () => {
     });
   });
 
+  describe("T14026: the escapeplan PR #160 history (later merges edit the PR's files)", () => {
+    /**
+     * PR #160 (T740) adds form primitives, two test files and a changeset to
+     * the escapeplan-web app of a pnpm workspace. Later PRs (#169, #172, #188,
+     * #202, #226) edit five of its files again before the test-run is
+     * recorded on the development HEAD, so byte-identity carry fails.
+     */
+    const FORM = 'apps/web/src/lib/components/form';
+    function history() {
+      const root = realpathSync(mkdtempSync(join(tmpdir(), 'cleo-t14026-ep-')));
+      const git = (...a: string[]): string =>
+        execFileSync('git', ['-c', 'user.name=T', '-c', 'user.email=t@e.x', ...a], {
+          cwd: root,
+          encoding: 'utf-8',
+        }).trim();
+      const write = (path: string, body: string): void => {
+        mkdirSync(join(root, path, '..'), { recursive: true });
+        writeFileSync(join(root, path), body);
+      };
+      const mergePr = (n: number, branch: string, edit: () => void, subject: string): string => {
+        git('switch', '-q', '-c', branch);
+        edit();
+        git('add', '.');
+        git('commit', '-q', '-m', subject);
+        git('switch', '-q', 'development');
+        git('merge', '-q', '--no-ff', '-m', `Merge pull request #${n} from o/${branch}`, branch);
+        return git('rev-parse', 'HEAD');
+      };
+      git('init', '-q', '-b', 'development');
+      write('package.json', '{"name":"escapeplan","private":true}\n');
+      write('pnpm-workspace.yaml', 'packages:\n  - apps/*\n  - packages/*\n');
+      write('apps/web/package.json', '{"name":"escapeplan-web","type":"module"}\n');
+      write('apps/web/src/app.css', ':root{}\n');
+      write('packages/contracts/package.json', '{"name":"@escapeplan/contracts"}\n');
+      write('packages/contracts/src/index.ts', 'export {};\n');
+      git('add', '.');
+      git('commit', '-q', '-m', 'init');
+      const merge = mergePr(
+        160,
+        'feat/T733-form-fields',
+        () => {
+          write('.changeset/t733-form-fields.md', '---\n---\nform fields\n');
+          write('apps/web/src/app.css', ':root{--a:1}\n');
+          for (const f of ['FieldShell.svelte', 'TextField.svelte', 'form.css', 'index.ts'])
+            write(`${FORM}/${f}`, `// ${f} v1\n`);
+          write(`${FORM}/format.ts`, 'export const f = 1;\n');
+          write(`${FORM}/format.test.ts`, "import './format.js';\n");
+          write(`${FORM}/fields.test.ts`, "import './index.js';\n");
+          write('apps/web/src/routes/dev/forms/+page.svelte', '<p>v1</p>\n');
+        },
+        'feat(T9001): floating-label form field primitives',
+      );
+      const changed = git('diff', '--name-only', `${merge}^1`, merge).split('\n');
+      let n = 169;
+      for (const f of [
+        'apps/web/src/app.css',
+        `${FORM}/FieldShell.svelte`,
+        `${FORM}/form.css`,
+        `${FORM}/index.ts`,
+        'apps/web/src/routes/dev/forms/+page.svelte',
+      ])
+        mergePr(
+          n,
+          `feat/T7${n}`,
+          () => write(f, `// later edit by #${n}\n`),
+          `feat(T7${n++}): later`,
+        );
+      const head = git('rev-parse', 'HEAD');
+      const tree = git('rev-parse', 'HEAD^{tree}');
+      git('update-ref', 'refs/remotes/origin/development', head);
+      git('symbolic-ref', 'refs/remotes/origin/HEAD', 'refs/remotes/origin/development');
+      const pr: EvidenceAtom = {
+        kind: 'pr',
+        prNumber: 160,
+        mergeCommitSha: merge,
+        mergedAt: now,
+        successCount: 1,
+        totalChecks: 2,
+        changedPaths: changed,
+      };
+      return { root, git, write, head, tree, pr };
+    }
+    const testRun = (headSha: string, treeHash: string): EvidenceAtom => ({
+      kind: 'test-run',
+      path: '/tmp/vitest.json',
+      sha256: 'c'.repeat(64),
+      passCount: 9,
+      failCount: 0,
+      skipCount: 0,
+      headSha,
+      treeHash,
+      testFiles: [`${FORM}/fields.test.ts`, `${FORM}/format.test.ts`],
+    });
+    const lint: EvidenceAtom = { kind: 'tool', tool: 'lint', exitCode: 0 };
+    const red = () =>
+      recorder(
+        engineError<GateVerifyResult>(
+          'E_EVIDENCE_TESTS_FAILED',
+          "Required CI on PR #160's merge commit is not green:\n  - Doppler secrets (dev): failure",
+        ),
+      );
+
+    it("a run of the PR's test files on the development HEAD stands in, though later merges edited its files", async () => {
+      const c = history();
+      try {
+        const w = red();
+        const out = await satisfyGatesFromMergedCi(
+          task({ implemented: [c.pr], tests: [testRun(c.head, c.tree)], qa: [lint] }),
+          c.root,
+          REQUIRED,
+          deps({
+            recordGates: w.recordGates,
+            currentTree: () => c.tree,
+            merge: { executionRoot: c.root },
+          }),
+        );
+        expect(out).toEqual({ kind: 'skipped', testsPassedReason: null, qaPassedReason: null });
+        expect(w.calls).toHaveLength(0);
+      } finally {
+        rmSync(c.root, { recursive: true, force: true });
+      }
+    });
+
+    it("a run recorded before a later merge edited the PR's files no longer stands, and says which file moved", async () => {
+      const c = history();
+      try {
+        c.write(`${FORM}/FieldShell.svelte`, '// edited after the run by #230\n');
+        c.git('commit', '-q', '-am', 'feat(T7230): after the run');
+        const now2 = c.git('rev-parse', 'HEAD');
+        const tree2 = c.git('rev-parse', 'HEAD^{tree}');
+        c.git('update-ref', 'refs/remotes/origin/development', now2);
+        const out = await satisfyGatesFromMergedCi(
+          task({ implemented: [c.pr], tests: [testRun(c.head, c.tree)], qa: [lint] }),
+          c.root,
+          REQUIRED,
+          deps({
+            recordGates: red().recordGates,
+            currentTree: () => tree2,
+            merge: { executionRoot: c.root },
+          }),
+        );
+        expect(out.kind).toBe('ci-red');
+        expect(out.kind === 'ci-red' && out.reason).toMatch(
+          /Doppler secrets \(dev\): failure\..*differ between the tree it was recorded on .*FieldShell\.svelte/s,
+        );
+      } finally {
+        rmSync(c.root, { recursive: true, force: true });
+      }
+    });
+  });
+
   it('T13516: a typed-gate cache refusal names cleo verify --run, not --no-run', async () => {
     const out = await satisfyGatesFromMergedCi(
       task({}),
