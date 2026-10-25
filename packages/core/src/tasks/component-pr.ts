@@ -320,6 +320,37 @@ export function directMergeDeletions(
   }
 }
 
+/**
+ * The given paths whose change by `merge` (its first-parent diff) a later
+ * commit still carries (T14025): the same rule as {@link componentLandedChanges}
+ * — identical bytes, or own hunks that reverse-apply there and do not
+ * re-apply — for an earlier `pr:` atom whose listed files are read at a later
+ * PR's merge. Like that function it only sees the merge's first-parent diff, so
+ * a rebase-merged PR under-reports and fails closed.
+ *
+ * @param root - Git checkout holding both commits.
+ * @param merge - The earlier PR's merge (or squash) commit.
+ * @param landing - The commit whose bytes are read (a later PR's merge).
+ * @param paths - Repo-relative paths the earlier PR changed.
+ * @returns The subset of `paths` still carried by `landing`; none on a git timeout.
+ * @task T14025
+ */
+export function changesCarriedBy(
+  root: string,
+  merge: string,
+  landing: string,
+  paths: readonly string[],
+): string[] {
+  try {
+    const nameStatus = paths.map((path) => `M\t${path}`).join('\n');
+    return survivingChanges(root, nameStatus, `${merge}^1`, merge, landing).files;
+  } catch (err) {
+    // A timed-out read credits nothing (fails closed).
+    if (err instanceof GitTimeoutError) return [];
+    throw err;
+  }
+}
+
 /** {@link componentLandedChanges}, letting a git timeout propagate. */
 function landedChangesOfMerge(
   root: string,

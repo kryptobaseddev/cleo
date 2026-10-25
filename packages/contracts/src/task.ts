@@ -270,6 +270,14 @@ export type EvidenceAtom =
          * recorded root or falls back to `path`, and the sha256 still decides.
          */
         resolvedPath?: string;
+        /**
+         * Merge commits of earlier `pr:` atoms in the same write whose own
+         * hunks these bytes still carry (T14025). The file is read at the
+         * latest cited PR that changed it; an earlier PR it also proves is
+         * listed here, so a later edit elsewhere in the file does not leave
+         * that PR unproven. Absent when the file proves no earlier PR.
+         */
+        carries?: string[];
       }>;
     }
   | {

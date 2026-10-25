@@ -471,14 +471,21 @@ export async function validateAtom(
   switch (parsed.kind) {
     case 'commit':
       return validateCommit(parsed.sha, roots, taskId);
-    case 'files':
-      return validateFiles(
+    case 'files': {
+      const result = await validateFiles(
         parsed.paths,
         roots,
         taskId,
         anchorFor,
         Boolean(artifactPrs ?? context?.artifactCommitSha),
       );
+      if (!result.ok || result.atom.kind !== 'files' || (artifactPrs?.length ?? 0) < 2)
+        return result;
+      return {
+        ok: true,
+        atom: await creditCarriedHunks(result.atom, artifactPrs ?? [], roots.executionRoot),
+      };
+    }
     case 'test-run':
       return validateTestRun(parsed.path, roots, taskId ?? context?.task.id);
     case 'qa-run':
@@ -3416,6 +3423,74 @@ export function prMergeCommitForPath(
 }
 
 /**
+ * Credit earlier PRs of a multi-PR write whose own hunks a listed file still
+ * carries where it is read (T14025). A file several cited PRs changed is read
+ * at the latest of their merges ({@link prMergeCommitForPath}); each earlier
+ * PR whose first-parent change to it that version still carries — identical
+ * bytes, or hunks that reverse-apply and do not re-apply, the T12689 rule for
+ * components — is recorded in the entry's `carries`, so the file proves that PR
+ * as well. Hunks a later change rewrote or reverted credit nothing.
+ *
+ * @param atom - The validated `files:` atom.
+ * @param prs - Verified PR anchors of the write.
+ * @param root - Git checkout holding the merge commits.
+ * @returns The atom, with `carries` on each entry that proves an earlier PR.
+ * @task T14025
+ */
+async function creditCarriedHunks(
+  atom: Extract<EvidenceAtom, { kind: 'files' }>,
+  prs: ReadonlyArray<EvidenceMergeAnchor>,
+  root: string,
+): Promise<Extract<EvidenceAtom, { kind: 'files' }>> {
+  const { changesCarriedBy } = await import('./component-pr.js');
+  const files = atom.files.map((file) => {
+    const path = normalizeEvidencePath(file.path);
+    const read = prMergeCommitForPath(prs, path);
+    if (read === undefined || isAbsolute(path)) return file;
+    const carries = prs
+      .filter(
+        (pr) =>
+          pr.mergeCommitSha !== read &&
+          pr.changedPaths?.some((changed) => normalizeEvidencePath(changed) === path) &&
+          changesCarriedBy(root, pr.mergeCommitSha, read, [path]).length > 0,
+      )
+      .map((pr) => pr.mergeCommitSha);
+    return carries.length > 0 ? { ...file, carries } : file;
+  });
+  return { ...atom, files };
+}
+
+/**
+ * Why a PR of a multi-PR write is not proven by its listed files (T14025):
+ * each file, the PR whose merge it is read at, and only the fixes that exist —
+ * a file no later cited PR changed is suggested only when the PR has one.
+ */
+function unprovenPrReason(
+  atom: Extract<EvidenceAtom, { kind: 'pr' }>,
+  prAtoms: ReadonlyArray<Extract<EvidenceAtom, { kind: 'pr' }>>,
+  ownFiles: readonly string[],
+): string {
+  const readAt = (path: string): string => {
+    const sha = prMergeCommitForPath(prAtoms, path);
+    const pr = prAtoms.find((candidate) => candidate.mergeCommitSha === sha);
+    return pr ? `PR #${pr.prNumber}` : (sha?.slice(0, 12) ?? 'an unknown commit');
+  };
+  const deleted = new Set((atom.deletedPaths ?? []).map(normalizeEvidencePath));
+  const ownMerge = (atom.changedPaths ?? []).filter(
+    (path) =>
+      !deleted.has(normalizeEvidencePath(path)) &&
+      prMergeCommitForPath(prAtoms, path) === atom.mergeCommitSha,
+  );
+  const listed = ownFiles.map((path) => `${path} (read at ${readAt(path)}'s merge)`).join(', ');
+  const separately = `record PR #${atom.prNumber} in its own cleo verify write, which reads its files at its own merge ${atom.mergeCommitSha.slice(0, 12)}`;
+  const fix =
+    ownMerge.length > 0
+      ? `List a file PR #${atom.prNumber} changed that no later PR you cited changed (${ownMerge.slice(0, 5).join(', ')}${ownMerge.length > 5 ? ', …' : ''}), or ${separately}.`
+      : `No file PR #${atom.prNumber} changed is free of a later cited PR, so ${separately}.`;
+  return `PR #${atom.prNumber} is not proven by this write: every file it changed that you listed is read at a later PR's merge, and that version no longer carries PR #${atom.prNumber}'s own hunks (a later change rewrote or reverted them): ${listed}. ${fix}`;
+}
+
+/**
  * A PR whose every change is a deletion that stays deleted (T12689): its
  * receipt pins the deleted paths, and there are no bytes to hash, so
  * `files:` cannot be required of it.
@@ -3478,9 +3553,8 @@ export function checkTaskEvidenceContext(
   gate: VerificationGate,
   atoms: EvidenceAtom[],
 ): string | null {
-  const filePaths = atoms.flatMap((atom) =>
-    atom.kind === 'files' ? atom.files.map((file) => file.path) : [],
-  );
+  const fileEntries = atoms.flatMap((atom) => (atom.kind === 'files' ? atom.files : []));
+  const filePaths = fileEntries.map((file) => file.path);
   // T12634: a `ci:` result is bound to the task it was validated for, like `pr:`.
   if (atoms.some((atom) => atom.kind === 'ci' && atom.taskId !== context.task.id))
     return 'CI evidence lacks verified task linkage; re-verify with current task context.';
@@ -3488,7 +3562,8 @@ export function checkTaskEvidenceContext(
   // pinned to the merge of the PR that changed it (prMergeCommitForPath), and
   // every PR must be proven by an artifact it changed that was READ AT ITS OWN
   // merge. A file two PRs changed is read at the later merge only, so it
-  // proves the later PR, never the earlier one.
+  // proves the earlier PR only while that version still carries the earlier
+  // PR's own hunks (T14025, recorded in the entry's `carries`).
   const prAtoms = atoms.filter((atom) => atom.kind === 'pr');
   for (const atom of prAtoms) {
     if (atom.taskId !== context.task.id || !atom.changedPaths?.length)
@@ -3498,8 +3573,13 @@ export function checkTaskEvidenceContext(
       const ownFiles = filePaths.filter((path) => changed.has(normalizeEvidencePath(path)));
       if (ownFiles.length === 0)
         return `PR #${atom.prNumber} requires files evidence for an artifact actually changed by that PR.`;
-      if (!ownFiles.some((path) => prMergeCommitForPath(prAtoms, path) === atom.mergeCommitSha))
-        return `PR #${atom.prNumber} has no listed file read at its own merge commit: every file it changed that you listed (${ownFiles.join(', ')}) is read at a later PR's merge. List a file PR #${atom.prNumber} changed last, or record PR #${atom.prNumber} in a separate attempt.`;
+      const proven = fileEntries.some(
+        (file) =>
+          changed.has(normalizeEvidencePath(file.path)) &&
+          (prMergeCommitForPath(prAtoms, file.path) === atom.mergeCommitSha ||
+            file.carries?.includes(atom.mergeCommitSha) === true),
+      );
+      if (!proven) return unprovenPrReason(atom, prAtoms, ownFiles);
     }
     if (gate === 'implemented' && atom.componentPrNumber === undefined && isDeletionOnlyPr(atom)) {
       const refusal = deletionNoteRefusal(
