@@ -1,0 +1,247 @@
+{
+  "$schema": "https://cleocode.io/schemas/release-plan/v1.json",
+  "version": "v2026.10.23",
+  "resolvedVersion": "v2026.10.23",
+  "suffixApplied": false,
+  "scheme": "calver",
+  "channel": "latest",
+  "epicId": null,
+  "releaseKind": "regular",
+  "hooksV1Promotion": false,
+  "createdAt": "2026-10-25T21:40:07.867Z",
+  "createdBy": "keatonhoskins",
+  "previousVersion": "v2026.10.22",
+  "previousTag": "v2026.10.22",
+  "previousShippedAt": "2026-10-24T22:41:25.847Z",
+  "tasks": [
+    {
+      "id": "T14024",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "A deletion-only PR merged directly into the default branch cannot prove implemented (pr:<n>;note:<deleted paths> refused)",
+      "evidenceAtoms": [
+        "pr:2450",
+        "files:packages/contracts/src/task.ts,packages/core/src/tasks/__tests__/component-credit-T12689.test.ts,packages/core/src/tasks/__tests__/component-pr.test.ts,packages/core/src/tasks/component-pr.ts,packages/core/src/tasks/evidence.ts,packages/core/templates/CLEO-REFERENCE.md",
+        "ci:2450"
+      ],
+      "epicAncestor": "T12956",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T14025",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "pr:<n> refused when every file the PR changed was later edited, contradicting the documented own-hunks rule",
+      "evidenceAtoms": [
+        "pr:2452",
+        "files:.changeset/t14025-multi-pr-own-hunks.md,packages/contracts/src/task.ts,packages/core/src/tasks/__tests__/evidence-multi-pr-hunks-T14025.test.ts,packages/core/src/tasks/component-pr.ts,packages/core/src/tasks/evidence.ts,packages/core/templates/CLEO-INJECTION.md,packages/core/templates/CLEO-REFERENCE.md,packages/skills/skills/ct-cleo/SKILL.md,packages/skills/skills/manifest.json",
+        "ci:2452"
+      ],
+      "epicAncestor": "T12956",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T14026",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "cleo complete re-derives ci:<pr> and ignores a recorded test-run stand-in when merge CI is red or cancelled",
+      "evidenceAtoms": [
+        "pr:2451",
+        "files:.changeset/complete-standin-pr-merge.md,packages/core/src/release/__tests__/ci-evidence.test.ts,packages/core/src/release/ci-evidence.ts,packages/core/src/tasks/__tests__/complete-ci.test.ts,packages/core/src/tasks/__tests__/complete.test.ts,packages/core/src/tasks/complete-ci.ts,packages/core/templates/CLEO-INJECTION.md,packages/core/templates/CLEO-REFERENCE.md,packages/skills/skills/ct-cleo/SKILL.md,packages/skills/skills/manifest.json",
+        "ci:2451"
+      ],
+      "epicAncestor": "T12956",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T14027",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "orchestrate spawn: create a task worktree from a base that contains its dependencies' commits",
+      "evidenceAtoms": [
+        "pr:2457",
+        "files:packages/cleo/src/cli/commands/orchestrate.ts,packages/cleo/src/dispatch/domains/__tests__/orchestrate.test.ts,packages/cleo/src/dispatch/domains/orchestrate.ts,packages/contracts/src/branch-lock.ts,packages/contracts/src/operations/worktree.ts,packages/core/src/orchestrate/spawn-ops.ts,packages/skills/skills/ct-orchestrator/SKILL.md,packages/skills/skills/manifest.json,packages/worktree/src/__tests__/worktree-create-base.test.ts,packages/worktree/src/worktree-audit.ts,packages/worktree/src/worktree-create.ts",
+        "ci:2457",
+        "note:recorded by cleo complete from the required CI of merged PR #2457 (T12960)"
+      ],
+      "epicAncestor": "T10853",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T14028",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "Document that every note: atom is parsed as deleted paths in the direct-merge deletion form",
+      "evidenceAtoms": [
+        "ci:2453",
+        "pr:2453",
+        "files:packages/core/templates/CLEO-REFERENCE.md"
+      ],
+      "epicAncestor": "T12956",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T14032",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "Workspace-wide change: accept a green full CI run on the current default-branch HEAD as the testsPassed stand-in",
+      "evidenceAtoms": [
+        "pr:2456",
+        "files:.changeset/ci-workspace-wide-current-head.md,packages/contracts/src/task.ts,packages/core/src/release/__tests__/ci-evidence.test.ts,packages/core/src/release/ci-evidence.ts,packages/core/src/tasks/test-run-binding.ts,packages/core/templates/CLEO-REFERENCE.md",
+        "ci:2456"
+      ],
+      "epicAncestor": "T12956",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T14033",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "cleo run VITEST_MAX_WORKERS overrides a project's fileParallelism:false, so serial suites run in parallel and fail",
+      "evidenceAtoms": [
+        "pr:2455",
+        "files:.changeset/vitest-worker-ceiling.md,packages/core/src/resources/__tests__/admission-ledger.test.ts,packages/core/src/resources/admission-ledger.ts,packages/core/src/tasks/__tests__/heavy-tool-env.test.ts,packages/core/src/tasks/gate-runner.ts,packages/core/src/tasks/heavy-tool-env.ts,packages/core/src/tasks/tool-cache.ts",
+        "ci:2455"
+      ],
+      "epicAncestor": "T12956",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T14034",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "Typed-gate cache key hashes the whole process env, so a --run pass cannot be consumed from another shell (E_GATE_NOT_CACHED)",
+      "evidenceAtoms": [
+        "pr:2454",
+        "files:.changeset/t14034-gate-env-hash.md,packages/cleo/src/cli/commands/req.ts,packages/contracts/schemas/acceptance-gate.schema.json,packages/contracts/schemas/task.schema.json,packages/contracts/src/acceptance-gate-schema.ts,packages/contracts/src/acceptance-gate.ts,packages/core/src/tasks/__tests__/gate-env-hash-T14034.test.ts,packages/core/src/tasks/__tests__/gate-runner.test.ts,packages/core/src/tasks/gate-runner.ts,packages/core/templates/CLEO-REFERENCE.md",
+        "ci:2454"
+      ],
+      "epicAncestor": "T12956",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T14035",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "CLEO-REFERENCE: an undeclared env var lets a cached typed-gate pass be reused under a different value",
+      "evidenceAtoms": [
+        "pr:2458",
+        "files:.changeset/t14035-envkeys-undeclared-doc.md,packages/core/templates/CLEO-REFERENCE.md",
+        "ci:2458"
+      ],
+      "epicAncestor": "T12956",
+      "ivtrPhaseAtPlan": "contribution"
+    }
+  ],
+  "changelog": {
+    "features": [
+      "T14024",
+      "T14025",
+      "T14026",
+      "T14027",
+      "T14028",
+      "T14032",
+      "T14033",
+      "T14034",
+      "T14035"
+    ],
+    "fixes": [],
+    "chores": [],
+    "breaking": []
+  },
+  "gates": [
+    {
+      "name": "test",
+      "atom": "tool:test",
+      "status": "unresolved",
+      "lastVerifiedAt": "2026-10-25T21:40:07.867Z",
+      "resolvedCommand": "pnpm run test",
+      "resolvedSource": "project-context"
+    },
+    {
+      "name": "build",
+      "atom": "tool:build",
+      "status": "unresolved",
+      "lastVerifiedAt": "2026-10-25T21:40:07.867Z",
+      "resolvedCommand": "pnpm run build",
+      "resolvedSource": "project-context"
+    },
+    {
+      "name": "lint",
+      "atom": "tool:lint",
+      "status": "unresolved",
+      "lastVerifiedAt": "2026-10-25T21:40:07.867Z",
+      "resolvedCommand": "pnpm run lint",
+      "resolvedSource": "package-script"
+    },
+    {
+      "name": "typecheck",
+      "atom": "tool:typecheck",
+      "status": "unresolved",
+      "lastVerifiedAt": "2026-10-25T21:40:07.867Z",
+      "resolvedCommand": "pnpm run typecheck",
+      "resolvedSource": "package-script"
+    },
+    {
+      "name": "audit",
+      "atom": "tool:audit",
+      "status": "unresolved",
+      "lastVerifiedAt": "2026-10-25T21:40:07.867Z",
+      "resolvedCommand": "npm audit",
+      "resolvedSource": "language-default"
+    },
+    {
+      "name": "security-scan",
+      "atom": "tool:security-scan",
+      "status": "unresolved",
+      "lastVerifiedAt": "2026-10-25T21:40:07.867Z",
+      "resolvedCommand": "npm audit",
+      "resolvedSource": "language-default"
+    }
+  ],
+  "platformMatrix": [
+    {
+      "platform": "any",
+      "publisher": "npm",
+      "package": "@cleocode/cleo"
+    }
+  ],
+  "preflightSummary": {
+    "esbuildExternalsDrift": false,
+    "lockfileDrift": false,
+    "epicCompletenessClean": true,
+    "doubleListingClean": true,
+    "preflightWarnings": [
+      "Skipped 916 out-of-scope changeset entries whose task anchors are not part of this release plan"
+    ]
+  },
+  "workflowRunUrl": null,
+  "prUrl": null,
+  "mergeCommitSha": null,
+  "status": "planned",
+  "meta": {
+    "firstEverRelease": false,
+    "archetype": "node",
+    "releaseNotes": "## v2026.10.23 — 2026-10-25\n\n> **Update now: run `cleo self-update`.**\n\n### Highlights\n\n- **`cleo complete` names the real reason a recorded test-run no longer stands.** For a task implemented by a `pr:` atom, an after-merge `test-run:` is judged at that PR's merge, and the refusal leads with why the evidence does not stand. It no longer blames the PR for a re-run or late merge-commit job that failed on something that changed after the merge, such as secrets (T14026).\n- **Deletion-only direct merges can implement.** A PR merged straight into the default branch that only deleted files implements with `pr:<n>;note:<deleted paths>`; every listed path must be one the PR deleted and still absent at HEAD (T14024, T14028).\n- **Multi-PR evidence credits earlier PRs.** In a write citing several `pr:` atoms, an earlier PR is credited while the file version read still carries its own hunks, even when a later cited PR also edited that file (T14025).\n- **Workspace-wide changes can stand on current CI.** When a workspace-wide change (lockfile, root config, a path outside every package) has a red merge-commit run, `ci:<pr>` accepts green required CI on the default branch's current HEAD (owner decision D11192, T14032).\n- **Typed-gate cache key covers only declared env.** A cached `cleo verify --run` pass is keyed on the gate's `env`, its new `envKeys` field and a fixed tool-input set, so another shell can reuse it. Declare result-changing inputs such as `DATABASE_URL` in `envKeys` (T14034, T14035).\n- **`cleo run` never raises a project's own vitest worker limit.** A serial suite (`fileParallelism: false`, `maxWorkers: 1`) stays serial under `cleo run` and `tool:test` (T14033).\n- **`cleo orchestrate spawn --base <ref>`** creates the task branch from a branch, tag or sha instead of HEAD, without moving the primary checkout (T14027).\n\n### Added\n\n- ci:<pr> for a workspace-wide change accepts green required CI on the current default-branch HEAD when the merge commit's CI is red _(provenance: [T14032](https://github.com/kryptobaseddev/cleo/search?q=T14032&type=commits))_\n\n### Changed\n\n- CLEO-REFERENCE states that an undeclared env var lets a cached typed-gate pass be reused under a different value _(provenance: [T14035](https://github.com/kryptobaseddev/cleo/search?q=T14035&type=commits))_\n\n### Fixed\n\n- cleo complete judges an after-merge test-run at the merge a recorded pr: atom names, leads its refusal with why the evidence does not stand, and stops blaming the PR for a re-run or late failing merge-commit job _(provenance: [T14026](https://github.com/kryptobaseddev/cleo/search?q=T14026&type=commits))_\n- a `pr:` atom whose listed files a later cited PR also edited is proven while the read version still carries its own hunks _(provenance: [T14025](https://github.com/kryptobaseddev/cleo/search?q=T14025&type=commits))_\n- Typed-gate cache key hashes only declared and tool-input env, so a --run pass is reusable from another shell _(provenance: [T14034](https://github.com/kryptobaseddev/cleo/search?q=T14034&type=commits))_\n- cleo run and tool:test no longer turn a serial vitest suite (fileParallelism: false, maxWorkers 1) parallel _(provenance: [T14033](https://github.com/kryptobaseddev/cleo/search?q=T14033&type=commits))_\n",
+    "changesetEntryCount": 6,
+    "changesetIds": [
+      "ci-workspace-wide-current-head",
+      "complete-standin-pr-merge",
+      "t14025-multi-pr-own-hunks",
+      "t14034-gate-env-hash",
+      "t14035-envkeys-undeclared-doc",
+      "vitest-worker-ceiling"
+    ],
+    "taskIds": [
+      "T14024",
+      "T14025",
+      "T14026",
+      "T14027",
+      "T14028",
+      "T14032",
+      "T14033",
+      "T14034",
+      "T14035"
+    ]
+  }
+}
