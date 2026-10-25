@@ -587,6 +587,11 @@ export type EvidenceAtom =
        * change is a deletion implements with `pr:` + `note:` instead of `files:`.
        */
       deletedPaths?: string[];
+      /**
+       * Paths a PR merged directly into its base deleted that exist again at
+       * HEAD (T14024): a `note:` listing one is refused by name.
+       */
+      restoredPaths?: string[];
     }
   | {
       /**

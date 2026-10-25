@@ -120,3 +120,88 @@ describe('criterion links say what supports them', () => {
     expect(evidence.scope?.criteria[0]?.basis).toBe('files');
   });
 });
+
+/**
+ * T14024: a deletion-only PR merged directly into the default branch (no
+ * integration PR) implements with `pr:<n>;note:<deleted paths>`.
+ */
+describe('a deletion-only PR merged directly implements with pr + note (T14024)', () => {
+  const direct = (deletedPaths: string[], restoredPaths?: string[]): EvidenceAtom => ({
+    kind: 'pr',
+    prNumber: 49,
+    mergeCommitSha: 'b'.repeat(40),
+    mergedAt: '2026-10-24T00:00:00Z',
+    successCount: 1,
+    totalChecks: 1,
+    changedPaths: deletedPaths,
+    taskId: 'T1',
+    deletedPaths,
+    ...(restoredPaths ? { restoredPaths } : {}),
+  });
+  const ctx = context([{ id: AC1, text: 'Remove the drizzle schema' }]);
+  const noteOf = (text: string): EvidenceAtom => ({ kind: 'note', note: text });
+
+  it('accepts when every listed path is a deletion that stays deleted', () => {
+    expect(
+      checkTaskEvidenceContext(ctx, 'implemented', [
+        direct(['db/schema.ts', 'db/relations.ts']),
+        noteOf('db/schema.ts, db/relations.ts'),
+        satisfies(AC1),
+      ]),
+    ).toBeNull();
+  });
+
+  it('refuses a listed path the PR did not delete, naming it and quoting the parse', () => {
+    expect(
+      checkTaskEvidenceContext(ctx, 'implemented', [
+        direct(['db/schema.ts']),
+        noteOf('deleted: db/schema.ts, db/other.ts'),
+        satisfies(AC1),
+      ]),
+    ).toMatch(
+      /PR #49 did not delete db\/other\.ts: .*parsed note paths: "db\/schema\.ts", "db\/other\.ts"/,
+    );
+  });
+
+  it('refuses a listed path that exists again at HEAD, naming it', () => {
+    expect(
+      checkTaskEvidenceContext(ctx, 'implemented', [
+        direct(['db/schema.ts', 'db/relations.ts'], ['db/relations.ts']),
+        noteOf('removed: db/schema.ts,db/relations.ts'),
+        satisfies(AC1),
+      ]),
+    ).toMatch(/PR #49 deleted db\/relations\.ts, but it exists again at HEAD/);
+  });
+
+  it('refuses a note that lists no deleted path', () => {
+    expect(
+      checkTaskEvidenceContext(ctx, 'implemented', [
+        direct(['db/schema.ts']),
+        noteOf('removed:'),
+        satisfies(AC1),
+      ]),
+    ).toMatch(/list them as note:\[label:\]<path>,<path> \(db\/schema\.ts\)/);
+  });
+
+  it('reads the note as one comma-separated list: trailing prose is a stray entry, quoted', () => {
+    expect(
+      checkTaskEvidenceContext(ctx, 'implemented', [
+        direct(['db/schema.ts']),
+        noteOf('db/schema.ts (old backup)'),
+        satisfies(AC1),
+      ]),
+    ).toMatch(
+      /did not delete db\/schema\.ts \(old backup\):.*parsed note paths: "db\/schema\.ts \(old backup\)"/,
+    );
+  });
+
+  it('keeps the component form free-form: a prose note still implements', () => {
+    expect(
+      checkTaskEvidenceContext(ctx, 'implemented', [
+        pr(['old.ts'], ['old.ts']),
+        noteOf('removed the legacy drizzle schema'),
+        satisfies(AC1),
+      ]),
+    ).toBeNull();
+  });
+});
