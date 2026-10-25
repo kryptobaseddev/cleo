@@ -2,7 +2,7 @@
 id: complete-standin-pr-merge
 tasks: [T14026]
 kind: fix
-summary: cleo complete judges an after-merge test-run at the merge a recorded pr: atom names, and stops blaming the PR for a re-run or late failing merge-commit job
+summary: "cleo complete judges an after-merge test-run at the merge a recorded pr: atom names, leads its refusal with why the evidence does not stand, and stops blaming the PR for a re-run or late failing merge-commit job"
 ---
 
 `cleo complete` refused a merged task whose `testsPassed` was a `test-run:`
