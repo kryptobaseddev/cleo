@@ -1304,8 +1304,9 @@ export async function orchestrateSpawn(
     return engineError('E_INVALID_INPUT', 'taskId is required');
   }
   if (baseRef !== undefined && (resume || noWorktree)) {
+    // @sync-invariant none:input-shape a contradictory flag set is refused before any write
     return engineError(
-      'E_INVALID_INPUT', // @sync-invariant none:input-shape a contradictory flag set is refused before any write
+      'E_INVALID_INPUT',
       `--base cannot be combined with ${resume ? '--resume' : '--no-worktree'}: it sets the commit a new worktree branch starts from`,
       { fix: `cleo orchestrate spawn ${taskId} --base <ref>` },
     );
