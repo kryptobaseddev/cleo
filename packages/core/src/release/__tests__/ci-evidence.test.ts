@@ -1628,6 +1628,155 @@ describe('resolveCiEvidenceAtom', () => {
     });
   });
 
+  describe('a workspace-wide change: green CI on the current main HEAD stands in (T14032)', () => {
+    // EscapePlan's shape: a lockfile change, merge CI red from a re-run of a
+    // secrets job, later commits editing the lockfile again, and a green full
+    // CI on today's main HEAD.
+    const LATER = '7'.repeat(40);
+    const PREV = '8'.repeat(40);
+    const CUR = '9'.repeat(40);
+    const lockfilePr: PrAtomResolution = { ...merged, changedPaths: ['pnpm-lock.yaml'] };
+    const redMerge = allGreen.map((c) => (c.name === 'CI' ? { ...c, conclusion: 'failure' } : c));
+    const onSha = (sha: string, patch: Partial<CommitCheck> = {}) =>
+      allGreen.map((c) => ({ ...c, headSha: sha, event: 'push', ...patch }));
+    const onMain = [LATER, PREV, CUR];
+
+    beforeEach(() => {
+      writeContext(optedIn);
+      writeFileSync(join(root, 'pnpm-workspace.yaml'), 'packages:\n  - packages/*\n');
+      mkdirSync(join(root, 'packages', 'a'), { recursive: true });
+      writeFileSync(join(root, 'packages', 'a', 'package.json'), '{"name":"@x/a"}');
+    });
+
+    function onCurrentHead(
+      byCommit: Record<string, CommitCheck[]>,
+      extra: Partial<ResolveCiEvidenceOptions> = {},
+    ) {
+      const fetched: string[] = [];
+      const run = resolve({
+        context: context('T1', ['testsPassed', 'qaPassed']),
+        resolvePr: async () => lockfilePr,
+        fetchChecks: async (sha) => {
+          fetched.push(sha);
+          return {
+            ok: true,
+            checks: sha === MERGE ? redMerge : sha === HEAD ? onHead : (byCommit[sha] ?? []),
+          };
+        },
+        // The T12742 walk sees the later lockfile edit and refuses.
+        listDescendants: () => onMain,
+        touchingCommits: (_from, _to, paths) =>
+          paths.includes('pnpm-lock.yaml') ? [{ sha: LATER, parents: 2 }] : [],
+        isAncestor: (a, d) => a === MERGE && onMain.includes(d),
+        firstParentOf: (sha) => (sha === CUR ? PREV : sha === PREV ? LATER : PARENT),
+        defaultBranchHead: () => CUR,
+        changedBetween: () => [],
+        ...extra,
+      });
+      return { run, fetched };
+    }
+
+    it('red merge CI + later lockfile edits + green push CI on HEAD: accepted', async () => {
+      const r = await onCurrentHead({ [CUR]: onSha(CUR) }).run;
+      expect(r.ok, JSON.stringify(r)).toBe(true);
+      const atom = r.ok && r.atom.kind === 'ci' ? r.atom : null;
+      expect(atom?.descendantSha).toBe(CUR);
+      expect(atom?.descendantRange).toBe(`${MERGE}..${CUR}`);
+      expect(atom?.descendantPrHeadSha).toBeUndefined();
+      expect(atom?.workspaceWide).toMatch(/pnpm-lock\.yaml/);
+      expect(Object.fromEntries((atom?.checks ?? []).map((c) => [c.name, c.sha]))).toEqual({
+        CI: CUR,
+        'Lockfile Check': MERGE,
+        'Contracts Dep Lint': MERGE,
+      });
+      expect(atom?.gateChecks?.testsPassed).toContain('Unit Tests (ubuntu-latest, shard 1)');
+    });
+
+    it('HEAD has no run yet, and the green parent differs from it only in docs: accepted', async () => {
+      const r = await onCurrentHead(
+        { [PREV]: onSha(PREV) },
+        { changedBetween: (from, to) => (from === PREV && to === CUR ? ['README.md'] : null) },
+      ).run;
+      expect(r.ok && r.atom.kind === 'ci' && r.atom.descendantSha, JSON.stringify(r)).toBe(PREV);
+    });
+
+    it('the green run is not on HEAD and a test input moved since: refused, naming the route', async () => {
+      const r = await onCurrentHead(
+        { [PREV]: onSha(PREV) },
+        { changedBetween: () => ['packages/a/src/x.ts'] },
+      ).run;
+      expect(r.ok).toBe(false);
+      expect(!r.ok && r.codeName).toBe('E_EVIDENCE_TESTS_FAILED');
+      expect(!r.ok && r.reason).toMatch(
+        /No current-HEAD run stands in: the change is workspace-wide .*pnpm-lock\.yaml.*current origin\/main HEAD would stand in \(T14032\).*changes packages\/a\/src\/x\.ts.*wait for HEAD/,
+      );
+    });
+
+    it('HEAD does not descend from the merge commit: refused', async () => {
+      const r = await onCurrentHead(
+        { [CUR]: onSha(CUR) },
+        { isAncestor: (a, d) => a === MERGE && d !== CUR && onMain.includes(d) },
+      ).run;
+      expect(!r.ok && r.reason).toMatch(/HEAD 999999999999 does not descend from merge commit/);
+    });
+
+    it('a required check red on HEAD: refused, no earlier green run shopped for', async () => {
+      const { run, fetched } = onCurrentHead({
+        [CUR]: onSha(CUR).map((c) => (c.name === 'CI' ? { ...c, conclusion: 'failure' } : c)),
+        [PREV]: onSha(PREV),
+      });
+      const r = await run;
+      expect(!r.ok && r.reason).toMatch(/CI: failure on later origin\/main commit 999999999999/);
+      expect(fetched).not.toContain(PREV);
+    });
+
+    it('a pending run on HEAD: refused with wait', async () => {
+      const r = await onCurrentHead({
+        [CUR]: onSha(CUR).map((c) =>
+          c.name === 'CI' ? { ...c, status: 'in_progress', conclusion: null } : c,
+        ),
+      }).run;
+      expect(!r.ok && r.reason).toMatch(/pending.*wait for 999999999999/);
+    });
+
+    it('a scoped change never takes the route (T12742 stays its only stand-in)', async () => {
+      let asked = false;
+      const r = await onCurrentHead(
+        { [CUR]: onSha(CUR) },
+        {
+          resolvePr: async () => ({ ...lockfilePr, changedPaths: ['packages/a/src/x.ts'] }),
+          touchingCommits: () => [{ sha: LATER, parents: 2 }],
+          defaultBranchHead: () => {
+            asked = true;
+            return CUR;
+          },
+        },
+      ).run;
+      expect(r.ok).toBe(false);
+      expect(!r.ok && r.reason).not.toMatch(/current-HEAD/);
+      expect(asked).toBe(false);
+    });
+
+    it('complete-time re-check: a workspace-wide atom re-checks the HEAD push run alone', async () => {
+      const r = await onCurrentHead({ [CUR]: onSha(CUR) }).run;
+      const atom = r.ok && r.atom.kind === 'ci' ? r.atom : null;
+      expect(atom).not.toBeNull();
+      const asked: string[] = [];
+      const green = await recheckCiDescendantAtom(atom!, root, async (sha) => {
+        asked.push(sha);
+        return { ok: true as const, checks: onSha(CUR) };
+      });
+      expect(green).toEqual({ ok: true });
+      expect(asked).toEqual([CUR]);
+      const rerun = [...onSha(CUR), { ...onSha(CUR)[0]!, id: 99, conclusion: 'failure' }];
+      const red = await recheckCiDescendantAtom(atom!, root, async () => ({
+        ok: true as const,
+        checks: rerun,
+      }));
+      expect(!red.ok && red.reason).toMatch(/CI: now failure \(push\)/);
+    });
+  });
+
   describe('recheckCiDescendantAtom — an inherited failure must still be red on its base (T13453)', () => {
     const DESC = '1'.repeat(40);
     const BASE = '5'.repeat(40);

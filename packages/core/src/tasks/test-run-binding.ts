@@ -849,7 +849,9 @@ function testRunMeetsRequirement(
       `The change is workspace-wide (${need.reason}), so only a full-suite run speaks for it, ` +
         'and a test-run report cannot show that it ran the whole suite (test configs exclude ' +
         'tracked test files, so file counts prove nothing). Record tool:test, which runs the ' +
-        'full suite for a workspace-wide change, or ci:<pr> once the PR merges.',
+        'full suite for a workspace-wide change, or ci:<pr> once the PR merges (when the merge ' +
+        "commit's CI is not green, a green push run of the required CI on the default branch's " +
+        'current HEAD, descending from the merge, stands in: T14032).',
     );
   }
   // T13754: a non-workspace path is spoken for only by passing every test file
