@@ -8,6 +8,7 @@
  * @task T12656
  * @task T12965
  * @task T13644
+ * @task T14026
  */
 
 import { execFileSync } from 'node:child_process';
@@ -763,6 +764,129 @@ describe('satisfyGatesFromMergedCi', () => {
           deps({ ciSatisfies: () => false, currentTree: () => c.tree }),
         );
         expect(out.kind === 'skipped' && out.qaPassedReason).toMatch(/does not descend/);
+      } finally {
+        rmSync(c.root, { recursive: true, force: true });
+      }
+    });
+  });
+
+  describe('T14026: pr: + test-run + tool:lint, red merge CI (the T740 / PR #160 shape)', () => {
+    /**
+     * T740: implemented rests on a recorded pr:160 atom alone (no commit
+     * atoms, so no change set is derived), CI on merge commit 7e517edf5464 is
+     * red, and testsPassed is a test-run recorded on the default branch after
+     * the merge, qaPassed a tool:lint run.
+     */
+    function landed() {
+      const root = realpathSync(mkdtempSync(join(tmpdir(), 'cleo-t14026-')));
+      const git = (...a: string[]): string =>
+        execFileSync('git', ['-c', 'user.name=T', '-c', 'user.email=t@e.x', ...a], {
+          cwd: root,
+          encoding: 'utf-8',
+        }).trim();
+      git('init', '-q', '-b', 'main');
+      mkdirSync(join(root, 'src'));
+      writeFileSync(join(root, 'package.json'), '{"name":"x","type":"module"}\n');
+      writeFileSync(join(root, 'src/a.ts'), 'export const a = 1;\n');
+      writeFileSync(join(root, 'src/a.test.ts'), "import './a.js';\n");
+      writeFileSync(join(root, 'src/b.test.ts'), 'export {};\n');
+      git('add', '.');
+      git('commit', '-q', '-m', 'init');
+      git('switch', '-q', '-c', 'task/T9001');
+      writeFileSync(join(root, 'src/a.ts'), 'export const a = 2;\n');
+      writeFileSync(join(root, 'src/a.test.ts'), "import './a.js'; // 2\n");
+      git('commit', '-q', '-am', 'T9001');
+      git('switch', '-q', 'main');
+      git('merge', '-q', '--no-ff', '-m', 'Merge pull request #160', 'task/T9001');
+      const merge = git('rev-parse', 'HEAD');
+      // A later PR edits a.ts again, so byte-identity carry fails and only the
+      // later-main stand-in can hold.
+      writeFileSync(join(root, 'src/a.ts'), 'export const a = 3;\n');
+      git('commit', '-q', '-am', 'a later PR');
+      const head = git('rev-parse', 'HEAD');
+      const tree = git('rev-parse', 'HEAD^{tree}');
+      git('update-ref', 'refs/remotes/origin/main', head);
+      const pr: EvidenceAtom = {
+        kind: 'pr',
+        prNumber: 160,
+        mergeCommitSha: merge,
+        mergedAt: now,
+        successCount: 1,
+        totalChecks: 2,
+        changedPaths: ['src/a.test.ts', 'src/a.ts'],
+      };
+      return { root, head, tree, pr };
+    }
+    const testRun = (
+      headSha: string,
+      treeHash: string,
+      testFiles = ['src/a.test.ts'],
+    ): EvidenceAtom => ({
+      kind: 'test-run',
+      path: 'r.json',
+      sha256: 'c'.repeat(64),
+      passCount: 1,
+      failCount: 0,
+      skipCount: 0,
+      headSha,
+      treeHash,
+      testFiles,
+    });
+    const lint: EvidenceAtom = { kind: 'tool', tool: 'lint', exitCode: 0 };
+    const red = () =>
+      recorder(
+        engineError<GateVerifyResult>(
+          'E_EVIDENCE_TESTS_FAILED',
+          "Required CI on PR #160's merge commit is not green:\n  - Doppler secrets (dev): failure",
+        ),
+      );
+
+    it('a covering test-run on main after the merge and tool:lint stand: complete never re-derives ci:<pr>', async () => {
+      const c = landed();
+      try {
+        const w = red();
+        const out = await satisfyGatesFromMergedCi(
+          task({ implemented: [c.pr], tests: [testRun(c.head, c.tree)], qa: [lint] }),
+          c.root,
+          REQUIRED,
+          deps({
+            recordGates: w.recordGates,
+            currentTree: () => c.tree,
+            merge: { executionRoot: c.root },
+          }),
+        );
+        expect(out).toEqual({ kind: 'skipped', testsPassedReason: null, qaPassedReason: null });
+        expect(w.calls).toHaveLength(0);
+      } finally {
+        rmSync(c.root, { recursive: true, force: true });
+      }
+    });
+
+    it('a run that cannot stand in is refused with its own reason, judged at the merge the pr: atom names', async () => {
+      const c = landed();
+      try {
+        const w = red();
+        const out = await satisfyGatesFromMergedCi(
+          task({
+            implemented: [c.pr],
+            tests: [testRun(c.head, c.tree, ['src/b.test.ts'])],
+            qa: [lint],
+          }),
+          c.root,
+          REQUIRED,
+          deps({
+            recordGates: w.recordGates,
+            currentTree: () => c.tree,
+            merge: { executionRoot: c.root },
+          }),
+        );
+        expect(w.calls).toHaveLength(1);
+        expect(out.kind).toBe('ci-red');
+        const reason = out.kind === 'ci-red' ? out.reason : '';
+        expect(reason).not.toMatch(/merge commit is not known here/);
+        expect(reason).toMatch(
+          /Doppler secrets \(dev\): failure\. A targeted test-run.*but .*src\/a\.test\.ts/s,
+        );
       } finally {
         rmSync(c.root, { recursive: true, force: true });
       }

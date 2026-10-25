@@ -230,10 +230,14 @@ export async function satisfyGatesFromMergedCi(
     return { kind: 'skipped', testsPassedReason, qaPassedReason };
   }
 
-  const { state, prRef, changeSet, unproven, lookupFailed } = await mergeInfo();
+  const { state, prRef, changeSet, landing, unproven, lookupFailed } = await mergeInfo();
   // T13623: merged CI concluded without proving the change. A targeted
   // test-run recorded on the default branch after the merge, covering the
   // change, stands in for testsPassed; the refusal says why one did not.
+  // T14026: judged against the same carry target testsPassedSupersededReason
+  // uses — a recorded pr: atom (or a landing with no merge commit) names it
+  // with no derived change set.
+  const target = landing ?? changeSet ?? null;
   const afterRedCi = async (refusal: MergedCiOutcome): Promise<MergedCiOutcome> => {
     if (refusal.kind !== 'ci-red') return refusal;
     let why = 'no testsPassed is on record';
@@ -241,7 +245,7 @@ export async function satisfyGatesFromMergedCi(
     if (needs.includes('testsPassed') && task.verification?.gates?.testsPassed === true) {
       const stands = scopedRunStandsAfterRedCi(
         task.verification?.evidence?.testsPassed?.atoms ?? [],
-        changeSet ?? null,
+        target,
         await (deps.currentTree ?? defaultCurrentTree)(storeRoot, task.id),
         deps.landed ?? isLandedOnOriginDefault,
       );
