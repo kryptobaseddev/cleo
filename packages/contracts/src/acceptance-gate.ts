@@ -155,6 +155,15 @@ export interface TestGate extends GateBase {
   cwd?: string;
   /** Environment variable overrides. Keys must match `/^[A-Z_][A-Z0-9_]*$/`. */
   env?: Record<string, string>;
+  /**
+   * Inherited environment variable names this gate's cached pass depends on,
+   * e.g. `DATABASE_URL` (T14034). A pass is cached against the gate's `env`
+   * keys, these names and a fixed tool-input set (`PATH`, `NODE_OPTIONS`, the
+   * heavy-run overlay, `CI`, `LANG`, `LC_*`); any other variable (`PWD`,
+   * `SHLVL`, harness ids) can differ between the `--run` shell and the write.
+   * The gate still launches with the whole environment.
+   */
+  envKeys?: string[];
 }
 
 /**
@@ -233,6 +242,15 @@ export interface CommandGate extends GateBase {
   cwd?: string;
   /** Environment variable overrides. */
   env?: Record<string, string>;
+  /**
+   * Inherited environment variable names this gate's cached pass depends on,
+   * e.g. `DATABASE_URL` (T14034). A pass is cached against the gate's `env`
+   * keys, these names and a fixed tool-input set (`PATH`, `NODE_OPTIONS`, the
+   * heavy-run overlay, `CI`, `LANG`, `LC_*`); any other variable (`PWD`,
+   * `SHLVL`, harness ids) can differ between the `--run` shell and the write.
+   * The gate still launches with the whole environment.
+   */
+  envKeys?: string[];
 }
 
 /**

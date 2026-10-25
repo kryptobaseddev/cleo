@@ -1596,7 +1596,8 @@ describe('task-bound explicit gate verification (T12292)', () => {
       await expect(
         revalidateTaskGateResults(task, rows, results, {
           ...options,
-          env: { ...options.env, PROOF_ENV: 'changed' },
+          // T14034: only hashed keys count; PATH is a fixed tool input.
+          env: { ...options.env, PATH: `${options.env.PATH}:/changed` },
         }),
       ).rejects.toThrow('environment changed');
       await expect(
