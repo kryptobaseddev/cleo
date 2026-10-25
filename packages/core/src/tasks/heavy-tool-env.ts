@@ -27,7 +27,7 @@
  * | Variable | Effect | Verified by |
  * |---|---|---|
  * | `NODE_OPTIONS=--max-old-space-size=N` | Heap ceiling for EVERY node process in the tree, inherited | node docs; appended, never clobbered |
- * | `VITEST_MAX_WORKERS=N` | `if (process.env.VITEST_MAX_WORKERS) resolved.maxWorkers = parseInt(...)` — overrides the resolved config, so it binds projects that set their own | read out of vitest 4.1.4 `dist/chunks/coverage.*.js` |
+ * | `VITEST_MAX_WORKERS=N` | `if (process.env.VITEST_MAX_WORKERS) resolved.maxWorkers = parseInt(...)` — overrides the resolved config, so it binds projects that set their own, and RAISES one that is serial ({@link vitestWorkerCeiling}) | read out of vitest 4.1.4 `dist/chunks/coverage.*.js` |
  * | `npm_config_workspace_concurrency=N` / `pnpm_config_workspace_concurrency=N` | Bounds `pnpm -r` fan-out across workspace packages (pnpm 10 reads the first, pnpm 11+ the second) | `npm_config_workspace_concurrency=1 pnpm config get workspace-concurrency` → `1` on pnpm 10.30; `pnpm_config_…` → `1` on pnpm 12.6 (T13122) |
  *
  * Together these bound the product the semaphore could not see:
@@ -64,16 +64,27 @@
  *     `CLEO_HEAVY_WORKERS`, `CLEO_HEAVY_WORKSPACE_CONCURRENCY`.
  *
  * A project that wants more for its own suite still sets it in its own script
- * (`"test": "NODE_OPTIONS=… vitest run"`) or config: that runs below the
- * overlay and is untouched by it. The plan, and every value it clamped, is
- * reported by `cleo verify` and `cleo run`.
+ * (`"test": "NODE_OPTIONS=… vitest run"`): that runs below the overlay and is
+ * untouched by it. The plan, and every value it clamped, is reported by
+ * `cleo verify` and `cleo run`.
+ *
+ * ## A project's own worker limit is a ceiling too (T14033)
+ *
+ * vitest applies `VITEST_MAX_WORKERS` AFTER it resolves the config, over the
+ * `maxWorkers = 1` that `fileParallelism: false` (or `--no-file-parallelism`)
+ * set, so the overlay alone turned a serial suite parallel. A test run plans at
+ * most {@link vitestWorkerCeiling} workers: the overlay only ever lowers a
+ * project's parallelism.
  *
  * @task T12096
  * @task T13122
  * @task T13123
+ * @task T14033
  */
 
+import { type Dirent, readdirSync, readFileSync } from 'node:fs';
 import { totalmem } from 'node:os';
+import { join } from 'node:path';
 import type { HeavyLeverChange, HeavyToolResourcePlan } from '@cleocode/contracts';
 import type { CanonicalTool } from './tool-resolver.js';
 
@@ -391,6 +402,128 @@ const WORKER_COUNT_VARS = [
   /** pytest-xdist, when `-n auto` is in use. */
   'PYTEST_XDIST_AUTO_NUM_WORKERS',
 ] as const;
+
+/** vitest config file names: `vitest.config.ts`, `vite.config.mjs`, `vitest.workspace.ts`, … */
+const VITEST_CONFIG_FILE = /^(?:vitest\.config|vite\.config|vitest\.workspace)\.[cm]?[jt]s$/;
+
+/** Directories never searched for a vitest config. */
+const CONFIG_SEARCH_SKIP: ReadonlySet<string> = new Set([
+  'node_modules',
+  'dist',
+  'build',
+  'coverage',
+]);
+
+/** How many directory levels below the run's directory are searched (`packages/<pkg>/`). */
+const CONFIG_SEARCH_DEPTH = 2;
+
+/** `fileParallelism: false` in a config, which vitest resolves to one worker. */
+const SERIAL_CONFIG = /\bfileParallelism\s*:\s*false\b/;
+
+/** A literal `maxWorkers: N` in a config (a percentage or an expression is not read). */
+const MAX_WORKERS_CONFIG = /\bmaxWorkers\s*:\s*(\d+)(?![\d.%])/g;
+
+/** vitest CLI flags that make a run serial. */
+const SERIAL_FLAGS: ReadonlySet<string> = new Set([
+  '--no-file-parallelism',
+  '--no-fileParallelism',
+  '--file-parallelism=false',
+  '--fileParallelism=false',
+]);
+
+/** vitest CLI flags that take a worker count. */
+const MAX_WORKERS_FLAGS: ReadonlySet<string> = new Set(['--maxWorkers', '--max-workers']);
+
+/** The worker limit a vitest command line sets, or `null`. */
+function argvWorkerCeiling(argv: readonly string[]): number | null {
+  let ceiling: number | null = null;
+  const lower = (n: number | null): void => {
+    if (n !== null) ceiling = Math.min(ceiling ?? n, n);
+  };
+  for (let i = 0; i < argv.length; i++) {
+    const word = argv[i] as string;
+    if (SERIAL_FLAGS.has(word)) lower(1);
+    const eq = word.indexOf('=');
+    if (eq > 0 && MAX_WORKERS_FLAGS.has(word.slice(0, eq))) lower(positiveInt(word.slice(eq + 1)));
+    else if (MAX_WORKERS_FLAGS.has(word)) lower(positiveInt(argv[i + 1]));
+  }
+  return ceiling;
+}
+
+/** The lowest worker limit in one config file's text, or `null`. */
+function configWorkerCeiling(text: string): number | null {
+  if (SERIAL_CONFIG.test(text)) return 1;
+  const counts = [...text.matchAll(MAX_WORKERS_CONFIG)]
+    .map((m) => Number.parseInt(m[1] as string, 10))
+    .filter((n) => n > 0);
+  return counts.length > 0 ? Math.min(...counts) : null;
+}
+
+/** Entries of a directory, or none when it cannot be read. */
+function dirEntries(dir: string): Dirent[] {
+  try {
+    return readdirSync(dir, { withFileTypes: true });
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * The most workers a vitest run may use without overriding the project's own
+ * limit, or `null` when it sets none (T14033).
+ *
+ * vitest 4 applies `VITEST_MAX_WORKERS` over the resolved config, including the
+ * `maxWorkers = 1` that `fileParallelism: false` sets, so CLEO must not export
+ * more than the project allows. Read from the command line
+ * (`--no-file-parallelism`, `--maxWorkers N`) and from the literal settings of
+ * every vitest config in `dir` and up to {@link CONFIG_SEARCH_DEPTH} levels
+ * below it, so a workspace run (`pnpm -r test`, `pnpm --filter api test`) sees
+ * its packages' configs. The lowest wins: one serial package makes the whole
+ * run serial, since one environment variable reaches every package. A
+ * computed setting (`maxWorkers: cpus / 2`) or a percentage is not read; the
+ * CLEO plan applies there as before.
+ *
+ * @param dir - the directory the run starts in.
+ * @param argv - the command line. @defaultValue []
+ * @returns the lowest worker limit found, or `null`.
+ *
+ * @example
+ * ```ts
+ * // apps/api/vitest.config.ts: test: { fileParallelism: false }
+ * vitestWorkerCeiling('/repo');                                 // 1
+ * vitestWorkerCeiling('/other', ['vitest', 'run', '--maxWorkers=2']); // 2
+ * ```
+ *
+ * @task T14033
+ */
+export function vitestWorkerCeiling(dir: string, argv: readonly string[] = []): number | null {
+  const found = [argvWorkerCeiling(argv)];
+  let level = [dir];
+  for (let depth = 0; depth <= CONFIG_SEARCH_DEPTH && level.length > 0; depth++) {
+    const next: string[] = [];
+    for (const current of level) {
+      for (const entry of dirEntries(current)) {
+        const path = join(current, entry.name);
+        if (entry.isFile() && VITEST_CONFIG_FILE.test(entry.name)) {
+          try {
+            found.push(configWorkerCeiling(readFileSync(path, 'utf8')));
+          } catch {
+            // An unreadable config sets no limit CLEO can honour.
+          }
+        } else if (
+          entry.isDirectory() &&
+          !entry.name.startsWith('.') &&
+          !CONFIG_SEARCH_SKIP.has(entry.name)
+        ) {
+          next.push(path);
+        }
+      }
+    }
+    level = next;
+  }
+  const limits = found.filter((n): n is number => n !== null);
+  return limits.length > 0 ? Math.min(...limits) : null;
+}
 
 /**
  * Default worker count one heavy run plans for, given {@link GIB_PER_WORKER}:

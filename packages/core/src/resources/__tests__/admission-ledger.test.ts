@@ -1898,6 +1898,23 @@ describe('admit (one ledger, real critical section)', () => {
 describe('cleo run is charged by its real scope (T13367)', () => {
   const RAM = 48;
 
+  it('a test run in a serial vitest project plans one worker (T14033)', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'cleo-serial-vitest-'));
+    try {
+      writeFileSync(join(dir, 'vitest.config.ts'), 'test: { fileParallelism: false }');
+      const argv = ['pnpm', 'exec', 'vitest', 'run'];
+      const serial = planRunFootprint('test-run', argv, {}, RAM, undefined, undefined, dir);
+      expect(serial.resources?.workers).toBe(1);
+      expect(serial.overlay.VITEST_MAX_WORKERS).toBe('1');
+      // A project with no limit keeps the CLEO plan.
+      rmSync(join(dir, 'vitest.config.ts'));
+      const open = planRunFootprint('test-run', argv, {}, RAM, undefined, undefined, dir);
+      expect(open.resources?.workers).toBeGreaterThan(1);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
   it('a two-file biome check is charged 1 GiB, not the 24 GiB heavy plan', () => {
     const plan = planRunFootprint(
       'scoped-build',

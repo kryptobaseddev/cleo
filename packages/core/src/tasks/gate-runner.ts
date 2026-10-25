@@ -99,7 +99,7 @@ import {
   readGateCacheEntry,
   sealGateCacheEntry,
 } from './gate-result-cache.js';
-import { heavyToolEnv } from './heavy-tool-env.js';
+import { planHeavyToolEnv, vitestWorkerCeiling } from './heavy-tool-env.js';
 import { resolveSpawnTimeoutMs } from './tool-cache.js';
 import { acquireGlobalSlot } from './tool-semaphore.js';
 
@@ -1220,13 +1220,28 @@ function assertCriterionProjection(task: Task, rows: readonly AcRow[]): void {
     );
 }
 
+/**
+ * The heavy-run overlay a gate gets: its workers never exceed the project's own
+ * vitest limit (T14033), and launch and cache key both read it from here.
+ */
+function gateHeavyOverlay(
+  merged: NodeJS.ProcessEnv,
+  cwd: string,
+  argv: readonly string[],
+): Readonly<Record<string, string>> {
+  const ceiling = vitestWorkerCeiling(cwd, argv) ?? undefined;
+  return planHeavyToolEnv('test', merged, undefined, ceiling).overlay;
+}
+
 /** Effective child environment a gate launches with; its cache key is {@link gateEnvironmentHash}. */
 function gateEnvironment(
   env: NodeJS.ProcessEnv,
-  overlay?: Readonly<Record<string, string>>,
+  overlay: Readonly<Record<string, string>> | undefined,
+  cwd: string,
+  argv: readonly string[],
 ): NodeJS.ProcessEnv {
   const merged = { ...env, ...overlay };
-  return { ...merged, ...heavyToolEnv('test', merged) };
+  return { ...merged, ...gateHeavyOverlay(merged, cwd, argv) };
 }
 
 /** Inherited variables every process gate's cache key covers (T14034). */
@@ -1245,9 +1260,11 @@ function gateEnvironmentHash(
   env: NodeJS.ProcessEnv,
   overlay: Readonly<Record<string, string>> | undefined,
   envKeys: readonly string[] | undefined,
+  cwd: string,
+  argv: readonly string[],
 ): string {
   const merged = { ...env, ...overlay };
-  const heavy = heavyToolEnv('test', merged);
+  const heavy = gateHeavyOverlay(merged, cwd, argv);
   const effective: NodeJS.ProcessEnv = { ...merged, ...heavy };
   const keys = new Set([
     ...GATE_HASHED_ENV_KEYS,
@@ -1302,14 +1319,16 @@ export function executableInvocation(
       : gate.kind === 'lint'
         ? LINT_TOOL_DEFAULTS[gate.tool].defaultArgs
         : []);
+  const cwd = resolveCwd(root, gate.cwd);
+  const argv = [command, ...args];
   return {
     command,
     args: [...args],
-    cwd: resolveCwd(root, gate.cwd),
+    cwd,
     environmentHash:
       gate.kind === 'lint'
-        ? gateEnvironmentHash(env, undefined, undefined)
-        : gateEnvironmentHash(env, gate.env, gate.envKeys),
+        ? gateEnvironmentHash(env, undefined, undefined, cwd, argv)
+        : gateEnvironmentHash(env, gate.env, gate.envKeys, cwd, argv),
   };
 }
 
@@ -1670,8 +1689,9 @@ async function captureGateCommand(
   context: ProcessCaptureOptions,
   overlay?: Readonly<Record<string, string>>,
 ): Promise<ProcessCaptureResult> {
-  const env = gateEnvironment(context.env ?? process.env, overlay);
-  const plan = planRunFootprint(cls, [command, ...args], env);
+  const env = gateEnvironment(context.env ?? process.env, overlay, cwd, [command, ...args]);
+  // T14033: the plan reads the project's vitest limit from the gate's own cwd.
+  const plan = planRunFootprint(cls, [command, ...args], env, undefined, undefined, undefined, cwd);
   // The gate spawns with the whole heavy-run env (gateEnvironment), not the
   // plan's overlay, so a worker-pool plan is charged the whole heavy run (T13759).
   const footprintBytes =

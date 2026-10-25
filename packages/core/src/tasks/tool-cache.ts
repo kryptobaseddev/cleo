@@ -72,6 +72,7 @@ import { declaredEvidencePatterns, originDefaultMergeBase } from './affected-pac
 import {
   type HeavyToolSpawnPlan,
   planHeavyToolEnv,
+  vitestWorkerCeiling,
   withoutNpmEnvConfigWarnings,
 } from './heavy-tool-env.js';
 import {
@@ -1882,7 +1883,17 @@ export async function runToolCached(
   // T12989 / T13122: the overlay is planned ONCE and both spawned with and
   // keyed on, so the key describes the heap and worker limits the run actually
   // got; the plan behind it rides on every result, hit or miss.
-  const spawnPlan = planHeavyToolEnv(command.canonical);
+  // T14033: a test run never exceeds the project's own vitest worker limit.
+  const ceiling =
+    command.canonical === 'test'
+      ? vitestWorkerCeiling(projectRoot, [command.cmd, ...command.args])
+      : null;
+  const spawnPlan = planHeavyToolEnv(
+    command.canonical,
+    process.env,
+    undefined,
+    ceiling ?? undefined,
+  );
   const result = await runToolCachedWithPlan(command, projectRoot, opts, spawnPlan);
   return spawnPlan.resources === null ? result : { ...result, resources: spawnPlan.resources };
 }
