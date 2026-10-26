@@ -843,6 +843,24 @@ describe('minCount with a non-runner wrapper command (T13753)', () => {
     expect(result?.execution?.exitCode).toBe(0);
   });
 
+  it('passes on a summary line after a pretty-printed report (T14061)', async () => {
+    const summary = JSON.stringify({
+      numPassedTests: 13,
+      numFailedTests: 0,
+      numTotalTests: 13,
+      success: true,
+    });
+    const gate = {
+      ...wrapper(summary),
+      args: [
+        '-e',
+        `console.log(JSON.stringify({ numPassedTests: 13, testResults: [] }, null, 2)); console.log(${JSON.stringify(summary)})`,
+      ],
+    };
+    const [result] = await runGates([gate], { projectRoot });
+    expect(result?.result, result?.errorMessage).toBe('pass');
+  });
+
   it('fails a summary below the minimum', async () => {
     const [result] = await runGates([wrapper(JSON.stringify({ numPassedTests: 5 }))], {
       projectRoot,

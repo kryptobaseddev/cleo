@@ -209,7 +209,7 @@
   },
   "dependencies": {
     "@cleocode/lafs": "workspace:*",
-    "zod": "^4.3.6",
+    "zod": "4.3.6",
     "zod-to-json-schema": "^3.25.2"
   }
 }
