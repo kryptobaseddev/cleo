@@ -1,5 +1,19 @@
 # Changelog
 
+## [2026.10.24] (2026-10-26)
+
+> **Update now: run `cleo self-update`.**
+
+### Highlights
+
+- **`cleo complete` integrates only CLEO-provisioned worktrees.** A task worktree is merged into the local default branch (with `--no-ff`, never pushed) only when the worktree lifecycle audit records that CLEO created or adopted it; a hand-made `task/<id>` branch is never merged. `cleo done <id> --plan` shows the `integration` preview (`merge`, `skip` or `refuse`, with the reason). `cleo complete --no-integrate` and `CLEO_NO_AUTO_WORKTREE_COMPLETE=1` skip it. A main checkout with uncommitted changes, or one on another branch, is refused without switching it (T14053, owner decision D11194).
+- **Breaking output.** The `cleo complete` envelope's `worktreeAutoComplete` is replaced by `integration`, and the `maybeAutoCompleteWorktreeForTask` and `AutoCompleteWorktreeResult` exports are removed from `@cleocode/core`. A worktree created before this release has no lifecycle `create` row and is now skipped; run `cleo worktree adopt <path> --task-id <id>` or land it through a PR (T14053).
+- **Worktree lifecycle spec updated** with the integration rules (`docs/spec/worktree-lifecycle.md`, T14053).
+
+### Fixed
+
+- cleo complete merges a task branch locally only for a CLEO-provisioned worktree into an untouched main checkout; --no-integrate and CLEO_NO_AUTO_WORKTREE_COMPLETE now switch it off, and done --plan shows the decision _(provenance: [T14053](https://github.com/kryptobaseddev/cleo/search?q=T14053&type=commits))_
+
 ## [2026.10.23] (2026-10-25)
 
 > **Update now: run `cleo self-update`.**
