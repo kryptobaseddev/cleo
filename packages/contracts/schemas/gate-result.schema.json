@@ -97,6 +97,20 @@
             "environmentHash": {
               "type": "string",
               "pattern": "^[a-f0-9]{64}$"
+            },
+            "executable": {
+              "type": "string",
+              "minLength": 1
+            },
+            "environmentKeys": {
+              "type": "object",
+              "propertyNames": {
+                "type": "string"
+              },
+              "additionalProperties": {
+                "type": "string",
+                "pattern": "^[a-f0-9]{64}$"
+              }
             }
           },
           "required": [
