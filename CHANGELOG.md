@@ -1,5 +1,19 @@
 # Changelog
 
+## [2026.10.25] (2026-10-26)
+
+> **Update now: run `cleo self-update`.**
+
+### Highlights
+
+- **Count-summary test gates work again.** A typed test gate with `minCount` once more accepts a bare last-line count summary (`{"numPassedTests":7,...}`) instead of failing with "no machine-readable test report". `zod` is now pinned exactly to 4.3.6 in `@cleocode/contracts` and `@cleocode/core`, so an install resolves the same zod CI tests (T14061).
+- **Typed-gate results are keyed to the program that runs, not the whole `PATH`.** A different shell, shim or harness `PATH` no longer invalidates a pass; the resolved executable is hashed instead (a gate that depends on the full search path lists `PATH` in `envKeys`). A mismatch in the tree that verified the result names what changed: `environment changed (<keys>)`, `environment changed (executable ...)` or `input bytes changed (<files>)`. `cleo done --plan` runs the same revalidation as `cleo complete`. Receipts recorded on 2026.10.24 still complete from an unchanged shell (T14063).
+
+### Fixed
+
+- minCount gates accept a last-line count summary again; zod is pinned to the version CI tests _(provenance: [T14061](https://github.com/kryptobaseddev/cleo/search?q=T14061&type=commits))_
+- Typed gates no longer hash PATH wholesale (the resolved executable is hashed instead); cleo complete names what changed for a result verified in its own tree, and done --plan revalidates the same way _(provenance: [T14063](https://github.com/kryptobaseddev/cleo/search?q=T14063&type=commits))_
+
 ## [2026.10.24] (2026-10-26)
 
 > **Update now: run `cleo self-update`.**
