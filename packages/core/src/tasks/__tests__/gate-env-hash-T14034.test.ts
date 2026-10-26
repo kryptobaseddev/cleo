@@ -2,13 +2,15 @@
  * A typed-gate pass cached by `cleo verify --run` is found from another shell
  * (T14034): the cache key hashes only the gate's declared env, its `envKeys`
  * and a fixed tool-input set, never shell or harness noise such as `PWD`,
- * `SHLVL`, `TERM_SESSION_ID` or `CLAUDE_*`.
+ * `SHLVL`, `TERM_SESSION_ID` or `CLAUDE_*`. T14063: nor `PATH` itself, only
+ * the executable it resolves the gate's command to.
  *
  * @task T14034
+ * @task T14063
  */
 
 import { execFileSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { AcceptanceGate, Task } from '@cleocode/contracts';
@@ -17,7 +19,17 @@ import { createOperationExecutionContext } from '../../store/background-ops.js';
 import { captureGateInputs, runGates } from '../gate-runner.js';
 
 const repo = realpathSync(mkdtempSync(join(tmpdir(), 'gate-env-hash-')));
-afterAll(() => rmSync(repo, { recursive: true, force: true }));
+// Two PATH directories, outside the repo, each with its own `t14063-gate`.
+const bins = realpathSync(mkdtempSync(join(tmpdir(), 'gate-env-bins-')));
+afterAll(() => {
+  rmSync(repo, { recursive: true, force: true });
+  rmSync(bins, { recursive: true, force: true });
+});
+for (const dir of ['a', 'b']) {
+  mkdirSync(join(bins, dir));
+  writeFileSync(join(bins, dir, 't14063-gate'), '#!/bin/sh\nexit 0\n');
+  chmodSync(join(bins, dir, 't14063-gate'), 0o755);
+}
 
 const git = (...a: string[]) =>
   execFileSync('git', ['-c', 'user.name=T', '-c', 'user.email=t@e.x', ...a], {
@@ -35,7 +47,7 @@ writeFileSync(
   JSON.stringify({ projectId: 'env-hash', projectHash: 'env-hash-path' }),
 );
 
-const gate: AcceptanceGate = {
+const envGate: AcceptanceGate = {
   kind: 'command',
   cmd: process.execPath,
   args: ['pass.mjs'],
@@ -52,7 +64,7 @@ const task: Task = {
   priority: 'medium',
   createdAt: '2026-10-25T00:00:00.000Z',
   files: [],
-  acceptance: [gate],
+  acceptance: [envGate],
 };
 
 const envA: NodeJS.ProcessEnv = {
@@ -65,8 +77,21 @@ const envA: NodeJS.ProcessEnv = {
   CLAUDE_CODE_SESSION_ID: 'claude-a',
 };
 
+/** A gate run by bare name, so `PATH` decides which program it is (T14063). */
+const byName: AcceptanceGate = {
+  kind: 'command',
+  cmd: 't14063-gate',
+  description: 'gate resolved on PATH',
+  req: 'REQ-PATH',
+};
+
 /** Capture the inputs digest in `env`, then run the gate with that cache mode. */
-async function run(cache: 'refresh' | 'only', env: NodeJS.ProcessEnv, key: string) {
+async function run(
+  cache: 'refresh' | 'only',
+  env: NodeJS.ProcessEnv,
+  key: string,
+  gate: AcceptanceGate = envGate,
+) {
   const execution = createOperationExecutionContext(
     {
       projectId: 'env-hash',
@@ -114,9 +139,23 @@ describe('typed-gate cache key ignores shell and harness env (T14034)', () => {
     expect(missed?.errorMessage).toMatch(/typed gate not cached:.*in: inputs: the environment/);
   }, 60_000);
 
-  it('a changed PATH is a miss', async () => {
-    const missed = await run('only', { ...envA, PATH: `${envA.PATH}:/changed` }, 'path');
-    expect(missed?.result).toBe('error');
-    expect(missed?.errorMessage).toMatch(/typed gate not cached:.*the environment/);
+  it('T14063: a PATH that resolves the same executable is a hit', async () => {
+    const hit = await run('only', { ...envA, PATH: `/changed:${envA.PATH}:/also-changed` }, 'path');
+    expect(hit?.source).toBe('cache');
   }, 60_000);
+
+  it.skipIf(process.platform === 'win32')(
+    'T14063: a PATH that resolves the command to another executable is a miss',
+    async () => {
+      const onA = { ...envA, PATH: `${join(bins, 'a')}:${envA.PATH}` };
+      expect((await run('refresh', onA, 'exe-a', byName))?.result).toBe('pass');
+      const reordered = { ...onA, PATH: `/elsewhere:${onA.PATH}` };
+      expect((await run('only', reordered, 'exe-a2', byName))?.source).toBe('cache');
+      const onB = { ...envA, PATH: `${join(bins, 'b')}:${envA.PATH}` };
+      const missed = await run('only', onB, 'exe-b', byName);
+      expect(missed?.result).toBe('error');
+      expect(missed?.errorMessage).toMatch(/typed gate not cached:.*the environment/);
+    },
+    60_000,
+  );
 });

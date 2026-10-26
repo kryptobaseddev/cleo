@@ -17,7 +17,7 @@
  */
 
 import { execFileSync } from 'node:child_process';
-import { createHash } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import {
   existsSync,
   mkdirSync,
@@ -59,6 +59,7 @@ import {
   parseEvidence,
   validateAtom,
 } from '../evidence.js';
+import { executableInvocation } from '../gate-runner.js';
 import { reqAdd } from '../req.js';
 import { captureTreeHash, runToolCached } from '../tool-cache.js';
 import { resolveToolCommand } from '../tool-resolver.js';
@@ -1882,12 +1883,36 @@ describe('a stored typed pass bound to an older definition is not a pass (T13463
           index: 1,
           req: 'H-1',
           kind: 'command',
+          // T14063: a verdict carries its process observation, as a real run records it.
+          execution: {
+            started: true,
+            targetPid: 1,
+            exitCode: 0,
+            signal: null,
+            error: null,
+            stopped: null,
+            stdout: '',
+            stderr: '',
+            outputTruncated: false,
+            durationMs: 1,
+            mode: 'pgid',
+            nativeMemory: 'unverified',
+            cleanupScope: 'process-group',
+            transportClosed: true,
+            targetCloseObserved: true,
+            cleanupObservation: 'process-group-absent',
+            cleanupErrors: [],
+          },
           ...stored,
           checkedAt: '2026-10-01T00:00:00Z',
           checkedBy: 'test',
           durationMs: 1,
           // T13502: the full binding cleo complete's revalidation compares.
+          // T14063: the plan revalidates its inputs too, so they are this
+          // tree's and this environment's, as a real verify records them.
           binding: over({
+            version: 1,
+            verificationId: randomUUID(),
             ...bind(row.text),
             taskId: id,
             criterionId: row.id,
@@ -1895,7 +1920,14 @@ describe('a stored typed pass bound to an older definition is not a pass (T13463
               projectId:
                 readProjectInfoAtDirectorySync(root, join(root, '.cleo')).projectId ?? 'none',
               projectRoot: root,
+              actor: 'test',
+              operation: 'check.gate.verify',
+              idempotencyKey: `${id}:fixture`,
             },
+            capturedAt: '2026-10-01T00:00:00.000Z',
+            deadlineAt: Date.now() + 60_000,
+            invocation: executableInvocation(gate, root, process.env),
+            artifacts: [],
           }),
         },
       ],

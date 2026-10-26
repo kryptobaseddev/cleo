@@ -25,6 +25,7 @@
  */
 
 import { execFileSync } from 'node:child_process';
+import { randomUUID } from 'node:crypto';
 import { join, resolve } from 'node:path';
 import type {
   AcRow,
@@ -49,6 +50,7 @@ import { getProjectRoot } from '../paths.js';
 import { readProjectInfoAtDirectorySync } from '../project-scope.js';
 import { isCiDocumentPath, readCiChecks, readCiSatisfies } from '../release/ci-evidence.js';
 
+import { createOperationExecutionContext } from '../store/background-ops.js';
 import { getTaskAccessor } from '../store/data-accessor.js';
 import {
   cleoConfigSchemaFor,
@@ -71,7 +73,13 @@ import {
   extractTaskAcFilesWithProvenance,
   taskEvidenceKindReport,
 } from './evidence.js';
-import { extractTypedGates, typedResultStaleReason } from './gate-runner.js';
+import {
+  extractTypedGates,
+  type TypedResultDrift,
+  typedGateAdmissionMs,
+  typedResultDrift,
+  typedResultStaleReason,
+} from './gate-runner.js';
 import { changedTestFiles } from './test-run-binding.js';
 import { captureTreeHash, computeCacheKey, readCacheEntry } from './tool-cache.js';
 import { captureEnvFingerprint, captureResourceEnv } from './tool-cache-env.js';
@@ -436,12 +444,20 @@ function normaliseRepoPath(path: string): string {
   return path.replace(/^\.\//, '').replace(/\/+$/, '');
 }
 
-/** Stored typed-gate results, aligned with criteria by acceptance index. */
-function planTypedGates(
+/**
+ * Stored typed-gate results, aligned with criteria by acceptance index.
+ *
+ * T14063: a stored pass is checked the way `cleo complete` checks it, inputs
+ * and environment included ({@link typedResultDrift}), from the tree the plan
+ * tells the caller to complete in. A pass completion would refuse is
+ * `not-run`, with completion's reason and the re-bind command.
+ */
+async function planTypedGates(
   task: Task,
   rows: readonly AcRow[],
   storeRoot: string,
-): DonePlanTypedGate[] {
+  runFrom: string,
+): Promise<DonePlanTypedGate[]> {
   const results = task.verification?.gateResults ?? [];
   const projectRoot = resolve(storeRoot);
   const projectId = readProjectInfoAtDirectorySync(
@@ -449,7 +465,8 @@ function planTypedGates(
     join(projectRoot, '.cleo'),
   ).projectId;
   const owner = projectId ? { projectId, projectRoot } : undefined;
-  return extractTypedGates(task.acceptance ?? []).map(({ gate, originalIndex }) => {
+  const typed = extractTypedGates(task.acceptance ?? []);
+  const planned = typed.map(({ gate, originalIndex }) => {
     const stored = results.find((r) => r.index === originalIndex);
     const row = rows[originalIndex];
     // A pass `cleo complete` would refuse as stale (an older criterion or gate
@@ -466,13 +483,61 @@ function planTypedGates(
         : stored.result === 'pass'
           ? 'pass'
           : 'fail';
-    return {
+    const entry: DonePlanTypedGate = {
       alias: `AC${row?.ordinal ?? originalIndex + 1}`,
       kind: gate.kind,
       ...(gate.req ? { req: gate.req } : {}),
       status,
     };
+    return { entry, originalIndex };
   });
+  if (!planned.some(({ entry }) => entry.status === 'pass')) return planned.map((p) => p.entry);
+  const drift = await planTypedDrift(task, rows, projectRoot, projectId, runFrom);
+  return planned.map(({ entry, originalIndex }): DonePlanTypedGate => {
+    const refused = entry.status === 'pass' ? drift.get(originalIndex) : undefined;
+    return refused ? { ...entry, status: 'not-run', ...refused } : entry;
+  });
+}
+
+/**
+ * Completion's typed input revalidation, run for the plan under its own
+ * budget (T14063). A refusal that is not per gate (no project identity,
+ * criteria out of step) applies to every stored pass, as it would at completion.
+ */
+async function planTypedDrift(
+  task: Task,
+  rows: readonly AcRow[],
+  projectRoot: string,
+  projectId: string | undefined,
+  runFrom: string,
+): Promise<Map<number, TypedResultDrift>> {
+  const everyPass = (reason: string): Map<number, TypedResultDrift> =>
+    new Map(
+      (task.verification?.gateResults ?? [])
+        .filter((r) => r.result === 'pass')
+        .map((r) => [r.index, { reason }]),
+    );
+  if (!projectId) return everyPass('cannot be revalidated: the project has no stable identity');
+  const gates = extractTypedGates(task.acceptance ?? []).map(({ gate }) => gate);
+  const execution = createOperationExecutionContext(
+    {
+      projectId,
+      projectRoot,
+      actor: process.env.CLEO_AGENT_ID ?? 'cleo',
+      operation: 'tasks.done.plan',
+      idempotencyKey: `${task.id}:${randomUUID()}`,
+    },
+    { budgetMs: typedGateAdmissionMs(gates) },
+  );
+  try {
+    return await typedResultDrift(task, rows, { projectRoot, execution }, runFrom);
+  } catch (error) {
+    return everyPass(
+      `cannot be revalidated: ${error instanceof Error ? error.message : String(error)}`,
+    );
+  } finally {
+    execution.close();
+  }
 }
 
 /** Criterion IDs already linked by recorded gate evidence. */
@@ -629,13 +694,22 @@ function toolAndTypedGateBlockers(
     } else if (typed.status === 'not-run' && !runTyped) {
       // T13655: completion refuses a typed gate with no current bound pass
       // (never run, or stale), so the plan must not call the task ready.
+      // T14063: a stored pass completion would refuse names completion's
+      // reason and the command that re-binds it.
       out.push({
         code: 'typed-gate-not-run',
-        message: `${label} has no current passing result; cleo complete refuses it until it passes.`,
-        next: step(
-          `cleo verify ${taskId} --run && cleo done ${taskId}`,
-          'cleo done executes no typed gate: run them with cleo verify --run (it caches each pass), or pass --run-typed.',
-        ),
+        message: typed.reason
+          ? `${label}'s stored pass would be refused by cleo complete: ${typed.reason}.`
+          : `${label} has no current passing result; cleo complete refuses it until it passes.`,
+        next: typed.fix
+          ? step(
+              typed.fix,
+              'Re-binds the typed result in this tree and environment; only typed gates with no current pass run again.',
+            )
+          : step(
+              `cleo verify ${taskId} --run && cleo done ${taskId}`,
+              'cleo done executes no typed gate: run them with cleo verify --run (it caches each pass), or pass --run-typed.',
+            ),
       });
     }
   }
@@ -1138,7 +1212,7 @@ export async function deriveTaskEvidence(
       qaRunNeededBlocker(taskId, changeSet.files, ['lint'], 'this non-code change'),
     );
   }
-  const typedGates = planTypedGates(task, rows, storeRoot);
+  const typedGates = await planTypedGates(task, rows, storeRoot, root);
   const acMapping = mapCriteria(
     task,
     rows,

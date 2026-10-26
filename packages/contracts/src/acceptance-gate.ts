@@ -158,9 +158,11 @@ export interface TestGate extends GateBase {
   /**
    * Inherited environment variable names this gate's cached pass depends on,
    * e.g. `DATABASE_URL` (T14034). A pass is cached against the gate's `env`
-   * keys, these names and a fixed tool-input set (`PATH`, `NODE_OPTIONS`, the
-   * heavy-run overlay, `CI`, `LANG`, `LC_*`); any other variable (`PWD`,
-   * `SHLVL`, harness ids) can differ between the `--run` shell and the write.
+   * keys, these names and a fixed tool-input set (`NODE_OPTIONS`, the
+   * heavy-run overlay, `CI`, `LANG`, `LC_*`, and the resolved path of the
+   * gate's executable); any other variable (`PWD`, `SHLVL`, harness ids) can
+   * differ between the `--run` shell and the write. `PATH` itself is not
+   * hashed (T14063): list it here to make the whole search path an input.
    * The gate still launches with the whole environment.
    */
   envKeys?: string[];
@@ -245,9 +247,11 @@ export interface CommandGate extends GateBase {
   /**
    * Inherited environment variable names this gate's cached pass depends on,
    * e.g. `DATABASE_URL` (T14034). A pass is cached against the gate's `env`
-   * keys, these names and a fixed tool-input set (`PATH`, `NODE_OPTIONS`, the
-   * heavy-run overlay, `CI`, `LANG`, `LC_*`); any other variable (`PWD`,
-   * `SHLVL`, harness ids) can differ between the `--run` shell and the write.
+   * keys, these names and a fixed tool-input set (`NODE_OPTIONS`, the
+   * heavy-run overlay, `CI`, `LANG`, `LC_*`, and the resolved path of the
+   * gate's executable); any other variable (`PWD`, `SHLVL`, harness ids) can
+   * differ between the `--run` shell and the write. `PATH` itself is not
+   * hashed (T14063): list it here to make the whole search path an input.
    * The gate still launches with the whole environment.
    */
   envKeys?: string[];
@@ -459,6 +463,19 @@ export interface AcceptanceGateInvocation {
   cwd: string;
   /** SHA-256 of the canonically ordered effective environment. */
   environmentHash: string;
+  /**
+   * Real path of the executable `command` resolved to on the gate's `PATH`
+   * (T14063); absent when it resolves to nothing. Part of `environmentHash`,
+   * which no longer hashes `PATH` wholesale.
+   */
+  executable?: string;
+  /**
+   * SHA-256 of each `[name, value]` entry `environmentHash` covers, keyed by
+   * variable name (T14063), so a refusal can name the variables that changed.
+   * Absent on receipts recorded before T14063, whose `environmentHash` still
+   * covers `PATH`.
+   */
+  environmentKeys?: Record<string, string>;
 }
 
 /**

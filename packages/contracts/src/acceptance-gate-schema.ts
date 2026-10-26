@@ -462,6 +462,8 @@ const acceptanceGateBindingSchema: z.ZodType<AcceptanceGateBinding> = z
         args: z.array(z.string()),
         cwd: gateBindingPathSchema,
         environmentHash: z.string().regex(/^[a-f0-9]{64}$/),
+        executable: gateBindingPathSchema.optional(),
+        environmentKeys: z.record(z.string(), z.string().regex(/^[a-f0-9]{64}$/)).optional(),
       })
       .strict()
       .optional(),
