@@ -397,6 +397,7 @@ export function completeWorktreeForTask(
   if (integration.rootRefused) {
     appendWorktreeAuditEntry(
       projectRoot,
+      // @sync-invariant none:local-only the main checkout's git state on this machine; an audit-file row, never replicated
       {
         actor,
         action: 'complete-conflict',

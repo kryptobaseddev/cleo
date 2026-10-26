@@ -62,7 +62,6 @@ import {
 
 import {
   acquireWorktreeTaskLock,
-  appendWorktreeAuditLog,
   describeDisposalBlockers,
   getGitRoot,
   gitSilent,
@@ -75,6 +74,7 @@ import {
   releaseWorktreeTaskLock,
   WORKTREE_LIFECYCLE_AUDIT_FILE,
 } from '@cleocode/worktree';
+import { appendWorktreeAuditEntry, resolveWorktreeAuditActor } from '../worktree/audit.js';
 import { resolveSpawnLockHolder } from './worktree-lock-holder.js';
 
 // Re-export getGitRoot for barrel consumers
@@ -167,13 +167,13 @@ export function createAgentWorktree(taskId: string, projectRoot: string): AgentW
   // Create the worktree with a new branch.
   gitSync(['worktree', 'add', worktreePath, '-b', branch, baseRef], gitRoot); // raw-git-worktree-ok: legacy branch-lock provisioning pending full SDK promotion
   // T14053: completion merges only worktrees whose creation is recorded.
-  appendWorktreeAuditLog(projectRoot, {
+  appendWorktreeAuditEntry(projectRoot, {
+    actor: resolveWorktreeAuditActor(),
     action: 'create',
-    xdgPath: worktreePath,
-    taskId,
+    target: worktreePath,
     branch,
+    taskId,
     reason: 'spawn',
-    baseRef,
     success: true,
   });
 
