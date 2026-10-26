@@ -30,6 +30,7 @@ import {
   lintGateSchema,
   manualGateSchema,
   testCountReportSchema,
+  testCountSummarySchema,
   testGateSchema,
 } from '../acceptance-gate-schema.js';
 import type { AcceptanceItem } from '../index.js';
@@ -1013,5 +1014,22 @@ describe('structured minimum-count report schema', () => {
       testResults: [],
     };
     expect(testCountReportSchema.parse(empty).numPassedTests).toBe(0);
+  });
+});
+
+/**
+ * T14061: under zod 4.6 an absent key declared `z.undefined()` is required, so
+ * every summary was rejected. The key must stay absent-or-rejected.
+ */
+describe('bare count summary schema (T13753, T14061)', () => {
+  const summary = { numPassedTests: 7, numFailedTests: 0, numTotalTests: 7, success: true };
+
+  it('accepts a summary that has no testResults key', () => {
+    expect(testCountSummarySchema.safeParse(summary).success).toBe(true);
+    expect(testCountSummarySchema.safeParse({ numPassedTests: 7 }).success).toBe(true);
+  });
+
+  it('rejects a summary that carries testResults', () => {
+    expect(testCountSummarySchema.safeParse({ ...summary, testResults: [] }).success).toBe(false);
   });
 });

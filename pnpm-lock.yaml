@@ -426,7 +426,7 @@ importers:
         specifier: workspace:*
         version: link:../lafs
       zod:
-        specifier: ^4.3.6
+        specifier: 4.3.6
         version: 4.3.6
       zod-to-json-schema:
         specifier: ^3.25.2
@@ -580,7 +580,7 @@ importers:
         specifier: '>=2.8.3'
         version: 2.8.3
       zod:
-        specifier: ^4.3.6
+        specifier: 4.3.6
         version: 4.3.6
     devDependencies:
       '@cleocode/utils':

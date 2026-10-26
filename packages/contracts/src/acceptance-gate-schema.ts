@@ -177,7 +177,9 @@ export const testCountReportSchema = z
  * stdout line (T13753): `{"numPassedTests":13,"numFailedTests":0}`, where
  * `numFailedTests`, `numTotalTests` and `success` are optional but must agree
  * when present. A document carrying `testResults` claims to be a full report
- * and must satisfy {@link testCountReportSchema} instead.
+ * and must satisfy {@link testCountReportSchema} instead. The key is
+ * `z.never().optional()`, not `z.undefined()`: zod 4.6 treats an absent
+ * `z.undefined()` key as required and rejected every summary (T14061).
  *
  * @example
  * ```ts
@@ -190,7 +192,7 @@ export const testCountSummarySchema = z
     numFailedTests: z.number().int().nonnegative().safe().optional(),
     numTotalTests: z.number().int().nonnegative().safe().optional(),
     success: z.boolean().optional(),
-    testResults: z.undefined(),
+    testResults: z.never().optional(),
   })
   .superRefine((summary, context) => {
     const failed = summary.numFailedTests ?? 0;

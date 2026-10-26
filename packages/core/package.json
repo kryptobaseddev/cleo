@@ -521,7 +521,7 @@
     "tree-sitter-typescript": "^0.23.2",
     "write-file-atomic": "^7.0.1",
     "yaml": "^2.8.3",
-    "zod": "^4.3.6"
+    "zod": "4.3.6"
   },
   "engines": {
     "node": ">=24.16.0"
