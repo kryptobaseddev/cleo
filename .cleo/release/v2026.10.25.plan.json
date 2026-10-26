@@ -1,0 +1,137 @@
+{
+  "$schema": "https://cleocode.io/schemas/release-plan/v1.json",
+  "version": "v2026.10.25",
+  "resolvedVersion": "v2026.10.25",
+  "suffixApplied": false,
+  "scheme": "calver",
+  "channel": "latest",
+  "epicId": null,
+  "releaseKind": "regular",
+  "hooksV1Promotion": false,
+  "createdAt": "2026-10-26T18:09:08.812Z",
+  "createdBy": "keatonhoskins",
+  "previousVersion": "v2026.10.24",
+  "previousTag": "v2026.10.24",
+  "previousShippedAt": "2026-10-26T05:36:13.096Z",
+  "tasks": [
+    {
+      "id": "T14061",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "testCountSummarySchema rejects every summary under zod >=4.6 (published installs resolve zod 4.6.7; the lockfile pins 4.3.6)",
+      "evidenceAtoms": [
+        "pr:2464",
+        "files:.changeset/count-summary-zod-drift.md,packages/contracts/package.json,packages/contracts/src/__tests__/acceptance-gate.test.ts,packages/contracts/src/acceptance-gate-schema.ts,packages/core/package.json,packages/core/src/tasks/__tests__/gate-runner.test.ts,pnpm-lock.yaml",
+        "ci:2464"
+      ],
+      "epicAncestor": "T12956",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T14063",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "Typed revalidation at complete fails on any PATH/LANG/CI drift with a misleading 'inputs changed' message; done --plan reports PASS",
+      "evidenceAtoms": [
+        "pr:2466",
+        "files:.changeset/typed-revalidation-env-drift.md,packages/contracts/src/acceptance-gate-schema.ts,packages/contracts/src/acceptance-gate.ts,packages/contracts/src/done-plan.ts,packages/core/src/tasks/__tests__/done-plan.test.ts,packages/core/src/tasks/__tests__/done-record.test.ts,packages/core/src/tasks/__tests__/gate-env-hash-T14034.test.ts,packages/core/src/tasks/__tests__/gate-runner.test.ts,packages/core/src/tasks/done-plan.ts,packages/core/src/tasks/gate-runner.ts,packages/core/templates/CLEO-INJECTION.md,packages/core/templates/CLEO-REFERENCE.md,packages/skills/skills/ct-cleo/SKILL.md,packages/skills/skills/manifest.json,scripts/.lint-sync-write-invariants-baseline.json,packages/contracts/src/acceptance-gate-schema.ts,packages/core/src/tasks/__tests__/gate-runner.test.ts",
+        "ci:2466"
+      ],
+      "epicAncestor": "T12956",
+      "ivtrPhaseAtPlan": "contribution"
+    }
+  ],
+  "changelog": {
+    "features": [
+      "T14061",
+      "T14063"
+    ],
+    "fixes": [],
+    "chores": [],
+    "breaking": []
+  },
+  "gates": [
+    {
+      "name": "test",
+      "atom": "tool:test",
+      "status": "unresolved",
+      "lastVerifiedAt": "2026-10-26T18:09:08.812Z",
+      "resolvedCommand": "pnpm run test",
+      "resolvedSource": "project-context"
+    },
+    {
+      "name": "build",
+      "atom": "tool:build",
+      "status": "unresolved",
+      "lastVerifiedAt": "2026-10-26T18:09:08.812Z",
+      "resolvedCommand": "pnpm run build",
+      "resolvedSource": "project-context"
+    },
+    {
+      "name": "lint",
+      "atom": "tool:lint",
+      "status": "unresolved",
+      "lastVerifiedAt": "2026-10-26T18:09:08.812Z",
+      "resolvedCommand": "pnpm run lint",
+      "resolvedSource": "package-script"
+    },
+    {
+      "name": "typecheck",
+      "atom": "tool:typecheck",
+      "status": "unresolved",
+      "lastVerifiedAt": "2026-10-26T18:09:08.812Z",
+      "resolvedCommand": "pnpm run typecheck",
+      "resolvedSource": "package-script"
+    },
+    {
+      "name": "audit",
+      "atom": "tool:audit",
+      "status": "unresolved",
+      "lastVerifiedAt": "2026-10-26T18:09:08.812Z",
+      "resolvedCommand": "npm audit",
+      "resolvedSource": "language-default"
+    },
+    {
+      "name": "security-scan",
+      "atom": "tool:security-scan",
+      "status": "unresolved",
+      "lastVerifiedAt": "2026-10-26T18:09:08.812Z",
+      "resolvedCommand": "npm audit",
+      "resolvedSource": "language-default"
+    }
+  ],
+  "platformMatrix": [
+    {
+      "platform": "any",
+      "publisher": "npm",
+      "package": "@cleocode/cleo"
+    }
+  ],
+  "preflightSummary": {
+    "esbuildExternalsDrift": false,
+    "lockfileDrift": false,
+    "epicCompletenessClean": true,
+    "doubleListingClean": true,
+    "preflightWarnings": [
+      "Skipped 923 out-of-scope changeset entries whose task anchors are not part of this release plan"
+    ]
+  },
+  "workflowRunUrl": null,
+  "prUrl": null,
+  "mergeCommitSha": null,
+  "status": "planned",
+  "meta": {
+    "firstEverRelease": false,
+    "archetype": "node",
+    "releaseNotes": "## v2026.10.25 — 2026-10-26\n\n> **Update now: run `cleo self-update`.**\n\n### Highlights\n\n- **Count-summary test gates work again.** A typed test gate with `minCount` once more accepts a bare last-line count summary (`{\"numPassedTests\":7,...}`) instead of failing with \"no machine-readable test report\". `zod` is now pinned exactly to 4.3.6 in `@cleocode/contracts` and `@cleocode/core`, so an install resolves the same zod CI tests (T14061).\n- **Typed-gate results are keyed to the program that runs, not the whole `PATH`.** A different shell, shim or harness `PATH` no longer invalidates a pass; the resolved executable is hashed instead (a gate that depends on the full search path lists `PATH` in `envKeys`). A mismatch in the tree that verified the result names what changed: `environment changed (<keys>)`, `environment changed (executable ...)` or `input bytes changed (<files>)`. `cleo done --plan` runs the same revalidation as `cleo complete`. Receipts recorded on 2026.10.24 still complete from an unchanged shell (T14063).\n\n### Fixed\n\n- minCount gates accept a last-line count summary again; zod is pinned to the version CI tests _(provenance: [T14061](https://github.com/kryptobaseddev/cleo/search?q=T14061&type=commits))_\n- Typed gates no longer hash PATH wholesale (the resolved executable is hashed instead); cleo complete names what changed for a result verified in its own tree, and done --plan revalidates the same way _(provenance: [T14063](https://github.com/kryptobaseddev/cleo/search?q=T14063&type=commits))_\n",
+    "changesetEntryCount": 2,
+    "changesetIds": [
+      "count-summary-zod-drift",
+      "typed-revalidation-env-drift"
+    ],
+    "taskIds": [
+      "T14061",
+      "T14063"
+    ]
+  }
+}
