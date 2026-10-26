@@ -317,9 +317,9 @@ describe('completeAgentWorktreeViaMerge — nothing to integrate (T12153)', () =
   });
 
   it('does NOT claim nothingToIntegrate when a task branch DOES exist', () => {
-    // The dangerous inverse: suppressing a genuine integration failure would
-    // be worse than the noise this change removes. A task branch that exists
-    // must still go through the real integration path.
+    // A task branch that exists is never reported as "nothing to integrate".
+    // T14053: one CLEO did not provision is skipped as not provisioned, and
+    // never merged.
     fixture = makeRepo('main');
     const git = (...args: string[]): string =>
       execFileSync('git', args, {
@@ -331,6 +331,8 @@ describe('completeAgentWorktreeViaMerge — nothing to integrate (T12153)', () =
 
     const result = completeAgentWorktreeViaMerge('T9999003', fixture.root);
     expect(result.nothingToIntegrate).toBeUndefined();
+    expect(result.notProvisioned).toBe(true);
+    expect(result.merged).toBe(false);
   });
 
   it('is not a git repo → still an error, not nothingToIntegrate', () => {

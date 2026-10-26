@@ -159,6 +159,56 @@ export interface WorktreeMergeResult {
    * a merge (T12773) — e.g. how to sync a stale local default branch.
    */
   hint?: string;
+  /**
+   * True when the task branch or worktree exists but CLEO never provisioned it
+   * (no `create`/`adopt` row in the worktree lifecycle audit): a hand-made
+   * `task/<id>` branch is never merged (T14053).
+   */
+  notProvisioned?: boolean;
+  /**
+   * True when the merge was refused because the main checkout cannot take it
+   * untouched: it has uncommitted changes, sits on another branch, or is a
+   * linked worktree (T14053). Nothing was switched or merged.
+   */
+  rootRefused?: boolean;
+  /** The integration decision this run acted on (T14053). */
+  plan?: WorktreeIntegrationPlan;
+}
+
+/**
+ * What completion does with a task's worktree branch (T14053):
+ * `merge` it into the local default branch, `skip` it (nothing to do, switched
+ * off, already landed, or not provisioned by CLEO), or `refuse` (a merge would
+ * disturb the main checkout or fork the default branch, or it failed).
+ */
+export type WorktreeIntegrationAction = 'merge' | 'skip' | 'refuse';
+
+/**
+ * The integration decision `cleo done --plan` shows and `cleo complete` acts
+ * on, computed by one function so the preview and the run agree (T14053).
+ */
+export interface WorktreeIntegrationPlan {
+  /** Task branch (`task/<id>`). */
+  branch: string;
+  /** Canonical CLEO worktree path for the task. */
+  worktreePath: string;
+  /** Local branch a merge targets. */
+  targetBranch: string;
+  /** What happens. */
+  action: WorktreeIntegrationAction;
+  /** Why, in one sentence. */
+  reason: string;
+}
+
+/**
+ * The single integration result on the `cleo complete` envelope (T14053).
+ * `action` is what happened: `merge` only when a merge commit was made.
+ */
+export interface WorktreeIntegrationOutcome extends WorktreeIntegrationPlan {
+  /** Merge commit on {@link WorktreeIntegrationPlan.targetBranch}, when one was made. */
+  mergeCommit?: string;
+  /** CLEO never pushes an integration merge; the operator does. */
+  pushed: false;
 }
 
 /**

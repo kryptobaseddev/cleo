@@ -16,6 +16,7 @@ import type {
   TaskRef,
   TaskVerification,
   VerificationGate,
+  WorktreeIntegrationOutcome,
 } from '@cleocode/contracts';
 // safeAppendLog replaced by tx.appendLog inside transaction (T023)
 import { ExitCode } from '@cleocode/contracts/exit-codes.js';
@@ -29,10 +30,7 @@ import { getIvtrState, type IvtrPhase } from '../lifecycle/ivtr-loop.js';
 import { requiresStagedPipeline } from '../lifecycle/kind-requirements.js';
 import { getLogger } from '../logger.js';
 import { assessKnowledgeCoverage } from '../nexus/knowledge.js';
-import {
-  type AutoCompleteWorktreeResult,
-  maybeAutoCompleteWorktreeForTask,
-} from '../orchestrate/worktree-complete.js';
+import { integrationDisabledReason } from '../orchestrate/worktree-complete.js';
 import { getProjectRoot, resolveOrCwd } from '../paths.js';
 import {
   captureProjectScope,
@@ -164,6 +162,11 @@ export interface CompleteTaskOptions {
    * @task T12503
    */
   expectedUpdatedAt?: string;
+  /**
+   * Skip worktree integration (`cleo complete --no-integrate`): the task
+   * branch and worktree are left exactly as they are (T14053).
+   */
+  noIntegrate?: boolean;
 }
 
 /**
@@ -201,6 +204,11 @@ export interface CompleteTaskResult {
    * when running in VITEST with no audit layer.
    */
   receipt?: TaskCompletionReceiptSummary;
+  /**
+   * What completion did with the task's worktree branch (T14053). Absent only
+   * when the integration helper could not load.
+   */
+  integration?: WorktreeIntegrationOutcome;
 }
 
 interface CompletionEnforcement {
@@ -1431,63 +1439,65 @@ export async function completeTask(
   }
 
   // T9175: Worktree integration MUST happen before teardown — merge first,
-  // then prune. The previous `teardownWorktree` call destroyed the worktree
-  // before any merge ran, leaving the worker's commits stranded on
-  // `task/<id>` with no operator-visible integration.
-  //
-  // `completeAgentWorktreeIntegration` performs (ADR-062):
-  //   1. rebase inside the worktree onto the project's default branch
-  //   2. `git checkout <default>` + `git merge --no-ff task/<id>`
-  //   3. prune the worktree dir + delete the branch
-  //   4. append an audit entry to .cleo/audit/worktree-integration.jsonl
-  //
-  // On failure (rebase conflict, missing branch, non-git dir, etc.) the
-  // worktree + branch are PRESERVED so the operator can recover via
-  // `cleo orchestrate worktree-complete <id>`. Completion is never blocked
-  // — the verified evidence already proved the work shipped; recovery is
-  // operator-driven.
+  // then prune (ADR-062). T14053: this is the ONLY integration call on
+  // completion. It merges only a worktree CLEO provisioned, only into a main
+  // checkout already on the default branch with no uncommitted tracked
+  // changes, never pushes, and is switched off by `--no-integrate` or
+  // CLEO_NO_AUTO_WORKTREE_COMPLETE. On failure the worktree + branch are
+  // PRESERVED for `cleo orchestrate worktree-complete <id>`; completion is
+  // never blocked.
+  const integrationDisabled = integrationDisabledReason(options.noIntegrate);
+  let integration: WorktreeIntegrationOutcome | undefined;
   try {
-    const { completeAgentWorktreeIntegration } = await import('../spawn/branch-lock.js');
-    const integration = completeAgentWorktreeIntegration(options.taskId, projectRoot, {
-      taskTitle: task.title,
-      evidence: taskEvidenceAtoms(task),
-    });
-    // T13696: a kept worktree is never silent — something still needs its files.
-    if (integration.worktreeKept) {
-      const { warnWorktreeKept } = await import('../sentient/worktree-dispatch.js');
-      await warnWorktreeKept(
-        options.taskId,
-        integration.worktreeKept,
-        integration.error ?? integration.hint,
-      );
-    }
-    // T12153 (GH #1223) — `nothingToIntegrate` is NOT a failure. Most tasks are
-    // worked on a feature branch and merged by PR, so no `task/<id>` branch or
-    // agent worktree ever existed, and there is nothing to merge. Reporting
-    // that at WARN (as `mergeError: "task branch … does not exist"`) trained
-    // readers to ignore a channel that should mean something — and the one
-    // genuine rebase conflict was filtered out with the hundred non-events.
-    if (integration.landedUpstream) {
-      // T12773 — the task branch already landed on origin (e.g. its PR merged
-      // upstream); no local merge was made, so local main cannot fork.
-      getLogger('tasks:complete').info(
-        { taskId: options.taskId, hint: integration.hint },
-        '[T12773] task branch already landed upstream — skipped local merge',
-      );
-    } else if (integration.nothingToIntegrate) {
-      getLogger('tasks:complete').debug(
-        { taskId: options.taskId },
-        '[T12153] no task branch or worktree for this task — nothing to integrate',
-      );
-    } else if (!integration.merged && integration.error) {
-      getLogger('tasks:complete').warn(
-        {
-          taskId: options.taskId,
-          mergeError: integration.error,
-          worktreeRemoved: integration.worktreeRemoved,
-        },
-        '[T9175] worktree integration failed — branch + worktree preserved for manual recovery',
-      );
+    const { completeAgentWorktreeIntegration, integrationOutcome, planWorktreeIntegration } =
+      await import('../spawn/branch-lock.js');
+    if (integrationDisabled !== undefined) {
+      integration = {
+        ...planWorktreeIntegration(options.taskId, projectRoot, {
+          disabledReason: integrationDisabled,
+        }),
+        pushed: false,
+      };
+    } else {
+      const result = completeAgentWorktreeIntegration(options.taskId, projectRoot, {
+        taskTitle: task.title,
+        evidence: taskEvidenceAtoms(task),
+      });
+      integration = integrationOutcome(result);
+      // T13696: a kept worktree is never silent — something still needs its files.
+      if (result.worktreeKept) {
+        const { warnWorktreeKept } = await import('../sentient/worktree-dispatch.js');
+        await warnWorktreeKept(options.taskId, result.worktreeKept, result.error ?? result.hint);
+      }
+      // T12153 (GH #1223) — `nothingToIntegrate` is NOT a failure: most tasks
+      // are merged by PR and never had a `task/<id>` branch. Only a real
+      // failure or refusal is logged at WARN.
+      const log = getLogger('tasks:complete');
+      if (result.landedUpstream) {
+        log.info(
+          { taskId: options.taskId, hint: result.hint },
+          '[T12773] task branch already landed upstream — skipped local merge',
+        );
+      } else if (result.notProvisioned) {
+        log.info(
+          { taskId: options.taskId, hint: result.hint },
+          '[T14053] task branch was not provisioned by CLEO — not merged',
+        );
+      } else if (result.nothingToIntegrate) {
+        log.debug(
+          { taskId: options.taskId },
+          '[T12153] no task branch or worktree for this task — nothing to integrate',
+        );
+      } else if (!result.merged && result.error) {
+        log.warn(
+          {
+            taskId: options.taskId,
+            mergeError: result.error,
+            worktreeRemoved: result.worktreeRemoved,
+          },
+          '[T9175] worktree integration not merged — branch + worktree preserved for manual recovery',
+        );
+      }
     }
   } catch (err) {
     getLogger('tasks:complete').debug(
@@ -1593,6 +1603,7 @@ export async function completeTask(
     ...(autoCompleted.length > 0 && { autoCompleted }),
     ...(unblockedTasks.length > 0 && { unblockedTasks }),
     ...(receiptSummary ? { receipt: receiptSummary } : {}),
+    ...(integration ? { integration } : {}),
   };
 }
 
@@ -1621,16 +1632,11 @@ interface CompleteEngineSuccess {
    */
   note?: string;
   /**
-   * T9548 — Auto-invoke worktree-complete diagnostic envelope.
-   *
-   * Populated when `cleo complete <taskId>` runs and the auto-invoke hook
-   * either runs the worktree-integration SDK or short-circuits (no worktree
-   * exists, `CLEO_NO_AUTO_WORKTREE_COMPLETE=1`, or SDK threw). Absent when
-   * task completion itself failed (no auto-merge is attempted on failure).
-   *
-   * @task T9548
+   * The one worktree integration result of this completion (T14053):
+   * `{branch, worktreePath, targetBranch, action, reason, mergeCommit?, pushed: false}`.
+   * Absent when the task was already done (nothing ran).
    */
-  worktreeAutoComplete?: AutoCompleteWorktreeResult;
+  integration?: WorktreeIntegrationOutcome;
   /**
    * `true` when the completed task was a focus pointer (the caller's session
    * key or the legacy global key) and that pointer was cleared (T12660).
@@ -1740,6 +1746,12 @@ export interface TaskCompleteEngineOptions {
    * @task T12503
    */
   expectedUpdatedAt?: string;
+  /**
+   * Skip worktree integration (`--no-integrate`).
+   * @see CompleteTaskOptions.noIntegrate
+   * @task T14053
+   */
+  noIntegrate?: boolean;
 }
 
 /**
@@ -1778,6 +1790,7 @@ export async function taskComplete(
         waiveDependsReason: opts.waiveDependsReason,
         expectedUpdatedAt: opts.expectedUpdatedAt,
         ...(opts.prNumber !== undefined ? { prNumber: opts.prNumber } : {}),
+        ...(opts.noIntegrate ? { noIntegrate: true } : {}),
       },
       projectRoot,
       accessor,
@@ -1820,30 +1833,12 @@ export async function taskComplete(
       // Provenance write failure is non-fatal.
     }
 
-    // T9548 — auto-invoke worktree-complete after a successful completion.
-    //
-    // The wrapper is best-effort and idempotent:
-    //  - Skips when CLEO_NO_AUTO_WORKTREE_COMPLETE=1 is set.
-    //  - Skips when no CLEO worktree exists for the task.
-    //  - Re-running on an already-integrated worktree returns outcome='noop'
-    //    courtesy of the audit-log idempotency check inside the SDK.
-    //  - Throws are caught and surfaced as outcome='sdk-threw' — they never
-    //    derail the task completion (which has already landed in the DB).
-    //
-    // Audit-log entries are written ONLY by the inner SDK and ONLY when a
-    // real lifecycle event occurs. The env-disabled and no-worktree paths
-    // are pure no-ops with no on-disk side effects.
-    const worktreeAutoComplete: AutoCompleteWorktreeResult = maybeAutoCompleteWorktreeForTask(
-      taskId,
-      projectRoot,
-    );
-
     return engineSuccess({
       knowledgeCoverage: result.knowledgeCoverage,
       task: completedTask,
       ...(result.autoCompleted && { autoCompleted: result.autoCompleted }),
       ...(result.unblockedTasks && { unblockedTasks: result.unblockedTasks }),
-      worktreeAutoComplete,
+      ...(result.integration && { integration: result.integration }),
       ...(await clearFinishedFocus(projectRoot, [taskId, ...(result.autoCompleted ?? [])])),
     });
   } catch (err: unknown) {

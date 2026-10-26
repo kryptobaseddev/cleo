@@ -33,7 +33,7 @@ import {
   rmSync,
 } from 'node:fs';
 import { platform } from 'node:os';
-import { dirname, isAbsolute, join, relative } from 'node:path';
+import { dirname, isAbsolute, join, relative, resolve } from 'node:path';
 
 import type {
   AgentWorktreeState,
@@ -42,6 +42,8 @@ import type {
   FsHardenState,
   WorktreeCleanupResult,
   WorktreeDisposalBlockers,
+  WorktreeIntegrationOutcome,
+  WorktreeIntegrationPlan,
   WorktreeMergeResult,
   WorktreeSpawnResult,
 } from '@cleocode/contracts';
@@ -66,10 +68,13 @@ import {
   gitSync,
   guardWorktreeDisposal,
   integrateWorktree,
+  isCleoProvisionedWorktree,
   napiDestroyWorktree,
   pruneWorktrees,
   releaseWorktreeTaskLock,
+  WORKTREE_LIFECYCLE_AUDIT_FILE,
 } from '@cleocode/worktree';
+import { appendWorktreeAuditEntry, resolveWorktreeAuditActor } from '../worktree/audit.js';
 import { resolveSpawnLockHolder } from './worktree-lock-holder.js';
 
 // Re-export getGitRoot for barrel consumers
@@ -161,6 +166,16 @@ export function createAgentWorktree(taskId: string, projectRoot: string): AgentW
 
   // Create the worktree with a new branch.
   gitSync(['worktree', 'add', worktreePath, '-b', branch, baseRef], gitRoot); // raw-git-worktree-ok: legacy branch-lock provisioning pending full SDK promotion
+  // T14053: completion merges only worktrees whose creation is recorded.
+  appendWorktreeAuditEntry(projectRoot, {
+    actor: resolveWorktreeAuditActor(),
+    action: 'create',
+    target: worktreePath,
+    branch,
+    taskId,
+    reason: 'spawn',
+    success: true,
+  });
 
   // Apply git worktree lock to prevent accidental pruning.
   // Try with --reason first (git ≥ 2.37), fall back without.
@@ -949,6 +964,188 @@ export function assessUpstreamIntegration(
 }
 
 /**
+ * Options for {@link planWorktreeIntegration} and the merge run that shares
+ * its decision (T14053).
+ */
+export interface WorktreeIntegrationDecisionOptions {
+  /** Override the resolved default branch. */
+  targetBranch?: string;
+  /**
+   * Set when integration is switched off (`cleo complete --no-integrate`,
+   * `CLEO_NO_AUTO_WORKTREE_COMPLETE`): the decision is `skip` with this reason.
+   */
+  disabledReason?: string;
+  /** Skip the upstream `git fetch` (the plan never fetches). */
+  skipFetch?: boolean;
+  /** Timeout for the upstream fetch. */
+  fetchTimeoutMs?: number;
+}
+
+/** Which rule produced a {@link WorktreeIntegrationDecision}. */
+type WorktreeIntegrationRule =
+  | 'disabled'
+  | 'no-git'
+  | 'nothing'
+  | 'not-provisioned'
+  | 'upstream'
+  | 'root'
+  | 'merge';
+
+/** A {@link WorktreeIntegrationPlan} plus what the merge run needs to act on it. */
+interface WorktreeIntegrationDecision extends WorktreeIntegrationPlan {
+  rule: WorktreeIntegrationRule;
+  gitRoot: string | null;
+  upstream: UpstreamIntegrationAssessment | null;
+}
+
+/**
+ * Why a local merge must not run in the main checkout at `gitRoot`, or null
+ * when it may (T14053). The merge checks out `targetBranch` there, so the
+ * checkout must already be on it with no uncommitted tracked changes, and must
+ * be the main checkout rather than a linked worktree (another task's). CLEO
+ * never switches a checkout's branch.
+ */
+function mainCheckoutRefusal(gitRoot: string, branch: string, targetBranch: string): string | null {
+  let linked: boolean;
+  try {
+    const gitDir = gitSync(['rev-parse', '--absolute-git-dir'], gitRoot);
+    const commonDir = resolve(gitRoot, gitSync(['rev-parse', '--git-common-dir'], gitRoot));
+    linked = realpathSync(gitDir) !== realpathSync(commonDir);
+  } catch (err) {
+    return `could not inspect the main checkout (${err instanceof Error ? err.message : String(err)}), so '${branch}' is not merged.`;
+  }
+  if (linked) {
+    return `'${gitRoot}' is a linked worktree, not the main checkout; CLEO merges '${branch}' only from the project's main checkout.`;
+  }
+  let head: string;
+  try {
+    head = gitSync(['symbolic-ref', '--quiet', '--short', 'HEAD'], gitRoot);
+  } catch {
+    head = '(detached HEAD)';
+  }
+  if (head !== targetBranch) {
+    return `the main checkout is on '${head}', not '${targetBranch}', and CLEO does not switch it; switch it yourself and run \`cleo orchestrate worktree-complete\`, or land '${branch}' through a PR.`;
+  }
+  let dirty: boolean;
+  try {
+    dirty = gitSync(['status', '--porcelain', '--untracked-files=no'], gitRoot).length > 0;
+  } catch {
+    dirty = true;
+  }
+  if (dirty) {
+    return `the main checkout has uncommitted changes, so CLEO does not merge into it; commit or stash them and run \`cleo orchestrate worktree-complete\`, or land '${branch}' through a PR.`;
+  }
+  return null;
+}
+
+/**
+ * Decide what completion does with a task's worktree branch (T14053): the one
+ * decision both `cleo done --plan` and the merge run use. Checks, in order:
+ * switched off; not a git repo; nothing to integrate; not provisioned by CLEO
+ * (a hand-made `task/<id>` branch is never merged); already landed upstream or
+ * a stale local target (T12773); a main checkout a merge would disturb.
+ * Only reads git, plus the upstream fetch unless `skipFetch`.
+ */
+function decideWorktreeIntegration(
+  taskId: string,
+  projectRoot: string,
+  opts: WorktreeIntegrationDecisionOptions,
+): WorktreeIntegrationDecision {
+  const branch = `task/${taskId}`;
+  const worktreePath = join(resolveAgentWorktreeRoot(projectRoot), taskId);
+  const targetBranch = opts.targetBranch ?? getDefaultBranch(projectRoot);
+  const base = { branch, worktreePath, targetBranch, gitRoot: null, upstream: null };
+  if (opts.disabledReason) {
+    return { ...base, rule: 'disabled', action: 'skip', reason: opts.disabledReason };
+  }
+  let gitRoot: string;
+  try {
+    gitRoot = getGitRoot(projectRoot);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    return { ...base, rule: 'no-git', action: 'skip', reason: `Not a git repo: ${message}` };
+  }
+  const at = { ...base, gitRoot };
+  // T12153 (GH #1223) — most tasks are worked on a feature branch and merged
+  // by PR, so no `task/<id>` branch and no agent worktree ever exist. That is
+  // "nothing to integrate", not a failure.
+  const branchExists = gitSync(['branch', '--list', branch], gitRoot).trim().length > 0;
+  if (!branchExists && !existsSync(worktreePath)) {
+    return {
+      ...at,
+      rule: 'nothing',
+      action: 'skip',
+      reason: `no task branch '${branch}' and no worktree — nothing to integrate`,
+    };
+  }
+  if (!isCleoProvisionedWorktree(projectRoot, taskId, worktreePath)) {
+    return {
+      ...at,
+      rule: 'not-provisioned',
+      action: 'skip',
+      reason: `'${branch}' was not provisioned by CLEO (no create or adopt for ${worktreePath} in ${WORKTREE_LIFECYCLE_AUDIT_FILE}), so it is not merged; land it through a PR.`,
+    };
+  }
+  // T12773 — never merge locally what already landed upstream, and never
+  // merge into a local default branch that is behind origin.
+  const upstream = branchExists
+    ? assessUpstreamIntegration(gitRoot, branch, targetBranch, {
+        skipFetch: opts.skipFetch ?? false,
+        fetchTimeoutMs: opts.fetchTimeoutMs,
+      })
+    : null;
+  const known = { ...at, upstream };
+  if (upstream?.kind === 'landed' || upstream?.kind === 'nothing') {
+    return { ...known, rule: 'upstream', action: 'skip', reason: upstream.hint };
+  }
+  if (upstream?.kind === 'stale-target') {
+    return {
+      ...known,
+      rule: 'upstream',
+      action: 'refuse',
+      reason: `refusing local merge of '${branch}' into '${targetBranch}': ${upstream.hint}`,
+    };
+  }
+  const refusal = mainCheckoutRefusal(gitRoot, branch, targetBranch);
+  if (refusal !== null) return { ...known, rule: 'root', action: 'refuse', reason: refusal };
+  return {
+    ...known,
+    rule: 'merge',
+    action: 'merge',
+    reason: `merge '${branch}' into local '${targetBranch}' with --no-ff (never pushed)`,
+  };
+}
+
+/**
+ * Preview what completing `taskId` does with its worktree branch, without
+ * changing git: the same decision the merge run makes, from local refs only
+ * (no fetch). Shown by `cleo done --plan` (T14053).
+ *
+ * @param taskId - The CLEO task ID.
+ * @param projectRoot - Absolute path to the project root.
+ * @param opts - Target override and the switched-off reason, if any.
+ * @returns Branch, worktree path, target branch, `merge`/`skip`/`refuse` and why.
+ *
+ * @example
+ * ```ts
+ * planWorktreeIntegration('T123', root).action; // 'skip' for a task merged by PR
+ * ```
+ * @task T14053
+ */
+export function planWorktreeIntegration(
+  taskId: string,
+  projectRoot: string,
+  opts: Omit<WorktreeIntegrationDecisionOptions, 'skipFetch' | 'fetchTimeoutMs'> = {},
+): WorktreeIntegrationPlan {
+  const { branch, worktreePath, targetBranch, action, reason } = decideWorktreeIntegration(
+    taskId,
+    projectRoot,
+    { ...opts, skipFetch: true },
+  );
+  return { branch, worktreePath, targetBranch, action, reason };
+}
+
+/**
  * Complete a worker task's worktree via `git merge --no-ff` (ADR-062).
  *
  * Canonical worktree integration per ADR-062. Preserves the full agent
@@ -960,6 +1157,11 @@ export function assessUpstreamIntegration(
  *
  * 1. Resolve target branch via {@link getDefaultBranch} (or `opts.targetBranch`
  *    override). NEVER hardcodes "main".
+ * 1. T14053: {@link decideWorktreeIntegration} first — the same decision
+ *    `cleo done --plan` shows. A branch CLEO did not provision is skipped
+ *    (`notProvisioned`), never merged; a main checkout on another branch,
+ *    with uncommitted tracked changes, or a linked worktree is refused
+ *    (`rootRefused`) without switching or merging anything.
  * 1a. T12773: {@link assessUpstreamIntegration} — when `task/<id>` already
  *    landed on `origin/<targetBranch>` the merge is skipped
  *    (`landedUpstream: true`); when it has no commits beyond the local
@@ -987,9 +1189,11 @@ export function assessUpstreamIntegration(
  * @param opts.evidence - The task's evidence atoms; the prune keeps a worktree holding the only copy (T13696).
  * @param opts.fetchTimeoutMs - Timeout for the upstream fetch (default
  *   {@link UPSTREAM_FETCH_TIMEOUT_MS}).
- * @returns Merge integration result.
+ * @param opts.disabledReason - Integration is switched off; nothing is touched (T14053).
+ * @returns Merge integration result, with the decision it acted on in `plan`.
  *
  * @task T1587
+ * @task T14053
  * @adr ADR-062
  */
 export function completeAgentWorktreeViaMerge(
@@ -997,139 +1201,94 @@ export function completeAgentWorktreeViaMerge(
   projectRoot: string,
   opts: {
     targetBranch?: string;
+    disabledReason?: string;
     taskTitle?: string;
     skipFetch?: boolean;
     fetchTimeoutMs?: number;
     evidence?: readonly EvidenceAtom[];
   } = {},
 ): WorktreeMergeResult {
-  const branch = `task/${taskId}`;
-  const targetBranch = opts.targetBranch ?? getDefaultBranch(projectRoot);
-
-  let gitRoot: string;
-  try {
-    gitRoot = getGitRoot(projectRoot);
-  } catch (err) {
-    return {
-      taskId,
-      targetBranch,
-      merged: false,
-      mergeCommit: '',
-      commitCount: 0,
-      rebased: false,
-      worktreeRemoved: false,
-      branchDeleted: false,
-      error: `Not a git repo: ${err instanceof Error ? err.message : String(err)}`,
-    };
+  // T14053: one decision, shared with `cleo done --plan`.
+  const decision = decideWorktreeIntegration(taskId, projectRoot, opts);
+  const { branch, worktreePath, targetBranch, upstream } = decision;
+  const plan: WorktreeIntegrationPlan = {
+    branch,
+    worktreePath,
+    targetBranch,
+    action: decision.action,
+    reason: decision.reason,
+  };
+  const noMerge = {
+    taskId,
+    targetBranch,
+    merged: false,
+    mergeCommit: '',
+    commitCount: 0,
+    rebased: false,
+    worktreeRemoved: false,
+    branchDeleted: false,
+    plan,
+  };
+  if (decision.rule === 'disabled') return { ...noMerge, hint: decision.reason };
+  if (decision.rule === 'no-git') return { ...noMerge, error: decision.reason };
+  if (decision.rule === 'nothing') {
+    // `error` is kept as a human-readable MESSAGE, while `nothingToIntegrate`
+    // is the machine-readable CLASSIFICATION (T12153): a caller distinguishes
+    // no-work from failure by the FLAG, never by the presence of a string.
+    return { ...noMerge, error: decision.reason, nothingToIntegrate: true };
   }
-
-  const worktreeRoot = resolveAgentWorktreeRoot(projectRoot);
-  const worktreePath = join(worktreeRoot, taskId);
-
-  // T12153 (GH #1223) — distinguish "nothing to integrate" from "integration
-  // failed" BEFORE delegating.
-  //
-  // Most tasks are worked on a feature branch and merged by PR, so no
-  // `task/<id>` branch and no agent worktree ever exist. The NAPI helper
-  // reports that as `merged: false` with `error: "task branch … does not
-  // exist"`, which is the only shape it has — and the caller then logs a WARN
-  // naming a mergeError for a task where nothing failed. That is a routine,
-  // correct outcome reported as a failure, on most completions.
-  //
-  // Detected here rather than by string-matching the Rust error, which would
-  // couple this to a message in another language that is free to change.
-  const branchExists = gitSync(['branch', '--list', branch], gitRoot).trim().length > 0;
-  if (!branchExists && !existsSync(worktreePath)) {
+  if (decision.rule === 'not-provisioned') {
+    return { ...noMerge, notProvisioned: true, hint: decision.reason };
+  }
+  if (decision.rule === 'root') {
+    return { ...noMerge, rootRefused: true, error: decision.reason, hint: decision.reason };
+  }
+  const gitRoot = decision.gitRoot as string;
+  if (upstream?.kind === 'landed' || upstream?.kind === 'nothing') {
+    // The commits are safe on origin (or there are none); clean up the
+    // worktree unless it holds uncommitted work, which is left for the
+    // operator. The checkout itself is never moved (hint-only).
+    const dirty = existsSync(worktreePath) && isWorktreeDirty(worktreePath);
+    const pruneResult = dirty
+      ? null
+      : pruneWorktree(taskId, projectRoot, { evidence: opts.evidence });
+    let branchDeleted = pruneResult?.branchDeleted ?? false;
+    // pruneWorktree only deletes a branch with zero commits ahead of the
+    // checkout HEAD, so a stale local default branch, a squash merge, or a
+    // checkout on another branch would leave `task/<id>` behind forever.
+    // For a PROVEN-landed branch the content is on upstream, so delete it
+    // explicitly — but only once its (clean) worktree is gone.
+    if (
+      upstream.kind === 'landed' &&
+      pruneResult !== null &&
+      !branchDeleted &&
+      !existsSync(worktreePath)
+    ) {
+      branchDeleted = gitSilent(['branch', '-D', branch], gitRoot);
+    }
     return {
-      taskId,
-      targetBranch,
-      merged: false,
-      mergeCommit: '',
-      commitCount: 0,
-      rebased: false,
-      worktreeRemoved: false,
-      branchDeleted: false,
-      // `error` is kept as a human-readable MESSAGE, while
-      // `nothingToIntegrate` is the machine-readable CLASSIFICATION. Dropping
-      // the string made `orchestrate worktree-complete` fall back to
-      // "unknown merge failure" (it renders `integration.error ?? …`), which
-      // is strictly less informative than the truth. A caller distinguishes
-      // no-work from failure by the FLAG, never by the presence of a string.
-      error: `no task branch '${branch}' and no worktree — nothing to integrate`,
+      ...noMerge,
+      worktreeRemoved: pruneResult?.worktreeRemoved ?? false,
+      ...(pruneResult?.kept ? { worktreeKept: pruneResult.kept } : {}),
+      branchDeleted,
       nothingToIntegrate: true,
+      ...(upstream.kind === 'landed' ? { landedUpstream: true } : {}),
+      ...(upstream.syncCommand ? { syncCommand: upstream.syncCommand } : {}),
+      hint: dirty
+        ? `${upstream.hint} Worktree ${worktreePath} has uncommitted changes and was preserved.`
+        : pruneResult?.kept
+          ? `${upstream.hint} ${pruneResult.error}`
+          : upstream.hint,
     };
   }
-
-  // T12773 — never merge locally what already landed upstream, and never
-  // merge into a local default branch that is behind origin. Both produced a
-  // divergent local merge commit (`merge task/<id>: Merge made by the 'ort'
-  // strategy`) when `cleo done --pr <n>` ran from a stale checkout for a task
-  // whose PR had already merged on origin.
-  let upstreamFetched = false;
-  if (branchExists) {
-    const upstream = assessUpstreamIntegration(gitRoot, branch, targetBranch, {
-      skipFetch: opts.skipFetch ?? false,
-      fetchTimeoutMs: opts.fetchTimeoutMs,
-    });
-    upstreamFetched = upstream.fetched;
-    if (upstream.kind === 'landed' || upstream.kind === 'nothing') {
-      // The commits are safe on origin (or there are none); clean up the
-      // worktree unless it holds uncommitted work, which is left for the
-      // operator. The checkout itself is never moved (hint-only).
-      const dirty = existsSync(worktreePath) && isWorktreeDirty(worktreePath);
-      const pruneResult = dirty
-        ? null
-        : pruneWorktree(taskId, projectRoot, { evidence: opts.evidence });
-      let branchDeleted = pruneResult?.branchDeleted ?? false;
-      // pruneWorktree only deletes a branch with zero commits ahead of the
-      // checkout HEAD, so a stale local default branch, a squash merge, or a
-      // checkout on another branch would leave `task/<id>` behind forever.
-      // For a PROVEN-landed branch the content is on upstream, so delete it
-      // explicitly — but only once its (clean) worktree is gone.
-      if (
-        upstream.kind === 'landed' &&
-        pruneResult !== null &&
-        !branchDeleted &&
-        !existsSync(worktreePath)
-      ) {
-        branchDeleted = gitSilent(['branch', '-D', branch], gitRoot);
-      }
-      return {
-        taskId,
-        targetBranch,
-        merged: false,
-        mergeCommit: '',
-        commitCount: 0,
-        rebased: false,
-        worktreeRemoved: pruneResult?.worktreeRemoved ?? false,
-        ...(pruneResult?.kept ? { worktreeKept: pruneResult.kept } : {}),
-        branchDeleted,
-        nothingToIntegrate: true,
-        ...(upstream.kind === 'landed' ? { landedUpstream: true } : {}),
-        ...(upstream.syncCommand ? { syncCommand: upstream.syncCommand } : {}),
-        hint: dirty
-          ? `${upstream.hint} Worktree ${worktreePath} has uncommitted changes and was preserved.`
-          : pruneResult?.kept
-            ? `${upstream.hint} ${pruneResult.error}`
-            : upstream.hint,
-      };
-    }
-    if (upstream.kind === 'stale-target') {
-      return {
-        taskId,
-        targetBranch,
-        merged: false,
-        mergeCommit: '',
-        commitCount: 0,
-        rebased: false,
-        worktreeRemoved: false,
-        branchDeleted: false,
-        error: `refusing local merge of '${branch}' into '${targetBranch}': ${upstream.hint}`,
-        staleTarget: true,
-        syncCommand: upstream.syncCommand,
-        hint: upstream.hint,
-      };
-    }
+  if (upstream?.kind === 'stale-target') {
+    return {
+      ...noMerge,
+      error: decision.reason,
+      staleTarget: true,
+      syncCommand: upstream.syncCommand,
+      hint: upstream.hint,
+    };
   }
 
   // T11124: Delegate to Rust NAPI SSoT
@@ -1141,25 +1300,19 @@ export function completeAgentWorktreeViaMerge(
     taskTitle: opts.taskTitle,
     // The upstream assessment already fetched (bounded + non-interactive);
     // do not fetch a second time from Rust.
-    skipFetch: (opts.skipFetch ?? false) || upstreamFetched,
+    skipFetch: (opts.skipFetch ?? false) || (upstream?.fetched ?? false),
   });
   if (!result.merged) {
     return {
-      taskId,
-      targetBranch,
-      merged: false,
-      mergeCommit: '',
+      ...noMerge,
       commitCount: result.commitCount,
       rebased: result.rebased,
-      worktreeRemoved: false,
-      branchDeleted: false,
       error: result.error,
     };
   }
   const pruneResult = pruneWorktree(taskId, projectRoot, { evidence: opts.evidence });
   return {
-    taskId,
-    targetBranch,
+    ...noMerge,
     merged: true,
     mergeCommit: result.mergeCommit,
     commitCount: result.commitCount,
@@ -1257,6 +1410,48 @@ export function completeAgentWorktreeIntegration(
   }
 
   return { ...mergeResult, auditLogEntry };
+}
+
+/**
+ * The single integration result for a completion envelope (T14053): what the
+ * run actually did, so it can never contradict the merge. `merge` only when a
+ * merge commit was made; a decided merge that failed reads as `refuse`.
+ *
+ * @param result - The merge run's result (its `plan` is the decision it acted on).
+ * @returns `{branch, worktreePath, targetBranch, action, reason, mergeCommit?, pushed: false}`.
+ *
+ * @example
+ * ```ts
+ * integrationOutcome(completeAgentWorktreeIntegration('T1', root)).action; // 'skip'
+ * ```
+ * @task T14053
+ */
+export function integrationOutcome(result: WorktreeMergeResult): WorktreeIntegrationOutcome {
+  const plan: WorktreeIntegrationPlan = result.plan ?? {
+    branch: `task/${result.taskId}`,
+    worktreePath: '',
+    targetBranch: result.targetBranch,
+    action: 'skip',
+    reason: result.error ?? result.hint ?? 'no integration decision recorded',
+  };
+  if (result.merged) {
+    return {
+      ...plan,
+      action: 'merge',
+      reason: `merged into local '${result.targetBranch}' with --no-ff; not pushed`,
+      ...(result.mergeCommit ? { mergeCommit: result.mergeCommit } : {}),
+      pushed: false,
+    };
+  }
+  if (plan.action === 'merge') {
+    return {
+      ...plan,
+      action: 'refuse',
+      reason: `merge failed (${result.error ?? 'unknown error'}); branch and worktree kept`,
+      pushed: false,
+    };
+  }
+  return { ...plan, pushed: false };
 }
 
 // ---------------------------------------------------------------------------

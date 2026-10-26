@@ -18,6 +18,7 @@
  * @task T1703 — Fill Result=unknown stubs with canonical typed shapes
  */
 
+import type { WorktreeIntegrationOutcome } from '../branch-lock.js';
 import type { TaskPopulation } from '../data-accessor.js';
 import type { ImpactReport } from '../facade.js';
 import type { TaskAnalysisResult, TaskRef } from '../results.js';
@@ -1720,6 +1721,11 @@ export interface TasksCompleteQueryParams {
    * @task T12800
    */
   expectedUpdatedAt?: string;
+  /**
+   * Skip worktree integration (`--no-integrate`): the task branch and worktree
+   * are left untouched (T14053).
+   */
+  noIntegrate?: boolean;
 }
 /**
  * Result of `tasks.complete` — completion confirmation with unblocked tasks.
@@ -1733,6 +1739,8 @@ export interface TasksCompleteQueryResult {
   autoCompleted?: string[];
   /** Tasks that became unblocked by this completion. @defaultValue undefined */
   unblockedTasks?: Array<Pick<TaskRef, 'id' | 'title'>>;
+  /** What completion did with the task's worktree branch (T14053). @defaultValue undefined */
+  integration?: WorktreeIntegrationOutcome;
 }
 
 // tasks.reconcile-scope (dispatch-level params) — containment-aware overlap sweep

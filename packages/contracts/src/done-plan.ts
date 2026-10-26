@@ -14,6 +14,7 @@
  * @task T12624
  */
 
+import type { WorktreeIntegrationPlan } from './branch-lock.js';
 import type { VerificationGate } from './task.js';
 
 /**
@@ -324,6 +325,11 @@ export interface DonePlan {
   ready: boolean;
   /** The single next step: the first blocker's, or the first command. */
   next: DoneNextStep | null;
+  /**
+   * What completion will do with the task's worktree branch (T14053), decided
+   * by the same function `cleo complete` runs, from local refs only.
+   */
+  integration?: WorktreeIntegrationPlan;
 }
 
 /** One tool `cleo done` ran (or reused from the ADR-061 cache) before recording. */

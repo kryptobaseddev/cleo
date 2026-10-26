@@ -523,6 +523,8 @@ const _tasksTypedHandler = defineTypedHandler<TasksOps>('tasks', {
       expectedUpdatedAt: params.expectedUpdatedAt,
       // T13637 — the PR `cleo done --pr` named
       prNumber: params.prNumber,
+      // T14053 — `--no-integrate`
+      noIntegrate: params.noIntegrate,
     });
     // T994: Track memory usage on task completion (fire-and-forget; must not block).
     // SSoT-EXEMPT: fire-and-forget side-effect that must not block the complete flow
