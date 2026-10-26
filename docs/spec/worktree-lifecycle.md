@@ -143,7 +143,9 @@ operator-driven via `cleo worktree …` commands.
 | Command | Source | Purpose |
 |---|---|---|
 | `cleo orchestrate spawn <taskId>` | `packages/cleo/src/cli/commands/orchestrate.ts` | Provision worktree + `task/<taskId>` branch, compose prompt, dispatch worker. Bounded by `SPAWN_BUDGET_MS = 60_000` (T9545). |
-| `cleo orchestrate worktree-complete <taskId> [--resolve manual]` | `packages/cleo/src/cli/commands/orchestrate.ts` | Integrate `task/<taskId>` into the default branch via `git merge --no-ff` (ADR-062). Idempotent (T9548). |
+| `cleo orchestrate worktree-complete <taskId> [--resolve manual]` | `packages/cleo/src/cli/commands/orchestrate.ts` | Integrate `task/<taskId>` into the default branch via `git merge --no-ff` (ADR-062). Idempotent (T9548). Same merge rules as `cleo complete` (§5.1, T14053). |
+| `cleo complete <taskId> [--no-integrate]` | `packages/cleo/src/cli/commands/complete.ts` | Completes the task, then runs the one worktree integration (§5.1). `--no-integrate` (also on `cleo done`) leaves branch and worktree untouched (T14053). |
+| `cleo done <taskId> --plan` | `packages/cleo/src/cli/commands/done.ts` | Shows `integration: {branch, worktreePath, targetBranch, action, reason}`, the decision `cleo complete` will act on, without changing git (T14053). |
 | `cleo worktree list [--status …] [--stale-days N]` | `packages/cleo/src/cli/commands/worktree.ts` | Enumerate every worktree and classify each by status (T9546). |
 | `cleo worktree prune --orphaned [--dry-run] [--yes]` | `packages/cleo/src/cli/commands/worktree.ts` | Remove `orphan`/`merged` worktrees with per-orphan Y/N confirmation (T9547). |
 | `cleo worktree force-unlock <taskId>` | `packages/cleo/src/cli/commands/worktree.ts` | Clear `.git/index.lock` + `git worktree unlock <path>` for a wedged worktree (T9547). |
@@ -234,9 +236,9 @@ block.
 | `outcome`   | Meaning                                                                                              | Audit action       |
 |-------------|------------------------------------------------------------------------------------------------------|--------------------|
 | `merged`    | `git merge --no-ff` succeeded; worktree + branch pruned.                                             | `complete`         |
-| `noop`      | Idempotent skip — prior merge already recorded in `.cleo/audit/worktree-integration.jsonl`.          | `complete-skip`    |
+| `noop`      | Idempotent skip — prior merge already recorded in `.cleo/audit/worktree-integration.jsonl`, nothing to integrate, or the branch was not provisioned by CLEO (T14053). | `complete-skip`    |
 | `manual`    | `resolve: 'manual'` was set; merge skipped; worktree marked as manually-handled.                     | `complete-manual`  |
-| `conflict`  | Auto-merge failed (rebase or merge conflict). Worktree preserved. No prune attempted.                | `complete-conflict`|
+| `conflict`  | Auto-merge failed (rebase or merge conflict), or the merge was refused before it ran: stale local target (T12773) or a main checkout it would disturb (T14053). Worktree preserved. No prune attempted. | `complete-conflict`|
 
 ### Idempotency
 
@@ -252,6 +254,36 @@ The check is best-effort — if the audit file is missing, unreadable, or
 malformed, the function proceeds with the merge attempt. The underlying
 `completeAgentWorktreeViaMerge` call is itself near-no-op when the
 `task/<taskId>` branch is absent.
+
+### 5.1 Integration on `cleo complete` (T14053)
+
+`cleo complete <taskId>` runs exactly one worktree integration after the
+task is marked done (`completeTask` in `packages/core/src/tasks/complete.ts`).
+One decision function, `decideWorktreeIntegration` in
+`packages/core/src/spawn/branch-lock.ts`, drives both this run and the
+preview in `cleo done <taskId> --plan` (`planWorktreeIntegration`, local refs
+only, no fetch, no git writes), so the preview and the run agree. The rules,
+in order:
+
+| Rule | `action` | When |
+|---|---|---|
+| switched off | `skip` | `--no-integrate` was passed, or `CLEO_NO_AUTO_WORKTREE_COMPLETE` is set to a value other than `''`, `0` or `false`. Nothing is touched. |
+| nothing to integrate | `skip` | No `task/<taskId>` branch and no worktree (the usual case for a task landed by PR, T12153). |
+| not provisioned | `skip` | The lifecycle audit has no `create` or `adopt` row for the task's canonical worktree path. A hand-made `task/<taskId>` branch is never merged. |
+| already landed / nothing new | `skip` | The branch already landed on `origin/<target>`, or has no commits beyond the local target (T12773). |
+| stale target | `refuse` | The local default branch is behind `origin/<target>` (T12773). |
+| main checkout | `refuse` | The main checkout has uncommitted tracked changes, is on a branch other than the target, or the project root resolves to a linked worktree. CLEO never switches the checkout, so it always stays on the branch it started on. |
+| otherwise | `merge` | `git merge --no-ff task/<taskId>` into the local target branch. The merge is never pushed. |
+
+The completion envelope carries one result, `integration: {branch,
+worktreePath, targetBranch, action, reason, mergeCommit?, pushed: false}`,
+where `action` is what happened: `merge` only when a merge commit was made,
+and a decided merge that failed reads as `refuse`. It replaced the earlier
+`worktreeAutoComplete` field.
+
+A worktree created before T14053 has no `create` row and is skipped. Record
+it with `cleo worktree adopt <canonical worktree path> --task-id <taskId>`
+(its `adopt` row counts as provisioned), or land the branch through a PR.
 
 ## 6. Hook Points for IVTR / Release Consumers
 
@@ -558,7 +590,16 @@ specification MUST satisfy every MUST and MUST NOT.
   the spawn flow MUST attempt `completeWorktreeForTask` post-success.
 - **MUST-19.** When the environment variable `CLEO_NO_AUTO_WORKTREE_COMPLETE=1`
   is set, the spawn flow MUST skip auto-completion AND append a
-  `complete-skip` audit entry with `reason: 'env-override'`.
+  `complete-skip` audit entry with `reason: 'env-override'`. `cleo complete`
+  MUST skip its integration call under the same variable or
+  `--no-integrate` (T14053). The spawn flow does not check the variable
+  yet (T14057).
+- **MUST-19a.** A local merge MUST happen only for a worktree whose
+  provisioning (`create` or `adopt`) is recorded in
+  `.cleo/audit/worktree-lifecycle.jsonl`, and only into a main checkout
+  already on the target branch with no uncommitted tracked changes.
+  Implementations MUST NOT switch the main checkout's branch, and MUST NOT
+  push the merge (T14053).
 - **MUST-20.** Auto-completion MUST be idempotent. Implementations MUST
   scan `.cleo/audit/worktree-integration.jsonl` for a prior entry with
   the same `taskId` AND `merged === true` BEFORE attempting the merge.
