@@ -37,7 +37,7 @@ import {
   writeFileSync,
 } from 'node:fs';
 import { lstat, open, readFile, realpath, stat } from 'node:fs/promises';
-import { basename, dirname, isAbsolute, join, relative, resolve } from 'node:path';
+import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { isDeepStrictEqual } from 'node:util';
 import type {
   AcceptanceGate,
@@ -73,6 +73,7 @@ import type {
   ProcessCaptureOptions,
   ProcessCaptureResult,
 } from '@cleocode/contracts/resource-governor';
+import { findOnPath } from '@cleocode/paths';
 import { resolveOriginDefault } from '../git/base-ref.js';
 import { discoveryEnv, gitToplevel, resolveDeclaredEvidenceGitRoot } from '../git/work-tree.js';
 import { getProjectRoot } from '../paths.js';
@@ -632,10 +633,18 @@ function treeInputsHash(
   artifacts: readonly AcceptanceGateArtifact[],
 ): string {
   const rel = (path: string): string => relative(tree, path) || '.';
+  // T14063: an executable inside the tree (node_modules/.bin) is tree-relative too.
+  const exe = invocation?.executable;
   return createHash('sha256')
     .update(
       JSON.stringify({
-        invocation: invocation ? { ...invocation, cwd: rel(invocation.cwd) } : null,
+        invocation: invocation
+          ? {
+              ...invocation,
+              cwd: rel(invocation.cwd),
+              ...(exe && isWithin(tree, exe) ? { executable: rel(exe) } : {}),
+            }
+          : null,
         artifacts: artifacts.map((a) => ({ ...a, path: rel(a.path) })),
       }),
     )
@@ -1048,6 +1057,223 @@ export function typedResultStaleReason(
   return null;
 }
 
+/** One revalidation pass over a task's stored typed results. */
+interface TypedRevalidationScope {
+  task: Task;
+  rows: readonly AcRow[];
+  results: readonly AcceptanceGateResult[];
+  execution: OperationExecutionContext;
+  /** CLEO store root completing the task. */
+  root: string;
+  /** Tree the typed gates are revalidated in ({@link resolveTypedGateRoot}). */
+  tree: string;
+  env: NodeJS.ProcessEnv;
+  requirePassing: boolean;
+}
+
+/** Whether `path` is `dir` or lies under it. */
+function isWithin(dir: string, path: string): boolean {
+  const rel = relative(dir, path);
+  return rel === '' || (rel !== '..' && !rel.startsWith(`..${sep}`) && !isAbsolute(rel));
+}
+
+/**
+ * Whether `binding` was verified in `tree` itself (T14063). The bound tree is
+ * the invocation's cwd less its recorded tree-relative part; a gate without an
+ * invocation was verified here when every input it captured lies in `tree`.
+ */
+function boundInTree(binding: AcceptanceGateBinding, tree: string): boolean {
+  if (binding.invocation && binding.tree) {
+    const up = binding.tree.cwd === '.' ? [] : binding.tree.cwd.split(/[\\/]/).map(() => '..');
+    return resolve(binding.invocation.cwd, ...up) === tree;
+  }
+  if (binding.invocation) return isWithin(tree, binding.invocation.cwd);
+  return binding.artifacts.every((artifact) => isWithin(tree, artifact.path));
+}
+
+/**
+ * What moved between a result verified in this tree and the inputs now
+ * (T14063): the invocation, the named environment entries and executable, or
+ * the input files. Worded to follow "Typed requirement <id> ".
+ */
+function describeTypedDrift(
+  bound: AcceptanceGateBinding,
+  current: AcceptanceGateInvocation | undefined,
+  artifacts: readonly AcceptanceGateArtifact[],
+  tree: string,
+): string {
+  const parts: string[] = [];
+  const was = bound.invocation;
+  if (!was || !current) {
+    if (was !== current) parts.push('invocation changed (it now runs no process)');
+  } else {
+    const moved = [
+      ...(was.command !== current.command ? ['command'] : []),
+      ...(!isDeepStrictEqual(was.args, current.args) ? ['arguments'] : []),
+      ...(was.cwd !== current.cwd ? ['working directory'] : []),
+    ];
+    if (moved.length > 0) parts.push(`invocation changed (${moved.join(', ')})`);
+    else if (was.environmentHash !== current.environmentHash) {
+      if (!was.environmentKeys) {
+        parts.push(
+          'environment changed (verified before T14063, when the whole PATH was an input)',
+        );
+      } else {
+        const now = current.environmentKeys ?? {};
+        const names = [...new Set([...Object.keys(was.environmentKeys), ...Object.keys(now)])]
+          .filter((name) => was.environmentKeys?.[name] !== now[name])
+          .sort();
+        if (was.executable !== current.executable)
+          names.push(
+            `executable ${was.executable ?? '(none)'} -> ${current.executable ?? '(none)'}`,
+          );
+        parts.push(`environment changed (${names.join(', ') || 'unknown'})`);
+      }
+    }
+  }
+  const before = new Map(bound.artifacts.map((a) => [a.path, a.sha256]));
+  const after = new Map(artifacts.map((a) => [a.path, a.sha256]));
+  const changed = [...new Set([...before.keys(), ...after.keys()])]
+    .filter((path) => before.get(path) !== after.get(path))
+    .map((path) => relative(tree, path) || path)
+    .sort();
+  if (changed.length > 0) parts.push(`input bytes changed (${changed.join(', ')})`);
+  return `${parts.join('; ') || 'inputs changed'} since verification`;
+}
+
+/** `value` single-quoted for a POSIX shell. */
+function shellArg(value: string): string {
+  return `'${value.replace(/'/g, `'\\''`)}'`;
+}
+
+/**
+ * The cheapest command that re-binds a task's typed results in `tree`
+ * (T14063): re-record a gate whose evidence runs nothing (`implemented`, when
+ * its atoms are commits, files, PRs, decisions and criterion links) with
+ * `--run-typed`, which re-runs only the typed gates no current pass covers.
+ * Otherwise it re-records testsPassed ({@link reverifyCommand}).
+ */
+function rebindCommand(task: Task, tree: string): string {
+  const atoms = task.verification?.evidence?.implemented?.atoms ?? [];
+  const cheap = atoms.map((atom) => {
+    switch (atom.kind) {
+      case 'commit':
+        return `commit:${atom.sha}`;
+      case 'files':
+        return `files:${atom.files.map((f) => f.path).join(',')}`;
+      case 'decision':
+        return `decision:${atom.decisionId}`;
+      case 'pr':
+        return `pr:${atom.prNumber}`;
+      case 'satisfies':
+        return `satisfies:${atom.targetTaskId}#${atom.targetAcAlias ?? atom.resolvedAcUuid ?? atom.targetAcId ?? ''}`;
+      default:
+        return null;
+    }
+  });
+  if (cheap.length === 0 || cheap.some((atom) => atom === null))
+    return `${reverifyCommand(task, tree)} --run-typed`;
+  return `cd ${shellArg(tree)} && cleo verify ${task.id} --gate implemented --evidence ${shellArg(cheap.join(';'))} --run-typed`;
+}
+
+/** Revalidate the stored result of the typed gate at `index`; throws when it does not stand. */
+async function revalidateTypedResult(
+  scope: TypedRevalidationScope,
+  index: number,
+  gate: AcceptanceGate,
+): Promise<void> {
+  const { task, rows, results, execution, root, tree, env, requirePassing } = scope;
+  execution.assertActive();
+  const matches = results.filter((result) => result.index === index);
+  if (matches.length !== 1)
+    throw new Error(`Typed requirement ${gate.req ?? index} has no unique verified result`);
+  const result = acceptanceGateResultSchema.parse(matches[0]);
+  const stale = typedResultStaleReason(
+    result,
+    task,
+    gate,
+    rows[index]!,
+    { projectId: execution.identity.projectId, projectRoot: root },
+    requirePassing,
+  );
+  if (stale) throw new Error(`Typed requirement ${gate.req ?? index} ${stale}`);
+  const binding = result.binding!;
+  // A refused command is bound without an invocation (T12718 review), so it
+  // revalidates as the unmet `error` it was recorded as.
+  const { invocation: resolved } = resolveInvocation(gate, tree, env);
+  // T13527: an unmet result recorded because its inputs could not be
+  // captured has nothing to re-capture; completion (requirePassing) never
+  // reaches here with it, because only a pass stands there.
+  let artifacts: AcceptanceGateArtifact[];
+  try {
+    artifacts = await snapshotGateInputs(task, gate, resolved, execution, tree);
+  } catch (error) {
+    execution.assertActive();
+    if (!requirePassing && result.result !== 'pass') return;
+    throw error;
+  }
+  // T14063: a receipt recorded before T14063 is compared in its own shape.
+  const invocation =
+    resolved && binding.invocation && !binding.invocation.environmentKeys
+      ? legacyInvocation(gate, resolved, env)
+      : resolved;
+  if (
+    isDeepStrictEqual(binding.invocation, invocation) &&
+    isDeepStrictEqual(binding.artifacts, artifacts)
+  )
+    return;
+  const label = gate.req ?? String(index);
+  // T12625: a result bound in another tree of this project (a worker's
+  // worktree) is accepted by CONTENT, not by path. T14063: never for the tree
+  // it was verified in, where a mismatch is drift to name, not a carry.
+  if (binding.tree && !boundInTree(binding, tree)) {
+    assertTreeEquivalent(task, label, binding.tree, tree, root, invocation, artifacts);
+    return;
+  }
+  // @sync-invariant none:input-shape a typed result whose inputs moved in its own tree is refused before the completion write; nothing is written
+  throw new TypedRevalidationError(
+    `Typed requirement ${label} ${describeTypedDrift(binding, invocation, artifacts, tree)}`,
+    rebindCommand(task, tree),
+  );
+}
+
+/**
+ * Open a revalidation scope over `task`'s typed results, or throw when its
+ * acceptance array and normalized rows disagree.
+ */
+function typedRevalidationScope(
+  task: Task,
+  criteria: readonly AcRow[],
+  results: readonly AcceptanceGateResult[],
+  options: RunGatesOptions,
+  requirePassing: boolean,
+  cwd?: string,
+): { scope: TypedRevalidationScope; project: ReturnType<typeof captureProjectScope> } {
+  const execution = options.execution ?? worktreeScope.getStore()?.execution;
+  if (!execution)
+    throw new Error('Typed result revalidation requires a captured execution lifetime');
+  const root = resolve(options.projectRoot ?? execution.identity.projectRoot);
+  const project = captureProjectScope(root, {
+    ...captureProjectScope(root, worktreeScope.getStore()),
+    execution,
+  });
+  const rows = [...criteria].sort((a, b) => a.ordinal - b.ordinal);
+  assertCriterionProjection(task, rows);
+  return {
+    scope: {
+      task,
+      rows,
+      results,
+      execution,
+      root,
+      tree: resolveTypedGateRoot(root, cwd),
+      env: { ...(options.env ?? process.env) },
+      requirePassing,
+    },
+    project,
+  };
+}
+
 /**
  * Revalidate persisted typed results against current canonical task and input state.
  * @param task - Current task read under the caller's transaction ownership.
@@ -1058,6 +1284,8 @@ export function typedResultStaleReason(
  * @returns Resolves when bound inputs are current and the requested verdict policy holds.
  * @remarks Historical unbound results and generic text-AC evidence cannot substitute.
  * Filesystem checks are cooperative and cannot make external file writes atomic with SQLite.
+ * A result verified in the completing tree whose inputs moved is refused with a
+ * {@link TypedRevalidationError} naming what moved and the re-bind command (T14063).
  * @example
  * ```typescript
  * await revalidateTaskGateResults(task, rows, task.verification?.gateResults ?? [], { execution });
@@ -1070,76 +1298,70 @@ export async function revalidateTaskGateResults(
   options: RunGatesOptions,
   requirePassing = true,
 ): Promise<void> {
-  const execution = options.execution ?? worktreeScope.getStore()?.execution;
-  if (!execution)
-    throw new Error('Typed result revalidation requires a captured execution lifetime');
-  const root = resolve(options.projectRoot ?? execution.identity.projectRoot);
-  const scope = captureProjectScope(root, {
-    ...captureProjectScope(root, worktreeScope.getStore()),
-    execution,
-  });
-  const rows = [...criteria].sort((a, b) => a.ordinal - b.ordinal);
-  assertCriterionProjection(task, rows);
-  const env = { ...(options.env ?? process.env) };
-  const tree = resolveTypedGateRoot(root);
-  await worktreeScope.run(scope, async () => {
+  const { scope, project } = typedRevalidationScope(
+    task,
+    criteria,
+    results,
+    options,
+    requirePassing,
+  );
+  await worktreeScope.run(project, async () => {
     for (const [index, gate] of (task.acceptance ?? []).entries()) {
       if (typeof gate === 'string' || (requirePassing && gate.advisory)) continue;
-      execution.assertActive();
-      const matches = results.filter((result) => result.index === index);
-      if (matches.length !== 1)
-        throw new Error(`Typed requirement ${gate.req ?? index} has no unique verified result`);
-      const result = acceptanceGateResultSchema.parse(matches[0]);
-      const stale = typedResultStaleReason(
-        result,
-        task,
-        gate,
-        rows[index]!,
-        { projectId: execution.identity.projectId, projectRoot: root },
-        requirePassing,
-      );
-      if (stale) throw new Error(`Typed requirement ${gate.req ?? index} ${stale}`);
-      const binding = result.binding!;
-      // A refused command is bound without an invocation (T12718 review), so it
-      // revalidates as the unmet `error` it was recorded as.
-      const { invocation } = resolveInvocation(gate, tree, env);
-      // T13527: an unmet result recorded because its inputs could not be
-      // captured has nothing to re-capture; completion (requirePassing) never
-      // reaches here with it, because only a pass stands there.
-      let artifacts: AcceptanceGateArtifact[];
-      try {
-        artifacts = await snapshotGateInputs(task, gate, invocation, execution, tree);
-      } catch (error) {
-        execution.assertActive();
-        if (!requirePassing && result.result !== 'pass') continue;
-        throw error;
-      }
-      const exact =
-        isDeepStrictEqual(binding.invocation, invocation) &&
-        isDeepStrictEqual(binding.artifacts, artifacts);
-      if (exact) continue;
-      // T12625: a result bound in another tree of this project (a worker's
-      // worktree) is accepted by CONTENT, not by path. Pre-T12625 receipts carry
-      // no tree binding and keep the exact path-bound refusals below.
-      if (binding.tree) {
-        assertTreeEquivalent(
-          task,
-          gate.req ?? String(index),
-          binding.tree,
-          tree,
-          root,
-          invocation,
-          artifacts,
-        );
-        continue;
-      }
-      if (!isDeepStrictEqual(binding.invocation, invocation))
-        throw new Error(`Typed requirement ${gate.req ?? index} invocation or environment changed`);
-      throw new Error(
-        `Typed requirement ${gate.req ?? index} input bytes changed after verification`,
-      );
+      await revalidateTypedResult(scope, index, gate);
     }
   });
+}
+
+/** Why a stored typed pass would not stand at completion, and how to re-bind it (T14063). */
+export interface TypedResultDrift {
+  /** The refusal `cleo complete` would raise, after "Typed requirement <id> ". */
+  reason: string;
+  /** Command that re-binds the result, when one is known. */
+  fix?: string;
+}
+
+/**
+ * Run completion's input revalidation over every stored typed PASS without
+ * refusing (T14063), so `cleo done --plan` never reports a pass that
+ * `cleo complete` would refuse.
+ *
+ * @param task - The task as stored.
+ * @param criteria - Its normalized AC rows.
+ * @param options - Execution lifetime, store root and environment, as completion passes them.
+ * @param cwd - Directory `cleo complete` would run in; it selects the tree.
+ * @returns The refusal per acceptance index; an index absent from the map stands.
+ * @example
+ * ```typescript
+ * const drift = await typedResultDrift(task, rows, { execution, projectRoot }, runFrom);
+ * ```
+ * @task T14063
+ */
+export async function typedResultDrift(
+  task: Task,
+  criteria: readonly AcRow[],
+  options: RunGatesOptions,
+  cwd?: string,
+): Promise<Map<number, TypedResultDrift>> {
+  const results = task.verification?.gateResults ?? [];
+  const { scope, project } = typedRevalidationScope(task, criteria, results, options, true, cwd);
+  const drift = new Map<number, TypedResultDrift>();
+  await worktreeScope.run(project, async () => {
+    for (const [index, gate] of (task.acceptance ?? []).entries()) {
+      if (typeof gate === 'string' || gate.advisory) continue;
+      if (!results.some((r) => r.index === index && r.result === 'pass')) continue;
+      try {
+        await revalidateTypedResult(scope, index, gate);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        drift.set(index, {
+          reason: message.replace(/^Typed requirement \S+ /, ''),
+          ...(error instanceof TypedRevalidationError ? { fix: error.fix } : {}),
+        });
+      }
+    }
+  });
+  return drift;
 }
 
 /**
@@ -1233,7 +1455,7 @@ function gateHeavyOverlay(
   return planHeavyToolEnv('test', merged, undefined, ceiling).overlay;
 }
 
-/** Effective child environment a gate launches with; its cache key is {@link gateEnvironmentHash}. */
+/** Effective child environment a gate launches with; its cache key is {@link gateEnvironmentDigest}. */
 function gateEnvironment(
   env: NodeJS.ProcessEnv,
   overlay: Readonly<Record<string, string>> | undefined,
@@ -1244,8 +1466,83 @@ function gateEnvironment(
   return { ...merged, ...gateHeavyOverlay(merged, cwd, argv) };
 }
 
-/** Inherited variables every process gate's cache key covers (T14034). */
-const GATE_HASHED_ENV_KEYS: readonly string[] = ['PATH', 'NODE_OPTIONS', 'CI', 'LANG'];
+/**
+ * Inherited variables every process gate's cache key covers (T14034).
+ *
+ * T14063: `PATH` is not one of them. It differs between shells for reasons that
+ * never reach the gate (mise, nvm and direnv shims, `cleo run`, a harness
+ * prepending its own bin), and a pass verified in one shell was refused at
+ * completion from another. What `PATH` decides for the gate is which program
+ * runs, so the resolved executable is hashed instead ({@link resolveGateExecutable});
+ * a gate whose result depends on the whole search path lists `PATH` in
+ * `envKeys`. The rest change results: `NODE_OPTIONS` sets the V8 flags of
+ * every node process the gate starts, `CI` switches test runners (vitest
+ * refuses `.only` and suites branch on it), and `LANG`/`LC_*` set the locale
+ * that ICU collation, `Intl` formatting and tool messages follow.
+ */
+const GATE_HASHED_ENV_KEYS: readonly string[] = ['NODE_OPTIONS', 'CI', 'LANG'];
+
+/**
+ * Real path of the program a gate's `command` runs, searched on the gate's own
+ * launch `PATH` (T14063), or `undefined` when nothing resolves. A command
+ * naming a path resolves against the gate's `cwd`, as the launch does.
+ */
+function resolveGateExecutable(
+  command: string,
+  cwd: string,
+  env: NodeJS.ProcessEnv,
+): string | undefined {
+  const named = /[\\/]/.test(command) ? resolve(cwd, command) : command;
+  const found = findOnPath(named, { env });
+  if (found === null) return undefined;
+  try {
+    return realpathSync(found);
+  } catch {
+    return found;
+  }
+}
+
+/**
+ * A gate's effective launch environment and, sorted by name, the entries its
+ * digest covers: the fixed tool inputs, `LC_*`, the gate's `env` keys, its
+ * `envKeys`, the heavy-run overlay and any `extra` names.
+ */
+function hashedGateEnvironment(
+  env: NodeJS.ProcessEnv,
+  overlay: Readonly<Record<string, string>> | undefined,
+  envKeys: readonly string[] | undefined,
+  cwd: string,
+  argv: readonly string[],
+  extra: readonly string[] = [],
+): { effective: NodeJS.ProcessEnv; entries: [string, string][] } {
+  const merged = { ...env, ...overlay };
+  const heavy = gateHeavyOverlay(merged, cwd, argv);
+  const effective: NodeJS.ProcessEnv = { ...merged, ...heavy };
+  const keys = new Set([
+    ...extra,
+    ...GATE_HASHED_ENV_KEYS,
+    ...Object.keys(overlay ?? {}),
+    ...(envKeys ?? []),
+    ...Object.keys(heavy),
+  ]);
+  const entries = Object.entries(effective)
+    .filter(
+      (entry): entry is [string, string] =>
+        entry[1] !== undefined && (keys.has(entry[0]) || entry[0].startsWith('LC_')),
+    )
+    .sort(([a], [b]) => a.localeCompare(b));
+  return { effective, entries };
+}
+
+/** The hashed environment of a process gate and the digest of each entry (T14063). */
+interface GateEnvironmentDigest {
+  /** Digest of the executable and every hashed entry. */
+  hash: string;
+  /** Resolved executable, when one resolves. */
+  executable?: string;
+  /** SHA-256 of each hashed `[name, value]` entry, by name. */
+  keys: Record<string, string>;
+}
 
 /**
  * Digest of the environment a gate's cached pass depends on (T14034).
@@ -1253,34 +1550,52 @@ const GATE_HASHED_ENV_KEYS: readonly string[] = ['PATH', 'NODE_OPTIONS', 'CI', '
  * Hashing the whole launch env made a `--run` pass unusable from any other
  * shell (`PWD`, `SHLVL`, `TERM_SESSION_ID`, harness ids differ), so evidence
  * writes refused with `E_GATE_NOT_CACHED`. Only the gate's `env` keys, its
- * declared `envKeys`, the heavy-run overlay and a fixed tool-input set count;
- * the launch env stays whole.
+ * declared `envKeys`, the heavy-run overlay, a fixed tool-input set and the
+ * resolved executable count (T14063); the launch env stays whole.
  */
-function gateEnvironmentHash(
+function gateEnvironmentDigest(
+  env: NodeJS.ProcessEnv,
+  overlay: Readonly<Record<string, string>> | undefined,
+  envKeys: readonly string[] | undefined,
+  command: string,
+  root: string,
+  cwd: string,
+  argv: readonly string[],
+): GateEnvironmentDigest {
+  const { effective, entries } = hashedGateEnvironment(env, overlay, envKeys, cwd, argv);
+  const executable = resolveGateExecutable(command, cwd, effective);
+  // Hashed relative to the tree when inside it, so another worktree of the
+  // project, with its own node_modules, digests the same (T12625 carry).
+  const hashed = executable && isWithin(root, executable) ? relative(root, executable) : executable;
+  return {
+    hash: createHash('sha256')
+      .update(JSON.stringify({ executable: hashed ?? null, entries }))
+      .digest('hex'),
+    ...(executable ? { executable } : {}),
+    keys: Object.fromEntries(
+      entries.map((entry) => [
+        entry[0],
+        createHash('sha256').update(JSON.stringify(entry)).digest('hex'),
+      ]),
+    ),
+  };
+}
+
+/**
+ * The environment digest receipts recorded before T14063 carry: the same
+ * entries plus the whole `PATH`, and no executable. Completion compares such a
+ * receipt against it, so a task verified before the upgrade still completes
+ * from an unchanged shell.
+ */
+function legacyEnvironmentHash(
   env: NodeJS.ProcessEnv,
   overlay: Readonly<Record<string, string>> | undefined,
   envKeys: readonly string[] | undefined,
   cwd: string,
   argv: readonly string[],
 ): string {
-  const merged = { ...env, ...overlay };
-  const heavy = gateHeavyOverlay(merged, cwd, argv);
-  const effective: NodeJS.ProcessEnv = { ...merged, ...heavy };
-  const keys = new Set([
-    ...GATE_HASHED_ENV_KEYS,
-    ...Object.keys(overlay ?? {}),
-    ...(envKeys ?? []),
-    ...Object.keys(heavy),
-  ]);
-  return createHash('sha256')
-    .update(
-      JSON.stringify(
-        Object.entries(effective)
-          .filter(([key, value]) => value !== undefined && (keys.has(key) || key.startsWith('LC_')))
-          .sort(([a], [b]) => a.localeCompare(b)),
-      ),
-    )
-    .digest('hex');
+  const { entries } = hashedGateEnvironment(env, overlay, envKeys, cwd, argv, ['PATH']);
+  return createHash('sha256').update(JSON.stringify(entries)).digest('hex');
 }
 
 /**
@@ -1321,14 +1636,39 @@ export function executableInvocation(
         : []);
   const cwd = resolveCwd(root, gate.cwd);
   const argv = [command, ...args];
+  const digest =
+    gate.kind === 'lint'
+      ? gateEnvironmentDigest(env, undefined, undefined, command, root, cwd, argv)
+      : gateEnvironmentDigest(env, gate.env, gate.envKeys, command, root, cwd, argv);
   return {
     command,
     args: [...args],
     cwd,
+    environmentHash: digest.hash,
+    ...(digest.executable ? { executable: digest.executable } : {}),
+    environmentKeys: digest.keys,
+  };
+}
+
+/**
+ * `current` in the shape a receipt recorded before T14063 carries: no
+ * executable or per-key digests, and the environment hash that still covered
+ * the whole `PATH` ({@link legacyEnvironmentHash}).
+ */
+function legacyInvocation(
+  gate: AcceptanceGate,
+  current: AcceptanceGateInvocation,
+  env: NodeJS.ProcessEnv,
+): AcceptanceGateInvocation {
+  const argv = [current.command, ...current.args];
+  return {
+    command: current.command,
+    args: current.args,
+    cwd: current.cwd,
     environmentHash:
-      gate.kind === 'lint'
-        ? gateEnvironmentHash(env, undefined, undefined, cwd, argv)
-        : gateEnvironmentHash(env, gate.env, gate.envKeys, cwd, argv),
+      gate.kind === 'test' || gate.kind === 'command'
+        ? legacyEnvironmentHash(env, gate.env, gate.envKeys, current.cwd, argv)
+        : legacyEnvironmentHash(env, undefined, undefined, current.cwd, argv),
   };
 }
 

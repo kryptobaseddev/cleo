@@ -29,6 +29,7 @@ import { validateGateVerify } from '../../validation/engine-ops.js';
 import { addTask } from '../add.js';
 import type { ChangeSetDeps } from '../change-set.js';
 import { completeTask } from '../complete.js';
+import { deriveTaskEvidence } from '../done-plan.js';
 import {
   type RecordTaskDoneOptions,
   recordTaskDone as recordTaskDoneUncached,
@@ -989,6 +990,93 @@ describe('typed results verified in a worktree complete from main after merge (T
     const error = (await completeFromMain(id)) as { message?: string } | null;
     expect(error?.message).toMatch(/inputs changed since verification/);
     git(root, ['worktree', 'remove', '--force', wt]);
+  });
+});
+
+describe('typed results are revalidated, not carried, in the tree that verified them (T14063)', () => {
+  const saved = { PATH: process.env['PATH'], input: process.env['T14063_INPUT'] };
+  afterEach(() => {
+    process.env['PATH'] = saved.PATH;
+    if (saved.input === undefined) delete process.env['T14063_INPUT'];
+    else process.env['T14063_INPUT'] = saved.input;
+  });
+
+  /** Typed gate `node check-a.mjs` (resolved on PATH), recorded from `root` by `cleo done`. */
+  async function verifiedHere(envKeys?: string[]): Promise<string> {
+    commitCheckScript();
+    const id = await seedTask(['Change src/a.ts to return 2']);
+    await reqAdd(
+      root,
+      id,
+      parseGateJson(
+        JSON.stringify({
+          kind: 'command',
+          cmd: 'node',
+          args: ['check-a.mjs'],
+          req: 'R1',
+          description: 'a returns 2',
+          ...(envKeys ? { envKeys } : {}),
+        }),
+      ),
+      env.accessor,
+    );
+    commitOnTaskBranch(id);
+    const r = await recordTaskDone(id, opts());
+    expect(r.success, JSON.stringify(r.success ? r.data.recordedGates : r.error)).toBe(true);
+    return id;
+  }
+
+  async function completeHere(id: string): Promise<{ message?: string; fix?: string } | null> {
+    try {
+      await completeTask({ taskId: id }, root, env.accessor);
+      return null;
+    } catch (error) {
+      return error as { message?: string; fix?: string };
+    }
+  }
+
+  it('an extra PATH entry at completion still completes (AC4)', async () => {
+    const id = await verifiedHere();
+    process.env['PATH'] = `${join(root, 'no-such-bin')}:${saved.PATH}`;
+    const plan = await deriveTaskEvidence(id, { projectRoot: root, cwd: root, deps });
+    expect(plan.typedGates.map((g) => g.status)).toEqual(['pass']);
+    expect(await completeHere(id)).toBeNull();
+    expect((await env.accessor.loadSingleTask(id))?.status).toBe('done');
+  });
+
+  it('a changed envKeys variable is refused by name with the re-bind command (AC2, AC4)', async () => {
+    process.env['T14063_INPUT'] = 'one';
+    const id = await verifiedHere(['T14063_INPUT']);
+    process.env['T14063_INPUT'] = 'two';
+    const error = await completeHere(id);
+    expect(error?.message).toMatch(
+      /Typed requirement R1 environment changed \(T14063_INPUT\) since verification/,
+    );
+    expect(error?.message).not.toMatch(/inputs changed since verification/);
+    expect(error?.fix).toMatch(
+      new RegExp(
+        `cleo verify ${id} --gate implemented --evidence '.*commit:[0-9a-f]+.*' --run-typed$`,
+      ),
+    );
+    expect((await env.accessor.loadSingleTask(id))?.status).not.toBe('done');
+  });
+
+  it('done --plan reports the pass complete would refuse as not-run, with its reason (AC3)', async () => {
+    process.env['T14063_INPUT'] = 'one';
+    const id = await verifiedHere(['T14063_INPUT']);
+    process.env['T14063_INPUT'] = 'two';
+    const plan = await deriveTaskEvidence(id, { projectRoot: root, cwd: root, deps });
+    expect(plan.typedGates).toEqual([
+      expect.objectContaining({
+        status: 'not-run',
+        reason: 'environment changed (T14063_INPUT) since verification',
+        fix: expect.stringContaining('--run-typed'),
+      }),
+    ]);
+    expect(plan.ready).toBe(false);
+    const blocker = plan.blockers.find((b) => b.code === 'typed-gate-not-run');
+    expect(blocker?.message).toMatch(/environment changed \(T14063_INPUT\)/);
+    expect(blocker?.next?.command).toBe(plan.typedGates[0]?.fix);
   });
 });
 

@@ -39,7 +39,11 @@ import {
   TYPED_GATE_BOOKKEEPING_MS,
   typedGateAdmissionMs,
 } from '../gate-runner.js';
-import { admissionCapacityBytes } from '../heavy-tool-env.js';
+import {
+  admissionCapacityBytes,
+  planHeavyToolEnv,
+  vitestWorkerCeiling,
+} from '../heavy-tool-env.js';
 import { acquireGlobalSlot } from '../tool-semaphore.js';
 
 // ─── Setup ────────────────────────────────────────────────────────────────
@@ -1569,6 +1573,59 @@ describe('task-bound explicit gate verification (T12292)', () => {
     }
   });
 
+  it('T14063: a receipt recorded before T14063 still revalidates from its own environment', async () => {
+    const script = 'legacy-receipt.mjs';
+    await writeFile(join(projectRoot, script), 'process.exit(0);');
+    const { task, rows } = taskAndRows(script);
+    const execution = admitted();
+    try {
+      const options = { execution, env: { PATH: process.env.PATH, PROOF_ENV: 'original' } };
+      const results = await runTaskGates(task, rows, options);
+      // The 2026.10.24 wire format, pinned: the hashed entries plus the whole
+      // PATH, no executable, no per-key digests.
+      const legacy = (env: NodeJS.ProcessEnv): typeof results => {
+        return results.map((result) => {
+          const invocation = result.binding?.invocation;
+          if (!invocation) return result;
+          const argv = [invocation.command, ...invocation.args];
+          const heavy = planHeavyToolEnv(
+            'test',
+            env,
+            undefined,
+            vitestWorkerCeiling(invocation.cwd, argv) ?? undefined,
+          ).overlay;
+          const effective: NodeJS.ProcessEnv = { ...env, ...heavy };
+          const keys = new Set(['PATH', 'NODE_OPTIONS', 'CI', 'LANG', ...Object.keys(heavy)]);
+          const environmentHash = createHash('sha256')
+            .update(
+              JSON.stringify(
+                Object.entries(effective)
+                  .filter(([k, v]) => v !== undefined && (keys.has(k) || k.startsWith('LC_')))
+                  .sort(([a], [b]) => a.localeCompare(b)),
+              ),
+            )
+            .digest('hex');
+          const { command, args, cwd } = invocation;
+          return {
+            ...result,
+            binding: { ...result.binding!, invocation: { command, args, cwd, environmentHash } },
+          };
+        });
+      };
+      await expect(
+        revalidateTaskGateResults(task, rows, legacy(options.env), options),
+      ).resolves.toBeUndefined();
+      await expect(
+        revalidateTaskGateResults(task, rows, legacy(options.env), {
+          ...options,
+          env: { ...options.env, PATH: `${options.env.PATH}:/changed` },
+        }),
+      ).rejects.toThrow('environment changed (verified before T14063');
+    } finally {
+      execution.close();
+    }
+  });
+
   it('does not launch with incoherent JSON/AC rows, missing context or mismatched project', async () => {
     const { task, rows } = taskAndRows('must-not-run.mjs');
     const execution = admitted();
@@ -1593,13 +1650,20 @@ describe('task-bound explicit gate verification (T12292)', () => {
     try {
       const options = { execution, env: { PATH: process.env.PATH, PROOF_ENV: 'original' } };
       const results = await runTaskGates(task, rows, options);
+      // T14063: PATH is not hashed wholesale; the executable it resolves is.
       await expect(
         revalidateTaskGateResults(task, rows, results, {
           ...options,
-          // T14034: only hashed keys count; PATH is a fixed tool input.
           env: { ...options.env, PATH: `${options.env.PATH}:/changed` },
         }),
-      ).rejects.toThrow('environment changed');
+      ).resolves.toBeUndefined();
+      // T14034: only hashed keys count; T14063: the refusal names them.
+      await expect(
+        revalidateTaskGateResults(task, rows, results, {
+          ...options,
+          env: { ...options.env, LANG: 'C' },
+        }),
+      ).rejects.toThrow('environment changed (LANG) since verification');
       await expect(
         revalidateTaskGateResults(task, rows, [...results, ...results], options),
       ).rejects.toThrow('unique verified');

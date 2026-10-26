@@ -254,8 +254,15 @@ export interface DonePlanTypedGate {
   kind: string;
   /** Requirement id, when the gate declares one. */
   req?: string;
-  /** Latest stored result; `not-run` when none is stored. */
+  /** Latest stored result; `not-run` when none is stored, or when a stored pass would not stand. */
   status: 'pass' | 'fail' | 'not-run';
+  /**
+   * Why a stored pass is `not-run`: the refusal `cleo complete` would raise
+   * from this tree and environment (T14063).
+   */
+  reason?: string;
+  /** Command that re-binds that pass without re-running the test suite (T14063). */
+  fix?: string;
 }
 
 /**
