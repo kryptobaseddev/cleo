@@ -184,6 +184,30 @@ describe.skipIf(process.platform === 'win32')('terminateToolGroupsOnSignal (T129
     expect(kills).toEqual([[process.pid, 'SIGHUP']]);
   });
 
+  it('T13018: a pending best-effort drain gets its grace before the re-raise; without one it stays immediate', () => {
+    vi.useFakeTimers();
+    // A drain registered with process.once, as the brain writer and the memory queues do.
+    const drain = (): void => {};
+    process.once('SIGTERM', drain);
+    try {
+      trackToolGroup(4_000_009);
+
+      terminateToolGroupsOnSignal('SIGTERM');
+
+      expect(kills).toEqual([[-4_000_009, 'SIGTERM']]);
+      vi.advanceTimersByTime(2_499);
+      expect(kills).toEqual([[-4_000_009, 'SIGTERM']]);
+      vi.advanceTimersByTime(1);
+      expect(kills).toEqual([
+        [-4_000_009, 'SIGTERM'],
+        [process.pid, 'SIGTERM'],
+      ]);
+    } finally {
+      process.removeListener('SIGTERM', drain);
+      vi.useRealTimers();
+    }
+  });
+
   it('the exit hook SIGTERMs running tool groups and never signals this process', () => {
     trackToolGroup(4_000_008);
 

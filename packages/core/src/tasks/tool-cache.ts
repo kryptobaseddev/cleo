@@ -1096,6 +1096,21 @@ type TerminationSignal = (typeof TERMINATION_SIGNALS)[number];
 
 let terminationCleanupInstalled = false;
 
+/**
+ * How long a re-raised signal waits for best-effort drains (T13018): longer
+ * than their own 2 s deadline (brain writer, embedding and mental-model
+ * queues).
+ */
+const SIGNAL_DRAIN_GRACE_MS = 2_500;
+
+/** Signals that had a `process.once` drain listener when the cleanup was installed. */
+const drainsAtInstall = new Set<TerminationSignal>();
+
+/** Whether a `process.once` listener (a best-effort drain) is registered for `signal`. */
+function hasDrainListener(signal: TerminationSignal): boolean {
+  return process.rawListeners(signal).some((l) => 'listener' in l);
+}
+
 /** SIGTERM every tool group this process started that is still running. */
 function terminateActiveToolGroups(): void {
   for (const pgid of activeToolGroups()) killProcessTree(pgid, 'SIGTERM');
@@ -1115,7 +1130,9 @@ function onTerminationSignal(signal: NodeJS.Signals): void {
 function setTerminationCleanup(on: boolean): void {
   if (on === terminationCleanupInstalled) return;
   terminationCleanupInstalled = on;
+  drainsAtInstall.clear();
   for (const signal of TERMINATION_SIGNALS) {
+    if (on && hasDrainListener(signal)) drainsAtInstall.add(signal);
     if (on) process.on(signal, onTerminationSignal);
     else process.off(signal, onTerminationSignal);
   }
@@ -1142,15 +1159,28 @@ function syncTerminationCleanup(): void {
  * `signal-exit` then releases its locks and the process dies by the signal.
  * Another listener of the signal sees it twice.
  *
+ * T13018: best-effort drains (brain writer, embedding and mental-model
+ * queues) listen with `process.once` and finish within 2 s. Re-raised at once,
+ * the signal found them consumed and `signal-exit` ended the process mid-drain.
+ * When such a listener was registered at install time or is still pending,
+ * the re-raise waits {@link SIGNAL_DRAIN_GRACE_MS} on a timer that keeps the
+ * process alive; a drain that calls `process.exit` first ends it sooner.
+ *
  * @param signal - The signal received.
  *
  * @internal Exported for tests.
  * @task T12963
+ * @task T13018
  */
 export function terminateToolGroupsOnSignal(signal: TerminationSignal): void {
   terminateActiveToolGroups();
+  const drains = drainsAtInstall.has(signal) || hasDrainListener(signal);
   setTerminationCleanup(false);
-  process.kill(process.pid, signal);
+  if (!drains) {
+    process.kill(process.pid, signal);
+    return;
+  }
+  setTimeout(() => process.kill(process.pid, signal), SIGNAL_DRAIN_GRACE_MS);
 }
 
 /**
