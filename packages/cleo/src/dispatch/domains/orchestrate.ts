@@ -204,6 +204,8 @@ interface OrchestrateSpawnParams {
   leadMbx?: string;
   /** T14027 — ref the task branch is created from instead of HEAD. */
   baseRef?: string;
+  /** T14045 — base the task branch on a merge of its dependencies' branches. */
+  includeDeps?: boolean;
   /** T9807 — sparse-checkout scope prefix (e.g. `packages/cleo`). */
   spawnScope?: string;
   /**
@@ -474,6 +476,7 @@ async function orchestrateSpawnOp(params: OrchestrateSpawnParams) {
     params.noInstall,
     params.leadMbx,
     params.baseRef,
+    params.includeDeps,
   );
 }
 
@@ -908,6 +911,7 @@ export class OrchestrateHandler implements DomainHandler {
             ...(params.noInstall === true ? { noInstall: true } : {}),
             ...(leadMbx ? { leadMbx } : {}),
             ...(typeof params.baseRef === 'string' ? { baseRef: params.baseRef } : {}),
+            ...(params.includeDeps === true ? { includeDeps: true } : {}),
           };
           return wrapResult(await coreOps.spawn(p), 'mutate', 'orchestrate', operation, startTime);
         }

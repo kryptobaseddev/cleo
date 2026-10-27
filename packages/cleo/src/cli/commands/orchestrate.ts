@@ -490,6 +490,13 @@ const spawnCommand = defineCommand({
         'The ref must resolve to a commit; the primary checkout is never moved. An existing ' +
         'worktree or branch for the task with a different base is refused, never reset.',
     },
+    'include-deps': {
+      type: 'boolean',
+      description:
+        "T14045: start the task branch from a merge (--no-ff) of each dependency's task/<id> " +
+        'branch onto the base (HEAD, or --base), built in a temporary worktree; the primary ' +
+        'checkout never moves. A missing or conflicting dependency branch refuses the spawn.',
+    },
     resume: {
       type: 'boolean',
       description:
@@ -535,6 +542,7 @@ const spawnCommand = defineCommand({
         ...(negatedFlag(args, 'install') ? { noInstall: true } : {}),
         ...(args['lead-mbx'] ? { leadMbx: args['lead-mbx'] } : {}),
         ...(args.base !== undefined ? { baseRef: args.base } : {}),
+        ...(args['include-deps'] === true ? { includeDeps: true } : {}),
       },
       { command: 'orchestrate' },
     );
