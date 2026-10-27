@@ -218,20 +218,27 @@ function inspectEffects(
   action: number,
 ): boolean {
   const functions = db.prepare('PRAGMA function_list').all();
+  // SQL function names are case-insensitive. `PRAGMA function_list` lists them
+  // in lower case, while the authorizer reports the name as written: SQLite
+  // 3.54 (Node 26) reports a `DEFAULT CURRENT_TIMESTAMP` column as the function
+  // `CURRENT_TIMESTAMP`, which an exact match refused as opaque (T14068).
+  const fold = (name: unknown): string => String(name).toLowerCase();
   // SQLite retains built-in overloads after an application replaces a name.
   // Refuse the entire overridden name; its runtime dispatch is opaque here.
-  const overridden = new Set(functions.filter((row) => row.builtin !== 1).map((row) => row.name));
+  const overridden = new Set(
+    functions.filter((row) => row.builtin !== 1).map((row) => fold(row.name)),
+  );
   const builtins = new Set(
     functions
-      .filter((row) => row.builtin === 1 && !overridden.has(row.name))
-      .map((row) => row.name),
+      .filter((row) => row.builtin === 1 && !overridden.has(fold(row.name)))
+      .map((row) => fold(row.name)),
   );
   let mirrorsHandoff = false;
   let refusal: string | undefined;
   db.setAuthorizer((code, name, column, dbName, trigger) => {
     if (
       code === constants.SQLITE_FUNCTION &&
-      (!builtins.has(column) || column === 'load_extension')
+      (!builtins.has(fold(column)) || fold(column) === 'load_extension')
     ) {
       refusal = `opaque function ${String(column)}`;
       return constants.SQLITE_DENY;
