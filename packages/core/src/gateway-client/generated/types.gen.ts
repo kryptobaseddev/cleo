@@ -263,6 +263,29 @@ export type QueryTasksShowResponses = {
                      */
                     leaseExpiresAt: string;
                 };
+                description?: string | null;
+                /**
+                 * Acceptance criteria (strings or typed gates).
+                 */
+                acceptance?: Array<unknown>;
+                /**
+                 * Timestamped notes; absent when none.
+                 */
+                notes?: Array<unknown>;
+                labels?: Array<unknown>;
+                /**
+                 * Declared files (`--files`).
+                 */
+                files?: Array<unknown>;
+                depends?: Array<unknown>;
+                relates?: Array<unknown>;
+                size?: string | null;
+                kind?: string | null;
+                verification?: {
+                    [key: string]: unknown;
+                } | null;
+                completedAt?: string | null;
+                cancelledAt?: string | null;
             };
             /**
              * Canonical task view projection produced by computeTaskView. Null when unavailable.
