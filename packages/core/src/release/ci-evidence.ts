@@ -610,14 +610,50 @@ export function evaluateJobs(
   return reasons.length > 0 ? { ok: false, reasons } : { ok: true, jobs };
 }
 
-function pinMatches(check: CommitCheck, pin: RequiredCheckPinSpec | undefined): boolean {
-  if (!pin) return true;
+/**
+ * Whether a run comes from a check's pinned app and workflow (T13017):
+ * `unknown` when the response left out an identity field the pin names (a
+ * check run whose workflow run was not listed yet), so the run is neither
+ * counted nor reported as posted by another app.
+ */
+function pinMatch(
+  check: CommitCheck,
+  pin: RequiredCheckPinSpec | undefined,
+): 'match' | 'mismatch' | 'unknown' {
+  if (!pin) return 'match';
+  let unknown = false;
   if (pin.app !== undefined) {
-    const ok = typeof pin.app === 'number' ? check.appId === pin.app : check.appSlug === pin.app;
-    if (!ok) return false;
+    const actual = typeof pin.app === 'number' ? check.appId : check.appSlug;
+    if (actual === undefined) unknown = true;
+    else if (actual !== pin.app) return 'mismatch';
   }
-  if (pin.workflow !== undefined && check.workflowPath !== pin.workflow) return false;
-  return true;
+  if (pin.workflow !== undefined) {
+    if (check.workflowPath === undefined) unknown = true;
+    else if (check.workflowPath !== pin.workflow) return 'mismatch';
+  }
+  return unknown ? 'unknown' : 'match';
+}
+
+function pinMatches(check: CommitCheck, pin: RequiredCheckPinSpec | undefined): boolean {
+  return pinMatch(check, pin) === 'match';
+}
+
+/**
+ * Whether a fetch left a required check's run without the identity its pin
+ * names (T13017), so the fetch is retried before anything is judged.
+ *
+ * @param checks - Checks fetched for one commit.
+ * @param required - Required check names.
+ * @param pins - Required-name to app/workflow pin.
+ * @returns True when a required run's identity is incomplete.
+ * @task T13017
+ */
+export function hasIncompleteIdentity(
+  checks: readonly CommitCheck[],
+  required: readonly string[],
+  pins: Record<string, RequiredCheckPinSpec>,
+): boolean {
+  return checks.some((c) => required.includes(c.name) && pinMatch(c, pins[c.name]) === 'unknown');
 }
 
 function describeApp(check: CommitCheck): string {
@@ -688,7 +724,8 @@ export function evaluateMergeCommitChecks(
         continue;
       }
     }
-    const impostor = named.find((c) => !pinMatches(c, pins[name]));
+    const impostor = named.find((c) => pinMatch(c, pins[name]) === 'mismatch');
+    const unidentified = named.some((c) => pinMatch(c, pins[name]) === 'unknown');
     const elsewhere = pinned.find(
       (c) =>
         c.headSha !== mergeCommitSha &&
@@ -696,13 +733,15 @@ export function evaluateMergeCommitChecks(
         c.headSha !== descendantSha,
     );
     reasons.push(
-      onMerge.verdict === 'missing' && impostor && pinned.length === 0
-        ? `${name}: posted by ${describeApp(impostor)}${impostor.workflowPath ? ` (${impostor.workflowPath})` : ''}, not the pinned ${describePin(pins[name])}`
-        : onMerge.verdict === 'missing' && elsewhere
-          ? `${name}: ran on ${elsewhere.headSha.slice(0, 12)}, not the merge commit ${mergeCommitSha.slice(0, 12)}`
-          : onMerge.verdict === 'missing'
-            ? `${name}: not found on merge commit ${mergeCommitSha.slice(0, 12)}`
-            : `${name}: ${onMerge.verdict} on merge commit ${mergeCommitSha.slice(0, 12)}`,
+      onMerge.verdict === 'missing' && unidentified && pinned.length === 0
+        ? `${name}: pending (GitHub has not reported its run's app or workflow yet) on merge commit ${mergeCommitSha.slice(0, 12)}`
+        : onMerge.verdict === 'missing' && impostor && pinned.length === 0
+          ? `${name}: posted by ${describeApp(impostor)}${impostor.workflowPath ? ` (${impostor.workflowPath})` : ''}, not the pinned ${describePin(pins[name])}`
+          : onMerge.verdict === 'missing' && elsewhere
+            ? `${name}: ran on ${elsewhere.headSha.slice(0, 12)}, not the merge commit ${mergeCommitSha.slice(0, 12)}`
+            : onMerge.verdict === 'missing'
+              ? `${name}: not found on merge commit ${mergeCommitSha.slice(0, 12)}`
+              : `${name}: ${onMerge.verdict} on merge commit ${mergeCommitSha.slice(0, 12)}`,
     );
   }
   return reasons.length > 0 ? { ok: false, reasons } : { ok: true, checks: matched };
@@ -925,9 +964,11 @@ export type InheritedOnMergeResult =
  * @param ancestors - First-parent ancestors of the merge, nearest first, with their checks.
  * @param pins - Required-name to app/workflow pin.
  * @param nextMainCommitAt - When the next default-branch commit after the merge landed, if known.
+ * @param runnerCancelled - Failing jobs only a runner cancellation failed (T14049): never the PR's, so never blamed.
  * @returns The required names to stand in for and the inherited jobs, or why not.
  * @task T13453
  * @task T14026
+ * @task T14049
  */
 export function inheritedOnMerge(
   required: readonly string[],
@@ -936,6 +977,7 @@ export function inheritedOnMerge(
   ancestors: ReadonlyArray<{ sha: string; checks: readonly CommitCheck[] }>,
   pins: Record<string, RequiredCheckPinSpec>,
   nextMainCommitAt: string | null = null,
+  runnerCancelled: ReadonlySet<number> = new Set(),
 ): InheritedOnMergeResult {
   const scope = pinnedScope(required, pins);
   const onMerge = latestRuns(checks, mergeCommitSha, scope);
@@ -946,7 +988,9 @@ export function inheritedOnMerge(
       reason: `${pending.name}: pending on merge commit ${mergeCommitSha.slice(0, 12)}`,
     };
   }
-  const failing = onMerge.filter((c) => !HARMLESS_CONCLUSIONS.has(c.conclusion ?? ''));
+  const failing = onMerge.filter(
+    (c) => !HARMLESS_CONCLUSIONS.has(c.conclusion ?? '') && !runnerCancelled.has(c.id),
+  );
   if (failing.length === 0) return { ok: false, reason: 'no job failed on the merge commit' };
   const inherited: InheritedFailure[] = [];
   for (const job of failing) {
@@ -1226,13 +1270,88 @@ export async function cancelledWithoutTestFailure(
   );
   if (!runs.some((r) => r.conclusion === 'cancelled')) return false;
   if (runs.some((r) => r.conclusion !== 'cancelled' && r.conclusion !== 'success')) return false;
-  const noTestFailed = (log: string): boolean => {
-    const text = log.replace(/\u001b\[[0-9;]*m/g, '');
-    return !/\bFAIL\s{2,}|\d+ failed/.test(text) && !RUN_DIED.test(text);
-  };
   return (
-    (await everyFailedJobLog(checks, sha, required, pins, fetchJobLog, cwd, noTestFailed)) !== null
+    (await everyFailedJobLog(checks, sha, required, pins, fetchJobLog, cwd, noTestFailedLog)) !==
+    null
   );
+}
+
+/** Whether a job log names no failed test and no dead vitest run (T13809). */
+function noTestFailedLog(log: string): boolean {
+  const text = log.replace(/\u001b\[[0-9;]*m/g, '');
+  return !/\bFAIL\s{2,}|\d+ failed/.test(text) && !RUN_DIED.test(text);
+}
+
+/** The errors GitHub prints when the runner, not the job, stopped a step (T14049). */
+const RUNNER_CANCEL_ERROR =
+  /##\[error\](?:The operation was canceled\.|The runner has received a shutdown signal\b.*)\s*$/;
+
+/**
+ * Whether a job log shows only a runner cancellation (T14049): every
+ * `##[error]` line is GitHub's own "The operation was canceled." (or the
+ * runner shutdown notice before it), and no test failed. GitHub then reports
+ * the job, and the aggregate check that needs it, as `failure`, though
+ * nothing the PR changed failed.
+ *
+ * @param log - The job's plain-text log (ANSI colour codes allowed).
+ * @returns Whether the job failed only because its runner was cancelled.
+ * @task T14049
+ */
+export function isRunnerCancelOnlyLog(log: string): boolean {
+  const text = log.replace(/\u001b\[[0-9;]*m/g, '');
+  const errors = text.split('\n').filter((line) => line.includes('##[error]'));
+  return (
+    errors.some((line) => /##\[error\]The operation was canceled\./.test(line)) &&
+    errors.every((line) => RUNNER_CANCEL_ERROR.test(line)) &&
+    noTestFailedLog(text)
+  );
+}
+
+/** Result of {@link runnerCancelledJobs}. */
+export interface RunnerCancelledJobs {
+  /** The failing jobs whose log shows only a runner cancellation. */
+  ids: ReadonlySet<number>;
+  /** Every failing job of a pinned workflow was runner-cancelled (and at least one failed). */
+  all: boolean;
+}
+
+/**
+ * The failing jobs of a pinned workflow on `sha` (the required aggregate and
+ * workflow runs excluded) that only a runner cancellation failed (T14049,
+ * {@link isRunnerCancelOnlyLog}). A pending job or an unreadable log is never
+ * one, so `all` is then false.
+ *
+ * @param checks - Checks fetched for `sha`.
+ * @param sha - The commit judged.
+ * @param required - Required check names.
+ * @param pins - Required-name to app/workflow pin.
+ * @param fetchJobLog - Plain-text log of one job.
+ * @param cwd - Repository work tree for `gh`.
+ * @returns The runner-cancelled job ids, and whether they are every failure.
+ * @task T14049
+ */
+export async function runnerCancelledJobs(
+  checks: readonly CommitCheck[],
+  sha: string,
+  required: readonly string[],
+  pins: Record<string, RequiredCheckPinSpec>,
+  fetchJobLog: NonNullable<ResolveCiEvidenceOptions['fetchJobLog']>,
+  cwd: string,
+): Promise<RunnerCancelledJobs> {
+  const ids = new Set<number>();
+  let all = true;
+  for (const c of latestRuns(checks, sha, pinnedScope(required, pins))) {
+    if (c.source === 'workflow-run' || required.includes(c.name)) continue;
+    if (c.status !== 'completed') {
+      all = false;
+      continue;
+    }
+    if (HARMLESS_CONCLUSIONS.has(c.conclusion ?? '')) continue;
+    const log = c.conclusion === 'failure' ? await fetchJobLog(c.id, cwd) : null;
+    if (log !== null && isRunnerCancelOnlyLog(log)) ids.add(c.id);
+    else all = false;
+  }
+  return { ids, all: all && ids.size > 0 };
 }
 
 /**
@@ -1394,6 +1513,8 @@ export type FindGreenDescendantResult =
       inherited?: InheritedFailure[];
       /** The merge commit's jobs that failed on the flaky-quarantine budget alone (T13809). */
       nonTest?: Array<{ name: string; mergeRunId: number }>;
+      /** The merge commit's failures were only runner cancellations (T14049). */
+      runnerCancelled?: true;
     }
   | { ok: false; reason: string };
 
@@ -1459,6 +1580,34 @@ export async function findGreenDescendant(
   );
   let inherited: InheritedFailure[] | undefined;
   let nonTest: Array<{ name: string; mergeRunId: number }> | undefined;
+  let runnerCancelled = false;
+  let cancelledIds: ReadonlySet<number> = new Set();
+  const unproven = (): string[] =>
+    required.filter(
+      (name) =>
+        !judgeOnSha(
+          input.checks.filter((c) => c.name === name && pinMatches(c, pins[name])),
+          merge,
+        ).ok,
+    );
+  if (!superseded.ok && input.fetchJobLog) {
+    // T14049: a job only a runner cancellation failed ("The operation was
+    // canceled.", no test failed) decided nothing, though GitHub reports it
+    // and the aggregate as `failure`: it is superseded, as a cancelled run is.
+    const cancelled = await runnerCancelledJobs(
+      input.checks,
+      merge,
+      required,
+      pins,
+      input.fetchJobLog,
+      cwd,
+    );
+    cancelledIds = cancelled.ids;
+    if (cancelled.all) {
+      runnerCancelled = true;
+      superseded = { ok: true, names: unproven() };
+    }
+  }
   if (!superseded.ok && input.fetchJobLog) {
     // T13809: a merge-commit run red only because main's flaky quarantine was
     // over budget (every test passed) failed no test of the PR's.
@@ -1472,16 +1621,7 @@ export async function findGreenDescendant(
     );
     if (result.ok) {
       nonTest = result.jobs;
-      superseded = {
-        ok: true,
-        names: required.filter(
-          (name) =>
-            !judgeOnSha(
-              input.checks.filter((c) => c.name === name && pinMatches(c, pins[name])),
-              merge,
-            ).ok,
-        ),
-      };
+      superseded = { ok: true, names: unproven() };
     }
   }
   if (!superseded.ok && input.firstParentOf) {
@@ -1504,6 +1644,7 @@ export async function findGreenDescendant(
       ancestors,
       pins,
       input.nextMainCommitAt?.(merge, input.ref, cwd) ?? null,
+      cancelledIds,
     );
     if (result.ok) {
       superseded = { ok: true, names: result.names };
@@ -1616,6 +1757,7 @@ export async function findGreenDescendant(
       ...(head ? { prHeadSha: head } : {}),
       ...(inherited ? { inherited } : {}),
       ...(nonTest ? { nonTest } : {}),
+      ...(runnerCancelled ? { runnerCancelled: true } : {}),
     };
   }
   return {
@@ -2025,6 +2167,30 @@ async function defaultFetchJobLog(jobId: number, cwd: string): Promise<string | 
 }
 
 /**
+ * Fetch once more when a required check's run came back without the identity
+ * its pin names (T13017): GitHub lists a job before its workflow run, and a
+ * run judged from that response would read as another app's. A run still
+ * incomplete after the retry is judged pending, never as a mismatch.
+ *
+ * @param fetchChecks - The underlying check fetch.
+ * @param required - Required check names.
+ * @param pins - Required-name to app/workflow pin.
+ * @returns The same fetch, retried once on incomplete identity.
+ * @task T13017
+ */
+export function refetchIncompleteIdentity(
+  fetchChecks: NonNullable<ResolveCiEvidenceOptions['fetchChecks']>,
+  required: readonly string[],
+  pins: Record<string, RequiredCheckPinSpec>,
+): NonNullable<ResolveCiEvidenceOptions['fetchChecks']> {
+  return async (sha, cwd) => {
+    const first = await fetchChecks(sha, cwd);
+    if (!first.ok || !hasIncompleteIdentity(first.checks, required, pins)) return first;
+    return fetchChecks(sha, cwd);
+  };
+}
+
+/**
  * Drop runs a schedule started from every fetch (T13623). A nightly run that
  * happens to land on a merge commit tests main at that hour, not the merge:
  * only the merge commit's push run, a tree-equal PR head's pull_request run or
@@ -2396,7 +2562,11 @@ export async function resolveCiEvidenceAtom(
   const editedWorkflows = pinnedWorkflows.filter((w) => pr.changedPaths.includes(w));
   const mainOnly = editedWorkflows.length > 0;
 
-  const fetchChecks = withoutScheduledRuns(opts.fetchChecks ?? defaultFetchChecks);
+  const fetchChecks = refetchIncompleteIdentity(
+    withoutScheduledRuns(opts.fetchChecks ?? defaultFetchChecks),
+    required.workflows,
+    pins,
+  );
   const fetched = await fetchChecks(pr.mergeCommitSha, roots.executionRoot);
   if (!fetched.ok) return { ok: false, reason: fetched.reason, codeName: 'E_EVIDENCE_TOOL_FAILED' };
 
@@ -2483,7 +2653,9 @@ export async function resolveCiEvidenceAtom(
           ...(treeEqualHead ? { treeEquivalentSha: treeEqualHead } : {}),
           pins,
           descendantSha: found.sha,
-          ...(found.inherited || found.nonTest ? { inheritedFailures: true } : {}),
+          ...(found.inherited || found.nonTest || found.runnerCancelled
+            ? { inheritedFailures: true }
+            : {}),
         },
       );
       if (rejudged.ok) {
@@ -2558,20 +2730,23 @@ export async function resolveCiEvidenceAtom(
   }
   if (!judgedChecks.ok) {
     const waiting = judgedChecks.reasons.some((r) => /pending|not found|missing/.test(r));
+    const merge12 = pr.mergeCommitSha.slice(0, 12);
+    // T14042: the decisive reason and the next step lead; the detail follows,
+    // so a truncated refusal still says what to do.
+    const lead = mainOnly
+      ? `PR #${prNumber} edits the pinned workflow ${editedWorkflows.join(', ')}, so only main's push CI attests it (T13174)` +
+        (waiting
+          ? `: wait for the push run on ${merge12} (or a later main commit) to finish, then verify again. No local run is needed.`
+          : `, and it is not green: ${judgedChecks.reasons[0]}.`)
+      : `Required CI on PR #${prNumber}'s merge commit ${merge12} is not green: ${judgedChecks.reasons[0]}` +
+        (waiting ? '; wait for it to finish, then verify again.' : '.');
     return {
       ok: false,
       codeName: 'E_EVIDENCE_TESTS_FAILED',
       reason:
-        `Required CI on PR #${prNumber}'s merge commit ${pr.mergeCommitSha.slice(0, 12)} is not green ` +
-        `(source: ${describeRequiredWorkflowsSource(required.source)}):\n  - ${judgedChecks.reasons.join('\n  - ')}` +
+        `${lead}\n  Required checks (source: ${describeRequiredWorkflowsSource(required.source)}):\n  - ${judgedChecks.reasons.join('\n  - ')}` +
         (descendantReason ? `\n  No later main run stands in: ${descendantReason}` : '') +
-        (currentHeadReason ? `\n  No current-HEAD run stands in: ${currentHeadReason}` : '') +
-        (mainOnly
-          ? `\n  PR #${prNumber} edits the pinned workflow ${editedWorkflows.join(', ')}, so only main's push CI attests it (T13174)` +
-            (waiting
-              ? `: wait for the push run on ${pr.mergeCommitSha.slice(0, 12)} (or a later main commit) to finish, then verify again. No local run is needed.`
-              : '.')
-          : ''),
+        (currentHeadReason ? `\n  No current-HEAD run stands in: ${currentHeadReason}` : ''),
     };
   }
   // Round 2 (skipped tests): the aggregate counts skipped jobs as a pass. For a
