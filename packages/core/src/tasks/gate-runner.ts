@@ -2219,7 +2219,9 @@ function tapTestCounts(stdout: string): StructuredTestCounts | { refusal: string
  * report was found and why it was refused.
  *
  * @param captured - Result of running the gate command.
- * @param refusals - Receives why each report-like candidate was refused, newest first.
+ * @param refusals - Receives why each report-like candidate was refused, in the order the
+ *   candidates are tried (last stdout line, TAP, then the output newest-first); the
+ *   first is the one reported.
  * @returns Validated counts, or `null` when the run emitted no usable report.
  * @task T12308
  * @task T13753
