@@ -12,7 +12,8 @@
  * @epic T1566
  */
 
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
+import { readFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import { isDeepStrictEqual } from 'node:util';
 import type {
@@ -164,6 +165,34 @@ function getMissingGates(
 /** The `test-run:` paths of one evidence write, judged together for coverage (T14031). */
 function testRunPathsOf(atoms: readonly ParsedAtom[]): string[] {
   return atoms.flatMap((atom) => (atom.kind === 'test-run' ? [atom.path] : []));
+}
+
+/**
+ * The `test-run:`/`qa-run:` reports of a write whose bytes changed after they
+ * were validated and hashed (T14056). `--run-typed` executes the typed gates
+ * after the evidence is validated, and a gate command can rewrite the very
+ * report the write cites: its recorded hash would then name bytes that no
+ * longer exist.
+ *
+ * @param atoms - The write's validated atoms.
+ * @returns The rewritten (or removed) reports' paths, as the write named them.
+ * @task T14056
+ */
+async function rewrittenReports(atoms: readonly EvidenceAtom[]): Promise<string[]> {
+  const rewritten: string[] = [];
+  for (const atom of atoms) {
+    if (atom.kind !== 'test-run' && atom.kind !== 'qa-run') continue;
+    let sha256: string | null;
+    try {
+      sha256 = createHash('sha256')
+        .update(await readFile(atom.resolvedPath ?? atom.path))
+        .digest('hex');
+    } catch {
+      sha256 = null; // removed: no longer the validated bytes either
+    }
+    if (sha256 !== atom.sha256) rewritten.push(atom.path);
+  }
+  return rewritten;
 }
 
 type SatisfiesEvidenceAtom = Extract<EvidenceAtom, { kind: 'satisfies' }>;
@@ -1052,6 +1081,18 @@ export async function validateGateVerify(
         )
         .map((result) => result.errorMessage!.replace('<taskId>', taskId));
       if (notCached.length > 0) return engineError('E_GATE_NOT_CACHED', notCached.join('\n'));
+      // T14056: the gates just run may have rewritten a report this write
+      // validated; recording its old hash would point at bytes that are gone.
+      const rewritten = executeTyped ? await rewrittenReports(evidenceStored) : [];
+      if (rewritten.length > 0)
+        // @sync-invariant none:input-shape a report the typed gates rewrote is refused before anything is written
+        return engineError(
+          'E_EVIDENCE_STALE',
+          `The typed gates this write ran with --run-typed rewrote ${rewritten.join(', ')} after ` +
+            'it was validated, so its recorded hash would name bytes that no longer exist. Run the ' +
+            `typed gates first (cleo verify ${taskId} --run), then record this write without ` +
+            '--run-typed: it reads their cached passes and validates the report they wrote.',
+        );
       typedExecution.assertActive();
       typedPhase = 'persisting the verification';
     }

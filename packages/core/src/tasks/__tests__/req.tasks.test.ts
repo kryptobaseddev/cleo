@@ -1,6 +1,6 @@
 /** Independent durability and validation oracles for typed requirement gates. */
 import { spawnSync } from 'node:child_process';
-import { randomBytes } from 'node:crypto';
+import { createHash, randomBytes } from 'node:crypto';
 import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { mkdir, mkdtemp, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -378,6 +378,49 @@ describe('typed requirement persistence', () => {
       accessor,
     );
   }
+
+  /**
+   * VidaPeps T2344: `--run-typed` validated and hashed a test-run report, then
+   * the typed gate rewrote that same file, so the recorded hash named bytes
+   * that no longer existed (T14056).
+   */
+  it('refuses a --run-typed write whose typed gate rewrote the test-run report it cites (T14056)', async () => {
+    const reportPath = join(root, 'report.json');
+    const counts = (passed: number) =>
+      JSON.stringify({ total: passed, passed, failed: 0, skipped: 0 });
+    await writeFile(reportPath, counts(1));
+    const write = () =>
+      validateGateVerify(root, {
+        runTyped: true,
+        taskId: 'T121',
+        gate: 'cleanupDone',
+        value: true,
+        agent: 'implementer',
+        evidence: `note:typed gate writes the report;test-run:${reportPath}`,
+      });
+
+    await verificationFixture(
+      'rewrites-report.mjs',
+      `import { writeFileSync } from 'node:fs'; writeFileSync(${JSON.stringify(reportPath)}, ${JSON.stringify(counts(2))});`,
+    );
+    const refused = await write();
+    expect(refused.success).toBe(false);
+    expect(!refused.success && refused.error.code).toBe('E_EVIDENCE_STALE');
+    expect(!refused.success && refused.error.message).toContain(reportPath);
+    expect(!refused.success && refused.error.message).toContain('cleo verify T121 --run');
+    expect((await accessor.loadSingleTask('T121'))?.verification?.gates?.cleanupDone).not.toBe(
+      true,
+    );
+
+    // The report the gate wrote is now on disk; a gate that leaves it alone records it.
+    await writeFile(join(root, 'rewrites-report.mjs'), 'process.exit(0);');
+    const recorded = await write();
+    expect(recorded.success, recorded.success ? undefined : recorded.error.message).toBe(true);
+    const stored = (await accessor.loadSingleTask('T121'))?.verification?.evidence?.cleanupDone;
+    expect(stored?.atoms.find((atom) => atom.kind === 'test-run')).toMatchObject({
+      sha256: createHash('sha256').update(counts(2)).digest('hex'),
+    });
+  });
 
   it('canonical verify runs the real harness and commits exact bound result plus receipt in a fresh process', async () => {
     await verificationFixture('verified.mjs', 'process.exit(0);');
