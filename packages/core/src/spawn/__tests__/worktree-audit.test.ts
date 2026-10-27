@@ -81,10 +81,10 @@ describe('completeAgentWorktreeIntegration', () => {
     fixture = undefined;
   });
 
-  it('writes audit log and returns auditLogEntry path on successful merge', () => {
+  it('writes audit log and returns auditLogEntry path on successful merge', async () => {
     fixture = makeRepo('main');
 
-    const worktree = createAgentWorktree('T9043-audit', fixture.root);
+    const worktree = await createAgentWorktree('T9043-audit', fixture.root);
 
     // Add a commit in the worktree.
     const git = (...args: string[]): string =>
@@ -121,11 +121,11 @@ describe('completeAgentWorktreeIntegration', () => {
     expect(entry.mergeCommit).toMatch(/^[0-9a-f]{40}$/);
   });
 
-  it('still writes audit log when merge has no commits (empty branch)', () => {
+  it('still writes audit log when merge has no commits (empty branch)', async () => {
     fixture = makeRepo('main');
 
     // Create worktree but add no commits — empty branch.
-    createAgentWorktree('T9043-empty', fixture.root);
+    await createAgentWorktree('T9043-empty', fixture.root);
     const auditLogPath = join(fixture.root, '.cleo', 'audit', 'worktree-integration.jsonl');
 
     const result = completeAgentWorktreeIntegration('T9043-empty', fixture.root, {
@@ -147,10 +147,10 @@ describe('completeAgentWorktreeIntegration', () => {
     expect(entry.taskId).toBe('T9043-empty');
   });
 
-  it('returns auditLogEntry = null when the audit dir cannot be written', () => {
+  it('returns auditLogEntry = null when the audit dir cannot be written', async () => {
     fixture = makeRepo('main');
 
-    const worktree = createAgentWorktree('T9043-no-audit', fixture.root);
+    const worktree = await createAgentWorktree('T9043-no-audit', fixture.root);
 
     const git = (...args: string[]): string =>
       execFileSync('git', args, {
@@ -180,9 +180,9 @@ describe('completeAgentWorktreeIntegration', () => {
     expect(result.auditLogEntry).toBeNull();
   });
 
-  it('integration result extends WorktreeMergeResult with auditLogEntry', () => {
+  it('integration result extends WorktreeMergeResult with auditLogEntry', async () => {
     fixture = makeRepo('main');
-    createAgentWorktree('T9043-shape', fixture.root);
+    await createAgentWorktree('T9043-shape', fixture.root);
 
     const auditLogPath = join(fixture.root, '.cleo', 'audit', 'test.jsonl');
     const result = completeAgentWorktreeIntegration('T9043-shape', fixture.root, {

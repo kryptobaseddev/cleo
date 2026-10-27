@@ -30,7 +30,6 @@ import {
   mkdirSync,
   readFileSync,
   realpathSync,
-  rmSync,
 } from 'node:fs';
 import { platform } from 'node:os';
 import { dirname, isAbsolute, join, relative, resolve } from 'node:path';
@@ -61,8 +60,9 @@ import {
 // ---------------------------------------------------------------------------
 
 import {
-  acquireWorktreeTaskLock,
+  createWorktree,
   describeDisposalBlockers,
+  forceRemoveWorktreeDir,
   getGitRoot,
   gitSilent,
   gitSync,
@@ -74,7 +74,6 @@ import {
   releaseWorktreeTaskLock,
   WORKTREE_LIFECYCLE_AUDIT_FILE,
 } from '@cleocode/worktree';
-import { appendWorktreeAuditEntry, resolveWorktreeAuditActor } from '../worktree/audit.js';
 import { resolveSpawnLockHolder } from './worktree-lock-holder.js';
 
 // Re-export getGitRoot for barrel consumers
@@ -114,8 +113,12 @@ export function resolveAgentWorktreeRoot(projectRoot: string): string {
 /**
  * Create a git worktree for a spawned agent task.
  *
- * Creates branch `task/<taskId>` off the current HEAD of the orchestrator's
- * branch and locks the worktree to prevent accidental pruning.
+ * Delegates to the `@cleocode/worktree` facade ({@link createWorktree}), which
+ * owns `git worktree add`/`lock`, the per-task lock, the lifecycle audit row
+ * (`create`, or `adopt` for a re-attached worktree) and the sentinel index
+ * (T10858). Branch `task/<taskId>` is cut from the orchestrator's HEAD; an
+ * existing worktree for the task is re-attached, never destroyed. No
+ * `.worktreeinclude` copy or dependency install runs, as before.
  *
  * @param taskId - The task ID driving the spawn.
  * @param projectRoot - Absolute path to the project root.
@@ -125,85 +128,26 @@ export function resolveAgentWorktreeRoot(projectRoot: string): string {
  * @task T1120
  * @task T11122
  * @task T11123
+ * @task T10858
  */
-export function createAgentWorktree(taskId: string, projectRoot: string): AgentWorktreeState {
-  const gitRoot = getGitRoot(projectRoot);
-  const worktreeRoot = resolveAgentWorktreeRoot(projectRoot);
-  mkdirSync(worktreeRoot, { recursive: true });
-
-  const branch = `task/${taskId}`;
-  const worktreePath = join(worktreeRoot, taskId);
-
-  // Determine base ref — current HEAD on orchestrator branch.
-  let baseRef: string;
-  try {
-    baseRef = gitSync(['rev-parse', '--abbrev-ref', 'HEAD'], gitRoot);
-  } catch {
-    baseRef = 'main';
-  }
-
-  // T12506: take the per-task worktree lock first (E_WORKTREE_LOCKED when a
-  // live holder owns it), and NEVER destroy an existing worktree — the prior
-  // force-remove + `branch -D` deleted live agents' work whenever their
-  // changes were gitignored or already committed. Re-attach it instead.
-  const projectHashForLock = computeProjectHash(projectRoot);
-  acquireWorktreeTaskLock({
-    projectHash: projectHashForLock,
+export async function createAgentWorktree(
+  taskId: string,
+  projectRoot: string,
+): Promise<AgentWorktreeState> {
+  const result = await createWorktree(projectRoot, {
     taskId,
     holder: resolveSpawnLockHolder(),
+    applyIncludePatterns: false,
+    skipInstall: true,
   });
-  if (existsSync(worktreePath)) {
-    return {
-      path: worktreePath,
-      branch,
-      taskId,
-      baseRef,
-      projectHash: projectHashForLock,
-      createdAt: new Date().toISOString(),
-      locked: true,
-    };
-  }
-
-  // Create the worktree with a new branch.
-  gitSync(['worktree', 'add', worktreePath, '-b', branch, baseRef], gitRoot); // raw-git-worktree-ok: legacy branch-lock provisioning pending full SDK promotion
-  // T14053: completion merges only worktrees whose creation is recorded.
-  appendWorktreeAuditEntry(projectRoot, {
-    actor: resolveWorktreeAuditActor(),
-    action: 'create',
-    target: worktreePath,
-    branch,
-    taskId,
-    reason: 'spawn',
-    success: true,
-  });
-
-  // Apply git worktree lock to prevent accidental pruning.
-  // Try with --reason first (git ≥ 2.37), fall back without.
-  if (
-    !gitSilent(
-      [
-        'worktree' /* raw-git-worktree-ok: legacy branch-lock provisioning pending full SDK promotion */,
-        'lock',
-        '--reason',
-        `cleo-agent-${taskId}`,
-        worktreePath,
-      ],
-      gitRoot,
-    )
-  ) {
-    gitSilent(['worktree', 'lock', worktreePath], gitRoot); // raw-git-worktree-ok: legacy git compatibility fallback without --reason
-  }
-
-  // T9984: route projectHash through @cleocode/paths SSoT.
-  const projectHash = computeProjectHash(projectRoot);
   return {
-    path: worktreePath,
-    branch,
+    path: result.path,
+    branch: result.branch,
     taskId,
-    baseRef,
-    projectHash,
-    createdAt: new Date().toISOString(),
-    locked: true,
+    baseRef: result.baseRef,
+    projectHash: result.projectHash,
+    createdAt: result.createdAt,
+    locked: result.locked,
   };
 }
 
@@ -538,12 +482,9 @@ export function pruneWorktree(
   }
 
   if (!worktreeRemoved) {
-    // Filesystem fallback: unlock via git, then brute-force rmSync.
-    gitSilent(['worktree', 'unlock', worktreePath], gitRoot); // raw-git-worktree-ok: cleanup fallback after NAPI destroy reports incomplete removal
+    // Filesystem fallback (T10858: owned by the worktree facade).
     try {
-      rmSync(worktreePath, { recursive: true, force: true });
-      // Prune stale git admin entries.
-      gitSilent(['worktree', 'prune'], gitRoot); // raw-git-worktree-ok: cleanup fallback after filesystem removal of stale worktree
+      forceRemoveWorktreeDir(gitRoot, worktreePath);
       worktreeRemoved = true;
     } catch (err) {
       return {

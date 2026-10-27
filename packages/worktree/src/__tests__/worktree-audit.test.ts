@@ -95,6 +95,21 @@ describe('appendWorktreeAuditLog', () => {
     expect(() => new Date(record['ts'] as string).toISOString()).not.toThrow();
   });
 
+  it('T10861: every row also carries the contract fields timestamp, actor and target', () => {
+    appendWorktreeAuditLog(
+      tmpDir,
+      { action: 'create', xdgPath: '/xdg/T10861', taskId: 'T10861', success: true },
+      auditLogPath,
+    );
+    const record = JSON.parse(readFileSync(auditLogPath, 'utf-8').trim()) as Record<
+      string,
+      unknown
+    >;
+    expect(record['timestamp']).toBe(record['ts']);
+    expect(record['actor']).toBe(record['agentId']);
+    expect(record['target']).toBe('/xdg/T10861');
+  });
+
   it('appends a second line on subsequent calls (no overwrite)', () => {
     appendWorktreeAuditLog(
       tmpDir,

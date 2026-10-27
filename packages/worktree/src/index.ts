@@ -44,6 +44,7 @@ export {
   addTransientWorktree,
   countUnmergedCommits,
   DEFAULT_GIT_TIMEOUT_MS,
+  forceRemoveWorktreeDir,
   getGitRoot,
   gitSilent,
   gitSync,

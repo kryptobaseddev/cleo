@@ -50,8 +50,8 @@ function identity(cwd: string): void {
 }
 
 /** A CLEO-provisioned worktree for `taskId` with one commit. */
-function provisioned(root: string, taskId: string): string {
-  const wt = createAgentWorktree(taskId, root);
+async function provisioned(root: string, taskId: string): Promise<string> {
+  const wt = await createAgentWorktree(taskId, root);
   identity(wt.path);
   writeFileSync(join(wt.path, `${taskId}.ts`), 'export const x = 1;\n');
   git(wt.path, 'add', '.');
@@ -75,9 +75,9 @@ afterEach(() => {
 });
 
 describe('worktree integration on completion (T14053)', () => {
-  it('plan and run agree on a provisioned worktree; the plan changes nothing, the run merges without pushing', () => {
+  it('plan and run agree on a provisioned worktree; the plan changes nothing, the run merges without pushing', async () => {
     const root = makeRepo();
-    provisioned(root, 'T14053A');
+    await provisioned(root, 'T14053A');
     const before = gitState(root);
 
     const plan = planWorktreeIntegration('T14053A', root, { targetBranch: 'main' });
@@ -97,7 +97,7 @@ describe('worktree integration on completion (T14053)', () => {
     expect(git(root, 'rev-parse', '--abbrev-ref', 'HEAD')).toBe('main');
   });
 
-  it('CLEO_NO_AUTO_WORKTREE_COMPLETE and --no-integrate both skip, naming why', () => {
+  it('CLEO_NO_AUTO_WORKTREE_COMPLETE and --no-integrate both skip, naming why', async () => {
     expect(integrationDisabledReason(true, {})).toMatch(/--no-integrate/);
     expect(integrationDisabledReason(false, { CLEO_NO_AUTO_WORKTREE_COMPLETE: '1' })).toMatch(
       /CLEO_NO_AUTO_WORKTREE_COMPLETE/,
@@ -109,7 +109,7 @@ describe('worktree integration on completion (T14053)', () => {
     }
 
     const root = makeRepo();
-    const wt = provisioned(root, 'T14053B');
+    const wt = await provisioned(root, 'T14053B');
     const disabledReason = integrationDisabledReason(false, {
       CLEO_NO_AUTO_WORKTREE_COMPLETE: '1',
     });
@@ -147,9 +147,9 @@ describe('worktree integration on completion (T14053)', () => {
     expect(git(root, 'rev-parse', 'task/T14053C')).toBe(strayTip);
   });
 
-  it('a worktree adopted with `cleo worktree adopt` counts as provisioned', () => {
+  it('a worktree adopted with `cleo worktree adopt` counts as provisioned', async () => {
     const root = makeRepo();
-    const wt = provisioned(root, 'T14053H');
+    const wt = await provisioned(root, 'T14053H');
     // A worktree from before provisioning was recorded: drop its create row.
     rmSync(join(root, '.cleo', 'audit', 'worktree-lifecycle.jsonl'));
     expect(planWorktreeIntegration('T14053H', root, { targetBranch: 'main' }).action).toBe('skip');
@@ -165,10 +165,10 @@ describe('worktree integration on completion (T14053)', () => {
     expect(planWorktreeIntegration('T14053H', root, { targetBranch: 'main' }).action).toBe('merge');
   });
 
-  it("completing one task leaves another task's worktree alone, and a linked worktree is never the merge target", () => {
+  it("completing one task leaves another task's worktree alone, and a linked worktree is never the merge target", async () => {
     const root = makeRepo();
-    const other = provisioned(root, 'T14053D');
-    provisioned(root, 'T14053E');
+    const other = await provisioned(root, 'T14053D');
+    await provisioned(root, 'T14053E');
     const otherTip = git(other, 'rev-parse', 'HEAD');
 
     const merged = completeAgentWorktreeIntegration('T14053E', root, {
@@ -192,9 +192,9 @@ describe('worktree integration on completion (T14053)', () => {
     expect(git(root, 'rev-parse', 'main')).toBe(mainBefore);
   });
 
-  it('refuses a dirty main checkout without switching or merging', () => {
+  it('refuses a dirty main checkout without switching or merging', async () => {
     const root = makeRepo();
-    const wt = provisioned(root, 'T14053F');
+    const wt = await provisioned(root, 'T14053F');
     writeFileSync(join(root, 'README.md'), '# uncommitted edit\n');
     const mainBefore = git(root, 'rev-parse', 'main');
 
@@ -214,9 +214,9 @@ describe('worktree integration on completion (T14053)', () => {
     expect(existsSync(wt)).toBe(true);
   });
 
-  it('refuses when the main checkout is on another branch, and leaves it there', () => {
+  it('refuses when the main checkout is on another branch, and leaves it there', async () => {
     const root = makeRepo();
-    provisioned(root, 'T14053G');
+    await provisioned(root, 'T14053G');
     git(root, 'switch', '-q', '-c', 'feature/x');
     const mainBefore = git(root, 'rev-parse', 'main');
 
