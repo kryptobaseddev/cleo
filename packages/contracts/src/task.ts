@@ -693,6 +693,17 @@ export type EvidenceAtom =
        */
       nonTestFailures?: Array<{ name: string; mergeRunId: number }>;
       /**
+       * The merge commit's own run FAILED, but every failing job failed with
+       * no failed test: its runner was cancelled (T14049) or a vitest worker
+       * crashed (T14074). `descendantSha` is the later green main run standing
+       * in. Each job records its failing merge-commit run and the cause.
+       */
+      untestedFailures?: Array<{
+        name: string;
+        mergeRunId: number;
+        cause: 'runner-cancel' | 'worker-crash';
+      }>;
+      /**
        * The PR edited a pinned workflow, so only default-branch `push` runs
        * attested it; its own `pull_request` runs (which ran the edited
        * workflow) were never consulted, and none is re-checked (T13174).

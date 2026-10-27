@@ -38,6 +38,7 @@ import {
   isQuarantineBudgetOnlyLog,
   isRunnerCancelOnlyLog,
   isSetupStepFailureLog,
+  isWorkerCrashOnlyLog,
   listMainDescendants,
   listPathTouchingMainCommits,
   pathGlobToRegExp,
@@ -1710,6 +1711,63 @@ describe('resolveCiEvidenceAtom', () => {
       expect(atom?.descendantSha).toBe(DESC1);
       expect(atom?.checks.find((c) => c.name === 'CI')?.sha).toBe(DESC1);
       expect(atom?.inheritedFailures).toBeUndefined();
+      expect(atom?.untestedFailures).toEqual([
+        { name: BUILD, mergeRunId: BUILD_RUN, cause: 'runner-cancel' },
+      ]);
+    });
+
+    /** The tail of job 122254128778 (main f89392f76, rerun attempt 2): a fork aborted, no test failed. */
+    const CRASHED_LOG = [
+      "2026-10-27T14:48:35.1480399Z terminate called after throwing an instance of 'Napi::Error'",
+      '2026-10-27T14:48:51.4747847Z [vitest-pool]: Timeout terminating forks worker for test files /home/runner/work/cleo/cleo/packages/core/src/memory/__tests__/brain-writer-thread.test.ts.',
+      '2026-10-27T14:51:26.3819329Z      ✓ resolves global domain paths to the canonical global store  2412ms',
+      '2026-10-27T14:51:26.3929394Z ⎯⎯⎯⎯⎯⎯ Unhandled Errors ⎯⎯⎯⎯⎯⎯',
+      '2026-10-27T14:51:26.3931471Z Vitest caught 1 unhandled error during the test run.',
+      '2026-10-27T14:51:26.3962900Z ⎯⎯⎯⎯⎯⎯ Unhandled Error ⎯⎯⎯⎯⎯⎯⎯',
+      '2026-10-27T14:51:26.3964304Z Error: [vitest-pool]: Worker forks emitted error.',
+      '2026-10-27T14:51:26.3976700Z Caused by: Error: Worker exited unexpectedly',
+      '2026-10-27T14:51:26.4001389Z  Test Files  280 passed (281)',
+      '2026-10-27T14:51:26.4034756Z       Tests  4071 passed | 2 skipped (4075)',
+      '2026-10-27T14:51:26.4036050Z      Errors  1 error',
+      '2026-10-27T14:51:27.7295644Z ##[error]Process completed with exit code 1.',
+    ].join('\n');
+
+    it('isWorkerCrashOnlyLog (T14074): a pool worker crash with no failed test, nothing else', () => {
+      expect(isWorkerCrashOnlyLog(CRASHED_LOG)).toBe(true);
+      // Any failed test or file is a real failure.
+      expect(
+        isWorkerCrashOnlyLog(
+          CRASHED_LOG.replace('Tests  4071 passed', 'Tests  1 failed | 4070 passed'),
+        ),
+      ).toBe(false);
+      expect(isWorkerCrashOnlyLog(`${CRASHED_LOG}\n FAIL   src/x.test.ts > breaks`)).toBe(false);
+      // An unhandled error a test raised is not the pool's own crash.
+      expect(
+        isWorkerCrashOnlyLog(
+          CRASHED_LOG.replace(
+            '⎯⎯⎯⎯⎯⎯ Unhandled Error ⎯⎯⎯⎯⎯⎯⎯',
+            '⎯⎯⎯⎯⎯⎯ Unhandled Error ⎯⎯⎯⎯⎯⎯⎯\nTypeError: boom\n⎯⎯⎯⎯⎯⎯ Unhandled Error ⎯⎯⎯⎯⎯⎯⎯',
+          ),
+        ),
+      ).toBe(false);
+      // Another step's error is not the crash alone.
+      expect(isWorkerCrashOnlyLog(`##[error]TS2322\n${CRASHED_LOG}`)).toBe(false);
+    });
+
+    it('T14074: a worker-crash-only merge commit is stood in for by the green descendant, the cause recorded', async () => {
+      const r = await run(CRASHED_LOG);
+      expect(r.ok, JSON.stringify(r)).toBe(true);
+      const atom = r.ok && r.atom.kind === 'ci' ? r.atom : null;
+      expect(atom?.descendantSha).toBe(DESC1);
+      expect(atom?.untestedFailures).toEqual([
+        { name: BUILD, mergeRunId: BUILD_RUN, cause: 'worker-crash' },
+      ]);
+    });
+
+    it('T14074: a crash beside a failed test is never stood in for', async () => {
+      const r = await run(`${CRASHED_LOG}\n FAIL   src/x.test.ts > breaks`);
+      expect(r.ok).toBe(false);
+      expect(!r.ok && r.reason).toMatch(/the PR introduced this failure/);
     });
 
     it('with no later green run the refusal waits on a stand-in and never says the PR introduced it', async () => {
