@@ -21,6 +21,10 @@
  *      (Absent `engines.node` is a violation — drift hides via omission.)
  *   2. `FALLBACK_MIN_NODE` in `packages/paths/src/node-version-gate.ts` equals
  *      root's semver triple.
+ *   3. CI's Node versions (literal `node-version:` pins in ci.yml and
+ *      `NODE_VERSIONS` in `scripts/ci-platform-matrix.mjs`, which the matrixed
+ *      jobs read) include the floor, and none is below it (T14055: CI also
+ *      runs Node 26, owner decision D11196).
  *
  * Exit 0 = clean; exit 1 = violations (printed).
  *
@@ -29,7 +33,8 @@
 
 import { readdirSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
+import { NODE_VERSIONS } from './ci-platform-matrix.mjs';
 
 const REPO_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -43,86 +48,121 @@ function readJson(path) {
   return JSON.parse(readFileSync(path, 'utf8'));
 }
 
-const violations = [];
-
-// ── Root floor (the SSoT) ───────────────────────────────────────────────────
-const rootPkg = readJson(join(REPO_ROOT, 'package.json'));
-const rootEngine = rootPkg.engines?.node;
-const rootTriple = triple(rootEngine);
-if (!rootEngine || !rootTriple) {
-  console.error(
-    `FATAL: root package.json engines.node is missing or unparseable: ${JSON.stringify(rootEngine)}`,
-  );
-  process.exit(1);
+/** `[major, minor, patch]` of a version, missing parts 0 (`'26'` is 26.0.0), or null. */
+function parts(raw) {
+  const m = /^v?(\d+)(?:\.(\d+))?(?:\.(\d+))?$/.exec(String(raw ?? '').trim());
+  return m ? [Number(m[1]), Number(m[2] ?? 0), Number(m[3] ?? 0)] : null;
 }
 
-// ── 1. Every workspace package must match root ───────────────────────────────
-const pkgsDir = join(REPO_ROOT, 'packages');
-for (const name of readdirSync(pkgsDir, { withFileTypes: true })) {
-  if (!name.isDirectory()) continue;
-  const pkgJsonPath = join(pkgsDir, name.name, 'package.json');
-  let pkg;
-  try {
-    pkg = readJson(pkgJsonPath);
-  } catch {
-    continue; // no package.json (not a package dir)
+/**
+ * CI Node versions that break the floor rule (T14055): the floor must be one
+ * of them, and none may be below it or unparseable.
+ *
+ * @param {Iterable<string>} versions - CI Node versions.
+ * @param {string} floorTriple - Root floor, `x.y.z`.
+ * @returns {string[]} Violations; empty when the rule holds.
+ */
+export function ciNodeVersionViolations(versions, floorTriple) {
+  const floor = parts(floorTriple);
+  const out = [];
+  const list = [...versions];
+  if (!list.some((v) => triple(v) === floorTriple))
+    out.push(`no CI Node version is the root floor ${floorTriple} (CI must test the floor)`);
+  for (const v of list) {
+    const p = parts(v);
+    const below = p && floor && (p[0] - floor[0] || p[1] - floor[1] || p[2] - floor[2]) < 0;
+    if (!p || below)
+      out.push(
+        `node-version '${v}' ${p ? 'is below' : 'is not a version at or above'} the root floor ${floorTriple} (CI runs the test suite + spawns the cleo CLI; it MUST meet the gate floor)`,
+      );
   }
-  const declared = pkg.engines?.node;
-  if (declared !== rootEngine) {
-    violations.push(
-      `packages/${name.name}/package.json: engines.node = ${JSON.stringify(declared)} ` +
-        `(expected root value ${JSON.stringify(rootEngine)})`,
+  return out;
+}
+
+/** Run every check, print the report and exit 1 on a violation. */
+function main() {
+  const violations = [];
+
+  // ── Root floor (the SSoT) ───────────────────────────────────────────────────
+  const rootPkg = readJson(join(REPO_ROOT, 'package.json'));
+  const rootEngine = rootPkg.engines?.node;
+  const rootTriple = triple(rootEngine);
+  if (!rootEngine || !rootTriple) {
+    console.error(
+      `FATAL: root package.json engines.node is missing or unparseable: ${JSON.stringify(rootEngine)}`,
     );
+    process.exit(1);
   }
-}
 
-// ── 2. Gate FALLBACK_MIN_NODE must match root triple ─────────────────────────
-const gatePath = join(REPO_ROOT, 'packages', 'paths', 'src', 'node-version-gate.ts');
-const gateSrc = readFileSync(gatePath, 'utf8');
-const fallbackMatch = /FALLBACK_MIN_NODE\s*=\s*['"]([^'"]+)['"]/.exec(gateSrc);
-const fallbackTriple = fallbackMatch ? triple(fallbackMatch[1]) : null;
-if (fallbackTriple !== rootTriple) {
-  violations.push(
-    `packages/paths/src/node-version-gate.ts: FALLBACK_MIN_NODE = ${JSON.stringify(
-      fallbackMatch?.[1] ?? null,
-    )} (expected root triple ${rootTriple})`,
-  );
-}
-
-// ── 3. CI workflow node-version must match the root floor ────────────────────
-// The test/build workflow spawns the real `cleo` binary, which runs the
-// enforceNodeVersion() gate. If CI's Node is below the floor the gate enforces,
-// every spawned-CLI test fails (the `node-version: '24'` runner-roulette gave
-// macOS 24.15.0 < 24.16.0). Pin CI to the floor and keep it in lock-step here.
-const ciPath = join(REPO_ROOT, '.github', 'workflows', 'ci.yml');
-try {
-  const ciSrc = readFileSync(ciPath, 'utf8');
-  const versions = new Set();
-  for (const m of ciSrc.matchAll(/node-version:\s*['"]?([^'"\n]+)['"]?/g)) {
-    versions.add(m[1].trim());
-  }
-  for (const v of versions) {
-    if (triple(v) !== rootTriple) {
+  // ── 1. Every workspace package must match root ───────────────────────────────
+  const pkgsDir = join(REPO_ROOT, 'packages');
+  for (const name of readdirSync(pkgsDir, { withFileTypes: true })) {
+    if (!name.isDirectory()) continue;
+    const pkgJsonPath = join(pkgsDir, name.name, 'package.json');
+    let pkg;
+    try {
+      pkg = readJson(pkgJsonPath);
+    } catch {
+      continue; // no package.json (not a package dir)
+    }
+    const declared = pkg.engines?.node;
+    if (declared !== rootEngine) {
       violations.push(
-        `.github/workflows/ci.yml: node-version '${v}' != root floor ${rootTriple} ` +
-          `(CI runs the test suite + spawns the cleo CLI; it MUST meet the gate floor)`,
+        `packages/${name.name}/package.json: engines.node = ${JSON.stringify(declared)} ` +
+          `(expected root value ${JSON.stringify(rootEngine)})`,
       );
     }
   }
-} catch {
-  // ci.yml absent (e.g. consumer repo) — skip.
+
+  // ── 2. Gate FALLBACK_MIN_NODE must match root triple ─────────────────────────
+  const gatePath = join(REPO_ROOT, 'packages', 'paths', 'src', 'node-version-gate.ts');
+  const gateSrc = readFileSync(gatePath, 'utf8');
+  const fallbackMatch = /FALLBACK_MIN_NODE\s*=\s*['"]([^'"]+)['"]/.exec(gateSrc);
+  const fallbackTriple = fallbackMatch ? triple(fallbackMatch[1]) : null;
+  if (fallbackTriple !== rootTriple) {
+    violations.push(
+      `packages/paths/src/node-version-gate.ts: FALLBACK_MIN_NODE = ${JSON.stringify(
+        fallbackMatch?.[1] ?? null,
+      )} (expected root triple ${rootTriple})`,
+    );
+  }
+
+  // ── 3. CI Node versions: the floor, and nothing below it ─────────────────────
+  // The test/build workflow spawns the real `cleo` binary, which runs the
+  // enforceNodeVersion() gate. If CI's Node is below the floor the gate enforces,
+  // every spawned-CLI test fails (the `node-version: '24'` runner-roulette gave
+  // macOS 24.15.0 < 24.16.0). CI must test the floor itself; T14055 adds Node 26
+  // beside it. A `${{ matrix.node }}` pin reads NODE_VERSIONS, checked here too.
+  const ciPath = join(REPO_ROOT, '.github', 'workflows', 'ci.yml');
+  try {
+    const ciSrc = readFileSync(ciPath, 'utf8');
+    const versions = new Set(NODE_VERSIONS);
+    for (const m of ciSrc.matchAll(/node-version:\s*['"]?([^'"\n]+)['"]?/g)) {
+      const v = m[1].trim();
+      // biome-ignore lint/suspicious/noTemplateCurlyInString: a GitHub Actions expression, matched literally in ci.yml
+      if (v === '${{ matrix.node }}') continue;
+      versions.add(v);
+    }
+    for (const v of ciNodeVersionViolations(versions, rootTriple))
+      violations.push(`.github/workflows/ci.yml: ${v}`);
+  } catch (err) {
+    // ci.yml absent (e.g. consumer repo) — skip.
+    if (err?.code !== 'ENOENT') throw err;
+  }
+
+  // ── Report ───────────────────────────────────────────────────────────────────
+  if (violations.length > 0) {
+    console.error(`\n✗ engines.node SSoT drift (root floor = ${rootEngine}):\n`);
+    for (const v of violations) console.error(`  - ${v}`);
+    console.error(
+      `\nFix: set engines.node = ${JSON.stringify(rootEngine)} in each package above, or ` +
+        `re-sync from root. To bump the floor, edit ROOT package.json engines.node ` +
+        `(+ FALLBACK_MIN_NODE) — this gate propagates it.\n`,
+    );
+    process.exit(1);
+  }
+
+  console.log(`✓ engines.node SSoT: all workspace packages match root floor ${rootEngine}`);
 }
 
-// ── Report ───────────────────────────────────────────────────────────────────
-if (violations.length > 0) {
-  console.error(`\n✗ engines.node SSoT drift (root floor = ${rootEngine}):\n`);
-  for (const v of violations) console.error(`  - ${v}`);
-  console.error(
-    `\nFix: set engines.node = ${JSON.stringify(rootEngine)} in each package above, or ` +
-      `re-sync from root. To bump the floor, edit ROOT package.json engines.node ` +
-      `(+ FALLBACK_MIN_NODE) — this gate propagates it.\n`,
-  );
-  process.exit(1);
-}
-
-console.log(`✓ engines.node SSoT: all workspace packages match root floor ${rootEngine}`);
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) main();

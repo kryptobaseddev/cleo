@@ -18,6 +18,8 @@ import {
   LINUX_SHARDS,
   MACOS_PR_SHARDS,
   MACOS_SHARDS,
+  NODE_FLOOR,
+  NODE_VERSIONS,
   platformMatrix,
   touchesMacos,
 } from '../ci-platform-matrix.mjs';
@@ -43,7 +45,7 @@ describe('platformMatrix', () => {
       ['ubuntu-latest', LINUX_SHARDS],
       ['macos-latest', MACOS_SHARDS],
     ]) {
-      const jobs = m.filter((j) => j.os === os);
+      const jobs = m.filter((j) => j.os === os && j.node === NODE_FLOOR);
       expect(jobs.map((j) => j.shard)).toEqual(Array.from({ length: total }, (_, i) => i + 1));
       expect(jobs.every((j) => j.total === total)).toBe(true);
     }
@@ -54,17 +56,42 @@ describe('platformMatrix', () => {
       platformMatrix(event, true).testMatrix.filter((j) => j.os === 'macos-latest');
     expect(MACOS_PR_SHARDS).toBe(2);
     expect(macos('pull_request')).toEqual([
-      { os: 'macos-latest', shard: 1, total: 2 },
-      { os: 'macos-latest', shard: 2, total: 2 },
+      { os: 'macos-latest', shard: 1, total: 2, node: NODE_FLOOR },
+      { os: 'macos-latest', shard: 2, total: 2, node: NODE_FLOOR },
     ]);
     // Linux is unchanged, and the nightly and merge-group runs keep all 8.
     expect(
-      platformMatrix('pull_request', true).testMatrix.filter((j) => j.os === 'ubuntu-latest'),
+      platformMatrix('pull_request', true).testMatrix.filter(
+        (j) => j.os === 'ubuntu-latest' && j.node === NODE_FLOOR,
+      ),
     ).toHaveLength(LINUX_SHARDS);
     expect(macos('schedule')).toHaveLength(MACOS_SHARDS);
     expect(macos('merge_group')).toHaveLength(MACOS_SHARDS);
     // Two shards and the two macOS builds fit the free plan's 5-job pool.
     expect(MACOS_PR_SHARDS + 2).toBeLessThanOrEqual(5);
+  });
+});
+
+describe('Node versions (T14055, owner D11196)', () => {
+  it('runs the floor and Node 26, floor first, the floor equal to root engines.node', () => {
+    expect(NODE_VERSIONS).toEqual([NODE_FLOOR, '26']);
+    const root = JSON.parse(readFileSync(path.join(REPO_ROOT, 'package.json'), 'utf8'));
+    expect(root.engines.node).toBe(`>=${NODE_FLOOR}`);
+  });
+
+  it.each([
+    'pull_request',
+    'push',
+    'schedule',
+  ])('%s: every Linux shard runs on every Node version, macOS on the floor only', (event) => {
+    const m = platformMatrix(event, true).testMatrix;
+    for (const node of NODE_VERSIONS) {
+      const linux = m.filter((j) => j.os === 'ubuntu-latest' && j.node === node);
+      expect(linux.map((j) => j.shard)).toEqual(
+        Array.from({ length: LINUX_SHARDS }, (_, i) => i + 1),
+      );
+    }
+    expect(m.filter((j) => j.os === 'macos-latest').every((j) => j.node === NODE_FLOOR)).toBe(true);
   });
 });
 
@@ -200,7 +227,9 @@ describe('the script on a real diff', () => {
     const out = run('pull_request');
     expect(out.darwin).toBe('true');
     expect(JSON.parse(out.build_os)).toEqual(['ubuntu-latest', 'macos-latest']);
-    expect(JSON.parse(out.test_matrix)).toHaveLength(LINUX_SHARDS + MACOS_PR_SHARDS);
+    expect(JSON.parse(out.test_matrix)).toHaveLength(
+      LINUX_SHARDS * NODE_VERSIONS.length + MACOS_PR_SHARDS,
+    );
     // The same commit pushed to main stays on Linux.
     expect(JSON.parse(run('push').build_os)).toEqual(['ubuntu-latest']);
   });
@@ -223,7 +252,7 @@ describe('ci.yml wiring (T13143)', () => {
   it('the changes job decides the platforms, and every OS-matrixed job reads its answer', () => {
     const step = ci.jobs.changes.steps.find((s) => s.id === 'platform');
     expect(step.run).toContain('node scripts/ci-platform-matrix.mjs');
-    for (const key of ['darwin', 'build_os', 'test_matrix']) {
+    for (const key of ['darwin', 'build_os', 'test_matrix', 'node_versions']) {
       expect(ci.jobs.changes.outputs[key]).toContain(`steps.platform.outputs.${key}`);
     }
     // biome-ignore lint/suspicious/noTemplateCurlyInString: a GitHub Actions expression, matched literally in ci.yml
@@ -233,6 +262,28 @@ describe('ci.yml wiring (T13143)', () => {
     // biome-ignore lint/suspicious/noTemplateCurlyInString: a GitHub Actions expression, matched literally in ci.yml
     const testMatrix = '${{ fromJson(needs.changes.outputs.test_matrix) }}';
     expect(ci.jobs['unit-tests'].strategy.matrix.include).toBe(testMatrix);
+  });
+
+  it('Type Check and the unit shards run on the matrix Node; the floor keeps its job names (T14055)', () => {
+    // biome-ignore lint/suspicious/noTemplateCurlyInString: a GitHub Actions expression, matched literally in ci.yml
+    const nodeVersions = '${{ fromJson(needs.changes.outputs.node_versions) }}';
+    expect(ci.jobs.typecheck.strategy.matrix.node).toBe(nodeVersions);
+    const setupNode = (job) =>
+      ci.jobs[job].steps.find((s) => s.uses?.startsWith('actions/setup-node'))?.with?.[
+        'node-version'
+      ];
+    for (const job of ['typecheck', 'unit-tests']) {
+      // biome-ignore lint/suspicious/noTemplateCurlyInString: a GitHub Actions expression, matched literally in ci.yml
+      expect(setupNode(job), job).toBe('${{ matrix.node }}');
+    }
+    // The floor's names are unchanged (evidence.ciChecks.jobs matches `Type Check`).
+    expect(ci.jobs.typecheck.name).toContain(`matrix.node != '${NODE_FLOOR}'`);
+    expect(ci.jobs['unit-tests'].name).toContain(`matrix.node != '${NODE_FLOOR}'`);
+    // One flaky report per job: the Node version is part of the artifact name.
+    const upload = ci.jobs['unit-tests'].steps.find((s) => s.name?.startsWith('Upload flaky'));
+    expect(upload.with.name).toContain('matrix.node');
+    // Both matrices are required through the CI aggregate.
+    expect(ci.jobs.ci.needs).toEqual(expect.arrayContaining(['typecheck', 'unit-tests']));
   });
 
   it('the unit tests shard by the matrix total, not a fixed count', () => {
@@ -265,7 +316,7 @@ describe('macos-main.yml: the newest main push gets a macOS result (T13143, opti
     expect(read('packages/core/src/release/preflight-skip.ts')).toContain("'macos-main.yml'");
   });
 
-  it(`shards ${MACOS_SHARDS} ways on macOS with the same node and pnpm pins as ci.yml`, () => {
+  it(`shards ${MACOS_SHARDS} ways on macOS on the Node floor and ci.yml's pnpm pin`, () => {
     const tests = wf.jobs['unit-tests'];
     expect(tests['runs-on']).toBe('macos-latest');
     expect(tests.strategy.matrix.shard).toEqual(
@@ -274,13 +325,17 @@ describe('macos-main.yml: the newest main push gets a macOS result (T13143, opti
     const run = tests.steps.find((s) => String(s.name).startsWith('Run unit tests'));
     expect(run.run).toContain(`/${MACOS_SHARDS} --retry=2`);
     const pin = (steps, action, key) => steps.find((s) => s.uses?.startsWith(action))?.with?.[key];
+    // T14055: ci.yml's unit shards read the matrix Node; macOS runs the floor.
+    expect(pin(tests.steps, 'actions/setup-node', 'node-version')).toBe(NODE_FLOOR);
     for (const [action, key] of [
       ['actions/setup-node', 'node-version'],
       ['pnpm/action-setup', 'version'],
     ]) {
-      expect(pin(tests.steps, action, key), action).toBe(
-        pin(ci.jobs['unit-tests'].steps, action, key),
-      );
+      if (key === 'version') {
+        expect(pin(tests.steps, action, key), action).toBe(
+          pin(ci.jobs['unit-tests'].steps, action, key),
+        );
+      }
       expect(pin(wf.jobs.build.steps, action, key), action).toBe(
         pin(ci.jobs.build.steps, action, key),
       );

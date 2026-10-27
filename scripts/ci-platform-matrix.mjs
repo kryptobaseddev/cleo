@@ -34,11 +34,18 @@
  *   node scripts/ci-platform-matrix.mjs <event> [<base-ref> <head-ref>]
  *
  * Writes to `$GITHUB_OUTPUT`: `darwin`, `build_os` (a JSON array of runner
- * labels) and `test_matrix` (a JSON array of `{os, shard, total}`). Always
- * exits 0; a detection error on a pull request means "darwin-specific", so
- * macOS runs: the safe direction.
+ * labels), `test_matrix` (a JSON array of `{os, shard, total, node}`) and
+ * `node_versions` (the Node versions Type Check runs on). Always exits 0; a
+ * detection error on a pull request means "darwin-specific", so macOS runs:
+ * the safe direction.
+ *
+ * Node (T14055, owner decision D11196): Type Check and the Linux unit shards
+ * run on the engines floor ({@link NODE_FLOOR}) and on Node 26; macOS runs the
+ * floor only. `scripts/lint-node-engine-ssot.mjs` holds every version here to
+ * the root `engines.node` floor.
  *
  * @task T13143
+ * @task T14055
  */
 
 import { execFileSync } from 'node:child_process';
@@ -67,6 +74,16 @@ export const MACOS_SHARDS = 8;
  * ci.yml gives these legs a longer timeout (each runs half the suite).
  */
 export const MACOS_PR_SHARDS = 2;
+
+/** The root `engines.node` floor CI runs on everywhere (gate 8 checks it against root). */
+export const NODE_FLOOR = '24.16.0';
+
+/**
+ * The Node versions Type Check and the Linux unit shards run on (T14055):
+ * the floor, and Node 26 so a Node-26-only break fails CI rather than a
+ * developer's machine. Ordered floor first.
+ */
+export const NODE_VERSIONS = [NODE_FLOOR, '26'];
 
 /** A path that is darwin-specific by name. */
 const DARWIN_PATH = /(^|[/._-])(darwin|macos)([/._-]|$)/i;
@@ -177,18 +194,22 @@ export function detectDarwin(paths, patch) {
  * @param {boolean} darwin - Whether a pull request's change is darwin-specific.
  *   A darwin pull request gets {@link MACOS_PR_SHARDS} macOS shards; the
  *   nightly and merge-group runs get {@link MACOS_SHARDS}.
- * @returns {{ buildOs: string[], testMatrix: Array<{ os: string, shard: number, total: number }> }}
+ * @returns {{ buildOs: string[], testMatrix: Array<{ os: string, shard: number, total: number, node: string }> }}
  */
 export function platformMatrix(event, darwin) {
   const macos =
     event === 'schedule' || event === 'merge_group' || (event === 'pull_request' && darwin);
   const buildOs = macos ? ['ubuntu-latest', 'macos-latest'] : ['ubuntu-latest'];
-  const shards = (os, total) =>
-    Array.from({ length: total }, (_, i) => ({ os, shard: i + 1, total }));
+  const shards = (os, total, node) =>
+    Array.from({ length: total }, (_, i) => ({ os, shard: i + 1, total, node }));
   const testMatrix = [
-    ...shards('ubuntu-latest', LINUX_SHARDS),
+    ...NODE_VERSIONS.flatMap((node) => shards('ubuntu-latest', LINUX_SHARDS, node)),
     ...(macos
-      ? shards('macos-latest', event === 'pull_request' ? MACOS_PR_SHARDS : MACOS_SHARDS)
+      ? shards(
+          'macos-latest',
+          event === 'pull_request' ? MACOS_PR_SHARDS : MACOS_SHARDS,
+          NODE_FLOOR,
+        )
       : []),
   ];
   return { buildOs, testMatrix };
@@ -224,6 +245,7 @@ function main() {
     `darwin=${detection.darwin}`,
     `build_os=${JSON.stringify(buildOs)}`,
     `test_matrix=${JSON.stringify(testMatrix)}`,
+    `node_versions=${JSON.stringify(NODE_VERSIONS)}`,
   ];
   console.log(`${detection.reason}\n${lines.join('\n')}`);
   if (process.env.GITHUB_OUTPUT) appendFileSync(process.env.GITHUB_OUTPUT, `${lines.join('\n')}\n`);

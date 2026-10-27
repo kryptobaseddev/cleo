@@ -105,6 +105,9 @@ jobs:
       darwin: ${{ steps.platform.outputs.darwin }}
       build_os: ${{ steps.platform.outputs.build_os }}
       test_matrix: ${{ steps.platform.outputs.test_matrix }}
+      # T14055 (owner D11196): Type Check and the Linux unit shards run on the
+      # engines floor and on Node 26 (NODE_VERSIONS in the same script).
+      node_versions: ${{ steps.platform.outputs.node_versions }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -1320,16 +1323,22 @@ jobs:
         run: node scripts/lint-changesets.mjs
 
   typecheck:
-    name: Type Check
+    # T14055: the floor keeps the name `Type Check` (evidence.ciChecks.jobs
+    # matches it); each other Node version is suffixed.
+    name: Type Check${{ matrix.node != '24.16.0' && format(' (Node {0})', matrix.node) || '' }}
     needs: [ biome, changes ]
     if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    strategy:
+      matrix:
+        node: ${{ fromJson(needs.changes.outputs.node_versions) }}
+      fail-fast: false
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: '24.16.0'
+          node-version: ${{ matrix.node }}
       - uses: pnpm/action-setup@v4
         with:
           version: '10.30.0'
@@ -1476,7 +1485,8 @@ jobs:
           if-no-files-found: error
 
   unit-tests:
-    name: Unit Tests (${{ matrix.os }}, shard ${{ matrix.shard }})
+    # T14055: floor shards keep their names; Node 26 shards say so.
+    name: Unit Tests (${{ matrix.os }}, ${{ matrix.node != '24.16.0' && format('node {0}, ', matrix.node) || '' }}shard ${{ matrix.shard }})
     needs: [ biome, changes, build ]
     if: needs.changes.outputs.code == 'true' && needs.changes.outputs.version_only != 'true'
     runs-on: ${{ matrix.os }}
@@ -1550,7 +1560,7 @@ jobs:
           fetch-depth: 2
       - uses: actions/setup-node@v4
         with:
-          node-version: '24.16.0'
+          node-version: ${{ matrix.node }}
       - uses: pnpm/action-setup@v4
         with:
           version: '10.30.0'
@@ -1641,7 +1651,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: flaky-report-${{ matrix.os }}-${{ matrix.shard }}
+          name: flaky-report-${{ matrix.os }}-${{ matrix.node }}-${{ matrix.shard }}
           path: ${{ runner.temp }}/flaky-report.json
           if-no-files-found: ignore
           retention-days: 7
