@@ -17,8 +17,9 @@
  */
 
 import { appendFileSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
-import { dirname, join, resolve } from 'node:path';
+import { dirname, join } from 'node:path';
 import type { WorktreeLifecycleAction } from '@cleocode/contracts';
+import { canonicalizePath } from '@cleocode/paths';
 
 /** Relative path within the project root for the worktree lifecycle audit log. */
 export const WORKTREE_LIFECYCLE_AUDIT_FILE = '.cleo/audit/worktree-lifecycle.jsonl';
@@ -143,6 +144,7 @@ function findWorktreeAuditRow(
   } catch {
     return null;
   }
+  const wanted = canonicalizePath(xdgPath);
   for (let i = lines.length - 1; i >= 0; i--) {
     const line = lines[i];
     if (!line?.includes(taskId) || !actions.some((a) => line.includes(`"${a}"`))) continue;
@@ -151,12 +153,14 @@ function findWorktreeAuditRow(
         Record<'action' | 'taskId' | 'xdgPath' | 'target' | 'baseSha', string>
       > & { success?: boolean };
       // `cleo worktree adopt` (core audit writer) records the path as `target`.
+      // Compared by realpath: a row recorded through a symlink (/tmp vs
+      // /private/tmp, a symlinked CLEO home) names the same worktree (T14054).
       const rowPath = row.xdgPath ?? row.target;
       if (
         actions.includes(row.action as WorktreeLifecycleAction) &&
         row.taskId === taskId &&
         rowPath !== undefined &&
-        resolve(rowPath) === resolve(xdgPath) &&
+        canonicalizePath(rowPath) === wanted &&
         row.success !== false
       ) {
         return row;
