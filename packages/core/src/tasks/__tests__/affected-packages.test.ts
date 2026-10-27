@@ -104,6 +104,28 @@ describe('workspace discovery', () => {
     const names = listWorkspacePackages(root).map((p) => p.name);
     expect(names.sort()).toEqual(['@x/a', '@x/b', '@x/c', '@x/d', '@x/tool']);
   });
+
+  it('T14047: a ! exclusion in pnpm-workspace.yaml drops a standalone app the glob matches', () => {
+    writeFileSync(
+      join(root, 'pnpm-workspace.yaml'),
+      'packages:\n  - "packages/*"\n  - "apps/*"\n  - "!apps/image-worker"\n',
+    );
+    pkg('apps/web', '@x/web');
+    pkg('apps/image-worker', '@x/image-worker');
+    pkg('outside/lone', '@x/lone'); // a package.json no glob names
+    const names = listWorkspacePackages(root).map((p) => p.name);
+    expect(names.sort()).toEqual(['@x/a', '@x/b', '@x/c', '@x/d', '@x/web']);
+  });
+
+  it('T14047: package.json workspaces exclusions apply too (npm/yarn)', () => {
+    rmSync(join(root, 'pnpm-workspace.yaml'));
+    writeFileSync(
+      join(root, 'package.json'),
+      JSON.stringify({ name: 'root', private: true, workspaces: ['packages/*', '!packages/c'] }),
+    );
+    const names = listWorkspacePackages(root).map((p) => p.name);
+    expect(names.sort()).toEqual(['@x/a', '@x/b', '@x/d']);
+  });
 });
 
 describe('deriveAffectedPackages', () => {
@@ -661,6 +683,28 @@ describe('tool:test-affected evidence', () => {
       paths: ['packages/c/src/new.ts'],
       excluded: ['.opencode/goals/dogfood/goal.yaml'],
       untrackedSetAside: [],
+    });
+  });
+
+  it('T14052: untracked files inside nested worktrees or repos never widen a scoped change', () => {
+    initRepo(`node -e 0 {packages}`);
+    // A linked worktree git resolves (listed as one `dir/` entry) ...
+    git(root, ['worktree', 'add', '-q', '.worktrees/linked', '-b', 'side']);
+    writeFileSync(join(root, '.worktrees', 'linked', '.npmrc'), 'x=1\n');
+    // ... one whose .git file git cannot resolve (it descends into it) ...
+    mkdirSync(join(root, '.worktrees', 'moved'), { recursive: true });
+    writeFileSync(join(root, '.worktrees', 'moved', '.git'), 'gitdir: /nowhere/.git/worktrees/x\n');
+    writeFileSync(join(root, '.worktrees', 'moved', '.npmrc'), 'x=1\n');
+    // ... and a nested repository with its own .git directory.
+    mkdirSync(join(root, 'vendor', 'inner'), { recursive: true });
+    git(join(root, 'vendor', 'inner'), ['init', '-q']);
+    writeFileSync(join(root, 'vendor', 'inner', 'f.ts'), 'export {};\n');
+    // The task's own untracked file still counts (AC2).
+    writeFileSync(join(root, 'packages/c/src/new.ts'), 'export const fresh = 1;\n');
+    expect(scopedChangedPaths(root)?.paths).toEqual(['packages/c/src/new.ts']);
+    expect(deriveAffectedPackages(root, changedPathsSinceDefault(root) ?? [])).toMatchObject({
+      scope: 'affected',
+      packages: ['@x/c'],
     });
   });
 

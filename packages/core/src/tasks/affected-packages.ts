@@ -127,9 +127,21 @@ function workspacePatterns(root: string): string[] | null {
   }
 }
 
-/** Directories a pattern names: `dir/*` (one level) or an exact directory. */
+/**
+ * Directories the workspace patterns name: each include expanded
+ * ({@link expandPattern}), minus every directory a `!` exclusion matches
+ * (T14047), as pnpm and npm/yarn workspaces apply them.
+ */
+function workspaceDirs(root: string, patterns: readonly string[]): string[] {
+  const excludes = patterns
+    .filter((p) => p.startsWith('!'))
+    .map((p) => p.slice(1).replace(/^\.\//, '').replace(/\/$/, ''));
+  const dirs = patterns.filter((p) => !p.startsWith('!')).flatMap((p) => expandPattern(root, p));
+  return [...new Set(dirs)].filter((dir) => !excludes.some((ex) => matchesGlob(dir, ex)));
+}
+
+/** Directories an include pattern names: `dir/*` (one level) or an exact directory. */
 function expandPattern(root: string, pattern: string): string[] {
-  if (pattern.startsWith('!')) return [];
   const clean = pattern.replace(/\/$/, '');
   if (clean.endsWith('/*') && !clean.slice(0, -2).includes('*')) {
     const parent = clean.slice(0, -2);
@@ -216,9 +228,7 @@ export function listWorkspacePackages(root: string): WorkspacePackage[] {
       ? []
       : [{ name: standalone.name, dir: '', deps: [], hasTestScript: standalone.hasTestScript }];
   }
-  const found = patterns
-    .flatMap((p) => expandPattern(root, p))
-    .flatMap((dir) => readManifest(root, dir) ?? []);
+  const found = workspaceDirs(root, patterns).flatMap((dir) => readManifest(root, dir) ?? []);
   const names = new Set(found.map((p) => p.name));
   return found.map(({ name, dir, all, hasTestScript }) => ({
     name,
@@ -538,10 +548,10 @@ const vitestProjectsMemo = new Map<string, Promise<VitestProjectsResult>>();
 function treeStateKey(root: string): string | null {
   const head = git(root, ['rev-parse', 'HEAD']);
   const diff = git(root, ['diff', 'HEAD']);
-  const untracked = git(root, ['ls-files', '--others', '--exclude-standard']);
+  const untracked = untrackedChangePaths(root);
   if (head === null || diff === null || untracked === null) return null;
   const hash = createHash('sha256').update(diff);
-  for (const path of untracked.split('\n').filter(Boolean)) {
+  for (const path of untracked) {
     try {
       const st = statSync(join(root, path));
       hash.update(`\0${path}\0${st.size}\0${st.mtimeMs}`);
@@ -790,6 +800,40 @@ function git(cwd: string, args: readonly string[]): string | null {
   }
 }
 
+/**
+ * The checkout's own untracked, not-ignored files, or null when git fails
+ * (T14052). Nothing inside a nested repository or linked worktree counts: git
+ * lists a nested checkout it recognises as one `dir/` entry, and descends into
+ * one whose `.git` file it cannot resolve (`.worktrees/x/.npmrc`), so both are
+ * dropped — any path below a directory (under the root) holding a `.git` file
+ * or directory belongs to that other checkout, not to this change.
+ *
+ * @param root - Execution root; the listed paths are relative to it.
+ * @returns Root-relative untracked file paths.
+ * @task T14052
+ */
+function untrackedChangePaths(root: string): string[] | null {
+  const listed = git(root, ['ls-files', '--others', '--exclude-standard']);
+  if (listed === null) return null;
+  const nested = new Map<string, boolean>();
+  const isNestedCheckout = (dir: string): boolean => {
+    let hit = nested.get(dir);
+    if (hit === undefined) {
+      hit = existsSync(join(root, dir, '.git'));
+      nested.set(dir, hit);
+    }
+    return hit;
+  };
+  return listed.split('\n').filter((path) => {
+    if (path === '' || path.endsWith('/')) return false;
+    const parts = slashSeparated(path).split('/');
+    for (let i = 1; i < parts.length; i++) {
+      if (isNestedCheckout(parts.slice(0, i).join('/'))) return false;
+    }
+    return true;
+  });
+}
+
 // T14007: one home for origin's default branch (git/base-ref.ts); re-exported for callers.
 export { originDefaultMergeBase };
 
@@ -989,7 +1033,7 @@ export function scopedChangedPaths(
   // A git failure is not an empty diff (T12657): no answer, so no scoped run.
   const committed = git(root, ['diff', '--name-only', '--no-renames', mergeBase, 'HEAD']);
   const uncommitted = git(root, ['diff', '--name-only', '--no-renames', 'HEAD']);
-  const untracked = git(root, ['ls-files', '--others', '--exclude-standard']);
+  const untracked = untrackedChangePaths(root);
   const prefix = git(root, ['rev-parse', '--show-prefix']);
   if (committed === null || uncommitted === null || untracked === null || prefix === null) {
     return null;
@@ -1019,7 +1063,7 @@ export function scopedChangedPaths(
       return at < 0 ? '' : slashed.slice(0, at);
     }),
   );
-  for (const path of lines(untracked)) {
+  for (const path of untracked) {
     const rel = slashSeparated(path);
     if (UNTRACKED_STATE_DIRS.some((dir) => rel.startsWith(dir))) continue;
     // Declared or managed state: never package code (isScopeExcluded refuses those).
