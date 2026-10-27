@@ -1,0 +1,1048 @@
+{
+  "$schema": "https://cleocode.io/schemas/release-plan/v1.json",
+  "version": "v2026.10.26",
+  "resolvedVersion": "v2026.10.26",
+  "suffixApplied": false,
+  "scheme": "calver",
+  "channel": "latest",
+  "epicId": null,
+  "releaseKind": "regular",
+  "hooksV1Promotion": false,
+  "createdAt": "2026-10-27T19:08:32.925Z",
+  "createdBy": "keatonhoskins",
+  "previousVersion": "v2026.10.25",
+  "previousTag": "v2026.10.25",
+  "previousShippedAt": "2026-10-26T19:16:23.327Z",
+  "tasks": [
+    {
+      "id": "T10858",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "Replace core create/destroy worktree paths with @cleocode/worktree facade",
+      "evidenceAtoms": [
+        "pr:2488",
+        "files:.changeset/core-worktree-facade.md,packages/core/src/orchestrate/__tests__/worktree-complete.test.ts,packages/core/src/spawn/__tests__/worktree-audit.test.ts,packages/core/src/spawn/__tests__/worktree-integration-safety.test.ts,packages/core/src/spawn/__tests__/worktree-lock-holder.test.ts,packages/core/src/spawn/__tests__/worktree-merge-upstream.test.ts,packages/core/src/spawn/__tests__/worktree-merge.test.ts,packages/core/src/spawn/branch-lock.ts,packages/worktree/src/__tests__/git.test.ts,packages/worktree/src/__tests__/worktree-audit.test.ts,packages/worktree/src/git.ts,packages/worktree/src/index.ts,packages/worktree/src/worktree-audit.ts",
+        "ci:2488"
+      ],
+      "epicAncestor": "T10853",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T10859",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "Route createAgentWorktree through core SDK worktree tool",
+      "evidenceAtoms": [
+        "pr:2488",
+        "files:.changeset/core-worktree-facade.md,packages/core/src/orchestrate/__tests__/worktree-complete.test.ts,packages/core/src/spawn/__tests__/worktree-audit.test.ts,packages/core/src/spawn/__tests__/worktree-integration-safety.test.ts,packages/core/src/spawn/__tests__/worktree-lock-holder.test.ts,packages/core/src/spawn/__tests__/worktree-merge-upstream.test.ts,packages/core/src/spawn/__tests__/worktree-merge.test.ts,packages/core/src/spawn/branch-lock.ts,packages/worktree/src/__tests__/git.test.ts,packages/worktree/src/__tests__/worktree-audit.test.ts,packages/worktree/src/git.ts,packages/worktree/src/index.ts,packages/worktree/src/worktree-audit.ts",
+        "ci:2488"
+      ],
+      "epicAncestor": "T10858",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T10860",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "Route destroyAgentWorktree through core SDK worktree tool",
+      "evidenceAtoms": [
+        "pr:2488",
+        "files:.changeset/core-worktree-facade.md,packages/core/src/orchestrate/__tests__/worktree-complete.test.ts,packages/core/src/spawn/__tests__/worktree-audit.test.ts,packages/core/src/spawn/__tests__/worktree-integration-safety.test.ts,packages/core/src/spawn/__tests__/worktree-lock-holder.test.ts,packages/core/src/spawn/__tests__/worktree-merge-upstream.test.ts,packages/core/src/spawn/__tests__/worktree-merge.test.ts,packages/core/src/spawn/branch-lock.ts,packages/worktree/src/__tests__/git.test.ts,packages/worktree/src/__tests__/worktree-audit.test.ts,packages/worktree/src/git.ts,packages/worktree/src/index.ts,packages/worktree/src/worktree-audit.ts",
+        "ci:2488"
+      ],
+      "epicAncestor": "T10858",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T10861",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "Preserve lifecycle audit events",
+      "evidenceAtoms": [
+        "pr:2488",
+        "files:.changeset/core-worktree-facade.md,packages/core/src/orchestrate/__tests__/worktree-complete.test.ts,packages/core/src/spawn/__tests__/worktree-audit.test.ts,packages/core/src/spawn/__tests__/worktree-integration-safety.test.ts,packages/core/src/spawn/__tests__/worktree-lock-holder.test.ts,packages/core/src/spawn/__tests__/worktree-merge-upstream.test.ts,packages/core/src/spawn/__tests__/worktree-merge.test.ts,packages/core/src/spawn/branch-lock.ts,packages/worktree/src/__tests__/git.test.ts,packages/worktree/src/__tests__/worktree-audit.test.ts,packages/worktree/src/git.ts,packages/worktree/src/index.ts,packages/worktree/src/worktree-audit.ts",
+        "ci:2488"
+      ],
+      "epicAncestor": "T10858",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T10862",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "Split branch integration operations out of worktree lifecycle code",
+      "evidenceAtoms": [
+        "pr:2493",
+        "files:.changeset/branch-integration-module.md,packages/core/src/internal.ts,packages/core/src/orchestrate/worktree-complete.ts,packages/core/src/spawn/__tests__/worktree-audit.test.ts,packages/core/src/spawn/__tests__/worktree-integration-safety.test.ts,packages/core/src/spawn/__tests__/worktree-merge-upstream.test.ts,packages/core/src/spawn/__tests__/worktree-merge.test.ts,packages/core/src/spawn/branch-integration.ts,packages/core/src/spawn/branch-lock.ts,packages/core/src/spawn/index.ts,packages/core/src/tasks/__tests__/complete-integration-gate.test.ts,packages/core/src/tasks/__tests__/worktree-kept-warning.test.ts,packages/core/src/tasks/complete.ts,packages/core/src/tasks/done-plan.ts,packages/core/src/tasks/complete.ts",
+        "ci:2493"
+      ],
+      "epicAncestor": "T10853",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T10863",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "Design branch integration module boundary",
+      "evidenceAtoms": [
+        "pr:2493",
+        "files:.changeset/branch-integration-module.md,packages/core/src/internal.ts,packages/core/src/orchestrate/worktree-complete.ts,packages/core/src/spawn/__tests__/worktree-audit.test.ts,packages/core/src/spawn/__tests__/worktree-integration-safety.test.ts,packages/core/src/spawn/__tests__/worktree-merge-upstream.test.ts,packages/core/src/spawn/__tests__/worktree-merge.test.ts,packages/core/src/spawn/branch-integration.ts,packages/core/src/spawn/branch-lock.ts,packages/core/src/spawn/index.ts,packages/core/src/tasks/__tests__/complete-integration-gate.test.ts,packages/core/src/tasks/__tests__/worktree-kept-warning.test.ts,packages/core/src/tasks/complete.ts,packages/core/src/tasks/done-plan.ts,packages/core/src/tasks/complete.ts",
+        "ci:2493"
+      ],
+      "epicAncestor": "T10862",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T10864",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "Move branch integration helpers behind typed functions",
+      "evidenceAtoms": [
+        "pr:2493",
+        "files:.changeset/branch-integration-module.md,packages/core/src/internal.ts,packages/core/src/orchestrate/worktree-complete.ts,packages/core/src/spawn/__tests__/worktree-audit.test.ts,packages/core/src/spawn/__tests__/worktree-integration-safety.test.ts,packages/core/src/spawn/__tests__/worktree-merge-upstream.test.ts,packages/core/src/spawn/__tests__/worktree-merge.test.ts,packages/core/src/spawn/branch-integration.ts,packages/core/src/spawn/branch-lock.ts,packages/core/src/spawn/index.ts,packages/core/src/tasks/__tests__/complete-integration-gate.test.ts,packages/core/src/tasks/__tests__/worktree-kept-warning.test.ts,packages/core/src/tasks/complete.ts,packages/core/src/tasks/done-plan.ts,packages/core/src/tasks/complete.ts",
+        "ci:2493"
+      ],
+      "epicAncestor": "T10862",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T10866",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "Replace git worktree list porcelain parsing in core list",
+      "evidenceAtoms": [
+        "pr:2504",
+        "files:.changeset/worktree-locate-subpath.md,docs/spec/worktree-lifecycle.md,packages/core/src/worktree/list.ts,packages/worktree/package.json,packages/worktree/src/__tests__/worktree-locate.test.ts,packages/worktree/src/worktree-locate.ts,scripts/lint-no-raw-git-worktree.mjs",
+        "ci:2504"
+      ],
+      "epicAncestor": "T10865",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T10867",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "Replace core prune unlock/remove shell-outs",
+      "evidenceAtoms": [
+        "pr:2500",
+        "files:.changeset/core-prune-unlock-facade.md,docs/spec/worktree-lifecycle.md,packages/core/src/worktree/force-unlock.ts,packages/core/src/worktree/prune.ts,packages/worktree/src/__tests__/git.test.ts,packages/worktree/src/git.ts,packages/worktree/src/index.ts,scripts/lint-no-raw-git-worktree.mjs",
+        "ci:2500"
+      ],
+      "epicAncestor": "T10865",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T10868",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "Document forensic bypass policy",
+      "evidenceAtoms": [
+        "pr:2500",
+        "files:.changeset/core-prune-unlock-facade.md,docs/spec/worktree-lifecycle.md,packages/core/src/worktree/force-unlock.ts,packages/core/src/worktree/prune.ts,packages/worktree/src/__tests__/git.test.ts,packages/worktree/src/git.ts,packages/worktree/src/index.ts,scripts/lint-no-raw-git-worktree.mjs",
+        "ci:2500"
+      ],
+      "epicAncestor": "T10865",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T10870",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "Replace detectPartialWorktree raw git status",
+      "evidenceAtoms": [
+        "pr:2503",
+        "files:.changeset/drop-core-partial-worktree-copy.md,packages/core/src/orchestrate/spawn-ops.ts",
+        "ci:2503"
+      ],
+      "epicAncestor": "T10869",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T10871",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "Unify worktree-complete lifecycle state",
+      "evidenceAtoms": [
+        "pr:2505",
+        "files:.changeset/worktree-lifecycle-state.md,packages/contracts/src/branch-lock.ts,packages/contracts/src/index.ts,packages/core/src/orchestrate/__tests__/worktree-complete.test.ts,packages/core/src/orchestrate/worktree-complete.ts,packages/core/src/spawn/branch-lock.ts,packages/worktree/src/__tests__/worktree-audit.test.ts,packages/worktree/src/index.ts,packages/worktree/src/worktree-audit.ts",
+        "ci:2505"
+      ],
+      "epicAncestor": "T10869",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T10872",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "Add end-to-end spawn lifecycle regression tests",
+      "evidenceAtoms": [
+        "pr:2506",
+        "files:.changeset/spawn-lifecycle-regression-tests.md,packages/core/src/spawn/__tests__/spawn-lifecycle-canonical.test.ts,packages/core/src/spawn/__tests__/spawn-lifecycle-facade.test.ts",
+        "ci:2506"
+      ],
+      "epicAncestor": "T10853",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T10873",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "Mock @cleocode/worktree facade in core spawn tests",
+      "evidenceAtoms": [
+        "pr:2506",
+        "files:.changeset/spawn-lifecycle-regression-tests.md,packages/core/src/spawn/__tests__/spawn-lifecycle-canonical.test.ts,packages/core/src/spawn/__tests__/spawn-lifecycle-facade.test.ts",
+        "ci:2506"
+      ],
+      "epicAncestor": "T10872",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T10874",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "Add integration smoke for canonical path",
+      "evidenceAtoms": [
+        "pr:2506",
+        "files:.changeset/spawn-lifecycle-regression-tests.md,packages/core/src/spawn/__tests__/spawn-lifecycle-canonical.test.ts,packages/core/src/spawn/__tests__/spawn-lifecycle-facade.test.ts",
+        "ci:2506"
+      ],
+      "epicAncestor": "T10872",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T10875",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "Retire branch-lock lifecycle wrappers and update references",
+      "evidenceAtoms": [
+        "pr:2508",
+        "files:.changeset/retire-branch-lock-wrappers.md,docs/spec/worktree-lifecycle.md,packages/core/src/internal.ts,packages/core/src/spawn/branch-lock.ts,packages/core/src/spawn/index.ts",
+        "ci:2508"
+      ],
+      "epicAncestor": "T10853",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T10876",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "Delete dead lifecycle helpers",
+      "evidenceAtoms": [
+        "pr:2508",
+        "files:.changeset/retire-branch-lock-wrappers.md,docs/spec/worktree-lifecycle.md,packages/core/src/internal.ts,packages/core/src/spawn/branch-lock.ts,packages/core/src/spawn/index.ts",
+        "ci:2508"
+      ],
+      "epicAncestor": "T10875",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T10877",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "Update references and migration notes",
+      "evidenceAtoms": [
+        "pr:2508",
+        "files:.changeset/retire-branch-lock-wrappers.md,docs/spec/worktree-lifecycle.md,packages/core/src/internal.ts,packages/core/src/spawn/branch-lock.ts,packages/core/src/spawn/index.ts",
+        "ci:2508"
+      ],
+      "epicAncestor": "T10875",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T13003",
+      "kind": "fix",
+      "impact": "patch",
+      "userFacingSummary": "tool:test and test-run evidence prove the task's implementation commits are in the tree under test (#1776 r3 d)",
+      "evidenceAtoms": [
+        "pr:2498",
+        "files:.changeset/impl-commits-in-tested-tree.md,packages/contracts/src/task.ts,packages/core/src/tasks/__tests__/change-set.test.ts,packages/core/src/tasks/evidence.ts,packages/core/src/tasks/evidence.ts",
+        "ci:2498"
+      ],
+      "epicAncestor": "T12956",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T13011",
+      "kind": "fix",
+      "impact": "patch",
+      "userFacingSummary": "Tool cache: detect a resource kill masked as exit 1 by pnpm>=12 -r (#1783 F1)",
+      "evidenceAtoms": [
+        "pr:2490",
+        "files:.changeset/kill-marker-stream-scan.md,packages/core/src/tasks/__tests__/tool-cache-resource-kill.test.ts,packages/core/src/tasks/heavy-tool-limit.ts,packages/core/src/tasks/tool-cache.ts,packages/core/src/tasks/tool-runner-guard.ts",
+        "ci:2490"
+      ],
+      "epicAncestor": "T12956",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T13012",
+      "kind": "fix",
+      "impact": "patch",
+      "userFacingSummary": "Tool cache: scan the whole output stream for resource-kill markers, and add jest's crash phrases (#1783 F2)",
+      "evidenceAtoms": [
+        "pr:2490",
+        "files:.changeset/kill-marker-stream-scan.md,packages/core/src/tasks/__tests__/tool-cache-resource-kill.test.ts,packages/core/src/tasks/heavy-tool-limit.ts,packages/core/src/tasks/tool-cache.ts,packages/core/src/tasks/tool-runner-guard.ts",
+        "ci:2490"
+      ],
+      "epicAncestor": "T12956",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T13013",
+      "kind": "fix",
+      "impact": "patch",
+      "userFacingSummary": "Evidence: report OOM/resource kills as E_EVIDENCE_TOOL_KILLED on the affected-tests and cleo done paths, with the memory-limit hint (#1783 F4/F5)",
+      "evidenceAtoms": [
+        "pr:2491",
+        "files:.changeset/killed-validation-all-paths.md,packages/core/src/tasks/__tests__/done-record.test.ts,packages/core/src/tasks/__tests__/killed-validation.test.ts,packages/core/src/tasks/done-record.ts,packages/core/src/tasks/evidence.ts,packages/core/src/tasks/heavy-tool-limit.ts,packages/core/src/tasks/heavy-tool-limit.ts",
+        "ci:2491"
+      ],
+      "epicAncestor": "T12956",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T13014",
+      "kind": "fix",
+      "impact": "patch",
+      "userFacingSummary": "Tool cache: lock waiters do not rerun one after another after the holder is resource-killed (#1783 F7)",
+      "evidenceAtoms": [
+        "pr:2481",
+        "files:.changeset/killed-run-marker.md,packages/core/src/tasks/__tests__/tool-cache-resource-kill.test.ts,packages/core/src/tasks/__tests__/tool-cache-signal-kill.test.ts,packages/core/src/tasks/tool-cache.ts",
+        "ci:2481"
+      ],
+      "epicAncestor": "T12956",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T13017",
+      "kind": "fix",
+      "impact": "patch",
+      "userFacingSummary": "cleo done: transient E_DONE_BLOCKED 'CI posted by github-actions, not the pinned app github-actions' on a green merge commit",
+      "evidenceAtoms": [
+        "pr:2483",
+        "files:.changeset/ci-evidence-runner-cancel-identity.md,packages/core/src/release/__tests__/ci-evidence.test.ts,packages/core/src/release/ci-evidence.ts",
+        "ci:2483"
+      ],
+      "epicAncestor": "T12956",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T13018",
+      "kind": "fix",
+      "impact": "patch",
+      "userFacingSummary": "Signal re-raise after killing tool groups lets best-effort memory drains finish (#1775 r4 follow-up)",
+      "evidenceAtoms": [
+        "pr:2496",
+        "files:.changeset/signal-reraise-drain-grace.md,packages/core/src/tasks/__tests__/tool-group-tracking.test.ts,packages/core/src/tasks/tool-cache.ts",
+        "ci:2496"
+      ],
+      "epicAncestor": "T12956",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T13046",
+      "kind": "fix",
+      "impact": "patch",
+      "userFacingSummary": "Governor slot reaper keeps a slot held while a dead cleo run's non-leader (foreground/nested) child lives (#1775 final LOW)",
+      "evidenceAtoms": [
+        "pr:2474",
+        "files:.changeset/ledger-holder-liveness.md,packages/cleo/src/cli/commands/doctor-tool-locks.ts,packages/core/src/resources/__tests__/admission-ledger.test.ts,packages/core/src/resources/__tests__/run-governed.test.ts,packages/core/src/resources/admission-ledger.ts,packages/core/src/resources/governor.ts,packages/core/src/resources/run-governed.ts,packages/core/src/resources/slot-holder.ts,packages/core/src/resources/tool-groups.ts,packages/core/src/tasks/__tests__/tool-semaphore-gh1222.test.ts,packages/core/src/tasks/tool-semaphore.ts",
+        "ci:2474"
+      ],
+      "epicAncestor": "T12956",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T13096",
+      "kind": "fix",
+      "impact": "patch",
+      "userFacingSummary": "Merged-PR completion for projects without CI evidence: name the ciSatisfies remedy, detect it in doctor, and let a tree-bound targeted run stand after merge (amend D11150)",
+      "evidenceAtoms": [
+        "pr:2499",
+        "files:.changeset/ci-satisfies-remedy.md,packages/core/src/release/__tests__/ci-evidence.test.ts,packages/core/src/release/ci-evidence.ts,packages/core/src/system/health.ts,packages/core/src/tasks/__tests__/affected-scope.test.ts,packages/core/src/tasks/affected-scope.ts,packages/core/src/validation/__tests__/doctor-affected-scope.test.ts,packages/core/src/validation/doctor/checks.ts",
+        "ci:2499"
+      ],
+      "epicAncestor": "T12956",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T14029",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "satisfies:<task>#AC1 is refused as E_AC_ALIAS_DRIFTED after #AC10 was bound (alias prefix match)",
+      "evidenceAtoms": [
+        "pr:2475",
+        "files:.changeset/satisfies-alias-exact-match.md,packages/core/src/lifecycle/verification/__tests__/satisfies-validator.test.ts,packages/core/src/lifecycle/verification/satisfies-validator.ts",
+        "ci:2475"
+      ],
+      "epicAncestor": "T12956",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T14030",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "pr:<n> implemented: files: listing a file the PR deleted fails E_EVIDENCE_INSUFFICIENT 'Cannot inspect ... at PR merge'",
+      "evidenceAtoms": [
+        "pr:2485",
+        "files:.changeset/files-deleted-by-pr.md,packages/contracts/src/task.ts,packages/core/src/tasks/__tests__/evidence-pr-context.test.ts,packages/core/src/tasks/evidence.ts",
+        "ci:2485"
+      ],
+      "epicAncestor": "T12956",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T14031",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "test-run evidence: accept Playwright JSON reports so a change adding an e2e spec can prove testsPassed",
+      "evidenceAtoms": [
+        "pr:2477",
+        "files:.changeset/playwright-test-run.md,packages/cleo/src/cli/commands/verify.ts,packages/contracts/src/task.ts,packages/core/src/tasks/__tests__/fixtures/playwright-json/fail.json,packages/core/src/tasks/__tests__/fixtures/playwright-json/flaky.json,packages/core/src/tasks/__tests__/fixtures/playwright-json/none.json,packages/core/src/tasks/__tests__/fixtures/playwright-json/pass.json,packages/core/src/tasks/__tests__/fixtures/playwright-json/skipped.json,packages/core/src/tasks/__tests__/test-run-binding.test.ts,packages/core/src/tasks/evidence.ts,packages/core/src/tasks/test-run-binding.ts,packages/core/src/validation/engine-ops.ts,packages/skills/skills/ct-task-executor/SKILL.md,packages/skills/skills/manifest.json,packages/core/src/tasks/evidence.ts",
+        "ci:2477"
+      ],
+      "epicAncestor": "T12956",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T14036",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "cleo done --plan reports ready:true while a required gate is false",
+      "evidenceAtoms": [
+        "pr:2509",
+        "files:.changeset/done-plan-ready-matches-complete.md,packages/contracts/src/done-plan.ts,packages/core/src/tasks/__tests__/done-plan.test.ts,packages/core/src/tasks/__tests__/gate-staleness.test.ts,packages/core/src/tasks/__tests__/show-stale-gates.test.ts,packages/core/src/tasks/done-plan.ts,packages/core/src/tasks/gate-staleness.ts,packages/core/src/tasks/show.ts",
+        "ci:2509"
+      ],
+      "epicAncestor": "T12956",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T14037",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "Evidence staleness is invisible until complete: show and done --plan still report passed after a later commit supersedes it",
+      "evidenceAtoms": [
+        "pr:2509",
+        "files:.changeset/done-plan-ready-matches-complete.md,packages/contracts/src/done-plan.ts,packages/core/src/tasks/__tests__/done-plan.test.ts,packages/core/src/tasks/__tests__/gate-staleness.test.ts,packages/core/src/tasks/__tests__/show-stale-gates.test.ts,packages/core/src/tasks/done-plan.ts,packages/core/src/tasks/gate-staleness.ts,packages/core/src/tasks/show.ts",
+        "ci:2509"
+      ],
+      "epicAncestor": "T12956",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T14038",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "cleo run gives no notice when its heavy-run env overrides a project's own concurrency settings",
+      "evidenceAtoms": [
+        "pr:2495",
+        "files:.changeset/project-setting-overrides.md,packages/cleo/src/cli/commands/run.ts,packages/contracts/src/index.ts,packages/contracts/src/resource-governor.ts,packages/core/src/resources/__tests__/admission-ledger.test.ts,packages/core/src/resources/admission-ledger.ts,packages/core/src/tasks/__tests__/heavy-tool-env.test.ts,packages/core/src/tasks/heavy-tool-env.ts",
+        "ci:2495"
+      ],
+      "epicAncestor": "T12956",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T14039",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "A tool command with a shell operator (&&, |, ;) fails as E_EVIDENCE_TOOL_UNAVAILABLE instead of a clear config error",
+      "evidenceAtoms": [
+        "pr:2492",
+        "files:.changeset/shell-operator-tool-commands.md,packages/core/src/tasks/__tests__/affected-packages.test.ts,packages/core/src/tasks/__tests__/command-line.test.ts,packages/core/src/tasks/__tests__/gate-runner.test.ts,packages/core/src/tasks/__tests__/qa-run-binding.test.ts,packages/core/src/tasks/__tests__/tool-resolver.test.ts,packages/core/src/tasks/command-line.ts,packages/core/src/tasks/evidence.ts,packages/core/src/tasks/tool-resolver.ts,packages/core/src/tasks/evidence.ts",
+        "ci:2492"
+      ],
+      "epicAncestor": "T12956",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T14040",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "done --plan lists duplicate paths in changeSet.files and implementedEvidence",
+      "evidenceAtoms": [
+        "pr:2489",
+        "files:.changeset/dedupe-change-set-files.md,packages/core/src/tasks/__tests__/change-set.test.ts,packages/core/src/tasks/change-set.ts",
+        "ci:2489"
+      ],
+      "epicAncestor": "T12956",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T14042",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "Refusal messages bury the decisive reason after long preamble, so truncation hides it",
+      "evidenceAtoms": [
+        "pr:2487",
+        "files:.changeset/complete-wait-reason-first.md,packages/core/src/tasks/__tests__/complete.test.ts,packages/core/src/tasks/complete.ts",
+        "ci:2487"
+      ],
+      "epicAncestor": "T12956",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T14043",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "show --field on an absent optional field (empty notes) fails E_FIELD_NOT_FOUND instead of returning an empty value",
+      "evidenceAtoms": [
+        "pr:2494",
+        "files:.changeset/field-absent-optional.md,packages/cleo/src/cli/renderers/__tests__/field-remediation.test.ts,packages/cleo/src/cli/renderers/index.ts,packages/contracts/src/operations/output-contracts-data.ts,packages/core/src/dispatch/contracts/output-contracts.ts,packages/core/src/gateway-client/generated/types.gen.ts",
+        "ci:2494"
+      ],
+      "epicAncestor": "T12956",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T14044",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "cleo add: a --title value beginning with -- is parsed as an unknown flag",
+      "evidenceAtoms": [
+        "pr:2502",
+        "files:.changeset/flag-value-dashes.md,packages/cleo/src/cli/__tests__/lazy-command-flag-values.test.ts,packages/cleo/src/cli/lazy-command.ts,packages/cleo/src/cli/lib/define-cli-command.ts,packages/cleo/src/cli/lib/strict-args.ts",
+        "ci:2502"
+      ],
+      "epicAncestor": "T12956",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T14045",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "T14027 follow-up: --include-deps integration ref",
+      "evidenceAtoms": [
+        "pr:2486",
+        "files:.changeset/spawn-include-deps.md,packages/cleo/src/cli/commands/orchestrate.ts,packages/cleo/src/dispatch/domains/orchestrate.ts,packages/core/src/orchestrate/__tests__/include-deps.test.ts,packages/core/src/orchestrate/include-deps.ts,packages/core/src/orchestrate/spawn-ops.ts,packages/skills/skills/ct-orchestrator/SKILL.md,packages/skills/skills/manifest.json,packages/worktree/src/git.ts,packages/worktree/src/git.ts",
+        "ci:2486"
+      ],
+      "epicAncestor": "T10853",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T14046",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "orchestrate spawn-execute: accept --base <ref> like orchestrate spawn",
+      "evidenceAtoms": [
+        "pr:2478",
+        "files:.changeset/spawn-execute-base-env-skip.md,docs/spec/worktree-lifecycle.md,packages/cleo/src/cli/commands/orchestrate.ts,packages/cleo/src/dispatch/domains/orchestrate.ts,packages/contracts/src/__tests__/__snapshots__/operations-registry.test.ts.snap,packages/contracts/src/dispatch/operations-registry.ts,packages/core/src/gateway-client/generated/types.gen.ts,packages/core/src/orchestrate/__tests__/spawn-execute-base-env-skip.test.ts,packages/core/src/orchestrate/spawn-ops.ts,packages/core/src/orchestrate/worktree-complete.ts,packages/skills/skills/ct-orchestrator/SKILL.md,packages/skills/skills/manifest.json,packages/skills/skills/manifest.json",
+        "ci:2478"
+      ],
+      "epicAncestor": "T10853",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T14047",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "listWorkspacePackages enumerates a package the pnpm workspace excludes (39 vs 38)",
+      "evidenceAtoms": [
+        "pr:2470",
+        "files:.changeset/affected-scope-nested-checkouts.md,packages/core/src/tasks/__tests__/affected-packages.test.ts,packages/core/src/tasks/affected-packages.ts",
+        "ci:2470"
+      ],
+      "epicAncestor": "T12956",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T14049",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "ci: evidence treats a runner-cancelled step (job conclusion failure) as a real failure and blames the PR",
+      "evidenceAtoms": [
+        "pr:2483",
+        "files:.changeset/ci-evidence-runner-cancel-identity.md,packages/core/src/release/__tests__/ci-evidence.test.ts,packages/core/src/release/ci-evidence.ts",
+        "ci:2483"
+      ],
+      "epicAncestor": "T12956",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T14050",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "Admission undercharges an in-process whole-program typecheck run as a light scoped-build (1 GiB charged, ~3.8 GiB real)",
+      "evidenceAtoms": [
+        "pr:2476",
+        "files:.changeset/heavy-node-script-charge.md,packages/cleo/src/cli/__tests__/run-command.test.ts,packages/cleo/src/cli/commands/run.ts,packages/core/src/resources/__tests__/admission-ledger.test.ts,packages/core/src/resources/__tests__/hook-footprint.test.ts,packages/core/src/resources/admission-ledger.ts,packages/core/src/resources/hook-footprint.ts,packages/core/src/resources/run-class.ts,packages/core/src/resources/run-governed.ts",
+        "ci:2476"
+      ],
+      "epicAncestor": "T12956",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T14051",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "Typed test gates cannot count node:test (node --test / tsx --test) runs: no built-in JSON reporter",
+      "evidenceAtoms": [
+        "pr:2472",
+        "files:.changeset/node-test-tap-counts.md,packages/contracts/src/acceptance-gate.ts,packages/core/src/tasks/__tests__/fixtures/node24-tap/fail.tap,packages/core/src/tasks/__tests__/fixtures/node24-tap/pass.tap,packages/core/src/tasks/__tests__/fixtures/node24-tap/zero.tap,packages/core/src/tasks/__tests__/gate-runner.test.ts,packages/core/src/tasks/gate-runner.ts",
+        "ci:2472"
+      ],
+      "epicAncestor": "T12956",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T14052",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "Untracked files inside nested git worktrees (.worktrees/*/.npmrc) widen a task's change scope to workspace-wide",
+      "evidenceAtoms": [
+        "pr:2470",
+        "files:.changeset/affected-scope-nested-checkouts.md,packages/core/src/tasks/__tests__/affected-packages.test.ts,packages/core/src/tasks/affected-packages.ts",
+        "ci:2470"
+      ],
+      "epicAncestor": "T12956",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T14054",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "Provisioned-worktree check: realpath both paths (symlinked /tmp vs /private/tmp mismatch)",
+      "evidenceAtoms": [
+        "pr:2471",
+        "files:.changeset/provisioned-worktree-realpath.md,packages/worktree/src/__tests__/worktree-audit.test.ts,packages/worktree/src/worktree-audit.ts",
+        "ci:2471"
+      ],
+      "epicAncestor": "T10853",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T14055",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "CI: run the test and typecheck jobs on Node 26 alongside Node 24 (engines floor stays >=24.16.0)",
+      "evidenceAtoms": [
+        "pr:2484",
+        "files:.changeset/ci-node26-matrix.md,.github/workflows/ci.yml,scripts/__tests__/ci-platform-matrix.test.mjs,scripts/__tests__/lint-node-engine-ssot.test.mjs,scripts/ci-platform-matrix.mjs,scripts/lint-node-engine-ssot.mjs",
+        "ci:2484"
+      ],
+      "epicAncestor": "T12956",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T14056",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "verify --run-typed parses a test-run report before the typed command rewrites the same file, so the recorded hash is stale",
+      "evidenceAtoms": [
+        "pr:2480",
+        "files:.changeset/run-typed-report-rehash.md,packages/core/src/tasks/__tests__/req.tasks.test.ts,packages/core/src/tasks/gate-runner.ts,packages/core/src/validation/engine-ops.ts",
+        "ci:2480"
+      ],
+      "epicAncestor": "T12956",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T14057",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "Spawn auto-complete ignores CLEO_NO_AUTO_WORKTREE_COMPLETE (worktree-lifecycle MUST-19)",
+      "evidenceAtoms": [
+        "pr:2478",
+        "files:.changeset/spawn-execute-base-env-skip.md,docs/spec/worktree-lifecycle.md,packages/cleo/src/cli/commands/orchestrate.ts,packages/cleo/src/dispatch/domains/orchestrate.ts,packages/contracts/src/__tests__/__snapshots__/operations-registry.test.ts.snap,packages/contracts/src/dispatch/operations-registry.ts,packages/core/src/gateway-client/generated/types.gen.ts,packages/core/src/orchestrate/__tests__/spawn-execute-base-env-skip.test.ts,packages/core/src/orchestrate/spawn-ops.ts,packages/core/src/orchestrate/worktree-complete.ts,packages/skills/skills/ct-orchestrator/SKILL.md,packages/skills/skills/manifest.json,packages/skills/skills/manifest.json",
+        "ci:2478"
+      ],
+      "epicAncestor": "T10853",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T14058",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "Evidence roots: one resolver for typed gates and change-set binding; the cwd worktree of the declared repo wins",
+      "evidenceAtoms": [
+        "pr:2511",
+        "files:.changeset/evidence-tree-one-resolver.md,packages/contracts/src/acceptance-gate.ts,packages/core/src/tasks/__tests__/evidence-tree-T14058.test.ts,packages/core/src/tasks/__tests__/typed-gate-root-T13649.test.ts,packages/core/src/tasks/change-set.ts,packages/core/src/tasks/evidence-tree.ts,packages/core/src/tasks/gate-preview.ts,packages/core/src/tasks/gate-runner.ts,packages/core/src/validation/__tests__/gate-verify-hint.test.ts,packages/core/src/validation/engine-ops.ts,packages/contracts/src/acceptance-gate.ts,packages/core/src/tasks/change-set.ts,packages/core/src/tasks/gate-runner.ts,packages/core/src/validation/engine-ops.ts",
+        "ci:2511"
+      ],
+      "epicAncestor": "T12956",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T14059",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "done --plan checkout-required false positive: a branch change set refuses a checkout detached at the exact same commit",
+      "evidenceAtoms": [
+        "pr:2469",
+        "files:.changeset/done-plan-detached-tip-checkout.md,packages/core/src/tasks/__tests__/done-plan.test.ts,packages/core/src/tasks/change-set.ts,packages/core/src/tasks/done-plan.ts",
+        "ci:2469"
+      ],
+      "epicAncestor": "T12956",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T14060",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "Typed test gate says 'no machine-readable report' when a report was found but failed schema validation: name the failing field",
+      "evidenceAtoms": [
+        "pr:2472",
+        "files:.changeset/node-test-tap-counts.md,packages/contracts/src/acceptance-gate.ts,packages/core/src/tasks/__tests__/fixtures/node24-tap/fail.tap,packages/core/src/tasks/__tests__/fixtures/node24-tap/pass.tap,packages/core/src/tasks/__tests__/fixtures/node24-tap/zero.tap,packages/core/src/tasks/__tests__/gate-runner.test.ts,packages/core/src/tasks/gate-runner.ts",
+        "ci:2472"
+      ],
+      "epicAncestor": "T12956",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T14062",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "CI installs the packed tarballs and runs the schema tests against the zod they resolve",
+      "evidenceAtoms": [
+        "pr:2482",
+        "files:.changeset/packed-install-lockfile-schemas.md,scripts/__tests__/packed-install-smoke.test.mjs,scripts/packed-install-smoke.mjs",
+        "ci:2482"
+      ],
+      "epicAncestor": "T12956",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T14064",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "Regenerate contracts/schemas/gate-result.schema.json after T14063 and gate the generated schemas against their source",
+      "evidenceAtoms": [
+        "pr:2479",
+        "files:.changeset/contracts-schema-drift-check.md,.github/workflows/ci.yml",
+        "ci:2479"
+      ],
+      "epicAncestor": "T12956",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T14066",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "Admission ledger: show holder pid, tool group and liveness in the wait report; find why two dead holders kept their charge",
+      "evidenceAtoms": [
+        "pr:2474",
+        "files:.changeset/ledger-holder-liveness.md,packages/cleo/src/cli/commands/doctor-tool-locks.ts,packages/core/src/resources/__tests__/admission-ledger.test.ts,packages/core/src/resources/__tests__/run-governed.test.ts,packages/core/src/resources/admission-ledger.ts,packages/core/src/resources/governor.ts,packages/core/src/resources/run-governed.ts,packages/core/src/resources/slot-holder.ts,packages/core/src/resources/tool-groups.ts,packages/core/src/tasks/__tests__/tool-semaphore-gh1222.test.ts,packages/core/src/tasks/tool-semaphore.ts",
+        "ci:2474"
+      ],
+      "epicAncestor": "T12956",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T14067",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "Node 26: exodus migration refuses CURRENT_TIMESTAMP as an opaque function (authorizer name case)",
+      "evidenceAtoms": [
+        "pr:2497",
+        "files:.changeset/node26-exodus-function-case.md,packages/core/src/store/__tests__/exodus-recovery.test.ts,packages/core/src/store/__tests__/sqlite-lazy-init.test.ts,packages/core/src/store/exodus/recovery.ts",
+        "ci:2497"
+      ],
+      "epicAncestor": "T12956",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T14068",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "Node 26: tasks_tasks/tasks_releases inserts fail a trigger constraint (SQLITE errcode 1811) and node:sqlite exposes Database, failing 6 core test files",
+      "evidenceAtoms": [
+        "pr:2497",
+        "files:.changeset/node26-exodus-function-case.md,packages/core/src/store/__tests__/exodus-recovery.test.ts,packages/core/src/store/__tests__/sqlite-lazy-init.test.ts,packages/core/src/store/exodus/recovery.ts",
+        "ci:2497"
+      ],
+      "epicAncestor": "T12956",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T14069",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "Unit Tests ubuntu shard 4 crashes a vitest worker on main (Worker exited unexpectedly, 0 tests failed)",
+      "evidenceAtoms": [
+        "pr:2501",
+        "files:.changeset/writer-worker-drain.md,packages/core/src/memory/__tests__/brain-writer-thread.test.ts,packages/core/src/memory/__tests__/embedding-drain.test.ts,packages/core/src/memory/brain-writer-thread.ts,packages/core/src/memory/brain-writer-worker.ts,packages/core/src/memory/embedding-backfill.ts",
+        "ci:2501"
+      ],
+      "epicAncestor": "T12956",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T14072",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "cleo done warns W_EVIDENCE_AUDIT_MISS with a fix flag (--shared-evidence) that done rejects as E_UNKNOWN_FLAG",
+      "evidenceAtoms": [
+        "pr:2512",
+        "files:.changeset/done-shared-evidence.md,packages/cleo/src/cli/commands/__tests__/done-command.test.ts,packages/cleo/src/cli/commands/done.ts,packages/core/src/tasks/__tests__/done-record.test.ts,packages/core/src/tasks/done-record.ts",
+        "ci:2512"
+      ],
+      "epicAncestor": "T12956",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T14074",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "ci: evidence cannot stand a later green main run in for a merge-commit failure that a later fix proves was a known crash",
+      "evidenceAtoms": [
+        "pr:2514",
+        "files:.changeset/ci-evidence-worker-crash.md,packages/contracts/src/task.ts,packages/core/src/release/__tests__/ci-evidence.test.ts,packages/core/src/release/ci-evidence.ts",
+        "ci:2514"
+      ],
+      "epicAncestor": "T12956",
+      "ivtrPhaseAtPlan": "contribution"
+    }
+  ],
+  "changelog": {
+    "features": [
+      "T10858",
+      "T10859",
+      "T10860",
+      "T10861",
+      "T10862",
+      "T10863",
+      "T10864",
+      "T10866",
+      "T10867",
+      "T10868",
+      "T10870",
+      "T10871",
+      "T10872",
+      "T10873",
+      "T10874",
+      "T10875",
+      "T10876",
+      "T10877",
+      "T14029",
+      "T14030",
+      "T14031",
+      "T14036",
+      "T14037",
+      "T14038",
+      "T14039",
+      "T14040",
+      "T14042",
+      "T14043",
+      "T14044",
+      "T14045",
+      "T14046",
+      "T14047",
+      "T14049",
+      "T14050",
+      "T14051",
+      "T14052",
+      "T14054",
+      "T14055",
+      "T14056",
+      "T14057",
+      "T14058",
+      "T14059",
+      "T14060",
+      "T14062",
+      "T14064",
+      "T14066",
+      "T14067",
+      "T14068",
+      "T14069",
+      "T14072",
+      "T14074"
+    ],
+    "fixes": [
+      "T13003",
+      "T13011",
+      "T13012",
+      "T13013",
+      "T13014",
+      "T13017",
+      "T13018",
+      "T13046",
+      "T13096"
+    ],
+    "chores": [],
+    "breaking": []
+  },
+  "gates": [
+    {
+      "name": "test",
+      "atom": "tool:test",
+      "status": "unresolved",
+      "lastVerifiedAt": "2026-10-27T19:08:32.925Z",
+      "resolvedCommand": "pnpm run test",
+      "resolvedSource": "project-context"
+    },
+    {
+      "name": "build",
+      "atom": "tool:build",
+      "status": "unresolved",
+      "lastVerifiedAt": "2026-10-27T19:08:32.925Z",
+      "resolvedCommand": "pnpm run build",
+      "resolvedSource": "project-context"
+    },
+    {
+      "name": "lint",
+      "atom": "tool:lint",
+      "status": "unresolved",
+      "lastVerifiedAt": "2026-10-27T19:08:32.925Z",
+      "resolvedCommand": "pnpm run lint",
+      "resolvedSource": "package-script"
+    },
+    {
+      "name": "typecheck",
+      "atom": "tool:typecheck",
+      "status": "unresolved",
+      "lastVerifiedAt": "2026-10-27T19:08:32.925Z",
+      "resolvedCommand": "pnpm run typecheck",
+      "resolvedSource": "package-script"
+    },
+    {
+      "name": "audit",
+      "atom": "tool:audit",
+      "status": "unresolved",
+      "lastVerifiedAt": "2026-10-27T19:08:32.925Z",
+      "resolvedCommand": "npm audit",
+      "resolvedSource": "language-default"
+    },
+    {
+      "name": "security-scan",
+      "atom": "tool:security-scan",
+      "status": "unresolved",
+      "lastVerifiedAt": "2026-10-27T19:08:32.925Z",
+      "resolvedCommand": "npm audit",
+      "resolvedSource": "language-default"
+    }
+  ],
+  "platformMatrix": [
+    {
+      "platform": "any",
+      "publisher": "npm",
+      "package": "@cleocode/cleo"
+    }
+  ],
+  "preflightSummary": {
+    "esbuildExternalsDrift": false,
+    "lockfileDrift": false,
+    "epicCompletenessClean": true,
+    "doubleListingClean": true,
+    "preflightWarnings": [
+      "Skipped 926 out-of-scope changeset entries whose task anchors are not part of this release plan"
+    ]
+  },
+  "workflowRunUrl": null,
+  "prUrl": null,
+  "mergeCommitSha": null,
+  "status": "planned",
+  "meta": {
+    "firstEverRelease": false,
+    "archetype": "node",
+    "releaseNotes": "## v2026.10.26 — 2026-10-27\n\n> **Update now: run `cleo self-update`.**\n\n### Highlights\n\n- **`cleo done --plan` is ready exactly when `cleo complete` would accept.** The plan now reports a `gate-not-derivable` blocker for a required gate it cannot prove and a `dependency-unresolved` blocker for each open dependency, and stops refusing with `no-change-set` once every required gate stands. A recorded gate that no longer holds is judged by complete's own checks, and `cleo show` warns `W_GATE_STALE` for it (T14036, T14037).\n- **One evidence-tree resolver.** Typed gates and change-set binding both resolve their checkout through `resolveEvidenceTree`, so they never split across two trees; the invocation's own worktree of the declared repository wins, and `cleo verify` reports the chosen `evidenceRoot`. `cleo done --plan` also accepts a clean checkout detached at the task branch tip (T14058, T14059).\n- **More test reports count as evidence.** `test-run:` reads Playwright `--reporter=json` reports, and the `test-run:` atoms of one write cover a change together (unit plus e2e). Typed `minCount` gates count `node --test --test-reporter=tap` runs, and a refused report is named with its first failing field (T14031, T14051, T14060).\n- **Docs-only tasks are classified correctly.** A task with no declared files is documentation when its PR or commit changes only documents, or its criteria name only documents; any code path keeps it code. `cleo done --plan` and `cleo complete` agree, and the refusal names the fix (`cleo update <id> --files <doc paths>` or `--add-labels docs`) (#2473; T14048, T14065).\n- **Admission waits explain their holders.** Wait reports, refusals and `cleo doctor tool-locks` show each holder's liveness and why it still counts; a dead holder no longer keeps its charge through a reused process-group id, while a dead runner's live child keeps it. A `node` script that hosts a compiler or test runner is charged its build plan, then its measured peak, and `cleo run` prints the charge with its derivation (T14066, T13046, T14050).\n- **Affected scope ignores nested checkouts.** Files inside a nested worktree or repository no longer make a change workspace-wide, and `!` exclusions in `pnpm-workspace.yaml` and `package.json#workspaces` are applied (T14052, T14047).\n- **Node 26 store migration fixed.** On Node 26 (SQLite 3.54) the legacy-store migration no longer aborts on `DEFAULT CURRENT_TIMESTAMP`, which left `cleo.db` empty and failed writes with `E_EXODUS_ABORT_WRITE_UNSAFE`; SQL function names are compared case-insensitively (T14068, T14067).\n- **Kills are reported as kills, not failing tests.** An OOM or signal kill on `tool:`, affected-tests and `cleo done` runs is `E_EVIDENCE_TOOL_KILLED` with the memory ceiling and heap advice. Kill markers are found anywhere in the output (including jest worker crashes and, on Linux, a masked OOM in the run's systemd scope), and waiters on a killed key report the kill instead of rerunning into it (T13011, T13012, T13013, T13014).\n- **Runner-cancelled CI is not blamed on the PR.** `ci:<pr>` treats a job that ended only in GitHub's cancellation as cancelled, lets a later green main run stand in for a merge-commit job that only crashed a vitest worker with no failed test, judges a run with incomplete app/workflow identity as pending, and leads its refusal with the failing check and the next step (T14049, T13017, T14042, T14074).\n- **Spawn options.** `cleo orchestrate spawn-execute --base <ref>` branches from a ref and refuses on a bad base; `cleo orchestrate spawn --include-deps` starts the task branch from a merge of its dependencies' branches; spawn auto-complete honours `CLEO_NO_AUTO_WORKTREE_COMPLETE` (T14046, T14057, T14045).\n- **CI and refactors.** CI runs Type Check and the Linux unit shards on Node 26 beside the 24.16.0 floor, fails when committed `packages/contracts/schemas` differ from the generated output, and the packed-install smoke checks resolved dependencies against the lockfile (T14055, T14064, T14062). Core creates, removes, prunes and unlocks agent worktrees through the `@cleocode/worktree` facade, with branch integration in its own module and regression tests pinning the spawn path (T10858-T10864, T10866-T10868, T10870-T10877).\n\n### Added\n\n- orchestrate spawn --include-deps starts the task branch from a merge of its dependencies' branches _(provenance: [T14045](https://github.com/kryptobaseddev/cleo/search?q=T14045&type=commits))_\n\n### Changed\n\n- Branch integration (merge, fetch, landed-detection, the merge decision) moves out of the branch-lock lifecycle module _(provenance: [T10862](https://github.com/kryptobaseddev/cleo/search?q=T10862&type=commits), [T10863](https://github.com/kryptobaseddev/cleo/search?q=T10863&type=commits), [T10864](https://github.com/kryptobaseddev/cleo/search?q=T10864&type=commits))_\n- CI runs Type Check and the Linux unit shards on Node 26 beside the 24.16.0 floor _(provenance: [T14055](https://github.com/kryptobaseddev/cleo/search?q=T14055&type=commits))_\n- CI fails when committed packages/contracts/schemas differ from the generated output _(provenance: [T14064](https://github.com/kryptobaseddev/cleo/search?q=T14064&type=commits))_\n- Core prune and force-unlock call the @cleocode/worktree facade; the forensic bypass policy is written down _(provenance: [T10867](https://github.com/kryptobaseddev/cleo/search?q=T10867&type=commits), [T10868](https://github.com/kryptobaseddev/cleo/search?q=T10868&type=commits))_\n- Core creates and removes agent worktrees through the @cleocode/worktree facade _(provenance: [T10858](https://github.com/kryptobaseddev/cleo/search?q=T10858&type=commits), [T10859](https://github.com/kryptobaseddev/cleo/search?q=T10859&type=commits), [T10860](https://github.com/kryptobaseddev/cleo/search?q=T10860&type=commits), [T10861](https://github.com/kryptobaseddev/cleo/search?q=T10861&type=commits))_\n- Remove core's unused copy of detectPartialWorktree; the @cleocode/worktree facade owns partial-worktree detection _(provenance: [T10870](https://github.com/kryptobaseddev/cleo/search?q=T10870&type=commits))_\n- The packed-install smoke compares resolved contracts/core dependencies with the lockfile and parses schema fixtures through the installed contracts _(provenance: [T14062](https://github.com/kryptobaseddev/cleo/search?q=T14062&type=commits))_\n- Branch-lock no longer re-exports the facade's getGitRoot; worktree lifecycle ownership is documented _(provenance: [T10875](https://github.com/kryptobaseddev/cleo/search?q=T10875&type=commits), [T10876](https://github.com/kryptobaseddev/cleo/search?q=T10876&type=commits), [T10877](https://github.com/kryptobaseddev/cleo/search?q=T10877&type=commits))_\n- Regression tests pin the spawn path to the @cleocode/worktree facade and the canonical XDG worktree path _(provenance: [T10872](https://github.com/kryptobaseddev/cleo/search?q=T10872&type=commits), [T10873](https://github.com/kryptobaseddev/cleo/search?q=T10873&type=commits), [T10874](https://github.com/kryptobaseddev/cleo/search?q=T10874&type=commits))_\n- Worktree completion reads the task's worktree through one typed lifecycle state _(provenance: [T10871](https://github.com/kryptobaseddev/cleo/search?q=T10871&type=commits))_\n- Core's worktree list reads the registry through a light @cleocode/worktree/worktree-locate.js subpath _(provenance: [T10866](https://github.com/kryptobaseddev/cleo/search?q=T10866&type=commits))_\n\n### Fixed\n\n- Affected-package scope ignores files inside nested worktrees and repos, and applies workspace ! exclusions _(provenance: [T14052](https://github.com/kryptobaseddev/cleo/search?q=T14052&type=commits), [T14047](https://github.com/kryptobaseddev/cleo/search?q=T14047&type=commits))_\n- ci: evidence treats a runner-cancelled job as cancelled, judges a run with incomplete app/workflow identity as pending, and leads its refusal with the decisive reason _(provenance: [T14049](https://github.com/kryptobaseddev/cleo/search?q=T14049&type=commits), [T13017](https://github.com/kryptobaseddev/cleo/search?q=T13017&type=commits), [T14042](https://github.com/kryptobaseddev/cleo/search?q=T14042&type=commits))_\n- ci: evidence stands a later green main run in for a merge-commit job that only crashed a vitest worker, with no failed test _(provenance: [T14074](https://github.com/kryptobaseddev/cleo/search?q=T14074&type=commits))_\n- The post-merge testsPassed refusal and cleo doctor name the evidence.ciSatisfies block a project with GitHub workflows should add _(provenance: [T13096](https://github.com/kryptobaseddev/cleo/search?q=T13096&type=commits))_\n- cleo complete waiting on merged CI says so first, with the re-run step, before the CI detail _(provenance: [T14042](https://github.com/kryptobaseddev/cleo/search?q=T14042&type=commits))_\n- cleo done --plan lists each changed path once for a merge commit _(provenance: [T14040](https://github.com/kryptobaseddev/cleo/search?q=T14040&type=commits))_\n- cleo done --plan accepts a clean checkout detached at the task branch tip (checkout-required false positive) _(provenance: [T14059](https://github.com/kryptobaseddev/cleo/search?q=T14059&type=commits))_\n- cleo done --plan is ready exactly when cleo complete would accept, and show flags recorded gates that no longer stand _(provenance: [T14036](https://github.com/kryptobaseddev/cleo/search?q=T14036&type=commits), [T14037](https://github.com/kryptobaseddev/cleo/search?q=T14037&type=commits))_\n- cleo done accepts --shared-evidence, the remedy its shared-atom warning names _(provenance: [T14072](https://github.com/kryptobaseddev/cleo/search?q=T14072&type=commits))_\n- Typed gates and change-set binding resolve the evidence tree through one resolver; the invocation's worktree of the declared repo wins _(provenance: [T14058](https://github.com/kryptobaseddev/cleo/search?q=T14058&type=commits))_\n- --field on a declared optional field the record omits prints [] or null and succeeds _(provenance: [T14043](https://github.com/kryptobaseddev/cleo/search?q=T14043&type=commits))_\n- A files: path the cited PR deleted is refused by name instead of as an unfetched merge _(provenance: [T14030](https://github.com/kryptobaseddev/cleo/search?q=T14030&type=commits))_\n- A value beginning with -- passed to a string or positional flag is no longer parsed as an unknown flag _(provenance: [T14044](https://github.com/kryptobaseddev/cleo/search?q=T14044&type=commits))_\n- cleo run no longer charges a node script that hosts a compiler or test runner as a light 1 GiB run; it is charged its plan, then its measured peak, and the charge is printed with its derivation _(provenance: [T14050](https://github.com/kryptobaseddev/cleo/search?q=T14050&type=commits))_\n- tool: runs are judged against the task's implemented commits like test-run reports, and a rebased copy of a commit counts _(provenance: [T13003](https://github.com/kryptobaseddev/cleo/search?q=T13003&type=commits))_\n- an evidence run's resource kill is detected anywhere in its output, from jest's worker-crash messages, and on Linux from an OOM kill in its systemd scope that pnpm reports as exit 1 _(provenance: [T13012](https://github.com/kryptobaseddev/cleo/search?q=T13012&type=commits), [T13011](https://github.com/kryptobaseddev/cleo/search?q=T13011&type=commits))_\n- evidence tool runs queued on a key whose run was just killed for resources report that kill instead of rerunning into it at the same limits _(provenance: [T13014](https://github.com/kryptobaseddev/cleo/search?q=T13014&type=commits))_\n- an OOM or signal kill on the affected-tests and cleo done paths is reported as E_EVIDENCE_TOOL_KILLED with the memory ceiling and accurate heap advice, not as failing tests _(provenance: [T13013](https://github.com/kryptobaseddev/cleo/search?q=T13013&type=commits))_\n- admission wait reports say why each holder still counts; dead holders stop holding the budget through reused group ids, and a dead runner's live child keeps its charge _(provenance: [T14066](https://github.com/kryptobaseddev/cleo/search?q=T14066&type=commits), [T13046](https://github.com/kryptobaseddev/cleo/search?q=T13046&type=commits))_\n- Typed test gates count node:test TAP runs and name why a found report was refused _(provenance: [T14051](https://github.com/kryptobaseddev/cleo/search?q=T14051&type=commits), [T14060](https://github.com/kryptobaseddev/cleo/search?q=T14060&type=commits))_\n- On Node 26, opening a store with legacy databases no longer aborts the exodus migration on CURRENT_TIMESTAMP _(provenance: [T14068](https://github.com/kryptobaseddev/cleo/search?q=T14068&type=commits), [T14067](https://github.com/kryptobaseddev/cleo/search?q=T14067&type=commits))_\n- test-run evidence reads Playwright JSON reports, and the reports of one write cover a change together _(provenance: [T14031](https://github.com/kryptobaseddev/cleo/search?q=T14031&type=commits))_\n- cleo run names each project setting its heavy-run overlay overrides (vitest maxWorkers, pnpm workspace-concurrency) on stderr and in the run envelope _(provenance: [T14038](https://github.com/kryptobaseddev/cleo/search?q=T14038&type=commits))_\n- Provisioned-worktree check compares realpaths, so a row recorded through a symlink still counts _(provenance: [T14054](https://github.com/kryptobaseddev/cleo/search?q=T14054&type=commits))_\n- verify --run-typed refuses a write whose typed gate rewrote the test-run report it cites _(provenance: [T14056](https://github.com/kryptobaseddev/cleo/search?q=T14056&type=commits))_\n- satisfies alias drift compares parsed atom ids exactly, so #AC1 no longer matches a prior #AC10 binding _(provenance: [T14029](https://github.com/kryptobaseddev/cleo/search?q=T14029&type=commits))_\n- A tool command with a shell operator is a config error (E_EVIDENCE_INVALID) naming the operator and a package script _(provenance: [T14039](https://github.com/kryptobaseddev/cleo/search?q=T14039&type=commits))_\n- an interrupted command that ran a tool lets pending best-effort memory drains finish before it dies by the signal _(provenance: [T13018](https://github.com/kryptobaseddev/cleo/search?q=T13018&type=commits))_\n- orchestrate spawn-execute takes --base and refuses on a bad base; its auto-complete honours CLEO_NO_AUTO_WORKTREE_COMPLETE _(provenance: [T14046](https://github.com/kryptobaseddev/cleo/search?q=T14046&type=commits), [T14057](https://github.com/kryptobaseddev/cleo/search?q=T14057&type=commits))_\n- the brain writer worker finishes its scheduled embeddings before it is terminated, so stopping it never aborts the host process _(provenance: [T14069](https://github.com/kryptobaseddev/cleo/search?q=T14069&type=commits))_\n",
+    "changesetEntryCount": 42,
+    "changesetIds": [
+      "affected-scope-nested-checkouts",
+      "branch-integration-module",
+      "ci-evidence-runner-cancel-identity",
+      "ci-evidence-worker-crash",
+      "ci-node26-matrix",
+      "ci-satisfies-remedy",
+      "complete-wait-reason-first",
+      "contracts-schema-drift-check",
+      "core-prune-unlock-facade",
+      "core-worktree-facade",
+      "dedupe-change-set-files",
+      "done-plan-detached-tip-checkout",
+      "done-plan-ready-matches-complete",
+      "done-shared-evidence",
+      "drop-core-partial-worktree-copy",
+      "evidence-tree-one-resolver",
+      "field-absent-optional",
+      "files-deleted-by-pr",
+      "flag-value-dashes",
+      "heavy-node-script-charge",
+      "impl-commits-in-tested-tree",
+      "kill-marker-stream-scan",
+      "killed-run-marker",
+      "killed-validation-all-paths",
+      "ledger-holder-liveness",
+      "node-test-tap-counts",
+      "node26-exodus-function-case",
+      "packed-install-lockfile-schemas",
+      "playwright-test-run",
+      "project-setting-overrides",
+      "provisioned-worktree-realpath",
+      "retire-branch-lock-wrappers",
+      "run-typed-report-rehash",
+      "satisfies-alias-exact-match",
+      "shell-operator-tool-commands",
+      "signal-reraise-drain-grace",
+      "spawn-execute-base-env-skip",
+      "spawn-include-deps",
+      "spawn-lifecycle-regression-tests",
+      "worktree-lifecycle-state",
+      "worktree-locate-subpath",
+      "writer-worker-drain"
+    ],
+    "taskIds": [
+      "T10858",
+      "T10859",
+      "T10860",
+      "T10861",
+      "T10862",
+      "T10863",
+      "T10864",
+      "T10866",
+      "T10867",
+      "T10868",
+      "T10870",
+      "T10871",
+      "T10872",
+      "T10873",
+      "T10874",
+      "T10875",
+      "T10876",
+      "T10877",
+      "T13003",
+      "T13011",
+      "T13012",
+      "T13013",
+      "T13014",
+      "T13017",
+      "T13018",
+      "T13046",
+      "T13096",
+      "T14029",
+      "T14030",
+      "T14031",
+      "T14036",
+      "T14037",
+      "T14038",
+      "T14039",
+      "T14040",
+      "T14042",
+      "T14043",
+      "T14044",
+      "T14045",
+      "T14046",
+      "T14047",
+      "T14049",
+      "T14050",
+      "T14051",
+      "T14052",
+      "T14054",
+      "T14055",
+      "T14056",
+      "T14057",
+      "T14058",
+      "T14059",
+      "T14060",
+      "T14062",
+      "T14064",
+      "T14066",
+      "T14067",
+      "T14068",
+      "T14069",
+      "T14072",
+      "T14074"
+    ]
+  }
+}
