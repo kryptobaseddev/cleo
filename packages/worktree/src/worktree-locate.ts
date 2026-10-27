@@ -48,6 +48,8 @@ export interface LocatedWorktree {
   readonly branch: string | null;
   /** Whether git holds a lock on this entry. */
   readonly locked: boolean;
+  /** Present (true) only for a bare repository entry: no working tree, no branch (T10866). */
+  readonly bare?: true;
 }
 
 /**
@@ -67,13 +69,15 @@ export function parseWorktreePorcelain(raw: string): LocatedWorktree[] {
   let path: string | null = null;
   let branch: string | null = null;
   let locked = false;
+  let bare = false;
 
   /** Flush the record under construction, if any. */
   const flush = (): void => {
-    if (path !== null) out.push({ path, branch, locked });
+    if (path !== null) out.push({ path, branch, locked, ...(bare ? { bare: true as const } : {}) });
     path = null;
     branch = null;
     locked = false;
+    bare = false;
   };
 
   for (const line of raw.split('\n')) {
@@ -89,6 +93,8 @@ export function parseWorktreePorcelain(raw: string): LocatedWorktree[] {
       branch = trimmed.slice('branch '.length).replace(/^refs\/heads\//, '');
     } else if (trimmed === 'locked' || trimmed.startsWith('locked ')) {
       locked = true;
+    } else if (trimmed === 'bare') {
+      bare = true;
     }
   }
   flush();
@@ -108,11 +114,29 @@ export function parseWorktreePorcelain(raw: string): LocatedWorktree[] {
  */
 export function listRegisteredWorktrees(projectRoot: string): LocatedWorktree[] {
   try {
-    const gitRoot = getGitRoot(projectRoot);
-    return parseWorktreePorcelain(gitSync(['worktree', 'list', '--porcelain'], gitRoot));
+    return readWorktreePorcelain(getGitRoot(projectRoot));
   } catch {
     return [];
   }
+}
+
+/**
+ * Read git's worktree registry for the repository containing `cwd`.
+ *
+ * Unlike {@link listRegisteredWorktrees} this throws when git fails, for
+ * callers that must tell "git could not answer" apart from "no worktrees"
+ * (core's `cleo worktree list`, T10866). Exported on the light
+ * `@cleocode/worktree/worktree-locate.js` subpath so sync callers on the CLI
+ * startup path need not load the package barrel.
+ *
+ * @param cwd - any path inside the repository.
+ * @returns registered worktrees, in git's order.
+ * @throws Error when `git worktree list --porcelain` fails.
+ *
+ * @task T10866
+ */
+export function readWorktreePorcelain(cwd: string): LocatedWorktree[] {
+  return parseWorktreePorcelain(gitSync(['worktree', 'list', '--porcelain'], cwd));
 }
 
 /**

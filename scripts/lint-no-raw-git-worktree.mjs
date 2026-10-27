@@ -87,11 +87,6 @@ const ALLOWLIST_PREFIXES = [
  * Format: `[relPath, reason]` tuples.
  */
 const FILE_ALLOWLIST = [
-  // T9984: the core list primitive still reads `git worktree list --porcelain`
-  // itself (T10866: its sync callers sit on the CLI startup-budget path, so
-  // it cannot take the facade barrel yet). prune.ts and force-unlock.ts
-  // moved behind the facade in T10867.
-  ['packages/core/src/worktree/list.ts', 'T9984 SDK list primitive — promotion follow-up T10866'],
   // T9984: doctor uses `git worktree list --porcelain` as a forensic scan
   // input. The doctor command intentionally bypasses the worktree SDK so it
   // can detect anomalies the SDK doesn't know about (orphan `.cleo/` dirs,
