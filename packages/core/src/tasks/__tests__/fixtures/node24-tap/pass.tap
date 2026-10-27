@@ -1,0 +1,35 @@
+TAP version 13
+# Subtest: math
+    # Subtest: adds
+    ok 1 - adds
+      ---
+      duration_ms: 0.388458
+      type: 'test'
+      ...
+    # Subtest: skipped
+    ok 2 - skipped # SKIP
+      ---
+      duration_ms: 0.119666
+      type: 'test'
+      ...
+    1..2
+ok 1 - math
+  ---
+  duration_ms: 1.365542
+  type: 'suite'
+  ...
+# Subtest: top level
+ok 2 - top level
+  ---
+  duration_ms: 0.053542
+  type: 'test'
+  ...
+1..2
+# tests 3
+# suites 1
+# pass 2
+# fail 0
+# cancelled 0
+# skipped 1
+# todo 0
+# duration_ms 59.687792
