@@ -783,6 +783,8 @@ jobs:
     #   2. Re-renders the docs page from the compiled registry.
     #   3. Compares the rendered output against the committed file via
     #      `--check`. Drift = CI failure with a remediation hint.
+    #   4. Re-emits packages/contracts/schemas/*.json and fails on any
+    #      difference from the committed files (T14064).
     # Strict gate: zero tolerance — the rendered output is deterministic
     # and the registry is the SSoT, so any drift is unambiguously a stale
     # docs commit.
@@ -812,6 +814,22 @@ jobs:
         run: pnpm --filter @cleocode/contracts run build:ts
       - name: Verify docs/registry/INVARIANTS.md matches registry SSoT
         run: node packages/contracts/scripts/render-invariants-docs.mjs --check
+      # T14064: the committed JSON Schemas are generated from the contracts
+      # zod schemas; a schema change that skips `build:schemas` ships stale
+      # files (gate-result.schema.json did). The emitter is deterministic
+      # (zod toJSONSchema + JSON.stringify), so any difference is drift.
+      - name: Verify packages/contracts/schemas match the generated output
+        if: ${{ !cancelled() }}
+        run: |
+          pnpm --filter @cleocode/contracts run build:schemas
+          drift=$(git status --porcelain -- packages/contracts/schemas)
+          if [ -n "$drift" ]; then
+            echo "::error::packages/contracts/schemas differs from its generated output (T14064):"
+            echo "$drift"
+            git --no-pager diff -- packages/contracts/schemas
+            echo "Fix: pnpm --filter @cleocode/contracts run build && commit packages/contracts/schemas."
+            exit 1
+          fi
   # T13838: the repo lints that need `pnpm install`, which were 5 jobs each
   # installing the workspace. One job, one checkout, one install; every gate is
   # its own step (named after the job it replaced) and runs even when an earlier
