@@ -90,8 +90,8 @@ function makeUpstreamFixture(): UpstreamFixture {
 }
 
 /** Agent worktree for `taskId` with one commit, pushed to origin. */
-function agentCommitAndPush(root: string, taskId: string): string {
-  const wt = createAgentWorktree(taskId, root);
+async function agentCommitAndPush(root: string, taskId: string): Promise<string> {
+  const wt = await createAgentWorktree(taskId, root);
   identity(wt.path);
   const tip = commitFile(wt.path, `${taskId}.ts`, 'export const x = 1;\n', `${taskId}: work`);
   gitAt(wt.path, 'push', '-q', 'origin', `task/${taskId}`);
@@ -110,10 +110,10 @@ describe('T12773 — no local merge of a task that already landed upstream', () 
   let fx: UpstreamFixture;
   afterEach(() => fx?.cleanup());
 
-  it('PR merged upstream (--no-ff) + stale local main → no local merge, checkout NOT moved, sync hint', () => {
+  it('PR merged upstream (--no-ff) + stale local main → no local merge, checkout NOT moved, sync hint', async () => {
     fx = makeUpstreamFixture();
     const taskId = 'T9912773';
-    const tip = agentCommitAndPush(fx.root, taskId);
+    const tip = await agentCommitAndPush(fx.root, taskId);
 
     // Upstream lands the PR, then main moves on (local main goes stale).
     gitAt(fx.dev, 'fetch', '-q', 'origin');
@@ -152,10 +152,10 @@ describe('T12773 — no local merge of a task that already landed upstream', () 
     expect(gitAt(fx.root, 'branch', '--list', `task/${taskId}`)).toBe('');
   });
 
-  it('PR squash-merged upstream → detected as landed, no local merge', () => {
+  it('PR squash-merged upstream → detected as landed, no local merge', async () => {
     fx = makeUpstreamFixture();
     const taskId = 'T9912774';
-    agentCommitAndPush(fx.root, taskId);
+    await agentCommitAndPush(fx.root, taskId);
 
     gitAt(fx.dev, 'fetch', '-q', 'origin');
     gitAt(fx.dev, 'merge', '-q', '--squash', `origin/task/${taskId}`);
@@ -174,10 +174,10 @@ describe('T12773 — no local merge of a task that already landed upstream', () 
     expect(gitAt(fx.root, 'branch', '--list', `task/${taskId}`)).toBe('');
   });
 
-  it('dirty checkout → landed; local main untouched, hint given', () => {
+  it('dirty checkout → landed; local main untouched, hint given', async () => {
     fx = makeUpstreamFixture();
     const taskId = 'T9912775';
-    agentCommitAndPush(fx.root, taskId);
+    await agentCommitAndPush(fx.root, taskId);
     gitAt(fx.dev, 'fetch', '-q', 'origin');
     gitAt(fx.dev, 'merge', '-q', '--no-ff', `origin/task/${taskId}`, '-m', 'Merge PR');
     gitAt(fx.dev, 'push', '-q', 'origin', 'main');
@@ -192,10 +192,10 @@ describe('T12773 — no local merge of a task that already landed upstream', () 
     expect(result.hint).toMatch(/merge --ff-only 'origin\/main'/);
   });
 
-  it('task NOT landed but local main is behind origin → refused, no merge commit', () => {
+  it('task NOT landed but local main is behind origin → refused, no merge commit', async () => {
     fx = makeUpstreamFixture();
     const taskId = 'T9912776';
-    const wt = createAgentWorktree(taskId, fx.root);
+    const wt = await createAgentWorktree(taskId, fx.root);
     identity(wt.path);
     commitFile(wt.path, 'unlanded.ts', 'export const u = 1;\n', `${taskId}: unlanded`);
 
@@ -215,10 +215,10 @@ describe('T12773 — no local merge of a task that already landed upstream', () 
     expect(gitAt(fx.root, 'branch', '--list', `task/${taskId}`)).not.toBe('');
   });
 
-  it('task NOT landed + local main DIVERGED (ahead and behind) → refused with merge (never rebase) hint', () => {
+  it('task NOT landed + local main DIVERGED (ahead and behind) → refused with merge (never rebase) hint', async () => {
     fx = makeUpstreamFixture();
     const taskId = 'T9912778';
-    const wt = createAgentWorktree(taskId, fx.root);
+    const wt = await createAgentWorktree(taskId, fx.root);
     identity(wt.path);
     commitFile(wt.path, 'diverged.ts', 'export const d = 1;\n', `${taskId}: work`);
 
@@ -245,10 +245,10 @@ describe('T12773 — no local merge of a task that already landed upstream', () 
     expect(existsSync(wt.path)).toBe(true);
   });
 
-  it('squash-merged then upstream edits the same lines → not landed; refused on stale main', () => {
+  it('squash-merged then upstream edits the same lines → not landed; refused on stale main', async () => {
     fx = makeUpstreamFixture();
     const taskId = 'T9912779';
-    const wt = createAgentWorktree(taskId, fx.root);
+    const wt = await createAgentWorktree(taskId, fx.root);
     identity(wt.path);
     commitFile(wt.path, 'README.md', '# task edit\n', `${taskId}: edit readme`);
     gitAt(wt.path, 'push', '-q', 'origin', `task/${taskId}`);
@@ -272,10 +272,10 @@ describe('T12773 — no local merge of a task that already landed upstream', () 
     expect(gitAt(fx.root, 'status', '--porcelain', '--untracked-files=no')).toBe('');
   });
 
-  it('zero-commit task branch → nothing to integrate, NOT labelled landed upstream', () => {
+  it('zero-commit task branch → nothing to integrate, NOT labelled landed upstream', async () => {
     fx = makeUpstreamFixture();
     const taskId = 'T9912780';
-    const wt = createAgentWorktree(taskId, fx.root);
+    const wt = await createAgentWorktree(taskId, fx.root);
     const headBefore = gitAt(fx.root, 'rev-parse', 'HEAD');
 
     const result = completeAgentWorktreeViaMerge(taskId, fx.root, { targetBranch: 'main' });
@@ -288,10 +288,10 @@ describe('T12773 — no local merge of a task that already landed upstream', () 
     expect(existsSync(wt.path)).toBe(false);
   });
 
-  it('fetch fails (offline remote) → no hang, best-effort on the last-known origin ref', () => {
+  it('fetch fails (offline remote) → no hang, best-effort on the last-known origin ref', async () => {
     fx = makeUpstreamFixture();
     const taskId = 'T9912781';
-    agentCommitAndPush(fx.root, taskId);
+    await agentCommitAndPush(fx.root, taskId);
     gitAt(fx.dev, 'fetch', '-q', 'origin');
     gitAt(fx.dev, 'merge', '-q', '--no-ff', `origin/task/${taskId}`, '-m', 'Merge PR');
     gitAt(fx.dev, 'push', '-q', 'origin', 'main');

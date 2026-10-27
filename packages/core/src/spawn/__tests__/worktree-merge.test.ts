@@ -132,11 +132,11 @@ describe('completeAgentWorktreeViaMerge (ADR-062)', () => {
   let fixture: Fixture;
   afterEach(() => fixture?.cleanup());
 
-  it('preserves agent commit SHAs in target branch history (provenance contract)', () => {
+  it('preserves agent commit SHAs in target branch history (provenance contract)', async () => {
     fixture = makeRepo('trunk');
 
     // Spawn an agent worktree.
-    const wt = createAgentWorktree('T1587', fixture.root);
+    const wt = await createAgentWorktree('T1587', fixture.root);
     expect(existsSync(wt.path)).toBe(true);
 
     // Configure git identity inside the worktree.
@@ -193,9 +193,9 @@ describe('completeAgentWorktreeViaMerge (ADR-062)', () => {
     expect(grepShas.length).toBeGreaterThanOrEqual(3);
   });
 
-  it('does not hardcode `main` — works against an arbitrary target branch', () => {
+  it('does not hardcode `main` — works against an arbitrary target branch', async () => {
     fixture = makeRepo('develop');
-    const wt = createAgentWorktree('T1587b', fixture.root);
+    const wt = await createAgentWorktree('T1587b', fixture.root);
     gitAt(wt.path, 'config', 'user.email', 'agent@example.com');
     gitAt(wt.path, 'config', 'user.name', 'Agent');
     gitAt(wt.path, 'config', 'commit.gpgsign', 'false');
@@ -217,9 +217,9 @@ describe('completeAgentWorktreeViaMerge (ADR-062)', () => {
     expect(headBranch).toBe('develop');
   });
 
-  it('returns merged: true with empty mergeCommit when no commits ahead', () => {
+  it('returns merged: true with empty mergeCommit when no commits ahead', async () => {
     fixture = makeRepo('trunk');
-    const wt = createAgentWorktree('T1587c', fixture.root);
+    const wt = await createAgentWorktree('T1587c', fixture.root);
     // No commits in worktree — branch is at parity with trunk.
 
     const result = completeAgentWorktreeViaMerge('T1587c', fixture.root, {

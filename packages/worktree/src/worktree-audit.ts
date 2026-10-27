@@ -109,13 +109,22 @@ export function appendWorktreeAuditLog(
         ? auditLogPathOverride
         : join(projectRoot, WORKTREE_LIFECYCLE_AUDIT_FILE);
     mkdirSync(dirname(filePath), { recursive: true });
+    const ts = payload.timestamp ?? new Date().toISOString();
+    const agentId = payload.agentId ?? process.env['CLEO_AGENT_ID'] ?? 'cleo';
+    // T10861: `timestamp`, `actor` and `target` are the contract's
+    // WorktreeLifecycleAuditEntry fields, which core's writer emits; they sit
+    // beside this writer's legacy `ts`, `agentId` and `xdgPath`, so every row
+    // in the shared log satisfies the contract and existing readers still work.
     const record = {
-      ts: payload.timestamp ?? new Date().toISOString(),
+      ts,
+      timestamp: ts,
+      actor: agentId,
       action: payload.action,
+      target: payload.xdgPath,
       xdgPath: payload.xdgPath,
       ...(payload.taskId !== undefined ? { taskId: payload.taskId } : {}),
       ...(payload.branch !== undefined ? { branch: payload.branch } : {}),
-      agentId: payload.agentId ?? process.env['CLEO_AGENT_ID'] ?? 'cleo',
+      agentId,
       ...(payload.reason !== undefined ? { reason: payload.reason } : {}),
       ...(payload.baseRef !== undefined ? { baseRef: payload.baseRef } : {}),
       ...(payload.baseSha !== undefined ? { baseSha: payload.baseSha } : {}),

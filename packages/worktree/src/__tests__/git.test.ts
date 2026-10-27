@@ -10,8 +10,26 @@
  * @task T9823
  */
 
+import { execFileSync } from 'node:child_process';
+import { existsSync, mkdtempSync, realpathSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { DEFAULT_GIT_TIMEOUT_MS } from '../git.js';
+import { DEFAULT_GIT_TIMEOUT_MS, forceRemoveWorktreeDir } from '../git.js';
+
+function git(cwd: string, ...args: string[]): string {
+  return execFileSync('git', args, { cwd, encoding: 'utf-8' }).trim();
+}
+
+/** A one-commit repository in a fresh temp dir; caller removes it. */
+function repo(): string {
+  const root = realpathSync(mkdtempSync(join(tmpdir(), 'wt-git-')));
+  git(root, 'init', '-q', '-b', 'main');
+  git(root, 'config', 'user.email', 't@e.x');
+  git(root, 'config', 'user.name', 'T');
+  git(root, 'commit', '-q', '--allow-empty', '-m', 'init');
+  return root;
+}
 
 describe('DEFAULT_GIT_TIMEOUT_MS (T9823 regression lock)', () => {
   it('is pinned at 180_000ms (3 minutes) so large-repo worktree add completes', () => {
@@ -23,5 +41,22 @@ describe('DEFAULT_GIT_TIMEOUT_MS (T9823 regression lock)', () => {
     // Any future tuning MUST keep the value above 60s — this assertion catches
     // an accidental revert without locking the new value in stone.
     expect(DEFAULT_GIT_TIMEOUT_MS).toBeGreaterThan(60_000);
+  });
+});
+
+describe('forceRemoveWorktreeDir (T10858)', () => {
+  it('T10858: forceRemoveWorktreeDir removes a locked worktree and its git admin entry', () => {
+    const root = repo();
+    const path = join(root, '..', `${root.split('/').pop()}-locked`);
+    try {
+      git(root, 'worktree', 'add', '-q', '--detach', path);
+      git(root, 'worktree', 'lock', path);
+      forceRemoveWorktreeDir(root, path);
+      expect(existsSync(path)).toBe(false);
+      expect(git(root, 'worktree', 'list', '--porcelain').match(/^worktree /gm)).toHaveLength(1);
+    } finally {
+      rmSync(path, { recursive: true, force: true });
+      rmSync(root, { recursive: true, force: true });
+    }
   });
 });

@@ -102,10 +102,10 @@ describe('completeWorktreeForTask (T9548)', () => {
   // 1. Happy path
   // -------------------------------------------------------------------------
 
-  it('happy path: auto-merges worker worktree + writes complete audit row', () => {
+  it('happy path: auto-merges worker worktree + writes complete audit row', async () => {
     fixture = makeRepo('main');
 
-    const worktree = createAgentWorktree('T9548-happy', fixture.root);
+    const worktree = await createAgentWorktree('T9548-happy', fixture.root);
     writeFileSync(join(worktree.path, 'work.ts'), '// agent work\n');
     gitIn(worktree.path, 'add', 'work.ts');
     gitIn(worktree.path, 'commit', '-q', '-m', 'feat(T9548-happy): add work');
@@ -138,10 +138,10 @@ describe('completeWorktreeForTask (T9548)', () => {
   // 2. Idempotency: re-run on completed worktree is a no-op
   // -------------------------------------------------------------------------
 
-  it('idempotent: re-run on completed worktree returns noop + writes complete-skip', () => {
+  it('idempotent: re-run on completed worktree returns noop + writes complete-skip', async () => {
     fixture = makeRepo('main');
 
-    const worktree = createAgentWorktree('T9548-idem', fixture.root);
+    const worktree = await createAgentWorktree('T9548-idem', fixture.root);
     writeFileSync(join(worktree.path, 'work.ts'), '// agent work\n');
     gitIn(worktree.path, 'add', 'work.ts');
     gitIn(worktree.path, 'commit', '-q', '-m', 'feat(T9548-idem): add work');
@@ -179,11 +179,11 @@ describe('completeWorktreeForTask (T9548)', () => {
   // 3. Merge conflict path: error envelope + recovery; worktree preserved
   // -------------------------------------------------------------------------
 
-  it('merge conflict: returns conflict outcome with recovery + preserves worktree', () => {
+  it('merge conflict: returns conflict outcome with recovery + preserves worktree', async () => {
     fixture = makeRepo('main');
 
     // Set up a conflict scenario: agent and main both modify the same line.
-    const worktree = createAgentWorktree('T9548-conflict', fixture.root);
+    const worktree = await createAgentWorktree('T9548-conflict', fixture.root);
 
     // Main branch changes README.md
     writeFileSync(join(fixture.root, 'README.md'), '# main change\n');
@@ -223,7 +223,7 @@ describe('completeWorktreeForTask (T9548)', () => {
     expect(conflictRow?.taskId).toBe('T9548-conflict');
   });
 
-  it('stale local target (T12773): own reason + sync recovery, no rebase/--resolve steps', () => {
+  it('stale local target (T12773): own reason + sync recovery, no rebase/--resolve steps', async () => {
     fixture = makeRepo('main');
     const root = fixture.root;
     const origin = join(root, '.xdg', 'origin.git');
@@ -242,7 +242,7 @@ describe('completeWorktreeForTask (T9548)', () => {
     gitIn(dev, 'push', '-q', 'origin', 'main');
     gitIn(root, 'fetch', '-q', 'origin');
 
-    const worktree = createAgentWorktree('T9548-stale', root);
+    const worktree = await createAgentWorktree('T9548-stale', root);
     writeFileSync(join(worktree.path, 'work.ts'), '// agent work\n');
     gitIn(worktree.path, 'add', 'work.ts');
     gitIn(worktree.path, 'commit', '-q', '-m', 'feat(T9548-stale): add work');
@@ -271,12 +271,12 @@ describe('completeWorktreeForTask (T9548)', () => {
   // 4. --resolve manual: skips merge attempt
   // -------------------------------------------------------------------------
 
-  it('resolve=manual: skips merge attempt and writes complete-manual audit row', () => {
+  it('resolve=manual: skips merge attempt and writes complete-manual audit row', async () => {
     fixture = makeRepo('main');
 
     // Create the worktree but do NOT add commits — proves manual path doesn't
     // depend on the underlying merge attempt's outcome.
-    createAgentWorktree('T9548-manual', fixture.root);
+    await createAgentWorktree('T9548-manual', fixture.root);
 
     const lifecycleAuditPath = join(fixture.root, '.cleo', 'audit', 'worktree-lifecycle.jsonl');
 
@@ -350,10 +350,10 @@ describe('completeWorktreeForTask (T9548)', () => {
   // 6. Lifecycle audit shape compliance
   // -------------------------------------------------------------------------
 
-  it('every audit row matches WorktreeLifecycleAuditEntry shape', () => {
+  it('every audit row matches WorktreeLifecycleAuditEntry shape', async () => {
     fixture = makeRepo('main');
 
-    const worktree = createAgentWorktree('T9548-shape', fixture.root);
+    const worktree = await createAgentWorktree('T9548-shape', fixture.root);
     writeFileSync(join(worktree.path, 'work.ts'), '// shape\n');
     gitIn(worktree.path, 'add', 'work.ts');
     gitIn(worktree.path, 'commit', '-q', '-m', 'feat(T9548-shape): add work');

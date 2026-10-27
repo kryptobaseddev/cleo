@@ -173,14 +173,14 @@ describe('branch-lock pruneWorktree releases the per-task lock (T12506 CI regres
     await rm(home, { recursive: true, force: true }).catch(() => {});
   });
 
-  it('a worktree removed by pruneWorktree (the post-merge path) can be re-created by the same process', () => {
-    const first = createAgentWorktree('T12506-prune', root);
+  it('a worktree removed by pruneWorktree (the post-merge path) can be re-created by the same process', async () => {
+    const first = await createAgentWorktree('T12506-prune', root);
     expect(readWorktreeTaskLock(first.projectHash, 'T12506-prune')).not.toBeNull();
     const pruned = pruneWorktree('T12506-prune', root);
     expect(pruned.worktreeRemoved).toBe(true);
     expect(readWorktreeTaskLock(first.projectHash, 'T12506-prune')).toBeNull();
     // Before the fix this threw E_WORKTREE_LOCKED: the lock outlived its worktree.
-    const again = createAgentWorktree('T12506-prune', root);
+    const again = await createAgentWorktree('T12506-prune', root);
     expect(existsSync(again.path)).toBe(true);
   });
 });
