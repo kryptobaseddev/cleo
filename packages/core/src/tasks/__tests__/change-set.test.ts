@@ -526,6 +526,40 @@ describe('merged PR (AC1, AC5)', () => {
     expect(cs.blockers).toEqual([]);
   });
 
+  /** escapeplan T740: a path both merged commits changed was listed twice (T14040). */
+  it('lists a path changed against both parents of a merge commit once', async () => {
+    const repo = repoWithOrigin(base, 'repo');
+    git(repo, ['switch', '-q', '-c', 'task/T940']);
+    writeFileSync(join(repo, 'a.ts'), 'export const a = 2;\n');
+    git(repo, ['commit', '-q', '-am', 'T940: change a']);
+    git(repo, ['switch', '-q', 'main']);
+    writeFileSync(join(repo, 'a.ts'), 'export const a = 3;\n');
+    git(repo, ['commit', '-q', '-am', 'main: change a']);
+    try {
+      git(repo, ['merge', '-q', '--no-ff', 'task/T940', '-m', 'Merge T940']);
+    } catch {
+      // The conflict is the point: the resolution differs from both parents.
+    }
+    writeFileSync(join(repo, 'a.ts'), 'export const a = 4;\n');
+    git(repo, ['add', 'a.ts']);
+    git(repo, ['commit', '-q', '--no-edit']);
+    const merge = git(repo, ['rev-parse', 'HEAD']);
+    git(repo, ['push', '-q', 'origin', 'main']);
+
+    const cs = await deriveTaskChangeSet(
+      { task: task('T940'), storeRoot: repo, cwd: repo },
+      {
+        listMergedPrs: async () => ({ ok: true, prs: [pr(44, 'T940: change a')] }),
+        ...onMain,
+        resolvePr: async (n) => prResolution(n, merge, ['a.ts']),
+        ...noDocs,
+        env: {},
+      },
+    );
+    expect(cs.files).toEqual(['a.ts']);
+    expect(cs.implementedEvidence).toBe('pr:44;files:a.ts');
+  });
+
   it('a task shipped across several of its OWN PRs: the latest is primary, the rest are extra implemented attempts (D11151)', async () => {
     const repo = repoWithOrigin(base, 'repo');
     const first = squashMerge(repo, 'T970');
