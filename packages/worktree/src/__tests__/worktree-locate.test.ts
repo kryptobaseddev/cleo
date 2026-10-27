@@ -13,8 +13,11 @@
  * @task T12086
  */
 
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { parseWorktreePorcelain } from '../worktree-locate.js';
+import { parseWorktreePorcelain, readWorktreePorcelain } from '../worktree-locate.js';
 
 /** Real `git worktree list --porcelain` output, including a locked entry. */
 const PORCELAIN = `worktree /mnt/projects/cleocode
@@ -94,5 +97,24 @@ describe('parseWorktreePorcelain (T12086)', () => {
     const entries = parseWorktreePorcelain(raw);
     expect(entries[0]).toEqual({ path: '/a', branch: null, locked: true });
     expect(entries[1]).toEqual({ path: '/b', branch: 'main', locked: false });
+  });
+});
+
+describe('T10866: bare entries and the throwing reader', () => {
+  it('marks a bare repository entry, and only that one', () => {
+    const raw = 'worktree /repo.git\nbare\n\nworktree /wt\nHEAD 1\ndetached\n';
+    expect(parseWorktreePorcelain(raw)).toEqual([
+      { path: '/repo.git', branch: null, locked: false, bare: true },
+      { path: '/wt', branch: null, locked: false },
+    ]);
+  });
+
+  it('readWorktreePorcelain throws outside a repository instead of answering empty', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'wt-locate-'));
+    try {
+      expect(() => readWorktreePorcelain(dir)).toThrow();
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 });

@@ -6,6 +6,21 @@
   "description": "Native CLEO worktree backend SDK",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
+    },
+    "./worktree-locate.js": {
+      "types": "./dist/worktree-locate.d.ts",
+      "import": "./dist/worktree-locate.js",
+      "default": "./dist/worktree-locate.js"
+    },
+    "./native/*": "./native/*",
+    "./dist/*": "./dist/*",
+    "./package.json": "./package.json"
+  },
   "files": [
     "dist/",
     "native/",

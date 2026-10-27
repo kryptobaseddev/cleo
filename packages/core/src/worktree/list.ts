@@ -51,6 +51,7 @@ import type {
   WorktreeStatusCategory,
 } from '@cleocode/contracts';
 import { engineError, engineSuccess } from '@cleocode/contracts/engine-result.js';
+import { readWorktreePorcelain } from '@cleocode/worktree/worktree-locate.js';
 import { resolveOrCwd } from '../paths.js';
 import { readSentinelIndex } from './sentinel-index.js';
 
@@ -293,70 +294,21 @@ function keptField(
 // ---------------------------------------------------------------------------
 
 /**
- * Parse `git worktree list --porcelain` into structured rows.
- *
- * The porcelain grammar is documented at
- * https://git-scm.com/docs/git-worktree#_porcelain_format — each record is
- * separated by a blank line and may contain `worktree <path>`, `HEAD <sha>`,
- * `branch refs/heads/<name>` and `locked [<reason>]` lines.
+ * The worktrees git has registered for `projectRoot`, read through the
+ * `@cleocode/worktree` facade's light locate subpath (T10866). A detached
+ * worktree reports branch `'HEAD'` so downstream filters see something
+ * deterministic (detached worktrees yield `taskId=null`); a bare repository
+ * entry is skipped.
  *
  * @param projectRoot - Absolute path to the project root.
- * @returns Parsed porcelain rows, one per worktree.
+ * @returns One row per registered worktree.
+ * @throws Error when git cannot list the worktrees.
  * @internal Exported for tests only.
  */
 export function enumerateWorktrees(projectRoot: string): PorcelainEntry[] {
-  const stdout = execFileSync('git', ['worktree', 'list', '--porcelain'], {
-    cwd: projectRoot,
-    encoding: 'utf-8',
-    timeout: GIT_TIMEOUT_MS,
-    stdio: ['pipe', 'pipe', 'pipe'],
-  });
-
-  const entries: PorcelainEntry[] = [];
-  let current: Partial<PorcelainEntry> & { locked?: boolean } = {};
-
-  const flush = (): void => {
-    if (current.path && current.branch) {
-      entries.push({
-        path: current.path,
-        branch: current.branch,
-        locked: current.locked === true,
-      });
-    }
-    current = {};
-  };
-
-  for (const rawLine of stdout.split('\n')) {
-    const line = rawLine.trimEnd();
-    if (line === '') {
-      flush();
-      continue;
-    }
-    if (line.startsWith('worktree ')) {
-      // New record begins — flush any in-progress entry first.
-      if (current.path) flush();
-      current.path = line.slice('worktree '.length);
-      continue;
-    }
-    if (line.startsWith('branch ')) {
-      const ref = line.slice('branch '.length);
-      current.branch = ref.startsWith('refs/heads/') ? ref.slice('refs/heads/'.length) : ref;
-      continue;
-    }
-    if (line === 'detached') {
-      // Detached HEAD has no branch — represent as 'HEAD' so downstream
-      // filters still see something deterministic. Tests assert that
-      // detached worktrees yield taskId=null.
-      current.branch = current.branch ?? 'HEAD';
-      continue;
-    }
-    if (line === 'locked' || line.startsWith('locked ')) {
-      current.locked = true;
-    }
-  }
-  flush();
-
-  return entries;
+  return readWorktreePorcelain(projectRoot)
+    .filter((entry) => entry.bare !== true)
+    .map((entry) => ({ path: entry.path, branch: entry.branch ?? 'HEAD', locked: entry.locked }));
 }
 
 /**

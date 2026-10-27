@@ -655,12 +655,13 @@ specification MUST satisfy every MUST and MUST NOT.
   `unlockWorktree`, `pruneWorktreeRegistry`, `listRegisteredWorktrees`).
   `scripts/lint-no-raw-git-worktree.mjs` enforces this.
 - **MUST-30.** A core module MAY bypass the facade only when it is listed in
-  that lint's `FILE_ALLOWLIST` with a reason and a task id. Two exceptions
-  exist: `doctor/worktree-orphans.ts` is a **forensic scan** that reads
+  that lint's `FILE_ALLOWLIST` with a reason and a task id. One exception
+  exists: `doctor/worktree-orphans.ts` is a **forensic scan** that reads
   `git worktree list --porcelain` directly so it can report anomalies the
   facade does not model (orphan `.cleo/` directories, non-canonical
-  locations, a rogue `worktrees/` directory). `worktree/list.ts` still reads
-  the porcelain itself until T10866 moves it behind the facade. A forensic
+  locations, a rogue `worktrees/` directory). Core's list primitive reads the
+  registry through the facade's light `@cleocode/worktree/worktree-locate.js`
+  subpath, which keeps the package barrel off the CLI startup path (T10866). A forensic
   scan MUST be read-only: it MUST NOT add, remove, lock, unlock or prune a
   worktree.
 
