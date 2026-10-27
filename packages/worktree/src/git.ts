@@ -167,8 +167,11 @@ export interface AddTransientWorktreeOptions {
   projectRoot: string;
   /** Absolute path where the worktree directory will be created. */
   worktreePath: string;
-  /** Branch name (created or reused if already present). */
-  branch: string;
+  /**
+   * Branch name (created or reused if already present). Omitted, the
+   * worktree is detached at `baseRef` and no branch is touched (T14045).
+   */
+  branch?: string;
   /** Ref to branch from (e.g. `origin/main`, `origin/<branch>`). */
   baseRef: string;
   /**
@@ -204,6 +207,10 @@ export interface AddTransientWorktreeOptions {
  */
 export async function addTransientWorktree(options: AddTransientWorktreeOptions): Promise<void> {
   const { projectRoot, worktreePath, branch, baseRef, resetBranch = true } = options;
+  if (branch === undefined) {
+    await gitAsync(['worktree', 'add', '--detach', worktreePath, baseRef], projectRoot);
+    return;
+  }
   const flag = resetBranch ? '-B' : '-b';
   await gitAsync(['worktree', 'add', flag, branch, worktreePath, baseRef], projectRoot);
 }

@@ -1332,16 +1332,23 @@ export async function orchestrateSpawn(
    * `--no-worktree`.
    */
   baseRef?: string,
+  /**
+   * T14045 — start the task branch from a commit that merges each
+   * dependency's `task/<id>` branch (`--no-ff`) onto the base
+   * ({@link buildDependencyIntegration}); same restrictions as `baseRef`.
+   */
+  includeDeps?: boolean,
 ): Promise<EngineResult> {
   if (!taskId) {
     return engineError('E_INVALID_INPUT', 'taskId is required');
   }
-  if (baseRef !== undefined && (resume || noWorktree)) {
+  if ((baseRef !== undefined || includeDeps) && (resume || noWorktree)) {
+    const flag = baseRef !== undefined ? '--base' : '--include-deps';
     // @sync-invariant none:input-shape a contradictory flag set is refused before any write
     return engineError(
       'E_INVALID_INPUT',
-      `--base cannot be combined with ${resume ? '--resume' : '--no-worktree'}: it sets the commit a new worktree branch starts from`,
-      { fix: `cleo orchestrate spawn ${taskId} --base <ref>` },
+      `${flag} cannot be combined with ${resume ? '--resume' : '--no-worktree'}: it sets the commit a new worktree branch starts from`,
+      { fix: `cleo orchestrate spawn ${taskId} ${flag}${baseRef !== undefined ? ' <ref>' : ''}` },
     );
   }
 
@@ -1507,6 +1514,23 @@ export async function orchestrateSpawn(
       );
     }
 
+    // T14045 — build the dependency integration commit before anything is
+    // claimed or provisioned, so a refusal leaves nothing behind.
+    let worktreeBase = baseRef;
+    if (includeDeps) {
+      const depends = (await accessor.loadSingleTask(taskId))?.depends ?? [];
+      const { buildDependencyIntegration } = await import('./include-deps.js');
+      const integration = await buildDependencyIntegration(root, taskId, depends, baseRef);
+      if (!integration.ok) {
+        // @sync-invariant none:input-shape a missing or diverged dependency is refused before any write
+        return engineError(integration.code, integration.message, {
+          details: { taskId, dependencies: depends },
+          fix: integration.fix,
+        });
+      }
+      worktreeBase = integration.sha;
+    }
+
     // T11343 (Epic T11284) — allocate a PER-AGENT session for the spawned task
     // and thread ITS id (not the orchestrator's) into the spawn prompt + the
     // isolation shell. This is the foundation fix: before this, every spawn
@@ -1669,7 +1693,7 @@ export async function orchestrateSpawn(
             sessionProbe: await resolveLockSessionProbe(root, taskId),
             ...(noInstall ? { skipInstall: true } : {}),
             // T14027 — only the base commit differs from a normal spawn.
-            ...(baseRef !== undefined ? { baseRef } : {}),
+            ...(worktreeBase !== undefined ? { baseRef: worktreeBase } : {}),
           }),
           budgetCtrl.signal,
           'provision-worktree',
