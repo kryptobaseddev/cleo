@@ -126,6 +126,23 @@ const tasksShowOutputContract: OperationOutputContract = {
             description: 'Human / owner assignee. Separate from `claim`.',
           },
           claim: TASK_CLAIM_SCHEMA,
+          // T14043: optional fields a record may omit. `--field` on one that is
+          // absent prints its empty value (`[]` for a list, `null` otherwise).
+          description: { type: ['string', 'null'] },
+          acceptance: {
+            type: 'array',
+            description: 'Acceptance criteria (strings or typed gates).',
+          },
+          notes: { type: 'array', description: 'Timestamped notes; absent when none.' },
+          labels: { type: 'array' },
+          files: { type: 'array', description: 'Declared files (`--files`).' },
+          depends: { type: 'array' },
+          relates: { type: 'array' },
+          size: { type: ['string', 'null'] },
+          kind: { type: ['string', 'null'] },
+          verification: { type: ['object', 'null'] },
+          completedAt: { type: ['string', 'null'] },
+          cancelledAt: { type: ['string', 'null'] },
         },
       },
       view: {
@@ -178,6 +195,7 @@ const tasksShowOutputContract: OperationOutputContract = {
     '/data/task/verification',
     '/data/task/verification/gates',
     '/data/task/verification/evidence',
+    '/data/task/notes',
     '/data/view/id',
     '/data/view/title',
   ],

@@ -456,11 +456,21 @@ export function cliOutput(data: unknown, opts: CliOutputOptions): void {
       // the contract's valid pointers as `fix` + `alternatives`, converting the
       // contract from manual-before-the-fact into automatic post-failure
       // remediation. Ops without a contract degrade to the `--describe` hint.
-      const contract = opts.operation
-        ? loadEsmSync<typeof OutputContracts>(
-            '@cleocode/core/dispatch/contracts/output-contracts',
-          ).getOutputContract(opts.operation)
+      const contracts = opts.operation
+        ? loadEsmSync<typeof OutputContracts>('@cleocode/core/dispatch/contracts/output-contracts')
         : null;
+      const contract = opts.operation
+        ? (contracts?.getOutputContract(opts.operation) ?? null)
+        : null;
+      // T14043: a declared optional field the record omits prints its empty
+      // value ([] or null) and succeeds; an undeclared pointer still refuses.
+      const absent = contract
+        ? contracts?.declaredAbsentValue(contract, fieldCtx.field)
+        : undefined;
+      if (absent !== undefined) {
+        process.stdout.write(`${serializePointerValue(absent)}\n`);
+        return;
+      }
       const fix = contract
         ? `Valid pointers for ${opts.operation}: ${contract.fieldPointers.join(', ')}` +
           (contract.shapeNote ? ` — ${contract.shapeNote}` : '')
