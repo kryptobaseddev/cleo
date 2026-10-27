@@ -21,7 +21,6 @@
  */
 
 import type { ArgsDef, CommandContext, CommandDef, ParsedArgs, Resolvable } from 'citty';
-import { parseArgs } from './lib/define-cli-command.js';
 import { assertKnownFlags, extractPositionalFlags, UnknownFlagError } from './lib/strict-args.js';
 
 /** Resolve Citty's supported value, promise, and factory command declarations. */
@@ -61,6 +60,9 @@ async function withPositionalFlags(command: CommandDef, ctx: CommandContext): Pr
   if (!schema) return ctx.args;
   const { rest, values } = extractPositionalFlags(ctx.rawArgs, schema);
   if (Object.keys(values).length === 0) return ctx.args;
+  // Loaded only on this path: every other command's startup graph is unchanged
+  // (gate 39 module budgets).
+  const { parseArgs } = await import('./lib/define-cli-command.js');
   return Object.assign(parseArgs(rest, schema), values);
 }
 
