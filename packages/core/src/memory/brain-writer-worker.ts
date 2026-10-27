@@ -16,7 +16,13 @@
 import { parentPort } from 'node:worker_threads';
 import { markBrainWriterIsolate, markLongLivedBrainHost } from './brain-host.js';
 import { handleWriteOp } from './brain-writer-handlers.js';
-import type { WriterRequestEnvelope, WriterResponseEnvelope } from './brain-writer-thread.js';
+import type {
+  WriterDrainedMessage,
+  WriterDrainMessage,
+  WriterRequestEnvelope,
+  WriterResponseEnvelope,
+} from './brain-writer-thread.js';
+import { drainScheduledEmbeddings } from './embedding-backfill.js';
 
 if (!parentPort) {
   throw new Error('brain-writer-worker.ts must be run as a worker thread');
@@ -63,8 +69,18 @@ async function processEnvelope(envelope: WriterRequestEnvelope): Promise<void> {
 
 let processingChain: Promise<unknown> = Promise.resolve();
 
-port.on('message', (envelope: WriterRequestEnvelope) => {
+port.on('message', (msg: WriterRequestEnvelope | WriterDrainMessage) => {
+  // T14069: before it is terminated, finish the ops queued so far and the
+  // embeddings they scheduled, so termination never cuts through the native
+  // onnxruntime addon mid-load or mid-inference.
+  if ('drain' in msg) {
+    processingChain = processingChain
+      .then(() => drainScheduledEmbeddings())
+      .catch(() => undefined)
+      .then(() => port.postMessage({ drained: true } satisfies WriterDrainedMessage));
+    return;
+  }
   // Chain each new request to the tail of the current processing chain so
   // ops execute strictly sequentially.
-  processingChain = processingChain.then(() => processEnvelope(envelope)).catch(() => undefined); // chain marker is failure-tolerant
+  processingChain = processingChain.then(() => processEnvelope(msg)).catch(() => undefined); // chain marker is failure-tolerant
 });

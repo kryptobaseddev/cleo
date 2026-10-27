@@ -221,6 +221,64 @@ export type WriterResponseEnvelope =
   | { seq: number; ok: true; result: BrainWriteResult }
   | { seq: number; ok: false; error: string };
 
+/**
+ * Ask the writer worker to finish its background work (scheduled embeddings)
+ * before it is terminated (T14069). It answers {@link WriterDrainedMessage}.
+ */
+export interface WriterDrainMessage {
+  drain: true;
+}
+
+/** The writer worker finished its background work and may be terminated (T14069). */
+export interface WriterDrainedMessage {
+  drained: true;
+}
+
+/**
+ * How long {@link drainAndTerminateWriter} waits for the worker's background
+ * work before it terminates the worker anyway (T14069).
+ */
+export const WRITER_DRAIN_TIMEOUT_MS = 10_000;
+
+/**
+ * Stop a brain writer worker without cutting through its background work
+ * (T14069): ask it to drain, wait for its answer (at most `timeoutMs`), then
+ * terminate it. The worker embeds new observations inline, which loads the
+ * native onnxruntime addon; terminating the isolate mid-load or mid-inference
+ * can abort the whole process, and vitest reports that as "Worker exited
+ * unexpectedly".
+ *
+ * @param worker - The writer worker.
+ * @param timeoutMs - Longest wait for the drain. @defaultValue {@link WRITER_DRAIN_TIMEOUT_MS}
+ *
+ * @task T14069
+ */
+export async function drainAndTerminateWriter(
+  worker: import('node:worker_threads').Worker,
+  timeoutMs: number = WRITER_DRAIN_TIMEOUT_MS,
+): Promise<void> {
+  await new Promise<void>((resolve) => {
+    const done = (): void => {
+      clearTimeout(timer);
+      worker.off('message', onMessage);
+      worker.off('exit', done);
+      resolve();
+    };
+    const onMessage = (msg: unknown): void => {
+      if (typeof msg === 'object' && msg !== null && 'drained' in msg) done();
+    };
+    const timer = setTimeout(done, timeoutMs);
+    worker.on('message', onMessage);
+    worker.once('exit', done);
+    try {
+      worker.postMessage({ drain: true } satisfies WriterDrainMessage);
+    } catch {
+      done();
+    }
+  });
+  await worker.terminate();
+}
+
 // ============================================================================
 // Bypass mode (CLEO_BRAIN_BYPASS_WRITER_THREAD=1)
 // ============================================================================
@@ -345,7 +403,8 @@ class BrainWriterManager {
       throw new BrainWriterShutDownError('observe');
     const worker = new Worker(workerPath);
 
-    worker.on('message', (msg: WriterResponseEnvelope) => {
+    worker.on('message', (msg: WriterResponseEnvelope | WriterDrainedMessage) => {
+      if ('drained' in msg) return; // answered to drainAndTerminateWriter
       this.handleWorkerMessage(msg);
     });
 
@@ -438,7 +497,8 @@ class BrainWriterManager {
 
     if (this.worker) {
       try {
-        await this.worker.terminate();
+        // T14069: let its scheduled embeddings finish before terminating it.
+        await drainAndTerminateWriter(this.worker);
       } catch {
         // ignore — worker may already be gone
       }

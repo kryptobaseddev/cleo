@@ -176,6 +176,12 @@ export async function runBoundedEmbeddingBackfill(
   }
 }
 
+/** Embeddings {@link scheduleEmbedding} started that have not finished (T14069). */
+const _scheduledEmbeddings = new Set<Promise<void>>();
+
+/** Set by {@link drainScheduledEmbeddings}: no new embedding starts in this isolate. */
+let _embeddingsDrained = false;
+
 /**
  * Embed one freshly written memory row in the background — long-lived hosts only.
  *
@@ -192,33 +198,49 @@ export async function runBoundedEmbeddingBackfill(
  * @task T13740
  */
 export function scheduleEmbedding(projectRoot: string, id: string, text: string): void {
-  if (!isLongLivedBrainHost()) return;
-  setImmediate(() => {
-    void (async () => {
-      try {
-        // T12314: registration is free; availability is checked by embedText.
-        if (!(await ensureEmbeddingProvider(projectRoot))) return;
-        const model = getEmbeddingProvider()?.model;
-        const vector = await embedText(text);
-        if (!vector || !model) return;
-        // T13230: inside the writer isolate the open handle IS the chokepoint's,
-        // so write directly (enqueueBrainWrite there would start a nested
-        // manager). Anywhere else (a main thread whose host ran the write
-        // inline, or any other worker thread, T13246) the op has already
-        // released the lease and the mutex, so the write goes back through
-        // the chokepoint.
-        if (isBrainWriterIsolate()) {
-          const { getBrainNativeDb } = await import('../store/memory-sqlite.js');
-          const { upsertEmbeddingRowsNative } = await import('../store/memory-accessor.js');
-          const nativeDb = getBrainNativeDb(projectRoot);
-          if (nativeDb) upsertEmbeddingRowsNative(nativeDb, model, [{ id, vector }]);
-          return;
-        }
-        const { enqueueBrainWrite } = await import('./brain-writer-thread.js');
-        await enqueueBrainWrite({ kind: 'embed', projectRoot, model, rows: [{ id, vector }] });
-      } catch {
-        // Embedding is enrichment — the row is already persisted.
+  if (!isLongLivedBrainHost() || _embeddingsDrained) return;
+  const task = new Promise<void>((resolve) => setImmediate(resolve)).then(async () => {
+    try {
+      // T12314: registration is free; availability is checked by embedText.
+      if (!(await ensureEmbeddingProvider(projectRoot))) return;
+      const model = getEmbeddingProvider()?.model;
+      const vector = await embedText(text);
+      if (!vector || !model) return;
+      // T13230: inside the writer isolate the open handle IS the chokepoint's,
+      // so write directly (enqueueBrainWrite there would start a nested
+      // manager). Anywhere else (a main thread whose host ran the write
+      // inline, or any other worker thread, T13246) the op has already
+      // released the lease and the mutex, so the write goes back through
+      // the chokepoint.
+      if (isBrainWriterIsolate()) {
+        const { getBrainNativeDb } = await import('../store/memory-sqlite.js');
+        const { upsertEmbeddingRowsNative } = await import('../store/memory-accessor.js');
+        const nativeDb = getBrainNativeDb(projectRoot);
+        if (nativeDb) upsertEmbeddingRowsNative(nativeDb, model, [{ id, vector }]);
+        return;
       }
-    })();
+      const { enqueueBrainWrite } = await import('./brain-writer-thread.js');
+      await enqueueBrainWrite({ kind: 'embed', projectRoot, model, rows: [{ id, vector }] });
+    } catch {
+      // Embedding is enrichment — the row is already persisted.
+    }
   });
+  _scheduledEmbeddings.add(task);
+  void task.finally(() => _scheduledEmbeddings.delete(task));
+}
+
+/**
+ * Stop scheduling embeddings in this isolate and wait for the ones in flight
+ * (T14069). The brain writer worker calls it before it is terminated: an
+ * embedding loads `@huggingface/transformers` and its native onnxruntime addon,
+ * and terminating the isolate mid-load or mid-inference can abort the WHOLE
+ * process (`terminate called after throwing an instance of Napi::Error`).
+ *
+ * @returns Once every scheduled embedding has settled.
+ *
+ * @task T14069
+ */
+export async function drainScheduledEmbeddings(): Promise<void> {
+  _embeddingsDrained = true;
+  while (_scheduledEmbeddings.size > 0) await Promise.allSettled([..._scheduledEmbeddings]);
 }
