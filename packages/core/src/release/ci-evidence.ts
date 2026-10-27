@@ -1016,7 +1016,7 @@ export type InheritedOnMergeResult =
  * @param ancestors - First-parent ancestors of the merge, nearest first, with their checks.
  * @param pins - Required-name to app/workflow pin.
  * @param nextMainCommitAt - When the next default-branch commit after the merge landed, if known.
- * @param runnerCancelled - Failing jobs only a runner cancellation failed (T14049): never the PR's, so never blamed.
+ * @param untested - Failing jobs with no failed test, a runner cancellation or a worker crash (T14049, T14074): never the PR's, so never blamed.
  * @returns The required names to stand in for and the inherited jobs, or why not.
  * @task T13453
  * @task T14026
@@ -1029,7 +1029,7 @@ export function inheritedOnMerge(
   ancestors: ReadonlyArray<{ sha: string; checks: readonly CommitCheck[] }>,
   pins: Record<string, RequiredCheckPinSpec>,
   nextMainCommitAt: string | null = null,
-  runnerCancelled: ReadonlySet<number> = new Set(),
+  untested: ReadonlySet<number> = new Set(),
 ): InheritedOnMergeResult {
   const scope = pinnedScope(required, pins);
   const onMerge = latestRuns(checks, mergeCommitSha, scope);
@@ -1041,7 +1041,7 @@ export function inheritedOnMerge(
     };
   }
   const failing = onMerge.filter(
-    (c) => !HARMLESS_CONCLUSIONS.has(c.conclusion ?? '') && !runnerCancelled.has(c.id),
+    (c) => !HARMLESS_CONCLUSIONS.has(c.conclusion ?? '') && !untested.has(c.id),
   );
   if (failing.length === 0) return { ok: false, reason: 'no job failed on the merge commit' };
   const inherited: InheritedFailure[] = [];
@@ -1359,18 +1359,74 @@ export function isRunnerCancelOnlyLog(log: string): boolean {
   );
 }
 
-/** Result of {@link runnerCancelledJobs}. */
-export interface RunnerCancelledJobs {
-  /** The failing jobs whose log shows only a runner cancellation. */
+/** A vitest summary or failure line naming a failed test or file. */
+const FAILED_TEST = /\bFAIL\s{2,}|\d+ failed/;
+
+/**
+ * Whether a job log shows only an unattributable vitest worker crash
+ * (T14074): no test or file failed, every `Unhandled Error` vitest reports is
+ * its own pool's "Worker forks emitted error" (a fork that exited
+ * unexpectedly, e.g. a native addon abort), and the only `##[error]` is the
+ * step's non-zero exit. Such a run never showed a test of the change failing.
+ *
+ * @param log - The job's plain-text log (ANSI colour codes allowed).
+ * @returns Whether the job failed only on a worker crash.
+ * @task T14074
+ */
+export function isWorkerCrashOnlyLog(log: string): boolean {
+  const text = log.replace(/\u001b\[[0-9;]*m/g, '');
+  const crashes = text.match(/Error: \[vitest-pool\]: Worker forks emitted error\./g)?.length ?? 0;
+  const unhandled = text.match(/⎯+ Unhandled Error ⎯+/g)?.length ?? 0;
+  const errors = text.split('\n').filter((line) => line.includes('##[error]'));
+  return (
+    crashes > 0 &&
+    unhandled === crashes &&
+    /Caused by: Error: Worker exited unexpectedly/.test(text) &&
+    !FAILED_TEST.test(text) &&
+    errors.every((line) => /##\[error\]Process completed with exit code \d+\.\s*$/.test(line))
+  );
+}
+
+/** Why a failing job tested nothing of the change (T14049, T14074). */
+export type UntestedFailureCause = 'runner-cancel' | 'worker-crash';
+
+/**
+ * Why a failing job's log shows no failed test, or `null` when it may have
+ * failed on the change: a runner cancellation ({@link isRunnerCancelOnlyLog})
+ * or a worker crash ({@link isWorkerCrashOnlyLog}).
+ *
+ * @param log - The job's plain-text log.
+ * @returns The cause, or `null`.
+ * @task T14074
+ */
+export function untestedFailureCause(log: string): UntestedFailureCause | null {
+  if (isRunnerCancelOnlyLog(log)) return 'runner-cancel';
+  if (isWorkerCrashOnlyLog(log)) return 'worker-crash';
+  return null;
+}
+
+/** One failing job that tested nothing of the change, and why (T14074). */
+export interface UntestedJobFailure {
+  name: string;
+  mergeRunId: number;
+  cause: UntestedFailureCause;
+}
+
+/** Result of {@link untestedJobFailures}. */
+export interface UntestedJobFailures {
+  /** The failing jobs whose log shows no failed test, with the cause. */
+  jobs: UntestedJobFailure[];
+  /** Their run ids. */
   ids: ReadonlySet<number>;
-  /** Every failing job of a pinned workflow was runner-cancelled (and at least one failed). */
+  /** Every failing job of a pinned workflow is one (and at least one failed). */
   all: boolean;
 }
 
 /**
  * The failing jobs of a pinned workflow on `sha` (the required aggregate and
- * workflow runs excluded) that only a runner cancellation failed (T14049,
- * {@link isRunnerCancelOnlyLog}). A pending job or an unreadable log is never
+ * workflow runs excluded) that failed without a failed test: a runner
+ * cancellation (T14049) or a worker crash (T14074), by
+ * {@link untestedFailureCause}. A pending job or an unreadable log is never
  * one, so `all` is then false.
  *
  * @param checks - Checks fetched for `sha`.
@@ -1379,18 +1435,19 @@ export interface RunnerCancelledJobs {
  * @param pins - Required-name to app/workflow pin.
  * @param fetchJobLog - Plain-text log of one job.
  * @param cwd - Repository work tree for `gh`.
- * @returns The runner-cancelled job ids, and whether they are every failure.
+ * @returns Those jobs, and whether they are every failure.
  * @task T14049
+ * @task T14074
  */
-export async function runnerCancelledJobs(
+export async function untestedJobFailures(
   checks: readonly CommitCheck[],
   sha: string,
   required: readonly string[],
   pins: Record<string, RequiredCheckPinSpec>,
   fetchJobLog: NonNullable<ResolveCiEvidenceOptions['fetchJobLog']>,
   cwd: string,
-): Promise<RunnerCancelledJobs> {
-  const ids = new Set<number>();
+): Promise<UntestedJobFailures> {
+  const jobs: UntestedJobFailure[] = [];
   let all = true;
   for (const c of latestRuns(checks, sha, pinnedScope(required, pins))) {
     if (c.source === 'workflow-run' || required.includes(c.name)) continue;
@@ -1400,10 +1457,11 @@ export async function runnerCancelledJobs(
     }
     if (HARMLESS_CONCLUSIONS.has(c.conclusion ?? '')) continue;
     const log = c.conclusion === 'failure' ? await fetchJobLog(c.id, cwd) : null;
-    if (log !== null && isRunnerCancelOnlyLog(log)) ids.add(c.id);
+    const cause = log === null ? null : untestedFailureCause(log);
+    if (cause) jobs.push({ name: c.name, mergeRunId: c.id, cause });
     else all = false;
   }
-  return { ids, all: all && ids.size > 0 };
+  return { jobs, ids: new Set(jobs.map((j) => j.mergeRunId)), all: all && jobs.length > 0 };
 }
 
 /**
@@ -1565,8 +1623,8 @@ export type FindGreenDescendantResult =
       inherited?: InheritedFailure[];
       /** The merge commit's jobs that failed on the flaky-quarantine budget alone (T13809). */
       nonTest?: Array<{ name: string; mergeRunId: number }>;
-      /** The merge commit's failures were only runner cancellations (T14049). */
-      runnerCancelled?: true;
+      /** The merge commit's failures tested nothing: runner cancellations or worker crashes (T14049, T14074). */
+      untested?: UntestedJobFailure[];
     }
   | { ok: false; reason: string };
 
@@ -1632,8 +1690,8 @@ export async function findGreenDescendant(
   );
   let inherited: InheritedFailure[] | undefined;
   let nonTest: Array<{ name: string; mergeRunId: number }> | undefined;
-  let runnerCancelled = false;
-  let cancelledIds: ReadonlySet<number> = new Set();
+  let untested: UntestedJobFailure[] | undefined;
+  let untestedIds: ReadonlySet<number> = new Set();
   const unproven = (): string[] =>
     required.filter(
       (name) =>
@@ -1643,10 +1701,11 @@ export async function findGreenDescendant(
         ).ok,
     );
   if (!superseded.ok && input.fetchJobLog) {
-    // T14049: a job only a runner cancellation failed ("The operation was
-    // canceled.", no test failed) decided nothing, though GitHub reports it
-    // and the aggregate as `failure`: it is superseded, as a cancelled run is.
-    const cancelled = await runnerCancelledJobs(
+    // T14049, T14074: a job that failed with no failed test (a runner
+    // cancellation, or a vitest worker crash) decided nothing, though GitHub
+    // reports it and the aggregate as `failure`: it is superseded, as a
+    // cancelled run is. A job with any failed test never is.
+    const found = await untestedJobFailures(
       input.checks,
       merge,
       required,
@@ -1654,9 +1713,9 @@ export async function findGreenDescendant(
       input.fetchJobLog,
       cwd,
     );
-    cancelledIds = cancelled.ids;
-    if (cancelled.all) {
-      runnerCancelled = true;
+    untestedIds = found.ids;
+    if (found.all) {
+      untested = found.jobs;
       superseded = { ok: true, names: unproven() };
     }
   }
@@ -1696,7 +1755,7 @@ export async function findGreenDescendant(
       ancestors,
       pins,
       input.nextMainCommitAt?.(merge, input.ref, cwd) ?? null,
-      cancelledIds,
+      untestedIds,
     );
     if (result.ok) {
       superseded = { ok: true, names: result.names };
@@ -1809,7 +1868,7 @@ export async function findGreenDescendant(
       ...(head ? { prHeadSha: head } : {}),
       ...(inherited ? { inherited } : {}),
       ...(nonTest ? { nonTest } : {}),
-      ...(runnerCancelled ? { runnerCancelled: true } : {}),
+      ...(untested ? { untested } : {}),
     };
   }
   return {
@@ -2666,6 +2725,7 @@ export async function resolveCiEvidenceAtom(
         prHeadSha?: string;
         inherited?: InheritedFailure[];
         nonTest?: Array<{ name: string; mergeRunId: number }>;
+        untested?: UntestedJobFailure[];
       }
     | undefined;
   let descendantReason: string | undefined;
@@ -2705,7 +2765,7 @@ export async function resolveCiEvidenceAtom(
           ...(treeEqualHead ? { treeEquivalentSha: treeEqualHead } : {}),
           pins,
           descendantSha: found.sha,
-          ...(found.inherited || found.nonTest || found.runnerCancelled
+          ...(found.inherited || found.nonTest || found.untested
             ? { inheritedFailures: true }
             : {}),
         },
@@ -2719,6 +2779,7 @@ export async function resolveCiEvidenceAtom(
           ...(found.prHeadSha ? { prHeadSha: found.prHeadSha } : {}),
           ...(found.inherited ? { inherited: found.inherited } : {}),
           ...(found.nonTest ? { nonTest: found.nonTest } : {}),
+          ...(found.untested ? { untested: found.untested } : {}),
         };
       } else {
         descendantReason = `later commit ${found.sha.slice(0, 12)} was green, but re-judging with it still fails: ${rejudged.reasons.join('; ')}`;
@@ -2921,6 +2982,7 @@ export async function resolveCiEvidenceAtom(
             ...(descendant.prHeadSha ? { descendantPrHeadSha: descendant.prHeadSha } : {}),
             ...(descendant.inherited ? { inheritedFailures: descendant.inherited } : {}),
             ...(descendant.nonTest ? { nonTestFailures: descendant.nonTest } : {}),
+            ...(descendant.untested ? { untestedFailures: descendant.untested } : {}),
           }
         : {}),
       ...(workspaceWide ? { workspaceWide } : {}),
