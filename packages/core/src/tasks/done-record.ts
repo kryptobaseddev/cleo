@@ -48,7 +48,8 @@ import { CleoError } from '../errors.js';
 import { cleoErrorToEngineResult } from '../errors-to-engine.js';
 import { getProjectRoot } from '../paths.js';
 import { type DeriveTaskEvidenceOptions, deriveTaskEvidence, shellQuote } from './done-plan.js';
-import { resolveToolCommand } from './tool-resolver.js';
+import type { ToolRunResult } from './tool-cache.js';
+import { type CanonicalTool, resolveToolCommand } from './tool-resolver.js';
 
 /** A tool run as `recordTaskDone` needs it; injectable for tests. */
 export type DoneToolRunner = (
@@ -61,6 +62,11 @@ export type DoneToolRunner = (
   durationMs: number;
   timedOut: boolean;
   tail: string;
+  /**
+   * Why the run is a kill, not a result (T13013): the `E_EVIDENCE_TOOL_KILLED`
+   * message, set when it was killed by a signal or for resources.
+   */
+  killed?: string;
 }>;
 
 /** Typed-gate execution before the write; injectable for tests. */
@@ -153,13 +159,11 @@ export const defaultRunTool: DoneToolRunner = async (tool, storeRoot, executionR
     }
     const { runToolCached } = await import('./tool-cache.js');
     const r = await runToolCached(affected.command, storeRoot, { executionRoot });
-    return {
-      exitCode: r.exitCode,
-      cacheHit: r.cacheHit,
-      durationMs: r.cacheHit ? 0 : r.durationMs,
-      timedOut: r.timedOut,
-      tail: (r.stderrTail || r.stdoutTail).trim().slice(-400),
-    };
+    return toolOutcome(
+      r,
+      `tool:test-affected (affected: ${affected.command.cmd})`,
+      affected.command.canonical,
+    );
   }
   // T12964: package.json scripts and tsconfig describe the code under test,
   // so they are read in the execution root, exactly as `validateTool` does.
@@ -179,14 +183,26 @@ export const defaultRunTool: DoneToolRunner = async (tool, storeRoot, executionR
   }
   const { runToolCached } = await import('./tool-cache.js');
   const r = await runToolCached(resolved.command, storeRoot, { executionRoot });
+  return toolOutcome(r, `tool:${tool} (${resolved.command.cmd})`, resolved.command.canonical);
+};
+
+/** A cached tool run as {@link DoneToolRunner} returns it, with its kill (T13013). */
+async function toolOutcome(
+  r: ToolRunResult,
+  label: string,
+  canonical: CanonicalTool,
+): Promise<Awaited<ReturnType<DoneToolRunner>>> {
+  const { killedValidation } = await import('./evidence.js');
+  const killed = r.timedOut ? null : killedValidation(label, canonical, r);
   return {
     exitCode: r.exitCode,
     cacheHit: r.cacheHit,
     durationMs: r.cacheHit ? 0 : r.durationMs,
     timedOut: r.timedOut,
     tail: (r.stderrTail || r.stdoutTail).trim().slice(-400),
+    ...(killed !== null ? { killed: killed.reason } : {}),
   };
-};
+}
 
 /** Default typed-gate runner: `previewTaskGates`, which caches each pass (T12621). */
 const defaultRunTypedGates: DoneTypedGateRunner = async (storeRoot, taskId) => {
@@ -258,12 +274,17 @@ async function runPlannedTools(
           code: 'tool-failed',
           message: out.timedOut
             ? `tool:${run.tool} exceeded its deadline in ${root}.`
-            : `tool:${run.tool} failed (exit ${out.exitCode}) in ${root}: ${out.tail}`,
+            : (out.killed ??
+              `tool:${run.tool} failed (exit ${out.exitCode}) in ${root}: ${out.tail}`),
           next: {
             command: `cd ${shellQuote(root)} && ${run.command ?? `cleo done ${plan.taskId}`}`,
             why: `${run.gate} needs a passing ${run.tool} run on the recorded tree.`,
           },
-          cause: out.timedOut ? 'E_EVIDENCE_TOOL_TIMEOUT' : 'E_EVIDENCE_TOOL_FAILED',
+          cause: out.timedOut
+            ? 'E_EVIDENCE_TOOL_TIMEOUT'
+            : out.killed !== undefined
+              ? 'E_EVIDENCE_TOOL_KILLED'
+              : 'E_EVIDENCE_TOOL_FAILED',
         },
       };
     }
