@@ -1683,26 +1683,22 @@ const publishCommand = defineCommand({
     'dry-run': {
       type: 'boolean',
       description:
-        'Preview what would happen without side effects. Reports resolved target, mode, and parameters. No files are written and no git/gh commands are invoked.',
+        'Preview without side effects. --target file runs every check the real publish runs (owner, attachment, destination inside the project root or a registered worktree) and reports what would be written; --target pr reports the resolved parameters. No files are written and no git/gh commands are invoked.',
     },
     json: { type: 'boolean', description: 'Emit LAFS JSON envelope' },
   },
   async run({ args }) {
     const target = String(args.target ?? 'file');
     const dryRun = args['dry-run'] === true;
-    if (dryRun) {
+    // T13919: a file dry run goes through the same checks as the real run
+    // (below); only a PR dry run is a local preview.
+    if (dryRun && target === 'pr') {
       const details: Record<string, unknown> = { target, dryRun: true };
-      if (target === 'pr') {
-        details.slugOrId = String(args['slug-or-id'] ?? '');
-        if (args.slug) details.slug = String(args.slug);
-        if (args.type) details.type = String(args.type);
-        if (args.title) details.title = String(args.title);
-        if (args.task) details.taskId = String(args.task);
-      } else {
-        details.for = args.for ? String(args.for) : null;
-        details.to = args.to ? String(args.to) : null;
-        if (args.attachment) details.attachment = String(args.attachment);
-      }
+      details.slugOrId = String(args['slug-or-id'] ?? '');
+      if (args.slug) details.slug = String(args.slug);
+      if (args.type) details.type = String(args.type);
+      if (args.title) details.title = String(args.title);
+      if (args.task) details.taskId = String(args.task);
       cliOutput(details, { command: 'docs publish', operation: 'docs.publish' });
       return;
     }
@@ -1771,6 +1767,7 @@ const publishCommand = defineCommand({
         toPath: String(args.to),
         attachmentId: args.attachment ?? undefined,
         target: 'file',
+        ...(dryRun ? { dryRun: true } : {}),
       });
       cliOutput(result, { command: 'docs publish', operation: 'docs.publish' });
     } catch (err) {
