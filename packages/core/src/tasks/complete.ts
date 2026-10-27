@@ -1450,7 +1450,7 @@ export async function completeTask(
   let integration: WorktreeIntegrationOutcome | undefined;
   try {
     const { completeAgentWorktreeIntegration, integrationOutcome, planWorktreeIntegration } =
-      await import('../spawn/branch-lock.js');
+      await import('../spawn/branch-integration.js');
     if (integrationDisabled !== undefined) {
       integration = {
         ...planWorktreeIntegration(options.taskId, projectRoot, {

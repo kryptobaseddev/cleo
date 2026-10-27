@@ -24,17 +24,17 @@ export {
   deriveAgentHandle,
   requireSpawnSession,
 } from './agent-identity.js';
+// Branch integration (T10862)
+export { completeAgentWorktreeViaMerge, getDefaultBranch } from './branch-integration.js';
 // Branch-lock engine (T1118, T1462, T1587, T1601)
 export type { PruneWorktreeResult } from './branch-lock.js';
 export {
   applyFsHarden,
   buildAgentEnv,
   buildWorktreeSpawnResult,
-  completeAgentWorktreeViaMerge,
   createAgentWorktree,
   detectFsHardenCapabilities,
   ensureGitShimDir,
-  getDefaultBranch,
   getGitRoot,
   pruneOrphanedWorktrees,
   pruneWorktree,

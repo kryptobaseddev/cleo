@@ -15,12 +15,8 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import {
-  completeAgentWorktreeViaMerge,
-  createAgentWorktree,
-  getDefaultBranch,
-  resolveAgentWorktreeRoot,
-} from '../branch-lock.js';
+import { completeAgentWorktreeViaMerge, getDefaultBranch } from '../branch-integration.js';
+import { createAgentWorktree, resolveAgentWorktreeRoot } from '../branch-lock.js';
 
 // ---------------------------------------------------------------------------
 // Fixture helpers

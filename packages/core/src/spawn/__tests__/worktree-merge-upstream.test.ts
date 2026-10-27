@@ -18,11 +18,8 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import {
-  assessUpstreamIntegration,
-  completeAgentWorktreeViaMerge,
-  createAgentWorktree,
-} from '../branch-lock.js';
+import { assessUpstreamIntegration, completeAgentWorktreeViaMerge } from '../branch-integration.js';
+import { createAgentWorktree } from '../branch-lock.js';
 
 /** Run git at `cwd`, returning trimmed stdout. */
 function gitAt(cwd: string, ...args: string[]): string {

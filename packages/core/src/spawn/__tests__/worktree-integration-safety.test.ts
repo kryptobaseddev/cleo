@@ -17,10 +17,10 @@ import { integrationDisabledReason } from '../../orchestrate/worktree-complete.j
 import { appendWorktreeAuditEntry } from '../../worktree/audit.js';
 import {
   completeAgentWorktreeIntegration,
-  createAgentWorktree,
   integrationOutcome,
   planWorktreeIntegration,
-} from '../branch-lock.js';
+} from '../branch-integration.js';
+import { createAgentWorktree } from '../branch-lock.js';
 
 let base: string | undefined;
 
