@@ -68,6 +68,7 @@ import { createDocsReadModel } from '@cleocode/core/docs/docs-read-model';
 import {
   DOCS_UPDATE_LIFECYCLE_STATUS_LIST,
   isLifecycleStatus,
+  docsUpdateMimeFromPath as mimeFromPath,
 } from '@cleocode/core/docs/docs-update';
 import { buildDocsFetchResult } from '@cleocode/core/docs/fetch-result';
 import { createAttachmentStoreDocsAccessor } from '@cleocode/core/docs/import/attachment-store-accessor';
@@ -340,31 +341,6 @@ function parseLabels(raw: unknown): string[] | undefined {
     .split(',')
     .map((l) => l.trim())
     .filter(Boolean);
-}
-
-/**
- * Detect MIME type from a file extension.
- *
- * Minimal set — falls back to 'application/octet-stream'.
- *
- * @param filePath - Absolute or relative path to the file
- */
-function mimeFromPath(filePath: string): string {
-  const lower = filePath.toLowerCase();
-  if (lower.endsWith('.md') || lower.endsWith('.markdown')) return 'text/markdown';
-  if (lower.endsWith('.txt')) return 'text/plain';
-  if (lower.endsWith('.html') || lower.endsWith('.htm')) return 'text/html';
-  if (lower.endsWith('.json')) return 'application/json';
-  if (lower.endsWith('.pdf')) return 'application/pdf';
-  if (lower.endsWith('.zip')) return 'application/zip';
-  if (lower.endsWith('.png')) return 'image/png';
-  if (lower.endsWith('.jpg') || lower.endsWith('.jpeg')) return 'image/jpeg';
-  if (lower.endsWith('.gif')) return 'image/gif';
-  if (lower.endsWith('.svg')) return 'image/svg+xml';
-  if (lower.endsWith('.ts') || lower.endsWith('.tsx')) return 'text/plain';
-  if (lower.endsWith('.js')) return 'text/javascript';
-  if (lower.endsWith('.css')) return 'text/css';
-  return 'application/octet-stream';
 }
 
 // ─── Slug helpers (T9636) ────────────────────────────────────────────────────
