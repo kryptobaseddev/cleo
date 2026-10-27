@@ -313,6 +313,24 @@ async function uuidExistsOnTask(db: Db, targetTaskId: string, acUuid: string): P
   return rows.length > 0;
 }
 
+/** A satisfies binding's atom id, `satisfies:<source>-><target>#<alias>[@<pin>]` (engine-ops writer). */
+const SATISFIES_ATOM_ID = /^satisfies:([^\s>#@]+)->([^\s>#@]+)#([^\s#@]+)(?:@\S+)?$/;
+
+/**
+ * Parse a satisfies binding's atom id into its exact parts (T14029).
+ *
+ * @param atomId - The `evidence_ac_bindings.evidence_atom_id` value.
+ * @returns The source task, target task and alias, or `null` when the id has another form.
+ * @task T14029
+ */
+function parseSatisfiesAtomId(
+  atomId: string | null | undefined,
+): { sourceTaskId: string; targetTaskId: string; alias: string } | null {
+  const match = typeof atomId === 'string' ? SATISFIES_ATOM_ID.exec(atomId) : null;
+  if (!match?.[1] || !match[2] || !match[3]) return null;
+  return { sourceTaskId: match[1], targetTaskId: match[2], alias: match[3] };
+}
+
 /**
  * Detect alias drift: the alias on the atom resolves to a UUID that
  * differs from a previously-persisted binding for the same
@@ -348,18 +366,15 @@ async function detectAliasDrift(
         rows.push({ acId: row.acId, evidenceAtomId: row.evidenceAtomId });
       }
     }
-    // The stable atom id pattern follows the form used by writers
-    // (T10505/T10506) but is not yet finalised — we match conservatively
-    // by scanning for any binding whose atom id encodes the same
-    // (source, target, alias) triple. The id format is opaque to this
-    // module; we expect it to contain the alias literal so the
-    // conservative substring match suffices.
-    const aliasMarker = `${targetTaskId}#${alias}`;
+    // T14029: the atom id is parsed and each part compared exactly — a
+    // substring match took `#AC10` for `#AC1` and `T13938` for `T1`.
     for (const row of rows) {
+      const id = parseSatisfiesAtomId(row.evidenceAtomId);
       if (
-        typeof row.evidenceAtomId === 'string' &&
-        row.evidenceAtomId.includes(aliasMarker) &&
-        row.evidenceAtomId.includes(sourceTaskId) &&
+        id !== null &&
+        id.sourceTaskId === sourceTaskId &&
+        id.targetTaskId === targetTaskId &&
+        id.alias === alias &&
         row.acId !== currentUuid
       ) {
         return row.acId;

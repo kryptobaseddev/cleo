@@ -818,6 +818,40 @@ describe('validateSatisfiesAtom — 5-check pipeline (T10507 · ADR-079-r2 §2.4
       expect(result.reason).toMatch(oldAcId);
     });
 
+    it('T14029: binding #AC10 then #AC1 on a 10+ AC task resolves each to its own UUID', async () => {
+      await seedTasks(env.accessor, [
+        { id: 'T1', title: 'short-id source', type: 'task', status: 'pending', priority: 'medium' },
+        { id: 'T13938', title: 'target', type: 'task', status: 'pending', priority: 'medium' },
+      ]);
+      const acIds = Array.from({ length: 11 }, () => uuid());
+      for (const [i, acId] of acIds.entries()) await insertAc(env.tempDir, acId, 'T13938', i + 1);
+      // AC10 was bound first, by the task itself and by T1 (a prefix of T13938).
+      await insertBinding(env.tempDir, 'satisfies:T13938->T13938#AC10', acIds[9] as string);
+      await insertBinding(env.tempDir, 'satisfies:T1->T13938#AC10@v1', acIds[9] as string);
+
+      const ac1 = await validateSatisfiesAtom(
+        { kind: 'satisfies', targetTaskId: 'T13938', targetAcAlias: 'AC1' },
+        'T13938',
+        env.tempDir,
+      );
+      expect(ac1).toMatchObject({ ok: true, atom: { resolvedAcUuid: acIds[0] } });
+      const ac10 = await validateSatisfiesAtom(
+        { kind: 'satisfies', targetTaskId: 'T13938', targetAcAlias: 'AC10' },
+        'T13938',
+        env.tempDir,
+      );
+      expect(ac10).toMatchObject({ ok: true, atom: { resolvedAcUuid: acIds[9] } });
+
+      // Drift still fires for the SAME alias resolving elsewhere.
+      await insertBinding(env.tempDir, 'satisfies:T13938->T13938#AC1', acIds[10] as string);
+      const drifted = await validateSatisfiesAtom(
+        { kind: 'satisfies', targetTaskId: 'T13938', targetAcAlias: 'AC1' },
+        'T13938',
+        env.tempDir,
+      );
+      expect(drifted).toMatchObject({ ok: false, codeName: 'E_AC_ALIAS_DRIFTED' });
+    });
+
     it('does NOT fire when previously-persisted binding matches the current resolution', async () => {
       const acId = uuid();
       await seedTasks(env.accessor, [
