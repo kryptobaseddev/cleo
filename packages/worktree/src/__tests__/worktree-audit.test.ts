@@ -11,13 +11,22 @@
  * @task T9805
  */
 
-import { existsSync, mkdirSync, readFileSync, rmSync } from 'node:fs';
+import {
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  realpathSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
   addWorktreeToSentinelIndex,
   appendWorktreeAuditLog,
+  isCleoProvisionedWorktree,
   removeWorktreeFromSentinelIndex,
   resolveWorktreeIndexPath,
   WORKTREE_INDEX_RELATIVE_PATH,
@@ -283,5 +292,28 @@ describe('removeWorktreeFromSentinelIndex', () => {
 
   it('is a no-op when the index file does not exist', () => {
     expect(() => removeWorktreeFromSentinelIndex(tmpDir, 'T9999', indexPath)).not.toThrow();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// isCleoProvisionedWorktree
+// ---------------------------------------------------------------------------
+
+describe('isCleoProvisionedWorktree', () => {
+  it('T14054: an adopt row recorded through a symlinked path counts as provisioned', () => {
+    const real = realpathSync(tmpDir);
+    const worktree = join(real, 'wt', 'T1');
+    mkdirSync(worktree, { recursive: true });
+    const link = join(real, 'link');
+    symlinkSync(real, link, 'dir');
+    // `cleo worktree adopt` (core's audit writer) records the path as `target`.
+    const log = join(tmpDir, WORKTREE_LIFECYCLE_AUDIT_FILE);
+    mkdirSync(dirname(log), { recursive: true });
+    const row = { action: 'adopt', taskId: 'T1', target: join(link, 'wt', 'T1'), success: true };
+    writeFileSync(log, `${JSON.stringify(row)}\n`);
+    expect(isCleoProvisionedWorktree(tmpDir, 'T1', worktree)).toBe(true);
+    // Either side may be the symlinked spelling.
+    expect(isCleoProvisionedWorktree(tmpDir, 'T1', join(link, 'wt', 'T1'))).toBe(true);
+    expect(isCleoProvisionedWorktree(tmpDir, 'T1', join(real, 'wt', 'T2'))).toBe(false);
   });
 });
