@@ -26,6 +26,7 @@ import type { tasks as coreTasks } from '@cleocode/core';
 import { TASKS_SUGGESTED_NEXT_BUILDERS } from '@cleocode/core/dispatch/suggested-next';
 import { getLogger } from '@cleocode/core/logger';
 import { getProjectRoot } from '@cleocode/core/project-scope';
+import { trackBackgroundOp } from '@cleocode/core/store/background-ops';
 import {
   defineTypedHandler,
   lafsError,
@@ -526,16 +527,20 @@ const _tasksTypedHandler = defineTypedHandler<TasksOps>('tasks', {
       // T14053 — `--no-integrate`
       noIntegrate: params.noIntegrate,
     });
-    // T994: Track memory usage on task completion (fire-and-forget; must not block).
-    // SSoT-EXEMPT: fire-and-forget side-effect that must not block the complete flow
-    setImmediate(async () => {
-      try {
-        const { trackMemoryUsage } = await import('@cleocode/core/memory/quality-feedback');
-        await trackMemoryUsage(projectRoot, params.taskId, true, params.taskId, 'success');
-      } catch {
-        // Quality tracking errors must never surface to the complete flow
-      }
-    });
+    // T994: Track memory usage on task completion; it must not block the
+    // complete flow. T12217: tracked, so teardown waits for its brain write
+    // instead of closing the store under it (an untracked setImmediate ran
+    // after teardown began and kept the process alive until the backstop).
+    void trackBackgroundOp(
+      (async () => {
+        try {
+          const { trackMemoryUsage } = await import('@cleocode/core/memory/quality-feedback');
+          await trackMemoryUsage(projectRoot, params.taskId, true, params.taskId, 'success');
+        } catch {
+          // Quality tracking errors must never surface to the complete flow
+        }
+      })(),
+    );
     return wrapCoreResult(result, 'complete');
   },
 

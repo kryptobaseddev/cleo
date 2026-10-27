@@ -201,6 +201,57 @@ describe.skipIf(!CLI_DIST_AVAILABLE)('T11568 — write commands exit, never hang
 });
 
 // ============================================================================
+// T12217 — write paths release every handle: no exit backstop, no teardown timeout
+// ============================================================================
+
+/**
+ * What the CLI prints when a command did NOT drain on its own: the exit
+ * backstop's "event loop still alive … held by" line, or a teardown step that
+ * hit its deadline. A write that leaks a handle shows one of these even though
+ * its envelope already reported success.
+ */
+const TEARDOWN_LEAK = /event loop still alive|teardown [a-z-]+: timed out/;
+
+describe.skipIf(!CLI_DIST_AVAILABLE)('T12217 — write commands leave no live handle at exit', () => {
+  it('tasks update, docs add, docs update and session start/end drain within the teardown budget', () => {
+    expect(runCli(['init'], projectRoot, dataHome).status).toBe(0);
+    const saga = runCli(
+      [
+        'saga',
+        'create',
+        '--title',
+        'T12217 exit probe',
+        '--description',
+        'd',
+        '--acceptance',
+        'A1|A2|A3|A4|A5',
+      ],
+      projectRoot,
+      dataHome,
+    );
+    expect(saga.status, saga.stderr).toBe(0);
+    const id = (JSON.parse(saga.stdout) as { data: { created: string[] } }).data.created[0] ?? '';
+    const writes: ReadonlyArray<readonly string[]> = [
+      ['session', 'start', '--scope', 'global', '--name', 'T12217 probe'],
+      ['update', id, '--notes', 'T12217 probe note'],
+      ['docs', 'add', id, '--type', 'note', '--slug', 't12217-probe', '--content', '# probe'],
+      ['docs', 'update', 't12217-probe', '--content', '# probe, edited'],
+      ['session', 'end', '--note', 'T12217 probe done'],
+    ];
+    for (const args of writes) {
+      const started = Date.now();
+      const r = runCli(args, projectRoot, dataHome);
+      const label = `cleo ${args.slice(0, 2).join(' ')}`;
+      expect(r.signal, `${label} was killed (hang); stderr:\n${r.stderr}`).toBeNull();
+      expect(r.status, `${label} failed; stderr:\n${r.stderr}`).toBe(0);
+      expect(r.stderr, `${label} left a live handle at exit`).not.toMatch(TEARDOWN_LEAK);
+      // The exit backstop fires at 3 s; a drained write never gets near it.
+      expect(Date.now() - started, `${label} took the exit backstop's time`).toBeLessThan(15_000);
+    }
+  }, 120_000);
+});
+
+// ============================================================================
 // T12024 — mutation commands exit despite a hung dialectic LLM backend
 // ============================================================================
 
