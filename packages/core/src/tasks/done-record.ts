@@ -83,6 +83,8 @@ export type DoneGateWriter = (
     gateEvidence: Partial<Record<VerificationGate, string | readonly string[]>>;
     /** Execute uncached typed gates in the write (`--run-typed` with the cache off). */
     runTyped?: boolean;
+    /** `--shared-evidence`: acknowledge an atom reused across >3 tasks (T14072). */
+    sharedEvidence?: boolean;
     sessionId?: string;
     agent?: string;
   },
@@ -114,6 +116,13 @@ export interface RecordTaskDoneOptions extends DeriveTaskEvidenceOptions {
    * by `cleo verify --run` and refuses a linked gate that has none.
    */
   runTyped?: boolean;
+  /**
+   * `cleo done --shared-evidence` (T14072): acknowledge that an evidence atom
+   * (`ci:<pr>`, `pr:<n>`) is applied to more than three tasks in the session,
+   * exactly as `cleo verify --shared-evidence` does. Without it the write warns
+   * `W_EVIDENCE_AUDIT_MISS`, or refuses under `CLEO_STRICT_EVIDENCE=1`.
+   */
+  sharedEvidence?: boolean;
 }
 
 /**
@@ -405,6 +414,7 @@ export async function recordTaskDone(
       // The write itself is cache-only; with --run-typed and the cache turned
       // off, the gates must execute in the write (nothing was cached above).
       ...(opts.runTyped === true && !readAllowCachedGates(storeRoot) ? { runTyped: true } : {}),
+      ...(opts.sharedEvidence === true ? { sharedEvidence: true } : {}),
       ...(sessionId ? { sessionId } : {}),
       ...(opts.agent ? { agent: opts.agent } : {}),
     });

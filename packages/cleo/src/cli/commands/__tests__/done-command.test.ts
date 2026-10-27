@@ -66,6 +66,18 @@ describe('cleo done', () => {
     expect(params['expectedUpdatedAt']).toBeUndefined();
   });
 
+  it('T14072: --shared-evidence, the remedy the shared-atom warning names, is a done flag and reaches the record step', async () => {
+    expect(Object.keys(doneCommand.args ?? {})).toContain('shared-evidence');
+    recordTaskDone.mockResolvedValue(recorded);
+    dispatchRaw.mockResolvedValue({ success: true, data: { updated: ['T1'] } });
+    await runDone({ taskId: 'T1', pr: '2488', 'shared-evidence': true });
+    expect(cliError).not.toHaveBeenCalled();
+    expect(recordTaskDone.mock.calls[0]?.[1]).toMatchObject({ sharedEvidence: true });
+    recordTaskDone.mockClear();
+    await runDone({ taskId: 'T1', pr: '2488' });
+    expect(recordTaskDone.mock.calls[0]?.[1]).not.toHaveProperty('sharedEvidence');
+  });
+
   it('refuses --if-match with several task ids before recording anything (T12503)', async () => {
     await runDone({ taskId: 'T1', _: ['T2'], 'if-match': '2026-09-29T00:00:00.000Z' });
     expect(recordTasksDone).not.toHaveBeenCalled();
