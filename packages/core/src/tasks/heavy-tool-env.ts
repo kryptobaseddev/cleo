@@ -84,8 +84,12 @@
 
 import { type Dirent, readdirSync, readFileSync } from 'node:fs';
 import { totalmem } from 'node:os';
-import { join } from 'node:path';
-import type { HeavyLeverChange, HeavyToolResourcePlan } from '@cleocode/contracts';
+import { join, relative } from 'node:path';
+import type {
+  HeavyLeverChange,
+  HeavyToolResourcePlan,
+  ProjectSettingOverride,
+} from '@cleocode/contracts';
 import type { CanonicalTool } from './tool-resolver.js';
 
 /**
@@ -497,7 +501,22 @@ function dirEntries(dir: string): Dirent[] {
  * @task T14033
  */
 export function vitestWorkerCeiling(dir: string, argv: readonly string[] = []): number | null {
-  const found = [argvWorkerCeiling(argv)];
+  const limits = [argvWorkerCeiling(argv), ...vitestConfigLimits(dir).map((l) => l.workers)].filter(
+    (n): n is number => n !== null,
+  );
+  return limits.length > 0 ? Math.min(...limits) : null;
+}
+
+/**
+ * The literal worker limit of every vitest config in `dir` and up to
+ * {@link CONFIG_SEARCH_DEPTH} levels below it, as {@link vitestWorkerCeiling}
+ * reads them (T14033, T14038).
+ *
+ * @param dir - the directory the run starts in.
+ * @returns each config that sets a limit, with its path.
+ */
+function vitestConfigLimits(dir: string): Array<{ path: string; workers: number }> {
+  const found: Array<{ path: string; workers: number }> = [];
   let level = [dir];
   for (let depth = 0; depth <= CONFIG_SEARCH_DEPTH && level.length > 0; depth++) {
     const next: string[] = [];
@@ -506,7 +525,8 @@ export function vitestWorkerCeiling(dir: string, argv: readonly string[] = []): 
         const path = join(current, entry.name);
         if (entry.isFile() && VITEST_CONFIG_FILE.test(entry.name)) {
           try {
-            found.push(configWorkerCeiling(readFileSync(path, 'utf8')));
+            const workers = configWorkerCeiling(readFileSync(path, 'utf8'));
+            if (workers !== null) found.push({ path, workers });
           } catch {
             // An unreadable config sets no limit CLEO can honour.
           }
@@ -521,8 +541,85 @@ export function vitestWorkerCeiling(dir: string, argv: readonly string[] = []): 
     }
     level = next;
   }
-  const limits = found.filter((n): n is number => n !== null);
-  return limits.length > 0 ? Math.min(...limits) : null;
+  return found;
+}
+
+/** `workspace-concurrency=N` in an `.npmrc`. */
+const NPMRC_WORKSPACE_CONCURRENCY = /^\s*workspace-concurrency\s*=\s*(\d+)\s*$/m;
+
+/** `workspaceConcurrency: N` in a `pnpm-workspace.yaml`. */
+const PNPM_WORKSPACE_CONCURRENCY = /^\s*workspaceConcurrency\s*:\s*(\d+)\s*$/m;
+
+/** A file's text, or `null` when it cannot be read. */
+function readText(path: string): string | null {
+  try {
+    return readFileSync(path, 'utf8');
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * The project-file settings a heavy-run overlay overrides (T14038): a literal
+ * vitest `maxWorkers` (or `fileParallelism: false`) that `VITEST_MAX_WORKERS`
+ * changes, and a pnpm `workspace-concurrency` (`.npmrc`, or
+ * `workspaceConcurrency` in `pnpm-workspace.yaml`) that the
+ * `*_config_workspace_concurrency` variables change. A heap the project sets
+ * (a vitest `execArgv`, an inline `NODE_OPTIONS` in a script, `.npmrc`
+ * `node-options`) is applied after the inherited `NODE_OPTIONS`, so the
+ * overlay never overrides it and it is not listed.
+ *
+ * @param dir - the directory the run starts in.
+ * @param overlay - the overlay the run is spawned with.
+ * @returns one entry per overridden setting, in file order.
+ *
+ * @example
+ * ```ts
+ * // apps/api/vitest.config.ts: test: { maxWorkers: 8 }
+ * projectSettingOverrides('/repo', { VITEST_MAX_WORKERS: '3' });
+ * // [{ setting: 'vitest maxWorkers', file: 'apps/api/vitest.config.ts', projectValue: '8',
+ * //    variable: 'VITEST_MAX_WORKERS', appliedValue: '3' }]
+ * ```
+ *
+ * @task T14038
+ */
+export function projectSettingOverrides(
+  dir: string,
+  overlay: Readonly<Record<string, string>>,
+): ProjectSettingOverride[] {
+  const out: ProjectSettingOverride[] = [];
+  const workers = overlay.VITEST_MAX_WORKERS;
+  if (workers !== undefined) {
+    for (const limit of vitestConfigLimits(dir)) {
+      if (String(limit.workers) === workers) continue;
+      out.push({
+        setting: 'vitest maxWorkers',
+        file: relative(dir, limit.path),
+        projectValue: String(limit.workers),
+        variable: 'VITEST_MAX_WORKERS',
+        appliedValue: workers,
+      });
+    }
+  }
+  const variable = WORKSPACE_CONCURRENCY_VARS.find((name) => overlay[name] !== undefined);
+  const applied = variable === undefined ? undefined : overlay[variable];
+  if (variable !== undefined && applied !== undefined) {
+    for (const [file, pattern] of [
+      ['.npmrc', NPMRC_WORKSPACE_CONCURRENCY],
+      ['pnpm-workspace.yaml', PNPM_WORKSPACE_CONCURRENCY],
+    ] as const) {
+      const value = pattern.exec(readText(join(dir, file)) ?? '')?.[1];
+      if (value === undefined || value === applied) continue;
+      out.push({
+        setting: 'pnpm workspace-concurrency',
+        file,
+        projectValue: value,
+        variable,
+        appliedValue: applied,
+      });
+    }
+  }
+  return out;
 }
 
 /**

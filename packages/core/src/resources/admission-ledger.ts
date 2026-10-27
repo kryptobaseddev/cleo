@@ -99,6 +99,7 @@ import {
   isHeavyTool,
   isMemoryBoundTool,
   planHeavyToolEnv,
+  projectSettingOverrides,
   vitestWorkerCeiling,
 } from '../tasks/heavy-tool-env.js';
 import type { CanonicalTool } from '../tasks/tool-resolver.js';
@@ -450,7 +451,7 @@ export function planRunFootprint(
     const { overlay, resources } = planHeavyToolEnv('typecheck', env, totalRamGib);
     return {
       overlay,
-      resources,
+      resources: withProjectOverrides(resources, overlay, cwd),
       ...(resources !== null ? { footprintBytes: planFootprintBytes(resources) } : {}),
       footprintReason: scope.reason,
       namedFiles: null,
@@ -487,7 +488,7 @@ export function planRunFootprint(
       : planned;
   return {
     overlay,
-    resources,
+    resources: withProjectOverrides(resources, overlay, cwd),
     ...(charged !== undefined ? { footprintBytes: charged } : {}),
     footprintReason:
       peak !== null && charged !== planned
@@ -517,6 +518,17 @@ export function describeCharge(
   plan: Pick<RunFootprintPlan, 'footprintBytes' | 'footprintReason'>,
 ): string {
   return `${gib(plan.footprintBytes ?? footprintForClass(cls))}: ${plan.footprintReason}`;
+}
+
+/** A plan with the project-file settings its overlay overrides (T14038). */
+function withProjectOverrides(
+  resources: HeavyToolResourcePlan | null,
+  overlay: Readonly<Record<string, string>>,
+  cwd: string,
+): HeavyToolResourcePlan | null {
+  if (resources === null) return null;
+  const projectOverrides = projectSettingOverrides(cwd, overlay);
+  return projectOverrides.length > 0 ? { ...resources, projectOverrides } : resources;
 }
 
 /** Governor classes whose admission is the ledger's. */

@@ -2372,6 +2372,7 @@ export type {
   MemoryConsumer,
   MemoryConsumers,
   MemoryPressureReading,
+  ProjectSettingOverride,
   ResourceClass,
   ResourceDeferral,
   ResourceGrant,

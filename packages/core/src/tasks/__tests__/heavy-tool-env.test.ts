@@ -34,6 +34,7 @@ import {
   PER_RUN_BUDGET_SHARE,
   perRunBudgetShare,
   planHeavyToolEnv,
+  projectSettingOverrides,
   vitestWorkerCeiling,
   WORKSPACE_CONCURRENCY,
   withHeapCeiling,
@@ -616,5 +617,33 @@ describe('vitestWorkerCeiling (T14033)', () => {
     ).toBe('1');
     // A ceiling above the CLEO plan does not raise it.
     expect(planHeavyToolEnv('test', {}, 62, 6).overlay.VITEST_MAX_WORKERS).toBe('3');
+  });
+  it('names each project setting the overlay overrides: vitest maxWorkers and pnpm workspace-concurrency (T14038)', () => {
+    const root = project({
+      'apps/api/vitest.config.ts': 'test: { maxWorkers: 8 }',
+      'apps/web/vitest.config.ts': 'test: { maxWorkers: 3 }',
+      '.npmrc': 'auto-install-peers=true\nworkspace-concurrency=4\n',
+      'pnpm-workspace.yaml': "packages:\n  - 'apps/*'\nworkspaceConcurrency: 1\n",
+    });
+    const overlay = planHeavyToolEnv('test', {}, 62, 6).overlay;
+    expect(overlay.VITEST_MAX_WORKERS).toBe('3');
+    expect(projectSettingOverrides(root, overlay)).toEqual([
+      {
+        setting: 'vitest maxWorkers',
+        file: join('apps', 'api', 'vitest.config.ts'),
+        projectValue: '8',
+        variable: 'VITEST_MAX_WORKERS',
+        appliedValue: '3',
+      },
+      {
+        setting: 'pnpm workspace-concurrency',
+        file: '.npmrc',
+        projectValue: '4',
+        variable: 'npm_config_workspace_concurrency',
+        appliedValue: '1',
+      },
+    ]);
+    // A value the overlay leaves equal, or a project that sets nothing, is not an override.
+    expect(projectSettingOverrides(project({}), overlay)).toEqual([]);
   });
 });

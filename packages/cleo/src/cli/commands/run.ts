@@ -257,6 +257,14 @@ export const runCommand = defineCommand({
         `planned resources: ${resources.summary}`,
         resources.clamped.length > 0 || resources.overBudget ? 'warn' : 'info',
       );
+      // T14038: a project setting the overlay overrides is named, so a run that
+      // behaves differently from the project's own setup says why.
+      for (const o of resources.projectOverrides ?? []) {
+        notice(
+          `overrides the project's ${o.setting} ${o.projectValue} (${o.file}) with ${o.variable}=${o.appliedValue}`,
+          'warn',
+        );
+      }
     }
     // T14050: the bytes asked of the ledger and how they were derived.
     notice(`charged footprint: ${describeCharge(cls, plan)}`, 'info');
