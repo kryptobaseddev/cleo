@@ -270,7 +270,13 @@ describe('worker execution through the bundled writer (T12265, unscoped since T1
         expect(response.result.result.id).toMatch(/^O-/);
       expect(existsSync(join(other, '.cleo'))).toBe(false);
     } finally {
-      await worker?.terminate();
+      // T14069: drain before terminating, as the manager does. A bare
+      // terminate() while the worker loaded the onnxruntime addon for its
+      // scheduled embedding aborted this whole fork on CI.
+      if (worker) {
+        const { drainAndTerminateWriter } = await import('../brain-writer-thread.js');
+        await drainAndTerminateWriter(worker);
+      }
       await manager?.shutdownBrainWriter();
       await closeAllDatabases();
       await rm(root, { recursive: true, force: true });
