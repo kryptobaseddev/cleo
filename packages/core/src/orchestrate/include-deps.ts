@@ -92,6 +92,7 @@ export async function buildDependencyIntegration(
   if (!baseSha) {
     return {
       ok: false,
+      // @sync-invariant none:input-shape a --base that does not resolve is refused before any write
       code: 'E_WORKTREE_BASE_INVALID',
       message: `base '${base}' does not resolve to a commit`,
       fix: 'Pass --base a branch, tag or sha that exists.',
@@ -104,6 +105,7 @@ export async function buildDependencyIntegration(
     if (!sha) {
       return {
         ok: false,
+        // @sync-invariant none:input-shape a dependency with no branch is refused before any write
         code: 'E_INCLUDE_DEPS_MISSING',
         message: `dependency ${dep} has no branch '${branch}' to include`,
         fix: `Spawn without --include-deps when ${dep} has already landed in the base, or restore its branch.`,
@@ -112,6 +114,7 @@ export async function buildDependencyIntegration(
     if (tryGit(projectRoot, ['merge-base', baseSha, sha]) === null) {
       return {
         ok: false,
+        // @sync-invariant none:input-shape a dependency that cannot merge onto the base is refused before any write
         code: 'E_INCLUDE_DEPS_DIVERGED',
         message: `dependency branch '${branch}' shares no history with ${base}`,
         fix: `Rebuild ${branch} from the base, or spawn without --include-deps.`,
@@ -142,6 +145,7 @@ export async function buildDependencyIntegration(
         tryGit(scratch, ['merge', '--abort']);
         return {
           ok: false,
+          // @sync-invariant none:input-shape a dependency that cannot merge onto the base is refused before any write
           code: 'E_INCLUDE_DEPS_DIVERGED',
           message: `dependency branch '${dep.branch}' does not merge cleanly onto ${base} and the dependencies before it`,
           fix: `Resolve the conflict on ${dep.branch} (rebase it on the base), then retry.`,
