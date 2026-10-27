@@ -7,10 +7,19 @@
  */
 
 import { execFileSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, realpathSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
+import {
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  realpathSync,
+  rmSync,
+  utimesSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import type { EvidenceAtom } from '@cleocode/contracts';
+import { fileURLToPath } from 'node:url';
+import type { EvidenceAtom, EvidenceValidationContext } from '@cleocode/contracts';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { testRunTreeMismatchReason } from '../affected-scope.js';
 import { validateAtom } from '../evidence.js';
@@ -780,5 +789,177 @@ describe('relevance in a standalone single-package project (T13403)', () => {
     expect(!none.ok && none.reason, JSON.stringify(none)).toMatch(
       /covers no test file of solo \(changed\)/,
     );
+  });
+});
+
+/**
+ * A real Playwright 1.59 JSON report (`fixtures/playwright-json`), re-rooted at
+ * this checkout's `e2e/` and stamped as run at `startTime`.
+ */
+function playwrightReport(name: string, startTime: number, edit?: (r: PwReport) => void): string {
+  const fixture = fileURLToPath(
+    new URL(`./fixtures/playwright-json/${name}.json`, import.meta.url),
+  );
+  const parsed: PwReport = JSON.parse(readFileSync(fixture, 'utf-8'));
+  parsed.config.rootDir = join(root, 'e2e');
+  parsed.stats.startTime = new Date(startTime).toISOString();
+  edit?.(parsed);
+  mkdirSync(join(root, 'reports'), { recursive: true });
+  const path = join(root, 'reports', `playwright-${name}.json`);
+  writeFileSync(path, JSON.stringify(parsed));
+  return path;
+}
+
+/** The fields of a Playwright JSON report these tests rewrite. */
+interface PwReport {
+  config: { rootDir: string };
+  stats: { startTime: string; expected: number };
+}
+
+/**
+ * EscapePlan T732: a change adding an e2e spec could never prove testsPassed,
+ * because only vitest/jest reports were read (T14031).
+ */
+describe('Playwright JSON reports are test-run evidence (T14031)', () => {
+  it('AC1: files from suites[].file, counts from spec results, time from stats.startTime', async () => {
+    const r = await validateAtom(
+      { kind: 'test-run', path: playwrightReport('pass', Date.now() + 5_000) },
+      root,
+    );
+    expect(r.ok && r.atom, JSON.stringify(r)).toMatchObject({
+      testFiles: ['e2e/density.spec.mjs', 'e2e/venue.spec.mjs'],
+      passCount: 3,
+      failCount: 0,
+      skipCount: 1,
+    });
+  });
+
+  it('AC1: a run that started before the change is stale by stats.startTime', async () => {
+    const r = await validateAtom(
+      { kind: 'test-run', path: playwrightReport('pass', Date.now() - 60_000) },
+      root,
+    );
+    expect(!r.ok && r.codeName, JSON.stringify(r)).toBe('E_EVIDENCE_STALE');
+  });
+
+  it('AC2: a failing run is refused', async () => {
+    const r = await validateAtom(
+      { kind: 'test-run', path: playwrightReport('fail', Date.now() + 5_000) },
+      root,
+    );
+    expect(!r.ok && r.codeName, JSON.stringify(r)).toBe('E_EVIDENCE_TESTS_FAILED');
+    expect(!r.ok && r.reason).toMatch(/numFailedTests = 1/);
+  });
+
+  it('AC2: a skipped-only run is refused', async () => {
+    const r = await validateAtom(
+      { kind: 'test-run', path: playwrightReport('skipped', Date.now() + 5_000) },
+      root,
+    );
+    expect(!r.ok && r.reason, JSON.stringify(r)).toMatch(/no passed tests/);
+  });
+
+  it('AC2: a vacuous run (no tests found) is refused', async () => {
+    const r = await validateAtom(
+      { kind: 'test-run', path: playwrightReport('none', Date.now() + 5_000) },
+      root,
+    );
+    expect(!r.ok && r.codeName, JSON.stringify(r)).toBe('E_EVIDENCE_TESTS_FAILED');
+    expect(!r.ok && r.reason).toMatch(/No tests found/);
+  });
+
+  it('AC2: stats that disagree with the spec results are refused', async () => {
+    const path = playwrightReport('pass', Date.now() + 5_000, (r) => {
+      r.stats.expected = 9;
+    });
+    const r = await validateAtom({ kind: 'test-run', path }, root);
+    expect(!r.ok && r.codeName, JSON.stringify(r)).toBe('E_EVIDENCE_INVALID');
+    expect(!r.ok && r.reason).toMatch(/stats\.expected is 9, but its spec results count 3/);
+  });
+
+  it('a test that passed on retry (flaky) counts as passed', async () => {
+    const r = await validateAtom(
+      { kind: 'test-run', path: playwrightReport('flaky', Date.now() + 5_000) },
+      root,
+    );
+    expect(r.ok && r.atom, JSON.stringify(r)).toMatchObject({ passCount: 2, failCount: 0 });
+  });
+
+  describe('AC3: a vitest and a Playwright report of one write cover the change together', () => {
+    const file = (rel: string): string => join(root, rel);
+    const context = (paths: string[]): EvidenceValidationContext => ({
+      task: {
+        id: 'T1',
+        kind: 'work',
+        labels: [],
+        files: [],
+        acceptance: ['unit and e2e tests pass'],
+        verification: undefined,
+      },
+      gates: ['testsPassed'],
+      criteria: [],
+      testRunPaths: paths,
+    });
+
+    beforeEach(() => {
+      writeFileSync(join(root, '.gitignore'), 'reports/\n.cleo/\n');
+      writeFileSync(
+        join(root, 'package.json'),
+        JSON.stringify({ name: 'solo', scripts: { test: 'vitest run' } }),
+      );
+      writeFileSync(file('src/a.test.ts'), 'export {};\n');
+      git(root, ['add', '.']);
+      git(root, ['commit', '-q', '-m', 'solo']);
+      const origin = `${root}-origin.git`;
+      execFileSync('git', ['init', '-q', '--bare', '-b', 'main', origin]);
+      git(root, ['remote', 'add', 'origin', origin]);
+      git(root, ['push', '-q', '-u', 'origin', 'main']);
+      git(root, ['remote', 'set-head', 'origin', 'main']);
+      git(root, ['switch', '-q', '-c', 'task/T1']);
+      writeFileSync(file('src/a.ts'), 'export const a = 2;\n');
+      writeFileSync(file('src/a.test.ts'), 'export const t = 1;\n');
+      mkdirSync(file('e2e'), { recursive: true });
+      writeFileSync(file('e2e/density.spec.mjs'), 'export {};\n');
+      git(root, ['add', '.']);
+      git(root, ['commit', '-q', '-m', 'T1: change a, its test and an e2e spec']);
+    });
+    afterEach(() => rmSync(`${root}-origin.git`, { recursive: true, force: true }));
+
+    it('red: either report alone misses the other half of the change', async () => {
+      const unit = report([file('src/a.test.ts')], Date.now() + 5_000);
+      const e2e = playwrightReport('pass', Date.now() + 5_000);
+      const alone = await validateAtom({ kind: 'test-run', path: unit }, root);
+      expect(!alone.ok && alone.reason, JSON.stringify(alone)).toMatch(
+        /does not run the changed test file\(s\) e2e\/density\.spec\.mjs/,
+      );
+      const e2eAlone = await validateAtom({ kind: 'test-run', path: e2e }, root);
+      expect(!e2eAlone.ok && e2eAlone.reason, JSON.stringify(e2eAlone)).toMatch(
+        /does not run the changed test file\(s\) src\/a\.test\.ts/,
+      );
+    });
+
+    it('green: together each report stands and records its own files', async () => {
+      const unit = report([file('src/a.test.ts')], Date.now() + 5_000);
+      const e2e = playwrightReport('pass', Date.now() + 5_000);
+      const both = context([unit, e2e]);
+      const u = await validateAtom(
+        { kind: 'test-run', path: unit },
+        root,
+        undefined,
+        undefined,
+        both,
+      );
+      expect(u.ok && u.atom, JSON.stringify(u)).toMatchObject({ testFiles: ['src/a.test.ts'] });
+      const e = await validateAtom(
+        { kind: 'test-run', path: e2e },
+        root,
+        undefined,
+        undefined,
+        both,
+      );
+      expect(e.ok && e.atom, JSON.stringify(e)).toMatchObject({
+        testFiles: ['e2e/density.spec.mjs', 'e2e/venue.spec.mjs'],
+      });
+    });
   });
 });

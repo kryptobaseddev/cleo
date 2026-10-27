@@ -199,6 +199,13 @@ export interface EvidenceValidationContext {
    */
   artifactPrs?: ReadonlyArray<EvidenceMergeAnchor>;
   /**
+   * Every `test-run:` path in the evidence write (T14031). A report's coverage
+   * of the change is judged over the test files all of them passed, so a
+   * vitest report and a Playwright report together cover unit and e2e files;
+   * each report is still validated on its own.
+   */
+  testRunPaths?: readonly string[];
+  /**
    * Validate without persisting anything: `pr:`/`ci:` lookups write neither
    * the PR-result cache nor the branch-protection cache (T12671 review — the
    * `cleo done --plan` preview must leave `.cleo/` untouched).
