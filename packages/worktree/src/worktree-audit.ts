@@ -203,6 +203,27 @@ export function readRecordedWorktreeBase(
 }
 
 /**
+ * How CLEO provisioned the task's worktree at `xdgPath`: the action of the
+ * newest successful `create` or `adopt` lifecycle row, or `null` when there is
+ * none (T10871).
+ *
+ * @param projectRoot - Absolute path to the CLEO project root.
+ * @param taskId - Task whose worktree is looked up.
+ * @param xdgPath - The task's worktree path.
+ * @returns `'create'`, `'adopt'` or `null`.
+ *
+ * @task T10871
+ */
+export function readWorktreeProvisioning(
+  projectRoot: string,
+  taskId: string,
+  xdgPath: string,
+): 'create' | 'adopt' | null {
+  const action = findWorktreeAuditRow(projectRoot, taskId, xdgPath, ['create', 'adopt'])?.action;
+  return action === 'create' || action === 'adopt' ? action : null;
+}
+
+/**
  * Whether CLEO provisioned the task's worktree at `xdgPath`: the lifecycle
  * audit log records a `create` (new branch), or an `adopt` (an existing
  * branch reused at spawn, or `cleo worktree adopt <path> --task-id <id>`) for

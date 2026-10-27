@@ -22,7 +22,7 @@ import { join } from 'node:path';
 import type { WorktreeLifecycleAuditEntry } from '@cleocode/contracts';
 import { afterEach, describe, expect, it } from 'vitest';
 
-import { createAgentWorktree } from '../../spawn/branch-lock.js';
+import { createAgentWorktree, readWorktreeLifecycleState } from '../../spawn/branch-lock.js';
 import { completeWorktreeForTask } from '../worktree-complete.js';
 
 // ---------------------------------------------------------------------------
@@ -132,6 +132,37 @@ describe('completeWorktreeForTask (T9548)', () => {
     expect(completeRow).toBeDefined();
     expect(completeRow?.taskId).toBe('T9548-happy');
     expect(completeRow?.success).toBe(true);
+  });
+
+  it('T10871: completion reports the worktree through one typed lifecycle state', async () => {
+    fixture = makeRepo('main');
+    const worktree = await createAgentWorktree('T10871-state', fixture.root);
+    writeFileSync(join(worktree.path, 'scratch.ts'), '// uncommitted\n');
+
+    const result = completeWorktreeForTask('T10871-state', fixture.root, { resolve: 'manual' });
+
+    expect(result.state).toEqual({
+      taskId: 'T10871-state',
+      path: worktree.path,
+      branch: 'task/T10871-state',
+      registered: true,
+      exists: true,
+      provisioning: 'create',
+      locked: true,
+      dirty: true,
+    });
+  });
+
+  it('T10871: a task with no worktree reads as unregistered, absent and not provisioned', () => {
+    fixture = makeRepo('main');
+    expect(readWorktreeLifecycleState(fixture.root, 'T10871-none')).toMatchObject({
+      registered: false,
+      exists: false,
+      provisioning: null,
+      locked: false,
+      dirty: false,
+      branch: 'task/T10871-none',
+    });
   });
 
   // -------------------------------------------------------------------------

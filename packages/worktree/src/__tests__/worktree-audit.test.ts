@@ -27,6 +27,7 @@ import {
   addWorktreeToSentinelIndex,
   appendWorktreeAuditLog,
   isCleoProvisionedWorktree,
+  readWorktreeProvisioning,
   removeWorktreeFromSentinelIndex,
   resolveWorktreeIndexPath,
   WORKTREE_INDEX_RELATIVE_PATH,
@@ -330,5 +331,24 @@ describe('isCleoProvisionedWorktree', () => {
     // Either side may be the symlinked spelling.
     expect(isCleoProvisionedWorktree(tmpDir, 'T1', join(link, 'wt', 'T1'))).toBe(true);
     expect(isCleoProvisionedWorktree(tmpDir, 'T1', join(real, 'wt', 'T2'))).toBe(false);
+  });
+});
+
+describe('readWorktreeProvisioning (T10871)', () => {
+  it('returns the newest create/adopt action for the task, else null', () => {
+    const log = join(tmpDir, WORKTREE_LIFECYCLE_AUDIT_FILE);
+    mkdirSync(dirname(log), { recursive: true });
+    const wt = join(realpathSync(tmpDir), 'wt', 'T2');
+    expect(readWorktreeProvisioning(tmpDir, 'T2', wt)).toBeNull();
+    writeFileSync(
+      log,
+      [
+        { action: 'create', taskId: 'T2', xdgPath: wt, success: true },
+        { action: 'adopt', taskId: 'T2', target: wt, success: true },
+      ]
+        .map((row) => JSON.stringify(row))
+        .join('\n') + '\n',
+    );
+    expect(readWorktreeProvisioning(tmpDir, 'T2', wt)).toBe('adopt');
   });
 });
