@@ -4230,6 +4230,13 @@ export const OPERATIONS: OperationDef[] = [
         required: false,
         description: 'Progressive disclosure tier (0-2)',
       },
+      {
+        name: 'baseRef',
+        type: 'string',
+        required: false,
+        description:
+          'T14046: ref the task branch is created from instead of HEAD; a provisioning failure refuses the spawn',
+      },
     ],
   },
   {

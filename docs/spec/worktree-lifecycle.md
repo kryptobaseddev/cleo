@@ -592,8 +592,8 @@ specification MUST satisfy every MUST and MUST NOT.
   is set, the spawn flow MUST skip auto-completion AND append a
   `complete-skip` audit entry with `reason: 'env-override'`. `cleo complete`
   MUST skip its integration call under the same variable or
-  `--no-integrate` (T14053). The spawn flow does not check the variable
-  yet (T14057).
+  `--no-integrate` (T14053). The spawn flow checks the variable through
+  the same `integrationDisabledReason` (T14057).
 - **MUST-19a.** A local merge MUST happen only for a worktree whose
   provisioning (`create` or `adopt`) is recorded in
   `.cleo/audit/worktree-lifecycle.jsonl`, and only into a main checkout

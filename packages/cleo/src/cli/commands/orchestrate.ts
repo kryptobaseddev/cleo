@@ -805,13 +805,20 @@ const spawnExecuteCommand = defineCommand({
       description: 'Task ID to execute spawn for',
       required: true,
     },
+    base: {
+      type: 'string',
+      description:
+        'T14046: create the task branch from this ref (branch, tag or sha) instead of HEAD, ' +
+        'as `orchestrate spawn --base` does. A bad ref or a worktree on another base refuses ' +
+        'the spawn; it never falls back to the project root.',
+    },
   },
   async run({ args }) {
     await dispatchFromCli(
       'mutate',
       'orchestrate',
       'spawn.execute',
-      { taskId: args.taskId },
+      { taskId: args.taskId, ...(args.base !== undefined ? { baseRef: args.base } : {}) },
       { command: 'orchestrate' },
     );
   },
