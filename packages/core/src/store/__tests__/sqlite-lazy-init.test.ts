@@ -58,8 +58,11 @@ describe('sqlite-native.ts leaf module (T1331 v3)', () => {
     const { getDbSyncConstructor } = await import('../sqlite-native.js');
     const ctor = getDbSyncConstructor();
     expect(typeof ctor).toBe('function');
-    // Verify the constructor name matches the real node:sqlite export
-    expect(ctor.name).toBe('DatabaseSync');
+    // It is the real node:sqlite export. Compared by identity, not name:
+    // Node 26 makes `DatabaseSync` an alias of `Database`, so its name is
+    // 'Database' there and 'DatabaseSync' on Node 24 (T14068).
+    const sqlite = await vi.importActual<typeof import('node:sqlite')>('node:sqlite');
+    expect(ctor).toBe(sqlite.DatabaseSync);
   });
 
   it('getDbSyncConstructor() returns the memoized constructor on subsequent calls', async () => {

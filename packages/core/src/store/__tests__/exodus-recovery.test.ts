@@ -190,3 +190,21 @@ it('refuses an application override of a built-in SQL function before a trigger 
   expect(calls).toBe(0);
   expect(db.prepare('SELECT count(*) AS n FROM records').get()?.n).toBe(0);
 });
+
+it('T14068: a DEFAULT CURRENT_TIMESTAMP column copies (SQLite 3.54 names the function in upper case)', () => {
+  db.exec(
+    'CREATE TABLE stamped(id INTEGER PRIMARY KEY, created_at TEXT DEFAULT CURRENT_TIMESTAMP)',
+  );
+  expect(insert('INSERT INTO stamped(id) VALUES(1)', 'stamped')).toBe(1);
+  expect(db.prepare('SELECT created_at FROM stamped').get()?.created_at).toEqual(
+    expect.any(String),
+  );
+});
+
+it('T14068: an overridden built-in is refused whatever case the SQL spells it in', () => {
+  db.function('length', () => 1);
+  db.exec('CREATE TRIGGER opaque_guard BEFORE INSERT ON records BEGIN SELECT LENGTH(new.id); END');
+  expect(() => insert("INSERT INTO records VALUES(1,'unsafe',NULL,NULL)")).toThrow(
+    /opaque function length/i,
+  );
+});
