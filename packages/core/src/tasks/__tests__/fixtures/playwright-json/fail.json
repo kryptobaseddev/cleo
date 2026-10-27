@@ -1,0 +1,293 @@
+{
+  "config": {
+    "configFile": "/work/app/playwright.config.mjs",
+    "rootDir": "/work/app/e2e",
+    "forbidOnly": false,
+    "fullyParallel": false,
+    "globalSetup": null,
+    "globalTeardown": null,
+    "globalTimeout": 0,
+    "grep": {},
+    "grepInvert": null,
+    "maxFailures": 0,
+    "metadata": {
+      "actualWorkers": 1
+    },
+    "preserveOutput": "always",
+    "projects": [
+      {
+        "outputDir": "/work/app/test-results",
+        "repeatEach": 1,
+        "retries": 1,
+        "metadata": {
+          "actualWorkers": 1
+        },
+        "id": "",
+        "name": "",
+        "testDir": "/work/app/e2e",
+        "testIgnore": [],
+        "testMatch": [
+          "**/*.@(spec|test).?(c|m)[jt]s?(x)"
+        ],
+        "timeout": 30000
+      }
+    ],
+    "quiet": false,
+    "reporter": [
+      [
+        "json",
+        {
+          "outputFile": "/work/fail.json"
+        }
+      ]
+    ],
+    "reportSlowTests": {
+      "max": 5,
+      "threshold": 300000
+    },
+    "shard": null,
+    "tags": [],
+    "updateSnapshots": "missing",
+    "updateSourceMethod": "patch",
+    "version": "1.59.1",
+    "workers": 1,
+    "webServer": null
+  },
+  "suites": [
+    {
+      "title": "flaky.spec.mjs",
+      "file": "flaky.spec.mjs",
+      "column": 0,
+      "line": 0,
+      "specs": [
+        {
+          "title": "flaky once",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "",
+              "projectName": "",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "failed",
+                  "duration": 2,
+                  "error": {
+                    "message": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mreceived\u001b[39m\u001b[2m).\u001b[22mtoBe\u001b[2m(\u001b[22m\u001b[32mexpected\u001b[39m\u001b[2m) // Object.is equality\u001b[22m\n\nExpected: \u001b[32m1\u001b[39m\nReceived: \u001b[31m0\u001b[39m",
+                    "stack": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mreceived\u001b[39m\u001b[2m).\u001b[22mtoBe\u001b[2m(\u001b[22m\u001b[32mexpected\u001b[39m\u001b[2m) // Object.is equality\u001b[22m\n\nExpected: \u001b[32m1\u001b[39m\nReceived: \u001b[31m0\u001b[39m\n    at /work/app/e2e/flaky.spec.mjs:2:61",
+                    "location": {
+                      "file": "/work/app/e2e/flaky.spec.mjs",
+                      "column": 61,
+                      "line": 2
+                    },
+                    "snippet": "  1 | import { test, expect } from '@playwright/test';\n> 2 | test('flaky once', async ({}, info) => { expect(info.retry).toBe(1); });\n    |                                                             ^\n  3 | test('steady', async () => { expect(1).toBe(1); });\n  4 | test('broken', async () => { expect(1).toBe(2); });\n  5 |"
+                  },
+                  "errors": [
+                    {
+                      "location": {
+                        "file": "/work/app/e2e/flaky.spec.mjs",
+                        "column": 61,
+                        "line": 2
+                      },
+                      "message": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mreceived\u001b[39m\u001b[2m).\u001b[22mtoBe\u001b[2m(\u001b[22m\u001b[32mexpected\u001b[39m\u001b[2m) // Object.is equality\u001b[22m\n\nExpected: \u001b[32m1\u001b[39m\nReceived: \u001b[31m0\u001b[39m\n\n  1 | import { test, expect } from '@playwright/test';\n> 2 | test('flaky once', async ({}, info) => { expect(info.retry).toBe(1); });\n    |                                                             ^\n  3 | test('steady', async () => { expect(1).toBe(1); });\n  4 | test('broken', async () => { expect(1).toBe(2); });\n  5 |\n    at /work/app/e2e/flaky.spec.mjs:2:61"
+                    }
+                  ],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-10-27T04:48:48.712Z",
+                  "annotations": [],
+                  "attachments": [
+                    {
+                      "name": "error-context",
+                      "contentType": "text/markdown",
+                      "path": "/work/app/test-results/flaky-flaky-once/error-context.md"
+                    }
+                  ],
+                  "errorLocation": {
+                    "file": "/work/app/e2e/flaky.spec.mjs",
+                    "column": 61,
+                    "line": 2
+                  }
+                },
+                {
+                  "workerIndex": 1,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 2,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 1,
+                  "startTime": "2026-10-27T04:48:49.072Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "flaky"
+            }
+          ],
+          "id": "fae0d48bcd0a586e0a93-e3f7ee692037cc5c4852",
+          "file": "flaky.spec.mjs",
+          "line": 2,
+          "column": 1
+        },
+        {
+          "title": "steady",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "",
+              "projectName": "",
+              "results": [
+                {
+                  "workerIndex": 1,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 0,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-10-27T04:48:49.084Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "fae0d48bcd0a586e0a93-7a157abecd87e8bf038b",
+          "file": "flaky.spec.mjs",
+          "line": 3,
+          "column": 1
+        },
+        {
+          "title": "broken",
+          "ok": false,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "",
+              "projectName": "",
+              "results": [
+                {
+                  "workerIndex": 1,
+                  "parallelIndex": 0,
+                  "status": "failed",
+                  "duration": 2,
+                  "error": {
+                    "message": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mreceived\u001b[39m\u001b[2m).\u001b[22mtoBe\u001b[2m(\u001b[22m\u001b[32mexpected\u001b[39m\u001b[2m) // Object.is equality\u001b[22m\n\nExpected: \u001b[32m2\u001b[39m\nReceived: \u001b[31m1\u001b[39m",
+                    "stack": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mreceived\u001b[39m\u001b[2m).\u001b[22mtoBe\u001b[2m(\u001b[22m\u001b[32mexpected\u001b[39m\u001b[2m) // Object.is equality\u001b[22m\n\nExpected: \u001b[32m2\u001b[39m\nReceived: \u001b[31m1\u001b[39m\n    at /work/app/e2e/flaky.spec.mjs:4:40",
+                    "location": {
+                      "file": "/work/app/e2e/flaky.spec.mjs",
+                      "column": 40,
+                      "line": 4
+                    },
+                    "snippet": "  2 | test('flaky once', async ({}, info) => { expect(info.retry).toBe(1); });\n  3 | test('steady', async () => { expect(1).toBe(1); });\n> 4 | test('broken', async () => { expect(1).toBe(2); });\n    |                                        ^\n  5 |"
+                  },
+                  "errors": [
+                    {
+                      "location": {
+                        "file": "/work/app/e2e/flaky.spec.mjs",
+                        "column": 40,
+                        "line": 4
+                      },
+                      "message": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mreceived\u001b[39m\u001b[2m).\u001b[22mtoBe\u001b[2m(\u001b[22m\u001b[32mexpected\u001b[39m\u001b[2m) // Object.is equality\u001b[22m\n\nExpected: \u001b[32m2\u001b[39m\nReceived: \u001b[31m1\u001b[39m\n\n  2 | test('flaky once', async ({}, info) => { expect(info.retry).toBe(1); });\n  3 | test('steady', async () => { expect(1).toBe(1); });\n> 4 | test('broken', async () => { expect(1).toBe(2); });\n    |                                        ^\n  5 |\n    at /work/app/e2e/flaky.spec.mjs:4:40"
+                    }
+                  ],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-10-27T04:48:49.089Z",
+                  "annotations": [],
+                  "attachments": [
+                    {
+                      "name": "error-context",
+                      "contentType": "text/markdown",
+                      "path": "/work/app/test-results/flaky-broken/error-context.md"
+                    }
+                  ],
+                  "errorLocation": {
+                    "file": "/work/app/e2e/flaky.spec.mjs",
+                    "column": 40,
+                    "line": 4
+                  }
+                },
+                {
+                  "workerIndex": 2,
+                  "parallelIndex": 0,
+                  "status": "failed",
+                  "duration": 3,
+                  "error": {
+                    "message": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mreceived\u001b[39m\u001b[2m).\u001b[22mtoBe\u001b[2m(\u001b[22m\u001b[32mexpected\u001b[39m\u001b[2m) // Object.is equality\u001b[22m\n\nExpected: \u001b[32m2\u001b[39m\nReceived: \u001b[31m1\u001b[39m",
+                    "stack": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mreceived\u001b[39m\u001b[2m).\u001b[22mtoBe\u001b[2m(\u001b[22m\u001b[32mexpected\u001b[39m\u001b[2m) // Object.is equality\u001b[22m\n\nExpected: \u001b[32m2\u001b[39m\nReceived: \u001b[31m1\u001b[39m\n    at /work/app/e2e/flaky.spec.mjs:4:40",
+                    "location": {
+                      "file": "/work/app/e2e/flaky.spec.mjs",
+                      "column": 40,
+                      "line": 4
+                    },
+                    "snippet": "  2 | test('flaky once', async ({}, info) => { expect(info.retry).toBe(1); });\n  3 | test('steady', async () => { expect(1).toBe(1); });\n> 4 | test('broken', async () => { expect(1).toBe(2); });\n    |                                        ^\n  5 |"
+                  },
+                  "errors": [
+                    {
+                      "location": {
+                        "file": "/work/app/e2e/flaky.spec.mjs",
+                        "column": 40,
+                        "line": 4
+                      },
+                      "message": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mreceived\u001b[39m\u001b[2m).\u001b[22mtoBe\u001b[2m(\u001b[22m\u001b[32mexpected\u001b[39m\u001b[2m) // Object.is equality\u001b[22m\n\nExpected: \u001b[32m2\u001b[39m\nReceived: \u001b[31m1\u001b[39m\n\n  2 | test('flaky once', async ({}, info) => { expect(info.retry).toBe(1); });\n  3 | test('steady', async () => { expect(1).toBe(1); });\n> 4 | test('broken', async () => { expect(1).toBe(2); });\n    |                                        ^\n  5 |\n    at /work/app/e2e/flaky.spec.mjs:4:40"
+                    }
+                  ],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 1,
+                  "startTime": "2026-10-27T04:48:49.440Z",
+                  "annotations": [],
+                  "attachments": [
+                    {
+                      "name": "error-context",
+                      "contentType": "text/markdown",
+                      "path": "/work/app/test-results/flaky-broken-retry1/error-context.md"
+                    }
+                  ],
+                  "errorLocation": {
+                    "file": "/work/app/e2e/flaky.spec.mjs",
+                    "column": 40,
+                    "line": 4
+                  }
+                }
+              ],
+              "status": "unexpected"
+            }
+          ],
+          "id": "fae0d48bcd0a586e0a93-cd0359dfaef4f5b5e8d3",
+          "file": "flaky.spec.mjs",
+          "line": 4,
+          "column": 1
+        }
+      ]
+    }
+  ],
+  "errors": [],
+  "stats": {
+    "startTime": "2026-10-27T04:48:48.367Z",
+    "duration": 1097.077,
+    "expected": 1,
+    "skipped": 0,
+    "unexpected": 1,
+    "flaky": 1
+  }
+}

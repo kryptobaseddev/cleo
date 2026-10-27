@@ -75,6 +75,7 @@ import {
   bindTestRunReport,
   configSchemaCompositionGap,
   coveredTestFiles,
+  playwrightTestRun,
   TEST_RUN_MAX_RECORDED_FILES,
   type TestRunReport,
 } from './test-run-binding.js';
@@ -487,7 +488,12 @@ export async function validateAtom(
       };
     }
     case 'test-run':
-      return validateTestRun(parsed.path, roots, taskId ?? context?.task.id);
+      return validateTestRun(
+        parsed.path,
+        roots,
+        taskId ?? context?.task.id,
+        context?.testRunPaths ?? [],
+      );
     case 'qa-run':
       return validateQaRun(parsed.path, roots, taskId ?? context?.task.id);
     case 'tool':
@@ -1952,18 +1958,24 @@ export function resolveEvidenceExecutionRoot(
   return projectRoot;
 }
 
-async function validateTestRun(
+/** A `test-run:` report read from disk: where it was found, its bytes and its JSON. */
+interface ReadTestRunReport {
+  readonly ok: true;
+  readonly abs: string;
+  readonly content: Buffer;
+  readonly parsed: TestRunReportJson;
+}
+
+/**
+ * Resolve, read and parse a `test-run:` report. gh#1226: a relative path
+ * names a report the caller just wrote, in the caller's tree, so the
+ * execution root is tried before the store root.
+ */
+async function readTestRunReport(
   path: string,
   roots: EvidenceRoots,
-  taskId?: string,
-): Promise<AtomValidation> {
+): Promise<ReadTestRunReport | Extract<AtomValidation, { ok: false }>> {
   const { storeRoot: projectRoot, executionRoot } = roots;
-  // gh#1226: a relative test-run path names a report the caller just wrote,
-  // in the caller's tree. Resolving it against the shared store root made a
-  // report written in a worktree report "file does not exist". Try the
-  // execution root first, then fall back to the store root so an absolute or
-  // store-relative path keeps working. gh#1365: the root arrives as a
-  // parameter now; it is NOT re-resolved here.
   let abs: string;
   if (isAbsolute(path)) {
     abs = path;
@@ -1990,11 +2002,8 @@ async function validateTestRun(
       codeName: 'E_EVIDENCE_INVALID',
     };
   }
-  const sha256 = createHash('sha256').update(content).digest('hex');
-
-  let parsed: TestRunReportJson;
   try {
-    parsed = JSON.parse(content.toString('utf-8'));
+    return { ok: true, abs, content, parsed: JSON.parse(content.toString('utf-8')) };
   } catch (err) {
     return {
       ok: false,
@@ -2002,6 +2011,27 @@ async function validateTestRun(
       codeName: 'E_EVIDENCE_INVALID',
     };
   }
+}
+
+/**
+ * Validate a `test-run:` report: its counts, then bound to the change.
+ * `siblings` are every `test-run:` path of the same evidence write (T14031):
+ * the change's coverage is judged over the test files all of them passed, so
+ * a vitest report and a Playwright report together cover unit and e2e files.
+ * Each sibling is still validated on its own by its own atom.
+ */
+async function validateTestRun(
+  path: string,
+  roots: EvidenceRoots,
+  taskId?: string,
+  siblings: readonly string[] = [],
+): Promise<AtomValidation> {
+  const { storeRoot: projectRoot, executionRoot } = roots;
+  const read = await readTestRunReport(path, roots);
+  if (!read.ok) return read;
+  const { abs, content } = read;
+  let parsed = read.parsed;
+  const sha256 = createHash('sha256').update(content).digest('hex');
 
   if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) {
     return {
@@ -2010,6 +2040,11 @@ async function validateTestRun(
       codeName: 'E_EVIDENCE_INVALID',
     };
   }
+  // T14031: a Playwright JSON report is read in the vitest shape.
+  const playwright = playwrightTestRun(parsed);
+  if (playwright !== null && 'refusal' in playwright)
+    return { ok: false, reason: playwright.refusal, codeName: playwright.codeName };
+  if (playwright !== null) parsed = playwright;
   if (
     present(parsed.testResults) &&
     (!Array.isArray(parsed.testResults) ||
@@ -2030,7 +2065,7 @@ async function validateTestRun(
       ok: false,
       reason:
         `test-run report has no test counts. Expected one of: ${TEST_RUN_SHAPE_HINT}; ` +
-        "e.g. vitest's --reporter=json --outputFile, or " +
+        "e.g. vitest's --reporter=json --outputFile, Playwright's --reporter=json, or " +
         '{"total":43,"passed":42,"failed":0,"skipped":1}',
       codeName: 'E_EVIDENCE_INVALID',
     };
@@ -2112,6 +2147,16 @@ async function validateTestRun(
   // @sync-invariant none:input-shape a bind root git cannot open is refused before anything is written
   if (broken) return { ok: false, reason: broken, codeName: E_EVIDENCE_GIT_ROOT };
   const testFiles = coveredTestFiles(parsed, bindRoot);
+  // T14031: the other reports of this write cover the change with this one.
+  const siblingFiles: string[] = [];
+  for (const sibling of siblings) {
+    if (sibling === path) continue;
+    const other = await readTestRunReport(sibling, roots);
+    if (!other.ok || other.parsed === null || typeof other.parsed !== 'object') continue;
+    const adapted = playwrightTestRun(other.parsed);
+    if (adapted !== null && 'refusal' in adapted) continue;
+    siblingFiles.push(...coveredTestFiles(adapted ?? other.parsed, bindRoot));
+  }
   // The tree hash is the tool cache's (T12958), so a bound test-run and a
   // cached tool run of the same content agree.
   const capture = await captureTree(bindRoot, await typedGateInputs(projectRoot, taskId, bindRoot));
@@ -2126,7 +2171,12 @@ async function validateTestRun(
   let typecheckDirs: string[] = [];
   let untrackedSetAside: string[] = [];
   if (identity) {
-    const binding = bindTestRunReport(parsed, abs, bindRoot, testFiles);
+    const binding = bindTestRunReport(
+      parsed,
+      abs,
+      bindRoot,
+      siblingFiles.length > 0 ? [...new Set([...testFiles, ...siblingFiles])].sort() : testFiles,
+    );
     if (!binding.ok) return { ok: false, reason: binding.reason, codeName: binding.codeName };
     untestedPackages = binding.untestedPackages;
     runHeadSha = binding.runHeadSha;

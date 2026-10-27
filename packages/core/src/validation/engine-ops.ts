@@ -161,6 +161,11 @@ function getMissingGates(
   return requiredGates.filter((g) => verification.gates[g] !== true);
 }
 
+/** The `test-run:` paths of one evidence write, judged together for coverage (T14031). */
+function testRunPathsOf(atoms: readonly ParsedAtom[]): string[] {
+  return atoms.flatMap((atom) => (atom.kind === 'test-run' ? [atom.path] : []));
+}
+
 type SatisfiesEvidenceAtom = Extract<EvidenceAtom, { kind: 'satisfies' }>;
 
 function buildSatisfiesEvidenceAtomId(sourceTaskId: string, atom: SatisfiesEvidenceAtom): string {
@@ -722,6 +727,8 @@ export async function validateGateVerify(
         const siblingCommitSha = parsed.atoms.find(
           (a): a is Extract<ParsedAtom, { kind: 'commit' }> => a.kind === 'commit',
         )?.sha;
+        // T14031: test-run reports of one write cover the change together.
+        const testRunPaths = testRunPathsOf(parsed.atoms);
         for (const atom of parsed.atoms.toSorted(
           (a, b) => Number(b.kind === 'pr') - Number(a.kind === 'pr'),
         )) {
@@ -736,6 +743,7 @@ export async function validateGateVerify(
             ...evidenceContext,
             // T12848: every PR validated so far anchors its own changed files.
             artifactPrs: atoms.filter((a) => a.kind === 'pr'),
+            testRunPaths,
             ...(params.preview ? { readOnly: true } : {}),
           });
           if (!check.ok) {
@@ -834,6 +842,7 @@ export async function validateGateVerify(
             const check = await validateEvidenceAtom(atom, projectRoot, taskId, siblingCommitSha, {
               ...evidenceContext,
               artifactPrs: overrideAtoms.filter((a) => a.kind === 'pr'),
+              testRunPaths: testRunPathsOf(parsed.atoms),
             });
             if (!check.ok) {
               return engineError(check.codeName, check.reason);
