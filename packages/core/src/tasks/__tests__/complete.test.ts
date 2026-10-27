@@ -998,6 +998,11 @@ describe('completeTask', () => {
         await seedMerged([affected]);
         const refusal = completeTask({ taskId: 'T001' }, env.tempDir, accessor);
         await expect(refusal).rejects.toThrow(/ci:42 does not hold.*CI pending/);
+        // T14042: the wait instruction is in the first 200 characters.
+        const message = await refusal.catch((err: Error) => err.message);
+        expect(message.slice(0, 200)).toMatch(
+          /^Task T001 waits for merged CI: .*re-run 'cleo complete T001'/,
+        );
         await expect(refusal).rejects.toMatchObject({
           fix: expect.stringMatching(
             /Wait for the PR's required CI.*Do not run the test suite locally/,

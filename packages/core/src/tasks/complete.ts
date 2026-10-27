@@ -680,7 +680,10 @@ export async function completeTask(
         enforcement.lifecycleMode === 'strict'
           ? ExitCode.LIFECYCLE_GATE_FAILED
           : ExitCode.GATE_DEPENDENCY,
-        `Task ${options.taskId} failed verification gates: testsPassed/qaPassed (${mergedCi.reason})`,
+        // T14042: the next step leads, so a truncated refusal still says what to do.
+        mergedCi.kind === 'wait-for-ci'
+          ? `Task ${options.taskId} waits for merged CI: testsPassed/qaPassed come from the PR's required CI, which has not finished on the merge commit; re-run 'cleo complete ${options.taskId}' when it has (${mergedCi.reason})`
+          : `Task ${options.taskId} failed verification gates: testsPassed/qaPassed (${mergedCi.reason})`,
         {
           fix:
             mergedCi.kind === 'wait-for-ci'
