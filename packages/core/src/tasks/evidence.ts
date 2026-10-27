@@ -480,6 +480,12 @@ export async function validateAtom(
         taskId,
         anchorFor,
         Boolean(artifactPrs ?? context?.artifactCommitSha),
+        (path) =>
+          artifactPrs?.find((pr) =>
+            pr.deletedPaths?.some(
+              (deleted) => normalizeEvidencePath(deleted) === normalizeEvidencePath(path),
+            ),
+          ),
       );
       if (!result.ok || result.atom.kind !== 'files' || (artifactPrs?.length ?? 0) < 2)
         return result;
@@ -1512,6 +1518,8 @@ async function gitShowFileContentAtCommit(
  *   enables the commit-tree-first check (T12107).
  * @param requireCommitArtifact - Refuse when the anchor tree lacks the path
  *   (a PR merge anchor: checkout bytes cannot substitute).
+ * @param deletedBy - The PR of the write that deleted a path, if any: such a
+ *   path is refused by name rather than as an unfetched merge (T14030).
  * @returns Validated atom on success, error on failure.
  *
  * @internal
@@ -1525,6 +1533,7 @@ async function validateFiles(
   taskId: string | undefined,
   commitShaFor: (path: string) => string | undefined,
   requireCommitArtifact = false,
+  deletedBy: (path: string) => EvidenceMergeAnchor | undefined = () => undefined,
 ): Promise<AtomValidation> {
   const { storeRoot: projectRoot, executionRoot } = roots;
   if (paths.length === 0) {
@@ -1553,6 +1562,17 @@ async function validateFiles(
       content = await gitShowFileContentAtCommit(p, commitSha, executionRoot);
     }
     if (requireCommitArtifact && content === null) {
+      const deleter = deletedBy(p);
+      if (deleter !== undefined)
+        // @sync-invariant none:input-shape a files: path the PR deleted is refused before anything is written
+        return {
+          ok: false,
+          codeName: 'E_EVIDENCE_INVALID',
+          reason:
+            `${p} was deleted by ${deleter.prNumber !== undefined ? `PR #${deleter.prNumber}` : 'the PR'}, ` +
+            `so its merge ${deleter.mergeCommitSha} holds no bytes to inspect. Leave it out of files: ` +
+            '(name the deletion in note: if it matters); files: lists artifacts the PR changed and kept.',
+        };
       return {
         ok: false,
         codeName: 'E_EVIDENCE_INSUFFICIENT',
