@@ -515,8 +515,14 @@ export interface LedgerEntry {
   readonly admittedAtMs: number | null;
   /** Last proof of life. */
   readonly heartbeatAtMs: number;
-  /** Process groups of the tools the holder started while admitted. */
+  /** Process groups of the tools the holder started while admitted and that still run. */
   readonly toolGroups: readonly number[];
+  /**
+   * The process the holder spawned, recorded right after the spawn (T13046):
+   * a foreground or nested child leads no group, so without it a SIGKILLed
+   * holder's live child would hold no charge.
+   */
+  readonly child?: LedgerChild;
   /** How much of the project the run covers, when known (T13132). */
   readonly scope?: AdmissionScope;
   /** The CLEO task the run is evidence for, when known (T13132). */
@@ -539,6 +545,12 @@ export interface LedgerEntry {
    * within the budget; nothing running is paused or displaced for it.
    */
   readonly priority?: 'urgent';
+}
+
+/** A holder's child process: its pid and start time (`null` when `ps` could not say). */
+export interface LedgerChild {
+  readonly pid: number;
+  readonly startedAt: string | null;
 }
 
 /**
@@ -880,19 +892,84 @@ async function withLedger<T>(
 // ---------------------------------------------------------------------------
 
 /**
- * Whether an entry's holder is still there.
+ * A liveness verdict and the evidence it rests on (T14066). Alive reasons:
+ * `pid-alive`, `heartbeat-fresh`, `child-alive:<pid>`, `group-alive:<pgid>`,
+ * `group-unknown:<pgid>` (the group probe failed), `unidentifiable` (no start
+ * time to tell the holder from a recycled pid) and `other-host:<host>`. Dead
+ * reasons: `pid-gone`, `pid-recycled`, `orphaned` (heartbeat
+ * {@link LEDGER_ORPHAN_MS} old) and `other-host-stale:<host>`.
+ */
+export interface LivenessVerdict {
+  readonly state: 'alive' | 'dead';
+  readonly reason: string;
+}
+
+/**
+ * Whether an entry's holder is still there, and why.
  *
  * - A pid that is provably gone (or recycled: alive with another start time,
- *   once the heartbeat is stale) is dead as soon as every tool group it
- *   started is gone too; a detached tool outlives a SIGKILLed cleo.
+ *   once the heartbeat is stale) is dead as soon as its recorded child and
+ *   every tool group it started are gone too; a detached tool outlives a
+ *   SIGKILLed cleo, and so does a foreground child (T13046).
  * - A fresh heartbeat, or a live pid whose start time matches the recorded
  *   one, is alive.
  * - A holder that cannot be identified (the probe fails, or no start time was
  *   recorded or can be read) is alive until its heartbeat is
- *   {@link LEDGER_ORPHAN_MS} old, and so is a gone holder whose tool group id
- *   still runs (a group id carries no start time, so it may be recycled).
- *   Past that bound both are dead: nothing holds the budget forever.
+ *   {@link LEDGER_ORPHAN_MS} old, and so is a gone holder whose child or tool
+ *   group id still runs (a group id carries no start time, so it may be
+ *   recycled). Past that bound both are dead: nothing holds the budget forever.
  * - An entry of another host is judged by its heartbeat alone.
+ *
+ * @param entry - the ledger entry.
+ * @param nowMs - the clock.
+ * @param probe - pid probe (tests inject one).
+ */
+export function entryVerdict(
+  entry: LedgerEntry,
+  nowMs: number,
+  probe: PidProbe = systemPidProbe,
+): LivenessVerdict {
+  const alive = (reason: string): LivenessVerdict => ({ state: 'alive', reason });
+  const dead = (reason: string): LivenessVerdict => ({ state: 'dead', reason });
+  const age = nowMs - entry.heartbeatAtMs;
+  if (entry.host !== hostname()) {
+    return age < LEDGER_HEARTBEAT_STALE_MS
+      ? alive(`other-host:${entry.host}`)
+      : dead(`other-host-stale:${entry.host}`);
+  }
+  const orphaned = age >= LEDGER_ORPHAN_MS;
+  /** What the holder left running: its child, then its tool groups. */
+  const survivor = (): string | null => {
+    const child = entry.child;
+    if (child !== undefined && isProbeableId(child.pid) && probe.liveness(child.pid) !== 'gone') {
+      const started = child.startedAt === null ? null : probe.startedAt(child.pid);
+      if (started === null || started === child.startedAt) return `child-alive:${child.pid}`;
+    }
+    for (const g of entry.toolGroups) {
+      const state = isProbeableId(g) ? probe.groupLiveness(g) : 'unknown';
+      if (state !== 'gone') return `group-${state}:${g}`;
+    }
+    return null;
+  };
+  const goneUnlessSurvivor = (reason: string): LivenessVerdict => {
+    if (orphaned) return dead('orphaned');
+    const left = survivor();
+    return left === null ? dead(reason) : alive(left);
+  };
+  const pid = probe.liveness(entry.pid);
+  if (pid === 'gone') return goneUnlessSurvivor('pid-gone');
+  if (age < LEDGER_HEARTBEAT_STALE_MS)
+    return alive(pid === 'alive' ? 'pid-alive' : 'heartbeat-fresh');
+  if (pid === 'alive' && entry.startedAt !== null) {
+    const startedAt = probe.startedAt(entry.pid);
+    if (startedAt === entry.startedAt) return alive('pid-alive');
+    if (startedAt !== null) return goneUnlessSurvivor('pid-recycled');
+  }
+  return orphaned ? dead('orphaned') : alive('unidentifiable');
+}
+
+/**
+ * Whether an entry's holder is still there: {@link entryVerdict}'s state.
  *
  * @param entry - the ledger entry.
  * @param nowMs - the clock.
@@ -903,22 +980,7 @@ export function entryLiveness(
   nowMs: number,
   probe: PidProbe = systemPidProbe,
 ): 'alive' | 'dead' {
-  const age = nowMs - entry.heartbeatAtMs;
-  if (entry.host !== hostname()) return age < LEDGER_HEARTBEAT_STALE_MS ? 'alive' : 'dead';
-  const orphaned = age >= LEDGER_ORPHAN_MS;
-  const goneUnlessGroups = (): 'alive' | 'dead' =>
-    orphaned || entry.toolGroups.every((g) => isProbeableId(g) && probe.groupLiveness(g) === 'gone')
-      ? 'dead'
-      : 'alive';
-  const pid = probe.liveness(entry.pid);
-  if (pid === 'gone') return goneUnlessGroups();
-  if (age < LEDGER_HEARTBEAT_STALE_MS) return 'alive';
-  if (pid === 'alive' && entry.startedAt !== null) {
-    const startedAt = probe.startedAt(entry.pid);
-    if (startedAt === entry.startedAt) return 'alive';
-    if (startedAt !== null) return goneUnlessGroups(); // a recycled pid
-  }
-  return orphaned ? 'dead' : 'alive';
+  return entryVerdict(entry, nowMs, probe).state;
 }
 
 /**
@@ -1538,18 +1600,32 @@ export function describeScope(e: Pick<LedgerEntry, 'scope' | 'task'>): string {
 }
 
 /**
- * One line per admitted run: label, scope and task, pid, command, directory and age.
+ * One line per admitted run: label, scope and task, pid and host, command,
+ * directory, charge and age, then its heartbeat age, child, tool groups and
+ * liveness verdict with the reason (T14066), so a waiter can tell a stale
+ * holder from a real one.
  *
  * @param entries - the ledger.
  * @param nowMs - the clock.
+ * @param probe - pid probe for the verdict (tests inject one).
  */
-export function describeHolders(entries: readonly LedgerEntry[], nowMs: number): string[] {
+export function describeHolders(
+  entries: readonly LedgerEntry[],
+  nowMs: number,
+  probe: PidProbe = systemPidProbe,
+): string[] {
   return entries
     .filter((e) => e.state === 'admitted')
-    .map(
-      (e) =>
-        `${e.label}${describeScope(e)} pid ${e.pid} (${e.command})${e.cwd ? ` in ${e.cwd}` : ''}, ${gib(e.footprintBytes)}${e.footprintReason ? ` (${e.footprintReason})` : ''}, for ${age(nowMs - (e.admittedAtMs ?? e.enqueuedAtMs))}`,
-    );
+    .map((e) => {
+      const verdict = entryVerdict(e, nowMs, probe);
+      const child = e.child !== undefined ? `, child ${e.child.pid}` : '';
+      const groups = e.toolGroups.length > 0 ? `, groups ${e.toolGroups.join(',')}` : '';
+      return (
+        `${e.label}${describeScope(e)} pid ${e.pid} on ${e.host} (${e.command})${e.cwd ? ` in ${e.cwd}` : ''}, ` +
+        `${gib(e.footprintBytes)}${e.footprintReason ? ` (${e.footprintReason})` : ''}, for ${age(nowMs - (e.admittedAtMs ?? e.enqueuedAtMs))}; ` +
+        `heartbeat ${age(nowMs - e.heartbeatAtMs)} ago${child}${groups}, ${verdict.state} (${verdict.reason})`
+      );
+    });
 }
 
 /** Commands too generic to name a lock-taking wrapper. */
@@ -1738,6 +1814,12 @@ export interface AdmitOptions {
   readonly signal?: AbortSignal;
   /** Interval for {@link AdmitOptions.keepAlive}. @defaultValue 5 minutes */
   readonly keepAliveMs?: number;
+  /**
+   * Called before each pass probes the holders (T14066): `cleo run` stops a
+   * dead runner's orphaned children here, so a waiter is not held for up to
+   * {@link LEDGER_ORPHAN_MS} by a child nobody waits for. A throw is ignored.
+   */
+  readonly onPass?: () => void;
 }
 
 /** An admission: the share is held until `release`. */
@@ -1756,6 +1838,12 @@ export interface AdmissionGrant {
   readonly footprintBytes: number;
   /** Give the share back. Idempotent. */
   release(): Promise<void>;
+  /**
+   * Record the process the holder spawned, called right after the spawn
+   * (T13046): the share stays charged while that child runs, even when the
+   * holder dies without releasing. Absent or a no-op on a pass-through grant.
+   */
+  recordChild?(child: LedgerChild): void;
 }
 
 /** A refusal: nothing was started. */
@@ -2150,6 +2238,11 @@ async function admitInner(req: AdmissionRequest, opts: AdmitOptions): Promise<Ad
     );
     lastReading = reading;
     checkQueue();
+    try {
+      opts.onPass?.();
+    } catch {
+      // Best effort: the orphan bound still frees what this could not.
+    }
     const dead = findDead(before, now(), probe);
     return withLedger(
       dir,
@@ -2211,7 +2304,7 @@ async function admitInner(req: AdmissionRequest, opts: AdmitOptions): Promise<Ad
       retryAfterMs: reading !== null ? MEMORY_GATE_RETRY_AFTER_MS : 2_000,
       memoryPressure: reading,
       ahead,
-      holders: describeLoad(doc, nowMs),
+      holders: describeLoad(doc, nowMs, probe),
     };
   };
 
@@ -2246,7 +2339,7 @@ async function admitInner(req: AdmissionRequest, opts: AdmitOptions): Promise<Ad
       if (now() - lastReportAt >= LEDGER_HOLDER_REPORT_MS && opts.notice) {
         lastReportAt = now();
         opts.notice(
-          holderReport(first.doc, entry, pid, now() - t0, capacityBytes, now(), timeoutMs),
+          holderReport(first.doc, entry, pid, now() - t0, capacityBytes, now(), timeoutMs, probe),
         );
       }
       const remaining = timeoutMs - (now() - t0);
@@ -2329,8 +2422,8 @@ function budgetLoad(
 }
 
 /** {@link describeHolders}, plus a line for entries of another CLEO version. */
-function describeLoad(doc: LedgerDoc, nowMs: number): string[] {
-  const lines = describeHolders(doc.entries, nowMs);
+function describeLoad(doc: LedgerDoc, nowMs: number, probe: PidProbe): string[] {
+  const lines = describeHolders(doc.entries, nowMs, probe);
   if (doc.foreign.length > 0) {
     lines.push(
       `${doc.foreign.length} entr${doc.foreign.length === 1 ? 'y' : 'ies'} of another CLEO version`,
@@ -2352,13 +2445,14 @@ function holderReport(
   capacityBytes: number,
   nowMs: number,
   timeoutMs: number,
+  probe: PidProbe,
 ): string {
   const holders = doc.entries.filter((e) => e.state === 'admitted');
   const used = budgetLoad(doc, capacityBytes).bytes;
   const ahead = waitingAhead(doc.entries, mine, nowMs);
   const lines = [
     `still waiting after ${age(waitedMs)} for the machine budget (${gib(used)} of ${budgetPhrase(mine, ledgerBudget(doc.pressure, capacityBytes))} in use, ` +
-      `queue position ${ahead + 1}${mine.priority === 'urgent' ? ' (urgent)' : ''}, ${ahead} waiting ahead). Holders: ${describeLoad(doc, nowMs).join('; ') || 'none'}.`,
+      `queue position ${ahead + 1}${mine.priority === 'urgent' ? ' (urgent)' : ''}, ${ahead} waiting ahead). Holders: ${describeLoad(doc, nowMs, probe).join(' | ') || 'none'}.`,
   ];
   const reading = doc.pressure?.reading ?? null;
   if (reading !== null) {
@@ -2487,6 +2581,9 @@ function holdGrant(
     ungoverned: null,
     waitedMs,
     footprintBytes: entry.footprintBytes,
+    recordChild: (child) => {
+      void update((e) => ({ ...e, child }));
+    },
     release: async () => {
       if (released) return;
       released = true;

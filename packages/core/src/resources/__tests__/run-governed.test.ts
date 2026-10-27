@@ -51,7 +51,7 @@ import {
   readGovernorHolder,
   writeHolderRecord,
 } from '../slot-holder.js';
-import { _resetToolGroupsForTest } from '../tool-groups.js';
+import { _resetToolGroupsForTest, activeToolGroups } from '../tool-groups.js';
 
 type Level = 'ok' | 'hold' | 'backoff';
 
@@ -627,6 +627,50 @@ describe('runGoverned', () => {
     expect(h.released).toBe(1);
     expect(h.signals).toEqual([]);
     expect(readdirSync(join(dir, 'jobs'))).toEqual([]);
+  });
+
+  it('tracks the child group and records the child right after the spawn, and reaps orphans while queued (T13046, T14066)', async () => {
+    _resetToolGroupsForTest();
+    const h = harness({ onSample: (n, hh) => n === 2 && hh.exit(0) });
+    const jobs = join(dir, 'jobs');
+    const recorded: Array<{ pid: number; startedAt: string | null }> = [];
+    const admitInner = h.deps.admit;
+    if (admitInner === undefined) throw new Error('harness has no admit');
+    h.deps.admit = async (req, o) => {
+      // A runner SIGKILLed while this one queued: its orphaned child group is
+      // stopped on the waiter's next pass, not only when a run starts.
+      writeRunJob(
+        {
+          ...olderJob(),
+          id: 'dead-runner',
+          pid: 4_000_001,
+          runnerStart: 'gone',
+          childPid: 4_000_002,
+          childStart: 'c',
+          leadsGroup: true,
+        },
+        jobs,
+      );
+      o.onPass?.();
+      const out = await admitInner(req, o);
+      return out.admitted
+        ? { ...out, grant: { ...out.grant, recordChild: (c) => recorded.push(c) } }
+        : out;
+    };
+    const groupsAtStart: number[][] = [];
+    h.deps.start = (pid) => {
+      if (pid === 500) groupsAtStart.push(activeToolGroups());
+      return `start-${pid}`;
+    };
+    await runGoverned(base(h));
+    expect(h.signals).toEqual([
+      [4_000_002, 'SIGCONT'],
+      [4_000_002, 'SIGTERM'],
+    ]);
+    // The group was tracked before the first thing done after the spawn.
+    expect(groupsAtStart[0]).toEqual([500]);
+    expect(recorded).toEqual([{ pid: 500, startedAt: 'start-500' }]);
+    expect(activeToolGroups()).toEqual([]);
   });
 
   it('T13237: a full-build asks the ledger for the exclusive slot; other classes do not', async () => {

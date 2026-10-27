@@ -25,6 +25,7 @@ import {
   describeScope,
   enclosingGrant,
   entryLiveness,
+  entryVerdict,
   footprintForTool,
   GIB,
   gitHookInstalled,
@@ -52,6 +53,7 @@ import type { ResourceSample } from '../backend.js';
 import { ResourceMonitor } from '../monitor.js';
 import { _resetMemoryGateForTest, memoryGateReporter } from '../pressure-gate.js';
 import type { PidProbe } from '../slot-holder.js';
+import { _resetToolGroupsForTest, trackToolGroup } from '../tool-groups.js';
 import { TOP_MEMORY_FAILED_REUSE_MS } from '../top-memory.js';
 
 vi.mock('node:fs', async (importOriginal) => {
@@ -668,6 +670,68 @@ describe('entryLiveness', () => {
     expect(entryLiveness(entry({ id: 'e', heartbeatAtMs: 0 }), now, probe({}))).toBe('alive');
   });
 
+  it('names the evidence behind each verdict (T14066)', () => {
+    const v = (e: LedgerEntry, p: PidProbe) => entryVerdict(e, now, p);
+    const alive = (reason: string) => ({ state: 'alive', reason });
+    const dead = (reason: string) => ({ state: 'dead', reason });
+    const gone = { liveness: () => 'gone' as const };
+    expect(v(entry({ id: 'e', heartbeatAtMs: now }), probe({}))).toEqual(alive('pid-alive'));
+    expect(v(entry({ id: 'e', ...stale }), probe({}))).toEqual(alive('pid-alive'));
+    expect(v(entry({ id: 'e', heartbeatAtMs: now }), probe({ liveness: () => 'unknown' }))).toEqual(
+      alive('heartbeat-fresh'),
+    );
+    expect(v(entry({ id: 'e', ...stale }), probe({ liveness: () => 'unknown' }))).toEqual(
+      alive('unidentifiable'),
+    );
+    expect(
+      v(
+        entry({ id: 'e', toolGroups: [776, 777], ...stale }),
+        probe({ ...gone, groupLiveness: (g) => (g === 777 ? 'alive' : 'gone') }),
+      ),
+    ).toEqual(alive('group-alive:777'));
+    expect(
+      v(
+        entry({ id: 'e', toolGroups: [777], ...stale }),
+        probe({ ...gone, groupLiveness: () => 'unknown' }),
+      ),
+    ).toEqual(alive('group-unknown:777'));
+    expect(v(entry({ id: 'e', heartbeatAtMs: now }), probe(gone))).toEqual(dead('pid-gone'));
+    expect(v(entry({ id: 'e', ...stale }), probe({ startedAt: () => 'other' }))).toEqual(
+      dead('pid-recycled'),
+    );
+    expect(v(entry({ id: 'e', ...orphan }), probe({ liveness: () => 'unknown' }))).toEqual(
+      dead('orphaned'),
+    );
+    expect(v(entry({ id: 'e', host: 'elsewhere', heartbeatAtMs: now }), probe({}))).toEqual(
+      alive('other-host:elsewhere'),
+    );
+    expect(v(entry({ id: 'e', host: 'elsewhere', ...stale }), probe({}))).toEqual(
+      dead('other-host-stale:elsewhere'),
+    );
+  });
+
+  it('a gone holder is kept while its recorded child lives, never for a recycled child pid (T13046)', () => {
+    const child = { pid: 5000, startedAt: 'child-start' };
+    const holderGone = (childStart: string | null): PidProbe =>
+      probe({
+        liveness: (pid) => (pid === 5000 ? 'alive' : 'gone'),
+        startedAt: (pid) => (pid === 5000 ? childStart : null),
+      });
+    // A foreground or nested child leads no group: toolGroups is empty.
+    expect(
+      entryVerdict(entry({ id: 'e', child, ...stale }), now, holderGone('child-start')),
+    ).toEqual({ state: 'alive', reason: 'child-alive:5000' });
+    expect(entryVerdict(entry({ id: 'e', child, ...stale }), now, holderGone('reused'))).toEqual({
+      state: 'dead',
+      reason: 'pid-gone',
+    });
+    // `ps` could not say: kept, until the orphan bound.
+    expect(entryLiveness(entry({ id: 'e', child, ...stale }), now, holderGone(null))).toBe('alive');
+    expect(
+      entryLiveness(entry({ id: 'e', child, ...orphan }), now, holderGone('child-start')),
+    ).toBe('dead');
+  });
+
   it('another host is judged by its heartbeat alone', () => {
     expect(
       entryLiveness(entry({ id: 'e', host: 'elsewhere', heartbeatAtMs: now }), now, probe({})),
@@ -797,7 +861,9 @@ describe('status names what holds the budget (T13132)', () => {
       ],
       61_000,
     );
-    expect(line).toMatch(/^tool:test \[scope=full, task T1043\] pid 4242 .*18 GiB, for 1m 01s$/);
+    expect(line).toMatch(
+      /^tool:test \[scope=full, task T1043\] pid 4242 on .*18 GiB, for 1m 01s; /,
+    );
     expect(describeScope({})).toBe('');
   });
 
@@ -807,6 +873,36 @@ describe('status names what holds the budget (T13132)', () => {
     expect(lightBudgetShare(cpu, false)).toBe('full');
     expect(lightBudgetShare(sampleAt(15), false)).toBe('half');
     expect(lightBudgetShare(sampleAt(0), true)).toBe('none');
+  });
+});
+
+describe('the wait report says why each holder counts (T14066)', () => {
+  it('a holder line shows its host, heartbeat age, child, tool groups and verdict with the reason', () => {
+    const groupAlive: PidProbe = {
+      liveness: () => 'gone',
+      startedAt: () => null,
+      groupLiveness: (g) => (g === 9002 ? 'alive' : 'gone'),
+    };
+    const [line] = describeHolders(
+      [
+        entry({
+          id: 'h',
+          state: 'admitted',
+          admittedAtMs: 0,
+          heartbeatAtMs: 30_000,
+          footprintBytes: 24 * GIB,
+          cwd: '/private/tmp/job',
+          child: { pid: 9001, startedAt: null },
+          toolGroups: [9001, 9002],
+        }),
+      ],
+      120_000,
+      groupAlive,
+    );
+    expect(line).toBe(
+      `tool:test pid 4242 on ${HOST} (cleo verify T1) in /private/tmp/job, 24 GiB, for 2m 00s; ` +
+        'heartbeat 1m 30s ago, child 9001, groups 9001,9002, alive (group-alive:9002)',
+    );
   });
 });
 
@@ -1274,6 +1370,91 @@ describe('admit (one ledger, real critical section)', () => {
     expect(readLedger(dir).map((e) => e.pid)).toEqual([process.pid]);
     if (next.admitted) await next.grant.release();
     expect(await reapLedger({ dir, probe: gone, capacityBytes, sample: calm })).toEqual([]);
+  });
+
+  describe('a dead holder is released once nothing it started runs (T14066, T13046)', () => {
+    const plant = {
+      pid: 4_000_001,
+      facts: { ancestorsOf: () => [], groupOf: () => null, startedAt: () => null },
+    };
+    beforeEach(() => _resetToolGroupsForTest());
+    afterEach(() => _resetToolGroupsForTest());
+
+    it('a finished tool group leaves the record, so a reused group id never keeps the holder', async () => {
+      const held = await admit(
+        { label: 'tool:test', footprintBytes: 10 * GIB },
+        { ...base, dir, wait: false, ...plant },
+      );
+      expect(held.admitted).toBe(true);
+      const untrack = trackToolGroup(4_000_777);
+      await vi.waitFor(() => expect(readLedger(dir)[0]?.toolGroups).toEqual([4_000_777]));
+      untrack();
+      await vi.waitFor(() => expect(readLedger(dir)[0]?.toolGroups).toEqual([]));
+      // The holder dies; another process group takes the finished group's id.
+      const reused: PidProbe = {
+        liveness: (pid) => (pid === 4_000_001 ? 'gone' : 'alive'),
+        startedAt: () => null,
+        groupLiveness: () => 'alive',
+      };
+      const next = await admit(
+        { label: 'tool:test', footprintBytes: 10 * GIB },
+        { ...base, dir, wait: false, probe: reused },
+      );
+      expect(next.admitted).toBe(true);
+      expect(readLedger(dir).map((e) => e.pid)).toEqual([process.pid]);
+      if (next.admitted) await next.grant.release();
+      if (held.admitted) await held.grant.release();
+    });
+
+    it('a live child of a dead runner keeps the charge: tool:test cannot admit beside it', async () => {
+      const held = await admit(
+        { label: 'run:test-run', footprintBytes: 10 * GIB },
+        { ...base, dir, wait: false, ...plant },
+      );
+      if (!held.admitted) throw new Error('expected the planted holder to be admitted');
+      held.grant.recordChild?.({ pid: 4_000_002, startedAt: 'child-start' });
+      await vi.waitFor(() =>
+        expect(readLedger(dir)[0]?.child).toEqual({ pid: 4_000_002, startedAt: 'child-start' }),
+      );
+      let childAlive = true;
+      const probe: PidProbe = {
+        liveness: (pid) =>
+          pid === process.pid || (pid === 4_000_002 && childAlive) ? 'alive' : 'gone',
+        startedAt: (pid) => (pid === 4_000_002 ? 'child-start' : null),
+        groupLiveness: () => 'gone',
+      };
+      const beside = await admit(
+        { label: 'tool:test', footprintBytes: 10 * GIB },
+        { ...base, dir, wait: false, probe },
+      );
+      expect(beside.admitted).toBe(false);
+      if (!beside.admitted) {
+        expect(beside.refusal.holders[0]).toMatch(
+          /^run:test-run pid 4000001 .*child 4000002, alive \(child-alive:4000002\)$/,
+        );
+      }
+      childAlive = false;
+      const after = await admit(
+        { label: 'tool:test', footprintBytes: 10 * GIB },
+        { ...base, dir, wait: false, probe },
+      );
+      expect(after.admitted).toBe(true);
+      if (after.admitted) await after.grant.release();
+      await held.grant.release();
+    });
+
+    it('every pass calls onPass before probing the holders; a throw is ignored', async () => {
+      const onPass = vi.fn(() => {
+        throw new Error('ps failed');
+      });
+      const out = await admit(
+        { label: 'tool:test', footprintBytes: GIB },
+        { ...base, dir, wait: false, onPass },
+      );
+      expect(out.admitted).toBe(true);
+      expect(onPass).toHaveBeenCalledTimes(1);
+      if (out.admitted) await out.grant.release();
+    });
   });
 
   it('CLEO_ADMISSION_PRESSURE=off ignores host pressure; an explicit sampler still counts', async () => {

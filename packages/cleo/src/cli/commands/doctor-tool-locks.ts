@@ -23,7 +23,7 @@
 
 import {
   admissionCapacityBytes,
-  entryLiveness,
+  entryVerdict,
   readForeignEntries,
   readLedger,
   readLedgerBudget,
@@ -95,7 +95,8 @@ export const doctorToolLocksCommand = defineCommand({
     const entries = readLedger()
       .filter((e) => requested === null || e.label === `tool:${requested}`)
       .map((e) => {
-        const alive = entryLiveness(e, now) === 'alive';
+        const verdict = entryVerdict(e, now);
+        const alive = verdict.state === 'alive';
         return {
           id: e.id,
           label: e.label,
@@ -113,6 +114,10 @@ export const doctorToolLocksCommand = defineCommand({
           enqueuedAt: new Date(e.enqueuedAtMs).toISOString(),
           admittedAt: e.admittedAtMs === null ? null : new Date(e.admittedAtMs).toISOString(),
           toolGroups: e.toolGroups,
+          // T13046/T14066: the spawned child, the heartbeat age and why it counts as alive or dead.
+          child: e.child ?? null,
+          heartbeatAgeMs: now - e.heartbeatAtMs,
+          liveness: verdict.reason,
           alive,
           orphaned: !alive,
           run: ((r) =>

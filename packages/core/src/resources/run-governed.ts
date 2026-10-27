@@ -58,6 +58,7 @@ import {
   describeAdmissionIoError,
   footprintForClass,
   isLedgerClass,
+  type LedgerChild,
   type LedgerEntry,
   readLedger,
 } from './admission-ledger.js';
@@ -279,6 +280,8 @@ interface RunAdmission {
   readonly token: string;
   /** Whether this run holds a share or slot of its own (not riding an enclosing one). */
   readonly holdsShare: boolean;
+  /** Record the spawned child on the ledger entry (T13046); absent for governor slots. */
+  readonly recordChild?: (child: LedgerChild) => void;
 }
 
 // The classifier moved to the governor, which every admission shares (R8-1).
@@ -530,6 +533,11 @@ export async function runGoverned(opts: RunGovernedOptions): Promise<RunGoverned
               },
             },
             notice: (line) => notice(line, 'warn'),
+            // T14066: a waiter stops dead runners' orphaned children on every
+            // pass, not only when a run starts, so their charge is freed.
+            onPass: () => {
+              reapOrphans(d.jobsDir, probesOf(d));
+            },
             now: d.now,
             sleep: (ms) => d.sleep(ms, queueAbort.signal),
             signal: queueAbort.signal,
@@ -579,6 +587,7 @@ export async function runGoverned(opts: RunGovernedOptions): Promise<RunGoverned
         slot: grant.id === null ? -1 : 0,
         token: grant.token,
         holdsShare: grant.id !== null,
+        recordChild: (child) => grant.recordChild?.(child),
       };
     } else {
       // Classes outside the ledger (db-heavy) keep their governor slots. A run
@@ -719,20 +728,25 @@ export async function runGoverned(opts: RunGovernedOptions): Promise<RunGoverned
       );
     },
   );
+  // T12963: the slot this runner holds lists the child's group, so a SIGKILLed
+  // runner's slot stays held while the child runs. A nested or foreground
+  // child leads no group of its own. T13046: tracked before anything else
+  // runs after the spawn, so no window leaves a live child unlisted.
+  const childPid = child.pid;
+  const untrackGroup = leadsGroup ? trackToolGroup(childPid) : () => {};
+
   void exit.then(() => {
     exited = true;
   });
 
-  const childPid = child.pid;
   if (childPid !== undefined) {
+    const childStart = d.start(childPid);
+    // T13046: a non-leader child is listed too, so its charge outlives a dead runner.
+    grant.recordChild?.({ pid: childPid, startedAt: childStart });
     d.renice(childPid);
-    job = { ...job, childPid, childStart: d.start(childPid) };
+    job = { ...job, childPid, childStart };
     if (!exited) writeRunJob(job, d.jobsDir);
   }
-  // T12963: the slot this runner holds lists the child's group, so a SIGKILLed
-  // runner's slot stays held while the child runs. A nested or foreground
-  // child leads no group of its own.
-  const untrackGroup = leadsGroup ? trackToolGroup(childPid) : () => {};
 
   // A nested or foreground child is not a group leader (it lives in the
   // enclosing job's or the terminal's group): signal the process itself, or
