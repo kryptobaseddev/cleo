@@ -423,18 +423,22 @@ export function resolveChangeSetRoot(
   return { root: base, source: 'store' };
 }
 
-/** Split `git diff --name-status --no-renames` output into kept and deleted paths. */
+/**
+ * Split `git diff --name-status --no-renames` output into kept and deleted
+ * paths, each listed once. `diff-tree -m` lists a merge commit's diff against
+ * every parent, so a path both sides changed appears twice (T14040).
+ */
 function parseNameStatus(output: string): { files: string[]; deleted: string[] } {
-  const files: string[] = [];
-  const deleted: string[] = [];
+  const files = new Set<string>();
+  const deleted = new Set<string>();
   for (const line of output.split('\n')) {
     const [status, ...rest] = line.split('\t');
     const path = rest.join('\t');
     if (!status || !path) continue;
-    if (status.startsWith('D')) deleted.push(path);
-    else files.push(path);
+    if (status.startsWith('D')) deleted.add(path);
+    else files.add(path);
   }
-  return { files, deleted };
+  return { files: [...files], deleted: [...deleted] };
 }
 
 // T14007: one home for origin's default branch (git/base-ref.ts); re-exported for callers.
