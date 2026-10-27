@@ -20,6 +20,7 @@ import { createConnection, createServer } from 'node:net';
 import { tmpdir } from 'node:os';
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+import { parse as parseYaml } from 'yaml';
 import { captureWrapped } from '../packages/core/dist/resources/spawn-wrapper.js';
 import { sandboxEnvironment } from './lib/sandbox-env.mjs';
 
@@ -736,6 +737,127 @@ export function assertPackedVersion(output, expected) {
 }
 
 /**
+ * The workspace packages whose resolved runtime dependencies are compared with
+ * the lockfile (T14062), by lockfile importer.
+ */
+export const LOCK_CHECKED_PACKAGES = {
+  '@cleocode/contracts': 'packages/contracts',
+  '@cleocode/core': 'packages/core',
+};
+
+/**
+ * Whether a resolved dependency the lockfile never tested fails the smoke
+ * (T14062): every runtime dependency of the contracts package, whose schemas
+ * every consumer parses with, and zod wherever it is one (T14061: zod 4.6
+ * rejected every count summary while the lockfile tested 4.3.6). Other drift
+ * is recorded in the manifest as an untested resolution.
+ * @param {string} pkgName - The workspace package.
+ * @param {string} dependency - Its runtime dependency.
+ * @returns {boolean} True when drift must fail the smoke.
+ */
+export function lockDriftFails(pkgName, dependency) {
+  return pkgName === '@cleocode/contracts' || dependency === 'zod';
+}
+
+/**
+ * The third-party runtime dependency versions the lockfile tested for one
+ * workspace package (T14062). Workspace links are omitted and a peer suffix
+ * (`3.25.2(zod@4.3.6)`) is dropped.
+ * @param {string} lockText - `pnpm-lock.yaml` contents.
+ * @param {string} importer - Lockfile importer, e.g. `packages/contracts`.
+ * @returns {Record<string, string>} Dependency name to locked version.
+ */
+export function lockedRuntimeVersions(lockText, importer) {
+  const entries = parseYaml(lockText)?.importers?.[importer]?.dependencies;
+  if (!entries) throw new Error(`pnpm-lock.yaml has no dependencies for ${importer}.`);
+  const locked = {};
+  for (const [name, entry] of Object.entries(entries)) {
+    const version = String(entry?.version ?? '');
+    if (!version || version.startsWith('link:') || version.startsWith('file:')) continue;
+    locked[name] = version.replace(/\(.*$/, '');
+  }
+  return locked;
+}
+
+/**
+ * The version Node resolution finds for `dependency` from an installed
+ * package: the nearest `node_modules/<dependency>` walking up to `stopAt`.
+ * @param {string} packageRoot - The installed package directory.
+ * @param {string} dependency - Dependency name.
+ * @param {string} stopAt - The install root, searched last.
+ * @returns {string | null} The installed version, or null when none resolves.
+ */
+export function installedDependencyVersion(packageRoot, dependency, stopAt) {
+  for (let dir = packageRoot; ; dir = dirname(dir)) {
+    const manifest = join(dir, 'node_modules', dependency, 'package.json');
+    if (existsSync(manifest)) return JSON.parse(readFileSync(manifest, 'utf8')).version ?? null;
+    if (dir === stopAt || dirname(dir) === dir) return null;
+  }
+}
+
+/**
+ * Compare a packed package's resolved runtime dependencies with the lockfile
+ * (T14062). Only the packed manifest's third-party `dependencies` are read.
+ * @param {string} pkgName - The workspace package.
+ * @param {Record<string, string>} packedDependencies - The packed `package.json` dependencies.
+ * @param {Record<string, string>} locked - {@link lockedRuntimeVersions} for its importer.
+ * @param {(dependency: string) => string | null} resolve - The installed version of a dependency.
+ * @returns {{ failures: string[], untested: string[] }} Drift that fails, and drift recorded only.
+ */
+export function packedLockDrift(pkgName, packedDependencies, locked, resolve) {
+  const failures = [];
+  const untested = [];
+  for (const dependency of Object.keys(packedDependencies ?? {}).sort()) {
+    if (dependency.startsWith('@cleocode/')) continue;
+    const tested = locked[dependency];
+    const resolved = resolve(dependency);
+    if (tested === resolved) continue;
+    const line = `${pkgName} -> ${dependency}: installed ${resolved ?? 'nothing'}, lockfile tested ${tested ?? 'nothing'}`;
+    (lockDriftFails(pkgName, dependency) ? failures : untested).push(line);
+  }
+  return { failures, untested };
+}
+
+/**
+ * The fixtures the installed contracts package must parse as CI does (T14062,
+ * T14061): an acceptance gate, a bare count summary (no `testResults`)
+ * accepted, and a summary carrying `testResults` rejected. Run as a module in
+ * the install directory, so `@cleocode/contracts` and its zod are the ones
+ * npm resolved there.
+ */
+export const PACKED_SCHEMA_PROBE = `import { acceptanceGateSchema, testCountSummarySchema } from '@cleocode/contracts';
+const checks = [
+  ['acceptance gate', acceptanceGateSchema.safeParse({ kind: 'test', description: 'packed gate', command: 'pnpm test', expect: 'pass', minCount: 1 }), true],
+  ['count summary without testResults', testCountSummarySchema.safeParse({ numPassedTests: 13, numFailedTests: 0 }), true],
+  ['count summary with testResults', testCountSummarySchema.safeParse({ numPassedTests: 1, testResults: [] }), false],
+];
+const wrong = checks.filter(([, result, accepted]) => result.success !== accepted).map(([name, result, accepted]) => ({ name, expected: accepted ? 'accepted' : 'rejected', issues: result.error?.issues ?? [] }));
+process.stdout.write(JSON.stringify({ checked: checks.map(([name]) => name), wrong }));
+`;
+
+/**
+ * Parse the {@link PACKED_SCHEMA_PROBE} fixtures through the installed
+ * contracts package (T14062).
+ * @param {string} app - The install directory.
+ * @param {Record<string, string>} env - Sandbox environment.
+ * @param {object} [options] - `systemdControl` for the bounded capture.
+ * @returns {Promise<string[]>} The fixtures checked; throws naming any parsed wrongly.
+ */
+export async function verifyPackedSchemas(app, env, options = {}) {
+  const output = await runPackedCommand(
+    process.execPath,
+    ['--input-type=module', '--eval', PACKED_SCHEMA_PROBE],
+    { cwd: app, env, timeout: 30_000, ...options },
+  );
+  const result = JSON.parse(output);
+  if (result.wrong.length > 0)
+    throw new Error(
+      `Installed @cleocode/contracts parses fixtures unlike CI: ${JSON.stringify(result.wrong)}`,
+    );
+  return result.checked;
+}
+
+/**
  * Verify an API task list against canonical CLI-created identity and title.
  * @param {object} body - Parsed Studio tasks response.
  * @param {string} taskId - Exact identity returned by canonical CLI creation.
@@ -1312,6 +1434,8 @@ async function main() {
       studio: 'not-assessed',
       embedding: 'not-assessed',
       providers: 'not-assessed',
+      dependencies: 'not-assessed',
+      schemas: 'not-assessed',
     },
     limitations: [
       'Third-party dependencies may use npm registry.',
@@ -1412,6 +1536,32 @@ async function main() {
       pkg.installed = 'expected-packed-files-byte-verified';
       pkg.verifiedFileCount = pkg.files.length;
     }
+    save();
+    // T14062: the dependencies the published packages resolve are the ones CI tested.
+    const lockText = readFileSync(join(REPO_ROOT, 'pnpm-lock.yaml'), 'utf8');
+    const lockFailures = [];
+    manifest.untestedResolutions = [];
+    for (const [name, importer] of Object.entries(LOCK_CHECKED_PACKAGES)) {
+      const installedRoot = join(app, 'node_modules', name);
+      if (!existsSync(installedRoot)) throw new Error(`${name} is not installed by the CLI.`);
+      const packed = JSON.parse(readFileSync(join(installedRoot, 'package.json'), 'utf8'));
+      const drift = packedLockDrift(
+        name,
+        packed.dependencies,
+        lockedRuntimeVersions(lockText, importer),
+        (dependency) => installedDependencyVersion(installedRoot, dependency, app),
+      );
+      lockFailures.push(...drift.failures);
+      manifest.untestedResolutions.push(...drift.untested);
+    }
+    for (const line of manifest.untestedResolutions)
+      console.log(`[packed-smoke] untested resolution: ${line}`);
+    if (lockFailures.length > 0)
+      throw new Error(
+        `Packed install resolves dependency versions the lockfile never tested: ${lockFailures.join('; ')}`,
+      );
+    manifest.coverage.dependencies = 'verified-lockfile-versions';
+    manifest.coverage.schemas = await verifyPackedSchemas(app, env, { systemdControl });
     save();
     manifest.git = await verifyPackedGit(app, root, env, { systemdControl });
     manifest.coverage.git = 'verified-installed-version-and-initialization';
