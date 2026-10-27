@@ -217,8 +217,9 @@ function gitRead(cwd: string, args: readonly string[]): string | null {
  * review reproduced a failing test recording testsPassed from the main
  * checkout while `implemented` cited the unchecked-out task branch.
  *
- * - branch: the change-set commit must be the checked-out HEAD (a dirty tree
- *   is already a plan blocker);
+ * - branch: the checked-out HEAD must BE the change-set commit, whatever ref
+ *   holds it (T14059: a clean checkout detached at the task branch's tip
+ *   measures the same tree; a dirty tree is already a plan blocker);
  * - pr: the merge commit must be an ancestor of the checked-out HEAD.
  */
 function checkoutBlocker(
@@ -230,7 +231,7 @@ function checkoutBlocker(
   const head = gitRead(root, ['rev-parse', 'HEAD']);
   const short = (sha: string | null | undefined): string => (sha ?? 'nothing').slice(0, 12);
   if (cs.source === 'branch') {
-    if (cs.headRef === 'HEAD' && head !== null && head === cs.commitSha) return null;
+    if (head !== null && head === cs.commitSha) return null;
     const branch = cs.headRef && cs.headRef !== 'HEAD' ? cs.headRef : `task/${taskId}`;
     return {
       code: 'checkout-required',
