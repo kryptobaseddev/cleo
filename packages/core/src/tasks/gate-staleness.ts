@@ -58,6 +58,9 @@ export interface GateStalenessProbe {
  * @param task - The task (its `verification` is read).
  * @param storeRoot - CLEO store root.
  * @param probe - Merge state, tree and root; defaults to the task's change-set root.
+ * @param opts - `offline`: judge only the local rules (atom re-validation and a
+ *   moved tree); the merge state is never looked up (no `gh`), so a scoped
+ *   result is judged as before its merge. `cleo done --plan` gives the full verdict.
  * @returns The stale gates, in gate order; empty when every recorded pass stands.
  * @example
  * ```ts
@@ -69,12 +72,14 @@ export async function gateStaleness(
   task: Task,
   storeRoot: string,
   probe?: GateStalenessProbe,
+  opts: { offline?: boolean } = {},
 ): Promise<GateStaleness[]> {
   const verification = task.verification;
   if (!verification?.evidence || task.status === 'done') return [];
   let merge: ReturnType<typeof taskChangeMergeState> | undefined;
   const p: GateStalenessProbe = probe ?? {
     mergeState: () => {
+      if (opts.offline) return 'unmerged';
       merge ??= taskChangeMergeState(task, storeRoot);
       return merge;
     },
