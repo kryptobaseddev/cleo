@@ -30,8 +30,8 @@
  */
 
 import { execFileSync } from 'node:child_process';
-import { existsSync, readdirSync, realpathSync } from 'node:fs';
-import { join, resolve as resolvePath } from 'node:path';
+import { existsSync, readdirSync } from 'node:fs';
+import { join } from 'node:path';
 import type {
   ChangeSetDoc,
   ChangeSetRootSource,
@@ -40,22 +40,16 @@ import type {
   TaskChangeSet,
 } from '@cleocode/contracts';
 import { resolveOriginDefault } from '../git/base-ref.js';
-import { discoveryEnv, gitToplevel, resolveDeclaredEvidenceGitRoot } from '../git/work-tree.js';
 import { ghQueryTimeoutMs } from '../release/github-pr.js';
 import type { PrAtomResolution } from '../release/pr-evidence.js';
-import { enumerateWorktrees } from '../worktree/list.js';
 import {
   type ComponentLandingDeps,
   componentLandedChanges,
   findComponentLanding,
   landingCommitOn,
 } from './component-pr.js';
-import {
-  classifyEvidenceTask,
-  diffIntersectsAc,
-  type EvidenceRoots,
-  resolveEvidenceExecutionRoot,
-} from './evidence.js';
+import { classifyEvidenceTask, diffIntersectsAc, type EvidenceRoots } from './evidence.js';
+import { resolveEvidenceTree } from './evidence-tree.js';
 
 /** Task fields change-set derivation reads. */
 export type ChangeSetTask = Pick<Task, 'id' | 'kind' | 'labels' | 'files' | 'acceptance'> & {
@@ -296,14 +290,6 @@ export function taskCarryScope<T extends CarryTarget>(
   return files.length + deletedFiles.length > 0 ? { ...target, files, deletedFiles } : target;
 }
 
-function canonical(path: string): string {
-  try {
-    return realpathSync(path);
-  } catch {
-    return resolvePath(path);
-  }
-}
-
 /** `(^|non-alnum)T123(non-alnum|$)` — T123 never matches inside T1234. */
 function citesTask(text: string, taskId: string): boolean {
   return new RegExp(`(^|[^A-Za-z0-9])${taskId}([^A-Za-z0-9]|$)`).test(text);
@@ -320,63 +306,15 @@ function blocker(
 }
 
 /**
- * The git common directory of the checkout at `dir`, canonical, or null.
- * Ambient GIT_DIR / GIT_WORK_TREE are ignored, as every evidence probe does.
- */
-function commonDirOf(dir: string): string | null {
-  try {
-    const args = ['rev-parse', '--path-format=absolute', '--git-common-dir'];
-    const common = execFileSync('git', args, {
-      cwd: dir,
-      encoding: 'utf-8',
-      env: discoveryEnv(),
-      stdio: ['ignore', 'pipe', 'ignore'],
-    }).trim();
-    return common === '' ? null : canonical(common);
-  } catch {
-    return null;
-  }
-}
-
-/**
- * A linked worktree of the declared repository at `top` (T13926): the
- * invocation's own when `cwd` is in one, else the task's registered
- * `task/<id>` worktree; null when neither applies.
- */
-function declaredWorktree(
-  top: string,
-  taskId: string,
-  cwd: string,
-): { root: string; source: ChangeSetRootSource } | null {
-  const common = commonDirOf(top);
-  if (common === null) return null;
-  const here = gitToplevel(cwd);
-  if (here !== null && canonical(here) !== canonical(top) && commonDirOf(here) === common) {
-    return { root: here, source: 'invocation-worktree' };
-  }
-  let worktrees: ReturnType<typeof enumerateWorktrees> = [];
-  try {
-    worktrees = enumerateWorktrees(top);
-  } catch {
-    return null;
-  }
-  const own = worktrees.find(
-    (entry) =>
-      (entry.branch === `task/${taskId}` || entry.branch.startsWith(`task/${taskId}-`)) &&
-      existsSync(entry.path) &&
-      canonical(entry.path) !== canonical(top),
-  );
-  return own ? { root: own.path, source: 'task-worktree' } : null;
-}
-
-/**
- * Resolve the repository a task's change set is read from.
+ * Resolve the repository a task's change set is read from: the shared
+ * evidence tree ({@link resolveEvidenceTree}, T14058), which typed gates run
+ * in too.
  *
- * Order: declared git root (or a linked worktree of it: the invocation's,
- * else the task's, T13926) → the invocation's own worktree of this project →
- * the task's registered worktree (only when invoked from the main checkout)
- * → the store root or its single child checkout, as
- * {@link resolveEvidenceExecutionRoot} already decides.
+ * Order: declared git root — the invocation's linked worktree of it, a
+ * declared linked worktree, the task's worktree of it (T13926), the declared
+ * tree — else the invocation's own worktree of this project → the task's
+ * registered worktree → the store root or its single child checkout, as
+ * `resolveEvidenceExecutionRoot` already decides.
  *
  * @param storeRoot - CLEO store root.
  * @param taskId - Task whose registered worktree to look for.
@@ -384,6 +322,7 @@ function declaredWorktree(
  * @param env - Environment for the declared-root tier.
  * @returns The execution root and why it was chosen.
  * @task T12624
+ * @task T14058
  */
 export function resolveChangeSetRoot(
   storeRoot: string,
@@ -391,36 +330,7 @@ export function resolveChangeSetRoot(
   cwd: string = process.cwd(), // CWD-OK: the invocation dir is the subject (gh#1220)
   env: NodeJS.ProcessEnv = process.env,
 ): { root: string; source: ChangeSetRootSource } {
-  const declared = resolveDeclaredEvidenceGitRoot(storeRoot, env);
-  if (declared !== null) {
-    const top = gitToplevel(declared.path) ?? declared.path;
-    // T13926: a linked worktree of the DECLARED repository (the invocation's,
-    // else the task's own) is where the work and its test runs live; the
-    // declared root names the repository, not which checkout of it.
-    return declaredWorktree(top, taskId, cwd) ?? { root: top, source: 'declared' };
-  }
-  const base = resolveEvidenceExecutionRoot(storeRoot, cwd);
-  const mainCheckout = git(base, ['rev-parse', '--path-format=absolute', '--git-common-dir']);
-  const isLinkedWorktree =
-    mainCheckout !== null &&
-    canonical(join(base, '.git')) !== canonical(mainCheckout) &&
-    canonical(base) !== canonical(storeRoot);
-  if (isLinkedWorktree) return { root: base, source: 'invocation-worktree' };
-
-  let worktrees: ReturnType<typeof enumerateWorktrees> = [];
-  try {
-    worktrees = enumerateWorktrees(base);
-  } catch {
-    worktrees = [];
-  }
-  const own = worktrees.find(
-    (entry) =>
-      (entry.branch === `task/${taskId}` || entry.branch.startsWith(`task/${taskId}-`)) &&
-      existsSync(entry.path) &&
-      canonical(entry.path) !== canonical(base),
-  );
-  if (own) return { root: own.path, source: 'task-worktree' };
-  return { root: base, source: 'store' };
+  return resolveEvidenceTree(storeRoot, taskId, cwd, env);
 }
 
 /**

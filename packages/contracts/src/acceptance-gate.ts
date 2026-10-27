@@ -39,6 +39,11 @@ export interface AcceptanceGateRunOptions
   extends Pick<ProcessCaptureOptions, 'memoryMaxMb' | 'tasksMax'> {
   /** Explicit project root, or the captured operation's project root. */
   projectRoot?: string;
+  /**
+   * Task whose `task/<id>` worktree may be the tree the gates run in (T14058);
+   * absent skips that tier of `resolveTypedGateRoot`.
+   */
+  taskId?: string;
   /** Manual gates remain skipped and never become machine proof. */
   skipManual?: boolean;
   /** Original admitted operation, including project identity, deadline and cancellation. */

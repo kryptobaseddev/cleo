@@ -57,6 +57,7 @@ import {
   taskEvidenceKind,
   validateAtom,
 } from '../tasks/evidence.js';
+import { type EvidenceTree, resolveEvidenceTree } from '../tasks/evidence-tree.js';
 import { appendForceBypassLine, appendGateAuditLine } from '../tasks/gate-audit.js';
 import { describeGateNotes } from '../tasks/gate-notes.js';
 import { readAllowCachedGates } from '../tasks/gate-result-cache.js';
@@ -352,6 +353,11 @@ export interface GateVerifyResult {
   evidenceStored?: EvidenceAtom[];
   /** True when CLEO_OWNER_OVERRIDE bypassed evidence validation (T832). */
   override?: boolean;
+  /**
+   * The checkout this write's evidence was bound in and the tier that chose
+   * it ({@link resolveEvidenceTree}, T14058). Present when evidence was stored.
+   */
+  evidenceRoot?: EvidenceTree;
   /**
    * Actionable next-step hint emitted when all required gates become green
    * after a write (policy-b: verify never auto-completes, explicit complete
@@ -1320,6 +1326,7 @@ export async function validateGateVerify(
     if (evidenceStored.length > 0) {
       result.evidenceStored = evidenceStored;
       result.override = override.override;
+      result.evidenceRoot = resolveEvidenceTree(projectRoot, taskId);
     }
     Object.assign(result, gateNotesField(verification));
 

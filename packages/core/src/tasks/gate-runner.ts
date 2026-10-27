@@ -75,7 +75,7 @@ import type {
 } from '@cleocode/contracts/resource-governor';
 import { findOnPath } from '@cleocode/paths';
 import { resolveOriginDefault } from '../git/base-ref.js';
-import { discoveryEnv, gitToplevel, resolveDeclaredEvidenceGitRoot } from '../git/work-tree.js';
+import { discoveryEnv } from '../git/work-tree.js';
 import { getProjectRoot } from '../paths.js';
 import { captureProjectScope, worktreeScope } from '../project-scope.js';
 import { truncateString } from '../render/helpers.js';
@@ -90,6 +90,7 @@ import { registerTeardownAbort } from '../teardown-signal.js';
 import { acItemToText, acTextHash } from './ac-table.js';
 import { splitCommandLine } from './command-line.js';
 import { resolveCanonicalProjectRoot } from './evidence.js';
+import { resolveEvidenceTree } from './evidence-tree.js';
 import {
   buildGateCacheEntryBody,
   captureGateCacheState,
@@ -353,7 +354,12 @@ export async function captureGateInputs(
   execution: OperationExecutionContext,
   env: NodeJS.ProcessEnv = process.env,
 ): Promise<{ hash: string; inputs: AcceptanceGateCacheInputs }> {
-  const tree = resolveTypedGateRoot(resolve(execution.identity.projectRoot));
+  const tree = resolveTypedGateRoot(
+    resolve(execution.identity.projectRoot),
+    undefined,
+    undefined,
+    task.id,
+  );
   const invocation = executableInvocation(gate, tree, { ...env });
   const artifacts = await snapshotGateInputs(task, gate, invocation, execution, tree);
   return {
@@ -386,20 +392,29 @@ export async function captureGateInputs(
  * or `evidence.gitRoot`) is consulted first, as `resolveEvidenceExecutionRoot`
  * does for evidence tools. Without it, a run whose cwd had been moved to the
  * store root keyed the gate cache to the primary checkout's HEAD even when the
- * caller named its worktree. A declared tree is honoured only when it is this
- * project's checkout or one of its linked worktrees, like the cwd.
+ * caller named its worktree.
+ *
+ * T14058: the tree comes from {@link resolveEvidenceTree}, the resolver
+ * change-set binding uses, so typed gates and a bound test-run never measure
+ * different checkouts: the invocation's linked worktree of the declared
+ * repository wins, and with `taskId` the task's `task/<id>` worktree is chosen
+ * from the main checkout. Only this project's checkout or one of its linked
+ * worktrees is accepted; any other candidate is skipped.
  *
  * @param projectRoot - CLEO store root (the typed gate's authority).
  * @param cwd - Invocation directory. Defaults to `process.cwd()`.
  * @param env - Where the evidence declaration is read. Defaults to `process.env`.
+ * @param taskId - Task whose `task/<id>` worktree may be the tree; null skips that tier.
  * @returns The realpath of the tree typed gates execute in.
  * @task T12625
  * @task T13649
+ * @task T14058
  */
 export function resolveTypedGateRoot(
   projectRoot: string,
   cwd: string = process.cwd(), // CWD-OK: the invocation tree is the subject (gh#1220)
   env: NodeJS.ProcessEnv = process.env,
+  taskId: string | null = null,
 ): string {
   const real = (p: string): string => {
     try {
@@ -409,15 +424,10 @@ export function resolveTypedGateRoot(
     }
   };
   const root = real(projectRoot);
-  const ofThisProject = (top: string | null): string | null =>
-    top !== null && real(top) !== root && real(resolveCanonicalProjectRoot(top)) === root
-      ? real(top)
-      : null;
-  const declared = resolveDeclaredEvidenceGitRoot(projectRoot, env);
-  const declaredTop = declared ? gitToplevel(declared.path) : null;
-  // A declaration naming the store root itself is honoured as such.
-  if (declaredTop !== null && real(declaredTop) === root) return projectRoot;
-  return ofThisProject(declaredTop) ?? ofThisProject(gitToplevel(cwd)) ?? projectRoot;
+  const ofThisProject = (top: string): boolean =>
+    real(top) === root || real(resolveCanonicalProjectRoot(top)) === root;
+  const tree = real(resolveEvidenceTree(projectRoot, taskId, cwd, env, ofThisProject).root);
+  return tree === root ? projectRoot : tree;
 }
 
 /**
@@ -477,7 +487,7 @@ export async function runGates(
   if (!Number.isSafeInteger(maxOutputBytes) || maxOutputBytes < 1)
     throw new RangeError('Gate capture byte limit must be a positive safe integer');
   // T12625: execute and fingerprint in the caller's worktree of this project.
-  const treeRoot = resolveTypedGateRoot(projectRoot);
+  const treeRoot = resolveTypedGateRoot(projectRoot, undefined, undefined, options.taskId ?? null);
   const snapshot = structuredClone(gates);
   const controller = new AbortController();
   const deregister = registerTeardownAbort(controller);
@@ -832,7 +842,7 @@ export async function runTaskGates(
   assertCriterionProjection(snapshot, rows);
   const env = { ...(options.env ?? process.env) };
   const verificationId = randomUUID();
-  const tree = resolveTypedGateRoot(root);
+  const tree = resolveTypedGateRoot(root, undefined, undefined, snapshot.id);
   return worktreeScope.run(scope, async () => {
     const results: AcceptanceGateResult[] = [];
     for (const [index, gate] of (snapshot.acceptance ?? []).entries()) {
@@ -880,6 +890,7 @@ export async function runTaskGates(
             await runGates([gate], {
               ...options,
               projectRoot: root,
+              taskId: snapshot.id,
               env,
               execution,
               ...(options.cache && options.cache !== 'off'
@@ -1266,6 +1277,8 @@ function typedRevalidationScope(
       results,
       execution,
       root,
+      // No task id: completion judges a stored result in the invocation's own
+      // tree, so completing from main before the merge stays refused (T12625).
       tree: resolveTypedGateRoot(root, cwd),
       env: { ...(options.env ?? process.env) },
       requirePassing,

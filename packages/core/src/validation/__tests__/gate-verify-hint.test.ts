@@ -17,7 +17,7 @@
 
 import { execFileSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
-import { writeFileSync } from 'node:fs';
+import { realpathSync, writeFileSync } from 'node:fs';
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -224,6 +224,20 @@ describe('validateGateVerify — hint field (GH #94 / T919)', () => {
     const data = result.data as Record<string, unknown>;
     expect(data.passed).toBe(false);
     expect(data.hint).toBeUndefined();
+  });
+
+  it('reports the evidence root and its source tag on a write (T14058 AC5)', async () => {
+    await seedTask('T103');
+    const result = await validateGateVerify(TEST_ROOT, {
+      taskId: 'T103',
+      gate: 'implemented',
+      value: true,
+      evidence: evidenceFor('implemented'),
+    });
+    expect(result.success).toBe(true);
+    const root = (result.data as { evidenceRoot?: { root: string; source: string } }).evidenceRoot;
+    expect(root?.source).toBe('store');
+    expect(realpathSync(root?.root ?? '')).toBe(realpathSync(TEST_ROOT));
   });
 
   it('does NOT emit hint on view mode (no write)', async () => {

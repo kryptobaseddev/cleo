@@ -174,7 +174,9 @@ export async function previewTaskGates(
     // reports its own error for it exactly as before.
     const allowCachedGates = readAllowCachedGates(root);
     // T13649: report the tree the runner keys its cache to, not the store root.
-    const cacheState = await captureGateCacheState(resolveTypedGateRoot(root));
+    const cacheState = await captureGateCacheState(
+      resolveTypedGateRoot(root, undefined, undefined, taskId),
+    );
     const observed: AcceptanceGateResult[] = [];
     const notCachedWhy: Array<string | undefined> = [];
     for (const gate of gates) {
@@ -203,8 +205,9 @@ export async function previewTaskGates(
                 cache: 'refresh',
                 cacheInputsHash,
                 cacheInputs: captured?.inputs,
+                taskId,
               }
-            : { projectRoot: root, execution },
+            : { projectRoot: root, execution, taskId },
         )),
       );
     }
