@@ -162,6 +162,15 @@ describe('cleo run --passthrough (#1777 R7)', () => {
     expect(err).toEqual([]);
   });
 
+  it('--no-pause asks runGoverned for a run that is never paused; the default does not (T14075)', async () => {
+    runGoverned.mockResolvedValue(exited());
+    await invoke({ passthrough: true, pause: false }, argv);
+    expect(opts()).toMatchObject({ noPause: true });
+    runGoverned.mockClear();
+    await invoke({ passthrough: true }, argv);
+    expect(opts().noPause).toBeUndefined();
+  });
+
   it('interrupted while queued: E_RUN_INTERRUPTED on stderr, exit 128 + the signal (T13681)', async () => {
     runGoverned.mockResolvedValue({
       kind: 'interrupted',
