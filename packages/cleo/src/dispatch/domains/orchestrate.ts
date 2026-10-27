@@ -236,6 +236,8 @@ interface OrchestrateSpawnExecuteParams {
   adapterId?: string;
   protocolType?: string;
   tier?: 0 | 1 | 2;
+  /** T14046 — ref the task branch is created from instead of HEAD. */
+  baseRef?: string;
 }
 
 interface OrchestrateValidateParams {
@@ -499,6 +501,7 @@ async function orchestrateSpawnExecuteOp(params: OrchestrateSpawnExecuteParams) 
     params.protocolType,
     getProjectRoot(),
     params.tier,
+    params.baseRef !== undefined ? { baseRef: params.baseRef } : {},
   );
 }
 
@@ -967,6 +970,7 @@ export class OrchestrateHandler implements DomainHandler {
             adapterId: params.adapterId as string | undefined,
             protocolType: params.protocolType as string | undefined,
             tier,
+            ...(typeof params.baseRef === 'string' ? { baseRef: params.baseRef } : {}),
           };
           return wrapResult(
             await coreOps['spawn.execute'](p),

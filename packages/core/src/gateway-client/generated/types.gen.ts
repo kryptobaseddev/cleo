@@ -6883,6 +6883,10 @@ export type MutateOrchestrateSpawnExecuteData = {
          * Progressive disclosure tier (0-2)
          */
         tier?: number;
+        /**
+         * T14046: ref the task branch is created from instead of HEAD; a provisioning failure refuses the spawn
+         */
+        baseRef?: string;
     };
     path?: never;
     query?: never;

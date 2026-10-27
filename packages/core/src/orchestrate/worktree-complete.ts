@@ -565,3 +565,33 @@ export function integrationDisabledReason(
   }
   return undefined;
 }
+
+/**
+ * Audit a spawn auto-complete skipped by {@link AUTO_WORKTREE_COMPLETE_ENV}:
+ * a `complete-skip` row with `reason: 'env-override'` in the lifecycle audit
+ * log (worktree-lifecycle MUST-19). The worktree and branch are untouched.
+ *
+ * @param taskId - Task whose auto-complete was skipped.
+ * @param projectRoot - Absolute path to the project root.
+ * @param lifecycleAuditPath - Override for the lifecycle audit log (tests).
+ * @task T14057
+ */
+export function recordAutoCompleteEnvSkip(
+  taskId: string,
+  projectRoot: string,
+  lifecycleAuditPath?: string,
+): void {
+  appendWorktreeAuditEntry(
+    projectRoot,
+    {
+      actor: resolveWorktreeAuditActor(),
+      action: 'complete-skip',
+      target: join(resolveAgentWorktreeRoot(projectRoot), taskId),
+      branch: `task/${taskId}`,
+      taskId,
+      reason: 'env-override',
+      success: true,
+    },
+    lifecycleAuditPath,
+  );
+}

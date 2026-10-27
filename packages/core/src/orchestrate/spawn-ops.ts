@@ -756,6 +756,13 @@ export interface OrchestrateSpawnExecuteOpts {
    * @default true
    */
   autoComplete?: boolean;
+  /**
+   * T14046 — create the task branch from this ref instead of HEAD, as
+   * `cleo orchestrate spawn --base` does (T14027). With it, a provisioning
+   * failure refuses the spawn instead of running the agent unisolated in the
+   * project root.
+   */
+  baseRef?: string;
 }
 
 /**
@@ -972,6 +979,7 @@ export async function orchestrateSpawnExecute(
         holder: resolveSpawnLockHolder({ sessionId: activeSessionId, agentId: spawnAgentId }),
         // T13425 — an ended holder session releases the lock.
         sessionProbe: await resolveLockSessionProbe(cwd, taskId),
+        ...(opts.baseRef !== undefined ? { baseRef: opts.baseRef } : {}),
       });
       auditWorktreeLockReclaim(cwd, taskId, worktreeResult.path, worktreeResult.lock);
       // T11343 — bind the spawned agent's OWN session + identity into the
@@ -1006,6 +1014,22 @@ export async function orchestrateSpawnExecute(
             details: { taskId, holder: wtErr.holder, lockPath: wtErr.lockPath, fix: wtErr.fix },
           },
         };
+      }
+      // T14046: a bad --base ref or a worktree on another base. Running the
+      // agent in the project root would ignore the base it was asked for.
+      if (opts.baseRef !== undefined) {
+        const refusalCode = (wtErr as { code?: unknown } | null)?.code;
+        // @sync-invariant none:input-shape an unusable --base refuses; the finally hands the claim back
+        return engineError(
+          typeof refusalCode === 'string' && refusalCode.startsWith('E_')
+            ? refusalCode
+            : 'E_WORKTREE_PROVISION_FAILED',
+          wtErr instanceof Error ? wtErr.message : String(wtErr),
+          {
+            details: { taskId, baseRef: opts.baseRef },
+            fix: `Check that '${opts.baseRef}' resolves to a commit and that no worktree or branch for ${taskId} exists on another base.`,
+          },
+        );
       }
       // Worktree provisioning failure — spawn continues without isolation.
       // This matches the graceful-degradation policy of orchestrateSpawn.
@@ -1131,7 +1155,16 @@ export async function orchestrateSpawnExecute(
         }
       | { ran: false; reason: string } = { ran: false, reason: 'autoComplete disabled' };
 
-    if (autoComplete && result.exitCode === 0) {
+    // T14057 (worktree-lifecycle MUST-19): CLEO_NO_AUTO_WORKTREE_COMPLETE
+    // leaves the worktree alone, and the skip is audited.
+    const { integrationDisabledReason, recordAutoCompleteEnvSkip } = await import(
+      './worktree-complete.js'
+    );
+    const envDisabled = integrationDisabledReason(false);
+    if (autoComplete && result.exitCode === 0 && envDisabled !== undefined) {
+      recordAutoCompleteEnvSkip(taskId, cwd);
+      autoCompleteOutcome = { ran: false, reason: envDisabled };
+    } else if (autoComplete && result.exitCode === 0) {
       try {
         const { completeWorktreeForTask } = await import('./worktree-complete.js');
         const completion = completeWorktreeForTask(taskId, cwd);
