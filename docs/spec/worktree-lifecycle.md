@@ -260,7 +260,7 @@ malformed, the function proceeds with the merge attempt. The underlying
 `cleo complete <taskId>` runs exactly one worktree integration after the
 task is marked done (`completeTask` in `packages/core/src/tasks/complete.ts`).
 One decision function, `decideWorktreeIntegration` in
-`packages/core/src/spawn/branch-lock.ts`, drives both this run and the
+`packages/core/src/spawn/branch-integration.ts`, drives both this run and the
 preview in `cleo done <taskId> --plan` (`planWorktreeIntegration`, local refs
 only, no fetch, no git writes), so the preview and the run agree. The rules,
 in order:
@@ -318,7 +318,7 @@ Downstream consumers (in particular the release pipeline — see
 The integration log
 (`.cleo/audit/worktree-integration.jsonl`, written by
 `completeAgentWorktreeIntegration` in
-`packages/core/src/spawn/branch-lock.ts`) is the lower-level companion
+`packages/core/src/spawn/branch-integration.ts`) is the lower-level companion
 record — it captures the actual `git merge --no-ff` outcome and is the
 source of truth for idempotency checks.
 

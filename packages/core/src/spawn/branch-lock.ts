@@ -71,9 +71,6 @@ import {
 } from '@cleocode/worktree';
 import { resolveSpawnLockHolder } from './worktree-lock-holder.js';
 
-// Re-export getGitRoot for barrel consumers
-export { getGitRoot };
-
 // ---------------------------------------------------------------------------
 // L1 — Worktree lifecycle
 // ---------------------------------------------------------------------------

@@ -2314,7 +2314,8 @@ export { taskUpdate } from './tasks/update.js';
 
 // Worktree destroy — re-export from @cleocode/worktree so the cleo CLI funnels
 // through core per the AGENTS.md Package-Boundary Check (T9985 / E8-CLI-LAYERING).
-export { destroyWorktree, recoverPartialWorktree } from '@cleocode/worktree';
+// T10876: the git-root helper is the worktree facade's, not branch-lock's.
+export { destroyWorktree, getGitRoot, recoverPartialWorktree } from '@cleocode/worktree';
 export type {
   AgentExecutionEvent,
   AgentExecutionOutcome,
@@ -2770,7 +2771,6 @@ export {
   createAgentWorktree,
   detectFsHardenCapabilities,
   ensureGitShimDir,
-  getGitRoot,
   pruneOrphanedWorktrees,
   pruneWorktree,
   removeFsHarden,

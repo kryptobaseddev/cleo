@@ -7,6 +7,8 @@
  * @epic T5701
  */
 
+// T10876: the git-root helper is the worktree facade's, not branch-lock's.
+export { getGitRoot } from '@cleocode/worktree';
 export type { SpawnCapability } from './adapter-registry.js';
 export {
   getProvidersWithSpawnCapability,
@@ -35,7 +37,6 @@ export {
   createAgentWorktree,
   detectFsHardenCapabilities,
   ensureGitShimDir,
-  getGitRoot,
   pruneOrphanedWorktrees,
   pruneWorktree,
   removeFsHarden,
