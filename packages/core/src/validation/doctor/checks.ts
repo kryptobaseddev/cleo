@@ -2003,6 +2003,42 @@ export function checkAffectedTestScope(projectRoot?: string): CheckResult {
 }
 
 /**
+ * Check that a project with GitHub workflows opts in to merged-PR CI as
+ * `testsPassed`/`qaPassed` evidence (`evidence.ciSatisfies`, T13096). Without
+ * it, a task whose PR merged after a scoped run can only complete on a full
+ * local suite. The warning's fix is the ready-to-paste `evidence` block with
+ * the default branch's required checks ({@link ciSatisfiesRemedy}).
+ *
+ * @param projectRoot - Project root; defaults to the resolved current project.
+ * @returns `passed` when the setting is on or there are no workflows; else `warning`.
+ * @task T13096
+ */
+export async function checkCiSatisfies(projectRoot?: string): Promise<CheckResult> {
+  const root = projectRoot ?? getProjectRoot();
+  const { ciSatisfiesRemedy } = await import('../../release/ci-evidence.js');
+  const remedy = await ciSatisfiesRemedy(root);
+  const base = { id: 'ci_satisfies', category: 'configuration' } as const;
+  if (remedy === null)
+    return {
+      ...base,
+      status: 'passed',
+      message:
+        'evidence.ciSatisfies is set, or the project has no GitHub workflows: merged-PR CI evidence needs nothing more.',
+      details: {},
+      fix: null,
+    };
+  return {
+    ...base,
+    status: 'warning',
+    message:
+      'GitHub workflows are present but evidence.ciSatisfies is not set: after a PR merges, a scoped ' +
+      'testsPassed only stands on a full local suite.',
+    details: { workflows: true, ciSatisfies: false },
+    fix: remedy,
+  };
+}
+
+/**
  * Warn about CANT files left in the pre-T12602 Linux-style dirs on macOS and
  * Windows.
  *

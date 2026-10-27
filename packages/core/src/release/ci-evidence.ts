@@ -51,7 +51,7 @@
  */
 
 import { execFileSync } from 'node:child_process';
-import { readFileSync } from 'node:fs';
+import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { EvidenceAtom, EvidenceValidationContext } from '@cleocode/contracts';
 import { isGitWorkTree } from '../git/work-tree.js';
@@ -65,6 +65,7 @@ import {
 import { ghQueryTimeoutMs, isGhCliAvailable } from './github-pr.js';
 import {
   describeRequiredWorkflowsSource,
+  type FetchGhBranchProtection,
   type PrAtomResolution,
   type RequiredCheckPinSpec,
   readRequiredCheckPins,
@@ -310,6 +311,57 @@ export function readCiSatisfies(projectRoot: string): boolean {
     readProjectContextFile(projectRoot) as { evidence?: { ciSatisfies?: unknown } } | null
   )?.evidence;
   return evidence?.ciSatisfies === true;
+}
+
+/**
+ * The `evidence.ciSatisfies` remedy for a project that has GitHub workflows
+ * but has not opted in (T13096), or null when it has, or has no workflows.
+ *
+ * Without the setting, `cleo complete` cannot stand a merged PR's CI in for
+ * `testsPassed`/`qaPassed` (`ci:<pr>`), so a scoped run recorded before the
+ * merge leaves only a full local suite. The remedy is a ready-to-paste
+ * `evidence` block whose `ciChecks` are the default branch's required checks
+ * ({@link resolveRequiredWorkflowsDetailed}, read-only: nothing is cached).
+ *
+ * @param root - The project checkout (its `.cleo/project-context.json` and `.github/workflows`).
+ * @param opts - Branch-protection fetcher override (tests).
+ * @returns The remedy text, or null.
+ * @task T13096
+ */
+export async function ciSatisfiesRemedy(
+  root: string,
+  opts: { fetchGhBranchProtection?: FetchGhBranchProtection } = {},
+): Promise<string | null> {
+  if (readCiSatisfies(root)) return null;
+  let workflows: string[];
+  try {
+    workflows = readdirSync(join(root, '.github', 'workflows')).filter((f) => /\.ya?ml$/.test(f));
+  } catch {
+    return null;
+  }
+  if (workflows.length === 0) return null;
+  const required = await resolveRequiredWorkflowsDetailed(
+    { storeRoot: root, executionRoot: root },
+    {
+      projectContext: readProjectContextFile(root),
+      readOnly: true,
+      ...(opts.fetchGhBranchProtection
+        ? { fetchGhBranchProtection: opts.fetchGhBranchProtection }
+        : {}),
+    },
+  );
+  const checks = required.source.tier === 'unknown' ? [] : required.workflows;
+  // ci:<pr> attests a gate only through its declared ciChecks list (T12634).
+  const listed = checks.length > 0 ? checks : ['<required check>'];
+  const block = { ciSatisfies: true, ciChecks: { tests: listed, qa: listed } };
+  return (
+    `This project has GitHub workflows (.github/workflows) but does not set evidence.ciSatisfies, ` +
+    "so a merged PR's CI cannot stand in for testsPassed/qaPassed (ci:<pr>). Add to " +
+    `.cleo/project-context.json: "evidence": ${JSON.stringify(block)}` +
+    (checks.length > 0
+      ? ` (required checks from ${describeRequiredWorkflowsSource(required.source)}; narrow ciChecks.tests/qa to the checks that run tests and QA).`
+      : `, replacing <required check> with the required checks that run tests and QA (none were found: ${describeRequiredWorkflowsSource(required.source)}).`)
+  );
 }
 
 /**
