@@ -270,9 +270,9 @@ export function writeHolderRecord(slotPath: string, record: SlotHolderIdentity):
 }
 
 /**
- * Keep a held slot's record listing every tool group this process starts
- * while it holds the slot. Rewrites only while the slot's lock is still the
- * one the record describes.
+ * Keep a held slot's record listing every tool group this process runs while
+ * it holds the slot (a finished group is dropped, T14066). Rewrites only
+ * while the slot's lock is still the one the record describes.
  *
  * @param slotPath - Slot lock file path.
  * @param record - The record as first written (its `toolGroups` are replaced).

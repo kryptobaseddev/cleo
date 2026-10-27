@@ -13,7 +13,7 @@
  */
 
 const _active = new Set<number>();
-const _listeners = new Set<(pgid: number) => void>();
+const _listeners = new Set<(pgid: number, running: boolean) => void>();
 
 /**
  * Whether `id` may ever be probed as a pid or process group: an integer above
@@ -35,18 +35,22 @@ export function isProbeableId(id: unknown): id is number {
  * process groups) and for an id that is not probeable.
  *
  * @param pgid - The group id: the pid of a child spawned with `detached: true`.
- * @returns Marks the group as no longer running (idempotent).
+ * @returns Marks the group as no longer running (idempotent). Every slot this
+ *   process holds is told, so its record drops the group: a finished group id
+ *   that the system later reuses never keeps a dead holder's charge (T14066).
  *
  * @task T12963
+ * @task T14066
  */
 export function trackToolGroup(pgid: number | undefined): () => void {
   if (process.platform === 'win32' || !isProbeableId(pgid) || _active.has(pgid)) {
     return () => {};
   }
   _active.add(pgid);
-  for (const listener of _listeners) listener(pgid);
+  for (const listener of _listeners) listener(pgid, true);
   return () => {
-    _active.delete(pgid);
+    if (!_active.delete(pgid)) return;
+    for (const listener of _listeners) listener(pgid, false);
   };
 }
 
@@ -62,24 +66,27 @@ export function activeToolGroups(): number[] {
 }
 
 /**
- * Follow the tool groups started while a slot is held: seeded with the groups
- * already running, then `onNew` is called with the full list each time
- * another one starts.
+ * Follow the tool groups running while a slot is held: seeded with the groups
+ * already running, then `onChange` is called with the full list each time one
+ * starts or finishes.
  *
- * @param onNew - Called with every group recorded so far, after each new one.
- * @returns The groups recorded so far (kept up to date) and `stop`.
+ * @param onChange - Called with every group still running, after each change.
+ * @returns The groups running now (kept up to date) and `stop`.
  *
  * @task T12963
+ * @task T14066
  */
-export function followToolGroups(onNew: (groups: readonly number[]) => void): {
+export function followToolGroups(onChange: (groups: readonly number[]) => void): {
   groups: readonly number[];
   stop: () => void;
 } {
   const groups = activeToolGroups();
-  const listener = (pgid: number): void => {
-    if (groups.includes(pgid)) return;
-    groups.push(pgid);
-    onNew(groups);
+  const listener = (pgid: number, running: boolean): void => {
+    const at = groups.indexOf(pgid);
+    if (running === at >= 0) return;
+    if (running) groups.push(pgid);
+    else groups.splice(at, 1);
+    onChange(groups);
   };
   _listeners.add(listener);
   return {

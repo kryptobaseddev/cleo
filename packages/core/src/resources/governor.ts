@@ -422,7 +422,7 @@ async function admitThroughLedger(
       ...deferral(
         cls,
         out.refusal.holders.length > 0
-          ? `${out.refusal.reason}; held by ${out.refusal.holders.join('; ')}`
+          ? `${out.refusal.reason}; held by ${out.refusal.holders.join(' | ')}`
           : out.refusal.reason,
         out.refusal.retryAfterMs,
       ),

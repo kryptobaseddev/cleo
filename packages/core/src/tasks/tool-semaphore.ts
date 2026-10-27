@@ -206,7 +206,7 @@ export class AdmissionTimeoutError extends Error {
   constructor(canonical: CanonicalTool, refusal: AdmissionRefusal) {
     super(
       `Timed out waiting for admission of a '${canonical}' run: ${refusal.reason}.` +
-        (refusal.holders.length > 0 ? ` Current holders — ${refusal.holders.join('; ')}.` : '') +
+        (refusal.holders.length > 0 ? ` Current holders — ${refusal.holders.join(' | ')}.` : '') +
         ' Use CI as test evidence (ci:<pr>), narrow the run, or set CLEO_RESOURCES_MODE=off to turn admission off.',
     );
     this.name = 'AdmissionTimeoutError';
