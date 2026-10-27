@@ -450,6 +450,46 @@ describe('runToolCached — resource kills and resource limits (T12989)', () => 
     }
   });
 
+  it('T13014: two waiters on a resource-killed holder report its kill instead of rerunning; a larger heap and a later call run', {
+    timeout: 30_000,
+  }, async () => {
+    // Longer than the lock-acquire retry window, so both waiters find the lock held.
+    const cmd = testCommand(`sleep 2; echo "${OOM_LINE}" >&2; exit 1`);
+    const waitOpts = { skipGlobalSemaphore: true, spawnTimeoutMs: 30_000, lockPollMs: 50 };
+    try {
+      process.env['CLEO_HEAVY_HEAP_MB'] = '3072';
+      const results = await Promise.all([
+        runToolCached(cmd, repo, waitOpts),
+        runToolCached(cmd, repo, waitOpts),
+        runToolCached(cmd, repo, waitOpts),
+      ]);
+      expect(spawnCount()).toBe(1);
+      for (const r of results) {
+        expect(r.exitCode).toBe(1);
+        expect(r.resourceKill).toMatch(/^output reports "JavaScript heap out of memory"/);
+        expect(r.cacheHit).toBe(false);
+      }
+      const waiters = results.filter((r) => r.resourceKill?.includes('not rerun'));
+      expect(waiters).toHaveLength(2);
+      expect(waiters[0]?.stderrTail).toContain('heap out of memory');
+      expect(persistedEntries(repo)).toEqual([]);
+
+      // A larger heap is another key: it runs.
+      process.env['CLEO_HEAVY_HEAP_MB'] = '6144';
+      const bigger = await run(cmd);
+      expect(bigger.resourceKill).not.toContain('not rerun');
+      expect(spawnCount()).toBe(2);
+
+      // A call that starts after the kill runs again at the same limits.
+      process.env['CLEO_HEAVY_HEAP_MB'] = '3072';
+      const later = await run(cmd);
+      expect(later.resourceKill).not.toContain('not rerun');
+      expect(spawnCount()).toBe(3);
+    } finally {
+      delete process.env['CLEO_HEAVY_HEAP_MB'];
+    }
+  });
+
   it('the field report: OOM at 3 GB, then a 6 GB retry runs and passes', async () => {
     // Runs out of memory exactly when it is given 3072 MiB. The retry raises
     // the heap the way the resource-kill message says to (T13122).

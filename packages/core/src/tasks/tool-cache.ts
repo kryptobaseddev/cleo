@@ -1652,6 +1652,69 @@ export function cacheEntryPath(projectRoot: string, key: string): string {
   return join(projectRoot, '.cleo', 'cache', 'evidence', `${key}.json`);
 }
 
+/** What a resource-killed run leaves for the waiters on its key (T13014). */
+interface KilledRunMarker {
+  readonly key: string;
+  /** {@link resourceKillReason} of the killed run. */
+  readonly resourceKill: string;
+  /** When the kill was recorded (epoch ms). */
+  readonly atMs: number;
+  readonly exitCode: number | null;
+  readonly signal: NodeJS.Signals | null;
+  readonly stdoutTail: string;
+  readonly stderrTail: string;
+  readonly durationMs: number;
+}
+
+/**
+ * Where a key's killed-run marker lives (T13014): beside its entry, never
+ * matched as one (`<key>.killed.json`).
+ *
+ * @param projectRoot - Store root.
+ * @param key - Cache key.
+ */
+function killedMarkerPath(projectRoot: string, key: string): string {
+  return join(projectRoot, '.cleo', 'cache', 'evidence', `${key}.killed.json`);
+}
+
+/** Record a resource kill for the waiters on its key; best effort (T13014). */
+function writeKilledMarker(projectRoot: string, marker: KilledRunMarker): void {
+  try {
+    const path = killedMarkerPath(projectRoot, marker.key);
+    const tmp = `${path}.${process.pid}.tmp`;
+    writeFileSync(tmp, JSON.stringify(marker), 'utf-8');
+    renameSync(tmp, path);
+  } catch {
+    // Not recorded: a waiter reruns, as before T13014.
+  }
+}
+
+/**
+ * The kill recorded for `key` since `sinceMs`, or `null` (T13014). Only a kill
+ * recorded after this call started counts: it is the run this caller waited
+ * on, at the same limits (the key carries the heap and workers). A later call
+ * runs again, so a retry after memory frees up is never refused.
+ */
+function readKilledMarker(
+  projectRoot: string,
+  key: string,
+  sinceMs: number,
+): KilledRunMarker | null {
+  try {
+    const m = JSON.parse(
+      readFileSync(killedMarkerPath(projectRoot, key), 'utf-8'),
+    ) as Partial<KilledRunMarker>;
+    return m.key === key &&
+      typeof m.resourceKill === 'string' &&
+      typeof m.atMs === 'number' &&
+      m.atMs >= sinceMs
+      ? (m as KilledRunMarker)
+      : null;
+  } catch {
+    return null;
+  }
+}
+
 function ensureCacheDir(projectRoot: string): string {
   const dir = join(projectRoot, '.cleo', 'cache', 'evidence');
   if (!existsSync(dir)) {
@@ -2050,6 +2113,31 @@ async function runToolCachedWithPlan(
     }),
   });
 
+  // T13014: the run this caller waited on was killed for resources at the same
+  // limits: report that kill instead of rerunning into it.
+  const killedResult = (m: KilledRunMarker): ToolRunResult => ({
+    exitCode: m.exitCode,
+    signal: m.signal,
+    stdoutTail: m.stdoutTail,
+    stderrTail: m.stderrTail,
+    durationMs: m.durationMs,
+    cacheHit: false,
+    timedOut: false,
+    lockBusy: false,
+    executionRoot,
+    treeHash,
+    harnessFailure: null,
+    resourceKill: `${m.resourceKill}, in the run this one waited on at the same heap and workers (not rerun)`,
+    entry: makeEntry({
+      exitCode: m.exitCode,
+      signal: m.signal,
+      stdoutTail: m.stdoutTail,
+      stderrTail: m.stderrTail,
+      durationMs: m.durationMs,
+      resourceKill: m.resourceKill,
+    }),
+  });
+
   // Fast path — fresh cache hit
   if (!bypassCache) {
     const existing = readCacheEntry(projectRoot, key);
@@ -2087,6 +2175,8 @@ async function runToolCachedWithPlan(
       const fresh = readCacheEntry(projectRoot, key);
       if (fresh) return hit(fresh);
     }
+    const killed = readKilledMarker(projectRoot, key, callStartedAt);
+    if (killed !== null) return killedResult(killed);
     sweepLegacyEntriesOnce(projectRoot);
 
     const failedFirstEnabled = FAILED_FIRST_TOOLS.has(command.canonical);
@@ -2324,6 +2414,19 @@ async function runToolCachedWithPlan(
     // other way.
     if (isEntryUsable(entry)) {
       writeCacheEntry(projectRoot, entry);
+    } else if (resourceKill !== null) {
+      // T13014: written under the lock, so every waiter on this key reads it
+      // when the lock is released and reports the kill instead of rerunning.
+      writeKilledMarker(projectRoot, {
+        key,
+        resourceKill,
+        atMs: Date.now(),
+        exitCode: entry.exitCode,
+        signal: entry.signal ?? null,
+        stdoutTail: entry.stdoutTail,
+        stderrTail: entry.stderrTail,
+        durationMs: entry.durationMs,
+      });
     }
 
     return {
@@ -2354,7 +2457,9 @@ async function runToolCachedWithPlan(
   // waiter does not occupy a slot a different key could use.
   //
   // When the holder releases without a usable entry (timeout, harness
-  // failure, resource kill, crash) the waiter loops and runs the tool itself. The total wait
+  // failure, crash) the waiter loops and runs the tool itself. A resource
+  // kill is reported instead (T13014): the waiter has the same key, so the
+  // same heap and workers, and would only run into the same kill. The total wait
   // is bounded by `lockWaitMs`; past it the caller gets `lockBusy`.
   // The holder's worst case is a focused rerun, the normal command and its
   // one flake retry — three spawn deadlines — plus slack.
@@ -2405,6 +2510,8 @@ async function runToolCachedWithPlan(
     }
     const done = readCacheEntry(projectRoot, key);
     if (done && acceptable(done)) return hit(done);
+    const killed = readKilledMarker(projectRoot, key, callStartedAt);
+    if (killed !== null) return killedResult(killed);
     if (Date.now() >= waitDeadline) {
       // T12025: a typed, actionable result so callers surface
       // E_EVIDENCE_TOOL_BUSY instead of a generic error.
