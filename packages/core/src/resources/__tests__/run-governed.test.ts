@@ -775,6 +775,48 @@ describe('runGoverned', () => {
     expect(r).toMatchObject({ kind: 'exited', signal: 'SIGKILL', pauses: 1 });
   });
 
+  /**
+   * T14075 (axiom-qa): a Postgres integration test was SIGSTOPped 9 min and
+   * its 60 s verifier timed out. --no-pause runs are never paused; pressure
+   * keeps them queued before admission instead.
+   */
+  it('--no-pause: queued while the machine is at backoff, charged on the ledger, never SIGSTOPped', async () => {
+    writeRunJob(olderJob(), join(dir, 'jobs'));
+    let admittedAtSample = 0;
+    // 1-2 = backoff (queued), 3 = ok (admitted), 4-5 = backoff while running, 5 → exit
+    const h = harness({
+      levels: ['backoff', 'backoff', 'ok', 'backoff', 'backoff'],
+      onAcquire: (hh) => {
+        admittedAtSample = hh.sampleCalls();
+      },
+      onSample: (n, hh) => n === 5 && hh.exit(0),
+    });
+    const r = await runGoverned(base(h, { noPause: true, wait: true }));
+    expect(admittedAtSample).toBe(3);
+    expect(h.requests).toEqual([expect.objectContaining({ label: 'run:test-run' })]);
+    expect(h.signals.filter(([, s]) => s === 'SIGSTOP')).toEqual([]);
+    expect(r).toMatchObject({ kind: 'exited', pauses: 0 });
+  });
+
+  it('--no-pause without --wait is deferred at backoff, with nothing started', async () => {
+    const h = harness({ levels: ['backoff'] });
+    const r = await runGoverned(base(h, { noPause: true }));
+    expect(r.kind).toBe('deferred');
+    expect(r.kind === 'deferred' && r.reason).toMatch(/--no-pause run starts only below backoff/);
+    expect(h.acquires).toBe(0);
+    expect(h.spawned).toEqual([]);
+  });
+
+  it('the default is unchanged: the same younger run at backoff is paused (T14075)', async () => {
+    writeRunJob(olderJob(), join(dir, 'jobs'));
+    const h = harness({
+      levels: ['ok', 'backoff', 'backoff'],
+      onSample: (n, hh) => n === 3 && hh.exit(0),
+    });
+    await runGoverned(base(h, { wait: true }));
+    expect(h.signals).toContainEqual([500, 'SIGSTOP']);
+  });
+
   it('never pauses an install, even when younger at backoff', async () => {
     writeRunJob(olderJob(), join(dir, 'jobs'));
     const h = harness({

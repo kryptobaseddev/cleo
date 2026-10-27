@@ -209,6 +209,15 @@ export interface RunGovernedOptions {
   /** Queue ahead of routine waiters, still within the budget (T13921). @defaultValue false */
   readonly urgent?: boolean;
   /**
+   * Never SIGSTOP this run (`cleo run --no-pause`, T14075): a test with
+   * wall-clock deadlines (an external database, a child timeout) fails if it
+   * is frozen mid-run. It is admitted and charged like any run of its class,
+   * and since pressure cannot pause it later, it starts only below `backoff`:
+   * while the machine is at backoff it waits (with `wait`) or is deferred.
+   * @defaultValue false
+   */
+  readonly noPause?: boolean;
+  /**
    * The git hook or heavy `node` script the command carries
    * (`planRunFootprint`'s `hookKey`): its tree is sampled every
    * {@link HOOK_SAMPLE_MS} and the peak is recorded under this key, so the
@@ -499,6 +508,25 @@ export async function runGoverned(opts: RunGovernedOptions): Promise<RunGoverned
     const initial = await Promise.race([d.sample(), queueStopped]);
     if (initial === null || queueEnded()) return endQueue();
     sample = initial;
+    // T14075: a run that may never be paused starts only below backoff, so
+    // pressure keeps it queued instead of freezing it mid-run. A nested run
+    // rides its enclosing admission and is never paused on its own anyway.
+    if (opts.noPause === true && !nested) {
+      let said = false;
+      while (classifyPressure(sample).state === 'backoff') {
+        const reason =
+          `machine at backoff (${classifyPressure(sample).reason}); a --no-pause run starts only ` +
+          'below backoff, since it is never paused once running';
+        if (!opts.wait) return deferral(opts, d, reason, MEMORY_GATE_RETRY_AFTER_MS, sample, null);
+        if (!said) notice(`waiting: ${reason}`, 'warn');
+        said = true;
+        await d.sleep(Math.min(opts.queuePollMs ?? 1000, deadline - d.now()), queueAbort.signal);
+        if (queueEnded()) return endQueue();
+        const next = await Promise.race([d.sample(), queueStopped]);
+        if (next === null || queueEnded()) return endQueue();
+        sample = next;
+      }
+    }
     if (isLedgerClass(opts.cls)) {
       // T13133: one budget and one FIFO queue for every heavy run. Nested in an
       // admitted run's process tree (any class), it rides that admission; a
@@ -666,8 +694,10 @@ export async function runGoverned(opts: RunGovernedOptions): Promise<RunGoverned
   // A nested job lives in its enclosing job's group, a foreground job in its
   // terminal's: neither leads a group, so neither is ever paused on its own.
   const leadsGroup = !nested && opts.foreground !== true;
-  // Ungoverned, it holds no slot and keeps no reliable record: never paused either.
-  const pausable = leadsGroup && ungoverned === null && isPausable(opts.cls, opts.argv);
+  // Ungoverned, it holds no slot and keeps no reliable record: never paused
+  // either. T14075: nor is a run that asked not to be (`--no-pause`).
+  const pausable =
+    leadsGroup && ungoverned === null && opts.noPause !== true && isPausable(opts.cls, opts.argv);
   const [file, ...args] = opts.argv as [string, ...string[]];
   // No inherited grant marker (#1777 round 2): every nested `cleo run` is
   // admitted on its own; verify joins the same budgets with #1775 (T12963).

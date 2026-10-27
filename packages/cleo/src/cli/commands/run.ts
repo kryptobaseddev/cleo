@@ -1,5 +1,5 @@
 /**
- * CLI command: cleo run [--class <c>] [--wait [--timeout <s>]] [--urgent] [--passthrough] -- <command...>
+ * CLI command: cleo run [--class <c>] [--wait [--timeout <s>]] [--urgent] [--no-pause] [--passthrough] -- <command...>
  *
  * The one front door for heavy commands an agent runs itself: test runners,
  * compilers, builds, installs. The command is admitted through the admission
@@ -22,6 +22,11 @@
  * - While it runs: at `backoff` only the oldest `cleo run` job keeps going;
  *   younger pausable ones are SIGSTOPped and resumed later; pressure never
  *   kills a job. (Only the orphaned group of a runner that died is stopped.)
+ *   `--no-pause` (T14075) marks a run with wall-clock deadlines (an external
+ *   database, a child timeout) that a pause would break: it is charged like
+ *   any run of its class, is never SIGSTOPped, and starts only below backoff,
+ *   waiting in the queue (with `--wait`) or deferred while the machine is at
+ *   backoff.
  * - `--passthrough` (what the provider hook emits, T12983): the command gets
  *   this process's stdin, stdout and stderr, and its exit code is ours.
  *   cleo run writes NOTHING of its own to stdout, an explicit exception to the
@@ -76,6 +81,7 @@ import {
 } from '@cleocode/core/resources/run-governed.js';
 import { GovernedRunInTestRunnerError } from '@cleocode/core/tasks/tool-runner-guard.js';
 import { defineCommand } from '../lib/define-cli-command.js';
+import { negatedFlag } from '../lib/negated-flag.js';
 import { cliError, cliOutput } from '../renderers/index.js';
 
 function commandAfterDashes(rawArgs: readonly string[]): string[] {
@@ -141,7 +147,7 @@ export const runCommand = defineCommand({
   meta: {
     name: 'run',
     description:
-      'Run a heavy command (tests, builds, installs) under the machine-wide resource budget: cleo run [--class test|build|full-build] [--wait] [--urgent] [--passthrough] -- <command...>',
+      'Run a heavy command (tests, builds, installs) under the machine-wide resource budget: cleo run [--class test|build|full-build] [--wait] [--urgent] [--no-pause] [--passthrough] -- <command...>',
   },
   args: {
     class: {
@@ -164,6 +170,13 @@ export const runCommand = defineCommand({
       description:
         'Queue ahead of routine waiters (a fix for a red main), still admitted only within the budget; nothing running is paused for it',
       default: false,
+    },
+    // T14075 — `--no-pause` keeps a run with wall-clock deadlines from being SIGSTOPped
+    pause: {
+      type: 'boolean',
+      default: true,
+      description:
+        'Allow pausing under pressure (default). --no-pause never SIGSTOPs the run, for tests with wall-clock deadlines (an external database, a child timeout): it is charged like any run of its class and starts only below backoff, waiting in the queue (with --wait) or deferred while the machine is at backoff',
     },
     'whole-suite': {
       type: 'boolean',
@@ -280,6 +293,7 @@ export const runCommand = defineCommand({
         wait: Boolean(args.wait),
         timeoutMs,
         urgent: args.urgent === true,
+        ...(negatedFlag(args, 'pause') ? { noPause: true } : {}),
         ...(hookKey !== undefined ? { hookKey } : {}),
         passthrough,
         // A terminal on stdin: keep the child in its foreground group.
