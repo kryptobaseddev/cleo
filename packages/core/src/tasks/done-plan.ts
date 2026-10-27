@@ -1329,7 +1329,7 @@ async function planCompletionIntegration(
   storeRoot: string,
   noIntegrate: boolean | undefined,
 ): Promise<WorktreeIntegrationPlan> {
-  const { planWorktreeIntegration } = await import('../spawn/branch-lock.js');
+  const { planWorktreeIntegration } = await import('../spawn/branch-integration.js');
   const { integrationDisabledReason } = await import('../orchestrate/worktree-complete.js');
   const disabledReason = integrationDisabledReason(noIntegrate);
   return planWorktreeIntegration(taskId, storeRoot, disabledReason ? { disabledReason } : {});

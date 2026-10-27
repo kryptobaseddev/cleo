@@ -15,8 +15,8 @@ import { completeTask } from '../complete.js';
 
 const integrate = vi.hoisted(() => vi.fn());
 
-vi.mock('../../spawn/branch-lock.js', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('../../spawn/branch-lock.js')>()),
+vi.mock('../../spawn/branch-integration.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../spawn/branch-integration.js')>()),
   completeAgentWorktreeIntegration: integrate,
 }));
 

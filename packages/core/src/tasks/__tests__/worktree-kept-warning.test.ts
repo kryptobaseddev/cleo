@@ -22,8 +22,8 @@ const KEPT: WorktreeDisposalBlockers = {
 };
 const MESSAGE = 'Worktree /wt/T1 kept: 1 link(s) from other checkouts resolve into it.';
 
-vi.mock('../../spawn/branch-lock.js', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('../../spawn/branch-lock.js')>()),
+vi.mock('../../spawn/branch-integration.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../spawn/branch-integration.js')>()),
   completeAgentWorktreeIntegration: () => ({
     taskId: 'T001',
     targetBranch: 'main',

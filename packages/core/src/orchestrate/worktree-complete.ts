@@ -41,11 +41,11 @@
 
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import type { WorktreeIntegrationResult } from '../spawn/branch-lock.js';
 import {
   completeAgentWorktreeIntegration,
-  resolveAgentWorktreeRoot,
-} from '../spawn/branch-lock.js';
+  type WorktreeIntegrationResult,
+} from '../spawn/branch-integration.js';
+import { resolveAgentWorktreeRoot } from '../spawn/branch-lock.js';
 import {
   appendWorktreeAuditEntry,
   resolveWorktreeAuditActor,
