@@ -156,6 +156,8 @@ function makeStubRunner(opts?: {
   runListResponse?: string;
   workflowRunThrows?: Error;
   defaultBranch?: string;
+  /** `gh run view <id> --json status,conclusion` output (T14077). */
+  runViewResponse?: string;
 }): ReleaseOpenRunner & {
   calls: Array<{ cmd: string; args: readonly string[] }>;
 } {
@@ -187,6 +189,9 @@ function makeStubRunner(opts?: {
       }
       if (args[0] === 'run' && args[1] === 'watch') {
         return '';
+      }
+      if (args[0] === 'run' && args[1] === 'view') {
+        return opts?.runViewResponse ?? '';
       }
       // gh#1375: the guard asks GitHub which branch workflow_dispatch checks out.
       if (args[0] === 'repo' && args[1] === 'view') {
@@ -681,5 +686,72 @@ describe('releaseOpen — T13050: --no-commit-plan verifies and forwards the mer
     if (result.success) throw new Error('unreachable');
     expect(result.error.code).toBe(E_PLAN_NOT_FOUND);
     expect(dispatchOf(runner)).toBeUndefined();
+  });
+});
+
+// =============================================================================
+// T14077 — a failed or cancelled recorded run is dispatched again
+// =============================================================================
+
+describe('releaseOpen — re-invocation over a recorded run (T14077)', () => {
+  const dispatches = (runner: ReturnType<typeof makeStubRunner>): number =>
+    runner.calls.filter((c) => c.args[0] === 'workflow' && c.args[1] === 'run').length;
+
+  /** Open once (recording run 12345), then re-open while GitHub reports `state`. */
+  async function reopen(state: { status: string; conclusion: string }) {
+    const version = 'v2026.6.0';
+    pushPlanAfterRemote(writePlanFile(version, makePlan(version)));
+    writeWorkflowFile();
+    await seedReleaseRow(version, 'planned');
+    const first = await releaseOpen(
+      { version, projectRoot: testDir, commitPlan: false },
+      makeStubRunner(),
+    );
+    expect(first.success).toBe(true);
+    const runner = makeStubRunner({
+      runViewResponse: JSON.stringify(state),
+      runListResponse: JSON.stringify([
+        { url: 'https://github.com/cleocode/cleo/actions/runs/67890', databaseId: 67890 },
+      ]),
+    });
+    const second = await releaseOpen({ version, projectRoot: testDir, commitPlan: false }, runner);
+    if (!second.success) throw new Error(`unexpected failure: ${second.error.message}`);
+    expect(runner.calls).toContainEqual({
+      cmd: 'gh',
+      args: ['run', 'view', '12345', '--json', 'status,conclusion'],
+    });
+    return { data: second.data, dispatched: dispatches(runner) };
+  }
+
+  it.each([
+    'failure',
+    'cancelled',
+  ])('a run that concluded %s is dispatched again, and says so', async (conclusion) => {
+    const { data, dispatched } = await reopen({ status: 'completed', conclusion });
+    expect(dispatched).toBe(1);
+    expect(data.idempotent).toBeUndefined();
+    expect(data.workflowRunUrl).toBe('https://github.com/cleocode/cleo/actions/runs/67890');
+    expect(data.priorRun).toEqual({
+      url: 'https://github.com/cleocode/cleo/actions/runs/12345',
+      status: 'completed',
+      conclusion,
+      redispatched: true,
+    });
+  });
+
+  it.each([
+    { status: 'in_progress', conclusion: '' },
+    { status: 'completed', conclusion: 'success' },
+  ])('a run that is $status ($conclusion) stays idempotent and reports its state', async (state) => {
+    const { data, dispatched } = await reopen(state);
+    expect(dispatched).toBe(0);
+    expect(data.idempotent).toBe(true);
+    expect(data.workflowRunUrl).toBe('https://github.com/cleocode/cleo/actions/runs/12345');
+    expect(data.priorRun).toEqual({
+      url: 'https://github.com/cleocode/cleo/actions/runs/12345',
+      status: state.status,
+      conclusion: state.conclusion === '' ? null : state.conclusion,
+      redispatched: false,
+    });
   });
 });
