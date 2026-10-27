@@ -32,8 +32,10 @@ import { checkTaskEvidenceContext, parseEvidence } from '../../tasks/evidence.js
 import {
   type CommitCheck,
   evaluateMergeCommitChecks,
+  hasIncompleteIdentity,
   inheritedOnMerge,
   isQuarantineBudgetOnlyLog,
+  isRunnerCancelOnlyLog,
   isSetupStepFailureLog,
   listMainDescendants,
   listPathTouchingMainCommits,
@@ -1625,6 +1627,197 @@ describe('resolveCiEvidenceAtom', () => {
         expect(r.ok).toBe(false);
         expect(!r.ok && r.reason).toMatch(/failure on later origin\/main commit 111111111111/);
       });
+    });
+  });
+
+  describe("a runner-cancelled job is a cancelled verdict, not the PR's failure (T14049)", () => {
+    beforeEach(() => writeContext(optedIn));
+    const CI_WORKFLOW = '.github/workflows/ci.yml';
+    const BUILD = 'Build (ubuntu-latest)';
+    const BASE = '5'.repeat(40);
+    const DESC1 = '1'.repeat(40);
+    const BUILD_RUN = 121239058058;
+    /** The tail of job 121239058058 (run 40216344634, attempt 1). */
+    const CANCELLED_LOG = [
+      '2026-10-25T17:31:16.9522922Z ##[group]Run pnpm run build',
+      '2026-10-25T17:31:34.8024053Z [build] Wave 5: core (esbuild + tsc declarations)',
+      '2026-10-25T17:32:58.2678389Z   -> packages/core/dist/index.js',
+      '2026-10-25T17:32:58.2723377Z   Generating type declarations...',
+      '2026-10-25T17:33:29.9244353Z ##[error]The runner has received a shutdown signal. This can happen when the runner service is stopped, or a manually started runner is canceled.',
+      '2026-10-25T17:33:30.1291390Z  ELIFECYCLE  Command failed.',
+      '2026-10-25T17:33:30.3115532Z ##[error]The operation was canceled.',
+      '2026-10-25T17:33:30.3916926Z Cleaning up orphan processes',
+    ].join('\n');
+    /** Merge commit 40e763c4ae03: Build cancelled by the runner, its dependants skipped, CI red. */
+    const cancelledBuild = (sha: string): CommitCheck[] => [
+      ...allGreen.map((c) =>
+        c.name === 'CI'
+          ? { ...c, headSha: sha, conclusion: 'failure', id: c.id + 100 }
+          : c.workflowPath === CI_WORKFLOW && c.name !== 'Contracts Dep Lint'
+            ? { ...c, headSha: sha, conclusion: 'skipped' }
+            : { ...c, headSha: sha },
+      ),
+      check(BUILD, {
+        headSha: sha,
+        id: BUILD_RUN,
+        conclusion: 'failure',
+        workflowPath: CI_WORKFLOW,
+      }),
+    ];
+    const onSha = (sha: string) => allGreen.map((c) => ({ ...c, headSha: sha, event: 'push' }));
+    const run = (log: string, descendants: string[] = [DESC1]) =>
+      resolve({
+        context: context('T1', ['testsPassed', 'qaPassed']),
+        fetchChecks: async (sha) => ({
+          ok: true,
+          checks:
+            sha === MERGE
+              ? cancelledBuild(MERGE)
+              : sha === HEAD
+                ? onHead
+                : sha === BASE || sha === DESC1
+                  ? onSha(sha)
+                  : [],
+        }),
+        firstParentOf: (sha) => (sha === MERGE ? BASE : null),
+        listDescendants: () => descendants,
+        isAncestor: (a, d) => a === MERGE && descendants.includes(d),
+        touchingCommits: () => [],
+        fetchJobLog: async (jobId) => (jobId === BUILD_RUN ? log : null),
+      });
+
+    it('isRunnerCancelOnlyLog: only GitHub cancellation errors and no failed test', () => {
+      expect(isRunnerCancelOnlyLog(CANCELLED_LOG)).toBe(true);
+      expect(isRunnerCancelOnlyLog(CANCELLED_LOG.replace(/.*shutdown signal.*\n/, ''))).toBe(true);
+      // A real error before the cancellation, or a failed test, is a real failure.
+      expect(
+        isRunnerCancelOnlyLog(`##[error]Process completed with exit code 1.\n${CANCELLED_LOG}`),
+      ).toBe(false);
+      expect(isRunnerCancelOnlyLog(`${CANCELLED_LOG}\n Tests  1 failed | 9 passed (10)`)).toBe(
+        false,
+      );
+      // A shutdown notice without the cancellation is not one.
+      expect(isRunnerCancelOnlyLog(CANCELLED_LOG.replace(/.*operation was canceled.*/, ''))).toBe(
+        false,
+      );
+    });
+
+    it('run 40216344634: base green, the green descendant stands in, nothing blamed on the PR', async () => {
+      const r = await run(CANCELLED_LOG);
+      expect(r.ok, JSON.stringify(r)).toBe(true);
+      const atom = r.ok && r.atom.kind === 'ci' ? r.atom : null;
+      expect(atom?.descendantSha).toBe(DESC1);
+      expect(atom?.checks.find((c) => c.name === 'CI')?.sha).toBe(DESC1);
+      expect(atom?.inheritedFailures).toBeUndefined();
+    });
+
+    it('with no later green run the refusal waits on a stand-in and never says the PR introduced it', async () => {
+      const r = await run(CANCELLED_LOG, []);
+      expect(r.ok).toBe(false);
+      expect(!r.ok && r.reason).toMatch(
+        /No later main run stands in: no later origin\/main commit/,
+      );
+      expect(!r.ok && r.reason).not.toMatch(/introduced/);
+    });
+
+    it('a Build log with a real error is still a failure the base did not have', async () => {
+      const r = await run(
+        CANCELLED_LOG.replace('Generating type declarations...', '##[error]TS2322'),
+      );
+      expect(r.ok).toBe(false);
+      expect(!r.ok && r.reason).toMatch(/the PR introduced this failure/);
+    });
+  });
+
+  describe('a check run with incomplete identity is pending, never a foreign app (T13017)', () => {
+    beforeEach(() => writeContext(optedIn));
+    /** The T12959 response: CI's check run came back without its workflow file. */
+    const partial = allGreen.map((c) => (c.name === 'CI' ? { ...c, workflowPath: undefined } : c));
+
+    it('judges the partial run pending, naming no app mismatch', () => {
+      const pins = { CI: { app: 'github-actions', workflow: '.github/workflows/ci.yml' } };
+      const r = evaluateMergeCommitChecks(REQUIRED, partial, MERGE, { pins });
+      expect(r.ok).toBe(false);
+      const reasons = !r.ok ? r.reasons.join('\n') : '';
+      expect(reasons).toMatch(
+        /CI: pending \(GitHub has not reported its run's app or workflow yet\)/,
+      );
+      expect(reasons).not.toMatch(/posted by/);
+      expect(hasIncompleteIdentity(partial, REQUIRED, pins)).toBe(true);
+      expect(hasIncompleteIdentity(allGreen, REQUIRED, pins)).toBe(false);
+    });
+
+    it('a genuine mismatch still refuses, showing both values', () => {
+      const pins = { CI: { app: 'github-actions', workflow: '.github/workflows/ci.yml' } };
+      const other = allGreen.map((c) =>
+        c.name === 'CI' ? { ...c, workflowPath: '.github/workflows/other.yml' } : c,
+      );
+      const r = evaluateMergeCommitChecks(REQUIRED, other, MERGE, { pins });
+      expect(!r.ok && r.reasons.join('\n')).toMatch(
+        /CI: posted by github-actions \(\.github\/workflows\/other\.yml\), not the pinned app github-actions \/ workflow \.github\/workflows\/ci\.yml/,
+      );
+    });
+
+    it('re-fetches a partial response and judges the complete one', async () => {
+      const fetched: string[] = [];
+      const r = await resolve({
+        fetchChecks: async (sha) => {
+          fetched.push(sha);
+          const first = fetched.filter((s) => s === MERGE).length === 1;
+          return {
+            ok: true,
+            checks: sha === MERGE ? (first ? partial : allGreen) : sha === HEAD ? onHead : [],
+          };
+        },
+      });
+      expect(r.ok, JSON.stringify(r)).toBe(true);
+      expect(fetched.filter((s) => s === MERGE)).toHaveLength(2);
+    });
+
+    it('a response still partial after the retry is refused as pending', async () => {
+      const r = await resolve({
+        fetchChecks: async (sha) => ({
+          ok: true,
+          checks: sha === MERGE ? partial : sha === HEAD ? onHead : [],
+        }),
+        listDescendants: () => [],
+      });
+      expect(r.ok).toBe(false);
+      expect(!r.ok && r.reason).toMatch(
+        /^Required CI on PR #42's merge commit aaaaaaaaaaaa is not green: CI: pending/,
+      );
+      expect(!r.ok && r.reason).not.toMatch(/posted by/);
+    });
+  });
+
+  describe('the decisive reason leads the CI refusal (T14042)', () => {
+    beforeEach(() => writeContext(optedIn));
+
+    it('a red merge commit: the failing check and the next step are in the first 200 characters', async () => {
+      const red = allGreen.map((c) =>
+        c.name === 'Lockfile Check' ? { ...c, conclusion: 'failure' } : c,
+      );
+      const r = await resolve({
+        fetchChecks: async (sha) => ({ ok: true, checks: sha === MERGE ? red : [] }),
+        listDescendants: () => [],
+      });
+      const head200 = !r.ok ? r.reason.slice(0, 200) : '';
+      expect(head200).toMatch(/is not green: Lockfile Check: failure on merge commit aaaaaaaaaaaa/);
+    });
+
+    it('a PR editing a pinned workflow: the wait instruction is in the first 200 characters', async () => {
+      const r = await resolve({
+        resolvePr: async () => ({
+          ...merged,
+          changedPaths: ['a.ts', '.github/workflows/ci.yml'],
+          changedFileCount: 2,
+        }),
+        fetchChecks: async () => ({ ok: true, checks: [] }),
+        listDescendants: () => [],
+      });
+      const head200 = !r.ok ? r.reason.slice(0, 200) : '';
+      expect(head200).toMatch(/edits the pinned workflow \.github\/workflows\/ci\.yml/);
+      expect(head200).toMatch(/wait for the push run on aaaaaaaaaaaa/);
     });
   });
 
