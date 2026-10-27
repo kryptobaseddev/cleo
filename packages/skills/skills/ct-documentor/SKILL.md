@@ -1,7 +1,7 @@
 ---
 name: ct-documentor
 description: Documentation coordinator with CLEO style guide compliance. Routes every canonical-doc write (spec, adr, research, handoff, note, llm-readme) through the docs SSoT via `cleo docs add` / `cleo docs publish` / `cleo docs fetch` — never raw filesystem writes. Carries the CLEO writing and review guides as references and coordinates ct-spec-writer and ct-adr-recorder. Use when creating or updating documentation files, consolidating scattered documentation, or validating documentation against style standards. Triggers on documentation tasks, doc update requests, or style guide compliance checks.
-version: 3.26.0
+version: 3.27.0
 protocol: null
 dependencies:
   - ct-spec-writer
@@ -16,13 +16,13 @@ compatibility:
   - gemini-cli
 license: MIT
 metadata:
-  version: 3.26.0
+  version: 3.27.0
   tier: core
   install: harness
   covers:
     - packages/cleo/src/cli/commands/docs.ts
     - packages/contracts/src/docs-taxonomy.ts
-  lastReviewed: 2026-10-23
+  lastReviewed: 2026-10-27
   stability: stable
 ---
 
@@ -701,6 +701,11 @@ cleo docs publish --for T1234 --to docs/feature-x.md
 
 Atomic tmp-then-rename. The published file ships in the next commit; the
 SSoT blob remains canonical and continues to track future versions.
+
+`--to` must resolve under the project root (a relative path resolves there)
+or inside a registered canonical task worktree; anything else is refused with
+`E_VALIDATION_ERROR` and nothing is created. `--dry-run` runs the same checks
+and writes nothing, so a dry run that passes means the real run will.
 
 ### Fetch the doc back by slug
 
