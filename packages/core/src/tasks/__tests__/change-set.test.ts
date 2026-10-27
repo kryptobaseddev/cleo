@@ -347,13 +347,63 @@ describe('worktrees and declared git roots (AC4)', () => {
     }
   });
 
+  it('T13003: a run on a rebased checkout carries the implemented commit; one missing it does not', async () => {
+    const repo = repoWithOrigin(base, 'repo-rebase');
+    git(repo, ['switch', '-q', '-c', 'task/T911']);
+    const fix = commitTaskWork(repo, 'T911');
+    const task = {
+      id: 'T911',
+      verification: {
+        passed: false,
+        round: 1,
+        gates: {},
+        lastAgent: null,
+        lastUpdated: null,
+        failureLog: [],
+        evidence: {
+          implemented: {
+            atoms: [{ kind: 'commit' as const, sha: fix }],
+            capturedAt: '2026-10-27T00:00:00Z',
+            capturedBy: 'test',
+          },
+        },
+      },
+    };
+    const run = (headSha: string): EvidenceAtom => ({
+      kind: 'test-run',
+      path: '/tmp/r.json',
+      sha256: 'x',
+      passCount: 1,
+      failCount: 0,
+      skipCount: 0,
+      headSha,
+    });
+    // main moves on; the task branch is rebased onto it: new SHA, same patch.
+    git(repo, ['switch', '-q', 'main']);
+    writeFileSync(join(repo, 'other.ts'), 'export const o = 1;\n');
+    git(repo, ['add', '-A']);
+    git(repo, ['commit', '-q', '-m', 'main moves on']);
+    const mainTip = git(repo, ['rev-parse', 'HEAD']);
+    git(repo, ['switch', '-q', 'task/T911']);
+    git(repo, ['rebase', '-q', 'main']);
+    const rebased = git(repo, ['rev-parse', 'HEAD']);
+    expect(rebased).not.toBe(fix);
+    expect(await boundHeadGapReason(task, [run(rebased)], repo)).toBeNull();
+    // A checkout missing the fix commit (main without it) never saw the work.
+    expect(await boundHeadGapReason(task, [run(mainTip)], repo)).toMatch(/never saw/);
+  });
+
   it('T14004: a run bound in the checkout of another task is not evidence for this one', async () => {
     const repo = repoWithOrigin(base, 'repo-heads');
     git(repo, ['switch', '-q', '-c', 'task/T909']);
     const mine = commitTaskWork(repo, 'T909');
     git(repo, ['switch', '-q', 'main']);
     git(repo, ['switch', '-q', '-c', 'task/T910']);
-    const other = commitTaskWork(repo, 'T910');
+    // T13003: another task's own patch, so it is not patch-equivalent to T909's.
+    writeFileSync(join(repo, 't910.ts'), 'export const t910 = 1;\n');
+    git(repo, ['add', '-A']);
+    git(repo, ['commit', '-q', '-m', 'T910: work']);
+    const other = git(repo, ['rev-parse', 'HEAD']);
     git(repo, ['switch', '-q', 'task/T909']);
     const task = {
       id: 'T909',
@@ -410,11 +460,28 @@ describe('worktrees and declared git roots (AC4)', () => {
     expect(await boundHeadGapReason(task, [run('f'.repeat(40))], repo)).toMatch(
       /git cannot read .* shallow clone/,
     );
-    // After an amend or rebase the run is on this task's own, newer history.
-    git(repo, ['commit', '-q', '--amend', '-m', 'T909: work, amended']);
+    // T13003: a message-only amend keeps the patch, so the run saw the work.
+    git(repo, ['commit', '-q', '--amend', '-m', 'T909: work, reworded']);
+    const reworded = git(repo, ['rev-parse', 'HEAD']);
+    expect(await boundHeadGapReason(task, [run(reworded)], repo)).toBeNull();
+    // An amend that changes the patch is this task's own, newer history.
+    writeFileSync(join(repo, 'a.ts'), 'export const a = 22;\n');
+    git(repo, ['commit', '-q', '-a', '--amend', '-m', 'T909: work, amended']);
     const amended = git(repo, ['rev-parse', 'HEAD']);
     expect(await boundHeadGapReason(task, [run(amended)], repo)).toMatch(
       /rebased, amended or squash-merged.*Re-record implemented/,
+    );
+    // T13003: tool: runs record the HEAD they measured and are judged the same way.
+    const tool = (headSha: string): EvidenceAtom => ({
+      kind: 'tool',
+      tool: 'test',
+      exitCode: 0,
+      treeHash: 't',
+      headSha,
+    });
+    expect(await boundHeadGapReason(task, [tool(mine)], repo)).toBeNull();
+    expect(await boundHeadGapReason(task, [tool(branchBase)], repo)).toMatch(
+      /tool:test ran at .*never saw T909's implemented commit/,
     );
 
     /** T909's implemented evidence as one `pr:` atom. */
@@ -452,9 +519,8 @@ describe('worktrees and declared git roots (AC4)', () => {
     git(repo, ['merge', '-q', '--squash', mine]);
     git(repo, ['commit', '-q', '-m', 'squash (#1)']);
     const squash = git(repo, ['rev-parse', 'HEAD']);
-    expect(await boundHeadGapReason(viaPr(squash), [run(mine)], repo)).toMatch(
-      /Re-record implemented/,
-    );
+    // T13003: the branch commit carries the squash's patch, so its run saw the work.
+    expect(await boundHeadGapReason(viaPr(squash), [run(mine)], repo)).toBeNull();
     expect(await boundHeadGapReason(viaPr(squash, mine), [run(mine)], repo)).toBeNull();
     // A two-commit branch: a run on its first commit never saw the second.
     git(repo, ['switch', '-q', '-c', 'two', branchBase]);
@@ -474,8 +540,9 @@ describe('worktrees and declared git roots (AC4)', () => {
       /never saw/,
     );
     expect(await boundHeadGapReason(viaPr(twoMerge), [run(partTwo)], repo)).toBeNull();
-    // An empty recorded head matches nothing.
-    expect(await boundHeadGapReason(viaPr(squash, ''), [run(mine)], repo)).not.toBeNull();
+    // An empty recorded head matches nothing. (T13003: `mine` carries the
+    // squash's patch, so the check uses a head without it.)
+    expect(await boundHeadGapReason(viaPr(squash, ''), [run(partOne)], repo)).not.toBeNull();
   });
 });
 
