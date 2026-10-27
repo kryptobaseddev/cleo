@@ -190,28 +190,94 @@ export function isDocumentArtifact(path: string): boolean {
   );
 }
 
+/** A code file extension in acceptance prose: a token ending in one keeps the task code (T14065). */
+const AC_CODE_EXTENSION =
+  /\.(?:[cm]?[jt]sx?|json[c5]?|toml|ya?ml|sql|sh|rs|py|go|rb|java|kt|swift|c|h|cc|cpp|css|scss|html|svelte|vue|txt|lock|node|wasm)$/i;
+
+/** A source directory: a path under one is code whatever its extension (T14065). */
+const AC_CODE_DIR = /^(?:\.\/)?(?:packages|src|scripts|crates|tests?|apps|lib|bin|\.github)\//;
+
+/**
+ * The path-like tokens of a task's acceptance criteria, sorted into documents
+ * and code (T14065). A token is a whitespace-separated word stripped of
+ * surrounding quotes, backticks, brackets and punctuation; URLs are skipped.
+ * A document is {@link isDocumentArtifact}; code is a known code extension
+ * (a bare `.txt` included, as there) or any path under a source directory.
+ * Anything else (prose, versions, hostnames) names neither.
+ *
+ * @param acceptance - The task's acceptance items; structured gates are skipped.
+ */
+function acceptancePathKinds(acceptance: Task['acceptance']): { docs: number; code: number } {
+  const kinds = { docs: 0, code: 0 };
+  for (const item of acceptance ?? []) {
+    if (typeof item !== 'string') continue;
+    for (const word of item.split(/\s+/)) {
+      const token = word.replace(/^[("'`[{<]+|[)"'`\]}>,.;:!?]+$/g, '');
+      if (!token || token.includes('://')) continue;
+      if (isDocumentArtifact(token)) kinds.docs++;
+      else if (AC_CODE_EXTENSION.test(token) || AC_CODE_DIR.test(token)) kinds.code++;
+    }
+  }
+  return kinds;
+}
+
+/**
+ * The evidence kind a task's own record decides before any change set is
+ * read, or `null` when its change set decides (T14048, T14065): research and
+ * spike kinds are research; declared files decide next (all documents:
+ * documentation, any code file: code); a bug, or acceptance criteria naming
+ * a code path, is code. A task with none of these is undecided.
+ *
+ * @param task - The task's kind, declared files and acceptance criteria.
+ * @returns The decided kind, or `null`.
+ * @task T14048
+ */
+export function declaredEvidenceKind(
+  task: Pick<Task, 'kind' | 'files' | 'acceptance'>,
+): EvidenceTaskKind | null {
+  if (task.kind === 'research' || task.kind === 'spike') return 'research';
+  if (task.files?.length && task.files.every(isDocumentArtifact)) return 'documentation';
+  if (task.kind === 'bug') return 'code';
+  // T14001 (review of #2413): a docs label never hides declared code files.
+  if (task.files?.length) return 'code';
+  // T14065: nor a code path its acceptance criteria name.
+  if (acceptancePathKinds(task.acceptance).code > 0) return 'code';
+  return null;
+}
+
 /**
  * Classify a task for evidence purposes: `research` (research/spike kind),
- * `documentation` (docs-only declared files or a docs label) or `code`.
+ * `documentation` or `code`.
+ *
+ * {@link declaredEvidenceKind} decides first. An undecided task is read from
+ * what it changed (T14048): an inspected change set (`changedPaths`, a
+ * `pr:`/`commit:` atom's diff) of documents only makes it documentation, one
+ * with any code path keeps it code. Failing a change set, acceptance criteria
+ * that name documents (and, being undecided, no code) or a docs label make it
+ * documentation (T14065). A docs label therefore never hides code.
  *
  * Exported so the read-only `cleo done --plan` planner chooses the same
  * documentary path the validators accept — one classification, not two. It
  * also picks the gates a task needs ({@link requiredGatesFor}, T14001).
  *
- * @param context - Task context; only `task` is read.
+ * @param context - Task context; only `task` and `changedPaths` are read.
  * @returns The evidence classification.
  * @task T12624
+ * @task T14048
+ * @task T14065
  */
 export function classifyEvidenceTask(context: {
-  readonly task: Pick<Task, 'kind' | 'files' | 'labels'>;
+  readonly task: Pick<Task, 'kind' | 'files' | 'labels' | 'acceptance'>;
+  /** The change set inspected for this evidence, when there is one (T14048). */
+  readonly changedPaths?: readonly string[];
 }): EvidenceTaskKind {
-  if (context.task.kind === 'research' || context.task.kind === 'spike') return 'research';
-  if (context.task.files?.length && context.task.files.every(isDocumentArtifact))
-    return 'documentation';
-  if (context.task.kind === 'bug') return 'code';
-  // T14001 (review of #2413): a docs label never hides declared code files.
-  if (context.task.files?.some((f) => !isDocumentArtifact(f))) return 'code';
-  if (context.task.labels?.some((label) => label === 'docs' || label === 'documentation'))
+  const { task, changedPaths } = context;
+  const declared = declaredEvidenceKind(task);
+  if (declared !== null) return declared;
+  if (changedPaths?.length)
+    return changedPaths.every(isDocumentEvidencePath) ? 'documentation' : 'code';
+  if (acceptancePathKinds(task.acceptance).docs > 0) return 'documentation';
+  if (task.labels?.some((label) => label === 'docs' || label === 'documentation'))
     return 'documentation';
   return 'code';
 }

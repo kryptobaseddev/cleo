@@ -763,7 +763,8 @@ function noChangeSetBlocker(
       `commit it on task/${id} (or pass --pr <n>); if it changed none, attach its record or link a decision.`,
     next: step(
       `git switch -c task/${id}`,
-      `Or, for a task with no code change: ${record}. cleo done never plans tests or lint from the working tree.`,
+      `Or, for a task with no code change: ${record}; a documentation task declares its documents ` +
+        `(cleo update ${id} --files <doc paths>). cleo done never plans tests or lint from the working tree.`,
     ),
   };
 }
