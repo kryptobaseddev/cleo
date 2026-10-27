@@ -133,7 +133,10 @@ describe('a killed verify does not hold the budget (gh#1222 on the ledger)', () 
     const also = await acquireGlobalSlot('build', MACHINE);
     try {
       await expect(acquireGlobalSlot('test', { ...MACHINE, timeoutMs: 60 })).rejects.toThrow(
-        new RegExp(`Current holders — tool:test pid ${process.pid} \\(`),
+        // T14066: the holder line names the host and why the holder counts.
+        new RegExp(
+          `Current holders — tool:test pid ${process.pid} on \\S+ \\(.*, alive \\(pid-alive\\)`,
+        ),
       );
     } finally {
       await held();
