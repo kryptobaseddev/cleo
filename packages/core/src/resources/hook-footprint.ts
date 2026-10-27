@@ -28,7 +28,7 @@
 import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
-import { isAbsolute, join } from 'node:path';
+import { basename, isAbsolute, join, resolve } from 'node:path';
 import lockfile from 'proper-lockfile';
 
 /** The measured peak is charged with this margin. */
@@ -202,6 +202,53 @@ export function hookFootprintKey(
       hash.update(part).update('\0');
     }
     return `${hook}:${hash.digest('hex')}`;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * A module a script loads that runs a compiler or test runner in-process
+ * (T14050): `require('typescript')`, `import … from 'vitest'`,
+ * `import('esbuild')`, `ts.createProgram(`.
+ */
+const HEAVY_TOOL_LOAD =
+  /(?:require\(|import\(|from)\s*['"](typescript|vitest(?:\/node)?|jest|esbuild|webpack|rollup|@swc\/core|@babel\/core)['"]|\bcreateProgram\s*\(/;
+
+/** A `node` script's measurement key and what it loads (T14050). */
+export interface ScriptFootprint {
+  /** `<script basename>:<sha256>` over its absolute path and content. */
+  readonly key: string;
+  /** The heavy tool it loads in-process (`typescript`), or `null`. */
+  readonly heavyTool: string | null;
+}
+
+/**
+ * Key a `node` script's measurements by its absolute path and content (T14050),
+ * as a hook is keyed by its files: an edited script is measured afresh. The
+ * key's first part is the script's basename, which is what a measured run's
+ * process tree is matched on. `null` when the script cannot be read: such a
+ * run is never measured.
+ *
+ * @param cwd - Where the command runs.
+ * @param script - The script path, as the command names it.
+ *
+ * @example
+ * ```ts
+ * scriptFootprint(repo, 'scripts/typecheck/full-program.cjs');
+ * // { key: 'full-program.cjs:3f…', heavyTool: 'typescript' }
+ * ```
+ */
+export function scriptFootprint(cwd: string, script: string): ScriptFootprint | null {
+  try {
+    const path = resolve(cwd, script);
+    const content = readFileSync(path, 'utf8');
+    const hash = createHash('sha256').update(path).update('\0').update(content).digest('hex');
+    const m = HEAVY_TOOL_LOAD.exec(content);
+    return {
+      key: `${basename(path)}:${hash}`,
+      heavyTool: m === null ? null : (m[1] ?? 'typescript'),
+    };
   } catch {
     return null;
   }

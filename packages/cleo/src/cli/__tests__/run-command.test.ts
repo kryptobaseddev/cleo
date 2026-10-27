@@ -303,7 +303,7 @@ describe('cleo run --passthrough (#1777 R7)', () => {
       footprintReason: 'biome check on 2 named paths',
     });
     expect(opts().env.NODE_OPTIONS).toBe(process.env.NODE_OPTIONS);
-    expect(err).toContain('[cleo run] charged footprint: biome check on 2 named paths\n');
+    expect(err).toContain('[cleo run] charged footprint: 1.0 GiB: biome check on 2 named paths\n');
   });
 
   it('without --passthrough every notice is printed', async () => {

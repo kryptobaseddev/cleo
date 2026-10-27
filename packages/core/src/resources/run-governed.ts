@@ -208,9 +208,10 @@ export interface RunGovernedOptions {
   /** Queue ahead of routine waiters, still within the budget (T13921). @defaultValue false */
   readonly urgent?: boolean;
   /**
-   * The git hook the command carries (`planRunFootprint`'s `hookKey`): its
-   * tree is sampled every {@link HOOK_SAMPLE_MS} and the peak is recorded
-   * under this key, so the next run of that hook is charged by it (T13921).
+   * The git hook or heavy `node` script the command carries
+   * (`planRunFootprint`'s `hookKey`): its tree is sampled every
+   * {@link HOOK_SAMPLE_MS} and the peak is recorded under this key, so the
+   * next run of that hook (T13921) or script (T14050) is charged by it.
    */
   readonly hookKey?: string;
   readonly deps?: Partial<RunGovernedDeps>;
@@ -767,7 +768,9 @@ export async function runGoverned(opts: RunGovernedOptions): Promise<RunGoverned
   const hookName = opts.hookKey?.split(':')[0];
   const hookInTree = (commands: readonly string[] | undefined): boolean =>
     hookName !== undefined &&
-    (commands ?? []).some((c) => c.split(/\s+/).some((w) => w.endsWith(`/${hookName}`)));
+    (commands ?? []).some((c) =>
+      c.split(/\s+/).some((w) => w === hookName || w.endsWith(`/${hookName}`)),
+    );
   const treeSampleMs = opts.hookKey !== undefined ? HOOK_SAMPLE_MS : TREE_SAMPLE_MS;
   const watchdog = (now: number): void => {
     if (childPid === undefined || now - treeSampledAtMs < treeSampleMs) return;
