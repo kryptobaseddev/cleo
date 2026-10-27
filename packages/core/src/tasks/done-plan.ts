@@ -987,12 +987,48 @@ function withSatisfies(
   return [evidence, ...links].join(';');
 }
 
-function epicPlan(task: Task, storeRoot: string): DonePlan {
-  const blocker: DonePlanBlocker = {
-    code: 'epic-rollup',
-    message: `${task.id} is an epic; it completes through its children, not through derived evidence.`,
-    next: step(`cleo complete ${task.id}`, 'Epic completion uses the existing child rollup.'),
-  };
+/**
+ * An epic's plan (T14073): it completes through `cleo complete`, never through
+ * derived evidence. Its "Complete child" criteria are covered by the done
+ * children ({@link computeAcCoverage}); the plan names what `cleo complete`
+ * would still refuse: an unfinished child, or a criterion with no evidence and
+ * the `cleo verify` write that binds it.
+ */
+async function epicPlan(
+  task: Task,
+  storeRoot: string,
+  accessor: Pick<DataAccessor, 'getAcRows' | 'getAcBindings' | 'getChildren'>,
+): Promise<DonePlan> {
+  const { computeAcCoverage } = await import('./ac-coverage-gate.js');
+  const coverage = await computeAcCoverage(task.id, accessor);
+  const unbound = coverage.ok ? [] : coverage.unsatisfied;
+  const children = unbound.flatMap((u) => (u.childTaskId ? [u.childTaskId] : []));
+  const criteria = unbound.filter((u) => u.childTaskId === undefined);
+  const bind = criteria.map(
+    (u) =>
+      `cleo verify ${task.id} --gate implemented --evidence 'pr:<n>;files:<changed paths>;satisfies:${task.id}#${u.alias}'`,
+  );
+  const blocker: DonePlanBlocker =
+    unbound.length === 0
+      ? {
+          code: 'epic-rollup',
+          message: `${task.id} is an epic; its children are done and every criterion is covered.`,
+          next: step(`cleo complete ${task.id}`, 'Epic completion uses the existing child rollup.'),
+        }
+      : children.length > 0
+        ? {
+            code: 'epic-rollup',
+            message: `${task.id} is an epic; it completes through its children, and ${children.join(', ')} ${children.length === 1 ? 'is' : 'are'} not done.`,
+            next: step(`cleo show ${children[0]}`, 'Finish every child before the epic.'),
+          }
+        : {
+            code: 'epic-rollup',
+            message: `${task.id} is an epic; its children cover their own criteria, but cleo complete needs evidence for ${criteria.map((u) => u.alias).join(', ')}.`,
+            next: step(
+              bind[0] ?? `cleo complete ${task.id}`,
+              'Bind each criterion to the merged work that proves it, then cleo complete.',
+            ),
+          };
   return {
     taskId: task.id,
     runFrom: storeRoot,
@@ -1015,7 +1051,7 @@ function epicPlan(task: Task, storeRoot: string): DonePlan {
     acMapping: [],
     needsSatisfies: [],
     blockers: [blocker],
-    commands: [],
+    commands: unbound.length === 0 ? [`cleo complete ${task.id}`] : bind,
     ready: false,
     next: blocker.next,
   };
@@ -1072,7 +1108,7 @@ export async function deriveTaskEvidence(
   }
   // T14053: what completion will do with the worktree branch, from local refs.
   const integration = await planCompletionIntegration(taskId, storeRoot, opts.noIntegrate);
-  if (task.type === 'epic') return { ...(await epicPlan(task, storeRoot)), integration };
+  if (task.type === 'epic') return { ...(await epicPlan(task, storeRoot, accessor)), integration };
   const rows = [...(await accessor.getAcRows(taskId))].sort((a, b) => a.ordinal - b.ordinal);
   const satisfies = normaliseSatisfies(taskId, opts.satisfies, rows);
   const policy = await loadVerificationGatePolicy(storeRoot);

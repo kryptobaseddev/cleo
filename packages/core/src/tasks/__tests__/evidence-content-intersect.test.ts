@@ -824,3 +824,17 @@ describe('T-WT-3 — validateCommit uses getEffectiveHead for ancestry check', (
     }
   });
 });
+
+describe('T14073 — diffIntersectsAc directory entries with a dot earlier in the path', () => {
+  it('ACCEPTS a file under a declared directory below a dot-directory', () => {
+    const diff = ['.cleo/rcasd/T10854/branch-lock-audit.md'];
+    expect(diffIntersectsAc(diff, ['.cleo/rcasd/T10854/'])).toBe(true);
+    expect(diffIntersectsAc(diff, ['.cleo/rcasd/T10854'])).toBe(true);
+    expect(diffIntersectsAc(['.github/workflows/ci.yml'], ['.github/workflows/'])).toBe(true);
+  });
+
+  it('REJECTS a sibling file, and a dotted file entry is never a directory', () => {
+    expect(diffIntersectsAc(['.cleo/rcasd/T2/a.md'], ['.cleo/rcasd/T1/'])).toBe(false);
+    expect(diffIntersectsAc(['docs/spec.md/extra.txt'], ['docs/spec.md'])).toBe(false);
+  });
+});

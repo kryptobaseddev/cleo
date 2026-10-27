@@ -84,6 +84,8 @@ export interface UnsatisfiedAc {
   alias: string;
   /** Verbatim AC text from `task_acceptance_criteria.text`. */
   text: string;
+  /** For a "Complete child" projection: the child that is not done yet (T14073). */
+  childTaskId?: string;
 }
 
 /**
@@ -121,17 +123,37 @@ export interface ResolvedWaivers {
 // ---------------------------------------------------------------------------
 
 /**
+ * The child task a parent-owned `child_task` projection row ("Complete child
+ * T123: …") stands for, or null for any other criterion: the row's
+ * `targetTaskId`, else its `child:<id>` source key, else the id in its text.
+ *
+ * @param row - An AC row of the parent.
+ * @returns The child task id, or null.
+ * @task T14073
+ */
+export function childProjectionTarget(row: AcRow): string | null {
+  if (row.targetTaskId !== null && row.targetTaskId.length > 0) return row.targetTaskId;
+  if (row.sourceKey.startsWith('child:')) return row.sourceKey.slice('child:'.length);
+  const match = /^Complete child ([^:]+): /.exec(row.text);
+  return match?.[1] ?? null;
+}
+
+/**
  * Compute coverage for a task. Returns `{ok:true}` when every AC has
  * at least one binding OR the task declared zero ACs; otherwise
  * `{ok:false}` with the offending AC rows.
  *
+ * A parent's `child_task` projection ("Complete child T123: …") is covered by
+ * the child itself once that direct child is `done` (T14073): it is the child
+ * rollup an epic completes through, so it needs no evidence row of its own.
+ *
  * @param taskId - The task being completed.
- * @param accessor - DataAccessor used for the AC + binding reads.
+ * @param accessor - DataAccessor used for the AC, binding and child reads.
  * @returns Coverage outcome.
  */
 export async function computeAcCoverage(
   taskId: string,
-  accessor: DataAccessor,
+  accessor: Pick<DataAccessor, 'getAcRows' | 'getAcBindings' | 'getChildren'>,
 ): Promise<AcCoverageResult> {
   const acRows = await accessor.getAcRows(taskId);
   if (acRows.length === 0) {
@@ -156,13 +178,28 @@ export async function computeAcCoverage(
     covered.add(b.acId);
   }
 
+  // T14073: a done direct child covers its own projection row.
+  if (acRows.some((r) => !covered.has(r.id) && childProjectionTarget(r) !== null)) {
+    const done = new Set(
+      (await accessor.getChildren(taskId)).filter((c) => c.status === 'done').map((c) => c.id),
+    );
+    for (const r of acRows) {
+      const child = childProjectionTarget(r);
+      if (child !== null && done.has(child)) covered.add(r.id);
+    }
+  }
+
   const unsatisfied = acRows
     .filter((r) => !covered.has(r.id))
-    .map<UnsatisfiedAc>((r) => ({
-      acId: r.id,
-      alias: `AC${r.ordinal}`,
-      text: r.text,
-    }));
+    .map<UnsatisfiedAc>((r) => {
+      const childTaskId = childProjectionTarget(r);
+      return {
+        acId: r.id,
+        alias: `AC${r.ordinal}`,
+        text: r.text,
+        ...(childTaskId !== null ? { childTaskId } : {}),
+      };
+    });
 
   if (unsatisfied.length === 0) return { ok: true };
   return { ok: false, unsatisfied };
