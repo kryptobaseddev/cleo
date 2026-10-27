@@ -1342,6 +1342,16 @@ const WRAPPER_VALUE_FLAGS: ReadonlySet<string> = new Set([
 /** A plain script path `node` may run light. */
 const NODE_SCRIPT = /\.[cm]?js$/;
 
+/**
+ * Interpreters whose plain script may run light (T14079), with the script
+ * extension each must have: `python3 check.py`, `bash lint.sh`.
+ */
+const SCRIPT_RUNNERS: ReadonlyArray<{ readonly runner: RegExp; readonly script: RegExp }> = [
+  { runner: /^node$/, script: NODE_SCRIPT },
+  { runner: /^python(3(\.\d+)?)?$/, script: /\.py$/ },
+  { runner: /^(sh|bash|zsh)$/, script: /\.(sh|bash|zsh)$/ },
+];
+
 /** A `NODE_OPTIONS=` assignment that sets a heap size. */
 const HEAP_RAISING_ASSIGNMENT =
   /^NODE_OPTIONS=.*--max[-_](old[-_]space|semi[-_]space|heap)[-_]size/;
@@ -1393,14 +1403,39 @@ const HEAVY_SCRIPT_WORD =
  * ```
  */
 export function nodeScriptOf(argv: readonly string[]): string | null {
+  const run = scriptRunOf(argv);
+  return run !== null && run.runner === 'node' ? run.script : null;
+}
+
+/**
+ * The interpreter and plain script a command runs (T14079): `node x.mjs`
+ * (T14050), `python3 check.py`, `bash lint.sh`, with no interpreter flags,
+ * outside `node_modules/` and not CLEO's own CLI. Leading wrappers are
+ * stripped as in {@link lightCommandReason}.
+ *
+ * @param argv - the command.
+ * @returns the interpreter's name and the script path as written, or `null`.
+ *
+ * @example
+ * ```ts
+ * scriptRunOf(['python3', 'scripts/check_meta.py', 'a.yaml']); // { runner: 'python3', script: 'scripts/check_meta.py' }
+ * scriptRunOf(['python3', '-m', 'pytest']);                    // null
+ * ```
+ */
+export function scriptRunOf(
+  argv: readonly string[],
+): { readonly runner: string; readonly script: string } | null {
   const words = unwrapped(argv);
-  if (words === null || base(words[0] ?? '') !== 'node') return null;
+  if (words === null) return null;
+  const runner = base(words[0] ?? '');
+  const kind = SCRIPT_RUNNERS.find((r) => r.runner.test(runner));
   const script = words[1];
-  return script !== undefined &&
-    NODE_SCRIPT.test(script) &&
+  return kind !== undefined &&
+    script !== undefined &&
+    kind.script.test(script) &&
     !CLEO_SCRIPT.test(script) &&
     !/(^|[\\/])node_modules[\\/]/.test(script)
-    ? script
+    ? { runner, script }
     : null;
 }
 
@@ -1425,13 +1460,15 @@ export function heavyScriptReason(script: string): string | null {
 
 /**
  * Why a command is known to run no heavy tool (T13452), from a small
- * allowlist: a file utility (`ls`, `cat`, `echo`, …) or `node` running a
- * plain `.js`/`.mjs`/`.cjs` script with no node flags (not CLEO's own CLI,
- * not a package's bin under `node_modules/` such as `vitest.mjs`, and not a
- * script whose path names a heavy job such as `typecheck` or `build`,
- * T14050). Leading wrappers (`timeout`, `sudo`, `env`, `nice`, `command`,
+ * allowlist: a file utility (`ls`, `cat`, `echo`, …) or an interpreter
+ * running a plain script with no interpreter flags ({@link scriptRunOf}:
+ * `node x.mjs`, `python3 check.py`, `bash lint.sh`, T14079), not CLEO's own
+ * CLI, not a package's bin under `node_modules/` such as `vitest.mjs`, and not
+ * a script whose path names a heavy job such as `typecheck` or `build`
+ * (T14050). What the script's content runs is judged by the plan
+ * (`planRunFootprint`), which reads it. Leading wrappers (`timeout`, `sudo`, `env`, `nice`, `command`,
  * `exec`) are stripped first; a `NODE_OPTIONS=` that raises the heap is never
- * light. Everything else (cargo, go, pytest, gradle, docker, a shell script,
+ * light. Everything else (cargo, go, pytest, gradle, docker, `python3 -m`,
  * `node --test`) may be heavy and keeps its class plan. Git is sized by
  * {@link runFootprint} and its hooks, so it is never answered here.
  *
@@ -1441,6 +1478,7 @@ export function heavyScriptReason(script: string): string | null {
  * @example
  * ```ts
  * lightCommandReason(['node', 'scripts/gen.mjs']);       // 'node scripts/gen.mjs runs no heavy tool'
+ * lightCommandReason(['python3', 'check.py', 'a.yaml']);  // 'python3 check.py runs no heavy tool'
  * lightCommandReason(['timeout', '5', 'ls']);            // 'ls runs no heavy tool'
  * lightCommandReason(['node', '--test', 'a.test.mjs']);  // null
  * lightCommandReason(['node', 'scripts/typecheck/full-program.cjs']); // null
@@ -1452,9 +1490,9 @@ export function lightCommandReason(argv: readonly string[]): string | null {
   if (words === null) return null;
   const tool = base(words[0] ?? '');
   if (LIGHT_UTILITIES.test(tool)) return `${tool} runs no heavy tool`;
-  const script = nodeScriptOf(words);
-  if (script !== null && heavyScriptReason(script) === null) {
-    return `node ${script} runs no heavy tool`;
+  const run = scriptRunOf(words);
+  if (run !== null && heavyScriptReason(run.script) === null) {
+    return `${run.runner} ${run.script} runs no heavy tool`;
   }
   return null;
 }
