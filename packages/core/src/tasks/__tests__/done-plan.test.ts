@@ -39,6 +39,7 @@ vi.mock('../../resources/top-memory.js', async (importOriginal) => ({
 }));
 
 import { engineSuccess } from '../../engine-result.js';
+import { drainWarnings } from '../../output.js';
 import { readProjectInfoAtDirectorySync } from '../../project-scope.js';
 import { ResourceMonitor } from '../../resources/monitor.js';
 import { _resetMemoryGateForTest } from '../../resources/pressure-gate.js';
@@ -50,7 +51,7 @@ import { acTextHash } from '../ac-identity.js';
 import { acItemToText } from '../ac-table.js';
 import { addTask } from '../add.js';
 import type { ChangeSetDeps } from '../change-set.js';
-import { satisfyGatesFromMergedCi } from '../complete-ci.js';
+import { gateStaleness, satisfyGatesFromMergedCi } from '../complete-ci.js';
 import { type DeriveTaskEvidenceOptions, deriveTaskEvidence } from '../done-plan.js';
 import { recordTaskDone } from '../done-record.js';
 import {
@@ -61,6 +62,7 @@ import {
 } from '../evidence.js';
 import { executableInvocation } from '../gate-runner.js';
 import { reqAdd } from '../req.js';
+import { taskShowOperation } from '../show.js';
 import { captureTreeHash, runToolCached } from '../tool-cache.js';
 import { resolveToolCommand } from '../tool-resolver.js';
 import { acquireGlobalSlot } from '../tool-semaphore.js';
@@ -2077,5 +2079,126 @@ describe('a stored typed pass bound to an older definition is not a pass (T13463
       gateHash: createHash('sha256').update(acItemToText(gate)).digest('hex'),
     }));
     expect(plan.typedGates.map((g) => g.status)).toEqual(['not-run']);
+  });
+});
+
+describe('the plan is ready only when cleo complete would accept (T14036, T14037)', () => {
+  async function seedNamed(title: string, depends?: string[]): Promise<string> {
+    const { task } = await addTask(
+      {
+        title,
+        description: `seeded fixture: ${title}`,
+        acceptance: ['Change src/a.ts to return 2'],
+        ...(depends ? { depends } : {}),
+        skipContainmentInvariant: true,
+      },
+      root,
+      env.accessor,
+    );
+    return task.id;
+  }
+
+  async function writeVerification(id: string, verification: object): Promise<void> {
+    await env.accessor.updateTaskFields(id, { verificationJson: JSON.stringify(verification) });
+  }
+
+  it('T14036 AC1/AC2: each required gate the plan cannot record is a blocker with its fix', async () => {
+    const id = await seedNamed('readiness fixture: nothing derivable');
+    const plan = await deriveTaskEvidence(id, { projectRoot: root, cwd: root, deps });
+    expect(plan.ready).toBe(false);
+    expect(plan.blockers.map((b) => b.code)).toContain('no-change-set');
+    for (const gate of ['testsPassed', 'qaPassed'] as const) {
+      const blocker = plan.blockers.find((b) => b.gate === gate);
+      expect(blocker?.code, gate).toBe('manual-gate');
+      expect(blocker?.message).toMatch(
+        new RegExp(`${gate} is required and cleo done derived no evidence`),
+      );
+      expect(blocker?.next.command).toBe(`cleo verify ${id} --gate ${gate} --evidence '<atoms>'`);
+    }
+  });
+
+  it('T14036 AC1/AC2: an unmet dependency blocks readiness with the refusal cleo complete raises', async () => {
+    const dep = await seedNamed('readiness fixture: the dependency');
+    const id = await seedNamed('readiness fixture: the dependent', [dep]);
+    commitOnTaskBranch(id);
+    await cacheTestPass();
+    const plan = await deriveTaskEvidence(id, {
+      projectRoot: root,
+      cwd: root,
+      deps,
+      satisfies: 'all',
+      previewEvidence: async () => ({ ok: true }),
+    });
+    expect(plan.ready).toBe(false);
+    const refusal = plan.blockers.find((b) => b.code === 'completion-refused');
+    expect(refusal?.message).toContain(`unresolved dependencies: ${dep} (pending)`);
+    expect(refusal?.next.command).toBe(`cleo complete ${dep}`);
+  });
+
+  it('T14036: with every required gate recorded, a change-set blocker no longer stops it', async () => {
+    const id = await seedNamed('readiness fixture: recorded elsewhere');
+    await writeVerification(id, {
+      passed: true,
+      round: 1,
+      gates: { implemented: true, testsPassed: true, qaPassed: true },
+      failureLog: [],
+      lastAgent: null,
+      lastUpdated: null,
+    });
+    const plan = await deriveTaskEvidence(id, { projectRoot: root, cwd: root, deps });
+    expect(plan.changeSet.source).toBe('none');
+    expect(plan.blockers).toEqual([]);
+    expect(plan.ready).toBe(true);
+    expect(plan.commands).toEqual([`cleo complete ${id}`]);
+  });
+
+  it('T14037: a test-run whose tree moved reads stale in show and the plan, by complete’s rule', async () => {
+    const id = await seedNamed('readiness fixture: stale test-run');
+    commitOnTaskBranch(id);
+    await writeVerification(id, {
+      passed: false,
+      round: 1,
+      gates: { testsPassed: true },
+      failureLog: [],
+      lastAgent: null,
+      lastUpdated: null,
+      evidence: {
+        testsPassed: {
+          atoms: [
+            {
+              kind: 'test-run',
+              path: 'reports/r.json',
+              sha256: 'c'.repeat(64),
+              passCount: 1,
+              failCount: 0,
+              skipCount: 0,
+              treeHash: await captureTreeHash(root),
+            },
+          ],
+          capturedAt: '2026-10-01T00:00:00Z',
+          capturedBy: 'test',
+        },
+      },
+    });
+    // A later commit changes the file the run tested.
+    writeFileSync(join(root, 'src', 'a.ts'), 'export const a = 3;\n');
+    git(root, ['commit', '-q', '-am', `${id}: change a again`]);
+
+    const task = await env.accessor.loadSingleTask(id);
+    if (!task) throw new Error('fixture task missing');
+    const reason = (await gateStaleness(task, root)).testsPassed;
+    expect(reason).toMatch(/src\/a\.ts/);
+
+    const plan = await deriveTaskEvidence(id, { projectRoot: root, cwd: root, deps });
+    expect(plan.gates.find((g) => g.gate === 'testsPassed')?.passed).toBe(false);
+    expect(plan.changeSet.warnings).toContain(reason);
+    expect(plan.ready).toBe(false);
+
+    drainWarnings();
+    const shown = await taskShowOperation(root, { taskId: id });
+    expect(shown.success).toBe(true);
+    const stale = (drainWarnings() ?? []).find((w) => w.code === 'W_EVIDENCE_STALE');
+    expect(stale?.message).toContain(`${id}'s recorded testsPassed no longer stands`);
+    expect(stale?.message).toContain(reason ?? '<no reason>');
   });
 });

@@ -363,6 +363,7 @@ export async function taskShowOperation(
     const view = await computeTaskView(params.taskId, accessor);
     const task = await taskToShowRecord(projectRoot, detail, attachments);
     await noteRecoveredLegacyTasks(projectRoot, params.taskId);
+    if (!detail.isArchived) await noteStaleEvidence(projectRoot, detail);
     return engineSuccess({
       task,
       view,
@@ -372,6 +373,37 @@ export async function taskShowOperation(
     });
   } catch (err: unknown) {
     return caughtToEngineError(err, 'E_NOT_INITIALIZED', 'Task database not initialized');
+  }
+}
+
+/**
+ * Warn when a recorded testsPassed or qaPassed no longer stands, judged by
+ * the rule `cleo complete` enforces ({@link gateStaleness}, T14037), so the
+ * read shows what completion would refuse. Advisory: the task is shown either
+ * way, and nothing runs for a task with neither gate recorded.
+ *
+ * @param projectRoot - Absolute path to the project root.
+ * @param task - The task being shown.
+ */
+async function noteStaleEvidence(projectRoot: string, task: Task): Promise<void> {
+  const gates = task.verification?.gates;
+  if (task.status === 'done' || task.status === 'cancelled') return;
+  if (gates?.testsPassed !== true && gates?.qaPassed !== true) return;
+  try {
+    const { gateStaleness } = await import('./complete-ci.js');
+    const stale = await gateStaleness(task, projectRoot);
+    const { pushWarning } = await import('../output.js');
+    for (const gate of ['testsPassed', 'qaPassed'] as const) {
+      const why = stale[gate];
+      if (!why) continue;
+      pushWarning({
+        // @sync-invariant none:input-shape an advisory note on a read; it refuses nothing
+        code: 'W_EVIDENCE_STALE',
+        message: `${task.id}'s recorded ${gate} no longer stands, so cleo complete refuses it: ${why}`,
+      });
+    }
+  } catch {
+    // Advisory only: the task itself is shown either way.
   }
 }
 

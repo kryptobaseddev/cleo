@@ -51,7 +51,7 @@ import { readProjectInfoAtDirectorySync } from '../project-scope.js';
 import { isCiDocumentPath, readCiChecks, readCiSatisfies } from '../release/ci-evidence.js';
 
 import { createOperationExecutionContext } from '../store/background-ops.js';
-import { getTaskAccessor } from '../store/data-accessor.js';
+import { type DataAccessor, getTaskAccessor } from '../store/data-accessor.js';
 import {
   cleoConfigSchemaFor,
   evidenceProjectContext,
@@ -60,13 +60,9 @@ import {
   planScopedTestRun,
   standalonePackage,
 } from './affected-packages.js';
-import {
-  qaPassedSupersededReason,
-  type TaskMergeInfo,
-  taskChangeMergeState,
-  testsPassedSupersededReason,
-} from './affected-scope.js';
+import { type TaskMergeInfo, taskChangeMergeState } from './affected-scope.js';
 import { type ChangeSetDeps, deriveTaskChangeSet } from './change-set.js';
+import { type GateStaleness, gateStaleness } from './complete-ci.js';
 import {
   checkGateEvidenceMinimumDetailed,
   type classifyEvidenceTask,
@@ -895,18 +891,62 @@ function acMappingBlocker(
   };
 }
 
-/** Required gates `cleo done` cannot derive (documented, securityPassed, …). */
-function manualGateBlockers(taskId: string, gates: readonly DonePlanGate[]): DonePlanBlocker[] {
+/**
+ * Required gates that are not passed and that nothing in the plan records:
+ * the gates `cleo done` never derives (documented, securityPassed, …), and an
+ * evidence gate with no derived evidence and no other blocker naming it
+ * (T14036), with why its recorded evidence no longer stands when it was
+ * recorded (T14037). `cleo complete` refuses each one.
+ */
+function manualGateBlockers(
+  taskId: string,
+  gates: readonly DonePlanGate[],
+  covered: (gate: VerificationGate) => boolean,
+  stale: GateStaleness,
+): DonePlanBlocker[] {
+  const reasons: Partial<Record<VerificationGate, string | null>> = stale;
   return gates
-    .filter((g) => g.required && !g.passed && !EVIDENCE_GATES.includes(g.gate))
-    .map((g) => ({
-      code: 'manual-gate' as const,
-      message: `${g.gate} is required and is not derived by cleo done.`,
+    .filter(
+      (g) =>
+        g.required &&
+        !g.passed &&
+        (!EVIDENCE_GATES.includes(g.gate) || (g.evidence === null && !covered(g.gate))),
+    )
+    .map((g) => {
+      const why = reasons[g.gate];
+      return {
+        code: 'manual-gate' as const,
+        message: !EVIDENCE_GATES.includes(g.gate)
+          ? `${g.gate} is required and is not derived by cleo done.`
+          : why
+            ? `${g.gate} was recorded but no longer stands: ${why}`
+            : `${g.gate} is required and cleo done derived no evidence for it.`,
+        next: step(
+          `cleo verify ${taskId} --gate ${g.gate} --evidence '<atoms>'`,
+          checkGateEvidenceMinimumDetailed(g.gate, [])?.message ?? `Record ${g.gate} evidence.`,
+        ),
+        gate: g.gate,
+      };
+    });
+}
+
+/** `cleo complete`'s dependency refusal, as a plan blocker (T14036). */
+async function dependencyBlockers(task: Task, accessor: DataAccessor): Promise<DonePlanBlocker[]> {
+  if (!task.depends?.length) return [];
+  const { unresolvedDependencies } = await import('./complete.js');
+  const unresolved = await unresolvedDependencies(task, accessor);
+  if (unresolved.length === 0) return [];
+  return [
+    {
+      code: 'completion-refused',
+      message: `${task.id} has unresolved dependencies: ${unresolved.map((d) => `${d.id} (${d.status})`).join(', ')}; cleo complete refuses until they are done.`,
       next: step(
-        `cleo verify ${taskId} --gate ${g.gate} --evidence '<atoms>'`,
-        checkGateEvidenceMinimumDetailed(g.gate, [])?.message ?? `Record ${g.gate} evidence.`,
+        unresolved.map((d) => `cleo complete ${d.id}`).join(' && '),
+        `Complete the dependencies first, or drop a stale edge with cleo update ${task.id} --remove-depends <id>.`,
       ),
-    }));
+      cause: 'E_CLEO_DEPENDENCY',
+    },
+  ];
 }
 
 function withSatisfies(
@@ -1059,24 +1099,20 @@ export async function deriveTaskEvidence(
   // change has merged, merged CI or a full run supersedes it; a tree-bound
   // test-run also stops standing once its tree moves (T12965). T12656: the
   // same rule `cleo complete` enforces (one shared function).
-  const supersededReason = await testsPassedSupersededReason(
-    task.verification?.evidence?.testsPassed?.atoms ?? [],
-    {
-      mergeState: mergeInfo,
-      // T12965 review M2: the change-set root, as `cleo complete` and the
-      // `test-run:` binding compute it.
-      currentTree: () => captureTreeHash(root),
-      root: () => root,
-    },
-  );
-  const superseded = supersededReason !== null;
-  if (supersededReason) changeSet.warnings.push(supersededReason);
   // T13427: a qa-run receipt stands only while its tree does; T13644: after
   // merge, only when it carries or was recorded on main after the merge.
-  const qaSupersededReason = await qaPassedSupersededReason(
-    task.verification?.evidence?.qaPassed?.atoms ?? [],
-    { mergeState: mergeInfo, currentTree: () => captureTreeHash(root), root: () => root },
-  );
+  // T14037: the one read-only check `cleo complete` and `cleo show` use.
+  const stale = await gateStaleness(task, storeRoot, {
+    mergeState: mergeInfo,
+    // T12965 review M2: the change-set root, as `cleo complete` and the
+    // `test-run:` binding compute it.
+    currentTree: () => captureTreeHash(root),
+    root: () => root,
+  });
+  const supersededReason = stale.testsPassed;
+  const superseded = supersededReason !== null;
+  if (supersededReason) changeSet.warnings.push(supersededReason);
+  const qaSupersededReason = stale.qaPassed;
   if (qaSupersededReason) changeSet.warnings.push(qaSupersededReason);
   const passed = (gate: VerificationGate): boolean =>
     task.verification?.gates?.[gate] === true &&
@@ -1242,14 +1278,27 @@ export async function deriveTaskEvidence(
 
   const isCode = kind === 'code';
   const acBlocker = acMappingBlocker(taskId, acMapping, pending);
-  const derivedBlockers = orderBlockers([
-    ...changeSet.blockers.map((b) =>
-      b.code === 'no-change-set' ? noChangeSetBlocker(task, kind) : b,
-    ),
+  // T14036: with every required gate standing, completion judges the recorded
+  // evidence, not a change set derived now (a deletion-only PR, a reviewed
+  // checkout elsewhere): what blocks deriving one blocks nothing.
+  const changeSetBlockers =
+    pending.length === 0
+      ? []
+      : changeSet.blockers.map((b) =>
+          b.code === 'no-change-set' ? noChangeSetBlocker(task, kind) : b,
+        );
+  const gateBlockers = [
+    ...changeSetBlockers,
     ...toolAndTypedGateBlockers(taskId, isCode, toolRuns, typedGates, root, opts.runTyped === true),
     ...testRunBlockers,
     ...(acBlocker ? [acBlocker] : []),
-    ...manualGateBlockers(taskId, gates),
+  ];
+  const covered = (gate: VerificationGate): boolean =>
+    gateBlockers.some((b) => b.gate === gate) ||
+    (gate === 'implemented' && changeSetBlockers.length > 0);
+  const derivedBlockers = orderBlockers([
+    ...gateBlockers,
+    ...manualGateBlockers(taskId, gates, covered, stale),
   ]);
 
   const cd = changeSet.rootSource === 'task-worktree' ? `cd ${shellQuote(root)} && ` : '';
@@ -1263,6 +1312,7 @@ export async function deriveTaskEvidence(
       });
   const blockers = orderBlockers([
     ...derivedBlockers,
+    ...(task.status === 'done' ? [] : await dependencyBlockers(task, accessor)),
     ...(task.status === 'done'
       ? []
       : await readinessBlockers({

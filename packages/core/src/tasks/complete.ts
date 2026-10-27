@@ -14,6 +14,7 @@ import type {
   Task,
   TaskRecord,
   TaskRef,
+  TaskStatus,
   TaskVerification,
   VerificationGate,
   WorktreeIntegrationOutcome,
@@ -483,6 +484,27 @@ export async function withTaskWriteTransaction<T>(
 }
 
 /**
+ * The `depends` edges that block a task's completion: dependencies that exist
+ * and are not terminal (T11954). A dependency id that no longer exists is
+ * dropped, so a stale reference never blocks. `cleo complete` refuses on these
+ * and `cleo done --plan` reports them (T14036).
+ *
+ * @param task - The task being completed.
+ * @param acc - Accessor to load its dependencies with.
+ * @returns Each blocking dependency with its current status.
+ * @task T14036
+ */
+export async function unresolvedDependencies(
+  task: Task,
+  acc: DataAccessor,
+): Promise<Array<{ id: string; status: TaskStatus }>> {
+  if (!task.depends?.length) return [];
+  return (await acc.loadTasks(task.depends))
+    .filter((d) => !TERMINAL_TASK_STATUSES.has(d.status))
+    .map((d) => ({ id: d.id, status: d.status }));
+}
+
+/**
  * Complete a task by ID.
  * Handles dependency checking and optional auto-completion of epics.
  * @param options - Explicit completion request and separately audited text-criterion waivers.
@@ -565,55 +587,50 @@ export async function completeTask(
   //     `--waive-depends "<reason>"` override (mirrors the cancelled-child and
   //     premature-close waivers). The waiver is recorded to
   //     `.cleo/audit/depends-waiver.jsonl`.
-  if (task.depends?.length) {
-    const deps = await acc.loadTasks(task.depends);
-    const unresolvedDeps = deps
-      .filter((d) => !TERMINAL_TASK_STATUSES.has(d.status))
-      .map((d) => ({ id: d.id, status: d.status }));
-    if (unresolvedDeps.length > 0) {
-      const waiverReason = options.waiveDependsReason?.trim();
-      if (!waiverReason) {
-        const offenders = unresolvedDeps.map((d) => `${d.id} (${d.status})`).join(', ');
-        throw new CleoError(
-          ExitCode.DEPENDENCY_ERROR,
-          `Task ${options.taskId} has unresolved dependencies: ${offenders}`,
-          {
-            fix:
-              `Complete the dependencies first ` +
-              `(${unresolvedDeps.map((d) => `cleo complete ${d.id}`).join(', ')}), ` +
-              `OR — if the edge is stale/over-specified and this task's own work is done — ` +
-              `drop it with 'cleo update ${options.taskId} --remove-depends <id>', ` +
-              `OR record an audited one-shot override: ` +
-              `'cleo complete ${options.taskId} --waive-depends "<reason>"' ` +
-              `(audited to .cleo/audit/depends-waiver.jsonl).`,
-            details: {
-              field: 'depends',
-              unresolvedDeps,
-            },
-          },
-        );
-      }
-
-      // Override supplied — audit the decision before proceeding.
-      try {
-        const { appendDependsWaiverAudit } = await import('./depends-waiver-audit.js');
-        await appendDependsWaiverAudit(
-          {
-            taskId: options.taskId,
+  const unresolvedDeps = await unresolvedDependencies(task, acc);
+  if (unresolvedDeps.length > 0) {
+    const waiverReason = options.waiveDependsReason?.trim();
+    if (!waiverReason) {
+      const offenders = unresolvedDeps.map((d) => `${d.id} (${d.status})`).join(', ');
+      throw new CleoError(
+        ExitCode.DEPENDENCY_ERROR,
+        `Task ${options.taskId} has unresolved dependencies: ${offenders}`,
+        {
+          fix:
+            `Complete the dependencies first ` +
+            `(${unresolvedDeps.map((d) => `cleo complete ${d.id}`).join(', ')}), ` +
+            `OR — if the edge is stale/over-specified and this task's own work is done — ` +
+            `drop it with 'cleo update ${options.taskId} --remove-depends <id>', ` +
+            `OR record an audited one-shot override: ` +
+            `'cleo complete ${options.taskId} --waive-depends "<reason>"' ` +
+            `(audited to .cleo/audit/depends-waiver.jsonl).`,
+          details: {
+            field: 'depends',
             unresolvedDeps,
-            waiverReason,
-            timestamp: new Date().toISOString(),
-            agent: process.env['CLEO_AGENT_ID'] ?? 'cleo',
           },
-          cwd,
-        );
-      } catch (err) {
-        // Audit write failure must not block the completion — warn only.
-        console.warn(
-          '[complete] failed to write depends-waiver audit:',
-          err instanceof Error ? err.message : String(err),
-        );
-      }
+        },
+      );
+    }
+
+    // Override supplied — audit the decision before proceeding.
+    try {
+      const { appendDependsWaiverAudit } = await import('./depends-waiver-audit.js');
+      await appendDependsWaiverAudit(
+        {
+          taskId: options.taskId,
+          unresolvedDeps,
+          waiverReason,
+          timestamp: new Date().toISOString(),
+          agent: process.env['CLEO_AGENT_ID'] ?? 'cleo',
+        },
+        cwd,
+      );
+    } catch (err) {
+      // Audit write failure must not block the completion — warn only.
+      console.warn(
+        '[complete] failed to write depends-waiver audit:',
+        err instanceof Error ? err.message : String(err),
+      );
     }
   }
 

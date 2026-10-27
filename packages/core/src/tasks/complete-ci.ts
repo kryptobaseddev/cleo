@@ -161,6 +161,57 @@ function ciRefusal(reason: string): MergedCiOutcome {
   return isPendingCiReason(reason) ? { kind: 'wait-for-ci', reason } : { kind: 'ci-red', reason };
 }
 
+/** Why each recorded gate no longer stands, or null when it does (or is not recorded). */
+export interface GateStaleness {
+  /** {@link testsPassedSupersededReason}'s verdict on a recorded testsPassed. */
+  testsPassed: string | null;
+  /** {@link qaPassedSupersededReason}'s verdict on a recorded qaPassed. */
+  qaPassed: string | null;
+}
+
+/**
+ * Whether a task's recorded testsPassed and qaPassed still stand: the rule
+ * `cleo complete` enforces, read-only, so `cleo done --plan` and `cleo show`
+ * report what completion would refuse before it does (T14037). A gate is
+ * judged only when it is recorded as passed and listed in `gates`.
+ *
+ * @param task - The task as loaded.
+ * @param storeRoot - CLEO store root.
+ * @param probe - Overrides for the lazy merge state, current tree hash and
+ *   bound root; each defaults to what `cleo complete` uses.
+ * @param gates - Gates to judge; defaults to both.
+ * @returns The reason each gate no longer stands, or null.
+ * @task T14037
+ */
+export async function gateStaleness(
+  task: Task,
+  storeRoot: string,
+  probe: Partial<Parameters<typeof testsPassedSupersededReason>[1]> = {},
+  gates: readonly VerificationGate[] = CI_GATES,
+): Promise<GateStaleness> {
+  let merge: Promise<TaskMergeInfo> | undefined;
+  const full: Parameters<typeof testsPassedSupersededReason>[1] = {
+    mergeState: () => {
+      merge ??= taskChangeMergeState(task, storeRoot);
+      return merge;
+    },
+    currentTree: () => captureTreeHash(resolveChangeSetRoot(storeRoot, task.id).root),
+    root: () => resolveChangeSetRoot(storeRoot, task.id).root,
+    ...probe,
+  };
+  const judged = (gate: VerificationGate): boolean =>
+    gates.includes(gate) && task.verification?.gates?.[gate] === true;
+  const evidence = task.verification?.evidence;
+  return {
+    testsPassed: judged('testsPassed')
+      ? await testsPassedSupersededReason(evidence?.testsPassed?.atoms ?? [], full)
+      : null,
+    qaPassed: judged('qaPassed')
+      ? await qaPassedSupersededReason(evidence?.qaPassed?.atoms ?? [], full)
+      : null,
+  };
+}
+
 /**
  * Satisfy a task's testsPassed/qaPassed from its merged PR's required CI when
  * they are missing or no longer stand, before `cleo complete` checks gates.
@@ -200,25 +251,18 @@ export async function satisfyGatesFromMergedCi(
     return merge;
   };
 
-  const testsPassedReason =
-    task.verification?.gates?.testsPassed === true && ciGates.includes('testsPassed')
-      ? await testsPassedSupersededReason(task.verification?.evidence?.testsPassed?.atoms ?? [], {
-          mergeState: mergeInfo,
-          currentTree: () => (deps.currentTree ?? defaultCurrentTree)(storeRoot, task.id),
-          root: () => resolveChangeSetRoot(storeRoot, task.id).root,
-        })
-      : null;
-  const qaAtoms = task.verification?.evidence?.qaPassed?.atoms ?? [];
-  // T13644: the same rule as testsPassed — a moved tree, or qa-run receipts
-  // that neither carry across the merge nor were recorded on main after it.
-  const qaPassedReason =
-    task.verification?.gates?.qaPassed === true && ciGates.includes('qaPassed')
-      ? await qaPassedSupersededReason(qaAtoms, {
-          mergeState: mergeInfo,
-          currentTree: () => (deps.currentTree ?? defaultCurrentTree)(storeRoot, task.id),
-          root: () => resolveChangeSetRoot(storeRoot, task.id).root,
-        })
-      : null;
+  // T13644: qaPassed follows the same rule as testsPassed — a moved tree, or
+  // qa-run receipts that neither carry across the merge nor were recorded on
+  // main after it. T14037: the one read-only check the plan and show reuse.
+  const { testsPassed: testsPassedReason, qaPassed: qaPassedReason } = await gateStaleness(
+    task,
+    storeRoot,
+    {
+      mergeState: mergeInfo,
+      currentTree: () => (deps.currentTree ?? defaultCurrentTree)(storeRoot, task.id),
+    },
+    ciGates,
+  );
   const needs = ciGates.filter(
     (g) =>
       task.verification?.gates?.[g] !== true ||
