@@ -32,6 +32,7 @@ import {
   readCacheEntry,
   resolveSpawnTimeoutMs,
   runToolCached,
+  spawnToolProcess,
   TOOL_CACHE_SCHEMA_VERSION,
 } from '../tool-cache.js';
 import { captureEnvFingerprint, captureResourceEnv } from '../tool-cache-env.js';
@@ -325,18 +326,20 @@ describe('runToolCached — bounded stdout buffer (memory leak fix)', () => {
       primaryType: 'unknown',
     };
 
-    const before = process.memoryUsage().heapUsed;
     const r = await runToolCached(cmd, dir, { skipGlobalSemaphore: true });
-    const after = process.memoryUsage().heapUsed;
 
     expect(r.exitCode).toBe(0);
     // The cached stdoutTail is bounded by `tailBytes` (default 512).
     expect(r.stdoutTail.length).toBeLessThanOrEqual(513); // +1 for the '…' marker
     expect(r.stdoutTail).toContain('END');
-    // Heap growth should be bounded (well under the 5 MB streamed). We
-    // give a 4 MB headroom for vitest harness churn — the pre-fix
-    // behaviour exceeded 5 MB deterministically.
-    expect(after - before).toBeLessThan(4 * 1024 * 1024);
+    // T14076: what the runner retains is checked directly, not by a heapUsed
+    // delta (no forced GC, so that was flaky: 14.6 MB on a release preflight).
+    // The spawn-time buffer keeps at most 64 KiB of the 5 MB streamed; an
+    // unbounded buffer returns all of it and fails here.
+    const raw = await spawnToolProcess(cmd.cmd, [...cmd.args], dir);
+    expect(raw.exitCode).toBe(0);
+    expect(raw.stdout.length).toBeLessThanOrEqual(64 * 1024);
+    expect(raw.stdout.endsWith('END\n')).toBe(true);
   });
 });
 
