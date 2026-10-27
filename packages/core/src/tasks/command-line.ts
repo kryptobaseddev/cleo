@@ -22,6 +22,9 @@
 /** Characters that only mean something to a shell, which gate commands never get. */
 const SHELL_OPERATORS = new Set(['|', '&', ';', '<', '>', '(', ')', '`', '$']);
 
+/** Operators that double into another one (`&&`, `||`, `;;`, `<<`, `>>`). */
+const DOUBLED_OPERATORS = new Set(['&', '|', ';', '<', '>']);
+
 /** An unquoted leading word of this shape is an `sh` environment assignment. */
 const ASSIGNMENT_NAME = /^[A-Za-z_][A-Za-z0-9_]*$/;
 
@@ -55,7 +58,8 @@ export function splitCommandLine(raw: string, label = 'Gate command'): string[] 
   const refuse = (what: string): never => {
     throw new Error(
       `${label} ${JSON.stringify(raw)} uses shell syntax (${what}) but it runs ` +
-        "without a shell. Wrap it explicitly, e.g. `sh -c '<script>'`, or move the logic into a script file.",
+        "without a shell. Wrap it explicitly, e.g. `sh -c '<script>'`, or move the logic into a script file " +
+        'or a package script (e.g. `"check": "<script>"` in package.json, declared as `pnpm run check`).',
     );
   };
   for (let i = 0; i < raw.length; i++) {
@@ -107,7 +111,8 @@ export function splitCommandLine(raw: string, label = 'Gate command'): string[] 
       inWord = false;
       wordBare = true;
     } else if (SHELL_OPERATORS.has(ch)) {
-      refuse(ch);
+      // T14039: name the operator as written (`&&`, `||`, `>>`), not its first character.
+      refuse(DOUBLED_OPERATORS.has(ch) && raw[i + 1] === ch ? ch + ch : ch);
     } else if (!inWord && ch === '#') {
       refuse('# starts a comment');
     } else if (!inWord && ch === '~') {

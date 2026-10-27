@@ -135,11 +135,12 @@ describe('resolveToolCommand — project-context overrides', () => {
     if (!r.ok) {
       expect(r.codeName).toBe('E_TOOL_COMMAND_INVALID');
       expect(r.rawCommand).toBe('pnpm build && pnpm test');
-      expect(r.reason).toMatch(/testing\.command .*shell syntax \(&\).*sh -c/);
+      // T14039: the operator as written, and the package-script remedy.
+      expect(r.reason).toMatch(/testing\.command .*shell syntax \(&&\).*sh -c.*package script/);
     }
   });
 
-  it('tool:test evidence for a shell-chained testing.command is refused, not passed (T12718)', async () => {
+  it('tool:test evidence for a shell-chained testing.command is refused as invalid config, not passed (T12718, T14039)', async () => {
     writeProjectContext(dir, {
       primaryType: 'node',
       testing: { command: 'node -e 0 && exit 1' },
@@ -147,8 +148,9 @@ describe('resolveToolCommand — project-context overrides', () => {
     const { validateAtom } = await import('../evidence.js');
     const r = await validateAtom({ kind: 'tool', tool: 'test' }, dir);
     expect(r.ok, JSON.stringify(r)).toBe(false);
-    expect(!r.ok && r.codeName).toBe('E_EVIDENCE_TOOL_UNAVAILABLE');
-    expect(!r.ok && r.reason).toMatch(/testing\.command .*shell syntax/);
+    // T14039: a config error, not a missing tool.
+    expect(!r.ok && r.codeName).toBe('E_EVIDENCE_INVALID');
+    expect(!r.ok && r.reason).toMatch(/testing\.command .*shell syntax \(&&\)/);
   });
 });
 

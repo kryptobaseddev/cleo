@@ -405,7 +405,7 @@ describe('buildAffectedTestCommand', () => {
   it('refuses shell syntax instead of passing `&&` to the target (T12718)', () => {
     expect(() =>
       buildAffectedTestCommand('pnpm build && pnpm exec vitest run {projects}', ['@x/a']),
-    ).toThrow(/testing\.affectedCommand .*shell syntax \(&\)/);
+    ).toThrow(/testing\.affectedCommand .*shell syntax \(&&\)/);
   });
 });
 

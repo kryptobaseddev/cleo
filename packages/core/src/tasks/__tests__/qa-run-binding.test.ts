@@ -871,6 +871,15 @@ describe('T13758: a change to CLEO-owned config alone is tested by CLEO schema v
     expect(!r.ok && r.reason).toMatch(/\.cleo\/project-context\.json/);
   });
 
+  it('red (T14039): a tool command chained with && fails the check, naming the operator and a package script', async () => {
+    change(context({ typecheck: { command: 'pnpm --filter a build && pnpm --filter b lint' } }));
+    const r = await validateAtom({ kind: 'tool', tool: 'config-schema' }, root);
+    expect(!r.ok && r.codeName, JSON.stringify(r)).toBe('E_EVIDENCE_TOOL_FAILED');
+    expect(!r.ok && r.reason).toMatch(
+      /\.cleo\/project-context\.json: typecheck\.command .*shell syntax \(&&\).*package script/,
+    );
+  });
+
   it('T13778: on a mixed change it validates the config and records the rest; alone it does not stand', async () => {
     put('src/a.ts', 'export const a = 2;\n');
     change(context({ release: { prRequiredWorkflows: [] } }));
