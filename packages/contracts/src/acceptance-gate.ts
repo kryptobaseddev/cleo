@@ -127,9 +127,10 @@ export interface GateBase {
  *
  * A positive `minCount` additionally requires the gate's OWN command to emit a
  * machine-readable report satisfying `testCountReportSchema` (e.g. by adding
- * `--reporter=json`). A run that emits none is an error, never a pass: an exit
- * code carries no count, and a report file written by some other invocation is
- * not bound to this execution.
+ * `--reporter=json`), a `testCountSummarySchema` last stdout line, or node:test
+ * TAP (`--test-reporter=tap`, T14051). A run that emits none is an error,
+ * never a pass: an exit code carries no count, and a report file written by
+ * some other invocation is not bound to this execution.
  */
 export interface TestGate extends GateBase {
   kind: 'test';

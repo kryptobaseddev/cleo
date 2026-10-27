@@ -2116,11 +2116,81 @@ function matchingBrace(text: string, start: number): number {
   return -1;
 }
 
-/** The counts a structured report (full or summary) proves. */
+/** The counts a structured report (full, summary or node:test TAP) proves. */
 interface StructuredTestCounts {
   numPassedTests: number;
   numFailedTests?: number;
+  numTotalTests?: number;
   success?: boolean;
+}
+
+/** Top-level keys that mark a JSON object as an attempted test-count report. */
+const COUNT_REPORT_KEYS = ['numTotalTests', 'numPassedTests', 'numFailedTests', 'testResults'];
+
+/**
+ * Why a parsed candidate was refused: its first schema issue, by field path
+ * (T14060). A report that parsed but failed validation used to be dropped
+ * silently, so the author was told no report existed at all.
+ */
+function firstSchemaIssue(error: {
+  issues: readonly { path: readonly PropertyKey[]; message: string }[];
+}): string {
+  const issue = error.issues[0];
+  if (issue === undefined) return 'invalid';
+  return issue.path.length > 0
+    ? `${issue.path.map(String).join('.')}: ${issue.message}`
+    : issue.message;
+}
+
+/** Whether `value` is a JSON object carrying any {@link COUNT_REPORT_KEYS}. */
+function looksLikeCountReport(value: unknown): value is object {
+  return (
+    typeof value === 'object' &&
+    value !== null &&
+    COUNT_REPORT_KEYS.some((key) => Object.hasOwn(value, key))
+  );
+}
+
+/**
+ * Counts from node:test TAP output (`node --test --test-reporter=tap`, also
+ * via `tsx --test`), which ships no JSON reporter (T14051). The run's LAST
+ * top-level plan (`1..N` at column 0) must be followed by its `# tests N`,
+ * `# pass N` and `# fail N` summary; `# cancelled N` counts as failed. Test
+ * console output is re-emitted as indented or `# ` comment lines before that
+ * plan, so it cannot forge the summary.
+ *
+ * @param stdout - The run's captured stdout.
+ * @returns Counts, a refusal reason, or null when the output is not TAP.
+ * @task T14051
+ */
+function tapTestCounts(stdout: string): StructuredTestCounts | { refusal: string } | null {
+  const lines = stdout.split(/\r?\n/);
+  if (!lines.some((line) => /^TAP version \d+$/.test(line.trim()))) return null;
+  if (lines.some((line) => /^\s*Bail out!/.test(line)))
+    return { refusal: 'its TAP output contains "Bail out!"' };
+  const plan = lines.findLastIndex((line) => /^1\.\.\d+(?:\s|$)/.test(line));
+  if (plan === -1) return { refusal: 'its TAP output has no top-level 1..N plan' };
+  const summary = new Map<string, number>();
+  for (const line of lines.slice(plan + 1)) {
+    const match = line.match(/^# (tests|pass|fail|cancelled) (\d+)$/);
+    if (match) summary.set(match[1]!, Number(match[2]));
+  }
+  const tests = summary.get('tests');
+  const pass = summary.get('pass');
+  const fail = summary.get('fail');
+  if (tests === undefined || pass === undefined || fail === undefined)
+    return {
+      refusal: 'its TAP output has no "# tests", "# pass" and "# fail" summary after the plan',
+    };
+  if (tests === 0 || /^1\.\.0(?:\s|$)/.test(lines[plan]!))
+    return { refusal: 'its TAP output reports zero tests' };
+  const failed = fail + (summary.get('cancelled') ?? 0);
+  return {
+    numPassedTests: pass,
+    numFailedTests: failed,
+    numTotalTests: tests,
+    success: failed === 0,
+  };
 }
 
 /**
@@ -2141,29 +2211,60 @@ interface StructuredTestCounts {
  * code, at any time. Only the bytes this invocation emitted are bound to it.
  *
  * A non-runner command (a wrapper script) may instead print a bare count
- * summary ({@link testCountSummarySchema}) as its last stdout line (T13753).
+ * summary ({@link testCountSummarySchema}) as its last stdout line (T13753),
+ * and node:test may print TAP ({@link tapTestCounts}, T14051).
+ *
+ * A candidate that parses as a count report but fails its schema is recorded
+ * in `refusals` with its first issue (T14060), so the error can say which
+ * report was found and why it was refused.
  *
  * @param captured - Result of running the gate command.
+ * @param refusals - Receives why each report-like candidate was refused, newest first.
  * @returns Validated counts, or `null` when the run emitted no usable report.
  * @task T12308
  * @task T13753
+ * @task T14051
+ * @task T14060
  */
-function structuredTestCounts(captured: ProcessCaptureResult): StructuredTestCounts | null {
+function structuredTestCounts(
+  captured: ProcessCaptureResult,
+  refusals: string[],
+): StructuredTestCounts | null {
   const lastLine = captured.stdout.trimEnd().split('\n').at(-1)?.trim() ?? '';
   if (lastLine.startsWith('{')) {
     try {
-      const summary = testCountSummarySchema.safeParse(JSON.parse(lastLine));
+      const raw: unknown = JSON.parse(lastLine);
+      const summary = testCountSummarySchema.safeParse(raw);
       if (summary.success) return summary.data;
+      // A line carrying testResults is a full report: the search below judges it.
+      if (looksLikeCountReport(raw) && !Object.hasOwn(raw, 'testResults'))
+        refusals.push(
+          `the last stdout line is not a count summary (${firstSchemaIssue(summary.error)})`,
+        );
     } catch {
       // Not JSON: fall through to the full-report search.
     }
+  }
+  const tap = tapTestCounts(captured.stdout);
+  if (tap !== null) {
+    if ('refusal' in tap) {
+      refusals.push(tap.refusal);
+      return null;
+    }
+    return tap;
   }
   const text = `${captured.stdout}\n${captured.stderr}`.trim();
   if (text.length === 0) return null;
   const tryParse = (candidate: string): StructuredTestCounts | null => {
     try {
-      const report = testCountReportSchema.safeParse(JSON.parse(candidate));
-      return report.success ? report.data : null;
+      const raw: unknown = JSON.parse(candidate);
+      const report = testCountReportSchema.safeParse(raw);
+      if (report.success) return report.data;
+      if (looksLikeCountReport(raw))
+        refusals.push(
+          `a JSON report in its output fails the full report shape (${firstSchemaIssue(report.error)})`,
+        );
+      return null;
     } catch {
       return null;
     }
@@ -2270,12 +2371,15 @@ async function fileStamp(path: string): Promise<{ mtimeMs: number; sha256: strin
  *
  * @param before - Each candidate's stamp just before the spawn.
  * @param startedAt - Epoch ms just before the spawn.
+ * @param refusals - Receives why a fresh report that failed its schema was refused (T14060).
  * @returns Validated counts, or null.
  * @task T13782
+ * @task T14060
  */
 async function freshReportCounts(
   before: ReadonlyMap<string, { mtimeMs: number; sha256: string } | null>,
   startedAt: number,
+  refusals: string[],
 ): Promise<StructuredTestCounts | null> {
   for (const [path, was] of before) {
     const now = await fileStamp(path);
@@ -2286,6 +2390,7 @@ async function freshReportCounts(
       if (typeof raw.startTime === 'number' && raw.startTime < startedAt) continue;
       const report = testCountReportSchema.safeParse(raw);
       if (report.success) return report.data;
+      refusals.push(`${path} fails the full report shape (${firstSchemaIssue(report.error)})`);
     } catch {
       // Unreadable or not JSON: not a report of this run.
     }
@@ -2300,25 +2405,42 @@ async function freshReportCounts(
  * reader had no way to learn what "supported" meant, what shape was expected,
  * or which flag produced it — so the reported resolution was to delete the
  * `minCount` from the gate, which removes the guarantee rather than meeting it.
+ * node:test (`node --test`, `tsx --test`) is detected before the package
+ * managers, which run it too and whose `--reporter=json` it rejects (T14051);
+ * a report that was found but refused is named with its first issue (T14060).
  *
  * @param gate - Gate whose command needs a machine-readable reporter.
+ * @param refusal - Why the newest report-like candidate was refused, if any.
  * @task T12308
+ * @task T14051
+ * @task T14060
  */
-function describeMissingTestCount(gate: TestGate): string {
+function describeMissingTestCount(gate: TestGate, refusal?: string): string {
   const invoked = [gate.command, ...(gate.args ?? [])].join(' ');
-  const flag = /jest/.test(invoked)
-    ? '--json'
-    : /vitest|pnpm|npm|yarn|bun/.test(invoked)
-      ? '--reporter=json'
-      : '<your runner\u2019s JSON reporter flag>';
+  const flag = /\b(?:node|tsx)\b.*\s--test(?![\w-])/.test(invoked)
+    ? '--test-reporter=tap'
+    : /jest/.test(invoked)
+      ? '--json'
+      : /vitest|pnpm|npm|yarn|bun/.test(invoked)
+        ? '--reporter=json'
+        : '<your runner\u2019s JSON reporter flag>';
+  const found =
+    refusal === undefined
+      ? `\`${invoked}\` emitted no machine-readable test report`
+      : `\`${invoked}\` emitted a test report that was refused: ${refusal}`;
   return (
-    `minCount ${gate.minCount} cannot be proved: \`${invoked}\` emitted no machine-readable ` +
-    `test report, and an exit code alone carries no count. Add a JSON reporter to the gate ` +
-    `command itself (e.g. \`${invoked} ${flag}\`) so the run that is being attested is the ` +
-    `run that is counted. A report file this run writes (its --outputFile, or ` +
-    `${REDIRECTED_JSON_REPORT}) is read too, but one produced by a separate invocation is ` +
-    `deliberately not accepted \u2014 it is not bound to this execution; record that as \`test-run:<path>\` ` +
-    `evidence instead, or drop minCount if an exit code is the guarantee you want.`
+    `minCount ${gate.minCount} cannot be proved: ${found}, and an exit code alone carries no ` +
+    `count. Add a reporter to the gate command itself (e.g. \`${invoked} ${flag}\`) so the run ` +
+    `that is being attested is the run that is counted. Accepted: a full Vitest/Jest JSON report ` +
+    `(numTotalTests, numPassedTests, numFailedTests, numPendingTests, numTodoTests, the four ` +
+    `numTotal/Passed/Failed/PendingTestSuites counters, success, testResults[].assertionResults, ` +
+    `counters equal to the assertions); a bare summary as the LAST stdout line, at minimum ` +
+    `{"numPassedTests":N} (numFailedTests, numTotalTests and success optional, no testResults); ` +
+    `or node:test TAP (--test-reporter=tap) with its 1..N plan and # tests/# pass/# fail summary. ` +
+    `A report file this run writes (its --outputFile, or ${REDIRECTED_JSON_REPORT}) is read too, ` +
+    `but one produced by a separate invocation is deliberately not accepted \u2014 it is not bound ` +
+    `to this execution; record that as \`test-run:<path>\` evidence instead, or drop minCount if ` +
+    `an exit code is the guarantee you want.`
   );
 }
 
@@ -2392,14 +2514,23 @@ async function runTestGate(
   // report's startTime still have to postdate the spawn.
   const announced = await announcedReportFile(captured.stdout, projectRoot);
   if (announced !== null && !before.has(announced)) before.set(announced, null);
-  const counts = structuredTestCounts(captured) ?? (await freshReportCounts(before, startedAt));
+  const refusals: string[] = [];
+  const counts =
+    structuredTestCounts(captured, refusals) ??
+    (await freshReportCounts(before, startedAt, refusals));
 
   // T12308: the counts come from this run's own validated report; only their
   // ABSENCE is an error, because inferring a count from exit zero is the thing
   // that must not happen. T13753: the error keeps the run's execution record.
   if (gate.minCount !== undefined && gate.minCount > 0) {
     if (counts === null)
-      return processGateResult(index, gate, captured, 'error', describeMissingTestCount(gate));
+      return processGateResult(
+        index,
+        gate,
+        captured,
+        'error',
+        describeMissingTestCount(gate, refusals[0]),
+      );
     if (counts.numPassedTests < gate.minCount)
       return processGateResult(
         index,

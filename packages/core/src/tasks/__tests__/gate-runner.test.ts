@@ -13,6 +13,7 @@ import { createHash } from 'node:crypto';
 import { chmod, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import type {
   AcceptanceGate,
   AcRow,
@@ -1063,6 +1064,182 @@ describe('minCount reads a JSON report file this run wrote (T13782)', () => {
     } finally {
       await rm(outside, { recursive: true, force: true });
     }
+  });
+});
+
+/**
+ * node:test ships no JSON reporter, so a minCount gate on `node --test` or
+ * `tsx --test` was uncountable (T14051, VidaPeps). Its TAP output is counted
+ * from this run's own stdout: the top-level `1..N` plan plus the `# tests`,
+ * `# pass` and `# fail` summary. Fixtures are real Node 24.21 TAP output.
+ */
+describe('minCount counts node:test TAP output (T14051)', () => {
+  const fixture = (name: string) =>
+    fileURLToPath(new URL(`./fixtures/node24-tap/${name}.tap`, import.meta.url));
+  /** A gate replaying `tap` (fixture text) on stdout, then exiting `exit`. */
+  const replay = (tap: string, exit = 0, minCount = 2) => ({
+    kind: 'test' as const,
+    description: 'node:test TAP replay',
+    command: process.execPath,
+    args: ['-e', `process.stdout.write(${JSON.stringify(tap)}); process.exitCode = ${exit};`],
+    expect: 'pass' as const,
+    minCount,
+  });
+  const run = async (gate: TestGate) => (await runGates([gate], { projectRoot }))[0];
+
+  it('AC1: counts pass, fail and total from a passing node 24 run', async () => {
+    const result = await run(replay(await readFile(fixture('pass'), 'utf-8')));
+    expect(result?.result, result?.errorMessage).toBe('pass');
+  });
+
+  it('AC1: a count below minCount fails with the TAP pass count', async () => {
+    const result = await run(replay(await readFile(fixture('pass'), 'utf-8'), 0, 3));
+    expect(result?.result).toBe('fail');
+    expect(result?.errorMessage).toContain('counts 2 passing tests');
+  });
+
+  it('AC1: a failing node 24 run fails on its # fail count', async () => {
+    const result = await run(replay(await readFile(fixture('fail'), 'utf-8'), 0, 1));
+    expect(result?.result).toBe('fail');
+    expect(result?.errorMessage).toMatch(/Structured report counts 1 failing/);
+  });
+
+  it('AC1: counts a live node --test --test-reporter=tap run of this invocation', async () => {
+    const file = join(projectRoot, 'live.test.mjs');
+    await writeFile(
+      file,
+      "import { test } from 'node:test';\ntest('a', () => {});\ntest('b', () => {});\n",
+    );
+    try {
+      const result = await run({
+        ...replay(''),
+        args: ['--test', '--test-reporter=tap', file],
+      });
+      expect(result?.result, result?.errorMessage).toBe('pass');
+    } finally {
+      await rm(file, { force: true });
+    }
+  });
+
+  it('AC2: a node 24 run that matched zero tests is refused', async () => {
+    const result = await run(replay(await readFile(fixture('zero'), 'utf-8'), 0, 1));
+    expect(result?.result).toBe('error');
+    expect(result?.errorMessage).toContain('reports zero tests');
+  });
+
+  it('AC2: a bail-out is refused even with a summary', async () => {
+    const tap = (await readFile(fixture('pass'), 'utf-8')).replace(
+      '# Subtest: top level',
+      'Bail out! database unreachable\n# Subtest: top level',
+    );
+    const result = await run(replay(tap));
+    expect(result?.result).toBe('error');
+    expect(result?.errorMessage).toContain('Bail out!');
+  });
+
+  it('AC2: TAP cut off before its summary is refused', async () => {
+    const tap = (await readFile(fixture('pass'), 'utf-8')).split('# tests')[0]!;
+    const result = await run(replay(tap));
+    expect(result?.result).toBe('error');
+    expect(result?.errorMessage).toMatch(/no "# tests", "# pass" and "# fail" summary/);
+  });
+
+  it('AC2: summary lines a test printed before the plan cannot forge counts', async () => {
+    const tap = 'TAP version 13\n# tests 9\n# pass 9\n# fail 0\nok 1 - a\n';
+    const result = await run(replay(tap));
+    expect(result?.result).toBe('error');
+    expect(result?.errorMessage).toContain('no top-level 1..N plan');
+  });
+
+  it.each([
+    ['node --test', 'node', ['--test', 'a.test.mjs']],
+    ['pnpm exec tsx --test', 'pnpm', ['exec', 'tsx', '--test', 'a.test.ts']],
+  ])('AC3: the remediation for %s names --test-reporter=tap', async (_label, command, args) => {
+    const result = await run({
+      ...replay(''),
+      command: process.execPath,
+      args: ['-e', 'process.exit(0)', '--', command, ...args],
+    });
+    expect(result?.result).toBe('error');
+    expect(result?.errorMessage).toContain('--test-reporter=tap');
+    expect(result?.errorMessage).not.toContain('--reporter=json');
+  });
+});
+
+/**
+ * A report that parsed but failed schema validation was reported as "no
+ * machine-readable report" (T14060, VidaPeps): the refusal now names the
+ * candidate and its first failing rule, and documents the accepted shapes.
+ */
+describe('a refused report is named with its first failing rule (T14060)', () => {
+  const report = {
+    numTotalTests: 1,
+    numPassedTests: 1,
+    numFailedTests: 0,
+    numPendingTests: 0,
+    numTotalTestSuites: 1,
+    numPassedTestSuites: 1,
+    numFailedTestSuites: 0,
+    numPendingTestSuites: 0,
+    success: true,
+    testResults: [
+      {
+        name: 'a.test.ts',
+        status: 'passed',
+        assertionResults: [{ fullName: 'a', status: 'passed' }],
+      },
+    ],
+  };
+  const gate = (source: string) => ({
+    kind: 'test' as const,
+    description: 'refused report',
+    command: process.execPath,
+    args: ['-e', source],
+    expect: 'pass' as const,
+    minCount: 1,
+  });
+
+  it('AC1+AC3: a stdout report missing numTodoTests names that field', async () => {
+    const [result] = await runGates(
+      [gate(`console.log('RUN v4'); console.log(${JSON.stringify(JSON.stringify(report))})`)],
+      { projectRoot },
+    );
+    expect(result?.result).toBe('error');
+    expect(result?.errorMessage).toContain('a JSON report in its output');
+    expect(result?.errorMessage).toContain('numTodoTests');
+  });
+
+  it('AC1: a bare summary line failing its schema names the last stdout line', async () => {
+    const line = JSON.stringify({ numPassedTests: '7', success: true });
+    const [result] = await runGates([gate(`console.log(${JSON.stringify(line)})`)], {
+      projectRoot,
+    });
+    expect(result?.result).toBe('error');
+    expect(result?.errorMessage).toContain('the last stdout line is not a count summary');
+    expect(result?.errorMessage).toContain('numPassedTests');
+  });
+
+  it('AC1+AC3: a report file this run wrote names its path and numTodoTests', async () => {
+    const rel = join('.vitest', 'json', 'output.json');
+    await rm(join(projectRoot, '.vitest'), { recursive: true, force: true });
+    const source =
+      `const fs=require('node:fs');fs.mkdirSync(${JSON.stringify(dirname(rel))},{recursive:true});` +
+      `fs.writeFileSync(${JSON.stringify(rel)}, ${JSON.stringify(JSON.stringify(report))});`;
+    try {
+      const [result] = await runGates([gate(source)], { projectRoot });
+      expect(result?.result).toBe('error');
+      expect(result?.errorMessage).toContain(rel);
+      expect(result?.errorMessage).toContain('numTodoTests');
+    } finally {
+      await rm(join(projectRoot, '.vitest'), { recursive: true, force: true });
+    }
+  });
+
+  it('AC2: the remediation documents both shapes and the minimal summary line', async () => {
+    const [result] = await runGates([gate('process.exit(0)')], { projectRoot });
+    expect(result?.errorMessage).toContain('emitted no machine-readable test report');
+    expect(result?.errorMessage).toContain('a full Vitest/Jest JSON report');
+    expect(result?.errorMessage).toContain('{"numPassedTests":N}');
   });
 });
 
