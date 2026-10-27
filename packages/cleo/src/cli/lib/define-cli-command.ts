@@ -25,4 +25,4 @@
 
 export type { ArgDef, CommandDef } from 'citty';
 // define-command-ssot-allowed
-export { defineCommand, showUsage } from 'citty';
+export { defineCommand, parseArgs, showUsage } from 'citty';
