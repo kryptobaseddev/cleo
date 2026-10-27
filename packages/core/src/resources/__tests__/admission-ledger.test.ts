@@ -2098,6 +2098,44 @@ describe('cleo run is charged by its real scope (T13367)', () => {
     }
   });
 
+  it('the plan lists the project settings its overlay overrides, for the run envelope (T14038)', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'cleo-project-overrides-'));
+    try {
+      writeFileSync(join(dir, '.npmrc'), 'workspace-concurrency=6\n');
+      const plan = planRunFootprint(
+        'test-run',
+        ['pnpm', 'test'],
+        {},
+        RAM,
+        undefined,
+        undefined,
+        dir,
+      );
+      expect(plan.resources?.projectOverrides).toEqual([
+        {
+          setting: 'pnpm workspace-concurrency',
+          file: '.npmrc',
+          projectValue: '6',
+          variable: 'npm_config_workspace_concurrency',
+          appliedValue: plan.overlay.npm_config_workspace_concurrency,
+        },
+      ]);
+      rmSync(join(dir, '.npmrc'));
+      const none = planRunFootprint(
+        'test-run',
+        ['pnpm', 'test'],
+        {},
+        RAM,
+        undefined,
+        undefined,
+        dir,
+      );
+      expect(none.resources).not.toHaveProperty('projectOverrides');
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
   it('a two-file biome check is charged 1 GiB, not the 24 GiB heavy plan', () => {
     const plan = planRunFootprint(
       'scoped-build',

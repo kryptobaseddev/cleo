@@ -237,6 +237,23 @@ export interface HeavyLeverChange {
 }
 
 /**
+ * A setting from a project file that the heavy-run overlay overrides (T14038),
+ * so a run that behaves differently from the project's own setup says why.
+ */
+export interface ProjectSettingOverride {
+  /** What the project set, e.g. `vitest maxWorkers` or `pnpm workspace-concurrency`. */
+  readonly setting: string;
+  /** The file that sets it, relative to the run's directory. */
+  readonly file: string;
+  /** The project's value. */
+  readonly projectValue: string;
+  /** The overlay variable that overrides it, e.g. `VITEST_MAX_WORKERS`. */
+  readonly variable: string;
+  /** The value the run gets. */
+  readonly appliedValue: string;
+}
+
+/**
  * The resource plan a memory-bound tool (`test`, `build`, and since T13123
  * `typecheck`, `lint`) was spawned with, and why (T13122). Reported by
  * `cleo verify` (on the `tool` evidence atom and in a resource-kill message)
@@ -270,6 +287,11 @@ export interface HeavyToolResourcePlan {
   readonly kept: readonly string[];
   /** `true` when explicit `CLEO_HEAVY_*` overrides put the run over {@link budgetMb}. */
   readonly overBudget: boolean;
+  /**
+   * Settings the project's own files make that the overlay overrides (T14038):
+   * vitest `maxWorkers`, pnpm `workspace-concurrency`. Absent when none.
+   */
+  readonly projectOverrides?: readonly ProjectSettingOverride[];
   /** One line naming the heap and worker count chosen and why. */
   readonly summary: string;
 }
