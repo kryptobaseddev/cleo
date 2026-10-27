@@ -60,6 +60,7 @@ import {
   validateAtom,
 } from '../evidence.js';
 import { executableInvocation } from '../gate-runner.js';
+import { gateStaleness } from '../gate-staleness.js';
 import { reqAdd } from '../req.js';
 import { captureTreeHash, runToolCached } from '../tool-cache.js';
 import { resolveToolCommand } from '../tool-resolver.js';
@@ -450,10 +451,15 @@ describe('merged-PR CI replaces local tool runs when the project opts in (T12634
 
   describe('T13495: a tree-pinned scoped testsPassed after the merge', () => {
     async function record(id: string, treeHash: string | null): Promise<void> {
+      // T14037: the plan re-validates recorded atoms as complete does, so the
+      // report must exist with the recorded bytes (outside the checkout).
+      const report = `${root}-${id}-r.json`;
+      writeFileSync(report, '{}');
       const atom = {
         kind: 'test-run',
-        path: 'reports/r.json',
-        sha256: 'c'.repeat(64),
+        path: report,
+        resolvedPath: report,
+        sha256: createHash('sha256').update('{}').digest('hex'),
         passCount: 1,
         failCount: 0,
         skipCount: 0,
@@ -2077,5 +2083,208 @@ describe('a stored typed pass bound to an older definition is not a pass (T13463
       gateHash: createHash('sha256').update(acItemToText(gate)).digest('hex'),
     }));
     expect(plan.typedGates.map((g) => g.status)).toEqual(['not-run']);
+  });
+});
+
+/**
+ * `cleo done --plan` said ready while a required gate was false (EscapePlan
+ * T584/T586), and not ready while every gate already stood (T616, Kodo T301);
+ * `cleo complete` decided the other way each time (T14036). Recorded gates are
+ * judged by complete's own rules (T14037).
+ */
+describe('done --plan readiness matches cleo complete (T14036, T14037)', () => {
+  const docDeps = (sha: string, decisions: string[]): ChangeSetDeps => ({
+    ...deps,
+    listTaskDocs: async () => [{ id: 'att', slug: 'findings', sha256: sha }],
+    listTaskDecisions: async () => decisions,
+  });
+  function writeDoc(): string {
+    const content = '# findings\n';
+    const sha = createHash('sha256').update(content).digest('hex');
+    mkdirSync(join(root, '.cleo', 'blobs', 'blobs'), { recursive: true });
+    writeFileSync(join(root, '.cleo', 'blobs', 'blobs', sha), content);
+    return sha;
+  }
+  function requireTestsOfResearch(): void {
+    const configPath = join(env.cleoDir, 'config.json');
+    const config = JSON.parse(readFileSync(configPath, 'utf8'));
+    config.verification = {
+      ...config.verification,
+      requiredGatesByKind: { research: ['implemented', 'testsPassed'] },
+    };
+    writeFileSync(configPath, JSON.stringify(config));
+  }
+
+  it('AC1/AC2: a required gate with no derivable evidence blocks, naming the gate and its fix', async () => {
+    requireTestsOfResearch();
+    const id = await seedTask(['Report the findings'], 'research');
+    const plan = await deriveTaskEvidence(id, {
+      projectRoot: root,
+      cwd: root,
+      satisfies: 'all',
+      previewEvidence: async () => ({ ok: true }),
+      deps: docDeps(writeDoc(), []),
+    });
+    const gate = plan.gates.find((g) => g.gate === 'testsPassed');
+    expect(gate?.passed).toBe(false);
+    expect(gate?.evidence).toBeNull();
+    const blocker = plan.blockers.find((b) => b.code === 'gate-not-derivable');
+    expect(blocker?.gate, JSON.stringify(plan.blockers)).toBe('testsPassed');
+    expect(blocker?.next?.command).toBe(
+      `cleo verify ${id} --gate testsPassed --evidence '<atoms>'`,
+    );
+    expect(plan.ready).toBe(false);
+  });
+
+  it('AC1/AC2: an unmet dependency blocks, with complete-the-dependency as the fix', async () => {
+    const dep = await seedTask(['Prerequisite']);
+    const id = (
+      await addTask(
+        {
+          title: 'depends on the prerequisite',
+          description: 'seeded fixture with a depends edge (research)',
+          acceptance: ['Report the findings'],
+          kind: 'research',
+          depends: [dep],
+          skipContainmentInvariant: true,
+        },
+        root,
+        env.accessor,
+      )
+    ).task.id;
+    const plan = await deriveTaskEvidence(id, {
+      projectRoot: root,
+      cwd: root,
+      satisfies: 'all',
+      previewEvidence: async () => ({ ok: true }),
+      deps: docDeps(writeDoc(), ['D900']),
+    });
+    const blocker = plan.blockers.find((b) => b.code === 'dependency-unresolved');
+    expect(blocker?.message).toContain(`depends on ${dep} (pending)`);
+    expect(blocker?.next?.command).toBe(`cleo complete ${dep}`);
+    expect(plan.ready).toBe(false);
+  });
+
+  it('every required gate already standing: change-set blockers drop and the plan is ready (T616, T301)', async () => {
+    const id = await seedTask(['Report the findings'], 'research');
+    const fix = commitOnTaskBranch(id);
+    const verification = {
+      passed: false,
+      round: 1,
+      gates: { implemented: true, testsPassed: true, qaPassed: true },
+      failureLog: [],
+      lastAgent: null,
+      lastUpdated: null,
+      // The commit touches code, so the code gates are owed too (T14001).
+      evidence: {
+        implemented: {
+          atoms: [{ kind: 'commit', sha: fix }],
+          capturedAt: '2026-10-27T00:00:00Z',
+          capturedBy: 'test',
+        },
+        testsPassed: {
+          atoms: [{ kind: 'tool', tool: 'test', exitCode: 0 }],
+          capturedAt: '2026-10-27T00:00:00Z',
+          capturedBy: 'test',
+        },
+        qaPassed: {
+          atoms: [
+            { kind: 'tool', tool: 'lint', exitCode: 0 },
+            { kind: 'tool', tool: 'typecheck', exitCode: 0 },
+          ],
+          capturedAt: '2026-10-27T00:00:00Z',
+          capturedBy: 'test',
+        },
+      },
+    };
+    await env.accessor.updateTaskFields(id, { verificationJson: JSON.stringify(verification) });
+    // The work landed on main directly and its branch is gone: no PR, no branch,
+    // no docs, so no change set derives, yet every recorded gate stands.
+    git(root, ['switch', '-q', 'main']);
+    git(root, ['merge', '-q', '--ff-only', `task/${id}`]);
+    git(root, ['branch', '-q', '-D', `task/${id}`]);
+    const plan = await deriveTaskEvidence(id, {
+      projectRoot: root,
+      cwd: root,
+      satisfies: 'all',
+      previewEvidence: async () => ({ ok: true }),
+      deps,
+    });
+    expect(
+      plan.gates.every((g) => g.passed),
+      JSON.stringify({ gates: plan.gates, warnings: plan.changeSet.warnings }),
+    ).toBe(true);
+    expect(plan.blockers.filter((b) => b.code === 'no-change-set')).toEqual([]);
+    expect(plan.ready, JSON.stringify({ blockers: plan.blockers, commands: plan.commands })).toBe(
+      true,
+    );
+  });
+
+  it('T14037 AC3: a recorded pass whose report moved is stale in the plan and in show', async () => {
+    const id = await seedTask(['Report the findings'], 'research');
+    const report = `${root}-${id}-stale.json`;
+    writeFileSync(report, '{"total":1,"passed":1,"failed":0,"skipped":0}');
+    const sha256 = createHash('sha256').update(readFileSync(report)).digest('hex');
+    const verification = {
+      passed: false,
+      round: 1,
+      gates: { testsPassed: true },
+      failureLog: [],
+      lastAgent: null,
+      lastUpdated: null,
+      evidence: {
+        testsPassed: {
+          atoms: [
+            {
+              kind: 'test-run',
+              path: report,
+              resolvedPath: report,
+              sha256,
+              passCount: 1,
+              failCount: 0,
+              skipCount: 0,
+            },
+          ],
+          capturedAt: '2026-10-27T00:00:00Z',
+          capturedBy: 'test',
+        },
+      },
+    };
+    await env.accessor.updateTaskFields(id, { verificationJson: JSON.stringify(verification) });
+    const task = await env.accessor.loadSingleTask(id);
+    if (!task) throw new Error('fixture task missing');
+    const probe = {
+      mergeState: () => 'unmerged' as const,
+      currentTree: () => captureTreeHash(root),
+      root: () => root,
+    };
+    expect(await gateStaleness(task, root, probe)).toEqual([]);
+    // The report is rewritten after verify: the recorded hash no longer matches.
+    writeFileSync(report, '{"total":2,"passed":2,"failed":0,"skipped":0}');
+    const stale = await gateStaleness(task, root, probe);
+    expect(stale).toEqual([expect.objectContaining({ gate: 'testsPassed', source: 'revalidate' })]);
+    expect(stale[0]?.reason).toContain(`test-run output modified since verify: ${report}`);
+    // T14037 AC1: cleo show flags it before complete refuses.
+    const { drainWarnings } = await import('../../output.js');
+    drainWarnings();
+    const { taskShowOperation } = await import('../show.js');
+    expect((await taskShowOperation(root, { taskId: id })).success).toBe(true);
+    expect(drainWarnings()).toContainEqual(
+      expect.objectContaining({
+        code: 'W_GATE_STALE',
+        message: expect.stringContaining('testsPassed is recorded as passed but its evidence'),
+      }),
+    );
+    requireTestsOfResearch();
+    const plan = await deriveTaskEvidence(id, {
+      projectRoot: root,
+      cwd: root,
+      previewEvidence: async () => ({ ok: true }),
+      deps: docDeps(writeDoc(), []),
+    });
+    expect(plan.gates.find((g) => g.gate === 'testsPassed')?.passed).toBe(false);
+    expect(plan.changeSet.warnings.join(' ')).toContain('testsPassed no longer stands');
+    const blocker = plan.blockers.find((b) => b.code === 'gate-not-derivable');
+    expect(blocker?.message).toContain('its recorded evidence no longer stands');
   });
 });

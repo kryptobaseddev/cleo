@@ -363,6 +363,7 @@ export async function taskShowOperation(
     const view = await computeTaskView(params.taskId, accessor);
     const task = await taskToShowRecord(projectRoot, detail, attachments);
     await noteRecoveredLegacyTasks(projectRoot, params.taskId);
+    await noteStaleGates(projectRoot, detail);
     return engineSuccess({
       task,
       view,
@@ -373,6 +374,49 @@ export async function taskShowOperation(
   } catch (err: unknown) {
     return caughtToEngineError(err, 'E_NOT_INITIALIZED', 'Task database not initialized');
   }
+}
+
+/**
+ * Warn about each recorded gate whose evidence no longer stands (T14037),
+ * judged by the local rules `cleo complete` applies ({@link gateStaleness},
+ * offline: atom re-validation and a moved tree, never a `gh` merge lookup), so
+ * the read says so before complete refuses. The checks load only for a task
+ * with a recorded passed gate, so a plain show keeps its startup budget
+ * (gate 39). Advisory: the task is shown either way.
+ *
+ * @param projectRoot - Absolute path to the project root.
+ * @param task - The task being shown.
+ */
+async function noteStaleGates(projectRoot: string, task: TaskDetail): Promise<void> {
+  if (task.isArchived || task.status === 'done' || !hasRecordedPass(task)) return;
+  try {
+    const { gateStaleness } = await import('./gate-staleness.js');
+    const stale = await gateStaleness(task, projectRoot, undefined, { offline: true });
+    if (stale.length === 0) return;
+    const { pushWarning } = await import('../output.js');
+    for (const s of stale) {
+      pushWarning({
+        // @sync-invariant none:input-shape an advisory note on a read; it refuses nothing
+        code: 'W_GATE_STALE',
+        message:
+          `${s.gate} is recorded as passed but its evidence no longer stands: ${s.reason}. ` +
+          `cleo complete would refuse it; cleo done ${task.id} --plan gives the full verdict ` +
+          '(including the merge state) and names what to re-record.',
+      });
+    }
+  } catch {
+    // Advisory only: the task itself is shown either way.
+  }
+}
+
+/** Whether any gate of `task` is recorded as passed with evidence behind it. */
+function hasRecordedPass(task: Task): boolean {
+  const { gates, evidence } = task.verification ?? {};
+  if (!gates || !evidence) return false;
+  const passed = new Set(
+    Object.entries(gates).flatMap(([gate, ok]) => (ok === true ? [gate] : [])),
+  );
+  return Object.entries(evidence).some(([gate, ev]) => ev !== undefined && passed.has(gate));
 }
 
 /**
