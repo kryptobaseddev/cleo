@@ -62,6 +62,8 @@ describe('resolveTypedGateRoot honours the evidence declaration (T13649)', () =>
 
   it('a declaration of another repository is ignored, and one naming the store root is honoured', () => {
     expect(resolveTypedGateRoot(main, main, { CLEO_EVIDENCE_GIT_ROOT: other })).toBe(main);
-    expect(resolveTypedGateRoot(main, wt, { CLEO_EVIDENCE_GIT_ROOT: main })).toBe(main);
+    expect(resolveTypedGateRoot(main, main, { CLEO_EVIDENCE_GIT_ROOT: main })).toBe(main);
+    // T14058: the declaration names the repository; the cwd's linked worktree of it wins.
+    expect(resolveTypedGateRoot(main, wt, { CLEO_EVIDENCE_GIT_ROOT: main })).toBe(realpathSync(wt));
   });
 });
