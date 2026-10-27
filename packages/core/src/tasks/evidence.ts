@@ -10,7 +10,8 @@
  *   - {@link resolveToolCommand} maps `tool:<name>` to a runnable command
  *     using `.cleo/project-context.json` and per-`primaryType` fallbacks.
  *   - {@link runToolCached} memoises results per
- *     `(canonical, cmd, args, treeHash, envFingerprint)` and serialises
+ *     `(canonical, cmd, args, treeHash, envFingerprint, resourceEnv)` (the
+ *     heap and worker limits the run gets, T12989) and serialises
  *     concurrent identical runs via a cross-process lock,
  *     preventing the resource thrash observed when multiple `cleo verify`
  *     invocations spawned full toolchains in parallel.
@@ -1816,13 +1817,15 @@ async function runAffectedTests(
     executionRoot,
     semaphoreOptions: { scope: 'affected', ...(taskId !== undefined ? { task: taskId } : {}) },
   });
+  const label = `tool:${tool} (affected: ${[run.command.cmd, ...run.command.args].join(' ')})`;
+  // T13013: an OOM or signal kill is reported as a kill, never as failing tests.
+  const killed = result.timedOut ? null : killedValidation(label, run.command.canonical, result);
+  if (killed !== null) return killed;
   if (result.exitCode !== 0) {
     return {
       ok: false,
       codeName: result.timedOut ? 'E_EVIDENCE_TOOL_TIMEOUT' : 'E_EVIDENCE_TOOL_FAILED',
-      reason:
-        `tool:${tool} (affected: ${[run.command.cmd, ...run.command.args].join(' ')}) exited ${result.exitCode}: ${(result.stderrTail || result.stdoutTail).trim().slice(-300)}` +
-        (result.signal !== null || result.resourceKill !== null ? resourcePlanNote(result) : ''),
+      reason: `${label} exited ${result.exitCode}: ${(result.stderrTail || result.stdoutTail).trim().slice(-300)}`,
     };
   }
   return {
@@ -2710,52 +2713,13 @@ async function validateTool(
     };
   }
 
-  // gh#1381: a tool KILLED after it started is a different fact from a tool
-  // that never started, and until the signal was bound in `spawnCmd` the two
-  // arrived here as the same `exitCode: null`. The message below used to say
-  // "binary missing or spawn error" for both — so an OOM-killed 41-minute test
-  // suite sent three separate operators hunting a binary that was present, and
-  // the one diagnostic that would have helped (you exceeded the memory
-  // ceiling) was the one fact discarded.
-  if (result.signal !== null) {
-    const limit = describeMemoryLimit(resolution.command.canonical);
-    return {
-      ok: false,
-      reason:
-        `Tool "${tool}" → ${resolution.command.cmd} ${resolution.command.args.join(' ')} ` +
-        `RAN for ${Math.round(result.durationMs / 1000)}s in ${result.executionRoot} and was ` +
-        `KILLED by ${result.signal}. The binary is present and the command started — ` +
-        `this is not a resolution problem.${limit}${resourcePlanNote(result)} ` +
-        `Nothing was cached, so a retry re-runs the tool from scratch and will be killed ` +
-        `identically unless the cause is addressed.` +
-        (result.stdoutTail || result.stderrTail
-          ? ` Last output before the kill: ${tailString(`${result.stdoutTail}\n${result.stderrTail}`, 512)}`
-          : ''),
-      codeName: 'E_EVIDENCE_TOOL_KILLED',
-    };
-  }
-
-  // T12989: killed for resources with no signal reaching CLEO — a wrapper
-  // (`sh`, `pnpm`) reported the kill as exit 128 + n, or the runner caught a
-  // worker's heap OOM and exited 1. Reported as a failing suite, and cached
-  // as one, it replayed a 3 GB OOM to a retry given 6 GB.
-  if (result.resourceKill !== null) {
-    return {
-      ok: false,
-      reason:
-        `Tool "${tool}" → ${resolution.command.cmd} ${resolution.command.args.join(' ')} ` +
-        `RAN for ${Math.round(result.durationMs / 1000)}s in ${result.executionRoot} and was ` +
-        `KILLED for resources (${result.resourceKill}). This is not a verdict on the code, ` +
-        `and nothing was cached.${resourcePlanNote(result)} Raise the heap with ` +
-        `${HEAVY_HEAP_ENV}=<MiB> (an inherited NODE_OPTIONS heap above the run's budget is ` +
-        `clamped, T13122) or lower the worker count with ${HEAVY_WORKERS_ENV}=<n>, and verify ` +
-        `again — both are part of the cache key, so the retry runs fresh.` +
-        (result.stdoutTail || result.stderrTail
-          ? ` Last output: ${tailString(`${result.stdoutTail}\n${result.stderrTail}`, 512)}`
-          : ''),
-      codeName: 'E_EVIDENCE_TOOL_KILLED',
-    };
-  }
+  // gh#1381 / T12989: killed after it started, for resources or by a signal.
+  const killed = killedValidation(
+    `Tool "${tool}" → ${resolution.command.cmd} ${resolution.command.args.join(' ')}`,
+    resolution.command.canonical,
+    result,
+  );
+  if (killed !== null) return killed;
 
   // gh#1397: CLEO wraps `test` and `build` in a systemd scope of its own
   // making (T12116). When that wrapper cannot start, `systemd-run` exits 1
@@ -2862,7 +2826,64 @@ function toolRunAtomFields(result: ToolRunResult): {
  * One sentence naming the heap and worker plan a memory-bound tool ran under
  * (T13122), for a message about a kill; `''` for any other tool.
  */
-function resourcePlanNote(result: ToolRunResult): string {
+/**
+ * The `E_EVIDENCE_TOOL_KILLED` validation for a tool run that started and was
+ * killed, by a signal or for resources (a wrapper's exit 128 + n, a heap OOM
+ * the runner caught), else `null` (T13013). One message for every path that
+ * runs a tool (`tool:<name>`, the affected-tests run, `cleo done`), naming the
+ * systemd memory ceiling when one applies ({@link describeMemoryLimit}) and
+ * where the heap is really set.
+ *
+ * gh#1381: a tool killed after it started is a different fact from a tool
+ * that never started; "binary missing" sent operators hunting a binary that
+ * was present.
+ *
+ * @param label - How the run is named: `Tool "test" → pnpm run test`.
+ * @param canonical - The canonical tool, for the memory ceiling.
+ * @param result - The run.
+ * @returns The failed validation, or `null` when the run was not killed.
+ *
+ * @task T13013
+ */
+export function killedValidation(
+  label: string,
+  canonical: CanonicalTool,
+  result: Pick<
+    ToolRunResult,
+    | 'signal'
+    | 'resourceKill'
+    | 'durationMs'
+    | 'executionRoot'
+    | 'stdoutTail'
+    | 'stderrTail'
+    | 'resources'
+  >,
+): Extract<AtomValidation, { ok: false }> | null {
+  const how =
+    result.signal !== null
+      ? `by ${result.signal}`
+      : result.resourceKill !== null
+        ? `for resources (${result.resourceKill})`
+        : null;
+  if (how === null) return null;
+  const output = `${result.stdoutTail}\n${result.stderrTail}`.trim();
+  return {
+    ok: false,
+    reason:
+      `${label} RAN for ${Math.round(result.durationMs / 1000)}s in ${result.executionRoot} and was ` +
+      `KILLED ${how}. The command started, so this is not a resolution problem and not a ` +
+      `verdict on the code; nothing was cached.${describeMemoryLimit(canonical)}` +
+      `${resourcePlanNote(result)} Raise the heap with ${HEAVY_HEAP_ENV}=<MiB> or lower the ` +
+      `worker count with ${HEAVY_WORKERS_ENV}=<n> (both are in the cache key, so the retry ` +
+      `runs fresh). A heap set by the test config (a vitest execArgv such as ` +
+      `--max-old-space-size in vitest.memory-safe) binds each worker and NODE_OPTIONS does ` +
+      `not override it: raise it there.` +
+      (output ? ` Last output: ${tailString(output, 512)}` : ''),
+    codeName: 'E_EVIDENCE_TOOL_KILLED',
+  };
+}
+
+function resourcePlanNote(result: Pick<ToolRunResult, 'resources'>): string {
   return result.resources ? ` It ran with ${result.resources.summary}.` : '';
 }
 

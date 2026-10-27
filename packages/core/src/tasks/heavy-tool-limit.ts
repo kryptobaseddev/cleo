@@ -402,7 +402,7 @@ export function describeMemoryLimit(
   return (
     ` This tool runs inside a memory-bounded systemd scope ` +
     `(MemoryMax=${limited.memoryMaxMb}M, swap denied), so the kernel kills the whole ` +
-    `process tree if it exceeds that ceiling — which is consistent with the signal above, ` +
+    `process tree if it exceeds that ceiling — which is consistent with the kill above, ` +
     `though an external kill looks identical. Raise it with ${MEMORY_MAX_ENV}=<megabytes>, ` +
     `reduce the tool's own worker count, or set ${DISABLE_ENV}=1 to run unconfined.`
   );

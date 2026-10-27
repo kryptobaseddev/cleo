@@ -371,6 +371,36 @@ describe('slow work finishes before the write (AC2)', () => {
   });
 });
 
+describe('a killed tool run is reported as a kill (T13013)', () => {
+  it('cleo done names E_EVIDENCE_TOOL_KILLED and the kill, not failing tests', async () => {
+    const id = await seedTask(['Change src/a.ts to return 2']);
+    commitOnTaskBranch(id);
+    const killed = 'tool:lint (eslint) RAN for 40s in /repo and was KILLED by SIGKILL.';
+    const r = await recordTaskDone(
+      id,
+      opts({
+        steps: {
+          runTool: async (tool) => ({
+            exitCode: tool === 'lint' ? null : 0,
+            cacheHit: false,
+            durationMs: 1,
+            timedOut: false,
+            tail: '',
+            ...(tool === 'lint' ? { killed } : {}),
+          }),
+          write: async () => ({ success: true, data: { passed: true } }),
+        },
+      }),
+    );
+    expect(r.success).toBe(false);
+    if (r.success) return;
+    const details = r.error.details as DoneBlockedDetails;
+    expect(details.blocker).toBe('tool-failed');
+    expect(details.cause).toBe('E_EVIDENCE_TOOL_KILLED');
+    expect(r.error.message).toBe(killed);
+  });
+});
+
 describe('blockers and the validators decide (AC3, AC4)', () => {
   it('a plan blocker stops before any tool runs, with one next step', async () => {
     const id = await seedTask(['Change src/a.ts to return 2', 'Handles every edge case']);
