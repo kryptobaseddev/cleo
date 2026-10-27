@@ -25,10 +25,15 @@
  *      fail (T12961, see `tool-cache-failed-first.ts`). A failing run is
  *      re-run in full once; a pass then is recorded as `flaky`.
  *   5. **Resource kills are not results** — a run killed by a signal, an
- *      exit of 128 + a kill signal, or a heap OOM is returned but never
- *      cached, and the key includes the heap and worker limits the run was
- *      given, so a retry with more memory always runs (T12989, see
- *      {@link resourceKillReason}).
+ *      exit of 128 + a kill signal, a heap OOM or worker crash its output
+ *      reports, or (on Linux) an OOM kill in its systemd scope is returned but
+ *      never cached, and the key includes the heap and worker limits the run
+ *      was given, so a retry with more memory always runs (T12989, see
+ *      {@link resourceKillReason}). Limitation (T13011): where no scope
+ *      confines the run (macOS, Windows, no user systemd), a kill that a
+ *      wrapper reports as a plain exit 1 with no marker in the output (pnpm
+ *      12+ `-r` does this) cannot be told from a failing test and is cached
+ *      as an ordinary red.
  *
  * Cache layout (under `<projectRoot>/.cleo/cache/evidence/`):
  *
@@ -78,6 +83,8 @@ import {
 import {
   confinementStartupFailure,
   isSystemdRunCommand,
+  type LimitedCommand,
+  scopeOomKilled,
   withMemoryLimit,
 } from './heavy-tool-limit.js';
 import { captureEnvFingerprint, captureResourceEnv } from './tool-cache-env.js';
@@ -832,11 +839,16 @@ const KILL_SIGNALS = [
  * of a pool worker that vanished — what the kernel OOM-killing one fork looks
  * like from the pool, which then exits 1 like a failing assertion.
  *
- * Matched as literal substrings, and only on a NON-ZERO exit. A false match
- * (a failing test that happens to print one of these) costs a re-run, never a
+ * Jest's reports of a worker the OS killed (T13012) are included: it writes
+ * them to stderr at the end of the run, with no V8 message.
+ *
+ * Matched as literal substrings, and only on a NON-ZERO exit, anywhere in the
+ * streamed output (T13012), not only the captured tail. A false match (a
+ * failing test that happens to print one of these) costs a re-run, never a
  * wrong verdict: the exit code is still reported, just not cached.
  *
  * @task T12989
+ * @task T13012
  */
 const RESOURCE_KILL_MARKERS: readonly string[] = [
   'JavaScript heap out of memory',
@@ -847,7 +859,37 @@ const RESOURCE_KILL_MARKERS: readonly string[] = [
   'Worker exited unexpectedly',
   'ENOMEM',
   'Cannot allocate memory',
+  'was terminated by another process',
+  'child process exceptions, exceeding retry limit',
 ];
+
+/** Characters kept from one chunk to find a marker split across chunks (T13012). */
+const MARKER_OVERLAP = Math.max(...RESOURCE_KILL_MARKERS.map((m) => m.length)) - 1;
+
+/**
+ * Watch one output stream for a {@link RESOURCE_KILL_MARKERS} marker (T13012).
+ * Each chunk is scanned with the end of the previous one prepended, so a
+ * marker split across chunks is found; the first marker found sticks.
+ * Decoded as latin1 (one char per byte): the markers are ASCII, and a
+ * multi-byte character split across chunks cannot hide one.
+ *
+ * @returns `scan` for each chunk and `seen` for the marker found, or `null`.
+ *
+ * @internal Exported for tests.
+ */
+export function killMarkerScanner(): { scan(chunk: Buffer): void; seen(): string | null } {
+  let carry = '';
+  let found: string | null = null;
+  return {
+    scan(chunk) {
+      if (found !== null) return;
+      const text = carry + chunk.toString('latin1');
+      found = RESOURCE_KILL_MARKERS.find((m) => text.includes(m)) ?? null;
+      carry = text.slice(-MARKER_OVERLAP);
+    },
+    seen: () => found,
+  };
+}
 
 /**
  * Why a finished run was killed for resources, or `null` when its outcome is
@@ -858,15 +900,20 @@ const RESOURCE_KILL_MARKERS: readonly string[] = [
  *   1. a terminating `signal` — the process did not exit on its own;
  *   2. an exit code of `128 + n` for a {@link KILL_SIGNALS} signal — the same
  *      kill, reported by a wrapper (`sh` exits 137 for a `SIGKILL`ed child);
- *   3. a non-zero exit whose output carries a {@link RESOURCE_KILL_MARKERS}
- *      marker — vitest catches a worker's heap OOM and exits 1.
+ *   3. a non-zero exit in a systemd scope the kernel OOM-killed in (Linux,
+ *      T13011) — `pnpm -r` 12+ reports a SIGKILLed child as plain exit 1;
+ *   4. a non-zero exit whose output carries a {@link RESOURCE_KILL_MARKERS}
+ *      marker — vitest catches a worker's heap OOM and exits 1. The marker
+ *      may be anywhere in the stream (`killMarker`, T13012), not only in the
+ *      captured tail.
  *
  * Exit 0 is always a result, and so is a plain non-zero exit such as a failing
  * assertion's 1: that red stays cacheable for failed-first reruns. A run that
  * never started (`exitCode` and `signal` both null) is not a kill; it is
  * reported, and refused by {@link isEntryUsable}, as an unknown outcome.
  *
- * @param run - The finished run's exit code, signal and captured output.
+ * @param run - The finished run's exit code, signal, captured output, the
+ *   marker its stream scan saw and the systemd scope the kernel OOM-killed in.
  * @returns A short reason, e.g. `exit 137 (128 + SIGKILL)`, or `null`.
  *
  * @example
@@ -877,12 +924,16 @@ const RESOURCE_KILL_MARKERS: readonly string[] = [
  * ```
  *
  * @task T12989
+ * @task T13011
+ * @task T13012
  */
 export function resourceKillReason(run: {
   exitCode: number | null;
   signal: NodeJS.Signals | null;
   stdout: string;
   stderr: string;
+  killMarker?: string | null;
+  oomKilledScope?: string | null;
 }): string | null {
   if (run.signal !== null) return `killed by ${run.signal}`;
   if (run.exitCode === null || run.exitCode === 0) return null;
@@ -891,9 +942,37 @@ export function resourceKillReason(run: {
       return `exit ${run.exitCode} (128 + ${name})`;
     }
   }
+  if (run.oomKilledScope) {
+    return `the kernel OOM-killed a process in ${run.oomKilledScope} (exit ${run.exitCode})`;
+  }
   const output = `${run.stdout}\n${run.stderr}`;
-  const marker = RESOURCE_KILL_MARKERS.find((m) => output.includes(m));
+  const marker = run.killMarker ?? RESOURCE_KILL_MARKERS.find((m) => output.includes(m));
   return marker === undefined ? null : `output reports "${marker}"`;
+}
+
+/**
+ * {@link resourceKillReason} for a run spawned as `limited`: a non-zero exit
+ * with no other kill evidence asks the run's systemd scope whether the kernel
+ * OOM-killed in it (T13011), since `pnpm -r` 12+ reports that kill as exit 1.
+ *
+ * @param run - The finished run.
+ * @param limited - How it was spawned ({@link withMemoryLimit}).
+ * @param oomKilled - The scope probe (tests inject one). @defaultValue {@link scopeOomKilled}
+ * @returns The kill reason, or `null` for a real result.
+ *
+ * @task T13011
+ */
+export function runKillReason(
+  run: CommandResult,
+  limited: Pick<LimitedCommand, 'confined' | 'unitName'>,
+  oomKilled: (unitName: string) => boolean = scopeOomKilled,
+): string | null {
+  const reason = resourceKillReason(run);
+  if (reason !== null || !limited.confined || limited.unitName === null) return reason;
+  if (run.exitCode === null || run.exitCode === 0) return null;
+  return oomKilled(limited.unitName)
+    ? resourceKillReason({ ...run, oomKilledScope: limited.unitName })
+    : null;
 }
 
 // ---------------------------------------------------------------------------
@@ -1139,11 +1218,17 @@ function spawnCmd(
     // even if cleo dies first, and a terminating signal is passed on to it.
     const untrackGroup = trackToolGroup(child.pid);
     syncTerminationCleanup();
+    // T13012: a kill marker is looked for in every chunk, so one that later
+    // output pushes out of the 64 KiB tail still marks the run.
+    const stdoutMarker = killMarkerScanner();
+    const stderrMarker = killMarkerScanner();
     child.stdout?.on('data', (d: Buffer) => {
       stdoutBuf.append(d);
+      stdoutMarker.scan(d);
     });
     child.stderr?.on('data', (d: Buffer) => {
       stderrBuf.append(d);
+      stderrMarker.scan(d);
     });
 
     let timedOut = false;
@@ -1174,6 +1259,7 @@ function spawnCmd(
         stderr: spawnError !== null && stderr === '' ? spawnError : stderr,
         timedOut,
         spawnError,
+        killMarker: stdoutMarker.seen() ?? stderrMarker.seen(),
       });
     };
 
@@ -1870,7 +1956,7 @@ async function runFocused(
     if (result.timedOut) return { kind: 'timedOut', result, durationMs, cwd: run.cwd };
     const harnessFailure = confinementStartupFailure(result.stderr, limited.confined);
     if (harnessFailure !== null) return { kind: 'harness', result, durationMs, harnessFailure };
-    if (result.exitCode === null || resourceKillReason(result) !== null) {
+    if (result.exitCode === null || runKillReason(result, limited) !== null) {
       return { kind: 'inconclusive' };
     }
     if (result.exitCode !== 0) {
@@ -2326,7 +2412,7 @@ async function runToolCachedWithPlan(
     // same limits under the same pressure doubles the cost of the kill), not
     // recorded for failed-first (the unknown outcome leaves the pointer) and
     // not cached (`isEntryUsable` refuses `resourceKill`).
-    const resourceKill = resourceKillReason(result);
+    const resourceKill = runKillReason(result, limited);
     let failedTestFiles: string[] | undefined;
     let flaky: string[] | undefined;
     let flakyFailureTail: string | undefined;
@@ -2352,7 +2438,7 @@ async function runToolCachedWithPlan(
         if (
           !retry.result.timedOut &&
           harnessOf(retry.result) === null &&
-          resourceKillReason(retry.result) === null
+          runKillReason(retry.result, limited) === null
         ) {
           if (retry.result.exitCode === 0) {
             flaky = files.length > 0 ? files : ['<unknown>'];

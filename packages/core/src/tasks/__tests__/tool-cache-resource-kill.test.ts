@@ -30,7 +30,13 @@ import { join } from 'node:path';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 
 import { HEAVY_TOOL_HEAP_MB, heavyRunBudgetMb, heavyToolEnv } from '../heavy-tool-env.js';
-import { resourceKillReason, runToolCached } from '../tool-cache.js';
+import { scopeOomKilled } from '../heavy-tool-limit.js';
+import {
+  killMarkerScanner,
+  resourceKillReason,
+  runKillReason,
+  runToolCached,
+} from '../tool-cache.js';
 import { captureResourceEnv, effectiveHeapFlags } from '../tool-cache-env.js';
 import { readFailedFirstPointer } from '../tool-cache-failed-first.js';
 import type { ResolvedToolCommand } from '../tool-resolver.js';
@@ -90,6 +96,107 @@ describe('resourceKillReason', () => {
   it('a terminating signal is a kill', () => {
     expect(resourceKillReason(run(null, '', 'SIGKILL'))).toBe('killed by SIGKILL');
     expect(resourceKillReason(run(null, '', 'SIGTERM'))).toBe('killed by SIGTERM');
+  });
+});
+
+describe('kill markers anywhere in the stream, and jest crash phrases (T13012)', () => {
+  it("jest's terminated-worker phrases are a kill", () => {
+    const run = (stderr: string) => ({ exitCode: 1, signal: null, stdout: '', stderr });
+    expect(
+      resourceKillReason(
+        run(
+          'A jest worker process (pid=4321) was terminated by another process: signal=SIGKILL, exitCode=null.',
+        ),
+      ),
+    ).toBe('output reports "was terminated by another process"');
+    expect(
+      resourceKillReason(
+        run(
+          'Call retries were exceeded: Jest worker encountered 4 child process exceptions, exceeding retry limit',
+        ),
+      ),
+    ).toBe('output reports "child process exceptions, exceeding retry limit"');
+  });
+
+  it('a marker split across two chunks is found, and the first one found sticks', () => {
+    const scanner = killMarkerScanner();
+    scanner.scan(
+      Buffer.from('FATAL ERROR: Reached heap limit Allocation failed - JavaScript heap o'),
+    );
+    expect(scanner.seen()).toBe('Reached heap limit');
+    const split = killMarkerScanner();
+    split.scan(Buffer.from('<--- Last few GCs ---> JavaScript heap ou'));
+    expect(split.seen()).toBeNull();
+    split.scan(Buffer.from('t of memory\n'));
+    expect(split.seen()).toBe('JavaScript heap out of memory');
+    split.scan(Buffer.from('x'.repeat(200_000)));
+    expect(split.seen()).toBe('JavaScript heap out of memory');
+  });
+
+  it('a marker the runner saw outside the tail still marks a non-zero exit, never exit 0', () => {
+    const marker = 'JavaScript heap out of memory';
+    expect(
+      resourceKillReason({
+        exitCode: 1,
+        signal: null,
+        stdout: '',
+        stderr: 'tail',
+        killMarker: marker,
+      }),
+    ).toBe(`output reports "${marker}"`);
+    expect(
+      resourceKillReason({ exitCode: 0, signal: null, stdout: '', stderr: '', killMarker: marker }),
+    ).toBeNull();
+  });
+});
+
+describe('a cgroup OOM kill masked as exit 1 (T13011)', () => {
+  const masked = {
+    exitCode: 1,
+    signal: null,
+    stdout: '',
+    stderr: 'ERR_PNPM_RECURSIVE_RUN_FIRST_FAIL',
+    timedOut: false,
+    spawnError: null,
+  };
+  const scope = { confined: true, unitName: 'cleo-tool-test-ab12cd34-ef56ab78.scope' };
+
+  it('is a kill when the scope reports an OOM kill, and a result when it does not', () => {
+    expect(runKillReason(masked, scope, () => true)).toBe(
+      'the kernel OOM-killed a process in cleo-tool-test-ab12cd34-ef56ab78.scope (exit 1)',
+    );
+    expect(runKillReason(masked, scope, () => false)).toBeNull();
+  });
+
+  it('asks no scope for an unconfined run, a pass, or a run already explained', () => {
+    const asked: string[] = [];
+    const probe = (u: string): boolean => {
+      asked.push(u);
+      return true;
+    };
+    expect(runKillReason(masked, { confined: false, unitName: null }, probe)).toBeNull();
+    expect(runKillReason({ ...masked, exitCode: 0 }, scope, probe)).toBeNull();
+    expect(runKillReason({ ...masked, exitCode: 137 }, scope, probe)).toBe(
+      'exit 137 (128 + SIGKILL)',
+    );
+    expect(asked).toEqual([]);
+  });
+
+  it("reads systemd's OOM lines from the unit's journal; an unreadable journal is no kill", () => {
+    const unit = scope.unitName;
+    expect(
+      scopeOomKilled(
+        unit,
+        () => `${unit}: A process of this unit has been killed by the OOM killer.\n`,
+      ),
+    ).toBe(true);
+    expect(scopeOomKilled(unit, () => `${unit}: Failed with result 'oom-kill'.\n`)).toBe(true);
+    expect(scopeOomKilled(unit, () => `${unit}: Consumed 2.1s CPU time.\n`)).toBe(false);
+    expect(
+      scopeOomKilled(unit, () => {
+        throw new Error('no journalctl');
+      }),
+    ).toBe(false);
   });
 });
 
@@ -415,6 +522,17 @@ describe('runToolCached — resource kills and resource limits (T12989)', () => 
   // RAM-derived budget, so these use values that fit every machine CI runs on
   // (a 7 GiB runner's budget is 3584 MiB × 1 worker) — or the explicit
   // CLEO_HEAVY_* overrides, which are never clamped.
+  it('T13012: an OOM line followed by more than the 64 KiB tail of output is still a kill, never cached', async () => {
+    const cmd = testCommand(
+      `echo "${OOM_LINE}" >&2; head -c 200000 /dev/zero | tr '\\0' x >&2; exit 1`,
+    );
+    const first = await run(cmd);
+    expect(first.exitCode).toBe(1);
+    expect(first.stderrTail).not.toContain('heap');
+    expect(first.resourceKill).toBe('output reports "JavaScript heap out of memory"');
+    expect(persistedEntries(repo)).toEqual([]);
+  });
+
   it('AC3: a heap change misses the cache; an unrelated NODE_OPTIONS flag does not', async () => {
     const cmd = testCommand('echo ok');
 

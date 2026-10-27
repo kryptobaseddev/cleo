@@ -44,6 +44,12 @@ export interface ToolProcessResult {
    * could not be started at all, else `null` (gh#1397).
    */
   spawnError: string | null;
+  /**
+   * The first resource-kill marker seen anywhere in stdout or stderr while the
+   * run streamed (T13012), even one that later output pushed out of the
+   * captured tail. Absent when the runner does not scan.
+   */
+  killMarker?: string | null;
 }
 
 /**

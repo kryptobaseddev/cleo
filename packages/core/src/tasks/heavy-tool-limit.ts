@@ -497,3 +497,50 @@ export function confinementStartupFailure(stderr: string, viaSystemdRun: boolean
   }
   return null;
 }
+
+/**
+ * What systemd logs when the kernel OOM-kills in a unit: "A process of this
+ * unit has been killed by the OOM killer." and "Failed with result 'oom-kill'."
+ */
+const SCOPE_OOM_LINE = /killed by the OOM killer|result 'oom-kill'/;
+
+/**
+ * Whether the kernel OOM-killed a process in a transient tool scope (T13011),
+ * from the journal systemd keeps for it. The scope is collected when it ends
+ * (`--collect`), so its `Result` and `memory.events` are gone by then; the
+ * journal lines remain. `pnpm -r` 12+ reports a SIGKILLed child as plain
+ * exit 1, so without this a cgroup OOM kill reads as a failing test.
+ *
+ * Best effort: `false` when the journal cannot be read (no `journalctl`, no
+ * user journal, a timeout). Linux with a user systemd manager only; where no
+ * scope confines the run (macOS, Windows) nothing is asked.
+ *
+ * @param unitName - {@link LimitedCommand.unitName} of the run.
+ * @param readJournal - returns the unit's journal text (tests inject one).
+ *   @defaultValue `journalctl --user-unit=<unit> -o cat --no-pager -q`
+ * @returns `true` when the journal reports an OOM kill in that unit.
+ *
+ * @example
+ * ```ts
+ * scopeOomKilled('cleo-tool-test-ab12cd34-ef56ab78.scope'); // true after a cgroup OOM kill
+ * ```
+ *
+ * @task T13011
+ */
+export function scopeOomKilled(
+  unitName: string,
+  readJournal: (unit: string) => string = (unit) => {
+    const r = spawnSync('journalctl', [`--user-unit=${unit}`, '-o', 'cat', '--no-pager', '-q'], {
+      encoding: 'utf8',
+      timeout: 3_000,
+      stdio: ['ignore', 'pipe', 'ignore'],
+    });
+    return typeof r.stdout === 'string' ? r.stdout : '';
+  },
+): boolean {
+  try {
+    return SCOPE_OOM_LINE.test(readJournal(unitName));
+  } catch {
+    return false;
+  }
+}
