@@ -1490,7 +1490,9 @@ function deriveBranchChangeSet(cs: TaskChangeSet, taskId: string): boolean {
   );
   cs.files = files;
   cs.deletedFiles = deleted;
-  if (headRef === 'HEAD') {
+  // T14059: a root checked out at the commit by another ref (detached at the
+  // task branch's tip) is the tree the tools measure, so it must be clean too.
+  if (headRef === 'HEAD' || git(root, ['rev-parse', 'HEAD']) === commitSha) {
     const dirty = git(root, ['status', '--porcelain', '--untracked-files=no']);
     if (dirty) {
       cs.blockers.push(

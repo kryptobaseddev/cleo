@@ -300,6 +300,50 @@ describe('planned atoms pass the existing validators (T12623 AC3)', () => {
   });
 });
 
+describe('a checkout detached at the change-set commit measures the cited tree (T14059)', () => {
+  const codes = (plan: Awaited<ReturnType<typeof deriveTaskEvidence>>): string[] =>
+    plan.blockers.map((b) => b.code);
+
+  it('a clean checkout detached at the task branch tip passes the checkout check', async () => {
+    const id = await seedTask(['Change src/a.ts to return 2']);
+    const sha = commitOnTaskBranch(id);
+    git(root, ['switch', '-q', '--detach', `task/${id}`]);
+
+    const plan = await deriveTaskEvidence(id, { projectRoot: root, cwd: root, deps });
+    expect(plan.changeSet).toMatchObject({
+      source: 'branch',
+      headRef: `task/${id}`,
+      commitSha: sha,
+    });
+    expect(codes(plan)).not.toContain('checkout-required');
+    expect(codes(plan)).not.toContain('dirty-tree');
+  });
+
+  it('a checkout one commit behind the tip is refused with the switch remedy', async () => {
+    const id = await seedTask(['Change src/a.ts to return 2']);
+    commitOnTaskBranch(id);
+    writeFileSync(join(root, 'src', 'a.ts'), 'export const a = 3;\n');
+    git(root, ['commit', '-q', '-am', `${id}: change a again`]);
+    git(root, ['switch', '-q', '--detach', `task/${id}~1`]);
+
+    const plan = await deriveTaskEvidence(id, { projectRoot: root, cwd: root, deps });
+    const refusal = plan.blockers.find((b) => b.code === 'checkout-required');
+    expect(refusal?.next?.command).toContain(`switch task/${id}`);
+    expect(plan.ready).toBe(false);
+  });
+
+  it('a dirty checkout detached at the tip is refused', async () => {
+    const id = await seedTask(['Change src/a.ts to return 2']);
+    commitOnTaskBranch(id);
+    git(root, ['switch', '-q', '--detach', `task/${id}`]);
+    writeFileSync(join(root, 'src', 'a.ts'), 'export const a = 4;\n');
+
+    const plan = await deriveTaskEvidence(id, { projectRoot: root, cwd: root, deps });
+    expect(codes(plan)).toContain('dirty-tree');
+    expect(plan.ready).toBe(false);
+  });
+});
+
 describe('tool runs are planned, never executed', () => {
   it('reports a fresh cached pass for a tool already run on this tree, and a miss otherwise', async () => {
     const id = await seedTask(['Change src/a.ts']);
