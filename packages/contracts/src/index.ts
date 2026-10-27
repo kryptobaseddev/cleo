@@ -201,6 +201,7 @@ export type {
   WorktreeIntegrationAction,
   WorktreeIntegrationOutcome,
   WorktreeIntegrationPlan,
+  WorktreeLifecycleState,
   WorktreeMergeResult,
   WorktreeSpawnResult,
 } from './branch-lock.js';

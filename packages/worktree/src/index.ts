@@ -69,6 +69,7 @@ export {
   addWorktreeToSentinelIndex,
   appendWorktreeAuditLog,
   isCleoProvisionedWorktree,
+  readWorktreeProvisioning,
   removeWorktreeFromSentinelIndex,
   resolveWorktreeIndexPath,
   WORKTREE_INDEX_RELATIVE_PATH,

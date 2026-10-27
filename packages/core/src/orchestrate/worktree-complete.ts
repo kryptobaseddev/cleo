@@ -41,11 +41,12 @@
 
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import type { WorktreeLifecycleState } from '@cleocode/contracts';
 import {
   completeAgentWorktreeIntegration,
   type WorktreeIntegrationResult,
 } from '../spawn/branch-integration.js';
-import { resolveAgentWorktreeRoot } from '../spawn/branch-lock.js';
+import { readWorktreeLifecycleState } from '../spawn/branch-lock.js';
 import {
   appendWorktreeAuditEntry,
   resolveWorktreeAuditActor,
@@ -122,6 +123,8 @@ export interface CompleteWorktreeForTaskResult {
   outcome: 'merged' | 'noop' | 'manual' | 'conflict';
   /** Underlying integration result when an auto-merge was attempted. */
   integration: WorktreeIntegrationResult | null;
+  /** The task's worktree as completion saw it before acting (T10871). */
+  state: WorktreeLifecycleState;
   /** Human-readable reason — surfaced in CLI envelopes and audit rows. */
   reason: string;
   /**
@@ -251,8 +254,11 @@ export function completeWorktreeForTask(
 ): CompleteWorktreeForTaskResult {
   const resolve = opts.resolve ?? 'auto';
   const actor = resolveWorktreeAuditActor();
-  const worktreeRoot = resolveAgentWorktreeRoot(projectRoot);
-  const worktreePath = join(worktreeRoot, taskId);
+  // T10871: one typed read of the worktree (path, branch, provisioning, lock,
+  // dirt); audit rows and recovery steps name the worktree git actually has.
+  const state = readWorktreeLifecycleState(projectRoot, taskId);
+  const worktreePath = state.path;
+  // The integration merges `task/<id>`, so audit rows name that branch.
   const branch = `task/${taskId}`;
 
   // ---- Manual resolve: write audit row and return. -----------------------
@@ -272,6 +278,7 @@ export function completeWorktreeForTask(
     );
     return {
       taskId,
+      state,
       outcome: 'manual',
       integration: null,
       reason: 'Worktree marked as manually-handled (--resolve manual).',
@@ -295,6 +302,7 @@ export function completeWorktreeForTask(
     );
     return {
       taskId,
+      state,
       outcome: 'noop',
       integration: null,
       reason: `Worktree for ${taskId} already integrated (audit log shows prior merge).`,
@@ -325,6 +333,7 @@ export function completeWorktreeForTask(
     );
     return {
       taskId,
+      state,
       outcome: 'merged',
       integration,
       reason: `Merged ${integration.commitCount} commits into ${integration.targetBranch}.`,
@@ -358,6 +367,7 @@ export function completeWorktreeForTask(
     );
     return {
       taskId,
+      state,
       outcome: 'noop',
       integration,
       reason: integration.landedUpstream
@@ -383,6 +393,7 @@ export function completeWorktreeForTask(
     );
     return {
       taskId,
+      state,
       outcome: 'noop',
       integration,
       reason: integration.hint ?? `'${branch}' was not provisioned by CLEO, so it is not merged.`,
@@ -412,6 +423,7 @@ export function completeWorktreeForTask(
     );
     return {
       taskId,
+      state,
       outcome: 'conflict',
       integration,
       reason: `Local merge refused: ${integration.error ?? 'the main checkout cannot take it'}`,
@@ -449,6 +461,7 @@ export function completeWorktreeForTask(
     );
     return {
       taskId,
+      state,
       outcome: 'conflict',
       integration,
       reason:
@@ -484,6 +497,7 @@ export function completeWorktreeForTask(
 
   return {
     taskId,
+    state,
     outcome: 'conflict',
     integration,
     reason: integration.error ?? 'Auto-merge failed; worktree preserved for manual resolution.',
@@ -586,7 +600,7 @@ export function recordAutoCompleteEnvSkip(
     {
       actor: resolveWorktreeAuditActor(),
       action: 'complete-skip',
-      target: join(resolveAgentWorktreeRoot(projectRoot), taskId),
+      target: readWorktreeLifecycleState(projectRoot, taskId).path,
       branch: `task/${taskId}`,
       taskId,
       reason: 'env-override',

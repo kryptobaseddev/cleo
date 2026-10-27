@@ -40,6 +40,7 @@ import type {
   FsHardenState,
   WorktreeCleanupResult,
   WorktreeDisposalBlockers,
+  WorktreeLifecycleState,
   WorktreeSpawnResult,
 } from '@cleocode/contracts';
 import { installGitShimLaunchers, resolveShimBinPath } from '@cleocode/git-shim';
@@ -62,8 +63,10 @@ import {
   getGitRoot,
   gitSync,
   guardWorktreeDisposal,
+  locateTaskWorktree,
   napiDestroyWorktree,
   pruneWorktrees,
+  readWorktreeProvisioning,
   releaseWorktreeTaskLock,
 } from '@cleocode/worktree';
 import { resolveSpawnLockHolder } from './worktree-lock-holder.js';
@@ -100,6 +103,45 @@ export { getGitRoot };
 export function resolveAgentWorktreeRoot(projectRoot: string): string {
   const projectHash = computeProjectHash(projectRoot);
   return resolveWorktreeRootForHash(projectHash);
+}
+
+/**
+ * Read a task's worktree lifecycle state through one typed model (T10871):
+ * the worktree git has registered for the task (its path, branch and lock),
+ * else the canonical path; how CLEO provisioned it (newest `create`/`adopt`
+ * lifecycle row); and whether it has uncommitted changes. Read-only.
+ *
+ * @param projectRoot - Absolute path to the project root.
+ * @param taskId - Task whose worktree is read.
+ * @returns The state; `registered`/`exists` false when there is no worktree.
+ *
+ * @task T10871
+ */
+export function readWorktreeLifecycleState(
+  projectRoot: string,
+  taskId: string,
+): WorktreeLifecycleState {
+  const located = locateTaskWorktree(projectRoot, taskId);
+  const path = located?.path ?? join(resolveAgentWorktreeRoot(projectRoot), taskId);
+  const exists = existsSync(path);
+  let dirty = false;
+  if (exists) {
+    try {
+      dirty = gitSync(['status', '--porcelain'], path) !== '';
+    } catch {
+      // Not a readable checkout: report clean rather than guess.
+    }
+  }
+  return {
+    taskId,
+    path,
+    branch: located?.branch ?? `task/${taskId}`,
+    registered: located !== null,
+    exists,
+    provisioning: readWorktreeProvisioning(projectRoot, taskId, path),
+    locked: located?.locked ?? false,
+    dirty,
+  };
 }
 
 /**

@@ -201,6 +201,30 @@ export interface WorktreeIntegrationPlan {
 }
 
 /**
+ * What completion knows about a task's worktree, read once through one model
+ * (T10871): where it is, which branch git has checked out there, how CLEO
+ * provisioned it, and whether it is locked or dirty.
+ */
+export interface WorktreeLifecycleState {
+  /** Task ID. */
+  taskId: string;
+  /** Worktree path: the one git has registered for the task, else the canonical one. */
+  path: string;
+  /** Branch git reports checked out there; `task/<id>` when git has no worktree for the task. */
+  branch: string;
+  /** Whether git has a worktree registered for the task. */
+  registered: boolean;
+  /** Whether the worktree directory exists on disk. */
+  exists: boolean;
+  /** Newest provisioning row in the lifecycle audit log: `create`, `adopt`, or `null` (not CLEO's). */
+  provisioning: 'create' | 'adopt' | null;
+  /** Whether git holds a lock on the worktree. */
+  locked: boolean;
+  /** Whether the worktree has uncommitted changes (`git status --porcelain` non-empty). */
+  dirty: boolean;
+}
+
+/**
  * The single integration result on the `cleo complete` envelope (T14053).
  * `action` is what happened: `merge` only when a merge commit was made.
  */
