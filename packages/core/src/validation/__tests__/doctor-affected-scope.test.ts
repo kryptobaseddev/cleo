@@ -11,7 +11,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { checkAffectedTestScope } from '../doctor/checks.js';
+import { checkAffectedTestScope, checkCiSatisfies } from '../doctor/checks.js';
 
 let root: string;
 
@@ -90,5 +90,27 @@ describe('checkAffectedTestScope (T13125)', () => {
   it('is info, not passed, when project-context.json cannot be read', () => {
     rmSync(join(root, '.cleo', 'project-context.json'), { force: true });
     expect(checkAffectedTestScope(root).status).toBe('info');
+  });
+});
+
+describe('checkCiSatisfies (T13096)', () => {
+  it('warns about GitHub workflows without evidence.ciSatisfies, with the block to add', async () => {
+    vi.stubEnv('CLEO_PR_REQUIRED_WORKFLOWS', 'CI');
+    mkdirSync(join(root, '.github', 'workflows'), { recursive: true });
+    writeFileSync(join(root, '.github', 'workflows', 'ci.yml'), 'on: push\n');
+    context({});
+    const r = await checkCiSatisfies(root);
+    expect(r.status).toBe('warning');
+    expect(r.message).toMatch(/evidence\.ciSatisfies is not set/);
+    expect(r.fix).toContain(
+      '"evidence": {"ciSatisfies":true,"ciChecks":{"tests":["CI"],"qa":["CI"]}}',
+    );
+  });
+
+  it('passes once the setting is on', async () => {
+    mkdirSync(join(root, '.github', 'workflows'), { recursive: true });
+    writeFileSync(join(root, '.github', 'workflows', 'ci.yml'), 'on: push\n');
+    context({ evidence: { ciSatisfies: true } });
+    expect((await checkCiSatisfies(root)).status).toBe('passed');
   });
 });

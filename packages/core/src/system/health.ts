@@ -52,6 +52,7 @@ import {
   type CheckResult,
   checkAffectedTestScope,
   checkCanonicalRcasdPaths,
+  checkCiSatisfies,
   checkCleoGitignore,
   checkCoreFilesNotIgnored,
   checkLegacyAgentOutputs,
@@ -1275,6 +1276,8 @@ export async function coreDoctorReport(projectRoot: string): Promise<DoctorRepor
   checks.push(mapCheckResult(checkProjectContext(projectRoot)));
   // T13125: is tool:test scoped to the affected packages, or the whole suite?
   checks.push(mapCheckResult(checkAffectedTestScope(projectRoot)));
+  // T13096: GitHub workflows but no evidence.ciSatisfies, with the block to add.
+  checks.push(mapCheckResult(await checkCiSatisfies(projectRoot)));
 
   checks.push(mapCheckResult(checkInjection(projectRoot)));
 

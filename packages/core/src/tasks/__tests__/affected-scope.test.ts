@@ -65,6 +65,17 @@ describe('scopedRunSupersededReason', () => {
     expect(scopedRunSupersededReason([affected], 'merged')).toMatch(/ci:<pr>.*tool:test/);
   });
 
+  it('appends the evidence.ciSatisfies remedy after merge when one is given (T13096)', () => {
+    const remedy = 'Add to .cleo/project-context.json: "evidence": {"ciSatisfies":true}';
+    expect(scopedRunSupersededReason([affected], 'merged', undefined, undefined, remedy)).toMatch(
+      /tool:test\)\. Add to \.cleo\/project-context\.json: "evidence"/,
+    );
+    // A ciSatisfies project (no remedy) keeps the CI-first message unchanged.
+    expect(scopedRunSupersededReason([affected], 'merged', undefined, undefined, null)).toBe(
+      scopedRunSupersededReason([affected], 'merged'),
+    );
+  });
+
   it('fails closed when the merge state is unknown', () => {
     expect(scopedRunSupersededReason([affected], 'unknown')).toMatch(
       /before merge only.*gh unreachable.*gh auth status.*retry, or record tool:test/,

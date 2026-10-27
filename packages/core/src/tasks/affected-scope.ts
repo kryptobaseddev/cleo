@@ -168,18 +168,23 @@ export function mergeStateOfChangeSet(
  * @param atoms - Recorded `testsPassed` atoms.
  * @param state - Merge state of the task's change.
  * @param lookupFailed - With `state: 'unknown'`, why (defaults to `gh` unreachable).
+ * @param notCarried - Why the scoped result did not carry across the merge.
+ * @param ciRemedy - With `state: 'merged'`, the `evidence.ciSatisfies` block a
+ *   project with workflows but no opt-in should add (T13096).
  * @returns The reason, or null.
  * @task T12656
+ * @task T13096
  */
 export function scopedRunSupersededReason(
   atoms: ReadonlyArray<EvidenceAtom>,
   state: ChangeMergeState,
   lookupFailed?: string,
   notCarried?: string,
+  ciRemedy?: string | null,
 ): string | null {
   if (state === 'unmerged' || !isScopedOnly(atoms)) return null;
   return state === 'merged'
-    ? `testsPassed was recorded from a scoped run (affected packages or a targeted test-run), and it does not carry across the merge${notCarried ? ` because ${notCarried}` : ''}; the merged change needs merged CI (ci:<pr>, with evidence.ciSatisfies) or a full run (tool:test).`
+    ? `testsPassed was recorded from a scoped run (affected packages or a targeted test-run), and it does not carry across the merge${notCarried ? ` because ${notCarried}` : ''}; the merged change needs merged CI (ci:<pr>, with evidence.ciSatisfies) or a full run (tool:test).${ciRemedy ? ` ${ciRemedy}` : ''}`
     : `testsPassed was recorded from a scoped run (affected packages or a targeted test-run), which counts before merge only, and whether the change has merged cannot be determined (${lookupFailed ?? GH_UNREACHABLE}); retry, or record tool:test (or ci:<pr>).`;
 }
 
@@ -645,6 +650,11 @@ export async function testsPassedSupersededReason(
      * that file is tracked. Skipped when absent.
      */
     root?: () => string;
+    /**
+     * The `evidence.ciSatisfies` remedy named when a merged scoped run does not
+     * stand (T13096); defaults to `ciSatisfiesRemedy` of the bound checkout.
+     */
+    ciRemedy?: () => Promise<string | null>;
   },
 ): Promise<string | null> {
   const joined = setAsideJoinedReason(atoms, probe.root);
@@ -678,11 +688,18 @@ export async function testsPassedSupersededReason(
     const landed = probe.landed ?? (await import('./change-set.js')).isLandedOnOriginDefault;
     const stands = scopedRunStandsAfterRedCi(atoms, target, await probe.currentTree(), landed);
     if (stands.ok) return null;
+    // T13096: a project with workflows but no ciSatisfies is told the block to add.
+    const ciRemedy = probe.ciRemedy
+      ? await probe.ciRemedy()
+      : probe.root
+        ? await (await import('../release/ci-evidence.js')).ciSatisfiesRemedy(probe.root())
+        : null;
     return scopedRunSupersededReason(
       atoms,
       verdict.state,
       verdict.lookupFailed,
       `${carried.why}, and no test-run on main after the merge stands in (${stands.why})`,
+      ciRemedy,
     );
   }
   return scopedRunSupersededReason(atoms, verdict.state, verdict.lookupFailed);

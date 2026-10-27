@@ -31,6 +31,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { checkTaskEvidenceContext, parseEvidence } from '../../tasks/evidence.js';
 import {
   type CommitCheck,
+  ciSatisfiesRemedy,
   evaluateMergeCommitChecks,
   hasIncompleteIdentity,
   inheritedOnMerge,
@@ -2238,5 +2239,58 @@ describe('inheritedOnMerge: a late failing run is not blamed on the PR (T14026)'
       /started at 2026-10-20T00:00:00Z, after a later default-branch commit landed \(2026-08-01T00:00:00Z\)/,
     );
     expect(!r.ok && r.reason).not.toMatch(/the PR introduced/);
+  });
+});
+
+/**
+ * Projects with GitHub workflows but no evidence.ciSatisfies were told only to
+ * run a full suite after a merge (T13096). The remedy names the block to add,
+ * with the default branch's required checks.
+ */
+describe('ciSatisfiesRemedy (T13096)', () => {
+  let dir: string;
+  const write = (rel: string, body: string) => {
+    mkdirSync(join(dir, rel, '..'), { recursive: true });
+    writeFileSync(join(dir, rel), body);
+  };
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), 'ci-remedy-'));
+    delete process.env[PR_REQUIRED_WORKFLOWS_ENV_VAR];
+  });
+  afterEach(() => rmSync(dir, { recursive: true, force: true }));
+
+  it('is null without workflows, or when ciSatisfies is already set', async () => {
+    write('.cleo/project-context.json', '{}');
+    expect(await ciSatisfiesRemedy(dir)).toBeNull();
+    write('.github/workflows/ci.yml', 'on: push\n');
+    write('.cleo/project-context.json', JSON.stringify({ evidence: { ciSatisfies: true } }));
+    expect(await ciSatisfiesRemedy(dir)).toBeNull();
+  });
+
+  it('names a ready-to-paste block from branch protection when the setting is off', async () => {
+    write('.github/workflows/ci.yml', 'on: push\n');
+    write('.cleo/project-context.json', '{}');
+    const remedy = await ciSatisfiesRemedy(dir, {
+      fetchGhBranchProtection: async () => ({
+        ok: true,
+        contexts: ['CI', 'Lint'],
+        repo: 'acme/app',
+        branch: 'main',
+      }),
+    });
+    expect(remedy).toContain(
+      '"evidence": {"ciSatisfies":true,"ciChecks":{"tests":["CI","Lint"],"qa":["CI","Lint"]}}',
+    );
+    expect(remedy).toContain('branch protection for acme/app@main');
+  });
+
+  it('falls back to a placeholder when no required checks can be found', async () => {
+    write('.github/workflows/ci.yml', 'on: push\n');
+    write('.cleo/project-context.json', '{}');
+    const remedy = await ciSatisfiesRemedy(dir, {
+      fetchGhBranchProtection: async () => ({ ok: false, reason: 'no branch protection' }),
+    });
+    expect(remedy).toContain('"tests":["<required check>"]');
+    expect(remedy).toContain('no branch protection');
   });
 });
