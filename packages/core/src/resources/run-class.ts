@@ -1371,14 +1371,69 @@ function unwrapped(argv: readonly string[]): readonly string[] | null {
 }
 
 /**
+ * A script path whose words name a heavy tool or job (T14050): `typecheck`,
+ * `tsc`, `build`, `test`, `vitest`, … as a whole path segment or a `-`, `_`
+ * or `.` separated word (`scripts/typecheck/full-program.cjs`, `run-tests.mjs`).
+ */
+const HEAVY_SCRIPT_WORD =
+  /(?:^|[\\/._-])(typecheck|type-check|tsc|build|test|tests|vitest|jest|esbuild|webpack|rollup|compile)(?=$|[\\/._-])/i;
+
+/**
+ * The script `node` runs, when the command is `node <plain .js/.mjs/.cjs
+ * script>` with no node flags, outside `node_modules/` and not CLEO's own CLI
+ * (T14050). Leading wrappers are stripped as in {@link lightCommandReason}.
+ *
+ * @param argv - the command.
+ * @returns the script path as written, or `null`.
+ *
+ * @example
+ * ```ts
+ * nodeScriptOf(['node', 'scripts/typecheck/full-program.cjs']); // 'scripts/typecheck/full-program.cjs'
+ * nodeScriptOf(['node', '--test', 'a.test.mjs']);                // null
+ * ```
+ */
+export function nodeScriptOf(argv: readonly string[]): string | null {
+  const words = unwrapped(argv);
+  if (words === null || base(words[0] ?? '') !== 'node') return null;
+  const script = words[1];
+  return script !== undefined &&
+    NODE_SCRIPT.test(script) &&
+    !CLEO_SCRIPT.test(script) &&
+    !/(^|[\\/])node_modules[\\/]/.test(script)
+    ? script
+    : null;
+}
+
+/**
+ * Why a `node` script is a heavy tool host by its path alone (T14050): its
+ * path names a heavy job, so it may run a compiler or test runner in-process
+ * (`node scripts/typecheck/full-program.cjs` builds a whole TypeScript program).
+ *
+ * @param script - the script path, as {@link nodeScriptOf} returns it.
+ * @returns the reason, or `null` when the path names no heavy job.
+ *
+ * @example
+ * ```ts
+ * heavyScriptReason('scripts/typecheck/full-program.cjs'); // 'its path names typecheck'
+ * heavyScriptReason('scripts/gen.mjs');                    // null
+ * ```
+ */
+export function heavyScriptReason(script: string): string | null {
+  const word = HEAVY_SCRIPT_WORD.exec(script)?.[1];
+  return word === undefined ? null : `its path names ${word.toLowerCase()}`;
+}
+
+/**
  * Why a command is known to run no heavy tool (T13452), from a small
  * allowlist: a file utility (`ls`, `cat`, `echo`, …) or `node` running a
  * plain `.js`/`.mjs`/`.cjs` script with no node flags (not CLEO's own CLI,
- * not a package's bin under `node_modules/` such as `vitest.mjs`). Leading
- * wrappers (`timeout`, `sudo`, `env`, `nice`, `command`, `exec`) are stripped
- * first; a `NODE_OPTIONS=` that raises the heap is never light. Everything else (cargo, go, pytest, gradle, docker, a shell
- * script, `node --test`) may be heavy and keeps its class plan. Git is sized
- * by {@link runFootprint} and its hooks, so it is never answered here.
+ * not a package's bin under `node_modules/` such as `vitest.mjs`, and not a
+ * script whose path names a heavy job such as `typecheck` or `build`,
+ * T14050). Leading wrappers (`timeout`, `sudo`, `env`, `nice`, `command`,
+ * `exec`) are stripped first; a `NODE_OPTIONS=` that raises the heap is never
+ * light. Everything else (cargo, go, pytest, gradle, docker, a shell script,
+ * `node --test`) may be heavy and keeps its class plan. Git is sized by
+ * {@link runFootprint} and its hooks, so it is never answered here.
  *
  * @param argv - the command.
  * @returns the reason, or `null` when the command may be heavy.
@@ -1388,6 +1443,7 @@ function unwrapped(argv: readonly string[]): readonly string[] | null {
  * lightCommandReason(['node', 'scripts/gen.mjs']);       // 'node scripts/gen.mjs runs no heavy tool'
  * lightCommandReason(['timeout', '5', 'ls']);            // 'ls runs no heavy tool'
  * lightCommandReason(['node', '--test', 'a.test.mjs']);  // null
+ * lightCommandReason(['node', 'scripts/typecheck/full-program.cjs']); // null
  * lightCommandReason(['cargo', 'clippy']);               // null
  * ```
  */
@@ -1396,14 +1452,8 @@ export function lightCommandReason(argv: readonly string[]): string | null {
   if (words === null) return null;
   const tool = base(words[0] ?? '');
   if (LIGHT_UTILITIES.test(tool)) return `${tool} runs no heavy tool`;
-  const script = words[1];
-  if (
-    tool === 'node' &&
-    script !== undefined &&
-    NODE_SCRIPT.test(script) &&
-    !CLEO_SCRIPT.test(script) &&
-    !/(^|[\\/])node_modules[\\/]/.test(script)
-  ) {
+  const script = nodeScriptOf(words);
+  if (script !== null && heavyScriptReason(script) === null) {
     return `node ${script} runs no heavy tool`;
   }
   return null;

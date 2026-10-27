@@ -103,7 +103,15 @@ import {
 } from '../tasks/heavy-tool-env.js';
 import type { CanonicalTool } from '../tasks/tool-resolver.js';
 import type { ResourceSample } from './backend.js';
-import { gitHookPath, HOOK_PEAK_MARGIN, hookFootprintKey, readHookPeak } from './hook-footprint.js';
+import {
+  gitHookPath,
+  HOOK_MIN_RUNS,
+  HOOK_PEAK_MARGIN,
+  hookFootprintKey,
+  readHookPeak,
+  type ScriptFootprint,
+  scriptFootprint,
+} from './hook-footprint.js';
 import { pressureScore, ResourceMonitor } from './monitor.js';
 import {
   checkMemoryGate,
@@ -114,8 +122,10 @@ import { processAncestors, processGroupOf, processGroupsOf } from './run-admissi
 import {
   canonicalForClass,
   gitHookFor,
+  heavyScriptReason,
   lightCommandReason,
   namedTestFileCount,
+  nodeScriptOf,
   runFootprint,
 } from './run-class.js';
 import { ownProcessStartedAt, type PidProbe, systemPidProbe } from './slot-holder.js';
@@ -343,13 +353,21 @@ export interface HookPeak {
   readonly peakBytes: number | null;
 }
 
+/** A `node` script's key, the heavy tool it loads, and its measured peak (T14050). */
+export interface ScriptPeak extends ScriptFootprint {
+  readonly peakBytes: number | null;
+}
+
 /**
  * Plan and charge a `cleo run` job by its real scope (T13367).
  *
  * A formatter on named files is charged {@link LIGHT_FOOTPRINT_BYTES} with no
  * heap plan. A single Node linter on files, or a one-project `tsc -p`, is
  * charged one process. A scoped build of a command that runs no heavy tool
- * (`node x.mjs`, a hook-free `git push`) is charged light (T13452). Anything
+ * (`node x.mjs`, a hook-free `git push`) is charged light (T13452), unless
+ * the script hosts a heavy tool: its path names a heavy job or it loads a
+ * compiler or test runner (T14050). Such a script, like a hook, is charged its
+ * measured peak once measured, and the class plan until then. Anything
  * else gets the class's heavy-run plan, with a named-file test run capped at
  * one worker per file (T13132) and a scoped build at half a heavy run's
  * workers (T13759). A test run is also capped at the project's own vitest
@@ -364,6 +382,8 @@ export interface HookPeak {
  * @param hookPeak - a hook's measured peak. @defaultValue reads the hook footprint store
  * @param cwd - the directory the command runs in, read for the project's vitest
  *   limit (T14033). @defaultValue process.cwd()
+ * @param scriptPeak - a `node` script's key, loaded heavy tool and measured
+ *   peak (T14050). @defaultValue reads the script and the footprint store
  *
  * @example
  * ```ts
@@ -382,17 +402,38 @@ export function planRunFootprint(
     return key === null ? null : { key, peakBytes: readHookPeak(key, admissionDir()) };
   },
   cwd: string = process.cwd(), // CWD-OK: cleo run runs the command in its own cwd
+  scriptPeak: (script: string) => ScriptPeak | null = (script) => {
+    const found = scriptFootprint(cwd, script);
+    return found === null ? null : { ...found, peakBytes: readHookPeak(found.key, admissionDir()) };
+  },
 ): RunFootprintPlan {
   let scope = cls === 'full-build' ? null : runFootprint(argv);
+  const sized = cls === 'scoped-build' && scope?.size === 'class';
+  // T14050: a node script that hosts a heavy tool (its path names one, or it
+  // loads a compiler or test runner in-process) is never light.
+  const script = sized ? nodeScriptOf(argv) : null;
+  const scripted = script !== null ? scriptPeak(script) : null;
+  const host =
+    script === null
+      ? null
+      : (heavyScriptReason(script) ??
+        (scripted?.heavyTool ? `it loads ${scripted.heavyTool}` : null));
   // T13452: a scoped build of a command that runs no heavy tool (`node x.mjs`,
   // `ls`) is charged light. An explicit test run keeps its class plan.
-  const light = cls === 'scoped-build' && scope?.size === 'class' ? lightCommandReason(argv) : null;
+  const light = sized && host === null ? lightCommandReason(argv) : null;
   if (light !== null) scope = { size: 'light', reason: light };
+  else if (host !== null)
+    scope = { size: 'class', reason: `node ${script} hosts a heavy tool (${host})` };
   // T13452: a hooked git push/commit keeps the class plan, because whatever
   // the hook runs (tests, a build) rides this admission.
   const probe = scope?.size === 'light' ? gitHookFor(argv) : null;
   const hook = probe?.hooks.find((h) => hookInstalled(h, probe.globals));
-  const measured = hook !== undefined && probe !== null ? hookPeak(hook, probe.globals) : null;
+  const measured =
+    hook !== undefined && probe !== null
+      ? hookPeak(hook, probe.globals)
+      : host !== null
+        ? scripted
+        : null;
   if (hook !== undefined) {
     scope = { size: 'class', reason: `runs the ${hook} hook` };
   }
@@ -451,10 +492,31 @@ export function planRunFootprint(
     footprintReason:
       peak !== null && charged !== planned
         ? `${reason}, measured peak ${gib(peak)} + ${Math.round((HOOK_PEAK_MARGIN - 1) * 100)}%`
-        : reason,
+        : measured !== null && peak === null && host !== null
+          ? `${reason}; charged the plan until ${HOOK_MIN_RUNS} runs are measured`
+          : reason,
     namedFiles,
     ...(measured !== null ? { hookKey: measured.key } : {}),
   };
+}
+
+/**
+ * The charge `cleo run` prints before admission (T14050): the bytes asked of
+ * the ledger and how they were derived.
+ *
+ * @param cls - the resolved class.
+ * @param plan - from {@link planRunFootprint}.
+ *
+ * @example
+ * ```ts
+ * describeCharge('scoped-build', plan); // '1.0 GiB: biome check on 2 named paths'
+ * ```
+ */
+export function describeCharge(
+  cls: ResourceClass,
+  plan: Pick<RunFootprintPlan, 'footprintBytes' | 'footprintReason'>,
+): string {
+  return `${gib(plan.footprintBytes ?? footprintForClass(cls))}: ${plan.footprintReason}`;
 }
 
 /** Governor classes whose admission is the ledger's. */

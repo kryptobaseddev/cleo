@@ -63,7 +63,7 @@ import {
   RUN_DEFERRED_EXIT_CODE,
   RUN_INTERRUPTED_CODE,
 } from '@cleocode/contracts/resource-governor.js';
-import { planRunFootprint } from '@cleocode/core/resources/admission-ledger.js';
+import { describeCharge, planRunFootprint } from '@cleocode/core/resources/admission-ledger.js';
 import {
   isWatchCommand,
   isWholeSuiteTestRun,
@@ -250,15 +250,16 @@ export const runCommand = defineCommand({
     // file; it is planned, charged and spawned with that many. T13367: a
     // formatter on named files is charged light, a one-process linter or
     // `tsc -p` one process, so neither queues behind a 24 GiB reservation.
-    const { overlay, resources, footprintBytes, footprintReason, namedFiles, hookKey } =
-      planRunFootprint(cls, argv, process.env);
+    const plan = planRunFootprint(cls, argv, process.env);
+    const { overlay, resources, footprintBytes, footprintReason, namedFiles, hookKey } = plan;
     if (resources !== null) {
       notice(
         `planned resources: ${resources.summary}`,
         resources.clamped.length > 0 || resources.overBudget ? 'warn' : 'info',
       );
     }
-    notice(`charged footprint: ${footprintReason}`, 'info');
+    // T14050: the bytes asked of the ledger and how they were derived.
+    notice(`charged footprint: ${describeCharge(cls, plan)}`, 'info');
 
     let result: RunGovernedResult;
     try {

@@ -21,6 +21,7 @@ import {
   admit,
   budgetShare,
   describeAdmissionIoError,
+  describeCharge,
   describeHolders,
   describeScope,
   enclosingGrant,
@@ -51,6 +52,7 @@ import {
 import type { ResourceSample } from '../backend.js';
 import { ResourceMonitor } from '../monitor.js';
 import { _resetMemoryGateForTest, memoryGateReporter } from '../pressure-gate.js';
+import { lightCommandReason } from '../run-class.js';
 import type { PidProbe } from '../slot-holder.js';
 import { TOP_MEMORY_FAILED_REUSE_MS } from '../top-memory.js';
 
@@ -2286,6 +2288,49 @@ describe('an install is charged one process, not half a heavy run (T13914)', () 
       expect(plan.footprintBytes, argv.join(' ')).toBeLessThan(12 * GIB);
       expect(plan.footprintReason).toMatch(/one package-manager process/);
     }
+  });
+});
+
+describe('a node script that hosts a heavy tool is never charged light (T14050)', () => {
+  const RAM = 48;
+  const program = ['node', 'scripts/typecheck/full-program.cjs', '--project', 'tsconfig.json'];
+  const script =
+    (heavyTool: string | null, peakBytes: number | null = null) =>
+    (): { key: string; heavyTool: string | null; peakBytes: number | null } => ({
+      key: 'full-program.cjs:abc',
+      heavyTool,
+      peakBytes,
+    });
+  const plan = (argv: readonly string[], peak: ReturnType<typeof script>) =>
+    planRunFootprint('scoped-build', argv, {}, RAM, () => false, unmeasured, '/repo', peak);
+
+  it('a script whose path names typecheck, or that loads typescript, keeps the class plan and is measured', () => {
+    expect(lightCommandReason(program)).toBeNull();
+    const byPath = plan(program, script(null));
+    expect(byPath.footprintBytes).toBeGreaterThan(GIB);
+    expect(byPath.resources).not.toBeNull();
+    expect(byPath.footprintReason).toBe(
+      'scoped-build plan: node scripts/typecheck/full-program.cjs hosts a heavy tool (its path names typecheck); charged the plan until 3 runs are measured',
+    );
+    expect(byPath.hookKey).toBe('full-program.cjs:abc');
+    const byContent = plan(['node', 'scripts/check.mjs'], script('typescript'));
+    expect(byContent.footprintBytes).toBe(byPath.footprintBytes);
+    expect(byContent.footprintReason).toMatch(
+      /^scoped-build plan: node scripts\/check\.mjs hosts a heavy tool \(it loads typescript\)/,
+    );
+  });
+
+  it('once measured, it is charged its peak plus the margin; a plain script stays light and unmeasured', () => {
+    const measured = plan(program, script(null, 3.8 * GIB));
+    expect(measured.footprintBytes).toBe(Math.ceil(3.8 * GIB * 1.25));
+    expect(measured.footprintReason).toBe(
+      'scoped-build plan: node scripts/typecheck/full-program.cjs hosts a heavy tool (its path names typecheck), measured peak 3.8 GiB + 25%',
+    );
+    expect(describeCharge('scoped-build', measured)).toBe(`4.8 GiB: ${measured.footprintReason}`);
+    const plain = plan(['node', 'scripts/gen.mjs'], script(null));
+    expect(plain.footprintBytes).toBe(GIB);
+    expect(plain.footprintReason).toBe('node scripts/gen.mjs runs no heavy tool');
+    expect(plain.hookKey).toBeUndefined();
   });
 });
 

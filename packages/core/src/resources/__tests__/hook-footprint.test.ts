@@ -16,6 +16,7 @@ import {
   hookFootprintKey,
   readHookPeak,
   recordHookPeak,
+  scriptFootprint,
 } from '../hook-footprint.js';
 
 const GIB = 1024 ** 3;
@@ -141,5 +142,27 @@ describe('hook measurements (T13921)', () => {
     const { readFileSync } = await import('node:fs');
     const doc = JSON.parse(readFileSync(join(dir, 'hook-footprints.json'), 'utf8'));
     expect(doc.k.runs).toBe(peaks.length);
+  });
+});
+
+describe('a node script is keyed by its path and content, and names the heavy tool it loads (T14050)', () => {
+  it('a script that builds a TypeScript program loads typescript; a plain one loads none', () => {
+    mkdirSync(join(root, 'scripts', 'typecheck'), { recursive: true });
+    const program = join('scripts', 'typecheck', 'full-program.cjs');
+    writeFileSync(
+      join(root, program),
+      "const ts = require('typescript');\nts.createProgram(['a.ts'], {}).emit();\n",
+    );
+    writeFileSync(join(root, 'gen.mjs'), "import { writeFileSync } from 'node:fs';\n");
+    writeFileSync(join(root, 'inline.mjs'), 'const p = api.createProgram (files, opts);\n');
+    const heavy = scriptFootprint(root, program);
+    expect(heavy?.heavyTool).toBe('typescript');
+    expect(heavy?.key).toMatch(/^full-program\.cjs:[0-9a-f]{64}$/);
+    expect(scriptFootprint(root, 'gen.mjs')?.heavyTool).toBeNull();
+    expect(scriptFootprint(root, 'inline.mjs')?.heavyTool).toBe('typescript');
+    // An edited script is measured afresh; an unreadable one is never measured.
+    writeFileSync(join(root, program), "require('typescript');\n");
+    expect(scriptFootprint(root, program)?.key).not.toBe(heavy?.key);
+    expect(scriptFootprint(root, 'missing.mjs')).toBeNull();
   });
 });
