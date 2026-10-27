@@ -62,3 +62,36 @@ export { OUTPUT_CONTRACTS };
 export function getOutputContract(operation: string): OperationOutputContract | null {
   return OUTPUT_CONTRACTS[operation] ?? deriveOutputContract(operation) ?? null;
 }
+
+/**
+ * The value `--field` prints for a pointer the operation's contract declares
+ * but the response left out (T14043): `[]` for a declared list, `null` for
+ * anything else. `undefined` when the contract does not declare the pointer,
+ * which stays `E_FIELD_NOT_FOUND`. Only `/data/...` object paths are walked;
+ * an array index is never declared.
+ *
+ * @param contract - The operation's output contract.
+ * @param pointer - RFC 6901 pointer rooted at the envelope (`/data/task/notes`).
+ * @returns The empty value, or `undefined` for an undeclared pointer.
+ * @task T14043
+ */
+export function declaredAbsentValue(
+  contract: OperationOutputContract,
+  pointer: string,
+): [] | null | undefined {
+  const tokens = pointer
+    .split('/')
+    .slice(1)
+    .map((t) => t.replace(/~1/g, '/').replace(/~0/g, '~'));
+  if (tokens[0] !== 'data') return undefined;
+  let schema: Record<string, unknown> | undefined = contract.dataSchema;
+  for (const token of tokens.slice(1)) {
+    const properties = schema?.['properties'] as
+      | Record<string, Record<string, unknown>>
+      | undefined;
+    schema = properties && Object.hasOwn(properties, token) ? properties[token] : undefined;
+    if (!schema) return undefined;
+  }
+  const type = schema?.['type'];
+  return type === 'array' || (Array.isArray(type) && type.includes('array')) ? [] : null;
+}

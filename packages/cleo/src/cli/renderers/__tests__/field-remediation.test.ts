@@ -145,6 +145,28 @@ describe('cliOutput --field remediation (T11762 ST-4 · DHQ-057)', () => {
     expect(corrected?.action).toBe('extract /data/task/title');
   });
 
+  it('T14043: a declared optional field the task omits prints its empty value and succeeds', () => {
+    const task = { task: { id: 'T607', title: 'No notes' }, view: {}, attachments: [] };
+    const notes = captureFieldError(task, '/data/task/notes', {
+      command: 'show',
+      operation: 'tasks.show',
+    });
+    expect(notes.exitCode).toBeUndefined();
+    expect(notes.envelope).toEqual([]);
+    const size = captureFieldError(task, '/data/task/size', {
+      command: 'show',
+      operation: 'tasks.show',
+    });
+    expect(size.exitCode).toBeUndefined();
+    expect(size.envelope).toBeNull();
+    // A pointer the contract does not declare still refuses.
+    const unknown = captureFieldError(task, '/data/task/notez', {
+      command: 'show',
+      operation: 'tasks.show',
+    });
+    expect(unknown.exitCode).toBe(4);
+  });
+
   it('degrades to the --describe hint when the op has NO contract', () => {
     // A genuinely-unregistered operation resolves a `null` contract — the loop
     // must NOT throw; it falls back to the introspection hint.
