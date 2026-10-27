@@ -215,11 +215,14 @@ interface AuditLine {
 }
 
 /**
- * Detect MIME type from a file path. Mirrors the helper inside
- * `attachment-store.ts` — kept private to this module to avoid widening
- * the store's public surface for a single caller.
+ * Detect a document's MIME type from its file path: the one rule `docs add`
+ * and `docs update --file` share (T13918), so an update keeps the type the
+ * add recorded and the readback stays `content` for a text document.
+ * Falls back to `application/octet-stream`.
  *
- * @internal
+ * @param filePath - Absolute or relative path to the file.
+ * @returns The MIME type.
+ * @task T13918
  */
 function mimeFromPath(filePath: string): string {
   const lower = filePath.toLowerCase();
@@ -233,6 +236,9 @@ function mimeFromPath(filePath: string): string {
   if (lower.endsWith('.jpg') || lower.endsWith('.jpeg')) return 'image/jpeg';
   if (lower.endsWith('.gif')) return 'image/gif';
   if (lower.endsWith('.svg')) return 'image/svg+xml';
+  if (lower.endsWith('.ts') || lower.endsWith('.tsx')) return 'text/plain';
+  if (lower.endsWith('.js')) return 'text/javascript';
+  if (lower.endsWith('.css')) return 'text/css';
   return 'application/octet-stream';
 }
 
@@ -797,7 +803,9 @@ export async function updateDocBySlug(
   // Orphaned blob files are harmless — they're content-addressed, so a
   // future put of the same content will reuse the file rather than
   // creating a duplicate.
-  const mime = hasContent ? 'text/plain' : 'application/octet-stream';
+  // T13918: a file keeps the type `docs add` infers from its extension (a
+  // `.md` stays text/markdown, read back as `content`), not octet-stream.
+  const mime = hasFile ? mimeFromPath(params.file as string) : 'text/plain';
   // T13357: re-derive mention links from the new body; topics carry over
   // from the old row (labels do not flow through the update path).
   const derivedRelatedTasks =
