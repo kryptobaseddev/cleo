@@ -100,6 +100,25 @@ describe('PR context', () => {
       reason: expect.stringContaining('only documentation'),
     });
   });
+  it('T14048: accepts a docs-only PR for work that declares no files and names no code', async () => {
+    context.task = { id: 'T12254', kind: 'work', files: [], acceptance: ['Explain the flag'] };
+    pr.changedPaths = ['CLEO-REFERENCE.md'];
+    expect(await validate()).toMatchObject({ ok: true });
+  });
+  it('T14065: a docs-only PR for work naming code is refused with the reclassifications', async () => {
+    context.task = {
+      id: 'T12254',
+      kind: 'work',
+      files: [],
+      acceptance: ['Fix packages/core/src/fix.ts'],
+    };
+    pr.changedPaths = ['docs/fix.md'];
+    const result = await validate();
+    expect(result).toMatchObject({ ok: false, codeName: 'E_EVIDENCE_CONTENT_MISMATCH' });
+    const reason = result.ok ? '' : result.reason;
+    expect(reason).toContain('cleo update T12254 --files docs/fix.md');
+    expect(reason).toContain('cleo update T12254 --add-labels docs');
+  });
   it.each([
     'research',
     'spike',

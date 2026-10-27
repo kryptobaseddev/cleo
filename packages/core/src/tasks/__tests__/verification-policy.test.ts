@@ -12,6 +12,7 @@ import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
   classifyEvidenceTask,
+  declaredEvidenceKind,
   isDocumentArtifact,
   isDocumentEvidencePath,
   loadVerificationGatePolicy,
@@ -74,6 +75,68 @@ describe('per-kind gates (T14001)', () => {
     const task = (files: string[]) => ({ kind: 'work' as const, labels: ['docs'], files });
     expect(classifyEvidenceTask({ task: task(['src/x.ts']) })).toBe('code');
     expect(classifyEvidenceTask({ task: task([]) })).toBe('documentation');
+  });
+
+  describe('a task with no declared files (T14048, T14065)', () => {
+    const work = (acceptance: string[], labels: string[] = []) => ({
+      kind: 'work' as const,
+      files: [],
+      labels,
+      acceptance,
+    });
+
+    it('docs-AC: criteria naming only documents classify it as documentation', () => {
+      const task = work(['Update docs/guide.md and `CLEO-REFERENCE.md`.', 'README covers it']);
+      expect(declaredEvidenceKind(task)).toBeNull();
+      expect(classifyEvidenceTask({ task })).toBe('documentation');
+    });
+
+    it('mixed-AC: any code path in a criterion keeps it code, a docs label included', () => {
+      const task = work(['Update docs/guide.md', 'Fix packages/core/src/x.ts'], ['docs']);
+      expect(declaredEvidenceKind(task)).toBe('code');
+      expect(classifyEvidenceTask({ task })).toBe('code');
+      // A docs-only change set does not override a named code path.
+      expect(classifyEvidenceTask({ task, changedPaths: ['docs/guide.md'] })).toBe('code');
+      expect(classifyEvidenceTask({ task: work(['edit scripts/run (the runner)']) })).toBe('code');
+      expect(classifyEvidenceTask({ task: work(['add tool.test.ts coverage']) })).toBe('code');
+    });
+
+    it('no-path: prose criteria stay code unless labelled docs', () => {
+      const task = work(['Make the refusal clearer, e.g. v2026.10.25 on example.com']);
+      expect(classifyEvidenceTask({ task })).toBe('code');
+      expect(classifyEvidenceTask({ task: work(task.acceptance, ['docs']) })).toBe('documentation');
+      expect(classifyEvidenceTask({ task: work([]) })).toBe('code');
+    });
+
+    it('an inspected all-docs change set classifies it as documentation', () => {
+      const task = work(['Make the refusal clearer']);
+      expect(classifyEvidenceTask({ task, changedPaths: ['CLEO-REFERENCE.md', 'docs/a.md'] })).toBe(
+        'documentation',
+      );
+    });
+
+    it('a change set with any code path keeps it code, a docs label included', () => {
+      for (const task of [work(['Make the refusal clearer']), work(['docs/a.md'], ['docs'])]) {
+        expect(classifyEvidenceTask({ task, changedPaths: ['docs/a.md', 'src/x.ts'] })).toBe(
+          'code',
+        );
+      }
+    });
+
+    it('a bug or declared code files are decided before any change set', () => {
+      expect(
+        classifyEvidenceTask({
+          task: { kind: 'bug', files: [], acceptance: ['docs/a.md'] },
+          changedPaths: ['docs/a.md'],
+        }),
+      ).toBe('code');
+      expect(
+        classifyEvidenceTask({
+          task: { kind: 'work', files: ['src/x.ts'] },
+          changedPaths: ['docs/a.md'],
+        }),
+      ).toBe('code');
+    });
   });
 
   it('document names count only with document extensions; a bare .txt is not one', () => {

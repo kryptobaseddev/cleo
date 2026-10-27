@@ -95,6 +95,7 @@ import {
 import { detectStaticVacuity, probeTscFileCount, VACUOUS_TOOL_FIX } from './tool-vacuity.js';
 import {
   classifyEvidenceTask,
+  declaredEvidenceKind,
   isDocumentArtifact,
   isDocumentEvidencePath,
 } from './verification-policy.js';
@@ -3269,13 +3270,19 @@ async function validatePrAtom(
   }
   if (
     context.gates.includes('implemented') &&
-    classifyEvidenceTask(context) === 'code' &&
+    classifyEvidenceTask({ ...context, changedPaths }) === 'code' &&
     changedPaths.every(isDocumentArtifact)
   ) {
+    // T14065: name the supported reclassifications, not just the refusal.
     return {
       ok: false,
       codeName: 'E_EVIDENCE_CONTENT_MISMATCH',
-      reason: `PR #${linked.prNumber} changes only documentation and cannot implement code task ${context.task.id}. Changed artifacts: ${changedPaths.join(', ')}.`,
+      reason:
+        `PR #${linked.prNumber} changes only documentation and cannot implement code task ${context.task.id}. ` +
+        `Changed artifacts: ${changedPaths.join(', ')}. If ${context.task.id} is a documentation task, ` +
+        `declare its documents with \`cleo update ${context.task.id} --files ${changedPaths.join(',')}\` ` +
+        `(declared documents decide), or label it with \`cleo update ${context.task.id} --add-labels docs\` ` +
+        'when it is not a bug and no declared file or acceptance criterion names code; then re-verify.',
     };
   }
   return {
@@ -3590,7 +3597,7 @@ export function checkTaskEvidenceContext(
     }
     if (
       gate === 'implemented' &&
-      classifyEvidenceTask(context) === 'code' &&
+      classifyEvidenceTask({ ...context, changedPaths: atom.changedPaths }) === 'code' &&
       atom.changedPaths.every(isDocumentArtifact)
     )
       return 'Documentation-only PR evidence cannot implement the current code task.';
@@ -4082,6 +4089,8 @@ export interface TaskEvidenceKindReport {
  * on the default branch whose subject cites it, and its merged PRs). A kind
  * or label set by any agent never lets a code change skip its tests, and
  * work that cannot be inspected fails closed to `code`, with the reason.
+ * A task {@link declaredEvidenceKind} leaves undecided is classified by that
+ * same change set (T14048): documents only make it documentation.
  *
  * @param task - The task (kind, files, labels and recorded evidence are read).
  * @param projectRoot - The CLEO store root (commits are read in the task's checkout).
@@ -4092,15 +4101,18 @@ export interface TaskEvidenceKindReport {
  * @task T14001
  */
 export async function taskEvidenceKindReport(
-  task: Pick<Task, 'id' | 'kind' | 'files' | 'labels' | 'verification'>,
+  task: Pick<Task, 'id' | 'kind' | 'files' | 'labels' | 'acceptance' | 'verification'>,
   projectRoot: string,
   extraPaths: readonly string[] = [],
   cwd?: string,
   deps: Pick<ChangeSetDeps, 'listMergedPrHeads'> = {},
 ): Promise<TaskEvidenceKindReport> {
   const kind = classifyEvidenceTask({ task });
-  if (kind === 'code') return { kind };
-  const code = (reason: string): TaskEvidenceKindReport => ({ kind: 'code', reason });
+  // T14048: a task its record leaves undecided is classified by what it changed.
+  const undecided = kind === 'code' && declaredEvidenceKind(task) === null;
+  if (kind === 'code' && !undecided) return { kind };
+  const code = (reason: string): TaskEvidenceKindReport =>
+    undecided ? { kind: 'code' } : { kind: 'code', reason };
   const { resolveChangeSetRoot, taskOwnWorkPaths } = await import('./change-set.js');
   // The task's own branches, commits and merged PRs, whatever its evidence
   // cites: a spike that commits code and records `decision:` owes tests.
@@ -4124,6 +4136,7 @@ export async function taskEvidenceKindReport(
       paths.push(...files);
     }
   }
+  if (undecided) return { kind: classifyEvidenceTask({ task, changedPaths: paths }) };
   const codePath = paths.find((path) => !isDocumentEvidencePath(path));
   return codePath === undefined ? { kind } : code(`its work touches ${codePath}`);
 }
@@ -4139,7 +4152,7 @@ export async function taskEvidenceKindReport(
  * @task T14001
  */
 export async function taskEvidenceKind(
-  task: Pick<Task, 'id' | 'kind' | 'files' | 'labels' | 'verification'>,
+  task: Pick<Task, 'id' | 'kind' | 'files' | 'labels' | 'acceptance' | 'verification'>,
   projectRoot: string,
   extraPaths: readonly string[] = [],
   cwd?: string,

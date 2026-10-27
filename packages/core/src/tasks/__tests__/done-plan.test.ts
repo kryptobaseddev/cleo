@@ -1743,6 +1743,16 @@ describe('research and no-change-set tasks', () => {
     expect(plan.next?.command).toBe(`git switch -c task/${id}`);
     expect(plan.commands.some((c) => c.startsWith('cleo complete'))).toBe(false);
     expect(plan.ready).toBe(false);
+    // T14065: the documentation route names declaring its documents.
+    expect(plan.blockers[0]?.next.why).toContain(`cleo update ${id} --files <doc paths>`);
+  });
+
+  it('T14065: a task whose criteria name only documents is planned as documentation', async () => {
+    const id = await seedTask(['Update docs/guide.md and CLEO-REFERENCE.md']);
+    const plan = await deriveTaskEvidence(id, { projectRoot: root, cwd: root, deps });
+    const none = plan.blockers.find((b) => b.code === 'no-change-set');
+    expect(none?.message).toMatch(/is a documentation task with no attached document/);
+    expect(plan.next?.command).not.toMatch(/git switch/);
   });
 });
 
