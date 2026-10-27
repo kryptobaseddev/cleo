@@ -796,6 +796,40 @@ function readNestedString(ctx: Record<string, unknown> | null, path: string[]): 
 }
 
 /**
+ * Why each command a project-context declares cannot run as written (T14039):
+ * every tool command of {@link PROJECT_CONTEXT_KEY_MAP} plus
+ * `testing.affectedCommand`, split as {@link resolveToolCommand} splits them.
+ * A command using shell syntax (`a && b`) is named with the operator and the
+ * package-script remedy, so `tool:config-schema` refuses the config before a
+ * tool run trips on it.
+ *
+ * @param ctx - A parsed project-context.json (anything else declares no command).
+ * @returns One message per unrunnable command; empty when all can run.
+ * @task T14039
+ */
+export function projectContextCommandProblems(ctx: unknown): string[] {
+  const context = isPlainRecord(ctx) ? ctx : null;
+  const keys = [
+    ...Object.values(PROJECT_CONTEXT_KEY_MAP).filter((key): key is string[] => key !== null),
+    ['testing', 'affectedCommand'],
+  ];
+  return keys.flatMap((key) => {
+    const raw = readNestedString(context, key);
+    if (raw === null) return [];
+    try {
+      splitCommandLine(raw, key.join('.'));
+      return [];
+    } catch (error) {
+      return [error instanceof Error ? error.message : String(error)];
+    }
+  });
+}
+
+function isPlainRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+/**
  * Load project-context.json *without* relying on `loadProjectContext`'s
  * imports (escape-hatch for tests that need to inspect raw context).
  *

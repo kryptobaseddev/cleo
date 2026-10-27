@@ -2501,6 +2501,12 @@ async function validateConfigSchema(
     }
     const schema = JSON.parse(await readFile(schemaPath, 'utf-8')) as Record<string, unknown>;
     for (const error of checkSchema(data, schema)) failures.push(`${path}: ${error}`);
+    // T14039: a tool command that cannot run without a shell is a config error.
+    if (schemaName === 'project-context.schema.json') {
+      const { projectContextCommandProblems } = await import('./tool-resolver.js');
+      for (const problem of projectContextCommandProblems(data))
+        failures.push(`${path}: ${problem}`);
+    }
   }
   if (failures.length > 0)
     return {
@@ -2641,8 +2647,9 @@ async function validateTool(
     return {
       ok: false,
       reason: resolution.reason,
+      // T14039: a declared command with shell syntax is a config error, not a missing tool.
       codeName:
-        resolution.codeName === 'E_TOOL_UNKNOWN'
+        resolution.codeName === 'E_TOOL_UNKNOWN' || resolution.codeName === 'E_TOOL_COMMAND_INVALID'
           ? 'E_EVIDENCE_INVALID'
           : 'E_EVIDENCE_TOOL_UNAVAILABLE',
     };

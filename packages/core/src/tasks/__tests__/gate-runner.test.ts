@@ -1945,7 +1945,7 @@ describe('task-bound explicit gate verification (T12292)', () => {
       expect(results).toHaveLength(2);
       expect(results[0]).toMatchObject({ index: 1, result: 'pass' });
       expect(results[1]).toMatchObject({ index: 2, result: 'error', checkedBy: 'bound-agent' });
-      expect(results[1]!.errorMessage).toMatch(/shell syntax \(&\).*sh -c/);
+      expect(results[1]!.errorMessage).toMatch(/shell syntax \(&&\).*sh -c/);
       expect(results[1]!.binding).toBeDefined();
       expect(results[1]!.binding!.invocation).toBeUndefined();
       // The recorded batch persists: revalidation and the receipt accept it.

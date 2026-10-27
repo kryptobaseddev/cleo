@@ -28,6 +28,19 @@ describe('splitCommandLine (T12718)', () => {
     ]);
   });
 
+  it.each([
+    ['pnpm --filter a build && pnpm --filter b lint', '&&'],
+    ['pnpm test || true', '||'],
+    ['pnpm test | tee out.log', '|'],
+    ['pnpm a; pnpm b', ';'],
+    ['pnpm test >> out.log', '>>'],
+  ])('names the operator in %s as written, with the package-script remedy (T14039)', (raw, op) => {
+    expect(() => splitCommandLine(raw, 'typecheck.command')).toThrow(
+      `typecheck.command ${JSON.stringify(raw)} uses shell syntax (${op})`,
+    );
+    expect(() => splitCommandLine(raw)).toThrow(/package script/);
+  });
+
   it('refuses a # comment at the start of a word', () => {
     expect(() => splitCommandLine('vitest run # only the fast suite')).toThrow(SHELL_HINT);
     expect(() => splitCommandLine('vitest run # only the fast suite')).toThrow(/comment/);
