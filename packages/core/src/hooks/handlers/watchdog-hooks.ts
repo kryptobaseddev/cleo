@@ -139,6 +139,11 @@ export async function handleWatchdogStart(
     const timer = setInterval(() => {
       void runWatchdogTick(projectRoot);
     }, WATCHDOG_INTERVAL_MS);
+    // T12217: a patrol never keeps a process alive on its own. A one-shot
+    // `cleo session start` that armed it otherwise waited for the 3 s exit
+    // backstop ("event loop still alive … held by: Timeout"); a long-lived
+    // host stays up for its own reasons, and the patrol runs while it does.
+    timer.unref();
 
     activeWatchdogs.set(projectRoot, timer);
   } catch {
