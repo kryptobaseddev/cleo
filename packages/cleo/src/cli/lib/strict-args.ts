@@ -431,11 +431,18 @@ export function assertKnownFlags(
   for (const global of CLI_GLOBAL_FLAGS) known.add(global);
   const candidates = collectSuggestionCandidates(resolved);
 
+  // T14044: the long flags whose next token is their value, never a flag.
+  const valueFlags = collectValueFlags(resolved);
+
   for (let i = 0; i < rawArgs.length; i++) {
     const token = rawArgs[i];
     if (token === undefined) continue;
     // `--` terminator — everything after is positional.
     if (token === '--') break;
+    if (valueFlags.has(token)) {
+      i++;
+      continue;
+    }
 
     // Skip non-flag tokens.
     if (!token.startsWith('-')) continue;
@@ -496,6 +503,71 @@ export function assertKnownFlags(
       }
     }
   }
+}
+
+/** Arg types whose `--name value` form takes the next token as its value. */
+const VALUE_ARG_TYPES: ReadonlySet<string> = new Set(['string', 'enum', 'positional']);
+
+/**
+ * The long flags (and long aliases) whose next argv token is their value
+ * (T14044): string, enum and positional args. `--title "--x"` is a title, not
+ * an unknown flag `--x`.
+ *
+ * @internal
+ * @task T14044
+ */
+function collectValueFlags(schema: Record<string, ArgDef>): Set<string> {
+  const flags = new Set<string>();
+  for (const [name, def] of Object.entries(schema)) {
+    if (!def || !VALUE_ARG_TYPES.has(def.type ?? '')) continue;
+    flags.add(`--${name}`);
+    const alias = (def as { alias?: string | string[] }).alias;
+    for (const a of typeof alias === 'string' ? [alias] : (alias ?? [])) {
+      if (a.length > 1) flags.add(`--${a}`);
+    }
+  }
+  return flags;
+}
+
+/**
+ * The values of positional args given in flag form (`--title X`,
+ * `--title=X`), keyed by arg name (T14044). citty binds a positional only
+ * from the positional stream, so `--title "--x"` became a boolean `--x` and
+ * `--title=X` was dropped; the caller removes these tokens before parsing and
+ * sets the values itself. Tokens after a `--` terminator are positional and
+ * never read.
+ *
+ * @param rawArgs - The command's argv.
+ * @param schema - The command's resolved `args:` schema.
+ * @returns The remaining argv and the positional values given as flags.
+ * @task T14044
+ */
+export function extractPositionalFlags(
+  rawArgs: readonly string[],
+  schema: Record<string, ArgDef>,
+): { rest: string[]; values: Record<string, string> } {
+  const names = new Set(
+    Object.entries(schema).flatMap(([name, def]) => (def?.type === 'positional' ? [name] : [])),
+  );
+  const rest: string[] = [];
+  const values: Record<string, string> = {};
+  for (let i = 0; i < rawArgs.length; i++) {
+    const token = rawArgs[i] ?? '';
+    if (token === '--') {
+      rest.push(...rawArgs.slice(i));
+      break;
+    }
+    const eq = token.indexOf('=');
+    const name = token.startsWith('--') ? token.slice(2, eq >= 0 ? eq : undefined) : '';
+    if (names.has(name) && eq >= 0) {
+      values[name] = token.slice(eq + 1);
+    } else if (names.has(name) && i + 1 < rawArgs.length) {
+      values[name] = rawArgs[++i] ?? '';
+    } else {
+      rest.push(token);
+    }
+  }
+  return { rest, values };
 }
 
 /**

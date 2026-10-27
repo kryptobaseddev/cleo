@@ -20,8 +20,9 @@
  *                              loaded its full tree, but only that one tree.
  */
 
-import type { CommandDef, Resolvable } from 'citty';
-import { assertKnownFlags, UnknownFlagError } from './lib/strict-args.js';
+import type { ArgsDef, CommandContext, CommandDef, ParsedArgs, Resolvable } from 'citty';
+import { parseArgs } from './lib/define-cli-command.js';
+import { assertKnownFlags, extractPositionalFlags, UnknownFlagError } from './lib/strict-args.js';
 
 /** Resolve Citty's supported value, promise, and factory command declarations. */
 async function resolveCommandValue<T>(value: Resolvable<T> | undefined): Promise<T | undefined> {
@@ -47,6 +48,20 @@ async function validateCommandPath(
   } else {
     assertKnownFlags(rawArgs, schema, label);
   }
+}
+
+/**
+ * The parsed args with positionals given in flag form bound (T14044): citty
+ * reads `--title "--x"` as a boolean `--x` and drops `--title=X`, so such
+ * tokens are taken out, the rest re-parsed, and each value set by name. Args
+ * with no positional given as a flag are returned unchanged.
+ */
+async function withPositionalFlags(command: CommandDef, ctx: CommandContext): Promise<ParsedArgs> {
+  const schema = await resolveCommandValue<ArgsDef>(command.args);
+  if (!schema) return ctx.args;
+  const { rest, values } = extractPositionalFlags(ctx.rawArgs, schema);
+  if (Object.keys(values).length === 0) return ctx.args;
+  return Object.assign(parseArgs(rest, schema), values);
 }
 
 /**
@@ -137,7 +152,9 @@ export function lazyCommand(
       // Pass the LOADED cmd as ctx.cmd so parent run blocks that introspect
       // `cmd.subCommands` (e.g. `firstArg in cmd.subCommands`) see the real
       // nested map instead of the lazy wrapper's thunk.
-      if (typeof cmd.run === 'function') return cmd.run({ ...ctx, cmd });
+      if (typeof cmd.run === 'function') {
+        return cmd.run({ ...ctx, args: await withPositionalFlags(cmd, ctx), cmd });
+      }
     },
   };
 }
