@@ -161,6 +161,12 @@ export interface ReleaseOpenResult {
   /** True iff this invocation was a no-op because status was already `pr-opened`. */
   idempotent?: boolean;
   /**
+   * The run already recorded for this version, when there was one (T14077):
+   * its status and conclusion as GitHub reports them, and whether this call
+   * dispatched a new run because it failed or was cancelled.
+   */
+  priorRun?: PriorReleaseRun;
+  /**
    * Plan file sha256. Forwarded as the workflow's `plan-blob-sha256` input
    * once the same bytes are verified on the dispatch branch (T12092, T13050);
    * a dispatch never goes out without it.
@@ -173,6 +179,30 @@ export interface ReleaseOpenResult {
    */
   preflight?: PreflightSkipDecision;
 }
+
+/**
+ * The release-prepare run already recorded for a version (T14077).
+ *
+ * @task T14077
+ */
+export interface PriorReleaseRun {
+  /** The recorded `workflow_run_url`. */
+  url: string;
+  /** `queued`, `in_progress`, `completed`, …; `null` when GitHub could not be asked. */
+  status: string | null;
+  /** `success`, `failure`, `cancelled`, …; `null` while running or when unknown. */
+  conclusion: string | null;
+  /** Whether this call dispatched a new run because the recorded one failed or was cancelled. */
+  redispatched: boolean;
+}
+
+/** Conclusions of a finished run that a re-invocation dispatches again (T14077). */
+const REDISPATCH_CONCLUSIONS: ReadonlySet<string> = new Set([
+  'failure',
+  'cancelled',
+  'timed_out',
+  'startup_failure',
+]);
 
 // ---------------------------------------------------------------------------
 // Helpers — subprocess wrappers (mockable in tests)
@@ -394,6 +424,35 @@ function resolveLatestRunUrl(
   return null;
 }
 
+/**
+ * The status and conclusion of a recorded run (T14077), from
+ * `gh run view <id> --json status,conclusion`; `null` when the URL names no
+ * run id or GitHub cannot be asked (then the caller stays idempotent).
+ *
+ * @internal
+ */
+function readRunState(
+  url: string,
+  cwd: string,
+  runner: ReleaseOpenRunner,
+): { status: string | null; conclusion: string | null } | null {
+  const id = /\/actions\/runs\/(\d+)/.exec(url)?.[1];
+  if (id === undefined) return null;
+  try {
+    const parsed: unknown = JSON.parse(
+      runner.runGh(['run', 'view', id, '--json', 'status,conclusion'], cwd, 15_000),
+    );
+    if (parsed === null || typeof parsed !== 'object') return null;
+    const field = (name: string): string | null => {
+      const v = (parsed as Record<string, unknown>)[name];
+      return typeof v === 'string' && v.length > 0 ? v : null;
+    };
+    return { status: field('status'), conclusion: field('conclusion') };
+  } catch {
+    return null;
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Helpers — DB UPDATE
 // ---------------------------------------------------------------------------
@@ -581,7 +640,10 @@ function commitPlanFile(planPath: string, version: string, projectRoot: string):
  *
  * Idempotency: if the row is ALREADY at `status='pr-opened'` AND has a
  * non-null `workflow_run_url`, the verb is a no-op modulo `meta.idempotent=true`
- * (returns the existing URL without re-dispatching).
+ * (returns the existing URL without re-dispatching) while that run is queued,
+ * running or succeeded. When the recorded run finished with `failure`,
+ * `cancelled`, `timed_out` or `startup_failure`, it dispatches again (T14077).
+ * Either way `priorRun` reports the recorded run's status and conclusion.
  *
  * @example
  * ```ts
@@ -672,22 +734,42 @@ export async function releaseOpen(
     );
   }
 
-  // Idempotency short-circuit: already opened.
+  // Idempotency short-circuit: already opened, unless the recorded run failed
+  // or was cancelled (T14077): then it is dispatched again.
+  let priorRun: PriorReleaseRun | undefined;
   if (current.status === 'pr-opened' && current.workflowRunUrl) {
-    log.info(
-      { version: opts.version, workflowRunUrl: current.workflowRunUrl },
-      'release.open: idempotent re-invocation; status already pr-opened',
+    const state = readRunState(current.workflowRunUrl, projectRoot, runner);
+    const failed =
+      state?.status === 'completed' &&
+      state.conclusion !== null &&
+      REDISPATCH_CONCLUSIONS.has(state.conclusion);
+    priorRun = {
+      url: current.workflowRunUrl,
+      status: state?.status ?? null,
+      conclusion: state?.conclusion ?? null,
+      redispatched: failed,
+    };
+    if (!failed) {
+      log.info(
+        { version: opts.version, priorRun },
+        'release.open: idempotent re-invocation; status already pr-opened',
+      );
+      return engineSuccess<ReleaseOpenResult>({
+        version: opts.version,
+        workflowRunUrl: current.workflowRunUrl,
+        watching: false,
+        idempotent: true,
+        planBlobSha256,
+        priorRun,
+      });
+    }
+    log.warn(
+      { version: opts.version, priorRun },
+      `release.open: the recorded run concluded ${priorRun.conclusion}; dispatching again`,
     );
-    return engineSuccess<ReleaseOpenResult>({
-      version: opts.version,
-      workflowRunUrl: current.workflowRunUrl,
-      watching: false,
-      idempotent: true,
-      planBlobSha256,
-    });
   }
 
-  if (current.status !== 'planned') {
+  if (current.status !== 'planned' && priorRun?.redispatched !== true) {
     return engineError<ReleaseOpenResult>(
       E_INVALID_STATE,
       `releases.status for '${opts.version}' is '${current.status}'; expected 'planned'`,
@@ -980,6 +1062,7 @@ export async function releaseOpen(
     watching: watch,
     planBlobSha256,
     preflight,
+    ...(priorRun !== undefined ? { priorRun } : {}),
   });
 }
 
