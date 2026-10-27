@@ -281,6 +281,36 @@ describe('slow work finishes before the write (AC2)', () => {
     ]);
   });
 
+  it('T14072: --shared-evidence is passed to the gate write, as cleo verify --shared-evidence does', async () => {
+    const id = await seedTask(['Change src/a.ts to return 2']);
+    commitOnTaskBranch(id);
+    const seen: Array<boolean | undefined> = [];
+    const run = (sharedEvidence: boolean | undefined) =>
+      recordTaskDone(
+        id,
+        opts({
+          ...(sharedEvidence === undefined ? {} : { sharedEvidence }),
+          steps: {
+            runTool: async () => ({
+              exitCode: 0,
+              cacheHit: false,
+              durationMs: 1,
+              timedOut: false,
+              tail: '',
+            }),
+            write: async (_root, params) => {
+              seen.push(params.sharedEvidence);
+              return { success: true, data: { passed: true } };
+            },
+          },
+        }),
+      );
+    const first = await run(true);
+    expect(first.success, JSON.stringify(first)).toBe(true);
+    expect((await run(undefined)).success).toBe(true);
+    expect(seen).toEqual([true, undefined]);
+  });
+
   it('T13521: without --run-typed, cleo done executes no typed gate and names cleo verify --run when one is uncached', async () => {
     const id = await seedTask(['Change src/a.ts to return 2']);
     commitOnTaskBranch(id);

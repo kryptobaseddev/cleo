@@ -123,6 +123,11 @@ export const doneCommand = defineCommand({
       description:
         "Execute the task's typed gates before recording. Without it cleo done executes no typed gate command: it uses passes cached by `cleo verify --run` (T13521).",
     },
+    'shared-evidence': {
+      type: 'boolean',
+      description:
+        'Acknowledge that the same evidence atom (e.g. ci:<pr>) is applied to >3 tasks in this session, as `cleo verify --shared-evidence` does (T14072). Without it the reuse warns W_EVIDENCE_AUDIT_MISS; under CLEO_STRICT_EVIDENCE=1 it is refused.',
+    },
   },
   async run({ args }) {
     const { parseDoneOptions, planTaskDone } = await import('@cleocode/core/tasks/done-plan.js');
@@ -137,6 +142,7 @@ export const doneCommand = defineCommand({
       projectRoot: getProjectRoot(),
       ...parsed.options,
       ...(args['run-typed'] === true ? { runTyped: true } : {}),
+      ...(args['shared-evidence'] === true ? { sharedEvidence: true } : {}),
       // T14053: the plan shows integration as skipped under --no-integrate.
       ...(negatedFlag(args, 'integrate') ? { noIntegrate: true } : {}),
     };
