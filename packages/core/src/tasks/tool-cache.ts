@@ -1690,10 +1690,11 @@ function writeKilledMarker(projectRoot: string, marker: KilledRunMarker): void {
 }
 
 /**
- * The kill recorded for `key` since `sinceMs`, or `null` (T13014). Only a kill
- * recorded after this call started counts: it is the run this caller waited
- * on, at the same limits (the key carries the heap and workers). A later call
- * runs again, so a retry after memory frees up is never refused.
+ * The kill recorded for `key` since `sinceMs`, or `null` (T13014). Callers pass
+ * the moment they began waiting on the key's holder, so only that holder's
+ * kill counts: it ran at the same limits (the key carries the heap and
+ * workers). A call that never waited runs again, so a retry after memory
+ * frees up is never refused.
  */
 function readKilledMarker(
   projectRoot: string,
@@ -1970,6 +1971,10 @@ async function runToolCachedWithPlan(
 ): Promise<ToolRunResult> {
   const toolEnv = spawnPlan.overlay;
   const callStartedAt = Date.now();
+  // T13014: when this call first found another caller holding the key's lock.
+  // Only such a waiter reports a kill instead of running: a call that never
+  // waited (a fresh retry, even within the same millisecond as the kill) runs.
+  let waitedSince: number | null = null;
   const tailBytes = opts.tailBytes ?? 512;
   const lockStaleMs = opts.lockStaleMs ?? 600_000;
   // T12105 / gh#1193: an explicit opts value (tests) wins; otherwise the
@@ -2175,7 +2180,7 @@ async function runToolCachedWithPlan(
       const fresh = readCacheEntry(projectRoot, key);
       if (fresh) return hit(fresh);
     }
-    const killed = readKilledMarker(projectRoot, key, callStartedAt);
+    const killed = waitedSince === null ? null : readKilledMarker(projectRoot, key, waitedSince);
     if (killed !== null) return killedResult(killed);
     sweepLegacyEntriesOnce(projectRoot);
 
@@ -2497,6 +2502,7 @@ async function runToolCachedWithPlan(
           ? (err.cause as { code?: string } | undefined)?.code
           : undefined;
       if (causeCode !== 'ELOCKED') throw err;
+      waitedSince ??= Date.now();
     } finally {
       if (releaseSemaphore) await releaseSemaphore();
     }
@@ -2510,7 +2516,7 @@ async function runToolCachedWithPlan(
     }
     const done = readCacheEntry(projectRoot, key);
     if (done && acceptable(done)) return hit(done);
-    const killed = readKilledMarker(projectRoot, key, callStartedAt);
+    const killed = readKilledMarker(projectRoot, key, waitedSince ?? callStartedAt);
     if (killed !== null) return killedResult(killed);
     if (Date.now() >= waitDeadline) {
       // T12025: a typed, actionable result so callers surface

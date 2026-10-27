@@ -99,12 +99,16 @@ function cacheEntryCount(projectRoot: string): number {
   return readdirSync(dir).filter((f) => f.endsWith('.json')).length;
 }
 
-/** Every entry file in the cache, parsed. */
+/**
+ * Every entry file in the cache (`<key>.json`), parsed. A killed run's
+ * `<key>.killed.json` marker (T13014) is not an entry: no read serves it as a
+ * result, it only tells waiters on that key not to rerun.
+ */
 function cacheEntries(projectRoot: string): Array<Record<string, unknown>> {
   const dir = join(projectRoot, '.cleo', 'cache', 'evidence');
   if (!existsSync(dir)) return [];
   return readdirSync(dir)
-    .filter((f) => f.endsWith('.json'))
+    .filter((f) => /^[0-9a-f]{32}\.json$/.test(f))
     .map((f) => JSON.parse(readFileSync(join(dir, f), 'utf-8')) as Record<string, unknown>);
 }
 
