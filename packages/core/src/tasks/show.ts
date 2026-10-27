@@ -363,6 +363,7 @@ export async function taskShowOperation(
     const view = await computeTaskView(params.taskId, accessor);
     const task = await taskToShowRecord(projectRoot, detail, attachments);
     await noteRecoveredLegacyTasks(projectRoot, params.taskId);
+    await noteStaleGates(projectRoot, detail);
     return engineSuccess({
       task,
       view,
@@ -372,6 +373,35 @@ export async function taskShowOperation(
     });
   } catch (err: unknown) {
     return caughtToEngineError(err, 'E_NOT_INITIALIZED', 'Task database not initialized');
+  }
+}
+
+/**
+ * Warn about each recorded gate whose evidence no longer stands (T14037),
+ * judged by the rule `cleo complete` applies ({@link gateStaleness}), so the
+ * read says so before complete refuses. Advisory: the task is shown either way.
+ *
+ * @param projectRoot - Absolute path to the project root.
+ * @param task - The task being shown.
+ */
+async function noteStaleGates(projectRoot: string, task: TaskDetail): Promise<void> {
+  if (task.isArchived) return;
+  try {
+    const { gateStaleness } = await import('./gate-staleness.js');
+    const stale = await gateStaleness(task, projectRoot);
+    if (stale.length === 0) return;
+    const { pushWarning } = await import('../output.js');
+    for (const s of stale) {
+      pushWarning({
+        // @sync-invariant none:input-shape an advisory note on a read; it refuses nothing
+        code: 'W_GATE_STALE',
+        message:
+          `${s.gate} is recorded as passed but its evidence no longer stands: ${s.reason}. ` +
+          `cleo complete would refuse it; cleo done ${task.id} --plan names what to re-record.`,
+      });
+    }
+  } catch {
+    // Advisory only: the task itself is shown either way.
   }
 }
 

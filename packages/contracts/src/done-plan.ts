@@ -74,6 +74,10 @@ export type DonePlanBlockerCode =
   | 'qa-run-needed'
   | 'ac-mapping-needed'
   | 'manual-gate'
+  /** A required gate is not passed and `cleo done` cannot derive its evidence (T14036). */
+  | 'gate-not-derivable'
+  /** A `depends` edge points at a task that is not terminal; complete refuses (T14036). */
+  | 'dependency-unresolved'
   | 'epic-rollup'
   | 'run-from-worktree'
   | 'checkout-required'

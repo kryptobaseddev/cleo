@@ -29,6 +29,7 @@ import { randomUUID } from 'node:crypto';
 import { join, resolve } from 'node:path';
 import type {
   AcRow,
+  DataAccessor,
   DoneNextStep,
   DonePlan,
   DonePlanAcMapping,
@@ -43,6 +44,7 @@ import type {
   WorktreeIntegrationPlan,
 } from '@cleocode/contracts';
 import { ExitCode } from '@cleocode/contracts/exit-codes.js';
+import { TERMINAL_TASK_STATUSES } from '@cleocode/contracts/status-registry.js';
 import { type EngineResult, engineSuccess } from '../engine-result.js';
 import { CleoError } from '../errors.js';
 import { cleoErrorToEngineResult } from '../errors-to-engine.js';
@@ -60,12 +62,7 @@ import {
   planScopedTestRun,
   standalonePackage,
 } from './affected-packages.js';
-import {
-  qaPassedSupersededReason,
-  type TaskMergeInfo,
-  taskChangeMergeState,
-  testsPassedSupersededReason,
-} from './affected-scope.js';
+import { type TaskMergeInfo, taskChangeMergeState } from './affected-scope.js';
 import { type ChangeSetDeps, deriveTaskChangeSet } from './change-set.js';
 import {
   checkGateEvidenceMinimumDetailed,
@@ -80,6 +77,7 @@ import {
   typedResultDrift,
   typedResultStaleReason,
 } from './gate-runner.js';
+import { gateStaleness } from './gate-staleness.js';
 import { changedTestFiles } from './test-run-binding.js';
 import { captureTreeHash, computeCacheKey, readCacheEntry } from './tool-cache.js';
 import { captureEnvFingerprint, captureResourceEnv } from './tool-cache-env.js';
@@ -133,6 +131,8 @@ const DONE_PLAN_BLOCKER_ORDER: readonly DonePlanBlockerCode[] = [
   'qa-run-needed',
   'ac-mapping-needed',
   'manual-gate',
+  'gate-not-derivable',
+  'dependency-unresolved',
   'epic-rollup',
   'evidence-refused',
   'completion-refused',
@@ -895,6 +895,71 @@ function acMappingBlocker(
   };
 }
 
+/**
+ * A required evidence gate that is neither passed nor planned (T14036): no
+ * evidence derives for it and no other blocker names it, so `cleo complete`
+ * would refuse while the plan said ready. A gate whose recorded pass no longer
+ * stands (T14037) says why.
+ */
+function gateNotDerivableBlockers(
+  taskId: string,
+  gates: readonly DonePlanGate[],
+  planned: readonly DonePlanBlocker[],
+  changeSet: TaskChangeSet,
+  staleReason: (gate: VerificationGate) => string | null,
+): DonePlanBlocker[] {
+  return gates
+    .filter(
+      (g) =>
+        g.required &&
+        !g.passed &&
+        g.evidence === null &&
+        EVIDENCE_GATES.includes(g.gate) &&
+        !planned.some((b) => b.gate === g.gate) &&
+        // A change-set blocker already says why implemented, or anything with
+        // no change set at all, does not derive.
+        !(g.gate === 'implemented' && changeSet.blockers.length > 0) &&
+        changeSet.source !== 'none',
+    )
+    .map((g) => {
+      const stale = staleReason(g.gate);
+      return {
+        code: 'gate-not-derivable' as const,
+        gate: g.gate,
+        message:
+          `${g.gate} is required and ${stale ? `its recorded evidence no longer stands (${stale})` : 'not passed'}, ` +
+          'and cleo done cannot derive evidence for it here, so cleo complete would refuse.',
+        next: step(
+          `cleo verify ${taskId} --gate ${g.gate} --evidence '<atoms>'`,
+          checkGateEvidenceMinimumDetailed(g.gate, [])?.message ?? `Record ${g.gate} evidence.`,
+        ),
+      };
+    });
+}
+
+/**
+ * A `depends` edge to a task that is not terminal (T14036): `cleo complete`
+ * refuses it with the same rule ({@link TERMINAL_TASK_STATUSES}); a dependency
+ * that no longer exists never blocks.
+ */
+async function dependencyBlockers(
+  task: Task,
+  accessor: Pick<DataAccessor, 'loadTasks'>,
+): Promise<DonePlanBlocker[]> {
+  if (!task.depends?.length) return [];
+  return (await accessor.loadTasks(task.depends))
+    .filter((d) => !TERMINAL_TASK_STATUSES.has(d.status))
+    .map((d) => ({
+      code: 'dependency-unresolved' as const,
+      message: `${task.id} depends on ${d.id} (${d.status}), which is not done; cleo complete refuses until it is.`,
+      next: step(
+        `cleo complete ${d.id}`,
+        `Or, when the edge is stale, drop it (cleo update ${task.id} --remove-depends ${d.id}) or ` +
+          `record an audited override (cleo complete ${task.id} --waive-depends "<reason>").`,
+      ),
+    }));
+}
+
 /** Required gates `cleo done` cannot derive (documented, securityPassed, …). */
 function manualGateBlockers(taskId: string, gates: readonly DonePlanGate[]): DonePlanBlocker[] {
   return gates
@@ -1058,30 +1123,22 @@ export async function deriveTaskEvidence(
   // T12635 (D11150): a scoped testsPassed only stands before merge. Once the
   // change has merged, merged CI or a full run supersedes it; a tree-bound
   // test-run also stops standing once its tree moves (T12965). T12656: the
-  // same rule `cleo complete` enforces (one shared function).
-  const supersededReason = await testsPassedSupersededReason(
-    task.verification?.evidence?.testsPassed?.atoms ?? [],
-    {
-      mergeState: mergeInfo,
-      // T12965 review M2: the change-set root, as `cleo complete` and the
-      // `test-run:` binding compute it.
-      currentTree: () => captureTreeHash(root),
-      root: () => root,
-    },
-  );
-  const superseded = supersededReason !== null;
-  if (supersededReason) changeSet.warnings.push(supersededReason);
-  // T13427: a qa-run receipt stands only while its tree does; T13644: after
-  // merge, only when it carries or was recorded on main after the merge.
-  const qaSupersededReason = await qaPassedSupersededReason(
-    task.verification?.evidence?.qaPassed?.atoms ?? [],
-    { mergeState: mergeInfo, currentTree: () => captureTreeHash(root), root: () => root },
-  );
-  if (qaSupersededReason) changeSet.warnings.push(qaSupersededReason);
+  // same rule `cleo complete` enforces (one shared function). T13427, T13644:
+  // likewise for qa-run receipts. T14037: with complete's re-validation of
+  // every recorded gate's atoms, through the one read-only gateStaleness.
+  const staleness = await gateStaleness(task, storeRoot, {
+    mergeState: mergeInfo,
+    // T12965 review M2: the change-set root, as `cleo complete` and the
+    // `test-run:` binding compute it.
+    currentTree: () => captureTreeHash(root),
+    root: () => root,
+  });
+  const staleReason = (gate: VerificationGate): string | null =>
+    staleness.find((s) => s.gate === gate)?.reason ?? null;
+  const supersededReason = staleReason('testsPassed');
+  for (const s of staleness) changeSet.warnings.push(`${s.gate} no longer stands: ${s.reason}`);
   const passed = (gate: VerificationGate): boolean =>
-    task.verification?.gates?.[gate] === true &&
-    !(gate === 'testsPassed' && superseded) &&
-    !(gate === 'qaPassed' && qaSupersededReason !== null);
+    task.verification?.gates?.[gate] === true && staleReason(gate) === null;
   const pending = requiredGates.filter((g) => !passed(g));
   const decisionOnly =
     changeSet.source === 'docs' && (changeSet.implementedEvidence ?? '').startsWith('decision:');
@@ -1242,14 +1299,24 @@ export async function deriveTaskEvidence(
 
   const isCode = kind === 'code';
   const acBlocker = acMappingBlocker(taskId, acMapping, pending);
-  const derivedBlockers = orderBlockers([
-    ...changeSet.blockers.map((b) =>
-      b.code === 'no-change-set' ? noChangeSetBlocker(task, kind) : b,
-    ),
+  // T14036: with every required gate already standing, complete re-judges the
+  // recorded evidence and needs no change set, so its derivation blockers go.
+  const allPassed = requiredGates.every(passed);
+  const planned = [
+    ...(allPassed
+      ? []
+      : changeSet.blockers.map((b) =>
+          b.code === 'no-change-set' ? noChangeSetBlocker(task, kind) : b,
+        )),
     ...toolAndTypedGateBlockers(taskId, isCode, toolRuns, typedGates, root, opts.runTyped === true),
     ...testRunBlockers,
     ...(acBlocker ? [acBlocker] : []),
     ...manualGateBlockers(taskId, gates),
+  ];
+  const derivedBlockers = orderBlockers([
+    ...planned,
+    ...gateNotDerivableBlockers(taskId, gates, planned, changeSet, staleReason),
+    ...(task.status === 'done' ? [] : await dependencyBlockers(task, accessor)),
   ]);
 
   const cd = changeSet.rootSource === 'task-worktree' ? `cd ${shellQuote(root)} && ` : '';
