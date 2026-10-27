@@ -15,7 +15,12 @@ import { existsSync, mkdtempSync, realpathSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { DEFAULT_GIT_TIMEOUT_MS, forceRemoveWorktreeDir } from '../git.js';
+import {
+  DEFAULT_GIT_TIMEOUT_MS,
+  forceRemoveWorktreeDir,
+  pruneWorktreeRegistry,
+  unlockWorktree,
+} from '../git.js';
 
 function git(cwd: string, ...args: string[]): string {
   return execFileSync('git', args, { cwd, encoding: 'utf-8' }).trim();
@@ -53,6 +58,23 @@ describe('forceRemoveWorktreeDir (T10858)', () => {
       git(root, 'worktree', 'lock', path);
       forceRemoveWorktreeDir(root, path);
       expect(existsSync(path)).toBe(false);
+      expect(git(root, 'worktree', 'list', '--porcelain').match(/^worktree /gm)).toHaveLength(1);
+    } finally {
+      rmSync(path, { recursive: true, force: true });
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('T10867: unlockWorktree reports whether git unlocked it; pruneWorktreeRegistry drops a vanished entry', () => {
+    const root = repo();
+    const path = join(root, '..', `${root.split('/').pop()}-gone`);
+    try {
+      git(root, 'worktree', 'add', '-q', '--detach', path);
+      expect(unlockWorktree(root, path)).toBe(false); // not locked
+      git(root, 'worktree', 'lock', path);
+      expect(unlockWorktree(root, path)).toBe(true);
+      rmSync(path, { recursive: true, force: true });
+      expect(pruneWorktreeRegistry(root)).toBe(true);
       expect(git(root, 'worktree', 'list', '--porcelain').match(/^worktree /gm)).toHaveLength(1);
     } finally {
       rmSync(path, { recursive: true, force: true });

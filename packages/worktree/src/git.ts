@@ -239,7 +239,33 @@ export async function removeTransientWorktree(
  * @task T10858
  */
 export function forceRemoveWorktreeDir(gitRoot: string, worktreePath: string): void {
-  gitSilent(['worktree', 'unlock', worktreePath], gitRoot);
+  unlockWorktree(gitRoot, worktreePath);
   rmSync(worktreePath, { recursive: true, force: true });
-  gitSilent(['worktree', 'prune'], gitRoot);
+  pruneWorktreeRegistry(gitRoot);
+}
+
+/**
+ * Release git's lock on a worktree (`git worktree unlock`). Best-effort.
+ *
+ * @param gitRoot - Repository root the worktree belongs to.
+ * @param worktreePath - Absolute path to the worktree.
+ * @returns True when git unlocked it; false when it was not locked or git failed.
+ *
+ * @task T10867
+ */
+export function unlockWorktree(gitRoot: string, worktreePath: string): boolean {
+  return gitSilent(['worktree', 'unlock', worktreePath], gitRoot);
+}
+
+/**
+ * Drop git's administrative entries for worktrees whose directories are gone
+ * (`git worktree prune`). Best-effort; never touches a worktree on disk.
+ *
+ * @param gitRoot - Repository root.
+ * @returns True when git exited 0.
+ *
+ * @task T10867
+ */
+export function pruneWorktreeRegistry(gitRoot: string): boolean {
+  return gitSilent(['worktree', 'prune'], gitRoot);
 }

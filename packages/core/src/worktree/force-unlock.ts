@@ -32,7 +32,7 @@ import type {
   ForceUnlockWorktreeResult,
 } from '@cleocode/contracts';
 import { engineError, engineSuccess } from '@cleocode/contracts/engine-result.js';
-import { gitSilent } from '@cleocode/worktree';
+import { unlockWorktree } from '@cleocode/worktree';
 import { getLogger } from '../logger.js';
 import { appendWorktreeAuditEntry, resolveWorktreeAuditActor } from './audit.js';
 import { listWorktrees } from './list.js';
@@ -132,7 +132,7 @@ export async function forceUnlockWorktree(
   // Step 2: if porcelain reported the worktree as locked, ask git to unlock it.
   let worktreeUnlocked = false;
   if (wt.isLocked) {
-    if (gitSilent(['worktree', 'unlock', wt.path], opts.projectRoot)) {
+    if (unlockWorktree(opts.projectRoot, wt.path)) {
       worktreeUnlocked = true;
     }
   }

@@ -37,6 +37,7 @@ import {
   gitSilent,
   guardWorktreeDisposal,
   napiDestroyWorktree,
+  pruneWorktreeRegistry,
 } from '@cleocode/worktree';
 import { taskEvidenceAtoms } from '../tasks/evidence-paths.js';
 import { appendWorktreeAuditEntry, resolveWorktreeAuditActor } from './audit.js';
@@ -57,7 +58,7 @@ import { isPrimaryWorktree, listWorktrees, resolvePrimaryWorktreePath } from './
  *     primitive with the user-confirmed subset.
  *  4. For each candidate, invoke the NAPI destroyWorktree binding (T11123) for
  *     atomic unlock+force-remove via Rust worktrunk-core. On failure, falls
- *     back to gitSilent worktree prune for administrative cleanup.
+ *     back to the facade's pruneWorktreeRegistry for administrative cleanup.
  *  5. When the prune succeeded AND the branch is reachable from `main` (the
  *     T9546 `isMerged` flag), also drop the local `task/<id>` branch via
  *     `git branch -D <branch>`. We never delete unmerged branches here —
@@ -277,7 +278,7 @@ export function reasonForStatus(wt: WorktreeInfo): string {
  * Steps:
  *  1. Invoke `napiDestroyWorktree({ repoRoot, worktreePath, force: true })`
  *     — atomic unlock + force-remove via Rust worktrunk-core.
- *  2. Fallback to gitSilent worktree prune if NAPI fails (administrative
+ *  2. Fallback to the facade's pruneWorktreeRegistry if NAPI fails (administrative
  *     cleanup for stale entries).
  *  3. When the worktree was `isMerged`, delete the local `task/<id>` branch
  *     with `git branch -D <branch>` — safe because the branch tip is
@@ -309,7 +310,7 @@ export function removeWorktreeFromDisk(
 
   if (!removed) {
     // Best-effort administrative cleanup for stale git worktree entries.
-    gitSilent(['worktree', 'prune'], projectRoot);
+    pruneWorktreeRegistry(projectRoot);
     if (existsSync(wt.path)) {
       return {
         success: false,
