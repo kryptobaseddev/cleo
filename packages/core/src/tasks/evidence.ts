@@ -1846,7 +1846,7 @@ async function runAffectedTests(
       ...(run.testFiles ? { affectedTestFiles: run.testFiles } : {}),
       ...(run.configPaths ? { configPaths: run.configPaths } : {}),
       ...(run.untested.length > 0 ? { untestedPackages: run.untested } : {}),
-      ...toolRunAtomFields(result),
+      ...(await toolRunAtomFields(result)),
     },
   };
 }
@@ -2799,7 +2799,7 @@ async function validateTool(
       tool,
       exitCode: 0,
       stdoutTail: result.stdoutTail,
-      ...toolRunAtomFields(result),
+      ...(await toolRunAtomFields(result)),
       ...(fullScopeReason !== undefined
         ? { scope: 'full' as const, ...(fullScopeReason ? { scopeReason: fullScopeReason } : {}) }
         : {}),
@@ -2813,14 +2813,19 @@ async function validateTool(
  * needed its one full retry — the `flaky` files, so a flaky pass stays
  * visible to gates instead of reading as a clean one.
  */
-function toolRunAtomFields(result: ToolRunResult): {
+async function toolRunAtomFields(result: ToolRunResult): Promise<{
   treeHash?: string;
+  headSha?: string;
   cacheHit: boolean;
   flaky?: string[];
   resources?: HeavyToolResourcePlan;
-} {
+}> {
+  // T13003: the HEAD the run measured, so boundHeadGapReason can refuse a run
+  // on a checkout that lacks the task's implemented commits.
+  const headSha = result.treeHash ? await captureHead(result.executionRoot) : null;
   return {
     ...(result.treeHash ? { treeHash: result.treeHash } : {}),
+    ...(headSha ? { headSha } : {}),
     cacheHit: result.cacheHit,
     ...(result.flaky ? { flaky: result.flaky } : {}),
     // T13122: the heap and worker count the run got, and why — including an
@@ -4047,15 +4052,20 @@ export interface RevalidationResult {
 }
 
 /**
- * Why a `test-run:`/`qa-run:` result does not describe this task's work
- * (T14004), or null. The binding records the HEAD it was bound to, and that
- * HEAD must have seen the task's `implemented` work:
+ * Why a `test-run:`/`qa-run:` result, or a `tool:` run (T13003), does not
+ * describe this task's work (T14004), or null. The binding records the HEAD it
+ * was bound to (a tool run, the HEAD it measured), and that HEAD must have seen
+ * the task's `implemented` work:
  *
  * - `commit:` — the run head is that commit or contains it. An older commit
  *   (the branch base, main before the work) never saw the work.
  * - `pr:` — the run head is, or contains, the merge commit or the PR's final
  *   head: its recorded `headSha` (a squash merge too), else the merge's second
  *   parent. An earlier branch commit never saw the whole change.
+ *
+ * "Seen" also holds when the HEAD carries a patch-equivalent commit
+ * (`git cherry`): a rebase or a message-only amend keeps the patch, not the
+ * SHA (T13003).
  *
  * Evidence bound in another task's worktree is refused even when `cleo
  * complete` runs from that same worktree. A commit git cannot read (a shallow
@@ -4067,6 +4077,7 @@ export interface RevalidationResult {
  * @param projectRoot - The CLEO store root (the task's checkout is resolved from it).
  * @returns The refusal, or null.
  * @task T14004
+ * @task T13003
  */
 export async function boundHeadGapReason(
   task: Pick<Task, 'id' | 'verification'>,
@@ -4074,8 +4085,9 @@ export async function boundHeadGapReason(
   projectRoot: string,
 ): Promise<string | null> {
   const runs = atoms.filter(
-    (a): a is Extract<EvidenceAtom, { kind: 'test-run' | 'qa-run' }> =>
-      (a.kind === 'test-run' || a.kind === 'qa-run') && typeof a.headSha === 'string',
+    (a): a is Extract<EvidenceAtom, { kind: 'test-run' | 'qa-run' | 'tool' }> =>
+      (a.kind === 'test-run' || a.kind === 'qa-run' || a.kind === 'tool') &&
+      typeof a.headSha === 'string',
   );
   if (runs.length === 0) return null;
   const implemented = (task.verification?.evidence?.implemented?.atoms ?? []).filter(
@@ -4116,8 +4128,15 @@ export async function boundHeadGapReason(
   // A prefix match needs at least 7 hex characters on both sides: '' matches everything.
   const sameCommit = (a: string, b: string): boolean =>
     a.length >= 7 && b.length >= 7 && (a.startsWith(b) || b.startsWith(a));
+  // T13003: a rebased or amended copy of the commit (same patch) in the run's
+  // history. `git cherry` marks each commit of `sha^..sha` with `-` when the
+  // head has its patch; every one must be marked (merges have no patch).
+  const patchEquivalent = (head: string, sha: string): boolean => {
+    const marks = (gitOut(['cherry', head, sha, `${sha}^`]) ?? '').split('\n').filter(Boolean);
+    return marks.length > 0 && marks.every((line) => line.startsWith('-'));
+  };
   const reached = (head: string, sha: string): boolean =>
-    sameCommit(head, sha) || contains(head, sha);
+    sameCommit(head, sha) || contains(head, sha) || patchEquivalent(head, sha);
   // Only positive checks accept: the run head is, or contains, the work's tip.
   const sawWork = (head: string, atom: (typeof implemented)[number]): boolean => {
     if (atom.kind === 'commit') return reached(head, atom.sha);
@@ -4136,7 +4155,10 @@ export async function boundHeadGapReason(
     const head = run.headSha as string;
     missing = null;
     if (implemented.every((atom) => sawWork(head, atom))) continue;
-    const bound = `${run.kind}:${run.path} was bound at ${head.slice(0, 12)}`;
+    const bound =
+      run.kind === 'tool'
+        ? `tool:${run.tool} ran at ${head.slice(0, 12)}`
+        : `${run.kind}:${run.path} was bound at ${head.slice(0, 12)}`;
     if (missing !== null) {
       return (
         `${bound}, and git cannot read the commits that relate it to ${task.id}'s implemented ` +

@@ -474,6 +474,12 @@ export type EvidenceAtom =
        * every uncommitted, not-ignored change applied.
        */
       treeHash?: string;
+      /**
+       * HEAD of the checkout the run measured (T13003). With `treeHash` it lets
+       * verify and complete refuse a run whose checkout lacks the task's
+       * implemented commits. Absent on atoms recorded before T13003.
+       */
+      headSha?: string;
       /** `true` when the result was served from the tool cache (no spawn). */
       cacheHit?: boolean;
       /**
