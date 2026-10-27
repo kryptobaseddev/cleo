@@ -646,6 +646,24 @@ specification MUST satisfy every MUST and MUST NOT.
   branches) directly with plain `git worktree`. Lifecycle commands MUST
   NOT touch worktrees with `taskId === null`.
 
+### Facade boundary and forensic bypass (T10853)
+
+- **MUST-29.** `git worktree` lifecycle verbs (`add`, `remove`, `list`,
+  `lock`, `unlock`, `prune`, `move`, `repair`) MUST run only inside
+  `@cleocode/worktree`. Core composes policy and calls the facade
+  (`createWorktree`, `destroyWorktree`, `forceRemoveWorktreeDir`,
+  `unlockWorktree`, `pruneWorktreeRegistry`, `listRegisteredWorktrees`).
+  `scripts/lint-no-raw-git-worktree.mjs` enforces this.
+- **MUST-30.** A core module MAY bypass the facade only when it is listed in
+  that lint's `FILE_ALLOWLIST` with a reason and a task id. Two exceptions
+  exist: `doctor/worktree-orphans.ts` is a **forensic scan** that reads
+  `git worktree list --porcelain` directly so it can report anomalies the
+  facade does not model (orphan `.cleo/` directories, non-canonical
+  locations, a rogue `worktrees/` directory). `worktree/list.ts` still reads
+  the porcelain itself until T10866 moves it behind the facade. A forensic
+  scan MUST be read-only: it MUST NOT add, remove, lock, unlock or prune a
+  worktree.
+
 ## 11. Cross-References
 
 - **ADR-055** (`.cleo/adrs/ADR-055-agents-architecture-and-meta-agents.md`) —

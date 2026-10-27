@@ -48,7 +48,9 @@ export {
   getGitRoot,
   gitSilent,
   gitSync,
+  pruneWorktreeRegistry,
   removeTransientWorktree,
+  unlockWorktree,
 } from './git.js';
 // NAPI bindings (sync, direct to Rust) — for callers that need raw
 // worktree lifecycle without the hooks/audit/dirty-detection wrapper.
