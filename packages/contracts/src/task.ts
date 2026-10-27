@@ -172,6 +172,10 @@ export interface EvidenceMergeAnchor {
   mergedAt: string;
   /** Paths the PR changed. */
   changedPaths?: readonly string[];
+  /** Paths the PR deleted: absent from its merge tree, so never `files:` artifacts (T14030). */
+  deletedPaths?: readonly string[];
+  /** The PR's number, named when a `files:` path it deleted is refused (T14030). */
+  prNumber?: number;
 }
 
 /** Task and criterion scope used while validating evidence, independent of PR metadata. */

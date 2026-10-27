@@ -309,4 +309,40 @@ describe('persisted contextual gate evidence', () => {
       reason: expect.stringContaining('Current checkout bytes cannot substitute'),
     });
   });
+  /** brain-close (epic T13938): a files: list copied from a PR included a path it deleted (T14030). */
+  it('names a files: path the PR deleted instead of calling its merge unfetched', async () => {
+    const anchor = {
+      prNumber: 42,
+      mergeCommitSha: 'a'.repeat(40),
+      mergedAt: '2026-09-19T00:00:00Z',
+      changedPaths: ['fix.ts', 'old.ts'],
+      deletedPaths: ['old.ts'],
+    };
+    const deleted = await validateAtom(
+      { kind: 'files', paths: ['old.ts'] },
+      root,
+      'T12254',
+      undefined,
+      {
+        ...context,
+        artifactPrs: [anchor],
+      },
+    );
+    expect(deleted).toMatchObject({ ok: false, codeName: 'E_EVIDENCE_INVALID' });
+    expect(!deleted.ok && deleted.reason).toContain('old.ts was deleted by PR #42');
+    expect(!deleted.ok && deleted.reason).toContain('Leave it out of files:');
+
+    // A kept path whose merge is not fetched keeps the fetch remedy.
+    const kept = await validateAtom(
+      { kind: 'files', paths: ['fix.ts'] },
+      root,
+      'T12254',
+      undefined,
+      {
+        ...context,
+        artifactPrs: [anchor],
+      },
+    );
+    expect(!kept.ok && kept.reason).toContain('Cannot inspect fix.ts at PR merge');
+  });
 });
