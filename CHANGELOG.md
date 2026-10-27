@@ -1,5 +1,74 @@
 # Changelog
 
+## [2026.10.26] (2026-10-27)
+
+> **Update now: run `cleo self-update`.**
+
+### Highlights
+
+- **`cleo done --plan` is ready exactly when `cleo complete` would accept.** The plan now reports a `gate-not-derivable` blocker for a required gate it cannot prove and a `dependency-unresolved` blocker for each open dependency, and stops refusing with `no-change-set` once every required gate stands. A recorded gate that no longer holds is judged by complete's own checks, and `cleo show` warns `W_GATE_STALE` for it (T14036, T14037).
+- **One evidence-tree resolver.** Typed gates and change-set binding both resolve their checkout through `resolveEvidenceTree`, so they never split across two trees; the invocation's own worktree of the declared repository wins, and `cleo verify` reports the chosen `evidenceRoot`. `cleo done --plan` also accepts a clean checkout detached at the task branch tip (T14058, T14059).
+- **More test reports count as evidence.** `test-run:` reads Playwright `--reporter=json` reports, and the `test-run:` atoms of one write cover a change together (unit plus e2e). Typed `minCount` gates count `node --test --test-reporter=tap` runs, and a refused report is named with its first failing field (T14031, T14051, T14060).
+- **Docs-only tasks are classified correctly.** A task with no declared files is documentation when its PR or commit changes only documents, or its criteria name only documents; any code path keeps it code. `cleo done --plan` and `cleo complete` agree, and the refusal names the fix (`cleo update <id> --files <doc paths>` or `--add-labels docs`) (#2473; T14048, T14065).
+- **Admission waits explain their holders.** Wait reports, refusals and `cleo doctor tool-locks` show each holder's liveness and why it still counts; a dead holder no longer keeps its charge through a reused process-group id, while a dead runner's live child keeps it. A `node` script that hosts a compiler or test runner is charged its build plan, then its measured peak, and `cleo run` prints the charge with its derivation (T14066, T13046, T14050).
+- **Affected scope ignores nested checkouts.** Files inside a nested worktree or repository no longer make a change workspace-wide, and `!` exclusions in `pnpm-workspace.yaml` and `package.json#workspaces` are applied (T14052, T14047).
+- **Node 26 store migration fixed.** On Node 26 (SQLite 3.54) the legacy-store migration no longer aborts on `DEFAULT CURRENT_TIMESTAMP`, which left `cleo.db` empty and failed writes with `E_EXODUS_ABORT_WRITE_UNSAFE`; SQL function names are compared case-insensitively (T14068, T14067).
+- **Kills are reported as kills, not failing tests.** An OOM or signal kill on `tool:`, affected-tests and `cleo done` runs is `E_EVIDENCE_TOOL_KILLED` with the memory ceiling and heap advice. Kill markers are found anywhere in the output (including jest worker crashes and, on Linux, a masked OOM in the run's systemd scope), and waiters on a killed key report the kill instead of rerunning into it (T13011, T13012, T13013, T13014).
+- **Runner-cancelled CI is not blamed on the PR.** `ci:<pr>` treats a job that ended only in GitHub's cancellation as cancelled, lets a later green main run stand in for a merge-commit job that only crashed a vitest worker with no failed test, judges a run with incomplete app/workflow identity as pending, and leads its refusal with the failing check and the next step (T14049, T13017, T14042, T14074).
+- **Spawn options.** `cleo orchestrate spawn-execute --base <ref>` branches from a ref and refuses on a bad base; `cleo orchestrate spawn --include-deps` starts the task branch from a merge of its dependencies' branches; spawn auto-complete honours `CLEO_NO_AUTO_WORKTREE_COMPLETE` (T14046, T14057, T14045).
+- **CI and refactors.** CI runs Type Check and the Linux unit shards on Node 26 beside the 24.16.0 floor, fails when committed `packages/contracts/schemas` differ from the generated output, and the packed-install smoke checks resolved dependencies against the lockfile (T14055, T14064, T14062). Core creates, removes, prunes and unlocks agent worktrees through the `@cleocode/worktree` facade, with branch integration in its own module and regression tests pinning the spawn path (T10858-T10864, T10866-T10868, T10870-T10877).
+
+### Added
+
+- orchestrate spawn --include-deps starts the task branch from a merge of its dependencies' branches _(provenance: [T14045](https://github.com/kryptobaseddev/cleo/search?q=T14045&type=commits))_
+
+### Changed
+
+- Branch integration (merge, fetch, landed-detection, the merge decision) moves out of the branch-lock lifecycle module _(provenance: [T10862](https://github.com/kryptobaseddev/cleo/search?q=T10862&type=commits), [T10863](https://github.com/kryptobaseddev/cleo/search?q=T10863&type=commits), [T10864](https://github.com/kryptobaseddev/cleo/search?q=T10864&type=commits))_
+- CI runs Type Check and the Linux unit shards on Node 26 beside the 24.16.0 floor _(provenance: [T14055](https://github.com/kryptobaseddev/cleo/search?q=T14055&type=commits))_
+- CI fails when committed packages/contracts/schemas differ from the generated output _(provenance: [T14064](https://github.com/kryptobaseddev/cleo/search?q=T14064&type=commits))_
+- Core prune and force-unlock call the @cleocode/worktree facade; the forensic bypass policy is written down _(provenance: [T10867](https://github.com/kryptobaseddev/cleo/search?q=T10867&type=commits), [T10868](https://github.com/kryptobaseddev/cleo/search?q=T10868&type=commits))_
+- Core creates and removes agent worktrees through the @cleocode/worktree facade _(provenance: [T10858](https://github.com/kryptobaseddev/cleo/search?q=T10858&type=commits), [T10859](https://github.com/kryptobaseddev/cleo/search?q=T10859&type=commits), [T10860](https://github.com/kryptobaseddev/cleo/search?q=T10860&type=commits), [T10861](https://github.com/kryptobaseddev/cleo/search?q=T10861&type=commits))_
+- Remove core's unused copy of detectPartialWorktree; the @cleocode/worktree facade owns partial-worktree detection _(provenance: [T10870](https://github.com/kryptobaseddev/cleo/search?q=T10870&type=commits))_
+- The packed-install smoke compares resolved contracts/core dependencies with the lockfile and parses schema fixtures through the installed contracts _(provenance: [T14062](https://github.com/kryptobaseddev/cleo/search?q=T14062&type=commits))_
+- Branch-lock no longer re-exports the facade's getGitRoot; worktree lifecycle ownership is documented _(provenance: [T10875](https://github.com/kryptobaseddev/cleo/search?q=T10875&type=commits), [T10876](https://github.com/kryptobaseddev/cleo/search?q=T10876&type=commits), [T10877](https://github.com/kryptobaseddev/cleo/search?q=T10877&type=commits))_
+- Regression tests pin the spawn path to the @cleocode/worktree facade and the canonical XDG worktree path _(provenance: [T10872](https://github.com/kryptobaseddev/cleo/search?q=T10872&type=commits), [T10873](https://github.com/kryptobaseddev/cleo/search?q=T10873&type=commits), [T10874](https://github.com/kryptobaseddev/cleo/search?q=T10874&type=commits))_
+- Worktree completion reads the task's worktree through one typed lifecycle state _(provenance: [T10871](https://github.com/kryptobaseddev/cleo/search?q=T10871&type=commits))_
+- Core's worktree list reads the registry through a light @cleocode/worktree/worktree-locate.js subpath _(provenance: [T10866](https://github.com/kryptobaseddev/cleo/search?q=T10866&type=commits))_
+
+### Fixed
+
+- Affected-package scope ignores files inside nested worktrees and repos, and applies workspace ! exclusions _(provenance: [T14052](https://github.com/kryptobaseddev/cleo/search?q=T14052&type=commits), [T14047](https://github.com/kryptobaseddev/cleo/search?q=T14047&type=commits))_
+- ci: evidence treats a runner-cancelled job as cancelled, judges a run with incomplete app/workflow identity as pending, and leads its refusal with the decisive reason _(provenance: [T14049](https://github.com/kryptobaseddev/cleo/search?q=T14049&type=commits), [T13017](https://github.com/kryptobaseddev/cleo/search?q=T13017&type=commits), [T14042](https://github.com/kryptobaseddev/cleo/search?q=T14042&type=commits))_
+- ci: evidence stands a later green main run in for a merge-commit job that only crashed a vitest worker, with no failed test _(provenance: [T14074](https://github.com/kryptobaseddev/cleo/search?q=T14074&type=commits))_
+- The post-merge testsPassed refusal and cleo doctor name the evidence.ciSatisfies block a project with GitHub workflows should add _(provenance: [T13096](https://github.com/kryptobaseddev/cleo/search?q=T13096&type=commits))_
+- cleo complete waiting on merged CI says so first, with the re-run step, before the CI detail _(provenance: [T14042](https://github.com/kryptobaseddev/cleo/search?q=T14042&type=commits))_
+- cleo done --plan lists each changed path once for a merge commit _(provenance: [T14040](https://github.com/kryptobaseddev/cleo/search?q=T14040&type=commits))_
+- cleo done --plan accepts a clean checkout detached at the task branch tip (checkout-required false positive) _(provenance: [T14059](https://github.com/kryptobaseddev/cleo/search?q=T14059&type=commits))_
+- cleo done --plan is ready exactly when cleo complete would accept, and show flags recorded gates that no longer stand _(provenance: [T14036](https://github.com/kryptobaseddev/cleo/search?q=T14036&type=commits), [T14037](https://github.com/kryptobaseddev/cleo/search?q=T14037&type=commits))_
+- cleo done accepts --shared-evidence, the remedy its shared-atom warning names _(provenance: [T14072](https://github.com/kryptobaseddev/cleo/search?q=T14072&type=commits))_
+- Typed gates and change-set binding resolve the evidence tree through one resolver; the invocation's worktree of the declared repo wins _(provenance: [T14058](https://github.com/kryptobaseddev/cleo/search?q=T14058&type=commits))_
+- --field on a declared optional field the record omits prints [] or null and succeeds _(provenance: [T14043](https://github.com/kryptobaseddev/cleo/search?q=T14043&type=commits))_
+- A files: path the cited PR deleted is refused by name instead of as an unfetched merge _(provenance: [T14030](https://github.com/kryptobaseddev/cleo/search?q=T14030&type=commits))_
+- A value beginning with -- passed to a string or positional flag is no longer parsed as an unknown flag _(provenance: [T14044](https://github.com/kryptobaseddev/cleo/search?q=T14044&type=commits))_
+- cleo run no longer charges a node script that hosts a compiler or test runner as a light 1 GiB run; it is charged its plan, then its measured peak, and the charge is printed with its derivation _(provenance: [T14050](https://github.com/kryptobaseddev/cleo/search?q=T14050&type=commits))_
+- tool: runs are judged against the task's implemented commits like test-run reports, and a rebased copy of a commit counts _(provenance: [T13003](https://github.com/kryptobaseddev/cleo/search?q=T13003&type=commits))_
+- an evidence run's resource kill is detected anywhere in its output, from jest's worker-crash messages, and on Linux from an OOM kill in its systemd scope that pnpm reports as exit 1 _(provenance: [T13012](https://github.com/kryptobaseddev/cleo/search?q=T13012&type=commits), [T13011](https://github.com/kryptobaseddev/cleo/search?q=T13011&type=commits))_
+- evidence tool runs queued on a key whose run was just killed for resources report that kill instead of rerunning into it at the same limits _(provenance: [T13014](https://github.com/kryptobaseddev/cleo/search?q=T13014&type=commits))_
+- an OOM or signal kill on the affected-tests and cleo done paths is reported as E_EVIDENCE_TOOL_KILLED with the memory ceiling and accurate heap advice, not as failing tests _(provenance: [T13013](https://github.com/kryptobaseddev/cleo/search?q=T13013&type=commits))_
+- admission wait reports say why each holder still counts; dead holders stop holding the budget through reused group ids, and a dead runner's live child keeps its charge _(provenance: [T14066](https://github.com/kryptobaseddev/cleo/search?q=T14066&type=commits), [T13046](https://github.com/kryptobaseddev/cleo/search?q=T13046&type=commits))_
+- Typed test gates count node:test TAP runs and name why a found report was refused _(provenance: [T14051](https://github.com/kryptobaseddev/cleo/search?q=T14051&type=commits), [T14060](https://github.com/kryptobaseddev/cleo/search?q=T14060&type=commits))_
+- On Node 26, opening a store with legacy databases no longer aborts the exodus migration on CURRENT_TIMESTAMP _(provenance: [T14068](https://github.com/kryptobaseddev/cleo/search?q=T14068&type=commits), [T14067](https://github.com/kryptobaseddev/cleo/search?q=T14067&type=commits))_
+- test-run evidence reads Playwright JSON reports, and the reports of one write cover a change together _(provenance: [T14031](https://github.com/kryptobaseddev/cleo/search?q=T14031&type=commits))_
+- cleo run names each project setting its heavy-run overlay overrides (vitest maxWorkers, pnpm workspace-concurrency) on stderr and in the run envelope _(provenance: [T14038](https://github.com/kryptobaseddev/cleo/search?q=T14038&type=commits))_
+- Provisioned-worktree check compares realpaths, so a row recorded through a symlink still counts _(provenance: [T14054](https://github.com/kryptobaseddev/cleo/search?q=T14054&type=commits))_
+- verify --run-typed refuses a write whose typed gate rewrote the test-run report it cites _(provenance: [T14056](https://github.com/kryptobaseddev/cleo/search?q=T14056&type=commits))_
+- satisfies alias drift compares parsed atom ids exactly, so #AC1 no longer matches a prior #AC10 binding _(provenance: [T14029](https://github.com/kryptobaseddev/cleo/search?q=T14029&type=commits))_
+- A tool command with a shell operator is a config error (E_EVIDENCE_INVALID) naming the operator and a package script _(provenance: [T14039](https://github.com/kryptobaseddev/cleo/search?q=T14039&type=commits))_
+- an interrupted command that ran a tool lets pending best-effort memory drains finish before it dies by the signal _(provenance: [T13018](https://github.com/kryptobaseddev/cleo/search?q=T13018&type=commits))_
+- orchestrate spawn-execute takes --base and refuses on a bad base; its auto-complete honours CLEO_NO_AUTO_WORKTREE_COMPLETE _(provenance: [T14046](https://github.com/kryptobaseddev/cleo/search?q=T14046&type=commits), [T14057](https://github.com/kryptobaseddev/cleo/search?q=T14057&type=commits))_
+- the brain writer worker finishes its scheduled embeddings before it is terminated, so stopping it never aborts the host process _(provenance: [T14069](https://github.com/kryptobaseddev/cleo/search?q=T14069&type=commits))_
+
 ## [2026.10.25] (2026-10-26)
 
 > **Update now: run `cleo self-update`.**
