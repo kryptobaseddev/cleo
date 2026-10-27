@@ -385,7 +385,11 @@ export async function taskShowOperation(
  * @param task - The task being shown.
  */
 async function noteStaleGates(projectRoot: string, task: TaskDetail): Promise<void> {
-  if (task.isArchived) return;
+  // Nothing recorded, nothing to judge: the checks load only when there is
+  // recorded evidence, so a plain show keeps its startup budget (gate 39).
+  const evidence = task.verification?.evidence;
+  if (task.isArchived || task.status === 'done' || !evidence) return;
+  if (Object.values(evidence).every((ev) => !ev)) return;
   try {
     const { gateStaleness } = await import('./gate-staleness.js');
     const stale = await gateStaleness(task, projectRoot);
