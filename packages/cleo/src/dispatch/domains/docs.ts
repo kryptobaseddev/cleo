@@ -2353,7 +2353,10 @@ async function dispatchDocsLegacyMutate(
         attachmentId:
           typeof params['attachmentId'] === 'string' ? params['attachmentId'] : undefined,
         projectRoot,
+        // T13919: a dry run runs the real checks and writes nothing.
+        ...(params['dryRun'] === true ? { dryRun: true } : {}),
       });
+      if (result.dryRun === true) return result;
       try {
         await recordPublication({
           ownerId: result.ownerId,

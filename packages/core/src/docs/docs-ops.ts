@@ -1115,6 +1115,8 @@ export interface DocsPublishResult {
   readonly blobName: string;
   /** Owner entity ID whose blob was published. */
   readonly ownerId: string;
+  /** Set when nothing was written: the checks passed and this is what would be (T13919). */
+  readonly dryRun?: true;
 }
 
 /** Return the validated real target; Git registration alone never authorizes arbitrary paths. */
@@ -1216,6 +1218,12 @@ export async function publishDocs(opts: {
   projectRoot?: string;
   /** When true, allow writing to paths outside `projectRoot`. Default: `false`. */
   allowOutsideRoot?: boolean;
+  /**
+   * Run every check a real publish runs (owner, attachment, bytes, path
+   * containment) and return what would be written, writing nothing — not
+   * even the destination directory (T13919, T12583).
+   */
+  dryRun?: boolean;
 }): Promise<DocsPublishResult> {
   const root = opts.projectRoot ?? getProjectRoot();
   const blobs = await blobList(opts.ownerId, root).catch(() => []);
@@ -1304,12 +1312,38 @@ export async function publishDocs(opts: {
       : resolvePath(canonicalRoot, opts.toPath);
     const validatedPath = await validatedPublicationPath(root, lexicalPath);
     if (!validatedPath) {
-      throw new Error(
-        `publishDocs: refusing to write outside projectRoot "${root}" (resolved to "${publishedPath}"). Pass allowOutsideRoot:true to override.`,
+      // T13919: a typed refusal (not E_INTERNAL), the same in dry-run and
+      // execute, naming the supported destinations; the CLI has no override.
+      // @sync-invariant none:input-shape the destination path is caller input; nothing is written or synced
+      throw new CleoError(
+        ExitCode.VALIDATION_ERROR,
+        `publishDocs: refusing to write outside projectRoot "${root}" (resolved to "${publishedPath}")`,
+        {
+          fix: `Publish under the project root or a registered canonical task worktree (cleo worktree list); a relative --to resolves under ${root}.`,
+          details: {
+            field: 'toPath',
+            expected: 'a path under the project root or a registered canonical task worktree',
+            actual: publishedPath,
+            projectRoot: root,
+          },
+        },
       );
     }
     publishedPath = validatedPath;
     publicationOrigin = canonicalRoot;
+  }
+
+  if (opts.dryRun === true) {
+    return {
+      publishedPath,
+      relativePath: relative(publicationOrigin, publishedPath),
+      sha256: createHash('sha256').update(bytes).digest('hex'),
+      bytes: bytes.byteLength,
+      blobSha256: target.sha256,
+      blobName: target.name,
+      ownerId: opts.ownerId,
+      dryRun: true,
+    };
   }
 
   // Tmp name carries pid + random suffix so concurrent publishes never collide.

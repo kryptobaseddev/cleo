@@ -7,6 +7,10 @@
  * @epic T1041
  */
 
+import { existsSync } from 'node:fs';
+import { mkdtemp, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { dirname, join } from 'node:path';
 import { ExitCode } from '@cleocode/contracts/exit-codes.js';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { CleoError } from '../../errors.js';
@@ -585,6 +589,45 @@ describe('publishDocs', () => {
         toPath: '../../escape.md',
       }),
     ).rejects.toThrow(/outside projectRoot/);
+  });
+
+  // T13919 / T12583 — dry-run and execute run the same checks and refuse an
+  // outside-root destination with the same typed code; nothing is created.
+  it('T13919: dry-run and execute refuse an outside-root destination alike, creating nothing', async () => {
+    const outside = join(tmpdir(), `cleo-t13919-${process.pid}-${Date.now()}`, 'admin', 'x.md');
+    for (const dryRun of [true, false]) {
+      const err = await publishDocs({ ownerId: 'T123', toPath: outside, dryRun }).catch(
+        (e: unknown) => e,
+      );
+      expect(err, `dryRun=${dryRun}`).toMatchObject({
+        name: 'CleoError',
+        code: 6,
+        message: expect.stringMatching(/outside projectRoot/),
+        fix: expect.stringMatching(/registered canonical task worktree/),
+      });
+      expect(String((err as Error).message)).not.toMatch(/allowOutsideRoot/);
+      expect(existsSync(dirname(dirname(outside))), `dryRun=${dryRun}`).toBe(false);
+    }
+  });
+
+  it('T13919: a dry run inside the root reports what would be written and writes nothing', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'cleo-t13919-root-'));
+    try {
+      const result = await publishDocs({
+        ownerId: 'T123',
+        toPath: 'docs/out/spec.md',
+        projectRoot: root,
+        dryRun: true,
+      });
+      expect(result).toMatchObject({
+        dryRun: true,
+        relativePath: join('docs', 'out', 'spec.md'),
+        bytes: 5,
+      });
+      expect(existsSync(join(root, 'docs'))).toBe(false);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
   });
 
   // ── T11042 regression: publish default selects latest owner version ────────
