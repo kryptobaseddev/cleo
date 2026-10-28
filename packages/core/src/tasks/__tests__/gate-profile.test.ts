@@ -184,5 +184,7 @@ describe('the decision-only route is named in the refusal (T12220)', () => {
   it('names the commit: or pr: atom that disqualifies it', () => {
     const note = decisionOnlyRouteNote('qaPassed', { atoms: [decision, commit] });
     expect(note).toMatch(/does not apply: implemented carries commit:a{40}, a code change/);
+    // It never tells an agent holding code evidence how to strip it.
+    expect(note).not.toMatch(/re-record|replaces its atoms/);
   });
 });

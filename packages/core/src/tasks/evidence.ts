@@ -3894,11 +3894,11 @@ export const DECISION_ONLY_RELAXED_GATES: readonly VerificationGate[] = Object.f
 /**
  * What a `testsPassed`/`qaPassed` refusal adds about the routes for work with
  * no code change (T12220), or `null` for any other gate: the decision-only
- * route (each relaxed gate verified explicitly with `decision:`+`note:`), the
- * `commit:`/`pr:` atom that disqualifies it when `implemented` carries one,
- * that re-verifying a gate REPLACES its atoms (so re-recording `implemented`
- * clears a disqualifier), and the gate profiles (T13474) that make the gates
- * not owed at all.
+ * route (each relaxed gate verified explicitly with `decision:`+`note:`, and
+ * that re-verifying a gate REPLACES its atoms), and the gate profiles
+ * (T13474) that make the gates not owed at all. When `implemented` carries a
+ * `commit:`/`pr:` atom it says only that the change is code and needs a test
+ * or QA result: it never explains how to strip code evidence.
  *
  * @param gate - The refused gate.
  * @param implemented - The task's recorded `implemented` evidence, if any.
@@ -3919,8 +3919,7 @@ export function decisionOnlyRouteNote(
     return (
       `The decision-only route does not apply: implemented carries ` +
       `${code.kind === 'commit' ? `commit:${code.sha}` : `pr:${code.prNumber}`}, a code change, so ` +
-      `${gate} needs a test or QA result. ${replace} A task that changed no code can re-record ` +
-      'implemented as decision:<id>;note:<why> to clear it.'
+      `${gate} needs a test or QA result.`
     );
   return (
     'A task that changed no code may instead take the decision-only route: record implemented ' +
