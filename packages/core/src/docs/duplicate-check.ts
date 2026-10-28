@@ -10,9 +10,10 @@
  * per-task rcasd state never are.
  *
  *  2. slug: same kind and normalised Levenshtein score
- *     >= 0.85 (the T10361 scorer), after dropping task-id and numeric tokens
- *     from both slugs;
- *  3. title: same kind and token Jaccard >= 0.8 between normalised titles;
+ *     >= 0.85 (the T10361 scorer) between the slugs' words, after dropping
+ *     task ids and dates; slugs whose other numbers differ never match;
+ *  3. title: same kind and token Jaccard >= 0.8 between normalised titles,
+ *     numbers compared the same way;
  *  4. content: >= 60 % of the new doc's word 5-grams already appear in an
  *     existing doc of the same kind (both at least 50 words).
  *
@@ -100,18 +101,47 @@ export interface DuplicateMatch {
 /** Thresholds for one check; each defaults to {@link DUPLICATE_THRESHOLDS}. */
 export type DuplicateThresholds = Partial<Record<'slug' | 'title' | 'content', number>>;
 
-/** Lowercase alphanumeric tokens without task ids, dates or bare numbers. */
+/** A calendar date or calver (`2026-10-28`, `v2026.10.28`, `2026-10`) inside a name. */
+const DATE_IN_NAME = /(^|[^a-z0-9])v?(19|20)\d{2}[-._](\d{1,2})([-._]\d{1,2})?(?![0-9])/g;
+
+/**
+ * Lowercase alphanumeric tokens without task ids and dates, which say when or
+ * for what a doc was written, not what it is about. Other numbers stay: they
+ * tell `phase-1-plan` from `phase-2-plan`.
+ */
 function subjectTokens(text: string): string[] {
   return text
     .toLowerCase()
+    .replace(DATE_IN_NAME, '$1 ')
     .split(/[^a-z0-9]+/)
-    .filter((t) => t.length > 0 && !/^t\d{3,}$/.test(t) && !/^\d+$/.test(t));
+    .filter(
+      (t) => t.length > 0 && !/^t\d{3,}$/.test(t) && !/^(19|20)\d{6}(\d{6})?$/.test(t),
+    );
 }
 
-/** Token Jaccard of two titles, stopwords removed; 0 when either is empty. */
+/** The words of a subject, numbers left out. */
+const subjectWords = (tokens: readonly string[]): string[] =>
+  tokens.filter((t) => !/^\d+$/.test(t));
+
+/**
+ * The numbers of a subject, as a comparable key. Two names whose numbers
+ * differ (`adr-0123-x`, `adr-0124-x`; `node-20-upgrade`, `node-22-upgrade`)
+ * name different docs, however alike their words.
+ */
+const subjectNumbers = (tokens: readonly string[]): string =>
+  tokens
+    .filter((t) => /^\d+$/.test(t))
+    .map(Number)
+    .sort((a, b) => a - b)
+    .join(',');
+
+/** Token Jaccard of two titles, stopwords removed; 0 when either is empty or their numbers differ. */
 function titleScore(a: string, b: string): number {
-  const left = new Set(subjectTokens(a).filter((t) => !STOPWORDS.has(t)));
-  const right = new Set(subjectTokens(b).filter((t) => !STOPWORDS.has(t)));
+  const ta = subjectTokens(a);
+  const tb = subjectTokens(b);
+  if (subjectNumbers(ta) !== subjectNumbers(tb)) return 0;
+  const left = new Set(subjectWords(ta).filter((t) => !STOPWORDS.has(t)));
+  const right = new Set(subjectWords(tb).filter((t) => !STOPWORDS.has(t)));
   if (left.size === 0 || right.size === 0) return 0;
   const shared = [...left].filter((t) => right.has(t)).length;
   return shared / (left.size + right.size - shared);
@@ -139,9 +169,14 @@ function containment(proposed: Set<string> | null, existing: string | null): num
   return shared / proposed.size;
 }
 
-/** The slug with task-id and date tokens dropped, for comparison. */
-function slugSubject(slug: string): string {
-  return subjectTokens(slug).join('-');
+/** Normalised Levenshtein of two slugs' subject words; 0 when their numbers differ. */
+function slugScore(a: string, b: string): number {
+  const ta = subjectTokens(a);
+  const tb = subjectTokens(b);
+  if (subjectNumbers(ta) !== subjectNumbers(tb)) return 0;
+  const left = subjectWords(ta).join('-');
+  const right = subjectWords(tb).join('-');
+  return left.length === 0 || right.length === 0 ? 0 : similarityScore(left, right);
 }
 
 /**
@@ -173,7 +208,6 @@ export function findDuplicateDoc(
   const limit = (rule: 'slug' | 'title' | 'content'): number =>
     Math.min(thresholds[rule] ?? DUPLICATE_THRESHOLDS[rule], DUPLICATE_THRESHOLDS[rule]);
   const proposedShingles = proposed.content === undefined ? null : shingles(proposed.content);
-  const proposedSlug = proposed.slug === undefined ? null : slugSubject(proposed.slug);
   const rank: Record<DuplicateRule, number> = { exact: 4, slug: 3, title: 2, content: 1 };
   let best: DuplicateMatch | null = null;
   const consider = (candidate: DuplicateCandidate, rule: DuplicateRule, score: number): void => {
@@ -194,8 +228,8 @@ export function findDuplicateDoc(
       consider(candidate, 'exact', 1);
       continue;
     }
-    if (proposedSlug !== null && proposedSlug.length > 0 && candidate.kind === proposed.kind) {
-      const score = similarityScore(proposedSlug, slugSubject(candidate.slug));
+    if (proposed.slug !== undefined && candidate.kind === proposed.kind) {
+      const score = slugScore(proposed.slug, candidate.slug);
       if (score >= limit('slug')) consider(candidate, 'slug', score);
     }
     if (proposed.title !== undefined && candidate.kind === proposed.kind) {
