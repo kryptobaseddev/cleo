@@ -3278,6 +3278,7 @@ export {
 } from './nexus-vault.js';
 // === Independent per-AC PR review (T14122) ===
 export type {
+  ReviewAnswer,
   ReviewAuthors,
   ReviewGap,
   ReviewJudgement,
