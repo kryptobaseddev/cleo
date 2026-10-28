@@ -29,6 +29,19 @@ vi.mock('../reconcile.js', () => ({
     return { success: true, data: {} };
   },
 }));
+const emptySweep = {
+  swept: false,
+  dryRun: false,
+  prs: [],
+  closed: [] as string[],
+  bound: [],
+  refused: [],
+  waiting: 0,
+  reran: 0,
+};
+vi.mock('../../tasks/merge-close.js', () => ({
+  sweepMergedClosures: async () => ({ ...emptySweep, skippedReason: 'test' }),
+}));
 let rotOrphans: Array<{ doc: string; reason: string }> = [];
 vi.mock('../../docs/rot.js', () => ({
   scanDocsRot: () => ({
@@ -143,7 +156,7 @@ describe('releaseCut (T14102)', () => {
     const { runner, calls } = fakeRunner({ [shas.head]: 'in_progress', [shas.fix]: 'success' });
     const lead = join(work, 'lead.md');
     writeFileSync(lead, '> **Update now.**\n');
-    const sweeps: Array<{ dryRun: boolean; force: boolean }> = [];
+    const sweeps: Array<{ dryRun?: boolean; force?: boolean }> = [];
     const result = await releaseCut({
       version: '2026.10.2',
       projectRoot: work,
@@ -152,7 +165,7 @@ describe('releaseCut (T14102)', () => {
       runner,
       sweep: async (_root, opts) => {
         sweeps.push(opts);
-        return { swept: true, closed: ['T1'], bound: [], refused: [] };
+        return { ...emptySweep, swept: true, dryRun: opts.dryRun === true, closed: ['T1'] };
       },
     });
     expect(sweeps).toEqual([{ dryRun: true, force: true }]);

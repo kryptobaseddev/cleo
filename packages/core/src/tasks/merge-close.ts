@@ -179,8 +179,7 @@ export interface MergeCloseDeps {
     pr: { prNumber: number; mergeSha: string; taskIds: string[] },
   ): Promise<string[]>;
   /**
-   * Reconcile the newest published release's provenance (T14102). Unset until
-   * the release-cut module is on main.
+   * Reconcile the newest published release's provenance (T14102).
    */
   reconcile?(storeRoot: string): Promise<MergeSweepReconcile>;
   /**
@@ -1704,6 +1703,10 @@ export const defaultMergeCloseDeps: MergeCloseDeps = {
     if (out === null) return null;
     const rows: unknown = JSON.parse(out);
     return Array.isArray(rows) ? rows.flatMap((row) => toMergedPr(row) ?? []) : null;
+  },
+  async reconcile(root) {
+    const { reconcileLatestRelease } = await import('../release/cut.js');
+    return reconcileLatestRelease(root);
   },
   async setStatus(root, sha, state, description) {
     const args = [

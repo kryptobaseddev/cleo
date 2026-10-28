@@ -35,6 +35,11 @@ import {
   E_RELEASE_UNMERGED_CHANGESET,
   ExitCode,
 } from '@cleocode/contracts/exit-codes.js';
+import type {
+  MergeSweepOptions,
+  MergeSweepReconcile,
+  MergeSweepResult,
+} from '@cleocode/contracts/merge-close.js';
 import type { DocsRotResult } from '@cleocode/contracts/operations/docs.js';
 import { eq } from 'drizzle-orm';
 import { parseChangesetDir } from '../changesets/index.js';
@@ -42,6 +47,7 @@ import { scanDocsRot } from '../docs/rot.js';
 import { getTaskAccessor } from '../store/data-accessor.js';
 import { getDb } from '../store/sqlite.js';
 import * as schema from '../store/tasks-schema.js';
+import { sweepMergedClosures } from '../tasks/merge-close.js';
 import { aggregateChangesetsForRelease } from './changesets-aggregator.js';
 import { newestReachableReleaseTag, writeChangelogSection } from './plan.js';
 import { releaseReconcileV2 } from './reconcile.js';
@@ -75,36 +81,11 @@ export interface ReleaseCutOptions {
   dryRun?: boolean;
   /** Default branch name (default `main`). */
   branch?: string;
-  /** T14101 merge sweep, run before the commit is picked so the task report shows fresh closures. */
-  sweep?: ReleaseCutSweep;
+  /** Test seam for the T14101 merge sweep (default {@link sweepMergedClosures}). */
+  sweep?: (projectRoot: string, opts: MergeSweepOptions) => Promise<MergeSweepResult>;
   /** Test seam. */
   runner?: ReleaseCutRunner;
 }
-
-/**
- * What the cut reads from T14101's merge sweep (`sweepMergedClosures`).
- *
- * shortcut: mirrors the fields of the coming contracts `MergeSweepResult`;
- * replace with that type when lane-e2's T14101 PR lands.
- */
-export interface ReleaseCutSweepResult {
-  /** False when the sweep was skipped (gh unavailable, offline). */
-  swept: boolean;
-  /** Why it was skipped. */
-  skippedReason?: string;
-  /** Task ids the sweep closed (or would close, under dry run). */
-  closed: string[];
-  /** Task ids bound by `Refs:` and left open. */
-  bound: string[];
-  /** Closures the sweep refused, with the reason. */
-  refused: Array<{ taskId: string; prNumber: number; reason: string }>;
-}
-
-/** The T14101 merge sweep as the cut calls it. */
-export type ReleaseCutSweep = (
-  projectRoot: string,
-  opts: { dryRun: boolean; force: boolean },
-) => Promise<ReleaseCutSweepResult>;
 
 /** CI state of one candidate commit. */
 export interface ReleaseCutCandidate {
@@ -154,8 +135,8 @@ export interface ReleaseCutResult {
   migrations: string[];
   /** Tasks the changesets name, with status (reported, not gated). */
   tasks: ReleaseCutTask[];
-  /** The merge sweep run before the commit was picked, or null when none is wired. */
-  sweep: ReleaseCutSweepResult | null;
+  /** The T14101 merge sweep run before the commit was picked (`swept: false` when it could not run). */
+  sweep: MergeSweepResult;
   /** Docs rot of the project checkout (T14111); a real cut refuses when it has findings. */
   docsRot: DocsRotResult;
   /** True when no tag was created. */
@@ -336,7 +317,8 @@ export async function releaseCut(opts: ReleaseCutOptions): Promise<EngineResult<
     });
   }
 
-  const sweep = opts.sweep ? await opts.sweep(cwd, { dryRun, force: true }) : null;
+  // T14101: close what just merged, so the task report below is current.
+  const sweep = await (opts.sweep ?? sweepMergedClosures)(cwd, { dryRun, force: true });
 
   const candidates: ReleaseCutCandidate[] = [];
   let sha: string | null = null;
@@ -600,16 +582,6 @@ export async function releaseChangelog(
   return engineSuccess({ changelogPath, written, previousTag, changesetCount: entries.length });
 }
 
-/** Outcome of {@link reconcileLatestRelease}. */
-export interface ReconcileLatestResult {
-  /** Newest stable release tag on origin/main, or null when there is none. */
-  version: string | null;
-  /** What happened: reconciled now, already reconciled, not yet published, or no tag. */
-  action: 'reconciled' | 'already' | 'unpublished' | 'none' | 'failed';
-  /** Why reconcile failed, when `action` is `failed`. */
-  reason?: string;
-}
-
 /**
  * Reconcile the newest published release when its provenance is missing, so
  * a cut release never depends on someone remembering `cleo release reconcile`.
@@ -630,7 +602,7 @@ export interface ReconcileLatestResult {
 export async function reconcileLatestRelease(
   projectRoot: string,
   runner: ReleaseCutRunner = defaultRunner(),
-): Promise<ReconcileLatestResult> {
+): Promise<MergeSweepReconcile> {
   try {
     runner.runGit(['fetch', '--quiet', '--tags', 'origin'], projectRoot);
   } catch {
