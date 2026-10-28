@@ -9,17 +9,19 @@
  * is the release-time check that the built CLI opens, migrates and writes a
  * real store on macOS, the failure v2026.10.10 shipped (orphan view + RENAME).
  *
- *   node scripts/release-mac-smoke.mjs [--sha <commit>] [--skip-build] [--out <dir>]
+ *   node scripts/release-mac-smoke.mjs [--sha <commit>] [--skip-build] [--out <dir>] [--cleo-home <dir>]
  *
  * 1. Refuses unless HEAD is `--sha` (default: HEAD) and the tree is clean, so
  *    the evidence names the exact commit that was built.
  * 2. Builds through `cleo run --wait --class full-build -- pnpm run build`.
- * 3. Snapshots the real project and global stores with the built CLI's
- *    `cleo backup add --global --destination <sandbox>` (VACUUM INTO, the
- *    house chokepoint). A destination backup lands only in the sandbox and
- *    never touches either store's rotating backup window (T13209). HOME,
+ * 3. Snapshots the real project store (the checkout's owning project) and the
+ *    global store into the sandbox: a READ-ONLY connection, `VACUUM INTO` a
+ *    staged file, then a rename, as `cleo backup add` does, but outside both
+ *    rotating backup windows. Never through the built CLI: an unreleased
+ *    build must not open a real store (the T12687 guard refuses it, and a
+ *    migration there is exactly the risk this smoke exists to catch). HOME,
  *    CLEO_HOME and every provider home then point under the sandbox
- *    (scripts/lib/sandbox-env.mjs), so the commands never open a real store.
+ *    (scripts/lib/sandbox-env.mjs), so the commands only open the copies.
  * 4. Runs {@link SMOKE_COMMANDS} with the built CLI, keeping each command's
  *    stdout, stderr and exit code, and writes `results.json` + `SHA256SUMS`.
  *
@@ -34,13 +36,17 @@ import { createHash } from 'node:crypto';
 import {
   constants,
   copyFileSync,
+  existsSync,
   mkdirSync,
   mkdtempSync,
   readFileSync,
+  renameSync,
+  rmSync,
   writeFileSync,
 } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { homedir, tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
+import { DatabaseSync } from 'node:sqlite';
 import { fileURLToPath } from 'node:url';
 import { isMain } from './lib/is-main.mjs';
 import { sandboxEnvironment } from './lib/sandbox-env.mjs';
@@ -73,14 +79,15 @@ export const SMOKE_COMMANDS = Object.freeze([
  * Parse argv.
  *
  * @param {string[]} argv - Arguments after the script path.
- * @returns {{sha: string|null, skipBuild: boolean, out: string|null}}
+ * @returns {{sha: string|null, skipBuild: boolean, out: string|null, cleoHome: string|null}}
  */
 export function parseArgs(argv) {
-  const opts = { sha: null, skipBuild: false, out: null };
+  const opts = { sha: null, skipBuild: false, out: null, cleoHome: null };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (a === '--sha') opts.sha = argv[++i] ?? null;
     else if (a === '--out') opts.out = argv[++i] ?? null;
+    else if (a === '--cleo-home') opts.cleoHome = argv[++i] ?? null;
     else if (a === '--skip-build') opts.skipBuild = true;
     else throw new Error(`unknown argument: ${a}`);
   }
@@ -92,30 +99,42 @@ function git(args) {
 }
 
 /**
- * Snapshot the real project and global stores into `dir` with the built CLI,
- * outside both rotating backup windows (T13209).
+ * `VACUUM INTO` a staged file from a read-only connection, then rename it into
+ * place; a failed copy leaves nothing behind.
  *
- * @param {string} cli - Built CLI entry point.
- * @param {string} dir - Sandbox directory the snapshots land in.
- * @returns {{project: string, global: string, dir: string, id: string}}
+ * @param {string} src - Live SQLite store.
+ * @param {string} dest - Snapshot path.
  */
-function snapshotStores(cli, dir) {
-  const out = execFileSync(
-    process.execPath,
-    [cli, 'backup', 'add', '--global', '--destination', dir, '--note', 'release-mac-smoke'],
-    { cwd: REPO_ROOT, encoding: 'utf8', stdio: ['ignore', 'pipe', 'inherit'] },
-  );
-  const env = JSON.parse(out);
-  const { backupId, path, files, global } = env.data ?? {};
-  if (env.success !== true || !files?.includes('cleo.db') || !global?.files?.includes('cleo.db')) {
-    throw new Error(`the store snapshot did not capture both cleo.db files: ${out}`);
+export function snapshotStore(src, dest) {
+  mkdirSync(dirname(dest), { recursive: true });
+  const staged = `${dest}.tmp`;
+  // Read-only: no checkpoint, no schema change; VACUUM INTO reads the WAL too.
+  const db = new DatabaseSync(src, { readOnly: true }); // db-open-allowed: read-only snapshot source (T14104)
+  try {
+    db.exec(`VACUUM INTO '${staged.replace(/'/g, "''")}'`);
+    renameSync(staged, dest);
+  } catch (err) {
+    rmSync(staged, { force: true });
+    throw err;
+  } finally {
+    db.close();
   }
-  return {
-    id: backupId,
-    dir: path,
-    project: join(path, `cleo.db.${backupId}`),
-    global: join(global.path, `cleo.db.${global.backupId}`),
-  };
+}
+
+/**
+ * The real stores this checkout belongs to: the owning project's `.cleo/`
+ * (a worktree's git common dir names its main checkout) and the global store
+ * (`--cleo-home`, `$CLEO_HOME`, else the macOS default).
+ *
+ * @param {string|null} cleoHome - Override for the global store's directory.
+ * @returns {{projectCleo: string, globalDb: string}}
+ */
+function realStores(cleoHome) {
+  const common = git(['rev-parse', '--path-format=absolute', '--git-common-dir']);
+  const projectCleo = join(dirname(common), '.cleo');
+  const home =
+    cleoHome ?? process.env.CLEO_HOME ?? join(homedir(), 'Library', 'Application Support', 'cleo');
+  return { projectCleo, globalDb: join(home, 'cleo.db') };
 }
 
 /** Clone on APFS (instant, no extra space); plain copy elsewhere. */
@@ -131,7 +150,7 @@ function sha256(file) {
 /**
  * Run the smoke and write the evidence directory.
  *
- * @param {{sha: string|null, skipBuild: boolean, out: string|null}} opts
+ * @param {{sha: string|null, skipBuild: boolean, out: string|null, cleoHome: string|null}} opts
  * @returns {number} Process exit code.
  */
 export function runSmoke(opts) {
@@ -167,17 +186,18 @@ export function runSmoke(opts) {
 
   const sandbox = mkdtempSync(join(tmpdir(), 'cleo-mac-smoke-'));
   const env = sandboxEnvironment(sandbox);
-  // A CLI built from a worktree refuses store migrations without this (T13549).
+  // The copies may need a migration from this build; only sandbox stores are opened (T12687).
   env.CLEO_ALLOW_WORKTREE_BUILD_MIGRATIONS = '1';
   const cli = join(REPO_ROOT, 'packages', 'cleo', 'dist', 'cli', 'index.js');
-  const snap = snapshotStores(cli, join(sandbox, 'snapshot'));
+  const real = realStores(opts.cleoHome);
   const project = env.CLEO_ROOT;
-  cloneFile(snap.project, join(project, '.cleo', 'cleo.db'));
+  snapshotStore(join(real.projectCleo, 'cleo.db'), join(project, '.cleo', 'cleo.db'));
+  snapshotStore(real.globalDb, join(env.CLEO_HOME, 'cleo.db'));
   for (const name of ['config.json', 'project-info.json']) {
-    cloneFile(join(snap.dir, `${name}.${snap.id}`), join(project, '.cleo', name));
+    const src = join(real.projectCleo, name);
+    if (existsSync(src)) cloneFile(src, join(project, '.cleo', name));
   }
   cloneFile(join(REPO_ROOT, '.cleo', 'project.json'), join(project, '.cleo', 'project.json'));
-  cloneFile(snap.global, join(env.CLEO_HOME, 'cleo.db'));
 
   const out = resolve(opts.out ?? join(REPO_ROOT, '.cleo', 'release-smoke', sha.slice(0, 12)));
   mkdirSync(out, { recursive: true });
@@ -206,7 +226,7 @@ export function runSmoke(opts) {
         sha,
         platform: `${process.platform}-${process.arch}`,
         node: process.version,
-        snapshot: snap.id,
+        stores: real,
         sandbox,
         passed,
         commands: results,
