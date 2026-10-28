@@ -7,6 +7,7 @@
  * @epic T1041
  */
 
+import { execFileSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -607,6 +608,37 @@ describe('publishDocs', () => {
       });
       expect(String((err as Error).message)).not.toMatch(/allowOutsideRoot/);
       expect(existsSync(dirname(dirname(outside))), `dryRun=${dryRun}`).toBe(false);
+    }
+  });
+
+  it('T14081: a linked non-canonical worktree is refused naming the canonical path and both routes', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'cleo-t14081-root-'));
+    const linked = `${root}-linked`;
+    const git = (cwd: string, ...args: string[]) =>
+      execFileSync('git', args, { cwd, stdio: 'ignore', env: { ...process.env, GIT_DIR: '', GIT_WORK_TREE: '' } });
+    try {
+      git(root, 'init', '-q');
+      git(root, '-c', 'user.email=t@t', '-c', 'user.name=t', 'commit', '-q', '--allow-empty', '-m', 'init');
+      git(root, 'worktree', 'add', '-q', linked);
+      for (const dryRun of [true, false]) {
+        const err = await publishDocs({
+          ownerId: 'T123',
+          toPath: join(linked, 'docs', 'x.md'),
+          projectRoot: root,
+          dryRun,
+        }).catch((e: unknown) => e);
+        expect(err, `dryRun=${dryRun}`).toMatchObject({
+          code: 6,
+          message: expect.stringMatching(/linked worktree .*only the canonical CLEO worktree path .*T13376/),
+          fix: expect.stringMatching(
+            /Only canonical CLEO worktrees are publication targets \(T13376\).*store's project root.*CLEO-created worktree \(cleo orchestrate spawn/,
+          ),
+        });
+        expect(existsSync(join(linked, 'docs')), `dryRun=${dryRun}`).toBe(false);
+      }
+    } finally {
+      await rm(linked, { recursive: true, force: true });
+      await rm(root, { recursive: true, force: true });
     }
   });
 
