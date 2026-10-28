@@ -64,20 +64,50 @@ describe('findDuplicateDoc', () => {
 
   it('never matches names that differ in their numbers', () => {
     const numbered: DuplicateCandidate[] = [
-      { slug: 'adr-0123-x', kind: 'adr', title: 'Phase 1 plan', sha256: 'e'.repeat(64), content: null },
-      { slug: 'phase-1-plan', kind: 'plan', title: 'Phase 1 plan', sha256: 'f'.repeat(64), content: null },
-      { slug: 'node-20-upgrade', kind: 'guide', title: 'Node 20 upgrade', sha256: '1'.repeat(64), content: null },
-      { slug: 'test-doc-1793224723322-1', kind: 'spec', title: 'Spec A', sha256: '2'.repeat(64), content: null },
+      {
+        slug: 'adr-0123-x',
+        kind: 'adr',
+        title: 'Phase 1 plan',
+        sha256: 'e'.repeat(64),
+        content: null,
+      },
+      {
+        slug: 'phase-1-plan',
+        kind: 'plan',
+        title: 'Phase 1 plan',
+        sha256: 'f'.repeat(64),
+        content: null,
+      },
+      {
+        slug: 'node-20-upgrade',
+        kind: 'guide',
+        title: 'Node 20 upgrade',
+        sha256: '1'.repeat(64),
+        content: null,
+      },
+      {
+        slug: 'test-doc-1793224723322-1',
+        kind: 'spec',
+        title: 'Spec A',
+        sha256: '2'.repeat(64),
+        content: null,
+      },
     ];
     expect(findDuplicateDoc({ slug: 'adr-0124-x', kind: 'adr' }, numbered)).toBeNull();
     expect(
       findDuplicateDoc({ slug: 'phase-2-plan', kind: 'plan', title: 'Phase 2 plan' }, numbered),
     ).toBeNull();
     expect(
-      findDuplicateDoc({ slug: 'node-22-upgrade', kind: 'guide', title: 'Node 22 upgrade' }, numbered),
+      findDuplicateDoc(
+        { slug: 'node-22-upgrade', kind: 'guide', title: 'Node 22 upgrade' },
+        numbered,
+      ),
     ).toBeNull();
     expect(
-      findDuplicateDoc({ slug: 'test-doc-1793224723322-3', kind: 'spec', title: 'Spec B' }, numbered),
+      findDuplicateDoc(
+        { slug: 'test-doc-1793224723322-3', kind: 'spec', title: 'Spec B' },
+        numbered,
+      ),
     ).toBeNull();
     // The same number is still the same subject.
     expect(findDuplicateDoc({ slug: 'phase-1-plans', kind: 'plan' }, numbered)).toMatchObject({
