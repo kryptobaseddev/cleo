@@ -364,7 +364,7 @@ describe('resolveCiEvidenceAtom', () => {
     const r = await resolve({ context: context('T999') });
     expect(r.ok).toBe(false);
     expect(!r.ok && r.codeName).toBe('E_EVIDENCE_CONTENT_MISMATCH');
-    expect(!r.ok && r.reason).toMatch(/does not establish a relationship to task T999/);
+    expect(!r.ok && r.reason).toMatch(/PR #42 does not cite task T999 and T999 declares no files/);
   });
 
   it('ci:<component>@<integration> links the task through the component PR (T12671)', async () => {

@@ -2627,7 +2627,7 @@ export async function resolveCiEvidenceAtom(
           : 'E_EVIDENCE_INSUFFICIENT',
     };
   }
-  const unlinked = checkPrTaskLinkage(linked.prNumber, linked.pr, context);
+  const unlinked = checkPrTaskLinkage(linked.prNumber, linked.pr, context, pr.mergedAt);
   if (unlinked) {
     return {
       ok: false,
