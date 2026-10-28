@@ -35,7 +35,7 @@ import type { DataAccessor } from '../store/data-accessor.js';
  * {@link ExitCode.HAS_CHILDREN} message so the operator sees which write was
  * refused.
  */
-export type TerminalDispositionVerb = 'cancel' | 'archive';
+export type TerminalDispositionVerb = 'cancel' | 'archive' | 'complete';
 
 /**
  * Refuse to terminalise a parent that still has active children.
@@ -77,7 +77,8 @@ export async function assertNoActiveChildrenForTerminal(
     return;
   }
 
-  const verbNoun = verb === 'archive' ? 'Archiving' : 'Cancelling';
+  const verbNoun =
+    verb === 'archive' ? 'Archiving' : verb === 'complete' ? 'Completing' : 'Cancelling';
   throw new CleoError(
     ExitCode.HAS_CHILDREN,
     `${verbNoun} ${taskId} would strand ${activeChildCount} active child task(s). ` +
@@ -94,6 +95,40 @@ export async function assertNoActiveChildrenForTerminal(
         activeChildCount,
         verb,
       },
+    },
+  );
+}
+
+/**
+ * Refuse to place a live task under an irreversibly terminal parent
+ * (`cancelled` / `archived`), the R1 rule of T12883: the child would be
+ * stranded, since such a parent is never reopened for it. `done` is allowed —
+ * moving or adding under a done parent reopens it (PM-Core V2 design-point 5).
+ * `cleo add` applies the same rule to new work (T11811).
+ *
+ * @param parent - The parent the task would sit under.
+ * @param taskId - The task being moved or revived.
+ * @param action - What places it there, for the message.
+ * @throws {CleoError} {@link ExitCode.VALIDATION_ERROR} when the parent is cancelled or archived.
+ * @task T12883
+ */
+export function assertParentNotIrreversiblyTerminal(
+  parent: { id: string; status: string },
+  taskId: string,
+  action: 'move' | 'restore',
+): void {
+  if (parent.status !== 'cancelled' && parent.status !== 'archived') return;
+  const doing = action === 'move' ? `Moving ${taskId} under` : `Restoring ${taskId} under`;
+  // @sync-invariant task.terminal-parent.live-children
+  throw new CleoError(
+    ExitCode.VALIDATION_ERROR,
+    `${doing} ${parent.id} would strand it: ${parent.id} is '${parent.status}' (terminal).`,
+    {
+      fix:
+        action === 'move'
+          ? `Pick a live parent (cleo find), or restore ${parent.id} first (cleo restore task ${parent.id}).`
+          : `Restore ${parent.id} first, with --cascade to bring its cancelled children back with it.`,
+      details: { field: 'parentId', parentId: parent.id, actual: parent.status },
     },
   );
 }

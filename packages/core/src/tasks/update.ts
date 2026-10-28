@@ -40,7 +40,10 @@ import {
   validateTaskType,
   validateTitle,
 } from './add.js';
-import { assertNoActiveChildrenForTerminal } from './child-disposition.js';
+import {
+  assertNoActiveChildrenForTerminal,
+  assertParentNotIrreversiblyTerminal,
+} from './child-disposition.js';
 import { completeTask } from './complete.js';
 import { createAcceptanceEnforcement } from './enforcement.js';
 import { taskToRecord } from './engine-converters.js';
@@ -622,6 +625,8 @@ export async function updateTask(
             details: { field: 'parentId', actual: newParentId },
           });
         }
+        // T12883 R1: never strand the moved task under a cancelled/archived parent.
+        assertParentNotIrreversiblyTerminal(newParent, options.taskId, 'move');
         const newParentType = newParent.type ?? 'task';
         const updatedType = childTypeForParentType(newParentType, task.type);
         if (!isAllowedWorkGraphParentType(updatedType, newParentType)) {

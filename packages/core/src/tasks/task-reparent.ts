@@ -9,6 +9,10 @@ import type { Task, TaskStatus } from '@cleocode/contracts';
 import { TASK_STATUSES } from '@cleocode/contracts/status-registry.js';
 import { isAllowedWorkGraphParentType } from '@cleocode/contracts/workgraph.js';
 import { getTaskAccessor } from '../store/data-accessor.js';
+import {
+  assertNoActiveChildrenForTerminal,
+  assertParentNotIrreversiblyTerminal,
+} from './child-disposition.js';
 import { childTypeForParentType } from './hierarchy.js';
 import { getHierarchyLimits } from './task-tree.js';
 
@@ -84,6 +88,8 @@ export async function coreTaskReparent(
     if (newParent.type === 'subtask') {
       throw new Error(`Cannot parent under subtask '${effectiveParentId}'`);
     }
+    // T12883 R1: never strand the moved subtree under a cancelled/archived parent.
+    assertParentNotIrreversiblyTerminal(newParent, taskId, 'move');
 
     // Check circular reference using subtree
     if (subtree.some((t: TaskRecord) => t.id === effectiveParentId)) {
@@ -604,6 +610,11 @@ export async function coreTaskBulkMove(
     }
     resolved.push(task);
   }
+  // T12883 R1: a terminal bulk status must not close a parent over live children.
+  if (status === 'done' || status === 'cancelled' || status === 'archived') {
+    const verb = status === 'done' ? 'complete' : status === 'archived' ? 'archive' : 'cancel';
+    for (const task of resolved) await assertNoActiveChildrenForTerminal(accessor, task.id, verb);
+  }
 
   const now = new Date().toISOString();
   const fields: { status?: TaskStatus; pipelineStage?: string; updatedAt: string } = {
@@ -725,6 +736,12 @@ export async function coreTaskRestore(
     );
   }
 
+  // T12883 R1: a child restored under a still-cancelled parent is stranded.
+  if (task.parentId) {
+    const parent = await accessor.loadSingleTask(task.parentId);
+    if (parent) assertParentNotIrreversiblyTerminal(parent, taskId, 'restore');
+  }
+
   const tasksToRestore: TaskRecord[] = [task];
   if (params?.cascade) {
     const findCancelledChildren = async (parentId: string): Promise<void> => {
@@ -813,6 +830,12 @@ export async function coreTaskUnarchive(
 
   const task = archive.archivedTasks[taskIndex]!;
 
+  // T12883 R1: a task unarchived under a cancelled/archived parent is stranded.
+  if (task.parentId) {
+    const parent = await accessor.loadSingleTask(task.parentId);
+    if (parent) assertParentNotIrreversiblyTerminal(parent, taskId, 'restore');
+  }
+
   // Remove archive metadata if present on the raw record
   if ('_archive' in task) {
     Reflect.deleteProperty(task, '_archive');
@@ -825,6 +848,8 @@ export async function coreTaskUnarchive(
     }
     // rawStatus is validated above as a member of TASK_STATUSES
     const targetStatus = rawStatus as TaskStatus;
+    // The requested status was validated but never written (T12883 audit).
+    task.status = targetStatus;
     if (targetStatus !== 'done') {
       task.completedAt = undefined;
     }

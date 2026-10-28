@@ -838,6 +838,8 @@ export async function completeTask(
   }
 
   // ---- T1632: Premature-close guard (E_EPIC_HAS_PENDING_CHILDREN) ----
+  // T12883 R1: every parent, not only epics — a task with live subtasks or a
+  // saga with live members must not close over them either.
   // Prevent the T1467+T1603 bug class: reject direct `cleo complete <epicId>`
   // when any child is still pending or active.  --override-reason bypasses the
   // guard but ALWAYS appends an audit entry to .cleo/audit/premature-close.jsonl
@@ -847,11 +849,12 @@ export async function completeTask(
   // `complete` call on the epic itself.
   const children = await acc.getChildren(options.taskId);
   const pendingChildren = children.filter((c) => c.status !== 'done' && c.status !== 'cancelled');
-  if (pendingChildren.length > 0 && task.type === 'epic') {
+  if (pendingChildren.length > 0) {
     if (!options.overrideReason) {
+      const kind = task.type === 'epic' ? 'Epic' : task.type === 'saga' ? 'Saga' : 'Task';
       throw new CleoError(
         ExitCode.EPIC_HAS_PENDING_CHILDREN,
-        `Epic ${options.taskId} has ${pendingChildren.length} pending/active children: ${pendingChildren.map((c) => c.id).join(', ')}`,
+        `${kind} ${options.taskId} has ${pendingChildren.length} pending/active children: ${pendingChildren.map((c) => c.id).join(', ')}`,
         {
           fix:
             `Complete all children first, or pass --override-reason "<reason>" to bypass ` +
