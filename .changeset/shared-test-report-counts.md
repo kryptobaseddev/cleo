@@ -5,16 +5,15 @@ kind: fix
 summary: "typed test gates' minCount and test-run evidence read reports through one shared count reader, so every format test-run accepts also counts for a gate"
 ---
 
-A typed gate's `minCount` refused a Node event JSON report (per-file
-`testResults` and no top-level `numTotalTests`) that agents expected to count,
-and `test-run:` read JUnit, libtest and Playwright through adapters the gate
+A typed gate's `minCount` refused a node:test event report (VidaPeps
+T2373: node-style `tests`/`pass`/`fail` counters plus per-file
+`testResults`, no `numTotalTests`) that `test-run:` reads, and `test-run:` read JUnit, libtest and Playwright through adapters the gate
 never saw. Both now use `readTestReport` in
 `packages/core/src/tasks/test-report-counts.ts`. It reads:
 
 - vitest/jest JSON
 - runner summary JSON
-- node --test summary JSON
-- Node event JSON (counted from its per-test results)
+- node --test JSON (`tests`/`pass`/`fail`, with or without per-file results)
 - Playwright JSON
 - JUnit XML
 - libtest JSON lines

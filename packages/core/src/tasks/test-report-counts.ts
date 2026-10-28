@@ -2,10 +2,11 @@
  * One reader for test-report counts, shared by `test-run:` evidence and typed
  * test gates' `minCount` (T14124).
  *
- * The two paths used to parse reports separately: a typed gate refused a Node
- * event JSON report (per-file `testResults`, no top-level `numTotalTests`)
- * whose shape `test-run:` read, and `test-run:` read JUnit, libtest and
- * Playwright through adapters the gate never saw. {@link readTestReport}
+ * The two paths used to parse reports separately: a typed gate refused a
+ * node:test event report with node-style counters (`tests`/`pass`/`fail`,
+ * no `numTotalTests`; VidaPeps T2373) whose shape `test-run:` read, and
+ * `test-run:` read JUnit, libtest and Playwright through adapters the gate
+ * never saw. {@link readTestReport}
  * tries every format in {@link TEST_REPORT_FORMATS} order, adapts it to the
  * vitest shape, and returns its counts under one set of integrity rules:
  *
@@ -615,66 +616,6 @@ export function tapTestRun(stdout: string): AdaptedTestRun | AdaptedTestRunRefus
 }
 
 /**
- * Adapt a Node event JSON report — per-file `testResults[].assertionResults`
- * and no top-level counter set — to the vitest shape by counting its tests
- * (T14124): `passed`; `failed`; `skipped`, `pending` and `disabled` as
- * pending; `todo`. Null when the report has a counter set, or no per-file
- * results with assertions.
- *
- * @param report - A parsed JSON report.
- * @returns The adapted report, a refusal, or null when it is not this shape.
- * @task T14124
- */
-export function nodeEventTestRun(
-  report: Readonly<Record<string, unknown>>,
-): AdaptedTestRun | AdaptedTestRunRefusal | null {
-  if (TEST_RUN_COUNTER_SHAPES.some((s) => present(report[s.total]))) return null;
-  const files = report.testResults;
-  if (!Array.isArray(files) || files.length === 0) return null;
-  if (!files.every((f) => isRecord(f) && Array.isArray(f.assertionResults))) return null;
-  const tally = { passed: 0, failed: 0, pending: 0, todo: 0 };
-  const testResults: AdaptedTestRun['testResults'] = [];
-  for (const file of files as Array<Readonly<Record<string, unknown>>>) {
-    const statuses: string[] = [];
-    for (const assertion of file.assertionResults as unknown[]) {
-      const status = isRecord(assertion) ? assertion.status : undefined;
-      const bucket = NODE_EVENT_STATUS[String(status) as keyof typeof NODE_EVENT_STATUS];
-      if (bucket === undefined)
-        return {
-          refusal: `Node event report has a test with status ${JSON.stringify(status ?? null)}; expected one of ${Object.keys(NODE_EVENT_STATUS).join(', ')}`,
-          codeName: 'E_EVIDENCE_INVALID',
-        };
-      tally[bucket] += 1;
-      statuses.push(bucket === 'pending' ? 'skipped' : bucket);
-    }
-    testResults.push({
-      name: typeof file.name === 'string' ? file.name : '',
-      status: statuses.includes('failed') ? 'failed' : 'passed',
-      assertionResults: statuses.map((status) => ({ status })),
-    });
-  }
-  return {
-    ...(typeof report.startTime === 'number' ? { startTime: report.startTime } : {}),
-    numTotalTests: tally.passed + tally.failed + tally.pending + tally.todo,
-    numPassedTests: tally.passed,
-    numFailedTests: tally.failed,
-    numPendingTests: tally.pending,
-    numTodoTests: tally.todo,
-    testResults,
-  };
-}
-
-/** A Node event report's per-test statuses, by count bucket. */
-const NODE_EVENT_STATUS = {
-  passed: 'passed',
-  failed: 'failed',
-  skipped: 'pending',
-  pending: 'pending',
-  disabled: 'pending',
-  todo: 'todo',
-} as const;
-
-/**
  * Why a report's counters contradict its own per-test results, or null when
  * they agree or it lists none (T14124). Counted over `testResults[].
  * assertionResults[].status`: `passed`, `failed`, and every other status as
@@ -714,7 +655,6 @@ export const TEST_REPORT_FORMATS = [
   'vitest/jest JSON',
   'runner summary JSON',
   'node --test summary JSON',
-  'Node event JSON',
   'libtest JSON lines',
   'node:test TAP',
 ] as const;
@@ -786,7 +726,7 @@ function adapted(
 
 /**
  * Read a parsed JSON report: Playwright, then a counter set (vitest/jest,
- * runner summary, node --test summary), then Node event JSON (T14124).
+ * runner summary, node --test summary; T14124).
  *
  * @param parsed - The parsed JSON value.
  * @returns The read report, a refusal, or null when it is none of these.
@@ -806,10 +746,7 @@ export function readParsedTestReport(parsed: unknown): ReadTestReport | RefusedT
     };
   const playwright = playwrightTestRun(parsed);
   if (playwright !== null) return adapted(playwright, 'Playwright JSON');
-  const direct = counted(parsed as TestRunReportJson, null);
-  if (direct !== null) return direct;
-  const node = nodeEventTestRun(parsed);
-  return node === null ? null : adapted(node, 'Node event JSON');
+  return counted(parsed as TestRunReportJson, null);
 }
 
 /**

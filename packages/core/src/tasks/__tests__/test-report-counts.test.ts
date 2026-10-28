@@ -39,18 +39,47 @@ const startTime = Date.now();
 const passing = (n: number) => Array.from({ length: n }, () => ({ status: 'passed' }));
 
 /**
- * VidaPeps T2373, PROVISIONAL until their redacted keys arrive: a Node event
- * reporter's JSON with per-file `testResults[].assertionResults` and no
- * top-level counter set; 7 cases passed across 3 files.
+ * VidaPeps T2373, the real report shape (`node-test-events-v1`, redacted
+ * keys and values from their receipt of a report whose sha256 is 074a695c…):
+ * node-style counters (`tests`/`pass`/`fail`/`cancelled`/`skipped`/`todo`),
+ * no `numTotalTests`, and one file whose 7 assertions all `passed`. Only the
+ * `passed` status was observed, so no other spelling is invented here.
  */
 const t2373 = {
+  format: 'node-test-events-v1',
+  root: '/work/T2373',
+  runtime: { name: 'node' },
   startTime,
+  endTime: startTime + 7962,
+  complete: true,
   success: true,
+  tests: 7,
+  suites: 0,
+  pass: 7,
+  fail: 0,
+  cancelled: 0,
+  skipped: 0,
+  todo: 0,
+  suiteFailed: false,
   testResults: [
-    { name: '/app/test/a.test.mjs', status: 'passed', assertionResults: passing(3) },
-    { name: '/app/test/b.test.mjs', status: 'passed', assertionResults: passing(2) },
-    { name: '/app/test/c.test.mjs', status: 'passed', assertionResults: passing(2) },
+    {
+      name: '/work/T2373/test/self-check.test.mjs',
+      status: 'passed',
+      assertionResults: Array.from({ length: 7 }, (_, i) => ({
+        title: `case ${i + 1}`,
+        status: 'passed',
+        nesting: 0,
+        entryFile: '/work/T2373/test/self-check.test.mjs',
+        testId: `t${i + 1}`,
+        parentId: null,
+        testNumber: i + 1,
+        line: 10 + i,
+        column: 1,
+      })),
+    },
   ],
+  validationErrors: [],
+  rawEvents: [],
 };
 
 const vitest = {
@@ -102,7 +131,7 @@ const cases = async (): Promise<
   }>
 > => [
   { format: 'vitest/jest JSON', text: JSON.stringify(vitest), passed: 3, total: 3 },
-  { format: 'Node event JSON', text: JSON.stringify(t2373), passed: 7, total: 7 },
+  { format: 'node --test summary JSON', text: JSON.stringify(t2373), passed: 7, total: 7 },
   {
     format: 'runner summary JSON',
     text: JSON.stringify({ total: 4, passed: 3, failed: 0, skipped: 1 }),
@@ -164,7 +193,14 @@ describe('one count reader for test-run: and typed gates (T14124)', () => {
     }
   });
 
-  it('AC3 (provisional T2373 shape): a Node event JSON report passes a minCount 7 gate', async () => {
+  it('AC3: the VidaPeps T2373 node:test event report passes a minCount 7 gate, its counters agreeing with its assertions', async () => {
+    const read = readTestReport(JSON.stringify(t2373));
+    expect(read?.ok, JSON.stringify(read)).toBe(true);
+    expect(read?.ok && [read.format, read.counts.passed, read.counts.total]).toEqual([
+      'node --test summary JSON',
+      7,
+      7,
+    ]);
     const result = await runGate(replay(JSON.stringify(t2373), 7));
     expect(result?.result, result?.errorMessage).toBe('pass');
   });
