@@ -36,7 +36,11 @@ export interface ModernizeClassification {
   readonly reason: string;
 }
 
-/** Folder-name aliases that name a kind under another spelling. */
+/**
+ * Folder-name aliases that name a kind under another spelling (the T14107
+ * taxonomy's "absorbs" column). An alias only fires when its kind is
+ * registered, so kinds a project has not adopted fall through to the rules.
+ */
 const FOLDER_ALIASES: Readonly<Record<string, string>> = {
   adrs: 'adr',
   decisions: 'adr',
@@ -46,11 +50,21 @@ const FOLDER_ALIASES: Readonly<Record<string, string>> = {
   plans: 'plan',
   notes: 'note',
   releases: 'release-note',
-  release: 'release-note',
   analysis: 'research',
   audits: 'research',
   audit: 'research',
   reports: 'research',
+  guides: 'guide',
+  examples: 'guide',
+  'owner-ci': 'guide',
+  concepts: 'concept',
+  architecture: 'concept',
+  design: 'concept',
+  api: 'reference',
+  'cli-reference': 'reference',
+  registry: 'reference',
+  skills: 'reference',
+  migrations: 'migration',
 };
 
 /** Filename words that name a kind. */
