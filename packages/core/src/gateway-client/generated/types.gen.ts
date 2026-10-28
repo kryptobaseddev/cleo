@@ -14382,6 +14382,39 @@ export type QueryDocsStatsResponses = {
 
 export type QueryDocsStatsResponse = QueryDocsStatsResponses[keyof QueryDocsStatsResponses];
 
+export type QueryDocsRotData = {
+    body?: {
+        /**
+         * Git range <base>..<head> of a merged change to flag docs for
+         */
+        changed?: string;
+    };
+    path?: never;
+    query?: never;
+    url: '/v1/docs/rot';
+};
+
+export type QueryDocsRotResponses = {
+    /**
+     * Generic query result — the precise /data shape is not individually contracted. Run with --full to see the verbose record, or --describe for the operation contract.
+     */
+    200: {
+        success: true;
+        data: {
+            [key: string]: unknown;
+        };
+        /**
+         * LAFS response metadata.
+         */
+        meta: {
+            [key: string]: unknown;
+        };
+        [key: string]: unknown;
+    };
+};
+
+export type QueryDocsRotResponse = QueryDocsRotResponses[keyof QueryDocsRotResponses];
+
 export type MutateDocsDoctorData = {
     body?: {
         /**

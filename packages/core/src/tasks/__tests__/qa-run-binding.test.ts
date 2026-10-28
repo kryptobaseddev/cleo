@@ -139,11 +139,76 @@ describe('qaPassed accepts qa-run receipts as a typecheck + lint pair', () => {
 
   it('red: one receipt alone does not stand for qaPassed', () => {
     expect(checkTaskEvidenceContext(ctx, 'qaPassed', [qa('typecheck')])).toMatch(
-      /needs a typecheck and a lint result; missing lint/,
+      /needs a result for each check that reads the changed paths; missing lint/,
     );
     expect(checkTaskEvidenceContext(ctx, 'qaPassed', [qa('lint'), tool('test')])).toMatch(
       /missing typecheck/,
     );
+  });
+});
+
+describe('qaPassed owes only the checks that read the changed paths (T14089)', () => {
+  const ctx: EvidenceValidationContext = {
+    task: { id: 'T1', kind: 'work', labels: [], files: [], acceptance: [] },
+    gates: ['qaPassed'],
+    criteria: [],
+  };
+  const receipt = (
+    check: 'typecheck' | 'lint',
+    owedChecks: { typecheck: string[]; lint: string[] },
+  ): EvidenceAtom => ({
+    kind: 'qa-run',
+    path: `${check}.json`,
+    sha256: 'c'.repeat(64),
+    check,
+    command: [check],
+    roots: ['scripts', 'src'],
+    owedChecks,
+  });
+  const owed = (paths: string[]) => ({
+    typecheck: paths.filter((p) => qaRunChecks('typecheck', p)),
+    lint: paths.filter((p) => qaRunChecks('lint', p)),
+  });
+
+  it('.mjs-only: a lint receipt alone stands, since no changed path is a typecheck input', () => {
+    const paths = ['scripts/release-run.mjs', 'scripts/__tests__/release-run.test.mjs'];
+    expect(owed(paths).typecheck).toEqual([]);
+    expect(checkTaskEvidenceContext(ctx, 'qaPassed', [receipt('lint', owed(paths))])).toBeNull();
+  });
+
+  it('mixed .mjs + .ts: the typecheck is still owed, and the refusal names the TS path', () => {
+    const paths = ['scripts/release-run.mjs', 'src/open.ts'];
+    expect(checkTaskEvidenceContext(ctx, 'qaPassed', [receipt('lint', owed(paths))])).toMatch(
+      /missing typecheck \(it reads src\/open\.ts\)/,
+    );
+    expect(
+      checkTaskEvidenceContext(ctx, 'qaPassed', [
+        receipt('lint', owed(paths)),
+        receipt('typecheck', owed(paths)),
+      ]),
+    ).toBeNull();
+  });
+
+  it('.ts-only: both checks are owed', () => {
+    const paths = ['src/open.ts'];
+    expect(checkTaskEvidenceContext(ctx, 'qaPassed', [receipt('lint', owed(paths))])).toMatch(
+      /missing typecheck/,
+    );
+    expect(checkTaskEvidenceContext(ctx, 'qaPassed', [receipt('typecheck', owed(paths))])).toMatch(
+      /missing lint \(it reads src\/open\.ts\)/,
+    );
+  });
+
+  it('a receipt bound without the judgement (pre-T14089) still owes both checks', () => {
+    const legacy: EvidenceAtom = {
+      kind: 'qa-run',
+      path: 'lint.json',
+      sha256: 'c'.repeat(64),
+      check: 'lint',
+      command: ['lint'],
+      roots: ['scripts'],
+    };
+    expect(checkTaskEvidenceContext(ctx, 'qaPassed', [legacy])).toMatch(/missing typecheck/);
   });
 });
 
@@ -228,6 +293,41 @@ beforeEach(() => {
 afterEach(() => {
   rmSync(root, { recursive: true, force: true });
   rmSync(`${root}-origin.git`, { recursive: true, force: true });
+});
+
+describe('a .mjs-only change binds a lint receipt that stands alone for qaPassed (T14089)', () => {
+  beforeEach(() => {
+    initRepo(() => {
+      put('package.json', JSON.stringify({ name: 'solo' }));
+      put('scripts/release-run.mjs', 'export const v = 1;\n');
+      put('scripts/__tests__/release-run.test.mjs', 'export const t = 1;\n');
+    });
+    put('scripts/release-run.mjs', 'export const v = 2;\n');
+    put('scripts/__tests__/release-run.test.mjs', 'export const t = 2;\n');
+    git(root, ['commit', '-q', '-am', 'T1: change the scripts']);
+  });
+
+  it('binding records no typecheck input, the lint inputs, and qaPassed accepts the lint receipt alone', async () => {
+    const r = await validateAtom(
+      {
+        kind: 'qa-run',
+        path: receipt({ kind: 'lint', command: ['biome', 'check'], roots: ['scripts'] }),
+      },
+      root,
+    );
+    if (!r.ok || r.atom.kind !== 'qa-run')
+      throw new Error(`expected a bound atom: ${JSON.stringify(r)}`);
+    expect(r.atom.owedChecks).toEqual({
+      typecheck: [],
+      lint: ['scripts/__tests__/release-run.test.mjs', 'scripts/release-run.mjs'],
+    });
+    const ctx: EvidenceValidationContext = {
+      task: { id: 'T1', kind: 'work', labels: [], files: [], acceptance: [] },
+      gates: ['qaPassed'],
+      criteria: [],
+    };
+    expect(checkTaskEvidenceContext(ctx, 'qaPassed', [r.atom])).toBeNull();
+  });
 });
 
 describe('a qa-run receipt in a standalone project', () => {

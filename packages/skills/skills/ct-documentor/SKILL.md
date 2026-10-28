@@ -64,6 +64,17 @@ ratio from the docs audit log, loose-markdown count (gitignore-aware scan),
 `docs_wikilinks` edge count, and live `decision_adr_links` count. Use it for
 pilot baseline comparisons — it never writes.
 
+`cleo docs rot` (T14111) is the docs-rot check every cycle runs. A doc declares
+the code it documents in frontmatter, `covers:` with repo globs (the skill
+`metadata.covers` grammar); write it into the store doc and republish, never
+the mirror alone. The report reads git only: **stale** (covered code changed on
+main after the doc did), **duplicates** (same body, near-identical titles),
+**orphans** (a covers glob matching nothing, a `docs/` file nothing names).
+`--changed <base>..<head>` lists the docs a merged change left stale (the
+post-merge sweep labels its tasks `docs-update`); `--strict` exits 2 on any
+finding, and the release cut runs it. When you change covered code, update the
+doc in the same PR.
+
 `cleo docs doctor` (T13447) audits the docs store — dangling `local-file`
 pointers, docVersion skew vs the audit log, empty topics/related_tasks,
 `docs_wikilinks` drift, legacy store surfaces, stale drafts — and with

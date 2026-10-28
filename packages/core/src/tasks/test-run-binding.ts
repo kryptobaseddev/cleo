@@ -77,6 +77,7 @@ import { existsSync, realpathSync, statSync } from 'node:fs';
 import { dirname, isAbsolute, relative, resolve } from 'node:path';
 import type { EvidenceAtom } from '@cleocode/contracts';
 import { discoveryEnv } from '../git/work-tree.js';
+import { TARGETED_RUN_COVERAGE } from '../release/ci-evidence.js';
 import {
   cleoConfigSchemaFor,
   dependentsClosure,
@@ -1035,9 +1036,7 @@ function testRunMeetsRequirement(
       testFiles.length === 0
         ? 'test-run report lists no test files, so it covers no test file of'
         : 'test-run report covers no test file of'
-    } ${someNames(labelled)}. A targeted report must cover every affected package that has ` +
-      'tests — each changed package and each package that depends on one, the set ' +
-      'tool:test-affected runs. Run those tests and record the report, or record ' +
-      'tool:test-affected (or tool:test).',
+    } ${someNames(labelled)}. A targeted report must cover ${TARGETED_RUN_COVERAGE}. ` +
+      'Run those tests and record the report, or record tool:test-affected (or tool:test).',
   );
 }

@@ -90,7 +90,7 @@ import { registerTeardownAbort } from '../teardown-signal.js';
 import { acItemToText, acTextHash } from './ac-table.js';
 import { splitCommandLine } from './command-line.js';
 import { resolveCanonicalProjectRoot } from './evidence.js';
-import { resolveEvidenceTree } from './evidence-tree.js';
+import { resolveEvidenceRepository, resolveEvidenceTree } from './evidence-tree.js';
 import {
   buildGateCacheEntryBody,
   captureGateCacheState,
@@ -354,11 +354,11 @@ export async function captureGateInputs(
   execution: OperationExecutionContext,
   env: NodeJS.ProcessEnv = process.env,
 ): Promise<{ hash: string; inputs: AcceptanceGateCacheInputs }> {
-  const tree = resolveTypedGateRoot(
-    resolve(execution.identity.projectRoot),
-    undefined,
-    undefined,
-    task.id,
+  const storeRoot = resolve(execution.identity.projectRoot);
+  const tree = gateTreeFor(
+    gate,
+    resolveTypedGateRoot(storeRoot, undefined, undefined, task.id),
+    storeRoot,
   );
   const invocation = executableInvocation(gate, tree, { ...env });
   const artifacts = await snapshotGateInputs(task, gate, invocation, execution, tree);
@@ -428,6 +428,27 @@ export function resolveTypedGateRoot(
     real(top) === root || real(resolveCanonicalProjectRoot(top)) === root;
   const tree = real(resolveEvidenceTree(projectRoot, taskId, cwd, env, ofThisProject).root);
   return tree === root ? projectRoot : tree;
+}
+
+/**
+ * The tree ONE typed gate runs in, captures its inputs in and is revalidated
+ * in: the declared evidence repository its `repo` names (T14078), else
+ * `tree` ({@link resolveTypedGateRoot}).
+ *
+ * @param gate - The typed gate.
+ * @param tree - The task's typed-gate tree.
+ * @param storeRoot - CLEO store root, whose project context declares repositories.
+ * @returns The checkout root the gate uses.
+ * @throws When `repo` names a repository the project does not declare, or
+ *   one whose path is not a checkout's root.
+ * @task T14078
+ */
+export function gateTreeFor(gate: AcceptanceGate, tree: string, storeRoot: string): string {
+  if (gate.repo === undefined) return tree;
+  const repo = resolveEvidenceRepository(storeRoot, gate.repo);
+  // @sync-invariant none:input-shape a typed gate naming an undeclared repository is refused before it runs; nothing is written
+  if (!repo.ok) throw new Error(`Typed gate ${gate.req ?? gate.description}: ${repo.reason}`);
+  return repo.root;
 }
 
 /**
@@ -511,10 +532,18 @@ export async function runGates(
   if (cacheMode !== 'off' && (snapshot.length !== 1 || !cacheInputsHash))
     throw new Error('Typed gate caching requires one gate per batch and its inputs digest');
   // T12621: the repo state is captured only when the policy reads or writes.
-  const cacheState =
-    cacheMode !== 'off' && TOOL_GATE_KINDS.has(snapshot[0]!.kind)
-      ? await captureGateCacheState(treeRoot)
-      : null;
+  let cacheState: Awaited<ReturnType<typeof captureGateCacheState>> = null;
+  if (cacheMode !== 'off' && TOOL_GATE_KINDS.has(snapshot[0]!.kind)) {
+    // T14078: keyed to the HEAD of the tree the gate runs in; a refused
+    // repository leaves the state unset and the loop reports the refusal.
+    let cacheTree: string | null = null;
+    try {
+      cacheTree = gateTreeFor(snapshot[0]!, treeRoot, projectRoot);
+    } catch {
+      cacheTree = null;
+    }
+    cacheState = cacheTree === null ? null : await captureGateCacheState(cacheTree);
+  }
   const cacheKey = cacheState ? loadEvidenceCacheKey() : null;
   const results: AcceptanceGateResult[] = [];
   try {
@@ -532,6 +561,7 @@ export async function runGates(
           const parsed = acceptanceGateSchema.parse(gate);
           if (!isDeepStrictEqual(parsed, gate))
             throw new Error('Gate includes unsupported or noncanonical fields');
+          const gateRoot = gateTreeFor(parsed, treeRoot, projectRoot);
           if (cacheState && cacheKey && (cacheMode === 'use' || cacheMode === 'only')) {
             const lookup = readGateCacheEntry(
               projectRoot,
@@ -579,9 +609,9 @@ export async function runGates(
             ...(await runOneGate(
               parsed,
               i,
-              treeRoot,
+              gateRoot,
               options.skipManual ?? true,
-              batch,
+              { ...batch, cwd: gateRoot },
               projectRoot,
             )),
             source: 'executed',
@@ -853,19 +883,28 @@ export async function runTaskGates(
       // quote) becomes ITS OWN `error` result. Throwing here rejected the whole
       // batch, and the verify engine turned that into E_GENERAL, discarding
       // every other gate's verdict.
-      const { invocation, refusal: invocationRefusal } = resolveInvocation(gate, tree, env);
+      // T14078: a gate naming a declared evidence repository runs there; an
+      // undeclared one is this gate's error, never a run in another tree.
+      let gateRoot = tree;
+      let repoRefusal: string | undefined;
+      try {
+        gateRoot = gateTreeFor(gate, tree, root);
+      } catch (error) {
+        repoRefusal = error instanceof Error ? error.message : String(error);
+      }
+      const { invocation, refusal: invocationRefusal } = resolveInvocation(gate, gateRoot, env);
       // T13527: an input that cannot be captured (an ambiguous symlink, an
       // escape) is THIS gate's error, not a rejection of every gate in the
       // batch. A cancellation still propagates.
       let artifacts: AcceptanceGateArtifact[] = [];
       let snapshotRefusal: string | undefined;
       try {
-        artifacts = await snapshotGateInputs(snapshot, gate, invocation, execution, tree);
+        artifacts = await snapshotGateInputs(snapshot, gate, invocation, execution, gateRoot);
       } catch (error) {
         execution.assertActive();
         snapshotRefusal = `Typed gate inputs could not be captured: ${error instanceof Error ? error.message : String(error)}`;
       }
-      const refusal = invocationRefusal ?? snapshotRefusal;
+      const refusal = repoRefusal ?? invocationRefusal ?? snapshotRefusal;
       const binding: AcceptanceGateBinding = {
         version: 1,
         verificationId,
@@ -879,7 +918,7 @@ export async function runTaskGates(
         ...(invocation ? { invocation } : {}),
         artifacts,
       };
-      const treeBinding = captureTreeBinding(tree, invocation, artifacts);
+      const treeBinding = captureTreeBinding(gateRoot, invocation, artifacts);
       if (treeBinding) binding.tree = treeBinding;
       const observed = refusal
         ? {
@@ -916,7 +955,7 @@ export async function runTaskGates(
         // A gate whose inputs were never captured has nothing to compare.
         const after = snapshotRefusal
           ? artifacts
-          : await snapshotGateInputs(snapshot, gate, invocation, execution, tree);
+          : await snapshotGateInputs(snapshot, gate, invocation, execution, gateRoot);
         if (!isDeepStrictEqual(after, artifacts))
           throw new Error('Verification inputs changed during execution');
       } catch (error) {
@@ -1193,7 +1232,7 @@ async function revalidateTypedResult(
   index: number,
   gate: AcceptanceGate,
 ): Promise<void> {
-  const { task, rows, results, execution, root, tree, env, requirePassing } = scope;
+  const { task, rows, results, execution, root, env, requirePassing } = scope;
   execution.assertActive();
   const matches = results.filter((result) => result.index === index);
   if (matches.length !== 1)
@@ -1209,6 +1248,8 @@ async function revalidateTypedResult(
   );
   if (stale) throw new Error(`Typed requirement ${gate.req ?? index} ${stale}`);
   const binding = result.binding!;
+  // T14078: revalidated in the tree it runs in, its declared repository when it names one.
+  const tree = gateTreeFor(gate, scope.tree, root);
   // A refused command is bound without an invocation (T12718 review), so it
   // revalidates as the unmet `error` it was recorded as.
   const { invocation: resolved } = resolveInvocation(gate, tree, env);

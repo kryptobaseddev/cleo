@@ -20,6 +20,8 @@ import {
   admissionToken,
   admit,
   budgetShare,
+  CHARGE_MARGIN_MIN_BYTES,
+  CHARGE_WARMUP_MS,
   describeAdmissionIoError,
   describeCharge,
   describeHolders,
@@ -37,6 +39,7 @@ import {
   LEDGER_RESERVATION_MS,
   type LedgerEntry,
   lightBudgetShare,
+  nextCharge,
   type ProcessFacts,
   planFootprintBytes,
   planRunFootprint,
@@ -1035,6 +1038,219 @@ describe('suspectCycle', () => {
     const plain = new Map(table);
     plain.set(199, { ppid: 1, command: '/bin/zsh -c cleo verify T1' });
     expect(suspectCycle(200, [holder], plain)).toBeNull();
+  });
+});
+
+describe('a never-paused run at backoff starts by the idle rule (T14098)', () => {
+  const ctx = (over: { reclaimableBytes?: number | null; backoff?: boolean } = {}) => ({
+    capacityBytes: 10 * GIB,
+    share: 'one' as const,
+    lightShare: 'full' as const,
+    nowMs: 1_000,
+    reclaimableBytes: 8 * GIB,
+    backoff: true,
+    ...over,
+  });
+  const np = (id: string, enqueuedAtMs: number, footprintBytes = 4 * GIB) =>
+    entry({ id, enqueuedAtMs, footprintBytes, neverPause: true });
+
+  it('CLEO idle: the first never-paused waiter in queue order starts alone, marked idle', () => {
+    const out = schedulePass([np('b', 2), np('a', 1)], ctx());
+    expect(admittedIds(out)).toEqual(['a']);
+    expect(out.find((e) => e.id === 'a')?.admittedBy).toBe('idle');
+  });
+
+  it('a CLEO run admitted: the never-paused waiter is held', () => {
+    const held = [entry({ id: 'h', state: 'admitted', admittedAtMs: 0 }), np('a', 1)];
+    expect(admittedIds(schedulePass(held, ctx()))).toEqual(['h']);
+  });
+
+  it('runs queued behind the held one keep their place; one queued ahead still starts', () => {
+    const ledger = [
+      entry({ id: 'ahead', enqueuedAtMs: 1, footprintBytes: 4 * GIB }),
+      np('a', 2),
+      entry({ id: 'behind', enqueuedAtMs: 3, footprintBytes: 4 * GIB }),
+    ];
+    expect(admittedIds(schedulePass(ledger, ctx()))).toEqual(['ahead']);
+    // Once nothing of CLEO's runs, the never-paused one starts, not the run behind it.
+    const next = schedulePass(
+      ledger.filter((e) => e.id !== 'ahead'),
+      ctx(),
+    );
+    expect(admittedIds(next)).toEqual(['a']);
+  });
+
+  it('a never-paused run larger than the reclaimable memory never starts and holds nobody back', () => {
+    const ledger = [
+      np('suite', 1, 9 * GIB),
+      entry({ id: 'build', enqueuedAtMs: 2, footprintBytes: 4 * GIB }),
+    ];
+    expect(admittedIds(schedulePass(ledger, ctx({ reclaimableBytes: 3 * GIB })))).toEqual([
+      'build',
+    ]);
+    expect(admittedIds(schedulePass([np('a', 1)], ctx({ reclaimableBytes: null })))).toEqual([]);
+  });
+
+  it('below backoff it is scheduled like any run; a nested one is never held', () => {
+    const ledger = [entry({ id: 'h', state: 'admitted', admittedAtMs: 0 }), np('a', 1, 2 * GIB)];
+    expect(
+      admittedIds(schedulePass(ledger, { ...ctx({ backoff: false }), share: 'full' })),
+    ).toEqual(['h', 'a']);
+    const nested = [
+      entry({ id: 'p', state: 'admitted', admittedAtMs: 0, footprintBytes: GIB }),
+      { ...np('child', 1, 2 * GIB), parentId: 'p' },
+    ];
+    expect(admittedIds(schedulePass(nested, ctx()))).toEqual(['p', 'child']);
+  });
+
+  it('above the refuse line nothing starts, never-paused or not', () => {
+    expect(
+      admittedIds(schedulePass([np('a', 1)], { ...ctx(), share: 'none', lightShare: 'none' })),
+    ).toEqual([]);
+  });
+
+  it('admit(): held while a CLEO run is admitted, with the rule named; started by it once CLEO is idle', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'cleo-ledger-backoff-'));
+    _resetMemoryGateForTest();
+    // CPU saturation: backoff, while the memory gate admits.
+    const opts = {
+      capacityBytes: 10 * GIB,
+      sample: async () => sampleAt(0, 60),
+      env: {},
+      pollMs: 5,
+      topMemory: () => [],
+      dir,
+    };
+    try {
+      const holder = await admit(
+        { label: 'run:scoped-build', footprintBytes: 2 * GIB },
+        { ...opts, wait: false },
+      );
+      expect(holder.admitted).toBe(true);
+      const held = await admit(
+        { label: 'run:test-run', footprintBytes: 2 * GIB, neverPause: true },
+        { ...opts, wait: false },
+      );
+      expect(held.admitted).toBe(false);
+      if (!held.admitted) {
+        expect(held.refusal.reason).toMatch(
+          /machine at backoff; this run is never paused, so it starts only when no CLEO run is admitted and its charge fits the reclaimable memory.*1 CLEO run\(s\) admitted; reclaimable 8\.0 GiB/,
+        );
+      }
+      if (holder.admitted) await holder.grant.release();
+      const started = await admit(
+        { label: 'run:test-run', footprintBytes: 2 * GIB, neverPause: true },
+        { ...opts, wait: false },
+      );
+      expect(started.admitted).toBe(true);
+      if (started.admitted) {
+        expect(started.grant.admittedBy).toBe('idle');
+        await started.grant.release();
+      }
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("an admitted run's charge follows its measured peak (T14116)", () => {
+  const MIB = 1024 ** 2;
+  const obs = (over: Partial<Parameters<typeof nextCharge>[0]> = {}) => ({
+    planBytes: 12 * GIB,
+    chargedBytes: 12 * GIB,
+    peakBytes: 170 * MIB,
+    rssBytes: 120 * MIB,
+    samples: 12,
+    admittedForMs: CHARGE_WARMUP_MS,
+    ...over,
+  });
+
+  it('after the warm-up the charge falls to the peak plus the margin, never above the plan', () => {
+    expect(nextCharge(obs())).toBe(170 * MIB + CHARGE_MARGIN_MIN_BYTES);
+    // A 4.1 GiB typecheck keeps a quarter of its peak as the margin.
+    expect(nextCharge(obs({ peakBytes: 4.1 * GIB, rssBytes: 4 * GIB }))).toBe(
+      Math.ceil(4.1 * GIB * 1.25),
+    );
+    // A peak near the plan never charges more than the plan, so nothing changes.
+    expect(nextCharge(obs({ peakBytes: 11 * GIB, rssBytes: 11 * GIB }))).toBeNull();
+  });
+
+  it('nothing changes during the warm-up or before enough measurements', () => {
+    expect(nextCharge(obs({ admittedForMs: CHARGE_WARMUP_MS - 1 }))).toBeNull();
+    expect(nextCharge(obs({ samples: 1 }))).toBeNull();
+  });
+
+  it('a lowered charge never falls again without a new peak, and a climb past it restores the plan', () => {
+    const lowered = 170 * MIB + CHARGE_MARGIN_MIN_BYTES;
+    expect(nextCharge(obs({ chargedBytes: lowered }))).toBeNull();
+    expect(nextCharge(obs({ chargedBytes: lowered, peakBytes: 3 * GIB, rssBytes: 3 * GIB }))).toBe(
+      12 * GIB,
+    );
+    // Even during the warm-up: a climb is never left over-budget.
+    expect(nextCharge(obs({ chargedBytes: lowered, rssBytes: 3 * GIB, admittedForMs: 1 }))).toBe(
+      12 * GIB,
+    );
+    // At the plan already: nothing to restore.
+    expect(nextCharge(obs({ rssBytes: 13 * GIB, peakBytes: 13 * GIB }))).toBeNull();
+  });
+
+  it('admit(): a hook push measuring far under plan frees its budget for a waiter; growing restores the plan', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'cleo-ledger-recharge-'));
+    _resetMemoryGateForTest();
+    let t = Date.now();
+    const opts = {
+      capacityBytes: 16 * GIB,
+      sample: async () => sampleAt(0),
+      env: {},
+      pollMs: 5,
+      topMemory: () => [],
+      now: () => t,
+      dir,
+    };
+    try {
+      const push = await admit(
+        {
+          label: 'run:scoped-build',
+          footprintBytes: 12 * GIB,
+          footprintReason: 'scoped-build plan: runs the pre-push hook',
+        },
+        { ...opts, wait: false },
+      );
+      expect(push.admitted).toBe(true);
+      if (!push.admitted) return;
+      const waiter = admit(
+        { label: 'run:scoped-build', footprintBytes: 8 * GIB },
+        { ...opts, wait: true, timeoutMs: 10 * CHARGE_WARMUP_MS }, // outlasts the fake clock's warm-up step,
+      );
+      await vi.waitFor(() => expect(readLedger(dir)).toHaveLength(2));
+      expect(readLedger(dir).find((e) => e.state === 'waiting')).toBeDefined();
+      // Warm-up passes with two measurements of 0.17 GiB.
+      push.grant.observeRss?.(170 * MIB);
+      t += CHARGE_WARMUP_MS;
+      push.grant.observeRss?.(150 * MIB);
+      const admitted = await waiter;
+      expect(admitted.admitted).toBe(true);
+      const held = readLedger(dir).find(
+        (e) => e.label === 'run:scoped-build' && e.footprintBytes === 12 * GIB,
+      );
+      expect(held?.chargedBytes).toBe(170 * MIB + CHARGE_MARGIN_MIN_BYTES);
+      const [line] = describeHolders(
+        readLedger(dir).filter((e) => e.id === held?.id),
+        t,
+      );
+      expect(line).toMatch(
+        /charged 0\.7 GiB \(planned 12 GiB \(scoped-build plan: runs the pre-push hook\); measured peak 0\.2 GiB\)/,
+      );
+      // The hook starts a test run: the tree climbs past its charge, back to the plan.
+      push.grant.observeRss?.(3 * GIB);
+      await vi.waitFor(() =>
+        expect(readLedger(dir).find((e) => e.id === held?.id)?.chargedBytes).toBeUndefined(),
+      );
+      if (admitted.admitted) await admitted.grant.release();
+      await push.grant.release();
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 });
 

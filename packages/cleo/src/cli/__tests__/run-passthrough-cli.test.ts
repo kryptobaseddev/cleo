@@ -39,10 +39,23 @@ afterEach(() => {
 // Root ignores directory permissions: the read-only case cannot be staged.
 const asRoot = process.getuid?.() === 0;
 
+/**
+ * T14098: the subject here is passthrough bytes, not admission, so the host's
+ * pressure must not decide whether the run starts (macOS main CI on d603f57f4
+ * deferred a never-paused test run at backoff). `CLEO_ADMISSION_PRESSURE=off`
+ * makes the ledger admit on the byte budget alone; the deferral case below
+ * still fills that budget.
+ */
 function cleo(args: readonly string[], input?: string) {
   const r = spawnSync(process.execPath, [CLI_DIST, ...args], {
     cwd: dir,
-    env: { PATH: process.env.PATH, HOME: join(dir, 'home'), CLEO_HOME: cleoHome, TMPDIR: dir },
+    env: {
+      PATH: process.env.PATH,
+      HOME: join(dir, 'home'),
+      CLEO_HOME: cleoHome,
+      TMPDIR: dir,
+      CLEO_ADMISSION_PRESSURE: 'off',
+    },
     input,
     timeout: 60_000,
   });

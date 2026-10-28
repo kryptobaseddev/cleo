@@ -275,7 +275,10 @@ async function checkArchiveReasonInvariant(opts: InvariantRunOptions): Promise<I
         continue;
       }
 
-      if (isFullyVerified(task)) {
+      // T12883 R2: stamping done also needs every acceptance criterion covered;
+      // an uncovered task takes the follow-up path below.
+      const { computeAcCoverage } = await import('../../tasks/ac-coverage-gate.js');
+      if (isFullyVerified(task) && (await computeAcCoverage(taskId, accessor)).ok) {
         // Clean reconcile path — stamp done + archive_reason=verified + release=<tag>.
         // assertArchiveReason() rejects 'completed-unverified' (tombstone) per
         // T1409 contract; passing 'verified' is always safe.

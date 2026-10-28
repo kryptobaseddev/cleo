@@ -273,6 +273,15 @@
           "type": "boolean",
           "description": "Accept required CI green on a merged PR's merge commit as testsPassed/qaPassed evidence (ci:<pr>, D11149)."
         },
+        "deploySatisfies": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "enum": ["implemented", "testsPassed", "qaPassed", "cleanupDone", "securityPassed", "documented"]
+          },
+          "uniqueItems": true,
+          "description": "Gates a probed deployment (deploy:<provider>/<deploymentId>@<sha>|<probe-url>, T14083) satisfies. CLEO probes the URL at verify (2xx, naming the deployed SHA in an X-Commit/X-Version header or the body) and requires the deployed SHA to contain the task's implemented commits. No default: unset or empty, the atom satisfies nothing; testsPassed only if listed."
+        },
         "scopeExcludes": {
           "type": "array",
           "items": { "type": "string", "minLength": 1 },
@@ -282,6 +291,20 @@
           "type": "array",
           "items": { "type": "string", "minLength": 1 },
           "description": "Repo-relative globs of files whose change affects dependents only at the type level: a generated client (lib/api-zod/**), seed or data files (T13783). A package that depends on a change only through changed packages whose every changed path matches owes a typecheck (tool:typecheck or a qa-run typecheck receipt naming it) instead of a test file. Read from the default branch only."
+        },
+        "repositories": {
+          "type": "array",
+          "description": "Further git repositories this project's evidence may come from (an SDK in a separate repository, T14078). A typed gate names one by its repo field; an undeclared repository is refused.",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["name", "path", "purpose"],
+            "properties": {
+              "name": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$", "description": "Name a typed gate's repo field uses." },
+              "path": { "type": "string", "minLength": 1, "description": "The checkout root, relative to the CLEO store root or absolute." },
+              "purpose": { "type": "string", "minLength": 1, "description": "Why the project's evidence comes from it." }
+            }
+          }
         },
         "runtimePaths": {
           "type": "array",
