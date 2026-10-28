@@ -437,6 +437,7 @@ export type {
   DocsModernizePlanRow,
   DocsModernizeReceipt,
   DocsModernizeReceiptOp,
+  DocsModernizeStoreRow,
 } from './docs/modernize.js';
 export {
   DOCS_MODERNIZE_DISPOSITIONS,

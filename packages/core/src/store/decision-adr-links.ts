@@ -37,7 +37,7 @@
  */
 
 import { ExitCode } from '@cleocode/contracts/exit-codes.js';
-import { and, count, eq } from 'drizzle-orm';
+import { and, count, eq, inArray } from 'drizzle-orm';
 import { CleoError } from '../errors.js';
 import { naturalRowUid } from './row-identity.js';
 import type { DecisionAdrLinkRow } from './schema/cleo-project/docs.js';
@@ -328,10 +328,13 @@ export async function listDecisionLinksForAdr(
 ): Promise<DecisionAdrLinkRow[]> {
   requireNonEmpty('adrSlug', adrSlug);
   const db = await getDb(projectRoot);
+  // T14118: links made under an ADR's earlier slug follow it through a rename.
+  const { listDocSlugs } = await import('../docs/slug-rename.js');
+  const slugs = await listDocSlugs(projectRoot, adrSlug).catch(() => [adrSlug]);
   const rows = await db
     .select()
     .from(decisionAdrLinks)
-    .where(eq(decisionAdrLinks.adrSlug, adrSlug))
+    .where(inArray(decisionAdrLinks.adrSlug, slugs))
     .all();
   const filtered = opts?.includeRevoked === true ? rows : rows.filter((r) => r.status === 'linked');
   return filtered.sort((a, b) => a.decisionId.localeCompare(b.decisionId));

@@ -198,7 +198,13 @@ export class DocsReadModel {
    */
   async resolveBySlug(slug: string): Promise<ResolvedDoc | null> {
     const store = createAttachmentStore();
-    const row = await store.findBySlug(slug, this.projectRoot);
+    let row = await store.findBySlug(slug, this.projectRoot);
+    if (!row) {
+      // T14118: an old slug kept as an alias after a rename resolves to the doc.
+      const { resolveDocSlug } = await import('./slug-rename.js');
+      const live = await resolveDocSlug(this.projectRoot, slug).catch(() => null);
+      row = live ? await store.findBySlug(live, this.projectRoot) : null;
+    }
     if (!row) return null;
 
     return this.enrichFromTasksDb(row.metadata, {

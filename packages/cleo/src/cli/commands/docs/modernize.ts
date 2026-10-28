@@ -7,6 +7,7 @@
  *   cleo docs modernize docs --apply               — plan and apply, with a receipt
  *   cleo docs modernize --apply --plan plan.json   — apply a reviewed plan verbatim
  *   cleo docs modernize --rollback <runId>         — reverse an apply run
+ *   cleo docs modernize --store [--apply]          — re-kind / re-slug the stored docs
  *   cleo docs modernize .cleo/rcasd --store-only --kind rcasd --apply
  *                                                  — bulk-ingest, task-owned, folder untouched
  *
@@ -67,6 +68,11 @@ export const modernizeCommand = defineCommand({
       type: 'boolean',
       description: 'Apply even when the root is not a clean git checkout (default: refuse)',
     },
+    store: {
+      type: 'boolean',
+      description:
+        'Modernize the docs already in the store: re-kind, re-slug (old slugs stay as aliases), renumber colliding ADRs',
+    },
     'store-only': {
       type: 'boolean',
       description: 'Ingest every file into the store (task-owned) and leave the folder untouched',
@@ -88,6 +94,7 @@ export const modernizeCommand = defineCommand({
         ...(typeof args.kind === 'string' ? { kind: args.kind } : {}),
         storeOnly: args['store-only'] === true,
         allowDirty: args['allow-dirty'] === true,
+        store: args.store === true,
       },
       { command: 'docs modernize' },
     );
