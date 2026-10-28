@@ -152,8 +152,7 @@ export interface MergeCloseDeps {
   reconcile?(storeRoot: string): Promise<MergeSweepReconcile>;
   /**
    * The independent reviewer verdicts recorded for a task's PR (T14122,
-   * `cleo review`). Unset until that module is on main: no verdicts, so
-   * nothing closes.
+   * `cleo review`). Unset: no verdicts, so nothing closes.
    */
   reviewVerdicts?(storeRoot: string, taskId: string, prNumber: number): Promise<ReviewVerdict[]>;
   /**
@@ -188,45 +187,25 @@ export interface MergeCloseDeps {
 export const MERGE_CLOSE_STATUS_CONTEXT = 'cleo/merge-close';
 
 /**
- * Why the criteria a line names are not independently verified for this PR
- * head (T14122), one entry per criterion, or none when each criterion's
- * latest verdict is `met` on `headSha`. A missing verdict, one the task's own
- * author wrote, an `unmet` one, or one bound to another head (a push after
- * review) each count.
+ * Why the criteria a line names are not independently verified on the PR's
+ * head (T14122), one reason per criterion, from the shared judge
+ * (`judgeReviewVerdicts`, the same text `cleo review check` prints): no
+ * verdict, an unmet one, one on an older head (a push after review), or one
+ * by the task's own author. Empty when every criterion is met.
  *
- * @param verdicts - The task's verdicts for the PR.
+ * @param verdicts - The task's verdicts on the PR.
  * @param acs - The criteria the line names.
  * @param headSha - The PR's final head.
- * @returns The problems.
+ * @returns The reasons.
  */
-export function verdictProblems(
+export async function unverifiedCriteria(
   verdicts: readonly ReviewVerdict[],
   acs: readonly string[],
   headSha: string | null,
-): string[] {
-  const problems: string[] = [];
-  for (const ac of acs) {
-    const latest = verdicts
-      .filter((v) => v.ac === ac)
-      .reduce<ReviewVerdict | null>(
-        (a, b) => (a === null || b.createdAt >= a.createdAt ? b : a),
-        null,
-      );
-    const { sessionId, agentId } = latest?.reviewer ?? { sessionId: '', agentId: null };
-    const byAuthor =
-      latest !== null &&
-      (latest.authors.sessionIds.includes(sessionId) ||
-        (agentId !== null && latest.authors.agentIds.includes(agentId)));
-    if (latest === null) problems.push(`${ac}: no review verdict`);
-    else if (byAuthor)
-      problems.push(`${ac}: reviewed by the task's own author; review independently`);
-    else if (latest.headSha !== headSha)
-      problems.push(
-        `${ac}: reviewed on head ${latest.headSha.slice(0, 12)}, not ${headSha?.slice(0, 12) ?? '(unknown)'}; review again`,
-      );
-    else if (latest.verdict !== 'met') problems.push(`${ac}: reviewed unmet (${latest.reason})`);
-  }
-  return problems;
+): Promise<string[]> {
+  if (headSha === null) return acs.map((ac) => `${ac}: the PR's head is unknown`);
+  const { judgeReviewVerdicts } = await import('./review-verdict.js');
+  return judgeReviewVerdicts(verdicts, acs, headSha).gaps.map((gap) => gap.reason);
 }
 
 const DIRECTIVE_LINE = /^[ \t>*-]*(Closes|Refs)[ \t]*:[ \t]*(.*)$/gim;
@@ -567,7 +546,7 @@ async function applyDirective(
   const verdicts = deps.reviewVerdicts
     ? await deps.reviewVerdicts(storeRoot, taskId, pr.number)
     : [];
-  const unverified = verdictProblems(verdicts, acs, pr.headRefOid);
+  const unverified = await unverifiedCriteria(verdicts, acs, pr.headRefOid);
   if (unverified.length > 0)
     return {
       ...base,
@@ -755,7 +734,7 @@ async function checkOpenPrs(
       const verdicts = deps.reviewVerdicts
         ? await deps.reviewVerdicts(storeRoot, d.taskId, pr.number)
         : [];
-      for (const p of verdictProblems(verdicts, d.acs, pr.headRefOid))
+      for (const p of await unverifiedCriteria(verdicts, d.acs, pr.headRefOid))
         problems.push(`${d.taskId} ${p}`);
       if (d.kind === 'closes') {
         const prior = await priorBindings(storeRoot, d.taskId, pr.number, null);
@@ -1174,6 +1153,10 @@ export const defaultMergeCloseDeps: MergeCloseDeps = {
         ? [{ url: r.url, title: r.title }]
         : [];
     });
+  },
+  async reviewVerdicts(storeRoot, taskId, prNumber) {
+    const { reviewVerdictsFor } = await import('./review-verdict.js');
+    return reviewVerdictsFor(storeRoot, taskId, prNumber);
   },
   async docsRot(storeRoot, pr) {
     // T14111: flag the docs whose covers: globs match the merge's own changes.

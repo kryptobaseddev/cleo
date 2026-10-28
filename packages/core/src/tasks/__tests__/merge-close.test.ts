@@ -575,14 +575,14 @@ describe('satisfies comes only from an independent verdict on the merged head (T
     const merged = pr(30, `Closes: ${id} AC1,AC2`);
     const head = merged.headRefOid ?? '';
     const cases: Array<[ReviewVerdict[], RegExp]> = [
-      [[], /AC1: no review verdict; AC2: no review verdict/],
+      [[], /AC1: no verdict on head \w+; AC2: no verdict on head \w+/],
       [
         [verdict(id, 30, 'AC1', head, 'met'), verdict(id, 30, 'AC2', head, 'unmet')],
-        /AC2: reviewed unmet/,
+        /AC2: reviewed unmet on head/,
       ],
       [
         [verdict(id, 30, 'AC1', head, 'met'), verdict(id, 30, 'AC2', 'f'.repeat(40), 'met')],
-        /AC2: reviewed on head ffffffffffff/,
+        /AC2: no verdict on head \w+ \(latest is for fffffff\)/,
       ],
     ];
     for (const [verdicts, reason] of cases) {
@@ -638,7 +638,7 @@ describe('satisfies comes only from an independent verdict on the merged head (T
     const { reviewVerdicts: _unset, ...withoutReview } = deps;
     const result = await sweepMergedClosures(root, { force: true }, withoutReview);
     expect(result.closed).toEqual([]);
-    expect(result.refused[0]?.reason).toMatch(/no review verdict/);
+    expect(result.refused[0]?.reason).toMatch(/AC1: no verdict on head/);
   });
 
   it('checks open PRs before merge: a red status names the gap, green once verified, posted once each', async () => {
@@ -650,7 +650,7 @@ describe('satisfies comes only from an independent verdict on the merged head (T
     const sweep = { ...deps, reviewVerdicts: async () => verdicts };
     const first = await sweepMergedClosures(root, { force: true }, sweep);
     expect(first.openChecks?.[0]).toMatchObject({ prNumber: 33, state: 'failure' });
-    expect(calls.statuses[0]?.description).toMatch(/AC2: no review verdict/);
+    expect(calls.statuses[0]?.description).toMatch(/AC2: no verdict on head/);
     await sweepMergedClosures(root, { force: true }, sweep);
     expect(calls.statuses).toHaveLength(1);
     verdicts = [...verdicts, verdict(id, 33, 'AC2', head, 'met')];
