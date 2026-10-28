@@ -755,7 +755,7 @@ describe('a merge whose own CI run was cancelled waits, and is rerun once (T1410
 });
 
 describe('review fixes (#2555 review at a36298391)', () => {
-  it('the daemon sweeps registered CLEO projects only, never $HOME, and only behind the spawn gate', async () => {
+  it('the daemon sweeps registered main checkouts only: never $HOME, a moved path or a worktree', async () => {
     const home = mkdtempSync(join(tmpdir(), 'cleo-merge-home-'));
     mkdirSync(join(home, '.cleo'), { recursive: true });
     const project = mkdtempSync(join(tmpdir(), 'cleo-merge-project-'));
@@ -765,11 +765,20 @@ describe('review fixes (#2555 review at a36298391)', () => {
       join(project, '.cleo', 'project-context.json'),
       JSON.stringify({ evidence: { ciSatisfies: true } }),
     );
+    // A linked worktree registered as a project: `.git` is a gitlink file.
+    const worktree = mkdtempSync(join(tmpdir(), 'cleo-merge-worktree-'));
+    writeFileSync(join(worktree, '.git'), `gitdir: ${join(project, '.git', 'worktrees', 'x')}\n`);
+    mkdirSync(join(worktree, '.cleo'), { recursive: true });
+    writeFileSync(
+      join(worktree, '.cleo', 'project-context.json'),
+      JSON.stringify({ evidence: { ciSatisfies: true } }),
+    );
+    const moved = join(tmpdir(), `cleo-merge-moved-${process.pid}-gone`);
     const swept: string[] = [];
     const run = (env: NodeJS.ProcessEnv) =>
       sweepRegisteredProjects({
         env,
-        listRoots: async () => [home, project],
+        listRoots: async () => [home, moved, worktree, project],
         sweep: async (r) => {
           swept.push(r);
         },

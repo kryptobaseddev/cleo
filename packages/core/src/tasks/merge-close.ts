@@ -1112,7 +1112,8 @@ async function runSweep(
 
 /**
  * Whether a directory is a CLEO project that takes merged CI as evidence
- * (T14101): a git checkout with `.cleo/project-context.json` setting
+ * (T14101): a main git checkout (never a linked worktree, never a moved or
+ * missing path) with `.cleo/project-context.json` setting
  * `evidence.ciSatisfies`. The daemon sweeps only these, never `$HOME`.
  *
  * @param root - Candidate project root.
@@ -1120,7 +1121,9 @@ async function runSweep(
  */
 export function mergeSweepApplies(root: string): boolean {
   try {
-    if (!existsSync(join(root, '.git'))) return false;
+    // A main checkout only: a linked worktree's `.git` is a file (gitlink),
+    // and a moved or missing path has none.
+    if (!statSync(join(root, '.git')).isDirectory()) return false;
     const context = JSON.parse(
       readFileSync(join(root, '.cleo', 'project-context.json'), 'utf-8'),
     ) as { evidence?: { ciSatisfies?: unknown } };
