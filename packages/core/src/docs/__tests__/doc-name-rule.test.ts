@@ -97,6 +97,27 @@ describe('internal slug minters follow the rule (T14129)', () => {
     expect(docNameViolation(subjectSlug('T1 T22 T333 Fix the 20261028 sweep'))).toBeNull();
   });
 
+  it('subjectSlug drops dotted calver and spaced year-month pairs, which would join into a date', () => {
+    expect(subjectSlug('Release v2026.10.28 hotfix')).toBe('release-hotfix');
+    expect(subjectSlug('Adopt 2026 10 calver')).toBe('adopt-calver');
+    expect(subjectSlug('Ship v2026.10.27')).toBe('ship');
+    // A lone year or a version without a month is a subject word, not a date.
+    expect(subjectSlug('Node 20 upgrade')).toBe('node-20-upgrade');
+    expect(subjectSlug('Year 2026 plan')).toBe('year-2026-plan');
+    for (const title of ['Release v2026.10.28 hotfix', 'Adopt 2026 10 calver', 'Ship v2026.10.27'])
+      expect(docNameViolation(subjectSlug(title))).toBeNull();
+  });
+
+  it('suggests the subject for a v-prefixed date, not a dangling prefix', () => {
+    expect(docNameViolation('ship-v2026-10-27')).toEqual({ reasons: ['date'], suggestion: 'ship' });
+  });
+
+  it('an ADR allocated from a calver title passes the rule', () => {
+    const slug = assembleAdrSlug(123, 'Ship v2026.10.27');
+    expect(slug).toBe('adr-123-ship');
+    expect(docNameViolation(slug, 'adr')).toBeNull();
+  });
+
   it('an ADR allocated from a task-anchored title passes the rule within the length cap', () => {
     const slug = assembleAdrSlug(7, `T14129 ${'very long decision title '.repeat(5)}`);
     expect(slug.startsWith('adr-007-very-long-decision-title')).toBe(true);
@@ -110,6 +131,8 @@ describe('internal slug minters follow the rule (T14129)', () => {
       { date: '2026-10-28' },
     );
     expect(tokens.TOPIC_SLUG).toBe('store-slug-enforcement');
+    const release = setFullContext({ id: 'T1', title: 'Release v2026.10.28 hotfix' });
+    expect(docNameViolation(String(release.TOPIC_SLUG), 'note')).toBeNull();
     expect(docNameViolation(String(tokens.TOPIC_SLUG), 'note')).toBeNull();
   });
 });

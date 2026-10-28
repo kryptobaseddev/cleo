@@ -79,17 +79,25 @@ function hasDate(name: string): boolean {
  * @task T14107
  */
 export function suggestDocName(name: string): string {
-  const parts = tokens(name.replace(/(19|20)\d{2}-\d{2}(-\d{2})?/g, ' '));
+  // A dated or calver token goes whole, `v` prefix included (`ship-v2026-10-27`).
+  const parts = tokens(name.replace(/(^|[^a-z0-9])v?(19|20)\d{2}-\d{2}(-\d{2})?/gi, '$1 '));
   const kept: string[] = [];
   // A session id is `ses` and the numeric tokens after it (`ses_<time>_<n>`).
   let inSession = false;
-  for (const token of parts) {
+  for (let i = 0; i < parts.length; i++) {
+    const token = parts[i] ?? '';
     if (token === 'ses') {
       inSession = true;
       continue;
     }
     if (inSession && /^\d+$/.test(token)) continue;
     inSession = false;
+    // A year then a month (`2026 10`, a calver `v2026.10.28`) joins into a
+    // date: drop the year token (with any `v` prefix) and the numbers after it.
+    if (/^v?(19|20)\d{2}$/.test(token) && /^\d{1,2}$/.test(parts[i + 1] ?? '')) {
+      i += /^\d{1,2}$/.test(parts[i + 2] ?? '') ? 2 : 1;
+      continue;
+    }
     if (!isTaskToken(token) && !isDateToken(token)) kept.push(token);
   }
   const joined = kept.join('-').replace(/^[^a-z]+/, '');
@@ -109,7 +117,9 @@ export function suggestDocName(name: string): string {
  * @task T14129
  */
 export function subjectSlug(source: string, maxLength: number = DOC_NAME_MAX_LENGTH): string {
-  return suggestDocName(source).slice(0, maxLength).replace(/-+$/, '') || 'doc';
+  const slug = suggestDocName(source).slice(0, maxLength).replace(/-+$/, '') || 'doc';
+  // Cutting can leave a new year-month pair at the end; clean it once more.
+  return docNameViolation(slug) === null ? slug : suggestDocName(slug);
 }
 
 /**
