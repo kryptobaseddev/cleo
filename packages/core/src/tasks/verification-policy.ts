@@ -94,9 +94,7 @@ export function gateProfileOf(task: Partial<Pick<Task, 'labels'>>): GateProfile 
  */
 export function gateProfileLabelProblem(labels: readonly string[]): string | null {
   const profiles = [
-    ...new Set(
-      labels.map((l) => l.trim()).filter((l) => l.startsWith(GATE_PROFILE_LABEL_PREFIX)),
-    ),
+    ...new Set(labels.map((l) => l.trim()).filter((l) => l.startsWith(GATE_PROFILE_LABEL_PREFIX))),
   ];
   const known = GATE_PROFILES.map((p) => `${GATE_PROFILE_LABEL_PREFIX}${p}`).join(', ');
   const unknown = profiles.find((l) => !isGateProfile(l.slice(GATE_PROFILE_LABEL_PREFIX.length)));

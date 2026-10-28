@@ -70,6 +70,7 @@ import {
   extractTaskAcFilesWithProvenance,
   taskEvidenceKindReport,
 } from './evidence.js';
+import { PROFILE_WAIVED_GATES } from './gate-notes.js';
 import {
   extractTypedGates,
   type TypedResultDrift,
@@ -77,7 +78,6 @@ import {
   typedResultDrift,
   typedResultStaleReason,
 } from './gate-runner.js';
-import { PROFILE_WAIVED_GATES } from './gate-notes.js';
 import { gateStaleness } from './gate-staleness.js';
 import { changedTestFiles } from './test-run-binding.js';
 import { captureTreeHash, computeCacheKey, readCacheEntry } from './tool-cache.js';
