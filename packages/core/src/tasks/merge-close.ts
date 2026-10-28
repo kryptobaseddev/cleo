@@ -1068,13 +1068,9 @@ export const defaultMergeCloseDeps: MergeCloseDeps = {
     });
   },
   async docsRot(storeRoot, pr) {
-    // T14111: the docs whose covers: globs match the merge's own changes.
-    const { scanDocsRot, flagDocsRotOnTasks } = await import('../docs/rot.js');
-    const { flagged } = scanDocsRot({
-      projectRoot: storeRoot,
-      changed: `${pr.mergeSha}^1..${pr.mergeSha}`,
-    });
-    return flagDocsRotOnTasks(storeRoot, pr.taskIds, flagged, `PR #${pr.prNumber}`);
+    // T14111: flag the docs whose covers: globs match the merge's own changes.
+    const { flagDocsRot } = await import('../docs/rot.js');
+    return flagDocsRot(storeRoot, pr);
   },
   async closeIssue(root, url, comment) {
     return (await gh(['issue', 'close', url, '--comment', comment], root)) !== null;
