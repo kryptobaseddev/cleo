@@ -509,6 +509,9 @@ export function acquireMergeSweepLock(
   } catch {
     return null;
   }
+  // T14139: a third party may have swapped the lock between our steal and our
+  // create; sweep only if the lock path holds our own token.
+  if (!lockHolds(lock, token)) return null;
   const heartbeat = setInterval(() => {
     try {
       const now = new Date();
@@ -521,11 +524,27 @@ export function acquireMergeSweepLock(
   return () => {
     clearInterval(heartbeat);
     try {
-      if (readFileSync(lock, 'utf-8') === token) unlinkSync(lock);
+      if (lockHolds(lock, token)) unlinkSync(lock);
     } catch {
       // Already gone or taken over: nothing of ours to remove.
     }
   };
+}
+
+/**
+ * Whether the lock path holds `token` (T14139).
+ *
+ * @param lock - The lock path.
+ * @param token - The token expected.
+ * @returns True when the lock file reads exactly `token`.
+ * @internal Exported for tests.
+ */
+export function lockHolds(lock: string, token: string): boolean {
+  try {
+    return readFileSync(lock, 'utf-8') === token;
+  } catch {
+    return false;
+  }
 }
 
 /**
@@ -1178,17 +1197,25 @@ async function ageOutWaiting(
   dryRun: boolean,
   result: MergeSweepResult,
 ): Promise<void> {
+  const { getTaskAccessor } = await import('../store/data-accessor.js');
+  const accessor = await getTaskAccessor(storeRoot);
   for (const [prNumber, entry] of agedOut) {
     const reason = entry.verdictOnly
       ? 'waited 14 days without a reviewer verdict'
       : `waited 14 days without closing: ${entry.reason}`;
-    const outcomes: MergeTaskOutcome[] = entry.lines.map((line) => ({
-      taskId: line.taskId,
-      acs: line.acs,
-      action: 'refused',
-      reason,
-    }));
-    for (const o of outcomes) result.refused.push({ taskId: o.taskId, prNumber, reason });
+    const outcomes: MergeTaskOutcome[] = [];
+    for (const line of entry.lines) {
+      // T14139: a task closed by another route meanwhile is not refused, nor commented.
+      const status = (await accessor.loadSingleTask(line.taskId))?.status;
+      const closed = status === 'done' || status === 'cancelled';
+      outcomes.push(
+        closed
+          ? { ...line, action: 'already', reason: `${line.taskId} is already ${status}.` }
+          : { ...line, action: 'refused', reason },
+      );
+    }
+    for (const o of outcomes)
+      if (o.action === 'refused') result.refused.push({ taskId: o.taskId, prNumber, reason });
     result.prs.push({ prNumber, mergeSha: entry.mergeSha, outcomes });
     if (dryRun) continue;
     const pr: MergedPrRecord = {

@@ -33,6 +33,7 @@ import {
   defaultMergeCloseDeps,
   formatMergeReceipt,
   judgeMergedPr,
+  lockHolds,
   MERGE_CLOSE_AUDIT_ACTION,
   MERGE_SWEEP_INTERVAL_MS,
   MERGE_SWEEP_LOCK_STALE_MS,
@@ -1034,6 +1035,41 @@ describe('re-review fixes (#2555 at d95a2597c)', () => {
     expect(calls.comments).toHaveLength(2);
     const state = JSON.parse(readFileSync(join(root, '.cleo', 'merge-sweep.json'), 'utf-8'));
     expect(state.waiting).toEqual({});
+    // T14139: a third sweep posts nothing more.
+    world.now += HOUR * 7;
+    await sweepMergedClosures(root, { force: true }, { ...sweep, listMergedPrs: async () => [] });
+    expect(calls.comments).toHaveLength(2);
+  });
+
+  it('age-out skips a task already done by another route: no refusal, no comment (T14139)', async () => {
+    const id = await seedTask(['only criterion']);
+    const merged = pr(65, `Closes: ${id} AC1`);
+    const { deps, world, calls } = fakeDeps([merged]);
+    const sweep = { ...deps, reviewVerdicts: async () => [] };
+    await sweepMergedClosures(root, { force: true }, sweep);
+    expect(calls.comments).toHaveLength(1);
+    await env.accessor.updateTaskFields(id, { status: 'done', pipelineStage: 'contribution' });
+    world.now += MERGE_WAITING_MAX_AGE_MS + HOUR;
+    const aged = await sweepMergedClosures(
+      root,
+      { force: true },
+      { ...sweep, listMergedPrs: async () => [] },
+    );
+    expect(aged.refused).toEqual([]);
+    expect(aged.prs[0]?.outcomes[0]?.action).toBe('already');
+    expect(calls.comments).toHaveLength(1);
+  });
+
+  it('the lock is taken only while the path holds our own token (T14139)', () => {
+    const release = acquireMergeSweepLock(root);
+    expect(release).not.toBeNull();
+    const token = readFileSync(lockPath(), 'utf-8');
+    expect(lockHolds(lockPath(), token)).toBe(true);
+    // A third party swaps the lock: our token no longer holds, and release leaves theirs.
+    writeFileSync(lockPath(), 'someone-else');
+    expect(lockHolds(lockPath(), token)).toBe(false);
+    release?.();
+    expect(readFileSync(lockPath(), 'utf-8')).toBe('someone-else');
   });
 
   it('a sweep past its run cap carries the rest on the waiting list', async () => {
