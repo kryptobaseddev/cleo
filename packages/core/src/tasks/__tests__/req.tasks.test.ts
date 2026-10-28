@@ -723,6 +723,7 @@ describe('typed requirement persistence', () => {
       },
       { deadlineAt: Date.now() + 100 },
     );
+    const startedAt = Date.now();
     try {
       const result = await worktreeScope.run(
         captureProjectScope(root, { ...captureProjectScope(root, undefined), execution: context }),
@@ -738,9 +739,16 @@ describe('typed requirement persistence', () => {
       );
       expect(result.success).toBe(false);
       // T12621: the deadline names the phase that ran out and the remedy.
+      // T14082: which phase it is depends on the runner's speed (a slow macOS
+      // runner ran out before the gate started), so the test asserts what
+      // retention means instead: the admitted 100 ms lifetime ended the write
+      // long before the 10 s gate could finish, never its 30 min timeout.
       if (result.success) throw new Error('expected a deadline refusal');
       expect(result.error.code).toBe('E_OPERATION_DEADLINE');
-      expect(result.error.message).toContain('during typed gate execution');
+      expect(result.error.message).toMatch(
+        /reached its operation deadline during (task and evidence validation|typed gate execution)\./,
+      );
+      expect(Date.now() - startedAt).toBeLessThan(9_000);
       expect(result.error.message).toContain('timeoutMs');
       expect(result.error.message).toContain('cleo verify T121 --run');
       expect(persisted(root, 'SELECT verification_json,updated_at FROM tasks_tasks')).toBe(before);
