@@ -10,7 +10,7 @@
  * @task T14096
  */
 
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { ExitCode } from '@cleocode/contracts/exit-codes.js';
 import type { TypeMatrixRepairOp } from '@cleocode/core/doctor/type-matrix-repair.js';
 import { getProjectRoot } from '@cleocode/core/paths.js';
@@ -61,6 +61,12 @@ export const doctorTypeMatrixCommand = defineCommand({
     }
     let resolutions: TypeMatrixRepairOp[] = [];
     if (typeof args.resolutions === 'string' && args.resolutions !== '') {
+      if (!existsSync(args.resolutions)) {
+        cliError(`--resolutions ${args.resolutions}: no such file`, ExitCode.VALIDATION_ERROR, {
+          name: 'E_VALIDATION',
+        });
+        return;
+      }
       const parsed = repair.parseTypeMatrixResolutions(readFileSync(args.resolutions, 'utf-8'));
       if (!parsed.ok) {
         cliError(`--resolutions ${args.resolutions}: ${parsed.reason}`, ExitCode.VALIDATION_ERROR, {

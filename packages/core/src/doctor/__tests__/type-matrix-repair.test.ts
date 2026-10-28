@@ -172,6 +172,99 @@ describe('doctor type-matrix (T14096)', () => {
     expect((await env.accessor.loadSingleTask('T2'))?.type).toBe('task');
   });
 
+  it('a write between the reviewed plan and the apply is E_CONFLICT: nothing changes, no receipt', async () => {
+    await ambiguousPair();
+    const resolution = [{ kind: 'retype' as const, taskId: 'T1', to: 'epic' as const }];
+    const plan = await planTypeMatrixRepair(env.tempDir, resolution);
+    await env.accessor.updateTaskFields('T1', { title: 'edited after the plan' });
+    await expect(applyTypeMatrixRepair(env.tempDir, resolution, { plan })).rejects.toMatchObject({
+      code: 23,
+    });
+    expect((await env.accessor.loadSingleTask('T1'))?.type).toBe('task');
+    const receipts = await env.accessor.queryAuditLog({ actions: [TYPE_MATRIX_REPAIR_ACTION] });
+    expect(receipts).toEqual([]);
+  });
+
+  it('skips a proposal an earlier resolution already settled', async () => {
+    // P (a root task, once an epic) holds task C, which holds subtask S. The
+    // one valid fix for C is re-typing P back to an epic; the agent instead
+    // moves C under the live epic E, so that proposal is skipped.
+    await seedTasks(env.accessor, [
+      row('P', 'epic'),
+      row('C', 'task', 'P'),
+      row('S', 'subtask', 'C'),
+      row('E', 'epic'),
+    ]);
+    await env.accessor.updateTaskFields('P', { type: 'task' });
+    const dry = await planTypeMatrixRepair(env.tempDir);
+    expect(dry.plans.find((p) => p.taskId === 'C')?.proposal).toEqual({
+      kind: 'retype',
+      taskId: 'P',
+      to: 'epic',
+    });
+    const plan = await planTypeMatrixRepair(env.tempDir, [
+      { kind: 'reparent', taskId: 'C', toParentId: 'E' },
+    ]);
+    expect(plan.operations).toEqual([{ kind: 'reparent', taskId: 'C', toParentId: 'E' }]);
+    expect(plan.unresolved).toEqual([]);
+  });
+
+  it('refuses a reparent resolution into a cycle, under a cancelled parent, or under an unknown task', async () => {
+    await seedTasks(env.accessor, [
+      row('P', 'epic'),
+      row('C', 'task', 'P'),
+      row('S', 'subtask', 'C'),
+      { ...row('X', 'epic'), status: 'cancelled' as const, pipelineStage: 'cancelled' },
+    ]);
+    await env.accessor.updateTaskFields('P', { type: 'task' });
+    const move = (to: string) => [{ kind: 'reparent' as const, taskId: 'C', toParentId: to }];
+    await expect(planTypeMatrixRepair(env.tempDir, move('S'))).rejects.toThrow(/cycle/);
+    await expect(planTypeMatrixRepair(env.tempDir, move('X'))).rejects.toThrow(/strand/);
+    await expect(planTypeMatrixRepair(env.tempDir, move('T404'))).rejects.toThrow(
+      /T404, which is not a task/,
+    );
+    expect((await env.accessor.loadSingleTask('C'))?.parentId).toBe('P');
+  });
+
+  it('refuses a parent re-type its own parent cannot contain', async () => {
+    // G (saga) > P (epic) > C (task); P re-typed to a task makes C task → task.
+    // Re-typing P to a saga would fix C but sagas sit only at the root.
+    await seedTasks(env.accessor, [row('G', 'saga'), row('P', 'epic', 'G'), row('C', 'task', 'P')]);
+    await env.accessor.updateTaskFields('C', { type: 'subtask' });
+    await expect(
+      applyTypeMatrixRepair(env.tempDir, [{ kind: 'retype', taskId: 'P', to: 'task' }]),
+    ).rejects.toThrow(/would leave P/);
+    expect((await env.accessor.loadSingleTask('P'))?.type).toBe('epic');
+  });
+
+  it('rollback never breaks a child filed after the repair', async () => {
+    // Saga G > epic E > subtask T: the repair re-types T to a task. Later a
+    // subtask is filed under T; restoring T to a subtask would orphan it.
+    await seedTasks(env.accessor, [
+      row('G', 'saga'),
+      row('E', 'epic', 'G'),
+      row('T', 'subtask', 'E'),
+    ]);
+    const done = await applyTypeMatrixRepair(env.tempDir);
+    expect((await env.accessor.loadSingleTask('T'))?.type).toBe('task');
+    await seedTasks(env.accessor, [row('T9', 'subtask', 'T')]);
+    await expect(rollbackTypeMatrixRepair(env.tempDir, done.receiptId ?? '')).rejects.toThrow(
+      /would break T9/,
+    );
+    expect((await env.accessor.loadSingleTask('T'))?.type).toBe('task');
+  });
+
+  it('rollback refuses a row whose version moved after the repair', async () => {
+    await ambiguousPair();
+    const done = await applyTypeMatrixRepair(env.tempDir, [
+      { kind: 'retype', taskId: 'T1', to: 'epic' },
+    ]);
+    await env.accessor.updateTaskFields('T1', { title: 'edited after the repair' });
+    await expect(rollbackTypeMatrixRepair(env.tempDir, done.receiptId ?? '')).rejects.toThrow(
+      /changed after the repair/,
+    );
+  });
+
   it('parses a resolutions file and refuses a malformed one', () => {
     expect(
       parseTypeMatrixResolutions(
