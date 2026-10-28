@@ -1115,6 +1115,13 @@ export const COMMAND_MANIFEST: readonly CommandManifestEntry[] = [
     load: async () => (await import('../commands/revert.js')).revertCommand as CommandDef,
   },
   {
+    exportName: 'reviewCommand',
+    name: 'review',
+    description:
+      'Independent per-criterion PR review by a non-author, bound to the PR head (packet | verdict | check)',
+    load: async () => (await import('../commands/review.js')).reviewCommand as CommandDef,
+  },
+  {
     exportName: 'roadmapCommand',
     name: 'roadmap',
     description:

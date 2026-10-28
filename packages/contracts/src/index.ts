@@ -3276,6 +3276,15 @@ export {
   nexusStreamHeadSchema,
   nexusUserKeysSchema,
 } from './nexus-vault.js';
+// === Independent per-AC PR review (T14122) ===
+export type {
+  ReviewAuthors,
+  ReviewGap,
+  ReviewJudgement,
+  ReviewPacket,
+  ReviewPacketCriterion,
+  ReviewVerdict,
+} from './review-verdict.js';
 // === Sync schema version, shared by the change journal and the cloud vault (T13034) ===
 export { SYNC_SCHEMA_VERSION } from './sync-schema.js';
 export { isStorableTaskId, isTaskId, TASK_ID_REGEX, type TaskId } from './task-id.js';
