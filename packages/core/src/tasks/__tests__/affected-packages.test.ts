@@ -680,8 +680,9 @@ describe('tool:test-affected evidence', () => {
     writeFileSync(join(root, '.opencode', 'goals', 'dogfood', 'goal.yaml'), 'goal: x\n');
     writeFileSync(join(root, 'packages/c/src/new.ts'), 'export const fresh = 1;\n');
     // Staged, so it is part of the change; an untracked dot-directory file is
-    // not the change at all since T13780.
-    git(root, ['add', '-f', '.opencode/goals/dogfood/goal.yaml']);
+    // not the change at all since T13780, and an untracked file of any kind
+    // only once staged since T14125.
+    git(root, ['add', '-f', '.opencode/goals/dogfood/goal.yaml', 'packages/c/src/new.ts']);
     expect(scopedChangedPaths(root)).toEqual({
       paths: ['packages/c/src/new.ts'],
       excluded: ['.opencode/goals/dogfood/goal.yaml'],
@@ -830,9 +831,11 @@ describe('tool:test-affected evidence', () => {
     }
   });
 
-  it('T12657: an untracked new file in a package selects that package', async () => {
+  it('T12657: a new file in a package selects that package once staged (T14125)', async () => {
     initRepo(`node -e "process.exit(process.argv.slice(1).join(',')==='@x/c'?0:3)" {packages}`);
     writeFileSync(join(root, 'packages/c/src/new.ts'), 'export const fresh = 1;\n');
+    expect(changedPathsSinceDefault(root)).toEqual([]);
+    git(root, ['add', '-N', 'packages/c/src/new.ts']);
     expect(changedPathsSinceDefault(root)).toEqual(['packages/c/src/new.ts']);
     const r = await validateAtom({ kind: 'tool', tool: 'test-affected' }, root);
     expect(r.ok && r.atom, JSON.stringify(r)).toMatchObject({ affectedPackages: ['@x/c'] });
