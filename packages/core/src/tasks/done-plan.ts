@@ -60,6 +60,7 @@ import {
   isCleoConfigOnlyChange,
   isNonCodeOnlyChange,
   planScopedTestRun,
+  scopedChangedPaths,
   standalonePackage,
 } from './affected-packages.js';
 import { type TaskMergeInfo, taskChangeMergeState } from './affected-scope.js';
@@ -1418,6 +1419,16 @@ export async function deriveTaskEvidence(
     (commands[0] ? step(commands[0], 'Every gate is derivable; record them in order.') : null);
   const ready = blockers.length === 0 && commands.length > 0;
   const readyReason = notReadyReason(taskId, task.status, ready, blockers);
+  // T14125: evidence never counts an untracked file; name the ones left out.
+  const untrackedSetAside =
+    task.status === 'done' ? [] : (scopedChangedPaths(root)?.untrackedSetAside ?? []);
+  if (untrackedSetAside.length > 0) {
+    const named = `${untrackedSetAside.slice(0, 5).join(', ')}${untrackedSetAside.length > 5 ? ', …' : ''}`;
+    changeSet.warnings.push(
+      `${untrackedSetAside.length} untracked file(s) are not part of this change and no evidence ` +
+        `judges them (${named}). Stage a file this task created (git add, or git add -N) so it counts.`,
+    );
+  }
 
   return {
     taskId,
@@ -1433,6 +1444,7 @@ export async function deriveTaskEvidence(
     commands,
     ready,
     ...(readyReason !== null ? { readyReason } : {}),
+    ...(untrackedSetAside.length > 0 ? { untrackedSetAside } : {}),
     next,
     integration,
   };
