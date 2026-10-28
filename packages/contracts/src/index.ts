@@ -422,6 +422,21 @@ export { CANONICAL_DOMAINS } from './dispatch/identity.js';
 export type { OperationDef, Resolution } from './dispatch/operation-def.js';
 // === Dispatch OPERATIONS data + builder helpers (T10061 — T9833b / E-CLI-BOUNDARY / SG-ARCH-SOLID) ===
 export { defineDomain, defineOp, OPERATIONS } from './dispatch/operations-registry.js';
+// === docs modernize plan + receipt (T14113) ===
+export type {
+  DocsModernizeDisposition,
+  DocsModernizeJudgment,
+  DocsModernizeJudgmentQuestion,
+  DocsModernizeJudgmentSource,
+  DocsModernizeOpKind,
+  DocsModernizeOverride,
+  DocsModernizeOverrides,
+  DocsModernizePlan,
+  DocsModernizePlanRow,
+  DocsModernizeReceipt,
+  DocsModernizeReceiptOp,
+} from './docs/modernize.js';
+export { DOCS_MODERNIZE_DISPOSITIONS, DOCS_MODERNIZE_OPS } from './docs/modernize.js';
 // === Docs Provenance Graph (T10166 / Saga T9855 / E12) ===
 export type {
   DocLifecycleStatus,

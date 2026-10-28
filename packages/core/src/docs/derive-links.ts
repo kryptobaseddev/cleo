@@ -61,6 +61,25 @@ export function extractTaskMentions(contentText: string): string[] {
   return [...ids].sort((a, b) => Number(a.slice(1)) - Number(b.slice(1)));
 }
 
+/** `[[slug]]`, `[[slug#heading]]` or `[[slug|label]]` wikilinks; group 1 is the slug. */
+export const WIKILINK_PATTERN = /\[\[([^\]|#\n]+)(?:#[^\]|\n]*)?(?:\|[^\]\n]*)?\]\]/g;
+
+/**
+ * Extract the sorted, de-duplicated slugs a body links to with `[[wikilinks]]`.
+ *
+ * @param contentText - Decoded UTF-8 body.
+ * @returns Linked slugs (e.g. `['adr-078-docs-provenance']`).
+ * @task T14113
+ */
+export function extractWikilinkTargets(contentText: string): string[] {
+  const out = new Set<string>();
+  for (const match of contentText.matchAll(WIKILINK_PATTERN)) {
+    const target = match[1]?.trim();
+    if (target) out.add(target);
+  }
+  return [...out].sort();
+}
+
 /**
  * Derived provenance for one doc write. Arrays are empty (never null) so
  * callers can persist unconditionally with a JSON-or-null policy.
@@ -70,6 +89,8 @@ export interface DerivedDocLinks {
   readonly relatedTasks: readonly string[];
   /** Topic labels carried on the attachment. */
   readonly topics: readonly string[];
+  /** Slugs the body links to with `[[wikilinks]]` (T14113). */
+  readonly wikilinks: readonly string[];
 }
 
 /**
@@ -84,6 +105,7 @@ export function deriveDocLinks(contentText: string, labels?: readonly string[]):
   return {
     relatedTasks: extractTaskMentions(contentText),
     topics: labels ? [...new Set(labels)].sort() : [],
+    wikilinks: extractWikilinkTargets(contentText),
   };
 }
 
