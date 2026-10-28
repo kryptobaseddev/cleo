@@ -736,6 +736,79 @@ describe('merged PR (AC1, AC5)', () => {
     expect(cs.blockers).toEqual([]);
   });
 
+  describe('a PR that only mentions the task is not its implementation (T14087)', () => {
+    /** One merged PR #42 whose body names `id` in prose only. */
+    function mentioning(repo: string, id: string, extraPaths: string[] = []) {
+      const squash = squashMerge(repo, 'T999');
+      return deriveTaskChangeSet(
+        { task: task(id), storeRoot: repo, cwd: repo },
+        {
+          listMergedPrs: async () => ({
+            ok: true,
+            prs: [
+              {
+                number: 42,
+                title: 'fix(T999): the scoped run stands in',
+                body: `Cases this unblocks: ${id} and others.`,
+                headRefName: 'task/T999',
+              },
+            ],
+          }),
+          ...onMain,
+          resolvePr: async (n) => prResolution(n, squash, ['a.ts', 'new.ts', ...extraPaths]),
+          ...noDocs,
+          env: {},
+        },
+      );
+    }
+
+    it('a citing-only body is rejected, and the plan says which PR and why', async () => {
+      const repo = repoWithOrigin(base, 'repo');
+      const cs = await mentioning(repo, 'T915');
+      expect(cs.source).not.toBe('pr');
+      expect(cs.prNumber ?? null).toBeNull();
+      expect(cs.warnings.join('\n')).toMatch(
+        /PR #42 only mentions T915 .*not taken as T915's implementation; pass --pr 42/,
+      );
+    });
+
+    it("a changeset whose tasks list the id makes the PR the task's implementation", async () => {
+      const repo = repoWithOrigin(base, 'repo');
+      mkdirSync(join(repo, '.changeset'), { recursive: true });
+      writeFileSync(
+        join(repo, '.changeset', 'x.md'),
+        '---\nid: x\ntasks: [T999, T916]\nkind: fix\nsummary: "x"\n---\n\nBody.\n',
+      );
+      git(repo, ['add', '-A']);
+      git(repo, ['commit', '-q', '-m', 'changeset']);
+      const cs = await mentioning(repo, 'T916', ['.changeset/x.md']);
+      expect(cs.prNumber).toBe(42);
+      expect(cs.warnings.join('\n')).not.toMatch(/only mentions/);
+    });
+
+    it('a branch name or a Closes/Task line still names the implementation', async () => {
+      const repo = repoWithOrigin(base, 'repo');
+      const squash = squashMerge(repo, 'T917');
+      for (const prs of [
+        [{ number: 42, title: 'fix', body: '', headRefName: 'task/T917' }],
+        [{ number: 42, title: 'fix', body: 'Closes T917', headRefName: 'feat/x' }],
+        [{ number: 42, title: 'fix', body: '- **Task:** T917', headRefName: 'feat/x' }],
+      ]) {
+        const cs = await deriveTaskChangeSet(
+          { task: task('T917'), storeRoot: repo, cwd: repo },
+          {
+            listMergedPrs: async () => ({ ok: true, prs }),
+            ...onMain,
+            resolvePr: async (n) => prResolution(n, squash, ['a.ts', 'new.ts', 'old.ts']),
+            ...noDocs,
+            env: {},
+          },
+        );
+        expect(cs.prNumber, JSON.stringify(prs)).toBe(42);
+      }
+    });
+  });
+
   it('declared task.files narrow several candidates to the one that touched them', async () => {
     const repo = repoWithOrigin(base, 'repo');
     const squash = squashMerge(repo, 'T912');
