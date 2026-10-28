@@ -206,6 +206,24 @@ export function gitHeadHasPath(toplevel: string, relPath: string): boolean {
 }
 
 /**
+ * Whether commit-ish `ref` of the checkout at `toplevel` tracks `relPath`.
+ *
+ * Returns `null` when `ref` does not resolve to a commit (or git cannot run),
+ * so callers can tell "absent" apart from "unknown".
+ *
+ * @param toplevel - Checkout toplevel.
+ * @param ref - Any commit-ish (`HEAD`, `main`, `origin/main`, a sha).
+ * @param relPath - POSIX path relative to `toplevel`.
+ * @task T14117
+ */
+export function gitRefHasPath(toplevel: string, ref: string, relPath: string): boolean | null {
+  if (gitProbe(toplevel, ['rev-parse', '--verify', '--quiet', `${ref}^{commit}`]) === null) {
+    return null;
+  }
+  return gitProbe(toplevel, ['cat-file', '-e', `${ref}:${relPath}`]) !== null;
+}
+
+/**
  * Toplevels of the submodules checked out below `toplevel`, recursively.
  *
  * @param toplevel - Superproject checkout toplevel.

@@ -9,6 +9,7 @@
  * @task T13447 (Epic T13340 / Saga T13339)
  */
 
+import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import {
   existsSync,
@@ -21,7 +22,7 @@ import {
 } from 'node:fs';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { dirname, join } from 'node:path';
+import { dirname, join, relative } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 let tempDir: string;
@@ -811,6 +812,16 @@ describe('backfillBlobStoreBytes crash-safety (T13654)', () => {
 
 describe('runDocsDoctor — publication-ledger-drift (T14117)', () => {
   const sha = (text: string): string => createHash('sha256').update(text).digest('hex');
+  const PRUNE_AUDIT = (): string =>
+    join(tempDir, '.cleo', 'audit', 'docs-publications-prune.jsonl');
+
+  /** Run git in the temp project with a fixed identity. */
+  function git(...args: string[]): void {
+    execFileSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@t', ...args], {
+      cwd: tempDir,
+      stdio: 'ignore',
+    });
+  }
 
   /** Record one ledger row through the canonical accessor. */
   async function publish(blobName: string, publishedPath: string, lastBlobSha: string) {
@@ -828,45 +839,59 @@ describe('runDocsDoctor — publication-ledger-drift (T14117)', () => {
     return (await readDocsPublications(tempDir)).map((r) => r.publishedPath).sort();
   }
 
-  /**
-   * Seed four ledger rows: a dead-worktree row and an in-root deleted row
-   * whose blob an attachments row still holds, an in-root deleted row that is
-   * the only reference to its blob, and a hand-edited (modified) mirror.
-   */
-  async function seedLedger(): Promise<void> {
-    await seedSlug('published-doc', '# published\n');
-    const held = sha('# published\n');
-    await publish('dead.md', '../gone-worktree/docs/dead.md', held);
-    await publish('removed.md', 'docs/removed.md', held);
-    await publish('orphan.md', 'docs/orphan.md', sha('only the ledger knows me\n'));
-    mkdirSync(join(tempDir, 'docs'), { recursive: true });
-    writeFileSync(join(tempDir, 'docs', 'edited.md'), '# edited by hand\n');
-    await publish('edited.md', 'docs/edited.md', held);
+  /** Path of a mirror inside a (never-created) worktree under this device's worktrees root. */
+  async function deadWorktreeMirror(): Promise<string> {
+    const { getCleoWorktreesRoot } = await import('@cleocode/paths');
+    return relative(tempDir, join(getCleoWorktreesRoot(), 'feedface', 'T1', 'docs', 'wt.md'));
   }
 
-  it('classifies outside-root, deleted and modified rows with a proposed repair', async () => {
-    await seedLedger();
+  /**
+   * Seed a git project (branch main tracks docs/on-main.md; the checked-out
+   * branch `other` deleted it) and six ledger rows whose blob an attachments
+   * row still holds, except `orphan.md`, which is the only reference to its blob.
+   */
+  async function seedLedger(): Promise<{ deadWorktree: string; absolute: string }> {
+    git('init', '-q', '-b', 'main');
+    mkdirSync(join(tempDir, 'docs'), { recursive: true });
+    writeFileSync(join(tempDir, 'docs', 'on-main.md'), '# tracked on main\n');
+    git('add', 'docs/on-main.md');
+    git('commit', '-q', '-m', 'seed');
+    git('checkout', '-q', '-b', 'other');
+    git('rm', '-q', 'docs/on-main.md');
+    git('commit', '-q', '-m', 'drop on this branch');
+
+    await seedSlug('published-doc', '# published\n');
+    const held = sha('# published\n');
+    const deadWorktree = await deadWorktreeMirror();
+    const absolute = join(tmpdir(), 'another-device', 'docs', 'abs.md');
+    await publish('foreign.md', '../gone-worktree/docs/foreign.md', held);
+    await publish('abs.md', absolute, held);
+    await publish('wt.md', deadWorktree, held);
+    await publish('removed.md', 'docs/removed.md', held);
+    await publish('on-main.md', 'docs/on-main.md', held);
+    await publish('orphan.md', 'docs/orphan.md', sha('only the ledger knows me\n'));
+    writeFileSync(join(tempDir, 'docs', 'edited.md'), '# edited by hand\n');
+    await publish('edited.md', 'docs/edited.md', held);
+    return { deadWorktree, absolute };
+  }
+
+  it('prunes only provably gone rows; foreign, absolute and other-branch paths are report-only', async () => {
+    const { deadWorktree, absolute } = await seedLedger();
     const result = await doctor();
     expect(result.ok).toBe(true);
     if (!result.ok) return;
     const diag = diagnostic(result.report, 'publication-ledger-drift');
-    expect(diag.count).toBe(4);
+    expect(diag.count).toBe(7);
     expect(diag.severity).toBe('warn');
-    const byPath = new Map(diag.items.map((i) => [i['publishedPath'], i]));
-    expect(byPath.get('../gone-worktree/docs/dead.md')).toMatchObject({
-      drift: 'deleted',
-      outsideRoot: true,
-      proposed: 'prune-publication',
-    });
-    expect(byPath.get('docs/removed.md')).toMatchObject({
-      drift: 'deleted',
-      outsideRoot: false,
-      proposed: 'prune-publication',
-    });
-    expect(byPath.get('docs/orphan.md')).toMatchObject({ proposed: 'republish-or-prune' });
-    expect(byPath.get('docs/edited.md')).toMatchObject({
-      drift: 'modified',
-      proposed: 'reconcile-edit',
+    const proposed = Object.fromEntries(diag.items.map((i) => [i['publishedPath'], i['proposed']]));
+    expect(proposed).toEqual({
+      '../gone-worktree/docs/foreign.md': 'report-only',
+      [absolute]: 'report-only',
+      'docs/on-main.md': 'report-only',
+      [deadWorktree]: 'prune-publication',
+      'docs/removed.md': 'prune-publication',
+      'docs/orphan.md': 'republish-or-prune',
+      'docs/edited.md': 'reconcile-edit',
     });
   });
 
@@ -880,40 +905,48 @@ describe('runDocsDoctor — publication-ledger-drift (T14117)', () => {
     expect(prunes).toHaveLength(2);
     expect(prunes.every((r) => !r.applied)).toBe(true);
     expect(await ledgerPaths()).toEqual(before);
-    expect(existsSync(join(tempDir, '.cleo', 'audit', 'docs-publications-prune.jsonl'))).toBe(
-      false,
-    );
+    expect(existsSync(PRUNE_AUDIT())).toBe(false);
   });
 
-  it('apply prunes only protected deleted rows and audits each one first', async () => {
-    await seedLedger();
+  it('apply prunes only the provably gone, protected rows and audits each one first', async () => {
+    const { deadWorktree, absolute } = await seedLedger();
     const result = await doctor({ apply: true, receipt: makeReceipt() });
     expect(result.ok).toBe(true);
     if (!result.ok) return;
-    expect(await ledgerPaths()).toEqual(['docs/edited.md', 'docs/orphan.md']);
-    const audit = readFileSync(
-      join(tempDir, '.cleo', 'audit', 'docs-publications-prune.jsonl'),
-      'utf-8',
-    )
+    expect(await ledgerPaths()).toEqual(
+      [
+        '../gone-worktree/docs/foreign.md',
+        absolute,
+        'docs/edited.md',
+        'docs/on-main.md',
+        'docs/orphan.md',
+      ].sort(),
+    );
+    const audit = readFileSync(PRUNE_AUDIT(), 'utf-8')
       .trim()
       .split('\n')
       .map((l) => JSON.parse(l) as { op: string; record: { publishedPath: string } });
-    expect(audit.map((a) => a.record.publishedPath).sort()).toEqual([
-      '../gone-worktree/docs/dead.md',
-      'docs/removed.md',
-    ]);
+    expect(audit.map((a) => a.record.publishedPath).sort()).toEqual(
+      ['docs/removed.md', deadWorktree].sort(),
+    );
     expect(audit.every((a) => a.op === 'docs.doctor.prune-publication')).toBe(true);
-    // Post-repair diagnostics: only the two plan-only rows remain.
-    expect(diagnostic(result.report, 'publication-ledger-drift').count).toBe(2);
+    expect(diagnostic(result.report, 'publication-ledger-drift').count).toBe(5);
+  });
+
+  it('a missing relative mirror outside a git checkout is never pruned', async () => {
+    await seedSlug('published-doc', '# published\n');
+    await publish('removed.md', 'docs/removed.md', sha('# published\n'));
+    const result = await doctor({ apply: true, receipt: makeReceipt() });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(await ledgerPaths()).toEqual(['docs/removed.md']);
+    expect(existsSync(PRUNE_AUDIT())).toBe(false);
   });
 
   it('a pruned row is restorable from its audit line', async () => {
     await seedLedger();
     await doctor({ apply: true, receipt: makeReceipt() });
-    const line = readFileSync(
-      join(tempDir, '.cleo', 'audit', 'docs-publications-prune.jsonl'),
-      'utf-8',
-    ).split('\n')[0];
+    const line = readFileSync(PRUNE_AUDIT(), 'utf-8').split('\n')[0];
     const { record } = JSON.parse(line ?? '') as {
       record: { ownerId: string; blobName: string; publishedPath: string; lastBlobSha: string };
     };

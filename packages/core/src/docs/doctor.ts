@@ -69,10 +69,15 @@
  *                             outside the project root this is a dead
  *                             worktree) or differs from the store head
  *                             (`modified`). Repair (`prune-publication`) deletes
- *                             a `deleted` row only when its blob is still held
- *                             by an attachments row or by a live ledger row, so
- *                             the prune never drops the last GC protection of a
- *                             published blob. Each pruned row is appended in
+ *                             a `deleted` row only when the mirror is provably
+ *                             gone and its blob is still held by an attachments
+ *                             row or by a live ledger row. The ledger syncs
+ *                             across devices, so an absolute path or one outside
+ *                             both this root and this device's worktrees root is
+ *                             `report-only`, and a relative path still tracked by
+ *                             HEAD or the default branch (another branch checked
+ *                             out) is kept. A path in a removed worktree of this
+ *                             device is gone. Each pruned row is appended in
  *                             full to {@link DOCS_DOCTOR_LEDGER_PRUNE_AUDIT_FILE}
  *                             first, so it can be re-inserted. `modified` rows
  *                             and unprotected `deleted` rows get a plan-only
@@ -101,6 +106,7 @@ import {
   mkdirSync,
   readdirSync,
   readFileSync,
+  realpathSync,
   statSync,
 } from 'node:fs';
 import { readFile } from 'node:fs/promises';
@@ -108,6 +114,7 @@ import { tmpdir } from 'node:os';
 import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { getCleoWorktreesRoot } from '@cleocode/paths';
 import { eq } from 'drizzle-orm';
+import { gitRefHasPath, gitToplevel } from '../git/work-tree.js';
 import { resolveCleoDir } from '../paths.js';
 import { createAttachmentStore } from '../store/attachment-store.js';
 import {
@@ -603,9 +610,85 @@ interface LedgerFinding {
   /** True when the published path resolves outside the project root. */
   readonly outsideRoot: boolean;
   /** `prune-publication` (applied) or a plan-only verb. */
-  readonly action: 'prune-publication' | 'republish' | 'reconcile-edit' | 'republish-or-prune';
+  readonly action:
+    | 'prune-publication'
+    | 'republish'
+    | 'reconcile-edit'
+    | 'republish-or-prune'
+    | 'report-only';
   readonly prunable: boolean;
   readonly detail: string;
+}
+
+/**
+ * Decide whether a missing mirror is provably gone, not merely absent from
+ * this device or this checkout (T14117 review). `docs_publications` syncs
+ * across devices, so a prune here deletes the row everywhere:
+ *
+ * - an absolute path, or one outside both this project root and this
+ *   device's CLEO worktrees root, belongs to another device or checkout and
+ *   is never proven gone;
+ * - a path inside this device's worktrees root whose worktree directory no
+ *   longer exists is gone;
+ * - otherwise the path must be absent from `HEAD` and from the default
+ *   branch (local and `origin/`) of the checkout that holds it, so a file
+ *   missing only because another branch is checked out is kept. When git
+ *   cannot answer, the row is not proven gone.
+ *
+ * @internal
+ */
+async function provePublicationGone(
+  projectRoot: string,
+  publishedPath: string,
+  absPath: string,
+): Promise<{ readonly gone: boolean; readonly reason: string }> {
+  if (isAbsolute(publishedPath)) {
+    return {
+      gone: false,
+      reason: 'its path is absolute (published from another device or checkout)',
+    };
+  }
+  const relToRoot = relative(projectRoot, absPath);
+  const insideRoot = !relToRoot.startsWith('..') && !isAbsolute(relToRoot);
+  // `base` is the existing directory the path sits under; git paths are taken
+  // relative to it through its realpath, since gitToplevel() canonicalises
+  // (macOS /var → /private/var would otherwise yield a bogus `../..` path).
+  let base = projectRoot;
+  if (!insideRoot) {
+    const worktreesRoot = getCleoWorktreesRoot();
+    const relToWorktrees = relative(worktreesRoot, absPath);
+    if (relToWorktrees.startsWith('..') || isAbsolute(relToWorktrees)) {
+      return {
+        gone: false,
+        reason:
+          "it is outside this project root and this device's worktrees root (another device's path)",
+      };
+    }
+    const [projectHash, worktreeName] = relToWorktrees.split(sep);
+    if (projectHash === undefined || worktreeName === undefined) {
+      return { gone: false, reason: 'it does not name a worktree' };
+    }
+    const worktreeDir = join(worktreesRoot, projectHash, worktreeName);
+    if (!existsSync(worktreeDir)) {
+      return { gone: true, reason: `its worktree ${worktreeDir} no longer exists` };
+    }
+    base = worktreeDir;
+  }
+  const toplevel = gitToplevel(base);
+  if (toplevel === null)
+    return { gone: false, reason: 'git cannot read the checkout that holds it' };
+  const relPath = join(relative(toplevel, realpathSync(base)), relative(base, absPath))
+    .split(sep)
+    .join('/');
+  // Lazy: keeps the worktree/spawn graph out of the doctor's static imports.
+  const { getDefaultBranch } = await import('../spawn/branch-integration.js');
+  const branch = getDefaultBranch(toplevel);
+  for (const ref of ['HEAD', branch, `origin/${branch}`]) {
+    const has = gitRefHasPath(toplevel, ref, relPath);
+    if (has === true) return { gone: false, reason: `${ref} still tracks it` };
+    if (has === null && ref === 'HEAD') return { gone: false, reason: 'git cannot read HEAD' };
+  }
+  return { gone: true, reason: `absent from HEAD and ${branch}` };
 }
 
 /**
@@ -666,18 +749,27 @@ async function scanPublicationLedger(
     const protectedElsewhere = [...shas].every(
       (sha) => attachmentShas.has(sha) || (liveLedgerShas.get(sha) ?? 0) > 0,
     );
-    const where = outsideRoot
-      ? 'outside the project root (dead worktree)'
-      : 'inside the project root';
+    const proof = await provePublicationGone(projectRoot, record.publishedPath, absPath);
+    const blob = record.lastBlobSha.slice(0, 12);
+    let action: LedgerFinding['action'];
+    let detail: string;
+    if (proof.gone === false) {
+      action = 'report-only';
+      detail = `mirror ${record.publishedPath} is missing here but ${proof.reason} — not pruned (the ledger syncs across devices)`;
+    } else if (!protectedElsewhere) {
+      action = 'republish-or-prune';
+      detail = `mirror ${record.publishedPath} is gone (${proof.reason}) and this row is the only reference to blob ${blob}… — republish it, or archive the doc before pruning`;
+    } else {
+      action = 'prune-publication';
+      detail = `mirror ${record.publishedPath} is gone (${proof.reason}); blob ${blob}… stays referenced elsewhere → delete the ledger row`;
+    }
     findings.push({
       record,
       drift: 'deleted',
       outsideRoot,
-      action: protectedElsewhere ? 'prune-publication' : 'republish-or-prune',
-      prunable: protectedElsewhere,
-      detail: protectedElsewhere
-        ? `mirror ${record.publishedPath} is gone (${where}); blob ${record.lastBlobSha.slice(0, 12)}… stays referenced elsewhere → delete the ledger row`
-        : `mirror ${record.publishedPath} is gone (${where}) and this row is the only reference to blob ${record.lastBlobSha.slice(0, 12)}… — republish it, or archive the doc before pruning`,
+      action,
+      prunable: action === 'prune-publication',
+      detail,
     });
   }
   return findings;
