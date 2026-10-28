@@ -246,5 +246,31 @@ describe('deploy: gate mapping (T14083)', () => {
       /does not contain T901's implemented commit/,
     );
     expect(await boundHeadGapReason(task, [atom(['documented'], work)], repo)).toBeNull();
+
+    // A squash merge: the deployed main commit is not a descendant of the
+    // branch commit, but carries its patch (git cherry, the T13003 rule).
+    git(repo, ['switch', '-q', '-c', 'task/T902', base]);
+    const branchWork = commit(repo, 'squashed.ts', 'T902: work');
+    git(repo, ['switch', '-q', 'main']);
+    git(repo, ['merge', '-q', '--squash', 'task/T902']);
+    git(repo, ['commit', '-q', '-m', 'T902: squash merge']);
+    const squash = git(repo, ['rev-parse', 'HEAD']);
+    const squashed = {
+      ...task,
+      id: 'T902',
+      verification: {
+        ...task.verification,
+        evidence: {
+          implemented: {
+            ...task.verification.evidence.implemented,
+            atoms: [{ kind: 'commit' as const, sha: branchWork }],
+          },
+        },
+      },
+    };
+    expect(await boundHeadGapReason(squashed, [atom(['documented'], squash)], repo)).toBeNull();
+    expect(await boundHeadGapReason(squashed, [atom(['documented'], work)], repo)).toMatch(
+      /does not contain T902's implemented commit/,
+    );
   });
 });
