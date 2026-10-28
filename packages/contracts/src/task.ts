@@ -704,6 +704,13 @@ export type EvidenceAtom =
         cause: 'runner-cancel' | 'worker-crash';
       }>;
       /**
+       * Later default-branch runs the stand-in search looked past before
+       * `descendantSha`, and why (T14086): the flaky-quarantine budget stopped
+       * them before their flake rerun, so a quarantined failure or a test that
+       * only timed out decided nothing.
+       */
+      passedOverRuns?: Array<{ sha: string; jobs: string[]; reason: string }>;
+      /**
        * The PR edited a pinned workflow, so only default-branch `push` runs
        * attested it; its own `pull_request` runs (which ran the edited
        * workflow) were never consulted, and none is re-checked (T13174).

@@ -1166,11 +1166,21 @@ const RUN_DIED =
  * quarantine, a file that failed to load, or counts that do not add up
  * (per-file `(N tests | M failed)` lines included).
  *
+ * With `unretriedTimeouts` (T14086, later runs only), a failing test whose
+ * error is vitest's own "Test timed out in N ms" also qualifies: the budget
+ * stopped the run before its rerun-once flake rule (T13145) could judge it,
+ * so the timeout decided nothing. An assertion failure never qualifies.
+ *
  * @param log - The job's plain-text log (ANSI colour codes allowed).
+ * @param opts - `unretriedTimeouts`: accept unretried timeouts too.
  * @returns Whether the job failed only on the quarantine budget.
  * @task T13809
+ * @task T14086
  */
-export function isQuarantineBudgetOnlyLog(log: string): boolean {
+export function isQuarantineBudgetOnlyLog(
+  log: string,
+  opts: { unretriedTimeouts?: boolean } = {},
+): boolean {
   const text = log.replace(/\u001b\[[0-9;]*m/g, '');
   // The script's own verdict is the last heading, with its count line under it
   // (a test's fixture output may carry the heading too).
@@ -1199,17 +1209,28 @@ export function isQuarantineBudgetOnlyLog(log: string): boolean {
     ...text.slice(heading).matchAll(new RegExp(`- \`(${testPath})\` > (.+)$`, 'gm')),
   ].map((m) => ({ file: m[1] ?? '', title: normTitle(m[2] ?? '') }));
   const failing = new Map<string, { file: string; title: string }>();
+  const timedOut = new Set<string>();
   for (const m of run.matchAll(
     new RegExp(`\\bFAIL\\s{2,}(?:\\S+\\s+)?(${testPath}) > (.+)$`, 'gm'),
   )) {
     const entry = { file: m[1] ?? '', title: normTitle(m[2] ?? '') };
-    failing.set(`${entry.file}\u0000${entry.title}`, entry);
+    const key = `${entry.file}\u0000${entry.title}`;
+    failing.set(key, entry);
+    // The failure's own error is the first line after its FAIL header.
+    const next = run
+      .slice((m.index ?? 0) + m[0].length)
+      .split('\n')
+      .map((l) => l.replace(/^\S*Z\s/, '').trim())
+      .find((l) => l !== '');
+    if (next && /^Error: Test timed out in \d+ms\b/.test(next)) timedOut.add(key);
   }
   if (failing.size !== failedTests) return false;
   if (new Set([...failing.values()].map((f) => f.file)).size !== failedFiles) return false;
   if (!perFile.every((p) => [...failing.values()].some((f) => f.file === p.file))) return false;
-  return [...failing.values()].every((f) =>
-    quarantined.some((q) => q.title === f.title && q.file.endsWith(f.file)),
+  return [...failing.entries()].every(
+    ([key, f]) =>
+      quarantined.some((q) => q.title === f.title && q.file.endsWith(f.file)) ||
+      (opts.unretriedTimeouts === true && timedOut.has(key)),
   );
 }
 
@@ -1232,6 +1253,7 @@ export type NonTestFailuresResult =
  * @param pins - Required-name to app/workflow pin.
  * @param fetchJobLog - Plain-text log of one job.
  * @param cwd - Repository work tree for `gh`.
+ * @param opts - `unretriedTimeouts` for a later run (T14086, {@link isQuarantineBudgetOnlyLog}).
  * @returns The quarantine-only jobs, or why the commit failed for real.
  * @task T13809
  */
@@ -1242,6 +1264,7 @@ export async function nonTestFailuresOn(
   pins: Record<string, RequiredCheckPinSpec>,
   fetchJobLog: NonNullable<ResolveCiEvidenceOptions['fetchJobLog']>,
   cwd: string,
+  opts: { unretriedTimeouts?: boolean } = {},
 ): Promise<NonTestFailuresResult> {
   const latest = latestRuns(checks, sha, pinnedScope(required, pins));
   const jobs: Array<{ name: string; mergeRunId: number }> = [];
@@ -1253,7 +1276,7 @@ export async function nonTestFailuresOn(
     // The required checks (the aggregate job and its workflow run) follow the jobs they need.
     if (c.source === 'workflow-run' || required.includes(c.name)) continue;
     const log = c.conclusion === 'failure' ? await fetchJobLog(c.id, cwd) : null;
-    if (log === null || !isQuarantineBudgetOnlyLog(log)) {
+    if (log === null || !isQuarantineBudgetOnlyLog(log, opts)) {
       return {
         ok: false,
         reason: `${c.name}: ${c.conclusion} on ${sha.slice(0, 12)}${log === null && c.conclusion === 'failure' ? ' (its log could not be read)' : ''} — not the flaky-quarantine budget alone`,
@@ -1410,6 +1433,16 @@ export interface UntestedJobFailure {
   name: string;
   mergeRunId: number;
   cause: UntestedFailureCause;
+}
+
+/** A later default-branch run the stand-in search looked past, and why (T14086). */
+export interface PassedOverRun {
+  /** The later commit. */
+  sha: string;
+  /** Its failing jobs. */
+  jobs: string[];
+  /** Why they decided nothing. */
+  reason: string;
 }
 
 /** Result of {@link untestedJobFailures}. */
@@ -1625,6 +1658,8 @@ export type FindGreenDescendantResult =
       nonTest?: Array<{ name: string; mergeRunId: number }>;
       /** The merge commit's failures tested nothing: runner cancellations or worker crashes (T14049, T14074). */
       untested?: UntestedJobFailure[];
+      /** Later runs the search looked past, and why (T14086). */
+      passedOver?: PassedOverRun[];
     }
   | { ok: false; reason: string };
 
@@ -1805,6 +1840,7 @@ export async function findGreenDescendant(
     ["the PR's files", input.changedPaths],
     [`a CI definition (${ciPaths.join(', ')})`, ciPaths],
   ];
+  const passedOver: PassedOverRun[] = [];
   for (const sha of candidates.slice(0, CI_DESCENDANT_MAX_CANDIDATES)) {
     if (sha === merge || !input.isAncestor(merge, sha, cwd)) continue;
     const range = `${merge.slice(0, 12)}..${sha.slice(0, 12)}`;
@@ -1826,6 +1862,8 @@ export async function findGreenDescendant(
       // T13809: a later run red only for the quarantine budget, cancelled with
       // no test failing, or failed before any test ran decides nothing; look on.
       // Any other failure still refuses: a green run is never shopped for past a real one.
+      // T14086: in such a run, a test that only timed out was never retried, so
+      // it decided nothing either; an assertion failure still refuses.
       const quarantineOnly = await nonTestFailuresOn(
         fetched.checks,
         sha,
@@ -1833,8 +1871,16 @@ export async function findGreenDescendant(
         pins,
         input.fetchJobLog,
         cwd,
+        { unretriedTimeouts: true },
       );
-      if (quarantineOnly.ok) continue;
+      if (quarantineOnly.ok) {
+        passedOver.push({
+          sha,
+          jobs: quarantineOnly.jobs.map((j) => j.name),
+          reason: 'the flaky-quarantine budget stopped the run before its flake rerun',
+        });
+        continue;
+      }
       if (
         await cancelledWithoutTestFailure(
           fetched.checks,
@@ -1869,6 +1915,7 @@ export async function findGreenDescendant(
       ...(inherited ? { inherited } : {}),
       ...(nonTest ? { nonTest } : {}),
       ...(untested ? { untested } : {}),
+      ...(passedOver.length > 0 ? { passedOver } : {}),
     };
   }
   return {
@@ -2726,6 +2773,7 @@ export async function resolveCiEvidenceAtom(
         inherited?: InheritedFailure[];
         nonTest?: Array<{ name: string; mergeRunId: number }>;
         untested?: UntestedJobFailure[];
+        passedOver?: PassedOverRun[];
       }
     | undefined;
   let descendantReason: string | undefined;
@@ -2780,6 +2828,7 @@ export async function resolveCiEvidenceAtom(
           ...(found.inherited ? { inherited: found.inherited } : {}),
           ...(found.nonTest ? { nonTest: found.nonTest } : {}),
           ...(found.untested ? { untested: found.untested } : {}),
+          ...(found.passedOver ? { passedOver: found.passedOver } : {}),
         };
       } else {
         descendantReason = `later commit ${found.sha.slice(0, 12)} was green, but re-judging with it still fails: ${rejudged.reasons.join('; ')}`;
@@ -2983,6 +3032,7 @@ export async function resolveCiEvidenceAtom(
             ...(descendant.inherited ? { inheritedFailures: descendant.inherited } : {}),
             ...(descendant.nonTest ? { nonTestFailures: descendant.nonTest } : {}),
             ...(descendant.untested ? { untestedFailures: descendant.untested } : {}),
+            ...(descendant.passedOver ? { passedOverRuns: descendant.passedOver } : {}),
           }
         : {}),
       ...(workspaceWide ? { workspaceWide } : {}),
