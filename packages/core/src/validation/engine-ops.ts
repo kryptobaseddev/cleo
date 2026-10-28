@@ -18,6 +18,7 @@ import { join, resolve } from 'node:path';
 import { isDeepStrictEqual } from 'node:util';
 import type {
   AcceptanceGate,
+  AcRow,
   EvidenceAtom,
   EvidenceValidationContext,
   KnowledgeCoverage,
@@ -164,6 +165,36 @@ function getMissingGates(
 }
 
 /** The `test-run:` paths of one evidence write, judged together for coverage (T14031). */
+/**
+ * The task's criteria a write names with `satisfies:<taskId>#…` (T14094), by
+ * `AC<n>` alias or UUID, each with its alias. A name that matches no row is
+ * left out here; the satisfies validator refuses it on its own.
+ */
+function creditedCriteriaOf(
+  atoms: readonly ParsedAtom[],
+  taskId: string,
+  rows: readonly AcRow[],
+): Array<Pick<AcRow, 'id' | 'text' | 'createdAt' | 'updatedAt'> & { alias: string }> {
+  const named = atoms.flatMap((atom) =>
+    atom.kind === 'satisfies' && atom.targetTaskId === taskId ? [atom] : [],
+  );
+  return rows
+    .filter((row) =>
+      named.some(
+        (atom) =>
+          atom.targetAcId === row.id ||
+          atom.targetAcAlias?.toUpperCase() === `AC${row.ordinal}`,
+      ),
+    )
+    .map((row) => ({
+      id: row.id,
+      text: row.text,
+      createdAt: row.createdAt,
+      updatedAt: row.updatedAt,
+      alias: `AC${row.ordinal}`,
+    }));
+}
+
 function testRunPathsOf(atoms: readonly ParsedAtom[]): string[] {
   return atoms.flatMap((atom) => (atom.kind === 'test-run' ? [atom.path] : []));
 }
@@ -727,10 +758,11 @@ export async function validateGateVerify(
       // Determine target gates.
       const targets: VerificationGate[] =
         multiTargets ?? (all ? configGates : [gate as VerificationGate]);
+      const acRows = await accessor.getAcRows(taskId);
       const evidenceContext: EvidenceValidationContext = {
         task,
         gates: targets,
-        criteria: await accessor.getAcRows(taskId),
+        criteria: acRows,
       };
 
       if (!all && !multiTargets && !VALID_GATES.includes(gate as VerificationGate)) {
@@ -764,6 +796,8 @@ export async function validateGateVerify(
         )?.sha;
         // T14031: test-run reports of one write cover the change together.
         const testRunPaths = testRunPathsOf(parsed.atoms);
+        // T14094: the criteria this write credits, which may link another task's PR.
+        const creditedCriteria = creditedCriteriaOf(parsed.atoms, taskId, acRows);
         for (const atom of parsed.atoms.toSorted(
           (a, b) => Number(b.kind === 'pr') - Number(a.kind === 'pr'),
         )) {
@@ -779,6 +813,7 @@ export async function validateGateVerify(
             // T12848: every PR validated so far anchors its own changed files.
             artifactPrs: atoms.filter((a) => a.kind === 'pr'),
             testRunPaths,
+            ...(creditedCriteria.length > 0 ? { creditedCriteria } : {}),
             ...(params.preview ? { readOnly: true } : {}),
           });
           if (!check.ok) {

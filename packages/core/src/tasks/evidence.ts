@@ -3269,11 +3269,17 @@ async function validateDecision(decisionId: string, roots: EvidenceRoots): Promi
  * task in its title, body or head branch, or its diff intersects the task's
  * declared files — and when files are declared, the diff MUST intersect them.
  *
+ * T14094: a task with no declared files may also credit a PR merged under
+ * another task, through the criteria the same write names with
+ * `satisfies:<task>#AC…` ({@link creditRefusal}).
+ *
  * @param prNumber - The PR being linked.
  * @param pr - The verified PR (title, body, head branch, changed files).
  * @param context - The task the evidence is being recorded for.
+ * @param mergedAt - When the PR merged, for the credited-criteria edit check.
  * @returns The refusal, or null when the PR is linked to the task.
  * @task T12634
+ * @task T14094
  */
 export function checkPrTaskLinkage(
   prNumber: number,
@@ -3286,6 +3292,7 @@ export function checkPrTaskLinkage(
     changedFilesError?: string;
   },
   context: EvidenceValidationContext,
+  mergedAt?: string,
 ): { ok: false; reason: string; codeName: string } | null {
   if (pr.changedFileCount !== pr.changedPaths.length || pr.changedPaths.length === 0) {
     return {
@@ -3299,12 +3306,64 @@ export function checkPrTaskLinkage(
   const explicitlyLinked = taskMention.test(`${pr.title}\n${pr.body}\n${pr.headRefName}`);
   const scopeIntersects =
     declaredFiles.length > 0 && diffIntersectsAc(pr.changedPaths, declaredFiles);
-  if ((!explicitlyLinked && !scopeIntersects) || (declaredFiles.length > 0 && !scopeIntersects)) {
+  if (declaredFiles.length > 0 && !scopeIntersects) {
     return {
       ok: false,
       codeName: 'E_EVIDENCE_CONTENT_MISMATCH',
-      reason: `PR #${prNumber} does not establish a relationship to task ${context.task.id}. Changed artifacts: ${pr.changedPaths.join(', ')}. Declare task files or cite the exact task in the PR; declared scope must intersect the diff.`,
+      reason: `PR #${prNumber} changes none of task ${context.task.id}'s declared files (${declaredFiles.join(', ')}). Changed artifacts: ${pr.changedPaths.join(', ')}.`,
     };
+  }
+  if (explicitlyLinked || scopeIntersects) return null;
+  const refusal = creditRefusal(prNumber, pr.changedPaths, context, mergedAt);
+  return refusal === null
+    ? null
+    : { ok: false, codeName: 'E_EVIDENCE_CONTENT_MISMATCH', reason: refusal };
+}
+
+/**
+ * Why a PR that neither cites a task nor declares its files cannot be credited
+ * to it, or null when it can (T14094: work shipped under another task). The
+ * write must name criteria with `satisfies:<task>#AC…`; each must name at
+ * least one repo path, the PR must have changed every one of them, and none
+ * may have been edited after the PR merged, so a criterion cannot be made to
+ * match after the fact. The refusal names that one route, and for a task the
+ * other task fully covers, the duplicate close.
+ *
+ * @param prNumber - The PR being credited.
+ * @param changedPaths - Its complete changed-file list.
+ * @param context - The task, with the criteria the write credits.
+ * @param mergedAt - When the PR merged.
+ * @returns The refusal, or null.
+ * @task T14094
+ */
+function creditRefusal(
+  prNumber: number,
+  changedPaths: readonly string[],
+  context: EvidenceValidationContext,
+  mergedAt: string | undefined,
+): string | null {
+  const id = context.task.id;
+  const credited = context.creditedCriteria ?? [];
+  if (credited.length === 0)
+    return (
+      `PR #${prNumber} does not cite task ${id} and ${id} declares no files, so it is not ${id}'s work. ` +
+      `To credit a PR merged under another task, name the criteria it delivers in the same write ` +
+      `(satisfies:${id}#AC<n>); each must name the files the PR changed. If another task fully covers ${id}, ` +
+      `close it with cleo cancel ${id} --reason "covered by T<n>" and cleo relates add ${id} T<n> duplicates "<reason>". ` +
+      `Changed artifacts: ${changedPaths.join(', ')}.`
+    );
+  const changed = new Set(changedPaths.map(normalizeEvidencePath));
+  for (const criterion of credited) {
+    // An edit gives a criterion a new row, so its creation time counts too.
+    const written = criterion.updatedAt ?? criterion.createdAt;
+    if (mergedAt && written && Date.parse(written) > Date.parse(mergedAt))
+      return `${id}#${criterion.alias} was written or edited at ${written}, after PR #${prNumber} merged at ${mergedAt}; a criterion changed after the merge cannot be credited by it.`;
+    const paths = extractTaskAcFilesWithProvenance({ acceptance: [criterion.text] }).files ?? [];
+    if (paths.length === 0)
+      return `${id}#${criterion.alias} names no file, so PR #${prNumber} cannot be shown to deliver it; credit only criteria that name the files the PR changed.`;
+    const missing = paths.filter((path) => !changed.has(normalizeEvidencePath(path)));
+    if (missing.length > 0)
+      return `PR #${prNumber} did not change ${missing.join(', ')}, which ${id}#${criterion.alias} names, so it cannot be credited with ${criterion.alias}.`;
   }
   return null;
 }
@@ -3364,7 +3423,7 @@ async function validatePrAtom(
   // task's link and its change. Both are verified, both are recorded.
   const linked = await linkedPrChange(prNumber, result, roots, componentPrNumber);
   if (!linked.ok) return linked;
-  const unlinked = checkPrTaskLinkage(linked.prNumber, linked.pr, context);
+  const unlinked = checkPrTaskLinkage(linked.prNumber, linked.pr, context, result.mergedAt);
   if (unlinked) return unlinked;
   const changedPaths = linked.pr.changedPaths;
   // T14024: a PR merged straight into its base records its deletions too, so

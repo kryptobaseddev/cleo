@@ -210,6 +210,16 @@ export interface EvidenceValidationContext {
    */
   testRunPaths?: readonly string[];
   /**
+   * The task's criteria this write names with `satisfies:<task>#AC…` (T14094),
+   * with their `AC<n>` alias. A merged PR of another task links to this task
+   * only through them: each must name the files the PR changed, and none may
+   * have been written or edited after the PR merged (`createdAt` and
+   * `updatedAt`: an edit gives a criterion a new row).
+   */
+  creditedCriteria?: ReadonlyArray<
+    Pick<AcRow, 'id' | 'text' | 'createdAt' | 'updatedAt'> & { alias: string }
+  >;
+  /**
    * Validate without persisting anything: `pr:`/`ci:` lookups write neither
    * the PR-result cache nor the branch-protection cache (T12671 review — the
    * `cleo done --plan` preview must leave `.cleo/` untouched).
