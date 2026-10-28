@@ -2077,6 +2077,7 @@ async function workspaceResolutionRefusal(
   const stale = staleDistWarning(report);
   if (stale !== null)
     pushWarning({
+      // @sync-invariant none:input-shape a warning only; nothing is refused or written
       code: 'W_WORKSPACE_STALE_DIST',
       severity: 'warn',
       message: stale,
