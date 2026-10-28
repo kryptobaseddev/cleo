@@ -300,3 +300,30 @@ export async function flagDocsRotOnTasks(
   }
   return updated;
 }
+
+/**
+ * The merge sweep's docs-rot hook (T14101 `MergeCloseDeps.docsRot`): flag, on
+ * the tasks a merged PR applied, every doc whose covered code the PR changed
+ * without the doc. The PR's change is `<mergeSha>^1..<mergeSha>` (first parent
+ * = the base it merged into). Never throws: a merge commit missing from local
+ * history, or a task write refused, flags nothing.
+ *
+ * @param storeRoot - Project root (a git work tree holding `mergeSha`).
+ * @param pr - The merged PR and the task ids the sweep applied for it.
+ * @returns The task ids flagged.
+ * @task T14111
+ */
+export async function flagDocsRot(
+  storeRoot: string,
+  pr: { prNumber: number; mergeSha: string; taskIds: string[] },
+): Promise<string[]> {
+  try {
+    const { flagged } = scanDocsRot({
+      projectRoot: storeRoot,
+      changed: `${pr.mergeSha}^1..${pr.mergeSha}`,
+    });
+    return await flagDocsRotOnTasks(storeRoot, pr.taskIds, flagged, `PR #${pr.prNumber}`);
+  } catch {
+    return [];
+  }
+}
