@@ -1,0 +1,6 @@
+{ "type": "suite", "event": "started", "test_count": 4 }
+{ "type": "test", "event": "started", "name": "parser::tests::reads_header" }
+{ "type": "test", "name": "parser::tests::reads_header", "event": "ok", "exec_time": 0.003 }
+{ "type": "test", "event": "started", "name": "parser::tests::reads_rows" }
+{ "type": "test", "name": "parser::tests::reads_rows", "event": "ok", "exec_time": 0.002 }
+{ "type": "test", "event": "started", "name": "parser::tests::round_trip" }

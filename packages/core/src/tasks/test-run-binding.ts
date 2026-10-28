@@ -431,7 +431,9 @@ function isLibtestEvent(value: unknown): value is LibtestEvent {
  * Each finished `test` event is one test (`ok` passes, `failed` fails,
  * `ignored` is pending). Tests are grouped by their binary, the name before a
  * `$` (nextest) or `::`. Libtest names no files, so a report covers none. Each
- * suite's `passed`/`failed`/`ignored` summary must equal its test events.
+ * suite's `passed`/`failed`/`ignored` summary must equal its test events, and
+ * every `started` suite must finish with as many test events as its
+ * `test_count`: a killed run is refused as truncated, never read as complete.
  *
  * @param text - The report file's text.
  * @returns The adapted report, a refusal, or null when it is not libtest JSON.
@@ -456,9 +458,30 @@ export function libtestTestRun(text: string): AdaptedTestRun | AdaptedTestRunRef
   }
   const groups = new Map<string, LibtestEvent[]>();
   const summary = { passed: 0, failed: 0, ignored: 0, any: false };
+  // A killed run leaves a suite started and never finished; its partial
+  // counts must not read as a complete run.
+  const truncated = (detail: string): AdaptedTestRunRefusal => ({
+    refusal: `the libtest report is truncated (a suite started but never finished): the run did not complete; ${detail}`,
+    codeName: 'E_EVIDENCE_INVALID',
+  });
+  let open: { expected: number | null; seen: number } | null = null;
   for (const event of events) {
     if (event.type === 'suite') {
+      if (event.event === 'started') {
+        if (open !== null) return truncated('a suite started before the previous one finished');
+        const expected = event.test_count;
+        open = {
+          expected: typeof expected === 'number' && Number.isInteger(expected) ? expected : null,
+          seen: 0,
+        };
+        continue;
+      }
       if (event.event !== 'ok' && event.event !== 'failed') continue;
+      if (open !== null && open.expected !== null && open.seen !== open.expected)
+        return truncated(
+          `a suite started with test_count ${open.expected} but reported ${open.seen} finished tests`,
+        );
+      open = null;
       summary.any = true;
       for (const key of ['passed', 'failed', 'ignored'] as const) {
         const value = event[key];
@@ -468,10 +491,12 @@ export function libtestTestRun(text: string): AdaptedTestRun | AdaptedTestRunRef
       continue;
     }
     if (!isLibtestEvent(event.event)) continue;
+    if (open !== null) open.seen += 1;
     const name = typeof event.name === 'string' ? event.name : '';
     const binary = name.includes('$') ? name.split('$')[0]! : name.split('::')[0] || 'libtest';
     groups.set(binary, [...(groups.get(binary) ?? []), event.event]);
   }
+  if (open !== null) return truncated('the last suite has no ok or failed event');
   const all = [...groups.values()].flat();
   const count = (event: LibtestEvent): number => all.filter((e) => e === event).length;
   if (

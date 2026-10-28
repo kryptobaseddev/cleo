@@ -1119,6 +1119,32 @@ describe('JUnit XML and libtest JSON reports are test-run evidence (T14084)', ()
     expect(!r.ok && r.reason).toMatch(/nests <testsuite> elements/);
   });
 
+  it('a killed cargo test run (a suite started, never finished) is refused as truncated', async () => {
+    const killed = readFileSync(
+      fileURLToPath(new URL('./fixtures/libtest/killed.jsonl', import.meta.url)),
+      'utf-8',
+    );
+    const r = await validateAtom({ kind: 'test-run', path: write('killed.jsonl', killed) }, root);
+    expect(!r.ok && r.codeName, JSON.stringify(r)).toBe('E_EVIDENCE_INVALID');
+    expect(!r.ok && r.reason).toMatch(
+      /the libtest report is truncated \(a suite started but never finished\): the run did not complete/,
+    );
+    const short = await validateAtom(
+      {
+        kind: 'test-run',
+        path: libtest([
+          { type: 'suite', event: 'started', test_count: 3 },
+          { type: 'test', event: 'ok', name: 'a::one' },
+          { type: 'suite', event: 'ok', passed: 1, failed: 0, ignored: 0 },
+        ]),
+      },
+      root,
+    );
+    expect(!short.ok && short.reason, JSON.stringify(short)).toMatch(
+      /test_count 3 but reported 1 finished tests/,
+    );
+  });
+
   it('text that is none of the formats is refused by name', async () => {
     const r = await validateAtom({ kind: 'test-run', path: write('junk.txt', 'ok 1\n') }, root);
     expect(!r.ok && r.reason, JSON.stringify(r)).toMatch(
