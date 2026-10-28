@@ -25,3 +25,8 @@ What changes:
   rule.
 - `docs/migration/legacy-to-docs.md` now says to retire legacy files once
   their bytes are proven in the store, instead of keeping them in place.
+
+`ct-orchestrator` (4.1.7): the verify example in `orchestrator-patterns.md`
+showed `cleo verify --gate …` and `cleo verify --all` with no evidence. The CLI
+rejects both under ADR-051. The example now shows `cleo done --plan`, then
+evidence atoms per gate, then `cleo complete`.
