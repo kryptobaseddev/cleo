@@ -292,6 +292,39 @@ describe('archive-reason invariant — end-to-end', () => {
     await env.cleanup();
   });
 
+  it('T12883 R2: a verified task with an uncovered acceptance criterion is not stamped done', async () => {
+    const now = new Date().toISOString();
+    await env.accessor.upsertSingleTask({
+      id: 'T8009',
+      title: 'Verified but its criterion has no evidence',
+      description: 'Verified gates, uncovered acceptance criterion',
+      status: 'pending',
+      priority: 'medium',
+      createdAt: now,
+      verification: {
+        passed: true,
+        round: 1,
+        gates: { implemented: true, testsPassed: true },
+        lastAgent: null,
+        lastUpdated: now,
+        failureLog: [],
+      },
+    });
+    const { updateTask: storeUpdateTask } = await import('../../../store/tasks-sqlite.js');
+    await storeUpdateTask('T8009', { acceptance: ['Outcome is proven'] }, workspace);
+    seedGitRepo({
+      repoRoot: workspace,
+      initialCommitMsg: 'chore: init',
+      releaseCommits: ['feat(T8009): ship it\n\nRefs: T8009'],
+      tag: 'v-test-r2',
+    });
+
+    const report = await runInvariants('v-test-r2', { dryRun: false, cwd: workspace });
+    expect(report.reconciled).toBe(0);
+    expect(report.unreconciled).toBe(1);
+    expect((await env.accessor.loadSingleTask('T8009'))?.status).toBe('pending');
+  });
+
   it('reconciles a verified pending task and writes one audit row', async () => {
     // Seed a verified-pending task in the DB.
     const now = new Date().toISOString();
