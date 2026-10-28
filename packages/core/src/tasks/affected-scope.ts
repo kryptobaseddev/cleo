@@ -396,7 +396,11 @@ function qaRunScopePaths(
   scope: QaRunCarryScope,
 ): string[] {
   return [
-    ...new Set([...run.roots.map((r) => (r === '' ? '.' : r)), ...scope.changed, ...QA_RUN_SHARED_INPUTS]),
+    ...new Set([
+      ...run.roots.map((r) => (r === '' ? '.' : r)),
+      ...scope.changed,
+      ...QA_RUN_SHARED_INPUTS,
+    ]),
   ];
 }
 
@@ -892,11 +896,15 @@ function firstDifferingPath(
   paths: readonly string[],
 ): string | null {
   try {
-    const out = execFileSync('git', ['diff', '--name-only', '--no-renames', tree, merge, '--', ...paths], {
-      cwd: root,
-      encoding: 'utf-8',
-      stdio: ['ignore', 'pipe', 'ignore'],
-    });
+    const out = execFileSync(
+      'git',
+      ['diff', '--name-only', '--no-renames', tree, merge, '--', ...paths],
+      {
+        cwd: root,
+        encoding: 'utf-8',
+        stdio: ['ignore', 'pipe', 'ignore'],
+      },
+    );
     return out.split('\n').find(Boolean) ?? null;
   } catch {
     return null;
