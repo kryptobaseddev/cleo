@@ -1,6 +1,6 @@
 # CLEO Protocol — on-demand reference
 
-Version: 2.24.27 | Companion to the always-loaded `CLEO-INJECTION.md` core
+Version: 2.25.0 | Companion to the always-loaded `CLEO-INJECTION.md` core
 
 Not injected into agent context. Print one section with `cleo briefing inject --section <name>`; tier-2 spawn prompts embed this whole file. Section names are the `CLEO-INJECTION:section` markers below.
 
@@ -264,7 +264,18 @@ Before dispatch, assert these required sections: `## Task Identity` · `## File 
 <!-- CLEO-INJECTION:section=evidence -->
 ## Evidence reference (ADR-051 · ADR-061)
 
-A merged PR and green CI provide provenance. For `implemented`, pair `pr:<number>` with `files:<changed-paths>`; CLEO checks task linkage, complete changed-file coverage, and the actual merge commit's bytes. Documentation and research tasks may use appropriate documentary artifacts. The receipt retains criterion hashes, artifact paths, and result references. A valid child completion leaves any parent with unproven criteria open.
+| gate | evidence that satisfies it |
+|------|----------------------------|
+| `implemented` | `commit:<sha>;files:path/a.ts,path/b.ts` — or `pr:<number>` with `files:<changed-paths>`, or `decision:<id>` for decision-only tasks |
+| `testsPassed` | `tool:test-affected` (needs `testing.affectedCommand`), changed-file `test-run:<json>`, `tool:test`, or `ci:<pr>` for a PR merged before the sweep (needs `evidence.ciSatisfies`) |
+| `qaPassed` | `tool:lint;tool:typecheck`, a `qa-run:<json>` per check, or `ci:<pr>` likewise |
+| `documented` | `files:docs/spec.md` |
+| `securityPassed` | `tool:security-scan` |
+| `cleanupDone` | `note:removed dead branches` |
+
+Name the acceptance criteria each result proves: `cleo verify T1234 --gate implemented --evidence "commit:abc123;files:src/fix.ts;satisfies:T1234#AC1"`. Documentation-only PRs cannot implement a code-fix task; changed criteria require fresh evidence, and a child waiver does not waive parent criteria.
+
+A merged PR closes the tasks its body names (`Closes: T#### AC1,AC2`; `Refs:` binds ACs without closing) once `CI` is green on its exact head and a non-author reviewer recorded `met` for each AC on that head (`cleo review verdict`). The merge sweep then records `pr:<n>;files:<changed paths>` and `ci:<n>` with those `satisfies:` links; the PR text never waives an AC (ADR-099). Preview with `cleo done --from-merge <pr> --dry-run`. For a hand-recorded `implemented`, pair `pr:<number>` with `files:<changed-paths>`; CLEO checks task linkage, complete changed-file coverage, and the actual merge commit's bytes. Documentation and research tasks may use appropriate documentary artifacts. The receipt retains criterion hashes, artifact paths, and result references. A valid child completion leaves any parent with unproven criteria open.
 
 | Exit | Code | Fix |
 |:----:|------|-----|

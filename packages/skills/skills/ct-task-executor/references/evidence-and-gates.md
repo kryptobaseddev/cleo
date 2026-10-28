@@ -11,6 +11,12 @@ canonical names, and the failure modes most often hit.
 Every task carries six standard gates. Optional gates may be added per
 task; the standard set is non-negotiable.
 
+For PR work the merge sweep records these gates itself when the PR merges:
+`pr:<n>;files:<changed paths>` for `implemented`, `ci:<n>` for `testsPassed`
+and `qaPassed`, each with the `satisfies:` links an independent reviewer's
+`met` verdicts bind (ADR-099). The atoms below are for no-PR work, typed
+gates no CI job runs, and PRs merged before the sweep shipped.
+
 | Gate | Meaning | Evidence kind |
 |------|---------|---------------|
 | implemented | Code change exists | `commit:<sha>` + `files:<list>` |
@@ -89,7 +95,9 @@ cache when a cached result is suspect.
 
 The merged PR's required CI checks, green on its merge commit (needs
 `evidence.ciSatisfies: true`). Satisfies `testsPassed` and `qaPassed`
-with no local run, so it is the default once the PR has merged.
+with no local run. The merge sweep records it for every PR whose body
+names the task (`Closes:`/`Refs:`); record it by hand only for a PR merged
+before the sweep shipped.
 
 ```bash
 cleo verify T### --gate testsPassed --evidence "ci:1234"
@@ -120,7 +128,8 @@ dispatched on the default branch, latest attempt green, every one of the N runs
 green, and a commit that contains the task's implemented work. The repeated
 test file must be one the task changed, or one a linked criterion names. It
 links criteria and never satisfies `testsPassed` alone, so record it in the
-same write as the gate's other evidence.
+same write as the gate's other evidence. Record a `ci-run:` within 90 days of
+the run, the artifact's retention; completion doesn't need the artifact.
 
 ```bash
 gh workflow run repeat-run.yml -f test=packages/core/src/x/__tests__/y.test.ts -f runs=50
@@ -178,6 +187,8 @@ they document, they do not prove. Reserve for `cleanupDone`,
 ## The Ritual
 
 The full per-task ritual, in order:
+
+No-PR work (PR work closes through the merge sweep instead):
 
 ```bash
 # 1. Implement and verify locally (run only the failing/changed test files)

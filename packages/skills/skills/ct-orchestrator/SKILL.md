@@ -2,7 +2,7 @@
 name: ct-orchestrator
 description: "Pipeline-aware orchestration skill for managing complex workflows through subagent delegation. Use when the user asks to \"orchestrate\", \"orchestrator mode\", \"run as orchestrator\", \"delegate to subagents\", \"coordinate agents\", \"spawn subagents\", \"multi-agent workflow\", \"context-protected workflow\", \"agent farm\", \"HITL orchestration\", \"pipeline management\", or needs to manage complex workflows by delegating work to subagents while protecting the main context window. Enforces ORC-001 through ORC-009 constraints. Provider-neutral — works with any AI agent runtime."
 metadata:
-  version: 4.1.8
+  version: 4.2.0
   tier: core
   install: harness
   covers:
@@ -117,10 +117,13 @@ the stage gate (see Plan).
 
 ### Verify
 
-- Evidence gates (ADR-051): `cleo done <id> --plan`, then `cleo verify` per gate, then
-  `cleo complete`. A worker that fails its criteria is re-spawned with the feedback.
-- An independent review of each PR head before merge; the implementer never reviews
-  its own work.
+- PR work (ADR-099): the worker's PR body names each task and its ACs
+  (`Closes: T#### AC1,AC2`, or `Refs:` for partial delivery). A reviewer agent that is
+  not the author reviews the PR head from `cleo review packet <pr> --task <id>` and
+  records `cleo review verdict` per AC; the implementer never reviews its own work.
+  Merge on green `CI`; the merge sweep closes the task. A worker that fails its
+  criteria is re-spawned with the feedback.
+- No-PR work: `cleo done <id> --plan`, then `cleo verify` per gate, then `cleo complete`.
 
 ### Contribution (cross-cutting)
 
@@ -349,38 +352,30 @@ When operating without continuous HITL oversight, additional constraints apply: 
 | `cleo show T1234` | Full task details |
 | `cleo add "Task" --parent T1575` | Create child task |
 | `cleo start T1586` / `cleo complete T1586` | Task lifecycle |
-| `cleo verify T1586 --gate <g> --evidence <atoms>` | Evidence-based gate write (ADR-051) |
+| `cleo verify T1586 --gate <g> --evidence <atoms>` | Evidence-based gate write, no-PR work (ADR-051) |
+| `cleo review packet <pr> --task T1586` | Diff and AC text for a non-author reviewer (ADR-099) |
+| `cleo done --from-merge <pr> --dry-run` | Check a PR's `Closes:`/`Refs:` lines before merge |
+| `cleo release cut v2026.MM.N --dry-run` | Preview a release; drop `--dry-run` to tag and publish |
 | `cleo manifest list --filter pending` | Followup items |
 | `cleo session end --note "summary"` | End session with handoff context |
 
 ## Evidence-Based Completion (ADR-051 / T832)
 
-As of v2026.4.78, every `cleo verify` gate write requires programmatic evidence.
-`--all` without `--evidence` is REJECTED. `--force` has been REMOVED from
-`cleo complete`. Gates are re-validated at complete time — tampering with
-files between `verify` and `complete` triggers `E_EVIDENCE_STALE`.
+PR work closes through the merge sweep (Verify, above): it records `pr:`, `ci:`
+and the `satisfies:` links the reviewer's `met` verdicts bind, so no step follows
+the merge (ADR-099). The rest of this section is for no-PR work, typed gates no CI
+job runs, and PRs merged before the sweep shipped.
 
-### Evidence per gate (minimum)
-
-| Gate | Required atoms |
-|------|---------------|
-| `implemented` | `commit:<sha>` AND `files:<comma-separated>` |
-| `testsPassed` | `ci:<pr>` once the PR merged, when the project sets `evidence.ciSatisfies`; else `tool:test-affected` when `testing.affectedCommand` is configured; else `test-run:<vitest-json>` OR `tool:test` |
-| `qaPassed` | `ci:<pr>` under the same two conditions; else `tool:biome` AND `tool:tsc` (OR `tool:pnpm-build`) |
-| `documented` | `files:<docs-path>` OR `url:<doc-url>` |
-| `securityPassed` | `tool:security-scan` OR `note:<waiver>` |
-| `cleanupDone` | `note:<summary>` |
-
-Orchestrator workflow for each completing task:
+Every `cleo verify` gate write requires programmatic evidence; `--all` without
+`--evidence` is rejected, and gates are re-validated at complete time (files changed
+between `verify` and `complete` trigger `E_EVIDENCE_STALE`). Atoms per gate:
+`cleo briefing inject --section evidence`.
 
 ```bash
-# 1. Worker reports done with evidence atoms in manifest key_findings
-# 2. Orchestrator plans, then records (cleo done picks affected → ci → full):
-cleo done <taskId> --plan
+cleo done <taskId> --plan            # names the evidence each gate needs
 cleo verify <taskId> --gate implemented --evidence "commit:$(git rev-parse HEAD);files:<list>"
-cleo verify <taskId> --gate testsPassed --evidence "ci:<pr>"   # merged + evidence.ciSatisfies; else tool:test-affected (needs testing.affectedCommand), else tool:test
-cleo verify <taskId> --gate qaPassed   --evidence "ci:<pr>"   # merged + evidence.ciSatisfies; else tool:biome;tool:tsc
-# 3. Close:
+cleo verify <taskId> --gate testsPassed --evidence "tool:test-affected"   # else test-run:<json> or tool:test
+cleo verify <taskId> --gate qaPassed   --evidence "tool:lint;tool:typecheck"
 cleo complete <taskId>
 ```
 
