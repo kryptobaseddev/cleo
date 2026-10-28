@@ -31,6 +31,7 @@ import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmdirSync, rmSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import type {
+  BlobAttachment,
   DocsModernizePlan,
   DocsModernizePlanRow,
   DocsModernizeReceipt,
@@ -161,14 +162,15 @@ async function storeText(
   projectRoot: string,
 ): Promise<string> {
   const bytes = Buffer.from(text, 'utf-8');
+  const attachment: Omit<BlobAttachment, 'sha256'> = {
+    kind: 'blob',
+    storageKey: '', // computed by AttachmentStore.put
+    mime: path.endsWith('.txt') ? 'text/plain' : 'text/markdown',
+    size: bytes.byteLength,
+  };
   const meta = await createAttachmentStore().put(
     bytes,
-    {
-      kind: 'blob',
-      storageKey: '',
-      mime: path.endsWith('.txt') ? 'text/plain' : 'text/markdown',
-      size: bytes.byteLength,
-    },
+    attachment,
     IMPORT_OWNER_TYPE,
     ownerId,
     MODERNIZE_ACTOR,
