@@ -981,9 +981,9 @@ export function reportFreshness(
       );
     }
   }
-  // T14000: untracked files outside the change's directories are set aside
-  // (and recorded by the binding), never judged as this change.
-  const changes = scopedChangedPaths(root, { narrowUntracked: true });
+  // T14000, T14125: untracked files are set aside (and recorded by the
+  // binding), never judged as this change.
+  const changes = scopedChangedPaths(root);
   const newest = modifiedAfterRun(
     root,
     (changes?.paths ?? dirtyTracked(root)).filter((p) => p !== clock.reportRel),

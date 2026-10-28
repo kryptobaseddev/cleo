@@ -1882,6 +1882,7 @@ async function runAffectedTests(
       ...(run.testFiles ? { affectedTestFiles: run.testFiles } : {}),
       ...(run.configPaths ? { configPaths: run.configPaths } : {}),
       ...(run.untested.length > 0 ? { untestedPackages: run.untested } : {}),
+      ...(run.untrackedSetAside ? { untrackedSetAside: run.untrackedSetAside } : {}),
       ...(await toolRunAtomFields(result)),
     },
   };
@@ -2619,7 +2620,8 @@ async function validateTool(
       ? (await import('./change-set.js')).resolveChangeSetRoot(roots.storeRoot, context.task.id)
           .root
       : roots.executionRoot;
-    const changed = scopedChangedPaths(root)?.paths ?? [];
+    const scoped = scopedChangedPaths(root);
+    const changed = scoped?.paths ?? [];
     const treeHash = isNonCodeOnlyChange(changed) ? (await captureTree(root)).tree : null;
     if (treeHash) {
       return {
@@ -2631,6 +2633,11 @@ async function validateTool(
           notApplicable: true,
           nonCodeChange: true,
           treeHash,
+          // T14125: a stray untracked code file is not this change; once one
+          // is committed, `cleo complete` refuses this result.
+          ...(scoped && scoped.untrackedSetAside.length > 0
+            ? { untrackedSetAside: scoped.untrackedSetAside }
+            : {}),
           reason: `no test reads this change: it touches only non-code files (${changed.join(', ')})`,
         },
       };

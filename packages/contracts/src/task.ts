@@ -364,9 +364,9 @@ export type EvidenceAtom =
        */
       runtimeExcluded?: string[];
       /**
-       * Untracked files outside every directory the change touches, which the
-       * binding did not judge as this change (T14000): another agent's work
-       * in a shared checkout. The tree hash includes them, so `cleo complete`
+       * Untracked files the binding did not judge as this change (T14000,
+       * T14125): anything not committed or staged, such as another agent's
+       * work in a shared checkout. The tree hash includes them, so `cleo complete`
        * and the superseded check refuse this atom as stale once any of them
        * is tracked (committed into the change): the run never covered it.
        */
@@ -481,6 +481,12 @@ export type EvidenceAtom =
       untestedPackages?: string[];
       /** Changed CLEO config this result leaves to `tool:config-schema` in the same gate write (T13778). */
       configPaths?: string[];
+      /**
+       * Untracked files a scoped `tool:test`/`tool:test-affected` result did
+       * not judge as this change (T14125), as on a test-run atom: `cleo
+       * complete` refuses the result once any of them is tracked.
+       */
+      untrackedSetAside?: string[];
       /**
        * Test files that failed and then passed on their single retry
        * (T12961). The run counts as a pass; this marks it as a FLAKY pass so
