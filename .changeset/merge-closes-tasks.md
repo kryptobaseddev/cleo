@@ -1,0 +1,41 @@
+---
+id: merge-closes-tasks
+tasks: [T14101]
+kind: feat
+summary: "A merged PR with green CI on its head closes the tasks its body names (Closes:/Refs: lines), with no agent step"
+---
+
+Merged work used to stay open until an agent re-proved it with
+`cleo done <id> --pr <n>`, which once stalled closures for ten hours. Owner
+decision D11209 makes the merge itself close the work.
+
+A PR body names its tasks one per line:
+
+- `Closes: T#### AC1,AC2` records the PR's evidence and completes the task,
+  once the criteria every merged PR bound cover all of the task's criteria.
+- `Refs: T#### AC1` binds those criteria from a PR that delivers part of a
+  task, and leaves it open.
+
+The PR's required checks must be green on its exact head. CI never writes to
+a task store. The new `Merge Close` workflow posts a receipt on each merged PR,
+or a comment saying why it closes nothing. The store owner's machine applies
+the receipt with `cleo done --from-merge <pr|all>`, which re-derives
+everything from gh and records through the same path as `cleo done --pr`:
+`pr:` with the changed files for `implemented`, and the merged CI (`ci:`, with
+`evidence.ciSatisfies`) for `testsPassed` and `qaPassed`, each linked to the
+named criteria.
+
+The sweep runs in three places:
+
+- on the daemon loop, every 5 minutes;
+- lazily, in a detached child, when an agent runs `briefing`, `next`,
+  `current`, `show` or `release`, at most every 5 minutes;
+- on demand.
+
+Each applied line writes one `merge_close` audit row keyed by PR, merge commit
+and task, so a rerun records nothing twice. A refusal (an unknown task or
+criterion, an unbound criterion, red CI, or a validator refusal) closes
+nothing for that task and is commented on the PR once.
+
+`cleo done --from-merge <pr> --dry-run` shows what a PR would record, before
+or after it merges. The PR template carries the lines.

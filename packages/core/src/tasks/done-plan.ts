@@ -1074,6 +1074,7 @@ function normaliseSatisfies(
   const known = new Set(rows.map((r) => `AC${r.ordinal}`));
   const unknown = aliases.filter((a) => !known.has(a));
   if (unknown.length > 0) {
+    // @sync-invariant none:input-shape a --satisfies alias the task lacks is refused before anything is written
     throw new CleoError(
       ExitCode.VALIDATION_ERROR,
       `--satisfies names criteria ${taskId} does not have: ${unknown.join(', ')}`,
@@ -1108,6 +1109,7 @@ export async function deriveTaskEvidence(
   const accessor = await getTaskAccessor(storeRoot);
   const task = await accessor.loadSingleTask(taskId);
   if (!task) {
+    // @sync-invariant none:input-shape planning an unknown task is refused before anything is written
     throw new CleoError(ExitCode.NOT_FOUND, `Task ${taskId} not found`, {
       fix: `cleo find "${taskId}"`,
     });
@@ -1515,6 +1517,7 @@ export async function planTaskDone(
   try {
     return engineSuccess(await deriveTaskEvidence(taskId, opts));
   } catch (err) {
+    // @sync-invariant none:input-shape the read-only plan writes nothing; its failure is reported as is
     return cleoErrorToEngineResult<DonePlan>(err, 'E_DONE_PLAN_FAILED', 'cleo done --plan failed');
   }
 }

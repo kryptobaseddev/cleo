@@ -1223,6 +1223,14 @@ export type {
   SessionSummary,
 } from './memory.js';
 export type {
+  MergeDirective,
+  MergePrOutcome,
+  MergeReceipt,
+  MergeSweepOptions,
+  MergeSweepResult,
+  MergeTaskOutcome,
+} from './merge-close.js';
+export type {
   MigrationEnumDrift,
   MigrationForeignKeyViolation,
   MigrationTableParity,

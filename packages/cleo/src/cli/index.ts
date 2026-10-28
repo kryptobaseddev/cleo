@@ -13,7 +13,7 @@
  * hoisted. See build.mjs for the banner configuration.
  */
 
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 // ---------------------------------------------------------------------------
@@ -325,6 +325,7 @@ async function startCli(): Promise<void> {
     const { showUpdateNotice } = await import('./lib/update-notice.js');
     showUpdateNotice({ version: CLI_VERSION, argv, quiet: rawOpts['quiet'] === true });
     await runStartupMaintenance();
+    await maybeSpawnMergeSweep(argv[0]);
   }
 
   // ---------------------------------------------------------------------------
@@ -737,6 +738,59 @@ async function runMainWithLafsEnvelope(
  * `cleo show`, `cleo next`, and all memory commands no longer pay the cost
  * of opening two additional SQLite databases they never use.
  */
+/** Commands that start the lazy merge sweep (T14101): the ones agents already run. */
+const MERGE_SWEEP_COMMANDS = new Set(['briefing', 'next', 'current', 'show', 'release']);
+
+/** Mirrors `MERGE_SWEEP_INTERVAL_MS` in core `tasks/merge-close.ts` (5 minutes). */
+const MERGE_SWEEP_INTERVAL_MS = 5 * 60_000;
+
+/**
+ * Lazy merge sweep (T14101): when an agent runs briefing, next, current, show
+ * or release in a project that takes merged CI as evidence
+ * (`evidence.ciSatisfies`) and the last sweep is over 5 minutes old, claim the
+ * sweep and run `cleo done --from-merge all` in a detached child, so merged
+ * PRs close their tasks even when the daemon is down. Reads two small files
+ * with built-ins only (no CORE module on the read path); never throws.
+ *
+ * @param command - The command being run.
+ */
+async function maybeSpawnMergeSweep(command: string | undefined): Promise<void> {
+  if (!MERGE_SWEEP_COMMANDS.has(command ?? '') || process.env['CLEO_MERGE_SWEEP'] === 'off') return;
+  try {
+    const { getProjectRoot } = await import('@cleocode/core/project-scope');
+    const root = getProjectRoot();
+    const read = (file: string): Record<string, unknown> => {
+      try {
+        return JSON.parse(readFileSync(join(root, '.cleo', file), 'utf-8')) as Record<
+          string,
+          unknown
+        >;
+      } catch {
+        return {};
+      }
+    };
+    const evidence = read('project-context.json')['evidence'] as
+      | { ciSatisfies?: unknown }
+      | undefined;
+    if (evidence?.ciSatisfies !== true) return;
+    const state = read('merge-sweep.json');
+    const last = Date.parse(typeof state['lastSweptAt'] === 'string' ? state['lastSweptAt'] : '');
+    if (!Number.isNaN(last) && Date.now() - last < MERGE_SWEEP_INTERVAL_MS) return;
+    // Claim before spawning so concurrent commands start one sweep, not many.
+    const claimed = { ...state, lastSweptAt: new Date().toISOString() };
+    writeFileSync(join(root, '.cleo', 'merge-sweep.json'), `${JSON.stringify(claimed, null, 2)}\n`);
+    const { spawn } = await import('node:child_process');
+    spawn(process.execPath, [process.argv[1] ?? '', 'done', '--from-merge', 'all', '--quiet'], {
+      cwd: root,
+      detached: true,
+      stdio: 'ignore',
+      env: { ...process.env, CLEO_MERGE_SWEEP: 'off' },
+    }).unref();
+  } catch {
+    // Never break the command over a background sweep.
+  }
+}
+
 export async function runStartupMaintenance(): Promise<void> {
   // Narrow CORE modules, never the `@cleocode/core/internal` barrel (T13126):
   // this runs before every real command, read verbs included.
