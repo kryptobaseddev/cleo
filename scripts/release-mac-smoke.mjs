@@ -70,8 +70,20 @@ export const SMOKE_COMMANDS = Object.freeze([
   ['memory', 'find', 'release'],
   ['nexus', 'status'],
   ['doctor'],
-  ['session', 'start', '--scope', 'global', '--name', 'release-mac-smoke'],
-  ['add', 'release-mac-smoke probe', '--acceptance', 'smoke write path'],
+  // The copy holds other agents' active sessions, hence --agent; the session
+  // id it prints binds the next two calls (CLEO_SESSION_ID).
+  [
+    'session',
+    'start',
+    '--scope',
+    'global',
+    '--name',
+    'release-mac-smoke',
+    '--agent',
+    'release-mac-smoke',
+  ],
+  // A saga is the one root the strict spine allows (T11811).
+  ['add', 'release-mac-smoke probe', '--type', 'saga', '--acceptance', 'smoke write path'],
   ['session', 'end', '--note', 'release-mac-smoke'],
 ]);
 
@@ -215,6 +227,9 @@ export function runSmoke(opts) {
     writeFileSync(join(out, `${stem}.stdout`), r.stdout ?? '');
     writeFileSync(join(out, `${stem}.stderr`), r.stderr ?? '');
     const exit = r.status ?? (r.signal ? `signal ${r.signal}` : 'error');
+    if (argv[0] === 'session' && argv[1] === 'start' && exit === 0) {
+      env.CLEO_SESSION_ID = JSON.parse(r.stdout).data.id;
+    }
     results.push({ argv: ['cleo', ...argv], exit, ms: Date.now() - started });
     console.error(`${exit === 0 ? 'ok  ' : 'FAIL'} cleo ${argv.join(' ')} (exit ${exit})`);
   }
