@@ -1119,8 +1119,18 @@ export interface DocsPublishResult {
   readonly dryRun?: true;
 }
 
-/** Return the validated real target; Git registration alone never authorizes arbitrary paths. */
-async function validatedPublicationPath(root: string, destination: string): Promise<string | null> {
+/**
+ * Return the validated real target; Git registration alone never authorizes
+ * arbitrary paths. A refusal says whether the destination sits in a linked Git
+ * worktree that is not the canonical CLEO path (T14081), so the caller can name
+ * the supported routes.
+ */
+async function validatedPublicationPath(
+  root: string,
+  destination: string,
+): Promise<
+  { path: string } | { refused: 'outside' | 'non-canonical-worktree'; worktree?: string }
+> {
   const canonicalRoot = await canonicalizePath(root);
   const inside = (parent: string, child: string): boolean => {
     const rel = relative(parent, child);
@@ -1131,7 +1141,8 @@ async function validatedPublicationPath(root: string, destination: string): Prom
     (inside(resolvePath(root), destination) || inside(canonicalRoot, destination)) &&
     inside(canonicalRoot, canonicalDestination)
   )
-    return canonicalDestination;
+    return { path: canonicalDestination };
+  let linked: string | undefined;
   const worktreeBase = resolveWorktreeRootForHash(computeProjectHash(canonicalRoot));
   const canonicalBase = await canonicalizePath(worktreeBase);
   const probe = (cwd: string, args: string[]): string =>
@@ -1154,9 +1165,12 @@ async function validatedPublicationPath(root: string, destination: string): Prom
     );
     for (const entry of registered) {
       const taskId = basename(entry.path);
+      const checkout = await canonicalizePath(entry.path);
+      // T14081: remember a linked worktree the destination falls in, to say why it is refused.
+      if (checkout !== canonicalRoot && inside(checkout, canonicalDestination))
+        linked ??= entry.path;
       if (!/^T\d+$/.test(taskId)) continue;
       const expected = join(canonicalBase, taskId);
-      const checkout = await canonicalizePath(entry.path);
       if (
         checkout !== expected ||
         !(inside(checkout, destination) || inside(join(worktreeBase, taskId), destination)) ||
@@ -1166,12 +1180,12 @@ async function validatedPublicationPath(root: string, destination: string): Prom
       const checkoutCommon = await canonicalizePath(
         probe(checkout, ['rev-parse', '--path-format=absolute', '--git-common-dir']),
       );
-      if (checkoutCommon === common) return canonicalDestination;
+      if (checkoutCommon === common) return { path: canonicalDestination };
     }
   } catch {
     // Missing/unreadable Git registration supplies no additional authority.
   }
-  return null;
+  return linked ? { refused: 'non-canonical-worktree', worktree: linked } : { refused: 'outside' };
 }
 
 /**
@@ -1310,26 +1324,38 @@ export async function publishDocs(opts: {
     const lexicalPath = isAbsolute(opts.toPath)
       ? resolvePath(opts.toPath)
       : resolvePath(canonicalRoot, opts.toPath);
-    const validatedPath = await validatedPublicationPath(root, lexicalPath);
-    if (!validatedPath) {
+    const validated = await validatedPublicationPath(root, lexicalPath);
+    if (!('path' in validated)) {
+      const canonicalWorktrees = join(
+        resolveWorktreeRootForHash(computeProjectHash(canonicalRoot)),
+        'T<id>',
+      );
+      const linkedWorktree = validated.refused === 'non-canonical-worktree';
       // T13919: a typed refusal (not E_INTERNAL), the same in dry-run and
-      // execute, naming the supported destinations; the CLI has no override.
+      // execute; the CLI has no override. T14081: a linked worktree outside the
+      // canonical CLEO path is refused by design (T13376) — say so and name the
+      // two supported routes.
       // @sync-invariant none:input-shape the destination path is caller input; nothing is written or synced
       throw new CleoError(
         ExitCode.VALIDATION_ERROR,
-        `publishDocs: refusing to write outside projectRoot "${root}" (resolved to "${publishedPath}")`,
+        linkedWorktree
+          ? `publishDocs: refusing to publish into linked worktree "${validated.worktree}": only the canonical CLEO worktree path (${canonicalWorktrees}) is a publication target besides the project root "${root}" (T13376)`
+          : `publishDocs: refusing to write outside projectRoot "${root}" (resolved to "${publishedPath}")`,
         {
-          fix: `Publish under the project root or a registered canonical task worktree (cleo worktree list); a relative --to resolves under ${root}.`,
+          fix: linkedWorktree
+            ? `Only canonical CLEO worktrees are publication targets (T13376). Either publish into the store's project root (cleo docs publish --to <path under ${root}>), or run from a CLEO-created worktree (cleo orchestrate spawn <taskId>, at ${canonicalWorktrees}).`
+            : `Publish under the project root or a registered canonical task worktree (cleo worktree list); a relative --to resolves under ${root}.`,
           details: {
             field: 'toPath',
             expected: 'a path under the project root or a registered canonical task worktree',
             actual: publishedPath,
             projectRoot: root,
+            ...(linkedWorktree ? { linkedWorktree: validated.worktree } : {}),
           },
         },
       );
     }
-    publishedPath = validatedPath;
+    publishedPath = validated.path;
     publicationOrigin = canonicalRoot;
   }
 

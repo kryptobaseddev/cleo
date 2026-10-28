@@ -215,9 +215,12 @@ describe('T13376: registered canonical worktree publication boundaries', () => {
   it('rejects registered worktrees outside the canonical paths layout', async () => {
     const other = join(fixture, 'arbitrary-linked');
     git(root, ['worktree', 'add', '--detach', '-q', other]);
+    // T14081: a registered but non-canonical worktree is refused naming why.
     await expect(
       publishDocs({ ownerId: 'T13376', projectRoot: root, toPath: join(other, 'docs/a.md') }),
-    ).rejects.toThrow('refusing to write outside projectRoot');
+    ).rejects.toThrow(
+      /refusing to publish into linked worktree .*only the canonical CLEO worktree path/,
+    );
   });
 
   it('rejects an unregistered directory despite a canonical task path', async () => {
