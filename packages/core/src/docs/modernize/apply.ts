@@ -639,9 +639,22 @@ function readJournal(projectRoot: string, runId: string): DocsModernizeReceiptOp
   const path = journalPath(projectRoot, runId);
   if (!existsSync(path)) return null;
   const ops: DocsModernizeReceiptOp[] = [];
-  for (const line of readFileSync(path, 'utf-8').split('\n')) {
-    if (!line.trim()) continue;
-    const parsed = docsModernizeJournalLineSchema.safeParse(JSON.parse(line));
+  const lines = readFileSync(path, 'utf-8')
+    .split('\n')
+    .filter((l) => l.trim() !== '');
+  for (const [n, line] of lines.entries()) {
+    let json: unknown;
+    try {
+      json = JSON.parse(line);
+    } catch {
+      // A crash mid-append tears only the last line: that step never acted
+      // past its `pending` write, so it is skipped. A torn line anywhere
+      // else means the journal itself is damaged.
+      if (n === lines.length - 1) continue;
+      // @sync-invariant none:local-only a corrupt journal line stops the rollback before any step
+      throw new DocsModernizeReceiptError(`journal ${runId} line ${n + 1} is not JSON`);
+    }
+    const parsed = docsModernizeJournalLineSchema.safeParse(json);
     if (!parsed.success) {
       // @sync-invariant none:local-only a corrupt journal line stops the rollback before any step
       throw new DocsModernizeReceiptError(
@@ -753,10 +766,23 @@ export async function rollbackDocsModernize(
           // A merge journaled `pending` may still have committed: the slug
           // then sits on a row other than the one it started on.
           const live = await store.findBySlug(op.slug, projectRoot);
-          const created = prior.newAttachmentId ?? live?.metadata.id ?? null;
-          if (created && created !== prior.previousAttachmentId && live?.metadata.id === created) {
-            await revertDocUpdate(projectRoot, op.slug, { ...prior, newAttachmentId: created });
+          if (!live || live.metadata.id === prior.previousAttachmentId) break; // never committed
+          // Revert only the row this run wrote: the one journaled as `done`,
+          // or (for a `pending` merge that committed) the row holding exactly
+          // the merged bytes. Anything else is a later writer's edit.
+          const ours = prior.newAttachmentId
+            ? live.metadata.id === prior.newAttachmentId
+            : live.metadata.sha256 === op.afterSha256;
+          if (!ours) {
+            // @sync-invariant none:local-only a doc another writer updated after the run is never reverted over their edit
+            throw new DocsModernizeReceiptError(
+              `${op.slug} was updated after the modernize run; revert it by hand, then re-run --rollback ${runId}`,
+            );
           }
+          await revertDocUpdate(projectRoot, op.slug, {
+            ...prior,
+            newAttachmentId: live.metadata.id,
+          });
           break;
         }
         case 'ingest': {
