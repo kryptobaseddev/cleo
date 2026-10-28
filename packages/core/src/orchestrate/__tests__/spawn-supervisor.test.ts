@@ -693,8 +693,13 @@ describe('orchestrateSpawn — worktree lock safety (T12506 review)', () => {
       CLEO_AGENT_CWD: path,
       CLEO_WORKTREE_BRANCH: 'task/T9999',
       CLEO_AGENT_ROLE: 'worker',
-      CLEO_SESSION_ID: 'sess-1',
     });
+    // The spawned agent's OWN session (T11343, T12500), the one the resume lock
+    // holds, never the orchestrator's active session ('sess-1' here).
+    const sessionId = (result.data as { sessionId?: string }).sessionId;
+    expect(sessionId).toBeTruthy();
+    expect(env['CLEO_SESSION_ID']).toBe(sessionId);
+    expect(env['CLEO_SESSION_ID']).not.toBe('sess-1');
     expect(env['CLEO_BRANCH_PROTECTION']).toMatch(/^(strict|unavailable)$/);
     // The agent id is exported whenever one was allocated, as the prompt does.
     const agentId = (result.data as { agentId?: string | null }).agentId;
