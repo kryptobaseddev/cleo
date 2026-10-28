@@ -24,8 +24,8 @@ how to read and update it: `cleo docs fetch <slug>`, then
 To add a truly new doc anyway, pass `--new-because "<why>"` (at least 15
 characters). The reason is recorded in `.cleo/audit/docs-new-because.jsonl`.
 
-`--allow-similar` alone no longer bypasses the check. A `.cleo/canon.yml`
-`similarity` block can only tighten the slug threshold.
+`--allow-similar` alone no longer bypasses the check. The thresholds are
+fixed; the `.cleo/canon.yml` `similarity` block is no longer read.
 
 CLEO-INJECTION, ct-documentor and ct-task-executor tell agents to find and
 update first.

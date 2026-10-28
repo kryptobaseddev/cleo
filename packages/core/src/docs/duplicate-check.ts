@@ -21,7 +21,7 @@
 
 import { appendFile, mkdir } from 'node:fs/promises';
 import { join } from 'node:path';
-import { similarityScore } from './similarity-check.js';
+import { similarityScore } from './slug-similarity.js';
 
 /** Default thresholds; a project may only tighten them (lower values catch more). */
 export const DUPLICATE_THRESHOLDS = Object.freeze({ slug: 0.85, title: 0.8, content: 0.6 });

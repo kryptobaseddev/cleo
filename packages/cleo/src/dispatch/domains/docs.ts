@@ -357,23 +357,6 @@ const SLUG_PATTERN = /^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/;
 const SLUG_MAX_LEN = 80;
 
 /**
- * The duplicate-check thresholds the project's `.cleo/canon.yml` sets
- * (`similarity.warnThreshold` for slugs, T10361). They can only tighten the
- * defaults; `similarity.mode: warn` no longer lets a duplicate through
- * (T14109). A malformed canon file keeps the defaults; `cleo check canon
- * docs` reports it.
- */
-async function docsDuplicateThresholds(projectRoot: string): Promise<{ slug?: number }> {
-  try {
-    const { loadCanonRegistry } = await import('./check/canon-docs.js');
-    const threshold = loadCanonRegistry(projectRoot)?.similarity?.warnThreshold;
-    return threshold === undefined ? {} : { slug: threshold };
-  } catch {
-    return {};
-  }
-}
-
-/**
  * Validate a slug string against {@link SLUG_PATTERN}.
  *
  * @returns `{ valid: true }` when the slug matches; `{ valid: false, reason }`
@@ -1347,7 +1330,6 @@ const _docsTypedHandler = defineTypedHandler<DocsTypedOps>('docs', {
                         : {}),
                     },
                     await dup.loadDuplicateCandidates(projectRoot, { kind: type }),
-                    await docsDuplicateThresholds(projectRoot),
                   );
             if (match && reason === undefined) {
               if (adrNumber !== undefined && slug !== undefined) releaseReservedSlug(slug);
