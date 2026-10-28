@@ -2,7 +2,8 @@
  * `cleo docs doctor` — store health diagnostics + safe repairs — T13447.
  *
  * Audits the CleoDocs store (`cleo.db` `attachments`/`docs_wikilinks` tables
- * plus the on-disk legacy surfaces) for eight known drift classes and, when
+ * plus the on-disk legacy surfaces and the `docs_publications` ledger) for nine
+ * known drift classes and, when
  * invoked with `apply: true`, performs the repairs that are safe to run
  * in-place:
  *
@@ -63,6 +64,20 @@
  *                             doc whose remaining positions are
  *                             unrecoverable stays listed at `info` level —
  *                             visibility only, no invented repair (T13843).
+ *   - `publication-ledger-drift` — `docs_publications` rows whose mirror is not
+ *                             in sync (T14117): the file is gone (`deleted`;
+ *                             outside the project root this is a dead
+ *                             worktree) or differs from the store head
+ *                             (`modified`). Repair (`prune-publication`) deletes
+ *                             a `deleted` row only when its blob is still held
+ *                             by an attachments row or by a live ledger row, so
+ *                             the prune never drops the last GC protection of a
+ *                             published blob. Each pruned row is appended in
+ *                             full to {@link DOCS_DOCTOR_LEDGER_PRUNE_AUDIT_FILE}
+ *                             first, so it can be re-inserted. `modified` rows
+ *                             and unprotected `deleted` rows get a plan-only
+ *                             entry (republish, or ingest the edit) — the
+ *                             doctor never picks which side of a drift wins.
  *
  * SAFETY: `apply: true` (or `repair: true`) REFUSES to run without a backup receipt
  * ({@link DocsDoctorOptions.backupReceiptPath}) whose mtime is at most
@@ -80,10 +95,17 @@
  */
 
 import { createHash } from 'node:crypto';
-import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
+import {
+  appendFileSync,
+  existsSync,
+  mkdirSync,
+  readdirSync,
+  readFileSync,
+  statSync,
+} from 'node:fs';
 import { readFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { isAbsolute, join, resolve, sep } from 'node:path';
+import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { getCleoWorktreesRoot } from '@cleocode/paths';
 import { eq } from 'drizzle-orm';
 import { resolveCleoDir } from '../paths.js';
@@ -107,7 +129,9 @@ import {
   isScannableTextMime,
   linksJsonOrNull,
 } from './derive-links.js';
+import type { DocsPublicationRecord } from './docs-ops.js';
 import { DOCS_VERSIONING_AUDIT_FILE } from './docs-update.js';
+import { deleteDocsPublication, readDocsPublications } from './publications-store.js';
 import { deriveWikilinkEdges, rebuildDocsWikilinks, type WikilinkEdge } from './wikilinks.js';
 
 /**
@@ -136,7 +160,16 @@ export const DOCS_DOCTOR_DEFAULT_OLDER_THAN_DAYS = 30;
 export const DOCS_DOCTOR_MAX_DETAIL_ITEMS = 50;
 
 /**
- * The eight diagnostic classes {@link runDocsDoctor} checks for.
+ * Project-relative audit log the ledger prune appends each deleted
+ * `docs_publications` row to (one JSON line per row, written before the
+ * delete), so a pruned row can be restored with `upsertDocsPublication`.
+ *
+ * @task T14117
+ */
+export const DOCS_DOCTOR_LEDGER_PRUNE_AUDIT_FILE = '.cleo/audit/docs-publications-prune.jsonl';
+
+/**
+ * The nine diagnostic classes {@link runDocsDoctor} checks for.
  *
  * @task T13447
  */
@@ -148,7 +181,8 @@ export type DocsDoctorDiagnosticKind =
   | 'legacy-store-present'
   | 'legacy-blob-coverage'
   | 'stale-drafts'
-  | 'conduit-history-gaps';
+  | 'conduit-history-gaps'
+  | 'publication-ledger-drift';
 
 /**
  * One diagnostic class in the report: severity, total offender count, and a
@@ -201,7 +235,7 @@ export interface DocsDoctorReport {
   readonly olderThanDays: number;
   /** Backup receipt that authorised this run (null on dry runs). */
   readonly backupReceiptPath: string | null;
-  /** All eight diagnostics, in declaration order. */
+  /** All nine diagnostics, in declaration order. */
   readonly diagnostics: readonly DocsDoctorDiagnostic[];
   /** Repair plan (dry run) or executed repairs (apply). */
   readonly repairs: readonly DocsDoctorRepairAction[];
@@ -554,6 +588,99 @@ interface DoctorScan {
   readonly needsWikilinksRebuild: boolean;
   /** T13727 — per-doc conduit-history backfill plans (one per adopted doc). */
   readonly conduitBackfill: readonly ConduitDocBackfillPlan[];
+  /** T14117 — ledger rows out of sync with their mirror, with planned repairs. */
+  readonly ledger: readonly LedgerFinding[];
+}
+
+/**
+ * One `docs_publications` row that is not in sync with its mirror (T14117).
+ *
+ * `prunable` rows are deleted on `--apply`; every other finding is plan-only.
+ */
+interface LedgerFinding {
+  readonly record: DocsPublicationRecord;
+  readonly drift: 'deleted' | 'modified';
+  /** True when the published path resolves outside the project root. */
+  readonly outsideRoot: boolean;
+  /** `prune-publication` (applied) or a plan-only verb. */
+  readonly action: 'prune-publication' | 'republish' | 'reconcile-edit' | 'republish-or-prune';
+  readonly prunable: boolean;
+  readonly detail: string;
+}
+
+/**
+ * Classify every non-in-sync `docs_publications` row and plan its repair
+ * (T14117). Reuses {@link statusDocs} for the drift classification so the
+ * doctor and `cleo docs status` can never disagree.
+ *
+ * A `deleted` row is prunable only when its blob stays protected without it:
+ * some attachments row holds the sha, or another ledger row naming the same
+ * sha is not itself `deleted`.
+ *
+ * @internal
+ */
+async function scanPublicationLedger(
+  projectRoot: string,
+  rows: readonly DoctorRow[],
+): Promise<LedgerFinding[]> {
+  const ledger = await readDocsPublications(projectRoot);
+  if (ledger.length === 0) return [];
+  const { statusDocs } = await import('./docs-ops.js');
+  const status = await statusDocs({ projectRoot });
+  const key = (r: Pick<DocsPublicationRecord, 'ownerId' | 'blobName' | 'publishedPath'>): string =>
+    `${r.ownerId}\u0000${r.blobName}\u0000${r.publishedPath}`;
+  const recordByKey = new Map(ledger.map((r) => [key(r), r]));
+  const attachmentShas = new Set(rows.map((r) => r.sha256));
+  const liveLedgerShas = new Map<string, number>();
+  for (const item of status.items) {
+    if (item.drift === 'deleted') continue;
+    const record = recordByKey.get(key(item));
+    if (record)
+      liveLedgerShas.set(record.lastBlobSha, (liveLedgerShas.get(record.lastBlobSha) ?? 0) + 1);
+  }
+  const findings: LedgerFinding[] = [];
+  for (const item of status.items) {
+    if (item.drift !== 'deleted' && item.drift !== 'modified') continue;
+    const record = recordByKey.get(key(item));
+    if (!record) continue;
+    const absPath = isAbsolute(record.publishedPath)
+      ? record.publishedPath
+      : resolve(projectRoot, record.publishedPath);
+    const rel = relative(projectRoot, absPath);
+    const outsideRoot = rel.startsWith('..') || isAbsolute(rel);
+    if (item.drift === 'modified') {
+      const storeMoved = item.fileSha === record.lastBlobSha;
+      findings.push({
+        record,
+        drift: 'modified',
+        outsideRoot,
+        action: storeMoved ? 'republish' : 'reconcile-edit',
+        prunable: false,
+        detail: storeMoved
+          ? `mirror ${record.publishedPath} holds the last published blob; the store head moved on — run \`cleo docs publish\``
+          : `mirror ${record.publishedPath} was edited outside the store — ingest it with \`cleo docs update\` or republish to overwrite`,
+      });
+      continue;
+    }
+    const shas = new Set([record.lastBlobSha, item.blobSha]);
+    const protectedElsewhere = [...shas].every(
+      (sha) => attachmentShas.has(sha) || (liveLedgerShas.get(sha) ?? 0) > 0,
+    );
+    const where = outsideRoot
+      ? 'outside the project root (dead worktree)'
+      : 'inside the project root';
+    findings.push({
+      record,
+      drift: 'deleted',
+      outsideRoot,
+      action: protectedElsewhere ? 'prune-publication' : 'republish-or-prune',
+      prunable: protectedElsewhere,
+      detail: protectedElsewhere
+        ? `mirror ${record.publishedPath} is gone (${where}); blob ${record.lastBlobSha.slice(0, 12)}… stays referenced elsewhere → delete the ledger row`
+        : `mirror ${record.publishedPath} is gone (${where}) and this row is the only reference to blob ${record.lastBlobSha.slice(0, 12)}… — republish it, or archive the doc before pruning`,
+    });
+  }
+  return findings;
 }
 
 /**
@@ -777,6 +904,15 @@ async function scanStore(
   // planner reads the audit file, the registry and (hash-verified) bytes,
   // and writes nothing.
   const conduitBackfill = await planConduitHistoryBackfill(projectRoot);
+  const ledger = await scanPublicationLedger(projectRoot, rows);
+  const ledgerItems = ledger.slice(0, DOCS_DOCTOR_MAX_DETAIL_ITEMS).map((f) => ({
+    ownerId: f.record.ownerId,
+    blobName: f.record.blobName,
+    publishedPath: f.record.publishedPath,
+    drift: f.drift,
+    outsideRoot: f.outsideRoot,
+    proposed: f.action,
+  }));
   // Actionable = anything a doctor run should surface: rows to backfill,
   // unrecoverable gaps (real, unhealed drift — reported even when the doc
   // is otherwise complete), or a refused conflict (review-2253). Severity:
@@ -856,6 +992,13 @@ async function scanStore(
       items: conduitItems,
       truncated: conduitActionable.length > conduitItems.length,
     },
+    {
+      kind: 'publication-ledger-drift',
+      severity: ledger.length > 0 ? 'warn' : 'info',
+      count: ledger.length,
+      items: ledgerItems,
+      truncated: ledger.length > ledgerItems.length,
+    },
   ];
 
   return {
@@ -867,6 +1010,7 @@ async function scanStore(
     missingEdges,
     needsWikilinksRebuild: missingEdges.length > 0 || backfillChangesLinks,
     conduitBackfill,
+    ledger,
   };
 }
 
@@ -1030,6 +1174,16 @@ export async function runDocsDoctor(
             `(chain ${plan.expectedVersions}, present ${plan.presentVersions}${gapNote}${auditNote})`,
       });
     }
+    // T14117 — publication-ledger drift: prune protected deleted rows; every
+    // other finding is a plan-only proposal.
+    for (const finding of pre.ledger) {
+      repairs.push({
+        kind: 'publication-ledger-drift',
+        action: finding.action,
+        applied: apply && finding.prunable,
+        detail: finding.detail,
+      });
+    }
   }
   for (const candidate of pre.blobBackfillable) {
     repairs.push({
@@ -1128,6 +1282,21 @@ export async function runDocsDoctor(
       }
       if (pre.needsWikilinksRebuild) {
         await rebuildDocsWikilinks({ projectRoot });
+      }
+      const prunable = pre.ledger.filter((f) => f.prunable);
+      if (prunable.length > 0) {
+        const auditPath = join(projectRoot, DOCS_DOCTOR_LEDGER_PRUNE_AUDIT_FILE);
+        mkdirSync(dirname(auditPath), { recursive: true });
+        const prunedAt = new Date().toISOString();
+        for (const finding of prunable) {
+          // Audit first: the full row is recoverable even if the delete is interrupted.
+          appendFileSync(
+            auditPath,
+            `${JSON.stringify({ op: 'docs.doctor.prune-publication', prunedAt, drift: finding.drift, outsideRoot: finding.outsideRoot, backupReceiptPath: opts.backupReceiptPath ?? null, record: finding.record })}\n`,
+            'utf-8',
+          );
+          await deleteDocsPublication(projectRoot, finding.record);
+        }
       }
     }
   }

@@ -808,3 +808,116 @@ describe('backfillBlobStoreBytes crash-safety (T13654)', () => {
     expect(existsSync(targetOf(sha))).toBe(false);
   });
 });
+
+describe('runDocsDoctor — publication-ledger-drift (T14117)', () => {
+  const sha = (text: string): string => createHash('sha256').update(text).digest('hex');
+
+  /** Record one ledger row through the canonical accessor. */
+  async function publish(blobName: string, publishedPath: string, lastBlobSha: string) {
+    const { upsertDocsPublication } = await import('../publications-store.js');
+    await upsertDocsPublication(tempDir, {
+      ownerId: 'T9999',
+      blobName,
+      publishedPath,
+      lastBlobSha,
+    });
+  }
+
+  async function ledgerPaths(): Promise<string[]> {
+    const { readDocsPublications } = await import('../publications-store.js');
+    return (await readDocsPublications(tempDir)).map((r) => r.publishedPath).sort();
+  }
+
+  /**
+   * Seed four ledger rows: a dead-worktree row and an in-root deleted row
+   * whose blob an attachments row still holds, an in-root deleted row that is
+   * the only reference to its blob, and a hand-edited (modified) mirror.
+   */
+  async function seedLedger(): Promise<void> {
+    await seedSlug('published-doc', '# published\n');
+    const held = sha('# published\n');
+    await publish('dead.md', '../gone-worktree/docs/dead.md', held);
+    await publish('removed.md', 'docs/removed.md', held);
+    await publish('orphan.md', 'docs/orphan.md', sha('only the ledger knows me\n'));
+    mkdirSync(join(tempDir, 'docs'), { recursive: true });
+    writeFileSync(join(tempDir, 'docs', 'edited.md'), '# edited by hand\n');
+    await publish('edited.md', 'docs/edited.md', held);
+  }
+
+  it('classifies outside-root, deleted and modified rows with a proposed repair', async () => {
+    await seedLedger();
+    const result = await doctor();
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    const diag = diagnostic(result.report, 'publication-ledger-drift');
+    expect(diag.count).toBe(4);
+    expect(diag.severity).toBe('warn');
+    const byPath = new Map(diag.items.map((i) => [i['publishedPath'], i]));
+    expect(byPath.get('../gone-worktree/docs/dead.md')).toMatchObject({
+      drift: 'deleted',
+      outsideRoot: true,
+      proposed: 'prune-publication',
+    });
+    expect(byPath.get('docs/removed.md')).toMatchObject({
+      drift: 'deleted',
+      outsideRoot: false,
+      proposed: 'prune-publication',
+    });
+    expect(byPath.get('docs/orphan.md')).toMatchObject({ proposed: 'republish-or-prune' });
+    expect(byPath.get('docs/edited.md')).toMatchObject({
+      drift: 'modified',
+      proposed: 'reconcile-edit',
+    });
+  });
+
+  it('dry run plans the prune but deletes no ledger row and writes no audit', async () => {
+    await seedLedger();
+    const before = await ledgerPaths();
+    const result = await doctor();
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    const prunes = result.report.repairs.filter((r) => r.action === 'prune-publication');
+    expect(prunes).toHaveLength(2);
+    expect(prunes.every((r) => !r.applied)).toBe(true);
+    expect(await ledgerPaths()).toEqual(before);
+    expect(existsSync(join(tempDir, '.cleo', 'audit', 'docs-publications-prune.jsonl'))).toBe(
+      false,
+    );
+  });
+
+  it('apply prunes only protected deleted rows and audits each one first', async () => {
+    await seedLedger();
+    const result = await doctor({ apply: true, receipt: makeReceipt() });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(await ledgerPaths()).toEqual(['docs/edited.md', 'docs/orphan.md']);
+    const audit = readFileSync(
+      join(tempDir, '.cleo', 'audit', 'docs-publications-prune.jsonl'),
+      'utf-8',
+    )
+      .trim()
+      .split('\n')
+      .map((l) => JSON.parse(l) as { op: string; record: { publishedPath: string } });
+    expect(audit.map((a) => a.record.publishedPath).sort()).toEqual([
+      '../gone-worktree/docs/dead.md',
+      'docs/removed.md',
+    ]);
+    expect(audit.every((a) => a.op === 'docs.doctor.prune-publication')).toBe(true);
+    // Post-repair diagnostics: only the two plan-only rows remain.
+    expect(diagnostic(result.report, 'publication-ledger-drift').count).toBe(2);
+  });
+
+  it('a pruned row is restorable from its audit line', async () => {
+    await seedLedger();
+    await doctor({ apply: true, receipt: makeReceipt() });
+    const line = readFileSync(
+      join(tempDir, '.cleo', 'audit', 'docs-publications-prune.jsonl'),
+      'utf-8',
+    ).split('\n')[0];
+    const { record } = JSON.parse(line ?? '') as {
+      record: { ownerId: string; blobName: string; publishedPath: string; lastBlobSha: string };
+    };
+    await publish(record.blobName, record.publishedPath, record.lastBlobSha);
+    expect(await ledgerPaths()).toContain(record.publishedPath);
+  });
+});

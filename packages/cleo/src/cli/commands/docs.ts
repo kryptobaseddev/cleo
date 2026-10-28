@@ -1998,7 +1998,8 @@ const doctorCommand = defineCommand({
     description:
       'Docs store health diagnostics + safe repairs: dangling local-file pointers, ' +
       'docVersion skew vs the audit log, empty topics/related_tasks provenance, ' +
-      'docs_wikilinks drift, legacy store surfaces, blob-store coverage, stale drafts. ' +
+      'docs_wikilinks drift, legacy store surfaces, blob-store coverage, stale drafts, ' +
+      'publication-ledger drift (rows whose mirror is gone or stale; T14117). ' +
       'Dry-run by default; --apply executes repairs (a fresh backup is created automatically first); ' +
       '--repair runs only the hash-verified legacy-bytes → blob-store backfill (T13653).',
   },

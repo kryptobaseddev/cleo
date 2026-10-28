@@ -1121,7 +1121,8 @@ export interface DocsDoctorDiagnostic {
     | 'legacy-store-present'
     | 'legacy-blob-coverage'
     | 'stale-drafts'
-    | 'conduit-history-gaps';
+    | 'conduit-history-gaps'
+    | 'publication-ledger-drift';
   /** `error` should be fixed promptly; `info` is observational. */
   severity: 'info' | 'warn' | 'error';
   /** Total offenders found (may exceed `items.length`). */
@@ -1164,7 +1165,7 @@ export interface DocsDoctorResult {
   olderThanDays: number;
   /** Backup receipt that authorised this run (null on dry runs). */
   backupReceiptPath: string | null;
-  /** All eight diagnostics, in declaration order. */
+  /** All nine diagnostics, in declaration order. */
   diagnostics: readonly DocsDoctorDiagnostic[];
   /** Repair plan (dry run) or executed repairs (apply). */
   repairs: readonly DocsDoctorRepairAction[];
