@@ -1,0 +1,310 @@
+{
+  "$schema": "https://cleocode.io/schemas/release-plan/v1.json",
+  "version": "v2026.10.27",
+  "resolvedVersion": "v2026.10.27",
+  "suffixApplied": false,
+  "scheme": "calver",
+  "channel": "latest",
+  "epicId": null,
+  "releaseKind": "regular",
+  "hooksV1Promotion": false,
+  "createdAt": "2026-10-28T14:11:31.332Z",
+  "createdBy": "keatonhoskins",
+  "previousVersion": "v2026.10.26",
+  "previousTag": "v2026.10.26",
+  "previousShippedAt": "2026-10-28T03:52:44.147Z",
+  "tasks": [
+    {
+      "id": "T14088",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "Admission latch starves every project for hours while CLEO itself holds nothing (pressure 22-24, resume at 15)",
+      "evidenceAtoms": [
+        "pr:2529",
+        "files:.changeset/latch-idle-one-at-a-time.md,packages/core/src/resources/__tests__/admission-ledger.test.ts,packages/core/src/resources/__tests__/governor.test.ts,packages/core/src/resources/admission-ledger.ts",
+        "ci:2529"
+      ],
+      "epicAncestor": "T12956",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T14081",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "docs publish refusal from a linked worktree should name the supported route",
+      "evidenceAtoms": [
+        "pr:2525",
+        "files:.changeset/docs-publish-worktree-routes.md,packages/core/src/docs/__tests__/docs-ops.test.ts,packages/core/src/docs/__tests__/publish-smoke.test.ts,packages/core/src/docs/docs-ops.ts",
+        "ci:2525"
+      ],
+      "epicAncestor": "T12956",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T14079",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "Admission: small non-node checks (python3 YAML/metadata scripts) are charged as a full scoped-build with no light lane",
+      "evidenceAtoms": [
+        "pr:2528",
+        "files:.changeset/light-lane-small-checks.md,packages/core/src/resources/__tests__/admission-ledger.test.ts,packages/core/src/resources/admission-ledger.ts,packages/core/src/resources/hook-footprint.ts,packages/core/src/resources/run-class.ts",
+        "ci:2528"
+      ],
+      "epicAncestor": "T12956",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T13967",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "A two-file biome check waits behind a full budget: tiny runs have no lane once capacity is held",
+      "evidenceAtoms": [
+        "pr:2528",
+        "files:.changeset/light-lane-small-checks.md,packages/core/src/resources/__tests__/admission-ledger.test.ts,packages/core/src/resources/admission-ledger.ts,packages/core/src/resources/hook-footprint.ts,packages/core/src/resources/run-class.ts",
+        "ci:2528"
+      ],
+      "epicAncestor": "T13940",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T12237",
+      "kind": "fix",
+      "impact": "patch",
+      "userFacingSummary": "The acceptance-criteria lock cannot tell TIGHTENING from WEAKENING, so appending a criterion needs the same override as deleting one",
+      "evidenceAtoms": [
+        "pr:2534",
+        "files:.changeset/ac-lock-append.md,packages/core/src/tasks/__tests__/ac-immutability.test.ts,packages/core/src/tasks/ac-immutability.ts",
+        "ci:2534"
+      ],
+      "epicAncestor": "T12188",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T14071",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "Confirm T13495/T13673 meet the D11150 standing condition for projects without required CI, or record an owner decision amending D11150",
+      "evidenceAtoms": [
+        "pr:2526",
+        "files:.changeset/merge-carry-whole-scope.md,packages/core/src/tasks/__tests__/complete-ci.test.ts,packages/core/src/tasks/affected-scope.ts",
+        "ci:2526"
+      ],
+      "epicAncestor": "T12956",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T14080",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "Stopping the shell that wraps cleo run can leave its child running (TaskStop on a wrapper)",
+      "evidenceAtoms": [
+        "pr:2527",
+        "files:.changeset/run-child-lifecycle.md,packages/cleo/src/cli/commands/run.ts,packages/cleo/src/cli/generated/command-manifest.ts,packages/core/src/resources/__tests__/admission-ledger.test.ts,packages/core/src/resources/__tests__/run-governed.test.ts,packages/core/src/resources/admission-ledger.ts,packages/core/src/resources/run-admission.ts,packages/core/src/resources/run-governed.ts",
+        "ci:2527"
+      ],
+      "epicAncestor": "T12956",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T13002",
+      "kind": "fix",
+      "impact": "patch",
+      "userFacingSummary": "cleo run: a nested child receives each forwarded signal once, not twice (#1777 r5 N4)",
+      "evidenceAtoms": [
+        "pr:2527",
+        "files:.changeset/run-child-lifecycle.md,packages/cleo/src/cli/commands/run.ts,packages/cleo/src/cli/generated/command-manifest.ts,packages/core/src/resources/__tests__/admission-ledger.test.ts,packages/core/src/resources/__tests__/run-governed.test.ts,packages/core/src/resources/admission-ledger.ts,packages/core/src/resources/run-admission.ts,packages/core/src/resources/run-governed.ts",
+        "ci:2527"
+      ],
+      "epicAncestor": "T12978",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T12994",
+      "kind": "fix",
+      "impact": "patch",
+      "userFacingSummary": "cleo run --wait: re-check parentRunJob on each queue poll after a ps failure (#1777 L-F)",
+      "evidenceAtoms": [
+        "pr:2527",
+        "files:.changeset/run-child-lifecycle.md,packages/cleo/src/cli/commands/run.ts,packages/cleo/src/cli/generated/command-manifest.ts,packages/core/src/resources/__tests__/admission-ledger.test.ts,packages/core/src/resources/__tests__/run-governed.test.ts,packages/core/src/resources/admission-ledger.ts,packages/core/src/resources/run-admission.ts,packages/core/src/resources/run-governed.ts",
+        "ci:2527"
+      ],
+      "epicAncestor": "T12978",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T13474",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "gh#1864/#1946: gate profiles per task kind so non-code work (ops, census, decision) closes on honest evidence",
+      "evidenceAtoms": [
+        "pr:2532",
+        "files:.changeset/gate-profiles-decision-route.md,packages/core/src/tasks/__tests__/decision-only-gates-gh1215.test.ts,packages/core/src/tasks/__tests__/gate-profile.test.ts,packages/core/src/tasks/add.ts,packages/core/src/tasks/compute-task-view.ts,packages/core/src/tasks/done-plan.ts,packages/core/src/tasks/evidence.ts,packages/core/src/tasks/gate-notes.ts,packages/core/src/tasks/update.ts,packages/core/src/tasks/verification-policy.ts,packages/core/src/validation/engine-ops.ts",
+        "ci:2532"
+      ],
+      "epicAncestor": "T12111",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T12220",
+      "kind": "fix",
+      "impact": "patch",
+      "userFacingSummary": "gh#1455/gh#1463: the decision-only route EXISTS and ships — the defect is that the refusal never names it",
+      "evidenceAtoms": [
+        "pr:2532",
+        "files:.changeset/gate-profiles-decision-route.md,packages/core/src/tasks/__tests__/decision-only-gates-gh1215.test.ts,packages/core/src/tasks/__tests__/gate-profile.test.ts,packages/core/src/tasks/add.ts,packages/core/src/tasks/compute-task-view.ts,packages/core/src/tasks/done-plan.ts,packages/core/src/tasks/evidence.ts,packages/core/src/tasks/gate-notes.ts,packages/core/src/tasks/update.ts,packages/core/src/tasks/verification-policy.ts,packages/core/src/validation/engine-ops.ts",
+        "ci:2532"
+      ],
+      "epicAncestor": "T12111",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T14093",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "cleo run pauses test runs and hooked pushes by default; a SIGSTOP longer than a test timeout turns into a false test failure",
+      "evidenceAtoms": [
+        "pr:2542",
+        "files:.changeset/never-pause-test-runs.md,packages/cleo/src/cli/commands/run.ts,packages/core/src/resources/__tests__/run-admission.test.ts,packages/core/src/resources/__tests__/run-class.test.ts,packages/core/src/resources/__tests__/run-governed.test.ts,packages/core/src/resources/run-class.ts,packages/core/src/resources/run-governed.ts",
+        "ci:2542"
+      ],
+      "epicAncestor": "T12956",
+      "ivtrPhaseAtPlan": "contribution"
+    },
+    {
+      "id": "T14090",
+      "kind": "feat",
+      "impact": "minor",
+      "userFacingSummary": "cleo run: node <path>/pnpm.cjs install is charged light with no resource plan (package manager run through node by path)",
+      "evidenceAtoms": [
+        "pr:2544",
+        "files:.changeset/node-pm-entrypoint.md,packages/cleo/src/cli/__tests__/run-command.test.ts,packages/core/src/resources/__tests__/admission-ledger.test.ts,packages/core/src/resources/__tests__/run-class.test.ts,packages/core/src/resources/run-class.ts",
+        "ci:2544"
+      ],
+      "epicAncestor": "T12956",
+      "ivtrPhaseAtPlan": "contribution"
+    }
+  ],
+  "changelog": {
+    "features": [
+      "T14088",
+      "T14081",
+      "T14079",
+      "T13967",
+      "T14071",
+      "T14080",
+      "T13474",
+      "T14093",
+      "T14090"
+    ],
+    "fixes": [
+      "T12237",
+      "T13002",
+      "T12994",
+      "T12220"
+    ],
+    "chores": [],
+    "breaking": []
+  },
+  "gates": [
+    {
+      "name": "test",
+      "atom": "tool:test",
+      "status": "unresolved",
+      "lastVerifiedAt": "2026-10-28T14:11:31.332Z",
+      "resolvedCommand": "pnpm run test",
+      "resolvedSource": "project-context"
+    },
+    {
+      "name": "build",
+      "atom": "tool:build",
+      "status": "unresolved",
+      "lastVerifiedAt": "2026-10-28T14:11:31.332Z",
+      "resolvedCommand": "pnpm run build",
+      "resolvedSource": "project-context"
+    },
+    {
+      "name": "lint",
+      "atom": "tool:lint",
+      "status": "unresolved",
+      "lastVerifiedAt": "2026-10-28T14:11:31.332Z",
+      "resolvedCommand": "pnpm run lint",
+      "resolvedSource": "package-script"
+    },
+    {
+      "name": "typecheck",
+      "atom": "tool:typecheck",
+      "status": "unresolved",
+      "lastVerifiedAt": "2026-10-28T14:11:31.332Z",
+      "resolvedCommand": "pnpm run typecheck",
+      "resolvedSource": "package-script"
+    },
+    {
+      "name": "audit",
+      "atom": "tool:audit",
+      "status": "unresolved",
+      "lastVerifiedAt": "2026-10-28T14:11:31.332Z",
+      "resolvedCommand": "npm audit",
+      "resolvedSource": "language-default"
+    },
+    {
+      "name": "security-scan",
+      "atom": "tool:security-scan",
+      "status": "unresolved",
+      "lastVerifiedAt": "2026-10-28T14:11:31.332Z",
+      "resolvedCommand": "npm audit",
+      "resolvedSource": "language-default"
+    }
+  ],
+  "platformMatrix": [
+    {
+      "platform": "any",
+      "publisher": "npm",
+      "package": "@cleocode/cleo"
+    }
+  ],
+  "preflightSummary": {
+    "esbuildExternalsDrift": false,
+    "lockfileDrift": false,
+    "epicCompletenessClean": true,
+    "doubleListingClean": true,
+    "preflightWarnings": [
+      "Skipped 978 out-of-scope changeset entries whose task anchors are not part of this release plan"
+    ]
+  },
+  "workflowRunUrl": null,
+  "prUrl": null,
+  "mergeCommitSha": null,
+  "status": "planned",
+  "meta": {
+    "firstEverRelease": false,
+    "archetype": "node",
+    "releaseNotes": "## v2026.10.27 — 2026-10-28\n\n> **Update now: run `cleo self-update`.**\n\n### Highlights\n\n- **The memory latch no longer starves every project while CLEO holds nothing.** Once host pressure crossed the refuse line, the gate stayed latched until pressure fell to the resume line, so every project's `cleo run` timed out with `E_RESOURCE_DEFERRED` even though the pressure came from processes outside CLEO. Now, while the latch waits at or below the refuse line and no CLEO run is admitted, admission starts one run at a time, in queue order, whose charge fits the reclaimable memory; nothing starts beside it until it releases. Above the refuse line nothing is admitted, as before. The wait report, the refusal and `cleo doctor tool-locks` say that CLEO holds nothing and list the host's largest memory users (T14088).\n- **Test runs and hooked pushes are never paused.** A run that executes tests (class `test`, a test runner or `test` script, `node --test`, `cargo`/`go test`, or a `git push`/`git commit` with an installed hook) is no longer SIGSTOPped under memory pressure, which made its wall-clock test timeouts fire; under pressure it is queued instead, and stderr says `never paused: <reason>`. Builds, typechecks and lint still pause as before (T14093).\n- **`node …/pnpm.cjs` is treated as pnpm.** A package manager launched through `node` by path (corepack `pnpm.cjs`, `npm-cli.js`, `yarn.js`, a yarn release `.cjs`) is read as that package manager, so its install gets the install plan instead of a light charge (T14090).\n- **Task profiles for work that changes no code.** A `work` task can carry one of `profile:ops`, `profile:decision`, `profile:census` or `profile:audit`; it then proves `implemented` with `decision:` plus a `note:` or an artifact, and `testsPassed`/`qaPassed` read as not applicable, never as passed. A profile never applies over code evidence, and every profile change is audited. The `testsPassed`/`qaPassed` refusal now names the decision-only route (T13474, T12220).\n- **Behaviour change: `cleo complete` now refuses any task with unfinished children, not only epics.** The audited `--override-reason` still applies. Moving, restoring or unarchiving a task under a cancelled or archived parent is also refused, and `cleo unarchive` now writes the status it validates (#2537, T12883 R1).\n- **`cleo run` stops its child when its own parent dies.** A runner whose wrapping shell was killed no longer leaves its child group running and charged; a run meant to outlive its launcher opts out with `cleo run --detach` or `CLEO_RUN_DETACHED=1`. A nested runner no longer delivers a group signal twice, and nesting is re-checked on each queue poll after a `ps` failure (T14080, T13002, T12994).\n- **Small checks get the light lane.** A plain `python3`, `sh`, `bash` or `zsh` script that runs no compiler, test runner or build is charged the light 1 GiB footprint, and up to three tiny runs (1 GiB or less) start from the reserve even past a full capacity; the memory gate still refuses them under real pressure (T14079, T13967).\n- **A pre-merge scoped run carries across the merge only while its whole scope is unchanged.** A `test-run:`, `qa-run:` or `tool:test-affected` result recorded before merge no longer stands when another PR changed what it tested (a dependent package, a test file, the lockfile or a root config); the refusal names the first changed file and the routes that still prove the change. Projects with `evidence.ciSatisfies` record merged CI as before (T14071, owner decision D11205).\n- **Appending acceptance criteria at a locked stage needs no `--reason`.** Removing, altering or reordering a criterion still does, and the refusal names which criteria the update would change (T12237).\n- **`cleo docs publish` into a non-canonical linked worktree** now says only canonical CLEO worktrees are publication targets and names the two routes (T14081).\n\n### Fixed\n\n- appending acceptance criteria at a locked stage no longer needs --reason; removing or altering one still does, and the refusal names which criteria _(provenance: [T12237](https://github.com/kryptobaseddev/cleo/search?q=T12237&type=commits))_\n- docs publish into a linked non-canonical worktree says only canonical CLEO worktrees are publication targets and names the two routes _(provenance: [T14081](https://github.com/kryptobaseddev/cleo/search?q=T14081&type=commits))_\n- Tasks with no code change declare a gate profile (profile:ops|decision|census|audit), and the testsPassed/qaPassed refusal names the decision-only route _(provenance: [T13474](https://github.com/kryptobaseddev/cleo/search?q=T13474&type=commits), [T12220](https://github.com/kryptobaseddev/cleo/search?q=T12220&type=commits))_\n- while the memory latch waits below its refuse line and CLEO holds nothing, admission starts one run at a time in queue order instead of refusing every project _(provenance: [T14088](https://github.com/kryptobaseddev/cleo/search?q=T14088&type=commits))_\n- Small checks get the light lane: plain Python or shell scripts are charged light, and tiny runs start past a full capacity _(provenance: [T14079](https://github.com/kryptobaseddev/cleo/search?q=T14079&type=commits), [T13967](https://github.com/kryptobaseddev/cleo/search?q=T13967&type=commits))_\n- A pre-merge scoped run carries across the merge only while its whole scope is unchanged (D11205) _(provenance: [T14071](https://github.com/kryptobaseddev/cleo/search?q=T14071&type=commits))_\n- cleo run never pauses a run that executes tests (class test, a test runner or script, node --test, a hooked git push or commit); pressure queues it instead _(provenance: [T14093](https://github.com/kryptobaseddev/cleo/search?q=T14093&type=commits))_\n- cleo run reads a package manager launched through node by path (corepack pnpm.cjs, npm-cli.js, yarn.js) as that package manager, so its install gets the install plan instead of a light charge _(provenance: [T14090](https://github.com/kryptobaseddev/cleo/search?q=T14090&type=commits))_\n- cleo run stops its child when its own parent dies, delivers a group signal to a nested child once, and re-checks nesting on each queue poll after a ps failure _(provenance: [T14080](https://github.com/kryptobaseddev/cleo/search?q=T14080&type=commits), [T13002](https://github.com/kryptobaseddev/cleo/search?q=T13002&type=commits), [T12994](https://github.com/kryptobaseddev/cleo/search?q=T12994&type=commits))_\n",
+    "changesetEntryCount": 9,
+    "changesetIds": [
+      "ac-lock-append",
+      "docs-publish-worktree-routes",
+      "gate-profiles-decision-route",
+      "latch-idle-one-at-a-time",
+      "light-lane-small-checks",
+      "merge-carry-whole-scope",
+      "never-pause-test-runs",
+      "node-pm-entrypoint",
+      "run-child-lifecycle"
+    ],
+    "taskIds": [
+      "T14088",
+      "T14081",
+      "T14079",
+      "T13967",
+      "T12237",
+      "T14071",
+      "T14080",
+      "T13002",
+      "T12994",
+      "T13474",
+      "T12220",
+      "T14093",
+      "T14090"
+    ]
+  }
+}
