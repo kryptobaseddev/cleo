@@ -292,7 +292,7 @@ describe('linkedPrChange: the task links through the component, not the integrat
       { storeRoot: repo, executionRoot: repo },
     );
     expect(linked.ok && checkPrTaskLinkage(linked.prNumber, linked.pr, ctx)?.reason).toMatch(
-      /does not establish a relationship to task T950/,
+      /does not cite task T950 and T950 declares no files/,
     );
   });
 

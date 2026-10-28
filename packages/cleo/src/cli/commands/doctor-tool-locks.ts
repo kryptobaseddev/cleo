@@ -14,15 +14,18 @@
  *
  * Each `cleo run` holder also shows what it measures against what it is
  * charged, how long it has run and idled, and whether it is overdue or hung
- * (T13563).
+ * (T13563). Its charge is what it holds now: after a warm-up a run is charged
+ * its measured peak plus a margin, never above its plan (T14116).
  *
  * @task T12113 (gh#1222)
  * @task T13133
  * @task T13563
+ * @task T14116
  */
 
 import {
   admissionCapacityBytes,
+  entryCharge,
   entryVerdict,
   readForeignEntries,
   readLedger,
@@ -106,6 +109,8 @@ export const doctorToolLocksCommand = defineCommand({
           command: e.command,
           cwd: e.cwd,
           footprintBytes: e.footprintBytes,
+          // T14116: the charge it holds now, its plan and its measured peak.
+          ...entryCharge(e),
           // T13367: why the run is charged that much (its real scope).
           footprintReason: e.footprintReason ?? null,
           // T13132: what the run covers (`full` = a whole-suite run) and its task.
@@ -126,7 +131,8 @@ export const doctorToolLocksCommand = defineCommand({
               : {
                   sessionId: r.sessionId,
                   childPid: r.childPid,
-                  chargedBytes: e.footprintBytes,
+                  chargedBytes: entryCharge(e).chargedBytes,
+                  plannedBytes: e.footprintBytes,
                   measuredRssBytes: r.measuredRssBytes ?? null,
                   cpuMs: r.cpuMs ?? null,
                   elapsedMs: now - r.startedAtMs,
@@ -146,7 +152,7 @@ export const doctorToolLocksCommand = defineCommand({
         capacityBytes: admissionCapacityBytes(),
         // T13572: the share pressure leaves and the light/heavy budgets it sets.
         budget: readLedgerBudget(),
-        usedBytes: held.reduce((n, e) => n + e.footprintBytes, 0),
+        usedBytes: held.reduce((n, e) => n + e.chargedBytes, 0),
         entries,
         heldCount: held.length,
         waitingCount: entries.length - held.length,

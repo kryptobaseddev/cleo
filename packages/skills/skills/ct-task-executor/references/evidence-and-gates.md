@@ -96,6 +96,21 @@ cleo verify T### --gate testsPassed --evidence "ci:1234"
 cleo verify T### --gate qaPassed --evidence "ci:1234"
 ```
 
+### `deploy:<provider>/<deploymentId>@<sha>|<probe-url>`
+
+A probed deployment of `<sha>` (T14083). CLEO GETs the probe URL at verify:
+it must return 2xx and name the deployed SHA in an `X-Commit` or `X-Version`
+header or in the body, and that SHA must contain the task's implemented
+commits. It satisfies only the gates the project lists in
+`evidence.deploySatisfies`: none by default, and never `testsPassed` unless
+listed. A probe naming no SHA is refused; serve the SHA, then verify again.
+The probe URL must not carry the SHA itself (`/health?sha=…` is refused: an
+echoing endpoint would prove nothing).
+
+```bash
+cleo verify T### --gate documented --evidence "deploy:railway/dpl_9f3c@1a2b3c4d|https://api.example.com/health"
+```
+
 ### `test-run:<json-path>`
 
 Path to a vitest JSON output file. Re-validated by hash. Preferred for

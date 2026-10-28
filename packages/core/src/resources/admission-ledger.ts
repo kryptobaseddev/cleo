@@ -113,7 +113,7 @@ import {
   type ScriptFootprint,
   scriptFootprint,
 } from './hook-footprint.js';
-import { pressureScore, ResourceMonitor } from './monitor.js';
+import { classifyPressure, pressureScore, ResourceMonitor } from './monitor.js';
 import {
   checkMemoryGate,
   MEMORY_GATE_RETRY_AFTER_MS,
@@ -200,6 +200,71 @@ export const ADMISSION_PRESSURE_ENV = 'CLEO_ADMISSION_PRESSURE';
 
 /** One GiB in bytes. */
 export const GIB = 1024 ** 3;
+
+/**
+ * An admitted run's charge may fall to its measured peak only after it has
+ * run this long and been measured {@link CHARGE_MIN_SAMPLES} times (T14116):
+ * the plan holds while a run warms up.
+ */
+export const CHARGE_WARMUP_MS = 60_000;
+
+/** Measurements of a run's tree needed before its charge may fall (T14116). */
+export const CHARGE_MIN_SAMPLES = 2;
+
+/**
+ * The margin a lowered charge keeps over the measured peak (T14116): this
+ * fraction of the peak, and at least {@link CHARGE_MARGIN_MIN_BYTES}.
+ */
+export const CHARGE_MARGIN_FRACTION = 0.25;
+
+/** The least margin a lowered charge keeps over the measured peak (T14116). */
+export const CHARGE_MARGIN_MIN_BYTES = 512 * 1024 ** 2;
+
+/** What {@link nextCharge} needs to know about an admitted run (T14116). */
+export interface ChargeObservation {
+  /** The planned charge (the entry's `footprintBytes`). */
+  readonly planBytes: number;
+  /** The current charge: the plan, or a charge already lowered. */
+  readonly chargedBytes: number;
+  /** The largest tree RSS measured so far. */
+  readonly peakBytes: number;
+  /** The tree RSS just measured. */
+  readonly rssBytes: number;
+  /** How many times the tree has been measured. */
+  readonly samples: number;
+  /** How long the run has been admitted. */
+  readonly admittedForMs: number;
+}
+
+/**
+ * The charge an admitted run should hold now, or `null` to keep its current
+ * one (T14116). A run whose tree climbs past its current charge goes back to
+ * the plan. After the warm-up, a charge above the measured peak plus the
+ * margin falls to that, never above the plan. The peak only grows, so a
+ * lowered charge never falls and rises again without a climb.
+ *
+ * @param o - the plan, the current charge and the measurements.
+ * @returns the new charge in bytes, or `null` when it stays.
+ *
+ * @example
+ * ```ts
+ * // A hooked push planned at 12 GiB that peaks at 0.17 GiB after a minute.
+ * nextCharge({ planBytes: 12 * GIB, chargedBytes: 12 * GIB, peakBytes: 0.17 * GIB,
+ *   rssBytes: 0.1 * GIB, samples: 12, admittedForMs: 60_000 }); // ≈ 0.67 GiB
+ * ```
+ */
+export function nextCharge(o: ChargeObservation): number | null {
+  const plan = Math.max(0, o.planBytes);
+  if (o.rssBytes > o.chargedBytes) return o.chargedBytes < plan ? plan : null;
+  if (o.admittedForMs < CHARGE_WARMUP_MS || o.samples < CHARGE_MIN_SAMPLES) return null;
+  const sized = Math.min(
+    plan,
+    Math.ceil(
+      o.peakBytes + Math.max(o.peakBytes * CHARGE_MARGIN_FRACTION, CHARGE_MARGIN_MIN_BYTES),
+    ),
+  );
+  return sized < o.chargedBytes ? sized : null;
+}
 
 /** What a light run (audit, security scan) or a config probe is charged. */
 export const LIGHT_FOOTPRINT_BYTES = GIB;
@@ -625,6 +690,25 @@ export interface LedgerEntry {
    * within the budget; nothing running is paused or displaced for it.
    */
   readonly priority?: 'urgent';
+  /**
+   * Never SIGSTOPped once running (`--no-pause`, a test run; T14075, T14093).
+   * While the machine is at backoff it starts only by the idle rule (T14098):
+   * one at a time, in queue order, when no CLEO run is admitted and its charge
+   * fits the reclaimable memory.
+   */
+  readonly neverPause?: boolean;
+  /**
+   * `idle` when the idle rule admitted it (T14088, T14098): CLEO held nothing
+   * while pressure outside CLEO kept the budget closed.
+   */
+  readonly admittedBy?: 'idle';
+  /**
+   * The charge after it fell below the plan (T14116): the measured peak plus a
+   * margin. Absent while the run is charged its plan, `footprintBytes`.
+   */
+  readonly chargedBytes?: number;
+  /** The largest tree RSS measured while admitted (T14116). */
+  readonly measuredPeakBytes?: number;
 }
 
 /** A holder's child process: its pid and start time (`null` when `ps` could not say). */
@@ -697,7 +781,9 @@ function isEntry(v: unknown): v is LedgerEntry {
     (e.state === 'waiting' || e.state === 'admitted') &&
     typeof e.enqueuedAtMs === 'number' &&
     typeof e.heartbeatAtMs === 'number' &&
-    Array.isArray(e.toolGroups)
+    Array.isArray(e.toolGroups) &&
+    (e.chargedBytes === undefined ||
+      (typeof e.chargedBytes === 'number' && Number.isFinite(e.chargedBytes)))
   );
 }
 
@@ -711,6 +797,10 @@ interface CachedPressure {
   readonly lightShare?: BudgetShare;
   readonly reading: MemoryPressureReading | null;
   readonly sampledAtMs: number;
+  /** The sample was at backoff (memory or CPU; T14098). Absent in caches written before it. */
+  readonly backoff?: boolean;
+  /** The sample's available or reclaimable memory, in bytes (T14098). */
+  readonly memAvailableBytes?: number | null;
 }
 
 /** The ledger file, read. */
@@ -736,6 +826,10 @@ function isCachedPressure(v: unknown): v is CachedPressure {
     (c.lightShare === undefined ||
       (typeof c.lightShare === 'string' && SHARES.has(c.lightShare))) &&
     typeof c.sampledAtMs === 'number' &&
+    (c.backoff === undefined || typeof c.backoff === 'boolean') &&
+    (c.memAvailableBytes === undefined ||
+      c.memAvailableBytes === null ||
+      typeof c.memAvailableBytes === 'number') &&
     (c.reading === null || (typeof c.reading === 'object' && c.reading !== null))
   );
 }
@@ -1179,6 +1273,12 @@ export interface PassContext {
    * no more than this may start; `null` or absent starts nothing.
    */
   readonly reclaimableBytes?: number | null;
+  /**
+   * The machine is at backoff (T14098): a waiting run that is never paused
+   * ({@link LedgerEntry.neverPause}) starts only by the idle rule, since
+   * pressure could not pause it later.
+   */
+  readonly backoff?: boolean;
 }
 
 /**
@@ -1214,8 +1314,45 @@ export function isLatchedBelowRefuse(reading: MemoryPressureReading | null | und
   return reading?.latched === true && reading.score <= reading.refuseAbove;
 }
 
+/**
+ * The idle rule (T14088, T14098): with nothing of CLEO's admitted, the
+ * pressure that keeps the budget closed is someone else's, so the first of
+ * `candidates` in queue order whose charge fits the reclaimable memory starts
+ * (never a whole-suite run into a nearly full swap). It holds the budget
+ * alone until it releases; nothing else starts beside it.
+ *
+ * @param entries - the ledger.
+ * @param ctx - the pass context (capacity, clock, reclaimable memory).
+ * @param candidates - the waiters the rule may start.
+ */
+function admitOneWhenIdle(
+  entries: readonly LedgerEntry[],
+  ctx: PassContext,
+  candidates: readonly LedgerEntry[],
+): LedgerEntry[] {
+  const idle = (ctx.foreign?.count ?? 0) === 0 && !entries.some((e) => e.state === 'admitted');
+  if (!idle) return [...entries];
+  const fitting = firstFittingWaiter(
+    candidates,
+    ctx.reclaimableBytes,
+    ctx.capacityBytes,
+    ctx.nowMs,
+  );
+  if (fitting === null) return [...entries];
+  const opened = schedulePass(
+    entries.filter((e) => e.state !== 'waiting' || e.id === fitting.id),
+    { ...ctx, share: 'one', lightShare: 'one', latchedBelowRefuse: false, backoff: false },
+  );
+  const started = opened.find((e) => e.id === fitting.id && e.state === 'admitted');
+  return entries.map((e) =>
+    e.id === started?.id ? { ...started, admittedBy: 'idle' as const } : e,
+  );
+}
+
 function charged(entry: LedgerEntry, capacityBytes: number): number {
-  return Math.min(Math.max(0, entry.footprintBytes), capacityBytes);
+  // T14116: a charge lowered to the measured peak, never above the plan.
+  const plan = Math.max(0, entry.footprintBytes);
+  return Math.min(Math.max(0, entry.chargedBytes ?? plan), plan, capacityBytes);
 }
 
 /**
@@ -1400,23 +1537,38 @@ export function schedulePass(entries: readonly LedgerEntry[], ctx: PassContext):
   const lightShare = ctx.lightShare ?? ctx.share;
   if (ctx.share === 'none' && lightShare === 'none') {
     // T14088: latched below the refuse line with nothing of CLEO's running: the
-    // pressure is someone else's, so admit one run, the first in queue order
-    // whose charge fits the memory the reading reports as reclaimable (never a
-    // whole-suite run into a nearly full swap). It holds the budget alone
-    // until it releases; nothing else starts beside it.
-    const idle =
-      ctx.latchedBelowRefuse === true &&
-      (ctx.foreign?.count ?? 0) === 0 &&
-      !entries.some((e) => e.state === 'admitted');
-    if (!idle) return [...entries];
-    const fitting = firstFittingWaiter(entries, ctx.reclaimableBytes, ctx.capacityBytes, ctx.nowMs);
-    if (fitting === null) return [...entries];
-    const opened = schedulePass(
-      entries.filter((e) => e.state !== 'waiting' || e.id === fitting.id),
-      { ...ctx, share: 'one', lightShare: 'one', latchedBelowRefuse: false },
+    // pressure is someone else's, so the idle rule admits one run. Above the
+    // refuse line nothing starts.
+    if (ctx.latchedBelowRefuse !== true) return [...entries];
+    return admitOneWhenIdle(entries, ctx, entries);
+  }
+  if (ctx.backoff === true) {
+    // T14098: pressure cannot pause a never-paused run later, so at backoff it
+    // starts only by the same idle rule. A nested one (its ancestors admitted)
+    // is never held: CLEO is never idle for it. Non-tiny runs queued behind
+    // the first one that fits keep their place, so a stream of pausable runs
+    // cannot starve it; the rest are scheduled as usual.
+    const held = entries.filter(
+      (e) => e.state === 'waiting' && e.neverPause === true && e.parentId === undefined,
     );
-    const started = opened.find((e) => e.id === fitting.id && e.state === 'admitted');
-    return entries.map((e) => (e.id === started?.id ? started : e));
+    if (held.length > 0) {
+      const heldIds = new Set(held.map((e) => e.id));
+      const head = firstFittingWaiter(held, ctx.reclaimableBytes, ctx.capacityBytes, ctx.nowMs);
+      const order = queueOrder(ctx.nowMs);
+      const waitsBehind = (e: LedgerEntry): boolean =>
+        head !== null && e.state === 'waiting' && !isTiny(e) && order(head, e) < 0;
+      const scheduled = new Map(
+        schedulePass(
+          entries.filter((e) => !heldIds.has(e.id) && !waitsBehind(e)),
+          { ...ctx, backoff: false },
+        ).map((e) => [e.id, e]),
+      );
+      return admitOneWhenIdle(
+        entries.map((e) => scheduled.get(e.id) ?? e),
+        ctx,
+        held,
+      );
+    }
   }
   const reservationMs = ctx.reservationMs ?? LEDGER_RESERVATION_MS;
   const bytesFor = (share: BudgetShare): number => shareBudgetBytes(share, ctx.capacityBytes);
@@ -1821,10 +1973,49 @@ export function describeHolders(
       const groups = e.toolGroups.length > 0 ? `, groups ${e.toolGroups.join(',')}` : '';
       return (
         `${e.label}${describeScope(e)} pid ${e.pid} on ${e.host} (${e.command})${e.cwd ? ` in ${e.cwd}` : ''}, ` +
-        `${gib(e.footprintBytes)}${e.footprintReason ? ` (${e.footprintReason})` : ''}, for ${age(nowMs - (e.admittedAtMs ?? e.enqueuedAtMs))}; ` +
+        `${describeHolderCharge(e)}, for ${age(nowMs - (e.admittedAtMs ?? e.enqueuedAtMs))}; ` +
         `heartbeat ${age(nowMs - e.heartbeatAtMs)} ago${child}${groups}, ${verdict.state} (${verdict.reason})`
       );
     });
+}
+
+/** What a ledger entry is charged, for status (T14116). */
+export interface EntryCharge {
+  /** What it holds now: the plan, or a charge lowered to its measured peak. */
+  readonly chargedBytes: number;
+  /** What it was planned at admission (`footprintBytes`). */
+  readonly plannedBytes: number;
+  /** The largest tree RSS measured while admitted, or `null` before any. */
+  readonly measuredPeakBytes: number | null;
+}
+
+/**
+ * An entry's current charge, its plan and its measured peak (T14116). The
+ * current charge is never above the plan.
+ *
+ * @param e - a ledger entry.
+ */
+export function entryCharge(e: LedgerEntry): EntryCharge {
+  const plannedBytes = Math.max(0, e.footprintBytes);
+  return {
+    chargedBytes: Math.min(Math.max(0, e.chargedBytes ?? plannedBytes), plannedBytes),
+    plannedBytes,
+    measuredPeakBytes: e.measuredPeakBytes ?? null,
+  };
+}
+
+/**
+ * A holder's charge for status: the plan and its reason, and once the run is
+ * measured, the current charge, the plan and the measured peak (T14116).
+ */
+function describeHolderCharge(e: LedgerEntry): string {
+  const reason = e.footprintReason ? ` (${e.footprintReason})` : '';
+  const c = entryCharge(e);
+  if (c.measuredPeakBytes === null) return `${gib(c.plannedBytes)}${reason}`;
+  return (
+    `charged ${gib(c.chargedBytes)} (planned ${gib(c.plannedBytes)}${reason}; ` +
+    `measured peak ${gib(c.measuredPeakBytes)})`
+  );
 }
 
 /** Commands too generic to name a lock-taking wrapper. */
@@ -1958,6 +2149,8 @@ export interface AdmissionRequest {
   readonly exclusive?: boolean;
   /** Queue ahead of routine waiters, within the budget (T13921). */
   readonly urgent?: boolean;
+  /** Never paused once running: at backoff it starts only by the idle rule (T14098). */
+  readonly neverPause?: boolean;
 }
 
 /** How to wait, and where to report. */
@@ -2035,6 +2228,15 @@ export interface AdmissionGrant {
   readonly waitedMs: number;
   /** Bytes charged. */
   readonly footprintBytes: number;
+  /** `idle` when the idle rule admitted it (T14088, T14098). */
+  readonly admittedBy?: 'idle';
+  /**
+   * Report the run's tree RSS (T14116). After the warm-up the charge falls to
+   * the measured peak plus a margin, and the budget it frees admits waiters in
+   * the same pass; a climb past the charge restores the plan. Absent or a
+   * no-op on a pass-through grant.
+   */
+  observeRss?(rssBytes: number): void;
   /** Give the share back. Idempotent. */
   release(): Promise<void>;
   /**
@@ -2179,11 +2381,19 @@ async function sampleShare(
     gate.refuse && gate.reading !== null
       ? withTopConsumers(gate.reading, cached, nowMs, opts, probeFor)
       : null;
+  const backoff = classifyPressure(sample).state === 'backoff';
   return {
     share,
     lightShare,
     reading,
-    sampled: { share, lightShare, reading, sampledAtMs: nowMs },
+    sampled: {
+      share,
+      lightShare,
+      reading,
+      sampledAtMs: nowMs,
+      backoff,
+      memAvailableBytes: sample.memAvailableBytes,
+    },
   };
 }
 
@@ -2300,7 +2510,8 @@ function reapAndSchedule(
 ): LedgerDoc {
   const live = doc.entries.filter((e) => dead.entries.get(e.id) !== e.heartbeatAtMs);
   const foreign = doc.foreign.filter((f) => !dead.foreign.has(JSON.stringify(f)));
-  const reading = (sampled ?? doc.pressure)?.reading;
+  const cached = sampled ?? doc.pressure;
+  const reading = cached?.reading;
   const latchedBelowRefuse = isLatchedBelowRefuse(reading);
   return {
     ...doc,
@@ -2308,7 +2519,8 @@ function reapAndSchedule(
       ...ctx,
       foreign: foreignLoad(foreign, ctx.capacityBytes),
       latchedBelowRefuse,
-      reclaimableBytes: reading?.memAvailableBytes ?? null,
+      reclaimableBytes: reading?.memAvailableBytes ?? cached?.memAvailableBytes ?? null,
+      backoff: cached?.backoff === true,
     }),
     foreign,
     pressure: sampled ?? doc.pressure,
@@ -2427,6 +2639,7 @@ async function admitInner(req: AdmissionRequest, opts: AdmitOptions): Promise<Ad
     ...(req.footprintReason !== undefined ? { footprintReason: req.footprintReason } : {}),
     ...(req.exclusive === true ? { exclusive: true } : {}),
     ...(req.urgent === true ? { priority: 'urgent' as const } : {}),
+    ...(req.neverPause === true ? { neverPause: true } : {}),
   };
 
   const deadline = t0 + timeoutMs;
@@ -2521,14 +2734,17 @@ async function admitInner(req: AdmissionRequest, opts: AdmitOptions): Promise<Ad
             (e) => e.state === 'admitted' && e.exclusive === true && e.id !== entry.id,
           )
         : undefined;
+    const hold = neverPauseHold(doc, entry);
     const reason =
       reading !== null
         ? latchCause(reading, doc.entries, capacityBytes, nowMs)
-        : exclusiveHolder !== undefined
-          ? `another full build holds the machine-wide full-build slot (${exclusiveHolder.label} pid ` +
-            `${exclusiveHolder.pid}); one runs at a time, whatever its size${ahead > 0 ? `; ${ahead} waiting ahead` : ''}`
-          : `machine budget in use: ${gib(load.bytes)} of ${budgetPhrase(entry, ledgerBudget(doc.pressure, capacityBytes), load.bytes)} by ${load.runs} run(s); ` +
-            `this run needs ${gib(charged(entry, capacityBytes))}${ahead > 0 ? `; ${ahead} waiting ahead` : ''}`;
+        : hold !== null
+          ? `${hold}${ahead > 0 ? `; ${ahead} waiting ahead` : ''}`
+          : exclusiveHolder !== undefined
+            ? `another full build holds the machine-wide full-build slot (${exclusiveHolder.label} pid ` +
+              `${exclusiveHolder.pid}); one runs at a time, whatever its size${ahead > 0 ? `; ${ahead} waiting ahead` : ''}`
+            : `machine budget in use: ${gib(load.bytes)} of ${budgetPhrase(entry, ledgerBudget(doc.pressure, capacityBytes), load.bytes)} by ${load.runs} run(s); ` +
+              `this run needs ${gib(charged(entry, capacityBytes))}${ahead > 0 ? `; ${ahead} waiting ahead` : ''}`;
     return {
       reason,
       retryAfterMs: reading !== null ? MEMORY_GATE_RETRY_AFTER_MS : 2_000,
@@ -2552,6 +2768,9 @@ async function admitInner(req: AdmissionRequest, opts: AdmitOptions): Promise<Ad
       return { admitted: false, refusal: refusal(first.doc, first.reading) };
     }
 
+    // T14098: say at once which rule holds a never-paused run at backoff.
+    const hold = first.reading === null ? neverPauseHold(first.doc, first.mine ?? entry) : null;
+    if (hold !== null) opts.notice?.(`waiting: ${hold}`);
     let lastPassAt = now();
     let lastReportAt = t0;
     let lastKeepAliveAt = Number.NEGATIVE_INFINITY;
@@ -2678,6 +2897,23 @@ function describeLoad(doc: LedgerDoc, nowMs: number, probe: PidProbe): string[] 
 }
 
 /**
+ * Why a never-paused waiter is held at backoff (T14098), naming the rule, or
+ * `null` when that rule does not hold it.
+ */
+function neverPauseHold(doc: LedgerDoc, mine: LedgerEntry): string | null {
+  if (mine.neverPause !== true || mine.parentId !== undefined || doc.pressure?.backoff !== true) {
+    return null;
+  }
+  const admitted = doc.entries.filter((e) => e.state === 'admitted').length + doc.foreign.length;
+  const reclaimable = doc.pressure.memAvailableBytes;
+  return (
+    `machine at backoff; this run is never paused, so it starts only when no CLEO run is admitted ` +
+    `and its charge fits the reclaimable memory, one at a time in queue order (${admitted} CLEO run(s) admitted; ` +
+    `reclaimable ${typeof reclaimable === 'number' ? gib(reclaimable) : 'unknown'})`
+  );
+}
+
+/**
  * The holder report a long waiter prints. When the memory gate closed the
  * budget, it names the cause (the host's largest memory users, CLEO or not)
  * and when the wait gives up (T13914).
@@ -2700,6 +2936,8 @@ function holderReport(
       `queue position ${ahead + 1}${mine.priority === 'urgent' ? ' (urgent)' : ''}, ${ahead} waiting ahead). Holders: ${describeLoad(doc, nowMs, probe).join(' | ') || 'none'}.`,
   ];
   const reading = doc.pressure?.reading ?? null;
+  const hold = reading === null ? neverPauseHold(doc, mine) : null;
+  if (hold !== null) lines.push(`Held by the backoff rule: ${hold}.`);
   if (reading !== null) {
     lines.push(
       `The budget is closed by ${latchCause(reading, doc.entries, capacityBytes, nowMs)}. Admission resumes by itself; this wait ` +
@@ -2714,6 +2952,49 @@ function holderReport(
 
 /** First and longest delay between attempts to remove a released entry that failed. */
 const RELEASE_RETRY_MS: readonly [number, number] = [1_000, LEDGER_HEARTBEAT_MS];
+
+/**
+ * Change an admitted entry's charge and schedule in the same pass (T14116):
+ * budget a lowered charge frees admits waiters at once. Best effort: a failed
+ * write keeps the old charge, and the next measurement tries again.
+ *
+ * @returns whether the new charge was written.
+ */
+async function rechargeLedgerEntry(
+  entry: LedgerEntry,
+  dir: string,
+  opts: AdmitOptions,
+  patch: (e: LedgerEntry) => LedgerEntry,
+): Promise<boolean> {
+  const now = opts.now ?? Date.now;
+  try {
+    const before = readLedgerDoc(dir);
+    if (!before.entries.some((e) => e.id === entry.id && e.state === 'admitted')) return false;
+    const nowMs = now();
+    const { share, lightShare, sampled } = await sampleShare(opts, before.pressure, nowMs);
+    const capacityBytes = opts.capacityBytes ?? admissionCapacityBytes();
+    return await withLedger(dir, (doc) => {
+      if (!doc.entries.some((e) => e.id === entry.id && e.state === 'admitted')) {
+        return { doc: null, result: false };
+      }
+      return {
+        doc: reapAndSchedule(
+          { ...doc, entries: doc.entries.map((e) => (e.id === entry.id ? patch(e) : e)) },
+          NO_DEAD,
+          { capacityBytes, share, lightShare, nowMs },
+          sampled,
+        ),
+        result: true,
+      };
+    });
+  } catch (err) {
+    log().warn(
+      { err: err instanceof Error ? err.message : String(err), id: entry.id },
+      'admission charge update failed; the old charge stands until the next measurement',
+    );
+    return false;
+  }
+}
 
 /** Retire an admission, retrying unavailable storage without keeping the runner alive. */
 async function releaseLedgerEntry(
@@ -2808,8 +3089,14 @@ function holdGrant(
       // Best effort: a missed heartbeat only means the next probe asks ps.
     });
   const now = opts.now ?? Date.now;
+  // T14116: what the run's tree measured, and the charge it holds now.
+  let peakBytes = 0;
+  let samples = 0;
+  let chargedBytes = entry.footprintBytes;
+  const measured = (e: LedgerEntry): LedgerEntry =>
+    samples > 0 ? { ...e, measuredPeakBytes: peakBytes } : e;
   const timer = setInterval(() => {
-    void update((e) => ({ ...e, heartbeatAtMs: now() }));
+    void update((e) => measured({ ...e, heartbeatAtMs: now() }));
   }, LEDGER_HEARTBEAT_MS);
   timer.unref();
   const following = followToolGroups((groups) => {
@@ -2826,6 +3113,28 @@ function holdGrant(
     ungoverned: null,
     waitedMs,
     footprintBytes: entry.footprintBytes,
+    ...(entry.admittedBy !== undefined ? { admittedBy: entry.admittedBy } : {}),
+    observeRss: (rssBytes) => {
+      if (released || !Number.isFinite(rssBytes) || rssBytes < 0) return;
+      samples++;
+      peakBytes = Math.max(peakBytes, rssBytes);
+      const next = nextCharge({
+        planBytes: entry.footprintBytes,
+        chargedBytes,
+        peakBytes,
+        rssBytes,
+        samples,
+        admittedForMs: now() - (entry.admittedAtMs ?? entry.enqueuedAtMs),
+      });
+      if (next === null) return;
+      const patch = (e: LedgerEntry): LedgerEntry => {
+        const { chargedBytes: _was, ...rest } = measured(e);
+        return next >= e.footprintBytes ? rest : { ...rest, chargedBytes: next };
+      };
+      void rechargeLedgerEntry(entry, dir, opts, patch).then((written) => {
+        if (written) chargedBytes = next;
+      });
+    },
     recordChild: (child) => {
       void update((e) => ({ ...e, child }));
     },

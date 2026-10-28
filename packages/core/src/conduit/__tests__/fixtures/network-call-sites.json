@@ -58,6 +58,7 @@
   "core/src/memory/llm-backend-resolver.ts :: const res = await fetch('http://localhost:11434/api/tags', {",
   "core/src/memory/llm-backend-resolver.ts :: const res = await fetch('http://localhost:11434/api/tags', {",
   "core/src/metrics/model-provider-registry.ts :: modelsDevCache = fetch(MODELS_DEV_URL, {",
+  "core/src/release/deploy-evidence.ts :: response = await fetch(url, { method: 'GET', redirect: 'follow', signal });",
   "core/src/release/pr-evidence.ts :: const fetched = await fetch(prNumber, executionRoot, projectRoot);",
   "core/src/security/owner-override-auth.ts :: const resp = await fetch(webhookUrl, {",
   "core/src/setup/sections/verification.ts :: fetch(healthUrl, { signal: AbortSignal.timeout(3_000) }),",

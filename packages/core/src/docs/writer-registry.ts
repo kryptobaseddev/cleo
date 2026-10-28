@@ -304,6 +304,39 @@ const DESCRIPTORS: ReadonlyArray<WriterDescriptor> = Object.freeze([
     mode: 'ssot',
     sourcePath: 'packages/cleo/src/dispatch/domains/docs.ts',
   },
+  // T14107: user-doc kinds (how-to, explanation, reference) and migrations.
+  {
+    kind: 'guide',
+    verb: 'docs add',
+    dispatchOp: 'docs.add',
+    coreFn: 'docs.add (dispatch handler)',
+    mode: 'ssot',
+    sourcePath: 'packages/cleo/src/dispatch/domains/docs.ts',
+  },
+  {
+    kind: 'concept',
+    verb: 'docs add',
+    dispatchOp: 'docs.add',
+    coreFn: 'docs.add (dispatch handler)',
+    mode: 'ssot',
+    sourcePath: 'packages/cleo/src/dispatch/domains/docs.ts',
+  },
+  {
+    kind: 'reference',
+    verb: 'docs add',
+    dispatchOp: 'docs.add',
+    coreFn: 'docs.add (dispatch handler)',
+    mode: 'ssot',
+    sourcePath: 'packages/cleo/src/dispatch/domains/docs.ts',
+  },
+  {
+    kind: 'migration',
+    verb: 'docs add',
+    dispatchOp: 'docs.add',
+    coreFn: 'docs.add (dispatch handler)',
+    mode: 'ssot',
+    sourcePath: 'packages/cleo/src/dispatch/domains/docs.ts',
+  },
 ]);
 
 // ─── System-managed exemption map (T10368) ────────────────────────────────────

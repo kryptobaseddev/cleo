@@ -181,7 +181,7 @@ describe('reconcileSaga — closure path (AC1, AC2, AC5)', () => {
     if (!result.success) return;
 
     expect(result.data.total).toBe(1);
-    expect(result.data.closed).toBe(1);
+    expect(result.data.closed, JSON.stringify(result.data.entries)).toBe(1);
     expect(result.data.noOp).toBe(0);
     expect(result.data.entries[0]?.action).toBe('close');
     expect(result.data.entries[0]?.sagaId).toBe('T9000');
@@ -192,6 +192,21 @@ describe('reconcileSaga — closure path (AC1, AC2, AC5)', () => {
     const after = await taskShow(TEST_ROOT, 'T9000');
     expect(after.data?.task.status).toBe('done');
     expect(after.data?.task.completedAt).toBeTruthy();
+  });
+
+  it('T12883 R2: does not close a saga whose own criterion has no evidence', async () => {
+    await seedSagaWithMembers(TEST_ROOT, 'T9000', ['done']);
+    const accessor = await getTaskAccessor(TEST_ROOT);
+    const saga = await accessor.loadSingleTask('T9000');
+    if (!saga) throw new Error('saga missing');
+    const { updateTask: storeUpdateTask } = await import('../../store/tasks-sqlite.js');
+    await storeUpdateTask('T9000', { acceptance: ['Saga outcome is proven'] }, TEST_ROOT);
+
+    const result = await reconcileSaga(TEST_ROOT, { sagaId: 'T9000' });
+    expect(result.success, JSON.stringify(result)).toBe(true);
+    if (!result.success) return;
+    expect(result.data.closed).toBe(0);
+    expect((await taskShow(TEST_ROOT, 'T9000')).data?.task.status).toBe('active');
   });
 
   it('treats `cancelled` and `archived` members as terminal for closure', async () => {

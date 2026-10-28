@@ -53,13 +53,13 @@ describe('WriterRegistry — coverage + uniqueness', () => {
     expect(descriptors.length).toBe(BUILTIN_DOC_KIND_VALUES.length);
   });
 
-  it('expects exactly 10 builtin DocKinds (T10366 snapshot)', () => {
+  it('expects exactly 14 builtin DocKinds (T10366 snapshot; T14107 added guide, concept, reference, migration)', () => {
     // Pin the count so a new kind addition forces a deliberate registry
     // update. When a kind is added to BUILTIN_DOC_KINDS, this assertion
     // fails AND the coverage assertion above fails — both must be updated
     // together.
-    expect(BUILTIN_DOC_KIND_VALUES.length).toBe(10);
-    expect(WriterRegistry.list().length).toBe(10);
+    expect(BUILTIN_DOC_KIND_VALUES.length).toBe(14);
+    expect(WriterRegistry.list().length).toBe(14);
   });
 
   it('hasCompleteCoverage returns true for the built-in map', () => {

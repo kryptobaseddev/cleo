@@ -61,9 +61,10 @@ import { linkDecisionCommand, unlinkDecisionCommand } from './docs/decision-link
 import { graphCommand as provenanceGraphCommand } from './docs/graph.js';
 // T13360 — legacy docs migration into the re-keyed store (`migrate`, spec §5).
 import { migrateCommand } from './docs/migrate.js';
+// T13363 — per-project adoption metrics (`stats`, read-only).
+import { rotCommand } from './docs/rot.js';
 // T11875 — display-alias assignment verb (`set-alias <slug> <number>`).
 import { setAliasCommand } from './docs/set-alias.js';
-// T13363 — per-project adoption metrics (`stats`, read-only).
 import { statsCommand } from './docs/stats.js';
 // T13446 — docs.triage decision-site batch triage (`triage [--limit N] [--status S] [--record]`).
 import { triageCommand } from './docs/triage.js';
@@ -2473,6 +2474,8 @@ export const docsCommand = defineCommand({
     triage: triageCommand,
     // T13363 — docs.stats adoption metrics (read-only)
     stats: statsCommand,
+    // T14111 — docs.rot stale/duplicate/orphaned report (read-only, git only)
+    rot: rotCommand,
     // T13360 — docs.migrate legacy docs import (harness-bracketed, idempotent)
     migrate: migrateCommand,
     // Drift status — agent-facing, kept per cleodocs-rearch-design §6 (T13361 retired gap-check only)
