@@ -82,8 +82,12 @@ export interface ReviewVerdict {
 export interface ReviewGap {
   /** The criterion alias. */
   ac: string;
-  /** `missing`: none recorded; `unmet`: the latest says unmet; `stale`: only older heads have one. */
-  kind: 'missing' | 'unmet' | 'stale';
+  /**
+   * `missing`: none recorded; `unmet`: the latest says unmet; `stale`: only
+   * older heads have one; `author`: the latest on the head came from one of
+   * the task's own authors (a re-check of the record-time refusal).
+   */
+  kind: 'missing' | 'unmet' | 'stale' | 'author';
   /** A one-line reason, e.g. `AC2: no verdict on head abc1234 (latest is for 9f00e12)`. */
   reason: string;
 }

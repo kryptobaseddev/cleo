@@ -388,7 +388,8 @@ export async function reviewVerdictsFor(
 /**
  * Which criteria a task's verdicts prove met on a PR head, and why the rest
  * are not (T14122). Only the latest verdict on `headSha` counts; a verdict on
- * an older head is stale. The merge sweep and `cleo review check` share it,
+ * an older head is stale, and one whose reviewer is among its recorded
+ * authors counts for nothing. The merge sweep and `cleo review check` share it,
  * so both report the same reasons.
  *
  * @param verdicts - The task's verdicts on the PR ({@link reviewVerdictsFor}).
@@ -409,7 +410,18 @@ export function judgeReviewVerdicts(
       .filter((v) => v.headSha === headSha)
       .sort((a, b) => a.createdAt.localeCompare(b.createdAt))
       .at(-1);
-    if (onHead?.verdict === 'met') {
+    const byAuthor =
+      onHead !== undefined &&
+      (onHead.authors.sessionIds.includes(onHead.reviewer.sessionId) ||
+        (onHead.reviewer.agentId !== null &&
+          onHead.authors.agentIds.includes(onHead.reviewer.agentId)));
+    if (byAuthor) {
+      gaps.push({
+        ac,
+        kind: 'author',
+        reason: `${ac}: reviewed by the task's own author on head ${short(headSha)}; review independently`,
+      });
+    } else if (onHead?.verdict === 'met') {
       met.push(ac);
     } else if (onHead !== undefined) {
       gaps.push({

@@ -291,6 +291,24 @@ describe('judgeReviewVerdicts (T14122)', () => {
       ],
     });
   });
+
+  it('a verdict whose reviewer is among its recorded authors counts for nothing', () => {
+    const own = {
+      ...v('AC1', 'met', HEAD, '2026-10-28T11:00:00Z'),
+      reviewer: { sessionId: 'ses_a', agentId: null },
+    };
+    expect(judgeReviewVerdicts([own], ['AC1'], HEAD)).toEqual({
+      headSha: HEAD,
+      met: [],
+      gaps: [
+        {
+          ac: 'AC1',
+          kind: 'author',
+          reason: "AC1: reviewed by the task's own author on head aaaaaaa; review independently",
+        },
+      ],
+    });
+  });
 });
 
 describe('the pre-merge check (T14122)', () => {
