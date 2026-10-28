@@ -28,8 +28,9 @@
  * The free plan runs at most 5 macOS jobs at once, shared by every pull
  * request and every main push, so the full {@link MACOS_SHARDS}-shard set is
  * kept for the merge-group runs (and macos-main.yml); a darwin
- * pull request runs {@link MACOS_PR_SHARDS} shards plus its two macOS builds,
- * which fits the pool in one wave (T13198).
+ * pull request runs {@link MACOS_PR_SHARDS} shards, which start after its
+ * macOS `build` and share the pool with `Build & Verify` only: one wave
+ * (T13198, T14104).
  *
  * Usage (the `changes` job):
  *
@@ -70,12 +71,14 @@ export const LINUX_SHARDS = 8;
 export const MACOS_SHARDS = 8;
 
 /**
- * macOS unit-test shards on a darwin-specific pull request (T13198). Two
- * shards and the two macOS build jobs fit the 5-job macOS pool in one wave,
- * so one darwin pull request no longer starves every other PR's macOS legs.
- * ci.yml gives these legs a longer timeout (each runs half the suite).
+ * macOS unit-test shards on a darwin-specific pull request (T13198). The
+ * shards start after the macOS `build` job, so they share the 5-job macOS
+ * pool with `Build & Verify` only: four shards plus that job fit one wave.
+ * T14104: two shards (half the suite each) hit ci.yml's 90-minute ceiling
+ * on 2026-10-28 while still passing; four split the work instead. ci.yml
+ * keeps these legs at 90 minutes.
  */
-export const MACOS_PR_SHARDS = 2;
+export const MACOS_PR_SHARDS = 4;
 
 /** The root `engines.node` floor CI runs on everywhere (gate 8 checks it against root). */
 export const NODE_FLOOR = '24.16.0';

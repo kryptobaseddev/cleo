@@ -55,11 +55,10 @@ describe('platformMatrix', () => {
   it(`a darwin pull request runs a reduced ${MACOS_PR_SHARDS}-shard macOS set (T13198)`, () => {
     const macos = (event) =>
       platformMatrix(event, true).testMatrix.filter((j) => j.os === 'macos-latest');
-    expect(MACOS_PR_SHARDS).toBe(2);
-    expect(macos('pull_request')).toEqual([
-      { os: 'macos-latest', shard: 1, total: 2, node: NODE_FLOOR },
-      { os: 'macos-latest', shard: 2, total: 2, node: NODE_FLOOR },
-    ]);
+    expect(MACOS_PR_SHARDS).toBe(4);
+    expect(macos('pull_request')).toEqual(
+      [1, 2, 3, 4].map((shard) => ({ os: 'macos-latest', shard, total: 4, node: NODE_FLOOR })),
+    );
     // Linux is unchanged, and the merge-group runs keep all 8.
     expect(
       platformMatrix('pull_request', true).testMatrix.filter(
@@ -68,8 +67,9 @@ describe('platformMatrix', () => {
     ).toHaveLength(LINUX_SHARDS);
     expect(macos('schedule')).toHaveLength(0);
     expect(macos('merge_group')).toHaveLength(MACOS_SHARDS);
-    // Two shards and the two macOS builds fit the free plan's 5-job pool.
-    expect(MACOS_PR_SHARDS + 2).toBeLessThanOrEqual(5);
+    // The shards start after the macOS build (needs: build); only Build &
+    // Verify runs beside them, so they fit the free plan's 5-job pool.
+    expect(MACOS_PR_SHARDS + 1).toBeLessThanOrEqual(5);
   });
 });
 
@@ -299,9 +299,11 @@ describe('ci.yml wiring (T13143)', () => {
   it('the reduced macOS pull-request legs get a longer timeout (T13198)', () => {
     expect(ci.jobs['unit-tests']['timeout-minutes']).toBe(
       // biome-ignore lint/suspicious/noTemplateCurlyInString: a GitHub Actions expression, matched literally in ci.yml
-      "${{ matrix.os == 'macos-latest' && matrix.total <= 2 && 90 || 55 }}",
+      "${{ matrix.os == 'macos-latest' && matrix.total <= 4 && 90 || 55 }}",
     );
-    expect(MACOS_PR_SHARDS).toBeLessThanOrEqual(2);
+    expect(MACOS_PR_SHARDS).toBeLessThanOrEqual(4);
+    // The merge-group legs (8 shards) stay on 55.
+    expect(MACOS_SHARDS).toBeGreaterThan(4);
   });
 });
 
