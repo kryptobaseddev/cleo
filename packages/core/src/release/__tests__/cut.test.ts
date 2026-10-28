@@ -62,12 +62,8 @@ vi.mock('../../store/data-accessor.js', () => ({
   }),
 }));
 
-import {
-  type ReleaseCutRunner,
-  reconcileLatestRelease,
-  releaseChangelog,
-  releaseCut,
-} from '../cut.js';
+import { type ReleaseCutRunner, releaseChangelog, releaseCut } from '../cut.js';
+import { reconcileLatestRelease } from '../reconcile-latest.js';
 
 function git(cwd: string, ...args: string[]): string {
   return execFileSync('git', args, { cwd, encoding: 'utf-8', stdio: 'pipe' }).trim();

@@ -85,7 +85,7 @@ export type {
   ReleaseCutResult,
   ReleaseCutRunner,
 } from './cut.js';
-export { reconcileLatestRelease, releaseChangelog, releaseCut } from './cut.js';
+export { releaseChangelog, releaseCut } from './cut.js';
 // Engine operations — CLI-callable release operations migrated from dispatch layer (T1572)
 export type { PRCheckStatus, PRStatusResult } from './engine-ops.js';
 export {
@@ -187,6 +187,7 @@ export type {
   SynthesizedPlanReport,
 } from './reconcile.js';
 export { releaseReconcileV2, synthesizePlanForReconcile } from './reconcile.js';
+export { reconcileLatestRelease } from './reconcile-latest.js';
 // Release configuration
 export type {
   ChannelConfig,

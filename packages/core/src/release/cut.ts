@@ -35,22 +35,14 @@ import {
   E_RELEASE_UNMERGED_CHANGESET,
   ExitCode,
 } from '@cleocode/contracts/exit-codes.js';
-import type {
-  MergeSweepOptions,
-  MergeSweepReconcile,
-  MergeSweepResult,
-} from '@cleocode/contracts/merge-close.js';
+import type { MergeSweepOptions, MergeSweepResult } from '@cleocode/contracts/merge-close.js';
 import type { DocsRotResult } from '@cleocode/contracts/operations/docs.js';
-import { eq } from 'drizzle-orm';
 import { parseChangesetDir } from '../changesets/index.js';
 import { scanDocsRot } from '../docs/rot.js';
 import { getTaskAccessor } from '../store/data-accessor.js';
-import { getDb } from '../store/sqlite.js';
-import * as schema from '../store/tasks-schema.js';
 import { sweepMergedClosures } from '../tasks/merge-close.js';
 import { aggregateChangesetsForRelease } from './changesets-aggregator.js';
 import { newestReachableReleaseTag, writeChangelogSection } from './plan.js';
-import { releaseReconcileV2 } from './reconcile.js';
 import { normalizeVersion } from './version.js';
 
 /** How many first-parent commits of the default branch the cut inspects for green CI. */
@@ -580,50 +572,4 @@ export async function releaseChangelog(
     notesMarkdown: notes,
   });
   return engineSuccess({ changelogPath, written, previousTag, changesetCount: entries.length });
-}
-
-/**
- * Reconcile the newest published release when its provenance is missing, so
- * a cut release never depends on someone remembering `cleo release reconcile`.
- * Called from T14101's lazy merge sweep. Never throws.
- *
- * @param projectRoot - Git checkout and store of the project.
- * @param runner - Test seam.
- * @returns The tag looked at and what was done.
- *
- * @example
- * ```ts
- * const r = await reconcileLatestRelease(projectRoot);
- * if (r.action === 'reconciled') console.log(`provenance recorded for ${r.version}`);
- * ```
- *
- * @task T14102
- */
-export async function reconcileLatestRelease(
-  projectRoot: string,
-  runner: ReleaseCutRunner = defaultRunner(),
-): Promise<MergeSweepReconcile> {
-  try {
-    runner.runGit(['fetch', '--quiet', '--tags', 'origin'], projectRoot);
-  } catch {
-    // Offline: judge the tags already present.
-  }
-  const version = newestReachableReleaseTag(projectRoot, 'v9999.99.99', 'latest', 'origin/main');
-  if (version === null) return { version: null, action: 'none' };
-  const db = await getDb(projectRoot);
-  const row = await db
-    .select({ status: schema.releases.status })
-    .from(schema.releases)
-    .where(eq(schema.releases.version, version))
-    .get();
-  if (row?.status === 'reconciled') return { version, action: 'already' };
-  try {
-    runner.runGh(['release', 'view', version, '--json', 'tagName'], projectRoot);
-  } catch {
-    return { version, action: 'unpublished' };
-  }
-  const result = await releaseReconcileV2(version, { projectRoot });
-  return result.success
-    ? { version, action: 'reconciled' }
-    : { version, action: 'failed', reason: result.error.message };
 }

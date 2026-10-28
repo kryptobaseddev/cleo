@@ -1705,7 +1705,7 @@ export const defaultMergeCloseDeps: MergeCloseDeps = {
     return Array.isArray(rows) ? rows.flatMap((row) => toMergedPr(row) ?? []) : null;
   },
   async reconcile(root) {
-    const { reconcileLatestRelease } = await import('../release/cut.js');
+    const { reconcileLatestRelease } = await import('../release/reconcile-latest.js');
     return reconcileLatestRelease(root);
   },
   async setStatus(root, sha, state, description) {
