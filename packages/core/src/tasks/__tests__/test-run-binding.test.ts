@@ -1085,6 +1085,40 @@ describe('JUnit XML and libtest JSON reports are test-run evidence (T14084)', ()
     expect(!lying.ok && lying.reason).toMatch(/summary states 5 passed/);
   });
 
+  /** A JUnit fixture with its timestamps moved to just after the change. */
+  function fixture(name: string): string {
+    const text = readFileSync(
+      fileURLToPath(new URL(`./fixtures/junit/${name}.xml`, import.meta.url)),
+      'utf-8',
+    ).replace(/timestamp="[^"]*"/g, `timestamp="${stamp()}"`);
+    return write(`${name}.xml`, text);
+  }
+
+  it("pytest's <testsuites> wrapper: counts and files from each testcase", async () => {
+    const r = await validateAtom({ kind: 'test-run', path: fixture('pytest') }, root);
+    expect(r.ok && r.atom, JSON.stringify(r)).toMatchObject({
+      passCount: 3,
+      failCount: 0,
+      skipCount: 1,
+      testFiles: ['tests/test_parser.py', 'tests/test_writer.py'],
+    });
+  });
+
+  it("nextest's one suite per binary: every suite's tests are counted", async () => {
+    const r = await validateAtom({ kind: 'test-run', path: fixture('nextest') }, root);
+    expect(r.ok && r.atom, JSON.stringify(r)).toMatchObject({
+      passCount: 3,
+      failCount: 0,
+      skipCount: 0,
+    });
+  });
+
+  it('nested <testsuite> elements are refused with the reason, never undercounted', async () => {
+    const r = await validateAtom({ kind: 'test-run', path: fixture('nested') }, root);
+    expect(!r.ok && r.codeName, JSON.stringify(r)).toBe('E_EVIDENCE_INVALID');
+    expect(!r.ok && r.reason).toMatch(/nests <testsuite> elements/);
+  });
+
   it('text that is none of the formats is refused by name', async () => {
     const r = await validateAtom({ kind: 'test-run', path: write('junk.txt', 'ok 1\n') }, root);
     expect(!r.ok && r.reason, JSON.stringify(r)).toMatch(

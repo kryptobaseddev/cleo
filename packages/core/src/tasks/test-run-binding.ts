@@ -335,7 +335,8 @@ function countAttribute(attrs: Map<string, string>, name: string): number | null
  * xunit1 and Jest record files; nextest and pytest xunit2 name binaries and
  * classes, which then cover no file). A `tests`, `failures`, `errors` or
  * `skipped` total the report states must equal its testcases, and the run
- * time is the earliest suite `timestamp`.
+ * time is the earliest suite `timestamp`. Nested `<testsuite>` elements are
+ * refused rather than undercounted.
  *
  * @param text - The report file's text.
  * @returns The adapted report, a refusal, or null when it is not JUnit XML.
@@ -349,6 +350,14 @@ export function junitTestRun(text: string): AdaptedTestRun | AdaptedTestRunRefus
   let startTime = Number.POSITIVE_INFINITY;
   const suites = body.matchAll(/<testsuite\b([^>]*?)(?:\/>|>([\s\S]*?)<\/testsuite>)/g);
   for (const suite of suites) {
+    // A nested suite would be cut at its first closing tag and undercounted.
+    if (/<testsuite\b/.test(suite[2] ?? ''))
+      return {
+        refusal:
+          'JUnit report nests <testsuite> elements, which CLEO does not read; write one level of ' +
+          '<testsuite> under <testsuites> (pytest --junitxml, cargo nextest and jest-junit do)',
+        codeName: 'E_EVIDENCE_INVALID',
+      };
     const attrs = xmlAttributes(suite[1] ?? '');
     const tests = countAttribute(attrs, 'tests');
     if (tests !== null) {
