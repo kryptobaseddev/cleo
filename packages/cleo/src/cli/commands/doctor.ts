@@ -64,6 +64,7 @@ import { doctorSyncTriggersCommand } from './doctor-sync-triggers.js';
 import { doctorSystemCommand } from './doctor-system.js';
 import { doctorToolLocksCommand } from './doctor-tool-locks.js';
 import { doctorTwinCollapseCommand } from './doctor-twin-collapse.js';
+import { doctorTypeMatrixCommand } from './doctor-type-matrix.js';
 import { doctorWorktreeStoresCommand } from './doctor-worktree-stores.js';
 import { readMigrationConflicts } from './migrate-agents-v2.js';
 
@@ -308,6 +309,8 @@ export const doctorCommand = defineCommand({
     'ac-bindings': doctorAcBindingsCommand,
     // T12886 — stored task dependency cycles + repair plan (read-only)
     'dep-cycles': doctorDepCyclesCommand,
+    // T14096 — parent/child type-matrix violations: plan, --apply with a receipt, --rollback
+    'type-matrix': doctorTypeMatrixCommand,
     // T12158 — tables nexus resolves by bare name must actually live where it assumes
     'nexus-residency': doctorNexusResidencyCommand,
     // T12113 (gh#1222) — evidence-tool semaphore holders + orphan reaping
