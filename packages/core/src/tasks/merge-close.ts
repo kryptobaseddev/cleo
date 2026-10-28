@@ -597,7 +597,8 @@ export async function mergeReceiptFor(
 
 /**
  * Turn open `macos-regression` issues into tasks (T14104), one per issue,
- * under `release.macosRegressionParent` when it names a task, linked by issue URL in the external
+ * under the task `release.macosRegressionParent` names (an epic; unset, the
+ * sync reads nothing), linked by issue URL in the external
  * task links so a rerun creates nothing twice; close an issue once its task is
  * done. Never throws. Under `dryRun` it creates and closes nothing.
  */
@@ -608,19 +609,22 @@ async function syncMacosRegressionIssues(
   dryRun: boolean,
 ): Promise<MacosRegressionSync> {
   const sync: MacosRegressionSync = { created: [], closedIssues: [] };
-  const issues = await deps.listLabelledIssues(root, MACOS_REGRESSION_LABEL);
-  if (issues === null) return { ...sync, skippedReason: 'gh could not list issues' };
-  const links = await import('../reconciliation/link-store.js');
-  const { getTaskAccessor } = await import('../store/data-accessor.js');
-  const accessor = await getTaskAccessor(storeRoot);
+  // A root task must be a saga, so without a configured container there is
+  // nowhere to file the tasks: read no issues at all.
   const { loadProjectContext } = await import('../agents/variable-substitution.js');
   const ctx = loadProjectContext(storeRoot);
   const release = (ctx.context?.['release'] ?? {}) as { macosRegressionParent?: unknown };
+  const { getTaskAccessor } = await import('../store/data-accessor.js');
+  const accessor = await getTaskAccessor(storeRoot);
   const parent =
-    typeof release.macosRegressionParent === 'string' &&
-    (await accessor.loadSingleTask(release.macosRegressionParent)) !== null
-      ? release.macosRegressionParent
+    typeof release.macosRegressionParent === 'string'
+      ? await accessor.loadSingleTask(release.macosRegressionParent)
       : null;
+  if (parent === null)
+    return { ...sync, skippedReason: 'release.macosRegressionParent names no task in this store' };
+  const issues = await deps.listLabelledIssues(root, MACOS_REGRESSION_LABEL);
+  if (issues === null) return { ...sync, skippedReason: 'gh could not list issues' };
+  const links = await import('../reconciliation/link-store.js');
   for (const issue of issues) {
     try {
       const link = await links.getLinkByExternalId(ISSUE_LINK_PROVIDER, issue.url, storeRoot);
@@ -637,7 +641,7 @@ async function syncMacosRegressionIssues(
             acceptance: [
               `the macOS failure in ${issue.url} is fixed and its shards pass on main nightly`,
             ],
-            parentId: parent,
+            parentId: parent.id,
             labels: [MACOS_REGRESSION_LABEL],
           },
           storeRoot,

@@ -333,7 +333,18 @@ describe('the lazy sweep is safe to start from read commands (T14101)', () => {
 
 describe('one sweep also runs the upkeep hooks (T14101)', () => {
   it('turns a macos-regression issue into one task under the configured parent, and closes it when done', async () => {
-    const parent = await seedTask(['parent criterion']);
+    const parent = (
+      await addTask(
+        {
+          title: 'macOS regressions',
+          description: 'epic for macOS regression tasks',
+          type: 'epic',
+          skipContainmentInvariant: true,
+        },
+        root,
+        env.accessor,
+      )
+    ).task.id;
     writeFileSync(
       join(root, '.cleo', 'project-context.json'),
       JSON.stringify({ release: { macosRegressionParent: parent } }),
@@ -357,8 +368,29 @@ describe('one sweep also runs the upkeep hooks (T14101)', () => {
     expect(calls.closedIssues).toEqual([issue.url]);
   });
 
+  it('without a configured parent it reads no issues', async () => {
+    const { deps } = fakeDeps([], [{ url: 'https://github.com/o/r/issues/9', title: 'x' }]);
+    const result = await sweepMergedClosures(root, { force: true }, deps);
+    expect(result.hooks?.macosRegression).toMatchObject({ created: [] });
+    expect(result.hooks?.macosRegression?.skippedReason).toMatch(/macosRegressionParent/);
+  });
+
   it('a dry run creates no issue task and runs no reconcile', async () => {
     let reconciled = 0;
+    const epic = await addTask(
+      {
+        title: 'macOS regressions',
+        description: 'epic',
+        type: 'epic',
+        skipContainmentInvariant: true,
+      },
+      root,
+      env.accessor,
+    );
+    writeFileSync(
+      join(root, '.cleo', 'project-context.json'),
+      JSON.stringify({ release: { macosRegressionParent: epic.task.id } }),
+    );
     const { deps } = fakeDeps([], [{ url: 'https://github.com/o/r/issues/8', title: 'x' }]);
     const result = await sweepMergedClosures(
       root,
