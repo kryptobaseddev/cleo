@@ -8,7 +8,7 @@
  */
 
 import { execFileSync } from 'node:child_process';
-import { existsSync } from 'node:fs';
+import { existsSync, realpathSync } from 'node:fs';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
@@ -612,14 +612,12 @@ describe('publishDocs', () => {
   });
 
   it('T14081: a linked non-canonical worktree is refused naming the canonical path and both routes', async () => {
-    const root = await mkdtemp(join(tmpdir(), 'cleo-t14081-root-'));
+    // An empty GIT_DIR is invalid on Linux git: inherit the environment as
+    // publish-smoke's T13376 fixture does, from a realpath'd temp root.
+    const root = realpathSync(await mkdtemp(join(tmpdir(), 'cleo-t14081-root-')));
     const linked = `${root}-linked`;
     const git = (cwd: string, ...args: string[]) =>
-      execFileSync('git', args, {
-        cwd,
-        stdio: 'ignore',
-        env: { ...process.env, GIT_DIR: '', GIT_WORK_TREE: '' },
-      });
+      execFileSync('git', args, { cwd, stdio: ['ignore', 'pipe', 'pipe'] });
     try {
       git(root, 'init', '-q');
       git(
@@ -628,6 +626,8 @@ describe('publishDocs', () => {
         'user.email=t@t',
         '-c',
         'user.name=t',
+        '-c',
+        'commit.gpgsign=false',
         'commit',
         '-q',
         '--allow-empty',
