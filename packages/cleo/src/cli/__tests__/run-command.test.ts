@@ -315,6 +315,21 @@ describe('cleo run --passthrough (#1777 R7)', () => {
     expect(err).toContain('[cleo run] charged footprint: 1.0 GiB: biome check on 2 named paths\n');
   });
 
+  it('T14090: node <corepack pnpm.cjs> install carries the install resources plan, never "runs no heavy tool"', async () => {
+    runGoverned.mockResolvedValue(exited());
+    await invoke({ class: 'install' }, [
+      'node',
+      '/Users/u/.cache/node/corepack/v1/pnpm/10.34.5/bin/pnpm.cjs',
+      'install',
+      '--frozen-lockfile',
+    ]);
+    expect(opts().footprintReason).not.toMatch(/runs no heavy tool/);
+    expect(err.join('')).toMatch(/planned resources: /);
+    expect(err.join('')).not.toMatch(/runs no heavy tool/);
+    const envelope = JSON.parse(out.join('')) as { data?: { resources?: unknown } };
+    expect(envelope.data?.resources).toBeDefined();
+  });
+
   it('without --passthrough every notice is printed', async () => {
     runGoverned.mockResolvedValue(exited());
     await invoke({}, argv);

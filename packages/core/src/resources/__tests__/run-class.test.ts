@@ -18,6 +18,8 @@ import {
   isWholeSuiteTestRun,
   looksHeavy,
   namedTestFileCount,
+  nodeScriptOf,
+  packageManagerOfScript,
   parseGitInvocation,
   resolveRunClass,
   runFootprint,
@@ -30,6 +32,49 @@ beforeEach(() => {
 });
 afterEach(() => {
   rmSync(dir, { recursive: true, force: true });
+});
+
+describe('a package manager run through node by path is that package manager (T14090)', () => {
+  const corepack = '/Users/u/.cache/node/corepack/v1/pnpm/10.34.5/bin/pnpm.cjs';
+
+  it('names the package manager of its entrypoint script, and nothing else', () => {
+    expect(packageManagerOfScript(corepack)).toBe('pnpm');
+    expect(packageManagerOfScript('/opt/pnpm/dist/pnpm.js')).toBe('pnpm');
+    expect(packageManagerOfScript('/usr/lib/node_modules/npm/bin/npm-cli.js')).toBe('npm');
+    expect(packageManagerOfScript('/x/yarn/bin/yarn.js')).toBe('yarn');
+    expect(packageManagerOfScript('.yarn/releases/yarn-4.5.0.cjs')).toBe('yarn');
+    expect(packageManagerOfScript('scripts/gen.mjs')).toBeNull();
+  });
+
+  it('commandTarget reads node <pnpm.cjs> install as pnpm install, node flags and wrappers included', () => {
+    const bare = commandTarget(['pnpm', 'install', '--frozen-lockfile']);
+    expect(
+      commandTarget(['/opt/homebrew/bin/node', corepack, 'install', '--frozen-lockfile']),
+    ).toEqual(bare);
+    expect(
+      commandTarget([
+        'env',
+        'CI=1',
+        'node',
+        '--no-warnings',
+        corepack,
+        'install',
+        '--frozen-lockfile',
+      ]),
+    ).toEqual(bare);
+    expect(commandTarget(['node', '/usr/lib/node_modules/npm/bin/npm-cli.js', 'ci'])).toEqual(
+      commandTarget(['npm', 'ci']),
+    );
+  });
+
+  it('is never a plain light node script; an ordinary node script still is', () => {
+    expect(nodeScriptOf(['node', corepack, 'install'])).toBeNull();
+    expect(nodeScriptOf(['node', '/x/npm-cli.js', 'ci'])).toBeNull();
+    expect(nodeScriptOf(['node', 'scripts/gen.mjs'])).toBe('scripts/gen.mjs');
+    expect(runFootprint(['node', corepack, 'install', '--frozen-lockfile'])).toEqual(
+      runFootprint(['pnpm', 'install', '--frozen-lockfile']),
+    );
+  });
 });
 
 describe('commandTarget', () => {

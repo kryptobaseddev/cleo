@@ -2665,6 +2665,43 @@ describe('an install is charged one process, not half a heavy run (T13914)', () 
   });
 });
 
+describe('a package manager run through node by path gets the install plan (T14090)', () => {
+  const corepack = '/Users/u/.cache/node/corepack/v1/pnpm/10.34.5/bin/pnpm.cjs';
+
+  it('node <corepack pnpm.cjs> install and node npm-cli.js ci are charged like the bare install', () => {
+    for (const [viaNode, bare] of [
+      [
+        ['/opt/homebrew/bin/node', corepack, 'install', '--frozen-lockfile'],
+        ['pnpm', 'install', '--frozen-lockfile'],
+      ],
+      [
+        ['node', '/usr/lib/node_modules/npm/bin/npm-cli.js', 'ci'],
+        ['npm', 'ci'],
+      ],
+    ] as const) {
+      const plan = planRunFootprint('scoped-build', viaNode, {}, 64, () => false, unmeasured);
+      const expected = planRunFootprint('scoped-build', bare, {}, 64, () => false, unmeasured);
+      expect(plan.footprintBytes, viaNode.join(' ')).toBe(expected.footprintBytes);
+      expect(plan.footprintReason).toBe(expected.footprintReason);
+      expect(plan.footprintReason).not.toMatch(/runs no heavy tool/);
+      expect(plan.resources, viaNode.join(' ')).not.toBeNull();
+    }
+  });
+
+  it('an ordinary node script stays light', () => {
+    const plan = planRunFootprint(
+      'scoped-build',
+      ['node', 'scripts/gen.mjs'],
+      {},
+      64,
+      () => false,
+      unmeasured,
+    );
+    expect(plan.footprintBytes).toBe(GIB);
+    expect(plan.resources).toBeNull();
+  });
+});
+
 describe('a node script that hosts a heavy tool is never charged light (T14050)', () => {
   const RAM = 48;
   const program = ['node', 'scripts/typecheck/full-program.cjs', '--project', 'tsconfig.json'];
