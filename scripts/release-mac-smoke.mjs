@@ -262,6 +262,8 @@ export function runSmoke(opts) {
     join(out, 'SHA256SUMS'),
     files.map((f) => `${sha256(join(out, f))}  ${f}\n`).join(''),
   );
+  // The store copies are gigabytes; the evidence directory keeps the results.
+  rmSync(sandbox, { recursive: true, force: true });
   console.error(
     `release-mac-smoke: ${passed ? 'PASSED' : 'FAILED'} for ${sha}; evidence in ${out}`,
   );
