@@ -112,10 +112,16 @@ export interface DocKindMetadata {
    * @epic T10157
    */
   readonly requiredSections?: ReadonlyArray<string>;
+  /**
+   * When `true`, docs of this kind live only in the CLEO doc store and are
+   * never published to a repository mirror (T14107, D11210: session
+   * handoffs are exactly the rot published docs must not carry).
+   */
+  readonly storeOnly?: boolean;
 }
 
 // ---------------------------------------------------------------------------
-// Built-in registry (10 canonical kinds)
+// Built-in registry (14 canonical kinds)
 // ---------------------------------------------------------------------------
 
 /**
@@ -167,6 +173,7 @@ export const BUILTIN_DOC_KINDS: ReadonlyArray<DocKindMetadata> = [
     publishDir: 'docs/handoff',
     requiresEntityId: false,
     requiredSections: ['Context', 'State', 'Next-Steps'],
+    storeOnly: true,
   },
   {
     kind: 'note',
@@ -224,6 +231,42 @@ export const BUILTIN_DOC_KINDS: ReadonlyArray<DocKindMetadata> = [
     requiresEntityId: true,
     entityIdPattern: /^t\d+(-.+)?$/,
     requiredSections: ['Root-Cause', 'Action', 'Schedule', 'Detection'],
+  },
+  {
+    kind: 'guide',
+    label: 'Guide',
+    description: 'How-to guide: the steps to get a task done (T14107)',
+    defaultOwnerKind: 'project',
+    publishDir: 'docs/guide',
+    requiresEntityId: false,
+    requiredSections: [],
+  },
+  {
+    kind: 'concept',
+    label: 'Concept',
+    description: 'Explanation of how and why the product works (T14107)',
+    defaultOwnerKind: 'project',
+    publishDir: 'docs/concept',
+    requiresEntityId: false,
+    requiredSections: [],
+  },
+  {
+    kind: 'reference',
+    label: 'Reference',
+    description: 'Reference: APIs, CLI, registries and formats (T14107)',
+    defaultOwnerKind: 'project',
+    publishDir: 'docs/reference',
+    requiresEntityId: false,
+    requiredSections: [],
+  },
+  {
+    kind: 'migration',
+    label: 'Migration',
+    description: 'Upgrade or data-migration guide (T14107)',
+    defaultOwnerKind: 'project',
+    publishDir: 'docs/migration',
+    requiresEntityId: false,
+    requiredSections: [],
   },
 ];
 

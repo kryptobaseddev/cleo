@@ -29,6 +29,7 @@ import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
   CanonDocsDiffError,
+  canonDocsFailure,
   loadCanonRegistry,
   runCanonDocsCheck,
 } from '../../dispatch/domains/check/canon-docs.js';
@@ -364,5 +365,70 @@ describe('cleo check canon — subcommand surface', () => {
     };
     expect(canon).toBeDefined();
     expect(canon.subCommands?.['docs']).toBeDefined();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// T14107 — doc naming rule with a shrink-only baseline
+// ---------------------------------------------------------------------------
+
+describe('runCanonDocsCheck — doc naming rule (T14107)', () => {
+  let projectRoot = '';
+
+  beforeEach(async () => {
+    projectRoot = await setupTmpProject(CANON_YAML);
+  });
+  afterEach(async () => {
+    await rm(projectRoot, { recursive: true, force: true });
+  });
+
+  const baseline = (files: string[]): void => {
+    mkdirSync(join(projectRoot, 'scripts'), { recursive: true });
+    writeFileSync(
+      join(projectRoot, 'scripts', '.docs-name-baseline.json'),
+      JSON.stringify({ files }),
+      'utf8',
+    );
+  };
+
+  it('refuses a tracked doc whose name carries a task id or a date, naming a fix', () => {
+    const result = runCanonDocsCheck({
+      projectRoot,
+      candidateFiles: [],
+      trackedFiles: [
+        'docs/plan/release-flow.md',
+        'docs/plan/t12345-release-flow.md',
+        'docs/research/2026-10-28-cache-study.md',
+        'docs/generated/T999-api.md',
+        'docs/adr/adr-0091-release-flow.md',
+        'docs/release/v2026.10.27.md',
+      ],
+    });
+    expect(result.passed).toBe(false);
+    expect(result.nameViolations.map((v) => [v.file, v.reasons, v.suggestion])).toEqual([
+      ['docs/plan/t12345-release-flow.md', ['task-id'], 'release-flow'],
+      ['docs/research/2026-10-28-cache-study.md', ['format', 'date'], 'cache-study'],
+    ]);
+    const { message, fix } = canonDocsFailure(result);
+    expect(message).toMatch(/break the naming rule .* rename to release-flow\.md/);
+    expect(fix).toBe('git mv docs/plan/t12345-release-flow.md docs/plan/release-flow.md');
+  });
+
+  it('tolerates a baselined name until it is fixed, then the stale entry must go', () => {
+    baseline(['docs/plans/T662-council-report.md']);
+    const tolerated = runCanonDocsCheck({
+      projectRoot,
+      candidateFiles: [],
+      trackedFiles: ['docs/plans/T662-council-report.md'],
+    });
+    expect(tolerated.passed).toBe(true);
+    const renamed = runCanonDocsCheck({
+      projectRoot,
+      candidateFiles: [],
+      trackedFiles: ['docs/plan/council-report.md'],
+    });
+    expect(renamed.passed).toBe(false);
+    expect(renamed.staleBaseline).toEqual(['docs/plans/T662-council-report.md']);
+    expect(canonDocsFailure(renamed).message).toMatch(/docs-name-baseline\.json .* remove them/);
   });
 });
