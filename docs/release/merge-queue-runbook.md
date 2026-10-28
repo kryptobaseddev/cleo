@@ -1,3 +1,8 @@
+---
+covers:
+  - .github/workflows/release-prepare.yml
+  - packages/core/src/release/preflight-skip.ts
+---
 # Merge Queue Runbook
 
 > **Not in use (T13480 · #1268):** no GitHub Merge Queue is configured on this
