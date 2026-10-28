@@ -834,6 +834,20 @@ export async function publishDocsAsPr(opts: PublishPrOptions): Promise<PublishPr
       : resolved.type && projectKnownTypes.has(resolved.type)
         ? resolved.type
         : 'note';
+  // T14107 (D11210): a store-only kind (session handoffs) is never published.
+  const kindMeta = (
+    projectRoot ? loadRegistrySafely(projectRoot) : DocKindRegistry.builtinOnly()
+  ).get(type);
+  if (kindMeta?.storeOnly) {
+    return {
+      success: false,
+      error: publishPrError(
+        'E_DOC_STORE_ONLY',
+        `${type} docs live in the CLEO doc store only and are never published to the repository`,
+        `Read it with cleo docs fetch ${slug}; publish a durable doc (guide, concept, reference, …) instead.`,
+      ),
+    };
+  }
   const publishDir = publishDirForType(type, projectRoot);
   const branch = branchForSlug(slug);
 

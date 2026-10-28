@@ -1,7 +1,7 @@
 ---
 name: ct-documentor
 description: Documentation coordinator with CLEO style guide compliance. Routes every canonical-doc write (spec, adr, research, handoff, note, llm-readme) through the docs SSoT via `cleo docs add` / `cleo docs publish` / `cleo docs fetch` — never raw filesystem writes. Carries the CLEO writing and review guides as references and coordinates ct-spec-writer and ct-adr-recorder. Use when creating or updating documentation files, consolidating scattered documentation, or validating documentation against style standards. Triggers on documentation tasks, doc update requests, or style guide compliance checks.
-version: 3.27.0
+version: 3.28.0
 protocol: null
 dependencies:
   - ct-spec-writer
@@ -16,13 +16,13 @@ compatibility:
   - gemini-cli
 license: MIT
 metadata:
-  version: 3.27.0
+  version: 3.28.0
   tier: core
   install: harness
   covers:
     - packages/cleo/src/cli/commands/docs.ts
     - packages/contracts/src/docs-taxonomy.ts
-  lastReviewed: 2026-10-27
+  lastReviewed: 2026-10-28
   stability: stable
 ---
 
@@ -154,6 +154,10 @@ rejects any subagent return that wrote raw markdown into `.cleo/adrs/`,
 materializing through `cleo docs add` + (optionally) `cleo docs publish`.
 
 ---
+
+## Kinds and names (T14107 · D11210)
+
+One kind per published directory; `cleo docs list-types` prints them (adr, spec, plan, research, guide, concept, reference, migration, release-note, note; handoffs are store-only and never published). Name a doc by its subject: lowercase kebab-case, at most 64 characters, with no task id, session id or date in it. The ADR number and the release-note version are allowed. Task and decision links and dates go in the doc's metadata. `cleo docs add` refuses a breaking slug (`E_DOC_NAME_RULE`, with a suggestion) and `cleo check canon docs` refuses a breaking tracked name; the full rule is in `docs/CLEO-DOCUMENTATION-SOP.md` §2-3.
 
 ## Decision: update vs supersede vs create (T10168 · Saga T9855 / E12)
 

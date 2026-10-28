@@ -16,73 +16,43 @@ Key words "MUST", "MUST NOT", "SHOULD", "SHOULD NOT", and "MAY" follow RFC 2119 
 
 ## 2. File Organization
 
-Documentation lives under `docs/` and is organized into six categories. ADRs are managed separately by CLEO.
+Docs are written through `cleo docs add` (canonical store) and published to one directory per kind (T14107, owner decision D11210). The kind list is the SSoT in `packages/contracts/src/docs-taxonomy.ts` and is routed in `.cleo/canon.yml`; `cleo docs list-types` prints it.
 
-| Directory | Purpose | Naming Convention |
-|-----------|---------|-------------------|
-| `docs/specs/` | Normative specifications, formal contracts, and integration plans | `UPPER-KEBAB-CASE.md` |
-| `docs/guides/` | User-facing reference guides, tutorials, and how-to documents | `lower-kebab-case.md` |
-| `docs/concepts/` | Identity, vision, manifesto, and foundational explainers | `UPPER-KEBAB-CASE.md` |
-| `docs/plans/` | Active engineering plans (ULTRAPLAN, blueprints, execution logs) | `UPPER-KEBAB-CASE.md` |
-| `docs/architecture/` | ERDs, type contracts, and config platform design | `lower-kebab-case.md` or `UPPER-KEBAB-CASE.md` |
-| `docs/generated/` | Auto-generated API docs from `forge-ts` | Various (machine-generated) |
-| `.cleo/adrs/` | Architecture Decision Records (managed by `cleo adr` commands) | `ADR-NNN-short-description.md` |
+| Kind | Published under | What belongs there |
+|------|-----------------|--------------------|
+| `adr` | `docs/adr/` | Architectural decision records (`adr-NNN-<topic>`) |
+| `spec` | `docs/spec/` | Normative specifications and formal contracts |
+| `plan` | `docs/plan/` | Active epic or saga plans; a finished plan is deleted |
+| `research` | `docs/research/` | Investigations, analyses and audits |
+| `guide` | `docs/guide/` | How-to: the steps to get a task done |
+| `concept` | `docs/concept/` | Explanation: how and why the product works, architecture and design |
+| `reference` | `docs/reference/` | APIs, CLI, registries and formats |
+| `migration` | `docs/migration/` | Upgrade and data-migration guides |
+| `release-note` | `docs/release/` | Composed release notes (`v<version>`) |
+| `note` | `docs/note/` | Short observations worth keeping |
+| `handoff` | not published | Session handoffs live in the CLEO store only |
+| `changeset` | `.changeset/` | Release input, written by `cleo changeset add` |
+| `llm-readme` | repository root | `llms.txt` |
 
-### ADR Location
-
-ADRs live at `.cleo/adrs/`, NOT under `docs/`. They are managed by `cleo adr` CLI commands. Do NOT create ADRs manually in `docs/` or any subdirectory of it.
-
-### Root-Level Docs
-
-Project-level documents in the `docs/` root use `UPPER-KEBAB-CASE.md`:
-- `docs/CLEO-DOCUMENTATION-SOP.md` (this file)
+`docs/generated/` holds machine-generated reference output. There is no archive directory and no plural twin of a kind directory (`docs/specs`, `docs/plans`, `docs/handoffs` and `docs/migrations` merge into their singular kinds). Per-task working state (`.cleo/rcasd/<task>/`) is not a doc.
 
 ### Source-Adjacent Docs
 
-`CLAUDE.md` and `AGENTS.md` files live at the repository root per their respective tooling requirements. These are not duplicated into `docs/`.
+`CLAUDE.md`, `AGENTS.md` and package `README.md` files live where their tooling expects them and are not duplicated into `docs/`.
 
 ---
 
-## 3. Naming Conventions
+## 3. Naming Rule
 
-### Specifications (`docs/specs/`)
+A doc's name says what it is about, never when or for which task or session it was written, so it can be updated in place for as long as it is true (T14107, D11210).
 
-Format: `UPPER-KEBAB-CASE.md`
+- Lowercase kebab-case, at most 64 characters: `release-flow.md`, `cache-evidence.md`.
+- No task id (`t1234`), no session id (`ses_…`), no date (`2026-10-28`, `2026-10`, `20261028`) and no version in the name.
+- Task links, decision links and dates go in the doc's metadata: the owning task `cleo docs add` takes, decision links, and `createdAt`.
+- Allowed identities: an ADR keeps its number (`adr-0091-release-flow`) and a release note its version (`v2026.10.27`).
+- Hyphens only; no underscores, spaces or trailing punctuation. `README.md` keeps its conventional name.
 
-Suffix conventions:
-- `-SPEC.md` for formal specifications (e.g., `CLEO-DATA-INTEGRITY-SPEC.md`)
-- `-SPECIFICATION.md` for full-length server/protocol specs
-- No suffix for reference documents (e.g., `VERB-STANDARDS.md`, `SCHEMA-AUTHORITY.md`)
-
-### Guides (`docs/guides/`)
-
-Format: `lower-kebab-case.md`
-
-Examples: `migration-safety.md`, `task-system-hardening.md`, `CANT-REFERENCE.md`
-
-### Plans (`docs/plans/`)
-
-Format: `UPPER-KEBAB-CASE.md`
-
-Plans MUST be active. Superseded plans are deleted (git history preserves them).
-
-### Architecture (`docs/architecture/`)
-
-Format: `lower-kebab-case.md` or `UPPER-KEBAB-CASE.md`
-
-Examples: `config-platform.md`, `DATABASE-ERDS.md`, `TYPE-CONTRACTS.md`
-
-### Architecture Decision Records (`.cleo/adrs/`)
-
-Format: `ADR-NNN-short-description.md`
-
-The sequence number `NNN` is zero-padded to three digits. Use `cleo adr` to create new ADRs.
-
-### General Rules
-
-- Use hyphens (`-`) as word separators, never underscores or spaces
-- Filenames MUST NOT contain version numbers (versions go in frontmatter)
-- No trailing punctuation in filenames
+`cleo docs add` refuses a slug that breaks the rule (`E_DOC_NAME_RULE`, with a suggested name), and `cleo check canon docs` refuses any tracked `docs/**.md` that breaks it, naming the `git mv` that fixes it. Names that broke the rule before it existed are listed in `scripts/.docs-name-baseline.json`, a shrink-only list: a renamed or deleted entry must be removed from it in the same change, and nothing new is ever added.
 
 ---
 

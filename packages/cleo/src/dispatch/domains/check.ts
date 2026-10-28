@@ -617,15 +617,11 @@ const _checkTypedHandler = defineTypedHandler<CheckOps>('check', {
       // structured `result` (including the violations array) is forwarded
       // via `details` so tooling can grep / parse it on stdout.
       if (!result.passed) {
-        const firstFix = result.violations[0]?.fix ?? 'cleo docs add ...';
-        const fileList = result.violations.map((v) => `${v.file} (kind=${v.kind})`).join(', ');
-        return lafsError(
-          'E_CANON_VIOLATION',
-          `Docs canon violation: ${result.violations.length} raw *.md addition(s) bypass the SSoT — ${fileList}`,
-          'canon.docs',
-          `Route through SSoT instead: ${firstFix}`,
-          { result: result as unknown as Record<string, unknown> },
-        );
+        const { canonDocsFailure } = await import('./check/canon-docs.js');
+        const failure = canonDocsFailure(result);
+        return lafsError('E_CANON_VIOLATION', failure.message, 'canon.docs', failure.fix, {
+          result: result as unknown as Record<string, unknown>,
+        });
       }
       return lafsSuccess(result, 'canon.docs');
     } catch (err) {
