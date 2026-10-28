@@ -225,6 +225,52 @@ function base(token: string): string {
   return token.split('/').pop() ?? token;
 }
 
+/**
+ * A package manager's own entrypoint script (T14090): corepack's cached
+ * `pnpm.cjs`, npm's `npm-cli.js`, yarn's `yarn.js` or a Berry release
+ * `yarn-4.5.0.cjs`. Run through `node` by path, it is that package manager.
+ */
+const PACKAGE_MANAGER_SCRIPTS: ReadonlyArray<readonly [RegExp, string]> = [
+  [/^pnpm\.[cm]?js$/, 'pnpm'],
+  [/^npm-cli\.js$/, 'npm'],
+  [/^yarn(-[\d.]+)?\.[cm]?js$/, 'yarn'],
+];
+
+/**
+ * The package manager a script is the entrypoint of, or `null` (T14090).
+ *
+ * @param script - A script path, as `node` was given it.
+ * @returns `pnpm`, `npm` or `yarn`, or `null` for any other script.
+ *
+ * @example
+ * ```ts
+ * packageManagerOfScript('/home/u/.cache/node/corepack/v1/pnpm/10.34.5/bin/pnpm.cjs'); // 'pnpm'
+ * packageManagerOfScript('scripts/gen.mjs');                                          // null
+ * ```
+ */
+export function packageManagerOfScript(script: string): string | null {
+  const name = base(script);
+  return PACKAGE_MANAGER_SCRIPTS.find(([pattern]) => pattern.test(name))?.[1] ?? null;
+}
+
+/**
+ * `node [node flags] <package-manager entrypoint> <args>` as the package
+ * manager itself (T14090): `[pm, ...args]`, or `null` when `node` runs
+ * anything else. A package manager launched through `node` by path (a
+ * corepack cache, `npm-cli.js`) then takes the same install and scoped-build
+ * paths as the bare command.
+ *
+ * @param words - The command from `node` on (leading wrappers already skipped).
+ */
+function asPackageManager(words: readonly string[]): string[] | null {
+  if (!/^node(js)?$/.test(base(words[0] ?? ''))) return null;
+  let i = 1;
+  while (i < words.length && (words[i] as string).startsWith('-')) i++;
+  const script = words[i];
+  const pm = script === undefined ? null : packageManagerOfScript(script);
+  return pm === null ? null : [pm, ...words.slice(i + 1)];
+}
+
 /** What an argv runs: its tool, or a package manager's script / exec target. */
 export interface CommandTarget {
   /** The program that runs the work (`vitest`, `tsc`, `cargo`, or the pm). */
@@ -272,8 +318,10 @@ export function commandTarget(argv: readonly string[]): CommandTarget {
     }
     break;
   }
-  const first = base(argv[i] ?? '');
-  const after = argv.slice(i + 1);
+  // T14090: `node <path>/pnpm.cjs install` is `pnpm install`.
+  const viaNode = asPackageManager(argv.slice(i));
+  const first = viaNode !== null ? (viaNode[0] as string) : base(argv[i] ?? '');
+  const after = viaNode !== null ? viaNode.slice(1) : argv.slice(i + 1);
 
   if (EXEC_RUNNERS.test(first)) {
     // `npx -p pkg cmd`, `npx --package=pkg cmd`: skip value-taking flags.
@@ -1434,6 +1482,8 @@ export function scriptRunOf(
     script !== undefined &&
     kind.script.test(script) &&
     !CLEO_SCRIPT.test(script) &&
+    // T14090: a package manager's entrypoint is that package manager, not a plain script.
+    packageManagerOfScript(script) === null &&
     !/(^|[\\/])node_modules[\\/]/.test(script)
     ? { runner, script }
     : null;
