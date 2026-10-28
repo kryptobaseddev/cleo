@@ -122,6 +122,15 @@ export interface GateBase {
    * covers only the surrounding bookkeeping, never a gate (T12621).
    */
   timeoutMs?: number;
+
+  /**
+   * Name of an evidence repository the project declares in
+   * `.cleo/project-context.json` (`evidence.repositories`, T14078): the gate
+   * runs in that checkout, its inputs are captured there and it is
+   * revalidated there. A name the project does not declare is refused.
+   * Absent, the gate runs in the task's evidence tree.
+   */
+  repo?: string;
 }
 
 // ─── Variants ────────────────────────────────────────────────────────────────

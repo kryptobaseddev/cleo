@@ -371,6 +371,29 @@ describe('a hooked run records its measured peak (T13921)', () => {
   });
 });
 
+describe("the ledger charge follows the run's measured tree (T14116)", () => {
+  it('every tree measurement of an admitted run reaches the ledger grant', async () => {
+    const MIB = 1024 ** 2;
+    const seen: number[] = [];
+    const h = harness({
+      treeUsage: () => ({ cpuMs: 1, rssBytes: 170 * MIB, processes: 2, commands: ['git push'] }),
+      onSleep: (n, hh) => n === 4 && hh.exit(0),
+    });
+    const admitted = h.deps.admit;
+    h.deps = {
+      ...h.deps,
+      admit: async (req, o) => {
+        const out = await admitted?.(req, o);
+        if (out === undefined || !out.admitted) throw new Error('expected a grant');
+        return { admitted: true, grant: { ...out.grant, observeRss: (b: number) => seen.push(b) } };
+      },
+    };
+    await runGoverned(base(h, { ...BUILD, hookKey: 'pre-push:k' }));
+    expect(seen.length).toBeGreaterThanOrEqual(2);
+    expect(new Set(seen)).toEqual(new Set([170 * MIB]));
+  });
+});
+
 describe('the hung/overdue watchdog (T13563)', () => {
   afterEach(() => {
     vi.unstubAllEnvs();

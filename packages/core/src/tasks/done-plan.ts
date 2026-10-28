@@ -60,6 +60,7 @@ import {
   isCleoConfigOnlyChange,
   isNonCodeOnlyChange,
   planScopedTestRun,
+  scopedChangedPaths,
   standalonePackage,
 } from './affected-packages.js';
 import { type TaskMergeInfo, taskChangeMergeState } from './affected-scope.js';
@@ -1416,6 +1417,18 @@ export async function deriveTaskEvidence(
   const next =
     blockers[0]?.next ??
     (commands[0] ? step(commands[0], 'Every gate is derivable; record them in order.') : null);
+  const ready = blockers.length === 0 && commands.length > 0;
+  const readyReason = notReadyReason(taskId, task.status, ready, blockers);
+  // T14125: evidence never counts an untracked file; name the ones left out.
+  const untrackedSetAside =
+    task.status === 'done' ? [] : (scopedChangedPaths(root)?.untrackedSetAside ?? []);
+  if (untrackedSetAside.length > 0) {
+    const named = `${untrackedSetAside.slice(0, 5).join(', ')}${untrackedSetAside.length > 5 ? ', …' : ''}`;
+    changeSet.warnings.push(
+      `${untrackedSetAside.length} untracked file(s) are not part of this change and no evidence ` +
+        `judges them (${named}). Stage a file this task created (git add, or git add -N) so it counts.`,
+    );
+  }
 
   return {
     taskId,
@@ -1429,10 +1442,40 @@ export async function deriveTaskEvidence(
     needsSatisfies: acMapping.filter((m) => !m.mapped).map((m) => m.alias),
     blockers,
     commands,
-    ready: blockers.length === 0 && commands.length > 0,
+    ready,
+    ...(readyReason !== null ? { readyReason } : {}),
+    ...(untrackedSetAside.length > 0 ? { untrackedSetAside } : {}),
     next,
     integration,
   };
+}
+
+/**
+ * Why a plan is not ready when no blocker says so (T14095): a plan that is not
+ * ready always names why, by a blocker or by this reason. A done task has
+ * nothing left to record or complete; any other plan with no blocker and no
+ * command has no derivable step at all.
+ *
+ * @param taskId - The task.
+ * @param status - Its status.
+ * @param ready - Whether the plan is ready.
+ * @param blockers - The plan's blockers.
+ * @returns The reason, or `null` when the plan is ready or a blocker explains it.
+ */
+export function notReadyReason(
+  taskId: string,
+  status: string,
+  ready: boolean,
+  blockers: readonly DonePlanBlocker[],
+): string | null {
+  if (status === 'done')
+    return `${taskId} is already done: there is nothing left to record or complete.`;
+  if (ready || blockers.length > 0) return null;
+  return (
+    `${taskId} has no command to run: no gate has evidence left to record and implemented ` +
+    `is neither recorded nor derivable. Record it with cleo verify ${taskId} --gate implemented ` +
+    '--evidence <atoms>.'
+  );
 }
 
 /**

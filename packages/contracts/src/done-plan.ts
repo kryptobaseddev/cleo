@@ -334,6 +334,12 @@ export interface DonePlan {
   commands: string[];
   /** True when no blocker remains and `commands` would succeed as planned. */
   ready: boolean;
+  /**
+   * Why the plan is not ready when no blocker says so (T14095): the task is
+   * already done, or there is no command to run. A plan with `ready: false`
+   * always carries a blocker or this reason.
+   */
+  readyReason?: string;
   /** The single next step: the first blocker's, or the first command. */
   next: DoneNextStep | null;
   /**
@@ -341,6 +347,12 @@ export interface DonePlan {
    * by the same function `cleo complete` runs, from local refs only.
    */
   integration?: WorktreeIntegrationPlan;
+  /**
+   * Untracked files the change's evidence leaves out (T14125): scope is the
+   * task's commits against the base plus uncommitted tracked edits (staged
+   * and `git add -N` files included), never a stray file in the checkout.
+   */
+  untrackedSetAside?: string[];
 }
 
 /** One tool `cleo done` ran (or reused from the ADR-061 cache) before recording. */

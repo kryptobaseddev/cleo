@@ -11,6 +11,8 @@
  * @adr ADR-013
  */
 
+import type { VerificationGate } from './task.js';
+
 /** Detected project ecosystem. Matches the writer in `detectProjectType`. */
 export type ProjectType =
   | 'node'
@@ -79,6 +81,14 @@ export interface ProjectEvidenceContext {
    */
   ciSatisfies?: boolean;
   /**
+   * Gates a probed `deploy:` atom satisfies (T14083). No default: unset or
+   * empty, a deploy atom satisfies nothing, and never `testsPassed` unless
+   * listed here.
+   *
+   * @task T14083
+   */
+  deploySatisfies?: VerificationGate[];
+  /**
    * Which required checks attest each gate for `ci:<pr>`. Each list must be a
    * subset of the required-check list; a gate without a list refuses `ci:`.
    *
@@ -106,6 +116,24 @@ export interface ProjectEvidenceContext {
    * refused (E_EVIDENCE_RUNTIME_PATH_PROTECTED). Default: none.
    */
   runtimePaths?: string[];
+  /**
+   * Further git repositories this project's evidence may come from (an SDK in
+   * a separate repository, T14078). A typed gate names one by `repo`; any
+   * repository not declared here is refused.
+   */
+  repositories?: EvidenceRepositoryDeclaration[];
+}
+
+/**
+ * A git repository outside the project that typed gates may run in (T14078).
+ */
+export interface EvidenceRepositoryDeclaration {
+  /** Name a typed gate's `repo` field uses. */
+  name: string;
+  /** The checkout's root, relative to the CLEO store root or absolute. */
+  path: string;
+  /** Why the project's evidence comes from it. */
+  purpose: string;
 }
 
 /**

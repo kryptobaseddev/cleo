@@ -20,6 +20,8 @@ import {
   admissionToken,
   admit,
   budgetShare,
+  CHARGE_MARGIN_MIN_BYTES,
+  CHARGE_WARMUP_MS,
   describeAdmissionIoError,
   describeCharge,
   describeHolders,
@@ -37,6 +39,7 @@ import {
   LEDGER_RESERVATION_MS,
   type LedgerEntry,
   lightBudgetShare,
+  nextCharge,
   type ProcessFacts,
   planFootprintBytes,
   planRunFootprint,
@@ -1144,6 +1147,145 @@ describe('a never-paused run at backoff starts by the idle rule (T14098)', () =>
         expect(started.grant.admittedBy).toBe('idle');
         await started.grant.release();
       }
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("an admitted run's charge follows its measured peak (T14116)", () => {
+  const MIB = 1024 ** 2;
+  const obs = (over: Partial<Parameters<typeof nextCharge>[0]> = {}) => ({
+    planBytes: 12 * GIB,
+    chargedBytes: 12 * GIB,
+    peakBytes: 170 * MIB,
+    rssBytes: 120 * MIB,
+    samples: 12,
+    admittedForMs: CHARGE_WARMUP_MS,
+    ...over,
+  });
+
+  it('after the warm-up the charge falls to the peak plus the margin, never above the plan', () => {
+    expect(nextCharge(obs())).toBe(170 * MIB + CHARGE_MARGIN_MIN_BYTES);
+    // A 4.1 GiB typecheck keeps a quarter of its peak as the margin.
+    expect(nextCharge(obs({ peakBytes: 4.1 * GIB, rssBytes: 4 * GIB }))).toBe(
+      Math.ceil(4.1 * GIB * 1.25),
+    );
+    // A peak near the plan never charges more than the plan, so nothing changes.
+    expect(nextCharge(obs({ peakBytes: 11 * GIB, rssBytes: 11 * GIB }))).toBeNull();
+  });
+
+  it('nothing changes during the warm-up or before enough measurements', () => {
+    expect(nextCharge(obs({ admittedForMs: CHARGE_WARMUP_MS - 1 }))).toBeNull();
+    expect(nextCharge(obs({ samples: 1 }))).toBeNull();
+  });
+
+  it('a lowered charge never falls again without a new peak, and a climb past it restores the plan', () => {
+    const lowered = 170 * MIB + CHARGE_MARGIN_MIN_BYTES;
+    expect(nextCharge(obs({ chargedBytes: lowered }))).toBeNull();
+    expect(nextCharge(obs({ chargedBytes: lowered, peakBytes: 3 * GIB, rssBytes: 3 * GIB }))).toBe(
+      12 * GIB,
+    );
+    // Even during the warm-up: a climb is never left over-budget.
+    expect(nextCharge(obs({ chargedBytes: lowered, rssBytes: 3 * GIB, admittedForMs: 1 }))).toBe(
+      12 * GIB,
+    );
+    // At the plan already: nothing to restore.
+    expect(nextCharge(obs({ rssBytes: 13 * GIB, peakBytes: 13 * GIB }))).toBeNull();
+  });
+
+  it('a climb measured while the lowering is still being written restores the plan (no race)', async () => {
+    // #2562's merge ref: the climb was judged against the stale plan-sized
+    // charge while the lowering write was in flight, so it lowered again to
+    // 3.75 GiB instead of restoring the plan. Decisions now apply at once and
+    // writes land in order.
+    const dir = mkdtempSync(join(tmpdir(), 'cleo-ledger-recharge-race-'));
+    _resetMemoryGateForTest();
+    let t = Date.now();
+    const opts = {
+      capacityBytes: 16 * GIB,
+      sample: async () => sampleAt(0),
+      env: {},
+      pollMs: 5,
+      topMemory: () => [],
+      now: () => t,
+      dir,
+    };
+    try {
+      const push = await admit(
+        { label: 'run:scoped-build', footprintBytes: 12 * GIB },
+        { ...opts, wait: false },
+      );
+      if (!push.admitted) throw new Error('expected an admission');
+      push.grant.observeRss?.(170 * MIB);
+      t += CHARGE_WARMUP_MS;
+      push.grant.observeRss?.(150 * MIB); // lowers; its write is still in flight
+      push.grant.observeRss?.(3 * GIB); // climbs past the lowered charge, at once
+      await vi.waitFor(() => {
+        const e = readLedger(dir)[0];
+        expect(e?.measuredPeakBytes).toBe(3 * GIB);
+        expect(e?.chargedBytes).toBeUndefined();
+      });
+      await push.grant.release();
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('admit(): a hook push measuring far under plan frees its budget for a waiter; growing restores the plan', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'cleo-ledger-recharge-'));
+    _resetMemoryGateForTest();
+    let t = Date.now();
+    const opts = {
+      capacityBytes: 16 * GIB,
+      sample: async () => sampleAt(0),
+      env: {},
+      pollMs: 5,
+      topMemory: () => [],
+      now: () => t,
+      dir,
+    };
+    try {
+      const push = await admit(
+        {
+          label: 'run:scoped-build',
+          footprintBytes: 12 * GIB,
+          footprintReason: 'scoped-build plan: runs the pre-push hook',
+        },
+        { ...opts, wait: false },
+      );
+      expect(push.admitted).toBe(true);
+      if (!push.admitted) return;
+      const waiter = admit(
+        { label: 'run:scoped-build', footprintBytes: 8 * GIB },
+        { ...opts, wait: true, timeoutMs: 10 * CHARGE_WARMUP_MS }, // outlasts the fake clock's warm-up step,
+      );
+      await vi.waitFor(() => expect(readLedger(dir)).toHaveLength(2));
+      expect(readLedger(dir).find((e) => e.state === 'waiting')).toBeDefined();
+      // Warm-up passes with two measurements of 0.17 GiB.
+      push.grant.observeRss?.(170 * MIB);
+      t += CHARGE_WARMUP_MS;
+      push.grant.observeRss?.(150 * MIB);
+      const admitted = await waiter;
+      expect(admitted.admitted).toBe(true);
+      const held = readLedger(dir).find(
+        (e) => e.label === 'run:scoped-build' && e.footprintBytes === 12 * GIB,
+      );
+      expect(held?.chargedBytes).toBe(170 * MIB + CHARGE_MARGIN_MIN_BYTES);
+      const [line] = describeHolders(
+        readLedger(dir).filter((e) => e.id === held?.id),
+        t,
+      );
+      expect(line).toMatch(
+        /charged 0\.7 GiB \(planned 12 GiB \(scoped-build plan: runs the pre-push hook\); measured peak 0\.2 GiB\)/,
+      );
+      // The hook starts a test run: the tree climbs past its charge, back to the plan.
+      push.grant.observeRss?.(3 * GIB);
+      await vi.waitFor(() =>
+        expect(readLedger(dir).find((e) => e.id === held?.id)?.chargedBytes).toBeUndefined(),
+      );
+      if (admitted.admitted) await admitted.grant.release();
+      await push.grant.release();
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }

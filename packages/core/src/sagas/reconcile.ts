@@ -383,6 +383,8 @@ async function applyAutoClose(
       const sagaTask = await accessor.loadSingleTask(sagaId);
       assertSagaUnchanged(sagaId, sagaTask, await accessor.getChildren(sagaId), memberIds);
       await validateTyped(sagaTask, accessor, accessor);
+      const { assertAcCoveredForDone } = await import('../tasks/ac-coverage-gate.js');
+      await assertAcCoveredForDone(sagaId, accessor);
       return { ok: true };
     }
 
@@ -390,6 +392,15 @@ async function applyAutoClose(
       const sagaTask = await accessor.loadSingleTask(sagaId);
       assertSagaUnchanged(sagaId, sagaTask, await tx.getChildren(sagaId), memberIds);
       const execution = await validateTyped(sagaTask, tx, accessor);
+      // T12883 R2: the saga's own criteria need evidence; done members cover
+      // their "Complete child" rows (T14073).
+      const { assertAcCoveredForDone } = await import('../tasks/ac-coverage-gate.js');
+      // Methods by name: the accessor is not a plain object, so a spread drops them.
+      await assertAcCoveredForDone(sagaId, {
+        getAcRows: (id) => accessor.getAcRows(id),
+        getAcBindings: (ids) => accessor.getAcBindings(ids),
+        getChildren: (id) => tx.getChildren(id),
+      });
       const statusBefore = sagaTask.status;
       const gateResults = sagaTask.verification?.gateResults;
       sagaTask.status = 'done';

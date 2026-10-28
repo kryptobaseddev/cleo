@@ -15,6 +15,7 @@ import { AsyncLocalStorage } from 'node:async_hooks';
 import { resolve } from 'node:path';
 import type { DatabaseSync, SQLInputValue } from 'node:sqlite';
 import type {
+  AcRow,
   ArchiveReasonValue,
   Session,
   Task,
@@ -124,6 +125,53 @@ import { runHeartbeatWrite, withWriteRetry } from './with-retry.js';
  * BEGIN IMMEDIATE/COMMIT/ROLLBACK (depth = 0).
  */
 let _txSavepointCounter = 0;
+
+/**
+ * AC rows of the given tasks from `task_acceptance_criteria`, ordered by task
+ * then ordinal: one query for `getAcRows` (one task) and `getAcRowsForTasks`
+ * (a chunk of tasks, T12883).
+ */
+async function selectAcRows(
+  db: Awaited<ReturnType<typeof getDb>>,
+  taskIds: readonly string[],
+): Promise<AcRow[]> {
+  if (taskIds.length === 0) return [];
+  const rows = await db
+    .select({
+      id: schema.taskAcceptanceCriteria.id,
+      taskId: schema.taskAcceptanceCriteria.taskId,
+      ordinal: schema.taskAcceptanceCriteria.ordinal,
+      kind: schema.taskAcceptanceCriteria.kind,
+      sourceKey: schema.taskAcceptanceCriteria.sourceKey,
+      targetTaskId: schema.taskAcceptanceCriteria.targetTaskId,
+      projection: schema.taskAcceptanceCriteria.projection,
+      text: schema.taskAcceptanceCriteria.text,
+      createdAt: schema.taskAcceptanceCriteria.createdAt,
+      updatedAt: schema.taskAcceptanceCriteria.updatedAt,
+      contentHash: schema.taskAcceptanceCriteria.contentHash,
+      uid: schema.taskAcceptanceCriteria.uid,
+      birthFp: schema.taskAcceptanceCriteria.birthFp,
+    })
+    .from(schema.taskAcceptanceCriteria)
+    .where(inArray(schema.taskAcceptanceCriteria.taskId, [...taskIds]))
+    .orderBy(schema.taskAcceptanceCriteria.taskId, schema.taskAcceptanceCriteria.ordinal)
+    .all();
+  return rows.map((r) => ({
+    id: r.id,
+    taskId: r.taskId,
+    ordinal: r.ordinal,
+    kind: r.kind,
+    sourceKey: r.sourceKey ?? `text:${r.ordinal}`,
+    targetTaskId: r.targetTaskId ?? null,
+    projection: r.projection,
+    text: r.text,
+    createdAt: r.createdAt,
+    updatedAt: r.updatedAt ?? null,
+    contentHash: r.contentHash ?? null,
+    uid: r.uid ?? null,
+    birthFp: r.birthFp ?? null,
+  }));
+}
 
 /**
  * Evidence bindings for a set of CURRENT AC ids (T12341).
@@ -1982,42 +2030,16 @@ async function createOwnedSqliteDataAccessor(
     // ---- AC rows (T10508) ----
 
     async getAcRows(taskId: string) {
+      return selectAcRows(await getDb(cwd), [taskId]);
+    },
+
+    async getAcRowsForTasks(taskIds: readonly string[]) {
       const db = await getDb(cwd);
-      const rows = await db
-        .select({
-          id: schema.taskAcceptanceCriteria.id,
-          taskId: schema.taskAcceptanceCriteria.taskId,
-          ordinal: schema.taskAcceptanceCriteria.ordinal,
-          kind: schema.taskAcceptanceCriteria.kind,
-          sourceKey: schema.taskAcceptanceCriteria.sourceKey,
-          targetTaskId: schema.taskAcceptanceCriteria.targetTaskId,
-          projection: schema.taskAcceptanceCriteria.projection,
-          text: schema.taskAcceptanceCriteria.text,
-          createdAt: schema.taskAcceptanceCriteria.createdAt,
-          updatedAt: schema.taskAcceptanceCriteria.updatedAt,
-          contentHash: schema.taskAcceptanceCriteria.contentHash,
-          uid: schema.taskAcceptanceCriteria.uid,
-          birthFp: schema.taskAcceptanceCriteria.birthFp,
-        })
-        .from(schema.taskAcceptanceCriteria)
-        .where(eq(schema.taskAcceptanceCriteria.taskId, taskId))
-        .orderBy(schema.taskAcceptanceCriteria.ordinal)
-        .all();
-      return rows.map((r) => ({
-        id: r.id,
-        taskId: r.taskId,
-        ordinal: r.ordinal,
-        kind: r.kind,
-        sourceKey: r.sourceKey ?? `text:${r.ordinal}`,
-        targetTaskId: r.targetTaskId ?? null,
-        projection: r.projection,
-        text: r.text,
-        createdAt: r.createdAt,
-        updatedAt: r.updatedAt ?? null,
-        contentHash: r.contentHash ?? null,
-        uid: r.uid ?? null,
-        birthFp: r.birthFp ?? null,
-      }));
+      const out: AcRow[] = [];
+      for (let i = 0; i < taskIds.length; i += 500) {
+        out.push(...(await selectAcRows(db, taskIds.slice(i, i + 500))));
+      }
+      return out;
     },
 
     // ---- AC bindings (T10509 — AC-coverage gate) ----

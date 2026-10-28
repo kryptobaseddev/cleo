@@ -51,7 +51,11 @@ import { acItemToText } from '../ac-table.js';
 import { addTask } from '../add.js';
 import type { ChangeSetDeps } from '../change-set.js';
 import { satisfyGatesFromMergedCi } from '../complete-ci.js';
-import { type DeriveTaskEvidenceOptions, deriveTaskEvidence } from '../done-plan.js';
+import {
+  type DeriveTaskEvidenceOptions,
+  deriveTaskEvidence,
+  notReadyReason,
+} from '../done-plan.js';
 import { recordTaskDone } from '../done-record.js';
 import {
   checkGateEvidenceMinimum,
@@ -342,6 +346,45 @@ describe('a checkout detached at the change-set commit measures the cited tree (
     const plan = await deriveTaskEvidence(id, { projectRoot: root, cwd: root, deps });
     expect(codes(plan)).toContain('dirty-tree');
     expect(plan.ready).toBe(false);
+  });
+});
+
+describe('a plan that is not ready names why (T14095)', () => {
+  /** The invariant: ready:false always carries a blocker or a readyReason. */
+  function expectExplained(plan: Awaited<ReturnType<typeof deriveTaskEvidence>>): void {
+    if (!plan.ready) expect(plan.blockers.length > 0 || plan.readyReason !== undefined).toBe(true);
+  }
+
+  it('a done task says it is already done, never ready:false with no reason', async () => {
+    const id = await seedTask(['Change src/a.ts to return 2']);
+    commitOnTaskBranch(id);
+    await env.accessor.updateTaskFields(id, { status: 'done', pipelineStage: 'contribution' });
+    const plan = await deriveTaskEvidence(id, { projectRoot: root, cwd: root, deps });
+    expect(plan.ready).toBe(false);
+    expect(plan.readyReason).toMatch(new RegExp(`${id} is already done`));
+    expectExplained(plan);
+  });
+
+  it('holds for an open task with work, without work, and after --satisfies', async () => {
+    const bare = await seedTask(['Handles every edge case']);
+    expectExplained(await deriveTaskEvidence(bare, { projectRoot: root, cwd: root, deps }));
+    const id = await seedTask(['Change src/a.ts to return 2']);
+    commitOnTaskBranch(id);
+    expectExplained(await deriveTaskEvidence(id, { projectRoot: root, cwd: root, deps }));
+    expectExplained(
+      await deriveTaskEvidence(id, { projectRoot: root, cwd: root, deps, satisfies: 'all' }),
+    );
+  });
+
+  it('a plan with no blocker and no command says there is nothing to run', () => {
+    expect(notReadyReason('T1', 'pending', false, [])).toMatch(/T1 has no command to run/);
+    expect(notReadyReason('T1', 'pending', true, [])).toBeNull();
+    const blocker = {
+      code: 'manual-gate' as const,
+      message: 'record it',
+      next: { command: 'cleo verify T1', why: 'manual' },
+    };
+    expect(notReadyReason('T1', 'pending', false, [blocker])).toBeNull();
   });
 });
 
@@ -1314,6 +1357,37 @@ describe('affected-scope test runs (T12635, D11150)', () => {
     });
     expect(plan.gates.find((g) => g.gate === 'testsPassed')?.evidence).toBe(
       `tool:test-affected;satisfies:${id}#AC1`,
+    );
+  });
+
+  it('T14125: untracked .worktrees/*/.npmrc stubs in a tracked-clean checkout plan only the task package, and are named', async () => {
+    workspaceWithPackages();
+    const id = await seedTask(['Change pkgs/c/i.ts']);
+    git(root, ['switch', '-q', '-c', `task/${id}`]);
+    writeFileSync(join(root, 'pkgs', 'c', 'i.ts'), 'export const x = 2;\n');
+    git(root, ['commit', '-q', '-am', `${id}: c`]);
+    // Pre-existing stubs the task never created, in folders with no .git.
+    const stubs = ['one', 'two'].map((name) => {
+      mkdirSync(join(root, '.worktrees', name), { recursive: true });
+      writeFileSync(join(root, '.worktrees', name, '.npmrc'), 'registry=https://x.invalid/\n');
+      return `.worktrees/${name}/.npmrc`;
+    });
+    expect(git(root, ['status', '--porcelain', '--untracked-files=no'])).toBe('');
+    const plan = await deriveTaskEvidence(id, {
+      projectRoot: root,
+      cwd: root,
+      deps,
+      satisfies: 'all',
+    });
+    expect(plan.toolRuns.find((r) => r.gate === 'testsPassed')).toMatchObject({
+      tool: 'test-affected',
+      command: 'pnpm exec vitest run --project @w/c',
+    });
+    expect(plan.blockers.find((b) => b.code === 'test-run-needed')).toBeUndefined();
+    // AC4: the plan names every untracked file it left out, and how to count one.
+    expect(plan.untrackedSetAside).toEqual(stubs);
+    expect(plan.changeSet.warnings.join('\n')).toMatch(
+      /2 untracked file\(s\) are not part of this change.*\.worktrees\/one\/\.npmrc.*git add -N/s,
     );
   });
 

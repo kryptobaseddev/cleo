@@ -210,6 +210,17 @@ export interface EvidenceValidationContext {
    */
   testRunPaths?: readonly string[];
   /**
+   * The task's criteria this write names with `satisfies:<task>#AC…` (T14094),
+   * with their `AC<n>` alias. A merged PR of another task links to this task
+   * only through them: each must name the files the PR changed, and none may
+   * have been written or edited after the PR merged (`createdAt` and
+   * `updatedAt`: an edit gives a criterion a new row). Both are UTC ISO-8601
+   * with a zone, normalised by the writer from the store's zoneless text.
+   */
+  creditedCriteria?: ReadonlyArray<
+    Pick<AcRow, 'id' | 'text' | 'createdAt' | 'updatedAt'> & { alias: string }
+  >;
+  /**
    * Validate without persisting anything: `pr:`/`ci:` lookups write neither
    * the PR-result cache nor the branch-protection cache (T12671 review — the
    * `cleo done --plan` preview must leave `.cleo/` untouched).
@@ -353,9 +364,9 @@ export type EvidenceAtom =
        */
       runtimeExcluded?: string[];
       /**
-       * Untracked files outside every directory the change touches, which the
-       * binding did not judge as this change (T14000): another agent's work
-       * in a shared checkout. The tree hash includes them, so `cleo complete`
+       * Untracked files the binding did not judge as this change (T14000,
+       * T14125): anything not committed or staged, such as another agent's
+       * work in a shared checkout. The tree hash includes them, so `cleo complete`
        * and the superseded check refuse this atom as stale once any of them
        * is tracked (committed into the change): the run never covered it.
        */
@@ -396,6 +407,13 @@ export type EvidenceAtom =
       nonCodeChange?: boolean;
       /** Untracked files set aside at bind time, as for `test-run` (T14000). */
       untrackedSetAside?: string[];
+      /**
+       * The changed paths each check reads, judged at bind time (T14089): a
+       * check with none is not owed (a `.mjs`-only change owes no typecheck).
+       * Absent on receipts bound before T14089, or when nothing was judged:
+       * then both checks are owed.
+       */
+      owedChecks?: { typecheck: string[]; lint: string[] };
     }
   | {
       kind: 'tool';
@@ -463,6 +481,12 @@ export type EvidenceAtom =
       untestedPackages?: string[];
       /** Changed CLEO config this result leaves to `tool:config-schema` in the same gate write (T13778). */
       configPaths?: string[];
+      /**
+       * Untracked files a scoped `tool:test`/`tool:test-affected` result did
+       * not judge as this change (T14125), as on a test-run atom: `cleo
+       * complete` refuses the result once any of them is tracked.
+       */
+      untrackedSetAside?: string[];
       /**
        * Test files that failed and then passed on their single retry
        * (T12961). The run counts as a pass; this marks it as a FLAKY pass so
@@ -733,6 +757,43 @@ export type EvidenceAtom =
       gateChecks?: { testsPassed?: string[]; qaPassed?: string[] };
       /** Where the required-check list came from (env, project context, branch protection). */
       requiredSource: string;
+    }
+  | {
+      /**
+       * Probed deployment (T14083, owner decision on option (a)): at verify
+       * time CLEO ran a bounded GET of `probeUrl`, it returned 2xx and named
+       * the deployed SHA in its body or an `X-Commit` / `X-Version` header.
+       * `headSha` must contain the task's implemented commits (ancestor or
+       * patch-equivalent); `cleo complete` re-checks only that, never the probe.
+       * Satisfies only the gates in `satisfiesGates`, the project's
+       * `evidence.deploySatisfies` at verify time.
+       *
+       * @task T14083
+       */
+      kind: 'deploy';
+      /** Provider name as given (`railway`, `fly`, …); recorded, not verified. */
+      provider: string;
+      /** Provider deployment id as given; recorded, not verified. */
+      deploymentId: string;
+      /** The deployed commit, resolved to its full SHA. */
+      headSha: string;
+      /** The URL that was probed. */
+      probeUrl: string;
+      /** The probe's result. */
+      probe: {
+        /** HTTP status (2xx). */
+        status: number;
+        /** ISO 8601 time the probe completed. */
+        probedAt: string;
+        /** sha256 of the (bounded) response body read. */
+        bodySha256: string;
+        /** Where the SHA was named: `x-commit`, `x-version` or `body`. */
+        shaSource: 'x-commit' | 'x-version' | 'body';
+      };
+      /** The gates this atom satisfies (`evidence.deploySatisfies` at verify time). */
+      satisfiesGates: VerificationGate[];
+      /** Task the atom was verified for. */
+      taskId?: string;
     }
   | {
       /**

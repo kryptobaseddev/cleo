@@ -61,6 +61,8 @@ import { join } from 'node:path';
 // accessor signature rather than locally. Importing it here pins the public
 // contract surface so a downstream re-export stays type-safe.
 import type { AcBindingRow as _AcBindingRow, AcRow, DataAccessor } from '@cleocode/contracts';
+import { ExitCode } from '@cleocode/contracts/exit-codes.js';
+import { CleoError } from '../errors.js';
 
 /**
  * Re-export so consumers of this module can pull the binding row shape
@@ -139,6 +141,36 @@ export function childProjectionTarget(row: AcRow): string | null {
 }
 
 /**
+ * The AC rows that no evidence covers: the one coverage rule, shared by the
+ * completion gate and `cleo doctor --coherence` (T12883). A row is covered by
+ * a binding (any kind, ADR-079-r4 §3) that is neither stale (T12341) nor the
+ * retired `auto-coverage-verification-passed` shortcut (T12254), or — for a
+ * "Complete child" projection — by its child being done (T14073).
+ *
+ * @param rows - The task's AC rows.
+ * @param bindings - Bindings for (at least) those rows.
+ * @param doneChildren - Ids of done direct children of the task.
+ * @returns The uncovered rows, in input order.
+ * @task T12883
+ */
+export function uncoveredAcRows(
+  rows: readonly AcRow[],
+  bindings: readonly AcBindingRow[],
+  doneChildren: ReadonlySet<string>,
+): AcRow[] {
+  const covered = new Set<string>();
+  for (const b of bindings) {
+    if (b.evidenceAtomId === 'auto-coverage-verification-passed' || b.stale) continue;
+    covered.add(b.acId);
+  }
+  return rows.filter((r) => {
+    if (covered.has(r.id)) return false;
+    const child = childProjectionTarget(r);
+    return child === null || !doneChildren.has(child);
+  });
+}
+
+/**
  * Compute coverage for a task. Returns `{ok:true}` when every AC has
  * at least one binding OR the task declared zero ACs; otherwise
  * `{ok:false}` with the offending AC rows.
@@ -162,44 +194,26 @@ export async function computeAcCoverage(
     return { ok: true };
   }
 
-  const acIds = acRows.map((r) => r.id);
-  const bindings = await accessor.getAcBindings(acIds);
+  const bindings = await accessor.getAcBindings(acRows.map((r) => r.id));
+  // T14073: done direct children are read only when a projection row needs them.
+  const needsChildren = uncoveredAcRows(acRows, bindings, new Set()).some(
+    (r) => childProjectionTarget(r) !== null,
+  );
+  const doneChildren = needsChildren
+    ? new Set(
+        (await accessor.getChildren(taskId)).filter((c) => c.status === 'done').map((c) => c.id),
+      )
+    : new Set<string>();
 
-  // Build the "covered" set — an AC is covered when AT LEAST ONE binding
-  // row has its `ac_id`. All three binding kinds (direct, satisfies,
-  // coverage) count equally per ADR-079-r4 §3.
-  const covered = new Set<string>();
-  for (const b of bindings) {
-    // T12254: the former completion shortcut asserted every criterion solely
-    // from verification.passed. Keep its rows as history, never as proof.
-    if (b.evidenceAtomId === 'auto-coverage-verification-passed') continue;
-    // T12341: evidence recorded against an earlier text of the criterion.
-    if (b.stale) continue;
-    covered.add(b.acId);
-  }
-
-  // T14073: a done direct child covers its own projection row.
-  if (acRows.some((r) => !covered.has(r.id) && childProjectionTarget(r) !== null)) {
-    const done = new Set(
-      (await accessor.getChildren(taskId)).filter((c) => c.status === 'done').map((c) => c.id),
-    );
-    for (const r of acRows) {
-      const child = childProjectionTarget(r);
-      if (child !== null && done.has(child)) covered.add(r.id);
-    }
-  }
-
-  const unsatisfied = acRows
-    .filter((r) => !covered.has(r.id))
-    .map<UnsatisfiedAc>((r) => {
-      const childTaskId = childProjectionTarget(r);
-      return {
-        acId: r.id,
-        alias: `AC${r.ordinal}`,
-        text: r.text,
-        ...(childTaskId !== null ? { childTaskId } : {}),
-      };
-    });
+  const unsatisfied = uncoveredAcRows(acRows, bindings, doneChildren).map<UnsatisfiedAc>((r) => {
+    const childTaskId = childProjectionTarget(r);
+    return {
+      acId: r.id,
+      alias: `AC${r.ordinal}`,
+      text: r.text,
+      ...(childTaskId !== null ? { childTaskId } : {}),
+    };
+  });
 
   if (unsatisfied.length === 0) return { ok: true };
   return { ok: false, unsatisfied };
@@ -398,4 +412,38 @@ export function readOwnerOverride(env: NodeJS.ProcessEnv = process.env): string 
   const trimmed = reason.trim();
   if (trimmed.length === 0) return null;
   return trimmed;
+}
+
+/**
+ * Refuse a write that would make `taskId` done while any of its acceptance
+ * criteria has no evidence (T12883 R2). `cleo complete` enforces the same
+ * coverage with its waiver and owner-override paths; this is the plain guard
+ * for every other writer that sets `done` (bulk move, unarchive, saga
+ * auto-close). A done child covers its parent's "Complete child" row (T14073).
+ *
+ * @param taskId - The task about to become done.
+ * @param accessor - Reads for the AC rows, bindings and children.
+ * @throws {CleoError} {@link ExitCode.AC_COVERAGE_INCOMPLETE} naming the uncovered criteria.
+ * @task T12883
+ */
+export async function assertAcCoveredForDone(
+  taskId: string,
+  accessor: Pick<DataAccessor, 'getAcRows' | 'getAcBindings' | 'getChildren'>,
+): Promise<void> {
+  const coverage = await computeAcCoverage(taskId, accessor);
+  if (coverage.ok) return;
+  const list = coverage.unsatisfied.map((u) => u.alias).join(', ');
+  // @sync-invariant task.done.evidence
+  throw new CleoError(
+    ExitCode.AC_COVERAGE_INCOMPLETE,
+    `${taskId} cannot become done: ${coverage.unsatisfied.length} acceptance criterion/criteria have no evidence (${list}).`,
+    {
+      fix: `Record evidence with cleo verify ${taskId} …, then complete it with cleo complete ${taskId}.`,
+      details: {
+        field: 'acceptance',
+        codeName: 'E_AC_COVERAGE_INCOMPLETE',
+        unsatisfied: coverage.unsatisfied,
+      },
+    },
+  );
 }

@@ -76,6 +76,8 @@ import {
   bindTestRunReport,
   configSchemaCompositionGap,
   coveredTestFiles,
+  junitTestRun,
+  libtestTestRun,
   playwrightTestRun,
   TEST_RUN_MAX_RECORDED_FILES,
   type TestRunReport,
@@ -263,6 +265,17 @@ export type ParsedAtom =
       componentPrNumber?: number;
       /** `ci:<owner>/<repo>#<n>`: the lowercased repository the number belongs to (T13912). */
       repo?: string;
+    }
+  | {
+      /**
+       * Probed deployment (T14083): `deploy:<provider>/<deploymentId>@<sha>|<probe-url>`.
+       * Accepted only for the gates in `evidence.deploySatisfies`.
+       */
+      kind: 'deploy';
+      provider: string;
+      deploymentId: string;
+      sha: string;
+      probeUrl: string;
     }
   | {
       /**
@@ -539,6 +552,21 @@ export async function validateAtom(
           ? { componentPrNumber: parsed.componentPrNumber }
           : {}),
         ...(context?.readOnly ? { readOnly: true } : {}),
+      });
+      return result.ok
+        ? { ok: true, atom: result.atom }
+        : { ok: false, reason: result.reason, codeName: result.codeName };
+    }
+    case 'deploy': {
+      // T14083: the project context is CLEO's own record (storeRoot); the
+      // deployed commit is resolved in the repository (executionRoot).
+      const { resolveDeployEvidenceAtom } = await import('../release/deploy-evidence.js');
+      const { loadProjectContext } = await import('../agents/variable-substitution.js');
+      const ctx = loadProjectContext(roots.storeRoot);
+      const owner = taskId ?? context?.task.id;
+      const result = await resolveDeployEvidenceAtom(parsed, roots, {
+        projectContext: ctx.loaded ? ctx.context : null,
+        ...(owner !== undefined ? { taskId: owner } : {}),
       });
       return result.ok
         ? { ok: true, atom: result.atom }
@@ -1856,6 +1884,7 @@ async function runAffectedTests(
       ...(run.testFiles ? { affectedTestFiles: run.testFiles } : {}),
       ...(run.configPaths ? { configPaths: run.configPaths } : {}),
       ...(run.untested.length > 0 ? { untestedPackages: run.untested } : {}),
+      ...(run.untrackedSetAside ? { untrackedSetAside: run.untrackedSetAside } : {}),
       ...(await toolRunAtomFields(result)),
     },
   };
@@ -2036,12 +2065,25 @@ async function readTestRunReport(
       codeName: 'E_EVIDENCE_INVALID',
     };
   }
+  const text = content.toString('utf-8');
+  // T14084: JUnit XML (cargo nextest, pytest, most runners) and libtest JSON
+  // lines (cargo test) are read in the vitest shape.
+  const junit = junitTestRun(text);
+  if (junit !== null && 'refusal' in junit)
+    return { ok: false, reason: junit.refusal, codeName: junit.codeName };
+  if (junit !== null) return { ok: true, abs, content, parsed: junit };
   try {
-    return { ok: true, abs, content, parsed: JSON.parse(content.toString('utf-8')) };
+    return { ok: true, abs, content, parsed: JSON.parse(text) };
   } catch (err) {
+    const libtest = libtestTestRun(text);
+    if (libtest !== null && 'refusal' in libtest)
+      return { ok: false, reason: libtest.refusal, codeName: libtest.codeName };
+    if (libtest !== null) return { ok: true, abs, content, parsed: libtest };
     return {
       ok: false,
-      reason: `test-run file is not valid JSON: ${err instanceof Error ? err.message : String(err)}`,
+      reason:
+        `test-run file is not valid JSON, JUnit XML or libtest JSON lines: ` +
+        `${err instanceof Error ? err.message : String(err)}`,
       codeName: 'E_EVIDENCE_INVALID',
     };
   }
@@ -2356,6 +2398,7 @@ async function validateQaRun(
     nonCodeChange?: boolean;
     configPaths?: string[];
     untrackedSetAside?: string[];
+    owedChecks?: { typecheck: string[]; lint: string[] };
   } | null = null;
   if (treeHash && headSha) {
     const binding = bindQaRunReceipt(receipt, abs, bindRoot);
@@ -2386,6 +2429,7 @@ async function validateQaRun(
       ...(gaps?.nonCodeChange ? { nonCodeChange: true } : {}),
       ...(gaps?.configPaths ? { configPaths: gaps.configPaths } : {}),
       ...(gaps?.untrackedSetAside ? { untrackedSetAside: gaps.untrackedSetAside } : {}),
+      ...(gaps?.owedChecks ? { owedChecks: gaps.owedChecks } : {}),
     },
   };
 }
@@ -2620,7 +2664,8 @@ async function validateTool(
       ? (await import('./change-set.js')).resolveChangeSetRoot(roots.storeRoot, context.task.id)
           .root
       : roots.executionRoot;
-    const changed = scopedChangedPaths(root)?.paths ?? [];
+    const scoped = scopedChangedPaths(root);
+    const changed = scoped?.paths ?? [];
     const treeHash = isNonCodeOnlyChange(changed) ? (await captureTree(root)).tree : null;
     if (treeHash) {
       return {
@@ -2632,6 +2677,11 @@ async function validateTool(
           notApplicable: true,
           nonCodeChange: true,
           treeHash,
+          // T14125: a stray untracked code file is not this change; once one
+          // is committed, `cleo complete` refuses this result.
+          ...(scoped && scoped.untrackedSetAside.length > 0
+            ? { untrackedSetAside: scoped.untrackedSetAside }
+            : {}),
           reason: `no test reads this change: it touches only non-code files (${changed.join(', ')})`,
         },
       };
@@ -3319,11 +3369,17 @@ async function validateDecision(decisionId: string, roots: EvidenceRoots): Promi
  * task in its title, body or head branch, or its diff intersects the task's
  * declared files — and when files are declared, the diff MUST intersect them.
  *
+ * T14094: a task with no declared files may also credit a PR merged under
+ * another task, through the criteria the same write names with
+ * `satisfies:<task>#AC…` ({@link creditRefusal}).
+ *
  * @param prNumber - The PR being linked.
  * @param pr - The verified PR (title, body, head branch, changed files).
  * @param context - The task the evidence is being recorded for.
+ * @param mergedAt - When the PR merged, for the credited-criteria edit check.
  * @returns The refusal, or null when the PR is linked to the task.
  * @task T12634
+ * @task T14094
  */
 export function checkPrTaskLinkage(
   prNumber: number,
@@ -3336,6 +3392,7 @@ export function checkPrTaskLinkage(
     changedFilesError?: string;
   },
   context: EvidenceValidationContext,
+  mergedAt?: string,
 ): { ok: false; reason: string; codeName: string } | null {
   if (pr.changedFileCount !== pr.changedPaths.length || pr.changedPaths.length === 0) {
     return {
@@ -3349,12 +3406,73 @@ export function checkPrTaskLinkage(
   const explicitlyLinked = taskMention.test(`${pr.title}\n${pr.body}\n${pr.headRefName}`);
   const scopeIntersects =
     declaredFiles.length > 0 && diffIntersectsAc(pr.changedPaths, declaredFiles);
-  if ((!explicitlyLinked && !scopeIntersects) || (declaredFiles.length > 0 && !scopeIntersects)) {
+  if (declaredFiles.length > 0 && !scopeIntersects) {
     return {
       ok: false,
       codeName: 'E_EVIDENCE_CONTENT_MISMATCH',
-      reason: `PR #${prNumber} does not establish a relationship to task ${context.task.id}. Changed artifacts: ${pr.changedPaths.join(', ')}. Declare task files or cite the exact task in the PR; declared scope must intersect the diff.`,
+      reason: `PR #${prNumber} changes none of task ${context.task.id}'s declared files (${declaredFiles.join(', ')}). Changed artifacts: ${pr.changedPaths.join(', ')}.`,
     };
+  }
+  if (explicitlyLinked || scopeIntersects) return null;
+  const refusal = creditRefusal(prNumber, pr.changedPaths, context, mergedAt);
+  return refusal === null
+    ? null
+    : { ok: false, codeName: 'E_EVIDENCE_CONTENT_MISMATCH', reason: refusal };
+}
+
+/**
+ * Why a PR that neither cites a task nor declares its files cannot be credited
+ * to it, or null when it can (T14094: work shipped under another task). The
+ * write must name criteria with `satisfies:<task>#AC…`; each must name at
+ * least one repo path, the PR must have changed every one of them, and none
+ * may have been edited after the PR merged, so a criterion cannot be made to
+ * match after the fact. The refusal names that one route, and for a task the
+ * other task fully covers, the duplicate close.
+ *
+ * @param prNumber - The PR being credited.
+ * @param changedPaths - Its complete changed-file list.
+ * @param context - The task, with the criteria the write credits.
+ * @param mergedAt - When the PR merged; unknown refuses any credit.
+ * @returns The refusal, or null.
+ * @task T14094
+ */
+function creditRefusal(
+  prNumber: number,
+  changedPaths: readonly string[],
+  context: EvidenceValidationContext,
+  mergedAt: string | undefined,
+): string | null {
+  const id = context.task.id;
+  const credited = context.creditedCriteria ?? [];
+  if (credited.length === 0)
+    return (
+      `PR #${prNumber} does not cite task ${id} and ${id} declares no files, so it is not ${id}'s work. ` +
+      `To credit a PR merged under another task, name the criteria it delivers in the same write ` +
+      `(satisfies:${id}#AC<n>); each must name the files the PR changed. If another task fully covers ${id}, ` +
+      `close it with cleo cancel ${id} --reason "covered by T<n>" and cleo relates add ${id} T<n> duplicates "<reason>". ` +
+      `Changed artifacts: ${changedPaths.join(', ')}.`
+    );
+  // Credit is for merged PRs only; without the merge time the edit check below cannot run.
+  // Times here are zoned ISO-8601 (GitHub's mergedAt; criteria normalised to
+  // UTC by the writer), so Date.parse reads them exactly.
+  const mergedMs = mergedAt ? Date.parse(mergedAt) : Number.NaN;
+  if (Number.isNaN(mergedMs))
+    return `PR #${prNumber}'s merge time is unknown, so its credited criteria cannot be checked for later edits.`;
+  const changed = new Set(changedPaths.map(normalizeEvidencePath));
+  for (const criterion of credited) {
+    // An edit gives a criterion a new row, so its creation time counts too.
+    const written = criterion.updatedAt ?? criterion.createdAt;
+    const writtenMs = written ? Date.parse(written) : Number.NaN;
+    if (Number.isNaN(writtenMs))
+      return `${id}#${criterion.alias} has no readable write time, so it cannot be shown to predate PR #${prNumber}'s merge.`;
+    if (writtenMs > mergedMs)
+      return `${id}#${criterion.alias} was written or edited at ${written}, after PR #${prNumber} merged at ${mergedAt}; a criterion changed after the merge cannot be credited by it.`;
+    const paths = extractTaskAcFilesWithProvenance({ acceptance: [criterion.text] }).files ?? [];
+    if (paths.length === 0)
+      return `${id}#${criterion.alias} names no file, so PR #${prNumber} cannot be shown to deliver it; credit only criteria that name the files the PR changed.`;
+    const missing = paths.filter((path) => !changed.has(normalizeEvidencePath(path)));
+    if (missing.length > 0)
+      return `PR #${prNumber} did not change ${missing.join(', ')}, which ${id}#${criterion.alias} names, so it cannot be credited with ${criterion.alias}.`;
   }
   return null;
 }
@@ -3414,7 +3532,7 @@ async function validatePrAtom(
   // task's link and its change. Both are verified, both are recorded.
   const linked = await linkedPrChange(prNumber, result, roots, componentPrNumber);
   if (!linked.ok) return linked;
-  const unlinked = checkPrTaskLinkage(linked.prNumber, linked.pr, context);
+  const unlinked = checkPrTaskLinkage(linked.prNumber, linked.pr, context, result.mergedAt);
   if (unlinked) return unlinked;
   const changedPaths = linked.pr.changedPaths;
   // T14024: a PR merged straight into its base records its deletions too, so
@@ -3724,6 +3842,9 @@ export function checkTaskEvidenceContext(
   // T12634: a `ci:` result is bound to the task it was validated for, like `pr:`.
   if (atoms.some((atom) => atom.kind === 'ci' && atom.taskId !== context.task.id))
     return 'CI evidence lacks verified task linkage; re-verify with current task context.';
+  // T14083: a probed deployment is bound to the task it was verified for.
+  if (atoms.some((atom) => atom.kind === 'deploy' && atom.taskId !== context.task.id))
+    return 'Deploy evidence lacks verified task linkage; re-verify with current task context.';
   // T12848: several PRs in one write are unambiguous — each `files:` path is
   // pinned to the merge of the PR that changed it (prMergeCommitForPath), and
   // every PR must be proven by an artifact it changed that was READ AT ITS OWN
@@ -3770,6 +3891,7 @@ export function checkTaskEvidenceContext(
         atom.kind === 'test-run' ||
         atom.kind === 'qa-run' ||
         atom.kind === 'ci' ||
+        (atom.kind === 'deploy' && atom.satisfiesGates.includes(gate)) ||
         (atom.kind === 'tool' && (!atom.notApplicable || atom.nonCodeChange === true)),
     )
   ) {
@@ -3798,17 +3920,33 @@ export function checkTaskEvidenceContext(
   ) {
     // T13745: a non-code-only change has no TypeScript to typecheck.
     const nonCode = atoms.some((atom) => atom.kind === 'qa-run' && atom.nonCodeChange === true);
-    const missing = (['typecheck', 'lint'] as const).filter(
-      (check) =>
-        !(nonCode && check === 'typecheck') &&
-        !atoms.some(
-          (atom) =>
-            (atom.kind === 'qa-run' && atom.check === check) ||
-            (atom.kind === 'tool' && canonicalToolName(atom.tool) === check),
-        ),
-    );
-    if (missing.length > 0)
-      return `qaPassed with qa-run receipts needs a typecheck and a lint result; missing ${missing.join(' and ')}: add qa-run:<${missing[0]}-receipt.json> or tool:${missing[0]}.`;
+    // T14089: a check is owed only for the changed paths it reads, as the
+    // receipts judged them at bind time. A receipt bound without that
+    // judgement (older, or nothing judged) owes both, as before.
+    const receipts = atoms.flatMap((atom) => (atom.kind === 'qa-run' ? [atom] : []));
+    const owedPaths = (check: 'typecheck' | 'lint'): string[] | null =>
+      receipts.some((r) => r.owedChecks === undefined)
+        ? null
+        : [...new Set(receipts.flatMap((r) => r.owedChecks?.[check] ?? []))];
+    const missing = (['typecheck', 'lint'] as const).filter((check) => {
+      if (nonCode && check === 'typecheck') return false;
+      const paths = owedPaths(check);
+      if (paths !== null && paths.length === 0) return false;
+      return !atoms.some(
+        (atom) =>
+          (atom.kind === 'qa-run' && atom.check === check) ||
+          (atom.kind === 'tool' && canonicalToolName(atom.tool) === check),
+      );
+    });
+    if (missing.length > 0) {
+      const named = missing.map((check) => {
+        const paths = owedPaths(check);
+        return paths === null
+          ? check
+          : `${check} (it reads ${paths.slice(0, 5).join(', ')}${paths.length > 5 ? `, … (${paths.length})` : ''})`;
+      });
+      return `qaPassed with qa-run receipts needs a result for each check that reads the changed paths; missing ${named.join(' and ')}: add qa-run:<${missing[0]}-receipt.json> or tool:${missing[0]}.`;
+    }
     // T13580: receipts of one kind cover the change together; a check also
     // recorded as a whole-project tool: run needs no receipt coverage.
     const gap = qaRunUnionGapReason(
@@ -3982,6 +4120,15 @@ export function decisionOnlyRouteNote(
 // ---------------------------------------------------------------------------
 
 /**
+ * Whether a probed `deploy:` atom stands for `gate` (T14083): only for the
+ * gates the project listed in `evidence.deploySatisfies` when it was verified.
+ * Static gate requirements never name `deploy`, so no gate takes one by default.
+ */
+function deploySatisfiesGate(gate: VerificationGate, atoms: readonly EvidenceAtom[]): boolean {
+  return atoms.some((atom) => atom.kind === 'deploy' && atom.satisfiesGates.includes(gate));
+}
+
+/**
  * Check whether a set of validated atoms satisfies the minimum evidence
  * required for a given gate.
  *
@@ -3996,6 +4143,7 @@ export function checkGateEvidenceMinimum(
   gate: VerificationGate,
   atoms: EvidenceAtom[],
 ): string | null {
+  if (deploySatisfiesGate(gate, atoms)) return null;
   // Delegate to the SSoT in @cleocode/contracts (T10337). validateEvidenceForGate
   // only inspects `.kind`; the post-validation EvidenceAtom union includes the
   // `override` kind which is never present here (override-evidence flows skip
@@ -4034,6 +4182,7 @@ export function checkGateEvidenceMinimumDetailed(
   gate: VerificationGate,
   atoms: EvidenceAtom[],
 ): { message: string; hint: string } | null {
+  if (deploySatisfiesGate(gate, atoms)) return null;
   const projected: Array<{ kind: ParsedEvidenceAtom['kind'] }> = [];
   for (const atom of atoms) {
     if (atom.kind === 'override') continue;
@@ -4180,9 +4329,10 @@ export async function boundHeadGapReason(
   atoms: readonly EvidenceAtom[],
   projectRoot: string,
 ): Promise<string | null> {
+  // T14083: a probed deployment is bound to the commit it serves.
   const runs = atoms.filter(
-    (a): a is Extract<EvidenceAtom, { kind: 'test-run' | 'qa-run' | 'tool' }> =>
-      (a.kind === 'test-run' || a.kind === 'qa-run' || a.kind === 'tool') &&
+    (a): a is Extract<EvidenceAtom, { kind: 'test-run' | 'qa-run' | 'tool' | 'deploy' }> =>
+      (a.kind === 'test-run' || a.kind === 'qa-run' || a.kind === 'tool' || a.kind === 'deploy') &&
       typeof a.headSha === 'string',
   );
   if (runs.length === 0) return null;
@@ -4254,7 +4404,9 @@ export async function boundHeadGapReason(
     const bound =
       run.kind === 'tool'
         ? `tool:${run.tool} ran at ${head.slice(0, 12)}`
-        : `${run.kind}:${run.path} was bound at ${head.slice(0, 12)}`;
+        : run.kind === 'deploy'
+          ? `deploy:${run.provider}/${run.deploymentId} serves ${head.slice(0, 12)}`
+          : `${run.kind}:${run.path} was bound at ${head.slice(0, 12)}`;
     if (missing !== null) {
       return (
         `${bound}, and git cannot read the commits that relate it to ${task.id}'s implemented ` +
@@ -4271,6 +4423,13 @@ export async function boundHeadGapReason(
         `${bound}, which carries ${task.id}'s work but not its implemented commit ${shas}: ` +
         'the branch was rebased, amended or squash-merged after implemented was recorded. ' +
         `Re-record implemented (cleo verify ${task.id} --gate implemented ...), then the run.`
+      );
+    }
+    if (run.kind === 'deploy') {
+      return (
+        `${bound}, which does not contain ${task.id}'s implemented commit ${shas} (neither an ` +
+        'ancestor nor a patch-equivalent copy): that deployment predates or excludes the change. ' +
+        'Deploy a build that contains it and probe that deployment.'
       );
     }
     return (
@@ -4803,6 +4962,11 @@ export async function revalidateEvidence(
         if (!recheck.ok) failed.push({ atom, reason: recheck.reason });
         break;
       }
+      case 'deploy':
+        // T14083: the probe is not re-run (the deployment may have moved on
+        // since); the SHA containment it carries is re-checked above, through
+        // boundHeadGapReason.
+        break;
       case 'pr':
         // PR atoms capture (prNumber, mergedAt, mergeCommitSha) at verify
         // time. A merged PR's mergedAt is immutable, so the atom is trusted

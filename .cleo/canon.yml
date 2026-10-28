@@ -83,8 +83,11 @@ kinds:
       - .cleo/rcasd/
   handoff:
     canonicalHome: ssot
-    publishMirror: docs/handoff/
+    publishMirror: docs/handoff/      # store-only (T14107, D11210): never published
     rawMdAllowed: false
+    rawMdPaths:
+      - docs/handoff/
+      - docs/handoffs/
   note:
     canonicalHome: ssot
     publishMirror: docs/note/
@@ -111,3 +114,22 @@ kinds:
     canonicalHome: ssot
     publishMirror: .cleo/rcasd/
     rawMdAllowed: true                 # rcasd dirs are agent-generated structure; tolerated
+  # T14107 (D11210): user-doc kinds and migrations. One kind per directory;
+  # the singular name is canonical (docs/specs, docs/plans, docs/handoffs and
+  # docs/migrations merge into their singular kinds).
+  guide:
+    canonicalHome: ssot
+    publishMirror: docs/guide/
+    rawMdAllowed: false
+  concept:
+    canonicalHome: ssot
+    publishMirror: docs/concept/
+    rawMdAllowed: false
+  reference:
+    canonicalHome: ssot
+    publishMirror: docs/reference/
+    rawMdAllowed: false
+  migration:
+    canonicalHome: ssot
+    publishMirror: docs/migration/
+    rawMdAllowed: false
