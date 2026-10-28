@@ -1157,6 +1157,49 @@ function isCleoCommand(t: CommandTarget): boolean {
 }
 
 /**
+ * Why a run executes tests on wall-clock deadlines, so it must never be
+ * SIGSTOPped (T14093), or `null`. A test's timeout keeps counting while the
+ * process is stopped, so a pause longer than one (axiom-qa: a hooked push
+ * paused 542 s against 60 s vitest timeouts) turns into a false failure. Such
+ * a run is queued under pressure instead, as `--no-pause` runs are (T14075).
+ *
+ * Covers the `test-run` class, a command that is a test run whatever class it
+ * was given (a test runner, a `test` script, `cargo|go test`, `node --test`),
+ * and a `git push`/`git commit` whose hook is installed: a hook may run tests.
+ *
+ * @param cls - the run's class.
+ * @param argv - the command.
+ * @param hookInstalled - whether a git hook is installed (the caller probes the run's checkout).
+ * @returns the reason, for the run envelope and stderr, or `null`.
+ *
+ * @example
+ * ```ts
+ * testPauseExemption('scoped-build', ['pnpm', 'test'], () => false); // 'it runs tests: …'
+ * testPauseExemption('scoped-build', ['pnpm', 'run', 'build'], () => false); // null
+ * ```
+ *
+ * @task T14093
+ */
+export function testPauseExemption(
+  cls: ResourceClass,
+  argv: readonly string[],
+  hookInstalled: (hook: string, globals: readonly string[]) => boolean,
+): string | null {
+  const why = 'its wall-clock test timeouts keep counting while it is stopped';
+  if (cls === 'test-run') return `a test run: ${why}`;
+  const t = commandTarget(argv);
+  const nodeTest = /^node(js)?$/.test(t.tool) && t.rest.includes('--test');
+  if (nodeTest || resolveRunClass(undefined, argv, sep) === 'test-run') {
+    return `it runs tests: ${why}`;
+  }
+  const git = gitHookFor(argv);
+  const hook = git?.hooks.find((h) => hookInstalled(h, git.globals));
+  return hook === undefined
+    ? null
+    : `it runs the ${hook} hook, which may run tests whose wall-clock timeouts keep counting while it is stopped`;
+}
+
+/**
  * Whether a job may be SIGSTOPped under pressure. Installs, db-heavy work and
  * cargo (which holds the registry cache and target-dir locks) hold shared
  * locks the oldest job may need, so pausing them can stall the one job that
@@ -1167,8 +1210,20 @@ function isCleoCommand(t: CommandTarget): boolean {
  * DETACHED, out of the paused group. A pause would freeze only the lock
  * holder while the test keeps running; its lock stops refreshing, goes stale
  * and is taken, and it crashes on resume.
+ *
+ * Nor is a run that executes tests on wall-clock deadlines
+ * ({@link testPauseExemption}, T14093).
+ *
+ * @param cls - the run's class.
+ * @param argv - the command.
+ * @param hookInstalled - whether a git hook is installed. @defaultValue none is
  */
-export function isPausable(cls: ResourceClass, argv: readonly string[]): boolean {
+export function isPausable(
+  cls: ResourceClass,
+  argv: readonly string[],
+  hookInstalled: (hook: string, globals: readonly string[]) => boolean = () => false,
+): boolean {
+  if (testPauseExemption(cls, argv, hookInstalled) !== null) return false;
   if (cls === 'db-heavy') return false;
   const t = commandTarget(argv);
   if (t.pm !== null && t.script !== null && INSTALL_VERBS.test(t.script)) return false;
