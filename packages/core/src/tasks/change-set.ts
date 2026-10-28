@@ -444,6 +444,24 @@ export function isAncestorCommit(root: string, ancestor: string, descendant: str
   return git(root, ['merge-base', '--is-ancestor', ancestor, descendant]) !== null;
 }
 
+/**
+ * Whether `head` holds the work of commit `sha`: it is an ancestor, or a
+ * rebased, amended or squashed copy of its patch is in `head`'s history (the
+ * T13003 rule: `git cherry` marks each commit of `sha^..sha` with `-` when
+ * `head` has its patch).
+ *
+ * @param root - Repository to ask.
+ * @param head - Commit that should hold the work.
+ * @param sha - The work's commit.
+ * @returns True when it does; false when it does not or git cannot say.
+ * @task T14083
+ */
+export function containsChange(root: string, head: string, sha: string): boolean {
+  if (isAncestorCommit(root, sha, head)) return true;
+  const marks = (git(root, ['cherry', head, sha, `${sha}^`]) ?? '').split('\n').filter(Boolean);
+  return marks.length > 0 && marks.every((line) => line.startsWith('-'));
+}
+
 /** Why {@link hasPatchEquivalent} could not decide: commits git does not have here. */
 export interface PatchEquivalenceUnknown {
   /** Commits missing from the local object store (`git fetch` brings them). */

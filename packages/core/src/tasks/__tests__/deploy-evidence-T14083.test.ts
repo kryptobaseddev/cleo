@@ -15,7 +15,11 @@ import {
   type VerificationGate,
 } from '@cleocode/contracts';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { type DeployProbe, validateDeployAtom } from '../deploy-evidence.js';
+import {
+  type DeployProbe,
+  deployContainmentReason,
+  validateDeployAtom,
+} from '../deploy-evidence.js';
 
 let root: string;
 let change: string;
@@ -152,7 +156,7 @@ describe('deploy: evidence (T14083)', () => {
       undefined,
       healthy('0000000'),
     );
-    expect(!silent.ok && silent.reason).toMatch(/does not name commit/);
+    expect(!silent.ok && silent.reason).toMatch(/X-Version header names commit/);
     const unreachable = await validateDeployAtom(
       atom(deployed),
       roots(),
@@ -165,7 +169,34 @@ describe('deploy: evidence (T14083)', () => {
     expect(!unreachable.ok && unreachable.reason).toMatch(/did not answer: connect ECONNREFUSED/);
   });
 
-  it('counts only for a gate the project maps it to', async () => {
+  it('accepts the commit named in an X-Commit or X-Version header', async () => {
+    for (const header of ['x-commit', 'x-version']) {
+      const result = await validateDeployAtom(
+        atom(deployed),
+        roots(),
+        context(['qaPassed']),
+        undefined,
+        async () => ({ status: 200, body: 'ok', headers: { [header]: `v1+${deployed}` } }),
+      );
+      expect(result.ok, `${header}: ${result.ok ? '' : result.reason}`).toBe(true);
+    }
+  });
+
+  it('counts only for a gate the project maps it to; nothing is mapped by default', async () => {
+    writeFileSync(join(root, '.cleo', 'project-context.json'), JSON.stringify({}));
+    const unmapped = await validateDeployAtom(
+      atom(deployed),
+      roots(),
+      context(['qaPassed']),
+      undefined,
+      healthy(deployed),
+    );
+    expect(!unmapped.ok && unmapped.reason).toMatch(
+      /evidence\.deployGates maps it to \(none here\)/,
+    );
+  });
+
+  it('a gate the project does not list is refused, naming evidence.deployGates', async () => {
     const result = await validateDeployAtom(
       atom(deployed),
       roots(),
@@ -175,5 +206,44 @@ describe('deploy: evidence (T14083)', () => {
     );
     expect(!result.ok && result.codeName).toBe('E_EVIDENCE_INSUFFICIENT');
     expect(!result.ok && result.reason).toMatch(/evidence\.deployGates maps it to \(qaPassed\)/);
+  });
+
+  it('a squash-merged change (a patch-equivalent copy) is contained', async () => {
+    git(['switch', '-q', '-c', 'feature', 'main']);
+    const branchWork = commit('d.txt', 'feature\n', 'T950: on the branch');
+    git(['switch', '-q', 'main']);
+    git(['merge', '-q', '--squash', 'feature']);
+    git(['commit', '-q', '-m', 'T950 squashed (#7)']);
+    const squashed = git(['rev-parse', 'HEAD']);
+    const ctx = context(['qaPassed']);
+    const evidence = ctx.task.verification?.evidence?.implemented;
+    if (evidence)
+      evidence.atoms = [{ kind: 'commit', sha: branchWork, shortSha: branchWork.slice(0, 7) }];
+    const result = await validateDeployAtom(
+      atom(squashed),
+      roots(),
+      ctx,
+      undefined,
+      healthy(squashed),
+    );
+    expect(result.ok, result.ok ? '' : result.reason).toBe(true);
+  });
+
+  it('cleo complete re-checks containment, and records the probe body hash', async () => {
+    const result = await validateDeployAtom(
+      atom(deployed),
+      roots(),
+      context(['qaPassed']),
+      undefined,
+      healthy(deployed),
+    );
+    if (!result.ok || result.atom.kind !== 'deploy') throw new Error('expected a deploy atom');
+    expect(result.atom.probeBodySha256).toMatch(/^[0-9a-f]{64}$/);
+    const task = context(['qaPassed']).task;
+    expect(deployContainmentReason(task, [result.atom], root)).toBeNull();
+    const elsewhere = { ...result.atom, sha: unrelated };
+    expect(deployContainmentReason(task, [elsewhere], root)).toMatch(
+      /does not contain the task's implemented change/,
+    );
   });
 });

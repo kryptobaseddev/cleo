@@ -17,6 +17,7 @@ import type {
 } from '@cleocode/contracts';
 import { discoveryEnv } from '../git/work-tree.js';
 import { readProjectContextFile } from '../release/ci-evidence.js';
+import { containsChange } from './change-set.js';
 import type { AtomValidation, EvidenceRoots } from './evidence.js';
 
 /** Gates a `deploy:` atom can stand for. */
@@ -41,7 +42,12 @@ export interface ParsedDeployAtom {
 export interface DeployProbeResponse {
   status: number;
   body: string;
+  /** Response headers that may name the deployed commit, lower-cased names. */
+  headers?: Readonly<Record<string, string>>;
 }
+
+/** Response headers a probe may name the deployed commit in. */
+const COMMIT_HEADERS = ['x-commit', 'x-version'] as const;
 
 /** Fetches a probe URL; injectable for tests. */
 export type DeployProbe = (url: string) => Promise<DeployProbeResponse>;
@@ -69,15 +75,51 @@ function git(root: string, args: readonly string[]): string | null {
   }
 }
 
+/** The commits a task's implemented evidence records: its commits and PR merges. */
+function implementedCommits(task: Pick<Task, 'verification'> | undefined): string[] {
+  return (task?.verification?.evidence?.implemented?.atoms ?? []).flatMap((atom: EvidenceAtom) =>
+    atom.kind === 'commit' ? [atom.sha] : atom.kind === 'pr' ? [atom.mergeCommitSha] : [],
+  );
+}
+
+/** The change commits `deployed` does not hold ({@link containsChange}). */
+function missingFrom(root: string, deployed: string, change: readonly string[]): string[] {
+  return change.filter((sha) => !containsChange(root, deployed, sha));
+}
+
+/**
+ * Why a recorded `deploy:` atom no longer stands at `cleo complete` (T14083,
+ * decision D11207): its deployed commit must still hold every commit the
+ * task's implemented evidence records, which may have changed since verify.
+ * The probe is not repeated.
+ *
+ * @param task - The task being completed.
+ * @param atoms - The gate's recorded atoms.
+ * @param root - The repository the commits live in.
+ * @returns The reason, or null when every deploy atom still stands.
+ * @task T14083
+ */
+export function deployContainmentReason(
+  task: Pick<Task, 'verification'>,
+  atoms: readonly EvidenceAtom[],
+  root: string,
+): string | null {
+  const change = implementedCommits(task);
+  for (const atom of atoms) {
+    if (atom.kind !== 'deploy') continue;
+    const missing = missingFrom(root, atom.sha, change);
+    if (missing.length > 0)
+      return `deploy:${atom.provider}/${atom.deploymentId} deployed ${atom.sha.slice(0, 12)}, which does not contain the task's implemented change ${missing.map((s) => s.slice(0, 12)).join(', ')}; record a deploy of a commit that does.`;
+  }
+  return null;
+}
+
 /** The commits the task's change is recorded as: its implemented commits and PR merges. */
 function changeCommits(
   context: EvidenceValidationContext | undefined,
   siblingCommitSha: string | undefined,
 ): string[] {
-  const recorded = (context?.task.verification?.evidence?.implemented?.atoms ?? []).flatMap(
-    (atom: EvidenceAtom) =>
-      atom.kind === 'commit' ? [atom.sha] : atom.kind === 'pr' ? [atom.mergeCommitSha] : [],
-  );
+  const recorded = implementedCommits(context?.task);
   const written = (context?.artifactPrs ?? []).map((pr) => pr.mergeCommitSha);
   return [...new Set([...recorded, ...written, ...(siblingCommitSha ? [siblingCommitSha] : [])])];
 }
@@ -89,13 +131,23 @@ const defaultProbe: DeployProbe = async (url) => {
     signal: AbortSignal.timeout(PROBE_TIMEOUT_MS),
   });
   const body = (await response.text()).slice(0, PROBE_BODY_LIMIT);
-  return { status: response.status, body };
+  const headers: Record<string, string> = {};
+  for (const name of COMMIT_HEADERS) {
+    const value = response.headers.get(name);
+    if (value !== null) headers[name] = value;
+  }
+  return { status: response.status, body, headers };
 };
 
 /**
  * Validate a `deploy:` atom: the project maps it to the gate being written,
  * the deployed commit exists here and contains every commit the task's change
- * is recorded as, and the probe answers 2xx with a body naming the commit.
+ * is recorded as (an ancestor or a patch-equivalent copy), and the probe answers 2xx naming the commit in its body or
+ * an `X-Commit` / `X-Version` header.
+ *
+ * Trust model (decision D11207): CLEO runs the probe itself at verify time; a
+ * self-attested deploy receipt is not accepted, and checking the provider's
+ * API for the deployment is deferred.
  *
  * @param parsed - The parsed atom.
  * @param roots - Store root (the gate mapping) and execution root (the commits).
@@ -144,9 +196,7 @@ export async function validateDeployAtom(
       reason:
         'deploy evidence needs the change it deployed: record implemented (commit: or pr:) first, or in the same write.',
     };
-  const missing = change.filter(
-    (sha) => git(roots.executionRoot, ['merge-base', '--is-ancestor', sha, full]) === null,
-  );
+  const missing = missingFrom(roots.executionRoot, full, change);
   if (missing.length > 0)
     return {
       ok: false,
@@ -169,11 +219,15 @@ export async function validateDeployAtom(
       codeName: 'E_EVIDENCE_TOOL_FAILED',
       reason: `deploy probe ${parsed.probeUrl} answered HTTP ${answer.status}; the deployment is not healthy.`,
     };
-  if (!answer.body.includes(full.slice(0, 7)))
+  const short = full.slice(0, 7);
+  const named =
+    answer.body.includes(short) ||
+    COMMIT_HEADERS.some((name) => (answer.headers?.[name] ?? '').includes(short));
+  if (!named)
     return {
       ok: false,
       codeName: 'E_EVIDENCE_CONTENT_MISMATCH',
-      reason: `deploy probe ${parsed.probeUrl} answered ${answer.status} but its response does not name commit ${full.slice(0, 12)}; the probe must report the deployed SHA (e.g. a "commit" field in /healthz).`,
+      reason: `deploy probe ${parsed.probeUrl} answered ${answer.status} but neither its body nor an X-Commit or X-Version header names commit ${full.slice(0, 12)}; the probe must report the deployed SHA.`,
     };
   return {
     ok: true,
@@ -184,6 +238,7 @@ export async function validateDeployAtom(
       sha: full,
       probeUrl: parsed.probeUrl,
       probeStatus: answer.status,
+      probeBodySha256: createHash('sha256').update(answer.body).digest('hex'),
       probedAt: new Date().toISOString(),
     },
   };

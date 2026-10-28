@@ -514,6 +514,8 @@ export type EvidenceAtom =
       probeUrl: string;
       /** HTTP status the probe answered. */
       probeStatus: number;
+      /** SHA-256 of the probe response body that was read. */
+      probeBodySha256: string;
       /** When the probe answered (ISO-8601). */
       probedAt: string;
     }

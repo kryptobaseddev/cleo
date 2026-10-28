@@ -4451,6 +4451,16 @@ export async function revalidateEvidence(
     let reason = checkTaskEvidenceContext(context, gate, evidence.atoms);
     // T14004: a run bound in another task's checkout is not this task's evidence.
     reason ??= await boundHeadGapReason(task, evidence.atoms, projectRoot);
+    // T14083 (D11207): a deploy must still contain the implemented change.
+    if (!reason && evidence.atoms.some((atom) => atom.kind === 'deploy')) {
+      const { deployContainmentReason } = await import('./deploy-evidence.js');
+      const { resolveChangeSetRoot } = await import('./change-set.js');
+      reason = deployContainmentReason(
+        task,
+        evidence.atoms,
+        resolveChangeSetRoot(projectRoot, task.id).root,
+      );
+    }
     if (
       !reason &&
       !(
@@ -4697,8 +4707,8 @@ export async function revalidateEvidence(
         // immutable structural facts — no re-execution at complete time.
         break;
       case 'deploy':
-        // T14083: a deployment and its probe are facts of the moment they
-        // were recorded, trusted as captured like `ci:`.
+        // T14083 (D11207): the probe is a fact of the moment it ran and is not
+        // repeated; containment of the change is re-checked with the task.
         break;
       case 'decision':
         // Decision atoms reference brain_decisions rows which are immutable
