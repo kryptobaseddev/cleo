@@ -88,6 +88,36 @@ export interface MergeSweepOptions {
   prNumbers?: number[];
 }
 
+/** What the sweep did with open `macos-regression` issues (T14104). */
+export interface MacosRegressionSync {
+  /** Tasks created for newly seen issues (under `dryRun`: issue URLs that would get one). */
+  created: string[];
+  /** Issue URLs closed because their task is done. */
+  closedIssues: string[];
+  /** Why the issues were not read. */
+  skippedReason?: string;
+}
+
+/** The newest release's provenance reconcile, run by the sweep (T14102). */
+export interface MergeSweepReconcile {
+  /** The release version, or null when there is none. */
+  version: string | null;
+  /** What happened. */
+  action: 'reconciled' | 'already' | 'unpublished' | 'none' | 'failed';
+  /** Why, when it did not reconcile. */
+  reason?: string;
+}
+
+/** The other upkeep one sweep runs after the closures, inside the same claim. */
+export interface MergeSweepHooks {
+  /** Task ids flagged `docs-update` for docs a merged change left stale (T14111). */
+  docsRot?: string[];
+  /** `macos-regression` issues turned into tasks, and closed when their task is done (T14104). */
+  macosRegression?: MacosRegressionSync;
+  /** The newest release's reconcile (T14102); skipped under `dryRun`. */
+  reconcile?: MergeSweepReconcile;
+}
+
 /** Result of `sweepMergedClosures` / `cleo done --from-merge`. */
 export interface MergeSweepResult {
   /** False when the sweep did not run: throttled, `gh` unavailable, or offline. */
@@ -104,4 +134,6 @@ export interface MergeSweepResult {
   bound: string[];
   /** Tasks nothing was recorded for, with the reason. */
   refused: Array<{ taskId: string; prNumber: number; reason: string }>;
+  /** The upkeep run in the same sweep, when any ran. */
+  hooks?: MergeSweepHooks;
 }

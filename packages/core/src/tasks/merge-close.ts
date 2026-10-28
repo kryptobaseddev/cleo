@@ -37,10 +37,13 @@ import { homedir } from 'node:os';
 import { join } from 'node:path';
 import type {
   GhPrViewPayload,
+  MacosRegressionSync,
   MergeDirective,
   MergePrOutcome,
   MergeReceipt,
+  MergeSweepHooks,
   MergeSweepOptions,
+  MergeSweepReconcile,
   MergeSweepResult,
   MergeTaskOutcome,
   TaskAuditLogRow,
@@ -66,6 +69,12 @@ export const MERGE_SWEEP_LOOKBACK_MS = 7 * 24 * 60 * 60_000;
 
 /** The most merged PRs one sweep reads. */
 const MERGE_SWEEP_PR_LIMIT = 50;
+
+/** Open issues with this label become tasks (T14104). */
+export const MACOS_REGRESSION_LABEL = 'macos-regression';
+
+/** The external-link provider that records which task an issue became. */
+const ISSUE_LINK_PROVIDER = 'github-issue';
 
 /** The throttle and high-water file, under `.cleo/`. */
 const SWEEP_STATE_FILE = 'merge-sweep.json';
@@ -109,6 +118,26 @@ export interface MergeCloseDeps {
   ): Promise<StepResult>;
   /** Complete the task, as `cleo done --pr` does after recording. */
   complete(storeRoot: string, taskId: string, prNumber: number): Promise<StepResult>;
+  /** Open issues carrying a label (one `gh` call), or null when `gh` failed. */
+  listLabelledIssues(
+    root: string,
+    label: string,
+  ): Promise<Array<{ url: string; title: string }> | null>;
+  /** Close an issue with a comment; false when it could not. */
+  closeIssue(root: string, url: string, comment: string): Promise<boolean>;
+  /**
+   * Flag the docs a merged change left stale on its tasks (T14111), returning
+   * the task ids flagged. Unset until the docs-rot module is on main.
+   */
+  docsRot?(
+    storeRoot: string,
+    pr: { prNumber: number; mergeSha: string; taskIds: string[] },
+  ): Promise<string[]>;
+  /**
+   * Reconcile the newest published release's provenance (T14102). Unset until
+   * the release-cut module is on main.
+   */
+  reconcile?(storeRoot: string): Promise<MergeSweepReconcile>;
 }
 
 const DIRECTIVE_LINE = /^[ \t>*-]*(Closes|Refs)[ \t]*:[ \t]*(.*)$/gim;
@@ -451,6 +480,7 @@ export async function sweepMergedClosures(
   }
   const required = await deps.requiredChecks(storeRoot);
   const result: MergeSweepResult = { ...empty, swept: true };
+  const hooks: MergeSweepHooks = {};
   for (const pr of [...prs].sort((a, b) => a.mergedAt.localeCompare(b.mergedAt))) {
     const receipt = await judgeMergedPr(pr, required);
     const entry: MergePrOutcome = {
@@ -489,8 +519,28 @@ export async function sweepMergedClosures(
         });
     }
     if (!dryRun) await reportRefusals(storeRoot, root, pr, entry.outcomes, deps);
+    // T14111: flag stale docs once, on the run that applied this PR.
+    const applied = entry.outcomes.filter((o) => o.action === 'closed' || o.action === 'bound');
+    if (!dryRun && deps.docsRot && pr.mergeCommitSha && applied.length > 0) {
+      const taskIds = applied.map((o) => o.taskId);
+      const flagged = await deps
+        .docsRot(storeRoot, { prNumber: pr.number, mergeSha: pr.mergeCommitSha, taskIds })
+        .catch(() => []);
+      hooks.docsRot = [...(hooks.docsRot ?? []), ...flagged];
+    }
     result.prs.push(entry);
   }
+  if (!targeted) {
+    hooks.macosRegression = await syncMacosRegressionIssues(storeRoot, root, deps, dryRun);
+    if (!dryRun && deps.reconcile) {
+      hooks.reconcile = await deps.reconcile(storeRoot).catch((err: Error) => ({
+        version: null,
+        action: 'failed' as const,
+        reason: err.message,
+      }));
+    }
+  }
+  if (Object.keys(hooks).length > 0) result.hooks = hooks;
   if (!dryRun && !targeted) {
     const highWater = prs.reduce((max, pr) => (pr.mergedAt > max ? pr.mergedAt : max), since);
     writeFileSync(
@@ -543,6 +593,80 @@ export async function mergeReceiptFor(
   const commented =
     opts.comment === true && (await deps.comment(storeRoot, prNumber, formatMergeReceipt(receipt)));
   return { receipt, commented };
+}
+
+/**
+ * Turn open `macos-regression` issues into tasks (T14104), one per issue,
+ * under `release.macosRegressionParent` when it names a task, linked by issue URL in the external
+ * task links so a rerun creates nothing twice; close an issue once its task is
+ * done. Never throws. Under `dryRun` it creates and closes nothing.
+ */
+async function syncMacosRegressionIssues(
+  storeRoot: string,
+  root: string,
+  deps: MergeCloseDeps,
+  dryRun: boolean,
+): Promise<MacosRegressionSync> {
+  const sync: MacosRegressionSync = { created: [], closedIssues: [] };
+  const issues = await deps.listLabelledIssues(root, MACOS_REGRESSION_LABEL);
+  if (issues === null) return { ...sync, skippedReason: 'gh could not list issues' };
+  const links = await import('../reconciliation/link-store.js');
+  const { getTaskAccessor } = await import('../store/data-accessor.js');
+  const accessor = await getTaskAccessor(storeRoot);
+  const { loadProjectContext } = await import('../agents/variable-substitution.js');
+  const ctx = loadProjectContext(storeRoot);
+  const release = (ctx.context?.['release'] ?? {}) as { macosRegressionParent?: unknown };
+  const parent =
+    typeof release.macosRegressionParent === 'string' &&
+    (await accessor.loadSingleTask(release.macosRegressionParent)) !== null
+      ? release.macosRegressionParent
+      : null;
+  for (const issue of issues) {
+    try {
+      const link = await links.getLinkByExternalId(ISSUE_LINK_PROVIDER, issue.url, storeRoot);
+      if (link === null) {
+        if (dryRun) {
+          sync.created.push(issue.url);
+          continue;
+        }
+        const { addTask } = await import('./add.js');
+        const added = await addTask(
+          {
+            title: `macOS regression: ${issue.title}`,
+            description: `Opened from ${issue.url} by the merge sweep (T14104).`,
+            acceptance: [
+              `the macOS failure in ${issue.url} is fixed and its shards pass on main nightly`,
+            ],
+            parentId: parent,
+            labels: [MACOS_REGRESSION_LABEL],
+          },
+          storeRoot,
+          accessor,
+        );
+        await links.createLink(
+          {
+            taskId: added.task.id,
+            providerId: ISSUE_LINK_PROVIDER,
+            externalId: issue.url,
+            externalUrl: issue.url,
+            externalTitle: issue.title,
+            linkType: 'created',
+            syncDirection: 'inbound',
+          },
+          storeRoot,
+        );
+        sync.created.push(added.task.id);
+        continue;
+      }
+      const task = await accessor.loadSingleTask(link.taskId);
+      if (task?.status !== 'done' || dryRun) continue;
+      const comment = `CLEO: ${task.id} is done; closing this macOS regression.`;
+      if (await deps.closeIssue(root, issue.url, comment)) sync.closedIssues.push(issue.url);
+    } catch {
+      // One issue's failure never stops the others; the next sweep retries it.
+    }
+  }
+  return sync;
 }
 
 const PR_FIELDS = 'number,body,mergedAt,headRefOid,mergeCommit,statusCheckRollup';
@@ -661,5 +785,21 @@ export const defaultMergeCloseDeps: MergeCloseDeps = {
   async complete(storeRoot, taskId, prNumber) {
     const { taskComplete } = await import('./complete.js');
     return stepOf(await taskComplete(storeRoot, taskId, { prNumber }));
+  },
+  async listLabelledIssues(root, label) {
+    const args = ['issue', 'list', '--label', label, '--state', 'open', '--json', 'url,title'];
+    const out = await gh([...args, '--limit', String(MERGE_SWEEP_PR_LIMIT)], root);
+    if (out === null) return null;
+    const rows: unknown = JSON.parse(out);
+    if (!Array.isArray(rows)) return null;
+    return rows.flatMap((row) => {
+      const r = row as { url?: unknown; title?: unknown };
+      return typeof r.url === 'string' && typeof r.title === 'string'
+        ? [{ url: r.url, title: r.title }]
+        : [];
+    });
+  },
+  async closeIssue(root, url, comment) {
+    return (await gh(['issue', 'close', url, '--comment', comment], root)) !== null;
   },
 };

@@ -1223,10 +1223,13 @@ export type {
   SessionSummary,
 } from './memory.js';
 export type {
+  MacosRegressionSync,
   MergeDirective,
   MergePrOutcome,
   MergeReceipt,
+  MergeSweepHooks,
   MergeSweepOptions,
+  MergeSweepReconcile,
   MergeSweepResult,
   MergeTaskOutcome,
 } from './merge-close.js';

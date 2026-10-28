@@ -92,8 +92,9 @@ async function seedTask(acceptance: string[]): Promise<string> {
 }
 
 /** Fake outside world: the PRs gh lists, and a record of every call. */
-function fakeDeps(prs: MergedPrRecord[]) {
+function fakeDeps(prs: MergedPrRecord[], issues: Array<{ url: string; title: string }> = []) {
   const calls = {
+    closedIssues: [] as string[],
     record: [] as Array<{ taskId: string; prNumber: number; acs: string[]; dryRun: boolean }>,
     complete: [] as string[],
     comments: [] as Array<{ prNumber: number; body: string }>,
@@ -110,6 +111,11 @@ function fakeDeps(prs: MergedPrRecord[]) {
     record: async (_root, taskId, prNumber, acs, dryRun) => {
       calls.record.push({ taskId, prNumber, acs, dryRun });
       return { ok: true };
+    },
+    listLabelledIssues: async () => issues,
+    closeIssue: async (_root, url) => {
+      calls.closedIssues.push(url);
+      return true;
     },
     complete: async (_root, taskId) => {
       calls.complete.push(taskId);
@@ -322,5 +328,70 @@ describe('the lazy sweep is safe to start from read commands (T14101)', () => {
       // Exit 0 means ignored; a tracked or unignored path throws.
       expect(() => execFileSync('git', ['check-ignore', '-q', file], { cwd: repo })).not.toThrow();
     }
+  });
+});
+
+describe('one sweep also runs the upkeep hooks (T14101)', () => {
+  it('turns a macos-regression issue into one task under the configured parent, and closes it when done', async () => {
+    const parent = await seedTask(['parent criterion']);
+    writeFileSync(
+      join(root, '.cleo', 'project-context.json'),
+      JSON.stringify({ release: { macosRegressionParent: parent } }),
+    );
+    const issue = { url: 'https://github.com/o/r/issues/7', title: 'shard 3 fails on macOS' };
+    const { deps, calls } = fakeDeps([], [issue]);
+    const first = await sweepMergedClosures(root, { force: true }, deps);
+    const created = first.hooks?.macosRegression?.created ?? [];
+    expect(created).toHaveLength(1);
+    const task = await env.accessor.loadSingleTask(created[0] ?? '');
+    expect(task?.title).toBe('macOS regression: shard 3 fails on macOS');
+    expect(task?.parentId).toBe(parent);
+    const again = await sweepMergedClosures(root, { force: true }, deps);
+    expect(again.hooks?.macosRegression?.created).toEqual([]);
+    await env.accessor.updateTaskFields(created[0] ?? '', {
+      status: 'done',
+      pipelineStage: 'contribution',
+    });
+    const closing = await sweepMergedClosures(root, { force: true }, deps);
+    expect(closing.hooks?.macosRegression?.closedIssues).toEqual([issue.url]);
+    expect(calls.closedIssues).toEqual([issue.url]);
+  });
+
+  it('a dry run creates no issue task and runs no reconcile', async () => {
+    let reconciled = 0;
+    const { deps } = fakeDeps([], [{ url: 'https://github.com/o/r/issues/8', title: 'x' }]);
+    const result = await sweepMergedClosures(
+      root,
+      { force: true, dryRun: true },
+      {
+        ...deps,
+        reconcile: async () => {
+          reconciled++;
+          return { version: 'v1', action: 'reconciled' };
+        },
+      },
+    );
+    expect(result.hooks?.macosRegression?.created).toEqual(['https://github.com/o/r/issues/8']);
+    expect(result.hooks?.reconcile).toBeUndefined();
+    expect(reconciled).toBe(0);
+  });
+
+  it('flags stale docs once, on the run that applied the PR, and reconciles the newest release', async () => {
+    const id = await seedTask(['only criterion']);
+    const flaggedFor: string[][] = [];
+    const { deps } = fakeDeps([pr(20, `Closes: ${id} AC1`)]);
+    const hooked: MergeCloseDeps = {
+      ...deps,
+      docsRot: async (_root, change) => {
+        flaggedFor.push(change.taskIds);
+        return change.taskIds;
+      },
+      reconcile: async () => ({ version: 'v2026.10.27', action: 'already' }),
+    };
+    const first = await sweepMergedClosures(root, { force: true }, hooked);
+    expect(first.hooks?.docsRot).toEqual([id]);
+    expect(first.hooks?.reconcile).toEqual({ version: 'v2026.10.27', action: 'already' });
+    await sweepMergedClosures(root, { force: true }, hooked);
+    expect(flaggedFor).toEqual([[id]]);
   });
 });
