@@ -157,7 +157,7 @@ materializing through `cleo docs add` + (optionally) `cleo docs publish`.
 
 ## Kinds and names (T14107 · D11210)
 
-One kind per published directory; `cleo docs list-types` prints them (adr, spec, plan, research, guide, concept, reference, migration, release-note, note; handoffs are store-only and never published). Name a doc by its subject: lowercase kebab-case, at most 64 characters, with no task id, session id or date in it. The ADR number and the release-note version are allowed. Task and decision links and dates go in the doc's metadata. `cleo docs add` refuses a breaking slug (`E_DOC_NAME_RULE`, with a suggestion) and `cleo check canon docs` refuses a breaking tracked name; the full rule is in `docs/CLEO-DOCUMENTATION-SOP.md` §2-3.
+One kind per published directory; `cleo docs list-types` prints them (adr, spec, plan, research, guide, concept, reference, migration, release-note, note; handoffs are store-only and never published). Name a doc by its subject: lowercase kebab-case, at most 64 characters, with no task id, session id or date in it. The ADR number and the release-note version are allowed. Task and decision links and dates go in the doc's metadata. `cleo docs add` refuses a breaking slug (`E_DOC_NAME_RULE`, with a suggestion) and `cleo check canon docs` refuses a breaking tracked name; the rule is implemented once in `packages/core/src/docs/doc-name-rule.ts` (`docNameViolation`), and names that broke it before it existed are in the shrink-only `scripts/.docs-name-baseline.json`.
 
 ## Decision: update vs supersede vs create (T10168 · Saga T9855 / E12)
 
