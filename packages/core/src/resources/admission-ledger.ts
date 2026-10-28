@@ -113,7 +113,7 @@ import {
   type ScriptFootprint,
   scriptFootprint,
 } from './hook-footprint.js';
-import { pressureScore, ResourceMonitor } from './monitor.js';
+import { classifyPressure, pressureScore, ResourceMonitor } from './monitor.js';
 import {
   checkMemoryGate,
   MEMORY_GATE_RETRY_AFTER_MS,
@@ -625,6 +625,18 @@ export interface LedgerEntry {
    * within the budget; nothing running is paused or displaced for it.
    */
   readonly priority?: 'urgent';
+  /**
+   * Never SIGSTOPped once running (`--no-pause`, a test run; T14075, T14093).
+   * While the machine is at backoff it starts only by the idle rule (T14098):
+   * one at a time, in queue order, when no CLEO run is admitted and its charge
+   * fits the reclaimable memory.
+   */
+  readonly neverPause?: boolean;
+  /**
+   * `idle` when the idle rule admitted it (T14088, T14098): CLEO held nothing
+   * while pressure outside CLEO kept the budget closed.
+   */
+  readonly admittedBy?: 'idle';
 }
 
 /** A holder's child process: its pid and start time (`null` when `ps` could not say). */
@@ -711,6 +723,10 @@ interface CachedPressure {
   readonly lightShare?: BudgetShare;
   readonly reading: MemoryPressureReading | null;
   readonly sampledAtMs: number;
+  /** The sample was at backoff (memory or CPU; T14098). Absent in caches written before it. */
+  readonly backoff?: boolean;
+  /** The sample's available or reclaimable memory, in bytes (T14098). */
+  readonly memAvailableBytes?: number | null;
 }
 
 /** The ledger file, read. */
@@ -736,6 +752,10 @@ function isCachedPressure(v: unknown): v is CachedPressure {
     (c.lightShare === undefined ||
       (typeof c.lightShare === 'string' && SHARES.has(c.lightShare))) &&
     typeof c.sampledAtMs === 'number' &&
+    (c.backoff === undefined || typeof c.backoff === 'boolean') &&
+    (c.memAvailableBytes === undefined ||
+      c.memAvailableBytes === null ||
+      typeof c.memAvailableBytes === 'number') &&
     (c.reading === null || (typeof c.reading === 'object' && c.reading !== null))
   );
 }
@@ -1179,6 +1199,12 @@ export interface PassContext {
    * no more than this may start; `null` or absent starts nothing.
    */
   readonly reclaimableBytes?: number | null;
+  /**
+   * The machine is at backoff (T14098): a waiting run that is never paused
+   * ({@link LedgerEntry.neverPause}) starts only by the idle rule, since
+   * pressure could not pause it later.
+   */
+  readonly backoff?: boolean;
 }
 
 /**
@@ -1212,6 +1238,41 @@ function firstFittingWaiter(
  */
 export function isLatchedBelowRefuse(reading: MemoryPressureReading | null | undefined): boolean {
   return reading?.latched === true && reading.score <= reading.refuseAbove;
+}
+
+/**
+ * The idle rule (T14088, T14098): with nothing of CLEO's admitted, the
+ * pressure that keeps the budget closed is someone else's, so the first of
+ * `candidates` in queue order whose charge fits the reclaimable memory starts
+ * (never a whole-suite run into a nearly full swap). It holds the budget
+ * alone until it releases; nothing else starts beside it.
+ *
+ * @param entries - the ledger.
+ * @param ctx - the pass context (capacity, clock, reclaimable memory).
+ * @param candidates - the waiters the rule may start.
+ */
+function admitOneWhenIdle(
+  entries: readonly LedgerEntry[],
+  ctx: PassContext,
+  candidates: readonly LedgerEntry[],
+): LedgerEntry[] {
+  const idle = (ctx.foreign?.count ?? 0) === 0 && !entries.some((e) => e.state === 'admitted');
+  if (!idle) return [...entries];
+  const fitting = firstFittingWaiter(
+    candidates,
+    ctx.reclaimableBytes,
+    ctx.capacityBytes,
+    ctx.nowMs,
+  );
+  if (fitting === null) return [...entries];
+  const opened = schedulePass(
+    entries.filter((e) => e.state !== 'waiting' || e.id === fitting.id),
+    { ...ctx, share: 'one', lightShare: 'one', latchedBelowRefuse: false, backoff: false },
+  );
+  const started = opened.find((e) => e.id === fitting.id && e.state === 'admitted');
+  return entries.map((e) =>
+    e.id === started?.id ? { ...started, admittedBy: 'idle' as const } : e,
+  );
 }
 
 function charged(entry: LedgerEntry, capacityBytes: number): number {
@@ -1400,23 +1461,38 @@ export function schedulePass(entries: readonly LedgerEntry[], ctx: PassContext):
   const lightShare = ctx.lightShare ?? ctx.share;
   if (ctx.share === 'none' && lightShare === 'none') {
     // T14088: latched below the refuse line with nothing of CLEO's running: the
-    // pressure is someone else's, so admit one run, the first in queue order
-    // whose charge fits the memory the reading reports as reclaimable (never a
-    // whole-suite run into a nearly full swap). It holds the budget alone
-    // until it releases; nothing else starts beside it.
-    const idle =
-      ctx.latchedBelowRefuse === true &&
-      (ctx.foreign?.count ?? 0) === 0 &&
-      !entries.some((e) => e.state === 'admitted');
-    if (!idle) return [...entries];
-    const fitting = firstFittingWaiter(entries, ctx.reclaimableBytes, ctx.capacityBytes, ctx.nowMs);
-    if (fitting === null) return [...entries];
-    const opened = schedulePass(
-      entries.filter((e) => e.state !== 'waiting' || e.id === fitting.id),
-      { ...ctx, share: 'one', lightShare: 'one', latchedBelowRefuse: false },
+    // pressure is someone else's, so the idle rule admits one run. Above the
+    // refuse line nothing starts.
+    if (ctx.latchedBelowRefuse !== true) return [...entries];
+    return admitOneWhenIdle(entries, ctx, entries);
+  }
+  if (ctx.backoff === true) {
+    // T14098: pressure cannot pause a never-paused run later, so at backoff it
+    // starts only by the same idle rule. A nested one (its ancestors admitted)
+    // is never held: CLEO is never idle for it. Non-tiny runs queued behind
+    // the first one that fits keep their place, so a stream of pausable runs
+    // cannot starve it; the rest are scheduled as usual.
+    const held = entries.filter(
+      (e) => e.state === 'waiting' && e.neverPause === true && e.parentId === undefined,
     );
-    const started = opened.find((e) => e.id === fitting.id && e.state === 'admitted');
-    return entries.map((e) => (e.id === started?.id ? started : e));
+    if (held.length > 0) {
+      const heldIds = new Set(held.map((e) => e.id));
+      const head = firstFittingWaiter(held, ctx.reclaimableBytes, ctx.capacityBytes, ctx.nowMs);
+      const order = queueOrder(ctx.nowMs);
+      const waitsBehind = (e: LedgerEntry): boolean =>
+        head !== null && e.state === 'waiting' && !isTiny(e) && order(head, e) < 0;
+      const scheduled = new Map(
+        schedulePass(
+          entries.filter((e) => !heldIds.has(e.id) && !waitsBehind(e)),
+          { ...ctx, backoff: false },
+        ).map((e) => [e.id, e]),
+      );
+      return admitOneWhenIdle(
+        entries.map((e) => scheduled.get(e.id) ?? e),
+        ctx,
+        held,
+      );
+    }
   }
   const reservationMs = ctx.reservationMs ?? LEDGER_RESERVATION_MS;
   const bytesFor = (share: BudgetShare): number => shareBudgetBytes(share, ctx.capacityBytes);
@@ -1958,6 +2034,8 @@ export interface AdmissionRequest {
   readonly exclusive?: boolean;
   /** Queue ahead of routine waiters, within the budget (T13921). */
   readonly urgent?: boolean;
+  /** Never paused once running: at backoff it starts only by the idle rule (T14098). */
+  readonly neverPause?: boolean;
 }
 
 /** How to wait, and where to report. */
@@ -2035,6 +2113,8 @@ export interface AdmissionGrant {
   readonly waitedMs: number;
   /** Bytes charged. */
   readonly footprintBytes: number;
+  /** `idle` when the idle rule admitted it (T14088, T14098). */
+  readonly admittedBy?: 'idle';
   /** Give the share back. Idempotent. */
   release(): Promise<void>;
   /**
@@ -2179,11 +2259,19 @@ async function sampleShare(
     gate.refuse && gate.reading !== null
       ? withTopConsumers(gate.reading, cached, nowMs, opts, probeFor)
       : null;
+  const backoff = classifyPressure(sample).state === 'backoff';
   return {
     share,
     lightShare,
     reading,
-    sampled: { share, lightShare, reading, sampledAtMs: nowMs },
+    sampled: {
+      share,
+      lightShare,
+      reading,
+      sampledAtMs: nowMs,
+      backoff,
+      memAvailableBytes: sample.memAvailableBytes,
+    },
   };
 }
 
@@ -2300,7 +2388,8 @@ function reapAndSchedule(
 ): LedgerDoc {
   const live = doc.entries.filter((e) => dead.entries.get(e.id) !== e.heartbeatAtMs);
   const foreign = doc.foreign.filter((f) => !dead.foreign.has(JSON.stringify(f)));
-  const reading = (sampled ?? doc.pressure)?.reading;
+  const cached = sampled ?? doc.pressure;
+  const reading = cached?.reading;
   const latchedBelowRefuse = isLatchedBelowRefuse(reading);
   return {
     ...doc,
@@ -2308,7 +2397,8 @@ function reapAndSchedule(
       ...ctx,
       foreign: foreignLoad(foreign, ctx.capacityBytes),
       latchedBelowRefuse,
-      reclaimableBytes: reading?.memAvailableBytes ?? null,
+      reclaimableBytes: reading?.memAvailableBytes ?? cached?.memAvailableBytes ?? null,
+      backoff: cached?.backoff === true,
     }),
     foreign,
     pressure: sampled ?? doc.pressure,
@@ -2427,6 +2517,7 @@ async function admitInner(req: AdmissionRequest, opts: AdmitOptions): Promise<Ad
     ...(req.footprintReason !== undefined ? { footprintReason: req.footprintReason } : {}),
     ...(req.exclusive === true ? { exclusive: true } : {}),
     ...(req.urgent === true ? { priority: 'urgent' as const } : {}),
+    ...(req.neverPause === true ? { neverPause: true } : {}),
   };
 
   const deadline = t0 + timeoutMs;
@@ -2521,14 +2612,17 @@ async function admitInner(req: AdmissionRequest, opts: AdmitOptions): Promise<Ad
             (e) => e.state === 'admitted' && e.exclusive === true && e.id !== entry.id,
           )
         : undefined;
+    const hold = neverPauseHold(doc, entry);
     const reason =
       reading !== null
         ? latchCause(reading, doc.entries, capacityBytes, nowMs)
-        : exclusiveHolder !== undefined
-          ? `another full build holds the machine-wide full-build slot (${exclusiveHolder.label} pid ` +
-            `${exclusiveHolder.pid}); one runs at a time, whatever its size${ahead > 0 ? `; ${ahead} waiting ahead` : ''}`
-          : `machine budget in use: ${gib(load.bytes)} of ${budgetPhrase(entry, ledgerBudget(doc.pressure, capacityBytes), load.bytes)} by ${load.runs} run(s); ` +
-            `this run needs ${gib(charged(entry, capacityBytes))}${ahead > 0 ? `; ${ahead} waiting ahead` : ''}`;
+        : hold !== null
+          ? `${hold}${ahead > 0 ? `; ${ahead} waiting ahead` : ''}`
+          : exclusiveHolder !== undefined
+            ? `another full build holds the machine-wide full-build slot (${exclusiveHolder.label} pid ` +
+              `${exclusiveHolder.pid}); one runs at a time, whatever its size${ahead > 0 ? `; ${ahead} waiting ahead` : ''}`
+            : `machine budget in use: ${gib(load.bytes)} of ${budgetPhrase(entry, ledgerBudget(doc.pressure, capacityBytes), load.bytes)} by ${load.runs} run(s); ` +
+              `this run needs ${gib(charged(entry, capacityBytes))}${ahead > 0 ? `; ${ahead} waiting ahead` : ''}`;
     return {
       reason,
       retryAfterMs: reading !== null ? MEMORY_GATE_RETRY_AFTER_MS : 2_000,
@@ -2552,6 +2646,9 @@ async function admitInner(req: AdmissionRequest, opts: AdmitOptions): Promise<Ad
       return { admitted: false, refusal: refusal(first.doc, first.reading) };
     }
 
+    // T14098: say at once which rule holds a never-paused run at backoff.
+    const hold = first.reading === null ? neverPauseHold(first.doc, first.mine ?? entry) : null;
+    if (hold !== null) opts.notice?.(`waiting: ${hold}`);
     let lastPassAt = now();
     let lastReportAt = t0;
     let lastKeepAliveAt = Number.NEGATIVE_INFINITY;
@@ -2678,6 +2775,23 @@ function describeLoad(doc: LedgerDoc, nowMs: number, probe: PidProbe): string[] 
 }
 
 /**
+ * Why a never-paused waiter is held at backoff (T14098), naming the rule, or
+ * `null` when that rule does not hold it.
+ */
+function neverPauseHold(doc: LedgerDoc, mine: LedgerEntry): string | null {
+  if (mine.neverPause !== true || mine.parentId !== undefined || doc.pressure?.backoff !== true) {
+    return null;
+  }
+  const admitted = doc.entries.filter((e) => e.state === 'admitted').length + doc.foreign.length;
+  const reclaimable = doc.pressure.memAvailableBytes;
+  return (
+    `machine at backoff; this run is never paused, so it starts only when no CLEO run is admitted ` +
+    `and its charge fits the reclaimable memory, one at a time in queue order (${admitted} CLEO run(s) admitted; ` +
+    `reclaimable ${typeof reclaimable === 'number' ? gib(reclaimable) : 'unknown'})`
+  );
+}
+
+/**
  * The holder report a long waiter prints. When the memory gate closed the
  * budget, it names the cause (the host's largest memory users, CLEO or not)
  * and when the wait gives up (T13914).
@@ -2700,6 +2814,8 @@ function holderReport(
       `queue position ${ahead + 1}${mine.priority === 'urgent' ? ' (urgent)' : ''}, ${ahead} waiting ahead). Holders: ${describeLoad(doc, nowMs, probe).join(' | ') || 'none'}.`,
   ];
   const reading = doc.pressure?.reading ?? null;
+  const hold = reading === null ? neverPauseHold(doc, mine) : null;
+  if (hold !== null) lines.push(`Held by the backoff rule: ${hold}.`);
   if (reading !== null) {
     lines.push(
       `The budget is closed by ${latchCause(reading, doc.entries, capacityBytes, nowMs)}. Admission resumes by itself; this wait ` +
@@ -2826,6 +2942,7 @@ function holdGrant(
     ungoverned: null,
     waitedMs,
     footprintBytes: entry.footprintBytes,
+    ...(entry.admittedBy !== undefined ? { admittedBy: entry.admittedBy } : {}),
     recordChild: (child) => {
       void update((e) => ({ ...e, child }));
     },

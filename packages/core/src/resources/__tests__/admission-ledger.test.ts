@@ -1038,6 +1038,118 @@ describe('suspectCycle', () => {
   });
 });
 
+describe('a never-paused run at backoff starts by the idle rule (T14098)', () => {
+  const ctx = (over: { reclaimableBytes?: number | null; backoff?: boolean } = {}) => ({
+    capacityBytes: 10 * GIB,
+    share: 'one' as const,
+    lightShare: 'full' as const,
+    nowMs: 1_000,
+    reclaimableBytes: 8 * GIB,
+    backoff: true,
+    ...over,
+  });
+  const np = (id: string, enqueuedAtMs: number, footprintBytes = 4 * GIB) =>
+    entry({ id, enqueuedAtMs, footprintBytes, neverPause: true });
+
+  it('CLEO idle: the first never-paused waiter in queue order starts alone, marked idle', () => {
+    const out = schedulePass([np('b', 2), np('a', 1)], ctx());
+    expect(admittedIds(out)).toEqual(['a']);
+    expect(out.find((e) => e.id === 'a')?.admittedBy).toBe('idle');
+  });
+
+  it('a CLEO run admitted: the never-paused waiter is held', () => {
+    const held = [entry({ id: 'h', state: 'admitted', admittedAtMs: 0 }), np('a', 1)];
+    expect(admittedIds(schedulePass(held, ctx()))).toEqual(['h']);
+  });
+
+  it('runs queued behind the held one keep their place; one queued ahead still starts', () => {
+    const ledger = [
+      entry({ id: 'ahead', enqueuedAtMs: 1, footprintBytes: 4 * GIB }),
+      np('a', 2),
+      entry({ id: 'behind', enqueuedAtMs: 3, footprintBytes: 4 * GIB }),
+    ];
+    expect(admittedIds(schedulePass(ledger, ctx()))).toEqual(['ahead']);
+    // Once nothing of CLEO's runs, the never-paused one starts, not the run behind it.
+    const next = schedulePass(
+      ledger.filter((e) => e.id !== 'ahead'),
+      ctx(),
+    );
+    expect(admittedIds(next)).toEqual(['a']);
+  });
+
+  it('a never-paused run larger than the reclaimable memory never starts and holds nobody back', () => {
+    const ledger = [
+      np('suite', 1, 9 * GIB),
+      entry({ id: 'build', enqueuedAtMs: 2, footprintBytes: 4 * GIB }),
+    ];
+    expect(admittedIds(schedulePass(ledger, ctx({ reclaimableBytes: 3 * GIB })))).toEqual([
+      'build',
+    ]);
+    expect(admittedIds(schedulePass([np('a', 1)], ctx({ reclaimableBytes: null })))).toEqual([]);
+  });
+
+  it('below backoff it is scheduled like any run; a nested one is never held', () => {
+    const ledger = [entry({ id: 'h', state: 'admitted', admittedAtMs: 0 }), np('a', 1, 2 * GIB)];
+    expect(
+      admittedIds(schedulePass(ledger, { ...ctx({ backoff: false }), share: 'full' })),
+    ).toEqual(['h', 'a']);
+    const nested = [
+      entry({ id: 'p', state: 'admitted', admittedAtMs: 0, footprintBytes: GIB }),
+      { ...np('child', 1, 2 * GIB), parentId: 'p' },
+    ];
+    expect(admittedIds(schedulePass(nested, ctx()))).toEqual(['p', 'child']);
+  });
+
+  it('above the refuse line nothing starts, never-paused or not', () => {
+    expect(
+      admittedIds(schedulePass([np('a', 1)], { ...ctx(), share: 'none', lightShare: 'none' })),
+    ).toEqual([]);
+  });
+
+  it('admit(): held while a CLEO run is admitted, with the rule named; started by it once CLEO is idle', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'cleo-ledger-backoff-'));
+    _resetMemoryGateForTest();
+    // CPU saturation: backoff, while the memory gate admits.
+    const opts = {
+      capacityBytes: 10 * GIB,
+      sample: async () => sampleAt(0, 60),
+      env: {},
+      pollMs: 5,
+      topMemory: () => [],
+      dir,
+    };
+    try {
+      const holder = await admit(
+        { label: 'run:scoped-build', footprintBytes: 2 * GIB },
+        { ...opts, wait: false },
+      );
+      expect(holder.admitted).toBe(true);
+      const held = await admit(
+        { label: 'run:test-run', footprintBytes: 2 * GIB, neverPause: true },
+        { ...opts, wait: false },
+      );
+      expect(held.admitted).toBe(false);
+      if (!held.admitted) {
+        expect(held.refusal.reason).toMatch(
+          /machine at backoff; this run is never paused, so it starts only when no CLEO run is admitted and its charge fits the reclaimable memory.*1 CLEO run\(s\) admitted; reclaimable 8\.0 GiB/,
+        );
+      }
+      if (holder.admitted) await holder.grant.release();
+      const started = await admit(
+        { label: 'run:test-run', footprintBytes: 2 * GIB, neverPause: true },
+        { ...opts, wait: false },
+      );
+      expect(started.admitted).toBe(true);
+      if (started.admitted) {
+        expect(started.grant.admittedBy).toBe('idle');
+        await started.grant.release();
+      }
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});
+
 describe('admit (one ledger, real critical section)', () => {
   let dir: string;
   const calm = async () => sampleAt(0);
