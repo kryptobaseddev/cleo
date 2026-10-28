@@ -103,9 +103,9 @@ describe('modernize --store (fixture store)', () => {
       newSlug: 'loose-requirements',
     });
     expect(row(betaId)?.newSlug).toBe('adr-052-beta');
-    expect((plan.storeRows ?? []).some((r) => r.slug === 'adr-051-alpha' || r.slug === 'clean-note')).toBe(
-      false,
-    );
+    expect(
+      (plan.storeRows ?? []).some((r) => r.slug === 'adr-051-alpha' || r.slug === 'clean-note'),
+    ).toBe(false);
 
     const receipt = await applyDocsStoreModernize(plan, projectRoot);
     expect(receipt.ops.map((o) => o.op).sort()).toEqual([

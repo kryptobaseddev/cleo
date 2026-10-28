@@ -365,12 +365,7 @@ export async function reverseStoreOp(
       const store = createAttachmentStore();
       const refs = op.attachmentId ? await store.listRefs(op.attachmentId, projectRoot) : [];
       if (op.attachmentId && op.ownerId && refs.some((r) => r.ownerId === op.ownerId)) {
-        await store.deref(
-          op.attachmentId,
-          IMPORT_OWNER_TYPE,
-          op.ownerId,
-          projectRoot,
-        );
+        await store.deref(op.attachmentId, IMPORT_OWNER_TYPE, op.ownerId, projectRoot);
       }
       return true;
     }

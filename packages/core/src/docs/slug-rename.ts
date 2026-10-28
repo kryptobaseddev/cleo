@@ -192,7 +192,10 @@ export async function setDocKind(
  * @param attachmentId - The row id.
  * @returns The kind, or null when untyped or unknown.
  */
-export async function getDocKind(projectRoot: string, attachmentId: string): Promise<string | null> {
+export async function getDocKind(
+  projectRoot: string,
+  attachmentId: string,
+): Promise<string | null> {
   const db = await getDb(projectRoot);
   const row = await db
     .select({ type: attachments.type })
