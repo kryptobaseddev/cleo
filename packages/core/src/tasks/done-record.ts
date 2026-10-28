@@ -144,6 +144,7 @@ async function versionConflict(
     assertTaskVersion(taskId, task, expectedUpdatedAt);
     return null;
   } catch (err) {
+    // @sync-invariant none:input-shape a stale --if-match version is refused before any gate is recorded
     return cleoErrorToEngineResult<DoneRecordResult>(err, 'E_CONFLICT', 'Task version conflict');
   }
 }
@@ -245,6 +246,7 @@ function blocked(
     recordedGates,
     plan,
   };
+  // @sync-invariant task.done.evidence a gate whose evidence the plan cannot prove stops cleo done before the verification write and the completion
   return engineError('E_DONE_BLOCKED', blocker.message, { details, fix: blocker.next.command });
 }
 
@@ -357,6 +359,7 @@ export async function recordTaskDone(
       waitForTestSlot: true,
     });
   } catch (err) {
+    // @sync-invariant task.done.evidence without a derived plan there is no proven evidence, so nothing is recorded or completed
     return cleoErrorToEngineResult<DoneRecordResult>(err, 'E_DONE_FAILED', 'cleo done failed');
   }
   // T12672: every plan-visible refusal (worktree, checkout, evidence the
@@ -506,6 +509,7 @@ export async function recordTasksDone(
 ): Promise<BatchDoneEntry[]> {
   // T12503: one version cannot describe several tasks.
   if (opts.expectedUpdatedAt !== undefined && taskIds.length > 1) {
+    // @sync-invariant none:input-shape one --if-match version for several tasks is refused before anything is written
     throw new CleoError(
       ExitCode.INVALID_INPUT,
       '--if-match applies to one task; it cannot be used with several task ids',
