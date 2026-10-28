@@ -147,10 +147,10 @@ function levenshteinDistance(a: string, b: string): number {
  * Formula: `1 - distance / max(len(a), len(b))`. Identical strings return
  * `1.0`; strings sharing no characters of equal length return `0.0`.
  *
- * @internal
  * @task T10361
+ * @task T14111 — exported for the docs-rot duplicate-title check
  */
-function similarityScore(a: string, b: string): number {
+export function similarityScore(a: string, b: string): number {
   const longest = Math.max(a.length, b.length);
   if (longest === 0) return 1; // both empty
   const distance = levenshteinDistance(a, b);
