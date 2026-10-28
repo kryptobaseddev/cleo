@@ -228,6 +228,8 @@ export type QaRunBinding =
       configPaths?: string[];
       /** Untracked files outside the change, set aside at bind time (T14000). */
       untrackedSetAside?: string[];
+      /** The changed paths each check reads (T14089); a check with none is not owed. */
+      owedChecks?: { typecheck: string[]; lint: string[] };
     };
 
 /** Up to five items, then a count. */
@@ -277,7 +279,12 @@ export function bindQaRunReceipt(
   if (!fresh.judged || changed.length === 0)
     return { ok: true, uncovered: [], uncoveredPackages: [], ...setAside };
   const coverage = qaRunCoverage(receipt.kind, receipt.roots, root, changed);
-  return coverage.ok ? { ...coverage, ...setAside } : coverage;
+  // T14089: which checks the change owes, by the paths each one reads.
+  const owedChecks = {
+    typecheck: changed.filter((p) => qaRunChecks('typecheck', p)),
+    lint: changed.filter((p) => qaRunChecks('lint', p)),
+  };
+  return coverage.ok ? { ...coverage, ...setAside, owedChecks } : coverage;
 }
 
 /**
