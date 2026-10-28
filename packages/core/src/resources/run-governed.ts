@@ -327,6 +327,8 @@ interface RunAdmission {
   readonly holdsShare: boolean;
   /** Record the spawned child on the ledger entry (T13046); absent for governor slots. */
   readonly recordChild?: (child: LedgerChild) => void;
+  /** Report the child tree's RSS, so the ledger charge follows it (T14116); ledger shares only. */
+  readonly observeRss?: (rssBytes: number) => void;
 }
 
 // The classifier moved to the governor, which every admission shares (R8-1).
@@ -686,6 +688,7 @@ export async function runGoverned(opts: RunGovernedOptions): Promise<RunGoverned
         token: grant.token,
         holdsShare: grant.id !== null,
         recordChild: (child) => grant.recordChild?.(child),
+        observeRss: (rssBytes) => grant.observeRss?.(rssBytes),
       };
     } else {
       // Classes outside the ledger (db-heavy) keep their governor slots. A run
@@ -932,6 +935,8 @@ export async function runGoverned(opts: RunGovernedOptions): Promise<RunGoverned
       treeSamples++;
       peakRssBytes = Math.max(peakRssBytes, usage.rssBytes);
     }
+    // T14116: the ledger charge follows the measured tree after a warm-up.
+    if (usage) admission.observeRss?.(usage.rssBytes);
     // A pause still in progress is not run time either (T13570).
     const pausedMs = pausedTotalMs + (pausedAtMs !== null ? now - pausedAtMs : 0);
     const step = watchRun(
