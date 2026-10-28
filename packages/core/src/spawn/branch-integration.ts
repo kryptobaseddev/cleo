@@ -33,7 +33,6 @@ import {
   locateTaskWorktree,
   WORKTREE_LIFECYCLE_AUDIT_FILE,
 } from '@cleocode/worktree';
-import { _resolveMainRepoFromGitlink } from '../project-scope.js';
 import { pruneWorktree, resolveAgentWorktreeRoot, shellQuote } from './branch-lock.js';
 
 // ---------------------------------------------------------------------------
@@ -488,12 +487,9 @@ function mainCheckoutRefusal(gitRoot: string, branch: string, targetBranch: stri
  */
 function decideWorktreeIntegration(
   taskId: string,
-  root: string,
+  projectRoot: string,
   opts: WorktreeIntegrationDecisionOptions,
 ): WorktreeIntegrationDecision {
-  // T14126: run from inside a task worktree, the decision is still the owning
-  // project's (its git root, audit log and worktree directory).
-  const projectRoot = _resolveMainRepoFromGitlink(root) ?? root;
   const branch = `task/${taskId}`;
   // T14126: the worktree git has registered for the task, as the lifecycle
   // reader finds it; the recomputed canonical path only when none is.

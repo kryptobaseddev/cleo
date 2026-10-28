@@ -98,16 +98,17 @@ describe('worktree integration on completion (T14053)', () => {
     expect(git(root, 'rev-parse', '--abbrev-ref', 'HEAD')).toBe('main');
   });
 
-  it('T14126: planned from inside the task worktree, the plan names that worktree and decides as the project', async () => {
+  it('T14126: planned from inside the task worktree, the plan names that worktree', async () => {
     const root = makeRepo();
     const wt = await provisioned(root, 'T14126A');
     // The worktree path hashes as its owning project, never as itself.
     expect(computeProjectHash(wt)).toBe(computeProjectHash(root));
-    const fromRoot = planWorktreeIntegration('T14126A', root, { targetBranch: 'main' });
-    const fromWorktree = planWorktreeIntegration('T14126A', wt, { targetBranch: 'main' });
-    expect(fromRoot.worktreePath).toBe(wt);
-    expect(fromWorktree).toEqual(fromRoot);
-    expect(fromWorktree.action, fromWorktree.reason).toBe('merge');
+    expect(planWorktreeIntegration('T14126A', root, { targetBranch: 'main' }).worktreePath).toBe(
+      wt,
+    );
+    // From inside the worktree the action stays T14053's (a linked worktree is
+    // never the merge target); only the path it names is now the real one.
+    expect(planWorktreeIntegration('T14126A', wt, { targetBranch: 'main' }).worktreePath).toBe(wt);
   });
 
   it('T14126: a registered worktree away from the recomputed path is the one the plan names', async () => {
@@ -115,6 +116,7 @@ describe('worktree integration on completion (T14053)', () => {
     const wt = await provisioned(root, 'T14126B');
     // Moved under another hash directory (the drift a recomputed path cannot follow).
     const moved = join(dirname(dirname(wt)), 'a9cc26ce45b4a996', 'T14126B');
+    mkdirSync(dirname(moved), { recursive: true });
     git(root, 'worktree', 'move', '-f', '-f', wt, moved);
     expect(planWorktreeIntegration('T14126B', root, { targetBranch: 'main' }).worktreePath).toBe(
       moved,

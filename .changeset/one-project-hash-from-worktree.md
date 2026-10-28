@@ -13,8 +13,7 @@ project's hash. A linked git worktree now hashes as the main checkout that owns
 it, so `done --plan`, `spawn --resume` and the worktree registry agree.
 
 The completion integration plan also names the worktree git has registered
-for the task (the recomputed path only when there is none), and decides from
-the owning project when run from inside the worktree.
+for the task, and falls back to the recomputed path only when git has none.
 
 `cleo orchestrate spawn --resume` returned a `worktreeEnv` with only the
 session and agent ids. It now carries the same variables a fresh worktree

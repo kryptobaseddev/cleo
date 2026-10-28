@@ -846,7 +846,7 @@ async function provisionUnderLock(
     '  git checkout, git switch, git branch -b/-D, git reset --hard,',
     '  git worktree add/remove, git rebase, git stash pop, git push --force',
     '',
-    shimActive
+    envVars['CLEO_BRANCH_PROTECTION'] === 'strict'
       ? 'A git shim is active on your PATH that will exit 77 if you attempt these, or a push to main.'
       : 'No git shim could be installed for this worktree: these rules are NOT enforced, so follow them yourself.',
     `Your working directory is: ${worktreePath}`,
