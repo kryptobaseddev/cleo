@@ -1979,17 +1979,42 @@ export function describeHolders(
     });
 }
 
+/** What a ledger entry is charged, for status (T14116). */
+export interface EntryCharge {
+  /** What it holds now: the plan, or a charge lowered to its measured peak. */
+  readonly chargedBytes: number;
+  /** What it was planned at admission (`footprintBytes`). */
+  readonly plannedBytes: number;
+  /** The largest tree RSS measured while admitted, or `null` before any. */
+  readonly measuredPeakBytes: number | null;
+}
+
+/**
+ * An entry's current charge, its plan and its measured peak (T14116). The
+ * current charge is never above the plan.
+ *
+ * @param e - a ledger entry.
+ */
+export function entryCharge(e: LedgerEntry): EntryCharge {
+  const plannedBytes = Math.max(0, e.footprintBytes);
+  return {
+    chargedBytes: Math.min(Math.max(0, e.chargedBytes ?? plannedBytes), plannedBytes),
+    plannedBytes,
+    measuredPeakBytes: e.measuredPeakBytes ?? null,
+  };
+}
+
 /**
  * A holder's charge for status: the plan and its reason, and once the run is
  * measured, the current charge, the plan and the measured peak (T14116).
  */
 function describeHolderCharge(e: LedgerEntry): string {
   const reason = e.footprintReason ? ` (${e.footprintReason})` : '';
-  if (e.measuredPeakBytes === undefined) return `${gib(e.footprintBytes)}${reason}`;
-  const current = Math.min(e.chargedBytes ?? e.footprintBytes, e.footprintBytes);
+  const c = entryCharge(e);
+  if (c.measuredPeakBytes === null) return `${gib(c.plannedBytes)}${reason}`;
   return (
-    `charged ${gib(current)} (planned ${gib(e.footprintBytes)}${reason}; ` +
-    `measured peak ${gib(e.measuredPeakBytes)})`
+    `charged ${gib(c.chargedBytes)} (planned ${gib(c.plannedBytes)}${reason}; ` +
+    `measured peak ${gib(c.measuredPeakBytes)})`
   );
 }
 
