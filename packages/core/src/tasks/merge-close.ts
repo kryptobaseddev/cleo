@@ -26,6 +26,7 @@ import { execFileSync } from 'node:child_process';
 import {
   closeSync,
   existsSync,
+  linkSync,
   openSync,
   readFileSync,
   renameSync,
@@ -90,6 +91,15 @@ export const MERGE_SWEEP_MAX_RUN_MS = 90_000;
  * several times the longest a sweep runs ({@link MERGE_SWEEP_CHILD_TIMEOUT_MS}).
  */
 export const MERGE_SWEEP_LOCK_STALE_MS = 5 * MERGE_SWEEP_CHILD_TIMEOUT_MS;
+
+/** A waiting PR is first re-judged after this long; each further wait doubles it. */
+export const MERGE_WAITING_FIRST_BACKOFF_MS = 5 * 60_000;
+
+/** The longest a waiting PR goes between re-judgements. */
+export const MERGE_WAITING_MAX_BACKOFF_MS = 6 * 60 * 60_000;
+
+/** A PR still waiting this long after it first waited is refused, with one final comment. */
+export const MERGE_WAITING_MAX_AGE_MS = 14 * 24 * 60 * 60_000;
 
 /** A first sweep (no high-water mark yet) looks back this far. */
 export const MERGE_SWEEP_LOOKBACK_MS = 7 * 24 * 60 * 60_000;
@@ -189,6 +199,8 @@ export interface MergeCloseDeps {
   ): Promise<{ runId: number; status: string; conclusion: string | null } | null>;
   /** Rerun a CI run; false when it could not. */
   rerunRun(root: string, runId: number): Promise<boolean>;
+  /** The clock (ms), for the run cap, backoff and age-out; tests inject it. */
+  now?(): number;
   /**
    * Whether this sweep may rerun a cancelled merge-commit CI run. Off by
    * default until T14136: a rerun of an old main push run joins main's live
@@ -324,8 +336,33 @@ interface SweepState {
   backlog?: Array<{ since: string; until: string }> | { since: string; until: string };
   /** The last `cleo/merge-close` status posted per open PR (`head:state:description`). */
   statuses?: Record<string, string>;
-  /** PRs re-judged every sweep: a task waiting, a PR gh could not view, or one a deadline left. */
-  waiting?: number[];
+  /**
+   * PRs to re-judge, keyed by number: a task waiting, a PR gh could not view,
+   * or one a deadline left. (A plain number list is the earlier form.)
+   */
+  waiting?: number[] | Record<string, WaitingEntry>;
+}
+
+/** One waiting PR's backoff (T14101 review): when to re-judge it and since when it waits. */
+interface WaitingEntry {
+  /** When it first waited (ISO). */
+  firstAt: string;
+  /** Not re-judged before this (ISO), unless its verdicts changed. */
+  nextAt: string;
+  /** The current backoff (ms). */
+  intervalMs: number;
+  /** Its merge commit, for the final comment's audit key. */
+  mergeSha: string | null;
+  /** Its final head, for judging verdicts locally. */
+  headSha: string | null;
+  /** The Closes:/Refs: lines it waits on. */
+  lines: Array<{ taskId: string; acs: string[] }>;
+  /** Whether it waits only for reviewer verdicts (re-judged locally, no gh). */
+  verdictOnly: boolean;
+  /** The last waiting reason. */
+  reason: string;
+  /** Fingerprint of its tasks' verdicts when last judged; a change re-judges it at once. */
+  verdictKey: string;
 }
 
 /** A window read page by page, newest first. */
@@ -381,7 +418,6 @@ async function listSweepWindows(
     }
     // Pages run newest first, so a cut-short window's unread part is below what was read.
     if (read.unreadBefore !== undefined) backlog.push({ since, until: read.unreadBefore });
-    newestRead ??= new Date().toISOString();
   }
   return {
     prs: [...byNumber.values()],
@@ -452,16 +488,19 @@ function writeSweepState(storeRoot: string, state: SweepState): void {
  * @param storeRoot - CLEO store root.
  * @returns The release function, or null.
  */
-export function acquireMergeSweepLock(storeRoot: string): (() => void) | null {
+export function acquireMergeSweepLock(
+  storeRoot: string,
+  now: () => number = Date.now,
+): (() => void) | null {
   const lock = join(storeRoot, '.cleo', SWEEP_LOCK_FILE);
+  let judged: string | null = null;
   try {
-    if (Date.now() - statSync(lock).mtimeMs < MERGE_SWEEP_LOCK_STALE_MS) return null;
-    const stale = `${lock}.${process.pid}.${Date.now()}`;
-    renameSync(lock, stale);
-    unlinkSync(stale);
+    if (now() - statSync(lock).mtimeMs < MERGE_SWEEP_LOCK_STALE_MS) return null;
+    judged = readFileSync(lock, 'utf-8');
   } catch (err) {
     if ((err as NodeJS.ErrnoException).code !== 'ENOENT') return null;
   }
+  if (judged !== null && !stealStaleLock(lock, judged)) return null;
   const token = `${process.pid}:${Date.now()}:${Math.random()}`;
   try {
     const fd = openSync(lock, 'wx');
@@ -487,6 +526,52 @@ export function acquireMergeSweepLock(storeRoot: string): (() => void) | null {
       // Already gone or taken over: nothing of ours to remove.
     }
   };
+}
+
+/**
+ * Move aside the stale lock whose token was `judged`, and only that one: rename
+ * it to a unique name and read the token there. Another stealer may have
+ * replaced the stale lock with a fresh one between the read and the rename; if
+ * the renamed file is not the judged one, put it back (`link` refuses to
+ * clobber a lock created meanwhile) and give up.
+ *
+ * @param lock - The lock path.
+ * @param judged - The token read from the lock judged stale.
+ * @returns True when the judged lock was removed.
+ * @internal Exported for tests.
+ */
+export function stealStaleLock(lock: string, judged: string): boolean {
+  const aside = `${lock}.${process.pid}.${Date.now()}.${Math.random().toString(36).slice(2)}`;
+  try {
+    renameSync(lock, aside);
+  } catch {
+    return false;
+  }
+  let got: string | null = null;
+  try {
+    got = readFileSync(aside, 'utf-8');
+  } catch {
+    // Unreadable: treat as not the judged lock.
+  }
+  if (got !== judged) {
+    try {
+      linkSync(aside, lock);
+    } catch {
+      // A newer lock already stands; it is the live one.
+    }
+    try {
+      unlinkSync(aside);
+    } catch {
+      // Nothing left to clean.
+    }
+    return false;
+  }
+  try {
+    unlinkSync(aside);
+  } catch {
+    // Already gone.
+  }
+  return true;
 }
 
 /**
@@ -705,7 +790,7 @@ async function applyDirective(
     return {
       ...base,
       action: 'waiting',
-      reason: `not independently verified: ${unverified.join('; ')} (cleo review records the verdicts).`,
+      reason: `${NOT_VERIFIED} ${unverified.join('; ')} (cleo review records the verdicts).`,
     };
   const audit = { prNumber: pr.number, mergeSha: pr.mergeCommitSha, kind: directive.kind, acs };
   if (directive.kind === 'refs') {
@@ -797,10 +882,11 @@ async function applyMergedPrs(
   result: MergeSweepResult,
   deadline: number,
   carried: number[],
+  clock: () => number,
 ): Promise<MergeSweepHooks> {
   const hooks: MergeSweepHooks = {};
   for (const pr of [...prs].sort((a, b) => a.mergedAt.localeCompare(b.mergedAt))) {
-    if (Date.now() > deadline) {
+    if (clock() > deadline) {
       carried.push(pr.number);
       continue;
     }
@@ -1004,12 +1090,111 @@ export async function sweepMergedClosures(
   if (!(await deps.ghAvailable()))
     return { ...empty, skippedReason: 'gh is not available or not authenticated' };
   // One sweep at a time per store, for the whole sweep (a dry run writes nothing).
-  const release = dryRun ? () => undefined : acquireMergeSweepLock(storeRoot);
+  const release = dryRun ? () => undefined : acquireMergeSweepLock(storeRoot, deps.now);
   if (release === null) return { ...empty, skippedReason: 'another merge sweep is running' };
   try {
     return await runSweep(storeRoot, opts, deps, empty, targeted);
   } finally {
     release();
+  }
+}
+
+/** The prefix of a reason that waits only for independent reviewer verdicts. */
+const NOT_VERIFIED = 'not independently verified:';
+
+/** A waiting entry for a PR first seen waiting now (or carried with no history). */
+function newWaitingEntry(at: string, pr?: MergedPrRecord): WaitingEntry {
+  return {
+    firstAt: at,
+    nextAt: at,
+    intervalMs: MERGE_WAITING_FIRST_BACKOFF_MS / 2,
+    mergeSha: pr?.mergeCommitSha ?? null,
+    headSha: pr?.headRefOid ?? null,
+    lines: [],
+    verdictOnly: false,
+    reason: 'waiting',
+    verdictKey: '',
+  };
+}
+
+/** The waiting list as entries; the earlier plain-number form is due now. */
+function normalizeWaiting(raw: SweepState['waiting'], at: string): Record<string, WaitingEntry> {
+  if (raw === undefined) return {};
+  if (Array.isArray(raw))
+    return Object.fromEntries(raw.map((n) => [String(n), newWaitingEntry(at)]));
+  return raw;
+}
+
+/** The entry with its backoff doubled (capped) and its next re-judgement scheduled. */
+function backedOff(
+  entry: WaitingEntry,
+  now: number,
+  verdictKey: string,
+  reason: string,
+): WaitingEntry {
+  const intervalMs = Math.min(
+    Math.max(entry.intervalMs * 2, MERGE_WAITING_FIRST_BACKOFF_MS),
+    MERGE_WAITING_MAX_BACKOFF_MS,
+  );
+  return {
+    ...entry,
+    intervalMs,
+    nextAt: new Date(now + intervalMs).toISOString(),
+    verdictKey,
+    reason,
+  };
+}
+
+/** A fingerprint of the verdicts recorded on a PR's tasks (local reads only). */
+async function verdictKeyFor(
+  storeRoot: string,
+  deps: MergeCloseDeps,
+  prNumber: number,
+  lines: ReadonlyArray<{ taskId: string }>,
+): Promise<string> {
+  if (!deps.reviewVerdicts) return '';
+  const ids: string[] = [];
+  for (const line of lines) {
+    const verdicts = await deps.reviewVerdicts(storeRoot, line.taskId, prNumber).catch(() => []);
+    ids.push(...verdicts.map((v) => v.id));
+  }
+  return ids.sort().join(',');
+}
+
+/**
+ * Refuse each PR that waited past {@link MERGE_WAITING_MAX_AGE_MS} (T14101
+ * review), with one final comment per task, and drop it from the list.
+ */
+async function ageOutWaiting(
+  storeRoot: string,
+  root: string,
+  agedOut: ReadonlyArray<[number, WaitingEntry]>,
+  deps: MergeCloseDeps,
+  dryRun: boolean,
+  result: MergeSweepResult,
+): Promise<void> {
+  for (const [prNumber, entry] of agedOut) {
+    const reason = entry.verdictOnly
+      ? 'waited 14 days without a reviewer verdict'
+      : `waited 14 days without closing: ${entry.reason}`;
+    const outcomes: MergeTaskOutcome[] = entry.lines.map((line) => ({
+      taskId: line.taskId,
+      acs: line.acs,
+      action: 'refused',
+      reason,
+    }));
+    for (const o of outcomes) result.refused.push({ taskId: o.taskId, prNumber, reason });
+    result.prs.push({ prNumber, mergeSha: entry.mergeSha, outcomes });
+    if (dryRun) continue;
+    const pr: MergedPrRecord = {
+      number: prNumber,
+      body: '',
+      mergedAt: entry.firstAt,
+      headRefOid: entry.headSha,
+      mergeCommitSha: entry.mergeSha,
+      statusCheckRollup: [],
+    };
+    await reportRefusals(storeRoot, root, pr, outcomes, deps);
   }
 }
 
@@ -1025,19 +1210,22 @@ async function runSweep(
   const { resolveEvidenceExecutionRoot } = await import('./evidence.js');
   const root = resolveEvidenceExecutionRoot(storeRoot);
   const state = readSweepState(storeRoot);
-  const startedAt = new Date().toISOString();
-  const deadline = Date.now() + MERGE_SWEEP_MAX_RUN_MS;
+  const clock = deps.now ?? Date.now;
+  const startedAt = new Date(clock()).toISOString();
+  const deadline = clock() + MERGE_SWEEP_MAX_RUN_MS;
   const highWater = state.highWater;
   // Re-read an overlap behind the cursor: search can list a PR late.
   const since =
     opts.since ??
     (highWater === undefined
-      ? new Date(Date.now() - MERGE_SWEEP_LOOKBACK_MS).toISOString()
+      ? new Date(clock() - MERGE_SWEEP_LOOKBACK_MS).toISOString()
       : new Date(Date.parse(highWater) - MERGE_SWEEP_OVERLAP_MS).toISOString());
   let prs: MergedPrRecord[];
   let backlog: Array<{ since: string; until: string }> = [];
   let newHighWater = highWater;
-  const unviewed: number[] = [];
+  const waitingIn = normalizeWaiting(state.waiting, startedAt);
+  const waitingOut: Record<string, WaitingEntry> = {};
+  const agedOut: Array<[number, WaitingEntry]> = [];
   if (targeted) {
     const viewed = await Promise.all((opts.prNumbers ?? []).map((n) => deps.viewPr(root, n)));
     prs = viewed.filter((pr): pr is MergedPrRecord => pr !== null);
@@ -1048,11 +1236,29 @@ async function runSweep(
     if (listed.newestRead !== undefined)
       newHighWater =
         highWater === undefined || listed.newestRead > highWater ? listed.newestRead : highWater;
-    // PRs a previous sweep left waiting come back; one gh could not view stays listed.
+    // PRs a previous sweep left waiting come back on their backoff (sooner
+    // when their verdicts changed); one gh could not view stays listed.
     const known = new Set(prs.map((pr) => pr.number));
-    for (const n of (state.waiting ?? []).filter((w) => !known.has(w))) {
+    for (const [key, entry] of Object.entries(waitingIn)) {
+      const n = Number(key);
+      if (known.has(n)) continue;
+      if (clock() - Date.parse(entry.firstAt) > MERGE_WAITING_MAX_AGE_MS) {
+        agedOut.push([n, entry]);
+        continue;
+      }
+      const verdictKey = await verdictKeyFor(storeRoot, deps, n, entry.lines);
+      const changed = verdictKey !== entry.verdictKey;
+      if (!changed && clock() < Date.parse(entry.nextAt)) {
+        waitingOut[key] = entry;
+        continue;
+      }
+      // Waiting only on verdicts that did not change: still unverified, no gh call.
+      if (entry.verdictOnly && !changed) {
+        waitingOut[key] = backedOff(entry, clock(), verdictKey, entry.reason);
+        continue;
+      }
       const pr = await deps.viewPr(root, n);
-      if (pr === null) unviewed.push(n);
+      if (pr === null) waitingOut[key] = backedOff(entry, clock(), verdictKey, entry.reason);
       else prs.push(pr);
     }
   }
@@ -1078,6 +1284,7 @@ async function runSweep(
       result,
       deadline,
       carried,
+      clock,
     );
     if (!targeted) {
       result.openChecks = await checkOpenPrs(storeRoot, root, deps, dryRun, statuses);
@@ -1095,16 +1302,43 @@ async function runSweep(
   // Writes need a bound session; a daemon sweep has none of its own.
   const hooks = dryRun ? await work() : await withSweepSession(storeRoot, work);
   if (Object.keys(hooks).length > 0) result.hooks = hooks;
+  if (!targeted) await ageOutWaiting(storeRoot, root, agedOut, deps, dryRun, result);
   if (!dryRun && !targeted) {
-    const waiting = result.prs
-      .filter((entry) => entry.outcomes.some((o) => o.action === 'waiting'))
-      .map((entry) => entry.prNumber);
+    const byNumber = new Map(prs.map((pr) => [pr.number, pr]));
+    for (const entry of result.prs) {
+      const waits = entry.outcomes.filter((o) => o.action === 'waiting');
+      const pr = byNumber.get(entry.prNumber);
+      if (waits.length === 0 || pr === undefined) continue;
+      const lines = waits.map((o) => ({ taskId: o.taskId, acs: o.acs }));
+      const prior = waitingIn[String(entry.prNumber)];
+      const verdictKey = await verdictKeyFor(storeRoot, deps, entry.prNumber, lines);
+      const reason = waits[0]?.reason ?? 'waiting';
+      const next: WaitingEntry = {
+        firstAt: prior?.firstAt ?? startedAt,
+        nextAt: startedAt,
+        intervalMs: prior ? prior.intervalMs : MERGE_WAITING_FIRST_BACKOFF_MS / 2,
+        mergeSha: pr.mergeCommitSha,
+        headSha: pr.headRefOid,
+        lines,
+        verdictOnly: waits.every((o) => (o.reason ?? '').startsWith(NOT_VERIFIED)),
+        reason,
+        verdictKey,
+      };
+      waitingOut[String(entry.prNumber)] = backedOff(next, clock(), verdictKey, reason);
+    }
+    // A PR a deadline left is re-judged at the next sweep, its age kept.
+    for (const n of carried) {
+      const prior = waitingIn[String(n)];
+      waitingOut[String(n)] = prior
+        ? { ...prior, nextAt: startedAt }
+        : newWaitingEntry(startedAt, byNumber.get(n));
+    }
     writeSweepState(storeRoot, {
       lastSweptAt: startedAt,
       ...(newHighWater !== undefined ? { highWater: newHighWater } : {}),
       ...(backlog.length > 0 ? { backlog } : {}),
       statuses,
-      waiting: [...new Set([...waiting, ...unviewed, ...carried])],
+      waiting: waitingOut,
     });
   }
   return result;

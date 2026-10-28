@@ -35,17 +35,21 @@ import {
   judgeMergedPr,
   MERGE_CLOSE_AUDIT_ACTION,
   MERGE_SWEEP_INTERVAL_MS,
+  MERGE_SWEEP_LOCK_STALE_MS,
   MERGE_SWEEP_MAX_PAGES,
   MERGE_SWEEP_PR_LIMIT,
+  MERGE_WAITING_MAX_AGE_MS,
   type MergeCloseDeps,
   type MergedPrRecord,
   mergeSweepSpawnAllowed,
   parseMergeDirectives,
+  stealStaleLock,
   sweepMergedClosures,
   sweepRegisteredProjects,
 } from '../merge-close.js';
 
 let env: TestDbEnv;
+const HOUR = 60 * 60_000;
 let root: string;
 
 beforeEach(async () => {
@@ -148,6 +152,8 @@ function fakeDeps(
       conclusion: string | null;
     } | null,
     canRerun: true,
+    /** The sweep's clock; tests step it past a backoff. */
+    now: Date.now(),
   };
   const calls = {
     reruns: [] as number[],
@@ -179,6 +185,7 @@ function fakeDeps(
       return true;
     },
     canRerun: () => world.canRerun,
+    now: () => world.now,
     listLabelledIssues: async () => issues,
     reviewVerdicts: metOnHead([...prs, ...open]),
     listOpenPrs: async () => open,
@@ -701,18 +708,20 @@ describe('a merge whose own CI run was cancelled waits, and is rerun once (T1410
     expect(calls.comments).toHaveLength(0);
     // The PR is past the cursor, but the waiting list brings it back.
     const state = JSON.parse(readFileSync(join(root, '.cleo', 'merge-sweep.json'), 'utf-8'));
-    expect(state.waiting).toEqual([40]);
+    expect(Object.keys(state.waiting)).toEqual(['40']);
     // gh lists nothing new: only the waiting list can bring PR #40 back.
     const laterSweeps = { ...deps, listMergedPrs: async () => [] };
     world.mergeRun = { runId: 78, status: 'in_progress', conclusion: null };
+    world.now += HOUR * 7; // past any backoff
     const second = await sweepMergedClosures(root, { force: true }, laterSweeps);
     expect(second.prs[0]?.outcomes[0]?.action).toBe('waiting');
     world.recordRefusal = null;
+    world.now += HOUR * 7;
     const third = await sweepMergedClosures(root, { force: true }, laterSweeps);
     expect(third.closed).toEqual([id]);
     expect(calls.reruns).toEqual([77]);
     const after = JSON.parse(readFileSync(join(root, '.cleo', 'merge-sweep.json'), 'utf-8'));
-    expect(after.waiting).toEqual([]);
+    expect(after.waiting).toEqual({});
   });
 
   it('reruns a merge commit at most once, ever', async () => {
@@ -812,23 +821,24 @@ describe('review fixes (#2555 review at a36298391)', () => {
   it('a waiting PR gh cannot view stays on the waiting list', async () => {
     const id = await seedTask(['only criterion']);
     const merged = pr(50, `Closes: ${id} AC1`);
-    const { deps } = fakeDeps([merged]);
+    const { deps, world } = fakeDeps([merged]);
     await sweepMergedClosures(root, { force: true }, { ...deps, reviewVerdicts: async () => [] });
     const before = JSON.parse(readFileSync(join(root, '.cleo', 'merge-sweep.json'), 'utf-8'));
-    expect(before.waiting).toEqual([50]);
+    expect(Object.keys(before.waiting)).toEqual(['50']);
+    world.now += HOUR * 7;
     await sweepMergedClosures(
       root,
       { force: true },
       { ...deps, listMergedPrs: async () => [], viewPr: async () => null },
     );
     const after = JSON.parse(readFileSync(join(root, '.cleo', 'merge-sweep.json'), 'utf-8'));
-    expect(after.waiting).toEqual([50]);
+    expect(Object.keys(after.waiting)).toEqual(['50']);
   });
 
   it('transient failures wait and are re-judged; a later verdict closes the task', async () => {
     const id = await seedTask(['only criterion']);
     const merged = pr(51, `Closes: ${id} AC1`);
-    const { deps, calls } = fakeDeps([merged]);
+    const { deps, calls, world } = fakeDeps([merged]);
     const throwing = {
       ...deps,
       reviewVerdicts: async (): Promise<ReviewVerdict[]> => {
@@ -838,6 +848,7 @@ describe('review fixes (#2555 review at a36298391)', () => {
     const first = await sweepMergedClosures(root, { force: true }, throwing);
     expect(first.refused).toEqual([]);
     expect(waitingOn(first)).toMatch(/rate limit/);
+    world.now += HOUR * 7;
     const noVerdict = await sweepMergedClosures(
       root,
       { force: true },
@@ -846,6 +857,7 @@ describe('review fixes (#2555 review at a36298391)', () => {
     expect(waitingOn(noVerdict)).toMatch(/no verdict on head/);
     // Commented once while it waits, whatever the reason.
     expect(calls.comments).toHaveLength(1);
+    world.now += HOUR * 7;
     const later = await sweepMergedClosures(root, { force: true }, deps);
     expect(later.closed).toEqual([id]);
   });
@@ -938,5 +950,121 @@ describe('review fixes (#2555 review at a36298391)', () => {
     }
     expect(truncated).toBe(false);
     expect(closed).toEqual([id]);
+  });
+});
+
+describe('re-review fixes (#2555 at d95a2597c)', () => {
+  const lockPath = (): string => join(root, '.cleo', 'merge-sweep.lock');
+
+  it('a stale lock is stolen; a fresh one is not', () => {
+    writeFileSync(lockPath(), 'old-token');
+    const old = (Date.now() - MERGE_SWEEP_LOCK_STALE_MS - 60_000) / 1000;
+    utimesSync(lockPath(), old, old);
+    const release = acquireMergeSweepLock(root);
+    expect(release).not.toBeNull();
+    expect(readFileSync(lockPath(), 'utf-8')).not.toBe('old-token');
+    expect(acquireMergeSweepLock(root)).toBeNull();
+    release?.();
+  });
+
+  it('of two stealers that judged the same stale lock, only one wins', () => {
+    writeFileSync(lockPath(), 'old-token');
+    const old = (Date.now() - MERGE_SWEEP_LOCK_STALE_MS - 60_000) / 1000;
+    utimesSync(lockPath(), old, old);
+    // B steals first and holds a fresh lock.
+    const b = acquireMergeSweepLock(root);
+    expect(b).not.toBeNull();
+    const fresh = readFileSync(lockPath(), 'utf-8');
+    // A judged the same stale token earlier; its steal must not take B's lock.
+    expect(stealStaleLock(lockPath(), 'old-token')).toBe(false);
+    expect(readFileSync(lockPath(), 'utf-8')).toBe(fresh);
+    b?.();
+  });
+
+  it('a PR waiting on verdicts backs off without gh calls, and is re-judged at once when a verdict lands', async () => {
+    const id = await seedTask(['only criterion']);
+    const merged = pr(60, `Closes: ${id} AC1`);
+    const { deps, world } = fakeDeps([merged]);
+    let verdicts: ReviewVerdict[] = [];
+    let views = 0;
+    const sweep: MergeCloseDeps = {
+      ...deps,
+      reviewVerdicts: async () => verdicts,
+      viewPr: async (r, n) => {
+        views++;
+        return deps.viewPr(r, n);
+      },
+    };
+    await sweepMergedClosures(root, { force: true }, sweep);
+    const later = { ...sweep, listMergedPrs: async () => [] };
+    // Not due: nothing re-judged.
+    await sweepMergedClosures(root, { force: true }, later);
+    // Due, but waiting only on unchanged verdicts: judged locally, no gh view.
+    world.now += HOUR * 7;
+    await sweepMergedClosures(root, { force: true }, later);
+    expect(views).toBe(0);
+    const state = JSON.parse(readFileSync(join(root, '.cleo', 'merge-sweep.json'), 'utf-8'));
+    expect(state.waiting['60'].intervalMs).toBeGreaterThan(5 * 60_000);
+    // A verdict lands: re-judged at once, before the backoff runs out.
+    verdicts = [verdict(id, 60, 'AC1', merged.headRefOid ?? '', 'met')];
+    const closing = await sweepMergedClosures(root, { force: true }, later);
+    expect(views).toBe(1);
+    expect(closing.closed).toEqual([id]);
+  });
+
+  it('a PR still waiting after 14 days is refused once, with a final comment', async () => {
+    const id = await seedTask(['only criterion']);
+    const merged = pr(61, `Closes: ${id} AC1`);
+    const { deps, world, calls } = fakeDeps([merged]);
+    const sweep = { ...deps, reviewVerdicts: async () => [] };
+    await sweepMergedClosures(root, { force: true }, sweep);
+    expect(calls.comments).toHaveLength(1);
+    world.now += MERGE_WAITING_MAX_AGE_MS + HOUR;
+    const aged = await sweepMergedClosures(
+      root,
+      { force: true },
+      { ...sweep, listMergedPrs: async () => [] },
+    );
+    expect(aged.refused).toEqual([
+      { taskId: id, prNumber: 61, reason: 'waited 14 days without a reviewer verdict' },
+    ]);
+    expect(calls.comments).toHaveLength(2);
+    const state = JSON.parse(readFileSync(join(root, '.cleo', 'merge-sweep.json'), 'utf-8'));
+    expect(state.waiting).toEqual({});
+  });
+
+  it('a sweep past its run cap carries the rest on the waiting list', async () => {
+    const ids = [await seedTask(['a']), await seedTask(['b', 'c'])];
+    const prs = [
+      { ...pr(62, `Closes: ${ids[0]} AC1`), mergedAt: '2026-10-28T09:00:00Z' },
+      { ...pr(63, `Closes: ${ids[1]} AC1,AC2`), mergedAt: '2026-10-28T10:00:00Z' },
+    ];
+    const { deps, world } = fakeDeps(prs);
+    const slow: MergeCloseDeps = {
+      ...deps,
+      complete: async (r, taskId, n) => {
+        const done = await deps.complete(r, taskId, n);
+        world.now += 100_000; // the first PR used up the 90 s cap
+        return done;
+      },
+    };
+    const result = await sweepMergedClosures(root, { force: true }, slow);
+    expect(result.closed).toEqual([ids[0]]);
+    const state = JSON.parse(readFileSync(join(root, '.cleo', 'merge-sweep.json'), 'utf-8'));
+    expect(Object.keys(state.waiting)).toEqual(['63']);
+    const next = await sweepMergedClosures(
+      root,
+      { force: true },
+      { ...slow, listMergedPrs: async () => [] },
+    );
+    expect(next.closed).toEqual([ids[1]]);
+  });
+
+  it('an empty read keeps the high-water mark (never the local clock)', async () => {
+    const { deps } = fakeDeps([{ ...pr(64, 'no task'), mergedAt: '2026-10-28T10:00:00.000Z' }]);
+    await sweepMergedClosures(root, { force: true, since: '2026-10-28T00:00:00.000Z' }, deps);
+    await sweepMergedClosures(root, { force: true }, { ...deps, listMergedPrs: async () => [] });
+    const state = JSON.parse(readFileSync(join(root, '.cleo', 'merge-sweep.json'), 'utf-8'));
+    expect(state.highWater).toBe('2026-10-28T10:00:00.000Z');
   });
 });
