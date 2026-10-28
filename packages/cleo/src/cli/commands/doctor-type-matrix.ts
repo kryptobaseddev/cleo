@@ -28,9 +28,7 @@ export const doctorTypeMatrixCommand = defineCommand({
   meta: {
     name: 'type-matrix',
     description:
-      'Plan the repair of parent/child pairs that break the type matrix (saga>epic, epic>task, ' +
-      'task>subtask). Dry run by default; --apply re-types or re-parents through the task ' +
-      'accessor with a receipt in the task audit log; --rollback <receipt> undoes one.',
+      'Repair parent/child pairs that break the type matrix (dry run; --apply, --rollback <receipt>)',
   },
   args: {
     apply: {
