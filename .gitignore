@@ -38,6 +38,7 @@ dev/sandbox/
 .cleo/nexus-link.json
 # Merge-sweep throttle and high-water mark (T14101) — machine-local
 .cleo/merge-sweep.json
+.cleo/merge-sweep.claim
 .cleo/backups/
 .cleo/logs/
 # GC daemon runtime state — ephemeral, not restored from backup (ADR-047)

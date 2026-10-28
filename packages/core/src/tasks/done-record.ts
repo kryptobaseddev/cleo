@@ -246,7 +246,7 @@ function blocked(
     recordedGates,
     plan,
   };
-  // @sync-invariant none:input-shape a plan blocker stops cleo done before the gate write; the write's own refusals are the validators'
+  // @sync-invariant task.done.evidence a gate whose evidence the plan cannot prove stops cleo done before the verification write and the completion
   return engineError('E_DONE_BLOCKED', blocker.message, { details, fix: blocker.next.command });
 }
 
@@ -359,7 +359,7 @@ export async function recordTaskDone(
       waitForTestSlot: true,
     });
   } catch (err) {
-    // @sync-invariant none:input-shape a failed plan derivation stops cleo done before anything is written
+    // @sync-invariant task.done.evidence without a derived plan there is no proven evidence, so nothing is recorded or completed
     return cleoErrorToEngineResult<DoneRecordResult>(err, 'E_DONE_FAILED', 'cleo done failed');
   }
   // T12672: every plan-visible refusal (worktree, checkout, evidence the

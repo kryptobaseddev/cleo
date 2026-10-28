@@ -23,7 +23,17 @@
  */
 
 import { execFileSync } from 'node:child_process';
-import { readFileSync, writeFileSync } from 'node:fs';
+import {
+  closeSync,
+  existsSync,
+  openSync,
+  readFileSync,
+  renameSync,
+  statSync,
+  unlinkSync,
+  writeFileSync,
+} from 'node:fs';
+import { homedir } from 'node:os';
 import { join } from 'node:path';
 import type {
   GhPrViewPayload,
@@ -44,6 +54,12 @@ export const MERGE_CLOSE_REFUSED_ACTION = 'merge_close_refused';
 
 /** The lazy sweep runs at most this often per store. */
 export const MERGE_SWEEP_INTERVAL_MS = 5 * 60_000;
+
+/** A detached sweep child exits after this long, so a hung `gh` leaves no process behind. */
+export const MERGE_SWEEP_CHILD_TIMEOUT_MS = 2 * 60_000;
+
+/** The claim file, under `.cleo/`: its mtime is the last claimed sweep. */
+const SWEEP_CLAIM_FILE = 'merge-sweep.claim';
 
 /** A first sweep (no high-water mark yet) looks back this far. */
 export const MERGE_SWEEP_LOOKBACK_MS = 7 * 24 * 60 * 60_000;
@@ -196,16 +212,49 @@ function readSweepState(storeRoot: string): SweepState {
 }
 
 /**
- * Whether the lazy sweep is due for a store (T14101): its last sweep is older
- * than {@link MERGE_SWEEP_INTERVAL_MS}. Cheap: one file read.
+ * Claim the next sweep for a store, atomically (T14101): true for exactly one
+ * caller per {@link MERGE_SWEEP_INTERVAL_MS}. A claim older than the interval
+ * is moved aside by `rename` (only one caller's rename succeeds), and the new
+ * claim is created with `O_EXCL`, so two concurrent commands never start two
+ * sweeps.
  *
  * @param storeRoot - CLEO store root.
  * @param now - Current time (ms).
- * @returns True when a sweep should run.
+ * @returns True when this caller owns the sweep.
  */
-export function mergeSweepDue(storeRoot: string, now = Date.now()): boolean {
-  const last = Date.parse(readSweepState(storeRoot).lastSweptAt ?? '');
-  return Number.isNaN(last) || now - last >= MERGE_SWEEP_INTERVAL_MS;
+export function claimMergeSweep(storeRoot: string, now = Date.now()): boolean {
+  const claim = join(storeRoot, '.cleo', SWEEP_CLAIM_FILE);
+  try {
+    if (now - statSync(claim).mtimeMs < MERGE_SWEEP_INTERVAL_MS) return false;
+    const stale = `${claim}.${process.pid}.${now}`;
+    renameSync(claim, stale);
+    unlinkSync(stale);
+  } catch (err) {
+    // No claim yet is the only error that leaves the sweep ours to take.
+    if ((err as NodeJS.ErrnoException).code !== 'ENOENT') return false;
+  }
+  try {
+    closeSync(openSync(claim, 'wx'));
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Whether a read command may start a background sweep (T14101): never in CI,
+ * under vitest, when turned off (`CLEO_MERGE_SWEEP=off`), or without `gh`
+ * credentials (a token in the environment, or `gh`'s hosts file).
+ *
+ * @param env - The environment.
+ * @param home - The home directory (for `gh`'s default config).
+ * @returns True when a detached sweep may be spawned.
+ */
+export function mergeSweepSpawnAllowed(env: NodeJS.ProcessEnv, home = homedir()): boolean {
+  if (env['CI'] === 'true' || env['VITEST'] !== undefined) return false;
+  if (env['CLEO_MERGE_SWEEP'] === 'off') return false;
+  if (env['GH_TOKEN'] || env['GITHUB_TOKEN']) return true;
+  return existsSync(join(env['GH_CONFIG_DIR'] ?? join(home, '.config', 'gh'), 'hosts.yml'));
 }
 
 /** The criteria every earlier applied line bound for a task, and whether this PR was applied. */
@@ -381,7 +430,7 @@ export async function sweepMergedClosures(
     refused: [],
   };
   const targeted = (opts.prNumbers?.length ?? 0) > 0;
-  if (!opts.force && !targeted && !mergeSweepDue(storeRoot))
+  if (!opts.force && !targeted && !claimMergeSweep(storeRoot))
     return { ...empty, skippedReason: 'throttled: the last sweep was under 5 minutes ago' };
   if (!(await deps.ghAvailable()))
     return { ...empty, skippedReason: 'gh is not available or not authenticated' };

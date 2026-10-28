@@ -97,6 +97,9 @@ async function fromMergeCommand(args: Record<string, unknown>, projectRoot: stri
     return;
   }
   const mergeClose = await import('@cleocode/core/tasks/merge-close.js');
+  // A detached lazy sweep (cli/index.ts) must not outlive a hung gh.
+  if (process.env['CLEO_MERGE_SWEEP_CHILD'] === '1')
+    setTimeout(() => process.exit(124), mergeClose.MERGE_SWEEP_CHILD_TIMEOUT_MS).unref();
   if (args.receipt === true) {
     const judged =
       prNumber === null

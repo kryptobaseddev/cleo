@@ -1074,7 +1074,7 @@ function normaliseSatisfies(
   const known = new Set(rows.map((r) => `AC${r.ordinal}`));
   const unknown = aliases.filter((a) => !known.has(a));
   if (unknown.length > 0) {
-    // @sync-invariant none:input-shape a --satisfies alias the task lacks is refused before anything is written
+    // @sync-invariant task.ac.integrity a --satisfies alias must name one of the task's criteria; an unknown one is refused before any binding is written
     throw new CleoError(
       ExitCode.VALIDATION_ERROR,
       `--satisfies names criteria ${taskId} does not have: ${unknown.join(', ')}`,

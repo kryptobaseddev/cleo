@@ -142,7 +142,7 @@ export async function previewTaskGates(
     const known = allTyped.flatMap(({ gate }) => (gate.req ? [gate.req] : []));
     const unknown = wanted.filter((r) => !known.includes(r));
     if (unknown.length > 0)
-      // @sync-invariant none:input-shape an unknown --req id is refused before any gate runs or is cached
+      // @sync-invariant task.ac.integrity --req must name a typed gate of the task's criteria; an unknown id is refused before any gate result is cached
       throw new Error(
         `REQ-ID(s) ${unknown.join(', ')} not found on ${taskId}; its typed gates are ${known.join(', ') || 'unnamed (no REQ-IDs)'}`,
       );

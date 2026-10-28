@@ -9,19 +9,32 @@
  * @task T14101
  */
 
-import { existsSync, readFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { execFileSync } from 'node:child_process';
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  utimesSync,
+  writeFileSync,
+} from 'node:fs';
+import { tmpdir } from 'node:os';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import type { GhPrViewPayload } from '@cleocode/contracts';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { createTestDb, type TestDbEnv } from '../../store/__tests__/test-db-helper.js';
 import { resetDbState } from '../../store/sqlite.js';
 import { addTask } from '../add.js';
 import {
+  claimMergeSweep,
   formatMergeReceipt,
   judgeMergedPr,
   MERGE_CLOSE_AUDIT_ACTION,
+  MERGE_SWEEP_INTERVAL_MS,
   type MergeCloseDeps,
   type MergedPrRecord,
+  mergeSweepSpawnAllowed,
   parseMergeDirectives,
   sweepMergedClosures,
 } from '../merge-close.js';
@@ -262,7 +275,7 @@ describe('sweep closes the tasks a merged PR names (T14101)', () => {
 
   it('a lazy sweep within 5 minutes of the last is throttled; force is not', async () => {
     const { deps } = fakeDeps([]);
-    await sweepMergedClosures(root, { force: true }, deps);
+    expect((await sweepMergedClosures(root, {}, deps)).swept).toBe(true);
     const state = JSON.parse(readFileSync(join(root, '.cleo', 'merge-sweep.json'), 'utf-8'));
     expect(typeof state.lastSweptAt).toBe('string');
     expect((await sweepMergedClosures(root, {}, deps)).skippedReason).toMatch(/throttled/);
@@ -278,5 +291,36 @@ describe('sweep closes the tasks a merged PR names (T14101)', () => {
     );
     expect(result).toMatchObject({ swept: false, closed: [] });
     expect(result.skippedReason).toMatch(/gh/);
+  });
+});
+
+describe('the lazy sweep is safe to start from read commands (T14101)', () => {
+  it('concurrent claims start one sweep; a stale claim is taken again', () => {
+    const claims = [claimMergeSweep(root), claimMergeSweep(root), claimMergeSweep(root)];
+    expect(claims).toEqual([true, false, false]);
+    const claim = join(root, '.cleo', 'merge-sweep.claim');
+    const old = (Date.now() - MERGE_SWEEP_INTERVAL_MS - 1000) / 1000;
+    utimesSync(claim, old, old);
+    expect([claimMergeSweep(root), claimMergeSweep(root)]).toEqual([true, false]);
+  });
+
+  it('never spawns in CI, under vitest, when off, or without gh credentials', () => {
+    const home = mkdtempSync(join(tmpdir(), 'cleo-merge-sweep-home-'));
+    expect(mergeSweepSpawnAllowed({ CI: 'true', GH_TOKEN: 'x' }, home)).toBe(false);
+    expect(mergeSweepSpawnAllowed({ VITEST: 'true', GH_TOKEN: 'x' }, home)).toBe(false);
+    expect(mergeSweepSpawnAllowed({ CLEO_MERGE_SWEEP: 'off', GH_TOKEN: 'x' }, home)).toBe(false);
+    expect(mergeSweepSpawnAllowed({}, home)).toBe(false);
+    expect(mergeSweepSpawnAllowed({ GH_TOKEN: 'x' }, home)).toBe(true);
+    mkdirSync(join(home, '.config', 'gh'), { recursive: true });
+    writeFileSync(join(home, '.config', 'gh', 'hosts.yml'), 'github.com: {}\n');
+    expect(mergeSweepSpawnAllowed({}, home)).toBe(true);
+  });
+
+  it('its state and claim files are never committed', () => {
+    const repo = join(dirname(fileURLToPath(import.meta.url)), '..', '..', '..', '..', '..');
+    for (const file of ['.cleo/merge-sweep.json', '.cleo/merge-sweep.claim']) {
+      // Exit 0 means ignored; a tracked or unignored path throws.
+      expect(() => execFileSync('git', ['check-ignore', '-q', file], { cwd: repo })).not.toThrow();
+    }
   });
 });
