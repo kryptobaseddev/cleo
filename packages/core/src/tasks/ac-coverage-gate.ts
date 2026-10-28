@@ -427,7 +427,11 @@ export async function assertAcCoveredForDone(
     `${taskId} cannot become done: ${coverage.unsatisfied.length} acceptance criterion/criteria have no evidence (${list}).`,
     {
       fix: `Record evidence with cleo verify ${taskId} …, then complete it with cleo complete ${taskId}.`,
-      details: { codeName: 'E_AC_COVERAGE_INCOMPLETE', unsatisfied: coverage.unsatisfied },
+      details: {
+        field: 'acceptance',
+        codeName: 'E_AC_COVERAGE_INCOMPLETE',
+        unsatisfied: coverage.unsatisfied,
+      },
     },
   );
 }
