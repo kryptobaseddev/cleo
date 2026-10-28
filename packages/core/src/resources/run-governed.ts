@@ -146,6 +146,12 @@ export interface RunGovernedDeps {
   readonly jobsDir: string;
   /** The runner's parent pid, recorded with a signal the runner received (T13680). */
   readonly ppid: number;
+  /**
+   * The runner's parent pid now (T14080). When it no longer equals
+   * {@link RunGovernedDeps.ppid}, the parent died (a wrapper shell SIGKILLed
+   * by a harness) and the runner stops its child. @defaultValue process.ppid
+   */
+  readonly currentPpid: () => number;
   /** The admission ledger's entries (for the `running[]` of a deferral). */
   readonly ledger: () => readonly LedgerEntry[];
   readonly pid: number;
@@ -164,6 +170,15 @@ export const TREE_SAMPLE_MS = 30_000;
 
 /** How often a run that measures its hook's peak samples its tree (T13921). */
 export const HOOK_SAMPLE_MS = 5_000;
+
+/**
+ * How recently an enclosing runner must have forwarded a signal to its child's
+ * group for a nested runner to treat the same signal as that delivery (T13002).
+ */
+export const GROUP_SIGNAL_WINDOW_MS = 2_000;
+
+/** How long a run whose parent died gets after SIGTERM before SIGKILL (T14080). */
+export const PARENT_GONE_KILL_MS = 10_000;
 
 /** Options for {@link runGoverned}. */
 export interface RunGovernedOptions {
@@ -217,6 +232,12 @@ export interface RunGovernedOptions {
    * @defaultValue false
    */
   readonly noPause?: boolean;
+  /**
+   * The run is meant to outlive the process that started it (`nohup`, a
+   * launcher script that exits): it is exempt from the parent-death stop
+   * (T14080) and keeps running when its parent exits. @defaultValue false
+   */
+  readonly detach?: boolean;
   /**
    * The git hook or heavy `node` script the command carries
    * (`planRunFootprint`'s `hookKey`): its tree is sampled every
@@ -362,6 +383,7 @@ function defaultDeps(): RunGovernedDeps {
     },
     jobsDir: runJobsDir(),
     ppid: process.ppid,
+    currentPpid: () => process.ppid,
     ledger: () => readLedger(),
     pid: process.pid,
     groupOf: processGroupOf,
@@ -432,14 +454,29 @@ export async function runGoverned(opts: RunGovernedOptions): Promise<RunGoverned
   // its own slot (round 4, MED-1). Either way its child stays in the
   // enclosing group, is never paused on its own, and is signalled by pid
   // (round 5, N1). See {@link parentRunJob} for why this can't be forged.
-  const enclosing = parentRunJob({
-    pid: d.pid,
-    jobsDir: d.jobsDir,
-    probes: probesOf(d),
-    groupOf: d.groupOf,
-    ancestorsOf: d.ancestorsOf,
-  });
-  const nested = enclosing !== null;
+  // T12994: note whether `ps` failed, so a nested run that could not see its
+  // enclosing job re-checks on every queue poll instead of waiting on it.
+  let psFailed = false;
+  const detectEnclosing = (): RunJob | null => {
+    psFailed = false;
+    return parentRunJob({
+      pid: d.pid,
+      jobsDir: d.jobsDir,
+      probes: probesOf(d),
+      groupOf: (pid) => {
+        const g = d.groupOf(pid);
+        if (g === null) psFailed = true;
+        return g;
+      },
+      ancestorsOf: (pid) => {
+        const a = d.ancestorsOf(pid);
+        if (a === null) psFailed = true;
+        return a;
+      },
+    });
+  };
+  let enclosing = detectEnclosing();
+  let nested = enclosing !== null;
   // Fail open (#1781 review, HIGH): when admission state cannot be written (Codex's
   // workspace-write sandbox, Claude Code's sandboxed Bash, a read-only CLEO home), run the command
   // ungoverned instead of failing a test that would have passed. Only filesystem errors; anything
@@ -642,39 +679,62 @@ export async function runGoverned(opts: RunGovernedOptions): Promise<RunGoverned
           return Promise.race([pending, queueStopped]);
         };
         let result = await tryAcquire(sample);
+        let rideParent: RunJob | null = null;
         while (result?.deferred && opts.wait && !queueEnded()) {
           await d.sleep(Math.min(opts.queuePollMs ?? 1000, deadline - d.now()), queueAbort.signal);
           if (queueEnded()) return endQueue();
+          if (enclosing === null && psFailed) {
+            // T12994: the first detection could not read the process tree; a
+            // nested run must not wait for its own enclosing job's slot.
+            const found = detectEnclosing();
+            if (found !== null) {
+              enclosing = found;
+              nested = true;
+              if (found.class === opts.cls) {
+                rideParent = found;
+                break;
+              }
+            }
+          }
           const next = await Promise.race([d.sample(), queueStopped]);
           if (next === null || queueEnded()) return endQueue();
           sample = next;
           result = await tryAcquire(sample);
         }
-        if (result === null || queueEnded()) {
-          if (result !== null && !result.deferred) {
-            const acquired = result;
-            releaseLate(() => acquired.release());
-          }
-          return endQueue();
-        }
-        if (result.deferred) {
-          return deferral(
-            opts,
-            d,
-            result.reason,
-            result.retryAfterMs,
-            sample,
-            null,
-            result.memoryPressure ?? null,
+        if (rideParent !== null) {
+          // T12994: nested in a job of the same class after all: ride its slot.
+          notice(
+            `nested in a running ${rideParent.class} job (${rideParent.command}): running on its slot`,
+            'info',
           );
+          admission = { release: async () => {}, slot: -1, token: '', holdsShare: false };
+        } else {
+          if (result === null || queueEnded()) {
+            if (result !== null && !result.deferred) {
+              const acquired = result;
+              releaseLate(() => acquired.release());
+            }
+            return endQueue();
+          }
+          if (result.deferred) {
+            return deferral(
+              opts,
+              d,
+              result.reason,
+              result.retryAfterMs,
+              sample,
+              null,
+              result.memoryPressure ?? null,
+            );
+          }
+          const granted = result;
+          admission = {
+            release: () => granted.release(),
+            slot: granted.slot,
+            token: '',
+            holdsShare: true,
+          };
         }
-        const granted = result;
-        admission = {
-          release: () => granted.release(),
-          slot: granted.slot,
-          token: '',
-          holdsShare: true,
-        };
       }
     }
     if (queueEnded()) {
@@ -726,6 +786,7 @@ export async function runGoverned(opts: RunGovernedOptions): Promise<RunGoverned
     parentJob: enclosing?.id ?? null,
     holdsSlot: grant.holdsShare,
     leadsGroup,
+    ...(opts.detach === true ? { detached: true } : {}),
   };
   writeRunJob(job, d.jobsDir);
 
@@ -791,6 +852,17 @@ export async function runGoverned(opts: RunGovernedOptions): Promise<RunGoverned
     // included: forwarding it would deliver a second SIGINT, which some
     // runners treat as force-quit (#1777 R8). SIGTERM and SIGHUP still go.
     if (opts.foreground === true && signal === 'SIGINT') return;
+    // T13002: a nested child shares this runner's group. When the enclosing
+    // runner just forwarded this signal to that whole group, or the enclosing
+    // job runs in a terminal's foreground group that a Ctrl-C reached, the
+    // child already got it: forwarding again would deliver it twice. A signal
+    // sent to this runner alone still goes to its child.
+    if (nested && enclosing !== null && groupAlreadyDelivered(signal, enclosing)) return;
+    if (leadsGroup) {
+      // T13002: tell nested runners in the child's group this delivery reached them.
+      job = { ...job, forwardedSignal: { signal, atMs: d.now() } };
+      if (!exited) writeRunJob(job, d.jobsDir);
+    }
     notice(
       `runner received ${signal} (its parent pid ${d.ppid}); forwarding it to pid ${childPid}`,
       'warn',
@@ -854,6 +926,42 @@ export async function runGoverned(opts: RunGovernedOptions): Promise<RunGoverned
       hungAtMs: watch.hungAtMs,
     };
   };
+  /**
+   * T13002: whether a signal this nested runner received was a group delivery
+   * its child got too: the enclosing runner recorded forwarding it to the group
+   * moments ago, or it is a SIGINT in an enclosing foreground (terminal) group.
+   */
+  function groupAlreadyDelivered(signal: NodeJS.Signals, parent: RunJob): boolean {
+    if (signal === 'SIGINT' && parent.leadsGroup === false && (parent.parentJob ?? null) === null) {
+      return true;
+    }
+    const current = listRunJobs(d.jobsDir, probesOf(d)).find((j) => j.id === parent.id);
+    const sent = current?.forwardedSignal;
+    return (
+      sent !== undefined && sent.signal === signal && d.now() - sent.atMs <= GROUP_SIGNAL_WINDOW_MS
+    );
+  }
+
+  // T14080: the runner's parent died (a wrapper shell SIGKILLed by a harness
+  // TaskStop): nothing will wait for this run, so stop its child. SIGTERM
+  // first, SIGKILL after a grace; the exit path then releases the charge.
+  let parentGoneAtMs: number | null = null;
+  const checkParent = (now: number): void => {
+    if (childPid === undefined || exited || opts.detach === true) return;
+    if (parentGoneAtMs === null) {
+      if (d.currentPpid() === d.ppid) return;
+      parentGoneAtMs = now;
+      notice(
+        `its parent process (pid ${d.ppid}) is gone; stopping the command (pid ${childPid}) and releasing its reservation`,
+        'warn',
+      );
+      forwardTo(childPid, 'SIGCONT');
+      forwardTo(childPid, 'SIGTERM');
+    } else if (now - parentGoneAtMs >= PARENT_GONE_KILL_MS) {
+      forwardTo(childPid, 'SIGKILL');
+    }
+  };
+
   const stopTimers = new AbortController();
   void exit.then(() => stopTimers.abort());
   const supervise = async (): Promise<void> => {
@@ -863,6 +971,7 @@ export async function runGoverned(opts: RunGovernedOptions): Promise<RunGoverned
         exit.then(() => 'exit' as const),
       ]);
       if (woke === 'exit' || exited || childPid === undefined) return;
+      checkParent(d.now());
       // Before the pressure sample: a failed sample must not hide a hung run.
       watchdog(d.now());
       let s: ResourceSample;

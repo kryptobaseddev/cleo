@@ -1576,6 +1576,44 @@ describe('admit (one ledger, real critical section)', () => {
     });
   });
 
+  it('T12994: a nested run whose first ps failed rides its parent on a later poll, not a self-wait', async () => {
+    const probe: PidProbe = {
+      liveness: () => 'alive',
+      startedAt: () => 'parent-start',
+      groupLiveness: () => 'gone',
+    };
+    // The enclosing run holds the whole budget.
+    const parent = await admit(
+      { label: 'run:test-run', footprintBytes: 10 * GIB },
+      { ...base, dir, wait: false, pid: 4_000_001, probe },
+    );
+    if (!parent.admitted) throw new Error('expected the parent to be admitted');
+    let psCalls = 0;
+    const facts: ProcessFacts = {
+      // `ps` fails on the first detection, then sees the parent.
+      ancestorsOf: () => (++psCalls === 1 ? null : [4_000_001]),
+      groupOf: () => null,
+      startedAt: () => 'parent-start',
+    };
+    const t0 = Date.now();
+    const nested = await admit(
+      { label: 'run:test-run', footprintBytes: 2 * GIB },
+      { ...base, dir, wait: true, timeoutMs: 60_000, pid: 4_000_002, probe, facts },
+    );
+    expect(nested.admitted).toBe(true);
+    if (nested.admitted) {
+      expect(nested.grant.nested).toBe(true);
+      expect(nested.grant.token).toBe(
+        admissionToken({ id: parent.grant.id ?? '', nonce: readLedger(dir)[0]?.nonce ?? '' }),
+      );
+    }
+    expect(Date.now() - t0).toBeLessThan(10_000);
+    expect(psCalls).toBeGreaterThanOrEqual(2);
+    // It left the queue: only the parent remains.
+    expect(readLedger(dir).map((e) => e.pid)).toEqual([4_000_001]);
+    await parent.grant.release();
+  });
+
   it('CLEO_ADMISSION_PRESSURE=off ignores host pressure; an explicit sampler still counts', async () => {
     const line = { avg10: 40, avg60: 40, avg300: 40, totalUs: 0 };
     const spy = vi.spyOn(ResourceMonitor.prototype, 'sample').mockResolvedValue({

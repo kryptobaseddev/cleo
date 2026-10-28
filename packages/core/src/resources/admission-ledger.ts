@@ -2372,15 +2372,39 @@ async function admitInner(req: AdmissionRequest, opts: AdmitOptions): Promise<Ad
   // that grant is a heavy run's or covers the request. Under a light or
   // single-process grant a bigger run queues for itself (T13452), naming the
   // parent: schedulePass never makes it wait on its own ancestors.
-  const parent = enclosingGrant(readLedger(dir), pid, env, opts.facts);
+  // T12994: note whether a `ps` probe failed, so a nested run whose first
+  // detection could not see its parent re-checks on every queue poll instead
+  // of waiting on its own parent until it times out.
+  const baseFacts = opts.facts ?? systemProcessFacts;
+  let factsFailed = false;
+  const facts: ProcessFacts = {
+    ancestorsOf: (p) => {
+      const a = baseFacts.ancestorsOf(p);
+      if (a === null) factsFailed = true;
+      return a;
+    },
+    groupOf: (p) => {
+      const g = baseFacts.groupOf(p);
+      if (g === null) factsFailed = true;
+      return g;
+    },
+    startedAt: (p) => {
+      const at = baseFacts.startedAt(p);
+      if (at === null) factsFailed = true;
+      return at;
+    },
+  };
+  const rides = (p: LedgerEntry): boolean => isHeavy(p) || p.footprintBytes >= req.footprintBytes;
+  const parent = enclosingGrant(readLedger(dir), pid, env, facts);
   if (
     parent !== null &&
-    (isHeavy(parent) || parent.footprintBytes >= req.footprintBytes) &&
+    rides(parent) &&
     !opts.signal?.aborted &&
     (!opts.wait || timeoutMs <= 0 || now() - t0 < timeoutMs)
   ) {
     return { admitted: true, grant: passThrough(admissionToken(parent), true, null) };
   }
+  let parentUnknown = parent === null && factsFailed;
 
   const entry: LedgerEntry = {
     id: newId(pid, t0),
@@ -2559,6 +2583,21 @@ async function admitInner(req: AdmissionRequest, opts: AdmitOptions): Promise<Ad
         opts.memoryPressure?.admitted(now() - t0, null);
         checkQueue();
         return { admitted: true, grant: holdGrant(mine, dir, now() - t0, opts) };
+      }
+      if (parentUnknown) {
+        // T12994: the first detection could not see the process tree; try again.
+        factsFailed = false;
+        const found = enclosingGrant(seen.entries, pid, env, facts);
+        parentUnknown = found === null && factsFailed;
+        if (found !== null && rides(found)) {
+          const raced = await leave();
+          checkQueue();
+          if (raced !== null) {
+            return { admitted: true, grant: holdGrant(raced, dir, now() - t0, opts) };
+          }
+          opts.memoryPressure?.admitted(now() - t0, null);
+          return { admitted: true, grant: passThrough(admissionToken(found), true, null) };
+        }
       }
       if (seen.pressure !== null && isFresh(seen.pressure, now())) reading = seen.pressure.reading;
       if (passDue(mine === undefined, now() - lastPassAt, seen.pressure, now(), opts)) {
