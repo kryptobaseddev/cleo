@@ -10,7 +10,7 @@
  */
 
 import type { Task, TaskVerification, VerificationGate } from '@cleocode/contracts';
-import { gateProfileOf, implementedCodeEvidence } from './verification-policy.js';
+import { gateProfileOf, implementedCodeEvidence } from './gate-profile.js';
 
 /** The gates a gate profile (T13474) makes not applicable: those that test or lint code. */
 export const PROFILE_WAIVED_GATES: readonly VerificationGate[] = ['testsPassed', 'qaPassed'];
