@@ -125,6 +125,7 @@ function verdict(
     verdict: outcome,
     reason: outcome === 'met' ? 'the diff delivers it' : 'the diff does not touch it',
     reviewer: { sessionId: 'ses_reviewer', agentId: 'reviewer' },
+    authors: { sessionIds: ['ses_author'], agentIds: ['author'] },
     packetSha256: 'x'.repeat(64),
     createdAt,
   };
@@ -573,6 +574,23 @@ describe('satisfies comes only from an independent verdict on the merged head (T
       expect(result.refused[0]?.reason).toMatch(reason);
       expect(calls.record).toHaveLength(0);
     }
+  });
+
+  it("a verdict by the task's own author does not count", async () => {
+    const id = await seedTask(['only criterion']);
+    const merged = pr(34, `Closes: ${id} AC1`);
+    const own = {
+      ...verdict(id, 34, 'AC1', merged.headRefOid ?? '', 'met'),
+      reviewer: { sessionId: 'ses_author', agentId: null },
+    };
+    const { deps } = fakeDeps([merged]);
+    const result = await sweepMergedClosures(
+      root,
+      { force: true },
+      { ...deps, reviewVerdicts: async () => [own] },
+    );
+    expect(result.closed).toEqual([]);
+    expect(result.refused[0]?.reason).toMatch(/AC1: reviewed by the task's own author/);
   });
 
   it('a later met verdict on the head supersedes an earlier unmet one', async () => {

@@ -173,8 +173,9 @@ export const MERGE_CLOSE_STATUS_CONTEXT = 'cleo/merge-close';
 /**
  * Why the criteria a line names are not independently verified for this PR
  * head (T14122), one entry per criterion, or none when each criterion's
- * latest verdict is `met` on `headSha`. A missing verdict, an `unmet` one, or
- * one bound to another head (a push after review) each count.
+ * latest verdict is `met` on `headSha`. A missing verdict, one the task's own
+ * author wrote, an `unmet` one, or one bound to another head (a push after
+ * review) each count.
  *
  * @param verdicts - The task's verdicts for the PR.
  * @param acs - The criteria the line names.
@@ -194,7 +195,14 @@ export function verdictProblems(
         (a, b) => (a === null || b.createdAt >= a.createdAt ? b : a),
         null,
       );
+    const { sessionId, agentId } = latest?.reviewer ?? { sessionId: '', agentId: null };
+    const byAuthor =
+      latest !== null &&
+      (latest.authors.sessionIds.includes(sessionId) ||
+        (agentId !== null && latest.authors.agentIds.includes(agentId)));
     if (latest === null) problems.push(`${ac}: no review verdict`);
+    else if (byAuthor)
+      problems.push(`${ac}: reviewed by the task's own author; review independently`);
     else if (latest.headSha !== headSha)
       problems.push(
         `${ac}: reviewed on head ${latest.headSha.slice(0, 12)}, not ${headSha?.slice(0, 12) ?? '(unknown)'}; review again`,

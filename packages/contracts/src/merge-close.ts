@@ -48,6 +48,12 @@ export interface ReviewVerdict {
   reason: string;
   /** Who reviewed: never the PR's author. */
   reviewer: { sessionId: string; agentId: string | null };
+  /**
+   * The task's authors when the verdict was recorded (its work claim, earlier
+   * claim holders and provenance session), so a reader can re-check that the
+   * reviewer is none of them.
+   */
+  authors: { sessionIds: string[]; agentIds: string[] };
   /** sha256 of the packet (diff and criterion text) the reviewer was given. */
   packetSha256: string;
   /** When it was recorded (ISO). */
