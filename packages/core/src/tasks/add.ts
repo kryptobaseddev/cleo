@@ -51,6 +51,7 @@ import { childTypeForParentType } from './hierarchy.js';
 import { exceedsMaxDepth, resolveHierarchyPolicy } from './hierarchy-policy.js';
 import { resolveDefaultPipelineStage, validatePipelineStage } from './pipeline-stage.js';
 import { prepareSignedSeverityAttestation } from './severity-attestation.js';
+import { GATE_PROFILES, gateProfileLabelProblem, gateProfileOf } from './verification-policy.js';
 
 export { normalizeAcceptance } from './acceptance-input.js';
 
@@ -476,15 +477,28 @@ export function validateSize(size: string): asserts size is TaskSize {
  *   — e.g. `my-label`, `v1.0`, `bug`, `security`
  * - A canonical task-ID-shaped label (`^T\d{3,}$`) — case preserved per ADR-073
  *   so agents can tag tasks with their canonical parent task ID (e.g. `T9813`).
+ * - A gate profile label `profile:<name>` (T13474), from {@link GATE_PROFILES}
+ *   only and at most one per set.
  *
  * @task T4460
  * @task T9824 — uppercase task-ID label acceptance
+ * @task T13474
  */
 export function validateLabels(labels: string[]): void {
+  // T13474: a gate profile label is `profile:<name>` from a closed set, one per task.
+  const profileProblem = gateProfileLabelProblem(labels);
+  if (profileProblem !== null) {
+    // @sync-invariant none:input-shape an unknown or second gate profile label is refused before anything is written
+    throw new CleoError(ExitCode.VALIDATION_ERROR, profileProblem, {
+      fix: `Use one of ${GATE_PROFILES.map((p) => `profile:${p}`).join(', ')}, once per task`,
+      details: { field: 'labels', actual: labels },
+    });
+  }
   for (const label of labels) {
     const trimmed = label.trim();
     // Task-ID-shaped labels (e.g. T9813) are accepted as-is — ADR-073 canonical form.
     if (/^T\d{3,}$/.test(trimmed)) continue;
+    if (trimmed.startsWith('profile:')) continue;
     if (!/^[a-z][a-z0-9.-]*$/.test(trimmed)) {
       throw new CleoError(
         ExitCode.VALIDATION_ERROR,
@@ -1864,6 +1878,20 @@ export async function addTask(
       before: null,
       after: { title: options.title, status, priority },
     });
+    // T13474: a gate profile declared at creation is audited like any change.
+    const profile = gateProfileOf({ labels: options.labels });
+    if (profile !== null) {
+      await tx.appendLog({
+        id: `log-${Math.floor(Date.now() / 1000)}-${randomBytes(3).toString('hex')}`,
+        timestamp: new Date().toISOString(),
+        action: 'gate_profile_changed',
+        taskId,
+        actor: 'system',
+        details: { before: null, after: profile },
+        before: { profile: null },
+        after: { profile },
+      });
+    }
     // T945 Stage A — mint a `task:T###` brain graph node at creation, not at
     // completion. Lazy registration defers execution until the actual outer commit,
     // including batch transactions; rollback never starts these graph effects.

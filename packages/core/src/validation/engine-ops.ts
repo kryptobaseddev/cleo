@@ -49,7 +49,8 @@ import {
   checkGateEvidenceMinimumDetailed,
   checkTaskEvidenceContext,
   composeGateEvidence,
-  DECISION_ONLY_INAPPLICABLE_GATES,
+  DECISION_ONLY_RELAXED_GATES,
+  decisionOnlyRouteNote,
   isDecisionOnlyImplementation,
   isHardAtom,
   type ParsedAtom,
@@ -796,16 +797,21 @@ export async function validateGateVerify(
         // nothing to measure. Demanding them made correctly-evidenced audit and
         // review tasks uncompletable: tool:test is meaningless when nothing
         // changed, and the owner override is session-capped and rejected on
-        // critical gates. Satisfied by absence, as with the T12083
-        // `notApplicable` tool atom.
+        // critical gates. T12220: the gates are RELAXED, not satisfied: their
+        // evidence minimum is skipped, so a decision: atom stands in, and each
+        // gate is still verified explicitly.
         const decisionOnly = isDecisionOnlyImplementation(verification.evidence?.implemented);
         for (const targetGate of gates) {
-          if (decisionOnly && DECISION_ONLY_INAPPLICABLE_GATES.includes(targetGate)) continue;
+          if (decisionOnly && DECISION_ONLY_RELAXED_GATES.includes(targetGate)) continue;
           const missing = checkGateEvidenceMinimumDetailed(targetGate, atoms);
           if (missing) {
-            return engineError('E_EVIDENCE_INSUFFICIENT', missing.message, {
-              fix: missing.hint,
-            });
+            // T12220: name the decision-only route, or what disqualifies it.
+            const route = decisionOnlyRouteNote(targetGate, verification.evidence?.implemented);
+            return engineError(
+              'E_EVIDENCE_INSUFFICIENT',
+              route === null ? missing.message : `${missing.message}. ${route}`,
+              { fix: missing.hint },
+            );
           }
         }
 
