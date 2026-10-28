@@ -97,6 +97,22 @@ export function suggestDocName(name: string): string {
 }
 
 /**
+ * The rule-abiding slug CLEO mints from a title or file name: its subject
+ * words in kebab-case, without task ids, session ids or dates, at most
+ * `maxLength` characters. Internal writers (ADR allocation, spawn topic slugs,
+ * imports) use it so their slugs pass {@link docNameViolation}; the task stays
+ * a link on the doc, not part of its name.
+ *
+ * @param source - The title or file base name.
+ * @param maxLength - Longest result, for callers that add a prefix.
+ * @returns The slug, or `doc` when the source has no subject words.
+ * @task T14129
+ */
+export function subjectSlug(source: string, maxLength: number = DOC_NAME_MAX_LENGTH): string {
+  return suggestDocName(source).slice(0, maxLength).replace(/-+$/, '') || 'doc';
+}
+
+/**
  * Check a doc name (a slug, or a published file name without `.md`) against
  * the rule. An ADR's leading number and a release note's version are allowed.
  *

@@ -120,6 +120,12 @@ const allocateAdrSlug = lazyOperation(
 const allocateAutoSlugForDispatch = lazyOperation(
   async () => (await import('@cleocode/core/docs/numbering')).allocateAutoSlugForDispatch,
 );
+const docNameViolation = lazyOperation(
+  async () => (await import('@cleocode/core/docs/doc-name-rule')).docNameViolation,
+);
+const describeDocNameViolation = lazyOperation(
+  async () => (await import('@cleocode/core/docs/doc-name-rule')).describeDocNameViolation,
+);
 const exportDocument = lazyOperation(
   async () => (await import('@cleocode/core/docs/export-document')).exportDocument,
 );
@@ -1286,6 +1292,22 @@ const _docsTypedHandler = defineTypedHandler<DocsTypedOps>('docs', {
                 'E_SLUG_PATTERN_MISMATCH',
                 `${patternCheck.error}${exampleHint}`,
                 'add',
+              );
+            }
+          }
+
+          // T14129 (D11210) — a NEW slug names the doc's subject: no task id,
+          // session id or date. Legacy docs keep their names; only add refuses.
+          if (slug !== undefined) {
+            const nameCheck = await docNameViolation(slug, type);
+            if (nameCheck !== null) {
+              if (adrNumber !== undefined) releaseReservedSlug(slug);
+              return lafsError(
+                'E_DOC_NAME_RULE', // @sync-invariant none:input-shape a slug that breaks the doc naming rule is refused before anything is written
+                await describeDocNameViolation(slug, nameCheck),
+                'add',
+                `cleo docs add ... --slug ${nameCheck.suggestion}`,
+                { suggestion: nameCheck.suggestion, reasons: nameCheck.reasons },
               );
             }
           }

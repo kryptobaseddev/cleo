@@ -6,11 +6,14 @@
  */
 
 import { describe, expect, it } from 'vitest';
+import { setFullContext } from '../../skills/injection/token.js';
+import { assembleAdrSlug } from '../adr-allocator.js';
 import {
   checkDocNames,
   describeDocNameViolation,
   docNameViolation,
   isGovernedDocPath,
+  subjectSlug,
   suggestDocName,
 } from '../doc-name-rule.js';
 
@@ -82,5 +85,31 @@ describe('checkDocNames', () => {
     );
     expect(result.violations.map((v) => v.file)).toEqual(['docs/plan/t999-new.md']);
     expect(result.stale).toEqual(['docs/plans/2026-04-21-gone.md']);
+  });
+});
+
+describe('internal slug minters follow the rule (T14129)', () => {
+  it('subjectSlug drops task ids, session ids and dates and keeps the subject', () => {
+    expect(subjectSlug('T14129 Store slug enforcement')).toBe('store-slug-enforcement');
+    expect(subjectSlug('Handoff 2026-10-28 ses_20261027044006_931954')).toBe('handoff');
+    expect(subjectSlug('T1234')).toBe('doc');
+    expect(subjectSlug('a'.repeat(100)).length).toBe(64);
+    expect(docNameViolation(subjectSlug('T1 T22 T333 Fix the 20261028 sweep'))).toBeNull();
+  });
+
+  it('an ADR allocated from a task-anchored title passes the rule within the length cap', () => {
+    const slug = assembleAdrSlug(7, `T14129 ${'very long decision title '.repeat(5)}`);
+    expect(slug.startsWith('adr-007-very-long-decision-title')).toBe(true);
+    expect(slug.length).toBeLessThanOrEqual(64);
+    expect(docNameViolation(slug, 'adr')).toBeNull();
+  });
+
+  it('the spawn TOPIC_SLUG token carries the subject, not the task id', () => {
+    const tokens = setFullContext(
+      { id: 'T14129', title: 'T14129: Store slug enforcement (2026-10-28)' },
+      { date: '2026-10-28' },
+    );
+    expect(tokens.TOPIC_SLUG).toBe('store-slug-enforcement');
+    expect(docNameViolation(String(tokens.TOPIC_SLUG), 'note')).toBeNull();
   });
 });
