@@ -214,7 +214,8 @@ export interface EvidenceValidationContext {
    * with their `AC<n>` alias. A merged PR of another task links to this task
    * only through them: each must name the files the PR changed, and none may
    * have been written or edited after the PR merged (`createdAt` and
-   * `updatedAt`: an edit gives a criterion a new row).
+   * `updatedAt`: an edit gives a criterion a new row). Both are UTC ISO-8601
+   * with a zone, normalised by the writer from the store's zoneless text.
    */
   creditedCriteria?: ReadonlyArray<
     Pick<AcRow, 'id' | 'text' | 'createdAt' | 'updatedAt'> & { alias: string }

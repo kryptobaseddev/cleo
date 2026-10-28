@@ -59,7 +59,6 @@ import {
   resolveDeclaredEvidenceGitRoot,
 } from '../git/work-tree.js';
 import { pushWarning } from '../output.js';
-import { parseStoreTimestamp } from '../store/store-timestamp.js';
 import { getEffectiveHead } from '../worktree/effective-head.js';
 import type { AffectedTestRun } from './affected-packages.js';
 import type { ChangeSetDeps } from './change-set.js';
@@ -3354,16 +3353,17 @@ function creditRefusal(
       `Changed artifacts: ${changedPaths.join(', ')}.`
     );
   // Credit is for merged PRs only; without the merge time the edit check below cannot run.
-  const mergedMs = parseStoreTimestamp(mergedAt ?? null);
-  if (mergedMs === null)
+  // Times here are zoned ISO-8601 (GitHub's mergedAt; criteria normalised to
+  // UTC by the writer), so Date.parse reads them exactly.
+  const mergedMs = mergedAt ? Date.parse(mergedAt) : Number.NaN;
+  if (Number.isNaN(mergedMs))
     return `PR #${prNumber}'s merge time is unknown, so its credited criteria cannot be checked for later edits.`;
   const changed = new Set(changedPaths.map(normalizeEvidencePath));
   for (const criterion of credited) {
     // An edit gives a criterion a new row, so its creation time counts too.
-    // Store timestamps are UTC with or without a zone (`datetime('now')`).
     const written = criterion.updatedAt ?? criterion.createdAt;
-    const writtenMs = parseStoreTimestamp(written ?? null);
-    if (writtenMs === null)
+    const writtenMs = written ? Date.parse(written) : Number.NaN;
+    if (Number.isNaN(writtenMs))
       return `${id}#${criterion.alias} has no readable write time, so it cannot be shown to predate PR #${prNumber}'s merge.`;
     if (writtenMs > mergedMs)
       return `${id}#${criterion.alias} was written or edited at ${written}, after PR #${prNumber} merged at ${mergedAt}; a criterion changed after the merge cannot be credited by it.`;

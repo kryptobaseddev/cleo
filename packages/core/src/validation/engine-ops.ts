@@ -167,16 +167,26 @@ function getMissingGates(
 /**
  * The task's criteria a write names with `satisfies:<taskId>#…` (T14094), by
  * `AC<n>` alias or UUID, each with its alias. A name that matches no row is
- * left out here; the satisfies validator refuses it on its own.
+ * left out here; the satisfies validator refuses it on its own. Their write
+ * times are returned as UTC ISO-8601 (`parseStoreTimestamp`: the store's
+ * zoneless `datetime('now')` text is UTC, never local time), or null when
+ * unreadable.
  */
-function creditedCriteriaOf(
+async function creditedCriteriaOf(
   atoms: readonly ParsedAtom[],
   taskId: string,
   rows: readonly AcRow[],
-): Array<Pick<AcRow, 'id' | 'text' | 'createdAt' | 'updatedAt'> & { alias: string }> {
+): Promise<Array<Pick<AcRow, 'id' | 'text' | 'createdAt' | 'updatedAt'> & { alias: string }>> {
   const named = atoms.flatMap((atom) =>
     atom.kind === 'satisfies' && atom.targetTaskId === taskId ? [atom] : [],
   );
+  if (named.length === 0) return [];
+  // Loaded only when criteria are credited, off the CLI startup graph (gate 39).
+  const { parseStoreTimestamp } = await import('../store/row-identity.js');
+  const utc = (text: string | null): string | null => {
+    const ms = parseStoreTimestamp(text);
+    return ms === null ? null : new Date(ms).toISOString();
+  };
   return rows
     .filter((row) =>
       named.some(
@@ -187,8 +197,8 @@ function creditedCriteriaOf(
     .map((row) => ({
       id: row.id,
       text: row.text,
-      createdAt: row.createdAt,
-      updatedAt: row.updatedAt,
+      createdAt: utc(row.createdAt) ?? '',
+      updatedAt: utc(row.updatedAt),
       alias: `AC${row.ordinal}`,
     }));
 }
@@ -796,7 +806,7 @@ export async function validateGateVerify(
         // T14031: test-run reports of one write cover the change together.
         const testRunPaths = testRunPathsOf(parsed.atoms);
         // T14094: the criteria this write credits, which may link another task's PR.
-        const creditedCriteria = creditedCriteriaOf(parsed.atoms, taskId, acRows);
+        const creditedCriteria = await creditedCriteriaOf(parsed.atoms, taskId, acRows);
         for (const atom of parsed.atoms.toSorted(
           (a, b) => Number(b.kind === 'pr') - Number(a.kind === 'pr'),
         )) {
