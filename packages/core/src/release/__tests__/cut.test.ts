@@ -29,6 +29,19 @@ vi.mock('../reconcile.js', () => ({
     return { success: true, data: {} };
   },
 }));
+let rotOrphans: Array<{ doc: string; reason: string }> = [];
+vi.mock('../../docs/rot.js', () => ({
+  scanDocsRot: () => ({
+    scanned: 0,
+    covering: 0,
+    stale: [],
+    duplicates: [],
+    orphans: rotOrphans,
+    flagged: [],
+    durationMs: 0,
+    summary: `${rotOrphans.length} orphan(s)`,
+  }),
+}));
 vi.mock('../../store/data-accessor.js', () => ({
   getTaskAccessor: async () => ({
     loadSingleTask: async (id: string) => (id === 'T1' ? { id, status: 'done' } : null),
@@ -185,6 +198,27 @@ describe('releaseCut (T14102)', () => {
     expect(result.success).toBe(false);
     if (result.success) return;
     expect(result.error.code).toBe('E_RELEASE_UNMERGED_CHANGESET');
+  });
+
+  it('refuses a real cut with docs rot, before creating the tag; a dry run reports it', async () => {
+    rotOrphans = [{ doc: 'docs/x.md', reason: 'no inbound link' }];
+    try {
+      const { runner, calls } = fakeRunner({ [shas.head]: 'success' });
+      const preview = await releaseCut({
+        version: '2026.10.2',
+        projectRoot: work,
+        dryRun: true,
+        runner,
+      });
+      expect(preview.success && preview.data.docsRot.orphans.length).toBe(1);
+      const real = await releaseCut({ version: '2026.10.2', projectRoot: work, runner });
+      expect(real.success).toBe(false);
+      if (real.success) return;
+      expect(real.error.code).toBe('E_DOCS_ROT');
+      expect(calls.some((c) => c.includes('POST'))).toBe(false);
+    } finally {
+      rotOrphans = [];
+    }
   });
 
   it('creates the annotated tag on the green sha for a real run', async () => {

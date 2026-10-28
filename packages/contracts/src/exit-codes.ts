@@ -409,6 +409,15 @@ export const E_RELEASE_NO_GREEN_COMMIT = 'E_RELEASE_NO_GREEN_COMMIT' as const;
  */
 export const E_RELEASE_UNMERGED_CHANGESET = 'E_RELEASE_UNMERGED_CHANGESET' as const;
 /**
+ * `cleo release cut` found docs rot (stale, duplicate or orphaned docs, per
+ * `cleo docs rot`) and refused to tag. Exit code 6. `error.details.docsRot`
+ * carries the scan.
+ *
+ * @task T14102
+ * @task T14111
+ */
+export const E_DOCS_ROT = 'E_DOCS_ROT' as const;
+/**
  * `cleo release plan` (or the lint script) encountered a `.changeset/*.md`
  * file whose YAML frontmatter cannot be parsed. Exit code 6 (VALIDATION_ERROR).
  *

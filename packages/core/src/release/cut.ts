@@ -28,14 +28,17 @@ import type { ChangesetEntry, EngineResult } from '@cleocode/contracts';
 import { engineError, engineSuccess } from '@cleocode/contracts/engine-result.js';
 import {
   E_CHANGESET_YAML_INVALID,
+  E_DOCS_ROT,
   E_GH_NOT_AUTHENTICATED,
   E_INVALID_STATE,
   E_RELEASE_NO_GREEN_COMMIT,
   E_RELEASE_UNMERGED_CHANGESET,
   ExitCode,
 } from '@cleocode/contracts/exit-codes.js';
+import type { DocsRotResult } from '@cleocode/contracts/operations/docs.js';
 import { eq } from 'drizzle-orm';
 import { parseChangesetDir } from '../changesets/index.js';
+import { scanDocsRot } from '../docs/rot.js';
 import { getTaskAccessor } from '../store/data-accessor.js';
 import { getDb } from '../store/sqlite.js';
 import * as schema from '../store/tasks-schema.js';
@@ -153,6 +156,8 @@ export interface ReleaseCutResult {
   tasks: ReleaseCutTask[];
   /** The merge sweep run before the commit was picked, or null when none is wired. */
   sweep: ReleaseCutSweepResult | null;
+  /** Docs rot of the project checkout (T14111); a real cut refuses when it has findings. */
+  docsRot: DocsRotResult;
   /** True when no tag was created. */
   dryRun: boolean;
   /** True when this call created the tag (which starts `release.yml`). */
@@ -457,6 +462,10 @@ export async function releaseCut(opts: ReleaseCutOptions): Promise<EngineResult<
     await accessor.close();
   }
 
+  // T14111: a release does not ship stale, duplicate or orphaned docs.
+  const docsRot = scanDocsRot({ projectRoot: cwd });
+  const rotFindings = docsRot.stale.length + docsRot.duplicates.length + docsRot.orphans.length;
+
   const result: ReleaseCutResult = {
     version,
     tag: version,
@@ -469,10 +478,18 @@ export async function releaseCut(opts: ReleaseCutOptions): Promise<EngineResult<
     migrations,
     tasks,
     sweep,
+    docsRot,
     dryRun,
     tagCreated: false,
   };
   if (dryRun) return engineSuccess(result);
+  if (rotFindings > 0) {
+    return engineError(E_DOCS_ROT, `Docs rot blocks the release: ${docsRot.summary}`, {
+      exitCode: ExitCode.VALIDATION_ERROR,
+      fix: 'cleo docs rot  (update the stale docs, merge the duplicates, fix or link the orphans), then re-run',
+      details: { docsRot },
+    });
+  }
 
   // Created with the caller's token, the tag push triggers release.yml
   // (a GITHUB_TOKEN-created tag would not).

@@ -23,6 +23,8 @@ reruns: main CI already passed that tree.
   a changeset must have arrived through a merged PR
   (`E_RELEASE_UNMERGED_CHANGESET`). With no green commit the cut refuses with
   `E_RELEASE_NO_GREEN_COMMIT`.
+- A real cut refuses with `E_DOCS_ROT` before tagging while `cleo docs rot`
+  reports stale, duplicate or orphaned docs; the dry run shows the findings.
 - `cleo release reconcile` records provenance for a cut release as before; it
   builds its plan from the tag when no plan file exists.
 - `cleo release plan`, `open` and `release-prepare.yml` keep working for one
