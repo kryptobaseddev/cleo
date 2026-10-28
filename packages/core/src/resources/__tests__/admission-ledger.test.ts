@@ -31,6 +31,7 @@ import {
   GIB,
   gitHookInstalled,
   HEAVY_FOOTPRINT_BYTES,
+  isLatchedBelowRefuse,
   LEDGER_HEARTBEAT_STALE_MS,
   LEDGER_ORPHAN_MS,
   LEDGER_RESERVATION_MS,
@@ -398,6 +399,86 @@ describe('schedulePass', () => {
       lightShare: 'half',
     });
     expect(admittedIds(half)).toEqual(['h']);
+  });
+});
+
+describe('a latch held by memory outside CLEO admits one run at a time (T14088)', () => {
+  const ctx = (latchedBelowRefuse: boolean) => ({
+    capacityBytes: 10 * GIB,
+    share: 'none' as const,
+    lightShare: 'none' as const,
+    nowMs: 1_000,
+    latchedBelowRefuse,
+  });
+  const queue = [
+    entry({ id: 'b', enqueuedAtMs: 2, footprintBytes: 4 * GIB }),
+    entry({ id: 'a', enqueuedAtMs: 1, footprintBytes: 4 * GIB }),
+    entry({ id: 'c', enqueuedAtMs: 3, footprintBytes: GIB }),
+  ];
+
+  it('latched below the refuse line with nothing of CLEO running: the queue head alone starts', () => {
+    expect(admittedIds(schedulePass(queue, ctx(true)))).toEqual(['a']);
+  });
+
+  it('latched with a CLEO holder: nothing more starts until it releases', () => {
+    const held = [...queue, entry({ id: 'h', state: 'admitted', admittedAtMs: 0 })];
+    expect(admittedIds(schedulePass(held, ctx(true)))).toEqual(['h']);
+  });
+
+  it('above the refuse line: nothing starts', () => {
+    expect(admittedIds(schedulePass(queue, ctx(false)))).toEqual([]);
+  });
+
+  it('isLatchedBelowRefuse reads the gate: latched and at or below the refuse line', () => {
+    const reading = {
+      score: 22.7,
+      fullStall: 0,
+      refuseAbove: 25,
+      resumeAtOrBelow: 15,
+      latched: true,
+      memAvailableBytes: null,
+      summary: 'kernel level warning',
+    };
+    expect(isLatchedBelowRefuse(reading)).toBe(true);
+    expect(isLatchedBelowRefuse({ ...reading, score: 26 })).toBe(false);
+    expect(isLatchedBelowRefuse({ ...reading, latched: false })).toBe(false);
+    expect(isLatchedBelowRefuse(null)).toBe(false);
+  });
+
+  it('doctor tool-locks names the outside memory when CLEO holds nothing', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'cleo-latch-idle-'));
+    try {
+      writeFileSync(
+        join(dir, 'ledger.json'),
+        JSON.stringify({
+          version: 1,
+          entries: [],
+          pressure: {
+            share: 'none',
+            lightShare: 'none',
+            sampledAtMs: 0,
+            reading: {
+              score: 22.7,
+              fullStall: 0,
+              refuseAbove: 25,
+              resumeAtOrBelow: 15,
+              latched: true,
+              memAvailableBytes: null,
+              summary: 'kernel level warning',
+              topConsumers: {
+                sampledAtMs: 0,
+                processes: [{ pid: 62972, command: 'codex', footprintBytes: 7.8 * GIB }],
+              },
+            },
+          },
+        }),
+      );
+      const cause = readLedgerBudget(dir, 10 * GIB).cause ?? '';
+      expect(cause).toContain('codex pid 62972');
+      expect(cause).toContain('CLEO holds nothing, so the latch is held by memory outside CLEO');
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 });
 
