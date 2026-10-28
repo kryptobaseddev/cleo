@@ -153,10 +153,10 @@ export function coveredTestFiles(report: TestRunReport, root: string): string[] 
 }
 
 /**
- * A Playwright JSON report in the vitest shape the binding and the counter
- * checks read (T14031), from {@link playwrightTestRun}.
+ * A report adapted to the vitest shape the binding and the counter checks
+ * read: Playwright JSON (T14031), JUnit XML and libtest JSON (T14084).
  */
-export type PlaywrightTestRun = {
+export type AdaptedTestRun = {
   readonly startTime?: number;
   readonly testResults: Array<{
     status: string;
@@ -170,11 +170,17 @@ export type PlaywrightTestRun = {
   readonly numTodoTests: number;
 };
 
-/** A Playwright report that cannot stand as test-run evidence, and why. */
-export interface PlaywrightTestRunRefusal {
+/** An adapted report that cannot stand as test-run evidence, and why. */
+export interface AdaptedTestRunRefusal {
   readonly refusal: string;
   readonly codeName: 'E_EVIDENCE_INVALID' | 'E_EVIDENCE_TESTS_FAILED';
 }
+
+/** A Playwright JSON report in the vitest shape (T14031). */
+export type PlaywrightTestRun = AdaptedTestRun;
+
+/** A Playwright report that cannot stand as test-run evidence (T14031). */
+export type PlaywrightTestRunRefusal = AdaptedTestRunRefusal;
 
 /** Playwright's per-test outcome, as a vitest assertion status. */
 const PLAYWRIGHT_STATUS = {
@@ -281,6 +287,206 @@ export function playwrightTestRun(
       name: rootDir === null ? file : resolve(rootDir, file),
       status: statuses.includes('unexpected') ? 'failed' : 'passed',
       assertionResults: statuses.map((s) => ({ status: PLAYWRIGHT_STATUS[s] })),
+    })),
+  };
+}
+
+/** A JUnit testcase outcome, as a vitest assertion status. */
+type JunitOutcome = 'passed' | 'failed' | 'skipped';
+
+/** Decode the five predefined XML entities and numeric character references. */
+function xmlText(value: string): string {
+  return value
+    .replace(/&#x([0-9a-fA-F]+);/g, (_, hex: string) =>
+      String.fromCodePoint(Number.parseInt(hex, 16)),
+    )
+    .replace(/&#([0-9]+);/g, (_, dec: string) => String.fromCodePoint(Number.parseInt(dec, 10)))
+    .replace(/&quot;/g, '"')
+    .replace(/&apos;/g, "'")
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&amp;/g, '&');
+}
+
+/** The attributes of one XML start tag's attribute text. */
+function xmlAttributes(text: string): Map<string, string> {
+  const attrs = new Map<string, string>();
+  for (const match of text.matchAll(/([A-Za-z_][\w:.-]*)\s*=\s*(?:"([^"]*)"|'([^']*)')/g))
+    attrs.set(match[1]!, xmlText(match[2] ?? match[3] ?? ''));
+  return attrs;
+}
+
+/** A count attribute, when present and a non-negative integer. */
+function countAttribute(attrs: Map<string, string>, name: string): number | null {
+  const raw = attrs.get(name);
+  if (raw === undefined || !/^\d+$/.test(raw.trim())) return null;
+  return Number(raw.trim());
+}
+
+/**
+ * Adapt a JUnit XML report to the vitest shape, so a runner without a JSON
+ * reporter can be test-run evidence (T14084): cargo nextest
+ * (`[profile.*.junit]`), pytest `--junitxml`, and most other runners; null
+ * when `text` is not JUnit XML (no `<testsuite` element).
+ *
+ * Each `<testcase>` is one test: a `<failure>` or `<error>` child fails it, a
+ * `<skipped>` child makes it pending, otherwise it passed. Its file is the
+ * testcase's `file` attribute, else its suite's, else the suite name (pytest
+ * xunit1 and Jest record files; nextest and pytest xunit2 name binaries and
+ * classes, which then cover no file). A `tests`, `failures`, `errors` or
+ * `skipped` total the report states must equal its testcases, and the run
+ * time is the earliest suite `timestamp`.
+ *
+ * @param text - The report file's text.
+ * @returns The adapted report, a refusal, or null when it is not JUnit XML.
+ * @task T14084
+ */
+export function junitTestRun(text: string): AdaptedTestRun | AdaptedTestRunRefusal | null {
+  const body = text.replace(/^﻿/, '').replace(/<!--[\s\S]*?-->/g, '');
+  if (!/^\s*</.test(body) || !/<testsuite\b/.test(body)) return null;
+  const files = new Map<string, JunitOutcome[]>();
+  const stated = { tests: 0, failed: 0, skipped: 0, any: false };
+  let startTime = Number.POSITIVE_INFINITY;
+  const suites = body.matchAll(/<testsuite\b([^>]*?)(?:\/>|>([\s\S]*?)<\/testsuite>)/g);
+  for (const suite of suites) {
+    const attrs = xmlAttributes(suite[1] ?? '');
+    const tests = countAttribute(attrs, 'tests');
+    if (tests !== null) {
+      stated.any = true;
+      stated.tests += tests;
+      stated.failed +=
+        (countAttribute(attrs, 'failures') ?? 0) + (countAttribute(attrs, 'errors') ?? 0);
+      stated.skipped += countAttribute(attrs, 'skipped') ?? countAttribute(attrs, 'disabled') ?? 0;
+    }
+    const at = Date.parse(attrs.get('timestamp') ?? '');
+    if (Number.isFinite(at)) startTime = Math.min(startTime, at);
+    const suiteFile = attrs.get('file') || attrs.get('name') || 'junit';
+    const cases = (suite[2] ?? '').matchAll(/<testcase\b([^>]*?)(?:\/>|>([\s\S]*?)<\/testcase>)/g);
+    for (const testcase of cases) {
+      const caseAttrs = xmlAttributes(testcase[1] ?? '');
+      const inner = testcase[2] ?? '';
+      const outcome: JunitOutcome = /<(?:failure|error)\b/.test(inner)
+        ? 'failed'
+        : /<skipped\b/.test(inner)
+          ? 'skipped'
+          : 'passed';
+      const file = caseAttrs.get('file') || suiteFile;
+      files.set(file, [...(files.get(file) ?? []), outcome]);
+    }
+  }
+  const all = [...files.values()].flat();
+  const count = (outcome: JunitOutcome): number => all.filter((o) => o === outcome).length;
+  if (
+    stated.any &&
+    (stated.tests !== all.length ||
+      stated.failed !== count('failed') ||
+      stated.skipped !== count('skipped'))
+  )
+    return {
+      refusal:
+        `JUnit report states ${stated.tests} tests (${stated.failed} failed or errored, ${stated.skipped} skipped), ` +
+        `but its testcases count ${all.length} (${count('failed')} failed, ${count('skipped')} skipped)`,
+      codeName: 'E_EVIDENCE_INVALID',
+    };
+  return {
+    ...(Number.isFinite(startTime) ? { startTime } : {}),
+    numTotalTests: all.length,
+    numPassedTests: count('passed'),
+    numFailedTests: count('failed'),
+    numPendingTests: count('skipped'),
+    numTodoTests: 0,
+    testResults: [...files].map(([file, outcomes]) => ({
+      name: file,
+      status: outcomes.includes('failed') ? 'failed' : 'passed',
+      assertionResults: outcomes.map((status) => ({ status })),
+    })),
+  };
+}
+
+/** libtest's per-test events, as vitest assertion statuses. */
+const LIBTEST_STATUS = { ok: 'passed', failed: 'failed', ignored: 'skipped' } as const;
+
+/** A finished libtest test event. */
+type LibtestEvent = keyof typeof LIBTEST_STATUS;
+
+function isLibtestEvent(value: unknown): value is LibtestEvent {
+  return value === 'ok' || value === 'failed' || value === 'ignored';
+}
+
+/**
+ * Adapt libtest JSON lines to the vitest shape (T14084): `cargo test --
+ * -Z unstable-options --format json --report-time`, or cargo nextest
+ * `--message-format libtest-json`; null when `text` is not libtest JSON (a
+ * line that is not a JSON object with `type` `suite` or `test`).
+ *
+ * Each finished `test` event is one test (`ok` passes, `failed` fails,
+ * `ignored` is pending). Tests are grouped by their binary, the name before a
+ * `$` (nextest) or `::`. Libtest names no files, so a report covers none. Each
+ * suite's `passed`/`failed`/`ignored` summary must equal its test events.
+ *
+ * @param text - The report file's text.
+ * @returns The adapted report, a refusal, or null when it is not libtest JSON.
+ * @task T14084
+ */
+export function libtestTestRun(text: string): AdaptedTestRun | AdaptedTestRunRefusal | null {
+  const lines = text
+    .split('\n')
+    .map((line) => line.trim())
+    .filter(Boolean);
+  if (lines.length === 0) return null;
+  const events: Array<Readonly<Record<string, unknown>>> = [];
+  for (const line of lines) {
+    let event: unknown;
+    try {
+      event = JSON.parse(line);
+    } catch {
+      return null;
+    }
+    if (!isRecord(event) || (event.type !== 'suite' && event.type !== 'test')) return null;
+    events.push(event);
+  }
+  const groups = new Map<string, LibtestEvent[]>();
+  const summary = { passed: 0, failed: 0, ignored: 0, any: false };
+  for (const event of events) {
+    if (event.type === 'suite') {
+      if (event.event !== 'ok' && event.event !== 'failed') continue;
+      summary.any = true;
+      for (const key of ['passed', 'failed', 'ignored'] as const) {
+        const value = event[key];
+        if (typeof value === 'number' && Number.isInteger(value) && value >= 0)
+          summary[key] += value;
+      }
+      continue;
+    }
+    if (!isLibtestEvent(event.event)) continue;
+    const name = typeof event.name === 'string' ? event.name : '';
+    const binary = name.includes('$') ? name.split('$')[0]! : name.split('::')[0] || 'libtest';
+    groups.set(binary, [...(groups.get(binary) ?? []), event.event]);
+  }
+  const all = [...groups.values()].flat();
+  const count = (event: LibtestEvent): number => all.filter((e) => e === event).length;
+  if (
+    summary.any &&
+    (summary.passed !== count('ok') ||
+      summary.failed !== count('failed') ||
+      summary.ignored !== count('ignored'))
+  )
+    return {
+      refusal:
+        `libtest summary states ${summary.passed} passed, ${summary.failed} failed, ${summary.ignored} ignored, ` +
+        `but its test events count ${count('ok')}, ${count('failed')}, ${count('ignored')}`,
+      codeName: 'E_EVIDENCE_INVALID',
+    };
+  return {
+    numTotalTests: all.length,
+    numPassedTests: count('ok'),
+    numFailedTests: count('failed'),
+    numPendingTests: count('ignored'),
+    numTodoTests: 0,
+    testResults: [...groups].map(([binary, outcomes]) => ({
+      name: binary,
+      status: outcomes.includes('failed') ? 'failed' : 'passed',
+      assertionResults: outcomes.map((event) => ({ status: LIBTEST_STATUS[event] })),
     })),
   };
 }

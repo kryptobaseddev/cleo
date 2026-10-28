@@ -76,6 +76,8 @@ import {
   bindTestRunReport,
   configSchemaCompositionGap,
   coveredTestFiles,
+  junitTestRun,
+  libtestTestRun,
   playwrightTestRun,
   TEST_RUN_MAX_RECORDED_FILES,
   type TestRunReport,
@@ -2060,12 +2062,25 @@ async function readTestRunReport(
       codeName: 'E_EVIDENCE_INVALID',
     };
   }
+  const text = content.toString('utf-8');
+  // T14084: JUnit XML (cargo nextest, pytest, most runners) and libtest JSON
+  // lines (cargo test) are read in the vitest shape.
+  const junit = junitTestRun(text);
+  if (junit !== null && 'refusal' in junit)
+    return { ok: false, reason: junit.refusal, codeName: junit.codeName };
+  if (junit !== null) return { ok: true, abs, content, parsed: junit };
   try {
-    return { ok: true, abs, content, parsed: JSON.parse(content.toString('utf-8')) };
+    return { ok: true, abs, content, parsed: JSON.parse(text) };
   } catch (err) {
+    const libtest = libtestTestRun(text);
+    if (libtest !== null && 'refusal' in libtest)
+      return { ok: false, reason: libtest.refusal, codeName: libtest.codeName };
+    if (libtest !== null) return { ok: true, abs, content, parsed: libtest };
     return {
       ok: false,
-      reason: `test-run file is not valid JSON: ${err instanceof Error ? err.message : String(err)}`,
+      reason:
+        `test-run file is not valid JSON, JUnit XML or libtest JSON lines: ` +
+        `${err instanceof Error ? err.message : String(err)}`,
       codeName: 'E_EVIDENCE_INVALID',
     };
   }

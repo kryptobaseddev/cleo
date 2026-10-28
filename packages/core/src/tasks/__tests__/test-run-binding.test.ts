@@ -963,3 +963,132 @@ describe('Playwright JSON reports are test-run evidence (T14031)', () => {
     });
   });
 });
+
+/**
+ * T14084: Rust and Python projects had no test-run route (21 audited owner
+ * overrides): cargo nextest and pytest write JUnit XML, cargo test writes
+ * libtest JSON lines.
+ */
+describe('JUnit XML and libtest JSON reports are test-run evidence (T14084)', () => {
+  function write(name: string, text: string): string {
+    mkdirSync(join(root, 'reports'), { recursive: true });
+    const path = join(root, 'reports', name);
+    writeFileSync(path, text);
+    return path;
+  }
+
+  const stamp = (): string => new Date(Date.now() + 5_000).toISOString();
+
+  /** A pytest-style JUnit report: one suite, testcases with `file` attributes. */
+  function junit(cases: string, totals = 'tests="3" failures="0" errors="0" skipped="1"'): string {
+    return write(
+      'junit.xml',
+      `<?xml version="1.0" encoding="utf-8"?>\n<testsuites><testsuite name="pytest" ${totals} timestamp="${stamp()}">\n${cases}\n</testsuite></testsuites>\n`,
+    );
+  }
+
+  const passing =
+    '<testcase classname="tests.test_a" name="test_one" file="tests/test_a.py" time="0.01"/>\n' +
+    '<testcase classname="tests.test_a" name="test_two" file="tests/test_a.py" time="0.01"></testcase>\n' +
+    '<testcase classname="tests.test_b" name="test_skip" file="tests/test_b.py"><skipped message="later"/></testcase>';
+
+  it('a passing JUnit report binds like a vitest report: HEAD, tree and covered files', async () => {
+    const r = await validateAtom({ kind: 'test-run', path: junit(passing) }, root);
+    expect(r.ok && r.atom, JSON.stringify(r)).toMatchObject({
+      kind: 'test-run',
+      passCount: 2,
+      failCount: 0,
+      skipCount: 1,
+      headSha: git(root, ['rev-parse', 'HEAD']),
+      treeHash: git(root, ['rev-parse', 'HEAD^{tree}']),
+      testFiles: ['tests/test_a.py'],
+    });
+  });
+
+  it('a JUnit report with a failure or an error is refused', async () => {
+    const failing = passing.replace(
+      '<skipped message="later"/>',
+      '<failure message="assert 1 == 2">trace &lt;here&gt;</failure>',
+    );
+    const r = await validateAtom(
+      {
+        kind: 'test-run',
+        path: junit(failing, 'tests="3" failures="1" errors="0" skipped="0"'),
+      },
+      root,
+    );
+    expect(!r.ok && r.codeName, JSON.stringify(r)).toBe('E_EVIDENCE_TESTS_FAILED');
+  });
+
+  it('JUnit totals that disagree with the testcases are refused', async () => {
+    const r = await validateAtom(
+      { kind: 'test-run', path: junit(passing, 'tests="9" failures="0" errors="0" skipped="1"') },
+      root,
+    );
+    expect(!r.ok && r.codeName, JSON.stringify(r)).toBe('E_EVIDENCE_INVALID');
+    expect(!r.ok && r.reason).toMatch(/states 9 tests .* but its testcases count 3/);
+  });
+
+  /** cargo test / nextest libtest JSON lines. */
+  function libtest(events: object[]): string {
+    return write('libtest.json', `${events.map((e) => JSON.stringify(e)).join('\n')}\n`);
+  }
+
+  it('passing libtest JSON lines bind, grouped by binary', async () => {
+    const r = await validateAtom(
+      {
+        kind: 'test-run',
+        path: libtest([
+          { type: 'suite', event: 'started', test_count: 3 },
+          { type: 'test', event: 'started', name: 'parser::tests::reads' },
+          { type: 'test', event: 'ok', name: 'parser::tests::reads' },
+          { type: 'test', event: 'ok', name: 'parser::tests::writes' },
+          { type: 'test', event: 'ignored', name: 'parser::tests::slow' },
+          { type: 'suite', event: 'ok', passed: 2, failed: 0, ignored: 1, measured: 0 },
+        ]),
+      },
+      root,
+    );
+    expect(r.ok && r.atom, JSON.stringify(r)).toMatchObject({
+      kind: 'test-run',
+      passCount: 2,
+      failCount: 0,
+      skipCount: 1,
+      headSha: git(root, ['rev-parse', 'HEAD']),
+    });
+  });
+
+  it('a failed libtest test, or a summary that disagrees with the events, is refused', async () => {
+    const failed = await validateAtom(
+      {
+        kind: 'test-run',
+        path: libtest([
+          { type: 'test', event: 'ok', name: 'a::one' },
+          { type: 'test', event: 'failed', name: 'a::two', stdout: 'panicked' },
+          { type: 'suite', event: 'failed', passed: 1, failed: 1, ignored: 0 },
+        ]),
+      },
+      root,
+    );
+    expect(!failed.ok && failed.codeName, JSON.stringify(failed)).toBe('E_EVIDENCE_TESTS_FAILED');
+    const lying = await validateAtom(
+      {
+        kind: 'test-run',
+        path: libtest([
+          { type: 'test', event: 'ok', name: 'a::one' },
+          { type: 'suite', event: 'ok', passed: 5, failed: 0, ignored: 0 },
+        ]),
+      },
+      root,
+    );
+    expect(!lying.ok && lying.codeName, JSON.stringify(lying)).toBe('E_EVIDENCE_INVALID');
+    expect(!lying.ok && lying.reason).toMatch(/summary states 5 passed/);
+  });
+
+  it('text that is none of the formats is refused by name', async () => {
+    const r = await validateAtom({ kind: 'test-run', path: write('junk.txt', 'ok 1\n') }, root);
+    expect(!r.ok && r.reason, JSON.stringify(r)).toMatch(
+      /not valid JSON, JUnit XML or libtest JSON lines/,
+    );
+  });
+});
