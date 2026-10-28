@@ -147,7 +147,8 @@ const cases = async (): Promise<
   { format: 'Playwright JSON', text: JSON.stringify(playwright), passed: 2, total: 2 },
   { format: 'JUnit XML', text: junit, passed: 2, total: 2 },
   { format: 'libtest JSON lines', text: libtest, passed: 2, total: 2 },
-  { format: 'node:test TAP', text: await readFile(tapFixture, 'utf-8'), passed: 2, total: 2 },
+  // The fixture: # tests 3, # pass 2, # skipped 1.
+  { format: 'node:test TAP', text: await readFile(tapFixture, 'utf-8'), passed: 2, total: 3 },
 ];
 
 /** A typed gate replaying `text` on stdout. */

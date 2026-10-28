@@ -108,6 +108,7 @@ function writeReport(name: string): { path: string; sha: string } {
     numPassedTests: 1,
     numFailedTests: 0,
     numPendingTests: 0,
+    numTodoTests: 0,
     success: true,
     startTime: Date.now(),
     testResults: [

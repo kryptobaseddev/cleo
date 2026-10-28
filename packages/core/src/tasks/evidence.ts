@@ -75,7 +75,6 @@ import {
 import {
   present,
   readTestReport,
-  TEST_REPORT_FORMATS,
   TEST_RUN_SHAPE_HINT,
   type TestRunCounts,
   type TestRunReportJson,
@@ -1936,17 +1935,32 @@ async function readTestRunReport(
     };
   }
   // T14124: one reader for every format, shared with typed gates' minCount.
-  const read = readTestReport(content.toString('utf-8'));
-  if (read === null)
+  const text = content.toString('utf-8');
+  const read = readTestReport(text);
+  if (read === null) {
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(text);
+    } catch (err) {
+      return {
+        ok: false,
+        reason:
+          'test-run file is not valid JSON, JUnit XML or libtest JSON lines (or node:test TAP): ' +
+          `${err instanceof Error ? err.message : String(err)}`,
+        codeName: 'E_EVIDENCE_INVALID',
+      };
+    }
     return {
       ok: false,
       reason:
-        `test-run file is not a test report this reader knows. Tried: ${TEST_REPORT_FORMATS.join(', ')}. ` +
-        `A JSON report needs test counts: ${TEST_RUN_SHAPE_HINT}; ` +
-        "e.g. vitest's --reporter=json --outputFile, Playwright's --reporter=json, or " +
-        '{"total":43,"passed":42,"failed":0,"skipped":1}',
+        parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)
+          ? `test-run file is not a JSON object. Expected test counts: ${TEST_RUN_SHAPE_HINT}`
+          : `test-run report has no test counts. Expected one of: ${TEST_RUN_SHAPE_HINT}; ` +
+            "e.g. vitest's --reporter=json --outputFile, Playwright's --reporter=json, or " +
+            '{"total":43,"passed":42,"failed":0,"skipped":1}',
       codeName: 'E_EVIDENCE_INVALID',
     };
+  }
   if (!read.ok) return { ok: false, reason: read.reason, codeName: read.codeName };
   return { ok: true, abs, content, parsed: read.report, counts: read.counts };
 }

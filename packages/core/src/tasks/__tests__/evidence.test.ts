@@ -278,6 +278,7 @@ describe('validateAtom - test-run (T832)', () => {
         numPassedTests: 10,
         numFailedTests: 0,
         numPendingTests: 0,
+        numTodoTests: 0,
         testResults: [{ status: 'passed' }],
       }),
     );
@@ -306,7 +307,16 @@ describe('validateAtom - test-run (T832)', () => {
 
   it('rejects zero-test runs', async () => {
     const path = join(tmpDir, 'out.json');
-    await writeFile(path, JSON.stringify({ numTotalTests: 0, numPassedTests: 0 }));
+    await writeFile(
+      path,
+      JSON.stringify({
+        numTotalTests: 0,
+        numPassedTests: 0,
+        numFailedTests: 0,
+        numPendingTests: 0,
+        numTodoTests: 0,
+      }),
+    );
     const r = await validateAtom({ kind: 'test-run', path: 'out.json' }, tmpDir);
     expect(r.ok).toBe(false);
   });
@@ -474,7 +484,14 @@ describe('validateAtom - test-run (T832)', () => {
     });
 
     it('a vitest report wins over summary keys it also carries', async () => {
-      const r = await run({ numTotalTests: 2, numPassedTests: 2, numFailedTests: 0, total: 0 });
+      const r = await run({
+        numTotalTests: 2,
+        numPassedTests: 2,
+        numFailedTests: 0,
+        numPendingTests: 0,
+        numTodoTests: 0,
+        total: 0,
+      });
       expect(r.ok).toBe(true);
     });
   });

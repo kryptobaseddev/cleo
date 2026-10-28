@@ -555,6 +555,21 @@ export function reportCounts(
   const [passed = 0, ...rest] = values;
   const failed = rest.slice(0, shape.failed.length).reduce((a, b) => a + b, 0);
   const notRun = rest.slice(shape.failed.length).reduce((a, b) => a + b, 0);
+  // A reported failure decides the report: it is failing, whatever its other
+  // counters add up to (T13136 review).
+  if (failure !== undefined) return { shape, total, passed, failed, notRun, failure };
+  // T14124: a vitest/jest report carries all five test counters, as their JSON
+  // reporters always emit them; one missing means a trimmed or hand-made report.
+  if (shape.name === 'vitest/jest') {
+    const missing = [shape.total, ...keys].find((key) => !present(report[key]));
+    if (missing !== undefined)
+      return {
+        reason:
+          `the report's "${missing}" is missing; a vitest/jest JSON report carries all five ` +
+          `test counters (${[shape.total, ...keys].join(', ')})`,
+        codeName: 'E_EVIDENCE_INVALID',
+      };
+  }
   if (passed + failed + notRun !== total) {
     return {
       reason:
@@ -563,7 +578,7 @@ export function reportCounts(
       codeName: 'E_EVIDENCE_INVALID',
     };
   }
-  return { shape, total, passed, failed, notRun, ...(failure ? { failure } : {}) };
+  return { shape, total, passed, failed, notRun };
 }
 
 /**
@@ -703,7 +718,7 @@ function counted(
     'vitest/jest JSON';
   if (!('shape' in counts))
     return { ok: false, format, reason: counts.reason, codeName: counts.codeName };
-  const disagreement = assertionDisagreement(report, counts);
+  const disagreement = counts.failure === undefined ? assertionDisagreement(report, counts) : null;
   if (disagreement !== null)
     return {
       ok: false,

@@ -24,5 +24,9 @@ cannot be proved, the refusal lists every format it tried.
 
 A report whose counters contradict its own per-test results is no longer
 evidence: a new `test-run:` recording refuses it, and so does a typed gate.
+A new `test-run:` recording of a vitest/jest JSON report now needs all five
+test counters (`numTotalTests`, `numPassedTests`, `numFailedTests`,
+`numPendingTests`, `numTodoTests`), which real vitest and jest reporters
+always emit. The refusal names the missing one.
 Receipts already stored are not judged again. `cleo complete` still checks
 them by content hash, as before.

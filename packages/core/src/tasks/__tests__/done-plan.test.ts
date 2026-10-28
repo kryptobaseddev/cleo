@@ -1017,6 +1017,8 @@ describe('a worktree-bound test-run is judged in one root (T12965 review M2)', (
           numTotalTests: 1,
           numPassedTests: 1,
           numFailedTests: 0,
+          numPendingTests: 0,
+          numTodoTests: 0,
           testResults: [
             {
               name: join(wt, 'pkgs', 'a', 'a.test.ts'),

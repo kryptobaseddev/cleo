@@ -2474,7 +2474,9 @@ function describeMissingTestCount(gate: TestGate, refusal?: string): string {
     `minCount ${gate.minCount} cannot be proved: ${found}, and an exit code alone carries no ` +
     `count. Formats tried: ${TEST_REPORT_FORMATS.join(', ')}, and a bare count summary as the ` +
     `LAST stdout line (at minimum {"numPassedTests":N}). These are the formats \`test-run:\` ` +
-    `reads; a report's counters must add up and agree with its own test results. Add a reporter ` +
+    `reads, among them a full Vitest/Jest JSON report (numTotalTests, numPassedTests, ` +
+    `numFailedTests, numPendingTests, numTodoTests, testResults[].assertionResults); a report's ` +
+    `counters must add up and agree with its own test results. Add a reporter ` +
     `to the gate command itself (e.g. \`${invoked} ${flag}\`) so the run that is being attested ` +
     `is the run that is counted. ` +
     `A report file this run writes (its --outputFile, or ${REDIRECTED_JSON_REPORT}) is read too, ` +
