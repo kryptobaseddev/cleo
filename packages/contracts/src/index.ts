@@ -442,6 +442,7 @@ export {
   DOCS_MODERNIZE_DISPOSITIONS,
   DOCS_MODERNIZE_OPS,
   docsModernizeJournalLineSchema,
+  docsModernizeOverridesSchema,
   docsModernizePlanSchema,
   docsModernizeReceiptSchema,
 } from './docs/modernize.js';

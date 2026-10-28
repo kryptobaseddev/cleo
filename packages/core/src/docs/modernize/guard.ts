@@ -10,8 +10,13 @@
 
 import { existsSync, lstatSync, realpathSync } from 'node:fs';
 import { dirname, isAbsolute, relative, resolve, sep } from 'node:path';
-import type { DocsModernizePlan, DocsModernizeReceipt } from '@cleocode/contracts';
+import type {
+  DocsModernizeOverrides,
+  DocsModernizePlan,
+  DocsModernizeReceipt,
+} from '@cleocode/contracts';
 import {
+  docsModernizeOverridesSchema,
   docsModernizePlanSchema,
   docsModernizeReceiptSchema,
 } from '@cleocode/contracts/docs/modernize.js';
@@ -145,4 +150,54 @@ export function parseModernizeReceipt(raw: string, projectRoot: string): DocsMod
   assertRootInProject(projectRoot, receipt.root);
   for (const op of receipt.ops) if (op.path) safeJoin(receipt.root, op.path);
   return receipt;
+}
+
+/**
+ * Check that a plan hangs together: every `merge-into`/`delete` row names a
+ * survivor's slug (so its content has somewhere to go), every `keep` row
+ * targets its own path, and every survivor target is a `.md`/`.txt` file.
+ *
+ * @param plan - The plan.
+ * @throws DocsModernizeUnsafeError on the first inconsistent row.
+ */
+export function assertPlanConsistent(plan: DocsModernizePlan): void {
+  const survivors = new Set(
+    plan.rows
+      .filter((r) => r.disposition === 'keep' || r.disposition === 'rename')
+      .map((r) => r.slug),
+  );
+  for (const row of plan.rows) {
+    const bad = (why: string): never => {
+      // @sync-invariant none:input-shape an inconsistent plan row is refused before any write
+      throw new DocsModernizeUnsafeError(`plan row ${row.path}: ${why}`);
+    };
+    if (row.disposition === 'merge-into' || row.disposition === 'delete') {
+      if (!row.target || !survivors.has(row.target)) {
+        bad(`${row.disposition} must name a survivor's slug (got ${row.target ?? 'none'})`);
+      }
+    } else if (plan.mode !== 'store-only') {
+      if (row.disposition === 'keep' && row.target !== row.path)
+        bad('keep must target its own path');
+      if (!row.target || !/\.(md|txt)$/i.test(row.target))
+        bad('a survivor must target a .md or .txt file');
+    }
+  }
+}
+
+/**
+ * Parse and check an `--overrides` file.
+ *
+ * @param raw - File text.
+ * @returns The overrides.
+ * @throws DocsModernizeUnsafeError on a bad shape.
+ */
+export function parseModernizeOverrides(raw: string): DocsModernizeOverrides {
+  const parsed = docsModernizeOverridesSchema.safeParse(JSON.parse(raw));
+  if (!parsed.success) {
+    // @sync-invariant none:input-shape a malformed overrides file is refused before any write
+    throw new DocsModernizeUnsafeError(
+      `overrides file does not match the schema: ${parsed.error.message}`,
+    );
+  }
+  return parsed.data;
 }

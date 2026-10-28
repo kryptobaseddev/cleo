@@ -32,13 +32,16 @@
 import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import {
-  appendFileSync,
+  closeSync,
   existsSync,
+  fsyncSync,
   mkdirSync,
+  openSync,
   readdirSync,
   readFileSync,
   rmdirSync,
   rmSync,
+  writeSync,
 } from 'node:fs';
 import { dirname, join } from 'node:path';
 import type {
@@ -57,7 +60,7 @@ import { writeFileAtomic } from '../../tools/fs.js';
 import { extractWikilinkTargets } from '../derive-links.js';
 import { IMPORT_OWNER_TYPE, IMPORT_PROJECT_OWNER_ID } from '../import/attachment-store-accessor.js';
 import { normalizeSlug } from '../slug-normalize.js';
-import { assertPlanPaths, parseModernizeReceipt, safeJoin } from './guard.js';
+import { assertPlanConsistent, assertPlanPaths, parseModernizeReceipt, safeJoin } from './guard.js';
 import { readSupersessionPrior, restoreSupersession, revertDocUpdate } from './restore.js';
 import { mergeDocBodies, rewriteDocLinks } from './rules.js';
 
@@ -242,6 +245,17 @@ async function linkTargets(slug: string, projectRoot: string): Promise<string[]>
   return edges.filter((e) => e.relation === 'links-to').map((e) => e.toSlug);
 }
 
+/** Append one line and fsync it, so a journal entry survives a crash right after. */
+function appendDurable(path: string, line: string): void {
+  const fd = openSync(path, 'a');
+  try {
+    writeSync(fd, line);
+    fsyncSync(fd);
+  } finally {
+    closeSync(fd);
+  }
+}
+
 /** Write-ahead journal of one run's steps. */
 class StepJournal {
   private readonly ops: DocsModernizeReceiptOp[] = [];
@@ -265,7 +279,7 @@ class StepJournal {
     };
     this.ops.push(full);
     const i = this.ops.length - 1;
-    appendFileSync(this.path, `${JSON.stringify({ i, ...full })}\n`);
+    appendDurable(this.path, `${JSON.stringify({ i, ...full })}\n`);
     return i;
   }
 
@@ -275,7 +289,7 @@ class StepJournal {
     if (!current) return;
     const next: DocsModernizeReceiptOp = { ...current, ...patch, state: 'done' };
     this.ops[i] = next;
-    appendFileSync(this.path, `${JSON.stringify({ i, ...next })}\n`);
+    appendDurable(this.path, `${JSON.stringify({ i, ...next })}\n`);
   }
 
   /** Every step so far. */
@@ -300,6 +314,7 @@ export async function applyDocsModernize(
   const root = plan.root;
   const tree = plan.mode !== 'store-only';
   assertPlanPaths(plan, projectRoot);
+  assertPlanConsistent(plan);
   if (tree && !options.allowDirty) assertCleanTree(root);
   const texts = new Map<string, string>();
   for (const row of plan.rows) {
@@ -449,7 +464,11 @@ export async function applyDocsModernize(
             path: row.path,
             beforeSha256: beforeSha,
             afterSha256: sha256(merged),
-            prior: { previousAttachmentId: existing.metadata.id, newAttachmentId: null },
+            prior: {
+              previousAttachmentId: existing.metadata.id,
+              newAttachmentId: null,
+              linkTargets: await linkTargets(row.slug, projectRoot),
+            },
           });
           await save();
           const { updateDocBySlug } = await import('../docs-update.js');
@@ -470,6 +489,7 @@ export async function applyDocsModernize(
             prior: {
               previousAttachmentId: updated.result.previousAttachmentId,
               newAttachmentId: updated.result.attachmentId,
+              linkTargets: journal.list()[i]?.prior?.linkTargets ?? [],
             },
           });
           continue;
@@ -722,9 +742,17 @@ export async function rollbackDocsModernize(
             await restoreSupersession(projectRoot, op.slug, op.target, op.prior);
           }
           break;
-        case 'merge':
-          if (op.slug && prior.newAttachmentId) await revertDocUpdate(projectRoot, op.slug, prior);
+        case 'merge': {
+          if (!op.slug || !prior.previousAttachmentId) break;
+          // A merge journaled `pending` may still have committed: the slug
+          // then sits on a row other than the one it started on.
+          const live = await store.findBySlug(op.slug, projectRoot);
+          const created = prior.newAttachmentId ?? live?.metadata.id ?? null;
+          if (created && created !== prior.previousAttachmentId && live?.metadata.id === created) {
+            await revertDocUpdate(projectRoot, op.slug, { ...prior, newAttachmentId: created });
+          }
           break;
+        }
         case 'ingest': {
           const owner = op.ownerId ?? IMPORT_PROJECT_OWNER_ID;
           const id =
@@ -742,7 +770,7 @@ export async function rollbackDocsModernize(
         case 'fold':
           break;
       }
-      appendFileSync(journal, `${JSON.stringify({ i, ...op, state: 'reversed' })}\n`);
+      appendDurable(journal, `${JSON.stringify({ i, ...op, state: 'reversed' })}\n`);
     }
   } finally {
     ({ edgeCount } = await rebuildDocsWikilinks({ projectRoot }));

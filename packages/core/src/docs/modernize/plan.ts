@@ -29,6 +29,7 @@ import type {
   DocKindMetadata,
   DocsModernizeDisposition,
   DocsModernizeJudgment,
+  DocsModernizeOverride,
   DocsModernizeOverrides,
   DocsModernizePlan,
   DocsModernizePlanRow,
@@ -519,17 +520,24 @@ function finishPlan(
       covers: override?.covers ?? [],
       baselineRemove: false,
     };
-    const settled = override
-      ? {
-          ...base,
-          slug: override.slug ?? row.slug,
-          disposition: override.disposition,
-          target: override.target ?? row.target,
-          reasons: [...row.reasons, `override: ${override.reason}`],
-        }
-      : base;
+    const settled = override ? applyOverride(base, override, kinds) : base;
     return { ...settled, baselineRemove: !options.storeOnly && clearsSlugRule(settled) };
   });
+  const survivors = new Set(
+    rows.filter((r) => r.disposition === 'keep' || r.disposition === 'rename').map((r) => r.slug),
+  );
+  for (const row of rows) {
+    if (!row.overridden) continue;
+    if (
+      (row.disposition === 'merge-into' || row.disposition === 'delete') &&
+      !survivors.has(row.target ?? '')
+    ) {
+      // @sync-invariant none:input-shape an override that folds a file into no survivor is refused before any write
+      throw new DocsModernizeOverrideError(
+        `override for ${row.path}: ${row.disposition} must name a survivor's slug (got ${row.target ?? 'none'})`,
+      );
+    }
+  }
   for (const path of Object.keys(overrides)) {
     if (!scanned.has(path)) {
       // @sync-invariant none:input-shape an override for a file the scan did not find is refused before any write
@@ -552,6 +560,36 @@ function finishPlan(
     rows,
     counts,
     mode: options.storeOnly ? 'store-only' : 'tree',
+  };
+}
+
+/**
+ * Apply one reviewer override to a row. `keep` stays at the file's own path;
+ * `rename` uses the override's target or the canonical path; `merge-into` and
+ * `delete` use the override's target or the row's own survivor slug.
+ */
+function applyOverride(
+  row: DocsModernizePlanRow,
+  override: DocsModernizeOverride,
+  kinds: readonly DocKindMetadata[],
+): DocsModernizePlanRow {
+  const slug = override.slug ?? row.slug;
+  const wasSurvivor = row.disposition === 'keep' || row.disposition === 'rename';
+  let target: string | null;
+  if (override.disposition === 'keep') target = row.path;
+  else if (override.disposition === 'rename') {
+    target =
+      override.target ??
+      (wasSurvivor && !override.slug && !override.kind
+        ? row.target
+        : canonicalPath(row.path, row.kind, slug, kinds));
+  } else target = override.target ?? (wasSurvivor ? null : row.target);
+  return {
+    ...row,
+    slug,
+    disposition: override.disposition,
+    target,
+    reasons: [...row.reasons, `override: ${override.reason}`],
   };
 }
 
