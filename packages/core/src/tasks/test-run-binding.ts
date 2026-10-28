@@ -434,6 +434,8 @@ function isLibtestEvent(value: unknown): value is LibtestEvent {
  * suite's `passed`/`failed`/`ignored` summary must equal its test events, and
  * every `started` suite must finish with as many test events as its
  * `test_count`: a killed run is refused as truncated, never read as complete.
+ * Suites are tracked per binary when nextest's `libtest-json-plus` names them
+ * (its suites of parallel binaries interleave); otherwise one at a time.
  *
  * @param text - The report file's text.
  * @returns The adapted report, a refusal, or null when it is not libtest JSON.
@@ -464,39 +466,59 @@ export function libtestTestRun(text: string): AdaptedTestRun | AdaptedTestRunRef
     refusal: `the libtest report is truncated (a suite started but never finished): the run did not complete; ${detail}`,
     codeName: 'E_EVIDENCE_INVALID',
   });
-  let open: { expected: number | null; seen: number } | null = null;
+  // cargo test and nextest's libtest-json write one suite at a time, but
+  // nextest's libtest-json-plus streams suites of parallel binaries
+  // interleaved; its suite events then name the binary (`nextest.crate` and
+  // `nextest.test_binary`), as its test names do (`<crate>::<binary>$<test>`).
+  const suiteKey = (event: Readonly<Record<string, unknown>>): string => {
+    const meta = event.nextest;
+    return isRecord(meta) && typeof meta.crate === 'string' && typeof meta.test_binary === 'string'
+      ? `${meta.crate}::${meta.test_binary}`
+      : '';
+  };
+  const keyed = events.some((event) => event.type === 'suite' && suiteKey(event) !== '');
+  const open = new Map<string, { expected: number | null; seen: number }>();
   for (const event of events) {
     if (event.type === 'suite') {
+      const key = keyed ? suiteKey(event) : '';
       if (event.event === 'started') {
-        if (open !== null) return truncated('a suite started before the previous one finished');
+        if (open.has(key))
+          return truncated(
+            `a suite${key ? ` of ${key}` : ''} started before the previous one finished`,
+          );
         const expected = event.test_count;
-        open = {
+        open.set(key, {
           expected: typeof expected === 'number' && Number.isInteger(expected) ? expected : null,
           seen: 0,
-        };
+        });
         continue;
       }
       if (event.event !== 'ok' && event.event !== 'failed') continue;
-      if (open !== null && open.expected !== null && open.seen !== open.expected)
+      const suite = open.get(key);
+      if (suite !== undefined && suite.expected !== null && suite.seen !== suite.expected)
         return truncated(
-          `a suite started with test_count ${open.expected} but reported ${open.seen} finished tests`,
+          `a suite${key ? ` of ${key}` : ''} started with test_count ${suite.expected} but reported ${suite.seen} finished tests`,
         );
-      open = null;
+      open.delete(key);
       summary.any = true;
-      for (const key of ['passed', 'failed', 'ignored'] as const) {
-        const value = event[key];
+      for (const field of ['passed', 'failed', 'ignored'] as const) {
+        const value = event[field];
         if (typeof value === 'number' && Number.isInteger(value) && value >= 0)
-          summary[key] += value;
+          summary[field] += value;
       }
       continue;
     }
     if (!isLibtestEvent(event.event)) continue;
-    if (open !== null) open.seen += 1;
     const name = typeof event.name === 'string' ? event.name : '';
+    const suite = open.get(keyed && name.includes('$') ? name.split('$')[0]! : '');
+    if (suite !== undefined) suite.seen += 1;
     const binary = name.includes('$') ? name.split('$')[0]! : name.split('::')[0] || 'libtest';
     groups.set(binary, [...(groups.get(binary) ?? []), event.event]);
   }
-  if (open !== null) return truncated('the last suite has no ok or failed event');
+  if (open.size > 0)
+    return truncated(
+      `${[...open.keys()].map((key) => key || 'the last suite').join(', ')} has no ok or failed event`,
+    );
   const all = [...groups.values()].flat();
   const count = (event: LibtestEvent): number => all.filter((e) => e === event).length;
   if (

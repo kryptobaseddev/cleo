@@ -1145,6 +1145,27 @@ describe('JUnit XML and libtest JSON reports are test-run evidence (T14084)', ()
     );
   });
 
+  it('nextest libtest-json-plus: interleaved suites of two binaries are tracked per binary', async () => {
+    const text = readFileSync(
+      fileURLToPath(new URL('./fixtures/libtest/nextest-plus-interleaved.jsonl', import.meta.url)),
+      'utf-8',
+    );
+    const r = await validateAtom(
+      { kind: 'test-run', path: write('nextest-plus.jsonl', text) },
+      root,
+    );
+    expect(r.ok && r.atom, JSON.stringify(r)).toMatchObject({ passCount: 3, failCount: 0 });
+    // The same stream cut before the parser binary's suite finished is truncated.
+    const cut = text.split('\n').filter(Boolean).slice(0, 8).join('\n');
+    const killed = await validateAtom(
+      { kind: 'test-run', path: write('nextest-plus-killed.jsonl', cut) },
+      root,
+    );
+    expect(!killed.ok && killed.reason, JSON.stringify(killed)).toMatch(
+      /truncated .*parser::parser has no ok or failed event/,
+    );
+  });
+
   it('text that is none of the formats is refused by name', async () => {
     const r = await validateAtom({ kind: 'test-run', path: write('junk.txt', 'ok 1\n') }, root);
     expect(!r.ok && r.reason, JSON.stringify(r)).toMatch(
