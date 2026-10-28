@@ -1217,7 +1217,13 @@ async function commitFilesOrNull(sha: string, projectRoot: string): Promise<stri
 export function diffIntersectsAc(diffFiles: string[], acFiles: string[]): boolean {
   const norm = (s: string): string => s.replace(/^\.\//, '').replace(/\/+$/, '').toLowerCase();
   const acSet = new Set(acFiles.map(norm));
-  const acPrefixes = acFiles.map(norm).filter((p) => !p.includes('.') || p.endsWith('/'));
+  // A directory entry: declared with a trailing slash, or whose last segment
+  // has no extension. Judged on the raw entry and its last segment (T14073):
+  // the old test ran on the normalised path, whose trailing slash is already
+  // stripped, so any dot earlier in it (`.cleo/rcasd/T1/`) hid the directory.
+  const acPrefixes = acFiles
+    .filter((raw) => /\/\s*$/.test(raw) || !(norm(raw).split('/').pop() ?? '').includes('.'))
+    .map(norm);
   for (const f of diffFiles) {
     const nf = norm(f);
     if (acSet.has(nf)) return true;

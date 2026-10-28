@@ -24,6 +24,7 @@ import type {
 import { acceptanceGateSchema } from '@cleocode/contracts/acceptance-gate-schema.js';
 import { ExitCode } from '@cleocode/contracts/exit-codes.js';
 import { CleoError } from '../errors.js';
+import { childProjectionTarget } from './ac-coverage-gate.js';
 import { acTextHash, buildAcRowId, canonicalizeAcText } from './ac-identity.js';
 
 // The identity helpers live in `./ac-identity.js`, a leaf without zod: the store
@@ -326,13 +327,6 @@ function acceptanceFromRows(rows: readonly AcInsertRow[]): AcceptanceItem[] {
     });
 }
 
-function childIdForProjectionRow(row: AcRow): string | null {
-  if (row.targetTaskId !== null && row.targetTaskId.length > 0) return row.targetTaskId;
-  if (row.sourceKey.startsWith('child:')) return row.sourceKey.slice('child:'.length);
-  const match = /^Complete child ([^:]+): /.exec(row.text);
-  return match?.[1] ?? null;
-}
-
 function acFinding(finding: Omit<AcProjectionAuditFinding, 'dirty'>): AcProjectionAuditFinding {
   return { ...finding, dirty: true };
 }
@@ -357,7 +351,7 @@ export function auditChildProjectionAcRows(
   const actualByChild = new Map<string, AcRow[]>();
 
   for (const row of actualRows) {
-    const childId = childIdForProjectionRow(row);
+    const childId = childProjectionTarget(row);
     if (childId === null) continue;
     const bucket = actualByChild.get(childId) ?? [];
     bucket.push(row);
@@ -437,7 +431,7 @@ export function auditChildProjectionAcRows(
   }
 
   for (const row of actualRows) {
-    const childId = childIdForProjectionRow(row);
+    const childId = childProjectionTarget(row);
     if (childId !== null && expectedByChild.has(childId)) continue;
     findings.push(
       acFinding({

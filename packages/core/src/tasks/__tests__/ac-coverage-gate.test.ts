@@ -135,6 +135,48 @@ describe('ac-coverage-gate (T10509) — unit helpers', () => {
       expect(result.ok).toBe(true);
     });
 
+    it('T14073: a done direct child covers its own "Complete child" projection; its own criteria still need evidence', async () => {
+      const parent = (
+        await addTask(
+          {
+            title: 'Rollup epic',
+            description: 'Rollup epic — seeded fixture for T14073',
+            type: 'epic',
+            acceptance: ['Parent outcome is proven'],
+            skipContainmentInvariant: true,
+          },
+          env.tempDir,
+          accessor,
+        )
+      ).task;
+      const child = (
+        await addTask(
+          {
+            title: 'Rollup child',
+            description: 'Rollup child — seeded fixture for T14073',
+            acceptance: ['Child outcome'],
+            parentId: parent.id,
+            skipContainmentInvariant: true,
+          },
+          env.tempDir,
+          accessor,
+        )
+      ).task;
+
+      const pending = await computeAcCoverage(parent.id, accessor);
+      if (pending.ok) throw new Error('expected the pending child to leave its projection open');
+      expect(pending.unsatisfied.find((u) => u.childTaskId === child.id)).toBeDefined();
+
+      const stored = await accessor.loadSingleTask(child.id);
+      if (!stored) throw new Error('child missing');
+      await accessor.upsertSingleTask({ ...stored, status: 'done', pipelineStage: 'contribution' });
+
+      const done = await computeAcCoverage(parent.id, accessor);
+      if (done.ok) throw new Error('the parent criterion has no evidence yet');
+      expect(done.unsatisfied.map((u) => u.text)).toEqual(['Parent outcome is proven']);
+      expect(done.unsatisfied.some((u) => u.childTaskId !== undefined)).toBe(false);
+    });
+
     it('returns {ok:false} listing every uncovered AC', async () => {
       const { task, acRows } = await createTaskWithAcs(accessor, env.tempDir, 'Three ACs', [
         'A',

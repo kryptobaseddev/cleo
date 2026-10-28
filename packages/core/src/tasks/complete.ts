@@ -303,7 +303,7 @@ export async function verifyEpicHasEvidence(task: Task, acc: DataAccessor): Prom
  * @internal
  * @task T10509
  */
-type AcCoverageAccessor = Pick<DataAccessor, 'getAcRows' | 'getAcBindings'>;
+type AcCoverageAccessor = Pick<DataAccessor, 'getAcRows' | 'getAcBindings' | 'getChildren'>;
 
 /** Parent rollups must satisfy their own criteria without inheriting child waivers. */
 async function canAutoCompleteParent(
@@ -346,6 +346,7 @@ function completionCoverageAccessor(
         .sort((a, b) => a.ordinal - b.ordinal)
         .filter((row, index) => optional.get(index) !== row.text),
     getAcBindings: (ids) => accessor.getAcBindings(ids),
+    getChildren: (parentId) => accessor.getChildren(parentId),
   };
 }
 
@@ -377,7 +378,7 @@ async function enforceAcCoverageGate(
   }
 
   // 2. Compute base coverage. Short-circuit on zero-AC tasks.
-  const coverage = await computeAcCoverage(options.taskId, accessor as DataAccessor);
+  const coverage = await computeAcCoverage(options.taskId, accessor);
   if (coverage.ok) return;
 
   // 3. Owner-override path (highest precedence) — log the bypass with
