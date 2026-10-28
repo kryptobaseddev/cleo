@@ -1506,7 +1506,9 @@ describe('admit (one ledger, real critical section)', () => {
     expect(nested.admitted).toBe(true);
     if (nested.admitted) {
       expect(nested.grant.nested).toBe(true);
-      expect(nested.grant.token).toBe(admissionToken({ id: parent.grant.id ?? '', nonce: readLedger(dir)[0]?.nonce ?? '' }));
+      expect(nested.grant.token).toBe(
+        admissionToken({ id: parent.grant.id ?? '', nonce: readLedger(dir)[0]?.nonce ?? '' }),
+      );
     }
     expect(Date.now() - t0).toBeLessThan(10_000);
     expect(psCalls).toBeGreaterThanOrEqual(2);

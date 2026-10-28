@@ -2288,8 +2288,7 @@ async function admitInner(req: AdmissionRequest, opts: AdmitOptions): Promise<Ad
       return at;
     },
   };
-  const rides = (p: LedgerEntry): boolean =>
-    isHeavy(p) || p.footprintBytes >= req.footprintBytes;
+  const rides = (p: LedgerEntry): boolean => isHeavy(p) || p.footprintBytes >= req.footprintBytes;
   const parent = enclosingGrant(readLedger(dir), pid, env, facts);
   if (
     parent !== null &&

@@ -1459,7 +1459,11 @@ describe('a SIGKILLed runner whose child still runs keeps its slot (T12963)', ()
 describe("cleo run's child lifecycle (T14080, T13002, T12994)", () => {
   it('T14080: when its parent dies it stops the child group, escalates to SIGKILL, and releases the charge', async () => {
     let parentAlive = true;
-    const h = harness({ onSample: (n) => n === 2 && (parentAlive = false) });
+    const h = harness({
+      onSample: (n) => {
+        if (n === 2) parentAlive = false;
+      },
+    });
     h.deps = { ...h.deps, currentPpid: () => (parentAlive ? 4242 : 1), ppid: 4242 };
     const signal = h.deps.signal;
     h.deps = {
@@ -1471,16 +1475,16 @@ describe("cleo run's child lifecycle (T14080, T13002, T12994)", () => {
       },
     };
     const notices: string[] = [];
-    const r = await runGoverned(
-      base(h, { pollMs: 5_000, notice: (m: string) => notices.push(m) }),
-    );
+    const r = await runGoverned(base(h, { pollMs: 5_000, notice: (m: string) => notices.push(m) }));
     expect(r).toMatchObject({ kind: 'exited', signal: 'SIGKILL' });
     expect(h.signals).toEqual([
       [500, 'SIGCONT'],
       [500, 'SIGTERM'],
       [500, 'SIGKILL'],
     ]);
-    expect(notices).toContainEqual(expect.stringContaining('its parent process (pid 4242) is gone'));
+    expect(notices).toContainEqual(
+      expect.stringContaining('its parent process (pid 4242) is gone'),
+    );
     // The exit path released the ledger charge and removed the job record.
     expect(h.released).toBe(1);
     expect(readdirSync(join(dir, 'jobs'))).toEqual([]);
@@ -1533,7 +1537,8 @@ describe("cleo run's child lifecycle (T14080, T13002, T12994)", () => {
       ...h.deps,
       signal: (pid, sig) => {
         const [file] = readdirSync(join(dir, 'jobs'));
-        if (file) recorded.push(JSON.parse(readFileSync(join(dir, 'jobs', file), 'utf8')).forwardedSignal);
+        if (file)
+          recorded.push(JSON.parse(readFileSync(join(dir, 'jobs', file), 'utf8')).forwardedSignal);
         return signal?.(pid, sig) ?? true;
       },
     };
