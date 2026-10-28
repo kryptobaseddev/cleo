@@ -12,9 +12,9 @@
 
 import type { Task, VerificationGate } from '@cleocode/contracts';
 import { getRawConfigValue, loadConfig } from '../config.js';
-import { gateProfileOf, isDocumentArtifact, isDocumentEvidencePath } from './gate-profile.js';
+import { gateProfileOf, isDocumentArtifact, isDocumentEvidencePath } from './gate-notes.js';
 
-// T13474: the profile and document-path rules live in a leaf module so the
+// T13474: the profile and document-path rules live in gate-notes.ts so the
 // task view (`cleo show`) reads them without loading config (gate 39).
 export {
   GATE_PROFILE_LABEL_PREFIX,
@@ -25,7 +25,7 @@ export {
   implementedCodeEvidence,
   isDocumentArtifact,
   isDocumentEvidencePath,
-} from './gate-profile.js';
+} from './gate-notes.js';
 
 /**
  * Fallback gate list used only when the resolved config names no valid gate.
