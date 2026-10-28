@@ -126,8 +126,8 @@ import {
   heavyScriptReason,
   lightCommandReason,
   namedTestFileCount,
-  scriptRunOf,
   runFootprint,
+  scriptRunOf,
 } from './run-class.js';
 import { ownProcessStartedAt, type PidProbe, systemPidProbe } from './slot-holder.js';
 import { followToolGroups, isProbeableId } from './tool-groups.js';

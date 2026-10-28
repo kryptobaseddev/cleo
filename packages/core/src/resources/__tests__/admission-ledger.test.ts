@@ -51,9 +51,9 @@ import {
   URGENT_AGING_MS,
 } from '../admission-ledger.js';
 import type { ResourceSample } from '../backend.js';
+import { scriptFootprint } from '../hook-footprint.js';
 import { ResourceMonitor } from '../monitor.js';
 import { _resetMemoryGateForTest, memoryGateReporter } from '../pressure-gate.js';
-import { scriptFootprint } from '../hook-footprint.js';
 import { lightCommandReason } from '../run-class.js';
 import type { PidProbe } from '../slot-holder.js';
 import { _resetToolGroupsForTest, trackToolGroup } from '../tool-groups.js';
@@ -2628,7 +2628,10 @@ describe('a Python or shell script that runs no heavy tool is charged light (T14
   it('scriptFootprint reads what a Python or shell script runs, never a node script', () => {
     const repo = mkdtempSync(join(tmpdir(), 'cleo-script-fp-'));
     try {
-      writeFileSync(join(repo, 'light.py'), 'import yaml, sys\nprint(yaml.safe_load(open(sys.argv[1])))\n');
+      writeFileSync(
+        join(repo, 'light.py'),
+        'import yaml, sys\nprint(yaml.safe_load(open(sys.argv[1])))\n',
+      );
       writeFileSync(join(repo, 'heavy.sh'), '#!/bin/sh\npnpm run test -- a.test.ts\n');
       writeFileSync(join(repo, 'gen.mjs'), "// runs make in prose only\nconsole.log('x');\n");
       expect(scriptFootprint(repo, 'light.py')?.heavyTool).toBeNull();
