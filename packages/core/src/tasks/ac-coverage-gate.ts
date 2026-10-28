@@ -61,6 +61,8 @@ import { join } from 'node:path';
 // accessor signature rather than locally. Importing it here pins the public
 // contract surface so a downstream re-export stays type-safe.
 import type { AcBindingRow as _AcBindingRow, AcRow, DataAccessor } from '@cleocode/contracts';
+import { ExitCode } from '@cleocode/contracts/exit-codes.js';
+import { CleoError } from '../errors.js';
 
 /**
  * Re-export so consumers of this module can pull the binding row shape
@@ -398,4 +400,38 @@ export function readOwnerOverride(env: NodeJS.ProcessEnv = process.env): string 
   const trimmed = reason.trim();
   if (trimmed.length === 0) return null;
   return trimmed;
+}
+
+/**
+ * Refuse a write that would make `taskId` done while any of its acceptance
+ * criteria has no evidence (T12883 R2). `cleo complete` enforces the same
+ * coverage with its waiver and owner-override paths; this is the plain guard
+ * for every other writer that sets `done` (bulk move, unarchive, saga
+ * auto-close). A done child covers its parent's "Complete child" row (T14073).
+ *
+ * @param taskId - The task about to become done.
+ * @param accessor - Reads for the AC rows, bindings and children.
+ * @throws {CleoError} {@link ExitCode.AC_COVERAGE_INCOMPLETE} naming the uncovered criteria.
+ * @task T12883
+ */
+export async function assertAcCoveredForDone(
+  taskId: string,
+  accessor: Pick<DataAccessor, 'getAcRows' | 'getAcBindings' | 'getChildren'>,
+): Promise<void> {
+  const coverage = await computeAcCoverage(taskId, accessor);
+  if (coverage.ok) return;
+  const list = coverage.unsatisfied.map((u) => u.alias).join(', ');
+  // @sync-invariant task.done.evidence
+  throw new CleoError(
+    ExitCode.AC_COVERAGE_INCOMPLETE,
+    `${taskId} cannot become done: ${coverage.unsatisfied.length} acceptance criterion/criteria have no evidence (${list}).`,
+    {
+      fix: `Record evidence with cleo verify ${taskId} …, then complete it with cleo complete ${taskId}.`,
+      details: {
+        field: 'acceptance',
+        codeName: 'E_AC_COVERAGE_INCOMPLETE',
+        unsatisfied: coverage.unsatisfied,
+      },
+    },
+  );
 }

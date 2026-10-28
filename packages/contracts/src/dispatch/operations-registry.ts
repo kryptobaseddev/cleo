@@ -8780,6 +8780,29 @@ export const OPERATIONS: OperationDef[] = [
     requiredParams: [],
     params: [],
   },
+  // ── docs.rot (T14111 — Epic T14106) ──────────────────────────────────────
+  {
+    gateway: 'query',
+    domain: 'docs',
+    operation: 'rot',
+    description:
+      'docs.rot (query) — docs-rot report from git alone: docs whose covers: code changed ' +
+      'after them (stale), duplicate docs, and orphaned docs (dead covers globs, ' +
+      'unreferenced docs/ files). changed:<base>..<head> also lists the docs that merged ' +
+      'change left stale. Read-only.',
+    tier: 1,
+    idempotent: true,
+    sessionRequired: false,
+    requiredParams: [],
+    params: [
+      {
+        name: 'changed',
+        type: 'string' as const,
+        required: false,
+        description: 'Git range <base>..<head> of a merged change to flag docs for',
+      },
+    ],
+  },
   {
     gateway: 'mutate',
     domain: 'docs',

@@ -760,11 +760,14 @@ export function evaluateMergeCommitChecks(
       }
     }
     // T12742: only a superseded (cancelled/skipped) merge-commit verdict may
-    // be stood in for, and only by a later main commit's own push runs.
+    // be stood in for, and only by a later main commit's own push runs. A
+    // check whose workflow was cancelled while queued (T14103) is superseded.
     if (
       descendantSha !== undefined &&
       descendantSha !== mergeCommitSha &&
       (SUPERSEDED_VERDICTS.has(onMerge.verdict) ||
+        (onMerge.verdict === 'missing' &&
+          cancelledBeforeStart(checks, mergeCommitSha, pins[name])) ||
         opts.currentHead === true ||
         (opts.inheritedFailures === true &&
           onMerge.verdict !== 'missing' &&
@@ -911,7 +914,9 @@ export type SupersededOnMergeResult = { ok: true; names: string[] } | { ok: fals
  * SUPERSEDED there (T12742): its latest merge-commit verdict is `cancelled`
  * or `skipped`, and no run of a required check or of a job in a pinned
  * workflow on the merge commit — any attempt — concluded with a failure. A
- * failed, timed-out, pending or missing check is never superseded. Pure.
+ * failed, timed-out or pending check is never superseded, nor is a missing
+ * one unless its pinned workflow's run was cancelled before any job started
+ * (T14103). Pure.
  *
  * @param required - Required check names.
  * @param checks - Every check fetched for the merge commit (and PR head).
@@ -947,6 +952,10 @@ export function supersededOnMerge(
     ) {
       continue;
     }
+    if (onMerge.verdict === 'missing' && cancelledBeforeStart(checks, mergeCommitSha, pins[name])) {
+      names.push(name);
+      continue;
+    }
     if (!SUPERSEDED_VERDICTS.has(onMerge.verdict)) {
       return {
         ok: false,
@@ -958,6 +967,28 @@ export function supersededOnMerge(
   return names.length > 0
     ? { ok: true, names }
     : { ok: false, reason: 'no required check was superseded on the merge commit' };
+}
+
+/**
+ * Whether the pinned workflow's run on `sha` was cancelled while still queued
+ * (T14103): ci.yml's main concurrency group cancels a WAITING run when a newer
+ * push arrives, before any job starts, so GitHub records the cancelled
+ * workflow run and no check run of that workflow at all. A job missing from a
+ * run that did start is not this, and stays unproven.
+ */
+function cancelledBeforeStart(
+  checks: readonly CommitCheck[],
+  sha: string,
+  pin: RequiredCheckPinSpec | undefined,
+): boolean {
+  if (pin?.workflow === undefined) return false;
+  const ofWorkflow = checks.filter(
+    (c) => c.headSha === sha && c.workflowPath === pin.workflow && c.event === 'push',
+  );
+  const runs = ofWorkflow.filter((c) => c.source === 'workflow-run' && pinMatches(c, pin));
+  if (runs.length === 0 || ofWorkflow.some((c) => c.source !== 'workflow-run')) return false;
+  const latest = runs.reduce((a, b) => (b.id > a.id ? b : a));
+  return latest.status === 'completed' && latest.conclusion === 'cancelled';
 }
 
 /** Latest completed run per (name, source, event) on `sha` within `scope`. */
@@ -2627,7 +2658,7 @@ export async function resolveCiEvidenceAtom(
           : 'E_EVIDENCE_INSUFFICIENT',
     };
   }
-  const unlinked = checkPrTaskLinkage(linked.prNumber, linked.pr, context);
+  const unlinked = checkPrTaskLinkage(linked.prNumber, linked.pr, context, pr.mergedAt);
   if (unlinked) {
     return {
       ok: false,

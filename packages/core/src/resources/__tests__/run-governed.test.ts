@@ -38,6 +38,7 @@ import {
   type AdmissionRequest,
   type AdmitOptions,
   admissionIoError,
+  admit,
   footprintForClass,
 } from '../admission-ledger.js';
 import type { ResourceSample } from '../backend.js';
@@ -367,6 +368,29 @@ describe('a hooked run records its measured peak (T13921)', () => {
     expect(readHookPeak('pre-push:k', hooks())).toBeNull(); // not enough counted runs yet
     await push(500, 0, 4); // a light counted run never lowers the peak
     expect(readHookPeak('pre-push:k', hooks())).toBe(3000 * MIB);
+  });
+});
+
+describe("the ledger charge follows the run's measured tree (T14116)", () => {
+  it('every tree measurement of an admitted run reaches the ledger grant', async () => {
+    const MIB = 1024 ** 2;
+    const seen: number[] = [];
+    const h = harness({
+      treeUsage: () => ({ cpuMs: 1, rssBytes: 170 * MIB, processes: 2, commands: ['git push'] }),
+      onSleep: (n, hh) => n === 4 && hh.exit(0),
+    });
+    const admitted = h.deps.admit;
+    h.deps = {
+      ...h.deps,
+      admit: async (req, o) => {
+        const out = await admitted?.(req, o);
+        if (out === undefined || !out.admitted) throw new Error('expected a grant');
+        return { admitted: true, grant: { ...out.grant, observeRss: (b: number) => seen.push(b) } };
+      },
+    };
+    await runGoverned(base(h, { ...BUILD, hookKey: 'pre-push:k' }));
+    expect(seen.length).toBeGreaterThanOrEqual(2);
+    expect(new Set(seen)).toEqual(new Set([170 * MIB]));
   });
 });
 
@@ -786,27 +810,25 @@ describe('runGoverned', () => {
    * its 60 s verifier timed out. --no-pause runs are never paused; pressure
    * keeps them queued before admission instead.
    */
-  it('--no-pause: queued while the machine is at backoff, charged on the ledger, never SIGSTOPped', async () => {
+  it('--no-pause: the ledger is told it is never paused, and it is never SIGSTOPped at backoff', async () => {
     writeRunJob(olderJob(), join(dir, 'jobs'));
-    let admittedAtSample = 0;
-    // 1-2 = backoff (queued), 3 = ok (admitted), 4-5 = backoff while running, 5 → exit
     const h = harness({
-      levels: ['backoff', 'backoff', 'ok', 'backoff', 'backoff'],
-      onAcquire: (hh) => {
-        admittedAtSample = hh.sampleCalls();
-      },
-      onSample: (n, hh) => n === 5 && hh.exit(0),
+      levels: ['backoff', 'backoff', 'backoff'],
+      onSample: (n, hh) => n === 3 && hh.exit(0),
     });
     const r = await runGoverned(base(h, { noPause: true, wait: true }));
-    expect(admittedAtSample).toBe(3);
-    expect(h.requests).toEqual([expect.objectContaining({ label: 'run:test-run' })]);
+    expect(h.requests).toEqual([
+      expect.objectContaining({ label: 'run:test-run', neverPause: true }),
+    ]);
     expect(h.signals.filter(([, s]) => s === 'SIGSTOP')).toEqual([]);
     expect(r).toMatchObject({ kind: 'exited', pauses: 0 });
   });
 
-  it('--no-pause without --wait is deferred at backoff, with nothing started', async () => {
+  it('--no-pause outside the ledger (db-heavy) without --wait is deferred at backoff, with nothing started', async () => {
     const h = harness({ levels: ['backoff'] });
-    const r = await runGoverned(base(h, { noPause: true }));
+    const r = await runGoverned(
+      base(h, { cls: 'db-heavy', argv: ['node', 'migrate.js'], noPause: true }),
+    );
     expect(r.kind).toBe('deferred');
     expect(r.kind === 'deferred' && r.reason).toMatch(
       /never paused \(--no-pause\) starts only below backoff/,
@@ -815,7 +837,80 @@ describe('runGoverned', () => {
     expect(h.spawned).toEqual([]);
   });
 
-  it('T14093: a hooked git push waits below backoff like --no-pause, is never paused, and says why', async () => {
+  /**
+   * T14098: macOS main CI on d603f57f4 sat at backoff from load outside CLEO,
+   * and a never-paused test run deferred while CLEO held nothing. The real
+   * ledger, CPU-saturated (backoff while the memory gate admits), decides.
+   */
+  describe('a non-pausable run at backoff, on the real ledger (T14098)', () => {
+    const GIB = 1024 ** 3;
+    const cpuBackoff = (): ResourceSample => ({
+      ...sampleOf('ok'),
+      cpuPressure: { some: { avg10: 60, avg60: 60, avg300: 60, totalUs: 0 }, full: null },
+    });
+    const ledgerOpts = (ledgerDir: string) => ({
+      dir: ledgerDir,
+      capacityBytes: 10 * GIB,
+      sample: async () => cpuBackoff(),
+      env: {},
+      topMemory: () => [],
+      now: Date.now,
+    });
+    const onLedger = (h: Harness, ledgerDir: string): void => {
+      h.deps = {
+        ...h.deps,
+        admit: (req: AdmissionRequest, o: AdmitOptions) => {
+          h.requests.push(req);
+          return admit(req, { ...o, ...ledgerOpts(ledgerDir) });
+        },
+      };
+    };
+
+    it('CLEO idle: admitted by the idle rule, and the notice names it', async () => {
+      const ledgerDir = join(dir, 'admission');
+      const notices: Array<[string, string]> = [];
+      const h = harness({
+        levels: ['backoff', 'backoff'],
+        onSample: (n, hh) => n === 2 && hh.exit(0),
+      });
+      onLedger(h, ledgerDir);
+      const r = await runGoverned(
+        base(h, {
+          footprintBytes: 2 * GIB, // fits the 8 GiB reclaimable; the class default may not
+          notice: (m: string, l: string) => notices.push([l, m]),
+        }),
+      );
+      expect(r).toMatchObject({ kind: 'exited', pauses: 0 });
+      expect(h.requests).toEqual([expect.objectContaining({ neverPause: true })]);
+      expect(notices).toContainEqual([
+        'warn',
+        expect.stringMatching(/^admitted by the idle rule: no CLEO run was admitted/),
+      ]);
+    });
+
+    it('a CLEO run admitted: held, deferred with the rule named, nothing started', async () => {
+      const ledgerDir = join(dir, 'admission');
+      const holder = await admit(
+        { label: 'run:scoped-build', footprintBytes: 2 * GIB },
+        { ...ledgerOpts(ledgerDir), wait: false },
+      );
+      expect(holder.admitted).toBe(true);
+      try {
+        const h = harness({ levels: ['backoff'] });
+        onLedger(h, ledgerDir);
+        const r = await runGoverned(base(h, { footprintBytes: 2 * GIB }));
+        expect(r.kind).toBe('deferred');
+        expect(r.kind === 'deferred' && r.reason).toMatch(
+          /machine at backoff; this run is never paused, so it starts only when no CLEO run is admitted/,
+        );
+        expect(h.spawned).toEqual([]);
+      } finally {
+        if (holder.admitted) await holder.grant.release();
+      }
+    });
+  });
+
+  it('T14093: a hooked git push is never paused like --no-pause, and says why', async () => {
     writeRunJob(olderJob(), join(dir, 'jobs'));
     const notices: Array<[string, string]> = [];
     const h = harness({
@@ -837,10 +932,7 @@ describe('runGoverned', () => {
       pauses: 0,
       notPausable: expect.stringMatching(/^it runs the pre-push hook, which may run tests/),
     });
-    expect(notices).toContainEqual([
-      'warn',
-      expect.stringMatching(/^waiting: .*never paused \(it runs the pre-push hook/),
-    ]);
+    expect(h.requests).toEqual([expect.objectContaining({ neverPause: true })]);
     expect(notices).toContainEqual([
       'info',
       expect.stringMatching(/^never paused: it runs the pre-push hook/),

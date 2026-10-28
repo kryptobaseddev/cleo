@@ -210,6 +210,17 @@ export interface EvidenceValidationContext {
    */
   testRunPaths?: readonly string[];
   /**
+   * The task's criteria this write names with `satisfies:<task>#AC…` (T14094),
+   * with their `AC<n>` alias. A merged PR of another task links to this task
+   * only through them: each must name the files the PR changed, and none may
+   * have been written or edited after the PR merged (`createdAt` and
+   * `updatedAt`: an edit gives a criterion a new row). Both are UTC ISO-8601
+   * with a zone, normalised by the writer from the store's zoneless text.
+   */
+  creditedCriteria?: ReadonlyArray<
+    Pick<AcRow, 'id' | 'text' | 'createdAt' | 'updatedAt'> & { alias: string }
+  >;
+  /**
    * Validate without persisting anything: `pr:`/`ci:` lookups write neither
    * the PR-result cache nor the branch-protection cache (T12671 review — the
    * `cleo done --plan` preview must leave `.cleo/` untouched).
@@ -733,6 +744,43 @@ export type EvidenceAtom =
       gateChecks?: { testsPassed?: string[]; qaPassed?: string[] };
       /** Where the required-check list came from (env, project context, branch protection). */
       requiredSource: string;
+    }
+  | {
+      /**
+       * Probed deployment (T14083, owner decision on option (a)): at verify
+       * time CLEO ran a bounded GET of `probeUrl`, it returned 2xx and named
+       * the deployed SHA in its body or an `X-Commit` / `X-Version` header.
+       * `headSha` must contain the task's implemented commits (ancestor or
+       * patch-equivalent); `cleo complete` re-checks only that, never the probe.
+       * Satisfies only the gates in `satisfiesGates`, the project's
+       * `evidence.deploySatisfies` at verify time.
+       *
+       * @task T14083
+       */
+      kind: 'deploy';
+      /** Provider name as given (`railway`, `fly`, …); recorded, not verified. */
+      provider: string;
+      /** Provider deployment id as given; recorded, not verified. */
+      deploymentId: string;
+      /** The deployed commit, resolved to its full SHA. */
+      headSha: string;
+      /** The URL that was probed. */
+      probeUrl: string;
+      /** The probe's result. */
+      probe: {
+        /** HTTP status (2xx). */
+        status: number;
+        /** ISO 8601 time the probe completed. */
+        probedAt: string;
+        /** sha256 of the (bounded) response body read. */
+        bodySha256: string;
+        /** Where the SHA was named: `x-commit`, `x-version` or `body`. */
+        shaSource: 'x-commit' | 'x-version' | 'body';
+      };
+      /** The gates this atom satisfies (`evidence.deploySatisfies` at verify time). */
+      satisfiesGates: VerificationGate[];
+      /** Task the atom was verified for. */
+      taskId?: string;
     }
   | {
       /**

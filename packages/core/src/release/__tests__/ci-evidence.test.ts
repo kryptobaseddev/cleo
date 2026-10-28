@@ -364,7 +364,7 @@ describe('resolveCiEvidenceAtom', () => {
     const r = await resolve({ context: context('T999') });
     expect(r.ok).toBe(false);
     expect(!r.ok && r.codeName).toBe('E_EVIDENCE_CONTENT_MISMATCH');
-    expect(!r.ok && r.reason).toMatch(/does not establish a relationship to task T999/);
+    expect(!r.ok && r.reason).toMatch(/PR #42 does not cite task T999 and T999 declares no files/);
   });
 
   it('ci:<component>@<integration> links the task through the component PR (T12671)', async () => {
@@ -958,6 +958,62 @@ describe('resolveCiEvidenceAtom', () => {
       const r = await run;
       expect(r.ok, JSON.stringify(r)).toBe(true);
       expect(r.ok && r.atom.kind === 'ci' && r.atom.descendantSha).toBe(DESC2);
+    });
+
+    it('T14103: a merge whose main run was cancelled while still QUEUED (no jobs ever ran) resolves through the newest green main run', async () => {
+      // ci.yml keeps one main group with `cancel-in-progress: false`: a newer
+      // push cancels the run still waiting for an older merge before any job
+      // starts. GitHub then records only the cancelled workflow run on the
+      // merge commit and no check run for any of its jobs.
+      const queuedCancelled = (sha: string) =>
+        allGreen
+          .filter((c) => c.workflowPath !== CI_WORKFLOW || c.source === 'workflow-run')
+          .map((c) =>
+            c.workflowPath === CI_WORKFLOW
+              ? { ...c, headSha: sha, status: 'completed', conclusion: 'cancelled' }
+              : { ...c, headSha: sha },
+          );
+      const { run } = descend(
+        { [DESC1]: queuedCancelled(DESC1), [DESC2]: onSha(DESC2) },
+        {
+          fetchChecks: async (sha) => ({
+            ok: true,
+            checks:
+              sha === MERGE
+                ? queuedCancelled(MERGE)
+                : sha === HEAD
+                  ? onHead
+                  : sha === DESC1
+                    ? queuedCancelled(DESC1)
+                    : sha === DESC2
+                      ? onSha(DESC2)
+                      : [],
+          }),
+        },
+      );
+      const r = await run;
+      expect(r.ok, JSON.stringify(r)).toBe(true);
+      const atom = r.ok && r.atom.kind === 'ci' ? r.atom : null;
+      expect(atom?.descendantSha).toBe(DESC2);
+      const bySha = Object.fromEntries((atom?.checks ?? []).map((c) => [c.name, c.sha]));
+      expect(bySha).toEqual({ CI: DESC2, 'Lockfile Check': MERGE, 'Contracts Dep Lint': DESC2 });
+    });
+
+    it('T14103: a job missing from a merge run that DID start is not a queued cancel: refused', async () => {
+      // Jobs ran (Type Check is there) but Contracts Dep Lint never reported.
+      const partial = cancelledMerge.filter((c) => c.name !== 'Contracts Dep Lint');
+      const { run } = descend(
+        { [DESC1]: onSha(DESC1) },
+        {
+          fetchChecks: async (sha) => ({
+            ok: true,
+            checks: sha === MERGE ? partial : sha === HEAD ? onHead : onSha(DESC1),
+          }),
+        },
+      );
+      const r = await run;
+      expect(r.ok).toBe(false);
+      expect(!r.ok && r.reason).toMatch(/Contracts Dep Lint: not found on merge commit/);
     });
 
     it('T13846: a descendant whose push run skipped the test jobs is passed over for the next one where they ran', async () => {
