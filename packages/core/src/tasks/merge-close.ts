@@ -46,6 +46,7 @@ import type {
   MergeSweepReconcile,
   MergeSweepResult,
   MergeTaskOutcome,
+  ReviewVerdict,
   TaskAuditLogRow,
 } from '@cleocode/contracts';
 
@@ -149,6 +150,58 @@ export interface MergeCloseDeps {
    * the release-cut module is on main.
    */
   reconcile?(storeRoot: string): Promise<MergeSweepReconcile>;
+  /**
+   * The independent reviewer verdicts recorded for a task's PR (T14122,
+   * `cleo review`). Unset until that module is on main: no verdicts, so
+   * nothing closes.
+   */
+  reviewVerdicts?(storeRoot: string, taskId: string, prNumber: number): Promise<ReviewVerdict[]>;
+  /** Open PRs (one `gh` call), for the pre-merge verdict check; null when `gh` failed. */
+  listOpenPrs(root: string): Promise<MergedPrRecord[] | null>;
+  /** Set the `cleo/merge-close` commit status on a head; false when it could not. */
+  setStatus(
+    root: string,
+    sha: string,
+    state: 'success' | 'failure',
+    description: string,
+  ): Promise<boolean>;
+}
+
+/** The commit status the pre-merge verdict check sets on an open PR's head. */
+export const MERGE_CLOSE_STATUS_CONTEXT = 'cleo/merge-close';
+
+/**
+ * Why the criteria a line names are not independently verified for this PR
+ * head (T14122), one entry per criterion, or none when each criterion's
+ * latest verdict is `met` on `headSha`. A missing verdict, an `unmet` one, or
+ * one bound to another head (a push after review) each count.
+ *
+ * @param verdicts - The task's verdicts for the PR.
+ * @param acs - The criteria the line names.
+ * @param headSha - The PR's final head.
+ * @returns The problems.
+ */
+export function verdictProblems(
+  verdicts: readonly ReviewVerdict[],
+  acs: readonly string[],
+  headSha: string | null,
+): string[] {
+  const problems: string[] = [];
+  for (const ac of acs) {
+    const latest = verdicts
+      .filter((v) => v.ac === ac)
+      .reduce<ReviewVerdict | null>(
+        (a, b) => (a === null || b.createdAt >= a.createdAt ? b : a),
+        null,
+      );
+    if (latest === null) problems.push(`${ac}: no review verdict`);
+    else if (latest.headSha !== headSha)
+      problems.push(
+        `${ac}: reviewed on head ${latest.headSha.slice(0, 12)}, not ${headSha?.slice(0, 12) ?? '(unknown)'}; review again`,
+      );
+    else if (latest.verdict !== 'met') problems.push(`${ac}: reviewed unmet (${latest.reason})`);
+  }
+  return problems;
 }
 
 const DIRECTIVE_LINE = /^[ \t>*-]*(Closes|Refs)[ \t]*:[ \t]*(.*)$/gim;
@@ -238,6 +291,8 @@ interface SweepState {
   highWater?: string;
   /** PRs merged in `[since, until]` that a page budget left unread. */
   backlog?: { since: string; until: string };
+  /** The last `cleo/merge-close` status posted per open PR (`head:state:description`). */
+  statuses?: Record<string, string>;
 }
 
 /** A window read page by page, newest first. */
@@ -425,6 +480,18 @@ async function applyDirective(
   const open = pr.mergedAt === '';
   if (!open && !receipt.ciGreen)
     return { ...base, action: 'refused', reason: receipt.closesNothing ?? 'CI was not green.' };
+  // T14122 (D11211): satisfies: comes only from an independent reviewer's
+  // `met` verdict on the PR's final head, never from the author's line.
+  const verdicts = deps.reviewVerdicts
+    ? await deps.reviewVerdicts(storeRoot, taskId, pr.number)
+    : [];
+  const unverified = verdictProblems(verdicts, acs, pr.headRefOid);
+  if (unverified.length > 0)
+    return {
+      ...base,
+      action: 'refused',
+      reason: `not independently verified: ${unverified.join('; ')} (cleo review records the verdicts).`,
+    };
   const audit = { prNumber: pr.number, mergeSha: pr.mergeCommitSha, kind: directive.kind, acs };
   if (directive.kind === 'refs') {
     if (!dryRun) await appendMergeAudit(storeRoot, MERGE_CLOSE_AUDIT_ACTION, taskId, audit);
@@ -475,6 +542,166 @@ async function reportRefusals(
       mergeSha: pr.mergeCommitSha,
       reason: outcome.reason,
     }).catch(() => undefined);
+  }
+}
+
+/** Apply each merged PR's lines, oldest merge first, into `result`; returns the per-PR hook results. */
+async function applyMergedPrs(
+  storeRoot: string,
+  root: string,
+  prs: readonly MergedPrRecord[],
+  required: readonly string[],
+  deps: MergeCloseDeps,
+  dryRun: boolean,
+  result: MergeSweepResult,
+): Promise<MergeSweepHooks> {
+  const hooks: MergeSweepHooks = {};
+  for (const pr of [...prs].sort((a, b) => a.mergedAt.localeCompare(b.mergedAt))) {
+    const receipt = await judgeMergedPr(pr, required);
+    const entry: MergePrOutcome = {
+      prNumber: pr.number,
+      mergeSha: pr.mergeCommitSha,
+      outcomes: [],
+    };
+    if (pr.mergedAt === '' && !dryRun) {
+      entry.closesNothing = `PR #${pr.number} has not merged; check it with --dry-run.`;
+      result.prs.push(entry);
+      continue;
+    }
+    if (receipt.directives.length === 0 || receipt.errors.length > 0) {
+      // The CI job comments these; a PR naming no task is not this store's.
+      if (receipt.closesNothing) entry.closesNothing = receipt.closesNothing;
+      result.prs.push(entry);
+      continue;
+    }
+    for (const directive of receipt.directives) {
+      const outcome = await applyDirective(storeRoot, pr, receipt, directive, deps, dryRun).catch(
+        (err: Error) => ({
+          taskId: directive.taskId,
+          acs: directive.acs,
+          action: 'refused' as const,
+          reason: err.message,
+        }),
+      );
+      entry.outcomes.push(outcome);
+      if (outcome.action === 'closed') result.closed.push(outcome.taskId);
+      if (outcome.action === 'bound') result.bound.push(outcome.taskId);
+      if (outcome.action === 'refused')
+        result.refused.push({
+          taskId: outcome.taskId,
+          prNumber: pr.number,
+          reason: outcome.reason ?? 'refused',
+        });
+    }
+    if (!dryRun) await reportRefusals(storeRoot, root, pr, entry.outcomes, deps);
+    // T14111: flag stale docs once, on the run that applied this PR.
+    const applied = entry.outcomes.filter((o) => o.action === 'closed' || o.action === 'bound');
+    if (!dryRun && deps.docsRot && pr.mergeCommitSha && applied.length > 0) {
+      const taskIds = applied.map((o) => o.taskId);
+      const flagged = await deps
+        .docsRot(storeRoot, { prNumber: pr.number, mergeSha: pr.mergeCommitSha, taskIds })
+        .catch(() => []);
+      hooks.docsRot = [...(hooks.docsRot ?? []), ...flagged];
+    }
+    result.prs.push(entry);
+  }
+  return hooks;
+}
+
+/**
+ * The criterion aliases a task owns (child-task criteria excluded), or null
+ * when the task is not in this store.
+ */
+async function taskCriteria(storeRoot: string, taskId: string): Promise<string[] | null> {
+  const { getTaskAccessor } = await import('../store/data-accessor.js');
+  const accessor = await getTaskAccessor(storeRoot);
+  if ((await accessor.loadSingleTask(taskId)) === null) return null;
+  return (await accessor.getAcRows(taskId))
+    .filter((row) => row.kind !== 'child_task')
+    .map((row) => `AC${row.ordinal}`);
+}
+
+/**
+ * The pre-merge check (T14122): for each open PR carrying Closes:/Refs:
+ * lines, judge every named criterion against the store (a known task and
+ * criterion, an independent `met` verdict on the PR's current head, and for
+ * Closes: every criterion bound) and set the `cleo/merge-close` status on that
+ * head, so a missing, unmet or stale verdict shows before merge. A status is
+ * posted only when it changed since the last sweep.
+ */
+async function checkOpenPrs(
+  storeRoot: string,
+  root: string,
+  deps: MergeCloseDeps,
+  dryRun: boolean,
+  posted: Record<string, string>,
+): Promise<NonNullable<MergeSweepResult['openChecks']>> {
+  const open = await deps.listOpenPrs(root);
+  if (open === null) return [];
+  const checks: NonNullable<MergeSweepResult['openChecks']> = [];
+  for (const pr of open) {
+    const { directives, errors } = parseMergeDirectives(pr.body);
+    if ((directives.length === 0 && errors.length === 0) || !pr.headRefOid) continue;
+    const problems = [...errors];
+    for (const d of directives) {
+      const own = await taskCriteria(storeRoot, d.taskId);
+      if (own === null) {
+        problems.push(`${d.taskId} is not a task in this store`);
+        continue;
+      }
+      const unknown = d.acs.filter((ac) => !own.includes(ac));
+      if (unknown.length > 0) problems.push(`${d.taskId} has no ${unknown.join(', ')}`);
+      const verdicts = deps.reviewVerdicts
+        ? await deps.reviewVerdicts(storeRoot, d.taskId, pr.number)
+        : [];
+      for (const p of verdictProblems(verdicts, d.acs, pr.headRefOid))
+        problems.push(`${d.taskId} ${p}`);
+      if (d.kind === 'closes') {
+        const prior = await priorBindings(storeRoot, d.taskId, pr.number, null);
+        const union = new Set([...prior.acs, ...d.acs]);
+        const missing = own.filter((ac) => !union.has(ac));
+        if (missing.length > 0) problems.push(`${d.taskId} ${missing.join(', ')} unbound`);
+      }
+    }
+    const state = problems.length === 0 ? ('success' as const) : ('failure' as const);
+    const description = (
+      state === 'success'
+        ? `${directives.length} task(s): every criterion independently verified`
+        : problems.join('; ')
+    ).slice(0, 140);
+    checks.push({ prNumber: pr.number, headSha: pr.headRefOid, state, description });
+    const key = `${pr.headRefOid}:${state}:${description}`;
+    if (dryRun || posted[String(pr.number)] === key) continue;
+    if (await deps.setStatus(root, pr.headRefOid, state, description))
+      posted[String(pr.number)] = key;
+  }
+  return checks;
+}
+
+/**
+ * Run `fn` under a bound session (T14101): the caller's when there is one,
+ * else a short `merge-sweep` session this sweep starts and ends, so writes
+ * from the daemon pass session enforcement.
+ */
+async function withSweepSession<T>(storeRoot: string, fn: () => Promise<T>): Promise<T> {
+  const { getActiveSessionInfo } = await import('../sessions/session-enforcement.js');
+  if ((await getActiveSessionInfo(storeRoot).catch(() => null)) !== null) return fn();
+  const sessions = await import('../sessions/index.js');
+  const session = await sessions
+    .startSession(storeRoot, { scope: 'global', name: 'merge-sweep' })
+    .catch(() => null);
+  // No session could start: run anyway; a write enforcement refuses is a refusal like any other.
+  if (session === null) return fn();
+  const prior = process.env['CLEO_SESSION_ID'];
+  process.env['CLEO_SESSION_ID'] = session.id;
+  try {
+    return await fn();
+  } finally {
+    if (prior === undefined) delete process.env['CLEO_SESSION_ID'];
+    else process.env['CLEO_SESSION_ID'] = prior;
+    await sessions
+      .endSession(storeRoot, { sessionId: session.id, note: 'merge sweep' })
+      .catch(() => undefined);
   }
 }
 
@@ -547,70 +774,33 @@ export async function sweepMergedClosures(
       unreadSince: backlog.since,
       unreadBefore: backlog.until,
     };
-  const hooks: MergeSweepHooks = {};
-  for (const pr of [...prs].sort((a, b) => a.mergedAt.localeCompare(b.mergedAt))) {
-    const receipt = await judgeMergedPr(pr, required);
-    const entry: MergePrOutcome = {
-      prNumber: pr.number,
-      mergeSha: pr.mergeCommitSha,
-      outcomes: [],
-    };
-    if (pr.mergedAt === '' && !dryRun) {
-      entry.closesNothing = `PR #${pr.number} has not merged; check it with --dry-run.`;
-      result.prs.push(entry);
-      continue;
-    }
-    if (receipt.directives.length === 0 || receipt.errors.length > 0) {
-      // The CI job comments these; a PR naming no task is not this store's.
-      if (receipt.closesNothing) entry.closesNothing = receipt.closesNothing;
-      result.prs.push(entry);
-      continue;
-    }
-    for (const directive of receipt.directives) {
-      const outcome = await applyDirective(storeRoot, pr, receipt, directive, deps, dryRun).catch(
-        (err: Error) => ({
-          taskId: directive.taskId,
-          acs: directive.acs,
-          action: 'refused' as const,
+  const statuses = { ...(state.statuses ?? {}) };
+  const work = async (): Promise<MergeSweepHooks> => {
+    const hooks = await applyMergedPrs(storeRoot, root, prs, required, deps, dryRun, result);
+    if (!targeted) {
+      result.openChecks = await checkOpenPrs(storeRoot, root, deps, dryRun, statuses);
+      hooks.macosRegression = await syncMacosRegressionIssues(storeRoot, root, deps, dryRun);
+      if (!dryRun && deps.reconcile) {
+        hooks.reconcile = await deps.reconcile(storeRoot).catch((err: Error) => ({
+          version: null,
+          action: 'failed' as const,
           reason: err.message,
-        }),
-      );
-      entry.outcomes.push(outcome);
-      if (outcome.action === 'closed') result.closed.push(outcome.taskId);
-      if (outcome.action === 'bound') result.bound.push(outcome.taskId);
-      if (outcome.action === 'refused')
-        result.refused.push({
-          taskId: outcome.taskId,
-          prNumber: pr.number,
-          reason: outcome.reason ?? 'refused',
-        });
+        }));
+      }
     }
-    if (!dryRun) await reportRefusals(storeRoot, root, pr, entry.outcomes, deps);
-    // T14111: flag stale docs once, on the run that applied this PR.
-    const applied = entry.outcomes.filter((o) => o.action === 'closed' || o.action === 'bound');
-    if (!dryRun && deps.docsRot && pr.mergeCommitSha && applied.length > 0) {
-      const taskIds = applied.map((o) => o.taskId);
-      const flagged = await deps
-        .docsRot(storeRoot, { prNumber: pr.number, mergeSha: pr.mergeCommitSha, taskIds })
-        .catch(() => []);
-      hooks.docsRot = [...(hooks.docsRot ?? []), ...flagged];
-    }
-    result.prs.push(entry);
-  }
-  if (!targeted) {
-    hooks.macosRegression = await syncMacosRegressionIssues(storeRoot, root, deps, dryRun);
-    if (!dryRun && deps.reconcile) {
-      hooks.reconcile = await deps.reconcile(storeRoot).catch((err: Error) => ({
-        version: null,
-        action: 'failed' as const,
-        reason: err.message,
-      }));
-    }
-  }
+    return hooks;
+  };
+  // Writes need a bound session; a daemon sweep has none of its own.
+  const hooks = dryRun ? await work() : await withSweepSession(storeRoot, work);
   if (Object.keys(hooks).length > 0) result.hooks = hooks;
   if (!dryRun && !targeted) {
     const highWater = prs.reduce((max, pr) => (pr.mergedAt > max ? pr.mergedAt : max), since);
-    const next: SweepState = { lastSweptAt: startedAt, highWater, ...(backlog ? { backlog } : {}) };
+    const next: SweepState = {
+      lastSweptAt: startedAt,
+      highWater,
+      ...(backlog ? { backlog } : {}),
+      statuses,
+    };
     writeFileSync(sweepStatePath(storeRoot), `${JSON.stringify(next, null, 2)}\n`);
   }
   return result;
@@ -874,5 +1064,30 @@ export const defaultMergeCloseDeps: MergeCloseDeps = {
   },
   async closeIssue(root, url, comment) {
     return (await gh(['issue', 'close', url, '--comment', comment], root)) !== null;
+  },
+  async listOpenPrs(root) {
+    const fields = 'number,body,headRefOid';
+    const out = await gh(
+      ['pr', 'list', '--state', 'open', '--limit', String(MERGE_SWEEP_PR_LIMIT), '--json', fields],
+      root,
+    );
+    if (out === null) return null;
+    const rows: unknown = JSON.parse(out);
+    return Array.isArray(rows) ? rows.flatMap((row) => toMergedPr(row) ?? []) : null;
+  },
+  async setStatus(root, sha, state, description) {
+    const args = [
+      'api',
+      '--method',
+      'POST',
+      `repos/{owner}/{repo}/statuses/${sha}`,
+      '-f',
+      `state=${state}`,
+      '-f',
+      `context=${MERGE_CLOSE_STATUS_CONTEXT}`,
+      '-f',
+      `description=${description}`,
+    ];
+    return (await gh(args, root)) !== null;
   },
 };

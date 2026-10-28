@@ -1,6 +1,6 @@
 ---
 id: merge-closes-tasks
-tasks: [T14101]
+tasks: [T14101, T14121, T14122]
 kind: feat
 summary: "A merged PR with green CI on its head closes the tasks its body names (Closes:/Refs: lines), with no agent step"
 ---
@@ -31,6 +31,19 @@ The sweep runs in three places:
 - lazily, in a detached child, when an agent runs `briefing`, `next`,
   `current`, `show` or `release`, at most every 5 minutes;
 - on demand.
+
+The author's line is the plan, not the proof (owner decision D11211). A
+criterion is recorded as satisfied only from an independent reviewer's `met`
+verdict (`cleo review`, written from the reviewer's own session) on the PR's
+final head. A missing, unmet or stale verdict (a push after review) closes
+nothing and the PR comment names the criterion. Before merge, the sweep sets a
+`cleo/merge-close` status on each open PR carrying the lines, red naming each
+unverified or unbound criterion, so the gap shows while it can still be fixed.
+
+The sweep never skips a merged PR: it pages each window until it reaches its
+cursor, keeps any window a page budget leaves unread as a backlog the next
+sweep reads first, and reports it as `truncated`. Writes run under a bound
+session (the caller's, or a short `merge-sweep` session for the daemon).
 
 Each applied line writes one `merge_close` audit row keyed by PR, merge commit
 and task, so a rerun records nothing twice. A refusal (an unknown task or

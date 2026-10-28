@@ -21,8 +21,9 @@ import {
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import type { GhPrViewPayload } from '@cleocode/contracts';
+import type { GhPrViewPayload, ReviewVerdict } from '@cleocode/contracts';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { getActiveSessionInfo } from '../../sessions/session-enforcement.js';
 import { createTestDb, type TestDbEnv } from '../../store/__tests__/test-db-helper.js';
 import { resetDbState } from '../../store/sqlite.js';
 import { addTask } from '../add.js';
@@ -96,8 +97,47 @@ async function seedTask(acceptance: string[]): Promise<string> {
 }
 
 /** Fake outside world: the PRs gh lists, and a record of every call. */
-function fakeDeps(prs: MergedPrRecord[], issues: Array<{ url: string; title: string }> = []) {
+/** A `met` verdict for every criterion of every PR, on that PR's own head. */
+function metOnHead(prs: readonly MergedPrRecord[]): NonNullable<MergeCloseDeps['reviewVerdicts']> {
+  return async (_root, taskId, prNumber) => {
+    const head = prs.find((p) => p.number === prNumber)?.headRefOid ?? '';
+    return Array.from({ length: 9 }, (_, i) =>
+      verdict(taskId, prNumber, `AC${i + 1}`, head, 'met'),
+    );
+  };
+}
+
+function verdict(
+  taskId: string,
+  prNumber: number,
+  ac: string,
+  headSha: string,
+  outcome: 'met' | 'unmet',
+  createdAt = '2026-10-28T08:00:00Z',
+): ReviewVerdict {
+  return {
+    id: `${taskId}-${ac}-${headSha}-${createdAt}`,
+    taskId,
+    ac,
+    acId: `${taskId}-${ac}`,
+    prNumber,
+    headSha,
+    verdict: outcome,
+    reason: outcome === 'met' ? 'the diff delivers it' : 'the diff does not touch it',
+    reviewer: { sessionId: 'ses_reviewer', agentId: 'reviewer' },
+    packetSha256: 'x'.repeat(64),
+    createdAt,
+  };
+}
+
+function fakeDeps(
+  prs: MergedPrRecord[],
+  issues: Array<{ url: string; title: string }> = [],
+  open: MergedPrRecord[] = [],
+) {
   const calls = {
+    statuses: [] as Array<{ sha: string; state: string; description: string }>,
+    sessionsAtComplete: [] as Array<string | null>,
     closedIssues: [] as string[],
     record: [] as Array<{ taskId: string; prNumber: number; acs: string[]; dryRun: boolean }>,
     complete: [] as string[],
@@ -117,12 +157,19 @@ function fakeDeps(prs: MergedPrRecord[], issues: Array<{ url: string; title: str
       return { ok: true };
     },
     listLabelledIssues: async () => issues,
+    reviewVerdicts: metOnHead([...prs, ...open]),
+    listOpenPrs: async () => open,
+    setStatus: async (_root, sha, state, description) => {
+      calls.statuses.push({ sha, state, description });
+      return true;
+    },
     closeIssue: async (_root, url) => {
       calls.closedIssues.push(url);
       return true;
     },
     complete: async (_root, taskId) => {
       calls.complete.push(taskId);
+      calls.sessionsAtComplete.push((await getActiveSessionInfo(root))?.id ?? null);
       await env.accessor.updateTaskFields(taskId, {
         status: 'done',
         pipelineStage: 'contribution',
@@ -186,6 +233,8 @@ describe('sweep closes the tasks a merged PR names (T14101)', () => {
       { taskId: id, prNumber: 10, acs: ['AC1', 'AC2'], dryRun: false },
     ]);
     expect(calls.complete).toEqual([id]);
+    // The sweep binds a session for its writes (none was bound here).
+    expect(calls.sessionsAtComplete[0]).not.toBeNull();
     const rows = await mergeRows(id);
     expect(rows).toHaveLength(1);
     expect(JSON.parse(rows[0]?.detailsJson ?? '{}')).toMatchObject({
@@ -446,8 +495,21 @@ describe('a sweep never skips merged PRs past one page (T14101, council review)'
       all
         .filter((p) => p.mergedAt >= since && (until === undefined || p.mergedAt <= until))
         .sort((a, b) => b.mergedAt.localeCompare(a.mergedAt))
-        .slice(0, MERGE_SWEEP_PR_LIMIT);
+        // gh's page: a fixed 50 rows, whatever the sweep's own constant says.
+        .slice(0, 50);
   }
+
+  it('council red test (T14121): a 50-row page over 60 merged PRs never drops the PR carrying Closes:', async () => {
+    const id = await seedTask(['only criterion']);
+    // gh returns the newest 50; PR #1003 is older than every returned PR.
+    const all = many(60, (i) => (i === 3 ? `Closes: ${id} AC1` : 'no task'));
+    const { deps } = fakeDeps(all);
+    const sweep = { ...deps, listMergedPrs: windowed(all) };
+    const since = '2026-10-27T00:00:00.000Z';
+    const first = await sweepMergedClosures(root, { force: true, since }, sweep);
+    const second = await sweepMergedClosures(root, { force: true }, sweep);
+    expect([...first.closed, ...second.closed]).toEqual([id]);
+  });
 
   it('pages through more than 50 PRs merged between sweeps and closes every task', async () => {
     const ids = [await seedTask(['a']), await seedTask(['b', 'c'])];
@@ -481,5 +543,78 @@ describe('a sweep never skips merged PRs past one page (T14101, council review)'
     const second = await sweepMergedClosures(root, { force: true }, sweep);
     expect(second.closed).toEqual([id]);
     expect(second.truncated).toBeUndefined();
+  });
+});
+
+describe('satisfies comes only from an independent verdict on the merged head (T14122, D11211)', () => {
+  it('a missing, unmet or stale verdict closes nothing and says which criterion', async () => {
+    const id = await seedTask(['first criterion', 'second criterion']);
+    const merged = pr(30, `Closes: ${id} AC1,AC2`);
+    const head = merged.headRefOid ?? '';
+    const cases: Array<[ReviewVerdict[], RegExp]> = [
+      [[], /AC1: no review verdict; AC2: no review verdict/],
+      [
+        [verdict(id, 30, 'AC1', head, 'met'), verdict(id, 30, 'AC2', head, 'unmet')],
+        /AC2: reviewed unmet/,
+      ],
+      [
+        [verdict(id, 30, 'AC1', head, 'met'), verdict(id, 30, 'AC2', 'f'.repeat(40), 'met')],
+        /AC2: reviewed on head ffffffffffff/,
+      ],
+    ];
+    for (const [verdicts, reason] of cases) {
+      const { deps, calls } = fakeDeps([merged]);
+      const result = await sweepMergedClosures(
+        root,
+        { force: true },
+        { ...deps, reviewVerdicts: async () => verdicts },
+      );
+      expect(result.closed).toEqual([]);
+      expect(result.refused[0]?.reason).toMatch(reason);
+      expect(calls.record).toHaveLength(0);
+    }
+  });
+
+  it('a later met verdict on the head supersedes an earlier unmet one', async () => {
+    const id = await seedTask(['only criterion']);
+    const merged = pr(31, `Closes: ${id} AC1`);
+    const head = merged.headRefOid ?? '';
+    const verdicts = [
+      verdict(id, 31, 'AC1', head, 'unmet', '2026-10-28T08:00:00Z'),
+      verdict(id, 31, 'AC1', head, 'met', '2026-10-28T09:00:00Z'),
+    ];
+    const { deps } = fakeDeps([merged]);
+    const result = await sweepMergedClosures(
+      root,
+      { force: true },
+      { ...deps, reviewVerdicts: async () => verdicts },
+    );
+    expect(result.closed).toEqual([id]);
+  });
+
+  it('without the review module nothing closes', async () => {
+    const id = await seedTask(['only criterion']);
+    const { deps } = fakeDeps([pr(32, `Closes: ${id} AC1`)]);
+    const { reviewVerdicts: _unset, ...withoutReview } = deps;
+    const result = await sweepMergedClosures(root, { force: true }, withoutReview);
+    expect(result.closed).toEqual([]);
+    expect(result.refused[0]?.reason).toMatch(/no review verdict/);
+  });
+
+  it('checks open PRs before merge: a red status names the gap, green once verified, posted once each', async () => {
+    const id = await seedTask(['first criterion', 'second criterion']);
+    const open = { ...pr(33, `Closes: ${id} AC1,AC2`, []), mergedAt: '' };
+    const head = open.headRefOid ?? '';
+    let verdicts: ReviewVerdict[] = [verdict(id, 33, 'AC1', head, 'met')];
+    const { deps, calls } = fakeDeps([], [], [open]);
+    const sweep = { ...deps, reviewVerdicts: async () => verdicts };
+    const first = await sweepMergedClosures(root, { force: true }, sweep);
+    expect(first.openChecks?.[0]).toMatchObject({ prNumber: 33, state: 'failure' });
+    expect(calls.statuses[0]?.description).toMatch(/AC2: no review verdict/);
+    await sweepMergedClosures(root, { force: true }, sweep);
+    expect(calls.statuses).toHaveLength(1);
+    verdicts = [...verdicts, verdict(id, 33, 'AC2', head, 'met')];
+    await sweepMergedClosures(root, { force: true }, sweep);
+    expect(calls.statuses.map((c) => c.state)).toEqual(['failure', 'success']);
   });
 });

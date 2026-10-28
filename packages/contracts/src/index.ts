@@ -1232,6 +1232,7 @@ export type {
   MergeSweepReconcile,
   MergeSweepResult,
   MergeTaskOutcome,
+  ReviewVerdict,
 } from './merge-close.js';
 export type {
   MigrationEnumDrift,

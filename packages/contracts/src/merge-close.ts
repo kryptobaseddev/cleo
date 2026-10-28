@@ -24,6 +24,37 @@ export interface MergeDirective {
 }
 
 /**
+ * An independent reviewer's verdict on one criterion of one PR (T14122, owner
+ * decision D11211). Written by `cleo review` from the reviewer's own session,
+ * never parsed from PR text; the merge sweep records `satisfies:` only for a
+ * criterion whose latest verdict is `met` on the PR's final head.
+ */
+export interface ReviewVerdict {
+  /** Verdict id (uuid). */
+  id: string;
+  /** The task. */
+  taskId: string;
+  /** Criterion alias (`AC2`). */
+  ac: string;
+  /** `task_acceptance_criteria.id` of the criterion. */
+  acId: string;
+  /** The PR reviewed. */
+  prNumber: number;
+  /** The PR head the review packet was built from. */
+  headSha: string;
+  /** Whether the diff delivers the criterion. */
+  verdict: 'met' | 'unmet';
+  /** The reviewer's reason. */
+  reason: string;
+  /** Who reviewed: never the PR's author. */
+  reviewer: { sessionId: string; agentId: string | null };
+  /** sha256 of the packet (diff and criterion text) the reviewer was given. */
+  packetSha256: string;
+  /** When it was recorded (ISO). */
+  createdAt: string;
+}
+
+/**
  * What a merged PR says, judged without a task store (the CI job's receipt):
  * its lines, whether its required checks were green on its exact head, and
  * why it closes nothing when it does not.
@@ -140,6 +171,16 @@ export interface MergeSweepResult {
    * first by the next sweep (never skipped).
    */
   truncated?: { read: number; unreadSince: string; unreadBefore: string };
+  /**
+   * The pre-merge check of open PRs carrying Closes:/Refs: lines (T14122):
+   * the `cleo/merge-close` status each head got, and why when it failed.
+   */
+  openChecks?: Array<{
+    prNumber: number;
+    headSha: string;
+    state: 'success' | 'failure';
+    description: string;
+  }>;
   /** The upkeep run in the same sweep, when any ran. */
   hooks?: MergeSweepHooks;
 }
