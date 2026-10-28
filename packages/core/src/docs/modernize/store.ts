@@ -22,6 +22,9 @@
  * @epic T14106
  */
 
+import { randomUUID } from 'node:crypto';
+import { existsSync, readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import type {
   DocKindMetadata,
   DocsModernizeJudgment,
@@ -93,6 +96,69 @@ async function listStoredDocs(projectRoot: string): Promise<StoredDoc[]> {
 function needsKind(doc: StoredDoc, kinds: ReadonlySet<string>): boolean {
   if (doc.kind === null || !kinds.has(doc.kind)) return true;
   return doc.kind === 'spec' && doc.owners.every((o) => o === IMPORT_PROJECT_OWNER_ID);
+}
+
+/** Milliseconds since the epoch for an ISO or SQLite (`YYYY-MM-DD HH:MM:SS`) timestamp. */
+function toMs(stamp: string | null | undefined): number {
+  if (!stamp) return Number.POSITIVE_INFINITY;
+  const iso = /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}/.test(stamp) ? `${stamp.replace(' ', 'T')}Z` : stamp;
+  const ms = Date.parse(iso);
+  return Number.isNaN(ms) ? Number.POSITIVE_INFINITY : ms;
+}
+
+/**
+ * When a doc was first written. The registry row's `created_at` is NOT that:
+ * every `docs update` moves the slug onto a new row stamped at the update.
+ * The birth is the earliest of the row, the doc's conduit history (identity
+ * row and every version, which sync) and the rows the local versioning audit
+ * names as earlier versions of the slug.
+ */
+async function docBirthMs(projectRoot: string, doc: StoredDoc): Promise<number> {
+  const stamps: number[] = [toMs(doc.createdAt)];
+  if (doc.slug) {
+    const { findConduitAttachmentByUid, listConduitAttachmentVersions, resolveConduitDocUid } =
+      await import('../../store/conduit-doc-history.js');
+    const uid = await resolveConduitDocUid(projectRoot, doc.slug);
+    if (uid) {
+      stamps.push(toMs((await findConduitAttachmentByUid(projectRoot, uid))?.createdAt));
+      for (const v of await listConduitAttachmentVersions(projectRoot, uid))
+        stamps.push(toMs(v.createdAt));
+    }
+    const store = createAttachmentStore();
+    for (const sha of await previousShasFromAudit(projectRoot, doc.slug)) {
+      stamps.push(toMs((await store.getMetadata(sha, projectRoot))?.createdAt));
+    }
+  }
+  return Math.min(...stamps);
+}
+
+/** Content hashes the local docs-versioning audit records as earlier versions of `slug`. */
+async function previousShasFromAudit(projectRoot: string, slug: string): Promise<string[]> {
+  const { DOCS_VERSIONING_AUDIT_FILE } = await import('../docs-update.js');
+  const path = join(projectRoot, DOCS_VERSIONING_AUDIT_FILE);
+  if (!existsSync(path)) return [];
+  const out: string[] = [];
+  for (const line of readFileSync(path, 'utf-8').split('\n')) {
+    if (!line.includes(`"slug":${JSON.stringify(slug)}`)) continue;
+    try {
+      const entry: unknown = JSON.parse(line);
+      if (typeof entry !== 'object' || entry === null || !('revisions' in entry)) continue;
+      const revisions = Array.isArray(entry.revisions) ? entry.revisions : [];
+      for (const r of revisions) {
+        if (
+          typeof r === 'object' &&
+          r !== null &&
+          'previousSha256' in r &&
+          typeof r.previousSha256 === 'string'
+        ) {
+          out.push(r.previousSha256);
+        }
+      }
+    } catch {
+      // A torn audit line says nothing about the birth.
+    }
+  }
+  return out;
 }
 
 /** The number of an `adr-NNN-…` slug, or null. */
@@ -203,7 +269,11 @@ export async function planDocsStoreModernize(
   let next = (await findHighestAdrNumber(projectRoot)) + 1;
   for (const [n, group] of [...byNumber].sort((a, b) => a[0] - b[0])) {
     if (group.length < 2) continue;
-    const [, ...later] = [...group].sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+    const births = new Map<string, number>();
+    for (const doc of group) births.set(doc.id, await docBirthMs(projectRoot, doc));
+    const [, ...later] = [...group].sort(
+      (a, b) => (births.get(a.id) ?? 0) - (births.get(b.id) ?? 0) || a.id.localeCompare(b.id),
+    );
     for (const doc of later) {
       const row = planned.get(doc.id);
       const current = row?.newSlug ?? doc.slug ?? '';
@@ -261,7 +331,8 @@ export async function applyDocsStoreModernize(
   const started = now();
   const t0 = performance.now();
   const stamp = started.toISOString().replace(/[-:.]/g, '').replace('T', '-').slice(0, 15);
-  const runId = `dm-${stamp}-store`;
+  // A random tail: two store runs in the same second must not share a receipt.
+  const runId = `dm-${stamp}-store-${randomUUID().slice(0, 8)}`;
   const journal = new StepJournal(journalPath(projectRoot, runId));
   const receipt = (edgeCount: number, durationMs?: number): DocsModernizeReceipt => ({
     runId,

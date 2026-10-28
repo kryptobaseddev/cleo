@@ -26,8 +26,8 @@ import { and, eq } from 'drizzle-orm';
 import { CleoError } from '../errors.js';
 import { createAttachmentStore } from '../store/attachment-store.js';
 import {
+  conduitDocAliasRow,
   ensureConduitDoc,
-  recordConduitDocAlias,
   resolveConduitDocUid,
 } from '../store/conduit-doc-history.js';
 import { docsWikilinks } from '../store/schema/attachments.js';
@@ -111,13 +111,13 @@ export async function renameDocSlug(
         .set({ toSlug: input.newSlug })
         .where(and(eq(docsWikilinks.toSlug, input.oldSlug), eq(docsWikilinks.relation, 'links-to')))
         .run();
+      // The alias commits with the rename: the old slug never resolves to nothing.
+      tx.insert(conduitDocSlugAliases)
+        .values(conduitDocAliasRow({ slug: input.oldSlug, docUid: uid, reason: input.reason }))
+        .onConflictDoNothing()
+        .run();
     },
   );
-  await recordConduitDocAlias(projectRoot, {
-    slug: input.oldSlug,
-    docUid: uid,
-    reason: input.reason,
-  });
   return { docUid: uid, adopted };
 }
 

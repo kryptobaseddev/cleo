@@ -564,7 +564,12 @@ export const SYNC_WRITE_INVARIANTS: readonly SyncWriteInvariant[] = Object.freez
   {
     id: 'docs.slug.rename-keeps-alias',
     class: 'identity-layer',
-    tables: ['docs_attachments', 'conduit_attachments'],
+    tables: [
+      'docs_attachments',
+      'conduit_attachments',
+      'docs_wikilinks',
+      'conduit_doc_slug_aliases',
+    ],
     sites: [],
     reason:
       'a rename moves the live slug on docs_attachments and conduit_attachments in one transaction and records the old slug as an alias of the immutable doc uid, so every replica resolves the old and the new slug to one doc',

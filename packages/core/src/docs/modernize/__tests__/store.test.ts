@@ -85,6 +85,18 @@ describe('modernize --store (fixture store)', () => {
     );
     await seed('adr-051-alpha', '# ADR 051 alpha\n', 'adr', '2026-01-02T00:00:00Z');
     const betaId = await seed('adr-051-beta', '# ADR 051 beta\n', 'adr', '2026-02-02T00:00:00Z');
+    // Alpha was born first but edited last: its live row is the newest, yet it keeps 051.
+    const { updateDocBySlug } = await import('../../docs-update.js');
+    const edited = await updateDocBySlug(projectRoot, {
+      slug: 'adr-051-alpha',
+      content: '# ADR 051 alpha\n\nedited later\n',
+    });
+    expect(edited.ok).toBe(true);
+    // A decision linked under beta's old slug follows the renumbering.
+    const { linkDecisionToAdr, listDecisionLinksForAdr } = await import(
+      '../../../store/decision-adr-links.js'
+    );
+    await linkDecisionToAdr(projectRoot, { decisionId: 'D9001', adrSlug: 'adr-051-beta' });
     await seed('clean-note', '# Clean\n', 'note', '2026-01-03T00:00:00Z');
 
     const plan = await planDocsStoreModernize({ projectRoot, decide: { connection: null } });
@@ -103,6 +115,7 @@ describe('modernize --store (fixture store)', () => {
       newSlug: 'loose-requirements',
     });
     expect(row(betaId)?.newSlug).toBe('adr-052-beta');
+    expect((plan.storeRows ?? []).some((r) => r.slug === 'adr-051-alpha')).toBe(false);
     expect(
       (plan.storeRows ?? []).some((r) => r.slug === 'adr-051-alpha' || r.slug === 'clean-note'),
     ).toBe(false);
@@ -118,6 +131,9 @@ describe('modernize --store (fixture store)', () => {
 
     // Old slug stays resolvable as an alias; fetch through the read model finds the doc.
     expect(await resolveDocSlug(projectRoot, 't123-foo-plan-2026-01-01')).toBe('foo-plan');
+    expect(
+      (await listDecisionLinksForAdr(projectRoot, 'adr-052-beta')).map((l) => l.decisionId),
+    ).toEqual(['D9001']);
     expect(await listDocSlugs(projectRoot, 'foo-plan')).toEqual([
       'foo-plan',
       't123-foo-plan-2026-01-01',
