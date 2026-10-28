@@ -1298,8 +1298,10 @@ function budgetPhrase(entry: LedgerEntry, budget: LedgerBudget, usedBytes = 0): 
  *   ridden, never queued under), so the worst case runs depth × 6 GiB over
  *   the budget, and over the capacity too.
  * - Up to {@link TINY_LANE_SLOTS} tiny runs are admitted from a reserve outside
- *   the pressure share, wherever they wait, even past a capacity that holders
- *   admitted before the share narrowed have filled (T13587, T13967): their bytes do not count against the share budget, and
+ *   the pressure share, wherever they wait, while the capacity has room for
+ *   them, or, when holders admitted before the share narrowed hold more than
+ *   the narrowed budget, past the capacity unless an exclusive run holds the
+ *   machine (T13587, T13967): their bytes do not count against the share budget, and
  *   other runs never use the reserve. Like the tiny lane, the reserve closes
  *   while the oldest non-tiny run waits past {@link TINY_LANE_WINDOWS}
  *   reservation windows or needs the whole capacity (T13591). The memory gate
@@ -1336,13 +1338,20 @@ export function schedulePass(entries: readonly LedgerEntry[], ctx: PassContext):
   // halved budget exactly cannot starve a formatter.
   let reserved = 0;
   let reservedBytes = 0;
-  // T13967: the reserve may sit past the capacity (at most TINY_LANE_SLOTS
-  // gigabytes): holders admitted before the share narrowed can fill the whole
-  // capacity, and a two-file formatter must not wait behind them. The memory
-  // gate still refuses it under real pressure; its bytes still count toward
-  // the capacity every other run is held to.
-  const reserveTakes = (e: LedgerEntry): boolean =>
-    isTiny(e) && e.exclusive !== true && reserved < TINY_LANE_SLOTS;
+  const reserveTakes = (e: LedgerEntry, cost: number): boolean =>
+    isTiny(e) &&
+    e.exclusive !== true &&
+    reserved < TINY_LANE_SLOTS &&
+    used + reservedBytes + cost <= ctx.capacityBytes;
+  // T13967: holders admitted before memory pressure narrowed the light share
+  // can hold the whole capacity, more than the narrowed budget allows; a
+  // two-file formatter must not wait behind them. Only then may a waiting
+  // tiny run take the reserve past the capacity (at most TINY_LANE_SLOTS
+  // gigabytes), and never beside an exclusive run. At a full share the
+  // capacity bounds the reserve as before (T13367), and the memory gate
+  // (`none`) still admits nothing.
+  const narrowedOverfull = (): boolean =>
+    lightBudget < ctx.capacityBytes && used > lightBudget && exclusiveRunning === 0;
   const reservedIds = new Set<string>();
   for (const e of entries) {
     if (e.state === 'admitted') {
@@ -1351,7 +1360,7 @@ export function schedulePass(entries: readonly LedgerEntry[], ctx: PassContext):
       // A reserve run still counts as running: the oldest-starts-when-idle rule
       // must not put a capacity-sized run beside it.
       running++;
-      if (reserveTakes(e)) {
+      if (reserveTakes(e, cost)) {
         reserved++;
         reservedBytes += cost;
         reservedIds.add(e.id);
@@ -1446,7 +1455,15 @@ export function schedulePass(entries: readonly LedgerEntry[], ctx: PassContext):
     const cost = charged(w, ctx.capacityBytes);
     // T13587: the tiny reserve admits a tiny run wherever it waits; the memory
     // gate (`none`) still admits nothing.
-    if (reserveOpen && lightShare !== 'none' && reserveTakes(w)) {
+    if (
+      reserveOpen &&
+      lightShare !== 'none' &&
+      (reserveTakes(w, cost) ||
+        (isTiny(w) &&
+          w.exclusive !== true &&
+          reserved < TINY_LANE_SLOTS &&
+          narrowedOverfull()))
+    ) {
       admit.add(w.id);
       reserved++;
       reservedBytes += cost;
