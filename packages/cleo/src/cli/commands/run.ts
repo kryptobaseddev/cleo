@@ -147,7 +147,7 @@ export const runCommand = defineCommand({
   meta: {
     name: 'run',
     description:
-      'Run a heavy command (tests, builds, installs) under the machine-wide resource budget: cleo run [--class test|build|full-build] [--wait] [--urgent] [--no-pause] [--passthrough] -- <command...>',
+      'Run a heavy command (tests, builds, installs) under the machine-wide resource budget: cleo run [--class test|build|full-build] [--wait] [--urgent] [--no-pause] [--detach] [--passthrough] -- <command...>',
   },
   args: {
     class: {
@@ -182,6 +182,12 @@ export const runCommand = defineCommand({
       type: 'boolean',
       description:
         'Allow a whole-suite test run (a vitest run naming no file, directory, --project or -t filter, or a vitest test script without narrowing arguments): refused by default, since an empty file list is the usual cause',
+      default: false,
+    },
+    detach: {
+      type: 'boolean',
+      description:
+        'The run is meant to outlive the process that started it (nohup, a launcher script that exits): it keeps running when its parent exits. Without it, a run whose parent dies (a wrapper shell killed by a harness) stops its command and releases its budget (T14080). Also set by CLEO_RUN_DETACHED=1',
       default: false,
     },
     passthrough: {
@@ -294,6 +300,8 @@ export const runCommand = defineCommand({
         timeoutMs,
         urgent: args.urgent === true,
         ...(negatedFlag(args, 'pause') ? { noPause: true } : {}),
+        // T14080: an intentionally detached run survives its parent's exit.
+        detach: args.detach === true || process.env.CLEO_RUN_DETACHED === '1',
         ...(hookKey !== undefined ? { hookKey } : {}),
         passthrough,
         // A terminal on stdin: keep the child in its foreground group.

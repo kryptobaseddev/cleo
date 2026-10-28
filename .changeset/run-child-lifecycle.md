@@ -10,7 +10,11 @@ summary: "cleo run stops its child when its own parent dies, delivers a group si
   kept running. On each supervision poll the runner now compares its parent
   pid with the one it started under. Once the parent is gone it sends the
   child group SIGCONT then SIGTERM, and SIGKILL after 10 s. The exit path then
-  releases the ledger charge and removes the job record.
+  releases the ledger charge and removes the job record. A run meant to
+  outlive its launcher (`nohup cleo run … &`, a script that starts it and
+  exits) opts out with `cleo run --detach` or `CLEO_RUN_DETACHED=1`. It is
+  recorded as `detached` on the job and is never stopped for its parent's
+  exit.
 - **Single delivery (T13002).** A runner that forwards a signal to its
   child's whole group records it in its job record. A nested runner in that
   group skips forwarding the same signal if it arrived within 2 s, and skips a

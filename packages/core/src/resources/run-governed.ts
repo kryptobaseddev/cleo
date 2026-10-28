@@ -233,6 +233,12 @@ export interface RunGovernedOptions {
    */
   readonly noPause?: boolean;
   /**
+   * The run is meant to outlive the process that started it (`nohup`, a
+   * launcher script that exits): it is exempt from the parent-death stop
+   * (T14080) and keeps running when its parent exits. @defaultValue false
+   */
+  readonly detach?: boolean;
+  /**
    * The git hook or heavy `node` script the command carries
    * (`planRunFootprint`'s `hookKey`): its tree is sampled every
    * {@link HOOK_SAMPLE_MS} and the peak is recorded under this key, so the
@@ -780,6 +786,7 @@ export async function runGoverned(opts: RunGovernedOptions): Promise<RunGoverned
     parentJob: enclosing?.id ?? null,
     holdsSlot: grant.holdsShare,
     leadsGroup,
+    ...(opts.detach === true ? { detached: true } : {}),
   };
   writeRunJob(job, d.jobsDir);
 
@@ -940,7 +947,7 @@ export async function runGoverned(opts: RunGovernedOptions): Promise<RunGoverned
   // first, SIGKILL after a grace; the exit path then releases the charge.
   let parentGoneAtMs: number | null = null;
   const checkParent = (now: number): void => {
-    if (childPid === undefined || exited) return;
+    if (childPid === undefined || exited || opts.detach === true) return;
     if (parentGoneAtMs === null) {
       if (d.currentPpid() === d.ppid) return;
       parentGoneAtMs = now;

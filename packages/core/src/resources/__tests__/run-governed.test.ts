@@ -1490,6 +1490,33 @@ describe("cleo run's child lifecycle (T14080, T13002, T12994)", () => {
     expect(readdirSync(join(dir, 'jobs'))).toEqual([]);
   });
 
+  it('T14080: a run started with --detach survives its parent exiting', async () => {
+    let parentAlive = true;
+    const h = harness({
+      onSample: (n, hh) => {
+        if (n === 2) parentAlive = false; // the launcher exits on purpose
+        if (n === 5) hh.exit(0); // the run finishes on its own, later
+      },
+    });
+    h.deps = { ...h.deps, currentPpid: () => (parentAlive ? 4242 : 1), ppid: 4242 };
+    let record: RunJob | null = null;
+    const start = h.deps.start;
+    h.deps = {
+      ...h.deps,
+      start: (pid) => {
+        // Called first for the runner (before the record exists), then for the child.
+        const jobs = join(dir, 'jobs');
+        const [file] = existsSync(jobs) ? readdirSync(jobs) : [];
+        if (file) record = JSON.parse(readFileSync(join(jobs, file), 'utf8')) as RunJob;
+        return start?.(pid) ?? null;
+      },
+    };
+    const r = await runGoverned(base(h, { detach: true }));
+    expect(r).toMatchObject({ kind: 'exited', exitCode: 0 });
+    expect(h.signals).toEqual([]);
+    expect(record).toMatchObject({ detached: true });
+  });
+
   it('T14080: a run whose parent lives is never stopped', async () => {
     const h = harness({ onSample: (n, hh) => n === 3 && hh.exit(0) });
     h.deps = { ...h.deps, currentPpid: () => 4242, ppid: 4242 };

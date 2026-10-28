@@ -224,6 +224,12 @@ export interface RunJob {
    * it does not forward it to its own child a second time.
    */
   readonly forwardedSignal?: { readonly signal: NodeJS.Signals; readonly atMs: number };
+  /**
+   * Started with `cleo run --detach` (or `CLEO_RUN_DETACHED=1`): meant to
+   * outlive the process that started it, so its parent's exit does not stop
+   * it (T14080).
+   */
+  readonly detached?: boolean;
 }
 
 /**
