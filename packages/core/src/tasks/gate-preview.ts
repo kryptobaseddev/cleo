@@ -43,6 +43,7 @@ import {
 import {
   captureGateInputs,
   extractTypedGates,
+  gateTreeFor,
   resolveTypedGateRoot,
   runGates,
   typedGateAdmissionMs,
@@ -81,8 +82,19 @@ export interface TaskGatePreview {
   cache?: {
     /** HEAD the passes were cached under, or null outside a git checkout. */
     head: string | null;
-    /** One entry per result, in `results` order. */
-    entries: Array<{ index: number; req?: string; cached: boolean; reason?: string }>;
+    /**
+     * One entry per result, in `results` order. A gate that runs in a declared
+     * evidence repository (`repo`, T14078) names it and the HEAD its pass is
+     * keyed under there.
+     */
+    entries: Array<{
+      index: number;
+      req?: string;
+      cached: boolean;
+      reason?: string;
+      repo?: string;
+      head?: string | null;
+    }>;
   };
   /** Present when the task carries no typed gates, explaining the empty result. */
   note?: string;
@@ -174,12 +186,26 @@ export async function previewTaskGates(
     // reports its own error for it exactly as before.
     const allowCachedGates = readAllowCachedGates(root);
     // T13649: report the tree the runner keys its cache to, not the store root.
-    const cacheState = await captureGateCacheState(
-      resolveTypedGateRoot(root, undefined, undefined, taskId),
-    );
+    const typedRoot = resolveTypedGateRoot(root, undefined, undefined, taskId);
+    const cacheState = await captureGateCacheState(typedRoot);
     const observed: AcceptanceGateResult[] = [];
     const notCachedWhy: Array<string | undefined> = [];
+    // T14078: a repo-scoped gate's pass is keyed to its declared repository's HEAD.
+    const repoHeads: Array<string | null | undefined> = [];
     for (const gate of gates) {
+      let gateState = cacheState;
+      if (gate.repo !== undefined) {
+        let repoTree: string | null = null;
+        try {
+          repoTree = gateTreeFor(gate, typedRoot, root);
+        } catch {
+          repoTree = null;
+        }
+        gateState = repoTree === null ? null : await captureGateCacheState(repoTree);
+        repoHeads.push(gateState?.head ?? null);
+      } else {
+        repoHeads.push(undefined);
+      }
       const captured = allowCachedGates
         ? await captureGateInputs(task, gate, execution).catch(() => undefined)
         : undefined;
@@ -187,8 +213,10 @@ export async function previewTaskGates(
       notCachedWhy.push(
         !allowCachedGates
           ? 'evidence.allowCachedGates is false'
-          : cacheState === null
-            ? 'the project root is not a git checkout (passes are keyed by HEAD)'
+          : gateState === null
+            ? gate.repo !== undefined
+              ? `evidence repository "${gate.repo}" is not a declared git checkout`
+              : 'the project root is not a git checkout (passes are keyed by HEAD)'
             : !isCacheableGate(gate)
               ? `a ${gate.kind} gate is never cached`
               : cacheInputsHash === undefined
@@ -236,6 +264,9 @@ export async function previewTaskGates(
             ...(result.req ? { req: result.req } : {}),
             cached: why === undefined,
             ...(why ? { reason: why } : {}),
+            ...(gates[i]?.repo !== undefined
+              ? { repo: gates[i]?.repo, head: repoHeads[i] ?? null }
+              : {}),
           };
         }),
       },

@@ -9,9 +9,9 @@
  */
 
 import { execFileSync } from 'node:child_process';
-import { existsSync, realpathSync } from 'node:fs';
-import { join, resolve as resolvePath } from 'node:path';
-import type { ChangeSetRootSource } from '@cleocode/contracts';
+import { existsSync, readFileSync, realpathSync } from 'node:fs';
+import { isAbsolute, join, resolve as resolvePath } from 'node:path';
+import type { ChangeSetRootSource, EvidenceRepositoryDeclaration } from '@cleocode/contracts';
 import { discoveryEnv, gitToplevel, resolveDeclaredEvidenceGitRoot } from '../git/work-tree.js';
 import { enumerateWorktrees } from '../worktree/list.js';
 import { resolveCanonicalProjectRoot, resolveEvidenceExecutionRoot } from './evidence.js';
@@ -150,4 +150,73 @@ export function resolveEvidenceTree(
     if (accept(tree.root)) return tree;
   }
   return { root: storeRoot, source: 'store' };
+}
+
+/** Whether a parsed JSON value is a well-formed repository declaration. */
+function isRepositoryDeclaration(value: unknown): value is EvidenceRepositoryDeclaration {
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) return false;
+  const { name, path, purpose } = value as Record<string, unknown>;
+  return (
+    typeof name === 'string' &&
+    /^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(name) &&
+    typeof path === 'string' &&
+    path.trim().length > 0 &&
+    typeof purpose === 'string' &&
+    purpose.trim().length > 0
+  );
+}
+
+/**
+ * The further evidence repositories a project declares in
+ * `.cleo/project-context.json` (`evidence.repositories`, T14078). A malformed
+ * entry is skipped, so a gate naming it is refused as undeclared.
+ *
+ * @param storeRoot - CLEO store root.
+ * @returns The well-formed declarations, in file order.
+ * @task T14078
+ */
+export function declaredEvidenceRepositories(storeRoot: string): EvidenceRepositoryDeclaration[] {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(readFileSync(join(storeRoot, '.cleo', 'project-context.json'), 'utf-8'));
+  } catch {
+    return [];
+  }
+  if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) return [];
+  const evidence = (parsed as { evidence?: unknown }).evidence;
+  if (evidence === null || typeof evidence !== 'object' || Array.isArray(evidence)) return [];
+  const repositories = (evidence as { repositories?: unknown }).repositories;
+  return Array.isArray(repositories) ? repositories.filter(isRepositoryDeclaration) : [];
+}
+
+/**
+ * The checkout a declared evidence repository names (T14078): the root of a
+ * git work tree at the declared path. Refused, with the fix, when the name is
+ * not declared or the path is not a checkout's root.
+ *
+ * @param storeRoot - CLEO store root; a relative path resolves against it.
+ * @param name - The repository name a typed gate's `repo` field gives.
+ * @returns The checkout root, or why it cannot be used.
+ * @task T14078
+ */
+export function resolveEvidenceRepository(
+  storeRoot: string,
+  name: string,
+): { ok: true; root: string } | { ok: false; reason: string } {
+  const declared = declaredEvidenceRepositories(storeRoot).find((r) => r.name === name);
+  if (!declared)
+    return {
+      ok: false,
+      reason:
+        `evidence repository "${name}" is not declared; add {"name":"${name}","path":"<checkout>","purpose":"<why>"} ` +
+        'to evidence.repositories in .cleo/project-context.json',
+    };
+  const path = isAbsolute(declared.path) ? declared.path : resolvePath(storeRoot, declared.path);
+  const top = gitToplevel(path);
+  if (top === null || canonical(top) !== canonical(path))
+    return {
+      ok: false,
+      reason: `evidence repository "${name}" path ${path} is not the root of a git checkout`,
+    };
+  return { ok: true, root: canonical(top) };
 }
