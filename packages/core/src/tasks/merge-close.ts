@@ -31,6 +31,7 @@ import {
   renameSync,
   statSync,
   unlinkSync,
+  utimesSync,
   writeFileSync,
 } from 'node:fs';
 import { homedir } from 'node:os';
@@ -65,8 +66,30 @@ export const MERGE_SWEEP_INTERVAL_MS = 5 * 60_000;
 /** A detached sweep child exits after this long, so a hung `gh` leaves no process behind. */
 export const MERGE_SWEEP_CHILD_TIMEOUT_MS = 2 * 60_000;
 
+/** The lock file, under `.cleo/`: held for the whole of one sweep. */
+const SWEEP_LOCK_FILE = 'merge-sweep.lock';
+
 /** The claim file, under `.cleo/`: its mtime is the last claimed sweep. */
 const SWEEP_CLAIM_FILE = 'merge-sweep.claim';
+
+/**
+ * Each sweep re-reads this far behind its high-water mark: GitHub's search
+ * index can list a PR some minutes after it merged, and re-reading an applied
+ * PR is a no-op (its `merge_close` audit row).
+ */
+export const MERGE_SWEEP_OVERLAP_MS = 15 * 60_000;
+
+/**
+ * A sweep stops taking new PRs after this long and carries the rest on its
+ * waiting list, so it finishes inside a lazy child's {@link MERGE_SWEEP_CHILD_TIMEOUT_MS}.
+ */
+export const MERGE_SWEEP_MAX_RUN_MS = 90_000;
+
+/**
+ * A sweep lock whose heartbeat is older than this is stale and may be taken:
+ * several times the longest a sweep runs ({@link MERGE_SWEEP_CHILD_TIMEOUT_MS}).
+ */
+export const MERGE_SWEEP_LOCK_STALE_MS = 5 * MERGE_SWEEP_CHILD_TIMEOUT_MS;
 
 /** A first sweep (no high-water mark yet) looks back this far. */
 export const MERGE_SWEEP_LOOKBACK_MS = 7 * 24 * 60 * 60_000;
@@ -293,11 +316,15 @@ export async function judgeMergedPr(
 interface SweepState {
   lastSweptAt?: string;
   highWater?: string;
-  /** PRs merged in `[since, until]` that a page budget left unread. */
-  backlog?: { since: string; until: string };
+  /**
+   * Windows of PRs merged in `[since, until]` that a page budget left unread,
+   * oldest first; each sweep reads the oldest first, so every one drains.
+   * (A single object is the pre-list form.)
+   */
+  backlog?: Array<{ since: string; until: string }> | { since: string; until: string };
   /** The last `cleo/merge-close` status posted per open PR (`head:state:description`). */
   statuses?: Record<string, string>;
-  /** PRs waiting on their merge commit's CI, re-judged every sweep. */
+  /** PRs re-judged every sweep: a task waiting, a PR gh could not view, or one a deadline left. */
   waiting?: number[];
 }
 
@@ -306,6 +333,61 @@ interface WindowRead {
   prs: MergedPrRecord[];
   /** The mergedAt below which PRs remain unread, when the budget ran out. */
   unreadBefore?: string;
+}
+
+/**
+ * The PRs one sweep reads (T14101): first the recorded backlog windows,
+ * oldest first, then the window from `since` to now, all within one page
+ * budget. A window the budget cuts short stays in the backlog with its
+ * `until` lowered to what was read, so every window drains; a window the
+ * budget never reached stays whole. `newestRead` is the newest merge read in
+ * the new window (the next high-water mark), unset when it was not read.
+ */
+async function listSweepWindows(
+  deps: MergeCloseDeps,
+  root: string,
+  state: SweepState,
+  since: string,
+  explicitSince: boolean,
+): Promise<{
+  prs: MergedPrRecord[];
+  backlog: Array<{ since: string; until: string }>;
+  newestRead?: string;
+} | null> {
+  const budget = { pages: MERGE_SWEEP_MAX_PAGES };
+  const prior = state.backlog;
+  const recorded = prior === undefined ? [] : Array.isArray(prior) ? prior : [prior];
+  const backlog: Array<{ since: string; until: string }> = [];
+  const byNumber = new Map<number, MergedPrRecord>();
+  for (const window of [...recorded].sort((a, b) => a.since.localeCompare(b.since))) {
+    // An explicit --since reads only its own window; the backlog waits, kept.
+    if (budget.pages === 0 || explicitSince) {
+      backlog.push(window);
+      continue;
+    }
+    const read = await readMergedWindow(deps, root, window.since, window.until, budget);
+    if (read === null) return null;
+    for (const pr of read.prs) byNumber.set(pr.number, pr);
+    if (read.unreadBefore !== undefined)
+      backlog.push({ since: window.since, until: read.unreadBefore });
+  }
+  let newestRead: string | undefined;
+  if (budget.pages > 0) {
+    const read = await readMergedWindow(deps, root, since, undefined, budget);
+    if (read === null) return null;
+    for (const pr of read.prs) {
+      byNumber.set(pr.number, pr);
+      if (newestRead === undefined || pr.mergedAt > newestRead) newestRead = pr.mergedAt;
+    }
+    // Pages run newest first, so a cut-short window's unread part is below what was read.
+    if (read.unreadBefore !== undefined) backlog.push({ since, until: read.unreadBefore });
+    newestRead ??= new Date().toISOString();
+  }
+  return {
+    prs: [...byNumber.values()],
+    backlog,
+    ...(newestRead !== undefined ? { newestRead } : {}),
+  };
 }
 
 /**
@@ -350,6 +432,61 @@ function readSweepState(storeRoot: string): SweepState {
   } catch {
     return {};
   }
+}
+
+/** Write the state tmp-then-rename, so a reader never sees half a file. */
+function writeSweepState(storeRoot: string, state: SweepState): void {
+  const path = sweepStatePath(storeRoot);
+  const tmp = `${path}.${process.pid}.tmp`;
+  writeFileSync(tmp, `${JSON.stringify(state, null, 2)}\n`);
+  renameSync(tmp, path);
+}
+
+/**
+ * Take the sweep lock for a store (T14101): an `O_EXCL` lock file held for
+ * the whole sweep, its mtime refreshed while the sweep runs. A lock whose
+ * heartbeat is older than {@link MERGE_SWEEP_LOCK_STALE_MS} is moved aside by
+ * `rename` (only one caller's rename succeeds) and taken. Null when another
+ * sweep holds it.
+ *
+ * @param storeRoot - CLEO store root.
+ * @returns The release function, or null.
+ */
+export function acquireMergeSweepLock(storeRoot: string): (() => void) | null {
+  const lock = join(storeRoot, '.cleo', SWEEP_LOCK_FILE);
+  try {
+    if (Date.now() - statSync(lock).mtimeMs < MERGE_SWEEP_LOCK_STALE_MS) return null;
+    const stale = `${lock}.${process.pid}.${Date.now()}`;
+    renameSync(lock, stale);
+    unlinkSync(stale);
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code !== 'ENOENT') return null;
+  }
+  const token = `${process.pid}:${Date.now()}:${Math.random()}`;
+  try {
+    const fd = openSync(lock, 'wx');
+    writeFileSync(fd, token);
+    closeSync(fd);
+  } catch {
+    return null;
+  }
+  const heartbeat = setInterval(() => {
+    try {
+      const now = new Date();
+      utimesSync(lock, now, now);
+    } catch {
+      // A lost lock is noticed at release.
+    }
+  }, 30_000);
+  heartbeat.unref();
+  return () => {
+    clearInterval(heartbeat);
+    try {
+      if (readFileSync(lock, 'utf-8') === token) unlinkSync(lock);
+    } catch {
+      // Already gone or taken over: nothing of ours to remove.
+    }
+  };
 }
 
 /**
@@ -420,10 +557,11 @@ async function priorBindings(
       mergeSha?: string | null;
       acs?: string[];
       reason?: string;
+      outcome?: 'refused' | 'waiting';
     };
     const samePr = details.prNumber === prNumber && (details.mergeSha ?? null) === mergeSha;
     if (row.action === MERGE_CLOSE_REFUSED_ACTION) {
-      if (samePr && details.reason) reported.add(details.reason);
+      if (samePr) reported.add(details.outcome ?? 'refused');
       continue;
     }
     for (const ac of details.acs ?? []) acs.add(ac);
@@ -466,7 +604,7 @@ async function mergeCiWait(
   required: readonly string[],
   deps: MergeCloseDeps,
   dryRun: boolean,
-): Promise<{ reason: string; reran: boolean } | null> {
+): Promise<{ reason: string; reran: boolean; final?: boolean } | null> {
   const sha = pr.mergeCommitSha;
   if (sha === null) return null;
   const workflow = required[0] ?? 'CI';
@@ -476,6 +614,8 @@ async function mergeCiWait(
     return { reason: `no ${workflow} run on merge commit ${short} yet`, reran: false };
   if (run.status !== 'completed')
     return { reason: `${workflow} on merge commit ${short} is ${run.status}`, reran: false };
+  if (run.conclusion === 'failure' || run.conclusion === 'timed_out')
+    return { reason: `${workflow} failed on merge commit ${short}`, reran: false, final: true };
   if (run.conclusion !== 'cancelled' && run.conclusion !== 'skipped') return null;
   const { getTaskAccessor } = await import('../store/data-accessor.js');
   const accessor = await getTaskAccessor(storeRoot);
@@ -501,6 +641,13 @@ async function mergeCiWait(
     runId: run.runId,
   });
   return { reason: `${was}; reran run ${run.runId}`, reran: true };
+}
+
+/** Whether a merged PR's own head still had required checks running (a pending, not a failed, CI). */
+function headCiUnfinished(pr: MergedPrRecord): boolean {
+  return (pr.statusCheckRollup ?? []).some(
+    (check) => check.status !== undefined && check.status !== 'COMPLETED',
+  );
 }
 
 /** Apply one line of one merged PR to its task. */
@@ -539,8 +686,15 @@ async function applyDirective(
   // A dry run before merge checks the lines against the store; CI and the
   // recorded evidence are judged once the PR has merged.
   const open = pr.mergedAt === '';
-  if (!open && !receipt.ciGreen)
-    return { ...base, action: 'refused', reason: receipt.closesNothing ?? 'CI was not green.' };
+  // Only failed CI, an unknown task and an unknown criterion are final; every
+  // other gap waits and is re-judged each sweep (a later verdict, a later
+  // Refs: merge, a transient gh or store failure).
+  if (!open && !receipt.ciGreen) {
+    const reason = receipt.closesNothing ?? 'CI was not green.';
+    return headCiUnfinished(pr)
+      ? { ...base, action: 'waiting', reason }
+      : { ...base, action: 'refused', reason };
+  }
   // T14122 (D11211): satisfies: comes only from an independent reviewer's
   // `met` verdict on the PR's final head, never from the author's line.
   const verdicts = deps.reviewVerdicts
@@ -550,7 +704,7 @@ async function applyDirective(
   if (unverified.length > 0)
     return {
       ...base,
-      action: 'refused',
+      action: 'waiting',
       reason: `not independently verified: ${unverified.join('; ')} (cleo review records the verdicts).`,
     };
   const audit = { prNumber: pr.number, mergeSha: pr.mergeCommitSha, kind: directive.kind, acs };
@@ -563,7 +717,7 @@ async function applyDirective(
   if (missing.length > 0)
     return {
       ...base,
-      action: 'refused',
+      action: 'waiting',
       reason:
         `no merged PR binds ${missing.join(', ')} of ${taskId}: list them on this PR's Closes: line, ` +
         'or bind them first with a Refs: line on the PR that delivers them.',
@@ -575,18 +729,29 @@ async function applyDirective(
     // A merge whose own CI run was cancelled, skipped or unfinished, with no
     // later run standing in yet (ci-evidence's T12742 rule, unchanged), waits.
     const wait = await mergeCiWait(storeRoot, root, pr, taskId, required, deps, dryRun);
+    if (wait?.final)
+      return { ...base, action: 'refused', reason: `${wait.reason}: ${recorded.reason}` };
     if (wait !== null)
       return { ...base, action: 'waiting', reason: wait.reason, reran: wait.reran };
-    return { ...base, action: 'refused', reason: recorded.reason };
+    return { ...base, action: 'waiting', reason: recorded.reason };
   }
   if (dryRun) return { ...base, action: 'closed' };
   const completed = await deps.complete(storeRoot, taskId, pr.number);
-  if (!completed.ok) return { ...base, action: 'refused', reason: completed.reason };
+  if (!completed.ok) {
+    // A concurrent sweep (or agent) may have completed it first.
+    const now = await accessor.loadSingleTask(taskId);
+    if (now?.status === 'done')
+      return { ...base, action: 'already', reason: `${taskId} was completed meanwhile.` };
+    return { ...base, action: 'waiting', reason: completed.reason };
+  }
   await appendMergeAudit(storeRoot, MERGE_CLOSE_AUDIT_ACTION, taskId, audit);
   return { ...base, action: 'closed' };
 }
 
-/** Post each task refusal on its PR once (an audit row remembers it). */
+/**
+ * Post each refused or waiting task on its PR once per kind (an audit row
+ * remembers it): a waiting task is re-judged every sweep but commented once.
+ */
 async function reportRefusals(
   storeRoot: string,
   root: string,
@@ -595,25 +760,33 @@ async function reportRefusals(
   deps: MergeCloseDeps,
 ): Promise<void> {
   for (const outcome of outcomes) {
-    if (outcome.action !== 'refused' || outcome.reason === undefined) continue;
+    if ((outcome.action !== 'refused' && outcome.action !== 'waiting') || !outcome.reason) continue;
     const { reported } = await priorBindings(
       storeRoot,
       outcome.taskId,
       pr.number,
       pr.mergeCommitSha,
     ).catch(() => ({ reported: new Set<string>() }));
-    if (reported.has(outcome.reason)) continue;
-    const body = `CLEO merge-close: ${outcome.taskId} was not closed by this PR: ${outcome.reason}`;
+    if (reported.has(outcome.action)) continue;
+    const body =
+      outcome.action === 'refused'
+        ? `CLEO merge-close: ${outcome.taskId} was not closed by this PR: ${outcome.reason}`
+        : `CLEO merge-close: ${outcome.taskId} is waiting to close from this PR (re-checked every sweep): ${outcome.reason}`;
     if (!(await deps.comment(root, pr.number, body))) continue;
     await appendMergeAudit(storeRoot, MERGE_CLOSE_REFUSED_ACTION, outcome.taskId, {
       prNumber: pr.number,
       mergeSha: pr.mergeCommitSha,
       reason: outcome.reason,
+      outcome: outcome.action,
     }).catch(() => undefined);
   }
 }
 
-/** Apply each merged PR's lines, oldest merge first, into `result`; returns the per-PR hook results. */
+/**
+ * Apply each merged PR's lines, oldest merge first, into `result`; returns
+ * the per-PR hook results. PRs not reached before `deadline` are left out of
+ * `result` and pushed to `carried`, for the waiting list.
+ */
 async function applyMergedPrs(
   storeRoot: string,
   root: string,
@@ -622,9 +795,15 @@ async function applyMergedPrs(
   deps: MergeCloseDeps,
   dryRun: boolean,
   result: MergeSweepResult,
+  deadline: number,
+  carried: number[],
 ): Promise<MergeSweepHooks> {
   const hooks: MergeSweepHooks = {};
   for (const pr of [...prs].sort((a, b) => a.mergedAt.localeCompare(b.mergedAt))) {
+    if (Date.now() > deadline) {
+      carried.push(pr.number);
+      continue;
+    }
     const receipt = await judgeMergedPr(pr, required);
     const entry: MergePrOutcome = {
       prNumber: pr.number,
@@ -657,7 +836,8 @@ async function applyMergedPrs(
         (err: Error): MergeTaskOutcome & { reran?: boolean } => ({
           taskId: directive.taskId,
           acs: directive.acs,
-          action: 'refused' as const,
+          // A throw (gh rate limit, SQLITE_BUSY, …) is transient: re-judge next sweep.
+          action: 'waiting' as const,
           reason: err.message,
         }),
       );
@@ -823,49 +1003,82 @@ export async function sweepMergedClosures(
     return { ...empty, skippedReason: 'throttled: the last sweep was under 5 minutes ago' };
   if (!(await deps.ghAvailable()))
     return { ...empty, skippedReason: 'gh is not available or not authenticated' };
+  // One sweep at a time per store, for the whole sweep (a dry run writes nothing).
+  const release = dryRun ? () => undefined : acquireMergeSweepLock(storeRoot);
+  if (release === null) return { ...empty, skippedReason: 'another merge sweep is running' };
+  try {
+    return await runSweep(storeRoot, opts, deps, empty, targeted);
+  } finally {
+    release();
+  }
+}
+
+/** The sweep proper, under the lock ({@link sweepMergedClosures}). */
+async function runSweep(
+  storeRoot: string,
+  opts: MergeSweepOptions,
+  deps: MergeCloseDeps,
+  empty: MergeSweepResult,
+  targeted: boolean,
+): Promise<MergeSweepResult> {
+  const dryRun = empty.dryRun;
   const { resolveEvidenceExecutionRoot } = await import('./evidence.js');
   const root = resolveEvidenceExecutionRoot(storeRoot);
   const state = readSweepState(storeRoot);
   const startedAt = new Date().toISOString();
+  const deadline = Date.now() + MERGE_SWEEP_MAX_RUN_MS;
+  const highWater = state.highWater;
+  // Re-read an overlap behind the cursor: search can list a PR late.
   const since =
-    opts.since ?? state.highWater ?? new Date(Date.now() - MERGE_SWEEP_LOOKBACK_MS).toISOString();
+    opts.since ??
+    (highWater === undefined
+      ? new Date(Date.now() - MERGE_SWEEP_LOOKBACK_MS).toISOString()
+      : new Date(Date.parse(highWater) - MERGE_SWEEP_OVERLAP_MS).toISOString());
   let prs: MergedPrRecord[];
-  let backlog: SweepState['backlog'];
+  let backlog: Array<{ since: string; until: string }> = [];
+  let newHighWater = highWater;
+  const unviewed: number[] = [];
   if (targeted) {
     const viewed = await Promise.all((opts.prNumbers ?? []).map((n) => deps.viewPr(root, n)));
     prs = viewed.filter((pr): pr is MergedPrRecord => pr !== null);
   } else {
-    // An unread older window from a sweep the page budget cut short goes first.
-    const budget = { pages: MERGE_SWEEP_MAX_PAGES };
-    const old = opts.since === undefined ? state.backlog : undefined;
-    const older = old ? await readMergedWindow(deps, root, old.since, old.until, budget) : null;
-    const newer = await readMergedWindow(deps, root, since, undefined, budget);
-    if (newer === null || (old && older === null))
-      return { ...empty, skippedReason: 'gh could not list merged PRs' };
-    const byNumber = new Map([...(older?.prs ?? []), ...newer.prs].map((pr) => [pr.number, pr]));
-    prs = [...byNumber.values()];
-    const unreadSince = old?.since ?? since;
-    const unreadBefore = newer.unreadBefore ?? older?.unreadBefore;
-    backlog = unreadBefore === undefined ? undefined : { since: unreadSince, until: unreadBefore };
-  }
-  // PRs a previous sweep left waiting on their merge commit's CI come back.
-  if (!targeted) {
+    const listed = await listSweepWindows(deps, root, state, since, opts.since !== undefined);
+    if (listed === null) return { ...empty, skippedReason: 'gh could not list merged PRs' };
+    ({ prs, backlog } = listed);
+    if (listed.newestRead !== undefined)
+      newHighWater =
+        highWater === undefined || listed.newestRead > highWater ? listed.newestRead : highWater;
+    // PRs a previous sweep left waiting come back; one gh could not view stays listed.
     const known = new Set(prs.map((pr) => pr.number));
-    const again = (state.waiting ?? []).filter((n) => !known.has(n));
-    const viewed = await Promise.all(again.map((n) => deps.viewPr(root, n)));
-    prs = [...prs, ...viewed.filter((pr): pr is MergedPrRecord => pr !== null)];
+    for (const n of (state.waiting ?? []).filter((w) => !known.has(w))) {
+      const pr = await deps.viewPr(root, n);
+      if (pr === null) unviewed.push(n);
+      else prs.push(pr);
+    }
   }
   const required = await deps.requiredChecks(storeRoot);
   const result: MergeSweepResult = { ...empty, swept: true };
-  if (backlog)
+  const oldest = backlog[0];
+  if (oldest)
     result.truncated = {
       read: prs.length,
-      unreadSince: backlog.since,
-      unreadBefore: backlog.until,
+      unreadSince: oldest.since,
+      unreadBefore: backlog[backlog.length - 1]?.until ?? oldest.until,
     };
   const statuses = { ...(state.statuses ?? {}) };
+  const carried: number[] = [];
   const work = async (): Promise<MergeSweepHooks> => {
-    const hooks = await applyMergedPrs(storeRoot, root, prs, required, deps, dryRun, result);
+    const hooks = await applyMergedPrs(
+      storeRoot,
+      root,
+      prs,
+      required,
+      deps,
+      dryRun,
+      result,
+      deadline,
+      carried,
+    );
     if (!targeted) {
       result.openChecks = await checkOpenPrs(storeRoot, root, deps, dryRun, statuses);
       hooks.macosRegression = await syncMacosRegressionIssues(storeRoot, root, deps, dryRun);
@@ -883,19 +1096,72 @@ export async function sweepMergedClosures(
   const hooks = dryRun ? await work() : await withSweepSession(storeRoot, work);
   if (Object.keys(hooks).length > 0) result.hooks = hooks;
   if (!dryRun && !targeted) {
-    const highWater = prs.reduce((max, pr) => (pr.mergedAt > max ? pr.mergedAt : max), since);
-    const next: SweepState = {
+    const waiting = result.prs
+      .filter((entry) => entry.outcomes.some((o) => o.action === 'waiting'))
+      .map((entry) => entry.prNumber);
+    writeSweepState(storeRoot, {
       lastSweptAt: startedAt,
-      highWater,
-      ...(backlog ? { backlog } : {}),
+      ...(newHighWater !== undefined ? { highWater: newHighWater } : {}),
+      ...(backlog.length > 0 ? { backlog } : {}),
       statuses,
-      waiting: result.prs
-        .filter((entry) => entry.outcomes.some((o) => o.action === 'waiting'))
-        .map((entry) => entry.prNumber),
-    };
-    writeFileSync(sweepStatePath(storeRoot), `${JSON.stringify(next, null, 2)}\n`);
+      waiting: [...new Set([...waiting, ...unviewed, ...carried])],
+    });
   }
   return result;
+}
+
+/**
+ * Whether a directory is a CLEO project that takes merged CI as evidence
+ * (T14101): a git checkout with `.cleo/project-context.json` setting
+ * `evidence.ciSatisfies`. The daemon sweeps only these, never `$HOME`.
+ *
+ * @param root - Candidate project root.
+ * @returns True when the merge sweep applies.
+ */
+export function mergeSweepApplies(root: string): boolean {
+  try {
+    if (!existsSync(join(root, '.git'))) return false;
+    const context = JSON.parse(
+      readFileSync(join(root, '.cleo', 'project-context.json'), 'utf-8'),
+    ) as { evidence?: { ciSatisfies?: unknown } };
+    return context.evidence?.ciSatisfies === true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * The daemon's merge sweep (T14101): every registered project on this
+ * machine that {@link mergeSweepApplies} to, behind the same gate the lazy
+ * path uses ({@link mergeSweepSpawnAllowed}: never in CI, under vitest, when
+ * off, or without gh credentials). Each project's sweep throttles and locks
+ * itself. Never throws.
+ *
+ * @param opts - Environment, project lister and sweep, for tests.
+ * @returns The roots swept.
+ */
+export async function sweepRegisteredProjects(
+  opts: {
+    env?: NodeJS.ProcessEnv;
+    listRoots?: () => Promise<string[]>;
+    sweep?: (root: string) => Promise<unknown>;
+  } = {},
+): Promise<string[]> {
+  if (!mergeSweepSpawnAllowed(opts.env ?? process.env)) return [];
+  const listRoots =
+    opts.listRoots ??
+    (async () => {
+      const { nexusList } = await import('../nexus/registry.js');
+      return (await nexusList()).map((project) => project.path);
+    });
+  const roots = await listRoots().catch(() => [] as string[]);
+  const swept: string[] = [];
+  for (const root of new Set(roots)) {
+    if (!mergeSweepApplies(root)) continue;
+    await (opts.sweep ?? ((r: string) => sweepMergedClosures(r)))(root).catch(() => undefined);
+    swept.push(root);
+  }
+  return swept;
 }
 
 /**

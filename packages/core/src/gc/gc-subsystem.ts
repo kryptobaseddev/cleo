@@ -39,7 +39,7 @@
  * @saga T11243 SG-RUNTIME-UNIFICATION
  */
 
-import { basename, dirname, join } from 'node:path';
+import { join } from 'node:path';
 import type { Subsystem, SubsystemHealth, SubsystemState } from '@cleocode/contracts';
 import cron from 'node-cron';
 import { runGC } from './runner.js';
@@ -78,10 +78,7 @@ export interface GcSubsystemContext {
    * node-cron types.
    */
   readonly cronTask: { destroy: () => void };
-  /**
-   * The merge-sweep task (T14101): closes the tasks merged PRs name. Absent
-   * when the `.cleo/` directory is not inside a project checkout.
-   */
+  /** The merge-sweep task (T14101): closes the tasks merged PRs name in the registered projects. */
   readonly mergeSweepTask?: { destroy: () => void };
   /** Count of GC runs performed since subsystem start. */
   runs: number;
@@ -196,30 +193,27 @@ export function createGcSubsystem(cleoDir: string): Subsystem<GcSubsystemContext
         },
       );
 
-      // T14101: the background path of the merge sweep. Commands agents run
-      // also sweep lazily, so merged work closes when this daemon is down.
-      const projectRoot = basename(cleoDir) === '.cleo' ? dirname(cleoDir) : null;
-      const mergeSweepTask =
-        projectRoot === null
-          ? undefined
-          : cron.schedule(
-              MERGE_SWEEP_CRON_EXPR,
-              async () => {
-                try {
-                  const { sweepMergedClosures } = await import('../tasks/merge-close.js');
-                  await sweepMergedClosures(projectRoot);
-                } catch {
-                  // A failed sweep is retried on the next tick.
-                }
-              },
-              { timezone: 'UTC', noOverlap: true, name: 'cleo-merge-sweep' },
-            );
+      // T14101: the background path of the merge sweep. The daemon serves the
+      // global ~/.cleo, so it sweeps the registered projects that take merged
+      // CI as evidence, never this directory's parent ($HOME).
+      const mergeSweepTask = cron.schedule(
+        MERGE_SWEEP_CRON_EXPR,
+        async () => {
+          try {
+            const { sweepRegisteredProjects } = await import('../tasks/merge-close.js');
+            await sweepRegisteredProjects();
+          } catch {
+            // A failed sweep is retried on the next tick.
+          }
+        },
+        { timezone: 'UTC', noOverlap: true, name: 'cleo-merge-sweep' },
+      );
 
       const context: GcSubsystemContext = {
         pid: process.pid,
         startedAt: new Date().toISOString(),
         cronTask,
-        ...(mergeSweepTask ? { mergeSweepTask } : {}),
+        mergeSweepTask,
         runs,
       };
       live = context;

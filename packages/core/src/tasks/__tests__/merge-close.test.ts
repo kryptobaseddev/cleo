@@ -21,13 +21,14 @@ import {
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import type { GhPrViewPayload, ReviewVerdict } from '@cleocode/contracts';
+import type { GhPrViewPayload, MergeSweepResult, ReviewVerdict } from '@cleocode/contracts';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { getActiveSessionInfo } from '../../sessions/session-enforcement.js';
 import { createTestDb, type TestDbEnv } from '../../store/__tests__/test-db-helper.js';
 import { resetDbState } from '../../store/sqlite.js';
 import { addTask } from '../add.js';
 import {
+  acquireMergeSweepLock,
   claimMergeSweep,
   defaultMergeCloseDeps,
   formatMergeReceipt,
@@ -41,6 +42,7 @@ import {
   mergeSweepSpawnAllowed,
   parseMergeDirectives,
   sweepMergedClosures,
+  sweepRegisteredProjects,
 } from '../merge-close.js';
 
 let env: TestDbEnv;
@@ -201,6 +203,12 @@ function fakeDeps(
   return { deps, calls, world };
 }
 
+/** The reason of the first waiting outcome, or a marker when none waits. */
+function waitingOn(result: MergeSweepResult): string {
+  const waiting = result.prs.flatMap((p) => p.outcomes).find((o) => o.action === 'waiting');
+  return waiting?.reason ?? '(nothing waiting)';
+}
+
 async function mergeRows(taskId: string) {
   return env.accessor.queryAuditLog({ taskIds: [taskId], actions: [MERGE_CLOSE_AUDIT_ACTION] });
 }
@@ -282,7 +290,7 @@ describe('sweep closes the tasks a merged PR names (T14101)', () => {
     const id = await seedTask(['first criterion', 'second criterion']);
     const { deps, calls } = fakeDeps([pr(12, `Closes: ${id} AC1`)]);
     const result = await sweepMergedClosures(root, { force: true }, deps);
-    expect(result.refused[0]?.reason).toMatch(/no merged PR binds AC2/);
+    expect(waitingOn(result)).toMatch(/no merged PR binds AC2/);
     expect(calls.record).toHaveLength(0);
     expect(calls.complete).toHaveLength(0);
   });
@@ -347,7 +355,7 @@ describe('sweep closes the tasks a merged PR names (T14101)', () => {
     expect(calls.record).toHaveLength(0);
     const unmapped = fakeDeps([{ ...open, body: `Closes: ${id} AC1` }]);
     const bad = await sweepMergedClosures(root, { prNumbers: [19], dryRun: true }, unmapped.deps);
-    expect(bad.refused[0]?.reason).toMatch(/no merged PR binds AC2/);
+    expect(waitingOn(bad)).toMatch(/no merged PR binds AC2/);
     const real = await sweepMergedClosures(root, { prNumbers: [19] }, deps);
     expect(real.prs[0]?.closesNothing).toMatch(/has not merged/);
     expect(calls.complete).toHaveLength(0);
@@ -593,7 +601,7 @@ describe('satisfies comes only from an independent verdict on the merged head (T
         { ...deps, reviewVerdicts: async () => verdicts },
       );
       expect(result.closed).toEqual([]);
-      expect(result.refused[0]?.reason).toMatch(reason);
+      expect(waitingOn(result)).toMatch(reason);
       expect(calls.record).toHaveLength(0);
     }
   });
@@ -612,7 +620,7 @@ describe('satisfies comes only from an independent verdict on the merged head (T
       { ...deps, reviewVerdicts: async () => [own] },
     );
     expect(result.closed).toEqual([]);
-    expect(result.refused[0]?.reason).toMatch(/AC1: reviewed by the task's own author/);
+    expect(waitingOn(result)).toMatch(/AC1: reviewed by the task's own author/);
   });
 
   it('a later met verdict on the head supersedes an earlier unmet one', async () => {
@@ -638,7 +646,7 @@ describe('satisfies comes only from an independent verdict on the merged head (T
     const { reviewVerdicts: _unset, ...withoutReview } = deps;
     const result = await sweepMergedClosures(root, { force: true }, withoutReview);
     expect(result.closed).toEqual([]);
-    expect(result.refused[0]?.reason).toMatch(/AC1: no verdict on head/);
+    expect(waitingOn(result)).toMatch(/AC1: no verdict on head/);
   });
 
   it('checks open PRs before merge: a red status names the gap, green once verified, posted once each', async () => {
@@ -743,5 +751,163 @@ describe('a merge whose own CI run was cancelled waits, and is rerun once (T1410
     });
     expect([result.waiting, result.reran]).toEqual([1, 0]);
     expect(calls.reruns).toEqual([]);
+  });
+});
+
+describe('review fixes (#2555 review at a36298391)', () => {
+  it('the daemon sweeps registered CLEO projects only, never $HOME, and only behind the spawn gate', async () => {
+    const home = mkdtempSync(join(tmpdir(), 'cleo-merge-home-'));
+    mkdirSync(join(home, '.cleo'), { recursive: true });
+    const project = mkdtempSync(join(tmpdir(), 'cleo-merge-project-'));
+    mkdirSync(join(project, '.git'), { recursive: true });
+    mkdirSync(join(project, '.cleo'), { recursive: true });
+    writeFileSync(
+      join(project, '.cleo', 'project-context.json'),
+      JSON.stringify({ evidence: { ciSatisfies: true } }),
+    );
+    const swept: string[] = [];
+    const run = (env: NodeJS.ProcessEnv) =>
+      sweepRegisteredProjects({
+        env,
+        listRoots: async () => [home, project],
+        sweep: async (r) => {
+          swept.push(r);
+        },
+      });
+    expect(await run({ GH_TOKEN: 'x' })).toEqual([project]);
+    expect(swept).toEqual([project]);
+    expect(await run({ GH_TOKEN: 'x', CI: 'true' })).toEqual([]);
+    expect(await run({})).toEqual([]);
+  });
+
+  it('a waiting PR gh cannot view stays on the waiting list', async () => {
+    const id = await seedTask(['only criterion']);
+    const merged = pr(50, `Closes: ${id} AC1`);
+    const { deps } = fakeDeps([merged]);
+    await sweepMergedClosures(root, { force: true }, { ...deps, reviewVerdicts: async () => [] });
+    const before = JSON.parse(readFileSync(join(root, '.cleo', 'merge-sweep.json'), 'utf-8'));
+    expect(before.waiting).toEqual([50]);
+    await sweepMergedClosures(
+      root,
+      { force: true },
+      { ...deps, listMergedPrs: async () => [], viewPr: async () => null },
+    );
+    const after = JSON.parse(readFileSync(join(root, '.cleo', 'merge-sweep.json'), 'utf-8'));
+    expect(after.waiting).toEqual([50]);
+  });
+
+  it('transient failures wait and are re-judged; a later verdict closes the task', async () => {
+    const id = await seedTask(['only criterion']);
+    const merged = pr(51, `Closes: ${id} AC1`);
+    const { deps, calls } = fakeDeps([merged]);
+    const throwing = {
+      ...deps,
+      reviewVerdicts: async (): Promise<ReviewVerdict[]> => {
+        throw new Error('gh: API rate limit exceeded');
+      },
+    };
+    const first = await sweepMergedClosures(root, { force: true }, throwing);
+    expect(first.refused).toEqual([]);
+    expect(waitingOn(first)).toMatch(/rate limit/);
+    const noVerdict = await sweepMergedClosures(
+      root,
+      { force: true },
+      { ...deps, reviewVerdicts: async () => [] },
+    );
+    expect(waitingOn(noVerdict)).toMatch(/no verdict on head/);
+    // Commented once while it waits, whatever the reason.
+    expect(calls.comments).toHaveLength(1);
+    const later = await sweepMergedClosures(root, { force: true }, deps);
+    expect(later.closed).toEqual([id]);
+  });
+
+  it('one sweep at a time: a held lock skips the second; a failed complete on a done task is already', async () => {
+    const release = acquireMergeSweepLock(root);
+    expect(release).not.toBeNull();
+    expect(acquireMergeSweepLock(root)).toBeNull();
+    const { deps } = fakeDeps([]);
+    const blocked = await sweepMergedClosures(root, { force: true }, deps);
+    expect(blocked.skippedReason).toMatch(/another merge sweep is running/);
+    release?.();
+    const again = acquireMergeSweepLock(root);
+    expect(again).not.toBeNull();
+    again?.();
+
+    const id = await seedTask(['only criterion']);
+    const raced = fakeDeps([pr(52, `Closes: ${id} AC1`)]);
+    const result = await sweepMergedClosures(
+      root,
+      { force: true },
+      {
+        ...raced.deps,
+        complete: async (_root, taskId) => {
+          // Another sweep completed it between our record and our complete.
+          await env.accessor.updateTaskFields(taskId, {
+            status: 'done',
+            pipelineStage: 'contribution',
+          });
+          return { ok: false, reason: 'task is already done' };
+        },
+      },
+    );
+    expect(result.prs[0]?.outcomes[0]?.action).toBe('already');
+    expect(raced.calls.comments).toHaveLength(0);
+  });
+
+  it('a PR search indexes late (merged before the cursor) is still read, inside the overlap', async () => {
+    const id = await seedTask(['only criterion']);
+    const early = { ...pr(53, 'no task'), mergedAt: '2026-10-28T10:00:00.000Z' };
+    const late = { ...pr(54, `Closes: ${id} AC1`), mergedAt: '2026-10-28T09:55:00.000Z' };
+    const visible: MergedPrRecord[] = [early];
+    const { deps } = fakeDeps([early, late]);
+    const listing: MergeCloseDeps['listMergedPrs'] = async (_root, since, until) =>
+      visible.filter((p) => p.mergedAt >= since && (until === undefined || p.mergedAt <= until));
+    await sweepMergedClosures(
+      root,
+      { force: true, since: '2026-10-28T00:00:00.000Z' },
+      { ...deps, listMergedPrs: listing },
+    );
+    visible.push(late);
+    const second = await sweepMergedClosures(
+      root,
+      { force: true },
+      { ...deps, listMergedPrs: listing },
+    );
+    expect(second.closed).toEqual([id]);
+  });
+
+  it('a backlog of more than two budgets drains, oldest window first', async () => {
+    const total = MERGE_SWEEP_PR_LIMIT * MERGE_SWEEP_MAX_PAGES * 2 + 30;
+    const id = await seedTask(['only criterion']);
+    const all = Array.from({ length: total }, (_, i) =>
+      pr(
+        5000 + i,
+        i === 0 ? `Closes: ${id} AC1` : 'no task',
+        green,
+        new Date(Date.UTC(2026, 9, 27, 0, i)).toISOString(),
+      ),
+    );
+    const listing: MergeCloseDeps['listMergedPrs'] = async (_root, since, until) =>
+      all
+        .filter((p) => p.mergedAt >= since && (until === undefined || p.mergedAt <= until))
+        .sort((a, b) => b.mergedAt.localeCompare(a.mergedAt))
+        .slice(0, 50);
+    const { deps } = fakeDeps(all);
+    const sweep = { ...deps, listMergedPrs: listing };
+    let closed: string[] = [];
+    let sweeps = 0;
+    let truncated = true;
+    while (truncated && sweeps < 8) {
+      const r = await sweepMergedClosures(
+        root,
+        sweeps === 0 ? { force: true, since: '2026-10-26T00:00:00.000Z' } : { force: true },
+        sweep,
+      );
+      closed = [...closed, ...r.closed];
+      truncated = r.truncated !== undefined;
+      sweeps++;
+    }
+    expect(truncated).toBe(false);
+    expect(closed).toEqual([id]);
   });
 });
