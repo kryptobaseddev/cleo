@@ -49,6 +49,11 @@ beforeAll(async () => {
   base = commit(repo, 'base.ts', 'base');
   work = commit(repo, 'work.ts', 'T901: work');
   server = createServer((req, res) => {
+    if (req.url?.startsWith('/echo')) {
+      // Echoes its request: names whatever SHA the URL carries.
+      res.writeHead(200, { 'X-Commit': req.url }).end(`you asked for ${req.url}`);
+      return;
+    }
     switch (req.url) {
       case '/header':
         res.writeHead(200, { 'X-Commit': served }).end('ok');
@@ -157,6 +162,22 @@ describe('deploy probe (T14083)', () => {
     const result = await probeDeployment(`${origin}/header`, work);
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.reason).toMatch(/serves another build/);
+  });
+
+  it('refuses a probe URL that carries the deployed SHA, which an echoing endpoint would name', async () => {
+    for (const path of [
+      `/echo?sha=${work.slice(0, 7)}`,
+      `/echo/${work.slice(0, 10).toUpperCase()}`,
+      `/echo?v=build-${work}`,
+    ]) {
+      const result = await probeDeployment(`${origin}${path}`, work);
+      expect(result.ok).toBe(false);
+      if (!result.ok) expect(result.reason).toMatch(/its URL carries the deployed commit/);
+    }
+    // The same echoing endpoint, asked nothing about the SHA, names none.
+    const plain = await probeDeployment(`${origin}/echo`, work);
+    expect(plain.ok).toBe(false);
+    if (!plain.ok) expect(plain.reason).toMatch(/names no commit SHA/);
   });
 
   it('refuses a 5xx even when it names the SHA', async () => {

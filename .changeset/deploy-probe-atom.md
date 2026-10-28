@@ -12,7 +12,9 @@ checked live, could only be recorded with an owner override.
 D11207). At verify CLEO runs one bounded GET of the probe URL (10 s, first
 64 KiB of the body). It must return 2xx and name the deployed SHA in an
 `X-Commit` or `X-Version` header or in the body. A probe that names no SHA is
-refused with that fix, and a bare 2xx never stands in; a 5xx, a timeout, an
+refused with that fix, and a bare 2xx never stands in. A probe URL whose
+path or query names the SHA is refused, since an endpoint that echoes its
+request would name it without proving which build is live; a 5xx, a timeout, an
 unreachable host or a probe naming another commit is refused too. The atom
 records the status, the probe time and a sha256 of the body read.
 

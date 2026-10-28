@@ -77,6 +77,28 @@ function shaTokens(text: string): string[] {
   return (text.match(/\b[0-9a-f]{7,40}\b/gi) ?? []).map((t) => t.toLowerCase());
 }
 
+/**
+ * Whether a probe URL's path or query names the deployed commit (any 7+
+ * character prefix, case-insensitive): an echoing endpoint would then "name"
+ * the SHA the agent wrote, proving nothing (review of #2538).
+ */
+function urlNamesSha(url: string, sha: string): boolean {
+  let tail: string;
+  try {
+    const parsed = new URL(url);
+    tail = `${parsed.pathname}${parsed.search}`;
+  } catch {
+    tail = url;
+  }
+  let decoded = tail;
+  try {
+    decoded = decodeURIComponent(tail);
+  } catch {
+    // A malformed escape: judge the raw text.
+  }
+  return decoded.toLowerCase().includes(sha.slice(0, 7).toLowerCase());
+}
+
 /** Read at most `max` bytes of a response body, then stop the stream. */
 async function readBounded(response: Response, max: number): Promise<Buffer> {
   const reader = response.body?.getReader();
@@ -97,8 +119,9 @@ async function readBounded(response: Response, max: number): Promise<Buffer> {
  * Probe a deployment (T14083): one bounded GET of `url` that must return 2xx
  * and name `sha` (full, or a 7+ character prefix of it) in an `X-Commit` or
  * `X-Version` header, else in the first {@link DEPLOY_PROBE_MAX_BODY_BYTES}
- * of its body. Refuses a timeout, an unreachable host, a non-2xx status, and
- * a response naming no SHA or another commit, each with the fix.
+ * of its body. Refuses a URL whose path or query names the SHA (an echoing
+ * endpoint would prove nothing), a timeout, an unreachable host, a non-2xx
+ * status, and a response naming no SHA or another commit, each with the fix.
  *
  * @param url - The probe URL (`http://` or `https://`).
  * @param sha - The deployed commit's full SHA.
@@ -121,6 +144,15 @@ export async function probeDeployment(
     codeName: 'E_EVIDENCE_INVALID',
     reason: `deploy probe ${url}: ${reason}`,
   });
+  if (urlNamesSha(url, sha)) {
+    // @sync-invariant none:input-shape a probe URL that carries the deployed SHA is refused before anything is written
+    return refuse(
+      `its URL carries the deployed commit (${sha.slice(0, 7)}…) in its path or query, so an ` +
+        'endpoint that echoes its request would name the SHA without proving which build is ' +
+        'live. Probe an endpoint whose URL does not name the commit (e.g. /health) and that ' +
+        'reports the SHA itself.',
+    );
+  }
   let response: Response;
   let body: Buffer;
   try {

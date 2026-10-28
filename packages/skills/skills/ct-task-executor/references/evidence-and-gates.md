@@ -104,6 +104,8 @@ header or in the body, and that SHA must contain the task's implemented
 commits. It satisfies only the gates the project lists in
 `evidence.deploySatisfies`: none by default, and never `testsPassed` unless
 listed. A probe naming no SHA is refused; serve the SHA, then verify again.
+The probe URL must not carry the SHA itself (`/health?sha=…` is refused: an
+echoing endpoint would prove nothing).
 
 ```bash
 cleo verify T### --gate documented --evidence "deploy:railway/dpl_9f3c@1a2b3c4d|https://api.example.com/health"
