@@ -744,6 +744,14 @@ export interface DataAccessor {
   getAcRows(taskId: string): Promise<AcRow[]>;
 
   /**
+   * Read the AC rows of many tasks in bulk (ordered by task, then ordinal),
+   * for whole-store scans such as `cleo doctor --coherence` (T12883). Optional:
+   * callers fall back to {@link getAcRows} per task when it is absent.
+   * @task T12883
+   */
+  getAcRowsForTasks?(taskIds: readonly string[]): Promise<AcRow[]>;
+
+  /**
    * Read `evidence_ac_bindings` rows whose `ac_id` ∈ the given set.
    * Powers the AC-coverage gate (T10509). Returns the empty array when
    * `acIds` is empty or no bindings exist for the supplied ids.
