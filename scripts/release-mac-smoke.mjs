@@ -220,7 +220,8 @@ export function runSmoke(opts) {
       cwd: project,
       env,
       encoding: 'utf8',
-      timeout: 120_000,
+      // session end snapshots the 1+ GB store copy into its backup rotation.
+      timeout: argv[0] === 'session' && argv[1] === 'end' ? 900_000 : 120_000,
       maxBuffer: 64 * 1024 * 1024,
     });
     const stem = String(i + 1).padStart(2, '0');
