@@ -1097,13 +1097,16 @@ export { provenanceBackfill } from './release/backfill.js';
 export { channelToDistTag, describeChannel, resolveChannelFromBranch } from './release/channel.js';
 // T14102: one-command release verbs — exposed via internal for dispatch layer
 export type {
+  ReconcileLatestResult,
   ReleaseChangelogOptions,
   ReleaseChangelogResult,
   ReleaseCutOptions,
   ReleaseCutResult,
   ReleaseCutRunner,
+  ReleaseCutSweep,
+  ReleaseCutSweepResult,
 } from './release/cut.js';
-export { releaseChangelog, releaseCut } from './release/cut.js';
+export { reconcileLatestRelease, releaseChangelog, releaseCut } from './release/cut.js';
 // T9538: release workflow bypass audit logger (SPEC-T9345 §12.3 / R-441)
 export type {
   AppendReleaseWorkflowBypassOptions,

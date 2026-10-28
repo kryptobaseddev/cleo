@@ -12,6 +12,23 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+const reconciled: string[] = [];
+let releaseStatus: string | undefined;
+vi.mock('../../store/sqlite.js', () => ({
+  getDb: async () => ({
+    select: () => ({
+      from: () => ({
+        where: () => ({ get: async () => (releaseStatus ? { status: releaseStatus } : undefined) }),
+      }),
+    }),
+  }),
+}));
+vi.mock('../reconcile.js', () => ({
+  releaseReconcileV2: async (version: string) => {
+    reconciled.push(version);
+    return { success: true, data: {} };
+  },
+}));
 vi.mock('../../store/data-accessor.js', () => ({
   getTaskAccessor: async () => ({
     loadSingleTask: async (id: string) => (id === 'T1' ? { id, status: 'done' } : null),
@@ -19,7 +36,12 @@ vi.mock('../../store/data-accessor.js', () => ({
   }),
 }));
 
-import { type ReleaseCutRunner, releaseChangelog, releaseCut } from '../cut.js';
+import {
+  type ReleaseCutRunner,
+  reconcileLatestRelease,
+  releaseChangelog,
+  releaseCut,
+} from '../cut.js';
 
 function git(cwd: string, ...args: string[]): string {
   return execFileSync('git', args, { cwd, encoding: 'utf-8', stdio: 'pipe' }).trim();
@@ -108,13 +130,19 @@ describe('releaseCut (T14102)', () => {
     const { runner, calls } = fakeRunner({ [shas.head]: 'in_progress', [shas.fix]: 'success' });
     const lead = join(work, 'lead.md');
     writeFileSync(lead, '> **Update now.**\n');
+    const sweeps: Array<{ dryRun: boolean; force: boolean }> = [];
     const result = await releaseCut({
       version: '2026.10.2',
       projectRoot: work,
       dryRun: true,
       leadFile: lead,
       runner,
+      sweep: async (_root, opts) => {
+        sweeps.push(opts);
+        return { swept: true, closed: ['T1'], bound: [], refused: [] };
+      },
     });
+    expect(sweeps).toEqual([{ dryRun: true, force: true }]);
     expect(result.success).toBe(true);
     if (!result.success) return;
     const data = result.data;
@@ -128,6 +156,7 @@ describe('releaseCut (T14102)', () => {
     expect(data.packages).toEqual([{ dir: 'core', name: '@cleocode/core', version: '2026.10.2' }]);
     expect(data.migrations).toEqual(['packages/core/migrations/drizzle-tasks/m1/migration.sql']);
     expect(data.tasks).toEqual([{ id: 'T1', status: 'done' }]);
+    expect(data.sweep?.closed).toEqual(['T1']);
     expect(data.tagCreated).toBe(false);
     expect(calls.some((c) => c.includes('POST'))).toBe(false);
   });
@@ -182,5 +211,19 @@ describe('releaseChangelog (T14102)', () => {
     expect(section).not.toContain('shipped last time');
     const second = await releaseChangelog({ version: '2026.10.2', projectRoot: work, runner });
     expect(second.success && second.data.written).toBe(false);
+  });
+});
+
+describe('reconcileLatestRelease (T14102)', () => {
+  it('reconciles the newest published tag once, and skips one already reconciled', async () => {
+    const { runner } = fakeRunner({});
+    releaseStatus = undefined;
+    const first = await reconcileLatestRelease(work, runner);
+    expect(first).toEqual({ version: 'v2026.10.1', action: 'reconciled' });
+    expect(reconciled).toEqual(['v2026.10.1']);
+    releaseStatus = 'reconciled';
+    const second = await reconcileLatestRelease(work, runner);
+    expect(second.action).toBe('already');
+    expect(reconciled).toEqual(['v2026.10.1']);
   });
 });
