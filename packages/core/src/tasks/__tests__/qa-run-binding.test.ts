@@ -295,6 +295,41 @@ afterEach(() => {
   rmSync(`${root}-origin.git`, { recursive: true, force: true });
 });
 
+describe('a .mjs-only change binds a lint receipt that stands alone for qaPassed (T14089)', () => {
+  beforeEach(() => {
+    initRepo(() => {
+      put('package.json', JSON.stringify({ name: 'solo' }));
+      put('scripts/release-run.mjs', 'export const v = 1;\n');
+      put('scripts/__tests__/release-run.test.mjs', 'export const t = 1;\n');
+    });
+    put('scripts/release-run.mjs', 'export const v = 2;\n');
+    put('scripts/__tests__/release-run.test.mjs', 'export const t = 2;\n');
+    git(root, ['commit', '-q', '-am', 'T1: change the scripts']);
+  });
+
+  it('binding records no typecheck input, the lint inputs, and qaPassed accepts the lint receipt alone', async () => {
+    const r = await validateAtom(
+      {
+        kind: 'qa-run',
+        path: receipt({ kind: 'lint', command: ['biome', 'check'], roots: ['scripts'] }),
+      },
+      root,
+    );
+    if (!r.ok || r.atom.kind !== 'qa-run')
+      throw new Error(`expected a bound atom: ${JSON.stringify(r)}`);
+    expect(r.atom.owedChecks).toEqual({
+      typecheck: [],
+      lint: ['scripts/__tests__/release-run.test.mjs', 'scripts/release-run.mjs'],
+    });
+    const ctx: EvidenceValidationContext = {
+      task: { id: 'T1', kind: 'work', labels: [], files: [], acceptance: [] },
+      gates: ['qaPassed'],
+      criteria: [],
+    };
+    expect(checkTaskEvidenceContext(ctx, 'qaPassed', [r.atom])).toBeNull();
+  });
+});
+
 describe('a qa-run receipt in a standalone project', () => {
   beforeEach(() => {
     initRepo(() => {
