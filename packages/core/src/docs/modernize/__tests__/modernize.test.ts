@@ -523,6 +523,44 @@ describe('modernize plan → apply → rollback (fixture tree)', () => {
     });
   }
 
+  it('skips a torn last journal line and refuses to revert a doc another writer updated', async () => {
+    const store = createAttachmentStore();
+    const storedBody =
+      '# Gate integrity spec\n\n## Requirements\n- gates must hold\n- and stay held\n';
+    const bytes = Buffer.from(storedBody, 'utf-8');
+    const blob: Omit<BlobAttachment, 'sha256'> = {
+      kind: 'blob',
+      storageKey: '',
+      mime: 'text/markdown',
+      size: bytes.byteLength,
+    };
+    await store.put(bytes, blob, 'task', '__project__', 'test', projectRoot, {
+      slug: 'gate-integrity-spec',
+      type: 'spec',
+    });
+    const plan = await planDocsModernize({
+      root: docsRoot,
+      projectRoot,
+      decide: { connection: null },
+    });
+    const only = { ...plan, rows: plan.rows.filter((r) => r.slug === 'gate-integrity-spec') };
+    const receipt = await applyDocsModernize({ plan: only, projectRoot, allowDirty: true });
+    expect(receipt.ops.some((o) => o.op === 'merge')).toBe(true);
+    // A crash mid-append leaves half a line at the end of the journal.
+    const jp = join(projectRoot, '.cleo', 'modernize', `${receipt.runId}.ops.jsonl`);
+    writeFileSync(jp, `${readFileSync(jp, 'utf-8')}{"i":99,"op":"ing`);
+    // Another writer edits the doc after the run.
+    const { updateDocBySlug } = await import('../../docs-update.js');
+    const later = await updateDocBySlug(projectRoot, {
+      slug: 'gate-integrity-spec',
+      content: '# Gate integrity spec\n\nrewritten by someone else\n',
+    });
+    expect(later.ok).toBe(true);
+    await expect(rollbackDocsModernize(projectRoot, receipt.runId)).rejects.toThrow(
+      /updated after the modernize run/,
+    );
+  });
+
   it('validates overrides: survivor targets, keep at its own path, schema', async () => {
     await expect(
       planDocsModernize({
