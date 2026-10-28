@@ -1459,10 +1459,7 @@ export function schedulePass(entries: readonly LedgerEntry[], ctx: PassContext):
       reserveOpen &&
       lightShare !== 'none' &&
       (reserveTakes(w, cost) ||
-        (isTiny(w) &&
-          w.exclusive !== true &&
-          reserved < TINY_LANE_SLOTS &&
-          narrowedOverfull()))
+        (isTiny(w) && w.exclusive !== true && reserved < TINY_LANE_SLOTS && narrowedOverfull()))
     ) {
       admit.add(w.id);
       reserved++;
