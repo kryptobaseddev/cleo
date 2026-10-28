@@ -456,7 +456,7 @@ The Constitution remains the human-readable op catalogue. The new
 
 ### Generated files inventory (for auditability)
 
-Per `docs/CLEO-DOCUMENTATION-SOP.md:19-28`, generated content lives under
+Per `docs/guide/cleo-documentation-sop.md`, generated content lives under
 `docs/generated/`:
 
 | File | Kind | Generator | Update cadence |
@@ -561,7 +561,7 @@ Before marking API work complete:
 - `docs/specs/CLEO-OPERATION-CONSTITUTION.md` — derived per-op tables
 - `docs/specs/SCHEMA-AUTHORITY.md` — companion, storage-layer authority
 - `docs/specs/VERB-STANDARDS.md` — verb canonicalisation (ADR-017)
-- `docs/CLEO-DOCUMENTATION-SOP.md` — docs organisation SOP
+- `docs/guide/cleo-documentation-sop.md` — docs organisation and naming rule
 - `.cleo/adrs/ADR-042-cli-system-integrity-conduit-alignment.md` (SUPERSEDED)
 - `.cleo/adrs/ADR-051-programmatic-gate-integrity.md`
 - `docs/adr/ADR-052-sdk-consolidation.md`
