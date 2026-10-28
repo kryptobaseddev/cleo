@@ -20,3 +20,7 @@ session and agent ids. It now carries the same variables a fresh worktree
 gets: `CLEO_WORKTREE_ROOT`, `CLEO_AGENT_CWD`, `CLEO_WORKTREE_BRANCH`,
 `CLEO_PROJECT_HASH`, `CLEO_AGENT_ROLE`, `CLEO_BRANCH_PROTECTION` and the git
 shim on `PATH` when it is installed.
+
+Known limit: a project whose own root is a linked git worktree now hashes as
+its main checkout, so task worktrees created earlier under the old hash
+directory show up as orphans in `cleo doctor` worktree checks.
