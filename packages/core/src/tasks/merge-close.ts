@@ -167,7 +167,11 @@ export interface MergeCloseDeps {
   ): Promise<{ runId: number; status: string; conclusion: string | null } | null>;
   /** Rerun a CI run; false when it could not. */
   rerunRun(root: string, runId: number): Promise<boolean>;
-  /** Whether this machine may rerun CI: the owner's gh, never a CI job. */
+  /**
+   * Whether this sweep may rerun a cancelled merge-commit CI run. Off by
+   * default until T14136: a rerun of an old main push run joins main's live
+   * push concurrency group and cancels (or is cancelled by) main's newest run.
+   */
   canRerun(): boolean;
   /** Open PRs (one `gh` call), for the pre-merge verdict check; null when `gh` failed. */
   listOpenPrs(root: string): Promise<MergedPrRecord[] | null>;
@@ -472,8 +476,8 @@ async function appendMergeAudit(
  * when the refusal is real (T14101): the newest run of the required workflow
  * on the merge commit is missing, unfinished, cancelled or skipped. A
  * cancelled or skipped run is rerun once per merge commit, ever (an audit row
- * remembers it), and only where {@link MergeCloseDeps.canRerun} allows; a
- * failed run is never rerun and refuses.
+ * remembers it), and only where {@link MergeCloseDeps.canRerun} allows (off by
+ * default until T14136); a failed run is never rerun and refuses.
  */
 async function mergeCiWait(
   storeRoot: string,
@@ -503,7 +507,10 @@ async function mergeCiWait(
   const was = `${workflow} on merge commit ${short} was ${run.conclusion} and no later run stands in`;
   if (already) return { reason: `${was}; its one rerun is done, waiting for it`, reran: false };
   if (dryRun || !deps.canRerun())
-    return { reason: `${was}; waiting (this machine does not rerun CI)`, reran: false };
+    return {
+      reason: `${was}; waiting (automatic reruns are off until T14136; rerun it by hand)`,
+      reran: false,
+    };
   if (!(await deps.rerunRun(root, run.runId)))
     return {
       reason: `${was}; the rerun of run ${run.runId} failed, retrying next sweep`,
@@ -1193,7 +1200,9 @@ export const defaultMergeCloseDeps: MergeCloseDeps = {
     return (await gh(['run', 'rerun', String(runId)], root)) !== null;
   },
   canRerun() {
-    return process.env['CI'] !== 'true';
+    // Disabled until T14136 gives reruns their own concurrency group; opt in
+    // with CLEO_MERGE_SWEEP_RERUN=1, and never inside a CI job.
+    return process.env['CLEO_MERGE_SWEEP_RERUN'] === '1' && process.env['CI'] !== 'true';
   },
   async listOpenPrs(root) {
     const fields = 'number,body,headRefOid';

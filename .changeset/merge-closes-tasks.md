@@ -44,9 +44,10 @@ The sweep never skips a merged PR: it pages each window until it reaches its
 cursor, keeps any window a page budget leaves unread as a backlog the next
 sweep reads first, and reports it as `truncated`. A merge whose own CI run
 was cancelled or skipped, with no later run standing in yet, waits instead of
-being refused: it is re-judged every sweep, and the cancelled run is rerun
-once per merge commit, ever, from the owner's machine (a failed run is never
-rerun). Results report `waiting` and `reran` counts. Writes run under a bound
+being refused: it is re-judged every sweep and reported as `waiting`. A
+one-time automatic rerun of the cancelled run exists but is off until T14136
+gives reruns their own concurrency group (`CLEO_MERGE_SWEEP_RERUN=1` opts in;
+a failed run is never rerun). Results report `waiting` and `reran` counts. Writes run under a bound
 session (the caller's, or a short `merge-sweep` session for the daemon).
 
 Each applied line writes one `merge_close` audit row keyed by PR, merge commit

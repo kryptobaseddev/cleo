@@ -29,6 +29,7 @@ import { resetDbState } from '../../store/sqlite.js';
 import { addTask } from '../add.js';
 import {
   claimMergeSweep,
+  defaultMergeCloseDeps,
   formatMergeReceipt,
   judgeMergedPr,
   MERGE_CLOSE_AUDIT_ACTION,
@@ -711,7 +712,25 @@ describe('a merge whose own CI run was cancelled waits, and is rerun once (T1410
     expect(calls.comments).toHaveLength(1);
   });
 
-  it('where it may not rerun (no owner gh), the PR waits and is reported', async () => {
+  it("reruns are off by default until T14136 (rerun joins main's push concurrency group)", () => {
+    const prior = { flag: process.env['CLEO_MERGE_SWEEP_RERUN'], ci: process.env['CI'] };
+    delete process.env['CLEO_MERGE_SWEEP_RERUN'];
+    delete process.env['CI'];
+    try {
+      expect(defaultMergeCloseDeps.canRerun()).toBe(false);
+      process.env['CLEO_MERGE_SWEEP_RERUN'] = '1';
+      expect(defaultMergeCloseDeps.canRerun()).toBe(true);
+      process.env['CI'] = 'true';
+      expect(defaultMergeCloseDeps.canRerun()).toBe(false);
+    } finally {
+      if (prior.flag === undefined) delete process.env['CLEO_MERGE_SWEEP_RERUN'];
+      else process.env['CLEO_MERGE_SWEEP_RERUN'] = prior.flag;
+      if (prior.ci === undefined) delete process.env['CI'];
+      else process.env['CI'] = prior.ci;
+    }
+  });
+
+  it('where it may not rerun, the PR waits and is reported', async () => {
     const id = await seedTask(['only criterion']);
     const { deps, calls, world } = fakeDeps([pr(43, `Closes: ${id} AC1`)]);
     world.recordRefusal = ciRefusal;
@@ -720,7 +739,7 @@ describe('a merge whose own CI run was cancelled waits, and is rerun once (T1410
     const result = await sweepMergedClosures(root, { force: true }, deps);
     expect(result.prs[0]?.outcomes[0]).toMatchObject({
       action: 'waiting',
-      reason: /does not rerun CI/,
+      reason: /automatic reruns are off until T14136/,
     });
     expect([result.waiting, result.reran]).toEqual([1, 0]);
     expect(calls.reruns).toEqual([]);
