@@ -264,6 +264,17 @@ export type ParsedAtom =
     }
   | {
       /**
+       * Probed deployment (T14083): `deploy:<provider>/<deploymentId>@<sha>|<probe-url>`.
+       * Accepted only for the gates in `evidence.deploySatisfies`.
+       */
+      kind: 'deploy';
+      provider: string;
+      deploymentId: string;
+      sha: string;
+      probeUrl: string;
+    }
+  | {
+      /**
        * Cross-task AC-binding atom — references an acceptance criterion on
        * another task in the same Saga (or root Epic when no Saga). The atom
        * carries either the canonical UUIDv4 (`targetAcId`) OR the positional
@@ -537,6 +548,21 @@ export async function validateAtom(
           ? { componentPrNumber: parsed.componentPrNumber }
           : {}),
         ...(context?.readOnly ? { readOnly: true } : {}),
+      });
+      return result.ok
+        ? { ok: true, atom: result.atom }
+        : { ok: false, reason: result.reason, codeName: result.codeName };
+    }
+    case 'deploy': {
+      // T14083: the project context is CLEO's own record (storeRoot); the
+      // deployed commit is resolved in the repository (executionRoot).
+      const { resolveDeployEvidenceAtom } = await import('../release/deploy-evidence.js');
+      const { loadProjectContext } = await import('../agents/variable-substitution.js');
+      const ctx = loadProjectContext(roots.storeRoot);
+      const owner = taskId ?? context?.task.id;
+      const result = await resolveDeployEvidenceAtom(parsed, roots, {
+        projectContext: ctx.loaded ? ctx.context : null,
+        ...(owner !== undefined ? { taskId: owner } : {}),
       });
       return result.ok
         ? { ok: true, atom: result.atom }
@@ -3674,6 +3700,9 @@ export function checkTaskEvidenceContext(
   // T12634: a `ci:` result is bound to the task it was validated for, like `pr:`.
   if (atoms.some((atom) => atom.kind === 'ci' && atom.taskId !== context.task.id))
     return 'CI evidence lacks verified task linkage; re-verify with current task context.';
+  // T14083: a probed deployment is bound to the task it was verified for.
+  if (atoms.some((atom) => atom.kind === 'deploy' && atom.taskId !== context.task.id))
+    return 'Deploy evidence lacks verified task linkage; re-verify with current task context.';
   // T12848: several PRs in one write are unambiguous — each `files:` path is
   // pinned to the merge of the PR that changed it (prMergeCommitForPath), and
   // every PR must be proven by an artifact it changed that was READ AT ITS OWN
@@ -3720,6 +3749,7 @@ export function checkTaskEvidenceContext(
         atom.kind === 'test-run' ||
         atom.kind === 'qa-run' ||
         atom.kind === 'ci' ||
+        (atom.kind === 'deploy' && atom.satisfiesGates.includes(gate)) ||
         (atom.kind === 'tool' && (!atom.notApplicable || atom.nonCodeChange === true)),
     )
   ) {
@@ -3892,6 +3922,15 @@ export const DECISION_ONLY_INAPPLICABLE_GATES: readonly VerificationGate[] = Obj
 // ---------------------------------------------------------------------------
 
 /**
+ * Whether a probed `deploy:` atom stands for `gate` (T14083): only for the
+ * gates the project listed in `evidence.deploySatisfies` when it was verified.
+ * Static gate requirements never name `deploy`, so no gate takes one by default.
+ */
+function deploySatisfiesGate(gate: VerificationGate, atoms: readonly EvidenceAtom[]): boolean {
+  return atoms.some((atom) => atom.kind === 'deploy' && atom.satisfiesGates.includes(gate));
+}
+
+/**
  * Check whether a set of validated atoms satisfies the minimum evidence
  * required for a given gate.
  *
@@ -3906,6 +3945,7 @@ export function checkGateEvidenceMinimum(
   gate: VerificationGate,
   atoms: EvidenceAtom[],
 ): string | null {
+  if (deploySatisfiesGate(gate, atoms)) return null;
   // Delegate to the SSoT in @cleocode/contracts (T10337). validateEvidenceForGate
   // only inspects `.kind`; the post-validation EvidenceAtom union includes the
   // `override` kind which is never present here (override-evidence flows skip
@@ -3944,6 +3984,7 @@ export function checkGateEvidenceMinimumDetailed(
   gate: VerificationGate,
   atoms: EvidenceAtom[],
 ): { message: string; hint: string } | null {
+  if (deploySatisfiesGate(gate, atoms)) return null;
   const projected: Array<{ kind: ParsedEvidenceAtom['kind'] }> = [];
   for (const atom of atoms) {
     if (atom.kind === 'override') continue;
@@ -4090,9 +4131,10 @@ export async function boundHeadGapReason(
   atoms: readonly EvidenceAtom[],
   projectRoot: string,
 ): Promise<string | null> {
+  // T14083: a probed deployment is bound to the commit it serves.
   const runs = atoms.filter(
-    (a): a is Extract<EvidenceAtom, { kind: 'test-run' | 'qa-run' | 'tool' }> =>
-      (a.kind === 'test-run' || a.kind === 'qa-run' || a.kind === 'tool') &&
+    (a): a is Extract<EvidenceAtom, { kind: 'test-run' | 'qa-run' | 'tool' | 'deploy' }> =>
+      (a.kind === 'test-run' || a.kind === 'qa-run' || a.kind === 'tool' || a.kind === 'deploy') &&
       typeof a.headSha === 'string',
   );
   if (runs.length === 0) return null;
@@ -4164,7 +4206,9 @@ export async function boundHeadGapReason(
     const bound =
       run.kind === 'tool'
         ? `tool:${run.tool} ran at ${head.slice(0, 12)}`
-        : `${run.kind}:${run.path} was bound at ${head.slice(0, 12)}`;
+        : run.kind === 'deploy'
+          ? `deploy:${run.provider}/${run.deploymentId} serves ${head.slice(0, 12)}`
+          : `${run.kind}:${run.path} was bound at ${head.slice(0, 12)}`;
     if (missing !== null) {
       return (
         `${bound}, and git cannot read the commits that relate it to ${task.id}'s implemented ` +
@@ -4181,6 +4225,13 @@ export async function boundHeadGapReason(
         `${bound}, which carries ${task.id}'s work but not its implemented commit ${shas}: ` +
         'the branch was rebased, amended or squash-merged after implemented was recorded. ' +
         `Re-record implemented (cleo verify ${task.id} --gate implemented ...), then the run.`
+      );
+    }
+    if (run.kind === 'deploy') {
+      return (
+        `${bound}, which does not contain ${task.id}'s implemented commit ${shas} (neither an ` +
+        'ancestor nor a patch-equivalent copy): that deployment predates or excludes the change. ' +
+        'Deploy a build that contains it and probe that deployment.'
       );
     }
     return (
@@ -4705,6 +4756,11 @@ export async function revalidateEvidence(
         if (!recheck.ok) failed.push({ atom, reason: recheck.reason });
         break;
       }
+      case 'deploy':
+        // T14083: the probe is not re-run (the deployment may have moved on
+        // since); the SHA containment it carries is re-checked above, through
+        // boundHeadGapReason.
+        break;
       case 'pr':
         // PR atoms capture (prNumber, mergedAt, mergeCommitSha) at verify
         // time. A merged PR's mergedAt is immutable, so the atom is trusted

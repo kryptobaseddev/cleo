@@ -11,6 +11,8 @@
  * @adr ADR-013
  */
 
+import type { VerificationGate } from './task.js';
+
 /** Detected project ecosystem. Matches the writer in `detectProjectType`. */
 export type ProjectType =
   | 'node'
@@ -78,6 +80,14 @@ export interface ProjectEvidenceContext {
    * @task T12634
    */
   ciSatisfies?: boolean;
+  /**
+   * Gates a probed `deploy:` atom satisfies (T14083). No default: unset or
+   * empty, a deploy atom satisfies nothing, and never `testsPassed` unless
+   * listed here.
+   *
+   * @task T14083
+   */
+  deploySatisfies?: VerificationGate[];
   /**
    * Which required checks attest each gate for `ci:<pr>`. Each list must be a
    * subset of the required-check list; a gate without a list refuses `ci:`.

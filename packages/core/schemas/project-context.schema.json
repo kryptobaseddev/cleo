@@ -273,6 +273,15 @@
           "type": "boolean",
           "description": "Accept required CI green on a merged PR's merge commit as testsPassed/qaPassed evidence (ci:<pr>, D11149)."
         },
+        "deploySatisfies": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "enum": ["implemented", "testsPassed", "qaPassed", "cleanupDone", "securityPassed", "documented"]
+          },
+          "uniqueItems": true,
+          "description": "Gates a probed deployment (deploy:<provider>/<deploymentId>@<sha>|<probe-url>, T14083) satisfies. CLEO probes the URL at verify (2xx, naming the deployed SHA in an X-Commit/X-Version header or the body) and requires the deployed SHA to contain the task's implemented commits. No default: unset or empty, the atom satisfies nothing; testsPassed only if listed."
+        },
         "scopeExcludes": {
           "type": "array",
           "items": { "type": "string", "minLength": 1 },

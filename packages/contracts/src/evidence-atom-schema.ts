@@ -64,6 +64,7 @@ export const EVIDENCE_ATOM_KINDS = [
   'decision',
   'pr',
   'ci',
+  'deploy',
   'loc-drop',
   'callsite-coverage',
   'satisfies',
@@ -80,6 +81,12 @@ const PARSER_PREFIXES = [...EVIDENCE_ATOM_KINDS, 'state'] as const;
  * @task T12030
  */
 const KIND_BOUNDARY_REGEX = new RegExp(`;(?=\\s*(?:${PARSER_PREFIXES.join('|')})\\s*:)`, 'g');
+
+/** A `deploy:` provider name (T14083): lowercase, e.g. `railway`, `fly`, `cloudflare-pages`. */
+const DEPLOY_PROVIDER_REGEX = /^[a-z0-9][a-z0-9._-]*$/;
+
+/** A `deploy:` deployment id (T14083): no whitespace, `@` or `|`. */
+const DEPLOY_ID_REGEX = /^[^\s@|]+$/;
 
 // ---------------------------------------------------------------------------
 // Per-atom Zod schemas
@@ -263,6 +270,31 @@ export const ciAtomSchema = z.object({
 });
 
 /**
+ * `deploy:<provider>/<deploymentId>@<sha>|<probe-url>` atom (T14083): a
+ * deployment of commit `<sha>`, proven at verify time by a bounded GET of
+ * `<probe-url>` that returns 2xx and names `<sha>` in its body or in an
+ * `X-Commit` / `X-Version` header. Satisfies only the gates the project lists
+ * in `evidence.deploySatisfies` (no default).
+ *
+ * Format: `deploy:railway/9f3c2a@1a2b3c4d|https://api.example.com/health`.
+ * The provider and deployment id are recorded as given; the probe, not the
+ * provider, is the proof.
+ *
+ * @task T14083
+ */
+export const deployAtomSchema = z.object({
+  kind: z.literal('deploy'),
+  provider: z
+    .string()
+    .regex(DEPLOY_PROVIDER_REGEX, 'deploy atom provider must be a lowercase name'),
+  deploymentId: z.string().regex(DEPLOY_ID_REGEX, 'deploy atom requires a deployment id'),
+  sha: z.string().regex(/^[0-9a-f]{7,40}$/, 'deploy atom sha must be 7-40 lowercase hex chars'),
+  probeUrl: z
+    .string()
+    .regex(/^https?:\/\/\S+$/, 'deploy atom probe url must start with http:// or https://'),
+});
+
+/**
  * `loc-drop:<fromLines>:<toLines>` atom — proves that a migrated engine shed
  * lines. Required for the `implemented` gate when the task carries the
  * `engine-migration` label (T1604).
@@ -428,6 +460,7 @@ export const satisfiesAtomSchema = z.object({
  *   - `note`               — free-form note (T832)
  *   - `decision`           — brain_decisions row reference (T1875)
  *   - `pr`                 — merged-PR retroactive proof (T9764 / T9838)
+ *   - `deploy`             — probed deployment of a commit (T14083)
  *   - `loc-drop`           — engine-migration LOC reduction (T1604)
  *   - `callsite-coverage`  — exported-symbol production callsite (T1605)
  *   - `satisfies`          — cross-task AC binding (T10506 / ADR-079-r2;
@@ -447,6 +480,7 @@ export const EvidenceAtomSchema = z.discriminatedUnion('kind', [
   decisionAtomSchema,
   prAtomSchema,
   ciAtomSchema,
+  deployAtomSchema,
   locDropAtomSchema,
   callsiteCoverageAtomSchema,
   satisfiesAtomSchema,
@@ -605,6 +639,7 @@ const ATOM_EXAMPLES: Readonly<Record<EvidenceAtomKind, string>> = Object.freeze(
   decision: 'decision:D-arch-001',
   pr: 'pr:357',
   ci: 'ci:357',
+  deploy: 'deploy:<provider>/<deploymentId>@<sha>|https://<host>/health',
   'loc-drop': 'loc-drop:<fromLines>:<toLines>',
   'callsite-coverage': 'callsite-coverage:<symbolName>:<relativeSourcePath>',
   satisfies: 'satisfies:T1234#AC2',
@@ -835,6 +870,35 @@ function parsePrReference(
     : { prNumber: second, componentPrNumber: first, ...repo };
 }
 
+/**
+ * Parse a `deploy:` payload, `<provider>/<deploymentId>@<sha>|<probe-url>`
+ * (T14083). The provider is lowercased, the SHA lowercased hex.
+ */
+function parseDeployPayload(payload: string, chunk: string): z.infer<typeof deployAtomSchema> {
+  const fix =
+    'Use format: deploy:<provider>/<deploymentId>@<sha>|<probe-url> e.g. ' +
+    'deploy:railway/9f3c2a@1a2b3c4d|https://api.example.com/health';
+  const bar = payload.indexOf('|');
+  const match = /^([^/]+)\/(.+)@([0-9A-Fa-f]{7,40})$/.exec(
+    bar < 0 ? '' : payload.slice(0, bar).trim(),
+  );
+  const probeUrl = bar < 0 ? '' : payload.slice(bar + 1).trim();
+  const parsed = deployAtomSchema.safeParse({
+    kind: 'deploy',
+    provider: match?.[1]?.toLowerCase() ?? '',
+    deploymentId: match?.[2] ?? '',
+    sha: match?.[3]?.toLowerCase() ?? '',
+    probeUrl,
+  });
+  if (!match || !parsed.success) {
+    throw new EvidenceParseError(
+      `Malformed deploy atom: "${chunk}" (${!match || parsed.success ? 'expected <provider>/<deploymentId>@<sha>|<probe-url>' : parsed.error.issues[0]?.message})`,
+      fix,
+    );
+  }
+  return parsed.data;
+}
+
 export function parseEvidenceString(raw: string): EvidenceAtom[] {
   if (!raw || typeof raw !== 'string') {
     throw new EvidenceParseError(
@@ -919,6 +983,9 @@ export function parseEvidenceString(raw: string): EvidenceAtom[] {
         atoms.push(kind === 'pr' ? { kind: 'pr', ...ref } : { kind: 'ci', ...ref });
         break;
       }
+      case 'deploy':
+        atoms.push(parseDeployPayload(payload, chunk));
+        break;
       case 'loc-drop': {
         const firstColon = payload.indexOf(':');
         if (firstColon < 1 || firstColon === payload.length - 1) {

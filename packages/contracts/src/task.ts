@@ -736,6 +736,43 @@ export type EvidenceAtom =
     }
   | {
       /**
+       * Probed deployment (T14083, owner decision on option (a)): at verify
+       * time CLEO ran a bounded GET of `probeUrl`, it returned 2xx and named
+       * the deployed SHA in its body or an `X-Commit` / `X-Version` header.
+       * `headSha` must contain the task's implemented commits (ancestor or
+       * patch-equivalent); `cleo complete` re-checks only that, never the probe.
+       * Satisfies only the gates in `satisfiesGates`, the project's
+       * `evidence.deploySatisfies` at verify time.
+       *
+       * @task T14083
+       */
+      kind: 'deploy';
+      /** Provider name as given (`railway`, `fly`, …); recorded, not verified. */
+      provider: string;
+      /** Provider deployment id as given; recorded, not verified. */
+      deploymentId: string;
+      /** The deployed commit, resolved to its full SHA. */
+      headSha: string;
+      /** The URL that was probed. */
+      probeUrl: string;
+      /** The probe's result. */
+      probe: {
+        /** HTTP status (2xx). */
+        status: number;
+        /** ISO 8601 time the probe completed. */
+        probedAt: string;
+        /** sha256 of the (bounded) response body read. */
+        bodySha256: string;
+        /** Where the SHA was named: `x-commit`, `x-version` or `body`. */
+        shaSource: 'x-commit' | 'x-version' | 'body';
+      };
+      /** The gates this atom satisfies (`evidence.deploySatisfies` at verify time). */
+      satisfiesGates: VerificationGate[];
+      /** Task the atom was verified for. */
+      taskId?: string;
+    }
+  | {
+      /**
        * Satisfies atom — cross-task acceptance-criterion binding per
        * ADR-079-r2.
        *
