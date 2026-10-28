@@ -389,7 +389,13 @@ export class ForeignWorkspaceResolutionError extends CleoError {
   constructor(report: WorkspaceResolutionReport) {
     super(ExitCode.CONFIG_ERROR, foreignResolutionReason(report) ?? 'foreign resolution', {
       fix: remedy(report),
-      details: { root: report.root, foreign: report.foreign },
+      details: {
+        field: 'node_modules',
+        expected: `workspace packages resolved inside ${report.root}`,
+        actual: report.foreign.map((f) => `${f.dependency} -> ${f.resolved}`).join(', '),
+        root: report.root,
+        foreign: report.foreign,
+      },
     });
     this.name = 'ForeignWorkspaceResolutionError';
   }
