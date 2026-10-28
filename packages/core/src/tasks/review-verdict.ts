@@ -218,6 +218,8 @@ export interface ReviewVerdictInput {
   reason: string;
   /** The {@link ReviewPacket.packetSha256} the reviewer judged. */
   packetSha256: string;
+  /** For a `met`: the id of the earlier non-author `unmet` verdict on this head it answers (T14128). */
+  answers?: string;
 }
 
 /**
@@ -312,6 +314,27 @@ export async function recordReviewVerdict(
     );
   }
 
+  if (input.answers !== undefined) {
+    const answered = (await reviewVerdictsFor(projectRoot, input.taskId, input.prNumber)).find(
+      (v) => v.id === input.answers,
+    );
+    if (
+      input.verdict !== 'met' ||
+      answered === undefined ||
+      answered.verdict !== 'unmet' ||
+      answered.ac !== input.ac ||
+      answered.headSha !== packet.headSha
+    ) {
+      // @sync-invariant none:input-shape an answer naming no unmet verdict on this criterion and head is refused before the verdict row is written
+      throw new CleoError(
+        ExitCode.VALIDATION_ERROR,
+        `--answers ${input.answers} names no unmet verdict on ${input.ac} of ${input.taskId} at head ${packet.headSha.slice(0, 7)}, or the new verdict is not met`,
+        {
+          fix: `List the verdicts with \`cleo review check ${input.prNumber} --task ${input.taskId}\`; only a met verdict answers an unmet one.`,
+        },
+      );
+    }
+  }
   const acRow = (await accessor.getAcRows(input.taskId)).find((r) => `AC${r.ordinal}` === input.ac);
   const verdict: ReviewVerdict = {
     id: randomUUID(),
@@ -325,6 +348,7 @@ export async function recordReviewVerdict(
     reviewer,
     authors,
     packetSha256: packet.packetSha256,
+    ...(input.answers !== undefined ? { answers: input.answers } : {}),
     createdAt: new Date().toISOString(),
   };
   await accessor.appendLog({
@@ -342,6 +366,7 @@ function isVerdict(v: unknown): v is ReviewVerdict {
   if (typeof v !== 'object' || v === null) return false;
   const r = v as Record<string, unknown>;
   return (
+    typeof r['id'] === 'string' &&
     typeof r['taskId'] === 'string' &&
     typeof r['ac'] === 'string' &&
     typeof r['prNumber'] === 'number' &&
@@ -352,8 +377,9 @@ function isVerdict(v: unknown): v is ReviewVerdict {
 }
 
 /**
- * The verdicts recorded for one task on one PR (T14122): the latest per
- * criterion and head, oldest first.
+ * The verdicts recorded for one task on one PR (T14122), oldest first. All of
+ * them, not only the latest: an earlier `unmet` a later `met` did not answer
+ * still counts (T14128).
  *
  * @param projectRoot - Project root.
  * @param taskId - The task.
@@ -369,7 +395,7 @@ export async function reviewVerdictsFor(
     taskIds: [taskId],
     actions: [REVIEW_VERDICT_ACTION],
   });
-  const latest = new Map<string, ReviewVerdict>();
+  const byId = new Map<string, ReviewVerdict>();
   for (const row of rows) {
     let v: unknown;
     try {
@@ -378,18 +404,19 @@ export async function reviewVerdictsFor(
       continue;
     }
     if (!isVerdict(v) || v.prNumber !== prNumber || v.taskId !== taskId) continue;
-    const key = `${v.ac}@${v.headSha}`;
-    const seen = latest.get(key);
-    if (seen === undefined || seen.createdAt <= v.createdAt) latest.set(key, v);
+    byId.set(v.id, v);
   }
-  return [...latest.values()].sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+  return [...byId.values()].sort((a, b) => a.createdAt.localeCompare(b.createdAt));
 }
 
 /**
  * Which criteria a task's verdicts prove met on a PR head, and why the rest
  * are not (T14122). Only the latest verdict on `headSha` counts; a verdict on
  * an older head is stale, and one whose reviewer is among its recorded
- * authors counts for nothing. The merge sweep and `cleo review check` share it,
+ * authors counts for nothing. A `met` does not clear an earlier non-author
+ * `unmet` on the same head unless it answers it by id (T14128), so shopping
+ * for a friendlier reviewer leaves the criterion unmet and names the verdict
+ * that was not answered. The merge sweep and `cleo review check` share it,
  * so both report the same reasons.
  *
  * @param verdicts - The task's verdicts on the PR ({@link reviewVerdictsFor}).
@@ -402,24 +429,43 @@ export function judgeReviewVerdicts(
   headSha: string,
 ): ReviewJudgement {
   const short = (sha: string): string => sha.slice(0, 7);
+  const byAuthor = (v: ReviewVerdict): boolean =>
+    v.authors.sessionIds.includes(v.reviewer.sessionId) ||
+    (v.reviewer.agentId !== null && v.authors.agentIds.includes(v.reviewer.agentId));
   const met: string[] = [];
   const gaps: ReviewGap[] = [];
   for (const ac of acs) {
     const mine = verdicts.filter((v) => v.ac === ac);
-    const onHead = mine
+    const head = mine
       .filter((v) => v.headSha === headSha)
-      .sort((a, b) => a.createdAt.localeCompare(b.createdAt))
-      .at(-1);
-    const byAuthor =
-      onHead !== undefined &&
-      (onHead.authors.sessionIds.includes(onHead.reviewer.sessionId) ||
-        (onHead.reviewer.agentId !== null &&
-          onHead.authors.agentIds.includes(onHead.reviewer.agentId)));
-    if (byAuthor) {
+      .sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+    const onHead = head.at(-1);
+    const unanswered =
+      onHead?.verdict === 'met' && !byAuthor(onHead)
+        ? head.find(
+            (u) =>
+              u.verdict === 'unmet' &&
+              !byAuthor(u) &&
+              !head.some(
+                (m) =>
+                  m.verdict === 'met' &&
+                  !byAuthor(m) &&
+                  m.answers === u.id &&
+                  m.createdAt >= u.createdAt,
+              ),
+          )
+        : undefined;
+    if (onHead !== undefined && byAuthor(onHead)) {
       gaps.push({
         ac,
         kind: 'author',
         reason: `${ac}: reviewed by the task's own author on head ${short(headSha)}; review independently`,
+      });
+    } else if (unanswered !== undefined) {
+      gaps.push({
+        ac,
+        kind: 'unmet',
+        reason: `${ac}: a later met on head ${short(headSha)} does not answer unmet verdict ${unanswered.id}: ${unanswered.reason}`,
       });
     } else if (onHead?.verdict === 'met') {
       met.push(ac);
@@ -427,7 +473,7 @@ export function judgeReviewVerdicts(
       gaps.push({
         ac,
         kind: 'unmet',
-        reason: `${ac}: reviewed unmet on head ${short(headSha)}: ${onHead.reason}`,
+        reason: `${ac}: reviewed unmet on head ${short(headSha)} (verdict ${onHead.id}): ${onHead.reason}`,
       });
     } else {
       const latest = [...mine].sort((a, b) => a.createdAt.localeCompare(b.createdAt)).at(-1);

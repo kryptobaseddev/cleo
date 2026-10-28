@@ -269,7 +269,8 @@ describe('judgeReviewVerdicts (T14122)', () => {
   it('counts only the latest verdict on the head, and names missing, unmet and stale criteria', () => {
     const verdicts = [
       v('AC1', 'unmet', HEAD, '2026-10-28T10:00:00Z'),
-      v('AC1', 'met', HEAD, '2026-10-28T11:00:00Z'),
+      // T14128: a met clears the earlier unmet only by answering it.
+      { ...v('AC1', 'met', HEAD, '2026-10-28T11:00:00Z'), answers: 'AC1-2026-10-28T10:00:00Z' },
       v('AC2', 'unmet', HEAD, '2026-10-28T11:00:00Z'),
       v('AC3', 'met', NEXT, '2026-10-28T09:00:00Z'),
     ];
@@ -280,7 +281,8 @@ describe('judgeReviewVerdicts (T14122)', () => {
         {
           ac: 'AC2',
           kind: 'unmet',
-          reason: 'AC2: reviewed unmet on head aaaaaaa: not implemented',
+          reason:
+            'AC2: reviewed unmet on head aaaaaaa (verdict AC2-2026-10-28T11:00:00Z): not implemented',
         },
         {
           ac: 'AC3',
@@ -401,8 +403,119 @@ describe('AC5 proof: an independent reviewer catches the unmet criterion (T14122
       {
         ac: 'AC2',
         kind: 'unmet',
-        reason: `AC2: reviewed unmet on head aaaaaaa: ${REVIEWER_VERDICTS[1].reason}`,
+        reason: expect.stringMatching(
+          /^AC2: reviewed unmet on head aaaaaaa \(verdict [0-9a-f-]{36}\): /,
+        ),
       },
     ]);
+  });
+});
+
+describe('review-shopping guard (T14128)', () => {
+  const at = (n: number): string => `2026-10-28T1${n}:00:00Z`;
+  const v = (
+    id: string,
+    verdict: 'met' | 'unmet',
+    n: number,
+    over: Partial<ReviewVerdict> = {},
+  ): ReviewVerdict => ({
+    id,
+    taskId: 'T001',
+    ac: 'AC2',
+    acId: '',
+    prNumber: 7,
+    headSha: HEAD,
+    verdict,
+    reason: `${verdict} by ${id}`,
+    reviewer: { sessionId: `ses_${id}`, agentId: null },
+    authors: { sessionIds: ['ses_author'], agentIds: [] },
+    packetSha256: '',
+    createdAt: at(n),
+    ...over,
+  });
+
+  it('a later met that does not answer a non-author unmet leaves the criterion unmet, naming the verdict', () => {
+    const j = judgeReviewVerdicts([v('u1', 'unmet', 1), v('m1', 'met', 2)], ['AC2'], HEAD);
+    expect(j.met).toEqual([]);
+    expect(j.gaps).toEqual([
+      {
+        ac: 'AC2',
+        kind: 'unmet',
+        reason: 'AC2: a later met on head aaaaaaa does not answer unmet verdict u1: unmet by u1',
+      },
+    ]);
+  });
+
+  it('a met that answers the unmet by id clears it', () => {
+    const j = judgeReviewVerdicts(
+      [v('u1', 'unmet', 1), v('m1', 'met', 2, { answers: 'u1' })],
+      ['AC2'],
+      HEAD,
+    );
+    expect(j).toMatchObject({ met: ['AC2'], gaps: [] });
+  });
+
+  it("an unmet from the task's own author is ignored, like any author verdict", () => {
+    const own = v('u0', 'unmet', 1, { reviewer: { sessionId: 'ses_author', agentId: null } });
+    expect(judgeReviewVerdicts([own, v('m1', 'met', 2)], ['AC2'], HEAD)).toMatchObject({
+      met: ['AC2'],
+      gaps: [],
+    });
+  });
+
+  it('recordReviewVerdict records --answers, and refuses one naming no unmet verdict on this head', async () => {
+    await env.accessor.claimTask('T001', {
+      sessionId: 'ses_author',
+      agentId: null,
+      mode: 'acquire',
+    });
+    await bindTestSession(env);
+    const packet = await buildReviewPacket(env.tempDir, 7, 'T001', stubGh([HEAD]));
+    const base = {
+      prNumber: 7,
+      taskId: 'T001',
+      ac: 'AC2',
+      packetSha256: packet.packetSha256,
+    };
+    const deps = { deps: stubGh([HEAD]) };
+    const unmet = await recordReviewVerdict(
+      env.tempDir,
+      { ...base, verdict: 'unmet', reason: 'no negative-limit check' },
+      deps,
+    );
+    await expect(
+      recordReviewVerdict(
+        env.tempDir,
+        { ...base, verdict: 'met', reason: 'fine', answers: 'no-such-id' },
+        deps,
+      ),
+    ).rejects.toThrow(/--answers no-such-id names no unmet verdict on AC2 of T001/);
+    await expect(
+      recordReviewVerdict(
+        env.tempDir,
+        { ...base, verdict: 'unmet', reason: 'still no', answers: unmet.id },
+        deps,
+      ),
+    ).rejects.toThrow(/or the new verdict is not met/);
+    const answer = await recordReviewVerdict(
+      env.tempDir,
+      {
+        ...base,
+        verdict: 'met',
+        reason: `answers ${unmet.id}: the negative-limit check exists in list()`,
+        answers: unmet.id,
+      },
+      deps,
+    );
+    expect(answer.answers).toBe(unmet.id);
+    expect((await reviewVerdictsFor(env.tempDir, 'T001', 7)).map((x) => x.id)).toEqual([
+      unmet.id,
+      answer.id,
+    ]);
+    const [check] = await checkPrReviews(env.tempDir, 7, ['T001'], {
+      acs: ['AC2'],
+      deps: stubGh([HEAD]),
+    });
+    expect(check).toMatchObject({ met: ['AC2'], gaps: [] });
   });
 });

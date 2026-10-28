@@ -76,6 +76,11 @@ const verdictCommand = defineCommand({
       required: true,
     },
     packet: { type: 'string', description: 'packetSha256 of the packet reviewed', required: true },
+    answers: {
+      type: 'string',
+      description:
+        'With --met: the id of the earlier unmet verdict on this head it answers (an unanswered unmet keeps the criterion unmet)',
+    },
   },
   async run({ args }) {
     const pr = prOf(args.pr);
@@ -90,6 +95,7 @@ const verdictCommand = defineCommand({
       verdict: args.met === true ? 'met' : 'unmet',
       reason: String(args.reason),
       packetSha256: String(args.packet),
+      ...(typeof args.answers === 'string' && args.answers !== '' ? { answers: args.answers } : {}),
     });
     cliOutput(verdict, { command: 'review', operation: 'review.verdict' });
   },

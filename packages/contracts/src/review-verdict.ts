@@ -74,6 +74,12 @@ export interface ReviewVerdict {
   authors: ReviewAuthors;
   /** The {@link ReviewPacket.packetSha256} the reviewer was given. */
   packetSha256: string;
+  /**
+   * The id of an earlier non-author `unmet` verdict on the same head that
+   * this `met` answers (T14128). Without it, a later `met` cannot clear that
+   * `unmet`, so shopping for a friendlier reviewer stays visible.
+   */
+  answers?: string;
   /** ISO-8601 time it was recorded. */
   createdAt: string;
 }
