@@ -181,7 +181,7 @@ describe('typed gates in a declared evidence repository (T14078)', () => {
     expect(moved.get(0)?.reason).toMatch(/check\.mjs/);
   });
 
-  it('gate preview reports a repo-scoped gate\'s cache state from its declared repository', async () => {
+  it("gate preview reports a repo-scoped gate's cache state from its declared repository", async () => {
     vi.stubEnv('CLEO_ROOT', project);
     vi.stubEnv('CLEO_DIR', join(project, '.cleo'));
     vi.stubEnv('CLEO_DISABLE_PROJECT_AUTOREGISTER', '1');

@@ -21,6 +21,10 @@
           "exclusiveMinimum": 0,
           "maximum": 9007199254740991
         },
+        "repo": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$"
+        },
         "kind": {
           "type": "string",
           "const": "test"
@@ -92,6 +96,10 @@
           "type": "integer",
           "exclusiveMinimum": 0,
           "maximum": 9007199254740991
+        },
+        "repo": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$"
         },
         "kind": {
           "type": "string",
@@ -273,6 +281,10 @@
           "exclusiveMinimum": 0,
           "maximum": 9007199254740991
         },
+        "repo": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$"
+        },
         "kind": {
           "type": "string",
           "const": "command"
@@ -343,6 +355,10 @@
           "exclusiveMinimum": 0,
           "maximum": 9007199254740991
         },
+        "repo": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$"
+        },
         "kind": {
           "type": "string",
           "const": "lint"
@@ -400,6 +416,10 @@
           "type": "integer",
           "exclusiveMinimum": 0,
           "maximum": 9007199254740991
+        },
+        "repo": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$"
         },
         "kind": {
           "type": "string",
@@ -470,6 +490,10 @@
           "type": "integer",
           "exclusiveMinimum": 0,
           "maximum": 9007199254740991
+        },
+        "repo": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$"
         },
         "kind": {
           "type": "string",
