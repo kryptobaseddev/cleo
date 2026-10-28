@@ -218,6 +218,12 @@ export interface RunJob {
   readonly overdueAtMs?: number | null;
   /** When the run was flagged hung (idle past the window), else null (T13563). */
   readonly hungAtMs?: number | null;
+  /**
+   * The last signal this runner forwarded to its child's whole process group,
+   * and when (T13002). A nested runner in that group got the same delivery, so
+   * it does not forward it to its own child a second time.
+   */
+  readonly forwardedSignal?: { readonly signal: NodeJS.Signals; readonly atMs: number };
 }
 
 /**

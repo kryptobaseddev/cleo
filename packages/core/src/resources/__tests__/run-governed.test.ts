@@ -1455,3 +1455,111 @@ describe('a SIGKILLed runner whose child still runs keeps its slot (T12963)', ()
     expect(seen.onceGone).toBe('dead');
   });
 });
+
+describe("cleo run's child lifecycle (T14080, T13002, T12994)", () => {
+  it('T14080: when its parent dies it stops the child group, escalates to SIGKILL, and releases the charge', async () => {
+    let parentAlive = true;
+    const h = harness({ onSample: (n) => n === 2 && (parentAlive = false) });
+    h.deps = { ...h.deps, currentPpid: () => (parentAlive ? 4242 : 1), ppid: 4242 };
+    const signal = h.deps.signal;
+    h.deps = {
+      ...h.deps,
+      signal: (pid, sig) => {
+        // The child ignores SIGTERM and dies only on SIGKILL.
+        if (sig === 'SIGKILL') setImmediate(() => h.exit(null, 'SIGKILL'));
+        return signal?.(pid, sig) ?? true;
+      },
+    };
+    const notices: string[] = [];
+    const r = await runGoverned(
+      base(h, { pollMs: 5_000, notice: (m: string) => notices.push(m) }),
+    );
+    expect(r).toMatchObject({ kind: 'exited', signal: 'SIGKILL' });
+    expect(h.signals).toEqual([
+      [500, 'SIGCONT'],
+      [500, 'SIGTERM'],
+      [500, 'SIGKILL'],
+    ]);
+    expect(notices).toContainEqual(expect.stringContaining('its parent process (pid 4242) is gone'));
+    // The exit path released the ledger charge and removed the job record.
+    expect(h.released).toBe(1);
+    expect(readdirSync(join(dir, 'jobs'))).toEqual([]);
+  });
+
+  it('T14080: a run whose parent lives is never stopped', async () => {
+    const h = harness({ onSample: (n, hh) => n === 3 && hh.exit(0) });
+    h.deps = { ...h.deps, currentPpid: () => 4242, ppid: 4242 };
+    await runGoverned(base(h));
+    expect(h.signals).toEqual([]);
+  });
+
+  it('T13002: a group-wide signal the enclosing runner just forwarded reaches the nested child once', async () => {
+    const outer: RunJob = { ...olderJob(), id: 'outer', childPid: 777, childStart: 'start-777' };
+    writeRunJob(outer, join(dir, 'jobs'));
+    const h = harness({
+      groupOf: () => 777,
+      onSample: (n, hh) => {
+        if (n === 2) {
+          // The outer runner records the SIGINT it sends to its child's whole group.
+          writeRunJob(
+            { ...outer, forwardedSignal: { signal: 'SIGINT', atMs: hh.clock.t } },
+            join(dir, 'jobs'),
+          );
+          hh.forward('SIGINT'); // that group delivery: the nested child already has it
+          hh.forward('SIGTERM'); // sent to this runner alone: still forwarded
+          hh.exit(null, 'SIGTERM');
+        }
+      },
+    });
+    await runGoverned(base(h));
+    expect(h.signals).toEqual([
+      [500, 'pid:SIGCONT'],
+      [500, 'pid:SIGTERM'],
+    ]);
+  });
+
+  it('T13002: a runner that forwards to its child group records it for nested runners', async () => {
+    const recorded: unknown[] = [];
+    const h = harness({
+      onSample: (n, hh) => {
+        if (n === 2) {
+          hh.forward('SIGTERM');
+          hh.exit(null, 'SIGTERM');
+        }
+      },
+    });
+    const signal = h.deps.signal;
+    h.deps = {
+      ...h.deps,
+      signal: (pid, sig) => {
+        const [file] = readdirSync(join(dir, 'jobs'));
+        if (file) recorded.push(JSON.parse(readFileSync(join(dir, 'jobs', file), 'utf8')).forwardedSignal);
+        return signal?.(pid, sig) ?? true;
+      },
+    };
+    await runGoverned(base(h));
+    expect(recorded[0]).toEqual({ signal: 'SIGTERM', atMs: expect.any(Number) });
+  });
+
+  it('T12994: a nested db-heavy run whose first ps failed rides its parent on a later poll', async () => {
+    writeRunJob(
+      { ...olderJob(), id: 'outer', class: 'db-heavy', childPid: 777, childStart: 'start-777' },
+      join(dir, 'jobs'),
+    );
+    let psCalls = 0;
+    const h = harness({
+      admissions: ['deny'],
+      groupOf: () => (++psCalls === 1 ? null : 777),
+      ancestorsOf: () => null,
+      onSample: (n, hh) => n >= 3 && hh.exit(0),
+    });
+    const r = await runGoverned(
+      base(h, { cls: 'db-heavy', wait: true, timeoutMs: 600_000, queuePollMs: 1000 }),
+    );
+    expect(r).toMatchObject({ kind: 'exited', exitCode: 0, slot: -1 });
+    // It rode the parent: no self-wait, never detached into its own group.
+    expect(h.spawned[0]?.detached).toBe(false);
+    expect(h.clock.t - 1_000_000).toBeLessThan(600_000);
+    expect(h.acquires).toBe(1);
+  });
+});
