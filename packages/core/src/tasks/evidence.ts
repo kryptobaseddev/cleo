@@ -59,6 +59,7 @@ import {
   resolveDeclaredEvidenceGitRoot,
 } from '../git/work-tree.js';
 import { pushWarning } from '../output.js';
+import { parseStoreTimestamp } from '../store/store-timestamp.js';
 import { getEffectiveHead } from '../worktree/effective-head.js';
 import type { AffectedTestRun } from './affected-packages.js';
 import type { ChangeSetDeps } from './change-set.js';
@@ -3332,7 +3333,7 @@ export function checkPrTaskLinkage(
  * @param prNumber - The PR being credited.
  * @param changedPaths - Its complete changed-file list.
  * @param context - The task, with the criteria the write credits.
- * @param mergedAt - When the PR merged.
+ * @param mergedAt - When the PR merged; unknown refuses any credit.
  * @returns The refusal, or null.
  * @task T14094
  */
@@ -3352,11 +3353,19 @@ function creditRefusal(
       `close it with cleo cancel ${id} --reason "covered by T<n>" and cleo relates add ${id} T<n> duplicates "<reason>". ` +
       `Changed artifacts: ${changedPaths.join(', ')}.`
     );
+  // Credit is for merged PRs only; without the merge time the edit check below cannot run.
+  const mergedMs = parseStoreTimestamp(mergedAt ?? null);
+  if (mergedMs === null)
+    return `PR #${prNumber}'s merge time is unknown, so its credited criteria cannot be checked for later edits.`;
   const changed = new Set(changedPaths.map(normalizeEvidencePath));
   for (const criterion of credited) {
     // An edit gives a criterion a new row, so its creation time counts too.
+    // Store timestamps are UTC with or without a zone (`datetime('now')`).
     const written = criterion.updatedAt ?? criterion.createdAt;
-    if (mergedAt && written && Date.parse(written) > Date.parse(mergedAt))
+    const writtenMs = parseStoreTimestamp(written ?? null);
+    if (writtenMs === null)
+      return `${id}#${criterion.alias} has no readable write time, so it cannot be shown to predate PR #${prNumber}'s merge.`;
+    if (writtenMs > mergedMs)
       return `${id}#${criterion.alias} was written or edited at ${written}, after PR #${prNumber} merged at ${mergedAt}; a criterion changed after the merge cannot be credited by it.`;
     const paths = extractTaskAcFilesWithProvenance({ acceptance: [criterion.text] }).files ?? [];
     if (paths.length === 0)

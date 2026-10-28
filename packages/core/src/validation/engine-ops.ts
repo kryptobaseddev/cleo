@@ -164,7 +164,6 @@ function getMissingGates(
   return requiredGates.filter((g) => verification.gates[g] !== true);
 }
 
-/** The `test-run:` paths of one evidence write, judged together for coverage (T14031). */
 /**
  * The task's criteria a write names with `satisfies:<taskId>#…` (T14094), by
  * `AC<n>` alias or UUID, each with its alias. A name that matches no row is
@@ -194,6 +193,7 @@ function creditedCriteriaOf(
     }));
 }
 
+/** The `test-run:` paths of one evidence write, judged together for coverage (T14031). */
 function testRunPathsOf(atoms: readonly ParsedAtom[]): string[] {
   return atoms.flatMap((atom) => (atom.kind === 'test-run' ? [atom.path] : []));
 }

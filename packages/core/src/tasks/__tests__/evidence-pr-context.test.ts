@@ -415,6 +415,14 @@ describe('credit for work shipped under another task (T14094)', () => {
     expect(await reason()).toMatch(/written or edited at 2026-09-25/);
   });
 
+  it('refuses credit when the merge time is unknown', async () => {
+    t622([ac('AC1', 'Guard in plugins/origin-guard.ts')]);
+    pr.mergedAt = '';
+    expect(await reason()).toMatch(
+      /PR #42's merge time is unknown, so its credited criteria cannot be checked for later edits/,
+    );
+  });
+
   it('partial credit: AC1 credited, AC2 not, links only AC1 for the gate written', async () => {
     await mkdir(join(root, '.cleo'));
     await mkdir(join(root, 'plugins'));
