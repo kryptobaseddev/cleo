@@ -1,7 +1,7 @@
 ---
 name: ct-dev-workflow
 description: Development workflow orchestration for task-driven development with atomic commits, conventional commit messages, and systematic release processes. Enforces task traceability, branch discipline, smart test scope selection, and GitHub Actions integration. Use when committing code, creating releases, managing branches, or following contribution protocols. Triggers on commit operations, release preparation, or workflow compliance needs.
-version: 3.1.31
+version: 3.1.32
 protocol: contribution
 dependencies: []
 sharedResources:
@@ -14,7 +14,7 @@ compatibility:
   - gemini-cli
 license: MIT
 metadata:
-  version: 3.1.31
+  version: 3.1.32
   tier: core
   install: harness
   covers:
@@ -26,7 +26,7 @@ metadata:
     - packages/core/src/hooks.ts
     - packages/core/templates/git-hooks/**
     - packages/contracts/src/git-hooks.ts
-  lastReviewed: 2026-10-24
+  lastReviewed: 2026-10-28
   stability: stable
 ---
 
@@ -348,10 +348,9 @@ checks main's HEAD SHA and dispatches with `skip-tests=true` when the `ci.yml`
 push run for that SHA, or for an ancestor reached only through release-plan
 commits (the plan file, changesets, CHANGELOG; T13140), is green AND ran every
 Linux `Unit Tests` shard green (a docs-only push that skipped the tests does
-not count). It sets `skip-macos-tests=true` when the newest completed nightly
-or `macos-main.yml` (main-push, never cancelled mid-run, pending pushes coalesce;
-T13143, T13187) run with macOS jobs for
-one of those commits is green. A `ci.yml` push run still queued or in progress
+not count). It runs no macOS shards (T14104): `macos-main.yml` validates macOS
+on every main push, nightly and on demand, and files a `macos-regression` issue
+when it fails. A `ci.yml` push run still queued or in progress
 is polled for up to 10 minutes first (T13823). The SHA travels as
 `verified-sha` and the proving run's id as `reused-ci-run`; the workflow
 ignores the skips if it checks out another commit or `verified-sha` is empty,
@@ -359,9 +358,8 @@ and re-reads the reused run from the API (push to main, success, every Linux
 shard green, same tree: the exact commit, or one it extends only by
 whole-path-allowlisted plan, changeset `.md` and CHANGELOG.md files; T13825)
 before it skips the Linux shards, naming the run in the
-summary and the bump-PR body. Otherwise the 8 Linux and 8 macOS test shards run, and the reason names
-the newest main commit that has a green macOS run. The decision is in the run
-summary.
+summary and the bump-PR body. Otherwise the 8 Linux test shards run. The
+decision is in the run summary.
 
 **Bump-PR merge.** Its `pull_request` runs stay `action_required` (no GitHub
 App), so the orchestrator admin-merges once the dispatched `CI` run on the PR

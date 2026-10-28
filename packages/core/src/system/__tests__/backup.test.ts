@@ -509,6 +509,35 @@ describe('system/backup — rotation (T9194)', () => {
     expect(nonMetaFiles.length).toBeLessThanOrEqual(3);
   });
 
+  it('a destination backup lands only in the destination and never rotates the window (T13209)', async () => {
+    vi.doMock('../../store/sqlite.js', () => ({
+      getDb: vi.fn().mockResolvedValue({}),
+      getNativeDb: () => null,
+    }));
+    const { createBackup } = await import('../backup.js');
+    const cleoDir = join(testDir, '.cleo');
+    writeFileSync(join(cleoDir, 'config.json'), JSON.stringify({ test: true }));
+    const canonicalDir = join(cleoDir, 'backups', 'sqlite');
+    mkdirSync(canonicalDir, { recursive: true });
+    for (let i = 1; i <= 3; i++) {
+      writeFileSync(join(canonicalDir, `config.json.snapshot-old-${i}`), `old-${i}`);
+    }
+    const destination = join(testDir, 'elsewhere');
+
+    const result = await createBackup(testDir, { maxSnapshots: 1, destination });
+
+    expect(result.path).toBe(destination);
+    expect(readdirSync(destination).sort()).toEqual(
+      [`${result.backupId}.meta.json`, `config.json.${result.backupId}`].sort(),
+    );
+    // The window is untouched: nothing new, nothing rotated despite maxSnapshots 1.
+    expect(readdirSync(canonicalDir).sort()).toEqual([
+      'config.json.snapshot-old-1',
+      'config.json.snapshot-old-2',
+      'config.json.snapshot-old-3',
+    ]);
+  });
+
   it('createBackup rotation removes the rotated backup sidecar, so backup list stops listing it (T12729)', async () => {
     vi.doMock('../../store/sqlite.js', () => ({
       getDb: vi.fn().mockResolvedValue({}),

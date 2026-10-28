@@ -19,6 +19,7 @@
  * @task T1437 — Core-derived OpsFromCore inference
  */
 
+import { join } from 'node:path';
 import type { admin as coreAdmin } from '@cleocode/core';
 import { computeHelp } from '@cleocode/core/admin/help';
 import { getContextWindow } from '@cleocode/core/context/index';
@@ -1119,10 +1120,20 @@ const _adminTypedHandler = defineTypedHandler<AdminOps>('admin', {
 
     // Default: create backup
     try {
-      const data = await systemCreateBackup(projectRoot, { type: params.type, note: params.note });
+      // T13209: a destination backup lands only there, outside the rotation.
+      const destination = params.destination;
+      const data = await systemCreateBackup(projectRoot, {
+        type: params.type,
+        note: params.note,
+        ...(destination ? { destination } : {}),
+      });
       // T13245: `--global` was accepted and ignored.
       const global = params.includeGlobal
-        ? await createGlobalBackup({ type: params.type, note: params.note })
+        ? await createGlobalBackup({
+            type: params.type,
+            note: params.note,
+            ...(destination ? { destination: join(destination, 'global') } : {}),
+          })
         : null;
       // T13724: a target that failed to capture (e.g. the store VACUUM INTO
       // denied by the T12687 worktree-build guard) must be visible, not

@@ -30,8 +30,9 @@ const SCRIPT = path.join(REPO_ROOT, 'scripts/ci-platform-matrix.mjs');
 describe('platformMatrix', () => {
   const oses = (m) => [...new Set(m.testMatrix.map((j) => j.os))];
 
-  it('runs macOS nightly, in merge groups and on a darwin-specific pull request only', () => {
-    expect(platformMatrix('schedule', false).buildOs).toEqual(['ubuntu-latest', 'macos-latest']);
+  it('runs macOS in merge groups and on a darwin-specific pull request only', () => {
+    // T14104: the nightly macOS run is macos-main.yml's, not ci.yml's.
+    expect(platformMatrix('schedule', true).buildOs).toEqual(['ubuntu-latest']);
     expect(platformMatrix('merge_group', false).buildOs).toEqual(['ubuntu-latest', 'macos-latest']);
     expect(platformMatrix('pull_request', true).buildOs).toEqual(['ubuntu-latest', 'macos-latest']);
     expect(platformMatrix('pull_request', false).buildOs).toEqual(['ubuntu-latest']);
@@ -40,7 +41,7 @@ describe('platformMatrix', () => {
   });
 
   it(`shards Linux ${LINUX_SHARDS} ways and macOS ${MACOS_SHARDS} ways, each a complete 1..N set`, () => {
-    const m = platformMatrix('schedule', false).testMatrix;
+    const m = platformMatrix('merge_group', false).testMatrix;
     for (const [os, total] of [
       ['ubuntu-latest', LINUX_SHARDS],
       ['macos-latest', MACOS_SHARDS],
@@ -59,13 +60,13 @@ describe('platformMatrix', () => {
       { os: 'macos-latest', shard: 1, total: 2, node: NODE_FLOOR },
       { os: 'macos-latest', shard: 2, total: 2, node: NODE_FLOOR },
     ]);
-    // Linux is unchanged, and the nightly and merge-group runs keep all 8.
+    // Linux is unchanged, and the merge-group runs keep all 8.
     expect(
       platformMatrix('pull_request', true).testMatrix.filter(
         (j) => j.os === 'ubuntu-latest' && j.node === NODE_FLOOR,
       ),
     ).toHaveLength(LINUX_SHARDS);
-    expect(macos('schedule')).toHaveLength(MACOS_SHARDS);
+    expect(macos('schedule')).toHaveLength(0);
     expect(macos('merge_group')).toHaveLength(MACOS_SHARDS);
     // Two shards and the two macOS builds fit the free plan's 5-job pool.
     expect(MACOS_PR_SHARDS + 2).toBeLessThanOrEqual(5);
@@ -309,11 +310,25 @@ describe('macos-main.yml: the newest main push gets a macOS result (T13143, opti
   const wf = parseYaml(read('.github/workflows/macos-main.yml'));
   const ci = parseYaml(read('.github/workflows/ci.yml'));
 
-  it('runs on main pushes only, cancels a superseded run, and is read by the release preflight', () => {
+  it('runs on main pushes, nightly and on demand, and never cancels a running run (T14104)', () => {
     expect(wf.on.push.branches).toEqual(['main']);
+    expect(wf.on.schedule).toHaveLength(1);
+    expect(wf.on).toHaveProperty('workflow_dispatch');
     // T13187: a running macOS run is never cancelled; pending pushes coalesce.
     expect(wf.concurrency).toEqual({ group: 'macos-main', 'cancel-in-progress': false });
-    expect(read('packages/core/src/release/preflight-skip.ts')).toContain("'macos-main.yml'");
+    // T14104: ci.yml's nightly no longer runs macOS, so nothing runs it twice.
+    expect(platformMatrix('schedule', true).buildOs).toEqual(['ubuntu-latest']);
+  });
+
+  it('files a macos-regression issue when a main run fails (T14104)', () => {
+    const job = wf.jobs['file-regression'];
+    expect(job.needs).toEqual(['build', 'unit-tests']);
+    expect(job.if).toBe("failure() && github.ref == 'refs/heads/main'");
+    expect(job.permissions).toEqual({ actions: 'read', issues: 'write' });
+    const script = job.steps[0].run;
+    expect(script).toContain('--label macos-regression --state open');
+    expect(script).toContain('gh issue comment');
+    expect(script).toContain('gh issue create');
   });
 
   it(`shards ${MACOS_SHARDS} ways on macOS on the Node floor and ci.yml's pnpm pin`, () => {
