@@ -816,10 +816,11 @@ export function scopedRunCarriedAcrossMerge(
         why: `git could not compare the recorded tree ${tree.slice(0, 12)} with merge commit ${merge.slice(0, 12)}`,
       };
     if (!same) {
-      const first = firstDifferingPath(changeSet.executionRoot, tree, merge, scopePaths);
+      // The differing paths are listed first-changed first (D11205).
+      const differing = differingPaths(changeSet.executionRoot, tree, merge, scopePaths);
       return {
         ok: false,
-        why: `the scope the run tested changed at merge commit ${merge.slice(0, 12)} (from the tree it tested, ${tree.slice(0, 12)})${first ? `, starting with ${first}` : ''}; ${MERGE_CARRY_ROUTES}`,
+        why: `the change's files at merge commit ${merge.slice(0, 12)} differ from the tree the scoped run tested (${tree.slice(0, 12)}), counting its whole scope (the test files it ran and their inputs)${differing}; ${MERGE_CARRY_ROUTES}`,
       };
     }
   }
@@ -887,29 +888,6 @@ function configSchemaCommitDiffers(
  */
 const MERGE_CARRY_ROUTES =
   'record a test-run on the default branch after the merge that covers the change (T13673), or tool:test';
-
-/** The first path that differs between two trees over `paths`, or null. */
-function firstDifferingPath(
-  root: string,
-  tree: string,
-  merge: string,
-  paths: readonly string[],
-): string | null {
-  try {
-    const out = execFileSync(
-      'git',
-      ['diff', '--name-only', '--no-renames', tree, merge, '--', ...paths],
-      {
-        cwd: root,
-        encoding: 'utf-8',
-        stdio: ['ignore', 'pipe', 'ignore'],
-      },
-    );
-    return out.split('\n').find(Boolean) ?? null;
-  } catch {
-    return null;
-  }
-}
 
 function differingPaths(root: string, tree: string, merge: string, paths: string[]): string {
   try {

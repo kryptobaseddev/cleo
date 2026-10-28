@@ -1190,7 +1190,7 @@ describe('D11205 / T14071: a pre-merge scoped run carries only while its whole s
       );
       expect(out.kind).toBe('skipped');
       expect(out.kind === 'skipped' && out.testsPassedReason).toMatch(
-        /starting with pnpm-lock\.yaml.*test-run on the default branch after the merge.*\(T13673\), or tool:test/,
+        /\): pnpm-lock\.yaml.*test-run on the default branch after the merge.*\(T13673\), or tool:test/,
       );
     } finally {
       rmSync(root, { recursive: true, force: true });
@@ -1209,7 +1209,7 @@ describe('D11205 / T14071: a pre-merge scoped run carries only while its whole s
         offCi(tested),
       );
       expect(out.kind === 'skipped' && out.testsPassedReason).toMatch(
-        /starting with packages\/b\/src\/b\.ts/,
+        /\): packages\/b\/src\/b\.ts/,
       );
     } finally {
       rmSync(root, { recursive: true, force: true });
