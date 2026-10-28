@@ -269,6 +269,26 @@ export const runCommand = defineCommand({
     // file; it is planned, charged and spawned with that many. T13367: a
     // formatter on named files is charged light, a one-process linter or
     // `tsc -p` one process, so neither queues behind a 24 GiB reservation.
+    // T14097: a test run in a checkout whose workspace packages resolve into
+    // another checkout would test that checkout's build; refuse before admission.
+    if (cls === 'test-run') {
+      const { ForeignWorkspaceResolutionError, staleDistWarning, workspaceResolutionForTestRun } =
+        await import('@cleocode/core/tasks/workspace-resolution.js');
+      const report = workspaceResolutionForTestRun(process.cwd(), argv);
+      if (report !== null && report.foreign.length > 0) {
+        const err = new ForeignWorkspaceResolutionError(report);
+        cliError(
+          err.message,
+          err.codeName,
+          { name: err.codeName, fix: err.fix, details: err.details },
+          { operation: 'resources.run' },
+          { stderr: passthrough },
+        );
+        process.exit(err.code);
+      }
+      const stale = report === null ? null : staleDistWarning(report);
+      if (stale !== null) notice(stale, 'warn');
+    }
     const plan = planRunFootprint(cls, argv, process.env);
     const { overlay, resources, footprintBytes, footprintReason, namedFiles, hookKey } = plan;
     if (resources !== null) {
