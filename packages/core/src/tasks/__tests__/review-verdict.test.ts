@@ -497,6 +497,8 @@ describe('review-shopping guard (T14128)', () => {
         deps,
       ),
     ).rejects.toThrow(/or the new verdict is not met/);
+    // A second reviewer answers the first one's finding (T14137 reports the pair).
+    await bindTestSession(env, 'ses_20260930000000_c1c1c1');
     const answer = await recordReviewVerdict(
       env.tempDir,
       {
@@ -517,5 +519,14 @@ describe('review-shopping guard (T14128)', () => {
       deps: stubGh([HEAD]),
     });
     expect(check).toMatchObject({ met: ['AC2'], gaps: [] });
+    // T14137: the check shows who answered whose finding, and both reviewers.
+    expect(answer.reviewer.sessionId).not.toBe(unmet.reviewer.sessionId);
+    expect(check?.answered).toEqual([
+      {
+        ac: 'AC2',
+        unmet: { id: unmet.id, reviewer: unmet.reviewer },
+        met: { id: answer.id, reviewer: answer.reviewer },
+      },
+    ]);
   });
 });

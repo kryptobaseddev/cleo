@@ -98,6 +98,19 @@ export interface ReviewGap {
   reason: string;
 }
 
+/**
+ * An `unmet` verdict a later `met` answered on the same head (T14137), so an
+ * owner can see who cleared whose finding.
+ */
+export interface ReviewAnswer {
+  /** The criterion. */
+  ac: string;
+  /** The answered `unmet` verdict and its reviewer. */
+  unmet: { id: string; reviewer: ReviewVerdict['reviewer'] };
+  /** The `met` verdict that answered it and its reviewer. */
+  met: { id: string; reviewer: ReviewVerdict['reviewer'] };
+}
+
 /** The criteria a set of verdicts proves met on a head, and the gaps. */
 export interface ReviewJudgement {
   /** The head judged against. */

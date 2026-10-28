@@ -26,6 +26,7 @@
 import { execFileSync } from 'node:child_process';
 import { createHash, randomUUID } from 'node:crypto';
 import type {
+  ReviewAnswer,
   ReviewAuthors,
   ReviewGap,
   ReviewJudgement,
@@ -495,6 +496,30 @@ export function judgeReviewVerdicts(
 export interface PrReviewCheck extends ReviewJudgement {
   /** The task. */
   taskId: string;
+  /** Each `unmet` on the head a later `met` answered, and by whom (T14137). */
+  answered: ReviewAnswer[];
+}
+
+/**
+ * The `unmet` verdicts on a head that a later `met` answered by id, with both
+ * reviewers (T14137): one reviewer answering every finding stands out.
+ *
+ * @param verdicts - A task's verdicts on the PR ({@link reviewVerdictsFor}).
+ * @param headSha - The PR head.
+ */
+export function reviewAnswers(verdicts: readonly ReviewVerdict[], headSha: string): ReviewAnswer[] {
+  const onHead = verdicts.filter((v) => v.headSha === headSha);
+  const answers: ReviewAnswer[] = [];
+  for (const m of onHead) {
+    const u = m.verdict === 'met' ? onHead.find((x) => x.id === m.answers) : undefined;
+    if (u === undefined || u.verdict !== 'unmet' || u.ac !== m.ac) continue;
+    answers.push({
+      ac: m.ac,
+      unmet: { id: u.id, reviewer: u.reviewer },
+      met: { id: m.id, reviewer: m.reviewer },
+    });
+  }
+  return answers;
 }
 
 /**
@@ -533,7 +558,11 @@ export async function checkPrReviews(
       .map((r) => `AC${r.ordinal}`);
     const acs = opts.acs === undefined ? all : all.filter((a) => opts.acs?.includes(a));
     const verdicts = await reviewVerdictsFor(projectRoot, taskId, prNumber);
-    checks.push({ taskId, ...judgeReviewVerdicts(verdicts, acs, headSha) });
+    checks.push({
+      taskId,
+      ...judgeReviewVerdicts(verdicts, acs, headSha),
+      answered: reviewAnswers(verdicts, headSha).filter((a) => acs.includes(a.ac)),
+    });
   }
   return checks;
 }
