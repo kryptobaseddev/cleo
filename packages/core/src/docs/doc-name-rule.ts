@@ -212,6 +212,7 @@ export function readDocNameBaseline(root: string): string[] {
       ? (parsed as { files?: unknown }).files
       : undefined;
   if (!Array.isArray(files) || files.some((f) => typeof f !== 'string'))
+    // @sync-invariant none:input-shape a malformed baseline file is refused before any check runs; nothing is written
     throw new Error(`${DOC_NAME_BASELINE_PATH} must be { "files": string[] }`);
   return files.filter((f): f is string => typeof f === 'string');
 }

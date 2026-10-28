@@ -18,8 +18,6 @@ dates go in the doc's metadata. An ADR keeps its number and a release note
 keeps its version.
 
 How the rule is enforced:
-- `cleo docs add` refuses a slug that breaks the rule (`E_DOC_NAME_RULE`) and
-  suggests a valid one.
 - `cleo check canon docs` refuses any tracked `docs/**.md` whose name breaks
   the rule, and names the `git mv` that fixes it.
 - Names that broke the rule before it existed sit in

@@ -839,6 +839,7 @@ export async function publishDocsAsPr(opts: PublishPrOptions): Promise<PublishPr
     projectRoot ? loadRegistrySafely(projectRoot) : DocKindRegistry.builtinOnly()
   ).get(type);
   if (kindMeta?.storeOnly) {
+    // @sync-invariant none:input-shape a store-only kind is refused before any publish step; nothing is written
     return {
       success: false,
       error: publishPrError(

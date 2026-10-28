@@ -1272,24 +1272,6 @@ const _docsTypedHandler = defineTypedHandler<DocsTypedOps>('docs', {
             }
           }
 
-          // T14107 (D11210): a doc is named by subject, never by task, session
-          // or date; those links live in the doc's metadata.
-          if (slug !== undefined) {
-            const { docNameViolation, describeDocNameViolation } = await import(
-              '@cleocode/core/docs/doc-name-rule'
-            );
-            const nameCheck = docNameViolation(slug, type);
-            if (nameCheck) {
-              if (adrNumber !== undefined) releaseReservedSlug(slug);
-              return lafsError(
-                'E_DOC_NAME_RULE', // @sync-invariant none:input-shape a slug that breaks the doc naming rule is refused before anything is written
-                describeDocNameViolation(slug, nameCheck),
-                'add',
-                `cleo docs add ... --slug ${nameCheck.suggestion}`,
-              );
-            }
-          }
-
           // T10386 (Saga T10288 · Epic T10289) — central slug-allocator chokepoint.
           //
           // Every writer that intends to attach a slug MUST call reserveSlug()
