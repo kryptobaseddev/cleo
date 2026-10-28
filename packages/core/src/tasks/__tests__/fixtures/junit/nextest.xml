@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuites name="nextest-run" tests="3" failures="0" errors="0" uuid="5c5d7b0e-2a1f-4c0e-9d47-0b2b6c9e1a11" timestamp="2026-10-27T12:00:00.000+00:00" time="0.731">
+    <testsuite name="parser" tests="2" disabled="0" errors="0" failures="0" timestamp="2026-10-27T12:00:00.000+00:00">
+        <testcase name="tests::reads_header" classname="parser" timestamp="2026-10-27T12:00:00.010+00:00" time="0.004">
+        </testcase>
+        <testcase name="tests::reads_rows" classname="parser" timestamp="2026-10-27T12:00:00.012+00:00" time="0.003">
+        </testcase>
+    </testsuite>
+    <testsuite name="parser::integration" tests="1" disabled="0" errors="0" failures="0" timestamp="2026-10-27T12:00:00.020+00:00">
+        <testcase name="round_trip" classname="parser::integration" timestamp="2026-10-27T12:00:00.021+00:00" time="0.021">
+        </testcase>
+    </testsuite>
+</testsuites>
