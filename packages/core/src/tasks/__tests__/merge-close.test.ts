@@ -32,6 +32,8 @@ import {
   judgeMergedPr,
   MERGE_CLOSE_AUDIT_ACTION,
   MERGE_SWEEP_INTERVAL_MS,
+  MERGE_SWEEP_MAX_PAGES,
+  MERGE_SWEEP_PR_LIMIT,
   type MergeCloseDeps,
   type MergedPrRecord,
   mergeSweepSpawnAllowed,
@@ -82,6 +84,8 @@ async function seedTask(acceptance: string[]): Promise<string> {
     {
       title: `merge-close fixture ${acceptance.length}`,
       description: 'seeded fixture for the merge sweep',
+      // Fixtures are alike on purpose; BRAIN's near-duplicate refusal is not under test.
+      forceDuplicate: true,
       acceptance,
       skipContainmentInvariant: true,
     },
@@ -425,5 +429,57 @@ describe('one sweep also runs the upkeep hooks (T14101)', () => {
     expect(first.hooks?.reconcile).toEqual({ version: 'v2026.10.27', action: 'already' });
     await sweepMergedClosures(root, { force: true }, hooked);
     expect(flaggedFor).toEqual([[id]]);
+  });
+});
+
+describe('a sweep never skips merged PRs past one page (T14101, council review)', () => {
+  /** `count` merged PRs, a minute apart, newest last; PR 1000+i names task `taskOf(i)` when given. */
+  function many(count: number, body: (i: number) => string = () => 'no task'): MergedPrRecord[] {
+    return Array.from({ length: count }, (_, i) =>
+      pr(1000 + i, body(i), green, new Date(Date.UTC(2026, 9, 28, 0, i)).toISOString()),
+    );
+  }
+
+  /** gh's behaviour: the window's newest page first, at most one page per call. */
+  function windowed(all: MergedPrRecord[]): MergeCloseDeps['listMergedPrs'] {
+    return async (_root, since, until) =>
+      all
+        .filter((p) => p.mergedAt >= since && (until === undefined || p.mergedAt <= until))
+        .sort((a, b) => b.mergedAt.localeCompare(a.mergedAt))
+        .slice(0, MERGE_SWEEP_PR_LIMIT);
+  }
+
+  it('pages through more than 50 PRs merged between sweeps and closes every task', async () => {
+    const ids = [await seedTask(['a']), await seedTask(['b', 'c'])];
+    // The two task PRs are the OLDEST of 120, below the first page.
+    const lines = [`Closes: ${ids[0]} AC1`, `Closes: ${ids[1]} AC1,AC2`];
+    const all = many(120, (i) => lines[i] ?? 'no task');
+    const { deps } = fakeDeps(all);
+    const result = await sweepMergedClosures(
+      root,
+      { force: true, since: '2026-10-27T00:00:00.000Z' },
+      { ...deps, listMergedPrs: windowed(all) },
+    );
+    expect(result.prs).toHaveLength(120);
+    expect(result.closed.sort()).toEqual([...ids].sort());
+    expect(result.truncated).toBeUndefined();
+  });
+
+  it('past the page budget it reports truncated and reads the rest first next time', async () => {
+    const total = MERGE_SWEEP_PR_LIMIT * MERGE_SWEEP_MAX_PAGES + 20;
+    const id = await seedTask(['only criterion']);
+    const all = many(total, (i) => (i === 0 ? `Closes: ${id} AC1` : 'no task'));
+    const { deps } = fakeDeps(all);
+    const sweep = { ...deps, listMergedPrs: windowed(all) };
+    const first = await sweepMergedClosures(root, { force: true }, sweep);
+    // Each page after the first repeats its boundary PR (the window is inclusive).
+    expect(first.truncated?.read).toBeGreaterThan(
+      MERGE_SWEEP_PR_LIMIT * (MERGE_SWEEP_MAX_PAGES - 1),
+    );
+    expect(first.truncated?.read).toBeLessThan(total);
+    expect(first.closed).toEqual([]);
+    const second = await sweepMergedClosures(root, { force: true }, sweep);
+    expect(second.closed).toEqual([id]);
+    expect(second.truncated).toBeUndefined();
   });
 });

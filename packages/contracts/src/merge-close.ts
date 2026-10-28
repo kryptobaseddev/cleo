@@ -134,6 +134,12 @@ export interface MergeSweepResult {
   bound: string[];
   /** Tasks nothing was recorded for, with the reason. */
   refused: Array<{ taskId: string; prNumber: number; reason: string }>;
+  /**
+   * Set when more PRs merged than one sweep's page budget reads: `read` PRs
+   * were processed, and those merged in `[unreadSince, unreadBefore]` are read
+   * first by the next sweep (never skipped).
+   */
+  truncated?: { read: number; unreadSince: string; unreadBefore: string };
   /** The upkeep run in the same sweep, when any ran. */
   hooks?: MergeSweepHooks;
 }

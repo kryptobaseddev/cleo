@@ -67,8 +67,15 @@ const SWEEP_CLAIM_FILE = 'merge-sweep.claim';
 /** A first sweep (no high-water mark yet) looks back this far. */
 export const MERGE_SWEEP_LOOKBACK_MS = 7 * 24 * 60 * 60_000;
 
-/** The most merged PRs one sweep reads. */
-const MERGE_SWEEP_PR_LIMIT = 50;
+/** The merged PRs one `gh pr list` page returns. */
+export const MERGE_SWEEP_PR_LIMIT = 50;
+
+/**
+ * The most `gh pr list` pages one sweep reads. When more PRs merged than that,
+ * the unread (older) window is kept as a backlog the next sweep reads first,
+ * and the result reports `truncated`.
+ */
+export const MERGE_SWEEP_MAX_PAGES = 10;
 
 /** Open issues with this label become tasks (T14104). */
 export const MACOS_REGRESSION_LABEL = 'macos-regression';
@@ -98,8 +105,12 @@ type StepResult = { ok: true } | { ok: false; reason: string };
 
 /** Everything the sweep reaches outside the store; injectable for tests. */
 export interface MergeCloseDeps {
-  /** Merged PRs since an ISO time, oldest first, or null when `gh` failed. */
-  listMergedPrs(root: string, since: string): Promise<MergedPrRecord[] | null>;
+  /**
+   * One page ({@link MERGE_SWEEP_PR_LIMIT}) of the PRs merged in
+   * `[since, until]` (`until` unset: up to now), newest first, or null when
+   * `gh` failed. A full page means older PRs may remain.
+   */
+  listMergedPrs(root: string, since: string, until?: string): Promise<MergedPrRecord[] | null>;
   /** One PR, or null when `gh` failed or it is not merged. */
   viewPr(root: string, prNumber: number): Promise<MergedPrRecord | null>;
   /** Post a PR comment; false when it could not. */
@@ -221,10 +232,50 @@ export async function judgeMergedPr(
   };
 }
 
-/** The persisted throttle and high-water mark. */
+/** The persisted cursor: the newest merge read, and an unread older window. */
 interface SweepState {
   lastSweptAt?: string;
   highWater?: string;
+  /** PRs merged in `[since, until]` that a page budget left unread. */
+  backlog?: { since: string; until: string };
+}
+
+/** A window read page by page, newest first. */
+interface WindowRead {
+  prs: MergedPrRecord[];
+  /** The mergedAt below which PRs remain unread, when the budget ran out. */
+  unreadBefore?: string;
+}
+
+/**
+ * Read every PR merged in `[since, until]`, newest first, a page at a time
+ * (each page's oldest merge is the next page's `until`), until a short page
+ * or the page budget runs out. Null when `gh` failed.
+ */
+async function readMergedWindow(
+  deps: MergeCloseDeps,
+  root: string,
+  since: string,
+  until: string | undefined,
+  budget: { pages: number },
+): Promise<WindowRead | null> {
+  const seen = new Map<number, MergedPrRecord>();
+  let upper = until;
+  while (budget.pages > 0) {
+    budget.pages -= 1;
+    const page = await deps.listMergedPrs(root, since, upper);
+    if (page === null) return null;
+    const fresh = page.filter((pr) => !seen.has(pr.number));
+    for (const pr of fresh) seen.set(pr.number, pr);
+    if (page.length < MERGE_SWEEP_PR_LIMIT) return { prs: [...seen.values()] };
+    // A full page of merges in one instant is not progress; leave the rest.
+    if (fresh.length === 0) break;
+    upper = page.reduce(
+      (min, pr) => (pr.mergedAt < min ? pr.mergedAt : min),
+      page[0]?.mergedAt ?? '',
+    );
+  }
+  return { prs: [...seen.values()], unreadBefore: upper ?? new Date().toISOString() };
 }
 
 function sweepStatePath(storeRoot: string): string {
@@ -470,16 +521,32 @@ export async function sweepMergedClosures(
   const since =
     opts.since ?? state.highWater ?? new Date(Date.now() - MERGE_SWEEP_LOOKBACK_MS).toISOString();
   let prs: MergedPrRecord[];
+  let backlog: SweepState['backlog'];
   if (targeted) {
     const viewed = await Promise.all((opts.prNumbers ?? []).map((n) => deps.viewPr(root, n)));
     prs = viewed.filter((pr): pr is MergedPrRecord => pr !== null);
   } else {
-    const listed = await deps.listMergedPrs(root, since);
-    if (listed === null) return { ...empty, skippedReason: 'gh could not list merged PRs' };
-    prs = listed;
+    // An unread older window from a sweep the page budget cut short goes first.
+    const budget = { pages: MERGE_SWEEP_MAX_PAGES };
+    const old = opts.since === undefined ? state.backlog : undefined;
+    const older = old ? await readMergedWindow(deps, root, old.since, old.until, budget) : null;
+    const newer = await readMergedWindow(deps, root, since, undefined, budget);
+    if (newer === null || (old && older === null))
+      return { ...empty, skippedReason: 'gh could not list merged PRs' };
+    const byNumber = new Map([...(older?.prs ?? []), ...newer.prs].map((pr) => [pr.number, pr]));
+    prs = [...byNumber.values()];
+    const unreadSince = old?.since ?? since;
+    const unreadBefore = newer.unreadBefore ?? older?.unreadBefore;
+    backlog = unreadBefore === undefined ? undefined : { since: unreadSince, until: unreadBefore };
   }
   const required = await deps.requiredChecks(storeRoot);
   const result: MergeSweepResult = { ...empty, swept: true };
+  if (backlog)
+    result.truncated = {
+      read: prs.length,
+      unreadSince: backlog.since,
+      unreadBefore: backlog.until,
+    };
   const hooks: MergeSweepHooks = {};
   for (const pr of [...prs].sort((a, b) => a.mergedAt.localeCompare(b.mergedAt))) {
     const receipt = await judgeMergedPr(pr, required);
@@ -543,10 +610,8 @@ export async function sweepMergedClosures(
   if (Object.keys(hooks).length > 0) result.hooks = hooks;
   if (!dryRun && !targeted) {
     const highWater = prs.reduce((max, pr) => (pr.mergedAt > max ? pr.mergedAt : max), since);
-    writeFileSync(
-      sweepStatePath(storeRoot),
-      `${JSON.stringify({ lastSweptAt: startedAt, highWater }, null, 2)}\n`,
-    );
+    const next: SweepState = { lastSweptAt: startedAt, highWater, ...(backlog ? { backlog } : {}) };
+    writeFileSync(sweepStatePath(storeRoot), `${JSON.stringify(next, null, 2)}\n`);
   }
   return result;
 }
@@ -643,6 +708,9 @@ async function syncMacosRegressionIssues(
             ],
             parentId: parent.id,
             labels: [MACOS_REGRESSION_LABEL],
+            // The issue URL is the identity (deduped by the link below); two
+            // regressions with similar titles are still two tasks. Audited.
+            forceDuplicate: true,
           },
           storeRoot,
           accessor,
@@ -714,8 +782,7 @@ function stepOf(r: { success: boolean; error?: { message?: string } | null }): S
 
 /** The default {@link MergeCloseDeps}: `gh`, and the `cleo done --pr` record and complete path. */
 export const defaultMergeCloseDeps: MergeCloseDeps = {
-  async listMergedPrs(root, since) {
-    const day = since.slice(0, 10);
+  async listMergedPrs(root, since, until) {
     const out = await gh(
       [
         'pr',
@@ -723,7 +790,7 @@ export const defaultMergeCloseDeps: MergeCloseDeps = {
         '--state',
         'merged',
         '--search',
-        `merged:>=${day}`,
+        until === undefined ? `merged:>=${since}` : `merged:${since}..${until}`,
         '--limit',
         String(MERGE_SWEEP_PR_LIMIT),
         '--json',
@@ -736,7 +803,9 @@ export const defaultMergeCloseDeps: MergeCloseDeps = {
     if (!Array.isArray(rows)) return null;
     return rows.flatMap((row) => {
       const pr = toMergedPr(row);
-      return pr && pr.mergedAt !== '' && pr.mergedAt >= since ? [pr] : [];
+      // No date filter here: the search is the window, and a page's length
+      // tells the sweep whether older PRs remain.
+      return pr && pr.mergedAt !== '' ? [pr] : [];
     });
   },
   async viewPr(root, prNumber) {
