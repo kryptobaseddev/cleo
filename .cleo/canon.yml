@@ -57,8 +57,10 @@
 #   T14109 (D11210): `cleo docs add` now REFUSES a likely duplicate (same
 #   content, or a similar slug, title or text) and routes to
 #   `cleo docs update <slug>`; `--new-because <reason>` adds it anyway and is
-#   recorded in `.cleo/audit/docs-new-because.jsonl`. The duplicate check uses
-#   fixed thresholds; this `similarity:` block is no longer read by docs add.
+#   recorded in `.cleo/audit/docs-new-because.jsonl`. `warnThreshold` sets
+#   the duplicate check's slug rule and may only tighten it (a value above
+#   0.85 is ignored); `mode` is no longer read, since a refusal never
+#   downgrades to a warning.
 #
 # See ADR-076 (Canonical Docs SSoT) for the lockdown rationale.
 # Pre-state: T9788 (DocKindRegistry), T9791 (1,427 docs imported), T9793

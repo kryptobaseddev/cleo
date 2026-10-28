@@ -19,8 +19,9 @@
  * @task T14109
  */
 
-import { appendFile, mkdir } from 'node:fs/promises';
+import { appendFile, mkdir, readFile } from 'node:fs/promises';
 import { join } from 'node:path';
+import { parse as parseYaml } from 'yaml';
 import { similarityScore } from './slug-similarity.js';
 
 /** Default thresholds; a project may only tighten them (lower values catch more). */
@@ -206,6 +207,29 @@ export function findDuplicateDoc(
     if (shared >= limit('content')) consider(candidate, 'content', shared);
   }
   return best;
+}
+
+/**
+ * The project's duplicate thresholds from `.cleo/canon.yml`: the T10361
+ * `similarity.warnThreshold` sets the slug rule. It can only tighten the
+ * check ({@link findDuplicateDoc} ignores a looser value), and `mode` is not
+ * read, since a refusal cannot be downgraded to a warning. A missing or
+ * malformed file yields the defaults; `cleo check canon docs` reports it.
+ *
+ * @param projectRoot - Project root.
+ * @returns The configured thresholds, possibly empty.
+ * @task T14109
+ */
+export async function readDuplicateThresholds(projectRoot: string): Promise<DuplicateThresholds> {
+  // Optional chaining reads nothing from a scalar or null document.
+  let canon: { similarity?: { warnThreshold?: number } } | null;
+  try {
+    canon = parseYaml(await readFile(join(projectRoot, '.cleo', 'canon.yml'), 'utf8'));
+  } catch {
+    return {};
+  }
+  const slug = canon?.similarity?.warnThreshold;
+  return typeof slug === 'number' && slug >= 0 && slug <= 1 ? { slug } : {};
 }
 
 /**

@@ -5,7 +5,7 @@
  * @task T14109
  */
 
-import { mkdtemp, readFile, rm } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
@@ -14,6 +14,7 @@ import {
   describeDuplicate,
   findDuplicateDoc,
   markdownTitle,
+  readDuplicateThresholds,
   recordNewBecause,
 } from '../duplicate-check.js';
 
@@ -148,5 +149,40 @@ describe('the refusal and the override record', () => {
     } finally {
       await rm(root, { recursive: true, force: true });
     }
+  });
+});
+
+describe('readDuplicateThresholds', () => {
+  const withCanon = async (yaml: string | null): Promise<Record<string, number>> => {
+    const root = await mkdtemp(join(tmpdir(), 'dup-canon-'));
+    try {
+      if (yaml !== null) {
+        await mkdir(join(root, '.cleo'));
+        await writeFile(join(root, '.cleo', 'canon.yml'), yaml);
+      }
+      return await readDuplicateThresholds(root);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  };
+
+  it('reads similarity.warnThreshold as the slug threshold', async () => {
+    expect(await withCanon('similarity:\n  warnThreshold: 0.7\n  mode: warn\n')).toEqual({
+      slug: 0.7,
+    });
+  });
+
+  it('yields the defaults for a missing, malformed or out-of-range block', async () => {
+    expect(await withCanon(null)).toEqual({});
+    expect(await withCanon('version: 1\n')).toEqual({});
+    expect(await withCanon('similarity: [1\n')).toEqual({});
+    expect(await withCanon('similarity:\n  warnThreshold: 2\n')).toEqual({});
+  });
+
+  it('can only tighten: a looser configured slug threshold is ignored', () => {
+    const proposed = { slug: 'release-flows', kind: 'guide' };
+    const tight = findDuplicateDoc(proposed, existing, { slug: 0.99 });
+    expect(tight?.rule).toBe('slug');
+    expect(tight).toEqual(findDuplicateDoc(proposed, existing));
   });
 });

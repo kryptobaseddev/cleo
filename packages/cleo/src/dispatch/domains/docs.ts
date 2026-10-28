@@ -1330,6 +1330,7 @@ const _docsTypedHandler = defineTypedHandler<DocsTypedOps>('docs', {
                         : {}),
                     },
                     await dup.loadDuplicateCandidates(projectRoot, { kind: type }),
+                    await dup.readDuplicateThresholds(projectRoot),
                   );
             if (match && reason === undefined) {
               if (adrNumber !== undefined && slug !== undefined) releaseReservedSlug(slug);
