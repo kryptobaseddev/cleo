@@ -74,6 +74,52 @@ export interface AcceptanceChangeAuditEntry {
    * `CLEO_AGENT_ID` and falling back to `"cleo"` when unset.
    */
   agent: string;
+  /**
+   * `append` when every existing criterion was kept byte-for-byte and new ones
+   * were added after them (T12237, no reason needed); `override` when an
+   * existing criterion was removed or altered under `--reason`. Absent on
+   * records written before T12237 (all overrides).
+   */
+  change?: 'append' | 'override';
+}
+
+/**
+ * Whether an acceptance update only appends: every existing criterion kept,
+ * byte-for-byte and in place, and one or more added after them (T12237). It
+ * makes closure strictly harder, the opposite of the reframing the lock stops.
+ *
+ * @param before - The criteria before the update.
+ * @param after - The criteria the update writes.
+ * @returns `true` for a pure append.
+ *
+ * @example
+ * ```ts
+ * isAcceptanceAppend(['A', 'B'], ['A', 'B', 'C']); // true
+ * isAcceptanceAppend(['A', 'B'], ['A', 'C']);      // false: B was removed
+ * ```
+ *
+ * @task T12237
+ */
+export function isAcceptanceAppend(
+  before: readonly AcceptanceItem[],
+  after: readonly AcceptanceItem[],
+): boolean {
+  return (
+    after.length > before.length && acceptanceEquals([...before], after.slice(0, before.length))
+  );
+}
+
+/**
+ * The existing criteria an update removes or alters, by their `AC<n>` alias
+ * (T12237): those not kept in place. Empty for a pure append.
+ */
+function changedCriteria(
+  before: readonly AcceptanceItem[],
+  after: readonly AcceptanceItem[],
+): string[] {
+  return before
+    .map((item, i) => (acceptanceEquals([item], after.slice(i, i + 1)) ? null : `AC${i + 1}`))
+    .filter((alias): alias is string => alias !== null);
 }
 
 /**
@@ -169,10 +215,13 @@ function isAcceptanceEmpty(acceptance: AcceptanceItem[] | undefined | null): boo
  *  - When the task is not in a locked stage, the call is a no-op.
  *  - When the new AC is structurally identical to the existing AC, the call
  *    is a no-op (idempotent updates are always allowed).
- *  - When the task is in a locked stage and `reason` is missing or empty,
- *    a {@link CleoError} with {@link ExitCode.AC_LOCKED} is thrown.
- *  - When the task is in a locked stage and `reason` is provided, an audit
- *    entry is appended to `.cleo/audit/ac-changes.jsonl`.
+ *  - When the update only appends criteria ({@link isAcceptanceAppend}), it is
+ *    allowed without a reason and audited as `change: 'append'` (T12237).
+ *  - When it removes or alters an existing criterion and `reason` is missing
+ *    or empty, a {@link CleoError} with {@link ExitCode.AC_LOCKED} is thrown,
+ *    naming the criteria it would change.
+ *  - When it removes or alters one and `reason` is provided, an audit entry
+ *    (`change: 'override'`) is appended to `.cleo/audit/ac-changes.jsonl`.
  *
  * @param options - {@link EnforceAcceptanceImmutabilityOptions}.
  * @returns Authorization snapshot for the transaction audit, or undefined when no override applies.
@@ -220,17 +269,40 @@ export function enforceAcceptanceImmutability(
   // which is how an audit trail stops being read.
   if (isAcceptanceEmpty(task.acceptance)) return;
 
+  const before = task.acceptance ?? [];
   const trimmedReason = typeof reason === 'string' ? reason.trim() : '';
+  // T12237: appending criteria tightens closure; only removing or altering an
+  // existing criterion is the reframing this lock stops. An append is audited
+  // without a reason (one given is kept).
+  if (isAcceptanceAppend(before, newAcceptance)) {
+    return appendAcceptanceChangeAudit({
+      projectRoot: resolveOrCwd(projectRoot),
+      taskId: task.id,
+      stage: task.pipelineStage ?? '',
+      reason:
+        trimmedReason ||
+        `append-only: ${newAcceptance.length - before.length} criterion(s) added, every existing criterion kept`,
+      oldAcceptance: before,
+      newAcceptance,
+      change: 'append',
+    });
+  }
   if (!trimmedReason) {
+    const changed = changedCriteria(before, newAcceptance);
     throw new CleoError(
       ExitCode.AC_LOCKED,
-      `Acceptance criteria locked at stage ${task.pipelineStage}. Reframing AC after implementation is anti-pattern. Use --reason '<X>' to override with audit log entry.`,
+      `Acceptance criteria locked at stage ${task.pipelineStage}. This update removes or alters ` +
+        `existing criteria (${changed.join(', ') || 'their order'}); reframing AC after implementation ` +
+        `is anti-pattern. Appending new criteria after the existing ones needs no reason. To remove ` +
+        `or alter, use --reason '<X>' to override with an audit log entry.`,
       {
         fix: `cleo update ${task.id} --acceptance "..." --reason "<why this change is acceptable>"`,
         details: {
           field: 'acceptance',
           stage: task.pipelineStage ?? null,
           taskId: task.id,
+          attempted: 'remove-or-alter',
+          changedCriteria: changed,
         },
       },
     );
@@ -242,8 +314,9 @@ export function enforceAcceptanceImmutability(
     taskId: task.id,
     stage: task.pipelineStage ?? '',
     reason: trimmedReason,
-    oldAcceptance: task.acceptance ?? [],
+    oldAcceptance: before,
     newAcceptance,
+    change: 'override',
   });
 }
 
@@ -263,6 +336,7 @@ function appendAcceptanceChangeAudit(input: {
   reason: string;
   oldAcceptance: AcceptanceItem[];
   newAcceptance: AcceptanceItem[];
+  change: 'append' | 'override';
 }): AcceptanceChangeAuditEntry {
   const entry: AcceptanceChangeAuditEntry = {
     status: 'authorization-attempt',
@@ -275,6 +349,7 @@ function appendAcceptanceChangeAudit(input: {
     oldAcceptance: JSON.parse(JSON.stringify(input.oldAcceptance)) as AcceptanceItem[],
     newAcceptance: JSON.parse(JSON.stringify(input.newAcceptance)) as AcceptanceItem[],
     agent: process.env['CLEO_AGENT_ID'] ?? 'cleo',
+    change: input.change,
   };
   try {
     const filePath = join(input.projectRoot, AC_CHANGES_AUDIT_FILE);

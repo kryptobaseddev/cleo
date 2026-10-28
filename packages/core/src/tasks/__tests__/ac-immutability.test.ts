@@ -276,6 +276,84 @@ describe('updateTask + AC-immutability guard (T1590)', () => {
   // ---------------------------------------------------------------------
   // 6. Empty/whitespace --reason at a locked stage is treated as missing.
   // ---------------------------------------------------------------------
+  // ---------------------------------------------------------------------
+  // T12237: append, delete and alter-in-place are told apart.
+  // ---------------------------------------------------------------------
+  it('T12237: a pure append at a locked stage needs no --reason and is audited as an append', async () => {
+    const seed = await accessor.loadSingleTask('T001');
+    if (!seed) throw new Error('seed task missing');
+    seed.pipelineStage = 'implementation';
+    await accessor.upsertSingleTask(seed);
+
+    await updateTask(
+      { taskId: 'T001', acceptance: ['original AC 1', 'original AC 2', 'works under real load'] },
+      env.tempDir,
+      accessor,
+    );
+    const after = await accessor.loadSingleTask('T001');
+    expect(after?.acceptance).toEqual(['original AC 1', 'original AC 2', 'works under real load']);
+    const lines = readFileSync(join(env.tempDir, AC_CHANGES_AUDIT_FILE), 'utf-8')
+      .trim()
+      .split('\n');
+    expect(JSON.parse(lines.at(-1) ?? '{}')).toMatchObject({
+      taskId: 'T001',
+      change: 'append',
+      reason: expect.stringContaining('append-only'),
+    });
+  });
+
+  it('T12237: deleting a criterion still needs --reason, and the refusal names it', async () => {
+    const seed = await accessor.loadSingleTask('T001');
+    if (!seed) throw new Error('seed task missing');
+    seed.pipelineStage = 'implementation';
+    await accessor.upsertSingleTask(seed);
+
+    await expect(
+      updateTask({ taskId: 'T001', acceptance: ['original AC 1'] }, env.tempDir, accessor),
+    ).rejects.toMatchObject({
+      code: ExitCode.AC_LOCKED,
+      message: expect.stringContaining('removes or alters existing criteria (AC2)'),
+    });
+    expect((await accessor.loadSingleTask('T001'))?.acceptance).toEqual([
+      'original AC 1',
+      'original AC 2',
+    ]);
+  });
+
+  it('T12237: altering a criterion in place (even while appending) still needs --reason', async () => {
+    const seed = await accessor.loadSingleTask('T001');
+    if (!seed) throw new Error('seed task missing');
+    seed.pipelineStage = 'implementation';
+    await accessor.upsertSingleTask(seed);
+
+    await expect(
+      updateTask(
+        { taskId: 'T001', acceptance: ['original AC 1', 'weaker AC 2', 'new AC 3'] },
+        env.tempDir,
+        accessor,
+      ),
+    ).rejects.toMatchObject({
+      code: ExitCode.AC_LOCKED,
+      message: expect.stringMatching(
+        /removes or alters existing criteria \(AC2\).*Appending new criteria after the existing ones needs no reason/,
+      ),
+    });
+    // With a reason it goes through, audited as an override.
+    await updateTask(
+      {
+        taskId: 'T001',
+        acceptance: ['original AC 1', 'weaker AC 2', 'new AC 3'],
+        reason: 'AC2 was fused with AC3 (gh#1388)',
+      },
+      env.tempDir,
+      accessor,
+    );
+    const lines = readFileSync(join(env.tempDir, AC_CHANGES_AUDIT_FILE), 'utf-8')
+      .trim()
+      .split('\n');
+    expect(JSON.parse(lines.at(-1) ?? '{}')).toMatchObject({ change: 'override' });
+  });
+
   it('rejects an empty --reason as if it were missing', async () => {
     const seed = await accessor.loadSingleTask('T001');
     if (!seed) throw new Error('seed task missing');
