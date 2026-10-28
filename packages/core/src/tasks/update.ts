@@ -57,6 +57,11 @@ import { exceedsMaxDepth, resolveHierarchyPolicy } from './hierarchy-policy.js';
 import { validatePipelineTransition } from './pipeline-stage.js';
 import { rankingAuditEntry, rankingSnapshot, resolveRankingActor } from './ranking-audit.js';
 import { prepareSignedSeverityAttestation } from './severity-attestation.js';
+import {
+  gateProfileLabelProblem,
+  gateProfileOf,
+  implementedCodeEvidence,
+} from './verification-policy.js';
 
 const NON_STATUS_DONE_FIELDS: Array<keyof Omit<UpdateTaskOptions, 'taskId' | 'status'>> = [
   'title',
@@ -725,6 +730,30 @@ export async function updateTask(
     assertTaskVersion(options.taskId, current, options.expectedUpdatedAt, baseline);
     written = rebaseTaskUpdate(current, task, changes, options, timestampedNote);
     written.updatedAt = nextTaskVersion(current, now);
+    // T13474: the resulting labels hold at most one known gate profile, and a
+    // profile is never added over recorded code evidence.
+    const profileBefore = gateProfileOf(current);
+    const profileAfter = gateProfileOf(written);
+    if (changes.includes('labels')) {
+      const problem = gateProfileLabelProblem(written.labels ?? []);
+      if (problem !== null)
+        // @sync-invariant none:input-shape an unknown or second gate profile label is refused before the write
+        throw new CleoError(ExitCode.VALIDATION_ERROR, problem, {
+          fix: `Remove the other profile label first (cleo update ${options.taskId} --remove-labels <label>)`,
+          details: { field: 'labels', actual: written.labels ?? [] },
+        });
+      const codeAtom = profileAfter !== null ? implementedCodeEvidence(written) : null;
+      if (profileAfter !== null && profileAfter !== profileBefore && codeAtom !== null)
+        // @sync-invariant none:input-shape a gate profile over recorded code evidence is refused before the write
+        throw new CleoError(
+          ExitCode.VALIDATION_ERROR,
+          `profile:${profileAfter} cannot be declared on ${options.taskId}: its implemented evidence carries ${codeAtom}, and a code change owes its tests`,
+          {
+            fix: `Keep ${options.taskId} a code task and record testsPassed/qaPassed, or re-record implemented without code evidence first`,
+            details: { field: 'labels', profile: profileAfter, codeEvidence: codeAtom },
+          },
+        );
+    }
     // The waiver rule applies to the dependency set actually persisted.
     validateDependencyWaiver(options.priority, options.dependsWaiver, written.depends ?? []);
 
@@ -743,6 +772,24 @@ export async function updateTask(
           );
 
     await tx.upsertSingleTask(written);
+
+    // T13474: every gate profile change is audited in the same write.
+    if (gateProfileOf(current) !== gateProfileOf(written)) {
+      await tx.appendLog({
+        id: `log-${Math.floor(Date.now() / 1000)}-${(await import('node:crypto')).randomBytes(3).toString('hex')}`,
+        timestamp: new Date().toISOString(),
+        action: 'gate_profile_changed',
+        taskId: options.taskId,
+        actor: 'system',
+        details: {
+          before: gateProfileOf(current),
+          after: gateProfileOf(written),
+          ...(options.reason !== undefined ? { reason: options.reason } : {}),
+        },
+        before: { profile: gateProfileOf(current) },
+        after: { profile: gateProfileOf(written) },
+      });
+    }
 
     // T12693 (D11161): a ranking-input change is audited in the same write.
     const rankingEntry = rankingAuditEntry({

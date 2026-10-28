@@ -70,6 +70,7 @@ import {
   extractTaskAcFilesWithProvenance,
   taskEvidenceKindReport,
 } from './evidence.js';
+import { PROFILE_WAIVED_GATES } from './gate-notes.js';
 import {
   extractTypedGates,
   type TypedResultDrift,
@@ -82,7 +83,11 @@ import { changedTestFiles } from './test-run-binding.js';
 import { captureTreeHash, computeCacheKey, readCacheEntry } from './tool-cache.js';
 import { captureEnvFingerprint, captureResourceEnv } from './tool-cache-env.js';
 import { type ResolvedToolCommand, resolveToolCommand } from './tool-resolver.js';
-import { loadVerificationGatePolicy, requiredGatesFor } from './verification-policy.js';
+import {
+  gateProfileOf,
+  loadVerificationGatePolicy,
+  requiredGatesFor,
+} from './verification-policy.js';
 
 /**
  * Whether `ci:<pr>` can attest both tool gates for this change set (T12634):
@@ -1144,6 +1149,13 @@ export async function deriveTaskEvidence(
   }
   const kind = evidenceKind.kind;
   const requiredGates = requiredGatesFor(policy, kind);
+  // T13474: name the gate profile and what it waives, so a reviewer sees it.
+  const profile = gateProfileOf(task);
+  if (profile !== null && kind !== 'code') {
+    changeSet.warnings.push(
+      `${task.id} declares profile:${profile}: ${PROFILE_WAIVED_GATES.join(' and ')} are not applicable; it owes ${requiredGates.join(', ')}.`,
+    );
+  }
   // T12656 AC2: whether the LATEST implementation merged, and through which
   // PR, is judged by the one function `cleo complete` and `tool:test` use —
   // on the change set derived above, resolved only when needed.

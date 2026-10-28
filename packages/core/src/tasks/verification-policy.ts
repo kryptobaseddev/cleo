@@ -12,6 +12,20 @@
 
 import type { Task, VerificationGate } from '@cleocode/contracts';
 import { getRawConfigValue, loadConfig } from '../config.js';
+import { gateProfileOf, isDocumentArtifact, isDocumentEvidencePath } from './gate-notes.js';
+
+// T13474: the profile and document-path rules live in gate-notes.ts so the
+// task view (`cleo show`) reads them without loading config (gate 39).
+export {
+  GATE_PROFILE_LABEL_PREFIX,
+  GATE_PROFILES,
+  type GateProfile,
+  gateProfileLabelProblem,
+  gateProfileOf,
+  implementedCodeEvidence,
+  isDocumentArtifact,
+  isDocumentEvidencePath,
+} from './gate-notes.js';
 
 /**
  * Fallback gate list used only when the resolved config names no valid gate.
@@ -91,20 +105,6 @@ function nonCodeGates(requiredGates: readonly VerificationGate[]): VerificationG
 }
 
 /**
- * Whether a path is a document for evidence-kind purposes (T14001): a
- * documentation artifact, or a CLEO-managed document (an attachment or a
- * content-addressed blob, whose stored name carries no extension).
- *
- * @param path - Repo-relative path.
- */
-export function isDocumentEvidencePath(path: string): boolean {
-  const p = path.replace(/^\.\//, '');
-  return (
-    isDocumentArtifact(p) || p.startsWith('.cleo/attachments/') || p.startsWith('.cleo/blobs/')
-  );
-}
-
-/**
  * The gates a task of `kind` must have set before it counts as verified: the
  * one rule `cleo verify`, `cleo done --plan`, `cleo complete` and
  * `cleo release plan` share (T14001).
@@ -171,25 +171,6 @@ export function missingRequiredGates(
   return requiredGates.filter((gate) => gates?.[gate] !== true);
 }
 
-/**
- * Whether a path is a documentation artifact (`.md`/`.mdx`/`.rst`/`.adoc`, or
- * README, LICENSE, CHANGELOG bare or with one of those extensions or `.txt`) —
- * the rule `pr:` uses to refuse a docs-only PR as implementation of a code task.
- *
- * A bare `.txt` is not a document (`requirements.txt`, `CMakeLists.txt`), nor
- * is a README/LICENSE/CHANGELOG name with a code extension (`src/README.ts`):
- * both decide what code builds or runs (T14001, review of #2413).
- *
- * @param path - Repo-relative path.
- * @returns True for a documentation artifact.
- */
-export function isDocumentArtifact(path: string): boolean {
-  return (
-    /\.(md|mdx|rst|adoc)$/i.test(path) ||
-    /(?:^|\/)(README|LICENSE|CHANGELOG)(?:\.(md|mdx|rst|adoc|txt))?$/i.test(path)
-  );
-}
-
 /** A code file extension in acceptance prose: a token ending in one keeps the task code (T14065). */
 const AC_CODE_EXTENSION =
   /\.(?:[cm]?[jt]sx?|json[c5]?|toml|ya?ml|sql|sh|rs|py|go|rb|java|kt|swift|c|h|cc|cpp|css|scss|html|svelte|vue|txt|lock|node|wasm)$/i;
@@ -226,14 +207,17 @@ function acceptancePathKinds(acceptance: Task['acceptance']): { docs: number; co
  * read, or `null` when its change set decides (T14048, T14065): research and
  * spike kinds are research; declared files decide next (all documents:
  * documentation, any code file: code); a bug, or acceptance criteria naming
- * a code path, is code. A task with none of these is undecided.
+ * a code path, is code. A task declaring a gate profile ({@link gateProfileOf},
+ * T13474) is then research for its gates. A task with none of these is
+ * undecided.
  *
- * @param task - The task's kind, declared files and acceptance criteria.
+ * @param task - The task's kind, declared files, acceptance criteria and labels.
  * @returns The decided kind, or `null`.
  * @task T14048
+ * @task T13474
  */
 export function declaredEvidenceKind(
-  task: Pick<Task, 'kind' | 'files' | 'acceptance'>,
+  task: Pick<Task, 'kind' | 'files' | 'acceptance'> & Partial<Pick<Task, 'labels'>>,
 ): EvidenceTaskKind | null {
   if (task.kind === 'research' || task.kind === 'spike') return 'research';
   if (task.files?.length && task.files.every(isDocumentArtifact)) return 'documentation';
@@ -242,6 +226,8 @@ export function declaredEvidenceKind(
   if (task.files?.length) return 'code';
   // T14065: nor a code path its acceptance criteria name.
   if (acceptancePathKinds(task.acceptance).code > 0) return 'code';
+  // T13474: a declared non-code profile owes the non-code (research) gates.
+  if (gateProfileOf(task) !== null) return 'research';
   return null;
 }
 

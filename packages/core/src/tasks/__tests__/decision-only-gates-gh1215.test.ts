@@ -21,7 +21,7 @@
  */
 
 import { describe, expect, it } from 'vitest';
-import { DECISION_ONLY_INAPPLICABLE_GATES, isDecisionOnlyImplementation } from '../evidence.js';
+import { DECISION_ONLY_RELAXED_GATES, isDecisionOnlyImplementation } from '../evidence.js';
 
 describe('gh#1215 — decision-only implementations', () => {
   it('recognises [decision, files] as decision-only', () => {
@@ -37,7 +37,7 @@ describe('gh#1215 — decision-only implementations', () => {
   });
 
   it('exempts exactly testsPassed and qaPassed, and nothing else', () => {
-    expect([...DECISION_ONLY_INAPPLICABLE_GATES]).toEqual(['testsPassed', 'qaPassed']);
+    expect([...DECISION_ONLY_RELAXED_GATES]).toEqual(['testsPassed', 'qaPassed']);
   });
 });
 

@@ -98,6 +98,8 @@ import { detectStaticVacuity, probeTscFileCount, VACUOUS_TOOL_FIX } from './tool
 import {
   classifyEvidenceTask,
   declaredEvidenceKind,
+  gateProfileOf,
+  implementedCodeEvidence,
   isDocumentArtifact,
   isDocumentEvidencePath,
 } from './verification-policy.js';
@@ -3874,18 +3876,58 @@ export function isDecisionOnlyImplementation(
 }
 
 /**
- * Gates that a decision-only task satisfies by absence.
- *
- * `testsPassed` and `qaPassed` measure the effect of a code change. With no
- * code change there is nothing for them to measure, and demanding them makes
- * the task uncompletable rather than well-verified.
+ * Gates whose evidence minimum a decision-only task skips (T12220): they are
+ * RELAXED, not satisfied. `testsPassed` and `qaPassed` measure the effect of a
+ * code change; with none, a `decision:` atom (with a `note:`) is accepted in
+ * place of a test or QA result, but each gate is still verified explicitly
+ * (`cleo verify <id> --gate testsPassed --evidence "decision:<id>;note:<why>"`).
+ * Nothing is satisfied by absence.
  *
  * @task T12125 (gh#1215)
+ * @task T12220
  */
-export const DECISION_ONLY_INAPPLICABLE_GATES: readonly VerificationGate[] = Object.freeze([
+export const DECISION_ONLY_RELAXED_GATES: readonly VerificationGate[] = Object.freeze([
   'testsPassed',
   'qaPassed',
 ]);
+
+/**
+ * What a `testsPassed`/`qaPassed` refusal adds about the routes for work with
+ * no code change (T12220), or `null` for any other gate: the decision-only
+ * route (each relaxed gate verified explicitly with `decision:`+`note:`, and
+ * that re-verifying a gate REPLACES its atoms), and the gate profiles
+ * (T13474) that make the gates not owed at all. When `implemented` carries a
+ * `commit:`/`pr:` atom it says only that the change is code and needs a test
+ * or QA result: it never explains how to strip code evidence.
+ *
+ * @param gate - The refused gate.
+ * @param implemented - The task's recorded `implemented` evidence, if any.
+ * @returns The note, or `null`.
+ * @task T12220
+ */
+export function decisionOnlyRouteNote(
+  gate: VerificationGate,
+  implemented: { atoms: readonly EvidenceAtom[] } | undefined,
+): string | null {
+  if (!DECISION_ONLY_RELAXED_GATES.includes(gate)) return null;
+  const code = implemented?.atoms.find(
+    (a): a is Extract<EvidenceAtom, { kind: 'commit' | 'pr' }> =>
+      a.kind === 'commit' || a.kind === 'pr',
+  );
+  const replace = 'Re-verifying a gate replaces its atoms; it never appends to them.';
+  if (code !== undefined)
+    return (
+      `The decision-only route does not apply: implemented carries ` +
+      `${code.kind === 'commit' ? `commit:${code.sha}` : `pr:${code.prNumber}`}, a code change, so ` +
+      `${gate} needs a test or QA result.`
+    );
+  return (
+    'A task that changed no code may instead take the decision-only route: record implemented ' +
+    `as decision:<id>;note:<why> (no commit: or pr:), then verify ${DECISION_ONLY_RELAXED_GATES.join(' and ')} ` +
+    `each explicitly with decision:<id>;note:<why>. ${replace} Or declare a gate profile ` +
+    '(--add-labels profile:ops, profile:decision, profile:census or profile:audit) so they are not owed.'
+  );
+}
 
 // ---------------------------------------------------------------------------
 // Gate minimum evaluation
@@ -4237,6 +4279,14 @@ export async function taskEvidenceKindReport(
   // T14048: a task its record leaves undecided is classified by what it changed.
   const undecided = kind === 'code' && declaredEvidenceKind(task) === null;
   if (kind === 'code' && !undecided) return { kind };
+  // T13474: a gate profile never covers code evidence, wherever it points.
+  const profile = gateProfileOf(task);
+  const codeAtom = profile === null ? null : implementedCodeEvidence(task);
+  if (profile !== null && codeAtom !== null)
+    return {
+      kind: 'code',
+      reason: `profile:${profile} does not apply: implemented carries ${codeAtom}, and a code change owes its tests`,
+    };
   const code = (reason: string): TaskEvidenceKindReport =>
     undecided ? { kind: 'code' } : { kind: 'code', reason };
   const { resolveChangeSetRoot, taskOwnWorkPaths } = await import('./change-set.js');
@@ -4444,7 +4494,7 @@ export async function revalidateEvidence(
       !(
         classifyEvidenceTask(context) !== 'code' &&
         isDecisionOnlyImplementation(task.verification?.evidence?.implemented) &&
-        DECISION_ONLY_INAPPLICABLE_GATES.includes(gate)
+        DECISION_ONLY_RELAXED_GATES.includes(gate)
       )
     ) {
       reason = checkGateEvidenceMinimum(gate, evidence.atoms);
