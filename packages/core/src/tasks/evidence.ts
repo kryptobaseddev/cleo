@@ -73,14 +73,18 @@ import {
   writeCommitRevalidationEntry,
 } from './revalidation-cache.js';
 import {
+  present,
+  readTestReport,
+  TEST_REPORT_FORMATS,
+  TEST_RUN_SHAPE_HINT,
+  type TestRunCounts,
+  type TestRunReportJson,
+} from './test-report-counts.js';
+import {
   bindTestRunReport,
   configSchemaCompositionGap,
   coveredTestFiles,
-  junitTestRun,
-  libtestTestRun,
-  playwrightTestRun,
   TEST_RUN_MAX_RECORDED_FILES,
-  type TestRunReport,
 } from './test-run-binding.js';
 import {
   captureHead,
@@ -1668,143 +1672,6 @@ async function validateFiles(
   return { ok: true, atom: { kind: 'files', files } };
 }
 
-/** A parsed `test-run:` report: the binding's fields plus whatever counters it carries. */
-type TestRunReportJson = TestRunReport & Readonly<Record<string, unknown>>;
-
-/**
- * The counter sets a `test-run:` report may carry (gh#1804), tried in order;
- * the first whose total key is present is read. `failed` and `notRun` sum
- * their keys, and an absent count is 0.
- *
- * | Shape | Total | Passed | Failed | Skipped / todo |
- * |---|---|---|---|---|
- * | vitest `--reporter=json`, jest `--json` | `numTotalTests` | `numPassedTests` | `numFailedTests` | `numPendingTests`, `numTodoTests` |
- * | a runner's summary output (bun test, tsx --test) | `total` | `passed` | `failed` | `skipped`, `todo` |
- * | node --test summary (`# tests`, `# pass`, ...) | `tests` | `pass` | `fail`, `cancelled` | `skipped`, `todo` |
- *
- * Integrity (T13136 review): every count is a non-negative integer;
- * passed + failed + skipped/todo equals the total; a failure under ANY key
- * ({@link TEST_RUN_FAILURE_KEYS}) refuses, whichever set supplied the total;
- * a report's `exit` / `exitCode` must be a number, and a non-zero one is
- * refused. A `test-run:` atom proves only what its file says; `tool:test` and
- * `ci:<pr>` are what prove the run. `cleo verify --help` documents the same
- * sets.
- *
- * @task T13136
- */
-const TEST_RUN_COUNTER_SHAPES = [
-  {
-    name: 'vitest/jest',
-    total: 'numTotalTests',
-    passed: 'numPassedTests',
-    failed: ['numFailedTests'],
-    notRun: ['numPendingTests', 'numTodoTests'],
-  },
-  {
-    name: 'summary',
-    total: 'total',
-    passed: 'passed',
-    failed: ['failed'],
-    notRun: ['skipped', 'todo'],
-  },
-  {
-    name: 'node --test',
-    total: 'tests',
-    passed: 'pass',
-    failed: ['fail', 'cancelled'],
-    notRun: ['skipped', 'todo'],
-  },
-] as const;
-
-/** The keys of each counter set, as the refusals name them. */
-const TEST_RUN_SHAPE_HINT = TEST_RUN_COUNTER_SHAPES.map(
-  (s) => `${[s.total, s.passed, ...s.failed, ...s.notRun].join('/')} (${s.name})`,
-).join(', ');
-
-/** The counts a `test-run:` report states, and the counter set they came from. */
-interface TestRunCounts {
-  readonly shape: (typeof TEST_RUN_COUNTER_SHAPES)[number];
-  readonly total: number;
-  readonly passed: number;
-  readonly failed: number;
-  readonly notRun: number;
-}
-
-/**
- * Keys that name failures in any counter set, plus jest/vitest suite failures
- * and the mocha / JUnit spellings: a positive value under any of them refuses
- * the report, whichever set supplied the total.
- */
-const TEST_RUN_FAILURE_KEYS = [
-  'numFailedTests',
-  'numFailedTestSuites',
-  'numRuntimeErrorTestSuites',
-  'failed',
-  'fail',
-  'cancelled',
-  'failures',
-  'errors',
-] as const;
-
-/** A refusal while reading a report's counts. */
-interface TestRunCountsRefusal {
-  readonly reason: string;
-  readonly codeName: 'E_EVIDENCE_INVALID' | 'E_EVIDENCE_TESTS_FAILED';
-}
-
-/** A present, non-null JSON value. */
-const present = (value: unknown): boolean => value !== undefined && value !== null;
-
-/** A non-negative integer, or `undefined` when the value is anything else. */
-const countOf = (value: unknown): number | undefined =>
-  typeof value === 'number' && Number.isInteger(value) && value >= 0 ? value : undefined;
-
-/**
- * Read a report's counts from the first counter set it carries, enforcing
- * their integrity; `null` when it carries none.
- */
-function testRunCounts(report: TestRunReportJson): TestRunCounts | TestRunCountsRefusal | null {
-  const shape = TEST_RUN_COUNTER_SHAPES.find((s) => present(report[s.total]));
-  if (shape === undefined) return null;
-  const invalid = (key: string): TestRunCountsRefusal => ({
-    reason: `test-run report's "${key}" is ${JSON.stringify(report[key])}; every count must be a non-negative integer`,
-    codeName: 'E_EVIDENCE_INVALID',
-  });
-  const read = (key: string): number | TestRunCountsRefusal => {
-    if (!present(report[key])) return 0;
-    return countOf(report[key]) ?? invalid(key);
-  };
-  const total = read(shape.total);
-  if (typeof total !== 'number') return total;
-  const keys = [shape.passed, ...shape.failed, ...shape.notRun];
-  const values: number[] = [];
-  for (const key of keys) {
-    const v = read(key);
-    if (typeof v !== 'number') return v;
-    values.push(v);
-  }
-  for (const key of TEST_RUN_FAILURE_KEYS) {
-    if (!present(report[key])) continue;
-    const v = countOf(report[key]);
-    if (v === undefined) return invalid(key);
-    if (v > 0) {
-      return { reason: `test-run reports ${key} = ${v}`, codeName: 'E_EVIDENCE_TESTS_FAILED' };
-    }
-  }
-  const [passed = 0, ...rest] = values;
-  const failed = rest.slice(0, shape.failed.length).reduce((a, b) => a + b, 0);
-  const notRun = rest.slice(shape.failed.length).reduce((a, b) => a + b, 0);
-  if (passed + failed + notRun !== total) {
-    return {
-      reason:
-        `test-run report's counts do not add up: ${shape.total} is ${total}, but ` +
-        `${shape.passed} + ${[...shape.failed, ...shape.notRun].join(' + ')} = ${passed + failed + notRun}`,
-      codeName: 'E_EVIDENCE_INVALID',
-    };
-  }
-  return { shape, total, passed, failed, notRun };
-}
-
 /**
  * What the evidence under validation reveals about which repository it belongs
  * to, used only to break a tie between sibling checkouts.
@@ -2021,12 +1888,15 @@ export function resolveEvidenceExecutionRoot(
   return projectRoot;
 }
 
-/** A `test-run:` report read from disk: where it was found, its bytes and its JSON. */
+/** A `test-run:` report read from disk: where it was found, its bytes, the report and its counts. */
 interface ReadTestRunReport {
   readonly ok: true;
   readonly abs: string;
   readonly content: Buffer;
+  /** The report in the vitest shape (adapted from JUnit, libtest, TAP, Playwright or Node event JSON). */
   readonly parsed: TestRunReportJson;
+  /** Its counts, read by the reader typed gates share (T14124). */
+  readonly counts: TestRunCounts;
 }
 
 /**
@@ -2065,28 +1935,20 @@ async function readTestRunReport(
       codeName: 'E_EVIDENCE_INVALID',
     };
   }
-  const text = content.toString('utf-8');
-  // T14084: JUnit XML (cargo nextest, pytest, most runners) and libtest JSON
-  // lines (cargo test) are read in the vitest shape.
-  const junit = junitTestRun(text);
-  if (junit !== null && 'refusal' in junit)
-    return { ok: false, reason: junit.refusal, codeName: junit.codeName };
-  if (junit !== null) return { ok: true, abs, content, parsed: junit };
-  try {
-    return { ok: true, abs, content, parsed: JSON.parse(text) };
-  } catch (err) {
-    const libtest = libtestTestRun(text);
-    if (libtest !== null && 'refusal' in libtest)
-      return { ok: false, reason: libtest.refusal, codeName: libtest.codeName };
-    if (libtest !== null) return { ok: true, abs, content, parsed: libtest };
+  // T14124: one reader for every format, shared with typed gates' minCount.
+  const read = readTestReport(content.toString('utf-8'));
+  if (read === null)
     return {
       ok: false,
       reason:
-        `test-run file is not valid JSON, JUnit XML or libtest JSON lines: ` +
-        `${err instanceof Error ? err.message : String(err)}`,
+        `test-run file is not a test report this reader knows. Tried: ${TEST_REPORT_FORMATS.join(', ')}. ` +
+        `A JSON report needs test counts: ${TEST_RUN_SHAPE_HINT}; ` +
+        "e.g. vitest's --reporter=json --outputFile, Playwright's --reporter=json, or " +
+        '{"total":43,"passed":42,"failed":0,"skipped":1}',
       codeName: 'E_EVIDENCE_INVALID',
     };
-  }
+  if (!read.ok) return { ok: false, reason: read.reason, codeName: read.codeName };
+  return { ok: true, abs, content, parsed: read.report, counts: read.counts };
 }
 
 /**
@@ -2144,47 +2006,14 @@ async function validateTestRun(
   const { storeRoot: projectRoot, executionRoot } = roots;
   const read = await readTestRunReport(path, roots);
   if (!read.ok) return read;
-  const { abs, content } = read;
-  let parsed = read.parsed;
+  const { abs, content, parsed, counts } = read;
   const sha256 = createHash('sha256').update(content).digest('hex');
-
-  if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) {
+  if (counts.failure !== undefined)
     return {
       ok: false,
-      reason: `test-run file is not a JSON object. Expected test counts: ${TEST_RUN_SHAPE_HINT}`,
-      codeName: 'E_EVIDENCE_INVALID',
+      reason: `test-run reports ${counts.failure}`,
+      codeName: 'E_EVIDENCE_TESTS_FAILED',
     };
-  }
-  // T14031: a Playwright JSON report is read in the vitest shape.
-  const playwright = playwrightTestRun(parsed);
-  if (playwright !== null && 'refusal' in playwright)
-    return { ok: false, reason: playwright.refusal, codeName: playwright.codeName };
-  if (playwright !== null) parsed = playwright;
-  if (
-    present(parsed.testResults) &&
-    (!Array.isArray(parsed.testResults) ||
-      parsed.testResults.some((tr) => tr === null || typeof tr !== 'object' || Array.isArray(tr)))
-  ) {
-    return {
-      ok: false,
-      reason: 'test-run report\'s "testResults" must be an array of objects',
-      codeName: 'E_EVIDENCE_INVALID',
-    };
-  }
-  const counts = testRunCounts(parsed);
-  if (counts !== null && !('shape' in counts)) {
-    return { ok: false, reason: counts.reason, codeName: counts.codeName };
-  }
-  if (counts === null) {
-    return {
-      ok: false,
-      reason:
-        `test-run report has no test counts. Expected one of: ${TEST_RUN_SHAPE_HINT}; ` +
-        "e.g. vitest's --reporter=json --outputFile, Playwright's --reporter=json, or " +
-        '{"total":43,"passed":42,"failed":0,"skipped":1}',
-      codeName: 'E_EVIDENCE_INVALID',
-    };
-  }
   const { total, failed, passed, notRun: pending } = counts;
   // Both spellings are checked: a report carrying exit 0 and exitCode 1 failed
   // (T13136 review).
@@ -2270,10 +2099,8 @@ async function validateTestRun(
   for (const sibling of siblings) {
     if (sibling === path) continue;
     const other = await readTestRunReport(sibling, roots);
-    if (!other.ok || other.parsed === null || typeof other.parsed !== 'object') continue;
-    const adapted = playwrightTestRun(other.parsed);
-    if (adapted !== null && 'refusal' in adapted) continue;
-    siblingFiles.push(...coveredTestFiles(adapted ?? other.parsed, bindRoot));
+    if (!other.ok) continue;
+    siblingFiles.push(...coveredTestFiles(other.parsed, bindRoot));
   }
   // The tree hash is the tool cache's (T12958), so a bound test-run and a
   // cached tool run of the same content agree.
