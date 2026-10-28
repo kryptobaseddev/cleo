@@ -11,6 +11,7 @@
 
 import { execFileSync } from 'node:child_process';
 import {
+  existsSync,
   mkdirSync,
   mkdtempSync,
   realpathSync,
@@ -27,7 +28,9 @@ import {
   checkWorkspaceResolution,
   foreignResolutionReason,
   packagesNamedByTestArgs,
+  SOURCE_STAMP_FILE,
   staleDistWarning,
+  writeSourceStamps,
 } from '../workspace-resolution.js';
 
 const made: string[] = [];
@@ -160,18 +163,40 @@ describe('checkWorkspaceResolution (T14097)', () => {
     expect(checkWorkspaceResolution(root).foreign.map((f) => f.dependency)).toEqual(['@x/lib']);
   });
 
-  it('a dist older than its tracked source only warns, naming the package and the newer file', () => {
+  it('a fresh checkout of the stamped source stays silent, whatever its mtimes (the CI case)', () => {
     const root = checkout();
     linkOwn(root);
-    const past = new Date(Date.now() - 7_200_000);
-    utimesSync(join(root, 'packages/lib/dist/index.js'), past, past);
-    utimesSync(join(root, 'packages/lib/src/index.ts'), new Date(), new Date());
+    expect(writeSourceStamps(root)).toEqual(['packages/lib']);
+    // A checkout after the build rewrites the source: newer mtimes, same bytes.
+    const later = new Date(Date.now() + 3_600_000);
+    utimesSync(join(root, 'packages/lib/src/index.ts'), later, later);
+    const report = checkWorkspaceResolution(root);
+    expect(report.staleDist).toEqual([]);
+    expect(staleDistWarning(report)).toBeNull();
+  });
+
+  it('a stamped dist built from other source warns, naming the package', () => {
+    const root = checkout();
+    linkOwn(root);
+    writeSourceStamps(root);
+    write(root, 'packages/lib/src/index.ts', 'export const lib = 2;\n');
     const report = checkWorkspaceResolution(root);
     expect(report.foreign).toEqual([]);
-    expect(report.staleDist).toEqual([
-      { package: '@x/lib', dir: 'packages/lib', newestSource: 'packages/lib/src/index.ts' },
-    ]);
-    expect(staleDistWarning(report)).toContain('@x/lib (packages/lib/src/index.ts is newer)');
+    expect(report.staleDist).toEqual([{ package: '@x/lib', dir: 'packages/lib' }]);
+    expect(staleDistWarning(report)).toContain('dist was built from other source than @x/lib');
+  });
+
+  it('a dist with no stamp, or rebuilt after its stamp, is not judged', () => {
+    const root = checkout();
+    linkOwn(root);
+    write(root, 'packages/lib/src/index.ts', 'export const lib = 2;\n');
+    expect(checkWorkspaceResolution(root).staleDist).toEqual([]);
+    writeSourceStamps(root);
+    write(root, 'packages/lib/src/index.ts', 'export const lib = 3;\n');
+    const later = new Date(Date.now() + 60_000);
+    utimesSync(join(root, 'packages/lib/dist/index.js'), later, later);
+    expect(checkWorkspaceResolution(root).staleDist).toEqual([]);
+    expect(existsSync(join(root, 'packages/lib/dist', SOURCE_STAMP_FILE))).toBe(true);
   });
 
   it('scopes to the packages a run names through its test files', () => {

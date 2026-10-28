@@ -18,17 +18,28 @@
  *   receipts refuse it. A provisioned worktree that shares the root checkout's
  *   `node_modules` while both hold the same clean source for that package is
  *   only warned about (`borrowed`): the build it loads is of identical source.
- * - **Stale dist** — a package whose newest `dist/` file is older than its
- *   newest tracked `src/` file. A heuristic: a branch switch moves source
- *   mtimes without changing content, so it only warns (T14123 makes it precise
- *   with a build-provenance hash).
+ * - **Stale dist** — a package whose build stamp records a hash of other
+ *   source than its tracked `src/` holds now. The build writes the stamp
+ *   ({@link writeSourceStamps}); file mtimes are no evidence, since a checkout
+ *   or branch switch rewrites them without changing content. A dist without a
+ *   stamp, or rebuilt after its stamp, cannot be judged and is not reported.
+ *   It only warns (T14123 refuses on it).
  *
  * @module tasks/workspace-resolution
  * @task T14097
  */
 
 import { execFileSync } from 'node:child_process';
-import { type Dirent, existsSync, readdirSync, realpathSync, statSync } from 'node:fs';
+import { createHash } from 'node:crypto';
+import {
+  type Dirent,
+  existsSync,
+  readdirSync,
+  readFileSync,
+  realpathSync,
+  statSync,
+  writeFileSync,
+} from 'node:fs';
 import { isAbsolute, join, relative, resolve } from 'node:path';
 import { ExitCode } from '@cleocode/contracts/exit-codes.js';
 import { CleoError } from '../errors.js';
@@ -47,15 +58,26 @@ export interface ForeignResolution {
   readonly expected: string;
 }
 
-/** A workspace package whose build is older than its tracked source. */
+/** A workspace package whose build was made from other source than it holds now. */
 export interface StaleDist {
   /** The package. */
   readonly package: string;
   /** Its directory, relative to the checkout root. */
   readonly dir: string;
-  /** The newest tracked source file, relative to the checkout root. */
-  readonly newestSource: string;
 }
+
+/** The build stamp in a package's `dist/`, written by {@link writeSourceStamps}. */
+export interface SourceStamp {
+  /** Stamp format version. */
+  readonly schema: 1;
+  /** {@link sourceHash} of the package's tracked non-test `src/` files at build time. */
+  readonly sourceHash: string;
+  /** Newest `dist/` file mtime when stamped; a newer one means a rebuild without a stamp. */
+  readonly distNewestMs: number;
+}
+
+/** File name of the build stamp inside a package's `dist/`. */
+export const SOURCE_STAMP_FILE = '.source-stamp.json';
 
 /** Result of {@link checkWorkspaceResolution}. */
 export interface WorkspaceResolutionReport {
@@ -93,7 +115,7 @@ function newestMtime(dir: string): number {
       return;
     }
     for (const e of entries) {
-      if (e.name === 'node_modules') continue;
+      if (e.name === 'node_modules' || e.name === SOURCE_STAMP_FILE) continue;
       const p = join(d, e.name);
       if (e.isDirectory()) walk(p);
       else if (e.isFile()) newest = Math.max(newest, statSync(p).mtimeMs);
@@ -160,11 +182,83 @@ function trackedSources(root: string, dirs: readonly string[]): Map<string, stri
 }
 
 /**
+ * Content hash of source files: each file's path and the sha256 of its bytes,
+ * in path order. Identical source gives the same hash in any checkout, at any
+ * mtime.
+ *
+ * @param root - The checkout root the paths are relative to.
+ * @param files - Source files, relative to `root`.
+ * @returns The hex sha256.
+ * @task T14097
+ */
+export function sourceHash(root: string, files: readonly string[]): string {
+  const hash = createHash('sha256');
+  for (const file of [...files].sort()) {
+    let bytes: Buffer;
+    try {
+      bytes = readFileSync(join(root, file));
+    } catch {
+      continue;
+    }
+    hash.update(`${file}\0${createHash('sha256').update(bytes).digest('hex')}\0`);
+  }
+  return hash.digest('hex');
+}
+
+/** The build stamp in `distDir`, or null when it is missing or unreadable. */
+function readSourceStamp(distDir: string): SourceStamp | null {
+  let stamp: Partial<SourceStamp> | null;
+  try {
+    stamp = JSON.parse(readFileSync(join(distDir, SOURCE_STAMP_FILE), 'utf-8'));
+  } catch {
+    return null;
+  }
+  return stamp?.schema === 1 &&
+    typeof stamp.sourceHash === 'string' &&
+    typeof stamp.distNewestMs === 'number'
+    ? { schema: 1, sourceHash: stamp.sourceHash, distNewestMs: stamp.distNewestMs }
+    : null;
+}
+
+/**
+ * Stamp every built workspace package of a checkout with the hash of the
+ * source its `dist/` was built from. The root build runs it last, so
+ * {@link checkWorkspaceResolution} can tell a build of other source from one
+ * whose source a checkout merely touched.
+ *
+ * @param root - The checkout root.
+ * @returns The package directories stamped.
+ * @task T14097
+ */
+export function writeSourceStamps(root: string): string[] {
+  const built = listWorkspacePackages(root).filter(
+    (p) => p.dir !== '' && existsSync(join(root, p.dir, 'dist')),
+  );
+  const sources = trackedSources(
+    root,
+    built.map((p) => p.dir),
+  );
+  const stamped: string[] = [];
+  for (const p of built) {
+    const dist = join(root, p.dir, 'dist');
+    const stamp: SourceStamp = {
+      schema: 1,
+      sourceHash: sourceHash(root, sources.get(p.dir) ?? []),
+      distNewestMs: newestMtime(dist),
+    };
+    writeFileSync(join(dist, SOURCE_STAMP_FILE), `${JSON.stringify(stamp, null, 2)}\n`);
+    stamped.push(p.dir);
+  }
+  return stamped;
+}
+
+/**
  * Check how a checkout's workspace packages resolve their workspace
  * dependencies, the way Node looks them up: the importer's own
  * `node_modules`, then the root's. A real path outside this checkout's copy
  * of the dependency is foreign. Of the dependencies that resolve in-tree,
- * those whose `dist/` is older than their tracked `src/` are stale.
+ * those whose build stamp records other source than their tracked `src/` holds
+ * are stale.
  *
  * A checkout that declares no workspace has nothing to check; a dependency
  * that resolves nowhere is left to the runner, which reports it itself.
@@ -223,24 +317,11 @@ export function checkWorkspaceResolution(
   );
   const staleDist: StaleDist[] = [];
   for (const p of candidates) {
-    const distNewest = newestMtime(join(root, p.dir, 'dist'));
-    if (distNewest < 0) continue;
-    let newestSource: string | null = null;
-    let newestMs = -1;
-    for (const file of sources.get(p.dir) ?? []) {
-      let mtime: number;
-      try {
-        mtime = statSync(join(root, file)).mtimeMs;
-      } catch {
-        continue;
-      }
-      if (mtime > newestMs) {
-        newestMs = mtime;
-        newestSource = file;
-      }
-    }
-    if (newestSource !== null && newestMs > distNewest)
-      staleDist.push({ package: p.name, dir: p.dir, newestSource });
+    const stamp = readSourceStamp(join(root, p.dir, 'dist'));
+    // No stamp, or a rebuild since it was written: nothing proves the build old.
+    if (stamp === null || newestMtime(join(root, p.dir, 'dist')) > stamp.distNewestMs) continue;
+    if (sourceHash(root, sources.get(p.dir) ?? []) !== stamp.sourceHash)
+      staleDist.push({ package: p.name, dir: p.dir });
   }
   return { root, foreign, borrowed, staleDist };
 }
@@ -364,11 +445,11 @@ export function staleDistWarning(report: WorkspaceResolutionReport): string | nu
   if (report.staleDist.length === 0) return borrowed === '' ? null : borrowed.trim();
   const shown = report.staleDist
     .slice(0, 3)
-    .map((s) => `${s.package} (${s.newestSource} is newer)`)
+    .map((s) => s.package)
     .join(', ');
   const more = report.staleDist.length > 3 ? `, … (${report.staleDist.length} in all)` : '';
   return (
-    `${borrowed}dist may be older than its source for ${shown}${more}; tests importing them may run an ` +
+    `${borrowed}dist was built from other source than ${shown}${more} now hold${report.staleDist.length === 1 ? 's' : ''}; tests importing them run that ` +
     `older build. Rebuild with \`pnpm ${report.staleDist.map((s) => `--filter "${s.package}"`).join(' ')} run build\`.`
   );
 }
