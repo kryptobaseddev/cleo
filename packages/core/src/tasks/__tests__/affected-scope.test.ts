@@ -677,14 +677,16 @@ describe('a tree-pinned scoped run carries across the merge (T13495)', () => {
     try {
       expect(scopedRunCarriedAcrossMerge([run(tested)], changeSet)).toMatchObject({
         ok: false,
-        why: expect.stringMatching(/differ from the tree the scoped run tested/),
+        why: expect.stringMatching(
+          /scope the run tested changed at merge commit .*starting with a\.ts.*test-run on the default branch after the merge.*tool:test/,
+        ),
       });
       const reason = await testsPassedSupersededReason([run(tested)], {
         mergeState: () => ({ state: 'merged', changeSet: changeSet as unknown as TaskChangeSet }),
         currentTree: () => tested,
       });
       expect(reason).toMatch(
-        /does not carry across the merge because the change's files at merge commit .* differ.*ci:<pr>, with evidence\.ciSatisfies.*tool:test/,
+        /does not carry across the merge because the scope the run tested changed at merge commit .*starting with a\.ts.*ci:<pr>, with evidence\.ciSatisfies.*tool:test/,
       );
     } finally {
       rmSync(root, { recursive: true, force: true });
@@ -1437,7 +1439,7 @@ describe('T13673: a later-main test-run stands in for any merged change (owner d
     try {
       const stale = await judge(c, [run({ headSha: c.branchHead, treeHash: c.tree })]);
       expect(stale).toMatch(
-        /differ from the tree.*journal\.json.*no test-run on main after the merge stands in.*does not descend/s,
+        /scope the run tested changed.*journal\.json.*no test-run on main after the merge stands in.*does not descend/s,
       );
       const uncovered = await judge(c, [run({ headSha: c.head, treeHash: c.tree, testFiles: [] })]);
       expect(uncovered).toMatch(/no test-run on main after the merge stands in/);

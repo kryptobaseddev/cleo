@@ -24,7 +24,7 @@ import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import type { ChangeSetMergeState, EvidenceAtom, TaskChangeSet } from '@cleocode/contracts';
 import { discoveryEnv } from '../git/work-tree.js';
-import { cleoConfigSchemaFor } from './affected-packages.js';
+import { cleoConfigSchemaFor, listWorkspacePackages } from './affected-packages.js';
 import type {
   ChangeSetDeps,
   ChangeSetTask,
@@ -283,16 +283,8 @@ function testRunUnseenChangeReason(
     tree !== current && current !== null
       ? `testsPassed rests on ${label}, recorded on tree ${tree.slice(0, 12)}, but the tree is now ${current.slice(0, 12)}; the report no longer describes this code. ${redo}`
       : `testsPassed rests on ${label}, which did not see the commits between ${first[2]}, and the change they may touch is not known here. ${redo}`;
-  const testFiles = run.testFiles ?? [];
-  if (scope === undefined || (run.testFileCount ?? testFiles.length) > testFiles.length)
-    return moved;
-  const paths = [
-    ...new Set([
-      ...scope.changed,
-      ...testFiles,
-      ...testRunInputPaths(scope.root, [...scope.changed, ...testFiles]),
-    ]),
-  ];
+  const paths = scope === undefined ? null : testRunScopePaths(run, scope);
+  if (scope === undefined || paths === null) return moved;
   for (const [from, to, between] of pairs) {
     const same = sameOver(scope.root, from, to, paths);
     if (same === null) return moved;
@@ -377,6 +369,55 @@ function testRunInputPaths(root: string, files: readonly string[]): string[] {
   ];
 }
 
+/**
+ * Everything a targeted `test-run:` result depends on over `scope`
+ * (T13784): the change's files, the test files it ran and their test inputs.
+ * Null when the run's test-file list was capped, so its scope is not known.
+ * The one rule for an earlier-tree carry and a carry across the merge (T14071).
+ */
+function testRunScopePaths(
+  run: Extract<EvidenceAtom, { kind: 'test-run' }>,
+  scope: QaRunCarryScope,
+): string[] | null {
+  const testFiles = run.testFiles ?? [];
+  if ((run.testFileCount ?? testFiles.length) > testFiles.length) return null;
+  return [
+    ...new Set([
+      ...scope.changed,
+      ...testFiles,
+      ...testRunInputPaths(scope.root, [...scope.changed, ...testFiles]),
+    ]),
+  ];
+}
+
+/** Everything a `qa-run:` receipt depends on over `scope` (T13644): its roots, the change and the shared tool configs. */
+function qaRunScopePaths(
+  run: Extract<EvidenceAtom, { kind: 'qa-run' }>,
+  scope: QaRunCarryScope,
+): string[] {
+  return [
+    ...new Set([...run.roots.map((r) => (r === '' ? '.' : r)), ...scope.changed, ...QA_RUN_SHARED_INPUTS]),
+  ];
+}
+
+/**
+ * Everything a scoped `tool:` result (`tool:test-affected`) depends on over
+ * `scope` (T14071): the change, the directories of the packages it tested and
+ * the test inputs of the change.
+ */
+function scopedToolScopePaths(
+  tool: Extract<EvidenceAtom, { kind: 'tool' }>,
+  scope: QaRunCarryScope,
+): string[] {
+  // A tree-pinned check (config-schema, T13758) speaks for the change alone.
+  if (tool.scope !== 'affected') return [...scope.changed];
+  const tested = new Set(tool.affectedPackages ?? []);
+  const dirs = listWorkspacePackages(scope.root)
+    .filter((p) => tested.has(p.name))
+    .map((p) => (p.dir === '' ? '.' : p.dir));
+  return [...new Set([...scope.changed, ...dirs, ...testRunInputPaths(scope.root, scope.changed)])];
+}
+
 /** What an earlier-tree qa-run receipt is compared over (T13644). */
 export interface QaRunCarryScope {
   /** The execution root both trees are compared in. */
@@ -420,13 +461,7 @@ export function qaRunTreeMismatchReason(
       'Re-run the check and record a fresh qa-run, or record ci:<pr> once the PR merges.';
     const moved = `qaPassed rests on ${label}, recorded on tree ${tree}, but the tree is now ${current.slice(0, 12)}; the receipt no longer describes this code. ${redo}`;
     if (scope === undefined) return moved;
-    const paths = [
-      ...new Set([
-        ...a.roots.map((r) => (r === '' ? '.' : r)),
-        ...scope.changed,
-        ...QA_RUN_SHARED_INPUTS,
-      ]),
-    ];
+    const paths = qaRunScopePaths(a, scope);
     try {
       execFileSync(
         'git',
@@ -707,10 +742,16 @@ export async function testsPassedSupersededReason(
 
 /**
  * Whether every scoped result in `atoms` was recorded on a tree whose copy of
- * every file the change touched equals the merge commit's (T13495): the merged
- * change is the change the scoped run tested, so its result still stands. Fails
- * closed — no merge commit, no changed paths, a result with no tree pin, or a
- * git failure each say why the result does not carry.
+ * the result's whole scope equals the merge commit's (T13495, narrowed by
+ * D11205 / T14071): the change's files and deleted files, plus what the result
+ * depends on — a test-run's test files and their test inputs (root configs,
+ * lockfile, runner configs and setup files), a qa-run's roots and shared tool
+ * configs, a `tool:test-affected` run's tested package directories. The same
+ * per-result scope as the earlier-tree carry (T13784). Then the merged code is
+ * the code the run tested, so its result still stands. Fails closed — no merge
+ * commit, no changed paths, a result with no tree pin, a capped test-file list,
+ * or a git failure each say why the result does not carry; a differing scope
+ * names its first changed file and the routes that still prove the change.
  *
  * @param atoms - Recorded `testsPassed` atoms, or `qaPassed` qa-run receipts (T13644).
  * @param changeSet - The merged change set (its merge commit, files and root).
@@ -750,26 +791,31 @@ export function scopedRunCarriedAcrossMerge(
     const tree = 'treeHash' in atom && typeof atom.treeHash === 'string' ? atom.treeHash : null;
     if (tree === null)
       return { ok: false, why: 'the scoped result has no recorded tree to compare with the merge' };
-    let identical: boolean;
-    try {
-      execFileSync('git', ['diff', '--quiet', '--no-renames', tree, merge, '--', ...paths], {
-        cwd: changeSet.executionRoot,
-        stdio: 'ignore',
-      });
-      identical = true;
-    } catch (err) {
-      if ((err as { status?: number }).status !== 1)
-        return {
-          ok: false,
-          why: `git could not compare the recorded tree ${tree.slice(0, 12)} with merge commit ${merge.slice(0, 12)}`,
-        };
-      identical = false;
-    }
-    if (!identical) {
-      const differing = differingPaths(changeSet.executionRoot, tree, merge, paths);
+    const scope: QaRunCarryScope = { root: changeSet.executionRoot, changed: paths };
+    const scopePaths =
+      atom.kind === 'test-run'
+        ? testRunScopePaths(atom, scope)
+        : atom.kind === 'qa-run'
+          ? qaRunScopePaths(atom, scope)
+          : atom.kind === 'tool'
+            ? scopedToolScopePaths(atom, scope)
+            : paths;
+    if (scopePaths === null)
       return {
         ok: false,
-        why: `the change's files at merge commit ${merge.slice(0, 12)} differ from the tree the scoped run tested (${tree.slice(0, 12)})${differing}`,
+        why: `the scoped run's test-file list was capped, so the scope it tested is not known; ${MERGE_CARRY_ROUTES}`,
+      };
+    const same = sameOver(changeSet.executionRoot, tree, merge, scopePaths);
+    if (same === null)
+      return {
+        ok: false,
+        why: `git could not compare the recorded tree ${tree.slice(0, 12)} with merge commit ${merge.slice(0, 12)}`,
+      };
+    if (!same) {
+      const first = firstDifferingPath(changeSet.executionRoot, tree, merge, scopePaths);
+      return {
+        ok: false,
+        why: `the scope the run tested changed at merge commit ${merge.slice(0, 12)} (from the tree it tested, ${tree.slice(0, 12)})${first ? `, starting with ${first}` : ''}; ${MERGE_CARRY_ROUTES}`,
       };
     }
   }
@@ -831,6 +877,32 @@ function configSchemaCommitDiffers(
 }
 
 /** `: a, b, …` naming the compared paths that differ, or '' when git cannot say (T13637). */
+/**
+ * The routes that still prove a merged change whose scoped run does not carry
+ * (D11205): a covering test-run on main after the merge (T13673), or a full run.
+ */
+const MERGE_CARRY_ROUTES =
+  'record a test-run on the default branch after the merge that covers the change (T13673), or tool:test';
+
+/** The first path that differs between two trees over `paths`, or null. */
+function firstDifferingPath(
+  root: string,
+  tree: string,
+  merge: string,
+  paths: readonly string[],
+): string | null {
+  try {
+    const out = execFileSync('git', ['diff', '--name-only', '--no-renames', tree, merge, '--', ...paths], {
+      cwd: root,
+      encoding: 'utf-8',
+      stdio: ['ignore', 'pipe', 'ignore'],
+    });
+    return out.split('\n').find(Boolean) ?? null;
+  } catch {
+    return null;
+  }
+}
+
 function differingPaths(root: string, tree: string, merge: string, paths: string[]): string {
   try {
     const out = execFileSync(

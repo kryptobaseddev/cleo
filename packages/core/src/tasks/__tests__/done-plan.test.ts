@@ -527,7 +527,7 @@ describe('merged-PR CI replaces local tool runs when the project opts in (T12634
       const plan = await deriveTaskEvidence(id, { projectRoot: root, cwd: root, deps: deps2 });
       expect(plan.gates.find((g) => g.gate === 'testsPassed')?.passed).toBe(false);
       expect(plan.changeSet.warnings.join(' ')).toMatch(
-        /does not carry across the merge because the change's files at merge commit .* differ/,
+        /does not carry across the merge because the scope the run tested changed at merge commit/,
       );
       // T13641/T13642: no whole-suite fallback. The plan is not ready and
       // names the differing file, and cleo done runs no tool at all.
