@@ -137,10 +137,7 @@ export interface MergeCloseDeps {
   ): Promise<Array<{ url: string; title: string }> | null>;
   /** Close an issue with a comment; false when it could not. */
   closeIssue(root: string, url: string, comment: string): Promise<boolean>;
-  /**
-   * Flag the docs a merged change left stale on its tasks (T14111), returning
-   * the task ids flagged. Unset until the docs-rot module is on main.
-   */
+  /** Flag the docs a merged change left stale on its tasks (T14111), returning the task ids flagged. */
   docsRot?(
     storeRoot: string,
     pr: { prNumber: number; mergeSha: string; taskIds: string[] },
@@ -1069,6 +1066,15 @@ export const defaultMergeCloseDeps: MergeCloseDeps = {
         ? [{ url: r.url, title: r.title }]
         : [];
     });
+  },
+  async docsRot(storeRoot, pr) {
+    // T14111: the docs whose covers: globs match the merge's own changes.
+    const { scanDocsRot, flagDocsRotOnTasks } = await import('../docs/rot.js');
+    const { flagged } = scanDocsRot({
+      projectRoot: storeRoot,
+      changed: `${pr.mergeSha}^1..${pr.mergeSha}`,
+    });
+    return flagDocsRotOnTasks(storeRoot, pr.taskIds, flagged, `PR #${pr.prNumber}`);
   },
   async closeIssue(root, url, comment) {
     return (await gh(['issue', 'close', url, '--comment', comment], root)) !== null;

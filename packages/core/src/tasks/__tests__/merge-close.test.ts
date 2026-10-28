@@ -469,6 +469,8 @@ describe('one sweep also runs the upkeep hooks (T14101)', () => {
     const hooked: MergeCloseDeps = {
       ...deps,
       docsRot: async (_root, change) => {
+        // flagDocsRotOnTasks writes through updateTask, which needs a bound session.
+        expect(await getActiveSessionInfo(root)).not.toBeNull();
         flaggedFor.push(change.taskIds);
         return change.taskIds;
       },
