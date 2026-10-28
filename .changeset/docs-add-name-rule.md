@@ -16,3 +16,7 @@ drops task ids and dates from its tail and fits the length cap, and the
 spawn `{{TOPIC_SLUG}}` token (spawn prompt, injection tokens, orchestrator
 spawn) carries the task's subject, not its id. The task stays a link on
 the doc.
+
+Because every new ADR carries a new number, and names whose numbers differ
+never match in the duplicate check (T14109), ADR duplicate detection runs on
+the title and content, never on the slug.
