@@ -12,8 +12,9 @@
 import { execFileSync } from 'node:child_process';
 import { appendFileSync, existsSync, mkdirSync, readFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
-import type { Task } from '@cleocode/contracts';
+import type { AcBindingRow, AcRow, DataAccessor, Task } from '@cleocode/contracts';
 import { TASK_STATUSES } from '@cleocode/contracts/status-registry.js';
+import { isAllowedWorkGraphParentType } from '@cleocode/contracts/workgraph.js';
 import { getManifestPath as getCentralManifestPath } from '../paths.js';
 import { resolveToolCommand } from '../sdk/tool-resolver.js';
 import { readLiveFocus, resolveFocusSessionId } from '../sessions/focus-state-store.js';
@@ -56,6 +57,67 @@ export interface CoherenceIssue {
   taskId: string;
   message: string;
   severity: 'error' | 'warning' | 'info';
+  /** Every task the issue covers, when one summary issue stands for many (T12883). */
+  taskIds?: string[];
+}
+
+/** How many done tasks without AC evidence `cleo doctor --coherence` lists one by one (T12883). */
+export const DONE_WITHOUT_AC_SAMPLE = 20;
+
+/**
+ * Done tasks whose acceptance criteria have no evidence (T12883 R2), as
+ * coherence issues: the newest {@link DONE_WITHOUT_AC_SAMPLE} individually and,
+ * when there are more, one `done_without_ac_evidence_total` issue with the
+ * count and every id. Coverage is the completion gate's own rule
+ * ({@link uncoveredAcRows}); bindings are read in bulk.
+ */
+async function doneWithoutAcEvidence(
+  tasks: readonly Task[],
+  accessor: Pick<DataAccessor, 'getAcRows' | 'getAcRowsForTasks' | 'getAcBindings'>,
+): Promise<CoherenceIssue[]> {
+  const { uncoveredAcRows } = await import('../tasks/ac-coverage-gate.js');
+  const done = tasks.filter((t) => t.status === 'done');
+  const doneIds = new Set(done.map((t) => t.id));
+  const rowsByTask = new Map<string, AcRow[]>();
+  if (accessor.getAcRowsForTasks) {
+    // One query per 500 tasks rather than one per task (a store holds ~10k done).
+    for (const row of await accessor.getAcRowsForTasks(done.map((t) => t.id))) {
+      const list = rowsByTask.get(row.taskId) ?? [];
+      list.push(row);
+      rowsByTask.set(row.taskId, list);
+    }
+  } else {
+    for (const t of done) rowsByTask.set(t.id, await accessor.getAcRows(t.id));
+  }
+  const allIds = [...rowsByTask.values()].flat().map((r) => r.id);
+  const bindings: AcBindingRow[] = [];
+  for (let i = 0; i < allIds.length; i += 500) {
+    bindings.push(...(await accessor.getAcBindings(allIds.slice(i, i + 500))));
+  }
+  const uncovered = done
+    .map((t) => ({ task: t, rows: uncoveredAcRows(rowsByTask.get(t.id) ?? [], bindings, doneIds) }))
+    .filter((u) => u.rows.length > 0)
+    .sort((a, b) =>
+      (b.task.completedAt ?? b.task.updatedAt ?? '').localeCompare(
+        a.task.completedAt ?? a.task.updatedAt ?? '',
+      ),
+    );
+  const issues: CoherenceIssue[] = uncovered.slice(0, DONE_WITHOUT_AC_SAMPLE).map((u) => ({
+    type: 'done_without_ac_evidence',
+    taskId: u.task.id,
+    message: `Task ${u.task.id} is done but ${u.rows.map((r) => `AC${r.ordinal}`).join(', ')} ha${u.rows.length === 1 ? 's' : 've'} no evidence`,
+    severity: 'warning',
+  }));
+  if (uncovered.length > DONE_WITHOUT_AC_SAMPLE) {
+    issues.push({
+      type: 'done_without_ac_evidence_total',
+      taskId: uncovered[0]!.task.id,
+      message: `${uncovered.length} done tasks have acceptance criteria without evidence; the ${DONE_WITHOUT_AC_SAMPLE} newest are listed, taskIds holds them all`,
+      severity: 'warning',
+      taskIds: uncovered.map((u) => u.task.id),
+    });
+  }
+  return issues;
 }
 
 // ============================================================================
@@ -1008,9 +1070,12 @@ export async function coreCoherenceCheck(
     }
   }
 
-  // 5. Status inconsistencies
+  // 5. Status inconsistencies (T12883 R1: any live child, `blocked` included)
   for (const task of tasks) {
-    if (task.parentId && (task.status === 'active' || task.status === 'pending')) {
+    if (
+      task.parentId &&
+      (task.status === 'active' || task.status === 'pending' || task.status === 'blocked')
+    ) {
       const parent = taskMap.get(task.parentId);
       if (parent && (parent.status === 'done' || parent.status === 'cancelled')) {
         issues.push({
@@ -1022,6 +1087,30 @@ export async function coreCoherenceCheck(
       }
     }
   }
+
+  // 7. T12883 R2: done tasks whose acceptance criteria have no evidence.
+  //    Real stores hold thousands from before the coverage gate (T10509), so
+  //    the newest DONE_WITHOUT_AC_SAMPLE are listed one by one and a single
+  //    summary issue carries the count and every id (`taskIds`).
+  issues.push(...(await doneWithoutAcEvidence(tasks, accessor)));
+
+  // 8. T12883 R4: a child whose type its parent cannot contain (PARENT_TYPE_MATRIX).
+  for (const task of tasks) {
+    const parent = task.parentId ? taskMap.get(task.parentId) : undefined;
+    if (!parent) continue;
+    const childType = task.type ?? 'task';
+    const parentType = parent.type ?? 'task';
+    if (!isAllowedWorkGraphParentType(childType, parentType)) {
+      issues.push({
+        type: 'type_matrix_violation',
+        taskId: task.id,
+        message: `Task ${task.id} is a '${childType}' under ${parent.id}, a '${parentType}', which cannot contain it`,
+        severity: 'error',
+      });
+    }
+  }
+  // (T12883 R3, pipeline_stage moving backwards, leaves no trace in the
+  //  current rows; the writers refuse it instead.)
 
   // 6. Duplicate titles
   const titleMap = new Map<string, string[]>();
