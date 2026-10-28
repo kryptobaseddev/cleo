@@ -28,7 +28,7 @@
  * @see ADR-058 — Dispatch type inference
  */
 
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import type { BlobAttachment } from '@cleocode/contracts';
@@ -357,6 +357,23 @@ const SLUG_PATTERN = /^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/;
 const SLUG_MAX_LEN = 80;
 
 /**
+ * The duplicate-check thresholds the project's `.cleo/canon.yml` sets
+ * (`similarity.warnThreshold` for slugs, T10361). They can only tighten the
+ * defaults; `similarity.mode: warn` no longer lets a duplicate through
+ * (T14109). A malformed canon file keeps the defaults; `cleo check canon
+ * docs` reports it.
+ */
+async function docsDuplicateThresholds(projectRoot: string): Promise<{ slug?: number }> {
+  try {
+    const { loadCanonRegistry } = await import('./check/canon-docs.js');
+    const threshold = loadCanonRegistry(projectRoot)?.similarity?.warnThreshold;
+    return threshold === undefined ? {} : { slug: threshold };
+  } catch {
+    return {};
+  }
+}
+
+/**
  * Validate a slug string against {@link SLUG_PATTERN}.
  *
  * @returns `{ valid: true }` when the slug matches; `{ valid: false, reason }`
@@ -555,15 +572,14 @@ const _docsTypedHandler = defineTypedHandler<DocsTypedOps>('docs', {
 
     if (isProjectScope) {
       // Project-scoped: use the read model's listProjectDocs
-      const docs = await model.listProjectDocs({
-        kind: typeFilter,
-        limit: Number.isFinite(effectiveLimit) ? effectiveLimit : undefined,
-      });
+      // T14115: read every match, then apply the window, so the envelope can
+      // say how many matched and whether this page left any out.
+      const docs = await model.listProjectDocs({ kind: typeFilter });
 
       const totalCount = docs.length;
 
       // Build the wire projection from ResolvedDoc[] — match DocsListResult shape
-      const projected = docs.map((doc) => ({
+      const allProjected = docs.map((doc) => ({
         id: doc.id,
         // Full content hash — a SHA-256 field in a machine envelope must be the
         // real digest, never a display-truncated form (T11294: the per-doc
@@ -587,12 +603,15 @@ const _docsTypedHandler = defineTypedHandler<DocsTypedOps>('docs', {
         ownerType: doc.ownerType as AttachmentRef['ownerType'],
       }));
 
-      projected.sort((a, b) =>
+      allProjected.sort((a, b) =>
         comparator(
           { sha256: a.sha256, slug: a.slug, createdAt: a.createdAt },
           { sha256: b.sha256, slug: b.slug, createdAt: b.createdAt },
         ),
       );
+      const projected = Number.isFinite(effectiveLimit)
+        ? allProjected.slice(0, effectiveLimit)
+        : allProjected;
 
       const truncated = totalCount > projected.length;
       if (truncated) {
@@ -609,6 +628,12 @@ const _docsTypedHandler = defineTypedHandler<DocsTypedOps>('docs', {
           ...(typeFilter !== undefined ? { type: typeFilter } : {}),
           count: projected.length,
           ...(truncated ? { totalCount } : {}),
+          population: {
+            matched: totalCount,
+            returned: projected.length,
+            truncated,
+            limit: Number.isFinite(effectiveLimit) ? effectiveLimit : null,
+          },
           limit: Number.isFinite(effectiveLimit) ? effectiveLimit : 0,
           orderBy,
           ...(hintParts.length > 0 ? { hint: hintParts.join(' ') } : {}),
@@ -667,6 +692,12 @@ const _docsTypedHandler = defineTypedHandler<DocsTypedOps>('docs', {
         ...(typeFilter !== undefined ? { type: typeFilter } : {}),
         count: slicedOwner.length,
         ...(truncatedOwner ? { totalCount: totalCountOwner } : {}),
+        population: {
+          matched: totalCountOwner,
+          returned: slicedOwner.length,
+          truncated: truncatedOwner,
+          limit: Number.isFinite(effectiveLimit) ? effectiveLimit : null,
+        },
         limit: Number.isFinite(effectiveLimit) ? effectiveLimit : 0,
         orderBy,
         ...(hintParts.length > 0 ? { hint: hintParts.join(' ') } : {}),
@@ -966,6 +997,7 @@ const _docsTypedHandler = defineTypedHandler<DocsTypedOps>('docs', {
       title: rawTitle,
       type: rawType,
       strict: strictMode,
+      newBecause,
     } = params;
     if (!ownerId) {
       return lafsError('E_INVALID_INPUT', 'ownerId is required', 'add');
@@ -1272,6 +1304,73 @@ const _docsTypedHandler = defineTypedHandler<DocsTypedOps>('docs', {
                 `${patternCheck.error}${exampleHint}`,
                 'add',
               );
+            }
+          }
+
+          // T14109 (D11210): update before create. A doc that likely
+          // duplicates an existing one is refused and routed to
+          // `cleo docs update <slug>`, unless --new-because says why it is new.
+          {
+            const reason = typeof newBecause === 'string' ? newBecause.trim() : undefined;
+            const dup = await import('@cleocode/core/docs/duplicate-check');
+            if (reason !== undefined && reason.length < dup.NEW_BECAUSE_MIN_LENGTH) {
+              if (adrNumber !== undefined && slug !== undefined) releaseReservedSlug(slug);
+              return lafsError(
+                'E_INVALID_INPUT', // @sync-invariant none:input-shape a too-short --new-because reason is refused before anything is written
+                `--new-because needs a reason of at least ${dup.NEW_BECAUSE_MIN_LENGTH} characters saying why this is not an existing doc`,
+                'add',
+              );
+            }
+            const bytes =
+              typeof inlineContent === 'string'
+                ? Buffer.from(inlineContent, 'utf-8')
+                : filePath
+                  ? await readFile(resolve(String(filePath))).catch(() => null)
+                  : null;
+            const text = bytes?.toString('utf-8');
+            const title =
+              (typeof rawTitle === 'string' && rawTitle.trim() ? rawTitle : null) ??
+              (text ? dup.markdownTitle(text) : null);
+            // Only canonical docs (typed) are compared; an untyped attachment
+            // may share a blob with another owner by design.
+            const match =
+              type === undefined
+                ? null
+                : dup.findDuplicateDoc(
+                    {
+                      ...(slug !== undefined ? { slug } : {}),
+                      ...(type !== undefined ? { kind: type } : {}),
+                      ...(title !== null ? { title } : {}),
+                      ...(text !== undefined ? { content: text } : {}),
+                      ...(bytes
+                        ? { sha256: createHash('sha256').update(bytes).digest('hex') }
+                        : {}),
+                    },
+                    await dup.loadDuplicateCandidates(projectRoot, { kind: type }),
+                    await docsDuplicateThresholds(projectRoot),
+                  );
+            if (match && reason === undefined) {
+              if (adrNumber !== undefined && slug !== undefined) releaseReservedSlug(slug);
+              const { message, fix } = dup.describeDuplicate(match);
+              return lafsError(
+                'E_DOC_DUPLICATE', // @sync-invariant none:input-shape a likely duplicate doc is refused before anything is written
+                message,
+                'add',
+                fix,
+                {
+                  existing: { slug: match.slug, kind: match.kind, title: match.title },
+                  rule: match.rule,
+                  score: match.score,
+                },
+              );
+            }
+            if (match && reason !== undefined) {
+              await dup.recordNewBecause(projectRoot, {
+                slug: slug ?? null,
+                kind: type ?? null,
+                resembles: match,
+                reason,
+              });
             }
           }
 

@@ -56,7 +56,7 @@ Discovery: `cleo find "query"` to search (default page 20; `--limit 0` for all),
 | Session token budget ≈ 80% consumed | Run `cleo session end --note "..."` and hand off |
 | Multiple related tasks ready in parallel | Run `cleo orchestrate ready <epicId>` for the wave set |
 | About to call `cleo complete` | `cleo done <id> --plan`, record what it names, then complete |
-| Writing a canonical doc (spec/adr/research/handoff/note/llm-readme) | Use `cleo docs add --type <kind> --slug <kebab-handle>` — NEVER raw fs write to `.cleo/adrs/`, `.cleo/research/`, `.cleo/agent-outputs/`, or `docs/` |
+| Writing a canonical doc (spec/adr/research/handoff/note/llm-readme) | Update first: find the existing doc and `cleo docs update <slug>`; `cleo docs add` refuses a likely duplicate (pass `--new-because <why>` only for a truly new doc). Use `cleo docs add --type <kind> --slug <kebab-handle>` — NEVER raw fs write to `.cleo/adrs/`, `.cleo/research/`, `.cleo/agent-outputs/`, or `docs/` |
 | Reading an ADR/spec/research note/handoff | `cleo docs fetch <slug>` — never grep the filesystem for canonical docs |
 | New device, restore or migration; known repo "Not inside a CLEO project"; unreachable registry path; nexus `ENOENT` | `cleo doctor global-delivery` (hub + skills resolve; `--repair`), `cleo doctor projects` (dry run; `--apply`/`--rollback <id>`), `cleo doctor project-identity`, `cleo doctor --all-projects`, `cleo nexus projects clean --orphans --dry-run` (`--dry-run` mandatory: it deletes moved projects), `cleo doctor credentials`; report. Never delete rows of projects that may have moved |
 <!-- /CLEO-INJECTION:section=triggers -->

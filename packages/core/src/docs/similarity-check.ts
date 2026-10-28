@@ -147,7 +147,11 @@ function levenshteinDistance(a: string, b: string): number {
  * Formula: `1 - distance / max(len(a), len(b))`. Identical strings return
  * `1.0`; strings sharing no characters of equal length return `0.0`.
  *
+ * @param a - First string.
+ * @param b - Second string.
+ * @returns The score in `[0, 1]`.
  * @task T10361
+ * @task T14109 — exported for the duplicate-doc check
  * @task T14111 — exported for the docs-rot duplicate-title check
  */
 export function similarityScore(a: string, b: string): number {
