@@ -1167,6 +1167,35 @@ export interface PassContext {
    * CLEO), so one run at a time is admitted in queue order.
    */
   readonly latchedBelowRefuse?: boolean;
+  /**
+   * Memory the gate's reading reports as available or reclaimable, in bytes
+   * (T14088). While {@link PassContext.latchedBelowRefuse}, only a run charged
+   * no more than this may start; `null` or absent starts nothing.
+   */
+  readonly reclaimableBytes?: number | null;
+}
+
+/**
+ * The run a latched-below-refuse pass may start (T14088): the first waiting
+ * run in queue order whose charge fits the reclaimable memory, or `null`.
+ *
+ * @param entries - the ledger.
+ * @param reclaimableBytes - the reading's available or reclaimable bytes.
+ * @param capacityBytes - the machine budget.
+ * @param nowMs - the clock.
+ */
+function firstFittingWaiter(
+  entries: readonly LedgerEntry[],
+  reclaimableBytes: number | null | undefined,
+  capacityBytes: number,
+  nowMs: number,
+): LedgerEntry | null {
+  if (typeof reclaimableBytes !== 'number' || !(reclaimableBytes > 0)) return null;
+  return (
+    entries
+      .filter((e) => e.state === 'waiting' && charged(e, capacityBytes) <= reclaimableBytes)
+      .sort(queueOrder(nowMs))[0] ?? null
+  );
 }
 
 /**
@@ -1237,7 +1266,7 @@ function ledgerBudget(
     lightBudgetBytes,
     heavyBudgetBytes: Math.min(lightBudgetBytes, shareBudgetBytes(share, capacityBytes)),
     sampledAtMs: pressure?.sampledAtMs ?? null,
-    cause: pressure?.reading ? latchCause(pressure.reading, entries) : null,
+    cause: pressure?.reading ? latchCause(pressure.reading, entries, capacityBytes) : null,
   };
 }
 
@@ -1249,12 +1278,25 @@ function ledgerBudget(
  * @param reading - the gate's refusing reading.
  * @param entries - the ledger, when known.
  */
-function latchCause(reading: MemoryPressureReading, entries: readonly LedgerEntry[] | null): string {
+function latchCause(
+  reading: MemoryPressureReading,
+  entries: readonly LedgerEntry[] | null,
+  capacityBytes: number = admissionCapacityBytes(),
+  nowMs: number = Date.now(),
+): string {
   const cause = gateCause(reading);
   const cleoHoldsNothing = entries !== null && !entries.some((e) => e.state === 'admitted');
-  return cleoHoldsNothing && isLatchedBelowRefuse(reading)
-    ? `${cause}. CLEO holds nothing, so the latch is held by memory outside CLEO (the largest users above); one run at a time is still admitted, in queue order, until pressure resumes`
-    : cause;
+  if (!cleoHoldsNothing || !isLatchedBelowRefuse(reading)) return cause;
+  const reclaimable = reading.memAvailableBytes;
+  const fitting = firstFittingWaiter(entries ?? [], reclaimable, capacityBytes, nowMs);
+  const reclaim = reclaimable === null ? 'unknown' : gib(reclaimable);
+  return (
+    `${cause}. CLEO holds nothing, so the latch is held by memory outside CLEO (the largest users above); ` +
+    `one run at a time that fits the reclaimable memory is still admitted, in queue order, until pressure resumes ` +
+    (fitting === null
+      ? `(largest fitting run: none; reclaimable ${reclaim})`
+      : `(next run that fits: ${fitting.label} ${gib(charged(fitting, capacityBytes))}; reclaimable ${reclaim})`)
+  );
 }
 
 /** The memory gate's refusal in words, with its cause (T13914). */
@@ -1346,24 +1388,23 @@ export function schedulePass(entries: readonly LedgerEntry[], ctx: PassContext):
   const lightShare = ctx.lightShare ?? ctx.share;
   if (ctx.share === 'none' && lightShare === 'none') {
     // T14088: latched below the refuse line with nothing of CLEO's running: the
-    // pressure is someone else's, so admit one run, the first the queue would
-    // start under a one-at-a-time share (the tiny reserve included). It holds
-    // the budget alone until it releases; nothing else starts beside it.
+    // pressure is someone else's, so admit one run, the first in queue order
+    // whose charge fits the memory the reading reports as reclaimable (never a
+    // whole-suite run into a nearly full swap). It holds the budget alone
+    // until it releases; nothing else starts beside it.
     const idle =
       ctx.latchedBelowRefuse === true &&
       (ctx.foreign?.count ?? 0) === 0 &&
       !entries.some((e) => e.state === 'admitted');
     if (!idle) return [...entries];
-    const opened = schedulePass(entries, {
-      ...ctx,
-      share: 'one',
-      lightShare: 'one',
-      latchedBelowRefuse: false,
-    });
-    const first = opened
-      .filter((e) => e.state === 'admitted')
-      .sort(queueOrder(ctx.nowMs))[0];
-    return entries.map((e) => (e.id === first?.id ? (first ?? e) : e));
+    const fitting = firstFittingWaiter(entries, ctx.reclaimableBytes, ctx.capacityBytes, ctx.nowMs);
+    if (fitting === null) return [...entries];
+    const opened = schedulePass(
+      entries.filter((e) => e.state !== 'waiting' || e.id === fitting.id),
+      { ...ctx, share: 'one', lightShare: 'one', latchedBelowRefuse: false },
+    );
+    const started = opened.find((e) => e.id === fitting.id && e.state === 'admitted');
+    return entries.map((e) => (e.id === started?.id ? started : e));
   }
   const reservationMs = ctx.reservationMs ?? LEDGER_RESERVATION_MS;
   const bytesFor = (share: BudgetShare): number => shareBudgetBytes(share, ctx.capacityBytes);
@@ -2233,13 +2274,15 @@ function reapAndSchedule(
 ): LedgerDoc {
   const live = doc.entries.filter((e) => dead.entries.get(e.id) !== e.heartbeatAtMs);
   const foreign = doc.foreign.filter((f) => !dead.foreign.has(JSON.stringify(f)));
-  const latchedBelowRefuse = isLatchedBelowRefuse((sampled ?? doc.pressure)?.reading);
+  const reading = (sampled ?? doc.pressure)?.reading;
+  const latchedBelowRefuse = isLatchedBelowRefuse(reading);
   return {
     ...doc,
     entries: schedulePass(live, {
       ...ctx,
       foreign: foreignLoad(foreign, ctx.capacityBytes),
       latchedBelowRefuse,
+      reclaimableBytes: reading?.memAvailableBytes ?? null,
     }),
     foreign,
     pressure: sampled ?? doc.pressure,
@@ -2430,7 +2473,7 @@ async function admitInner(req: AdmissionRequest, opts: AdmitOptions): Promise<Ad
         : undefined;
     const reason =
       reading !== null
-        ? latchCause(reading, doc.entries)
+        ? latchCause(reading, doc.entries, capacityBytes, nowMs)
         : exclusiveHolder !== undefined
           ? `another full build holds the machine-wide full-build slot (${exclusiveHolder.label} pid ` +
             `${exclusiveHolder.pid}); one runs at a time, whatever its size${ahead > 0 ? `; ${ahead} waiting ahead` : ''}`
@@ -2594,7 +2637,7 @@ function holderReport(
   const reading = doc.pressure?.reading ?? null;
   if (reading !== null) {
     lines.push(
-      `The budget is closed by ${latchCause(reading, doc.entries)}. Admission resumes by itself; this wait ` +
+      `The budget is closed by ${latchCause(reading, doc.entries, capacityBytes, nowMs)}. Admission resumes by itself; this wait ` +
         `gives up in ${age(Math.max(0, timeoutMs - waitedMs))}.`,
     );
   }

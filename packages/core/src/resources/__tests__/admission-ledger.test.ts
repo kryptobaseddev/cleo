@@ -403,12 +403,13 @@ describe('schedulePass', () => {
 });
 
 describe('a latch held by memory outside CLEO admits one run at a time (T14088)', () => {
-  const ctx = (latchedBelowRefuse: boolean) => ({
+  const ctx = (latchedBelowRefuse: boolean, reclaimableBytes: number | null = 8 * GIB) => ({
     capacityBytes: 10 * GIB,
     share: 'none' as const,
     lightShare: 'none' as const,
     nowMs: 1_000,
     latchedBelowRefuse,
+    reclaimableBytes,
   });
   const queue = [
     entry({ id: 'b', enqueuedAtMs: 2, footprintBytes: 4 * GIB }),
@@ -427,6 +428,19 @@ describe('a latch held by memory outside CLEO admits one run at a time (T14088)'
 
   it('above the refuse line: nothing starts', () => {
     expect(admittedIds(schedulePass(queue, ctx(false)))).toEqual([]);
+  });
+
+  it('a run larger than the reclaimable memory never starts while latched; a smaller later run does', () => {
+    const big = [
+      entry({ id: 'suite', enqueuedAtMs: 1, footprintBytes: 9 * GIB }),
+      entry({ id: 'file', enqueuedAtMs: 2, footprintBytes: 2 * GIB }),
+    ];
+    // 3 GiB reclaimable: the 9 GiB head does not fit; the 2 GiB run behind it does.
+    expect(admittedIds(schedulePass(big, ctx(true, 3 * GIB)))).toEqual(['file']);
+    // Nothing fits: nothing starts.
+    expect(admittedIds(schedulePass(big, ctx(true, GIB)))).toEqual([]);
+    // No reclaimable figure: nothing starts.
+    expect(admittedIds(schedulePass(big, ctx(true, null)))).toEqual([]);
   });
 
   it('isLatchedBelowRefuse reads the gate: latched and at or below the refuse line', () => {
@@ -463,7 +477,7 @@ describe('a latch held by memory outside CLEO admits one run at a time (T14088)'
               refuseAbove: 25,
               resumeAtOrBelow: 15,
               latched: true,
-              memAvailableBytes: null,
+              memAvailableBytes: 3 * GIB,
               summary: 'kernel level warning',
               topConsumers: {
                 sampledAtMs: 0,
@@ -476,6 +490,8 @@ describe('a latch held by memory outside CLEO admits one run at a time (T14088)'
       const cause = readLedgerBudget(dir, 10 * GIB).cause ?? '';
       expect(cause).toContain('codex pid 62972');
       expect(cause).toContain('CLEO holds nothing, so the latch is held by memory outside CLEO');
+      // No run waits, so none fits; the reading's reclaimable figure is named.
+      expect(cause).toContain('largest fitting run: none; reclaimable 3.0 GiB');
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
