@@ -182,8 +182,7 @@ function creditedCriteriaOf(
     .filter((row) =>
       named.some(
         (atom) =>
-          atom.targetAcId === row.id ||
-          atom.targetAcAlias?.toUpperCase() === `AC${row.ordinal}`,
+          atom.targetAcId === row.id || atom.targetAcAlias?.toUpperCase() === `AC${row.ordinal}`,
       ),
     )
     .map((row) => ({
