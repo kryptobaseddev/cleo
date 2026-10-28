@@ -318,7 +318,10 @@ describe('heavy classes go through the admission ledger (T13127, T13133)', () =>
   });
 
   /** A monitor whose samples follow a script of memory `some avg10` values. */
-  function scriptedMonitor(series: readonly number[]): {
+  function scriptedMonitor(
+    series: readonly number[],
+    memAvailableGb = 128,
+  ): {
     monitor: ResourceMonitor;
     calls: () => number;
   } {
@@ -327,7 +330,7 @@ describe('heavy classes go through the admission ledger (T13127, T13133)', () =>
       backend: {
         sample: async () =>
           makeSample({
-            memAvailableGb: 128,
+            memAvailableGb,
             someAvg10: series[Math.min(n++, series.length - 1)] ?? 0,
           }),
         sweepChildRss: async () => ({ sampledAtMs: 0, entries: [] }),
@@ -360,7 +363,9 @@ describe('heavy classes go through the admission ledger (T13127, T13133)', () =>
   });
 
   it('a blocking acquire waits, saying so, and is admitted when pressure falls', async () => {
-    const { monitor, calls } = scriptedMonitor([40, 30, 20, 12]);
+    // 1 GB reclaimable: too little for a test run, so the latched gate's idle
+    // admission (T14088) does not take it at 20; it waits for the resume line.
+    const { monitor, calls } = scriptedMonitor([40, 30, 20, 12], 1);
     const { reporter, lines } = collector();
     const r = await gov.acquire('test-run', {
       ...BUDGET_OPTS,
@@ -371,8 +376,9 @@ describe('heavy classes go through the admission ledger (T13127, T13133)', () =>
     });
     expect(isResourceGrant(r)).toBe(true);
     if (isResourceGrant(r)) await r.release();
-    // 40 and 30 refuse; 20 is still refused (latched: not yet down to 15); 12
-    // admits; the release samples once more for its scheduling pass.
+    // 40 and 30 refuse; 20 is still refused (latched: not yet down to 15, and
+    // the run does not fit the reclaimable memory); 12 admits; the release
+    // samples once more for its scheduling pass.
     expect(calls()).toBe(5);
     expect(
       lines.filter((l) => l.startsWith('waiting: memory pressure')).length,
@@ -397,9 +403,9 @@ describe('heavy classes go through the admission ledger (T13127, T13133)', () =>
     expect(r.memoryPressure?.score).toBe(50);
   });
 
-  it('hysteresis holds across acquirers: refused at 30, still refused at 20, admitted at 14', async () => {
-    const at = (some: number) =>
-      gov.acquire('test-run', {
+  it('hysteresis holds across acquirers: refused at 30, still refused at 20 while CLEO holds a run, admitted at 14', async () => {
+    const at = (some: number, cls: 'test-run' | 'scoped-build' = 'test-run') =>
+      gov.acquire(cls, {
         ...BUDGET_OPTS,
         sample: makeSample({ memAvailableGb: 128, someAvg10: some }),
         blocking: false,
@@ -407,16 +413,42 @@ describe('heavy classes go through the admission ledger (T13127, T13133)', () =>
     const first = await at(20); // unlatched: 20 is not above 25
     expect(first.deferred).toBe(false);
     if (isResourceGrant(first)) await first.release();
+    // A CLEO run holds part of the budget through the latch below.
+    const holder = await at(20, 'scoped-build');
+    expect(holder.deferred).toBe(false);
     expect((await at(30)).deferred).toBe(true);
     const latched = await at(20);
     expect(latched.deferred).toBe(true);
     if (latched.deferred) expect(latched.memoryPressure?.latched).toBe(true);
+    // The holder finishes; at 14 the gate has resumed and admits again.
+    if (isResourceGrant(holder)) await holder.release();
     const resumed = await at(14);
     expect(resumed.deferred).toBe(false);
     if (isResourceGrant(resumed)) await resumed.release();
     const after = await at(20);
     expect(after.deferred).toBe(false);
     if (isResourceGrant(after)) await after.release();
+  });
+
+  it('T14088: latched at 20 with nothing of CLEO held, a run that fits the reclaimable memory is admitted, alone', async () => {
+    const at = (some: number, memAvailableGb = 128) =>
+      gov.acquire('test-run', {
+        ...BUDGET_OPTS,
+        sample: makeSample({ memAvailableGb, someAvg10: some }),
+        blocking: false,
+      });
+    expect((await at(30)).deferred).toBe(true); // latch
+    // Too big for 1 GB reclaimable: still refused, latched.
+    const tooBig = await at(20, 1);
+    expect(tooBig.deferred).toBe(true);
+    if (tooBig.deferred) expect(tooBig.memoryPressure?.latched).toBe(true);
+    // Fits 128 GB reclaimable and nothing of CLEO's runs: admitted at 20.
+    const idle = await at(20);
+    expect(idle.deferred).toBe(false);
+    // Alone: a second run waits while the first holds the budget.
+    const second = await at(20);
+    expect(second.deferred).toBe(true);
+    if (isResourceGrant(idle)) await idle.release();
   });
 
   it('a monitor that throws counts as no signal: admitted, never blocked', async () => {
