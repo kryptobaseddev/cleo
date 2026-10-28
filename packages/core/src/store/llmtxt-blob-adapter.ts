@@ -40,6 +40,7 @@ import {
   BlobTooLargeError,
   hashBlob,
 } from 'llmtxt/blob';
+import { resolveStoreOwnerRoot } from '../project-scope.js';
 
 // ─── Public error re-exports ──────────────────────────────────────────────────
 // Callers can catch these without an extra import from llmtxt.
@@ -202,7 +203,10 @@ export class CleoBlobStore {
   async open(): Promise<void> {
     if (this.adapter !== null) return;
 
-    const storagePath = this.opts.storagePath ?? path.join(this.opts.projectRoot, '.cleo', 'blobs');
+    // T14127: a CLEO worktree uses its parent project's store.
+    const storagePath =
+      this.opts.storagePath ??
+      path.join(resolveStoreOwnerRoot(this.opts.projectRoot), '.cleo', 'blobs');
     const manifestDbPath = this.opts.manifestDbPath ?? path.join(storagePath, 'manifest.db');
 
     let db: unknown;

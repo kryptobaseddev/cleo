@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuites>
+  <testsuite name="outer" tests="3" failures="0" errors="0" timestamp="2026-10-27T12:00:00">
+    <testcase name="first" classname="outer"/>
+    <testsuite name="inner" tests="2" failures="0" errors="0" timestamp="2026-10-27T12:00:00">
+      <testcase name="second" classname="inner"/>
+      <testcase name="third" classname="inner"/>
+    </testsuite>
+  </testsuite>
+</testsuites>

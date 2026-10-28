@@ -127,9 +127,11 @@ Valid formats: `// SSoT-EXEMPT:<reason> (T####)` · `// SSoT-EXEMPT: reason T###
 
 ## Canonical Docs Routing (ADR-076 · T9796)
 
-Canonical docs (ADR, spec, research, handoff, note, release-note, plan) — create via `cleo docs add`, NEVER raw `Write`. Routing registry: `.cleo/canon.yml` (schema `.cleo/canon.schema.json`). Per-DocKind fields: `canonicalHome` (`ssot` or `ssot-first`), `publishMirror`, `rawMdAllowed`.
+Canonical docs (adr, spec, plan, research, guide, concept, reference, migration, release-note, note, handoff) — find the existing doc first (`cleo docs query "<topic>"`) and update it; create via `cleo docs add` + `cleo docs publish` only when none exists, NEVER raw `Write`. One kind per folder under `docs/` (singular names: `docs/spec`, `docs/plan`, `docs/guide`, …); handoffs are store-only and never published. Routing registry: `.cleo/canon.yml` (schema `.cleo/canon.schema.json`). Per-DocKind fields: `canonicalHome` (`ssot` or `ssot-first`), `publishMirror`, `rawMdAllowed`. How-to: `docs/guide/cleo-documentation-sop.md`.
 
-CI gate: `cleo check canon docs` (`Canon Drift Check (T9796)`) — walks `git diff --diff-filter=A` PR-base→HEAD, flags new `*.md` bypassing the SSoT (forward-only; legacy files imported by T9791 never flagged).
+**Naming rule (T14107 · D11210):** every tracked `docs/**.md` name and every slug is lowercase kebab-case, at most 64 characters, with no task id, session id or date (ADR number and release version allowed). Task, decision and supersession links live in doc metadata, never in names. Rule: `packages/core/src/docs/doc-name-rule.ts`; pre-rule violators: `scripts/.docs-name-baseline.json` (shrink-only — a PR that renames or deletes one removes its entry).
+
+CI gate: `cleo check canon docs` (`Canon Drift Check (T9796)`) — walks `git diff --diff-filter=A` PR-base→HEAD, flags new `*.md` bypassing the SSoT (forward-only; legacy files imported by T9791 never flagged), and enforces the naming rule against the baseline.
 
 **LAFS envelope contract:** `docs/specs/LAFS-ENVELOPE-CONTRACT.md` (SSoT slug `lafs-envelope-contract`, owner T11113).
 

@@ -466,6 +466,12 @@ export async function updateTask(
 
   if (options.type !== undefined) {
     validateTaskType(options.type);
+    // T12883 R4: a type change must keep the parent/child type matrix, both
+    // for this task under its parent and for every child under this task.
+    // The DB trigger checks only the row's own parent, never its children.
+    if (options.type !== (task.type ?? 'task')) {
+      await assertTypeChangeKeepsMatrix(acc, task, options.type, options.parentId === undefined);
+    }
     task.type = options.type;
     changes.push('type');
   }
@@ -987,5 +993,55 @@ export async function taskUpdate(
     // fall through to `E_INTERNAL`, never the misleading
     // `E_NOT_INITIALIZED` blanket label that the wrapper used before T9838-D.
     return cleoErrorToEngineResult(err, 'E_INTERNAL', 'Failed to update task');
+  }
+}
+
+/**
+ * Refuse a type change that breaks the parent/child type matrix
+ * (`PARENT_TYPE_MATRIX`, T12883 R4): the task under its current parent (unless
+ * the same update re-parents it, which checks the new parent itself), and each
+ * direct child under the task's new type.
+ */
+async function assertTypeChangeKeepsMatrix(
+  acc: DataAccessor,
+  task: Task,
+  newType: TaskType,
+  checkParent: boolean,
+): Promise<void> {
+  if (checkParent && task.parentId) {
+    const parent = await acc.loadSingleTask(task.parentId);
+    const parentType = parent?.type ?? 'task';
+    if (parent && !isAllowedWorkGraphParentType(newType, parentType)) {
+      // @sync-invariant task.parent.type-matrix
+      throw new CleoError(
+        ExitCode.INVALID_PARENT_TYPE,
+        `Cannot change ${task.id} to '${newType}': its parent ${parent.id} is a '${parentType}'.`,
+        {
+          fix: 'Use Saga→Epic, Epic→Task, and Task→Subtask containment; re-parent it first.',
+          details: {
+            field: 'type',
+            expected: 'saga->epic | epic->task | task->subtask',
+            actual: { parentType, childType: newType },
+          },
+        },
+      );
+    }
+  }
+  const children = await acc.getChildren(task.id);
+  const misfit = children.find((c) => !isAllowedWorkGraphParentType(c.type ?? 'task', newType));
+  if (misfit) {
+    // @sync-invariant task.parent.type-matrix
+    throw new CleoError(
+      ExitCode.INVALID_PARENT_TYPE,
+      `Cannot change ${task.id} to '${newType}': its child ${misfit.id} is a '${misfit.type ?? 'task'}', which a '${newType}' cannot contain.`,
+      {
+        fix: `Re-parent or re-type its children first (cleo update ${misfit.id} --parent <id>).`,
+        details: {
+          field: 'type',
+          expected: 'saga->epic | epic->task | task->subtask',
+          actual: { parentType: newType, childType: misfit.type ?? 'task' },
+        },
+      },
+    );
   }
 }
