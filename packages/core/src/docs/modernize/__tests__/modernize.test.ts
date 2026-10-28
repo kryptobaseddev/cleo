@@ -209,6 +209,9 @@ describe('modernize plan → apply → rollback (fixture tree)', () => {
       slug: 'adr-001-store',
       disposition: 'keep',
     });
+    // T14107 naming rule: the old name broke it, the new slug does not.
+    expect(row('specs/T832-gate-integrity-spec.md')?.baselineRemove).toBe(true);
+    expect(row('adr/adr-001-store.md')?.baselineRemove).toBe(false);
     expect(row('plans/2026-04-21-self-healing-plan-v2.md')).toMatchObject({
       slug: 'self-healing-plan',
       disposition: 'rename',

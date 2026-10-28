@@ -38,8 +38,8 @@ import { DocKindRegistry } from '@cleocode/contracts/docs-taxonomy.js';
 import type { DecideOptions } from '../../decide/client.js';
 import type { DecisionSiteMode } from '../../decide/site.js';
 import { createAttachmentStore } from '../../store/attachment-store.js';
+import { docNameViolation } from '../doc-name-rule.js';
 import { DEFAULT_EXCLUDE_DIRS, type ScannedFile, scanDirectory } from '../import/scanner.js';
-import { normalizeSlug } from '../slug-normalize.js';
 import { judgeDocKind, judgeDocMerge, resolveModernizeJudgeSettings } from './judge.js';
 import {
   classifyDocByRules,
@@ -50,7 +50,6 @@ import {
   MODERNIZE_MERGE_SURE,
   readTitle,
   stableSlugFor,
-  stripVolatileTokens,
   versionOf,
 } from './rules.js';
 
@@ -593,12 +592,11 @@ function applyOverride(
   };
 }
 
-/** Whether the old name broke the slug rule and the row's outcome no longer does. */
+/** Whether the old name broke the T14107 slug rule and the row's outcome no longer does. */
 function clearsSlugRule(row: CoreRow): boolean {
-  const base = normalizeSlug((row.path.split('/').pop() ?? '').replace(/\.[^.]+$/, ''));
-  const brokeRule = stripVolatileTokens(base) !== base;
-  if (!brokeRule || row.disposition === 'keep') return false;
-  return stripVolatileTokens(row.slug) === row.slug;
+  if (row.disposition === 'keep') return false;
+  const base = (row.path.split('/').pop() ?? '').replace(/\.[^.]+$/, '');
+  return docNameViolation(base, row.kind) !== null && docNameViolation(row.slug, row.kind) === null;
 }
 
 /** Raised when an override names a path the scan did not find. */
