@@ -246,6 +246,7 @@ export function parseTypeMatrixResolutions(
 }
 
 function refuse(message: string, fix?: string): CleoError {
+  // @sync-invariant none:input-shape a refused --resolutions file is rejected before anything is written
   return new CleoError(ExitCode.VALIDATION_ERROR, message, {
     ...(fix ? { fix } : {}),
     details: { field: 'resolutions' },
