@@ -1,7 +1,7 @@
 ---
 name: ct-documentor
 description: Documentation coordinator with CLEO style guide compliance. Routes every canonical-doc write (spec, adr, research, handoff, note, llm-readme) through the docs SSoT via `cleo docs add` / `cleo docs publish` / `cleo docs fetch` — never raw filesystem writes. Carries the CLEO writing and review guides as references and coordinates ct-spec-writer and ct-adr-recorder. Use when creating or updating documentation files, consolidating scattered documentation, or validating documentation against style standards. Triggers on documentation tasks, doc update requests, or style guide compliance checks.
-version: 3.27.0
+version: 3.28.0
 protocol: null
 dependencies:
   - ct-spec-writer
@@ -16,13 +16,13 @@ compatibility:
   - gemini-cli
 license: MIT
 metadata:
-  version: 3.27.0
+  version: 3.28.0
   tier: core
   install: harness
   covers:
     - packages/cleo/src/cli/commands/docs.ts
     - packages/contracts/src/docs-taxonomy.ts
-  lastReviewed: 2026-10-27
+  lastReviewed: 2026-10-28
   stability: stable
 ---
 
@@ -63,6 +63,17 @@ T13361 retired the legacy verbs `search`, `find`, `rank` (use `query`),
 ratio from the docs audit log, loose-markdown count (gitignore-aware scan),
 `docs_wikilinks` edge count, and live `decision_adr_links` count. Use it for
 pilot baseline comparisons — it never writes.
+
+`cleo docs rot` (T14111) is the docs-rot check every cycle runs. A doc declares
+the code it documents in frontmatter, `covers:` with repo globs (the skill
+`metadata.covers` grammar); write it into the store doc and republish, never
+the mirror alone. The report reads git only: **stale** (covered code changed on
+main after the doc did), **duplicates** (same body, near-identical titles),
+**orphans** (a covers glob matching nothing, a `docs/` file nothing names).
+`--changed <base>..<head>` lists the docs a merged change left stale (the
+post-merge sweep labels its tasks `docs-update`); `--strict` exits 2 on any
+finding, and the release cut runs it. When you change covered code, update the
+doc in the same PR.
 
 `cleo docs doctor` (T13447) audits the docs store — dangling `local-file`
 pointers, docVersion skew vs the audit log, empty topics/related_tasks,
