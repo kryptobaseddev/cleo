@@ -92,9 +92,11 @@ export interface MergeTaskOutcome {
    * `closed`: evidence recorded and the task completed. `bound`: a `Refs:`
    * line's criteria recorded, the task left open. `already`: an earlier sweep
    * handled this PR for the task, or the task was already done. `refused`:
-   * nothing recorded; `reason` says why.
+   * nothing recorded; `reason` says why. `waiting`: the merge commit's own CI
+   * run was cancelled, skipped or has not finished and nothing stands in yet;
+   * the PR is re-judged every sweep.
    */
-  action: 'closed' | 'bound' | 'already' | 'refused';
+  action: 'closed' | 'bound' | 'already' | 'refused' | 'waiting';
   /** The criteria the line named. */
   acs: string[];
   /** Why, for `refused` and `already`; for a dry run of an open PR, what would happen. */
@@ -171,6 +173,10 @@ export interface MergeSweepResult {
   bound: string[];
   /** Tasks nothing was recorded for, with the reason. */
   refused: Array<{ taskId: string; prNumber: number; reason: string }>;
+  /** Task outcomes waiting on their merge commit's CI (re-judged every sweep). */
+  waiting: number;
+  /** Cancelled or skipped merge-commit CI runs this sweep reran (once per merge commit, ever). */
+  reran: number;
   /**
    * Set when more PRs merged than one sweep's page budget reads: `read` PRs
    * were processed, and those merged in `[unreadSince, unreadBefore]` are read

@@ -53,6 +53,9 @@ import type {
 /** The audit action of an applied `Closes:` / `Refs:` line. */
 export const MERGE_CLOSE_AUDIT_ACTION = 'merge_close';
 
+/** The audit action of the one rerun of a merge commit's cancelled CI run (never repeated). */
+export const MERGE_CLOSE_RERUN_ACTION = 'merge_close_rerun';
+
 /** The audit action of a refusal already reported on the PR (posted once). */
 export const MERGE_CLOSE_REFUSED_ACTION = 'merge_close_refused';
 
@@ -153,6 +156,19 @@ export interface MergeCloseDeps {
    * nothing closes.
    */
   reviewVerdicts?(storeRoot: string, taskId: string, prNumber: number): Promise<ReviewVerdict[]>;
+  /**
+   * The newest run of the required CI workflow on a commit, or null when there
+   * is none yet (or `gh` failed).
+   */
+  mergeCiRun(
+    root: string,
+    sha: string,
+    workflow: string,
+  ): Promise<{ runId: number; status: string; conclusion: string | null } | null>;
+  /** Rerun a CI run; false when it could not. */
+  rerunRun(root: string, runId: number): Promise<boolean>;
+  /** Whether this machine may rerun CI: the owner's gh, never a CI job. */
+  canRerun(): boolean;
   /** Open PRs (one `gh` call), for the pre-merge verdict check; null when `gh` failed. */
   listOpenPrs(root: string): Promise<MergedPrRecord[] | null>;
   /** Set the `cleo/merge-close` commit status on a head; false when it could not. */
@@ -298,6 +314,8 @@ interface SweepState {
   backlog?: { since: string; until: string };
   /** The last `cleo/merge-close` status posted per open PR (`head:state:description`). */
   statuses?: Record<string, string>;
+  /** PRs waiting on their merge commit's CI, re-judged every sweep. */
+  waiting?: number[];
 }
 
 /** A window read page by page, newest first. */
@@ -449,15 +467,67 @@ async function appendMergeAudit(
   });
 }
 
+/**
+ * Why a refused record is only waiting on the merge commit's own CI, or null
+ * when the refusal is real (T14101): the newest run of the required workflow
+ * on the merge commit is missing, unfinished, cancelled or skipped. A
+ * cancelled or skipped run is rerun once per merge commit, ever (an audit row
+ * remembers it), and only where {@link MergeCloseDeps.canRerun} allows; a
+ * failed run is never rerun and refuses.
+ */
+async function mergeCiWait(
+  storeRoot: string,
+  root: string,
+  pr: MergedPrRecord,
+  taskId: string,
+  required: readonly string[],
+  deps: MergeCloseDeps,
+  dryRun: boolean,
+): Promise<{ reason: string; reran: boolean } | null> {
+  const sha = pr.mergeCommitSha;
+  if (sha === null) return null;
+  const workflow = required[0] ?? 'CI';
+  const run = await deps.mergeCiRun(root, sha, workflow);
+  const short = sha.slice(0, 12);
+  if (run === null)
+    return { reason: `no ${workflow} run on merge commit ${short} yet`, reran: false };
+  if (run.status !== 'completed')
+    return { reason: `${workflow} on merge commit ${short} is ${run.status}`, reran: false };
+  if (run.conclusion !== 'cancelled' && run.conclusion !== 'skipped') return null;
+  const { getTaskAccessor } = await import('../store/data-accessor.js');
+  const accessor = await getTaskAccessor(storeRoot);
+  const rows = await accessor.queryAuditLog({ actions: [MERGE_CLOSE_RERUN_ACTION] });
+  const already = rows.some(
+    (row) => (JSON.parse(row.detailsJson ?? '{}') as { mergeSha?: string }).mergeSha === sha,
+  );
+  const was = `${workflow} on merge commit ${short} was ${run.conclusion} and no later run stands in`;
+  if (already) return { reason: `${was}; its one rerun is done, waiting for it`, reran: false };
+  if (dryRun || !deps.canRerun())
+    return { reason: `${was}; waiting (this machine does not rerun CI)`, reran: false };
+  if (!(await deps.rerunRun(root, run.runId)))
+    return {
+      reason: `${was}; the rerun of run ${run.runId} failed, retrying next sweep`,
+      reran: false,
+    };
+  await appendMergeAudit(storeRoot, MERGE_CLOSE_RERUN_ACTION, taskId, {
+    prNumber: pr.number,
+    mergeSha: sha,
+    runId: run.runId,
+  });
+  return { reason: `${was}; reran run ${run.runId}`, reran: true };
+}
+
 /** Apply one line of one merged PR to its task. */
 async function applyDirective(
   storeRoot: string,
+  root: string,
+  required: readonly string[],
   pr: MergedPrRecord,
   receipt: MergeReceipt,
   directive: MergeDirective,
   deps: MergeCloseDeps,
   dryRun: boolean,
-): Promise<MergeTaskOutcome> {
+): Promise<MergeTaskOutcome & { reran?: boolean }> {
   const { taskId, acs } = directive;
   const base = { taskId, acs };
   const { getTaskAccessor } = await import('../store/data-accessor.js');
@@ -515,7 +585,14 @@ async function applyDirective(
   if (open)
     return { ...base, action: 'closed', reason: 'would close once it merges with green CI' };
   const recorded = await deps.record(storeRoot, taskId, pr.number, [...union], dryRun);
-  if (!recorded.ok) return { ...base, action: 'refused', reason: recorded.reason };
+  if (!recorded.ok) {
+    // A merge whose own CI run was cancelled, skipped or unfinished, with no
+    // later run standing in yet (ci-evidence's T12742 rule, unchanged), waits.
+    const wait = await mergeCiWait(storeRoot, root, pr, taskId, required, deps, dryRun);
+    if (wait !== null)
+      return { ...base, action: 'waiting', reason: wait.reason, reran: wait.reran };
+    return { ...base, action: 'refused', reason: recorded.reason };
+  }
   if (dryRun) return { ...base, action: 'closed' };
   const completed = await deps.complete(storeRoot, taskId, pr.number);
   if (!completed.ok) return { ...base, action: 'refused', reason: completed.reason };
@@ -580,8 +657,18 @@ async function applyMergedPrs(
       continue;
     }
     for (const directive of receipt.directives) {
-      const outcome = await applyDirective(storeRoot, pr, receipt, directive, deps, dryRun).catch(
-        (err: Error) => ({
+      const applied = applyDirective(
+        storeRoot,
+        root,
+        required,
+        pr,
+        receipt,
+        directive,
+        deps,
+        dryRun,
+      );
+      const { reran, ...outcome } = await applied.catch(
+        (err: Error): MergeTaskOutcome & { reran?: boolean } => ({
           taskId: directive.taskId,
           acs: directive.acs,
           action: 'refused' as const,
@@ -589,6 +676,8 @@ async function applyMergedPrs(
         }),
       );
       entry.outcomes.push(outcome);
+      if (reran === true) result.reran++;
+      if (outcome.action === 'waiting') result.waiting++;
       if (outcome.action === 'closed') result.closed.push(outcome.taskId);
       if (outcome.action === 'bound') result.bound.push(outcome.taskId);
       if (outcome.action === 'refused')
@@ -740,6 +829,8 @@ export async function sweepMergedClosures(
     closed: [],
     bound: [],
     refused: [],
+    waiting: 0,
+    reran: 0,
   };
   const targeted = (opts.prNumbers?.length ?? 0) > 0;
   if (!opts.force && !targeted && !claimMergeSweep(storeRoot))
@@ -770,6 +861,13 @@ export async function sweepMergedClosures(
     const unreadSince = old?.since ?? since;
     const unreadBefore = newer.unreadBefore ?? older?.unreadBefore;
     backlog = unreadBefore === undefined ? undefined : { since: unreadSince, until: unreadBefore };
+  }
+  // PRs a previous sweep left waiting on their merge commit's CI come back.
+  if (!targeted) {
+    const known = new Set(prs.map((pr) => pr.number));
+    const again = (state.waiting ?? []).filter((n) => !known.has(n));
+    const viewed = await Promise.all(again.map((n) => deps.viewPr(root, n)));
+    prs = [...prs, ...viewed.filter((pr): pr is MergedPrRecord => pr !== null)];
   }
   const required = await deps.requiredChecks(storeRoot);
   const result: MergeSweepResult = { ...empty, swept: true };
@@ -805,6 +903,9 @@ export async function sweepMergedClosures(
       highWater,
       ...(backlog ? { backlog } : {}),
       statuses,
+      waiting: result.prs
+        .filter((entry) => entry.outcomes.some((o) => o.action === 'waiting'))
+        .map((entry) => entry.prNumber),
     };
     writeFileSync(sweepStatePath(storeRoot), `${JSON.stringify(next, null, 2)}\n`);
   }
@@ -1074,6 +1175,25 @@ export const defaultMergeCloseDeps: MergeCloseDeps = {
   },
   async closeIssue(root, url, comment) {
     return (await gh(['issue', 'close', url, '--comment', comment], root)) !== null;
+  },
+  async mergeCiRun(root, sha, workflow) {
+    const args = ['run', 'list', '--commit', sha, '--workflow', workflow, '--limit', '1'];
+    const out = await gh([...args, '--json', 'databaseId,status,conclusion'], root);
+    if (out === null) return null;
+    const [run] = JSON.parse(out) as Array<{
+      databaseId?: number;
+      status?: string;
+      conclusion?: string | null;
+    }>;
+    return run?.databaseId === undefined
+      ? null
+      : { runId: run.databaseId, status: run.status ?? '', conclusion: run.conclusion ?? null };
+  },
+  async rerunRun(root, runId) {
+    return (await gh(['run', 'rerun', String(runId)], root)) !== null;
+  },
+  canRerun() {
+    return process.env['CI'] !== 'true';
   },
   async listOpenPrs(root) {
     const fields = 'number,body,headRefOid';

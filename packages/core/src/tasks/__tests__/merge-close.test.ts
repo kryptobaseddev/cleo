@@ -136,7 +136,18 @@ function fakeDeps(
   issues: Array<{ url: string; title: string }> = [],
   open: MergedPrRecord[] = [],
 ) {
+  /** What the outside world says; tests change it between sweeps. */
+  const world = {
+    recordRefusal: null as string | null,
+    mergeRun: { runId: 77, status: 'completed', conclusion: 'success' } as {
+      runId: number;
+      status: string;
+      conclusion: string | null;
+    } | null,
+    canRerun: true,
+  };
   const calls = {
+    reruns: [] as number[],
     statuses: [] as Array<{ sha: string; state: string; description: string }>,
     sessionsAtComplete: [] as Array<string | null>,
     closedIssues: [] as string[],
@@ -155,8 +166,16 @@ function fakeDeps(
     ghAvailable: async () => true,
     record: async (_root, taskId, prNumber, acs, dryRun) => {
       calls.record.push({ taskId, prNumber, acs, dryRun });
-      return { ok: true };
+      return world.recordRefusal === null
+        ? { ok: true }
+        : { ok: false, reason: world.recordRefusal };
     },
+    mergeCiRun: async () => world.mergeRun,
+    rerunRun: async (_root, runId) => {
+      calls.reruns.push(runId);
+      return true;
+    },
+    canRerun: () => world.canRerun,
     listLabelledIssues: async () => issues,
     reviewVerdicts: metOnHead([...prs, ...open]),
     listOpenPrs: async () => open,
@@ -178,7 +197,7 @@ function fakeDeps(
       return { ok: true };
     },
   };
-  return { deps, calls };
+  return { deps, calls, world };
 }
 
 async function mergeRows(taskId: string) {
@@ -636,5 +655,74 @@ describe('satisfies comes only from an independent verdict on the merged head (T
     verdicts = [...verdicts, verdict(id, 33, 'AC2', head, 'met')];
     await sweepMergedClosures(root, { force: true }, sweep);
     expect(calls.statuses.map((c) => c.state)).toEqual(['failure', 'success']);
+  });
+});
+
+describe('a merge whose own CI run was cancelled waits, and is rerun once (T14101)', () => {
+  const ciRefusal = "Required CI on PR #40's merge commit is not green: CI: cancelled";
+
+  it('waits, reruns the cancelled run once, and closes once a run is green', async () => {
+    const id = await seedTask(['only criterion']);
+    const { deps, calls, world } = fakeDeps([pr(40, `Closes: ${id} AC1`)]);
+    world.recordRefusal = ciRefusal;
+    world.mergeRun = { runId: 77, status: 'completed', conclusion: 'cancelled' };
+    const first = await sweepMergedClosures(root, { force: true }, deps);
+    expect(first.prs[0]?.outcomes[0]).toMatchObject({ action: 'waiting', reason: /reran run 77/ });
+    expect([first.waiting, first.reran]).toEqual([1, 1]);
+    expect(calls.comments).toHaveLength(0);
+    // The PR is past the cursor, but the waiting list brings it back.
+    const state = JSON.parse(readFileSync(join(root, '.cleo', 'merge-sweep.json'), 'utf-8'));
+    expect(state.waiting).toEqual([40]);
+    // gh lists nothing new: only the waiting list can bring PR #40 back.
+    const laterSweeps = { ...deps, listMergedPrs: async () => [] };
+    world.mergeRun = { runId: 78, status: 'in_progress', conclusion: null };
+    const second = await sweepMergedClosures(root, { force: true }, laterSweeps);
+    expect(second.prs[0]?.outcomes[0]?.action).toBe('waiting');
+    world.recordRefusal = null;
+    const third = await sweepMergedClosures(root, { force: true }, laterSweeps);
+    expect(third.closed).toEqual([id]);
+    expect(calls.reruns).toEqual([77]);
+    const after = JSON.parse(readFileSync(join(root, '.cleo', 'merge-sweep.json'), 'utf-8'));
+    expect(after.waiting).toEqual([]);
+  });
+
+  it('reruns a merge commit at most once, ever', async () => {
+    const id = await seedTask(['only criterion']);
+    const { deps, calls, world } = fakeDeps([pr(41, `Closes: ${id} AC1`)]);
+    world.recordRefusal = ciRefusal;
+    world.mergeRun = { runId: 80, status: 'completed', conclusion: 'cancelled' };
+    await sweepMergedClosures(root, { force: true }, deps);
+    world.mergeRun = { runId: 81, status: 'completed', conclusion: 'cancelled' };
+    const again = await sweepMergedClosures(root, { force: true }, deps);
+    expect(again.prs[0]?.outcomes[0]?.reason).toMatch(/one rerun is done/);
+    expect(again.reran).toBe(0);
+    expect(calls.reruns).toEqual([80]);
+  });
+
+  it('a failed merge run is never rerun: the refusal is real and is commented', async () => {
+    const id = await seedTask(['only criterion']);
+    const { deps, calls, world } = fakeDeps([pr(42, `Closes: ${id} AC1`)]);
+    world.recordRefusal = "Required CI on PR #42's merge commit is not green: CI: failure";
+    world.mergeRun = { runId: 90, status: 'completed', conclusion: 'failure' };
+    const result = await sweepMergedClosures(root, { force: true }, deps);
+    expect(result.refused[0]?.reason).toMatch(/CI: failure/);
+    expect([result.waiting, result.reran]).toEqual([0, 0]);
+    expect(calls.reruns).toEqual([]);
+    expect(calls.comments).toHaveLength(1);
+  });
+
+  it('where it may not rerun (no owner gh), the PR waits and is reported', async () => {
+    const id = await seedTask(['only criterion']);
+    const { deps, calls, world } = fakeDeps([pr(43, `Closes: ${id} AC1`)]);
+    world.recordRefusal = ciRefusal;
+    world.mergeRun = { runId: 95, status: 'completed', conclusion: 'skipped' };
+    world.canRerun = false;
+    const result = await sweepMergedClosures(root, { force: true }, deps);
+    expect(result.prs[0]?.outcomes[0]).toMatchObject({
+      action: 'waiting',
+      reason: /does not rerun CI/,
+    });
+    expect([result.waiting, result.reran]).toEqual([1, 0]);
+    expect(calls.reruns).toEqual([]);
   });
 });
