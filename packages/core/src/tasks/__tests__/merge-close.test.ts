@@ -623,21 +623,41 @@ describe('satisfies comes only from an independent verdict on the merged head (T
     expect(waitingOn(result)).toMatch(/AC1: reviewed by the task's own author/);
   });
 
-  it('a later met verdict on the head supersedes an earlier unmet one', async () => {
+  it('a later met verdict that answers the earlier unmet one closes (T14128)', async () => {
     const id = await seedTask(['only criterion']);
     const merged = pr(31, `Closes: ${id} AC1`);
     const head = merged.headRefOid ?? '';
-    const verdicts = [
-      verdict(id, 31, 'AC1', head, 'unmet', '2026-10-28T08:00:00Z'),
-      verdict(id, 31, 'AC1', head, 'met', '2026-10-28T09:00:00Z'),
-    ];
+    const unmet = verdict(id, 31, 'AC1', head, 'unmet', '2026-10-28T08:00:00Z');
+    const answering = {
+      ...verdict(id, 31, 'AC1', head, 'met', '2026-10-28T09:00:00Z'),
+      answers: unmet.id,
+    };
     const { deps } = fakeDeps([merged]);
+    const result = await sweepMergedClosures(
+      root,
+      { force: true },
+      { ...deps, reviewVerdicts: async () => [unmet, answering] },
+    );
+    expect(result.closed).toEqual([id]);
+  });
+
+  it('a later met that does not answer the unmet one closes nothing (review shopping, T14128)', async () => {
+    const id = await seedTask(['only criterion']);
+    const merged = pr(35, `Closes: ${id} AC1`);
+    const head = merged.headRefOid ?? '';
+    const verdicts = [
+      verdict(id, 35, 'AC1', head, 'unmet', '2026-10-28T08:00:00Z'),
+      verdict(id, 35, 'AC1', head, 'met', '2026-10-28T09:00:00Z'),
+    ];
+    const { deps, calls } = fakeDeps([merged]);
     const result = await sweepMergedClosures(
       root,
       { force: true },
       { ...deps, reviewVerdicts: async () => verdicts },
     );
-    expect(result.closed).toEqual([id]);
+    expect(result.closed).toEqual([]);
+    expect(waitingOn(result)).toMatch(/does not answer unmet verdict/);
+    expect(calls.record).toHaveLength(0);
   });
 
   it('without the review module nothing closes', async () => {
