@@ -215,6 +215,14 @@ export function hookFootprintKey(
 const HEAVY_TOOL_LOAD =
   /(?:require\(|import\(|from)\s*['"](typescript|vitest(?:\/node)?|jest|esbuild|webpack|rollup|@swc\/core|@babel\/core)['"]|\bcreateProgram\s*\(/;
 
+/**
+ * A compiler, test runner or build a Python or shell script runs (T14079):
+ * `pytest`, `import pytest`, `tsc`, `cargo build`, `pnpm test`, `make`. Any
+ * mention counts, so a script that names one keeps the class plan.
+ */
+const HEAVY_TOOL_RUN =
+  /\b(pytest|unittest|tsc|vitest|jest|esbuild|webpack|rollup|cargo|gradle|mvn|make|go\s+(?:build|test)|(?:pnpm|npm|yarn|npx)\s+(?:run\s+)?(?:test|build|typecheck|vitest|tsc))\b/;
+
 /** A `node` script's measurement key and what it loads (T14050). */
 export interface ScriptFootprint {
   /** `<script basename>:<sha256>` over its absolute path and content. */
@@ -224,7 +232,8 @@ export interface ScriptFootprint {
 }
 
 /**
- * Key a `node` script's measurements by its absolute path and content (T14050),
+ * Key a script's measurements by its absolute path and content (T14050; a
+ * Python or shell script too, T14079),
  * as a hook is keyed by its files: an edited script is measured afresh. The
  * key's first part is the script's basename, which is what a measured run's
  * process tree is matched on. `null` when the script cannot be read: such a
@@ -245,9 +254,11 @@ export function scriptFootprint(cwd: string, script: string): ScriptFootprint | 
     const content = readFileSync(path, 'utf8');
     const hash = createHash('sha256').update(path).update('\0').update(content).digest('hex');
     const m = HEAVY_TOOL_LOAD.exec(content);
+    // T14079: a Python or shell script runs its tools as processes.
+    const ran = /\.[cm]?js$/.test(path) ? null : HEAVY_TOOL_RUN.exec(content);
     return {
       key: `${basename(path)}:${hash}`,
-      heavyTool: m === null ? null : (m[1] ?? 'typescript'),
+      heavyTool: m !== null ? (m[1] ?? 'typescript') : (ran?.[1]?.replace(/\s+/g, ' ') ?? null),
     };
   } catch {
     return null;

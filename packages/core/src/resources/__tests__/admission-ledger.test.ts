@@ -51,6 +51,7 @@ import {
   URGENT_AGING_MS,
 } from '../admission-ledger.js';
 import type { ResourceSample } from '../backend.js';
+import { scriptFootprint } from '../hook-footprint.js';
 import { ResourceMonitor } from '../monitor.js';
 import { _resetMemoryGateForTest, memoryGateReporter } from '../pressure-gate.js';
 import { lightCommandReason } from '../run-class.js';
@@ -988,6 +989,25 @@ describe('admit (one ledger, real critical section)', () => {
       lightShare: 'half',
       lightBudgetBytes: 5 * GIB,
     });
+    if (a.admitted) await a.grant.release();
+  });
+
+  it('AC2 (T13967): usage above a narrowed budget says it was narrowed after the holders were admitted', async () => {
+    const a = await admit(
+      { label: 'tool:test', footprintBytes: 8 * GIB },
+      { ...base, dir, wait: false },
+    );
+    expect(a.admitted).toBe(true);
+    const b = await admit(
+      { label: 'tool:typecheck', footprintBytes: 2 * GIB },
+      { ...base, sample: async () => sampleAt(15), dir, wait: false },
+    );
+    expect(b.admitted).toBe(false);
+    if (!b.admitted) {
+      expect(b.refusal.reason).toMatch(
+        /8\.0 GiB of 5\.0 GiB light budget \(light share half from memory pressure; capacity 10 GiB; narrowed after the running jobs were admitted, so they hold more\)/,
+      );
+    }
     if (a.admitted) await a.grant.release();
   });
 
@@ -2550,6 +2570,113 @@ describe('a node script that hosts a heavy tool is never charged light (T14050)'
     expect(plain.footprintBytes).toBe(GIB);
     expect(plain.footprintReason).toBe('node scripts/gen.mjs runs no heavy tool');
     expect(plain.hookKey).toBeUndefined();
+  });
+});
+
+/**
+ * Kodo (mbx …FX5CJD): a tiny python3 YAML/metadata check under `cleo run
+ * --class build` was charged the whole scoped-build plan (T14079).
+ */
+describe('a Python or shell script that runs no heavy tool is charged light (T14079)', () => {
+  const RAM = 48;
+  const read =
+    (heavyTool: string | null, peakBytes: number | null = null) =>
+    (): { key: string; heavyTool: string | null; peakBytes: number | null } => ({
+      key: 'check_meta.py:abc',
+      heavyTool,
+      peakBytes,
+    });
+  const plan = (
+    argv: readonly string[],
+    peak: () => { key: string; heavyTool: string | null; peakBytes: number | null } | null,
+  ) => planRunFootprint('scoped-build', argv, {}, RAM, () => false, unmeasured, '/repo', peak);
+
+  it('AC1: python3 on a small check is light, with the reason as the derivation line', () => {
+    const argv = ['python3', 'scripts/check_meta.py', 'meta/a.yaml'];
+    expect(lightCommandReason(argv)).toBe('python3 scripts/check_meta.py runs no heavy tool');
+    const light = plan(argv, read(null));
+    expect(light.footprintBytes).toBe(GIB);
+    expect(light.resources).toBeNull();
+    expect(describeCharge('scoped-build', light)).toBe(
+      '1.0 GiB: python3 scripts/check_meta.py runs no heavy tool',
+    );
+    expect(plan(['bash', 'scripts/lint_yaml.sh'], read(null)).footprintBytes).toBe(GIB);
+  });
+
+  it('AC2: a script that runs a test runner or compiler keeps the class plan; so does an unreadable one', () => {
+    const heavy = plan(['python3', 'scripts/check_meta.py'], read('pytest'));
+    expect(heavy.footprintBytes).toBeGreaterThan(GIB);
+    expect(heavy.footprintReason).toMatch(
+      /^scoped-build plan: python3 scripts\/check_meta\.py hosts a heavy tool \(it runs pytest\)/,
+    );
+    expect(plan(['bash', 'scripts/ci.sh'], () => null).footprintReason).toMatch(
+      /hosts a heavy tool \(it cannot be read\)/,
+    );
+    // By path too, as for node scripts: a script named for a heavy job.
+    expect(lightCommandReason(['python3', 'scripts/run_tests.py'])).toBeNull();
+    // `python3 -m pytest` is not a plain script.
+    expect(lightCommandReason(['python3', '-m', 'pytest'])).toBeNull();
+  });
+
+  it('AC3: a heavy script is charged its measured peak once recorded', () => {
+    const measured = plan(['python3', 'scripts/check_meta.py'], read('pytest', 2 * GIB));
+    expect(measured.footprintBytes).toBe(Math.ceil(2 * GIB * 1.25));
+    expect(measured.footprintReason).toMatch(/measured peak 2\.0 GiB \+ 25%$/);
+    expect(measured.hookKey).toBe('check_meta.py:abc');
+  });
+
+  it('scriptFootprint reads what a Python or shell script runs, never a node script', () => {
+    const repo = mkdtempSync(join(tmpdir(), 'cleo-script-fp-'));
+    try {
+      writeFileSync(
+        join(repo, 'light.py'),
+        'import yaml, sys\nprint(yaml.safe_load(open(sys.argv[1])))\n',
+      );
+      writeFileSync(join(repo, 'heavy.sh'), '#!/bin/sh\npnpm run test -- a.test.ts\n');
+      writeFileSync(join(repo, 'gen.mjs'), "// runs make in prose only\nconsole.log('x');\n");
+      expect(scriptFootprint(repo, 'light.py')?.heavyTool).toBeNull();
+      expect(scriptFootprint(repo, 'heavy.sh')?.heavyTool).toBe('pnpm run test');
+      expect(scriptFootprint(repo, 'gen.mjs')?.heavyTool).toBeNull();
+    } finally {
+      rmSync(repo, { recursive: true, force: true });
+    }
+  });
+});
+
+/**
+ * 2026-10-23 18:36: `biome check --write <2 files>` timed out at position 6
+ * behind two hooked pushes (12 GiB each) and a test run (24 GiB) holding the
+ * whole 48 GiB capacity under a halved light share (T13967).
+ */
+describe('a tiny run starts while holders fill the whole capacity (T13967)', () => {
+  const ledger = (fmts: number) => [
+    entry({ id: 'push1', state: 'admitted', footprintBytes: 12 * GIB }),
+    entry({ id: 'push2', state: 'admitted', footprintBytes: 12 * GIB }),
+    entry({ id: 'test', state: 'admitted', footprintBytes: 24 * GIB }),
+    entry({ id: 'build', enqueuedAtMs: 100, footprintBytes: 12 * GIB }),
+    ...Array.from({ length: fmts }, (_, n) =>
+      entry({ id: `fmt${n}`, enqueuedAtMs: 200 + n, footprintBytes: GIB }),
+    ),
+  ];
+  const ctx48 = {
+    capacityBytes: 48 * GIB,
+    share: 'half' as const,
+    lightShare: 'half' as const,
+    nowMs: 60_000,
+  };
+
+  it('AC1/AC3: the 1 GiB formatter is admitted; the heavy waiter is not', () => {
+    const out = admittedIds(schedulePass(ledger(1), ctx48));
+    expect(out).toContain('fmt0');
+    expect(out).not.toContain('build');
+  });
+
+  it('at most TINY_LANE_SLOTS tiny runs sit past the capacity, and the memory gate still refuses', () => {
+    const out = admittedIds(schedulePass(ledger(5), ctx48)).filter((id) => id.startsWith('fmt'));
+    expect(out).toHaveLength(TINY_LANE_SLOTS);
+    expect(
+      admittedIds(schedulePass(ledger(1), { ...ctx48, share: 'none', lightShare: 'none' })),
+    ).not.toContain('fmt0');
   });
 });
 

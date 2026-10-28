@@ -126,8 +126,8 @@ import {
   heavyScriptReason,
   lightCommandReason,
   namedTestFileCount,
-  nodeScriptOf,
   runFootprint,
+  scriptRunOf,
 } from './run-class.js';
 import { ownProcessStartedAt, type PidProbe, systemPidProbe } from './slot-holder.js';
 import { followToolGroups, isProbeableId } from './tool-groups.js';
@@ -411,20 +411,26 @@ export function planRunFootprint(
   let scope = cls === 'full-build' ? null : runFootprint(argv);
   const sized = cls === 'scoped-build' && scope?.size === 'class';
   // T14050: a node script that hosts a heavy tool (its path names one, or it
-  // loads a compiler or test runner in-process) is never light.
-  const script = sized ? nodeScriptOf(argv) : null;
+  // loads a compiler or test runner in-process) is never light. T14079: so
+  // is a Python or shell script that runs one, or one that cannot be read.
+  const run = sized ? scriptRunOf(argv) : null;
+  const script = run?.script ?? null;
   const scripted = script !== null ? scriptPeak(script) : null;
   const host =
     script === null
       ? null
       : (heavyScriptReason(script) ??
-        (scripted?.heavyTool ? `it loads ${scripted.heavyTool}` : null));
+        (scripted?.heavyTool
+          ? `it ${run?.runner === 'node' ? 'loads' : 'runs'} ${scripted.heavyTool}`
+          : run?.runner !== 'node' && scripted === null
+            ? 'it cannot be read'
+            : null));
   // T13452: a scoped build of a command that runs no heavy tool (`node x.mjs`,
   // `ls`) is charged light. An explicit test run keeps its class plan.
   const light = sized && host === null ? lightCommandReason(argv) : null;
   if (light !== null) scope = { size: 'light', reason: light };
   else if (host !== null)
-    scope = { size: 'class', reason: `node ${script} hosts a heavy tool (${host})` };
+    scope = { size: 'class', reason: `${run?.runner} ${script} hosts a heavy tool (${host})` };
   // T13452: a hooked git push/commit keeps the class plan, because whatever
   // the hook runs (tests, a build) rides this admission.
   const probe = scope?.size === 'light' ? gitHookFor(argv) : null;
@@ -1247,17 +1253,21 @@ export function readLedgerBudget(
  * The budget a waiting entry is held to, in words: the capacity when no share
  * narrows it, else the narrowed budget with its share and the capacity, e.g.
  * `24 GiB light budget (light share half from memory pressure; capacity 48 GiB)`.
+ * When `usedBytes` is above it, the phrase says the budget was narrowed after
+ * those runs were admitted (T13967), so "48 GiB of 24 GiB" is not a puzzle.
  */
-function budgetPhrase(entry: LedgerEntry, budget: LedgerBudget): string {
+function budgetPhrase(entry: LedgerEntry, budget: LedgerBudget, usedBytes = 0): string {
   const heavy = isHeavy(entry);
   const share = heavy ? budget.share : budget.lightShare;
   const bytes = heavy ? budget.heavyBudgetBytes : budget.lightBudgetBytes;
   if (bytes >= budget.capacityBytes && share !== 'one') return gib(budget.capacityBytes);
   const kind = heavy ? 'heavy' : 'light';
   const cause = heavy ? 'memory or CPU pressure' : 'memory pressure';
+  const narrowed =
+    usedBytes > bytes ? '; narrowed after the running jobs were admitted, so they hold more' : '';
   return (
     `${gib(bytes)} ${kind} budget (${kind} share ${share}` +
-    `${share === 'one' ? ', one heavy run at a time' : ''} from ${cause}; capacity ${gib(budget.capacityBytes)})`
+    `${share === 'one' ? ', one heavy run at a time' : ''} from ${cause}; capacity ${gib(budget.capacityBytes)}${narrowed})`
   );
 }
 
@@ -1289,7 +1299,9 @@ function budgetPhrase(entry: LedgerEntry, budget: LedgerBudget): string {
  *   the budget, and over the capacity too.
  * - Up to {@link TINY_LANE_SLOTS} tiny runs are admitted from a reserve outside
  *   the pressure share, wherever they wait, while the capacity has room for
- *   them (T13587): their bytes do not count against the share budget, and
+ *   them, or, when holders admitted before the share narrowed hold more than
+ *   the narrowed budget, past the capacity unless an exclusive run holds the
+ *   machine (T13587, T13967): their bytes do not count against the share budget, and
  *   other runs never use the reserve. Like the tiny lane, the reserve closes
  *   while the oldest non-tiny run waits past {@link TINY_LANE_WINDOWS}
  *   reservation windows or needs the whole capacity (T13591). The memory gate
@@ -1322,8 +1334,8 @@ export function schedulePass(entries: readonly LedgerEntry[], ctx: PassContext):
   // T13367: admitted tiny runs, for the tiny lane past a blocked head.
   let tinyRunning = 0;
   // T13587: up to TINY_LANE_SLOTS tiny runs sit in a reserve outside the
-  // pressure share (never beyond the capacity). Their bytes are not `used`, so
-  // a holder that fills a halved budget exactly cannot starve a formatter.
+  // pressure share. Their bytes are not `used`, so a holder that fills a
+  // halved budget exactly cannot starve a formatter.
   let reserved = 0;
   let reservedBytes = 0;
   const reserveTakes = (e: LedgerEntry, cost: number): boolean =>
@@ -1331,6 +1343,15 @@ export function schedulePass(entries: readonly LedgerEntry[], ctx: PassContext):
     e.exclusive !== true &&
     reserved < TINY_LANE_SLOTS &&
     used + reservedBytes + cost <= ctx.capacityBytes;
+  // T13967: holders admitted before memory pressure narrowed the light share
+  // can hold the whole capacity, more than the narrowed budget allows; a
+  // two-file formatter must not wait behind them. Only then may a waiting
+  // tiny run take the reserve past the capacity (at most TINY_LANE_SLOTS
+  // gigabytes), and never beside an exclusive run. At a full share the
+  // capacity bounds the reserve as before (T13367), and the memory gate
+  // (`none`) still admits nothing.
+  const narrowedOverfull = (): boolean =>
+    lightBudget < ctx.capacityBytes && used > lightBudget && exclusiveRunning === 0;
   const reservedIds = new Set<string>();
   for (const e of entries) {
     if (e.state === 'admitted') {
@@ -1434,7 +1455,12 @@ export function schedulePass(entries: readonly LedgerEntry[], ctx: PassContext):
     const cost = charged(w, ctx.capacityBytes);
     // T13587: the tiny reserve admits a tiny run wherever it waits; the memory
     // gate (`none`) still admits nothing.
-    if (reserveOpen && lightShare !== 'none' && reserveTakes(w, cost)) {
+    if (
+      reserveOpen &&
+      lightShare !== 'none' &&
+      (reserveTakes(w, cost) ||
+        (isTiny(w) && w.exclusive !== true && reserved < TINY_LANE_SLOTS && narrowedOverfull()))
+    ) {
       admit.add(w.id);
       reserved++;
       reservedBytes += cost;
@@ -2371,7 +2397,7 @@ async function admitInner(req: AdmissionRequest, opts: AdmitOptions): Promise<Ad
         : exclusiveHolder !== undefined
           ? `another full build holds the machine-wide full-build slot (${exclusiveHolder.label} pid ` +
             `${exclusiveHolder.pid}); one runs at a time, whatever its size${ahead > 0 ? `; ${ahead} waiting ahead` : ''}`
-          : `machine budget in use: ${gib(load.bytes)} of ${budgetPhrase(entry, ledgerBudget(doc.pressure, capacityBytes))} by ${load.runs} run(s); ` +
+          : `machine budget in use: ${gib(load.bytes)} of ${budgetPhrase(entry, ledgerBudget(doc.pressure, capacityBytes), load.bytes)} by ${load.runs} run(s); ` +
             `this run needs ${gib(charged(entry, capacityBytes))}${ahead > 0 ? `; ${ahead} waiting ahead` : ''}`;
     return {
       reason,
@@ -2525,7 +2551,7 @@ function holderReport(
   const used = budgetLoad(doc, capacityBytes).bytes;
   const ahead = waitingAhead(doc.entries, mine, nowMs);
   const lines = [
-    `still waiting after ${age(waitedMs)} for the machine budget (${gib(used)} of ${budgetPhrase(mine, ledgerBudget(doc.pressure, capacityBytes))} in use, ` +
+    `still waiting after ${age(waitedMs)} for the machine budget (${gib(used)} of ${budgetPhrase(mine, ledgerBudget(doc.pressure, capacityBytes), used)} in use, ` +
       `queue position ${ahead + 1}${mine.priority === 'urgent' ? ' (urgent)' : ''}, ${ahead} waiting ahead). Holders: ${describeLoad(doc, nowMs, probe).join(' | ') || 'none'}.`,
   ];
   const reading = doc.pressure?.reading ?? null;
