@@ -41,6 +41,7 @@ import {
   isWorkerCrashOnlyLog,
   listMainDescendants,
   listPathTouchingMainCommits,
+  missingPrHunk,
   pathGlobToRegExp,
   type ResolveCiEvidenceOptions,
   readCiChecks,
@@ -1252,30 +1253,53 @@ describe('resolveCiEvidenceAtom', () => {
       expect((await run).ok).toBe(false);
     });
 
-    it('a NON-merge commit on main changed the PR files before the descendant: refused', async () => {
+    const REWRITTEN = 'hunk a.ts @@ -1,0 +2,1 @@ ("export const a = 1;") was rewritten or removed';
+
+    it('T14119: a NON-merge commit that rewrote a PR hunk before the descendant: refused, naming the hunk and the route', async () => {
       const { run } = descend(
         { [DESC1]: onSha(DESC1) },
-        { touchingCommits: () => [{ sha: DIRECT, parents: 1 }] },
+        { touchingCommits: () => [{ sha: DIRECT, parents: 1 }], missingPrHunk: () => REWRITTEN },
       );
       const r = await run;
-      expect(!r.ok && r.reason).toMatch(
-        /the PR's files changed on origin\/main by commit 333333333333/,
+      expect(!r.ok && r.reason).toContain(
+        `the PR's change is no longer intact at 111111111111: ${REWRITTEN}`,
       );
+      expect(!r.ok && r.reason).toMatch(/from commit 333333333333 in/);
+      expect(!r.ok && r.reason).toContain('tool:test-affected');
     });
 
-    it('a later MERGE that touched the PR files (a fix landing after it) is refused too', async () => {
+    it('T14119: a later MERGE that edited the PR files but left every PR hunk in place: the descendant stands in', async () => {
+      const asked: Array<[string, string]> = [];
       const { run } = descend(
         { [DESC1]: onSha(DESC1) },
         {
           touchingCommits: (_from, _to, paths) =>
             paths.includes('a.ts') ? [{ sha: OTHER_MERGE, parents: 2 }] : [],
+          missingPrHunk: (merge, at) => {
+            asked.push([merge, at]);
+            return null;
+          },
+        },
+      );
+      const r = await run;
+      expect(r.ok, JSON.stringify(r)).toBe(true);
+      expect(r.ok && r.atom.kind === 'ci' && r.atom.descendantSha).toBe(DESC1);
+      expect(asked).toEqual([[MERGE, DESC1]]);
+    });
+
+    it('T14119: a later MERGE that rewrote a PR hunk is refused, naming the hunk', async () => {
+      const { run } = descend(
+        { [DESC1]: onSha(DESC1) },
+        {
+          touchingCommits: (_from, _to, paths) =>
+            paths.includes('a.ts') ? [{ sha: OTHER_MERGE, parents: 2 }] : [],
+          missingPrHunk: () => REWRITTEN,
         },
       );
       const r = await run;
       expect(r.ok).toBe(false);
-      expect(!r.ok && r.reason).toMatch(
-        /the PR's files changed on origin\/main by merge 444444444444/,
-      );
+      expect(!r.ok && r.reason).toContain(REWRITTEN);
+      expect(!r.ok && r.reason).toMatch(/from merge 444444444444/);
     });
 
     it('a range commit that edited a pinned workflow file is refused (CI may have been weakened)', async () => {
@@ -2357,6 +2381,45 @@ describe('git defaults for the descendant rule, on a real repository (T12742)', 
     const touching = listPathTouchingMainCommits(m1, tip, ['b.ts'], repo) ?? [];
     expect(touching.map((c) => c.parents)).toEqual([1, 1]);
     expect(touching.map((c) => c.sha)).toContain(directB);
+  });
+
+  /** init → M (merges pr: adds two lines to a.ts) → returns M. */
+  function prMerge(): string {
+    write('a.ts', 'one\ntwo\nthree\nfour\n');
+    git('add', '.');
+    git('commit', '-qm', 'init');
+    git('checkout', '-qb', 'pr');
+    write('a.ts', 'one\nadded A\ntwo\nthree\nfour\nadded B\n');
+    git('commit', '-qam', 'pr');
+    git('checkout', '-q', 'main');
+    git('merge', '-q', '--no-ff', 'pr', '-m', 'M');
+    return git('rev-parse', 'HEAD');
+  }
+
+  it('T14119: a later edit elsewhere in the PR file leaves every PR hunk present', () => {
+    const merge = prMerge();
+    write('a.ts', 'zero\none\nadded A\ntwo\nTHREE\nfour\nadded B\nfive\n');
+    git('commit', '-qam', 'later edit elsewhere');
+    expect(missingPrHunk(merge, git('rev-parse', 'HEAD'), ['a.ts'], repo)).toBeNull();
+  });
+
+  it('T14119: a later commit that rewrote a PR line names that hunk', () => {
+    const merge = prMerge();
+    write('a.ts', 'one\nadded A\ntwo\nthree\nfour\nrewritten B\n');
+    git('commit', '-qam', 'rewrite B');
+    expect(missingPrHunk(merge, git('rev-parse', 'HEAD'), ['a.ts'], repo)).toBe(
+      'hunk a.ts @@ -4,0 +6 @@ ("added B") was rewritten or removed',
+    );
+  });
+
+  it('T14119: a deleted PR file, or an unreadable merge, is reported missing, never present', () => {
+    const merge = prMerge();
+    git('rm', '-q', 'a.ts');
+    git('commit', '-qm', 'drop a.ts');
+    expect(missingPrHunk(merge, git('rev-parse', 'HEAD'), ['a.ts'], repo)).toMatch(
+      /^hunk a\.ts @@ .* is gone with its file$/,
+    );
+    expect(missingPrHunk('f'.repeat(40), merge, ['a.ts'], repo)).toMatch(/cannot be read/);
   });
 
   it('an unknown commit yields null, never an empty (vacuous) answer', () => {

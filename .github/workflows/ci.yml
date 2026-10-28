@@ -55,6 +55,7 @@ on:
 # dropped in favour of the newest one.
 #
 #   push to main              group `-push`            running run kept; queued older run cancelled
+#   rerun on main (attempt>1) group `-push-rerun-<sha>` its own group: never cancels or waits on live main
 #   schedule on main          group `-schedule`        never touches the push group
 #   pull_request              suffix is ''             unchanged, still cancels on new push
 #   workflow_dispatch (branch) suffix is ''            unchanged, re-dispatch supersedes
@@ -66,8 +67,17 @@ on:
 #
 # The event name keeps the nightly `schedule` run (same ref, often the same
 # SHA as the last push) from cancelling or queueing behind a push run.
+#
+# T14136: a rerun of an older main run (`github.run_attempt` > 1, e.g. to
+# give a merge commit whose run was cancelled its own green result) gets a
+# group of its own, keyed by its SHA. In the shared `-push` group it would
+# cancel the waiting run for the newest commit, or be cancelled by the next
+# push. A first attempt is unchanged. Limit: a rerun executes the workflow file
+# as it was at the run's OWN commit, so this protects only reruns of commits
+# made after T14136 merged; a rerun of an older commit still joins `-push`, and
+# is safe only while main has no pending or running CI.
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}-${{ github.ref == 'refs/heads/main' && github.event_name || '' }}
+  group: ${{ github.workflow }}-${{ github.ref }}-${{ github.ref == 'refs/heads/main' && github.event_name || '' }}${{ github.ref == 'refs/heads/main' && github.run_attempt != '1' && format('-rerun-{0}', github.sha) || '' }}
   cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 jobs:
@@ -233,6 +243,7 @@ jobs:
               # a change to one of them must run the unit tests, not only Scripts
               # Tests. scripts/__tests__/ci-code-filter-script-deps.test.mjs fails
               # when a package test starts depending on a script not listed here.
+              - 'scripts/__tests__/release-run.test.mjs'
               - 'scripts/compare-fingerprints.mjs'
               - 'scripts/fingerprint-store.mjs'
               - 'scripts/heal-malformed-blob-attachments.mjs'
@@ -247,6 +258,7 @@ jobs:
               - 'scripts/lint-row-identity-coverage.mjs'
               - 'scripts/lint-sync-write-invariants.mjs'
               - 'scripts/migrate-nested-nexus.mjs'
+              - 'scripts/release-run.mjs'
               - 'scripts/row-identity-real-store-gate-b.mjs'
               - 'scripts/sweep-manual-doc-writes.mjs'
             # gh#1403: `scripts/**` is deliberately NOT in `code` above. The

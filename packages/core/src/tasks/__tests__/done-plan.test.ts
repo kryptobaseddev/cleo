@@ -1360,6 +1360,37 @@ describe('affected-scope test runs (T12635, D11150)', () => {
     );
   });
 
+  it('T14125: untracked .worktrees/*/.npmrc stubs in a tracked-clean checkout plan only the task package, and are named', async () => {
+    workspaceWithPackages();
+    const id = await seedTask(['Change pkgs/c/i.ts']);
+    git(root, ['switch', '-q', '-c', `task/${id}`]);
+    writeFileSync(join(root, 'pkgs', 'c', 'i.ts'), 'export const x = 2;\n');
+    git(root, ['commit', '-q', '-am', `${id}: c`]);
+    // Pre-existing stubs the task never created, in folders with no .git.
+    const stubs = ['one', 'two'].map((name) => {
+      mkdirSync(join(root, '.worktrees', name), { recursive: true });
+      writeFileSync(join(root, '.worktrees', name, '.npmrc'), 'registry=https://x.invalid/\n');
+      return `.worktrees/${name}/.npmrc`;
+    });
+    expect(git(root, ['status', '--porcelain', '--untracked-files=no'])).toBe('');
+    const plan = await deriveTaskEvidence(id, {
+      projectRoot: root,
+      cwd: root,
+      deps,
+      satisfies: 'all',
+    });
+    expect(plan.toolRuns.find((r) => r.gate === 'testsPassed')).toMatchObject({
+      tool: 'test-affected',
+      command: 'pnpm exec vitest run --project @w/c',
+    });
+    expect(plan.blockers.find((b) => b.code === 'test-run-needed')).toBeUndefined();
+    // AC4: the plan names every untracked file it left out, and how to count one.
+    expect(plan.untrackedSetAside).toEqual(stubs);
+    expect(plan.changeSet.warnings.join('\n')).toMatch(
+      /2 untracked file\(s\) are not part of this change.*\.worktrees\/one\/\.npmrc.*git add -N/s,
+    );
+  });
+
   it('T13647: testing.preferAffected false would mean the full tool:test, so the plan refuses it', async () => {
     workspaceWithPackages();
     const ctxPath = join(root, '.cleo', 'project-context.json');

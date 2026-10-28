@@ -42,6 +42,7 @@ import {
   planScopedTestRun,
   scopedChangedPaths,
 } from '../affected-packages.js';
+import { setAsideJoinedReason } from '../affected-scope.js';
 import { validateAtom } from '../evidence.js';
 import { useRealToolRunner } from './real-tool-runner.js';
 
@@ -649,6 +650,8 @@ describe('tool:test-affected evidence', () => {
     mkdirSync(join(root, '.codex'), { recursive: true });
     writeFileSync(join(root, '.codex', 'hooks.json'), '{}\n');
     writeFileSync(join(root, 'packages/c/src/new.ts'), 'export const fresh = 1;\n');
+    // T14125: a new file counts once declared (intent-to-add), never untracked.
+    git(root, ['add', '-N', 'packages/c/src/new.ts']);
     expect(changedPathsSinceDefault(root)).toEqual(['packages/c/src/new.ts']);
     expect(deriveAffectedPackages(root, changedPathsSinceDefault(root) ?? [])).toMatchObject({
       scope: 'affected',
@@ -677,8 +680,9 @@ describe('tool:test-affected evidence', () => {
     writeFileSync(join(root, '.opencode', 'goals', 'dogfood', 'goal.yaml'), 'goal: x\n');
     writeFileSync(join(root, 'packages/c/src/new.ts'), 'export const fresh = 1;\n');
     // Staged, so it is part of the change; an untracked dot-directory file is
-    // not the change at all since T13780.
-    git(root, ['add', '-f', '.opencode/goals/dogfood/goal.yaml']);
+    // not the change at all since T13780, and an untracked file of any kind
+    // only once staged since T14125.
+    git(root, ['add', '-f', '.opencode/goals/dogfood/goal.yaml', 'packages/c/src/new.ts']);
     expect(scopedChangedPaths(root)).toEqual({
       paths: ['packages/c/src/new.ts'],
       excluded: ['.opencode/goals/dogfood/goal.yaml'],
@@ -699,13 +703,61 @@ describe('tool:test-affected evidence', () => {
     mkdirSync(join(root, 'vendor', 'inner'), { recursive: true });
     git(join(root, 'vendor', 'inner'), ['init', '-q']);
     writeFileSync(join(root, 'vendor', 'inner', 'f.ts'), 'export {};\n');
-    // The task's own untracked file still counts (AC2).
+    // The task's own new file counts once staged (T14052 AC2, superseded by
+    // T14125: an untracked file never counts until it is staged or `git add -N`).
     writeFileSync(join(root, 'packages/c/src/new.ts'), 'export const fresh = 1;\n');
+    git(root, ['add', 'packages/c/src/new.ts']);
     expect(scopedChangedPaths(root)?.paths).toEqual(['packages/c/src/new.ts']);
     expect(deriveAffectedPackages(root, changedPathsSinceDefault(root) ?? [])).toMatchObject({
       scope: 'affected',
       packages: ['@x/c'],
     });
+  });
+
+  it('T14125: untracked files never widen scope; a staged or intent-to-add file counts', async () => {
+    initRepo(`node -e "process.exit(process.argv.slice(1).join(',')==='@x/c'?0:3)" {packages}`);
+    writeFileSync(join(root, 'packages/c/src/index.ts'), "export const n = 'changed';\n");
+    git(root, ['commit', '-q', '-am', 'T1: change c']);
+    // Pre-existing stubs with no nested .git, outside every package (VidaPeps).
+    for (const name of ['a', 'b']) {
+      mkdirSync(join(root, '.worktrees', name), { recursive: true });
+      writeFileSync(join(root, '.worktrees', name, '.npmrc'), 'x=1\n');
+    }
+    // A new file in a package the change already touches: still not the change.
+    writeFileSync(join(root, 'packages/a/src/new.ts'), 'export const fresh = 1;\n');
+    const setAside = ['.worktrees/a/.npmrc', '.worktrees/b/.npmrc', 'packages/a/src/new.ts'];
+    expect(scopedChangedPaths(root)).toEqual({
+      paths: ['packages/c/src/index.ts'],
+      excluded: [],
+      untrackedSetAside: setAside,
+    });
+    // The affected run tests only @x/c and records what it left out.
+    const r = await validateAtom({ kind: 'tool', tool: 'test-affected' }, root);
+    expect(r.ok && r.atom, JSON.stringify(r)).toMatchObject({
+      affectedPackages: ['@x/c'],
+      untrackedSetAside: setAside,
+    });
+    // AC2: declaring the task's own file (intent-to-add) makes it count.
+    git(root, ['add', '-N', 'packages/a/src/new.ts']);
+    expect(scopedChangedPaths(root)?.paths).toEqual([
+      'packages/a/src/new.ts',
+      'packages/c/src/index.ts',
+    ]);
+  });
+
+  it('T14125: a scoped tool:test-affected result is refused once a file it set aside is committed', async () => {
+    initRepo('node -e 0 {packages}');
+    writeFileSync(join(root, 'packages/c/src/index.ts'), "export const n = 'changed';\n");
+    git(root, ['commit', '-q', '-am', 'T1: change c']);
+    writeFileSync(join(root, 'packages/a/src/new.ts'), 'export const fresh = 1;\n');
+    const r = await validateAtom({ kind: 'tool', tool: 'test-affected' }, root);
+    if (!r.ok) throw new Error(JSON.stringify(r));
+    expect(setAsideJoinedReason([r.atom], () => root)).toBeNull();
+    git(root, ['add', 'packages/a/src/new.ts']);
+    git(root, ['commit', '-q', '-m', 'T1: and a new file']);
+    expect(setAsideJoinedReason([r.atom], () => root)).toMatch(
+      /tool:test-affected was recorded while packages\/a\/src\/new\.ts was untracked.*now tracked.*git add -N/s,
+    );
   });
 
   it('T13135 (review of #1823): a change cannot declare its own excludes, nor exclude package code', async () => {
@@ -779,9 +831,11 @@ describe('tool:test-affected evidence', () => {
     }
   });
 
-  it('T12657: an untracked new file in a package selects that package', async () => {
+  it('T12657: a new file in a package selects that package once staged (T14125)', async () => {
     initRepo(`node -e "process.exit(process.argv.slice(1).join(',')==='@x/c'?0:3)" {packages}`);
     writeFileSync(join(root, 'packages/c/src/new.ts'), 'export const fresh = 1;\n');
+    expect(changedPathsSinceDefault(root)).toEqual([]);
+    git(root, ['add', '-N', 'packages/c/src/new.ts']);
     expect(changedPathsSinceDefault(root)).toEqual(['packages/c/src/new.ts']);
     const r = await validateAtom({ kind: 'tool', tool: 'test-affected' }, root);
     expect(r.ok && r.atom, JSON.stringify(r)).toMatchObject({ affectedPackages: ['@x/c'] });

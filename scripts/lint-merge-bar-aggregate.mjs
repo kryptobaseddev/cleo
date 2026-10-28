@@ -112,6 +112,8 @@ const ADVISORY_WORKFLOWS = {
     'the full `cleo doctor release-readiness` preflight (needs a build); its gating part, changeset parsing, runs in required CI as the Changeset Lint job (T13281)',
   '.github/workflows/docs-reingest.yml': 'runs after a PR merges (docs re-ingest), not a gate',
   '.github/workflows/worktree-cleanup.yml': 'runs after a PR merges (worktree cleanup), not a gate',
+  '.github/workflows/merge-close.yml':
+    'runs after a PR merges and only posts the merge-close receipt (T14101), not a gate',
 };
 
 /**

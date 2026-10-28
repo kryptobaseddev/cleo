@@ -245,6 +245,7 @@ export function parseSimilarityConfig(raw: unknown, source: string): SimilarityC
     return { warnThreshold: DEFAULT_SIMILARITY_THRESHOLD, mode: DEFAULT_SIMILARITY_MODE };
   }
   if (typeof raw !== 'object' || Array.isArray(raw)) {
+    // @sync-invariant none:input-shape a malformed similarity config is refused before anything is written
     throw new Error(`${source}: 'similarity' must be an object`);
   }
   const obj = raw as Record<string, unknown>;
@@ -253,6 +254,7 @@ export function parseSimilarityConfig(raw: unknown, source: string): SimilarityC
   if (obj['warnThreshold'] !== undefined) {
     const t = obj['warnThreshold'];
     if (typeof t !== 'number' || Number.isNaN(t) || t < 0 || t > 1) {
+      // @sync-invariant none:input-shape a malformed similarity threshold is refused before anything is written
       throw new Error(
         `${source}: 'similarity.warnThreshold' must be a number in [0, 1] (got ${String(t)})`,
       );
@@ -264,6 +266,7 @@ export function parseSimilarityConfig(raw: unknown, source: string): SimilarityC
   if (obj['mode'] !== undefined) {
     const m = obj['mode'];
     if (m !== 'warn' && m !== 'block') {
+      // @sync-invariant none:input-shape a malformed similarity mode is refused before anything is written
       throw new Error(`${source}: 'similarity.mode' must be 'warn' or 'block' (got ${String(m)})`);
     }
     mode = m;

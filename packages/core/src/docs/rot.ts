@@ -75,6 +75,7 @@ interface ScannedDoc {
 function git(root: string, args: string[]): string {
   const r = spawnSync('git', args, { cwd: root, encoding: 'utf8', maxBuffer: 256 * 1024 * 1024 });
   if (r.status !== 0) {
+    // @sync-invariant none:local-only a failed read of this checkout's git history stops the scan before any task is flagged
     throw new Error(`git ${args[0]} failed in ${root}: ${r.stderr.trim()}`);
   }
   return r.stdout;
@@ -299,4 +300,31 @@ export async function flagDocsRotOnTasks(
     updated.push(taskId);
   }
   return updated;
+}
+
+/**
+ * The merge sweep's docs-rot hook (T14101 `MergeCloseDeps.docsRot`): flag, on
+ * the tasks a merged PR applied, every doc whose covered code the PR changed
+ * without the doc. The PR's change is `<mergeSha>^1..<mergeSha>` (first parent
+ * = the base it merged into). Never throws: a merge commit missing from local
+ * history, or a task write refused, flags nothing.
+ *
+ * @param storeRoot - Project root (a git work tree holding `mergeSha`).
+ * @param pr - The merged PR and the task ids the sweep applied for it.
+ * @returns The task ids flagged.
+ * @task T14111
+ */
+export async function flagDocsRot(
+  storeRoot: string,
+  pr: { prNumber: number; mergeSha: string; taskIds: string[] },
+): Promise<string[]> {
+  try {
+    const { flagged } = scanDocsRot({
+      projectRoot: storeRoot,
+      changed: `${pr.mergeSha}^1..${pr.mergeSha}`,
+    });
+    return await flagDocsRotOnTasks(storeRoot, pr.taskIds, flagged, `PR #${pr.prNumber}`);
+  } catch {
+    return [];
+  }
 }

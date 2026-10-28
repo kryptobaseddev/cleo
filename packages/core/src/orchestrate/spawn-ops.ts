@@ -1545,6 +1545,11 @@ export async function orchestrateSpawn(
       }
 
       // Build a minimal sdkWorktreeResult for downstream envelope consumers.
+      // T14126: with the same env a fresh worktree gets (every isolation key
+      // the prompt exports, and the git shim), not an empty one.
+      const { buildWorktreeEnvVars } = await import('@cleocode/worktree');
+      const { ensureGitShimDir } = await import('../spawn/branch-lock.js');
+      const shim = ensureGitShimDir(root);
       sdkWorktreeResult = {
         path: worktreePath,
         branch: worktreeBranch,
@@ -1554,7 +1559,10 @@ export async function orchestrateSpawn(
         createdAt: new Date().toISOString(),
         locked: true,
         reused: true,
-        envVars: {},
+        envVars: buildWorktreeEnvVars(worktreePath, worktreeBranch, projectHashForResume, {
+          dir: shim.dir,
+          installed: shim.installed,
+        }),
         preamble: '',
         hookResults: [],
         appliedPatterns: [],

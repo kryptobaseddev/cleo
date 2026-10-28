@@ -77,6 +77,7 @@ import { existsSync, realpathSync, statSync } from 'node:fs';
 import { dirname, isAbsolute, relative, resolve } from 'node:path';
 import type { EvidenceAtom } from '@cleocode/contracts';
 import { discoveryEnv } from '../git/work-tree.js';
+import { TARGETED_RUN_COVERAGE } from '../release/ci-evidence.js';
 import {
   cleoConfigSchemaFor,
   dependentsClosure,
@@ -152,10 +153,10 @@ export function coveredTestFiles(report: TestRunReport, root: string): string[] 
 }
 
 /**
- * A Playwright JSON report in the vitest shape the binding and the counter
- * checks read (T14031), from {@link playwrightTestRun}.
+ * A report adapted to the vitest shape the binding and the counter checks
+ * read: Playwright JSON (T14031), JUnit XML and libtest JSON (T14084).
  */
-export type PlaywrightTestRun = {
+export type AdaptedTestRun = {
   readonly startTime?: number;
   readonly testResults: Array<{
     status: string;
@@ -169,11 +170,17 @@ export type PlaywrightTestRun = {
   readonly numTodoTests: number;
 };
 
-/** A Playwright report that cannot stand as test-run evidence, and why. */
-export interface PlaywrightTestRunRefusal {
+/** An adapted report that cannot stand as test-run evidence, and why. */
+export interface AdaptedTestRunRefusal {
   readonly refusal: string;
   readonly codeName: 'E_EVIDENCE_INVALID' | 'E_EVIDENCE_TESTS_FAILED';
 }
+
+/** A Playwright JSON report in the vitest shape (T14031). */
+export type PlaywrightTestRun = AdaptedTestRun;
+
+/** A Playwright report that cannot stand as test-run evidence (T14031). */
+export type PlaywrightTestRunRefusal = AdaptedTestRunRefusal;
 
 /** Playwright's per-test outcome, as a vitest assertion status. */
 const PLAYWRIGHT_STATUS = {
@@ -280,6 +287,262 @@ export function playwrightTestRun(
       name: rootDir === null ? file : resolve(rootDir, file),
       status: statuses.includes('unexpected') ? 'failed' : 'passed',
       assertionResults: statuses.map((s) => ({ status: PLAYWRIGHT_STATUS[s] })),
+    })),
+  };
+}
+
+/** A JUnit testcase outcome, as a vitest assertion status. */
+type JunitOutcome = 'passed' | 'failed' | 'skipped';
+
+/** Decode the five predefined XML entities and numeric character references. */
+function xmlText(value: string): string {
+  return value
+    .replace(/&#x([0-9a-fA-F]+);/g, (_, hex: string) =>
+      String.fromCodePoint(Number.parseInt(hex, 16)),
+    )
+    .replace(/&#([0-9]+);/g, (_, dec: string) => String.fromCodePoint(Number.parseInt(dec, 10)))
+    .replace(/&quot;/g, '"')
+    .replace(/&apos;/g, "'")
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&amp;/g, '&');
+}
+
+/** The attributes of one XML start tag's attribute text. */
+function xmlAttributes(text: string): Map<string, string> {
+  const attrs = new Map<string, string>();
+  for (const match of text.matchAll(/([A-Za-z_][\w:.-]*)\s*=\s*(?:"([^"]*)"|'([^']*)')/g))
+    attrs.set(match[1]!, xmlText(match[2] ?? match[3] ?? ''));
+  return attrs;
+}
+
+/** A count attribute, when present and a non-negative integer. */
+function countAttribute(attrs: Map<string, string>, name: string): number | null {
+  const raw = attrs.get(name);
+  if (raw === undefined || !/^\d+$/.test(raw.trim())) return null;
+  return Number(raw.trim());
+}
+
+/**
+ * Adapt a JUnit XML report to the vitest shape, so a runner without a JSON
+ * reporter can be test-run evidence (T14084): cargo nextest
+ * (`[profile.*.junit]`), pytest `--junitxml`, and most other runners; null
+ * when `text` is not JUnit XML (no `<testsuite` element).
+ *
+ * Each `<testcase>` is one test: a `<failure>` or `<error>` child fails it, a
+ * `<skipped>` child makes it pending, otherwise it passed. Its file is the
+ * testcase's `file` attribute, else its suite's, else the suite name (pytest
+ * xunit1 and Jest record files; nextest and pytest xunit2 name binaries and
+ * classes, which then cover no file). A `tests`, `failures`, `errors` or
+ * `skipped` total the report states must equal its testcases, and the run
+ * time is the earliest suite `timestamp`. Nested `<testsuite>` elements are
+ * refused rather than undercounted.
+ *
+ * @param text - The report file's text.
+ * @returns The adapted report, a refusal, or null when it is not JUnit XML.
+ * @task T14084
+ */
+export function junitTestRun(text: string): AdaptedTestRun | AdaptedTestRunRefusal | null {
+  const body = text.replace(/^﻿/, '').replace(/<!--[\s\S]*?-->/g, '');
+  if (!/^\s*</.test(body) || !/<testsuite\b/.test(body)) return null;
+  const files = new Map<string, JunitOutcome[]>();
+  const stated = { tests: 0, failed: 0, skipped: 0, any: false };
+  let startTime = Number.POSITIVE_INFINITY;
+  const suites = body.matchAll(/<testsuite\b([^>]*?)(?:\/>|>([\s\S]*?)<\/testsuite>)/g);
+  for (const suite of suites) {
+    // A nested suite would be cut at its first closing tag and undercounted.
+    if (/<testsuite\b/.test(suite[2] ?? ''))
+      return {
+        refusal:
+          'JUnit report nests <testsuite> elements, which CLEO does not read; write one level of ' +
+          '<testsuite> under <testsuites> (pytest --junitxml, cargo nextest and jest-junit do)',
+        codeName: 'E_EVIDENCE_INVALID',
+      };
+    const attrs = xmlAttributes(suite[1] ?? '');
+    const tests = countAttribute(attrs, 'tests');
+    if (tests !== null) {
+      stated.any = true;
+      stated.tests += tests;
+      stated.failed +=
+        (countAttribute(attrs, 'failures') ?? 0) + (countAttribute(attrs, 'errors') ?? 0);
+      stated.skipped += countAttribute(attrs, 'skipped') ?? countAttribute(attrs, 'disabled') ?? 0;
+    }
+    const at = Date.parse(attrs.get('timestamp') ?? '');
+    if (Number.isFinite(at)) startTime = Math.min(startTime, at);
+    const suiteFile = attrs.get('file') || attrs.get('name') || 'junit';
+    const cases = (suite[2] ?? '').matchAll(/<testcase\b([^>]*?)(?:\/>|>([\s\S]*?)<\/testcase>)/g);
+    for (const testcase of cases) {
+      const caseAttrs = xmlAttributes(testcase[1] ?? '');
+      const inner = testcase[2] ?? '';
+      const outcome: JunitOutcome = /<(?:failure|error)\b/.test(inner)
+        ? 'failed'
+        : /<skipped\b/.test(inner)
+          ? 'skipped'
+          : 'passed';
+      const file = caseAttrs.get('file') || suiteFile;
+      files.set(file, [...(files.get(file) ?? []), outcome]);
+    }
+  }
+  const all = [...files.values()].flat();
+  const count = (outcome: JunitOutcome): number => all.filter((o) => o === outcome).length;
+  if (
+    stated.any &&
+    (stated.tests !== all.length ||
+      stated.failed !== count('failed') ||
+      stated.skipped !== count('skipped'))
+  )
+    return {
+      refusal:
+        `JUnit report states ${stated.tests} tests (${stated.failed} failed or errored, ${stated.skipped} skipped), ` +
+        `but its testcases count ${all.length} (${count('failed')} failed, ${count('skipped')} skipped)`,
+      codeName: 'E_EVIDENCE_INVALID',
+    };
+  return {
+    ...(Number.isFinite(startTime) ? { startTime } : {}),
+    numTotalTests: all.length,
+    numPassedTests: count('passed'),
+    numFailedTests: count('failed'),
+    numPendingTests: count('skipped'),
+    numTodoTests: 0,
+    testResults: [...files].map(([file, outcomes]) => ({
+      name: file,
+      status: outcomes.includes('failed') ? 'failed' : 'passed',
+      assertionResults: outcomes.map((status) => ({ status })),
+    })),
+  };
+}
+
+/** libtest's per-test events, as vitest assertion statuses. */
+const LIBTEST_STATUS = { ok: 'passed', failed: 'failed', ignored: 'skipped' } as const;
+
+/** A finished libtest test event. */
+type LibtestEvent = keyof typeof LIBTEST_STATUS;
+
+function isLibtestEvent(value: unknown): value is LibtestEvent {
+  return value === 'ok' || value === 'failed' || value === 'ignored';
+}
+
+/**
+ * Adapt libtest JSON lines to the vitest shape (T14084): `cargo test --
+ * -Z unstable-options --format json --report-time`, or cargo nextest
+ * `--message-format libtest-json`; null when `text` is not libtest JSON (a
+ * line that is not a JSON object with `type` `suite` or `test`).
+ *
+ * Each finished `test` event is one test (`ok` passes, `failed` fails,
+ * `ignored` is pending). Tests are grouped by their binary, the name before a
+ * `$` (nextest) or `::`. Libtest names no files, so a report covers none. Each
+ * suite's `passed`/`failed`/`ignored` summary must equal its test events, and
+ * every `started` suite must finish with as many test events as its
+ * `test_count`: a killed run is refused as truncated, never read as complete.
+ * Suites are tracked per binary when nextest's `libtest-json-plus` names them
+ * (its suites of parallel binaries interleave); otherwise one at a time.
+ *
+ * @param text - The report file's text.
+ * @returns The adapted report, a refusal, or null when it is not libtest JSON.
+ * @task T14084
+ */
+export function libtestTestRun(text: string): AdaptedTestRun | AdaptedTestRunRefusal | null {
+  const lines = text
+    .split('\n')
+    .map((line) => line.trim())
+    .filter(Boolean);
+  if (lines.length === 0) return null;
+  const events: Array<Readonly<Record<string, unknown>>> = [];
+  for (const line of lines) {
+    let event: unknown;
+    try {
+      event = JSON.parse(line);
+    } catch {
+      return null;
+    }
+    if (!isRecord(event) || (event.type !== 'suite' && event.type !== 'test')) return null;
+    events.push(event);
+  }
+  const groups = new Map<string, LibtestEvent[]>();
+  const summary = { passed: 0, failed: 0, ignored: 0, any: false };
+  // A killed run leaves a suite started and never finished; its partial
+  // counts must not read as a complete run.
+  const truncated = (detail: string): AdaptedTestRunRefusal => ({
+    refusal: `the libtest report is truncated (a suite started but never finished): the run did not complete; ${detail}`,
+    codeName: 'E_EVIDENCE_INVALID',
+  });
+  // cargo test and nextest's libtest-json write one suite at a time, but
+  // nextest's libtest-json-plus streams suites of parallel binaries
+  // interleaved; its suite events then name the binary (`nextest.crate` and
+  // `nextest.test_binary`), as its test names do (`<crate>::<binary>$<test>`).
+  const suiteKey = (event: Readonly<Record<string, unknown>>): string => {
+    const meta = event.nextest;
+    return isRecord(meta) && typeof meta.crate === 'string' && typeof meta.test_binary === 'string'
+      ? `${meta.crate}::${meta.test_binary}`
+      : '';
+  };
+  const keyed = events.some((event) => event.type === 'suite' && suiteKey(event) !== '');
+  const open = new Map<string, { expected: number | null; seen: number }>();
+  for (const event of events) {
+    if (event.type === 'suite') {
+      const key = keyed ? suiteKey(event) : '';
+      if (event.event === 'started') {
+        if (open.has(key))
+          return truncated(
+            `a suite${key ? ` of ${key}` : ''} started before the previous one finished`,
+          );
+        const expected = event.test_count;
+        open.set(key, {
+          expected: typeof expected === 'number' && Number.isInteger(expected) ? expected : null,
+          seen: 0,
+        });
+        continue;
+      }
+      if (event.event !== 'ok' && event.event !== 'failed') continue;
+      const suite = open.get(key);
+      if (suite !== undefined && suite.expected !== null && suite.seen !== suite.expected)
+        return truncated(
+          `a suite${key ? ` of ${key}` : ''} started with test_count ${suite.expected} but reported ${suite.seen} finished tests`,
+        );
+      open.delete(key);
+      summary.any = true;
+      for (const field of ['passed', 'failed', 'ignored'] as const) {
+        const value = event[field];
+        if (typeof value === 'number' && Number.isInteger(value) && value >= 0)
+          summary[field] += value;
+      }
+      continue;
+    }
+    if (!isLibtestEvent(event.event)) continue;
+    const name = typeof event.name === 'string' ? event.name : '';
+    const suite = open.get(keyed && name.includes('$') ? name.split('$')[0]! : '');
+    if (suite !== undefined) suite.seen += 1;
+    const binary = name.includes('$') ? name.split('$')[0]! : name.split('::')[0] || 'libtest';
+    groups.set(binary, [...(groups.get(binary) ?? []), event.event]);
+  }
+  if (open.size > 0)
+    return truncated(
+      `${[...open.keys()].map((key) => key || 'the last suite').join(', ')} has no ok or failed event`,
+    );
+  const all = [...groups.values()].flat();
+  const count = (event: LibtestEvent): number => all.filter((e) => e === event).length;
+  if (
+    summary.any &&
+    (summary.passed !== count('ok') ||
+      summary.failed !== count('failed') ||
+      summary.ignored !== count('ignored'))
+  )
+    return {
+      refusal:
+        `libtest summary states ${summary.passed} passed, ${summary.failed} failed, ${summary.ignored} ignored, ` +
+        `but its test events count ${count('ok')}, ${count('failed')}, ${count('ignored')}`,
+      codeName: 'E_EVIDENCE_INVALID',
+    };
+  return {
+    numTotalTests: all.length,
+    numPassedTests: count('ok'),
+    numFailedTests: count('failed'),
+    numPendingTests: count('ignored'),
+    numTodoTests: 0,
+    testResults: [...groups].map(([binary, outcomes]) => ({
+      name: binary,
+      status: outcomes.includes('failed') ? 'failed' : 'passed',
+      assertionResults: outcomes.map((event) => ({ status: LIBTEST_STATUS[event] })),
     })),
   };
 }
@@ -718,9 +981,9 @@ export function reportFreshness(
       );
     }
   }
-  // T14000: untracked files outside the change's directories are set aside
-  // (and recorded by the binding), never judged as this change.
-  const changes = scopedChangedPaths(root, { narrowUntracked: true });
+  // T14000, T14125: untracked files are set aside (and recorded by the
+  // binding), never judged as this change.
+  const changes = scopedChangedPaths(root);
   const newest = modifiedAfterRun(
     root,
     (changes?.paths ?? dirtyTracked(root)).filter((p) => p !== clock.reportRel),
@@ -1035,9 +1298,7 @@ function testRunMeetsRequirement(
       testFiles.length === 0
         ? 'test-run report lists no test files, so it covers no test file of'
         : 'test-run report covers no test file of'
-    } ${someNames(labelled)}. A targeted report must cover every affected package that has ` +
-      'tests — each changed package and each package that depends on one, the set ' +
-      'tool:test-affected runs. Run those tests and record the report, or record ' +
-      'tool:test-affected (or tool:test).',
+    } ${someNames(labelled)}. A targeted report must cover ${TARGETED_RUN_COVERAGE}. ` +
+      'Run those tests and record the report, or record tool:test-affected (or tool:test).',
   );
 }

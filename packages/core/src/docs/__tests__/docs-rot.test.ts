@@ -14,9 +14,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 const updateTask = vi.fn(async () => ({ task: {}, changes: [] }));
 vi.mock('../../tasks/update.js', () => ({ updateTask }));
 
-const { DOCS_ROT_LABEL, flagDocsRotOnTasks, readDocCovers, scanDocsRot } = await import(
-  '../rot.js'
-);
+const { DOCS_ROT_LABEL, flagDocsRot, flagDocsRotOnTasks, readDocCovers, scanDocsRot } =
+  await import('../rot.js');
 
 let root: string;
 
@@ -123,5 +122,33 @@ describe('flagDocsRotOnTasks', () => {
       root,
     );
     expect(await flagDocsRotOnTasks(root, ['T1'], [], 'PR #9')).toEqual([]);
+  });
+});
+
+describe('flagDocsRot (the merge sweep hook)', () => {
+  it('AC1: flags the tasks of a merged PR whose change left a doc stale', async () => {
+    write('src/release/cut.ts', 'export const a = 5;\n');
+    const merge = commit('merged PR changes covered code');
+    const flagged = await flagDocsRot(root, { prNumber: 7, mergeSha: merge, taskIds: ['T9'] });
+    expect(flagged).toEqual(['T9']);
+    expect(updateTask).toHaveBeenCalledWith(
+      {
+        taskId: 'T9',
+        addLabels: [DOCS_ROT_LABEL],
+        notes:
+          'docs-rot: docs/release.md covers src/release/cut.ts, changed in PR #7; update the doc',
+      },
+      root,
+    );
+  });
+
+  it('never throws: an unknown merge commit flags nothing', async () => {
+    const flagged = await flagDocsRot(root, {
+      prNumber: 8,
+      mergeSha: 'f'.repeat(40),
+      taskIds: ['T9'],
+    });
+    expect(flagged).toEqual([]);
+    expect(updateTask).not.toHaveBeenCalled();
   });
 });

@@ -963,71 +963,50 @@ export interface ScopedChangedPaths {
   /** Changed paths set aside as out of scope (managed hook files, declared excludes). */
   readonly excluded: string[];
   /**
-   * With `narrowUntracked` (T14000): untracked files outside every directory
-   * the tracked change touches — another agent's work in a shared checkout,
-   * not this change. Evidence records them so `cleo complete` can refuse it
-   * once one of them is committed. Empty otherwise.
+   * Untracked files that are not part of the change (T14125; T14000 set
+   * aside only those outside the change's directories): evidence binds to
+   * what is committed or staged, never to stray files in the checkout. Evidence
+   * records them so `cleo complete` can refuse it once one of them is
+   * committed. Stage a file (`git add`, or `git add -N`) to make it count.
    */
   readonly untrackedSetAside: string[];
 }
 
 /**
- * The most untracked files a binding sets aside (T14000, review of #2426).
- * Above it the run is not narrowed: every untracked file counts, as before,
- * so an atom never carries thousands of paths.
+ * The most untracked files evidence sets aside (T14000, review of #2426).
+ * Above it nothing is set aside: every untracked file counts, so an atom
+ * never carries thousands of paths.
  */
 export const MAX_UNTRACKED_SET_ASIDE = 500;
 
 /**
- * Whether an untracked path lies in a directory the tracked change touches
- * (T14000): under the directory of a changed path, or at the root next to a
- * changed root-level path.
- */
-function nearTrackedChange(path: string, dirs: ReadonlySet<string>): boolean {
-  const at = path.lastIndexOf('/');
-  if (at < 0) return dirs.has('');
-  for (const dir of dirs) {
-    if (dir !== '' && (path === dir || path.startsWith(`${dir}/`))) return true;
-  }
-  return false;
-}
-
-/**
  * Paths the tree under test changed relative to origin's default branch:
- * committed (`merge-base(origin/<default>, HEAD)..HEAD`), uncommitted tracked
- * edits and untracked files — the tests run on the working tree, so all matter
- * — split into the ones that count and the ones set aside as out of scope
- * ({@link isScopeExcluded}, T13135).
+ * committed (`merge-base(origin/<default>, HEAD)..HEAD`) and uncommitted
+ * tracked edits, which include staged files and `git add -N` intent-to-add
+ * files — split into the ones that count and the ones set aside as out of
+ * scope ({@link isScopeExcluded}, T13135).
  *
- * An untracked file that is tool or session state is not the change at all
- * (T13780): one under {@link UNTRACKED_STATE_DIRS} (`.cleo/rcasd/`,
- * `.claude/`), or one the default branch's `evidence.scopeExcludes` matches
- * (this repo declares `.opencode/**`). Every other untracked file counts,
- * whatever directory holds it (`.github/`, `.husky/`): a file a later commit
- * adds keeps the same tree hash, so leaving it out of scope would let
- * evidence recorded before the commit skip it (review of #2302).
+ * An untracked file is never the change (T14125): a pre-existing stub such as
+ * `.worktrees/x/.npmrc` must not widen the scope to the whole suite. Each one
+ * is returned as `untrackedSetAside` instead (tool or session state under
+ * {@link UNTRACKED_STATE_DIRS}, and paths the default branch's
+ * `evidence.scopeExcludes` matches, are dropped without a record, T13780). A
+ * file a later commit adds keeps the same tree hash, so the evidence records
+ * the set-aside files and `cleo complete` refuses it once one is committed
+ * (T14000, the review of #2302 hazard). More than
+ * {@link MAX_UNTRACKED_SET_ASIDE} such files are not set aside at all.
  *
  * Excludes are anchored at the CLEO root: diff paths are relative to the git
  * top level, so a CLEO root in a subdirectory strips its prefix before
  * matching; untracked paths are already root-relative.
  *
- * With `narrowUntracked` (T14000, the test-run and qa-run bindings), an
- * untracked file counts only when it lies in a directory the tracked change
- * touches ({@link nearTrackedChange}); the rest is returned as
- * `untrackedSetAside`, so a shared dirty checkout cannot refuse a run the
- * plan asked for, and the binding records what it left out. More than
- * {@link MAX_UNTRACKED_SET_ASIDE} such files are not set aside at all.
- *
  * @param root - Execution root.
- * @param opts - `narrowUntracked` for the bindings (T14000).
  * @returns The split, or null when no origin default branch exists or git fails.
  * @task T12635
  * @task T13135
+ * @task T14125
  */
-export function scopedChangedPaths(
-  root: string,
-  opts: { readonly narrowUntracked?: boolean } = {},
-): ScopedChangedPaths | null {
+export function scopedChangedPaths(root: string): ScopedChangedPaths | null {
   const mergeBase = originDefaultMergeBase(root);
   if (!mergeBase) return null;
   // A git failure is not an empty diff (T12657): no answer, so no scoped run.
@@ -1056,23 +1035,12 @@ export function scopedChangedPaths(
   for (const path of [...lines(committed), ...lines(uncommitted)]) {
     (out(path, prefix) ? excluded : paths).add(path);
   }
-  const trackedDirs = new Set(
-    [...paths].map((p) => {
-      const slashed = slashSeparated(p);
-      const at = slashed.lastIndexOf('/');
-      return at < 0 ? '' : slashed.slice(0, at);
-    }),
-  );
   for (const path of untracked) {
     const rel = slashSeparated(path);
     if (UNTRACKED_STATE_DIRS.some((dir) => rel.startsWith(dir))) continue;
     // Declared or managed state: never package code (isScopeExcluded refuses those).
     if (isScopeExcluded(rel, declared, packageDirs)) continue;
-    if (opts.narrowUntracked === true && !nearTrackedChange(slashSeparated(path), trackedDirs)) {
-      setAside.add(path);
-      continue;
-    }
-    paths.add(path);
+    setAside.add(path);
   }
   // Too many to record: judge them all, as an un-narrowed run does.
   if (setAside.size > MAX_UNTRACKED_SET_ASIDE) {
@@ -1118,6 +1086,8 @@ export type AffectedTestRun =
       testFiles?: string[];
       /** Changed CLEO config the run leaves to `tool:config-schema` (T13779). */
       configPaths?: string[];
+      /** Untracked files the scope left out, recorded on the atom (T14125). */
+      untrackedSetAside?: string[];
     }
   | {
       ok: false;
@@ -1175,7 +1145,8 @@ export async function planAffectedTestRun(
       reason: `${error instanceof Error ? error.message : String(error)} (.cleo/project-context.json)`,
     };
   }
-  const changed = changedPathsSinceDefault(root);
+  const scoped = scopedChangedPaths(root);
+  const changed = scoped?.paths ?? null;
   if (changed === null) {
     return {
       ok: false,
@@ -1204,7 +1175,12 @@ export async function planAffectedTestRun(
     };
   }
   const outside = scope.outsideTests ?? [];
-  const config = scope.cleoConfig ? { configPaths: scope.cleoConfig } : {};
+  const config = {
+    ...(scope.cleoConfig ? { configPaths: scope.cleoConfig } : {}),
+    ...(scoped && scoped.untrackedSetAside.length > 0
+      ? { untrackedSetAside: scoped.untrackedSetAside }
+      : {}),
+  };
   if (outside.length > 0) {
     // T13754: one affected command cannot both select packages and name files.
     if (scope.packages.length > 0) {

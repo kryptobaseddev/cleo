@@ -16,8 +16,8 @@
  */
 
 import { createHash } from 'node:crypto';
-import { realpathSync } from 'node:fs';
-import { join } from 'node:path';
+import { readFileSync, realpathSync } from 'node:fs';
+import { basename, dirname, join, resolve } from 'node:path';
 import { getCleoHome } from './cleo-paths.js';
 
 const WORKTREES_SUBDIR = 'worktrees';
@@ -41,6 +41,30 @@ function joinSegments(base: string, ...parts: string[]): string {
 }
 
 /**
+ * The main checkout that owns the linked git worktree at `dir`, or null
+ * (T14126). Only the `<main>/.git/worktrees/<name>` gitlink layout counts: a
+ * submodule (`.git/modules/<name>`) or a bare repository's worktree has no
+ * main checkout to name, and resolves as itself.
+ *
+ * @param dir - Real path of a directory that may be a linked worktree.
+ * @returns The owning checkout's real path, or null.
+ */
+function linkedWorktreeOwner(dir: string): string | null {
+  try {
+    // A directory `.git` (a main checkout) throws EISDIR here: not linked.
+    const match = /^gitdir:\s*(.+)$/m.exec(readFileSync(join(dir, '.git'), 'utf-8'));
+    if (!match?.[1]) return null;
+    const gitdir = resolve(dir, match[1].trim());
+    if (basename(dirname(gitdir)) !== 'worktrees') return null;
+    const commonDir = dirname(dirname(gitdir));
+    if (basename(commonDir) !== '.git') return null;
+    return realpathSync(dirname(commonDir));
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Compute a stable 16-character project hash from an absolute project root path.
  *
  * Uses SHA-256 truncated to 16 hex chars. The truncation is consistent with
@@ -50,6 +74,12 @@ function joinSegments(base: string, ...parts: string[]): string {
  * **Cross-mount normalization (T11023 AC3):** The input path is resolved
  * through `realpathSync` before hashing so that different mount points
  * (/mnt/projects/X vs /workspace/X) produce the same hash.
+ *
+ * **One project, one hash (T14126):** a linked git worktree hashes as the
+ * main checkout that owns it, so a command run from inside a task worktree
+ * (`cleo done --plan`) names the same `<cleoHome>/worktrees/<hash>/` as the
+ * spawn that created it. Hashing the worktree path itself named a sibling
+ * directory that does not exist.
  *
  * @param projectRoot - Absolute path to the project root.
  * @returns 16-character lowercase hex string.
@@ -65,6 +95,7 @@ export function computeProjectHash(projectRoot: string): string {
   } catch {
     normalized = projectRoot;
   }
+  normalized = linkedWorktreeOwner(normalized) ?? normalized;
   return createHash('sha256').update(normalized).digest('hex').slice(0, PROJECT_HASH_LENGTH);
 }
 

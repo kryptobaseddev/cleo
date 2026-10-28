@@ -2,7 +2,7 @@
 id: done-needs-ac-coverage-everywhere
 tasks: [T12883]
 kind: fix
-summary: "Every writer that sets done requires the task's acceptance criteria to be covered (T12883 R2)"
+summary: "Behaviour change: bulk-move to done, unarchive --status done, saga auto-close and the release reconcile now refuse a task whose acceptance criteria have no evidence; the release reconcile no longer stamps such a task done but files its follow-up task instead. Record the evidence (cleo verify), then complete it (T12883 R2)"
 ---
 
 Only `cleo complete` checked acceptance-criteria coverage before a task became

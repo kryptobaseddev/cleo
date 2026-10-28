@@ -30,7 +30,7 @@
 
 import type { AcRow, Task, VerificationGate } from '@cleocode/contracts';
 import type { EngineResult } from '../engine-result.js';
-import { readCiSatisfies } from '../release/ci-evidence.js';
+import { readCiSatisfies, TARGETED_RUN_COVERAGE } from '../release/ci-evidence.js';
 import type { GateVerifyParams, GateVerifyResult } from '../validation/engine-ops.js';
 import {
   type MergeProbeDeps,
@@ -263,8 +263,8 @@ export async function satisfyGatesFromMergedCi(
       kind: 'ci-red',
       reason:
         `${why}. ${fallback} also does not hold: ${refusal.reason.replace(/^ci:\S+ does not hold: /, '')}. ` +
-        'A targeted test-run recorded on the default branch after the merge, covering every file ' +
-        'of the change, stands in for testsPassed (T13623)',
+        'A targeted test-run recorded on the default branch after the merge stands in for ' +
+        `testsPassed (T13623) when it covers ${TARGETED_RUN_COVERAGE}`,
     };
   };
   if (state !== 'merged') return { kind: 'skipped', testsPassedReason, qaPassedReason };

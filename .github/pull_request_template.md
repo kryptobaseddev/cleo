@@ -19,6 +19,19 @@
 -
 -
 
+## CLEO tasks
+
+<!--
+One line per task this PR delivers (T14101). After merge, with green CI on
+this PR's head, CLEO records the PR's evidence and closes the task:
+  Closes: T#### AC1,AC2   completes the task once merged PRs cover all its criteria
+  Refs: T#### AC1         binds these criteria from a partial PR; the task stays open
+List every criterion this PR delivers (no wildcard). Check before merging:
+  cleo done --from-merge <this PR number> --dry-run
+-->
+
+Closes: T#### AC1,AC2
+
 ## Change type
 
 <!-- Check all that apply -->

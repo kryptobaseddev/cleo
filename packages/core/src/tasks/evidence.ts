@@ -76,6 +76,8 @@ import {
   bindTestRunReport,
   configSchemaCompositionGap,
   coveredTestFiles,
+  junitTestRun,
+  libtestTestRun,
   playwrightTestRun,
   TEST_RUN_MAX_RECORDED_FILES,
   type TestRunReport,
@@ -1846,6 +1848,8 @@ async function runAffectedTests(
   taskId: string | undefined,
 ): Promise<AtomValidation> {
   const { storeRoot, executionRoot } = roots;
+  const foreign = await workspaceResolutionRefusal(executionRoot);
+  if (foreign !== null) return foreign;
   // T13132: status shows what holds the budget — the scope and the task.
   const result = await runToolCached(run.command, storeRoot, {
     executionRoot,
@@ -1880,6 +1884,7 @@ async function runAffectedTests(
       ...(run.testFiles ? { affectedTestFiles: run.testFiles } : {}),
       ...(run.configPaths ? { configPaths: run.configPaths } : {}),
       ...(run.untested.length > 0 ? { untestedPackages: run.untested } : {}),
+      ...(run.untrackedSetAside ? { untrackedSetAside: run.untrackedSetAside } : {}),
       ...(await toolRunAtomFields(result)),
     },
   };
@@ -2060,15 +2065,67 @@ async function readTestRunReport(
       codeName: 'E_EVIDENCE_INVALID',
     };
   }
+  const text = content.toString('utf-8');
+  // T14084: JUnit XML (cargo nextest, pytest, most runners) and libtest JSON
+  // lines (cargo test) are read in the vitest shape.
+  const junit = junitTestRun(text);
+  if (junit !== null && 'refusal' in junit)
+    return { ok: false, reason: junit.refusal, codeName: junit.codeName };
+  if (junit !== null) return { ok: true, abs, content, parsed: junit };
   try {
-    return { ok: true, abs, content, parsed: JSON.parse(content.toString('utf-8')) };
+    return { ok: true, abs, content, parsed: JSON.parse(text) };
   } catch (err) {
+    const libtest = libtestTestRun(text);
+    if (libtest !== null && 'refusal' in libtest)
+      return { ok: false, reason: libtest.refusal, codeName: libtest.codeName };
+    if (libtest !== null) return { ok: true, abs, content, parsed: libtest };
     return {
       ok: false,
-      reason: `test-run file is not valid JSON: ${err instanceof Error ? err.message : String(err)}`,
+      reason:
+        `test-run file is not valid JSON, JUnit XML or libtest JSON lines: ` +
+        `${err instanceof Error ? err.message : String(err)}`,
       codeName: 'E_EVIDENCE_INVALID',
     };
   }
+}
+
+/**
+ * T14097: refuse a test run in a checkout whose workspace packages resolve
+ * into another checkout (its tests would run that checkout's build), and warn
+ * when a dependency's dist predates its source. Null when the run may proceed.
+ *
+ * @param root - The tree the run is about (any directory inside the checkout).
+ * @param testFiles - Test files the run names, to scope the check; all packages when empty.
+ */
+async function workspaceResolutionRefusal(
+  root: string,
+  testFiles: readonly string[] = [],
+): Promise<AtomValidation | null> {
+  const {
+    checkoutRootOf,
+    checkWorkspaceResolution,
+    foreignResolutionReason,
+    packagesNamedByTestArgs,
+    staleDistWarning,
+  } = await import('./workspace-resolution.js');
+  const checkout = checkoutRootOf(root) ?? root;
+  const report = checkWorkspaceResolution(
+    checkout,
+    packagesNamedByTestArgs(checkout, checkout, testFiles),
+  );
+  const reason = foreignResolutionReason(report);
+  // @sync-invariant none:input-shape a test run against another checkout's build is refused before anything is written
+  if (reason !== null) return { ok: false, reason, codeName: 'E_WORKSPACE_FOREIGN_CHECKOUT' };
+  const stale = staleDistWarning(report);
+  if (stale !== null)
+    pushWarning({
+      // @sync-invariant none:input-shape a warning only; nothing is refused or written
+      code: 'W_WORKSPACE_STALE_DIST',
+      severity: 'warn',
+      message: stale,
+      context: { root: checkout },
+    });
+  return null;
 }
 
 /**
@@ -2205,6 +2262,9 @@ async function validateTestRun(
   // @sync-invariant none:input-shape a bind root git cannot open is refused before anything is written
   if (broken) return { ok: false, reason: broken, codeName: E_EVIDENCE_GIT_ROOT };
   const testFiles = coveredTestFiles(parsed, bindRoot);
+  // T14097: never record a receipt from a checkout testing another one's build.
+  const foreign = await workspaceResolutionRefusal(bindRoot, testFiles);
+  if (foreign !== null) return foreign;
   // T14031: the other reports of this write cover the change with this one.
   const siblingFiles: string[] = [];
   for (const sibling of siblings) {
@@ -2338,6 +2398,7 @@ async function validateQaRun(
     nonCodeChange?: boolean;
     configPaths?: string[];
     untrackedSetAside?: string[];
+    owedChecks?: { typecheck: string[]; lint: string[] };
   } | null = null;
   if (treeHash && headSha) {
     const binding = bindQaRunReceipt(receipt, abs, bindRoot);
@@ -2368,6 +2429,7 @@ async function validateQaRun(
       ...(gaps?.nonCodeChange ? { nonCodeChange: true } : {}),
       ...(gaps?.configPaths ? { configPaths: gaps.configPaths } : {}),
       ...(gaps?.untrackedSetAside ? { untrackedSetAside: gaps.untrackedSetAside } : {}),
+      ...(gaps?.owedChecks ? { owedChecks: gaps.owedChecks } : {}),
     },
   };
 }
@@ -2602,7 +2664,8 @@ async function validateTool(
       ? (await import('./change-set.js')).resolveChangeSetRoot(roots.storeRoot, context.task.id)
           .root
       : roots.executionRoot;
-    const changed = scopedChangedPaths(root)?.paths ?? [];
+    const scoped = scopedChangedPaths(root);
+    const changed = scoped?.paths ?? [];
     const treeHash = isNonCodeOnlyChange(changed) ? (await captureTree(root)).tree : null;
     if (treeHash) {
       return {
@@ -2614,6 +2677,11 @@ async function validateTool(
           notApplicable: true,
           nonCodeChange: true,
           treeHash,
+          // T14125: a stray untracked code file is not this change; once one
+          // is committed, `cleo complete` refuses this result.
+          ...(scoped && scoped.untrackedSetAside.length > 0
+            ? { untrackedSetAside: scoped.untrackedSetAside }
+            : {}),
           reason: `no test reads this change: it touches only non-code files (${changed.join(', ')})`,
         },
       };
@@ -2712,6 +2780,10 @@ async function validateTool(
   // T13132: a heavy tool here runs the whole project (the affected scope
   // returned above); status marks it scope=full with its task.
   const taskId = context?.task.id;
+  if (resolution.command.canonical === 'test') {
+    const foreign = await workspaceResolutionRefusal(executionRoot);
+    if (foreign !== null) return foreign;
+  }
   const result = await runToolCached(resolution.command, projectRoot, {
     executionRoot,
     semaphoreOptions: {
@@ -3848,17 +3920,33 @@ export function checkTaskEvidenceContext(
   ) {
     // T13745: a non-code-only change has no TypeScript to typecheck.
     const nonCode = atoms.some((atom) => atom.kind === 'qa-run' && atom.nonCodeChange === true);
-    const missing = (['typecheck', 'lint'] as const).filter(
-      (check) =>
-        !(nonCode && check === 'typecheck') &&
-        !atoms.some(
-          (atom) =>
-            (atom.kind === 'qa-run' && atom.check === check) ||
-            (atom.kind === 'tool' && canonicalToolName(atom.tool) === check),
-        ),
-    );
-    if (missing.length > 0)
-      return `qaPassed with qa-run receipts needs a typecheck and a lint result; missing ${missing.join(' and ')}: add qa-run:<${missing[0]}-receipt.json> or tool:${missing[0]}.`;
+    // T14089: a check is owed only for the changed paths it reads, as the
+    // receipts judged them at bind time. A receipt bound without that
+    // judgement (older, or nothing judged) owes both, as before.
+    const receipts = atoms.flatMap((atom) => (atom.kind === 'qa-run' ? [atom] : []));
+    const owedPaths = (check: 'typecheck' | 'lint'): string[] | null =>
+      receipts.some((r) => r.owedChecks === undefined)
+        ? null
+        : [...new Set(receipts.flatMap((r) => r.owedChecks?.[check] ?? []))];
+    const missing = (['typecheck', 'lint'] as const).filter((check) => {
+      if (nonCode && check === 'typecheck') return false;
+      const paths = owedPaths(check);
+      if (paths !== null && paths.length === 0) return false;
+      return !atoms.some(
+        (atom) =>
+          (atom.kind === 'qa-run' && atom.check === check) ||
+          (atom.kind === 'tool' && canonicalToolName(atom.tool) === check),
+      );
+    });
+    if (missing.length > 0) {
+      const named = missing.map((check) => {
+        const paths = owedPaths(check);
+        return paths === null
+          ? check
+          : `${check} (it reads ${paths.slice(0, 5).join(', ')}${paths.length > 5 ? `, … (${paths.length})` : ''})`;
+      });
+      return `qaPassed with qa-run receipts needs a result for each check that reads the changed paths; missing ${named.join(' and ')}: add qa-run:<${missing[0]}-receipt.json> or tool:${missing[0]}.`;
+    }
     // T13580: receipts of one kind cover the change together; a check also
     // recorded as a whole-project tool: run needs no receipt coverage.
     const gap = qaRunUnionGapReason(

@@ -368,6 +368,46 @@ function assertExistingBase(
 }
 
 /**
+ * The environment an agent spawned into a task worktree runs with: the
+ * isolation keys its spawn prompt exports, plus the git shim on `PATH` when
+ * the caller installed it. One builder for a fresh worktree and a resumed one
+ * (T14126: `--resume` returned none of these).
+ *
+ * @param worktreePath - Absolute worktree path.
+ * @param branch - The task branch (`task/<id>`).
+ * @param projectHash - The owning project's hash.
+ * @param gitShim - The installed git shim, when there is one.
+ * @returns The variables; identity keys (`CLEO_SESSION_ID`, `CLEO_AGENT_ID`) are the caller's.
+ * @task T14126
+ */
+export function buildWorktreeEnvVars(
+  worktreePath: string,
+  branch: string,
+  projectHash: string,
+  gitShim?: CreateWorktreeOptions['gitShim'],
+): Record<string, string> {
+  const pathKey = pathEnvKey();
+  // T13522: advertise strict protection only when the caller installed the shim.
+  const shimActive = gitShim?.installed === true;
+  return {
+    CLEO_AGENT_ROLE: 'worker',
+    CLEO_AGENT_CWD: worktreePath,
+    CLEO_WORKTREE_ROOT: worktreePath,
+    CLEO_WORKTREE_BRANCH: branch,
+    CLEO_PROJECT_HASH: projectHash,
+    CLEO_BRANCH_PROTECTION: shimActive ? 'strict' : 'unavailable',
+    ...(shimActive && gitShim
+      ? {
+          CLEO_SHIM_MARKER: '.cleo/bin/git-shim',
+          // Platform delimiter: ':' would fuse the shim dir with the first real
+          // Windows PATH entry and lose both (T12605).
+          [pathKey]: prependPathEntry(gitShim.dir, process.env[pathKey]),
+        }
+      : {}),
+  };
+}
+
+/**
  * Create a git worktree for an agent task.
  *
  * Steps:
@@ -790,26 +830,7 @@ async function provisionUnderLock(
     ? []
     : await runWorktreeHooks(hooks, 'post-start', worktreePath);
 
-  // Build env vars for agent spawn.
-  const pathKey = pathEnvKey();
-  // T13522: advertise strict protection only when the caller installed the shim.
-  const shimActive = options.gitShim?.installed === true;
-  const envVars: Record<string, string> = {
-    CLEO_AGENT_ROLE: 'worker',
-    CLEO_AGENT_CWD: worktreePath,
-    CLEO_WORKTREE_ROOT: worktreePath,
-    CLEO_WORKTREE_BRANCH: branch,
-    CLEO_PROJECT_HASH: projectHash,
-    CLEO_BRANCH_PROTECTION: shimActive ? 'strict' : 'unavailable',
-    ...(shimActive && options.gitShim
-      ? {
-          CLEO_SHIM_MARKER: '.cleo/bin/git-shim',
-          // Platform delimiter: ':' would fuse the shim dir with the first real
-          // Windows PATH entry and lose both (T12605).
-          [pathKey]: prependPathEntry(options.gitShim.dir, process.env[pathKey]),
-        }
-      : {}),
-  };
+  const envVars = buildWorktreeEnvVars(worktreePath, branch, projectHash, options.gitShim);
 
   // Build the preamble text for agent context isolation (per acceptance criterion).
   const npmrcTracked = install.status === 'installed' && isNpmrcTracked(worktreePath);
@@ -825,7 +846,7 @@ async function provisionUnderLock(
     '  git checkout, git switch, git branch -b/-D, git reset --hard,',
     '  git worktree add/remove, git rebase, git stash pop, git push --force',
     '',
-    shimActive
+    envVars['CLEO_BRANCH_PROTECTION'] === 'strict'
       ? 'A git shim is active on your PATH that will exit 77 if you attempt these, or a push to main.'
       : 'No git shim could be installed for this worktree: these rules are NOT enforced, so follow them yourself.',
     `Your working directory is: ${worktreePath}`,

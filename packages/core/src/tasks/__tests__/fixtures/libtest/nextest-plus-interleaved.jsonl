@@ -1,0 +1,10 @@
+{"type":"suite","event":"started","test_count":2,"nextest":{"crate":"parser","test_binary":"parser","kind":"lib"}}
+{"type":"test","event":"started","name":"parser::parser$tests::reads_header"}
+{"type":"suite","event":"started","test_count":1,"nextest":{"crate":"parser","test_binary":"integration","kind":"test"}}
+{"type":"test","event":"started","name":"parser::integration$round_trip"}
+{"type":"test","event":"started","name":"parser::parser$tests::reads_rows"}
+{"type":"test","event":"ok","name":"parser::integration$round_trip","exec_time":0.021}
+{"type":"suite","event":"ok","passed":1,"failed":0,"ignored":0,"measured":0,"filtered_out":0,"exec_time":0.021,"nextest":{"crate":"parser","test_binary":"integration","kind":"test"}}
+{"type":"test","event":"ok","name":"parser::parser$tests::reads_header","exec_time":0.004}
+{"type":"test","event":"ok","name":"parser::parser$tests::reads_rows","exec_time":0.003}
+{"type":"suite","event":"ok","passed":2,"failed":0,"ignored":0,"measured":0,"filtered_out":0,"exec_time":0.007,"nextest":{"crate":"parser","test_binary":"parser","kind":"lib"}}

@@ -84,6 +84,49 @@ async function runBatchDone(
 }
 
 /**
+ * `cleo done --from-merge <pr|all>` (T14101): close the tasks merged PRs name
+ * (`Closes:` / `Refs:` lines), or with `--receipt`, judge one PR without a
+ * task store (the CI job's half). The logic lives in core `merge-close.ts`.
+ */
+async function fromMergeCommand(args: Record<string, unknown>, projectRoot: string): Promise<void> {
+  const target = String(args['from-merge']);
+  const prNumber = /^\d+$/.test(target) ? Number(target) : null;
+  if (prNumber === null && target !== 'all') {
+    cliError(`--from-merge takes a PR number or "all", got "${target}"`, 'E_INVALID_INPUT');
+    process.exitCode = 2;
+    return;
+  }
+  const mergeClose = await import('@cleocode/core/tasks/merge-close.js');
+  // A detached lazy sweep (cli/index.ts) must not outlive a hung gh.
+  if (process.env['CLEO_MERGE_SWEEP_CHILD'] === '1')
+    setTimeout(() => process.exit(124), mergeClose.MERGE_SWEEP_CHILD_TIMEOUT_MS).unref();
+  if (args.receipt === true) {
+    const judged =
+      prNumber === null
+        ? null
+        : await mergeClose.mergeReceiptFor(projectRoot, prNumber, {
+            comment: args.comment === true,
+          });
+    if (judged === null) {
+      cliError(
+        `--receipt needs one merged PR number that gh can read (got "${target}")`,
+        'E_NOT_FOUND',
+      );
+      process.exitCode = 4;
+      return;
+    }
+    return cliOutput(judged, { command: 'done', operation: 'tasks.done.receipt' });
+  }
+  const result = await mergeClose.sweepMergedClosures(projectRoot, {
+    force: true,
+    ...(prNumber !== null ? { prNumbers: [prNumber] } : {}),
+    ...(typeof args.since === 'string' ? { since: args.since } : {}),
+    ...(args['dry-run'] === true ? { dryRun: true } : {}),
+  });
+  cliOutput(result, { command: 'done', operation: 'tasks.done.fromMerge' });
+}
+
+/**
  * `cleo done <id> [<id>…] [--plan] [--satisfies AC1,AC3|all] [--pr <n> | --commit <sha>] [complete flags]`.
  */
 export const doneCommand = defineCommand({
@@ -94,6 +137,34 @@ export const doneCommand = defineCommand({
   },
   args: {
     ...completeCommandArgs,
+    taskId: {
+      ...completeCommandArgs.taskId,
+      required: false,
+      description: 'ID of the task to record and complete (omit with --from-merge)',
+    },
+    'from-merge': {
+      type: 'string',
+      description:
+        'Close the tasks a merged PR names (T14101): "<pr>" for one PR, "all" for every PR merged since the last sweep. Reads the body\'s "Closes: T#### AC1,AC2" (complete once merged PRs bind every criterion) and "Refs: T#### AC1" (bind, stay open) lines; needs green required checks on the PR head and evidence.ciSatisfies. Idempotent; refusals are commented on the PR once.',
+    },
+    since: {
+      type: 'string',
+      description: 'With --from-merge all: only PRs merged at or after this ISO time',
+    },
+    'dry-run': {
+      type: 'boolean',
+      description:
+        'With --from-merge: print what would be recorded; record, complete and comment nothing',
+    },
+    receipt: {
+      type: 'boolean',
+      description:
+        "With --from-merge <pr>: judge the PR without a task store (the CI job's half) and print its receipt",
+    },
+    comment: {
+      type: 'boolean',
+      description: 'With --receipt: post the receipt on the PR',
+    },
     'if-match': {
       type: 'string',
       description:
@@ -129,7 +200,17 @@ export const doneCommand = defineCommand({
         'Acknowledge that the same evidence atom (e.g. ci:<pr>) is applied to >3 tasks in this session, as `cleo verify --shared-evidence` does (T14072). Without it the reuse warns W_EVIDENCE_AUDIT_MISS; under CLEO_STRICT_EVIDENCE=1 it is refused.',
     },
   },
-  async run({ args }) {
+  async run({ args: raw }) {
+    if (raw['from-merge'] !== undefined) {
+      const { getProjectRoot } = await import('@cleocode/core/paths.js');
+      return fromMergeCommand(raw, getProjectRoot());
+    }
+    if (typeof raw.taskId !== 'string' || raw.taskId === '') {
+      cliError('cleo done needs a task id (or --from-merge <pr|all>)', 'E_INVALID_INPUT');
+      process.exitCode = 2;
+      return;
+    }
+    const args = { ...raw, taskId: raw.taskId };
     const { parseDoneOptions, planTaskDone } = await import('@cleocode/core/tasks/done-plan.js');
     const parsed = parseDoneOptions(args.satisfies, args.pr, args.commit);
     if (!parsed.ok) {

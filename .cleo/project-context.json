@@ -58,7 +58,8 @@
         "app": "github-actions",
         "workflow": ".github/workflows/ci.yml"
       }
-    ]
+    ],
+    "macosRegressionParent": "T12956"
   },
   "evidence": {
     "ciSatisfies": true,
