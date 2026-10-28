@@ -108,6 +108,15 @@ describe('internal slug minters follow the rule (T14129)', () => {
       expect(docNameViolation(subjectSlug(title))).toBeNull();
   });
 
+  it('subjectSlug never returns an empty or rule-breaking slug: a title of only ids and dates is `doc`', () => {
+    for (const title of ['v2026.10.28', '2026 10 28', 'T1234 v2026.10', '', '---']) {
+      const slug = subjectSlug(title);
+      expect(slug).toBe('doc');
+      expect(docNameViolation(slug)).toBeNull();
+    }
+    expect(docNameViolation(subjectSlug('T9 a v2026.10.28 b', 3))).toBeNull();
+  });
+
   it('suggests the subject for a v-prefixed date, not a dangling prefix', () => {
     expect(docNameViolation('ship-v2026-10-27')).toEqual({ reasons: ['date'], suggestion: 'ship' });
   });

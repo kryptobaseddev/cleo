@@ -117,9 +117,14 @@ export function suggestDocName(name: string): string {
  * @task T14129
  */
 export function subjectSlug(source: string, maxLength: number = DOC_NAME_MAX_LENGTH): string {
-  const slug = suggestDocName(source).slice(0, maxLength).replace(/-+$/, '') || 'doc';
-  // Cutting can leave a new year-month pair at the end; clean it once more.
-  return docNameViolation(slug) === null ? slug : suggestDocName(slug);
+  const clean = (text: string): string =>
+    suggestDocName(text).slice(0, maxLength).replace(/-+$/, '') || 'doc';
+  const slug = clean(source);
+  if (docNameViolation(slug) === null) return slug;
+  // Cutting can leave a new violation at the end: clean once more, and fall
+  // back to `doc` rather than return a slug the rule refuses.
+  const again = clean(slug);
+  return docNameViolation(again) === null ? again : 'doc';
 }
 
 /**
