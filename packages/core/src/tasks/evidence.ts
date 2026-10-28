@@ -1820,6 +1820,8 @@ async function runAffectedTests(
   taskId: string | undefined,
 ): Promise<AtomValidation> {
   const { storeRoot, executionRoot } = roots;
+  const foreign = await workspaceResolutionRefusal(executionRoot);
+  if (foreign !== null) return foreign;
   // T13132: status shows what holds the budget — the scope and the task.
   const result = await runToolCached(run.command, storeRoot, {
     executionRoot,
@@ -2046,6 +2048,44 @@ async function readTestRunReport(
 }
 
 /**
+ * T14097: refuse a test run in a checkout whose workspace packages resolve
+ * into another checkout (its tests would run that checkout's build), and warn
+ * when a dependency's dist predates its source. Null when the run may proceed.
+ *
+ * @param root - The tree the run is about (any directory inside the checkout).
+ * @param testFiles - Test files the run names, to scope the check; all packages when empty.
+ */
+async function workspaceResolutionRefusal(
+  root: string,
+  testFiles: readonly string[] = [],
+): Promise<AtomValidation | null> {
+  const {
+    checkoutRootOf,
+    checkWorkspaceResolution,
+    foreignResolutionReason,
+    packagesNamedByTestArgs,
+    staleDistWarning,
+  } = await import('./workspace-resolution.js');
+  const checkout = checkoutRootOf(root) ?? root;
+  const report = checkWorkspaceResolution(
+    checkout,
+    packagesNamedByTestArgs(checkout, checkout, testFiles),
+  );
+  const reason = foreignResolutionReason(report);
+  // @sync-invariant none:input-shape a test run against another checkout's build is refused before anything is written
+  if (reason !== null) return { ok: false, reason, codeName: 'E_WORKSPACE_FOREIGN_CHECKOUT' };
+  const stale = staleDistWarning(report);
+  if (stale !== null)
+    pushWarning({
+      code: 'W_WORKSPACE_STALE_DIST',
+      severity: 'warn',
+      message: stale,
+      context: { root: checkout },
+    });
+  return null;
+}
+
+/**
  * Validate a `test-run:` report: its counts, then bound to the change.
  * `siblings` are every `test-run:` path of the same evidence write (T14031):
  * the change's coverage is judged over the test files all of them passed, so
@@ -2179,6 +2219,9 @@ async function validateTestRun(
   // @sync-invariant none:input-shape a bind root git cannot open is refused before anything is written
   if (broken) return { ok: false, reason: broken, codeName: E_EVIDENCE_GIT_ROOT };
   const testFiles = coveredTestFiles(parsed, bindRoot);
+  // T14097: never record a receipt from a checkout testing another one's build.
+  const foreign = await workspaceResolutionRefusal(bindRoot, testFiles);
+  if (foreign !== null) return foreign;
   // T14031: the other reports of this write cover the change with this one.
   const siblingFiles: string[] = [];
   for (const sibling of siblings) {
@@ -2686,6 +2729,10 @@ async function validateTool(
   // T13132: a heavy tool here runs the whole project (the affected scope
   // returned above); status marks it scope=full with its task.
   const taskId = context?.task.id;
+  if (resolution.command.canonical === 'test') {
+    const foreign = await workspaceResolutionRefusal(executionRoot);
+    if (foreign !== null) return foreign;
+  }
   const result = await runToolCached(resolution.command, projectRoot, {
     executionRoot,
     semaphoreOptions: {
