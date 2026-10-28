@@ -1,7 +1,11 @@
 /**
  * CLI release command group — release lifecycle management.
  *
- * Canonical 4-verb pipeline (SPEC-T9345):
+ * One-command release (T14102):
+ *   cleo release cut <version> [--dry-run]   — tag the newest green main commit; release.yml publishes
+ *   cleo release write-changelog <version>   — CHANGELOG section from changesets (run by release.yml)
+ *
+ * Canonical 4-verb pipeline (SPEC-T9345; fallback for one release, T14114):
  *   cleo release plan <version> --epic <id>  — build the Release Plan envelope
  *   cleo release open <version>              — dispatch release-prepare workflow
  *   cleo release reconcile <version>         — post-publish provenance backfill
@@ -616,6 +620,91 @@ const reconcileCommand = defineCommand({
  * @task T10103 — deleted ship shim + added ship-e2e-smoke
  * @spec SPEC-T9345 §12
  */
+/**
+ * cleo release cut <version> — one-command release (T14102). Tags the newest
+ * default-branch commit with green CI; the tag push starts release.yml, which
+ * writes the CHANGELOG from changesets, publishes, and opens the CHANGELOG +
+ * version PR. `--dry-run` shows the commit, notes, packages and task status.
+ *
+ * @task T14102
+ */
+const cutCommand = defineCommand({
+  meta: {
+    name: 'cut',
+    description:
+      'Release from the newest default-branch commit with green CI: tag it, and release.yml writes the notes from changesets and publishes (no plan PR, no bump PR). --dry-run shows commit, notes, packages and task status. (T14102)',
+  },
+  args: {
+    version: {
+      type: 'positional',
+      description: 'Release version (accepts v2026.10.28 or 2026.10.28)',
+      required: true,
+    },
+    sha: {
+      type: 'string',
+      description: 'Pin the commit instead of the newest green one; it must itself be green',
+    },
+    lead: {
+      type: 'string',
+      description:
+        'Markdown file that leads the notes (Update now + Highlights); stored in the tag',
+    },
+    'dry-run': {
+      type: 'boolean',
+      description: 'Report the commit, notes, packages and tasks without creating the tag',
+    },
+  },
+  async run({ args }) {
+    await dispatchFromCli(
+      'mutate',
+      'release',
+      'cut',
+      {
+        version: args.version,
+        ...(typeof args.sha === 'string' ? { sha: args.sha } : {}),
+        ...(typeof args.lead === 'string' ? { lead: args.lead } : {}),
+        dryRun: args['dry-run'] === true,
+      },
+      { command: 'release' },
+    );
+  },
+});
+
+/**
+ * cleo release write-changelog <version> — write the `## [VERSION]` section
+ * from the changesets since the previous tag, led by the tag annotation. Run
+ * by release.yml on the tagged checkout; an existing section is left alone.
+ *
+ * @task T14102
+ */
+const writeChangelogCommand = defineCommand({
+  meta: {
+    name: 'write-changelog',
+    description:
+      'Write the CHANGELOG.md section for a version from the changesets added since the previous release tag (used by release.yml for `release cut`). (T14102)',
+  },
+  args: {
+    version: {
+      type: 'positional',
+      description: 'Release version (accepts v2026.10.28 or 2026.10.28)',
+      required: true,
+    },
+    ref: {
+      type: 'string',
+      description: 'Commit the release was cut from (default: tag v<version>, else HEAD)',
+    },
+  },
+  async run({ args }) {
+    await dispatchFromCli(
+      'mutate',
+      'release',
+      'write-changelog',
+      { version: args.version, ...(typeof args.ref === 'string' ? { ref: args.ref } : {}) },
+      { command: 'release' },
+    );
+  },
+});
+
 export const releaseCommand = defineCommand({
   meta: {
     name: 'release',
@@ -626,6 +715,9 @@ export const releaseCommand = defineCommand({
   subCommands: {
     // Canonical SPEC-T9345 4-verb pipeline — list these first so `--help`
     // surfaces them as the documented default.
+    // T14102 — one-command release; plan/open stay one release as fallback (T14114).
+    cut: cutCommand,
+    'write-changelog': writeChangelogCommand,
     plan: planCommand,
     open: openCommand,
     reconcile: reconcileCommand,

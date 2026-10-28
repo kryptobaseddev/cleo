@@ -14,6 +14,8 @@
  *   plan           — SPEC-T9345 §4.2 (T9525): build canonical Release Plan envelope
  *   open           — SPEC-T9345 §4.3 (T9530): dispatch release-prepare workflow
  *   reconcile      — SPEC-T9345 §4.4 (T9526 v2): backfill 11 provenance tables
+ *   cut            — T14102: tag the newest green default-branch commit (one-command release)
+ *   write-changelog — T14102: CHANGELOG section from changesets since the previous tag
  *
  * Ship, list, show, cancel, changelog, rollback, channel are handled by the
  * pipeline domain handler (via `pipeline.release.*` operations).
@@ -38,12 +40,15 @@
 
 import type { ReleaseGateCheckParams } from '@cleocode/contracts/operations/release';
 import type {
+  ReleaseCutOptions,
   ReleaseOpenOptions,
   ReleasePlanOptions,
   ValidateChangelogOptions,
 } from '@cleocode/core/internal';
 import { getLogger, getProjectRoot, resolveWorktreeRouting } from '@cleocode/core/internal';
 import {
+  releaseChangelog,
+  releaseCut,
   releaseGateCheck,
   releaseIvtrAutoSuggest,
   releaseOpen,
@@ -440,6 +445,50 @@ export class ReleaseHandler implements DomainHandler {
           return wrapResult(result, 'mutate', 'release', operation, startTime);
         }
 
+        // release.cut — T14102: tag the newest green default-branch commit
+        // (release.yml then publishes); --dry-run reports without tagging.
+        case 'cut': {
+          const version = typeof params?.version === 'string' ? params.version : undefined;
+          if (!version)
+            return errorResult(
+              'mutate',
+              'release',
+              operation,
+              'E_INVALID_INPUT', // @sync-invariant none:input-shape a missing version is refused before any tag or file write
+              'version is required',
+              startTime,
+            );
+          const typed: ReleaseCutOptions = {
+            version,
+            projectRoot: getProjectRoot(),
+            ...(typeof params?.sha === 'string' ? { sha: params.sha } : {}),
+            ...(typeof params?.lead === 'string' ? { leadFile: params.lead } : {}),
+            dryRun: params?.dryRun === true,
+          };
+          return wrapResult(await releaseCut(typed), 'mutate', 'release', operation, startTime);
+        }
+
+        // release.write-changelog — T14102: write the CHANGELOG section from
+        // the changesets since the previous tag (run by release.yml).
+        case 'write-changelog': {
+          const version = typeof params?.version === 'string' ? params.version : undefined;
+          if (!version)
+            return errorResult(
+              'mutate',
+              'release',
+              operation,
+              'E_INVALID_INPUT', // @sync-invariant none:input-shape a missing version is refused before any tag or file write
+              'version is required',
+              startTime,
+            );
+          const result = await releaseChangelog({
+            version,
+            projectRoot: getProjectRoot(),
+            ...(typeof params?.ref === 'string' ? { ref: params.ref } : {}),
+          });
+          return wrapResult(result, 'mutate', 'release', operation, startTime);
+        }
+
         default:
           return unsupportedOp('mutate', 'release', operation, startTime);
       }
@@ -457,7 +506,7 @@ export class ReleaseHandler implements DomainHandler {
   getSupportedOperations(): { query: string[]; mutate: string[] } {
     return {
       query: ['gate', 'ivtr-suggest', 'validate-changelog'],
-      mutate: ['gate', 'ivtr-suggest', 'reconcile', 'plan', 'open'],
+      mutate: ['gate', 'ivtr-suggest', 'reconcile', 'plan', 'open', 'cut', 'write-changelog'],
     };
   }
 }

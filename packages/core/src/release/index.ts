@@ -77,6 +77,15 @@ export {
   validateCIConfig,
   writeCIConfig,
 } from './ci.js';
+// T14102 — one-command release (`cleo release cut`) and its CHANGELOG writer
+export type {
+  ReleaseChangelogOptions,
+  ReleaseChangelogResult,
+  ReleaseCutOptions,
+  ReleaseCutResult,
+  ReleaseCutRunner,
+} from './cut.js';
+export { releaseChangelog, releaseCut } from './cut.js';
 // Engine operations — CLI-callable release operations migrated from dispatch layer (T1572)
 export type { PRCheckStatus, PRStatusResult } from './engine-ops.js';
 export {

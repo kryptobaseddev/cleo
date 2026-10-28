@@ -1021,7 +1021,7 @@ async function resolvePreviousVersion(
 const RELEASE_TAG = /^v\d+(\.\d+){1,3}(-.*)?$/;
 
 /**
- * The newest release tag reachable from HEAD (`git tag --merged HEAD`), by
+ * The newest release tag reachable from `ref` (`git tag --merged <ref>`), by
  * version, below the version being planned (T13543: a back-dated or hotfix
  * plan never names a newer tag). Only version-shaped tags count
  * ({@link RELEASE_TAG}; a stray `vv2026.5.106` or `vendor-2099.1` does not);
@@ -1029,16 +1029,28 @@ const RELEASE_TAG = /^v\d+(\.\d+){1,3}(-.*)?$/;
  * highest version, which `git describe` would leave ambiguous. `null` when
  * there is none or git fails.
  *
+ * @param projectRoot - Git checkout to read tags from.
+ * @param plannedVersion - Version being released; only lower tags count.
+ * @param channel - `latest` skips prerelease tags.
+ * @param ref - Commit the tags must be reachable from (T14102: the cut sha).
+ * @returns The tag, or `null`.
+ *
+ * @example
+ * ```ts
+ * newestReachableReleaseTag(root, 'v2026.10.28', 'latest', 'abc123'); // 'v2026.10.27'
+ * ```
+ *
  * @task T13536
  */
-function newestReachableReleaseTag(
+export function newestReachableReleaseTag(
   projectRoot: string,
   plannedVersion: string,
   channel: string,
+  ref = 'HEAD',
 ): string | null {
   let raw: string;
   try {
-    raw = runGitWithLockRetry(['tag', '--merged', 'HEAD', '--list', 'v*'], {
+    raw = runGitWithLockRetry(['tag', '--merged', ref, '--list', 'v*'], {
       cwd: projectRoot,
       encoding: 'utf-8',
       stdio: 'pipe',
@@ -1232,10 +1244,17 @@ const EMPTY_CHANGELOG_PLACEHOLDER =
  * Returns the absolute path to the file and a `written` flag that is `false`
  * iff the resulting contents matched what was already on disk (no-op case).
  *
- * @internal
+ * @param args - Target path, version, header date and the notes markdown.
+ * @returns The CHANGELOG path and whether it changed.
+ *
+ * @example
+ * ```ts
+ * await writeChangelogSection({ changelogPath, version: 'v2026.10.28', date: '2026-10-28', notesMarkdown });
+ * ```
+ *
  * @task T9838
  */
-async function writeChangelogSection(args: {
+export async function writeChangelogSection(args: {
   changelogPath: string;
   version: string;
   date: string;
