@@ -1516,6 +1516,69 @@ describe('resolveCiEvidenceAtom', () => {
         expect(r.ok && r.atom.kind === 'ci' && r.atom.descendantSha).toBe(DESC2);
       });
 
+      /** A budget-cut run whose one failing test (not quarantined) failed with `error` (T14086). */
+      const unretriedFailure = (error: string) =>
+        quarantinedFailure(false).replace(
+          '\n2026-10-10T07:39:45.2Z  Test Files',
+          `\n2026-10-10T07:39:45.1Z ${error}\n2026-10-10T07:39:45.1Z \n2026-10-10T07:39:45.2Z  Test Files`,
+        );
+      const TIMEOUT_LOG = unretriedFailure('Error: Test timed out in 5000ms.');
+      const ASSERTION_LOG = unretriedFailure('AssertionError: expected 1 to be 0');
+
+      it('T14086: in a budget-cut run, an unretried timeout is accepted only for later runs', () => {
+        expect(isQuarantineBudgetOnlyLog(TIMEOUT_LOG)).toBe(false);
+        expect(isQuarantineBudgetOnlyLog(TIMEOUT_LOG, { unretriedTimeouts: true })).toBe(true);
+        expect(isQuarantineBudgetOnlyLog(ASSERTION_LOG, { unretriedTimeouts: true })).toBe(false);
+        // The quarantine-budget case itself is unchanged.
+        expect(isQuarantineBudgetOnlyLog(BUDGET_LOG, { unretriedTimeouts: true })).toBe(true);
+      });
+
+      it('T14086: looks past a later budget-cut run whose only failure timed out, and records it', async () => {
+        const run = (descLog: string) =>
+          resolve({
+            context: context('T1', ['testsPassed', 'qaPassed']),
+            fetchChecks: checksFor({
+              [MERGE]: budgetRed(MERGE),
+              [DESC1]: budgetRed(DESC1).map((c) => (c.id > 100 ? { ...c, id: c.id + 1000 } : c)),
+              [DESC2]: onSha(DESC2),
+            }),
+            listDescendants: () => [DESC1, DESC2],
+            isAncestor: (a, d) => a === MERGE && (d === DESC1 || d === DESC2),
+            touchingCommits: () => [],
+            fetchJobLog: async (jobId) =>
+              jobId === 101 ? BUDGET_LOG : jobId === 1101 ? descLog : null,
+          });
+        const r = await run(TIMEOUT_LOG);
+        expect(r.ok, JSON.stringify(r)).toBe(true);
+        const atom = r.ok && r.atom.kind === 'ci' ? r.atom : null;
+        expect(atom?.descendantSha).toBe(DESC2);
+        expect(atom?.passedOverRuns).toEqual([
+          {
+            sha: DESC1,
+            jobs: [SHARD],
+            reason: 'the flaky-quarantine budget stopped the run before its flake rerun',
+          },
+        ]);
+        // A failed assertion in that run still refuses.
+        const refused = await run(ASSERTION_LOG);
+        expect(refused.ok).toBe(false);
+        expect(!refused.ok && refused.reason).toMatch(
+          /failure on later origin\/main commit 111111111111/,
+        );
+      });
+
+      it('T14086: the merge commit itself never gets the timeout allowance', async () => {
+        const r = await resolve({
+          context: context('T1', ['testsPassed', 'qaPassed']),
+          fetchChecks: checksFor({ [MERGE]: budgetRed(MERGE), [DESC1]: onSha(DESC1) }),
+          listDescendants: () => [DESC1],
+          isAncestor: (a, d) => a === MERGE && d === DESC1,
+          touchingCommits: () => [],
+          fetchJobLog: logs(TIMEOUT_LOG),
+        });
+        expect(r.ok).toBe(false);
+      });
+
       it('looks past a later run a concurrency group cancelled, its interrupted jobs failing with no test failed', async () => {
         const cancelledRed = budgetRed(DESC1).map((c) => {
           const bumped = c.id > 100 ? { ...c, id: c.id + 1000 } : c;
