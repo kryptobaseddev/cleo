@@ -64,6 +64,7 @@ export const EVIDENCE_ATOM_KINDS = [
   'decision',
   'pr',
   'ci',
+  'deploy',
   'loc-drop',
   'callsite-coverage',
   'satisfies',
@@ -280,6 +281,26 @@ export const locDropAtomSchema = z.object({
 });
 
 /**
+ * `deploy:<provider>/<deploymentId>@<sha>=<probeUrl>` atom — a deployment of
+ * a commit, proven live by a health probe whose response names that commit
+ * (T14083). Satisfies `testsPassed` / `qaPassed` only for the gates the
+ * project maps it to (`evidence.deployGates`); the runtime validator requires
+ * the commit to contain the task's change and the probe to answer 2xx with a
+ * body that contains the commit SHA.
+ *
+ * @task T14083
+ */
+export const deployAtomSchema = z.object({
+  kind: z.literal('deploy'),
+  provider: z.string().regex(/^[a-z0-9][a-z0-9-]*$/, 'deploy provider must be a lowercase slug'),
+  deploymentId: z.string().min(1, 'deploy atom requires a deployment id'),
+  sha: z.string().regex(/^[0-9a-f]{7,40}$/, 'deploy sha must be 7-40 lowercase hex characters'),
+  probeUrl: z
+    .string()
+    .regex(/^https?:\/\//, 'deploy probe URL must start with http:// or https://'),
+});
+
+/**
  * `callsite-coverage:<symbol>:<sourcePath>` atom — proves that an exported
  * symbol has ≥1 production callsite outside its own source file, test files,
  * and dist directories. Required for the `implemented` gate when the task
@@ -447,6 +468,7 @@ export const EvidenceAtomSchema = z.discriminatedUnion('kind', [
   decisionAtomSchema,
   prAtomSchema,
   ciAtomSchema,
+  deployAtomSchema,
   locDropAtomSchema,
   callsiteCoverageAtomSchema,
   satisfiesAtomSchema,
@@ -538,8 +560,8 @@ export const GATE_EVIDENCE_REQUIREMENTS: Readonly<
       ['pr', 'note'],
     ],
   },
-  testsPassed: { oneOf: [['test-run'], ['tool'], ['ci']] },
-  qaPassed: { oneOf: [['tool'], ['ci'], ['qa-run']] },
+  testsPassed: { oneOf: [['test-run'], ['tool'], ['ci'], ['deploy']] },
+  qaPassed: { oneOf: [['tool'], ['ci'], ['qa-run'], ['deploy']] },
   documented: { oneOf: [['files'], ['url']] },
   securityPassed: { oneOf: [['tool'], ['note']] },
   cleanupDone: { oneOf: [['note']] },
@@ -605,6 +627,7 @@ const ATOM_EXAMPLES: Readonly<Record<EvidenceAtomKind, string>> = Object.freeze(
   decision: 'decision:D-arch-001',
   pr: 'pr:357',
   ci: 'ci:357',
+  deploy: 'deploy:railway/<deploymentId>@<sha>=https://<host>/healthz',
   'loc-drop': 'loc-drop:<fromLines>:<toLines>',
   'callsite-coverage': 'callsite-coverage:<symbolName>:<relativeSourcePath>',
   satisfies: 'satisfies:T1234#AC2',
@@ -917,6 +940,25 @@ export function parseEvidenceString(raw: string): EvidenceAtom[] {
           );
         }
         atoms.push(kind === 'pr' ? { kind: 'pr', ...ref } : { kind: 'ci', ...ref });
+        break;
+      }
+      case 'deploy': {
+        const match = /^([a-z0-9][a-z0-9-]*)\/([^@\s]+)@([0-9a-f]{7,40})=(https?:\/\/\S+)$/.exec(
+          payload,
+        );
+        if (!match) {
+          throw new EvidenceParseError(
+            `Malformed deploy atom: "${chunk}"`,
+            'Use format: deploy:<provider>/<deploymentId>@<sha>=<probeUrl> e.g. deploy:railway/9f1c@4f60761=https://api.example.com/healthz',
+          );
+        }
+        atoms.push({
+          kind: 'deploy',
+          provider: match[1]!,
+          deploymentId: match[2]!,
+          sha: match[3]!,
+          probeUrl: match[4]!,
+        });
         break;
       }
       case 'loc-drop': {

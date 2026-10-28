@@ -273,6 +273,12 @@
           "type": "boolean",
           "description": "Accept required CI green on a merged PR's merge commit as testsPassed/qaPassed evidence (ci:<pr>, D11149)."
         },
+        "deployGates": {
+          "type": "array",
+          "items": { "type": "string", "enum": ["testsPassed", "qaPassed"] },
+          "uniqueItems": true,
+          "description": "Gates a deploy:<provider>/<deploymentId>@<sha>=<probeUrl> atom may satisfy: a deployment of a commit containing the task's change whose health probe answers 2xx naming that commit (T14083). Absent: none."
+        },
         "scopeExcludes": {
           "type": "array",
           "items": { "type": "string", "minLength": 1 },

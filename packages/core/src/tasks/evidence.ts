@@ -217,6 +217,7 @@ export type ParsedAtom =
   | { kind: 'note'; note: string }
   | { kind: 'loc-drop'; fromLines: number; toLines: number }
   | { kind: 'callsite-coverage'; symbolName: string; relativeSourcePath: string }
+  | { kind: 'deploy'; provider: string; deploymentId: string; sha: string; probeUrl: string }
   | {
       /**
        * Decision atom — a brain_decisions row that IS the canonical artifact
@@ -512,6 +513,15 @@ export async function validateAtom(
       return validateNote(parsed.note);
     case 'loc-drop':
       return validateLocDrop(parsed.fromLines, parsed.toLines);
+    case 'deploy':
+      // T14083: the repo the commit lives in (executionRoot); the gate
+      // mapping is CLEO's own record (storeRoot).
+      return (await import('./deploy-evidence.js')).validateDeployAtom(
+        parsed,
+        roots,
+        context,
+        siblingCommitSha,
+      );
     case 'callsite-coverage':
       // gh#1365 (T12238): `rg` searches the SOURCE tree. Resolved from the
       // store root it searched the wrong directory and reported a symbol
@@ -3720,6 +3730,7 @@ export function checkTaskEvidenceContext(
         atom.kind === 'test-run' ||
         atom.kind === 'qa-run' ||
         atom.kind === 'ci' ||
+        atom.kind === 'deploy' ||
         (atom.kind === 'tool' && (!atom.notApplicable || atom.nonCodeChange === true)),
     )
   ) {
@@ -4017,7 +4028,8 @@ export function composeGateEvidence(
       return atom.kind === 'tool' ||
         atom.kind === 'test-run' ||
         atom.kind === 'qa-run' ||
-        atom.kind === 'ci'
+        atom.kind === 'ci' ||
+        atom.kind === 'deploy'
         ? [index]
         : [];
     });
@@ -4683,6 +4695,10 @@ export async function revalidateEvidence(
       case 'callsite-coverage':
         // Callsite hit counts are captured at verify time and treated as
         // immutable structural facts — no re-execution at complete time.
+        break;
+      case 'deploy':
+        // T14083: a deployment and its probe are facts of the moment they
+        // were recorded, trusted as captured like `ci:`.
         break;
       case 'decision':
         // Decision atoms reference brain_decisions rows which are immutable

@@ -495,6 +495,30 @@ export type EvidenceAtom =
   | { kind: 'override'; reason: string }
   | {
       /**
+       * A deployment of a commit containing the task's change, proven live by
+       * a health probe whose response named that commit (T14083). Counts for
+       * the gates the project maps in `evidence.deployGates`.
+       *
+       * Format: `deploy:<provider>/<deploymentId>@<sha>=<probeUrl>`
+       *
+       * @task T14083
+       */
+      kind: 'deploy';
+      /** Deployment provider slug (`railway`, `fly`, …). */
+      provider: string;
+      /** The provider's deployment id. */
+      deploymentId: string;
+      /** Full SHA of the deployed commit. */
+      sha: string;
+      /** Health probe URL that was fetched. */
+      probeUrl: string;
+      /** HTTP status the probe answered. */
+      probeStatus: number;
+      /** When the probe answered (ISO-8601). */
+      probedAt: string;
+    }
+  | {
+      /**
        * LOC-drop atom — proves that a migrated engine file shed at least a
        * configurable percentage of lines.  Required for `implemented` gate
        * when the task carries the `engine-migration` label.

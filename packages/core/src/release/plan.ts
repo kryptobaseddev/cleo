@@ -735,6 +735,8 @@ function serializeAtom(atom: EvidenceAtom): string | null {
       return `loc-drop:${atom.fromLines}:${atom.toLines}`;
     case 'callsite-coverage':
       return `callsite-coverage:${atom.symbolName}:${atom.relativeSourcePath}`;
+    case 'deploy':
+      return `deploy:${atom.provider}/${atom.deploymentId}@${atom.sha}=${atom.probeUrl}`;
     case 'pr':
     case 'ci': {
       const ref =

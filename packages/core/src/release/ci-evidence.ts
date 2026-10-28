@@ -283,8 +283,15 @@ export interface ResolveCiEvidenceOptions {
   workspaceWideReason?: (root: string, paths: readonly string[]) => Promise<string | null>;
 }
 
-/** Parsed `.cleo/project-context.json` of the store root, or null. */
-function readProjectContextFile(projectRoot: string): Record<string, unknown> | null {
+/**
+ * Parsed `.cleo/project-context.json` of the store root, or null when it is
+ * absent or not a JSON object.
+ *
+ * @param projectRoot - CLEO store root.
+ * @returns The parsed object, or null.
+ * @task T12634
+ */
+export function readProjectContextFile(projectRoot: string): Record<string, unknown> | null {
   try {
     const parsed: unknown = JSON.parse(
       readFileSync(join(projectRoot, '.cleo', 'project-context.json'), 'utf-8'),

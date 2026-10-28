@@ -79,6 +79,12 @@ export interface ProjectEvidenceContext {
    */
   ciSatisfies?: boolean;
   /**
+   * Gates a `deploy:` atom (an exact-commit deployment plus a health probe
+   * naming the commit) may satisfy, T14083. Absent or empty: none, and a
+   * `deploy:` atom is refused.
+   */
+  deployGates?: Array<'testsPassed' | 'qaPassed'>;
+  /**
    * Which required checks attest each gate for `ci:<pr>`. Each list must be a
    * subset of the required-check list; a gate without a list refuses `ci:`.
    *
