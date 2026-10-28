@@ -1,5 +1,34 @@
 # Changelog
 
+## [2026.10.27] (2026-10-28)
+
+> **Update now: run `cleo self-update`.**
+
+### Highlights
+
+- **The memory latch no longer starves every project while CLEO holds nothing.** Once host pressure crossed the refuse line, the gate stayed latched until pressure fell to the resume line, so every project's `cleo run` timed out with `E_RESOURCE_DEFERRED` even though the pressure came from processes outside CLEO. Now, while the latch waits at or below the refuse line and no CLEO run is admitted, admission starts one run at a time, in queue order, whose charge fits the reclaimable memory; nothing starts beside it until it releases. Above the refuse line nothing is admitted, as before. The wait report, the refusal and `cleo doctor tool-locks` say that CLEO holds nothing and list the host's largest memory users (T14088).
+- **Test runs and hooked pushes are never paused.** A run that executes tests (class `test`, a test runner or `test` script, `node --test`, `cargo`/`go test`, or a `git push`/`git commit` with an installed hook) is no longer SIGSTOPped under memory pressure, which made its wall-clock test timeouts fire; under pressure it is queued instead, and stderr says `never paused: <reason>`. Builds, typechecks and lint still pause as before (T14093).
+- **`node …/pnpm.cjs` is treated as pnpm.** A package manager launched through `node` by path (corepack `pnpm.cjs`, `npm-cli.js`, `yarn.js`, a yarn release `.cjs`) is read as that package manager, so its install gets the install plan instead of a light charge (T14090).
+- **Task profiles for work that changes no code.** A `work` task can carry one of `profile:ops`, `profile:decision`, `profile:census` or `profile:audit`; it then proves `implemented` with `decision:` plus a `note:` or an artifact, and `testsPassed`/`qaPassed` read as not applicable, never as passed. A profile never applies over code evidence, and every profile change is audited. The `testsPassed`/`qaPassed` refusal now names the decision-only route (T13474, T12220).
+- **Behaviour change: `cleo complete` now refuses any task with unfinished children, not only epics.** The audited `--override-reason` still applies. Moving, restoring or unarchiving a task under a cancelled or archived parent is also refused, and `cleo unarchive` now writes the status it validates (#2537, T12883 R1).
+- **`cleo run` stops its child when its own parent dies.** A runner whose wrapping shell was killed no longer leaves its child group running and charged; a run meant to outlive its launcher opts out with `cleo run --detach` or `CLEO_RUN_DETACHED=1`. A nested runner no longer delivers a group signal twice, and nesting is re-checked on each queue poll after a `ps` failure (T14080, T13002, T12994).
+- **Small checks get the light lane.** A plain `python3`, `sh`, `bash` or `zsh` script that runs no compiler, test runner or build is charged the light 1 GiB footprint, and up to three tiny runs (1 GiB or less) start from the reserve even past a full capacity; the memory gate still refuses them under real pressure (T14079, T13967).
+- **A pre-merge scoped run carries across the merge only while its whole scope is unchanged.** A `test-run:`, `qa-run:` or `tool:test-affected` result recorded before merge no longer stands when another PR changed what it tested (a dependent package, a test file, the lockfile or a root config); the refusal names the first changed file and the routes that still prove the change. Projects with `evidence.ciSatisfies` record merged CI as before (T14071, owner decision D11205).
+- **Appending acceptance criteria at a locked stage needs no `--reason`.** Removing, altering or reordering a criterion still does, and the refusal names which criteria the update would change (T12237).
+- **`cleo docs publish` into a non-canonical linked worktree** now says only canonical CLEO worktrees are publication targets and names the two routes (T14081).
+
+### Fixed
+
+- appending acceptance criteria at a locked stage no longer needs --reason; removing or altering one still does, and the refusal names which criteria _(provenance: [T12237](https://github.com/kryptobaseddev/cleo/search?q=T12237&type=commits))_
+- docs publish into a linked non-canonical worktree says only canonical CLEO worktrees are publication targets and names the two routes _(provenance: [T14081](https://github.com/kryptobaseddev/cleo/search?q=T14081&type=commits))_
+- Tasks with no code change declare a gate profile (profile:ops|decision|census|audit), and the testsPassed/qaPassed refusal names the decision-only route _(provenance: [T13474](https://github.com/kryptobaseddev/cleo/search?q=T13474&type=commits), [T12220](https://github.com/kryptobaseddev/cleo/search?q=T12220&type=commits))_
+- while the memory latch waits below its refuse line and CLEO holds nothing, admission starts one run at a time in queue order instead of refusing every project _(provenance: [T14088](https://github.com/kryptobaseddev/cleo/search?q=T14088&type=commits))_
+- Small checks get the light lane: plain Python or shell scripts are charged light, and tiny runs start past a full capacity _(provenance: [T14079](https://github.com/kryptobaseddev/cleo/search?q=T14079&type=commits), [T13967](https://github.com/kryptobaseddev/cleo/search?q=T13967&type=commits))_
+- A pre-merge scoped run carries across the merge only while its whole scope is unchanged (D11205) _(provenance: [T14071](https://github.com/kryptobaseddev/cleo/search?q=T14071&type=commits))_
+- cleo run never pauses a run that executes tests (class test, a test runner or script, node --test, a hooked git push or commit); pressure queues it instead _(provenance: [T14093](https://github.com/kryptobaseddev/cleo/search?q=T14093&type=commits))_
+- cleo run reads a package manager launched through node by path (corepack pnpm.cjs, npm-cli.js, yarn.js) as that package manager, so its install gets the install plan instead of a light charge _(provenance: [T14090](https://github.com/kryptobaseddev/cleo/search?q=T14090&type=commits))_
+- cleo run stops its child when its own parent dies, delivers a group signal to a nested child once, and re-checks nesting on each queue poll after a ps failure _(provenance: [T14080](https://github.com/kryptobaseddev/cleo/search?q=T14080&type=commits), [T13002](https://github.com/kryptobaseddev/cleo/search?q=T13002&type=commits), [T12994](https://github.com/kryptobaseddev/cleo/search?q=T12994&type=commits))_
+
 ## [2026.10.26] (2026-10-27)
 
 > **Update now: run `cleo self-update`.**
