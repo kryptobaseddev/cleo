@@ -396,6 +396,13 @@ export type EvidenceAtom =
       nonCodeChange?: boolean;
       /** Untracked files set aside at bind time, as for `test-run` (T14000). */
       untrackedSetAside?: string[];
+      /**
+       * The changed paths each check reads, judged at bind time (T14089): a
+       * check with none is not owed (a `.mjs`-only change owes no typecheck).
+       * Absent on receipts bound before T14089, or when nothing was judged:
+       * then both checks are owed.
+       */
+      owedChecks?: { typecheck: string[]; lint: string[] };
     }
   | {
       kind: 'tool';

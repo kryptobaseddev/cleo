@@ -2312,6 +2312,7 @@ async function validateQaRun(
     nonCodeChange?: boolean;
     configPaths?: string[];
     untrackedSetAside?: string[];
+    owedChecks?: { typecheck: string[]; lint: string[] };
   } | null = null;
   if (treeHash && headSha) {
     const binding = bindQaRunReceipt(receipt, abs, bindRoot);
@@ -2342,6 +2343,7 @@ async function validateQaRun(
       ...(gaps?.nonCodeChange ? { nonCodeChange: true } : {}),
       ...(gaps?.configPaths ? { configPaths: gaps.configPaths } : {}),
       ...(gaps?.untrackedSetAside ? { untrackedSetAside: gaps.untrackedSetAside } : {}),
+      ...(gaps?.owedChecks ? { owedChecks: gaps.owedChecks } : {}),
     },
   };
 }
@@ -3750,17 +3752,33 @@ export function checkTaskEvidenceContext(
   ) {
     // T13745: a non-code-only change has no TypeScript to typecheck.
     const nonCode = atoms.some((atom) => atom.kind === 'qa-run' && atom.nonCodeChange === true);
-    const missing = (['typecheck', 'lint'] as const).filter(
-      (check) =>
-        !(nonCode && check === 'typecheck') &&
-        !atoms.some(
-          (atom) =>
-            (atom.kind === 'qa-run' && atom.check === check) ||
-            (atom.kind === 'tool' && canonicalToolName(atom.tool) === check),
-        ),
-    );
-    if (missing.length > 0)
-      return `qaPassed with qa-run receipts needs a typecheck and a lint result; missing ${missing.join(' and ')}: add qa-run:<${missing[0]}-receipt.json> or tool:${missing[0]}.`;
+    // T14089: a check is owed only for the changed paths it reads, as the
+    // receipts judged them at bind time. A receipt bound without that
+    // judgement (older, or nothing judged) owes both, as before.
+    const receipts = atoms.flatMap((atom) => (atom.kind === 'qa-run' ? [atom] : []));
+    const owedPaths = (check: 'typecheck' | 'lint'): string[] | null =>
+      receipts.some((r) => r.owedChecks === undefined)
+        ? null
+        : [...new Set(receipts.flatMap((r) => r.owedChecks?.[check] ?? []))];
+    const missing = (['typecheck', 'lint'] as const).filter((check) => {
+      if (nonCode && check === 'typecheck') return false;
+      const paths = owedPaths(check);
+      if (paths !== null && paths.length === 0) return false;
+      return !atoms.some(
+        (atom) =>
+          (atom.kind === 'qa-run' && atom.check === check) ||
+          (atom.kind === 'tool' && canonicalToolName(atom.tool) === check),
+      );
+    });
+    if (missing.length > 0) {
+      const named = missing.map((check) => {
+        const paths = owedPaths(check);
+        return paths === null
+          ? check
+          : `${check} (it reads ${paths.slice(0, 5).join(', ')}${paths.length > 5 ? `, … (${paths.length})` : ''})`;
+      });
+      return `qaPassed with qa-run receipts needs a result for each check that reads the changed paths; missing ${named.join(' and ')}: add qa-run:<${missing[0]}-receipt.json> or tool:${missing[0]}.`;
+    }
     // T13580: receipts of one kind cover the change together; a check also
     // recorded as a whole-project tool: run needs no receipt coverage.
     const gap = qaRunUnionGapReason(
