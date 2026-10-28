@@ -90,24 +90,29 @@ export async function renameDocSlug(
   });
 
   const db = await getDb(projectRoot);
-  db.transaction((tx) => {
-    tx.update(attachments)
-      .set({ slug: input.newSlug })
-      .where(eq(attachments.id, row.metadata.id))
-      .run();
-    tx.update(conduitAttachments)
-      .set({ slug: input.newSlug })
-      .where(and(eq(conduitAttachments.uid, uid), eq(conduitAttachments.slug, input.oldSlug)))
-      .run();
-    tx.update(docsWikilinks)
-      .set({ fromSlug: input.newSlug })
-      .where(and(eq(docsWikilinks.fromSlug, input.oldSlug), eq(docsWikilinks.relation, 'links-to')))
-      .run();
-    tx.update(docsWikilinks)
-      .set({ toSlug: input.newSlug })
-      .where(and(eq(docsWikilinks.toSlug, input.oldSlug), eq(docsWikilinks.relation, 'links-to')))
-      .run();
-  });
+  db.transaction(
+    // @sync-side-effect docs.slug.rename-keeps-alias the live slug moves on the registry and conduit identity rows together; the old slug becomes an append-only alias (T14118)
+    (tx) => {
+      tx.update(attachments)
+        .set({ slug: input.newSlug })
+        .where(eq(attachments.id, row.metadata.id))
+        .run();
+      tx.update(conduitAttachments)
+        .set({ slug: input.newSlug })
+        .where(and(eq(conduitAttachments.uid, uid), eq(conduitAttachments.slug, input.oldSlug)))
+        .run();
+      tx.update(docsWikilinks)
+        .set({ fromSlug: input.newSlug })
+        .where(
+          and(eq(docsWikilinks.fromSlug, input.oldSlug), eq(docsWikilinks.relation, 'links-to')),
+        )
+        .run();
+      tx.update(docsWikilinks)
+        .set({ toSlug: input.newSlug })
+        .where(and(eq(docsWikilinks.toSlug, input.oldSlug), eq(docsWikilinks.relation, 'links-to')))
+        .run();
+    },
+  );
   await recordConduitDocAlias(projectRoot, {
     slug: input.oldSlug,
     docUid: uid,
@@ -163,26 +168,20 @@ export async function listDocSlugs(projectRoot: string, slug: string): Promise<s
 }
 
 /**
- * Set a doc row's kind (`type`), or clear it with null.
+ * Set a doc row's kind (`type`), or clear it with null. Read the previous
+ * kind first with {@link getDocKind} when it must be restored later.
  *
  * @param projectRoot - Absolute project root.
  * @param attachmentId - The row id.
  * @param kind - The new kind.
- * @returns The previous kind.
  */
 export async function setDocKind(
   projectRoot: string,
   attachmentId: string,
   kind: string | null,
-): Promise<string | null> {
+): Promise<void> {
   const db = await getDb(projectRoot);
-  const before = await db
-    .select({ type: attachments.type })
-    .from(attachments)
-    .where(eq(attachments.id, attachmentId))
-    .get();
   await db.update(attachments).set({ type: kind }).where(eq(attachments.id, attachmentId)).run();
-  return before?.type ?? null;
 }
 
 /**
