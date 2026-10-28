@@ -615,6 +615,11 @@ export async function coreTaskBulkMove(
     const verb = status === 'done' ? 'complete' : status === 'archived' ? 'archive' : 'cancel';
     for (const task of resolved) await assertNoActiveChildrenForTerminal(accessor, task.id, verb);
   }
+  // T12883 R3: pipeline_stage only moves forward, as updateTask enforces.
+  if (pipelineStage) {
+    const { validatePipelineTransition } = await import('./pipeline-stage.js');
+    for (const task of resolved) validatePipelineTransition(task.pipelineStage, pipelineStage);
+  }
   // T12883 R2: done only with every acceptance criterion covered.
   if (status === 'done') {
     const { assertAcCoveredForDone } = await import('./ac-coverage-gate.js');
