@@ -130,6 +130,17 @@ function kindForWord(word: string, kinds: ReadonlySet<string>): string | null {
 }
 
 /**
+ * The kind a folder name stands for (its own name or a T14107 alias).
+ *
+ * @param folder - One folder name.
+ * @param kinds - The registry's kinds.
+ * @returns The kind, or null.
+ */
+export function folderKind(folder: string, kinds: readonly DocKindMetadata[]): string | null {
+  return kindForWord(folder, new Set(kinds.map((k) => k.kind)));
+}
+
+/**
  * Classify one file by rules: front matter, folder, filename, then body shape.
  *
  * @param relPath - Path relative to the modernize root.
@@ -257,26 +268,74 @@ export function docSimilarity(a: string, b: string): number {
   return shared / (left.size + right.size - shared);
 }
 
+/** Collapse whitespace so formatting-only differences do not count as content. */
+function normalizeBlock(text: string): string {
+  return text.replace(/\s+/g, ' ').trim().toLowerCase();
+}
+
+/** Split a doc into its preamble (before the first `##`) and its `##` sections. */
+function splitSections(text: string): { preamble: string; sections: string[] } {
+  const parts = text.split(/^(?=##\s)/m);
+  const first = parts[0] ?? '';
+  return first.startsWith('## ')
+    ? { preamble: '', sections: parts }
+    : { preamble: first, sections: parts.slice(1) };
+}
+
 /**
- * Fold a duplicate into its survivor: every `##` section of the duplicate
- * whose heading the survivor lacks is appended, so nothing is lost.
+ * Fold a duplicate into its survivor without losing any of its content.
+ *
+ * - A `##` section whose heading the survivor lacks is appended as is.
+ * - A section whose heading the survivor has, but whose body differs, is
+ *   appended under `<heading> (from [[slug]])`.
+ * - The preamble (everything before the first `##`, which is the whole doc
+ *   when it has no `##` headings) is appended under `## From [[slug]]` unless
+ *   the survivor already contains it; a lone `# Title` line equal to the
+ *   survivor's title is dropped as the same title.
+ *
+ * Every non-blank line of the duplicate is therefore in the result, either
+ * because the survivor already had the block or because it was appended.
  *
  * @param survivor - The kept doc's text.
  * @param duplicate - The merged doc's text.
- * @param duplicateSlug - The merged doc's slug, cited above the appended sections.
+ * @param duplicateSlug - The merged doc's slug, cited on what was appended.
  * @returns The merged text (the survivor unchanged when nothing is new).
  */
 export function mergeDocBodies(survivor: string, duplicate: string, duplicateSlug: string): string {
-  const headings = new Set(
-    [...survivor.matchAll(/^##\s+(.+)$/gm)].map((m) => (m[1] ?? '').trim().toLowerCase()),
-  );
-  const sections = duplicate.split(/^(?=##\s)/m).filter((s) => s.startsWith('## '));
-  const fresh = sections.filter((s) => {
-    const heading = /^##\s+(.+)$/m.exec(s)?.[1]?.trim().toLowerCase() ?? '';
-    return !headings.has(heading);
-  });
-  if (fresh.length === 0) return survivor;
-  return `${survivor.trimEnd()}\n\n<!-- merged from [[${duplicateSlug}]] by cleo docs modernize -->\n\n${fresh.join('').trimEnd()}\n`;
+  const own = splitSections(survivor);
+  const ownBlocks = new Set(own.sections.map(normalizeBlock));
+  const ownByHeading = new Map<string, string>();
+  for (const section of own.sections) {
+    const heading = /^##\s+(.+)$/m.exec(section)?.[1]?.trim().toLowerCase() ?? '';
+    ownByHeading.set(heading, normalizeBlock(section));
+  }
+  const whole = normalizeBlock(survivor);
+  const appended: string[] = [];
+
+  const dup = splitSections(duplicate);
+  const ownTitle = /^#\s+(.+)$/m.exec(survivor)?.[1]?.trim().toLowerCase();
+  const preamble = dup.preamble
+    .split('\n')
+    .filter((line) => !(ownTitle && line.trim().toLowerCase() === `# ${ownTitle}`))
+    .join('\n')
+    .trim();
+  if (preamble && !whole.includes(normalizeBlock(preamble))) {
+    appended.push(`## From [[${duplicateSlug}]]\n\n${preamble}\n`);
+  }
+  for (const section of dup.sections) {
+    const headingLine = /^##\s+(.+)$/m.exec(section)?.[1]?.trim() ?? '';
+    const key = headingLine.toLowerCase();
+    if (ownBlocks.has(normalizeBlock(section))) continue;
+    if (!ownByHeading.has(key)) {
+      appended.push(section.trimEnd());
+      continue;
+    }
+    appended.push(
+      section.replace(/^##\s+.+$/m, `## ${headingLine} (from [[${duplicateSlug}]])`).trimEnd(),
+    );
+  }
+  if (appended.length === 0) return survivor;
+  return `${survivor.trimEnd()}\n\n<!-- merged from [[${duplicateSlug}]] by cleo docs modernize -->\n\n${appended.join('\n\n')}\n`;
 }
 
 /**

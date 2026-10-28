@@ -1156,6 +1156,17 @@ export function createAttachmentStore(): AttachmentStore {
 
             nativeDb.prepare('COMMIT').run();
 
+            // T14113: a removed doc's body links leave the graph with it
+            // (post-commit and best-effort, like the put-path graph refresh).
+            if (existing.slug) {
+              try {
+                const { syncDocBodyWikilinks } = await import('../docs/wikilinks.js');
+                await syncDocBodyWikilinks(existing.slug, [], { projectRoot: cwd });
+              } catch {
+                // `cleo docs doctor` can re-derive the graph.
+              }
+            }
+
             // T12535: never delete the blob here. An older build may still
             // name the content in its bare table; tombstone it, and the repair
             // (`cleo doctor`, the janitor) deletes it after the grace period

@@ -15,6 +15,7 @@ import type {
 } from '@cleocode/contracts';
 import { writeFileAtomic } from '../../tools/fs.js';
 import { applyDocsModernize, DocsModernizeReceiptError, rollbackDocsModernize } from './apply.js';
+import { parseModernizePlan } from './guard.js';
 import { type PlanDocsModernizeOptions, planDocsModernize } from './plan.js';
 
 export {
@@ -49,6 +50,8 @@ export interface RunDocsModernizeParams {
   readonly kind?: string;
   /** Ingest every file into the store and leave the folder untouched. */
   readonly storeOnly?: boolean;
+  /** Apply even when the root is not a clean git checkout. */
+  readonly allowDirty?: boolean;
 }
 
 /** Result of {@link runDocsModernize}. */
@@ -90,7 +93,7 @@ export async function runDocsModernize(
       // @sync-invariant none:input-shape a missing plan file is refused before any write
       throw new DocsModernizeReceiptError(`plan file ${params.planFile} does not exist`);
     }
-    plan = JSON.parse(readFileSync(file, 'utf-8')) as DocsModernizePlan;
+    plan = parseModernizePlan(readFileSync(file, 'utf-8'), projectRoot);
   } else {
     if (!params.path || !existsSync(abs(params.path))) {
       // @sync-invariant none:input-shape a missing modernize root is refused before any write
@@ -127,7 +130,7 @@ export async function runDocsModernize(
     plan,
     projectRoot,
     now: overrides.now,
-    allowDirty: overrides.allowDirty,
+    allowDirty: params.allowDirty === true || overrides.allowDirty === true,
   });
   return { mode: 'apply', plan, planPath, receipt };
 }

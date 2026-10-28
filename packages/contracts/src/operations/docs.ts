@@ -1295,6 +1295,8 @@ export interface DocsModernizeParams {
   readonly kind?: string;
   /** Ingest every file into the store (task-owned, slugless) and leave the folder untouched. */
   readonly storeOnly?: boolean;
+  /** Apply even when the root is not a clean git checkout. */
+  readonly allowDirty?: boolean;
 }
 
 /**

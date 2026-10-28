@@ -43,6 +43,7 @@ import { judgeDocKind, judgeDocMerge, resolveModernizeJudgeSettings } from './ju
 import {
   classifyDocByRules,
   docSimilarity,
+  folderKind,
   MODERNIZE_CLASSIFY_FLOOR,
   MODERNIZE_MERGE_APART,
   MODERNIZE_MERGE_SURE,
@@ -246,6 +247,19 @@ async function classify(
   return { file, kind, slug, title: title || slug, reasons, judgments };
 }
 
+/**
+ * Whether two files live in the same home: the same folder, or folders that
+ * name the same kind under one parent (`docs/specs` and `docs/spec`).
+ */
+function sameHome(a: string, b: string, kinds: readonly DocKindMetadata[]): boolean {
+  const dirA = a.split('/').slice(0, -1);
+  const dirB = b.split('/').slice(0, -1);
+  if (dirA.join('/') === dirB.join('/')) return true;
+  if (dirA.slice(0, -1).join('/') !== dirB.slice(0, -1).join('/')) return false;
+  const kindA = folderKind(dirA.at(-1) ?? '', kinds);
+  return kindA !== null && kindA === folderKind(dirB.at(-1) ?? '', kinds);
+}
+
 /** Next free numbered slug (`<slug>-2`, `-3` …). */
 function numberedSlug(slug: string, taken: Set<string>): string {
   let n = 2;
@@ -319,7 +333,9 @@ export async function planDocsModernize(
     for (const other of rest) {
       const reasons = [...other.reasons];
       const judgments = [...other.judgments];
-      if (other.file.contentSha === survivor.file.contentSha) {
+      const reviewed = overrides[other.file.relPath] ?? overrides[survivor.file.relPath];
+      const home = sameHome(survivor.file.relPath, other.file.relPath, kinds);
+      if (other.file.contentSha === survivor.file.contentSha && home) {
         rows.push({
           path: other.file.relPath,
           sha256: other.file.contentSha,
@@ -335,11 +351,18 @@ export async function planDocsModernize(
       }
       const similarity = docSimilarity(survivor.file.content, other.file.content);
       const pct = Math.round(similarity * 100);
-      let verdict: 'merge' | 'separate' = similarity >= MODERNIZE_MERGE_SURE ? 'merge' : 'separate';
-      const reviewed = overrides[other.file.relPath] ?? overrides[survivor.file.relPath];
-      if (similarity >= MODERNIZE_MERGE_APART && similarity < MODERNIZE_MERGE_SURE && !reviewed) {
+      let verdict: 'merge' | 'separate' =
+        home && similarity >= MODERNIZE_MERGE_SURE ? 'merge' : 'separate';
+      // Different homes (two packages' api-design.md) never merge by rule:
+      // System One or an override decides, and the rule says keep apart.
+      const ambiguous = home
+        ? similarity >= MODERNIZE_MERGE_APART && similarity < MODERNIZE_MERGE_SURE
+        : similarity >= MODERNIZE_MERGE_APART;
+      if (ambiguous && !reviewed) {
         const rule =
-          similarity >= (MODERNIZE_MERGE_APART + MODERNIZE_MERGE_SURE) / 2 ? 'merge' : 'separate';
+          home && similarity >= (MODERNIZE_MERGE_APART + MODERNIZE_MERGE_SURE) / 2
+            ? 'merge'
+            : 'separate';
         const judgment = await judgeDocMerge(
           {
             left: { path: survivor.file.relPath, content: survivor.file.content },
@@ -414,7 +437,7 @@ export async function planDocsModernize(
         ...row,
         reasons: [
           ...row.reasons,
-          `updates the existing CleoDocs doc ${row.slug} (${pct}% of lines shared)`,
+          `merges into the existing CleoDocs doc ${row.slug} (${pct}% of lines shared; nothing of either is dropped)`,
         ],
       };
       continue;

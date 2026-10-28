@@ -16,6 +16,8 @@
  * @epic T14106
  */
 
+import { z } from 'zod';
+
 /** What modernize does with one file. */
 export const DOCS_MODERNIZE_DISPOSITIONS = ['keep', 'rename', 'merge-into', 'delete'] as const;
 
@@ -137,33 +139,61 @@ export interface DocsModernizePlan {
 export const DOCS_MODERNIZE_OPS = [
   'ingest',
   'merge',
+  'fold',
   'supersede',
   'write-file',
   'remove-file',
+  'link',
 ] as const;
 
 /** One of {@link DOCS_MODERNIZE_OPS}. */
 export type DocsModernizeOpKind = (typeof DOCS_MODERNIZE_OPS)[number];
 
 /**
- * One applied step with the state it replaced.
+ * Write-ahead state of a receipt op: written `pending` before the step acts,
+ * `done` after it, `reversed` once a rollback has undone it.
+ */
+export type DocsModernizeOpState = 'pending' | 'done' | 'reversed';
+
+/** Store values a step replaced, so a rollback restores them exactly. */
+export interface DocsModernizeOpPrior {
+  /** `supersede`: the older row's lifecycle status before the step. */
+  readonly lifecycleStatus?: string | null;
+  /** `supersede`: the older row's `superseded_by` before the step. */
+  readonly supersededBy?: string | null;
+  /** `supersede`: the newer row's `supersedes` before the step. */
+  readonly supersedes?: string | null;
+  /** `merge`: the row that held the slug before the update. */
+  readonly previousAttachmentId?: string | null;
+  /** `merge`: the row the update moved the slug to. */
+  readonly newAttachmentId?: string | null;
+  /** `link`: the slug's `links-to` targets before the step. */
+  readonly linkTargets?: readonly string[];
+}
+
+/**
+ * One step with the state it replaced.
  *
- * - `ingest` — a doc stored under `slug`; `attachmentId` is the new row.
- * - `merge` — the survivor `slug` was updated; `beforeSha256` is its old content.
- * - `supersede` — `slug` was superseded by `target`.
+ * - `ingest` — a doc stored under `slug` (or slugless) for `ownerId`; `attachmentId` is the row.
+ * - `merge` — the stored doc `slug` was updated with merged content; `prior` names both rows.
+ * - `fold` — the file `path` was folded into the survivor `target` (content went there).
+ * - `supersede` — `slug` was superseded by `target`; `prior` holds the replaced pointers.
  * - `write-file` — `path` was written; `beforeSha256` is the old bytes, or null when it was new.
- * - `remove-file` — `path` was removed; `beforeSha256` names the bytes kept in the blob store.
+ * - `remove-file` — `path` was removed; `beforeSha256` names the bytes kept for rollback.
+ * - `link` — the `links-to` edges leaving `slug` were set; `prior.linkTargets` holds the old set.
  */
 export interface DocsModernizeReceiptOp {
   /** Step kind. */
   readonly op: DocsModernizeOpKind;
+  /** Write-ahead state. */
+  readonly state: DocsModernizeOpState;
   /** Doc slug the step touched, when any. */
   readonly slug: string | null;
   /** File path relative to the root, when any. */
   readonly path: string | null;
-  /** The other end: survivor slug for `supersede`. */
+  /** The other end: survivor slug for `supersede` and `fold`. */
   readonly target: string | null;
-  /** Attachment row created by the step, when any. */
+  /** Attachment row created or touched by the step, when any. */
   readonly attachmentId: string | null;
   /** Owner the `ingest` ref was made for (`T####` or the project sentinel); rollback drops that ref. */
   readonly ownerId: string | null;
@@ -171,6 +201,8 @@ export interface DocsModernizeReceiptOp {
   readonly beforeSha256: string | null;
   /** Content the step wrote, when any. */
   readonly afterSha256: string | null;
+  /** Store values the step replaced. */
+  readonly prior?: DocsModernizeOpPrior;
 }
 
 /** The record of one apply run; the input to rollback. */
@@ -196,3 +228,93 @@ export interface DocsModernizeReceipt {
   /** ISO 8601 time the run was rolled back, or null. */
   readonly rolledBackAt: string | null;
 }
+
+// ─── Schemas (a plan or receipt read from disk is untrusted input) ───────────
+
+const judgmentSchema = z.object({
+  question: z.enum(['classify', 'merge']),
+  site: z.string(),
+  mode: z.enum(['off', 'shadow', 'on']),
+  ruleAnswer: z.string(),
+  decidedAnswer: z.string().nullable(),
+  decidedConfidence: z.number().nullable(),
+  source: z.enum(['provider', 'cache', 'fallback']),
+  acted: z.string(),
+});
+
+const relPath = z.string().min(1).max(1024);
+
+/** Shape check for a {@link DocsModernizePlan} read from a `--plan` file. */
+export const docsModernizePlanSchema = z.object({
+  root: z.string().min(1),
+  generatedAt: z.string(),
+  mode: z.enum(['tree', 'store-only']),
+  counts: z.record(z.enum(DOCS_MODERNIZE_DISPOSITIONS), z.number()),
+  rows: z.array(
+    z.object({
+      path: relPath,
+      sha256: z.string().regex(/^[0-9a-f]{64}$/),
+      kind: z.string().min(1),
+      slug: z.string().regex(/^[a-z0-9][a-z0-9-]*$/),
+      title: z.string(),
+      disposition: z.enum(DOCS_MODERNIZE_DISPOSITIONS),
+      target: z.string().min(1).max(1024).nullable(),
+      reasons: z.array(z.string()),
+      judgments: z.array(judgmentSchema),
+      ownerTasks: z.array(z.string().regex(/^[TD]\d+$/)),
+      category: z.string(),
+      refs: z.array(z.string()),
+      overridden: z.boolean(),
+      covers: z.array(z.string()),
+      baselineRemove: z.boolean(),
+    }),
+  ),
+});
+
+/** Shape check for one receipt op. */
+const receiptOpSchema = z.object({
+  op: z.enum(DOCS_MODERNIZE_OPS),
+  state: z.enum(['pending', 'done', 'reversed']),
+  slug: z.string().nullable(),
+  path: relPath.nullable(),
+  target: z.string().nullable(),
+  attachmentId: z.string().nullable(),
+  ownerId: z.string().nullable(),
+  beforeSha256: z
+    .string()
+    .regex(/^[0-9a-f]{64}$/)
+    .nullable(),
+  afterSha256: z
+    .string()
+    .regex(/^[0-9a-f]{64}$/)
+    .nullable(),
+  prior: z
+    .object({
+      lifecycleStatus: z.string().nullable().optional(),
+      supersededBy: z.string().nullable().optional(),
+      supersedes: z.string().nullable().optional(),
+      previousAttachmentId: z.string().nullable().optional(),
+      newAttachmentId: z.string().nullable().optional(),
+      linkTargets: z.array(z.string()).optional(),
+    })
+    .optional(),
+});
+
+/** Shape check for one line of a run's write-ahead journal (`<runId>.ops.jsonl`). */
+export const docsModernizeJournalLineSchema = receiptOpSchema.extend({
+  i: z.number().int().min(0),
+});
+
+/** Shape check for a {@link DocsModernizeReceipt} read back for rollback. */
+export const docsModernizeReceiptSchema = z.object({
+  runId: z.string().regex(/^dm-[\w-]+$/),
+  root: z.string().min(1),
+  appliedAt: z.string(),
+  planSha256: z.string(),
+  edgeCount: z.number(),
+  rolledBackAt: z.string().nullable(),
+  blobs: z.array(z.object({ path: relPath, sha256: z.string() })),
+  moves: z.array(z.object({ from: relPath, to: relPath })),
+  deleted: z.array(relPath),
+  ops: z.array(receiptOpSchema),
+});

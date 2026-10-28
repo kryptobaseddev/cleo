@@ -13,7 +13,7 @@ import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
-import type { DecisionOutcome, DecisionRequest } from '@cleocode/contracts';
+import type { BlobAttachment, DecisionOutcome, DecisionRequest } from '@cleocode/contracts';
 import { BUILTIN_DOC_KINDS } from '@cleocode/contracts/docs-taxonomy.js';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { createMemoryTokenBucket } from '../../../decide/budget.js';
@@ -25,6 +25,7 @@ import { closeDb } from '../../../store/sqlite.js';
 import { extractWikilinkTargets } from '../../derive-links.js';
 import { getDocsWikilinks } from '../../wikilinks.js';
 import { applyDocsModernize, rollbackDocsModernize } from '../apply.js';
+import { parseModernizePlan } from '../guard.js';
 import { planDocsModernize } from '../plan.js';
 import {
   classifyDocByRules,
@@ -71,6 +72,24 @@ describe('modernize rules', () => {
     );
   });
 
+  it('never drops duplicate content when merging', () => {
+    const survivor = '# Plan\n\nintro text\n\n## Goal\nship it\n';
+    const dupes = [
+      '# Plan\n\nother intro\n\n## Goal\na different goal\n\n## Risks\nr1\n',
+      'no headings at all\njust lines\n',
+      '# Another title\n\n## Goal\nship it\n',
+    ];
+    for (const dup of dupes) {
+      const merged = mergeDocBodies(survivor, dup, 'old-plan');
+      // Every non-blank line survives (a heading may carry a "(from …)" suffix);
+      // only a title equal to the survivor's is treated as the same line.
+      for (const line of dup.split('\n').filter((l) => l.trim() && l.trim() !== '# Plan')) {
+        expect(merged.includes(line) || merged.includes(`${line} (from [[old-plan]])`)).toBe(true);
+      }
+    }
+    expect(mergeDocBodies(survivor, survivor, 'same')).toBe(survivor);
+  });
+
   it('merges only new sections and rewrites links to wikilinks', () => {
     expect(docSimilarity('a\nbbb\nccc', 'a\nbbb\nccc')).toBe(1);
     const merged = mergeDocBodies(
@@ -79,7 +98,7 @@ describe('modernize rules', () => {
       'p-old',
     );
     expect(merged).toContain('## Risks');
-    expect(merged.match(/## Goal/g)).toHaveLength(1);
+    expect(merged).toContain('## Goal (from [[p-old]])\ny');
     const rewritten = rewriteDocLinks(
       'see [the spec](../specs/T1-a-spec.md) and [[T1-a-spec]]',
       'handoffs/h.md',
@@ -238,7 +257,7 @@ describe('modernize plan → apply → rollback (fixture tree)', () => {
       projectRoot,
       decide: { connection: null },
     });
-    const receipt = await applyDocsModernize({ plan, projectRoot });
+    const receipt = await applyDocsModernize({ plan, projectRoot, allowDirty: true });
     const store = createAttachmentStore();
 
     // Rename + no task/date names left + no duplicate category folders.
@@ -367,5 +386,165 @@ describe('modernize plan → apply → rollback (fixture tree)', () => {
       code: 'E_MODERNIZE_DIRTY',
     });
     expect(existsSync(join(docsRoot, 'specs/T832-gate-integrity-spec.md'))).toBe(true);
+  });
+
+  it('refuses unsafe plans: paths outside the root and malformed plan files', async () => {
+    const plan = await planDocsModernize({
+      root: docsRoot,
+      projectRoot,
+      decide: { connection: null },
+    });
+    const escaped = {
+      ...plan,
+      rows: plan.rows.map((r, i) =>
+        i === 0 ? { ...r, disposition: 'rename' as const, target: '../../outside.md' } : r,
+      ),
+    };
+    await expect(
+      applyDocsModernize({ plan: escaped, projectRoot, allowDirty: true }),
+    ).rejects.toMatchObject({
+      code: 'E_MODERNIZE_UNSAFE',
+    });
+    expect(existsSync(join(projectRoot, '..', 'outside.md'))).toBe(false);
+    expect(() => parseModernizePlan('{"root":"/x","rows":[{"path":1}]}', projectRoot)).toThrow(
+      /plan schema/,
+    );
+  });
+
+  it('fails closed when git cannot vouch for the root', async () => {
+    const plan = await planDocsModernize({
+      root: docsRoot,
+      projectRoot,
+      decide: { connection: null },
+    });
+    await expect(applyDocsModernize({ plan, projectRoot })).rejects.toMatchObject({
+      code: 'E_MODERNIZE_DIRTY',
+    });
+  });
+
+  it('journals every step ahead of it and rolls back resumably, refusing edited files', async () => {
+    const plan = await planDocsModernize({
+      root: docsRoot,
+      projectRoot,
+      decide: { connection: null },
+    });
+    const receipt = await applyDocsModernize({ plan, projectRoot, allowDirty: true });
+    const journal = readFileSync(
+      join(projectRoot, '.cleo', 'modernize', `${receipt.runId}.ops.jsonl`),
+      'utf-8',
+    )
+      .trim()
+      .split('\n')
+      .map((l) => JSON.parse(l) as { i: number; state: string });
+    for (const op of receipt.ops) expect(op.state).toBe('done');
+    expect(journal.filter((l) => l.state === 'pending')).toHaveLength(receipt.ops.length);
+    expect(receipt.ops.some((o) => o.op === 'fold' && o.target === 'self-healing-plan')).toBe(true);
+    expect(receipt.ops.some((o) => o.op === 'link' && o.slug === 'agent-handoff')).toBe(true);
+
+    // An edit after the apply stops the rollback before it overwrites anything...
+    const edited = join(docsRoot, 'spec/gate-integrity-spec.md');
+    const applied = readFileSync(edited, 'utf-8');
+    writeFileSync(edited, `${applied}\nhand edit\n`);
+    await expect(rollbackDocsModernize(projectRoot, receipt.runId)).rejects.toThrow(
+      /changed after the modernize run/,
+    );
+    // ...and once resolved, the rollback resumes and finishes.
+    writeFileSync(edited, applied);
+    await rollbackDocsModernize(projectRoot, receipt.runId);
+    for (const [rel, text] of original) {
+      expect(readFileSync(join(docsRoot, rel), 'utf-8')).toBe(text);
+    }
+  });
+
+  it('merges into an existing stored doc without dropping it, and rollback restores the original row', async () => {
+    const store = createAttachmentStore();
+    const storedBody =
+      '# Gate integrity spec\n\n## Requirements\n- gates must hold\n- and stay held\n\n## History\nolder notes\n';
+    const bytes = Buffer.from(storedBody, 'utf-8');
+    const blob: Omit<BlobAttachment, 'sha256'> = {
+      kind: 'blob',
+      storageKey: '',
+      mime: 'text/markdown',
+      size: bytes.byteLength,
+    };
+    const seeded = await store.put(bytes, blob, 'task', '__project__', 'test', projectRoot, {
+      slug: 'gate-integrity-spec',
+      type: 'spec',
+    });
+    const plan = await planDocsModernize({
+      root: docsRoot,
+      projectRoot,
+      decide: { connection: null },
+    });
+    expect(plan.rows.find((r) => r.slug === 'gate-integrity-spec')?.reasons.at(-1)).toMatch(
+      /merges into the existing/,
+    );
+    const receipt = await applyDocsModernize({ plan, projectRoot, allowDirty: true });
+    const now = await store.findBySlug('gate-integrity-spec', projectRoot);
+    const merged =
+      (await store.get(now?.metadata.sha256 ?? '', projectRoot))?.bytes.toString('utf-8') ?? '';
+    expect(merged).toContain('older notes');
+    expect(receipt.ops.find((o) => o.op === 'merge')?.prior?.previousAttachmentId).toBe(seeded.id);
+    await rollbackDocsModernize(projectRoot, receipt.runId);
+    expect((await store.findBySlug('gate-integrity-spec', projectRoot))?.metadata.id).toBe(
+      seeded.id,
+    );
+  });
+
+  it('refuses to update a stored doc whose bytes cannot be backed up', async () => {
+    const store = createAttachmentStore();
+    const storedBody =
+      '# Gate integrity spec\n\n## Requirements\n- gates must hold\n- and stay held\n';
+    const bytes = Buffer.from(storedBody, 'utf-8');
+    const blob: Omit<BlobAttachment, 'sha256'> = {
+      kind: 'blob',
+      storageKey: '',
+      mime: 'text/markdown',
+      size: bytes.byteLength,
+    };
+    await store.put(bytes, blob, 'task', '__project__', 'test', projectRoot, {
+      slug: 'gate-integrity-spec',
+      type: 'spec',
+    });
+    const plan = await planDocsModernize({
+      root: docsRoot,
+      projectRoot,
+      decide: { connection: null },
+    });
+    // Lose every copy of the stored doc's bytes after planning.
+    for (const dir of ['attachments', 'blobs']) {
+      rmSync(join(projectRoot, '.cleo', dir), { recursive: true, force: true });
+    }
+    await expect(applyDocsModernize({ plan, projectRoot, allowDirty: true })).rejects.toMatchObject(
+      {
+        code: 'E_MODERNIZE_BLOB',
+      },
+    );
+    expect(await store.findBySlug('gate-integrity-spec', projectRoot)).not.toBeNull();
+  });
+
+  it('keeps same-named docs from different folders apart and leaves ambiguous [[links]] alone', async () => {
+    const extra: Record<string, string> = {
+      'pkg-a/api-design.md': '# API design\n\nshared line one\nshared line two\nalpha only\n',
+      'pkg-b/api-design.md': '# API design\n\nshared line one\nshared line two\nbeta only\n',
+      'pkg-a/readme.md': '# A readme\n',
+      'pkg-b/readme.md': '# B readme\n\nsee [[readme]]\n',
+    };
+    for (const [rel, text] of Object.entries(extra)) {
+      mkdirSync(dirname(join(docsRoot, rel)), { recursive: true });
+      writeFileSync(join(docsRoot, rel), text);
+    }
+    const plan = await planDocsModernize({
+      root: docsRoot,
+      projectRoot,
+      decide: { connection: null },
+    });
+    const rows = plan.rows.filter((r) => r.path.endsWith('api-design.md'));
+    expect(rows.map((r) => r.disposition).every((d) => d === 'keep' || d === 'rename')).toBe(true);
+    expect(new Set(rows.map((r) => r.slug)).size).toBe(2);
+    await applyDocsModernize({ plan, projectRoot, allowDirty: true });
+    const bReadme = plan.rows.find((r) => r.path === 'pkg-b/readme.md');
+    const body = readFileSync(join(docsRoot, bReadme?.target ?? ''), 'utf-8');
+    expect(body).toContain('[[readme]]');
   });
 });

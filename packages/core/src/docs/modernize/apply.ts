@@ -1,26 +1,29 @@
 /**
  * `cleo docs modernize --apply` and `--rollback` (T14113).
  *
- * Apply executes a {@link DocsModernizePlan} in four passes:
+ * Apply executes a {@link DocsModernizePlan}:
  *
+ * 0. **Blobs.** Every scanned file's bytes are hash-verified into the blob
+ *    store before anything else runs; nothing is removed without that.
  * 1. **Bodies.** Each survivor's text gets every `merge-into` row folded in
- *    and its relative `.md` links rewritten to `[[slug]]` wikilinks.
- * 2. **Store.** Survivors are stored under their slug (`ingest`), or update
- *    the existing doc that already owns the slug (`merge`, update before
- *    create). A merged or deleted file whose bytes are not already stored is
- *    stored under its legacy name and superseded by the survivor
- *    (`supersede`), so its history and the supersession edge stay queryable.
+ *    ({@link mergeDocBodies} never drops content) and its relative `.md`
+ *    links rewritten to `[[slug]]` wikilinks.
+ * 2. **Store.** Survivors are stored under their slug (`ingest`); a slug the
+ *    store already holds is merged into, never replaced (`merge`). A merged
+ *    or deleted file is recorded where its content went (`fold`) and, when
+ *    its bytes are not already a doc, stored under its legacy name and
+ *    superseded by the survivor (`supersede`).
  * 3. **Files.** Survivors are written to their canonical path (`write-file`)
- *    and every other scanned path is removed (`remove-file`); folders left
- *    empty are removed.
- * 4. **Graph.** Each survivor's body links become `links-to` edges and the
- *    column-derived edges are rebuilt.
+ *    and every other scanned path is removed (`remove-file`).
+ * 4. **Graph.** Each survivor's body links become `links-to` edges (`link`)
+ *    and the column-derived edges are rebuilt (always, in `finally`).
  *
- * Every step is appended to the receipt (`.cleo/modernize/<runId>.json`)
- * before the next one starts, with the bytes it replaced copied under
- * `.cleo/modernize/<runId>/`. {@link rollbackDocsModernize} walks a receipt
- * backwards: files come back from those copies, store rows are restored or
- * dereferenced, and supersession pointers are cleared.
+ * Write-ahead: every step is appended to `.cleo/modernize/<runId>.ops.jsonl`
+ * as `pending` (with the values it will replace) before it acts and as
+ * `done` after; replaced bytes are copied under `.cleo/modernize/<runId>/`.
+ * {@link rollbackDocsModernize} walks the steps backwards, appends
+ * `reversed` per step (so a failed rollback resumes where it stopped), and
+ * refuses to overwrite a file edited since the apply.
  *
  * @task T14113
  * @epic T14106
@@ -28,15 +31,25 @@
 
 import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { existsSync, mkdirSync, readdirSync, readFileSync, rmdirSync, rmSync } from 'node:fs';
+import {
+  appendFileSync,
+  existsSync,
+  mkdirSync,
+  readdirSync,
+  readFileSync,
+  rmdirSync,
+  rmSync,
+} from 'node:fs';
 import { dirname, join } from 'node:path';
 import type {
   BlobAttachment,
+  DocsModernizeOpPrior,
   DocsModernizePlan,
   DocsModernizePlanRow,
   DocsModernizeReceipt,
   DocsModernizeReceiptOp,
 } from '@cleocode/contracts';
+import { docsModernizeJournalLineSchema } from '@cleocode/contracts/docs/modernize.js';
 import { getCleoDirAbsolute } from '../../paths.js';
 import { createAttachmentStore } from '../../store/attachment-store.js';
 import { backfillBlobStoreBytes } from '../../store/blob-keep.js';
@@ -44,6 +57,8 @@ import { writeFileAtomic } from '../../tools/fs.js';
 import { extractWikilinkTargets } from '../derive-links.js';
 import { IMPORT_OWNER_TYPE, IMPORT_PROJECT_OWNER_ID } from '../import/attachment-store-accessor.js';
 import { normalizeSlug } from '../slug-normalize.js';
+import { assertPlanPaths, parseModernizeReceipt, safeJoin } from './guard.js';
+import { readSupersessionPrior, restoreSupersession, revertDocUpdate } from './restore.js';
 import { mergeDocBodies, rewriteDocLinks } from './rules.js';
 
 /** Identity recorded on every store write modernize makes. */
@@ -57,7 +72,7 @@ export interface ApplyDocsModernizeOptions {
   readonly projectRoot: string;
   /** Clock override (tests). */
   readonly now?: () => Date;
-  /** Skip the clean-tree check (tests on a temp tree that is not a checkout). */
+  /** Apply even when the root is not a clean git checkout (explicit `--allow-dirty`). */
   readonly allowDirty?: boolean;
 }
 
@@ -67,19 +82,19 @@ export class DocsModernizeStaleError extends Error {
   readonly code = 'E_MODERNIZE_STALE';
 }
 
-/** Raised when `--apply` meets uncommitted changes under the root. */
+/** Raised when `--apply` meets uncommitted changes, or cannot prove there are none. */
 export class DocsModernizeDirtyError extends Error {
   /** Stable code for the envelope. */
   readonly code = 'E_MODERNIZE_DIRTY';
 }
 
-/** Raised when a file's bytes cannot be confirmed in the blob store before removal. */
+/** Raised when bytes cannot be confirmed or backed up before a step changes them. */
 export class DocsModernizeBlobError extends Error {
   /** Stable code for the envelope. */
   readonly code = 'E_MODERNIZE_BLOB';
 }
 
-/** Raised when a receipt cannot be found or was already rolled back. */
+/** Raised when a receipt cannot be found, was already rolled back, or a file changed since. */
 export class DocsModernizeReceiptError extends Error {
   /** Stable code for the envelope. */
   readonly code = 'E_MODERNIZE_RECEIPT';
@@ -106,16 +121,25 @@ export function modernizeReceiptPath(projectRoot: string, runId: string): string
   return join(modernizeDir(projectRoot), `${runId}.json`);
 }
 
+/** Path of a run's write-ahead step journal. */
+function journalPath(projectRoot: string, runId: string): string {
+  return join(modernizeDir(projectRoot), `${runId}.ops.jsonl`);
+}
+
 /** Path of a backed-up blob for a run. */
 function backupPath(projectRoot: string, runId: string, sha: string): string {
   return join(modernizeDir(projectRoot), runId, sha);
 }
 
-/** Copy text into the run's backup folder, keyed by its sha. */
+/** Copy text into the run's backup folder, keyed by its sha, and confirm it reads back. */
 async function backup(projectRoot: string, runId: string, text: string): Promise<string> {
   const sha = sha256(text);
   const path = backupPath(projectRoot, runId, sha);
   if (!existsSync(path)) await writeFileAtomic({ path, content: text });
+  if (sha256(readFileSync(path, 'utf-8')) !== sha) {
+    // @sync-invariant none:local-only a backup that does not read back is refused before the step it guards
+    throw new DocsModernizeBlobError(`backup of ${sha} did not read back intact`);
+  }
   return sha;
 }
 
@@ -186,8 +210,8 @@ function ownerOf(row: DocsModernizePlanRow): string {
 }
 
 /**
- * Refuse when the root has uncommitted changes, so the moves land as one
- * reviewable diff. Outside a git checkout there is nothing to check.
+ * Refuse unless the root is a git checkout with no uncommitted changes, so
+ * the moves land as one reviewable diff. Fails closed: a git error refuses.
  */
 function assertCleanTree(root: string): void {
   let status: string;
@@ -195,10 +219,13 @@ function assertCleanTree(root: string): void {
     status = execFileSync('git', ['status', '--porcelain', '--', '.'], {
       cwd: root,
       encoding: 'utf-8',
-      stdio: ['ignore', 'pipe', 'ignore'],
+      stdio: ['ignore', 'pipe', 'pipe'],
     });
   } catch {
-    return;
+    // @sync-invariant none:input-shape a root git cannot vouch for is refused before any write; --allow-dirty overrides
+    throw new DocsModernizeDirtyError(
+      `${root} is not a git checkout git could read; pass --allow-dirty to apply anyway`,
+    );
   }
   if (status.trim() !== '') {
     // @sync-invariant none:input-shape a dirty modernize root is refused before any write
@@ -208,14 +235,63 @@ function assertCleanTree(root: string): void {
   }
 }
 
+/** The `links-to` targets leaving a slug now. */
+async function linkTargets(slug: string, projectRoot: string): Promise<string[]> {
+  const { getDocsWikilinks } = await import('../wikilinks.js');
+  const edges = await getDocsWikilinks(slug, { direction: 'out', projectRoot });
+  return edges.filter((e) => e.relation === 'links-to').map((e) => e.toSlug);
+}
+
+/** Write-ahead journal of one run's steps. */
+class StepJournal {
+  private readonly ops: DocsModernizeReceiptOp[] = [];
+
+  constructor(private readonly path: string) {
+    mkdirSync(dirname(path), { recursive: true });
+  }
+
+  /** Append a step as `pending` before it acts; returns its index. */
+  begin(op: Partial<DocsModernizeReceiptOp> & Pick<DocsModernizeReceiptOp, 'op'>): number {
+    const full: DocsModernizeReceiptOp = {
+      state: 'pending',
+      slug: null,
+      path: null,
+      target: null,
+      attachmentId: null,
+      ownerId: null,
+      beforeSha256: null,
+      afterSha256: null,
+      ...op,
+    };
+    this.ops.push(full);
+    const i = this.ops.length - 1;
+    appendFileSync(this.path, `${JSON.stringify({ i, ...full })}\n`);
+    return i;
+  }
+
+  /** Mark a step `done`, with anything learned while acting. */
+  done(i: number, patch: Partial<DocsModernizeReceiptOp> = {}): void {
+    const current = this.ops[i];
+    if (!current) return;
+    const next: DocsModernizeReceiptOp = { ...current, ...patch, state: 'done' };
+    this.ops[i] = next;
+    appendFileSync(this.path, `${JSON.stringify({ i, ...next })}\n`);
+  }
+
+  /** Every step so far. */
+  list(): DocsModernizeReceiptOp[] {
+    return [...this.ops];
+  }
+}
+
 /**
- * Execute a modernize plan, writing a receipt as it goes.
+ * Execute a modernize plan, journaling every step ahead of it.
  *
  * @param options - Plan, project root and clock.
  * @returns The finished receipt.
  * @throws DocsModernizeStaleError when a planned file is missing or changed.
- * @throws DocsModernizeDirtyError when a `tree` run meets uncommitted changes.
- * @throws DocsModernizeBlobError when a file's bytes cannot be confirmed in the blob store.
+ * @throws DocsModernizeDirtyError when a `tree` run cannot prove a clean checkout.
+ * @throws DocsModernizeBlobError when bytes cannot be confirmed or backed up.
  */
 export async function applyDocsModernize(
   options: ApplyDocsModernizeOptions,
@@ -223,10 +299,11 @@ export async function applyDocsModernize(
   const { plan, projectRoot } = options;
   const root = plan.root;
   const tree = plan.mode !== 'store-only';
+  assertPlanPaths(plan, projectRoot);
   if (tree && !options.allowDirty) assertCleanTree(root);
   const texts = new Map<string, string>();
   for (const row of plan.rows) {
-    const abs = join(root, row.path);
+    const abs = safeJoin(root, row.path);
     const text = existsSync(abs) ? readFileSync(abs, 'utf-8') : null;
     if (text === null || sha256(text) !== row.sha256) {
       // @sync-invariant none:input-shape the plan no longer matches the tree; refused before any write
@@ -240,16 +317,16 @@ export async function applyDocsModernize(
   const started = options.now?.() ?? new Date();
   const stamp = started.toISOString().replace(/[-:.]/g, '').replace('T', '-').slice(0, 15);
   const runId = `dm-${stamp}-${sha256(plan.generatedAt + root).slice(0, 6)}`;
-  const ops: DocsModernizeReceiptOp[] = [];
+  const journal = new StepJournal(journalPath(projectRoot, runId));
   const blobs: { path: string; sha256: string }[] = [];
   const moves: { from: string; to: string }[] = [];
   const deleted: string[] = [];
-  const receipt = (edgeCount = 0): DocsModernizeReceipt => ({
+  const receipt = (edgeCount: number): DocsModernizeReceipt => ({
     runId,
     root,
     appliedAt: started.toISOString(),
     planSha256: planHash(plan),
-    ops: [...ops],
+    ops: journal.list(),
     edgeCount,
     rolledBackAt: null,
     blobs: [...blobs],
@@ -262,27 +339,11 @@ export async function applyDocsModernize(
       content: `${JSON.stringify(receipt(edgeCount), null, 2)}\n`,
     });
   };
-  const record = async (
-    op: Partial<DocsModernizeReceiptOp> & Pick<DocsModernizeReceiptOp, 'op'>,
-  ) => {
-    ops.push({
-      slug: null,
-      path: null,
-      target: null,
-      attachmentId: null,
-      ownerId: null,
-      beforeSha256: null,
-      afterSha256: null,
-      ...op,
-    });
-    await save();
-  };
 
-  // Pass 0 — every scanned file's bytes, hash-verified in the blob store
-  // before anything else happens (nothing is removed without it).
+  // Pass 0 — every scanned file's bytes, hash-verified in the blob store.
   const cleoDir = getCleoDirAbsolute(projectRoot);
   for (const row of plan.rows) {
-    const outcome = await backfillBlobStoreBytes(cleoDir, row.sha256, join(root, row.path));
+    const outcome = await backfillBlobStoreBytes(cleoDir, row.sha256, safeJoin(root, row.path));
     if (outcome !== 'written' && outcome !== 'present') {
       // @sync-invariant none:local-only the blob store copy is a local prerequisite; nothing synced was written
       throw new DocsModernizeBlobError(
@@ -294,186 +355,282 @@ export async function applyDocsModernize(
   await save();
 
   const store = createAttachmentStore();
-  if (!tree) {
-    // Store-only: every file becomes a task-owned, slugless doc; the folder stays.
-    for (const row of plan.rows) {
-      const ownerId = ownerOf(row);
-      const stored = await store.getMetadata(row.sha256, projectRoot);
-      const refs = stored ? await store.listRefs(stored.id, projectRoot) : [];
-      if (refs.some((r) => r.ownerType === IMPORT_OWNER_TYPE && r.ownerId === ownerId)) continue;
-      let attachmentId: string;
-      if (stored) {
-        // Already a doc: link it to the task, leave its kind and slug alone.
-        await store.ref(stored.id, IMPORT_OWNER_TYPE, ownerId, MODERNIZE_ACTOR, projectRoot);
-        attachmentId = stored.id;
-      } else {
-        const text = texts.get(row.path) ?? '';
-        attachmentId = await storeText(text, row.path, undefined, row.kind, ownerId, projectRoot);
-      }
-      await record({
-        op: 'ingest',
-        path: row.path,
-        attachmentId,
-        ownerId,
-        afterSha256: row.sha256,
-      });
-    }
-    const { rebuildDocsWikilinks } = await import('../wikilinks.js');
-    const { edgeCount } = await rebuildDocsWikilinks({ projectRoot });
-    await save(edgeCount);
-    return receipt(edgeCount);
-  }
-
-  // Pass 1 — bodies.
-  const survivors = plan.rows.filter((r) => r.disposition === 'keep' || r.disposition === 'rename');
-  const slugByPath = new Map(plan.rows.map((r) => [r.path, r.slug]));
-  const slugRename = new Map<string, string>();
-  for (const row of plan.rows) {
-    const oldName = normalizeSlug((row.path.split('/').pop() ?? '').replace(/\.[^.]+$/, ''));
-    if (oldName && oldName !== row.slug) slugRename.set(oldName, row.slug);
-  }
-  const bodies = new Map<string, string>();
-  for (const row of survivors) {
-    let body = texts.get(row.path) ?? '';
-    for (const dup of plan.rows) {
-      if (dup.disposition === 'merge-into' && dup.target === row.slug) {
-        body = mergeDocBodies(body, texts.get(dup.path) ?? '', dup.slug);
-      }
-    }
-    bodies.set(row.path, rewriteDocLinks(body, row.path, slugByPath, slugRename));
-  }
-
-  // Pass 2 — store.
-  const usedSlugs = new Set(plan.rows.map((r) => r.slug));
-  for (const row of survivors) {
-    const body = bodies.get(row.path) ?? '';
-    const afterSha = sha256(body);
-    const existing = await store.findBySlug(row.slug, projectRoot);
-    if (existing && existing.metadata.sha256 === afterSha) continue;
-    if (existing) {
-      const before = await store.get(existing.metadata.sha256, projectRoot);
-      const beforeSha = before
-        ? await backup(projectRoot, runId, before.bytes.toString('utf-8'))
-        : existing.metadata.sha256;
-      const { updateDocBySlug } = await import('../docs-update.js');
-      const updated = await updateDocBySlug(projectRoot, {
-        slug: row.slug,
-        content: body,
-        message: `cleo docs modernize: ${row.path}`,
-        attachedBy: MODERNIZE_ACTOR,
-      });
-      if (!updated.ok) {
-        // @sync-invariant none:input-shape the docs update path refused the merged body; the receipt holds every earlier step for rollback
-        throw new DocsModernizeReceiptError(
-          `update of ${row.slug} failed (${updated.error.code}): ${updated.error.message}; roll back with --rollback ${runId}`,
-        );
-      }
-      await record({
-        op: 'merge',
-        slug: row.slug,
-        path: row.path,
-        beforeSha256: beforeSha,
-        afterSha256: afterSha,
-      });
-      continue;
-    }
-    // The same bytes are already a doc under another name: re-putting them
-    // would re-slug that row, which a rollback could not undo. Leave it.
-    if ((await store.getMetadata(afterSha, projectRoot)) !== null) continue;
-    const ownerId = ownerOf(row);
-    const attachmentId = await storeText(body, row.path, row.slug, row.kind, ownerId, projectRoot);
-    await record({
-      op: 'ingest',
-      slug: row.slug,
-      path: row.path,
-      attachmentId,
-      ownerId,
-      afterSha256: afterSha,
-    });
-  }
-  const { supersedeDoc } = await import('../supersede.js');
-  for (const row of plan.rows) {
-    if (row.disposition !== 'merge-into' && row.disposition !== 'delete') continue;
-    if (!row.target || !(await store.findBySlug(row.target, projectRoot))) continue;
-    const stored = await store.getMetadata(row.sha256, projectRoot);
-    let oldSlug: string | null = null;
-    if (stored) {
-      // Already a doc: supersede it under its own slug, unless it is the survivor itself.
-      oldSlug = (await store.getExtras(stored.id, projectRoot))?.slug ?? null;
-      if (!oldSlug || oldSlug === row.target) continue;
-    } else {
-      oldSlug = await legacySlug(row, projectRoot, usedSlugs);
-      const ownerId = ownerOf(row);
-      const attachmentId = await storeText(
-        texts.get(row.path) ?? '',
-        row.path,
-        oldSlug,
-        row.kind,
-        ownerId,
-        projectRoot,
-      );
-      await record({
-        op: 'ingest',
-        slug: oldSlug,
-        path: row.path,
-        attachmentId,
-        ownerId,
-        afterSha256: row.sha256,
-      });
-    }
-    await supersedeDoc(projectRoot, {
-      oldSlug,
-      newSlug: row.target,
-      reason: `cleo docs modernize ${runId}: ${row.reasons.at(-1) ?? row.disposition}`,
-    });
-    await record({ op: 'supersede', slug: oldSlug, target: row.target });
-  }
-
-  // Pass 3 — files.
-  for (const row of survivors) {
-    const body = bodies.get(row.path) ?? '';
-    const target = row.target ?? row.path;
-    const abs = join(root, target);
-    const before = existsSync(abs) ? readFileSync(abs, 'utf-8') : null;
-    if (before !== body) {
-      const beforeSha = before === null ? null : await backup(projectRoot, runId, before);
-      await backup(projectRoot, runId, body);
-      await writeFileAtomic({ path: abs, content: body });
-      await record({
-        op: 'write-file',
-        path: target,
-        beforeSha256: beforeSha,
-        afterSha256: sha256(body),
-      });
-    }
-    if (target !== row.path) moves.push({ from: row.path, to: target });
-  }
-  const kept = new Set(survivors.map((r) => r.target ?? r.path));
-  for (const row of plan.rows) {
-    if (kept.has(row.path)) continue;
-    const abs = join(root, row.path);
-    if (!existsSync(abs)) continue;
-    const beforeSha = await backup(projectRoot, runId, texts.get(row.path) ?? '');
-    rmSync(abs);
-    if (row.disposition === 'merge-into' || row.disposition === 'delete') deleted.push(row.path);
-    await record({ op: 'remove-file', path: row.path, beforeSha256: beforeSha });
-    pruneEmptyDirs(root, dirname(abs));
-  }
-
-  // Pass 4 — graph.
   const { rebuildDocsWikilinks, syncDocBodyWikilinks } = await import('../wikilinks.js');
-  for (const row of survivors) {
-    await syncDocBodyWikilinks(row.slug, extractWikilinkTargets(bodies.get(row.path) ?? ''), {
-      projectRoot,
-    });
+  let edgeCount = 0;
+  try {
+    if (!tree) {
+      // Store-only: every file becomes a task-owned, slugless doc; the folder stays.
+      for (const row of plan.rows) {
+        const ownerId = ownerOf(row);
+        const stored = await store.getMetadata(row.sha256, projectRoot);
+        const refs = stored ? await store.listRefs(stored.id, projectRoot) : [];
+        if (refs.some((r) => r.ownerType === IMPORT_OWNER_TYPE && r.ownerId === ownerId)) continue;
+        const i = journal.begin({ op: 'ingest', path: row.path, ownerId, afterSha256: row.sha256 });
+        if (stored) {
+          // Already a doc: link it to the task, leave its kind and slug alone.
+          await store.ref(stored.id, IMPORT_OWNER_TYPE, ownerId, MODERNIZE_ACTOR, projectRoot);
+          journal.done(i, { attachmentId: stored.id });
+        } else {
+          const text = texts.get(row.path) ?? '';
+          const attachmentId = await storeText(
+            text,
+            row.path,
+            undefined,
+            row.kind,
+            ownerId,
+            projectRoot,
+          );
+          journal.done(i, { attachmentId });
+        }
+      }
+    } else {
+      // Pass 1 — bodies.
+      const survivors = plan.rows.filter(
+        (r) => r.disposition === 'keep' || r.disposition === 'rename',
+      );
+      const slugByPath = new Map(plan.rows.map((r) => [r.path, r.slug]));
+      // Old names → final slug for existing [[wikilinks]]: the path without its
+      // extension always; the bare file name only when no other file shares it.
+      const slugRename = new Map<string, string>();
+      const baseCount = new Map<string, number>();
+      for (const row of plan.rows) {
+        const base = normalizeSlug((row.path.split('/').pop() ?? '').replace(/\.[^.]+$/, ''));
+        baseCount.set(base, (baseCount.get(base) ?? 0) + 1);
+      }
+      for (const row of plan.rows) {
+        const noExt = row.path.replace(/\.[^.]+$/, '');
+        if (noExt !== row.slug) slugRename.set(noExt, row.slug);
+        const base = normalizeSlug((row.path.split('/').pop() ?? '').replace(/\.[^.]+$/, ''));
+        if (base && base !== row.slug && baseCount.get(base) === 1) slugRename.set(base, row.slug);
+      }
+      const bodies = new Map<string, string>();
+      for (const row of survivors) {
+        let body = texts.get(row.path) ?? '';
+        for (const dup of plan.rows) {
+          if (dup.disposition === 'merge-into' && dup.target === row.slug) {
+            body = mergeDocBodies(
+              body,
+              texts.get(dup.path) ?? '',
+              normalizeSlug(dup.path.replace(/\.[^.]+$/, '')),
+            );
+          }
+        }
+        bodies.set(row.path, rewriteDocLinks(body, row.path, slugByPath, slugRename));
+      }
+
+      // Pass 2 — store.
+      const usedSlugs = new Set(plan.rows.map((r) => r.slug));
+      for (const row of survivors) {
+        const body = bodies.get(row.path) ?? '';
+        const existing = await store.findBySlug(row.slug, projectRoot);
+        if (existing && existing.metadata.sha256 === sha256(body)) continue;
+        if (existing) {
+          // Update before create, as a merge: the stored doc keeps all of its content.
+          const before = await store.get(existing.metadata.sha256, projectRoot);
+          if (!before) {
+            // @sync-invariant none:local-only the stored doc's bytes are unreadable, so the step could not be undone; refused before it acts
+            throw new DocsModernizeBlobError(
+              `stored doc ${row.slug} has no readable bytes to back up; refusing to update it (roll back with --rollback ${runId})`,
+            );
+          }
+          const storedText = before.bytes.toString('utf-8');
+          const merged = mergeDocBodies(
+            storedText,
+            body,
+            normalizeSlug(row.path.replace(/\.[^.]+$/, '')),
+          );
+          bodies.set(row.path, merged);
+          if (merged === storedText) continue;
+          if ((await store.getMetadata(sha256(merged), projectRoot)) !== null) continue;
+          const beforeSha = await backup(projectRoot, runId, storedText);
+          const i = journal.begin({
+            op: 'merge',
+            slug: row.slug,
+            path: row.path,
+            beforeSha256: beforeSha,
+            afterSha256: sha256(merged),
+            prior: { previousAttachmentId: existing.metadata.id, newAttachmentId: null },
+          });
+          await save();
+          const { updateDocBySlug } = await import('../docs-update.js');
+          const updated = await updateDocBySlug(projectRoot, {
+            slug: row.slug,
+            content: merged,
+            message: `cleo docs modernize: ${row.path}`,
+            attachedBy: MODERNIZE_ACTOR,
+          });
+          if (!updated.ok) {
+            // @sync-invariant none:input-shape the docs update path refused the merged body; the journal holds every earlier step for rollback
+            throw new DocsModernizeReceiptError(
+              `update of ${row.slug} failed (${updated.error.code}): ${updated.error.message}; roll back with --rollback ${runId}`,
+            );
+          }
+          journal.done(i, {
+            attachmentId: updated.result.attachmentId,
+            prior: {
+              previousAttachmentId: updated.result.previousAttachmentId,
+              newAttachmentId: updated.result.attachmentId,
+            },
+          });
+          continue;
+        }
+        // The same bytes are already a doc under another name: re-putting them
+        // would re-slug that row, which a rollback could not undo. Leave it.
+        if ((await store.getMetadata(sha256(body), projectRoot)) !== null) continue;
+        const ownerId = ownerOf(row);
+        const i = journal.begin({
+          op: 'ingest',
+          slug: row.slug,
+          path: row.path,
+          ownerId,
+          afterSha256: sha256(body),
+        });
+        const attachmentId = await storeText(
+          body,
+          row.path,
+          row.slug,
+          row.kind,
+          ownerId,
+          projectRoot,
+        );
+        journal.done(i, { attachmentId });
+      }
+
+      const { supersedeDoc } = await import('../supersede.js');
+      const survivorBySlug = new Map(survivors.map((r) => [r.slug, r]));
+      for (const row of plan.rows) {
+        if (row.disposition !== 'merge-into' && row.disposition !== 'delete') continue;
+        const survivor = row.target ? survivorBySlug.get(row.target) : undefined;
+        // Where the content went, even when no store step follows.
+        const f = journal.begin({
+          op: 'fold',
+          path: row.path,
+          target: row.target,
+          beforeSha256: row.sha256,
+          afterSha256: survivor ? sha256(bodies.get(survivor.path) ?? '') : null,
+        });
+        journal.done(f);
+        if (!row.target || !(await store.findBySlug(row.target, projectRoot))) continue;
+        const stored = await store.getMetadata(row.sha256, projectRoot);
+        let oldSlug: string | null;
+        if (stored) {
+          // Already a doc: supersede it under its own slug, unless it is the survivor itself.
+          oldSlug = (await store.getExtras(stored.id, projectRoot))?.slug ?? null;
+          if (!oldSlug || oldSlug === row.target) continue;
+        } else {
+          oldSlug = await legacySlug(row, projectRoot, usedSlugs);
+          const ownerId = ownerOf(row);
+          const i = journal.begin({
+            op: 'ingest',
+            slug: oldSlug,
+            path: row.path,
+            ownerId,
+            afterSha256: row.sha256,
+          });
+          const attachmentId = await storeText(
+            texts.get(row.path) ?? '',
+            row.path,
+            oldSlug,
+            row.kind,
+            ownerId,
+            projectRoot,
+          );
+          journal.done(i, { attachmentId });
+        }
+        const prior = await readSupersessionPrior(projectRoot, oldSlug, row.target);
+        const s = journal.begin({
+          op: 'supersede',
+          slug: oldSlug,
+          target: row.target,
+          ...(prior ? { prior } : {}),
+        });
+        await supersedeDoc(projectRoot, {
+          oldSlug,
+          newSlug: row.target,
+          reason: `cleo docs modernize ${runId}: ${row.reasons.at(-1) ?? row.disposition}`,
+        });
+        journal.done(s);
+      }
+      await save();
+
+      // Pass 3 — files.
+      for (const row of survivors) {
+        const body = bodies.get(row.path) ?? '';
+        const target = row.target ?? row.path;
+        const abs = safeJoin(root, target);
+        const before = existsSync(abs) ? readFileSync(abs, 'utf-8') : null;
+        if (before !== body) {
+          const beforeSha = before === null ? null : await backup(projectRoot, runId, before);
+          await backup(projectRoot, runId, body);
+          const i = journal.begin({
+            op: 'write-file',
+            path: target,
+            beforeSha256: beforeSha,
+            afterSha256: sha256(body),
+          });
+          await writeFileAtomic({ path: abs, content: body });
+          journal.done(i);
+        }
+        if (target !== row.path) moves.push({ from: row.path, to: target });
+      }
+      const kept = new Set(survivors.map((r) => r.target ?? r.path));
+      for (const row of plan.rows) {
+        if (kept.has(row.path)) continue;
+        const abs = safeJoin(root, row.path);
+        if (!existsSync(abs)) continue;
+        const beforeSha = await backup(projectRoot, runId, texts.get(row.path) ?? '');
+        const i = journal.begin({ op: 'remove-file', path: row.path, beforeSha256: beforeSha });
+        rmSync(abs);
+        journal.done(i);
+        if (row.disposition === 'merge-into' || row.disposition === 'delete')
+          deleted.push(row.path);
+        pruneEmptyDirs(root, dirname(abs));
+      }
+      await save();
+
+      // Pass 4 — graph.
+      for (const row of survivors) {
+        const targets = extractWikilinkTargets(bodies.get(row.path) ?? '');
+        const priorTargets = await linkTargets(row.slug, projectRoot);
+        const i = journal.begin({
+          op: 'link',
+          slug: row.slug,
+          prior: { linkTargets: priorTargets },
+        });
+        await syncDocBodyWikilinks(row.slug, targets, { projectRoot });
+        journal.done(i);
+      }
+    }
+  } finally {
+    ({ edgeCount } = await rebuildDocsWikilinks({ projectRoot }));
+    await save(edgeCount);
   }
-  const { edgeCount } = await rebuildDocsWikilinks({ projectRoot });
-  await save(edgeCount);
   return receipt(edgeCount);
 }
 
+/** Fold a step journal into the latest state of each step. */
+function readJournal(projectRoot: string, runId: string): DocsModernizeReceiptOp[] | null {
+  const path = journalPath(projectRoot, runId);
+  if (!existsSync(path)) return null;
+  const ops: DocsModernizeReceiptOp[] = [];
+  for (const line of readFileSync(path, 'utf-8').split('\n')) {
+    if (!line.trim()) continue;
+    const parsed = docsModernizeJournalLineSchema.safeParse(JSON.parse(line));
+    if (!parsed.success) {
+      // @sync-invariant none:local-only a corrupt journal line stops the rollback before any step
+      throw new DocsModernizeReceiptError(
+        `journal ${runId} has a malformed line: ${parsed.error.message}`,
+      );
+    }
+    const { i, ...op } = parsed.data;
+    ops[i] = op;
+  }
+  return ops.filter((op): op is DocsModernizeReceiptOp => op !== undefined);
+}
+
 /**
- * Read a run's receipt.
+ * Read a run's receipt, with its steps taken from the write-ahead journal
+ * (which records steps the receipt file may not have caught up with).
  *
  * @param projectRoot - Project root.
  * @param runId - Run id.
@@ -486,17 +643,21 @@ export function readDocsModernizeReceipt(projectRoot: string, runId: string): Do
     // @sync-invariant none:input-shape an unknown run id is refused before any write
     throw new DocsModernizeReceiptError(`no modernize receipt ${runId} under .cleo/modernize/`);
   }
-  return JSON.parse(readFileSync(path, 'utf-8')) as DocsModernizeReceipt;
+  const receipt = parseModernizeReceipt(readFileSync(path, 'utf-8'), projectRoot);
+  const ops = readJournal(projectRoot, runId);
+  return ops ? { ...receipt, ops } : receipt;
 }
 
 /**
- * Reverse an apply run from its receipt, newest step first.
+ * Reverse an apply run from its journal, newest step first. Each reversed
+ * step is journaled, so a rollback that stops part-way resumes on retry.
  *
  * @param projectRoot - Project root.
  * @param runId - Run id from the apply receipt.
  * @param now - Clock override (tests).
  * @returns The receipt, now stamped `rolledBackAt`.
- * @throws DocsModernizeReceiptError when the receipt is missing or already rolled back.
+ * @throws DocsModernizeReceiptError when the receipt is missing, already
+ *   rolled back, or a file was edited after the apply.
  */
 export async function rollbackDocsModernize(
   projectRoot: string,
@@ -511,55 +672,87 @@ export async function rollbackDocsModernize(
     );
   }
   const store = createAttachmentStore();
-  const readBackup = (sha: string): string =>
-    readFileSync(backupPath(projectRoot, runId, sha), 'utf-8');
-  const { clearDocSupersession } = await import('../supersede.js');
-  const { syncDocBodyWikilinks, rebuildDocsWikilinks } = await import('../wikilinks.js');
-
-  for (const op of [...receipt.ops].reverse()) {
-    switch (op.op) {
-      case 'remove-file':
-      case 'write-file': {
-        if (!op.path) break;
-        const abs = join(receipt.root, op.path);
-        if (op.beforeSha256) {
-          mkdirSync(dirname(abs), { recursive: true });
-          await writeFileAtomic({ path: abs, content: readBackup(op.beforeSha256) });
-        } else if (existsSync(abs)) {
-          rmSync(abs);
-          pruneEmptyDirs(receipt.root, dirname(abs));
-        }
-        break;
-      }
-      case 'supersede':
-        if (op.slug && op.target) await clearDocSupersession(projectRoot, op.slug, op.target);
-        break;
-      case 'merge': {
-        if (!op.slug || !op.beforeSha256) break;
-        const { updateDocBySlug } = await import('../docs-update.js');
-        await updateDocBySlug(projectRoot, {
-          slug: op.slug,
-          content: readBackup(op.beforeSha256),
-          message: `cleo docs modernize rollback ${runId}`,
-          attachedBy: MODERNIZE_ACTOR,
-        });
-        break;
-      }
-      case 'ingest':
-        if (op.slug) await syncDocBodyWikilinks(op.slug, [], { projectRoot });
-        if (op.attachmentId) {
-          await store.deref(
-            op.attachmentId,
-            IMPORT_OWNER_TYPE,
-            op.ownerId ?? IMPORT_PROJECT_OWNER_ID,
-            projectRoot,
-          );
-        }
-        break;
+  const readBackup = (sha: string): string => {
+    const path = backupPath(projectRoot, runId, sha);
+    if (!existsSync(path)) {
+      // @sync-invariant none:local-only a missing backup stops the rollback before it overwrites anything
+      throw new DocsModernizeReceiptError(`backup ${sha} of ${runId} is missing`);
     }
+    return readFileSync(path, 'utf-8');
+  };
+  const { syncDocBodyWikilinks, rebuildDocsWikilinks } = await import('../wikilinks.js');
+  const journal = journalPath(projectRoot, runId);
+  const ops = receipt.ops;
+  let edgeCount = receipt.edgeCount;
+
+  try {
+    for (let i = ops.length - 1; i >= 0; i -= 1) {
+      const op = ops[i];
+      if (!op || op.state === 'reversed') continue;
+      const prior: DocsModernizeOpPrior = op.prior ?? {};
+      switch (op.op) {
+        case 'remove-file':
+        case 'write-file': {
+          if (!op.path) break;
+          const abs = safeJoin(receipt.root, op.path);
+          const current = existsSync(abs) ? sha256(readFileSync(abs, 'utf-8')) : null;
+          const expected = op.op === 'write-file' ? op.afterSha256 : null;
+          const restored = op.beforeSha256;
+          if (current !== expected && current !== restored && op.state === 'done') {
+            // @sync-invariant none:local-only a file edited after the apply is never overwritten; rollback stops for the owner
+            throw new DocsModernizeReceiptError(
+              `${op.path} was changed after the modernize run; resolve it by hand, then re-run --rollback ${runId}`,
+            );
+          }
+          if (restored) {
+            mkdirSync(dirname(abs), { recursive: true });
+            await writeFileAtomic({ path: abs, content: readBackup(restored) });
+          } else if (existsSync(abs)) {
+            rmSync(abs);
+            pruneEmptyDirs(receipt.root, dirname(abs));
+          }
+          break;
+        }
+        case 'link':
+          if (op.slug)
+            await syncDocBodyWikilinks(op.slug, prior.linkTargets ?? [], { projectRoot });
+          break;
+        case 'supersede':
+          if (op.slug && op.target && op.prior) {
+            await restoreSupersession(projectRoot, op.slug, op.target, op.prior);
+          }
+          break;
+        case 'merge':
+          if (op.slug && prior.newAttachmentId) await revertDocUpdate(projectRoot, op.slug, prior);
+          break;
+        case 'ingest': {
+          const owner = op.ownerId ?? IMPORT_PROJECT_OWNER_ID;
+          const id =
+            op.attachmentId ??
+            (op.afterSha256
+              ? (await store.getMetadata(op.afterSha256, projectRoot))?.id
+              : undefined);
+          if (!id) break;
+          const refs = await store.listRefs(id, projectRoot);
+          if (refs.some((r) => r.ownerType === IMPORT_OWNER_TYPE && r.ownerId === owner)) {
+            await store.deref(id, IMPORT_OWNER_TYPE, owner, projectRoot);
+          }
+          break;
+        }
+        case 'fold':
+          break;
+      }
+      appendFileSync(journal, `${JSON.stringify({ i, ...op, state: 'reversed' })}\n`);
+    }
+  } finally {
+    ({ edgeCount } = await rebuildDocsWikilinks({ projectRoot }));
   }
-  const { edgeCount } = await rebuildDocsWikilinks({ projectRoot });
-  const done: DocsModernizeReceipt = { ...receipt, edgeCount, rolledBackAt: now().toISOString() };
+  const done: DocsModernizeReceipt = {
+    ...receipt,
+    ops: readJournal(projectRoot, runId) ?? receipt.ops,
+    edgeCount,
+    rolledBackAt: now().toISOString(),
+  };
   await writeFileAtomic({
     path: modernizeReceiptPath(projectRoot, runId),
     content: `${JSON.stringify(done, null, 2)}\n`,

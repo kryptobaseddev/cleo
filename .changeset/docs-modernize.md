@@ -27,6 +27,13 @@ scanner, slug normalisation, the attachment store, `docs update`,
   emptied folders are removed. Relative `.md` links become `[[slug]]`
   wikilinks. Each step and the bytes it replaced go into a receipt under
   `.cleo/modernize/`. `--rollback <runId>` reverses the run.
+- **Safety.** Apply refuses a root git cannot vouch for (`--allow-dirty`
+  overrides), checks every plan and receipt against a schema, and refuses paths
+  that leave the root or are symlinks. Every step is written to a write-ahead
+  journal (`<runId>.ops.jsonl`) before it acts. Rollback restores the replaced
+  rows and pointers exactly, resumes where it stopped, and refuses to overwrite
+  a file edited since. Merging never drops content, and same-named docs in
+  different folders are never merged by rule.
 
 The docs graph gains a `links-to` relation. Body `[[slug]]` wikilinks are now
 recorded as edges on every docs write (`docs add`, `docs update`, modernize),

@@ -8906,6 +8906,12 @@ export const OPERATIONS: OperationDef[] = [
         required: false,
         description: 'Ingest every file into the store and leave the folder untouched',
       },
+      {
+        name: 'allowDirty',
+        type: 'boolean' as const,
+        required: false,
+        description: 'Apply even when the root is not a clean git checkout',
+      },
     ],
   },
   // ── docs.generate (T798) ─────────────────────────────────────────────────

@@ -429,6 +429,8 @@ export type {
   DocsModernizeJudgmentQuestion,
   DocsModernizeJudgmentSource,
   DocsModernizeOpKind,
+  DocsModernizeOpPrior,
+  DocsModernizeOpState,
   DocsModernizeOverride,
   DocsModernizeOverrides,
   DocsModernizePlan,
@@ -436,7 +438,13 @@ export type {
   DocsModernizeReceipt,
   DocsModernizeReceiptOp,
 } from './docs/modernize.js';
-export { DOCS_MODERNIZE_DISPOSITIONS, DOCS_MODERNIZE_OPS } from './docs/modernize.js';
+export {
+  DOCS_MODERNIZE_DISPOSITIONS,
+  DOCS_MODERNIZE_OPS,
+  docsModernizeJournalLineSchema,
+  docsModernizePlanSchema,
+  docsModernizeReceiptSchema,
+} from './docs/modernize.js';
 // === Docs Provenance Graph (T10166 / Saga T9855 / E12) ===
 export type {
   DocLifecycleStatus,

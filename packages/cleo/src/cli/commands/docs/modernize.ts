@@ -63,6 +63,10 @@ export const modernizeCommand = defineCommand({
       type: 'string',
       description: 'Use this kind for every file instead of classifying (bulk ingest)',
     },
+    'allow-dirty': {
+      type: 'boolean',
+      description: 'Apply even when the root is not a clean git checkout (default: refuse)',
+    },
     'store-only': {
       type: 'boolean',
       description: 'Ingest every file into the store (task-owned) and leave the folder untouched',
@@ -83,6 +87,7 @@ export const modernizeCommand = defineCommand({
         ...(typeof args.overrides === 'string' ? { overrides: args.overrides } : {}),
         ...(typeof args.kind === 'string' ? { kind: args.kind } : {}),
         storeOnly: args['store-only'] === true,
+        allowDirty: args['allow-dirty'] === true,
       },
       { command: 'docs modernize' },
     );
