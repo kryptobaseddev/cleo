@@ -151,9 +151,13 @@ describe('rules 2-5 through the store (T13474)', () => {
       taskIds: ['T001'],
       actions: ['gate_profile_changed'],
     });
-    const changes = rows.map((r) => JSON.stringify(r)).join('\n');
+    expect(rows.map((r) => JSON.parse(r.detailsJson ?? 'null'))).toEqual(
+      expect.arrayContaining([
+        { before: null, after: 'census' },
+        { before: 'census', after: null },
+      ]),
+    );
     expect(rows).toHaveLength(2);
-    expect(changes).toContain('"census"');
   });
 
   it('rules 4-5: show names the profile and its waived gates as not applicable, never passed', async () => {

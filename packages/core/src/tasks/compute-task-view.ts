@@ -478,6 +478,8 @@ async function buildViewFromTask(task: Task, accessor: DataAccessor): Promise<Ta
     lifecycleProgress,
     childRollup,
     gatesStatus,
+    // T13474: `cleo show` reads the single view, so it carries the notes too.
+    ...gateNotesOf(task),
     readyToComplete,
     nextAction,
   };
