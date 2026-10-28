@@ -2223,6 +2223,7 @@ export { PS_STABLE_ENV } from './process-probe.js';
 // === Project Context (ecosystem detection types) ===
 export type {
   EcosystemHint,
+  EvidenceRepositoryDeclaration,
   FileNamingConvention,
   ImportStyle,
   ProjectContext,

@@ -1,7 +1,7 @@
 ---
 name: ct-documentor
 description: Documentation coordinator with CLEO style guide compliance. Routes every canonical-doc write (spec, adr, research, handoff, note, llm-readme) through the docs SSoT via `cleo docs add` / `cleo docs publish` / `cleo docs fetch` — never raw filesystem writes. Carries the CLEO writing and review guides as references and coordinates ct-spec-writer and ct-adr-recorder. Use when creating or updating documentation files, consolidating scattered documentation, or validating documentation against style standards. Triggers on documentation tasks, doc update requests, or style guide compliance checks.
-version: 3.28.0
+version: 3.30.0
 protocol: null
 dependencies:
   - ct-spec-writer
@@ -16,13 +16,13 @@ compatibility:
   - gemini-cli
 license: MIT
 metadata:
-  version: 3.28.0
+  version: 3.30.0
   tier: core
   install: harness
   covers:
     - packages/cleo/src/cli/commands/docs.ts
     - packages/contracts/src/docs-taxonomy.ts
-  lastReviewed: 2026-10-27
+  lastReviewed: 2026-10-28
   stability: stable
 ---
 
@@ -63,6 +63,17 @@ T13361 retired the legacy verbs `search`, `find`, `rank` (use `query`),
 ratio from the docs audit log, loose-markdown count (gitignore-aware scan),
 `docs_wikilinks` edge count, and live `decision_adr_links` count. Use it for
 pilot baseline comparisons — it never writes.
+
+`cleo docs rot` (T14111) is the docs-rot check every cycle runs. A doc declares
+the code it documents in frontmatter, `covers:` with repo globs (the skill
+`metadata.covers` grammar); write it into the store doc and republish, never
+the mirror alone. The report reads git only: **stale** (covered code changed on
+main after the doc did), **duplicates** (same body, near-identical titles),
+**orphans** (a covers glob matching nothing, a `docs/` file nothing names).
+`--changed <base>..<head>` lists the docs a merged change left stale (the
+post-merge sweep labels its tasks `docs-update`); `--strict` exits 2 on any
+finding, and the release cut runs it. When you change covered code, update the
+doc in the same PR.
 
 `cleo docs doctor` (T13447) audits the docs store — dangling `local-file`
 pointers, docVersion skew vs the audit log, empty topics/related_tasks,
@@ -154,6 +165,10 @@ rejects any subagent return that wrote raw markdown into `.cleo/adrs/`,
 materializing through `cleo docs add` + (optionally) `cleo docs publish`.
 
 ---
+
+## Kinds and names (T14107 · D11210)
+
+One kind per published directory; `cleo docs list-types` prints them (adr, spec, plan, research, guide, concept, reference, migration, release-note, note; handoffs are store-only and never published). Name a doc by its subject: lowercase kebab-case, at most 64 characters, with no task id, session id or date in it. The ADR number and the release-note version are allowed. Task and decision links and dates go in the doc's metadata. `cleo check canon docs` refuses a tracked doc whose name breaks the rule, naming the `git mv` that fixes it; the rule is implemented once in `packages/core/src/docs/doc-name-rule.ts` (`docNameViolation`), and names that broke it before it existed are in the shrink-only `scripts/.docs-name-baseline.json`.
 
 ## Decision: update vs supersede vs create (T10168 · Saga T9855 / E12)
 

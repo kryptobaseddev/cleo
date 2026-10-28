@@ -12,6 +12,11 @@
  * pipeline with a plain `Write` to `.cleo/adrs/ADR-XXX.md`. This gate
  * blocks the bypass at PR-time without touching any existing legacy file.
  *
+ * T14107 adds the doc naming rule: every tracked `docs/**.md` name must be
+ * lowercase kebab-case with no task id, session id or date (see
+ * `@cleocode/core/docs/doc-name-rule`); names that broke it before the rule
+ * sit in a shrink-only baseline that the docs census empties.
+ *
  * Semantics:
  *   - Pure additions (`--diff-filter=A`) only — renames/modifies/deletes
  *     are ignored so the gate never flags pre-existing migration artefacts.
@@ -31,6 +36,11 @@
 import { execFileSync } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
 import { join, sep } from 'node:path';
+import {
+  checkDocNames,
+  type DocPathViolation,
+  readDocNameBaseline,
+} from '@cleocode/core/docs/doc-name-rule';
 import { resolveCanonDocPathPolicy } from '@cleocode/core/session/canon-lint';
 import { parse as parseYaml } from 'yaml';
 
@@ -107,6 +117,13 @@ export interface CanonDocsCheckResult {
   /** Violations grouped per file. Empty when `passed === true`. */
   readonly violations: ReadonlyArray<CanonDocsViolation>;
   /**
+   * Tracked docs whose names break the naming rule (T14107) and are not in
+   * the shrink-only baseline, each with a suggested name.
+   */
+  readonly nameViolations: ReadonlyArray<DocPathViolation>;
+  /** Baselined doc names that are gone or fixed: remove them from the baseline. */
+  readonly staleBaseline: ReadonlyArray<string>;
+  /**
    * When `canon.yml` is missing, this is `'no-canon'` — the gate becomes
    * a no-op success. When `canon.yml` is present, this is `'enforced'`.
    */
@@ -130,6 +147,12 @@ export interface CanonDocsCheckParams {
    * can validate routing without needing a live commit graph.
    */
   readonly candidateFiles?: ReadonlyArray<string>;
+  /**
+   * Test override for the tracked file list the naming rule checks (T14107);
+   * defaults to `git ls-files -- docs`, or to none when `candidateFiles` is
+   * supplied (that override bypasses git).
+   */
+  readonly trackedFiles?: ReadonlyArray<string>;
 }
 
 // ---------------------------------------------------------------------------
@@ -202,6 +225,30 @@ function listAddedMarkdownFiles(projectRoot: string, baseRef: string): string[] 
     throw new CanonDocsDiffError(
       projectRoot,
       baseRef,
+      error instanceof Error ? error : new Error(String(error)),
+    );
+  }
+}
+
+/**
+ * Tracked paths under `docs/`, for the naming rule (T14107). A git failure is
+ * an incomplete assessment, never an empty pass.
+ *
+ * @internal
+ */
+function listTrackedDocs(projectRoot: string): string[] {
+  try {
+    const out = execFileSync('git', ['ls-files', '-z', '--', 'docs'], {
+      cwd: projectRoot,
+      encoding: 'utf8',
+      stdio: ['pipe', 'pipe', 'pipe'],
+      timeout: 30_000,
+    });
+    return out.split('\0').filter((line) => line.length > 0);
+  } catch (error) {
+    throw new CanonDocsDiffError(
+      projectRoot,
+      'HEAD',
       error instanceof Error ? error : new Error(String(error)),
     );
   }
@@ -358,7 +405,7 @@ export function loadCanonRegistry(projectRoot: string): CanonRegistry | undefine
  * @returns Structured result enumerating every violation.
  */
 export function runCanonDocsCheck(params: CanonDocsCheckParams): CanonDocsCheckResult {
-  const { projectRoot, baseRef = 'origin/main', candidateFiles } = params;
+  const { projectRoot, baseRef = 'origin/main', candidateFiles, trackedFiles } = params;
 
   const registry = loadCanonRegistry(projectRoot);
   if (!registry) {
@@ -367,6 +414,8 @@ export function runCanonDocsCheck(params: CanonDocsCheckParams): CanonDocsCheckR
       baseRef,
       scanned: 0,
       violations: [],
+      nameViolations: [],
+      staleBaseline: [],
       mode: 'no-canon',
     };
   }
@@ -389,11 +438,57 @@ export function runCanonDocsCheck(params: CanonDocsCheckParams): CanonDocsCheckR
     }
   }
 
+  // T14107: every tracked doc name, against the shrink-only baseline.
+  // A `candidateFiles` override bypasses git entirely, so without an
+  // explicit `trackedFiles` it names no tracked docs either.
+  const names = checkDocNames(
+    trackedFiles ?? (candidateFiles !== undefined ? [] : listTrackedDocs(projectRoot)),
+    readDocNameBaseline(projectRoot),
+  );
+
   return {
-    passed: violations.length === 0,
+    passed: violations.length === 0 && names.violations.length === 0 && names.stale.length === 0,
     baseRef,
     scanned: candidates.length,
     violations,
+    nameViolations: names.violations,
+    staleBaseline: names.stale,
     mode: 'enforced',
   };
+}
+
+/**
+ * The refusal message and fix for a failed docs canon check: raw additions
+ * that bypass the doc store, doc names that break the naming rule (each with
+ * a suggested name, T14107), and baseline entries to remove.
+ *
+ * @param result - A failed {@link runCanonDocsCheck} result.
+ * @returns The message and the one fix to show first.
+ */
+export function canonDocsFailure(result: CanonDocsCheckResult): { message: string; fix: string } {
+  const parts: string[] = [];
+  if (result.violations.length > 0)
+    parts.push(
+      `${result.violations.length} raw *.md addition(s) bypass the SSoT — ${result.violations
+        .map((v) => `${v.file} (kind=${v.kind})`)
+        .join(', ')}`,
+    );
+  if (result.nameViolations.length > 0)
+    parts.push(
+      `${result.nameViolations.length} doc name(s) break the naming rule (lowercase kebab-case; no task id, session id or date; links and dates go in doc metadata) — ${result.nameViolations
+        .map((v) => `${v.file} (${v.reasons.join(', ')}; rename to ${v.suggestion}.md)`)
+        .join(', ')}`,
+    );
+  if (result.staleBaseline.length > 0)
+    parts.push(
+      `${result.staleBaseline.length} entry(ies) in scripts/.docs-name-baseline.json are renamed or gone; remove them — ${result.staleBaseline.join(', ')}`,
+    );
+  const firstName = result.nameViolations[0];
+  const fix =
+    result.violations[0] !== undefined
+      ? `Route through SSoT instead: ${result.violations[0].fix}`
+      : firstName !== undefined
+        ? `git mv ${firstName.file} ${firstName.file.replace(/[^/]+\.md$/, `${firstName.suggestion}.md`)}`
+        : 'Delete the stale entries from scripts/.docs-name-baseline.json';
+  return { message: `Docs canon violation: ${parts.join('; ')}`, fix };
 }

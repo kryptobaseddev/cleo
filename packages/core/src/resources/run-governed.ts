@@ -234,8 +234,10 @@ export interface RunGovernedOptions {
    * Never SIGSTOP this run (`cleo run --no-pause`, T14075): a test with
    * wall-clock deadlines (an external database, a child timeout) fails if it
    * is frozen mid-run. It is admitted and charged like any run of its class,
-   * and since pressure cannot pause it later, it starts only below `backoff`:
-   * while the machine is at backoff it waits (with `wait`) or is deferred.
+   * and since pressure cannot pause it later, at `backoff` the ledger starts
+   * it only by the idle rule (T14098): one at a time, in queue order, while no
+   * CLEO run is admitted and its charge fits the reclaimable memory. Otherwise
+   * it waits (with `wait`) or is deferred.
    * @defaultValue false
    */
   readonly noPause?: boolean;
@@ -325,6 +327,8 @@ interface RunAdmission {
   readonly holdsShare: boolean;
   /** Record the spawned child on the ledger entry (T13046); absent for governor slots. */
   readonly recordChild?: (child: LedgerChild) => void;
+  /** Report the child tree's RSS, so the ledger charge follows it (T14116); ledger shares only. */
+  readonly observeRss?: (rssBytes: number) => void;
 }
 
 // The classifier moved to the governor, which every admission shares (R8-1).
@@ -568,7 +572,9 @@ export async function runGoverned(opts: RunGovernedOptions): Promise<RunGoverned
     // pressure keeps it queued instead of freezing it mid-run. A nested run
     // rides its enclosing admission and is never paused on its own anyway.
     // T14093: so is a run that executes tests on wall-clock deadlines.
-    if (neverPause !== null && !nested) {
+    // T14098: a ledger class is held by the ledger instead, whose idle rule
+    // starts it while CLEO holds nothing (the pressure is someone else's).
+    if (neverPause !== null && !nested && !isLedgerClass(opts.cls)) {
       let said = false;
       while (classifyPressure(sample).state === 'backoff') {
         const reason =
@@ -601,6 +607,7 @@ export async function runGoverned(opts: RunGovernedOptions): Promise<RunGoverned
             // T13237: one full-build machine-wide, whatever its footprint.
             ...(opts.cls === 'full-build' ? { exclusive: true } : {}),
             ...(opts.urgent === true ? { urgent: true } : {}),
+            ...(neverPause !== null && !nested ? { neverPause: true } : {}),
             command,
             cwd: opts.cwd,
           },
@@ -664,6 +671,13 @@ export async function runGoverned(opts: RunGovernedOptions): Promise<RunGoverned
       if (grant.ungoverned) sayUngoverned(grant.ungoverned);
       if (grant.nested) {
         notice('nested in an admitted run: riding its admission, inside its process tree', 'info');
+      } else if (grant.admittedBy === 'idle') {
+        queued = grant.waitedMs >= 1_000 && opts.wait === true;
+        notice(
+          'admitted by the idle rule: no CLEO run was admitted and its charge fits the reclaimable ' +
+            'memory, so it starts while pressure outside CLEO keeps the budget closed (one at a time)',
+          'warn',
+        );
       } else if (grant.waitedMs >= 1_000 && opts.wait) {
         queued = true;
         notice(`admitted after ${Math.round(grant.waitedMs / 1000)}s in the queue`, 'warn');
@@ -674,6 +688,7 @@ export async function runGoverned(opts: RunGovernedOptions): Promise<RunGoverned
         token: grant.token,
         holdsShare: grant.id !== null,
         recordChild: (child) => grant.recordChild?.(child),
+        observeRss: (rssBytes) => grant.observeRss?.(rssBytes),
       };
     } else {
       // Classes outside the ledger (db-heavy) keep their governor slots. A run
@@ -920,6 +935,8 @@ export async function runGoverned(opts: RunGovernedOptions): Promise<RunGoverned
       treeSamples++;
       peakRssBytes = Math.max(peakRssBytes, usage.rssBytes);
     }
+    // T14116: the ledger charge follows the measured tree after a warm-up.
+    if (usage) admission.observeRss?.(usage.rssBytes);
     // A pause still in progress is not run time either (T13570).
     const pausedMs = pausedTotalMs + (pausedAtMs !== null ? now - pausedAtMs : 0);
     const step = watchRun(

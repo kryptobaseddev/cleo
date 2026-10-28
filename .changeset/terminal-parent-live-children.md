@@ -2,7 +2,7 @@
 id: terminal-parent-live-children
 tasks: [T12883]
 kind: fix
-summary: "No writer leaves a terminal parent over live children (T12883 R1)"
+summary: "Behaviour change: cleo complete now refuses any task with unfinished subtasks or children, not only epics; finish or cancel the children first, or pass --override-reason \"<why>\" (audited). No writer leaves a terminal parent over live children (T12883 R1)"
 ---
 
 `cleo complete` refused a parent with live children only for epics; it now
