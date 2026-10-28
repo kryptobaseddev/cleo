@@ -59,12 +59,12 @@ Owns the canonical 4-verb release pipeline established by SPEC-T9345 and finalis
 ```bash
 cleo release cut v2026.10.28 --dry-run --lead lead.md   # commit, notes, packages, migrations, task status
 cleo release cut v2026.10.28 --lead lead.md             # tags the commit; release.yml does the rest
-cleo release reconcile v2026.10.28                      # after publish: provenance
 ```
 
 - **Commit:** the newest first-parent commit of `origin/main` whose `CI` check run concluded `success`; `--sha` pins one, which must itself be green. Nothing reruns the test suites: CI already passed that tree.
 - **Notes:** the changesets added since the previous release tag, led by `--lead` (stored as the tag annotation). A changeset no merged PR brought in is refused (`E_RELEASE_UNMERGED_CHANGESET`); no green commit is `E_RELEASE_NO_GREEN_COMMIT`.
 - **Docs rot (T14111):** the dry run shows `cleo docs rot` findings; a real cut refuses with `E_DOCS_ROT` before tagging while any stale, duplicate or orphaned doc remains.
+- **Provenance:** the merge sweep reconciles the newest stable tag automatically once its GitHub release exists (ADR-099); there is no manual reconcile step.
 - **Task status is reported, never gated.** Green CI on the sha is the gate; a pending task does not block the cut.
 - **Tag:** an annotated `v<ver>` made through the GitHub API with your `gh` token, which starts `release.yml`. It runs `cleo release write-changelog`, publishes, and on a stable release opens `release/v<ver>`, a CHANGELOG + version PR that auto-merges on green and never blocks the release.
 
@@ -99,7 +99,7 @@ Optional validators (read-only / dry-run):
 | RLSE-004 | The release MUST be tagged explicitly: by `cleo release cut` (API tag on the green sha), or on the fallback path with `git tag -a v<ver>` + `git push origin v<ver>` after the release PR merges. | Auto-tag was retired in T10434 / ADR-087: `GITHUB_TOKEN` tag pushes did not reliably trigger `release.yml`. |
 | RLSE-005 | Direct pushes to `main` are prohibited. A cut release reaches main's CHANGELOG and versions through `release.yml`'s auto-merging `release/v<ver>` PR; the fallback path through the PR `release-prepare.yml` cuts. | ADR-065 + branch protection (see `docs/release/branch-protection-setup.md`). |
 | RLSE-006 | Version MUST be consistent across all workspace targets resolved by `resolveVersionBumpTargets` (root package.json + every workspace package + Cargo workspace). | Version-bump preflight in `release-prepare.yml`. |
-| RLSE-007 | Provenance reconcile MUST run within the release-publish workflow — never as a manual followup. | Invoked by `release-publish.yml`. |
+| RLSE-007 | Provenance reconcile runs automatically: the merge sweep calls `reconcileLatestRelease` once the GitHub release exists (ADR-099). Run `cleo release reconcile <ver>` only to recover. | T14101 merge sweep. |
 
 ## Integration
 
