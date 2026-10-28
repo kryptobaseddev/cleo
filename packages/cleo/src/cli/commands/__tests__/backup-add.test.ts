@@ -4,7 +4,8 @@
  * Verifies the `backup add` subcommand run handler in backup.ts:
  *   - `--note <text>` reaches the dispatch params as `note`
  *   - without `--note`, a `--destination` still produces the legacy
- *     `destination:<dir>` note
+ *     `destination:<dir>` note, and the destination itself reaches dispatch
+ *     (T13209)
  *   - `--global` keeps passing `includeGlobal: true`
  *
  * dispatchFromCli is mocked — no store or backup is touched. Pattern mirrors
@@ -73,6 +74,8 @@ describe('T13724 cleo backup add — --note', () => {
         type: 'snapshot',
         note: 'destination:/mnt/backups',
         includeGlobal: false,
+        // T13209: the destination now reaches the backup itself.
+        destination: '/mnt/backups',
       },
       { command: 'backup' },
     );
@@ -89,6 +92,7 @@ describe('T13724 cleo backup add — --note', () => {
         type: 'snapshot',
         note: 'nightly',
         includeGlobal: true,
+        destination: '/mnt/backups',
       },
       { command: 'backup' },
     );

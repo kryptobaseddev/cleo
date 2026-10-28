@@ -110,7 +110,7 @@ const addCommand = defineCommand({
       'backup',
       {
         type: 'snapshot',
-        note: args.note,
+        note: args.note ?? (args.destination ? `destination:${args.destination}` : undefined),
         includeGlobal: args.global === true,
         ...(typeof args.destination === 'string' ? { destination: args.destination } : {}),
       },
