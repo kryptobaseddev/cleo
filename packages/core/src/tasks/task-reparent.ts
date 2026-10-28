@@ -615,6 +615,16 @@ export async function coreTaskBulkMove(
     const verb = status === 'done' ? 'complete' : status === 'archived' ? 'archive' : 'cancel';
     for (const task of resolved) await assertNoActiveChildrenForTerminal(accessor, task.id, verb);
   }
+  // T12883 R3: pipeline_stage only moves forward, as updateTask enforces.
+  if (pipelineStage) {
+    const { validatePipelineTransition } = await import('./pipeline-stage.js');
+    for (const task of resolved) validatePipelineTransition(task.pipelineStage, pipelineStage);
+  }
+  // T12883 R2: done only with every acceptance criterion covered.
+  if (status === 'done') {
+    const { assertAcCoveredForDone } = await import('./ac-coverage-gate.js');
+    for (const task of resolved) await assertAcCoveredForDone(task.id, accessor);
+  }
 
   const now = new Date().toISOString();
   const fields: { status?: TaskStatus; pipelineStage?: string; updatedAt: string } = {
@@ -812,9 +822,11 @@ export async function coreTaskUnarchive(
 ): Promise<{ task: string; unarchived: boolean; title: string; status: string }> {
   const accessor = await getTaskAccessor(projectRoot);
 
-  // Check if task already exists in active tasks
-  const existingTask = await accessor.taskExists(taskId);
-  if (existingTask) {
+  // An archived task keeps its row (status 'archived'), so only a row in any
+  // other status means the task is already active (T12883: the old taskExists
+  // check refused every archived task, so unarchive could never succeed).
+  const existingTask = await accessor.loadSingleTask(taskId);
+  if (existingTask && existingTask.status !== 'archived') {
     throw new Error(`Task '${taskId}' already exists in active tasks`);
   }
 
@@ -850,6 +862,11 @@ export async function coreTaskUnarchive(
     const targetStatus = rawStatus as TaskStatus;
     // The requested status was validated but never written (T12883 audit).
     task.status = targetStatus;
+    // T12883 R2: unarchiving straight to done needs its criteria covered.
+    if (targetStatus === 'done') {
+      const { assertAcCoveredForDone } = await import('./ac-coverage-gate.js');
+      await assertAcCoveredForDone(taskId, accessor);
+    }
     if (targetStatus !== 'done') {
       task.completedAt = undefined;
     }

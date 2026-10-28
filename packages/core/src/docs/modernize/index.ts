@@ -15,7 +15,7 @@ import type {
 } from '@cleocode/contracts';
 import { writeFileAtomic } from '../../tools/fs.js';
 import { applyDocsModernize, DocsModernizeReceiptError, rollbackDocsModernize } from './apply.js';
-import { parseModernizePlan } from './guard.js';
+import { parseModernizeOverrides, parseModernizePlan } from './guard.js';
 import { type PlanDocsModernizeOptions, planDocsModernize } from './plan.js';
 
 export {
@@ -113,7 +113,7 @@ export async function runDocsModernize(
         // @sync-invariant none:input-shape a missing overrides file is refused before any write
         throw new DocsModernizeReceiptError(`overrides file ${params.overrides} does not exist`);
       }
-      reviewed = JSON.parse(readFileSync(file, 'utf-8')) as DocsModernizeOverrides;
+      reviewed = parseModernizeOverrides(readFileSync(file, 'utf-8'));
     }
     plan = await planDocsModernize({
       root: abs(params.path),

@@ -309,6 +309,22 @@ export const docsModernizePlanSchema = z.object({
   ),
 });
 
+/** Shape check for an `--overrides` file ({@link DocsModernizeOverrides}). */
+export const docsModernizeOverridesSchema = z.record(
+  relPath,
+  z.object({
+    disposition: z.enum(DOCS_MODERNIZE_DISPOSITIONS),
+    target: z.string().min(1).max(1024).optional(),
+    reason: z.string().min(1),
+    kind: z.string().min(1).optional(),
+    slug: z
+      .string()
+      .regex(/^[a-z0-9][a-z0-9-]*$/)
+      .optional(),
+    covers: z.array(z.string()).optional(),
+  }),
+);
+
 /** Shape check for one receipt op. */
 const receiptOpSchema = z.object({
   op: z.enum(DOCS_MODERNIZE_OPS),

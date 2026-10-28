@@ -12,6 +12,7 @@
 
 import type { DocKindMetadata } from '@cleocode/contracts';
 import { WIKILINK_PATTERN } from '../derive-links.js';
+import { DOC_NAME_MAX_LENGTH, suggestDocName } from '../doc-name-rule.js';
 import { normalizeSlug } from '../slug-normalize.js';
 
 /** Confidence at or above which a classify rule acts without asking System One. */
@@ -24,7 +25,7 @@ export const MODERNIZE_MERGE_SURE = 0.8;
 export const MODERNIZE_MERGE_APART = 0.4;
 
 /** Longest slug modernize proposes, in characters. */
-export const MODERNIZE_SLUG_MAX = 80;
+export const MODERNIZE_SLUG_MAX = DOC_NAME_MAX_LENGTH;
 
 /** A rule's classification of one file. */
 export interface ModernizeClassification {
@@ -184,25 +185,23 @@ export function classifyDocByRules(
   return { kind: fallback, confidence: 0.3, reason: 'no folder, name or heading rule fired' };
 }
 
-/** Tokens that date or tie a name to one task or session; never part of a stable slug. */
-const VOLATILE_TOKEN =
-  /^(t\d{2,}|ses|\d{8}|\d{4}|\d{2}|v\d+|final|draft|copy|wip|tmp|ses_[a-z0-9]+)$/;
+/** Version and draft markers: not a naming violation, but versions of one doc share a slug. */
+const VERSION_TOKEN = /^(v\d+|final|draft|copy|wip|tmp)$/;
 
 /**
- * Strip task ids, session ids, dates and version suffixes from a name.
+ * Strip task ids, session ids and dates (the T14107 rule, via
+ * {@link suggestDocName}) and version/draft markers from a name.
  *
  * @param name - A filename (no extension) or title.
- * @returns The remaining kebab words, normalised.
+ * @returns The remaining kebab words, or `''` when none are left.
  */
 export function stripVolatileTokens(name: string): string {
-  const withoutDates = name
-    .replace(/ses_[0-9a-z_]+/gi, ' ')
-    .replace(/\b\d{4}-\d{2}-\d{2}(t[\d:.-]+z?)?\b/gi, ' ')
-    .replace(/\b\d{4}-\d{2}\b/g, ' ');
-  const words = normalizeSlug(withoutDates)
+  const suggested = suggestDocName(name);
+  if (suggested === 'doc' && !normalizeSlug(name).split('-').includes('doc')) return '';
+  return suggested
     .split('-')
-    .filter((w) => w.length > 0 && !VOLATILE_TOKEN.test(w));
-  return words.join('-');
+    .filter((w) => w.length > 0 && !VERSION_TOKEN.test(w))
+    .join('-');
 }
 
 /**

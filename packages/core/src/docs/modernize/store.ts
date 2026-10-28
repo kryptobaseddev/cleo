@@ -9,7 +9,7 @@
  *   the tree-mode rules over the slug and body; a rule below the floor is
  *   judged by System One (`docs.modernize.classify`), up to
  *   {@link MODERNIZE_STORE_JUDGE_LIMIT} asks per run.
- * - **Slug.** A slug carrying task, session or date tokens gets the stable
+ * - **Slug.** A slug that breaks the T14107 naming rule gets the stable
  *   slug; the old slug stays resolvable as an alias (`renameDocSlug`). Task
  *   ids it named become task refs on the doc.
  * - **ADR numbers.** When several ADRs share a number, the earliest keeps it
@@ -36,16 +36,12 @@ import type { DecisionSiteMode } from '../../decide/site.js';
 import { createAttachmentStore } from '../../store/attachment-store.js';
 import { writeFileAtomic } from '../../tools/fs.js';
 import { assembleAdrSlug, findHighestAdrNumber } from '../adr-allocator.js';
+import { docNameViolation } from '../doc-name-rule.js';
 import { IMPORT_OWNER_TYPE, IMPORT_PROJECT_OWNER_ID } from '../import/attachment-store-accessor.js';
 import { journalPath, modernizeReceiptPath, StepJournal } from './apply.js';
 import { judgeDocKind, resolveModernizeJudgeSettings } from './judge.js';
 import { ownerIdsFromPath } from './plan.js';
-import {
-  classifyDocByRules,
-  MODERNIZE_CLASSIFY_FLOOR,
-  stableSlugFor,
-  stripVolatileTokens,
-} from './rules.js';
+import { classifyDocByRules, MODERNIZE_CLASSIFY_FLOOR, stableSlugFor } from './rules.js';
 
 /** System One asks per store run; past it the rule acts and the row says so. */
 export const MODERNIZE_STORE_JUDGE_LIMIT = 200;
@@ -130,7 +126,8 @@ export async function planDocsStoreModernize(
   for (const doc of docs) {
     const reasons: string[] = [];
     const judgments: DocsModernizeJudgment[] = [];
-    const slugBroken = doc.slug !== null && stripVolatileTokens(doc.slug) !== doc.slug;
+    const slugBroken =
+      doc.slug !== null && docNameViolation(doc.slug, doc.kind ?? undefined) !== null;
     const kindStale = needsKind(doc, kindIds);
     if (!slugBroken && !kindStale) continue;
     const content = await read(doc.sha256);

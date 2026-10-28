@@ -107,7 +107,11 @@ export async function resolveOwnerOverride(
       code,
       message:
         `CLEO_OWNER_OVERRIDE is refused: ${why} Only the owner may override, from their own ` +
-        `terminal, in a session they started with \`${OWNER_SESSION_COMMAND}\` (T13790).`,
+        `terminal, in a session they started with \`${OWNER_SESSION_COMMAND}\` (T13790). ` +
+        // T14094: the routes that replace the most common overrides.
+        'Work shipped under another task: record its pr:<n> with satisfies:<id>#AC<n> for the ' +
+        'criteria it delivers. A task another task fully covers: cleo cancel <id> --reason ' +
+        '"covered by T<n>" and cleo relates add <id> T<n> duplicates "<reason>".',
     };
   };
   // @sync-invariant none:local-only override authority is judged before any write; refusals only append to the local audit log

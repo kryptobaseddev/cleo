@@ -25,7 +25,7 @@ import { closeDb } from '../../../store/sqlite.js';
 import { extractWikilinkTargets } from '../../derive-links.js';
 import { getDocsWikilinks } from '../../wikilinks.js';
 import { applyDocsModernize, rollbackDocsModernize } from '../apply.js';
-import { parseModernizePlan } from '../guard.js';
+import { parseModernizeOverrides, parseModernizePlan } from '../guard.js';
 import { planDocsModernize } from '../plan.js';
 import {
   classifyDocByRules,
@@ -209,6 +209,9 @@ describe('modernize plan → apply → rollback (fixture tree)', () => {
       slug: 'adr-001-store',
       disposition: 'keep',
     });
+    // T14107 naming rule: the old name broke it, the new slug does not.
+    expect(row('specs/T832-gate-integrity-spec.md')?.baselineRemove).toBe(true);
+    expect(row('adr/adr-001-store.md')?.baselineRemove).toBe(false);
     expect(row('plans/2026-04-21-self-healing-plan-v2.md')).toMatchObject({
       slug: 'self-healing-plan',
       disposition: 'rename',
@@ -329,7 +332,11 @@ describe('modernize plan → apply → rollback (fixture tree)', () => {
       mode: 'on',
       decide: fakeSystemOne(asked),
       overrides: {
-        'misc/random-thoughts.md': { disposition: 'delete', reason: 'census: scratch notes' },
+        'misc/random-thoughts.md': {
+          disposition: 'delete',
+          target: 'gate-integrity-spec',
+          reason: 'census: scratch notes',
+        },
       },
     });
     const row = plan.rows.find((r) => r.path === 'misc/random-thoughts.md');
@@ -456,39 +463,101 @@ describe('modernize plan → apply → rollback (fixture tree)', () => {
     }
   });
 
-  it('merges into an existing stored doc without dropping it, and rollback restores the original row', async () => {
-    const store = createAttachmentStore();
-    const storedBody =
-      '# Gate integrity spec\n\n## Requirements\n- gates must hold\n- and stay held\n\n## History\nolder notes\n';
-    const bytes = Buffer.from(storedBody, 'utf-8');
-    const blob: Omit<BlobAttachment, 'sha256'> = {
-      kind: 'blob',
-      storageKey: '',
-      mime: 'text/markdown',
-      size: bytes.byteLength,
-    };
-    const seeded = await store.put(bytes, blob, 'task', '__project__', 'test', projectRoot, {
-      slug: 'gate-integrity-spec',
-      type: 'spec',
+  for (const crashed of [false, true]) {
+    it(`merges into an existing stored doc without dropping it; rollback restores the row and its links${crashed ? ' (merge journaled pending, process died after commit)' : ''}`, async () => {
+      const store = createAttachmentStore();
+      const storedBody =
+        '# Gate integrity spec\n\n## Requirements\n- gates must hold\n- and stay held\n\n## History\nolder notes, see [[history-note]]\n';
+      const bytes = Buffer.from(storedBody, 'utf-8');
+      const blob: Omit<BlobAttachment, 'sha256'> = {
+        kind: 'blob',
+        storageKey: '',
+        mime: 'text/markdown',
+        size: bytes.byteLength,
+      };
+      const seeded = await store.put(bytes, blob, 'task', '__project__', 'test', projectRoot, {
+        slug: 'gate-integrity-spec',
+        type: 'spec',
+      });
+      const linksOf = async () =>
+        (await getDocsWikilinks('gate-integrity-spec', { direction: 'out', projectRoot }))
+          .filter((e) => e.relation === 'links-to')
+          .map((e) => e.toSlug)
+          .sort();
+      expect(await linksOf()).toEqual(['history-note']);
+      const plan = await planDocsModernize({
+        root: docsRoot,
+        projectRoot,
+        decide: { connection: null },
+      });
+      expect(plan.rows.find((r) => r.slug === 'gate-integrity-spec')?.reasons.at(-1)).toMatch(
+        /merges into the existing/,
+      );
+      // The crash case applies only the merging file, so the merge is the
+      // last store step and truncating the journal after it is faithful.
+      const used = crashed
+        ? { ...plan, rows: plan.rows.filter((r) => r.slug === 'gate-integrity-spec') }
+        : plan;
+      const receipt = await applyDocsModernize({ plan: used, projectRoot, allowDirty: true });
+      const now = await store.findBySlug('gate-integrity-spec', projectRoot);
+      const merged =
+        (await store.get(now?.metadata.sha256 ?? '', projectRoot))?.bytes.toString('utf-8') ?? '';
+      expect(merged).toContain('older notes');
+      expect(now?.metadata.id).not.toBe(seeded.id);
+      const mergeOp = receipt.ops.find((o) => o.op === 'merge');
+      expect(mergeOp?.prior?.previousAttachmentId).toBe(seeded.id);
+      expect(mergeOp?.prior?.linkTargets).toEqual(['history-note']);
+      if (crashed) {
+        // Drop every journal line after the merge's `pending` entry: the
+        // store committed, the journal never heard back.
+        const jp = join(projectRoot, '.cleo', 'modernize', `${receipt.runId}.ops.jsonl`);
+        const lines = readFileSync(jp, 'utf-8').trim().split('\n');
+        const at = lines.findIndex((l) => l.includes('"op":"merge"'));
+        writeFileSync(jp, `${lines.slice(0, at + 1).join('\n')}\n`);
+      }
+      await rollbackDocsModernize(projectRoot, receipt.runId);
+      expect((await store.findBySlug('gate-integrity-spec', projectRoot))?.metadata.id).toBe(
+        seeded.id,
+      );
+      expect(await linksOf()).toEqual(['history-note']);
     });
+  }
+
+  it('validates overrides: survivor targets, keep at its own path, schema', async () => {
+    await expect(
+      planDocsModernize({
+        root: docsRoot,
+        projectRoot,
+        decide: { connection: null },
+        overrides: {
+          'misc/random-thoughts.md': {
+            disposition: 'merge-into',
+            target: 'no-such-doc',
+            reason: 'x',
+          },
+        },
+      }),
+    ).rejects.toMatchObject({ code: 'E_MODERNIZE_OVERRIDE' });
     const plan = await planDocsModernize({
       root: docsRoot,
       projectRoot,
       decide: { connection: null },
+      overrides: {
+        'plans/2026-04-21-self-healing-plan.md': {
+          disposition: 'keep',
+          reason: 'census: keep both',
+        },
+      },
     });
-    expect(plan.rows.find((r) => r.slug === 'gate-integrity-spec')?.reasons.at(-1)).toMatch(
-      /merges into the existing/,
+    expect(plan.rows.find((r) => r.path === 'plans/2026-04-21-self-healing-plan.md')).toMatchObject(
+      {
+        disposition: 'keep',
+        target: 'plans/2026-04-21-self-healing-plan.md',
+      },
     );
-    const receipt = await applyDocsModernize({ plan, projectRoot, allowDirty: true });
-    const now = await store.findBySlug('gate-integrity-spec', projectRoot);
-    const merged =
-      (await store.get(now?.metadata.sha256 ?? '', projectRoot))?.bytes.toString('utf-8') ?? '';
-    expect(merged).toContain('older notes');
-    expect(receipt.ops.find((o) => o.op === 'merge')?.prior?.previousAttachmentId).toBe(seeded.id);
-    await rollbackDocsModernize(projectRoot, receipt.runId);
-    expect((await store.findBySlug('gate-integrity-spec', projectRoot))?.metadata.id).toBe(
-      seeded.id,
-    );
+    expect(() =>
+      parseModernizeOverrides('{"a.md":{"disposition":"explode","reason":"x"}}'),
+    ).toThrow(/schema/);
   });
 
   it('refuses to update a stored doc whose bytes cannot be backed up', async () => {

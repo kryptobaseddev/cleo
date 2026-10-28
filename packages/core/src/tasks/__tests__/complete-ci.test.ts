@@ -337,7 +337,7 @@ describe('satisfyGatesFromMergedCi', () => {
       );
       expect(out.kind).toBe('ci-red');
       expect(out.kind === 'ci-red' && out.reason).toMatch(
-        /^the test-run did not run src\/a\.test\.ts\. The ci:42 fallback also does not hold: Required CI on PR #42's merge commit is not green:.*CI: failure\. A targeted test-run recorded on the default branch after the merge.*stands in for testsPassed \(T13623\)$/s,
+        /^the test-run did not run src\/a\.test\.ts\. The ci:42 fallback also does not hold: Required CI on PR #42's merge commit is not green:.*CI: failure\. A targeted test-run recorded on the default branch after the merge stands in for testsPassed \(T13623\) when it covers every affected package that has tests — each changed package and each package that depends on one, the set tool:test-affected runs$/s,
       );
     });
 

@@ -169,6 +169,17 @@ export interface MainCommit {
   parents: number;
 }
 
+/**
+ * What a targeted `test-run:` report must cover, worded once for the
+ * validator's refusal and for every hint that offers a targeted run (T14119),
+ * so a hint never offers a route the validator refuses.
+ *
+ * @task T14119
+ */
+export const TARGETED_RUN_COVERAGE =
+  'every affected package that has tests — each changed package and each package that ' +
+  'depends on one, the set tool:test-affected runs';
+
 /** Most later default-branch commits examined for a green stand-in run (T12742). */
 export const CI_DESCENDANT_MAX_CANDIDATES = 20;
 
@@ -260,6 +271,17 @@ export interface ResolveCiEvidenceOptions {
     paths: readonly string[],
     cwd: string,
   ) => MainCommit[] | null;
+  /**
+   * When later commits edited the PR's files, the first hunk the PR added
+   * that is no longer present at `at` (T14119), or null when every one is.
+   * Defaults to {@link missingPrHunk}.
+   */
+  missingPrHunk?: (
+    merge: string,
+    at: string,
+    paths: readonly string[],
+    cwd: string,
+  ) => string | null;
   /**
    * Plain-text log of one Actions job (a check-run id), or null when it cannot
    * be read (T13809). Defaults to `gh api repos/{owner}/{repo}/actions/jobs/<id>/logs`.
@@ -760,11 +782,14 @@ export function evaluateMergeCommitChecks(
       }
     }
     // T12742: only a superseded (cancelled/skipped) merge-commit verdict may
-    // be stood in for, and only by a later main commit's own push runs.
+    // be stood in for, and only by a later main commit's own push runs. A
+    // check whose workflow was cancelled while queued (T14103) is superseded.
     if (
       descendantSha !== undefined &&
       descendantSha !== mergeCommitSha &&
       (SUPERSEDED_VERDICTS.has(onMerge.verdict) ||
+        (onMerge.verdict === 'missing' &&
+          cancelledBeforeStart(checks, mergeCommitSha, pins[name])) ||
         opts.currentHead === true ||
         (opts.inheritedFailures === true &&
           onMerge.verdict !== 'missing' &&
@@ -911,7 +936,9 @@ export type SupersededOnMergeResult = { ok: true; names: string[] } | { ok: fals
  * SUPERSEDED there (T12742): its latest merge-commit verdict is `cancelled`
  * or `skipped`, and no run of a required check or of a job in a pinned
  * workflow on the merge commit — any attempt — concluded with a failure. A
- * failed, timed-out, pending or missing check is never superseded. Pure.
+ * failed, timed-out or pending check is never superseded, nor is a missing
+ * one unless its pinned workflow's run was cancelled before any job started
+ * (T14103). Pure.
  *
  * @param required - Required check names.
  * @param checks - Every check fetched for the merge commit (and PR head).
@@ -947,6 +974,10 @@ export function supersededOnMerge(
     ) {
       continue;
     }
+    if (onMerge.verdict === 'missing' && cancelledBeforeStart(checks, mergeCommitSha, pins[name])) {
+      names.push(name);
+      continue;
+    }
     if (!SUPERSEDED_VERDICTS.has(onMerge.verdict)) {
       return {
         ok: false,
@@ -958,6 +989,28 @@ export function supersededOnMerge(
   return names.length > 0
     ? { ok: true, names }
     : { ok: false, reason: 'no required check was superseded on the merge commit' };
+}
+
+/**
+ * Whether the pinned workflow's run on `sha` was cancelled while still queued
+ * (T14103): ci.yml's main concurrency group cancels a WAITING run when a newer
+ * push arrives, before any job starts, so GitHub records the cancelled
+ * workflow run and no check run of that workflow at all. A job missing from a
+ * run that did start is not this, and stays unproven.
+ */
+function cancelledBeforeStart(
+  checks: readonly CommitCheck[],
+  sha: string,
+  pin: RequiredCheckPinSpec | undefined,
+): boolean {
+  if (pin?.workflow === undefined) return false;
+  const ofWorkflow = checks.filter(
+    (c) => c.headSha === sha && c.workflowPath === pin.workflow && c.event === 'push',
+  );
+  const runs = ofWorkflow.filter((c) => c.source === 'workflow-run' && pinMatches(c, pin));
+  if (runs.length === 0 || ofWorkflow.some((c) => c.source !== 'workflow-run')) return false;
+  const latest = runs.reduce((a, b) => (b.id > a.id ? b : a));
+  return latest.status === 'completed' && latest.conclusion === 'cancelled';
 }
 
 /** Latest completed run per (name, source, event) on `sha` within `scope`. */
@@ -1591,6 +1644,8 @@ export interface FindGreenDescendantInput {
   listDescendants: NonNullable<ResolveCiEvidenceOptions['listDescendants']>;
   /** First-parent commits in a range touching paths. */
   touchingCommits: NonNullable<ResolveCiEvidenceOptions['touchingCommits']>;
+  /** First PR hunk missing at a later commit (T14119). */
+  missingPrHunk: NonNullable<ResolveCiEvidenceOptions['missingPrHunk']>;
   /** Ancestry test. */
   isAncestor: NonNullable<ResolveCiEvidenceOptions['isAncestor']>;
   /** First parent of a commit (T13453: the inherited-failure walk); absent = never inherit. */
@@ -1848,10 +1903,25 @@ export async function findGreenDescendant(
       const touching = input.touchingCommits(merge, sha, paths, cwd);
       if (touching === null) return { ok: false, reason: `cannot read history ${range}` };
       const first = touching[0];
-      if (first) {
+      if (!first) continue;
+      const by = `${first.parents > 1 ? 'merge' : 'commit'} ${first.sha.slice(0, 12)}`;
+      if (paths !== input.changedPaths) {
         return {
           ok: false,
-          reason: `${what} changed on ${input.ref} by ${first.parents > 1 ? 'merge' : 'commit'} ${first.sha.slice(0, 12)} in ${range}, so a later run no longer tests what the PR merged`,
+          reason: `${what} changed on ${input.ref} by ${by} in ${range}, so a later run no longer tests what the PR merged`,
+        };
+      }
+      // T14119: later edits elsewhere in the PR's files leave its change
+      // standing; the run still tests it while every hunk it added is there.
+      const missing = input.missingPrHunk(merge, sha, paths, cwd);
+      if (missing !== null) {
+        return {
+          ok: false,
+          reason:
+            `the PR's change is no longer intact at ${sha.slice(0, 12)}: ${missing} (the PR's files ` +
+            `changed on ${input.ref} from ${by} in ${range}), so a later run no longer tests what ` +
+            'the PR merged. Prove testsPassed on a main HEAD with tool:test-affected, or a ' +
+            `test-run there covering ${TARGETED_RUN_COVERAGE}`,
         };
       }
     }
@@ -2160,6 +2230,97 @@ export function listPathTouchingMainCommits(
       const [sha, ...parents] = line.trim().split(/\s+/);
       return { sha: sha!, parents: parents.length };
     });
+}
+
+/**
+ * Default {@link ResolveCiEvidenceOptions.missingPrHunk} (T14119): the first
+ * hunk the PR added (`git diff -U0 <merge>^1 <merge>`) whose added lines no
+ * longer appear, contiguous and in order, in that file at `at`. A binary file
+ * counts as missing once its blob differs. Lines the PR removed are not
+ * checked: a later commit cannot un-test a deletion. A git error is reported
+ * as missing, never as present.
+ *
+ * @param merge - The PR's merge commit (its first parent is the base).
+ * @param at - The later commit whose run would stand in.
+ * @param paths - The PR's changed paths.
+ * @param cwd - Repository work tree.
+ * @returns The missing hunk, described, or null when every hunk is present.
+ * @task T14119
+ */
+export function missingPrHunk(
+  merge: string,
+  at: string,
+  paths: readonly string[],
+  cwd: string,
+): string | null {
+  const read = (args: readonly string[]): string | null => {
+    try {
+      return execFileSync('git', args, {
+        cwd,
+        encoding: 'utf-8',
+        stdio: ['ignore', 'pipe', 'ignore'],
+        maxBuffer: 64 * 1024 * 1024,
+      });
+    } catch {
+      return null;
+    }
+  };
+  const diff = read([
+    'diff',
+    '-U0',
+    '--no-renames',
+    '--no-color',
+    '--no-ext-diff',
+    `${merge}^1`,
+    merge,
+    '--',
+    ...paths,
+  ]);
+  if (diff === null) return `the PR's diff (${merge.slice(0, 12)}) cannot be read`;
+  const files = new Map<string, string[] | null>();
+  const linesAt = (path: string): string[] | null => {
+    if (!files.has(path)) files.set(path, read(['show', `${at}:${path}`])?.split('\n') ?? null);
+    return files.get(path) ?? null;
+  };
+  const hunks: Array<{ path: string; header: string; added: string[] }> = [];
+  let path: string | null = null;
+  for (const line of diff.split('\n')) {
+    if (line.startsWith('diff --git ')) path = null;
+    else if (line.startsWith('+++ ')) path = line === '+++ /dev/null' ? null : line.slice(6);
+    else if (line.startsWith('Binary files ') && line.endsWith(' differ')) {
+      const bin = /^Binary files (?:a\/(.+)|\/dev\/null) and (?:b\/(.+)|\/dev\/null) differ$/.exec(
+        line,
+      );
+      const target = bin?.[2];
+      if (
+        target &&
+        read(['rev-parse', `${merge}:${target}`]) !== read(['rev-parse', `${at}:${target}`])
+      )
+        return `binary file ${target} differs from the PR's version`;
+    } else if (line.startsWith('@@') && path !== null)
+      hunks.push({ path, header: line.replace(/^(@@ [^@]* @@).*$/, '$1'), added: [] });
+    else if (line.startsWith('+') && path !== null) hunks.at(-1)?.added.push(line.slice(1));
+  }
+  for (const { path: file, header, added } of hunks) {
+    if (added.length === 0) continue;
+    const lines = linesAt(file);
+    const at0 = lines === null ? -1 : indexOfRun(lines, added);
+    if (at0 < 0) {
+      const first = added.find((l) => l.trim() !== '') ?? added[0] ?? '';
+      const quoted = first.trim().length > 60 ? `${first.trim().slice(0, 57)}...` : first.trim();
+      return `hunk ${file} ${header} ("${quoted}") ${lines === null ? 'is gone with its file' : 'was rewritten or removed'}`;
+    }
+  }
+  return null;
+}
+
+/** Index of the first contiguous occurrence of `run` in `lines`, or -1. */
+function indexOfRun(lines: readonly string[], run: readonly string[]): number {
+  outer: for (let i = 0; i + run.length <= lines.length; i++) {
+    for (let j = 0; j < run.length; j++) if (lines[i + j] !== run[j]) continue outer;
+    return i;
+  }
+  return -1;
 }
 
 /** Default {@link ResolveCiEvidenceOptions.treeOf}: `git rev-parse <sha>^{tree}`. */
@@ -2627,7 +2788,7 @@ export async function resolveCiEvidenceAtom(
           : 'E_EVIDENCE_INSUFFICIENT',
     };
   }
-  const unlinked = checkPrTaskLinkage(linked.prNumber, linked.pr, context);
+  const unlinked = checkPrTaskLinkage(linked.prNumber, linked.pr, context, pr.mergedAt);
   if (unlinked) {
     return {
       ok: false,
@@ -2798,6 +2959,7 @@ export async function resolveCiEvidenceAtom(
       fetchChecks,
       listDescendants: opts.listDescendants ?? listMainDescendants,
       touchingCommits: opts.touchingCommits ?? listPathTouchingMainCommits,
+      missingPrHunk: opts.missingPrHunk ?? missingPrHunk,
       isAncestor: opts.isAncestor ?? defaultIsAncestor,
       firstParentOf: opts.firstParentOf ?? defaultFirstParentOf,
       fetchJobLog: opts.fetchJobLog ?? defaultFetchJobLog,

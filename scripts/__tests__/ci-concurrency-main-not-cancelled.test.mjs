@@ -1,21 +1,25 @@
 /**
- * gh#1362 / T12189 — main CI runs must not cancel each other.
+ * gh#1362 / T12189, revised by T14103 (D11209) — main CI keeps the run it is
+ * verifying and drops runs still queued for commits main has moved past.
  *
- * `github.ref` is `refs/heads/main` for every push to main, so a single
- * concurrency group covered all of them and each merge cancelled the run of the
- * commit before it. During a merge burst only the last commit was verified
- * against main; the intermediate ones sat on main with no main-tip result, and
- * a cancelled run looks exactly like a superseded one, so nothing reported it.
+ * T12189 gave every main commit its own concurrency group (keyed by
+ * `github.sha`) so a merge could never cancel the previous commit's run
+ * mid-flight. That also ran every commit of a merge burst in full. T14103
+ * puts main back in one group per event with `cancel-in-progress: false`:
+ * GitHub then lets the running run finish, keeps at most one pending run,
+ * and cancels an older pending run when a newer push arrives. PRs keep
+ * `cancel-in-progress: true` in their per-ref group.
  *
  * WHAT THESE TESTS DO AND DO NOT ESTABLISH. GitHub evaluates the `${{ … }}`
- * expression, and that evaluation is not reproducible here — no assertion below
- * proves what GitHub computes. What they do pin is the STRUCTURE that carries
- * the fix, so the two properties it depends on cannot be silently removed:
- * `github.sha` participates in the group, and it does so only under a condition
- * that names main. The behavioural proof is the first merge burst after this
- * lands — two main commits, two runs, neither cancelled.
+ * expressions, and that evaluation is not reproducible here. What they pin is
+ * the STRUCTURE that carries the rule: no per-commit key in the group, the
+ * event-name join on main, and cancellation that is conditional on the ref
+ * not being main. That a merge whose queued run was cancelled still resolves
+ * `ci:` evidence through the newest green main run is proved in
+ * `packages/core/src/release/__tests__/ci-evidence.test.ts` (T14103).
  *
  * @task T12189
+ * @task T14103
  * @epic T12111 (E-EVIDENCE-PIPELINE)
  * @see https://github.com/kryptobaseddev/cleo/issues/1362
  */
@@ -32,28 +36,29 @@ function concurrency() {
   return doc.concurrency;
 }
 
-describe('gh#1362 — CI concurrency', () => {
-  it('still cancels in progress, because PR cancellation is correct and pays for itself', () => {
-    // The defect is main-only. Removing cancellation everywhere would be a
-    // regression wearing a bugfix's clothes: on a PR branch a new push really
-    // does obsolete the previous run, and macOS allocation is the bottleneck
-    // (gh#1351).
-    expect(concurrency()['cancel-in-progress']).toBe(true);
+describe('gh#1362 / T14103 — CI concurrency', () => {
+  it('cancels in progress only off main, so a running main run is never cancelled', () => {
+    // On a PR branch a new push really does obsolete the previous run. On main
+    // `false` keeps the running run and lets GitHub cancel only the queued one.
+    const cancel = concurrency()['cancel-in-progress'];
+    expect(typeof cancel).toBe('string');
+    expect(cancel.replace(/\s+/g, ' ')).toMatch(/^\$\{\{ github\.ref != 'refs\/heads\/main' \}\}$/);
   });
 
-  it('puts every main commit in its own group by including the SHA', () => {
-    expect(concurrency().group).toContain('github.sha');
-  });
-
-  it('includes the SHA ONLY under a condition naming main, so no other event changes', () => {
+  it('shares one main group across commits, so a newer push replaces a queued older run', () => {
+    // A per-commit key (the T12189 design) would give every main commit its own
+    // group, and no queued run for a superseded commit would ever be dropped.
     const group = concurrency().group;
-    // Every occurrence of github.sha must sit in an expression that also tests
-    // the ref against refs/heads/main. A bare `github.sha` would give PRs a
-    // per-commit group too and silently disable PR cancellation.
+    expect(group).not.toContain('github.sha');
+    expect(group).not.toContain('github.run_id');
+  });
+
+  it('keys main by event name ONLY under a condition naming main, so schedule and push never collide', () => {
+    const group = concurrency().group;
     const expressions = group.match(/\$\{\{[^}]*\}\}/g) ?? [];
-    const withSha = expressions.filter((e) => e.includes('github.sha'));
-    expect(withSha.length).toBeGreaterThan(0);
-    for (const expression of withSha) {
+    const withEvent = expressions.filter((e) => e.includes('github.event_name'));
+    expect(withEvent.length).toBeGreaterThan(0);
+    for (const expression of withEvent) {
       expect(expression).toContain("github.ref == 'refs/heads/main'");
     }
   });

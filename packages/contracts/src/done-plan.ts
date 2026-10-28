@@ -334,6 +334,12 @@ export interface DonePlan {
   commands: string[];
   /** True when no blocker remains and `commands` would succeed as planned. */
   ready: boolean;
+  /**
+   * Why the plan is not ready when no blocker says so (T14095): the task is
+   * already done, or there is no command to run. A plan with `ready: false`
+   * always carries a blocker or this reason.
+   */
+  readyReason?: string;
   /** The single next step: the first blocker's, or the first command. */
   next: DoneNextStep | null;
   /**

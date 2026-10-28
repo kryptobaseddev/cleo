@@ -44,26 +44,31 @@ on:
 # owner account is personal), so PRs land serially onto a moving main and
 # bursts are the normal case rather than the exception.
 #
-# Appending the SHA on main — and ONLY on main — gives every main commit its
-# own group, so no main run can cancel another. Every other event keeps the
-# group it had, so PR cancellation is untouched and still reclaims the runner
-# time it was added for:
+# T14103 (D11209) replaced the T12189 per-SHA main groups. Those let every
+# main commit run in full, so a merge burst of N commits ran N complete CI
+# runs, each verifying a state the next commit had already superseded, and the
+# runners queued behind them. Main now shares ONE group per event with
+# `cancel-in-progress: false`, which GitHub resolves as: the run in progress
+# finishes, at most one run waits, and a newer push cancels the run that is
+# still WAITING. So the commit being verified is never cancelled mid-run (the
+# gh#1362 hole), and a queued run for a commit main has already moved past is
+# dropped in favour of the newest one.
 #
-#   push to main              group ends `-<sha>`      unique per commit, never cancelled
+#   push to main              group `-push`            running run kept; queued older run cancelled
+#   schedule on main          group `-schedule`        never touches the push group
 #   pull_request              suffix is ''             unchanged, still cancels on new push
 #   workflow_dispatch (branch) suffix is ''            unchanged, re-dispatch supersedes
 #
-# Keying by SHA rather than setting `cancel-in-progress: false` on main is
-# deliberate: `false` makes main runs QUEUE behind each other, and macOS runner
-# allocation is already the CI bottleneck (gh#1351). Unique groups let them run
-# in parallel instead.
+# A merge whose own run was cancelled while queued is still covered: the `ci:`
+# atom's T12742/T14049 stand-in accepts the newest green main run that
+# descends from it (`findGreenDescendant`), unless a later merge touched the
+# PR's files.
 #
-# The event name joins the SHA on main so the nightly `schedule` run (same ref,
-# often the same SHA as the last push) never cancels that push's run, or the
-# reverse.
+# The event name keeps the nightly `schedule` run (same ref, often the same
+# SHA as the last push) from cancelling or queueing behind a push run.
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}-${{ github.ref == 'refs/heads/main' && github.sha || '' }}-${{ github.ref == 'refs/heads/main' && github.event_name || '' }}
-  cancel-in-progress: true
+  group: ${{ github.workflow }}-${{ github.ref }}-${{ github.ref == 'refs/heads/main' && github.event_name || '' }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 jobs:
   changes:
@@ -228,6 +233,7 @@ jobs:
               # a change to one of them must run the unit tests, not only Scripts
               # Tests. scripts/__tests__/ci-code-filter-script-deps.test.mjs fails
               # when a package test starts depending on a script not listed here.
+              - 'scripts/__tests__/release-run.test.mjs'
               - 'scripts/compare-fingerprints.mjs'
               - 'scripts/fingerprint-store.mjs'
               - 'scripts/heal-malformed-blob-attachments.mjs'
@@ -242,6 +248,7 @@ jobs:
               - 'scripts/lint-row-identity-coverage.mjs'
               - 'scripts/lint-sync-write-invariants.mjs'
               - 'scripts/migrate-nested-nexus.mjs'
+              - 'scripts/release-run.mjs'
               - 'scripts/row-identity-real-store-gate-b.mjs'
               - 'scripts/sweep-manual-doc-writes.mjs'
             # gh#1403: `scripts/**` is deliberately NOT in `code` above. The

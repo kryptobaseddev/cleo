@@ -113,4 +113,10 @@ export async function revertDocUpdate(
     tx.update(attachments).set({ slug }).where(eq(attachments.id, previous)).run();
   });
   for (const ref of refs) await store.deref(created, ref.ownerType, ref.ownerId, projectRoot);
+  // The update re-derived the slug's body links from the merged text; put
+  // back the edges the old body had.
+  if (prior.linkTargets) {
+    const { syncDocBodyWikilinks } = await import('../wikilinks.js');
+    await syncDocBodyWikilinks(slug, prior.linkTargets, { projectRoot });
+  }
 }

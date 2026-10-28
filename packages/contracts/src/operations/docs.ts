@@ -1243,6 +1243,87 @@ export interface DocsStatsResult {
   readonly summary: string;
 }
 
+/**
+ * Parameters for `docs.rot` — the docs-rot report (T14111).
+ *
+ * Read-only and git-only: it reads tracked markdown and git history, never
+ * the docs store, so it runs the same in CI and locally.
+ *
+ * @task T14111 (Epic T14106)
+ */
+export interface DocsRotParams {
+  /**
+   * Git revision range `<base>..<head>` of a merged change. When set, the
+   * report also lists the docs whose `covers:` globs match a file the range
+   * changed (and that the range did not update itself).
+   */
+  readonly changed?: string;
+}
+
+/**
+ * A doc whose declared `covers:` code changed without the doc changing.
+ *
+ * @task T14111
+ */
+export interface DocsRotCoverageHit {
+  /** Repo-relative path of the doc. */
+  readonly doc: string;
+  /** Covered files that changed (sorted, repo-relative). */
+  readonly files: readonly string[];
+}
+
+/**
+ * A group of docs that duplicate each other: identical bodies, or titles
+ * close enough that one is a fork of the other.
+ *
+ * @task T14111
+ */
+export interface DocsRotDuplicate {
+  /** Why the docs were grouped: `content` (same body) or `title`. */
+  readonly reason: 'content' | 'title';
+  /** Repo-relative paths of the duplicates (sorted). */
+  readonly docs: readonly string[];
+}
+
+/**
+ * A doc nothing ties to the repo: a `covers:` glob that matches no tracked
+ * file, or a `docs/` file no other tracked file references.
+ *
+ * @task T14111
+ */
+export interface DocsRotOrphan {
+  /** Repo-relative path of the doc. */
+  readonly doc: string;
+  /** `dead-covers` (globs listed in `globs`) or `unreferenced`. */
+  readonly reason: 'dead-covers' | 'unreferenced';
+  /** The covers globs that match nothing (only for `dead-covers`). */
+  readonly globs?: readonly string[];
+}
+
+/**
+ * Result of `docs.rot` — stale, duplicate and orphaned docs (T14111).
+ *
+ * @task T14111
+ */
+export interface DocsRotResult {
+  /** Tracked markdown docs scanned. */
+  readonly scanned: number;
+  /** Docs that declare `covers:`. */
+  readonly covering: number;
+  /** Docs whose covered code changed after the doc last changed on main. */
+  readonly stale: readonly DocsRotCoverageHit[];
+  /** Duplicate doc groups. */
+  readonly duplicates: readonly DocsRotDuplicate[];
+  /** Orphaned docs. */
+  readonly orphans: readonly DocsRotOrphan[];
+  /** Docs the `changed` range flags for update (empty without `changed`). */
+  readonly flagged: readonly DocsRotCoverageHit[];
+  /** Wall time of the scan in milliseconds. */
+  readonly durationMs: number;
+  /** One-line human summary. */
+  readonly summary: string;
+}
+
 // ============================================================================
 // Discriminated Union (DocsOps)
 // ============================================================================
@@ -1271,7 +1352,8 @@ export type DocsOps =
   | { op: 'docs.doctor'; params: DocsDoctorParams; result: DocsDoctorResult }
   | { op: 'docs.migrate'; params: DocsMigrateParams; result: DocsMigrateResult }
   | { op: 'docs.modernize'; params: DocsModernizeParams; result: DocsModernizeResult }
-  | { op: 'docs.stats'; params: DocsStatsParams; result: DocsStatsResult };
+  | { op: 'docs.stats'; params: DocsStatsParams; result: DocsStatsResult }
+  | { op: 'docs.rot'; params: DocsRotParams; result: DocsRotResult };
 
 /**
  * Parameters for `docs.modernize` (T14113) — dry run by default.
@@ -1384,4 +1466,5 @@ export type DocsOp =
   | 'docs.doctor'
   | 'docs.migrate'
   | 'docs.modernize'
-  | 'docs.stats';
+  | 'docs.stats'
+  | 'docs.rot';

@@ -34,6 +34,11 @@ export const gateBaseSchema = z.object({
   advisory: z.boolean().optional(),
   /** Per-gate timeout override in milliseconds. */
   timeoutMs: z.number().int().positive().optional(),
+  /** Declared evidence repository the gate runs in (T14078). */
+  repo: z
+    .string()
+    .regex(/^[A-Za-z0-9][A-Za-z0-9._-]*$/)
+    .optional(),
 });
 
 // ─── File assertion schemas ───────────────────────────────────────────────────
