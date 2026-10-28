@@ -113,7 +113,8 @@ describe('isPausable / looksHeavy', () => {
     expect(isPausable('scoped-build', ['npm', 'ci'])).toBe(false);
     expect(isPausable('scoped-build', ['cargo', 'fetch'])).toBe(false);
     expect(isPausable('db-heavy', ['node', 'migrate.js'])).toBe(false);
-    expect(isPausable('test-run', ['npx', 'vitest'])).toBe(true);
+    // T14093: a test run is never paused either (its timeouts keep counting).
+    expect(isPausable('test-run', ['npx', 'vitest'])).toBe(false);
     expect(isPausable('scoped-build', ['npx', 'tsc', '-b'])).toBe(true);
   });
 

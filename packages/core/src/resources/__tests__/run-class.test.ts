@@ -21,6 +21,7 @@ import {
   parseGitInvocation,
   resolveRunClass,
   runFootprint,
+  testPauseExemption,
 } from '../run-class.js';
 
 let dir: string;
@@ -141,7 +142,39 @@ describe('isPausable', () => {
   it('cargo holds cache and target locks: never paused (L-6)', () => {
     expect(isPausable('test-run', ['cargo', 'test'])).toBe(false);
     expect(isPausable('scoped-build', ['cargo', 'build'])).toBe(false);
-    expect(isPausable('test-run', ['npx', 'vitest', 'run'])).toBe(true);
+    // T14093: a test run is never paused either; a build still is.
+    expect(isPausable('test-run', ['npx', 'vitest', 'run'])).toBe(false);
+    expect(isPausable('scoped-build', ['pnpm', 'run', 'build'])).toBe(true);
+  });
+});
+
+describe('a run that executes tests is never paused (T14093)', () => {
+  const noHook = () => false;
+  const hooked = (hook: string) => hook === 'pre-push';
+
+  it('vitest, pnpm test and node --test are never paused, whatever class they were given', () => {
+    for (const argv of [
+      ['npx', 'vitest', 'run', 'a.test.ts'],
+      ['pnpm', 'test'],
+      ['node', '--test', 'a.test.mjs'],
+    ]) {
+      expect(isPausable('scoped-build', argv, noHook), argv.join(' ')).toBe(false);
+      expect(testPauseExemption('scoped-build', argv, noHook), argv.join(' ')).toMatch(
+        /^it runs tests: its wall-clock test timeouts keep counting while it is stopped$/,
+      );
+    }
+    expect(testPauseExemption('test-run', ['make', 'check'], noHook)).toMatch(/^a test run: /);
+  });
+
+  it('a git push whose hook is installed is never paused; a hook-free push and a build still pause', () => {
+    expect(isPausable('scoped-build', ['git', 'push'], hooked)).toBe(false);
+    expect(testPauseExemption('scoped-build', ['git', 'push'], hooked)).toMatch(
+      /^it runs the pre-push hook, which may run tests/,
+    );
+    expect(isPausable('scoped-build', ['git', 'push'], noHook)).toBe(true);
+    expect(isPausable('scoped-build', ['git', 'push', '--no-verify'], hooked)).toBe(true);
+    expect(isPausable('scoped-build', ['pnpm', 'run', 'build'], hooked)).toBe(true);
+    expect(testPauseExemption('scoped-build', ['tsc', '-b'], hooked)).toBeNull();
   });
 });
 
@@ -365,7 +398,6 @@ describe('round 7 (R7-1): CLEO commands are never paused', () => {
 
   it('cleo as an argument, a path segment or a package name changes nothing', () => {
     for (const argv of [
-      ['npx', 'vitest', 'run', 'packages/cleo/src/cli/__tests__/run-command.test.ts'],
       ['pnpm', '--filter', '@cleocode/cleo', 'run', 'build'],
       ['node', 'scripts/build.mjs', 'cleo'],
       ['node', '-e', 'require("cleo")'],

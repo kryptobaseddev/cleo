@@ -324,6 +324,12 @@ function olderJob(): RunJob {
   };
 }
 
+/**
+ * A pausable command (T14093: a test run is never paused), for the tests of
+ * the pause machinery itself.
+ */
+const BUILD = { cls: 'scoped-build' as const, argv: ['pnpm', 'run', 'build'] };
+
 const base = (h: Harness, over: Record<string, unknown> = {}) => ({
   argv: ['npx', 'vitest', 'run', 'a.test.ts'],
   cls: 'test-run' as const,
@@ -420,7 +426,7 @@ describe('the hung/overdue watchdog (T13563)', () => {
         }
       },
     });
-    await runGoverned(base(h, { notice: (line: string) => notices.push(line) }));
+    await runGoverned(base(h, { ...BUILD, notice: (line: string) => notices.push(line) }));
     expect(h.signals.some(([, s]) => s === 'SIGSTOP')).toBe(true);
     expect(notices.some((l) => l.startsWith('overdue:'))).toBe(false);
     expect(seen?.overdueAtMs ?? null).toBeNull();
@@ -733,7 +739,7 @@ describe('runGoverned', () => {
       levels: ['ok', 'backoff', 'backoff', 'ok', 'ok'],
       onSample: (n, hh) => n === 5 && hh.exit(0),
     });
-    const r = await runGoverned(base(h));
+    const r = await runGoverned(base(h, BUILD));
     expect(h.signals).toEqual([
       [500, 'SIGSTOP'],
       [500, 'SIGCONT'],
@@ -767,7 +773,7 @@ describe('runGoverned', () => {
       levels: ['ok', 'backoff'],
       onSleep: (n, hh) => n === 2 && hh.exit(null, 'SIGKILL'),
     });
-    const r = await runGoverned(base(h));
+    const r = await runGoverned(base(h, BUILD));
     expect(h.signals).toEqual([
       [500, 'SIGSTOP'],
       [500, 'SIGCONT'],
@@ -802,9 +808,63 @@ describe('runGoverned', () => {
     const h = harness({ levels: ['backoff'] });
     const r = await runGoverned(base(h, { noPause: true }));
     expect(r.kind).toBe('deferred');
-    expect(r.kind === 'deferred' && r.reason).toMatch(/--no-pause run starts only below backoff/);
+    expect(r.kind === 'deferred' && r.reason).toMatch(
+      /never paused \(--no-pause\) starts only below backoff/,
+    );
     expect(h.acquires).toBe(0);
     expect(h.spawned).toEqual([]);
+  });
+
+  it('T14093: a hooked git push waits below backoff like --no-pause, is never paused, and says why', async () => {
+    writeRunJob(olderJob(), join(dir, 'jobs'));
+    const notices: Array<[string, string]> = [];
+    const h = harness({
+      levels: ['backoff', 'backoff', 'ok', 'backoff', 'backoff'],
+      onSample: (n, hh) => n === 5 && hh.exit(0),
+    });
+    h.deps = { ...h.deps, hookInstalled: (hook) => hook === 'pre-push' };
+    const r = await runGoverned(
+      base(h, {
+        cls: 'scoped-build',
+        argv: ['git', 'push'],
+        wait: true,
+        notice: (m: string, l: string) => notices.push([l, m]),
+      }),
+    );
+    expect(h.signals.filter(([, s]) => s === 'SIGSTOP')).toEqual([]);
+    expect(r).toMatchObject({
+      kind: 'exited',
+      pauses: 0,
+      notPausable: expect.stringMatching(/^it runs the pre-push hook, which may run tests/),
+    });
+    expect(notices).toContainEqual([
+      'warn',
+      expect.stringMatching(/^waiting: .*never paused \(it runs the pre-push hook/),
+    ]);
+    expect(notices).toContainEqual([
+      'info',
+      expect.stringMatching(/^never paused: it runs the pre-push hook/),
+    ]);
+  });
+
+  it('T14093: vitest and pnpm test are never paused; a hook-free push and a build still pause', async () => {
+    const paused = async (over: Record<string, unknown>): Promise<boolean> => {
+      rmSync(join(dir, 'jobs'), { recursive: true, force: true });
+      writeRunJob(olderJob(), join(dir, 'jobs'));
+      const h = harness({
+        levels: ['ok', 'backoff', 'backoff'],
+        onSample: (n, hh) => n === 3 && hh.exit(0),
+      });
+      h.deps = { ...h.deps, hookInstalled: () => false };
+      await runGoverned(base(h, over));
+      return h.signals.some(([, s]) => s === 'SIGSTOP');
+    };
+    expect(await paused({ cls: 'test-run', argv: ['npx', 'vitest', 'run', 'a.test.ts'] })).toBe(
+      false,
+    );
+    expect(await paused({ cls: 'scoped-build', argv: ['pnpm', 'test'] })).toBe(false);
+    expect(await paused({ cls: 'scoped-build', argv: ['git', 'push'] })).toBe(true);
+    expect(await paused(BUILD)).toBe(true);
   });
 
   it('the default is unchanged: the same younger run at backoff is paused (T14075)', async () => {
@@ -813,7 +873,7 @@ describe('runGoverned', () => {
       levels: ['ok', 'backoff', 'backoff'],
       onSample: (n, hh) => n === 3 && hh.exit(0),
     });
-    await runGoverned(base(h, { wait: true }));
+    await runGoverned(base(h, { ...BUILD, wait: true }));
     expect(h.signals).toContainEqual([500, 'SIGSTOP']);
   });
 
@@ -1165,7 +1225,7 @@ describe('--passthrough and a terminal in the foreground (#1777 R7)', () => {
       levels: ['ok', 'backoff', 'backoff'],
       onSample: (n, hh) => n === 3 && hh.exit(0),
     });
-    await runGoverned(base(h, { passthrough: true }));
+    await runGoverned(base(h, { ...BUILD, passthrough: true }));
     expect(h.spawned[0]).toMatchObject({ passthrough: true, detached: true });
     expect(h.signals).toEqual([
       [500, 'SIGSTOP'],
@@ -1218,7 +1278,7 @@ describe('--passthrough and a terminal in the foreground (#1777 R7)', () => {
         }
       },
     });
-    await runGoverned(base(h));
+    await runGoverned(base(h, BUILD));
     expect(record).toMatchObject({ leadsGroup: true, pausable: true });
   });
 
@@ -1311,7 +1371,9 @@ describe('notice levels (#1777 R7: --passthrough prints only warnings)', () => {
       levels: ['ok', 'backoff', 'backoff', 'ok', 'ok'],
       onSample: (n, hh) => n === 5 && hh.exit(0),
     });
-    await runGoverned(base(h, { notice: (m: string, l: string) => notices.push([l, m]) }));
+    await runGoverned(
+      base(h, { ...BUILD, notice: (m: string, l: string) => notices.push([l, m]) }),
+    );
     expect(notices.map(([l, m]) => [l, m.split(':')[0]])).toEqual([
       ['warn', 'paused'],
       ['warn', 'resumed.'],
@@ -1324,7 +1386,9 @@ describe('notice levels (#1777 R7: --passthrough prints only warnings)', () => {
       acquireThrows: Object.assign(new Error('EROFS'), { code: 'EROFS' }),
       onSample: (n, hh) => n === 2 && hh.exit(0),
     });
-    await runGoverned(base(h, { notice: (m: string, l: string) => notices.push([l, m]) }));
+    await runGoverned(
+      base(h, { ...BUILD, notice: (m: string, l: string) => notices.push([l, m]) }),
+    );
     expect(notices).toEqual([['warn', expect.stringContaining('running ungoverned')]]);
   });
 
@@ -1336,6 +1400,7 @@ describe('notice levels (#1777 R7: --passthrough prints only warnings)', () => {
     });
     const qr = await runGoverned(
       base(q, {
+        ...BUILD,
         wait: true,
         queuePollMs: 1000,
         timeoutMs: 60_000,
@@ -1356,6 +1421,7 @@ describe('notice levels (#1777 R7: --passthrough prints only warnings)', () => {
     });
     const sr = await runGoverned(
       base(s0, {
+        ...BUILD,
         wait: true,
         timeoutMs: 60_000,
         notice: (m: string, l: string) => slow.push([l, m]),
@@ -1375,7 +1441,7 @@ describe('notice levels (#1777 R7: --passthrough prints only warnings)', () => {
       ledgerNested: true,
       onSample: (n, hh) => n === 2 && hh.exit(0),
     });
-    await runGoverned(base(h, { notice: (m: string, l: string) => nested.push([l, m]) }));
+    await runGoverned(base(h, { ...BUILD, notice: (m: string, l: string) => nested.push([l, m]) }));
     expect(nested).toEqual([['info', expect.stringContaining('nested in an admitted run')]]);
   });
 });

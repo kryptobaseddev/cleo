@@ -176,7 +176,7 @@ export const runCommand = defineCommand({
       type: 'boolean',
       default: true,
       description:
-        'Allow pausing under pressure (default). --no-pause never SIGSTOPs the run, for tests with wall-clock deadlines (an external database, a child timeout): it is charged like any run of its class and starts only below backoff, waiting in the queue (with --wait) or deferred while the machine is at backoff',
+        'Allow pausing under pressure (default for builds, typechecks and lint). --no-pause never SIGSTOPs the run: it is charged like any run of its class and starts only below backoff, waiting in the queue (with --wait) or deferred while the machine is at backoff. A run that executes tests (class test, a test runner or test script, node --test, or a git push/commit whose hook is installed) is never paused without the flag, since its wall-clock test timeouts keep counting while it is stopped',
     },
     'whole-suite': {
       type: 'boolean',

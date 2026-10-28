@@ -57,6 +57,7 @@ import {
   admit,
   describeAdmissionIoError,
   footprintForClass,
+  gitHookInstalled,
   isLedgerClass,
   type LedgerChild,
   type LedgerEntry,
@@ -94,6 +95,7 @@ import {
   watchRun,
   writeRunJob,
 } from './run-admission.js';
+import { testPauseExemption } from './run-class.js';
 import { trackToolGroup } from './tool-groups.js';
 import { memoryPressureCause } from './top-memory.js';
 
@@ -157,6 +159,11 @@ export interface RunGovernedDeps {
   readonly treeUsage: (pid: number, withCommands?: boolean) => ProcessTreeUsage | null;
   /** Where hook measurements are kept (T13921). @defaultValue the admission directory */
   readonly hookFootprintsDir: string;
+  /**
+   * Whether a git hook is installed for the run's checkout (T14093).
+   * @defaultValue probes `opts.cwd` with `gitHookInstalled`
+   */
+  readonly hookInstalled?: (hook: string, globals: readonly string[]) => boolean;
 }
 
 /** How often the watchdog measures the child's process tree (T13563). */
@@ -279,6 +286,11 @@ export type RunGovernedResult =
       readonly runnerSignal: RunnerSignal | null;
       /** True exactly when the run waited in the queue and said "admitted after" (T13681). */
       readonly queued: boolean;
+      /**
+       * Why the run was never paused under pressure, when it may not be
+       * (T14093): `--no-pause`, or it runs tests on wall-clock deadlines.
+       */
+      readonly notPausable?: string;
     };
 
 /** What admission handed the run: how to give it back, and what to tell the child. */
@@ -418,6 +430,13 @@ export async function runGoverned(opts: RunGovernedOptions): Promise<RunGoverned
     if (marker !== null) throw new GovernedRunInTestRunnerError(command, marker);
   }
   const d: RunGovernedDeps = { ...defaultDeps(), ...opts.deps };
+  // T14093: a run is never paused when asked (`--no-pause`, T14075) or when it
+  // runs tests on wall-clock deadlines (a test run, a hooked push or commit).
+  const hookInstalled =
+    d.hookInstalled ??
+    ((hook: string, globals: readonly string[]) => gitHookInstalled(opts.cwd, hook, globals));
+  const neverPause: string | null =
+    opts.noPause === true ? '--no-pause' : testPauseExemption(opts.cls, opts.argv, hookInstalled);
   const notice = opts.notice ?? (() => {});
   const t0 = d.now();
 
@@ -511,12 +530,13 @@ export async function runGoverned(opts: RunGovernedOptions): Promise<RunGoverned
     // T14075: a run that may never be paused starts only below backoff, so
     // pressure keeps it queued instead of freezing it mid-run. A nested run
     // rides its enclosing admission and is never paused on its own anyway.
-    if (opts.noPause === true && !nested) {
+    // T14093: so is a run that executes tests on wall-clock deadlines.
+    if (neverPause !== null && !nested) {
       let said = false;
       while (classifyPressure(sample).state === 'backoff') {
         const reason =
-          `machine at backoff (${classifyPressure(sample).reason}); a --no-pause run starts only ` +
-          'below backoff, since it is never paused once running';
+          `machine at backoff (${classifyPressure(sample).reason}); a run that is never paused ` +
+          `(${neverPause}) starts only below backoff`;
         if (!opts.wait) return deferral(opts, d, reason, MEMORY_GATE_RETRY_AFTER_MS, sample, null);
         if (!said) notice(`waiting: ${reason}`, 'warn');
         said = true;
@@ -697,7 +717,11 @@ export async function runGoverned(opts: RunGovernedOptions): Promise<RunGoverned
   // Ungoverned, it holds no slot and keeps no reliable record: never paused
   // either. T14075: nor is a run that asked not to be (`--no-pause`).
   const pausable =
-    leadsGroup && ungoverned === null && opts.noPause !== true && isPausable(opts.cls, opts.argv);
+    leadsGroup &&
+    ungoverned === null &&
+    neverPause === null &&
+    isPausable(opts.cls, opts.argv, hookInstalled);
+  if (neverPause !== null && leadsGroup) notice(`never paused: ${neverPause}`, 'info');
   const [file, ...args] = opts.argv as [string, ...string[]];
   // No inherited grant marker (#1777 round 2): every nested `cleo run` is
   // admitted on its own; verify joins the same budgets with #1775 (T12963).
@@ -941,6 +965,7 @@ export async function runGoverned(opts: RunGovernedOptions): Promise<RunGoverned
       ungoverned,
       runnerSignal,
       queued,
+      ...(neverPause !== null ? { notPausable: neverPause } : {}),
     };
   }
 
