@@ -1081,3 +1081,156 @@ describe('satisfyGatesFromMergedCi', () => {
     expect(out).toEqual({ kind: 'skipped', testsPassedReason: null, qaPassedReason: null });
   });
 });
+
+describe('D11205 / T14071: a pre-merge scoped run carries only while its whole scope is unchanged at the merge', () => {
+  /**
+   * A workspace with packages a and b (b depends on a), a lockfile, and a
+   * task that edits a. The scoped run is recorded on the task branch's tree;
+   * then `other` (another PR) lands on main before the task's squash merge.
+   */
+  function workspace(other: (root: string) => void) {
+    const root = realpathSync(mkdtempSync(join(tmpdir(), 'cleo-t14071-')));
+    const git = (...a: string[]): string =>
+      execFileSync('git', ['-c', 'user.name=T', '-c', 'user.email=t@e.x', ...a], {
+        cwd: root,
+        encoding: 'utf-8',
+      }).trim();
+    const write = (path: string, body: string): void => {
+      mkdirSync(join(root, path, '..'), { recursive: true });
+      writeFileSync(join(root, path), body);
+    };
+    git('init', '-q', '-b', 'main');
+    write('package.json', '{"name":"root","private":true}\n');
+    write('pnpm-workspace.yaml', 'packages:\n  - "packages/*"\n');
+    write('pnpm-lock.yaml', 'lockfileVersion: 9\n');
+    write('packages/a/package.json', '{"name":"@x/a","scripts":{"test":"vitest run"}}\n');
+    write('packages/a/src/a.ts', 'export const a = 1;\n');
+    write('packages/a/src/a.test.ts', "import { a } from './a';\n");
+    write(
+      'packages/b/package.json',
+      '{"name":"@x/b","scripts":{"test":"vitest run"},"dependencies":{"@x/a":"workspace:*"}}\n',
+    );
+    write('packages/b/src/b.ts', 'export const b = 1;\n');
+    write('docs/notes.md', 'notes\n');
+    git('add', '.');
+    git('commit', '-q', '-m', 'init');
+    git('switch', '-q', '-c', 'task/T9001');
+    write('packages/a/src/a.ts', 'export const a = 2;\n');
+    git('commit', '-q', '-am', 'T9001');
+    const tested = git('rev-parse', 'HEAD^{tree}');
+    git('switch', '-q', 'main');
+    other(root);
+    git('add', '.');
+    git('commit', '-q', '-m', 'another PR');
+    git('merge', '-q', '--squash', 'task/T9001');
+    git('commit', '-q', '-m', 'T9001 (#42)');
+    const merge = git('rev-parse', 'HEAD');
+    mergeOverride.value = {
+      state: 'merged',
+      prRef: '42',
+      changeSet: changeSet({
+        source: 'pr',
+        prNumber: 42,
+        mergeState: 'merged',
+        mergeCommitSha: merge,
+        executionRoot: root,
+        files: ['packages/a/src/a.ts'],
+      }),
+    };
+    return { root, tested };
+  }
+
+  const testRun = (treeHash: string): EvidenceAtom => ({
+    kind: 'test-run',
+    path: 'r.json',
+    sha256: 'c'.repeat(64),
+    passCount: 1,
+    failCount: 0,
+    skipCount: 0,
+    treeHash,
+    testFiles: ['packages/a/src/a.test.ts'],
+    testFileCount: 1,
+  });
+  const affectedRun = (treeHash: string): EvidenceAtom => ({
+    kind: 'tool',
+    tool: 'test',
+    exitCode: 0,
+    scope: 'affected',
+    affectedPackages: ['@x/a', '@x/b'],
+    treeHash,
+  });
+  const full: EvidenceAtom = { kind: 'tool', tool: 'lint', exitCode: 0 };
+  const offCi = (tree: string) => deps({ ciSatisfies: () => false, currentTree: () => tree });
+
+  it('carries when another PR touched only files outside the scope (ciSatisfies off)', async () => {
+    const { root, tested } = workspace((r) => writeFileSync(join(r, 'docs/notes.md'), 'more\n'));
+    try {
+      const out = await satisfyGatesFromMergedCi(
+        task({ tests: [testRun(tested)], qa: [full] }),
+        root,
+        ['implemented', 'testsPassed'],
+        offCi(tested),
+      );
+      expect(out).toEqual({ kind: 'skipped', testsPassedReason: null, qaPassedReason: null });
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('does not carry when another PR changed the lockfile at the merge, and names it and the routes', async () => {
+    const { root, tested } = workspace((r) =>
+      writeFileSync(join(r, 'pnpm-lock.yaml'), 'lockfileVersion: 9\n# bumped\n'),
+    );
+    try {
+      const out = await satisfyGatesFromMergedCi(
+        task({ tests: [testRun(tested)], qa: [full] }),
+        root,
+        ['implemented', 'testsPassed'],
+        offCi(tested),
+      );
+      expect(out.kind).toBe('skipped');
+      expect(out.kind === 'skipped' && out.testsPassedReason).toMatch(
+        /\): pnpm-lock\.yaml.*test-run on the default branch after the merge.*\(T13673\), or tool:test/,
+      );
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('does not carry a tool:test-affected run when another PR changed a dependent it tested', async () => {
+    const { root, tested } = workspace((r) =>
+      writeFileSync(join(r, 'packages/b/src/b.ts'), 'export const b = 2;\n'),
+    );
+    try {
+      const out = await satisfyGatesFromMergedCi(
+        task({ tests: [affectedRun(tested)], qa: [full] }),
+        root,
+        ['implemented', 'testsPassed'],
+        offCi(tested),
+      );
+      expect(out.kind === 'skipped' && out.testsPassedReason).toMatch(
+        /\): packages\/b\/src\/b\.ts/,
+      );
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('with ciSatisfies on, a scope that changed still goes to merged CI as before', async () => {
+    const { root, tested } = workspace((r) =>
+      writeFileSync(join(r, 'pnpm-lock.yaml'), 'lockfileVersion: 9\n# bumped\n'),
+    );
+    try {
+      const w = recorder(ok);
+      const out = await satisfyGatesFromMergedCi(
+        task({ tests: [testRun(tested)], qa: [full] }),
+        root,
+        ['implemented', 'testsPassed'],
+        deps({ recordGates: w.recordGates, currentTree: () => tested }),
+      );
+      expect(out).toEqual({ kind: 'recorded', pr: '42', gates: ['testsPassed'] });
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+});
