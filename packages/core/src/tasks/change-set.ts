@@ -290,6 +290,69 @@ export function taskCarryScope<T extends CarryTarget>(
   return files.length + deletedFiles.length > 0 ? { ...target, files, deletedFiles } : target;
 }
 
+/**
+ * A body line that declares what the PR implements: `Closes T1`, `Fixes: T1`,
+ * `Implements T1, T2`, `Task: T1`, `Tasks: T1, T2` (optionally a list item or
+ * bold), never prose that merely names an id.
+ */
+const DECLARING_LINE =
+  /^\s*(?:[-*]\s+)?(?:\*\*)?(?:(?:close[sd]?|fix(?:e[sd])?|resolve[sd]?|implement(?:s|ed)?|complete[sd]?)\b(?:\*\*)?[\s:#*-]+|tasks?(?:\s*[:#-]|:?\*\*:?)[\s*]*)(.+)$/gim;
+
+/**
+ * The merged PRs that are the task's implementation, of those citing its id
+ * anywhere (T14087): the title or head branch names it, a body line declares
+ * it ({@link DECLARING_LINE}), a `.changeset/*.md` the PR adds lists it in
+ * `tasks:`, or (T13785) the PR also cites one of its done children. A PR that
+ * only mentions the id in prose is dropped with a warning naming it. An
+ * explicit `--pr` is judged by the existing linkage check instead.
+ */
+async function declaringPrs(
+  citing: MergedPrSummary[],
+  cs: TaskChangeSet,
+  input: DeriveChangeSetInput,
+  roots: EvidenceRoots,
+  resolvePr: NonNullable<ChangeSetDeps['resolvePr']>,
+): Promise<MergedPrSummary[]> {
+  if (input.prNumber !== undefined) return citing;
+  const id = input.task.id;
+  const declares = (pr: MergedPrSummary): boolean =>
+    citesTask(pr.title, id) ||
+    citesTask(pr.headRefName, id) ||
+    [...pr.body.matchAll(DECLARING_LINE)].some((m) => citesTask(m[1] ?? '', id)) ||
+    (input.doneChildIds ?? []).some((child) => citesTask(`${pr.title}\n${pr.body}`, child));
+  const kept = citing.filter(declares);
+  // A PR that declares the task outranks mere mentions, as the own-branch
+  // narrowing always did; only when none does are the mentions inspected.
+  if (kept.length > 0) return kept;
+  for (const pr of citing) {
+    if (await changesetDeclares(pr.number, id, roots, resolvePr)) kept.push(pr);
+    else
+      cs.warnings.push(
+        `PR #${pr.number} only mentions ${id} (not in its title, branch, a Closes/Implements/Task line or a changeset's tasks), so it is not taken as ${id}'s implementation; pass --pr ${pr.number} if it is.`,
+      );
+  }
+  return kept;
+}
+
+/** Whether a `.changeset/*.md` the merged PR changed lists `taskId` in `tasks:` (T14087). */
+async function changesetDeclares(
+  prNumber: number,
+  taskId: string,
+  roots: EvidenceRoots,
+  resolvePr: NonNullable<ChangeSetDeps['resolvePr']>,
+): Promise<boolean> {
+  const pr = await resolvePr(prNumber, roots);
+  if (!pr.ok) return false;
+  const { parseChangesetFrontmatter } = await import('../changesets/parse-frontmatter.js');
+  for (const path of pr.changedPaths.filter((p) => /^\.changeset\/[^/]+\.md$/.test(p))) {
+    const raw = git(roots.executionRoot, ['show', `${pr.mergeCommitSha}:${path}`]);
+    const parsed = raw === null ? null : parseChangesetFrontmatter(raw);
+    if (parsed?.ok && parsed.entry.tasks.some((t) => t.toUpperCase() === taskId.toUpperCase()))
+      return true;
+  }
+  return false;
+}
+
 /** `(^|non-alnum)T123(non-alnum|$)` — T123 never matches inside T1234. */
 function citesTask(text: string, taskId: string): boolean {
   return new RegExp(`(^|[^A-Za-z0-9])${taskId}([^A-Za-z0-9]|$)`).test(text);
@@ -1014,8 +1077,14 @@ async function derivePrChangeSet(
     cs.prDiscoveryFailed = true;
     cs.mergeState = 'unknown';
   }
-  const citing = (listed.ok ? listed.prs : []).filter((pr) =>
-    citesTask(`${pr.title}\n${pr.body}\n${pr.headRefName}`, task.id),
+  const citing = await declaringPrs(
+    (listed.ok ? listed.prs : []).filter((pr) =>
+      citesTask(`${pr.title}\n${pr.body}\n${pr.headRefName}`, task.id),
+    ),
+    cs,
+    input,
+    roots,
+    deps.resolvePr,
   );
   const reverts = citing.filter((pr) => isRevertTitle(pr.title));
   const originals = citing.filter((pr) => !isRevertTitle(pr.title));
