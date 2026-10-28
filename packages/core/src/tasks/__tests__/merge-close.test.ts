@@ -715,6 +715,8 @@ describe('a merge whose own CI run was cancelled waits, and is rerun once (T1410
     world.now += HOUR * 7; // past any backoff
     const second = await sweepMergedClosures(root, { force: true }, laterSweeps);
     expect(second.prs[0]?.outcomes[0]?.action).toBe('waiting');
+    // A wait on the merge's own CI resolves itself: never commented.
+    expect(calls.comments).toHaveLength(0);
     world.recordRefusal = null;
     world.now += HOUR * 7;
     const third = await sweepMergedClosures(root, { force: true }, laterSweeps);
@@ -855,8 +857,9 @@ describe('review fixes (#2555 review at a36298391)', () => {
       { ...deps, reviewVerdicts: async () => [] },
     );
     expect(waitingOn(noVerdict)).toMatch(/no verdict on head/);
-    // Commented once while it waits, whatever the reason.
+    // A gap wait is commented once per (PR, merge, task, kind), whatever the reason.
     expect(calls.comments).toHaveLength(1);
+    expect(calls.comments[0]?.body).toMatch(/is waiting to close from this PR/);
     world.now += HOUR * 7;
     const later = await sweepMergedClosures(root, { force: true }, deps);
     expect(later.closed).toEqual([id]);

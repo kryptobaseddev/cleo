@@ -745,7 +745,7 @@ async function applyDirective(
   directive: MergeDirective,
   deps: MergeCloseDeps,
   dryRun: boolean,
-): Promise<MergeTaskOutcome & { reran?: boolean }> {
+): Promise<MergeTaskOutcome & { reran?: boolean; ciWait?: boolean }> {
   const { taskId, acs } = directive;
   const base = { taskId, acs };
   const { getTaskAccessor } = await import('../store/data-accessor.js');
@@ -777,7 +777,7 @@ async function applyDirective(
   if (!open && !receipt.ciGreen) {
     const reason = receipt.closesNothing ?? 'CI was not green.';
     return headCiUnfinished(pr)
-      ? { ...base, action: 'waiting', reason }
+      ? { ...base, action: 'waiting', reason, ciWait: true }
       : { ...base, action: 'refused', reason };
   }
   // T14122 (D11211): satisfies: comes only from an independent reviewer's
@@ -817,7 +817,7 @@ async function applyDirective(
     if (wait?.final)
       return { ...base, action: 'refused', reason: `${wait.reason}: ${recorded.reason}` };
     if (wait !== null)
-      return { ...base, action: 'waiting', reason: wait.reason, reran: wait.reran };
+      return { ...base, action: 'waiting', reason: wait.reason, reran: wait.reran, ciWait: true };
     return { ...base, action: 'waiting', reason: recorded.reason };
   }
   if (dryRun) return { ...base, action: 'closed' };
@@ -835,7 +835,8 @@ async function applyDirective(
 
 /**
  * Post each refused or waiting task on its PR once per kind (an audit row
- * remembers it): a waiting task is re-judged every sweep but commented once.
+ * remembers it): a gap wait is re-judged every sweep but commented once. The
+ * caller leaves out waits on the merge's own CI, which resolve themselves.
  */
 async function reportRefusals(
   storeRoot: string,
@@ -885,6 +886,7 @@ async function applyMergedPrs(
   clock: () => number,
 ): Promise<MergeSweepHooks> {
   const hooks: MergeSweepHooks = {};
+  const silent = new Set<MergeTaskOutcome>();
   for (const pr of [...prs].sort((a, b) => a.mergedAt.localeCompare(b.mergedAt))) {
     if (clock() > deadline) {
       carried.push(pr.number);
@@ -918,8 +920,8 @@ async function applyMergedPrs(
         deps,
         dryRun,
       );
-      const { reran, ...outcome } = await applied.catch(
-        (err: Error): MergeTaskOutcome & { reran?: boolean } => ({
+      const { reran, ciWait, ...outcome } = await applied.catch(
+        (err: Error): MergeTaskOutcome & { reran?: boolean; ciWait?: boolean } => ({
           taskId: directive.taskId,
           acs: directive.acs,
           // A throw (gh rate limit, SQLITE_BUSY, …) is transient: re-judge next sweep.
@@ -928,6 +930,7 @@ async function applyMergedPrs(
         }),
       );
       entry.outcomes.push(outcome);
+      if (ciWait === true) silent.add(outcome);
       if (reran === true) result.reran++;
       if (outcome.action === 'waiting') result.waiting++;
       if (outcome.action === 'closed') result.closed.push(outcome.taskId);
@@ -939,7 +942,9 @@ async function applyMergedPrs(
           reason: outcome.reason ?? 'refused',
         });
     }
-    if (!dryRun) await reportRefusals(storeRoot, root, pr, entry.outcomes, deps);
+    // A wait on the merge's own CI resolves itself: no comment (lead rule).
+    const loud = entry.outcomes.filter((o) => !silent.has(o));
+    if (!dryRun) await reportRefusals(storeRoot, root, pr, loud, deps);
     // T14111: flag stale docs once, on the run that applied this PR.
     const applied = entry.outcomes.filter((o) => o.action === 'closed' || o.action === 'bound');
     if (!dryRun && deps.docsRot && pr.mergeCommitSha && applied.length > 0) {
