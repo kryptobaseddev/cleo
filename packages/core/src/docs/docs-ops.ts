@@ -1128,7 +1128,9 @@ export interface DocsPublishResult {
 async function validatedPublicationPath(
   root: string,
   destination: string,
-): Promise<{ path: string } | { refused: 'outside' | 'non-canonical-worktree'; worktree?: string }> {
+): Promise<
+  { path: string } | { refused: 'outside' | 'non-canonical-worktree'; worktree?: string }
+> {
   const canonicalRoot = await canonicalizePath(root);
   const inside = (parent: string, child: string): boolean => {
     const rel = relative(parent, child);
@@ -1165,7 +1167,8 @@ async function validatedPublicationPath(
       const taskId = basename(entry.path);
       const checkout = await canonicalizePath(entry.path);
       // T14081: remember a linked worktree the destination falls in, to say why it is refused.
-      if (checkout !== canonicalRoot && inside(checkout, canonicalDestination)) linked ??= entry.path;
+      if (checkout !== canonicalRoot && inside(checkout, canonicalDestination))
+        linked ??= entry.path;
       if (!/^T\d+$/.test(taskId)) continue;
       const expected = join(canonicalBase, taskId);
       if (

@@ -615,10 +615,25 @@ describe('publishDocs', () => {
     const root = await mkdtemp(join(tmpdir(), 'cleo-t14081-root-'));
     const linked = `${root}-linked`;
     const git = (cwd: string, ...args: string[]) =>
-      execFileSync('git', args, { cwd, stdio: 'ignore', env: { ...process.env, GIT_DIR: '', GIT_WORK_TREE: '' } });
+      execFileSync('git', args, {
+        cwd,
+        stdio: 'ignore',
+        env: { ...process.env, GIT_DIR: '', GIT_WORK_TREE: '' },
+      });
     try {
       git(root, 'init', '-q');
-      git(root, '-c', 'user.email=t@t', '-c', 'user.name=t', 'commit', '-q', '--allow-empty', '-m', 'init');
+      git(
+        root,
+        '-c',
+        'user.email=t@t',
+        '-c',
+        'user.name=t',
+        'commit',
+        '-q',
+        '--allow-empty',
+        '-m',
+        'init',
+      );
       git(root, 'worktree', 'add', '-q', linked);
       for (const dryRun of [true, false]) {
         const err = await publishDocs({
@@ -629,7 +644,9 @@ describe('publishDocs', () => {
         }).catch((e: unknown) => e);
         expect(err, `dryRun=${dryRun}`).toMatchObject({
           code: 6,
-          message: expect.stringMatching(/linked worktree .*only the canonical CLEO worktree path .*T13376/),
+          message: expect.stringMatching(
+            /linked worktree .*only the canonical CLEO worktree path .*T13376/,
+          ),
           fix: expect.stringMatching(
             /Only canonical CLEO worktrees are publication targets \(T13376\).*store's project root.*CLEO-created worktree \(cleo orchestrate spawn/,
           ),
