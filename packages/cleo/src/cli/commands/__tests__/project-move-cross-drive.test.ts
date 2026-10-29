@@ -54,10 +54,16 @@ describe('T11030 — project move integration (cross-drive)', () => {
   let destDir: string;
   let projectId: string;
 
+  /** The vitest fork's CLEO_DIR pin, restored in afterAll. */
+  let savedCleoDir: string | undefined;
+
   beforeAll(async () => {
     // AC1: Create scratch project at /tmp/cleo-test-move-A
     // Allow production DB access for integration test
     process.env.CLEO_TEST_ALLOW_PROJECT_DB = 'true';
+    // Production shape: no pin, so the moved project's own store is the one used (T14159).
+    savedCleoDir = process.env['CLEO_DIR'];
+    delete process.env['CLEO_DIR'];
 
     sourceDir = await mkdtemp(join(tmpdir(), 'cleo-test-move-A-'));
     destDir = join(tmpdir(), `cleo-test-move-B-${Date.now()}`);
@@ -117,6 +123,7 @@ describe('T11030 — project move integration (cross-drive)', () => {
   });
 
   afterAll(async () => {
+    if (savedCleoDir !== undefined) process.env['CLEO_DIR'] = savedCleoDir;
     // AC12: Cleanup
     resetNexusDbState();
     await rm(sourceDir, { recursive: true, force: true }).catch(() => {});

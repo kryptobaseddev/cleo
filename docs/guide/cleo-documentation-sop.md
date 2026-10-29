@@ -33,10 +33,11 @@ cleo docs publish <name> --for <T####> --to docs/<folder>/<name>.md
 The owner id links the doc to its task. Task and decision links, dates and
 supersession live in the doc's metadata, never in its name.
 
-When a new doc replaces an old one, record it:
+Prefer updating the existing doc to replacing it. When a doc really is
+replaced, retire the old one so searches stop surfacing it:
 
 ```bash
-cleo docs supersede <old-slug> <new-slug>
+cleo docs update <old-slug> --status superseded --message "replaced by <new-slug>"
 ```
 
 ## Kinds and folders
@@ -87,3 +88,8 @@ entry, and the gate refuses new violators and stale entries.
 cleo docs status    # each published mirror against the store
 cleo docs doctor    # store health; dry run by default, --apply to repair
 ```
+
+`cleo docs doctor --apply` deletes a publication-ledger row only when its
+mirror is provably gone, because the ledger syncs across devices. A row whose
+file exists only on another device's unpushed branch can still read as gone
+here; republishing the doc with `cleo docs publish` restores the row.

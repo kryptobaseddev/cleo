@@ -377,8 +377,8 @@ describe('a spawned task is in flight and its lease holds a slot (T14133)', () =
       sessionId: 'ses_20261028000000_e1e1e1',
     });
     expect(ended.success).toBe(true);
-    // The release runs in the background, never inside the write transaction.
-    await vi.waitFor(() => expect(liveAgentLeases()).toEqual([]));
+    // T14151: released after the write commits, before sessionEnd returns.
+    expect(liveAgentLeases()).toEqual([]);
   });
 
   it('a heartbeat on an ended session does not renew its lease', async () => {
@@ -393,7 +393,7 @@ describe('a spawned task is in flight and its lease holds a slot (T14133)', () =
     await heartbeatProjectSession(TEST_ROOT, session.id);
     expect(liveAgentLeases()[0]?.expiresAtMs).toBeGreaterThan(soon); // active: renewed
     await accessor.upsertSingleSession({ ...session, status: 'ended', endedAt: session.startedAt });
-    await vi.waitFor(() => expect(liveAgentLeases()).toEqual([]));
+    expect(liveAgentLeases()).toEqual([]);
     // A lease written back after the end (a race) is never renewed: it lapses.
     writeAgentLease({ ...leaseFor('T902', session.id), expiresAtMs: soon });
     await heartbeatProjectSession(TEST_ROOT, session.id);
@@ -481,5 +481,68 @@ describe('a spawned task is in flight and its lease holds a slot (T14133)', () =
     }
     expect(await inFlight('T900')).toEqual([]);
     expect(await inFlight('T950')).toEqual([]);
+  });
+
+  describe('lease release follows the committed session status (T14151)', () => {
+    it('a rolled-back end keeps the lease; a suspended session keeps it too', async () => {
+      const { writeAgentLease, liveAgentLeases } = await import('../../resources/agent-lease.js');
+      const { getTaskAccessor } = await import('../../store/data-accessor.js');
+      const accessor = await getTaskAccessor(TEST_ROOT);
+      const session = activeSession('ses_20261029000000_f1f1f1');
+      await accessor.upsertSingleSession(session);
+      writeAgentLease(leaseFor('T902', session.id));
+      await expect(
+        accessor.transaction(async () => {
+          await accessor.upsertSingleSession({ ...session, status: 'ended' });
+          throw new Error('roll back');
+        }),
+      ).rejects.toThrow('roll back');
+      expect(liveAgentLeases()).toHaveLength(1);
+      await accessor.upsertSingleSession({ ...session, status: 'suspended' });
+      expect(liveAgentLeases()).toHaveLength(1);
+      await accessor.upsertSingleSession({ ...session, status: 'ended' });
+      expect(liveAgentLeases()).toEqual([]);
+    });
+
+    it('a session ended in a rolled-back savepoint keeps its lease when the outer commits (T14157)', async () => {
+      const { writeAgentLease, liveAgentLeases } = await import('../../resources/agent-lease.js');
+      const { getTaskAccessor } = await import('../../store/data-accessor.js');
+      const accessor = await getTaskAccessor(TEST_ROOT);
+      const session = activeSession('ses_20261029000000_s1s1s1');
+      await accessor.upsertSingleSession(session);
+      writeAgentLease(leaseFor('T902', session.id));
+      await accessor.transaction(async () => {
+        await accessor
+          .transaction(async () => {
+            await accessor.upsertSingleSession({ ...session, status: 'ended' });
+            throw new Error('inner roll back');
+          })
+          .catch(() => {
+            // The savepoint rolled back; the outer transaction goes on and commits.
+          });
+      });
+      expect(liveAgentLeases()).toHaveLength(1);
+    });
+
+    it('a bulk save ending N sessions reads the lease directory once', async () => {
+      const leaseModule = await import('../../resources/agent-lease.js');
+      const { getTaskAccessor } = await import('../../store/data-accessor.js');
+      const accessor = await getTaskAccessor(TEST_ROOT);
+      const ids = [
+        'ses_20261029000000_b1b1b1',
+        'ses_20261029000000_b2b2b2',
+        'ses_20261029000000_b3b3b3',
+      ];
+      for (const [i, id] of ids.entries()) {
+        leaseModule.writeAgentLease(leaseFor(`T90${i + 1}`, id, `bulk-${i}`));
+      }
+      const release = vi.spyOn(leaseModule, 'releaseAgentLeasesForSessions');
+      await accessor.saveSessions(
+        ids.map((id) => ({ ...activeSession(id), status: 'ended' as const })),
+      );
+      expect(release).toHaveBeenCalledTimes(1);
+      expect([...(release.mock.calls[0]?.[0] ?? [])].sort()).toEqual(ids);
+      expect(leaseModule.liveAgentLeases()).toEqual([]);
+    });
   });
 });

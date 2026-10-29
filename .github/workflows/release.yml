@@ -18,6 +18,7 @@ on:
 permissions:
   contents: write
   id-token: write
+  actions: read # T14102: verify-tag reads the tagged commit's push-run jobs
 
 jobs:
   # worktree-napi: 4 triples. The reusable workflow builds them — or, when the
@@ -462,6 +463,17 @@ jobs:
       # centralises the header shape in ONE place (ADR-028 §2.5) so the
       # workflow can't drift from the aggregator.
 
+      # T14102: a tag made by `cleo release cut` carries no CHANGELOG section in
+      # its tree. Write it from the changesets added since the previous release
+      # tag, led by the tag's annotation. A plan-PR release already has the
+      # section, and the command leaves it untouched.
+      - name: Write CHANGELOG section from changesets (cleo release write-changelog)
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          git fetch --quiet --tags --unshallow origin 2>/dev/null || git fetch --quiet --tags origin
+          node packages/cleo/dist/cli/index.js release write-changelog "${VERSION}"
+
       - name: Verify CHANGELOG section (cleo release validate-changelog)
         env:
           VERSION: ${{ steps.version.outputs.version }}
@@ -718,6 +730,19 @@ jobs:
       # toolchain in node_modules.
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
+
+      # T14102: nothing ships unless the tagged commit is a first-parent commit
+      # of main whose required checks (release.prRequiredWorkflows) are green
+      # on its push run, whether the tag came from `cleo release cut`, a hand
+      # push, or a dispatched re-run.
+      - name: Verify the tag is a green first-parent commit of main (cleo release verify-tag)
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          git fetch --quiet --unshallow origin +refs/heads/main:refs/remotes/origin/main 2>/dev/null \
+            || git fetch --quiet origin +refs/heads/main:refs/remotes/origin/main
+          git fetch --quiet --force origin "refs/tags/v${VERSION}:refs/tags/v${VERSION}"
+          node packages/cleo/dist/cli/index.js release verify-tag "${VERSION}"
 
       - name: Download GitHub Release assets
         uses: actions/download-artifact@v4
@@ -1396,3 +1421,84 @@ jobs:
           PUBLISH_TIMELINE_DIR: /tmp/publish-timeline
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: node scripts/release-verdict.mjs
+
+  # T14102: `cleo release cut` publishes with no bump PR, so main's CHANGELOG.md
+  # and package versions would stop advancing. After a stable publish, open one
+  # PR carrying only the CHANGELOG section this run released and the version
+  # bump, and let it auto-merge on green. It never blocks the release, and its
+  # version-only diff skips the test suites (T13141). A plan-PR release already
+  # put both on main, so nothing changes and no PR opens.
+  changelog-pr:
+    name: CHANGELOG + version PR
+    runs-on: ubuntu-latest
+    needs: [build-verify, publish]
+    if: needs.build-verify.outputs.is_prerelease != 'true'
+    timeout-minutes: 15
+    permissions:
+      contents: write
+      pull-requests: write
+      actions: write # dispatch CI: GITHUB_TOKEN pushes and PRs trigger no workflows
+    env:
+      VERSION: ${{ needs.build-verify.outputs.version }}
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      - name: Checkout main
+        uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - name: Download release notes
+        uses: actions/download-artifact@v4
+        with:
+          name: release-assets
+          path: /tmp/release-assets
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+
+      - name: Apply the CHANGELOG section and versions
+        id: apply
+        run: |
+          set -euo pipefail
+          git fetch --quiet origin "refs/tags/v${VERSION}:refs/tags/v${VERSION}"
+          DATE="$(git for-each-ref --format='%(creatordate:short)' "refs/tags/v${VERSION}")"
+          node -e '
+            const fs = require("node:fs");
+            const [version, date, notesPath] = process.argv.slice(1);
+            const changelog = fs.readFileSync("CHANGELOG.md", "utf8");
+            if (changelog.includes(`## [${version}]`)) process.exit(0);
+            const body = fs.readFileSync(notesPath, "utf8").trim();
+            const section = `## [${version}] (${date})\n\n${body}\n\n`;
+            const at = changelog.search(/^## /m);
+            fs.writeFileSync(
+              "CHANGELOG.md",
+              at < 0 ? `${changelog.trimEnd()}\n\n${section}` : changelog.slice(0, at) + section + changelog.slice(at),
+            );
+          ' "$VERSION" "$DATE" /tmp/release-assets/release-notes.txt
+          node scripts/version-all.mjs --set "$VERSION"
+          if git diff --quiet; then
+            echo "main already carries v${VERSION}'s CHANGELOG section and versions; no PR needed."
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Open the auto-merging PR
+        if: steps.apply.outputs.changed == 'true'
+        run: |
+          set -euo pipefail
+          BRANCH="release/v${VERSION}"
+          git config user.email "actions@github.com"
+          git config user.name "GitHub Actions"
+          git checkout -b "$BRANCH"
+          git commit -am "release: CHANGELOG and versions for v${VERSION}"
+          git push origin "$BRANCH"
+          gh pr create --base main --head "$BRANCH" --label release \
+            --title "release: CHANGELOG and versions for v${VERSION}" \
+            --body "v${VERSION} is published. This PR records its CHANGELOG section and package versions on main (T14102). It merges itself once CI is green."
+          gh pr merge "$BRANCH" --auto --merge
+          # A GITHUB_TOKEN push starts no workflow; dispatch the checks the PR needs.
+          gh workflow run worktree-napi-prebuild.yml --ref "$BRANCH" || echo "::warning::Could not dispatch worktree-napi-prebuild.yml for $BRANCH."
+          gh workflow run ci.yml --ref "$BRANCH" || echo "::warning::Could not dispatch ci.yml for $BRANCH; run: gh workflow run ci.yml --ref $BRANCH"

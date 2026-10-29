@@ -1083,6 +1083,13 @@ export {
   removeLinksByProvider,
   touchLink,
 } from './reconciliation/link-store.js';
+// T14141: standing release authorization (owner-signed grants for agent cuts)
+export {
+  grantReleaseAuthorization,
+  listReleaseAuthorizations,
+  releaseAuthorizationFor,
+  revokeReleaseAuthorization,
+} from './release/authorization.js';
 // T9528: provenance backfill verb — walks historical tags and populates 11 tables.
 // Re-exported under `Provenance*` aliases to avoid collision with the
 // pre-existing `BackfillOptions`/`BackfillResult` from `./backfill/index.js`
@@ -1095,6 +1102,16 @@ export type {
 export { provenanceBackfill } from './release/backfill.js';
 // Release
 export { channelToDistTag, describeChannel, resolveChannelFromBranch } from './release/channel.js';
+// T14102: one-command release verbs — exposed via internal for dispatch layer
+export type {
+  ReleaseChangelogOptions,
+  ReleaseChangelogResult,
+  ReleaseCutOptions,
+  ReleaseCutResult,
+  ReleaseCutRunner,
+  ReleaseVerifyTagResult,
+} from './release/cut.js';
+export { releaseChangelog, releaseCut, releaseVerifyTag } from './release/cut.js';
 // T9538: release workflow bypass audit logger (SPEC-T9345 §12.3 / R-441)
 export type {
   AppendReleaseWorkflowBypassOptions,
@@ -1127,6 +1144,7 @@ export type {
 export { releasePlan } from './release/plan.js';
 // T9526: new release reconcile v2 (provenance-graph aware)
 export { releaseReconcileV2 } from './release/reconcile.js';
+export { reconcileLatestRelease } from './release/reconcile-latest.js';
 export type { ProjectReleaseConfig, ReleaseConfig, ReleaseGate } from './release/release-config.js';
 export {
   getGitFlowConfig,

@@ -14,6 +14,9 @@
  *   plan           — SPEC-T9345 §4.2 (T9525): build canonical Release Plan envelope
  *   open           — SPEC-T9345 §4.3 (T9530): dispatch release-prepare workflow
  *   reconcile      — SPEC-T9345 §4.4 (T9526 v2): backfill 11 provenance tables
+ *   cut            — T14102: tag the newest green default-branch commit (one-command release)
+ *   write-changelog — T14102: CHANGELOG section from changesets since the previous tag
+ *   verify-tag     — T14102 (query): a release tag must be a green first-parent default-branch commit
  *
  * Ship, list, show, cancel, changelog, rollback, channel are handled by the
  * pipeline domain handler (via `pipeline.release.*` operations).
@@ -38,17 +41,21 @@
 
 import type { ReleaseGateCheckParams } from '@cleocode/contracts/operations/release';
 import type {
+  ReleaseCutOptions,
   ReleaseOpenOptions,
   ReleasePlanOptions,
   ValidateChangelogOptions,
 } from '@cleocode/core/internal';
 import { getLogger, getProjectRoot, resolveWorktreeRouting } from '@cleocode/core/internal';
 import {
+  releaseChangelog,
+  releaseCut,
   releaseGateCheck,
   releaseIvtrAutoSuggest,
   releaseOpen,
   releasePlan,
   releaseReconcileV2,
+  releaseVerifyTag,
   validateChangelog,
 } from '@cleocode/runtime/gateway';
 import type { OpsFromCore } from '../adapters/typed.js';
@@ -199,6 +206,28 @@ export class ReleaseHandler implements DomainHandler {
         // non-zero exit code — exactly the behaviour CI workflows depend on
         // (the legacy `grep -qF "## [VERSION]" || exit 1` had the same
         // contract).
+        // release.verify-tag — T14102: release.yml refuses to publish a tag
+        // that is not a green first-parent commit of the default branch.
+        case 'verify-tag': {
+          const version = typeof params?.version === 'string' ? params.version : undefined;
+          if (!version)
+            return errorResult(
+              'query',
+              'release',
+              operation,
+              'E_INVALID_INPUT', // @sync-invariant none:input-shape a missing version is refused before anything is read
+              'version is required',
+              startTime,
+            );
+          return wrapResult(
+            await releaseVerifyTag({ version, projectRoot: getProjectRoot() }),
+            'query',
+            'release',
+            operation,
+            startTime,
+          );
+        }
+
         case 'validate-changelog': {
           const version = typeof params?.version === 'string' ? params.version : undefined;
           if (!version)
@@ -440,6 +469,51 @@ export class ReleaseHandler implements DomainHandler {
           return wrapResult(result, 'mutate', 'release', operation, startTime);
         }
 
+        // release.cut — T14102: tag the newest green default-branch commit
+        // (release.yml then publishes); --dry-run reports without tagging.
+        case 'cut': {
+          const version = typeof params?.version === 'string' ? params.version : undefined;
+          if (!version)
+            return errorResult(
+              'mutate',
+              'release',
+              operation,
+              'E_INVALID_INPUT', // @sync-invariant none:input-shape a missing version is refused before any tag or file write
+              'version is required',
+              startTime,
+            );
+          const typed: ReleaseCutOptions = {
+            version,
+            projectRoot: getProjectRoot(),
+            ...(typeof params?.sha === 'string' ? { sha: params.sha } : {}),
+            ...(typeof params?.lead === 'string' ? { leadFile: params.lead } : {}),
+            dryRun: params?.dryRun === true,
+            yes: params?.yes === true,
+          };
+          return wrapResult(await releaseCut(typed), 'mutate', 'release', operation, startTime);
+        }
+
+        // release.write-changelog — T14102: write the CHANGELOG section from
+        // the changesets since the previous tag (run by release.yml).
+        case 'write-changelog': {
+          const version = typeof params?.version === 'string' ? params.version : undefined;
+          if (!version)
+            return errorResult(
+              'mutate',
+              'release',
+              operation,
+              'E_INVALID_INPUT', // @sync-invariant none:input-shape a missing version is refused before any tag or file write
+              'version is required',
+              startTime,
+            );
+          const result = await releaseChangelog({
+            version,
+            projectRoot: getProjectRoot(),
+            ...(typeof params?.ref === 'string' ? { ref: params.ref } : {}),
+          });
+          return wrapResult(result, 'mutate', 'release', operation, startTime);
+        }
+
         default:
           return unsupportedOp('mutate', 'release', operation, startTime);
       }
@@ -456,8 +530,8 @@ export class ReleaseHandler implements DomainHandler {
   /** Return declared operations for introspection and registry validation. */
   getSupportedOperations(): { query: string[]; mutate: string[] } {
     return {
-      query: ['gate', 'ivtr-suggest', 'validate-changelog'],
-      mutate: ['gate', 'ivtr-suggest', 'reconcile', 'plan', 'open'],
+      query: ['gate', 'ivtr-suggest', 'validate-changelog', 'verify-tag'],
+      mutate: ['gate', 'ivtr-suggest', 'reconcile', 'plan', 'open', 'cut', 'write-changelog'],
     };
   }
 }

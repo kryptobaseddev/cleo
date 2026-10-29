@@ -2,7 +2,7 @@
 name: ct-cleo
 description: CLEO task management protocol - session, task, and workflow guidance. Use when managing tasks, sessions, or multi-agent workflows with the CLEO CLI protocol.
 metadata:
-  version: 2.24.27
+  version: 2.25.0
   tier: core
   install: harness
   covers:
@@ -152,7 +152,7 @@ Unattributed mutations warn on stderr; `session status` / `briefing` label a gue
 | End session (from another terminal) | `cleo session end --session <id>` |
 | Find work | `cleo next` → `cleo focus <id>` |
 | Search tasks | `cleo find "query"` |
-| Complete task | `cleo verify T### --gate ... --evidence "..."` → `cleo complete T###` |
+| Complete task | PR: `Closes: T### AC1,AC2` in the body, merge on green; the sweep closes it. No PR: `cleo done T### --plan` → `cleo verify …` → `cleo complete T###` |
 | Run typed gates (the only command that executes them; writes read the cache) | `cleo verify T### --run [--req A,B]` |
 | Save memory | `cleo memory observe "..." --title "..."` |
 | Spawn subagent | `cleo orchestrate spawn <taskId> --tier 2` |
@@ -463,4 +463,4 @@ BRAIN ID going forward.
 
 ## Evidence must prove task criteria
 
-Merged PRs and passing CI are provenance. Implementation requires changed artifacts related to the task; testing and review require their own actual results (`ci:<pr>` once the PR merged and the project sets `evidence.ciSatisfies`; else `tool:test-affected` when `testing.affectedCommand` is configured, otherwise a targeted `test-run:<json>` or `tool:test`; after merge a scoped run carries only while the change's files are byte-identical, or when it is a `test-run:` recorded on a main HEAD descending from the merge, on the current tree, covering the change (T13673); plan with `cleo done <id> --plan`, which never plans a whole-suite `tool:test` itself (T13647); never run the suite by hand and again via `tool:test`). Run tests, typechecks and builds one at a time through `cleo run --wait --class <test|build|full-build> -- <cmd>` (exit 75: not admitted yet, wait and retry); never wrap `cleo run` or `cleo verify` in another queue or wrapper, and never raise heap or worker counts (`NODE_OPTIONS`, `--maxWorkers`). For tasks with canonical criteria, append explicit links such as `satisfies:T1234#AC1` to each relevant gate's evidence. Fetch the PR merge commit so artifact hashes can be inspected. A changed criterion invalidates its recorded proof. Completing a child preserves an open parent whose own criteria remain unproven; child waivers never transfer to parent criteria.
+A merged PR closes its `Closes:` tasks once `CI` is green on its exact head and a non-author reviewer recorded `met` for each AC (`cleo review verdict`); the merge sweep records `pr:`, `ci:` and `satisfies:`, so no agent step follows the merge (ADR-099; preview with `cleo done --from-merge <pr> --dry-run`). No-PR work records its own results: plan with `cleo done <id> --plan` (it never plans a whole-suite `tool:test`, T13647), then the atoms in `cleo briefing inject --section evidence`, each linked with `satisfies:T1234#AC1`. Run tests, typechecks and builds one at a time through `cleo run --wait --class <test|build|full-build> -- <cmd>` (exit 75: not admitted yet, wait and retry); never wrap `cleo run` or `cleo verify` in another queue or wrapper, and never raise heap or worker counts (`NODE_OPTIONS`, `--maxWorkers`). A changed criterion invalidates its recorded proof. Completing a child preserves an open parent whose own criteria remain unproven; child waivers never transfer to parent criteria.

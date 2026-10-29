@@ -1,0 +1,44 @@
+# PR task lines (T14143, owner decision D11212)
+#
+# Every PR names the tasks it delivers, one line per task (ADR-099):
+#   Closes: T#### AC1,AC2   completes the task once merged PRs cover every criterion
+#   Refs: T#### AC1         partial delivery; the task stays open
+# This flags a PR whose body names no task, or whose task lines are
+# malformed, so each change stays traceable from task to PR to release.
+# It is a flag, not a merge gate: the required check is `CI`.
+#
+# Exempt: release/* branches, bot authors, and the `no-task` label.
+#
+# @task T14143
+name: PR Task Lines
+
+on:
+  pull_request:
+    types: [opened, edited, reopened, synchronize, labeled, unlabeled]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pr-task-lines-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  task-lines:
+    name: PR names its tasks
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - name: Checkout the check script
+        uses: actions/checkout@v4
+        with:
+          sparse-checkout: scripts
+          sparse-checkout-cone-mode: true
+
+      - name: 'Check the Closes:/Refs: lines'
+        env:
+          PR_BODY: ${{ github.event.pull_request.body }}
+          PR_HEAD_REF: ${{ github.event.pull_request.head.ref }}
+          PR_AUTHOR: ${{ github.event.pull_request.user.login }}
+          PR_LABELS: ${{ toJSON(github.event.pull_request.labels.*.name) }}
+        run: node scripts/lint-pr-task-lines.mjs

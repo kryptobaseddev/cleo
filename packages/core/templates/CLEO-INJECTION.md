@@ -1,6 +1,6 @@
 # CLEO Protocol
 
-Version: 2.24.27 | CLI-only dispatch | `cleo <command> [args]`
+Version: 2.25.0 | CLI-only dispatch | `cleo <command> [args]`
 
 <!-- CLEO-INJECTION:section=session-start -->
 ## Universal protocol
@@ -40,7 +40,7 @@ Everything else is one command away — print a section with `cleo briefing inje
 1. `cleo current` or `cleo next` → pick task
 2. `cleo focus {id}` → orient: identity + blockers + ready wave + docs + brain context
 3. Check authority, coverage, and source evidence; do the work
-4. Record verification evidence, then `cleo complete {id}` → mark done
+4. Close it. PR work: work on a branch, open a PR whose body has `Closes: T#### AC1,AC2` (`Refs:` for partial delivery), get a non-author per-AC verdict (`cleo review verdict`), merge on green `CI`; the merge sweep closes the task (ADR-099). No-PR work: `cleo done {id} --plan`, record what it names, then `cleo complete {id}`
 5. `cleo next` → continue or end session
 
 Discovery: `cleo find "query"` to search (default page 20; `--limit 0` for all), `cleo list --parent <id>` for direct children only — never bare `cleo list` for browsing. Create: `cleo add --type task --parent <epicId> --title "..." --acceptance "..."` (`--acceptance` is required on every task). Before editing a symbol: `cleo nexus impact <symbol>`; an empty footprint alone never establishes `NONE`.
@@ -55,8 +55,9 @@ Discovery: `cleo find "query"` to search (default page 20; `--limit 0` for all),
 | Task acceptance criterion contains "test" | Propose an `AcceptanceGate` with `kind:"test"` via `cleo req add` |
 | Session token budget ≈ 80% consumed | Run `cleo session end --note "..."` and hand off |
 | Multiple related tasks ready in parallel | Run `cleo orchestrate ready <epicId>` for the wave set |
-| About to call `cleo complete` | `cleo done <id> --plan`, record what it names, then complete |
-| Writing a canonical doc (spec/adr/research/handoff/note/llm-readme) | Use `cleo docs add --type <kind> --slug <kebab-handle>` — NEVER raw fs write to `.cleo/adrs/`, `.cleo/research/`, `.cleo/agent-outputs/`, or `docs/` |
+| Before merging a PR | `cleo done --from-merge <pr> --dry-run` checks its `Closes:`/`Refs:` lines against the store |
+| No-PR work, about to call `cleo complete` | `cleo done <id> --plan`, record what it names, then complete |
+| Writing a canonical doc (spec/adr/research/handoff/note/llm-readme) | Update the existing doc first (`cleo docs update <slug>`); else `cleo docs add --type <kind> --slug <kebab-handle>` — NEVER raw fs write to `.cleo/adrs/`, `.cleo/research/`, `.cleo/agent-outputs/`, or `docs/` |
 | Reading an ADR/spec/research note/handoff | `cleo docs fetch <slug>` — never grep the filesystem for canonical docs |
 | New device, restore or migration; known repo "Not inside a CLEO project"; unreachable registry path; nexus `ENOENT` | `cleo doctor global-delivery` (hub + skills resolve; `--repair`), `cleo doctor projects` (dry run; `--apply`/`--rollback <id>`), `cleo doctor project-identity`, `cleo doctor --all-projects`, `cleo nexus projects clean --orphans --dry-run` (`--dry-run` mandatory: it deletes moved projects), `cleo doctor credentials`; report. Never delete rows of projects that may have moved |
 <!-- /CLEO-INJECTION:section=triggers -->
@@ -121,18 +122,7 @@ Missing output is equally inconclusive; teardown may hang after commit. **Never 
 <!-- CLEO-INJECTION:section=pre-complete-gate -->
 ## Pre-Complete Gate Ritual (ADR-051 — evidence required)
 
-Before `cleo complete <id>`, every gate requires programmatic evidence validated against git, files or tools: `cleo verify T### --gate <gate> --evidence "<atoms>"`. Bare `cleo verify --all` rejects with `E_EVIDENCE_MISSING`.
-
-| gate | evidence that satisfies it |
-|------|----------------------------|
-| `implemented` | `commit:<sha>;files:path/a.ts,path/b.ts` — or `pr:<number>` with `files:<changed-paths>`, or `decision:<id>` for decision-only tasks |
-| `testsPassed` | `ci:<pr>` if merged and `evidence.ciSatisfies`; else `tool:test-affected` (needs `testing.affectedCommand`), changed-file `test-run:<json>`, or `tool:test` |
-| `qaPassed` | `ci:<pr>` likewise, else `tool:lint;tool:typecheck` or a `qa-run:<json>` per check |
-| `documented` | `files:docs/spec.md` |
-| `securityPassed` | `tool:security-scan` |
-| `cleanupDone` | `note:removed dead branches` |
-
-Name the acceptance criteria each result proves: `cleo verify T1234 --gate implemented --evidence "commit:abc123;files:src/fix.ts;satisfies:T1234#AC1"`. Record `testsPassed` and `qaPassed` separately with actual verification results and explicit criterion links. Documentation-only PRs cannot implement a code-fix task; changed criteria require fresh evidence, and a child waiver does not waive parent criteria. Then `cleo complete T###` re-validates every hard atom (commit reachable, file sha256, test-run hash); tampering → `E_EVIDENCE_STALE`. Typed gates, `pr:` rules, tool timeouts and the audited owner override: `cleo briefing inject --section evidence`. Typed gates execute only via `cleo verify --run`.
+PR work: the merge sweep records `pr:`, `ci:` and reviewer-bound `satisfies:` when it closes a PR's `Closes:` tasks, so no agent step follows the merge (ADR-099). No-PR work, typed gates no CI job runs, and PRs merged before the sweep: `cleo done <id> --plan`, then record each gate it names with `cleo verify T### --gate <gate> --evidence "<atoms>;satisfies:T####AC1"` (bare `cleo verify --all` rejects with `E_EVIDENCE_MISSING`), then `cleo complete T###`, which re-validates every hard atom (tampering → `E_EVIDENCE_STALE`). Record `testsPassed` and `qaPassed` separately with actual verification results and explicit criterion links. Documentation-only PRs cannot implement a code-fix task; changed criteria require fresh evidence, and a child waiver does not waive parent criteria. Atoms per gate, typed gates (`cleo verify --run`), `pr:` rules and the audited owner override: `cleo briefing inject --section evidence`.
 
 Anti-patterns: completing without running tests · self-attesting without programmatic proof · running tests by hand, then again via `tool:test` · modifying files between `cleo verify` and `cleo complete`.
 <!-- /CLEO-INJECTION:section=pre-complete-gate -->

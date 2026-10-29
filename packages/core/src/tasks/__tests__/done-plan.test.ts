@@ -1991,7 +1991,8 @@ describe('a task with no change set gets no targets from the working tree (T1391
 describe('a stored typed pass bound to an older definition is not a pass (T13463 review LOW)', () => {
   const gate = {
     kind: 'command' as const,
-    cmd: 'node -e 0',
+    cmd: 'node',
+    args: ['-e', '0'],
     exitCode: 0,
     description: 'Harness passes',
     req: 'H-1',

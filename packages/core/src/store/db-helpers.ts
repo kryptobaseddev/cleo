@@ -7,9 +7,10 @@
  * @epic T4454
  */
 
+import type { DatabaseSync } from 'node:sqlite';
 import type { ArchiveReasonValue, Session, Task, TaskInsertIdentity } from '@cleocode/contracts';
 import { ExitCode } from '@cleocode/contracts/exit-codes.js';
-import { and, eq, inArray, sql } from 'drizzle-orm';
+import { and, eq, getTableName, inArray, sql } from 'drizzle-orm';
 import type { NodeSQLiteDatabase } from 'drizzle-orm/node-sqlite';
 import { CleoError } from '../errors.js';
 import { getLogger } from '../logger.js';
@@ -389,24 +390,104 @@ export async function upsertSession(db: DrizzleDb, session: Session): Promise<vo
     .values(values)
     .onConflictDoUpdate({ target: schema.sessions.id, set: setFields })
     .run();
-  // T14133: a session that ended gives back its spawn's agent-session lease.
-  // Loaded only then, so the read paths stay off the lease module (gate 39),
-  // and never awaited: this runs inside the caller's write transaction, and
-  // yielding there let a concurrent writer's synchronous busy-wait block the
-  // loop (`cleo session end` hung).
-  if (session.status !== 'active') releaseEndedSessionLeases(session.id, session.status);
 }
 
 /**
- * Release an ended session's agent-session leases (T14133) without awaiting:
- * the lease module loads in the background and its release is best-effort.
+ * Session statuses that give back a spawned session's agent-session lease
+ * (T14151). `suspended` keeps it: a suspended session resumes.
  */
-export function releaseEndedSessionLeases(sessionId: string, status: string): void {
-  void import('../resources/agent-lease.js')
-    .then(({ onSessionStatusWritten }) => onSessionStatusWritten(sessionId, status))
-    .catch(() => {
-      // Best-effort: an unreleased lease lapses with its TTL.
-    });
+const LEASE_RELEASING_STATUSES: ReadonlySet<string> = new Set(['ended', 'orphaned', 'abandoned']);
+
+/** Sessions ended inside a still-open write transaction, per native handle (T14151). */
+const endedInOpenTransaction = new WeakMap<DatabaseSync, Set<string>>();
+
+async function releaseSessionLeases(sessionIds: ReadonlySet<string>): Promise<void> {
+  try {
+    // Loaded only here, so the read paths stay off the lease module (gate 39).
+    const { releaseAgentLeasesForSessions } = await import('../resources/agent-lease.js');
+    releaseAgentLeasesForSessions(sessionIds);
+  } catch {
+    // Best-effort: an unreleased lease lapses with its TTL.
+  }
+}
+
+/**
+ * Record that a session's status was written (T14133, T14151). A status that
+ * ends the session gives back its agent-session leases, but only once the
+ * write is committed: inside an open transaction the session is held until
+ * {@link flushEndedSessionLeases} runs after COMMIT (a rollback drops it, see
+ * {@link dropEndedSessionLeases}); outside one, the release runs now and is
+ * awaited. Nothing is ever awaited inside the transaction, where a yield
+ * could let a concurrent writer's synchronous busy-wait block the loop.
+ *
+ * @param native - The connection the status was written on, if known.
+ * @param sessionId - The session.
+ * @param status - Its new status.
+ */
+export async function noteSessionStatusWritten(
+  native: DatabaseSync | null,
+  sessionId: string,
+  status: string,
+): Promise<void> {
+  if (!LEASE_RELEASING_STATUSES.has(status)) return;
+  if (native?.isTransaction === true) {
+    const pending = endedInOpenTransaction.get(native) ?? new Set<string>();
+    pending.add(sessionId);
+    endedInOpenTransaction.set(native, pending);
+    return;
+  }
+  await releaseSessionLeases(new Set([sessionId]));
+}
+
+/**
+ * After an outer COMMIT: give back the leases of every session that
+ * transaction ended, reading the lease directory once (T14151).
+ *
+ * @param native - The connection that committed.
+ */
+export async function flushEndedSessionLeases(native: DatabaseSync): Promise<void> {
+  const pending = endedInOpenTransaction.get(native);
+  endedInOpenTransaction.delete(native);
+  if (pending === undefined || pending.size === 0) return;
+  // T14157: an inner savepoint that ended a session may have rolled back while
+  // the outer transaction committed; release only sessions whose committed row
+  // really ended.
+  const ended = committedEndedSessions(native, pending);
+  if (ended.size > 0) await releaseSessionLeases(ended);
+}
+
+/**
+ * The sessions among `sessionIds` whose committed row has a status that
+ * releases a lease (T14157). A read that fails keeps every lease: admission
+ * fails closed.
+ */
+function committedEndedSessions(
+  native: DatabaseSync,
+  sessionIds: ReadonlySet<string>,
+): Set<string> {
+  const ended = new Set<string>();
+  try {
+    const read = native.prepare(
+      `SELECT status FROM "${getTableName(schema.sessions)}" WHERE id = ?`,
+    );
+    for (const id of sessionIds) {
+      const status = (read.get(id) as { status?: unknown } | undefined)?.status;
+      if (typeof status === 'string' && LEASE_RELEASING_STATUSES.has(status)) ended.add(id);
+    }
+  } catch {
+    ended.clear();
+  }
+  return ended;
+}
+
+/**
+ * After an outer ROLLBACK: the sessions it ended did not end, so they keep
+ * their leases (T14151).
+ *
+ * @param native - The connection that rolled back.
+ */
+export function dropEndedSessionLeases(native: DatabaseSync): void {
+  endedInOpenTransaction.delete(native);
 }
 
 /**

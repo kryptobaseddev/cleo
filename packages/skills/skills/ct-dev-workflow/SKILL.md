@@ -1,7 +1,7 @@
 ---
 name: ct-dev-workflow
 description: Development workflow orchestration for task-driven development with atomic commits, conventional commit messages, and systematic release processes. Enforces task traceability, branch discipline, smart test scope selection, and GitHub Actions integration. Use when committing code, creating releases, managing branches, or following contribution protocols. Triggers on commit operations, release preparation, or workflow compliance needs.
-version: 3.1.32
+version: 3.4.0
 protocol: contribution
 dependencies: []
 sharedResources:
@@ -14,7 +14,7 @@ compatibility:
   - gemini-cli
 license: MIT
 metadata:
-  version: 3.1.32
+  version: 3.4.0
   tier: core
   install: harness
   covers:
@@ -26,16 +26,15 @@ metadata:
     - packages/core/src/hooks.ts
     - packages/core/templates/git-hooks/**
     - packages/contracts/src/git-hooks.ts
-  lastReviewed: 2026-10-28
+  lastReviewed: 2026-10-29
   stability: stable
 ---
 
 # Development Workflow Context Injection
 
 Opt-in unified-hook releases use the numbered `vYYYY.MM.N-canary.N` channel
-through the normal release plan/open and OIDC workflow. The release-preparation
-workflow accepts this channel explicitly; publication stays on `canary` and does
-not advance to `latest`. Preserve registry retries and installed-package soak
+through `cleo release cut` and the OIDC workflow. The version suffix picks the npm
+dist-tag, so publication stays on `canary` and does not advance to `latest`. Preserve registry retries and installed-package soak
 checks. Stable promotion needs the separately retained, source-bound live harness
 and hosted VidaPeps pilot evidence; missing or unavailable verification holds it.
 The stable target may follow the canary base when npm has already advanced, but
@@ -303,68 +302,38 @@ git push origin HEAD
 # - Installation test
 ```
 
-### G5: Version Bump (Release Only)
+### G5: Pull request
 
-**Only for releases**, not every commit.
+Every change reaches main through a PR. The body names each task and the ACs the
+PR delivers, one line per task (ADR-099):
 
-```bash
-# 1. Preview
-./dev/bump-version.sh --dry-run patch
-
-# 2. Execute
-./dev/bump-version.sh patch
-
-# 3. Validate
-./dev/validate-version.sh
-
-# 4. Reinstall locally
-./install.sh --force
-cleo version
+```
+Closes: T1456 AC1,AC2
+Refs: T1400 AC3
 ```
 
-### G6: Tag & Release
-
-**GitHub Actions handles release creation.**
+`Closes:` completes the task once its ACs are covered; `Refs:` binds ACs for
+partial delivery. The PR text never waives an AC. Check the lines against the
+store before merge:
 
 ```bash
-# 1. Create annotated tag
-git tag -a v${VERSION} -m "${TYPE}: ${SUMMARY}"
-
-# 2. Push tag (triggers release workflow)
-git push origin v${VERSION}
-
-# 3. Push branch
-git push origin HEAD
-
-# GitHub Actions automatically:
-# - Builds release tarball
-# - Creates GitHub Release
-# - Generates release notes
-# - Uploads artifacts
+cleo done --from-merge <pr> --dry-run
 ```
 
-**Release preflight (`release-prepare.yml`).** `cleo release open <version>`
-checks main's HEAD SHA and dispatches with `skip-tests=true` when the `ci.yml`
-push run for that SHA, or for an ancestor reached only through release-plan
-commits (the plan file, changesets, CHANGELOG; T13140), is green AND ran every
-Linux `Unit Tests` shard green (a docs-only push that skipped the tests does
-not count). It runs no macOS shards (T14104): `macos-main.yml` validates macOS
-on every main push, nightly and on demand, and files a `macos-regression` issue
-when it fails. A `ci.yml` push run still queued or in progress
-is polled for up to 10 minutes first (T13823). The SHA travels as
-`verified-sha` and the proving run's id as `reused-ci-run`; the workflow
-ignores the skips if it checks out another commit or `verified-sha` is empty,
-and re-reads the reused run from the API (push to main, success, every Linux
-shard green, same tree: the exact commit, or one it extends only by
-whole-path-allowlisted plan, changeset `.md` and CHANGELOG.md files; T13825)
-before it skips the Linux shards, naming the run in the
-summary and the bump-PR body. Otherwise the 8 Linux test shards run. The
-decision is in the run summary.
+A reviewer that is not the author records a verdict per AC on the PR head
+(`cleo review packet <pr> --task T1456`, then `cleo review verdict`). Merge on
+green `CI`; the merge sweep closes the task and records its evidence. No step
+follows the merge.
 
-**Bump-PR merge.** Its `pull_request` runs stay `action_required` (no GitHub
-App), so the orchestrator admin-merges once the dispatched `CI` run on the PR
-head SHA is green: `gh pr merge <n> --admin --merge` — see
-`docs/release/merge-queue-runbook.md`.
+### G6: Release
+
+Commits never bump versions or tag. Each user-facing change carries a
+`.changeset/` entry, and a release is one command run by the lead:
+
+```bash
+cleo release cut v2026.MM.N --dry-run   # green sha, notes, packages, task report
+cleo release cut v2026.MM.N             # tags; release.yml builds and publishes
+```
 
 ---
 
@@ -383,16 +352,27 @@ head SHA is green: `gh pr merge <n> --admin --merge` — see
 
 ### Do I Need a Version Bump?
 
-| Change | Bump | Tag |
-|--------|------|-----|
-| `feat` | minor | Yes |
-| `fix` | patch | Yes |
-| `docs` | No | No |
-| `refactor` | patch | Yes |
-| `test` | No | No |
-| `chore` | No | No |
-| `perf` | patch | Yes |
-| `security` | patch | Yes |
+No. Add a `.changeset/` entry for user-facing changes; versions and tags come
+from `cleo release cut`.
+
+---
+
+## PR Cadence (D11212)
+
+Many small PRs, each tied to a task group, so every change is traceable from
+task to PR to release (spec: `cleo docs fetch pr-cadence`):
+
+- **One PR per task group.** A PR delivers one task, or a few tasks that cannot
+  land apart. Never bundle unrelated tasks to save a CI run.
+- **Small.** Reviewable in one sitting. Split a large task into PRs that each
+  keep `main` green: `Refs:` on each, `Closes:` on the last.
+- **Name the tasks.** One body line per task: `Closes: T#### AC1,AC2` or
+  `Refs: T#### AC3`. The `PR Task Lines` check flags a PR with none or with a
+  malformed line. A change no task owns takes the `no-task` label.
+- **Changeset** with the same `tasks:` for user-facing changes; release notes
+  are built from them.
+- **Batch at release time, not in PRs.** PRs merge one at a time on green
+  `CI`; `cleo release cut` ships everything merged since the last tag.
 
 ---
 
@@ -406,7 +386,7 @@ head SHA is green: `gh pr merge <n> --admin --merge` — see
 # Task lifecycle
 cleo current                 # Current task
 cleo start T123              # Start task (on E_SESSION_UNBOUND: bind a session, see above)
-cleo complete T123           # Mark done
+cleo complete T123           # Mark done (no-PR work; PR work closes on merge)
 
 # Find existing work
 cleo find "query"            # Search tasks
@@ -462,11 +442,12 @@ Co-Authored-By: Claude <noreply@anthropic.com>
 EOF
 )"
 
-# 6. Push (CI handles full tests)
+# 6. Push and open a PR whose body says `Closes: T1456 AC1,AC2`
 git push origin HEAD
+gh pr create --fill
+cleo done --from-merge <pr> --dry-run
 
-# 7. Mark task complete
-cleo complete T1456
+# 7. Merge on green CI after the per-AC review; the merge sweep closes T1456
 ```
 
 ### Example 2: Documentation Only
@@ -490,11 +471,11 @@ Co-Authored-By: Claude <noreply@anthropic.com>
 EOF
 )"
 
-# 5. Push
+# 5. Push and open a PR whose body says `Closes: T1550 AC1`
 git push origin HEAD
+gh pr create --fill
 
-# 6. Complete
-cleo complete T1550
+# 6. Merge on green CI after the per-AC review; the merge sweep closes T1550
 ```
 
 ---

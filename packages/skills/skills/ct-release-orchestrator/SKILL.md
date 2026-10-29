@@ -1,19 +1,21 @@
 ---
 name: ct-release-orchestrator
-description: "Orchestrates the canonical 4-verb release pipeline introduced by SPEC-T9345: cleo release plan, then cleo release open, then PR + GHA tag workflow, then cleo release reconcile. The deprecated cleo release ship monolith was deleted in T10103 — do not invoke it. Use ship-e2e-smoke to validate the full pipeline end-to-end (dry-run by default). The full verb-to-state map is in docs/release/verb-matrix.md. Use when shipping a new version, validating the release pipeline end-to-end, or promoting a completed epic to released status."
+description: "Orchestrates CLEO releases. Default (T14102): cleo release cut {version} tags the newest main commit with green CI, and release.yml writes the CHANGELOG from changesets, publishes, and opens an auto-merging CHANGELOG + version PR; cleo release reconcile records provenance. The SPEC-T9345 4-verb pipeline (cleo release plan, cleo release open, PR + tag) stays one release as a fallback (T14114). The deprecated cleo release ship monolith was deleted in T10103 — do not invoke it. Use ship-e2e-smoke to validate the full pipeline end-to-end (dry-run by default). The full verb-to-state map is in docs/release/verb-matrix.md. Use when shipping a new version, validating the release pipeline end-to-end, or promoting a completed epic to released status."
 protocol: release
 adrRefs:
   - ADR-053
   - ADR-063
   - ADR-065
 metadata:
-  version: 3.2.8
+  version: 3.4.0
   tier: on-demand
   install: harness
   covers:
     - packages/core/src/validation/protocols/cant/release.cant
     - packages/core/src/validation/protocols/protocols-markdown/release.md
     - packages/cleo/src/cli/commands/release.ts
+    - packages/core/src/release/cut.ts
+    - packages/core/src/release/authorization.ts
   loomStage: release
   lastReviewed: 2026-10-28
   stability: stable
@@ -53,6 +55,31 @@ Owns the canonical 4-verb release pipeline established by SPEC-T9345 and finalis
 
 **Single release PR (T13825, owner choice 2026-10-16).** `node scripts/release-run.mjs <ver> --epic <id> --notes-review <file> [--execute]` runs plan → independent notes review (`{"reviewer","notesSha256","approved":true}` by someone other than the operator, for the plan's exact `meta.releaseNotes`) → `release/plan-<ver>` (one commit, plan + CHANGELOG.md, on the default branch's HEAD, made through the GitHub API) → `cleo release open <ver> --ref release/plan-<ver>` → waits for release-prepare and the bump PR's dispatched `CI` on its exact head → version-only assert against the merge-base → `gh pr merge --admin --merge --match-head-commit` plus the `.cleo/audit/force-bypass.jsonl` line → explicit `git tag -a` on the merge commit and push. The bump PR carries the plan and the bump. Dry-run by default; every step resumes on re-run. `--ref` alone dispatches on any plan branch; preflight skips carry over only when it adds release-plan files alone.
 
+## One-command release (default, T14102)
+
+```bash
+cleo release cut v2026.10.28 --lead lead.md         # report: commit, notes, packages, migrations, task status, confirm command
+cleo release cut v2026.10.28 --sha <sha> --lead lead.md --yes   # the printed confirm command: tags that commit
+```
+
+**Confirmation (D11212).** Nothing is tagged without `--yes`; without it the cut reports and prints the exact confirm command, pinned to the previewed sha. With `--yes`, an active standing release authorization covering the version allows the tag (an agent); otherwise the cut asks on the controlling terminal (`/dev/tty`) and tags only when the version is typed exactly, refusing with `E_RELEASE_NOT_AUTHORIZED` (and naming the scope to grant) when there is no terminal. The typed confirmation stops casual misuse only: a caller that drives a pseudo-terminal can still type the version. The audit row records `allowedBy` (`tty-confirm` or `authorization:<id>`).
+
+**Standing authorization (T14141, D11215).** The owner grants it at a terminal with the owner-auth password: `cleo release authorize --scope canary|prerelease|stable|<version> --expires 7d --reason "<why>" [--uses <n>]` (at most 30d; no use limit unless `--uses`). It is signed with the enrolled owner key (`cleo config owner-enroll`), stored in `.cleo/release-authorizations.json` and the global store, recorded as an owner decision, and audited in `.cleo/audit/release-authorizations.jsonl`. `cleo release authorize --list` shows each grant's state; `--revoke <id>` (owner password too) ends one now with a signed revocation, and the revocation count is sealed in `.cleo/owner-settings.json` (commit it). An edited, unsigned or one-sided grant is ignored; an edited, unsigned or shortened revocation list makes every grant tampered (fail closed). `cleo doctor` reports both. A cut it allows carries `Authorized-by: <id>` in the tag message.
+
+- **Commit:** the newest first-parent commit of `origin/main` whose `CI` check run concluded `success`; `--sha` pins one, which must itself be green. Nothing reruns the test suites: CI already passed that tree.
+- **Notes:** the changesets added since the previous release tag, led by `--lead` (stored as the tag annotation). A changeset no merged PR brought in is refused (`E_RELEASE_UNMERGED_CHANGESET`); no green commit is `E_RELEASE_NO_GREEN_COMMIT`.
+- **Docs rot (T14111):** the dry run shows `cleo docs rot` findings; a real stable cut refuses with `E_DOCS_ROT` before tagging while any stale, duplicate or orphaned doc remains; on a prerelease (canary) it is a warning only.
+- **Provenance:** the merge sweep reconciles the newest stable tag automatically once its GitHub release exists (ADR-099); there is no manual reconcile step.
+- **Cleanup (T14142):** the report shows the plan for the release tasks' worktrees and `task/*` branches, plus nested repository copies proven redundant (clean, every ref on origin) only inside the worktrees of the release's done or cancelled tasks; a confirmed cut applies it after the tag. A cleanup failure never fails the cut, and changesets naming no task skip it.
+- **Task status is reported, never gated.** Green CI on the sha is the gate; a pending task does not block the cut.
+- **Tag:** an annotated `v<ver>` made through the GitHub API with your `gh` token, which starts `release.yml`. It runs `cleo release write-changelog`, publishes, and on a stable release opens `release/v<ver>`, a CHANGELOG + version PR that auto-merges on green and never blocks the release.
+
+**Gates (all re-checked):** the version is CalVer for this month, above every release tag and main's `package.json`; the commit is first-parent on `origin/main` with every `release.prRequiredWorkflows` check (app-pinned, push run) green; the local checkout is at `origin/main`; CI is judged again right before the tag; every real cut writes a row to `.cleo/audit/release-cut.jsonl`. `release.yml` runs `cleo release verify-tag` before publishing, so a hand-pushed or dispatched tag on an untested tree never ships.
+
+**Rollback.** A bad tag before `release.yml` publishes: cancel the run (`gh run cancel <id>`) and delete the tag (`git push origin :refs/tags/v<ver>`), then cut again. After publish, fix forward with the next version. If `changelog-pr` fails after a publish, re-run that job, or open the PR by hand from main: `cleo release write-changelog <ver> --ref v<ver>` plus `node scripts/version-all.mjs --set <ver>`.
+
+The plan/open pipeline below stays for one release as a fallback; T14114 deletes it.
+
 ## Canonical Pipeline
 
 | Step | Verb / Workflow | Owns transition | Notes |
@@ -79,10 +106,10 @@ Optional validators (read-only / dry-run):
 | RLSE-001 | Version MUST be CalVer (`YYYY.MM.patch`) per ADR-065 — never SemVer. | `cleo release plan` rejects non-CalVer; exit 53. |
 | RLSE-002 | `CHANGELOG.md` MUST be updated before the tag — always-write is the default behaviour of `cleo release plan` (T9784 deleted the manual changelog verb). | Plan envelope refuses to advance to `pr-opened` if the changeset directory is unparseable (T10105). |
 | RLSE-003 | All per-task evidence gates MUST be recorded via `cleo verify <task> --gate <g> --evidence …` BEFORE `cleo complete`. The legacy `cleo release verify` batch verb was deleted in T9540. | ADR-051 per-task evidence ritual. | <!-- cleo-cmd: negative-example: release verify -->
-| RLSE-004 | The release MUST be tagged explicitly (`git tag -a v<ver>` + `git push origin v<ver>`) after the release PR merges. | Auto-tag was retired in T10434 / ADR-087: `GITHUB_TOKEN` tag pushes did not reliably trigger `release.yml`. |
-| RLSE-005 | Direct pushes to `main` are prohibited. Every release ships via a PR cut by `release-prepare.yml`. | ADR-065 + branch protection (see `docs/release/branch-protection-setup.md`). |
+| RLSE-004 | The release MUST be tagged explicitly: by `cleo release cut` (API tag on the green sha), or on the fallback path with `git tag -a v<ver>` + `git push origin v<ver>` after the release PR merges. | Auto-tag was retired in T10434 / ADR-087: `GITHUB_TOKEN` tag pushes did not reliably trigger `release.yml`. |
+| RLSE-005 | Direct pushes to `main` are prohibited. A cut release reaches main's CHANGELOG and versions through `release.yml`'s auto-merging `release/v<ver>` PR; the fallback path through the PR `release-prepare.yml` cuts. | ADR-065 + branch protection (see `docs/release/branch-protection-setup.md`). |
 | RLSE-006 | Version MUST be consistent across all workspace targets resolved by `resolveVersionBumpTargets` (root package.json + every workspace package + Cargo workspace). | Version-bump preflight in `release-prepare.yml`. |
-| RLSE-007 | Provenance reconcile MUST run within the release-publish workflow — never as a manual followup. | Invoked by `release-publish.yml`. |
+| RLSE-007 | Provenance reconcile runs automatically: the merge sweep calls `reconcileLatestRelease` once the GitHub release exists (ADR-099). Run `cleo release reconcile <ver>` only to recover. | T14101 merge sweep. |
 
 ## Integration
 

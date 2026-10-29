@@ -87,6 +87,7 @@ import { captureWrapped } from '../resources/spawn-wrapper.js';
 import { createAttachmentStore } from '../store/attachment-store.js';
 import { registerTeardownAbort } from '../teardown-signal.js';
 import { acItemToText, acTextHash } from './ac-table.js';
+import { commandGateCmdProblem } from './command-gate-cmd.js';
 import { splitCommandLine } from './command-line.js';
 import { resolveCanonicalProjectRoot } from './evidence.js';
 import { resolveEvidenceRepository, resolveEvidenceTree } from './evidence-tree.js';
@@ -1768,6 +1769,12 @@ export function executableInvocation(
   const [testCommand, ...testArgs] = gate.kind === 'test' ? splitCommandLine(gate.command) : [];
   if (gate.kind === 'test' && testCommand === undefined)
     throw new Error('Test gate command is empty');
+  // T14155: a stored command gate whose cmd carries its arguments would spawn
+  // a program named the whole line and fail with a bare ENOENT. Every run path
+  // (preview, verify --run, done) resolves its invocation here first.
+  const cmdProblem = commandGateCmdProblem(gate, root);
+  // @sync-invariant none:input-shape a stored gate's cmd shape is refused before it spawns; nothing is written
+  if (cmdProblem !== null) throw new Error(cmdProblem);
   const command =
     gate.kind === 'test'
       ? testCommand!
@@ -2652,6 +2659,9 @@ async function runTestGate(
   timeoutMs: number,
   context: ProcessCaptureOptions,
 ): Promise<AcceptanceGateResult> {
+  // Keep a direct call's refusal (T14155) an error verdict, not a rejection.
+  const cmdProblem = commandGateCmdProblem(gate, projectRoot);
+  if (cmdProblem !== null) return makeResult(index, gate, 'error', 0, undefined, cmdProblem);
   const invocation = executableInvocation(gate, projectRoot, context.env ?? process.env)!;
   // T13782: a JSON reporter redirected to a file still yields this run's counts.
   const reportFiles = reportFileCandidates(invocation.args, invocation.cwd);

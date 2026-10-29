@@ -409,6 +409,8 @@ describe('cloud projects (E13, E14, E15)', () => {
     const server = mockServer({});
     const outside = join(base, 'empty');
     mkdirSync(outside);
+    // No project: unpin the store (an absolute CLEO_DIR wins over projectRoot); afterEach restores it.
+    delete process.env['CLEO_DIR'];
     const err = await failure(
       showNexusCloudProject({ ...opts(server.fetch), projectRoot: outside }),
     );
@@ -594,6 +596,8 @@ describe('cloud status (E3, §4.4)', () => {
     await signIn();
     const outside = join(base, 'empty');
     mkdirSync(outside);
+    // No project: unpin the store (an absolute CLEO_DIR wins over projectRoot); afterEach restores it.
+    delete process.env['CLEO_DIR'];
     const server = mockServer({
       '/v1/status': () => ok({ ...remote, project: null, replica: null, stream: null }),
     });
@@ -747,6 +751,8 @@ describe('cloud status (E3, §4.4)', () => {
     await signIn();
     const outside = join(base, 'empty');
     mkdirSync(outside);
+    // No project: unpin the store (an absolute CLEO_DIR wins over projectRoot); afterEach restores it.
+    delete process.env['CLEO_DIR'];
     const server = mockServer({
       '/v1/whoami': () => ok({ ...whoami, device: { ...deviceView, state: 'quarantined' } }),
     });

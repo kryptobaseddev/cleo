@@ -154,7 +154,22 @@ export function subDeclaresPositional(source, sub) {
   }
   const body = extent.slice(argsMatch.index, i);
   if (/\.\.\./.test(body)) return null; // spread-in args: not judged
-  return /type:\s*'positional'/.test(body);
+  if (/type:\s*'positional'/.test(body)) return true;
+  // An arg defined by reference (`pr: prArg`, review.ts) is resolved through
+  // a same-file `const prArg = { … }` and judged; an unresolvable reference
+  // is not judged (T14105).
+  const refs = [
+    ...body.matchAll(/:\s*(?!(?:true|false|null|undefined)\b)([A-Za-z_$][\w$]*)\s*[,}\n]/g),
+  ].map((m) => m[1]);
+  let unresolved = false;
+  for (const ref of new Set(refs)) {
+    const decl = new RegExp(`\\bconst\\s+${ref.replace(/\$/g, '\\$')}\\s*=\\s*\\{([^}]*)\\}`).exec(
+      source,
+    );
+    if (!decl) unresolved = true;
+    else if (/type:\s*'positional'/.test(decl[1] ?? '')) return true;
+  }
+  return unresolved ? null : false;
 }
 
 /**

@@ -138,11 +138,12 @@ cleo done <TASK_ID> --plan   # 4. tests: affected → ci → full (zero new fail
 git diff --stat HEAD         # 5. verify scope matches intent
 ```
 
-Step 4 never means a manual full suite. Before merge record
-`tool:test-affected` when `testing.affectedCommand` is configured, else
-`test-run:<json>` from the changed test files; after merge, when the
-project sets `evidence.ciSatisfies`, record `ci:<pr>`. While iterating,
-run only the failing or changed test files.
+Step 4 never means a manual full suite. PR work needs no local evidence
+run: green `CI` on the PR head is the proof, and the merge sweep records
+`ci:<pr>` (ADR-099). No-PR work records `tool:test-affected` when
+`testing.affectedCommand` is configured, else `test-run:<json>` from the
+changed test files. While iterating, run only the failing or changed test
+files.
 
 Note: `pnpm run build` (esbuild) does NOT run the strict TS project-reference
 typecheck. Always run `pnpm run typecheck` separately before tagging or

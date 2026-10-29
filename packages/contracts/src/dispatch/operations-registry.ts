@@ -9889,6 +9889,106 @@ export const OPERATIONS: OperationDef[] = [
     ] satisfies ParamDef[],
   },
 
+  // release mutate: cut (T14102 — one-command release from the newest green
+  // default-branch commit; replaces plan → open → bump-PR → hand tag).
+  {
+    gateway: 'mutate',
+    domain: 'release',
+    operation: 'cut',
+    description:
+      'release.cut (mutate) — tag the newest default-branch commit with green CI as v<version> once confirmed with --yes (D11211/D11212); release.yml writes the CHANGELOG from changesets and publishes. Without --yes it reports the commit, notes, packages and task status and prints the confirm command (T14102).',
+    tier: 1,
+    idempotent: false,
+    sessionRequired: false,
+    requiredParams: ['version'],
+    params: [
+      {
+        name: 'version',
+        type: 'string',
+        required: true,
+        description: 'Release version (accepts v2026.10.28 or 2026.10.28)',
+        cli: { positional: true },
+      },
+      {
+        name: 'sha',
+        type: 'string',
+        required: false,
+        description: 'Pin the commit instead of the newest green one; it must itself be green',
+      },
+      {
+        name: 'lead',
+        type: 'string',
+        required: false,
+        description: 'Markdown file that leads the notes (Update now + Highlights)',
+      },
+      {
+        name: 'dryRun',
+        type: 'boolean',
+        required: false,
+        description: 'Report the commit, notes, packages and tasks without creating the tag',
+      },
+      {
+        name: 'yes',
+        type: 'boolean',
+        required: false,
+        description:
+          'Create the tag (D11212): the version typed on the controlling terminal (/dev/tty), or a standing release authorization (T14141), allows it. Without it the cut only reports and prints the confirm command',
+      },
+    ] satisfies ParamDef[],
+  },
+
+  // release mutate: write-changelog (T14102 — CHANGELOG section from the
+  // changesets since the previous tag; run by release.yml on the tagged checkout).
+  {
+    gateway: 'mutate',
+    domain: 'release',
+    operation: 'write-changelog',
+    description:
+      'release.write-changelog (mutate) — write the ## [VERSION] CHANGELOG.md section from the changesets added since the previous release tag, led by the tag annotation; leaves an existing section untouched (T14102).',
+    tier: 1,
+    idempotent: true,
+    sessionRequired: false,
+    requiredParams: ['version'],
+    params: [
+      {
+        name: 'version',
+        type: 'string',
+        required: true,
+        description: 'Release version (accepts v2026.10.28 or 2026.10.28)',
+        cli: { positional: true },
+      },
+      {
+        name: 'ref',
+        type: 'string',
+        required: false,
+        description: 'Commit the release was cut from (default: tag v<version>, else HEAD)',
+      },
+    ] satisfies ParamDef[],
+  },
+
+  // release query: verify-tag (T14102 — release.yml refuses to publish a tag
+  // that is not a green first-parent commit of the default branch).
+  {
+    gateway: 'query',
+    domain: 'release',
+    operation: 'verify-tag',
+    description:
+      'release.verify-tag (query) — refuse a release tag whose commit is not a first-parent commit of origin/main with every required check (release.prRequiredWorkflows, app-pinned) green on its push run. Run by release.yml before publishing (T14102).',
+    tier: 1,
+    idempotent: true,
+    sessionRequired: false,
+    requiredParams: ['version'],
+    params: [
+      {
+        name: 'version',
+        type: 'string',
+        required: true,
+        description: 'Release version whose tag is checked (accepts v2026.10.28 or 2026.10.28)',
+        cli: { positional: true },
+      },
+    ] satisfies ParamDef[],
+  },
+
   // release query: validate-changelog (T9937 / Saga T9862 — canonical CHANGELOG
   // header validator that replaces the brittle inline grep step in
   // .github/workflows/release.yml). Read-only — exposed only under the query

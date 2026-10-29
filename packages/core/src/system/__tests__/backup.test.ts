@@ -45,12 +45,21 @@ import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+/** The suite-level CLEO_DIR (vitest.setup pins one per worker); restored after each test. */
+const suiteCleoDir = process.env['CLEO_DIR'];
+afterEach(() => {
+  if (suiteCleoDir === undefined) delete process.env['CLEO_DIR'];
+  else process.env['CLEO_DIR'] = suiteCleoDir;
+});
+
 describe('system/backup', () => {
   let testDir: string;
 
   beforeEach(async () => {
     vi.resetModules();
     testDir = await mkdtemp(join(tmpdir(), 'cleo-system-backup-'));
+    // T14153: backups follow the store's resolver; pin it to this fixture.
+    process.env['CLEO_DIR'] = join(testDir, '.cleo');
     mkdirSync(join(testDir, '.cleo'), { recursive: true });
   });
 
@@ -165,6 +174,119 @@ describe('system/backup', () => {
       }
     } finally {
       database.close();
+    }
+  });
+
+  it('two backups of one type in the same second keep both store copies (T14158)', async () => {
+    const database = new DatabaseSync(join(testDir, '.cleo', 'cleo.db'));
+    database.exec(
+      "CREATE TABLE backup_fixture(value TEXT); INSERT INTO backup_fixture VALUES ('x')",
+    );
+    vi.doMock('../../store/sqlite.js', () => ({ getDb: vi.fn(), getNativeDb: () => database }));
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date('2026-10-29T12:00:00Z'));
+    try {
+      const { createBackup } = await import('../backup.js');
+      const first = await createBackup(testDir, { type: 'move' });
+      const second = await createBackup(testDir, { type: 'move' });
+      expect(second.backupId).not.toBe(first.backupId);
+      expect(second.files).toEqual(['cleo.db']);
+      const dir = join(testDir, '.cleo', 'backups', 'sqlite');
+      for (const id of [first.backupId, second.backupId]) {
+        expect(id).toMatch(/^move-\d{8}-\d{6}$/);
+        expect(existsSync(join(dir, `cleo.db.${id}`))).toBe(true);
+      }
+    } finally {
+      vi.useRealTimers();
+      database.close();
+    }
+  });
+
+  /**
+   * A native handle whose VACUUM INTO calls `onVacuum(temp, final)`: `temp` is
+   * the file the snapshot writes, `final` the backup path it is published at.
+   */
+  function vacuumDb(onVacuum: (temp: string, final: string) => void): {
+    exec: (sql: string) => void;
+  } {
+    return {
+      exec: (sql: string) => {
+        const match = /^VACUUM INTO '(.*)'$/.exec(sql);
+        if (!match?.[1]) return;
+        const temp = match[1].replace(/''/g, "'");
+        onVacuum(temp, temp.replace(/\.\d+-[0-9a-f]{8}\.tmp$/, ''));
+      },
+    };
+  }
+
+  /** Files still named `*.tmp` under `dir`. */
+  const leftoverTemps = (dir: string): string[] =>
+    readdirSync(dir).filter((name) => name.endsWith('.tmp'));
+
+  it('a backup another writer published first is never replaced; this one takes the next id (T14158)', async () => {
+    writeFileSync(join(testDir, '.cleo', 'cleo.db'), 'live-store');
+    let theirs = '';
+    const db = vacuumDb((temp, final) => {
+      if (theirs === '') {
+        theirs = final;
+        writeFileSync(final, 'theirs');
+      }
+      writeFileSync(temp, 'mine');
+    });
+    vi.doMock('../../store/sqlite.js', () => ({ getDb: vi.fn(), getNativeDb: () => db }));
+    const { createBackup } = await import('../backup.js');
+    const result = await createBackup(testDir, { type: 'move' });
+    const dir = join(testDir, '.cleo', 'backups', 'sqlite');
+    expect(readFileSync(theirs, 'utf-8')).toBe('theirs');
+    expect(join(dir, `cleo.db.${result.backupId}`)).not.toBe(theirs);
+    expect(readFileSync(join(dir, `cleo.db.${result.backupId}`), 'utf-8')).toBe('mine');
+    expect(result.files).toContain('cleo.db');
+    expect(leftoverTemps(dir)).toEqual([]);
+  });
+
+  it('a failing snapshot removes only its own temp, never an existing backup at its target (T14158)', async () => {
+    writeFileSync(join(testDir, '.cleo', 'cleo.db'), 'live-store');
+    let theirs = '';
+    const db = vacuumDb((temp, final) => {
+      theirs = final;
+      writeFileSync(final, 'theirs');
+      writeFileSync(temp, 'partial');
+      throw new Error('disk full');
+    });
+    vi.doMock('../../store/sqlite.js', () => ({ getDb: vi.fn(), getNativeDb: () => db }));
+    const { createBackup } = await import('../backup.js');
+    const result = await createBackup(testDir, { type: 'move' });
+    expect(result.files).not.toContain('cleo.db');
+    expect(result.captureErrors).toEqual([{ target: 'cleo.db', error: 'disk full' }]);
+    expect(readFileSync(theirs, 'utf-8')).toBe('theirs');
+    expect(leftoverTemps(join(testDir, '.cleo', 'backups', 'sqlite'))).toEqual([]);
+  });
+
+  it('the global backup copy never overwrites an existing backup (T14158)', async () => {
+    const destination = join(testDir, 'global-out');
+    let theirs = '';
+    const db = vacuumDb((temp, final) => {
+      theirs = final;
+      writeFileSync(final, 'theirs');
+      writeFileSync(temp, 'mine');
+    });
+    // Only the global store handle is faked; module-load users of the real
+    // path helpers (portable-bundle-scan) keep their string results.
+    vi.doMock('../../store/dual-scope-db.js', async (importOriginal) => ({
+      ...(await importOriginal<typeof import('../../store/dual-scope-db.js')>()),
+      openDualScopeDb: vi.fn().mockResolvedValue({}),
+      getDualScopeNativeDb: () => db,
+    }));
+    try {
+      const { createGlobalBackup } = await import('../backup.js');
+      const result = await createGlobalBackup({ type: 'auto', destination });
+      expect(readFileSync(theirs, 'utf-8')).toBe('theirs');
+      expect(join(destination, `cleo.db.${result.backupId}`)).not.toBe(theirs);
+      expect(readFileSync(join(destination, `cleo.db.${result.backupId}`), 'utf-8')).toBe('mine');
+      expect(result.files).toEqual(['cleo.db']);
+      expect(leftoverTemps(destination)).toEqual([]);
+    } finally {
+      vi.doUnmock('../../store/dual-scope-db.js');
     }
   });
 
@@ -356,6 +478,8 @@ describe('system/backup — legacy dir fallthrough (T10315 · ADR-013 §10)', ()
   beforeEach(async () => {
     vi.resetModules();
     testDir = await mkdtemp(join(tmpdir(), 'cleo-system-backup-legacy-'));
+    // T14153: backups follow the store's resolver; pin it to this fixture.
+    process.env['CLEO_DIR'] = join(testDir, '.cleo');
     mkdirSync(join(testDir, '.cleo'), { recursive: true });
   });
   afterEach(async () => {
@@ -470,6 +594,8 @@ describe('system/backup — rotation (T9194)', () => {
   beforeEach(async () => {
     vi.resetModules();
     testDir = await mkdtemp(join(tmpdir(), 'cleo-system-backup-rotation-'));
+    // T14153: backups follow the store's resolver; pin it to this fixture.
+    process.env['CLEO_DIR'] = join(testDir, '.cleo');
     mkdirSync(join(testDir, '.cleo'), { recursive: true });
   });
   afterEach(async () => {
@@ -650,6 +776,8 @@ describe('system/backup — restored .db files are byte-identical', () => {
   beforeEach(async () => {
     vi.resetModules();
     testDir = await mkdtemp(join(tmpdir(), 'cleo-system-backup-restore-'));
+    // T14153: backups follow the store's resolver; pin it to this fixture.
+    process.env['CLEO_DIR'] = join(testDir, '.cleo');
     mkdirSync(join(testDir, '.cleo'), { recursive: true });
   });
   afterEach(async () => {
@@ -688,6 +816,8 @@ describe('system/backup — session-end snapshots are listed (T14150)', () => {
   beforeEach(async () => {
     vi.resetModules();
     testDir = await mkdtemp(join(tmpdir(), 'cleo-system-backup-session-end-'));
+    // T14153: backups follow the store's resolver; pin it to this fixture.
+    process.env['CLEO_DIR'] = join(testDir, '.cleo');
     mkdirSync(join(testDir, '.cleo', 'backups', 'sqlite'), { recursive: true });
     mkdirSync(join(testDir, '.cleo', 'logs'), { recursive: true });
   });
@@ -774,5 +904,48 @@ describe('system/backup — session-end snapshots are listed (T14150)', () => {
         'found in the last 200 session-end log lines (3 failed or skipped in that window)',
       ),
     );
+  });
+});
+
+// T14153: under a CLEO_DIR pin, a backup's files and its listing follow the
+// store (the database's resolver), whatever root the caller passes.
+describe('system/backup — one store under a CLEO_DIR pin (T14153)', () => {
+  let storeRoot: string;
+  let otherRoot: string;
+  beforeEach(async () => {
+    vi.resetModules();
+    storeRoot = await mkdtemp(join(tmpdir(), 'cleo-system-backup-pin-a-'));
+    otherRoot = await mkdtemp(join(tmpdir(), 'cleo-system-backup-pin-b-'));
+    mkdirSync(join(storeRoot, '.cleo', 'logs'), { recursive: true });
+    mkdirSync(join(otherRoot, '.cleo'), { recursive: true });
+    process.env['CLEO_DIR'] = join(storeRoot, '.cleo');
+  });
+  afterEach(async () => {
+    await rm(storeRoot, { recursive: true, force: true });
+    await rm(otherRoot, { recursive: true, force: true });
+  });
+
+  it('creates and lists a backup in the pinned store, not in the root it was given', async () => {
+    vi.doMock('../../store/sqlite.js', () => ({
+      getDb: vi.fn().mockResolvedValue({}),
+      getNativeDb: () => null,
+    }));
+    writeFileSync(join(storeRoot, '.cleo', 'config.json'), JSON.stringify({ store: 'A' }));
+    const { createBackup, listSystemBackups } = await import('../backup.js');
+    const result = await createBackup(otherRoot);
+    expect(result.path).toBe(join(storeRoot, '.cleo', 'backups', 'sqlite'));
+    expect(existsSync(join(otherRoot, '.cleo', 'backups'))).toBe(false);
+    expect(listSystemBackups(otherRoot).map((b) => b.backupId)).toContain(result.backupId);
+  });
+
+  it('reads the session-end worker log from the pinned store, where the worker writes it', async () => {
+    const { sessionEndWorkerMarkerPath } = await import('../../sessions/session-end-snapshot.js');
+    expect(sessionEndWorkerMarkerPath(otherRoot).startsWith(join(storeRoot, '.cleo'))).toBe(true);
+    writeFileSync(
+      join(storeRoot, '.cleo', 'logs', 'session-end-snapshot.log'),
+      `${JSON.stringify({ event: 'session-end-snapshot', at: '2026-10-29T09:00:00.000Z', result: null })}\n`,
+    );
+    const { listSystemBackups } = await import('../backup.js');
+    expect(listSystemBackups(otherRoot).filter((b) => b.outcome === 'failed')).toHaveLength(1);
   });
 });

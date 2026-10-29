@@ -10,7 +10,7 @@ import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { EngineResult } from '../engine-result.js';
 import { generateProjectHash } from '../nexus/hash.js';
 import {
@@ -20,6 +20,7 @@ import {
   type ReregisterProjectResult,
   renameProject,
   reregisterProject,
+  rerootProject,
 } from '../project-lifecycle.js';
 
 // ── Helpers ──────────────────────────────────────────────────────────
@@ -68,10 +69,13 @@ describe('project-lifecycle', () => {
   let projectDir: string;
 
   beforeEach(async () => {
+    // Production shape: no CLEO_DIR pin, so each project resolves its own store.
+    vi.stubEnv('CLEO_DIR', undefined);
     projectDir = await createTempProject();
   });
 
   afterEach(async () => {
+    vi.unstubAllEnvs();
     await cleanup(projectDir);
   });
 
@@ -187,7 +191,8 @@ describe('project-lifecycle', () => {
       const result = await moveProject(newDir, projectDir);
 
       const { existsSync } = await import('node:fs');
-      expect(result.success).toBe(true);
+      // T14158: a failure names its error code and message.
+      expectSuccess(result);
       expect(existsSync(join(newDir, '.cleo', 'project-info.json'))).toBe(true);
       expect(existsSync(join(projectDir, '.cleo', 'project-info.json'))).toBe(false);
 
@@ -378,7 +383,7 @@ describe('project-lifecycle', () => {
 
     it('renameProject returns EngineResult(true) on valid input', async () => {
       const result = await renameProject('valid-name', projectDir);
-      expect(result.success).toBe(true);
+      expectSuccess(result);
       expect(result).toHaveProperty('data');
     });
 
@@ -386,6 +391,53 @@ describe('project-lifecycle', () => {
       const result = await reregisterProject(projectDir);
       expect('success' in result).toBe(true);
       expect(result).toHaveProperty('success');
+    });
+  });
+
+  describe('T14159: a CLEO_DIR pin naming another store', () => {
+    let other: string;
+
+    beforeEach(async () => {
+      other = await createTempProject('other');
+      vi.stubEnv('CLEO_DIR', join(other, '.cleo'));
+    });
+
+    afterEach(async () => {
+      await cleanup(other);
+    });
+
+    it('move, rename and reroot refuse before any write', async () => {
+      const { existsSync, readdirSync } = await import('node:fs');
+      const newDir = join(tmpdir(), `cleo-pin-move-${Date.now()}`);
+      const child = join(projectDir, 'child');
+      mkdirSync(child);
+      const infoBefore = readFileSync(join(projectDir, '.cleo', 'project-info.json'), 'utf-8');
+      const results = [
+        await moveProject(newDir, projectDir),
+        await renameProject('renamed', projectDir),
+        await rerootProject(child, projectDir),
+      ];
+      for (const result of results) {
+        expect(result.success).toBe(false);
+        if (!result.success) {
+          expect(result.error.code).toBe('E_STORE_PIN_MISMATCH');
+          expect(result.error.message).toContain(join(other, '.cleo'));
+        }
+      }
+      expect(existsSync(newDir)).toBe(false);
+      expect(readdirSync(child)).toEqual([]);
+      expect(readFileSync(join(projectDir, '.cleo', 'project-info.json'), 'utf-8')).toBe(
+        infoBefore,
+      );
+      expect(existsSync(join(projectDir, '.cleo', 'backups'))).toBe(false);
+      expect(existsSync(join(other, '.cleo', 'backups'))).toBe(false);
+    });
+
+    it('a pin on the project itself moves as before', async () => {
+      vi.stubEnv('CLEO_DIR', join(projectDir, '.cleo'));
+      const newDir = join(tmpdir(), `cleo-pin-self-${Date.now()}`);
+      expectSuccess(await moveProject(newDir, projectDir));
+      await cleanup(newDir);
     });
   });
 });

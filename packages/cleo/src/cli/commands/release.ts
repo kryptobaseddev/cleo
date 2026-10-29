@@ -1,7 +1,11 @@
 /**
  * CLI release command group — release lifecycle management.
  *
- * Canonical 4-verb pipeline (SPEC-T9345):
+ * One-command release (T14102):
+ *   cleo release cut <version> [--dry-run]   — tag the newest green main commit; release.yml publishes
+ *   cleo release write-changelog <version>   — CHANGELOG section from changesets (run by release.yml)
+ *
+ * Canonical 4-verb pipeline (SPEC-T9345; fallback for one release, T14114):
  *   cleo release plan <version> --epic <id>  — build the Release Plan envelope
  *   cleo release open <version>              — dispatch release-prepare workflow
  *   cleo release reconcile <version>         — post-publish provenance backfill
@@ -616,6 +620,163 @@ const reconcileCommand = defineCommand({
  * @task T10103 — deleted ship shim + added ship-e2e-smoke
  * @spec SPEC-T9345 §12
  */
+/**
+ * cleo release cut <version> — one-command release (T14102). Tags the newest
+ * default-branch commit with green CI; the tag push starts release.yml, which
+ * writes the CHANGELOG from changesets, publishes, and opens the CHANGELOG +
+ * version PR. `--dry-run` shows the commit, notes, packages and task status.
+ *
+ * @task T14102
+ */
+const cutCommand = defineCommand({
+  meta: {
+    name: 'cut',
+    description:
+      'Release from the newest default-branch commit with green CI: report it (commit, notes, packages, task status) and print the confirm command; with --yes, tag it, and release.yml writes the notes from changesets and publishes (no plan PR, no bump PR). (T14102, D11212)',
+  },
+  args: {
+    version: {
+      type: 'positional',
+      description: 'Release version (accepts v2026.10.28 or 2026.10.28)',
+      required: true,
+    },
+    sha: {
+      type: 'string',
+      description: 'Pin the commit instead of the newest green one; it must itself be green',
+    },
+    lead: {
+      type: 'string',
+      description:
+        'Markdown file that leads the notes (Update now + Highlights); stored in the tag',
+    },
+    'dry-run': {
+      type: 'boolean',
+      description: 'Report the commit, notes, packages and tasks without creating the tag',
+    },
+    yes: {
+      type: 'boolean',
+      description:
+        'Create the tag (D11212): asks you to type the version on the terminal (/dev/tty), or uses a standing release authorization (T14141). Without it the cut only reports and prints the confirm command',
+    },
+  },
+  async run({ args }) {
+    await dispatchFromCli(
+      'mutate',
+      'release',
+      'cut',
+      {
+        version: args.version,
+        ...(typeof args.sha === 'string' ? { sha: args.sha } : {}),
+        ...(typeof args.lead === 'string' ? { lead: args.lead } : {}),
+        dryRun: args['dry-run'] === true,
+        yes: args.yes === true,
+      },
+      { command: 'release' },
+    );
+  },
+});
+
+/**
+ * cleo release write-changelog <version> — write the `## [VERSION]` section
+ * from the changesets since the previous tag, led by the tag annotation. Run
+ * by release.yml on the tagged checkout; an existing section is left alone.
+ *
+ * @task T14102
+ */
+const writeChangelogCommand = defineCommand({
+  meta: {
+    name: 'write-changelog',
+    description:
+      'Write the CHANGELOG.md section for a version from the changesets added since the previous release tag (used by release.yml for `release cut`). (T14102)',
+  },
+  args: {
+    version: {
+      type: 'positional',
+      description: 'Release version (accepts v2026.10.28 or 2026.10.28)',
+      required: true,
+    },
+    ref: {
+      type: 'string',
+      description: 'Commit the release was cut from (default: tag v<version>, else HEAD)',
+    },
+  },
+  async run({ args }) {
+    await dispatchFromCli(
+      'mutate',
+      'release',
+      'write-changelog',
+      { version: args.version, ...(typeof args.ref === 'string' ? { ref: args.ref } : {}) },
+      { command: 'release' },
+    );
+  },
+});
+
+/**
+ * cleo release verify-tag <version> — refuse to publish a tag that is not a
+ * green first-parent commit of the default branch (run by release.yml).
+ *
+ * @task T14102
+ */
+const verifyTagCommand = defineCommand({
+  meta: {
+    name: 'verify-tag',
+    description:
+      'Check that the release tag points at a first-parent commit of origin/main whose required checks are green on its push run (used by release.yml before publishing). (T14102)',
+  },
+  args: {
+    version: {
+      type: 'positional',
+      description: 'Release version (accepts v2026.10.28 or 2026.10.28)',
+      required: true,
+    },
+  },
+  async run({ args }) {
+    await dispatchFromCli(
+      'query',
+      'release',
+      'verify-tag',
+      { version: args.version },
+      { command: 'release' },
+    );
+  },
+});
+
+/**
+ * cleo release authorize — owner-signed standing release authorization that
+ * lets a non-interactive `release cut --yes` tag (T14141 · D11215).
+ *
+ * @task T14141
+ */
+const authorizeCommand = defineCommand({
+  meta: {
+    name: 'authorize',
+    description:
+      'Grant or --revoke (owner only: TTY + owner-auth password), or --list, a standing release authorization that lets an agent run `cleo release cut --yes` for a scope (canary|prerelease|stable|version) until it expires (at most 30d). Grants and revocations are signed with the enrolled owner key and the revocation count is sealed in .cleo/owner-settings.json; commit that file. Limit: an agent running as your OS user that also rolls back the committed owner-settings.json is not detectable locally (the same trust boundary as the override cap). (T14141)',
+  },
+  args: {
+    scope: { type: 'string', description: 'canary, prerelease, stable, or one exact version' },
+    expires: { type: 'string', description: 'Lifetime: 30m, 24h, 7d (at most 30d)' },
+    reason: {
+      type: 'string',
+      description: 'Why the owner grants it (recorded as an owner decision)',
+    },
+    uses: { type: 'string', description: 'Optional cap on cuts it allows (default: no limit)' },
+    revoke: { type: 'string', description: 'Revoke the grant with this id' },
+    list: { type: 'boolean', description: 'List grants and their state' },
+  },
+  async run({ args }) {
+    const { runReleaseAuthorize } = await import('../lib/release-authorize.js');
+    await runReleaseAuthorize({
+      ...(typeof args.scope === 'string' ? { scope: args.scope } : {}),
+      ...(typeof args.expires === 'string' ? { expires: args.expires } : {}),
+      ...(typeof args.reason === 'string' ? { reason: args.reason } : {}),
+      ...(typeof args.uses === 'string' ? { uses: args.uses } : {}),
+      ...(typeof args.revoke === 'string' ? { revoke: args.revoke } : {}),
+      list: args.list === true,
+    });
+  },
+});
+
 export const releaseCommand = defineCommand({
   meta: {
     name: 'release',
@@ -626,6 +787,11 @@ export const releaseCommand = defineCommand({
   subCommands: {
     // Canonical SPEC-T9345 4-verb pipeline — list these first so `--help`
     // surfaces them as the documented default.
+    // T14102 — one-command release; plan/open stay one release as fallback (T14114).
+    cut: cutCommand,
+    'write-changelog': writeChangelogCommand,
+    'verify-tag': verifyTagCommand,
+    authorize: authorizeCommand,
     plan: planCommand,
     open: openCommand,
     reconcile: reconcileCommand,

@@ -557,6 +557,27 @@ export async function getSystemHealth(
     // An unreadable enrollment must not break doctor; resolveOverrideCap audits it.
   }
 
+  // T14141: standing release authorizations an agent's `cleo release cut --yes`
+  // may use, so the owner sees what is active and anything tampered.
+  try {
+    const { listReleaseAuthorizations } = await import('../release/authorization.js');
+    const grants = await listReleaseAuthorizations(projectRoot);
+    const active = grants.filter((g) => g.state === 'active');
+    const tampered = grants.filter((g) => g.state === 'tampered');
+    if (grants.length > 0)
+      checks.push({
+        name: 'release_authorizations',
+        status: tampered.length > 0 ? 'fail' : 'pass',
+        message:
+          tampered.length > 0
+            ? `${tampered.length} release authorization(s) are tampered and ignored: ${tampered.map((g) => `${g.id} (${g.why ?? 'tampered'})`).join('; ')}`
+            : `${active.length} active release authorization(s)${active.length > 0 ? `: ${active.map((g) => `${g.id} ${g.scope} until ${g.expiresAt}`).join('; ')}` : ''}`,
+        details: { grants },
+      });
+  } catch {
+    // An unreadable grant file must not break doctor.
+  }
+
   // Get version
   let version = 'unknown';
   try {

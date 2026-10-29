@@ -121,25 +121,22 @@ cleo complete T1586
 
 **Release tasks use the `release` protocol** via `cleo release` commands.
 
+A release is one command (ADR-099). Every change reaches main through a merged PR
+first; the merge sweep has already closed their tasks.
+
 ```bash
-# 1. Verify all epic tasks complete
-cleo list --parent T1575 --status pending  # Should be empty
+# 1. Check the epic: closing tasks are merged with green CI, sweep pending
+cleo list --parent T1575 --status pending
 
-# 2. Run pre-release validation
-./tests/run-all-tests.sh
-cleo check arch
+# 2. Preview: the green sha, its CI run, notes, packages, migrations, task report
+cleo release cut v0.85.0 --dry-run
 
-# 3. Plan and open the release PR (ADR-065; merged through PRs, tagged explicitly)
-cleo release plan v0.85.0 --tasks T001,T002,T003
-cleo release open v0.85.0
-cleo release pr-status v0.85.0
-git tag -a v0.85.0 -m "Release v0.85.0" && git push origin v0.85.0
-cleo release reconcile v0.85.0
+# 3. Tag and publish (release.yml builds, publishes and records the verdict)
+cleo release cut v0.85.0
 ```
 
-**IMPORTANT**: `dev/release-version.sh` is **DEPRECATED** (since v0.78.0), and the
-`release create`/`release ship` verbs were removed (T9540, T10103). Always use
-`cleo release plan` → `open` → tag → `reconcile`.
+Provenance is reconciled automatically by the merge sweep. The old plan, open and
+pr-status verbs and the hand-pushed tag are retired (T14114).
 
 See `src/protocols/release.md` for the full release protocol specification.
 
@@ -159,7 +156,7 @@ cleo orchestrate spawn T105  # implementation protocol
 # contribution protocol auto-triggers for shared resources
 
 # RELEASE (polish phase)
-cleo release plan v0.74.0 --tasks T104,T105
-cleo release open v0.74.0
+cleo release cut v0.74.0 --dry-run
+cleo release cut v0.74.0
 cleo session end --note "Feature X released v0.74.0"
 ```

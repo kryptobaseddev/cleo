@@ -38,7 +38,7 @@
 import { randomUUID } from 'node:crypto';
 import { existsSync, mkdirSync, readdirSync, writeFileSync } from 'node:fs';
 import { availableParallelism, totalmem } from 'node:os';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
 import type {
   AdmissionResult,
   GovernorMode,
@@ -380,7 +380,9 @@ export async function takeAgentSessionLease(
 > {
   // Loaded here, not at module load: only spawns and admission read leases (gate 39).
   const { liveAgentLeases, writeAgentLease } = await import('./agent-lease.js');
-  const held = liveAgentLeases().find((l) => l.taskId === taskId && l.projectRoot === projectRoot);
+  // T14154: leases store an absolute root, so a removed project can be detected.
+  const root = resolve(projectRoot);
+  const held = liveAgentLeases().find((l) => l.taskId === taskId && l.projectRoot === root);
   if (held !== undefined) {
     const renewed = { ...held, expiresAtMs: Math.max(held.expiresAtMs, Date.now() + ttlMs) };
     writeAgentLease(renewed);
@@ -409,7 +411,7 @@ export async function takeAgentSessionLease(
     const lease: AgentSessionLease = {
       id: randomUUID(),
       taskId,
-      projectRoot,
+      projectRoot: root,
       sessionId: null,
       takenAtMs: now,
       expiresAtMs: now + ttlMs,

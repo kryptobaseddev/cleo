@@ -85,7 +85,7 @@ interface SealedSetting {
 }
 
 /** Who enrolled, as far as the machine can tell (for `cleo doctor`). */
-interface EnrollmentProvenance {
+export interface EnrollmentProvenance {
   enrolledAt: string;
   sessionId: string | null;
   /** Controlling terminal of the enrolling process (`ps -o tty`), or null. */
@@ -95,7 +95,7 @@ interface EnrollmentProvenance {
 }
 
 /** `.cleo/owner-settings.json` (git-tracked). */
-interface OwnerSettingsFile extends EnrollmentProvenance {
+export interface OwnerSettingsFile extends EnrollmentProvenance {
   schemaVersion: 1;
   /** Enrolled owner public key (hex), derived from the owner-auth password. */
   ownerPubkey: string;
@@ -105,7 +105,7 @@ interface OwnerSettingsFile extends EnrollmentProvenance {
 }
 
 /** One project's record in `<cleoHome>/owner-enrollments.json`. */
-interface GlobalEnrollment extends EnrollmentProvenance {
+export interface GlobalEnrollment extends EnrollmentProvenance {
   ownerPubkey: string;
   fingerprint: string;
   projectRoot: string;
@@ -260,8 +260,14 @@ function globalPath(): string {
   return join(getCleoHome(), 'owner-enrollments.json');
 }
 
-/** The global record key: the portable project id, else the real path. */
-function projectKey(projectRoot: string): string {
+/**
+ * The global record key: the portable project id, else the real path.
+ *
+ * @param projectRoot - Project root.
+ * @returns The key global owner records are filed under.
+ * @task T13787
+ */
+export function projectKey(projectRoot: string): string {
   const id = readPortableProjectId(projectRoot);
   if (id.status === 'valid') return id.projectId;
   try {
@@ -333,16 +339,30 @@ function sealPayload(
   return JSON.stringify({ key, value, setAt, salt, ownerPubkey });
 }
 
-/** The owner's signing key: Ed25519 from scrypt(password, salt). */
-async function ownerKey(password: string, salt: string) {
+/**
+ * The owner's signing key: Ed25519 from scrypt(password, salt). Shared with
+ * the standing release authorization (T14141), which signs grants with it.
+ *
+ * @param password - The owner-auth password typed now.
+ * @param salt - The enrolled per-project salt (hex).
+ * @returns The signing identity; its `pubkeyHex` is the enrolled key when the password matches.
+ * @task T13787
+ */
+export async function ownerKey(password: string, salt: string) {
   const { AgentIdentity } = await import('../identity/cleo-identity.js');
   return AgentIdentity.fromSeed(
     new Uint8Array(scryptSync(password, Buffer.from(salt, 'hex'), 32, OWNER_SCRYPT_PARAMS)),
   );
 }
 
-/** Best-effort terminal provenance of this process, for the enrollment record. */
-function provenance(sessionId: string | null): EnrollmentProvenance {
+/**
+ * Best-effort terminal provenance of this process, for owner records.
+ *
+ * @param sessionId - The bound session, if any.
+ * @returns When, which session, which terminal and which parent process.
+ * @task T13787
+ */
+export function provenance(sessionId: string | null): EnrollmentProvenance {
   const ps = (args: string[]): string | null => {
     try {
       return (
@@ -387,10 +407,77 @@ function audit(
 }
 
 /**
- * The project's owner state, judged without auditing: the sealed cap, or why
- * stored state is ignored.
+ * A sealed owner counter other than the override cap (T14141: the release
+ * authorization revocation count), read from the git-tracked
+ * `.cleo/owner-settings.json`: its value when sealed by the enrolled key, null
+ * when absent, `tampered` when present but not sealed by that key.
+ *
+ * @param projectRoot - Project root.
+ * @param key - Setting key.
+ * @returns The sealed value, null, or `tampered`.
+ * @task T14141
  */
-async function judgeOwnerState(
+export async function readSealedOwnerSetting(
+  projectRoot: string,
+  key: string,
+): Promise<number | null | 'tampered'> {
+  const read = readSettings(projectRoot);
+  if (read.state !== 'read') return null;
+  const entry = read.file.settings[key];
+  if (!entry) return null;
+  const { verifyAuditLine } = await import('../identity/cleo-identity.js');
+  const ok =
+    Number.isInteger(entry.value) &&
+    typeof entry.sig === 'string' &&
+    (await verifyAuditLine(
+      sealPayload(key, entry.value, entry.setAt, read.file.salt, read.file.ownerPubkey),
+      entry.sig,
+      read.file.ownerPubkey,
+    ));
+  return ok ? entry.value : 'tampered';
+}
+
+/**
+ * Seal `value` under `key` in `.cleo/owner-settings.json` with the owner's
+ * key (T14141). The caller has already passed the owner check and proven the
+ * password derives the enrolled key.
+ *
+ * @param projectRoot - Project root.
+ * @param key - Setting key.
+ * @param value - Integer value to seal.
+ * @param signer - The owner's signing identity from {@link ownerKey}.
+ * @task T14141
+ */
+export async function writeSealedOwnerSetting(
+  projectRoot: string,
+  key: string,
+  value: number,
+  signer: Awaited<ReturnType<typeof ownerKey>>,
+): Promise<void> {
+  const read = readSettings(projectRoot);
+  if (read.state !== 'read') throw new Error('owner settings are not readable'); // @sync-invariant none:local-only owner settings are device-local and git-tracked
+  const setAt = new Date().toISOString();
+  const { signAuditLine } = await import('../identity/cleo-identity.js');
+  const { sig } = await signAuditLine(
+    signer,
+    sealPayload(key, value, setAt, read.file.salt, read.file.ownerPubkey),
+  );
+  await atomicWriteJson(settingsPath(projectRoot), {
+    ...read.file,
+    settings: { ...read.file.settings, [key]: { value, setAt, sig } },
+  });
+}
+
+/**
+ * The project's owner state, judged without auditing: the sealed cap, or why
+ * stored state is ignored. The standing release authorization (T14141) trusts
+ * a grant only when this is `ok`.
+ *
+ * @param projectRoot - Project root.
+ * @returns `none`, `ok` with the enrollment, or `tampered` with why.
+ * @task T13787
+ */
+export async function judgeOwnerState(
   projectRoot: string,
 ): Promise<
   | { kind: 'none' }
@@ -553,8 +640,14 @@ export async function ownerEnrollmentStatus(projectRoot: string): Promise<OwnerE
   };
 }
 
-/** T1118 L4: role fence, TTY, and the password against the session's verifier. */
-function ownerCheck(
+/**
+ * T1118 L4: role fence, TTY, and the password against the session's verifier.
+ *
+ * @param caller - The typed password and the bound session.
+ * @returns ok, or the refusal code and message.
+ * @task T13787
+ */
+export function ownerCheck(
   caller: OwnerCaller,
 ): { ok: true } | { ok: false; code: string; message: string } {
   const token = caller.session?.token ?? null;
