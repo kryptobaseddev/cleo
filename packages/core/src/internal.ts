@@ -1083,6 +1083,13 @@ export {
   removeLinksByProvider,
   touchLink,
 } from './reconciliation/link-store.js';
+// T14141: standing release authorization (owner-signed grants for agent cuts)
+export {
+  grantReleaseAuthorization,
+  listReleaseAuthorizations,
+  releaseAuthorizationFor,
+  revokeReleaseAuthorization,
+} from './release/authorization.js';
 // T9528: provenance backfill verb — walks historical tags and populates 11 tables.
 // Re-exported under `Provenance*` aliases to avoid collision with the
 // pre-existing `BackfillOptions`/`BackfillResult` from `./backfill/index.js`

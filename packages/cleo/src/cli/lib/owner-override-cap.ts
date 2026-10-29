@@ -11,8 +11,14 @@ import { ExitCode } from '@cleocode/contracts/exit-codes.js';
 import { cliError, cliOutput } from '../renderers/index.js';
 import { readOwnerPassword } from './owner-password.js';
 
-/** The bound session with its owner-auth verifier, and the password when an owner can answer. */
-async function ownerCaller(purpose: string) {
+/**
+ * The bound session with its owner-auth verifier, and the password when an
+ * owner can answer. Shared by owner-only commands (T13787, T14141).
+ *
+ * @param purpose - What the password is asked for (shown in the prompt).
+ * @returns Core, the project root, and the caller to pass to an owner check.
+ */
+export async function ownerCaller(purpose: string) {
   const [core, { getProjectRoot }] = await Promise.all([
     import('@cleocode/core/internal'),
     import('@cleocode/core/project-scope'),
