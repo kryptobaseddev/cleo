@@ -57,9 +57,11 @@ Owns the canonical 4-verb release pipeline established by SPEC-T9345 and finalis
 ## One-command release (default, T14102)
 
 ```bash
-cleo release cut v2026.10.28 --dry-run --lead lead.md   # commit, notes, packages, migrations, task status
-cleo release cut v2026.10.28 --lead lead.md             # tags the commit; release.yml does the rest
+cleo release cut v2026.10.28 --lead lead.md         # report: commit, notes, packages, migrations, task status, confirm command
+cleo release cut v2026.10.28 --sha <sha> --lead lead.md --yes   # the printed confirm command: tags that commit
 ```
+
+**Confirmation (D11212).** Nothing is tagged without `--yes`; without it the cut reports and prints the exact confirm command, pinned to the previewed sha. A human at a terminal confirms with `--yes`. A non-interactive caller (an agent) is refused with `E_RELEASE_NOT_AUTHORIZED` unless the owner stored a standing release authorization (T14141, not yet available); until then, ask the owner to run the confirm command.
 
 - **Commit:** the newest first-parent commit of `origin/main` whose `CI` check run concluded `success`; `--sha` pins one, which must itself be green. Nothing reruns the test suites: CI already passed that tree.
 - **Notes:** the changesets added since the previous release tag, led by `--lead` (stored as the tag annotation). A changeset no merged PR brought in is refused (`E_RELEASE_UNMERGED_CHANGESET`); no green commit is `E_RELEASE_NO_GREEN_COMMIT`.

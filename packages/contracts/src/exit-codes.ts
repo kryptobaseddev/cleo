@@ -417,6 +417,14 @@ export const E_RELEASE_UNMERGED_CHANGESET = 'E_RELEASE_UNMERGED_CHANGESET' as co
  */
 export const E_RELEASE_TAG_FAILED = 'E_RELEASE_TAG_FAILED' as const;
 /**
+ * `cleo release cut --yes` from a non-interactive caller (an agent) without a
+ * standing release authorization (owner decision D11212; T14141 stores it).
+ * Exit code 6. A human at a terminal confirms with `--yes` directly.
+ *
+ * @task T14102
+ */
+export const E_RELEASE_NOT_AUTHORIZED = 'E_RELEASE_NOT_AUTHORIZED' as const;
+/**
  * `cleo release cut` found docs rot (stale, duplicate or orphaned docs, per
  * `cleo docs rot`) and refused to tag. Exit code 6. `error.details.docsRot`
  * carries the scan.

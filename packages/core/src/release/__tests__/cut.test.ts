@@ -57,6 +57,8 @@ vi.mock('../../docs/rot.js', () => ({
     summary: `${rotOrphans.length} orphan(s)`,
   }),
 }));
+let authorized = false;
+vi.mock('../authorization.js', () => ({ hasReleaseAuthorization: () => authorized }));
 vi.mock('../../store/data-accessor.js', () => ({
   getTaskAccessor: async () => ({
     loadSingleTask: async (id: string) => (id === 'T1' ? { id, status: 'done' } : null),
@@ -208,6 +210,9 @@ function fakeRunner(
   return { runner, calls };
 }
 
+/** A confirmed cut from a human at a terminal (D11212). */
+const confirmed = { yes: true, interactive: true } as const;
+
 function errorOf(result: { success: boolean; error?: { code: string; message: string } }) {
   expect(result.success).toBe(false);
   return result.error ?? { code: '', message: '' };
@@ -336,7 +341,7 @@ describe('releaseCut (T14102)', () => {
       const { runner, calls } = fakeRunner({ [shas.head]: 'success' });
       const preview = await releaseCut({ version: NEXT, projectRoot: work, dryRun: true, runner });
       expect(preview.success && preview.data.docsRot.orphans.length).toBe(1);
-      const real = await releaseCut({ version: NEXT, projectRoot: work, runner });
+      const real = await releaseCut({ ...confirmed, version: NEXT, projectRoot: work, runner });
       expect(errorOf(real).code).toBe('E_DOCS_ROT');
       expect(calls.some((c) => c.includes('POST'))).toBe(false);
     } finally {
@@ -346,7 +351,12 @@ describe('releaseCut (T14102)', () => {
 
   it('creates the annotated tag on the green sha for a real run, and audits it', async () => {
     const { runner, calls } = fakeRunner({ [shas.head]: 'success' });
-    const result = await releaseCut({ version: `v${NEXT}`, projectRoot: work, runner });
+    const result = await releaseCut({
+      ...confirmed,
+      version: `v${NEXT}`,
+      projectRoot: work,
+      runner,
+    });
     expect(result.success && result.data.tagCreated).toBe(true);
     const posts = calls.filter((c) => c.includes('POST'));
     expect(posts[0]).toContain(`object=${shas.head}`);
@@ -360,7 +370,7 @@ describe('releaseCut (T14102)', () => {
 
   it('reports a ref POST that fails after the tag object was created', async () => {
     const { runner } = fakeRunner({ [shas.head]: 'success' }, { failRef: true });
-    const result = await releaseCut({ version: NEXT, projectRoot: work, runner });
+    const result = await releaseCut({ ...confirmed, version: NEXT, projectRoot: work, runner });
     const error = errorOf(result);
     expect(error.code).toBe('E_RELEASE_TAG_FAILED');
     expect(error.message).toContain('Reference update failed');
@@ -369,6 +379,35 @@ describe('releaseCut (T14102)', () => {
       outcome: 'failed',
       tagObject: 'tagobject',
     });
+  });
+});
+
+describe('releaseCut confirmation gate (D11212)', () => {
+  it('without --yes only reports, with the exact confirm command pinned to the sha', async () => {
+    const { runner, calls } = fakeRunner({ [shas.head]: 'success' });
+    const result = await releaseCut({ version: NEXT, projectRoot: work, runner });
+    expect(result.success).toBe(true);
+    if (!result.success) return;
+    expect(result.data.dryRun).toBe(true);
+    expect(result.data.tagCreated).toBe(false);
+    expect(result.data.confirmCommand).toBe(`cleo release cut v${NEXT} --sha ${shas.head} --yes`);
+    expect(calls.some((c) => c.includes('POST'))).toBe(false);
+  });
+
+  it('refuses a non-interactive --yes without a standing authorization, and tags with one', async () => {
+    const { runner, calls } = fakeRunner({ [shas.head]: 'success' });
+    const agent = { yes: true, interactive: false } as const;
+    const refused = await releaseCut({ ...agent, version: NEXT, projectRoot: work, runner });
+    expect(errorOf(refused).code).toBe('E_RELEASE_NOT_AUTHORIZED');
+    expect(calls.some((c) => c.includes('POST'))).toBe(false);
+
+    authorized = true;
+    try {
+      const tagged = await releaseCut({ ...agent, version: NEXT, projectRoot: work, runner });
+      expect(tagged.success && tagged.data.tagCreated).toBe(true);
+    } finally {
+      authorized = false;
+    }
   });
 });
 

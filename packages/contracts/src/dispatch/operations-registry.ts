@@ -9812,7 +9812,7 @@ export const OPERATIONS: OperationDef[] = [
     domain: 'release',
     operation: 'cut',
     description:
-      'release.cut (mutate) — tag the newest default-branch commit with green CI as v<version>; release.yml writes the CHANGELOG from changesets and publishes. --dry-run shows the commit, notes, packages and task status without tagging (T14102).',
+      'release.cut (mutate) — tag the newest default-branch commit with green CI as v<version> once confirmed with --yes (D11211/D11212); release.yml writes the CHANGELOG from changesets and publishes. Without --yes it reports the commit, notes, packages and task status and prints the confirm command (T14102).',
     tier: 1,
     idempotent: false,
     sessionRequired: false,
@@ -9842,6 +9842,13 @@ export const OPERATIONS: OperationDef[] = [
         type: 'boolean',
         required: false,
         description: 'Report the commit, notes, packages and tasks without creating the tag',
+      },
+      {
+        name: 'yes',
+        type: 'boolean',
+        required: false,
+        description:
+          'Create the tag (D11212). Without it the cut only reports and prints the confirm command; a non-interactive caller also needs a standing release authorization (T14141)',
       },
     ] satisfies ParamDef[],
   },

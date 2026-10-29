@@ -632,7 +632,7 @@ const cutCommand = defineCommand({
   meta: {
     name: 'cut',
     description:
-      'Release from the newest default-branch commit with green CI: tag it, and release.yml writes the notes from changesets and publishes (no plan PR, no bump PR). --dry-run shows commit, notes, packages and task status. (T14102)',
+      'Release from the newest default-branch commit with green CI: report it (commit, notes, packages, task status) and print the confirm command; with --yes, tag it, and release.yml writes the notes from changesets and publishes (no plan PR, no bump PR). (T14102, D11212)',
   },
   args: {
     version: {
@@ -653,6 +653,11 @@ const cutCommand = defineCommand({
       type: 'boolean',
       description: 'Report the commit, notes, packages and tasks without creating the tag',
     },
+    yes: {
+      type: 'boolean',
+      description:
+        'Create the tag (D11212). Without it the cut only reports and prints the confirm command. From a non-interactive caller it also needs a standing release authorization (T14141)',
+    },
   },
   async run({ args }) {
     await dispatchFromCli(
@@ -664,6 +669,7 @@ const cutCommand = defineCommand({
         ...(typeof args.sha === 'string' ? { sha: args.sha } : {}),
         ...(typeof args.lead === 'string' ? { lead: args.lead } : {}),
         dryRun: args['dry-run'] === true,
+        yes: args.yes === true,
       },
       { command: 'release' },
     );

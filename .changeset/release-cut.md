@@ -16,6 +16,11 @@ starts `release.yml`, which writes the CHANGELOG section
 That PR merges itself on green and never blocks the release. No test suite
 reruns: main CI already passed that tree.
 
+- Nothing is tagged without `--yes` (owner decision D11212). Without it the
+  cut reports and prints the exact confirm command, pinned to the previewed
+  commit. A non-interactive `--yes` (an agent) is refused with
+  `E_RELEASE_NOT_AUTHORIZED` until a standing release authorization exists
+  (T14141).
 - `--dry-run` shows the commit and its CI state, the notes, the packages with
   their versions, new migrations, and each named task's status, and tags
   nothing.

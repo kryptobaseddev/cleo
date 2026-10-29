@@ -42,6 +42,7 @@ import {
   E_GH_NOT_AUTHENTICATED,
   E_INVALID_STATE,
   E_RELEASE_NO_GREEN_COMMIT,
+  E_RELEASE_NOT_AUTHORIZED,
   E_RELEASE_TAG_FAILED,
   E_RELEASE_UNMERGED_CHANGESET,
   ExitCode,
@@ -52,6 +53,7 @@ import { parseChangesetDir } from '../changesets/index.js';
 import { scanDocsRot } from '../docs/rot.js';
 import { getTaskAccessor } from '../store/data-accessor.js';
 import { sweepMergedClosures } from '../tasks/merge-close.js';
+import { hasReleaseAuthorization } from './authorization.js';
 import { aggregateChangesetsForRelease } from './changesets-aggregator.js';
 import { newestReachableReleaseTag, writeChangelogSection } from './plan.js';
 import { readRequiredCheckPins, resolveRequiredWorkflows } from './pr-evidence.js';
@@ -86,6 +88,14 @@ export interface ReleaseCutOptions {
   leadFile?: string;
   /** Show the commit, notes, packages and tasks without creating the tag. */
   dryRun?: boolean;
+  /**
+   * Confirm the tag (D11212). Without it the cut only reports, with the exact
+   * confirm command. A non-interactive caller also needs a standing release
+   * authorization (T14141).
+   */
+  yes?: boolean;
+  /** Whether a human is at a terminal (default: stdin and stdout are TTYs). */
+  interactive?: boolean;
   /** Default branch name (default `main`). */
   branch?: string;
   /** Test seam for the T14101 merge sweep (default {@link sweepMergedClosures}). */
@@ -148,6 +158,8 @@ export interface ReleaseCutResult {
   docsRot: DocsRotResult;
   /** Whether the local checkout is at `origin/<default>` (the docs-rot scan reads it). */
   checkoutAtMain: boolean;
+  /** The command that tags exactly this preview (pinned `--sha`), or null once tagged. */
+  confirmCommand: string | null;
   /** True when no tag was created. */
   dryRun: boolean;
   /** True when this call created the tag (which starts `release.yml`). */
@@ -501,7 +513,8 @@ export async function releaseCut(opts: ReleaseCutOptions): Promise<EngineResult<
   const version = normalizeVersion(opts.version);
   const bare = version.slice(1);
   const branch = opts.branch ?? 'main';
-  const dryRun = opts.dryRun === true;
+  // D11212: nothing is tagged without --yes; without it the cut is a preview.
+  const dryRun = opts.dryRun === true || opts.yes !== true;
 
   try {
     runner.runGh(['auth', 'status'], cwd);
@@ -680,6 +693,13 @@ export async function releaseCut(opts: ReleaseCutOptions): Promise<EngineResult<
     sweep,
     docsRot,
     checkoutAtMain,
+    confirmCommand: [
+      'cleo release cut',
+      version,
+      `--sha ${sha}`,
+      ...(opts.leadFile ? [`--lead ${opts.leadFile}`] : []),
+      '--yes',
+    ].join(' '),
     dryRun,
     tagCreated: false,
   };
@@ -692,6 +712,16 @@ export async function releaseCut(opts: ReleaseCutOptions): Promise<EngineResult<
       details,
     });
   };
+  const interactive =
+    opts.interactive ?? (process.stdin.isTTY === true && process.stdout.isTTY === true);
+  if (!interactive && !hasReleaseAuthorization(cwd, version)) {
+    return refuse(
+      E_RELEASE_NOT_AUTHORIZED,
+      `A non-interactive --yes needs a standing release authorization for ${version}`,
+      `Run \`${result.confirmCommand}\` from a terminal, or ask the owner to run it (standing agent authorization is T14141, not yet available)`,
+      { version, sha },
+    );
+  }
   if (!checkoutAtMain) {
     return refuse(
       E_INVALID_STATE,
@@ -768,7 +798,7 @@ export async function releaseCut(opts: ReleaseCutOptions): Promise<EngineResult<
     });
   }
   auditCut(cwd, { version, sha, outcome: 'tagged', tagObject });
-  return engineSuccess({ ...result, tagCreated: true });
+  return engineSuccess({ ...result, dryRun: false, confirmCommand: null, tagCreated: true });
 }
 
 /** Result of {@link releaseVerifyTag}. */
