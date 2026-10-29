@@ -332,6 +332,69 @@ describe('typed requirement persistence', () => {
     expect(persisted(root, "SELECT id FROM tasks_tasks WHERE id='T404'")).toBe('[]');
   });
 
+  describe('command gate cmd is one executable (T14155)', () => {
+    const command = (cmd: string, req = 'CMD-1'): AcceptanceGate => ({
+      kind: 'command',
+      cmd,
+      exitCode: 0,
+      description: 'command exits 0',
+      req,
+    });
+
+    it('add and replace refuse a cmd carrying its arguments, naming the split, and write nothing', async () => {
+      await reqAdd(root, 'T121', gate(), accessor);
+      const before = persisted(root, 'SELECT acceptance_json,updated_at FROM tasks_tasks');
+      const message =
+        /cmd is one executable; put its arguments in args \(e\.g\. "cmd":"node","args":\["-e","0"\]\)/;
+      await expect(reqAdd(root, 'T121', command('node -e 0'), accessor)).rejects.toThrow(message);
+      await expect(
+        reqReplace(root, 'T121', 'PARTNER-121', command('node -e 0', 'PARTNER-121'), { accessor }),
+      ).rejects.toThrow(message);
+      expect(persisted(root, 'SELECT acceptance_json,updated_at FROM tasks_tasks')).toBe(before);
+    });
+
+    it('accepts cmd plus args, and a cmd naming an existing executable whose path has a space', async () => {
+      await mkdir(join(root, 'tool dir'));
+      await writeFile(join(root, 'tool dir', 'run.sh'), '#!/bin/sh\nexit 0\n', { mode: 0o755 });
+      await reqAdd(root, 'T121', { ...command('node'), args: ['-e', '0'] }, accessor);
+      await reqAdd(root, 'T121', command('tool dir/run.sh', 'CMD-2'), accessor);
+      expect((await reqList(root, 'T121', accessor)).gates.map((item) => item.req)).toEqual([
+        'CMD-1',
+        'CMD-2',
+      ]);
+    });
+
+    it('reads and parses a stored legacy gate, and running it reports the fix instead of ENOENT', async () => {
+      const legacy = command('node -e 0', 'LEGACY-1');
+      expect(parseGateJson(JSON.stringify(legacy))).toEqual(legacy);
+      const task = (await accessor.loadSingleTask('T121'))!;
+      await accessor.transaction(async (tx) => {
+        await tx.upsertSingleTask({ ...task, acceptance: [...original, legacy] });
+      });
+      expect((await reqList(root, 'T121', accessor)).gates).toEqual([legacy]);
+      const preview = await previewTaskGates(root, { taskId: 'T121' });
+      expect(preview.results).toHaveLength(1);
+      expect(preview.results[0]).toMatchObject({ req: 'LEGACY-1', result: 'error' });
+      expect(preview.results[0]!.errorMessage).toContain(
+        'cmd is one executable; put its arguments in args',
+      );
+      expect(preview.results[0]!.errorMessage).not.toContain('ENOENT');
+    });
+
+    it('migrate proposes the executable in cmd and its arguments in args', async () => {
+      const task = (await accessor.loadSingleTask('T121'))!;
+      await accessor.transaction(async (tx) => {
+        await tx.upsertSingleTask({ ...task, acceptance: ['pnpm run check returns exit 0'] });
+      });
+      const preview = await reqMigrate(root, 'T121', false, accessor);
+      expect(preview.proposals[0]!.proposed).toMatchObject({
+        kind: 'command',
+        cmd: 'pnpm',
+        args: ['run', 'check'],
+      });
+    });
+  });
+
   it('keeps migration preview read-only and preserves existing requirement identities on apply', async () => {
     await reqAdd(root, 'T121', gate('MIGRATED-001'), accessor);
     const before = persisted(root, 'SELECT acceptance_json,updated_at FROM tasks_tasks');

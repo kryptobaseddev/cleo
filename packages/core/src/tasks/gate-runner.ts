@@ -87,6 +87,7 @@ import { captureWrapped } from '../resources/spawn-wrapper.js';
 import { createAttachmentStore } from '../store/attachment-store.js';
 import { registerTeardownAbort } from '../teardown-signal.js';
 import { acItemToText, acTextHash } from './ac-table.js';
+import { commandGateCmdProblem } from './command-gate-cmd.js';
 import { splitCommandLine } from './command-line.js';
 import { resolveCanonicalProjectRoot } from './evidence.js';
 import { resolveEvidenceRepository, resolveEvidenceTree } from './evidence-tree.js';
@@ -2652,6 +2653,10 @@ async function runTestGate(
   timeoutMs: number,
   context: ProcessCaptureOptions,
 ): Promise<AcceptanceGateResult> {
+  // A stored gate whose cmd carries its arguments would spawn a program named
+  // the whole line and fail with a bare ENOENT; name the fix instead (T14155).
+  const cmdProblem = commandGateCmdProblem(gate, projectRoot);
+  if (cmdProblem !== null) return makeResult(index, gate, 'error', 0, undefined, cmdProblem);
   const invocation = executableInvocation(gate, projectRoot, context.env ?? process.env)!;
   // T13782: a JSON reporter redirected to a file still yields this run's counts.
   const reportFiles = reportFileCandidates(invocation.args, invocation.cwd);

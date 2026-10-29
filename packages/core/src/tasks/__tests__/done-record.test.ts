@@ -319,7 +319,8 @@ describe('slow work finishes before the write (AC2)', () => {
       id,
       {
         kind: 'command',
-        cmd: 'node -e 0',
+        cmd: 'node',
+        args: ['-e', '0'],
         exitCode: 0,
         description: 'Harness passes',
         req: 'R13521',
