@@ -42,7 +42,12 @@ import {
 } from '@cleocode/worktree';
 import { appendWorktreeAuditEntry, resolveWorktreeAuditActor } from './audit.js';
 import { enumerateWorktrees } from './list.js';
-import { loadTaskEvidence, removeWorktreeFromDisk, unprovenContent } from './prune.js';
+import {
+  loadTaskEvidence,
+  newCompareBudget,
+  removeWorktreeFromDisk,
+  unprovenContent,
+} from './prune.js';
 
 /** `task/T123` or `task/T123-slug`: the task id a branch belongs to. */
 const TASK_BRANCH = /^task\/(T\d+)(?:[-/]|$)/;
@@ -150,22 +155,17 @@ function insideRoot(target: string, root: string): boolean {
 }
 
 /**
- * Every commit a nested copy holds that must be on `origin` before it may go:
- * all its refs (tags, notes, stash, other remotes) except remote-tracking refs
- * of the same `origin`, plus every HEAD reflog entry. `null` when unreadable.
+ * Every commit a nested copy holds that must be on the project's `origin`
+ * before it may go: every ref (branches, tags, notes, stash, and every
+ * remote-tracking ref, its own `origin`'s included) and every reflog entry of
+ * every ref (`log -g --all`). `null` when unreadable.
  */
-function nestedTips(nested: string, projectOrigin: string | null): string[] | null {
-  const copyOrigin = git(nested, ['remote', 'get-url', 'origin']);
-  const sameOrigin = projectOrigin !== null && copyOrigin === projectOrigin;
-  const refs = git(nested, ['for-each-ref', '--format=%(refname)%09%(objectname)']);
-  const reflog = git(nested, ['reflog', 'show', '--format=%H', 'HEAD']);
+function nestedTips(nested: string): string[] | null {
+  const refs = git(nested, ['for-each-ref', '--format=%(objectname)']);
+  const reflogs = git(nested, ['log', '-g', '--all', '--format=%H']);
   const head = git(nested, ['rev-parse', 'HEAD']);
-  if (refs === null || head === null) return null;
-  const tips = lines(refs)
-    .map((l) => l.split('\t'))
-    .filter(([ref = '']) => !(sameOrigin && ref.startsWith('refs/remotes/origin/')))
-    .map(([, sha = '']) => sha);
-  return [head, ...tips, ...lines(reflog)];
+  if (refs === null || reflogs === null || head === null) return null;
+  return [head, ...lines(refs), ...lines(reflogs)];
 }
 
 /** Directories holding a `.git` below `root` (not `root` itself), depth-bounded. */
@@ -215,6 +215,8 @@ export async function cleanupMergedWork(
     openPrHeads?: (projectRoot: string) => Set<string> | null;
     /** Called after every branch is proven and before any is deleted (tests move a tip here). */
     afterProof?: () => void;
+    /** Called just before a worktree or copy's final re-check (tests write into it here). */
+    beforeRemove?: (path: string) => void;
   } = {},
 ): Promise<MergedCleanupResult> {
   const root = opts.projectRoot;
@@ -246,6 +248,13 @@ export async function cleanupMergedWork(
   const projectHash = computeProjectHash(root);
   const worktreeRoot = resolveWorktreeRootForHash(projectHash);
   const actor = resolveWorktreeAuditActor();
+  // One comparison budget for the whole run (T14146).
+  const budget = newCompareBudget();
+  // A merged, clean worktree may drop rebuildable output; a repository copy never.
+  const worktreeContent = (path: string) =>
+    unprovenContent(path, root, { budget, exemptRegenerable: true });
+  const copyContent = (path: string) =>
+    unprovenContent(path, root, { budget, exemptNodeModules: false });
   const keep = (list: MergedCleanupItem[], target: string, taskId: string | null, reason: string) =>
     list.push({ target, taskId, removed: false, reason, bytes: 0 });
 
@@ -295,7 +304,7 @@ export async function cleanupMergedWork(
       keep(result.worktrees, wt.path, taskId, 'not a real directory inside the worktree root');
       continue;
     }
-    const unproven = unprovenContent(wt.path, root);
+    const unproven = worktreeContent(wt.path);
     if (unproven !== null) {
       keep(result.worktrees, wt.path, taskId, unproven);
       continue;
@@ -306,6 +315,15 @@ export async function cleanupMergedWork(
     }
     const bytes = diskBytes(wt.path);
     if (!dryRun) {
+      // Re-prove right before removing: anything written since the first check keeps it.
+      deps.beforeRemove?.(wt.path);
+      const late =
+        worktreeContent(wt.path) ??
+        (findNestedRepos(wt.path).length > 0 ? 'holds a nested repository or worktree' : null);
+      if (late !== null) {
+        keep(result.worktrees, wt.path, taskId, `changed during cleanup: ${late}`);
+        continue;
+      }
       const removal = removeWorktreeFromDisk(
         // The branch is deleted below, leased to the sha proven merged.
         { path: wt.path, branch: wt.branch, isMerged: false },
@@ -435,7 +453,6 @@ export async function cleanupMergedWork(
 
   // ── Repository copies nested inside worktrees ─────────────────────────────
   const projectRoots = new Set(lines(git(root, ['rev-list', '--max-parents=0', base])));
-  const projectOrigin = git(root, ['remote', 'get-url', 'origin']);
   let worktreeDirs: string[] = [];
   try {
     worktreeDirs = readdirSync(worktreeRoot)
@@ -458,12 +475,12 @@ export async function cleanupMergedWork(
         keep(result.nestedCopies, nested, null, 'not a real directory inside the worktree root');
         continue;
       }
-      const unprovenNested = unprovenContent(nested, root);
+      const unprovenNested = copyContent(nested);
       if (unprovenNested !== null) {
         keep(result.nestedCopies, nested, null, unprovenNested);
         continue;
       }
-      const tips = nestedTips(nested, projectOrigin);
+      const tips = nestedTips(nested);
       // Count commits reachable from the copy's tips but from no origin ref; an
       // object unknown here fails the call, which also keeps the copy.
       const notOnOrigin =
@@ -477,6 +494,12 @@ export async function cleanupMergedWork(
       }
       const bytes = diskBytes(nested);
       if (!dryRun) {
+        deps.beforeRemove?.(nested);
+        const late = copyContent(nested);
+        if (late !== null || !insideRoot(nested, worktreeRoot)) {
+          keep(result.nestedCopies, nested, null, `changed during cleanup: ${late ?? 'moved'}`);
+          continue;
+        }
         try {
           napiRemoveDir({ path: nested });
         } catch {
