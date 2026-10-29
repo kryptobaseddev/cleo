@@ -114,9 +114,7 @@ function subjectTokens(text: string): string[] {
     .toLowerCase()
     .replace(DATE_IN_NAME, '$1 ')
     .split(/[^a-z0-9]+/)
-    .filter(
-      (t) => t.length > 0 && !/^t\d{3,}$/.test(t) && !/^(19|20)\d{6}(\d{6})?$/.test(t),
-    );
+    .filter((t) => t.length > 0 && !/^t\d{3,}$/.test(t) && !/^(19|20)\d{6}(\d{6})?$/.test(t));
 }
 
 /** The words of a subject, numbers left out. */
