@@ -139,6 +139,69 @@ export function packedInstallFailure(error) {
   });
 }
 
+/** Attempts at the packed `npm install` before a fault counts (T14145). */
+export const PACKED_INSTALL_ATTEMPTS = 3;
+
+/** Waits before the second and third attempt (ms). */
+export const PACKED_INSTALL_BACKOFF_MS = [5_000, 15_000];
+
+/**
+ * Why a failed packed `npm install` is worth retrying, or null when it is not
+ * (T14145). Network-class faults (ETIMEDOUT, ECONNRESET, EAI_AGAIN,
+ * ENETUNREACH, an npm E5xx) and an ETARGET/E404 that names one of the
+ * just-built local tarballs (a registry hiccup on our own package, not a
+ * missing dependency) retry. A real missing dependency never does:
+ * ERR_MODULE_NOT_FOUND, or an ETARGET/E404 naming any other package.
+ * @param {{stdout?: string, stderr?: string}} error - Failure raised by {@link runPackedCommand}.
+ * @param {ReadonlySet<string>} localPackages - Names of the packages installed from local tarballs.
+ * @returns {string | null} The retryable code, or null.
+ */
+export function packedInstallRetryable(error, localPackages) {
+  const output = `${error.stdout ?? ''}\n${error.stderr ?? ''}`;
+  if (/\bERR_MODULE_NOT_FOUND\b/.test(output)) return null;
+  const resolution = /\b(ETARGET|E404)\b/.exec(output);
+  if (resolution) {
+    const named = [
+      ...output.matchAll(/No matching version found for ((?:@[^/\s]+\/)?[^@\s]+)@/g),
+      ...output.matchAll(/'((?:@[^/\s]+\/)?[^@\s']+)@[^']*' is not in (?:this|the npm) registry/g),
+      ...output.matchAll(/404 Not Found - GET \S+\/((?:@[^%/\s]+%2[fF])?[^/\s]+)\s/g),
+    ].map((m) => decodeURIComponent(m[1] ?? ''));
+    return named.length > 0 && named.every((name) => localPackages.has(name))
+      ? resolution[1]
+      : null;
+  }
+  const network = /\b(ETIMEDOUT|ECONNRESET|EAI_AGAIN|ENETUNREACH|E5\d\d)\b/.exec(output);
+  return network ? network[1] : null;
+}
+
+/**
+ * Run the packed `npm install`, retrying a {@link packedInstallRetryable} fault
+ * up to {@link PACKED_INSTALL_ATTEMPTS} times with backoff and logging each
+ * retry (T14145). A fault that persists, or one that is not retryable, is
+ * rethrown unchanged, so {@link packedInstallFailure} classifies it as before.
+ * @param {() => Promise<string>} install - One install attempt.
+ * @param {ReadonlySet<string>} localPackages - Names of the packages installed from local tarballs.
+ * @param {{log?: (line: string) => void, sleep?: (ms: number) => Promise<void>}} [options] - Test seams.
+ * @returns {Promise<string>} The successful attempt's output.
+ */
+export async function installPackedWithRetry(install, localPackages, options = {}) {
+  const log = options.log ?? ((line) => process.stderr.write(`${line}\n`));
+  const sleep = options.sleep ?? ((ms) => new Promise((resolve) => setTimeout(resolve, ms)));
+  for (let attempt = 1; ; attempt++) {
+    try {
+      return await install();
+    } catch (error) {
+      const code = packedInstallRetryable(error, localPackages);
+      if (code === null || attempt >= PACKED_INSTALL_ATTEMPTS) throw error;
+      const wait = PACKED_INSTALL_BACKOFF_MS[attempt - 1] ?? 15_000;
+      log(
+        `packed-install-smoke: npm install attempt ${attempt}/${PACKED_INSTALL_ATTEMPTS} failed with ${code} (a registry or network fault); retrying in ${wait} ms`,
+      );
+      await sleep(wait);
+    }
+  }
+}
+
 /**
  * Exercise the actual installed Git entry, including independent initialized-file readback.
  * @param {string} app - Fresh retained npm installation.
@@ -1508,10 +1571,16 @@ async function main() {
     writeFileSync(join(app, 'package.json'), JSON.stringify(appManifest, null, 2) + '\n');
     let installed;
     try {
-      installed = await runPackedCommand(
-        'npm',
-        ['install', '--no-audit', '--no-fund', '--loglevel=warn'],
-        { cwd: app, env, systemdControl, timeout: 300_000 },
+      // T14145: a registry or network fault retries; a real missing dependency does not.
+      installed = await installPackedWithRetry(
+        () =>
+          runPackedCommand('npm', ['install', '--no-audit', '--no-fund', '--loglevel=warn'], {
+            cwd: app,
+            env,
+            systemdControl,
+            timeout: 300_000,
+          }),
+        new Set(Object.keys(overrides)),
       );
     } catch (error) {
       throw packedInstallFailure(error);
