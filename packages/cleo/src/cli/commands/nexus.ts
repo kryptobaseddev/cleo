@@ -25,7 +25,10 @@ import {
   type NexusTaskSymbolsResult,
 } from '@cleocode/contracts';
 import { getSymbolImpact } from '@cleocode/core/nexus';
-import { runNexusAnalysis } from '@cleocode/core/nexus/analyze-orchestrator.js';
+import {
+  analysisStoreMismatch,
+  runNexusAnalysis,
+} from '@cleocode/core/nexus/analyze-orchestrator.js';
 import {
   type AssessmentFilesRequest,
   parseAssessmentFilesRequest,
@@ -87,6 +90,37 @@ async function appendDeprecationTelemetry(op: string, replacement: string): Prom
  * When a command has its own --json flag, honour it by overriding the
  * singleton so that cliOutput() sees the correct format.
  */
+/**
+ * Refuse a nexus command aimed at another project's path (ADR-090 · T11648):
+ * the code graph is project-scoped, so reading or writing it under a path the
+ * open store does not belong to would attribute one project's index to another.
+ * Shared by `nexus status` and `nexus analyze` (T14153).
+ *
+ * @param verb - The nexus subcommand refusing.
+ * @param repoPath - The path the command was aimed at.
+ * @param name - The error code name.
+ */
+function refuseCrossProjectGraph(
+  verb: 'status' | 'analyze',
+  repoPath: string,
+  name: 'E_NEXUS_CROSS_PROJECT_STATUS' | 'E_NEXUS_CROSS_PROJECT_ANALYZE',
+): void {
+  const [action, subject, describes, attribute] =
+    verb === 'status'
+      ? ['report on', 'the counts', 'always describe the store that is open', 'Reporting them']
+      : ['index', 'an analysis', 'is always written into the store that is open', 'Indexing it'];
+  cliError(
+    `nexus ${verb} cannot ${action} '${repoPath}' from this project.\n` +
+      'The code-intelligence graph is project-scoped (ADR-090 · T11648): one store per ' +
+      `project, and ${subject} ${describes}. ${attribute} ` +
+      `under '${repoPath}' would attribute this project's index to another.`,
+    ExitCode.INVALID_INPUT,
+    { name, fix: `cd ${repoPath} && cleo nexus ${verb}` },
+    { operation: `nexus.${verb}` },
+  );
+  process.exitCode = ExitCode.INVALID_INPUT;
+}
+
 function applyJsonFlag(jsonFlag: boolean | undefined): void {
   if (jsonFlag) {
     setFormatContext({ format: 'json', source: 'flag', quiet: false });
@@ -366,19 +400,7 @@ const statusCommand = defineCommand({
 
     const currentRoot = getProjectRoot();
     if (args.path && path.resolve(repoPath) !== path.resolve(currentRoot)) {
-      cliError(
-        `nexus status cannot report on '${repoPath}' from this project.\n` +
-          'The code-intelligence graph is project-scoped (ADR-090 · T11648): one store per ' +
-          'project, and the counts always describe the store that is open. Reporting them ' +
-          `under '${repoPath}' would attribute this project's index to another.`,
-        ExitCode.INVALID_INPUT,
-        {
-          name: 'E_NEXUS_CROSS_PROJECT_STATUS',
-          fix: `cd ${repoPath} && cleo nexus status`,
-        },
-        { operation: 'nexus.status' },
-      );
-      process.exitCode = ExitCode.INVALID_INPUT;
+      refuseCrossProjectGraph('status', repoPath, 'E_NEXUS_CROSS_PROJECT_STATUS');
       return;
     }
 
@@ -1394,6 +1416,12 @@ const analyzeCommand = defineCommand({
       humanWarn(
         '[nexus] --incremental is deprecated and has no effect: incremental is the default.',
       );
+    // T14153: the graph is written into the store resolveCleoDir(repoPath) opens;
+    // refuse when that is not repoPath's own project store.
+    if (analysisStoreMismatch(repoPath) !== null) {
+      refuseCrossProjectGraph('analyze', repoPath, 'E_NEXUS_CROSS_PROJECT_ANALYZE');
+      return;
+    }
     humanInfo(`[nexus] Analyzing: ${repoPath}${full ? ' (full rebuild)' : ''}`);
     humanInfo('[nexus] Staging replacement graph; current index remains available...');
 

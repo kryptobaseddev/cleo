@@ -87,6 +87,7 @@ describe('derive-links units (T13357)', () => {
     expect(deriveDocLinks('body T100', ['perf', 'plan', 'perf'])).toEqual({
       relatedTasks: ['T100'],
       topics: ['perf', 'plan'],
+      wikilinks: [],
     });
   });
 

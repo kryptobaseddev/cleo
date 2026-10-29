@@ -263,6 +263,7 @@ export const attachmentRefs = sqliteTable(
  *   - `superseded-by`  — `attachments.superseded_by` (older → newer)
  *   - `related-task`   — `attachments.related_tasks` JSON membership (doc → T####)
  *   - `topic`          — `attachments.topics` JSON co-membership (doc ↔ doc sharing a topic)
+ *   - `links-to`       — a `[[slug]]` wikilink in the doc body (doc → doc, T14113)
  *
  * Kept slug-primary so the edge table is Obsidian-grade (vault links are
  * slug-addressed) and survives attachment-id churn across versions.
@@ -274,6 +275,7 @@ export const DOCS_WIKILINK_RELATIONS = [
   'superseded-by',
   'related-task',
   'topic',
+  'links-to',
 ] as const;
 
 /** Discriminated union of `docs_wikilinks.relation` values. */
@@ -295,8 +297,9 @@ export type DocsWikilinkRelation = (typeof DOCS_WIKILINK_RELATIONS)[number];
  *
  * Edges are slug-primary; `to_slug` carries a doc slug for `topic` /
  * `supersedes` / `superseded-by` edges and a `T####` task id for `related-task`
- * edges (`to_is_task = 1`). No markdown body `[[link]]` parsing is performed
- * (AC4) — the edges derive purely from structured provenance columns.
+ * edges (`to_is_task = 1`). The column-derived relations are rebuilt from the
+ * provenance columns; `links-to` edges (T14113) come from body `[[slug]]`
+ * wikilinks, written per doc at the docs write path and kept across rebuilds.
  *
  * @task T11826 (Epic T11781 / Saga T11778)
  */

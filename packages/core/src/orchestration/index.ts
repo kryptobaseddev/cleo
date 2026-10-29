@@ -9,6 +9,7 @@ import { ExitCode } from '@cleocode/contracts/exit-codes.js';
 import { CleoError } from '../errors.js';
 import { resolveOrCwd } from '../paths.js';
 import type { DataAccessor } from '../store/data-accessor.js';
+import { isClaimExpired } from '../store/task-claim.js';
 import { orderByRanking } from '../task-tools/score-task-priority.js';
 import { loadRankingContext } from '../tasks/task-next.js';
 import { effectiveLeanLevel } from './lean-change.js';
@@ -184,6 +185,12 @@ export interface TaskReadiness {
   ready: boolean;
   blockers: string[];
   protocol: string;
+  /**
+   * The task holds a live claim (T14133): a session, usually a spawned one, is
+   * working it. `orchestrate ready` reports it as in flight, never as a fresh
+   * candidate to admit or defer.
+   */
+  inFlight: boolean;
 }
 
 /** Orchestrator analysis result. */
@@ -286,6 +293,7 @@ export async function analyzeEpic(
 
 /** Project canonical wave assessments without changing child order or protocol dispatch. */
 function projectChildReadiness(children: Task[], waves: EnrichedWave[]): TaskReadiness[] {
+  const now = new Date().toISOString();
   const assessments = new Map(
     waves.flatMap((wave) => wave.tasks.map((task) => [task.id, task] as const)),
   );
@@ -302,6 +310,7 @@ function projectChildReadiness(children: Task[], waves: EnrichedWave[]): TaskRea
         ready: assessment.ready,
         blockers: assessment.blockedBy,
         protocol: autoDispatch(task),
+        inFlight: task.claim !== undefined && !isClaimExpired(task.claim, now),
       },
     ];
   });

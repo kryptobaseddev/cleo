@@ -79,21 +79,52 @@ function hasDate(name: string): boolean {
  * @task T14107
  */
 export function suggestDocName(name: string): string {
-  const parts = tokens(name.replace(/(19|20)\d{2}-\d{2}(-\d{2})?/g, ' '));
+  // A dated or calver token goes whole, `v` prefix included (`ship-v2026-10-27`).
+  const parts = tokens(name.replace(/(^|[^a-z0-9])v?(19|20)\d{2}-\d{2}(-\d{2})?/gi, '$1 '));
   const kept: string[] = [];
   // A session id is `ses` and the numeric tokens after it (`ses_<time>_<n>`).
   let inSession = false;
-  for (const token of parts) {
+  for (let i = 0; i < parts.length; i++) {
+    const token = parts[i] ?? '';
     if (token === 'ses') {
       inSession = true;
       continue;
     }
     if (inSession && /^\d+$/.test(token)) continue;
     inSession = false;
+    // A year then a month (`2026 10`, a calver `v2026.10.28`) joins into a
+    // date: drop the year token (with any `v` prefix) and the numbers after it.
+    if (/^v?(19|20)\d{2}$/.test(token) && /^\d{1,2}$/.test(parts[i + 1] ?? '')) {
+      i += /^\d{1,2}$/.test(parts[i + 2] ?? '') ? 2 : 1;
+      continue;
+    }
     if (!isTaskToken(token) && !isDateToken(token)) kept.push(token);
   }
   const joined = kept.join('-').replace(/^[^a-z]+/, '');
   return joined.slice(0, DOC_NAME_MAX_LENGTH).replace(/-+$/, '') || 'doc';
+}
+
+/**
+ * The rule-abiding slug CLEO mints from a title or file name: its subject
+ * words in kebab-case, without task ids, session ids or dates, at most
+ * `maxLength` characters. Internal writers (ADR allocation, spawn topic slugs,
+ * imports) use it so their slugs pass {@link docNameViolation}; the task stays
+ * a link on the doc, not part of its name.
+ *
+ * @param source - The title or file base name.
+ * @param maxLength - Longest result, for callers that add a prefix.
+ * @returns The slug, or `doc` when the source has no subject words.
+ * @task T14129
+ */
+export function subjectSlug(source: string, maxLength: number = DOC_NAME_MAX_LENGTH): string {
+  const clean = (text: string): string =>
+    suggestDocName(text).slice(0, maxLength).replace(/-+$/, '') || 'doc';
+  const slug = clean(source);
+  if (docNameViolation(slug) === null) return slug;
+  // Cutting can leave a new violation at the end: clean once more, and fall
+  // back to `doc` rather than return a slug the rule refuses.
+  const again = clean(slug);
+  return docNameViolation(again) === null ? again : 'doc';
 }
 
 /**

@@ -743,6 +743,8 @@ function serializeAtom(atom: EvidenceAtom): string | null {
           : `${atom.prNumber}`;
       return `${atom.kind}:${ref}`;
     }
+    case 'ci-run':
+      return `ci-run:${atom.runId}`;
     case 'deploy':
       return `deploy:${atom.provider}/${atom.deploymentId}@${atom.headSha}|${atom.probeUrl}`;
     default:

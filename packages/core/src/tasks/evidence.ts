@@ -271,6 +271,14 @@ export type ParsedAtom =
     }
   | {
       /**
+       * A green repeat-run.yml run (T14149): `ci-run:<runId>`. Links criteria
+       * that need a heavy or repeated run; never `testsPassed` on its own.
+       */
+      kind: 'ci-run';
+      runId: number;
+    }
+  | {
+      /**
        * Probed deployment (T14083): `deploy:<provider>/<deploymentId>@<sha>|<probe-url>`.
        * Accepted only for the gates in `evidence.deploySatisfies`.
        */
@@ -385,6 +393,27 @@ export type AtomValidation =
  *
  * @task T12238 (gh#1365)
  */
+/**
+ * Repo paths a task's change touches, for judging a `ci-run:` test file's
+ * relevance (T14149): its declared files and the files its recorded
+ * `implemented` evidence names (`files:` paths and `pr:` changed paths).
+ */
+function taskChangePaths(context: EvidenceValidationContext): string[] {
+  const implemented = context.task.verification?.evidence?.implemented?.atoms ?? [];
+  return [
+    ...new Set([
+      ...(context.task.files ?? []),
+      ...implemented.flatMap((atom) =>
+        atom.kind === 'files'
+          ? atom.files.map((file) => file.path)
+          : atom.kind === 'pr'
+            ? (atom.changedPaths ?? [])
+            : [],
+      ),
+    ]),
+  ].map(normalizeEvidencePath);
+}
+
 export interface EvidenceRoots {
   /**
    * Where CLEO keeps its own state — `.cleo/`, the BRAIN db, project context,
@@ -555,6 +584,26 @@ export async function validateAtom(
           ? { componentPrNumber: parsed.componentPrNumber }
           : {}),
         ...(context?.readOnly ? { readOnly: true } : {}),
+      });
+      return result.ok
+        ? { ok: true, atom: result.atom }
+        : { ok: false, reason: result.reason, codeName: result.codeName };
+    }
+    case 'ci-run': {
+      // T14149: a repeat-run.yml run, read from GitHub in the repository. Its
+      // test file must be one the task changed or one a linked criterion names.
+      const owner = taskId ?? context?.task.id;
+      if (owner === undefined || context === undefined)
+        return {
+          ok: false,
+          reason: 'ci-run evidence needs the task context to judge which test file is relevant',
+          codeName: 'E_EVIDENCE_INVALID',
+        };
+      const { resolveCiRunEvidenceAtom } = await import('../release/ci-run-evidence.js');
+      const result = await resolveCiRunEvidenceAtom(parsed.runId, roots, {
+        taskId: owner,
+        changedPaths: taskChangePaths(context),
+        criteriaTexts: (context.creditedCriteria ?? []).map((criterion) => criterion.text),
       });
       return result.ok
         ? { ok: true, atom: result.atom }
@@ -1967,8 +2016,10 @@ async function readTestRunReport(
 
 /**
  * T14097: refuse a test run in a checkout whose workspace packages resolve
- * into another checkout (its tests would run that checkout's build), and warn
- * when a dependency's dist predates its source. Null when the run may proceed.
+ * into another checkout (its tests would run that checkout's build) or whose
+ * dist was built from other source (T14123), and warn when a dependency's
+ * build is borrowed from a checkout with identical source. Null when the run
+ * may proceed.
  *
  * @param root - The tree the run is about (any directory inside the checkout).
  * @param testFiles - Test files the run names, to scope the check; all packages when empty.
@@ -1978,28 +2029,39 @@ async function workspaceResolutionRefusal(
   testFiles: readonly string[] = [],
 ): Promise<AtomValidation | null> {
   const {
+    borrowedBuildWarning,
     checkoutRootOf,
     checkWorkspaceResolution,
-    foreignResolutionReason,
     packagesNamedByTestArgs,
-    staleDistWarning,
+    UNSTAMPED_DIST_FIX,
+    unstampedDistWarning,
+    workspaceResolutionError,
   } = await import('./workspace-resolution.js');
   const checkout = checkoutRootOf(root) ?? root;
   const report = checkWorkspaceResolution(
     checkout,
     packagesNamedByTestArgs(checkout, checkout, testFiles),
   );
-  const reason = foreignResolutionReason(report);
-  // @sync-invariant none:input-shape a test run against another checkout's build is refused before anything is written
-  if (reason !== null) return { ok: false, reason, codeName: 'E_WORKSPACE_FOREIGN_CHECKOUT' };
-  const stale = staleDistWarning(report);
-  if (stale !== null)
+  const refused = workspaceResolutionError(report);
+  // @sync-invariant none:input-shape a test run against another checkout's build, or a dist built from other source, is refused before anything is written
+  if (refused !== null) return { ok: false, reason: refused.message, codeName: refused.codeName };
+  const borrowed = borrowedBuildWarning(report);
+  if (borrowed !== null)
     pushWarning({
       // @sync-invariant none:input-shape a warning only; nothing is refused or written
-      code: 'W_WORKSPACE_STALE_DIST',
+      code: 'W_WORKSPACE_BORROWED_BUILD',
       severity: 'warn',
-      message: stale,
+      message: borrowed,
       context: { root: checkout },
+    });
+  const unstamped = unstampedDistWarning(report);
+  if (unstamped !== null)
+    pushWarning({
+      // @sync-invariant none:input-shape a warning only; nothing is refused or written
+      code: 'W_WORKSPACE_UNSTAMPED_DIST',
+      severity: 'warn',
+      message: unstamped,
+      context: { root: checkout, fix: UNSTAMPED_DIST_FIX },
     });
   return null;
 }
@@ -3686,6 +3748,9 @@ export function checkTaskEvidenceContext(
   // T14083: a probed deployment is bound to the task it was verified for.
   if (atoms.some((atom) => atom.kind === 'deploy' && atom.taskId !== context.task.id))
     return 'Deploy evidence lacks verified task linkage; re-verify with current task context.';
+  // T14149: a repeat-run is judged relevant to the task it was verified for.
+  if (atoms.some((atom) => atom.kind === 'ci-run' && atom.taskId !== context.task.id))
+    return 'ci-run evidence lacks verified task linkage; re-verify with current task context.';
   // T12848: several PRs in one write are unambiguous — each `files:` path is
   // pinned to the merge of the PR that changed it (prMergeCommitForPath), and
   // every PR must be proven by an artifact it changed that was READ AT ITS OWN
@@ -4097,7 +4162,8 @@ export function composeGateEvidence(
       return atom.kind === 'tool' ||
         atom.kind === 'test-run' ||
         atom.kind === 'qa-run' ||
-        atom.kind === 'ci'
+        atom.kind === 'ci' ||
+        atom.kind === 'ci-run'
         ? [index]
         : [];
     });
@@ -4171,9 +4237,16 @@ export async function boundHeadGapReason(
   projectRoot: string,
 ): Promise<string | null> {
   // T14083: a probed deployment is bound to the commit it serves.
+  // T14149: a repeat-run is bound to the commit it tested.
   const runs = atoms.filter(
-    (a): a is Extract<EvidenceAtom, { kind: 'test-run' | 'qa-run' | 'tool' | 'deploy' }> =>
-      (a.kind === 'test-run' || a.kind === 'qa-run' || a.kind === 'tool' || a.kind === 'deploy') &&
+    (
+      a,
+    ): a is Extract<EvidenceAtom, { kind: 'test-run' | 'qa-run' | 'tool' | 'deploy' | 'ci-run' }> =>
+      (a.kind === 'test-run' ||
+        a.kind === 'qa-run' ||
+        a.kind === 'tool' ||
+        a.kind === 'deploy' ||
+        a.kind === 'ci-run') &&
       typeof a.headSha === 'string',
   );
   if (runs.length === 0) return null;
@@ -4247,7 +4320,9 @@ export async function boundHeadGapReason(
         ? `tool:${run.tool} ran at ${head.slice(0, 12)}`
         : run.kind === 'deploy'
           ? `deploy:${run.provider}/${run.deploymentId} serves ${head.slice(0, 12)}`
-          : `${run.kind}:${run.path} was bound at ${head.slice(0, 12)}`;
+          : run.kind === 'ci-run'
+            ? `ci-run:${run.runId} (${run.test} x${run.runs}) tested ${head.slice(0, 12)}`
+            : `${run.kind}:${run.path} was bound at ${head.slice(0, 12)}`;
     if (missing !== null) {
       return (
         `${bound}, and git cannot read the commits that relate it to ${task.id}'s implemented ` +
@@ -4264,6 +4339,12 @@ export async function boundHeadGapReason(
         `${bound}, which carries ${task.id}'s work but not its implemented commit ${shas}: ` +
         'the branch was rebased, amended or squash-merged after implemented was recorded. ' +
         `Re-record implemented (cleo verify ${task.id} --gate implemented ...), then the run.`
+      );
+    }
+    if (run.kind === 'ci-run') {
+      return (
+        `${bound}, which does not contain ${task.id}'s implemented commit ${shas}: dispatch ` +
+        'repeat-run.yml on the default branch after the change merged, and record that run.'
       );
     }
     if (run.kind === 'deploy') {
@@ -4800,6 +4881,14 @@ export async function revalidateEvidence(
             commitSha: atom.mergeCommitSha,
           }),
         );
+        if (!recheck.ok) failed.push({ atom, reason: recheck.reason });
+        break;
+      }
+      case 'ci-run': {
+        // T14149: a re-run of the repeat-run that went red, or a run that moved
+        // to another commit, no longer stands; containment is re-checked above.
+        const { recheckCiRunAtom } = await import('../release/ci-run-evidence.js');
+        const recheck = recheckCiRunAtom(atom, resolveEvidenceExecutionRoot(projectRoot));
         if (!recheck.ok) failed.push({ atom, reason: recheck.reason });
         break;
       }

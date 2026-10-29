@@ -55,6 +55,8 @@ import { linkDecisionCommand, unlinkDecisionCommand } from './docs/decision-link
 import { graphCommand as provenanceGraphCommand } from './docs/graph.js';
 // T13360 — legacy docs migration into the re-keyed store (`migrate`, spec §5).
 import { migrateCommand } from './docs/migrate.js';
+// T14113 — messy docs folder → clean, linked CleoDocs (`modernize`).
+import { modernizeCommand } from './docs/modernize.js';
 // T13363 — per-project adoption metrics (`stats`, read-only).
 import { rotCommand } from './docs/rot.js';
 // T11875 — display-alias assignment verb (`set-alias <slug> <number>`).
@@ -2399,6 +2401,8 @@ export const docsCommand = defineCommand({
     rot: rotCommand,
     // T13360 — docs.migrate legacy docs import (harness-bracketed, idempotent)
     migrate: migrateCommand,
+    // T14113 — docs.modernize (dry run / apply / rollback)
+    modernize: modernizeCommand,
     // Drift status — agent-facing, kept per cleodocs-rearch-design §6 (T13361 retired gap-check only)
     status: statusCommand,
     // T9645 reingest — retained: the docs-reingest workflow invokes `docs sync --from/--for/--name`

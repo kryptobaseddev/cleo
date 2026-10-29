@@ -52,6 +52,8 @@ import type {
   DocsLlmOutputResult,
   DocsMigrateParams,
   DocsMigrateResult,
+  DocsModernizeParams,
+  DocsModernizeResult,
   DocsRemoveParams,
   DocsRemoveResult,
   DocsSupersedeParams,
@@ -120,6 +122,12 @@ const allocateAdrSlug = lazyOperation(
 const allocateAutoSlugForDispatch = lazyOperation(
   async () => (await import('@cleocode/core/docs/numbering')).allocateAutoSlugForDispatch,
 );
+const docNameViolation = lazyOperation(
+  async () => (await import('@cleocode/core/docs/doc-name-rule')).docNameViolation,
+);
+const describeDocNameViolation = lazyOperation(
+  async () => (await import('@cleocode/core/docs/doc-name-rule')).describeDocNameViolation,
+);
 const exportDocument = lazyOperation(
   async () => (await import('@cleocode/core/docs/export-document')).exportDocument,
 );
@@ -174,6 +182,9 @@ const triageDocs = lazyOperation(
 );
 const computeDocsStats = lazyOperation(
   async () => (await import('@cleocode/core/docs/stats')).computeDocsStats,
+);
+const runDocsModernize = lazyOperation(
+  async () => (await import('@cleocode/core/docs/modernize/index')).runDocsModernize,
 );
 const scanDocsRot = lazyOperation(
   async () => (await import('@cleocode/core/docs/rot')).scanDocsRot,
@@ -303,6 +314,7 @@ type DocsTypedOps = {
   readonly 'unlink-decision': readonly [DocsDecisionLinkParams, DocsDecisionLinkResult];
   readonly doctor: readonly [DocsDoctorParams, DocsDoctorResult];
   readonly migrate: readonly [DocsMigrateParams, DocsMigrateResult];
+  readonly modernize: readonly [DocsModernizeParams, DocsModernizeResult];
 };
 
 // ─── Owner type inference ─────────────────────────────────────────────────────
@@ -965,6 +977,42 @@ const _docsTypedHandler = defineTypedHandler<DocsTypedOps>('docs', {
     );
   },
 
+  // ── docs.modernize (T14113 — messy docs folder → linked CleoDocs) ─────────
+
+  modernize: async (params) => {
+    let result: Awaited<ReturnType<typeof runDocsModernize>>;
+    try {
+      result = await runDocsModernize(getProjectRoot(), {
+        ...params,
+        exclude: params.exclude
+          ?.split(',')
+          .map((e) => e.trim())
+          .filter(Boolean),
+      });
+    } catch (err) {
+      const code = err instanceof Error && 'code' in err ? String(err.code) : '';
+      // @sync-invariant none:input-shape modernize refusals (stale plan, missing root, unknown receipt) happen before the step they guard
+      if (!code.startsWith('E_MODERNIZE')) throw err;
+      return lafsError(
+        code, // @sync-invariant none:input-shape a stale plan, missing root or unknown receipt is refused; the receipt holds any earlier step
+        err instanceof Error ? err.message : code,
+        'modernize',
+      );
+    }
+    const counts = result.plan?.counts;
+    const summary =
+      result.mode === 'rollback'
+        ? `rolled back ${result.receipt?.runId} (${result.receipt?.ops.length ?? 0} steps reversed)`
+        : (result.plan?.mode === 'store'
+            ? `${result.plan.storeRows?.length ?? 0} stored docs to re-kind or re-slug`
+            : `${result.plan?.rows.length ?? 0} files: ${counts?.keep ?? 0} keep, ${counts?.rename ?? 0} rename, ` +
+              `${counts?.['merge-into'] ?? 0} merge, ${counts?.delete ?? 0} delete`) +
+          (result.receipt
+            ? `; applied as ${result.receipt.runId} (${result.receipt.ops.length} steps, ${result.receipt.edgeCount} graph edges)`
+            : '; dry run, nothing written');
+    return lafsSuccess<DocsModernizeResult>({ ...result, summary }, 'modernize');
+  },
+
   // ── docs.add ───────────────────────────────────────────────────────────────
 
   add: async (params) => {
@@ -1286,6 +1334,22 @@ const _docsTypedHandler = defineTypedHandler<DocsTypedOps>('docs', {
                 'E_SLUG_PATTERN_MISMATCH',
                 `${patternCheck.error}${exampleHint}`,
                 'add',
+              );
+            }
+          }
+
+          // T14129 (D11210) — a NEW slug names the doc's subject: no task id,
+          // session id or date. Legacy docs keep their names; only add refuses.
+          if (slug !== undefined) {
+            const nameCheck = await docNameViolation(slug, type);
+            if (nameCheck !== null) {
+              if (adrNumber !== undefined) releaseReservedSlug(slug);
+              return lafsError(
+                'E_DOC_NAME_RULE', // @sync-invariant none:input-shape a slug that breaks the doc naming rule is refused before anything is written
+                await describeDocNameViolation(slug, nameCheck),
+                'add',
+                `cleo docs add ... --slug ${nameCheck.suggestion}`,
+                { suggestion: nameCheck.suggestion, reasons: nameCheck.reasons },
               );
             }
           }
@@ -2314,6 +2378,7 @@ const MUTATE_OPS = new Set<string>([
   'import',
   'doctor',
   'migrate',
+  'modernize',
 ]);
 
 async function dispatchDocsLegacyQuery(
@@ -2680,6 +2745,7 @@ export class DocsHandler implements DomainHandler {
         'import',
         'doctor',
         'migrate',
+        'modernize',
       ],
     };
   }

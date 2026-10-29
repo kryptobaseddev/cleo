@@ -14484,6 +14484,79 @@ export type MutateDocsMigrateResponses = {
 
 export type MutateDocsMigrateResponse = MutateDocsMigrateResponses[keyof MutateDocsMigrateResponses];
 
+export type MutateDocsModernizeData = {
+    body?: {
+        /**
+         * Folder to modernize (required unless --rollback)
+         */
+        path?: string;
+        /**
+         * Execute the plan (default: dry run, nothing written)
+         */
+        apply?: boolean;
+        /**
+         * Apply this saved plan JSON verbatim
+         */
+        planFile?: string;
+        /**
+         * Save the plan JSON to this path
+         */
+        out?: string;
+        /**
+         * Roll back the apply run with this id
+         */
+        rollback?: string;
+        /**
+         * Extra folder names to skip, comma-separated
+         */
+        exclude?: string;
+        /**
+         * Reviewer decisions JSON keyed by path (DocsModernizeOverrides)
+         */
+        overrides?: string;
+        /**
+         * Use this kind for every file instead of classifying
+         */
+        kind?: string;
+        /**
+         * Ingest every file into the store and leave the folder untouched
+         */
+        storeOnly?: boolean;
+        /**
+         * Apply even when the root is not a clean git checkout
+         */
+        allowDirty?: boolean;
+        /**
+         * Modernize the docs already in the store instead of a folder
+         */
+        store?: boolean;
+    };
+    path?: never;
+    query?: never;
+    url: '/v1/docs/modernize';
+};
+
+export type MutateDocsModernizeResponses = {
+    /**
+     * Generic query result — the precise /data shape is not individually contracted. Run with --full to see the verbose record, or --describe for the operation contract.
+     */
+    200: {
+        success: true;
+        data: {
+            [key: string]: unknown;
+        };
+        /**
+         * LAFS response metadata.
+         */
+        meta: {
+            [key: string]: unknown;
+        };
+        [key: string]: unknown;
+    };
+};
+
+export type MutateDocsModernizeResponse = MutateDocsModernizeResponses[keyof MutateDocsModernizeResponses];
+
 export type QueryDocsGenerateData = {
     body: {
         /**

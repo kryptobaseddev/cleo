@@ -114,6 +114,8 @@ export async function pruneOrphanedWorktreesByStatus(
   const errors: Array<{ path: string; error: string }> = [];
   let prunedCount = 0;
 
+  // One comparison budget for the whole run (T14146).
+  const budget = newCompareBudget();
   for (const wt of candidates) {
     const reason = reasonForStatus(wt);
 
@@ -159,7 +161,9 @@ export async function pruneOrphanedWorktreesByStatus(
 
     // T14142: removal is forced, so anything not proven redundant would be lost.
     // A directory already gone holds nothing to lose.
-    const unproven = existsSync(wt.path) ? unprovenContent(wt.path, opts.projectRoot) : null;
+    const unproven = existsSync(wt.path)
+      ? unprovenContent(wt.path, opts.projectRoot, { budget, exemptRegenerable: wt.isMerged })
+      : null;
     if (unproven !== null) {
       const error = `Worktree ${wt.path} kept: ${unproven}.`;
       outcomes.push({
@@ -254,43 +258,93 @@ export async function pruneOrphanedWorktreesByStatus(
 // Internal helpers — exported for tests only.
 // ---------------------------------------------------------------------------
 
-/** shortcut: at most this many entries are compared per tree; raise it if seeded trees outgrow it. */
-const MAX_COMPARED_ENTRIES = 50_000;
+/**
+ * What one cleanup run may spend proving trees identical (T14146). Shared
+ * across every checkout the run inspects; once spent, the rest is unproven.
+ */
+export interface CompareBudget {
+  /** Entries (files, directories, links) still allowed. */
+  entries: number;
+  /** File bytes still allowed to be read. */
+  bytes: number;
+}
+
+/** A fresh per-run budget: 200 000 entries and 2 GiB of file bytes. */
+export function newCompareBudget(): CompareBudget {
+  return { entries: 200_000, bytes: 2 * 1024 * 1024 * 1024 };
+}
+
+/** A single file larger than this is never read to prove it identical (64 MiB). */
+const MAX_COMPARED_FILE_BYTES = 64 * 1024 * 1024;
+
+/** Output directories the build writes, at the root or in a workspace package. */
+const REGENERABLE_DIRS = new Set(['dist', '.turbo', 'coverage']);
+
+/**
+ * Build output a merged, clean checkout can always rebuild from its source,
+ * so losing it loses nothing (T14146): `dist/`, `.turbo/` and `coverage/`
+ * (and anything inside them), and `*.tsbuildinfo` files, only where the build
+ * writes them: the checkout root or a `packages/<name>/` root. The same name
+ * deeper down (`secrets/dist/key.pem`) is not build output and stays strict.
+ *
+ * @param rel - Path relative to the checkout root, `/`-separated.
+ * @returns Whether the path is rebuildable output.
+ */
+export function isRegenerable(rel: string): boolean {
+  const parts = rel.split('/');
+  // The output's own root: `dist`, or `packages/<name>/dist`.
+  const base = parts[0] === 'packages' ? 2 : 0;
+  if (parts.length > base && REGENERABLE_DIRS.has(parts[base] ?? '')) return true;
+  return parts.length === base + 1 && rel.endsWith('.tsbuildinfo');
+}
 
 /**
  * Whether `a` and `b` hold the same tree: same names, same file bytes, same
- * symlink targets. Symlinks are compared, never followed.
+ * symlink targets. Symlinks are compared, never followed. Any read error, an
+ * oversized file or a spent budget answers `false` (unproven), never throws.
  */
-function sameTree(a: string, b: string): boolean {
+function sameTree(a: string, b: string, budget: CompareBudget): boolean {
   const stack: Array<[string, string]> = [[a, b]];
-  let seen = 0;
-  while (stack.length > 0) {
-    const [x, y] = stack.pop() as [string, string];
-    if (++seen > MAX_COMPARED_ENTRIES) return false;
-    let sx: Stats;
-    let sy: Stats;
-    try {
-      sx = lstatSync(x);
-      sy = lstatSync(y);
-    } catch {
-      return false;
-    }
-    if (sx.isSymbolicLink() || sy.isSymbolicLink()) {
-      if (!sx.isSymbolicLink() || !sy.isSymbolicLink() || readlinkSync(x) !== readlinkSync(y)) {
+  try {
+    while (stack.length > 0) {
+      const [x, y] = stack.pop() as [string, string];
+      if (--budget.entries < 0) return false;
+      const sx: Stats = lstatSync(x);
+      const sy: Stats = lstatSync(y);
+      if (sx.isSymbolicLink() || sy.isSymbolicLink()) {
+        if (!sx.isSymbolicLink() || !sy.isSymbolicLink() || readlinkSync(x) !== readlinkSync(y)) {
+          return false;
+        }
+      } else if (sx.isFile() && sy.isFile()) {
+        if (sx.size !== sy.size || sx.size > MAX_COMPARED_FILE_BYTES) return false;
+        budget.bytes -= sx.size * 2;
+        if (budget.bytes < 0 || !readFileSync(x).equals(readFileSync(y))) return false;
+      } else if (sx.isDirectory() && sy.isDirectory()) {
+        const nx = readdirSync(x).sort();
+        const ny = readdirSync(y).sort();
+        if (nx.length !== ny.length || nx.some((n, i) => n !== ny[i])) return false;
+        for (const n of nx) stack.push([join(x, n), join(y, n)]);
+      } else {
         return false;
       }
-    } else if (sx.isFile() && sy.isFile()) {
-      if (sx.size !== sy.size || !readFileSync(x).equals(readFileSync(y))) return false;
-    } else if (sx.isDirectory() && sy.isDirectory()) {
-      const nx = readdirSync(x).sort();
-      const ny = readdirSync(y).sort();
-      if (nx.length !== ny.length || nx.some((n, i) => n !== ny[i])) return false;
-      for (const n of nx) stack.push([join(x, n), join(y, n)]);
-    } else {
-      return false;
     }
+  } catch {
+    return false;
   }
   return true;
+}
+
+/** How {@link unprovenContent} treats ignored content (T14146). */
+export interface UnprovenContentOptions {
+  /** Shared per-run comparison budget; a fresh one when omitted. */
+  budget?: CompareBudget;
+  /** Ignored `node_modules` counts as redundant (worktrees, not repository copies). */
+  exemptNodeModules?: boolean;
+  /**
+   * Ignored build output ({@link isRegenerable}) counts as redundant. Only for
+   * a checkout whose commits are merged: its source rebuilds the output.
+   */
+  exemptRegenerable?: boolean;
 }
 
 /**
@@ -298,18 +352,26 @@ function sameTree(a: string, b: string): boolean {
  *
  * Tracked changes never are; untracked content is when the main checkout
  * holds the identical tree at the same path. Ignored content (which
- * `--porcelain` alone never lists: an edited `.env`, `dist/`, an agent's
- * nested `.claude/worktrees/x/`) is redundant only under `node_modules`, or
- * when the main checkout holds the identical tree at the same path (what
- * `.worktreeinclude` seeded, unchanged). Fail-closed: a git error is
- * unproven.
+ * `--porcelain` alone never lists: an edited `.env`, an agent's nested
+ * `.claude/worktrees/x/`) is redundant only when exempted by `opts`
+ * (`node_modules`, merged build output) or when the main checkout holds the
+ * identical tree at the same path (what `.worktreeinclude` seeded, unchanged).
+ * Fail-closed: a git or read error is unproven.
  *
  * @param path - Checkout root.
  * @param projectRoot - The main checkout seeded copies are compared against.
+ * @param opts - Budget and exemptions (default: `node_modules` exempt, nothing else).
  * @returns Why the checkout must be kept, or `null`.
  * @task T14142
+ * @task T14146
  */
-export function unprovenContent(path: string, projectRoot: string): string | null {
+export function unprovenContent(
+  path: string,
+  projectRoot: string,
+  opts: UnprovenContentOptions = {},
+): string | null {
+  const budget = opts.budget ?? newCompareBudget();
+  const exemptNodeModules = opts.exemptNodeModules !== false;
   let out: string;
   try {
     out = execFileSync(
@@ -326,12 +388,13 @@ export function unprovenContent(path: string, projectRoot: string): string | nul
     // A tracked change is never redundant; an untracked or ignored path is
     // when the main checkout holds the identical tree (a copied receipt).
     if (code === '??') {
-      if (sameTree(join(path, rel), join(projectRoot, rel))) continue;
+      if (sameTree(join(path, rel), join(projectRoot, rel), budget)) continue;
       return 'uncommitted or untracked changes';
     }
     if (code !== '!!') return 'uncommitted or untracked changes';
-    if (rel.split('/').includes('node_modules')) continue;
-    if (!sameTree(join(path, rel), join(projectRoot, rel))) {
+    if (exemptNodeModules && rel.split('/').includes('node_modules')) continue;
+    if (opts.exemptRegenerable === true && isRegenerable(rel)) continue;
+    if (!sameTree(join(path, rel), join(projectRoot, rel), budget)) {
       return `ignored content not in the main checkout: ${rel}`;
     }
   }

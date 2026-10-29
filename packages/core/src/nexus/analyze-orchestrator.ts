@@ -11,7 +11,7 @@
  */
 
 import { randomUUID } from 'node:crypto';
-import { existsSync } from 'node:fs';
+import { existsSync, realpathSync } from 'node:fs';
 import { realpath } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import type {
@@ -25,10 +25,11 @@ import type {
 } from '@cleocode/contracts';
 import type { GraphSourceRootAssessment } from '@cleocode/contracts/graph';
 import type { ScannedFile } from '@cleocode/nexus/pipeline';
+import { resolveProjectByCwd } from '@cleocode/paths';
 import { sql } from 'drizzle-orm';
 import type { NodeSQLiteDatabase } from 'drizzle-orm/node-sqlite';
 import { z } from 'zod';
-import { worktreeScope } from '../paths.js';
+import { resolveCleoDir, worktreeScope } from '../paths.js';
 import { getProjectInfo } from '../project-info.js';
 import { createParserExecutionPort } from '../resources/spawn-wrapper.js';
 import { nexusNodes, nexusRelations } from '../store/schema/cleo-project/nexus-graph.js';
@@ -582,6 +583,53 @@ export interface NexusAnalysisResult {
 // ---------------------------------------------------------------------------
 // Public API
 // ---------------------------------------------------------------------------
+
+/** Where an analysis of a path would be written, when that is not the path's own project. */
+export interface AnalysisStoreMismatch {
+  /** The `.cleo/` whose store the analysis would write (the database's resolver). */
+  readonly storeDir: string;
+  /** The project the path belongs to (walk-up from it), or `null` when none. */
+  readonly pathProjectRoot: string | null;
+}
+
+/** `realpath` when the path exists, else the resolved path (comparison only). */
+function realOrResolved(path: string): string {
+  try {
+    return realpathSync(path);
+  } catch {
+    return resolve(path);
+  }
+}
+
+/**
+ * Whether analyzing `repoPath` would write the code graph into a store that is
+ * not `repoPath`'s own project store (T14153). The graph lives in the PROJECT
+ * `cleo.db`, opened through `resolveCleoDir(repoPath)`: under a `CLEO_DIR` pin
+ * that is the pinned store whatever the path, so analyzing another project's
+ * path would attribute its graph to the pinned project. With no pin the
+ * resolver walks up from the path itself, so a path inside a CLEO project
+ * writes that project's own store and is not a mismatch.
+ *
+ * Compares the store that would actually be written with the path's project,
+ * never merely whether a pin is set.
+ *
+ * @param repoPath - The path to analyze.
+ * @returns The mismatch, or `null` when the store written is the path's own.
+ * @task T14153
+ */
+export function analysisStoreMismatch(repoPath: string): AnalysisStoreMismatch | null {
+  let storeDir: string;
+  try {
+    storeDir = resolveCleoDir(repoPath);
+  } catch {
+    return { storeDir: '(unresolved)', pathProjectRoot: null };
+  }
+  const project = resolveProjectByCwd(repoPath);
+  if (project === null) return { storeDir, pathProjectRoot: null };
+  return realOrResolved(storeDir) === realOrResolved(join(project.projectRoot, '.cleo'))
+    ? null
+    : { storeDir, pathProjectRoot: project.projectRoot };
+}
 
 /**
  * Run the nexus code-intelligence pipeline on a repository.

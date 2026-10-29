@@ -173,6 +173,9 @@ describe('knowledge doctor transactional repair', () => {
       count: 1,
       sampleIds: ['task:T-link->src/deleted.ts::work'],
     });
+    // T14120: the task join stays exact and case-sensitive after its rewrite.
+    insert.run('TASK:T-link', 'src/live.ts::work', 'task_touches_symbol');
+    expect(scanBrainGraphOrphans(db)).toMatchObject({ count: 2 });
   });
 
   it('reports a graph scan failure without a clean structural assessment', async () => {

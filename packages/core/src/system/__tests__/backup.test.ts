@@ -681,3 +681,98 @@ describe('system/backup — restored .db files are byte-identical', () => {
     expect(existsSync(join(testDir, '.cleo', 'tasks.db'))).toBe(true);
   });
 });
+
+// T14150: session-end VACUUM INTO snapshots and their outcome in `cleo backup list`.
+describe('system/backup — session-end snapshots are listed (T14150)', () => {
+  let testDir: string;
+  beforeEach(async () => {
+    vi.resetModules();
+    testDir = await mkdtemp(join(tmpdir(), 'cleo-system-backup-session-end-'));
+    mkdirSync(join(testDir, '.cleo', 'backups', 'sqlite'), { recursive: true });
+    mkdirSync(join(testDir, '.cleo', 'logs'), { recursive: true });
+  });
+  afterEach(async () => {
+    await rm(testDir, { recursive: true, force: true });
+  });
+
+  it('lists one entry per session-end run, restorable by file, beside sidecar backups', async () => {
+    const dir = join(testDir, '.cleo', 'backups', 'sqlite');
+    for (const f of [
+      'tasks-20261029-010203.db',
+      'conduit-20261029-010203.db',
+      'tasks-20261029-020304.db',
+    ]) {
+      writeFileSync(join(dir, f), 'snapshot');
+    }
+    const { listSystemBackups, SESSION_END_BACKUP_TYPE } = await import('../backup.js');
+    const listed = listSystemBackups(testDir).filter((b) => b.type === SESSION_END_BACKUP_TYPE);
+    expect(listed.map((b) => b.backupId).sort()).toEqual([
+      'session-end-20261029-010203',
+      'session-end-20261029-020304',
+    ]);
+    const run = listed.find((b) => b.backupId === 'session-end-20261029-010203');
+    expect(run).toMatchObject({
+      outcome: 'written',
+      scope: 'project',
+      files: ['conduit-20261029-010203.db', 'tasks-20261029-010203.db'],
+      contains: ['tasks', 'brain', 'conduit'],
+      restore: 'cleo restore backup --snapshot tasks-20261029-010203.db',
+    });
+  });
+
+  it('lists a failed and a skipped run from the session-end worker log; a clean run adds nothing', async () => {
+    const line = (at: string, result: unknown) =>
+      JSON.stringify({ event: 'session-end-snapshot', at, pid: 1, result });
+    writeFileSync(
+      join(testDir, '.cleo', 'logs', 'session-end-snapshot.log'),
+      [
+        line('2026-10-29T01:00:00.000Z', {
+          snapshotted: ['tasks'],
+          linked: [],
+          absent: [],
+          failed: [],
+          skipped: null,
+        }),
+        line('2026-10-29T02:00:00.000Z', {
+          snapshotted: [],
+          linked: [],
+          absent: [],
+          failed: ['tasks'],
+          skipped: null,
+        }),
+        line('2026-10-29T03:00:00.000Z', {
+          snapshotted: [],
+          linked: [],
+          absent: [],
+          failed: [],
+          skipped: 'lock-timeout',
+          error: 'held by pid 9',
+        }),
+        line('2026-10-29T04:00:00.000Z', null),
+        JSON.stringify({ event: 'session-end-snapshot-coalesced', at: '2026-10-29T05:00:00.000Z' }),
+        'not json',
+        '',
+      ].join('\n'),
+    );
+    const { listSystemBackups } = await import('../backup.js');
+    const misses = listSystemBackups(testDir).filter(
+      (b) => b.outcome !== undefined && b.outcome !== 'written',
+    );
+    expect(misses.map((b) => [b.timestamp, b.outcome, b.error])).toEqual([
+      [
+        '2026-10-29T04:00:00.000Z',
+        'failed',
+        'the snapshot could not be attempted (see the worker log)',
+      ],
+      ['2026-10-29T03:00:00.000Z', 'skipped', 'lock-timeout: held by pid 9'],
+      ['2026-10-29T02:00:00.000Z', 'failed', 'snapshot failed for tasks'],
+    ]);
+    expect(misses.every((b) => b.files.length === 0)).toBe(true);
+    // The scanned window is visible on every entry (bounded, not silent).
+    expect(misses.map((b) => b.note)).toEqual(
+      Array(3).fill(
+        'found in the last 200 session-end log lines (3 failed or skipped in that window)',
+      ),
+    );
+  });
+});

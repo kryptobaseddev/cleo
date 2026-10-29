@@ -57,6 +57,7 @@
 
 import { sql } from 'drizzle-orm';
 import { getDb } from '../store/sqlite.js';
+import { DOC_NAME_MAX_LENGTH, subjectSlug } from './doc-name-rule.js';
 import { slugify } from './import/slug.js';
 import { type ReserveSlugOptions, reserveSlug, type SlugReserveResult } from './slug-allocator.js';
 
@@ -216,9 +217,9 @@ export async function findHighestAdrNumber(cwd?: string): Promise<number> {
  * it fits, otherwise the natural-width string is used so `adr-1000-foo`
  * stays well-formed.
  *
- * `title` is slugified via the shared {@link slugify} helper so the
- * shape matches existing T9636 conventions and the
- * `uniq_docs_attachments_slug` regex constraints.
+ * `title` becomes the tail through {@link subjectSlug} (T14129): kebab-case
+ * subject words with task ids, session ids and dates dropped, cut so the
+ * whole slug fits the doc naming rule's length cap.
  *
  * @param number - The ADR number (>= 1).
  * @param title - Raw human-readable title (e.g. "Adopt Drizzle v1 beta").
@@ -227,8 +228,10 @@ export async function findHighestAdrNumber(cwd?: string): Promise<number> {
  */
 export function assembleAdrSlug(number: number, title: string): string {
   const padded = number < 1000 ? String(number).padStart(3, '0') : String(number);
-  const kebab = slugify(title);
-  return `adr-${padded}-${kebab}`;
+  const prefix = `adr-${padded}-`;
+  // T14129: the tail names the subject (no task id, session id or date) and
+  // the whole slug fits the doc naming rule's length cap.
+  return `${prefix}${subjectSlug(title, DOC_NAME_MAX_LENGTH - prefix.length)}`;
 }
 
 // ─── Main allocator entry point ───────────────────────────────────────────────

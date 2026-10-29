@@ -18,9 +18,11 @@
  * Why a dedicated test: the existing `docs-memory-observation.test.ts`
  * exercises arbitrary slugs. This file specifically asserts:
  *
- *   1. The slug shapes used by the T10371/T10373 normalization sweep
- *      (`t<digits>-<kebab>`, `adr-<digits>-<kebab>`) flow through the
- *      auto-emit without surprise (FTS-friendly, no escaping issues).
+ *   1. The slug shapes normalization mints (`<subject-kebab>`,
+ *      `adr-<digits>-<kebab>`) flow through the auto-emit without surprise
+ *      (FTS-friendly, no escaping issues). The sweep's task-anchored shape
+ *      (`t<digits>-<kebab>`) is refused for new docs since T14129 (D11210);
+ *      the last case pins that refusal.
  *   2. Each document is linked to its owner by an
  *      `llmtxt:<sha> --documents--> task:<id>` edge.
  *   3. Both `type='adr'` and `type='note'` (the dominant retroactive types)
@@ -117,8 +119,8 @@ afterEach(async () => {
 });
 
 // ---------------------------------------------------------------------------
-// Slug-shape table — covers both the task-ID and ADR-ID conventions used by
-// the T10371/T10373 retroactive sweep.
+// Slug-shape table — the subject and ADR-ID shapes. The sweep's task-anchored
+// shape (`t10268-saga-closeout`) can no longer be minted (T14129, D11210).
 // ---------------------------------------------------------------------------
 
 interface RetroactiveSlugCase {
@@ -134,14 +136,14 @@ interface RetroactiveSlugCase {
 
 const RETROACTIVE_SLUG_CASES: RetroactiveSlugCase[] = [
   {
-    label: 'task-anchored note slug (t10268-saga-closeout shape)',
-    slug: 't10999-retroactive-note-fixture',
+    label: 'subject note slug (saga-closeout shape)',
+    slug: 'retroactive-note-fixture',
     ownerId: 'T10999',
     type: 'note',
   },
   {
-    label: 'task-anchored long-form slug (t10292-e4-cli-verb-matrix shape)',
-    slug: 't10999-e4-cli-verb-matrix-fixture',
+    label: 'subject long-form slug (e4-cli-verb-matrix shape)',
+    slug: 'e4-cli-verb-matrix-fixture',
     ownerId: 'T10999',
     type: 'note',
   },
@@ -192,4 +194,22 @@ describe('T10375/T13985 — documents link for retroactively-normalized docs (E5
       expect(edge?.from_id).toMatch(/^llmtxt:[a-f0-9]{64}$/);
     });
   }
+
+  it('refuses a task-anchored slug with E_DOC_NAME_RULE and a subject suggestion (T14129)', async () => {
+    const addResp = await docsHandler.mutate('add', {
+      ownerId: 'T10999',
+      file: fixtureFile,
+      slug: 't10999-retroactive-note-fixture',
+      type: 'note',
+      attachedBy: 'test-T14129',
+    });
+    expect(addResp.success).toBe(false);
+    expect(addResp.error?.code).toBe('E_DOC_NAME_RULE');
+    expect(addResp.error?.message).toContain('carries a task id');
+    expect(addResp.error?.fix).toBe('cleo docs add ... --slug retroactive-note-fixture');
+    expect(addResp.error?.details).toMatchObject({
+      suggestion: 'retroactive-note-fixture',
+      reasons: ['task-id'],
+    });
+  });
 });

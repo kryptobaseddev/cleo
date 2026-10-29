@@ -32,7 +32,7 @@ describe('EvidenceAtomSchema (T10337)', () => {
     // Verify the shared constant is in sync with the zod discriminated union.
     // The discriminated union keys are 'commit','files','test-run','qa-run',
     // 'tool','url','note','decision','pr','ci','loc-drop','callsite-coverage',
-    // 'satisfies' ('qa-run': T13427), 'deploy' (T14083).
+    // 'satisfies' ('qa-run': T13427), 'deploy' (T14083), 'ci-run' (T14149).
     const expected = [
       'commit',
       'files',
@@ -44,6 +44,7 @@ describe('EvidenceAtomSchema (T10337)', () => {
       'decision',
       'pr',
       'ci',
+      'ci-run',
       'deploy',
       'loc-drop',
       'callsite-coverage',

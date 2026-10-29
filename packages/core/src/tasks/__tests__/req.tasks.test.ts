@@ -1061,6 +1061,32 @@ describe('typed requirement persistence', () => {
         expect(runs()).toBe(1);
       });
 
+      it('T14147: a pass cached under another environment misses; a write linking it refuses and persists nothing', async () => {
+        // `cleo done --plan` may report `cached` (T14138) and the environment
+        // can drift before the write. LANG is a hashed gate input (T14034), so
+        // the write's cache-only lookup misses: the linked gate refuses the
+        // whole write rather than recording a bare satisfies: link.
+        await cachedGateFixture('process.exit(0);');
+        await previewTaskGates(root, { taskId: 'T121' });
+        expect(runs()).toBe(1);
+        const before = persisted(root, 'SELECT verification_json,updated_at FROM tasks_tasks');
+        const saved = process.env.LANG;
+        process.env.LANG = 'xx_T14147.UTF-8';
+        try {
+          const refused = await plain();
+          expect(refused.success).toBe(false);
+          if (refused.success) throw new Error('expected a refusal');
+          expect(refused.error.code).toBe('E_GATE_NOT_CACHED');
+          expect(runs()).toBe(1);
+          expect(persisted(root, 'SELECT verification_json,updated_at FROM tasks_tasks')).toBe(
+            before,
+          );
+        } finally {
+          if (saved === undefined) delete process.env.LANG;
+          else process.env.LANG = saved;
+        }
+      });
+
       it('--run-typed executes on the write; it contradicts --no-run', async () => {
         await cachedGateFixture('process.exit(0);');
         const ran = await write();

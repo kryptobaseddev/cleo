@@ -79,6 +79,7 @@ import {
 import { resolveDualScopeDbPath } from '../store/dual-scope-db.js';
 import type { AbandonableLock } from '../store/lock.js';
 import { getNativeDb } from '../store/sqlite.js';
+import { listSqliteBackupsAll } from '../store/sqlite-backup.js';
 import { assertRestoreTargetConfirmed } from '../store/worktree-isolation-guard.js';
 
 /** Default max backup snapshots per backup type directory. */
@@ -482,6 +483,128 @@ export interface BackupEntry {
    * labels, which are identical copies of it), `global` for the global store.
    */
   contains?: string[];
+  /**
+   * How the run that should have produced it ended (T14150, `session-end`
+   * entries): `written`, or `failed` / `skipped` when the session-end worker
+   * logged a run that left no snapshot. Absent on sidecar backups.
+   */
+  outcome?: 'written' | 'failed' | 'skipped';
+  /** Why a `failed` or `skipped` run left no snapshot. */
+  error?: string;
+  /**
+   * The command that restores it, when `--id` cannot (T14150): a session-end
+   * snapshot has no sidecar, so it restores by file.
+   */
+  restore?: string;
+}
+
+/** Type of the entries the session-end `VACUUM INTO` snapshots list as (T14150). */
+export const SESSION_END_BACKUP_TYPE = 'session-end';
+
+/** Session-end worker log lines read for failed or skipped runs (newest last). */
+const SESSION_END_LOG_LINES = 200;
+
+/** `<prefix>-YYYYMMDD-HHmmss.db`: a `vacuumIntoBackupAll` snapshot file. */
+const VACUUM_SNAPSHOT_RE = /^(.+)-(\d{8})-(\d{6})\.db$/;
+
+/**
+ * The session-end `VACUUM INTO` snapshots of a project (T14150), one entry per
+ * run (files sharing a timestamp), plus the runs the session-end worker logged
+ * as failed or skipped, which left no file. These have no sidecar, so they are
+ * read from the snapshot files (`listSqliteBackupsAll`) and the worker log.
+ *
+ * @param projectRoot - Project root.
+ * @param backupDir - The snapshot directory {@link listSystemBackups} reads
+ *   sidecars from: the same directory, resolved once.
+ * @returns Entries typed {@link SESSION_END_BACKUP_TYPE}, unsorted.
+ */
+function readSessionEndSnapshots(projectRoot: string, backupDir: string): BackupEntry[] {
+  const runs = new Map<string, { files: string[]; mtimeMs: number; store: string | null }>();
+  for (const [prefix, snaps] of Object.entries(listSqliteBackupsAll(projectRoot, backupDir))) {
+    for (const snap of snaps) {
+      const m = VACUUM_SNAPSHOT_RE.exec(snap.name);
+      if (!m) continue;
+      const stamp = `${m[2]}-${m[3]}`;
+      const run = runs.get(stamp) ?? { files: [], mtimeMs: snap.mtimeMs, store: null };
+      run.files.push(snap.name);
+      run.mtimeMs = Math.max(run.mtimeMs, snap.mtimeMs);
+      // The project store's copy (tasks, brain and conduit live in one cleo.db).
+      if (prefix === 'tasks') run.store = snap.name;
+      runs.set(stamp, run);
+    }
+  }
+  const entries: BackupEntry[] = [...runs.entries()].map(([stamp, run]) => ({
+    backupId: `${SESSION_END_BACKUP_TYPE}-${stamp}`,
+    type: SESSION_END_BACKUP_TYPE,
+    timestamp: new Date(run.mtimeMs).toISOString(),
+    files: run.files.sort(),
+    scope: 'project',
+    outcome: 'written',
+    ...(run.store !== null
+      ? {
+          contains: [...PROJECT_STORE_CONTENTS],
+          restore: `cleo restore backup --snapshot ${run.store}`,
+        }
+      : {}),
+  }));
+  return [...entries, ...readSessionEndMisses(projectRoot)];
+}
+
+/** Runs the session-end worker logged that left no snapshot (failed, or skipped). */
+function readSessionEndMisses(projectRoot: string): BackupEntry[] {
+  let raw: string;
+  try {
+    raw = readFileSync(join(projectRoot, '.cleo', 'logs', 'session-end-snapshot.log'), 'utf-8');
+  } catch {
+    return [];
+  }
+  const out: BackupEntry[] = [];
+  for (const line of raw.split('\n').filter(Boolean).slice(-SESSION_END_LOG_LINES)) {
+    let row: {
+      event?: unknown;
+      at?: unknown;
+      result?: {
+        snapshotted?: unknown;
+        failed?: unknown;
+        skipped?: unknown;
+        error?: unknown;
+      } | null;
+    };
+    try {
+      row = JSON.parse(line);
+    } catch {
+      continue;
+    }
+    if (row.event !== 'session-end-snapshot' || typeof row.at !== 'string') continue;
+    const r = row.result;
+    const failed = Array.isArray(r?.failed) ? r.failed.map(String) : [];
+    let outcome: 'failed' | 'skipped' | null = null;
+    let error = '';
+    if (r === null || r === undefined) {
+      outcome = 'failed';
+      error = 'the snapshot could not be attempted (see the worker log)';
+    } else if (typeof r.skipped === 'string') {
+      outcome = 'skipped';
+      error = typeof r.error === 'string' ? `${r.skipped}: ${r.error}` : r.skipped;
+    } else if (failed.length > 0) {
+      outcome = 'failed';
+      error = `snapshot failed for ${failed.join(', ')}`;
+    }
+    if (outcome === null) continue;
+    out.push({
+      backupId: `${SESSION_END_BACKUP_TYPE}-${outcome}-${row.at}`,
+      type: SESSION_END_BACKUP_TYPE,
+      timestamp: row.at,
+      files: [],
+      scope: 'project',
+      outcome,
+      error,
+    });
+  }
+  // The window is bounded: say so on every entry, with its count, so an older
+  // failure dropping out of the list is visible rather than silent.
+  const note = `found in the last ${SESSION_END_LOG_LINES} session-end log lines (${out.length} failed or skipped in that window)`;
+  return out.map((entry) => ({ ...entry, note }));
 }
 
 /**
@@ -580,6 +703,9 @@ export function listSystemBackups(projectRoot: string): BackupEntry[] {
   //    own `type` field so we don't need to discriminate by sub-directory.
   const canonicalDir = join(cleoDir, 'backups', CANONICAL_BACKUP_SUBDIR);
   entries.push(...readMetaSidecarsFromDir(canonicalDir, 'snapshot', /* legacy */ false));
+  // T14150: the session-end VACUUM INTO snapshots (no sidecar), and the runs
+  // the session-end worker logged as failed or skipped.
+  entries.push(...readSessionEndSnapshots(projectRoot, canonicalDir));
 
   // 2. Legacy directory: `.cleo/backups/snapshot/` — read-only fallthrough
   //    for one deprecation window (ADR-013 §10). Tag each entry as legacy.

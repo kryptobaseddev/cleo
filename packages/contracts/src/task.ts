@@ -760,6 +760,34 @@ export type EvidenceAtom =
     }
   | {
       /**
+       * A green run of `.github/workflows/repeat-run.yml` (T14149): one test
+       * file run `runs` times on the default branch, every run passing. Read
+       * from GitHub (workflow, event, branch, latest attempt) and cross-checked
+       * against the run's uploaded report. `headSha` must contain the task's
+       * implemented commits; the test file must be one the task changed or one a
+       * linked criterion names. It links criteria; it does not satisfy
+       * `testsPassed` on its own.
+       *
+       * @task T14149
+       */
+      kind: 'ci-run';
+      /** GitHub Actions run id. */
+      runId: number;
+      /** Commit the run tested (the run's `head_sha` on the default branch). */
+      headSha: string;
+      /** Repo-relative test file the run repeated. */
+      test: string;
+      /** How many consecutive runs passed. */
+      runs: number;
+      /** Run attempt that was judged (the latest). */
+      attempt: number;
+      /** Workflow file of the run. */
+      workflow: string;
+      /** Task the atom was verified for. */
+      taskId?: string;
+    }
+  | {
+      /**
        * Probed deployment (T14083, owner decision on option (a)): at verify
        * time CLEO ran a bounded GET of `probeUrl`, it returned 2xx and named
        * the deployed SHA in its body or an `X-Commit` / `X-Version` header.
@@ -792,6 +820,15 @@ export type EvidenceAtom =
       };
       /** The gates this atom satisfies (`evidence.deploySatisfies` at verify time). */
       satisfiesGates: VerificationGate[];
+      /**
+       * The provider's own word on the deployment (T14091): `verified: true`
+       * when its API confirmed the deployment is live and was built from
+       * `headSha`; `verified: false` (with why) when no adapter or credential
+       * let CLEO ask, and only the probe stands. Absent on atoms before T14091.
+       */
+      providerCheck?:
+        | { verified: true; status: string; commitSha: string; checkedAt: string }
+        | { verified: false; reason: string };
       /** Task the atom was verified for. */
       taskId?: string;
     }

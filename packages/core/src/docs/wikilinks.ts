@@ -9,10 +9,12 @@
  *   - `related_tasks`                → doc→T#### task edges (JSON array)
  *   - `topics`                       → doc↔doc shared-topic edges (JSON array)
  *
- * No markdown body `[[link]]` parsing is performed (T11826 AC4) — the edges
- * derive purely from structured columns. The derivation is **idempotent**: it
- * truncates and rebuilds the whole table, so callers may re-run it after any
- * `docs add` / `supersede` / `docs update` write to keep the graph fresh.
+ * Those column-derived edges are **idempotent**: a rebuild replaces them all,
+ * so callers may re-run it after any `docs add` / `supersede` / `docs update`
+ * write to keep the graph fresh. The one body-derived relation, `links-to`
+ * (T14113, a `[[slug]]` wikilink in the doc body), is written per doc by
+ * {@link syncDocBodyWikilinks} at the docs write path — the only place the
+ * body is in hand — and a rebuild leaves those rows alone.
  *
  * This module is the runtime twin of the SQL backfill in
  * `migrations/drizzle-tasks/20260605000001_t11826-docs-wikilinks/migration.sql`
@@ -24,7 +26,7 @@
  * @see build-provenance-graph.ts — the on-the-fly BFS this table makes O(edges)
  */
 
-import { eq, getTableColumns, or } from 'drizzle-orm';
+import { and, count, eq, getTableColumns, ne, or } from 'drizzle-orm';
 import { getProjectRoot } from '../paths.js';
 import { type DocsWikilinkRelation, docsWikilinks } from '../store/schema/attachments.js';
 import { getDb } from '../store/sqlite.js';
@@ -140,7 +142,8 @@ export async function rebuildDocsWikilinks(
   // The node:sqlite driver is synchronous — drizzle's transaction callback must
   // be sync (an async body throws a DrizzleTypeError at build time).
   db.transaction((tx) => {
-    tx.delete(docsWikilinks).run();
+    // `links-to` edges come from doc bodies, not columns: keep them (T14113).
+    tx.delete(docsWikilinks).where(ne(docsWikilinks.relation, 'links-to')).run();
     if (edges.length === 0) return;
     // Batch insert; INSERT OR IGNORE semantics via onConflictDoNothing keep the
     // composite PK idempotent even if deriveWikilinkEdges emitted a duplicate.
@@ -169,15 +172,63 @@ export async function rebuildDocsWikilinks(
     }
   });
 
+  const linkRows = await db
+    .select({ n: count() })
+    .from(docsWikilinks)
+    .where(eq(docsWikilinks.relation, 'links-to'))
+    .all();
   const byRelation: Record<DocsWikilinkRelation, number> = {
     supersedes: 0,
     'superseded-by': 0,
     'related-task': 0,
     topic: 0,
+    'links-to': linkRows[0]?.n ?? 0,
   };
   for (const e of edges) byRelation[e.relation] += 1;
 
-  return { edgeCount: edges.length, byRelation };
+  return { edgeCount: edges.length + byRelation['links-to'], byRelation };
+}
+
+/**
+ * Replace one doc's body-derived `links-to` edges with `targets`.
+ *
+ * Called at the docs write path with the slugs the new body links to via
+ * `[[slug]]` (see `extractWikilinkTargets`); an empty list clears the doc's
+ * outbound body links. Self-links are dropped.
+ *
+ * @param slug - The doc whose body was written.
+ * @param targets - Slugs the body links to.
+ * @param opts - Optional project-root override.
+ * @returns The number of `links-to` edges now leaving `slug`.
+ * @task T14113
+ */
+export async function syncDocBodyWikilinks(
+  slug: string,
+  targets: readonly string[],
+  opts: RebuildDocsWikilinksOptions = {},
+): Promise<number> {
+  const db = await getDb(opts.projectRoot ?? getProjectRoot());
+  const unique = [...new Set(targets)].filter((t) => t !== slug);
+  const nowIso = new Date().toISOString();
+  db.transaction((tx) => {
+    tx.delete(docsWikilinks)
+      .where(and(eq(docsWikilinks.fromSlug, slug), eq(docsWikilinks.relation, 'links-to')))
+      .run();
+    if (unique.length === 0) return;
+    tx.insert(docsWikilinks)
+      .values(
+        unique.map((toSlug) => ({
+          fromSlug: slug,
+          toSlug,
+          relation: 'links-to' as const,
+          toIsTask: false,
+          derivedAt: nowIso,
+        })),
+      )
+      .onConflictDoNothing()
+      .run();
+  });
+  return unique.length;
 }
 
 /**

@@ -311,22 +311,33 @@ export async function recordConduitDocAlias(
   projectRoot: string,
   alias: { slug: string; docUid: string; reason?: string },
 ): Promise<string> {
+  const row = conduitDocAliasRow(alias);
+  const db = await getDb(projectRoot);
+  await db.insert(conduitDocSlugAliases).values(row).onConflictDoNothing().run();
+  return row.uid;
+}
+
+/**
+ * The `conduit_doc_slug_aliases` row for an alias, with its natural uid, for
+ * writers that insert it inside their own transaction (a slug rename, T14118).
+ *
+ * @param alias - Slug, target doc uid and an optional reason.
+ * @returns The row to insert (`onConflictDoNothing`: a repeat is a no-op).
+ */
+export function conduitDocAliasRow(alias: {
+  slug: string;
+  docUid: string;
+  reason?: string;
+}): typeof conduitDocSlugAliases.$inferInsert & { uid: string } {
   requireNonEmpty('slug', alias.slug);
   requireNonEmpty('docUid', alias.docUid);
-  const uid = naturalRowUid('project', 'conduit_doc_slug_aliases', [alias.slug, alias.docUid]);
-  const db = await getDb(projectRoot);
-  await db
-    .insert(conduitDocSlugAliases)
-    .values({
-      uid,
-      slug: alias.slug,
-      docUid: alias.docUid,
-      reason: alias.reason ?? 'rename',
-      createdAt: new Date().toISOString(),
-    })
-    .onConflictDoNothing()
-    .run();
-  return uid;
+  return {
+    uid: naturalRowUid('project', 'conduit_doc_slug_aliases', [alias.slug, alias.docUid]),
+    slug: alias.slug,
+    docUid: alias.docUid,
+    reason: alias.reason ?? 'rename',
+    createdAt: new Date().toISOString(),
+  };
 }
 
 /** Input for {@link appendConduitAttachmentVersion}. */

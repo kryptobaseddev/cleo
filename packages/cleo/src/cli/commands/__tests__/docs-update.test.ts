@@ -143,7 +143,7 @@ describe.skipIf(!CLI_DIST_AVAILABLE)('T10161 — cleo docs update <slug>', () =>
     await writeFile(original, '# Title\n\nOriginal body.\n', 'utf-8');
 
     const addRes = runCli(
-      ['docs', 'add', 'T-T10161-a', original, '--slug', 't10161-doc-a', '--type', 'note'],
+      ['docs', 'add', 'T-T10161-a', original, '--slug', 'doc-a', '--type', 'note'],
       projectRoot,
     );
     expect(addRes.status, `add failed; stdout=${addRes.stdout} stderr=${addRes.stderr}`).toBe(0);
@@ -156,7 +156,7 @@ describe.skipIf(!CLI_DIST_AVAILABLE)('T10161 — cleo docs update <slug>', () =>
     await writeFile(updated, '# Title\n\nUpdated body (typo fix).\n', 'utf-8');
 
     const upRes = runCli(
-      ['docs', 'update', 't10161-doc-a', '--file', updated, '--message', 'fix typo'],
+      ['docs', 'update', 'doc-a', '--file', updated, '--message', 'fix typo'],
       projectRoot,
     );
     expect(upRes.status, `update failed; stdout=${upRes.stdout} stderr=${upRes.stderr}`).toBe(0);
@@ -164,7 +164,7 @@ describe.skipIf(!CLI_DIST_AVAILABLE)('T10161 — cleo docs update <slug>', () =>
     expect(upEnv.success).toBe(true);
     const data = upEnv.data;
     expect(data).toBeDefined();
-    expect(data?.slug).toBe('t10161-doc-a');
+    expect(data?.slug).toBe('doc-a');
     expect(data?.changed).toBe(true);
     expect(data?.sha256).not.toBe(originalSha);
     expect(data?.previousSha256).toBe(originalSha);
@@ -176,7 +176,7 @@ describe.skipIf(!CLI_DIST_AVAILABLE)('T10161 — cleo docs update <slug>', () =>
     const auditPath = join(projectRoot, '.cleo', 'audit', 'docs-versioning.jsonl');
     const auditRaw = readFileSync(auditPath, 'utf-8');
     expect(auditRaw).toContain('"docs.update"');
-    expect(auditRaw).toContain('"t10161-doc-a"');
+    expect(auditRaw).toContain('"doc-a"');
     expect(auditRaw).toContain('"fix typo"');
   });
 
@@ -185,19 +185,19 @@ describe.skipIf(!CLI_DIST_AVAILABLE)('T10161 — cleo docs update <slug>', () =>
     await writeFile(original, 'original text\n', 'utf-8');
 
     const addRes = runCli(
-      ['docs', 'add', 'T-T10161-b', original, '--slug', 't10161-doc-b', '--type', 'note'],
+      ['docs', 'add', 'T-T10161-b', original, '--slug', 'doc-b', '--type', 'note'],
       projectRoot,
     );
     expect(addRes.status, `add failed; stdout=${addRes.stdout}`).toBe(0);
     const originalSha = parseEnvelope<AddResultShape>(addRes.stdout).data?.sha256;
 
     const upRes = runCli(
-      ['docs', 'update', 't10161-doc-b', '--content', 'updated text via --content\n'],
+      ['docs', 'update', 'doc-b', '--content', 'updated text via --content\n'],
       projectRoot,
     );
     expect(upRes.status, `update failed; stdout=${upRes.stdout}`).toBe(0);
     const data = parseEnvelope<UpdateResultShape>(upRes.stdout).data;
-    expect(data?.slug).toBe('t10161-doc-b');
+    expect(data?.slug).toBe('doc-b');
     expect(data?.changed).toBe(true);
     expect(data?.sha256).not.toBe(originalSha);
     expect(data?.previousSha256).toBe(originalSha);
@@ -223,12 +223,12 @@ describe.skipIf(!CLI_DIST_AVAILABLE)('T10161 — cleo docs update <slug>', () =>
     await writeFile(original, 'rev 0\n', 'utf-8');
 
     runCli(
-      ['docs', 'add', 'T-T10161-d', original, '--slug', 't10161-doc-d', '--type', 'note'],
+      ['docs', 'add', 'T-T10161-d', original, '--slug', 'doc-d', '--type', 'note'],
       projectRoot,
     );
 
     const r1 = runCli(
-      ['docs', 'update', 't10161-doc-d', '--content', 'rev 1\n', '--message', 'first edit'],
+      ['docs', 'update', 'doc-d', '--content', 'rev 1\n', '--message', 'first edit'],
       projectRoot,
     );
     expect(r1.status, `update 1 failed; stdout=${r1.stdout}`).toBe(0);
@@ -236,7 +236,7 @@ describe.skipIf(!CLI_DIST_AVAILABLE)('T10161 — cleo docs update <slug>', () =>
     expect(d1?.squashed).toBe(false);
 
     const r2 = runCli(
-      ['docs', 'update', 't10161-doc-d', '--content', 'rev 2\n', '--message', 'second edit'],
+      ['docs', 'update', 'doc-d', '--content', 'rev 2\n', '--message', 'second edit'],
       projectRoot,
     );
     expect(r2.status, `update 2 failed; stdout=${r2.stdout}`).toBe(0);
@@ -246,7 +246,7 @@ describe.skipIf(!CLI_DIST_AVAILABLE)('T10161 — cleo docs update <slug>', () =>
     // Exactly one audit line for this slug, containing two revisions.
     const auditPath = join(projectRoot, '.cleo', 'audit', 'docs-versioning.jsonl');
     const auditRaw = readFileSync(auditPath, 'utf-8');
-    const lines = auditRaw.split('\n').filter((l) => l.length > 0 && l.includes('t10161-doc-d'));
+    const lines = auditRaw.split('\n').filter((l) => l.length > 0 && l.includes('doc-d'));
     expect(lines.length, `expected exactly 1 audit line; got ${lines.length}\n${auditRaw}`).toBe(1);
     const entry = JSON.parse(lines[0]) as { revisions: unknown[] };
     expect(entry.revisions.length).toBe(2);
@@ -257,16 +257,13 @@ describe.skipIf(!CLI_DIST_AVAILABLE)('T10161 — cleo docs update <slug>', () =>
     await writeFile(original, 'stable content\n', 'utf-8');
 
     const addRes = runCli(
-      ['docs', 'add', 'T-T10161-e', original, '--slug', 't10161-doc-e', '--type', 'note'],
+      ['docs', 'add', 'T-T10161-e', original, '--slug', 'doc-e', '--type', 'note'],
       projectRoot,
     );
     expect(addRes.status).toBe(0);
     const originalSha = parseEnvelope<AddResultShape>(addRes.stdout).data?.sha256;
 
-    const upRes = runCli(
-      ['docs', 'update', 't10161-doc-e', '--content', 'stable content\n'],
-      projectRoot,
-    );
+    const upRes = runCli(['docs', 'update', 'doc-e', '--content', 'stable content\n'], projectRoot);
     expect(upRes.status, `noop update failed; stdout=${upRes.stdout}`).toBe(0);
     const data = parseEnvelope<UpdateResultShape>(upRes.stdout).data;
     expect(data?.changed).toBe(false);
@@ -287,7 +284,7 @@ describe.skipIf(!CLI_DIST_AVAILABLE)('T10161 — cleo docs update <slug>', () =>
     const original = join(projectRoot, 'orig-k.md');
     await writeFile(original, '# Spec\n\nBody.\n', 'utf-8');
     const addRes = runCli(
-      ['docs', 'add', 'T-T12654-k', original, '--slug', 't12654-doc-k', '--type', 'note'],
+      ['docs', 'add', 'T-T12654-k', original, '--slug', 'doc-k', '--type', 'note'],
       projectRoot,
     );
     expect(addRes.status, `add failed; stdout=${addRes.stdout}`).toBe(0);
@@ -295,7 +292,7 @@ describe.skipIf(!CLI_DIST_AVAILABLE)('T10161 — cleo docs update <slug>', () =>
 
     // superseded is sticky (T12945), so it is applied last.
     for (const status of [...advertised.filter((s) => s !== 'superseded'), 'superseded']) {
-      const res = runCli(['docs', 'update', 't12654-doc-k', '--status', status], projectRoot);
+      const res = runCli(['docs', 'update', 'doc-k', '--status', status], projectRoot);
       expect(res.status, `--status ${status}: stdout=${res.stdout} stderr=${res.stderr}`).toBe(0);
       const data = parseEnvelope<UpdateResultShape>(res.stdout).data;
       expect(data?.lifecycleStatus).toBe(status);
@@ -305,7 +302,7 @@ describe.skipIf(!CLI_DIST_AVAILABLE)('T10161 — cleo docs update <slug>', () =>
   });
 
   it('(l) update with no --file, --content or --status is still rejected (T12654)', () => {
-    const res = runCli(['docs', 'update', 't12654-missing'], projectRoot);
+    const res = runCli(['docs', 'update', 'missing'], projectRoot);
     expect(res.status).toBe(6);
     const env = parseEnvelope(res.stdout);
     expect(env.success).toBe(false);
@@ -317,23 +314,14 @@ describe.skipIf(!CLI_DIST_AVAILABLE)('T10161 — cleo docs update <slug>', () =>
     await writeFile(original, 'rev 0\n', 'utf-8');
 
     const addRes = runCli(
-      ['docs', 'add', 'T-T10617-f', original, '--slug', 't10617-doc-f', '--type', 'note'],
+      ['docs', 'add', 'T-T10617-f', original, '--slug', 'doc-f', '--type', 'note'],
       projectRoot,
     );
     expect(addRes.status, `add failed; stdout=${addRes.stdout} stderr=${addRes.stderr}`).toBe(0);
     const originalSha = parseEnvelope<AddResultShape>(addRes.stdout).data?.sha256;
 
     const dryRun = runCli(
-      [
-        'docs',
-        'update',
-        't10617-doc-f',
-        '--content',
-        'rev 1\n',
-        '--dry-run',
-        '--message',
-        'preview only',
-      ],
+      ['docs', 'update', 'doc-f', '--content', 'rev 1\n', '--dry-run', '--message', 'preview only'],
       projectRoot,
     );
     expect(dryRun.status, `dry-run failed; stdout=${dryRun.stdout} stderr=${dryRun.stderr}`).toBe(
@@ -351,7 +339,7 @@ describe.skipIf(!CLI_DIST_AVAILABLE)('T10161 — cleo docs update <slug>', () =>
     expect(existsSync(join(projectRoot, '.cleo', 'audit', 'docs-versioning.jsonl'))).toBe(false);
 
     const realUpdate = runCli(
-      ['docs', 'update', 't10617-doc-f', '--content', 'rev 1\n', '--message', 'real edit'],
+      ['docs', 'update', 'doc-f', '--content', 'rev 1\n', '--message', 'real edit'],
       projectRoot,
     );
     expect(realUpdate.status, `real update failed; stdout=${realUpdate.stdout}`).toBe(0);
@@ -369,17 +357,7 @@ describe.skipIf(!CLI_DIST_AVAILABLE)('T10161 — cleo docs update <slug>', () =>
     );
 
     const addRes = runCli(
-      [
-        'docs',
-        'add',
-        'T-T10617-g',
-        original,
-        '--slug',
-        't10617-doc-g',
-        '--type',
-        'adr',
-        '--strict',
-      ],
+      ['docs', 'add', 'T-T10617-g', original, '--slug', 'doc-g', '--type', 'adr', '--strict'],
       projectRoot,
     );
     expect(addRes.status, `add failed; stdout=${addRes.stdout} stderr=${addRes.stderr}`).toBe(0);
@@ -389,7 +367,7 @@ describe.skipIf(!CLI_DIST_AVAILABLE)('T10161 — cleo docs update <slug>', () =>
       [
         'docs',
         'update',
-        't10617-doc-g',
+        'doc-g',
         '--content',
         '## Context\n\nMissing decision section.\n',
         '--strict',
@@ -408,7 +386,7 @@ describe.skipIf(!CLI_DIST_AVAILABLE)('T10161 — cleo docs update <slug>', () =>
       [
         'docs',
         'update',
-        't10617-doc-g',
+        'doc-g',
         '--content',
         '## Context\n\nStill original until now.\n\n## Decision\n\nUpdated.\n',
       ],
@@ -464,7 +442,7 @@ describe.skipIf(!CLI_DIST_AVAILABLE)('T10161 — cleo docs update <slug>', () =>
     await writeFile(original, 'original\\n', 'utf-8');
 
     const addRes = runCli(
-      ['docs', 'add', 'T-T11055-h', original, '--slug', 't11055-doc-h', '--type', 'note'],
+      ['docs', 'add', 'T-T11055-h', original, '--slug', 'doc-h', '--type', 'note'],
       projectRoot,
     );
     expect(addRes.status).toBe(0);
@@ -472,26 +450,18 @@ describe.skipIf(!CLI_DIST_AVAILABLE)('T10161 — cleo docs update <slug>', () =>
 
     // (h1) changed update → summary says "was changed"
     const upRes = runCli(
-      [
-        'docs',
-        'update',
-        't11055-doc-h',
-        '--content',
-        'changed content\\n',
-        '--message',
-        'replaced',
-      ],
+      ['docs', 'update', 'doc-h', '--content', 'changed content\\n', '--message', 'replaced'],
       projectRoot,
     );
     expect(upRes.status).toBe(0);
     const upData = parseEnvelope<UpdateResultShape>(upRes.stdout).data;
     expect(upData?.changed).toBe(true);
     expect(upData?.summary).toContain('was changed');
-    expect(upData?.summary).toContain('t11055-doc-h');
+    expect(upData?.summary).toContain('doc-h');
 
     // (h2) noop update → summary says "left untouched"
     const noopRes = runCli(
-      ['docs', 'update', 't11055-doc-h', '--content', 'changed content\\n'],
+      ['docs', 'update', 'doc-h', '--content', 'changed content\\n'],
       projectRoot,
     );
     expect(noopRes.status).toBe(0);
@@ -501,7 +471,7 @@ describe.skipIf(!CLI_DIST_AVAILABLE)('T10161 — cleo docs update <slug>', () =>
 
     // (h3) dry-run → summary says "would be changed" or "would be left untouched"
     const dryRes = runCli(
-      ['docs', 'update', 't11055-doc-h', '--content', 'brand new\\n', '--dry-run'],
+      ['docs', 'update', 'doc-h', '--content', 'brand new\\n', '--dry-run'],
       projectRoot,
     );
     expect(dryRes.status).toBe(0);
@@ -529,7 +499,7 @@ describe.skipIf(!CLI_DIST_AVAILABLE)('T10161 — cleo docs update <slug>', () =>
     const original = join(projectRoot, 'orig-j.md');
     await writeFile(original, 'content j\\n', 'utf-8');
     const addRes = runCli(
-      ['docs', 'add', 'T-T11055-j', original, '--slug', 't11055-doc-j', '--type', 'note'],
+      ['docs', 'add', 'T-T11055-j', original, '--slug', 'doc-j', '--type', 'note'],
       projectRoot,
     );
     expect(addRes.status).toBe(0);
@@ -542,10 +512,7 @@ describe.skipIf(!CLI_DIST_AVAILABLE)('T10161 — cleo docs update <slug>', () =>
     await chmod(attachmentsDir, mode);
 
     try {
-      const upRes = runCli(
-        ['docs', 'update', 't11055-doc-j', '--content', 'updated j\\n'],
-        projectRoot,
-      );
+      const upRes = runCli(['docs', 'update', 'doc-j', '--content', 'updated j\\n'], projectRoot);
       // Should fail because the directory is unwritable
       const env = parseEnvelope(upRes.stdout);
       expect(env.success).toBe(false);

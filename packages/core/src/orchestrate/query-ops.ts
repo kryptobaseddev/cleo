@@ -443,6 +443,7 @@ export async function orchestrateReady(
         let aggregatedAllCount = 0;
         let aggregatedBlockedCount = 0;
         const skippedNested: string[] = [];
+        const sagaInFlight: string[] = [];
 
         for (const memberId of members) {
           // Recursion safety: sagas SHOULD NOT nest (ADR-073). If a member is
@@ -461,7 +462,9 @@ export async function orchestrateReady(
           ).length;
 
           for (const t of memberReady) {
-            if (!t.ready) continue;
+            // T14133: a claimed task is being worked; never a fresh candidate.
+            if (t.inFlight && !sagaInFlight.includes(t.taskId)) sagaInFlight.push(t.taskId);
+            if (!t.ready || t.inFlight) continue;
             if (seenIds.has(t.taskId)) continue;
             seenIds.add(t.taskId);
             aggregated.push({
@@ -491,7 +494,12 @@ export async function orchestrateReady(
 
         // T12000: annotate which ready tasks are admittable now vs deferred so
         // orchestrators size their fan-out to host capacity (Never-OOM).
-        const admission = await computeAgentAdmission(sagaReady.map((t) => t.id));
+        const admission = await computeAgentAdmission(
+          sagaReady.map((t) => t.id),
+          {
+            inFlight: sagaInFlight,
+          },
+        );
 
         return {
           success: true,
@@ -511,7 +519,9 @@ export async function orchestrateReady(
 
       // Regular epic: walk parentId.
       const readyTasks = await getReadyTasks(epicId, root, accessor);
-      const ready = readyTasks.filter((t) => t.ready);
+      // T14133: a claimed task is in flight, reported apart from the candidates.
+      const ready = readyTasks.filter((t) => t.ready && !t.inFlight);
+      const inFlight = readyTasks.filter((t) => t.inFlight).map((t) => t.taskId);
 
       // T929: when no tasks are ready, include a diagnostic reason so callers
       // can distinguish "all done" from "all blocked" without a second query.
@@ -523,6 +533,8 @@ export async function orchestrateReady(
           reason = 'epic has no children';
         } else if (blockedCount === all.length) {
           reason = 'all children have unmet dependencies';
+        } else if (inFlight.length > 0) {
+          reason = 'every ready task is in flight (claimed by a working session)';
         } else {
           reason = 'no tasks with unmet dependencies found; check child task statuses';
         }
@@ -539,7 +551,10 @@ export async function orchestrateReady(
       );
       // T12000: annotate which ready tasks are admittable now vs deferred so
       // orchestrators size their fan-out to host capacity (Never-OOM).
-      const admission = await computeAgentAdmission(readyOut.map((t) => t.id));
+      const admission = await computeAgentAdmission(
+        readyOut.map((t) => t.id),
+        { inFlight },
+      );
 
       return {
         success: true,

@@ -128,7 +128,7 @@ interface VersionsResultShape {
 }
 
 const OWNER = 'T13725';
-const SLUG = 't13725-versions-slug-fixture';
+const SLUG = 'versions-slug-fixture';
 
 /** Seed one doc via `docs add` then update it once, so the manifest has rows. */
 async function seedDocWithUpdate(projectRoot: string): Promise<void> {
@@ -204,13 +204,13 @@ describe.skipIf(!CLI_DIST_AVAILABLE)('T13725 — cleo docs versions --for', () =
     async () => {
       await seedDocWithUpdate(projectRoot);
 
-      const res = runCli(['docs', 'versions', '--for', 't13725-no-such-doc'], projectRoot);
+      const res = runCli(['docs', 'versions', '--for', 'no-such-doc'], projectRoot);
       expect(res.status).not.toBe(0);
       const env = parseEnvelope(res.stdout);
       expect(env.success).toBe(false);
       const symbolic = env.error?.codeName ?? String(env.error?.code ?? '');
       expect(symbolic).toBe('E_NOT_FOUND');
-      expect(env.error?.message ?? '').toContain("no doc or owner found for 't13725-no-such-doc'");
+      expect(env.error?.message ?? '').toContain("no doc or owner found for 'no-such-doc'");
     },
     TEST_TIMEOUT_MS,
   );

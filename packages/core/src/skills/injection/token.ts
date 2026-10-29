@@ -11,6 +11,7 @@
 
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { subjectSlug } from '../../docs/doc-name-rule.js';
 import { getProjectRoot } from '../../paths.js';
 
 // ============================================================================
@@ -298,13 +299,8 @@ export function setFullContext(
 ): TokenValues {
   const dateToday = options?.date ?? new Date().toISOString().split('T')[0];
 
-  const topicSlug =
-    options?.topicSlug ??
-    (task.title
-      .replace(/[^a-zA-Z0-9]+/g, '-')
-      .toLowerCase()
-      .replace(/^-|-$/g, '') ||
-      `task-${task.id}`);
+  // T14129: agents record docs under TOPIC_SLUG, so it follows the doc naming rule.
+  const topicSlug = options?.topicSlug ?? subjectSlug(task.title);
 
   const outputDir = options?.outputDir ?? '.cleo/agent-outputs';
   // MANIFEST_PATH token retired (ADR-027); pipeline_manifest is the canonical store

@@ -42,7 +42,12 @@ import { getDb, getNativeTasksDb } from '../store/sqlite.js';
 import { attachmentRefs, docsAttachments } from '../store/tasks-schema.js';
 import { assertTwinCollapseWritable } from '../store/twin-collapse.js';
 import { writeFileAtomic } from '../tools/fs.js';
-import { deriveDocLinks, linksJsonOrNull } from './derive-links.js';
+import {
+  deriveDocLinks,
+  extractWikilinkTargets,
+  isScannableTextMime,
+  linksJsonOrNull,
+} from './derive-links.js';
 import type { DocUpdatePreview, ProjectDocUpdateInput } from './section-write-path.js';
 import { validateDocBody } from './validate-body.js';
 import { getCanonicalCleoVersion } from './version-ssot.js';
@@ -1039,7 +1044,13 @@ export async function updateDocBySlug(
   // T13357: refresh the wikilinks edge table after the write. Best-effort —
   // a graph rebuild failure must not fail the completed update.
   try {
-    const { rebuildDocsWikilinks } = await import('./wikilinks.js');
+    const { rebuildDocsWikilinks, syncDocBodyWikilinks } = await import('./wikilinks.js');
+    // T14113: the new body's `[[slug]]` links become `links-to` edges.
+    if (buf !== null && (hasContent || isScannableTextMime(mime))) {
+      await syncDocBodyWikilinks(slug, extractWikilinkTargets(buf.toString('utf-8')), {
+        projectRoot,
+      });
+    }
     await rebuildDocsWikilinks({ projectRoot });
   } catch (rebuildErr) {
     // T13711: drizzle interpolates the full SQL + params into err.message
