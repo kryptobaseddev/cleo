@@ -985,12 +985,14 @@ async function applyMergedPrs(
         .catch(() => []);
       hooks.docsRot = [...(hooks.docsRot ?? []), ...flagged];
     }
-    // T14142: clean up after the applied tasks, only when opted in.
-    if (!dryRun && deps.cleanupMerged && deps.canCleanup?.() === true && applied.length > 0) {
+    // T14142: clean up after the tasks this PR completed, only when opted in. A
+    // `Refs:` (bound) task is still in progress: its worktree and branch stay.
+    const closed = entry.outcomes.filter((o) => o.action === 'closed');
+    if (!dryRun && deps.cleanupMerged && deps.canCleanup?.() === true && closed.length > 0) {
       const cleaned = await deps
         .cleanupMerged(
           storeRoot,
-          applied.map((o) => o.taskId),
+          closed.map((o) => o.taskId),
         )
         .catch(() => null);
       if (cleaned !== null) hooks.cleanup = [...(hooks.cleanup ?? []), cleaned];

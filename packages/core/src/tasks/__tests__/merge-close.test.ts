@@ -553,6 +553,27 @@ describe('one sweep also runs the upkeep hooks (T14101)', () => {
     expect(on.result.hooks?.cleanup).toHaveLength(1);
     expect(cleanedFor).toEqual([[on.id]]);
   });
+
+  it('never cleans up after a Refs: PR: its task is still in progress (T14142)', async () => {
+    const id = await seedTask(['first', 'second']);
+    let called = false;
+    const { deps } = fakeDeps([pr(23, `Refs: ${id} AC1`)]);
+    const result = await sweepMergedClosures(
+      root,
+      { force: true },
+      {
+        ...deps,
+        canCleanup: () => true,
+        cleanupMerged: async () => {
+          called = true;
+          throw new Error('must not run for a bound task');
+        },
+      },
+    );
+    expect(result.bound).toEqual([id]);
+    expect(called).toBe(false);
+    expect(result.hooks?.cleanup).toBeUndefined();
+  });
 });
 
 describe('a sweep never skips merged PRs past one page (T14101, council review)', () => {

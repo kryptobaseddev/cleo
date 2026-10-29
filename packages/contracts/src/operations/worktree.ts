@@ -1110,7 +1110,8 @@ export interface MergedCleanupOpts {
   projectRoot: string;
   /**
    * Tasks whose work merged (the sweep's merged PR, or a release's tasks).
-   * Omitted: any task whose stored status is `done` or `cancelled`.
+   * Either way a task is in scope only while stored `done` or `cancelled`:
+   * an open task (more PRs to come) keeps its worktree and branches.
    */
   taskIds?: readonly string[];
   /** List everything without deleting. Default `true`: deleting is opt-in. */

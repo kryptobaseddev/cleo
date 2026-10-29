@@ -20,10 +20,12 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+/** Tasks the fixture's store holds as still open; every other task is done. */
+const openTasks = new Set<string>();
 vi.mock('../../store/data-accessor.js', () => ({
-  getTaskAccessor: async () => {
-    throw new Error('no task store in this fixture');
-  },
+  getTaskAccessor: async () => ({
+    loadSingleTask: async (id: string) => ({ id, status: openTasks.has(id) ? 'active' : 'done' }),
+  }),
 }));
 const lockedTasks = new Set<string>();
 vi.mock('@cleocode/worktree', async (importOriginal) => {
@@ -84,6 +86,7 @@ beforeEach(() => {
   wtRoot = resolveWorktreeRootForHash(computeProjectHash(project));
   mkdirSync(wtRoot, { recursive: true });
   lockedTasks.clear();
+  openTasks.clear();
 });
 
 afterEach(() => {
@@ -187,6 +190,21 @@ describe('cleanupMergedWork', () => {
       reason: 'unmerged: not in origin/main',
     });
     expect(git(project, 'ls-remote', '--heads', 'origin', 'task/T5-x')).not.toBe('');
+  });
+
+  it('never touches a named task that is still open (a Refs: PR, more to come)', async () => {
+    const path = taskWorktree('T9');
+    mergeTask('T9');
+    openTasks.add('T9');
+    const r = await cleanupMergedWork(
+      { projectRoot: project, taskIds: ['T9'], dryRun: false },
+      noOpenPrs,
+    );
+    expect(r.worktrees).toEqual([]);
+    expect(r.localBranches).toEqual([]);
+    expect(r.remoteBranches).toEqual([]);
+    expect(existsSync(path)).toBe(true);
+    expect(git(project, 'ls-remote', '--heads', 'origin', 'task/T9-x')).not.toBe('');
   });
 
   it('never touches tasks outside the scope, nor origin when open PRs cannot be read', async () => {

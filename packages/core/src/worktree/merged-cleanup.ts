@@ -8,8 +8,9 @@
  *
  * - **merged**: the item's commits are ancestors of `origin/<default>`, read
  *   after a fresh fetch (a failed fetch deletes nothing on `origin`);
- * - **in scope**: its task is one the caller names (a merged PR's tasks, a
- *   release's tasks) or, with none named, a task stored as done or cancelled;
+ * - **in scope**: its task is stored done or cancelled and, when the caller
+ *   names tasks (a merged PR's closed tasks, a release's tasks), is one of
+ *   them; an open task (a `Refs:` PR, more to come) never is;
  * - **clean**: `git status --porcelain -uall` is empty (an error keeps it);
  * - **not in use**: not git-locked, no CLEO task lock record, no other
  *   checkout linking into it and no evidence living only there
@@ -99,15 +100,16 @@ function branchTaskId(branch: string): string | null {
   return TASK_BRANCH.exec(branch)?.[1] ?? null;
 }
 
-/** Build the in-scope test: the named tasks, else tasks stored done or cancelled. */
+/**
+ * Build the in-scope test: a task stored done or cancelled and, when the
+ * caller names tasks, one of them. A task still open (a `Refs:` PR's, more PRs
+ * to come) is never in scope; an unreadable store puts nothing in scope.
+ */
 async function scopeFor(
   projectRoot: string,
   taskIds: readonly string[] | undefined,
 ): Promise<(taskId: string) => Promise<boolean>> {
-  if (taskIds !== undefined) {
-    const named = new Set(taskIds);
-    return async (id) => named.has(id);
-  }
+  const named = taskIds === undefined ? null : new Set(taskIds);
   const statuses = new Map<string, boolean>();
   let accessor: DataAccessor | null = null;
   try {
@@ -117,7 +119,7 @@ async function scopeFor(
     accessor = null;
   }
   return async (id) => {
-    if (accessor === null) return false;
+    if (accessor === null || (named !== null && !named.has(id))) return false;
     const cached = statuses.get(id);
     if (cached !== undefined) return cached;
     let terminal = false;
