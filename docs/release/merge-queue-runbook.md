@@ -265,9 +265,11 @@ learned. Both are recorded where an operator can see them.
   `gh` (each call bounded to 15s). If the `ci.yml` push run for that exact SHA
   is green AND its Linux `Unit Tests` shards all ran and succeeded (a green
   docs-only push skips them, and does not qualify) it dispatches
-  `release-prepare` with `skip-tests=true`; if every
-  macOS job of the nightly (or push) run for that SHA is green it adds
-  `skip-macos-tests=true`. The SHA goes along as `verified-sha`, and the
+  `release-prepare` with `skip-tests=true`. `release-prepare` runs no macOS
+  shards at all (T14104): macOS is validated on main by `macos-main.yml`
+  (every push, nightly, on demand; a failure files a `macos-regression`
+  issue) and on the owner's Mac by `node scripts/release-mac-smoke.mjs`
+  before the tag. The SHA goes along as `verified-sha`, and the
   workflow ignores every skip if it checked out a different commit, or if
   `verified-sha` is empty (a skip must name the commit it was verified on). The
   decision and its reason are in the "Preflight test decision" block of the

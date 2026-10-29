@@ -75,7 +75,7 @@ export {
   WORKTREE_INDEX_RELATIVE_PATH,
   WORKTREE_LIFECYCLE_AUDIT_FILE,
 } from './worktree-audit.js';
-export { createWorktree } from './worktree-create.js';
+export { buildWorktreeEnvVars, createWorktree } from './worktree-create.js';
 export {
   describeDisposalBlockers,
   findDisposalBlockers,

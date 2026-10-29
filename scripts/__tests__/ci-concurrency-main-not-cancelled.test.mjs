@@ -20,6 +20,7 @@
  *
  * @task T12189
  * @task T14103
+ * @task T14136
  * @epic T12111 (E-EVIDENCE-PIPELINE)
  * @see https://github.com/kryptobaseddev/cleo/issues/1362
  */
@@ -45,17 +46,32 @@ describe('gh#1362 / T14103 — CI concurrency', () => {
     expect(cancel.replace(/\s+/g, ' ')).toMatch(/^\$\{\{ github\.ref != 'refs\/heads\/main' \}\}$/);
   });
 
-  it('shares one main group across commits, so a newer push replaces a queued older run', () => {
+  it('shares one main group across first-attempt commits, so a newer push replaces a queued older run', () => {
     // A per-commit key (the T12189 design) would give every main commit its own
     // group, and no queued run for a superseded commit would ever be dropped.
+    // T14136: the SHA appears only in the rerun suffix, gated on run_attempt.
     const group = concurrency().group;
-    expect(group).not.toContain('github.sha');
     expect(group).not.toContain('github.run_id');
+    const expressions = group.match(/\$\{\{.*?\}\}/g) ?? [];
+    for (const expression of expressions.filter((e) => e.includes('github.sha'))) {
+      expect(expression).toContain("github.run_attempt != '1'");
+    }
+  });
+
+  it('T14136: a main rerun gets its own SHA-keyed group, a first attempt keeps the shared one', () => {
+    const expressions = concurrency().group.match(/\$\{\{.*?\}\}/g) ?? [];
+    const rerun = expressions.filter((e) => e.includes('github.run_attempt'));
+    expect(rerun).toHaveLength(1);
+    expect(rerun[0]).toContain("github.ref == 'refs/heads/main'");
+    expect(rerun[0]).toContain("github.run_attempt != '1'");
+    expect(rerun[0]).toContain("format('-rerun-{0}', github.sha)");
+    // The suffix is empty on a first attempt (`|| ''`), so its group is unchanged.
+    expect(rerun[0]).toMatch(/\|\| '' \}\}$/);
   });
 
   it('keys main by event name ONLY under a condition naming main, so schedule and push never collide', () => {
     const group = concurrency().group;
-    const expressions = group.match(/\$\{\{[^}]*\}\}/g) ?? [];
+    const expressions = group.match(/\$\{\{.*?\}\}/g) ?? [];
     const withEvent = expressions.filter((e) => e.includes('github.event_name'));
     expect(withEvent.length).toBeGreaterThan(0);
     for (const expression of withEvent) {

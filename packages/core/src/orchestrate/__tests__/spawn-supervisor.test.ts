@@ -19,6 +19,7 @@
  * @saga T10176
  */
 
+import { ISOLATION_ENV_KEYS } from '@cleocode/contracts/branch-lock.js';
 import { describe, expect, it, vi } from 'vitest';
 import { CLEANUP_BUDGET_MS, runTimeoutCleanup, SPAWN_BUDGET_MS } from '../spawn-ops.js';
 
@@ -661,6 +662,48 @@ describe('orchestrateSpawn — worktree lock safety (T12506 review)', () => {
       'T9999',
       'tok-resume',
     );
+  });
+
+  it('T14126: a --resume packet carries every isolation variable its prompt exports', async () => {
+    reset();
+    existsSyncMock.mockReturnValue(true);
+    acquireWorktreeTaskLockMock.mockReturnValue({
+      status: 'reentered',
+      lockPath: '/x.lock',
+      record: { token: 'tok-resume' },
+    });
+    const result = await orchestrateSpawn(
+      'T9999',
+      undefined,
+      undefined,
+      undefined,
+      false,
+      undefined,
+      undefined,
+      true,
+    );
+    expect(result.success, JSON.stringify(result.error)).toBe(true);
+    const env = (result.data as { worktreeEnv: Record<string, string> }).worktreeEnv;
+    const path = (result.data as { worktreeCwd: string }).worktreeCwd;
+    for (const key of ISOLATION_ENV_KEYS.filter((k) => k !== 'CLEO_AGENT_ID')) {
+      expect(env[key], key).toBeTruthy();
+    }
+    expect(env).toMatchObject({
+      CLEO_WORKTREE_ROOT: path,
+      CLEO_AGENT_CWD: path,
+      CLEO_WORKTREE_BRANCH: 'task/T9999',
+      CLEO_AGENT_ROLE: 'worker',
+    });
+    // The spawned agent's OWN session (T11343, T12500), the one the resume lock
+    // holds, never the orchestrator's active session ('sess-1' here).
+    const sessionId = (result.data as { sessionId?: string }).sessionId;
+    expect(sessionId).toBeTruthy();
+    expect(env['CLEO_SESSION_ID']).toBe(sessionId);
+    expect(env['CLEO_SESSION_ID']).not.toBe('sess-1');
+    expect(env['CLEO_BRANCH_PROTECTION']).toMatch(/^(strict|unavailable)$/);
+    // The agent id is exported whenever one was allocated, as the prompt does.
+    const agentId = (result.data as { agentId?: string | null }).agentId;
+    if (agentId) expect(env['CLEO_AGENT_ID']).toBe(agentId);
   });
 
   it('--resume against a live foreign holder is refused with exit 25', async () => {

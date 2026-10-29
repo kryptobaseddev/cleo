@@ -939,8 +939,8 @@ export async function releaseOpen(
 
   // Skip preflight test suites whose result GitHub already holds for the
   // commit the workflow will check out (main's HEAD): the Linux shards when
-  // main's push CI for that SHA is green, the macOS shards when the nightly
-  // macOS jobs for that SHA are green. The SHA rides along as `verified-sha`,
+  // main's push CI for that SHA is green. release-prepare runs no macOS
+  // shards (T14104). The SHA rides along as `verified-sha`,
   // and the workflow ignores every skip if it checks out a different commit.
   // A push run still in flight is waited for (bounded, T13823); any other
   // doubt (gh error, timeout, a run still unfinished) means the tests run.
@@ -959,7 +959,6 @@ export async function releaseOpen(
           skipTests: false,
           testedSha: null,
           testedRunId: null,
-          skipMacosTests: false,
           reason: 'Could not determine the dispatch branch; running every preflight suite.',
         }
       : decidePreflightSkips(
@@ -988,7 +987,6 @@ export async function releaseOpen(
           skipTests: false,
           testedSha: null,
           testedRunId: null,
-          skipMacosTests: false,
           reason: `Could not resolve the HEAD of ${ref}; running every preflight suite.`,
         };
   }
@@ -997,7 +995,6 @@ export async function releaseOpen(
       dispatchFields.push('--field', 'skip-tests=true');
       dispatchFields.push('--field', `reused-ci-run=${preflight.testedRunId}`);
     }
-    if (preflight.skipMacosTests) dispatchFields.push('--field', 'skip-macos-tests=true');
     dispatchFields.push('--field', `verified-sha=${preflight.verifiedSha}`);
     dispatchFields.push('--field', `skip-reason=${preflight.reason}`);
   }

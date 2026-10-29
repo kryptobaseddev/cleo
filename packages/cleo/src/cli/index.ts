@@ -325,6 +325,7 @@ async function startCli(): Promise<void> {
     const { showUpdateNotice } = await import('./lib/update-notice.js');
     showUpdateNotice({ version: CLI_VERSION, argv, quiet: rawOpts['quiet'] === true });
     await runStartupMaintenance();
+    await maybeSpawnMergeSweep(argv[0]);
   }
 
   // ---------------------------------------------------------------------------
@@ -737,6 +738,46 @@ async function runMainWithLafsEnvelope(
  * `cleo show`, `cleo next`, and all memory commands no longer pay the cost
  * of opening two additional SQLite databases they never use.
  */
+/** Commands that start the lazy merge sweep (T14101): the ones agents already run. */
+const MERGE_SWEEP_COMMANDS = new Set(['briefing', 'next', 'current', 'show', 'release']);
+
+/**
+ * Lazy merge sweep (T14101): when an agent runs briefing, next, current, show
+ * or release in a project that takes merged CI as evidence
+ * (`evidence.ciSatisfies`), claim the sweep (atomic, at most every 5 minutes)
+ * and run `cleo done --from-merge all` in a detached child that exits within
+ * 2 minutes, so merged PRs close their tasks even when the daemon is down.
+ * Never in CI, under vitest, or without `gh` credentials. The merge-close
+ * module loads only past the project-context check, so read commands in a
+ * project without the opt-in load nothing new. Never throws.
+ *
+ * @param command - The command being run.
+ */
+async function maybeSpawnMergeSweep(command: string | undefined): Promise<void> {
+  if (!MERGE_SWEEP_COMMANDS.has(command ?? '')) return;
+  try {
+    const { getProjectRoot } = await import('@cleocode/core/project-scope');
+    const root = getProjectRoot();
+    const context = JSON.parse(
+      readFileSync(join(root, '.cleo', 'project-context.json'), 'utf-8'),
+    ) as { evidence?: { ciSatisfies?: unknown } };
+    if (context.evidence?.ciSatisfies !== true) return;
+    const { claimMergeSweep, mergeSweepSpawnAllowed } = await import(
+      '@cleocode/core/tasks/merge-close.js'
+    );
+    if (!mergeSweepSpawnAllowed(process.env) || !claimMergeSweep(root)) return;
+    const { spawn } = await import('node:child_process');
+    spawn(process.execPath, [process.argv[1] ?? '', 'done', '--from-merge', 'all', '--quiet'], {
+      cwd: root,
+      detached: true,
+      stdio: 'ignore',
+      env: { ...process.env, CLEO_MERGE_SWEEP: 'off', CLEO_MERGE_SWEEP_CHILD: '1' },
+    }).unref();
+  } catch {
+    // Never break the command over a background sweep.
+  }
+}
+
 export async function runStartupMaintenance(): Promise<void> {
   // Narrow CORE modules, never the `@cleocode/core/internal` barrel (T13126):
   // this runs before every real command, read verbs included.

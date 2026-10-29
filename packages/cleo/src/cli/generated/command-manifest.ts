@@ -647,6 +647,14 @@ export const COMMAND_MANIFEST: readonly CommandManifestEntry[] = [
       (await import('../commands/doctor-twin-collapse.js')).doctorTwinCollapseCommand as CommandDef,
   },
   {
+    exportName: 'doctorTypeMatrixCommand',
+    name: 'type-matrix',
+    description:
+      'Repair parent/child pairs that break the type matrix (dry run; --apply, --rollback <receipt>)',
+    load: async () =>
+      (await import('../commands/doctor-type-matrix.js')).doctorTypeMatrixCommand as CommandDef,
+  },
+  {
     exportName: 'doctorWorktreeStoresCommand',
     name: 'worktree-stores',
     description:
@@ -1113,6 +1121,13 @@ export const COMMAND_MANIFEST: readonly CommandManifestEntry[] = [
     name: 'revert',
     description: 'Owner kill-switch: squash-revert all sentient merge commits from a receipt ID',
     load: async () => (await import('../commands/revert.js')).revertCommand as CommandDef,
+  },
+  {
+    exportName: 'reviewCommand',
+    name: 'review',
+    description:
+      'Independent per-criterion PR review by a non-author, bound to the PR head (packet | verdict | check)',
+    load: async () => (await import('../commands/review.js')).reviewCommand as CommandDef,
   },
   {
     exportName: 'roadmapCommand',

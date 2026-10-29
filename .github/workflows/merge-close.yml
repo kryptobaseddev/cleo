@@ -1,0 +1,51 @@
+# Merge-close receipt (T14101, owner decision D11209)
+#
+# When a PR merges, post its receipt: the tasks its body names
+# ("Closes: T#### AC1,AC2" completes once merged PRs bind every criterion,
+# "Refs: T#### AC1" binds and leaves the task open), and whether its required
+# checks were green on its exact head. A PR that closes nothing (red CI, no
+# lines, malformed lines) gets a comment saying why.
+#
+# CI never writes to a task store and holds no store credential. The store
+# owner's machine applies the receipt with `cleo done --from-merge`, which
+# re-derives everything from gh (the daemon loop, and lazily from briefing,
+# next, current, show and release).
+#
+# @task T14101
+name: Merge Close
+
+on:
+  pull_request:
+    types: [closed]
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  receipt:
+    name: Merge-close receipt
+    if: ${{ github.event.pull_request.merged == true }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout repository
+        # The tracked .cleo/project-context.json names the required checks.
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24.16.0'
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Post the merge-close receipt
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          if ! pnpm dlx @cleocode/cleo@latest done --from-merge "${PR_NUMBER}" --receipt --comment; then
+            echo "::warning::cleo done --from-merge --receipt failed for PR #${PR_NUMBER} (a CLI before T14101 has no --from-merge); the store-side sweep still judges the PR on its own."
+          fi

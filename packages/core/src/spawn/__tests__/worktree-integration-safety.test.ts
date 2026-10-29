@@ -11,7 +11,8 @@
 import { execFileSync } from 'node:child_process';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
+import { computeProjectHash } from '@cleocode/paths';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { integrationDisabledReason } from '../../orchestrate/worktree-complete.js';
 import { appendWorktreeAuditEntry } from '../../worktree/audit.js';
@@ -95,6 +96,31 @@ describe('worktree integration on completion (T14053)', () => {
     expect(outcome.mergeCommit).toBe(git(root, 'rev-parse', 'main'));
     expect(outcome.pushed).toBe(false);
     expect(git(root, 'rev-parse', '--abbrev-ref', 'HEAD')).toBe('main');
+  });
+
+  it('T14126: planned from inside the task worktree, the plan names that worktree', async () => {
+    const root = makeRepo();
+    const wt = await provisioned(root, 'T14126A');
+    // The worktree path hashes as its owning project, never as itself.
+    expect(computeProjectHash(wt)).toBe(computeProjectHash(root));
+    expect(planWorktreeIntegration('T14126A', root, { targetBranch: 'main' }).worktreePath).toBe(
+      wt,
+    );
+    // From inside the worktree the action stays T14053's (a linked worktree is
+    // never the merge target); only the path it names is now the real one.
+    expect(planWorktreeIntegration('T14126A', wt, { targetBranch: 'main' }).worktreePath).toBe(wt);
+  });
+
+  it('T14126: a registered worktree away from the recomputed path is the one the plan names', async () => {
+    const root = makeRepo();
+    const wt = await provisioned(root, 'T14126B');
+    // Moved under another hash directory (the drift a recomputed path cannot follow).
+    const moved = join(dirname(dirname(wt)), 'a9cc26ce45b4a996', 'T14126B');
+    mkdirSync(dirname(moved), { recursive: true });
+    git(root, 'worktree', 'move', '-f', '-f', wt, moved);
+    expect(planWorktreeIntegration('T14126B', root, { targetBranch: 'main' }).worktreePath).toBe(
+      moved,
+    );
   });
 
   it('CLEO_NO_AUTO_WORKTREE_COMPLETE and --no-integrate both skip, naming why', async () => {

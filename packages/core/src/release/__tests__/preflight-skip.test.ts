@@ -35,7 +35,6 @@ interface RunFixture {
 interface StubOptions {
   sha?: string | Error;
   pushRuns?: RunFixture[] | Error;
-  scheduleRuns?: RunFixture[] | Error;
   jobs?: Record<number, Array<{ name: string; conclusion: string | null }>>;
   /** Override `total_count` per run id (default: the number of jobs). */
   jobTotals?: Record<number, number>;
@@ -43,8 +42,6 @@ interface StubOptions {
   parents?: Record<string, string>;
   /** Files a commit changes against its parent (compare API); absent → a release-plan commit. */
   files?: Record<string, string[]>;
-  /** Recent successful runs on main (`actions/runs?branch=`), for the T13187 newest-green note. */
-  greenRuns?: RunFixture[];
 }
 
 /** What a release-plan PR's merge changes. */
@@ -100,29 +97,8 @@ function makeGh(opts: StubOptions): PreflightGhRunner & { calls: string[][]; tim
       const commit = endpoint.slice(endpoint.lastIndexOf('...') + 3);
       return JSON.stringify(opts.files?.[commit] ?? PLAN_FILES);
     }
-    if (endpoint.includes('/actions/workflows/macos-main.yml/runs')) {
-      // T13187: the newest successful main-push macOS run.
-      return runsBody((opts.greenRuns ?? []).filter((r) => r.path?.endsWith('/macos-main.yml')));
-    }
-    if (
-      endpoint.includes('/actions/workflows/ci.yml/runs') &&
-      endpoint.includes('event=schedule')
-    ) {
-      // T13187: the newest successful nightly ci.yml run.
-      return runsBody(
-        (opts.greenRuns ?? []).filter(
-          (r) => r.event === 'schedule' && !r.path?.endsWith('/macos-main.yml'),
-        ),
-      );
-    }
     if (endpoint.includes('/actions/workflows/ci.yml/runs')) {
       return answer(opts.pushRuns, runsBody);
-    }
-    if (endpoint.includes('/actions/runs?head_sha=')) {
-      // Every run of the commit, any workflow and event: the push runs and the nightlies.
-      if (opts.scheduleRuns instanceof Error) throw opts.scheduleRuns;
-      const push = opts.pushRuns instanceof Error ? [] : (opts.pushRuns ?? []);
-      return runsBody([...push, ...(opts.scheduleRuns ?? [])]);
     }
     const jobsMatch = /actions\/runs\/(\d+)\/jobs/.exec(endpoint);
     if (jobsMatch) {
@@ -383,41 +359,6 @@ describe('decidePreflightSkips — a tested ancestor CI judged equivalent (T1314
     expect(d.skipTests).toBe(false);
     expect(d.reason).toContain(`within ${MAX_EQUIVALENT_ANCESTORS} release-plan commits`);
   });
-
-  it('accepts a green nightly macOS run of an equivalent ancestor, never of one past the tested commit', () => {
-    const macosGreen = [{ name: 'Unit Tests (macos-latest, shard 1)', conclusion: 'success' }];
-    const onParent = decidePreflightSkips(
-      makeGh({
-        pushRuns: [
-          { id: 10, head_sha: SHA },
-          { id: 9, head_sha: P1 },
-        ],
-        scheduleRuns: [{ id: 30, head_sha: P1, event: 'schedule' }],
-        jobs: { 10: GATED_OFF, 9: LINUX_GREEN, 30: macosGreen },
-        parents: { [SHA]: P1 },
-      }),
-      '/repo',
-      'main',
-    );
-    expect(onParent.skipMacosTests).toBe(true);
-    expect(onParent.reason).toContain(`schedule run for ${P1.slice(0, 12)}`);
-
-    // P2 is older than the tested commit P1: code changed in between.
-    const pastTested = decidePreflightSkips(
-      makeGh({
-        pushRuns: [
-          { id: 10, head_sha: SHA },
-          { id: 9, head_sha: P1 },
-        ],
-        scheduleRuns: [{ id: 30, head_sha: P2, event: 'schedule' }],
-        jobs: { 10: GATED_OFF, 9: LINUX_GREEN, 30: macosGreen },
-        parents: { [SHA]: P1, [P1]: P2 },
-      }),
-      '/repo',
-      'main',
-    );
-    expect(pastTested.skipMacosTests).toBe(false);
-  });
 });
 
 describe('decidePreflightSkips — only release-plan commits are stepped past (T13140 review)', () => {
@@ -495,221 +436,28 @@ describe('decidePreflightSkips — only release-plan commits are stepped past (T
   });
 });
 
-describe('decidePreflightSkips — the newest macOS result decides (T13140 review)', () => {
-  const macos = (conclusion: string) => [
-    { name: 'Unit Tests (macos-latest, shard 1)', conclusion },
-  ];
-
-  it('a newer macOS failure outranks an older pass of the same tree', () => {
-    const d = decidePreflightSkips(
-      makeGh({
-        scheduleRuns: [
-          { id: 40, event: 'schedule' },
-          { id: 30, event: 'schedule' },
-        ],
-        jobs: { 40: macos('failure'), 30: macos('success') },
-      }),
-      '/repo',
-      'main',
-    );
-    expect(d.skipMacosTests).toBe(false);
-    expect(d.reason).toContain('runs/40');
-  });
-
-  it('counts the main-push macOS workflow (T13143), and ignores workflows that run no macOS tests', () => {
-    const d = decidePreflightSkips(
-      makeGh({
-        scheduleRuns: [
-          { id: 50, event: 'push', path: '.github/workflows/docs.yml' },
-          { id: 45, event: 'push', path: '.github/workflows/macos-main.yml' },
-        ],
-        jobs: { 50: macos('failure'), 45: macos('success') },
-      }),
-      '/repo',
-      'main',
-    );
-    expect(d.skipMacosTests).toBe(true);
-    expect(d.reason).toContain('runs/45');
-  });
-});
-
-describe('decidePreflightSkips — names the newest main commit with a green macOS run (T13187)', () => {
-  const GREEN = 'f'.repeat(40);
-  it('when the shards run, names the newest green macos-main or nightly ci.yml run, never a Linux-only push run', () => {
-    const d = decidePreflightSkips(
-      makeGh({
-        greenRuns: [
-          // Newest first, as the API lists them: a Linux-only ci.yml push run must not count.
-          { id: 90, event: 'push', path: '.github/workflows/ci.yml', head_sha: 'a'.repeat(40) },
-          { id: 80, event: 'push', path: '.github/workflows/macos-main.yml', head_sha: GREEN },
-          { id: 70, event: 'schedule', path: '.github/workflows/ci.yml', head_sha: 'b'.repeat(40) },
-        ],
-      }),
-      '/repo',
-      'main',
-    );
-    expect(d.skipMacosTests).toBe(false);
-    expect(d.reason).toContain(`Newest main commit with a green macOS run: ${GREEN.slice(0, 12)}`);
-  });
-
-  it('asks each macOS workflow for its newest success separately, and says how far behind HEAD it is', () => {
-    const gh = makeGh({
-      greenRuns: [
-        { id: 80, event: 'push', path: '.github/workflows/macos-main.yml', head_sha: GREEN },
-      ],
-    });
-    const d = decidePreflightSkips(gh, '/repo', 'main', {
-      commitsBehind: (from, to) => (from === GREEN && to === SHA ? 3 : null),
-    });
-    expect(d.reason).toContain(`${GREEN.slice(0, 12)}, 3 commit(s) behind ${SHA.slice(0, 12)}`);
-    const endpoints = gh.calls.map((c) => c[1] ?? '');
-    expect(
-      endpoints.some((e) =>
-        e.includes('/workflows/macos-main.yml/runs?branch=main&status=success&per_page=1'),
-      ),
-    ).toBe(true);
-    expect(
-      endpoints.some((e) =>
-        e.includes('/workflows/ci.yml/runs?branch=main&event=schedule&status=success&per_page=1'),
-      ),
-    ).toBe(true);
-    // An unknown distance omits the count rather than guessing.
-    const unknown = decidePreflightSkips(gh, '/repo', 'main', { commitsBehind: () => null });
-    expect(unknown.reason).not.toContain('behind');
-  });
-
-  it('a nightly ci.yml schedule run counts', () => {
-    const d = decidePreflightSkips(
-      makeGh({
-        greenRuns: [
-          { id: 70, event: 'schedule', path: '.github/workflows/ci.yml', head_sha: GREEN },
-        ],
-      }),
-      '/repo',
-      'main',
-    );
-    expect(d.reason).toContain(GREEN.slice(0, 12));
-  });
-
-  it('says so when no recent green macOS run exists, and names nothing when the shards are skipped', () => {
-    expect(decidePreflightSkips(makeGh({}), '/repo', 'main').reason).toContain(
-      'No recent green macOS run on main was found.',
-    );
-    const skipped = decidePreflightSkips(
-      makeGh({
-        scheduleRuns: [{ id: 30, event: 'schedule' }],
-        jobs: { 30: [{ name: 'Unit Tests (macos-latest, shard 1)', conclusion: 'success' }] },
-        greenRuns: [
-          { id: 80, event: 'push', path: '.github/workflows/macos-main.yml', head_sha: GREEN },
-        ],
-      }),
-      '/repo',
-      'main',
-    );
-    expect(skipped.skipMacosTests).toBe(true);
-    expect(skipped.reason).not.toContain('Newest main commit');
-  });
-});
-
-describe('decidePreflightSkips — macOS shards', () => {
-  it('skips when every macOS job of the nightly run for the sha succeeded', () => {
-    const d = decidePreflightSkips(
-      makeGh({
-        scheduleRuns: [{ id: 20, event: 'schedule', conclusion: 'failure' }],
-        jobs: {
-          20: [
-            { name: 'Unit Tests (macos-latest, shard 1)', conclusion: 'success' },
-            { name: 'Unit Tests (macos-latest, shard 2)', conclusion: 'success' },
-            // A non-macOS failure in the same run does not block the macOS skip.
-            { name: 'Unit Tests (ubuntu-latest, shard 1)', conclusion: 'failure' },
-          ],
-        },
-      }),
-      '/repo',
-      'main',
-    );
-    expect(d.skipMacosTests).toBe(true);
-    expect(d.reason).toContain('macOS tests skipped');
-    // The Linux decision is independent: no push run, so Linux tests run.
-    expect(d.skipTests).toBe(false);
-  });
-
-  it('runs when any macOS job failed, or the run had no macOS jobs', () => {
-    const failed = decidePreflightSkips(
-      makeGh({
-        scheduleRuns: [{ id: 20, event: 'schedule' }],
-        jobs: {
-          20: [
-            { name: 'Unit Tests (macos-latest, shard 1)', conclusion: 'success' },
-            { name: 'Unit Tests (macos-latest, shard 2)', conclusion: 'cancelled' },
-          ],
-        },
-      }),
-      '/repo',
-      'main',
-    );
-    expect(failed.skipMacosTests).toBe(false);
-    expect(failed.reason).toContain('did not succeed');
-
-    const linuxOnly = decidePreflightSkips(
-      makeGh({
-        scheduleRuns: [{ id: 20, event: 'schedule' }],
-        jobs: { 20: [{ name: 'Unit Tests (ubuntu-latest, shard 1)', conclusion: 'success' }] },
-      }),
-      '/repo',
-      'main',
-    );
-    expect(linuxOnly.skipMacosTests).toBe(false);
-  });
-
-  it('accepts green macOS jobs from the main push run for the sha', () => {
-    const d = decidePreflightSkips(
-      makeGh({
-        pushRuns: [{ id: 10 }],
-        jobs: {
-          10: [
-            ...LINUX_GREEN,
-            { name: 'Unit Tests (macos-latest, shard 1)', conclusion: 'success' },
-          ],
-        },
-      }),
-      '/repo',
-      'main',
-    );
-    expect(d.skipTests).toBe(true);
-    expect(d.skipMacosTests).toBe(true);
-  });
-
-  it('ignores a nightly run that is still in progress', () => {
-    const d = decidePreflightSkips(
-      makeGh({
-        scheduleRuns: [{ id: 20, event: 'schedule', status: 'in_progress', conclusion: null }],
-        jobs: { 20: [{ name: 'Unit Tests (macos-latest, shard 1)', conclusion: 'success' }] },
-      }),
-      '/repo',
-      'main',
-    );
-    expect(d.skipMacosTests).toBe(false);
-  });
-});
-
 describe('decidePreflightSkips — failure is never a skip', () => {
   it('runs everything when HEAD cannot be resolved', () => {
     for (const sha of [new Error('gh: timeout'), 'not-a-sha']) {
       const d = decidePreflightSkips(makeGh({ sha, pushRuns: [{ id: 10 }] }), '/repo', 'main');
-      expect(d).toMatchObject({ verifiedSha: null, skipTests: false, skipMacosTests: false });
+      expect(d).toMatchObject({ verifiedSha: null, skipTests: false });
     }
   });
 
   it('runs everything when the run queries fail', () => {
-    const d = decidePreflightSkips(
-      makeGh({ pushRuns: new Error('HTTP 502'), scheduleRuns: new Error('HTTP 502') }),
-      '/repo',
-      'main',
-    );
+    const d = decidePreflightSkips(makeGh({ pushRuns: new Error('HTTP 502') }), '/repo', 'main');
     expect(d.verifiedSha).toBe(SHA);
     expect(d.skipTests).toBe(false);
-    expect(d.skipMacosTests).toBe(false);
+  });
+
+  it('never asks GitHub about macOS: release waits on no macOS runner (T14104)', () => {
+    const gh = makeGh({ pushRuns: [{ id: 10 }], jobs: { 10: LINUX_GREEN } });
+    const d = decidePreflightSkips(gh, '/repo', 'main');
+    expect(d.skipTests).toBe(true);
+    expect(d).not.toHaveProperty('skipMacosTests');
+    expect(gh.calls.flat().join(' ')).not.toMatch(
+      /macos|head_sha=[^&]*&per_page=50|event=schedule/i,
+    );
   });
 
   it('bounds every gh call with the preflight timeout', () => {
@@ -727,7 +475,6 @@ describe('retargetPreflightSkips — the single release PR plan branch (T13825)'
     skipTests: true,
     testedSha: SHA,
     testedRunId: 10,
-    skipMacosTests: true,
     reason: 'Linux tests skipped.',
   };
   /** A gh runner answering only the compare of SHA...REF_SHA. */
@@ -753,7 +500,6 @@ describe('retargetPreflightSkips — the single release PR plan branch (T13825)'
       verifiedSha: REF_SHA,
       skipTests: true,
       testedRunId: 10,
-      skipMacosTests: true,
     });
     expect(d.reason).toContain('carry over');
   });
@@ -771,7 +517,6 @@ describe('retargetPreflightSkips — the single release PR plan branch (T13825)'
         verifiedSha: REF_SHA,
         skipTests: false,
         testedRunId: null,
-        skipMacosTests: false,
       });
       expect(d.reason).toContain('Every preflight suite runs on release/plan-v1');
     }
@@ -783,7 +528,6 @@ describe('retargetPreflightSkips — the single release PR plan branch (T13825)'
       skipTests: false,
       testedSha: null,
       testedRunId: null,
-      skipMacosTests: false,
     };
     const calls: string[][] = [];
     const d = retargetPreflightSkips(
