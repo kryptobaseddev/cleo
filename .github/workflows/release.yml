@@ -18,6 +18,7 @@ on:
 permissions:
   contents: write
   id-token: write
+  actions: read # T14102: verify-tag reads the tagged commit's push-run jobs
 
 jobs:
   # worktree-napi: 4 triples. The reusable workflow builds them — or, when the
@@ -729,6 +730,19 @@ jobs:
       # toolchain in node_modules.
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
+
+      # T14102: nothing ships unless the tagged commit is a first-parent commit
+      # of main whose required checks (release.prRequiredWorkflows) are green
+      # on its push run, whether the tag came from `cleo release cut`, a hand
+      # push, or a dispatched re-run.
+      - name: Verify the tag is a green first-parent commit of main (cleo release verify-tag)
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          git fetch --quiet --unshallow origin +refs/heads/main:refs/remotes/origin/main 2>/dev/null \
+            || git fetch --quiet origin +refs/heads/main:refs/remotes/origin/main
+          git fetch --quiet --force origin "refs/tags/v${VERSION}:refs/tags/v${VERSION}"
+          node packages/cleo/dist/cli/index.js release verify-tag "${VERSION}"
 
       - name: Download GitHub Release assets
         uses: actions/download-artifact@v4

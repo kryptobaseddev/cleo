@@ -16,6 +16,7 @@
  *   reconcile      — SPEC-T9345 §4.4 (T9526 v2): backfill 11 provenance tables
  *   cut            — T14102: tag the newest green default-branch commit (one-command release)
  *   write-changelog — T14102: CHANGELOG section from changesets since the previous tag
+ *   verify-tag     — T14102 (query): a release tag must be a green first-parent default-branch commit
  *
  * Ship, list, show, cancel, changelog, rollback, channel are handled by the
  * pipeline domain handler (via `pipeline.release.*` operations).
@@ -54,6 +55,7 @@ import {
   releaseOpen,
   releasePlan,
   releaseReconcileV2,
+  releaseVerifyTag,
   validateChangelog,
 } from '@cleocode/runtime/gateway';
 import type { OpsFromCore } from '../adapters/typed.js';
@@ -204,6 +206,28 @@ export class ReleaseHandler implements DomainHandler {
         // non-zero exit code — exactly the behaviour CI workflows depend on
         // (the legacy `grep -qF "## [VERSION]" || exit 1` had the same
         // contract).
+        // release.verify-tag — T14102: release.yml refuses to publish a tag
+        // that is not a green first-parent commit of the default branch.
+        case 'verify-tag': {
+          const version = typeof params?.version === 'string' ? params.version : undefined;
+          if (!version)
+            return errorResult(
+              'query',
+              'release',
+              operation,
+              'E_INVALID_INPUT', // @sync-invariant none:input-shape a missing version is refused before anything is read
+              'version is required',
+              startTime,
+            );
+          return wrapResult(
+            await releaseVerifyTag({ version, projectRoot: getProjectRoot() }),
+            'query',
+            'release',
+            operation,
+            startTime,
+          );
+        }
+
         case 'validate-changelog': {
           const version = typeof params?.version === 'string' ? params.version : undefined;
           if (!version)
@@ -505,7 +529,7 @@ export class ReleaseHandler implements DomainHandler {
   /** Return declared operations for introspection and registry validation. */
   getSupportedOperations(): { query: string[]; mutate: string[] } {
     return {
-      query: ['gate', 'ivtr-suggest', 'validate-changelog'],
+      query: ['gate', 'ivtr-suggest', 'validate-changelog', 'verify-tag'],
       mutate: ['gate', 'ivtr-suggest', 'reconcile', 'plan', 'open', 'cut', 'write-changelog'],
     };
   }

@@ -25,6 +25,17 @@ reruns: main CI already passed that tree.
   `E_RELEASE_NO_GREEN_COMMIT`.
 - A real cut refuses with `E_DOCS_ROT` before tagging while `cleo docs rot`
   reports stale, duplicate or orphaned docs; the dry run shows the findings.
+- The version must be CalVer for this month and above every release tag and
+  main's `package.json`. The commit must be first-parent on `origin/main`
+  with every `release.prRequiredWorkflows` check (app-pinned, push run) green,
+  judged again right before the tag. Each real cut is audited in
+  `.cleo/audit/release-cut.jsonl`. `release.yml` runs
+  `cleo release verify-tag` before publishing, so a hand-pushed or dispatched
+  tag on an untested tree never ships.
+- Rollback: before publish, cancel the release run and delete the tag
+  (`git push origin :refs/tags/v<version>`); after publish, fix forward. If
+  the CHANGELOG + version PR job fails, re-run it or open the PR by hand with
+  `cleo release write-changelog <version> --ref v<version>`.
 - `cleo release reconcile` records provenance for a cut release as before; it
   builds its plan from the tag when no plan file exists.
 - `cleo release plan`, `open` and `release-prepare.yml` keep working for one

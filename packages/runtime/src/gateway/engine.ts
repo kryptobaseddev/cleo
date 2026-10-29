@@ -199,6 +199,7 @@ export {
   releaseRollbackFull,
   releaseShow,
   releaseTag,
+  releaseVerifyTag,
   sessionAdopt,
   sessionArchive,
   sessionBriefing,

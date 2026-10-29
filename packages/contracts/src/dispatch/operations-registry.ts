@@ -9875,6 +9875,29 @@ export const OPERATIONS: OperationDef[] = [
     ] satisfies ParamDef[],
   },
 
+  // release query: verify-tag (T14102 — release.yml refuses to publish a tag
+  // that is not a green first-parent commit of the default branch).
+  {
+    gateway: 'query',
+    domain: 'release',
+    operation: 'verify-tag',
+    description:
+      'release.verify-tag (query) — refuse a release tag whose commit is not a first-parent commit of origin/main with every required check (release.prRequiredWorkflows, app-pinned) green on its push run. Run by release.yml before publishing (T14102).',
+    tier: 1,
+    idempotent: true,
+    sessionRequired: false,
+    requiredParams: ['version'],
+    params: [
+      {
+        name: 'version',
+        type: 'string',
+        required: true,
+        description: 'Release version whose tag is checked (accepts v2026.10.28 or 2026.10.28)',
+        cli: { positional: true },
+      },
+    ] satisfies ParamDef[],
+  },
+
   // release query: validate-changelog (T9937 / Saga T9862 — canonical CHANGELOG
   // header validator that replaces the brittle inline grep step in
   // .github/workflows/release.yml). Read-only — exposed only under the query

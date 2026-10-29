@@ -1102,8 +1102,9 @@ export type {
   ReleaseCutOptions,
   ReleaseCutResult,
   ReleaseCutRunner,
+  ReleaseVerifyTagResult,
 } from './release/cut.js';
-export { releaseChangelog, releaseCut } from './release/cut.js';
+export { releaseChangelog, releaseCut, releaseVerifyTag } from './release/cut.js';
 // T9538: release workflow bypass audit logger (SPEC-T9345 §12.3 / R-441)
 export type {
   AppendReleaseWorkflowBypassOptions,

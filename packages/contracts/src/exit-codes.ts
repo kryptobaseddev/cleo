@@ -409,6 +409,14 @@ export const E_RELEASE_NO_GREEN_COMMIT = 'E_RELEASE_NO_GREEN_COMMIT' as const;
  */
 export const E_RELEASE_UNMERGED_CHANGESET = 'E_RELEASE_UNMERGED_CHANGESET' as const;
 /**
+ * `cleo release cut` could not create the tag (the tag object or its ref POST
+ * failed). Exit code 1. `error.details.tagObject` names a created but
+ * unreferenced tag object, which is harmless. The attempt is audited.
+ *
+ * @task T14102
+ */
+export const E_RELEASE_TAG_FAILED = 'E_RELEASE_TAG_FAILED' as const;
+/**
  * `cleo release cut` found docs rot (stale, duplicate or orphaned docs, per
  * `cleo docs rot`) and refused to tag. Exit code 6. `error.details.docsRot`
  * carries the scan.

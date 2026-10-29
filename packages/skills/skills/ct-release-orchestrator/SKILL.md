@@ -68,6 +68,10 @@ cleo release cut v2026.10.28 --lead lead.md             # tags the commit; relea
 - **Task status is reported, never gated.** Green CI on the sha is the gate; a pending task does not block the cut.
 - **Tag:** an annotated `v<ver>` made through the GitHub API with your `gh` token, which starts `release.yml`. It runs `cleo release write-changelog`, publishes, and on a stable release opens `release/v<ver>`, a CHANGELOG + version PR that auto-merges on green and never blocks the release.
 
+**Gates (all re-checked):** the version is CalVer for this month, above every release tag and main's `package.json`; the commit is first-parent on `origin/main` with every `release.prRequiredWorkflows` check (app-pinned, push run) green; the local checkout is at `origin/main`; CI is judged again right before the tag; every real cut writes a row to `.cleo/audit/release-cut.jsonl`. `release.yml` runs `cleo release verify-tag` before publishing, so a hand-pushed or dispatched tag on an untested tree never ships.
+
+**Rollback.** A bad tag before `release.yml` publishes: cancel the run (`gh run cancel <id>`) and delete the tag (`git push origin :refs/tags/v<ver>`), then cut again. After publish, fix forward with the next version. If `changelog-pr` fails after a publish, re-run that job, or open the PR by hand from main: `cleo release write-changelog <ver> --ref v<ver>` plus `node scripts/version-all.mjs --set <ver>`.
+
 The plan/open pipeline below stays for one release as a fallback; T14114 deletes it.
 
 ## Canonical Pipeline

@@ -705,6 +705,36 @@ const writeChangelogCommand = defineCommand({
   },
 });
 
+/**
+ * cleo release verify-tag <version> — refuse to publish a tag that is not a
+ * green first-parent commit of the default branch (run by release.yml).
+ *
+ * @task T14102
+ */
+const verifyTagCommand = defineCommand({
+  meta: {
+    name: 'verify-tag',
+    description:
+      'Check that the release tag points at a first-parent commit of origin/main whose required checks are green on its push run (used by release.yml before publishing). (T14102)',
+  },
+  args: {
+    version: {
+      type: 'positional',
+      description: 'Release version (accepts v2026.10.28 or 2026.10.28)',
+      required: true,
+    },
+  },
+  async run({ args }) {
+    await dispatchFromCli(
+      'query',
+      'release',
+      'verify-tag',
+      { version: args.version },
+      { command: 'release' },
+    );
+  },
+});
+
 export const releaseCommand = defineCommand({
   meta: {
     name: 'release',
@@ -718,6 +748,7 @@ export const releaseCommand = defineCommand({
     // T14102 — one-command release; plan/open stay one release as fallback (T14114).
     cut: cutCommand,
     'write-changelog': writeChangelogCommand,
+    'verify-tag': verifyTagCommand,
     plan: planCommand,
     open: openCommand,
     reconcile: reconcileCommand,
