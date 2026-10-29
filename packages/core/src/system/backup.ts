@@ -53,9 +53,12 @@
  *                `captureErrors` instead of being silently dropped.
  */
 
+import { randomBytes } from 'node:crypto';
 import {
+  constants,
   copyFileSync,
   existsSync,
+  linkSync,
   mkdirSync,
   readdirSync,
   readFileSync,
@@ -142,18 +145,80 @@ export function _resetLegacyWarningOnce(): void {
   _legacyWarningEmitted = false;
 }
 
-/** Safe wrapper around VACUUM INTO: flushes WAL then clones the DB. */
-function safeSqliteSnapshot(db: { exec: (sql: string) => void } | null, destPath: string): boolean {
-  if (!db) return false;
+/**
+ * A `<type>-YYYYMMDD-HHmmss` backup id not yet used in `dir`. Two backups of
+ * one type within the same second got the same id, so the second's VACUUM
+ * INTO failed and its cleanup deleted the first backup's store copy (T14158).
+ * The stamp moves forward a second at a time, keeping the format readers parse.
+ */
+function freeBackupId(dir: string, type: string, now: Date): string {
+  for (let t = now.getTime(); ; t += 1000) {
+    const id = `${type}-${formatBackupTimestamp(new Date(t))}`;
+    const taken =
+      existsSync(join(dir, `${id}.meta.json`)) ||
+      existsSync(join(dir, `${PROJECT_STORE_BACKUP_FILE}.${id}`));
+    if (!taken) return id;
+  }
+}
+
+/** How many fresh ids a backup tries when another writer took its id first. */
+const BACKUP_ID_ATTEMPTS = 5;
+
+/** `true` for the error a no-clobber publish throws when the target exists. */
+function isTargetTaken(err: unknown): boolean {
+  return (err as NodeJS.ErrnoException | null)?.code === 'EEXIST';
+}
+
+/**
+ * VACUUM INTO a fresh temp file beside `destPath` (WAL flushed first). Only
+ * that temp is removed on failure: an existing file at `destPath` is never
+ * touched (T14158).
+ *
+ * @returns The temp path, or `null` without a handle.
+ */
+function snapshotToTemp(
+  db: { exec: (sql: string) => void } | null,
+  destPath: string,
+): string | null {
+  if (!db) return null;
   db.exec('PRAGMA wal_checkpoint(TRUNCATE)');
-  const safeDest = destPath.replace(/'/g, "''");
+  const temp = `${destPath}.${process.pid}-${randomBytes(4).toString('hex')}.tmp`;
   try {
-    db.exec(`VACUUM INTO '${safeDest}'`);
+    db.exec(`VACUUM INTO '${temp.replace(/'/g, "''")}'`);
   } catch (err) {
-    // A failed VACUUM INTO can leave a partial (often empty) file that would
-    // read as a backup (T13245).
-    rmSync(destPath, { force: true });
+    // A failed VACUUM INTO can leave a partial (often empty) file (T13245).
+    rmSync(temp, { force: true });
     throw err;
+  }
+  return temp;
+}
+
+/**
+ * Publish `temp` as `final` only if `final` does not exist (EEXIST otherwise).
+ * A hard link is atomic and never replaces; where links are unsupported, an
+ * exclusive copy is the fallback. The caller removes `temp` (T14158).
+ */
+function publishNoClobber(temp: string, final: string): void {
+  try {
+    linkSync(temp, final);
+  } catch (err) {
+    const code = (err as NodeJS.ErrnoException).code;
+    if (code !== 'EPERM' && code !== 'ENOTSUP' && code !== 'EXDEV') throw err;
+    copyFileSync(temp, final, constants.COPYFILE_EXCL);
+  }
+}
+
+/**
+ * Snapshot `db` to `destPath` without ever replacing an existing file there:
+ * a taken target throws EEXIST and leaves it intact (T14158).
+ */
+function safeSqliteSnapshot(db: { exec: (sql: string) => void } | null, destPath: string): boolean {
+  const temp = snapshotToTemp(db, destPath);
+  if (temp === null) return false;
+  try {
+    publishNoClobber(temp, destPath);
+  } finally {
+    rmSync(temp, { force: true });
   }
   return true;
 }
@@ -287,10 +352,10 @@ export async function createBackup(
   // Unified `YYYYMMDD-HHmmss` local-time stamp — matches
   // `sqlite-backup.ts:formatTimestamp`. The `type` discriminates manual
   // snapshots from auto-VACUUM-INTO files in the SAME directory.
-  const backupId = `${btype}-${formatBackupTimestamp(now)}`;
   const backupDir = opts?.destination
     ? resolve(opts.destination)
     : join(cleoDir, 'backups', CANONICAL_BACKUP_SUBDIR);
+  let backupId = freeBackupId(backupDir, btype, now);
 
   if (!existsSync(backupDir)) {
     mkdirSync(backupDir, { recursive: true });
@@ -334,12 +399,21 @@ export async function createBackup(
     // These are compatibility labels, not source paths. Post-E6 both canonical
     // accessors point at cleo.db; absence of legacy files says nothing about
     // source availability. The project-bound native handle is authoritative.
-    const dest = join(backupDir, `${target.file}.${backupId}`);
     // The store may legitimately not exist (a fresh project) — that is a
     // skip, not a failure. Existing-but-uncapturable is the failure.
     const storePresent = existsSync(join(cleoDir, target.file));
     try {
-      const ok = safeSqliteSnapshot(target.getDb(), dest);
+      let ok = false;
+      for (let attempt = 1; ; attempt++) {
+        try {
+          ok = safeSqliteSnapshot(target.getDb(), join(backupDir, `${target.file}.${backupId}`));
+          break;
+        } catch (err) {
+          // Another writer published this id first: its backup stays, take the next id.
+          if (!isTargetTaken(err) || attempt >= BACKUP_ID_ATTEMPTS) throw err;
+          backupId = freeBackupId(backupDir, btype, now);
+        }
+      }
       if (ok) {
         backedUp.push(target.file);
       } else if (storePresent) {
@@ -927,8 +1001,8 @@ export async function createGlobalBackup(opts?: {
   const btype = opts?.type || 'snapshot';
   const now = new Date();
   const timestamp = now.toISOString();
-  const backupId = `${btype}-${formatBackupTimestamp(now)}`;
   const backupDir = opts?.destination ? resolve(opts.destination) : globalBackupDir();
+  let backupId = freeBackupId(backupDir, btype, now);
   mkdirSync(backupDir, { recursive: true });
   const backedUp: string[] = [];
   /** T13724: a failed store capture is reported, never swallowed. */
@@ -936,18 +1010,30 @@ export async function createGlobalBackup(opts?: {
   try {
     const { openDualScopeDb, getDualScopeNativeDb } = await import('../store/dual-scope-db.js');
     const db = getDualScopeNativeDb(await openDualScopeDb('global'));
-    // The copy lands under a temporary name and is published by a rename
-    // only if nothing invalidated it meanwhile.
-    const final = join(backupDir, `cleo.db.${backupId}`);
-    const staged = `${final}.tmp`;
-    if (safeSqliteSnapshot(db, staged)) {
+    // The copy lands under a temporary name and is published, never over an
+    // existing backup, only if nothing invalidated it meanwhile.
+    const staged = snapshotToTemp(db, join(backupDir, `cleo.db.${backupId}`));
+    if (staged !== null) {
       const why = opts?.discardIf?.() ?? null;
       if (why !== null) {
         rmSync(staged, { force: true });
         getLogger('backup').warn({ backupId, why }, 'global backup discarded, not published');
         return { backupId, path: backupDir, timestamp, type: btype, files: [], skipped: why };
       }
-      renameSync(staged, final);
+      try {
+        for (let attempt = 1; ; attempt++) {
+          try {
+            publishNoClobber(staged, join(backupDir, `cleo.db.${backupId}`));
+            break;
+          } catch (err) {
+            // Another writer published this id first: its backup stays, take the next id.
+            if (!isTargetTaken(err) || attempt >= BACKUP_ID_ATTEMPTS) throw err;
+            backupId = freeBackupId(backupDir, btype, now);
+          }
+        }
+      } finally {
+        rmSync(staged, { force: true });
+      }
       backedUp.push('cleo.db');
     }
   } catch (err) {

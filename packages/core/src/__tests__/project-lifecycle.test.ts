@@ -191,7 +191,8 @@ describe('project-lifecycle', () => {
       const result = await moveProject(newDir, projectDir);
 
       const { existsSync } = await import('node:fs');
-      expect(result.success).toBe(true);
+      // T14158: a failure names its error code and message.
+      expectSuccess(result);
       expect(existsSync(join(newDir, '.cleo', 'project-info.json'))).toBe(true);
       expect(existsSync(join(projectDir, '.cleo', 'project-info.json'))).toBe(false);
 
@@ -382,7 +383,7 @@ describe('project-lifecycle', () => {
 
     it('renameProject returns EngineResult(true) on valid input', async () => {
       const result = await renameProject('valid-name', projectDir);
-      expect(result.success).toBe(true);
+      expectSuccess(result);
       expect(result).toHaveProperty('data');
     });
 
