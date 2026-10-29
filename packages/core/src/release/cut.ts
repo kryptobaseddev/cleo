@@ -161,8 +161,9 @@ export interface ReleaseCutResult {
   /**
    * T14142 cleanup of the release's tasks: the plan on a report run, what was
    * removed after a confirmed tag. Besides the tasks' worktrees and `task/*`
-   * branches it also removes nested repository copies proven redundant (clean,
-   * every ref on origin). Null when the changesets name no task.
+   * branches it removes nested repository copies proven redundant (clean, every
+   * ref on origin), only inside the worktrees of the release's done or
+   * cancelled tasks. Null when the changesets name no task.
    */
   cleanup: MergedCleanupResult | null;
   /** The T14101 merge sweep run before the commit was picked (`swept: false` when it could not run). */
@@ -647,7 +648,7 @@ export async function releaseCut(opts: ReleaseCutOptions): Promise<EngineResult<
   let entries: ChangesetEntry[];
   try {
     entries = parseChangesetsAt(runner, cwd, sha, paths);
-  } catch (err: unknown) {
+  } catch (err) {
     return engineError(E_CHANGESET_YAML_INVALID, err instanceof Error ? err.message : String(err), {
       exitCode: ExitCode.VALIDATION_ERROR,
       fix: 'Run `node scripts/lint-changesets.mjs`, fix the entry on the default branch, then re-run',
@@ -694,7 +695,7 @@ export async function releaseCut(opts: ReleaseCutOptions): Promise<EngineResult<
     if (taskIds.length === 0) return null;
     try {
       return await (opts.cleanup ?? cleanupMergedWork)({ projectRoot: cwd, taskIds, dryRun: dry });
-    } catch (err: unknown) {
+    } catch (err) {
       return {
         dryRun: dry,
         base: '',
@@ -842,7 +843,7 @@ export async function releaseCut(opts: ReleaseCutOptions): Promise<EngineResult<
       ],
       cwd,
     );
-  } catch (err: unknown) {
+  } catch (err) {
     const reason = err instanceof Error ? err.message : String(err);
     auditCut(cwd, { version, sha, outcome: 'failed', tagObject: tagObject || null, reason });
     return engineError(E_RELEASE_TAG_FAILED, `Creating tag ${version} failed: ${reason}`, {
@@ -971,7 +972,7 @@ export async function releaseChangelog(
   let entries: ChangesetEntry[];
   try {
     entries = parseChangesetsAt(runner, cwd, sha, paths);
-  } catch (err: unknown) {
+  } catch (err) {
     return engineError(E_CHANGESET_YAML_INVALID, err instanceof Error ? err.message : String(err), {
       exitCode: ExitCode.VALIDATION_ERROR,
       fix: 'Run `node scripts/lint-changesets.mjs`',
