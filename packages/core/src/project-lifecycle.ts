@@ -132,6 +132,31 @@ function validateAbsolutePath(label: string, p: string): EngineResult<never> | n
   return null; // valid
 }
 
+/**
+ * Refuse a lifecycle write when the store this process resolves for
+ * `projectRoot` is not `<projectRoot>/.cleo` (T14159). An absolute `CLEO_DIR`
+ * pin naming another store would checkpoint and register THAT store while
+ * `projectRoot`'s files move, leaving the moved project with no backup.
+ */
+async function storePinMismatch(projectRoot: string): Promise<EngineResult<never> | null> {
+  const { resolveStoreCleoDir } = await import('./paths.js');
+  const own = join(projectRoot, '.cleo');
+  // Not a project: the verb's own checks refuse it with their typed error.
+  if (!existsSync(own)) return null;
+  const resolved = resolveStoreCleoDir(projectRoot);
+  if (canonicalizePath(resolved) === canonicalizePath(own)) return null;
+  // @sync-invariant none:input-shape the process resolves another store; refused before any write
+  return engineError(
+    'E_STORE_PIN_MISMATCH',
+    `This process resolves the store "${resolved}", not "${own}" of the project at "${projectRoot}"; nothing was changed`,
+    {
+      exitCode: ExitCode.INVALID_INPUT,
+      fix: `Unset CLEO_DIR (or set it to "${own}") and run the command from "${projectRoot}"`,
+      details: { projectRoot, resolvedStore: resolved, projectStore: own },
+    },
+  );
+}
+
 // ── Relocation helpers (T12552 · T12556 · T12558) ─────────────────────
 
 /**
@@ -529,6 +554,8 @@ export async function moveProject(
   if (pathErr) return pathErr;
   const rootErr = validateAbsolutePath('projectRoot', projectRoot);
   if (rootErr) return rootErr;
+  const pinErr = await storePinMismatch(projectRoot);
+  if (pinErr) return pinErr;
   newPath = resolvePath(newPath);
 
   if (!existsSync(join(projectRoot, '.cleo', 'project-info.json'))) {
@@ -801,6 +828,8 @@ export async function rerootProject(
   if (pathErr) return pathErr;
   const rootErr = validateAbsolutePath('projectRoot', projectRoot);
   if (rootErr) return rootErr;
+  const pinErr = await storePinMismatch(projectRoot);
+  if (pinErr) return pinErr;
 
   if (!existsSync(join(projectRoot, '.cleo', 'project-info.json'))) {
     return engineError('E_NOT_CLEO_PROJECT', `No CLEO project found at "${projectRoot}"`, {
@@ -1059,6 +1088,8 @@ export async function renameProject(
   // AC7: Validate absolute path
   const rootErr = validateAbsolutePath('projectRoot', projectRoot);
   if (rootErr) return rootErr;
+  const pinErr = await storePinMismatch(projectRoot);
+  if (pinErr) return pinErr;
 
   if (!newName || newName.trim().length === 0) {
     return engineError('E_INVALID_NAME', 'newName must be a non-empty string');
