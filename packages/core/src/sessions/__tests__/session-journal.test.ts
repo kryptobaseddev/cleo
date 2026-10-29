@@ -72,22 +72,6 @@ function cleanDoctorResult(totalScanned = 5): BrainDoctorResult {
   };
 }
 
-function noisyDoctorResult(): BrainDoctorResult {
-  return {
-    isClean: false,
-    findings: [
-      {
-        pattern: 'duplicate-content',
-        count: 3,
-        sampleIds: ['id1', 'id2', 'id3'],
-        description: 'Entries with duplicate content hashes',
-      },
-    ],
-    totalScanned: 10,
-    scannedAt: new Date().toISOString(),
-  };
-}
-
 // ── Test setup ─────────────────────────────────────────────────────────────
 
 let tmpRoot: string;
@@ -212,61 +196,37 @@ describe('readRecentJournals', () => {
 });
 
 describe('handleSessionEndJournal — hook integration', () => {
-  it('writes a session_end entry with doctorSummary (clean brain)', async () => {
-    mocks.scanBrainNoise.mockResolvedValue(cleanDoctorResult(42));
-
-    // Import hook dynamically to use mocked dependencies
+  it('writes a session_end entry without scanning the brain (T14120)', async () => {
     const { handleSessionEndJournal } = await import('../../hooks/handlers/session-hooks.js');
 
     await handleSessionEndJournal(tmpRoot, {
       timestamp: new Date().toISOString(),
-      sessionId: 'ses_hook_clean',
+      sessionId: 'ses_hook_end',
       duration: 300,
       tasksCompleted: ['T100', 'T101'],
     });
 
     const entries = await readRecentJournals(tmpRoot, 10);
-    const hookEntry = entries.find((e) => e.sessionId === 'ses_hook_clean');
+    const hookEntry = entries.find((e) => e.sessionId === 'ses_hook_end');
     expect(hookEntry).toBeDefined();
     expect(hookEntry?.eventType).toBe('session_end');
     expect(hookEntry?.duration).toBe(300);
     expect(hookEntry?.tasksCompleted).toEqual(['T100', 'T101']);
-    expect(hookEntry?.doctorSummary?.isClean).toBe(true);
-    expect(hookEntry?.doctorSummary?.totalScanned).toBe(42);
+    // The whole-graph scan held session end for ~120 s on a large store.
+    expect(mocks.scanBrainNoise).not.toHaveBeenCalled();
+    expect(hookEntry?.doctorSummary).toBeUndefined();
   });
 
-  it('writes a session_end entry with doctorSummary (noisy brain)', async () => {
-    mocks.scanBrainNoise.mockResolvedValue(noisyDoctorResult());
-
-    const { handleSessionEndJournal } = await import('../../hooks/handlers/session-hooks.js');
-
-    await handleSessionEndJournal(tmpRoot, {
-      timestamp: new Date().toISOString(),
-      sessionId: 'ses_hook_noisy',
-      duration: 120,
-      tasksCompleted: [],
-    });
-
-    const entries = await readRecentJournals(tmpRoot, 10);
-    const hookEntry = entries.find((e) => e.sessionId === 'ses_hook_noisy');
-    expect(hookEntry?.doctorSummary?.isClean).toBe(false);
-    expect(hookEntry?.doctorSummary?.findingsCount).toBe(1);
-    expect(hookEntry?.doctorSummary?.patterns).toContain('duplicate-content');
-  });
-
-  it('does not throw even when scanBrainNoise fails', async () => {
-    mocks.scanBrainNoise.mockRejectedValue(new Error('brain.db not found'));
-
-    const { handleSessionEndJournal } = await import('../../hooks/handlers/session-hooks.js');
-
-    await expect(
-      handleSessionEndJournal(tmpRoot, {
-        timestamp: new Date().toISOString(),
-        sessionId: 'ses_hook_err',
-        duration: 0,
-        tasksCompleted: [],
+  it('still parses an older entry that carries a doctorSummary', async () => {
+    await appendSessionJournalEntry(
+      tmpRoot,
+      makeEntry({
+        sessionId: 'ses_legacy',
+        doctorSummary: { isClean: true, findingsCount: 0, patterns: [], totalScanned: 1 },
       }),
-    ).resolves.not.toThrow();
+    );
+    const entries = await readRecentJournals(tmpRoot, 10);
+    expect(entries.find((e) => e.sessionId === 'ses_legacy')?.doctorSummary?.isClean).toBe(true);
   });
 });
 
