@@ -366,6 +366,19 @@ describe('typed requirement persistence', () => {
 
     it('reads and parses a stored legacy gate, and running it reports the fix instead of ENOENT', async () => {
       const legacy = command('node -e 0', 'LEGACY-1');
+      // The same project seed verificationFixture writes; the gate preview needs it.
+      await writeFile(
+        join(root, '.cleo/project-info.json'),
+        JSON.stringify({ projectId: 'requirement-verifier', projectHash: 'fixture-path' }),
+      );
+      await writeFile(
+        join(root, '.cleo/config.json'),
+        JSON.stringify({
+          enforcement: { session: { requiredForMutate: false }, acceptance: { mode: 'off' } },
+          verification: { enabled: true, requiredGates: ['cleanupDone'] },
+          lifecycle: { mode: 'off' },
+        }),
+      );
       expect(parseGateJson(JSON.stringify(legacy))).toEqual(legacy);
       const task = (await accessor.loadSingleTask('T121'))!;
       await accessor.transaction(async (tx) => {
