@@ -393,6 +393,47 @@ export const E_PLAN_NOT_FOUND = 'E_PLAN_NOT_FOUND' as const;
 /** Generic release-plan validation failure (e.g. schema). Exit code 6. */
 export const E_RELEASE_PLAN_INVALID = 'E_RELEASE_PLAN_INVALID' as const;
 /**
+ * `cleo release cut` found no recent default-branch commit whose required `CI`
+ * check run concluded `success` (or the pinned `--sha` is not green). Exit code 6.
+ * `error.details.candidates[]` lists each commit checked and its CI state.
+ *
+ * @task T14102
+ */
+export const E_RELEASE_NO_GREEN_COMMIT = 'E_RELEASE_NO_GREEN_COMMIT' as const;
+/**
+ * `cleo release cut` found a changeset in range that no merged pull request
+ * brought in (pushed straight to the default branch). Exit code 6.
+ * `error.details.changesets[]` lists each file and the commit that added it.
+ *
+ * @task T14102
+ */
+export const E_RELEASE_UNMERGED_CHANGESET = 'E_RELEASE_UNMERGED_CHANGESET' as const;
+/**
+ * `cleo release cut` could not create the tag (the tag object or its ref POST
+ * failed). Exit code 1. `error.details.tagObject` names a created but
+ * unreferenced tag object, which is harmless. The attempt is audited.
+ *
+ * @task T14102
+ */
+export const E_RELEASE_TAG_FAILED = 'E_RELEASE_TAG_FAILED' as const;
+/**
+ * `cleo release cut --yes` from a non-interactive caller (an agent) without a
+ * standing release authorization (owner decision D11212; T14141 stores it).
+ * Exit code 6. A human at a terminal confirms with `--yes` directly.
+ *
+ * @task T14102
+ */
+export const E_RELEASE_NOT_AUTHORIZED = 'E_RELEASE_NOT_AUTHORIZED' as const;
+/**
+ * `cleo release cut` found docs rot (stale, duplicate or orphaned docs, per
+ * `cleo docs rot`) and refused to tag. Exit code 6. `error.details.docsRot`
+ * carries the scan.
+ *
+ * @task T14102
+ * @task T14111
+ */
+export const E_DOCS_ROT = 'E_DOCS_ROT' as const;
+/**
  * `cleo release plan` (or the lint script) encountered a `.changeset/*.md`
  * file whose YAML frontmatter cannot be parsed. Exit code 6 (VALIDATION_ERROR).
  *

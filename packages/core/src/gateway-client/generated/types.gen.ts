@@ -15763,6 +15763,125 @@ export type MutateReleaseReconcileResponses = {
 
 export type MutateReleaseReconcileResponse = MutateReleaseReconcileResponses[keyof MutateReleaseReconcileResponses];
 
+export type MutateReleaseCutData = {
+    body: {
+        /**
+         * Release version (accepts v2026.10.28 or 2026.10.28)
+         */
+        version: string;
+        /**
+         * Pin the commit instead of the newest green one; it must itself be green
+         */
+        sha?: string;
+        /**
+         * Markdown file that leads the notes (Update now + Highlights)
+         */
+        lead?: string;
+        /**
+         * Report the commit, notes, packages and tasks without creating the tag
+         */
+        dryRun?: boolean;
+        /**
+         * Create the tag (D11212): the version typed on the controlling terminal (/dev/tty), or a standing release authorization (T14141), allows it. Without it the cut only reports and prints the confirm command
+         */
+        yes?: boolean;
+    };
+    path?: never;
+    query?: never;
+    url: '/v1/release/cut';
+};
+
+export type MutateReleaseCutResponses = {
+    /**
+     * Generic query result — the precise /data shape is not individually contracted. Run with --full to see the verbose record, or --describe for the operation contract.
+     */
+    200: {
+        success: true;
+        data: {
+            [key: string]: unknown;
+        };
+        /**
+         * LAFS response metadata.
+         */
+        meta: {
+            [key: string]: unknown;
+        };
+        [key: string]: unknown;
+    };
+};
+
+export type MutateReleaseCutResponse = MutateReleaseCutResponses[keyof MutateReleaseCutResponses];
+
+export type MutateReleaseWriteChangelogData = {
+    body: {
+        /**
+         * Release version (accepts v2026.10.28 or 2026.10.28)
+         */
+        version: string;
+        /**
+         * Commit the release was cut from (default: tag v<version>, else HEAD)
+         */
+        ref?: string;
+    };
+    path?: never;
+    query?: never;
+    url: '/v1/release/write-changelog';
+};
+
+export type MutateReleaseWriteChangelogResponses = {
+    /**
+     * Generic query result — the precise /data shape is not individually contracted. Run with --full to see the verbose record, or --describe for the operation contract.
+     */
+    200: {
+        success: true;
+        data: {
+            [key: string]: unknown;
+        };
+        /**
+         * LAFS response metadata.
+         */
+        meta: {
+            [key: string]: unknown;
+        };
+        [key: string]: unknown;
+    };
+};
+
+export type MutateReleaseWriteChangelogResponse = MutateReleaseWriteChangelogResponses[keyof MutateReleaseWriteChangelogResponses];
+
+export type QueryReleaseVerifyTagData = {
+    body: {
+        /**
+         * Release version whose tag is checked (accepts v2026.10.28 or 2026.10.28)
+         */
+        version: string;
+    };
+    path?: never;
+    query?: never;
+    url: '/v1/release/verify-tag';
+};
+
+export type QueryReleaseVerifyTagResponses = {
+    /**
+     * Generic query result — the precise /data shape is not individually contracted. Run with --full to see the verbose record, or --describe for the operation contract.
+     */
+    200: {
+        success: true;
+        data: {
+            [key: string]: unknown;
+        };
+        /**
+         * LAFS response metadata.
+         */
+        meta: {
+            [key: string]: unknown;
+        };
+        [key: string]: unknown;
+    };
+};
+
+export type QueryReleaseVerifyTagResponse = QueryReleaseVerifyTagResponses[keyof QueryReleaseVerifyTagResponses];
+
 export type QueryReleaseValidateChangelogData = {
     body: {
         /**

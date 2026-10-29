@@ -726,10 +726,13 @@ exports[`cleo ops — real-registry tier-filter regression lock (T9845) > Tier 1
       "plan",
       "open",
       "reconcile",
+      "cut",
+      "write-changelog",
     ],
     "query": [
       "gate",
       "ivtr-suggest",
+      "verify-tag",
       "validate-changelog",
     ],
   },
@@ -882,7 +885,7 @@ exports[`cleo ops — real-registry tier-filter regression lock (T9845) > Tier 1
 }
 `;
 
-exports[`cleo ops — real-registry tier-filter regression lock (T9845) > Tier 1 — operation count snapshot > tier-1-operationCount 1`] = `343`;
+exports[`cleo ops — real-registry tier-filter regression lock (T9845) > Tier 1 — operation count snapshot > tier-1-operationCount 1`] = `346`;
 
 exports[`cleo ops — real-registry tier-filter regression lock (T9845) > Tier 2 — domain-grouped operations snapshot > tier-2-groupedOperations 1`] = `
 {
@@ -1323,10 +1326,13 @@ exports[`cleo ops — real-registry tier-filter regression lock (T9845) > Tier 2
       "plan",
       "open",
       "reconcile",
+      "cut",
+      "write-changelog",
     ],
     "query": [
       "gate",
       "ivtr-suggest",
+      "verify-tag",
       "validate-changelog",
     ],
   },
@@ -1537,4 +1543,4 @@ exports[`cleo ops — real-registry tier-filter regression lock (T9845) > Tier 2
 }
 `;
 
-exports[`cleo ops — real-registry tier-filter regression lock (T9845) > Tier 2 — operation count snapshot (full surface) > tier-2-operationCount 1`] = `477`;
+exports[`cleo ops — real-registry tier-filter regression lock (T9845) > Tier 2 — operation count snapshot (full surface) > tier-2-operationCount 1`] = `480`;
