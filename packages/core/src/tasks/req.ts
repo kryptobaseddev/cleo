@@ -18,6 +18,8 @@ import type { DataAccessor } from '../store/data-accessor.js';
 import { getTaskAccessor } from '../store/data-accessor.js';
 import { enforceAcceptanceImmutability } from './ac-immutability.js';
 import { acItemToText, applyAcPlan, planAcUpdate, replaceAcRowPlan } from './ac-table.js';
+import { commandGateCmdProblem } from './command-gate-cmd.js';
+import { splitCommandLine } from './command-line.js';
 
 // ─── Heuristic regex patterns ─────────────────────────────────────────────────
 
@@ -96,6 +98,15 @@ async function persistAcceptanceProjection(
  *
  * @internal
  */
+/** Split prose into a gate's argv (T14155), or null when it needs a shell. */
+function splitCommandWords(raw: string): string[] | null {
+  try {
+    return splitCommandLine(raw);
+  } catch {
+    return null;
+  }
+}
+
 function heuristicClassify(text: string, reqId: string): MigrationProposal['proposed'] {
   const t = text.trim();
 
@@ -153,11 +164,13 @@ function heuristicClassify(text: string, reqId: string): MigrationProposal['prop
   // command returns exit 0
   const exitMatch = t.match(RE_EXIT_ZERO);
   if (exitMatch) {
-    const cmd = (exitMatch[1] ?? exitMatch[2] ?? '').trim();
+    const words = splitCommandWords((exitMatch[1] ?? exitMatch[2] ?? '').trim());
+    const [cmd, ...args] = words ?? [];
     if (cmd) {
       return {
         kind: 'command',
         cmd,
+        ...(args.length > 0 ? { args } : {}),
         exitCode: 0,
         description: t,
         req: reqId,
@@ -212,6 +225,7 @@ export async function reqAdd(
   accessor?: DataAccessor,
 ): Promise<{ task: { id: string; acceptance: AcceptanceItem[] } }> {
   const validated = validateGate(gate);
+  refuseArgsInCmd(validated, projectRoot);
   const acc = accessor ?? (await getTaskAccessor(projectRoot));
   return acc.transaction(async (tx) => {
     const task = await loadTask(acc, taskId);
@@ -302,6 +316,7 @@ export async function reqReplace(
     );
   }
   const validated = validateGate({ ...gate, req: reqId });
+  refuseArgsInCmd(validated, projectRoot);
   const acc = options.accessor ?? (await getTaskAccessor(projectRoot));
   return acc.transaction(async (tx) => {
     const task = await loadTask(acc, taskId);
@@ -538,6 +553,19 @@ export function parseGateJson(raw: string): AcceptanceGate {
   }
 
   return validateGate(parsed);
+}
+
+/**
+ * Refuse a written command gate whose `cmd` carries its arguments (T14155).
+ * Only writes call this: parsing and running a stored gate never refuse here.
+ */
+function refuseArgsInCmd(gate: AcceptanceGate, projectRoot: string): void {
+  const problem = commandGateCmdProblem(gate, projectRoot);
+  if (problem === null) return;
+  // @sync-invariant none:input-shape a command gate whose cmd carries arguments is refused before any write
+  throw new CleoError(ExitCode.VALIDATION_ERROR, problem, {
+    fix: 'Put the executable alone in "cmd" and each argument in "args", e.g. {"kind":"command","cmd":"node","args":["-e","0"]}',
+  });
 }
 
 /** Validate the canonical schema without silently dropping unsupported gate fields. */

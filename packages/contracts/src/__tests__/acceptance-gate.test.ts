@@ -193,12 +193,14 @@ describe('CommandGate schema', () => {
   it('round-trips a minimal command gate', () => {
     const input = {
       kind: 'command' as const,
-      cmd: 'cleo doctor',
+      cmd: 'cleo',
+      args: ['doctor'],
       description: 'cleo doctor must exit 0',
     };
     const result = commandGateSchema.parse(input);
     expect(result.kind).toBe('command');
-    expect(result.cmd).toBe('cleo doctor');
+    expect(result.cmd).toBe('cleo');
+    expect(result.args).toEqual(['doctor']);
     // exitCode defaults to undefined (not set in schema default)
     expect(result.exitCode).toBeUndefined();
   });
@@ -370,10 +372,21 @@ describe('acceptanceGateSchema (discriminated union)', () => {
   it('routes command gate by kind', () => {
     const result = acceptanceGateSchema.parse({
       kind: 'command',
-      cmd: 'pnpm doctor',
+      cmd: 'pnpm',
+      args: ['doctor'],
       description: 'doctor must succeed',
     });
     expect(result.kind).toBe('command');
+  });
+
+  it('parse still accepts a legacy stored command gate whose cmd carries arguments (T14155)', () => {
+    // Writes refuse this shape (cleo req add / replace); reading a stored one never does.
+    const result = acceptanceGateSchema.parse({
+      kind: 'command',
+      cmd: 'pnpm doctor',
+      description: 'doctor must succeed',
+    });
+    expect(result.kind === 'command' && result.cmd).toBe('pnpm doctor');
   });
 
   it('routes lint gate by kind', () => {
