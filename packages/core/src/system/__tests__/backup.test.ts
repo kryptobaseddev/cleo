@@ -270,8 +270,10 @@ describe('system/backup', () => {
       writeFileSync(final, 'theirs');
       writeFileSync(temp, 'mine');
     });
-    vi.doMock('../../store/dual-scope-db.js', () => ({
-      resolveDualScopeDbPath: vi.fn(),
+    // Only the global store handle is faked; module-load users of the real
+    // path helpers (portable-bundle-scan) keep their string results.
+    vi.doMock('../../store/dual-scope-db.js', async (importOriginal) => ({
+      ...(await importOriginal<typeof import('../../store/dual-scope-db.js')>()),
       openDualScopeDb: vi.fn().mockResolvedValue({}),
       getDualScopeNativeDb: () => db,
     }));
