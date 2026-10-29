@@ -2207,6 +2207,21 @@ function gateCounts(
   };
 }
 
+/**
+ * Whether a read report is a bare counter summary (runner summary or
+ * node --test counters with no per-test results), which a gate accepts only as
+ * its whole stdout or its report file (T14132).
+ */
+function isBareSummary(read: ReadTestReport): boolean {
+  if (read.format !== 'runner summary JSON' && read.format !== 'node --test summary JSON')
+    return false;
+  const files = read.report.testResults;
+  return !(
+    Array.isArray(files) &&
+    files.some((f) => Array.isArray(f.assertionResults) && f.assertionResults.length > 0)
+  );
+}
+
 /** Top-level keys that mark a JSON object as an attempted test-count report. */
 const COUNT_REPORT_KEYS = ['numTotalTests', 'numPassedTests', 'numFailedTests', 'testResults'];
 
@@ -2297,11 +2312,25 @@ function structuredTestCounts(
   if (whole !== null) return gateCounts(whole, 'its output', refusals);
   const text = `${captured.stdout}\n${captured.stderr}`.trim();
   if (text.length === 0) return null;
+  let embeddedSummary = false;
   const tryParse = (candidate: string): StructuredTestCounts | null => {
     try {
       const raw: unknown = JSON.parse(candidate);
       // T14124: the reader `test-run:` uses, so every shape it reads counts here.
-      return gateCounts(readParsedTestReport(raw), 'a JSON report in its output', refusals);
+      const read = readParsedTestReport(raw);
+      // T14132: a bare counter summary found INSIDE the output (any test can
+      // print `{"total":5,"passed":5}`) proves nothing; only the whole stdout or
+      // the gate's report file may be one. Full reports embedded in noise count.
+      if (read?.ok && isBareSummary(read)) {
+        if (!embeddedSummary)
+          refusals.push(
+            `a ${read.format} object inside its output is not counted; only the whole stdout ` +
+              "or the gate's report file may be a summary-shaped report",
+          );
+        embeddedSummary = true;
+        return null;
+      }
+      return gateCounts(read, 'a JSON report in its output', refusals);
     } catch {
       return null;
     }
