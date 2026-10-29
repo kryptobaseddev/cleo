@@ -768,5 +768,11 @@ describe('system/backup — session-end snapshots are listed (T14150)', () => {
       ['2026-10-29T02:00:00.000Z', 'failed', 'snapshot failed for tasks'],
     ]);
     expect(misses.every((b) => b.files.length === 0)).toBe(true);
+    // The scanned window is visible on every entry (bounded, not silent).
+    expect(misses.map((b) => b.note)).toEqual(
+      Array(3).fill(
+        'found in the last 200 session-end log lines (3 failed or skipped in that window)',
+      ),
+    );
   });
 });
