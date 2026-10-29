@@ -1672,11 +1672,15 @@ async function computeDocsContext(
     return base;
   }
 
-  /** Keep the first entry per slug (two superseded docs can share a replacement). */
+  /**
+   * Drop only a REPLACED entry whose current doc is already listed (two
+   * superseded docs can share one replacement). A doc with no supersession
+   * data is never dropped: it stays exactly as attached.
+   */
   const dedupe = (refs: BriefingDocRef[], seen: Set<string>): BriefingDocRef[] =>
     refs.filter((r) => {
       if (!r.slug) return true;
-      if (seen.has(r.slug)) return false;
+      if (r.replaces !== undefined && seen.has(r.slug)) return false;
       seen.add(r.slug);
       return true;
     });
