@@ -168,6 +168,44 @@ export const DOC_TRIAGE_DECISION_SITE = {
   note: 'Batch job over `cleo docs triage`; rule fallback is age/topics/link heuristics. Shadow until go-live evidence exists.',
 } as const satisfies DecisionSiteDefinition;
 
+/** `docs.modernize.classify` — which taxonomy kind is an ambiguous doc (T14113). */
+export const DOC_MODERNIZE_CLASSIFY_SITE = {
+  id: 'docs.modernize.classify',
+  title: 'CleoDocs modernize: classify an ambiguous doc',
+  files: ['packages/core/src/docs/modernize/judge.ts'],
+  questionType: 'choice',
+  primaryRung: 'system-one',
+  ladder: [],
+  fallback: 'rule',
+  floors: { '*': 0.6 },
+  ownerEscalation: 'never',
+  modeKey: 'decide.sites.docModernizeClassify',
+  defaultMode: 'shadow',
+  writePath: false,
+  sends: ['memory-text'],
+  task: 'T14113',
+  note: 'Asked only when the folder/name/heading rules fall below their confidence floor; the plan is reviewed before --apply.',
+} as const satisfies DecisionSiteDefinition;
+
+/** `docs.modernize.merge` — are two near-duplicate docs one doc (T14113). */
+export const DOC_MODERNIZE_MERGE_SITE = {
+  id: 'docs.modernize.merge',
+  title: 'CleoDocs modernize: merge two near-duplicate docs',
+  files: ['packages/core/src/docs/modernize/judge.ts'],
+  questionType: 'choice',
+  primaryRung: 'system-one',
+  ladder: [],
+  fallback: 'rule',
+  floors: { '*': 0.6 },
+  ownerEscalation: 'never',
+  modeKey: 'decide.sites.docModernizeMerge',
+  defaultMode: 'shadow',
+  writePath: false,
+  sends: ['memory-text'],
+  task: 'T14113',
+  note: 'Asked only in the middle similarity band; rule fallback is line-shingle similarity. The plan is reviewed before --apply.',
+} as const satisfies DecisionSiteDefinition;
+
 /**
  * Generative and agent-rung sites that predate the ladder: registered so every
  * model call site is listed (spec §3.3). All `on`; none uses System One.
@@ -420,6 +458,8 @@ export const DECISION_SITES: readonly DecisionSiteDefinition[] = [
   DECIDE_ASK_DECISION_SITE,
   DECIDE_BENCH_DECISION_SITE,
   DOC_TRIAGE_DECISION_SITE,
+  DOC_MODERNIZE_CLASSIFY_SITE,
+  DOC_MODERNIZE_MERGE_SITE,
   ...GENERATIVE_SITES,
 ];
 

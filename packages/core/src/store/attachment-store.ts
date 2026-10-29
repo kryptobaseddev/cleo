@@ -126,6 +126,12 @@ export interface PutAttachmentExtras {
   slug?: string;
   /** Optional taxonomy classification; validated upstream. */
   type?: string;
+  /**
+   * Skip the post-write wikilinks rebuild. Bulk writers (`cleo docs
+   * modernize`, T14113) set it and rebuild the graph once at the end; a
+   * per-write rebuild re-derives the whole table every time.
+   */
+  skipGraphRebuild?: boolean;
 }
 
 // ─── Storage path helpers ──────────────────────────────────────────────────────
@@ -839,8 +845,16 @@ export function createAttachmentStore(): AttachmentStore {
           // the completed write — `cleo docs doctor` can re-derive it.
           if (slug !== undefined) {
             try {
-              const { rebuildDocsWikilinks } = await import('../docs/wikilinks.js');
-              await rebuildDocsWikilinks({ projectRoot: cwd });
+              const { rebuildDocsWikilinks, syncDocBodyWikilinks } = await import(
+                '../docs/wikilinks.js'
+              );
+              // T14113: body `[[slug]]` links become `links-to` edges.
+              if (derivedLinks !== undefined) {
+                await syncDocBodyWikilinks(slug, derivedLinks.wikilinks, { projectRoot: cwd });
+              }
+              if (extras?.skipGraphRebuild !== true) {
+                await rebuildDocsWikilinks({ projectRoot: cwd });
+              }
             } catch (rebuildErr) {
               // T13711: drizzle interpolates the full SQL + params into
               // err.message (~900 KB on axiom-app) — warn with the bounded
@@ -1141,6 +1155,17 @@ export function createAttachmentStore(): AttachmentStore {
             await db.delete(attachments).where(eq(attachments.id, attachmentId)).run();
 
             nativeDb.prepare('COMMIT').run();
+
+            // T14113: a removed doc's body links leave the graph with it
+            // (post-commit and best-effort, like the put-path graph refresh).
+            if (existing.slug) {
+              try {
+                const { syncDocBodyWikilinks } = await import('../docs/wikilinks.js');
+                await syncDocBodyWikilinks(existing.slug, [], { projectRoot: cwd });
+              } catch {
+                // `cleo docs doctor` can re-derive the graph.
+              }
+            }
 
             // T12535: never delete the blob here. An older build may still
             // name the content in its bare table; tombstone it, and the repair

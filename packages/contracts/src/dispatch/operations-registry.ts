@@ -8859,6 +8859,84 @@ export const OPERATIONS: OperationDef[] = [
     requiredParams: [],
     params: [],
   },
+  // ── docs.modernize (T14113 — Epic T14106) ─────────────────────────────────
+  {
+    gateway: 'mutate',
+    domain: 'docs',
+    operation: 'modernize',
+    description:
+      'docs.modernize (mutate) — turn a messy docs folder into clean, linked CleoDocs. Dry run ' +
+      'by default: proposes per file a kind, a stable slug (no task, session or date tokens) ' +
+      'and keep/rename/merge-into/delete with reasons and any System One judgment. --apply ' +
+      'stores, merges, supersedes, moves files and writes wikilink edges with a receipt; ' +
+      '--rollback <runId> reverses a run.',
+    tier: 1,
+    idempotent: false,
+    sessionRequired: false,
+    requiredParams: [],
+    params: [
+      {
+        name: 'path',
+        type: 'string' as const,
+        required: false,
+        description: 'Folder to modernize (required unless --rollback)',
+      },
+      {
+        name: 'apply',
+        type: 'boolean' as const,
+        required: false,
+        description: 'Execute the plan (default: dry run, nothing written)',
+      },
+      {
+        name: 'planFile',
+        type: 'string' as const,
+        required: false,
+        description: 'Apply this saved plan JSON verbatim',
+      },
+      {
+        name: 'out',
+        type: 'string' as const,
+        required: false,
+        description: 'Save the plan JSON to this path',
+      },
+      {
+        name: 'rollback',
+        type: 'string' as const,
+        required: false,
+        description: 'Roll back the apply run with this id',
+      },
+      {
+        name: 'exclude',
+        type: 'string' as const,
+        required: false,
+        description: 'Extra folder names to skip, comma-separated',
+      },
+      {
+        name: 'overrides',
+        type: 'string' as const,
+        required: false,
+        description: 'Reviewer decisions JSON keyed by path (DocsModernizeOverrides)',
+      },
+      {
+        name: 'kind',
+        type: 'string' as const,
+        required: false,
+        description: 'Use this kind for every file instead of classifying',
+      },
+      {
+        name: 'storeOnly',
+        type: 'boolean' as const,
+        required: false,
+        description: 'Ingest every file into the store and leave the folder untouched',
+      },
+      {
+        name: 'allowDirty',
+        type: 'boolean' as const,
+        required: false,
+        description: 'Apply even when the root is not a clean git checkout',
+      },
+    ],
+  },
   // ── docs.generate (T798) ─────────────────────────────────────────────────
   {
     gateway: 'query',
