@@ -42,7 +42,7 @@ vi.mock('@cleocode/worktree', async (importOriginal) => {
 });
 
 const { cleanupMergedWork } = await import('../merged-cleanup.js');
-const { unprovenContent } = await import('../prune.js');
+const { isRegenerable, unprovenContent } = await import('../prune.js');
 const { computeProjectHash, resolveWorktreeRootForHash } = await import('@cleocode/paths');
 
 let tmp: string;
@@ -395,6 +395,31 @@ describe('T14146: regenerable output, bounded comparison, strict copies', () => 
     );
     expect(r.worktrees).toMatchObject([{ taskId: 'T20', removed: true }]);
     expect(existsSync(path)).toBe(false);
+  });
+
+  it('counts build output only where the build writes it', () => {
+    for (const rel of [
+      'dist',
+      'dist/index.js',
+      '.turbo',
+      'coverage/lcov.info',
+      'tsconfig.tsbuildinfo',
+      'packages/core/dist',
+      'packages/core/dist/x/y.js',
+      'packages/core/tsconfig.tsbuildinfo',
+    ]) {
+      expect(isRegenerable(rel), rel).toBe(true);
+    }
+    for (const rel of [
+      'secrets/dist/key.pem',
+      'packages/core/src/dist/x.js',
+      'notes/coverage',
+      'packages/dist',
+      'packages/core/src/a.tsbuildinfo',
+      'packages',
+    ]) {
+      expect(isRegenerable(rel), rel).toBe(false);
+    }
   });
 
   it('still keeps an edited .env beside rebuildable output', async () => {

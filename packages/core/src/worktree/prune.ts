@@ -277,17 +277,25 @@ export function newCompareBudget(): CompareBudget {
 /** A single file larger than this is never read to prove it identical (64 MiB). */
 const MAX_COMPARED_FILE_BYTES = 64 * 1024 * 1024;
 
+/** Output directories the build writes, at the root or in a workspace package. */
+const REGENERABLE_DIRS = new Set(['dist', '.turbo', 'coverage']);
+
 /**
  * Build output a merged, clean checkout can always rebuild from its source,
- * so losing it loses nothing (T14146): `dist/`, `.turbo/`, `coverage/`, and
- * `*.tsbuildinfo` files.
+ * so losing it loses nothing (T14146): `dist/`, `.turbo/` and `coverage/`
+ * (and anything inside them), and `*.tsbuildinfo` files, only where the build
+ * writes them: the checkout root or a `packages/<name>/` root. The same name
+ * deeper down (`secrets/dist/key.pem`) is not build output and stays strict.
+ *
+ * @param rel - Path relative to the checkout root, `/`-separated.
+ * @returns Whether the path is rebuildable output.
  */
-function isRegenerable(rel: string): boolean {
+export function isRegenerable(rel: string): boolean {
   const parts = rel.split('/');
-  return (
-    parts.some((p) => p === 'dist' || p === '.turbo' || p === 'coverage') ||
-    rel.endsWith('.tsbuildinfo')
-  );
+  // The output's own root: `dist`, or `packages/<name>/dist`.
+  const base = parts[0] === 'packages' ? 2 : 0;
+  if (parts.length > base && REGENERABLE_DIRS.has(parts[base] ?? '')) return true;
+  return parts.length === base + 1 && rel.endsWith('.tsbuildinfo');
 }
 
 /**
