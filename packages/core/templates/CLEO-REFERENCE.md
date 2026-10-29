@@ -273,7 +273,7 @@ Before dispatch, assert these required sections: `## Task Identity` · `## File 
 | `securityPassed` | `tool:security-scan` |
 | `cleanupDone` | `note:removed dead branches` |
 
-Name the acceptance criteria each result proves: `cleo verify T1234 --gate implemented --evidence "commit:abc123;files:src/fix.ts;satisfies:T1234#AC1"`. Documentation-only PRs cannot implement a code-fix task; changed criteria require fresh evidence, and a child waiver does not waive parent criteria.
+Name the acceptance criteria each result proves: `cleo verify T1234 --gate implemented --evidence "commit:abc123;files:src/fix.ts;satisfies:T1234#AC1"`.
 
 A merged PR closes the tasks its body names (`Closes: T#### AC1,AC2`; `Refs:` binds ACs without closing) once `CI` is green on its exact head and a non-author reviewer recorded `met` for each AC on that head (`cleo review verdict`). The merge sweep then records `pr:<n>;files:<changed paths>` and `ci:<n>` with those `satisfies:` links; the PR text never waives an AC (ADR-099). Preview with `cleo done --from-merge <pr> --dry-run`. For a hand-recorded `implemented`, pair `pr:<number>` with `files:<changed-paths>`; CLEO checks task linkage, complete changed-file coverage, and the actual merge commit's bytes. Documentation and research tasks may use appropriate documentary artifacts. The receipt retains criterion hashes, artifact paths, and result references. A valid child completion leaves any parent with unproven criteria open.
 
