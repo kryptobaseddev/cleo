@@ -1000,19 +1000,73 @@ describe('resolveCiEvidenceAtom', () => {
       expect(bySha).toEqual({ CI: DESC2, 'Lockfile Check': MERGE, 'Contracts Dep Lint': DESC2 });
     });
 
-    it('T14103: a job missing from a merge run that DID start is not a queued cancel: refused', async () => {
-      // Jobs ran (Type Check is there) but Contracts Dep Lint never reported.
-      const partial = cancelledMerge.filter((c) => c.name !== 'Contracts Dep Lint');
-      const { run } = descend(
+    /**
+     * T14144: the CI run on the merge commit started (Type Check ran) and was
+     * cancelled before Contracts Dep Lint started, so that required check has
+     * no run there. Refused on 10.27 as "Contracts Dep Lint: not found on
+     * merge commit c8b7d271993a — only a cancelled or skipped run is stood in
+     * for by a later run; not inherited from main: no job failed on the merge
+     * commit" (T14103's own closure).
+     */
+    const cancelledPartway = cancelledMerge.filter((c) => c.name !== 'Contracts Dep Lint');
+    const partway = (extra: Partial<ResolveCiEvidenceOptions> = {}) =>
+      descend(
         { [DESC1]: onSha(DESC1) },
         {
           fetchChecks: async (sha) => ({
             ok: true,
-            checks: sha === MERGE ? partial : sha === HEAD ? onHead : onSha(DESC1),
+            checks: sha === MERGE ? cancelledPartway : sha === HEAD ? onHead : onSha(DESC1),
+          }),
+          ...extra,
+        },
+      ).run;
+
+    it('T14144: a required check that never ran in a cancelled merge run is stood in for by the later green run', async () => {
+      const r = await partway();
+      expect(r.ok, JSON.stringify(r)).toBe(true);
+      const atom = r.ok && r.atom.kind === 'ci' ? r.atom : null;
+      expect(atom?.descendantSha).toBe(DESC1);
+      const bySha = Object.fromEntries((atom?.checks ?? []).map((c) => [c.name, c.sha]));
+      expect(bySha['Contracts Dep Lint']).toBe(DESC1);
+    });
+
+    it('T14144: the same, with a CI-definition change in range: refused', async () => {
+      const r = await partway({
+        touchingCommits: (_from, _to, paths) =>
+          paths.includes(CI_WORKFLOW) ? [{ sha: OTHER_MERGE, parents: 2 }] : [],
+      });
+      expect(r.ok).toBe(false);
+      expect(!r.ok && r.reason).toMatch(/a CI definition .*changed on origin\/main by merge 4444/);
+    });
+
+    it('T14144: a required check that FAILED on the merge commit is still refused', async () => {
+      const failed = cancelledMerge.map((c) =>
+        c.name === 'Contracts Dep Lint' ? { ...c, conclusion: 'failure' } : c,
+      );
+      const r = await descend(
+        { [DESC1]: onSha(DESC1) },
+        {
+          fetchChecks: async (sha) => ({
+            ok: true,
+            checks: sha === MERGE ? failed : sha === HEAD ? onHead : onSha(DESC1),
           }),
         },
-      );
-      const r = await run;
+      ).run;
+      expect(r.ok).toBe(false);
+      expect(!r.ok && r.reason).toMatch(/Contracts Dep Lint: failure on merge commit/);
+    });
+
+    it('T14144: a check missing from a merge run that finished any other way stays refused', async () => {
+      const finished = allGreen.filter((c) => c.name !== 'Contracts Dep Lint');
+      const r = await descend(
+        { [DESC1]: onSha(DESC1) },
+        {
+          fetchChecks: async (sha) => ({
+            ok: true,
+            checks: sha === MERGE ? finished : sha === HEAD ? onHead : onSha(DESC1),
+          }),
+        },
+      ).run;
       expect(r.ok).toBe(false);
       expect(!r.ok && r.reason).toMatch(/Contracts Dep Lint: not found on merge commit/);
     });
