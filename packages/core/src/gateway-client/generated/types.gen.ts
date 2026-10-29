@@ -14526,10 +14526,6 @@ export type MutateDocsModernizeData = {
          * Apply even when the root is not a clean git checkout
          */
         allowDirty?: boolean;
-        /**
-         * Modernize the docs already in the store instead of a folder
-         */
-        store?: boolean;
     };
     path?: never;
     query?: never;
