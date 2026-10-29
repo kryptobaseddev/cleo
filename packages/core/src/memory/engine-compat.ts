@@ -620,6 +620,12 @@ export async function memoryFind(
       result.total += global.length;
       result.tokensEstimated += global.length * 50;
     }
+    // T14110: surface each decision's and task's CURRENT docs, never superseded
+    // ones. Loaded only when there is something to enrich (startup graph, gate 39).
+    if (/\bT\d{2,}\b/.test(params.query) || result.results.some((h) => h.type === 'decision')) {
+      const { attachCurrentDocs } = await import('../docs/lineage.js');
+      await attachCurrentDocs(root, params.query, result);
+    }
     return { success: true, data: result };
   } catch (error) {
     return {

@@ -466,6 +466,37 @@ export interface DocsFetchResult {
    * ratifies.
    */
   linkedDecisions?: string[];
+  /**
+   * Where this doc sits in its supersession chain and what it serves
+   * (T14110). Present for slugged docs.
+   */
+  lineage?: DocsLineage;
+}
+
+/**
+ * A doc's supersession chain and the work it serves (T14110). Built from the
+ * existing `supersedes`/`superseded_by` pointers, task refs and
+ * `related_tasks`; nothing here is stored separately.
+ */
+export interface DocsLineage {
+  /** The doc's lifecycle status (`superseded` when replaced). */
+  readonly lifecycleStatus: string;
+  /** Slug of the doc this one replaced, when any. */
+  readonly supersedes: string | null;
+  /** Slug of the doc that replaced this one, when any. */
+  readonly supersededBy: string | null;
+  /**
+   * Slug of the current doc at the end of the `superseded_by` chain: this
+   * doc's own slug when it is current. Read this one instead.
+   */
+  readonly currentSlug: string;
+  /** Task ids the doc serves: its task owners and the tasks its body names. */
+  readonly servesTasks: readonly string[];
+  /**
+   * Decisions this doc supersedes: the `supersedes` of each decision it links
+   * (`docs link-decision`). Absent when it links none that supersede another.
+   */
+  readonly supersedesDecisions?: readonly string[];
 }
 
 // --------------------------------------------------------------------------

@@ -154,6 +154,12 @@ export interface BriefingDocRef {
    * @task T9964
    */
   type?: string;
+  /**
+   * Slug of the superseded doc this entry stands in for: the task owns that
+   * doc, but the briefing names the current one at the end of its
+   * supersession chain instead (T14110).
+   */
+  replaces?: string;
 }
 
 /**
@@ -1650,8 +1656,34 @@ async function computeDocsContext(
     } catch {
       // extras unavailable — proceed without slug/type
     }
+    // T14110: never surface a superseded doc as current — name its replacement.
+    if (base.slug) {
+      try {
+        const { readDocLineage } = await import('../docs/lineage.js');
+        const lineage = await readDocLineage(projectRoot, base.slug);
+        if (lineage && lineage.currentSlug !== base.slug) {
+          base.replaces = base.slug;
+          base.slug = lineage.currentSlug;
+        }
+      } catch {
+        // lineage unavailable — keep the doc as attached
+      }
+    }
     return base;
   }
+
+  /**
+   * Drop only a REPLACED entry whose current doc is already listed (two
+   * superseded docs can share one replacement). A doc with no supersession
+   * data is never dropped: it stays exactly as attached.
+   */
+  const dedupe = (refs: BriefingDocRef[], seen: Set<string>): BriefingDocRef[] =>
+    refs.filter((r) => {
+      if (!r.slug) return true;
+      if (r.replaces !== undefined && seen.has(r.slug)) return false;
+      seen.add(r.slug);
+      return true;
+    });
 
   // 1. Fetch attachments for the currently focused task.
   const currentTaskDocs: BriefingDocRef[] = [];
@@ -1671,6 +1703,11 @@ async function computeDocsContext(
   // currentTaskId the filter `task.id !== currentTaskId` is trivially satisfied
   // for every task, causing all attachments in the project to be shipped.
   const relatedDocs: BriefingDocRef[] = [];
+
+  const seenSlugs = new Set<string>();
+  const currentDocs = dedupe(currentTaskDocs, seenSlugs);
+  currentTaskDocs.length = 0;
+  currentTaskDocs.push(...currentDocs);
 
   if (currentTaskId === undefined) {
     return currentTaskDocs.length > 0
@@ -1737,6 +1774,10 @@ async function computeDocsContext(
       return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
     });
   }
+
+  const related = dedupe(relatedDocs, seenSlugs);
+  relatedDocs.length = 0;
+  relatedDocs.push(...related);
 
   const totalDocs = currentTaskDocs.length + relatedDocs.length;
 

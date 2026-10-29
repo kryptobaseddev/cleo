@@ -68,6 +68,7 @@ type _BrainCompactHitShape = {
   bm25Score?: number;
   _next?: Record<string, string>;
   scope?: 'project' | 'global';
+  docs?: string[];
 };
 
 type _AssertBrainCompactHitPinned = AssertEquals1<Equals<BrainCompactHit, _BrainCompactHitShape>>;
@@ -99,6 +100,7 @@ type _SearchBrainCompactResultShape = {
   results: BrainCompactHit[];
   total: number;
   tokensEstimated: number;
+  taskDocs?: Array<{ taskId: string; docs: string[] }>;
 };
 
 type _AssertSearchResultPinned = AssertEquals1<

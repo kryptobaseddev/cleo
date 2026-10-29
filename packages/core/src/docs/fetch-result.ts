@@ -35,6 +35,7 @@ import { join } from 'node:path';
 import type {
   DocsFetchResult,
   DocsHeadConflictEntry,
+  DocsLineage,
   DocsType,
 } from '@cleocode/contracts/operations/docs.js';
 import { resolveCleoDir } from '../paths.js';
@@ -143,6 +144,17 @@ export async function buildDocsFetchResult(opts: {
   // stale base is merged/conflicted instead of silently overwriting a
   // concurrent edit. Absent for docs outside the conduit family.
   const headVersionUid = await readDocHeadVersionUid(projectRoot, doc.slug);
+  // T14110: the supersession chain, so a replaced doc points at the current one.
+  let lineage = doc.slug ? await readDocLineageSafe(projectRoot, doc.slug) : null;
+  if (lineage && linkedDecisions && linkedDecisions.length > 0) {
+    try {
+      const { supersededDecisionsOf } = await import('./lineage.js');
+      const supersedesDecisions = await supersededDecisionsOf(projectRoot, linkedDecisions);
+      if (supersedesDecisions.length > 0) lineage = { ...lineage, supersedesDecisions };
+    } catch {
+      // BRAIN unavailable — the lineage stands without decision supersession.
+    }
+  }
 
   return {
     metadata: {
@@ -171,7 +183,20 @@ export async function buildDocsFetchResult(opts: {
       : {}),
     ...(headConflict !== undefined ? { headConflict } : {}),
     ...(linkedDecisions !== undefined && linkedDecisions.length > 0 ? { linkedDecisions } : {}),
+    ...(lineage ? { lineage } : {}),
   };
+}
+
+/** {@link readDocLineage}, or null when the store cannot be read (fetch never fails on it). */
+async function readDocLineageSafe(projectRoot: string, slug: string): Promise<DocsLineage | null> {
+  try {
+    const { dbExists } = await import('../store/sqlite.js');
+    if (!dbExists(projectRoot)) return null;
+    const { readDocLineage } = await import('./lineage.js');
+    return await readDocLineage(projectRoot, slug);
+  } catch {
+    return null;
+  }
 }
 
 /**
