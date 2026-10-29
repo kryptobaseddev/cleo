@@ -41,6 +41,7 @@ import type {
   GhPrViewPayload,
   MacosRegressionSync,
   MergeDirective,
+  MergedCleanupResult,
   MergePrOutcome,
   MergeReceipt,
   MergeSweepHooks,
@@ -178,6 +179,17 @@ export interface MergeCloseDeps {
     storeRoot: string,
     pr: { prNumber: number; mergeSha: string; taskIds: string[] },
   ): Promise<string[]>;
+  /**
+   * Remove what a merged PR's tasks left behind (T14142): canonical worktrees,
+   * `task/*` branches, nested repository copies. Runs only when
+   * {@link MergeCloseDeps.canCleanup} says so.
+   */
+  cleanupMerged?(storeRoot: string, taskIds: string[]): Promise<MergedCleanupResult>;
+  /**
+   * Whether this sweep may delete (T14142). Off by default: a sweep that
+   * deletes on its own proves itself on a few releases first.
+   */
+  canCleanup?(): boolean;
   /**
    * Reconcile the newest published release's provenance (T14102). Unset until
    * the release-cut module is on main.
@@ -973,6 +985,18 @@ async function applyMergedPrs(
         .catch(() => []);
       hooks.docsRot = [...(hooks.docsRot ?? []), ...flagged];
     }
+    // T14142: clean up after the tasks this PR completed, only when opted in. A
+    // `Refs:` (bound) task is still in progress: its worktree and branch stay.
+    const closed = entry.outcomes.filter((o) => o.action === 'closed');
+    if (!dryRun && deps.cleanupMerged && deps.canCleanup?.() === true && closed.length > 0) {
+      const cleaned = await deps
+        .cleanupMerged(
+          storeRoot,
+          closed.map((o) => o.taskId),
+        )
+        .catch(() => null);
+      if (cleaned !== null) hooks.cleanup = [...(hooks.cleanup ?? []), cleaned];
+    }
     result.prs.push(entry);
   }
   return hooks;
@@ -1692,6 +1716,15 @@ export const defaultMergeCloseDeps: MergeCloseDeps = {
   async reviewVerdicts(storeRoot, taskId, prNumber) {
     const { reviewVerdictsFor } = await import('./review-verdict.js');
     return reviewVerdictsFor(storeRoot, taskId, prNumber);
+  },
+  async cleanupMerged(storeRoot, taskIds) {
+    const { cleanupMergedWork } = await import('../worktree/merged-cleanup.js');
+    return cleanupMergedWork({ projectRoot: storeRoot, taskIds, dryRun: false });
+  },
+  canCleanup() {
+    // Off until it has proven itself on a few releases; opt in with
+    // CLEO_MERGE_SWEEP_CLEANUP=1, and never inside a CI job.
+    return process.env['CLEO_MERGE_SWEEP_CLEANUP'] === '1' && process.env['CI'] !== 'true';
   },
   async docsRot(storeRoot, pr) {
     // T14111: flag the docs whose covers: globs match the merge's own changes.

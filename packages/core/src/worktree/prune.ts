@@ -22,7 +22,16 @@
  * @epic T9515
  */
 
-import { existsSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
+import {
+  existsSync,
+  lstatSync,
+  readdirSync,
+  readFileSync,
+  readlinkSync,
+  type Stats,
+} from 'node:fs';
+import { join } from 'node:path';
 import type {
   EngineResult,
   EvidenceAtom,
@@ -148,6 +157,23 @@ export async function pruneOrphanedWorktreesByStatus(
       continue;
     }
 
+    // T14142: removal is forced, so anything not proven redundant would be lost.
+    // A directory already gone holds nothing to lose.
+    const unproven = existsSync(wt.path) ? unprovenContent(wt.path, opts.projectRoot) : null;
+    if (unproven !== null) {
+      const error = `Worktree ${wt.path} kept: ${unproven}.`;
+      outcomes.push({
+        path: wt.path,
+        branch: wt.branch,
+        taskId: wt.taskId,
+        reason,
+        pruned: false,
+        branchDeleted: false,
+        error,
+      });
+      continue;
+    }
+
     if (dryRun) {
       outcomes.push({
         path: wt.path,
@@ -228,8 +254,98 @@ export async function pruneOrphanedWorktreesByStatus(
 // Internal helpers — exported for tests only.
 // ---------------------------------------------------------------------------
 
-/** The owning task's recorded evidence, or `[]` when there is no task or the store is unreadable. */
-async function loadTaskEvidence(
+/** shortcut: at most this many entries are compared per tree; raise it if seeded trees outgrow it. */
+const MAX_COMPARED_ENTRIES = 50_000;
+
+/**
+ * Whether `a` and `b` hold the same tree: same names, same file bytes, same
+ * symlink targets. Symlinks are compared, never followed.
+ */
+function sameTree(a: string, b: string): boolean {
+  const stack: Array<[string, string]> = [[a, b]];
+  let seen = 0;
+  while (stack.length > 0) {
+    const [x, y] = stack.pop() as [string, string];
+    if (++seen > MAX_COMPARED_ENTRIES) return false;
+    let sx: Stats;
+    let sy: Stats;
+    try {
+      sx = lstatSync(x);
+      sy = lstatSync(y);
+    } catch {
+      return false;
+    }
+    if (sx.isSymbolicLink() || sy.isSymbolicLink()) {
+      if (!sx.isSymbolicLink() || !sy.isSymbolicLink() || readlinkSync(x) !== readlinkSync(y)) {
+        return false;
+      }
+    } else if (sx.isFile() && sy.isFile()) {
+      if (sx.size !== sy.size || !readFileSync(x).equals(readFileSync(y))) return false;
+    } else if (sx.isDirectory() && sy.isDirectory()) {
+      const nx = readdirSync(x).sort();
+      const ny = readdirSync(y).sort();
+      if (nx.length !== ny.length || nx.some((n, i) => n !== ny[i])) return false;
+      for (const n of nx) stack.push([join(x, n), join(y, n)]);
+    } else {
+      return false;
+    }
+  }
+  return true;
+}
+
+/**
+ * What in a checkout is not proven redundant, or `null` when nothing is.
+ *
+ * Tracked changes never are; untracked content is when the main checkout
+ * holds the identical tree at the same path. Ignored content (which
+ * `--porcelain` alone never lists: an edited `.env`, `dist/`, an agent's
+ * nested `.claude/worktrees/x/`) is redundant only under `node_modules`, or
+ * when the main checkout holds the identical tree at the same path (what
+ * `.worktreeinclude` seeded, unchanged). Fail-closed: a git error is
+ * unproven.
+ *
+ * @param path - Checkout root.
+ * @param projectRoot - The main checkout seeded copies are compared against.
+ * @returns Why the checkout must be kept, or `null`.
+ * @task T14142
+ */
+export function unprovenContent(path: string, projectRoot: string): string | null {
+  let out: string;
+  try {
+    out = execFileSync(
+      'git',
+      ['-C', path, 'status', '--porcelain', '-z', '-uall', '--ignored=matching'],
+      { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], timeout: 60_000 },
+    );
+  } catch {
+    return 'git status failed';
+  }
+  for (const entry of out.split('\0').filter((e) => e.length > 0)) {
+    const code = entry.slice(0, 2);
+    const rel = entry.slice(3).replace(/\/$/, '');
+    // A tracked change is never redundant; an untracked or ignored path is
+    // when the main checkout holds the identical tree (a copied receipt).
+    if (code === '??') {
+      if (sameTree(join(path, rel), join(projectRoot, rel))) continue;
+      return 'uncommitted or untracked changes';
+    }
+    if (code !== '!!') return 'uncommitted or untracked changes';
+    if (rel.split('/').includes('node_modules')) continue;
+    if (!sameTree(join(path, rel), join(projectRoot, rel))) {
+      return `ignored content not in the main checkout: ${rel}`;
+    }
+  }
+  return null;
+}
+
+/**
+ * The owning task's recorded evidence, or `[]` when there is no task or the store is unreadable.
+ *
+ * @param projectRoot - Project root whose task store is read.
+ * @param taskId - Owning task, or `null`.
+ * @returns The task's evidence atoms.
+ */
+export async function loadTaskEvidence(
   projectRoot: string,
   taskId: string | null,
 ): Promise<EvidenceAtom[]> {
@@ -287,7 +403,7 @@ export function reasonForStatus(wt: WorktreeInfo): string {
  * Never throws — failures are reported in the returned object.
  */
 export function removeWorktreeFromDisk(
-  wt: WorktreeInfo,
+  wt: Pick<WorktreeInfo, 'path' | 'branch' | 'isMerged'>,
   projectRoot: string,
 ): { success: true; branchDeleted: boolean } | { success: false; error: string } {
   // T11123: NAPI destroyWorktree handles unlock+force-remove atomically.
