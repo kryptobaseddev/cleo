@@ -1769,6 +1769,12 @@ export function executableInvocation(
   const [testCommand, ...testArgs] = gate.kind === 'test' ? splitCommandLine(gate.command) : [];
   if (gate.kind === 'test' && testCommand === undefined)
     throw new Error('Test gate command is empty');
+  // T14155: a stored command gate whose cmd carries its arguments would spawn
+  // a program named the whole line and fail with a bare ENOENT. Every run path
+  // (preview, verify --run, done) resolves its invocation here first.
+  const cmdProblem = commandGateCmdProblem(gate, root);
+  // @sync-invariant none:input-shape a stored gate's cmd shape is refused before it spawns; nothing is written
+  if (cmdProblem !== null) throw new Error(cmdProblem);
   const command =
     gate.kind === 'test'
       ? testCommand!
@@ -2653,8 +2659,7 @@ async function runTestGate(
   timeoutMs: number,
   context: ProcessCaptureOptions,
 ): Promise<AcceptanceGateResult> {
-  // A stored gate whose cmd carries its arguments would spawn a program named
-  // the whole line and fail with a bare ENOENT; name the fix instead (T14155).
+  // Keep a direct call's refusal (T14155) an error verdict, not a rejection.
   const cmdProblem = commandGateCmdProblem(gate, projectRoot);
   if (cmdProblem !== null) return makeResult(index, gate, 'error', 0, undefined, cmdProblem);
   const invocation = executableInvocation(gate, projectRoot, context.env ?? process.env)!;
