@@ -258,8 +258,21 @@ export interface DonePlanTypedGate {
   kind: string;
   /** Requirement id, when the gate declares one. */
   req?: string;
-  /** Latest stored result; `not-run` when none is stored, or when a stored pass would not stand. */
-  status: 'pass' | 'fail' | 'not-run';
+  /**
+   * Latest stored result; `not-run` when none is stored, or when a stored pass
+   * would not stand. `cached` (T14138): nothing is stored, but the evidence
+   * cache holds a pass for this tree and environment (from `cleo verify
+   * --run`), which the next evidence write binds without running the gate.
+   */
+  status: 'pass' | 'fail' | 'not-run' | 'cached';
+  /** When the cached pass was recorded (`cached` only). */
+  cachedAt?: string;
+  /**
+   * Why a `not-run` gate's cache entry did not match: the key part that moved
+   * since the last cached pass (HEAD, dirty fingerprint, tree, inputs or
+   * environment), when a recent entry explains it (T14138).
+   */
+  cacheMiss?: string;
   /**
    * Why a stored pass is `not-run`: the refusal `cleo complete` would raise
    * from this tree and environment (T14063).

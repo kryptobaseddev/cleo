@@ -64,6 +64,7 @@ import {
   validateAtom,
 } from '../evidence.js';
 import { executableInvocation } from '../gate-runner.js';
+import { previewTaskGates } from '../gate-preview.js';
 import { gateStaleness } from '../gate-staleness.js';
 import { reqAdd } from '../req.js';
 import { captureTreeHash, runToolCached } from '../tool-cache.js';
@@ -2159,6 +2160,75 @@ describe('a stored typed pass bound to an older definition is not a pass (T13463
       gateHash: createHash('sha256').update(acItemToText(gate)).digest('hex'),
     }));
     expect(plan.typedGates.map((g) => g.status)).toEqual(['not-run']);
+  });
+});
+
+/**
+ * T14138: `cleo verify --run` caches a typed pass without recording it, and
+ * the next evidence write binds it. The plan used to read only stored results,
+ * so it reported such a gate as not-run (VidaPeps T2294). It now probes the
+ * cache, read-only: a hit is `cached`, a miss names the key part that moved.
+ */
+describe('done --plan reports a cached typed pass (T14138)', () => {
+  const gate = {
+    kind: 'command' as const,
+    cmd: 'node -e 0',
+    exitCode: 0,
+    description: 'Harness passes',
+    req: 'H-2',
+  };
+  const cacheEntries = () => {
+    try {
+      return readdirSync(join(root, '.cleo', 'cache', 'evidence')).filter((n) =>
+        n.startsWith('gate-'),
+      );
+    } catch {
+      return [];
+    }
+  };
+
+  async function typedTask(): Promise<string> {
+    const id = await seedTask(['Change src/a.ts']);
+    commitOnTaskBranch(id);
+    await reqAdd(root, id, gate, env.accessor);
+    return id;
+  }
+
+  it('a pass cached by cleo verify --run reads cached, with no not-run blocker; the plan writes nothing', async () => {
+    const id = await typedTask();
+    await previewTaskGates(root, { taskId: id });
+    const before = cacheEntries();
+    expect(before.length).toBeGreaterThan(0);
+    const plan = await deriveTaskEvidence(id, { projectRoot: root, cwd: root, deps });
+    expect(plan.typedGates.map((g) => g.status)).toEqual(['cached']);
+    expect(plan.typedGates[0]?.cachedAt).toEqual(expect.any(String));
+    expect(plan.blockers.map((b) => b.code)).not.toContain('typed-gate-not-run');
+    expect(cacheEntries()).toEqual(before);
+  });
+
+  it('an environment change misses the cache and names what moved', async () => {
+    const id = await typedTask();
+    await previewTaskGates(root, { taskId: id });
+    const saved = process.env.LANG;
+    process.env.LANG = 'xx_T14138.UTF-8';
+    try {
+      const plan = await deriveTaskEvidence(id, { projectRoot: root, cwd: root, deps });
+      expect(plan.typedGates.map((g) => g.status)).toEqual(['not-run']);
+      expect(plan.typedGates[0]?.cacheMiss).toMatch(/environment/i);
+      const blocker = plan.blockers.find((b) => b.code === 'typed-gate-not-run');
+      expect(blocker?.message).toContain('Its cached pass does not match');
+    } finally {
+      if (saved === undefined) delete process.env.LANG;
+      else process.env.LANG = saved;
+    }
+  });
+
+  it('with nothing cached it stays not-run with no miss reason', async () => {
+    const id = await typedTask();
+    const plan = await deriveTaskEvidence(id, { projectRoot: root, cwd: root, deps });
+    expect(plan.typedGates.map((g) => g.status)).toEqual(['not-run']);
+    expect(plan.typedGates[0]?.cacheMiss).toBeUndefined();
+    expect(plan.blockers.map((b) => b.code)).toContain('typed-gate-not-run');
   });
 });
 

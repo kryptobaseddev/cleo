@@ -74,6 +74,7 @@ import {
 import { PROFILE_WAIVED_GATES } from './gate-notes.js';
 import {
   extractTypedGates,
+  probeTypedGateCache,
   type TypedResultDrift,
   typedGateAdmissionMs,
   typedResultDrift,
@@ -498,12 +499,64 @@ async function planTypedGates(
     };
     return { entry, originalIndex };
   });
-  if (!planned.some(({ entry }) => entry.status === 'pass')) return planned.map((p) => p.entry);
-  const drift = await planTypedDrift(task, rows, projectRoot, projectId, runFrom);
-  return planned.map(({ entry, originalIndex }): DonePlanTypedGate => {
+  const drift = planned.some(({ entry }) => entry.status === 'pass')
+    ? await planTypedDrift(task, rows, projectRoot, projectId, runFrom)
+    : new Map<number, TypedResultDrift>();
+  const checked = planned.map(({ entry, originalIndex }) => {
     const refused = entry.status === 'pass' ? drift.get(originalIndex) : undefined;
-    return refused ? { ...entry, status: 'not-run', ...refused } : entry;
+    return {
+      entry: refused ? { ...entry, status: 'not-run' as const, ...refused } : entry,
+      originalIndex,
+    };
   });
+  return planTypedCache(task, typed, checked, projectRoot, projectId);
+}
+
+/**
+ * T14138: a typed gate with nothing stored may still have a pass that `cleo
+ * verify --run` cached, which the next evidence write binds without running
+ * it. Probe the cache read-only for each such gate: a hit is `cached`; a miss
+ * names the key part that moved, when a recent entry explains it.
+ */
+async function planTypedCache(
+  task: Task,
+  typed: ReturnType<typeof extractTypedGates>,
+  checked: ReadonlyArray<{ entry: DonePlanTypedGate; originalIndex: number }>,
+  projectRoot: string,
+  projectId: string | undefined,
+): Promise<DonePlanTypedGate[]> {
+  const open = checked.filter(({ entry }) => entry.status === 'not-run' && !entry.reason);
+  if (open.length === 0 || !projectId) return checked.map(({ entry }) => entry);
+  const execution = createOperationExecutionContext(
+    {
+      projectId,
+      projectRoot,
+      actor: process.env.CLEO_AGENT_ID ?? 'cleo',
+      operation: 'tasks.done.plan',
+      idempotencyKey: `${task.id}:${randomUUID()}`,
+    },
+    { budgetMs: typedGateAdmissionMs(open.map(({ originalIndex }) => gateAt(typed, originalIndex))) },
+  );
+  const probed = new Map<number, DonePlanTypedGate>();
+  try {
+    for (const { entry, originalIndex } of open) {
+      const probe = await probeTypedGateCache(task, gateAt(typed, originalIndex), execution);
+      if (probe.status === 'hit')
+        probed.set(originalIndex, { ...entry, status: 'cached', cachedAt: probe.cachedAt });
+      else if (probe.status === 'miss' && probe.why)
+        probed.set(originalIndex, { ...entry, cacheMiss: probe.why });
+    }
+  } catch {
+    // A probe is advisory: a failure leaves the gate `not-run`, as before.
+  } finally {
+    execution.close();
+  }
+  return checked.map(({ entry, originalIndex }) => probed.get(originalIndex) ?? entry);
+}
+
+/** The typed gate at a criterion index of {@link extractTypedGates}' result. */
+function gateAt(typed: ReturnType<typeof extractTypedGates>, originalIndex: number) {
+  return typed.find((t) => t.originalIndex === originalIndex)!.gate;
 }
 
 /**
@@ -589,7 +642,9 @@ function mapCriteria(
     // the write and refuses on failure, so its criterion links to that run.
     if (
       typedGates.some(
-        (g) => g.alias === alias && (g.status === 'pass' || (runTyped && g.status === 'not-run')),
+        (g) =>
+          g.alias === alias &&
+          (g.status === 'pass' || g.status === 'cached' || (runTyped && g.status === 'not-run')),
       )
     ) {
       const gates = writable(onlyTyped ? [...EVIDENCE_GATES] : ['testsPassed']);
@@ -707,7 +762,8 @@ function toolAndTypedGateBlockers(
         code: 'typed-gate-not-run',
         message: typed.reason
           ? `${label}'s stored pass would be refused by cleo complete: ${typed.reason}.`
-          : `${label} has no current passing result; cleo complete refuses it until it passes.`,
+          : `${label} has no current passing result; cleo complete refuses it until it passes.` +
+            (typed.cacheMiss ? ` Its cached pass does not match: ${typed.cacheMiss}` : ''),
         next: typed.fix
           ? step(
               typed.fix,
