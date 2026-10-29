@@ -2325,7 +2325,9 @@ function structuredTestCounts(
         if (!embeddedSummary)
           refusals.push(
             `a ${read.format} object inside its output is not counted; only the whole stdout ` +
-              "or the gate's report file may be a summary-shaped report",
+              "or the gate's report file may be a summary-shaped report. Make the summary the " +
+              "command's entire stdout (nothing else printed), or write it to a file the gate " +
+              'names (--outputFile) or announces ("JSON report written to <path>")',
           );
         embeddedSummary = true;
         return null;

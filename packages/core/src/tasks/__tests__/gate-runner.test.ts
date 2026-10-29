@@ -1266,6 +1266,8 @@ describe('minCount refuses a counter summary embedded in output (T14132)', () =>
     const [result] = await runGates([gate(source)], { projectRoot });
     expect(result?.result).toBe('error');
     expect(result?.errorMessage).toContain('inside its output is not counted');
+    expect(result?.errorMessage).toContain("Make the summary the command's entire stdout");
+    expect(result?.errorMessage).toContain('--outputFile');
   });
 
   it('the same summary as the whole stdout counts', async () => {
