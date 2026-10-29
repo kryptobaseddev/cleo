@@ -74,7 +74,10 @@ import type {
 import type { ArchiveFields } from './db-helpers.js';
 import {
   batchUpdateDependencies,
+  dropEndedSessionLeases,
+  flushEndedSessionLeases,
   insertNewTask,
+  noteSessionStatusWritten,
   loadDependenciesForTasks,
   loadRelationsForTasks,
   parseLabels,
@@ -1852,8 +1855,11 @@ async function createOwnedSqliteDataAccessor(
         }
 
         // Upsert all sessions
+        const native = getNativeTasksDb(cwd);
         for (const session of sessions) {
           await upsertSession(db, session);
+          // T14151: released after COMMIT, in one lease-dir scan for the batch.
+          await noteSessionStatusWritten(native, session.id, session.status);
         }
       });
     },
@@ -2150,6 +2156,8 @@ async function createOwnedSqliteDataAccessor(
       return accessor.transaction(async () => {
         const db = await getDb(cwd);
         await upsertSession(db, session);
+        // T14133/T14151: an ended session's leases are given back after COMMIT.
+        await noteSessionStatusWritten(getNativeTasksDb(cwd), session.id, session.status);
       });
     },
 
@@ -3112,6 +3120,9 @@ async function createOwnedSqliteDataAccessor(
               if (isOuter) {
                 finishCaptureFrame(nativeDb, frame);
                 nativeDb.prepare('COMMIT').run();
+                // T14151: committed, so the sessions it ended give back their
+                // agent-session leases now, awaited by the caller.
+                await flushEndedSessionLeases(nativeDb);
               } else {
                 nativeDb.prepare(`RELEASE SAVEPOINT ${spName}`).run();
               }
@@ -3121,6 +3132,8 @@ async function createOwnedSqliteDataAccessor(
               try {
                 if (isOuter) {
                   nativeDb.prepare('ROLLBACK').run();
+                  // T14151: the sessions it ended did not end; they keep their leases.
+                  dropEndedSessionLeases(nativeDb);
                 } else {
                   nativeDb.prepare(`ROLLBACK TO SAVEPOINT ${spName}`).run();
                   nativeDb.prepare(`RELEASE SAVEPOINT ${spName}`).run();

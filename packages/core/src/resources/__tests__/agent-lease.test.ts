@@ -14,7 +14,7 @@ import {
   AGENT_LEASE_MAX_LIFETIME_MS,
   type AgentSessionLease,
   liveAgentLeases,
-  onSessionStatusWritten,
+  releaseAgentLeasesForSessions,
   releaseAgentLease,
   releaseAgentLeasesForSession,
   renewAgentLeasesForSession,
@@ -146,12 +146,13 @@ describe('agent-session leases (T14133)', () => {
     expect(liveAgentLeases()).toHaveLength(3);
   });
 
-  it('any session-status write that ends a session releases its leases; active keeps them', () => {
-    writeAgentLease(lease());
-    onSessionStatusWritten('ses_spawned', 'active');
-    expect(liveAgentLeases()).toHaveLength(1);
-    onSessionStatusWritten('ses_spawned', 'ended');
-    expect(liveAgentLeases()).toEqual([]);
+  it('releases the leases of several ended sessions in one scan', () => {
+    writeAgentLease(lease({ id: 'a', sessionId: 'ses_a' }));
+    writeAgentLease(lease({ id: 'b', sessionId: 'ses_b' }));
+    writeAgentLease(lease({ id: 'c', sessionId: 'ses_c' }));
+    expect(releaseAgentLeasesForSessions(new Set(['ses_a', 'ses_c', 'ses_none']))).toBe(2);
+    expect(liveAgentLeases().map((l) => l.id)).toEqual(['b']);
+    expect(releaseAgentLeasesForSessions(new Set())).toBe(0);
   });
 
   it('a lease never outlives its hard cap, however it is renewed', () => {
