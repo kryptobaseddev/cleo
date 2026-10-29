@@ -1130,10 +1130,10 @@ export async function vacuumIntoBackupAll(
 function listSqliteBackupsForPrefix(
   prefix: string,
   cwd?: string,
+  dir?: string,
 ): Array<{ name: string; path: string; mtimeMs: number }> {
   try {
-    const cleoDir = getCleoDir(cwd);
-    const backupDir = join(cleoDir, 'backups', 'sqlite');
+    const backupDir = dir ?? join(getCleoDir(cwd), 'backups', 'sqlite');
     if (!existsSync(backupDir)) return [];
 
     const pattern = snapshotPattern(prefix);
@@ -1186,13 +1186,19 @@ export function listBrainBackups(
  * empty arrays. Derived rows (`manifest`) keep an always-empty bucket so
  * downstream code can detect "covered by inventory, not snapshotted by
  * design" vs "unknown prefix".
+ *
+ * @param cwd - Project anchor the snapshot directory is resolved from.
+ * @param dir - The snapshot directory itself, for a caller that already
+ *   resolved it (T14150: `listSystemBackups` lists the same directory and must
+ *   not resolve it a second, possibly different, way).
  */
 export function listSqliteBackupsAll(
   cwd?: string,
+  dir?: string,
 ): Record<string, Array<{ name: string; path: string; mtimeMs: number }>> {
   const out: Record<string, Array<{ name: string; path: string; mtimeMs: number }>> = {};
   for (const target of SNAPSHOT_TARGETS) {
-    out[target.prefix] = listSqliteBackupsForPrefix(target.prefix, cwd);
+    out[target.prefix] = listSqliteBackupsForPrefix(target.prefix, cwd, dir);
   }
   return out;
 }

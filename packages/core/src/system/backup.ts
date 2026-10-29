@@ -514,11 +514,13 @@ const VACUUM_SNAPSHOT_RE = /^(.+)-(\d{8})-(\d{6})\.db$/;
  * read from the snapshot files (`listSqliteBackupsAll`) and the worker log.
  *
  * @param projectRoot - Project root.
+ * @param backupDir - The snapshot directory {@link listSystemBackups} reads
+ *   sidecars from: the same directory, resolved once.
  * @returns Entries typed {@link SESSION_END_BACKUP_TYPE}, unsorted.
  */
-function readSessionEndSnapshots(projectRoot: string): BackupEntry[] {
+function readSessionEndSnapshots(projectRoot: string, backupDir: string): BackupEntry[] {
   const runs = new Map<string, { files: string[]; mtimeMs: number; store: string | null }>();
-  for (const [prefix, snaps] of Object.entries(listSqliteBackupsAll(projectRoot))) {
+  for (const [prefix, snaps] of Object.entries(listSqliteBackupsAll(projectRoot, backupDir))) {
     for (const snap of snaps) {
       const m = VACUUM_SNAPSHOT_RE.exec(snap.name);
       if (!m) continue;
@@ -700,7 +702,7 @@ export function listSystemBackups(projectRoot: string): BackupEntry[] {
   entries.push(...readMetaSidecarsFromDir(canonicalDir, 'snapshot', /* legacy */ false));
   // T14150: the session-end VACUUM INTO snapshots (no sidecar), and the runs
   // the session-end worker logged as failed or skipped.
-  entries.push(...readSessionEndSnapshots(projectRoot));
+  entries.push(...readSessionEndSnapshots(projectRoot, canonicalDir));
 
   // 2. Legacy directory: `.cleo/backups/snapshot/` — read-only fallthrough
   //    for one deprecation window (ADR-013 §10). Tag each entry as legacy.
