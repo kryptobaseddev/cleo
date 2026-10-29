@@ -10,7 +10,8 @@
  *   after a fresh fetch (a failed fetch deletes nothing on `origin`);
  * - **in scope**: its task is stored done or cancelled and, when the caller
  *   names tasks (a merged PR's closed tasks, a release's tasks), is one of
- *   them; an open task (a `Refs:` PR, more to come) never is;
+ *   them; an open task (a `Refs:` PR, more to come) never is. Nested copies
+ *   are only looked for inside an in-scope task's worktree;
  * - **clean**: `git status --porcelain -uall` is empty (an error keeps it);
  * - **not in use**: not git-locked, no CLEO task lock record, no other
  *   checkout linking into it and no evidence living only there
@@ -463,9 +464,17 @@ export async function cleanupMergedWork(
   }
   for (const dir of worktreeDirs) {
     if (removedPaths.has(dir)) continue;
+    // A copy inside a live task's worktree may be someone's working directory:
+    // only a worktree whose task is in scope (done or cancelled) is entered.
+    const owner = basename(dir);
+    const ownerInScope = /^T\d+$/.test(owner) && (await inScope(owner));
     for (const nested of findNestedRepos(dir)) {
       const roots = lines(git(nested, ['rev-list', '--max-parents=0', 'HEAD']));
       if (!roots.some((r) => projectRoots.has(r))) continue; // another project's repo
+      if (!ownerInScope) {
+        keep(result.nestedCopies, nested, /^T\d+$/.test(owner) ? owner : null, 'task active');
+        continue;
+      }
       // A `.git` file is a linked worktree, possibly in use: the worktree tools own it.
       if (!lstatSync(join(nested, '.git')).isDirectory()) {
         keep(result.nestedCopies, nested, null, 'a linked worktree, not a copy');

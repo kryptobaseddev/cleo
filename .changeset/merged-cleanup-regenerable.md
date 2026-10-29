@@ -20,3 +20,8 @@ Two limits now apply across the whole run:
   every reflog entry must be reachable from the project's `origin`.
 
 Each worktree and copy is checked again immediately before it is removed.
+
+Nested copies are now looked for only inside the worktree of a task that is
+in scope (stored done or cancelled, and named when task ids are given). A
+copy inside an active task's worktree may be someone's working directory, so
+it is reported as kept with the reason `task active`.

@@ -202,13 +202,38 @@ describe('cleanupMergedWork', () => {
     expect(existsSync(join(agent, 'work-in-progress.txt'))).toBe(true);
   });
 
+  it("keeps a redundant copy inside an active task's worktree: task active", async () => {
+    const host = join(wtRoot, 'T36');
+    git(project, 'worktree', 'add', '-q', host, 'origin/main');
+    const copy = join(host, 'copy');
+    cpSync(project, copy, { recursive: true });
+    openTasks.add('T36');
+    const named = await cleanupMergedWork(
+      { projectRoot: project, taskIds: ['T36'], dryRun: false },
+      noOpenPrs,
+    );
+    expect(named.nestedCopies).toMatchObject([
+      { target: copy, taskId: 'T36', removed: false, reason: 'task active' },
+    ]);
+    // Out of the named scope is not entered either.
+    openTasks.delete('T36');
+    const other = await cleanupMergedWork(
+      { projectRoot: project, taskIds: ['T99'], dryRun: false },
+      noOpenPrs,
+    );
+    expect(other.nestedCopies).toMatchObject([
+      { target: copy, removed: false, reason: 'task active' },
+    ]);
+    expect(existsSync(copy)).toBe(true);
+  });
+
   it('never follows a symlink out of the worktree root', async () => {
     symlinkSync(project, join(wtRoot, 'escape'));
-    const host = join(wtRoot, 'wave-b');
+    const host = join(wtRoot, 'T31');
     git(project, 'worktree', 'add', '-q', host, 'origin/main');
     symlinkSync(project, join(host, 'scratch'));
     const r = await cleanupMergedWork(
-      { projectRoot: project, taskIds: [], dryRun: false },
+      { projectRoot: project, taskIds: ['T31'], dryRun: false },
       noOpenPrs,
     );
     expect(r.nestedCopies).toEqual([]);
@@ -217,7 +242,7 @@ describe('cleanupMergedWork', () => {
   });
 
   it('keeps a nested copy whose only extra commit is on a tag, or only in its HEAD reflog', async () => {
-    const host = join(wtRoot, 'wave-c');
+    const host = join(wtRoot, 'T32');
     git(project, 'worktree', 'add', '-q', host, 'origin/main');
     const tagged = join(host, 'tagged');
     const reflogged = join(host, 'reflogged');
@@ -229,7 +254,7 @@ describe('cleanupMergedWork', () => {
     git(tagged, 'reset', '-q', '--hard', 'HEAD~1');
     git(reflogged, 'reset', '-q', '--hard', 'HEAD~1');
     const r = await cleanupMergedWork(
-      { projectRoot: project, taskIds: [], dryRun: false },
+      { projectRoot: project, taskIds: ['T32'], dryRun: false },
       noOpenPrs,
     );
     const reasons = Object.fromEntries(r.nestedCopies.map((n) => [n.target, n.reason]));
@@ -320,7 +345,7 @@ describe('cleanupMergedWork', () => {
   });
 
   it('removes a redundant nested repo copy and keeps one holding an unpushed commit, reporting bytes', async () => {
-    const host = join(wtRoot, 'wave-a');
+    const host = join(wtRoot, 'T33');
     git(project, 'worktree', 'add', '-q', host, 'origin/main');
     const redundant = join(host, 'copy-a');
     const unpushed = join(host, 'nested', 'copy-b');
@@ -331,7 +356,7 @@ describe('cleanupMergedWork', () => {
     git(unpushed, 'commit', '-q', '-m', 'local only');
 
     const r = await cleanupMergedWork(
-      { projectRoot: project, taskIds: [], dryRun: false },
+      { projectRoot: project, taskIds: ['T33'], dryRun: false },
       noOpenPrs,
     );
     const byPath = Object.fromEntries(r.nestedCopies.map((n) => [n.target, n]));
@@ -390,14 +415,14 @@ describe('T14146: regenerable output, bounded comparison, strict copies', () => 
 
   it('gives a nested repository copy no node_modules or build-output exemption', async () => {
     ignore('node_modules/\ndist/\n');
-    const host = join(wtRoot, 'wave-d');
+    const host = join(wtRoot, 'T34');
     git(project, 'worktree', 'add', '-q', host, 'origin/main');
     const copy = join(host, 'copy');
     cpSync(project, copy, { recursive: true });
     mkdirSync(join(copy, 'node_modules', 'pkg'), { recursive: true });
     writeFileSync(join(copy, 'node_modules', 'pkg', 'patched.js'), 'local patch');
     const r = await cleanupMergedWork(
-      { projectRoot: project, taskIds: [], dryRun: false },
+      { projectRoot: project, taskIds: ['T34'], dryRun: false },
       noOpenPrs,
     );
     expect(r.nestedCopies).toMatchObject([
@@ -411,7 +436,7 @@ describe('T14146: regenerable output, bounded comparison, strict copies', () => 
   });
 
   it('keeps a nested copy whose extra commit lives only in a branch reflog', async () => {
-    const host = join(wtRoot, 'wave-e');
+    const host = join(wtRoot, 'T35');
     git(project, 'worktree', 'add', '-q', host, 'origin/main');
     const copy = join(host, 'copy');
     cpSync(project, copy, { recursive: true });
@@ -420,7 +445,7 @@ describe('T14146: regenerable output, bounded comparison, strict copies', () => 
     git(copy, 'update-ref', '-m', 'move', 'refs/heads/side', extra);
     git(copy, 'update-ref', '-m', 'back', 'refs/heads/side', tip);
     const r = await cleanupMergedWork(
-      { projectRoot: project, taskIds: [], dryRun: false },
+      { projectRoot: project, taskIds: ['T35'], dryRun: false },
       noOpenPrs,
     );
     expect(r.nestedCopies).toMatchObject([
