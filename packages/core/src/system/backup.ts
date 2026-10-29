@@ -601,7 +601,10 @@ function readSessionEndMisses(projectRoot: string): BackupEntry[] {
       error,
     });
   }
-  return out;
+  // The window is bounded: say so on every entry, with its count, so an older
+  // failure dropping out of the list is visible rather than silent.
+  const note = `found in the last ${SESSION_END_LOG_LINES} session-end log lines (${out.length} failed or skipped in that window)`;
+  return out.map((entry) => ({ ...entry, note }));
 }
 
 /**
