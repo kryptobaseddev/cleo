@@ -44,7 +44,7 @@ The docs guide (`docs/guide/cleo-documentation-sop.md`, store slug
   unpushed branch can read as gone, and that republishing the doc restores it.
 
 Version bumps: ct-cleo, INJECTION and REFERENCE 2.25.0; ct-task-executor 2.9.0;
-ct-orchestrator 4.2.0; ct-dev-workflow 3.2.0.
+ct-orchestrator 4.2.0; ct-dev-workflow 3.4.0.
 
 Gate 31 (`scripts/lint-skill-commands.mjs`) fix: an argument defined by
 reference, such as `pr: prArg` in `review.ts`, is now resolved through a
