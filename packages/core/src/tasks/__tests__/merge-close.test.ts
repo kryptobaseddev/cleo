@@ -518,6 +518,41 @@ describe('one sweep also runs the upkeep hooks (T14101)', () => {
     await sweepMergedClosures(root, { force: true }, hooked);
     expect(flaggedFor).toEqual([[id]]);
   });
+
+  it('cleans up after the applied tasks only when opted in (T14142)', async () => {
+    const cleanedFor: string[][] = [];
+    const sweep = async (prNumber: number, enabled: boolean) => {
+      const id = await seedTask(['only criterion']);
+      const { deps } = fakeDeps([pr(prNumber, `Closes: ${id} AC1`)]);
+      const result = await sweepMergedClosures(
+        root,
+        { force: true },
+        {
+          ...deps,
+          canCleanup: () => enabled,
+          cleanupMerged: async (_root, taskIds) => {
+            cleanedFor.push(taskIds);
+            return {
+              dryRun: false,
+              base: 'origin/main',
+              worktrees: [],
+              localBranches: [],
+              remoteBranches: [],
+              nestedCopies: [],
+              bytesReclaimed: 0,
+            };
+          },
+        },
+      );
+      return { id, result };
+    };
+    const off = await sweep(21, false);
+    expect(off.result.hooks?.cleanup).toBeUndefined();
+    expect(cleanedFor).toEqual([]);
+    const on = await sweep(22, true);
+    expect(on.result.hooks?.cleanup).toHaveLength(1);
+    expect(cleanedFor).toEqual([[on.id]]);
+  });
 });
 
 describe('a sweep never skips merged PRs past one page (T14101, council review)', () => {

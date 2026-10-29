@@ -13,6 +13,8 @@
  * @task T14101
  */
 
+import type { MergedCleanupResult } from './operations/worktree.js';
+
 /** One `Closes:` / `Refs:` line of a PR body. */
 export interface MergeDirective {
   /** `closes` completes the task; `refs` only binds criteria. */
@@ -118,6 +120,11 @@ export interface MergeSweepHooks {
   macosRegression?: MacosRegressionSync;
   /** The newest release's reconcile (T14102); skipped under `dryRun`. */
   reconcile?: MergeSweepReconcile;
+  /**
+   * Worktrees, branches and nested copies merged work left behind, removed
+   * per applied PR (T14142). Off unless `CLEO_MERGE_SWEEP_CLEANUP=1`.
+   */
+  cleanup?: MergedCleanupResult[];
 }
 
 /** Result of `sweepMergedClosures` / `cleo done --from-merge`. */

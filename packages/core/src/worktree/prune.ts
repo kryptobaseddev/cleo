@@ -22,6 +22,7 @@
  * @epic T9515
  */
 
+import { execFileSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import type {
   EngineResult,
@@ -107,6 +108,21 @@ export async function pruneOrphanedWorktreesByStatus(
 
   for (const wt of candidates) {
     const reason = reasonForStatus(wt);
+
+    // T14142: removal is forced, so uncommitted or untracked edits would be lost.
+    if (!checkoutIsClean(wt.path)) {
+      const error = `Worktree ${wt.path} kept: uncommitted or untracked changes.`;
+      outcomes.push({
+        path: wt.path,
+        branch: wt.branch,
+        taskId: wt.taskId,
+        reason,
+        pruned: false,
+        branchDeleted: false,
+        error,
+      });
+      continue;
+    }
 
     // T13700: the same guard as complete/cancel — dependents, evidence and the keep marker.
     const kept = guardWorktreeDisposal(wt.path, {
@@ -228,8 +244,35 @@ export async function pruneOrphanedWorktreesByStatus(
 // Internal helpers — exported for tests only.
 // ---------------------------------------------------------------------------
 
-/** The owning task's recorded evidence, or `[]` when there is no task or the store is unreadable. */
-async function loadTaskEvidence(
+/**
+ * Whether a checkout has no uncommitted or untracked change. Fail-closed:
+ * a git error reads as not clean, so a prune never force-removes edits.
+ *
+ * @param path - Checkout root.
+ * @returns True only when `git status --porcelain -uall` printed nothing.
+ * @task T14142
+ */
+export function checkoutIsClean(path: string): boolean {
+  try {
+    const out = execFileSync('git', ['-C', path, 'status', '--porcelain', '-uall'], {
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'pipe'],
+      timeout: 60_000,
+    });
+    return out.trim() === '';
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * The owning task's recorded evidence, or `[]` when there is no task or the store is unreadable.
+ *
+ * @param projectRoot - Project root whose task store is read.
+ * @param taskId - Owning task, or `null`.
+ * @returns The task's evidence atoms.
+ */
+export async function loadTaskEvidence(
   projectRoot: string,
   taskId: string | null,
 ): Promise<EvidenceAtom[]> {
@@ -287,7 +330,7 @@ export function reasonForStatus(wt: WorktreeInfo): string {
  * Never throws — failures are reported in the returned object.
  */
 export function removeWorktreeFromDisk(
-  wt: WorktreeInfo,
+  wt: Pick<WorktreeInfo, 'path' | 'branch' | 'isMerged'>,
   projectRoot: string,
 ): { success: true; branchDeleted: boolean } | { success: false; error: string } {
   // T11123: NAPI destroyWorktree handles unlock+force-remove atomically.

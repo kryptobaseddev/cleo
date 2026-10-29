@@ -1098,3 +1098,66 @@ export interface AdoptWorktreeResult {
    */
   projectInfo: 'seeded' | 'present' | 'skipped';
 }
+
+/**
+ * Options for `cleanupMergedWork` (T14142): remove what merged work left
+ * behind, after proving each item redundant.
+ *
+ * @task T14142
+ */
+export interface MergedCleanupOpts {
+  /** Project root (the main checkout; its hash names the canonical worktree root). */
+  projectRoot: string;
+  /**
+   * Tasks whose work merged (the sweep's merged PR, or a release's tasks).
+   * Omitted: any task whose stored status is `done` or `cancelled`.
+   */
+  taskIds?: readonly string[];
+  /** List everything without deleting. Default `true`: deleting is opt-in. */
+  dryRun?: boolean;
+  /** Also delete merged task branches on `origin`. Default `true`. */
+  remote?: boolean;
+}
+
+/**
+ * One item the cleanup considered: removed (or, on a dry run, removable), or
+ * kept with the reason.
+ *
+ * @task T14142
+ */
+export interface MergedCleanupItem {
+  /** Worktree or nested-copy path, or branch name. */
+  target: string;
+  /** Owning task, when the target names one. */
+  taskId: string | null;
+  /** Branch tip (branches only): what a restore pushes back. */
+  sha?: string;
+  /** True when removed (dry run: when it would be removed). */
+  removed: boolean;
+  /** Why it was kept, or what proved it redundant. */
+  reason: string;
+  /** Bytes on disk (worktrees and nested copies; 0 for branches). */
+  bytes: number;
+}
+
+/**
+ * Result of `cleanupMergedWork` (T14142).
+ *
+ * @task T14142
+ */
+export interface MergedCleanupResult {
+  /** Whether nothing was deleted. */
+  dryRun: boolean;
+  /** The default branch merges were proven against (`origin/<name>`). */
+  base: string;
+  /** Canonical task worktrees. */
+  worktrees: MergedCleanupItem[];
+  /** Local `task/*` branches. */
+  localBranches: MergedCleanupItem[];
+  /** `origin` `task/*` branches. */
+  remoteBranches: MergedCleanupItem[];
+  /** Repository copies nested inside worktrees. */
+  nestedCopies: MergedCleanupItem[];
+  /** Bytes removed (dry run: that would be removed). */
+  bytesReclaimed: number;
+}
