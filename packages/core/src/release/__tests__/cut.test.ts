@@ -349,6 +349,23 @@ describe('releaseCut (T14102)', () => {
     }
   });
 
+  it('only warns about docs rot on a prerelease, and tags it', async () => {
+    rotOrphans = [{ doc: 'docs/x.md', reason: 'no inbound link' }];
+    try {
+      const { runner } = fakeRunner({ [shas.head]: 'success' });
+      const canary = await releaseCut({
+        ...confirmed,
+        version: `${NEXT}-canary.1`,
+        projectRoot: work,
+        runner,
+      });
+      expect(canary.success && canary.data.tagCreated).toBe(true);
+      expect(canary.success && canary.data.warnings[0]).toContain('does not block a prerelease');
+    } finally {
+      rotOrphans = [];
+    }
+  });
+
   it('creates the annotated tag on the green sha for a real run, and audits it', async () => {
     const { runner, calls } = fakeRunner({ [shas.head]: 'success' });
     const result = await releaseCut({

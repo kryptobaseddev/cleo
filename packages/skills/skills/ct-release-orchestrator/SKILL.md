@@ -65,7 +65,7 @@ cleo release cut v2026.10.28 --sha <sha> --lead lead.md --yes   # the printed co
 
 - **Commit:** the newest first-parent commit of `origin/main` whose `CI` check run concluded `success`; `--sha` pins one, which must itself be green. Nothing reruns the test suites: CI already passed that tree.
 - **Notes:** the changesets added since the previous release tag, led by `--lead` (stored as the tag annotation). A changeset no merged PR brought in is refused (`E_RELEASE_UNMERGED_CHANGESET`); no green commit is `E_RELEASE_NO_GREEN_COMMIT`.
-- **Docs rot (T14111):** the dry run shows `cleo docs rot` findings; a real cut refuses with `E_DOCS_ROT` before tagging while any stale, duplicate or orphaned doc remains.
+- **Docs rot (T14111):** the dry run shows `cleo docs rot` findings; a real stable cut refuses with `E_DOCS_ROT` before tagging while any stale, duplicate or orphaned doc remains; on a prerelease (canary) it is a warning only.
 - **Provenance:** the merge sweep reconciles the newest stable tag automatically once its GitHub release exists (ADR-099); there is no manual reconcile step.
 - **Task status is reported, never gated.** Green CI on the sha is the gate; a pending task does not block the cut.
 - **Tag:** an annotated `v<ver>` made through the GitHub API with your `gh` token, which starts `release.yml`. It runs `cleo release write-changelog`, publishes, and on a stable release opens `release/v<ver>`, a CHANGELOG + version PR that auto-merges on green and never blocks the release.

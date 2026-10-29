@@ -156,6 +156,8 @@ export interface ReleaseCutResult {
   sweep: MergeSweepResult;
   /** Docs rot of the project checkout (T14111); a real cut refuses when it has findings. */
   docsRot: DocsRotResult;
+  /** Non-blocking findings, e.g. docs rot on a prerelease (it blocks only a stable cut). */
+  warnings: string[];
   /** Whether the local checkout is at `origin/<default>` (the docs-rot scan reads it). */
   checkoutAtMain: boolean;
   /** The command that tags exactly this preview (pinned `--sha`), or null once tagged. */
@@ -692,6 +694,10 @@ export async function releaseCut(opts: ReleaseCutOptions): Promise<EngineResult<
     tasks,
     sweep,
     docsRot,
+    warnings:
+      rotFindings > 0 && channelOf(version) !== 'latest'
+        ? [`Docs rot (does not block a prerelease): ${docsRot.summary}`]
+        : [],
     checkoutAtMain,
     confirmCommand: [
       'cleo release cut',
@@ -730,7 +736,8 @@ export async function releaseCut(opts: ReleaseCutOptions): Promise<EngineResult<
       { branch },
     );
   }
-  if (rotFindings > 0) {
+  // A prerelease is a test release: docs rot warns there and blocks only stable.
+  if (rotFindings > 0 && channelOf(version) === 'latest') {
     return refuse(
       E_DOCS_ROT,
       `Docs rot blocks the release: ${docsRot.summary}`,

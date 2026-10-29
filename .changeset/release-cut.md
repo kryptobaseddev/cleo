@@ -28,8 +28,9 @@ reruns: main CI already passed that tree.
   a changeset must have arrived through a merged PR
   (`E_RELEASE_UNMERGED_CHANGESET`). With no green commit the cut refuses with
   `E_RELEASE_NO_GREEN_COMMIT`.
-- A real cut refuses with `E_DOCS_ROT` before tagging while `cleo docs rot`
-  reports stale, duplicate or orphaned docs; the dry run shows the findings.
+- A real stable cut refuses with `E_DOCS_ROT` before tagging while
+  `cleo docs rot` reports stale, duplicate or orphaned docs; on a prerelease
+  the findings are a warning only. The dry run shows them either way.
 - The version must be CalVer for this month and above every release tag and
   main's `package.json`. The commit must be first-parent on `origin/main`
   with every `release.prRequiredWorkflows` check (app-pinned, push run) green,
