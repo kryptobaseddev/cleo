@@ -111,6 +111,22 @@ echoing endpoint would prove nothing).
 cleo verify T### --gate documented --evidence "deploy:railway/dpl_9f3c@1a2b3c4d|https://api.example.com/health"
 ```
 
+### `ci-run:<runId>`
+
+A green run of `.github/workflows/repeat-run.yml` (T14149). This route is for a
+criterion that needs a heavy or repeated run, which you never run locally or
+waive. CLEO checks the run on GitHub and its uploaded report: the workflow,
+dispatched on the default branch, latest attempt green, every one of the N runs
+green, and a commit that contains the task's implemented work. The repeated
+test file must be one the task changed, or one a linked criterion names. It
+links criteria and never satisfies `testsPassed` alone, so record it in the
+same write as the gate's other evidence.
+
+```bash
+gh workflow run repeat-run.yml -f test=packages/core/src/x/__tests__/y.test.ts -f runs=50
+cleo verify T### --gate testsPassed --evidence "ci:1234;ci-run:40812345678;satisfies:T####AC2"
+```
+
 ### `test-run:<json-path>`
 
 Path to a vitest JSON output file. Re-validated by hash. Preferred for
