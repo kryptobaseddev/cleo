@@ -13,8 +13,12 @@ source it holds, with `E_WORKSPACE_STALE_DIST`. The refusal names the
 packages and the rebuild command (`pnpm --filter "<pkg>" run build`).
 
 File mtimes are never compared: a checkout or branch switch rewrites them
-without changing content. A dist with no stamp, an older-format stamp, or a
-`dist/` file newer than its stamp (a per-package rebuild) is not judged.
+without changing content. A built package with no stamp (or an older-format
+one) is never refused but warned about, in one summary line per run
+(`W_WORKSPACE_UNSTAMPED_DIST`, fix: run the root build); `cleo run` prints it
+on stderr, never into `--passthrough` stdout. A `dist/` file newer than its
+stamp (a per-package rebuild) is not judged. The root build stamps every
+package, so CI stays silent.
 
 The stamp is kept in published packages and is now deterministic: it holds
 only the schema and the source hash, so every build of the same source

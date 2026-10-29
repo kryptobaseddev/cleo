@@ -1984,6 +1984,8 @@ async function workspaceResolutionRefusal(
     checkoutRootOf,
     checkWorkspaceResolution,
     packagesNamedByTestArgs,
+    UNSTAMPED_DIST_FIX,
+    unstampedDistWarning,
     workspaceResolutionError,
   } = await import('./workspace-resolution.js');
   const checkout = checkoutRootOf(root) ?? root;
@@ -2002,6 +2004,15 @@ async function workspaceResolutionRefusal(
       severity: 'warn',
       message: borrowed,
       context: { root: checkout },
+    });
+  const unstamped = unstampedDistWarning(report);
+  if (unstamped !== null)
+    pushWarning({
+      // @sync-invariant none:input-shape a warning only; nothing is refused or written
+      code: 'W_WORKSPACE_UNSTAMPED_DIST',
+      severity: 'warn',
+      message: unstamped,
+      context: { root: checkout, fix: UNSTAMPED_DIST_FIX },
     });
   return null;
 }

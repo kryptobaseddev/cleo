@@ -97,6 +97,8 @@ export interface WorkspaceResolutionReport {
   readonly borrowed: readonly ForeignResolution[];
   /** Packages whose dist was built from other source (refused, T14123). */
   readonly staleDist: readonly StaleDist[];
+  /** Built packages with no current-schema stamp: nothing proves their dist matches (warned, T14123). */
+  readonly unstamped: readonly StaleDist[];
 }
 
 /** Real path, or null when it does not exist. */
@@ -323,14 +325,20 @@ export function checkWorkspaceResolution(
     candidates.map((p) => p.dir),
   );
   const staleDist: StaleDist[] = [];
+  const unstamped: StaleDist[] = [];
   for (const p of candidates) {
     const read = readSourceStamp(join(root, p.dir, 'dist'));
-    // No stamp, or a rebuild since it was written: nothing proves the build old.
-    if (read === null || newestMtime(join(root, p.dir, 'dist')) > read.writtenMs) continue;
+    // No stamp: nothing proves the build matches its source, so it is warned about.
+    if (read === null) {
+      unstamped.push({ package: p.name, dir: p.dir });
+      continue;
+    }
+    // A rebuild since the stamp was written: nothing proves the build old.
+    if (newestMtime(join(root, p.dir, 'dist')) > read.writtenMs) continue;
     if (sourceHash(root, sources.get(p.dir) ?? []) !== read.stamp.sourceHash)
       staleDist.push({ package: p.name, dir: p.dir });
   }
-  return { root, foreign, borrowed, staleDist };
+  return { root, foreign, borrowed, staleDist, unstamped };
 }
 
 /**
@@ -474,6 +482,28 @@ export function staleDistReason(report: WorkspaceResolutionReport): string | nul
 export function borrowedBuildWarning(report: WorkspaceResolutionReport): string | null {
   if (report.borrowed.length === 0) return null;
   return `${[...new Set(report.borrowed.map((b) => b.dependency))].join(', ')} resolve${report.borrowed.length === 1 ? 's' : ''} to another checkout (${report.borrowed[0]?.resolved}) whose source is identical; its build is used.`;
+}
+
+/** The fix for unstamped builds: the root build stamps every package. */
+export const UNSTAMPED_DIST_FIX = 'Run the root build (`pnpm run build`), which stamps every package.';
+
+/**
+ * One summary line for built packages with no stamp, or null when every
+ * built package is stamped (T14123). Nothing proves such a dist matches its
+ * source, so the run proceeds with this warning.
+ *
+ * @param report - A {@link checkWorkspaceResolution} result.
+ * @returns The warning text, with its fix.
+ * @task T14123
+ */
+export function unstampedDistWarning(report: WorkspaceResolutionReport): string | null {
+  if (report.unstamped.length === 0) return null;
+  const shown = report.unstamped
+    .slice(0, 3)
+    .map((s) => s.package)
+    .join(', ');
+  const more = report.unstamped.length > 3 ? `, … (${report.unstamped.length} in all)` : '';
+  return `No build stamp for ${shown}${more}, so nothing shows ${report.unstamped.length === 1 ? 'its' : 'their'} dist matches the source. ${UNSTAMPED_DIST_FIX}`;
 }
 
 /**

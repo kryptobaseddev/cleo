@@ -273,8 +273,12 @@ export const runCommand = defineCommand({
     // another checkout would test that checkout's build; T14123: so would one
     // whose dist was built from other source. Refuse both before admission.
     if (cls === 'test-run') {
-      const { borrowedBuildWarning, workspaceResolutionError, workspaceResolutionForTestRun } =
-        await import('@cleocode/core/tasks/workspace-resolution.js');
+      const {
+        borrowedBuildWarning,
+        unstampedDistWarning,
+        workspaceResolutionError,
+        workspaceResolutionForTestRun,
+      } = await import('@cleocode/core/tasks/workspace-resolution.js');
       const report = workspaceResolutionForTestRun(process.cwd(), argv);
       const err = report === null ? null : workspaceResolutionError(report);
       if (err !== null) {
@@ -287,8 +291,11 @@ export const runCommand = defineCommand({
         );
         process.exit(err.code);
       }
-      const borrowed = report === null ? null : borrowedBuildWarning(report);
-      if (borrowed !== null) notice(borrowed, 'warn');
+      // Warnings go to stderr (notice), never into --passthrough's stdout.
+      for (const warning of report === null
+        ? []
+        : [borrowedBuildWarning(report), unstampedDistWarning(report)])
+        if (warning !== null) notice(warning, 'warn');
     }
     const plan = planRunFootprint(cls, argv, process.env);
     const { overlay, resources, footprintBytes, footprintReason, namedFiles, hookKey } = plan;
