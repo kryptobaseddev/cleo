@@ -2172,7 +2172,9 @@ describe('a stored typed pass bound to an older definition is not a pass (T13463
 describe('done --plan reports a cached typed pass (T14138)', () => {
   const gate = {
     kind: 'command' as const,
-    cmd: 'node -e 0',
+    // A command gate's cmd is one executable; its arguments go in args.
+    cmd: 'node',
+    args: ['-e', '0'],
     exitCode: 0,
     description: 'Harness passes',
     req: 'H-2',
