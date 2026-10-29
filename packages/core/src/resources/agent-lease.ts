@@ -133,30 +133,25 @@ export function releaseAgentLease(id: string): void {
  * @returns How many leases were released.
  */
 export function releaseAgentLeasesForSession(sessionId: string): number {
+  return releaseAgentLeasesForSessions(new Set([sessionId]));
+}
+
+/**
+ * Give back every lease any of `sessionIds` holds, reading the lease
+ * directory once however many sessions a bulk save ended (T14151).
+ *
+ * @param sessionIds - The sessions that ended.
+ * @returns How many leases were released.
+ */
+export function releaseAgentLeasesForSessions(sessionIds: ReadonlySet<string>): number {
+  if (sessionIds.size === 0) return 0;
   let released = 0;
   for (const lease of readLeases()) {
-    if (lease.sessionId !== sessionId) continue;
+    if (lease.sessionId === null || !sessionIds.has(lease.sessionId)) continue;
     releaseAgentLease(lease.id);
     released++;
   }
   return released;
-}
-
-/**
- * The one hook every session-status writer calls (T14133): a session that is
- * no longer active gives back the leases it holds, whichever path ended it
- * (`cleo session end`, safestop, auto-end, the SDK).
- *
- * @param sessionId - The session written.
- * @param status - Its new status.
- */
-export function onSessionStatusWritten(sessionId: string, status: string): void {
-  if (status === 'active') return;
-  try {
-    releaseAgentLeasesForSession(sessionId);
-  } catch {
-    // Best-effort: an unreleased lease lapses with its TTL.
-  }
 }
 
 /**
