@@ -2198,8 +2198,14 @@ describe('done --plan reports a cached typed pass (T14138)', () => {
   async function cachedRun(id: string): Promise<void> {
     const preview = await previewTaskGates(root, { taskId: id });
     const why = JSON.stringify({ results: preview.results, cache: preview.cache });
-    expect(preview.results.map((r) => r.result), why).toEqual(['pass']);
-    expect(preview.cache?.entries.map((e) => e.cached), why).toEqual([true]);
+    expect(
+      preview.results.map((r) => r.result),
+      why,
+    ).toEqual(['pass']);
+    expect(
+      preview.cache?.entries.map((e) => e.cached),
+      why,
+    ).toEqual([true]);
   }
 
   it('a pass cached by cleo verify --run reads cached, with no not-run blocker; the plan writes nothing', async () => {
