@@ -45,8 +45,11 @@ import {
   assertPackedProviderStaleRejection,
   assertPackedTaskResponse,
   assertPackedVersion,
+  installPackedWithRetry,
+  PACKED_INSTALL_ATTEMPTS,
   packedEnvironment,
   packedInstallFailure,
+  packedInstallRetryable,
   runPackedCommand,
   verifyPackedGit,
   verifyPackedProviderProcess,
@@ -421,6 +424,85 @@ describe('gh#1471 packed install failure classification', () => {
     ).message;
     expect(message).toContain('undetermined');
     expect(message).not.toContain('not declared in its dependencies');
+  });
+
+  describe('retries registry and network faults, never a real missing dependency (T14145)', () => {
+    const local = new Set(['@cleocode/cleo', '@cleocode/contracts']);
+    const etimedout = () =>
+      captureFailure(
+        'npm error code ETIMEDOUT\nnpm error network request to https://registry.npmjs.org failed',
+      );
+    const run = (failures) => {
+      let calls = 0;
+      const install = async () => {
+        calls++;
+        const next = failures.shift();
+        if (next) throw next;
+        return 'installed';
+      };
+      return { install, calls: () => calls };
+    };
+    const quiet = { log: (line) => logs.push(line), sleep: async () => undefined };
+    let logs;
+    beforeEach(() => {
+      logs = [];
+    });
+
+    it.each([
+      ['ETIMEDOUT', 'npm error code ETIMEDOUT'],
+      ['ECONNRESET', 'npm error Error: read ECONNRESET'],
+      ['EAI_AGAIN', 'npm error request failed, reason: getaddrinfo EAI_AGAIN registry.npmjs.org'],
+      ['E503', 'npm error code E503\nnpm error 503 Service Unavailable'],
+      [
+        'ETARGET',
+        'npm error code ETARGET\nnpm error notarget No matching version found for @cleocode/contracts@2026.10.28.',
+      ],
+      [
+        'E404',
+        "npm error code E404\nnpm error 404 Not Found - GET https://registry.npmjs.org/@cleocode%2fcleo - Not found\nnpm error 404  '@cleocode/cleo@2026.10.28' is not in this registry.",
+      ],
+    ])('retries %s', (code, stderr) => {
+      expect(packedInstallRetryable(captureFailure(stderr), local)).toBe(code);
+    });
+
+    it.each([
+      ['ERR_MODULE_NOT_FOUND', 'npm error code ERR_MODULE_NOT_FOUND'],
+      [
+        'ETARGET on another package',
+        'npm error code ETARGET\nnpm error notarget No matching version found for left-pad@9.9.9.',
+      ],
+      [
+        'E404 on another package',
+        "npm error code E404\nnpm error 404  '@cleocode/private-thing@1.0.0' is not in this registry.",
+      ],
+      ['EACCES', 'npm error code EACCES'],
+    ])('never retries %s', (_name, stderr) => {
+      expect(packedInstallRetryable(captureFailure(stderr), local)).toBeNull();
+    });
+
+    it('retries a network fault then passes, logging each retry', async () => {
+      const { install, calls } = run([etimedout(), etimedout()]);
+      expect(await installPackedWithRetry(install, local, quiet)).toBe('installed');
+      expect(calls()).toBe(3);
+      expect(logs).toHaveLength(2);
+      expect(logs[0]).toMatch(/attempt 1\/3 failed with ETIMEDOUT/);
+    });
+
+    it('a fault that persists fails after the last attempt with its existing classification', async () => {
+      const { install, calls } = run(Array.from({ length: PACKED_INSTALL_ATTEMPTS }, etimedout));
+      const error = await installPackedWithRetry(install, local, quiet).catch((e) => e);
+      expect(calls()).toBe(PACKED_INSTALL_ATTEMPTS);
+      expect(packedInstallFailure(error).message).toContain('network access (ETIMEDOUT)');
+    });
+
+    it('a real missing dependency fails at once, without a retry', async () => {
+      const missing = captureFailure('npm error code ERR_MODULE_NOT_FOUND');
+      const { install, calls } = run([missing]);
+      const error = await installPackedWithRetry(install, local, quiet).catch((e) => e);
+      expect(calls()).toBe(1);
+      expect(logs).toEqual([]);
+      expect(packedInstallFailure(error).message).toContain('not declared in its dependencies');
+    });
   });
 
   it('leaves a successful install unchanged', async () => {
