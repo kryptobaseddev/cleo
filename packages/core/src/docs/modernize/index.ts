@@ -52,6 +52,8 @@ export interface RunDocsModernizeParams {
   readonly storeOnly?: boolean;
   /** Apply even when the root is not a clean git checkout. */
   readonly allowDirty?: boolean;
+  /** Modernize the docs already in the store (re-kind, re-slug, ADR numbers) instead of a folder. */
+  readonly store?: boolean;
 }
 
 /** Result of {@link runDocsModernize}. */
@@ -94,6 +96,9 @@ export async function runDocsModernize(
       throw new DocsModernizeReceiptError(`plan file ${params.planFile} does not exist`);
     }
     plan = parseModernizePlan(readFileSync(file, 'utf-8'), projectRoot);
+  } else if (params.store) {
+    const { planDocsStoreModernize } = await import('./store.js');
+    plan = await planDocsStoreModernize({ projectRoot, ...overrides });
   } else {
     if (!params.path || !existsSync(abs(params.path))) {
       // @sync-invariant none:input-shape a missing modernize root is refused before any write
@@ -126,6 +131,11 @@ export async function runDocsModernize(
     await writeFileAtomic({ path: planPath, content: `${JSON.stringify(plan, null, 2)}\n` });
   }
   if (!params.apply) return { mode: 'dry-run', plan, planPath, receipt: null };
+  if (plan.mode === 'store') {
+    const { applyDocsStoreModernize } = await import('./store.js');
+    const receipt = await applyDocsStoreModernize(plan, projectRoot, overrides.now);
+    return { mode: 'apply', plan, planPath, receipt };
+  }
   const receipt = await applyDocsModernize({
     plan,
     projectRoot,

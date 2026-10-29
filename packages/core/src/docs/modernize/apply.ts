@@ -124,8 +124,14 @@ export function modernizeReceiptPath(projectRoot: string, runId: string): string
   return join(modernizeDir(projectRoot), `${runId}.json`);
 }
 
-/** Path of a run's write-ahead step journal. */
-function journalPath(projectRoot: string, runId: string): string {
+/**
+ * Path of a run's write-ahead step journal.
+ *
+ * @param projectRoot - Project root.
+ * @param runId - Run id.
+ * @returns Absolute journal path.
+ */
+export function journalPath(projectRoot: string, runId: string): string {
   return join(modernizeDir(projectRoot), `${runId}.ops.jsonl`);
 }
 
@@ -256,8 +262,8 @@ function appendDurable(path: string, line: string): void {
   }
 }
 
-/** Write-ahead journal of one run's steps. */
-class StepJournal {
+/** Write-ahead journal of one run's steps (`<runId>.ops.jsonl`). */
+export class StepJournal {
   private readonly ops: DocsModernizeReceiptOp[] = [];
 
   constructor(private readonly path: string) {
@@ -795,6 +801,11 @@ export async function rollbackDocsModernize(
         }
         case 'fold':
           break;
+        default: {
+          // Store-mode steps (T14118).
+          const { reverseStoreOp } = await import('./store.js');
+          await reverseStoreOp(projectRoot, op);
+        }
       }
       appendDurable(journal, `${JSON.stringify({ i, ...op, state: 'reversed' })}\n`);
     }

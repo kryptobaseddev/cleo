@@ -130,9 +130,37 @@ export interface DocsModernizePlan {
   readonly counts: Readonly<Record<DocsModernizeDisposition, number>>;
   /**
    * `tree` reorganises the folder; `store-only` ingests every file into the
-   * store (task-owned, slugless) and leaves the folder untouched.
+   * store (task-owned, slugless) and leaves the folder untouched; `store`
+   * re-kinds and re-slugs the rows already in the store (`storeRows`, T14118).
    */
-  readonly mode: 'tree' | 'store-only';
+  readonly mode: 'tree' | 'store-only' | 'store';
+  /** Store-mode rows (`mode: 'store'`); absent or empty otherwise. */
+  readonly storeRows?: readonly DocsModernizeStoreRow[];
+}
+
+/**
+ * One existing store doc in a `--store` plan (T14118): its kind and slug now,
+ * and what modernize proposes. An unchanged field repeats the current value.
+ */
+export interface DocsModernizeStoreRow {
+  /** Attachment row id. */
+  readonly attachmentId: string;
+  /** Content hash. */
+  readonly sha256: string;
+  /** Current slug (null for a slugless row). */
+  readonly slug: string | null;
+  /** Proposed slug; the current one stays resolvable as an alias. */
+  readonly newSlug: string | null;
+  /** Current kind (null when untyped). */
+  readonly kind: string | null;
+  /** Proposed kind. */
+  readonly newKind: string;
+  /** Task ids the old slug named; linked to the doc as task refs. */
+  readonly ownerTasks: readonly string[];
+  /** Why, one line each. */
+  readonly reasons: readonly string[];
+  /** Every System One question asked for this row. */
+  readonly judgments: readonly DocsModernizeJudgment[];
 }
 
 /** The reversible steps an apply run takes. */
@@ -144,6 +172,9 @@ export const DOCS_MODERNIZE_OPS = [
   'write-file',
   'remove-file',
   'link',
+  'rekind',
+  'reslug',
+  'link-task',
 ] as const;
 
 /** One of {@link DOCS_MODERNIZE_OPS}. */
@@ -169,6 +200,8 @@ export interface DocsModernizeOpPrior {
   readonly newAttachmentId?: string | null;
   /** `link`: the slug's `links-to` targets before the step. */
   readonly linkTargets?: readonly string[];
+  /** `rekind`: the row's kind before the step. */
+  readonly kind?: string | null;
 }
 
 /**
@@ -181,6 +214,9 @@ export interface DocsModernizeOpPrior {
  * - `write-file` — `path` was written; `beforeSha256` is the old bytes, or null when it was new.
  * - `remove-file` — `path` was removed; `beforeSha256` names the bytes kept for rollback.
  * - `link` — the `links-to` edges leaving `slug` were set; `prior.linkTargets` holds the old set.
+ * - `rekind` — the row `attachmentId` changed kind; `prior.kind` holds the old one (T14118).
+ * - `reslug` — `slug` was renamed to `target`; `slug` stays an alias (T14118).
+ * - `link-task` — the row `attachmentId` gained a ref to task `ownerId` (T14118).
  */
 export interface DocsModernizeReceiptOp {
   /** Step kind. */
@@ -227,6 +263,8 @@ export interface DocsModernizeReceipt {
   readonly deleted: readonly string[];
   /** ISO 8601 time the run was rolled back, or null. */
   readonly rolledBackAt: string | null;
+  /** Wall time of the apply, in ms (store mode). */
+  readonly durationMs?: number;
 }
 
 // ─── Schemas (a plan or receipt read from disk is untrusted input) ───────────
@@ -312,6 +350,7 @@ const receiptOpSchema = z.object({
       previousAttachmentId: z.string().nullable().optional(),
       newAttachmentId: z.string().nullable().optional(),
       linkTargets: z.array(z.string()).optional(),
+      kind: z.string().nullable().optional(),
     })
     .optional(),
 });
@@ -333,4 +372,5 @@ export const docsModernizeReceiptSchema = z.object({
   moves: z.array(z.object({ from: relPath, to: relPath })),
   deleted: z.array(relPath),
   ops: z.array(receiptOpSchema),
+  durationMs: z.number().optional(),
 });

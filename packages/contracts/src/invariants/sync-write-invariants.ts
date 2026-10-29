@@ -558,6 +558,22 @@ export const SYNC_WRITE_INVARIANTS: readonly SyncWriteInvariant[] = Object.freez
     reason:
       'two devices adopting one legacy doc must mint one uid: the shell takes the legacy birth and sentinel facts, so (uid, birth_fp) converge and receive places the peer copy as a duplicate; a lost local write is refused loudly at the writer',
   },
+  // T14118 — a slug is an alias, not an identity: renaming one moves the
+  // live slug on the registry row and the conduit identity row together and
+  // records the old slug in the append-only alias table.
+  {
+    id: 'docs.slug.rename-keeps-alias',
+    class: 'identity-layer',
+    tables: [
+      'docs_attachments',
+      'conduit_attachments',
+      'docs_wikilinks',
+      'conduit_doc_slug_aliases',
+    ],
+    sites: [],
+    reason:
+      'a rename moves the live slug on docs_attachments and conduit_attachments in one transaction and records the old slug as an alias of the immutable doc uid, so every replica resolves the old and the new slug to one doc',
+  },
   // T13359 (D11165) — decisions-vs-ADRs link table; the natural composite key
   // makes identical links merge to one row, and the revoke is a one-way latch.
   // T13597: enforced at merge, not just by the local accessor — 'revoked' is an

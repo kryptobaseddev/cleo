@@ -1393,6 +1393,8 @@ export interface DocsModernizeParams {
   readonly storeOnly?: boolean;
   /** Apply even when the root is not a clean git checkout. */
   readonly allowDirty?: boolean;
+  /** Modernize the docs already in the store (re-kind, re-slug with aliases, ADR numbers). */
+  readonly store?: boolean;
 }
 
 /**

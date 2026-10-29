@@ -8935,6 +8935,12 @@ export const OPERATIONS: OperationDef[] = [
         required: false,
         description: 'Apply even when the root is not a clean git checkout',
       },
+      {
+        name: 'store',
+        type: 'boolean' as const,
+        required: false,
+        description: 'Modernize the docs already in the store instead of a folder',
+      },
     ],
   },
   // ── docs.generate (T798) ─────────────────────────────────────────────────
