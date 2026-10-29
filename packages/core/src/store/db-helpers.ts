@@ -7,11 +7,11 @@
  * @epic T4454
  */
 
+import type { DatabaseSync } from 'node:sqlite';
 import type { ArchiveReasonValue, Session, Task, TaskInsertIdentity } from '@cleocode/contracts';
 import { ExitCode } from '@cleocode/contracts/exit-codes.js';
 import { and, eq, inArray, sql } from 'drizzle-orm';
 import type { NodeSQLiteDatabase } from 'drizzle-orm/node-sqlite';
-import type { DatabaseSync } from 'node:sqlite';
 import { CleoError } from '../errors.js';
 import { getLogger } from '../logger.js';
 import { rethrowDependencyCycle } from './dependency-cycles.js';
@@ -396,11 +396,7 @@ export async function upsertSession(db: DrizzleDb, session: Session): Promise<vo
  * Session statuses that give back a spawned session's agent-session lease
  * (T14151). `suspended` keeps it: a suspended session resumes.
  */
-const LEASE_RELEASING_STATUSES: ReadonlySet<string> = new Set([
-  'ended',
-  'orphaned',
-  'abandoned',
-]);
+const LEASE_RELEASING_STATUSES: ReadonlySet<string> = new Set(['ended', 'orphaned', 'abandoned']);
 
 /** Sessions ended inside a still-open write transaction, per native handle (T14151). */
 const endedInOpenTransaction = new WeakMap<DatabaseSync, Set<string>>();

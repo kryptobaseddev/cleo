@@ -14,9 +14,9 @@ import {
   AGENT_LEASE_MAX_LIFETIME_MS,
   type AgentSessionLease,
   liveAgentLeases,
-  releaseAgentLeasesForSessions,
   releaseAgentLease,
   releaseAgentLeasesForSession,
+  releaseAgentLeasesForSessions,
   renewAgentLeasesForSession,
   writeAgentLease,
 } from '../agent-lease.js';
