@@ -171,6 +171,8 @@ describe('cross-epic readiness uses persisted global prerequisites', () => {
         ready: true,
         blockers: [],
         protocol: 'research',
+        // T14133: no live claim, so not in flight.
+        inFlight: false,
       },
     ]);
     expect(await analyzeEpic('T100', env.tempDir, accessor)).toEqual({

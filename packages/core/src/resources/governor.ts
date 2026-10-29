@@ -61,7 +61,7 @@ import {
   isLedgerClass,
   readLedger,
 } from './admission-ledger.js';
-import { type AgentSessionLease, liveAgentLeases, writeAgentLease } from './agent-lease.js';
+import type { AgentSessionLease } from './agent-lease.js';
 import type { ResourceSample } from './backend.js';
 import { renewInvokingSessionClaims } from './claim-keepalive.js';
 import { pressureScore, ResourceMonitor } from './monitor.js';
@@ -378,6 +378,8 @@ export async function takeAgentSessionLease(
   | { readonly lease: AgentSessionLease | null; readonly reused: boolean }
   | { readonly deferral: ResourceDeferral }
 > {
+  // Loaded here, not at module load: only spawns and admission read leases (gate 39).
+  const { liveAgentLeases, writeAgentLease } = await import('./agent-lease.js');
   const held = liveAgentLeases().find((l) => l.taskId === taskId && l.projectRoot === projectRoot);
   if (held !== undefined) {
     const renewed = { ...held, expiresAtMs: Math.max(held.expiresAtMs, Date.now() + ttlMs) };
@@ -562,7 +564,7 @@ export class ResourceGovernor {
 
     const sample = opts.sample ?? (await (opts.monitor ?? new ResourceMonitor()).sample());
     // T14133: spawned sessions hold their slots through leases, not processes.
-    const leases = heldLeases(cls);
+    const leases = await heldLeases(cls);
     const budget = computeClassBudget(cls, sample, opts) - leases;
 
     if (!Number.isFinite(budget)) return passThroughGrant(cls);
@@ -683,7 +685,7 @@ export class ResourceGovernor {
     }
     const sample = opts.sample ?? (await (opts.monitor ?? new ResourceMonitor()).sample());
     if (isLedgerClass(cls)) return ledgerRunsAvailable(cls, sample, opts);
-    const budget = computeClassBudget(cls, sample, opts) - heldLeases(cls);
+    const budget = computeClassBudget(cls, sample, opts) - (await heldLeases(cls));
     if (!Number.isFinite(budget)) return Number.POSITIVE_INFINITY;
     if (budget <= 0) return 0;
     const held = await countHeldSlots(cls, budget);
@@ -756,8 +758,10 @@ async function countHeldSlots(cls: ResourceClass, budget: number): Promise<numbe
  * Slots of `cls` held by spawned sessions' leases (T14133): only
  * `agent-session` has them.
  */
-function heldLeases(cls: ResourceClass): number {
-  return cls === 'agent-session' ? liveAgentLeases().length : 0;
+async function heldLeases(cls: ResourceClass): Promise<number> {
+  if (cls !== 'agent-session') return 0;
+  const { liveAgentLeases } = await import('./agent-lease.js');
+  return liveAgentLeases().length;
 }
 
 /** Count of slot files for a class (debug/introspection). */

@@ -13,7 +13,6 @@ import { and, eq, inArray, sql } from 'drizzle-orm';
 import type { NodeSQLiteDatabase } from 'drizzle-orm/node-sqlite';
 import { CleoError } from '../errors.js';
 import { getLogger } from '../logger.js';
-import { onSessionStatusWritten } from '../resources/agent-lease.js';
 import { rethrowDependencyCycle } from './dependency-cycles.js';
 import { rowUidFillEnabled } from './row-identity-flag.js';
 import type { NewTaskRow } from './tasks-schema.js';
@@ -391,7 +390,11 @@ export async function upsertSession(db: DrizzleDb, session: Session): Promise<vo
     .onConflictDoUpdate({ target: schema.sessions.id, set: setFields })
     .run();
   // T14133: a session that ended gives back its spawn's agent-session lease.
-  onSessionStatusWritten(session.id, session.status);
+  // Loaded only then, so the read paths stay off the lease module (gate 39).
+  if (session.status !== 'active') {
+    const { onSessionStatusWritten } = await import('../resources/agent-lease.js');
+    onSessionStatusWritten(session.id, session.status);
+  }
 }
 
 /**
