@@ -161,7 +161,9 @@ describe('ci-run: validation (T14149)', () => {
 
   it('cross-checks the title against the uploaded report', async () => {
     const otherTest = await resolve(record(), report({ test: 'a.test.ts' }));
-    expect(!otherTest.ok && otherTest.reason).toMatch(/report ran a\.test\.ts, but its title names/);
+    expect(!otherTest.ok && otherTest.reason).toMatch(
+      /report ran a\.test\.ts, but its title names/,
+    );
     const fewer = await resolve(record(), report({ iterations: report().iterations.slice(0, 10) }));
     expect(!fewer.ok && fewer.reason).toMatch(/records 10 runs, not 50/);
     const otherSha = await resolve(record(), report({ sha: base }));

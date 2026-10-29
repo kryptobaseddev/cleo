@@ -25,7 +25,8 @@ import { fileURLToPath } from 'node:url';
 export const MAX_REPEAT_RUNS = 200;
 
 /** A repo-relative test file path: no `..`, no leading `/`, a test suffix. */
-const TEST_PATH = /^(?!\/)(?!.*(?:^|\/)\.\.(?:\/|$))[A-Za-z0-9._@/-]+\.(?:test|spec)\.(?:ts|tsx|mts|cts|js|mjs|cjs)$/;
+const TEST_PATH =
+  /^(?!\/)(?!.*(?:^|\/)\.\.(?:\/|$))[A-Za-z0-9._@/-]+\.(?:test|spec)\.(?:ts|tsx|mts|cts|js|mjs|cjs)$/;
 
 /**
  * Validate the dispatch inputs.
@@ -43,7 +44,8 @@ export function validateRepeatInputs(input, isTracked) {
     };
   if (!isTracked(test)) return { ok: false, reason: `test ${test} is not a tracked file` };
   const raw = (input.runs ?? '').trim();
-  if (!/^[0-9]+$/.test(raw)) return { ok: false, reason: `runs must be an integer: got ${JSON.stringify(raw)}` };
+  if (!/^[0-9]+$/.test(raw))
+    return { ok: false, reason: `runs must be an integer: got ${JSON.stringify(raw)}` };
   const runs = Number(raw);
   if (runs < 1 || runs > MAX_REPEAT_RUNS)
     return { ok: false, reason: `runs must be 1-${MAX_REPEAT_RUNS}: got ${runs}` };
@@ -104,7 +106,8 @@ function main() {
     runId: process.env.GITHUB_RUN_ID ? Number(process.env.GITHUB_RUN_ID) : null,
     iterations: [],
   };
-  const save = () => writeFileSync(join(out, 'repeat-report.json'), `${JSON.stringify(report, null, 2)}\n`);
+  const save = () =>
+    writeFileSync(join(out, 'repeat-report.json'), `${JSON.stringify(report, null, 2)}\n`);
   for (let i = 1; i <= input.runs; i++) {
     const file = join(out, `run-${i}.json`);
     const child = spawnSync(
@@ -121,7 +124,9 @@ function main() {
     report.iterations.push({ run: i, exitCode: child.status, ...counts });
     save();
     if (child.status !== 0 || counts.numFailedTests > 0 || counts.numPassedTests === 0)
-      fail(`run ${i} of ${input.runs} failed (exit ${child.status}, ${counts.numFailedTests} failed, ${counts.numPassedTests} passed)`);
+      fail(
+        `run ${i} of ${input.runs} failed (exit ${child.status}, ${counts.numFailedTests} failed, ${counts.numPassedTests} passed)`,
+      );
     console.log(`repeat-run: run ${i}/${input.runs} passed (${counts.numPassedTests} tests)`);
   }
   console.log(`repeat-run: all ${input.runs} runs of ${input.test} passed`);

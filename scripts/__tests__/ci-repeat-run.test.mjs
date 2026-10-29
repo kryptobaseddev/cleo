@@ -43,16 +43,23 @@ describe('repeat-run.yml structure (T14149)', () => {
 
   it('names the test and count in the run title, which cleo cross-checks with the report', () => {
     // Regex, not a literal: `${{ … }}` in a plain string trips biome's noTemplateCurlyInString.
-    expect(doc()['run-name']).toMatch(/^repeat-run \$\{\{ inputs\.test \}\} x\$\{\{ inputs\.runs \}\}$/);
+    expect(doc()['run-name']).toMatch(
+      /^repeat-run \$\{\{ inputs\.test \}\} x\$\{\{ inputs\.runs \}\}$/,
+    );
   });
 });
 
 describe('validateRepeatInputs (T14149)', () => {
   it('accepts a tracked repo-relative test file and a count of 1-200', () => {
     expect(
-      validateRepeatInputs({ test: 'packages/core/src/a/__tests__/b.test.ts', runs: '50' }, tracked),
+      validateRepeatInputs(
+        { test: 'packages/core/src/a/__tests__/b.test.ts', runs: '50' },
+        tracked,
+      ),
     ).toEqual({ ok: true, test: 'packages/core/src/a/__tests__/b.test.ts', runs: 50 });
-    expect(validateRepeatInputs({ test: 'scripts/__tests__/x.test.mjs', runs: '200' }, tracked).ok).toBe(true);
+    expect(
+      validateRepeatInputs({ test: 'scripts/__tests__/x.test.mjs', runs: '200' }, tracked).ok,
+    ).toBe(true);
   });
 
   it('refuses a path with .., an absolute path, a non-test file or shell syntax', () => {

@@ -296,10 +296,10 @@ function defaultFetchReport(runId: number, cwd: string): RepeatReport | null {
       iterations: r.iterations.map((raw: unknown) => {
         const i = (raw ?? {}) as Record<string, unknown>;
         return {
-        run: typeof i.run === 'number' ? i.run : 0,
-        exitCode: typeof i.exitCode === 'number' ? i.exitCode : null,
-        numPassedTests: typeof i.numPassedTests === 'number' ? i.numPassedTests : 0,
-        numFailedTests: typeof i.numFailedTests === 'number' ? i.numFailedTests : 0,
+          run: typeof i.run === 'number' ? i.run : 0,
+          exitCode: typeof i.exitCode === 'number' ? i.exitCode : null,
+          numPassedTests: typeof i.numPassedTests === 'number' ? i.numPassedTests : 0,
+          numFailedTests: typeof i.numFailedTests === 'number' ? i.numFailedTests : 0,
         };
       }),
     };
