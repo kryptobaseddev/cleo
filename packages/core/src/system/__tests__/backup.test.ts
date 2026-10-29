@@ -177,6 +177,31 @@ describe('system/backup', () => {
     }
   });
 
+  it('two backups of one type in the same second keep both store copies (T14158)', async () => {
+    const database = new DatabaseSync(join(testDir, '.cleo', 'cleo.db'));
+    database.exec(
+      "CREATE TABLE backup_fixture(value TEXT); INSERT INTO backup_fixture VALUES ('x')",
+    );
+    vi.doMock('../../store/sqlite.js', () => ({ getDb: vi.fn(), getNativeDb: () => database }));
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date('2026-10-29T12:00:00Z'));
+    try {
+      const { createBackup } = await import('../backup.js');
+      const first = await createBackup(testDir, { type: 'move' });
+      const second = await createBackup(testDir, { type: 'move' });
+      expect(second.backupId).not.toBe(first.backupId);
+      expect(second.files).toEqual(['cleo.db']);
+      const dir = join(testDir, '.cleo', 'backups', 'sqlite');
+      for (const id of [first.backupId, second.backupId]) {
+        expect(id).toMatch(/^move-\d{8}-\d{6}$/);
+        expect(existsSync(join(dir, `cleo.db.${id}`))).toBe(true);
+      }
+    } finally {
+      vi.useRealTimers();
+      database.close();
+    }
+  });
+
   it('createBackup skips SQLite files when the native handle is null (non-fatal)', async () => {
     vi.doMock('../../store/sqlite.js', () => ({
       getDb: vi.fn().mockResolvedValue({}),

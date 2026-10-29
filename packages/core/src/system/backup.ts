@@ -142,6 +142,22 @@ export function _resetLegacyWarningOnce(): void {
   _legacyWarningEmitted = false;
 }
 
+/**
+ * A `<type>-YYYYMMDD-HHmmss` backup id not yet used in `dir`. Two backups of
+ * one type within the same second got the same id, so the second's VACUUM
+ * INTO failed and its cleanup deleted the first backup's store copy (T14158).
+ * The stamp moves forward a second at a time, keeping the format readers parse.
+ */
+function freeBackupId(dir: string, type: string, now: Date): string {
+  for (let t = now.getTime(); ; t += 1000) {
+    const id = `${type}-${formatBackupTimestamp(new Date(t))}`;
+    const taken =
+      existsSync(join(dir, `${id}.meta.json`)) ||
+      existsSync(join(dir, `${PROJECT_STORE_BACKUP_FILE}.${id}`));
+    if (!taken) return id;
+  }
+}
+
 /** Safe wrapper around VACUUM INTO: flushes WAL then clones the DB. */
 function safeSqliteSnapshot(db: { exec: (sql: string) => void } | null, destPath: string): boolean {
   if (!db) return false;
@@ -287,10 +303,10 @@ export async function createBackup(
   // Unified `YYYYMMDD-HHmmss` local-time stamp — matches
   // `sqlite-backup.ts:formatTimestamp`. The `type` discriminates manual
   // snapshots from auto-VACUUM-INTO files in the SAME directory.
-  const backupId = `${btype}-${formatBackupTimestamp(now)}`;
   const backupDir = opts?.destination
     ? resolve(opts.destination)
     : join(cleoDir, 'backups', CANONICAL_BACKUP_SUBDIR);
+  const backupId = freeBackupId(backupDir, btype, now);
 
   if (!existsSync(backupDir)) {
     mkdirSync(backupDir, { recursive: true });
@@ -927,8 +943,8 @@ export async function createGlobalBackup(opts?: {
   const btype = opts?.type || 'snapshot';
   const now = new Date();
   const timestamp = now.toISOString();
-  const backupId = `${btype}-${formatBackupTimestamp(now)}`;
   const backupDir = opts?.destination ? resolve(opts.destination) : globalBackupDir();
+  const backupId = freeBackupId(backupDir, btype, now);
   mkdirSync(backupDir, { recursive: true });
   const backedUp: string[] = [];
   /** T13724: a failed store capture is reported, never swallowed. */
