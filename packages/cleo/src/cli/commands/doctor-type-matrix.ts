@@ -39,7 +39,14 @@ export const doctorTypeMatrixCommand = defineCommand({
       type: 'string',
       description:
         'JSON file of operations for ambiguous pairs: [{"kind":"retype","taskId":"T1","to":"epic"}, ' +
-        '{"kind":"reparent","taskId":"T2","toParentId":"T3"}].',
+        '{"kind":"reparent","taskId":"T2","toParentId":"T3"}]; toParentId null moves to the root; ' +
+        'one task may take one re-type and one reparent.',
+    },
+    plan: {
+      type: 'string',
+      description:
+        'With --apply: the reviewed dry run (its JSON output). The apply runs only those operations, ' +
+        'and only on rows unchanged since that plan read them (E_CONFLICT otherwise).',
     },
     rollback: {
       type: 'string',
@@ -57,27 +64,32 @@ export const doctorTypeMatrixCommand = defineCommand({
       cliOutput(result, { command: 'doctor', operation: 'doctor.type-matrix.rollback' });
       return;
     }
-    let resolutions: TypeMatrixRepairOp[] = [];
-    if (typeof args.resolutions === 'string' && args.resolutions !== '') {
-      if (!existsSync(args.resolutions)) {
-        cliError(`--resolutions ${args.resolutions}: no such file`, ExitCode.VALIDATION_ERROR, {
-          name: 'E_VALIDATION',
-        });
-        return;
-      }
-      const parsed = repair.parseTypeMatrixResolutions(readFileSync(args.resolutions, 'utf-8'));
-      if (!parsed.ok) {
-        cliError(`--resolutions ${args.resolutions}: ${parsed.reason}`, ExitCode.VALIDATION_ERROR, {
-          name: 'E_VALIDATION',
-        });
-        return;
-      }
-      resolutions = parsed.operations;
-    }
+    const fromFile = <T>(
+      flag: string,
+      path: unknown,
+      parse: (text: string) => { ok: true; value: T } | { ok: false; reason: string },
+    ): { ok: true; value: T | undefined } | { ok: false } => {
+      if (typeof path !== 'string' || path === '') return { ok: true, value: undefined };
+      const parsed = existsSync(path)
+        ? parse(readFileSync(path, 'utf-8'))
+        : { ok: false as const, reason: 'no such file' };
+      if (parsed.ok) return parsed;
+      cliError(`--${flag} ${path}: ${parsed.reason}`, ExitCode.VALIDATION_ERROR, {
+        name: 'E_VALIDATION',
+      });
+      return { ok: false };
+    };
+    const resolutions = fromFile('resolutions', args.resolutions, (text) => {
+      const r = repair.parseTypeMatrixResolutions(text);
+      return r.ok ? { ok: true, value: r.operations } : r;
+    });
+    const plan = fromFile('plan', args.plan, repair.parseTypeMatrixPlan);
+    if (!resolutions.ok || !plan.ok) return;
+    const ops: TypeMatrixRepairOp[] = resolutions.value ?? [];
     const report =
       args.apply === true
-        ? await repair.applyTypeMatrixRepair(root, resolutions)
-        : await repair.planTypeMatrixRepair(root, resolutions);
+        ? await repair.applyTypeMatrixRepair(root, ops, plan.value ? { plan: plan.value } : {})
+        : await repair.planTypeMatrixRepair(root, ops);
     cliOutput(report, {
       command: 'doctor',
       operation: args.apply === true ? 'doctor.type-matrix.apply' : 'doctor.type-matrix.plan',

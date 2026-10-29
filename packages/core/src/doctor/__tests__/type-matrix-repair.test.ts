@@ -9,11 +9,14 @@
  * @task T14096
  */
 
+import { writeFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { createTestDb, seedTasks, type TestDbEnv } from '../../store/__tests__/test-db-helper.js';
 import { resetDbState } from '../../store/sqlite.js';
 import {
   applyTypeMatrixRepair,
+  parseTypeMatrixPlan,
   parseTypeMatrixResolutions,
   planTypeMatrixRepair,
   rollbackTypeMatrixRepair,
@@ -263,6 +266,123 @@ describe('doctor type-matrix (T14096)', () => {
     await expect(rollbackTypeMatrixRepair(env.tempDir, done.receiptId ?? '')).rejects.toThrow(
       /changed after the repair/,
     );
+  });
+
+  it('T14140: one task takes a re-type and a reparent together (an "epic" filed as a task)', async () => {
+    // G (saga) > E (epic) > A (task, really an epic) > B (task) > S (subtask).
+    // A becomes an epic under G, keeping B and S: one write, so the trigger
+    // never sees A as an epic under E.
+    await seedTasks(env.accessor, [
+      row('G', 'saga'),
+      row('E', 'epic', 'G'),
+      row('A', 'epic', 'G'),
+      row('B', 'task', 'A'),
+      row('S', 'subtask', 'B'),
+    ]);
+    await env.accessor.updateTaskFields('A', { type: 'task', parentId: 'E' });
+    const resolution = [
+      { kind: 'retype' as const, taskId: 'A', to: 'epic' as const },
+      { kind: 'reparent' as const, taskId: 'A', toParentId: 'G' },
+    ];
+    const done = await applyTypeMatrixRepair(env.tempDir, resolution);
+    expect(done.unresolved).toEqual([]);
+    expect(done.rows).toHaveLength(1);
+    expect(await env.accessor.loadSingleTask('A')).toMatchObject({ type: 'epic', parentId: 'G' });
+    await expect(
+      planTypeMatrixRepair(env.tempDir, [
+        { kind: 'retype', taskId: 'B', to: 'epic' },
+        { kind: 'retype', taskId: 'B', to: 'task' },
+      ]),
+    ).rejects.toThrow(/Two retype resolutions name B/);
+  });
+
+  it('T14140: a reparent to the root', async () => {
+    // A done root epic R holds epic X (epic → epic); X moves to the root.
+    await seedTasks(env.accessor, [row('R', 'epic'), row('X', 'epic'), row('Y', 'task', 'X')]);
+    await env.accessor.updateTaskFields('R', { type: 'saga' });
+    await env.accessor.updateTaskFields('X', { parentId: 'R' });
+    await env.accessor.updateTaskFields('R', { type: 'epic' });
+    const plan = await planTypeMatrixRepair(env.tempDir);
+    expect(plan.plans.map((p) => p.taskId)).toEqual(['X']);
+    const done = await applyTypeMatrixRepair(env.tempDir, [
+      { kind: 'reparent', taskId: 'X', toParentId: null },
+    ]);
+    expect(done.unresolved).toEqual([]);
+    expect((await env.accessor.loadSingleTask('X'))?.parentId ?? null).toBeNull();
+  });
+
+  it('T14140: a reparent reopens done ancestors with a note; rollback leaves them open', async () => {
+    // C is a subtask straight under epic P (a violation the trigger still
+    // accepts, so the rollback can restore it); it moves under the done task D.
+    await seedTasks(env.accessor, [
+      row('P', 'epic'),
+      row('C', 'subtask', 'P'),
+      row('Q', 'epic'),
+      { ...row('D', 'task', 'Q'), status: 'done' as const, pipelineStage: 'contribution' },
+    ]);
+    const done = await applyTypeMatrixRepair(env.tempDir, [
+      { kind: 'reparent', taskId: 'C', toParentId: 'D' },
+    ]);
+    expect(done.reopened).toEqual(['D']);
+    const d = await env.accessor.loadSingleTask('D');
+    expect(d?.status).toBe('pending');
+    expect(d?.notes?.at(-1)).toMatch(/Reopened by reparent of C \(hierarchy changed\)/);
+    const undone = await rollbackTypeMatrixRepair(env.tempDir, done.receiptId ?? '');
+    expect(undone.stillReopened).toEqual(['D']);
+    expect((await env.accessor.loadSingleTask('D'))?.status).toBe('pending');
+  });
+
+  it('T14140: a reparent past the depth or sibling limit is refused', async () => {
+    // saga G > epic E > task T > subtask S is depth 3, the default cap. Moving
+    // task K (with a subtask) under T would put that subtask at depth 4.
+    await seedTasks(env.accessor, [
+      row('G', 'saga'),
+      row('E', 'epic', 'G'),
+      row('T', 'task', 'E'),
+      row('P', 'epic'),
+      row('K', 'task', 'P'),
+      row('KS', 'subtask', 'K'),
+    ]);
+    await env.accessor.updateTaskFields('P', { type: 'task' });
+    await expect(
+      planTypeMatrixRepair(env.tempDir, [{ kind: 'reparent', taskId: 'K', toParentId: 'T' }]),
+    ).rejects.toThrow(/max depth of 3/);
+    // Under the epic E it fits (K at depth 2, KS at 3) until a sibling cap of 1 binds.
+    expect(
+      (
+        await planTypeMatrixRepair(env.tempDir, [
+          { kind: 'reparent', taskId: 'K', toParentId: 'E' },
+        ])
+      ).unresolved,
+    ).toEqual([]);
+    writeFileSync(
+      join(env.cleoDir, 'config.json'),
+      JSON.stringify({ hierarchy: { maxDepth: 3, maxSiblings: 1 } }),
+    );
+    await expect(
+      planTypeMatrixRepair(env.tempDir, [{ kind: 'reparent', taskId: 'K', toParentId: 'E' }]),
+    ).rejects.toThrow(/max siblings \(1\)/);
+  });
+
+  it('T14140: --plan parses the dry-run envelope or its data, and refuses anything else', async () => {
+    await ambiguousPair();
+    const plan = await planTypeMatrixRepair(env.tempDir, [
+      { kind: 'retype', taskId: 'T1', to: 'epic' },
+    ]);
+    const parsed = parseTypeMatrixPlan(JSON.stringify({ success: true, data: plan }));
+    expect(parsed).toEqual({
+      ok: true,
+      value: { operations: plan.operations, rowVersions: plan.rowVersions },
+    });
+    expect(parseTypeMatrixPlan(JSON.stringify(plan)).ok).toBe(true);
+    expect(parseTypeMatrixPlan('{"operations":[]}').ok).toBe(false);
+    if (!parsed.ok) throw new Error('unreachable');
+    await env.accessor.updateTaskFields('T1', { title: 'edited after review' });
+    await expect(
+      applyTypeMatrixRepair(env.tempDir, [{ kind: 'retype', taskId: 'T1', to: 'epic' }], {
+        plan: parsed.value,
+      }),
+    ).rejects.toMatchObject({ code: 23 });
   });
 
   it('parses a resolutions file and refuses a malformed one', () => {
