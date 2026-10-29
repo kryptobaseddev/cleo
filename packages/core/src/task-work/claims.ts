@@ -192,6 +192,13 @@ export async function heartbeatProjectSession(
     sessionId,
     new Date(nowMs).toISOString(),
   );
+  // T14133: a working spawned session keeps its agent-session lease with its claims.
+  try {
+    const { renewAgentLeasesForSession } = await import('../resources/agent-lease.js');
+    renewAgentLeasesForSession(sessionId, nowMs + taskClaimLeaseMs());
+  } catch {
+    // Best-effort: the lease lapses with its TTL, as an idle claim does.
+  }
   return { activityTouched, leasesRenewed };
 }
 

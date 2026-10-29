@@ -35,6 +35,7 @@
  * @adr resource-governor-never-oom-architecture §3.4
  */
 
+import { randomUUID } from 'node:crypto';
 import { existsSync, mkdirSync, readdirSync, writeFileSync } from 'node:fs';
 import { availableParallelism, totalmem } from 'node:os';
 import { join } from 'node:path';
@@ -60,6 +61,7 @@ import {
   isLedgerClass,
   readLedger,
 } from './admission-ledger.js';
+import { type AgentSessionLease, liveAgentLeases, writeAgentLease } from './agent-lease.js';
 import type { ResourceSample } from './backend.js';
 import { renewInvokingSessionClaims } from './claim-keepalive.js';
 import { pressureScore, ResourceMonitor } from './monitor.js';
@@ -348,6 +350,67 @@ export async function admitFailOpen(
   }
 }
 
+/**
+ * Take an `agent-session` lease for a packet spawn (T14133). A slot is
+ * acquired, the lease written while it is held, and the slot released, so a
+ * concurrent acquirer sees one or the other and the budget is never
+ * over-committed. Call it before any claim or worktree exists.
+ *
+ * A task that already holds a live lease (a `--resume`, or a re-spawn of a
+ * task still being worked) reuses it, renewed: it never takes a second slot,
+ * and is never refused because its own lease fills the budget.
+ *
+ * @param taskId - The task being spawned.
+ * @param projectRoot - Its project.
+ * @param ttlMs - How long the lease lasts unless renewed (the claim lease length).
+ * @returns The lease and whether it was reused (`lease: null` when the
+ *   governor is ungated or cannot write its state: the spawn proceeds
+ *   ungoverned), or the deferral to return as a retryable refusal.
+ */
+export async function takeAgentSessionLease(
+  taskId: string,
+  projectRoot: string,
+  ttlMs: number,
+): Promise<
+  | { readonly lease: AgentSessionLease | null; readonly reused: boolean }
+  | { readonly deferral: ResourceDeferral }
+> {
+  const held = liveAgentLeases().find((l) => l.taskId === taskId && l.projectRoot === projectRoot);
+  if (held !== undefined) {
+    const renewed = { ...held, expiresAtMs: Math.max(held.expiresAtMs, Date.now() + ttlMs) };
+    writeAgentLease(renewed);
+    return { lease: renewed, reused: true };
+  }
+  const { admission, ungoverned } = await admitFailOpen('agent-session', () =>
+    governor.tryAcquire('agent-session'),
+  );
+  if (admission.deferred) return { deferral: admission };
+  try {
+    if (ungoverned !== null || resolveGovernorMode() === 'off')
+      return { lease: null, reused: false };
+    const now = Date.now();
+    const lease: AgentSessionLease = {
+      id: randomUUID(),
+      taskId,
+      projectRoot,
+      sessionId: null,
+      takenAtMs: now,
+      expiresAtMs: now + ttlMs,
+    };
+    try {
+      writeAgentLease(lease);
+    } catch (err) {
+      if (governorIoError(err) === null) throw err;
+      return { lease: null, reused: false };
+    }
+    return { lease, reused: false };
+  } finally {
+    await admission.release().catch(() => {
+      // Idempotent: the slot was only the lease's write guard.
+    });
+  }
+}
+
 let _supervisorHolderSeq = 0;
 
 /**
@@ -483,14 +546,18 @@ export class ResourceGovernor {
     }
 
     const sample = opts.sample ?? (await (opts.monitor ?? new ResourceMonitor()).sample());
-    const budget = computeClassBudget(cls, sample, opts);
+    // T14133: spawned sessions hold their slots through leases, not processes.
+    const leases = heldLeases(cls);
+    const budget = computeClassBudget(cls, sample, opts) - leases;
 
     if (!Number.isFinite(budget)) return passThroughGrant(cls);
     if (budget <= 0) {
       // Name the signal the budget was computed from (T13158, T13170).
       return deferral(
         cls,
-        `class '${cls}' budget is 0 under current pressure (${budgetSignal(cls, sample).label})`,
+        leases > 0
+          ? `class '${cls}' is at capacity: ${leases} spawned session lease(s) hold the budget of ${budget + leases} (${budgetSignal(cls, sample).label})`
+          : `class '${cls}' budget is 0 under current pressure (${budgetSignal(cls, sample).label})`,
         DEFAULT_RESOURCE_RETRY_AFTER_MS,
       );
     }
@@ -601,7 +668,7 @@ export class ResourceGovernor {
     }
     const sample = opts.sample ?? (await (opts.monitor ?? new ResourceMonitor()).sample());
     if (isLedgerClass(cls)) return ledgerRunsAvailable(cls, sample, opts);
-    const budget = computeClassBudget(cls, sample, opts);
+    const budget = computeClassBudget(cls, sample, opts) - heldLeases(cls);
     if (!Number.isFinite(budget)) return Number.POSITIVE_INFINITY;
     if (budget <= 0) return 0;
     const held = await countHeldSlots(cls, budget);
@@ -668,6 +735,14 @@ async function countHeldSlots(cls: ResourceClass, budget: number): Promise<numbe
     }
   }
   return held;
+}
+
+/**
+ * Slots of `cls` held by spawned sessions' leases (T14133): only
+ * `agent-session` has them.
+ */
+function heldLeases(cls: ResourceClass): number {
+  return cls === 'agent-session' ? liveAgentLeases().length : 0;
 }
 
 /** Count of slot files for a class (debug/introspection). */

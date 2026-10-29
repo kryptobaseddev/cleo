@@ -88,7 +88,12 @@ import { composeSpawnPayload } from '../orchestration/spawn.js';
 import { resolveEffectiveTier } from '../orchestration/tier-selector.js';
 import { validateSpawnReadiness } from '../orchestration/validate-spawn.js';
 import { getProjectRoot } from '../paths.js';
-import { admitFailOpen, governor } from '../resources/governor.js';
+import {
+  type AgentSessionLease,
+  releaseAgentLease,
+  writeAgentLease,
+} from '../resources/agent-lease.js';
+import { admitFailOpen, governor, takeAgentSessionLease } from '../resources/governor.js';
 import { provisionIsolatedShell } from '../sdk/isolation.js';
 import { spawnWorktree } from '../sentient/worktree-dispatch.js';
 import { initializeDefaultAdapters, spawnRegistry } from '../spawn/adapter-registry.js';
@@ -1295,6 +1300,9 @@ export async function orchestrateSpawn(
   let spawnSucceeded = false;
   /** T12502 — the task claim + session this spawn took; undone in `finally` on failure. */
   let spawnClaim: { root: string; resolution: SpawnSessionClaimed } | undefined;
+  /** T14133 — the agent-session lease this spawn holds; a new one is given back on failure. */
+  let spawnLease: AgentSessionLease | null = null;
+  let spawnLeaseReused = false;
 
   /**
    * Build the E_TIMEOUT envelope AND run bounded auto-cleanup on the
@@ -1454,6 +1462,26 @@ export async function orchestrateSpawn(
     // scope-leakage. Allocation is idempotent across `--resume` (reuses the
     // same-handle active session). T12500 — failure is FATAL: degrading to
     // the orchestrator's active session id is exactly the bleed above.
+    // T14133 — the spawned session holds an agent-session slot for its whole
+    // life, through a lease: taken before any claim or worktree, so a full
+    // budget refuses the spawn as retryable with nothing left behind.
+    const { taskClaimLeaseMs } = await import('../store/task-claim.js');
+    const leased = await takeAgentSessionLease(taskId, root, taskClaimLeaseMs());
+    if ('deferral' in leased) {
+      // @sync-invariant none:local-only the machine-wide agent-session budget is full; nothing is written
+      return engineError(RESOURCE_DEFERRED_CODE, leased.deferral.reason, {
+        exitCode: 75,
+        details: {
+          class: leased.deferral.class,
+          retryAfterMs: leased.deferral.retryAfterMs,
+          taskId,
+        },
+        fix: 'Retry the spawn after retryAfterMs, once a spawned session ends or its lease lapses.',
+      });
+    }
+    spawnLease = leased.lease;
+    spawnLeaseReused = leased.reused;
+
     const spawnSession = await requireSpawnSession(root, taskId);
     if (!spawnSession.ok) {
       spawnLogger.error({ taskId, cause: spawnSession.cause }, 'spawn session allocation failed');
@@ -1465,6 +1493,11 @@ export async function orchestrateSpawn(
     }
     spawnClaim = { root, resolution: spawnSession };
     const activeSessionId = spawnSession.identity.sessionId;
+    if (spawnLease !== null) {
+      // The lease ends with this session (its end or heartbeat finds it by id).
+      spawnLease = { ...spawnLease, sessionId: activeSessionId };
+      writeAgentLease(spawnLease);
+    }
     const spawnAgentId = spawnSession.identity.agentId;
 
     // T1140 — Worktree provisioning (SDK-first per D023 / ADR-055).
@@ -1837,6 +1870,11 @@ export async function orchestrateSpawn(
     // T12502 — a failed spawn must not strand the task claim or the session.
     if (spawnClaim && !spawnSucceeded) {
       await abandonSpawnSession(spawnClaim.root, taskId, spawnClaim.resolution);
+    }
+    // T14133 — nor the agent-session slot.
+    // A reused lease (a resume) still belongs to the task's working session.
+    if (spawnLease !== null && !spawnLeaseReused && !spawnSucceeded) {
+      releaseAgentLease(spawnLease.id);
     }
   }
 }

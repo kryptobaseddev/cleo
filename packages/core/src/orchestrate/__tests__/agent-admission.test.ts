@@ -25,7 +25,7 @@ import * as governorModule from '../../resources/governor.js';
 import { spawnRegistry } from '../../spawn/adapter-registry.js';
 import { computeAgentAdmission } from '../admission.js';
 import { orchestrateReady, orchestrateWaves } from '../query-ops.js';
-import { orchestrateSpawnExecute } from '../spawn-ops.js';
+import { orchestrateSpawn, orchestrateSpawnExecute } from '../spawn-ops.js';
 
 let TEST_ROOT: string;
 
@@ -232,5 +232,111 @@ describe('orchestrateSpawnExecute — agent-session admission gate', () => {
     await expect(orchestrateSpawnExecute('T901', undefined, undefined, TEST_ROOT)).rejects.toThrow(
       TypeError,
     );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// T14133 — a packet spawn's lease and in-flight reporting (VidaPeps T2374)
+// ---------------------------------------------------------------------------
+
+describe('a spawned task is in flight and its lease holds a slot (T14133)', () => {
+  const MB = 1024 ** 2;
+  /** Room for exactly three 4 GiB agent sessions above the 2 GiB headroom. */
+  const OPTS = {
+    sample: {
+      sampledAtMs: 1,
+      pressureAvailable: true,
+      memAvailableBytes: 2048 * MB + 3 * 4096 * MB,
+      globalPressure: {
+        some: { avg10: 0, avg60: 0, avg300: 0, totalUs: 0 },
+        full: { avg10: 0, avg60: 0, avg300: 0, totalUs: 0 },
+      },
+      slicePressure: null,
+      walObservations: [],
+    },
+    cpuCount: 16,
+    totalMemBytes: 64 * 1024 ** 3,
+  } as const;
+
+  beforeEach(async () => {
+    vi.stubEnv('CLEO_HOME', await mkdtemp(join(tmpdir(), 'cleo-admission-home-')));
+    vi.stubEnv('CLEO_RESOURCES_MODE', 'local');
+    governorModule._resetGovernorStateForTest();
+    const real = governorModule.ResourceGovernor.prototype;
+    const g = governorModule.governor;
+    vi.spyOn(g, 'available').mockImplementation((cls) => real.available.call(g, cls, OPTS));
+    vi.spyOn(g, 'tryAcquire').mockImplementation((cls) =>
+      real.acquire.call(g, cls, { ...OPTS, blocking: false }),
+    );
+  });
+  afterEach(() => {
+    governorModule._resetGovernorStateForTest();
+  });
+
+  type Admission = {
+    agentBudget: number;
+    admitted: string[];
+    deferred: string[];
+    inFlight: string[];
+  };
+
+  it('T2374: admit 3, spawn one, and the spawned task stays in flight, never deferred', async () => {
+    const before = (await orchestrateReady('T900', TEST_ROOT)).data as {
+      admission: Admission;
+    };
+    expect(before.admission.agentBudget).toBe(3);
+    expect(before.admission.admitted.sort()).toEqual(['T901', 'T902', 'T903']);
+
+    // What a packet spawn of T903 does: lease a slot, then claim for its session.
+    const taken = await governorModule.takeAgentSessionLease('T903', TEST_ROOT, 3_600_000);
+    if (!('lease' in taken) || taken.lease === null) throw new Error('expected a lease');
+    const { writeAgentLease } = await import('../../resources/agent-lease.js');
+    writeAgentLease({ ...taken.lease, sessionId: 'ses_spawned_t903' });
+    const { getTaskAccessor } = await import('../../store/data-accessor.js');
+    await (await getTaskAccessor(TEST_ROOT)).claimTask('T903', {
+      sessionId: 'ses_spawned_t903',
+      agentId: null,
+      mode: 'acquire',
+    });
+
+    const after = (await orchestrateReady('T900', TEST_ROOT)).data as {
+      readyTasks: Array<{ id: string }>;
+      admission: Admission;
+    };
+    expect(after.admission.agentBudget).toBe(2);
+    expect(after.admission.inFlight).toEqual(['T903']);
+    expect(after.admission.admitted.sort()).toEqual(['T901', 'T902']);
+    expect(after.admission.deferred).toEqual([]);
+    expect(after.readyTasks.map((t) => t.id)).not.toContain('T903');
+
+    // The session ends: its lease frees the slot.
+    const { releaseAgentLeasesForSession } = await import('../../resources/agent-lease.js');
+    releaseAgentLeasesForSession('ses_spawned_t903');
+    expect(
+      ((await orchestrateReady('T900', TEST_ROOT)).data as { admission: Admission }).admission
+        .agentBudget,
+    ).toBe(3);
+  });
+
+  it('a packet spawn with no lease available is refused as retryable before any claim', async () => {
+    const { writeAgentLease } = await import('../../resources/agent-lease.js');
+    for (const id of ['a', 'b', 'c']) {
+      writeAgentLease({
+        id,
+        taskId: 'TX',
+        projectRoot: TEST_ROOT,
+        sessionId: `ses_${id}`,
+        takenAtMs: Date.now(),
+        expiresAtMs: Date.now() + 3_600_000,
+      });
+    }
+    const result = await orchestrateSpawn('T901', undefined, TEST_ROOT, 0, true);
+    expect(result.success).toBe(false);
+    if (result.success) throw new Error('expected a deferral');
+    expect(result.error.code).toBe('E_RESOURCE_DEFERRED');
+    const { getTaskAccessor } = await import('../../store/data-accessor.js');
+    expect(
+      (await (await getTaskAccessor(TEST_ROOT)).loadSingleTask('T901'))?.claim,
+    ).toBeUndefined();
   });
 });
