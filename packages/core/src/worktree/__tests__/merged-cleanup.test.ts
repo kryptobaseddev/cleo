@@ -7,6 +7,7 @@
 
 import { execFileSync } from 'node:child_process';
 import {
+  chmodSync,
   cpSync,
   existsSync,
   mkdirSync,
@@ -41,6 +42,7 @@ vi.mock('@cleocode/worktree', async (importOriginal) => {
 });
 
 const { cleanupMergedWork } = await import('../merged-cleanup.js');
+const { isRegenerable, unprovenContent } = await import('../prune.js');
 const { computeProjectHash, resolveWorktreeRootForHash } = await import('@cleocode/paths');
 
 let tmp: string;
@@ -200,13 +202,38 @@ describe('cleanupMergedWork', () => {
     expect(existsSync(join(agent, 'work-in-progress.txt'))).toBe(true);
   });
 
+  it("keeps a redundant copy inside an active task's worktree: task active", async () => {
+    const host = join(wtRoot, 'T36');
+    git(project, 'worktree', 'add', '-q', host, 'origin/main');
+    const copy = join(host, 'copy');
+    cpSync(project, copy, { recursive: true });
+    openTasks.add('T36');
+    const named = await cleanupMergedWork(
+      { projectRoot: project, taskIds: ['T36'], dryRun: false },
+      noOpenPrs,
+    );
+    expect(named.nestedCopies).toMatchObject([
+      { target: copy, taskId: 'T36', removed: false, reason: 'task active' },
+    ]);
+    // Out of the named scope is not entered either.
+    openTasks.delete('T36');
+    const other = await cleanupMergedWork(
+      { projectRoot: project, taskIds: ['T99'], dryRun: false },
+      noOpenPrs,
+    );
+    expect(other.nestedCopies).toMatchObject([
+      { target: copy, removed: false, reason: 'task active' },
+    ]);
+    expect(existsSync(copy)).toBe(true);
+  });
+
   it('never follows a symlink out of the worktree root', async () => {
     symlinkSync(project, join(wtRoot, 'escape'));
-    const host = join(wtRoot, 'wave-b');
+    const host = join(wtRoot, 'T31');
     git(project, 'worktree', 'add', '-q', host, 'origin/main');
     symlinkSync(project, join(host, 'scratch'));
     const r = await cleanupMergedWork(
-      { projectRoot: project, taskIds: [], dryRun: false },
+      { projectRoot: project, taskIds: ['T31'], dryRun: false },
       noOpenPrs,
     );
     expect(r.nestedCopies).toEqual([]);
@@ -215,7 +242,7 @@ describe('cleanupMergedWork', () => {
   });
 
   it('keeps a nested copy whose only extra commit is on a tag, or only in its HEAD reflog', async () => {
-    const host = join(wtRoot, 'wave-c');
+    const host = join(wtRoot, 'T32');
     git(project, 'worktree', 'add', '-q', host, 'origin/main');
     const tagged = join(host, 'tagged');
     const reflogged = join(host, 'reflogged');
@@ -227,7 +254,7 @@ describe('cleanupMergedWork', () => {
     git(tagged, 'reset', '-q', '--hard', 'HEAD~1');
     git(reflogged, 'reset', '-q', '--hard', 'HEAD~1');
     const r = await cleanupMergedWork(
-      { projectRoot: project, taskIds: [], dryRun: false },
+      { projectRoot: project, taskIds: ['T32'], dryRun: false },
       noOpenPrs,
     );
     const reasons = Object.fromEntries(r.nestedCopies.map((n) => [n.target, n.reason]));
@@ -318,7 +345,7 @@ describe('cleanupMergedWork', () => {
   });
 
   it('removes a redundant nested repo copy and keeps one holding an unpushed commit, reporting bytes', async () => {
-    const host = join(wtRoot, 'wave-a');
+    const host = join(wtRoot, 'T33');
     git(project, 'worktree', 'add', '-q', host, 'origin/main');
     const redundant = join(host, 'copy-a');
     const unpushed = join(host, 'nested', 'copy-b');
@@ -329,7 +356,7 @@ describe('cleanupMergedWork', () => {
     git(unpushed, 'commit', '-q', '-m', 'local only');
 
     const r = await cleanupMergedWork(
-      { projectRoot: project, taskIds: [], dryRun: false },
+      { projectRoot: project, taskIds: ['T33'], dryRun: false },
       noOpenPrs,
     );
     const byPath = Object.fromEntries(r.nestedCopies.map((n) => [n.target, n]));
@@ -342,5 +369,144 @@ describe('cleanupMergedWork', () => {
     expect(existsSync(redundant)).toBe(false);
     expect(existsSync(unpushed)).toBe(true);
     expect(r.bytesReclaimed).toBe(byPath[redundant]?.bytes);
+  });
+});
+
+describe('T14146: regenerable output, bounded comparison, strict copies', () => {
+  function ignore(patterns: string): void {
+    writeFileSync(join(project, '.gitignore'), patterns);
+    git(project, 'add', '.gitignore');
+    git(project, 'commit', '-q', '-m', 'ignore');
+    git(project, 'push', '-q', 'origin', 'main');
+  }
+
+  it('removes a merged worktree whose only extra content is rebuildable output', async () => {
+    ignore('dist/\n*.tsbuildinfo\n.turbo/\ncoverage/\n.env\n');
+    const path = taskWorktree('T20');
+    mergeTask('T20');
+    mkdirSync(join(path, 'packages', 'a', 'dist'), { recursive: true });
+    writeFileSync(join(path, 'packages', 'a', 'dist', 'index.js'), 'built');
+    writeFileSync(join(path, 'tsconfig.tsbuildinfo'), '{}');
+    mkdirSync(join(path, 'coverage'));
+    writeFileSync(join(path, 'coverage', 'lcov.info'), 'x');
+    const r = await cleanupMergedWork(
+      { projectRoot: project, taskIds: ['T20'], dryRun: false },
+      noOpenPrs,
+    );
+    expect(r.worktrees).toMatchObject([{ taskId: 'T20', removed: true }]);
+    expect(existsSync(path)).toBe(false);
+  });
+
+  it('counts build output only where the build writes it', () => {
+    for (const rel of [
+      'dist',
+      'dist/index.js',
+      '.turbo',
+      'coverage/lcov.info',
+      'tsconfig.tsbuildinfo',
+      'packages/core/dist',
+      'packages/core/dist/x/y.js',
+      'packages/core/tsconfig.tsbuildinfo',
+    ]) {
+      expect(isRegenerable(rel), rel).toBe(true);
+    }
+    for (const rel of [
+      'secrets/dist/key.pem',
+      'packages/core/src/dist/x.js',
+      'notes/coverage',
+      'packages/dist',
+      'packages/core/src/a.tsbuildinfo',
+      'packages',
+    ]) {
+      expect(isRegenerable(rel), rel).toBe(false);
+    }
+  });
+
+  it('still keeps an edited .env beside rebuildable output', async () => {
+    ignore('dist/\n.env\n');
+    const path = taskWorktree('T21');
+    mergeTask('T21');
+    mkdirSync(join(path, 'dist'));
+    writeFileSync(join(path, 'dist', 'x.js'), 'built');
+    writeFileSync(join(path, '.env'), 'SECRET=only-here');
+    const r = await cleanupMergedWork(
+      { projectRoot: project, taskIds: ['T21'], dryRun: false },
+      noOpenPrs,
+    );
+    expect(r.worktrees).toMatchObject([
+      { removed: false, reason: 'ignored content not in the main checkout: .env' },
+    ]);
+  });
+
+  it('gives a nested repository copy no node_modules or build-output exemption', async () => {
+    ignore('node_modules/\ndist/\n');
+    const host = join(wtRoot, 'T34');
+    git(project, 'worktree', 'add', '-q', host, 'origin/main');
+    const copy = join(host, 'copy');
+    cpSync(project, copy, { recursive: true });
+    mkdirSync(join(copy, 'node_modules', 'pkg'), { recursive: true });
+    writeFileSync(join(copy, 'node_modules', 'pkg', 'patched.js'), 'local patch');
+    const r = await cleanupMergedWork(
+      { projectRoot: project, taskIds: ['T34'], dryRun: false },
+      noOpenPrs,
+    );
+    expect(r.nestedCopies).toMatchObject([
+      {
+        target: copy,
+        removed: false,
+        reason: 'ignored content not in the main checkout: node_modules',
+      },
+    ]);
+    expect(existsSync(copy)).toBe(true);
+  });
+
+  it('keeps a nested copy whose extra commit lives only in a branch reflog', async () => {
+    const host = join(wtRoot, 'T35');
+    git(project, 'worktree', 'add', '-q', host, 'origin/main');
+    const copy = join(host, 'copy');
+    cpSync(project, copy, { recursive: true });
+    const tip = git(copy, 'rev-parse', 'HEAD');
+    const extra = git(copy, 'commit-tree', `${tip}^{tree}`, '-p', tip, '-m', 'branch-only');
+    git(copy, 'update-ref', '-m', 'move', 'refs/heads/side', extra);
+    git(copy, 'update-ref', '-m', 'back', 'refs/heads/side', tip);
+    const r = await cleanupMergedWork(
+      { projectRoot: project, taskIds: ['T35'], dryRun: false },
+      noOpenPrs,
+    );
+    expect(r.nestedCopies).toMatchObject([
+      { target: copy, removed: false, reason: 'holds commits not on origin' },
+    ]);
+  });
+
+  it('re-checks right before removal: content written after the first check keeps it', async () => {
+    const path = taskWorktree('T22');
+    mergeTask('T22');
+    const r = await cleanupMergedWork(
+      { projectRoot: project, taskIds: ['T22'], dryRun: false },
+      { ...noOpenPrs, beforeRemove: (p) => writeFileSync(join(p, 'late.txt'), 'written mid-run') },
+    );
+    expect(r.worktrees).toMatchObject([
+      { removed: false, reason: 'changed during cleanup: uncommitted or untracked changes' },
+    ]);
+    expect(existsSync(join(path, 'late.txt'))).toBe(true);
+  });
+
+  it('a spent budget or an unreadable directory is unproven, never a thrown run', () => {
+    ignore('.env\nseeded/\n');
+    mkdirSync(join(project, 'seeded'));
+    writeFileSync(join(project, 'seeded', 'a.txt'), 'same');
+    const path = taskWorktree('T23');
+    mkdirSync(join(path, 'seeded'));
+    writeFileSync(join(path, 'seeded', 'a.txt'), 'same');
+    expect(unprovenContent(path, project)).toBeNull();
+    expect(unprovenContent(path, project, { budget: { entries: 1, bytes: 1 << 30 } })).toBe(
+      'ignored content not in the main checkout: seeded',
+    );
+    chmodSync(join(path, 'seeded'), 0o000);
+    try {
+      expect(unprovenContent(path, project)).not.toBeNull();
+    } finally {
+      chmodSync(join(path, 'seeded'), 0o755);
+    }
   });
 });
