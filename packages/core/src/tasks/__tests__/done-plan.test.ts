@@ -63,8 +63,8 @@ import {
   parseEvidence,
   validateAtom,
 } from '../evidence.js';
-import { executableInvocation } from '../gate-runner.js';
 import { previewTaskGates } from '../gate-preview.js';
+import { executableInvocation } from '../gate-runner.js';
 import { gateStaleness } from '../gate-staleness.js';
 import { reqAdd } from '../req.js';
 import { captureTreeHash, runToolCached } from '../tool-cache.js';
