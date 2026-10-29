@@ -12,7 +12,15 @@
  * @task T14133
  */
 
-import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import {
+  existsSync,
+  mkdirSync,
+  readdirSync,
+  readFileSync,
+  renameSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs';
 import { join } from 'node:path';
 import { getCleoHome } from '../paths.js';
 
@@ -31,6 +39,12 @@ export interface AgentSessionLease {
   /** When it lapses unless renewed (epoch ms). */
   readonly expiresAtMs: number;
 }
+
+/**
+ * The longest a lease lives from when it was taken, however often it is
+ * renewed: a clock jump or a stuck heartbeat cannot hold a slot forever.
+ */
+export const AGENT_LEASE_MAX_LIFETIME_MS = 24 * 60 * 60_000;
 
 /** Where leases live: beside the `agent-session` slot locks, machine-wide. */
 export function agentLeaseDir(): string {
@@ -79,7 +93,8 @@ function readLeases(): AgentSessionLease[] {
 export function liveAgentLeases(nowMs: number = Date.now()): AgentSessionLease[] {
   const live: AgentSessionLease[] = [];
   for (const lease of readLeases()) {
-    if (lease.expiresAtMs > nowMs) live.push(lease);
+    const capped = Math.min(lease.expiresAtMs, lease.takenAtMs + AGENT_LEASE_MAX_LIFETIME_MS);
+    if (capped > nowMs) live.push(lease);
     else rmSync(leasePath(lease.id), { force: true });
   }
   return live;
@@ -92,7 +107,10 @@ export function liveAgentLeases(nowMs: number = Date.now()): AgentSessionLease[]
  */
 export function writeAgentLease(lease: AgentSessionLease): void {
   mkdirSync(agentLeaseDir(), { recursive: true });
-  writeFileSync(leasePath(lease.id), `${JSON.stringify(lease)}\n`);
+  // Tmp then rename: a reader never sees a torn lease.
+  const tmp = `${leasePath(lease.id)}.${process.pid}.tmp`;
+  writeFileSync(tmp, `${JSON.stringify(lease)}\n`);
+  renameSync(tmp, leasePath(lease.id));
 }
 
 /**
@@ -122,6 +140,23 @@ export function releaseAgentLeasesForSession(sessionId: string): number {
 }
 
 /**
+ * The one hook every session-status writer calls (T14133): a session that is
+ * no longer active gives back the leases it holds, whichever path ended it
+ * (`cleo session end`, safestop, auto-end, the SDK).
+ *
+ * @param sessionId - The session written.
+ * @param status - Its new status.
+ */
+export function onSessionStatusWritten(sessionId: string, status: string): void {
+  if (status === 'active') return;
+  try {
+    releaseAgentLeasesForSession(sessionId);
+  } catch {
+    // Best-effort: an unreleased lease lapses with its TTL.
+  }
+}
+
+/**
  * Extend every live lease a session holds to `expiresAtMs` (its activity
  * heartbeat, with the claim lease).
  *
@@ -132,8 +167,9 @@ export function releaseAgentLeasesForSession(sessionId: string): number {
 export function renewAgentLeasesForSession(sessionId: string, expiresAtMs: number): number {
   let renewed = 0;
   for (const lease of liveAgentLeases()) {
-    if (lease.sessionId !== sessionId || lease.expiresAtMs >= expiresAtMs) continue;
-    writeAgentLease({ ...lease, expiresAtMs });
+    const capped = Math.min(expiresAtMs, lease.takenAtMs + AGENT_LEASE_MAX_LIFETIME_MS);
+    if (lease.sessionId !== sessionId || lease.expiresAtMs >= capped) continue;
+    writeAgentLease({ ...lease, expiresAtMs: capped });
     renewed++;
   }
   return renewed;

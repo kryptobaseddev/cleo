@@ -352,9 +352,10 @@ export async function admitFailOpen(
 
 /**
  * Take an `agent-session` lease for a packet spawn (T14133). A slot is
- * acquired, the lease written while it is held, and the slot released, so a
- * concurrent acquirer sees one or the other and the budget is never
- * over-committed. Call it before any claim or worktree exists.
+ * acquired as the write guard, the live leases are counted again while it is
+ * held (another spawn may have written one since the budget was computed),
+ * the lease is written only when that count is still under the budget, and
+ * the slot is released. Call it before any claim or worktree exists.
  *
  * A task that already holds a live lease (a `--resume`, or a re-spawn of a
  * task still being worked) reuses it, renewed: it never takes a second slot,
@@ -363,6 +364,7 @@ export async function admitFailOpen(
  * @param taskId - The task being spawned.
  * @param projectRoot - Its project.
  * @param ttlMs - How long the lease lasts unless renewed (the claim lease length).
+ * @param opts - Budget inputs (tests inject a pressure sample and host size).
  * @returns The lease and whether it was reused (`lease: null` when the
  *   governor is ungated or cannot write its state: the spawn proceeds
  *   ungoverned), or the deferral to return as a retryable refusal.
@@ -371,6 +373,7 @@ export async function takeAgentSessionLease(
   taskId: string,
   projectRoot: string,
   ttlMs: number,
+  opts: AcquireOptions = {},
 ): Promise<
   | { readonly lease: AgentSessionLease | null; readonly reused: boolean }
   | { readonly deferral: ResourceDeferral }
@@ -381,13 +384,25 @@ export async function takeAgentSessionLease(
     writeAgentLease(renewed);
     return { lease: renewed, reused: true };
   }
+  const sample = opts.sample ?? (await (opts.monitor ?? new ResourceMonitor()).sample());
   const { admission, ungoverned } = await admitFailOpen('agent-session', () =>
-    governor.tryAcquire('agent-session'),
+    governor.tryAcquire('agent-session', { ...opts, sample }),
   );
   if (admission.deferred) return { deferral: admission };
   try {
     if (ungoverned !== null || resolveGovernorMode() === 'off')
       return { lease: null, reused: false };
+    const budget = computeClassBudget('agent-session', sample, opts);
+    const leases = liveAgentLeases().length;
+    if (Number.isFinite(budget) && leases >= budget) {
+      return {
+        deferral: deferral(
+          'agent-session',
+          `class 'agent-session' is at capacity: ${leases} spawned session lease(s) hold the budget of ${budget}`,
+          DEFAULT_RESOURCE_RETRY_AFTER_MS,
+        ),
+      };
+    }
     const now = Date.now();
     const lease: AgentSessionLease = {
       id: randomUUID(),

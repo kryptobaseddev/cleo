@@ -11,8 +11,10 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
+  AGENT_LEASE_MAX_LIFETIME_MS,
   type AgentSessionLease,
   liveAgentLeases,
+  onSessionStatusWritten,
   releaseAgentLease,
   releaseAgentLeasesForSession,
   renewAgentLeasesForSession,
@@ -103,22 +105,15 @@ describe('agent-session leases (T14133)', () => {
     for (const id of ['x', 'y', 'z']) writeAgentLease(lease({ id }));
     const g = new ResourceGovernor();
     expect(await g.available('agent-session', OPTS)).toBe(0);
-    const spy = vi.spyOn(ResourceGovernor.prototype, 'tryAcquire').mockImplementation(function (
-      this: ResourceGovernor,
-      cls,
-    ) {
-      return this.acquire(cls, { ...OPTS, blocking: false });
-    });
-    const taken = await takeAgentSessionLease('T1', '/p', 60_000);
+    const taken = await takeAgentSessionLease('T1', '/p', 60_000, OPTS);
     expect('deferral' in taken && taken.deferral.reason).toMatch(
       /3 spawned session lease\(s\) hold the budget of 3/,
     );
     expect(liveAgentLeases()).toHaveLength(3);
     releaseAgentLease('z');
-    const second = await takeAgentSessionLease('T1', '/p', 60_000);
+    const second = await takeAgentSessionLease('T1', '/p', 60_000, OPTS);
     expect('lease' in second && second.lease?.taskId).toBe('T1');
     expect(liveAgentLeases()).toHaveLength(3);
-    spy.mockRestore();
   });
 
   it("a resume reuses its task's live lease: no second slot, never refused by its own lease", async () => {
@@ -128,21 +123,45 @@ describe('agent-session leases (T14133)', () => {
     writeAgentLease(lease({ id: 'other2', taskId: 'T2295', sessionId: 'ses_3' }));
     const g = new ResourceGovernor();
     expect(await g.available('agent-session', OPTS)).toBe(0); // the budget of 3 is full
-    const taken = await takeAgentSessionLease('T2374', '/p', 60_000);
+    const taken = await takeAgentSessionLease('T2374', '/p', 60_000, OPTS);
     if (!('lease' in taken)) throw new Error(`refused: ${taken.deferral.reason}`);
     expect(taken.reused).toBe(true);
     expect(taken.lease?.id).toBe('mine');
     expect(taken.lease?.expiresAtMs).toBeGreaterThanOrEqual(now + 60_000);
     expect(liveAgentLeases()).toHaveLength(3);
     // The same task in another project is a different spawn, refused while full.
-    vi.spyOn(ResourceGovernor.prototype, 'tryAcquire').mockImplementation(function (
-      this: ResourceGovernor,
-      cls,
-    ) {
-      return this.acquire(cls, { ...OPTS, blocking: false });
-    });
-    const elsewhere = await takeAgentSessionLease('T2374', '/other', 60_000);
+    const elsewhere = await takeAgentSessionLease('T2374', '/other', 60_000, OPTS);
     expect('deferral' in elsewhere).toBe(true);
-    vi.restoreAllMocks();
+  });
+
+  it('two concurrent takes on the one free slot: exactly one lease is written', async () => {
+    writeAgentLease(lease({ id: 'a', taskId: 'TA' }));
+    writeAgentLease(lease({ id: 'b', taskId: 'TB' }));
+    const [one, two] = await Promise.all([
+      takeAgentSessionLease('T1', '/p', 60_000, OPTS),
+      takeAgentSessionLease('T2', '/p', 60_000, OPTS),
+    ]);
+    expect([one, two].filter((r) => 'lease' in r && r.lease !== null)).toHaveLength(1);
+    expect([one, two].filter((r) => 'deferral' in r)).toHaveLength(1);
+    expect(liveAgentLeases()).toHaveLength(3);
+  });
+
+  it('any session-status write that ends a session releases its leases; active keeps them', () => {
+    writeAgentLease(lease());
+    onSessionStatusWritten('ses_spawned', 'active');
+    expect(liveAgentLeases()).toHaveLength(1);
+    onSessionStatusWritten('ses_spawned', 'ended');
+    expect(liveAgentLeases()).toEqual([]);
+  });
+
+  it('a lease never outlives its hard cap, however it is renewed', () => {
+    const now = Date.now();
+    const taken = now - AGENT_LEASE_MAX_LIFETIME_MS + 1_000;
+    writeAgentLease(lease({ takenAtMs: taken, expiresAtMs: now + 1_000 }));
+    expect(renewAgentLeasesForSession('ses_spawned', now + 3_600_000)).toBe(0);
+    writeAgentLease(
+      lease({ takenAtMs: now - AGENT_LEASE_MAX_LIFETIME_MS - 1, expiresAtMs: now + 3_600_000 }),
+    );
+    expect(liveAgentLeases(now)).toEqual([]);
   });
 });

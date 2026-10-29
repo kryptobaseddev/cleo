@@ -22,6 +22,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import * as governorModule from '../../resources/governor.js';
+import { ResourceMonitor } from '../../resources/monitor.js';
 import { spawnRegistry } from '../../spawn/adapter-registry.js';
 import { computeAgentAdmission } from '../admission.js';
 import { orchestrateReady, orchestrateWaves } from '../query-ops.js';
@@ -268,6 +269,8 @@ describe('a spawned task is in flight and its lease holds a slot (T14133)', () =
     vi.spyOn(g, 'tryAcquire').mockImplementation((cls) =>
       real.acquire.call(g, cls, { ...OPTS, blocking: false }),
     );
+    // The spawn path samples the host itself: give it the same calm sample.
+    vi.spyOn(ResourceMonitor.prototype, 'sample').mockResolvedValue(OPTS.sample);
   });
   afterEach(() => {
     governorModule._resetGovernorStateForTest();
@@ -288,7 +291,7 @@ describe('a spawned task is in flight and its lease holds a slot (T14133)', () =
     expect(before.admission.admitted.sort()).toEqual(['T901', 'T902', 'T903']);
 
     // What a packet spawn of T903 does: lease a slot, then claim for its session.
-    const taken = await governorModule.takeAgentSessionLease('T903', TEST_ROOT, 3_600_000);
+    const taken = await governorModule.takeAgentSessionLease('T903', TEST_ROOT, 3_600_000, OPTS);
     if (!('lease' in taken) || taken.lease === null) throw new Error('expected a lease');
     const { writeAgentLease } = await import('../../resources/agent-lease.js');
     writeAgentLease({ ...taken.lease, sessionId: 'ses_spawned_t903' });
@@ -338,5 +341,143 @@ describe('a spawned task is in flight and its lease holds a slot (T14133)', () =
     expect(
       (await (await getTaskAccessor(TEST_ROOT)).loadSingleTask('T901'))?.claim,
     ).toBeUndefined();
+  });
+
+  const leaseFor = (taskId: string, sessionId: string | null, id = `lease-${taskId}`) => ({
+    id,
+    taskId,
+    projectRoot: TEST_ROOT,
+    sessionId,
+    takenAtMs: Date.now(),
+    expiresAtMs: Date.now() + 3_600_000,
+  });
+
+  const activeSession = (id: string) => {
+    const now = new Date().toISOString();
+    return {
+      id,
+      name: 'spawned',
+      status: 'active' as const,
+      scope: { type: 'global' as const },
+      taskWork: { taskId: null, setAt: null },
+      startedAt: now,
+      lastActivity: now,
+    };
+  };
+
+  it("`cleo session end` (sessionEnd) releases the ended session's lease", async () => {
+    const { writeAgentLease, liveAgentLeases } = await import('../../resources/agent-lease.js');
+    const { getTaskAccessor } = await import('../../store/data-accessor.js');
+    await (await getTaskAccessor(TEST_ROOT)).upsertSingleSession(
+      activeSession('ses_20261028000000_e1e1e1'),
+    );
+    writeAgentLease(leaseFor('T902', 'ses_20261028000000_e1e1e1'));
+    const { sessionEnd } = await import('../../session/engine-ops.js');
+    const ended = await sessionEnd(TEST_ROOT, 'done', {
+      sessionId: 'ses_20261028000000_e1e1e1',
+    });
+    expect(ended.success).toBe(true);
+    expect(liveAgentLeases()).toEqual([]);
+  });
+
+  it('a heartbeat on an ended session does not renew its lease', async () => {
+    const { writeAgentLease, liveAgentLeases } = await import('../../resources/agent-lease.js');
+    const { getTaskAccessor } = await import('../../store/data-accessor.js');
+    const accessor = await getTaskAccessor(TEST_ROOT);
+    const session = activeSession('ses_20261028000000_e2e2e2');
+    await accessor.upsertSingleSession(session);
+    const { heartbeatProjectSession } = await import('../../task-work/claims.js');
+    const soon = Date.now() + 60_000;
+    writeAgentLease({ ...leaseFor('T902', session.id), expiresAtMs: soon });
+    await heartbeatProjectSession(TEST_ROOT, session.id);
+    expect(liveAgentLeases()[0]?.expiresAtMs).toBeGreaterThan(soon); // active: renewed
+    await accessor.upsertSingleSession({ ...session, status: 'ended', endedAt: session.startedAt });
+    // A lease written back after the end (a race) is never renewed: it lapses.
+    writeAgentLease({ ...leaseFor('T902', session.id), expiresAtMs: soon });
+    await heartbeatProjectSession(TEST_ROOT, session.id);
+    expect(liveAgentLeases()[0]?.expiresAtMs).toBe(soon);
+  });
+
+  it('a failed spawn releases a new lease but keeps a reused one', async () => {
+    const { writeAgentLease, liveAgentLeases } = await import('../../resources/agent-lease.js');
+    // --resume with no worktree fails after the lease is taken.
+    const fresh = await orchestrateSpawn(
+      'T901',
+      undefined,
+      TEST_ROOT,
+      0,
+      false,
+      undefined,
+      undefined,
+      true,
+    );
+    expect(fresh.success).toBe(false);
+    expect(liveAgentLeases()).toEqual([]);
+    writeAgentLease(leaseFor('T902', 'ses_working'));
+    const resumed = await orchestrateSpawn(
+      'T902',
+      undefined,
+      TEST_ROOT,
+      0,
+      false,
+      undefined,
+      undefined,
+      true,
+    );
+    expect(resumed.success).toBe(false);
+    expect(liveAgentLeases()).toEqual([
+      expect.objectContaining({ taskId: 'T902', sessionId: 'ses_working' }),
+    ]);
+  });
+
+  it('an expired claim stops counting in flight, on the epic and the saga path', async () => {
+    const { createTask } = await import('@cleocode/core/internal');
+    const base = {
+      status: 'active',
+      priority: 'high',
+      createdAt: '2026-01-01T00:00:00Z',
+      updatedAt: null,
+    };
+    for (const task of [
+      { ...base, id: 'T950', title: 'Saga', description: 'A saga', type: 'saga' },
+      {
+        ...base,
+        id: 'T960',
+        title: 'Member epic',
+        description: 'Saga member',
+        type: 'epic',
+        parentId: 'T950',
+      },
+      {
+        ...base,
+        id: 'T961',
+        title: 'Saga child',
+        description: 'Ready saga child',
+        type: 'task',
+        status: 'pending',
+        priority: 'medium',
+        parentId: 'T960',
+        files: ['packages/core/src/t961-placeholder.ts'],
+      },
+    ]) {
+      await createTask(task as Parameters<typeof createTask>[0], TEST_ROOT);
+    }
+    const { getTaskAccessor } = await import('../../store/data-accessor.js');
+    const accessor = await getTaskAccessor(TEST_ROOT);
+    const inFlight = async (id: string) =>
+      ((await orchestrateReady(id, TEST_ROOT)).data as { admission: Admission }).admission.inFlight;
+    await accessor.claimTask('T901', { sessionId: 'ses_a', agentId: null, mode: 'acquire' });
+    await accessor.claimTask('T961', { sessionId: 'ses_b', agentId: null, mode: 'acquire' });
+    expect(await inFlight('T900')).toEqual(['T901']);
+    expect(await inFlight('T950')).toEqual(['T961']);
+    // The claims lapse: an expired claim is no longer in flight.
+    for (const [taskId, sessionId] of [
+      ['T901', 'ses_a'],
+      ['T961', 'ses_b'],
+    ] as const) {
+      await accessor.claimTask(taskId, { sessionId, agentId: null, mode: 'renew', leaseMs: -1 });
+    }
+    expect(await inFlight('T900')).toEqual([]);
+    expect(await inFlight('T950')).toEqual([]);
   });
 });

@@ -395,13 +395,6 @@ export async function endSession(projectRoot: string, params: SessionEndParams):
 
   session.status = 'ended';
   session.endedAt = new Date().toISOString();
-  // T14133: a spawned session's end frees the agent-session slot its spawn leased.
-  try {
-    const { releaseAgentLeasesForSession } = await import('../resources/agent-lease.js');
-    releaseAgentLeasesForSession(session.id);
-  } catch {
-    // Best-effort: an unreleased lease lapses with its TTL.
-  }
 
   const duration = Math.floor((Date.now() - new Date(session.startedAt).getTime()) / 1000);
 

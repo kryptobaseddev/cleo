@@ -1493,11 +1493,7 @@ export async function orchestrateSpawn(
     }
     spawnClaim = { root, resolution: spawnSession };
     const activeSessionId = spawnSession.identity.sessionId;
-    if (spawnLease !== null) {
-      // The lease ends with this session (its end or heartbeat finds it by id).
-      spawnLease = { ...spawnLease, sessionId: activeSessionId };
-      writeAgentLease(spawnLease);
-    }
+
     const spawnAgentId = spawnSession.identity.agentId;
 
     // T1140 — Worktree provisioning (SDK-first per D023 / ADR-055).
@@ -1814,6 +1810,11 @@ export async function orchestrateSpawn(
     // Return shape: `prompt` at the top level is the primary payload every
     // caller should consume. `atomicity` + `meta` surface the T932 composer
     // guarantees. `spawnContext` mirrors the prompt for legacy readers.
+    if (spawnLease !== null) {
+      // T14133: on success the lease ends with this session (its end or its
+      // heartbeat finds it by id). A failed spawn never re-tags a reused lease.
+      writeAgentLease({ ...spawnLease, sessionId: activeSessionId });
+    }
     spawnSucceeded = true;
     return {
       success: true,

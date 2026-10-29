@@ -16,6 +16,7 @@ import { ExitCode } from '@cleocode/contracts/exit-codes.js';
 import { and, desc, eq, inArray, isNotNull, isNull, lte, notLike, or } from 'drizzle-orm';
 import { CleoError } from '../errors.js';
 import { captureProjectScope, getProjectRoot, worktreeScope } from '../project-scope.js';
+import { onSessionStatusWritten } from '../resources/agent-lease.js';
 import { getCurrentConnectionSessionId } from '../sessions/connection-session-handle.js';
 import { resolveSessionIdFromEnv } from '../sessions/session-id.js';
 import { resolveTerminalKeys, type TerminalKey } from '../sessions/terminal-identity.js';
@@ -228,6 +229,8 @@ export async function updateSession(
     if (updates.handoffJson !== undefined) updateRow.handoffJson = updates.handoffJson;
 
     db.update(schema.sessions).set(updateRow).where(eq(schema.sessions.id, sessionId)).run();
+    // T14133: a session that ended gives back its spawn's agent-session lease.
+    if (updates.status !== undefined) onSessionStatusWritten(sessionId, updates.status);
 
     return getSession(sessionId, scope.worktreeRoot);
   });
