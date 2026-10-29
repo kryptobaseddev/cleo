@@ -1,7 +1,7 @@
 ---
 name: ct-task-executor
 description: General implementation task execution for completing assigned CLEO tasks by following instructions and producing concrete deliverables. Handles coding, configuration, documentation work with quality verification against acceptance criteria and progress reporting. Use when executing implementation tasks, completing assigned work, or producing task deliverables. Triggers on implementation tasks, general execution needs, or task completion work.
-version: 2.8.10
+version: 2.8.11
 protocol: implementation
 adrRefs:
   - ADR-070
@@ -17,7 +17,7 @@ compatibility:
   - gemini-cli
 license: MIT
 metadata:
-  version: 2.8.10
+  version: 2.8.11
   tier: core
   install: harness
   covers:
@@ -29,7 +29,7 @@ metadata:
     - packages/core/src/validation/protocols/cant/implementation.cant
     - packages/core/src/validation/protocols/protocols-markdown/implementation.md
   loomStage: implementation
-  lastReviewed: 2026-10-27
+  lastReviewed: 2026-10-28
   stability: stable
 ---
 
@@ -103,6 +103,7 @@ Context injection for implementation tasks spawned via cleo-subagent. Provides d
 3. Execute instructions (see Methodology below)
 4. Verify deliverables against acceptance criteria
 5. Record output: `cleo docs add {{TASK_ID}} --content - --type note --slug {{TOPIC_SLUG}}`
+   - Update before create (T14109): when a doc on the topic exists, `cleo docs update <slug>` it. `cleo docs add` refuses a likely duplicate with `E_DOC_DUPLICATE` and names the existing doc; pass `--new-because "<why>"` only for a truly new doc.
 6. Record the manifest entry: `cleo manifest append --task {{TASK_ID}} --type implementation --content "<one-paragraph summary>"`
 7. Complete task: `{{TASK_COMPLETE_CMD}} {{TASK_ID}}`
 8. Return summary message
