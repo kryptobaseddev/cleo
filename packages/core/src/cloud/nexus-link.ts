@@ -55,7 +55,7 @@ import {
 } from '@cleocode/contracts/nexus-cloud.js';
 import { type DeclaredProjectIdentity, readDeclaredProjectIdentity } from '@cleocode/paths';
 import { z } from 'zod';
-import { resolveCleoDir, resolveOrCwd } from '../paths.js';
+import { resolveOrCwd, resolveStoreCleoDir } from '../paths.js';
 import { getProjectDisplayName } from '../project-info.js';
 import { withLock } from '../store/file-utils.js';
 import { type FetchLike, Http, NexusError } from './http.js';
@@ -248,14 +248,14 @@ function resolveLinkLabel(projectRoot: string, explicit: string | undefined): st
 
 /**
  * Path of the binding file for a project: in the `.cleo/` its store lives in
- * (`resolveCleoDir`, the resolver the database uses), so under a `CLEO_DIR`
+ * (`resolveStoreCleoDir`: the resolver the database uses), so under a `CLEO_DIR`
  * pin the binding sits beside the pinned store (T14153).
  *
  * @param projectRoot - Project root.
  * @returns `<store .cleo>/nexus-link.json`.
  */
 export function nexusLinkPath(projectRoot: string): string {
-  return join(resolveCleoDir(projectRoot), NEXUS_LINK_FILE);
+  return join(resolveStoreCleoDir(projectRoot), NEXUS_LINK_FILE);
 }
 
 /**
@@ -271,7 +271,7 @@ export function nexusLinkPath(projectRoot: string): string {
  * @task T14153
  */
 export function nexusStoreIdentity(projectRoot: string): DeclaredProjectIdentity | null {
-  const cleoDir = resolveCleoDir(projectRoot);
+  const cleoDir = resolveStoreCleoDir(projectRoot);
   if (basename(cleoDir) !== '.cleo') return null;
   return readDeclaredProjectIdentity(dirname(cleoDir));
 }

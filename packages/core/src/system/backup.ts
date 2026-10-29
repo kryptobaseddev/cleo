@@ -70,7 +70,7 @@ import type { StoreRestoreResult } from '@cleocode/contracts';
 import { ExitCode } from '@cleocode/contracts/exit-codes.js';
 import { CleoError } from '../errors.js';
 import { getLogger } from '../logger.js';
-import { resolveCleoDir } from '../paths.js';
+import { resolveStoreCleoDir } from '../paths.js';
 import { formatBackupTimestamp, rotateBackupDir } from '../store/backup-sidecar.js';
 import {
   backupDocsBytes,
@@ -280,7 +280,7 @@ export async function createBackup(
     destination?: string;
   },
 ): Promise<BackupResult> {
-  const cleoDir = resolveCleoDir(projectRoot);
+  const cleoDir = resolveStoreCleoDir(projectRoot);
   const btype = opts?.type || 'snapshot';
   const now = new Date();
   const timestamp = now.toISOString();
@@ -559,7 +559,7 @@ function readSessionEndMisses(projectRoot: string): BackupEntry[] {
   let raw: string;
   try {
     raw = readFileSync(
-      join(resolveCleoDir(projectRoot), 'logs', 'session-end-snapshot.log'),
+      join(resolveStoreCleoDir(projectRoot), 'logs', 'session-end-snapshot.log'),
       'utf-8',
     );
   } catch {
@@ -698,7 +698,7 @@ function readMetaSidecarsFromDir(
  * @task T10315 — added canonical-dir scan + legacy-dir read fallthrough.
  */
 export function listSystemBackups(projectRoot: string): BackupEntry[] {
-  const cleoDir = resolveCleoDir(projectRoot);
+  const cleoDir = resolveStoreCleoDir(projectRoot);
   const legacyTypes = ['snapshot', 'safety', 'migration'] as const;
   const entries: BackupEntry[] = [];
 
@@ -1023,7 +1023,7 @@ export function restoreBackup(
   // T12680: from a worktree this overwrites the owning project's live store.
   assertRestoreTargetConfirmed(projectRoot, params);
 
-  const cleoDir = resolveCleoDir(projectRoot);
+  const cleoDir = resolveStoreCleoDir(projectRoot);
   // A CLEO_DIR pin can name another store than projectRoot's: guard the one written.
   if (cleoDir !== join(projectRoot, '.cleo')) {
     assertOwnerStoreRewriteConfirmed('restore', cleoDir, params);
@@ -1129,7 +1129,7 @@ export async function restoreBackupById(
   },
 ): Promise<BackupIdRestoreResult> {
   if (params.scope === 'global') return restoreGlobalBackupById(params);
-  const cleoDir = resolveCleoDir(projectRoot);
+  const cleoDir = resolveStoreCleoDir(projectRoot);
   const dirs = [
     join(cleoDir, 'backups', CANONICAL_BACKUP_SUBDIR),
     join(cleoDir, 'backups', LEGACY_BACKUP_SUBDIR),

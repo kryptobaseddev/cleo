@@ -845,6 +845,20 @@ export function tryResolveCleoDir(cwd?: string): string | null {
 }
 
 /**
+ * The `.cleo/` directory a project's store files live in: {@link resolveCleoDir}
+ * (so a `CLEO_DIR` pin wins), or `<projectRoot>/.cleo` outside any project, so
+ * callers that degrade gracefully there (device-only cloud status, the guided
+ * first run, `cleo backup list`) keep working instead of throwing.
+ *
+ * @param projectRoot - Project root (or any directory).
+ * @returns Absolute path of the `.cleo/` directory.
+ * @task T14153
+ */
+export function resolveStoreCleoDir(projectRoot: string): string {
+  return tryResolveCleoDir(projectRoot) ?? join(resolve(projectRoot), '.cleo');
+}
+
+/**
  * Internal: resolve the canonical `.cleo/` directory using the T10297
  * projectId-based resolution chain.
  *
