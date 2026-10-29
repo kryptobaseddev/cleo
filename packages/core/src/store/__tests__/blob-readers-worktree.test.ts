@@ -97,9 +97,9 @@ describe('T14134 — blob readers from a worktree', () => {
     const sha = seedBlob(parent, '# orphan legacy bytes also in the blob store\n', true);
     writeFileSync(join(parent, '.cleo', 'docs-publications.json'), '[]');
 
-    const fromRoot = await repairAttachmentStore({ cwd: parent, dryRun: true });
+    const fromRoot = await repairAttachmentStore({ cwd: parent, dryRun: true, gracePeriodMs: 0 });
     resetDbState();
-    const fromWorktree = await repairAttachmentStore({ cwd: worktree, dryRun: true });
+    const fromWorktree = await repairAttachmentStore({ cwd: worktree, dryRun: true, gracePeriodMs: 0 });
     const reasonFor = (r: Awaited<ReturnType<typeof repairAttachmentStore>>) =>
       r.actions.find((a) => 'sha256' in a && a.sha256 === sha && 'reason' in a)?.reason;
     expect(reasonFor(fromRoot)).toBe('Referenced in blobs/manifest.db');
