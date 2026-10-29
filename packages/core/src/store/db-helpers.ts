@@ -10,7 +10,7 @@
 import type { DatabaseSync } from 'node:sqlite';
 import type { ArchiveReasonValue, Session, Task, TaskInsertIdentity } from '@cleocode/contracts';
 import { ExitCode } from '@cleocode/contracts/exit-codes.js';
-import { and, eq, inArray, sql } from 'drizzle-orm';
+import { and, eq, getTableName, inArray, sql } from 'drizzle-orm';
 import type { NodeSQLiteDatabase } from 'drizzle-orm/node-sqlite';
 import { CleoError } from '../errors.js';
 import { getLogger } from '../logger.js';
@@ -448,7 +448,36 @@ export async function noteSessionStatusWritten(
 export async function flushEndedSessionLeases(native: DatabaseSync): Promise<void> {
   const pending = endedInOpenTransaction.get(native);
   endedInOpenTransaction.delete(native);
-  if (pending !== undefined && pending.size > 0) await releaseSessionLeases(pending);
+  if (pending === undefined || pending.size === 0) return;
+  // T14157: an inner savepoint that ended a session may have rolled back while
+  // the outer transaction committed; release only sessions whose committed row
+  // really ended.
+  const ended = committedEndedSessions(native, pending);
+  if (ended.size > 0) await releaseSessionLeases(ended);
+}
+
+/**
+ * The sessions among `sessionIds` whose committed row has a status that
+ * releases a lease (T14157). A read that fails keeps every lease: admission
+ * fails closed.
+ */
+function committedEndedSessions(
+  native: DatabaseSync,
+  sessionIds: ReadonlySet<string>,
+): Set<string> {
+  const ended = new Set<string>();
+  try {
+    const read = native.prepare(
+      `SELECT status FROM "${getTableName(schema.sessions)}" WHERE id = ?`,
+    );
+    for (const id of sessionIds) {
+      const status = (read.get(id) as { status?: unknown } | undefined)?.status;
+      if (typeof status === 'string' && LEASE_RELEASING_STATUSES.has(status)) ended.add(id);
+    }
+  } catch {
+    ended.clear();
+  }
+  return ended;
 }
 
 /**

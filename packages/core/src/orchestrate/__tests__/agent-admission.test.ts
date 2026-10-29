@@ -504,6 +504,26 @@ describe('a spawned task is in flight and its lease holds a slot (T14133)', () =
       expect(liveAgentLeases()).toEqual([]);
     });
 
+    it('a session ended in a rolled-back savepoint keeps its lease when the outer commits (T14157)', async () => {
+      const { writeAgentLease, liveAgentLeases } = await import('../../resources/agent-lease.js');
+      const { getTaskAccessor } = await import('../../store/data-accessor.js');
+      const accessor = await getTaskAccessor(TEST_ROOT);
+      const session = activeSession('ses_20261029000000_s1s1s1');
+      await accessor.upsertSingleSession(session);
+      writeAgentLease(leaseFor('T902', session.id));
+      await accessor.transaction(async () => {
+        await accessor
+          .transaction(async () => {
+            await accessor.upsertSingleSession({ ...session, status: 'ended' });
+            throw new Error('inner roll back');
+          })
+          .catch(() => {
+            // The savepoint rolled back; the outer transaction goes on and commits.
+          });
+      });
+      expect(liveAgentLeases()).toHaveLength(1);
+    });
+
     it('a bulk save ending N sessions reads the lease directory once', async () => {
       const leaseModule = await import('../../resources/agent-lease.js');
       const { getTaskAccessor } = await import('../../store/data-accessor.js');
