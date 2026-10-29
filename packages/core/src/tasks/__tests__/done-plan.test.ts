@@ -2194,9 +2194,17 @@ describe('done --plan reports a cached typed pass (T14138)', () => {
     return id;
   }
 
+  /** `cleo verify --run`, asserting it ran the gate green AND cached the pass (names why not). */
+  async function cachedRun(id: string): Promise<void> {
+    const preview = await previewTaskGates(root, { taskId: id });
+    const why = JSON.stringify({ results: preview.results, cache: preview.cache });
+    expect(preview.results.map((r) => r.result), why).toEqual(['pass']);
+    expect(preview.cache?.entries.map((e) => e.cached), why).toEqual([true]);
+  }
+
   it('a pass cached by cleo verify --run reads cached, with no not-run blocker; the plan writes nothing', async () => {
     const id = await typedTask();
-    await previewTaskGates(root, { taskId: id });
+    await cachedRun(id);
     const before = cacheEntries();
     expect(before.length).toBeGreaterThan(0);
     const plan = await deriveTaskEvidence(id, { projectRoot: root, cwd: root, deps });
@@ -2208,7 +2216,7 @@ describe('done --plan reports a cached typed pass (T14138)', () => {
 
   it('an environment change misses the cache and names what moved', async () => {
     const id = await typedTask();
-    await previewTaskGates(root, { taskId: id });
+    await cachedRun(id);
     const saved = process.env.LANG;
     process.env.LANG = 'xx_T14138.UTF-8';
     try {
