@@ -371,7 +371,10 @@ describe('typed requirement persistence', () => {
       await accessor.transaction(async (tx) => {
         await tx.upsertSingleTask({ ...task, acceptance: [...original, legacy] });
       });
-      expect((await reqList(root, 'T121', accessor)).gates).toEqual([legacy]);
+      const listed = (await reqList(root, 'T121', accessor)).gates;
+      expect(listed).toHaveLength(1);
+      expect(listed[0]).toMatchObject({ req: 'LEGACY-1', kind: 'command' });
+      expect((await accessor.loadSingleTask('T121'))!.acceptance).toContainEqual(legacy);
       const preview = await previewTaskGates(root, { taskId: 'T121' });
       expect(preview.results).toHaveLength(1);
       expect(preview.results[0]).toMatchObject({ req: 'LEGACY-1', result: 'error' });
