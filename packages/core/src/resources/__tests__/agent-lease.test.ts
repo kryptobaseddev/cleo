@@ -174,6 +174,12 @@ describe('agent-session leases (T14133)', () => {
     rmSync(gone, { recursive: true, force: true });
     expect(await g.available('agent-session', OPTS)).toBe(2);
     expect(liveAgentLeases().map((l) => l.id)).toEqual(['kept']);
+    // An empty or relative root cannot be checked: the lease is kept.
+    writeAgentLease(lease({ id: 'empty', projectRoot: '' }));
+    writeAgentLease(lease({ id: 'relative', projectRoot: 'no-such-relative-dir' }));
+    expect(liveAgentLeases().map((l) => l.id).sort()).toEqual(['empty', 'kept', 'relative']);
+    releaseAgentLease('empty');
+    releaseAgentLease('relative');
     // Only ENOENT is death: a root behind a permission error keeps its lease.
     const locked = mkdtempSync(join(tmpdir(), 'cleo-lease-locked-'));
     const inner = join(locked, 'project');

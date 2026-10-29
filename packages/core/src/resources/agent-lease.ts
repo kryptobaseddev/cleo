@@ -22,7 +22,7 @@ import {
   statSync,
   writeFileSync,
 } from 'node:fs';
-import { join } from 'node:path';
+import { isAbsolute, join } from 'node:path';
 // The leaf resolver, not core's paths module: this module is loaded by the
 // store's session writers, so it must add nothing to the CLI's read paths
 // (gate 39) and needs no dynamic import (which deadlocked `cleo session end`).
@@ -90,10 +90,13 @@ function readLeases(): AgentSessionLease[] {
 
 /**
  * Whether a lease's project root is gone (T14154): one `stat` at count time,
- * never cached. Only `ENOENT` counts: a permission error or an unreadable
- * mount keeps the lease, so admission fails closed.
+ * never cached. Only `ENOENT` on an absolute root counts: an empty or
+ * relative root (a legacy or hand-written lease) cannot be checked, and a
+ * permission error or an unreadable mount proves nothing, so those keep the
+ * lease and admission fails closed.
  */
 function projectRootGone(projectRoot: string): boolean {
+  if (projectRoot === '' || !isAbsolute(projectRoot)) return false;
   try {
     statSync(projectRoot);
     return false;
