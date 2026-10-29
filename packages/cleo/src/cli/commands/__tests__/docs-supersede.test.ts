@@ -233,6 +233,8 @@ describe('docs.supersede (T10162) — atomic lifecycle flip + lineage edge', () 
       slug: 'chain-v2',
       type: 'note',
       attachedBy: 'supersede-test',
+      // T14109: a successor is a new doc by design, and says so.
+      newBecause: 'successor in the supersession chain',
     });
     const addV3 = await handler.mutate('add', {
       ownerId: 'T104',
@@ -240,6 +242,8 @@ describe('docs.supersede (T10162) — atomic lifecycle flip + lineage edge', () 
       slug: 'chain-v3',
       type: 'note',
       attachedBy: 'supersede-test',
+      // T14109: a successor is a new doc by design, and says so.
+      newBecause: 'successor in the supersession chain',
     });
     const v2Id = (addV2.data as { attachmentId: string }).attachmentId;
     const v3Id = (addV3.data as { attachmentId: string }).attachmentId;

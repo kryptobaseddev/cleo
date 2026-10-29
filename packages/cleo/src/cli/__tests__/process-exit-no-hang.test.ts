@@ -234,8 +234,8 @@ describe.skipIf(!CLI_DIST_AVAILABLE)('T12217 — write commands leave no live ha
     const writes: ReadonlyArray<readonly string[]> = [
       ['session', 'start', '--scope', 'global', '--name', 'T12217 probe'],
       ['update', id, '--notes', 'T12217 probe note'],
-      ['docs', 'add', id, '--type', 'note', '--slug', 't12217-probe', '--content', '# probe'],
-      ['docs', 'update', 't12217-probe', '--content', '# probe, edited'],
+      ['docs', 'add', id, '--type', 'note', '--slug', 'probe', '--content', '# probe'],
+      ['docs', 'update', 'probe', '--content', '# probe, edited'],
       ['session', 'end', '--note', 'T12217 probe done'],
     ];
     for (const args of writes) {

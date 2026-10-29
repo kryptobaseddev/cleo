@@ -55,6 +55,9 @@ const GC_CRON_EXPR = '0 3 * * *';
 /** Interval for missed-run recovery check (24 hours in ms). */
 const GC_INTERVAL_MS = 24 * 60 * 60 * 1000;
 
+/** Cron expression for the merge sweep (T14101): every 5 minutes; it throttles itself. */
+const MERGE_SWEEP_CRON_EXPR = '*/5 * * * *';
+
 // ---------------------------------------------------------------------------
 // Context
 // ---------------------------------------------------------------------------
@@ -75,6 +78,8 @@ export interface GcSubsystemContext {
    * node-cron types.
    */
   readonly cronTask: { destroy: () => void };
+  /** The merge-sweep task (T14101): closes the tasks merged PRs name in the registered projects. */
+  readonly mergeSweepTask?: { destroy: () => void };
   /** Count of GC runs performed since subsystem start. */
   runs: number;
 }
@@ -188,10 +193,27 @@ export function createGcSubsystem(cleoDir: string): Subsystem<GcSubsystemContext
         },
       );
 
+      // T14101: the background path of the merge sweep. The daemon serves the
+      // global ~/.cleo, so it sweeps the registered projects that take merged
+      // CI as evidence, never this directory's parent ($HOME).
+      const mergeSweepTask = cron.schedule(
+        MERGE_SWEEP_CRON_EXPR,
+        async () => {
+          try {
+            const { sweepRegisteredProjects } = await import('../tasks/merge-close.js');
+            await sweepRegisteredProjects();
+          } catch {
+            // A failed sweep is retried on the next tick.
+          }
+        },
+        { timezone: 'UTC', noOverlap: true, name: 'cleo-merge-sweep' },
+      );
+
       const context: GcSubsystemContext = {
         pid: process.pid,
         startedAt: new Date().toISOString(),
         cronTask,
+        mergeSweepTask,
         runs,
       };
       live = context;
@@ -221,6 +243,7 @@ export function createGcSubsystem(cleoDir: string): Subsystem<GcSubsystemContext
 
     shutdown(context: GcSubsystemContext): void {
       context.cronTask.destroy();
+      context.mergeSweepTask?.destroy();
       live = undefined;
     },
   };

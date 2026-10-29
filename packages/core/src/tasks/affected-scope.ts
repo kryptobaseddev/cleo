@@ -519,8 +519,8 @@ export function hasTreeBoundQaRun(atoms: ReadonlyArray<EvidenceAtom>): boolean {
 }
 
 /**
- * Why a test-run or qa-run no longer stands because a file it set aside as
- * untracked and outside the change is now tracked (T14000), or null. The tree
+ * Why a test-run, qa-run or scoped `tool:test` result no longer stands because
+ * a file it set aside as untracked is now tracked (T14000, T14125), or null. The tree
  * hash includes untracked files, so committing one moves nothing the tree
  * check sees: without this, a run that never covered the file would carry it
  * (the review of #2302 hazard).
@@ -540,9 +540,12 @@ export function setAsideJoinedReason(
   root: (() => string) | undefined,
 ): string | null {
   const runs = atoms.filter(
-    (a): a is Extract<EvidenceAtom, { kind: 'test-run' | 'qa-run' }> =>
-      (a.kind === 'test-run' || a.kind === 'qa-run') && (a.untrackedSetAside?.length ?? 0) > 0,
+    (a): a is Extract<EvidenceAtom, { kind: 'test-run' | 'qa-run' | 'tool' }> =>
+      (a.kind === 'test-run' || a.kind === 'qa-run' || a.kind === 'tool') &&
+      (a.untrackedSetAside?.length ?? 0) > 0,
   );
+  const label = (run: (typeof runs)[number]): string =>
+    run.kind === 'tool' ? `tool:${run.tool}` : `${run.kind}:${run.path}`;
   const first = runs[0];
   if (first === undefined || root === undefined) return null;
   const cwd = root();
@@ -561,7 +564,7 @@ export function setAsideJoinedReason(
     );
   } catch {
     return (
-      `${first.kind}:${first.path} set untracked files aside, and git cannot list the tracked ` +
+      `${label(first)} set untracked files aside, and git cannot list the tracked ` +
       `files in ${cwd} to check whether one was since committed. Re-run and record a fresh result.`
     );
   }
@@ -570,9 +573,10 @@ export function setAsideJoinedReason(
     if (joined.length > 0) {
       const named = `${joined.slice(0, 5).join(', ')}${joined.length > 5 ? ', …' : ''}`;
       return (
-        `${run.kind}:${run.path} was recorded while ${named} ${joined.length === 1 ? 'was' : 'were'} ` +
+        `${label(run)} was recorded while ${named} ${joined.length === 1 ? 'was' : 'were'} ` +
         'untracked and outside the change, so the run never judged it; it is now tracked. ' +
-        'Re-run and record a fresh result.'
+        'Re-run and record a fresh result. Stage a new file (git add, or git add -N) before ' +
+        'the run so it counts as the change (T14125).'
       );
     }
   }

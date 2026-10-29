@@ -59,7 +59,7 @@
  *     must also have passed every test file the change adds or edits.
  *     Docs-only changes, and checkouts with no origin to diff against, are
  *     not judged. The `test-run:` reports of one evidence write are judged
- *     together: a vitest report and a Playwright report ({@link playwrightTestRun})
+ *     together: a vitest report and a Playwright report (`playwrightTestRun` in test-report-counts.ts)
  *     cover a change's unit and e2e files between them (T14031).
  *  3. **Identity.** HEAD and the tool cache's tree hash (T12958) at verify time are
  *     recorded, and `cleo complete` refuses the atom once that tree moved
@@ -150,139 +150,6 @@ export function coveredTestFiles(report: TestRunReport, root: string): string[] 
     return [inside(rel) ? rel.split('\\').join('/') : tr.name];
   });
   return [...new Set(files)].sort();
-}
-
-/**
- * A Playwright JSON report in the vitest shape the binding and the counter
- * checks read (T14031), from {@link playwrightTestRun}.
- */
-export type PlaywrightTestRun = {
-  readonly startTime?: number;
-  readonly testResults: Array<{
-    status: string;
-    name: string;
-    assertionResults: Array<{ status: string }>;
-  }>;
-  readonly numTotalTests: number;
-  readonly numPassedTests: number;
-  readonly numFailedTests: number;
-  readonly numPendingTests: number;
-  readonly numTodoTests: number;
-};
-
-/** A Playwright report that cannot stand as test-run evidence, and why. */
-export interface PlaywrightTestRunRefusal {
-  readonly refusal: string;
-  readonly codeName: 'E_EVIDENCE_INVALID' | 'E_EVIDENCE_TESTS_FAILED';
-}
-
-/** Playwright's per-test outcome, as a vitest assertion status. */
-const PLAYWRIGHT_STATUS = {
-  expected: 'passed',
-  flaky: 'passed',
-  unexpected: 'failed',
-  skipped: 'skipped',
-} as const;
-
-/** A Playwright test outcome (`tests[].status`). */
-type PlaywrightStatus = keyof typeof PLAYWRIGHT_STATUS;
-
-/** Every {@link PlaywrightStatus}, in `stats` key order. */
-const PLAYWRIGHT_STATUSES: readonly PlaywrightStatus[] = [
-  'expected',
-  'skipped',
-  'unexpected',
-  'flaky',
-];
-
-function isPlaywrightStatus(value: unknown): value is PlaywrightStatus {
-  return PLAYWRIGHT_STATUSES.some((status) => status === value);
-}
-
-function isRecord(value: unknown): value is Readonly<Record<string, unknown>> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
-}
-
-/**
- * Adapt a Playwright JSON report (`--reporter=json`) to the vitest shape, so
- * an e2e spec can be test-run evidence (T14031); null when `report` is not
- * one (no `suites` array and numeric `stats.expected`).
- *
- * The files run are the suites' `file`s (each spec's own `file` when set),
- * resolved against `config.rootDir`, which Playwright makes them relative to.
- * Counts come from the spec results, one per test and project: `expected`
- * and `flaky` (passed on retry) pass, `unexpected` fails, `skipped` is
- * pending. They must equal `stats`, and the run time is `stats.startTime`. A
- * report listing top-level `errors` (no tests found, a config or global setup
- * failure) is refused; the rest — vacuous, skipped-only or failing runs — is
- * refused by the same checks as a vitest report.
- *
- * @param report - A parsed test-run report.
- * @returns The adapted report, a refusal, or null when it is not Playwright's.
- * @task T14031
- */
-export function playwrightTestRun(
-  report: Readonly<Record<string, unknown>>,
-): PlaywrightTestRun | PlaywrightTestRunRefusal | null {
-  const { stats, suites, config, errors } = report;
-  if (!Array.isArray(suites) || !isRecord(stats) || typeof stats.expected !== 'number') return null;
-  if (Array.isArray(errors) && errors.length > 0) {
-    const first =
-      isRecord(errors[0]) && typeof errors[0].message === 'string' ? errors[0].message : '';
-    return {
-      refusal: `Playwright report lists ${errors.length} error(s)${first ? `: ${first.split('\n')[0]}` : ''}`,
-      codeName: 'E_EVIDENCE_TESTS_FAILED',
-    };
-  }
-  const files = new Map<string, PlaywrightStatus[]>();
-  let badStatus: unknown;
-  const walk = (suite: unknown, inherited: string | null): void => {
-    if (!isRecord(suite)) return;
-    const file = typeof suite.file === 'string' && suite.file !== '' ? suite.file : inherited;
-    for (const spec of Array.isArray(suite.specs) ? suite.specs : []) {
-      if (!isRecord(spec) || !Array.isArray(spec.tests)) continue;
-      const specFile = typeof spec.file === 'string' && spec.file !== '' ? spec.file : file;
-      if (specFile === null) continue;
-      const statuses = files.get(specFile) ?? [];
-      for (const test of spec.tests) {
-        const status = isRecord(test) ? test.status : undefined;
-        if (isPlaywrightStatus(status)) statuses.push(status);
-        else badStatus ??= status ?? null;
-      }
-      files.set(specFile, statuses);
-    }
-    for (const child of Array.isArray(suite.suites) ? suite.suites : []) walk(child, file);
-  };
-  for (const suite of suites) walk(suite, null);
-  if (badStatus !== undefined)
-    return {
-      refusal: `Playwright report has a test with status ${JSON.stringify(badStatus)}; expected one of ${PLAYWRIGHT_STATUSES.join(', ')}`,
-      codeName: 'E_EVIDENCE_INVALID',
-    };
-  const all = [...files.values()].flat();
-  const count = (status: PlaywrightStatus): number => all.filter((s) => s === status).length;
-  for (const key of PLAYWRIGHT_STATUSES) {
-    if (stats[key] !== count(key))
-      return {
-        refusal: `Playwright report's stats.${key} is ${JSON.stringify(stats[key])}, but its spec results count ${count(key)}`,
-        codeName: 'E_EVIDENCE_INVALID',
-      };
-  }
-  const rootDir = isRecord(config) && typeof config.rootDir === 'string' ? config.rootDir : null;
-  const startTime = typeof stats.startTime === 'string' ? Date.parse(stats.startTime) : Number.NaN;
-  return {
-    ...(Number.isFinite(startTime) ? { startTime } : {}),
-    numTotalTests: all.length,
-    numPassedTests: count('expected') + count('flaky'),
-    numFailedTests: count('unexpected'),
-    numPendingTests: count('skipped'),
-    numTodoTests: 0,
-    testResults: [...files].map(([file, statuses]) => ({
-      name: rootDir === null ? file : resolve(rootDir, file),
-      status: statuses.includes('unexpected') ? 'failed' : 'passed',
-      assertionResults: statuses.map((s) => ({ status: PLAYWRIGHT_STATUS[s] })),
-    })),
-  };
 }
 
 function realpathOr(path: string): string {
@@ -719,9 +586,9 @@ export function reportFreshness(
       );
     }
   }
-  // T14000: untracked files outside the change's directories are set aside
-  // (and recorded by the binding), never judged as this change.
-  const changes = scopedChangedPaths(root, { narrowUntracked: true });
+  // T14000, T14125: untracked files are set aside (and recorded by the
+  // binding), never judged as this change.
+  const changes = scopedChangedPaths(root);
   const newest = modifiedAfterRun(
     root,
     (changes?.paths ?? dirtyTracked(root)).filter((p) => p !== clock.reportRel),

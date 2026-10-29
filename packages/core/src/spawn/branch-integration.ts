@@ -30,6 +30,7 @@ import {
   gitSync,
   integrateWorktree,
   isCleoProvisionedWorktree,
+  locateTaskWorktree,
   WORKTREE_LIFECYCLE_AUDIT_FILE,
 } from '@cleocode/worktree';
 import { pruneWorktree, resolveAgentWorktreeRoot, shellQuote } from './branch-lock.js';
@@ -490,7 +491,11 @@ function decideWorktreeIntegration(
   opts: WorktreeIntegrationDecisionOptions,
 ): WorktreeIntegrationDecision {
   const branch = `task/${taskId}`;
-  const worktreePath = join(resolveAgentWorktreeRoot(projectRoot), taskId);
+  // T14126: the worktree git has registered for the task, as the lifecycle
+  // reader finds it; the recomputed canonical path only when none is.
+  const worktreePath =
+    locateTaskWorktree(projectRoot, taskId)?.path ??
+    join(resolveAgentWorktreeRoot(projectRoot), taskId);
   const targetBranch = opts.targetBranch ?? getDefaultBranch(projectRoot);
   const base = { branch, worktreePath, targetBranch, gitRoot: null, upstream: null };
   if (opts.disabledReason) {

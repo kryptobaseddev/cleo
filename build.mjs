@@ -26,7 +26,7 @@ import * as esbuild from 'esbuild';
 import { chmod, cp, mkdir, rm, readFile, writeFile } from 'node:fs/promises';
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { resolve, dirname, join, relative, isAbsolute, sep } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { spawn } from 'node:child_process';
 import { depsFor } from './scripts/build-deps.mjs';
 
@@ -1234,6 +1234,13 @@ async function build() {
   console.log('\n[build] Wave 9: cleo-os');
   await buildPkg('@cleocode/cleo-os', 'packages/cleo-os/dist/');
   await chmod('packages/cleo-os/dist/cli.js', 0o755).catch(() => {});
+
+  // Stamp each package's dist with the hash of the source it was built from
+  // (T14097), so a test run can tell a stale build from a fresh checkout.
+  const { writeSourceStamps } = await import(
+    pathToFileURL(resolve(__dirname, 'packages/core/dist/tasks/workspace-resolution.js')).href
+  );
+  console.log(`  -> dist/.source-stamp.json in ${writeSourceStamps(__dirname).length} packages`);
 
   console.log(`\nBuild complete. (${Date.now() - buildStart}ms total)`);
 }

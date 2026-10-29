@@ -3092,7 +3092,14 @@ function holdGrant(
   // T14116: what the run's tree measured, and the charge it holds now.
   let peakBytes = 0;
   let samples = 0;
+  // `chargedBytes` is the charge last decided; `writtenBytes` the one the
+  // ledger holds. Decisions take effect at once and their writes run one
+  // after another, so a restore to the plan can never land before (and be
+  // overwritten by) a lowering decided earlier, and a measurement taken while
+  // a write is in flight is judged against the charge already decided.
   let chargedBytes = entry.footprintBytes;
+  let writtenBytes = entry.footprintBytes;
+  let writes: Promise<void> = Promise.resolve();
   const measured = (e: LedgerEntry): LedgerEntry =>
     samples > 0 ? { ...e, measuredPeakBytes: peakBytes } : e;
   const timer = setInterval(() => {
@@ -3131,8 +3138,11 @@ function holdGrant(
         const { chargedBytes: _was, ...rest } = measured(e);
         return next >= e.footprintBytes ? rest : { ...rest, chargedBytes: next };
       };
-      void rechargeLedgerEntry(entry, dir, opts, patch).then((written) => {
-        if (written) chargedBytes = next;
+      chargedBytes = next;
+      writes = writes.then(async () => {
+        if (await rechargeLedgerEntry(entry, dir, opts, patch)) writtenBytes = next;
+        // A failed write keeps the ledger's charge; the next measurement decides again.
+        else if (chargedBytes === next) chargedBytes = writtenBytes;
       });
     },
     recordChild: (child) => {

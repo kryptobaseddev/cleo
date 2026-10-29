@@ -27,6 +27,7 @@
  */
 
 import { getProjectRoot } from '../paths.js';
+import { resolveStoreOwnerRoot } from '../project-scope.js';
 import { CleoBlobStore } from './llmtxt-blob-adapter.js';
 
 // ─── Public types ────────────────────────────────────────────────────────────
@@ -101,7 +102,7 @@ export async function blobRead(
  * without resolving an (owner, name) manifest pair first.
  *
  * The llmtxt BlobFsAdapter stores bytes at
- * `<projectRoot>/.cleo/blobs/blobs/<sha256-hex>`, so a sha256 alone is a
+ * `<project .cleo>/blobs/blobs/<sha256-hex>`, so a sha256 alone is a
  * complete address. Used by the docs read/publish paths after the legacy
  * attachment byte tree was retired (T13362): the doc registry still resolves
  * metadata (slug, owner refs), but content always comes from the blob store.
@@ -128,7 +129,10 @@ export async function blobReadBySha(
   const { readFile } = await import('node:fs/promises');
   const { join } = await import('node:path');
 
-  const file = join(root, '.cleo', 'blobs', 'blobs', sha256.toLowerCase());
+  // T14127: a CLEO worktree reads its parent project's store, as the writers
+  // write it, never the `.cleo/` seeded into the worktree itself.
+  const cleoDir = join(resolveStoreOwnerRoot(root), '.cleo');
+  const file = join(cleoDir, 'blobs', 'blobs', sha256.toLowerCase());
   let bytes: Uint8Array;
   try {
     bytes = new Uint8Array(await readFile(file));
@@ -137,7 +141,7 @@ export async function blobReadBySha(
     // from hash-verified legacy bytes; otherwise the miss stands.
     // The heal never throws on its write (T13706): verified bytes are served.
     const { healBlobFromLegacy } = await import('./blob-keep.js');
-    return healBlobFromLegacy(join(root, '.cleo'), sha256.toLowerCase());
+    return healBlobFromLegacy(cleoDir, sha256.toLowerCase());
   }
   const actual = createHash('sha256').update(bytes).digest('hex');
   if (actual !== sha256.toLowerCase()) {

@@ -43,6 +43,7 @@ import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { getProviderAskTool } from '@cleocode/caamp';
 import type { LeanLevel, Task } from '@cleocode/contracts';
+import { subjectSlug } from '../docs/doc-name-rule.js';
 import { normalizeSlug } from '../docs/slug-normalize.js';
 import { provisionIsolatedShell } from '../sdk/isolation.js';
 import { resolveSkillLocation, resolveSkillPath } from '../skills/skill-paths.js';
@@ -1580,7 +1581,8 @@ export function buildSpawnPrompt(input: BuildSpawnPromptInput): BuildSpawnPrompt
     SESSION_ID: input.sessionId ?? '',
     PROTOCOL: protocol,
     TIER: String(tier),
-    TOPIC_SLUG: slugify(input.task.title),
+    // T14129: agents record docs under this slug, so it follows the doc naming rule.
+    TOPIC_SLUG: subjectSlug(input.task.title),
     WORKTREE_PATH: worktreePath,
     WORKTREE_BRANCH: worktreeBranch,
   };

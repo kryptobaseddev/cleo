@@ -21,7 +21,7 @@
  */
 
 import { existsSync } from 'node:fs';
-import { appendFile, mkdir, readdir, readFile, writeFile } from 'node:fs/promises';
+import { mkdir, readdir, readFile, writeFile } from 'node:fs/promises';
 import { dirname, isAbsolute, join, resolve } from 'node:path';
 import {
   DocKindConfigError,
@@ -36,11 +36,6 @@ import {
   resolveWorktreeRouting,
 } from '@cleocode/core/core-paths';
 import { createDocsReadModel } from '@cleocode/core/docs/docs-read-model';
-import {
-  checkSlugSimilarity,
-  DEFAULT_SIMILARITY_MODE,
-  DEFAULT_SIMILARITY_THRESHOLD,
-} from '@cleocode/core/docs/similarity-check';
 import { CleoError } from '@cleocode/core/errors';
 import { pushWarning } from '@cleocode/core/output';
 import { getProjectRoot } from '@cleocode/core/project-scope';
@@ -48,7 +43,6 @@ import { readJson } from '@cleocode/core/store/json';
 import { describeOperation } from '@cleocode/lafs';
 import { defineCommand, showUsage } from 'citty';
 import { dispatchFromCli, dispatchRaw, handleRawError } from '../../dispatch/adapters/cli.js';
-import { loadCanonRegistry } from '../../dispatch/domains/check/canon-docs.js';
 import { resolve as resolveOperation } from '../../dispatch/registry.js';
 import { diagnoseDocsAddSources, docsAddMissingFileError } from '../lib/docs-add-args.js';
 import { getOperationParams, paramsToCittyArgs } from '../lib/registry-args.js';
@@ -280,8 +274,8 @@ const addCommand = defineCommand({
       '  --slug <kebab>         Human-friendly alias, unique per project (T9636)\n' +
       '  --title <text>         Human-readable title — REQUIRED for --type adr when --slug is omitted (T10360)\n' +
       '  --type <kind>          Taxonomy classification — run `cleo docs schema` for kinds\n' +
-      '  --allow-similar        Bypass the slug-similarity warn — every bypass is audited\n' +
-      '                         to .cleo/audit/similar-bypass.jsonl (T10361)\n' +
+      '  --new-because <why>    Add a doc that resembles an existing one; the reason is\n' +
+      '                         recorded in .cleo/audit/docs-new-because.jsonl (T14109)\n' +
       '  --strict               Enforce body-schema (requiredSections) — fail with\n' +
       '                         E_DOC_SCHEMA_MISMATCH instead of warning (T10160)\n' +
       docsOutputFlagHelp +
@@ -289,7 +283,9 @@ const addCommand = defineCommand({
       'Validation behaviors:\n' +
       '  • Unknown flags → E_UNKNOWN_FLAG with did-you-mean suggestions (T10359)\n' +
       '  • Slug collision → E_SLUG_RESERVED + 3 alternative slugs (T10386)\n' +
-      '  • Near-duplicate slug → W_SLUG_SIMILAR warning unless --allow-similar (T10361)\n' +
+      '  • Likely duplicate (same content, or similar slug, title or text) → E_DOC_DUPLICATE,\n' +
+      '    naming the existing doc, `cleo docs fetch <slug>` and `cleo docs update <slug>`,\n' +
+      '    unless --new-because <why> (T14109)\n' +
       '  • For --type adr without --slug, slug auto-allocates as `adr-NNN-<kebab-title>` via the\n' +
       '    central allocator (T10360 — closes T10153). --title is required in this case.',
   },
@@ -345,12 +341,18 @@ const addCommand = defineCommand({
       description:
         'Taxonomy classification — run `cleo docs schema` to enumerate registered kinds (T9637 / T9788 / T11142)',
     },
+    'new-because': {
+      type: 'string',
+      description:
+        'Why this doc is new although it resembles an existing one (T14109). A likely ' +
+        'duplicate (same content, or a similar slug, title or text) is refused with ' +
+        'E_DOC_DUPLICATE and routed to `cleo docs update <slug>` unless this states the ' +
+        'reason (15+ characters); the reason is recorded in .cleo/audit/docs-new-because.jsonl.',
+    },
     'allow-similar': {
       type: 'boolean',
       description:
-        'Bypass the T10361 slug-similarity check. Use when you really do mean to ' +
-        'add a new doc with a near-duplicate slug (e.g. intentional fork). ' +
-        'Every bypass is logged to .cleo/audit/similar-bypass.jsonl.',
+        'Deprecated (T14109): needs --new-because <reason>, which is what lets a likely duplicate through.',
     },
     strict: {
       type: 'boolean',
@@ -478,102 +480,20 @@ const addCommand = defineCommand({
       }
     }
 
-    // T10361 — slug similarity check. Fires only when BOTH --slug and
-    // --type are supplied AND the proposed slug fuzzy-matches an existing
-    // slug for the same kind (score >= threshold, < 1.0). Exact collisions
-    // fall through to the AttachmentStore's slug-collision path.
-    if (args.slug && args.type) {
-      const projectRoot = await getProjectRoot();
-      let warnThreshold = DEFAULT_SIMILARITY_THRESHOLD;
-      let mode: 'warn' | 'block' = DEFAULT_SIMILARITY_MODE;
-      try {
-        const canon = loadCanonRegistry(projectRoot);
-        if (canon?.similarity) {
-          warnThreshold = canon.similarity.warnThreshold;
-          mode = canon.similarity.mode;
-        }
-      } catch {
-        // canon.yml malformed — proceed with defaults rather than blocking
-        // the user-requested action. `cleo check canon docs` will surface
-        // the real diagnostic separately.
-      }
-
-      try {
-        const sim = await checkSlugSimilarity({
-          slug: args.slug,
-          type: args.type,
-          projectRoot,
-          threshold: warnThreshold,
-        });
-        if (sim.mostSimilarSlug !== null) {
-          const scoreFixed = sim.score.toFixed(2);
-          const hint =
-            `Similar to '${sim.mostSimilarSlug}' (score ${scoreFixed}) — ` +
-            `did you mean: cleo docs update ${sim.mostSimilarSlug}? ` +
-            `Pass --allow-similar to bypass.`;
-
-          if (mode === 'block' && !allowSimilar) {
-            cliError(hint, ExitCode.VALIDATION_ERROR, {
-              name: 'E_SLUG_SIMILARITY',
-              fix: `Use \`cleo docs update ${sim.mostSimilarSlug}\` if updating, or pass --allow-similar to add as a new doc.`,
-              alternatives: [
-                {
-                  action: `update '${sim.mostSimilarSlug}' instead`,
-                  command: `cleo docs update ${sim.mostSimilarSlug}`,
-                },
-                {
-                  action: 'bypass the similarity check',
-                  command: `cleo docs add ${ownerId} ${fileArg ?? `--url ${url}`} --slug ${args.slug} --type ${args.type} --allow-similar`,
-                },
-              ],
-              details: {
-                proposedSlug: args.slug,
-                mostSimilarSlug: sim.mostSimilarSlug,
-                score: sim.score,
-                threshold: warnThreshold,
-                kind: args.type,
-              },
-            });
-            process.exit(ExitCode.VALIDATION_ERROR);
-          }
-
-          // warn mode OR --allow-similar — print the hint, continue.
-          humanInfo(hint);
-
-          if (allowSimilar) {
-            // Audit-log the bypass (best-effort — never blocks the write).
-            const auditLine = `${JSON.stringify({
-              ts: new Date().toISOString(),
-              reason: 'allow-similar-bypass',
-              proposedSlug: args.slug,
-              mostSimilarSlug: sim.mostSimilarSlug,
-              score: sim.score,
-              threshold: warnThreshold,
-              kind: args.type,
-              ownerId,
-            })}\n`;
-            try {
-              await mkdir(join(projectRoot, '.cleo', 'audit'), { recursive: true });
-              await appendFile(
-                join(projectRoot, '.cleo', 'audit', 'similar-bypass.jsonl'),
-                auditLine,
-                'utf-8',
-              );
-            } catch {
-              // Audit log is best-effort — never block the user-requested action.
-            }
-          }
-        }
-      } catch (err) {
-        // Similarity check is a soft gate — DB-open failures, missing
-        // tables, etc. must NEVER block a docs add. Surface a debug hint
-        // and continue.
-        if (process.env['CLEO_DEBUG']) {
-          humanInfo(
-            `similarity check skipped: ${err instanceof Error ? err.message : String(err)}`,
-          );
-        }
-      }
+    // T14109 (D11210): update before create. docs.add refuses a likely
+    // duplicate (slug, title or content) unless --new-because says why the
+    // doc is new. --allow-similar (T10361) now needs that reason too.
+    const newBecause = args['new-because'];
+    if (allowSimilar && typeof newBecause !== 'string') {
+      cliError(
+        '--allow-similar no longer bypasses the duplicate check on its own; say why this doc is new',
+        6,
+        {
+          name: 'E_VALIDATION',
+          fix: 'Pass --new-because "<why this is not the existing doc>" (recorded in .cleo/audit/docs-new-because.jsonl), or update the existing doc with cleo docs update <slug>.',
+        },
+      );
+      process.exit(6);
     }
 
     await dispatchFromCli(
@@ -592,6 +512,7 @@ const addCommand = defineCommand({
         ...(args.title ? { title: args.title } : {}),
         ...(args.type ? { type: args.type } : {}),
         ...(args.strict === true ? { strict: true } : {}),
+        ...(typeof newBecause === 'string' ? { newBecause } : {}),
       },
       { command: 'docs add' },
     );
@@ -2001,7 +1922,8 @@ const doctorCommand = defineCommand({
     description:
       'Docs store health diagnostics + safe repairs: dangling local-file pointers, ' +
       'docVersion skew vs the audit log, empty topics/related_tasks provenance, ' +
-      'docs_wikilinks drift, legacy store surfaces, blob-store coverage, stale drafts. ' +
+      'docs_wikilinks drift, legacy store surfaces, blob-store coverage, stale drafts, ' +
+      'publication-ledger drift (rows whose mirror is gone or stale; T14117). ' +
       'Dry-run by default; --apply executes repairs (a fresh backup is created automatically first); ' +
       '--repair runs only the hash-verified legacy-bytes → blob-store backfill (T13653).',
   },

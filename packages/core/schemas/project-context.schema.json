@@ -256,6 +256,11 @@
           },
           "uniqueItems": true,
           "description": "Required successful checks for PR and CI evidence atoms. An object entry pins the check to the GitHub App (and workflow file) that must post it (T12634)."
+        },
+        "macosRegressionParent": {
+          "type": "string",
+          "pattern": "^T[0-9]+$",
+          "description": "Task the merge sweep files open macos-regression GitHub issues under, one task per issue (T14104). Unset: the tasks have no parent."
         }
       }
     },

@@ -347,6 +347,12 @@ export interface DonePlan {
    * by the same function `cleo complete` runs, from local refs only.
    */
   integration?: WorktreeIntegrationPlan;
+  /**
+   * Untracked files the change's evidence leaves out (T14125): scope is the
+   * task's commits against the base plus uncommitted tracked edits (staged
+   * and `git add -N` files included), never a stray file in the checkout.
+   */
+  untrackedSetAside?: string[];
 }
 
 /** One tool `cleo done` ran (or reused from the ADR-061 cache) before recording. */

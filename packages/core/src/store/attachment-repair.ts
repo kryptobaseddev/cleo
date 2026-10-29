@@ -171,9 +171,10 @@ async function readPublicationsSha256Set(cwd: string): Promise<Set<string> | nul
  * A file at that path means the manifest store has this blob — checking the path is
  * lighter than opening the SQLite manifest.db and avoids a hard CleoBlobStore dependency.
  */
-function isInBlobManifest(sha256: string, projectRoot: string): boolean {
-  // BlobFsAdapter convention: bytes at .cleo/blobs/blobs/<full-sha256-hex>
-  const blobFile = join(projectRoot, '.cleo', 'blobs', 'blobs', sha256);
+function isInBlobManifest(sha256: string, cleoDir: string): boolean {
+  // BlobFsAdapter convention: bytes at <store .cleo>/blobs/blobs/<full-sha256-hex>.
+  // T14134: `cleoDir` is the resolved store (a worktree's parent project).
+  const blobFile = join(cleoDir, 'blobs', 'blobs', sha256);
   return existsSync(blobFile);
 }
 
@@ -414,7 +415,7 @@ export async function repairAttachmentStore(opts?: RepairOptions): Promise<Repai
         }
 
         // Check blobs manifest.db (llmtxt)
-        const inManifest = isInBlobManifest(sha256, cwd);
+        const inManifest = isInBlobManifest(sha256, cleoDir);
         if (inManifest) {
           referencedSkipCount++;
           const action: RepairAction = {

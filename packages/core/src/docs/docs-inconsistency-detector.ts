@@ -31,6 +31,7 @@ import { access } from 'node:fs/promises';
 import { join } from 'node:path';
 import { eq, sql } from 'drizzle-orm';
 import { getProjectRoot } from '../paths.js';
+import { resolveStoreOwnerRoot } from '../project-scope.js';
 import { CleoBlobStore } from '../store/llmtxt-blob-adapter.js';
 import { getDb } from '../store/sqlite.js';
 import {
@@ -117,7 +118,7 @@ const PUBLISHED_LIFECYCLE_STATES: ReadonlySet<AttachmentLifecycleStatus> =
 function _legacyBlobPath(projectRoot: string, sha256: string): string {
   const prefix = sha256.slice(0, 2);
   const rest = sha256.slice(2);
-  return join(projectRoot, '.cleo', 'attachments', 'sha256', prefix, rest);
+  return join(resolveStoreOwnerRoot(projectRoot), '.cleo', 'attachments', 'sha256', prefix, rest);
 }
 
 /**
@@ -126,7 +127,7 @@ function _legacyBlobPath(projectRoot: string, sha256: string): string {
  * Pattern: `.cleo/blobs/blobs/<sha256>`
  */
 function newBlobPath(projectRoot: string, sha256: string): string {
-  return join(projectRoot, '.cleo', 'blobs', 'blobs', sha256);
+  return join(resolveStoreOwnerRoot(projectRoot), '.cleo', 'blobs', 'blobs', sha256);
 }
 
 /**
@@ -139,7 +140,7 @@ function newBlobPath(projectRoot: string, sha256: string): string {
 function findLegacyBlobWithExt(projectRoot: string, sha256: string): string | null {
   const prefix = sha256.slice(0, 2);
   const rest = sha256.slice(2);
-  const dir = join(projectRoot, '.cleo', 'attachments', 'sha256', prefix);
+  const dir = join(resolveStoreOwnerRoot(projectRoot), '.cleo', 'attachments', 'sha256', prefix);
   try {
     const entries: Dirent[] = readdirSync(dir, { withFileTypes: true });
     for (const entry of entries) {

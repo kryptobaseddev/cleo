@@ -1194,6 +1194,44 @@ describe("an admitted run's charge follows its measured peak (T14116)", () => {
     expect(nextCharge(obs({ rssBytes: 13 * GIB, peakBytes: 13 * GIB }))).toBeNull();
   });
 
+  it('a climb measured while the lowering is still being written restores the plan (no race)', async () => {
+    // #2562's merge ref: the climb was judged against the stale plan-sized
+    // charge while the lowering write was in flight, so it lowered again to
+    // 3.75 GiB instead of restoring the plan. Decisions now apply at once and
+    // writes land in order.
+    const dir = mkdtempSync(join(tmpdir(), 'cleo-ledger-recharge-race-'));
+    _resetMemoryGateForTest();
+    let t = Date.now();
+    const opts = {
+      capacityBytes: 16 * GIB,
+      sample: async () => sampleAt(0),
+      env: {},
+      pollMs: 5,
+      topMemory: () => [],
+      now: () => t,
+      dir,
+    };
+    try {
+      const push = await admit(
+        { label: 'run:scoped-build', footprintBytes: 12 * GIB },
+        { ...opts, wait: false },
+      );
+      if (!push.admitted) throw new Error('expected an admission');
+      push.grant.observeRss?.(170 * MIB);
+      t += CHARGE_WARMUP_MS;
+      push.grant.observeRss?.(150 * MIB); // lowers; its write is still in flight
+      push.grant.observeRss?.(3 * GIB); // climbs past the lowered charge, at once
+      await vi.waitFor(() => {
+        const e = readLedger(dir)[0];
+        expect(e?.measuredPeakBytes).toBe(3 * GIB);
+        expect(e?.chargedBytes).toBeUndefined();
+      });
+      await push.grant.release();
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
   it('admit(): a hook push measuring far under plan frees its budget for a waiter; growing restores the plan', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'cleo-ledger-recharge-'));
     _resetMemoryGateForTest();

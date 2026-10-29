@@ -1,8 +1,9 @@
 /**
  * Tests for the "Decide which preflight test suites run" step of
  * .github/workflows/release-prepare.yml — the ONE place that turns the
- * `skip-tests` / `skip-macos-tests` / `verified-sha` inputs into the
- * `linux` / `macos` outputs the preflight test jobs read.
+ * `skip-tests` / `verified-sha` inputs into the `linux` output the
+ * preflight test jobs read. T14104: there is no macOS output; release-prepare
+ * runs no macOS shards.
  *
  * The step's own `run:` script is extracted from the workflow and executed
  * under bash, so the test exercises the shipped text, not a copy of it.
@@ -77,13 +78,12 @@ afterEach(() => {
 });
 
 /**
- * Run the step with the given inputs; returns its `linux` / `macos` /
+ * Run the step with the given inputs; returns its `linux` /
  * `reused_url` outputs. `gh` holds the fake API's answers (`run` and
  * `compare` objects, `jobs` TSV); an absent answer is an API error.
  */
 function decide({
   skipTests = false,
-  skipMacos = false,
   verifiedSha = '',
   reusedRun = '',
   gh = { run: greenRun(), jobs: GREEN_JOBS },
@@ -106,7 +106,6 @@ function decide({
       REPO: 'o/r',
       DEFAULT_BRANCH: 'main',
       SKIP_TESTS: String(skipTests),
-      SKIP_MACOS_TESTS: String(skipMacos),
       VERIFIED_SHA: verifiedSha,
       SKIP_REASON: '',
       HEAD_SHA: HEAD,
@@ -126,19 +125,17 @@ function decide({
 
 describe('release-prepare preflight test decision', () => {
   it('honours skips verified against the checked-out commit, and names the reused run', () => {
-    const d = decide({ skipTests: true, skipMacos: true, verifiedSha: HEAD, reusedRun: RUN_ID });
+    const d = decide({ skipTests: true, verifiedSha: HEAD, reusedRun: RUN_ID });
     expect(d.linux).toBe('false');
-    expect(d.macos).toBe('false');
     expect(d.reused_url).toBe(`https://github.com/o/r/actions/runs/${RUN_ID}`);
     expect(d.summary).toContain(
       `Linux shards reused from main CI run: https://github.com/o/r/actions/runs/${RUN_ID}`,
     );
   });
 
-  it('refuses a Linux skip that names no reused-ci-run, but still honours the macOS skip', () => {
-    const d = decide({ skipTests: true, skipMacos: true, verifiedSha: HEAD });
+  it('refuses a Linux skip that names no reused-ci-run', () => {
+    const d = decide({ skipTests: true, verifiedSha: HEAD });
     expect(d.linux).toBe('true');
-    expect(d.macos).toBe('false');
     expect(d.reused_url).toBe('');
     expect(d.summary).toContain('without reused-ci-run');
   });
@@ -239,9 +236,8 @@ describe('release-prepare preflight test decision', () => {
   });
 
   it('refuses a skip that carries no verified-sha', () => {
-    const d = decide({ skipTests: true, skipMacos: true, verifiedSha: '' });
+    const d = decide({ skipTests: true, verifiedSha: '' });
     expect(d.linux).toBe('true');
-    expect(d.macos).toBe('true');
     expect(d.summary).toContain('without verified-sha');
   });
 
@@ -254,6 +250,14 @@ describe('release-prepare preflight test decision', () => {
   it('runs everything when no skip was requested', () => {
     const d = decide({});
     expect(d.linux).toBe('true');
-    expect(d.macos).toBe('true');
+  });
+
+  it('never decides or reports macOS shards: release waits on no macOS runner (T14104)', () => {
+    const d = decide({ skipTests: true, verifiedSha: HEAD, reusedRun: RUN_ID });
+    expect(d).not.toHaveProperty('macos');
+    expect(d.summary).not.toContain('macOS test shards');
+    const workflow = readFileSync(join(REPO, '.github/workflows/release-prepare.yml'), 'utf8');
+    expect(workflow).not.toMatch(/runs-on:\s*macos/);
+    expect(workflow).not.toContain('skip-macos-tests');
   });
 });

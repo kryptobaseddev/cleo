@@ -32,6 +32,7 @@
 
 import { z } from 'zod';
 import type { AttachmentKind } from '../attachment.js';
+import type { TaskPopulation } from '../data-accessor.js';
 import type { DocsModernizePlan, DocsModernizeReceipt } from '../docs/modernize.js';
 import { BUILTIN_DOC_KIND_VALUES, type BuiltinDocKind } from '../docs-taxonomy.js';
 import type {
@@ -318,6 +319,12 @@ export interface DocsListResult {
    */
   totalCount?: number;
   /**
+   * How many attachments matched, how many this response returns, whether it
+   * left any out, and the window applied (`null`: every match, `--limit 0`).
+   * The same shape `cleo list` reports (T14115).
+   */
+  population: Pick<TaskPopulation, 'matched' | 'returned' | 'truncated' | 'limit'>;
+  /**
    * Effective limit applied to this response. Mirrored from the request
    * (or {@link DOCS_LIST_DEFAULT_LIMIT} when the request did not set one)
    * so consumers can paginate without re-deriving the default.
@@ -571,6 +578,12 @@ export interface DocsAddParams {
    * @saga T9855
    */
   strict?: boolean;
+  /**
+   * Why this doc is new although it resembles an existing one (T14109). A
+   * likely duplicate is refused unless this states the reason (at least 15
+   * characters); the reason is recorded in `.cleo/audit/docs-new-because.jsonl`.
+   */
+  newBecause?: string;
 }
 
 /** Canonical attachment and owner whose optional projections may be prepared. */
@@ -1122,7 +1135,8 @@ export interface DocsDoctorDiagnostic {
     | 'legacy-store-present'
     | 'legacy-blob-coverage'
     | 'stale-drafts'
-    | 'conduit-history-gaps';
+    | 'conduit-history-gaps'
+    | 'publication-ledger-drift';
   /** `error` should be fixed promptly; `info` is observational. */
   severity: 'info' | 'warn' | 'error';
   /** Total offenders found (may exceed `items.length`). */
@@ -1165,7 +1179,7 @@ export interface DocsDoctorResult {
   olderThanDays: number;
   /** Backup receipt that authorised this run (null on dry runs). */
   backupReceiptPath: string | null;
-  /** All eight diagnostics, in declaration order. */
+  /** All nine diagnostics, in declaration order. */
   diagnostics: readonly DocsDoctorDiagnostic[];
   /** Repair plan (dry run) or executed repairs (apply). */
   repairs: readonly DocsDoctorRepairAction[];

@@ -66,6 +66,8 @@ vi.mock('../list.js', () => ({
 // without spawning real git or touching any worktrees.
 const execCalls: Array<{ args: readonly string[]; throwError?: Error }> = [];
 const execShouldThrow: Set<string> = new Set();
+/** Canned stdout per joined argv (default ''). */
+const execOutputs: Map<string, string> = new Map();
 
 vi.mock('node:child_process', async (importOriginal) => {
   const actual = await importOriginal<typeof import('node:child_process')>();
@@ -78,7 +80,7 @@ vi.mock('node:child_process', async (importOriginal) => {
       if (execShouldThrow.has(key)) {
         throw new Error(`mock: refused ${key}`);
       }
-      return '' as never;
+      return (execOutputs.get(key) ?? '') as never;
     }),
   };
 });
@@ -126,6 +128,7 @@ beforeEach(() => {
   MOCK_PRIMARY_PATH = null;
   execCalls.length = 0;
   execShouldThrow.clear();
+  execOutputs.clear();
   vi.clearAllMocks();
 });
 
@@ -180,6 +183,42 @@ describe('reasonForStatus', () => {
 // ---------------------------------------------------------------------------
 // Happy path
 // ---------------------------------------------------------------------------
+
+describe('pruneOrphanedWorktreesByStatus — nothing unproven is force-removed (T14142)', () => {
+  const statusKey = (path: string) =>
+    ['-C', path, 'status', '--porcelain', '-z', '-uall', '--ignored=matching'].join(' ');
+
+  it('keeps a worktree with uncommitted changes, and one whose git status fails', async () => {
+    const dirty = mkdtempSync(join(tmpdir(), 'cleo-prune-dirty-'));
+    const broken = mkdtempSync(join(tmpdir(), 'cleo-prune-broken-'));
+    execOutputs.set(statusKey(dirty), ' M src/a.ts\0');
+    execShouldThrow.add(statusKey(broken));
+    MOCK_LIST.value = [
+      makeWorktreeInfo({ path: dirty, taskId: 'T301', statusCategory: 'merged', isMerged: true }),
+      makeWorktreeInfo({ path: broken, taskId: 'T302', statusCategory: 'merged', isMerged: true }),
+    ];
+    const result = await pruneOrphanedWorktreesByStatus({ projectRoot, auditLogPath });
+    expect(result.success).toBe(true);
+    if (!result.success) return;
+    expect(result.data.prunedCount).toBe(0);
+    expect(result.data.outcomes.map((o) => o.error)).toEqual([
+      `Worktree ${dirty} kept: uncommitted or untracked changes.`,
+      `Worktree ${broken} kept: git status failed.`,
+    ]);
+    rmSync(dirty, { recursive: true, force: true });
+    rmSync(broken, { recursive: true, force: true });
+  });
+
+  it('prunes an orphan whose directory is already gone without a content check', async () => {
+    const gone = join(projectRoot, 'already-removed');
+    MOCK_LIST.value = [makeWorktreeInfo({ path: gone, taskId: 'T303', statusCategory: 'orphan' })];
+    const result = await pruneOrphanedWorktreesByStatus({ projectRoot, auditLogPath });
+    expect(result.success).toBe(true);
+    if (!result.success) return;
+    expect(result.data.prunedCount).toBe(1);
+    expect(execCalls.some((c) => c.args.includes('status'))).toBe(false);
+  });
+});
 
 describe('pruneOrphanedWorktreesByStatus — happy path', () => {
   it('prunes orphan + merged worktrees and writes audit entries', async () => {

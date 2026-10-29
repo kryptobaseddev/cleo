@@ -104,31 +104,24 @@ All four cases are legitimate; rerunning with `--force` is not
 recommended because it would mint blob duplicates without resolving the
 underlying slug conflict.
 
-## Deprecation policy for legacy files
+## After the import: retire the legacy files (D11210)
 
-The import is **additive**. After running it the pre-existing markdown
-files remain in place under `.cleo/research/`, `.cleo/adrs/`, and
-`.cleo/agent-outputs/`. We deliberately do not rewrite, move, or delete
-them because:
+The import is **additive**: it never rewrites, moves or deletes the files
+it reads. Leaving them in place afterwards is how documentation rot starts,
+because agents keep finding and extending the stale copy instead of the
+store doc. Once the import has run:
 
-1. Many of those files are referenced by hard-coded paths in older agent
-   outputs and ADR cross-links. Renaming them would break the
-   historical record.
-2. The docs SSoT can serve them by slug or SHA-256 once imported, so
-   nothing is *gained* by deleting the originals.
-3. Audit and forensics workflows benefit from the original filesystem
-   layout staying intact.
+1. Prove every file reached the store: each legacy file's SHA-256 must be
+   present in the blob store (`cleo docs doctor` reports any content-bearing
+   row whose bytes are missing as `legacy-blob-coverage`).
+2. Remove the legacy files from git, and gitignore agent-generated trees such
+   as `.cleo/agent-outputs/` so new output goes to the store. The bytes stay
+   in the blob store and in git history, and `cleo docs fetch <slug-or-sha>`
+   serves them.
+3. Repoint any hard-coded path in code or docs at the store doc (or its
+   published mirror under `docs/`) in the same change.
 
-If you want to encourage callers to migrate to slug-based fetch, add a
-short frontmatter banner to the legacy files:
-
-```markdown
-> **Deprecated path** — fetch via `cleo docs fetch <slug-or-sha>` instead.
-```
-
-The banner is **not** rewritten automatically by `cleo docs import`;
-adding it is a one-time editorial choice per project. The CLI's
-deprecation policy is "leave bytes alone, audit the import".
+Do not add "deprecated path" banners to legacy files; remove the files.
 
 ## CI smoke test
 
