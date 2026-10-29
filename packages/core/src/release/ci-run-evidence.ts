@@ -108,6 +108,7 @@ function runRefusal(runId: number, record: CiRunRecord): CiRunRefusal | null {
   if (record.conclusion !== 'success')
     return refuse(
       `attempt ${record.attempt} concluded ${record.conclusion ?? 'with no conclusion'}, not success`,
+      // @sync-invariant none:input-shape a red repeat-run is refused before anything is written
       'E_EVIDENCE_TESTS_FAILED',
     );
   return null;
@@ -174,6 +175,7 @@ export async function resolveCiRunEvidenceAtom(
     return {
       ok: false,
       reason: `ci-run:${runId}: run ${bad.run} of ${runs} did not pass (exit ${bad.exitCode}, ${bad.numFailedTests} failed, ${bad.numPassedTests} passed)`,
+      // @sync-invariant none:input-shape a red repeat-run is refused before anything is written
       codeName: 'E_EVIDENCE_TESTS_FAILED',
     };
   // Relevance: the repeated file is part of the task's change, or a linked
