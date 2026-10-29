@@ -41,6 +41,12 @@ export interface AgentAdmission {
   readonly admitted: string[];
   /** Candidate task IDs deferred — retry on a later query as slots free. */
   readonly deferred: string[];
+  /**
+   * Tasks already being worked (a live claim, T14133): neither admitted nor
+   * deferred. A spawned session's lease already counts against
+   * {@link agentBudget}.
+   */
+  readonly inFlight: string[];
 }
 
 /** Options for {@link computeAgentAdmission}. */
@@ -51,6 +57,8 @@ export interface AgentAdmissionOptions {
   readonly cpuCount?: number;
   /** Override total RAM bytes (tests). */
   readonly totalMemBytes?: number;
+  /** Claimed tasks to report as in flight (T14133). @defaultValue none */
+  readonly inFlight?: readonly string[];
 }
 
 /**
@@ -76,8 +84,9 @@ export async function computeAgentAdmission(
     ...(opts.totalMemBytes !== undefined ? { totalMemBytes: opts.totalMemBytes } : {}),
   });
 
+  const inFlight = [...(opts.inFlight ?? [])];
   if (!Number.isFinite(budget)) {
-    return { agentBudget: taskIds.length, admitted: [...taskIds], deferred: [] };
+    return { agentBudget: taskIds.length, admitted: [...taskIds], deferred: [], inFlight };
   }
 
   const cap = Math.max(0, Math.floor(budget));
@@ -85,5 +94,6 @@ export async function computeAgentAdmission(
     agentBudget: cap,
     admitted: taskIds.slice(0, cap),
     deferred: taskIds.slice(cap),
+    inFlight,
   };
 }
