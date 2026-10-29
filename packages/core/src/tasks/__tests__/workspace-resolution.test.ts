@@ -227,6 +227,7 @@ describe('a test-run receipt is never recorded from a checkout testing another o
         numPassedTests: 1,
         numFailedTests: 0,
         numPendingTests: 0,
+        numTodoTests: 0,
         success: true,
         startTime: Date.now(),
         testResults: [
