@@ -39,6 +39,7 @@ import {
   isRunnerCancelOnlyLog,
   isSetupStepFailureLog,
   isWorkerCrashOnlyLog,
+  jobNameMatches,
   listMainDescendants,
   listPathTouchingMainCommits,
   missingPrHunk,
@@ -559,6 +560,8 @@ describe('resolveCiEvidenceAtom', () => {
   });
 
   describe('jobs covering the changed paths (T13175)', () => {
+    /** A GitHub Actions expression, as an unexpanded matrix job name carries it. */
+    const gha = (expression: string): string => `\${{ ${expression} }}`;
     const covering = {
       ...optedIn,
       ciChecks: {
@@ -598,6 +601,33 @@ describe('resolveCiEvidenceAtom', () => {
       expect(r.ok && r.atom.kind === 'ci' && r.atom.gateChecks?.qaPassed).toContain(
         'Lint & Format',
       );
+    });
+
+    it('a scripts-only PR whose matrix Type Check was skipped under its templated name: accepted (T14148)', async () => {
+      // A matrix job skipped before expansion reports its raw `name:` template.
+      const template = `Type Check${gha("matrix.node != '24.16.0' && format(' (Node {0})', matrix.node) || ''")}`;
+      const templated = scriptsRun.map((c) =>
+        c.name === 'Type Check' ? { ...c, name: template } : c,
+      );
+      const r = await resolve({
+        context: context('T1', ['testsPassed', 'qaPassed']),
+        resolvePr: pr(['scripts/packed-install-smoke.mjs']),
+        fetchChecks: async () => ({ ok: true, checks: templated }),
+      });
+      expect(r.ok, JSON.stringify(r)).toBe(true);
+      expect(r.ok && r.atom.kind === 'ci' && r.atom.gateChecks?.qaPassed).toContain(
+        'Lint & Format',
+      );
+    });
+
+    it('a templated job name matches its glob by the static prefix only (T14148)', () => {
+      const re = /^Type Check$/;
+      expect(
+        jobNameMatches(re, `Type Check${gha("matrix.node != '24.16.0' && ' (Node 26)' || ''")}`),
+      ).toBe(true);
+      expect(jobNameMatches(re, 'Type Check')).toBe(true);
+      expect(jobNameMatches(re, `Type Checker${gha('x')}`)).toBe(false);
+      expect(jobNameMatches(re, gha('matrix.name'))).toBe(false);
     });
 
     it('a package PR whose unit shards were skipped: refused, no rule covers its path', async () => {
