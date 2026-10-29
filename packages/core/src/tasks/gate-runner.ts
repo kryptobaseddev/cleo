@@ -97,6 +97,7 @@ import {
   evidenceCacheKeyPath,
   type GateCacheState,
   gateCacheEntryPath,
+  isCacheableGate,
   readGateCacheEntry,
   sealGateCacheEntry,
 } from './gate-result-cache.js';
@@ -279,6 +280,92 @@ function loadEvidenceCacheKey(): Buffer | null {
   } catch {
     return null;
   }
+}
+
+/**
+ * Read (never create) the per-machine evidence cache key, for a read-only
+ * probe (T14138). `null` when it does not exist yet or cannot be read.
+ */
+function readEvidenceCacheKey(): Buffer | null {
+  try {
+    const hex = readFileSync(evidenceCacheKeyPath(), 'utf-8').trim();
+    return /^[0-9a-f]{64}$/.test(hex) ? Buffer.from(hex, 'hex') : null;
+  } catch {
+    return null;
+  }
+}
+
+/** What {@link probeTypedGateCache} found for one typed gate (T14138). */
+export type TypedGateCacheProbe =
+  | { readonly status: 'hit'; readonly cachedAt: string }
+  | { readonly status: 'miss'; readonly why: string | null }
+  | { readonly status: 'unavailable'; readonly reason: string };
+
+/**
+ * Whether the evidence cache holds a sealed pass for one typed gate in the
+ * tree and environment the next evidence write would use (T14138), so
+ * `cleo done --plan` can report a pass `cleo verify --run` cached instead of
+ * calling it not-run. Read-only: it runs no gate, writes no entry and never
+ * creates the machine key. The inputs digest is computed as
+ * {@link runTaskGates} computes it, so a hit here is a hit for the write.
+ *
+ * @param task - Task that owns the gate.
+ * @param gate - The typed gate.
+ * @param execution - Admitted lifetime whose project root scopes the probe.
+ * @param env - Environment the gate would launch with.
+ * @returns A hit with its time, a miss naming the key part that moved (when a
+ *   recent entry explains it), or why the cache cannot be consulted.
+ * @task T14138
+ */
+export async function probeTypedGateCache(
+  task: Task,
+  gate: AcceptanceGate,
+  execution: OperationExecutionContext,
+  env: NodeJS.ProcessEnv = process.env,
+): Promise<TypedGateCacheProbe> {
+  if (!TOOL_GATE_KINDS.has(gate.kind) || !isCacheableGate(gate))
+    return { status: 'unavailable', reason: `a ${gate.kind} gate is never cached` };
+  const root = resolve(execution.identity.projectRoot);
+  let gateRoot: string;
+  try {
+    gateRoot = gateTreeFor(gate, resolveTypedGateRoot(root, undefined, undefined, task.id), root);
+  } catch (error) {
+    return {
+      status: 'unavailable',
+      reason: error instanceof Error ? error.message : String(error),
+    };
+  }
+  const state = await captureGateCacheState(gateRoot);
+  if (state === null)
+    return { status: 'unavailable', reason: 'the gate tree is not a git checkout' };
+  const key = readEvidenceCacheKey();
+  if (key === null)
+    return {
+      status: 'unavailable',
+      reason: `no readable machine key at ${evidenceCacheKeyPath()}`,
+    };
+  const { invocation, refusal } = resolveInvocation(gate, gateRoot, { ...env });
+  if (refusal !== undefined) return { status: 'unavailable', reason: refusal };
+  let artifacts: AcceptanceGateArtifact[];
+  try {
+    artifacts = await snapshotGateInputs(task, gate, invocation, execution, gateRoot);
+  } catch (error) {
+    return {
+      status: 'unavailable',
+      reason: `its inputs could not be captured: ${error instanceof Error ? error.message : String(error)}`,
+    };
+  }
+  const inputsHash = gateInputsHash(invocation, artifacts);
+  const lookup = readGateCacheEntry(root, gate, state, inputsHash, key);
+  if (lookup.status === 'hit') return { status: 'hit', cachedAt: lookup.createdAt };
+  if (lookup.status === 'invalid') return { status: 'unavailable', reason: lookup.reason };
+  return {
+    status: 'miss',
+    why: describeGateCacheMiss(root, gate, state, inputsHash, {
+      environmentHash: invocation?.environmentHash ?? null,
+      artifacts,
+    }),
+  };
 }
 
 /**
