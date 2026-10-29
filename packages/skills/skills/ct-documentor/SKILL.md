@@ -1,7 +1,7 @@
 ---
 name: ct-documentor
 description: Documentation coordinator with CLEO style guide compliance. Routes every canonical-doc write (spec, adr, research, handoff, note, llm-readme) through the docs SSoT via `cleo docs add` / `cleo docs publish` / `cleo docs fetch` — never raw filesystem writes. Carries the CLEO writing and review guides as references and coordinates ct-spec-writer and ct-adr-recorder. Use when creating or updating documentation files, consolidating scattered documentation, or validating documentation against style standards. Triggers on documentation tasks, doc update requests, or style guide compliance checks.
-version: 3.30.0
+version: 3.30.1
 protocol: null
 dependencies:
   - ct-spec-writer
@@ -16,7 +16,7 @@ compatibility:
   - gemini-cli
 license: MIT
 metadata:
-  version: 3.30.0
+  version: 3.30.1
   tier: core
   install: harness
   covers:
@@ -77,9 +77,17 @@ doc in the same PR.
 
 `cleo docs doctor` (T13447) audits the docs store — dangling `local-file`
 pointers, docVersion skew vs the audit log, empty topics/related_tasks,
-`docs_wikilinks` drift, legacy store surfaces, stale drafts — and with
-`--apply` repairs them after creating a backup automatically. Use it for
-store hygiene checks; it never edits doc content.
+`docs_wikilinks` drift, legacy store surfaces, stale drafts, and
+`docs_publications` ledger rows whose mirror is gone (including dead worktree
+paths) or stale (T14117) — and with `--apply` repairs them after creating a
+backup automatically. The ledger syncs across devices, so a row is pruned
+only when its mirror is provably gone (absent from HEAD and the default
+branch, or in a removed worktree of this device) and its blob stays
+referenced elsewhere; absolute paths and other devices' paths are only
+reported. Each pruned row is first appended to
+`.cleo/audit/docs-publications-prune.jsonl`, and stale mirrors are only
+reported (republish, or ingest the edit with `cleo docs update`). Use it for store
+hygiene checks; it never edits doc content.
 
 `cleo docs migrate` (T13360) imports legacy docs + history into the re-keyed
 conduit store inside the migration safety harness (pre-step backup, verified
