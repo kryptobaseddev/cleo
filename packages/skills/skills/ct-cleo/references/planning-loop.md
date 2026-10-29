@@ -34,9 +34,13 @@ gates work only where a project turns on the stage gate (below).
 
 ## 3. Verify
 
-- `cleo done <id> --plan`, record each gate with `cleo verify <id> --gate <gate>
-  --evidence "<atoms>"`, then `cleo complete <id>`.
-- Each PR head gets an independent review before merge.
+- PR work: the PR body names each task and its ACs (`Closes: T#### AC1,AC2`, or
+  `Refs:` for partial delivery). A non-author reviewer records a verdict per AC
+  on the PR head (`cleo review verdict`). Merge on green `CI`; the merge sweep
+  closes the task. Check the lines first with
+  `cleo done --from-merge <pr> --dry-run`.
+- No-PR work: `cleo done <id> --plan`, record each gate with
+  `cleo verify <id> --gate <gate> --evidence "<atoms>"`, then `cleo complete <id>`.
 
 ## Spawn protocols are labels
 

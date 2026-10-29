@@ -19,6 +19,7 @@ import {
   findSkillCommandViolations,
   prepareForScan,
   runGate,
+  subDeclaresPositional,
 } from '../lint-skill-commands.mjs';
 
 const REPO = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..');
@@ -169,5 +170,36 @@ describe('lint-skill-commands goes red on planted defects', () => {
       JSON.stringify({ entries: [{ key: finding.key, skill: 'ct-core-skill' }] }),
     );
     expect(runGate(root)).toBe(1);
+  });
+});
+
+describe('subDeclaresPositional (T14105)', () => {
+  const cmd = (args, prelude = '') =>
+    `${prelude}const packet = defineCommand({\n  meta: { name: 'packet' },\n  args: ${args},\n});\n`;
+  const PR_ARG = "const prArg = { type: 'positional', required: true } as const;\n";
+  const TASK_ARG = "const taskArg = { type: 'string', required: true } as const;\n";
+
+  it('finds an inline positional', () => {
+    expect(subDeclaresPositional(cmd("{ pr: { type: 'positional' } }"), 'packet')).toBe(true);
+  });
+
+  it('judges a by-reference positional resolved in the same file (pr: prArg)', () => {
+    expect(
+      subDeclaresPositional(cmd('{ pr: prArg, task: taskArg }', PR_ARG + TASK_ARG), 'packet'),
+    ).toBe(true);
+  });
+
+  it('judges resolved by-reference args that are not positional', () => {
+    expect(subDeclaresPositional(cmd('{ task: taskArg }', TASK_ARG), 'packet')).toBe(false);
+  });
+
+  it('does not judge a reference it cannot resolve in the file', () => {
+    expect(subDeclaresPositional(cmd('{ task: importedArg }'), 'packet')).toBeNull();
+  });
+
+  it('still reports none for literal non-positional args with boolean values', () => {
+    const args =
+      "{ task: { type: 'string', required: true }, dry: { type: 'boolean', default: false } }";
+    expect(subDeclaresPositional(cmd(args), 'packet')).toBe(false);
   });
 });

@@ -22,10 +22,10 @@ token spend on the task.
 1. Start with `cleo done <TASK_ID> --plan`. It picks the cheapest valid
    evidence (affected, then CI, then full) and shows each tool's cache
    state.
-2. After the PR merges, when the project sets `evidence.ciSatisfies`,
-   record `testsPassed` and `qaPassed` with `ci:<pr>`. No local run is
-   needed.
-3. Otherwise use `tool:test-affected` when `testing.affectedCommand` is
+2. PR work: green `CI` on the PR head is the run. The merge sweep
+   records `ci:<pr>` for `testsPassed` and `qaPassed`; no local run and
+   no step after the merge are needed.
+3. No-PR work: use `tool:test-affected` when `testing.affectedCommand` is
    configured, else `test-run:<json>` from a targeted run of the test
    files you changed (or `tool:test`).
 4. While iterating, run only the failing or changed test files.
