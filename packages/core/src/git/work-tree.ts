@@ -206,6 +206,61 @@ export function gitHeadHasPath(toplevel: string, relPath: string): boolean {
 }
 
 /**
+ * The default-branch refs of the checkout at `toplevel` that resolve:
+ * `origin/HEAD`'s target (e.g. `origin/main`) and the matching local branch,
+ * else whichever of local `main`/`master` exists. Empty when none resolves.
+ *
+ * Kept to plain git so callers outside the spawn/worktree graph can use it;
+ * `getDefaultBranch` in `spawn/branch-integration.ts` adds the config override.
+ *
+ * @param toplevel - Checkout toplevel.
+ * @task T14117
+ */
+export function gitDefaultBranchRefs(toplevel: string): string[] {
+  const refs: string[] = [];
+  const remoteHead = gitProbe(toplevel, ['rev-parse', '--abbrev-ref', 'origin/HEAD']);
+  if (remoteHead !== null && remoteHead.startsWith('origin/') && remoteHead !== 'origin/HEAD') {
+    refs.push(remoteHead);
+    const local = remoteHead.slice('origin/'.length);
+    if (gitProbe(toplevel, ['rev-parse', '--verify', '--quiet', `refs/heads/${local}`]) !== null) {
+      refs.push(local);
+    }
+    return refs;
+  }
+  for (const local of ['main', 'master']) {
+    if (gitProbe(toplevel, ['rev-parse', '--verify', '--quiet', `refs/heads/${local}`]) !== null) {
+      refs.push(local);
+      const remote = `origin/${local}`;
+      if (
+        gitProbe(toplevel, ['rev-parse', '--verify', '--quiet', `refs/remotes/${remote}`]) !== null
+      ) {
+        refs.push(remote);
+      }
+      break;
+    }
+  }
+  return refs;
+}
+
+/**
+ * Whether commit-ish `ref` of the checkout at `toplevel` tracks `relPath`.
+ *
+ * Returns `null` when `ref` does not resolve to a commit (or git cannot run),
+ * so callers can tell "absent" apart from "unknown".
+ *
+ * @param toplevel - Checkout toplevel.
+ * @param ref - Any commit-ish (`HEAD`, `main`, `origin/main`, a sha).
+ * @param relPath - POSIX path relative to `toplevel`.
+ * @task T14117
+ */
+export function gitRefHasPath(toplevel: string, ref: string, relPath: string): boolean | null {
+  if (gitProbe(toplevel, ['rev-parse', '--verify', '--quiet', `${ref}^{commit}`]) === null) {
+    return null;
+  }
+  return gitProbe(toplevel, ['cat-file', '-e', `${ref}:${relPath}`]) !== null;
+}
+
+/**
  * Toplevels of the submodules checked out below `toplevel`, recursively.
  *
  * @param toplevel - Superproject checkout toplevel.

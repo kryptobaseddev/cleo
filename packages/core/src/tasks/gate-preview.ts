@@ -127,6 +127,7 @@ export async function previewTaskGates(
   const root = resolve(projectRoot);
   const accessor = await getTaskAccessor(root);
   const task: Task | null = await accessor.loadSingleTask(taskId);
+  // @sync-invariant none:input-shape previewing an unknown task is refused before anything is written
   if (!task) throw new Error(`Task not found: ${taskId}`);
 
   const allTyped = extractTypedGates(task.acceptance ?? []);
@@ -141,6 +142,7 @@ export async function previewTaskGates(
     const known = allTyped.flatMap(({ gate }) => (gate.req ? [gate.req] : []));
     const unknown = wanted.filter((r) => !known.includes(r));
     if (unknown.length > 0)
+      // @sync-invariant task.ac.integrity --req must name a typed gate of the task's criteria; an unknown id is refused before any gate result is cached
       throw new Error(
         `REQ-ID(s) ${unknown.join(', ')} not found on ${taskId}; its typed gates are ${known.join(', ') || 'unnamed (no REQ-IDs)'}`,
       );
@@ -165,6 +167,7 @@ export async function previewTaskGates(
   const gates = typed.map((entry) => entry.gate);
   const identity = readProjectInfoAtDirectorySync(root, join(root, '.cleo'));
   if (!identity.projectId)
+    // @sync-invariant none:local-only typed gates need this checkout's project identity; nothing is written without it
     throw new Error('Typed gate execution requires a stable project identity');
 
   const execution = createOperationExecutionContext(

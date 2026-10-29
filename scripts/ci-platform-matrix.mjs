@@ -7,27 +7,30 @@
  * they stay off ordinary pull requests (T12177, 2026-09-29). This script is
  * the one place that decides when they run:
  *
- * - `schedule` (nightly) and `merge_group`: macOS always.
+ * - `merge_group`: macOS always. The nightly macOS run lives in macos-main.yml
+ *   (T14104), which also files a `macos-regression` issue when it fails, so
+ *   ci.yml's `schedule` run is Linux only and nothing runs macOS twice.
  * - `pull_request`: a reduced macOS set ({@link MACOS_PR_SHARDS} shards) when
  *   the change is darwin-specific, so a macOS-only regression is caught on its
  *   own PR instead of the next nightly. A
  *   platform-agnostic change that happens to break on macOS (realpath
  *   `/var` vs `/private/var`, spaces in "Application Support", the
  *   case-insensitive filesystem, BSD userland flags) is still found by the
- *   nightly or main-push macOS run:
+ *   macos-main.yml nightly or main-push run:
  *   - a changed path names darwin or macOS (`resources/darwin-backend.ts`),
  *     outside `.changeset/`, `docs/` and `macos-main.yml`; or
  *   - a changed, non-comment line of a code or workflow file names macOS (a
  *     `'darwin'` / `'macos'` literal, `Darwin`, `target_os`, `uname`,
  *     `macos-latest`), or adds or removes a platform check that is not only a
  *     `'win32'` comparison (see {@link touchesMacos}).
- * - Anything else (`push`, `workflow_dispatch`): Linux only.
+ * - Anything else (`push`, `schedule`, `workflow_dispatch`): Linux only.
  *
  * The free plan runs at most 5 macOS jobs at once, shared by every pull
  * request and every main push, so the full {@link MACOS_SHARDS}-shard set is
- * kept for the nightly and merge-group runs (and macos-main.yml); a darwin
- * pull request runs {@link MACOS_PR_SHARDS} shards plus its two macOS builds,
- * which fits the pool in one wave (T13198).
+ * kept for the merge-group runs (and macos-main.yml); a darwin
+ * pull request runs {@link MACOS_PR_SHARDS} shards, which start after its
+ * macOS `build` and share the pool with `Build & Verify` only: one wave
+ * (T13198, T14104).
  *
  * Usage (the `changes` job):
  *
@@ -61,19 +64,21 @@ import { pathToFileURL } from 'node:url';
 export const LINUX_SHARDS = 8;
 
 /**
- * macOS unit-test shards nightly, in merge groups and in macos-main.yml. Also
+ * macOS unit-test shards in merge groups and in macos-main.yml. Also
  * 8: the free plan runs at most 5 macOS jobs at once, so more shards would
  * only add waves and setup.
  */
 export const MACOS_SHARDS = 8;
 
 /**
- * macOS unit-test shards on a darwin-specific pull request (T13198). Two
- * shards and the two macOS build jobs fit the 5-job macOS pool in one wave,
- * so one darwin pull request no longer starves every other PR's macOS legs.
- * ci.yml gives these legs a longer timeout (each runs half the suite).
+ * macOS unit-test shards on a darwin-specific pull request (T13198). The
+ * shards start after the macOS `build` job, so they share the 5-job macOS
+ * pool with `Build & Verify` only: four shards plus that job fit one wave.
+ * T14104: two shards (half the suite each) hit ci.yml's 90-minute ceiling
+ * on 2026-10-28 while still passing; four split the work instead. ci.yml
+ * keeps these legs at 90 minutes.
  */
-export const MACOS_PR_SHARDS = 2;
+export const MACOS_PR_SHARDS = 4;
 
 /** The root `engines.node` floor CI runs on everywhere (gate 8 checks it against root). */
 export const NODE_FLOOR = '24.16.0';
@@ -193,12 +198,11 @@ export function detectDarwin(paths, patch) {
  * @param {string} event - `github.event_name`.
  * @param {boolean} darwin - Whether a pull request's change is darwin-specific.
  *   A darwin pull request gets {@link MACOS_PR_SHARDS} macOS shards; the
- *   nightly and merge-group runs get {@link MACOS_SHARDS}.
+ *   merge-group runs get {@link MACOS_SHARDS}.
  * @returns {{ buildOs: string[], testMatrix: Array<{ os: string, shard: number, total: number, node: string }> }}
  */
 export function platformMatrix(event, darwin) {
-  const macos =
-    event === 'schedule' || event === 'merge_group' || (event === 'pull_request' && darwin);
+  const macos = event === 'merge_group' || (event === 'pull_request' && darwin);
   const buildOs = macos ? ['ubuntu-latest', 'macos-latest'] : ['ubuntu-latest'];
   const shards = (os, total, node) =>
     Array.from({ length: total }, (_, i) => ({ os, shard: i + 1, total, node }));

@@ -1243,6 +1243,55 @@ describe('a refused report is named with its first failing rule (T14060)', () =>
   });
 });
 
+/**
+ * T14132: the shared reader (T14124) made the gate's in-output JSON search
+ * accept any counter summary, so a test printing `{"total":5,"passed":5}`
+ * could satisfy minCount. A summary counts only as the whole stdout or as the
+ * gate's own report file; a full vitest/jest report embedded in progress
+ * output still counts ("finds the report after the runner's progress output").
+ */
+describe('minCount refuses a counter summary embedded in output (T14132)', () => {
+  const gate = (source: string, minCount = 5) => ({
+    kind: 'test' as const,
+    description: 'embedded summary',
+    command: process.execPath,
+    args: ['-e', source],
+    expect: 'pass' as const,
+    minCount,
+  });
+  const summary = JSON.stringify({ total: 5, passed: 5, failed: 0, skipped: 0 });
+
+  it('a summary inside noisy output is refused, naming why', async () => {
+    const source = `console.log('RUN suite'); console.log(${JSON.stringify(summary)}); console.log('done');`;
+    const [result] = await runGates([gate(source)], { projectRoot });
+    expect(result?.result).toBe('error');
+    expect(result?.errorMessage).toContain('inside its output is not counted');
+    expect(result?.errorMessage).toContain("Make the summary the command's entire stdout");
+    expect(result?.errorMessage).toContain('--outputFile');
+  });
+
+  it('the same summary as the whole stdout counts', async () => {
+    const [result] = await runGates([gate(`process.stdout.write(${JSON.stringify(summary)});`)], {
+      projectRoot,
+    });
+    expect(result?.result, result?.errorMessage).toBe('pass');
+  });
+
+  it("the same summary in the gate's report file counts", async () => {
+    const rel = join('.vitest', 'json', 'output.json');
+    await rm(join(projectRoot, '.vitest'), { recursive: true, force: true });
+    const source =
+      `const fs=require('node:fs');fs.mkdirSync(${JSON.stringify(dirname(rel))},{recursive:true});` +
+      `fs.writeFileSync(${JSON.stringify(rel)}, ${JSON.stringify(summary)}); console.log('wrote it');`;
+    try {
+      const [result] = await runGates([gate(source)], { projectRoot });
+      expect(result?.result, result?.errorMessage).toBe('pass');
+    } finally {
+      await rm(join(projectRoot, '.vitest'), { recursive: true, force: true });
+    }
+  });
+});
+
 describe('gate runner immutable lifetime and bounded evidence', () => {
   afterEach(() => {
     vi.unstubAllGlobals();

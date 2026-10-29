@@ -75,6 +75,7 @@ interface ScannedDoc {
 function git(root: string, args: string[]): string {
   const r = spawnSync('git', args, { cwd: root, encoding: 'utf8', maxBuffer: 256 * 1024 * 1024 });
   if (r.status !== 0) {
+    // @sync-invariant none:local-only a failed read of this checkout's git history stops the scan before any task is flagged
     throw new Error(`git ${args[0]} failed in ${root}: ${r.stderr.trim()}`);
   }
   return r.stdout;

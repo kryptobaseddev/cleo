@@ -125,7 +125,10 @@ export type DecodedDocResult =
 export interface ListProjectDocsOpts {
   /** Restrict to a single document kind. */
   kind?: string;
-  /** Maximum number of results. Default: 200. */
+  /**
+   * Maximum number of results. Default: every match (T14115: a silent 200
+   * cap hid 97% of a 6,307-doc store from `cleo docs list --limit 0`).
+   */
   limit?: number;
   /** Whether to only return docs with a slug. Default: false. */
   sluggedOnly?: boolean;
@@ -338,7 +341,7 @@ export class DocsReadModel {
    * @returns Array of resolved docs sorted by creation date (newest first).
    */
   async listProjectDocs(opts?: ListProjectDocsOpts): Promise<ResolvedDoc[]> {
-    const limit = opts?.limit ?? 200;
+    const limit = opts?.limit !== undefined && opts.limit > 0 ? opts.limit : undefined;
     const kindFilter = opts?.kind ?? null;
 
     const [attachmentDocs, blobDocs, publications] = await Promise.all([
@@ -385,7 +388,7 @@ export class DocsReadModel {
 
     // Sort by createdAt descending
     results.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
-    return results.slice(0, limit);
+    return limit === undefined ? results : results.slice(0, limit);
   }
 
   // -----------------------------------------------------------------------

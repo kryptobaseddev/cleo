@@ -1,6 +1,5 @@
 {
   "files": [
-    "docs/CLEO-DOCUMENTATION-SOP.md",
     "docs/RELEASING.md",
     "docs/adr/068-amendment-3-1-worktree-cli-routing.md",
     "docs/adr/ADR-068-per-worktree-handoff.md",
@@ -14,7 +13,6 @@
     "docs/adr/ADR-088-release-pipeline-coherence.md",
     "docs/adr/ADR-089-cleo-daemon-native-dispatch.md",
     "docs/adr/ADR-097-goal-protocol-ocg-runtime.md",
-    "docs/adr/ARCHIVED.md",
     "docs/api/CORE-API-AGENT-GUIDE.md",
     "docs/architecture/DATABASE-ERDS.md",
     "docs/architecture/SG-CLEO-SKILLS-architecture-v3.md",

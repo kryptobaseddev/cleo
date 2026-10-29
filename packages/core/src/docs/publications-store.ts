@@ -15,8 +15,9 @@
  *     coalesces onto one row (gate 37 declaration in
  *     `row-identity-registry.ts`).
  *   - {@link upsertDocsPublication} refreshes `last_blob_sha` /
- *     `published_at` on conflict (latest-publish-wins); nothing is ever
- *     DELETEd here.
+ *     `published_at` on conflict (latest-publish-wins). The only DELETE is
+ *     {@link deleteDocsPublication}, used by the `cleo docs doctor` ledger
+ *     prune (T14117) under its backup gate.
  *   - {@link readDocsPublications} carries a one-time, idempotent migration
  *     shim: when the store table is empty and the legacy
  *     `.cleo/docs-publications.json` still holds entries, they are seeded
@@ -31,6 +32,7 @@
 
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { and, eq } from 'drizzle-orm';
 import { naturalRowUid } from '../store/row-identity.js';
 import { docsPublications } from '../store/schema/cleo-project/docs.js';
 import { getDb } from '../store/sqlite.js';
@@ -217,4 +219,33 @@ export async function readDocsPublicationSha256Set(projectRoot: string): Promise
     .from(docsPublications)
     .all();
   return new Set(rows.map((r) => r.lastBlobSha).filter((sha) => /^[0-9a-f]{64}$/i.test(sha)));
+}
+
+/**
+ * Delete one publication row by its natural (ownerId, blobName, publishedPath)
+ * key.
+ *
+ * Only the `cleo docs doctor` ledger prune (T14117) calls this, after its
+ * backup gate passed and after it appended the full row to its audit log, so
+ * a pruned row can be re-inserted with {@link upsertDocsPublication}.
+ *
+ * @param projectRoot - Absolute path to the CLEO project root.
+ * @param key - The natural key of the row to delete.
+ * @task T14117
+ */
+export async function deleteDocsPublication(
+  projectRoot: string,
+  key: Pick<DocsPublicationRecord, 'ownerId' | 'blobName' | 'publishedPath'>,
+): Promise<void> {
+  const db = await getDb(projectRoot);
+  await db
+    .delete(docsPublications)
+    .where(
+      and(
+        eq(docsPublications.ownerId, key.ownerId),
+        eq(docsPublications.blobName, key.blobName),
+        eq(docsPublications.publishedPath, key.publishedPath),
+      ),
+    )
+    .run();
 }

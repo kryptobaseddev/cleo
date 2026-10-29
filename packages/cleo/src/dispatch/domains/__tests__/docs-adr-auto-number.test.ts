@@ -39,10 +39,11 @@ describe('docs dispatch — ADR auto-numbering (T10360 / closes T10153)', () => 
     fixtureB = join(tempDir, 'b.md');
     fixtureC = join(tempDir, 'c.md');
     fixtureD = join(tempDir, 'd.md');
-    await writeFile(fixtureA, '# A\n\nadr fixture A', 'utf-8');
-    await writeFile(fixtureB, '# B\n\nadr fixture B (different bytes)', 'utf-8');
-    await writeFile(fixtureC, '# C\n\nadr fixture C (other bytes)', 'utf-8');
-    await writeFile(fixtureD, '# D\n\nadr fixture D (yet other bytes)', 'utf-8');
+    // T14109: unique bytes per test, so the duplicate check never matches another test's doc.
+    await writeFile(fixtureA, `# A\n\nadr fixture A ${tempDir}`, 'utf-8');
+    await writeFile(fixtureB, `# B\n\nadr fixture B (different bytes) ${tempDir}`, 'utf-8');
+    await writeFile(fixtureC, `# C\n\nadr fixture C (other bytes) ${tempDir}`, 'utf-8');
+    await writeFile(fixtureD, `# D\n\nadr fixture D (yet other bytes) ${tempDir}`, 'utf-8');
 
     // Clear the in-process slug-allocator state so successive tests in
     // the same vitest worker don't leak reservations to each other.
@@ -110,7 +111,7 @@ describe('docs dispatch — ADR auto-numbering (T10360 / closes T10153)', () => 
       type: 'adr',
       title: 'Next After Seed',
     });
-    expect(auto.success).toBe(true);
+    expect(auto.success, JSON.stringify(auto.error)).toBe(true);
     const data = auto.data as { slug?: string; adrNumber?: number };
     expect(data.adrNumber).toBe(43);
     expect(data.slug).toBe('adr-043-next-after-seed');
@@ -186,6 +187,8 @@ describe('docs dispatch — ADR auto-numbering (T10360 / closes T10153)', () => 
           file,
           type: 'adr',
           title: 'Concurrent Allocation',
+          // T14109: same title on purpose; this test is about the allocator.
+          newBecause: 'allocator concurrency fixture with one shared title',
         }),
       ),
     );

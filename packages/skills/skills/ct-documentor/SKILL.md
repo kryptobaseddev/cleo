@@ -1,7 +1,7 @@
 ---
 name: ct-documentor
 description: Documentation coordinator with CLEO style guide compliance. Routes every canonical-doc write (spec, adr, research, handoff, note, llm-readme) through the docs SSoT via `cleo docs add` / `cleo docs publish` / `cleo docs fetch` — never raw filesystem writes. Carries the CLEO writing and review guides as references and coordinates ct-spec-writer and ct-adr-recorder. Use when creating or updating documentation files, consolidating scattered documentation, or validating documentation against style standards. Triggers on documentation tasks, doc update requests, or style guide compliance checks.
-version: 3.31.0
+version: 3.33.0
 protocol: null
 dependencies:
   - ct-spec-writer
@@ -16,7 +16,7 @@ compatibility:
   - gemini-cli
 license: MIT
 metadata:
-  version: 3.31.0
+  version: 3.33.0
   tier: core
   install: harness
   covers:
@@ -77,9 +77,17 @@ doc in the same PR.
 
 `cleo docs doctor` (T13447) audits the docs store — dangling `local-file`
 pointers, docVersion skew vs the audit log, empty topics/related_tasks,
-`docs_wikilinks` drift, legacy store surfaces, stale drafts — and with
-`--apply` repairs them after creating a backup automatically. Use it for
-store hygiene checks; it never edits doc content.
+`docs_wikilinks` drift, legacy store surfaces, stale drafts, and
+`docs_publications` ledger rows whose mirror is gone (including dead worktree
+paths) or stale (T14117) — and with `--apply` repairs them after creating a
+backup automatically. The ledger syncs across devices, so a row is pruned
+only when its mirror is provably gone (absent from HEAD and the default
+branch, or in a removed worktree of this device) and its blob stays
+referenced elsewhere; absolute paths and other devices' paths are only
+reported. Each pruned row is first appended to
+`.cleo/audit/docs-publications-prune.jsonl`, and stale mirrors are only
+reported (republish, or ingest the edit with `cleo docs update`). Use it for store
+hygiene checks; it never edits doc content.
 
 `cleo docs migrate` (T13360) imports legacy docs + history into the re-keyed
 conduit store inside the migration safety harness (pre-step backup, verified
@@ -168,7 +176,11 @@ materializing through `cleo docs add` + (optionally) `cleo docs publish`.
 
 ## Kinds and names (T14107 · D11210)
 
-One kind per published directory; `cleo docs list-types` prints them (adr, spec, plan, research, guide, concept, reference, migration, release-note, note; handoffs are store-only and never published). Name a doc by its subject: lowercase kebab-case, at most 64 characters, with no task id, session id or date in it. The ADR number and the release-note version are allowed. Task and decision links and dates go in the doc's metadata. `cleo check canon docs` refuses a tracked doc whose name breaks the rule, naming the `git mv` that fixes it; the rule is implemented once in `packages/core/src/docs/doc-name-rule.ts` (`docNameViolation`), and names that broke it before it existed are in the shrink-only `scripts/.docs-name-baseline.json`.
+One kind per published directory; `cleo docs list-types` prints them (adr, spec, plan, research, guide, concept, reference, migration, release-note, note; handoffs are store-only and never published). Name a doc by its subject: lowercase kebab-case, at most 64 characters, with no task id, session id or date in it. The ADR number and the release-note version are allowed. Task and decision links and dates go in the doc's metadata. `cleo docs add` refuses a new slug that breaks the rule with `E_DOC_NAME_RULE` and a subject-only suggestion (existing docs keep their names and still read, update and fetch), CLEO's own minted slugs (ADR allocation, the spawn `{{TOPIC_SLUG}}`) follow it, and `cleo check canon docs` refuses a tracked doc whose name breaks the rule, naming the `git mv` that fixes it; the rule is implemented once in `packages/core/src/docs/doc-name-rule.ts` (`docNameViolation`), and names that broke it before it existed are in the shrink-only `scripts/.docs-name-baseline.json`.
+
+## Update before create (T14109 · D11210)
+
+Before adding a doc, find the one that already covers the subject and update it. `cleo docs add` refuses a likely duplicate with `E_DOC_DUPLICATE`: same content, a similar slug of the same kind, a similar title, or text that mostly repeats an existing doc. The refusal names the existing doc's slug and title and the commands to read it (`cleo docs fetch <slug>`) and update it (`cleo docs update <slug>`). Add a new doc anyway only when it really is different, with `--new-because "<why it is not the existing doc>"`; the reason is recorded in `.cleo/audit/docs-new-because.jsonl`. `--allow-similar` alone no longer bypasses the check.
 
 ## Decision: update vs supersede vs create (T10168 · Saga T9855 / E12)
 

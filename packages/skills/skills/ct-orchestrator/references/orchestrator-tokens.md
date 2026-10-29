@@ -52,7 +52,7 @@ template=$(ti_load_template "skills/ct-research-agent/SKILL.md")
 |-------|-------------|---------|---------|
 | `{{TASK_ID}}` | CLEO task identifier | `^T[0-9]+$` | `T1234` |
 | `{{DATE}}` | ISO date | `YYYY-MM-DD` | `2026-01-20` |
-| `{{TOPIC_SLUG}}` | URL-safe topic name | `[a-zA-Z0-9_-]+` | `auth-research` |
+| `{{TOPIC_SLUG}}` | The task's subject in kebab-case: no task id, session id or date (the doc naming rule, T14129) | `[a-zA-Z0-9_-]+` | `auth-research` |
 
 ### Task Command Tokens (CLEO defaults)
 

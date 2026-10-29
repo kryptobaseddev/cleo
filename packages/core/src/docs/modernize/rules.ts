@@ -12,8 +12,7 @@
 
 import type { DocKindMetadata } from '@cleocode/contracts';
 import { WIKILINK_PATTERN } from '../derive-links.js';
-import { DOC_NAME_MAX_LENGTH, suggestDocName } from '../doc-name-rule.js';
-import { normalizeSlug } from '../slug-normalize.js';
+import { DOC_NAME_MAX_LENGTH, docNameViolation, subjectSlug } from '../doc-name-rule.js';
 
 /** Confidence at or above which a classify rule acts without asking System One. */
 export const MODERNIZE_CLASSIFY_FLOOR = 0.75;
@@ -185,49 +184,39 @@ export function classifyDocByRules(
   return { kind: fallback, confidence: 0.3, reason: 'no folder, name or heading rule fired' };
 }
 
-/** Version and draft markers: not a naming violation, but versions of one doc share a slug. */
-const VERSION_TOKEN = /^(v\d+|final|draft|copy|wip|tmp)$/;
-
-/**
- * Strip task ids, session ids and dates (the T14107 rule, via
- * {@link suggestDocName}) and version/draft markers from a name.
- *
- * @param name - A filename (no extension) or title.
- * @returns The remaining kebab words, or `''` when none are left.
- */
-export function stripVolatileTokens(name: string): string {
-  const suggested = suggestDocName(name);
-  if (suggested === 'doc' && !normalizeSlug(name).split('-').includes('doc')) return '';
-  return suggested
-    .split('-')
-    .filter((w) => w.length > 0 && !VERSION_TOKEN.test(w))
-    .join('-');
+/** Words a slug derived from a name or title has. */
+function wordCount(slug: string): number {
+  return slug === 'doc' ? 0 : slug.split('-').filter(Boolean).length;
 }
 
 /**
- * The stable slug for a file: the filename without volatile tokens, or the
- * title's when the filename has fewer than two words left. ADRs keep their
- * `adr-NNN-` prefix.
+ * The stable slug for a file, under the T14107 naming rule:
+ *
+ * - a file name that already passes {@link docNameViolation} for its kind is
+ *   kept unchanged (a release note's `v2026.10.28`, a clean `adr-001-store`);
+ * - otherwise the slug is {@link subjectSlug} of the name, or of the title
+ *   when the name has too few words left (two; one after an ADR number);
+ * - an ADR keeps its number as an `adr-NNN-` prefix.
  *
  * @param relPath - Path relative to the modernize root.
  * @param content - File text.
  * @param kind - The file's kind.
- * @returns A kebab slug of at most {@link MODERNIZE_SLUG_MAX} characters.
+ * @returns A slug that passes the naming rule.
  */
 export function stableSlugFor(relPath: string, content: string, kind: string): string {
   const base = (relPath.split('/').pop() ?? '').replace(/\.[^.]+$/, '');
-  const adr = /^adr-?(\d+)/i.exec(base);
-  let words = stripVolatileTokens(adr ? base.slice(adr[0].length) : base);
-  // An ADR's number already identifies it; one word after it is enough.
-  if (words.split('-').filter(Boolean).length < (adr ? 1 : 2)) {
-    const title = readTitle(content);
-    const fromTitle = title ? stripVolatileTokens(title.replace(/^adr[\s-]?\d+[:\s.-]*/i, '')) : '';
-    if (fromTitle.split('-').filter(Boolean).length >= 2) words = fromTitle;
+  if (base && docNameViolation(base, kind) === null) return base;
+  const adr = kind === 'adr' ? /^adr-?(\d+)/i.exec(base) : null;
+  const prefix = adr ? `adr-${adr[1]?.padStart(3, '0')}-` : '';
+  const room = MODERNIZE_SLUG_MAX - prefix.length;
+  let words = subjectSlug(adr ? base.slice(adr[0].length) : base, room);
+  if (wordCount(words) < (adr ? 1 : 2)) {
+    const title = readTitle(content)?.replace(/^adr[\s-]?\d+[:\s.-]*/i, '');
+    const fromTitle = title ? subjectSlug(title, room) : 'doc';
+    if (wordCount(fromTitle) >= Math.max(2, wordCount(words) + 1)) words = fromTitle;
   }
-  if (!words) words = kind;
-  const prefix = adr && kind === 'adr' ? `adr-${adr[1]?.padStart(3, '0')}-` : '';
-  const slug = `${prefix}${words}`.slice(0, MODERNIZE_SLUG_MAX).replace(/-+$/, '');
-  return slug || kind;
+  if (wordCount(words) === 0) words = subjectSlug(kind, room);
+  return `${prefix}${words}`;
 }
 
 /**

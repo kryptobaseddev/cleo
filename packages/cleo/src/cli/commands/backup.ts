@@ -90,7 +90,8 @@ const addCommand = defineCommand({
   args: {
     destination: {
       type: 'string',
-      description: 'Backup destination directory',
+      description:
+        'Write the backup into this directory (global copy under <dir>/global) instead of the rotating backup dirs; it never rotates or is rotated (T13209)',
     },
     note: {
       type: 'string',
@@ -111,6 +112,7 @@ const addCommand = defineCommand({
         type: 'snapshot',
         note: args.note ?? (args.destination ? `destination:${args.destination}` : undefined),
         includeGlobal: args.global === true,
+        ...(typeof args.destination === 'string' ? { destination: args.destination } : {}),
       },
       { command: 'backup' },
     );

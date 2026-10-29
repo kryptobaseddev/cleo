@@ -75,13 +75,13 @@ describe('docs.add owner-type inference for D#### ids (T13358)', () => {
     const dash = await handler.mutate('add', {
       ownerId: 'D-42',
       content: 'x\n',
-      slug: 't13358-d-dash',
+      slug: 'd-dash',
     });
     expect(dash.success, JSON.stringify(dash)).toBe(true);
     const task = await handler.mutate('add', {
       ownerId: 'T200',
       content: 'x\n',
-      slug: 't13358-t-task',
+      slug: 't-task',
     });
     expect(task.success, JSON.stringify(task)).toBe(true);
 

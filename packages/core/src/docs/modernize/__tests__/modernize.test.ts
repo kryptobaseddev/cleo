@@ -64,9 +64,16 @@ describe('modernize rules', () => {
       stableSlugFor('handoffs/T12256-comprehensive-agent-handoff-20260920.md', '', 'handoff'),
     ).toBe('comprehensive-agent-handoff');
     expect(stableSlugFor('plans/2026-04-21-agi-self-healing-plan-v2.md', '', 'plan')).toBe(
-      'agi-self-healing-plan',
+      'agi-self-healing-plan-v2',
     );
     expect(stableSlugFor('adr/ADR-7-store-layout.md', '', 'adr')).toBe('adr-007-store-layout');
+    // Dotted calver names (T14107 rule via subjectSlug); a passing name is kept.
+    expect(stableSlugFor('handoff/v2026.9.8-release-integrity-handoff.md', '', 'handoff')).toBe(
+      'release-integrity-handoff',
+    );
+    expect(stableSlugFor('note/notes-2026.10.28.md', '', 'note')).toBe('notes');
+    expect(stableSlugFor('release/v2026.10.28.md', '', 'release-note')).toBe('v2026.10.28');
+    expect(stableSlugFor('adr/adr-001-store.md', '', 'adr')).toBe('adr-001-store');
     expect(stableSlugFor('x/T942-MANIFEST.md', '# Closeout manifest for wave two\n', 'note')).toBe(
       'closeout-manifest-for-wave-two',
     );
@@ -122,7 +129,7 @@ describe('modernize plan → apply → rollback (fixture tree)', () => {
       '# Gate integrity spec\n\n## Requirements\n- gates must hold\n',
     'plans/2026-04-21-self-healing-plan.md':
       '# Self-healing plan\n\n## Goal\nheal the system\n\n## Steps\nstep one\nstep two\nstep three\n\n## Risks\nrisk a\n',
-    'plans/2026-04-21-self-healing-plan-v2.md':
+    'plans/2026-04-22-self-healing-plan.md':
       '# Self-healing plan\n\n## Goal\nheal the system\n\n## Steps\nstep one\nstep two\nstep three\n\n## Owners\nowner a\n',
     'handoffs/T12256-agent-handoff-20260920.md':
       '# Agent handoff\n\nRead [the spec](../specs/T832-gate-integrity-spec.md) first. Work on T12256.\n',
@@ -212,7 +219,7 @@ describe('modernize plan → apply → rollback (fixture tree)', () => {
     // T14107 naming rule: the old name broke it, the new slug does not.
     expect(row('specs/T832-gate-integrity-spec.md')?.baselineRemove).toBe(true);
     expect(row('adr/adr-001-store.md')?.baselineRemove).toBe(false);
-    expect(row('plans/2026-04-21-self-healing-plan-v2.md')).toMatchObject({
+    expect(row('plans/2026-04-22-self-healing-plan.md')).toMatchObject({
       slug: 'self-healing-plan',
       disposition: 'rename',
       target: 'plan/self-healing-plan.md',

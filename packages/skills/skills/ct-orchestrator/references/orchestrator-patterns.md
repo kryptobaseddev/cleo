@@ -108,10 +108,11 @@ cleo show T1586
 # 3. Spawn validation subagent
 cleo orchestrate spawn T1590  # Validation task
 
-# 4. Set verification gates
-cleo verify T1586 --gate testsPassed
-cleo verify T1586 --gate qaPassed
-cleo verify T1586 --all
+# 4. Record gate evidence (every gate needs programmatic evidence; bare --all is rejected)
+cleo done T1586 --plan                                          # names the atoms each gate needs
+cleo verify T1586 --gate testsPassed --evidence "ci:<pr>"       # or tool:test-affected
+cleo verify T1586 --gate qaPassed --evidence "ci:<pr>"          # or tool:lint;tool:typecheck
+cleo complete T1586
 
 # 5. Parent epic auto-completes when all children verified
 ```

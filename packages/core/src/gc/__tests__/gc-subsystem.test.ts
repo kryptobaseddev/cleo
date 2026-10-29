@@ -105,14 +105,17 @@ describe('createGcSubsystem', () => {
     expect(state.daemonPid).toBe(process.pid);
   });
 
-  it('start() schedules the cron job', async () => {
+  it('start() schedules the GC job and the merge sweep (T14101)', async () => {
     const sub = createGcSubsystem(cleoDir);
     await sub.start();
-    expect(mockSchedule).toHaveBeenCalledOnce();
+    expect(mockSchedule).toHaveBeenCalledTimes(2);
     const [expr, , opts] = mockSchedule.mock.calls[0]!;
     expect(expr).toBe('0 3 * * *');
     expect((opts as { timezone: string }).timezone).toBe('UTC');
     expect((opts as { noOverlap: boolean }).noOverlap).toBe(true);
+    const [sweepExpr, , sweepOpts] = mockSchedule.mock.calls[1]!;
+    expect(sweepExpr).toBe('*/5 * * * *');
+    expect((sweepOpts as { noOverlap: boolean }).noOverlap).toBe(true);
   });
 
   it('start() runs missed-run recovery when no lastRunAt is recorded', async () => {
@@ -160,7 +163,7 @@ describe('createGcSubsystem', () => {
     expect(health.pid).toBe(process.pid);
   });
 
-  it('shutdown() destroys the cron task', async () => {
+  it('shutdown() destroys the cron tasks', async () => {
     const destroy = vi.fn();
     mockSchedule.mockReturnValue({ destroy } as ReturnType<typeof cron.schedule>);
 
@@ -168,7 +171,8 @@ describe('createGcSubsystem', () => {
     const ctx = await sub.start();
     sub.shutdown(ctx);
 
-    expect(destroy).toHaveBeenCalledOnce();
+    // The GC job and the merge sweep (T14101).
+    expect(destroy).toHaveBeenCalledTimes(2);
   });
 
   it('healthProbe() returns stopped after shutdown()', async () => {
