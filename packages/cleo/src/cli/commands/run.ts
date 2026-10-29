@@ -270,13 +270,18 @@ export const runCommand = defineCommand({
     // formatter on named files is charged light, a one-process linter or
     // `tsc -p` one process, so neither queues behind a 24 GiB reservation.
     // T14097: a test run in a checkout whose workspace packages resolve into
-    // another checkout would test that checkout's build; refuse before admission.
+    // another checkout would test that checkout's build; T14123: so would one
+    // whose dist was built from other source. Refuse both before admission.
     if (cls === 'test-run') {
-      const { ForeignWorkspaceResolutionError, staleDistWarning, workspaceResolutionForTestRun } =
-        await import('@cleocode/core/tasks/workspace-resolution.js');
+      const {
+        borrowedBuildWarning,
+        unstampedDistWarning,
+        workspaceResolutionError,
+        workspaceResolutionForTestRun,
+      } = await import('@cleocode/core/tasks/workspace-resolution.js');
       const report = workspaceResolutionForTestRun(process.cwd(), argv);
-      if (report !== null && report.foreign.length > 0) {
-        const err = new ForeignWorkspaceResolutionError(report);
+      const err = report === null ? null : workspaceResolutionError(report);
+      if (err !== null) {
         cliError(
           err.message,
           err.codeName,
@@ -286,8 +291,11 @@ export const runCommand = defineCommand({
         );
         process.exit(err.code);
       }
-      const stale = report === null ? null : staleDistWarning(report);
-      if (stale !== null) notice(stale, 'warn');
+      // Warnings go to stderr (notice), never into --passthrough's stdout.
+      for (const warning of report === null
+        ? []
+        : [borrowedBuildWarning(report), unstampedDistWarning(report)])
+        if (warning !== null) notice(warning, 'warn');
     }
     const plan = planRunFootprint(cls, argv, process.env);
     const { overlay, resources, footprintBytes, footprintReason, namedFiles, hookKey } = plan;

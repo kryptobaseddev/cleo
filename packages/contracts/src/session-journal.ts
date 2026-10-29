@@ -112,7 +112,13 @@ export const sessionJournalEntrySchema = z.object({
   tasksCompleted: z.array(z.string()).optional(),
 
   // Doctor summary (T1262 absorbed)
-  /** Compact result of `scanBrainNoise` run at session-end. */
+  /**
+   * Compact result of `scanBrainNoise` run at session-end.
+   *
+   * @deprecated T14120: no longer written. Session end stopped running the
+   * brain scan (it held `cleo session end` for ~120 s on a large store); kept
+   * so older journal entries still parse. Use `cleo memory doctor`.
+   */
   doctorSummary: sessionJournalDoctorSummarySchema.optional(),
 
   // Debrief summary

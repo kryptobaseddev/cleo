@@ -180,17 +180,27 @@ describe('PSYCHE-MEMORY cold pass is project-scoped', () => {
     await nexusInit();
     const db = await getNexusDb();
 
+    // T14153: a process works in ONE project; its CLEO_DIR pin is that project.
+    // Model each phase as production runs it: the writer while working in B is
+    // pinned to B, and each bundle is built pinned to the project it is for.
+    const inProject = <T>(projectRoot: string, run: () => Promise<T>): Promise<T> => {
+      process.env['CLEO_DIR'] = join(projectRoot, '.cleo');
+      return run();
+    };
+
     // Written through the real dialectic writer while working in project B.
-    await applyInsights(
-      {
-        globalTraits: [
-          { key: 'zoho-mail-filter-order', value: 'support@ before admin@', confidence: 0.9 },
-        ],
-        peerInsights: [],
-      },
-      db,
-      db,
-      { sessionId: 'ses_b', activePeerId: 'global', projectRoot: projectB },
+    await inProject(projectB, () =>
+      applyInsights(
+        {
+          globalTraits: [
+            { key: 'zoho-mail-filter-order', value: 'support@ before admin@', confidence: 0.9 },
+          ],
+          peerInsights: [],
+        },
+        db,
+        db,
+        { sessionId: 'ses_b', activePeerId: 'global', projectRoot: projectB },
+      ),
     );
     await upsertUserProfileTrait(db, trait('prefers-zero-deps', { scope: 'user' }));
     await upsertUserProfileTrait(
@@ -203,9 +213,15 @@ describe('PSYCHE-MEMORY cold pass is project-scoped', () => {
     expect(stored?.scope).toBe('project');
 
     const bundleFor = (projectRoot: string): Promise<RetrievalBundle> =>
-      buildRetrievalBundle(
-        { peerId: 'global', sessionId: 'ses_a', passMask: { cold: true, warm: false, hot: false } },
-        projectRoot,
+      inProject(projectRoot, () =>
+        buildRetrievalBundle(
+          {
+            peerId: 'global',
+            sessionId: 'ses_a',
+            passMask: { cold: true, warm: false, hot: false },
+          },
+          projectRoot,
+        ),
       );
     const keys = (b: RetrievalBundle): string[] => b.cold.userProfile.map((t) => t.traitKey).sort();
 

@@ -1,7 +1,7 @@
 ---
 name: ct-documentor
 description: Documentation coordinator with CLEO style guide compliance. Routes every canonical-doc write (spec, adr, research, handoff, note, llm-readme) through the docs SSoT via `cleo docs add` / `cleo docs publish` / `cleo docs fetch` — never raw filesystem writes. Carries the CLEO writing and review guides as references and coordinates ct-spec-writer and ct-adr-recorder. Use when creating or updating documentation files, consolidating scattered documentation, or validating documentation against style standards. Triggers on documentation tasks, doc update requests, or style guide compliance checks.
-version: 3.31.0
+version: 3.33.0
 protocol: null
 dependencies:
   - ct-spec-writer
@@ -16,7 +16,7 @@ compatibility:
   - gemini-cli
 license: MIT
 metadata:
-  version: 3.31.0
+  version: 3.33.0
   tier: core
   install: harness
   covers:
@@ -811,6 +811,25 @@ BEFORE creating ANY new file, you MUST:
 3. UPDATE the existing file instead of creating a new one
 4. Only create new files when NO suitable location exists
 ```
+
+### Modernize a messy docs folder (T14113)
+
+To clean up a whole tree (task- or date-named files, duplicates, split
+category folders), use `cleo docs modernize` instead of moving files by hand:
+
+```bash
+cleo docs modernize docs --out plan.json                  # dry run: kind, slug, keep/rename/merge-into/delete + reasons
+cleo docs modernize --apply --plan plan.json              # apply the reviewed plan; prints a receipt runId
+cleo docs modernize --rollback dm-20261028-150000-abc123  # reverse that run
+cleo docs modernize --store                               # stored docs: re-kind, re-slug (old slug stays an alias), renumber colliding ADRs
+```
+
+Ambiguous classify and merge calls are judged by System One
+(`docs.modernize.classify`, `docs.modernize.merge`; rule fallback when it is
+unreachable) and recorded on each plan row. Apply stores survivors, folds
+duplicates in, supersedes the removed docs, rewrites relative links to
+`[[slug]]` wikilinks (recorded as `links-to` graph edges) and keeps every
+replaced byte under `.cleo/modernize/<runId>/` for rollback.
 
 ---
 

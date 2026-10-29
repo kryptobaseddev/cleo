@@ -20,6 +20,7 @@
  * @epic T1076
  */
 
+import { basename, dirname } from 'node:path';
 import type {
   NexusProfileExportResult,
   NexusProfileGetResult,
@@ -35,7 +36,7 @@ import { readPortableProjectId } from '@cleocode/paths';
 import { and, asc, desc, eq, gte, isNull, or, type SQL, sql } from 'drizzle-orm';
 import type { NodeSQLiteDatabase } from 'drizzle-orm/node-sqlite';
 import { type EngineResult, engineError, engineSuccess } from '../engine-result.js';
-import { getProjectRoot } from '../paths.js';
+import { getProjectRoot, resolveCleoDir } from '../paths.js';
 import { getProjectInfoSync } from '../project-info.js';
 import { getNexusDb } from '../store/nexus-sqlite.js';
 import * as nexusSchema from '../store/schema/nexus-schema.js';
@@ -90,7 +91,8 @@ function clampConfidence(value: number): number {
  * stamped with (T12543).
  *
  * Uses the tracked write-once `.cleo/project-id` (ADR-094) and falls back to
- * the `projectId` in `.cleo/project-info.json`. Never derives an id from the
+ * the `projectId` in `.cleo/project-info.json`, both read from the store
+ * `resolveCleoDir(projectRoot)` opens (T14153). Never derives an id from the
  * path: a path hash differs per checkout and device, so it would silently
  * re-scope traits. Returns `null` when neither identity is readable — the
  * caller then records the trait as unknown-origin (never shown in prompts).
@@ -106,8 +108,14 @@ function clampConfidence(value: number): number {
  * @task T12543
  */
 export function resolveTraitProjectId(projectRoot: string): string | null {
-  const tracked = readPortableProjectId(projectRoot);
-  if (tracked.status === 'valid') return tracked.projectId;
+  // T14153: both identities come from one store, the one resolveCleoDir opens
+  // (under a CLEO_DIR pin, the pinned store). The tracked id was read from
+  // `projectRoot` while the fallback went through the pin.
+  const cleoDir = resolveCleoDir(projectRoot);
+  if (basename(cleoDir) === '.cleo') {
+    const tracked = readPortableProjectId(dirname(cleoDir));
+    if (tracked.status === 'valid') return tracked.projectId;
+  }
   const info = getProjectInfoSync(projectRoot);
   return info?.projectId ? info.projectId : null;
 }

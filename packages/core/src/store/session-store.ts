@@ -20,6 +20,7 @@ import { getCurrentConnectionSessionId } from '../sessions/connection-session-ha
 import { resolveSessionIdFromEnv } from '../sessions/session-id.js';
 import { resolveTerminalKeys, type TerminalKey } from '../sessions/terminal-identity.js';
 import { rowToSession } from './converters.js';
+import { releaseEndedSessionLeases } from './db-helpers.js';
 import { assertExodusWriteSafe } from './dual-scope-db.js';
 import { sessionTerminalBindings } from './session-binding-schema.js';
 import { getDb, getDbPath, getNativeTasksDb } from './sqlite.js';
@@ -228,6 +229,11 @@ export async function updateSession(
     if (updates.handoffJson !== undefined) updateRow.handoffJson = updates.handoffJson;
 
     db.update(schema.sessions).set(updateRow).where(eq(schema.sessions.id, sessionId)).run();
+    // T14133: a session that ended gives back its spawn's agent-session lease.
+    // Never awaited, like the upsert path (db-helpers).
+    if (updates.status !== undefined && updates.status !== 'active') {
+      releaseEndedSessionLeases(sessionId, updates.status);
+    }
 
     return getSession(sessionId, scope.worktreeRoot);
   });

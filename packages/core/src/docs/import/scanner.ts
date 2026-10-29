@@ -55,6 +55,8 @@ export interface ScanOptions {
    * the source-dir rules table for the given `relPath`.
    */
   readonly classify?: (relPath: string) => DocImportType;
+  /** File extensions to collect, lowercase with the dot. Default: `['.md']`. */
+  readonly extensions?: readonly string[];
 }
 
 /**
@@ -190,6 +192,7 @@ export function makeClassifierForScanRoot(
 export async function scanDirectory(options: ScanOptions): Promise<ScannedFile[]> {
   const excludeDirs = options.excludeDirs ?? DEFAULT_EXCLUDE_DIRS;
   const classify = options.classify ?? classifyByRelPath;
+  const extensions = options.extensions ?? ['.md'];
   const results: ScannedFile[] = [];
 
   async function walk(dir: string): Promise<void> {
@@ -208,7 +211,8 @@ export async function scanDirectory(options: ScanOptions): Promise<ScannedFile[]
       }
       // Treat symlinks-to-files conservatively: only follow regular files we can stat.
       if (!entry.isFile() && !entry.isSymbolicLink()) continue;
-      if (!entry.name.endsWith('.md')) continue;
+      const lowerName = entry.name.toLowerCase();
+      if (!extensions.some((ext) => lowerName.endsWith(ext))) continue;
       if (entry.isSymbolicLink()) {
         try {
           const st = await stat(abs);

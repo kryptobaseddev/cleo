@@ -33,6 +33,7 @@
 import { z } from 'zod';
 import type { AttachmentKind } from '../attachment.js';
 import type { TaskPopulation } from '../data-accessor.js';
+import type { DocsModernizePlan, DocsModernizeReceipt } from '../docs/modernize.js';
 import { BUILTIN_DOC_KIND_VALUES, type BuiltinDocKind } from '../docs-taxonomy.js';
 import type {
   BackgroundJobStatus,
@@ -1395,8 +1396,54 @@ export type DocsOps =
   | { op: 'docs.unlink-decision'; params: DocsDecisionLinkParams; result: DocsDecisionLinkResult }
   | { op: 'docs.doctor'; params: DocsDoctorParams; result: DocsDoctorResult }
   | { op: 'docs.migrate'; params: DocsMigrateParams; result: DocsMigrateResult }
+  | { op: 'docs.modernize'; params: DocsModernizeParams; result: DocsModernizeResult }
   | { op: 'docs.stats'; params: DocsStatsParams; result: DocsStatsResult }
   | { op: 'docs.rot'; params: DocsRotParams; result: DocsRotResult };
+
+/**
+ * Parameters for `docs.modernize` (T14113) — dry run by default.
+ */
+export interface DocsModernizeParams {
+  /** Folder to modernize, relative to the project root or absolute. Required unless `rollback`. */
+  readonly path?: string;
+  /** Execute the plan; without it the run is a dry run that writes nothing. */
+  readonly apply?: boolean;
+  /** Apply this saved plan JSON verbatim instead of re-planning. */
+  readonly planFile?: string;
+  /** Save the plan JSON here. */
+  readonly out?: string;
+  /** Roll back the apply run with this id. */
+  readonly rollback?: string;
+  /** Extra folder names to skip, comma-separated. */
+  readonly exclude?: string;
+  /** Path of a `DocsModernizeOverrides` JSON file keyed by root-relative path. */
+  readonly overrides?: string;
+  /** Use this kind for every file instead of classifying. */
+  readonly kind?: string;
+  /** Ingest every file into the store (task-owned, slugless) and leave the folder untouched. */
+  readonly storeOnly?: boolean;
+  /** Apply even when the root is not a clean git checkout. */
+  readonly allowDirty?: boolean;
+  /** Modernize the docs already in the store (re-kind, re-slug with aliases, ADR numbers). */
+  readonly store?: boolean;
+}
+
+/**
+ * Result of `docs.modernize`: the plan (dry run, apply) and the receipt
+ * (apply, rollback).
+ */
+export interface DocsModernizeResult {
+  /** What ran. */
+  readonly mode: 'dry-run' | 'apply' | 'rollback';
+  /** The plan, or null for a rollback. */
+  readonly plan: DocsModernizePlan | null;
+  /** Where the plan was saved, when `out` was given. */
+  readonly planPath: string | null;
+  /** The receipt, or null for a dry run. */
+  readonly receipt: DocsModernizeReceipt | null;
+  /** One-line human summary. */
+  readonly summary: string;
+}
 
 /**
  * Parameters for `docs.migrate` — the T13360 legacy docs migration (spec §5).
@@ -1463,5 +1510,6 @@ export type DocsOp =
   | 'docs.unlink-decision'
   | 'docs.doctor'
   | 'docs.migrate'
+  | 'docs.modernize'
   | 'docs.stats'
   | 'docs.rot';

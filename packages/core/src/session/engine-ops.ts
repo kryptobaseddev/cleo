@@ -926,29 +926,11 @@ export async function sessionEnd(
       // Summarization must never block session end
     }
 
-    // T1263: Append session_end journal entry (best-effort)
+    // T1263: Append session_end journal entry (best-effort). T14120: no brain
+    // noise scan here. Its whole-graph orphan-edge query held `cleo session end`
+    // for ~120 s on a 1.4 GB store to fill a journal field nothing reads;
+    // brain health is `cleo memory doctor`'s job.
     try {
-      let doctorSummary:
-        | {
-            isClean: boolean;
-            findingsCount: number;
-            patterns: string[];
-            totalScanned: number;
-          }
-        | undefined;
-      try {
-        const { scanBrainNoise } = await import('../memory/brain-doctor.js');
-        const scanResult = await scanBrainNoise(projectRoot);
-        doctorSummary = {
-          isClean: scanResult.isClean,
-          findingsCount: scanResult.findings.length,
-          patterns: scanResult.findings.map((f) => f.pattern),
-          totalScanned: scanResult.totalScanned,
-        };
-      } catch {
-        // brain scan is best-effort
-      }
-
       const agentIdentifier =
         process.env['CLEO_AGENT_ID'] ?? process.env['CLAUDE_CODE_AGENT_ID'] ?? undefined;
       const duration = Math.floor(
@@ -964,7 +946,6 @@ export async function sessionEnd(
         providerId: activeSession.providerId ?? undefined,
         duration,
         tasksCompleted: activeSession.tasksCompleted ?? [],
-        ...(doctorSummary !== undefined ? { doctorSummary } : {}),
       });
     } catch {
       // Journal write is best-effort — never block session end

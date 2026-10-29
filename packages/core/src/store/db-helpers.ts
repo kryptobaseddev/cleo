@@ -389,6 +389,24 @@ export async function upsertSession(db: DrizzleDb, session: Session): Promise<vo
     .values(values)
     .onConflictDoUpdate({ target: schema.sessions.id, set: setFields })
     .run();
+  // T14133: a session that ended gives back its spawn's agent-session lease.
+  // Loaded only then, so the read paths stay off the lease module (gate 39),
+  // and never awaited: this runs inside the caller's write transaction, and
+  // yielding there let a concurrent writer's synchronous busy-wait block the
+  // loop (`cleo session end` hung).
+  if (session.status !== 'active') releaseEndedSessionLeases(session.id, session.status);
+}
+
+/**
+ * Release an ended session's agent-session leases (T14133) without awaiting:
+ * the lease module loads in the background and its release is best-effort.
+ */
+export function releaseEndedSessionLeases(sessionId: string, status: string): void {
+  void import('../resources/agent-lease.js')
+    .then(({ onSessionStatusWritten }) => onSessionStatusWritten(sessionId, status))
+    .catch(() => {
+      // Best-effort: an unreleased lease lapses with its TTL.
+    });
 }
 
 /**

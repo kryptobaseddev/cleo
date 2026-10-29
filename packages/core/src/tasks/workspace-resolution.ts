@@ -23,10 +23,11 @@
  *   ({@link writeSourceStamps}); file mtimes are no evidence, since a checkout
  *   or branch switch rewrites them without changing content. A dist without a
  *   stamp, or rebuilt after its stamp, cannot be judged and is not reported.
- *   It only warns (T14123 refuses on it).
+ *   Test runs and receipts refuse it (T14123).
  *
  * @module tasks/workspace-resolution
  * @task T14097
+ * @task T14123
  */
 
 import { execFileSync } from 'node:child_process';
@@ -66,14 +67,17 @@ export interface StaleDist {
   readonly dir: string;
 }
 
-/** The build stamp in a package's `dist/`, written by {@link writeSourceStamps}. */
+/**
+ * The build stamp in a package's `dist/`, written by {@link writeSourceStamps}.
+ * Its bytes depend on the source alone, so a published package carries the
+ * same stamp from any build of the same source (T14123). A `dist/` file newer
+ * than the stamp file means a rebuild without a stamp.
+ */
 export interface SourceStamp {
   /** Stamp format version. */
-  readonly schema: 1;
+  readonly schema: 2;
   /** {@link sourceHash} of the package's tracked non-test `src/` files at build time. */
   readonly sourceHash: string;
-  /** Newest `dist/` file mtime when stamped; a newer one means a rebuild without a stamp. */
-  readonly distNewestMs: number;
 }
 
 /** File name of the build stamp inside a package's `dist/`. */
@@ -91,8 +95,10 @@ export interface WorkspaceResolutionReport {
    * worktree sharing the root checkout's `node_modules` at the same commit.
    */
   readonly borrowed: readonly ForeignResolution[];
-  /** Packages whose dist predates their source (warned). */
+  /** Packages whose dist was built from other source (refused, T14123). */
   readonly staleDist: readonly StaleDist[];
+  /** Built packages with no current-schema stamp: nothing proves their dist matches (warned, T14123). */
+  readonly unstamped: readonly StaleDist[];
 }
 
 /** Real path, or null when it does not exist. */
@@ -205,18 +211,22 @@ export function sourceHash(root: string, files: readonly string[]): string {
   return hash.digest('hex');
 }
 
-/** The build stamp in `distDir`, or null when it is missing or unreadable. */
-function readSourceStamp(distDir: string): SourceStamp | null {
+/**
+ * The build stamp in `distDir` and when it was written, or null when it is
+ * missing, unreadable or of another schema (an older stamp is not judged).
+ */
+function readSourceStamp(distDir: string): { stamp: SourceStamp; writtenMs: number } | null {
+  const path = join(distDir, SOURCE_STAMP_FILE);
   let stamp: Partial<SourceStamp> | null;
+  let writtenMs: number;
   try {
-    stamp = JSON.parse(readFileSync(join(distDir, SOURCE_STAMP_FILE), 'utf-8'));
+    stamp = JSON.parse(readFileSync(path, 'utf-8'));
+    writtenMs = statSync(path).mtimeMs;
   } catch {
     return null;
   }
-  return stamp?.schema === 1 &&
-    typeof stamp.sourceHash === 'string' &&
-    typeof stamp.distNewestMs === 'number'
-    ? { schema: 1, sourceHash: stamp.sourceHash, distNewestMs: stamp.distNewestMs }
+  return stamp?.schema === 2 && typeof stamp.sourceHash === 'string'
+    ? { stamp: { schema: 2, sourceHash: stamp.sourceHash }, writtenMs }
     : null;
 }
 
@@ -242,9 +252,8 @@ export function writeSourceStamps(root: string): string[] {
   for (const p of built) {
     const dist = join(root, p.dir, 'dist');
     const stamp: SourceStamp = {
-      schema: 1,
+      schema: 2,
       sourceHash: sourceHash(root, sources.get(p.dir) ?? []),
-      distNewestMs: newestMtime(dist),
     };
     writeFileSync(join(dist, SOURCE_STAMP_FILE), `${JSON.stringify(stamp, null, 2)}\n`);
     stamped.push(p.dir);
@@ -316,14 +325,20 @@ export function checkWorkspaceResolution(
     candidates.map((p) => p.dir),
   );
   const staleDist: StaleDist[] = [];
+  const unstamped: StaleDist[] = [];
   for (const p of candidates) {
-    const stamp = readSourceStamp(join(root, p.dir, 'dist'));
-    // No stamp, or a rebuild since it was written: nothing proves the build old.
-    if (stamp === null || newestMtime(join(root, p.dir, 'dist')) > stamp.distNewestMs) continue;
-    if (sourceHash(root, sources.get(p.dir) ?? []) !== stamp.sourceHash)
+    const read = readSourceStamp(join(root, p.dir, 'dist'));
+    // No stamp: nothing proves the build matches its source, so it is warned about.
+    if (read === null) {
+      unstamped.push({ package: p.name, dir: p.dir });
+      continue;
+    }
+    // A rebuild since the stamp was written: nothing proves the build old.
+    if (newestMtime(join(root, p.dir, 'dist')) > read.writtenMs) continue;
+    if (sourceHash(root, sources.get(p.dir) ?? []) !== read.stamp.sourceHash)
       staleDist.push({ package: p.name, dir: p.dir });
   }
-  return { root, foreign, borrowed, staleDist };
+  return { root, foreign, borrowed, staleDist, unstamped };
 }
 
 /**
@@ -430,28 +445,84 @@ export function foreignResolutionReason(report: WorkspaceResolutionReport): stri
   );
 }
 
+/** The rebuild command for stale builds. */
+function staleRemedy(report: WorkspaceResolutionReport): string {
+  return `Rebuild them: \`pnpm ${report.staleDist.map((s) => `--filter "${s.package}"`).join(' ')} run build\`.`;
+}
+
 /**
- * The warning for borrowed and stale builds, or null when there are none.
+ * One sentence naming the packages whose dist was built from other source,
+ * or null when there are none (T14123).
  *
  * @param report - A {@link checkWorkspaceResolution} result.
- * @returns The warning text.
- * @task T14097
+ * @returns The refusal reason, with the rebuild command.
+ * @task T14123
  */
-export function staleDistWarning(report: WorkspaceResolutionReport): string | null {
-  const borrowed =
-    report.borrowed.length === 0
-      ? ''
-      : `${[...new Set(report.borrowed.map((b) => b.dependency))].join(', ')} resolve${report.borrowed.length === 1 ? 's' : ''} to another checkout (${report.borrowed[0]?.resolved}) whose source is identical; its build is used. `;
-  if (report.staleDist.length === 0) return borrowed === '' ? null : borrowed.trim();
+export function staleDistReason(report: WorkspaceResolutionReport): string | null {
+  if (report.staleDist.length === 0) return null;
   const shown = report.staleDist
     .slice(0, 3)
     .map((s) => s.package)
     .join(', ');
   const more = report.staleDist.length > 3 ? `, … (${report.staleDist.length} in all)` : '';
   return (
-    `${borrowed}dist was built from other source than ${shown}${more} now hold${report.staleDist.length === 1 ? 's' : ''}; tests importing them run that ` +
-    `older build. Rebuild with \`pnpm ${report.staleDist.map((s) => `--filter "${s.package}"`).join(' ')} run build\`.`
+    `The dist of ${shown}${more} was built from other source than ${report.staleDist.length === 1 ? 'it holds' : 'they hold'} ` +
+    `now, so tests importing ${report.staleDist.length === 1 ? 'it' : 'them'} would run that build. ${staleRemedy(report)}`
   );
+}
+
+/**
+ * The warning for a borrowed build (identical source in another checkout),
+ * or null when there is none.
+ *
+ * @param report - A {@link checkWorkspaceResolution} result.
+ * @returns The warning text.
+ * @task T14097
+ */
+export function borrowedBuildWarning(report: WorkspaceResolutionReport): string | null {
+  if (report.borrowed.length === 0) return null;
+  return `${[...new Set(report.borrowed.map((b) => b.dependency))].join(', ')} resolve${report.borrowed.length === 1 ? 's' : ''} to another checkout (${report.borrowed[0]?.resolved}) whose source is identical; its build is used.`;
+}
+
+/** The fix for unstamped builds: the root build stamps every package. */
+export const UNSTAMPED_DIST_FIX =
+  'Run the root build (`pnpm run build`), which stamps every package.';
+
+/**
+ * One summary line for built packages with no stamp, or null when every
+ * built package is stamped (T14123). Nothing proves such a dist matches its
+ * source, so the run proceeds with this warning.
+ *
+ * @param report - A {@link checkWorkspaceResolution} result.
+ * @returns The warning text, with its fix.
+ * @task T14123
+ */
+export function unstampedDistWarning(report: WorkspaceResolutionReport): string | null {
+  if (report.unstamped.length === 0) return null;
+  const shown = report.unstamped
+    .slice(0, 3)
+    .map((s) => s.package)
+    .join(', ');
+  const more = report.unstamped.length > 3 ? `, … (${report.unstamped.length} in all)` : '';
+  return `No build stamp for ${shown}${more}, so nothing shows ${report.unstamped.length === 1 ? 'its' : 'their'} dist matches the source. ${UNSTAMPED_DIST_FIX}`;
+}
+
+/**
+ * The refusal for a test run in this checkout, foreign resolution first, or
+ * null when the run may proceed.
+ *
+ * @param report - A {@link checkWorkspaceResolution} result.
+ * @returns The error to throw or report.
+ * @task T14123
+ */
+export function workspaceResolutionError(
+  report: WorkspaceResolutionReport,
+): ForeignWorkspaceResolutionError | StaleDistError | null {
+  // @sync-invariant none:input-shape a test run against another checkout's build is refused before anything is written
+  if (report.foreign.length > 0) return new ForeignWorkspaceResolutionError(report);
+  // @sync-invariant none:input-shape a test run against a dist built from other source is refused before anything is written
+  if (report.staleDist.length > 0) return new StaleDistError(report);
+  return null;
 }
 
 /**
@@ -479,5 +550,33 @@ export class ForeignWorkspaceResolutionError extends CleoError {
       },
     });
     this.name = 'ForeignWorkspaceResolutionError';
+  }
+}
+
+/**
+ * `cleo run --class test` or a test-run receipt refused: a workspace package's
+ * dist was built from other source than it holds (T14123).
+ *
+ * @task T14123
+ */
+export class StaleDistError extends CleoError {
+  /** Stable machine-readable error code. */
+  readonly codeName = 'E_WORKSPACE_STALE_DIST';
+
+  /**
+   * @param report - The check that found stale builds.
+   */
+  constructor(report: WorkspaceResolutionReport) {
+    super(ExitCode.CONFIG_ERROR, staleDistReason(report) ?? 'stale dist', {
+      fix: staleRemedy(report),
+      details: {
+        field: 'dist',
+        expected: `dist built from the source ${report.root} holds`,
+        actual: report.staleDist.map((s) => `${s.package} (${s.dir}/dist)`).join(', '),
+        root: report.root,
+        staleDist: report.staleDist,
+      },
+    });
+    this.name = 'StaleDistError';
   }
 }

@@ -24,6 +24,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { orchestrateSpawn } from '@cleocode/core/internal';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { agentLeaseDir } from '../../resources/agent-lease.js';
 
 /**
  * Minimal task shape seeded through the store during setup.
@@ -142,6 +143,11 @@ describe('T932 — orchestrate-engine integration with composeSpawnPayload', () 
     }
     // maxRetries: Windows WAL sidecar files stay locked briefly (T9182).
     await rm(TEST_ROOT, { recursive: true, force: true, maxRetries: 5, retryDelay: 500 });
+    // T14133: each scenario's successful spawn leases an agent-session slot for
+    // a session that, in production, ends when its agent finishes. Nothing here
+    // ends it, so give the slots back before the next scenario spawns: on a
+    // small runner (budget cpus-2) the leases would otherwise fill the budget.
+    await rm(agentLeaseDir(), { recursive: true, force: true });
   });
 
   it('emits payload with composerVersion 3.0.0 meta', async () => {

@@ -1,0 +1,79 @@
+# Repeat one test file N times on main (T14149).
+#
+# An acceptance criterion that needs a heavy or repeated run ("50 consecutive
+# runs of X pass") used to be waived by the owner, because the owner rule
+# forbids heavy local runs and nothing else could run it. This job runs it on
+# a runner instead, and its run is evidence: `cleo verify <id> --gate
+# testsPassed --evidence "ci-run:<runId>;…"` checks the run on GitHub (this
+# workflow, dispatched on main, latest attempt green, its commit containing
+# the task's work, the test file relevant to the task) and the uploaded
+# report's counts.
+#
+# Dispatch: gh workflow run repeat-run.yml -f test=<repo-relative test file> -f runs=50
+#
+# Inputs never reach a shell: they pass through `env:` to
+# scripts/ci-repeat-run.mjs, which validates them before running anything and
+# spawns vitest without a shell. Main only, so the workflow file that runs and
+# the tree it tests are main's. Its own concurrency group keeps repeats out of
+# ci.yml's live main group.
+name: Repeat Run
+
+run-name: repeat-run ${{ inputs.test }} x${{ inputs.runs }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      test:
+        description: 'Repo-relative test file, e.g. packages/core/src/x/__tests__/y.test.ts'
+        type: string
+        required: true
+      runs:
+        description: 'How many consecutive runs (1-200)'
+        type: string
+        required: true
+        default: '50'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: repeat-run-${{ github.sha }}-${{ inputs.test }}
+  cancel-in-progress: false
+
+jobs:
+  repeat:
+    name: Repeat test file
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24.16.0'
+      - uses: pnpm/action-setup@v4
+        with:
+          version: '10.30.0'
+          run_install: false
+      - name: Validate inputs before anything runs
+        env:
+          REPEAT_TEST: ${{ inputs.test }}
+          REPEAT_RUNS: ${{ inputs.runs }}
+        run: node scripts/ci-repeat-run.mjs validate
+      - run: pnpm install --frozen-lockfile
+      - name: Build
+        run: pnpm run build
+      - name: Run the test file N times
+        env:
+          REPEAT_TEST: ${{ inputs.test }}
+          REPEAT_RUNS: ${{ inputs.runs }}
+          REPEAT_OUT: ${{ runner.temp }}/repeat-run
+        run: node scripts/ci-repeat-run.mjs run
+      - name: Upload the repeat report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: repeat-report
+          path: ${{ runner.temp }}/repeat-run/repeat-report.json
+          if-no-files-found: ignore
+          retention-days: 90

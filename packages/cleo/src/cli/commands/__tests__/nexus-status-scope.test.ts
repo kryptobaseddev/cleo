@@ -91,6 +91,20 @@ describe('nexus status — scope honesty (gh#1329)', () => {
     );
   });
 
+  it('T14153: nexus analyze refuses a path whose store is not its own, before analyzing', () => {
+    const src = readFileSync(NEXUS_COMMAND, 'utf-8');
+    const guard = src.indexOf(
+      "refuseCrossProjectGraph('analyze', repoPath, 'E_NEXUS_CROSS_PROJECT_ANALYZE')",
+    );
+    expect(guard).toBeGreaterThan(-1);
+    expect(src.indexOf('if (analysisStoreMismatch(repoPath) !== null)')).toBeLessThan(guard);
+    expect(guard).toBeLessThan(src.indexOf('const result = await runNexusAnalysis('));
+    // One refusal for status and analyze: the same helper renders both.
+    expect(src).toContain(
+      "refuseCrossProjectGraph('status', repoPath, 'E_NEXUS_CROSS_PROJECT_STATUS')",
+    );
+  });
+
   // BEHAVIOUR CHANGE. This test previously asserted the OPPOSITE — that `output`
   // is undefined — and called that "the precondition worth pinning". It was
   // pinning the defect: undeclared, citty consumed the flag's VALUE positionally,
