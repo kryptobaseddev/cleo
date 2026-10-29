@@ -250,7 +250,7 @@ function parseExpiry(raw: string): number | null {
 }
 
 /** Cuts a grant has allowed: audit rows or tags naming it, whichever is higher. */
-function usesOf(projectRoot: string, id: string): number {
+function usesOf(projectRoot: string, id: string, gitRoot: string): number {
   let rows = 0;
   try {
     for (const line of readFileSync(join(projectRoot, CUT_AUDIT_FILE), 'utf-8').split('\n')) {
@@ -263,7 +263,7 @@ function usesOf(projectRoot: string, id: string): number {
   let tags = 0;
   try {
     tags = execFileSync('git', ['for-each-ref', '--format=%(contents)', 'refs/tags/v*'], {
-      cwd: projectRoot,
+      cwd: gitRoot,
       encoding: 'utf-8',
       stdio: ['ignore', 'pipe', 'ignore'],
     })
@@ -282,6 +282,7 @@ function usesOf(projectRoot: string, id: string): number {
  *
  * @param projectRoot - Project root.
  * @param now - Clock (tests).
+ * @param gitRoot - Checkout whose tags are counted (T14160: the invoking one); default `projectRoot`.
  * @returns The grants, newest first.
  *
  * @example
@@ -294,6 +295,7 @@ function usesOf(projectRoot: string, id: string): number {
 export async function listReleaseAuthorizations(
   projectRoot: string,
   now: Date = new Date(),
+  gitRoot: string = projectRoot,
 ): Promise<ReleaseAuthorizationStatus[]> {
   const projectFile = readProject(projectRoot);
   const project = projectFile.grants;
@@ -310,7 +312,7 @@ export async function listReleaseAuthorizations(
     const p = project.find((g) => g.id === id);
     const g = global.grants.find((x) => x.id === id);
     const grant = (g ?? p) as ReleaseAuthorizationGrant;
-    const used = usesOf(projectRoot, id);
+    const used = usesOf(projectRoot, id, gitRoot);
     let state: ReleaseAuthorizationStatus['state'] = 'active';
     let why: string | undefined;
     if (global.revoked.some((r) => r.id === id)) {
@@ -346,6 +348,7 @@ export async function listReleaseAuthorizations(
  *
  * @param projectRoot - Project whose authorization is read.
  * @param version - Version being cut (`v`-prefixed).
+ * @param gitRoot - Checkout whose tags are counted (the invoking one); default `projectRoot`.
  * @returns The grant's id when an active, verified grant covers the cut.
  *
  * @example
@@ -358,8 +361,9 @@ export async function listReleaseAuthorizations(
 export async function releaseAuthorizationFor(
   projectRoot: string,
   version: string,
+  gitRoot: string = projectRoot,
 ): Promise<{ id: string } | null> {
-  const grants = await listReleaseAuthorizations(projectRoot);
+  const grants = await listReleaseAuthorizations(projectRoot, new Date(), gitRoot);
   for (const g of grants.filter((x) => x.state === 'tampered' && scopeCovers(x.scope, version))) {
     audit(projectRoot, {
       action: 'tampered-ignored',

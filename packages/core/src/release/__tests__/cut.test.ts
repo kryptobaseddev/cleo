@@ -493,6 +493,47 @@ describe('releaseCut confirmation gate (D11212)', () => {
   });
 });
 
+describe('releaseCut from another checkout (T14160)', () => {
+  it('reads git only from the checkout it runs in and reports checkoutAtMain for that tree', async () => {
+    // The project checkout sits on a stale branch; the cut runs in a worktree at origin/main.
+    git(work, 'switch', '--quiet', '-c', 'stale', shas.tagged);
+    const wt = mkdtempSync(join(tmpdir(), 'cut-wt-'));
+    dirs.push(wt);
+    rmSync(wt, { recursive: true, force: true });
+    git(work, 'worktree', 'add', '--quiet', '--detach', wt, 'origin/main');
+    const { runner } = fakeRunner({ [shas.head]: 'success' });
+    const gitCwds: string[] = [];
+    const recording: ReleaseCutRunner = {
+      runGh: runner.runGh,
+      runGit: (args, cwd) => {
+        gitCwds.push(cwd);
+        return runner.runGit(args, cwd);
+      },
+    };
+    let swept = false;
+    const result = await releaseCut({
+      version: NEXT,
+      projectRoot: work,
+      gitRoot: wt,
+      runner: recording,
+      sweep: async () => {
+        swept = true;
+        return { ...emptySweep, swept: true };
+      },
+    });
+    expect(result.success).toBe(true);
+    if (!result.success) return;
+    expect(result.data.checkoutAtMain).toBe(true);
+    expect(result.data.sha).toBe(shas.head);
+    expect(new Set(gitCwds)).toEqual(new Set([wt]));
+    // The sweep and the cleanup work on the project checkout, so they are named, not run.
+    expect(swept).toBe(false);
+    expect(result.data.sweep.skippedReason).toContain('project checkout');
+    expect(cleanups).toEqual([]);
+    expect(result.data.cleanup?.skippedReason).toContain('project checkout');
+  });
+});
+
 describe('releaseVerifyTag (T14102)', () => {
   it('accepts a tag on a green first-parent commit and refuses one off main or not green', async () => {
     git(work, 'tag', `v${NEXT}`, shas.head);

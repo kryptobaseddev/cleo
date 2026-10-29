@@ -64,6 +64,16 @@ import { errorResult, handleErrorResult, unsupportedOp, wrapResult } from './_ba
 
 const log = getLogger('domain:release');
 
+/**
+ * The git checkout the release verbs run in (T14160): the CLEO worktree the
+ * command was started from, else the project root (which honours CLEO_ROOT).
+ * Release git work never reaches into another checkout.
+ */
+function invokingCheckout(): string {
+  const routing = resolveWorktreeRouting();
+  return routing.worktreePath ?? routing.canonicalRoot;
+}
+
 // ---------------------------------------------------------------------------
 // Local param types — ops not yet in @cleocode/contracts
 // ---------------------------------------------------------------------------
@@ -220,7 +230,7 @@ export class ReleaseHandler implements DomainHandler {
               startTime,
             );
           return wrapResult(
-            await releaseVerifyTag({ version, projectRoot: getProjectRoot() }),
+            await releaseVerifyTag({ version, projectRoot: invokingCheckout() }),
             'query',
             'release',
             operation,
@@ -485,6 +495,7 @@ export class ReleaseHandler implements DomainHandler {
           const typed: ReleaseCutOptions = {
             version,
             projectRoot: getProjectRoot(),
+            gitRoot: invokingCheckout(),
             ...(typeof params?.sha === 'string' ? { sha: params.sha } : {}),
             ...(typeof params?.lead === 'string' ? { leadFile: params.lead } : {}),
             dryRun: params?.dryRun === true,
@@ -508,7 +519,7 @@ export class ReleaseHandler implements DomainHandler {
             );
           const result = await releaseChangelog({
             version,
-            projectRoot: getProjectRoot(),
+            projectRoot: invokingCheckout(),
             ...(typeof params?.ref === 'string' ? { ref: params.ref } : {}),
           });
           return wrapResult(result, 'mutate', 'release', operation, startTime);
