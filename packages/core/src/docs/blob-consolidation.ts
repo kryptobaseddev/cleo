@@ -20,6 +20,7 @@ import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { eq, sql } from 'drizzle-orm';
 import { getProjectRoot } from '../paths.js';
+import { resolveStoreOwnerRoot } from '../project-scope.js';
 import { CleoBlobStore } from '../store/llmtxt-blob-adapter.js';
 import { getDb } from '../store/sqlite.js';
 import { attachmentRefs, attachments as attachmentsTable } from '../store/tasks-schema.js';
@@ -42,7 +43,7 @@ export interface ConsolidationOptions {
 function findLegacyBlobPath(projectRoot: string, sha256: string): string | null {
   const prefix = sha256.slice(0, 2);
   const rest = sha256.slice(2);
-  const dir = join(projectRoot, '.cleo', 'attachments', 'sha256', prefix);
+  const dir = join(resolveStoreOwnerRoot(projectRoot), '.cleo', 'attachments', 'sha256', prefix);
   try {
     const entries: Dirent[] = readdirSync(dir, { withFileTypes: true });
     for (const entry of entries) {
@@ -56,7 +57,7 @@ function findLegacyBlobPath(projectRoot: string, sha256: string): string | null 
 
 function buildExistingShaSet(projectRoot: string): Set<string> {
   const shas = new Set<string>();
-  const blobsDir = join(projectRoot, '.cleo', 'blobs', 'blobs');
+  const blobsDir = join(resolveStoreOwnerRoot(projectRoot), '.cleo', 'blobs', 'blobs');
   try {
     for (const entry of readdirSync(blobsDir)) {
       if (entry.length === 64 && /^[0-9a-f]{64}$/.test(entry)) shas.add(entry);
