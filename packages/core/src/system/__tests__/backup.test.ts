@@ -202,6 +202,92 @@ describe('system/backup', () => {
     }
   });
 
+  /**
+   * A native handle whose VACUUM INTO calls `onVacuum(temp, final)`: `temp` is
+   * the file the snapshot writes, `final` the backup path it is published at.
+   */
+  function vacuumDb(onVacuum: (temp: string, final: string) => void): {
+    exec: (sql: string) => void;
+  } {
+    return {
+      exec: (sql: string) => {
+        const match = /^VACUUM INTO '(.*)'$/.exec(sql);
+        if (!match?.[1]) return;
+        const temp = match[1].replace(/''/g, "'");
+        onVacuum(temp, temp.replace(/\.\d+-[0-9a-f]{8}\.tmp$/, ''));
+      },
+    };
+  }
+
+  /** Files still named `*.tmp` under `dir`. */
+  const leftoverTemps = (dir: string): string[] =>
+    readdirSync(dir).filter((name) => name.endsWith('.tmp'));
+
+  it('a backup another writer published first is never replaced; this one takes the next id (T14158)', async () => {
+    writeFileSync(join(testDir, '.cleo', 'cleo.db'), 'live-store');
+    let theirs = '';
+    const db = vacuumDb((temp, final) => {
+      if (theirs === '') {
+        theirs = final;
+        writeFileSync(final, 'theirs');
+      }
+      writeFileSync(temp, 'mine');
+    });
+    vi.doMock('../../store/sqlite.js', () => ({ getDb: vi.fn(), getNativeDb: () => db }));
+    const { createBackup } = await import('../backup.js');
+    const result = await createBackup(testDir, { type: 'move' });
+    const dir = join(testDir, '.cleo', 'backups', 'sqlite');
+    expect(readFileSync(theirs, 'utf-8')).toBe('theirs');
+    expect(join(dir, `cleo.db.${result.backupId}`)).not.toBe(theirs);
+    expect(readFileSync(join(dir, `cleo.db.${result.backupId}`), 'utf-8')).toBe('mine');
+    expect(result.files).toContain('cleo.db');
+    expect(leftoverTemps(dir)).toEqual([]);
+  });
+
+  it('a failing snapshot removes only its own temp, never an existing backup at its target (T14158)', async () => {
+    writeFileSync(join(testDir, '.cleo', 'cleo.db'), 'live-store');
+    let theirs = '';
+    const db = vacuumDb((temp, final) => {
+      theirs = final;
+      writeFileSync(final, 'theirs');
+      writeFileSync(temp, 'partial');
+      throw new Error('disk full');
+    });
+    vi.doMock('../../store/sqlite.js', () => ({ getDb: vi.fn(), getNativeDb: () => db }));
+    const { createBackup } = await import('../backup.js');
+    const result = await createBackup(testDir, { type: 'move' });
+    expect(result.files).not.toContain('cleo.db');
+    expect(result.captureErrors).toEqual([{ target: 'cleo.db', error: 'disk full' }]);
+    expect(readFileSync(theirs, 'utf-8')).toBe('theirs');
+    expect(leftoverTemps(join(testDir, '.cleo', 'backups', 'sqlite'))).toEqual([]);
+  });
+
+  it('the global backup copy never overwrites an existing backup (T14158)', async () => {
+    const destination = join(testDir, 'global-out');
+    let theirs = '';
+    const db = vacuumDb((temp, final) => {
+      theirs = final;
+      writeFileSync(final, 'theirs');
+      writeFileSync(temp, 'mine');
+    });
+    vi.doMock('../../store/dual-scope-db.js', () => ({
+      resolveDualScopeDbPath: vi.fn(),
+      openDualScopeDb: vi.fn().mockResolvedValue({}),
+      getDualScopeNativeDb: () => db,
+    }));
+    try {
+      const { createGlobalBackup } = await import('../backup.js');
+      const result = await createGlobalBackup({ type: 'auto', destination });
+      expect(readFileSync(theirs, 'utf-8')).toBe('theirs');
+      expect(join(destination, `cleo.db.${result.backupId}`)).not.toBe(theirs);
+      expect(readFileSync(join(destination, `cleo.db.${result.backupId}`), 'utf-8')).toBe('mine');
+      expect(result.files).toEqual(['cleo.db']);
+      expect(leftoverTemps(destination)).toEqual([]);
+    } finally {
+      vi.doUnmock('../../store/dual-scope-db.js');
+    }
+  });
+
   it('createBackup skips SQLite files when the native handle is null (non-fatal)', async () => {
     vi.doMock('../../store/sqlite.js', () => ({
       getDb: vi.fn().mockResolvedValue({}),
