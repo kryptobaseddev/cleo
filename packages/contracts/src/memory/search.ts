@@ -74,6 +74,11 @@ export interface BrainCompactHit {
   _next?: Record<string, string>;
   /** Store the hit came from; absent means the project store (T13720). */
   scope?: MemoryScope;
+  /**
+   * Current docs linked to this decision (`docs link-decision`), each resolved
+   * past any supersession; never a superseded doc (T14110).
+   */
+  docs?: string[];
 }
 
 // ── SearchBrainCompactParams ────────────────────────────────────────
@@ -158,4 +163,9 @@ export interface SearchBrainCompactResult {
   total: number;
   /** Approximate token cost of the returned payload (~chars/4). */
   tokensEstimated: number;
+  /**
+   * For each task the query names (or a decision hit's task), the task's
+   * current docs; superseded docs are replaced by their current doc (T14110).
+   */
+  taskDocs?: Array<{ taskId: string; docs: string[] }>;
 }

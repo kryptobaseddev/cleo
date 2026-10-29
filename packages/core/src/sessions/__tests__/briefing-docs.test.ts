@@ -46,6 +46,10 @@ vi.mock('../../store/attachment-store.js', () => ({
   })),
 }));
 
+// T14110: supersession lineage — no doc is superseded unless a test says so.
+const mockReadDocLineage = vi.fn().mockResolvedValue(null);
+vi.mock('../../docs/lineage.js', () => ({ readDocLineage: mockReadDocLineage }));
+
 import { getTaskAccessor } from '../../store/data-accessor.js';
 import { computeBriefing } from '../briefing.js';
 
@@ -116,6 +120,37 @@ describe('computeBriefing docs context pillar', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockListByOwner.mockResolvedValue([]);
+    mockReadDocLineage.mockResolvedValue(null);
+    mockGetExtras.mockResolvedValue({ slug: 'test-slug', type: null });
+  });
+
+  it('names the current doc instead of a superseded one, once (T14110)', async () => {
+    mockListByOwner.mockImplementation(async (_ownerType: string, ownerId: string) =>
+      ownerId === 'T100'
+        ? [makeAttachmentMeta({ id: 'att-old-1' }), makeAttachmentMeta({ id: 'att-old-2' })]
+        : [],
+    );
+    mockGetExtras.mockImplementation(async (id: string) => ({
+      slug: id === 'att-old-1' ? 'plan-draft' : 'plan-second-draft',
+      type: 'plan',
+    }));
+    mockReadDocLineage.mockImplementation(async (_root: string, slug: string) => ({
+      lifecycleStatus: 'superseded',
+      supersedes: null,
+      supersededBy: 'plan',
+      currentSlug: slug === 'plan-draft' || slug === 'plan-second-draft' ? 'plan' : slug,
+      servesTasks: ['T100'],
+    }));
+    setupMockAccessor(
+      [{ id: 'T100', status: 'active', title: 'Current task', priority: 'high' }],
+      'T100',
+    );
+
+    const briefing = await computeBriefing('/fake/project', { scope: 'global' });
+
+    const docs = briefing.docsContext?.currentTaskDocs ?? [];
+    expect(docs).toHaveLength(1);
+    expect(docs[0]).toMatchObject({ slug: 'plan', replaces: 'plan-draft' });
   });
 
   it('omits docsContext when no attachments exist', async () => {
