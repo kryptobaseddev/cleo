@@ -58,7 +58,7 @@ import { scanDocsRot } from '../docs/rot.js';
 import { getTaskAccessor } from '../store/data-accessor.js';
 import { sweepMergedClosures } from '../tasks/merge-close.js';
 import { cleanupMergedWork } from '../worktree/merged-cleanup.js';
-import { releaseAuthorizationFor } from './authorization.js';
+import { AUTHORIZED_BY_TRAILER, releaseAuthorizationFor } from './authorization.js';
 import { aggregateChangesetsForRelease } from './changesets-aggregator.js';
 import { newestReachableReleaseTag, writeChangelogSection } from './plan.js';
 import { readRequiredCheckPins, resolveRequiredWorkflows } from './pr-evidence.js';
@@ -783,16 +783,22 @@ export async function releaseCut(opts: ReleaseCutOptions): Promise<EngineResult<
 
   // D11212: a standing authorization (an agent), or the version typed on the
   // controlling terminal. Neither can be asserted by the caller.
-  const authorization = releaseAuthorizationFor(cwd, version);
+  const authorization = await releaseAuthorizationFor(cwd, version);
   let allowedBy = authorization ? `authorization:${authorization.id}` : '';
   if (!authorization) {
     const typed = readTtyConfirmation(`Tag ${version} on ${sha}? Type ${version} to confirm: `);
     if (typed === null) {
+      const neededScope =
+        channelOf(version) === 'latest'
+          ? 'stable'
+          : /-canary\.\d+$/.test(version)
+            ? 'canary'
+            : 'prerelease';
       return refuse(
         E_RELEASE_NOT_AUTHORIZED,
-        `No terminal to confirm ${version}, and no standing release authorization covers it`,
-        `Run \`${result.confirmCommand}\` from a terminal, or ask the owner to run it (standing agent authorization is T14141, not yet available)`,
-        { version, sha },
+        `No terminal to confirm ${version}, and no active standing release authorization covers scope ${neededScope} or ${version}`,
+        `Run \`${result.confirmCommand}\` from a terminal, or ask the owner to grant one: cleo release authorize --scope ${neededScope} --expires 7d --reason "<why>"`,
+        { version, sha, scope: neededScope },
       );
     }
     if (normalizeVersion(typed) !== version) {
@@ -820,7 +826,10 @@ export async function releaseCut(opts: ReleaseCutOptions): Promise<EngineResult<
           '-f',
           `tag=${version}`,
           '-f',
-          `message=${lead.trim() || `Release ${version}`}`,
+          `message=${[
+            lead.trim() || `Release ${version}`,
+            ...(authorization ? [`${AUTHORIZED_BY_TRAILER}: ${authorization.id}`] : []),
+          ].join('\n\n')}`,
           '-f',
           `object=${sha}`,
           '-f',
@@ -978,7 +987,12 @@ export async function releaseChangelog(
       fix: 'Run `node scripts/lint-changesets.mjs`',
     });
   }
-  const lead = tagged ? runner.runGit(['tag', '--list', '--format=%(contents)', version], cwd) : '';
+  // The tag message is the lead plus, for an authorized cut, its trailer (T14141).
+  const lead = tagged
+    ? runner
+        .runGit(['tag', '--list', '--format=%(contents)', version], cwd)
+        .replace(new RegExp(`^${AUTHORIZED_BY_TRAILER}: \\S+$`, 'm'), '')
+    : '';
   const date = tagged
     ? runner.runGit(['for-each-ref', '--format=%(creatordate:short)', tagRef], cwd).trim()
     : new Date().toISOString().slice(0, 10);

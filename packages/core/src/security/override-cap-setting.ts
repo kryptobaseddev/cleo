@@ -85,7 +85,7 @@ interface SealedSetting {
 }
 
 /** Who enrolled, as far as the machine can tell (for `cleo doctor`). */
-interface EnrollmentProvenance {
+export interface EnrollmentProvenance {
   enrolledAt: string;
   sessionId: string | null;
   /** Controlling terminal of the enrolling process (`ps -o tty`), or null. */
@@ -95,7 +95,7 @@ interface EnrollmentProvenance {
 }
 
 /** `.cleo/owner-settings.json` (git-tracked). */
-interface OwnerSettingsFile extends EnrollmentProvenance {
+export interface OwnerSettingsFile extends EnrollmentProvenance {
   schemaVersion: 1;
   /** Enrolled owner public key (hex), derived from the owner-auth password. */
   ownerPubkey: string;
@@ -105,7 +105,7 @@ interface OwnerSettingsFile extends EnrollmentProvenance {
 }
 
 /** One project's record in `<cleoHome>/owner-enrollments.json`. */
-interface GlobalEnrollment extends EnrollmentProvenance {
+export interface GlobalEnrollment extends EnrollmentProvenance {
   ownerPubkey: string;
   fingerprint: string;
   projectRoot: string;
@@ -260,8 +260,14 @@ function globalPath(): string {
   return join(getCleoHome(), 'owner-enrollments.json');
 }
 
-/** The global record key: the portable project id, else the real path. */
-function projectKey(projectRoot: string): string {
+/**
+ * The global record key: the portable project id, else the real path.
+ *
+ * @param projectRoot - Project root.
+ * @returns The key global owner records are filed under.
+ * @task T13787
+ */
+export function projectKey(projectRoot: string): string {
   const id = readPortableProjectId(projectRoot);
   if (id.status === 'valid') return id.projectId;
   try {
@@ -333,16 +339,30 @@ function sealPayload(
   return JSON.stringify({ key, value, setAt, salt, ownerPubkey });
 }
 
-/** The owner's signing key: Ed25519 from scrypt(password, salt). */
-async function ownerKey(password: string, salt: string) {
+/**
+ * The owner's signing key: Ed25519 from scrypt(password, salt). Shared with
+ * the standing release authorization (T14141), which signs grants with it.
+ *
+ * @param password - The owner-auth password typed now.
+ * @param salt - The enrolled per-project salt (hex).
+ * @returns The signing identity; its `pubkeyHex` is the enrolled key when the password matches.
+ * @task T13787
+ */
+export async function ownerKey(password: string, salt: string) {
   const { AgentIdentity } = await import('../identity/cleo-identity.js');
   return AgentIdentity.fromSeed(
     new Uint8Array(scryptSync(password, Buffer.from(salt, 'hex'), 32, OWNER_SCRYPT_PARAMS)),
   );
 }
 
-/** Best-effort terminal provenance of this process, for the enrollment record. */
-function provenance(sessionId: string | null): EnrollmentProvenance {
+/**
+ * Best-effort terminal provenance of this process, for owner records.
+ *
+ * @param sessionId - The bound session, if any.
+ * @returns When, which session, which terminal and which parent process.
+ * @task T13787
+ */
+export function provenance(sessionId: string | null): EnrollmentProvenance {
   const ps = (args: string[]): string | null => {
     try {
       return (
@@ -388,9 +408,14 @@ function audit(
 
 /**
  * The project's owner state, judged without auditing: the sealed cap, or why
- * stored state is ignored.
+ * stored state is ignored. The standing release authorization (T14141) trusts
+ * a grant only when this is `ok`.
+ *
+ * @param projectRoot - Project root.
+ * @returns `none`, `ok` with the enrollment, or `tampered` with why.
+ * @task T13787
  */
-async function judgeOwnerState(
+export async function judgeOwnerState(
   projectRoot: string,
 ): Promise<
   | { kind: 'none' }
@@ -553,8 +578,14 @@ export async function ownerEnrollmentStatus(projectRoot: string): Promise<OwnerE
   };
 }
 
-/** T1118 L4: role fence, TTY, and the password against the session's verifier. */
-function ownerCheck(
+/**
+ * T1118 L4: role fence, TTY, and the password against the session's verifier.
+ *
+ * @param caller - The typed password and the bound session.
+ * @returns ok, or the refusal code and message.
+ * @task T13787
+ */
+export function ownerCheck(
   caller: OwnerCaller,
 ): { ok: true } | { ok: false; code: string; message: string } {
   const token = caller.session?.token ?? null;

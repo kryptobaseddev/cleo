@@ -7,7 +7,7 @@ adrRefs:
   - ADR-063
   - ADR-065
 metadata:
-  version: 3.3.0
+  version: 3.4.0
   tier: on-demand
   install: harness
   covers:
@@ -15,6 +15,7 @@ metadata:
     - packages/core/src/validation/protocols/protocols-markdown/release.md
     - packages/cleo/src/cli/commands/release.ts
     - packages/core/src/release/cut.ts
+    - packages/core/src/release/authorization.ts
   loomStage: release
   lastReviewed: 2026-10-28
   stability: stable
@@ -61,7 +62,9 @@ cleo release cut v2026.10.28 --lead lead.md         # report: commit, notes, pac
 cleo release cut v2026.10.28 --sha <sha> --lead lead.md --yes   # the printed confirm command: tags that commit
 ```
 
-**Confirmation (D11212).** Nothing is tagged without `--yes`; without it the cut reports and prints the exact confirm command, pinned to the previewed sha. With `--yes`, the cut asks on the controlling terminal (`/dev/tty`) and tags only when the version is typed exactly; with no terminal it refuses with `E_RELEASE_NOT_AUTHORIZED`. A standing release authorization (T14141, not yet available) will let an agent cut without typing. This stops casual misuse only: a caller that drives a pseudo-terminal can still type the version. The audit row records `allowedBy` (`tty-confirm` or `authorization:<id>`).
+**Confirmation (D11212).** Nothing is tagged without `--yes`; without it the cut reports and prints the exact confirm command, pinned to the previewed sha. With `--yes`, an active standing release authorization covering the version allows the tag (an agent); otherwise the cut asks on the controlling terminal (`/dev/tty`) and tags only when the version is typed exactly, refusing with `E_RELEASE_NOT_AUTHORIZED` (and naming the scope to grant) when there is no terminal. The typed confirmation stops casual misuse only: a caller that drives a pseudo-terminal can still type the version. The audit row records `allowedBy` (`tty-confirm` or `authorization:<id>`).
+
+**Standing authorization (T14141, D11215).** The owner grants it at a terminal with the owner-auth password: `cleo release authorize --scope canary|prerelease|stable|<version> --expires 7d --reason "<why>" [--uses <n>]` (at most 30d; no use limit unless `--uses`). It is signed with the enrolled owner key (`cleo config owner-enroll`), stored in `.cleo/release-authorizations.json` and the global store, recorded as an owner decision, and audited in `.cleo/audit/release-authorizations.jsonl`. `cleo release authorize --list` shows each grant's state; `--revoke <id>` ends one now. An edited, unsigned or one-sided grant is ignored and reported by `cleo doctor`. A cut it allows carries `Authorized-by: <id>` in the tag message.
 
 - **Commit:** the newest first-parent commit of `origin/main` whose `CI` check run concluded `success`; `--sha` pins one, which must itself be green. Nothing reruns the test suites: CI already passed that tree.
 - **Notes:** the changesets added since the previous release tag, led by `--lead` (stored as the tag annotation). A changeset no merged PR brought in is refused (`E_RELEASE_UNMERGED_CHANGESET`); no green commit is `E_RELEASE_NO_GREEN_COMMIT`.

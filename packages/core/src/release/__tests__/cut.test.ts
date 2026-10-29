@@ -74,7 +74,8 @@ vi.mock('../../worktree/merged-cleanup.js', () => ({
 }));
 let authorized = false;
 vi.mock('../authorization.js', () => ({
-  releaseAuthorizationFor: () => (authorized ? { id: 'auth-1' } : null),
+  AUTHORIZED_BY_TRAILER: 'Authorized-by',
+  releaseAuthorizationFor: async () => (authorized ? { id: 'auth-1' } : null),
 }));
 /** What the person types on /dev/tty; null = no controlling terminal. */
 let ttyAnswer: string | null = null;
@@ -461,13 +462,16 @@ describe('releaseCut confirmation gate (D11212)', () => {
   });
 
   it('a standing authorization allows --yes with no terminal, and the audit names it', async () => {
-    const { runner } = fakeRunner({ [shas.head]: 'success' });
+    const { runner, calls } = fakeRunner({ [shas.head]: 'success' });
     authorized = true;
     try {
       const tagged = await releaseCut({ ...confirmed, version: NEXT, projectRoot: work, runner });
       expect(tagged.success && tagged.data.tagCreated).toBe(true);
       const audit = readFileSync(join(work, RELEASE_CUT_AUDIT_FILE), 'utf-8').trim().split('\n');
       expect(JSON.parse(audit.at(-1) ?? '{}')).toMatchObject({ allowedBy: 'authorization:auth-1' });
+      // T14141: the tag message names the grant, so uses survive a deleted audit row.
+      const tagPost = calls.find((c) => c.some((a) => a.endsWith('git/tags')));
+      expect(tagPost?.find((a) => a.startsWith('message='))).toContain('Authorized-by: auth-1');
     } finally {
       authorized = false;
     }
@@ -523,7 +527,7 @@ describe('releaseVerifyTag (T14102)', () => {
 
 describe('releaseChangelog (T14102)', () => {
   it('writes the section from the changesets since the previous tag, led by the tag annotation, once', async () => {
-    git(work, 'tag', '-a', `v${NEXT}`, '-m', '> **Update now.**', shas.head);
+    git(work, 'tag', '-a', `v${NEXT}`, '-m', '> **Update now.**\n\nAuthorized-by: ra-1', shas.head);
     const { runner } = fakeRunner({});
     const first = await releaseChangelog({ version: NEXT, projectRoot: work, runner });
     expect(first.success && first.data.written).toBe(true);
@@ -532,6 +536,7 @@ describe('releaseChangelog (T14102)', () => {
     expect(section).toContain('> **Update now.**');
     expect(section).toContain('the new fix');
     expect(section).not.toContain('shipped last time');
+    expect(section).not.toContain('Authorized-by');
     const second = await releaseChangelog({ version: NEXT, projectRoot: work, runner });
     expect(second.success && second.data.written).toBe(false);
   });

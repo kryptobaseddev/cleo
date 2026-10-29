@@ -741,6 +741,42 @@ const verifyTagCommand = defineCommand({
   },
 });
 
+/**
+ * cleo release authorize — owner-signed standing release authorization that
+ * lets a non-interactive `release cut --yes` tag (T14141 · D11215).
+ *
+ * @task T14141
+ */
+const authorizeCommand = defineCommand({
+  meta: {
+    name: 'authorize',
+    description:
+      'Grant (owner only: TTY + owner-auth password), --list or --revoke a standing release authorization that lets an agent run `cleo release cut --yes` for a scope (canary|prerelease|stable|version) until it expires (at most 30d). (T14141)',
+  },
+  args: {
+    scope: { type: 'string', description: 'canary, prerelease, stable, or one exact version' },
+    expires: { type: 'string', description: 'Lifetime: 30m, 24h, 7d (at most 30d)' },
+    reason: {
+      type: 'string',
+      description: 'Why the owner grants it (recorded as an owner decision)',
+    },
+    uses: { type: 'string', description: 'Optional cap on cuts it allows (default: no limit)' },
+    revoke: { type: 'string', description: 'Revoke the grant with this id' },
+    list: { type: 'boolean', description: 'List grants and their state' },
+  },
+  async run({ args }) {
+    const { runReleaseAuthorize } = await import('../lib/release-authorize.js');
+    await runReleaseAuthorize({
+      ...(typeof args.scope === 'string' ? { scope: args.scope } : {}),
+      ...(typeof args.expires === 'string' ? { expires: args.expires } : {}),
+      ...(typeof args.reason === 'string' ? { reason: args.reason } : {}),
+      ...(typeof args.uses === 'string' ? { uses: args.uses } : {}),
+      ...(typeof args.revoke === 'string' ? { revoke: args.revoke } : {}),
+      list: args.list === true,
+    });
+  },
+});
+
 export const releaseCommand = defineCommand({
   meta: {
     name: 'release',
@@ -755,6 +791,7 @@ export const releaseCommand = defineCommand({
     cut: cutCommand,
     'write-changelog': writeChangelogCommand,
     'verify-tag': verifyTagCommand,
+    authorize: authorizeCommand,
     plan: planCommand,
     open: openCommand,
     reconcile: reconcileCommand,
