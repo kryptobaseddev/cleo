@@ -19,9 +19,10 @@ import {
   readFileSync,
   renameSync,
   rmSync,
+  statSync,
   writeFileSync,
 } from 'node:fs';
-import { join } from 'node:path';
+import { isAbsolute, join } from 'node:path';
 // The leaf resolver, not core's paths module: this module is loaded by the
 // store's session writers, so it must add nothing to the CLI's read paths
 // (gate 39) and needs no dynamic import (which deadlocked `cleo session end`).
@@ -88,8 +89,27 @@ function readLeases(): AgentSessionLease[] {
 }
 
 /**
- * The leases still held at `nowMs`. Expired ones are removed as they are
- * found, so an abandoned spawn frees its slot once its lease lapses.
+ * Whether a lease's project root is gone (T14154): one `stat` at count time,
+ * never cached. Only `ENOENT` on an absolute root counts: an empty or
+ * relative root (a legacy or hand-written lease) cannot be checked, and a
+ * permission error or an unreadable mount proves nothing, so those keep the
+ * lease and admission fails closed.
+ */
+function projectRootGone(projectRoot: string): boolean {
+  if (projectRoot === '' || !isAbsolute(projectRoot)) return false;
+  try {
+    statSync(projectRoot);
+    return false;
+  } catch (err) {
+    return (err as NodeJS.ErrnoException).code === 'ENOENT';
+  }
+}
+
+/**
+ * The leases still held at `nowMs`. Expired ones, and those whose project
+ * root no longer exists (a removed project or worktree runs no session,
+ * T14154), are removed as they are found, so an abandoned spawn frees its
+ * slot once its lease lapses or its project is gone.
  *
  * @param nowMs - The clock.
  */
@@ -97,7 +117,7 @@ export function liveAgentLeases(nowMs: number = Date.now()): AgentSessionLease[]
   const live: AgentSessionLease[] = [];
   for (const lease of readLeases()) {
     const capped = Math.min(lease.expiresAtMs, lease.takenAtMs + AGENT_LEASE_MAX_LIFETIME_MS);
-    if (capped > nowMs) live.push(lease);
+    if (capped > nowMs && !projectRootGone(lease.projectRoot)) live.push(lease);
     else rmSync(leasePath(lease.id), { force: true });
   }
   return live;
