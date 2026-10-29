@@ -485,7 +485,8 @@ export function borrowedBuildWarning(report: WorkspaceResolutionReport): string 
 }
 
 /** The fix for unstamped builds: the root build stamps every package. */
-export const UNSTAMPED_DIST_FIX = 'Run the root build (`pnpm run build`), which stamps every package.';
+export const UNSTAMPED_DIST_FIX =
+  'Run the root build (`pnpm run build`), which stamps every package.';
 
 /**
  * One summary line for built packages with no stamp, or null when every

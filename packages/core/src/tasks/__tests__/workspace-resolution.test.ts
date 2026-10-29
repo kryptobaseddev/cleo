@@ -13,8 +13,8 @@ import { execFileSync } from 'node:child_process';
 import {
   existsSync,
   mkdirSync,
-  readFileSync,
   mkdtempSync,
+  readFileSync,
   realpathSync,
   rmSync,
   symlinkSync,
@@ -26,9 +26,9 @@ import { dirname, join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { validateAtom } from '../evidence.js';
 import {
+  borrowedBuildWarning,
   checkWorkspaceResolution,
   foreignResolutionReason,
-  borrowedBuildWarning,
   packagesNamedByTestArgs,
   SOURCE_STAMP_FILE,
   staleDistReason,
