@@ -487,7 +487,9 @@ export function borrowedBuildWarning(report: WorkspaceResolutionReport): string 
 export function workspaceResolutionError(
   report: WorkspaceResolutionReport,
 ): ForeignWorkspaceResolutionError | StaleDistError | null {
+  // @sync-invariant none:input-shape a test run against another checkout's build is refused before anything is written
   if (report.foreign.length > 0) return new ForeignWorkspaceResolutionError(report);
+  // @sync-invariant none:input-shape a test run against a dist built from other source is refused before anything is written
   if (report.staleDist.length > 0) return new StaleDistError(report);
   return null;
 }
