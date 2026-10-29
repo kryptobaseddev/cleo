@@ -1967,8 +1967,10 @@ async function readTestRunReport(
 
 /**
  * T14097: refuse a test run in a checkout whose workspace packages resolve
- * into another checkout (its tests would run that checkout's build), and warn
- * when a dependency's dist predates its source. Null when the run may proceed.
+ * into another checkout (its tests would run that checkout's build) or whose
+ * dist was built from other source (T14123), and warn when a dependency's
+ * build is borrowed from a checkout with identical source. Null when the run
+ * may proceed.
  *
  * @param root - The tree the run is about (any directory inside the checkout).
  * @param testFiles - Test files the run names, to scope the check; all packages when empty.
@@ -1978,27 +1980,27 @@ async function workspaceResolutionRefusal(
   testFiles: readonly string[] = [],
 ): Promise<AtomValidation | null> {
   const {
+    borrowedBuildWarning,
     checkoutRootOf,
     checkWorkspaceResolution,
-    foreignResolutionReason,
     packagesNamedByTestArgs,
-    staleDistWarning,
+    workspaceResolutionError,
   } = await import('./workspace-resolution.js');
   const checkout = checkoutRootOf(root) ?? root;
   const report = checkWorkspaceResolution(
     checkout,
     packagesNamedByTestArgs(checkout, checkout, testFiles),
   );
-  const reason = foreignResolutionReason(report);
-  // @sync-invariant none:input-shape a test run against another checkout's build is refused before anything is written
-  if (reason !== null) return { ok: false, reason, codeName: 'E_WORKSPACE_FOREIGN_CHECKOUT' };
-  const stale = staleDistWarning(report);
-  if (stale !== null)
+  const refused = workspaceResolutionError(report);
+  // @sync-invariant none:input-shape a test run against another checkout's build, or a dist built from other source, is refused before anything is written
+  if (refused !== null) return { ok: false, reason: refused.message, codeName: refused.codeName };
+  const borrowed = borrowedBuildWarning(report);
+  if (borrowed !== null)
     pushWarning({
       // @sync-invariant none:input-shape a warning only; nothing is refused or written
-      code: 'W_WORKSPACE_STALE_DIST',
+      code: 'W_WORKSPACE_BORROWED_BUILD',
       severity: 'warn',
-      message: stale,
+      message: borrowed,
       context: { root: checkout },
     });
   return null;

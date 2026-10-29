@@ -17,9 +17,6 @@ test. `cleo run --class test`, `tool:test`, `tool:test-affected` and
   the tests import.
 - **Warned**: the dependency resolves into another checkout with identical,
   clean source, as a provisioned worktree that shares the root checkout's
-  `node_modules` does; or a package's `dist/` was built from other source
-  than its tracked `src/` holds now (`W_WORKSPACE_STALE_DIST`). The root
-  build stamps each package's `dist/.source-stamp.json` with a content hash
-  of its source; mtimes are not compared, since a checkout rewrites them
-  without changing content. A dist with no stamp, or rebuilt after it, is
-  not reported. T14123 turns a mismatch into a refusal.
+  `node_modules` does (`W_WORKSPACE_BORROWED_BUILD`). A dist built from
+  other source than its package holds is refused (T14123, see
+  `stale-dist-refusal`).

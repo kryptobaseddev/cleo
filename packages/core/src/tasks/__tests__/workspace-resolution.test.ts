@@ -13,6 +13,7 @@ import { execFileSync } from 'node:child_process';
 import {
   existsSync,
   mkdirSync,
+  readFileSync,
   mkdtempSync,
   realpathSync,
   rmSync,
@@ -27,9 +28,11 @@ import { validateAtom } from '../evidence.js';
 import {
   checkWorkspaceResolution,
   foreignResolutionReason,
+  borrowedBuildWarning,
   packagesNamedByTestArgs,
   SOURCE_STAMP_FILE,
-  staleDistWarning,
+  staleDistReason,
+  workspaceResolutionError,
   writeSourceStamps,
 } from '../workspace-resolution.js';
 
@@ -125,7 +128,7 @@ describe('checkWorkspaceResolution (T14097)', () => {
     expect(report.foreign).toEqual([]);
     expect(report.staleDist).toEqual([]);
     expect(foreignResolutionReason(report)).toBeNull();
-    expect(staleDistWarning(report)).toBeNull();
+    expect(workspaceResolutionError(report)).toBeNull();
   });
 
   it('a node_modules symlinked to a checkout with different source is foreign, and the reason names both paths and the remedy', () => {
@@ -155,7 +158,8 @@ describe('checkWorkspaceResolution (T14097)', () => {
     const report = checkWorkspaceResolution(root);
     expect(report.foreign).toEqual([]);
     expect(report.borrowed.map((b) => b.dependency)).toEqual(['@x/lib']);
-    expect(staleDistWarning(report)).toContain(
+    expect(workspaceResolutionError(report)).toBeNull();
+    expect(borrowedBuildWarning(report)).toContain(
       `@x/lib resolves to another checkout (${join(other, 'packages/lib')}) whose source is identical`,
     );
     // An uncommitted edit on either side makes it foreign again.
@@ -172,10 +176,22 @@ describe('checkWorkspaceResolution (T14097)', () => {
     utimesSync(join(root, 'packages/lib/src/index.ts'), later, later);
     const report = checkWorkspaceResolution(root);
     expect(report.staleDist).toEqual([]);
-    expect(staleDistWarning(report)).toBeNull();
+    expect(workspaceResolutionError(report)).toBeNull();
   });
 
-  it('a stamped dist built from other source warns, naming the package', () => {
+  it('the stamp depends on the source alone, so every build of the same source ships the same bytes', () => {
+    const root = checkout();
+    writeSourceStamps(root);
+    const stamp = join(root, 'packages/lib/dist', SOURCE_STAMP_FILE);
+    const first = readFileSync(stamp, 'utf-8');
+    const later = new Date(Date.now() + 3_600_000);
+    utimesSync(join(root, 'packages/lib/dist/index.js'), later, later);
+    writeSourceStamps(root);
+    expect(readFileSync(stamp, 'utf-8')).toBe(first);
+    expect(JSON.parse(first)).toEqual({ schema: 2, sourceHash: expect.any(String) });
+  });
+
+  it('a stamped dist built from other source is refused, naming the package and the rebuild command', () => {
     const root = checkout();
     linkOwn(root);
     writeSourceStamps(root);
@@ -183,13 +199,22 @@ describe('checkWorkspaceResolution (T14097)', () => {
     const report = checkWorkspaceResolution(root);
     expect(report.foreign).toEqual([]);
     expect(report.staleDist).toEqual([{ package: '@x/lib', dir: 'packages/lib' }]);
-    expect(staleDistWarning(report)).toContain('dist was built from other source than @x/lib');
+    expect(staleDistReason(report)).toContain('The dist of @x/lib was built from other source');
+    const err = workspaceResolutionError(report);
+    expect(err?.codeName).toBe('E_WORKSPACE_STALE_DIST');
+    expect(err?.fix).toBe('Rebuild them: `pnpm --filter "@x/lib" run build`.');
   });
 
-  it('a dist with no stamp, or rebuilt after its stamp, is not judged', () => {
+  it('a dist with no stamp, an older-schema stamp, or one rebuilt after its stamp, is not judged', () => {
     const root = checkout();
     linkOwn(root);
     write(root, 'packages/lib/src/index.ts', 'export const lib = 2;\n');
+    expect(checkWorkspaceResolution(root).staleDist).toEqual([]);
+    write(
+      root,
+      `packages/lib/dist/${SOURCE_STAMP_FILE}`,
+      JSON.stringify({ schema: 1, sourceHash: 'x', distNewestMs: 0 }),
+    );
     expect(checkWorkspaceResolution(root).staleDist).toEqual([]);
     writeSourceStamps(root);
     write(root, 'packages/lib/src/index.ts', 'export const lib = 3;\n');
@@ -239,5 +264,33 @@ describe('a test-run receipt is never recorded from a checkout testing another o
     expect(r.ok).toBe(false);
     expect(!r.ok && r.codeName).toBe('E_WORKSPACE_FOREIGN_CHECKOUT');
     expect(!r.ok && r.reason).toContain(join(other, 'packages/lib'));
+  });
+
+  it('validateAtom refuses a receipt from a checkout whose dist was built from other source (T14123)', async () => {
+    const root = checkout();
+    linkOwn(root);
+    writeSourceStamps(root);
+    write(root, 'packages/lib/src/index.ts', 'export const lib = 2;\n');
+    const file = join(root, 'packages/app/src/app.test.ts');
+    write(
+      root,
+      'report.json',
+      JSON.stringify({
+        numTotalTests: 1,
+        numPassedTests: 1,
+        numFailedTests: 0,
+        numPendingTests: 0,
+        numTodoTests: 0,
+        success: true,
+        startTime: Date.now(),
+        testResults: [
+          { name: file, status: 'passed', assertionResults: [{ status: 'passed', title: 't' }] },
+        ],
+      }),
+    );
+    const r = await validateAtom({ kind: 'test-run', path: 'report.json' }, root);
+    expect(r.ok).toBe(false);
+    expect(!r.ok && r.codeName).toBe('E_WORKSPACE_STALE_DIST');
+    expect(!r.ok && r.reason).toContain('pnpm --filter "@x/lib" run build');
   });
 });
