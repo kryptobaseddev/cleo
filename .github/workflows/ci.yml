@@ -116,7 +116,7 @@ jobs:
       # unit-test shards per runner (scripts/ci-platform-matrix.mjs). macOS
       # runs nightly, in merge groups, and on a pull request whose change is
       # darwin-specific; Linux shards 8 ways, macOS 8 ways nightly and in merge
-      # groups and 2 ways on a darwin pull request (T13198).
+      # groups and 4 ways on a darwin pull request (T13198, T14104).
       darwin: ${{ steps.platform.outputs.darwin }}
       build_os: ${{ steps.platform.outputs.build_os }}
       test_matrix: ${{ steps.platform.outputs.test_matrix }}
@@ -1522,7 +1522,13 @@ jobs:
     # 2-shard leg is ~49 min of vitest + ~6 min setup, ~65 min with a 60/40
     # file-count skew: those legs get 90. Recalibrate from that sum if the
     # suite grows.
-    timeout-minutes: ${{ matrix.os == 'macos-latest' && matrix.total <= 2 && 90 || 55 }}
+    # T14104 (2026-10-28): the suite outgrew that. #2557's darwin legs hit the
+    # 90-minute ceiling twice on shard 1 of 2 (19:02-20:32, 20:37-22:07) while
+    # still passing tests: slow, not hung. A darwin pull request now runs 4
+    # shards, a quarter of the suite each, and keeps 90: `build` finishes
+    # before the shards start, so at most 4 shards + `Build & Verify` share
+    # the 5-job macOS pool.
+    timeout-minutes: ${{ matrix.os == 'macos-latest' && matrix.total <= 4 && 90 || 55 }}
     strategy:
       matrix:
         # Windows shards temporarily disabled pending T9182/T9181 follow-up — pre-existing
@@ -1559,8 +1565,8 @@ jobs:
         # regression is now detected by the next nightly run instead.
         # T13143: `{os, shard, total}` per job from the `changes` job: 8 Linux
         # shards always (the repo is public, so runners are free); 8 macOS
-        # shards nightly and in merge groups, 2 on a darwin-specific pull
-        # request (T13198: the free plan's 5-job macOS pool) — see
+        # shards in merge groups, 4 on a darwin-specific pull request
+        # (T13198, T14104: the free plan's 5-job macOS pool) — see
         # scripts/ci-platform-matrix.mjs. Main pushes run macOS in
         # macos-main.yml.
         # 2026-09-29: 4 shards (was 2). Shard 1 of 2 was the whole PR critical

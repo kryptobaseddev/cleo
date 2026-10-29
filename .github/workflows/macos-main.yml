@@ -1,12 +1,7 @@
-# macOS unit tests for main pushes (T13143, owner option B).
+# macOS unit tests for main (T13143, owner option B; T14104).
 #
-# ci.yml runs macOS only nightly, in merge groups and on darwin-specific pull
-# requests. Releases happen mid-day after merges, so the nightly commit is
-# rarely test-equivalent to a release commit, and release-prepare re-ran its
-# macOS shards (32–42 min) for want of a verified result. This workflow gives
-# the newest main push a macOS result: `cleo release open` reads it
-# (MACOS_WORKFLOWS in packages/core/src/release/preflight-skip.ts) for the
-# release commit or any test-equivalent ancestor, and skips the macOS shards.
+# ci.yml runs macOS only in merge groups and on darwin-specific pull requests.
+# This workflow gives every main push a macOS result (T13143).
 #
 # It is NOT a required check. T13187: a running run is never cancelled
 # (`cancel-in-progress: false`). With `true`, every main push cancelled the run
@@ -15,8 +10,13 @@
 # they would have finished). With `false`, GitHub keeps the running run and at
 # most ONE pending run per group: each new push replaces the pending one, so a
 # burst coalesces to the newest push instead of queuing every push behind the
-# free plan's five macOS jobs. ci.yml's nightly schedule already runs the macOS
-# shards on main every night, so this workflow carries no schedule of its own.
+# free plan's five macOS jobs.
+#
+# T14104: this workflow is the ONE place macOS is validated for main. Release
+# never waits on it (release-prepare runs no macOS shards); it runs on every
+# main push, nightly (ci.yml's `schedule` run is Linux only) and on demand
+# (`workflow_dispatch`). A failed run opens or comments on the one open
+# `macos-regression` issue; the merge sweep turns each such issue into a task.
 #
 # The build and test steps mirror ci.yml's `build` and `unit-tests` jobs for
 # macos-latest; scripts/__tests__/ci-platform-matrix.test.mjs checks the pins
@@ -61,6 +61,9 @@ on:
       - 'scripts/sweep-manual-doc-writes.mjs'
       - 'crates/**'
       - '.github/workflows/macos-main.yml'
+  schedule:
+    - cron: '41 7 * * *'
+  workflow_dispatch:
 
 concurrency:
   group: macos-main
@@ -175,3 +178,40 @@ jobs:
         shell: bash
         # retry=2 as in ci.yml's macOS shards (T10490).
         run: pnpm exec vitest run --shard=${{ matrix.shard }}/8 --retry=2
+
+  # T14104: a failure files work instead of waiting for someone to notice.
+  # One open issue at a time: a new failure comments on it, so the merge sweep
+  # (which makes one task per open `macos-regression` issue) never duplicates.
+  file-regression:
+    name: File macOS regression
+    needs: [build, unit-tests]
+    if: failure() && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      actions: read
+      issues: write
+    steps:
+      - name: Open or update the macos-regression issue
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          RUN_ID: ${{ github.run_id }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          SHA: ${{ github.sha }}
+          EVENT: ${{ github.event_name }}
+        run: |
+          set -euo pipefail
+          failed=$(gh api --paginate "repos/$REPO/actions/runs/$RUN_ID/jobs?per_page=100" \
+            --jq '.jobs[] | select(.conclusion == "failure" or .conclusion == "timed_out") | "- " + .name')
+          body=$(printf 'macOS validation failed on main (%s) at `%s`.\n\nRun: %s\n\nFailed jobs:\n%s\n' \
+            "$EVENT" "$SHA" "$RUN_URL" "${failed:-"- (none reported)"}")
+          open=$(gh issue list --repo "$REPO" --label macos-regression --state open --json number --jq '.[0].number // empty')
+          if [ -n "$open" ]; then
+            gh issue comment "$open" --repo "$REPO" --body "$body"
+          else
+            gh label create macos-regression --repo "$REPO" --color B60205 \
+              --description 'macOS validation failed on main (T14104)' --force
+            gh issue create --repo "$REPO" --label macos-regression \
+              --title "macOS regression on main (${SHA:0:12})" --body "$body"
+          fi

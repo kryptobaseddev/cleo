@@ -1662,6 +1662,12 @@ export interface AdminBackupMutateParams {
   confirmOwnerStore?: boolean;
   /** Create: also back up the global store (`<CLEO_HOME>/cleo.db`, T13245). */
   includeGlobal?: boolean;
+  /**
+   * Create: write the backup into this directory (the global copy under
+   * `<destination>/global`) instead of the rotating backup dirs; it never
+   * rotates or is rotated (T13209).
+   */
+  destination?: string;
   /** Restore by id: `global` restores a backup of the global store (T13245). */
   scope?: 'project' | 'global';
 }
