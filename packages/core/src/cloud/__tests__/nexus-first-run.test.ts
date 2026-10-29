@@ -560,6 +560,11 @@ describe('guided first run inside a linked project', () => {
 });
 
 describe('guided first run outside a project', () => {
+  // No project: unpin the store (an absolute CLEO_DIR wins over projectRoot); afterEach restores it.
+  beforeEach(() => {
+    delete process.env['CLEO_DIR'];
+  });
+
   it("lists the account's projects with this device id and names the single restore command", async () => {
     const s = stubs();
     s.listProjects.mockResolvedValueOnce({

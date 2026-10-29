@@ -81,7 +81,10 @@ import { resolveDualScopeDbPath } from '../store/dual-scope-db.js';
 import type { AbandonableLock } from '../store/lock.js';
 import { getNativeDb } from '../store/sqlite.js';
 import { listSqliteBackupsAll } from '../store/sqlite-backup.js';
-import { assertRestoreTargetConfirmed } from '../store/worktree-isolation-guard.js';
+import {
+  assertOwnerStoreRewriteConfirmed,
+  assertRestoreTargetConfirmed,
+} from '../store/worktree-isolation-guard.js';
 
 /** Default max backup snapshots per backup type directory. */
 const DEFAULT_MAX_SNAPSHOTS = 10;
@@ -1021,6 +1024,10 @@ export function restoreBackup(
   assertRestoreTargetConfirmed(projectRoot, params);
 
   const cleoDir = resolveCleoDir(projectRoot);
+  // A CLEO_DIR pin can name another store than projectRoot's: guard the one written.
+  if (cleoDir !== join(projectRoot, '.cleo')) {
+    assertOwnerStoreRewriteConfirmed('restore', cleoDir, params);
+  }
 
   // Search order: canonical first, then legacy siblings.
   const searchOrder: Array<{ dir: string; legacy: boolean }> = [
