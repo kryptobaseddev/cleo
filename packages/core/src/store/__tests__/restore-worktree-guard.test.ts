@@ -69,6 +69,8 @@ const live = (root: string): string => readFileSync(join(root, '.cleo', 'config.
 
 beforeEach(() => {
   dir = mkdtempSync(join(tmpdir(), 'cleo-t12680-'));
+  // Production shape: no CLEO_DIR pin, so each restore resolves the store from its own paths.
+  vi.stubEnv('CLEO_DIR', undefined);
 });
 
 afterEach(() => {
@@ -111,6 +113,16 @@ describe('restore from a worktree whose owner is an initialised project', () => 
   it('a restore run from the project itself needs no confirmation', () => {
     restoreBackup(main, { backupId: 'b1', cwd: main });
     expect(live(main)).toBe('{"restored":true}');
+  });
+
+  it('a CLEO_DIR pin on the owner store is guarded even when projectRoot names no store', () => {
+    vi.stubEnv('CLEO_DIR', join(main, '.cleo'));
+    const elsewhere = join(dir, 'elsewhere');
+    mkdirSync(elsewhere);
+    expect(() => restoreBackup(elsewhere, { backupId: 'b1', cwd: wt })).toThrow(
+      /E_WT_STORE_REWRITE_CONFIRM_REQUIRED/,
+    );
+    expect(live(main)).toBe('{"live":true}');
   });
 });
 

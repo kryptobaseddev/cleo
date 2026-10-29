@@ -34,7 +34,7 @@ import { appendFileSync, mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { autoCloudSync } from '../cloud/auto-sync.js';
 import { runBoundedEmbeddingBackfill } from '../memory/embedding-backfill.js';
-import { getCleoDir } from '../paths.js';
+import { resolveStoreCleoDir } from '../paths.js';
 import { SNAPSHOT_LOCK_WAIT_RETRIES } from '../store/snapshot-gate.js';
 import { releaseSessionEndWorkerMarker, snapshotAfterSessionEnd } from './session-end-snapshot.js';
 
@@ -64,7 +64,7 @@ const embeddings = await runBoundedEmbeddingBackfill(projectRoot);
 const autoSync = await autoCloudSync(projectRoot, 'session-end');
 
 try {
-  const logsDir = join(getCleoDir(projectRoot), 'logs');
+  const logsDir = join(resolveStoreCleoDir(projectRoot), 'logs');
   mkdirSync(logsDir, { recursive: true });
   appendFileSync(
     join(logsDir, 'session-end-snapshot.log'),

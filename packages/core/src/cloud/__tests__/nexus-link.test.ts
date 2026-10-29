@@ -21,6 +21,7 @@ import { FileNexusTokenStore } from '../nexus-credentials.js';
 import {
   linkProjectToNexus,
   nexusLinkPath,
+  nexusStoreIdentity,
   readNexusProjectLink,
   validateNexusProjectLabel,
 } from '../nexus-link.js';
@@ -442,5 +443,23 @@ describe('link file concurrency (T12712 review item 9)', () => {
     vi.mocked(withLock).mockClear();
     const result = await linkProjectToNexus({ apiUrl: API, store, projectRoot, fetch: fetchImpl });
     expect(vi.mocked(withLock).mock.calls.map((c) => c[0])).toContain(result.linkPath);
+  });
+});
+
+describe('one store for the binding and its id (T14153)', () => {
+  it('under CLEO_DIR=A, root B reads both the binding path and the id from A', () => {
+    // projectRoot (A) is pinned by beforeEach; B is another project with its own id.
+    const other = join(base, 'other-project');
+    mkdirSync(join(other, '.cleo'), { recursive: true });
+    writeFileSync(join(other, '.cleo', 'project-id'), '0190a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a99\n');
+    expect(nexusLinkPath(other)).toBe(join(projectRoot, '.cleo', 'nexus-link.json'));
+    expect(nexusStoreIdentity(other)?.projectId).toBe(PROJECT_ID);
+  });
+
+  it('a pinned directory that is not a project .cleo yields no identity', () => {
+    const odd = join(base, 'odd-store');
+    mkdirSync(odd, { recursive: true });
+    process.env['CLEO_DIR'] = odd;
+    expect(nexusStoreIdentity(projectRoot)).toBeNull();
   });
 });

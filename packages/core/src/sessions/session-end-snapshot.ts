@@ -57,7 +57,7 @@ import {
 import { createRequire } from 'node:module';
 import { dirname, join } from 'node:path';
 import { getLogger } from '../logger.js';
-import { getCleoDir } from '../paths.js';
+import { resolveStoreCleoDir } from '../paths.js';
 import {
   describeSnapshotMiss,
   SESSION_END_LOCK_WAIT_RETRIES,
@@ -187,7 +187,7 @@ function resolveWorkerEntry(): string | null {
 
 /** Absolute path of the worker-pending marker for a project. */
 export function sessionEndWorkerMarkerPath(projectRoot: string): string {
-  return join(getCleoDir(projectRoot), 'backups', 'sqlite', SESSION_END_WORKER_MARKER);
+  return join(resolveStoreCleoDir(projectRoot), 'backups', 'sqlite', SESSION_END_WORKER_MARKER);
 }
 
 /** Path of the sidecar holding the queued worker's identity for `token`. */
@@ -197,7 +197,7 @@ function workerSidecarPath(markerPath: string, token: string): string {
 
 /** Path of the session-end worker log for a project. */
 function workerLogPath(projectRoot: string): string {
-  return join(getCleoDir(projectRoot), 'logs', 'session-end-snapshot.log');
+  return join(resolveStoreCleoDir(projectRoot), 'logs', 'session-end-snapshot.log');
 }
 
 /** Whether a process with this pid exists (EPERM means it exists but is not ours). */
@@ -478,7 +478,7 @@ export async function requestSessionEndSnapshot(
   if (entry !== null) {
     let marker: WorkerMarker | null = null;
     try {
-      const backupDir = join(getCleoDir(projectRoot), 'backups', 'sqlite');
+      const backupDir = join(resolveStoreCleoDir(projectRoot), 'backups', 'sqlite');
       mkdirSync(backupDir, { recursive: true });
       const markerPath = sessionEndWorkerMarkerPath(projectRoot);
       marker = reserveWorkerMarker(markerPath);

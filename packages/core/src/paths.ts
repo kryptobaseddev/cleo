@@ -252,6 +252,14 @@ export function getCleoDocsDir(): string {
  * const rel = getCleoDir();           // ".cleo"
  * const abs = getCleoDir('/project'); // "/project/.cleo"
  * ```
+ *
+ * @remarks **An absolute `CLEO_DIR` pins the store for the whole process**
+ * (T14153). `cwd` only anchors the walk-up when nothing is pinned: under a pin,
+ * `getCleoDir('/other/project')` still returns the pinned directory. Test
+ * isolation (vitest.setup), the `--cleo-dir` flag and the cleo-os harness rely
+ * on this. Code that builds a path for the same project must use this same
+ * resolver (or `resolveCleoDir`, which the database uses), never
+ * `join(root, '.cleo')`, or the two halves read different stores under a pin.
  */
 export function getCleoDir(cwd?: string): string {
   if (cwd) {
@@ -325,7 +333,10 @@ export function getCleoDir(cwd?: string): string {
  * ```
  *
  * @remarks Active worktree scope takes precedence over ambient CLEO_DIR, matching
- * resolveCleoDir. Outside a scope, absolute CLEO_DIR retains its override behavior.
+ * resolveCleoDir. Outside a scope, an absolute CLEO_DIR pins the store for the
+ * whole process and wins over `cwd` (T14153): `cwd` anchors the walk-up only
+ * when nothing is pinned. Never mix this with `join(root, '.cleo')` for the
+ * same project.
  * @deprecated Migrate to {@link resolveProjectByCwd} + {@link resolveCanonicalCleoDir}
  * @task T11009
  */
@@ -831,6 +842,20 @@ export function tryResolveCleoDir(cwd?: string): string | null {
     }
     throw err;
   }
+}
+
+/**
+ * The `.cleo/` directory a project's store files live in: {@link resolveCleoDir}
+ * (so a `CLEO_DIR` pin wins), or `<projectRoot>/.cleo` outside any project, so
+ * callers that degrade gracefully there (device-only cloud status, the guided
+ * first run, `cleo backup list`) keep working instead of throwing.
+ *
+ * @param projectRoot - Project root (or any directory).
+ * @returns Absolute path of the `.cleo/` directory.
+ * @task T14153
+ */
+export function resolveStoreCleoDir(projectRoot: string): string {
+  return tryResolveCleoDir(projectRoot) ?? join(resolve(projectRoot), '.cleo');
 }
 
 /**

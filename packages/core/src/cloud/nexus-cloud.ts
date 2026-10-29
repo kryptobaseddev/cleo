@@ -41,7 +41,6 @@ import {
   nexusCloudReplicaPageSchema,
   nexusCloudWhoamiSchema,
 } from '@cleocode/contracts/nexus-cloud.js';
-import { readDeclaredProjectIdentity } from '@cleocode/paths';
 import { resolveCleoDir, resolveOrCwd } from '../paths.js';
 import type { RetiredReplica } from '../store/sync/replica-registry.js';
 import { type FetchLike, Http, NexusError, type ResponseSchema } from './http.js';
@@ -52,7 +51,7 @@ import {
   type NexusDeviceCredentialOptions,
   nexusApiErrorToAccountError,
 } from './nexus-enrol.js';
-import { nexusLinkPath, readNexusProjectLink } from './nexus-link.js';
+import { nexusLinkPath, nexusStoreIdentity, readNexusProjectLink } from './nexus-link.js';
 
 /** Timeout of one `cleo cloud` request. */
 export const NEXUS_CLOUD_TIMEOUT_MS = 15_000;
@@ -257,7 +256,8 @@ export function currentNexusCloudProject(
   } catch {
     return null;
   }
-  const identity = readDeclaredProjectIdentity(root);
+  // T14153: the id and the binding come from one store.
+  const identity = nexusStoreIdentity(root);
   if (!identity) return null;
   return {
     root,
