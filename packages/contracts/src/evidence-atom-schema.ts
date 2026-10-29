@@ -64,6 +64,7 @@ export const EVIDENCE_ATOM_KINDS = [
   'decision',
   'pr',
   'ci',
+  'ci-run',
   'deploy',
   'loc-drop',
   'callsite-coverage',
@@ -270,6 +271,22 @@ export const ciAtomSchema = z.object({
 });
 
 /**
+ * `ci-run:<runId>` atom (T14149): a run of the `repeat-run.yml` workflow
+ * (dispatched on the default branch) that ran one test file N times, all green.
+ * Validated from GitHub's record of the run and its uploaded report, never from
+ * a file the agent supplies. It links an acceptance criterion that needs a heavy
+ * or repeated run; it does not satisfy `testsPassed` on its own.
+ *
+ * Format: `ci-run:<positive integer run id>` (e.g. `ci-run:40812345678`).
+ *
+ * @task T14149
+ */
+export const ciRunAtomSchema = z.object({
+  kind: z.literal('ci-run'),
+  runId: z.number().int().positive('ci-run atom requires a positive integer run id'),
+});
+
+/**
  * `deploy:<provider>/<deploymentId>@<sha>|<probe-url>` atom (T14083): a
  * deployment of commit `<sha>`, proven at verify time by a bounded GET of
  * `<probe-url>` that returns 2xx and names `<sha>` in its body or in an
@@ -460,6 +477,7 @@ export const satisfiesAtomSchema = z.object({
  *   - `note`               — free-form note (T832)
  *   - `decision`           — brain_decisions row reference (T1875)
  *   - `pr`                 — merged-PR retroactive proof (T9764 / T9838)
+ *   - `ci-run`             — a green repeat-run.yml run of one test file (T14149)
  *   - `deploy`             — probed deployment of a commit (T14083)
  *   - `loc-drop`           — engine-migration LOC reduction (T1604)
  *   - `callsite-coverage`  — exported-symbol production callsite (T1605)
@@ -480,6 +498,7 @@ export const EvidenceAtomSchema = z.discriminatedUnion('kind', [
   decisionAtomSchema,
   prAtomSchema,
   ciAtomSchema,
+  ciRunAtomSchema,
   deployAtomSchema,
   locDropAtomSchema,
   callsiteCoverageAtomSchema,
@@ -639,6 +658,7 @@ const ATOM_EXAMPLES: Readonly<Record<EvidenceAtomKind, string>> = Object.freeze(
   decision: 'decision:D-arch-001',
   pr: 'pr:357',
   ci: 'ci:357',
+  'ci-run': 'ci-run:<runId>',
   deploy: 'deploy:<provider>/<deploymentId>@<sha>|https://<host>/health',
   'loc-drop': 'loc-drop:<fromLines>:<toLines>',
   'callsite-coverage': 'callsite-coverage:<symbolName>:<relativeSourcePath>',
@@ -981,6 +1001,16 @@ export function parseEvidenceString(raw: string): EvidenceAtom[] {
           );
         }
         atoms.push(kind === 'pr' ? { kind: 'pr', ...ref } : { kind: 'ci', ...ref });
+        break;
+      }
+      case 'ci-run': {
+        if (!/^[1-9][0-9]*$/.test(payload)) {
+          throw new EvidenceParseError(
+            `ci-run atom requires a positive integer run id, got "${payload}" in "${chunk}"`,
+            'Use format: ci-run:<runId> e.g. ci-run:40812345678 (a repeat-run.yml run on main)',
+          );
+        }
+        atoms.push({ kind: 'ci-run', runId: Number(payload) });
         break;
       }
       case 'deploy':
