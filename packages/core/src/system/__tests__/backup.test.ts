@@ -45,12 +45,21 @@ import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+/** The suite-level CLEO_DIR (vitest.setup pins one per worker); restored after each test. */
+const suiteCleoDir = process.env['CLEO_DIR'];
+afterEach(() => {
+  if (suiteCleoDir === undefined) delete process.env['CLEO_DIR'];
+  else process.env['CLEO_DIR'] = suiteCleoDir;
+});
+
 describe('system/backup', () => {
   let testDir: string;
 
   beforeEach(async () => {
     vi.resetModules();
     testDir = await mkdtemp(join(tmpdir(), 'cleo-system-backup-'));
+    // T14153: backups follow the store's resolver; pin it to this fixture.
+    process.env['CLEO_DIR'] = join(testDir, '.cleo');
     mkdirSync(join(testDir, '.cleo'), { recursive: true });
   });
 
@@ -356,6 +365,8 @@ describe('system/backup — legacy dir fallthrough (T10315 · ADR-013 §10)', ()
   beforeEach(async () => {
     vi.resetModules();
     testDir = await mkdtemp(join(tmpdir(), 'cleo-system-backup-legacy-'));
+    // T14153: backups follow the store's resolver; pin it to this fixture.
+    process.env['CLEO_DIR'] = join(testDir, '.cleo');
     mkdirSync(join(testDir, '.cleo'), { recursive: true });
   });
   afterEach(async () => {
@@ -470,6 +481,8 @@ describe('system/backup — rotation (T9194)', () => {
   beforeEach(async () => {
     vi.resetModules();
     testDir = await mkdtemp(join(tmpdir(), 'cleo-system-backup-rotation-'));
+    // T14153: backups follow the store's resolver; pin it to this fixture.
+    process.env['CLEO_DIR'] = join(testDir, '.cleo');
     mkdirSync(join(testDir, '.cleo'), { recursive: true });
   });
   afterEach(async () => {
@@ -650,6 +663,8 @@ describe('system/backup — restored .db files are byte-identical', () => {
   beforeEach(async () => {
     vi.resetModules();
     testDir = await mkdtemp(join(tmpdir(), 'cleo-system-backup-restore-'));
+    // T14153: backups follow the store's resolver; pin it to this fixture.
+    process.env['CLEO_DIR'] = join(testDir, '.cleo');
     mkdirSync(join(testDir, '.cleo'), { recursive: true });
   });
   afterEach(async () => {
@@ -688,6 +703,8 @@ describe('system/backup — session-end snapshots are listed (T14150)', () => {
   beforeEach(async () => {
     vi.resetModules();
     testDir = await mkdtemp(join(tmpdir(), 'cleo-system-backup-session-end-'));
+    // T14153: backups follow the store's resolver; pin it to this fixture.
+    process.env['CLEO_DIR'] = join(testDir, '.cleo');
     mkdirSync(join(testDir, '.cleo', 'backups', 'sqlite'), { recursive: true });
     mkdirSync(join(testDir, '.cleo', 'logs'), { recursive: true });
   });
@@ -768,5 +785,48 @@ describe('system/backup — session-end snapshots are listed (T14150)', () => {
       ['2026-10-29T02:00:00.000Z', 'failed', 'snapshot failed for tasks'],
     ]);
     expect(misses.every((b) => b.files.length === 0)).toBe(true);
+  });
+});
+
+// T14153: under a CLEO_DIR pin, a backup's files and its listing follow the
+// store (the database's resolver), whatever root the caller passes.
+describe('system/backup — one store under a CLEO_DIR pin (T14153)', () => {
+  let storeRoot: string;
+  let otherRoot: string;
+  beforeEach(async () => {
+    vi.resetModules();
+    storeRoot = await mkdtemp(join(tmpdir(), 'cleo-system-backup-pin-a-'));
+    otherRoot = await mkdtemp(join(tmpdir(), 'cleo-system-backup-pin-b-'));
+    mkdirSync(join(storeRoot, '.cleo', 'logs'), { recursive: true });
+    mkdirSync(join(otherRoot, '.cleo'), { recursive: true });
+    process.env['CLEO_DIR'] = join(storeRoot, '.cleo');
+  });
+  afterEach(async () => {
+    await rm(storeRoot, { recursive: true, force: true });
+    await rm(otherRoot, { recursive: true, force: true });
+  });
+
+  it('creates and lists a backup in the pinned store, not in the root it was given', async () => {
+    vi.doMock('../../store/sqlite.js', () => ({
+      getDb: vi.fn().mockResolvedValue({}),
+      getNativeDb: () => null,
+    }));
+    writeFileSync(join(storeRoot, '.cleo', 'config.json'), JSON.stringify({ store: 'A' }));
+    const { createBackup, listSystemBackups } = await import('../backup.js');
+    const result = await createBackup(otherRoot);
+    expect(result.path).toBe(join(storeRoot, '.cleo', 'backups', 'sqlite'));
+    expect(existsSync(join(otherRoot, '.cleo', 'backups'))).toBe(false);
+    expect(listSystemBackups(otherRoot).map((b) => b.backupId)).toContain(result.backupId);
+  });
+
+  it('reads the session-end worker log from the pinned store, where the worker writes it', async () => {
+    const { sessionEndWorkerMarkerPath } = await import('../../sessions/session-end-snapshot.js');
+    expect(sessionEndWorkerMarkerPath(otherRoot).startsWith(join(storeRoot, '.cleo'))).toBe(true);
+    writeFileSync(
+      join(storeRoot, '.cleo', 'logs', 'session-end-snapshot.log'),
+      `${JSON.stringify({ event: 'session-end-snapshot', at: '2026-10-29T09:00:00.000Z', result: null })}\n`,
+    );
+    const { listSystemBackups } = await import('../backup.js');
+    expect(listSystemBackups(otherRoot).filter((b) => b.outcome === 'failed')).toHaveLength(1);
   });
 });

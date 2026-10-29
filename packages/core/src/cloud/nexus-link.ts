@@ -46,16 +46,16 @@
 
 import { readFileSync, writeFileSync } from 'node:fs';
 import { homedir, userInfo } from 'node:os';
-import { join, resolve } from 'node:path';
+import { basename, dirname, join, resolve } from 'node:path';
 import type { NexusProjectLink, NexusProjectLinkResult } from '@cleocode/contracts';
 import type { InitialProjectKey } from '@cleocode/contracts/cloud';
 import {
   NEXUS_FEATURE_PROJECT_INITIAL_KEY,
   nexusCloudStatusSchema,
 } from '@cleocode/contracts/nexus-cloud.js';
-import { readDeclaredProjectIdentity } from '@cleocode/paths';
+import { type DeclaredProjectIdentity, readDeclaredProjectIdentity } from '@cleocode/paths';
 import { z } from 'zod';
-import { getCleoDirAbsolute, resolveOrCwd } from '../paths.js';
+import { resolveCleoDir, resolveOrCwd } from '../paths.js';
 import { getProjectDisplayName } from '../project-info.js';
 import { withLock } from '../store/file-utils.js';
 import { type FetchLike, Http, NexusError } from './http.js';
@@ -247,13 +247,33 @@ function resolveLinkLabel(projectRoot: string, explicit: string | undefined): st
 }
 
 /**
- * Path of the binding file for a project.
+ * Path of the binding file for a project: in the `.cleo/` its store lives in
+ * (`resolveCleoDir`, the resolver the database uses), so under a `CLEO_DIR`
+ * pin the binding sits beside the pinned store (T14153).
  *
  * @param projectRoot - Project root.
- * @returns `<project>/.cleo/nexus-link.json`.
+ * @returns `<store .cleo>/nexus-link.json`.
  */
 export function nexusLinkPath(projectRoot: string): string {
-  return join(getCleoDirAbsolute(projectRoot), NEXUS_LINK_FILE);
+  return join(resolveCleoDir(projectRoot), NEXUS_LINK_FILE);
+}
+
+/**
+ * The declared identity of the store a project's binding belongs to: read
+ * from the project that owns the `.cleo/` {@link nexusLinkPath} uses, so the
+ * id and the binding file never come from two different stores (T14153: under
+ * a `CLEO_DIR` pin, reading the identity from `projectRoot` named project B
+ * while the binding was project A's). `null` when that `.cleo/` is not a
+ * project's `.cleo` directory, or declares no id.
+ *
+ * @param projectRoot - Project root.
+ * @returns The identity, or `null`.
+ * @task T14153
+ */
+export function nexusStoreIdentity(projectRoot: string): DeclaredProjectIdentity | null {
+  const cleoDir = resolveCleoDir(projectRoot);
+  if (basename(cleoDir) !== '.cleo') return null;
+  return readDeclaredProjectIdentity(dirname(cleoDir));
 }
 
 /** Read the binding file; missing or malformed reads as empty. */
@@ -551,7 +571,7 @@ export async function linkProjectToNexus(
       'run `cleo init` first',
     );
   }
-  const identity = readDeclaredProjectIdentity(projectRoot);
+  const identity = nexusStoreIdentity(projectRoot);
   if (!identity) {
     throw new NexusAccountError(
       'E_NEXUS_NOT_A_PROJECT',
