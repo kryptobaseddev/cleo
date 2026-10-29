@@ -1,7 +1,7 @@
 ---
 name: ct-dev-workflow
 description: Development workflow orchestration for task-driven development with atomic commits, conventional commit messages, and systematic release processes. Enforces task traceability, branch discipline, smart test scope selection, and GitHub Actions integration. Use when committing code, creating releases, managing branches, or following contribution protocols. Triggers on commit operations, release preparation, or workflow compliance needs.
-version: 3.1.32
+version: 3.3.0
 protocol: contribution
 dependencies: []
 sharedResources:
@@ -14,7 +14,7 @@ compatibility:
   - gemini-cli
 license: MIT
 metadata:
-  version: 3.1.32
+  version: 3.3.0
   tier: core
   install: harness
   covers:
@@ -26,7 +26,7 @@ metadata:
     - packages/core/src/hooks.ts
     - packages/core/templates/git-hooks/**
     - packages/contracts/src/git-hooks.ts
-  lastReviewed: 2026-10-28
+  lastReviewed: 2026-10-29
   stability: stable
 ---
 
@@ -393,6 +393,25 @@ head SHA is green: `gh pr merge <n> --admin --merge` — see
 | `chore` | No | No |
 | `perf` | patch | Yes |
 | `security` | patch | Yes |
+
+---
+
+## PR Cadence (D11212)
+
+Many small PRs, each tied to a task group, so every change is traceable from
+task to PR to release (spec: `cleo docs fetch pr-cadence`):
+
+- **One PR per task group.** A PR delivers one task, or a few tasks that cannot
+  land apart. Never bundle unrelated tasks to save a CI run.
+- **Small.** Reviewable in one sitting. Split a large task into PRs that each
+  keep `main` green: `Refs:` on each, `Closes:` on the last.
+- **Name the tasks.** One body line per task: `Closes: T#### AC1,AC2` or
+  `Refs: T#### AC3`. The `PR Task Lines` check flags a PR with none or with a
+  malformed line. A change no task owns takes the `no-task` label.
+- **Changeset** with the same `tasks:` for user-facing changes; release notes
+  are built from them.
+- **Batch at release time, not in PRs.** PRs merge one at a time on green
+  `CI`; `cleo release cut` ships everything merged since the last tag.
 
 ---
 

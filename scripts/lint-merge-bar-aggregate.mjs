@@ -114,6 +114,8 @@ const ADVISORY_WORKFLOWS = {
   '.github/workflows/worktree-cleanup.yml': 'runs after a PR merges (worktree cleanup), not a gate',
   '.github/workflows/merge-close.yml':
     'runs after a PR merges and only posts the merge-close receipt (T14101), not a gate',
+  '.github/workflows/pr-task-lines.yml':
+    'flags a PR body with no or malformed Closes:/Refs: lines (T14143); it must re-run on body edits, which do not re-run CI, and a PR whose lines are wrong closes nothing at merge anyway (T14101), so it flags rather than gates',
 };
 
 /**
