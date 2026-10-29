@@ -494,9 +494,12 @@ export async function orchestrateReady(
 
         // T12000: annotate which ready tasks are admittable now vs deferred so
         // orchestrators size their fan-out to host capacity (Never-OOM).
-        const admission = await computeAgentAdmission(sagaReady.map((t) => t.id), {
-          inFlight: sagaInFlight,
-        });
+        const admission = await computeAgentAdmission(
+          sagaReady.map((t) => t.id),
+          {
+            inFlight: sagaInFlight,
+          },
+        );
 
         return {
           success: true,
