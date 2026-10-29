@@ -43,6 +43,10 @@ reruns: main CI already passed that tree.
   (`git push origin :refs/tags/v<version>`); after publish, fix forward. If
   the CHANGELOG + version PR job fails, re-run it or open the PR by hand with
   `cleo release write-changelog <version> --ref v<version>`.
+- The report includes the T14142 cleanup plan for the release's tasks
+  (worktrees, `task/*` branches, and nested repository copies proven
+  redundant); a confirmed cut applies it after the tag, and a cleanup failure
+  never fails the cut.
 - `cleo release reconcile` records provenance for a cut release as before; it
   builds its plan from the tag when no plan file exists.
 - `cleo release plan`, `open` and `release-prepare.yml` keep working for one

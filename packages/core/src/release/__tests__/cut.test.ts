@@ -57,6 +57,21 @@ vi.mock('../../docs/rot.js', () => ({
     summary: `${rotOrphans.length} orphan(s)`,
   }),
 }));
+const cleanups: Array<{ taskIds?: string[]; dryRun?: boolean }> = [];
+vi.mock('../../worktree/merged-cleanup.js', () => ({
+  cleanupMergedWork: async (opts: { taskIds?: string[]; dryRun?: boolean }) => {
+    cleanups.push({ taskIds: opts.taskIds, dryRun: opts.dryRun });
+    return {
+      dryRun: opts.dryRun !== false,
+      base: 'origin/main',
+      worktrees: [],
+      localBranches: [],
+      remoteBranches: [],
+      nestedCopies: [],
+      bytesReclaimed: 0,
+    };
+  },
+}));
 let authorized = false;
 vi.mock('../authorization.js', () => ({
   releaseAuthorizationFor: () => (authorized ? { id: 'auth-1' } : null),
@@ -154,6 +169,7 @@ beforeEach(() => {
 
 afterEach(() => {
   ttyAnswer = null;
+  cleanups.length = 0;
   for (const dir of dirs) rmSync(dir, { recursive: true, force: true });
 });
 
@@ -256,6 +272,8 @@ describe('releaseCut (T14102)', () => {
     expect(data.migrations).toEqual(['packages/core/migrations/drizzle-tasks/m1/migration.sql']);
     expect(data.tasks).toEqual([{ id: 'T1', status: 'done' }]);
     expect(data.sweep.closed).toEqual(['T1']);
+    expect(data.cleanup?.dryRun).toBe(true);
+    expect(cleanups).toEqual([{ taskIds: ['T1'], dryRun: true }]);
     expect(data.checkoutAtMain).toBe(true);
     expect(data.tagCreated).toBe(false);
     expect(calls.some((c) => c.includes('POST'))).toBe(false);
@@ -387,6 +405,9 @@ describe('releaseCut (T14102)', () => {
     expect(posts[0]).toContain(`object=${shas.head}`);
     expect(posts[1]).toContain(`ref=refs/tags/v${NEXT}`);
     expect(posts[1]).toContain('sha=tagobject');
+    // T14142: the cleanup is applied only after the tag, for the release's tasks.
+    expect(cleanups).toEqual([{ taskIds: ['T1'], dryRun: false }]);
+    expect(result.success && result.data.cleanup?.dryRun).toBe(false);
     // CI is read for selection and again right before the tag.
     expect(calls.filter((c) => c.some((a) => a.includes('/runs?head_sha='))).length).toBe(2);
     const audit = readFileSync(join(work, RELEASE_CUT_AUDIT_FILE), 'utf-8').trim().split('\n');

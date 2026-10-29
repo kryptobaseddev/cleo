@@ -49,10 +49,15 @@ import {
 } from '@cleocode/contracts/exit-codes.js';
 import type { MergeSweepOptions, MergeSweepResult } from '@cleocode/contracts/merge-close.js';
 import type { DocsRotResult } from '@cleocode/contracts/operations/docs.js';
+import type {
+  MergedCleanupOpts,
+  MergedCleanupResult,
+} from '@cleocode/contracts/operations/worktree.js';
 import { parseChangesetDir } from '../changesets/index.js';
 import { scanDocsRot } from '../docs/rot.js';
 import { getTaskAccessor } from '../store/data-accessor.js';
 import { sweepMergedClosures } from '../tasks/merge-close.js';
+import { cleanupMergedWork } from '../worktree/merged-cleanup.js';
 import { releaseAuthorizationFor } from './authorization.js';
 import { aggregateChangesetsForRelease } from './changesets-aggregator.js';
 import { newestReachableReleaseTag, writeChangelogSection } from './plan.js';
@@ -97,6 +102,8 @@ export interface ReleaseCutOptions {
   yes?: boolean;
   /** Default branch name (default `main`). */
   branch?: string;
+  /** Test seam for the T14142 merged-work cleanup (default {@link cleanupMergedWork}). */
+  cleanup?: (opts: MergedCleanupOpts) => Promise<MergedCleanupResult>;
   /** Test seam for the T14101 merge sweep (default {@link sweepMergedClosures}). */
   sweep?: (projectRoot: string, opts: MergeSweepOptions) => Promise<MergeSweepResult>;
   /** Test seam. */
@@ -151,6 +158,13 @@ export interface ReleaseCutResult {
   migrations: string[];
   /** Tasks the changesets name, with status (reported, not gated). */
   tasks: ReleaseCutTask[];
+  /**
+   * T14142 cleanup of the release's tasks: the plan on a report run, what was
+   * removed after a confirmed tag. Besides the tasks' worktrees and `task/*`
+   * branches it also removes nested repository copies proven redundant (clean,
+   * every ref on origin). Null when the changesets name no task.
+   */
+  cleanup: MergedCleanupResult | null;
   /** The T14101 merge sweep run before the commit was picked (`swept: false` when it could not run). */
   sweep: MergeSweepResult;
   /** Docs rot of the project checkout (T14111); a real cut refuses when it has findings. */
@@ -674,6 +688,26 @@ export async function releaseCut(opts: ReleaseCutOptions): Promise<EngineResult<
   }
 
   // T14111: a release does not ship stale, duplicate or orphaned docs.
+  // T14142: never fails the cut; an empty task set is skipped, because no
+  // ids would widen the cleanup to every done task.
+  const cleanupTasks = async (dry: boolean): Promise<MergedCleanupResult | null> => {
+    if (taskIds.length === 0) return null;
+    try {
+      return await (opts.cleanup ?? cleanupMergedWork)({ projectRoot: cwd, taskIds, dryRun: dry });
+    } catch (err: unknown) {
+      return {
+        dryRun: dry,
+        base: '',
+        worktrees: [],
+        localBranches: [],
+        remoteBranches: [],
+        nestedCopies: [],
+        bytesReclaimed: 0,
+        skippedReason: err instanceof Error ? err.message : String(err),
+      };
+    }
+  };
+
   const docsRot = scanDocsRot({ projectRoot: cwd });
   const rotFindings = docsRot.stale.length + docsRot.duplicates.length + docsRot.orphans.length;
   const checkoutAtMain =
@@ -692,6 +726,7 @@ export async function releaseCut(opts: ReleaseCutOptions): Promise<EngineResult<
     migrations,
     tasks,
     sweep,
+    cleanup: dryRun ? await cleanupTasks(true) : null,
     docsRot,
     warnings:
       rotFindings > 0 && channelOf(version) !== 'latest'
@@ -819,7 +854,13 @@ export async function releaseCut(opts: ReleaseCutOptions): Promise<EngineResult<
     });
   }
   auditCut(cwd, { version, sha, outcome: 'tagged', tagObject, allowedBy });
-  return engineSuccess({ ...result, dryRun: false, confirmCommand: null, tagCreated: true });
+  return engineSuccess({
+    ...result,
+    cleanup: await cleanupTasks(false),
+    dryRun: false,
+    confirmCommand: null,
+    tagCreated: true,
+  });
 }
 
 /** Result of {@link releaseVerifyTag}. */
