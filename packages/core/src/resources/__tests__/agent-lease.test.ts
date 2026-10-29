@@ -177,7 +177,11 @@ describe('agent-session leases (T14133)', () => {
     // An empty or relative root cannot be checked: the lease is kept.
     writeAgentLease(lease({ id: 'empty', projectRoot: '' }));
     writeAgentLease(lease({ id: 'relative', projectRoot: 'no-such-relative-dir' }));
-    expect(liveAgentLeases().map((l) => l.id).sort()).toEqual(['empty', 'kept', 'relative']);
+    expect(
+      liveAgentLeases()
+        .map((l) => l.id)
+        .sort(),
+    ).toEqual(['empty', 'kept', 'relative']);
     releaseAgentLease('empty');
     releaseAgentLease('relative');
     // Only ENOENT is death: a root behind a permission error keeps its lease.
@@ -188,7 +192,11 @@ describe('agent-session leases (T14133)', () => {
     chmodSync(locked, 0o000);
     try {
       if (process.getuid?.() !== 0) {
-        expect(liveAgentLeases().map((l) => l.id).sort()).toEqual(['eacces', 'kept']);
+        expect(
+          liveAgentLeases()
+            .map((l) => l.id)
+            .sort(),
+        ).toEqual(['eacces', 'kept']);
       }
     } finally {
       chmodSync(locked, 0o700);
