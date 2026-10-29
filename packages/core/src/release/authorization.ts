@@ -318,24 +318,24 @@ export async function grantReleaseAuthorization(
   const scope = parseReleaseAuthorizationScope(input.scope);
   if (scope === null)
     return refuse(
-      'E_VALIDATION',
+      'E_VALIDATION', // @sync-invariant none:input-shape a malformed grant request is refused before any write
       `--scope must be canary, prerelease, stable or a CalVer version, not "${input.scope}"`,
     );
   const ttl = parseExpiry(input.expires);
   if (ttl === null)
     return refuse(
-      'E_VALIDATION',
+      'E_VALIDATION', // @sync-invariant none:input-shape a malformed grant request is refused before any write
       `--expires must be like 30m, 24h or 7d, at most ${RELEASE_AUTHORIZATION_MAX_DAYS}d`,
     );
-  if (!input.reason.trim()) return refuse('E_VALIDATION', '--reason is required');
+  if (!input.reason.trim()) return refuse('E_VALIDATION', '--reason is required'); // @sync-invariant none:input-shape a malformed grant request is refused before any write
   if (input.uses !== undefined && (!Number.isInteger(input.uses) || input.uses < 1))
-    return refuse('E_VALIDATION', '--uses must be a positive integer');
+    return refuse('E_VALIDATION', '--uses must be a positive integer'); // @sync-invariant none:input-shape a malformed grant request is refused before any write
   const check = ownerCheck(input);
   if (!check.ok) return refuse(check.code, check.message);
   const state = await judgeOwnerState(projectRoot);
   if (state.kind !== 'ok')
     return refuse(
-      'E_OWNER_NOT_ENROLLED',
+      'E_OWNER_NOT_ENROLLED', // @sync-invariant none:local-only release grants are device-local owner files; refused before any write
       state.kind === 'tampered'
         ? `Owner settings are not usable: ${state.why}`
         : 'No owner is enrolled for this project; the owner enrolls first with `cleo config owner-enroll`.',
@@ -343,7 +343,7 @@ export async function grantReleaseAuthorization(
   const key = await ownerKey(input.password, state.file.salt);
   if (key.pubkeyHex !== state.file.ownerPubkey)
     return refuse(
-      'E_OVERRIDE_TOKEN_INVALID',
+      'E_OVERRIDE_TOKEN_INVALID', // @sync-invariant none:local-only release grants are device-local owner files; refused before any write
       'The password does not match the owner key enrolled for this project.',
     );
 
@@ -365,7 +365,7 @@ export async function grantReleaseAuthorization(
     decisionId = row.id;
   } catch (err) {
     return refuse(
-      'E_DECISION_NOT_RECORDED',
+      'E_DECISION_NOT_RECORDED', // @sync-invariant none:local-only the grant is refused before its files are written
       `The owner decision could not be recorded: ${err instanceof Error ? err.message : String(err)}`,
     );
   }
@@ -425,12 +425,12 @@ export async function revokeReleaseAuthorization(
   if (isAgentRoleForbidden() || !isTtyPresent()) {
     const message = 'Only the owner at a terminal can revoke a release authorization.';
     audit(projectRoot, { action: 'revoke-refused', id, reason: message });
-    return { ok: false, code: 'E_OVERRIDE_REFUSED', message };
+    return { ok: false, code: 'E_OVERRIDE_REFUSED', message }; // @sync-invariant none:local-only release grants are device-local owner files; refused before any write
   }
   const project = readProject(projectRoot);
   const global = readGlobal(projectRoot);
   const grant = global.grants.find((g) => g.id === id) ?? project.grants.find((g) => g.id === id);
-  if (!grant) return { ok: false, code: 'E_NOT_FOUND', message: `No release authorization ${id}` };
+  if (!grant) return { ok: false, code: 'E_NOT_FOUND', message: `No release authorization ${id}` }; // @sync-invariant none:input-shape an unknown grant id is refused before any write
   await atomicWriteJson(join(projectRoot, PROJECT_FILE), {
     schemaVersion: 1,
     grants: project.grants.filter((g) => g.id !== id),
