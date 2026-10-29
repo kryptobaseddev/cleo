@@ -751,7 +751,7 @@ const authorizeCommand = defineCommand({
   meta: {
     name: 'authorize',
     description:
-      'Grant or --revoke (owner only: TTY + owner-auth password), or --list, a standing release authorization that lets an agent run `cleo release cut --yes` for a scope (canary|prerelease|stable|version) until it expires (at most 30d). (T14141)',
+      'Grant or --revoke (owner only: TTY + owner-auth password), or --list, a standing release authorization that lets an agent run `cleo release cut --yes` for a scope (canary|prerelease|stable|version) until it expires (at most 30d). Grants and revocations are signed with the enrolled owner key and the revocation count is sealed in .cleo/owner-settings.json; commit that file. Limit: an agent running as your OS user that also rolls back the committed owner-settings.json is not detectable locally (the same trust boundary as the override cap). (T14141)',
   },
   args: {
     scope: { type: 'string', description: 'canary, prerelease, stable, or one exact version' },
