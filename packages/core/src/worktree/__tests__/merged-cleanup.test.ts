@@ -127,6 +127,35 @@ describe('cleanupMergedWork', () => {
     expect(audit).toContain(`git push origin ${sha}:refs/heads/task/T1-x`);
   });
 
+  it('keeps a branch whose tip moved after the proof, locally and on origin', async () => {
+    taskWorktree('T8');
+    mergeTask('T8');
+    const moveTips = () => {
+      const tip = git(project, 'rev-parse', 'task/T8-x');
+      const moved = git(project, 'commit-tree', `${tip}^{tree}`, '-p', tip, '-m', 'landed late');
+      git(project, 'update-ref', 'refs/heads/task/T8-x', moved);
+      git(project, 'push', '-q', 'origin', `${moved}:refs/heads/task/T8-x`);
+      return moved;
+    };
+    let moved = '';
+    const r = await cleanupMergedWork(
+      { projectRoot: project, taskIds: ['T8'], dryRun: false },
+      { ...noOpenPrs, afterProof: () => (moved = moveTips()) },
+    );
+    expect(r.localBranches).toMatchObject([
+      { target: 'task/T8-x', removed: false, reason: 'tip moved after the proof' },
+    ]);
+    expect(r.remoteBranches).toMatchObject([
+      {
+        target: 'task/T8-x',
+        removed: false,
+        reason: 'tip moved after the proof, or the push failed',
+      },
+    ]);
+    expect(git(project, 'rev-parse', 'task/T8-x')).toBe(moved);
+    expect(git(project, 'ls-remote', '--heads', 'origin', 'task/T8-x')).toContain(moved);
+  });
+
   it('keeps a dirty, a git-locked, a lock-held and an unmerged worktree', async () => {
     for (const id of ['T2', 'T3', 'T4']) {
       taskWorktree(id);

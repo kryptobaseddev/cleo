@@ -19,7 +19,9 @@ handles three kinds of leftovers:
 - **`task/*` branches** are deleted locally and on `origin` only when merged.
   A branch that is checked out somewhere, or that heads an open pull request,
   is kept. When open pull requests cannot be read, nothing on `origin` is
-  deleted.
+  deleted. Each delete is leased to the sha its proof read (`git update-ref
+  -d <ref> <sha>`, `git push --force-with-lease=<ref>:<sha>`), so a commit
+  that lands in between keeps the branch.
 - **Repository copies nested inside worktrees** are removed only when they
   are clean and every commit they hold is on `origin`.
 

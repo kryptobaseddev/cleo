@@ -22,7 +22,7 @@
  * @task T14142
  */
 
-import { execFileSync } from 'node:child_process';
+import { execFileSync, spawnSync } from 'node:child_process';
 import { existsSync, lstatSync, readdirSync } from 'node:fs';
 import { basename, dirname, join } from 'node:path';
 import type {
@@ -175,13 +175,18 @@ function findNestedRepos(root: string): string[] {
  *
  * @param opts - Project, scope, dry run (default) and whether to touch `origin`.
  * @param deps - `openPrHeads`: head branches of open pull requests, or `null`
- *   when unknown (default: one `gh pr list`); tests inject it.
+ *   when unknown (default: one `gh pr list`); `afterProof`: a test seam
+ *   between the proofs and the deletes.
  * @returns Every item considered, removed or kept with its reason, and the bytes reclaimed.
  * @task T14142
  */
 export async function cleanupMergedWork(
   opts: MergedCleanupOpts,
-  deps: { openPrHeads?: (projectRoot: string) => Set<string> | null } = {},
+  deps: {
+    openPrHeads?: (projectRoot: string) => Set<string> | null;
+    /** Called after every branch is proven and before any is deleted (tests move a tip here). */
+    afterProof?: () => void;
+  } = {},
 ): Promise<MergedCleanupResult> {
   const root = opts.projectRoot;
   const dryRun = opts.dryRun !== false;
@@ -267,7 +272,8 @@ export async function cleanupMergedWork(
     const bytes = diskBytes(wt.path);
     if (!dryRun) {
       const removal = removeWorktreeFromDisk(
-        { path: wt.path, branch: wt.branch, isMerged: true },
+        // The branch is deleted below, leased to the sha proven merged.
+        { path: wt.path, branch: wt.branch, isMerged: false },
         root,
       );
       appendWorktreeAuditEntry(root, {
@@ -300,6 +306,7 @@ export async function cleanupMergedWork(
   const checkedOut = new Set(
     registered.filter((w) => !removedPaths.has(w.path)).map((w) => w.branch),
   );
+  const localProven: MergedCleanupItem[] = [];
   for (const line of localRefs) {
     const [branch = '', sha = ''] = line.split('\t');
     const taskId = branchTaskId(branch);
@@ -312,15 +319,7 @@ export async function cleanupMergedWork(
       keep(result.localBranches, branch, taskId, `unmerged: not in ${base}`);
       continue;
     }
-    // removeWorktreeFromDisk already dropped the branch of a worktree it removed.
-    if (!dryRun && git(root, ['rev-parse', '--verify', '-q', `refs/heads/${branch}`]) !== null) {
-      if (git(root, ['branch', '-D', branch]) === null) {
-        keep(result.localBranches, branch, taskId, 'git branch -D failed');
-        continue;
-      }
-    }
-    if (!dryRun) auditBranchDelete(root, actor, branch, taskId, sha, 'local');
-    result.localBranches.push({
+    localProven.push({
       target: branch,
       taskId,
       sha,
@@ -331,6 +330,7 @@ export async function cleanupMergedWork(
   }
 
   // ── Remote task branches ──────────────────────────────────────────────────
+  const remoteProven: MergedCleanupItem[] = [];
   if (remote && fetched) {
     const openHeads = (deps.openPrHeads ?? openPrHeads)(root);
     const remoteRefs = lines(
@@ -363,20 +363,38 @@ export async function cleanupMergedWork(
         });
       }
     }
-    for (let i = 0; i < doomed.length; i += REMOTE_DELETE_BATCH) {
-      const batch = doomed.slice(i, i + REMOTE_DELETE_BATCH);
-      const pushed =
-        dryRun ||
-        git(root, ['push', '-q', 'origin', '--delete', ...batch.map((b) => b.target)]) !== null;
-      for (const item of batch) {
-        if (!pushed) {
-          result.remoteBranches.push({ ...item, removed: false, reason: 'push --delete failed' });
-          continue;
-        }
-        if (!dryRun)
-          auditBranchDelete(root, actor, item.target, item.taskId, item.sha ?? '', 'origin');
-        result.remoteBranches.push(item);
+    remoteProven.push(...doomed);
+  }
+
+  // ── Deletes, each leased to the sha its proof read ──────────────────────
+  deps.afterProof?.();
+  for (const item of localProven) {
+    // update-ref deletes only while the tip is still the proven sha.
+    if (
+      !dryRun &&
+      git(root, ['update-ref', '-d', `refs/heads/${item.target}`, item.sha ?? '']) === null
+    ) {
+      result.localBranches.push({ ...item, removed: false, reason: 'tip moved after the proof' });
+      continue;
+    }
+    if (!dryRun) auditBranchDelete(root, actor, item.target, item.taskId, item.sha ?? '', 'local');
+    result.localBranches.push(item);
+  }
+  for (let i = 0; i < remoteProven.length; i += REMOTE_DELETE_BATCH) {
+    const batch = remoteProven.slice(i, i + REMOTE_DELETE_BATCH);
+    const deleted = dryRun ? null : leasedRemoteDelete(root, batch);
+    for (const item of batch) {
+      if (deleted !== null && !deleted.has(item.target)) {
+        result.remoteBranches.push({
+          ...item,
+          removed: false,
+          reason: 'tip moved after the proof, or the push failed',
+        });
+        continue;
       }
+      if (!dryRun)
+        auditBranchDelete(root, actor, item.target, item.taskId, item.sha ?? '', 'origin');
+      result.remoteBranches.push(item);
     }
   }
 
@@ -472,6 +490,27 @@ function auditBranchDelete(
     reason: `merged-cleanup: deleted ${where} branch at ${sha}; restore with ${restore}`,
     success: true,
   });
+}
+
+/**
+ * Delete `origin` branches, each under its own lease: a ref whose tip is no
+ * longer the proven sha is rejected, not deleted.
+ *
+ * @returns The branches `origin` reports deleted (`--porcelain`).
+ */
+function leasedRemoteDelete(root: string, items: readonly MergedCleanupItem[]): Set<string> {
+  const args = ['-C', root, 'push', '--porcelain', 'origin'];
+  for (const it of items) args.push(`--force-with-lease=refs/heads/${it.target}:${it.sha ?? ''}`);
+  for (const it of items) args.push(`:refs/heads/${it.target}`);
+  // A rejected ref fails the push; its porcelain report is still on stdout.
+  const out = spawnSync('git', args, { encoding: 'utf8', timeout: 120_000 }).stdout ?? '';
+  const deleted = new Set<string>();
+  for (const line of lines(out)) {
+    const [flag, refs] = line.split('\t');
+    const ref = refs?.split(':')[1] ?? '';
+    if (flag === '-' && ref.startsWith('refs/heads/')) deleted.add(ref.slice('refs/heads/'.length));
+  }
+  return deleted;
 }
 
 /** Head branches of open pull requests, or `null` when `gh` cannot say. */
