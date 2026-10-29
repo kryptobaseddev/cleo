@@ -6,7 +6,7 @@
  * @task T14133
  */
 
-import { mkdtempSync, rmSync } from 'node:fs';
+import { chmodSync, mkdirSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -60,7 +60,7 @@ afterEach(() => {
 const lease = (over: Partial<AgentSessionLease> = {}): AgentSessionLease => ({
   id: 'L1',
   taskId: 'T2374',
-  projectRoot: '/p',
+  projectRoot: home,
   sessionId: 'ses_spawned',
   takenAtMs: Date.now(),
   expiresAtMs: Date.now() + 60_000,
@@ -105,13 +105,13 @@ describe('agent-session leases (T14133)', () => {
     for (const id of ['x', 'y', 'z']) writeAgentLease(lease({ id }));
     const g = new ResourceGovernor();
     expect(await g.available('agent-session', OPTS)).toBe(0);
-    const taken = await takeAgentSessionLease('T1', '/p', 60_000, OPTS);
+    const taken = await takeAgentSessionLease('T1', home, 60_000, OPTS);
     expect('deferral' in taken && taken.deferral.reason).toMatch(
       /3 spawned session lease\(s\) hold the budget of 3/,
     );
     expect(liveAgentLeases()).toHaveLength(3);
     releaseAgentLease('z');
-    const second = await takeAgentSessionLease('T1', '/p', 60_000, OPTS);
+    const second = await takeAgentSessionLease('T1', home, 60_000, OPTS);
     expect('lease' in second && second.lease?.taskId).toBe('T1');
     expect(liveAgentLeases()).toHaveLength(3);
   });
@@ -123,14 +123,14 @@ describe('agent-session leases (T14133)', () => {
     writeAgentLease(lease({ id: 'other2', taskId: 'T2295', sessionId: 'ses_3' }));
     const g = new ResourceGovernor();
     expect(await g.available('agent-session', OPTS)).toBe(0); // the budget of 3 is full
-    const taken = await takeAgentSessionLease('T2374', '/p', 60_000, OPTS);
+    const taken = await takeAgentSessionLease('T2374', home, 60_000, OPTS);
     if (!('lease' in taken)) throw new Error(`refused: ${taken.deferral.reason}`);
     expect(taken.reused).toBe(true);
     expect(taken.lease?.id).toBe('mine');
     expect(taken.lease?.expiresAtMs).toBeGreaterThanOrEqual(now + 60_000);
     expect(liveAgentLeases()).toHaveLength(3);
     // The same task in another project is a different spawn, refused while full.
-    const elsewhere = await takeAgentSessionLease('T2374', '/other', 60_000, OPTS);
+    const elsewhere = await takeAgentSessionLease('T2374', tmpdir(), 60_000, OPTS);
     expect('deferral' in elsewhere).toBe(true);
   });
 
@@ -138,8 +138,8 @@ describe('agent-session leases (T14133)', () => {
     writeAgentLease(lease({ id: 'a', taskId: 'TA' }));
     writeAgentLease(lease({ id: 'b', taskId: 'TB' }));
     const [one, two] = await Promise.all([
-      takeAgentSessionLease('T1', '/p', 60_000, OPTS),
-      takeAgentSessionLease('T2', '/p', 60_000, OPTS),
+      takeAgentSessionLease('T1', home, 60_000, OPTS),
+      takeAgentSessionLease('T2', home, 60_000, OPTS),
     ]);
     expect([one, two].filter((r) => 'lease' in r && r.lease !== null)).toHaveLength(1);
     expect([one, two].filter((r) => 'deferral' in r)).toHaveLength(1);
@@ -163,5 +163,30 @@ describe('agent-session leases (T14133)', () => {
       lease({ takenAtMs: now - AGENT_LEASE_MAX_LIFETIME_MS - 1, expiresAtMs: now + 3_600_000 }),
     );
     expect(liveAgentLeases(now)).toEqual([]);
+  });
+
+  it('a lease whose project root is gone no longer counts; an unreadable root still does (T14154)', async () => {
+    const gone = mkdtempSync(join(tmpdir(), 'cleo-lease-root-'));
+    writeAgentLease(lease({ id: 'gone', projectRoot: gone }));
+    writeAgentLease(lease({ id: 'kept' }));
+    const g = new ResourceGovernor();
+    expect(await g.available('agent-session', OPTS)).toBe(1);
+    rmSync(gone, { recursive: true, force: true });
+    expect(await g.available('agent-session', OPTS)).toBe(2);
+    expect(liveAgentLeases().map((l) => l.id)).toEqual(['kept']);
+    // Only ENOENT is death: a root behind a permission error keeps its lease.
+    const locked = mkdtempSync(join(tmpdir(), 'cleo-lease-locked-'));
+    const inner = join(locked, 'project');
+    mkdirSync(inner);
+    writeAgentLease(lease({ id: 'eacces', projectRoot: inner }));
+    chmodSync(locked, 0o000);
+    try {
+      if (process.getuid?.() !== 0) {
+        expect(liveAgentLeases().map((l) => l.id).sort()).toEqual(['eacces', 'kept']);
+      }
+    } finally {
+      chmodSync(locked, 0o700);
+      rmSync(locked, { recursive: true, force: true });
+    }
   });
 });
