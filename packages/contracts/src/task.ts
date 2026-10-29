@@ -820,6 +820,15 @@ export type EvidenceAtom =
       };
       /** The gates this atom satisfies (`evidence.deploySatisfies` at verify time). */
       satisfiesGates: VerificationGate[];
+      /**
+       * The provider's own word on the deployment (T14091): `verified: true`
+       * when its API confirmed the deployment is live and was built from
+       * `headSha`; `verified: false` (with why) when no adapter or credential
+       * let CLEO ask, and only the probe stands. Absent on atoms before T14091.
+       */
+      providerCheck?:
+        | { verified: true; status: string; commitSha: string; checkedAt: string }
+        | { verified: false; reason: string };
       /** Task the atom was verified for. */
       taskId?: string;
     }

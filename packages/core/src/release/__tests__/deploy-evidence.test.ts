@@ -17,10 +17,16 @@ import { parseEvidenceString } from '@cleocode/contracts';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { boundHeadGapReason, checkGateEvidenceMinimum } from '../../tasks/evidence.js';
 import {
+  checkDeployWithProvider,
+  type DeployProviderCheckOptions,
   probeDeployment,
+  railwayDeployAdapter,
   readDeploySatisfies,
   resolveDeployEvidenceAtom,
 } from '../deploy-evidence.js';
+
+/** No credential anywhere: the provider is never asked (no real network). */
+const offline: DeployProviderCheckOptions = { env: {} };
 
 function git(dir: string, args: string[]): string {
   return execFileSync('git', args, { cwd: dir, encoding: 'utf-8' }).trim();
@@ -126,7 +132,7 @@ describe('deploy probe (T14083)', () => {
         probeUrl: `${origin}/header`,
       },
       roots(),
-      { projectContext: context, taskId: 'T901' },
+      { projectContext: context, taskId: 'T901', provider: offline },
     );
     expect(result.ok).toBe(true);
     if (!result.ok) return;
@@ -136,6 +142,10 @@ describe('deploy probe (T14083)', () => {
       satisfiesGates: ['documented'],
       taskId: 'T901',
       probe: { status: 200, shaSource: 'x-commit' },
+      providerCheck: {
+        verified: false,
+        reason: expect.stringMatching(/no RAILWAY_API_TOKEN\/RAILWAY_TOKEN/),
+      },
     });
     expect(result.atom.probe.bodySha256).toMatch(/^[0-9a-f]{64}$/);
     expect(Number.isNaN(Date.parse(result.atom.probe.probedAt))).toBe(false);
@@ -197,7 +207,7 @@ describe('deploy probe (T14083)', () => {
     const result = await resolveDeployEvidenceAtom(
       { provider: 'fly', deploymentId: 'd1', sha: 'deadbeefdead', probeUrl: `${origin}/header` },
       roots(),
-      { projectContext: context },
+      { projectContext: context, provider: offline },
     );
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.reason).toMatch(/git fetch/);
@@ -231,7 +241,7 @@ describe('deploy: gate mapping (T14083)', () => {
     const result = await resolveDeployEvidenceAtom(
       { provider: 'railway', deploymentId: 'd1', sha: work, probeUrl: `${origin}/header` },
       roots(),
-      { projectContext: { evidence: {} } },
+      { projectContext: { evidence: {} }, provider: offline },
     );
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.reason).toMatch(/deploySatisfies lists none/);
@@ -293,5 +303,106 @@ describe('deploy: gate mapping (T14083)', () => {
     expect(await boundHeadGapReason(squashed, [atom(['documented'], work)], repo)).toMatch(
       /does not contain T902's implemented commit/,
     );
+  });
+});
+
+describe('deploy: the provider confirms the deployment (T14091, Railway)', () => {
+  const token = 'rw-secret-token';
+  const credentialed: DeployProviderCheckOptions = { env: { RAILWAY_API_TOKEN: token } };
+  /** A stubbed Railway GraphQL API: one deployment, and which deployment is live. */
+  function railway(deployment: Record<string, unknown> | null, liveId: string): typeof fetch {
+    return (async (_url: string | URL | Request, init?: RequestInit) => {
+      const headers = (init?.headers ?? {}) as Record<string, string>;
+      expect(headers['Authorization']).toBe(`Bearer ${token}`);
+      const query = JSON.parse(String(init?.body)).query as string;
+      const data = query.includes('deployments(')
+        ? { deployments: { edges: [{ node: { id: liveId } }] } }
+        : { deployment };
+      return new Response(JSON.stringify({ data }), { status: 200 });
+    }) as typeof fetch;
+  }
+  const live = (commitHash: string) => ({
+    id: 'dep-1',
+    status: 'SUCCESS',
+    meta: { commitHash },
+    serviceId: 'svc',
+    environmentId: 'env',
+  });
+
+  it('a live deployment built from the commit is verified, and the token is never kept', async () => {
+    const r = await checkDeployWithProvider('railway', 'dep-1', work, {
+      ...credentialed,
+      fetch: railway(live(work), 'dep-1'),
+    });
+    expect(r).toMatchObject({
+      ok: true,
+      check: { verified: true, status: 'SUCCESS', commitSha: work },
+    });
+    expect(JSON.stringify(r)).not.toContain(token);
+  });
+
+  it('a deployment the provider does not have is refused, naming it', async () => {
+    const r = await checkDeployWithProvider('railway', 'dep-x', work, {
+      ...credentialed,
+      fetch: railway(null, 'dep-1'),
+    });
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.reason).toMatch(/Railway has no deployment dep-x/);
+  });
+
+  it('a deployment that is not live is refused, naming it and its status', async () => {
+    const failed = await checkDeployWithProvider('railway', 'dep-1', work, {
+      ...credentialed,
+      fetch: railway({ ...live(work), status: 'CRASHED' }, 'dep-1'),
+    });
+    expect(!failed.ok && failed.reason).toMatch(/deployment dep-1 is CRASHED, not live/);
+    const superseded = await checkDeployWithProvider('railway', 'dep-1', work, {
+      ...credentialed,
+      fetch: railway(live(work), 'dep-2'),
+    });
+    expect(!superseded.ok && superseded.reason).toMatch(
+      /dep-1 succeeded but is not the live one \(the live deployment is dep-2\)/,
+    );
+  });
+
+  it('a deployment built from another commit is refused, naming the deployment and both commits', async () => {
+    const r = await checkDeployWithProvider('railway', 'dep-1', work, {
+      ...credentialed,
+      fetch: railway(live(base), 'dep-1'),
+    });
+    expect(r.ok).toBe(false);
+    if (!r.ok) {
+      expect(r.reason).toContain('railway deployment dep-1');
+      expect(r.reason).toContain(base.slice(0, 12));
+      expect(r.reason).toContain(work.slice(0, 12));
+    }
+  });
+
+  it('with no adapter or no credential, the probe stands and the id is reported unverified', async () => {
+    const noAdapter = await checkDeployWithProvider('fly', 'dep-1', work, credentialed);
+    expect(noAdapter).toMatchObject({
+      ok: true,
+      check: { verified: false, reason: /no adapter for fly/ },
+    });
+    const noCredential = await checkDeployWithProvider('railway', 'dep-1', work, offline);
+    expect(noCredential).toMatchObject({
+      ok: true,
+      check: { verified: false, reason: /no RAILWAY_API_TOKEN\/RAILWAY_TOKEN/ },
+    });
+  });
+
+  it('reads the credential from the env only: account token, then project token', () => {
+    expect(railwayDeployAdapter.credential({ RAILWAY_API_TOKEN: 'a', RAILWAY_TOKEN: 'p' })).toEqual(
+      {
+        header: 'Authorization',
+        value: 'a',
+      },
+    );
+    expect(railwayDeployAdapter.credential({ RAILWAY_TOKEN: 'p' })).toEqual({
+      header: 'Project-Access-Token',
+      value: 'p',
+    });
+    expect(railwayDeployAdapter.credential({ RAILWAY_TOKEN: '  ' })).toBeNull();
+    expect(railwayDeployAdapter.credential({})).toBeNull();
   });
 });

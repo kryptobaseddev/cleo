@@ -40,6 +40,222 @@ interface DeployRefusal {
   reason: string;
 }
 
+/** A credential for a deployment provider's API: how to send it. */
+export interface DeployCredential {
+  /** The header to send it in. */
+  header: 'Authorization' | 'Project-Access-Token';
+  /** The header value. */
+  value: string;
+}
+
+/** What a provider's API says about one deployment. */
+export type DeployProviderVerdict =
+  | { ok: true; status: string; commitSha: string }
+  | { ok: false; reason: string };
+
+/**
+ * A deployment provider CLEO can ask about a deployment (T14091): whether it
+ * exists, is the live one, and which commit it was built from.
+ */
+export interface DeployProviderAdapter {
+  /** Provider name, as the `deploy:` atom spells it. */
+  readonly name: string;
+  /** The env vars the credential comes from, for the not-verified reason. */
+  readonly credentialHint: string;
+  /** The user's credential from the environment, read now and never stored, or null. */
+  credential(env: NodeJS.ProcessEnv): DeployCredential | null;
+  /** Ask the provider about a deployment. */
+  verify(
+    deploymentId: string,
+    credential: DeployCredential,
+    fetchImpl: typeof fetch,
+  ): Promise<DeployProviderVerdict>;
+}
+
+/** Railway's public GraphQL API. */
+const RAILWAY_GRAPHQL = 'https://backboard.railway.com/graphql/v2';
+
+/** Run one Railway GraphQL query; the `data` object, or why not. */
+async function railwayQuery(
+  query: string,
+  variables: Record<string, unknown>,
+  credential: DeployCredential,
+  fetchImpl: typeof fetch,
+): Promise<{ ok: true; data: Record<string, unknown> } | { ok: false; reason: string }> {
+  try {
+    const response = await fetchImpl(RAILWAY_GRAPHQL, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        [credential.header]:
+          credential.header === 'Authorization' ? `Bearer ${credential.value}` : credential.value,
+      },
+      body: JSON.stringify({ query, variables }),
+      signal: AbortSignal.timeout(DEPLOY_PROBE_TIMEOUT_MS),
+    });
+    if (!response.ok) return { ok: false, reason: `Railway API answered HTTP ${response.status}` };
+    const body = (await response.json()) as {
+      data?: Record<string, unknown> | null;
+      errors?: Array<{ message?: string }>;
+    };
+    if (body.errors?.length)
+      return { ok: false, reason: `Railway API: ${body.errors.map((e) => e.message).join('; ')}` };
+    return { ok: true, data: body.data ?? {} };
+  } catch (err) {
+    return {
+      ok: false,
+      reason: `Railway API unreachable (${err instanceof Error ? err.message : String(err)})`,
+    };
+  }
+}
+
+/**
+ * Railway (T14091): the deployment must exist, have status `SUCCESS`, and be
+ * the newest successful deployment of its service in its environment (the
+ * live one); its commit is `meta.commitHash`. The credential comes from the
+ * environment only: `RAILWAY_API_TOKEN` (an account token, sent as Bearer) or
+ * `RAILWAY_TOKEN` (a project token, sent as `Project-Access-Token`). CLEO never
+ * reads another tool's login file.
+ */
+export const railwayDeployAdapter: DeployProviderAdapter = {
+  name: 'railway',
+  credentialHint: 'RAILWAY_API_TOKEN/RAILWAY_TOKEN',
+  credential(env) {
+    const account = env['RAILWAY_API_TOKEN']?.trim();
+    if (account) return { header: 'Authorization', value: account };
+    const project = env['RAILWAY_TOKEN']?.trim();
+    return project ? { header: 'Project-Access-Token', value: project } : null;
+  },
+  async verify(deploymentId, credential, fetchImpl) {
+    const one = await railwayQuery(
+      'query($id: String!) { deployment(id: $id) { id status meta serviceId environmentId } }',
+      { id: deploymentId },
+      credential,
+      fetchImpl,
+    );
+    if (!one.ok) return one;
+    const deployment = one.data['deployment'] as {
+      status?: string;
+      meta?: { commitHash?: unknown } | null;
+      serviceId?: string;
+      environmentId?: string;
+    } | null;
+    if (!deployment) return { ok: false, reason: `Railway has no deployment ${deploymentId}` };
+    const status = deployment.status ?? 'UNKNOWN';
+    const commitSha =
+      typeof deployment.meta?.commitHash === 'string' ? deployment.meta.commitHash : '';
+    if (status !== 'SUCCESS')
+      return {
+        ok: false,
+        reason: `Railway deployment ${deploymentId} is ${status}, not live (SUCCESS)`,
+      };
+    const live = await railwayQuery(
+      'query($s: String!, $e: String!) { deployments(first: 1, input: { serviceId: $s, environmentId: $e, status: { in: [SUCCESS] } }) { edges { node { id } } } }',
+      { s: deployment.serviceId, e: deployment.environmentId },
+      credential,
+      fetchImpl,
+    );
+    if (!live.ok) return live;
+    const edges = (live.data['deployments'] as { edges?: Array<{ node?: { id?: string } }> } | null)
+      ?.edges;
+    const liveId = edges?.[0]?.node?.id;
+    if (liveId !== deploymentId)
+      return {
+        ok: false,
+        reason: `Railway deployment ${deploymentId} succeeded but is not the live one (the live deployment is ${liveId ?? 'unknown'})`,
+      };
+    return { ok: true, status, commitSha };
+  },
+};
+
+/** The providers CLEO can ask about a deployment, by atom provider name (T14091). */
+export const DEPLOY_PROVIDER_ADAPTERS: Readonly<Record<string, DeployProviderAdapter>> = {
+  railway: railwayDeployAdapter,
+};
+
+/** Seams for the provider check (tests). */
+export interface DeployProviderCheckOptions {
+  /** Adapters by provider name (default {@link DEPLOY_PROVIDER_ADAPTERS}). */
+  adapters?: Readonly<Record<string, DeployProviderAdapter>>;
+  /** Environment the credential is read from (default `process.env`). */
+  env?: NodeJS.ProcessEnv;
+  /** The fetch the adapter uses (default `fetch`). */
+  fetch?: typeof fetch;
+}
+
+/** Whether two commit SHAs name the same commit (one a 7+ character prefix of the other). */
+function sameCommit(a: string, b: string): boolean {
+  const x = a.toLowerCase();
+  const y = b.toLowerCase();
+  return x.length >= 7 && y.length >= 7 && (x.startsWith(y) || y.startsWith(x));
+}
+
+/**
+ * Ask the deployment's provider about it (T14091). With an adapter and the
+ * user's credential: refuse a deployment that does not exist, is not live, or
+ * was built from another commit than `headSha` (an exact match), naming the
+ * deployment id and both commits; otherwise record it verified. With no
+ * adapter or no credential the probe alone stands, recorded as not verified
+ * with why. The credential is read now and never stored.
+ *
+ * @param provider - The atom's provider.
+ * @param deploymentId - The atom's deployment id.
+ * @param headSha - The deployed commit (full SHA).
+ * @param options - Test seams.
+ * @returns The provider check for the atom, or the refusal.
+ */
+export async function checkDeployWithProvider(
+  provider: string,
+  deploymentId: string,
+  headSha: string,
+  options: DeployProviderCheckOptions = {},
+): Promise<{ ok: true; check: NonNullable<DeployEvidenceAtom['providerCheck']> } | DeployRefusal> {
+  const adapter = (options.adapters ?? DEPLOY_PROVIDER_ADAPTERS)[provider];
+  if (!adapter)
+    return {
+      ok: true,
+      check: {
+        verified: false,
+        reason: `no adapter for ${provider}: the deployment id ${deploymentId} was not checked with the provider; the probe alone stands`,
+      },
+    };
+  const credential = adapter.credential(options.env ?? process.env);
+  if (credential === null)
+    return {
+      ok: true,
+      check: {
+        verified: false,
+        reason: `no ${adapter.credentialHint}: the deployment id ${deploymentId} was not checked with ${provider}; the probe alone stands`,
+      },
+    };
+  const verdict = await adapter.verify(deploymentId, credential, options.fetch ?? fetch);
+  if (!verdict.ok)
+    // @sync-invariant none:input-shape a deployment its provider does not confirm live is refused before anything is written
+    return {
+      ok: false,
+      codeName: 'E_EVIDENCE_INVALID',
+      reason: `deploy: ${verdict.reason}; the atom names commit ${headSha.slice(0, 12)}.`,
+    };
+  if (!sameCommit(verdict.commitSha, headSha))
+    // @sync-invariant none:input-shape a deployment built from another commit is refused before anything is written
+    return {
+      ok: false,
+      codeName: 'E_EVIDENCE_INVALID',
+      reason:
+        `deploy: ${provider} deployment ${deploymentId} was built from ${verdict.commitSha.slice(0, 12) || 'an unknown commit'}, ` +
+        `not ${headSha.slice(0, 12)} as the atom says. Name the deployment of ${headSha.slice(0, 12)}, or deploy it.`,
+    };
+  return {
+    ok: true,
+    check: {
+      verified: true,
+      status: verdict.status,
+      commitSha: verdict.commitSha,
+      checkedAt: new Date().toISOString(),
+    },
+  };
+}
+
 /** Probe tuning, for tests and slow hosts. */
 export interface DeployProbeOptions {
   /** Abort the request and body read after this long (default {@link DEPLOY_PROBE_TIMEOUT_MS}). */
@@ -226,6 +442,7 @@ export async function resolveDeployEvidenceAtom(
     projectContext: Record<string, unknown> | null;
     taskId?: string;
     probe?: DeployProbeOptions;
+    provider?: DeployProviderCheckOptions;
   },
 ): Promise<{ ok: true; atom: DeployEvidenceAtom } | DeployRefusal> {
   const satisfiesGates = readDeploySatisfies(opts.projectContext);
@@ -261,6 +478,14 @@ export async function resolveDeployEvidenceAtom(
   }
   const probe = await probeDeployment(parsed.probeUrl, headSha, opts.probe);
   if (!probe.ok) return probe;
+  // T14091: the provider's own word, when CLEO can ask it.
+  const checked = await checkDeployWithProvider(
+    parsed.provider,
+    parsed.deploymentId,
+    headSha,
+    opts.provider,
+  );
+  if (!checked.ok) return checked;
   return {
     ok: true,
     atom: {
@@ -271,6 +496,7 @@ export async function resolveDeployEvidenceAtom(
       probeUrl: parsed.probeUrl,
       probe: probe.probe,
       satisfiesGates,
+      providerCheck: checked.check,
       ...(opts.taskId !== undefined ? { taskId: opts.taskId } : {}),
     },
   };
