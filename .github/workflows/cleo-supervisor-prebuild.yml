@@ -122,7 +122,7 @@ jobs:
           name: cleo-supervisor-${{ matrix.triple }}
           path: cleo-supervisor.${{ matrix.triple }}*
           if-no-files-found: error
-          retention-days: 14
+          retention-days: 3
 
   # Aggregate all 5 platform builds into a single pass/fail signal CI consumes,
   # and (on tag push) attach the binaries + sha256 manifest to the matching

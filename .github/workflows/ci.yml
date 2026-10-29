@@ -1051,6 +1051,9 @@ jobs:
           name: manual-write-sweep
           path: audit/manual-write-sweep-*.json
           if-no-files-found: warn
+          # D11216: the shared artifact quota is full; a report read in the run's
+          # own UI needs a day, not the 90-day default.
+          retention-days: 1
 
   canon-drift:
     name: Canon Drift Check
@@ -1677,7 +1680,8 @@ jobs:
           name: flaky-report-${{ matrix.os }}-${{ matrix.node }}-${{ matrix.shard }}
           path: ${{ runner.temp }}/flaky-report.json
           if-no-files-found: ignore
-          retention-days: 7
+          # D11216: read only by this run's flaky-quarantine job.
+          retention-days: 1
       - name: T9170 — schema-warning budget gate (shard ${{ matrix.shard }}/${{ matrix.total }})
         if: matrix.os == 'ubuntu-latest'
         shell: bash
@@ -1986,7 +1990,10 @@ jobs:
         # Linux runtime only; every required runtime stage must pass.
         run: node scripts/packed-install-smoke.mjs
       - name: Retain tarballs, hashes, manifest and diagnostics
-        if: always()
+        # D11216: a passing PR run's tarballs are never read again, and the
+        # shared artifact quota is full. Keep them when a packed check failed
+        # (to diagnose it) and on main and tags, for a day.
+        if: failure() || github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/')
         uses: actions/upload-artifact@v4
         with:
           name: packed-artifact-${{ github.sha }}
@@ -2005,7 +2012,7 @@ jobs:
             ${{ runner.temp }}/cleo-packed-evidence/**/*.jsonl
             ${{ runner.temp }}/cleo-packed-evidence/**/app/package*.json
           if-no-files-found: warn
-          retention-days: 14
+          retention-days: 1
 
   validate-json:
     name: Validate JSON Schemas

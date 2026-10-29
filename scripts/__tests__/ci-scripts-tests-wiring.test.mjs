@@ -294,9 +294,14 @@ describe('T12273 package artifact checks reach the required PR and merge-group g
     );
     expect(job.env.CARGO_BUILD_JOBS).toBe('2');
   });
-  it('retains diagnostic evidence even when a packed check fails', () => {
+  it('retains diagnostic evidence when a packed check fails, and on main and tags (D11216)', () => {
     const upload = job.steps.find((step) => step.uses === 'actions/upload-artifact@v4');
-    expect(upload.if).toBe('always()');
+    // A failed check keeps its evidence; a passing PR run uploads nothing.
+    expect(upload.if).toContain('failure()');
+    expect(upload.if).toContain("github.ref == 'refs/heads/main'");
+    expect(upload.if).toContain("startsWith(github.ref, 'refs/tags/')");
+    expect(upload.if).not.toContain('always()');
+    expect(upload.with['retention-days']).toBe(1);
     for (const part of ['tarballs/*.tgz', 'manifest.json', '**/*.log'])
       expect(upload.with.path).toContain(part);
     expect(upload.with['retention-days']).toBeGreaterThan(0);

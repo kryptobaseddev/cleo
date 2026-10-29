@@ -237,7 +237,7 @@ jobs:
           name: cant-napi-${{ matrix.triple }}
           path: packages/cant/napi/cant.${{ matrix.triple }}.node
           if-no-files-found: error
-          retention-days: 14
+          retention-days: 3
 
       - name: Upload darwin-arm64 binary
         if: matrix.mode == 'darwin'
@@ -246,7 +246,7 @@ jobs:
           name: cant-napi-darwin-arm64
           path: packages/cant/napi/cant.darwin-arm64.node
           if-no-files-found: error
-          retention-days: 14
+          retention-days: 3
 
       - name: Upload darwin-x64 binary
         if: matrix.mode == 'darwin'
@@ -255,7 +255,7 @@ jobs:
           name: cant-napi-darwin-x64
           path: packages/cant/napi/cant.darwin-x64.node
           if-no-files-found: error
-          retention-days: 14
+          retention-days: 3
 
       # The generated loader + WASI glue travel with the wasm artifact. The
       # loader is target-independent (identical from every build).
@@ -270,7 +270,7 @@ jobs:
             packages/cant/napi/wasi-worker.mjs
             packages/cant/napi/index.cjs
           if-no-files-found: error
-          retention-days: 14
+          retention-days: 3
 
   # Load each native binary on real hardware for that triple (musl through an
   # Alpine container) and prove the loader picks it, not the WASI fallback.
@@ -446,4 +446,4 @@ jobs:
             packages/cant/napi/wasi-worker.mjs
             packages/cant/napi/index.cjs
           if-no-files-found: error
-          retention-days: 14
+          retention-days: 3
