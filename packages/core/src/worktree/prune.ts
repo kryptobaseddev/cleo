@@ -117,23 +117,6 @@ export async function pruneOrphanedWorktreesByStatus(
   for (const wt of candidates) {
     const reason = reasonForStatus(wt);
 
-    // T14142: removal is forced, so anything not proven redundant would be lost.
-    // A directory already gone holds nothing to lose.
-    const unproven = existsSync(wt.path) ? unprovenContent(wt.path, opts.projectRoot) : null;
-    if (unproven !== null) {
-      const error = `Worktree ${wt.path} kept: ${unproven}.`;
-      outcomes.push({
-        path: wt.path,
-        branch: wt.branch,
-        taskId: wt.taskId,
-        reason,
-        pruned: false,
-        branchDeleted: false,
-        error,
-      });
-      continue;
-    }
-
     // T13700: the same guard as complete/cancel — dependents, evidence and the keep marker.
     const kept = guardWorktreeDisposal(wt.path, {
       taskId: wt.taskId,
@@ -171,6 +154,23 @@ export async function pruneOrphanedWorktreesByStatus(
           opts.auditLogPath,
         );
       }
+      continue;
+    }
+
+    // T14142: removal is forced, so anything not proven redundant would be lost.
+    // A directory already gone holds nothing to lose.
+    const unproven = existsSync(wt.path) ? unprovenContent(wt.path, opts.projectRoot) : null;
+    if (unproven !== null) {
+      const error = `Worktree ${wt.path} kept: ${unproven}.`;
+      outcomes.push({
+        path: wt.path,
+        branch: wt.branch,
+        taskId: wt.taskId,
+        reason,
+        pruned: false,
+        branchDeleted: false,
+        error,
+      });
       continue;
     }
 
@@ -296,7 +296,8 @@ function sameTree(a: string, b: string): boolean {
 /**
  * What in a checkout is not proven redundant, or `null` when nothing is.
  *
- * Uncommitted and untracked changes never are. Ignored content (which
+ * Tracked changes never are; untracked content is when the main checkout
+ * holds the identical tree at the same path. Ignored content (which
  * `--porcelain` alone never lists: an edited `.env`, `dist/`, an agent's
  * nested `.claude/worktrees/x/`) is redundant only under `node_modules`, or
  * when the main checkout holds the identical tree at the same path (what
@@ -322,6 +323,12 @@ export function unprovenContent(path: string, projectRoot: string): string | nul
   for (const entry of out.split('\0').filter((e) => e.length > 0)) {
     const code = entry.slice(0, 2);
     const rel = entry.slice(3).replace(/\/$/, '');
+    // A tracked change is never redundant; an untracked or ignored path is
+    // when the main checkout holds the identical tree (a copied receipt).
+    if (code === '??') {
+      if (sameTree(join(path, rel), join(projectRoot, rel))) continue;
+      return 'uncommitted or untracked changes';
+    }
     if (code !== '!!') return 'uncommitted or untracked changes';
     if (rel.split('/').includes('node_modules')) continue;
     if (!sameTree(join(path, rel), join(projectRoot, rel))) {

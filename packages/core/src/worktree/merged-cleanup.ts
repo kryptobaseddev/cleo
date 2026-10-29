@@ -37,6 +37,7 @@ import {
   describeDisposalBlockers,
   guardWorktreeDisposal,
   napiRemoveDir,
+  pruneWorktreeRegistry,
   readWorktreeTaskLock,
 } from '@cleocode/worktree';
 import { appendWorktreeAuditEntry, resolveWorktreeAuditActor } from './audit.js';
@@ -278,6 +279,18 @@ export async function cleanupMergedWork(
       keep(result.worktrees, wt.path, taskId, `unmerged: not in ${base}`);
       continue;
     }
+    const blockers = guardWorktreeDisposal(wt.path, {
+      taskId,
+      reason: 'merged-cleanup',
+      gitRoot: root,
+      projectRoot: root,
+      evidence: await loadTaskEvidence(root, taskId),
+      dryRun,
+    });
+    if (blockers !== null) {
+      keep(result.worktrees, wt.path, taskId, describeDisposalBlockers(wt.path, blockers));
+      continue;
+    }
     if (!insideRoot(wt.path, worktreeRoot)) {
       keep(result.worktrees, wt.path, taskId, 'not a real directory inside the worktree root');
       continue;
@@ -289,18 +302,6 @@ export async function cleanupMergedWork(
     }
     if (findNestedRepos(wt.path).length > 0) {
       keep(result.worktrees, wt.path, taskId, 'holds a nested repository or worktree');
-      continue;
-    }
-    const blockers = guardWorktreeDisposal(wt.path, {
-      taskId,
-      reason: 'merged-cleanup',
-      gitRoot: root,
-      projectRoot: root,
-      evidence: await loadTaskEvidence(root, taskId),
-      dryRun,
-    });
-    if (blockers !== null) {
-      keep(result.worktrees, wt.path, taskId, describeDisposalBlockers(wt.path, blockers));
       continue;
     }
     const bytes = diskBytes(wt.path);
@@ -485,7 +486,7 @@ export async function cleanupMergedWork(
           keep(result.nestedCopies, nested, null, 'removal failed');
           continue;
         }
-        git(root, ['worktree', 'prune']);
+        pruneWorktreeRegistry(root);
       }
       result.nestedCopies.push({
         target: nested,
