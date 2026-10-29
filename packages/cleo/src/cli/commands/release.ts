@@ -656,7 +656,7 @@ const cutCommand = defineCommand({
     yes: {
       type: 'boolean',
       description:
-        'Create the tag (D11212). Without it the cut only reports and prints the confirm command. From a non-interactive caller it also needs a standing release authorization (T14141)',
+        'Create the tag (D11212): asks you to type the version on the terminal (/dev/tty), or uses a standing release authorization (T14141). Without it the cut only reports and prints the confirm command',
     },
   },
   async run({ args }) {

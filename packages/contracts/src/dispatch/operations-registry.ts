@@ -9848,7 +9848,7 @@ export const OPERATIONS: OperationDef[] = [
         type: 'boolean',
         required: false,
         description:
-          'Create the tag (D11212). Without it the cut only reports and prints the confirm command; a non-interactive caller also needs a standing release authorization (T14141)',
+          'Create the tag (D11212): the version typed on the controlling terminal (/dev/tty), or a standing release authorization (T14141), allows it. Without it the cut only reports and prints the confirm command',
       },
     ] satisfies ParamDef[],
   },

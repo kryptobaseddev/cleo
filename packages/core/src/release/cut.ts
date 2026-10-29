@@ -33,7 +33,7 @@ import {
   writeFileSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { basename, dirname, join } from 'node:path';
+import { basename, dirname, join, resolve } from 'node:path';
 import type { ChangesetEntry, EngineResult } from '@cleocode/contracts';
 import { engineError, engineSuccess } from '@cleocode/contracts/engine-result.js';
 import {
@@ -53,10 +53,11 @@ import { parseChangesetDir } from '../changesets/index.js';
 import { scanDocsRot } from '../docs/rot.js';
 import { getTaskAccessor } from '../store/data-accessor.js';
 import { sweepMergedClosures } from '../tasks/merge-close.js';
-import { hasReleaseAuthorization } from './authorization.js';
+import { releaseAuthorizationFor } from './authorization.js';
 import { aggregateChangesetsForRelease } from './changesets-aggregator.js';
 import { newestReachableReleaseTag, writeChangelogSection } from './plan.js';
 import { readRequiredCheckPins, resolveRequiredWorkflows } from './pr-evidence.js';
+import { readTtyConfirmation } from './tty-confirm.js';
 import { normalizeVersion } from './version.js';
 
 /** How many first-parent commits of the default branch the cut inspects for green CI. */
@@ -90,12 +91,10 @@ export interface ReleaseCutOptions {
   dryRun?: boolean;
   /**
    * Confirm the tag (D11212). Without it the cut only reports, with the exact
-   * confirm command. A non-interactive caller also needs a standing release
-   * authorization (T14141).
+   * confirm command. With it, a standing release authorization (T14141) or the
+   * version typed on the controlling terminal (`/dev/tty`) allows the tag.
    */
   yes?: boolean;
-  /** Whether a human is at a terminal (default: stdin and stdout are TTYs). */
-  interactive?: boolean;
   /** Default branch name (default `main`). */
   branch?: string;
   /** Test seam for the T14101 merge sweep (default {@link sweepMergedClosures}). */
@@ -703,7 +702,7 @@ export async function releaseCut(opts: ReleaseCutOptions): Promise<EngineResult<
       'cleo release cut',
       version,
       `--sha ${sha}`,
-      ...(opts.leadFile ? [`--lead ${opts.leadFile}`] : []),
+      ...(opts.leadFile ? [`--lead ${resolve(opts.leadFile)}`] : []),
       '--yes',
     ].join(' '),
     dryRun,
@@ -718,16 +717,6 @@ export async function releaseCut(opts: ReleaseCutOptions): Promise<EngineResult<
       details,
     });
   };
-  const interactive =
-    opts.interactive ?? (process.stdin.isTTY === true && process.stdout.isTTY === true);
-  if (!interactive && !hasReleaseAuthorization(cwd, version)) {
-    return refuse(
-      E_RELEASE_NOT_AUTHORIZED,
-      `A non-interactive --yes needs a standing release authorization for ${version}`,
-      `Run \`${result.confirmCommand}\` from a terminal, or ask the owner to run it (standing agent authorization is T14141, not yet available)`,
-      { version, sha },
-    );
-  }
   if (!checkoutAtMain) {
     return refuse(
       E_INVALID_STATE,
@@ -754,6 +743,31 @@ export async function releaseCut(opts: ReleaseCutOptions): Promise<EngineResult<
       'Wait for the required checks on the default branch, then re-run',
       { sha, ci: ciNow },
     );
+  }
+
+  // D11212: a standing authorization (an agent), or the version typed on the
+  // controlling terminal. Neither can be asserted by the caller.
+  const authorization = releaseAuthorizationFor(cwd, version);
+  let allowedBy = authorization ? `authorization:${authorization.id}` : '';
+  if (!authorization) {
+    const typed = readTtyConfirmation(`Tag ${version} on ${sha}? Type ${version} to confirm: `);
+    if (typed === null) {
+      return refuse(
+        E_RELEASE_NOT_AUTHORIZED,
+        `No terminal to confirm ${version}, and no standing release authorization covers it`,
+        `Run \`${result.confirmCommand}\` from a terminal, or ask the owner to run it (standing agent authorization is T14141, not yet available)`,
+        { version, sha },
+      );
+    }
+    if (normalizeVersion(typed) !== version) {
+      return refuse(
+        E_RELEASE_NOT_AUTHORIZED,
+        `The confirmation "${typed}" does not match ${version}`,
+        `Re-run \`${result.confirmCommand}\` and type ${version} exactly`,
+        { version, sha },
+      );
+    }
+    allowedBy = 'tty-confirm';
   }
 
   // Created with the caller's token, the tag push triggers release.yml
@@ -804,7 +818,7 @@ export async function releaseCut(opts: ReleaseCutOptions): Promise<EngineResult<
       details: { sha, tagObject: tagObject || null },
     });
   }
-  auditCut(cwd, { version, sha, outcome: 'tagged', tagObject });
+  auditCut(cwd, { version, sha, outcome: 'tagged', tagObject, allowedBy });
   return engineSuccess({ ...result, dryRun: false, confirmCommand: null, tagCreated: true });
 }
 

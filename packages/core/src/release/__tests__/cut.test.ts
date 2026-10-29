@@ -58,7 +58,12 @@ vi.mock('../../docs/rot.js', () => ({
   }),
 }));
 let authorized = false;
-vi.mock('../authorization.js', () => ({ hasReleaseAuthorization: () => authorized }));
+vi.mock('../authorization.js', () => ({
+  releaseAuthorizationFor: () => (authorized ? { id: 'auth-1' } : null),
+}));
+/** What the person types on /dev/tty; null = no controlling terminal. */
+let ttyAnswer: string | null = null;
+vi.mock('../tty-confirm.js', () => ({ readTtyConfirmation: () => ttyAnswer }));
 vi.mock('../../store/data-accessor.js', () => ({
   getTaskAccessor: async () => ({
     loadSingleTask: async (id: string) => (id === 'T1' ? { id, status: 'done' } : null),
@@ -148,6 +153,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  ttyAnswer = null;
   for (const dir of dirs) rmSync(dir, { recursive: true, force: true });
 });
 
@@ -210,8 +216,8 @@ function fakeRunner(
   return { runner, calls };
 }
 
-/** A confirmed cut from a human at a terminal (D11212). */
-const confirmed = { yes: true, interactive: true } as const;
+/** A confirmed cut (D11212); the version typed on /dev/tty is `ttyAnswer`. */
+const confirmed = { yes: true } as const;
 
 function errorOf(result: { success: boolean; error?: { code: string; message: string } }) {
   expect(result.success).toBe(false);
@@ -353,6 +359,7 @@ describe('releaseCut (T14102)', () => {
     rotOrphans = [{ doc: 'docs/x.md', reason: 'no inbound link' }];
     try {
       const { runner } = fakeRunner({ [shas.head]: 'success' });
+      ttyAnswer = `v${NEXT}-canary.1`;
       const canary = await releaseCut({
         ...confirmed,
         version: `${NEXT}-canary.1`,
@@ -368,6 +375,7 @@ describe('releaseCut (T14102)', () => {
 
   it('creates the annotated tag on the green sha for a real run, and audits it', async () => {
     const { runner, calls } = fakeRunner({ [shas.head]: 'success' });
+    ttyAnswer = NEXT;
     const result = await releaseCut({
       ...confirmed,
       version: `v${NEXT}`,
@@ -382,11 +390,16 @@ describe('releaseCut (T14102)', () => {
     // CI is read for selection and again right before the tag.
     expect(calls.filter((c) => c.some((a) => a.includes('/runs?head_sha='))).length).toBe(2);
     const audit = readFileSync(join(work, RELEASE_CUT_AUDIT_FILE), 'utf-8').trim().split('\n');
-    expect(JSON.parse(audit.at(-1) ?? '{}')).toMatchObject({ outcome: 'tagged', sha: shas.head });
+    expect(JSON.parse(audit.at(-1) ?? '{}')).toMatchObject({
+      outcome: 'tagged',
+      sha: shas.head,
+      allowedBy: 'tty-confirm',
+    });
   });
 
   it('reports a ref POST that fails after the tag object was created', async () => {
     const { runner } = fakeRunner({ [shas.head]: 'success' }, { failRef: true });
+    ttyAnswer = `v${NEXT}`;
     const result = await releaseCut({ ...confirmed, version: NEXT, projectRoot: work, runner });
     const error = errorOf(result);
     expect(error.code).toBe('E_RELEASE_TAG_FAILED');
@@ -411,20 +424,47 @@ describe('releaseCut confirmation gate (D11212)', () => {
     expect(calls.some((c) => c.includes('POST'))).toBe(false);
   });
 
-  it('refuses a non-interactive --yes without a standing authorization, and tags with one', async () => {
+  it('with --yes, refuses without a terminal or on a wrong typed version, and tags on a match', async () => {
     const { runner, calls } = fakeRunner({ [shas.head]: 'success' });
-    const agent = { yes: true, interactive: false } as const;
-    const refused = await releaseCut({ ...agent, version: NEXT, projectRoot: work, runner });
-    expect(errorOf(refused).code).toBe('E_RELEASE_NOT_AUTHORIZED');
+    const noTty = await releaseCut({ ...confirmed, version: NEXT, projectRoot: work, runner });
+    expect(errorOf(noTty).code).toBe('E_RELEASE_NOT_AUTHORIZED');
+
+    ttyAnswer = `v${PREV}`;
+    const wrong = await releaseCut({ ...confirmed, version: NEXT, projectRoot: work, runner });
+    expect(errorOf(wrong).message).toContain('does not match');
     expect(calls.some((c) => c.includes('POST'))).toBe(false);
 
+    ttyAnswer = `v${NEXT}`;
+    const typed = await releaseCut({ ...confirmed, version: NEXT, projectRoot: work, runner });
+    expect(typed.success && typed.data.tagCreated).toBe(true);
+  });
+
+  it('a standing authorization allows --yes with no terminal, and the audit names it', async () => {
+    const { runner } = fakeRunner({ [shas.head]: 'success' });
     authorized = true;
     try {
-      const tagged = await releaseCut({ ...agent, version: NEXT, projectRoot: work, runner });
+      const tagged = await releaseCut({ ...confirmed, version: NEXT, projectRoot: work, runner });
       expect(tagged.success && tagged.data.tagCreated).toBe(true);
+      const audit = readFileSync(join(work, RELEASE_CUT_AUDIT_FILE), 'utf-8').trim().split('\n');
+      expect(JSON.parse(audit.at(-1) ?? '{}')).toMatchObject({ allowedBy: 'authorization:auth-1' });
     } finally {
       authorized = false;
     }
+  });
+
+  it('prints --lead as a normalized absolute path in the confirm command', async () => {
+    const { runner } = fakeRunner({ [shas.head]: 'success' });
+    writeFileSync(join(work, 'lead.md'), 'lead\n');
+    mkdirSync(join(work, 'sub'));
+    const result = await releaseCut({
+      version: NEXT,
+      projectRoot: work,
+      leadFile: `${work}/sub/../lead.md`,
+      runner,
+    });
+    expect(result.success && result.data.confirmCommand).toContain(
+      `--lead ${join(work, 'lead.md')}`,
+    );
   });
 });
 

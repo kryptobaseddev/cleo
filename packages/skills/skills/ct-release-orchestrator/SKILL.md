@@ -61,7 +61,7 @@ cleo release cut v2026.10.28 --lead lead.md         # report: commit, notes, pac
 cleo release cut v2026.10.28 --sha <sha> --lead lead.md --yes   # the printed confirm command: tags that commit
 ```
 
-**Confirmation (D11212).** Nothing is tagged without `--yes`; without it the cut reports and prints the exact confirm command, pinned to the previewed sha. A human at a terminal confirms with `--yes`. A non-interactive caller (an agent) is refused with `E_RELEASE_NOT_AUTHORIZED` unless the owner stored a standing release authorization (T14141, not yet available); until then, ask the owner to run the confirm command.
+**Confirmation (D11212).** Nothing is tagged without `--yes`; without it the cut reports and prints the exact confirm command, pinned to the previewed sha. With `--yes`, the cut asks on the controlling terminal (`/dev/tty`) and tags only when the version is typed exactly; with no terminal it refuses with `E_RELEASE_NOT_AUTHORIZED`. A standing release authorization (T14141, not yet available) will let an agent cut without typing. This stops casual misuse only: a caller that drives a pseudo-terminal can still type the version. The audit row records `allowedBy` (`tty-confirm` or `authorization:<id>`).
 
 - **Commit:** the newest first-parent commit of `origin/main` whose `CI` check run concluded `success`; `--sha` pins one, which must itself be green. Nothing reruns the test suites: CI already passed that tree.
 - **Notes:** the changesets added since the previous release tag, led by `--lead` (stored as the tag annotation). A changeset no merged PR brought in is refused (`E_RELEASE_UNMERGED_CHANGESET`); no green commit is `E_RELEASE_NO_GREEN_COMMIT`.
