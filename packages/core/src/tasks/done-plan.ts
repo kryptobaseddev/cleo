@@ -535,7 +535,9 @@ async function planTypedCache(
       operation: 'tasks.done.plan',
       idempotencyKey: `${task.id}:${randomUUID()}`,
     },
-    { budgetMs: typedGateAdmissionMs(open.map(({ originalIndex }) => gateAt(typed, originalIndex))) },
+    {
+      budgetMs: typedGateAdmissionMs(open.map(({ originalIndex }) => gateAt(typed, originalIndex))),
+    },
   );
   const probed = new Map<number, DonePlanTypedGate>();
   try {

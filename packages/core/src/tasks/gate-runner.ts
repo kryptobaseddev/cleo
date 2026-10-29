@@ -330,13 +330,20 @@ export async function probeTypedGateCache(
   try {
     gateRoot = gateTreeFor(gate, resolveTypedGateRoot(root, undefined, undefined, task.id), root);
   } catch (error) {
-    return { status: 'unavailable', reason: error instanceof Error ? error.message : String(error) };
+    return {
+      status: 'unavailable',
+      reason: error instanceof Error ? error.message : String(error),
+    };
   }
   const state = await captureGateCacheState(gateRoot);
-  if (state === null) return { status: 'unavailable', reason: 'the gate tree is not a git checkout' };
+  if (state === null)
+    return { status: 'unavailable', reason: 'the gate tree is not a git checkout' };
   const key = readEvidenceCacheKey();
   if (key === null)
-    return { status: 'unavailable', reason: `no readable machine key at ${evidenceCacheKeyPath()}` };
+    return {
+      status: 'unavailable',
+      reason: `no readable machine key at ${evidenceCacheKeyPath()}`,
+    };
   const { invocation, refusal } = resolveInvocation(gate, gateRoot, { ...env });
   if (refusal !== undefined) return { status: 'unavailable', reason: refusal };
   let artifacts: AcceptanceGateArtifact[];
