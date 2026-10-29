@@ -514,6 +514,24 @@ function globToRegExp(glob: string): RegExp {
 }
 
 /**
+ * Whether a check run's name is the job a configured glob names (T14148). A
+ * matrix job's `name:` is a template (`Type Check${{ matrix.node … }}`), and a
+ * job skipped before its matrix expands reports that raw template as its check
+ * name; its static prefix (`Type Check`) is the job's name, so the skip counts
+ * as the job's, the same job its rendered variants run as.
+ *
+ * @param re - The configured job glob, anchored.
+ * @param name - The check run's name.
+ * @returns True when the run belongs to the job.
+ * @task T14148
+ */
+export function jobNameMatches(re: RegExp, name: string): boolean {
+  if (re.test(name)) return true;
+  const expression = name.indexOf('${{');
+  return expression > 0 && re.test(name.slice(0, expression).trimEnd());
+}
+
+/**
  * Path glob to an anchored regular expression (T13175): `**` followed by `/` is
  * any number of whole directories (including none), a trailing `/` followed by
  * `**` is everything below, `*` any run of characters within one segment, `?`
@@ -581,7 +599,7 @@ export function evaluateCoveringJobs(
   for (const glob of globs) {
     const re = globToRegExp(glob);
     const latest = new Map<string, CommitCheck>();
-    for (const c of inScope.filter((c) => re.test(c.name))) {
+    for (const c of inScope.filter((c) => jobNameMatches(re, c.name))) {
       const key = `${c.name}\u0000${c.event ?? ''}`;
       const prev = latest.get(key);
       if (!prev || c.id > prev.id) latest.set(key, c);
@@ -657,7 +675,7 @@ export function evaluateJobs(
   const jobs: string[] = [];
   for (const glob of globs) {
     const re = globToRegExp(glob);
-    const matched = inScope.filter((c) => re.test(c.name));
+    const matched = inScope.filter((c) => jobNameMatches(re, c.name));
     if (matched.length === 0) {
       reasons.push(
         `job ${glob}: not found in ${scope.workflows.join(', ')} on ${sha.slice(0, 12)}`,
