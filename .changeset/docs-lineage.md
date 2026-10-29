@@ -2,7 +2,7 @@
 id: docs-lineage
 tasks: [T14110]
 kind: feat
-summary: "docs fetch shows a doc's lineage (what it serves, what it replaced, what replaced it, the current doc), and briefing and memory find surface current docs, never superseded ones"
+summary: "docs fetch shows a doc's lineage, and briefing and memory find surface current docs, never superseded ones; wire contract change: BrainCompactHit gains optional docs and SearchBrainCompactResult gains optional taskDocs"
 ---
 
 Docs are now tied to the tasks and decisions they serve, with supersession,
