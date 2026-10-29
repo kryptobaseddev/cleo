@@ -178,7 +178,12 @@ export function scanBrainGraphOrphans(
     LEFT JOIN main.brain_page_nodes src ON src.id = e.from_id
     LEFT JOIN main.brain_page_nodes dst ON dst.id = e.to_id
     LEFT JOIN main.tasks_tasks task_source
-      ON e.edge_type = 'task_touches_symbol' AND e.from_id = 'task:' || task_source.id
+      -- Keyed on task_source.id so the primary key is searched once per edge;
+      -- (e.from_id = 'task:' || task_source.id) scanned every task per edge
+      -- (170k edges x 7k tasks: ~50-120 s, T14120). Same match, case-sensitive.
+      ON e.edge_type = 'task_touches_symbol'
+      AND substr(e.from_id, 1, 5) = 'task:'
+      AND task_source.id = substr(e.from_id, 6)
     LEFT JOIN main.nexus_nodes code_target
       ON e.edge_type IN ('code_reference', 'task_touches_symbol', 'mentions', 'documents', 'conduit_mentions_symbol') AND code_target.id = e.to_id
     LEFT JOIN main.nexus_nodes code_source
