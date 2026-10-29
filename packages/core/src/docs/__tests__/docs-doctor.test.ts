@@ -870,6 +870,8 @@ describe('runDocsDoctor — publication-ledger-drift (T14117)', () => {
     await publish('removed.md', 'docs/removed.md', held);
     await publish('on-main.md', 'docs/on-main.md', held);
     await publish('orphan.md', 'docs/orphan.md', sha('only the ledger knows me\n'));
+    // `git rm` of the only tracked file in docs/ removed the directory itself.
+    mkdirSync(join(tempDir, 'docs'), { recursive: true });
     writeFileSync(join(tempDir, 'docs', 'edited.md'), '# edited by hand\n');
     await publish('edited.md', 'docs/edited.md', held);
     return { deadWorktree, absolute };

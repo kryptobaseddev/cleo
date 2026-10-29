@@ -18,7 +18,8 @@ diagnostic, `publication-ledger-drift`, built on the same classification as
   `.cleo/audit/docs-publications-prune.jsonl` first, then deleted, so a pruned
   row can be restored. Provably gone means:
   - for a path inside this project, absent from HEAD and from the default
-    branch (local and `origin/`);
+    branch (local and `origin/`, read from `origin/HEAD`, else `main`/`master`;
+    the `.cleo/config.json` `git.defaultBranch` override is not consulted);
   - for a path inside this device's CLEO worktrees root, the worktree itself
     is removed.
 - **Mirror on another device or checkout:** `report-only`. `docs_publications`

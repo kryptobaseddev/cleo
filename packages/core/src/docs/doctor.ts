@@ -114,7 +114,7 @@ import { tmpdir } from 'node:os';
 import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { getCleoWorktreesRoot } from '@cleocode/paths';
 import { eq } from 'drizzle-orm';
-import { gitRefHasPath, gitToplevel } from '../git/work-tree.js';
+import { gitDefaultBranchRefs, gitRefHasPath, gitToplevel } from '../git/work-tree.js';
 import { resolveCleoDir } from '../paths.js';
 import { createAttachmentStore } from '../store/attachment-store.js';
 import {
@@ -637,11 +637,11 @@ interface LedgerFinding {
  *
  * @internal
  */
-async function provePublicationGone(
+function provePublicationGone(
   projectRoot: string,
   publishedPath: string,
   absPath: string,
-): Promise<{ readonly gone: boolean; readonly reason: string }> {
+): { readonly gone: boolean; readonly reason: string } {
   if (isAbsolute(publishedPath)) {
     return {
       gone: false,
@@ -680,15 +680,16 @@ async function provePublicationGone(
   const relPath = join(relative(toplevel, realpathSync(base)), relative(base, absPath))
     .split(sep)
     .join('/');
-  // Lazy: keeps the worktree/spawn graph out of the doctor's static imports.
-  const { getDefaultBranch } = await import('../spawn/branch-integration.js');
-  const branch = getDefaultBranch(toplevel);
-  for (const ref of ['HEAD', branch, `origin/${branch}`]) {
+  const defaults = gitDefaultBranchRefs(toplevel);
+  for (const ref of ['HEAD', ...defaults]) {
     const has = gitRefHasPath(toplevel, ref, relPath);
     if (has === true) return { gone: false, reason: `${ref} still tracks it` };
     if (has === null && ref === 'HEAD') return { gone: false, reason: 'git cannot read HEAD' };
   }
-  return { gone: true, reason: `absent from HEAD and ${branch}` };
+  return {
+    gone: true,
+    reason: `absent from ${['HEAD', ...defaults].join(', ')}`,
+  };
 }
 
 /**
@@ -749,7 +750,7 @@ async function scanPublicationLedger(
     const protectedElsewhere = [...shas].every(
       (sha) => attachmentShas.has(sha) || (liveLedgerShas.get(sha) ?? 0) > 0,
     );
-    const proof = await provePublicationGone(projectRoot, record.publishedPath, absPath);
+    const proof = provePublicationGone(projectRoot, record.publishedPath, absPath);
     const blob = record.lastBlobSha.slice(0, 12);
     let action: LedgerFinding['action'];
     let detail: string;
