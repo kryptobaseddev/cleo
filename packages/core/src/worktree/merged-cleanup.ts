@@ -24,8 +24,8 @@
  */
 
 import { execFileSync, spawnSync } from 'node:child_process';
-import { existsSync, lstatSync, readdirSync } from 'node:fs';
-import { basename, dirname, join } from 'node:path';
+import { existsSync, lstatSync, readdirSync, realpathSync } from 'node:fs';
+import { basename, dirname, join, relative, sep } from 'node:path';
 import type {
   DataAccessor,
   MergedCleanupItem,
@@ -41,7 +41,7 @@ import {
 } from '@cleocode/worktree';
 import { appendWorktreeAuditEntry, resolveWorktreeAuditActor } from './audit.js';
 import { enumerateWorktrees } from './list.js';
-import { checkoutIsClean, loadTaskEvidence, removeWorktreeFromDisk } from './prune.js';
+import { loadTaskEvidence, removeWorktreeFromDisk, unprovenContent } from './prune.js';
 
 /** `task/T123` or `task/T123-slug`: the task id a branch belongs to. */
 const TASK_BRANCH = /^task\/(T\d+)(?:[-/]|$)/;
@@ -134,11 +134,37 @@ async function scopeFor(
   };
 }
 
-/** Commits a nested copy holds that must exist upstream before it may go. */
-function nestedTips(nested: string): string[] | null {
+/**
+ * Whether `target` is a real directory (not a symlink) strictly inside
+ * `root` once both are resolved: the precondition of every removal here.
+ */
+function insideRoot(target: string, root: string): boolean {
+  try {
+    if (!lstatSync(target).isDirectory()) return false;
+    const rel = relative(realpathSync(root), realpathSync(target));
+    return rel !== '' && !rel.startsWith(`..${sep}`) && rel !== '..' && !rel.startsWith(sep);
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Every commit a nested copy holds that must be on `origin` before it may go:
+ * all its refs (tags, notes, stash, other remotes) except remote-tracking refs
+ * of the same `origin`, plus every HEAD reflog entry. `null` when unreadable.
+ */
+function nestedTips(nested: string, projectOrigin: string | null): string[] | null {
+  const copyOrigin = git(nested, ['remote', 'get-url', 'origin']);
+  const sameOrigin = projectOrigin !== null && copyOrigin === projectOrigin;
+  const refs = git(nested, ['for-each-ref', '--format=%(refname)%09%(objectname)']);
+  const reflog = git(nested, ['reflog', 'show', '--format=%H', 'HEAD']);
   const head = git(nested, ['rev-parse', 'HEAD']);
-  const refs = git(nested, ['for-each-ref', '--format=%(objectname)', 'refs/heads', 'refs/stash']);
-  return head === null || refs === null ? null : [head, ...lines(refs)];
+  if (refs === null || head === null) return null;
+  const tips = lines(refs)
+    .map((l) => l.split('\t'))
+    .filter(([ref = '']) => !(sameOrigin && ref.startsWith('refs/remotes/origin/')))
+    .map(([, sha = '']) => sha);
+  return [head, ...tips, ...lines(reflog)];
 }
 
 /** Directories holding a `.git` below `root` (not `root` itself), depth-bounded. */
@@ -206,16 +232,13 @@ export async function cleanupMergedWork(
     nestedCopies: [],
     bytesReclaimed: 0,
   };
-  const fetched =
-    git(root, [
-      'fetch',
-      '-q',
-      '--prune',
-      'origin',
-      `+refs/heads/${defaultBranch}:refs/remotes/origin/${defaultBranch}`,
-      '+refs/heads/task/*:refs/remotes/origin/task/*',
-    ]) !== null;
-  if (git(root, ['rev-parse', '--verify', '-q', base]) === null) return result;
+  // Every proof below reads origin as fetched now; without that, nothing is deleted.
+  if (git(root, ['fetch', '-q', '--prune', 'origin']) === null) {
+    return { ...result, skippedReason: 'git fetch origin failed: nothing can be proven merged' };
+  }
+  if (git(root, ['rev-parse', '--verify', '-q', base]) === null) {
+    return { ...result, skippedReason: `${base} does not exist` };
+  }
   const merged = (sha: string): boolean =>
     git(root, ['merge-base', '--is-ancestor', sha, base]) !== null;
   const inScope = await scopeFor(root, opts.taskIds);
@@ -255,8 +278,17 @@ export async function cleanupMergedWork(
       keep(result.worktrees, wt.path, taskId, `unmerged: not in ${base}`);
       continue;
     }
-    if (!checkoutIsClean(wt.path)) {
-      keep(result.worktrees, wt.path, taskId, 'dirty: uncommitted or untracked changes');
+    if (!insideRoot(wt.path, worktreeRoot)) {
+      keep(result.worktrees, wt.path, taskId, 'not a real directory inside the worktree root');
+      continue;
+    }
+    const unproven = unprovenContent(wt.path, root);
+    if (unproven !== null) {
+      keep(result.worktrees, wt.path, taskId, unproven);
+      continue;
+    }
+    if (findNestedRepos(wt.path).length > 0) {
+      keep(result.worktrees, wt.path, taskId, 'holds a nested repository or worktree');
       continue;
     }
     const blockers = guardWorktreeDisposal(wt.path, {
@@ -333,7 +365,7 @@ export async function cleanupMergedWork(
 
   // ── Remote task branches ──────────────────────────────────────────────────
   const remoteProven: MergedCleanupItem[] = [];
-  if (remote && fetched) {
+  if (remote) {
     const openHeads = (deps.openPrHeads ?? openPrHeads)(root);
     const remoteRefs = lines(
       git(root, [
@@ -402,9 +434,12 @@ export async function cleanupMergedWork(
 
   // ── Repository copies nested inside worktrees ─────────────────────────────
   const projectRoots = new Set(lines(git(root, ['rev-list', '--max-parents=0', base])));
+  const projectOrigin = git(root, ['remote', 'get-url', 'origin']);
   let worktreeDirs: string[] = [];
   try {
-    worktreeDirs = readdirSync(worktreeRoot).map((n) => join(worktreeRoot, n));
+    worktreeDirs = readdirSync(worktreeRoot)
+      .map((n) => join(worktreeRoot, n))
+      .filter((d) => insideRoot(d, worktreeRoot));
   } catch {
     worktreeDirs = [];
   }
@@ -418,24 +453,23 @@ export async function cleanupMergedWork(
         keep(result.nestedCopies, nested, null, 'a linked worktree, not a copy');
         continue;
       }
-      if (!checkoutIsClean(nested)) {
-        keep(result.nestedCopies, nested, null, 'dirty: uncommitted or untracked changes');
+      if (!insideRoot(nested, worktreeRoot)) {
+        keep(result.nestedCopies, nested, null, 'not a real directory inside the worktree root');
         continue;
       }
-      const tips = nestedTips(nested);
-      const unpushed =
-        tips === null ||
-        tips.some(
-          (sha) =>
-            git(root, [
-              'for-each-ref',
-              '--count=1',
-              '--format=x',
-              '--contains',
-              sha,
-              'refs/remotes/origin',
-            ]) !== 'x',
-        );
+      const unprovenNested = unprovenContent(nested, root);
+      if (unprovenNested !== null) {
+        keep(result.nestedCopies, nested, null, unprovenNested);
+        continue;
+      }
+      const tips = nestedTips(nested, projectOrigin);
+      // Count commits reachable from the copy's tips but from no origin ref; an
+      // object unknown here fails the call, which also keeps the copy.
+      const notOnOrigin =
+        tips === null
+          ? null
+          : git(root, ['rev-list', '--count', ...new Set(tips), '--not', '--remotes=origin']);
+      const unpushed = notOnOrigin === null || notOnOrigin !== '0';
       if (unpushed) {
         keep(result.nestedCopies, nested, null, 'holds commits not on origin');
         continue;

@@ -23,7 +23,15 @@
  */
 
 import { execFileSync } from 'node:child_process';
-import { existsSync } from 'node:fs';
+import {
+  existsSync,
+  lstatSync,
+  readdirSync,
+  readFileSync,
+  readlinkSync,
+  type Stats,
+} from 'node:fs';
+import { join } from 'node:path';
 import type {
   EngineResult,
   EvidenceAtom,
@@ -109,9 +117,11 @@ export async function pruneOrphanedWorktreesByStatus(
   for (const wt of candidates) {
     const reason = reasonForStatus(wt);
 
-    // T14142: removal is forced, so uncommitted or untracked edits would be lost.
-    if (!checkoutIsClean(wt.path)) {
-      const error = `Worktree ${wt.path} kept: uncommitted or untracked changes.`;
+    // T14142: removal is forced, so anything not proven redundant would be lost.
+    // A directory already gone holds nothing to lose.
+    const unproven = existsSync(wt.path) ? unprovenContent(wt.path, opts.projectRoot) : null;
+    if (unproven !== null) {
+      const error = `Worktree ${wt.path} kept: ${unproven}.`;
       outcomes.push({
         path: wt.path,
         branch: wt.branch,
@@ -244,25 +254,81 @@ export async function pruneOrphanedWorktreesByStatus(
 // Internal helpers — exported for tests only.
 // ---------------------------------------------------------------------------
 
+/** shortcut: at most this many entries are compared per tree; raise it if seeded trees outgrow it. */
+const MAX_COMPARED_ENTRIES = 50_000;
+
 /**
- * Whether a checkout has no uncommitted or untracked change. Fail-closed:
- * a git error reads as not clean, so a prune never force-removes edits.
+ * Whether `a` and `b` hold the same tree: same names, same file bytes, same
+ * symlink targets. Symlinks are compared, never followed.
+ */
+function sameTree(a: string, b: string): boolean {
+  const stack: Array<[string, string]> = [[a, b]];
+  let seen = 0;
+  while (stack.length > 0) {
+    const [x, y] = stack.pop() as [string, string];
+    if (++seen > MAX_COMPARED_ENTRIES) return false;
+    let sx: Stats;
+    let sy: Stats;
+    try {
+      sx = lstatSync(x);
+      sy = lstatSync(y);
+    } catch {
+      return false;
+    }
+    if (sx.isSymbolicLink() || sy.isSymbolicLink()) {
+      if (!sx.isSymbolicLink() || !sy.isSymbolicLink() || readlinkSync(x) !== readlinkSync(y)) {
+        return false;
+      }
+    } else if (sx.isFile() && sy.isFile()) {
+      if (sx.size !== sy.size || !readFileSync(x).equals(readFileSync(y))) return false;
+    } else if (sx.isDirectory() && sy.isDirectory()) {
+      const nx = readdirSync(x).sort();
+      const ny = readdirSync(y).sort();
+      if (nx.length !== ny.length || nx.some((n, i) => n !== ny[i])) return false;
+      for (const n of nx) stack.push([join(x, n), join(y, n)]);
+    } else {
+      return false;
+    }
+  }
+  return true;
+}
+
+/**
+ * What in a checkout is not proven redundant, or `null` when nothing is.
+ *
+ * Uncommitted and untracked changes never are. Ignored content (which
+ * `--porcelain` alone never lists: an edited `.env`, `dist/`, an agent's
+ * nested `.claude/worktrees/x/`) is redundant only under `node_modules`, or
+ * when the main checkout holds the identical tree at the same path (what
+ * `.worktreeinclude` seeded, unchanged). Fail-closed: a git error is
+ * unproven.
  *
  * @param path - Checkout root.
- * @returns True only when `git status --porcelain -uall` printed nothing.
+ * @param projectRoot - The main checkout seeded copies are compared against.
+ * @returns Why the checkout must be kept, or `null`.
  * @task T14142
  */
-export function checkoutIsClean(path: string): boolean {
+export function unprovenContent(path: string, projectRoot: string): string | null {
+  let out: string;
   try {
-    const out = execFileSync('git', ['-C', path, 'status', '--porcelain', '-uall'], {
-      encoding: 'utf8',
-      stdio: ['ignore', 'pipe', 'pipe'],
-      timeout: 60_000,
-    });
-    return out.trim() === '';
+    out = execFileSync(
+      'git',
+      ['-C', path, 'status', '--porcelain', '-z', '-uall', '--ignored=matching'],
+      { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], timeout: 60_000 },
+    );
   } catch {
-    return false;
+    return 'git status failed';
   }
+  for (const entry of out.split('\0').filter((e) => e.length > 0)) {
+    const code = entry.slice(0, 2);
+    const rel = entry.slice(3).replace(/\/$/, '');
+    if (code !== '!!') return 'uncommitted or untracked changes';
+    if (rel.split('/').includes('node_modules')) continue;
+    if (!sameTree(join(path, rel), join(projectRoot, rel))) {
+      return `ignored content not in the main checkout: ${rel}`;
+    }
+  }
+  return null;
 }
 
 /**

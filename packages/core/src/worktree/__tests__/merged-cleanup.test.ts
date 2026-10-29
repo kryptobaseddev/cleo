@@ -14,6 +14,7 @@ import {
   readFileSync,
   realpathSync,
   rmSync,
+  symlinkSync,
   writeFileSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -159,6 +160,97 @@ describe('cleanupMergedWork', () => {
     expect(git(project, 'ls-remote', '--heads', 'origin', 'task/T8-x')).toContain(moved);
   });
 
+  it('keeps a worktree with ignored content the main checkout lacks; an unchanged seeded copy is fine', async () => {
+    writeFileSync(join(project, '.gitignore'), '.env\n');
+    writeFileSync(join(project, '.env'), 'SEED=1\n');
+    git(project, 'add', '.gitignore');
+    git(project, 'commit', '-q', '-m', 'ignore .env');
+    git(project, 'push', '-q', 'origin', 'main');
+    for (const id of ['T10', 'T11']) {
+      taskWorktree(id);
+      mergeTask(id);
+    }
+    writeFileSync(join(wtRoot, 'T10', '.env'), 'SEED=1\n'); // seeded, unchanged
+    writeFileSync(join(wtRoot, 'T11', '.env'), 'SEED=1\nSECRET=edited\n'); // edited
+    const r = await cleanupMergedWork(
+      { projectRoot: project, taskIds: ['T10', 'T11'], dryRun: false },
+      noOpenPrs,
+    );
+    const byTask = Object.fromEntries(r.worktrees.map((w) => [w.taskId, [w.removed, w.reason]]));
+    expect(byTask['T10']?.[0]).toBe(true);
+    expect(byTask['T11']).toEqual([false, 'ignored content not in the main checkout: .env']);
+    expect(existsSync(join(wtRoot, 'T11', '.env'))).toBe(true);
+  });
+
+  it("keeps a worktree holding an agent's nested .claude/worktrees checkout", async () => {
+    writeFileSync(join(project, '.gitignore'), '.claude/worktrees/\n');
+    git(project, 'add', '.gitignore');
+    git(project, 'commit', '-q', '-m', 'ignore agent worktrees');
+    git(project, 'push', '-q', 'origin', 'main');
+    const path = taskWorktree('T12');
+    mergeTask('T12');
+    const agent = join(path, '.claude', 'worktrees', 'agent-1');
+    git(project, 'worktree', 'add', '-q', '--detach', agent, 'origin/main');
+    writeFileSync(join(agent, 'work-in-progress.txt'), 'uncommitted');
+    const r = await cleanupMergedWork(
+      { projectRoot: project, taskIds: ['T12'], dryRun: false },
+      noOpenPrs,
+    );
+    expect(r.worktrees).toMatchObject([{ taskId: 'T12', removed: false }]);
+    expect(existsSync(join(agent, 'work-in-progress.txt'))).toBe(true);
+  });
+
+  it('never follows a symlink out of the worktree root', async () => {
+    symlinkSync(project, join(wtRoot, 'escape'));
+    const host = join(wtRoot, 'wave-b');
+    git(project, 'worktree', 'add', '-q', host, 'origin/main');
+    symlinkSync(project, join(host, 'scratch'));
+    const r = await cleanupMergedWork(
+      { projectRoot: project, taskIds: [], dryRun: false },
+      noOpenPrs,
+    );
+    expect(r.nestedCopies).toEqual([]);
+    expect(existsSync(join(project, 'README.md'))).toBe(true);
+    expect(existsSync(join(project, '.git'))).toBe(true);
+  });
+
+  it('keeps a nested copy whose only extra commit is on a tag, or only in its HEAD reflog', async () => {
+    const host = join(wtRoot, 'wave-c');
+    git(project, 'worktree', 'add', '-q', host, 'origin/main');
+    const tagged = join(host, 'tagged');
+    const reflogged = join(host, 'reflogged');
+    for (const copy of [tagged, reflogged]) {
+      cpSync(project, copy, { recursive: true });
+      git(copy, 'commit', '-q', '--allow-empty', '-m', 'not on origin');
+    }
+    git(tagged, 'tag', 'only-here');
+    git(tagged, 'reset', '-q', '--hard', 'HEAD~1');
+    git(reflogged, 'reset', '-q', '--hard', 'HEAD~1');
+    const r = await cleanupMergedWork(
+      { projectRoot: project, taskIds: [], dryRun: false },
+      noOpenPrs,
+    );
+    const reasons = Object.fromEntries(r.nestedCopies.map((n) => [n.target, n.reason]));
+    expect(reasons[tagged]).toBe('holds commits not on origin');
+    expect(reasons[reflogged]).toBe('holds commits not on origin');
+    expect(existsSync(tagged)).toBe(true);
+    expect(existsSync(reflogged)).toBe(true);
+  });
+
+  it('deletes nothing of any kind when the fetch fails', async () => {
+    const path = taskWorktree('T13');
+    mergeTask('T13');
+    git(project, 'remote', 'set-url', 'origin', join(tmp, 'no-such-origin.git'));
+    const r = await cleanupMergedWork(
+      { projectRoot: project, taskIds: ['T13'], dryRun: false },
+      noOpenPrs,
+    );
+    expect(r.skippedReason).toContain('git fetch origin failed');
+    expect(r.worktrees).toEqual([]);
+    expect(r.localBranches).toEqual([]);
+    expect(existsSync(path)).toBe(true);
+  });
+
   it('keeps a dirty, a git-locked, a lock-held and an unmerged worktree', async () => {
     for (const id of ['T2', 'T3', 'T4']) {
       taskWorktree(id);
@@ -176,7 +268,7 @@ describe('cleanupMergedWork', () => {
     );
     const reasons = Object.fromEntries(r.worktrees.map((w) => [w.taskId, [w.removed, w.reason]]));
     expect(reasons).toEqual({
-      T2: [false, 'dirty: uncommitted or untracked changes'],
+      T2: [false, 'uncommitted or untracked changes'],
       T3: [false, 'git-locked'],
       T4: [false, 'task lock held'],
       T5: [false, 'unmerged: not in origin/main'],

@@ -25,6 +25,12 @@ handles three kinds of leftovers:
 - **Repository copies nested inside worktrees** are removed only when they
   are clean and every commit they hold is on `origin`.
 
+Ignored content counts too: a worktree or copy is kept when it holds an
+ignored path outside `node_modules` that the main checkout does not hold
+identically (an edited `.env`, `dist/`, an agent's nested
+`.claude/worktrees/`), or any nested repository. Nothing is removed through a
+symlink or outside the worktree root, and a failed fetch deletes nothing.
+
 Every item is reported as removed or kept, with a reason, and the result
 totals the bytes reclaimed. The merge sweep and `cleo release cut` call it.
 `cleo worktree prune --orphaned` now also keeps a worktree with uncommitted or

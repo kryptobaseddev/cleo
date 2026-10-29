@@ -1161,4 +1161,6 @@ export interface MergedCleanupResult {
   nestedCopies: MergedCleanupItem[];
   /** Bytes removed (dry run: that would be removed). */
   bytesReclaimed: number;
+  /** Why nothing was considered (the fetch failed, no base branch); absent when it ran. */
+  skippedReason?: string;
 }
