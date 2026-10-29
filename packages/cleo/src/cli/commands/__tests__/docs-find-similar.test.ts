@@ -121,7 +121,23 @@ async function seedDoc(
 ): Promise<void> {
   const file = join(projectRoot, `${slug}.md`);
   await writeFile(file, body, 'utf-8');
-  const res = runCli(['docs', 'add', ownerId, file, '--slug', slug, '--type', kind], projectRoot);
+  // The fixtures are near-duplicates on purpose (T14109 would refuse them), so
+  // each says why it is a distinct doc.
+  const res = runCli(
+    [
+      'docs',
+      'add',
+      ownerId,
+      file,
+      '--slug',
+      slug,
+      '--type',
+      kind,
+      '--new-because',
+      'a distinct similarity-ranking fixture',
+    ],
+    projectRoot,
+  );
   if (res.status !== 0) {
     throw new Error(
       `seedDoc(${slug}) failed: status=${res.status} stdout=${res.stdout} stderr=${res.stderr}`,
