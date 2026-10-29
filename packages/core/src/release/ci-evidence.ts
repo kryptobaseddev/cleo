@@ -975,7 +975,10 @@ export function supersededOnMerge(
     ) {
       continue;
     }
-    if (onMerge.verdict === 'missing' && neverRanInSupersededRun(checks, mergeCommitSha, pins[name])) {
+    if (
+      onMerge.verdict === 'missing' &&
+      neverRanInSupersededRun(checks, mergeCommitSha, pins[name])
+    ) {
       names.push(name);
       continue;
     }
