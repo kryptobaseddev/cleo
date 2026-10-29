@@ -99,7 +99,11 @@ describe('T14134 — blob readers from a worktree', () => {
 
     const fromRoot = await repairAttachmentStore({ cwd: parent, dryRun: true, gracePeriodMs: 0 });
     resetDbState();
-    const fromWorktree = await repairAttachmentStore({ cwd: worktree, dryRun: true, gracePeriodMs: 0 });
+    const fromWorktree = await repairAttachmentStore({
+      cwd: worktree,
+      dryRun: true,
+      gracePeriodMs: 0,
+    });
     const reasonFor = (r: Awaited<ReturnType<typeof repairAttachmentStore>>) =>
       r.actions.find((a) => 'sha256' in a && a.sha256 === sha && 'reason' in a)?.reason;
     expect(reasonFor(fromRoot)).toBe('Referenced in blobs/manifest.db');
