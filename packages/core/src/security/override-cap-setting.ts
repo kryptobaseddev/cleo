@@ -407,6 +407,68 @@ function audit(
 }
 
 /**
+ * A sealed owner counter other than the override cap (T14141: the release
+ * authorization revocation count), read from the git-tracked
+ * `.cleo/owner-settings.json`: its value when sealed by the enrolled key, null
+ * when absent, `tampered` when present but not sealed by that key.
+ *
+ * @param projectRoot - Project root.
+ * @param key - Setting key.
+ * @returns The sealed value, null, or `tampered`.
+ * @task T14141
+ */
+export async function readSealedOwnerSetting(
+  projectRoot: string,
+  key: string,
+): Promise<number | null | 'tampered'> {
+  const read = readSettings(projectRoot);
+  if (read.state !== 'read') return null;
+  const entry = read.file.settings[key];
+  if (!entry) return null;
+  const { verifyAuditLine } = await import('../identity/cleo-identity.js');
+  const ok =
+    Number.isInteger(entry.value) &&
+    typeof entry.sig === 'string' &&
+    (await verifyAuditLine(
+      sealPayload(key, entry.value, entry.setAt, read.file.salt, read.file.ownerPubkey),
+      entry.sig,
+      read.file.ownerPubkey,
+    ));
+  return ok ? entry.value : 'tampered';
+}
+
+/**
+ * Seal `value` under `key` in `.cleo/owner-settings.json` with the owner's
+ * key (T14141). The caller has already passed the owner check and proven the
+ * password derives the enrolled key.
+ *
+ * @param projectRoot - Project root.
+ * @param key - Setting key.
+ * @param value - Integer value to seal.
+ * @param signer - The owner's signing identity from {@link ownerKey}.
+ * @task T14141
+ */
+export async function writeSealedOwnerSetting(
+  projectRoot: string,
+  key: string,
+  value: number,
+  signer: Awaited<ReturnType<typeof ownerKey>>,
+): Promise<void> {
+  const read = readSettings(projectRoot);
+  if (read.state !== 'read') throw new Error('owner settings are not readable'); // @sync-invariant none:local-only owner settings are device-local and git-tracked
+  const setAt = new Date().toISOString();
+  const { signAuditLine } = await import('../identity/cleo-identity.js');
+  const { sig } = await signAuditLine(
+    signer,
+    sealPayload(key, value, setAt, read.file.salt, read.file.ownerPubkey),
+  );
+  await atomicWriteJson(settingsPath(projectRoot), {
+    ...read.file,
+    settings: { ...read.file.settings, [key]: { value, setAt, sig } },
+  });
+}
+
+/**
  * The project's owner state, judged without auditing: the sealed cap, or why
  * stored state is ignored. The standing release authorization (T14141) trusts
  * a grant only when this is `ok`.

@@ -29,6 +29,8 @@ export interface ReleaseAuthorizationGrant {
   uses: number | null;
   /** The owner decision recorded for the grant (BRAIN decision id). */
   decisionId: string;
+  /** Revocations on record when it was issued; a shorter revocation list later means tampering. */
+  revocationsAtIssue: number;
   /** Enrolled owner public key (hex) that signed it. */
   ownerPubkey: string;
   /** Ed25519 signature (hex) over the grant's fields. */

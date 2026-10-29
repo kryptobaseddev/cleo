@@ -751,7 +751,7 @@ const authorizeCommand = defineCommand({
   meta: {
     name: 'authorize',
     description:
-      'Grant (owner only: TTY + owner-auth password), --list or --revoke a standing release authorization that lets an agent run `cleo release cut --yes` for a scope (canary|prerelease|stable|version) until it expires (at most 30d). (T14141)',
+      'Grant or --revoke (owner only: TTY + owner-auth password), or --list, a standing release authorization that lets an agent run `cleo release cut --yes` for a scope (canary|prerelease|stable|version) until it expires (at most 30d). (T14141)',
   },
   args: {
     scope: { type: 'string', description: 'canary, prerelease, stable, or one exact version' },

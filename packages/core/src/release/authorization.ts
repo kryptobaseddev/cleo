@@ -13,11 +13,21 @@
  * The grant lives in `.cleo/release-authorizations.json` (untracked) AND in
  * `<cleoHome>/release-authorizations.json` under the project's key. It counts
  * only when both copies are identical, the signature verifies against the
- * enrolled key, and the enrollment itself judges `ok`. Revoking removes it
- * from both and records the id as revoked in the global file, so restoring an
- * old project file does not revive it. As with the override cap, an agent
- * running as the same OS user can still edit both files: tampering is
- * detectable (audited, shown by `cleo doctor`), not preventable.
+ * enrolled key, and the enrollment itself judges `ok`.
+ *
+ * ## Revocation, signed and counted (fail closed)
+ *
+ * Revoking is owner-only like granting (the password signs it). It removes the
+ * grant from both files and appends a signed revocation entry to both, and the
+ * revocation count is sealed in the git-tracked `.cleo/owner-settings.json`.
+ * Every grant also signs the count at issue. If the two revocation lists
+ * differ, an entry is not signed, the list is shorter than the sealed count or
+ * than any grant's count at issue, or the count's seal fails, EVERY grant is
+ * treated as tampered. Restoring old copies of both grant files therefore does
+ * not revive a revoked grant: the sealed count still names the revocation, and
+ * rolling that back too shows in `git status`. As with the override cap, an
+ * agent running as the same OS user can still edit these files: tampering is
+ * detectable (refused, audited, shown by `cleo doctor`), not preventable.
  *
  * ## Scope, expiry, uses (D11215)
  *
@@ -48,8 +58,9 @@ import {
   ownerKey,
   projectKey,
   provenance,
+  readSealedOwnerSetting,
+  writeSealedOwnerSetting,
 } from '../security/override-cap-setting.js';
-import { isAgentRoleForbidden, isTtyPresent } from '../security/owner-override-auth.js';
 import { atomicWriteJson } from '../store/atomic.js';
 
 /** The longest a grant may run (D11215). */
@@ -61,17 +72,29 @@ export const RELEASE_AUTHORIZATION_AUDIT_FILE = '.cleo/audit/release-authorizati
 /** The tag-message trailer that names the grant a cut used. */
 export const AUTHORIZED_BY_TRAILER = 'Authorized-by';
 
+/** The owner-settings key sealing how many grants were ever revoked. */
+export const REVOCATION_COUNT_SETTING = 'release.authorizationRevocations';
+
 const PROJECT_FILE = join('.cleo', 'release-authorizations.json');
 const CUT_AUDIT_FILE = '.cleo/audit/release-cut.jsonl';
+
+/** One owner-signed revocation. */
+interface Revocation {
+  id: string;
+  revokedAt: string;
+  /** Ed25519 signature (hex) over {@link revocationPayload}. */
+  sig: string;
+}
 
 interface ProjectFile {
   schemaVersion: 1;
   grants: ReleaseAuthorizationGrant[];
+  revoked: Revocation[];
 }
 
 interface GlobalRecord {
   grants: ReleaseAuthorizationGrant[];
-  revoked: Array<{ id: string; revokedAt: string }>;
+  revoked: Revocation[];
 }
 
 /** Outcome of a grant or revoke. */
@@ -92,7 +115,8 @@ function readJson<T>(path: string, fallback: T): T {
 }
 
 function readProject(projectRoot: string): ProjectFile {
-  return readJson<ProjectFile>(join(projectRoot, PROJECT_FILE), { schemaVersion: 1, grants: [] });
+  const file = readJson<Partial<ProjectFile>>(join(projectRoot, PROJECT_FILE), {});
+  return { schemaVersion: 1, grants: file.grants ?? [], revoked: file.revoked ?? [] };
 }
 
 function readGlobalAll(): Record<string, GlobalRecord> {
@@ -122,8 +146,58 @@ function grantPayload(projectRoot: string, g: Omit<ReleaseAuthorizationGrant, 's
     expiresAt: g.expiresAt,
     uses: g.uses,
     decisionId: g.decisionId,
+    revocationsAtIssue: g.revocationsAtIssue,
     ownerPubkey: g.ownerPubkey,
   });
+}
+
+/** The exact bytes a revocation's signature covers. */
+function revocationPayload(
+  projectRoot: string,
+  r: Omit<Revocation, 'sig'>,
+  ownerPubkey: string,
+): string {
+  return JSON.stringify({
+    kind: 'release-authorization-revocation',
+    project: projectKey(projectRoot),
+    id: r.id,
+    revokedAt: r.revokedAt,
+    ownerPubkey,
+  });
+}
+
+/**
+ * Why the revocation record cannot be trusted, or null. Any answer other than
+ * null makes every grant tampered (fail closed).
+ */
+async function revocationProblem(
+  projectRoot: string,
+  project: ProjectFile,
+  global: GlobalRecord,
+  ownerPubkey: string,
+): Promise<string | null> {
+  if (JSON.stringify(project.revoked) !== JSON.stringify(global.revoked))
+    return 'the project and global revocation lists differ';
+  const sealed = await readSealedOwnerSetting(projectRoot, REVOCATION_COUNT_SETTING);
+  if (sealed === 'tampered')
+    return `${REVOCATION_COUNT_SETTING} is not sealed by the enrolled owner key`;
+  const count = sealed ?? 0;
+  if (global.revoked.length !== count)
+    return `the revocation list holds ${global.revoked.length} entries, but the owner sealed ${count} in .cleo/owner-settings.json`;
+  const atIssue = Math.max(
+    0,
+    ...[...project.grants, ...global.grants].map((g) => g.revocationsAtIssue ?? 0),
+  );
+  if (atIssue > global.revoked.length)
+    return `a grant was issued after ${atIssue} revocations, but only ${global.revoked.length} are listed`;
+  const { verifyAuditLine } = await import('../identity/cleo-identity.js');
+  for (const r of global.revoked) {
+    if (
+      !(await verifyAuditLine(revocationPayload(projectRoot, r, ownerPubkey), r.sig, ownerPubkey))
+    )
+      return `revocation ${r.id} is not signed by the enrolled owner key`;
+  }
+  return null;
 }
 
 function audit(projectRoot: string, row: Record<string, string | number | null | boolean>): void {
@@ -221,9 +295,14 @@ export async function listReleaseAuthorizations(
   projectRoot: string,
   now: Date = new Date(),
 ): Promise<ReleaseAuthorizationStatus[]> {
-  const project = readProject(projectRoot).grants;
+  const projectFile = readProject(projectRoot);
+  const project = projectFile.grants;
   const global = readGlobal(projectRoot);
   const owner = await judgeOwnerState(projectRoot);
+  const revocationWhy =
+    owner.kind === 'ok'
+      ? await revocationProblem(projectRoot, projectFile, global, owner.file.ownerPubkey)
+      : null;
   const { verifyAuditLine } = await import('../identity/cleo-identity.js');
   const ids = [...new Set([...project, ...global.grants].map((g) => g.id))];
   const out: ReleaseAuthorizationStatus[] = [];
@@ -242,6 +321,9 @@ export async function listReleaseAuthorizations(
     } else if (owner.kind !== 'ok') {
       state = 'tampered';
       why = owner.kind === 'tampered' ? owner.why : 'no owner is enrolled';
+    } else if (revocationWhy !== null) {
+      state = 'tampered';
+      why = revocationWhy;
     } else if (
       grant.ownerPubkey !== owner.file.ownerPubkey ||
       !(await verifyAuditLine(grantPayload(projectRoot, grant), grant.sig, grant.ownerPubkey))
@@ -377,6 +459,7 @@ export async function grantReleaseAuthorization(
     expiresAt,
     uses: input.uses ?? null,
     decisionId,
+    revocationsAtIssue: readGlobal(projectRoot).revoked.length,
     ownerPubkey: state.file.ownerPubkey,
   };
   const { signAuditLine } = await import('../identity/cleo-identity.js');
@@ -385,7 +468,7 @@ export async function grantReleaseAuthorization(
 
   const project = readProject(projectRoot);
   await atomicWriteJson(join(projectRoot, PROJECT_FILE), {
-    schemaVersion: 1,
+    ...project,
     grants: [...project.grants, grant],
   });
   const global = readGlobal(projectRoot);
@@ -403,42 +486,67 @@ export async function grantReleaseAuthorization(
 }
 
 /**
- * Revoke a grant now. Revoking only removes power, so it needs the role fence
- * and a TTY but not the password. The grant leaves both files and its id is
- * recorded as revoked in the global file.
+ * Revoke a grant now. Owner-only like granting (the password signs the
+ * revocation): the grant leaves both files, a signed revocation entry joins
+ * both, and the revocation count is sealed in `.cleo/owner-settings.json`.
  *
  * @param projectRoot - Project root.
- * @param id - Grant id.
+ * @param input - The owner caller and the grant id.
  * @returns The revoked grant, or the refusal.
  *
  * @example
  * ```ts
- * await revokeReleaseAuthorization(root, 'ra-1a2b3c4d5e6f');
+ * await revokeReleaseAuthorization(root, { ...caller, id: 'ra-1a2b3c4d5e6f' });
  * ```
  *
  * @task T14141
  */
 export async function revokeReleaseAuthorization(
   projectRoot: string,
-  id: string,
+  input: OwnerCaller & { id: string },
 ): Promise<ReleaseAuthorizationResult> {
-  if (isAgentRoleForbidden() || !isTtyPresent()) {
-    const message = 'Only the owner at a terminal can revoke a release authorization.';
-    audit(projectRoot, { action: 'revoke-refused', id, reason: message });
-    return { ok: false, code: 'E_OVERRIDE_REFUSED', message }; // @sync-invariant none:local-only release grants are device-local owner files; refused before any write
-  }
+  const refuse = (code: string, message: string): ReleaseAuthorizationResult => {
+    audit(projectRoot, { action: 'revoke-refused', id: input.id, code, reason: message });
+    return { ok: false, code, message };
+  };
+  const check = ownerCheck(input);
+  if (!check.ok) return refuse(check.code, check.message);
+  const state = await judgeOwnerState(projectRoot);
+  if (state.kind !== 'ok')
+    return refuse(
+      'E_OWNER_NOT_ENROLLED', // @sync-invariant none:local-only release grants are device-local owner files; refused before any write
+      state.kind === 'tampered'
+        ? `Owner settings are not usable: ${state.why}`
+        : 'No owner is enrolled for this project.',
+    );
+  const key = await ownerKey(input.password, state.file.salt);
+  if (key.pubkeyHex !== state.file.ownerPubkey)
+    return refuse(
+      'E_OVERRIDE_TOKEN_INVALID', // @sync-invariant none:local-only release grants are device-local owner files; refused before any write
+      'The password does not match the owner key enrolled for this project.',
+    );
   const project = readProject(projectRoot);
   const global = readGlobal(projectRoot);
-  const grant = global.grants.find((g) => g.id === id) ?? project.grants.find((g) => g.id === id);
-  if (!grant) return { ok: false, code: 'E_NOT_FOUND', message: `No release authorization ${id}` }; // @sync-invariant none:input-shape an unknown grant id is refused before any write
+  const grant =
+    global.grants.find((g) => g.id === input.id) ?? project.grants.find((g) => g.id === input.id);
+  if (!grant) return refuse('E_NOT_FOUND', `No release authorization ${input.id}`); // @sync-invariant none:input-shape an unknown grant id is refused before any write
+  const unsigned = { id: input.id, revokedAt: new Date().toISOString() };
+  const { signAuditLine } = await import('../identity/cleo-identity.js');
+  const { sig } = await signAuditLine(
+    key,
+    revocationPayload(projectRoot, unsigned, state.file.ownerPubkey),
+  );
+  const revoked = [...global.revoked, { ...unsigned, sig }];
   await atomicWriteJson(join(projectRoot, PROJECT_FILE), {
     schemaVersion: 1,
-    grants: project.grants.filter((g) => g.id !== id),
+    grants: project.grants.filter((g) => g.id !== input.id),
+    revoked,
   });
   await writeGlobal(projectRoot, {
-    grants: global.grants.filter((g) => g.id !== id),
-    revoked: [...global.revoked, { id, revokedAt: new Date().toISOString() }],
+    grants: global.grants.filter((g) => g.id !== input.id),
+    revoked,
   });
-  audit(projectRoot, { action: 'revoke', id, scope: grant.scope });
+  await writeSealedOwnerSetting(projectRoot, REVOCATION_COUNT_SETTING, revoked.length, key);
+  audit(projectRoot, { action: 'revoke', id: input.id, scope: grant.scope, count: revoked.length });
   return { ok: true, grant };
 }

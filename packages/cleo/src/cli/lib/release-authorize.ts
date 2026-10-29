@@ -1,7 +1,7 @@
 /**
  * `cleo release authorize` — owner-signed standing release authorization
- * (T14141 · D11215). Grants go through core's owner check (role fence, TTY,
- * the owner-auth password); `--revoke` needs a TTY; `--list` reads.
+ * (T14141 · D11215). Grants and revokes go through core's owner check (role
+ * fence, TTY, the owner-auth password); `--list` reads.
  *
  * @task T14141
  */
@@ -42,9 +42,17 @@ export async function runReleaseAuthorize(args: ReleaseAuthorizeArgs): Promise<v
     return;
   }
   if (args.revoke) {
-    const result = await core.revokeReleaseAuthorization(root, args.revoke);
+    const { caller } = await ownerCaller('release authorization revoke');
+    const result = await core.revokeReleaseAuthorization(root, { ...caller, id: args.revoke });
     if (!result.ok) return fail(result.code, result.message);
-    cliOutput({ revoked: result.grant.id, scope: result.grant.scope }, meta);
+    cliOutput(
+      {
+        revoked: result.grant.id,
+        scope: result.grant.scope,
+        next: 'Commit .cleo/owner-settings.json: it seals the revocation count.',
+      },
+      meta,
+    );
     return;
   }
   if (!args.scope || !args.expires || !args.reason) {

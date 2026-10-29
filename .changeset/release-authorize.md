@@ -20,8 +20,12 @@ decision, and audited in `.cleo/audit/release-authorizations.jsonl`.
   carries `Authorized-by: <id>`.
 - Expiry is required, at most 30 days. There is no use limit unless `--uses`
   sets one; uses are counted from the cut audit rows and the tags.
-- `--revoke <id>` ends a grant now; restoring an old copy of the project file
-  does not revive it. `--list` shows each grant as active, expired, used up or
+- `--revoke <id>` ends a grant now. It is owner-only like a grant: the
+  password signs the revocation, both files record it, and the revocation
+  count is sealed in the git-tracked `.cleo/owner-settings.json`. Restoring
+  old copies of the grant files does not revive a revoked grant; an edited,
+  unsigned or shortened revocation list makes every grant tampered (fail
+  closed). `--list` shows each grant as active, expired, used up, revoked or
   tampered.
 - A grant edited by hand, missing from one of its two files, or not signed by
   the enrolled key is ignored, audited, and reported by `cleo doctor`.
