@@ -611,7 +611,7 @@ describe('resolveCiEvidenceAtom', () => {
       );
       const r = await resolve({
         context: context('T1', ['testsPassed', 'qaPassed']),
-        resolvePr: pr(['scripts/packed-install-smoke.mjs']),
+        resolvePr: pr(['scripts/a.mjs']),
         fetchChecks: async () => ({ ok: true, checks: templated }),
       });
       expect(r.ok, JSON.stringify(r)).toBe(true);
