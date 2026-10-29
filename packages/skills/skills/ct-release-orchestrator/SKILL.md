@@ -124,11 +124,18 @@ cleo release open v2026.6.0 --no-commit-plan
 # 3. (Optional) Poll PR + CI status while the workflow runs.
 cleo release pr-status v2026.6.0
 
-# 4. After the release PR merges, tag explicitly (auto-tag is retired).
+# 4. Before the tag, prove macOS on the owner's Mac (T14104): release-prepare
+#    runs no macOS shards. Check out the exact commit to tag, then:
+node scripts/release-mac-smoke.mjs
+#    Builds it, snapshots the real stores into a sandbox (outside the backup
+#    rotation), runs the built CLI in a sandboxed HOME and writes evidence +
+#    SHA256SUMS to .cleo/release-smoke/<sha>/. Exit 0 = every command passed.
+
+# 5. After the release PR merges, tag explicitly (auto-tag is retired).
 git tag -a v2026.6.0 -m "Release v2026.6.0"
 git push origin v2026.6.0
 
-# 5. Reconcile — runs automatically inside release-publish.yml.
+# 6. Reconcile — runs automatically inside release-publish.yml.
 #    Run manually only if backfilling a historical release.
 cleo release reconcile v2026.6.0
 ```

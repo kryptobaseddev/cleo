@@ -353,10 +353,6 @@ describe('releaseOpen — workflow input schema parity (T10105)', () => {
           if (endpoint.includes('/actions/workflows/ci.yml/runs')) {
             return JSON.stringify({ workflow_runs: [run(1, 'push')] });
           }
-          if (endpoint.includes('/actions/runs?head_sha=')) {
-            // Every run of the commit: the push run and the nightly.
-            return JSON.stringify({ workflow_runs: [run(1, 'push'), run(2, 'schedule')] });
-          }
           if (endpoint.includes('/actions/runs/1/jobs')) {
             // A green push run skips Linux tests only if its Linux Unit Tests
             // shards actually ran (a docs-only push is green with none).
@@ -365,11 +361,6 @@ describe('releaseOpen — workflow input schema parity (T10105)', () => {
                 { name: 'Unit Tests (ubuntu-latest, shard 1)', conclusion: 'success' },
                 { name: 'Unit Tests (ubuntu-latest, shard 2)', conclusion: 'success' },
               ],
-            });
-          }
-          if (endpoint.includes('/actions/runs/2/jobs')) {
-            return JSON.stringify({
-              jobs: [{ name: 'Unit Tests (macos-latest, shard 1)', conclusion: 'success' }],
             });
           }
           return JSON.stringify({ jobs: [] });
@@ -383,7 +374,6 @@ describe('releaseOpen — workflow input schema parity (T10105)', () => {
     expect(result.data?.preflight).toMatchObject({
       verifiedSha: sha,
       skipTests: true,
-      skipMacosTests: true,
     });
 
     const dispatched = runner.calls.find((c) => c.args[0] === 'workflow' && c.args[1] === 'run');
@@ -397,7 +387,8 @@ describe('releaseOpen — workflow input schema parity (T10105)', () => {
       }
     }
     expect(passed.get('skip-tests')).toBe('true');
-    expect(passed.get('skip-macos-tests')).toBe('true');
+    // T14104: release-prepare has no macOS shards, so nothing about macOS is sent.
+    expect(passed.has('skip-macos-tests')).toBe(false);
     expect(passed.get('verified-sha')).toBe(sha);
     expect(passed.get('skip-reason')).toContain('Linux tests skipped');
 

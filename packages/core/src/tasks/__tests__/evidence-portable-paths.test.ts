@@ -30,6 +30,8 @@ const VITEST_JSON = JSON.stringify({
   numTotalTests: 2,
   numPassedTests: 2,
   numFailedTests: 0,
+  numPendingTests: 0,
+  numTodoTests: 0,
   testResults: [{ status: 'passed' }],
 });
 const TAMPERED_JSON = JSON.stringify({ numTotalTests: 9 });

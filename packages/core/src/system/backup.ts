@@ -65,7 +65,7 @@ import {
   unlinkSync,
   writeFileSync,
 } from 'node:fs';
-import { dirname, join } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
 import type { StoreRestoreResult } from '@cleocode/contracts';
 import { ExitCode } from '@cleocode/contracts/exit-codes.js';
 import { CleoError } from '../errors.js';
@@ -264,6 +264,15 @@ export async function createBackup(
      * @task T9194
      */
     maxSnapshots?: number;
+    /**
+     * Write every file of this backup into this directory instead of
+     * `.cleo/backups/sqlite/`. A destination backup sits outside the
+     * snapshot window: it never rotates or sweeps that window, and nothing
+     * there rotates it.
+     *
+     * @task T13209
+     */
+    destination?: string;
   },
 ): Promise<BackupResult> {
   const cleoDir = join(projectRoot, '.cleo');
@@ -274,7 +283,9 @@ export async function createBackup(
   // `sqlite-backup.ts:formatTimestamp`. The `type` discriminates manual
   // snapshots from auto-VACUUM-INTO files in the SAME directory.
   const backupId = `${btype}-${formatBackupTimestamp(now)}`;
-  const backupDir = join(cleoDir, 'backups', CANONICAL_BACKUP_SUBDIR);
+  const backupDir = opts?.destination
+    ? resolve(opts.destination)
+    : join(cleoDir, 'backups', CANONICAL_BACKUP_SUBDIR);
 
   if (!existsSync(backupDir)) {
     mkdirSync(backupDir, { recursive: true });
@@ -413,14 +424,16 @@ export async function createBackup(
 
   // T9194: Rotate oldest backups when the cap is exceeded. Scoped to the
   // current `backupType` so vacuum-snapshot files in the same dir are never
-  // touched.
-  const maxSnapshots = opts?.maxSnapshots ?? DEFAULT_MAX_SNAPSHOTS;
-  rotateBackupDir(backupDir, maxSnapshots, btype);
-  // T13710: pool bytes no surviving backup references go with the rotation.
-  try {
-    sweepDocsBytePool(backupDir);
-  } catch {
-    // non-fatal — an unswept pool file only costs space
+  // touched. A destination backup is outside the window (T13209).
+  if (!opts?.destination) {
+    const maxSnapshots = opts?.maxSnapshots ?? DEFAULT_MAX_SNAPSHOTS;
+    rotateBackupDir(backupDir, maxSnapshots, btype);
+    // T13710: pool bytes no surviving backup references go with the rotation.
+    try {
+      sweepDocsBytePool(backupDir);
+    } catch {
+      // non-fatal — an unswept pool file only costs space
+    }
   }
 
   return {
@@ -772,12 +785,17 @@ export async function createGlobalBackup(opts?: {
    * discarded copy is deleted; nothing is renamed, listed or rotated.
    */
   discardIf?: () => string | null;
+  /**
+   * Write the copy and its sidecar into this directory instead of the global
+   * backup dir, outside the rotation (T13209).
+   */
+  destination?: string;
 }): Promise<BackupResult> {
   const btype = opts?.type || 'snapshot';
   const now = new Date();
   const timestamp = now.toISOString();
   const backupId = `${btype}-${formatBackupTimestamp(now)}`;
-  const backupDir = globalBackupDir();
+  const backupDir = opts?.destination ? resolve(opts.destination) : globalBackupDir();
   mkdirSync(backupDir, { recursive: true });
   const backedUp: string[] = [];
   /** T13724: a failed store capture is reported, never swallowed. */
@@ -826,7 +844,9 @@ export async function createGlobalBackup(opts?: {
         2,
       ),
     );
-    rotateBackupDir(backupDir, opts?.maxSnapshots ?? DEFAULT_MAX_SNAPSHOTS, btype);
+    if (!opts?.destination) {
+      rotateBackupDir(backupDir, opts?.maxSnapshots ?? DEFAULT_MAX_SNAPSHOTS, btype);
+    }
   }
   return {
     backupId,

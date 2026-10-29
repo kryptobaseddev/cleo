@@ -783,13 +783,14 @@ export function evaluateMergeCommitChecks(
     }
     // T12742: only a superseded (cancelled/skipped) merge-commit verdict may
     // be stood in for, and only by a later main commit's own push runs. A
-    // check whose workflow was cancelled while queued (T14103) is superseded.
+    // check that never ran in a cancelled or skipped run of its pinned
+    // workflow (T14103, T14144) is superseded.
     if (
       descendantSha !== undefined &&
       descendantSha !== mergeCommitSha &&
       (SUPERSEDED_VERDICTS.has(onMerge.verdict) ||
         (onMerge.verdict === 'missing' &&
-          cancelledBeforeStart(checks, mergeCommitSha, pins[name])) ||
+          neverRanInSupersededRun(checks, mergeCommitSha, pins[name])) ||
         opts.currentHead === true ||
         (opts.inheritedFailures === true &&
           onMerge.verdict !== 'missing' &&
@@ -937,8 +938,8 @@ export type SupersededOnMergeResult = { ok: true; names: string[] } | { ok: fals
  * or `skipped`, and no run of a required check or of a job in a pinned
  * workflow on the merge commit — any attempt — concluded with a failure. A
  * failed, timed-out or pending check is never superseded, nor is a missing
- * one unless its pinned workflow's run was cancelled before any job started
- * (T14103). Pure.
+ * one unless its pinned workflow's run on the merge commit was cancelled or
+ * skipped, so it never ran (T14103, T14144). Pure.
  *
  * @param required - Required check names.
  * @param checks - Every check fetched for the merge commit (and PR head).
@@ -974,7 +975,10 @@ export function supersededOnMerge(
     ) {
       continue;
     }
-    if (onMerge.verdict === 'missing' && cancelledBeforeStart(checks, mergeCommitSha, pins[name])) {
+    if (
+      onMerge.verdict === 'missing' &&
+      neverRanInSupersededRun(checks, mergeCommitSha, pins[name])
+    ) {
       names.push(name);
       continue;
     }
@@ -992,25 +996,31 @@ export function supersededOnMerge(
 }
 
 /**
- * Whether the pinned workflow's run on `sha` was cancelled while still queued
- * (T14103): ci.yml's main concurrency group cancels a WAITING run when a newer
- * push arrives, before any job starts, so GitHub records the cancelled
- * workflow run and no check run of that workflow at all. A job missing from a
- * run that did start is not this, and stays unproven.
+ * Whether a required check with no run on `sha` belongs to a pinned workflow
+ * run there that was cancelled or skipped (T14103, T14144). A cancelled run
+ * never starts the jobs it had not reached — a run cancelled while still
+ * queued starts none — so GitHub records no check run for them: such a check
+ * was superseded, not failed. A check that ran and failed is refused before
+ * this is asked ({@link firstRealFailure}); one whose workflow is unpinned, or
+ * whose workflow run finished any other way, stays unproven.
  */
-function cancelledBeforeStart(
+function neverRanInSupersededRun(
   checks: readonly CommitCheck[],
   sha: string,
   pin: RequiredCheckPinSpec | undefined,
 ): boolean {
   if (pin?.workflow === undefined) return false;
-  const ofWorkflow = checks.filter(
-    (c) => c.headSha === sha && c.workflowPath === pin.workflow && c.event === 'push',
+  const runs = checks.filter(
+    (c) =>
+      c.headSha === sha &&
+      c.source === 'workflow-run' &&
+      c.workflowPath === pin.workflow &&
+      c.event === 'push' &&
+      pinMatches(c, pin),
   );
-  const runs = ofWorkflow.filter((c) => c.source === 'workflow-run' && pinMatches(c, pin));
-  if (runs.length === 0 || ofWorkflow.some((c) => c.source !== 'workflow-run')) return false;
+  if (runs.length === 0) return false;
   const latest = runs.reduce((a, b) => (b.id > a.id ? b : a));
-  return latest.status === 'completed' && latest.conclusion === 'cancelled';
+  return latest.status === 'completed' && SUPERSEDED_VERDICTS.has(latest.conclusion ?? '');
 }
 
 /** Latest completed run per (name, source, event) on `sha` within `scope`. */

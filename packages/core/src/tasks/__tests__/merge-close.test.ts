@@ -33,6 +33,7 @@ import {
   defaultMergeCloseDeps,
   formatMergeReceipt,
   judgeMergedPr,
+  lockHolds,
   MERGE_CLOSE_AUDIT_ACTION,
   MERGE_SWEEP_INTERVAL_MS,
   MERGE_SWEEP_LOCK_STALE_MS,
@@ -516,6 +517,62 @@ describe('one sweep also runs the upkeep hooks (T14101)', () => {
     expect(first.hooks?.reconcile).toEqual({ version: 'v2026.10.27', action: 'already' });
     await sweepMergedClosures(root, { force: true }, hooked);
     expect(flaggedFor).toEqual([[id]]);
+  });
+
+  it('cleans up after the applied tasks only when opted in (T14142)', async () => {
+    const cleanedFor: string[][] = [];
+    const sweep = async (prNumber: number, enabled: boolean) => {
+      const id = await seedTask(['only criterion']);
+      const { deps } = fakeDeps([pr(prNumber, `Closes: ${id} AC1`)]);
+      const result = await sweepMergedClosures(
+        root,
+        { force: true },
+        {
+          ...deps,
+          canCleanup: () => enabled,
+          cleanupMerged: async (_root, taskIds) => {
+            cleanedFor.push(taskIds);
+            return {
+              dryRun: false,
+              base: 'origin/main',
+              worktrees: [],
+              localBranches: [],
+              remoteBranches: [],
+              nestedCopies: [],
+              bytesReclaimed: 0,
+            };
+          },
+        },
+      );
+      return { id, result };
+    };
+    const off = await sweep(21, false);
+    expect(off.result.hooks?.cleanup).toBeUndefined();
+    expect(cleanedFor).toEqual([]);
+    const on = await sweep(22, true);
+    expect(on.result.hooks?.cleanup).toHaveLength(1);
+    expect(cleanedFor).toEqual([[on.id]]);
+  });
+
+  it('never cleans up after a Refs: PR: its task is still in progress (T14142)', async () => {
+    const id = await seedTask(['first', 'second']);
+    let called = false;
+    const { deps } = fakeDeps([pr(23, `Refs: ${id} AC1`)]);
+    const result = await sweepMergedClosures(
+      root,
+      { force: true },
+      {
+        ...deps,
+        canCleanup: () => true,
+        cleanupMerged: async () => {
+          called = true;
+          throw new Error('must not run for a bound task');
+        },
+      },
+    );
+    expect(result.bound).toEqual([id]);
+    expect(called).toBe(false);
+    expect(result.hooks?.cleanup).toBeUndefined();
   });
 });
 
@@ -1034,6 +1091,41 @@ describe('re-review fixes (#2555 at d95a2597c)', () => {
     expect(calls.comments).toHaveLength(2);
     const state = JSON.parse(readFileSync(join(root, '.cleo', 'merge-sweep.json'), 'utf-8'));
     expect(state.waiting).toEqual({});
+    // T14139: a third sweep posts nothing more.
+    world.now += HOUR * 7;
+    await sweepMergedClosures(root, { force: true }, { ...sweep, listMergedPrs: async () => [] });
+    expect(calls.comments).toHaveLength(2);
+  });
+
+  it('age-out skips a task already done by another route: no refusal, no comment (T14139)', async () => {
+    const id = await seedTask(['only criterion']);
+    const merged = pr(65, `Closes: ${id} AC1`);
+    const { deps, world, calls } = fakeDeps([merged]);
+    const sweep = { ...deps, reviewVerdicts: async () => [] };
+    await sweepMergedClosures(root, { force: true }, sweep);
+    expect(calls.comments).toHaveLength(1);
+    await env.accessor.updateTaskFields(id, { status: 'done', pipelineStage: 'contribution' });
+    world.now += MERGE_WAITING_MAX_AGE_MS + HOUR;
+    const aged = await sweepMergedClosures(
+      root,
+      { force: true },
+      { ...sweep, listMergedPrs: async () => [] },
+    );
+    expect(aged.refused).toEqual([]);
+    expect(aged.prs[0]?.outcomes[0]?.action).toBe('already');
+    expect(calls.comments).toHaveLength(1);
+  });
+
+  it('the lock is taken only while the path holds our own token (T14139)', () => {
+    const release = acquireMergeSweepLock(root);
+    expect(release).not.toBeNull();
+    const token = readFileSync(lockPath(), 'utf-8');
+    expect(lockHolds(lockPath(), token)).toBe(true);
+    // A third party swaps the lock: our token no longer holds, and release leaves theirs.
+    writeFileSync(lockPath(), 'someone-else');
+    expect(lockHolds(lockPath(), token)).toBe(false);
+    release?.();
+    expect(readFileSync(lockPath(), 'utf-8')).toBe('someone-else');
   });
 
   it('a sweep past its run cap carries the rest on the waiting list', async () => {

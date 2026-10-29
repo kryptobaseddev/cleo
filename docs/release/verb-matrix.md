@@ -57,6 +57,10 @@ in-memory plan envelope.
 | `ship-e2e-smoke <ver>`  | _(validator — no DB writes)_ | _(none directly — invokes `plan` + `open` then polls)_ | _(none directly)_                                | Dry-run by default. With `--execute`: runs `plan` + `open`, then polls `gh pr` + `git ls-remote --tags` + `npm view` | Added by **T10103**. One-shot end-to-end validator. |
 | `validate-changelog <ver>` | _(validator — no DB writes)_ | _(none)_                       | _(none)_                                              | Reads `CHANGELOG.md`; asserts canonical `## [<ver>]` header (ADR-028 §2.5)   | Added by **T9937** (Saga T9862). Replaces the brittle `grep -qF "## [VERSION]"` step in `release.yml`. |
 
+`release-prepare` runs no macOS test shards, and `open` sends no macOS skip
+(T14104): macOS is validated on main by `macos-main.yml` and on the owner's
+Mac by `node scripts/release-mac-smoke.mjs` before the tag.
+
 ## What was removed (DO NOT use)
 
 These verbs no longer exist. Update any docs, scripts, or hot-keys that

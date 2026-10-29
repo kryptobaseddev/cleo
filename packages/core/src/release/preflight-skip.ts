@@ -6,9 +6,8 @@
  * checks out — main's HEAD — which is the commit main's own push CI has
  * already tested. When that push run is green, the release-prepare shards
  * prove nothing new and cost ~20 minutes of the release's critical path.
- * Likewise the macOS shards, which moved from every main push to nightly +
- * release: when the nightly macOS jobs for the exact commit are green, the
- * release has nothing left to learn from them.
+ * `release-prepare` runs no macOS shards at all (T14104): macOS is validated
+ * on main by macos-main.yml and on the owner's Mac, never on the release path.
  *
  * Every decision is forwarded to the workflow with ONE commit SHA, main's
  * HEAD, as `verified-sha`. The workflow honours a skip only when it checked
@@ -32,9 +31,7 @@
  * repo files outside its `code` filter, and this preflight was their backstop.
  * The walk is bounded by {@link MAX_EQUIVALENT_ANCESTORS}, the whole decision
  * by {@link PREFLIGHT_DEADLINE_MS}, and the commits it took are named in the
- * reason. For macOS, the NEWEST completed `push` or `schedule` run with macOS
- * jobs (ci.yml or T13143's main-push workflow, {@link MACOS_WORKFLOWS}) of any
- * commit on that walk decides.
+ * reason.
  *
  * T13823: `cleo release open` usually runs seconds after the release-plan PR
  * merges, while main's push CI for that very commit is still queued. With
@@ -50,16 +47,11 @@
  * @task release-speed
  */
 
-import { execFileSync } from 'node:child_process';
-
 /** Timeout for each `gh` call made while deciding preflight skips (ms). */
 export const PREFLIGHT_CHECK_TIMEOUT_MS = 15_000;
 
 /** Workflow file whose `push` run on main carries the Linux test shards. */
 export const MAIN_CI_WORKFLOW = 'ci.yml' as const;
-
-/** Most runs whose jobs are inspected for macOS results (bounds `gh` calls). */
-const MAX_MACOS_CANDIDATE_RUNS = 5;
 
 /**
  * Most first-parent steps taken from HEAD to a commit whose push CI tested the
@@ -92,9 +84,6 @@ export const PREFLIGHT_IN_FLIGHT_POLL_MS = 30_000;
 /** Most pages of 100 jobs read for one run (a run listing more jobs is unreadable). */
 const MAX_JOB_PAGES = 3;
 
-/** Workflows whose `push`/`schedule` runs carry macOS test jobs (T13143's main-push workflow too). */
-export const MACOS_WORKFLOWS: readonly string[] = ['ci.yml', 'macos-main.yml'];
-
 /** The compare API lists at most this many files; a list that long may be truncated. */
 const MAX_COMPARE_FILES = 300;
 
@@ -104,11 +93,6 @@ export interface PreflightSkipOptions {
   deadlineMs?: number;
   /** Clock (tests). */
   now?: () => number;
-  /**
-   * Commits from `from` to `to` (T13187: how far the newest green macOS commit
-   * is behind HEAD); defaults to `git rev-list --count` in `cwd`, null when unknown.
-   */
-  commitsBehind?: (from: string, to: string, cwd: string) => number | null;
   /**
    * T13823: how long to wait for a queued or in-progress push run to complete
    * (default 0: an unfinished run means the tests run). Waiting time does not
@@ -194,9 +178,7 @@ export interface PreflightSkipDecision {
    * shards for {@link testedSha}, forwarded as `reused-ci-run`; `null` when the tests run.
    */
   testedRunId: number | null;
-  /** True iff every macOS job of a nightly (or push) run for {@link verifiedSha} or an equivalent ancestor succeeded. */
-  skipMacosTests: boolean;
-  /** Human-readable account of both decisions (lands in the run summary). */
+  /** Human-readable account of the decision (lands in the run summary). */
   reason: string;
 }
 
@@ -298,41 +280,6 @@ function isUnitTestJob(name: string): boolean {
   return /^Unit Tests\b/.test(name);
 }
 
-/**
- * The newest successful run among per-workflow listings of macOS verdicts
- * (T13187): the main-push macOS workflow's runs, and ci.yml's nightly
- * `schedule` runs. A ci.yml push run is Linux-only, so it is never listed.
- * One listing per workflow, so a busy day of other workflows' runs cannot
- * push the macOS run off the page (T13187 review).
- *
- * @param raws - `GET /actions/workflows/<file>/runs?...&status=success` bodies, or null.
- * @returns The newest run, or undefined when none is listed.
- */
-function newestGreenMacosRun(raws: ReadonlyArray<string | null>): WorkflowRunSummary | undefined {
-  return raws
-    .flatMap((raw) => (raw === null ? [] : parseRuns(raw)))
-    .filter((run) => run.conclusion === 'success')
-    .sort((a, b) => b.id - a.id)[0];
-}
-
-/**
- * Commits between `from` and `to` in the local clone (`git rev-list --count`),
- * or null when either is not in local history.
- */
-function defaultCommitsBehind(from: string, to: string, cwd: string): number | null {
-  try {
-    const out = execFileSync('git', ['rev-list', '--count', `${from}..${to}`], {
-      cwd,
-      encoding: 'utf8',
-      stdio: ['ignore', 'pipe', 'ignore'],
-      timeout: 10_000,
-    }).trim();
-    return /^\d+$/.test(out) ? Number(out) : null;
-  } catch {
-    return null;
-  }
-}
-
 /** A job that ran the test suite on macOS, by the name GitHub renders for it. */
 function isMacosJob(name: string): boolean {
   return /mac\s*os/i.test(name);
@@ -399,9 +346,6 @@ function shortSha(sha: string): string {
  *   `Unit Tests` job was skipped) of a release-plan commit does not qualify by
  *   itself; the same check then runs on its first parent, up to
  *   {@link MAX_EQUIVALENT_ANCESTORS} steps (T13140).
- * - macOS: skipped iff the newest completed `schedule` or `push` run with
- *   macOS jobs, of HEAD or a commit that walk took, has every macOS job
- *   concluded `success`.
  *
  * Never throws: any error, or the {@link PREFLIGHT_DEADLINE_MS} budget running
  * out, resolves to running the suite.
@@ -453,7 +397,6 @@ export function decidePreflightSkips(
       skipTests: false,
       testedSha: null,
       testedRunId: null,
-      skipMacosTests: false,
       reason: `Could not resolve the HEAD of ${branch} via gh; running every preflight suite.`,
     };
   }
@@ -560,68 +503,12 @@ export function decidePreflightSkips(
     cur = parent;
   }
 
-  // ── macOS: the NEWEST completed run with macOS jobs, of any equivalent commit ──
-  const candidates: WorkflowRunSummary[] = [];
-  for (const commit of equivalent) {
-    const raw = gh(['api', `repos/{owner}/{repo}/actions/runs?head_sha=${commit}&per_page=50`]);
-    if (raw === null) continue;
-    for (const run of parseRuns(raw)) {
-      if (
-        run.headSha === commit &&
-        run.status === 'completed' &&
-        (run.event === 'schedule' || run.event === 'push') &&
-        MACOS_WORKFLOWS.some((w) => run.path.endsWith(`/${w}`))
-      )
-        candidates.push(run);
-    }
-  }
-  // Newest first: a later failure outranks an older pass of an equivalent tree.
-  candidates.sort((a, b) => b.id - a.id);
-  let skipMacosTests = false;
-  let macosReason = `macOS tests run: ${timedOut ? outOfTime : `no completed run with macOS jobs for ${shortSha(sha)}${equivalent.length > 1 ? ` or the ${equivalent.length - 1} equivalent ancestor(s)` : ''}`}.`;
-  for (const run of candidates.slice(0, MAX_MACOS_CANDIDATE_RUNS)) {
-    const jobs = fetchJobs(gh, run.id);
-    if (jobs === null) continue;
-    const macosJobs = jobs.filter((j) => isMacosJob(j.name));
-    if (macosJobs.length === 0) continue;
-    const failed = macosJobs.filter((j) => j.conclusion !== 'success');
-    if (failed.length === 0) {
-      skipMacosTests = true;
-      macosReason = `macOS tests skipped: all ${macosJobs.length} macOS job(s) of the newest ${run.event} run for ${shortSha(run.headSha)} are green (${run.url}).`;
-    } else {
-      macosReason = `macOS tests run: ${failed.length} macOS job(s) of the newest ${run.event} run for ${shortSha(run.headSha)} did not succeed (${run.url}).`;
-    }
-    break;
-  }
-  // T13187: when the shards run, name the newest main commit that does have a
-  // green macOS run, so the operator can see how far behind it is (or tag that
-  // commit's equivalent instead of waiting).
-  if (!skipMacosTests && !timedOut) {
-    const green = newestGreenMacosRun([
-      gh([
-        'api',
-        `repos/{owner}/{repo}/actions/workflows/macos-main.yml/runs?branch=${branch}&status=success&per_page=1`,
-      ]),
-      gh([
-        'api',
-        `repos/{owner}/{repo}/actions/workflows/${MAIN_CI_WORKFLOW}/runs?branch=${branch}&event=schedule&status=success&per_page=1`,
-      ]),
-    ]);
-    if (green) {
-      const behind = (options.commitsBehind ?? defaultCommitsBehind)(green.headSha, sha, cwd);
-      macosReason += ` Newest ${branch} commit with a green macOS run: ${shortSha(green.headSha)}${behind === null ? '' : `, ${behind} commit(s) behind ${shortSha(sha)}`} (${green.url}).`;
-    } else {
-      macosReason += ` No recent green macOS run on ${branch} was found.`;
-    }
-  }
-
   return {
     verifiedSha: sha,
     skipTests,
     testedSha,
     testedRunId,
-    skipMacosTests,
-    reason: `${linuxReason} ${macosReason}`,
+    reason: linuxReason,
   };
 }
 
@@ -655,11 +542,10 @@ export function retargetPreflightSkips(
     skipTests: false,
     testedSha: null,
     testedRunId: null,
-    skipMacosTests: false,
     reason: `Every preflight suite runs on ${ref} (${shortSha(refSha)}): ${why}`,
   });
   if (decision.verifiedSha === null) return drop(decision.reason);
-  if (!decision.skipTests && !decision.skipMacosTests) return { ...decision, verifiedSha: refSha };
+  if (!decision.skipTests) return { ...decision, verifiedSha: refSha };
   let body: unknown = null;
   try {
     body = parseJson(

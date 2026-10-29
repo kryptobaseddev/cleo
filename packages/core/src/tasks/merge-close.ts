@@ -41,6 +41,7 @@ import type {
   GhPrViewPayload,
   MacosRegressionSync,
   MergeDirective,
+  MergedCleanupResult,
   MergePrOutcome,
   MergeReceipt,
   MergeSweepHooks,
@@ -178,6 +179,17 @@ export interface MergeCloseDeps {
     storeRoot: string,
     pr: { prNumber: number; mergeSha: string; taskIds: string[] },
   ): Promise<string[]>;
+  /**
+   * Remove what a merged PR's tasks left behind (T14142): canonical worktrees,
+   * `task/*` branches, nested repository copies. Runs only when
+   * {@link MergeCloseDeps.canCleanup} says so.
+   */
+  cleanupMerged?(storeRoot: string, taskIds: string[]): Promise<MergedCleanupResult>;
+  /**
+   * Whether this sweep may delete (T14142). Off by default: a sweep that
+   * deletes on its own proves itself on a few releases first.
+   */
+  canCleanup?(): boolean;
   /**
    * Reconcile the newest published release's provenance (T14102).
    */
@@ -508,6 +520,9 @@ export function acquireMergeSweepLock(
   } catch {
     return null;
   }
+  // T14139: a third party may have swapped the lock between our steal and our
+  // create; sweep only if the lock path holds our own token.
+  if (!lockHolds(lock, token)) return null;
   const heartbeat = setInterval(() => {
     try {
       const now = new Date();
@@ -520,11 +535,27 @@ export function acquireMergeSweepLock(
   return () => {
     clearInterval(heartbeat);
     try {
-      if (readFileSync(lock, 'utf-8') === token) unlinkSync(lock);
+      if (lockHolds(lock, token)) unlinkSync(lock);
     } catch {
       // Already gone or taken over: nothing of ours to remove.
     }
   };
+}
+
+/**
+ * Whether the lock path holds `token` (T14139).
+ *
+ * @param lock - The lock path.
+ * @param token - The token expected.
+ * @returns True when the lock file reads exactly `token`.
+ * @internal Exported for tests.
+ */
+export function lockHolds(lock: string, token: string): boolean {
+  try {
+    return readFileSync(lock, 'utf-8') === token;
+  } catch {
+    return false;
+  }
 }
 
 /**
@@ -953,6 +984,18 @@ async function applyMergedPrs(
         .catch(() => []);
       hooks.docsRot = [...(hooks.docsRot ?? []), ...flagged];
     }
+    // T14142: clean up after the tasks this PR completed, only when opted in. A
+    // `Refs:` (bound) task is still in progress: its worktree and branch stay.
+    const closed = entry.outcomes.filter((o) => o.action === 'closed');
+    if (!dryRun && deps.cleanupMerged && deps.canCleanup?.() === true && closed.length > 0) {
+      const cleaned = await deps
+        .cleanupMerged(
+          storeRoot,
+          closed.map((o) => o.taskId),
+        )
+        .catch(() => null);
+      if (cleaned !== null) hooks.cleanup = [...(hooks.cleanup ?? []), cleaned];
+    }
     result.prs.push(entry);
   }
   return hooks;
@@ -1177,17 +1220,25 @@ async function ageOutWaiting(
   dryRun: boolean,
   result: MergeSweepResult,
 ): Promise<void> {
+  const { getTaskAccessor } = await import('../store/data-accessor.js');
+  const accessor = await getTaskAccessor(storeRoot);
   for (const [prNumber, entry] of agedOut) {
     const reason = entry.verdictOnly
       ? 'waited 14 days without a reviewer verdict'
       : `waited 14 days without closing: ${entry.reason}`;
-    const outcomes: MergeTaskOutcome[] = entry.lines.map((line) => ({
-      taskId: line.taskId,
-      acs: line.acs,
-      action: 'refused',
-      reason,
-    }));
-    for (const o of outcomes) result.refused.push({ taskId: o.taskId, prNumber, reason });
+    const outcomes: MergeTaskOutcome[] = [];
+    for (const line of entry.lines) {
+      // T14139: a task closed by another route meanwhile is not refused, nor commented.
+      const status = (await accessor.loadSingleTask(line.taskId))?.status;
+      const closed = status === 'done' || status === 'cancelled';
+      outcomes.push(
+        closed
+          ? { ...line, action: 'already', reason: `${line.taskId} is already ${status}.` }
+          : { ...line, action: 'refused', reason },
+      );
+    }
+    for (const o of outcomes)
+      if (o.action === 'refused') result.refused.push({ taskId: o.taskId, prNumber, reason });
     result.prs.push({ prNumber, mergeSha: entry.mergeSha, outcomes });
     if (dryRun) continue;
     const pr: MergedPrRecord = {
@@ -1664,6 +1715,15 @@ export const defaultMergeCloseDeps: MergeCloseDeps = {
   async reviewVerdicts(storeRoot, taskId, prNumber) {
     const { reviewVerdictsFor } = await import('./review-verdict.js');
     return reviewVerdictsFor(storeRoot, taskId, prNumber);
+  },
+  async cleanupMerged(storeRoot, taskIds) {
+    const { cleanupMergedWork } = await import('../worktree/merged-cleanup.js');
+    return cleanupMergedWork({ projectRoot: storeRoot, taskIds, dryRun: false });
+  },
+  canCleanup() {
+    // Off until it has proven itself on a few releases; opt in with
+    // CLEO_MERGE_SWEEP_CLEANUP=1, and never inside a CI job.
+    return process.env['CLEO_MERGE_SWEEP_CLEANUP'] === '1' && process.env['CI'] !== 'true';
   },
   async docsRot(storeRoot, pr) {
     // T14111: flag the docs whose covers: globs match the merge's own changes.
