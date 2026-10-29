@@ -642,7 +642,7 @@
     },
     {
       "name": "ct-documentor",
-      "version": "3.30.1",
+      "version": "3.31.0",
       "description": "Documentation coordinator with CLEO style guide compliance. Routes every canonical-doc write (spec, adr, research, handoff, note, llm-readme) through the docs SSoT via `cleo docs add` / `cleo docs publish` / `cleo docs fetch` — never raw filesystem writes. Carries the CLEO writing and review guides as references and coordinates ct-spec-writer and ct-adr-recorder. Use when creating or updating documentation files, consolidating scattered documentation, or validating documentation against style standards. Triggers on documentation tasks, doc update requests, or style guide compliance checks.",
       "path": "skills/ct-documentor",
       "tier": 0,
@@ -1001,7 +1001,7 @@
     },
     {
       "name": "ct-orchestrator",
-      "version": "4.1.7",
+      "version": "4.1.8",
       "description": "Pipeline-aware orchestration skill for managing complex workflows through subagent delegation. Use when the user asks to \\\"orchestrate\\\", \\\"orchestrator mode\\\", \\\"run as orchestrator\\\", \\\"delegate to subagents\\\", \\\"coordinate agents\\\", \\\"spawn subagents\\\", \\\"multi-agent workflow\\\", \\\"context-protected workflow\\\", \\\"agent farm\\\", \\\"HITL orchestration\\\", \\\"pipeline management\\\", or needs to manage complex workflows by delegating work to subagents while protecting the main context window. Enforces ORC-001 through ORC-009 constraints. Provider-neutral — works with any AI agent runtime.",
       "path": "skills/ct-orchestrator",
       "tier": 0,

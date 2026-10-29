@@ -14,6 +14,7 @@
 
 import type { Task } from '@cleocode/contracts';
 import { ExitCode } from '@cleocode/contracts/exit-codes.js';
+import { subjectSlug } from '../../docs/doc-name-rule.js';
 import { CleoError } from '../../errors.js';
 import { getAgentOutputsDir } from '../../paths.js';
 import { getTaskAccessor } from '../../store/data-accessor.js';
@@ -54,10 +55,8 @@ export async function buildPrompt(
 
   // Prepare token values
   const dateToday = new Date().toISOString().split('T')[0];
-  const topicSlug = task.title
-    .replace(/[^a-zA-Z0-9]+/g, '-')
-    .toLowerCase()
-    .replace(/^-|-$/g, '');
+  // T14129: agents record docs under TOPIC_SLUG, so it follows the doc naming rule.
+  const topicSlug = subjectSlug(task.title);
 
   const outputDir = getAgentOutputsDir(cwd);
   // MANIFEST_PATH token retired (ADR-027) — pipeline_manifest is the canonical store

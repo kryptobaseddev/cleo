@@ -121,7 +121,23 @@ async function seedDoc(
 ): Promise<void> {
   const file = join(projectRoot, `${slug}.md`);
   await writeFile(file, body, 'utf-8');
-  const res = runCli(['docs', 'add', ownerId, file, '--slug', slug, '--type', kind], projectRoot);
+  // The fixtures are near-duplicates on purpose (T14109 would refuse them), so
+  // each says why it is a distinct doc.
+  const res = runCli(
+    [
+      'docs',
+      'add',
+      ownerId,
+      file,
+      '--slug',
+      slug,
+      '--type',
+      kind,
+      '--new-because',
+      'a distinct similarity-ranking fixture',
+    ],
+    projectRoot,
+  );
   if (res.status !== 0) {
     throw new Error(
       `seedDoc(${slug}) failed: status=${res.status} stdout=${res.stdout} stderr=${res.stderr}`,
@@ -155,7 +171,7 @@ describe.skipIf(!CLI_DIST_AVAILABLE)('T10163 — cleo docs query --similar <slug
       await seedDoc(
         projectRoot,
         'T-T10163-a-seed',
-        't10163-seed-release-pipeline',
+        'seed-release-pipeline',
         'note',
         [
           '# Release pipeline planning',
@@ -170,7 +186,7 @@ describe.skipIf(!CLI_DIST_AVAILABLE)('T10163 — cleo docs query --similar <slug
       await seedDoc(
         projectRoot,
         'T-T10163-a-near',
-        't10163-near-release-pipeline',
+        'near-release-pipeline',
         'note',
         [
           '# Release pipeline planning v2',
@@ -184,7 +200,7 @@ describe.skipIf(!CLI_DIST_AVAILABLE)('T10163 — cleo docs query --similar <slug
       await seedDoc(
         projectRoot,
         'T-T10163-a-loose',
-        't10163-loose-changeset',
+        'loose-changeset',
         'note',
         [
           '# Changeset DSL primer',
@@ -198,23 +214,14 @@ describe.skipIf(!CLI_DIST_AVAILABLE)('T10163 — cleo docs query --similar <slug
       // 3-doc fixture is enough to assert ranking, slug exclusion, and shape.
 
       const res = runCli(
-        [
-          'docs',
-          'query',
-          '--similar',
-          't10163-seed-release-pipeline',
-          '--limit',
-          '2',
-          '--threshold',
-          '0',
-        ],
+        ['docs', 'query', '--similar', 'seed-release-pipeline', '--limit', '2', '--threshold', '0'],
         projectRoot,
       );
       expect(res.status, `query failed; stdout=${res.stdout} stderr=${res.stderr}`).toBe(0);
 
       const env = parseEnvelope<FindResultShape>(res.stdout);
       expect(env.success).toBe(true);
-      expect(env.data?.seedSlug).toBe('t10163-seed-release-pipeline');
+      expect(env.data?.seedSlug).toBe('seed-release-pipeline');
       expect(env.data?.seedKind).toBe('note');
 
       const hits = env.data?.hits ?? [];
@@ -222,7 +229,7 @@ describe.skipIf(!CLI_DIST_AVAILABLE)('T10163 — cleo docs query --similar <slug
       expect(hits.length).toBeGreaterThan(0);
 
       // Seed must never appear in its own results.
-      expect(hits.find((h) => h.slug === 't10163-seed-release-pipeline')).toBeUndefined();
+      expect(hits.find((h) => h.slug === 'seed-release-pipeline')).toBeUndefined();
 
       // Each hit carries the AC-mandated shape.
       for (const h of hits) {

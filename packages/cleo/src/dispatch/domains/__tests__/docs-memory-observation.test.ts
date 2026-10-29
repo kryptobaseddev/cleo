@@ -152,7 +152,7 @@ afterEach(async () => {
 
 describe('T9976/T13985 — docs.add records the documents link', () => {
   it('docs.add records a documents edge and no Doc attached observation (T13985)', async () => {
-    const slug = 'my-t9976-spec';
+    const slug = 'my-spec';
 
     const addResp = await docsHandler.mutate('add', {
       ownerId: 'T9976',
@@ -188,7 +188,7 @@ describe('T9976/T13985 — docs.add records the documents link', () => {
         finished.resolve();
       }
     });
-    const slug = 't12283-retrieval-lifetime';
+    const slug = 'retrieval-lifetime';
     let drain: Promise<void> | undefined;
     try {
       // A real observation: doc-attachment rows are excluded from recall (T13946).
@@ -229,7 +229,7 @@ describe('T9976/T13985 — docs.add records the documents link', () => {
   });
 
   it('writes no Doc attached observation for URL attachments (T13985)', async () => {
-    const slug = 't9976-url-slug';
+    const slug = 'url-slug';
 
     const addResp = await docsHandler.mutate('add', {
       ownerId: 'T9976',
@@ -367,7 +367,7 @@ describe('T9976 — memory.backfill-docs sweeps existing attachments (AC4)', () 
     const added = await docsHandler.mutate('add', {
       ownerId: 'T9976',
       file: fixtureFile,
-      slug: 't13985-autocapture-off',
+      slug: 'autocapture-off',
       attachedBy: 'test',
     });
     expect(added.success).toBe(true);
