@@ -377,7 +377,8 @@ describe('a spawned task is in flight and its lease holds a slot (T14133)', () =
       sessionId: 'ses_20261028000000_e1e1e1',
     });
     expect(ended.success).toBe(true);
-    expect(liveAgentLeases()).toEqual([]);
+    // The release runs in the background, never inside the write transaction.
+    await vi.waitFor(() => expect(liveAgentLeases()).toEqual([]));
   });
 
   it('a heartbeat on an ended session does not renew its lease', async () => {
@@ -392,6 +393,7 @@ describe('a spawned task is in flight and its lease holds a slot (T14133)', () =
     await heartbeatProjectSession(TEST_ROOT, session.id);
     expect(liveAgentLeases()[0]?.expiresAtMs).toBeGreaterThan(soon); // active: renewed
     await accessor.upsertSingleSession({ ...session, status: 'ended', endedAt: session.startedAt });
+    await vi.waitFor(() => expect(liveAgentLeases()).toEqual([]));
     // A lease written back after the end (a race) is never renewed: it lapses.
     writeAgentLease({ ...leaseFor('T902', session.id), expiresAtMs: soon });
     await heartbeatProjectSession(TEST_ROOT, session.id);

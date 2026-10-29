@@ -22,7 +22,10 @@ import {
   writeFileSync,
 } from 'node:fs';
 import { join } from 'node:path';
-import { getCleoHome } from '../paths.js';
+// The leaf resolver, not core's paths module: this module is loaded by the
+// store's session writers, so it must add nothing to the CLI's read paths
+// (gate 39) and needs no dynamic import (which deadlocked `cleo session end`).
+import { getCleoHome } from '@cleocode/paths';
 
 /** One packet spawn's hold on an `agent-session` slot. */
 export interface AgentSessionLease {
