@@ -97,6 +97,11 @@
         "outputDir": {
           "type": "string",
           "description": "Build output directory"
+        },
+        "heavyScripts": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Globs, relative to the project root, of scripts that run heavy tools: `cleo run` charges them as heavy whatever their content shows (T14162)."
         }
       }
     },

@@ -79,7 +79,7 @@ import {
   writeFileSync,
 } from 'node:fs';
 import { hostname, totalmem } from 'node:os';
-import { join } from 'node:path';
+import { join, matchesGlob, relative, resolve } from 'node:path';
 import type {
   HeavyToolResourcePlan,
   MemoryConsumer,
@@ -110,6 +110,7 @@ import {
   HOOK_PEAK_MARGIN,
   hookFootprintKey,
   readHookPeak,
+  readMeasuredPeak,
   type ScriptFootprint,
   scriptFootprint,
 } from './hook-footprint.js';
@@ -421,7 +422,52 @@ export interface HookPeak {
 
 /** A `node` script's key, the heavy tool it loads, and its measured peak (T14050). */
 export interface ScriptPeak extends ScriptFootprint {
+  /** The peak once {@link HOOK_MIN_RUNS} runs are measured (lowers a charge). */
   readonly peakBytes: number | null;
+  /** The largest peak any counted run recorded (raises a charge, T14162). @defaultValue null */
+  readonly lastPeakBytes?: number | null;
+}
+
+/** What else `planRunFootprint` knows about the run (T14162). */
+export interface RunFootprintOptions {
+  /**
+   * The class was given explicitly (`cleo run --class build`): a script the
+   * guess calls light is charged its class plan until a measurement lowers it.
+   * @defaultValue false
+   */
+  readonly explicitClass?: boolean;
+  /**
+   * The project root, whose `.cleo/project-context.json` may declare heavy
+   * scripts (`build.heavyScripts`, globs relative to it). @defaultValue none
+   */
+  readonly projectRoot?: string;
+}
+
+/**
+ * The project's declared heavy-script globs (`build.heavyScripts` in
+ * `.cleo/project-context.json`, T14162), or none when unset or unreadable.
+ *
+ * @param projectRoot - The project root.
+ */
+export function declaredHeavyScripts(projectRoot: string): string[] {
+  try {
+    const ctx = JSON.parse(
+      readFileSync(join(projectRoot, '.cleo', 'project-context.json'), 'utf8'),
+    ) as { build?: { heavyScripts?: unknown } };
+    const globs = ctx.build?.heavyScripts;
+    return Array.isArray(globs) ? globs.filter((g): g is string => typeof g === 'string') : [];
+  } catch {
+    return [];
+  }
+}
+
+/** Why a script is heavy because the project says so (T14162), or `null`. */
+function declaredHeavy(script: string, cwd: string, projectRoot?: string): string | null {
+  if (projectRoot === undefined) return null;
+  const rel = relative(projectRoot, resolve(cwd, script));
+  return declaredHeavyScripts(projectRoot).some((glob) => matchesGlob(rel, glob))
+    ? 'the project declares it heavy (build.heavyScripts)'
+    : null;
 }
 
 /**
@@ -470,8 +516,15 @@ export function planRunFootprint(
   cwd: string = process.cwd(), // CWD-OK: cleo run runs the command in its own cwd
   scriptPeak: (script: string) => ScriptPeak | null = (script) => {
     const found = scriptFootprint(cwd, script);
-    return found === null ? null : { ...found, peakBytes: readHookPeak(found.key, admissionDir()) };
+    return found === null
+      ? null
+      : {
+          ...found,
+          peakBytes: readHookPeak(found.key, admissionDir()),
+          lastPeakBytes: readMeasuredPeak(found.key, admissionDir()),
+        };
   },
+  options: RunFootprintOptions = {},
 ): RunFootprintPlan {
   let scope = cls === 'full-build' ? null : runFootprint(argv);
   const sized = cls === 'scoped-build' && scope?.size === 'class';
@@ -481,31 +534,39 @@ export function planRunFootprint(
   const run = sized ? scriptRunOf(argv) : null;
   const script = run?.script ?? null;
   const scripted = script !== null ? scriptPeak(script) : null;
+  // T14162: a run measured above the light charge is heavy from its next run.
+  const lastPeak = scripted?.lastPeakBytes ?? null;
+  const raised =
+    lastPeak !== null && lastPeak * HOOK_PEAK_MARGIN > LIGHT_FOOTPRINT_BYTES ? lastPeak : null;
   const host =
     script === null
       ? null
       : (heavyScriptReason(script) ??
+        declaredHeavy(script, cwd, options.projectRoot) ??
         (scripted?.heavyTool
           ? `it ${run?.runner === 'node' ? 'loads' : 'runs'} ${scripted.heavyTool}`
           : run?.runner !== 'node' && scripted === null
             ? 'it cannot be read'
-            : null));
+            : raised !== null
+              ? `a run measured ${gib(raised)}`
+              : null));
   // T13452: a scoped build of a command that runs no heavy tool (`node x.mjs`,
   // `ls`) is charged light. An explicit test run keeps its class plan.
-  const light = sized && host === null ? lightCommandReason(argv) : null;
+  // T14162: so does an explicit `--class build`, until a measurement lowers it.
+  const guess = sized && host === null ? lightCommandReason(argv) : null;
+  const light = guess !== null && options.explicitClass !== true ? guess : null;
   if (light !== null) scope = { size: 'light', reason: light };
   else if (host !== null)
     scope = { size: 'class', reason: `${run?.runner} ${script} hosts a heavy tool (${host})` };
+  else if (guess !== null)
+    scope = { size: 'class', reason: `--class given; not lowered by the guess that ${guess}` };
   // T13452: a hooked git push/commit keeps the class plan, because whatever
   // the hook runs (tests, a build) rides this admission.
   const probe = scope?.size === 'light' ? gitHookFor(argv) : null;
   const hook = probe?.hooks.find((h) => hookInstalled(h, probe.globals));
-  const measured =
-    hook !== undefined && probe !== null
-      ? hookPeak(hook, probe.globals)
-      : host !== null
-        ? scripted
-        : null;
+  // T14162: every script run is measured, light ones included, so a peak above
+  // its charge is recorded and raises the next run's charge.
+  const measured = hook !== undefined && probe !== null ? hookPeak(hook, probe.globals) : scripted;
   if (hook !== undefined) {
     scope = { size: 'class', reason: `runs the ${hook} hook` };
   }
@@ -516,6 +577,7 @@ export function planRunFootprint(
       footprintBytes: LIGHT_FOOTPRINT_BYTES,
       footprintReason: scope.reason,
       namedFiles: null,
+      ...(measured !== null ? { hookKey: measured.key } : {}),
     };
   }
   if (scope?.size === 'single-process') {
@@ -552,7 +614,8 @@ export function planRunFootprint(
   const planned = resources !== null ? planFootprintBytes(resources) : undefined;
   // T13921: a measured hook is charged its peak plus a margin, never more than
   // the plan it runs under (which still bounds its heap and workers).
-  const peak = measured?.peakBytes ?? null;
+  // T14162: a raise needs one measured run; a lowering still waits for three.
+  const peak = measured?.peakBytes ?? (host !== null && raised !== null ? raised : null);
   const charged =
     peak !== null && planned !== undefined
       ? Math.min(planned, Math.max(LIGHT_FOOTPRINT_BYTES, Math.ceil(peak * HOOK_PEAK_MARGIN)))
@@ -564,7 +627,7 @@ export function planRunFootprint(
     footprintReason:
       peak !== null && charged !== planned
         ? `${reason}, measured peak ${gib(peak)} + ${Math.round((HOOK_PEAK_MARGIN - 1) * 100)}%`
-        : measured !== null && peak === null && host !== null
+        : measured !== null && peak === null && scope?.size === 'class' && script !== null
           ? `${reason}; charged the plan until ${HOOK_MIN_RUNS} runs are measured`
           : reason,
     namedFiles,

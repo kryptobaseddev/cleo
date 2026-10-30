@@ -68,6 +68,7 @@ import {
   RUN_DEFERRED_EXIT_CODE,
   RUN_INTERRUPTED_CODE,
 } from '@cleocode/contracts/resource-governor.js';
+import { getProjectRoot } from '@cleocode/core/paths.js';
 import { describeCharge, planRunFootprint } from '@cleocode/core/resources/admission-ledger.js';
 import {
   isWatchCommand,
@@ -297,7 +298,19 @@ export const runCommand = defineCommand({
         : [borrowedBuildWarning(report), unstampedDistWarning(report)])
         if (warning !== null) notice(warning, 'warn');
     }
-    const plan = planRunFootprint(cls, argv, process.env);
+    // T14162: an explicit --class is charged its plan until measured, and the
+    // project may declare heavy scripts.
+    const plan = planRunFootprint(
+      cls,
+      argv,
+      process.env,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      { explicitClass: args.class !== undefined, ...projectRootOption() },
+    );
     const { overlay, resources, footprintBytes, footprintReason, namedFiles, hookKey } = plan;
     if (resources !== null) {
       notice(
@@ -409,3 +422,12 @@ export const runCommand = defineCommand({
     });
   },
 });
+
+/** The project root for project-declared heavy scripts (T14162), when inside a project. */
+function projectRootOption(): { projectRoot?: string } {
+  try {
+    return { projectRoot: getProjectRoot() };
+  } catch {
+    return {};
+  }
+}

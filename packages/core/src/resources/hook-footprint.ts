@@ -278,6 +278,19 @@ export function readHookPeak(key: string, dir: string): number | null {
 }
 
 /**
+ * The largest peak recorded for a key after any number of counted runs, or
+ * `null` when none was (T14162). Raising a charge needs one measurement;
+ * only lowering one waits for {@link HOOK_MIN_RUNS} ({@link readHookPeak}).
+ *
+ * @param key - From {@link hookFootprintKey} or {@link scriptFootprint}.
+ * @param dir - The admission directory.
+ */
+export function readMeasuredPeak(key: string, dir: string): number | null {
+  const m = readAll(dir)[key];
+  return m !== undefined && m.peakBytes > 0 ? m.peakBytes : null;
+}
+
+/**
  * Record one run of a hook: counted only with at least
  * {@link HOOK_MIN_SAMPLES} samples that saw the hook running; the stored peak
  * is the maximum of every counted run. A lowered charge is provisional: a run
