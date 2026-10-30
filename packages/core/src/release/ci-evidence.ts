@@ -2805,6 +2805,7 @@ export async function resolveCiEvidenceAtom(
     roots,
     opts.componentPrNumber,
     opts.viewComponentPr,
+    context.task.id,
   );
   if (!linked.ok) {
     return {

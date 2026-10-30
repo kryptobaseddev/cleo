@@ -3434,7 +3434,14 @@ async function validatePrAtom(
   // T12671: `pr:<component>@<integration>` — the integration PR is the
   // provenance (merge commit, required workflows); the component PR is the
   // task's link and its change. Both are verified, both are recorded.
-  const linked = await linkedPrChange(prNumber, result, roots, componentPrNumber);
+  const linked = await linkedPrChange(
+    prNumber,
+    result,
+    roots,
+    componentPrNumber,
+    undefined,
+    context.task.id,
+  );
   if (!linked.ok) return linked;
   const unlinked = checkPrTaskLinkage(linked.prNumber, linked.pr, context, result.mergedAt);
   if (unlinked) return unlinked;
@@ -3507,10 +3514,16 @@ type LinkedPr = {
  * @param prNumber - The (integration) PR the atom names.
  * @param landing - Its verified resolution.
  * @param roots - Evidence roots (git runs in the execution root).
+ * Without a component, a PR that does not name the task itself is linked
+ * through a merge commit on it that names the task (T14164), carrying that
+ * merge's own landed change only, never the whole PR's files.
+ *
  * @param componentPrNumber - Component PR, when the atom names one.
  * @param view - Component PR reader (tests inject; defaults to `gh pr view`).
+ * @param taskId - The task the evidence is for, to find a merge that names it.
  * @returns The linkage subject, or the refusal.
  * @task T12671
+ * @task T14164
  */
 export async function linkedPrChange(
   prNumber: number,
@@ -3527,10 +3540,35 @@ export async function linkedPrChange(
   roots: EvidenceRoots,
   componentPrNumber?: number,
   view?: ViewComponentPr,
+  taskId?: string,
 ): Promise<
   { ok: true; prNumber: number; pr: LinkedPr } | { ok: false; reason: string; codeName: string }
 > {
-  if (componentPrNumber === undefined) return { ok: true, prNumber, pr: landing };
+  if (componentPrNumber === undefined) {
+    if (
+      taskId === undefined ||
+      new RegExp(`(^|[^A-Za-z0-9])${taskId}([^A-Za-z0-9]|$)`).test(
+        `${landing.title}\n${landing.body}\n${landing.headRefName}`,
+      )
+    )
+      return { ok: true, prNumber, pr: landing };
+    const { taskMergesInLanding } = await import('./component-pr.js');
+    const merged = taskMergesInLanding(roots.executionRoot, taskId, landing);
+    if (merged === null) return { ok: true, prNumber, pr: landing };
+    const changedPaths = [...merged.files, ...merged.deleted];
+    return {
+      ok: true,
+      prNumber,
+      pr: {
+        title: merged.merges.map((m) => m.subject).join('\n'),
+        body: '',
+        headRefName: landing.headRefName,
+        changedPaths,
+        changedFileCount: changedPaths.length,
+        ...(merged.deleted.length > 0 ? { deletedPaths: merged.deleted } : {}),
+      },
+    };
+  }
   const { resolveComponentPr } = await import('./component-pr.js');
   const c = await resolveComponentPr(
     componentPrNumber,

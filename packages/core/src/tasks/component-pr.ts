@@ -22,9 +22,14 @@
  * the integration merge by ancestry, or by `git patch-id` when rebased, and
  * {@link findComponentLanding} follows it to that integration PR.
  *
+ * A train with no component PR at all names the task only in a merge commit
+ * it carries; {@link taskMergesInLanding} links the train PR through that
+ * merge, crediting the merge's own diff (T14164).
+ *
  * @task T12671
  * @task T12672
  * @task T12710
+ * @task T14164
  */
 
 import { execFileSync } from 'node:child_process';
@@ -357,18 +362,28 @@ function landedChangesOfMerge(
   componentMerge: string,
   landingMerge: string,
 ): { files: string[]; deleted: string[] } {
+  // The first-parent diff only. `diff-tree -m --first-parent` lists a merge's
+  // diff against EVERY parent (--first-parent limits a walk, not diff-tree), so
+  // a merge of a branch cut from older history credited the files the other
+  // side lacked (T14164). A root commit has no parent to diff against.
   const out =
-    git(root, [
-      'diff-tree',
-      '--root',
-      '--no-commit-id',
-      '-r',
-      '--name-status',
-      '--no-renames',
-      '-m',
-      '--first-parent',
-      componentMerge,
-    ]) ?? '';
+    (parentCount(root, componentMerge) === 0
+      ? git(root, [
+          'diff-tree',
+          '--root',
+          '--no-commit-id',
+          '-r',
+          '--name-status',
+          '--no-renames',
+          componentMerge,
+        ])
+      : git(root, [
+          'diff',
+          '--name-status',
+          '--no-renames',
+          `${componentMerge}^1`,
+          componentMerge,
+        ])) ?? '';
   return survivingChanges(root, out, `${componentMerge}^1`, componentMerge, landingMerge);
 }
 
@@ -1002,6 +1017,88 @@ function mergedIntoIntegration(
     );
   }
   return null;
+}
+
+/** The task-naming merges inside an integration PR, and the change they landed (T14164). */
+export interface TaskMergeLanding {
+  /** The merges, oldest first, each with a subject that names the task. */
+  merges: Array<{ sha: string; subject: string }>;
+  /** Files those merges changed that the landing commit still carries. */
+  files: string[];
+  /** Paths those merges deleted that the landing commit still lacks. */
+  deleted: string[];
+}
+
+/** Whether `text` names the task id as a whole token. */
+function namesTask(text: string, taskId: string): boolean {
+  return new RegExp(`(^|[^A-Za-z0-9])${taskId}([^A-Za-z0-9]|$)`).test(text);
+}
+
+/**
+ * The merges inside an integration (train) PR that bring a task's work in
+ * (T14164): a merge commit on the PR whose subject names the task, or whose
+ * second parent is a commit whose subject names it. A train often has no
+ * component PR, so its merge commit is the only place the task is named.
+ * The change credited is each such merge's own first-parent diff, kept only
+ * where the landing commit still carries it, never the whole train diff.
+ *
+ * @param root - Git checkout holding the commits.
+ * @param taskId - The task the evidence is for.
+ * @param landing - The integration PR's merge commit, and its head when known
+ *   (else the landing merge's second parent is the PR's tip).
+ * @returns The merges and their landed change, or null when none names the
+ *   task or the PR's commits are not available locally (fails closed).
+ * @task T14164
+ */
+export function taskMergesInLanding(
+  root: string,
+  taskId: string,
+  landing: { mergeCommitSha: string; headRefOid?: string | null },
+): TaskMergeLanding | null {
+  try {
+    if (!hasCommit(root, landing.mergeCommitSha)) return null;
+    // The PR's own commits: from its head (or the landing merge's second
+    // parent) back to the base the landing merge sits on.
+    const tip = hasCommit(root, landing.headRefOid)
+      ? landing.headRefOid
+      : parentCount(root, landing.mergeCommitSha) >= 2
+        ? `${landing.mergeCommitSha}^2`
+        : null;
+    if (tip === null) return null;
+    const log = git(root, [
+      'log',
+      '--merges',
+      '--reverse',
+      '--format=%H%x1f%P%x1f%s',
+      `${landing.mergeCommitSha}^1..${tip}`,
+    ]);
+    if (log === null || log === '') return null;
+    const merges: Array<{ sha: string; subject: string }> = [];
+    for (const line of log.split('\n')) {
+      const [sha, parents, subject] = line.split('\x1f');
+      if (!sha || subject === undefined) continue;
+      const second = (parents ?? '').split(' ')[1];
+      const secondSubject = second ? (git(root, ['log', '-1', '--format=%s', second]) ?? '') : '';
+      // The subject recorded names the task: the merge's own, else with the
+      // merged commit's subject that does.
+      if (namesTask(subject, taskId)) merges.push({ sha, subject });
+      else if (namesTask(secondSubject, taskId))
+        merges.push({ sha, subject: `${subject} (${secondSubject})` });
+    }
+    if (merges.length === 0) return null;
+    const files = new Set<string>();
+    const deleted = new Set<string>();
+    for (const merge of merges) {
+      const landed = landedChangesOfMerge(root, merge.sha, landing.mergeCommitSha);
+      for (const f of landed.files) files.add(f);
+      for (const d of landed.deleted) deleted.add(d);
+    }
+    return { merges, files: [...files], deleted: [...deleted] };
+  } catch (err) {
+    // A timed-out read credits nothing (fails closed).
+    if (err instanceof GitTimeoutError) return null;
+    throw err;
+  }
 }
 
 /**
