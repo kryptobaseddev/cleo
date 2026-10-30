@@ -79,6 +79,24 @@ export interface SentinelWorktreeEntry {
 }
 
 /**
+ * The task a worktree branch names: `task/T####` or `feat/T####`, optionally
+ * followed by `-<slug>` (the `task/T####-<slug>` convention). One rule for
+ * `worktree list` and `worktree adopt`, which used to disagree (T14165).
+ *
+ * @param branch - Git branch name.
+ * @returns The task ID, or null when the branch names none.
+ * @example
+ * ```ts
+ * taskIdFromBranch('task/T14165-adopt-readback'); // 'T14165'
+ * taskIdFromBranch('main'); // null
+ * ```
+ */
+export function taskIdFromBranch(branch: string): string | null {
+  const match = branch.match(/^(?:task|feat)\/(T\d+)(?:-|$)/);
+  return match ? (match[1] ?? null) : null;
+}
+
+/**
  * Read the sentinel index from `<projectRoot>/.cleo/worktrees.json`.
  *
  * Returns an empty array when the file does not exist or contains malformed

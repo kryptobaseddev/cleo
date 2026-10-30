@@ -48,7 +48,13 @@ import { engineError, engineSuccess } from '@cleocode/contracts/engine-result.js
 import { getLogger } from '../logger.js';
 import { resolveOrCwd } from '../paths.js';
 import { appendWorktreeAuditEntry, resolveWorktreeAuditActor } from './audit.js';
-import { type SentinelWorktreeEntry, upsertSentinelEntry } from './sentinel-index.js';
+import {
+  type SentinelWorktreeEntry,
+  taskIdFromBranch,
+  upsertSentinelEntry,
+} from './sentinel-index.js';
+
+export { taskIdFromBranch } from './sentinel-index.js';
 
 const log = getLogger('worktree:adopt');
 
@@ -286,21 +292,4 @@ export function extractBranchFromWorktree(worktreePath: string): BranchSuccess |
   }
 
   return { success: false, error: `Unrecognised HEAD content: ${headContent}` };
-}
-
-/**
- * Extract a task ID from a branch name following the `task/T####` or
- * `feat/T####` naming convention.
- *
- * Mirrors the same logic in `list.ts` with an extension for `feat/` branches
- * (common for Claude Code Agent worktrees). Duplicated here to avoid a circular
- * import between `adopt` and `list`.
- *
- * @param branch - Git branch name.
- * @returns The task ID string, or null if the branch does not match.
- * @internal Exported for tests only.
- */
-export function taskIdFromBranch(branch: string): string | null {
-  const match = branch.match(/^(?:task|feat)\/(T\d+)/);
-  return match ? (match[1] ?? null) : null;
 }

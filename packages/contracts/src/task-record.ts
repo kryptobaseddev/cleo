@@ -8,7 +8,7 @@
  * @epic T4654
  */
 
-import type { AcceptanceItem, TaskVerification } from './task.js';
+import type { AcceptanceItem, TaskClaim, TaskVerification } from './task.js';
 
 /** Omitted source fields and their UTF-8 serialized sizes on partial records. */
 export interface RecordProjectionDisclosure {
@@ -119,6 +119,11 @@ export interface TaskRecord extends RecordProjectionDisclosure {
    * @task T944
    */
   severity?: string | null;
+  /**
+   * The agent work lease held on this task (T12502); absent when unclaimed.
+   * Surfaced so `cleo show` reads back what `cleo claim` wrote (T14165).
+   */
+  claim?: TaskClaim;
 }
 
 /**
