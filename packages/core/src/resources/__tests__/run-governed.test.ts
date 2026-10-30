@@ -45,7 +45,12 @@ import type { ResourceSample } from '../backend.js';
 import { _resetGovernorStateForTest, governorSlotDir, ResourceGovernor } from '../governor.js';
 import { HOOK_MIN_RUNS, readHookPeak, readMeasuredPeak } from '../hook-footprint.js';
 import { type RunJob, writeRunJob } from '../run-admission.js';
-import { type GovernedChild, type RunGovernedDeps, runGoverned } from '../run-governed.js';
+import {
+  type GovernedChild,
+  governedStdio,
+  type RunGovernedDeps,
+  runGoverned,
+} from '../run-governed.js';
 import {
   assessGovernorHolder,
   lockSlot,
@@ -426,6 +431,59 @@ describe('a run over its charge is reported and recorded (T14162)', () => {
       ),
     ]);
     expect(readMeasuredPeak('emit-route-guards.cjs:abc', join(dir, 'hooks'))).toBe(3000 * MIB);
+  });
+});
+
+/**
+ * VidaPeps (mbx 01M677ZWTK6Y43MQGZ40SWE8BG, 10.27): a Node 26 grandchild aborted
+ * at node.cc:621 because a detached (setsid) child inherited /dev/tty on stdin,
+ * where tcgetattr fails with EIO. A matched run with </dev/null exited 0 (T14169).
+ */
+describe('a detached child never inherits a terminal on stdin (T14169)', () => {
+  it('governedStdio: /dev/null on stdin only when detached and the stdin is a terminal', () => {
+    expect(governedStdio({ detached: true, passthrough: false }, true)).toEqual(['ignore', 2, 2]);
+    expect(governedStdio({ detached: true, passthrough: true }, true)).toEqual([
+      'ignore',
+      'inherit',
+      'inherit',
+    ]);
+    // A pipe or file on stdin is passed on (--passthrough relies on it).
+    expect(governedStdio({ detached: true, passthrough: false }, false)).toEqual(['inherit', 2, 2]);
+    expect(governedStdio({ detached: true, passthrough: true }, false)).toEqual([
+      'inherit',
+      'inherit',
+      'inherit',
+    ]);
+    // A child in the runner's session (--foreground) keeps the terminal.
+    expect(governedStdio({ detached: false, passthrough: false }, true)).toEqual(['inherit', 2, 2]);
+    expect(governedStdio({ detached: false, passthrough: true }, true)).toEqual([
+      'inherit',
+      'inherit',
+      'inherit',
+    ]);
+  });
+
+  it('says when it withholds the terminal, and --foreground keeps it', async () => {
+    const run = async (over: Record<string, unknown>) => {
+      const notices: Array<[string, string]> = [];
+      const h = harness({ onSample: (n, hh) => n === 2 && hh.exit(0) });
+      h.deps = { ...h.deps, stdinIsTty: () => true };
+      await runGoverned(
+        base(h, { ...over, notice: (m: string, l: string) => notices.push([l, m]) }),
+      );
+      return { notices, detached: h.spawned[0]?.detached };
+    };
+    const detached = await run({});
+    expect(detached.detached).toBe(true);
+    expect(detached.notices).toContainEqual([
+      'info',
+      'stdin is a terminal: the command runs in its own session and gets /dev/null on stdin (--foreground keeps the terminal)',
+    ]);
+    const foreground = await run({ foreground: true });
+    expect(foreground.detached).toBe(false);
+    expect(foreground.notices.map(([, m]) => m)).not.toContainEqual(
+      expect.stringMatching(/gets \/dev\/null on stdin/),
+    );
   });
 });
 
