@@ -1077,8 +1077,17 @@ export async function runGoverned(opts: RunGovernedOptions): Promise<RunGoverned
       'warn',
     );
   }
+  // A failed run's excess is kept apart: it raises the next charge, never
+  // counts toward the runs a lowering needs.
   if (opts.hookKey !== undefined && (result.code === 0 || exceeded)) {
-    await recordHookPeak(opts.hookKey, peakRssBytes, treeSamples, d.hookFootprintsDir, d.now());
+    await recordHookPeak(
+      opts.hookKey,
+      peakRssBytes,
+      treeSamples,
+      d.hookFootprintsDir,
+      d.now(),
+      result.code === 0,
+    );
   }
   return exitedResult(result.error ? result.error.message : null, result.code, result.signal);
 
