@@ -41,6 +41,18 @@ export const MANIFEST_DEPENDENCY_FIELDS: readonly string[] = [
 /** The lockfile this scoping reads. */
 export const PNPM_LOCKFILE = 'pnpm-lock.yaml';
 
+/**
+ * The scoping function, as callers pass it after `await import('./manifest-scope.js')`.
+ * The module (and its YAML parser) is loaded only where a post-merge stand-in
+ * is judged, never on the CLI's startup paths (T14163, gate 39).
+ */
+export type ManifestScoper = (
+  root: string,
+  base: string,
+  head: string,
+  changed: readonly string[],
+) => ManifestScope | null;
+
 /** A manifest-only change, scoped to packages. */
 export interface ManifestScope {
   /** Lockfile importers the change touched (`.` is the root, every package). */

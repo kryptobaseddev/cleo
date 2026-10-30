@@ -91,7 +91,7 @@ import {
   typecheckOnlyPackages,
   type WorkspacePackage,
 } from './affected-packages.js';
-import { manifestScopedChange } from './manifest-scope.js';
+import type { ManifestScoper } from './manifest-scope.js';
 
 /** The parts of a vitest (or jest) JSON report the binding reads. */
 export interface TestRunReport {
@@ -675,16 +675,17 @@ export function bindTestRunReport(
  * report is judged over the rest, and a binding names them as `configPaths`,
  * which the gate then requires a config-schema result for.
  *
- * After the merge (`opts.mergeCommit`), a change whose only workspace-wide
- * paths are the root `package.json` and the pnpm lockfile is scoped by the
- * lockfile importers it touched instead (T14163); the binding names them as
+ * After the merge (`opts.mergeCommit`, with `opts.scopeManifest` loaded by the
+ * caller from `./manifest-scope.js`), a change whose only workspace-wide paths
+ * are the root `package.json` and the pnpm lockfile is scoped by the lockfile
+ * importers it touched instead (T14163); the binding names them as
  * `manifestScoped`.
  *
  * @param root - The checkout the test files are relative to.
  * @param changed - The change's paths, relative to `root` (non-empty).
  * @param testFiles - Test files the report ran with a passing test.
- * @param opts - `mergeCommit`: the merged change's merge commit, for the
- *   manifest scoping a post-merge run may use.
+ * @param opts - `mergeCommit`: the merged change's merge commit, and
+ *   `scopeManifest`: the scoping a post-merge run may use. Both are needed.
  * @returns The refusal, or the binding with the affected packages left untested.
  * @task T12965
  * @task T13623
@@ -695,12 +696,12 @@ export function testRunCoversChange(
   root: string,
   changed: readonly string[],
   testFiles: readonly string[],
-  opts: { mergeCommit?: string } = {},
+  opts: { mergeCommit?: string; scopeManifest?: ManifestScoper } = {},
 ): TestRunBinding {
   let need = testRunRequirement(root, changed);
   let manifestScoped: string[] | undefined;
-  if (need.kind === 'full' && opts.mergeCommit !== undefined) {
-    const scope = manifestScopedChange(root, `${opts.mergeCommit}^1`, opts.mergeCommit, changed);
+  if (need.kind === 'full' && opts.mergeCommit !== undefined && opts.scopeManifest) {
+    const scope = opts.scopeManifest(root, `${opts.mergeCommit}^1`, opts.mergeCommit, changed);
     const scopedNeed = scope === null ? null : testRunRequirement(root, scope.paths);
     if (scope !== null && scopedNeed?.kind === 'targeted') {
       need = scopedNeed;

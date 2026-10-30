@@ -121,7 +121,10 @@ describe('manifest-only workspace changes after the merge (T14163)', () => {
       paths: ['packages/app/package.json', 'packages/app/src/app.ts'],
     });
     const ran = ['packages/app/src/app.test.ts'];
-    const after = testRunCoversChange(repo, changed, ran, { mergeCommit: merge });
+    const after = testRunCoversChange(repo, changed, ran, {
+      mergeCommit: merge,
+      scopeManifest: manifestScopedChange,
+    });
     expect(after).toMatchObject({ ok: true, manifestScoped: ['packages/app'] });
     // Without the merge (before it, or no post-merge context) it stays workspace-wide.
     expect(testRunCoversChange(repo, changed, ran)).toMatchObject({
@@ -139,6 +142,7 @@ describe('manifest-only workspace changes after the merge (T14163)', () => {
     expect(
       testRunCoversChange(repo, changedBy(merge), ['packages/app/src/app.test.ts'], {
         mergeCommit: merge,
+        scopeManifest: manifestScopedChange,
       }),
     ).toMatchObject({ ok: false });
   });
@@ -189,6 +193,7 @@ describe('manifest-only workspace changes after the merge (T14163)', () => {
     expect(
       testRunCoversChange(repo, changedBy(merge), ['packages/app/src/app.test.ts'], {
         mergeCommit: merge,
+        scopeManifest: manifestScopedChange,
       }),
     ).toMatchObject({ ok: false });
     expect(
@@ -196,7 +201,7 @@ describe('manifest-only workspace changes after the merge (T14163)', () => {
         repo,
         changedBy(merge),
         ['packages/app/src/app.test.ts', 'packages/lib/src/lib.test.ts'],
-        { mergeCommit: merge },
+        { mergeCommit: merge, scopeManifest: manifestScopedChange },
       ),
     ).toMatchObject({ ok: true, manifestScoped: ['.'] });
   });

@@ -269,11 +269,14 @@ async function mergedCiOutcome(
     let why = 'no testsPassed is on record';
     const qaNeed = qaPassedReason ?? 'a qa-run of this tree';
     if (needs.includes('testsPassed') && task.verification?.gates?.testsPassed === true) {
+      const { manifestScopedChange } = await import('./manifest-scope.js');
       const stands = scopedRunStandsAfterRedCi(
         task.verification?.evidence?.testsPassed?.atoms ?? [],
         target,
         await (deps.currentTree ?? defaultCurrentTree)(storeRoot, task.id),
         deps.landed ?? isLandedOnOriginDefault,
+        'testsPassed',
+        manifestScopedChange,
       );
       const rest = needs.filter((g) => g !== 'testsPassed');
       if (stands.ok && stands.manifestScoped && target?.mergeCommitSha)
