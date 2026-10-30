@@ -1,0 +1,28 @@
+TAP version 13
+# Subtest: smoke/empty.test.mjs
+ok 1 - smoke/empty.test.mjs
+  ---
+  duration_ms: 26.1585
+  type: 'test'
+  ...
+# Subtest: a
+ok 2 - a
+  ---
+  duration_ms: 0.271208
+  type: 'test'
+  ...
+# Subtest: b
+ok 3 - b
+  ---
+  duration_ms: 0.048875
+  type: 'test'
+  ...
+1..3
+# tests 3
+# suites 0
+# pass 3
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 36.971375

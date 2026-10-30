@@ -1984,8 +1984,9 @@ async function readTestRunReport(
     };
   }
   // T14124: one reader for every format, shared with typed gates' minCount.
+  // T14161: a TAP report's file names resolve in the caller's tree.
   const text = content.toString('utf-8');
-  const read = readTestReport(text);
+  const read = readTestReport(text, { cwd: executionRoot });
   if (read === null) {
     let parsed: unknown;
     try {

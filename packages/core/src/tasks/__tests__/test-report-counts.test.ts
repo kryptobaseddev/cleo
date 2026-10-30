@@ -247,3 +247,55 @@ describe('one count reader for test-run: and typed gates (T14124)', () => {
     expect(!atom.ok && atom.codeName).toBe('E_EVIDENCE_TESTS_FAILED');
   });
 });
+
+/**
+ * T14161: `node --test --test-reporter=tap` reports a file with no tests as
+ * one passing top-level test named after the file (`ok 1 - smoke/empty.test.mjs`,
+ * `# tests 1`), so a `minCount: 1` gate passed on it. Fixtures are real Node
+ * 26.12 output; Node 22.23 and 24.21 print the same lines but `duration_ms`.
+ * Nothing in the TAP marks the file entry, so its name must be a file under
+ * the run's cwd.
+ */
+describe('a node:test file with no tests counts zero (T14161)', () => {
+  const tap = (name: string) =>
+    readFile(fileURLToPath(new URL(`./fixtures/node26-tap/${name}.tap`, import.meta.url)), 'utf-8');
+
+  beforeAll(async () => {
+    await mkdir(join(root, 'smoke'), { recursive: true });
+    await writeFile(join(root, 'smoke/empty.test.mjs'), '');
+  });
+
+  it('AC1: an empty file counts 0 and is refused on every path', async () => {
+    const text = await tap('empty-file');
+    const read = readTestReport(text, { cwd: root });
+    expect(read?.ok).toBe(false);
+    expect(read !== null && !read.ok && read.reason).toBe(
+      'its TAP output reports zero tests (test files with no tests: smoke/empty.test.mjs)',
+    );
+    const gate = await runGate(replay(text, 1));
+    expect(gate?.result).toBe('error');
+    expect(gate?.errorMessage).toContain('test files with no tests: smoke/empty.test.mjs');
+    await writeFile(join(root, 'empty.tap'), text);
+    const atom = await validateAtom({ kind: 'test-run', path: 'empty.tap' }, root);
+    expect(!atom.ok && atom.codeName).toBe('E_EVIDENCE_TESTS_FAILED');
+  });
+
+  it.each([
+    ['two top-level tests', 'two-tests'],
+    ['a describe holding two tests', 'describe-two'],
+    ['an empty file run beside two tests', 'empty-and-two'],
+  ])('AC2: %s count 2', async (_label, name) => {
+    const read = readTestReport(await tap(name), { cwd: root });
+    expect(read?.ok, JSON.stringify(read)).toBe(true);
+    expect(read?.ok && [read.counts.passed, read.counts.total]).toEqual([2, 2]);
+  });
+
+  it('AC1: a live node --test run of an empty file fails a minCount 1 gate', async () => {
+    const result = await runGate({
+      ...replay('', 1),
+      args: ['--test', '--test-reporter=tap', 'smoke/empty.test.mjs'],
+    });
+    expect(result?.result).toBe('error');
+    expect(result?.errorMessage).toContain('zero tests');
+  });
+});

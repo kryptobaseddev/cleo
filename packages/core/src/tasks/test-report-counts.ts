@@ -22,6 +22,7 @@
  * @task T14124
  */
 
+import { statSync } from 'node:fs';
 import { resolve } from 'node:path';
 import type { TestRunReport } from './test-run-binding.js';
 
@@ -591,12 +592,25 @@ export function reportCounts(
  *
  * TAP names no files, so the adapted report covers none.
  *
+ * T14161: a file that declares no tests is reported as one passing top-level
+ * test named after the file (`ok 1 - smoke/empty.test.mjs`, `type: 'test'`,
+ * nothing nested), and its `# tests 1` passed `minCount: 1`. Node 22, 24 and
+ * 26 print that entry exactly like a real top-level test, so nothing in the
+ * TAP tells them apart. Given the run's `cwd`, an entry like that whose name
+ * is an existing file under `cwd` counts as zero tests. A file that failed to
+ * load is `not ok` and still counts as a failure.
+ *
  * @param stdout - A run's captured stdout, or a TAP report file's text.
+ * @param options - `cwd`: the directory the run's file names resolve against.
  * @returns The adapted report, a refusal, or null when the text is not TAP.
  * @task T14051
  * @task T14124
+ * @task T14161
  */
-export function tapTestRun(stdout: string): AdaptedTestRun | AdaptedTestRunRefusal | null {
+export function tapTestRun(
+  stdout: string,
+  options: TestReportReadOptions = {},
+): AdaptedTestRun | AdaptedTestRunRefusal | null {
   const lines = stdout.split(/\r?\n/);
   if (!lines.some((line) => /^TAP version \d+$/.test(line.trim()))) return null;
   if (lines.some((line) => /^\s*Bail out!/.test(line)))
@@ -617,17 +631,61 @@ export function tapTestRun(stdout: string): AdaptedTestRun | AdaptedTestRunRefus
       refusal: 'its TAP output has no "# tests", "# pass" and "# fail" summary after the plan',
       codeName: 'E_EVIDENCE_INVALID',
     };
-  if (tests === 0 || /^1\.\.0(?:\s|$)/.test(lines[plan]!))
-    return { refusal: 'its TAP output reports zero tests', codeName: 'E_EVIDENCE_TESTS_FAILED' };
+  const emptyFiles = options.cwd === undefined ? [] : tapEmptyFiles(lines, plan, options.cwd);
+  if (tests - emptyFiles.length <= 0 || /^1\.\.0(?:\s|$)/.test(lines[plan]!))
+    return {
+      refusal:
+        emptyFiles.length === 0
+          ? 'its TAP output reports zero tests'
+          : `its TAP output reports zero tests (test files with no tests: ${emptyFiles.join(', ')})`,
+      codeName: 'E_EVIDENCE_TESTS_FAILED',
+    };
   const failed = fail + (summary.get('cancelled') ?? 0);
   return {
-    numTotalTests: tests,
-    numPassedTests: pass,
+    numTotalTests: tests - emptyFiles.length,
+    numPassedTests: pass - emptyFiles.length,
     numFailedTests: failed,
     numPendingTests: tests - pass - failed,
     numTodoTests: 0,
     testResults: [],
   };
+}
+
+/** Options for reading a test report's text. */
+export interface TestReportReadOptions {
+  /** The directory the run's test file names resolve against (T14161). */
+  readonly cwd?: string;
+}
+
+/**
+ * The passing top-level TAP entries before `plan` that stand for a test file
+ * with no tests (T14161): `type: 'test'`, no nested test points, and a name
+ * that is an existing file under `cwd`.
+ */
+function tapEmptyFiles(lines: readonly string[], plan: number, cwd: string): string[] {
+  const files: string[] = [];
+  let nested = false;
+  for (let i = 0; i < plan; i++) {
+    const line = lines[i]!;
+    if (line.startsWith('# Subtest: ')) nested = false;
+    else if (/^\s+(?:not )?ok \d+\b/.test(line)) nested = true;
+    const entry = line.match(/^ok \d+ - (.*)$/);
+    if (entry === null) continue;
+    const wasNested = nested;
+    nested = false;
+    // node escapes `\` and `#` in names; an unescaped `#` starts a directive.
+    if (wasNested || /(?<!\\)#/.test(entry[1]!)) continue;
+    let type: string | undefined;
+    for (let j = i + 1; j < plan && /^\s/.test(lines[j]!); j++) {
+      const yaml = lines[j]!.match(/^ {2}type: '(\w+)'$/);
+      if (yaml) type = yaml[1];
+      if (lines[j] === '  ...') break;
+    }
+    const name = entry[1]!.replace(/\\([\\#])/g, '$1');
+    if (type === 'test' && statSync(resolve(cwd, name), { throwIfNoEntry: false })?.isFile())
+      files.push(name);
+  }
+  return files;
 }
 
 /**
@@ -770,6 +828,7 @@ export function readParsedTestReport(parsed: unknown): ReadTestReport | RefusedT
  * TAP. Each is adapted to the vitest shape and counted under the same rules.
  *
  * @param text - The report's text (a file, or a run's captured output).
+ * @param options - `cwd`: where a TAP run's file names resolve (T14161).
  * @returns The read report, a refusal, or null when no format matches.
  * @example
  * ```ts
@@ -778,7 +837,10 @@ export function readParsedTestReport(parsed: unknown): ReadTestReport | RefusedT
  * ```
  * @task T14124
  */
-export function readTestReport(text: string): ReadTestReport | RefusedTestReport | null {
+export function readTestReport(
+  text: string,
+  options: TestReportReadOptions = {},
+): ReadTestReport | RefusedTestReport | null {
   const junit = junitTestRun(text);
   if (junit !== null) return adapted(junit, 'JUnit XML');
   let parsed: unknown;
@@ -794,6 +856,6 @@ export function readTestReport(text: string): ReadTestReport | RefusedTestReport
   if (json !== null) return json;
   const libtest = libtestTestRun(text);
   if (libtest !== null) return adapted(libtest, 'libtest JSON lines');
-  const tap = tapTestRun(text);
+  const tap = tapTestRun(text, options);
   return tap === null ? null : adapted(tap, 'node:test TAP');
 }
