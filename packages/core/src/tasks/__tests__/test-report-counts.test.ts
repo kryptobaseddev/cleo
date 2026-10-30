@@ -290,6 +290,17 @@ describe('a node:test file with no tests counts zero (T14161)', () => {
     expect(read?.ok && [read.counts.passed, read.counts.total]).toEqual([2, 2]);
   });
 
+  it('without a cwd, or for a name escaping it, the entry still counts as a test', async () => {
+    const text = await tap('empty-file');
+    const unknown = readTestReport(text);
+    expect(unknown?.ok && unknown.counts.passed).toBe(1);
+    const outside = join(root, 'inner');
+    await mkdir(outside, { recursive: true });
+    const escaped = text.replaceAll('smoke/empty.test.mjs', '../smoke/empty.test.mjs');
+    const read = readTestReport(escaped, { cwd: outside });
+    expect(read?.ok && read.counts.passed).toBe(1);
+  });
+
   it('AC1: a live node --test run of an empty file fails a minCount 1 gate', async () => {
     const result = await runGate({
       ...replay('', 1),

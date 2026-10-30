@@ -23,7 +23,7 @@
  */
 
 import { statSync } from 'node:fs';
-import { resolve } from 'node:path';
+import { isAbsolute, relative, resolve, sep } from 'node:path';
 import type { TestRunReport } from './test-run-binding.js';
 
 /**
@@ -631,6 +631,8 @@ export function tapTestRun(
       refusal: 'its TAP output has no "# tests", "# pass" and "# fail" summary after the plan',
       codeName: 'E_EVIDENCE_INVALID',
     };
+  // Without a cwd no entry can be proven to be a file, so the summary is
+  // trusted as before: guessing from the name would zero real tests.
   const emptyFiles = options.cwd === undefined ? [] : tapEmptyFiles(lines, plan, options.cwd);
   if (tests - emptyFiles.length <= 0 || /^1\.\.0(?:\s|$)/.test(lines[plan]!))
     return {
@@ -660,7 +662,7 @@ export interface TestReportReadOptions {
 /**
  * The passing top-level TAP entries before `plan` that stand for a test file
  * with no tests (T14161): `type: 'test'`, no nested test points, and a name
- * that is an existing file under `cwd`.
+ * that is an existing file under `cwd`. A name escaping `cwd` (`..`) is never one.
  */
 function tapEmptyFiles(lines: readonly string[], plan: number, cwd: string): string[] {
   const files: string[] = [];
@@ -682,8 +684,11 @@ function tapEmptyFiles(lines: readonly string[], plan: number, cwd: string): str
       if (lines[j] === '  ...') break;
     }
     const name = entry[1]!.replace(/\\([\\#])/g, '$1');
-    if (type === 'test' && statSync(resolve(cwd, name), { throwIfNoEntry: false })?.isFile())
-      files.push(name);
+    if (type !== 'test') continue;
+    const path = resolve(cwd, name);
+    const inside = relative(cwd, path);
+    if (inside === '' || inside.split(sep)[0] === '..' || isAbsolute(inside)) continue;
+    if (statSync(path, { throwIfNoEntry: false })?.isFile()) files.push(name);
   }
   return files;
 }
