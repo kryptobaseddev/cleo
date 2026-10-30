@@ -42,9 +42,10 @@
  * @epic T12978
  */
 
-import { spawn as nodeSpawn } from 'node:child_process';
+import { spawn as nodeSpawn, type StdioOptions } from 'node:child_process';
 import type { EventEmitter } from 'node:events';
 import { setPriority } from 'node:os';
+import { isatty } from 'node:tty';
 import type { AdmissionResult, MemoryPressureReading, ResourceClass } from '@cleocode/contracts';
 import { detectTestRunner, GovernedRunInTestRunnerError } from '../tasks/tool-runner-guard.js';
 import {
@@ -163,6 +164,8 @@ export interface RunGovernedDeps {
   readonly ancestorsOf: (pid: number) => readonly number[] | null;
   /** CPU time and resident memory of a pid's process tree (one `ps`), or null when unknown (T13563). */
   readonly treeUsage: (pid: number, withCommands?: boolean) => ProcessTreeUsage | null;
+  /** Whether the runner's stdin is a terminal (T14169). @defaultValue isatty(0) */
+  readonly stdinIsTty?: () => boolean;
   /** Where hook measurements are kept (T13921). @defaultValue the admission directory */
   readonly hookFootprintsDir: string;
   /**
@@ -351,9 +354,35 @@ export const spawnGovernedChild: RunGovernedDeps['spawn'] = (file, args, opts) =
   nodeSpawn(file, [...args], {
     cwd: opts.cwd,
     env: opts.env,
-    stdio: opts.passthrough ? 'inherit' : ['inherit', 2, 2],
+    stdio: governedStdio(opts, isatty(0)),
     detached: opts.detached,
   });
+
+/**
+ * The stdio a governed child is spawned with (T14169). Unless passed through,
+ * its stdout goes to stderr. A detached child runs in its own session (setsid)
+ * with no controlling terminal, so it never inherits a terminal on stdin: an
+ * inherited `/dev/tty` there makes `tcgetattr` fail with EIO, and Node 26
+ * aborts at startup (`node.cc:621`, VidaPeps). Such a child gets /dev/null on
+ * stdin. A pipe or file on stdin is still passed on, and a child kept in the
+ * runner's session (`--foreground`) keeps the terminal.
+ *
+ * @param opts - Whether the child is detached and whether it is passed through.
+ * @param stdinIsTty - Whether the runner's stdin is a terminal.
+ * @returns The child's stdio.
+ *
+ * @example
+ * ```ts
+ * governedStdio({ detached: true, passthrough: false }, true); // ['ignore', 2, 2]
+ * ```
+ */
+export function governedStdio(
+  opts: { readonly detached: boolean; readonly passthrough: boolean },
+  stdinIsTty: boolean,
+): StdioOptions {
+  const stdin = opts.detached && stdinIsTty ? 'ignore' : 'inherit';
+  return opts.passthrough ? [stdin, 'inherit', 'inherit'] : [stdin, 2, 2];
+}
 
 function defaultDeps(): RunGovernedDeps {
   const monitor = new ResourceMonitor();
@@ -837,6 +866,13 @@ export async function runGoverned(opts: RunGovernedOptions): Promise<RunGoverned
   let pausedTotalMs = 0;
   let pauses = 0;
 
+  // T14169: a detached child gets /dev/null, not the runner's terminal, on stdin.
+  if (leadsGroup && (d.stdinIsTty ?? (() => isatty(0)))()) {
+    notice(
+      'stdin is a terminal: the command runs in its own session and gets /dev/null on stdin (--foreground keeps the terminal)',
+      'info',
+    );
+  }
   let child: GovernedChild;
   try {
     child = d.spawn(file, args, {
