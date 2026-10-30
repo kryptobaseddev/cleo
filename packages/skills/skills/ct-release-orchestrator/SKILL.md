@@ -7,7 +7,7 @@ adrRefs:
   - ADR-063
   - ADR-065
 metadata:
-  version: 3.4.0
+  version: 3.4.1
   tier: on-demand
   install: harness
   covers:
@@ -71,6 +71,7 @@ cleo release cut v2026.10.28 --sha <sha> --lead lead.md --yes   # the printed co
 - **Docs rot (T14111):** the dry run shows `cleo docs rot` findings; a real stable cut refuses with `E_DOCS_ROT` before tagging while any stale, duplicate or orphaned doc remains; on a prerelease (canary) it is a warning only.
 - **Provenance:** the merge sweep reconciles the newest stable tag automatically once its GitHub release exists (ADR-099); there is no manual reconcile step.
 - **Cleanup (T14142):** the report shows the plan for the release tasks' worktrees and `task/*` branches, plus nested repository copies proven redundant (clean, every ref on origin) only inside the worktrees of the release's done or cancelled tasks; a confirmed cut applies it after the tag. A cleanup failure never fails the cut, and changesets naming no task skip it.
+- **Which checkout (T14160):** `cut` runs every git and gh call, the docs-rot scan and `checkoutAtMain` in the checkout it is started from (a CLEO worktree, or the project root); it never runs git in another checkout. From a worktree the merge sweep and the cleanup, which work on the project checkout, are skipped and named in the report.
 - **Task status is reported, never gated.** Green CI on the sha is the gate; a pending task does not block the cut.
 - **Tag:** an annotated `v<ver>` made through the GitHub API with your `gh` token, which starts `release.yml`. It runs `cleo release write-changelog`, publishes, and on a stable release opens `release/v<ver>`, a CHANGELOG + version PR that auto-merges on green and never blocks the release.
 

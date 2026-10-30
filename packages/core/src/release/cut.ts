@@ -86,8 +86,14 @@ export interface ReleaseCutRunner {
 export interface ReleaseCutOptions {
   /** Version to release (`2026.10.28` or `v2026.10.28`). */
   version: string;
-  /** Git checkout of the project. */
+  /** Project whose task store, audit and grants the cut uses. */
   projectRoot: string;
+  /**
+   * The git checkout the cut runs in (T14160): every git and gh call, the
+   * docs-rot scan and `checkoutAtMain` use it, and no other checkout is
+   * touched. Default: `projectRoot`.
+   */
+  gitRoot?: string;
   /** Pin the commit instead of picking the newest green one; it must itself be green. */
   sha?: string;
   /** Markdown file whose content leads the notes ("Update now" + Highlights). */
@@ -525,7 +531,10 @@ function publishedPackages(
  */
 export async function releaseCut(opts: ReleaseCutOptions): Promise<EngineResult<ReleaseCutResult>> {
   const runner = opts.runner ?? defaultRunner();
-  const cwd = opts.projectRoot;
+  // T14160: git work happens only in the invoking checkout; the store, audit
+  // and grants belong to the project.
+  const cwd = opts.gitRoot ?? opts.projectRoot;
+  const storeRoot = opts.projectRoot;
   const version = normalizeVersion(opts.version);
   const bare = version.slice(1);
   const branch = opts.branch ?? 'main';
@@ -561,7 +570,22 @@ export async function releaseCut(opts: ReleaseCutOptions): Promise<EngineResult<
   }
 
   // T14101: close what just merged, so the task report below is current.
-  const sweep = await (opts.sweep ?? sweepMergedClosures)(cwd, { dryRun, force: true });
+  // The sweep runs gh and git in the project checkout; from another checkout
+  // it is skipped and named, never run there (T14160).
+  const sweep: MergeSweepResult =
+    cwd === storeRoot
+      ? await (opts.sweep ?? sweepMergedClosures)(storeRoot, { dryRun, force: true })
+      : {
+          swept: false,
+          skippedReason: `cut runs in ${cwd}, not the project checkout ${storeRoot}; the merge sweep runs from the project checkout`,
+          dryRun,
+          prs: [],
+          closed: [],
+          bound: [],
+          refused: [],
+          waiting: 0,
+          reran: 0,
+        };
 
   const checks = requiredChecks(runner, cwd, `origin/${branch}`);
   const candidates: ReleaseCutCandidate[] = [];
@@ -678,7 +702,7 @@ export async function releaseCut(opts: ReleaseCutOptions): Promise<EngineResult<
 
   const taskIds = [...new Set(entries.flatMap((entry) => entry.tasks))].sort();
   const tasks: ReleaseCutTask[] = [];
-  const accessor = await getTaskAccessor(cwd);
+  const accessor = await getTaskAccessor(storeRoot);
   try {
     for (const id of taskIds) {
       const task = await accessor.loadSingleTask(id);
@@ -693,6 +717,20 @@ export async function releaseCut(opts: ReleaseCutOptions): Promise<EngineResult<
   // ids would widen the cleanup to every done task.
   const cleanupTasks = async (dry: boolean): Promise<MergedCleanupResult | null> => {
     if (taskIds.length === 0) return null;
+    // The cleanup judges against the project checkout; from another checkout
+    // it would run git there, so it is skipped and named instead (T14160).
+    if (cwd !== storeRoot) {
+      return {
+        dryRun: dry,
+        base: '',
+        worktrees: [],
+        localBranches: [],
+        remoteBranches: [],
+        nestedCopies: [],
+        bytesReclaimed: 0,
+        skippedReason: `cut runs in ${cwd}, not the project checkout ${storeRoot}; the merged-work cleanup runs from the project checkout`,
+      };
+    }
     try {
       return await (opts.cleanup ?? cleanupMergedWork)({ projectRoot: cwd, taskIds, dryRun: dry });
     } catch (err) {
@@ -746,7 +784,7 @@ export async function releaseCut(opts: ReleaseCutOptions): Promise<EngineResult<
   };
   if (dryRun) return engineSuccess(result);
   const refuse = (code: string, message: string, fix: string, details: Record<string, unknown>) => {
-    auditCut(cwd, { version, sha, outcome: 'refused', code, reason: message });
+    auditCut(storeRoot, { version, sha, outcome: 'refused', code, reason: message });
     return engineError<ReleaseCutResult>(code, message, {
       exitCode: ExitCode.VALIDATION_ERROR,
       fix,
@@ -783,7 +821,7 @@ export async function releaseCut(opts: ReleaseCutOptions): Promise<EngineResult<
 
   // D11212: a standing authorization (an agent), or the version typed on the
   // controlling terminal. Neither can be asserted by the caller.
-  const authorization = await releaseAuthorizationFor(cwd, version);
+  const authorization = await releaseAuthorizationFor(storeRoot, version, cwd);
   let allowedBy = authorization ? `authorization:${authorization.id}` : '';
   if (!authorization) {
     const typed = readTtyConfirmation(`Tag ${version} on ${sha}? Type ${version} to confirm: `);
@@ -854,7 +892,7 @@ export async function releaseCut(opts: ReleaseCutOptions): Promise<EngineResult<
     );
   } catch (err) {
     const reason = err instanceof Error ? err.message : String(err);
-    auditCut(cwd, { version, sha, outcome: 'failed', tagObject: tagObject || null, reason });
+    auditCut(storeRoot, { version, sha, outcome: 'failed', tagObject: tagObject || null, reason });
     return engineError(E_RELEASE_TAG_FAILED, `Creating tag ${version} failed: ${reason}`, {
       exitCode: ExitCode.GENERAL_ERROR,
       fix: tagObject
@@ -863,7 +901,7 @@ export async function releaseCut(opts: ReleaseCutOptions): Promise<EngineResult<
       details: { sha, tagObject: tagObject || null },
     });
   }
-  auditCut(cwd, { version, sha, outcome: 'tagged', tagObject, allowedBy });
+  auditCut(storeRoot, { version, sha, outcome: 'tagged', tagObject, allowedBy });
   return engineSuccess({
     ...result,
     cleanup: await cleanupTasks(false),
