@@ -657,20 +657,17 @@ export function mergeSweepSpawnAllowed(env: NodeJS.ProcessEnv, home = homedir())
  * never sweeps the project checkout it was not started in (T14160).
  *
  * @param command - The CLI command being run.
- * @param cwd - Where it was started (default `process.cwd()`).
+ * @param cwd - Where the command was started (the CLI passes its own cwd).
  * @returns The reason the sweep is skipped, or null when it may start.
  *
  * @example
  * ```ts
- * if (await lazySweepBlockedReason('release')) return; // no background sweep
+ * if (await lazySweepBlockedReason('release', invocationCwd)) return; // no background sweep
  * ```
  *
  * @task T14168
  */
-export async function lazySweepBlockedReason(
-  command: string,
-  cwd: string = process.cwd(),
-): Promise<string | null> {
+export async function lazySweepBlockedReason(command: string, cwd: string): Promise<string | null> {
   const { devBuildWorktree } = await import('../store/worktree-build-guard.js');
   const buildWorktree = devBuildWorktree();
   if (buildWorktree !== null)

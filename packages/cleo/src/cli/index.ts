@@ -768,7 +768,7 @@ async function maybeSpawnMergeSweep(command: string | undefined): Promise<void> 
     );
     if (!mergeSweepSpawnAllowed(process.env)) return;
     // T14168: never from a worktree-built CLI, never for release from a worktree.
-    if ((await lazySweepBlockedReason(command ?? '')) !== null) return;
+    if ((await lazySweepBlockedReason(command ?? '', process.cwd())) !== null) return;
     if (!claimMergeSweep(root)) return;
     const { spawn } = await import('node:child_process');
     spawn(process.execPath, [process.argv[1] ?? '', 'done', '--from-merge', 'all', '--quiet'], {
