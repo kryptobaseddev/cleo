@@ -15,7 +15,9 @@ After the merge, the T13673 stand-in (a targeted test-run on the default
 branch after the merge) now scopes such a change by the lockfile importers
 the merge changed: a passing test file is owed in each importer's package
 (the root importer counts as every package), its dependents and the change's
-own packages, and the stand-in names the importers (`manifestScoped`). Any
+own packages. `cleo complete` records why on the stored testsPassed
+evidence (`standIn: {kind: 'manifest-scoped', mergeCommit, importers,
+recordedAt}`), so the reason outlives the command. Any
 other root `package.json` field (such as `scripts`), any lockfile change no
 changed importer accounts for (settings, overrides, catalogs, an unreachable
 package or snapshot) and other lockfiles keep the change workspace-wide.
