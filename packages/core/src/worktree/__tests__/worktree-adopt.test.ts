@@ -362,6 +362,9 @@ describe('taskIdFromBranch', () => {
     ['task/T9804', 'T9804'],
     ['feat/T9804-some-slug', 'T9804'],
     ['feat/T9804', 'T9804'],
+    // T14165: list and adopt share one rule, including the `task/T####-<slug>` convention.
+    ['task/T14165-adopt-readback', 'T14165'],
+    ['task/T12x', null],
     ['feature/something', null],
     ['main', null],
     ['HEAD', null],

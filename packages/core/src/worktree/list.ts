@@ -6,13 +6,14 @@
  *
  * For each worktree returned by `git worktree list --porcelain`, the function
  * resolves:
- *  - `taskId` (regex match against the branch name `task/T####`).
+ *  - `taskId` (the task adopt recorded in the sentinel index, else the branch
+ *    name `task/T####[-slug]` or `feat/T####[-slug]`).
  *  - `owningTaskStatus` (read from the project cleo.db tasks SSoT via `getDb`).
  *  - `lastActivity` (newest commit on the branch, falling back to dir mtime).
  *  - `isLocked` (porcelain `locked` line).
  *  - `isMerged` (`git merge-base --is-ancestor <branch> main`, exit-0 ⇒ merged).
  *  - `isStale`  (no commits in >N days AND (task done/cancelled OR merged)).
- *  - `owningAgent` (best-effort from `.git/worktree.json` if present).
+ *  - `owningAgent` (the sentinel index's `adoptedBy`, else null).
  *  - `statusCategory` — one of `locked|orphan|merged|stale|active`, resolved
  *    by precedence in {@link classifyStatus}.
  *  - `source` — origin of the worktree: `cleo-spawn`, `claude-agent`, `manual`,
@@ -39,7 +40,7 @@
  */
 
 import { execFileSync } from 'node:child_process';
-import { existsSync, readFileSync, realpathSync, statSync } from 'node:fs';
+import { existsSync, realpathSync, statSync } from 'node:fs';
 import { basename, join, resolve as resolvePath } from 'node:path';
 import type { DatabaseSync } from 'node:sqlite';
 import type {
@@ -53,7 +54,9 @@ import type {
 import { engineError, engineSuccess } from '@cleocode/contracts/engine-result.js';
 import { readWorktreePorcelain } from '@cleocode/worktree/worktree-locate.js';
 import { resolveOrCwd } from '../paths.js';
-import { readSentinelIndex } from './sentinel-index.js';
+import { readSentinelIndex, taskIdFromBranch } from './sentinel-index.js';
+
+export { taskIdFromBranch } from './sentinel-index.js';
 
 /** Default staleness threshold — branches/worktrees idle longer than this are stale candidates. */
 const DEFAULT_STALE_DAYS = 7;
@@ -126,17 +129,21 @@ export async function listWorktrees(
   // Resolve unique task IDs once, then batch-load their statuses through the
   // ADR-068 chokepoint. We open the project cleo.db via getDb() so the command
   // picks up the SSoT pragma set (T9189) — never via raw DatabaseSync.
-  const branchToTaskId = new Map<string, string | null>();
+  // T14165: the task adopt recorded for a path wins over the branch name.
+  const taskIdByPath = new Map<string, string | null>();
   for (const entry of porcelainEntries) {
-    branchToTaskId.set(entry.branch, taskIdFromBranch(entry.branch));
+    taskIdByPath.set(
+      entry.path,
+      sentinelByPath.get(entry.path)?.taskId ?? taskIdFromBranch(entry.branch),
+    );
   }
   // Also seed task IDs for sentinel-only entries so they can be batch-loaded.
   for (const sentinel of sentinelEntries) {
     if (!porcelainPaths.has(sentinel.path)) {
-      branchToTaskId.set(sentinel.branch, sentinel.taskId ?? taskIdFromBranch(sentinel.branch));
+      taskIdByPath.set(sentinel.path, sentinel.taskId ?? taskIdFromBranch(sentinel.branch));
     }
   }
-  const taskIds = Array.from(branchToTaskId.values()).filter((id): id is string => id !== null);
+  const taskIds = Array.from(taskIdByPath.values()).filter((id): id is string => id !== null);
   const taskStatusByid = await loadOwningTaskStatuses(taskIds, projectRoot);
 
   // Pre-resolve the default upstream branch presence — if `main` is absent,
@@ -163,7 +170,7 @@ export async function listWorktrees(
 
   // --- Build WorktreeInfo entries from git-native porcelain output ---
   const worktrees: WorktreeInfo[] = porcelainEntries.map((entry) => {
-    const taskId = branchToTaskId.get(entry.branch) ?? null;
+    const taskId = taskIdByPath.get(entry.path) ?? null;
     const lastActivityMs =
       getLastCommitTimestampMs(entry.branch, projectRoot) ?? mtimeMs(entry.path);
     const lastActivity = new Date(lastActivityMs).toISOString();
@@ -172,7 +179,7 @@ export async function listWorktrees(
       ? branchIsMergedToMain(entry.branch, projectRoot, mainBranch)
       : false;
     const owningTaskStatus = taskId ? (taskStatusByid.get(taskId) ?? null) : null;
-    const owningAgent = readOwningAgent(entry.path);
+    const owningAgent = sentinelByPath.get(entry.path)?.adoptedBy ?? null;
 
     const idleMs = nowMs - lastActivityMs;
     const idleOlderThanThreshold = idleMs > staleThresholdMs;
@@ -255,7 +262,7 @@ export async function listWorktrees(
       path: sentinel.path,
       branch: sentinel.branch,
       taskId,
-      owningAgent: null,
+      owningAgent: sentinel.adoptedBy,
       lastActivity,
       // For sentinel-only entries the canonical creation moment is the
       // adopt time (the directory may have been mtime-touched arbitrarily
@@ -309,18 +316,6 @@ export function enumerateWorktrees(projectRoot: string): PorcelainEntry[] {
   return readWorktreePorcelain(projectRoot)
     .filter((entry) => entry.bare !== true)
     .map((entry) => ({ path: entry.path, branch: entry.branch ?? 'HEAD', locked: entry.locked }));
-}
-
-/**
- * Extract a task ID from a branch name following the `task/T####` convention.
- *
- * @param branch - Git branch name.
- * @returns The task ID string, or null if the branch does not match the convention.
- * @internal Exported for tests only.
- */
-export function taskIdFromBranch(branch: string): string | null {
-  const match = branch.match(/^task\/(T\d+)$/);
-  return match ? (match[1] ?? null) : null;
 }
 
 /**
@@ -456,27 +451,6 @@ export async function loadOwningTaskStatuses(
     out.set(row.id, row.status);
   }
   return out;
-}
-
-/**
- * Best-effort read of the owning agent identifier from a per-worktree metadata
- * file (`<path>/.git/worktree.json`). Returns null if the file is absent or
- * malformed.
- *
- * @param worktreePath - Absolute path to the worktree directory.
- * @returns The owningAgent string, or null.
- * @internal Exported for tests only.
- */
-export function readOwningAgent(worktreePath: string): string | null {
-  const candidate = join(worktreePath, '.git', 'worktree.json');
-  if (!existsSync(candidate)) return null;
-  try {
-    const raw = readFileSync(candidate, 'utf-8');
-    const parsed = JSON.parse(raw) as { owningAgent?: unknown };
-    return typeof parsed.owningAgent === 'string' ? parsed.owningAgent : null;
-  } catch {
-    return null;
-  }
 }
 
 /**

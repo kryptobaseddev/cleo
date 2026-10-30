@@ -207,6 +207,7 @@ export async function startTask(
       await releaseOwnClaim(acc, previousTask, claimant.sessionId);
     }
     await writeFocusState(acc, focusSessionId, focus);
+    await mirrorSessionTaskWork(focusSessionId, taskId, cwd);
     await logOperation(
       'task_start',
       taskId,
@@ -231,6 +232,28 @@ export async function startTask(
     previousTask,
     claim,
   };
+}
+
+/**
+ * Record the focus change on the session row too (T14165), so `session show`,
+ * `session status`, `memory observe` and handoffs read the task `cleo current`
+ * reports. Runs inside the caller's transaction (same connection), through the
+ * session store's task-work writers. A session that lives in another store has
+ * no row here to update.
+ *
+ * @param sessionId - The bound session whose focus changed.
+ * @param taskId - The task now in focus, or null when work stopped.
+ * @param cwd - Project root.
+ */
+async function mirrorSessionTaskWork(
+  sessionId: string,
+  taskId: string | null,
+  cwd?: string,
+): Promise<void> {
+  const sessions = await import('../store/session-store.js');
+  if (!(await sessions.getSession(sessionId, cwd))) return;
+  if (taskId) await sessions.startTask(sessionId, taskId, cwd);
+  else await sessions.stopTask(sessionId, cwd);
 }
 
 /**
@@ -270,6 +293,7 @@ export async function stopTask(
   await acc.transaction(async () => {
     if (taskId && claimant) await releaseOwnClaim(acc, taskId, claimant.sessionId);
     await writeFocusState(acc, focusSessionId, focus);
+    await mirrorSessionTaskWork(focusSessionId, null, cwd);
     await logOperation('task_stop', previousTask ?? 'none', { previousTask }, acc);
     if (taskId && task) {
       trackBackgroundOp(async () => {

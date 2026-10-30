@@ -139,9 +139,7 @@ describe('listWorktrees — integration (T9546 AC1-AC5)', () => {
     if (!result.success) throw new Error('expected success');
 
     // Inspect the linked worktree specifically — it has a deterministic
-    // taskId derived from the branch name (`task/T9546-shape` → null because
-    // the regex is `^task\/(T\d+)$` which excludes hyphenated suffixes).
-    // Use a numeric-only task ID for the shape assertion.
+    // taskId derived from the branch name.
     const linked = result.data.worktrees.find((w) => w.path.endsWith('T9546-shape'));
     expect(linked).toBeDefined();
     if (!linked) throw new Error('expected linked worktree in listing');
@@ -149,8 +147,9 @@ describe('listWorktrees — integration (T9546 AC1-AC5)', () => {
     expect(typeof linked.path).toBe('string');
     expect(typeof linked.branch).toBe('string');
     expect(linked.branch).toBe('task/T9546-shape');
-    // T9546-shape does NOT match `^task\/(T\d+)$` (hyphenated suffix) → taskId is null.
-    expect(linked.taskId).toBeNull();
+    // T14165: list and adopt share one branch rule, which accepts the
+    // `task/T####-<slug>` convention, so the slug no longer hides the task.
+    expect(linked.taskId).toBe('T9546');
     expect(linked.source).toBe('cleo-spawn');
     expect(typeof linked.createdAt).toBe('string');
     expect(() => new Date(linked.createdAt).toISOString()).not.toThrow();

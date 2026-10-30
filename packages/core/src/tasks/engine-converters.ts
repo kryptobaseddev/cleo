@@ -126,6 +126,8 @@ export function taskToRecord(task: Task): TaskRecord {
     kind: task.kind ?? null,
     scope: task.scope ?? null,
     severity: task.severity ?? null,
+    // T14165: the lease `cleo claim` wrote, so `cleo show` reads it back.
+    ...(task.claim ? { claim: { ...task.claim } } : {}),
   };
 }
 
