@@ -955,7 +955,7 @@ export function scopedRunStandsAfterRedCi(
   current: string | null,
   landed: (root: string, sha: string) => boolean,
   gate: 'testsPassed' | 'qaPassed' = 'testsPassed',
-): { ok: true } | { ok: false; why: string } {
+): { ok: true; manifestScoped?: string[] } | { ok: false; why: string } {
   const merge = changeSet?.mergeCommitSha;
   if (!changeSet || !merge) return { ok: false, why: 'the merge commit is not known here' };
   if (changeSet.files.length === 0)
@@ -1028,7 +1028,9 @@ export function scopedRunStandsAfterRedCi(
     return gap === null ? { ok: true } : { ok: false, why: gap };
   }
   const ran = [...new Set(runs.flatMap((r) => (r.kind === 'test-run' ? (r.testFiles ?? []) : [])))];
-  const covered = testRunCoversChange(root, changeSet.files, ran);
+  // T14163: after the merge, a manifest-only workspace change is scoped by
+  // the lockfile importers it touched.
+  const covered = testRunCoversChange(root, changeSet.files, ran, { mergeCommit: merge });
   if (!covered.ok) return { ok: false, why: covered.reason };
   const configGap = mergedConfigGap(atoms, covered.configPaths ?? [], merge, root, current);
   if (configGap) return { ok: false, why: configGap };
@@ -1044,7 +1046,9 @@ export function scopedRunStandsAfterRedCi(
       ok: false,
       why: `the test-run did not run the change's test file(s) ${unrun.slice(0, 5).join(', ')}${unrun.length > 5 ? ', …' : ''}`,
     };
-  return { ok: true };
+  return covered.manifestScoped !== undefined
+    ? { ok: true, manifestScoped: covered.manifestScoped }
+    : { ok: true };
 }
 
 /**
