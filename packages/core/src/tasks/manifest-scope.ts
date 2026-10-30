@@ -131,7 +131,9 @@ function reachable(lock: Mapping, importers: readonly string[]): Set<string> {
   const snapshots = mappingAt(lock, 'snapshots');
   const packages = mappingAt(lock, 'packages');
   const seen = new Set<string>();
-  const pending = importers.flatMap((i) => dependencyKeys(mappingAt(mappingAt(lock, 'importers'), i)));
+  const pending = importers.flatMap((i) =>
+    dependencyKeys(mappingAt(mappingAt(lock, 'importers'), i)),
+  );
   while (pending.length > 0) {
     const key = pending.pop() ?? '';
     if (seen.has(key)) continue;
@@ -203,7 +205,10 @@ export function manifestScopedChange(
     return null;
   let importers: string[] = [];
   if (outside.includes(PNPM_LOCKFILE)) {
-    const lock = pnpmImporterChanges(show(root, base, PNPM_LOCKFILE), show(root, head, PNPM_LOCKFILE));
+    const lock = pnpmImporterChanges(
+      show(root, base, PNPM_LOCKFILE),
+      show(root, head, PNPM_LOCKFILE),
+    );
     if (lock === null) return null;
     importers = lock.importers;
   }
@@ -219,9 +224,6 @@ export function manifestScopedChange(
     if (pkg === undefined) return null;
     scoped.add(pkg.dir);
   }
-  const paths = [
-    ...changed.filter(inPackage),
-    ...[...scoped].map((dir) => `${dir}/package.json`),
-  ];
+  const paths = [...changed.filter(inPackage), ...[...scoped].map((dir) => `${dir}/package.json`)];
   return { importers, paths: [...new Set(paths)] };
 }

@@ -698,6 +698,11 @@ export async function testsPassedSupersededReason(
      * stand (T13096); defaults to `ciSatisfiesRemedy` of the bound checkout.
      */
     ciRemedy?: () => Promise<string | null>;
+    /**
+     * Told when a manifest-only change stands through its lockfile importers
+     * (T14163), so `cleo complete` can record why.
+     */
+    onManifestScoped?: (scoped: { mergeCommit: string; importers: string[] }) => void;
   },
 ): Promise<string | null> {
   const joined = setAsideJoinedReason(atoms, probe.root);
@@ -730,7 +735,14 @@ export async function testsPassedSupersededReason(
     // own CI concluded. Byte identity stays the rule for every other run.
     const landed = probe.landed ?? (await import('./change-set.js')).isLandedOnOriginDefault;
     const stands = scopedRunStandsAfterRedCi(atoms, target, await probe.currentTree(), landed);
-    if (stands.ok) return null;
+    if (stands.ok) {
+      if (stands.manifestScoped && target?.mergeCommitSha)
+        probe.onManifestScoped?.({
+          mergeCommit: target.mergeCommitSha,
+          importers: stands.manifestScoped,
+        });
+      return null;
+    }
     // T13096: a project with workflows but no ciSatisfies is told the block to add.
     const ciRemedy = probe.ciRemedy
       ? await probe.ciRemedy()

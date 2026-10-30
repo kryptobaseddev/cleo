@@ -33,7 +33,7 @@ const mergeOverride = vi.hoisted(() => ({
   value: null as null | TaskMergeInfo,
 }));
 const standsOverride = vi.hoisted(() => ({
-  value: null as null | { ok: true } | { ok: false; why: string },
+  value: null as null | { ok: true; manifestScoped?: string[] } | { ok: false; why: string },
 }));
 
 vi.mock('../affected-scope.js', async (importOriginal) => {
@@ -324,6 +324,23 @@ describe('satisfyGatesFromMergedCi', () => {
       );
       expect(out).toEqual({ kind: 'skipped', testsPassedReason: null, qaPassedReason: null });
       expect(w.calls).toHaveLength(1);
+    });
+
+    it('reports a manifest-scoped stand-in with its merge commit and importers (T14163)', async () => {
+      merged();
+      standsOverride.value = { ok: true, manifestScoped: ['packages/app'] };
+      const out = await satisfyGatesFromMergedCi(
+        task({ tests: [afterMerge], qa: true }),
+        '/nonexistent',
+        REQUIRED,
+        deps({ recordGates: red().recordGates }),
+      );
+      expect(out).toEqual({
+        kind: 'skipped',
+        testsPassedReason: null,
+        qaPassedReason: null,
+        testsPassedStandIn: { mergeCommit: 'a'.repeat(40), importers: ['packages/app'] },
+      });
     });
 
     it('stays ci-red and says why the run cannot stand in', async () => {

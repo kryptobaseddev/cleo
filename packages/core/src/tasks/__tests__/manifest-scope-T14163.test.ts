@@ -33,7 +33,9 @@ const appManifest = (deps: Record<string, string> = {}) =>
   `${JSON.stringify({ name: '@x/app', dependencies: { '@x/lib': 'workspace:*', ...deps } }, null, 2)}\n`;
 
 /** A pnpm v9 lockfile; `mutate` edits the plain object first. */
-function lockfile(mutate: (lock: Record<string, Record<string, unknown>>) => void = () => {}): string {
+function lockfile(
+  mutate: (lock: Record<string, Record<string, unknown>>) => void = () => {},
+): string {
   const lock: Record<string, Record<string, unknown>> = {
     settings: { autoInstallPeers: true },
     importers: {
@@ -65,7 +67,9 @@ function mergeChange(files: Record<string, string>): string {
 }
 
 const changedBy = (merge: string): string[] =>
-  git(['diff', '--name-only', `${merge}^1`, merge]).split('\n').filter(Boolean);
+  git(['diff', '--name-only', `${merge}^1`, merge])
+    .split('\n')
+    .filter(Boolean);
 
 beforeEach(() => {
   repo = realpathSync(mkdtempSync(join(tmpdir(), 'manifest-scope-')));
@@ -99,7 +103,8 @@ function t2650(): string {
       const app = (lock.importers as Record<string, Record<string, Record<string, unknown>>>)[
         'packages/app'
       ];
-      if (app?.dependencies) app.dependencies['left-pad'] = { specifier: '^1.3.0', version: '1.3.0' };
+      if (app?.dependencies)
+        app.dependencies['left-pad'] = { specifier: '^1.3.0', version: '1.3.0' };
       lock.packages['left-pad@1.3.0'] = { resolution: { integrity: 'sha512-lp' } };
       lock.snapshots['left-pad@1.3.0'] = {};
     }),
@@ -166,7 +171,9 @@ describe('manifest-only workspace changes after the merge (T14163)', () => {
     const merge = mergeChange({
       'package.json': rootManifest({ devDependencies: { typescript: '^5.1.0' } }),
       'pnpm-lock.yaml': lockfile((lock) => {
-        const root = (lock.importers as Record<string, Record<string, Record<string, unknown>>>)['.'];
+        const root = (lock.importers as Record<string, Record<string, Record<string, unknown>>>)[
+          '.'
+        ];
         if (root?.devDependencies)
           root.devDependencies.typescript = { specifier: '^5.1.0', version: '5.1.0' };
         delete lock.packages['typescript@5.0.0'];

@@ -900,6 +900,29 @@ export interface GateEvidence {
   override?: boolean;
   /** Reason given for an override (`CLEO_OWNER_OVERRIDE_REASON` env). */
   overrideReason?: string;
+  /**
+   * Why a scoped run recorded after the merge stands in for this gate where
+   * the change alone would have needed a whole-suite run (T14163). Written by
+   * `cleo complete` when it accepts the stand-in, so the reason outlives the
+   * command's output.
+   */
+  standIn?: GateStandIn;
+}
+
+/**
+ * A recorded post-merge stand-in (T14163): a manifest-only workspace change
+ * (root `package.json` dependency fields and the pnpm lockfile) scoped by the
+ * lockfile importers its merge changed.
+ */
+export interface GateStandIn {
+  /** The stand-in rule that applied. */
+  kind: 'manifest-scoped';
+  /** The merge commit whose lockfile diff was read. */
+  mergeCommit: string;
+  /** Lockfile importers the merge changed; `.` is the root, every package. */
+  importers: string[];
+  /** ISO 8601 time `cleo complete` recorded it. */
+  recordedAt: string;
 }
 
 /** Task verification state. */
