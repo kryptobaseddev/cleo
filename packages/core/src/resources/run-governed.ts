@@ -1066,8 +1066,28 @@ export async function runGoverned(opts: RunGovernedOptions): Promise<RunGoverned
   await grant.release();
   // T13921/T13972: only a hooked run that exited 0, with its hook seen in the
   // tree at HOOK_MIN_SAMPLES samples, is a measurement (recordHookPeak decides).
-  if (opts.hookKey !== undefined && result.code === 0) {
-    await recordHookPeak(opts.hookKey, peakRssBytes, treeSamples, d.hookFootprintsDir, d.now());
+  // T14162: a run whose peak exceeded its charge is reported and recorded
+  // whatever its exit code: the excess is evidence in the safe direction, and
+  // the next run of the command is charged from it.
+  const charged = opts.footprintBytes ?? footprintForClass(opts.cls);
+  const exceeded = opts.hookKey !== undefined && peakRssBytes > charged;
+  if (exceeded) {
+    notice(
+      `measured peak ${(peakRssBytes / 1024 ** 3).toFixed(1)} GiB exceeded its ${(charged / 1024 ** 3).toFixed(1)} GiB charge; the next run of this command is charged from the measured peak`,
+      'warn',
+    );
+  }
+  // A failed run's excess is kept apart: it raises the next charge, never
+  // counts toward the runs a lowering needs.
+  if (opts.hookKey !== undefined && (result.code === 0 || exceeded)) {
+    await recordHookPeak(
+      opts.hookKey,
+      peakRssBytes,
+      treeSamples,
+      d.hookFootprintsDir,
+      d.now(),
+      result.code === 0,
+    );
   }
   return exitedResult(result.error ? result.error.message : null, result.code, result.signal);
 

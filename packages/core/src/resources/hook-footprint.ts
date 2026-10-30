@@ -65,6 +65,12 @@ interface HookMeasurement {
   /** Counted runs. */
   readonly runs: number;
   readonly measuredAtMs: number;
+  /**
+   * The largest peak of an uncounted run that exceeded its charge (a failed
+   * run, T14162): it raises the next charge ({@link readMeasuredPeak}) but
+   * never counts toward lowering one ({@link readHookPeak}).
+   */
+  readonly exceededPeakBytes?: number;
 }
 
 function file(dir: string): string {
@@ -278,6 +284,20 @@ export function readHookPeak(key: string, dir: string): number | null {
 }
 
 /**
+ * The largest peak recorded for a key after any number of counted runs, or
+ * `null` when none was (T14162). Raising a charge needs one measurement;
+ * only lowering one waits for {@link HOOK_MIN_RUNS} ({@link readHookPeak}).
+ *
+ * @param key - From {@link hookFootprintKey} or {@link scriptFootprint}.
+ * @param dir - The admission directory.
+ */
+export function readMeasuredPeak(key: string, dir: string): number | null {
+  const m = readAll(dir)[key];
+  const peak = Math.max(m?.peakBytes ?? 0, m?.exceededPeakBytes ?? 0);
+  return peak > 0 ? peak : null;
+}
+
+/**
  * Record one run of a hook: counted only with at least
  * {@link HOOK_MIN_SAMPLES} samples that saw the hook running; the stored peak
  * is the maximum of every counted run. A lowered charge is provisional: a run
@@ -292,6 +312,9 @@ export function readHookPeak(key: string, dir: string): number | null {
  * @param samples - How many times the tree was sampled.
  * @param dir - The admission directory.
  * @param nowMs - The clock.
+ * @param counted - `false` for a run that exceeded its charge but is no
+ *   measurement (it exited non-zero, T14162): only its excess is kept, apart
+ *   from the counted peak and runs. @defaultValue true
  */
 export async function recordHookPeak(
   key: string,
@@ -299,6 +322,7 @@ export async function recordHookPeak(
   samples: number,
   dir: string,
   nowMs: number = Date.now(),
+  counted = true,
 ): Promise<void> {
   if (!(peakBytes > 0) || samples < HOOK_MIN_SAMPLES) return;
   let unlock: (() => Promise<void>) | null = null;
@@ -315,12 +339,23 @@ export async function recordHookPeak(
     });
     const all = readAll(dir);
     const last = all[key];
-    const exceeded = last !== undefined && peakBytes > last.peakBytes * HOOK_PEAK_MARGIN;
-    const next: HookMeasurement = {
-      peakBytes: Math.max(peakBytes, last?.peakBytes ?? 0),
-      runs: exceeded ? 1 : (last?.runs ?? 0) + 1,
-      measuredAtMs: nowMs,
-    };
+    // An entry holding only a failed run's excess has no counted peak to exceed.
+    const exceeded =
+      last !== undefined && last.peakBytes > 0 && peakBytes > last.peakBytes * HOOK_PEAK_MARGIN;
+    const excess = Math.max(counted ? 0 : peakBytes, last?.exceededPeakBytes ?? 0);
+    const next: HookMeasurement = counted
+      ? {
+          peakBytes: Math.max(peakBytes, last?.peakBytes ?? 0),
+          runs: exceeded ? 1 : (last?.runs ?? 0) + 1,
+          measuredAtMs: nowMs,
+          ...(excess > 0 ? { exceededPeakBytes: excess } : {}),
+        }
+      : {
+          peakBytes: last?.peakBytes ?? 0,
+          runs: last?.runs ?? 0,
+          measuredAtMs: nowMs,
+          exceededPeakBytes: excess,
+        };
     const kept = Object.entries({ ...all, [key]: next })
       .sort(([, a], [, b]) => b.measuredAtMs - a.measuredAtMs)
       .slice(0, MAX_HOOKS);

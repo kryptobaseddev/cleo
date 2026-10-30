@@ -43,7 +43,7 @@ import {
 } from '../admission-ledger.js';
 import type { ResourceSample } from '../backend.js';
 import { _resetGovernorStateForTest, governorSlotDir, ResourceGovernor } from '../governor.js';
-import { HOOK_MIN_RUNS, readHookPeak } from '../hook-footprint.js';
+import { HOOK_MIN_RUNS, readHookPeak, readMeasuredPeak } from '../hook-footprint.js';
 import { type RunJob, writeRunJob } from '../run-admission.js';
 import { type GovernedChild, type RunGovernedDeps, runGoverned } from '../run-governed.js';
 import {
@@ -391,6 +391,41 @@ describe("the ledger charge follows the run's measured tree (T14116)", () => {
     await runGoverned(base(h, { ...BUILD, hookKey: 'pre-push:k' }));
     expect(seen.length).toBeGreaterThanOrEqual(2);
     expect(new Set(seen)).toEqual(new Set([170 * MIB]));
+  });
+});
+
+describe('a run over its charge is reported and recorded (T14162)', () => {
+  it('a light-charged script that peaks above its charge warns and records the peak, even on a non-zero exit', async () => {
+    const MIB = 1024 ** 2;
+    const notices: Array<[string, string]> = [];
+    const h = harness({
+      treeUsage: () => ({
+        cpuMs: 1,
+        rssBytes: 3000 * MIB,
+        processes: 3,
+        commands: [
+          'node scripts/audit/emit-route-guards.cjs',
+          'node scripts/typecheck/full-program.cjs',
+        ],
+      }),
+      onSleep: (n, hh) => n === 4 && hh.exit(1),
+    });
+    await runGoverned(
+      base(h, {
+        ...BUILD,
+        argv: ['node', 'scripts/audit/emit-route-guards.cjs', '--check'],
+        hookKey: 'emit-route-guards.cjs:abc',
+        footprintBytes: 1024 * MIB,
+        notice: (m: string, l: string) => notices.push([l, m]),
+      }),
+    );
+    expect(notices).toContainEqual([
+      'warn',
+      expect.stringMatching(
+        /^measured peak 2\.9 GiB exceeded its 1\.0 GiB charge; the next run of this command is charged from the measured peak$/,
+      ),
+    ]);
+    expect(readMeasuredPeak('emit-route-guards.cjs:abc', join(dir, 'hooks'))).toBe(3000 * MIB);
   });
 });
 

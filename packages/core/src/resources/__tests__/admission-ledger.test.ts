@@ -8,7 +8,15 @@
 
 import { execFileSync } from 'node:child_process';
 import * as fileSystem from 'node:fs';
-import { chmodSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import {
+  chmodSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs';
 import { hostname, tmpdir } from 'node:os';
 import { join } from 'node:path';
 import lockfile from 'proper-lockfile';
@@ -55,7 +63,12 @@ import {
   URGENT_AGING_MS,
 } from '../admission-ledger.js';
 import type { ResourceSample } from '../backend.js';
-import { scriptFootprint } from '../hook-footprint.js';
+import {
+  readHookPeak,
+  readMeasuredPeak,
+  recordHookPeak,
+  scriptFootprint,
+} from '../hook-footprint.js';
 import { ResourceMonitor } from '../monitor.js';
 import { _resetMemoryGateForTest, memoryGateReporter } from '../pressure-gate.js';
 import { lightCommandReason } from '../run-class.js';
@@ -2995,7 +3008,131 @@ describe('a node script that hosts a heavy tool is never charged light (T14050)'
     const plain = plan(['node', 'scripts/gen.mjs'], script(null));
     expect(plain.footprintBytes).toBe(GIB);
     expect(plain.footprintReason).toBe('node scripts/gen.mjs runs no heavy tool');
-    expect(plain.hookKey).toBeUndefined();
+    // T14162: a light script is measured too, so a run over its charge raises the next one.
+    expect(plain.hookKey).toBe('full-program.cjs:abc');
+  });
+});
+
+/**
+ * axiom-qa (mbx 01M651T065DX4V0Z42H8T4V1WQ, 10.27): `cleo run --wait --class build
+ * -- node scripts/audit/emit-route-guards.cjs --check` was charged 1.0 GiB ("runs no
+ * heavy tool") while the script spawned a full-program typecheck (T14162).
+ */
+describe('an explicit class is charged its plan until a measurement lowers it (T14162)', () => {
+  const RAM = 48;
+  const axiom = [
+    'node',
+    'scripts/audit/emit-route-guards.cjs',
+    '--check',
+    '--project',
+    'tsconfig.json',
+  ];
+  const kodo = ['python3', 'scripts/check_meta.py'];
+  const peak =
+    (key: string, peakBytes: number | null = null, lastPeakBytes: number | null = null) =>
+    () => ({ key, heavyTool: null, peakBytes, lastPeakBytes });
+  const plan = (
+    argv: readonly string[],
+    scripted: ReturnType<typeof peak>,
+    options: { explicitClass?: boolean; projectRoot?: string } = {},
+  ) =>
+    planRunFootprint(
+      'scoped-build',
+      argv,
+      {},
+      RAM,
+      () => false,
+      unmeasured,
+      '/repo',
+      scripted,
+      options,
+    );
+
+  it('the axiom wrapper is heavy from its first run under an explicit --class build', () => {
+    expect(lightCommandReason(axiom)).toBe(
+      'node scripts/audit/emit-route-guards.cjs runs no heavy tool',
+    );
+    const guessed = plan(axiom, peak('emit-route-guards.cjs:abc'));
+    expect(guessed.footprintBytes).toBe(GIB); // without --class the guess still applies
+    const first = plan(axiom, peak('emit-route-guards.cjs:abc'), { explicitClass: true });
+    expect(first.footprintBytes).toBeGreaterThan(GIB);
+    expect(first.footprintReason).toBe(
+      'scoped-build plan: --class given; not lowered by the guess that node scripts/audit/emit-route-guards.cjs runs no heavy tool; charged the plan until 3 runs are measured',
+    );
+    expect(first.hookKey).toBe('emit-route-guards.cjs:abc');
+  });
+
+  it("Kodo's python check: the plan for its first 3 runs, then about 1 GiB once measured (T14079 kept)", () => {
+    const unmeasuredYet = plan(kodo, peak('check_meta.py:abc'), { explicitClass: true });
+    expect(unmeasuredYet.footprintBytes).toBeGreaterThan(GIB);
+    // After 3 measured runs at 0.1 GiB, the measurement lowers it to the light floor.
+    const measured = plan(kodo, peak('check_meta.py:abc', 0.1 * GIB, 0.1 * GIB), {
+      explicitClass: true,
+    });
+    expect(measured.footprintBytes).toBe(GIB);
+    // Without --class the guess applies as before (the T14079 pin).
+    expect(plan(kodo, peak('check_meta.py:abc')).footprintBytes).toBe(GIB);
+  });
+
+  it('a script the project declares heavy is charged as heavy', () => {
+    const repo = mkdtempSync(join(tmpdir(), 'cleo-heavy-scripts-'));
+    try {
+      mkdirSync(join(repo, '.cleo'));
+      writeFileSync(
+        join(repo, '.cleo', 'project-context.json'),
+        JSON.stringify({ build: { heavyScripts: ['scripts/audit/**'] } }),
+      );
+      const declared = planRunFootprint(
+        'scoped-build',
+        axiom,
+        {},
+        RAM,
+        () => false,
+        unmeasured,
+        repo,
+        peak('emit-route-guards.cjs:abc'),
+        { projectRoot: repo },
+      );
+      expect(declared.footprintBytes).toBeGreaterThan(GIB);
+      expect(declared.footprintReason).toMatch(
+        /hosts a heavy tool \(the project declares it heavy \(build\.heavyScripts\)\)/,
+      );
+      const other = planRunFootprint(
+        'scoped-build',
+        ['node', 'scripts/gen.mjs'],
+        {},
+        RAM,
+        () => false,
+        unmeasured,
+        repo,
+        peak('gen.mjs:abc'),
+        { projectRoot: repo },
+      );
+      expect(other.footprintBytes).toBe(GIB);
+    } finally {
+      rmSync(repo, { recursive: true, force: true });
+    }
+  });
+
+  it('one run measured above the charge raises the next run to its peak plus the margin', () => {
+    const raised = plan(axiom, peak('emit-route-guards.cjs:abc', null, 6 * GIB));
+    expect(raised.footprintBytes).toBe(Math.ceil(6 * GIB * 1.25));
+    expect(raised.footprintReason).toMatch(/hosts a heavy tool \(a run measured 6\.0 GiB\)/);
+    // A run measured under the light charge leaves a light script light.
+    expect(plan(axiom, peak('emit-route-guards.cjs:abc', null, 0.3 * GIB)).footprintBytes).toBe(
+      GIB,
+    );
+  });
+
+  it('readMeasuredPeak returns the largest recorded peak after one run; readHookPeak waits for three', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'cleo-measured-peak-'));
+    try {
+      await recordHookPeak('emit-route-guards.cjs:abc', 6 * GIB, 4, dir);
+      expect(readMeasuredPeak('emit-route-guards.cjs:abc', dir)).toBe(6 * GIB);
+      expect(readHookPeak('emit-route-guards.cjs:abc', dir)).toBeNull();
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 });
 

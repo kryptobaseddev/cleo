@@ -191,6 +191,11 @@ export interface ProjectContext {
   build?: {
     command?: string;
     outputDir?: string;
+    /**
+     * Globs, relative to the project root, of scripts that run heavy tools:
+     * `cleo run` charges them as heavy whatever their content shows (T14162).
+     */
+    heavyScripts?: string[];
   };
   directories?: {
     source?: string;
