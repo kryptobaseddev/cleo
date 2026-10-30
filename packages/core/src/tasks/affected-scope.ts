@@ -37,6 +37,7 @@ import {
   qaRunUnionGapReason,
   typecheckCoverageGap,
 } from './qa-run-binding.js';
+import type { ManifestScoper } from './manifest-scope.js';
 import { changedTestFiles, testRunCoversChange } from './test-run-binding.js';
 import { canonicalToolName } from './tool-resolver.js';
 
@@ -698,6 +699,11 @@ export async function testsPassedSupersededReason(
      * stand (T13096); defaults to `ciSatisfiesRemedy` of the bound checkout.
      */
     ciRemedy?: () => Promise<string | null>;
+    /**
+     * Told when a manifest-only change stands through its lockfile importers
+     * (T14163), so `cleo complete` can record why.
+     */
+    onManifestScoped?: (scoped: { mergeCommit: string; importers: string[] }) => void;
   },
 ): Promise<string | null> {
   const joined = setAsideJoinedReason(atoms, probe.root);
@@ -729,8 +735,24 @@ export async function testsPassedSupersededReason(
     // the task's change, stands in for any merged change, whatever the merge's
     // own CI concluded. Byte identity stays the rule for every other run.
     const landed = probe.landed ?? (await import('./change-set.js')).isLandedOnOriginDefault;
-    const stands = scopedRunStandsAfterRedCi(atoms, target, await probe.currentTree(), landed);
-    if (stands.ok) return null;
+    // T14163: loaded here only, so the YAML parser stays off CLI startup paths.
+    const { manifestScopedChange } = await import('./manifest-scope.js');
+    const stands = scopedRunStandsAfterRedCi(
+      atoms,
+      target,
+      await probe.currentTree(),
+      landed,
+      'testsPassed',
+      manifestScopedChange,
+    );
+    if (stands.ok) {
+      if (stands.manifestScoped && target?.mergeCommitSha)
+        probe.onManifestScoped?.({
+          mergeCommit: target.mergeCommitSha,
+          importers: stands.manifestScoped,
+        });
+      return null;
+    }
     // T13096: a project with workflows but no ciSatisfies is told the block to add.
     const ciRemedy = probe.ciRemedy
       ? await probe.ciRemedy()
@@ -955,7 +977,8 @@ export function scopedRunStandsAfterRedCi(
   current: string | null,
   landed: (root: string, sha: string) => boolean,
   gate: 'testsPassed' | 'qaPassed' = 'testsPassed',
-): { ok: true } | { ok: false; why: string } {
+  scopeManifest?: ManifestScoper,
+): { ok: true; manifestScoped?: string[] } | { ok: false; why: string } {
   const merge = changeSet?.mergeCommitSha;
   if (!changeSet || !merge) return { ok: false, why: 'the merge commit is not known here' };
   if (changeSet.files.length === 0)
@@ -1028,7 +1051,12 @@ export function scopedRunStandsAfterRedCi(
     return gap === null ? { ok: true } : { ok: false, why: gap };
   }
   const ran = [...new Set(runs.flatMap((r) => (r.kind === 'test-run' ? (r.testFiles ?? []) : [])))];
-  const covered = testRunCoversChange(root, changeSet.files, ran);
+  // T14163: after the merge, a manifest-only workspace change is scoped by
+  // the lockfile importers it touched.
+  const covered = testRunCoversChange(root, changeSet.files, ran, {
+    mergeCommit: merge,
+    ...(scopeManifest ? { scopeManifest } : {}),
+  });
   if (!covered.ok) return { ok: false, why: covered.reason };
   const configGap = mergedConfigGap(atoms, covered.configPaths ?? [], merge, root, current);
   if (configGap) return { ok: false, why: configGap };
@@ -1044,7 +1072,9 @@ export function scopedRunStandsAfterRedCi(
       ok: false,
       why: `the test-run did not run the change's test file(s) ${unrun.slice(0, 5).join(', ')}${unrun.length > 5 ? ', …' : ''}`,
     };
-  return { ok: true };
+  return covered.manifestScoped !== undefined
+    ? { ok: true, manifestScoped: covered.manifestScoped }
+    : { ok: true };
 }
 
 /**
