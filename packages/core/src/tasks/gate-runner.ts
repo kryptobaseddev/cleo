@@ -2372,15 +2372,18 @@ function looksLikeCountReport(value: unknown): value is object {
  * @param refusals - Receives why each report-like candidate was refused, in the order the
  *   candidates are tried (last stdout line, TAP, then the output newest-first); the
  *   first is the one reported.
+ * @param cwd - The run's cwd, where TAP test file names resolve (T14161).
  * @returns Validated counts, or `null` when the run emitted no usable report.
  * @task T12308
  * @task T13753
  * @task T14051
  * @task T14060
+ * @task T14161
  */
 function structuredTestCounts(
   captured: ProcessCaptureResult,
   refusals: string[],
+  cwd: string,
 ): StructuredTestCounts | null {
   const lastLine = captured.stdout.trimEnd().split('\n').at(-1)?.trim() ?? '';
   if (lastLine.startsWith('{')) {
@@ -2399,7 +2402,7 @@ function structuredTestCounts(
   }
   // T14124: TAP through the reader `test-run:` uses.
   if (/^TAP version \d+$/m.test(captured.stdout))
-    return gateCounts(readTestReport(captured.stdout), 'its TAP output', refusals);
+    return gateCounts(readTestReport(captured.stdout, { cwd }), 'its TAP output', refusals);
   // T14124: a report that IS the whole stdout, in any format `test-run:` reads
   // (JUnit XML and libtest JSON lines included).
   const whole = readTestReport(captured.stdout.trim());
@@ -2534,6 +2537,7 @@ async function fileStamp(path: string): Promise<{ mtimeMs: number; sha256: strin
  * @param before - Each candidate's stamp just before the spawn.
  * @param startedAt - Epoch ms just before the spawn.
  * @param refusals - Receives why a fresh report that failed its schema was refused (T14060).
+ * @param cwd - The run's cwd, where TAP test file names resolve (T14161).
  * @returns Validated counts, or null.
  * @task T13782
  * @task T14060
@@ -2542,6 +2546,7 @@ async function freshReportCounts(
   before: ReadonlyMap<string, { mtimeMs: number; sha256: string } | null>,
   startedAt: number,
   refusals: string[],
+  cwd: string,
 ): Promise<StructuredTestCounts | null> {
   for (const [path, was] of before) {
     const now = await fileStamp(path);
@@ -2549,7 +2554,7 @@ async function freshReportCounts(
       continue;
     try {
       // T14124: any format `test-run:` reads (JUnit XML, libtest, JSON, TAP).
-      const read = readTestReport(await readFile(path, 'utf-8'));
+      const read = readTestReport(await readFile(path, 'utf-8'), { cwd });
       if (
         read?.ok &&
         typeof read.report.startTime === 'number' &&
@@ -2686,8 +2691,8 @@ async function runTestGate(
   if (announced !== null && !before.has(announced)) before.set(announced, null);
   const refusals: string[] = [];
   const counts =
-    structuredTestCounts(captured, refusals) ??
-    (await freshReportCounts(before, startedAt, refusals));
+    structuredTestCounts(captured, refusals, invocation.cwd) ??
+    (await freshReportCounts(before, startedAt, refusals, invocation.cwd));
 
   // T12308: the counts come from this run's own validated report; only their
   // ABSENCE is an error, because inferring a count from exit zero is the thing

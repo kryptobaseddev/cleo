@@ -1,0 +1,29 @@
+TAP version 13
+# Subtest: d
+    # Subtest: a
+    ok 1 - a
+      ---
+      duration_ms: 0.233667
+      type: 'test'
+      ...
+    # Subtest: b
+    ok 2 - b
+      ---
+      duration_ms: 0.047708
+      type: 'test'
+      ...
+    1..2
+ok 1 - d
+  ---
+  duration_ms: 0.655208
+  type: 'suite'
+  ...
+1..1
+# tests 2
+# suites 1
+# pass 2
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 38.0565
