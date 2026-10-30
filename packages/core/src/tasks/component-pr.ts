@@ -1044,7 +1044,8 @@ function namesTask(text: string, taskId: string): boolean {
  *
  * @param root - Git checkout holding the commits.
  * @param taskId - The task the evidence is for.
- * @param landing - The integration PR's head and merge commit.
+ * @param landing - The integration PR's merge commit, and its head when known
+ *   (else the landing merge's second parent is the PR's tip).
  * @returns The merges and their landed change, or null when none names the
  *   task or the PR's commits are not available locally (fails closed).
  * @task T14164
@@ -1052,7 +1053,7 @@ function namesTask(text: string, taskId: string): boolean {
 export function taskMergesInLanding(
   root: string,
   taskId: string,
-  landing: Pick<LandingPr, 'headRefOid' | 'mergeCommitSha'>,
+  landing: { mergeCommitSha: string; headRefOid?: string | null },
 ): TaskMergeLanding | null {
   try {
     if (!hasCommit(root, landing.mergeCommitSha)) return null;
