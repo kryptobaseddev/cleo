@@ -747,7 +747,8 @@ const MERGE_SWEEP_COMMANDS = new Set(['briefing', 'next', 'current', 'show', 're
  * (`evidence.ciSatisfies`), claim the sweep (atomic, at most every 5 minutes)
  * and run `cleo done --from-merge all` in a detached child that exits within
  * 2 minutes, so merged PRs close their tasks even when the daemon is down.
- * Never in CI, under vitest, or without `gh` credentials. The merge-close
+ * Never in CI, under vitest, or without `gh` credentials; never from a CLI
+ * built in a worktree, nor for `release` run from a worktree (T14168). The merge-close
  * module loads only past the project-context check, so read commands in a
  * project without the opt-in load nothing new. Never throws.
  *
@@ -762,10 +763,13 @@ async function maybeSpawnMergeSweep(command: string | undefined): Promise<void> 
       readFileSync(join(root, '.cleo', 'project-context.json'), 'utf-8'),
     ) as { evidence?: { ciSatisfies?: unknown } };
     if (context.evidence?.ciSatisfies !== true) return;
-    const { claimMergeSweep, mergeSweepSpawnAllowed } = await import(
+    const { claimMergeSweep, lazySweepBlockedReason, mergeSweepSpawnAllowed } = await import(
       '@cleocode/core/tasks/merge-close.js'
     );
-    if (!mergeSweepSpawnAllowed(process.env) || !claimMergeSweep(root)) return;
+    if (!mergeSweepSpawnAllowed(process.env)) return;
+    // T14168: never from a worktree-built CLI, never for release from a worktree.
+    if ((await lazySweepBlockedReason(command ?? '')) !== null) return;
+    if (!claimMergeSweep(root)) return;
     const { spawn } = await import('node:child_process');
     spawn(process.execPath, [process.argv[1] ?? '', 'done', '--from-merge', 'all', '--quiet'], {
       cwd: root,

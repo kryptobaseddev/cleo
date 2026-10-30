@@ -650,6 +650,39 @@ export function mergeSweepSpawnAllowed(env: NodeJS.ProcessEnv, home = homedir())
   return existsSync(join(env['GH_CONFIG_DIR'] ?? join(home, '.config', 'gh'), 'hosts.yml'));
 }
 
+/**
+ * Why the lazy merge sweep must not start for this invocation, or null
+ * (T14168). A CLI built inside a CLEO worktree carries unreleased code, so it
+ * never sweeps the real store; a `release` command run from a CLEO worktree
+ * never sweeps the project checkout it was not started in (T14160).
+ *
+ * @param command - The CLI command being run.
+ * @param cwd - Where it was started (default `process.cwd()`).
+ * @returns The reason the sweep is skipped, or null when it may start.
+ *
+ * @example
+ * ```ts
+ * if (await lazySweepBlockedReason('release')) return; // no background sweep
+ * ```
+ *
+ * @task T14168
+ */
+export async function lazySweepBlockedReason(
+  command: string,
+  cwd: string = process.cwd(),
+): Promise<string | null> {
+  const { devBuildWorktree } = await import('../store/worktree-build-guard.js');
+  const buildWorktree = devBuildWorktree();
+  if (buildWorktree !== null)
+    return `this CLI was built in the worktree ${buildWorktree}; a dev build never sweeps the real store`;
+  if (command === 'release') {
+    const { resolveWorktreeRouting } = await import('../paths.js');
+    if (resolveWorktreeRouting(cwd).isWorktree)
+      return 'release ran from a CLEO worktree; the sweep runs only from the project checkout';
+  }
+  return null;
+}
+
 /** The criteria every earlier applied line bound for a task, and whether this PR was applied. */
 async function priorBindings(
   storeRoot: string,
