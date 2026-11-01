@@ -31,13 +31,13 @@ import type {
   CommitPr,
   PatchEquivalenceUnknown,
 } from './change-set.js';
+import type { ManifestScoper } from './manifest-scope.js';
 import {
   QA_RUN_KINDS,
   qaRunCoverage,
   qaRunUnionGapReason,
   typecheckCoverageGap,
 } from './qa-run-binding.js';
-import type { ManifestScoper } from './manifest-scope.js';
 import { changedTestFiles, testRunCoversChange } from './test-run-binding.js';
 import { canonicalToolName } from './tool-resolver.js';
 
