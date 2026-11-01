@@ -77,6 +77,18 @@ vi.mock('../authorization.js', () => ({
   AUTHORIZED_BY_TRAILER: 'Authorized-by',
   releaseAuthorizationFor: async () => (authorized ? { id: 'auth-1' } : null),
 }));
+/** `release.agentCut` per config scope (D11221); unset when absent. */
+let agentCut: { project?: string; global?: string } = {};
+vi.mock('../../config/registry.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../config/registry.js')>();
+  return {
+    ...actual,
+    getConfigValue: async (key: string, opts: Parameters<typeof actual.getConfigValue>[1]) =>
+      key === 'release.agentCut'
+        ? agentCut[opts.scope === 'global' ? 'global' : 'project']
+        : actual.getConfigValue(key, opts),
+  };
+});
 /** What the person types on /dev/tty; null = no controlling terminal. */
 let ttyAnswer: string | null = null;
 vi.mock('../tty-confirm.js', () => ({ readTtyConfirmation: () => ttyAnswer }));
@@ -170,6 +182,7 @@ beforeEach(() => {
 
 afterEach(() => {
   ttyAnswer = null;
+  agentCut = {};
   cleanups.length = 0;
   for (const dir of dirs) rmSync(dir, { recursive: true, force: true });
 });
@@ -236,9 +249,12 @@ function fakeRunner(
 /** A confirmed cut (D11212); the version typed on /dev/tty is `ttyAnswer`. */
 const confirmed = { yes: true } as const;
 
-function errorOf(result: { success: boolean; error?: { code: string; message: string } }) {
+function errorOf(result: {
+  success: boolean;
+  error?: { code: string; message: string; fix?: string };
+}) {
   expect(result.success).toBe(false);
-  return result.error ?? { code: '', message: '' };
+  return result.error ?? { code: '', message: '', fix: '' };
 }
 
 describe('releaseCut (T14102)', () => {
@@ -475,6 +491,48 @@ describe('releaseCut confirmation gate (D11212)', () => {
     } finally {
       authorized = false;
     }
+  });
+
+  it('release.agentCut lets --yes tag a covered version with no terminal, and audits the setting (D11221)', async () => {
+    const { runner } = fakeRunner({ [shas.head]: 'success' });
+    agentCut = { global: 'canary' };
+    const tagged = await releaseCut({
+      ...confirmed,
+      version: `${NEXT}-canary.1`,
+      projectRoot: work,
+      runner,
+    });
+    expect(tagged.success).toBe(true);
+    if (!tagged.success) return;
+    expect(tagged.data.tagCreated).toBe(true);
+    expect(tagged.data.allowedBy).toBe('setting:release.agentCut=canary@global');
+    expect(tagged.data.warnings.join('\n')).toContain('release.agentCut=canary');
+    const audit = readFileSync(join(work, RELEASE_CUT_AUDIT_FILE), 'utf-8').trim().split('\n');
+    expect(JSON.parse(audit.at(-1) ?? '{}')).toMatchObject({
+      version: `v${NEXT}-canary.1`,
+      sha: shas.head,
+      outcome: 'tagged',
+      scope: 'canary',
+      settingSource: 'global',
+    });
+  });
+
+  it('release.agentCut refuses a version it does not cover, naming the config set command', async () => {
+    const { runner, calls } = fakeRunner({ [shas.head]: 'success' });
+    agentCut = { global: 'prerelease' };
+    const stable = errorOf(
+      await releaseCut({ ...confirmed, version: NEXT, projectRoot: work, runner }),
+    );
+    expect(stable.code).toBe('E_RELEASE_NOT_AUTHORIZED');
+    expect(stable.fix).toContain('cleo config set release.agentCut stable --scope global');
+    // A project `off` shadows the global level.
+    agentCut = { project: 'off', global: 'stable' };
+    const off = errorOf(
+      await releaseCut({ ...confirmed, version: `${NEXT}-canary.1`, projectRoot: work, runner }),
+    );
+    expect(off.message).toContain('release.agentCut is off');
+    expect(off.fix).toContain('cleo config set release.agentCut canary --scope global');
+    expect(calls.some((c) => c.includes('POST'))).toBe(false);
   });
 
   it('prints --lead as a normalized absolute path in the confirm command', async () => {

@@ -54,6 +54,7 @@ import type {
   MergedCleanupResult,
 } from '@cleocode/contracts/operations/worktree.js';
 import { parseChangesetDir } from '../changesets/index.js';
+import { getConfigValue } from '../config/registry.js';
 import { scanDocsRot } from '../docs/rot.js';
 import { getTaskAccessor } from '../store/data-accessor.js';
 import { sweepMergedClosures } from '../tasks/merge-close.js';
@@ -102,7 +103,8 @@ export interface ReleaseCutOptions {
   dryRun?: boolean;
   /**
    * Confirm the tag (D11212). Without it the cut only reports, with the exact
-   * confirm command. With it, a standing release authorization (T14141) or the
+   * confirm command. With it, a standing release authorization (T14141), the
+   * `release.agentCut` setting (D11221) or the
    * version typed on the controlling terminal (`/dev/tty`) allows the tag.
    */
   yes?: boolean;
@@ -186,6 +188,8 @@ export interface ReleaseCutResult {
   dryRun: boolean;
   /** True when this call created the tag (which starts `release.yml`). */
   tagCreated: boolean;
+  /** What allowed the tag (`authorization:<id>`, `setting:release.agentCut=<level>@<scope>` or `tty-confirm`), or null. */
+  allowedBy: string | null;
 }
 
 /** Options for {@link releaseChangelog}. */
@@ -425,6 +429,28 @@ function versionProblem(
   const base: { version?: string } = JSON.parse(manifest);
   if (base.version && compareCalVer(version, normalizeVersion(base.version)) <= 0) {
     return `${version} is not above package.json's ${base.version} on the default branch`;
+  }
+  return null;
+}
+
+/** `release.agentCut` levels, narrowest first: a level covers its own scope and every narrower one (D11221). */
+const AGENT_CUT_LEVELS = ['canary', 'prerelease', 'stable'] as const;
+
+/** A level of {@link AGENT_CUT_LEVELS}; also the scope a version needs. */
+type AgentCutLevel = (typeof AGENT_CUT_LEVELS)[number];
+
+/**
+ * `release.agentCut` and the config file it came from, project before global,
+ * or null when unset, `off` or invalid. A project value (even `off`) shadows the global one.
+ */
+async function agentCutSetting(
+  projectRoot: string,
+): Promise<{ level: AgentCutLevel; source: 'project' | 'global' } | null> {
+  for (const scope of ['project', 'global'] as const) {
+    const raw = await getConfigValue<unknown>('release.agentCut', { scope, projectRoot });
+    if (raw === undefined) continue;
+    const level = AGENT_CUT_LEVELS.find((l) => l === raw);
+    return level ? { level, source: scope } : null;
   }
   return null;
 }
@@ -781,6 +807,7 @@ export async function releaseCut(opts: ReleaseCutOptions): Promise<EngineResult<
     ].join(' '),
     dryRun,
     tagCreated: false,
+    allowedBy: null,
   };
   if (dryRun) return engineSuccess(result);
   const refuse = (code: string, message: string, fix: string, details: Record<string, unknown>) => {
@@ -819,24 +846,33 @@ export async function releaseCut(opts: ReleaseCutOptions): Promise<EngineResult<
     );
   }
 
-  // D11212: a standing authorization (an agent), or the version typed on the
-  // controlling terminal. Neither can be asserted by the caller.
+  // D11212: a standing authorization, the `release.agentCut` setting (D11221),
+  // or the version typed on the controlling terminal.
+  const neededScope: AgentCutLevel =
+    channelOf(version) === 'latest'
+      ? 'stable'
+      : /-canary\.\d+$/.test(version)
+        ? 'canary'
+        : 'prerelease';
   const authorization = await releaseAuthorizationFor(storeRoot, version, cwd);
-  let allowedBy = authorization ? `authorization:${authorization.id}` : '';
-  if (!authorization) {
+  const agentCut = authorization ? null : await agentCutSetting(storeRoot);
+  const settingCovers =
+    agentCut !== null &&
+    AGENT_CUT_LEVELS.indexOf(agentCut.level) >= AGENT_CUT_LEVELS.indexOf(neededScope);
+  let allowedBy = authorization
+    ? `authorization:${authorization.id}`
+    : settingCovers
+      ? `setting:release.agentCut=${agentCut.level}@${agentCut.source}`
+      : '';
+  if (!allowedBy) {
     const typed = readTtyConfirmation(`Tag ${version} on ${sha}? Type ${version} to confirm: `);
     if (typed === null) {
-      const neededScope =
-        channelOf(version) === 'latest'
-          ? 'stable'
-          : /-canary\.\d+$/.test(version)
-            ? 'canary'
-            : 'prerelease';
+      const current = agentCut ? `${agentCut.level} (${agentCut.source})` : 'off';
       return refuse(
         E_RELEASE_NOT_AUTHORIZED,
-        `No terminal to confirm ${version}, and no active standing release authorization covers scope ${neededScope} or ${version}`,
-        `Run \`${result.confirmCommand}\` from a terminal, or ask the owner to grant one: cleo release authorize --scope ${neededScope} --expires 7d --reason "<why>"`,
-        { version, sha, scope: neededScope },
+        `No terminal to confirm ${version}; release.agentCut is ${current}, which does not cover scope ${neededScope}, and no standing release authorization covers it`,
+        `Allow agent cuts of ${neededScope} versions: cleo config set release.agentCut ${neededScope} --scope global`,
+        { version, sha, scope: neededScope, agentCut: agentCut?.level ?? 'off' },
       );
     }
     if (normalizeVersion(typed) !== version) {
@@ -901,13 +937,28 @@ export async function releaseCut(opts: ReleaseCutOptions): Promise<EngineResult<
       details: { sha, tagObject: tagObject || null },
     });
   }
-  auditCut(storeRoot, { version, sha, outcome: 'tagged', tagObject, allowedBy });
+  auditCut(storeRoot, {
+    version,
+    sha,
+    outcome: 'tagged',
+    tagObject,
+    allowedBy,
+    scope: neededScope,
+    settingSource: settingCovers ? agentCut.source : null,
+  });
   return engineSuccess({
     ...result,
     cleanup: await cleanupTasks(false),
     dryRun: false,
     confirmCommand: null,
     tagCreated: true,
+    allowedBy,
+    warnings: settingCovers
+      ? [
+          ...result.warnings,
+          `Tagged on the authority of release.agentCut=${agentCut.level} (${agentCut.source} config)`,
+        ]
+      : result.warnings,
   });
 }
 

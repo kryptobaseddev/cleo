@@ -656,7 +656,7 @@ const cutCommand = defineCommand({
     yes: {
       type: 'boolean',
       description:
-        'Create the tag (D11212): asks you to type the version on the terminal (/dev/tty), or uses a standing release authorization (T14141). Without it the cut only reports and prints the confirm command',
+        'Create the tag (D11212): asks you to type the version on the terminal (/dev/tty), or uses a standing release authorization (T14141) or the release.agentCut setting (cleo config set release.agentCut canary --scope global, T14170). Without it the cut only reports and prints the confirm command',
     },
   },
   async run({ args }) {
