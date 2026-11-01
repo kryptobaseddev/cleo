@@ -2693,6 +2693,7 @@ export type {
   EvidenceValidationContext,
   FileMeta,
   GateEvidence,
+  GateStandIn,
   Phase,
   PhaseStatus,
   PhaseTransition,

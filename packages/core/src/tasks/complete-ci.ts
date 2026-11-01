@@ -104,6 +104,11 @@ export type MergedCiOutcome =
       qaPassedReason: string | null;
       /** Why merged CI could not stand in, when it was tried. */
       ciUnavailable?: string;
+      /**
+       * The manifest-only change testsPassed stood for through its lockfile
+       * importers (T14163); `cleo complete` records it on the gate.
+       */
+      testsPassedStandIn?: { mergeCommit: string; importers: string[] };
     };
 
 /**
@@ -183,12 +188,32 @@ function ciRefusal(reason: string): MergedCiOutcome {
  * if (ci.kind === 'wait-for-ci') throw new Error(ci.reason);
  * ```
  * @task T12960
+ * @task T14163
  */
 export async function satisfyGatesFromMergedCi(
   task: Task,
   storeRoot: string,
   requiredGates: readonly VerificationGate[],
   deps: MergedCiDeps = {},
+): Promise<MergedCiOutcome> {
+  // T14163: a manifest-only change that stood through its lockfile importers
+  // is reported with the outcome, so cleo complete records why.
+  let scoped: { mergeCommit: string; importers: string[] } | undefined;
+  const outcome = await mergedCiOutcome(task, storeRoot, requiredGates, deps, (s) => {
+    scoped = s;
+  });
+  return outcome.kind === 'skipped' && outcome.testsPassedReason === null && scoped
+    ? { ...outcome, testsPassedStandIn: scoped }
+    : outcome;
+}
+
+/** {@link satisfyGatesFromMergedCi}, telling `onManifestScoped` of a T14163 stand-in. */
+async function mergedCiOutcome(
+  task: Task,
+  storeRoot: string,
+  requiredGates: readonly VerificationGate[],
+  deps: MergedCiDeps,
+  onManifestScoped: (scoped: { mergeCommit: string; importers: string[] }) => void,
 ): Promise<MergedCiOutcome> {
   const ciGates = CI_GATES.filter((g) => requiredGates.includes(g));
   if (ciGates.length === 0)
@@ -206,6 +231,7 @@ export async function satisfyGatesFromMergedCi(
           mergeState: mergeInfo,
           currentTree: () => (deps.currentTree ?? defaultCurrentTree)(storeRoot, task.id),
           root: () => resolveChangeSetRoot(storeRoot, task.id).root,
+          onManifestScoped,
         })
       : null;
   const qaAtoms = task.verification?.evidence?.qaPassed?.atoms ?? [];
@@ -243,13 +269,18 @@ export async function satisfyGatesFromMergedCi(
     let why = 'no testsPassed is on record';
     const qaNeed = qaPassedReason ?? 'a qa-run of this tree';
     if (needs.includes('testsPassed') && task.verification?.gates?.testsPassed === true) {
+      const { manifestScopedChange } = await import('./manifest-scope.js');
       const stands = scopedRunStandsAfterRedCi(
         task.verification?.evidence?.testsPassed?.atoms ?? [],
         target,
         await (deps.currentTree ?? defaultCurrentTree)(storeRoot, task.id),
         deps.landed ?? isLandedOnOriginDefault,
+        'testsPassed',
+        manifestScopedChange,
       );
       const rest = needs.filter((g) => g !== 'testsPassed');
+      if (stands.ok && stands.manifestScoped && target?.mergeCommitSha)
+        onManifestScoped({ mergeCommit: target.mergeCommitSha, importers: stands.manifestScoped });
       if (stands.ok && rest.length === 0)
         return { kind: 'skipped', testsPassedReason: null, qaPassedReason: null };
       why = stands.ok ? `${rest.join(', ')} still needs evidence (${qaNeed})` : stands.why;

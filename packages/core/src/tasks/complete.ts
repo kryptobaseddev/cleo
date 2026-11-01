@@ -628,6 +628,8 @@ export async function completeTask(
     );
   }
 
+  // T14163: a manifest-only change's post-merge stand-in, recorded on completion.
+  let testsPassedStandIn: { mergeCommit: string; importers: string[] } | undefined;
   if (enforcement.verificationEnabled && task.type !== 'epic') {
     if (!task.verification) {
       throw new CleoError(
@@ -675,6 +677,7 @@ export async function completeTask(
       requiredGates,
       derived ? { merge: { derived } } : {},
     );
+    if (mergedCi.kind === 'skipped') testsPassedStandIn = mergedCi.testsPassedStandIn;
     if (mergedCi.kind === 'wait-for-ci' || mergedCi.kind === 'ci-red') {
       // @sync-invariant none:local-only completion-time evidence gate on the local verification record; nothing is written
       throw new CleoError(
@@ -1132,6 +1135,16 @@ export async function completeTask(
         task.status = 'done';
         task.completedAt = now;
         task.updatedAt = nextTaskVersion(current, now);
+        // T14163: record why a scoped post-merge run stood in for a
+        // manifest-only workspace change, so the reason outlives this command.
+        const testsEvidence = task.verification?.evidence?.testsPassed;
+        if (testsPassedStandIn && testsEvidence)
+          testsEvidence.standIn = {
+            kind: 'manifest-scoped',
+            mergeCommit: testsPassedStandIn.mergeCommit,
+            importers: testsPassedStandIn.importers,
+            recordedAt: now,
+          };
 
         if (options.notes) {
           const timestampedNote = `${new Date()
