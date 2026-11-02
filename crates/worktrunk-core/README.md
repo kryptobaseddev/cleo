@@ -163,7 +163,7 @@ planner alone for dry-run / preview, then call the executor when ready.
 
 | Symbol                            | Purpose                                                                                                   |
 |-----------------------------------|-----------------------------------------------------------------------------------------------------------|
-| `compute_project_hash`            | Canonical `sha256(project_root)[..16]` project hash. **Match for `@cleocode/paths` `computeProjectHash`.**|
+| `compute_project_hash`            | `sha256(canonical_root)[..16]` project hash: the root is resolved through the filesystem (symlinks, `..`; raw when it does not exist), and a linked git worktree hashes as its owning main checkout. **Same canonicalisation as `@cleocode/paths` `computeProjectHash`.**|
 | `resolve_worktree_root_for_hash`  | `<cleoHome>/worktrees/<projectHash>/` — the canonical XDG worktree root per D029 / ADR-055.               |
 | `resolve_task_worktree_path`      | `<cleoHome>/worktrees/<projectHash>/<taskId>/`.                                                           |
 
