@@ -185,17 +185,19 @@ export const MIN_GIT_VERSION = '2.31.0';
  * Whether a `git --version` number meets {@link MIN_GIT_VERSION}.
  *
  * @param version - The version, e.g. `2.43.0` or `2.39.3 (Apple Git-146)`'s `2.39.3`.
- * @returns True when it is at or above the floor; false when it is below or unreadable.
+ * @returns True at or above the floor, false below it, null when the version
+ *   does not parse (it cannot be proven below the floor).
  * @example
  * ```ts
  * gitMeetsFloor('2.30.2'); // false
  * gitMeetsFloor('2.31.0'); // true
+ * gitMeetsFloor('');       // null
  * ```
  * @task T14166
  */
-export function gitMeetsFloor(version: string): boolean {
+export function gitMeetsFloor(version: string): boolean | null {
   const have = /^(\d+)\.(\d+)(?:\.(\d+))?/.exec(version);
-  if (!have) return false;
+  if (!have) return null;
   const floor = MIN_GIT_VERSION.split('.').map(Number);
   for (let i = 0; i < 3; i++) {
     const a = Number(have[i + 1] ?? 0);
@@ -209,7 +211,8 @@ export function gitMeetsFloor(version: string): boolean {
  * Check git availability.
  *
  * Runs `git --version` to detect the installed version string, and marks git
- * below {@link MIN_GIT_VERSION} unhealthy (T14166).
+ * below {@link MIN_GIT_VERSION} unhealthy (T14166); an unreadable version stays
+ * healthy with a note.
  */
 function checkGit(): DependencyCheckResult {
   const location = which('git');
@@ -229,19 +232,25 @@ function checkGit(): DependencyCheckResult {
   // "git version 2.43.0" -> "2.43.0"
   const version = raw.replace(/^git version\s*/i, '').split(/\s/)[0] ?? raw;
 
+  const meets = gitMeetsFloor(version);
+
   return {
     name: 'git',
     category: 'required',
     installed: true,
     version: version || undefined,
     location: location.split('\n')[0] ?? location, // `where` may return multiple lines on Windows
-    healthy: gitMeetsFloor(version),
-    ...(gitMeetsFloor(version)
-      ? {}
-      : {
-          error: `git ${version || 'of unknown version'} is below the minimum ${MIN_GIT_VERSION}: CLEO reads merge diffs with --diff-merges=first-parent (T14166)`,
+    // An unreadable version cannot be proven below the floor: stay healthy.
+    healthy: meets !== false,
+    ...(meets === null
+      ? { note: `git version unknown: the ${MIN_GIT_VERSION} floor was not checked` }
+      : {}),
+    ...(meets === false
+      ? {
+          error: `git ${version} is below the minimum ${MIN_GIT_VERSION}: CLEO reads merge diffs with --diff-merges=first-parent (T14166)`,
           suggestedFix: `Upgrade git to >= ${MIN_GIT_VERSION}: https://git-scm.com/downloads`,
-        }),
+        }
+      : {}),
   };
 }
 

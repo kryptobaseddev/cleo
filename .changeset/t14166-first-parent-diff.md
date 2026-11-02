@@ -14,4 +14,6 @@ paths now use `--diff-merges=first-parent` (git 2.31+), which lists the
 first-parent diff alone.
 
 New git floor: `--diff-merges` needs git 2.31 or later, so `cleo doctor`'s
-git check now reports git below 2.31 as unhealthy, with an upgrade fix.
+git check now reports git below 2.31 as unhealthy, with an upgrade fix. A
+version it cannot read stays healthy, with a note that the floor was not
+checked.
