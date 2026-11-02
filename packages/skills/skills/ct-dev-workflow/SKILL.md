@@ -1,7 +1,7 @@
 ---
 name: ct-dev-workflow
 description: Development workflow orchestration for task-driven development with atomic commits, conventional commit messages, and systematic release processes. Enforces task traceability, branch discipline, smart test scope selection, and GitHub Actions integration. Use when committing code, creating releases, managing branches, or following contribution protocols. Triggers on commit operations, release preparation, or workflow compliance needs.
-version: 3.4.0
+version: 3.4.1
 protocol: contribution
 dependencies: []
 sharedResources:
@@ -14,7 +14,7 @@ compatibility:
   - gemini-cli
 license: MIT
 metadata:
-  version: 3.4.0
+  version: 3.4.1
   tier: core
   install: harness
   covers:
@@ -26,7 +26,7 @@ metadata:
     - packages/core/src/hooks.ts
     - packages/core/templates/git-hooks/**
     - packages/contracts/src/git-hooks.ts
-  lastReviewed: 2026-10-29
+  lastReviewed: 2026-11-02
   stability: stable
 ---
 
@@ -105,6 +105,12 @@ subject `initial: cleo init` (the empty commit `cleo init` makes so HEAD resolve
 only on a parentless first commit (T13582); a later commit with that subject, or any
 longer or different subject, still needs a task ID. A template change adds the
 previously shipped hash to `legacy-hashes.json` so installed copies refresh.
+
+The managed pre-commit refuses CLEO runtime state staged at ANY path (T14189):
+`cleo.db`/`brain.db`/`tasks.db` and their WAL sidecars by name, a `project-info.json`
+naming a `"projectId"`, and `.cleo/config.json` or a byte-identical copy. It lists the
+paths and `git reset -q -- <paths>`; `cleo doctor` runs the same rule (`staged_cleo_state`).
+This repository's `.githooks/pre-commit` calls the template rather than copying it.
 
 `cleo init` and `cleo upgrade` no longer seed the CleoOS hub (Pi extensions, CANT
 workflows, justfile) into the global CLEO home (T13994, ADR-098); only the deprecated
