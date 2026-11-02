@@ -154,4 +154,30 @@ describe('docs modernize from a worktree (T14188)', () => {
       ),
     ).rejects.toThrow(/not inside the project/);
   });
+
+  it('refuses a checkout of another repository: no modernize read, apply or rollback, no doctor run', async () => {
+    // A foreign repository with its own docs/ (what a stray CLEO_ROOT or a
+    // gitlink of another repo would resolve to).
+    const foreign = join(tmp, 'foreign');
+    mkdirSync(join(foreign, 'docs', 'specs'), { recursive: true });
+    writeFileSync(join(foreign, 'docs', 'specs', 'T1-foreign-spec.md'), SPEC);
+    git(foreign, 'init', '-q', '-b', 'main');
+    git(foreign, 'add', '.');
+    git(foreign, 'commit', '-q', '-m', 'foreign');
+    const options = { checkoutRoot: foreign, decide: { connection: null }, allowDirty: true };
+    await expect(runDocsModernize(root, { path: 'docs' }, options)).rejects.toThrow(
+      /not a worktree of the project/,
+    );
+    await expect(runDocsModernize(root, { path: 'docs', apply: true }, options)).rejects.toThrow(
+      /not a worktree of the project/,
+    );
+    await expect(runDocsModernize(root, { rollback: 'dm-any' }, options)).rejects.toThrow(
+      /not a worktree of the project/,
+    );
+    expect(readFileSync(join(foreign, 'docs', 'specs', 'T1-foreign-spec.md'), 'utf-8')).toBe(SPEC);
+    const doctor = await runDocsDoctor(root, { checkoutRoot: foreign });
+    expect(doctor.ok).toBe(false);
+    if (doctor.ok) return;
+    expect(doctor.error.code).toBe('E_DOCS_DOCTOR_FOREIGN_CHECKOUT');
+  });
 });

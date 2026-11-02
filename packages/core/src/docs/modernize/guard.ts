@@ -20,6 +20,7 @@ import {
   docsModernizePlanSchema,
   docsModernizeReceiptSchema,
 } from '@cleocode/contracts/docs/modernize.js';
+import { gitCommonDir } from '../../git/work-tree.js';
 
 /** Raised when a plan, receipt or path fails a guard. */
 export class DocsModernizeUnsafeError extends Error {
@@ -75,19 +76,44 @@ export function safeJoin(root: string, rel: string): string {
 }
 
 /**
+ * Check that the invoking checkout is the project root or a git worktree of
+ * the SAME repository (one git common dir), so no checkout of an unrelated
+ * repository can be written to or read as the project's (T14188).
+ *
+ * @param projectRoot - Project root.
+ * @param checkoutRoot - The invoking checkout.
+ * @throws DocsModernizeUnsafeError when it is another repository, or git cannot tell.
+ */
+export function assertCheckoutOfProject(projectRoot: string, checkoutRoot: string): void {
+  if (resolve(projectRoot) === resolve(checkoutRoot)) return;
+  const project = gitCommonDir(projectRoot);
+  const checkout = gitCommonDir(checkoutRoot);
+  if (project === null || project !== checkout) {
+    // @sync-invariant none:input-shape a checkout of another repository is refused before any read or write
+    throw new DocsModernizeUnsafeError(
+      `checkout ${checkoutRoot} is not a worktree of the project ${projectRoot} ` +
+        `(git common dir ${checkout ?? 'unknown'} vs ${project ?? 'unknown'})`,
+    );
+  }
+}
+
+/**
  * Check that a modernize root sits inside the project, or inside the checkout
- * the command was started from (a CLEO worktree of it, T14188).
+ * the command was started from, once that checkout is proven a worktree of
+ * the project's repository ({@link assertCheckoutOfProject}, T14188).
  *
  * @param projectRoot - Project root.
  * @param root - Absolute modernize root.
  * @param checkoutRoot - The invoking checkout (default: the project root).
- * @throws DocsModernizeUnsafeError when it sits in neither.
+ * @throws DocsModernizeUnsafeError when it sits in neither, or the checkout is
+ *   another repository's.
  */
 export function assertRootInProject(
   projectRoot: string,
   root: string,
   checkoutRoot: string = projectRoot,
 ): void {
+  assertCheckoutOfProject(projectRoot, checkoutRoot);
   if (
     !isAbsolute(root) ||
     !existsSync(root) ||

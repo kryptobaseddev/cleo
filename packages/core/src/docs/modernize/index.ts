@@ -15,7 +15,7 @@ import type {
 } from '@cleocode/contracts';
 import { writeFileAtomic } from '../../tools/fs.js';
 import { applyDocsModernize, DocsModernizeReceiptError, rollbackDocsModernize } from './apply.js';
-import { parseModernizeOverrides, parseModernizePlan } from './guard.js';
+import { assertCheckoutOfProject, parseModernizeOverrides, parseModernizePlan } from './guard.js';
 import { type PlanDocsModernizeOptions, planDocsModernize } from './plan.js';
 
 export {
@@ -93,6 +93,7 @@ export async function runDocsModernize(
   } = {},
 ): Promise<RunDocsModernizeResult> {
   const { checkoutRoot = projectRoot, ...judge } = overrides;
+  assertCheckoutOfProject(projectRoot, checkoutRoot);
   if (params.rollback) {
     const receipt = await rollbackDocsModernize(
       projectRoot,

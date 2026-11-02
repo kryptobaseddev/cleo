@@ -138,6 +138,7 @@ import {
 } from './derive-links.js';
 import type { DocsPublicationRecord } from './docs-ops.js';
 import { DOCS_VERSIONING_AUDIT_FILE } from './docs-update.js';
+import { assertCheckoutOfProject } from './modernize/guard.js';
 import { deleteDocsPublication, readDocsPublications } from './publications-store.js';
 import { deriveWikilinkEdges, rebuildDocsWikilinks, type WikilinkEdge } from './wikilinks.js';
 
@@ -1249,6 +1250,18 @@ export async function runDocsDoctor(
 
   const db = await getDb(projectRoot);
   const checkoutRoot = opts.checkoutRoot ?? projectRoot;
+  try {
+    assertCheckoutOfProject(projectRoot, checkoutRoot);
+  } catch (err) {
+    return {
+      ok: false,
+      error: {
+        // @sync-invariant none:input-shape a checkout of another repository is refused before any read or repair write
+        code: 'E_DOCS_DOCTOR_FOREIGN_CHECKOUT',
+        message: err instanceof Error ? err.message : String(err),
+      },
+    };
+  }
   const pre = await scanStore(projectRoot, db, olderThanDays, checkoutRoot);
 
   const repairs: DocsDoctorRepairAction[] = [];
