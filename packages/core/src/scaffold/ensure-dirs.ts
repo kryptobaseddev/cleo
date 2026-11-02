@@ -9,7 +9,6 @@ import { mkdir } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import { promisify } from 'node:util';
 import type { ScaffoldResult } from '@cleocode/contracts/scaffold-diagnostics';
-import { discoveryEnv } from '../git/work-tree.js';
 import { getCleoHome } from '../paths.js';
 import { checkpointGitDir, migrateCheckpointGitDir } from '../store/checkpoint-git-dir.js';
 import { resolveScaffoldCleoDir } from './ensure-config.js';
@@ -92,6 +91,8 @@ export async function ensureCleoGitRepo(projectRoot: string): Promise<ScaffoldRe
     };
   }
 
+  // Loaded on demand: scaffold modules sit on startup paths (gate 39).
+  const { discoveryEnv } = await import('../git/work-tree.js');
   const gitEnv: NodeJS.ProcessEnv = {
     // T14189: never an inherited GIT_INDEX_FILE (a git hook's index).
     ...discoveryEnv(),
@@ -137,6 +138,7 @@ export async function ensureProjectGitInitialCommit(projectRoot: string): Promis
 
   // T14189: strip every ambient repo variable, GIT_INDEX_FILE included, or the
   // initial commit would record a calling hook's index.
+  const { discoveryEnv } = await import('../git/work-tree.js');
   const cleanEnv: NodeJS.ProcessEnv = discoveryEnv();
 
   try {

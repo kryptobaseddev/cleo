@@ -26,7 +26,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 vi.mock('../../store/git-checkpoint.js', () => ({
   cleoGitCommand: vi.fn(),
   isCleoGitInitialized: vi.fn(),
-  makeCleoGitEnv: vi.fn().mockReturnValue({}),
+  makeCleoGitEnv: vi.fn().mockResolvedValue({}),
 }));
 
 // Mock paths.js — return a stable fake cleoDir
