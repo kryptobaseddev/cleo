@@ -109,6 +109,11 @@ fn symlinked_and_linked_worktree_paths_hash_as_the_main_checkout() {
         .map(|p| ts_hash(p))
         .collect();
     if ts.iter().any(Option::is_none) {
+        // CI builds packages/paths first and sets this, so a skip there fails.
+        assert!(
+            std::env::var_os("WORKTRUNK_REQUIRE_TS_PARITY").is_none(),
+            "WORKTRUNK_REQUIRE_TS_PARITY is set but node or packages/paths/dist is not available"
+        );
         eprintln!(
             "skipped the TypeScript comparison: node or packages/paths/dist is not available"
         );
