@@ -15,16 +15,36 @@ CLEO-managed native binaries, both distributed via the same packaging pattern
 
 | Path | Produced by | Shipped in tarball? |
 |------|-------------|---------------------|
-| `cleo-supervisor-manifest.json` | CI (`gen-supervisor-manifest.mjs`) at publish time | **Yes** (Pattern P2 — pinned, not fetched) |
-| `worktree-napi-manifest.json` | CI (`gen-napi-manifest.mjs`) at publish time | **Yes** (Pattern P2 — pinned, not fetched) |
-| `fallback/cleo-supervisor` | CI (`cargo build --release` linux-x64-gnu) | **Yes** (Pattern P1 — `--ignore-scripts` installs) |
-| `fallback/worktree-napi.linux-x64-gnu.node` | CI (`cargo build --release` linux-x64-gnu) | **Yes** (Pattern P1 — `--ignore-scripts` installs) |
-| `fallback/.gitkeep` | repo | n/a (placeholder so the dir is tracked) |
+| `cleo-supervisor-manifest.json` | `gen-supervisor-manifest.mjs` (prebuild gate, `supervisor-attach`, `core-tarball-size.yml`) | **No** — see "What ships today" |
+| `worktree-napi-manifest.json` | `gen-napi-manifest.mjs` (`core-tarball-size.yml` only) | **No** — see "What ships today" |
+| `fallback/cleo-supervisor` | `core-tarball-size.yml` only, to measure the tarball | **No** |
+| `fallback/worktree-napi.linux-x64-gnu.node` | `core-tarball-size.yml` only, to measure the tarball | **No** |
+| `fallback/.gitkeep` | repo | yes (placeholder so the dir is tracked) |
 
-Neither the manifests nor the fallback binaries are committed to git — all four
-are generated/staged in CI. The `binaries/` directory is listed in
-`packages/core/package.json` `files` so they land in the published
-`@cleocode/core` tarball.
+## What ships today (T14179 decision, 2026-11-02)
+
+The published `@cleocode/core` carries **no manifest and no fallback binary**:
+`release.yml` never runs `gen-supervisor-manifest.mjs` or `gen-napi-manifest.mjs`
+into this directory, so an installed core has only `binaries/fallback/.gitkeep`
+and the `postinstall` picker logs `manifest missing … skipping binary install`
+for both binaries (`scripts/napi-binary-picker.mjs`, the `existsSync` check at
+the top of the per-binary install). That is expected, not a failure:
+
+- **`cleo-supervisor` has no runtime consumer yet.** Nothing launches the
+  executable: `packages/contracts/src/boundary.ts` marks it
+  `scaffold-pending-consumer`, and `@cleocode/runtime/daemon` only speaks
+  `supervisor-ipc` to a socket. `release.yml` builds the 5 targets and its
+  `supervisor-attach` job attaches them and their manifest to the GitHub
+  Release after `publish` creates it, so the binaries are available, but the
+  package does not install them.
+- **`worktree-napi` is bundled by `@cleocode/worktree` itself.** `release.yml`
+  ("Stage worktree-napi bundled binaries") copies the 4 `.node` triples into
+  `packages/worktree/native/`, and the worktree loader resolves those first.
+
+Shipping the supervisor manifest is T14182: it needs the binaries attached to
+the release **before** `npm publish` and the manifest generated here before
+packing, so a postinstall download never 404s. The sections below describe that
+designed flow, which the picker already implements.
 
 ## Pattern P2 — postinstall download + sha256 verify (primary)
 

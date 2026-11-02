@@ -40,6 +40,13 @@ jobs:
     name: cant-napi (8 native triples + WASI)
     uses: ./.github/workflows/cant-napi-build.yml
 
+  # T14179: the cleo-supervisor executable for 5 targets, attached to the
+  # GitHub Release by `supervisor-attach` once `publish` has created it. It
+  # never gates publishing.
+  supervisor-prebuild:
+    name: cleo-supervisor prebuild (5 targets)
+    uses: ./.github/workflows/cleo-supervisor-prebuild.yml
+
   # Everything that does NOT need a native binary, off the critical path: it
   # starts at t=0 alongside the native builds instead of after them. The build
   # output (dist/, studio-dist/ and the version-synced manifests) travels to
@@ -1428,6 +1435,44 @@ jobs:
           PUBLISH_TIMELINE_DIR: /tmp/publish-timeline
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: node scripts/release-verdict.mjs
+
+  # T14179: attach the cleo-supervisor binaries + sha256 manifest to the
+  # release `publish` created. Here rather than in the prebuild workflow,
+  # whose fixed wait for the release lost the race on almost every tag.
+  supervisor-attach:
+    name: Attach cleo-supervisor binaries
+    needs: [build-verify, publish, supervisor-prebuild]
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    env:
+      VERSION: ${{ needs.build-verify.outputs.version }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Download cleo-supervisor binaries
+        uses: actions/download-artifact@v4
+        with:
+          path: supervisor-bin
+          pattern: cleo-supervisor-*
+          merge-multiple: true
+
+      - name: Generate sha256 manifest and attach to the GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          node packages/core/scripts/gen-supervisor-manifest.mjs \
+            --bin-dir supervisor-bin \
+            --out supervisor-bin/cleo-supervisor-manifest.json \
+            --version "${VERSION}"
+          gh release upload "v${VERSION}" \
+            supervisor-bin/cleo-supervisor.* \
+            supervisor-bin/cleo-supervisor-manifest.json \
+            --clobber
+          echo "Attached cleo-supervisor binaries + manifest to v${VERSION}"
 
   # T14102: `cleo release cut` publishes with no bump PR, so main's CHANGELOG.md
   # and package versions would stop advancing. After a stable publish, open one
