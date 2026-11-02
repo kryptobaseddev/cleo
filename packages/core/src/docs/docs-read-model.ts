@@ -30,14 +30,13 @@
  * @see packages/core/src/store/blob-ops.ts (manifest.db blobs via llmtxt)
  * @see packages/core/src/docs/docs-ops.ts (publications ledger + status)
  */
-import { createHash } from 'node:crypto';
 import type { AttachmentMetadata, DocKind } from '@cleocode/contracts';
 import { getProjectRoot } from '../paths.js';
 import { createAttachmentStore } from '../store/attachment-store.js';
 import type { BlobListEntry } from '../store/blob-ops.js';
 import { blobList, blobRead, blobReadBySha } from '../store/blob-ops.js';
 import type { AttachmentLifecycleStatus } from '../store/schema/attachments.js';
-import type { DocsPublicationRecord } from './docs-ops.js';
+import type { DocsPublicationRecord, DocsStatusResult } from './docs-ops.js';
 import { resolveDisplayNumber } from './numbering.js';
 import { readDocsPublications } from './publications-store.js';
 
@@ -487,99 +486,13 @@ export class DocsReadModel {
   /**
    * Check publication status for all published docs.
    *
-   * Compares the blob SHA in the store against the file SHA on disk
-   * for every row of the `docs_publications` store ledger.
-   * Returns the same shape as `statusDocs()` for backward compatibility.
+   * Delegates to {@link statusDocs} so `cleo docs status`, the doctor and
+   * every other caller share one drift classification (T14135), including the
+   * default-branch and unmerged-worktree cases.
    */
-  async status(projectRootOverride?: string): Promise<{
-    readonly items: readonly {
-      readonly ownerId: string;
-      readonly blobName: string;
-      readonly publishedPath: string;
-      readonly blobSha: string;
-      readonly fileSha: string | null;
-      readonly drift: 'in-sync' | 'added' | 'modified' | 'deleted';
-    }[];
-    readonly allInSync: boolean;
-  }> {
-    const root = projectRootOverride ?? this.projectRoot;
-    const publications = await this.loadPublications();
-    if (publications.length === 0) {
-      return { items: [], allInSync: true };
-    }
-
-    const { readFile, stat } = await import('node:fs/promises');
-    const { resolve: resolvePathFn, isAbsolute: isAbs } = await import('node:path');
-
-    // Build blob sha cache from the manifest
-    const ownerCache = new Map<string, Map<string, string>>();
-    async function getBlobSha(
-      ownerId: string,
-      blobName: string,
-      ledgerSha: string,
-    ): Promise<string> {
-      let perOwner = ownerCache.get(ownerId);
-      if (!perOwner) {
-        perOwner = new Map();
-        const rows = await blobList(ownerId, root).catch(() => []);
-        for (const row of rows) perOwner.set(row.name, row.sha256);
-        ownerCache.set(ownerId, perOwner);
-      }
-      return perOwner.get(blobName) ?? ledgerSha;
-    }
-
-    const items: {
-      ownerId: string;
-      blobName: string;
-      publishedPath: string;
-      blobSha: string;
-      fileSha: string | null;
-      drift: 'in-sync' | 'added' | 'modified' | 'deleted';
-    }[] = [];
-
-    for (const row of publications) {
-      const filePath = isAbs(row.publishedPath)
-        ? row.publishedPath
-        : resolvePathFn(root, row.publishedPath);
-
-      const blobSha = await getBlobSha(row.ownerId, row.blobName, row.lastBlobSha);
-
-      let fileSha: string | null = null;
-      let exists = false;
-      try {
-        await stat(filePath);
-        exists = true;
-      } catch {
-        /* missing */
-      }
-
-      let drift: 'in-sync' | 'added' | 'modified' | 'deleted';
-      if (exists) {
-        try {
-          const data = await readFile(filePath);
-          fileSha = createHash('sha256').update(data).digest('hex');
-          drift = fileSha === blobSha ? 'in-sync' : 'modified';
-        } catch {
-          drift = 'deleted';
-        }
-      } else {
-        drift = 'deleted';
-      }
-
-      items.push({
-        ownerId: row.ownerId,
-        blobName: row.blobName,
-        publishedPath: row.publishedPath,
-        blobSha,
-        fileSha,
-        drift,
-      });
-    }
-
-    return {
-      items,
-      allInSync: items.every((i) => i.drift === 'in-sync'),
-    };
+  async status(projectRootOverride?: string): Promise<DocsStatusResult> {
+    const { statusDocs } = await import('./docs-ops.js');
+    return statusDocs({ projectRoot: projectRootOverride ?? this.projectRoot });
   }
 
   // -----------------------------------------------------------------------

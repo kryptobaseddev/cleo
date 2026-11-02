@@ -860,7 +860,10 @@ describe('runDocsDoctor — publication-ledger-drift (T14117)', () => {
   async function seedLedger(): Promise<{ deadWorktree: string; absolute: string }> {
     git('init', '-q', '-b', 'main');
     mkdirSync(join(tempDir, 'docs'), { recursive: true });
-    writeFileSync(join(tempDir, 'docs', 'on-main.md'), '# tracked on main\n');
+    // The default branch tracks the published bytes; the checked-out branch
+    // dropped the file. Status reads main's copy (T14135), so the row is
+    // in-sync and never reaches the prune at all.
+    writeFileSync(join(tempDir, 'docs', 'on-main.md'), '# published\n');
     git('add', 'docs/on-main.md');
     git('commit', '-q', '-m', 'seed');
     git('checkout', '-q', '-b', 'other');
@@ -884,19 +887,18 @@ describe('runDocsDoctor — publication-ledger-drift (T14117)', () => {
     return { deadWorktree, absolute };
   }
 
-  it('prunes only provably gone rows; foreign, absolute and other-branch paths are report-only', async () => {
+  it('prunes only provably gone rows; foreign and absolute paths are report-only, a default-branch copy is in sync', async () => {
     const { deadWorktree, absolute } = await seedLedger();
     const result = await doctor();
     expect(result.ok).toBe(true);
     if (!result.ok) return;
     const diag = diagnostic(result.report, 'publication-ledger-drift');
-    expect(diag.count).toBe(7);
+    expect(diag.count).toBe(6);
     expect(diag.severity).toBe('warn');
     const proposed = Object.fromEntries(diag.items.map((i) => [i['publishedPath'], i['proposed']]));
     expect(proposed).toEqual({
       '../gone-worktree/docs/foreign.md': 'report-only',
       [absolute]: 'report-only',
-      'docs/on-main.md': 'report-only',
       [deadWorktree]: 'prune-publication',
       'docs/removed.md': 'prune-publication',
       'docs/orphan.md': 'republish-or-prune',
@@ -939,7 +941,7 @@ describe('runDocsDoctor — publication-ledger-drift (T14117)', () => {
       ['docs/removed.md', deadWorktree].sort(),
     );
     expect(audit.every((a) => a.op === 'docs.doctor.prune-publication')).toBe(true);
-    expect(diagnostic(result.report, 'publication-ledger-drift').count).toBe(5);
+    expect(diagnostic(result.report, 'publication-ledger-drift').count).toBe(4);
   });
 
   it('a missing relative mirror outside a git checkout is never pruned', async () => {

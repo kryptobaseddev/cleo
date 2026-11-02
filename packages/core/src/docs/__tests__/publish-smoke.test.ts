@@ -17,6 +17,7 @@
 import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import {
+  existsSync,
   mkdirSync,
   mkdtempSync,
   readFileSync,
@@ -26,7 +27,7 @@ import {
   writeFileSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { basename, join } from 'node:path';
+import { basename, dirname, join } from 'node:path';
 import { computeProjectHash, resolveTaskWorktreePath } from '@cleocode/paths';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -54,6 +55,7 @@ import {
   publishDocs,
   readPublicationsLedger,
   recordPublication,
+  statusDocs,
 } from '../docs-ops.js';
 import { reserveSlug } from '../slug-allocator.js';
 
@@ -332,6 +334,99 @@ describe('T13376: registered canonical worktree publication boundaries', () => {
         }),
       ).rejects.toThrow('not found for owner');
       expect(blobOps.blobRead).not.toHaveBeenCalled();
+    } finally {
+      await closeAllDatabases();
+    }
+  });
+
+  // ── T14135: publish from any canonical worktree; status across checkouts ──
+
+  it('T14135: publishes into a canonical-location worktree whatever its name, recording a repo-relative path', async () => {
+    const named = join(dirname(worktree), 'wave-d');
+    git(root, ['worktree', 'add', '--detach', '-q', named]);
+    const result = await publishDocs({
+      ownerId: 'T13376',
+      projectRoot: root,
+      toPath: join(named, 'docs/guide/a.md'),
+    });
+    expect(readFileSync(join(named, 'docs/guide/a.md'), 'utf8')).toBe('canonical attachment');
+    expect(result.relativePath).toBe('docs/guide/a.md');
+  });
+
+  it('T14135: a relative --to run from a canonical worktree lands in that worktree, not the root', async () => {
+    const result = await publishDocs({
+      ownerId: 'T13376',
+      projectRoot: root,
+      toPath: 'docs/guide/b.md',
+      cwd: worktree,
+    });
+    expect(result.publishedPath).toBe(join(worktree, 'docs/guide/b.md'));
+    expect(existsSync(join(worktree, 'docs/guide/b.md'))).toBe(true);
+    expect(existsSync(join(root, 'docs/guide/b.md'))).toBe(false);
+    expect(result.relativePath).toBe('docs/guide/b.md');
+  });
+
+  it('T14135: a relative --to run from the project root still lands in the root', async () => {
+    const result = await publishDocs({
+      ownerId: 'T13376',
+      projectRoot: root,
+      toPath: 'docs/guide/c.md',
+      cwd: root,
+    });
+    expect(result.publishedPath).toBe(join(root, 'docs/guide/c.md'));
+    expect(result.relativePath).toBe('docs/guide/c.md');
+  });
+
+  it('T14135: status reads the default branch for an unpulled mirror and reports an unmerged worktree mirror as pending-merge', async () => {
+    const commit = (args: string[]) =>
+      git(root, [
+        '-c',
+        'user.name=Test',
+        '-c',
+        'user.email=test@cleo.dev',
+        '-c',
+        'commit.gpgsign=false',
+        ...args,
+      ]);
+    const sha = (text: string) => createHash('sha256').update(text).digest('hex');
+    // The default branch tracks docs/merged.md; the root checkout is detached
+    // at the fixture commit, so it has not "pulled" it.
+    const fixtureCommit = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: root })
+      .toString()
+      .trim();
+    git(root, ['checkout', '-q', '-B', 'main']);
+    mkdirSync(join(root, 'docs'), { recursive: true });
+    writeFileSync(join(root, 'docs/merged.md'), 'merged text\n');
+    git(root, ['add', 'docs/merged.md']);
+    commit(['commit', '-qm', 'merged doc']);
+    git(root, ['checkout', '-q', '--detach', fixtureCommit]);
+    // An unmerged publication sits only in the canonical worktree.
+    mkdirSync(join(worktree, 'docs'), { recursive: true });
+    writeFileSync(join(worktree, 'docs/pending.md'), 'pending text\n');
+    vi.mocked(blobOps.blobList).mockResolvedValue([]);
+    try {
+      for (const [path, text] of [
+        ['docs/merged.md', 'merged text\n'],
+        ['docs/pending.md', 'pending text\n'],
+        ['docs/gone.md', 'gone text\n'],
+      ] as const) {
+        await recordPublication({
+          ownerId: 'T14135',
+          blobName: path,
+          publishedPath: path,
+          lastBlobSha: sha(text),
+          projectRoot: root,
+        });
+      }
+      const status = await statusDocs({ projectRoot: root });
+      const drift = Object.fromEntries(
+        status.items.filter((i) => i.ownerId === 'T14135').map((i) => [i.publishedPath, i.drift]),
+      );
+      expect(drift).toEqual({
+        'docs/merged.md': 'in-sync',
+        'docs/pending.md': 'pending-merge',
+        'docs/gone.md': 'deleted',
+      });
     } finally {
       await closeAllDatabases();
     }
