@@ -2191,6 +2191,81 @@ describe('resolveCiEvidenceAtom', () => {
       );
     });
 
+    describe('T14177: HEAD green but its gate jobs skipped by the change filter', () => {
+      const GATE_JOB = /^(Unit Tests|Type Check|Lint & Format)/;
+      /** Main 6baeab9bf (#2621): release.yml only, so the filter skipped every gate job. */
+      const filterSkipped = (sha: string, conclusion = 'skipped') =>
+        onSha(sha).map((c) => (GATE_JOB.test(c.name) ? { ...c, conclusion } : c));
+      const releaseOnly = () => ['.github/workflows/release.yml', '.changeset/x.md'];
+
+      it('the nearest parent that ran the gate jobs stands in past a non-doc change the filter skipped', async () => {
+        const { run, fetched } = onCurrentHead(
+          { [CUR]: filterSkipped(CUR), [PREV]: onSha(PREV) },
+          { changedBetween: releaseOnly },
+        );
+        const r = await run;
+        expect(r.ok, JSON.stringify(r)).toBe(true);
+        expect(r.ok && r.atom.kind === 'ci' && r.atom.descendantSha).toBe(PREV);
+        expect(fetched).toEqual(expect.arrayContaining([CUR, PREV]));
+      });
+
+      it('a commit stepped past that was cancelled, not filter-skipped, refuses naming it and the route', async () => {
+        const r = await onCurrentHead(
+          {
+            [CUR]: filterSkipped(CUR),
+            [PREV]: onSha(PREV, { conclusion: 'cancelled' }),
+            [LATER]: onSha(LATER),
+          },
+          { changedBetween: releaseOnly },
+        ).run;
+        expect(r.ok).toBe(false);
+        expect(!r.ok && r.reason).toMatch(
+          /commit 888888888888 decided nothing: CI: cancelled on 888888888888; 777777777777\.\.999999999999 changes \.github\/workflows\/release\.yml.*tool:test-affected/,
+        );
+        expect(!r.ok && r.reason).not.toMatch(/wait for HEAD/);
+      });
+
+      it('gate jobs cancelled on HEAD: the reason names them and the route, never "no completed push run"', async () => {
+        const r = await onCurrentHead(
+          { [CUR]: filterSkipped(CUR, 'cancelled'), [PREV]: onSha(PREV) },
+          { changedBetween: releaseOnly },
+        ).run;
+        expect(r.ok).toBe(false);
+        expect(!r.ok && r.reason).toMatch(
+          /commit 999999999999 decided nothing: its required checks are green but the gates' jobs did not run \(job Unit Tests \(ubuntu-latest, shard 1\): cancelled on 999999999999.*tool:test-affected/,
+        );
+        expect(!r.ok && r.reason).not.toMatch(/no completed push run|wait for HEAD/);
+      });
+
+      it('a later run with its gate jobs skipped is named when the descendant walk finds no stand-in', async () => {
+        const r = await resolve({
+          context: context('T1', ['testsPassed', 'qaPassed']),
+          fetchChecks: async (sha) => ({
+            ok: true,
+            checks:
+              sha === MERGE
+                ? allGreen.map((c) =>
+                    c.workflowPath === '.github/workflows/ci.yml'
+                      ? { ...c, conclusion: 'cancelled' }
+                      : c,
+                  )
+                : sha === HEAD
+                  ? onHead
+                  : sha === LATER
+                    ? filterSkipped(LATER)
+                    : [],
+          }),
+          listDescendants: () => [LATER],
+          isAncestor: (a, d) => a === MERGE && d === LATER,
+          touchingCommits: () => [],
+        });
+        expect(r.ok).toBe(false);
+        expect(!r.ok && r.reason).toMatch(
+          /that ran the gates' jobs \(first one passed over: 777777777777: its required checks are green but the gates' jobs did not run \(job Unit Tests \(ubuntu-latest, shard 1\): skipped on 777777777777/,
+        );
+      });
+    });
+
     it('HEAD does not descend from the merge commit: refused', async () => {
       const r = await onCurrentHead(
         { [CUR]: onSha(CUR) },
