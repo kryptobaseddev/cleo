@@ -923,6 +923,14 @@ const _docsTypedHandler = defineTypedHandler<DocsTypedOps>('docs', {
       apply,
       repair,
       ...(params.olderThanDays !== undefined ? { olderThanDays: params.olderThanDays } : {}),
+      ...(typeof params.only === 'string'
+        ? {
+            only: params.only
+              .split(',')
+              .map((c) => c.trim())
+              .filter((c) => c.length > 0),
+          }
+        : {}),
       ...(backupReceiptPath !== undefined ? { backupReceiptPath } : {}),
     });
     if (!result.ok) {

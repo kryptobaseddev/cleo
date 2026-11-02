@@ -1149,6 +1149,12 @@ export interface DocsDoctorParams {
   repair?: boolean;
   /** Age threshold (days) for the `stale-drafts` diagnostic. Default 30. */
   olderThanDays?: number;
+  /**
+   * Comma-separated repair classes to scope the run to (T14174), for example
+   * `publication-ledger-drift`. Only their repairs are planned and, with
+   * `apply`, written. Diagnostics still cover every class.
+   */
+  only?: string;
 }
 
 /**
@@ -1214,6 +1220,14 @@ export interface DocsDoctorResult {
   diagnostics: readonly DocsDoctorDiagnostic[];
   /** Repair plan (dry run) or executed repairs (apply). */
   repairs: readonly DocsDoctorRepairAction[];
+  /** Repairs per class: planned entries and those written (T14174). */
+  repairCounts: Readonly<
+    Partial<
+      Record<DocsDoctorDiagnostic['kind'], { readonly planned: number; readonly applied: number }>
+    >
+  >;
+  /** The repair classes this run was scoped to, or null for every class (T14174). */
+  only: readonly DocsDoctorDiagnostic['kind'][] | null;
   /** One-line human summary. */
   summary: string;
 }

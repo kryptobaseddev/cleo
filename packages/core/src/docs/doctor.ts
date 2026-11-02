@@ -211,6 +211,34 @@ export interface DocsDoctorDiagnostic {
 }
 
 /**
+ * The diagnostic classes that carry a repair, accepted by
+ * {@link DocsDoctorOptions.only} to scope a run to some of them (T14174).
+ *
+ * @task T14174
+ */
+export const DOCS_DOCTOR_REPAIR_CLASSES = [
+  'dangling-pointers',
+  'doc-version-skew',
+  'empty-provenance',
+  'wikilinks-drift',
+  'legacy-blob-coverage',
+  'conduit-history-gaps',
+  'publication-ledger-drift',
+] as const satisfies readonly DocsDoctorDiagnosticKind[];
+
+/**
+ * A diagnostic class that carries a repair.
+ *
+ * @task T14174
+ */
+export type DocsDoctorRepairClass = (typeof DOCS_DOCTOR_REPAIR_CLASSES)[number];
+
+/** Whether a diagnostic kind carries a repair (T14174). @internal */
+function isRepairClass(kind: DocsDoctorDiagnosticKind): kind is DocsDoctorRepairClass {
+  return (DOCS_DOCTOR_REPAIR_CLASSES as readonly string[]).includes(kind);
+}
+
+/**
  * One planned or executed repair step.
  *
  * @task T13447
@@ -246,6 +274,15 @@ export interface DocsDoctorReport {
   readonly diagnostics: readonly DocsDoctorDiagnostic[];
   /** Repair plan (dry run) or executed repairs (apply). */
   readonly repairs: readonly DocsDoctorRepairAction[];
+  /**
+   * Repairs per class: `planned` lists every repair entry of the class,
+   * `applied` the ones written (0 on a dry run) (T14174).
+   */
+  readonly repairCounts: Readonly<
+    Partial<Record<DocsDoctorRepairClass, { readonly planned: number; readonly applied: number }>>
+  >;
+  /** The classes this run was scoped to, or null for every class (T14174). */
+  readonly only: readonly DocsDoctorRepairClass[] | null;
   /** One-line human summary. */
   readonly summary: string;
 }
@@ -270,6 +307,15 @@ export interface DocsDoctorOptions {
   readonly repair?: boolean;
   /** Age threshold (days) for the `stale-drafts` diagnostic. Default 30. */
   readonly olderThanDays?: number;
+  /**
+   * Scope the run to these repair classes ({@link DOCS_DOCTOR_REPAIR_CLASSES})
+   * (T14174): only their repairs are planned and, under {@link apply},
+   * written; every other class is left untouched. Diagnostics still report
+   * every class. An unknown name is refused with `E_DOCS_DOCTOR_UNKNOWN_CLASS`.
+   * The wikilinks rebuild also runs for `empty-provenance`, since a provenance
+   * backfill changes the derived edges. Cannot be combined with {@link repair}.
+   */
+  readonly only?: readonly string[];
   /**
    * Path to a backup artifact created within the last
    * {@link DOCS_DOCTOR_BACKUP_MAX_AGE_MS} milliseconds (checked via mtime).
@@ -1153,6 +1199,40 @@ export async function runDocsDoctor(
     };
   }
 
+  // T14174 — scope to some repair classes.
+  let only: readonly DocsDoctorRepairClass[] | null = null;
+  if (opts.only !== undefined) {
+    const valid = new Set<string>(DOCS_DOCTOR_REPAIR_CLASSES);
+    const unknown = opts.only.filter((c) => !valid.has(c));
+    if (unknown.length > 0 || opts.only.length === 0) {
+      return {
+        ok: false,
+        error: {
+          // @sync-invariant none:input-shape an argument refusal before any repair write; nothing was written
+          code: 'E_DOCS_DOCTOR_UNKNOWN_CLASS',
+          message:
+            `docs doctor: --only ${unknown.length > 0 ? `names unknown class(es) ${unknown.join(', ')}` : 'names no class'}; ` +
+            `valid classes: ${DOCS_DOCTOR_REPAIR_CLASSES.join(', ')}`,
+        },
+      };
+    }
+    if (repair) {
+      return {
+        ok: false,
+        error: {
+          // @sync-invariant none:input-shape a flag-combination refusal before any repair write; nothing was written
+          code: 'E_DOCS_DOCTOR_FLAG_CONFLICT',
+          message:
+            'docs doctor: --only and --repair cannot be combined — --repair is already scoped to ' +
+            'the legacy-blob backfill; use `--apply --only legacy-blob-coverage` instead.',
+        },
+      };
+    }
+    only = [...new Set(opts.only)].filter((c): c is DocsDoctorRepairClass => valid.has(c));
+  }
+  const inScope = (kind: DocsDoctorRepairClass): boolean => only === null || only.includes(kind);
+  const rebuildWikilinks = inScope('wikilinks-drift') || inScope('empty-provenance');
+
   if (mutate) {
     const refusal = checkBackupReceipt(opts.backupReceiptPath);
     if (refusal) return { ok: false, error: refusal };
@@ -1165,7 +1245,7 @@ export async function runDocsDoctor(
   // T13653: in repair mode ONLY the blob backfill runs — apply mode plans it
   // alongside the other repairs.
   if (!repair) {
-    for (const { row, path } of pre.dangling.archivable) {
+    for (const { row, path } of inScope('dangling-pointers') ? pre.dangling.archivable : []) {
       repairs.push({
         kind: 'dangling-pointers',
         action: 'archive-dangling',
@@ -1175,7 +1255,7 @@ export async function runDocsDoctor(
         detail: `marked-dangling: local-file target missing (${path}) → lifecycle_status = 'archived'`,
       });
     }
-    for (const { row, path } of pre.dangling.clearable) {
+    for (const { row, path } of inScope('dangling-pointers') ? pre.dangling.clearable : []) {
       repairs.push({
         kind: 'dangling-pointers',
         action: 'clear-stale-path',
@@ -1187,7 +1267,7 @@ export async function runDocsDoctor(
           `(sha256 ${row.sha256.slice(0, 12)}…)`,
       });
     }
-    for (const { row, expected } of pre.skewed) {
+    for (const { row, expected } of inScope('doc-version-skew') ? pre.skewed : []) {
       repairs.push({
         kind: 'doc-version-skew',
         action: 'set-doc-version',
@@ -1197,7 +1277,7 @@ export async function runDocsDoctor(
         detail: `audit-note: docVersion ${row.docVersion} → ${expected} (audit log revisions + 1)`,
       });
     }
-    for (const { row, derived } of pre.backfillable) {
+    for (const { row, derived } of inScope('empty-provenance') ? pre.backfillable : []) {
       const derivedCount = derived.topics.length + derived.relatedTasks.length;
       repairs.push({
         kind: 'empty-provenance',
@@ -1211,7 +1291,7 @@ export async function runDocsDoctor(
             : 'no derivable topics or task mentions — columns stay NULL',
       });
     }
-    if (pre.needsWikilinksRebuild) {
+    if (pre.needsWikilinksRebuild && rebuildWikilinks) {
       repairs.push({
         kind: 'wikilinks-drift',
         action: 'rebuild-wikilinks',
@@ -1226,7 +1306,7 @@ export async function runDocsDoctor(
     // dry-run/apply mode; executed only under --apply (the --repair mode
     // stays the T13653 blob-backfill-only fast path). A complete doc with
     // unrecoverable gaps still gets an entry so the gap stays explained.
-    for (const plan of pre.conduitBackfill) {
+    for (const plan of inScope('conduit-history-gaps') ? pre.conduitBackfill : []) {
       if (plan.complete && plan.gaps.length === 0) continue;
       if (plan.conflict) {
         repairs.push({
@@ -1269,7 +1349,7 @@ export async function runDocsDoctor(
     }
     // T14117 — publication-ledger drift: prune protected deleted rows; every
     // other finding is a plan-only proposal.
-    for (const finding of pre.ledger) {
+    for (const finding of inScope('publication-ledger-drift') ? pre.ledger : []) {
       repairs.push({
         kind: 'publication-ledger-drift',
         action: finding.action,
@@ -1278,7 +1358,8 @@ export async function runDocsDoctor(
       });
     }
   }
-  for (const candidate of pre.blobBackfillable) {
+  const blobBackfillable = inScope('legacy-blob-coverage') ? pre.blobBackfillable : [];
+  for (const candidate of blobBackfillable) {
     repairs.push({
       kind: 'legacy-blob-coverage',
       action: 'backfill-blob-bytes',
@@ -1302,7 +1383,7 @@ export async function runDocsDoctor(
       .map((r, i) => ({ r, i }))
       .filter(({ r }) => r.kind === 'legacy-blob-coverage' && r.action === 'backfill-blob-bytes')
       .map(({ i }) => i);
-    for (const [n, candidate] of pre.blobBackfillable.entries()) {
+    for (const [n, candidate] of blobBackfillable.entries()) {
       if (candidate.sourcePath === null) continue;
       const outcome = await backfillBlobStoreBytes(cleoDir, candidate.sha256, candidate.sourcePath);
       if (outcome === 'written' || outcome === 'present') continue;
@@ -1325,7 +1406,7 @@ export async function runDocsDoctor(
       // backfill above so the bytes the new rows address are mirrored first;
       // annotate each repair entry with its executed outcome (zip by slug).
       const conduitBySlug = new Map<string, { inserted: number; gaps: number }>();
-      for (const plan of pre.conduitBackfill) {
+      for (const plan of inScope('conduit-history-gaps') ? pre.conduitBackfill : []) {
         if (plan.toBackfill.length === 0 || plan.conflict) continue;
         const result = await applyConduitHistoryBackfill(projectRoot, plan);
         conduitBySlug.set(plan.slug, { inserted: result.inserted, gaps: result.gaps });
@@ -1339,14 +1420,14 @@ export async function runDocsDoctor(
           detail: `${repair.detail} → executed: ${outcome.inserted} row(s) inserted, ${outcome.gaps} gap(s)`,
         };
       }
-      for (const { row, expected } of pre.skewed) {
+      for (const { row, expected } of inScope('doc-version-skew') ? pre.skewed : []) {
         await db
           .update(docsAttachments)
           .set({ docVersion: expected })
           .where(eq(docsAttachments.id, row.id))
           .run();
       }
-      for (const { row, derived } of pre.backfillable) {
+      for (const { row, derived } of inScope('empty-provenance') ? pre.backfillable : []) {
         if (derived.topics.length + derived.relatedTasks.length === 0) continue;
         await db
           .update(docsAttachments)
@@ -1357,14 +1438,14 @@ export async function runDocsDoctor(
           .where(eq(docsAttachments.id, row.id))
           .run();
       }
-      for (const { row } of pre.dangling.archivable) {
+      for (const { row } of inScope('dangling-pointers') ? pre.dangling.archivable : []) {
         await db
           .update(docsAttachments)
           .set({ lifecycleStatus: 'archived' })
           .where(eq(docsAttachments.id, row.id))
           .run();
       }
-      for (const { row, payload } of pre.dangling.clearable) {
+      for (const { row, payload } of inScope('dangling-pointers') ? pre.dangling.clearable : []) {
         const cleaned: Record<string, unknown> = { ...payload };
         delete cleaned['path'];
         await db
@@ -1373,10 +1454,12 @@ export async function runDocsDoctor(
           .where(eq(docsAttachments.id, row.id))
           .run();
       }
-      if (pre.needsWikilinksRebuild) {
+      if (pre.needsWikilinksRebuild && rebuildWikilinks) {
         await rebuildDocsWikilinks({ projectRoot });
       }
-      const prunable = pre.ledger.filter((f) => f.prunable);
+      const prunable = inScope('publication-ledger-drift')
+        ? pre.ledger.filter((f) => f.prunable)
+        : [];
       if (prunable.length > 0) {
         const auditPath = join(projectRoot, DOCS_DOCTOR_LEDGER_PRUNE_AUDIT_FILE);
         mkdirSync(dirname(auditPath), { recursive: true });
@@ -1407,17 +1490,28 @@ export async function runDocsDoctor(
   const conduitGapTotal = conduitActionable.reduce((s, p) => s + p.gaps.length, 0);
   const conduitConflictTotal = conduitActionable.filter((p) => p.conflict).length;
   const conduitBackfillNote =
-    repair || conduitActionable.length === 0
+    repair || !inScope('conduit-history-gaps') || conduitActionable.length === 0
       ? ''
       : apply
         ? `; conduit history: ${conduitActionable.reduce((s, p) => s + p.toBackfill.length, 0)} version(s) backfilled across ${conduitActionable.length} doc(s) (${conduitGapTotal} gap(s) unrecoverable, ${conduitConflictTotal} conflict(s))`
         : `; conduit history: ${conduitActionable.length} doc(s) need attention (${conduitActionable.reduce((s, p) => s + p.toBackfill.length, 0)} version(s) to backfill, ${conduitGapTotal} gap(s) unrecoverable, ${conduitConflictTotal} conflict(s))`;
+  const repairCounts: Partial<Record<DocsDoctorRepairClass, { planned: number; applied: number }>> =
+    {};
+  for (const r of repairs) {
+    const kind = r.kind;
+    if (!isRepairClass(kind)) continue;
+    const entry = repairCounts[kind] ?? { planned: 0, applied: 0 };
+    entry.planned += 1;
+    if (r.applied) entry.applied += 1;
+    repairCounts[kind] = entry;
+  }
+  const scopeNote = only === null ? '' : ` (only: ${only.join(', ')})`;
   const summary = repair
     ? `docs doctor repaired ${repairs.filter((r) => r.applied).length} blob backfill(s); ` +
       `${post.diagnostics.find((d) => d.kind === 'legacy-blob-coverage')?.count ?? 0} sha(s) still missing post-repair`
     : apply
-      ? `docs doctor applied ${repairs.filter((r) => r.applied).length} repair(s); ${findings} finding(s) remain post-repair${conduitBackfillNote}`
-      : `docs doctor found ${findings} finding(s); ${repairs.length} repair(s) planned (dry-run — pass --apply to execute)${conduitBackfillNote}`;
+      ? `docs doctor applied ${repairs.filter((r) => r.applied).length} repair(s)${scopeNote}; ${findings} finding(s) remain post-repair${conduitBackfillNote}`
+      : `docs doctor found ${findings} finding(s); ${repairs.length} repair(s) planned${scopeNote} (dry-run — pass --apply to execute)${conduitBackfillNote}`;
 
   return {
     ok: true,
@@ -1427,6 +1521,8 @@ export async function runDocsDoctor(
       backupReceiptPath: mutate ? (opts.backupReceiptPath ?? null) : null,
       diagnostics: post.diagnostics,
       repairs,
+      repairCounts,
+      only,
       summary,
     },
   };

@@ -8727,6 +8727,13 @@ export const OPERATIONS: OperationDef[] = [
         required: false,
         description: 'Age threshold in days for the stale-drafts check (default 30)',
       },
+      {
+        name: 'only',
+        type: 'string' as const,
+        required: false,
+        description:
+          'Comma-separated repair classes to scope the plan (and apply) to, e.g. publication-ledger-drift (T14174)',
+      },
     ],
   },
   // ── docs.triage (T13446 — Epic T13340 / Saga T13339) ──────────────────────
@@ -8838,6 +8845,13 @@ export const OPERATIONS: OperationDef[] = [
         type: 'number' as const,
         required: false,
         description: 'Age threshold in days for the stale-drafts check (default 30)',
+      },
+      {
+        name: 'only',
+        type: 'string' as const,
+        required: false,
+        description:
+          'Comma-separated repair classes to scope the plan (and apply) to, e.g. publication-ledger-drift (T14174)',
       },
     ],
   },

@@ -1925,7 +1925,8 @@ const doctorCommand = defineCommand({
       'docs_wikilinks drift, legacy store surfaces, blob-store coverage, stale drafts, ' +
       'publication-ledger drift (rows whose mirror is gone or stale; T14117). ' +
       'Dry-run by default; --apply executes repairs (a fresh backup is created automatically first); ' +
-      '--repair runs only the hash-verified legacy-bytes → blob-store backfill (T13653).',
+      '--repair runs only the hash-verified legacy-bytes → blob-store backfill (T13653); ' +
+      '--only <class,…> scopes the plan and --apply to those repair classes (T14174).',
   },
   args: {
     apply: {
@@ -1942,17 +1943,30 @@ const doctorCommand = defineCommand({
       type: 'string',
       description: 'Age threshold in days for the stale-drafts check (default 30)',
     },
+    only: {
+      type: 'string',
+      description:
+        'Comma-separated repair classes to plan and apply (T14174): dangling-pointers, ' +
+        'doc-version-skew, empty-provenance, wikilinks-drift, legacy-blob-coverage, ' +
+        'conduit-history-gaps, publication-ledger-drift. Other classes are left untouched.',
+    },
     ...docsOutputArgs,
   },
   async run({ args }) {
     const apply = args.apply === true;
     const repair = args.repair === true;
     const olderThanDays = parseOlderThanDays(args['older-than-days']);
+    const only = typeof args.only === 'string' ? args.only : undefined;
     await dispatchFromCli(
       apply || repair ? 'mutate' : 'query',
       'docs',
       'doctor',
-      { apply, repair, ...(olderThanDays !== undefined ? { olderThanDays } : {}) },
+      {
+        apply,
+        repair,
+        ...(olderThanDays !== undefined ? { olderThanDays } : {}),
+        ...(only !== undefined ? { only } : {}),
+      },
       { command: 'docs doctor' },
     );
   },
