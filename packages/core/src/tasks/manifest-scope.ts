@@ -1,6 +1,6 @@
 /**
  * Manifest-only workspace changes, scoped by the lockfile's importers (T14163,
- * owner decision 2026-10-30).
+ * owner decision 2026-10-30; npm and yarn T14167).
  *
  * A change to the root `package.json` or the lockfile is outside every
  * workspace package, so a targeted test-run cannot speak for it and only the
@@ -20,10 +20,16 @@
  *
  * The change then stands for the changed packages plus the importers'
  * packages, each represented by its own `package.json`, so the usual targeted
- * rule (a passing test file in each, and in every dependent) applies. pnpm
- * lockfiles only; other lockfiles stay workspace-wide.
+ * rule (a passing test file in each, and in every dependent) applies.
+ *
+ * Lockfiles read: `pnpm-lock.yaml` (importers), `package-lock.json` v3 (the
+ * `packages` entries without a `node_modules` segment are the importers:
+ * `""` is the root) and Yarn Berry `yarn.lock` (the `@workspace:<dir>`
+ * entries). npm v1/v2 lockfiles (a legacy `dependencies` tree) and Yarn
+ * Classic lockfiles cannot be attributed and stay workspace-wide (T14167).
  *
  * @task T14163
+ * @task T14167
  */
 
 import { execFileSync } from 'node:child_process';
@@ -38,8 +44,14 @@ export const MANIFEST_DEPENDENCY_FIELDS: readonly string[] = [
   'peerDependencies',
 ];
 
-/** The lockfile this scoping reads. */
+/** The pnpm lockfile. */
 export const PNPM_LOCKFILE = 'pnpm-lock.yaml';
+
+/** The npm lockfile (T14167). */
+export const NPM_LOCKFILE = 'package-lock.json';
+
+/** The Yarn lockfile (T14167). */
+export const YARN_LOCKFILE = 'yarn.lock';
 
 /**
  * The scoping function, as callers pass it after `await import('./manifest-scope.js')`.
@@ -186,9 +198,154 @@ export function pnpmImporterChanges(
   return { importers };
 }
 
+/** An importer key as the scope names it: `.` for the root, else its directory. */
+const importerDir = (key: string): string => (key === '' || key === '.' ? '.' : key);
+
+/** Dependency names an npm `packages` entry declares, peers included (npm installs them). */
+function npmDependencyNames(entry: Mapping): string[] {
+  return ['dependencies', 'devDependencies', 'optionalDependencies', 'peerDependencies'].flatMap(
+    (field) => Object.keys(mappingAt(entry, field)),
+  );
+}
+
+/**
+ * The `packages` key `name` resolves to from the entry at `from`, by Node's
+ * lookup: `<from>/node_modules/<name>`, then each enclosing `node_modules`
+ * directory up to the root.
+ */
+function npmResolve(packages: Mapping, from: string, name: string): string | null {
+  let dir = from;
+  for (;;) {
+    const key = `${dir === '' ? '' : `${dir}/`}node_modules/${name}`;
+    if (isMapping(packages[key])) return key;
+    if (dir === '') return null;
+    const up = dir.lastIndexOf('/node_modules/');
+    dir = up === -1 ? '' : dir.slice(0, up);
+  }
+}
+
+/** Every npm `packages` key reachable from the given importer keys. */
+function npmReachable(lock: Mapping, importers: readonly string[]): Set<string> {
+  const packages = mappingAt(lock, 'packages');
+  const seen = new Set<string>();
+  const pending = [...importers];
+  while (pending.length > 0) {
+    const from = pending.pop() ?? '';
+    const entry = mappingAt(packages, from);
+    for (const name of npmDependencyNames(entry)) {
+      const key = npmResolve(packages, from, name);
+      if (key === null || seen.has(key)) continue;
+      seen.add(key);
+      // A workspace link is a sibling importer: its own change names it.
+      if (mappingAt(packages, key).link !== true) pending.push(key);
+    }
+  }
+  return seen;
+}
+
+/**
+ * The importers an npm `package-lock.json` (lockfileVersion 3) change touched,
+ * or null when part of it cannot be attributed to a changed importer.
+ *
+ * @param before - Lockfile text before the change, or null when absent.
+ * @param after - Lockfile text after the change, or null when absent.
+ * @returns The changed importers (`.` is the root), or null.
+ * @task T14167
+ */
+export function npmImporterChanges(
+  before: string | null,
+  after: string | null,
+): { importers: string[] } | null {
+  const b = parseMapping(before, 'json');
+  const a = parseMapping(after, 'json');
+  if (b === null || a === null) return null;
+  // v1/v2 carry the legacy `dependencies` tree; only v3's `packages` is read.
+  if (b.lockfileVersion !== 3 || a.lockfileVersion !== 3) return null;
+  if (changedKeys(b, a).some((k) => k !== 'packages')) return null;
+  const changed = changedKeys(mappingAt(b, 'packages'), mappingAt(a, 'packages'));
+  const isImporter = (key: string): boolean => !`/${key}/`.includes('/node_modules/');
+  const importers = changed.filter(isImporter);
+  const covered = new Set([...npmReachable(b, importers), ...npmReachable(a, importers)]);
+  if (changed.some((key) => !isImporter(key) && !covered.has(key))) return null;
+  return { importers: importers.map(importerDir) };
+}
+
+/** A Yarn Berry entry's descriptors: its key, split on `, `. */
+const yarnDescriptors = (key: string): string[] => key.split(/,\s*/);
+
+/** Every Yarn entry key reachable from the given workspace entry keys. */
+function yarnReachable(lock: Mapping, roots: readonly string[]): Set<string> {
+  const byDescriptor = new Map<string, string>();
+  for (const key of Object.keys(lock))
+    for (const descriptor of yarnDescriptors(key)) byDescriptor.set(descriptor, key);
+  const seen = new Set<string>();
+  const pending = [...roots];
+  while (pending.length > 0) {
+    const entry = mappingAt(lock, pending.pop() ?? '');
+    for (const [name, range] of Object.entries(mappingAt(entry, 'dependencies'))) {
+      // A workspace dependency is a sibling importer: its own change names it.
+      if (typeof range !== 'string' || range.startsWith('workspace:')) continue;
+      const key = byDescriptor.get(`${name}@${range}`);
+      if (key === undefined || seen.has(key)) continue;
+      seen.add(key);
+      pending.push(key);
+    }
+  }
+  return seen;
+}
+
+/** The workspace directory a Yarn entry resolves to, or null for a package. */
+function yarnWorkspace(entry: unknown): string | null {
+  const resolution = isMapping(entry) ? entry.resolution : undefined;
+  if (typeof resolution !== 'string') return null;
+  const at = resolution.indexOf('@workspace:', 1);
+  return at === -1 ? null : resolution.slice(at + '@workspace:'.length);
+}
+
+/**
+ * The importers a Yarn Berry `yarn.lock` change touched, or null when part of
+ * it cannot be attributed to a changed workspace (a Yarn Classic lockfile,
+ * which has no workspace entries, always is).
+ *
+ * @param before - Lockfile text before the change, or null when absent.
+ * @param after - Lockfile text after the change, or null when absent.
+ * @returns The changed importers (`.` is the root), or null.
+ * @task T14167
+ */
+export function yarnImporterChanges(
+  before: string | null,
+  after: string | null,
+): { importers: string[] } | null {
+  const b = parseMapping(before, 'yaml');
+  const a = parseMapping(after, 'yaml');
+  if (b === null || a === null) return null;
+  // Yarn Classic has no `__metadata` and no workspace entries.
+  if (!isMapping(b.__metadata) || !isMapping(a.__metadata)) return null;
+  const changed = changedKeys(b, a);
+  // `__metadata` (lockfile version, cache key) reaches every package.
+  if (changed.includes('__metadata')) return null;
+  const workspaceKeys = changed.filter(
+    (key) => yarnWorkspace(b[key]) !== null || yarnWorkspace(a[key]) !== null,
+  );
+  const covered = new Set([...yarnReachable(b, workspaceKeys), ...yarnReachable(a, workspaceKeys)]);
+  if (changed.some((key) => !workspaceKeys.includes(key) && !covered.has(key))) return null;
+  const dirs = workspaceKeys.map((key) => yarnWorkspace(a[key]) ?? yarnWorkspace(b[key]) ?? '');
+  return { importers: [...new Set(dirs.map(importerDir))] };
+}
+
+/** Each lockfile this scoping reads, with its importer attribution. */
+const LOCKFILES: Readonly<
+  Record<string, (before: string | null, after: string | null) => { importers: string[] } | null>
+> = {
+  [PNPM_LOCKFILE]: pnpmImporterChanges,
+  [NPM_LOCKFILE]: npmImporterChanges,
+  [YARN_LOCKFILE]: yarnImporterChanges,
+};
+
 /**
  * Scope a change whose only paths outside every workspace package are the
- * root `package.json` and the pnpm lockfile, comparing `base` with `head`.
+ * root `package.json` and its lockfiles (pnpm, npm v3, Yarn Berry), comparing
+ * `base` with `head`.
  *
  * @param root - The checkout.
  * @param base - The commit before the change (the merge's first parent).
@@ -196,6 +353,7 @@ export function pnpmImporterChanges(
  * @param changed - The change's paths, relative to `root`.
  * @returns The scope, or null when the change stays workspace-wide.
  * @task T14163
+ * @task T14167
  */
 export function manifestScopedChange(
   root: string,
@@ -208,7 +366,10 @@ export function manifestScopedChange(
   const inPackage = (path: string): boolean =>
     packages.some((p) => path === p.dir || path.startsWith(`${p.dir}/`));
   const outside = changed.filter((p) => !inPackage(p));
-  if (outside.length === 0 || outside.some((p) => p !== 'package.json' && p !== PNPM_LOCKFILE))
+  if (
+    outside.length === 0 ||
+    outside.some((p) => p !== 'package.json' && !Object.hasOwn(LOCKFILES, p))
+  )
     return null;
   if (
     outside.includes('package.json') &&
@@ -216,13 +377,11 @@ export function manifestScopedChange(
   )
     return null;
   let importers: string[] = [];
-  if (outside.includes(PNPM_LOCKFILE)) {
-    const lock = pnpmImporterChanges(
-      show(root, base, PNPM_LOCKFILE),
-      show(root, head, PNPM_LOCKFILE),
-    );
+  for (const [lockfile, attribute] of Object.entries(LOCKFILES)) {
+    if (!outside.includes(lockfile)) continue;
+    const lock = attribute(show(root, base, lockfile), show(root, head, lockfile));
     if (lock === null) return null;
-    importers = lock.importers;
+    importers = [...new Set([...importers, ...lock.importers])];
   }
   // The root's own dependencies reach every package, lockfile or not.
   if (outside.includes('package.json') && !importers.includes('.')) importers = [...importers, '.'];
