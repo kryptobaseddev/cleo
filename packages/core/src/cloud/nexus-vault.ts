@@ -101,6 +101,7 @@ import { SYNC_SCHEMA_VERSION } from '@cleocode/contracts/sync-schema.js';
 import { readDeclaredProjectIdentity } from '@cleocode/paths';
 import { extract as tarExtract } from 'tar';
 import { z } from 'zod';
+import { discoveryEnv } from '../git/work-tree.js';
 import { currentDeviceId } from '../nexus/path-map.js';
 import { getCleoHome, resolveOrCwd } from '../paths.js';
 import { withLock } from '../store/lock.js';
@@ -1031,15 +1032,6 @@ const GIT_LS_FILES_TIMEOUT_MS = 15_000;
 /** Largest `git ls-files` output read (the `.cleo/` pathspec of a large repository). */
 const GIT_LS_FILES_MAX_BYTES = 64 * 1024 * 1024;
 
-/** Environment variables that would point git at another repository than the store's. */
-const GIT_LOCATION_ENV = [
-  'GIT_DIR',
-  'GIT_WORK_TREE',
-  'GIT_INDEX_FILE',
-  'GIT_COMMON_DIR',
-  'GIT_OBJECT_DIRECTORY',
-];
-
 /** The store's git tracking, each side from its own checkout (T13019). */
 function gitTracking(t: VaultTarget): GitTracking {
   const none: GitTracking = { mode: 'none', tracked: new Set() };
@@ -1058,9 +1050,8 @@ function gitTracking(t: VaultTarget): GitTracking {
       timeout: GIT_LS_FILES_TIMEOUT_MS,
       maxBuffer: GIT_LS_FILES_MAX_BYTES,
       stdio: ['ignore', 'pipe', 'ignore'],
-      env: Object.fromEntries(
-        Object.entries(process.env).filter(([k]) => !GIT_LOCATION_ENV.includes(k)),
-      ),
+      // The store's own checkout, never one an inherited GIT_* names (T14189).
+      env: discoveryEnv(),
     });
     const tracked = new Set<string>();
     for (const p of out.split('\0'))

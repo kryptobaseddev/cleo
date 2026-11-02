@@ -62,14 +62,25 @@ export const EVIDENCE_GIT_ROOT_ENV = 'CLEO_EVIDENCE_GIT_ROOT';
  * {@link resolveDeclaredEvidenceGitRoot}, rather than by hoping git's ambient
  * state happens to agree.
  *
+ * T14189: the full set git exports to hooks and receive-side quarantine that
+ * names a repository, an index or an object store, so a `cleo` call inside a
+ * hook (which inherits `GIT_INDEX_FILE`, `GIT_PREFIX`, …) never acts on the
+ * hook's repository.
+ *
  * @task T12308
+ * @task T14189
  */
-const GIT_AMBIENT_REPO_VARS = [
+export const GIT_AMBIENT_REPO_VARS = [
   'GIT_DIR',
   'GIT_WORK_TREE',
   'GIT_COMMON_DIR',
   'GIT_INDEX_FILE',
   'GIT_OBJECT_DIRECTORY',
+  'GIT_ALTERNATE_OBJECT_DIRECTORIES',
+  'GIT_NAMESPACE',
+  'GIT_PREFIX',
+  'GIT_SHALLOW_FILE',
+  'GIT_QUARANTINE_PATH',
 ] as const;
 
 /**
