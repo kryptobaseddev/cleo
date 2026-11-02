@@ -71,6 +71,8 @@ export interface DependencyCheckResult {
   error?: string;
   /** Actionable fix suggestion to show the user when `healthy` is `false`. */
   suggestedFix?: string;
+  /** A caveat on a healthy result, e.g. a version that could not be checked (T14166). */
+  note?: string;
 }
 
 /**

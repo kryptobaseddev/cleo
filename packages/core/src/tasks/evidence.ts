@@ -1229,8 +1229,10 @@ export function extractTaskAcFilesWithProvenance(task: {
 /**
  * Return the list of file paths a commit touched (added, modified, or deleted).
  *
- * Uses `git diff-tree --no-commit-id -r --name-only -m --first-parent` which
- * correctly handles **merge commits** by diffing against the first parent only.
+ * Uses `git diff-tree --no-commit-id -r --name-only --diff-merges=first-parent`
+ * (git 2.31+), which diffs a **merge commit** against its first parent only.
+ * `-m --first-parent` listed the diff against EVERY parent, since
+ * `--first-parent` limits a revision walk, not diff-tree (T14166).
  * The legacy `git show --name-only` approach returned an empty list for merge
  * commits because show without `--first-parent` produces a combined diff that
  * `--name-only` cannot meaningfully summarise, causing the content-intersect
@@ -1243,6 +1245,7 @@ export function extractTaskAcFilesWithProvenance(task: {
  * @internal
  * @task T9245
  * @task T11959 (DHQ-083 companion b — merge-commit first-parent diff)
+ * @task T14166
  */
 async function gitShowFiles(sha: string, projectRoot: string): Promise<string[]> {
   return (await commitFilesOrNull(sha, projectRoot)) ?? [];
@@ -1258,9 +1261,9 @@ async function gitShowFiles(sha: string, projectRoot: string): Promise<string[]>
  * @task T14001
  */
 async function commitFilesOrNull(sha: string, projectRoot: string): Promise<string[] | null> {
-  // diff-tree with --first-parent gives a clean single-parent diff for both
+  // --diff-merges=first-parent gives a clean single-parent diff for both
   // regular commits and merge commits (compares merge result to first parent,
-  // i.e. the branch tip before the PR was merged).
+  // i.e. the branch tip before the PR was merged; T14166).
   //
   // --root: Without this flag, git diff-tree returns EMPTY output for the
   // repository's initial (root) commit because there is no parent to diff
@@ -1270,7 +1273,15 @@ async function commitFilesOrNull(sha: string, projectRoot: string): Promise<stri
   // evidence commit happens to be the very first commit in the repo (T11959).
   const r = await runCommand(
     'git',
-    ['diff-tree', '--root', '--no-commit-id', '-r', '--name-only', '-m', '--first-parent', sha],
+    [
+      'diff-tree',
+      '--root',
+      '--no-commit-id',
+      '-r',
+      '--name-only',
+      '--diff-merges=first-parent',
+      sha,
+    ],
     projectRoot,
   );
   if (r.exitCode !== 0) return null;
