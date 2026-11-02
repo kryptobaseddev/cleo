@@ -3,6 +3,7 @@
 # Pre-commit guardrails:
 #   1. Reject SQLite WAL/SHM files (data corruption risk).
 #   2. Block commits when core CLEO files are gitignored (data integrity).
+#   3. Refuse CLEO runtime state staged at ANY path (T14189).
 #
 # Installation: Automatically installed via `cleo init`
 
@@ -44,18 +45,49 @@ if [ -n "$IGNORED_CORE" ]; then
   exit 1
 fi
 
-# ── 3. Block staging of T5158/ADR-013 §9 data-safety files ────────────
-# tasks.db / brain.db / config.json / project-info.json must NEVER be
-# staged — risks data loss on branch switch (SQLite WAL/JSON sync).
-DATA_SAFETY_STAGED=$(git diff --cached --name-only | grep -E '^\.cleo/(tasks\.db|brain\.db|config\.json|project-info\.json)$' || true)
+# ── 3. Block staging of CLEO runtime state at ANY path (T14189) ─────
+# cleo.db / brain.db / tasks.db (and their WAL files), project-info.json
+# carrying a "projectId", and a config.json byte-identical to
+# .cleo/config.json must NEVER be committed: ADR-013 §9 (T5158 data-loss
+# vector), and T14189 (a cleo call inside a git hook once staged .cleo state
+# files into this index as ROOT paths). `cleo doctor` runs the same rule.
+LEAKED=""
+CLEO_CONFIG_BLOB=""
+if [ -f .cleo/config.json ]; then
+  CLEO_CONFIG_BLOB=$(git hash-object .cleo/config.json 2>/dev/null || true)
+fi
+STAGED_RAW=$(git -c core.quotePath=false diff --cached --raw --no-abbrev --no-renames --diff-filter=d)
+TAB=$(printf '\t')
+while IFS= read -r line; do
+  [ -n "$line" ] || continue
+  meta=${line%%"$TAB"*}
+  path=${line#*"$TAB"}
+  blob=$(echo "$meta" | awk '{print $4}')
+  case "${path##*/}" in
+    cleo.db|cleo.db-wal|cleo.db-shm|cleo.db-journal|\
+    brain.db|brain.db-wal|brain.db-shm|brain.db-journal|\
+    tasks.db|tasks.db-wal|tasks.db-shm|tasks.db-journal)
+      LEAKED="$LEAKED $path" ;;
+    project-info.json)
+      if git cat-file -p "$blob" 2>/dev/null | grep -q '"projectId"'; then
+        LEAKED="$LEAKED $path"
+      fi ;;
+    config.json)
+      if [ "$path" = ".cleo/config.json" ] || { [ -n "$CLEO_CONFIG_BLOB" ] && [ "$blob" = "$CLEO_CONFIG_BLOB" ]; }; then
+        LEAKED="$LEAKED $path"
+      fi ;;
+  esac
+done <<EOF_STAGED
+$STAGED_RAW
+EOF_STAGED
 
-if [ -n "$DATA_SAFETY_STAGED" ]; then
-  echo "ERROR: Refusing to commit T5158/ADR-013 §9 data-safety files:"
-  echo "$DATA_SAFETY_STAGED"
+if [ -n "$LEAKED" ]; then
+  echo "ERROR: Refusing to commit CLEO runtime state (ADR-013 §9, T14189):"
+  for f in $LEAKED; do echo "  $f"; done
   echo ""
-  echo "These files are runtime state that must never be tracked in git."
-  echo "Commiting them re-opens the T5158 data-loss vector (SQLite WAL/"
-  echo "JSON sync gets corrupted on branch switch)."
-  echo "To fix: git rm --cached <file>"
+  echo "These are .cleo runtime files (databases, project identity, config)"
+  echo "that must never be tracked; committing them re-opens the T5158"
+  echo "data-loss vector."
+  echo "To fix: git reset -q --$LEAKED"
   exit 1
 fi
