@@ -1883,6 +1883,70 @@ describe('research and no-change-set tasks', () => {
   });
 });
 
+describe('T14180: a no-code task with attached records and linked decisions', () => {
+  /** A work task (the T14175 shape: a live-data repair) with a note and a decision. */
+  async function recordOnlyTask(labels: string[] = []) {
+    const result = await addTask(
+      {
+        title: 'live-data repair fixture',
+        description: 'a repair with no code change, recorded by a note and a decision',
+        acceptance: ['Backfill the missing rows'],
+        kind: 'work',
+        labels,
+        skipContainmentInvariant: true,
+      },
+      root,
+      env.accessor,
+    );
+    const content = '# repair record\n';
+    const sha = createHash('sha256').update(content).digest('hex');
+    mkdirSync(join(root, '.cleo', 'blobs', 'blobs'), { recursive: true });
+    writeFileSync(join(root, '.cleo', 'blobs', 'blobs', sha), content);
+    const recordDeps: ChangeSetDeps = {
+      ...deps,
+      listTaskDocs: async () => [{ id: 'att', slug: 'legacy-blob-coverage-rows', sha256: sha }],
+      listTaskDecisions: async () => ['D900'],
+    };
+    return { id: result.task.id, recordDeps };
+  }
+
+  it('finds the note and the decision and names the gate profile, not "attach a record"', async () => {
+    const { id, recordDeps } = await recordOnlyTask();
+    const plan = await deriveTaskEvidence(id, {
+      projectRoot: root,
+      cwd: root,
+      satisfies: 'all',
+      deps: recordDeps,
+    });
+    expect(plan.changeSet.source).toBe('none');
+    expect(plan.changeSet.docs.map((d) => d.slug)).toEqual(['legacy-blob-coverage-rows']);
+    expect(plan.changeSet.decisions).toEqual(['D900']);
+    const none = plan.blockers.find((b) => b.code === 'no-change-set');
+    expect(none?.message).toContain(
+      'It has attached document legacy-blob-coverage-rows and linked decision D900',
+    );
+    expect(none?.message).toContain('is classed as code');
+    expect(none?.message).not.toContain('attach its record');
+    expect(none?.next.command).toBe(`cleo update ${id} --add-labels profile:ops`);
+    expect(plan.commands.some((c) => c.startsWith('cleo complete'))).toBe(false);
+  });
+
+  it('with profile:ops the same records plan implemented, and no no-change-set blocker', async () => {
+    const { id, recordDeps } = await recordOnlyTask(['profile:ops']);
+    const plan = await deriveTaskEvidence(id, {
+      projectRoot: root,
+      cwd: root,
+      satisfies: 'all',
+      previewEvidence: async () => ({ ok: true }),
+      deps: recordDeps,
+    });
+    expect(plan.changeSet.source).toBe('docs');
+    expect(plan.blockers.map((b) => b.code)).not.toContain('no-change-set');
+    expect(plan.gates.find((g) => g.gate === 'implemented')?.evidence).toMatch(/^decision:D900/);
+    expect(plan.toolRuns).toEqual([]);
+  });
+});
+
 describe('a task with no change set gets no targets from the working tree (T13917)', () => {
   /** The axiom T2504 shape: one package, and a shared checkout dirty with others' work. */
   function dirtySharedCheckout(): void {

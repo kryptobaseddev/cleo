@@ -1738,15 +1738,9 @@ async function deriveDocsChangeSet(
   input: DeriveChangeSetInput,
   deps: Required<Pick<ChangeSetDeps, 'listTaskDocs' | 'listTaskDecisions'>>,
 ): Promise<boolean> {
-  const { task, storeRoot } = input;
+  const { task } = input;
   if (classifyEvidenceTask({ task }) === 'code') return false;
-  const refs = await deps.listTaskDocs(storeRoot, task.id);
-  const docs: ChangeSetDoc[] = [];
-  for (const ref of refs) {
-    const path = locateDocBytes(storeRoot, ref.sha256);
-    if (path && !docs.some((d) => d.path === path)) docs.push({ id: ref.id, slug: ref.slug, path });
-  }
-  const decisions = await deps.listTaskDecisions(storeRoot, task.id);
+  const { docs, decisions } = await taskRecords(input, deps);
   if (docs.length === 0 && decisions.length === 0) return false;
 
   cs.source = 'docs';
@@ -1773,6 +1767,20 @@ async function deriveDocsChangeSet(
     ),
   );
   return true;
+}
+
+/** The documents attached to a task (as owner) and the decisions linked to it. */
+async function taskRecords(
+  input: DeriveChangeSetInput,
+  deps: Required<Pick<ChangeSetDeps, 'listTaskDocs' | 'listTaskDecisions'>>,
+): Promise<{ docs: ChangeSetDoc[]; decisions: string[] }> {
+  const { task, storeRoot } = input;
+  const docs: ChangeSetDoc[] = [];
+  for (const ref of await deps.listTaskDocs(storeRoot, task.id)) {
+    const path = locateDocBytes(storeRoot, ref.sha256);
+    if (path && !docs.some((d) => d.path === path)) docs.push({ id: ref.id, slug: ref.slug, path });
+  }
+  return { docs, decisions: await deps.listTaskDecisions(storeRoot, task.id) };
 }
 
 /**
@@ -1865,6 +1873,14 @@ export async function deriveTaskChangeSet(
   if (!docsFirst && (await deriveDocsChangeSet(cs, input, docsDeps))) return cs;
 
   const id = input.task.id;
+  // T14180: a code-class task's attached records and linked decisions do not
+  // prove it, but the planner names them, so the remedy it gives is the gate
+  // profile a no-code task declares, not "attach a record" again.
+  if (classifyEvidenceTask({ task: input.task }) === 'code') {
+    const records = await taskRecords(input, docsDeps);
+    cs.docs = records.docs;
+    cs.decisions = records.decisions;
+  }
   cs.blockers.push(
     blocker(
       'no-change-set',
