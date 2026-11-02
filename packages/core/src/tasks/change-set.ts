@@ -273,8 +273,7 @@ export function taskCarryScope<T extends CarryTarget>(
       '--no-commit-id',
       '--name-only',
       '-r',
-      '-m',
-      '--first-parent',
+      '--diff-merges=first-parent',
       '--root',
       sha,
     ]);
@@ -398,8 +397,8 @@ export function resolveChangeSetRoot(
 
 /**
  * Split `git diff --name-status --no-renames` output into kept and deleted
- * paths, each listed once. `diff-tree -m` lists a merge commit's diff against
- * every parent, so a path both sides changed appears twice (T14040).
+ * paths, each listed once (T14040: `diff-tree -m` listed a merge commit's
+ * diff against every parent; T14166 diffs the first parent only).
  */
 function parseNameStatus(output: string): { files: string[]; deleted: string[] } {
   const files = new Set<string>();
@@ -876,8 +875,7 @@ function mergeCommitChanges(root: string, sha: string): { files: string[]; delet
       '-r',
       '--name-status',
       '--no-renames',
-      '-m',
-      '--first-parent',
+      '--diff-merges=first-parent',
       sha,
     ]) ?? '',
   );
@@ -1591,8 +1589,7 @@ async function searchOwnWork(
       '--no-commit-id',
       '-r',
       '--name-only',
-      '-m',
-      '--first-parent',
+      '--diff-merges=first-parent',
       sha,
     ]);
   /** Nothing found and the search could not finish: unknown, so not ok. */

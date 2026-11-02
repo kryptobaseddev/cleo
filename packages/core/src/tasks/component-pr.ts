@@ -557,8 +557,7 @@ function commitPaths(root: string, sha: string): string[] {
     '-r',
     '--name-only',
     '--no-renames',
-    '-m',
-    '--first-parent',
+    '--diff-merges=first-parent',
     sha,
   ]);
   return out ? out.split('\n').filter(Boolean) : [];
