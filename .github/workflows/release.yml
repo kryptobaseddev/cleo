@@ -471,7 +471,12 @@ jobs:
         env:
           VERSION: ${{ steps.version.outputs.version }}
         run: |
-          git fetch --quiet --tags --unshallow origin 2>/dev/null || git fetch --quiet --tags origin
+          # T14171: checkout leaves refs/tags/<tag> as a lightweight ref to the
+          # commit; without --force the annotated tag is rejected ("would
+          # clobber existing tag") and --quiet hides why the step failed.
+          git fetch --quiet --force --tags --unshallow origin 2>/dev/null \
+            || git fetch --force --tags origin \
+            || { echo "::error::git fetch --force --tags failed; write-changelog needs the release tags and full history"; exit 1; }
           node packages/cleo/dist/cli/index.js release write-changelog "${VERSION}"
 
       - name: Verify CHANGELOG section (cleo release validate-changelog)
