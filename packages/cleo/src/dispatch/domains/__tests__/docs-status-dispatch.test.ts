@@ -160,6 +160,8 @@ describe('docs advertised dispatch parity', () => {
       toPath: 'docs/repair.md',
       projectRoot: '/fixture/docs-status',
       attachmentId: undefined,
+      // T14135: the caller's directory decides where a relative --to lands.
+      cwd: process.cwd(),
     });
     expect(publishPr).not.toHaveBeenCalled();
   });

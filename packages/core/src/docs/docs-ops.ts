@@ -17,6 +17,7 @@
 
 import { execFileSync } from 'node:child_process';
 import { createHash, randomBytes } from 'node:crypto';
+import { existsSync, readdirSync } from 'node:fs';
 import { mkdir } from 'node:fs/promises';
 import {
   basename,
@@ -34,7 +35,7 @@ import type { KnowledgeGraph, MessageInput } from 'llmtxt/graph';
 import type { ReconstructionResult, VersionDiffSummary, VersionEntry } from 'llmtxt/sdk';
 import type { SimilarityRankResult } from 'llmtxt/similarity';
 import { CleoError } from '../errors.js';
-import { discoveryEnv } from '../git/work-tree.js';
+import { discoveryEnv, gitDefaultBranchRefs, gitToplevel } from '../git/work-tree.js';
 import { getProjectRoot } from '../paths.js';
 import { createAttachmentStore } from '../store/attachment-store.js';
 import { blobList, blobRead, blobReadBySha } from '../store/blob-ops.js';
@@ -1103,7 +1104,11 @@ export async function listDocVersions(opts: {
 export interface DocsPublishResult {
   /** Absolute path the bytes were written to. */
   readonly publishedPath: string;
-  /** Project-root-relative form of `publishedPath`. Stable across machines. */
+  /**
+   * Project-relative form of `publishedPath`: for a publication into a
+   * canonical worktree, the path its merge makes true under the project root
+   * (T14135). Stable across machines.
+   */
   readonly relativePath: string;
   /** Lowercase hex SHA-256 of the written bytes. */
   readonly sha256: string;
@@ -1120,6 +1125,58 @@ export interface DocsPublishResult {
 }
 
 /**
+ * The directory in `checkout` that corresponds to the project root: the
+ * checkout itself when the project root is its repository's toplevel, else
+ * the same repo-relative subdirectory (T14135). A path relative to it is the
+ * path the checkout's merge makes true under the project root.
+ *
+ * @internal
+ */
+async function projectDirIn(canonicalRoot: string, checkout: string): Promise<string> {
+  const top = gitToplevel(canonicalRoot);
+  if (top === null) return checkout;
+  const sub = relative(await canonicalizePath(top), canonicalRoot);
+  return sub === '' ? checkout : join(checkout, sub);
+}
+
+/**
+ * When `cwd` sits in a worktree at this project's canonical CLEO location
+ * (`<cleoHome>/worktrees/<hash>/<name>`, sharing the root's Git common dir),
+ * return that worktree's project directory (T14135); otherwise null.
+ *
+ * @internal
+ */
+async function canonicalWorktreeProjectDir(root: string, cwd: string): Promise<string | null> {
+  const top = gitToplevel(cwd);
+  if (top === null) return null;
+  const canonicalRoot = await canonicalizePath(root);
+  const checkout = await canonicalizePath(top);
+  const base = await canonicalizePath(
+    resolveWorktreeRootForHash(computeProjectHash(canonicalRoot)),
+  );
+  if (dirname(checkout) !== base) return null;
+  const common = (dir: string): string | null => {
+    try {
+      return execFileSync('git', ['rev-parse', '--path-format=absolute', '--git-common-dir'], {
+        cwd: dir,
+        env: discoveryEnv(),
+        encoding: 'utf8',
+        timeout: 10000,
+        stdio: ['ignore', 'pipe', 'ignore'],
+      }).trim();
+    } catch {
+      return null;
+    }
+  };
+  const rootCommon = common(canonicalRoot);
+  const checkoutCommon = common(checkout);
+  if (rootCommon === null || checkoutCommon === null) return null;
+  if ((await canonicalizePath(rootCommon)) !== (await canonicalizePath(checkoutCommon)))
+    return null;
+  return projectDirIn(canonicalRoot, checkout);
+}
+
+/**
  * Return the validated real target; Git registration alone never authorizes
  * arbitrary paths. A refusal says whether the destination sits in a linked Git
  * worktree that is not the canonical CLEO path (T14081), so the caller can name
@@ -1129,7 +1186,8 @@ async function validatedPublicationPath(
   root: string,
   destination: string,
 ): Promise<
-  { path: string } | { refused: 'outside' | 'non-canonical-worktree'; worktree?: string }
+  | { path: string; origin: string }
+  | { refused: 'outside' | 'non-canonical-worktree'; worktree?: string }
 > {
   const canonicalRoot = await canonicalizePath(root);
   const inside = (parent: string, child: string): boolean => {
@@ -1141,7 +1199,7 @@ async function validatedPublicationPath(
     (inside(resolvePath(root), destination) || inside(canonicalRoot, destination)) &&
     inside(canonicalRoot, canonicalDestination)
   )
-    return { path: canonicalDestination };
+    return { path: canonicalDestination, origin: canonicalRoot };
   let linked: string | undefined;
   const worktreeBase = resolveWorktreeRootForHash(computeProjectHash(canonicalRoot));
   const canonicalBase = await canonicalizePath(worktreeBase);
@@ -1164,23 +1222,26 @@ async function validatedPublicationPath(
       probe(canonicalRoot, ['worktree', 'list', '--porcelain']), // raw-git-worktree-ok: T13376 read-only publication admission requires sanitized Git environment and bounded probe; canonical SDK parser validates the registry.
     );
     for (const entry of registered) {
-      const taskId = basename(entry.path);
+      // T14135: any worktree at the canonical CLEO location of this project is a
+      // target, whatever its directory name (T13376 required `T####`).
+      const name = basename(entry.path);
       const checkout = await canonicalizePath(entry.path);
       // T14081: remember a linked worktree the destination falls in, to say why it is refused.
       if (checkout !== canonicalRoot && inside(checkout, canonicalDestination))
         linked ??= entry.path;
-      if (!/^T\d+$/.test(taskId)) continue;
-      const expected = join(canonicalBase, taskId);
+      const expected = join(canonicalBase, name);
       if (
         checkout !== expected ||
-        !(inside(checkout, destination) || inside(join(worktreeBase, taskId), destination)) ||
+        !(inside(checkout, destination) || inside(join(worktreeBase, name), destination)) ||
         !inside(checkout, canonicalDestination)
       )
         continue;
       const checkoutCommon = await canonicalizePath(
         probe(checkout, ['rev-parse', '--path-format=absolute', '--git-common-dir']),
       );
-      if (checkoutCommon === common) return { path: canonicalDestination };
+      if (checkoutCommon === common) {
+        return { path: canonicalDestination, origin: await projectDirIn(canonicalRoot, checkout) };
+      }
     }
   } catch {
     // Missing/unreadable Git registration supplies no additional authority.
@@ -1238,6 +1299,12 @@ export async function publishDocs(opts: {
    * even the destination directory (T13919, T12583).
    */
   dryRun?: boolean;
+  /**
+   * The caller's working directory (default `process.cwd()`). When it is a
+   * worktree at the project's canonical CLEO location, a relative `toPath`
+   * resolves under that worktree, not the project root (T14135).
+   */
+  cwd?: string;
 }): Promise<DocsPublishResult> {
   const root = opts.projectRoot ?? getProjectRoot();
   const blobs = await blobList(opts.ownerId, root).catch(() => []);
@@ -1311,10 +1378,15 @@ export async function publishDocs(opts: {
   }
 
   // Resolve to absolute, then enforce project-root containment unless opted out.
+  // T14135: run from a canonical CLEO worktree, a relative --to lands in it.
+  const worktreeDir = isAbsolute(opts.toPath)
+    ? null
+    : await canonicalWorktreeProjectDir(root, opts.cwd ?? process.cwd());
+  const relativeBase = worktreeDir ?? root;
   let publishedPath = isAbsolute(opts.toPath)
     ? resolvePath(opts.toPath)
-    : resolvePath(root, opts.toPath);
-  let publicationOrigin = root;
+    : resolvePath(relativeBase, opts.toPath);
+  let publicationOrigin = relativeBase;
 
   if (!opts.allowOutsideRoot) {
     // T13376: validate in the SDK so every caller shares the same boundary.
@@ -1323,7 +1395,7 @@ export async function publishDocs(opts: {
     const canonicalRoot = await canonicalizePath(root);
     const lexicalPath = isAbsolute(opts.toPath)
       ? resolvePath(opts.toPath)
-      : resolvePath(canonicalRoot, opts.toPath);
+      : resolvePath(worktreeDir ?? canonicalRoot, opts.toPath);
     const validated = await validatedPublicationPath(root, lexicalPath);
     if (!('path' in validated)) {
       const canonicalWorktrees = join(
@@ -1356,7 +1428,7 @@ export async function publishDocs(opts: {
       );
     }
     publishedPath = validated.path;
-    publicationOrigin = canonicalRoot;
+    publicationOrigin = validated.origin;
   }
 
   if (opts.dryRun === true) {
@@ -1651,9 +1723,17 @@ export interface DocsDriftItem {
    *   - `in-sync`  — blobSha === fileSha
    *   - `added`    — file exists on disk but no row in the manifest (rare; never set today)
    *   - `modified` — blobSha !== fileSha and file is present
-   *   - `deleted`  — file is missing from disk
+   *   - `deleted`  — file is missing from disk and from the places below
+   *   - `pending-merge` — missing here, present in a canonical CLEO worktree
+   *     of the project that has not merged yet (T14135)
+   *
+   * A file missing from this checkout but tracked on the default branch is
+   * judged from the default branch's bytes (`in-sync`/`modified`), since the
+   * checkout only has not pulled the merge yet (T14135).
    */
-  readonly drift: 'in-sync' | 'added' | 'modified' | 'deleted';
+  readonly drift: 'in-sync' | 'added' | 'modified' | 'deleted' | 'pending-merge';
+  /** Where the bytes were read when not from this checkout: a default-branch ref or a worktree path (T14135). */
+  readonly source?: string;
 }
 
 /**
@@ -1665,7 +1745,7 @@ export interface DocsDriftItem {
 export interface DocsStatusResult {
   /** Each recorded publication, with drift classification. */
   readonly items: readonly DocsDriftItem[];
-  /** True when every item is `in-sync`. */
+  /** True when every item is `in-sync` or `pending-merge`. */
   readonly allInSync: boolean;
 }
 
@@ -1743,8 +1823,19 @@ export async function statusDocs(opts?: { projectRoot?: string }): Promise<DocsS
     }
 
     let drift: DocsDriftItem['drift'];
+    let source: string | undefined;
     if (!exists || fileSha === null) {
-      drift = 'deleted';
+      const elsewhere = await locateUnpulledMirror(root, row.publishedPath);
+      if (elsewhere === null) {
+        drift = 'deleted';
+      } else if (elsewhere.kind === 'default-branch') {
+        fileSha = elsewhere.sha256;
+        source = elsewhere.source;
+        drift = fileSha === blobSha ? 'in-sync' : 'modified';
+      } else {
+        source = elsewhere.source;
+        drift = 'pending-merge';
+      }
     } else if (fileSha === blobSha) {
       drift = 'in-sync';
     } else {
@@ -1758,11 +1849,69 @@ export async function statusDocs(opts?: { projectRoot?: string }): Promise<DocsS
       blobSha,
       fileSha,
       drift,
+      ...(source !== undefined ? { source } : {}),
     });
   }
 
   return {
     items,
-    allInSync: items.every((i) => i.drift === 'in-sync'),
+    allInSync: items.every((i) => i.drift === 'in-sync' || i.drift === 'pending-merge'),
   };
+}
+
+/**
+ * Find a mirror that is missing from this checkout only because the checkout
+ * has not pulled it (T14135): tracked on the default branch (its bytes
+ * hashed), or present in an unmerged worktree at the project's canonical
+ * CLEO location. Null when the path is absolute, outside the project, or
+ * found in neither place.
+ *
+ * @internal
+ */
+async function locateUnpulledMirror(
+  root: string,
+  publishedPath: string,
+): Promise<
+  | { kind: 'default-branch'; sha256: string; source: string }
+  | { kind: 'worktree'; source: string }
+  | null
+> {
+  if (isAbsolute(publishedPath)) return null;
+  const rel = relative(root, resolvePath(root, publishedPath));
+  if (rel === '' || rel.startsWith('..') || isAbsolute(rel)) return null;
+  const top = gitToplevel(root);
+  if (top === null) return null;
+  const canonicalRoot = await canonicalizePath(root);
+  const sub = relative(await canonicalizePath(top), canonicalRoot);
+  const repoRel = (sub === '' ? rel : join(sub, rel)).split(sep).join('/');
+  for (const ref of gitDefaultBranchRefs(top)) {
+    try {
+      const bytes = execFileSync('git', ['show', `${ref}:${repoRel}`], {
+        cwd: top,
+        env: discoveryEnv(),
+        timeout: 10000,
+        maxBuffer: 64 * 1024 * 1024,
+        stdio: ['ignore', 'pipe', 'ignore'],
+      });
+      return {
+        kind: 'default-branch',
+        sha256: createHash('sha256').update(bytes).digest('hex'),
+        source: ref,
+      };
+    } catch {
+      // Not tracked on this ref; try the next.
+    }
+  }
+  const base = resolveWorktreeRootForHash(computeProjectHash(canonicalRoot));
+  let names: string[] = [];
+  try {
+    names = readdirSync(base);
+  } catch {
+    return null;
+  }
+  for (const name of names) {
+    const candidate = join(base, name, sub, rel);
+    if (existsSync(candidate)) return { kind: 'worktree', source: join(base, name) };
+  }
+  return null;
 }

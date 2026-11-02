@@ -2493,6 +2493,8 @@ async function dispatchDocsLegacyMutate(
         attachmentId:
           typeof params['attachmentId'] === 'string' ? params['attachmentId'] : undefined,
         projectRoot,
+        // T14135: run from a canonical CLEO worktree, a relative --to lands in it.
+        cwd: process.cwd(),
         // T13919: a dry run runs the real checks and writes nothing.
         ...(params['dryRun'] === true ? { dryRun: true } : {}),
       });
