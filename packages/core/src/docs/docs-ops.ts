@@ -1300,9 +1300,10 @@ export async function publishDocs(opts: {
    */
   dryRun?: boolean;
   /**
-   * The caller's working directory (default `process.cwd()`). When it is a
-   * worktree at the project's canonical CLEO location, a relative `toPath`
-   * resolves under that worktree, not the project root (T14135).
+   * The caller's working directory, passed by the CLI dispatch layer. When it
+   * is a worktree at the project's canonical CLEO location, a relative
+   * `toPath` resolves under that worktree, not the project root (T14135).
+   * Omitted, a relative `toPath` resolves under the project root.
    */
   cwd?: string;
 }): Promise<DocsPublishResult> {
@@ -1379,9 +1380,10 @@ export async function publishDocs(opts: {
 
   // Resolve to absolute, then enforce project-root containment unless opted out.
   // T14135: run from a canonical CLEO worktree, a relative --to lands in it.
-  const worktreeDir = isAbsolute(opts.toPath)
-    ? null
-    : await canonicalWorktreeProjectDir(root, opts.cwd ?? process.cwd());
+  const worktreeDir =
+    isAbsolute(opts.toPath) || opts.cwd === undefined
+      ? null
+      : await canonicalWorktreeProjectDir(root, opts.cwd);
   const relativeBase = worktreeDir ?? root;
   let publishedPath = isAbsolute(opts.toPath)
     ? resolvePath(opts.toPath)
