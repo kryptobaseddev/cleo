@@ -5,26 +5,24 @@ name: cleo-supervisor prebuild
 # Cross-compiles the cleo-supervisor native binary for all 5 distribution
 # targets, models the worktree-napi-prebuild.yml matrix, and produces the
 # sha256 manifest that the @cleocode/core postinstall picker (P2) verifies
-# against. On a tag push it ATTACHES the 5 binaries + manifest to the matching
-# GitHub Release via GITHUB_TOKEN only (Pattern P2 — ZERO new OIDC trust
-# configs). On PRs it is dogfood/validation only.
+# against. release.yml calls it on every release tag (T14179) and its
+# `supervisor-attach` job, which needs the job that creates the GitHub Release,
+# attaches the 5 binaries + manifest via GITHUB_TOKEN only (Pattern P2 — ZERO
+# new OIDC trust configs). On PRs and main it is dogfood/validation only.
 #
 # The supervisor is a STANDALONE executable ([[bin]]), not a napi `.node`
 # addon, so the build step is `cargo build --release --target` (with `cross`
 # for the Linux arm64 cross-compile) rather than `napi build`. The matrix,
 # runners, and cross handling mirror worktree-napi-prebuild.yml exactly.
 #
-# Deliberately a standalone `pull_request` workflow, not a job called from
-# ci.yml (T13279): it needs `contents: write` to attach release assets on a
-# tag push, and a workflow called from ci.yml cannot hold more than ci.yml
-# grants (its default token is read-only). Its build is covered on PRs by
-# cleo-supervisor smoke, which IS called from ci.yml. The exception is listed
-# in ADVISORY_WORKFLOWS in scripts/lint-merge-bar-aggregate.mjs.
+# A standalone `pull_request` workflow, not a job called from ci.yml (T13279):
+# its build is covered on PRs by cleo-supervisor smoke, which IS called from
+# ci.yml. The exception is listed in ADVISORY_WORKFLOWS in
+# scripts/lint-merge-bar-aggregate.mjs.
 
 on:
   push:
     branches: [main]
-    tags: ['v*']
     paths:
       - 'crates/cleo-supervisor/**'
       - 'rust-toolchain.toml'
@@ -42,11 +40,13 @@ on:
       - 'packages/core/scripts/install-supervisor-binary.mjs'
       - 'packages/core/scripts/gen-supervisor-manifest.mjs'
       - '.github/workflows/cleo-supervisor-prebuild.yml'
+  # T14179: release.yml calls it on a release tag; its attach job uploads the binaries.
+  workflow_call:
   workflow_dispatch:
   merge_group:
 
 permissions:
-  contents: write # required to attach assets to the GitHub Release on tag push.
+  contents: read
 
 jobs:
   build:
@@ -124,11 +124,9 @@ jobs:
           if-no-files-found: error
           retention-days: 3
 
-  # Aggregate all 5 platform builds into a single pass/fail signal CI consumes,
-  # and (on tag push) attach the binaries + sha256 manifest to the matching
-  # GitHub Release via GITHUB_TOKEN (Pattern P2 — no new OIDC).
+  # Aggregate all 5 platform builds into a single pass/fail signal CI consumes.
   publish:
-    name: gate + release-attach
+    name: gate
     needs: build
     runs-on: ubuntu-latest
     if: always()
@@ -168,27 +166,3 @@ jobs:
             --out supervisor-bin/cleo-supervisor-manifest.json
           echo "--- manifest ---"
           cat supervisor-bin/cleo-supervisor-manifest.json
-
-      # On a tag push, attach the 5 binaries + manifest to the GitHub Release
-      # that release.yml creates for the same tag. GITHUB_TOKEN only.
-      - name: Attach binaries to GitHub Release (P2)
-        if: needs.build.result == 'success' && startsWith(github.ref, 'refs/tags/v')
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          REF_NAME: ${{ github.ref_name }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          # release.yml may create the release concurrently; retry until it exists.
-          for attempt in 1 2 3 4 5 6; do
-            if gh release view "$REF_NAME" >/dev/null 2>&1; then
-              break
-            fi
-            echo "Release $REF_NAME not yet created (attempt $attempt) — waiting 20s..."
-            sleep 20
-          done
-          gh release upload "$REF_NAME" \
-            supervisor-bin/cleo-supervisor.* \
-            supervisor-bin/cleo-supervisor-manifest.json \
-            --clobber
-          echo "Attached cleo-supervisor binaries + manifest to $REF_NAME"
