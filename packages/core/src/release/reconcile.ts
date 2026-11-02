@@ -52,6 +52,7 @@ import { getProjectHashKey } from '../project-info.js';
 import { getDb, getNativeDb } from '../store/sqlite.js';
 import * as schema from '../store/tasks-schema.js';
 import { filesAtomPathProblem, resolveCommitPresenceInTag } from './commit-presence.js';
+import { githubReleaseState } from './release-published.js';
 import { normalizeVersion } from './version.js';
 
 // ─── Tag-reconcile plan synthesis (T11977 · DHQ-080) ─────────────────────────
@@ -107,10 +108,15 @@ export interface SynthesizedPlanReport {
 /**
  * Infer the previous git tag by listing all tags sorted by creator-date
  * (annotated + lightweight, oldest-first) and returning the entry
- * immediately before `version`. Returns `null` when `version` is the
- * oldest tag or no tags exist.
+ * immediately before `version`, skipping a tag whose GitHub Release never
+ * published (T14173: a failed canary). A tag `gh` cannot judge is kept.
+ * Returns `null` when `version` is the oldest tag or no tags exist.
  */
-function inferPrevTag(version: string, projectRoot: string): string | null {
+function inferPrevTag(
+  version: string,
+  projectRoot: string,
+  releaseState: (tag: string) => boolean | null,
+): string | null {
   try {
     const raw = execFileSync('git', ['tag', '--list', '--sort=creatordate'], {
       cwd: projectRoot,
@@ -124,7 +130,12 @@ function inferPrevTag(version: string, projectRoot: string): string | null {
       .filter((t) => t.length > 0);
     const idx = tags.indexOf(version);
     if (idx <= 0) return null;
-    return tags[idx - 1] ?? null;
+    return (
+      tags
+        .slice(0, idx)
+        .reverse()
+        .find((t) => releaseState(t) !== false) ?? null
+    );
   } catch {
     return null;
   }
@@ -276,6 +287,8 @@ function synthCcToTaskKind(
  *
  * @param version   — Version tag to synthesise a plan for (e.g. `v2026.6.14`).
  * @param projectRoot — Absolute project root.
+ * @param releaseState — GitHub Release state of a tag (default: `gh api`); a
+ *   `false` tag is skipped as the previous tag (T14173).
  * @returns `SynthesizedPlanReport` with the in-memory plan + derivation metadata.
  *
  * @task T11977
@@ -283,8 +296,17 @@ function synthCcToTaskKind(
 export async function synthesizePlanForReconcile(
   version: string,
   projectRoot: string,
+  releaseState: (tag: string) => boolean | null = (tag) =>
+    githubReleaseState(tag, (args) =>
+      execFileSync('gh', [...args], {
+        cwd: projectRoot,
+        encoding: 'utf-8',
+        stdio: ['ignore', 'pipe', 'pipe'],
+        timeout: SUBPROCESS_TIMEOUT_MS,
+      }),
+    ),
 ): Promise<SynthesizedPlanReport> {
-  const prevTag = inferPrevTag(version, projectRoot);
+  const prevTag = inferPrevTag(version, projectRoot, releaseState);
 
   // (a) CHANGELOG.md section
   const changelogResult = parseChangelogSection(version, projectRoot);

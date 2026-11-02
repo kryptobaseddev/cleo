@@ -1037,6 +1037,8 @@ const RELEASE_TAG = /^v\d+(\.\d+){1,3}(-.*)?$/;
  * @param plannedVersion - Version being released; only lower tags count.
  * @param channel - `latest` skips prerelease tags.
  * @param ref - Commit the tags must be reachable from (T14102: the cut sha).
+ * @param published - When given, only a tag it accepts counts (T14173: a tag
+ *   whose release never published is skipped).
  * @returns The tag, or `null`.
  *
  * @example
@@ -1051,6 +1053,7 @@ export function newestReachableReleaseTag(
   plannedVersion: string,
   channel: string,
   ref = 'HEAD',
+  published?: (tag: string) => boolean,
 ): string | null {
   let raw: string;
   try {
@@ -1069,7 +1072,7 @@ export function newestReachableReleaseTag(
     .filter((t) => RELEASE_TAG.test(t) && compareVersionStrings(t, plannedVersion) < 0)
     .filter((t) => channel !== 'latest' || !t.includes('-'));
   tags.sort((a, b) => compareVersionStrings(b, a));
-  return tags[0] ?? null;
+  return tags.find((t) => !published || published(t)) ?? null;
 }
 
 /**

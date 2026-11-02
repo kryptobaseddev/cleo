@@ -347,4 +347,22 @@ describe('tag-driven reconcile — T11977 / DHQ-080', () => {
     expect(new Set(report1.commitTaskIds)).toEqual(new Set(report2.commitTaskIds));
     expect(report1.plan.tasks.length).toBe(report2.plan.tasks.length);
   });
+
+  it('(8) prevTag skips a tag whose release never published (T14173)', async () => {
+    gitCommit(projectRoot, 'a.txt', '1', 'chore: base');
+    gitTag(projectRoot, 'v2026.7.1');
+    gitCommit(projectRoot, 'b.txt', '2', `feat(${TASK_IDS[0]}): ship a`);
+    gitTag(projectRoot, 'v2026.7.2-canary.1');
+    gitCommit(projectRoot, 'c.txt', '3', `feat(${TASK_IDS[1]}): ship b`);
+    gitTag(projectRoot, 'v2026.7.2-canary.2');
+
+    const report = await synthesizePlanForReconcile(
+      'v2026.7.2-canary.2',
+      projectRoot,
+      (tag) => tag !== 'v2026.7.2-canary.1',
+    );
+
+    expect(report.prevTag).toBe('v2026.7.1');
+    expect(report.commitTaskIds).toEqual(expect.arrayContaining([TASK_IDS[0], TASK_IDS[1]]));
+  });
 });

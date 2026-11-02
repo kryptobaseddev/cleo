@@ -63,6 +63,7 @@ import { AUTHORIZED_BY_TRAILER, releaseAuthorizationFor } from './authorization.
 import { aggregateChangesetsForRelease } from './changesets-aggregator.js';
 import { newestReachableReleaseTag, writeChangelogSection } from './plan.js';
 import { readRequiredCheckPins, resolveRequiredWorkflows } from './pr-evidence.js';
+import { githubReleaseState } from './release-published.js';
 import { readTtyConfirmation } from './tty-confirm.js';
 import { normalizeVersion } from './version.js';
 
@@ -521,6 +522,34 @@ function channelOf(version: string): string {
   return version.includes('-') ? 'prerelease' : 'latest';
 }
 
+/**
+ * The newest reachable release tag below `version` whose GitHub Release
+ * published (T14173), or `unknown` naming the first tag `gh` could not judge.
+ */
+function previousPublishedTag(
+  runner: ReleaseCutRunner,
+  cwd: string,
+  version: string,
+  sha: string,
+): { tag: string | null } | { unknown: string } {
+  let unknown: string | null = null;
+  const tag = newestReachableReleaseTag(cwd, version, channelOf(version), sha, (t) => {
+    const state = githubReleaseState(t, (args) => runner.runGh(args, cwd));
+    if (state === null) unknown ??= t;
+    return state === true;
+  });
+  return unknown ? { unknown } : { tag };
+}
+
+/** The refusal when the previous release's publication cannot be read. */
+function previousTagUnknown<T>(tag: string): EngineResult<T> {
+  return engineError(E_INVALID_STATE, `Could not read the GitHub Release of ${tag}`, {
+    exitCode: ExitCode.GENERAL_ERROR,
+    fix: `Check \`gh release view ${tag}\` works (auth, network, remote), then re-run`,
+    details: { tag },
+  });
+}
+
 /** Packages `release.yml` publishes (`publish_pkg <dir> [npmName]` lines, gate 9 SSoT). */
 function publishedPackages(
   runner: ReleaseCutRunner,
@@ -657,7 +686,9 @@ export async function releaseCut(opts: ReleaseCutOptions): Promise<EngineResult<
     );
   }
 
-  const previousTag = newestReachableReleaseTag(cwd, version, channelOf(version), sha);
+  const previous = previousPublishedTag(runner, cwd, version, sha);
+  if ('unknown' in previous) return previousTagUnknown(previous.unknown);
+  const previousTag = previous.tag;
   const paths = changesetPathsInRange(runner, cwd, previousTag, sha);
 
   // A changeset must arrive through a merged pull request: that is what makes
@@ -1050,7 +1081,9 @@ export async function releaseChangelog(
   const tagged = runner.runGit(['tag', '--list', version], cwd).trim() === version;
   const ref = opts.ref ?? (tagged ? version : 'HEAD');
   const sha = runner.runGit(['rev-parse', '--verify', `${ref}^{commit}`], cwd).trim();
-  const previousTag = newestReachableReleaseTag(cwd, version, channelOf(version), sha);
+  const previous = previousPublishedTag(runner, cwd, version, sha);
+  if ('unknown' in previous) return previousTagUnknown(previous.unknown);
+  const previousTag = previous.tag;
 
   let existing = '';
   try {
