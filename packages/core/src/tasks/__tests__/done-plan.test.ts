@@ -1947,6 +1947,54 @@ describe('T14180: a no-code task with attached records and linked decisions', ()
   });
 });
 
+describe('T14187: a profiled task proven by its stored document', () => {
+  async function profiledTask(profile: string) {
+    const result = await addTask(
+      {
+        title: `${profile} fixture`,
+        description: 'a measurement with no code change, recorded by a stored document',
+        acceptance: ['Measure the store timing'],
+        kind: 'work',
+        labels: [`profile:${profile}`],
+        skipContainmentInvariant: true,
+      },
+      root,
+      env.accessor,
+    );
+    const content = '# timing\n';
+    const sha = createHash('sha256').update(content).digest('hex');
+    mkdirSync(join(root, '.cleo', 'blobs', 'blobs'), { recursive: true });
+    writeFileSync(join(root, '.cleo', 'blobs', 'blobs', sha), content);
+    const plan = await deriveTaskEvidence(result.task.id, {
+      projectRoot: root,
+      cwd: root,
+      satisfies: 'all',
+      previewEvidence: async () => ({ ok: true }),
+      deps: {
+        ...deps,
+        listTaskDocs: async () => [{ id: 'att', slug: 'store-timing', sha256: sha }],
+        listTaskDecisions: async () => [],
+      },
+    });
+    return plan;
+  }
+
+  it('an audit task with a document and no decision plans files+note, with no decision blocker', async () => {
+    const plan = await profiledTask('audit');
+    expect(plan.changeSet.source).toBe('docs');
+    expect(plan.gates.find((g) => g.gate === 'implemented')?.evidence).toMatch(
+      /^files:[^;]+;note:Deliverable: store-timing/,
+    );
+    expect(plan.blockers.map((b) => b.code)).not.toContain('decision-missing');
+    expect(plan.toolRuns).toEqual([]);
+  });
+
+  it('a decision-profiled task still needs its decision', async () => {
+    const plan = await profiledTask('decision');
+    expect(plan.blockers.map((b) => b.code)).toContain('decision-missing');
+  });
+});
+
 describe('a task with no change set gets no targets from the working tree (T13917)', () => {
   /** The axiom T2504 shape: one package, and a shared checkout dirty with others' work. */
   function dirtySharedCheckout(): void {

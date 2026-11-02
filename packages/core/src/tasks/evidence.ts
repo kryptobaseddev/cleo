@@ -41,6 +41,7 @@ import type {
 import {
   EvidenceParseError,
   GATE_EVIDENCE_REQUIREMENTS,
+  type GateProfileName,
   parseEvidenceString,
   validateEvidenceForGate,
 } from '@cleocode/contracts/evidence-atom-schema.js';
@@ -103,6 +104,7 @@ import { detectStaticVacuity, probeTscFileCount, VACUOUS_TOOL_FIX } from './tool
 import {
   classifyEvidenceTask,
   declaredEvidenceKind,
+  evidenceProfileOf,
   gateProfileOf,
   implementedCodeEvidence,
   isDocumentArtifact,
@@ -4085,19 +4087,40 @@ function deploySatisfiesGate(gate: VerificationGate, atoms: readonly EvidenceAto
 }
 
 /**
+ * The profile whose extra combinations apply to these atoms (T14187): the
+ * task's, while every `files:` path is a document. A code path keeps the base
+ * requirements, so a profiled change that touched code still owes a commit
+ * or PR.
+ */
+function profileForAtoms(
+  profile: GateProfileName | null | undefined,
+  atoms: readonly EvidenceAtom[],
+): GateProfileName | null {
+  if (!profile) return null;
+  const paths = atoms.flatMap((atom) =>
+    atom.kind === 'files' ? atom.files.map((f) => f.path) : [],
+  );
+  return paths.every(isDocumentEvidencePath) ? profile : null;
+}
+
+/**
  * Check whether a set of validated atoms satisfies the minimum evidence
  * required for a given gate.
  *
  * @param gate - The gate being verified
  * @param atoms - Validated atoms
+ * @param profile - The task's gate profile ({@link evidenceProfileOf}); its
+ *   extra combinations apply while every `files:` path is a document (T14187).
  * @returns null when satisfied; otherwise the reason message
  *
  * @task T832
+ * @task T14187
  * @adr ADR-051 §2.3
  */
 export function checkGateEvidenceMinimum(
   gate: VerificationGate,
   atoms: EvidenceAtom[],
+  profile?: GateProfileName | null,
 ): string | null {
   if (deploySatisfiesGate(gate, atoms)) return null;
   // Delegate to the SSoT in @cleocode/contracts (T10337). validateEvidenceForGate
@@ -4114,7 +4137,7 @@ export function checkGateEvidenceMinimum(
     const kind: ParsedEvidenceAtom['kind'] = atom.kind;
     projected.push({ kind });
   }
-  const result = validateEvidenceForGate(gate, projected);
+  const result = validateEvidenceForGate(gate, projected, profileForAtoms(profile, atoms));
   return result.ok ? null : result.message;
 }
 
@@ -4129,14 +4152,17 @@ export function checkGateEvidenceMinimum(
  *
  * @param gate - The gate being verified
  * @param atoms - Validated atoms
+ * @param profile - The task's gate profile, as for {@link checkGateEvidenceMinimum} (T14187).
  * @returns `null` when satisfied; `{ message, hint }` when not
  *
  * @task T9949
+ * @task T14187
  * @adr ADR-051 §2.3
  */
 export function checkGateEvidenceMinimumDetailed(
   gate: VerificationGate,
   atoms: EvidenceAtom[],
+  profile?: GateProfileName | null,
 ): { message: string; hint: string } | null {
   if (deploySatisfiesGate(gate, atoms)) return null;
   const projected: Array<{ kind: ParsedEvidenceAtom['kind'] }> = [];
@@ -4145,7 +4171,7 @@ export function checkGateEvidenceMinimumDetailed(
     const kind: ParsedEvidenceAtom['kind'] = atom.kind;
     projected.push({ kind });
   }
-  const result = validateEvidenceForGate(gate, projected);
+  const result = validateEvidenceForGate(gate, projected, profileForAtoms(profile, atoms));
   return result.ok ? null : { message: result.message, hint: result.hint };
 }
 
@@ -4676,7 +4702,7 @@ export async function revalidateEvidence(
         DECISION_ONLY_RELAXED_GATES.includes(gate)
       )
     ) {
-      reason = checkGateEvidenceMinimum(gate, evidence.atoms);
+      reason = checkGateEvidenceMinimum(gate, evidence.atoms, evidenceProfileOf(task));
     }
     if (!reason && evidence.scope) {
       if (evidence.scope.taskId !== taskId || evidence.scope.gate !== gate)

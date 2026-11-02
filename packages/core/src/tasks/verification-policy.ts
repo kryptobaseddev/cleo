@@ -11,6 +11,7 @@
  */
 
 import type { Task, VerificationGate } from '@cleocode/contracts';
+import type { GateProfileName } from '@cleocode/contracts/evidence-atom-schema.js';
 import { getRawConfigValue, loadConfig } from '../config.js';
 import { gateProfileOf, isDocumentArtifact, isDocumentEvidencePath } from './gate-notes.js';
 
@@ -266,4 +267,20 @@ export function classifyEvidenceTask(context: {
   if (task.labels?.some((label) => label === 'docs' || label === 'documentation'))
     return 'documentation';
   return 'code';
+}
+
+/**
+ * The gate profile whose extra evidence combinations apply to a task
+ * (`PROFILE_GATE_EVIDENCE`, T14187): its `profile:<name>` label, while the
+ * task classifies as non-code. A profiled task whose criteria or declared
+ * files name code is code, and owes the code gates.
+ *
+ * @param task - The task's kind, files, acceptance and labels.
+ * @returns The profile, or null.
+ * @task T14187
+ */
+export function evidenceProfileOf(
+  task: Pick<Task, 'kind' | 'files' | 'labels' | 'acceptance'>,
+): GateProfileName | null {
+  return classifyEvidenceTask({ task }) === 'code' ? null : gateProfileOf(task);
 }

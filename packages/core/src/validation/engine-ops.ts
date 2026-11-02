@@ -71,7 +71,11 @@ import {
   runTaskGates,
   typedGateAdmissionMs,
 } from '../tasks/gate-runner.js';
-import { loadVerificationGatePolicy, requiredGatesFor } from '../tasks/verification-policy.js';
+import {
+  evidenceProfileOf,
+  loadVerificationGatePolicy,
+  requiredGatesFor,
+} from '../tasks/verification-policy.js';
 import {
   hasCallsiteCoverageLabel,
   hasEngineMigrationLabel,
@@ -847,7 +851,13 @@ export async function validateGateVerify(
         const decisionOnly = isDecisionOnlyImplementation(verification.evidence?.implemented);
         for (const targetGate of gates) {
           if (decisionOnly && DECISION_ONLY_RELAXED_GATES.includes(targetGate)) continue;
-          const missing = checkGateEvidenceMinimumDetailed(targetGate, atoms);
+          // T14187: a profiled task with no code change also takes its
+          // profile's combinations (a stored document with a note).
+          const missing = checkGateEvidenceMinimumDetailed(
+            targetGate,
+            atoms,
+            evidenceProfileOf(task),
+          );
           if (missing) {
             // T12220: name the decision-only route, or what disqualifies it.
             const route = decisionOnlyRouteNote(targetGate, verification.evidence?.implemented);

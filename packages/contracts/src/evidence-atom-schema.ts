@@ -599,9 +599,58 @@ export const GATE_EVIDENCE_REQUIREMENTS: Readonly<
   nexusImpact: { oneOf: [['tool'], ['note']] },
 });
 
+/**
+ * The gate profiles a task with no code change may declare as a
+ * `profile:<name>` label (T13474): operations work, a decision, a census or
+ * an audit. The closed set lives here so the gate requirements below and the
+ * label rules in core read one list.
+ *
+ * @task T13474
+ * @task T14187
+ */
+export const GATE_PROFILE_NAMES = ['ops', 'decision', 'census', 'audit'] as const;
+
+/** One of {@link GATE_PROFILE_NAMES}. */
+export type GateProfileName = (typeof GATE_PROFILE_NAMES)[number];
+
+/**
+ * Atom combinations a gate accepts IN ADDITION to
+ * {@link GATE_EVIDENCE_REQUIREMENTS} for a task that declares a gate profile
+ * and whose change touches no code (T14187). An operations, census or audit
+ * task (a live-data repair, a measurement) has no commit, PR or decision to
+ * cite: its proof is the stored document recording what was done or found,
+ * so `implemented` also accepts `files` (that document) with a `note`. A
+ * decision task still proves itself with its decision. Core applies this
+ * only when every `files:` path is a document, so a code change still owes a
+ * commit or PR. `cleo done --plan` and the gates read this one table.
+ *
+ * @task T14187
+ */
+export const PROFILE_GATE_EVIDENCE: Readonly<
+  Record<
+    GateProfileName,
+    Partial<Record<VerificationGate, ReadonlyArray<ReadonlyArray<EvidenceAtomKind>>>>
+  >
+> = Object.freeze({
+  ops: { implemented: [['files', 'note']] },
+  decision: {},
+  census: { implemented: [['files', 'note']] },
+  audit: { implemented: [['files', 'note']] },
+});
+
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
+
+/** The combinations `gate` accepts, with a gate profile's additions. */
+function gateCombinations(
+  gate: VerificationGate,
+  profile?: GateProfileName | null,
+): ReadonlyArray<ReadonlyArray<EvidenceAtomKind>> {
+  const base = GATE_EVIDENCE_REQUIREMENTS[gate]?.oneOf ?? [];
+  const extra = profile ? (PROFILE_GATE_EVIDENCE[profile][gate] ?? []) : [];
+  return [...base, ...extra];
+}
 
 /**
  * Result of {@link validateEvidenceForGate}.
@@ -635,9 +684,13 @@ export type EvidenceValidationResult = { readonly ok: true } | EvidenceValidatio
  *
  * @task T10337
  */
-export function formatGateRequirement(gate: VerificationGate): string {
-  const requirement = GATE_EVIDENCE_REQUIREMENTS[gate];
-  return requirement.oneOf.map((set) => `[${set.join(' AND ')}]`).join(' OR ');
+export function formatGateRequirement(
+  gate: VerificationGate,
+  profile?: GateProfileName | null,
+): string {
+  return gateCombinations(gate, profile)
+    .map((set) => `[${set.join(' AND ')}]`)
+    .join(' OR ');
 }
 
 /**
@@ -709,16 +762,20 @@ function renderCombinationAsEvidence(combination: ReadonlyArray<EvidenceAtomKind
  * @task T9949
  * @adr ADR-051 §2.3
  */
-export function formatGateRequirementHint(gate: VerificationGate): string {
+export function formatGateRequirementHint(
+  gate: VerificationGate,
+  profile?: GateProfileName | null,
+): string {
   const requirement = GATE_EVIDENCE_REQUIREMENTS[gate];
   if (!requirement) {
     // Unknown gate — match validateEvidenceForGate's defensive default.
     return `Gate '${gate}' has no documented evidence requirements.`;
   }
+  const oneOf = gateCombinations(gate, profile);
 
   const lines: string[] = [
     `Gate '${gate}' requires programmatic evidence. Use ONE of:`,
-    ...requirement.oneOf.map(
+    ...oneOf.map(
       (combo) =>
         `  - cleo verify T#### --gate ${gate} --evidence '${renderCombinationAsEvidence(combo)}'`,
     ),
@@ -726,16 +783,12 @@ export function formatGateRequirementHint(gate: VerificationGate): string {
 
   // Note-specific clarification — T9949's headline pain point.
   // The gate accepts note: alone IFF some single-element combination is ['note'].
-  const noteAloneAccepted = requirement.oneOf.some(
-    (combo) => combo.length === 1 && combo[0] === 'note',
-  );
+  const noteAloneAccepted = oneOf.some((combo) => combo.length === 1 && combo[0] === 'note');
   if (noteAloneAccepted) {
     lines.push(`Note: 'note:' alone IS accepted for this gate (waiver-style evidence).`);
   } else {
     // Surface every alternative pairing involving note for at-a-glance routing.
-    const notePairings = requirement.oneOf.filter(
-      (combo) => combo.length > 1 && combo.includes('note'),
-    );
+    const notePairings = oneOf.filter((combo) => combo.length > 1 && combo.includes('note'));
     if (notePairings.length > 0) {
       const partners = Array.from(
         new Set(notePairings.flatMap((combo) => combo.filter((k) => k !== 'note'))),
@@ -770,6 +823,8 @@ export function formatGateRequirementHint(gate: VerificationGate): string {
  *
  * @param gate - Verification gate being checked.
  * @param atoms - Already-parsed evidence atoms.
+ * @param profile - The task's gate profile when its change touches no code
+ *   ({@link PROFILE_GATE_EVIDENCE}, T14187); omit otherwise.
  * @returns Pass / fail with a human-readable failure message.
  *
  * @example
@@ -786,6 +841,7 @@ export function formatGateRequirementHint(gate: VerificationGate): string {
 export function validateEvidenceForGate(
   gate: VerificationGate,
   atoms: ReadonlyArray<{ kind: EvidenceAtomKind }>,
+  profile?: GateProfileName | null,
 ): EvidenceValidationResult {
   const requirement = GATE_EVIDENCE_REQUIREMENTS[gate];
   if (!requirement) {
@@ -793,18 +849,18 @@ export function validateEvidenceForGate(
     // behavior from checkGateEvidenceMinimum when the gate had no entry).
     return { ok: true };
   }
-  for (const combination of requirement.oneOf) {
+  for (const combination of gateCombinations(gate, profile)) {
     const satisfied = combination.every((kind) => atoms.some((a) => a.kind === kind));
     if (satisfied) return { ok: true };
   }
   return {
     ok: false,
-    message: `Gate '${gate}' requires evidence: ${formatGateRequirement(gate)}`,
+    message: `Gate '${gate}' requires evidence: ${formatGateRequirement(gate, profile)}`,
     // T9949: rich, example-bearing remediation hint suitable for CLI `fix:`.
     // Always populated alongside `message` so consumers can choose between
     // the legacy single-line surface and the multi-line hint without re-
     // computing the spec.
-    hint: formatGateRequirementHint(gate),
+    hint: formatGateRequirementHint(gate, profile),
   };
 }
 

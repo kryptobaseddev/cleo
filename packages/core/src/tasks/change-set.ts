@@ -39,6 +39,7 @@ import type {
   Task,
   TaskChangeSet,
 } from '@cleocode/contracts';
+import { PROFILE_GATE_EVIDENCE } from '@cleocode/contracts/evidence-atom-schema.js';
 import { resolveOriginDefault } from '../git/base-ref.js';
 import { ghQueryTimeoutMs } from '../release/github-pr.js';
 import type { PrAtomResolution } from '../release/pr-evidence.js';
@@ -50,6 +51,7 @@ import {
 } from './component-pr.js';
 import { classifyEvidenceTask, diffIntersectsAc, type EvidenceRoots } from './evidence.js';
 import { resolveEvidenceTree } from './evidence-tree.js';
+import { evidenceProfileOf } from './verification-policy.js';
 
 /** Task fields change-set derivation reads. */
 export type ChangeSetTask = Pick<Task, 'id' | 'kind' | 'labels' | 'files' | 'acceptance'> & {
@@ -1751,10 +1753,19 @@ async function deriveDocsChangeSet(
     cs.implementedEvidence = `decision:${decisions[0]}${files};${note}`;
     return true;
   }
-  // GATE_EVIDENCE_REQUIREMENTS.implemented has no files+note alternative: a
-  // task with no commit proves `implemented` through a decision. Say so rather
-  // than plan an atom set the validator will refuse.
   cs.implementedEvidence = `${files.slice(1)};${note}`;
+  // T14187: an ops, census or audit task is proven by its stored document
+  // with a note (PROFILE_GATE_EVIDENCE, the table the gate reads too).
+  const profile = evidenceProfileOf(task);
+  const docProof = profile
+    ? (PROFILE_GATE_EVIDENCE[profile].implemented ?? []).some(
+        (combo) => combo.length === 2 && combo.includes('files') && combo.includes('note'),
+      )
+    : false;
+  if (docProof) return true;
+  // Otherwise GATE_EVIDENCE_REQUIREMENTS.implemented has no files+note
+  // alternative: a task with no commit proves `implemented` through a
+  // decision. Say so rather than plan an atom set the validator will refuse.
   cs.blockers.push(
     blocker(
       'decision-missing',

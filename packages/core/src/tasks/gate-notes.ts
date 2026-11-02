@@ -16,6 +16,7 @@
  */
 
 import type { Task, TaskVerification, VerificationGate } from '@cleocode/contracts';
+import type { GateProfileName } from '@cleocode/contracts/evidence-atom-schema.js';
 
 /**
  * Whether a path is a documentation artifact (`.md`/`.mdx`/`.rst`/`.adoc`, or
@@ -65,6 +66,27 @@ export const GATE_PROFILES = ['ops', 'decision', 'census', 'audit'] as const;
 
 /** One of {@link GATE_PROFILES}. */
 export type GateProfile = (typeof GATE_PROFILES)[number];
+
+/** Resolves only when `T` is `true`; a compile-time assertion that emits no code. */
+type Assert<T extends true> = T;
+
+/**
+ * Compile-time proof that {@link GATE_PROFILES} and `GATE_PROFILE_NAMES` in
+ * contracts (the key set of `PROFILE_GATE_EVIDENCE`, T14187) name the same
+ * profiles: it fails to type-check when they drift. The list is a literal
+ * here, imported only as a type from contracts, so `cleo show` (which reads
+ * profile notes) does not load the evidence schema module (gate 39), and the
+ * check is a type, so this module still does nothing at load.
+ *
+ * @task T14187
+ */
+export type GateProfilesMatchContracts = Assert<
+  [GateProfile] extends [GateProfileName]
+    ? [GateProfileName] extends [GateProfile]
+      ? true
+      : false
+    : false
+>;
 
 /** The label prefix that declares a gate profile. */
 export const GATE_PROFILE_LABEL_PREFIX = 'profile:';
