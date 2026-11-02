@@ -1,5 +1,7 @@
 # @cleocode/contracts
 
+> Part of [CLEO](https://github.com/kryptobaseddev/cleo#readme). Start with the root README; run `cleo <command> --help` for any command.
+
 Canonical wire-format type surface for the CLEO ecosystem. All operation `Params`/`Result` types, domain discriminated unions, LAFS envelope types, and shared primitives live here — making this package the **SSoT** (single source of truth) for every CLEO dispatch operation.
 
 ## Position in the Architecture

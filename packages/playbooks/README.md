@@ -1,5 +1,7 @@
 # @cleocode/playbooks
 
+> Part of [CLEO](https://github.com/kryptobaseddev/cleo#readme). Start with the root README; run `cleo <command> --help` for any command.
+
 **Playbook DSL + runtime for CLEO — T889 Orchestration Coherence v3.**
 
 Playbooks are `.cantbook` YAML documents that describe a multi-step agent workflow as a DAG of nodes (agentic, deterministic, and approval gates) connected by typed edges. This package parses them, persists execution state to `tasks.db`, evaluates HITL auto-policies, and manages HMAC-signed approval tokens for human-in-the-loop gates.

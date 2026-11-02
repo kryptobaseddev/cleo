@@ -1,5 +1,7 @@
 # LAFS Protocol
 
+> Part of [CLEO](https://github.com/kryptobaseddev/cleo#readme). Start with the root README; run `cleo <command> --help` for any command.
+
 **LLM-Agent-First Specification** -- a response envelope contract for AI agent systems.
 
 LAFS defines a standard envelope format for structured responses from LLM-powered agents and tools. It complements transport protocols like [MCP](https://modelcontextprotocol.io/) and [A2A](https://github.com/google/A2A) by standardizing what comes back -- not how it gets there.

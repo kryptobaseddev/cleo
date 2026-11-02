@@ -1,5 +1,7 @@
 # @cleocode/cant
 
+> Part of [CLEO](https://github.com/kryptobaseddev/cleo#readme). Start with the root README; run `cleo <command> --help` for any command.
+
 CANT protocol parser, validator, and runtime for the CLEO ecosystem. Wraps the
 Rust [`cant-core`](../../crates/cant-core) crate via [napi-rs](https://napi.rs)
 so TypeScript consumers get the full Rust validator (42 static-analysis rules)

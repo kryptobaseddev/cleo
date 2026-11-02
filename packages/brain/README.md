@@ -1,5 +1,7 @@
 # @cleocode/brain
 
+> Part of [CLEO](https://github.com/kryptobaseddev/cleo#readme). Start with the root README; run `cleo <command> --help` for any command.
+
 The unified-graph **Brain** substrate for CLEO — a substrate-agnostic projection
 across all five CLEO databases: **BRAIN**, **NEXUS**, **TASKS**, **CONDUIT**,
 and **SIGNALDOCK**.
