@@ -14535,6 +14535,10 @@ export type MutateDocsModernizeData = {
          */
         allowDirty?: boolean;
         /**
+         * Rewrite relative links to planned docs as [[slug]] wikilinks (default: keep markdown links, re-pointed at the new paths)
+         */
+        wikilinks?: boolean;
+        /**
          * Modernize the docs already in the store instead of a folder
          */
         store?: boolean;

@@ -62,7 +62,15 @@ import { IMPORT_OWNER_TYPE, IMPORT_PROJECT_OWNER_ID } from '../import/attachment
 import { normalizeSlug } from '../slug-normalize.js';
 import { assertPlanConsistent, assertPlanPaths, parseModernizeReceipt, safeJoin } from './guard.js';
 import { readSupersessionPrior, restoreSupersession, revertDocUpdate } from './restore.js';
-import { mergeDocBodies, rewriteDocLinks } from './rules.js';
+import {
+  applyLinkFixes,
+  finalPaths,
+  linkedSlugs,
+  mergeDocBodies,
+  renameWikilinks,
+  repointMarkdownLinks,
+  rewriteDocLinks,
+} from './rules.js';
 
 /** Identity recorded on every store write modernize makes. */
 export const MODERNIZE_ACTOR = 'cleo docs modernize';
@@ -77,6 +85,12 @@ export interface ApplyDocsModernizeOptions {
   readonly now?: () => Date;
   /** Apply even when the root is not a clean git checkout (explicit `--allow-dirty`). */
   readonly allowDirty?: boolean;
+  /**
+   * Rewrite relative links to planned docs as `[[slug]]` wikilinks (opt-in,
+   * `--wikilinks`). By default links stay plain markdown, re-pointed at the
+   * new paths, so they still render on GitHub (T14185).
+   */
+  readonly wikilinks?: boolean;
 }
 
 /** Raised when the tree moved since the plan was made. */
@@ -167,15 +181,19 @@ function planHash(plan: DocsModernizePlan): string {
   return sha256(JSON.stringify(plan.rows));
 }
 
-/** A fresh, unused legacy slug for a superseded file. */
+/**
+ * A fresh, unused slug for a superseded file: `<plan slug>-superseded[-n]`.
+ * Built from the plan's slug, never the old file name, so it follows the
+ * naming rule and `cleo docs fetch` resolves it (T14185).
+ */
 async function legacySlug(
   row: DocsModernizePlanRow,
   projectRoot: string,
   used: Set<string>,
 ): Promise<string> {
   const store = createAttachmentStore();
-  const base = normalizeSlug((row.path.split('/').pop() ?? row.slug).replace(/\.[^.]+$/, ''));
-  let slug = base === row.slug ? `${base}-superseded` : base;
+  const base = row.slug;
+  let slug = `${base}-superseded`;
   let n = 2;
   while (used.has(slug) || (await store.findBySlug(slug, projectRoot)) !== null) {
     slug = `${base}-superseded-${n}`;
@@ -424,25 +442,61 @@ export async function applyDocsModernize(
         const base = normalizeSlug((row.path.split('/').pop() ?? '').replace(/\.[^.]+$/, ''));
         if (base && base !== row.slug && baseCount.get(base) === 1) slugRename.set(base, row.slug);
       }
+      const survivorBySlug = new Map(survivors.map((r) => [r.slug, r]));
+      const finalPathOf = finalPaths(plan.rows);
+      // The resolvable slug each merged or deleted file is stored and cited
+      // under: its existing doc's slug, or a fresh legacy slug (never a
+      // folder-prefixed path id, T14185).
+      const usedSlugs = new Set(plan.rows.map((r) => r.slug));
+      const foldSlug = new Map<string, string>();
+      for (const row of plan.rows) {
+        if (row.disposition !== 'merge-into' && row.disposition !== 'delete') continue;
+        const stored = await store.getMetadata(row.sha256, projectRoot);
+        if (stored) {
+          const slug = (await store.getExtras(stored.id, projectRoot))?.slug;
+          foldSlug.set(row.path, slug ?? row.target ?? row.slug);
+        } else {
+          foldSlug.set(row.path, await legacySlug(row, projectRoot, usedSlugs));
+        }
+      }
+      const cite = (slug: string): string => (options.wikilinks ? `[[${slug}]]` : `\`${slug}\``);
+      // A keep-marked file gets only the plan's `link-fix` hrefs on disk
+      // (T14185); its folds live in the store doc only.
+      const keepPaths = new Set(
+        survivors.filter((r) => r.disposition === 'keep').map((r) => r.path),
+      );
+      const storeBodies = new Map<string, string>();
       const bodies = new Map<string, string>();
       for (const row of survivors) {
-        let body = texts.get(row.path) ?? '';
+        const original = texts.get(row.path) ?? '';
+        let body = original;
         for (const dup of plan.rows) {
           if (dup.disposition === 'merge-into' && dup.target === row.slug) {
             body = mergeDocBodies(
               body,
               texts.get(dup.path) ?? '',
-              normalizeSlug(dup.path.replace(/\.[^.]+$/, '')),
+              cite(foldSlug.get(dup.path) ?? row.slug),
             );
           }
         }
-        bodies.set(row.path, rewriteDocLinks(body, row.path, slugByPath, slugRename));
+        if (options.wikilinks) body = rewriteDocLinks(body, row.path, slugByPath);
+        body = repointMarkdownLinks(body, row.path, row.target ?? row.path, finalPathOf);
+        body = renameWikilinks(body, slugRename);
+        storeBodies.set(row.path, body);
+        bodies.set(
+          row.path,
+          keepPaths.has(row.path)
+            ? applyLinkFixes(
+                original,
+                (plan.linkFixes ?? []).filter((f) => f.path === row.path),
+              )
+            : body,
+        );
       }
 
       // Pass 2 — store.
-      const usedSlugs = new Set(plan.rows.map((r) => r.slug));
       for (const row of survivors) {
-        const body = bodies.get(row.path) ?? '';
+        const body = storeBodies.get(row.path) ?? '';
         const existing = await store.findBySlug(row.slug, projectRoot);
         if (existing && existing.metadata.sha256 === sha256(body)) continue;
         if (existing) {
@@ -455,12 +509,9 @@ export async function applyDocsModernize(
             );
           }
           const storedText = before.bytes.toString('utf-8');
-          const merged = mergeDocBodies(
-            storedText,
-            body,
-            normalizeSlug(row.path.replace(/\.[^.]+$/, '')),
-          );
-          bodies.set(row.path, merged);
+          const merged = mergeDocBodies(storedText, body, cite(row.slug));
+          storeBodies.set(row.path, merged);
+          if (!keepPaths.has(row.path)) bodies.set(row.path, merged);
           if (merged === storedText) continue;
           if ((await store.getMetadata(sha256(merged), projectRoot)) !== null) continue;
           const beforeSha = await backup(projectRoot, runId, storedText);
@@ -523,7 +574,6 @@ export async function applyDocsModernize(
       }
 
       const { supersedeDoc } = await import('../supersede.js');
-      const survivorBySlug = new Map(survivors.map((r) => [r.slug, r]));
       for (const row of plan.rows) {
         if (row.disposition !== 'merge-into' && row.disposition !== 'delete') continue;
         const survivor = row.target ? survivorBySlug.get(row.target) : undefined;
@@ -533,10 +583,9 @@ export async function applyDocsModernize(
           path: row.path,
           target: row.target,
           beforeSha256: row.sha256,
-          afterSha256: survivor ? sha256(bodies.get(survivor.path) ?? '') : null,
+          afterSha256: survivor ? sha256(storeBodies.get(survivor.path) ?? '') : null,
         });
         journal.done(f);
-        if (!row.target || !(await store.findBySlug(row.target, projectRoot))) continue;
         const stored = await store.getMetadata(row.sha256, projectRoot);
         let oldSlug: string | null;
         if (stored) {
@@ -544,7 +593,9 @@ export async function applyDocsModernize(
           oldSlug = (await store.getExtras(stored.id, projectRoot))?.slug ?? null;
           if (!oldSlug || oldSlug === row.target) continue;
         } else {
-          oldSlug = await legacySlug(row, projectRoot, usedSlugs);
+          // Stored even without a survivor in the store, so the slug its fold
+          // heading cites always resolves (T14185).
+          oldSlug = foldSlug.get(row.path) ?? (await legacySlug(row, projectRoot, usedSlugs));
           const ownerId = ownerOf(row);
           const i = journal.begin({
             op: 'ingest',
@@ -563,6 +614,7 @@ export async function applyDocsModernize(
           );
           journal.done(i, { attachmentId });
         }
+        if (!row.target || !(await store.findBySlug(row.target, projectRoot))) continue;
         const prior = await readSupersessionPrior(projectRoot, oldSlug, row.target);
         const s = journal.begin({
           op: 'supersede',
@@ -614,9 +666,17 @@ export async function applyDocsModernize(
       }
       await save();
 
-      // Pass 4 — graph.
+      // Pass 4 — graph: wikilinks and relative markdown links both become
+      // `links-to` edges, so the graph holds in either link mode (T14185).
+      const slugByFinalPath = new Map(survivors.map((r) => [r.target ?? r.path, r.slug]));
       for (const row of survivors) {
-        const targets = extractWikilinkTargets(bodies.get(row.path) ?? '');
+        const body = storeBodies.get(row.path) ?? '';
+        const targets = linkedSlugs(
+          body,
+          row.target ?? row.path,
+          slugByFinalPath,
+          extractWikilinkTargets(body),
+        ).filter((slug) => slug !== row.slug);
         const priorTargets = await linkTargets(row.slug, projectRoot);
         const i = journal.begin({
           op: 'link',

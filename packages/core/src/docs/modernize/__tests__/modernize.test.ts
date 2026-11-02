@@ -28,9 +28,13 @@ import { applyDocsModernize, rollbackDocsModernize } from '../apply.js';
 import { parseModernizeOverrides, parseModernizePlan } from '../guard.js';
 import { planDocsModernize } from '../plan.js';
 import {
+  applyLinkFixes,
   classifyDocByRules,
   docSimilarity,
+  markdownLinkFixes,
   mergeDocBodies,
+  renameWikilinks,
+  repointMarkdownLinks,
   rewriteDocLinks,
   stableSlugFor,
 } from '../rules.js';
@@ -87,14 +91,14 @@ describe('modernize rules', () => {
       '# Another title\n\n## Goal\nship it\n',
     ];
     for (const dup of dupes) {
-      const merged = mergeDocBodies(survivor, dup, 'old-plan');
+      const merged = mergeDocBodies(survivor, dup, '[[old-plan]]');
       // Every non-blank line survives (a heading may carry a "(from …)" suffix);
       // only a title equal to the survivor's is treated as the same line.
       for (const line of dup.split('\n').filter((l) => l.trim() && l.trim() !== '# Plan')) {
         expect(merged.includes(line) || merged.includes(`${line} (from [[old-plan]])`)).toBe(true);
       }
     }
-    expect(mergeDocBodies(survivor, survivor, 'same')).toBe(survivor);
+    expect(mergeDocBodies(survivor, survivor, '`same`')).toBe(survivor);
   });
 
   it('merges only new sections and rewrites links to wikilinks', () => {
@@ -102,7 +106,7 @@ describe('modernize rules', () => {
     const merged = mergeDocBodies(
       '# P\n\n## Goal\nx\n',
       '# P\n\n## Goal\ny\n\n## Risks\nz\n',
-      'p-old',
+      '[[p-old]]',
     );
     expect(merged).toContain('## Risks');
     expect(merged).toContain('## Goal (from [[p-old]])\ny');
@@ -110,10 +114,43 @@ describe('modernize rules', () => {
       'see [the spec](../specs/T1-a-spec.md) and [[T1-a-spec]]',
       'handoffs/h.md',
       new Map([['specs/T1-a-spec.md', 'a-spec']]),
-      new Map([['t1-a-spec', 'a-spec']]),
     );
     expect(rewritten).toBe('see [[a-spec|the spec]] and [[T1-a-spec]]');
     expect(extractWikilinkTargets(rewritten)).toEqual(['T1-a-spec', 'a-spec']);
+    expect(renameWikilinks(rewritten, new Map([['T1-a-spec', 'a-spec']]))).toBe(
+      'see [[a-spec|the spec]] and [[a-spec]]',
+    );
+  });
+
+  it('re-points relative markdown links after a move and keeps them markdown (T14185)', () => {
+    const finalPathOf = new Map([
+      ['specs/a.md', 'spec/a.md'],
+      ['specs/b.md', 'spec/b.md'],
+      ['plans/old.md', 'plan/merged.md'],
+    ]);
+    const body =
+      'see [b](./b.md#part), [merged](../plans/old.md), ![img](../images/x.png), ' +
+      '[web](https://example.com/a.md) and [here](#top)';
+    expect(repointMarkdownLinks(body, 'specs/a.md', 'spec/a.md', finalPathOf)).toBe(
+      'see [b](./b.md#part), [merged](../plan/merged.md), ![img](../images/x.png), ' +
+        '[web](https://example.com/a.md) and [here](#top)',
+    );
+    // Moved one level deeper: links to files that stayed put are re-pointed too.
+    expect(
+      repointMarkdownLinks('[img](../images/x.png)', 'specs/a.md', 'spec/deep/a.md', finalPathOf),
+    ).toBe('[img](../../images/x.png)');
+    // Unmoved file, unmoved target: untouched byte for byte.
+    expect(
+      repointMarkdownLinks('[o](../other/o.md)', 'notes/n.md', 'notes/n.md', finalPathOf),
+    ).toBe('[o](../other/o.md)');
+    // A kept file: only hrefs whose targets move are listed, and applying the
+    // list changes those hrefs and nothing else.
+    const kept = '# Kept\n\n[m](../plans/old.md) twice [m2](../plans/old.md), [o](../other/o.md)\n';
+    const fixes = markdownLinkFixes(kept, 'notes/k.md', finalPathOf);
+    expect(fixes).toEqual([{ href: '../plans/old.md', newHref: '../plan/merged.md' }]);
+    expect(applyLinkFixes(kept, fixes)).toBe(
+      '# Kept\n\n[m](../plan/merged.md) twice [m2](../plan/merged.md), [o](../other/o.md)\n',
+    );
   });
 });
 
@@ -135,7 +172,8 @@ describe('modernize plan → apply → rollback (fixture tree)', () => {
       '# Agent handoff\n\nRead [the spec](../specs/T832-gate-integrity-spec.md) first. Work on T12256.\n',
     'research/foo-report.md': '# Foo report\n\nfindings here\n',
     'analysis/foo-report.md': '# Foo report\n\nfindings here\n',
-    'adr/adr-001-store.md': '# ADR 001 store\n\n## Context\nc\n\n## Decision\nd\n',
+    'adr/adr-001-store.md':
+      '# ADR 001 store\n\n## Context\nc\n\n## Decision\nd, see [the spec](../specs/T832-gate-integrity-spec.md)\n',
     'misc/random-thoughts.md': '# Random thoughts\n\nsome loose text\n',
   };
 
@@ -282,15 +320,33 @@ describe('modernize plan → apply → rollback (fixture tree)', () => {
     expect(plan2).toContain('## Risks');
 
     // Supersession: the merged file is stored under its legacy name and superseded.
-    const legacy = await store.findBySlug('2026-04-21-self-healing-plan', projectRoot);
+    const legacy = await store.findBySlug('self-healing-plan-superseded', projectRoot);
     expect(legacy?.lifecycleStatus).toBe('superseded');
+    // T14185: the fold heading cites that resolvable slug, never a folder-prefixed path id.
+    expect(plan2).toContain('merged from `self-healing-plan-superseded`');
+    expect(plan2).not.toMatch(/plans-/);
+
+    // T14185: a kept file that links to a moved file gets only that href
+    // re-pointed, and the dry run listed exactly that edit.
+    const keptFix = {
+      kind: 'link-fix',
+      path: 'adr/adr-001-store.md',
+      href: '../specs/T832-gate-integrity-spec.md',
+      newHref: '../spec/gate-integrity-spec.md',
+    };
+    expect(plan.linkFixes).toEqual([keptFix]);
+    expect(readFileSync(join(docsRoot, 'adr/adr-001-store.md'), 'utf-8')).toBe(
+      original.get('adr/adr-001-store.md')?.replace(keptFix.href, keptFix.newHref),
+    );
     expect(receipt.ops.some((o) => o.op === 'supersede' && o.target === 'self-healing-plan')).toBe(
       true,
     );
 
     // Graph edges: the rewritten link is a links-to edge; the task mention a related-task edge.
     const handoff = readFileSync(join(docsRoot, 'handoff/agent-handoff.md'), 'utf-8');
-    expect(handoff).toContain('[[gate-integrity-spec|the spec]]');
+    // T14185: the moved target's inbound link stays markdown, re-pointed at its new path.
+    expect(handoff).toContain('[the spec](../spec/gate-integrity-spec.md)');
+    expect(handoff).not.toContain('[[');
     const edges = await getDocsWikilinks('agent-handoff', { direction: 'out', projectRoot });
     expect(edges).toContainEqual({
       fromSlug: 'agent-handoff',
@@ -324,7 +380,7 @@ describe('modernize plan → apply → rollback (fixture tree)', () => {
     }
     expect(existsSync(join(docsRoot, 'spec'))).toBe(false);
     expect(await store.findBySlug('gate-integrity-spec', projectRoot)).toBeNull();
-    expect(await store.findBySlug('2026-04-21-self-healing-plan', projectRoot)).toBeNull();
+    expect(await store.findBySlug('self-healing-plan-superseded', projectRoot)).toBeNull();
     expect(await getDocsWikilinks('agent-handoff', { projectRoot })).toEqual([]);
     await expect(rollbackDocsModernize(projectRoot, receipt.runId)).rejects.toThrow(
       /already rolled back/,
@@ -503,7 +559,11 @@ describe('modernize plan → apply → rollback (fixture tree)', () => {
       // The crash case applies only the merging file, so the merge is the
       // last store step and truncating the journal after it is faithful.
       const used = crashed
-        ? { ...plan, rows: plan.rows.filter((r) => r.slug === 'gate-integrity-spec') }
+        ? {
+            ...plan,
+            rows: plan.rows.filter((r) => r.slug === 'gate-integrity-spec'),
+            linkFixes: [],
+          }
         : plan;
       const receipt = await applyDocsModernize({ plan: used, projectRoot, allowDirty: true });
       const now = await store.findBySlug('gate-integrity-spec', projectRoot);
@@ -550,7 +610,11 @@ describe('modernize plan → apply → rollback (fixture tree)', () => {
       projectRoot,
       decide: { connection: null },
     });
-    const only = { ...plan, rows: plan.rows.filter((r) => r.slug === 'gate-integrity-spec') };
+    const only = {
+      ...plan,
+      rows: plan.rows.filter((r) => r.slug === 'gate-integrity-spec'),
+      linkFixes: [],
+    };
     const receipt = await applyDocsModernize({ plan: only, projectRoot, allowDirty: true });
     expect(receipt.ops.some((o) => o.op === 'merge')).toBe(true);
     // A crash mid-append leaves half a line at the end of the journal.
@@ -565,6 +629,63 @@ describe('modernize plan → apply → rollback (fixture tree)', () => {
     expect(later.ok).toBe(true);
     await expect(rollbackDocsModernize(projectRoot, receipt.runId)).rejects.toThrow(
       /updated after the modernize run/,
+    );
+  });
+
+  it('rewrites links to wikilinks only on opt-in, with resolvable slugs, never in kept files (T14185)', async () => {
+    const plan = await planDocsModernize({
+      root: docsRoot,
+      projectRoot,
+      decide: { connection: null },
+    });
+    await applyDocsModernize({ plan, projectRoot, allowDirty: true, wikilinks: true });
+    const handoff = readFileSync(join(docsRoot, 'handoff/agent-handoff.md'), 'utf-8');
+    expect(handoff).toContain('[[gate-integrity-spec|the spec]]');
+    const store = createAttachmentStore();
+    for (const target of extractWikilinkTargets(
+      readFileSync(join(docsRoot, 'plan/self-healing-plan.md'), 'utf-8') + handoff,
+    )) {
+      expect(await store.findBySlug(target, projectRoot)).not.toBeNull();
+    }
+    // Kept files keep markdown: their link fixes are hrefs, never wikilinks.
+    expect(readFileSync(join(docsRoot, 'adr/adr-001-store.md'), 'utf-8')).toBe(
+      original
+        .get('adr/adr-001-store.md')
+        ?.replace('../specs/T832-gate-integrity-spec.md', '../spec/gate-integrity-spec.md'),
+    );
+  });
+
+  it('edits a kept file only as the plan lists, and refuses a link fix on a file it does not keep (T14185)', async () => {
+    const plan = await planDocsModernize({
+      root: docsRoot,
+      projectRoot,
+      decide: { connection: null },
+    });
+    await expect(
+      applyDocsModernize({
+        plan: {
+          ...plan,
+          linkFixes: [
+            {
+              kind: 'link-fix',
+              path: 'handoffs/T12256-agent-handoff-20260920.md',
+              href: 'x.md',
+              newHref: 'y.md',
+            },
+          ],
+        },
+        projectRoot,
+        allowDirty: true,
+      }),
+    ).rejects.toThrow(/link-fix/);
+    // A plan without the fix row leaves the kept file byte-identical.
+    await applyDocsModernize({
+      plan: { ...plan, linkFixes: [] },
+      projectRoot,
+      allowDirty: true,
+    });
+    expect(readFileSync(join(docsRoot, 'adr/adr-001-store.md'), 'utf-8')).toBe(
+      original.get('adr/adr-001-store.md'),
     );
   });
 

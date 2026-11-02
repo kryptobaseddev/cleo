@@ -136,6 +136,27 @@ export interface DocsModernizePlan {
   readonly mode: 'tree' | 'store-only' | 'store';
   /** Store-mode rows (`mode: 'store'`); absent or empty otherwise. */
   readonly storeRows?: readonly DocsModernizeStoreRow[];
+  /**
+   * The only edits `--apply` makes to `keep` files (`tree` mode, T14185): one
+   * row per relative link whose target moves. Absent or empty means kept
+   * files are not touched.
+   */
+  readonly linkFixes?: readonly DocsModernizeLinkFix[];
+}
+
+/**
+ * One href re-pointed inside a `keep` file because its target moves
+ * (T14185). Only the href changes; the rest of the file stays byte-identical.
+ */
+export interface DocsModernizeLinkFix {
+  /** Always `link-fix`. */
+  readonly kind: 'link-fix';
+  /** The kept file, relative to the root. */
+  readonly path: string;
+  /** The href as written now. */
+  readonly href: string;
+  /** The href after the move. */
+  readonly newHref: string;
 }
 
 /**
@@ -307,6 +328,16 @@ export const docsModernizePlanSchema = z.object({
       baselineRemove: z.boolean(),
     }),
   ),
+  linkFixes: z
+    .array(
+      z.object({
+        kind: z.literal('link-fix'),
+        path: relPath,
+        href: z.string().min(1).max(2048),
+        newHref: z.string().min(1).max(2048),
+      }),
+    )
+    .optional(),
 });
 
 /** Shape check for an `--overrides` file ({@link DocsModernizeOverrides}). */

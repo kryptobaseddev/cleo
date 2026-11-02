@@ -64,6 +64,11 @@ export const modernizeCommand = defineCommand({
       type: 'string',
       description: 'Use this kind for every file instead of classifying (bulk ingest)',
     },
+    wikilinks: {
+      type: 'boolean',
+      description:
+        'Rewrite relative links to planned docs as [[slug]] wikilinks (default: keep markdown links that render on GitHub, re-pointed at the new paths)',
+    },
     'allow-dirty': {
       type: 'boolean',
       description: 'Apply even when the root is not a clean git checkout (default: refuse)',
@@ -94,6 +99,7 @@ export const modernizeCommand = defineCommand({
         ...(typeof args.kind === 'string' ? { kind: args.kind } : {}),
         storeOnly: args['store-only'] === true,
         allowDirty: args['allow-dirty'] === true,
+        wikilinks: args.wikilinks === true,
         store: args.store === true,
       },
       { command: 'docs modernize' },

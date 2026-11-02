@@ -29,6 +29,7 @@ import type {
   DocKindMetadata,
   DocsModernizeDisposition,
   DocsModernizeJudgment,
+  DocsModernizeLinkFix,
   DocsModernizeOverride,
   DocsModernizeOverrides,
   DocsModernizePlan,
@@ -44,10 +45,12 @@ import { judgeDocKind, judgeDocMerge, resolveModernizeJudgeSettings } from './ju
 import {
   classifyDocByRules,
   docSimilarity,
+  finalPaths,
   folderKind,
   MODERNIZE_CLASSIFY_FLOOR,
   MODERNIZE_MERGE_APART,
   MODERNIZE_MERGE_SURE,
+  markdownLinkFixes,
   readTitle,
   stableSlugFor,
   versionOf,
@@ -553,12 +556,27 @@ function finishPlan(
     delete: 0,
   };
   for (const row of rows) counts[row.disposition] += 1;
+  // A kept file stays byte-identical except for hrefs whose targets move;
+  // each such edit is a plan row, so --apply never does more than the dry
+  // run showed (T14185).
+  const linkFixes: DocsModernizeLinkFix[] = [];
+  if (!options.storeOnly) {
+    const finalPathOf = finalPaths(rows);
+    const contentOf = new Map(files.map((f) => [f.relPath, f.content]));
+    for (const row of rows) {
+      if (row.disposition !== 'keep') continue;
+      for (const fix of markdownLinkFixes(contentOf.get(row.path) ?? '', row.path, finalPathOf)) {
+        linkFixes.push({ kind: 'link-fix', path: row.path, ...fix });
+      }
+    }
+  }
   return {
     root: options.root,
     generatedAt: (options.now?.() ?? new Date()).toISOString(),
     rows,
     counts,
     mode: options.storeOnly ? 'store-only' : 'tree',
+    ...(linkFixes.length > 0 ? { linkFixes } : {}),
   };
 }
 

@@ -1015,7 +1015,8 @@ const _docsTypedHandler = defineTypedHandler<DocsTypedOps>('docs', {
         : (result.plan?.mode === 'store'
             ? `${result.plan.storeRows?.length ?? 0} stored docs to re-kind or re-slug`
             : `${result.plan?.rows.length ?? 0} files: ${counts?.keep ?? 0} keep, ${counts?.rename ?? 0} rename, ` +
-              `${counts?.['merge-into'] ?? 0} merge, ${counts?.delete ?? 0} delete`) +
+              `${counts?.['merge-into'] ?? 0} merge, ${counts?.delete ?? 0} delete, ` +
+              `${result.plan?.linkFixes?.length ?? 0} link-fix in kept files`) +
           (result.receipt
             ? `; applied as ${result.receipt.runId} (${result.receipt.ops.length} steps, ${result.receipt.edgeCount} graph edges)`
             : '; dry run, nothing written');
