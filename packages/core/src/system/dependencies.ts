@@ -174,9 +174,42 @@ function checkNode(): DependencyCheckResult {
 }
 
 /**
+ * Lowest git CLEO runs on: diff-tree's `--diff-merges=first-parent` reads a
+ * merge's first-parent diff (T14166) and arrived in git 2.31.
+ *
+ * @task T14166
+ */
+export const MIN_GIT_VERSION = '2.31.0';
+
+/**
+ * Whether a `git --version` number meets {@link MIN_GIT_VERSION}.
+ *
+ * @param version - The version, e.g. `2.43.0` or `2.39.3 (Apple Git-146)`'s `2.39.3`.
+ * @returns True when it is at or above the floor; false when it is below or unreadable.
+ * @example
+ * ```ts
+ * gitMeetsFloor('2.30.2'); // false
+ * gitMeetsFloor('2.31.0'); // true
+ * ```
+ * @task T14166
+ */
+export function gitMeetsFloor(version: string): boolean {
+  const have = /^(\d+)\.(\d+)(?:\.(\d+))?/.exec(version);
+  if (!have) return false;
+  const floor = MIN_GIT_VERSION.split('.').map(Number);
+  for (let i = 0; i < 3; i++) {
+    const a = Number(have[i + 1] ?? 0);
+    const b = floor[i] ?? 0;
+    if (a !== b) return a > b;
+  }
+  return true;
+}
+
+/**
  * Check git availability.
  *
- * Runs `git --version` to detect the installed version string.
+ * Runs `git --version` to detect the installed version string, and marks git
+ * below {@link MIN_GIT_VERSION} unhealthy (T14166).
  */
 function checkGit(): DependencyCheckResult {
   const location = which('git');
@@ -202,7 +235,13 @@ function checkGit(): DependencyCheckResult {
     installed: true,
     version: version || undefined,
     location: location.split('\n')[0] ?? location, // `where` may return multiple lines on Windows
-    healthy: true,
+    healthy: gitMeetsFloor(version),
+    ...(gitMeetsFloor(version)
+      ? {}
+      : {
+          error: `git ${version || 'of unknown version'} is below the minimum ${MIN_GIT_VERSION}: CLEO reads merge diffs with --diff-merges=first-parent (T14166)`,
+          suggestedFix: `Upgrade git to >= ${MIN_GIT_VERSION}: https://git-scm.com/downloads`,
+        }),
   };
 }
 

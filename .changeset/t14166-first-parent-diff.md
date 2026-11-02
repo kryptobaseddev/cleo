@@ -12,3 +12,6 @@ changed after the cut. The PR change set, the scoped-run carry scope, a
 task's own-work paths, a `commit:` atom's files and a component commit's
 paths now use `--diff-merges=first-parent` (git 2.31+), which lists the
 first-parent diff alone.
+
+New git floor: `--diff-merges` needs git 2.31 or later, so `cleo doctor`'s
+git check now reports git below 2.31 as unhealthy, with an upgrade fix.
