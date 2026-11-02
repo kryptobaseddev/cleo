@@ -65,6 +65,7 @@ import type {
 } from '@cleocode/contracts/operations/docs';
 import { LLM_OUTPUT_MODES } from '@cleocode/contracts/operations/docs';
 import { parseChangesetFrontmatter } from '@cleocode/core/changesets/parse-frontmatter';
+import { resolveInvokingCheckout } from '@cleocode/core/core-paths';
 import { readAuditLog, verifyAuditTrail, writeAuditEntry } from '@cleocode/core/docs/docs-audit';
 import { createDocsReadModel } from '@cleocode/core/docs/docs-read-model';
 import {
@@ -2464,8 +2465,9 @@ async function dispatchDocsLegacyQuery(
     case 'stats':
       return computeDocsStats({ projectRoot });
     case 'rot':
+      // T14183: rot reads the git work tree, so the invoking checkout's.
       return scanDocsRot({
-        projectRoot,
+        projectRoot: resolveInvokingCheckout(),
         ...(typeof params['changed'] === 'string' ? { changed: params['changed'] } : {}),
       });
     default:
