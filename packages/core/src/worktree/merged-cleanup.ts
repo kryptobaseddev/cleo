@@ -41,6 +41,7 @@ import {
   pruneWorktreeRegistry,
   readWorktreeTaskLock,
 } from '@cleocode/worktree';
+import { discoveryEnv } from '../git/work-tree.js';
 import { appendWorktreeAuditEntry, resolveWorktreeAuditActor } from './audit.js';
 import { enumerateWorktrees } from './list.js';
 import {
@@ -63,6 +64,8 @@ const REMOTE_DELETE_BATCH = 50;
 function git(cwd: string, args: string[]): string | null {
   try {
     return execFileSync('git', ['-C', cwd, ...args], {
+      // T14189: `-C` does not override an inherited GIT_DIR / GIT_INDEX_FILE.
+      env: discoveryEnv(),
       encoding: 'utf8',
       stdio: ['ignore', 'pipe', 'pipe'],
       timeout: 120_000,
@@ -72,6 +75,14 @@ function git(cwd: string, args: string[]): string | null {
     return null;
   }
 }
+
+/**
+ * The cleanup's git runner, for tests: `git -C <cwd>` that acts on `cwd`'s
+ * repository even when the caller inherited a git hook's `GIT_DIR` (T14189).
+ *
+ * @internal Exported for tests only.
+ */
+export const cleanupGit = git;
 
 function lines(out: string | null): string[] {
   return (out ?? '').split('\n').filter((l) => l.length > 0);
@@ -572,7 +583,9 @@ function leasedRemoteDelete(root: string, items: readonly MergedCleanupItem[]): 
   for (const it of items) args.push(`--force-with-lease=refs/heads/${it.target}:${it.sha ?? ''}`);
   for (const it of items) args.push(`:refs/heads/${it.target}`);
   // A rejected ref fails the push; its porcelain report is still on stdout.
-  const out = spawnSync('git', args, { encoding: 'utf8', timeout: 120_000 }).stdout ?? '';
+  const out =
+    spawnSync('git', args, { encoding: 'utf8', timeout: 120_000, env: discoveryEnv() }).stdout ??
+    '';
   const deleted = new Set<string>();
   for (const line of lines(out)) {
     const [flag, refs] = line.split('\t');

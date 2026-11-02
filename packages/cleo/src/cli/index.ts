@@ -763,9 +763,8 @@ async function maybeSpawnMergeSweep(command: string | undefined): Promise<void> 
       readFileSync(join(root, '.cleo', 'project-context.json'), 'utf-8'),
     ) as { evidence?: { ciSatisfies?: unknown } };
     if (context.evidence?.ciSatisfies !== true) return;
-    const { claimMergeSweep, lazySweepBlockedReason, mergeSweepSpawnAllowed } = await import(
-      '@cleocode/core/tasks/merge-close.js'
-    );
+    const { claimMergeSweep, lazySweepBlockedReason, mergeSweepChildEnv, mergeSweepSpawnAllowed } =
+      await import('@cleocode/core/tasks/merge-close.js');
     if (!mergeSweepSpawnAllowed(process.env)) return;
     // T14168: never from a worktree-built CLI, never for release from a worktree.
     if ((await lazySweepBlockedReason(command ?? '', process.cwd())) !== null) return;
@@ -775,7 +774,8 @@ async function maybeSpawnMergeSweep(command: string | undefined): Promise<void> 
       cwd: root,
       detached: true,
       stdio: 'ignore',
-      env: { ...process.env, CLEO_MERGE_SWEEP: 'off', CLEO_MERGE_SWEEP_CHILD: '1' },
+      // T14189: never the calling git hook's GIT_DIR / GIT_INDEX_FILE.
+      env: mergeSweepChildEnv(process.env),
     }).unref();
   } catch {
     // Never break the command over a background sweep.
