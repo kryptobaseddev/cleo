@@ -551,9 +551,14 @@ describe('Git-native installation and recovery (T13349)', () => {
   it('recognizes an exact legacy pre-commit template without a marker', async () => {
     const repo = gitInit(path.join(tmpRoot, 'legacy'));
     const target = path.join(repo, '.git', 'hooks', 'pre-commit');
-    const legacy = fs
-      .readFileSync(path.join(REPO_TEMPLATES_DIR, 'pre-commit'), 'utf8')
-      .replace(`${CLEO_HOOK_SENTINEL}\n`, '');
+    // The shipped pre-sentinel copy: the last released pre-commit body without its
+    // marker line (hash 5ad02ab…, in legacy-hashes.json). Derived from the released
+    // fixture, not the current template, which changes (T14189).
+    const released = releasedTemplates.find(
+      (t) => t.name === 'pre-commit' && t.source.startsWith('v2026.11.1-canary.2:'),
+    );
+    if (!released) throw new Error('released pre-commit fixture missing');
+    const legacy = released.body.replace(`${CLEO_HOOK_SENTINEL}\n`, '');
     fs.writeFileSync(target, legacy);
     const result = await installCleoHooks(repo, { templatesDir: REPO_TEMPLATES_DIR });
     expect(result.installed).toContain('pre-commit');
