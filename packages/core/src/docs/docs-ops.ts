@@ -1762,7 +1762,9 @@ export interface DocsStatusResult {
  * The `added` classification is reserved for files-on-disk-without-a-manifest-row
  * and is not produced today — `status` operates strictly on the ledger.
  *
- * @param opts - Optional `projectRoot`.
+ * @param opts - Optional `projectRoot` (store and ledger) and `checkoutRoot`
+ *   (where the mirrors are read; default the project root). Run from a CLEO
+ *   worktree, the mirrors are that worktree's (T14188).
  * @returns Items list + `allInSync` boolean. Suitable for CI exit-code gating
  *          (0 when `allInSync`, 2 otherwise).
  *
@@ -1775,8 +1777,12 @@ export interface DocsStatusResult {
  * if (!status.allInSync) process.exit(2);
  * ```
  */
-export async function statusDocs(opts?: { projectRoot?: string }): Promise<DocsStatusResult> {
+export async function statusDocs(opts?: {
+  projectRoot?: string;
+  checkoutRoot?: string;
+}): Promise<DocsStatusResult> {
   const root = opts?.projectRoot ?? getProjectRoot();
+  const checkout = opts?.checkoutRoot ?? root;
   const ledger = await readPublicationsLedger(root);
   if (ledger.length === 0) {
     return { items: [], allInSync: true };
@@ -1802,7 +1808,7 @@ export async function statusDocs(opts?: { projectRoot?: string }): Promise<DocsS
   for (const row of ledger) {
     const filePath = isAbsolute(row.publishedPath)
       ? row.publishedPath
-      : resolvePath(root, row.publishedPath);
+      : resolvePath(checkout, row.publishedPath);
 
     const blobSha = await getBlobSha(row.ownerId, row.blobName, row.lastBlobSha);
 

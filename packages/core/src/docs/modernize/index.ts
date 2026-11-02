@@ -32,7 +32,7 @@ export { DocsModernizeOverrideError, planDocsModernize } from './plan.js';
 
 /** Parameters of `docs.modernize`. */
 export interface RunDocsModernizeParams {
-  /** Folder to modernize (relative to the project root, or absolute). Required unless `rollback`. */
+  /** Folder to modernize (relative to the invoking checkout, or absolute). Required unless `rollback`. */
   readonly path?: string;
   /** Execute the plan; otherwise the run is a dry run. */
   readonly apply?: boolean;
@@ -73,9 +73,14 @@ export interface RunDocsModernizeResult {
 /**
  * Run `cleo docs modernize`.
  *
+ * The store, publication ledger, journal and backups live at `projectRoot`;
+ * the folder, plan, overrides and `--out` paths resolve against
+ * `checkoutRoot`, the checkout the command was started from (a CLEO
+ * worktree, T14188).
+ *
  * @param projectRoot - Project root.
  * @param params - Path and mode flags.
- * @param overrides - System One and clock overrides (tests).
+ * @param overrides - Invoking checkout, plus System One and clock overrides (tests).
  * @returns What ran, with its plan and/or receipt.
  */
 export async function runDocsModernize(
@@ -83,13 +88,21 @@ export async function runDocsModernize(
   params: RunDocsModernizeParams,
   overrides: Pick<PlanDocsModernizeOptions, 'mode' | 'decide' | 'now'> & {
     readonly allowDirty?: boolean;
+    /** The checkout the command was started from (default: the project root). */
+    readonly checkoutRoot?: string;
   } = {},
 ): Promise<RunDocsModernizeResult> {
+  const { checkoutRoot = projectRoot, ...judge } = overrides;
   if (params.rollback) {
-    const receipt = await rollbackDocsModernize(projectRoot, params.rollback, overrides.now);
+    const receipt = await rollbackDocsModernize(
+      projectRoot,
+      params.rollback,
+      judge.now,
+      checkoutRoot,
+    );
     return { mode: 'rollback', plan: null, planPath: null, receipt };
   }
-  const abs = (p: string): string => (isAbsolute(p) ? p : resolve(projectRoot, p));
+  const abs = (p: string): string => (isAbsolute(p) ? p : resolve(checkoutRoot, p));
   let plan: DocsModernizePlan;
   if (params.planFile) {
     const file = abs(params.planFile);
@@ -97,10 +110,10 @@ export async function runDocsModernize(
       // @sync-invariant none:input-shape a missing plan file is refused before any write
       throw new DocsModernizeReceiptError(`plan file ${params.planFile} does not exist`);
     }
-    plan = parseModernizePlan(readFileSync(file, 'utf-8'), projectRoot);
+    plan = parseModernizePlan(readFileSync(file, 'utf-8'), projectRoot, checkoutRoot);
   } else if (params.store) {
     const { planDocsStoreModernize } = await import('./store.js');
-    plan = await planDocsStoreModernize({ projectRoot, ...overrides });
+    plan = await planDocsStoreModernize({ projectRoot, ...judge });
   } else {
     if (!params.path || !existsSync(abs(params.path))) {
       // @sync-invariant none:input-shape a missing modernize root is refused before any write
@@ -124,7 +137,8 @@ export async function runDocsModernize(
       overrides: reviewed,
       kind: params.kind,
       storeOnly: params.storeOnly,
-      ...overrides,
+      repoRoot: checkoutRoot,
+      ...judge,
     });
   }
   let planPath: string | null = null;
@@ -135,15 +149,16 @@ export async function runDocsModernize(
   if (!params.apply) return { mode: 'dry-run', plan, planPath, receipt: null };
   if (plan.mode === 'store') {
     const { applyDocsStoreModernize } = await import('./store.js');
-    const receipt = await applyDocsStoreModernize(plan, projectRoot, overrides.now);
+    const receipt = await applyDocsStoreModernize(plan, projectRoot, judge.now);
     return { mode: 'apply', plan, planPath, receipt };
   }
   const receipt = await applyDocsModernize({
     plan,
     projectRoot,
-    now: overrides.now,
-    allowDirty: params.allowDirty === true || overrides.allowDirty === true,
+    now: judge.now,
+    allowDirty: params.allowDirty === true || judge.allowDirty === true,
     wikilinks: params.wikilinks === true,
+    checkoutRoot,
   });
   return { mode: 'apply', plan, planPath, receipt };
 }
