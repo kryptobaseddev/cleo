@@ -91,8 +91,11 @@ export async function ensureCleoGitRepo(projectRoot: string): Promise<ScaffoldRe
     };
   }
 
+  // Loaded on demand: scaffold modules sit on startup paths (gate 39).
+  const { discoveryEnv } = await import('../git/work-tree.js');
   const gitEnv: NodeJS.ProcessEnv = {
-    ...process.env,
+    // T14189: never an inherited GIT_INDEX_FILE (a git hook's index).
+    ...discoveryEnv(),
     GIT_DIR: cleoGitDir,
     GIT_WORK_TREE: cleoDir,
   };
@@ -133,11 +136,10 @@ export async function ensureProjectGitInitialCommit(projectRoot: string): Promis
     };
   }
 
-  const cleanEnv: NodeJS.ProcessEnv = { ...process.env };
-  cleanEnv.GIT_DIR = undefined;
-  cleanEnv.GIT_WORK_TREE = undefined;
-  delete cleanEnv.GIT_DIR;
-  delete cleanEnv.GIT_WORK_TREE;
+  // T14189: strip every ambient repo variable, GIT_INDEX_FILE included, or the
+  // initial commit would record a calling hook's index.
+  const { discoveryEnv } = await import('../git/work-tree.js');
+  const cleanEnv: NodeJS.ProcessEnv = discoveryEnv();
 
   try {
     await execFileAsync('git', ['rev-parse', '--verify', '--quiet', 'HEAD'], {

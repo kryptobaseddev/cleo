@@ -59,7 +59,7 @@ async function cleoGitExec(
   const abs = resolve(cleoDir);
   const result = await execFileAsync('git', args, {
     cwd: abs,
-    env: makeCleoGitEnv(cleoDir),
+    env: await makeCleoGitEnv(cleoDir),
     timeout: 30_000, // Longer timeout for network operations
   });
   return { stdout: result.stdout.trim(), stderr: result.stderr.trim() };

@@ -38,6 +38,7 @@ import { execFileSync } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
 import { resolve as resolvePath } from 'node:path';
 import { cwd as processCwd } from 'node:process';
+import { discoveryEnv } from '../git/work-tree.js';
 import { withProvenance } from '../sentient/skill-provenance.js';
 
 // ---------------------------------------------------------------------------
@@ -156,7 +157,8 @@ function defaultBody(skillName: string, diffPath: string): string {
 
 /** Default command runner — wraps execFileSync with stdout-piped semantics. */
 const defaultRun: CommandRunner = (file, args) =>
-  execFileSync(file, [...args], { stdio: 'pipe' }).toString('utf8');
+  // T14189: git acts on the current repository, never an inherited hook index or GIT_DIR.
+  execFileSync(file, [...args], { stdio: 'pipe', env: discoveryEnv() }).toString('utf8');
 
 // ---------------------------------------------------------------------------
 // Implementation

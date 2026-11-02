@@ -43,6 +43,7 @@ import { tmpdir } from 'node:os';
 import { join, resolve as resolvePath } from 'node:path';
 import { cwd as processCwd } from 'node:process';
 import { addTransientWorktree, removeTransientWorktree } from '@cleocode/worktree';
+import { discoveryEnv } from '../git/work-tree.js';
 import { withProvenance } from '../sentient/skill-provenance.js';
 
 /**
@@ -65,7 +66,8 @@ export type CommandRunner = (file: string, args: readonly string[], cwd?: string
 
 /** Default command runner — wraps `execFileSync` with stdout-piped semantics. */
 const defaultRun: CommandRunner = (file, args, cwd) =>
-  execFileSync(file, [...args], { cwd, stdio: 'pipe' }).toString('utf8');
+  // T14189: git acts on `cwd`'s repository, never an inherited hook index or GIT_DIR.
+  execFileSync(file, [...args], { cwd, stdio: 'pipe', env: discoveryEnv() }).toString('utf8');
 
 /**
  * Provision arguments for the isolated worktree hook (T12007).
