@@ -1470,7 +1470,7 @@ jobs:
         run: |
           set -euo pipefail
           git fetch --quiet origin "refs/tags/v${VERSION}:refs/tags/v${VERSION}"
-          DATE="$(git for-each-ref --format='%(creatordate:short)' "refs/tags/v${VERSION}")"
+          DATE="$(TZ=UTC git for-each-ref --format='%(creatordate:format-local:%Y-%m-%d)' "refs/tags/v${VERSION}")"
           node -e '
             const fs = require("node:fs");
             const [version, date, notesPath] = process.argv.slice(1);
