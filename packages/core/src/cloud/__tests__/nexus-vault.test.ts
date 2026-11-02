@@ -3873,6 +3873,27 @@ describe('cloud vault round 4 (#1773)', () => {
     expect((await on(b, () => verifyNexusVault(vopts(b)))).verdict).toBe('match');
   });
 
+  it('reads git tracking from the store checkout even under a calling hook’s GIT_* env (T14189)', async () => {
+    const { a, b } = await twoMachines();
+    await on(a, () => pushNexusVault(vopts(a)));
+    await restoreOntoB(b);
+    write(b, 'adrs/shared.md', 'B branch\n');
+    commit(b, 'adrs/shared.md');
+    // What a git hook in ANOTHER repository exports to a `cleo` call it runs.
+    const foreign = fs.mkdtempSync(path.join(os.tmpdir(), 'vault-hook-repo-'));
+    vi.stubEnv('GIT_DIR', path.join(foreign, '.git'));
+    vi.stubEnv('GIT_INDEX_FILE', path.join(foreign, '.git', 'index'));
+    vi.stubEnv('GIT_PREFIX', 'sub/');
+    vi.stubEnv('GIT_NAMESPACE', 'hook-ns');
+    try {
+      // Tracked paths are still read from B's own checkout, so they match.
+      expect((await on(b, () => verifyNexusVault(vopts(b)))).verdict).toBe('match');
+    } finally {
+      vi.unstubAllEnvs();
+      fs.rmSync(foreign, { recursive: true, force: true });
+    }
+  });
+
   it('a directory that is not a git checkout gets the tracked files, and both sides keep pulling (T13019)', async () => {
     const { a, b } = await twoMachines();
     write(a, 'adrs/tracked.md', 'tracked\n');

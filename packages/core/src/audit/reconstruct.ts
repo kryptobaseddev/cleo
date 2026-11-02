@@ -7,6 +7,7 @@ import { resolve } from 'node:path';
 import { setImmediate } from 'node:timers/promises';
 import type { CommitEntry, ReconstructResult } from '@cleocode/contracts';
 import type { ReconstructAssessment, ReconstructOptions } from '@cleocode/contracts/audit';
+import { discoveryEnv } from '../git/work-tree.js';
 import { resolveOrCwd } from '../paths.js';
 import { worktreeScope } from '../project-scope.js';
 import { extractTaskIds } from '../release/invariants/archive-reason-invariant.js';
@@ -46,23 +47,12 @@ export async function reconstructLineage(
   );
   const signal = signals.length ? AbortSignal.any(signals) : undefined;
   const execution = { deadlineAt, signal };
+  // Explicit cwd owns this read, even when the caller was launched by another repository's hook.
   const env: NodeJS.ProcessEnv = {
-    ...process.env,
+    ...discoveryEnv(),
     GIT_TERMINAL_PROMPT: '0',
     GIT_OPTIONAL_LOCKS: '0',
   };
-  // Explicit cwd owns this read, even when the caller was launched by another repository's hook.
-  for (const name of [
-    'GIT_DIR',
-    'GIT_WORK_TREE',
-    'GIT_COMMON_DIR',
-    'GIT_INDEX_FILE',
-    'GIT_OBJECT_DIRECTORY',
-    'GIT_ALTERNATE_OBJECT_DIRECTORIES',
-    'GIT_NAMESPACE',
-    'GIT_SHALLOW_FILE',
-  ])
-    delete env[name];
   let remainingBytes = Math.min(
     options.maxOutputBytes ?? 8 * 1024 * 1024,
     caller?.resources.maxBytes ?? Infinity,
