@@ -52,6 +52,8 @@ export interface RunDocsModernizeParams {
   readonly storeOnly?: boolean;
   /** Apply even when the root is not a clean git checkout. */
   readonly allowDirty?: boolean;
+  /** Rewrite relative links to planned docs as `[[slug]]` wikilinks (opt-in; default keeps markdown links). */
+  readonly wikilinks?: boolean;
   /** Modernize the docs already in the store (re-kind, re-slug, ADR numbers) instead of a folder. */
   readonly store?: boolean;
 }
@@ -141,6 +143,7 @@ export async function runDocsModernize(
     projectRoot,
     now: overrides.now,
     allowDirty: params.allowDirty === true || overrides.allowDirty === true,
+    wikilinks: params.wikilinks === true,
   });
   return { mode: 'apply', plan, planPath, receipt };
 }

@@ -836,9 +836,11 @@ cleo docs modernize --store                               # stored docs: re-kind
 Ambiguous classify and merge calls are judged by System One
 (`docs.modernize.classify`, `docs.modernize.merge`; rule fallback when it is
 unreachable) and recorded on each plan row. Apply stores survivors, folds
-duplicates in, supersedes the removed docs, rewrites relative links to
-`[[slug]]` wikilinks (recorded as `links-to` graph edges) and keeps every
-replaced byte under `.cleo/modernize/<runId>/` for rollback.
+duplicates in, supersedes the removed docs, re-points relative markdown links
+at the new paths (they still render on GitHub; `--wikilinks` opts into
+`[[slug]]` instead), records every link as a `links-to` graph edge, never
+rewrites a file the plan marks `keep`, and keeps every replaced byte under
+`.cleo/modernize/<runId>/` for rollback.
 
 ---
 

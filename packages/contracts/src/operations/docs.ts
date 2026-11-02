@@ -1438,6 +1438,11 @@ export interface DocsModernizeParams {
   readonly storeOnly?: boolean;
   /** Apply even when the root is not a clean git checkout. */
   readonly allowDirty?: boolean;
+  /**
+   * Rewrite relative links to planned docs as `[[slug]]` wikilinks (opt-in).
+   * By default links stay markdown, re-pointed at the new paths (T14185).
+   */
+  readonly wikilinks?: boolean;
   /** Modernize the docs already in the store (re-kind, re-slug with aliases, ADR numbers). */
   readonly store?: boolean;
 }

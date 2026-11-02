@@ -286,10 +286,11 @@ function splitSections(text: string): { preamble: string; sections: string[] } {
  *
  * @param survivor - The kept doc's text.
  * @param duplicate - The merged doc's text.
- * @param duplicateSlug - The merged doc's slug, cited on what was appended.
+ * @param duplicateRef - How the merged doc is cited on what was appended: a
+ *   resolvable slug, already formatted (`` `slug` `` or `[[slug]]`).
  * @returns The merged text (the survivor unchanged when nothing is new).
  */
-export function mergeDocBodies(survivor: string, duplicate: string, duplicateSlug: string): string {
+export function mergeDocBodies(survivor: string, duplicate: string, duplicateRef: string): string {
   const own = splitSections(survivor);
   const ownBlocks = new Set(own.sections.map(normalizeBlock));
   const ownByHeading = new Map<string, string>();
@@ -308,7 +309,7 @@ export function mergeDocBodies(survivor: string, duplicate: string, duplicateSlu
     .join('\n')
     .trim();
   if (preamble && !whole.includes(normalizeBlock(preamble))) {
-    appended.push(`## From [[${duplicateSlug}]]\n\n${preamble}\n`);
+    appended.push(`## From ${duplicateRef}\n\n${preamble}\n`);
   }
   for (const section of dup.sections) {
     const headingLine = /^##\s+(.+)$/m.exec(section)?.[1]?.trim() ?? '';
@@ -319,51 +320,152 @@ export function mergeDocBodies(survivor: string, duplicate: string, duplicateSlu
       continue;
     }
     appended.push(
-      section.replace(/^##\s+.+$/m, `## ${headingLine} (from [[${duplicateSlug}]])`).trimEnd(),
+      section.replace(/^##\s+.+$/m, `## ${headingLine} (from ${duplicateRef})`).trimEnd(),
     );
   }
   if (appended.length === 0) return survivor;
-  return `${survivor.trimEnd()}\n\n<!-- merged from [[${duplicateSlug}]] by cleo docs modernize -->\n\n${appended.join('\n\n')}\n`;
+  return `${survivor.trimEnd()}\n\n<!-- merged from ${duplicateRef} by cleo docs modernize -->\n\n${appended.join('\n\n')}\n`;
+}
+
+/** Inline markdown links and images: `[label](href)` / `![alt](href)`; group 2 is the href. */
+const MARKDOWN_LINK = /(!?\[[^\]\n]*\])\(([^)\s]+)\)/g;
+
+/** Whether an href is a relative path (not a URL, an absolute path or a bare anchor). */
+function isRelativeHref(href: string): boolean {
+  return !/^[a-z][a-z0-9+.-]*:/i.test(href) && !href.startsWith('/') && !href.startsWith('#');
 }
 
 /**
- * Rewrite relative markdown links to files in the tree, and wikilinks to
- * renamed slugs, into `[[new-slug]]` / `[[new-slug|label]]`.
+ * Resolve a relative href against a root-relative file path.
+ *
+ * @param fromPath - The linking file's path relative to the root.
+ * @param href - The relative href (fragment allowed).
+ * @returns The target's root-relative path, or null when it leaves the root.
+ */
+function resolveRelative(fromPath: string, href: string): string | null {
+  const parts = fromPath.split('/').slice(0, -1);
+  for (const part of href.split('#')[0]?.split('/') ?? []) {
+    if (part === '' || part === '.') continue;
+    if (part === '..') {
+      if (parts.length === 0) return null;
+      parts.pop();
+    } else parts.push(decodeURIComponent(part));
+  }
+  return parts.join('/');
+}
+
+/** A root-relative path expressed relative to a directory (POSIX). */
+function relativeHref(fromDir: string[], to: string): string {
+  const target = to.split('/');
+  let common = 0;
+  while (common < fromDir.length && fromDir[common] === target[common]) common += 1;
+  const up = fromDir.slice(common).map(() => '..');
+  return [...up, ...target.slice(common)].join('/') || '.';
+}
+
+/**
+ * Re-point relative markdown links (and images) after a move, keeping them
+ * plain markdown so they still render on GitHub (T14185).
+ *
+ * A link's target is resolved from the file's OLD path. A target in the plan
+ * maps to its final path (a merged or deleted file maps to its survivor's),
+ * and any other target keeps its location; the href is then rewritten
+ * relative to the file's NEW path. Links that leave the root, URLs and
+ * anchors are left alone, and so is a link whose href would not change.
+ *
+ * @param content - Doc text.
+ * @param fromOld - The file's path before the move, relative to the root.
+ * @param toNew - The file's path after the move.
+ * @param finalPathOf - Root-relative old path → final path, for every planned file.
+ * @returns The text with every relative link pointing at the right place.
+ */
+export function repointMarkdownLinks(
+  content: string,
+  fromOld: string,
+  toNew: string,
+  finalPathOf: ReadonlyMap<string, string>,
+): string {
+  const newDir = toNew.split('/').slice(0, -1);
+  return content.replace(MARKDOWN_LINK, (whole, label: string, href: string) => {
+    if (!isRelativeHref(href)) return whole;
+    const target = resolveRelative(fromOld, href);
+    if (target === null) return whole;
+    const final = finalPathOf.get(target) ?? target;
+    if (fromOld === toNew && final === target) return whole; // nothing moved
+    const fragment = href.includes('#') ? href.slice(href.indexOf('#')) : '';
+    let next = relativeHref(newDir, final);
+    if (href.startsWith('./') && !next.startsWith('.')) next = `./${next}`;
+    return `${label}(${next.split('/').map(encodeURIComponent).join('/')}${fragment})`;
+  });
+}
+
+/**
+ * Turn relative markdown links to planned files into `[[slug]]` /
+ * `[[slug|label]]` wikilinks: the opt-in `--wikilinks` mode (T14185). Only a
+ * planned file's final slug is ever written, so every wikilink resolves.
  *
  * @param content - Doc text.
  * @param fromPath - The doc's own path relative to the root (resolves `../x.md`).
  * @param slugByPath - Every scanned file's path → its final slug.
- * @param slugRename - Old slug → final slug, for existing wikilinks.
- * @returns The rewritten text.
+ * @returns The rewritten text; links to files outside the plan are left as they are.
  */
 export function rewriteDocLinks(
   content: string,
   fromPath: string,
   slugByPath: ReadonlyMap<string, string>,
-  slugRename: ReadonlyMap<string, string>,
 ): string {
-  const dir = fromPath.split('/').slice(0, -1);
-  const resolvePath = (href: string): string | null => {
-    if (/^[a-z]+:/i.test(href) || href.startsWith('/') || href.startsWith('#')) return null;
-    const parts = [...dir];
-    for (const part of href.split('#')[0]?.split('/') ?? []) {
-      if (part === '' || part === '.') continue;
-      if (part === '..') parts.pop();
-      else parts.push(decodeURIComponent(part));
-    }
-    return parts.join('/');
-  };
-  const linked = content.replace(
+  return content.replace(
     /\[([^\]\n]*)\]\(([^)\s]+\.(?:md|txt))(#[^)\s]*)?\)/gi,
     (whole, label: string, href: string) => {
-      const target = resolvePath(href);
+      if (!isRelativeHref(href)) return whole;
+      const target = resolveRelative(fromPath, href);
       const slug = target ? slugByPath.get(target) : undefined;
       if (!slug) return whole;
       return label && label !== slug ? `[[${slug}|${label}]]` : `[[${slug}]]`;
     },
   );
-  return linked.replace(WIKILINK_PATTERN, (whole, target: string) => {
+}
+
+/**
+ * Re-point existing `[[old-name]]` wikilinks to the final slug of the file
+ * they named. Only names in `slugRename` change, and its values are planned
+ * slugs, so a rewritten wikilink always resolves (T14185).
+ *
+ * @param content - Doc text.
+ * @param slugRename - Old name → final slug.
+ * @returns The text with renamed wikilinks.
+ */
+export function renameWikilinks(content: string, slugRename: ReadonlyMap<string, string>): string {
+  return content.replace(WIKILINK_PATTERN, (whole, target: string) => {
     const renamed = slugRename.get(target.trim());
     return renamed ? whole.replace(target, renamed) : whole;
   });
+}
+
+/**
+ * The planned slugs a body links to: its `[[wikilinks]]` plus the final slug
+ * of every planned file its relative markdown links point at (resolved from
+ * the file's final path). Feeds the `links-to` graph edges in both link modes.
+ *
+ * @param content - The body as written.
+ * @param atPath - The file's final path, relative to the root.
+ * @param slugByFinalPath - Final path → slug, for every planned survivor.
+ * @param wikilinkTargets - The body's `[[wikilink]]` targets.
+ * @returns Linked slugs, unique, sorted.
+ */
+export function linkedSlugs(
+  content: string,
+  atPath: string,
+  slugByFinalPath: ReadonlyMap<string, string>,
+  wikilinkTargets: readonly string[],
+): string[] {
+  const out = new Set(wikilinkTargets);
+  for (const m of content.matchAll(MARKDOWN_LINK)) {
+    const href = m[2] ?? '';
+    if (!isRelativeHref(href)) continue;
+    const target = resolveRelative(atPath, href);
+    const slug = target ? slugByFinalPath.get(target) : undefined;
+    if (slug) out.add(slug);
+  }
+  return [...out].sort();
 }

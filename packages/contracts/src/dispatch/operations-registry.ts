@@ -8950,6 +8950,13 @@ export const OPERATIONS: OperationDef[] = [
         description: 'Apply even when the root is not a clean git checkout',
       },
       {
+        name: 'wikilinks',
+        type: 'boolean' as const,
+        required: false,
+        description:
+          'Rewrite relative links to planned docs as [[slug]] wikilinks (default: keep markdown links, re-pointed at the new paths)',
+      },
+      {
         name: 'store',
         type: 'boolean' as const,
         required: false,
