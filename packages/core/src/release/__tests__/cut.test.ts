@@ -701,6 +701,21 @@ describe('releaseChangelog (T14102)', () => {
     const second = await releaseChangelog({ version: NEXT, projectRoot: work, runner });
     expect(second.success && second.data.written).toBe(false);
   });
+
+  it('dates the section by the UTC day of the tag, not the tagger zone (T14172)', async () => {
+    // 18:30 at UTC-8 on Nov 1 is 02:30 UTC on Nov 2.
+    vi.stubEnv('GIT_COMMITTER_DATE', '2026-11-01T18:30:00-08:00');
+    try {
+      git(work, 'tag', '-a', `v${NEXT}`, '-m', `Release v${NEXT}`, shas.head);
+    } finally {
+      vi.unstubAllEnvs();
+    }
+    const { runner } = fakeRunner({});
+    await releaseChangelog({ version: NEXT, projectRoot: work, runner });
+    expect(readFileSync(join(work, 'CHANGELOG.md'), 'utf-8')).toContain(
+      `## [${NEXT}] (2026-11-02)`,
+    );
+  });
 });
 
 describe('reconcileLatestRelease (T14102)', () => {

@@ -1115,9 +1115,14 @@ export async function releaseChangelog(
         .runGit(['tag', '--list', '--format=%(contents)', version], cwd)
         .replace(new RegExp(`^${AUTHORIZED_BY_TRAILER}: \\S+$`, 'm'), '')
     : '';
-  const date = tagged
-    ? runner.runGit(['for-each-ref', '--format=%(creatordate:short)', tagRef], cwd).trim()
-    : new Date().toISOString().slice(0, 10);
+  // T14172: the UTC day, as release.yml's CalVer window counts it, not the tagger's zone.
+  const date = new Date(
+    tagged
+      ? Number(runner.runGit(['for-each-ref', '--format=%(creatordate:unix)', tagRef], cwd)) * 1000
+      : Date.now(),
+  )
+    .toISOString()
+    .slice(0, 10);
   const notes = renderNotes(
     entries,
     version,

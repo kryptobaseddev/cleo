@@ -7,7 +7,7 @@ adrRefs:
   - ADR-063
   - ADR-065
 metadata:
-  version: 3.6.0
+  version: 3.6.1
   tier: on-demand
   install: harness
   covers:
