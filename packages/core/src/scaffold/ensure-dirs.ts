@@ -9,6 +9,7 @@ import { mkdir } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import { promisify } from 'node:util';
 import type { ScaffoldResult } from '@cleocode/contracts/scaffold-diagnostics';
+import { discoveryEnv } from '../git/work-tree.js';
 import { getCleoHome } from '../paths.js';
 import { checkpointGitDir, migrateCheckpointGitDir } from '../store/checkpoint-git-dir.js';
 import { resolveScaffoldCleoDir } from './ensure-config.js';
@@ -92,7 +93,8 @@ export async function ensureCleoGitRepo(projectRoot: string): Promise<ScaffoldRe
   }
 
   const gitEnv: NodeJS.ProcessEnv = {
-    ...process.env,
+    // T14189: never an inherited GIT_INDEX_FILE (a git hook's index).
+    ...discoveryEnv(),
     GIT_DIR: cleoGitDir,
     GIT_WORK_TREE: cleoDir,
   };
@@ -133,11 +135,9 @@ export async function ensureProjectGitInitialCommit(projectRoot: string): Promis
     };
   }
 
-  const cleanEnv: NodeJS.ProcessEnv = { ...process.env };
-  cleanEnv.GIT_DIR = undefined;
-  cleanEnv.GIT_WORK_TREE = undefined;
-  delete cleanEnv.GIT_DIR;
-  delete cleanEnv.GIT_WORK_TREE;
+  // T14189: strip every ambient repo variable, GIT_INDEX_FILE included, or the
+  // initial commit would record a calling hook's index.
+  const cleanEnv: NodeJS.ProcessEnv = discoveryEnv();
 
   try {
     await execFileAsync('git', ['rev-parse', '--verify', '--quiet', 'HEAD'], {

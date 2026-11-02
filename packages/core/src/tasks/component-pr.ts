@@ -36,6 +36,7 @@ import { execFileSync } from 'node:child_process';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { discoveryEnv } from '../git/work-tree.js';
 import { ghQueryTimeoutMs, ghTimeoutReason, isGhTimeout } from '../release/github-pr.js';
 
 /** One component PR as `gh pr view` reports it. */
@@ -445,7 +446,8 @@ function hunkChecker(
   const ready = (): NodeJS.ProcessEnv | null => {
     if (env || failed) return env;
     dir = mkdtempSync(join(tmpdir(), 'cleo-component-index-'));
-    const candidate = { ...process.env, GIT_INDEX_FILE: join(dir, 'index') };
+    // T14189: root's own repository, never an inherited GIT_DIR/GIT_WORK_TREE.
+    const candidate = { ...discoveryEnv(), GIT_INDEX_FILE: join(dir, 'index') };
     try {
       runGit(root, ['read-tree', landingMerge], { env: candidate });
       env = candidate;

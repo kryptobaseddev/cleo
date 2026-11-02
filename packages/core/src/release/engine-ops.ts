@@ -27,6 +27,7 @@ import {
 } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { type EngineResult, engineError, engineSuccess } from '../engine-result.js';
+import { discoveryEnv } from '../git/work-tree.js';
 import { getIvtrState } from '../lifecycle/ivtr-loop.js';
 import { getLogger } from '../logger.js';
 import { getProjectRoot } from '../paths.js';
@@ -90,12 +91,18 @@ export function runGitWithLockRetry(
   // Ensure a supervisor timeout is always set. Callers may omit it, but we
   // must never allow a hung git child process to wedge the parent forever.
   // Default: 60s. Callers that pass an explicit timeout in opts take precedence.
-  const effectiveOpts: Parameters<typeof execFileSync>[2] =
+  // T14189: without an explicit env, git acts on `cwd`'s repository, never an
+  // inherited hook index or GIT_DIR (this helper also stages and commits).
+  const withEnv: Parameters<typeof execFileSync>[2] =
     typeof opts === 'object' && opts !== null
-      ? 'timeout' in opts
+      ? 'env' in opts && opts.env !== undefined
         ? opts
-        : { ...opts, timeout: 60_000 }
-      : { timeout: 60_000 };
+        : { ...opts, env: discoveryEnv() }
+      : { env: discoveryEnv() };
+  const effectiveOpts: Parameters<typeof execFileSync>[2] =
+    typeof withEnv === 'object' && withEnv !== null && 'timeout' in withEnv
+      ? withEnv
+      : { ...withEnv, timeout: 60_000 };
 
   // Extract cwd once — used for lock-file cleanup on both timeout and lock errors.
   const cwdStr =

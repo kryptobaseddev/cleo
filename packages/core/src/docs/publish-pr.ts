@@ -26,6 +26,7 @@ import { join } from 'node:path';
 import { promisify } from 'node:util';
 import { BUILTIN_DOC_KIND_VALUES, DocKindRegistry } from '@cleocode/contracts/docs-taxonomy.js';
 import { addTransientWorktree, removeTransientWorktree } from '@cleocode/worktree';
+import { discoveryEnv } from '../git/work-tree.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -215,7 +216,8 @@ export async function defaultRun(
   args: readonly string[],
   cwd: string,
 ): Promise<{ stdout: string; stderr: string }> {
-  const opts: ExecFileOptions = { cwd, env: process.env, maxBuffer: 8 * 1024 * 1024 };
+  // T14189: git acts on `cwd`'s repository, never an inherited hook index or GIT_DIR.
+  const opts: ExecFileOptions = { cwd, env: discoveryEnv(), maxBuffer: 8 * 1024 * 1024 };
   const { stdout, stderr } = await execFileAsync(bin, [...args], opts);
   return {
     stdout: typeof stdout === 'string' ? stdout : stdout.toString('utf-8'),

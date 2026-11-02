@@ -16,6 +16,7 @@ import { existsSync } from 'node:fs';
 import { readFile, writeFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import { promisify } from 'node:util';
+import { discoveryEnv } from '../git/work-tree.js';
 import { getCleoDir, getConfigPath } from '../paths.js';
 import { checkpointGitDir } from './checkpoint-git-dir.js';
 import { readJson } from './json.js';
@@ -24,14 +25,19 @@ const execFileAsync = promisify(execFile);
 
 /**
  * Build environment variables that point git at the isolated .cleo/.git repo.
+ *
+ * Every ambient repo variable is stripped first (T14189): a `cleo` call inside
+ * a git hook inherits git's `GIT_INDEX_FILE`, and the checkpoint's `git add`
+ * and failure `reset` then wrote `.cleo` state files into the HOOK's index.
  * @task T4872
+ * @task T14189
  */
 export function makeCleoGitEnv(cleoDir: string): NodeJS.ProcessEnv {
   // resolve() ensures GIT_DIR and GIT_WORK_TREE are absolute even when cleoDir
   // is a relative path (e.g. '.cleo' returned by getCleoDir() with no cwd arg)
   const abs = resolve(cleoDir);
   return {
-    ...process.env,
+    ...discoveryEnv(),
     GIT_DIR: checkpointGitDir(abs),
     GIT_WORK_TREE: abs,
   };
