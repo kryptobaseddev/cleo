@@ -2013,6 +2013,86 @@ describe('resolveCiEvidenceAtom', () => {
       expect(r.ok).toBe(false);
       expect(!r.ok && r.reason).toMatch(/the PR introduced this failure/);
     });
+
+    describe('T14176: a later run red only on a runner cancel or worker crash is passed over (T14157)', () => {
+      const DESC2 = '2'.repeat(40);
+      const DESC1_BUILD = BUILD_RUN + 1;
+      /** Merge c159f3658: its CI run was cancelled. */
+      const cancelledMerge = allGreen.map((c) =>
+        c.workflowPath === CI_WORKFLOW
+          ? { ...c, headSha: MERGE, conclusion: 'cancelled' }
+          : { ...c, headSha: MERGE },
+      );
+      /** Main 6450effe7 (#2610): a job killed by a runner shutdown, CI red. */
+      const redCandidate = cancelledBuild(DESC1).map((c) => ({
+        ...c,
+        event: 'push',
+        ...(c.id === BUILD_RUN ? { id: DESC1_BUILD } : {}),
+      }));
+      const walk = (candidateLog: string) => {
+        const fetched: string[] = [];
+        const result = resolve({
+          context: context('T1', ['testsPassed', 'qaPassed']),
+          fetchChecks: async (sha) => {
+            fetched.push(sha);
+            return {
+              ok: true,
+              checks:
+                sha === MERGE
+                  ? cancelledMerge
+                  : sha === HEAD
+                    ? onHead
+                    : sha === DESC1
+                      ? redCandidate
+                      : sha === DESC2
+                        ? onSha(DESC2)
+                        : [],
+            };
+          },
+          listDescendants: () => [DESC1, DESC2],
+          isAncestor: (a, d) => a === MERGE && (d === DESC1 || d === DESC2),
+          touchingCommits: () => [],
+          fetchJobLog: async (jobId) => (jobId === DESC1_BUILD ? candidateLog : null),
+        });
+        return { result, fetched };
+      };
+
+      it('a cancelled merge run is attested by the next green main run past the runner-cancelled one', async () => {
+        const r = await walk(CANCELLED_LOG).result;
+        expect(r.ok, JSON.stringify(r)).toBe(true);
+        const atom = r.ok && r.atom.kind === 'ci' ? r.atom : null;
+        expect(atom?.descendantSha).toBe(DESC2);
+        expect(atom?.checks.find((c) => c.name === 'CI')?.sha).toBe(DESC2);
+        expect(atom?.passedOverRuns).toEqual([
+          {
+            sha: DESC1,
+            jobs: [BUILD],
+            reason: 'its failing jobs ran no test to completion (the runner was cancelled)',
+          },
+        ]);
+      });
+
+      it('a worker-crash-only later run is passed over the same way', async () => {
+        const r = await walk(CRASHED_LOG).result;
+        expect(r.ok, JSON.stringify(r)).toBe(true);
+        expect(r.ok && r.atom.kind === 'ci' && r.atom.passedOverRuns?.[0]?.reason).toBe(
+          'its failing jobs ran no test to completion (a test worker crashed)',
+        );
+      });
+
+      it("a later run whose failure could be the PR's still refuses, and no later green run is consulted", async () => {
+        for (const log of [
+          CANCELLED_LOG.replace('Generating type declarations...', '##[error]TS2322'),
+          `${CRASHED_LOG}\n FAIL   src/x.test.ts > breaks`,
+        ]) {
+          const { result, fetched } = walk(log);
+          const r = await result;
+          expect(r.ok).toBe(false);
+          expect(!r.ok && r.reason).toMatch(/: failure on later origin\/main commit 111111111111/);
+          expect(fetched).not.toContain(DESC2);
+        }
+      });
+    });
   });
 
   describe('a check run with incomplete identity is pending, never a foreign app (T13017)', () => {

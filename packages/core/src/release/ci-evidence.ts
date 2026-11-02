@@ -1509,6 +1509,12 @@ export function untestedFailureCause(log: string): UntestedFailureCause | null {
   return null;
 }
 
+/** How a passed-over run names each {@link UntestedFailureCause} (T14176). */
+const UNTESTED_CAUSE_TEXT: Record<UntestedFailureCause, string> = {
+  'runner-cancel': 'the runner was cancelled',
+  'worker-crash': 'a test worker crashed',
+};
+
 /** One failing job that tested nothing of the change, and why (T14074). */
 export interface UntestedJobFailure {
   name: string;
@@ -1786,8 +1792,10 @@ function ciDefinitionPaths(
  *    failed job of a pinned workflow) refuses, and a PENDING run refuses with
  *    "wait for <sha>" — a later green run is never shopped for past one that
  *    is red or may still go red. Only cancelled, skipped and missing
- *    (never-started) runs, and a run red only for the flaky-quarantine budget
- *    (T13809), move on to the next candidate.
+ *    (never-started) runs, a run red only for the flaky-quarantine budget
+ *    (T13809), and a run whose every failing job tested nothing — its runner
+ *    was cancelled or a test worker crashed, no test failed (T14176) — move
+ *    on to the next candidate.
  *
  * @param input - Merge-commit checks, pins, changed paths, PR head and injected I/O.
  * @returns The stand-in SHA, its checks and proven range, or the refusal reason.
@@ -1992,6 +2000,27 @@ export async function findGreenDescendant(
         continue;
       }
       if (await failedBeforeAnyTest(fetched.checks, sha, required, pins, input.fetchJobLog, cwd)) {
+        continue;
+      }
+      // T14176: a run whose every failing job tested nothing (its runner was
+      // cancelled, or a test worker crashed with no test failed) cannot show
+      // the PR failing either; look on, recording it. A failed test still refuses.
+      const untestedHere = await untestedJobFailures(
+        fetched.checks,
+        sha,
+        required,
+        pins,
+        input.fetchJobLog,
+        cwd,
+      );
+      if (untestedHere.all) {
+        passedOver.push({
+          sha,
+          jobs: untestedHere.jobs.map((j) => j.name),
+          reason: `its failing jobs ran no test to completion (${[
+            ...new Set(untestedHere.jobs.map((j) => UNTESTED_CAUSE_TEXT[j.cause])),
+          ].join(', ')})`,
+        });
         continue;
       }
     }
