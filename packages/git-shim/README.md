@@ -1,5 +1,7 @@
 # @cleocode/git-shim
 
+> Part of [CLEO](https://github.com/kryptobaseddev/cleo#readme). Start with the root README; run `cleo <command> --help` for any command.
+
 Harness-agnostic `git` PATH override that fences agent (worker | lead |
 subagent) git invocations. Provides two layers of enforcement:
 

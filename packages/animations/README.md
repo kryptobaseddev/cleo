@@ -1,5 +1,7 @@
 # @cleocode/animations
 
+> Part of [CLEO](https://github.com/kryptobaseddev/cleo#readme). Start with the root README; run `cleo <command> --help` for any command.
+
 **Unicode terminal animations for the cleo CLI and CleoOS** — woven on the LOOM, gated by LAFS.
 
 Provides four primitive surfaces, each gated by a single `AnimateContext` so the

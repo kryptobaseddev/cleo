@@ -1,5 +1,7 @@
 # @cleocode/skills
 
+> Part of [CLEO](https://github.com/kryptobaseddev/cleo#readme). Start with the root README; run `cleo <command> --help` for any command.
+
 CLEO skill definitions - bundled capabilities for AI agents.
 
 ## Overview
@@ -61,7 +63,7 @@ installability and every documented `cleo` command honest.
 | **ct-epic-architect** | Epic planning and task decomposition for breaking down large initiatives into atomic, executable tasks. |
 | **ct-ivt-looper** | Runs a project-agnostic autonomous Implement-then-Validate-then-Test compliance loop on any git worktree. |
 | **ct-provenance-keeper** | Generates in-toto v1 attestations, SLSA-level provenance records, SBOMs (CycloneDX or SPDX), and sigstore/cosi… |
-| **ct-release-orchestrator** | Orchestrates the canonical 4-verb release pipeline introduced by SPEC-T9345: cleo release plan, then cleo rele… |
+| **ct-release-orchestrator** | Orchestrates CLEO releases: `cleo release cut <version>` tags the newest main commit with green CI, and release.yml writes the CHANGELOG from changesets and publishes. |
 | **ct-research-agent** | Multi-source research and investigation combining web search, documentation lookup via Context7, and codebase … |
 | **ct-spec-writer** | Technical specification writing using RFC 2119 language for clear, unambiguous requirements. |
 | **ct-validator** | Compliance validation for verifying systems, documents, or code against requirements, schemas, or standards. |

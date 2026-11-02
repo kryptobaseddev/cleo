@@ -1,5 +1,7 @@
 # @cleocode/nexus
 
+> Part of [CLEO](https://github.com/kryptobaseddev/cleo#readme). Start with the root README; run `cleo <command> --help` for any command.
+
 CLEO project registry and code intelligence — unified nexus package.
 
 ## Overview

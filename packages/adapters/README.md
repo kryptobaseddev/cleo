@@ -1,5 +1,7 @@
 # @cleocode/adapters
 
+> Part of [CLEO](https://github.com/kryptobaseddev/cleo#readme). Start with the root README; run `cleo <command> --help` for any command.
+
 Unified provider adapters for CLEO - Claude Code, OpenCode, Cursor integration.
 
 ## Overview

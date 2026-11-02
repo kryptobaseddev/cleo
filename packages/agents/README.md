@@ -1,5 +1,7 @@
 # @cleocode/agents
 
+> Part of [CLEO](https://github.com/kryptobaseddev/cleo#readme). Start with the root README; run `cleo <command> --help` for any command.
+
 Universal subagent protocol, canonical worker templates, and meta-agents for the
 CLEO ecosystem.
 

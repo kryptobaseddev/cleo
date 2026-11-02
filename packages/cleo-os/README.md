@@ -1,5 +1,7 @@
 # CleoOS
 
+> Part of [CLEO](https://github.com/kryptobaseddev/cleo#readme). Start with the root README; run `cleo <command> --help` for any command.
+
 > The batteries-included agentic development environment.
 > One developer. Many agents. One operating system for the work.
 

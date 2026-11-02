@@ -13,6 +13,8 @@
 
 # CAAMP - Central AI Agent Managed Packages
 
+> Part of [CLEO](https://github.com/kryptobaseddev/cleo#readme). Start with the root README; run `cleo <command> --help` for any command.
+
 **One CLI to manage Skills, MCP servers, and instruction files across 44 AI coding agents.**
 
 CAAMP is a unified provider registry and package manager for AI coding agents. It replaces the need to manually configure each agent's MCP servers, skills, and instruction files individually -- handling the differences in config formats (JSON, JSONC, YAML, TOML), config keys (`mcpServers`, `mcp_servers`, `extensions`, `mcp`, `servers`, `context_servers`), and file paths across all supported providers.
