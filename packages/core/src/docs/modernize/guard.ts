@@ -155,7 +155,8 @@ export function parseModernizeReceipt(raw: string, projectRoot: string): DocsMod
 /**
  * Check that a plan hangs together: every `merge-into`/`delete` row names a
  * survivor's slug (so its content has somewhere to go), every `keep` row
- * targets its own path, and every survivor target is a `.md`/`.txt` file.
+ * targets its own path, every survivor target is a `.md`/`.txt` file, and
+ * every `link-fix` names a kept file of a tree plan.
  *
  * @param plan - The plan.
  * @throws DocsModernizeUnsafeError on the first inconsistent row.
@@ -180,6 +181,17 @@ export function assertPlanConsistent(plan: DocsModernizePlan): void {
         bad('keep must target its own path');
       if (!row.target || !/\.(md|txt)$/i.test(row.target))
         bad('a survivor must target a .md or .txt file');
+    }
+  }
+  const kept = new Set(
+    plan.mode === 'tree'
+      ? plan.rows.filter((r) => r.disposition === 'keep').map((r) => r.path)
+      : [],
+  );
+  for (const fix of plan.linkFixes ?? []) {
+    if (!kept.has(fix.path)) {
+      // @sync-invariant none:input-shape a link fix for a file the plan does not keep is refused before any write
+      throw new DocsModernizeUnsafeError(`link-fix ${fix.path}: only a kept file of a tree plan`);
     }
   }
 }

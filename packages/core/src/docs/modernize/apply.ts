@@ -63,6 +63,8 @@ import { normalizeSlug } from '../slug-normalize.js';
 import { assertPlanConsistent, assertPlanPaths, parseModernizeReceipt, safeJoin } from './guard.js';
 import { readSupersessionPrior, restoreSupersession, revertDocUpdate } from './restore.js';
 import {
+  applyLinkFixes,
+  finalPaths,
   linkedSlugs,
   mergeDocBodies,
   renameWikilinks,
@@ -440,18 +442,8 @@ export async function applyDocsModernize(
         const base = normalizeSlug((row.path.split('/').pop() ?? '').replace(/\.[^.]+$/, ''));
         if (base && base !== row.slug && baseCount.get(base) === 1) slugRename.set(base, row.slug);
       }
-      // Where every planned file ends up: a survivor at its target, a merged
-      // or deleted file at its survivor's target (T14185).
       const survivorBySlug = new Map(survivors.map((r) => [r.slug, r]));
-      const finalPathOf = new Map<string, string>();
-      for (const row of plan.rows) {
-        if (row.disposition === 'keep' || row.disposition === 'rename') {
-          finalPathOf.set(row.path, row.target ?? row.path);
-        } else {
-          const survivor = row.target ? survivorBySlug.get(row.target) : undefined;
-          if (survivor) finalPathOf.set(row.path, survivor.target ?? survivor.path);
-        }
-      }
+      const finalPathOf = finalPaths(plan.rows);
       // The resolvable slug each merged or deleted file is stored and cited
       // under: its existing doc's slug, or a fresh legacy slug (never a
       // folder-prefixed path id, T14185).
@@ -468,8 +460,8 @@ export async function applyDocsModernize(
         }
       }
       const cite = (slug: string): string => (options.wikilinks ? `[[${slug}]]` : `\`${slug}\``);
-      // A keep-marked file is never rewritten on disk (T14185); its folds and
-      // link fixes live in the store doc only.
+      // A keep-marked file gets only the plan's `link-fix` hrefs on disk
+      // (T14185); its folds live in the store doc only.
       const keepPaths = new Set(
         survivors.filter((r) => r.disposition === 'keep').map((r) => r.path),
       );
@@ -491,7 +483,15 @@ export async function applyDocsModernize(
         body = repointMarkdownLinks(body, row.path, row.target ?? row.path, finalPathOf);
         body = renameWikilinks(body, slugRename);
         storeBodies.set(row.path, body);
-        bodies.set(row.path, keepPaths.has(row.path) ? original : body);
+        bodies.set(
+          row.path,
+          keepPaths.has(row.path)
+            ? applyLinkFixes(
+                original,
+                (plan.linkFixes ?? []).filter((f) => f.path === row.path),
+              )
+            : body,
+        );
       }
 
       // Pass 2 — store.

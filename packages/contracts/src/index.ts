@@ -428,6 +428,7 @@ export type {
   DocsModernizeJudgment,
   DocsModernizeJudgmentQuestion,
   DocsModernizeJudgmentSource,
+  DocsModernizeLinkFix,
   DocsModernizeOpKind,
   DocsModernizeOpPrior,
   DocsModernizeOpState,

@@ -10,7 +10,7 @@
  * @epic T14106
  */
 
-import type { DocKindMetadata } from '@cleocode/contracts';
+import type { DocKindMetadata, DocsModernizePlanRow } from '@cleocode/contracts';
 import { WIKILINK_PATTERN } from '../derive-links.js';
 import { DOC_NAME_MAX_LENGTH, docNameViolation, subjectSlug } from '../doc-name-rule.js';
 
@@ -364,6 +364,29 @@ function relativeHref(fromDir: string[], to: string): string {
 }
 
 /**
+ * Where one relative href points after a move, or null when it stays as is
+ * (a URL, an anchor, a link leaving the root, or nothing moved).
+ */
+function repointHref(
+  href: string,
+  fromOld: string,
+  newDir: string[],
+  moved: boolean,
+  finalPathOf: ReadonlyMap<string, string>,
+): string | null {
+  if (!isRelativeHref(href)) return null;
+  const target = resolveRelative(fromOld, href);
+  if (target === null) return null;
+  const final = finalPathOf.get(target) ?? target;
+  if (!moved && final === target) return null;
+  const fragment = href.includes('#') ? href.slice(href.indexOf('#')) : '';
+  let next = relativeHref(newDir, final);
+  if (href.startsWith('./') && !next.startsWith('.')) next = `./${next}`;
+  next = `${next.split('/').map(encodeURIComponent).join('/')}${fragment}`;
+  return next === href ? null : next;
+}
+
+/**
  * Re-point relative markdown links (and images) after a move, keeping them
  * plain markdown so they still render on GitHub (T14185).
  *
@@ -387,16 +410,80 @@ export function repointMarkdownLinks(
 ): string {
   const newDir = toNew.split('/').slice(0, -1);
   return content.replace(MARKDOWN_LINK, (whole, label: string, href: string) => {
-    if (!isRelativeHref(href)) return whole;
-    const target = resolveRelative(fromOld, href);
-    if (target === null) return whole;
-    const final = finalPathOf.get(target) ?? target;
-    if (fromOld === toNew && final === target) return whole; // nothing moved
-    const fragment = href.includes('#') ? href.slice(href.indexOf('#')) : '';
-    let next = relativeHref(newDir, final);
-    if (href.startsWith('./') && !next.startsWith('.')) next = `./${next}`;
-    return `${label}(${next.split('/').map(encodeURIComponent).join('/')}${fragment})`;
+    const next = repointHref(href, fromOld, newDir, fromOld !== toNew, finalPathOf);
+    return next === null ? whole : `${label}(${next})`;
   });
+}
+
+/**
+ * The href edits a file that stays where it is needs because link targets
+ * move: the `link-fix` rows of a plan's kept files (T14185). Each distinct
+ * href is listed once.
+ *
+ * @param content - Doc text.
+ * @param path - The file's path, relative to the root (it does not move).
+ * @param finalPathOf - Root-relative old path → final path, for every planned file.
+ * @returns `{ href, newHref }` pairs, in order of first appearance.
+ */
+export function markdownLinkFixes(
+  content: string,
+  path: string,
+  finalPathOf: ReadonlyMap<string, string>,
+): { href: string; newHref: string }[] {
+  const newDir = path.split('/').slice(0, -1);
+  const fixes = new Map<string, string>();
+  for (const match of content.matchAll(MARKDOWN_LINK)) {
+    const href = match[2] ?? '';
+    if (fixes.has(href)) continue;
+    const next = repointHref(href, path, newDir, false, finalPathOf);
+    if (next !== null) fixes.set(href, next);
+  }
+  return [...fixes].map(([href, newHref]) => ({ href, newHref }));
+}
+
+/**
+ * Apply `link-fix` rows to a kept file: only the listed hrefs of markdown
+ * links change, every other byte stays as it was (T14185).
+ *
+ * @param content - Doc text.
+ * @param fixes - The plan's fixes for this file.
+ * @returns The text with exactly those hrefs replaced.
+ */
+export function applyLinkFixes(
+  content: string,
+  fixes: readonly { readonly href: string; readonly newHref: string }[],
+): string {
+  if (fixes.length === 0) return content;
+  const byHref = new Map(fixes.map((f) => [f.href, f.newHref]));
+  return content.replace(MARKDOWN_LINK, (whole, label: string, href: string) => {
+    const next = byHref.get(href);
+    return next === undefined ? whole : `${label}(${next})`;
+  });
+}
+
+/**
+ * Where every planned file ends up: a survivor at its target, a merged or
+ * deleted file at its survivor's target (T14185).
+ *
+ * @param rows - The plan rows.
+ * @returns Root-relative old path → final path.
+ */
+export function finalPaths(rows: readonly DocsModernizePlanRow[]): Map<string, string> {
+  const survivorBySlug = new Map(
+    rows
+      .filter((r) => r.disposition === 'keep' || r.disposition === 'rename')
+      .map((r) => [r.slug, r]),
+  );
+  const finalPathOf = new Map<string, string>();
+  for (const row of rows) {
+    if (row.disposition === 'keep' || row.disposition === 'rename') {
+      finalPathOf.set(row.path, row.target ?? row.path);
+    } else {
+      const survivor = row.target ? survivorBySlug.get(row.target) : undefined;
+      if (survivor) finalPathOf.set(row.path, survivor.target ?? survivor.path);
+    }
+  }
+  return finalPathOf;
 }
 
 /**

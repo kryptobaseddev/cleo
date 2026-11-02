@@ -2,7 +2,7 @@
 id: modernize-markdown-links
 tasks: [T14185]
 kind: fix
-summary: "docs modernize --apply keeps relative markdown links (re-pointed at new paths) unless --wikilinks is given, writes only resolvable slugs, and never rewrites files the plan marks keep"
+summary: "docs modernize --apply keeps relative markdown links (re-pointed at new paths) unless --wikilinks is given, writes only resolvable slugs, and edits kept files only by the link-fix rows the dry run lists"
 ---
 
 Found in lane-d's T14108 group 1 run, which was rolled back:
@@ -18,5 +18,9 @@ Found in lane-d's T14108 group 1 run, which was rolled back:
   `specs-cleo-logging-contract`. A superseded file is stored even when its
   survivor's bytes already exist under another name, so the cited slug always
   resolves.
-- **Keep means untouched.** A file the plan marks `keep` is never rewritten on
-  disk. Its folds and link fixes live in the store doc only.
+- **Keep means no unplanned edits.** In a file the plan marks `keep`, apply
+  re-points only the hrefs of relative links whose targets move, and nothing
+  else. Each such edit is a `link-fix` row in the dry-run plan (`linkFixes`),
+  so apply never does what the dry run did not show, and a plan whose
+  `link-fix` names a file it does not keep is refused. Folds into a kept file
+  live in the store doc only.

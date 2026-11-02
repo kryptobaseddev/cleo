@@ -28,8 +28,10 @@ import { applyDocsModernize, rollbackDocsModernize } from '../apply.js';
 import { parseModernizeOverrides, parseModernizePlan } from '../guard.js';
 import { planDocsModernize } from '../plan.js';
 import {
+  applyLinkFixes,
   classifyDocByRules,
   docSimilarity,
+  markdownLinkFixes,
   mergeDocBodies,
   renameWikilinks,
   repointMarkdownLinks,
@@ -141,6 +143,14 @@ describe('modernize rules', () => {
     expect(
       repointMarkdownLinks('[o](../other/o.md)', 'notes/n.md', 'notes/n.md', finalPathOf),
     ).toBe('[o](../other/o.md)');
+    // A kept file: only hrefs whose targets move are listed, and applying the
+    // list changes those hrefs and nothing else.
+    const kept = '# Kept\n\n[m](../plans/old.md) twice [m2](../plans/old.md), [o](../other/o.md)\n';
+    const fixes = markdownLinkFixes(kept, 'notes/k.md', finalPathOf);
+    expect(fixes).toEqual([{ href: '../plans/old.md', newHref: '../plan/merged.md' }]);
+    expect(applyLinkFixes(kept, fixes)).toBe(
+      '# Kept\n\n[m](../plan/merged.md) twice [m2](../plan/merged.md), [o](../other/o.md)\n',
+    );
   });
 });
 
@@ -316,9 +326,17 @@ describe('modernize plan → apply → rollback (fixture tree)', () => {
     expect(plan2).toContain('merged from `self-healing-plan-superseded`');
     expect(plan2).not.toMatch(/plans-/);
 
-    // T14185: a keep-marked file is never rewritten, even when it links to a moved file.
+    // T14185: a kept file that links to a moved file gets only that href
+    // re-pointed, and the dry run listed exactly that edit.
+    const keptFix = {
+      kind: 'link-fix',
+      path: 'adr/adr-001-store.md',
+      href: '../specs/T832-gate-integrity-spec.md',
+      newHref: '../spec/gate-integrity-spec.md',
+    };
+    expect(plan.linkFixes).toEqual([keptFix]);
     expect(readFileSync(join(docsRoot, 'adr/adr-001-store.md'), 'utf-8')).toBe(
-      original.get('adr/adr-001-store.md'),
+      original.get('adr/adr-001-store.md')?.replace(keptFix.href, keptFix.newHref),
     );
     expect(receipt.ops.some((o) => o.op === 'supersede' && o.target === 'self-healing-plan')).toBe(
       true,
@@ -541,7 +559,11 @@ describe('modernize plan → apply → rollback (fixture tree)', () => {
       // The crash case applies only the merging file, so the merge is the
       // last store step and truncating the journal after it is faithful.
       const used = crashed
-        ? { ...plan, rows: plan.rows.filter((r) => r.slug === 'gate-integrity-spec') }
+        ? {
+            ...plan,
+            rows: plan.rows.filter((r) => r.slug === 'gate-integrity-spec'),
+            linkFixes: [],
+          }
         : plan;
       const receipt = await applyDocsModernize({ plan: used, projectRoot, allowDirty: true });
       const now = await store.findBySlug('gate-integrity-spec', projectRoot);
@@ -588,7 +610,11 @@ describe('modernize plan → apply → rollback (fixture tree)', () => {
       projectRoot,
       decide: { connection: null },
     });
-    const only = { ...plan, rows: plan.rows.filter((r) => r.slug === 'gate-integrity-spec') };
+    const only = {
+      ...plan,
+      rows: plan.rows.filter((r) => r.slug === 'gate-integrity-spec'),
+      linkFixes: [],
+    };
     const receipt = await applyDocsModernize({ plan: only, projectRoot, allowDirty: true });
     expect(receipt.ops.some((o) => o.op === 'merge')).toBe(true);
     // A crash mid-append leaves half a line at the end of the journal.
@@ -621,6 +647,43 @@ describe('modernize plan → apply → rollback (fixture tree)', () => {
     )) {
       expect(await store.findBySlug(target, projectRoot)).not.toBeNull();
     }
+    // Kept files keep markdown: their link fixes are hrefs, never wikilinks.
+    expect(readFileSync(join(docsRoot, 'adr/adr-001-store.md'), 'utf-8')).toBe(
+      original
+        .get('adr/adr-001-store.md')
+        ?.replace('../specs/T832-gate-integrity-spec.md', '../spec/gate-integrity-spec.md'),
+    );
+  });
+
+  it('edits a kept file only as the plan lists, and refuses a link fix on a file it does not keep (T14185)', async () => {
+    const plan = await planDocsModernize({
+      root: docsRoot,
+      projectRoot,
+      decide: { connection: null },
+    });
+    await expect(
+      applyDocsModernize({
+        plan: {
+          ...plan,
+          linkFixes: [
+            {
+              kind: 'link-fix',
+              path: 'handoffs/T12256-agent-handoff-20260920.md',
+              href: 'x.md',
+              newHref: 'y.md',
+            },
+          ],
+        },
+        projectRoot,
+        allowDirty: true,
+      }),
+    ).rejects.toThrow(/link-fix/);
+    // A plan without the fix row leaves the kept file byte-identical.
+    await applyDocsModernize({
+      plan: { ...plan, linkFixes: [] },
+      projectRoot,
+      allowDirty: true,
+    });
     expect(readFileSync(join(docsRoot, 'adr/adr-001-store.md'), 'utf-8')).toBe(
       original.get('adr/adr-001-store.md'),
     );
