@@ -20,6 +20,7 @@ import {
   docsModernizePlanSchema,
   docsModernizeReceiptSchema,
 } from '@cleocode/contracts/docs/modernize.js';
+import { gitCommonDir } from '../../git/work-tree.js';
 
 /** Raised when a plan, receipt or path fails a guard. */
 export class DocsModernizeUnsafeError extends Error {
@@ -75,21 +76,53 @@ export function safeJoin(root: string, rel: string): string {
 }
 
 /**
- * Check that a modernize root sits inside the project.
+ * Check that the invoking checkout is the project root or a git worktree of
+ * the SAME repository (one git common dir), so no checkout of an unrelated
+ * repository can be written to or read as the project's (T14188).
+ *
+ * @param projectRoot - Project root.
+ * @param checkoutRoot - The invoking checkout.
+ * @throws DocsModernizeUnsafeError when it is another repository, or git cannot tell.
+ */
+export function assertCheckoutOfProject(projectRoot: string, checkoutRoot: string): void {
+  if (resolve(projectRoot) === resolve(checkoutRoot)) return;
+  const project = gitCommonDir(projectRoot);
+  const checkout = gitCommonDir(checkoutRoot);
+  if (project === null || project !== checkout) {
+    // @sync-invariant none:input-shape a checkout of another repository is refused before any read or write
+    throw new DocsModernizeUnsafeError(
+      `checkout ${checkoutRoot} is not a worktree of the project ${projectRoot} ` +
+        `(git common dir ${checkout ?? 'unknown'} vs ${project ?? 'unknown'})`,
+    );
+  }
+}
+
+/**
+ * Check that a modernize root sits inside the project, or inside the checkout
+ * the command was started from, once that checkout is proven a worktree of
+ * the project's repository ({@link assertCheckoutOfProject}, T14188).
  *
  * @param projectRoot - Project root.
  * @param root - Absolute modernize root.
- * @throws DocsModernizeUnsafeError when it does not.
+ * @param checkoutRoot - The invoking checkout (default: the project root).
+ * @throws DocsModernizeUnsafeError when it sits in neither, or the checkout is
+ *   another repository's.
  */
-export function assertRootInProject(projectRoot: string, root: string): void {
+export function assertRootInProject(
+  projectRoot: string,
+  root: string,
+  checkoutRoot: string = projectRoot,
+): void {
+  assertCheckoutOfProject(projectRoot, checkoutRoot);
   if (
     !isAbsolute(root) ||
     !existsSync(root) ||
-    !within(realpathSync(projectRoot), realpathSync(root))
+    ![projectRoot, checkoutRoot].some((r) => within(realpathSync(r), realpathSync(root)))
   ) {
     // @sync-invariant none:input-shape a modernize root outside the project is refused before any write
     throw new DocsModernizeUnsafeError(
-      `modernize root ${root} is not inside the project ${projectRoot}`,
+      `modernize root ${root} is not inside the project ${projectRoot}` +
+        (checkoutRoot === projectRoot ? '' : ` or the checkout ${checkoutRoot}`),
     );
   }
 }
@@ -99,10 +132,15 @@ export function assertRootInProject(projectRoot: string, root: string): void {
  *
  * @param raw - File text.
  * @param projectRoot - Project root.
+ * @param checkoutRoot - The invoking checkout (default: the project root).
  * @returns The plan, with every path checked.
  * @throws DocsModernizeUnsafeError on a bad shape or an unsafe path.
  */
-export function parseModernizePlan(raw: string, projectRoot: string): DocsModernizePlan {
+export function parseModernizePlan(
+  raw: string,
+  projectRoot: string,
+  checkoutRoot: string = projectRoot,
+): DocsModernizePlan {
   const parsed = docsModernizePlanSchema.safeParse(JSON.parse(raw));
   if (!parsed.success) {
     // @sync-invariant none:input-shape a malformed plan file is refused before any write
@@ -111,7 +149,7 @@ export function parseModernizePlan(raw: string, projectRoot: string): DocsModern
     );
   }
   const plan: DocsModernizePlan = parsed.data;
-  assertPlanPaths(plan, projectRoot);
+  assertPlanPaths(plan, projectRoot, checkoutRoot);
   return plan;
 }
 
@@ -120,9 +158,14 @@ export function parseModernizePlan(raw: string, projectRoot: string): DocsModern
  *
  * @param plan - The plan.
  * @param projectRoot - Project root.
+ * @param checkoutRoot - The invoking checkout (default: the project root).
  */
-export function assertPlanPaths(plan: DocsModernizePlan, projectRoot: string): void {
-  assertRootInProject(projectRoot, plan.root);
+export function assertPlanPaths(
+  plan: DocsModernizePlan,
+  projectRoot: string,
+  checkoutRoot: string = projectRoot,
+): void {
+  assertRootInProject(projectRoot, plan.root, checkoutRoot);
   for (const row of plan.rows) {
     safeJoin(plan.root, row.path);
     if ((row.disposition === 'keep' || row.disposition === 'rename') && row.target) {
@@ -136,9 +179,14 @@ export function assertPlanPaths(plan: DocsModernizePlan, projectRoot: string): v
  *
  * @param raw - File text.
  * @param projectRoot - Project root.
+ * @param checkoutRoot - The invoking checkout (default: the project root).
  * @returns The receipt, with every path checked.
  */
-export function parseModernizeReceipt(raw: string, projectRoot: string): DocsModernizeReceipt {
+export function parseModernizeReceipt(
+  raw: string,
+  projectRoot: string,
+  checkoutRoot: string = projectRoot,
+): DocsModernizeReceipt {
   const parsed = docsModernizeReceiptSchema.safeParse(JSON.parse(raw));
   if (!parsed.success) {
     // @sync-invariant none:input-shape a malformed receipt is refused before any rollback step
@@ -147,7 +195,7 @@ export function parseModernizeReceipt(raw: string, projectRoot: string): DocsMod
     );
   }
   const receipt = parsed.data;
-  assertRootInProject(projectRoot, receipt.root);
+  assertRootInProject(projectRoot, receipt.root, checkoutRoot);
   for (const op of receipt.ops) if (op.path) safeJoin(receipt.root, op.path);
   return receipt;
 }

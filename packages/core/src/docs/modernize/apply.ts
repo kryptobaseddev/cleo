@@ -91,6 +91,12 @@ export interface ApplyDocsModernizeOptions {
    * new paths, so they still render on GitHub (T14185).
    */
   readonly wikilinks?: boolean;
+  /**
+   * The checkout the command was started from (a CLEO worktree, T14188); the
+   * plan root may sit in it. The store, journal and backups stay at
+   * `projectRoot`. Default: the project root.
+   */
+  readonly checkoutRoot?: string;
 }
 
 /** Raised when the tree moved since the plan was made. */
@@ -337,7 +343,7 @@ export async function applyDocsModernize(
   const { plan, projectRoot } = options;
   const root = plan.root;
   const tree = plan.mode !== 'store-only';
-  assertPlanPaths(plan, projectRoot);
+  assertPlanPaths(plan, projectRoot, options.checkoutRoot);
   assertPlanConsistent(plan);
   if (tree && !options.allowDirty) assertCleanTree(root);
   const texts = new Map<string, string>();
@@ -733,16 +739,21 @@ function readJournal(projectRoot: string, runId: string): DocsModernizeReceiptOp
  *
  * @param projectRoot - Project root.
  * @param runId - Run id.
+ * @param checkoutRoot - The invoking checkout the run's root may sit in (T14188).
  * @returns The receipt.
  * @throws DocsModernizeReceiptError when it does not exist.
  */
-export function readDocsModernizeReceipt(projectRoot: string, runId: string): DocsModernizeReceipt {
+export function readDocsModernizeReceipt(
+  projectRoot: string,
+  runId: string,
+  checkoutRoot: string = projectRoot,
+): DocsModernizeReceipt {
   const path = modernizeReceiptPath(projectRoot, runId);
   if (!/^dm-[\w-]+$/.test(runId) || !existsSync(path)) {
     // @sync-invariant none:input-shape an unknown run id is refused before any write
     throw new DocsModernizeReceiptError(`no modernize receipt ${runId} under .cleo/modernize/`);
   }
-  const receipt = parseModernizeReceipt(readFileSync(path, 'utf-8'), projectRoot);
+  const receipt = parseModernizeReceipt(readFileSync(path, 'utf-8'), projectRoot, checkoutRoot);
   const ops = readJournal(projectRoot, runId);
   return ops ? { ...receipt, ops } : receipt;
 }
@@ -754,6 +765,7 @@ export function readDocsModernizeReceipt(projectRoot: string, runId: string): Do
  * @param projectRoot - Project root.
  * @param runId - Run id from the apply receipt.
  * @param now - Clock override (tests).
+ * @param checkoutRoot - The invoking checkout the run's root may sit in (T14188).
  * @returns The receipt, now stamped `rolledBackAt`.
  * @throws DocsModernizeReceiptError when the receipt is missing, already
  *   rolled back, or a file was edited after the apply.
@@ -762,8 +774,9 @@ export async function rollbackDocsModernize(
   projectRoot: string,
   runId: string,
   now: () => Date = () => new Date(),
+  checkoutRoot: string = projectRoot,
 ): Promise<DocsModernizeReceipt> {
-  const receipt = readDocsModernizeReceipt(projectRoot, runId);
+  const receipt = readDocsModernizeReceipt(projectRoot, runId, checkoutRoot);
   if (receipt.rolledBackAt) {
     // @sync-invariant none:input-shape a run is rolled back once; the second request is refused before any write
     throw new DocsModernizeReceiptError(

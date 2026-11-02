@@ -138,6 +138,7 @@ import {
 } from './derive-links.js';
 import type { DocsPublicationRecord } from './docs-ops.js';
 import { DOCS_VERSIONING_AUDIT_FILE } from './docs-update.js';
+import { assertCheckoutOfProject } from './modernize/guard.js';
 import { deleteDocsPublication, readDocsPublications } from './publications-store.js';
 import { deriveWikilinkEdges, rebuildDocsWikilinks, type WikilinkEdge } from './wikilinks.js';
 
@@ -322,6 +323,13 @@ export interface DocsDoctorOptions {
    * Required when {@link apply} is true.
    */
   readonly backupReceiptPath?: string;
+  /**
+   * Where the published mirrors are read and git is asked (T14188): the
+   * invoking checkout, so a run from a CLEO worktree compares the store
+   * against that worktree's docs/. The store, ledger and backups stay at the
+   * project root. Default: the project root.
+   */
+  readonly checkoutRoot?: string;
 }
 
 /**
@@ -752,11 +760,12 @@ function provePublicationGone(
 async function scanPublicationLedger(
   projectRoot: string,
   rows: readonly DoctorRow[],
+  checkoutRoot: string,
 ): Promise<LedgerFinding[]> {
   const ledger = await readDocsPublications(projectRoot);
   if (ledger.length === 0) return [];
   const { statusDocs } = await import('./docs-ops.js');
-  const status = await statusDocs({ projectRoot });
+  const status = await statusDocs({ projectRoot, checkoutRoot });
   const key = (r: Pick<DocsPublicationRecord, 'ownerId' | 'blobName' | 'publishedPath'>): string =>
     `${r.ownerId}\u0000${r.blobName}\u0000${r.publishedPath}`;
   const recordByKey = new Map(ledger.map((r) => [key(r), r]));
@@ -775,8 +784,8 @@ async function scanPublicationLedger(
     if (!record) continue;
     const absPath = isAbsolute(record.publishedPath)
       ? record.publishedPath
-      : resolve(projectRoot, record.publishedPath);
-    const rel = relative(projectRoot, absPath);
+      : resolve(checkoutRoot, record.publishedPath);
+    const rel = relative(checkoutRoot, absPath);
     const outsideRoot = rel.startsWith('..') || isAbsolute(rel);
     if (item.drift === 'modified') {
       const storeMoved = item.fileSha === record.lastBlobSha;
@@ -796,7 +805,7 @@ async function scanPublicationLedger(
     const protectedElsewhere = [...shas].every(
       (sha) => attachmentShas.has(sha) || (liveLedgerShas.get(sha) ?? 0) > 0,
     );
-    const proof = provePublicationGone(projectRoot, record.publishedPath, absPath);
+    const proof = provePublicationGone(checkoutRoot, record.publishedPath, absPath);
     const blob = record.lastBlobSha.slice(0, 12);
     let action: LedgerFinding['action'];
     let detail: string;
@@ -835,6 +844,7 @@ async function scanStore(
   projectRoot: string,
   db: Awaited<ReturnType<typeof getDb>>,
   olderThanDays: number,
+  checkoutRoot: string,
 ): Promise<DoctorScan> {
   const rows: readonly DoctorRow[] = await db.select().from(docsAttachments).all();
   const payloadById = new Map<string, Record<string, unknown> | null>();
@@ -1043,7 +1053,7 @@ async function scanStore(
   // planner reads the audit file, the registry and (hash-verified) bytes,
   // and writes nothing.
   const conduitBackfill = await planConduitHistoryBackfill(projectRoot);
-  const ledger = await scanPublicationLedger(projectRoot, rows);
+  const ledger = await scanPublicationLedger(projectRoot, rows, checkoutRoot);
   const ledgerItems = ledger.slice(0, DOCS_DOCTOR_MAX_DETAIL_ITEMS).map((f) => ({
     ownerId: f.record.ownerId,
     blobName: f.record.blobName,
@@ -1239,7 +1249,20 @@ export async function runDocsDoctor(
   }
 
   const db = await getDb(projectRoot);
-  const pre = await scanStore(projectRoot, db, olderThanDays);
+  const checkoutRoot = opts.checkoutRoot ?? projectRoot;
+  try {
+    assertCheckoutOfProject(projectRoot, checkoutRoot);
+  } catch (err) {
+    return {
+      ok: false,
+      error: {
+        // @sync-invariant none:input-shape a checkout of another repository is refused before any read or repair write
+        code: 'E_DOCS_DOCTOR_FOREIGN_CHECKOUT',
+        message: err instanceof Error ? err.message : String(err),
+      },
+    };
+  }
+  const pre = await scanStore(projectRoot, db, olderThanDays, checkoutRoot);
 
   const repairs: DocsDoctorRepairAction[] = [];
   // T13653: in repair mode ONLY the blob backfill runs — apply mode plans it
@@ -1480,7 +1503,7 @@ export async function runDocsDoctor(
   // T13560: on a mutating run, re-scan so the envelope's diagnostics (and the
   // summary computed from them) describe POST-repair state, consistent with
   // a follow-up dry run. Dry runs keep the pre-repair scan.
-  const post = mutate ? await scanStore(projectRoot, db, olderThanDays) : pre;
+  const post = mutate ? await scanStore(projectRoot, db, olderThanDays, checkoutRoot) : pre;
   const findings = post.diagnostics.reduce((sum, d) => sum + d.count, 0);
   // T13727 — surface the conduit backfill counts in the one-line summary so
   // operators see backfilled/skipped/gap per run without reading the report.

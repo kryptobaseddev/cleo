@@ -933,6 +933,8 @@ const _docsTypedHandler = defineTypedHandler<DocsTypedOps>('docs', {
           }
         : {}),
       ...(backupReceiptPath !== undefined ? { backupReceiptPath } : {}),
+      // T14188: mirrors and git come from the invoking checkout.
+      checkoutRoot: resolveInvokingCheckout(),
     });
     if (!result.ok) {
       return lafsError(result.error.code, result.error.message, 'doctor');
@@ -991,13 +993,18 @@ const _docsTypedHandler = defineTypedHandler<DocsTypedOps>('docs', {
   modernize: async (params) => {
     let result: Awaited<ReturnType<typeof runDocsModernize>>;
     try {
-      result = await runDocsModernize(getProjectRoot(), {
-        ...params,
-        exclude: params.exclude
-          ?.split(',')
-          .map((e) => e.trim())
-          .filter(Boolean),
-      });
+      result = await runDocsModernize(
+        getProjectRoot(),
+        {
+          ...params,
+          exclude: params.exclude
+            ?.split(',')
+            .map((e) => e.trim())
+            .filter(Boolean),
+        },
+        // T14188: the folder and plan files are the invoking checkout's.
+        { checkoutRoot: resolveInvokingCheckout() },
+      );
     } catch (err) {
       const code = err instanceof Error && 'code' in err ? String(err.code) : '';
       // @sync-invariant none:input-shape modernize refusals (stale plan, missing root, unknown receipt) happen before the step they guard
@@ -2453,8 +2460,9 @@ async function dispatchDocsLegacyQuery(
       }
       return readAuditLog(projectRoot, params['slug']);
     case 'status': {
+      // T14188: the store is project-scoped; the mirrors are the invoking checkout's.
       const model = createDocsReadModel();
-      return model.status(projectRoot);
+      return model.status(projectRoot, resolveInvokingCheckout());
     }
     case 'triage':
       return triageDocs({

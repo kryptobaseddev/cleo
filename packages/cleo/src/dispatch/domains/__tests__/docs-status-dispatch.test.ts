@@ -58,6 +58,11 @@ vi.mock('@cleocode/core/project-scope', async (importOriginal) => {
   const barrel = await import('@cleocode/core/internal');
   return { ...(await importOriginal<object>()), getProjectRoot: barrel.getProjectRoot };
 });
+// T14188: the mirrors are read from the invoking checkout (a CLEO worktree).
+vi.mock('@cleocode/core/core-paths', async (importOriginal) => ({
+  ...(await importOriginal<object>()),
+  resolveInvokingCheckout: () => '/fixture/docs-status-worktree',
+}));
 
 import { Dispatcher } from '../../dispatcher.js';
 import { DocsHandler } from '../docs.js';
@@ -79,7 +84,11 @@ describe('docs.status runtime dispatch', () => {
     });
     expect(response.success).toBe(true);
     expect(response.data).toEqual({ allInSync: false, items: [] });
-    expect(status).toHaveBeenCalledExactlyOnceWith('/fixture/docs-status');
+    // Store at the project root, mirrors from the invoking checkout (T14188).
+    expect(status).toHaveBeenCalledExactlyOnceWith(
+      '/fixture/docs-status',
+      '/fixture/docs-status-worktree',
+    );
   });
 
   it('preserves read-model failures instead of reporting clean documentation', async () => {

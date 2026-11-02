@@ -489,10 +489,17 @@ export class DocsReadModel {
    * Delegates to {@link statusDocs} so `cleo docs status`, the doctor and
    * every other caller share one drift classification (T14135), including the
    * default-branch and unmerged-worktree cases.
+   *
+   * @param projectRootOverride - Store root (default: the model's project root).
+   * @param checkoutRoot - Where the mirror files are read (default: the store
+   *   root); the invoking CLEO worktree when run from one (T14188).
    */
-  async status(projectRootOverride?: string): Promise<DocsStatusResult> {
+  async status(projectRootOverride?: string, checkoutRoot?: string): Promise<DocsStatusResult> {
     const { statusDocs } = await import('./docs-ops.js');
-    return statusDocs({ projectRoot: projectRootOverride ?? this.projectRoot });
+    return statusDocs({
+      projectRoot: projectRootOverride ?? this.projectRoot,
+      ...(checkoutRoot !== undefined ? { checkoutRoot } : {}),
+    });
   }
 
   // -----------------------------------------------------------------------
