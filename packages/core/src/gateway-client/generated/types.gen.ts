@@ -14286,6 +14286,10 @@ export type QueryDocsDoctorData = {
          * Age threshold in days for the stale-drafts check (default 30)
          */
         olderThanDays?: number;
+        /**
+         * Comma-separated repair classes to scope the plan (and apply) to, e.g. publication-ledger-drift (T14174)
+         */
+        only?: string;
     };
     path?: never;
     query?: never;
@@ -14429,6 +14433,10 @@ export type MutateDocsDoctorData = {
          * Age threshold in days for the stale-drafts check (default 30)
          */
         olderThanDays?: number;
+        /**
+         * Comma-separated repair classes to scope the plan (and apply) to, e.g. publication-ledger-drift (T14174)
+         */
+        only?: string;
     };
     path?: never;
     query?: never;

@@ -126,11 +126,18 @@ function makeStaleReceipt(): string {
 }
 
 async function doctor(
-  opts: { apply?: boolean; repair?: boolean; olderThanDays?: number; receipt?: string } = {},
+  opts: {
+    apply?: boolean;
+    repair?: boolean;
+    olderThanDays?: number;
+    receipt?: string;
+    only?: string[];
+  } = {},
 ) {
   const { runDocsDoctor } = await import('../doctor.js');
   return runDocsDoctor(tempDir, {
     ...(opts.apply !== undefined ? { apply: opts.apply } : {}),
+    ...(opts.only !== undefined ? { only: opts.only } : {}),
     ...(opts.repair !== undefined ? { repair: opts.repair } : {}),
     ...(opts.olderThanDays !== undefined ? { olderThanDays: opts.olderThanDays } : {}),
     ...(opts.receipt !== undefined ? { backupReceiptPath: opts.receipt } : {}),
@@ -954,5 +961,83 @@ describe('runDocsDoctor — publication-ledger-drift (T14117)', () => {
     };
     await publish(record.blobName, record.publishedPath, record.lastBlobSha);
     expect(await ledgerPaths()).toContain(record.publishedPath);
+  });
+});
+
+describe('runDocsDoctor — scoped apply (--only, T14174)', () => {
+  /** A skewed doc, an empty-provenance doc and a dangling local-file row. */
+  async function seedThreeClasses(): Promise<void> {
+    await seedSlug('fix-skew', '# Doc\n\nv1.\n');
+    writeAuditLine('fix-skew', 2); // expected docVersion 3
+    await seedSlug('fix-prov', '# Note\n\nSee T12345 and T67890.\n');
+    await patchRow('fix-prov', { topics: null, relatedTasks: null });
+    await seedLocalFile('fix-gone', join(tempDir, 'deleted', 'gone.md'));
+  }
+
+  it('dry run lists per-class counts for every class when unscoped', async () => {
+    await seedThreeClasses();
+    const res = await doctor();
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+    expect(res.report.only).toBeNull();
+    expect(res.report.repairCounts).toMatchObject({
+      'dangling-pointers': { planned: 1, applied: 0 },
+      'doc-version-skew': { planned: 1, applied: 0 },
+      'empty-provenance': { planned: 2, applied: 0 },
+      'wikilinks-drift': { planned: 1, applied: 0 },
+    });
+  });
+
+  it('a scoped dry run plans only that class; diagnostics still cover every class', async () => {
+    await seedThreeClasses();
+    const res = await doctor({ only: ['doc-version-skew'] });
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+    expect(res.report.only).toEqual(['doc-version-skew']);
+    expect(new Set(res.report.repairs.map((r) => r.kind))).toEqual(new Set(['doc-version-skew']));
+    expect(res.report.repairCounts).toEqual({ 'doc-version-skew': { planned: 1, applied: 0 } });
+    expect(diagnostic(res.report, 'dangling-pointers').count).toBe(1);
+    expect(res.report.summary).toMatch(/\(only: doc-version-skew\)/);
+  });
+
+  it('a scoped apply writes only its class and leaves the others untouched', async () => {
+    await seedThreeClasses();
+    const res = await doctor({ apply: true, receipt: makeReceipt(), only: ['doc-version-skew'] });
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+    expect((await rowBySlug('fix-skew'))?.docVersion).toBe(3);
+    const prov = await rowBySlug('fix-prov');
+    expect(prov?.relatedTasks).toBeNull();
+    expect((await rowBySlug('fix-gone'))?.lifecycleStatus).not.toBe('archived');
+    expect(res.report.repairCounts).toEqual({ 'doc-version-skew': { planned: 1, applied: 1 } });
+    // Post-repair diagnostics: the untouched classes still report.
+    expect(diagnostic(res.report, 'dangling-pointers').count).toBe(1);
+    expect(diagnostic(res.report, 'doc-version-skew').count).toBe(0);
+  });
+
+  it('a scoped apply still requires a fresh backup receipt', async () => {
+    await seedThreeClasses();
+    const res = await doctor({ apply: true, only: ['doc-version-skew'] });
+    expect(res.ok).toBe(false);
+    if (res.ok) return;
+    expect(res.error.code).toBe('E_DOCS_DOCTOR_BACKUP_REQUIRED');
+    expect((await rowBySlug('fix-skew'))?.docVersion).not.toBe(3);
+  });
+
+  it('refuses an unknown class with the list of valid classes, and --only with --repair', async () => {
+    const unknown = await doctor({ only: ['ledger-prune'] });
+    expect(unknown.ok).toBe(false);
+    if (unknown.ok) return;
+    expect(unknown.error.code).toBe('E_DOCS_DOCTOR_UNKNOWN_CLASS');
+    expect(unknown.error.message).toMatch(/ledger-prune/);
+    expect(unknown.error.message).toMatch(/publication-ledger-drift/);
+    const conflict = await doctor({
+      repair: true,
+      receipt: makeReceipt(),
+      only: ['dangling-pointers'],
+    });
+    expect(conflict.ok).toBe(false);
+    if (conflict.ok) return;
+    expect(conflict.error.code).toBe('E_DOCS_DOCTOR_FLAG_CONFLICT');
   });
 });
