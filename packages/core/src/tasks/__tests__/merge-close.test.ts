@@ -42,6 +42,7 @@ import {
   MERGE_WAITING_MAX_AGE_MS,
   type MergeCloseDeps,
   type MergedPrRecord,
+  mergeSweepChildEnv,
   mergeSweepSpawnAllowed,
   parseMergeDirectives,
   stealStaleLock,
@@ -410,6 +411,28 @@ describe('the lazy sweep is safe to start from read commands (T14101)', () => {
     mkdirSync(join(home, '.config', 'gh'), { recursive: true });
     writeFileSync(join(home, '.config', 'gh', 'hosts.yml'), 'github.com: {}\n');
     expect(mergeSweepSpawnAllowed({}, home)).toBe(true);
+  });
+
+  it('the detached sweep never inherits a calling git hook’s repository (T14189)', () => {
+    // What commit-msg exports to the `cleo show` that spawns the sweep.
+    const hook = {
+      PATH: '/usr/bin',
+      GH_TOKEN: 'x',
+      GIT_DIR: '/repo/.git/worktrees/wt',
+      GIT_INDEX_FILE: '/repo/.git/worktrees/wt/index',
+      GIT_WORK_TREE: '/repo/wt',
+      GIT_PREFIX: 'sub/',
+    };
+    const child = mergeSweepChildEnv(hook);
+    for (const name of ['GIT_DIR', 'GIT_INDEX_FILE', 'GIT_WORK_TREE', 'GIT_PREFIX'])
+      expect(child).not.toHaveProperty(name);
+    expect(child).toMatchObject({
+      PATH: '/usr/bin',
+      GH_TOKEN: 'x',
+      CLEO_MERGE_SWEEP: 'off',
+      CLEO_MERGE_SWEEP_CHILD: '1',
+    });
+    expect(hook.GIT_INDEX_FILE).toBe('/repo/.git/worktrees/wt/index');
   });
 
   it('its state and claim files are never committed', () => {

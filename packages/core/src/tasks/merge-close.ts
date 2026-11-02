@@ -52,6 +52,7 @@ import type {
   ReviewVerdict,
   TaskAuditLogRow,
 } from '@cleocode/contracts';
+import { discoveryEnv } from '../git/work-tree.js';
 
 /** The audit action of an applied `Closes:` / `Refs:` line. */
 export const MERGE_CLOSE_AUDIT_ACTION = 'merge_close';
@@ -648,6 +649,25 @@ export function mergeSweepSpawnAllowed(env: NodeJS.ProcessEnv, home = homedir())
   if (env['CLEO_MERGE_SWEEP'] === 'off') return false;
   if (env['GH_TOKEN'] || env['GITHUB_TOKEN']) return true;
   return existsSync(join(env['GH_CONFIG_DIR'] ?? join(home, '.config', 'gh'), 'hosts.yml'));
+}
+
+/**
+ * The environment of the detached merge sweep (T14189). A read command run
+ * from a git hook (commit-msg runs `cleo show`) carries the hook's `GIT_DIR`
+ * and `GIT_INDEX_FILE`; the sweep outlives the hook, so it must act on each
+ * project's own repository, never the hook's: every ambient repo variable is
+ * stripped, and the sweep marks itself a child that never spawns another.
+ *
+ * @param env - The parent's environment.
+ * @returns The child's environment.
+ * @example
+ * ```ts
+ * spawn(cli, ['done', '--from-merge', 'all'], { env: mergeSweepChildEnv(process.env) });
+ * ```
+ * @task T14189
+ */
+export function mergeSweepChildEnv(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
+  return { ...discoveryEnv(env), CLEO_MERGE_SWEEP: 'off', CLEO_MERGE_SWEEP_CHILD: '1' };
 }
 
 /**
