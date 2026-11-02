@@ -37,7 +37,7 @@ import type {
   ValidateVerifyExplainParams,
   ValidateWorkflowComplianceParams,
 } from '@cleocode/contracts';
-import { resolveWorktreeRouting } from '@cleocode/core/core-paths';
+import { resolveInvokingCheckout, resolveWorktreeRouting } from '@cleocode/core/core-paths';
 import { getLogger } from '@cleocode/core/logger';
 import { getProjectRoot } from '@cleocode/core/project-scope';
 import {
@@ -198,7 +198,7 @@ const _checkTypedHandler = defineTypedHandler<CheckOps>('check', {
   },
 
   output: async (params: ValidateOutputParams) => {
-    const projectRoot = getProjectRoot();
+    const projectRoot = resolveInvokingCheckout(); // T14183: repo files of the invoking checkout
     if (!params.filePath) {
       return lafsError('E_INVALID_INPUT', 'filePath is required', 'output');
     }
@@ -236,7 +236,7 @@ const _checkTypedHandler = defineTypedHandler<CheckOps>('check', {
   },
 
   test: async (params: ValidateTestStatusParams) => {
-    const projectRoot = getProjectRoot();
+    const projectRoot = resolveInvokingCheckout(); // T14183: repo files of the invoking checkout
 
     if (params?.format === 'coverage') {
       try {
@@ -597,14 +597,14 @@ const _checkTypedHandler = defineTypedHandler<CheckOps>('check', {
   },
 
   canon: async (_params: ValidateCanonParams) => {
-    const projectRoot = getProjectRoot();
+    const projectRoot = resolveInvokingCheckout(); // T14183: repo files of the invoking checkout
     const { runCanonCheck } = await import('./check/canon.js');
     const result = runCanonCheck({ projectRoot });
     return lafsSuccess(result, 'canon');
   },
 
   'canon.docs': async (params: ValidateCanonDocsParams) => {
-    const projectRoot = getProjectRoot();
+    const projectRoot = resolveInvokingCheckout(); // T14183: repo files of the invoking checkout
     const { runCanonDocsCheck } = await import('./check/canon-docs.js');
     try {
       const result = runCanonDocsCheck({
@@ -669,7 +669,7 @@ const _checkTypedHandler = defineTypedHandler<CheckOps>('check', {
   },
 
   'test.run': async (params: ValidateTestRunParams) => {
-    const projectRoot = getProjectRoot();
+    const projectRoot = resolveInvokingCheckout(); // T14183: repo files of the invoking checkout
     try {
       const result = checkTestRun(projectRoot, params);
       return lafsSuccess(result, 'test.run');
@@ -684,7 +684,7 @@ const _checkTypedHandler = defineTypedHandler<CheckOps>('check', {
     // and remains for backward compat with existing CLI surface; new typed
     // callers SHOULD prefer `test.coverage` which targets checkTestCoverage
     // directly.
-    const projectRoot = getProjectRoot();
+    const projectRoot = resolveInvokingCheckout(); // T14183: repo files of the invoking checkout
     try {
       const result = checkTestCoverage(projectRoot, params ?? {});
       return lafsSuccess(result, 'test.coverage');

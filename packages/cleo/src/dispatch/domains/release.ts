@@ -46,7 +46,12 @@ import type {
   ReleasePlanOptions,
   ValidateChangelogOptions,
 } from '@cleocode/core/internal';
-import { getLogger, getProjectRoot, resolveWorktreeRouting } from '@cleocode/core/internal';
+import {
+  getLogger,
+  getProjectRoot,
+  resolveInvokingCheckout,
+  resolveWorktreeRouting,
+} from '@cleocode/core/internal';
 import {
   releaseChangelog,
   releaseCut,
@@ -63,16 +68,6 @@ import type { DispatchResponse, DomainHandler } from '../types.js';
 import { errorResult, handleErrorResult, unsupportedOp, wrapResult } from './_base.js';
 
 const log = getLogger('domain:release');
-
-/**
- * The git checkout the release verbs run in (T14160): the CLEO worktree the
- * command was started from, else the project root (which honours CLEO_ROOT).
- * Release git work never reaches into another checkout.
- */
-function invokingCheckout(): string {
-  const routing = resolveWorktreeRouting();
-  return routing.worktreePath ?? routing.canonicalRoot;
-}
 
 // ---------------------------------------------------------------------------
 // Local param types — ops not yet in @cleocode/contracts
@@ -230,7 +225,7 @@ export class ReleaseHandler implements DomainHandler {
               startTime,
             );
           return wrapResult(
-            await releaseVerifyTag({ version, projectRoot: invokingCheckout() }),
+            await releaseVerifyTag({ version, projectRoot: resolveInvokingCheckout() }),
             'query',
             'release',
             operation,
@@ -495,7 +490,7 @@ export class ReleaseHandler implements DomainHandler {
           const typed: ReleaseCutOptions = {
             version,
             projectRoot: getProjectRoot(),
-            gitRoot: invokingCheckout(),
+            gitRoot: resolveInvokingCheckout(),
             ...(typeof params?.sha === 'string' ? { sha: params.sha } : {}),
             ...(typeof params?.lead === 'string' ? { leadFile: params.lead } : {}),
             dryRun: params?.dryRun === true,
@@ -519,7 +514,7 @@ export class ReleaseHandler implements DomainHandler {
             );
           const result = await releaseChangelog({
             version,
-            projectRoot: invokingCheckout(),
+            projectRoot: resolveInvokingCheckout(),
             ...(typeof params?.ref === 'string' ? { ref: params.ref } : {}),
           });
           return wrapResult(result, 'mutate', 'release', operation, startTime);

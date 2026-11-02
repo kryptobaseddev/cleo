@@ -1798,6 +1798,33 @@ export function resolveWorktreeRouting(cwdOverride?: string): WorktreeRouting {
 }
 
 /**
+ * The git checkout a repo-reading command inspects (T14160, T14183): an
+ * explicit `CLEO_ROOT` / `CLEO_PROJECT_ROOT` wins; otherwise the CLEO
+ * worktree the command was started from, else the project root. Repo files
+ * (docs/, tests, git history) come from here; the task and docs stores stay
+ * at {@link getProjectRoot}.
+ *
+ * @param cwdOverride - Override for `process.cwd()`; used by tests.
+ * @returns Absolute path of the checkout.
+ *
+ * @example
+ * ```ts
+ * // run from <cleoHome>/worktrees/<hash>/T1 → that worktree, not the root checkout
+ * runCanonDocsCheck({ projectRoot: resolveInvokingCheckout() });
+ * ```
+ *
+ * @public
+ * @task T14183
+ */
+export function resolveInvokingCheckout(cwdOverride?: string): string {
+  if (process.env['CLEO_ROOT'] ?? process.env['CLEO_PROJECT_ROOT']) {
+    return getProjectRoot(cwdOverride);
+  }
+  const routing = resolveWorktreeRouting(cwdOverride);
+  return routing.worktreePath ?? routing.canonicalRoot;
+}
+
+/**
  * Resolve a user-supplied file path against the calling worktree's cwd when
  * applicable, returning an absolute path suitable for I/O.
  *

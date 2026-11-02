@@ -1030,6 +1030,7 @@ export {
   getProjectRoot,
   type ProjectEncounterOutcome,
   recordProjectEncounter,
+  resolveInvokingCheckout,
   resolveOrCwd,
   resolveWorktreeFilePath,
   resolveWorktreeRouting,
