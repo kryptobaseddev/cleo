@@ -192,7 +192,12 @@ type CiFixture = Record<string, string | Record<string, string>>;
 
 function fakeRunner(
   ci: CiFixture,
-  opts: { merged?: boolean; failRef?: boolean } = {},
+  opts: {
+    merged?: boolean;
+    failRef?: boolean;
+    /** GitHub Release state per tag; absent = published (T14173). */
+    releases?: Record<string, 'missing' | 'unreadable'>;
+  } = {},
 ): { runner: ReleaseCutRunner; calls: string[][] } {
   const calls: string[][] = [];
   const runIds: string[] = [];
@@ -237,6 +242,14 @@ function fakeRunner(
       }
       if (path.endsWith('/pulls'))
         return opts.merged === false ? '[]' : '[{"merged_at":"2026-10-28T00:00:00Z"}]';
+      const release = /releases\/tags\/(.+)$/.exec(path);
+      if (release) {
+        const state = opts.releases?.[release[1] ?? ''];
+        if (state === 'missing') throw new Error('Command failed\ngh: Not Found (HTTP 404)');
+        if (state === 'unreadable')
+          throw new Error('Command failed\ngh: HTTP 401: Bad credentials');
+        return '{"draft":false}';
+      }
       if (path.endsWith('git/tags')) return '{"sha":"tagobject"}';
       if (path.endsWith('git/refs') && opts.failRef)
         throw new Error('HTTP 422: Reference update failed');
@@ -621,6 +634,55 @@ describe('releaseVerifyTag (T14102)', () => {
       runner: fakeRunner({ [git(work, 'rev-parse', 'HEAD')]: 'success' }).runner,
     });
     expect(errorOf(offMain).message).toContain('not a first-parent commit');
+  });
+});
+
+describe('previous tag skips an unpublished release (T14173)', () => {
+  // canary.1 was tagged on the fix commit but its release.yml run failed.
+  const canary1 = () => `v${NEXT}-canary.1`;
+  const releases = () => ({ [canary1()]: 'missing' as const });
+
+  it('a prerelease cut after a failed canary bases on the last published tag', async () => {
+    git(work, 'tag', canary1(), shas.fix);
+    const { runner } = fakeRunner({ [shas.head]: 'success' }, { releases: releases() });
+    const result = await releaseCut({ version: `${NEXT}-canary.2`, projectRoot: work, runner });
+    expect(result.success).toBe(true);
+    if (!result.success) return;
+    expect(result.data.previousTag).toBe(`v${PREV}`);
+    expect(result.data.changesets).toEqual(['.changeset/new-fix.md']);
+  });
+
+  it('a stable cut after canary.1 (failed) and canary.2 (published) bases on the last stable tag', async () => {
+    git(work, 'tag', canary1(), shas.fix);
+    git(work, 'tag', `v${NEXT}-canary.2`, shas.head);
+    const { runner } = fakeRunner({ [shas.head]: 'success' }, { releases: releases() });
+    const result = await releaseCut({ version: NEXT, projectRoot: work, runner });
+    expect(result.success).toBe(true);
+    if (!result.success) return;
+    expect(result.data.previousTag).toBe(`v${PREV}`);
+    expect(result.data.changesets).toEqual(['.changeset/new-fix.md']);
+  });
+
+  it('write-changelog uses the same base, and refuses when gh cannot read a release', async () => {
+    git(work, 'tag', canary1(), shas.fix);
+    git(work, 'tag', '-a', `v${NEXT}-canary.2`, '-m', `Release v${NEXT}-canary.2`, shas.head);
+    const { runner } = fakeRunner({}, { releases: releases() });
+    const written = await releaseChangelog({
+      version: `${NEXT}-canary.2`,
+      projectRoot: work,
+      runner,
+    });
+    expect(written.success && written.data.previousTag).toBe(`v${PREV}`);
+    expect(written.success && written.data.changesetCount).toBe(1);
+
+    const { runner: noAuth } = fakeRunner(
+      { [shas.head]: 'success' },
+      { releases: { [`v${NEXT}-canary.2`]: 'unreadable' } },
+    );
+    const refused = errorOf(
+      await releaseCut({ version: `${NEXT}-canary.3`, projectRoot: work, runner: noAuth }),
+    );
+    expect(refused.message).toContain(`Could not read the GitHub Release of v${NEXT}-canary.2`);
   });
 });
 

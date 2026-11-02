@@ -470,6 +470,8 @@ jobs:
       - name: Write CHANGELOG section from changesets (cleo release write-changelog)
         env:
           VERSION: ${{ steps.version.outputs.version }}
+          # T14173: the previous tag must have a published GitHub Release.
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           # T14171: checkout leaves refs/tags/<tag> as a lightweight ref to the
           # commit; without --force the annotated tag is rejected ("would
