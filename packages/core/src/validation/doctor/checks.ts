@@ -542,6 +542,118 @@ export function checkVitalFilesTracked(projectRoot?: string): CheckResult {
 }
 
 // ============================================================================
+// Check: CLEO runtime state staged at any path (T14189)
+// ============================================================================
+
+/** Database basenames (and their SQLite sidecars) that are never committed. */
+const STAGED_STATE_DB_NAMES = new Set(
+  ['cleo.db', 'brain.db', 'tasks.db'].flatMap((db) => [
+    db,
+    `${db}-wal`,
+    `${db}-shm`,
+    `${db}-journal`,
+  ]),
+);
+
+/**
+ * Staged paths that carry CLEO runtime state, at ANY path: the rule the managed
+ * pre-commit hook (`templates/git-hooks/pre-commit` §3) enforces. A database
+ * by name; `project-info.json` whose staged content names a `"projectId"`; a
+ * `config.json` at `.cleo/config.json` or byte-identical to it.
+ *
+ * @param root - Repository root.
+ * @returns The offending staged paths, or `null` when git cannot be read.
+ * @task T14189
+ */
+export function stagedCleoStatePaths(root: string): string[] | null {
+  const git = (args: string[]): string =>
+    execFileSync('git', args, {
+      cwd: root,
+      encoding: 'utf-8',
+      stdio: ['ignore', 'pipe', 'ignore'],
+    });
+  let raw: string;
+  try {
+    raw = git([
+      'diff',
+      '--cached',
+      '--raw',
+      '-z',
+      '--no-abbrev',
+      '--no-renames',
+      '--diff-filter=d',
+    ]);
+  } catch {
+    return null;
+  }
+  const configPath = join(root, '.cleo', 'config.json');
+  let configBlob: string | null = null;
+  const leaked: string[] = [];
+  // -z: `:<modes> <old> <new> <status>\0<path>\0` per entry.
+  const fields = raw.split('\0');
+  for (let i = 0; i + 1 < fields.length; i += 2) {
+    const blob = fields[i]?.split(' ')[3] ?? '';
+    const path = fields[i + 1] ?? '';
+    const name = path.slice(path.lastIndexOf('/') + 1);
+    if (STAGED_STATE_DB_NAMES.has(name)) {
+      leaked.push(path);
+    } else if (name === 'project-info.json') {
+      if (git(['cat-file', '-p', blob]).includes('"projectId"')) leaked.push(path);
+    } else if (name === 'config.json') {
+      if (path === '.cleo/config.json') {
+        leaked.push(path);
+      } else if (existsSync(configPath)) {
+        configBlob ??= git(['hash-object', configPath]).trim();
+        if (blob === configBlob) leaked.push(path);
+      }
+    }
+  }
+  return leaked;
+}
+
+/**
+ * Check that the index stages no CLEO runtime state (T14189): databases,
+ * project identity or a copy of `.cleo/config.json`, at any path.
+ *
+ * @param projectRoot - Project root (defaults to the resolved root).
+ * @returns The check result, naming the paths and the `git reset` that unstages them.
+ * @task T14189
+ */
+export function checkStagedCleoState(projectRoot?: string): CheckResult {
+  // The index of the checkout named, as the pre-commit hook sees it.
+  const root = projectRoot ?? getProjectRoot();
+  const leaked = existsSync(join(root, '.git')) ? stagedCleoStatePaths(root) : null;
+  if (leaked === null) {
+    return {
+      id: 'staged_cleo_state',
+      category: 'configuration',
+      status: 'info',
+      message: 'Not a git repository (skipping staged runtime-state check)',
+      details: {},
+      fix: null,
+    };
+  }
+  if (leaked.length > 0) {
+    return {
+      id: 'staged_cleo_state',
+      category: 'configuration',
+      status: 'failed',
+      message: `${leaked.length} CLEO runtime file(s) staged for commit: ${leaked.join(', ')}`,
+      details: { staged: leaked },
+      fix: `git reset -q -- ${leaked.join(' ')}`,
+    };
+  }
+  return {
+    id: 'staged_cleo_state',
+    category: 'configuration',
+    status: 'passed',
+    message: 'No CLEO runtime state is staged',
+    details: {},
+    fix: null,
+  };
+}
+
+// ============================================================================
 // Check: Core files not gitignored
 // ============================================================================
 
@@ -2304,6 +2416,7 @@ export function runAllGlobalChecks(cleoHome?: string, projectRoot?: string): Che
     checkAffectedTestScope(projectRoot),
     checkWorktreeInclude(projectRoot),
     checkVitalFilesTracked(projectRoot),
+    checkStagedCleoState(projectRoot),
     checkCoreFilesNotIgnored(projectRoot),
     checkSqliteNotTracked(projectRoot),
     checkLegacyAgentOutputs(projectRoot),

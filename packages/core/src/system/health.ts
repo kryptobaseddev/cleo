@@ -59,6 +59,7 @@ import {
   checkNodeVersion,
   checkProjectIdentity,
   checkProjectNameDrift,
+  checkStagedCleoState,
   checkVitalFilesTracked,
 } from '../validation/doctor/checks.js';
 import { checkAllDependencies } from './dependencies.js';
@@ -1260,6 +1261,8 @@ export async function coreDoctorReport(projectRoot: string): Promise<DoctorRepor
   // 5. Gitignore integrity, vital files, legacy paths, canonical paths (delegated to core checks)
   checks.push(mapCheckResult(checkCleoGitignore(projectRoot)));
   checks.push(mapCheckResult(checkVitalFilesTracked(projectRoot)));
+  // T14189: CLEO runtime state staged at any path (the managed pre-commit's rule).
+  checks.push(mapCheckResult(checkStagedCleoState(projectRoot)));
   checks.push(mapCheckResult(checkCoreFilesNotIgnored(projectRoot)));
   checks.push(mapCheckResult(checkLegacyAgentOutputs(projectRoot)));
   // ADR-045: canonical RCASD paths (T708)

@@ -36,4 +36,9 @@ if [ "$allowed" = false ]; then
     exit 1
 fi
 
+# T14189: CLEO's managed pre-commit guards (runtime state staged at any path,
+# WAL files, ignored core files) — the same script `cleo init` installs, run
+# from this checkout rather than copied.
+sh "$(git rev-parse --show-toplevel)/packages/core/templates/git-hooks/pre-commit" || exit 1
+
 exit 0
