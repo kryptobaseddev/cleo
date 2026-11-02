@@ -796,13 +796,42 @@ function standaloneChangedTests(root: string, files: readonly string[]): string[
  * The blocker for a task with no change set (T13917). A non-code task
  * (research, documentation) is closed by its document or decision, never by
  * a new branch; a code task may still be record-only, so both routes are
- * named.
+ * named. A code task that already has attached documents or linked decisions
+ * is told why they do not count and which gate profile makes them count
+ * (T14180), never to attach them again.
  */
 function noChangeSetBlocker(
   task: Task,
   kind: ReturnType<typeof classifyEvidenceTask>,
+  records: Pick<TaskChangeSet, 'docs' | 'decisions'>,
 ): DonePlanBlocker {
   const id = task.id;
+  const profileWhy =
+    'A gate profile (profile:ops, profile:decision, profile:census or profile:audit) marks a task ' +
+    'that changed no code: it owes the non-code gates, implemented binds as decision:<id> with a note ' +
+    `or its document, and no test, lint or typecheck applies. If ${id} did change code, commit it on task/${id} (or pass --pr <n>).`;
+  if (kind === 'code' && (records.docs.length > 0 || records.decisions.length > 0)) {
+    const found = [
+      ...(records.docs.length > 0
+        ? [
+            `attached document${records.docs.length === 1 ? '' : 's'} ${records.docs.map((d) => d.slug ?? d.id.slice(0, 12)).join(', ')}`,
+          ]
+        : []),
+      ...(records.decisions.length > 0
+        ? [
+            `linked decision${records.decisions.length === 1 ? '' : 's'} ${records.decisions.join(', ')}`,
+          ]
+        : []),
+    ].join(' and ');
+    return {
+      code: 'no-change-set',
+      message:
+        `No merged PR, task branch or commit references ${id}. It has ${found}, but ${id} is ` +
+        `classed as code (kind ${task.kind ?? 'work'}, no gate profile), and a code task is implemented by a ` +
+        'commit or PR, so those records do not prove it.',
+      next: step(`cleo update ${id} --add-labels profile:ops`, profileWhy),
+    };
+  }
   const record =
     `cleo docs add ${id} <file> --type ${kind === 'research' ? 'research' : 'note'} --slug <kebab>` +
     ` (or: cleo memory decision-store --decision "<what>" --rationale "<why>" --linked-task ${id})`;
@@ -824,10 +853,12 @@ function noChangeSetBlocker(
     code: 'no-change-set',
     message:
       `No merged PR, task branch or attached document references ${id}. If ${id} changed code, ` +
-      `commit it on task/${id} (or pass --pr <n>); if it changed none, attach its record or link a decision.`,
+      `commit it on task/${id} (or pass --pr <n>); if it changed none, attach its record or link a ` +
+      `decision and declare a gate profile (cleo update ${id} --add-labels profile:ops).`,
     next: step(
       `git switch -c task/${id}`,
-      `Or, for a task with no code change: ${record}; a documentation task declares its documents ` +
+      `Or, for a task with no code change: ${record}, then cleo update ${id} --add-labels profile:ops ` +
+        '(or profile:decision, profile:census, profile:audit); a documentation task declares its documents ' +
         `(cleo update ${id} --files <doc paths>). cleo done never plans tests or lint from the working tree.`,
     ),
   };
@@ -1415,7 +1446,7 @@ export async function deriveTaskEvidence(
     ...(allPassed
       ? []
       : changeSet.blockers.map((b) =>
-          b.code === 'no-change-set' ? noChangeSetBlocker(task, kind) : b,
+          b.code === 'no-change-set' ? noChangeSetBlocker(task, kind, changeSet) : b,
         )),
     ...toolAndTypedGateBlockers(taskId, isCode, toolRuns, typedGates, root, opts.runTyped === true),
     ...testRunBlockers,
