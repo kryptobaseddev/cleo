@@ -637,8 +637,15 @@ export function claimMergeSweep(storeRoot: string, now = Date.now()): boolean {
 
 /**
  * Whether a read command may start a background sweep (T14101): never in CI,
- * under vitest, when turned off (`CLEO_MERGE_SWEEP=off`), or without `gh`
- * credentials (a token in the environment, or `gh`'s hosts file).
+ * under vitest, when turned off (`CLEO_MERGE_SWEEP=off`), inside a process git
+ * started (T14189), or without `gh` credentials (a token in the environment,
+ * or `gh`'s hosts file).
+ *
+ * Git exports `GIT_EXEC_PATH` to every program it runs (hooks, aliases,
+ * `rebase --exec`), `GIT_INDEX_FILE` to commit hooks and `GIT_DIR` to hooks in
+ * a linked worktree (observed on git 2.5x: pre-commit, commit-msg and
+ * post-commit). A hook's `cleo show` has no reason to start a sweep that
+ * deletes branches and worktrees after the commit returns.
  *
  * @param env - The environment.
  * @param home - The home directory (for `gh`'s default config).
@@ -647,6 +654,7 @@ export function claimMergeSweep(storeRoot: string, now = Date.now()): boolean {
 export function mergeSweepSpawnAllowed(env: NodeJS.ProcessEnv, home = homedir()): boolean {
   if (env['CI'] === 'true' || env['VITEST'] !== undefined) return false;
   if (env['CLEO_MERGE_SWEEP'] === 'off') return false;
+  if (env['GIT_EXEC_PATH'] || env['GIT_INDEX_FILE'] || env['GIT_DIR']) return false;
   if (env['GH_TOKEN'] || env['GITHUB_TOKEN']) return true;
   return existsSync(join(env['GH_CONFIG_DIR'] ?? join(home, '.config', 'gh'), 'hosts.yml'));
 }

@@ -76,6 +76,14 @@ function git(cwd: string, args: string[]): string | null {
   }
 }
 
+/**
+ * The cleanup's git runner, for tests: `git -C <cwd>` that acts on `cwd`'s
+ * repository even when the caller inherited a git hook's `GIT_DIR` (T14189).
+ *
+ * @internal Exported for tests only.
+ */
+export const cleanupGit = git;
+
 function lines(out: string | null): string[] {
   return (out ?? '').split('\n').filter((l) => l.length > 0);
 }

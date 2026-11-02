@@ -413,6 +413,21 @@ describe('the lazy sweep is safe to start from read commands (T14101)', () => {
     expect(mergeSweepSpawnAllowed({}, home)).toBe(true);
   });
 
+  it('never spawns from inside a git hook, credentials or not (T14189)', () => {
+    // What git exported to a hook in a linked worktree (pre-commit, commit-msg, post-commit).
+    const hook = {
+      GH_TOKEN: 'x',
+      GIT_EXEC_PATH: '/usr/libexec/git-core',
+      GIT_INDEX_FILE: '/repo/.git/worktrees/wt/index',
+      GIT_DIR: '/repo/.git/worktrees/wt',
+    };
+    expect(mergeSweepSpawnAllowed(hook)).toBe(false);
+    // Each signal alone is enough: commit hooks in the main checkout have no GIT_DIR.
+    for (const only of ['GIT_EXEC_PATH', 'GIT_INDEX_FILE', 'GIT_DIR'] as const)
+      expect(mergeSweepSpawnAllowed({ GH_TOKEN: 'x', [only]: hook[only] })).toBe(false);
+    expect(mergeSweepSpawnAllowed({ GH_TOKEN: 'x' })).toBe(true);
+  });
+
   it('the detached sweep never inherits a calling git hook’s repository (T14189)', () => {
     // What commit-msg exports to the `cleo show` that spawns the sweep.
     const hook = {
