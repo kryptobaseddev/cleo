@@ -638,6 +638,7 @@ export type {
   EvidenceValidationFailure,
   EvidenceValidationResult,
   GateEvidenceRequirement,
+  GateProfileName,
 } from './evidence-atom-schema.js';
 export {
   AC_ALIAS_REGEX,
@@ -652,8 +653,10 @@ export {
   formatGateRequirement,
   formatGateRequirementHint,
   GATE_EVIDENCE_REQUIREMENTS,
+  GATE_PROFILE_NAMES,
   locDropAtomSchema,
   noteAtomSchema,
+  PROFILE_GATE_EVIDENCE,
   parseEvidenceString,
   prAtomSchema,
   qaRunAtomSchema,

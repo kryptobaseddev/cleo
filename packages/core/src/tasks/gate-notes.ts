@@ -16,6 +16,10 @@
  */
 
 import type { Task, TaskVerification, VerificationGate } from '@cleocode/contracts';
+import {
+  GATE_PROFILE_NAMES,
+  type GateProfileName,
+} from '@cleocode/contracts/evidence-atom-schema.js';
 
 /**
  * Whether a path is a documentation artifact (`.md`/`.mdx`/`.rst`/`.adoc`, or
@@ -61,10 +65,10 @@ export function isDocumentEvidencePath(path: string): boolean {
  *
  * @task T13474
  */
-export const GATE_PROFILES = ['ops', 'decision', 'census', 'audit'] as const;
+export const GATE_PROFILES = GATE_PROFILE_NAMES;
 
 /** One of {@link GATE_PROFILES}. */
-export type GateProfile = (typeof GATE_PROFILES)[number];
+export type GateProfile = GateProfileName;
 
 /** The label prefix that declares a gate profile. */
 export const GATE_PROFILE_LABEL_PREFIX = 'profile:';
