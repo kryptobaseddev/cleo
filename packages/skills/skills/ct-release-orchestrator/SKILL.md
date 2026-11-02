@@ -7,7 +7,7 @@ adrRefs:
   - ADR-063
   - ADR-065
 metadata:
-  version: 3.4.1
+  version: 3.5.0
   tier: on-demand
   install: harness
   covers:
@@ -17,7 +17,7 @@ metadata:
     - packages/core/src/release/cut.ts
     - packages/core/src/release/authorization.ts
   loomStage: release
-  lastReviewed: 2026-10-28
+  lastReviewed: 2026-11-01
   stability: stable
 ---
 
@@ -62,7 +62,9 @@ cleo release cut v2026.10.28 --lead lead.md         # report: commit, notes, pac
 cleo release cut v2026.10.28 --sha <sha> --lead lead.md --yes   # the printed confirm command: tags that commit
 ```
 
-**Confirmation (D11212).** Nothing is tagged without `--yes`; without it the cut reports and prints the exact confirm command, pinned to the previewed sha. With `--yes`, an active standing release authorization covering the version allows the tag (an agent); otherwise the cut asks on the controlling terminal (`/dev/tty`) and tags only when the version is typed exactly, refusing with `E_RELEASE_NOT_AUTHORIZED` (and naming the scope to grant) when there is no terminal. The typed confirmation stops casual misuse only: a caller that drives a pseudo-terminal can still type the version. The audit row records `allowedBy` (`tty-confirm` or `authorization:<id>`).
+**Confirmation (D11212).** Nothing is tagged without `--yes`; without it the cut reports and prints the exact confirm command, pinned to the previewed sha. With `--yes`, an active standing release authorization covering the version, or the `release.agentCut` setting, allows the tag (an agent); otherwise the cut asks on the controlling terminal (`/dev/tty`) and tags only when the version is typed exactly, refusing with `E_RELEASE_NOT_AUTHORIZED` (and naming the scope to grant) when there is no terminal. The typed confirmation stops casual misuse only: a caller that drives a pseudo-terminal can still type the version. The audit row records `allowedBy` (`tty-confirm`, `authorization:<id>` or `setting:release.agentCut=<level>@<scope>`).
+
+**Agent cut setting (T14170, D11221).** `release.agentCut` is `off` (default), `canary`, `prerelease` or `stable`; an agent sets it with `cleo config set release.agentCut canary --scope global`, with no terminal or owner password. Each level covers its own scope and every narrower one: `canary` covers `-canary.N`, `prerelease` any prerelease, `stable` everything. A project value (even `off`) shadows the global one. A cut it allows reports `allowedBy`, a warning naming the setting, and an audit row with `scope` and `settingSource`; when it does not cover the version and there is no terminal, the refusal names the exact `cleo config set` command.
 
 **Standing authorization (T14141, D11215).** The owner grants it at a terminal with the owner-auth password: `cleo release authorize --scope canary|prerelease|stable|<version> --expires 7d --reason "<why>" [--uses <n>]` (at most 30d; no use limit unless `--uses`). It is signed with the enrolled owner key (`cleo config owner-enroll`), stored in `.cleo/release-authorizations.json` and the global store, recorded as an owner decision, and audited in `.cleo/audit/release-authorizations.jsonl`. `cleo release authorize --list` shows each grant's state; `--revoke <id>` (owner password too) ends one now with a signed revocation, and the revocation count is sealed in `.cleo/owner-settings.json` (commit it). An edited, unsigned or one-sided grant is ignored; an edited, unsigned or shortened revocation list makes every grant tampered (fail closed). `cleo doctor` reports both. A cut it allows carries `Authorized-by: <id>` in the tag message.
 
