@@ -2223,6 +2223,10 @@ describe('resolveCiEvidenceAtom', () => {
           /commit 888888888888 decided nothing: CI: cancelled on 888888888888; 777777777777\.\.999999999999 changes \.github\/workflows\/release\.yml.*tool:test-affected/,
         );
         expect(!r.ok && r.reason).not.toMatch(/wait for HEAD/);
+        // HEAD's own run is complete with its gate jobs skipped: waiting cannot help.
+        expect(!r.ok && r.reason).toMatch(
+          /HEAD 999999999999's push run is complete and its required checks are green but the gates' jobs did not run \(job Unit Tests \(ubuntu-latest, shard 1\): skipped on 999999999999.*so waiting for it will not help/,
+        );
       });
 
       it('gate jobs cancelled on HEAD: the reason names them and the route, never "no completed push run"', async () => {

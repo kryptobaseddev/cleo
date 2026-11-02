@@ -2206,7 +2206,7 @@ export async function findGreenCurrentHead(
       // Every commit stepped past had its gates' jobs skipped by CI's own
       // change filter, so nothing it changed is a test input (T14177).
       if (testInput && blocking) {
-        const range = `${sha.slice(0, 12)}..${head.slice(0, 12)} changes ${testInput}, so an earlier run does not test HEAD`;
+        const range = `${sha.slice(0, 12)}..${head.slice(0, 12)} changes ${testInput}, so an earlier run does not test HEAD${headSkipped(head, headWhy)}`;
         return {
           ok: false,
           reason:
@@ -2230,8 +2230,18 @@ export async function findGreenCurrentHead(
   }
   return {
     ok: false,
-    reason: `no commit within ${CI_DESCENDANT_MAX_CANDIDATES} first parents of ${ref} HEAD ${head.slice(0, 12)} has a completed push run of ${input.required.join(', ')}`,
+    reason: `no commit within ${CI_DESCENDANT_MAX_CANDIDATES} first parents of ${ref} HEAD ${head.slice(0, 12)} has a completed push run of ${input.required.join(', ')} that ran the gates' jobs${headSkipped(head, headWhy)}`,
   };
+}
+
+/**
+ * The note a current-HEAD refusal adds when HEAD's own run is complete but
+ * its gates' jobs were skipped (T14177): waiting for HEAD cannot help.
+ */
+function headSkipped(head: string, why: Undecided | undefined): string {
+  return why?.filterSkipped
+    ? ` (HEAD ${head.slice(0, 12)}'s push run is complete and ${why.undecided}, so waiting for it will not help)`
+    : '';
 }
 
 /**
