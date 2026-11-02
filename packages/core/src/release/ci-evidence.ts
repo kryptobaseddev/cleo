@@ -1932,6 +1932,7 @@ export async function findGreenDescendant(
     [`a CI definition (${ciPaths.join(', ')})`, ciPaths],
   ];
   const passedOver: PassedOverRun[] = [];
+  let lastUndecided: string | undefined;
   for (const sha of candidates.slice(0, CI_DESCENDANT_MAX_CANDIDATES)) {
     if (sha === merge || !input.isAncestor(merge, sha, cwd)) continue;
     const range = `${merge.slice(0, 12)}..${sha.slice(0, 12)}`;
@@ -2031,7 +2032,10 @@ export async function findGreenDescendant(
       };
     }
     const verdict = judgeStandIn(fetched.checks, sha, supersededNames, pins, input.jobs, input.ref);
-    if (verdict === 'undecided') continue;
+    if ('undecided' in verdict) {
+      lastUndecided ??= `${sha.slice(0, 12)}: ${verdict.undecided}`;
+      continue;
+    }
     if (!verdict.ok) return verdict;
     return {
       ok: true,
@@ -2047,7 +2051,9 @@ export async function findGreenDescendant(
   }
   return {
     ok: false,
-    reason: `no later ${input.ref} commit (first ${CI_DESCENDANT_MAX_CANDIDATES} within 7 days) has a completed push run of ${supersededNames.join(', ')}`,
+    reason:
+      `no later ${input.ref} commit (first ${CI_DESCENDANT_MAX_CANDIDATES} within 7 days) has a completed push run of ${supersededNames.join(', ')}` +
+      (lastUndecided ? ` that ran the gates' jobs (first one passed over: ${lastUndecided})` : ''),
   };
 }
 
@@ -2057,7 +2063,8 @@ export async function findGreenDescendant(
  * green (T13846). A pending run refuses with "wait"; a failed one refuses —
  * a green run is never shopped for past one that is red or may still go red.
  * Cancelled, skipped and missing (never-started) runs leave it undecided, so
- * the caller looks at the next candidate.
+ * the caller looks at the next candidate; the undecided verdict says why, and
+ * whether CI's own change filter skipped the gates' jobs (T14177).
  */
 function judgeStandIn(
   checks: readonly CommitCheck[],
@@ -2066,7 +2073,7 @@ function judgeStandIn(
   pins: Record<string, RequiredCheckPinSpec>,
   jobs: FindGreenDescendantInput['jobs'],
   ref: string,
-): { ok: true } | { ok: false; reason: string } | 'undecided' {
+): { ok: true } | { ok: false; reason: string } | Undecided {
   for (const name of names) {
     const pinned = checks.filter((c) => c.name === name && pinMatches(c, pins[name]));
     const verdict = judgeOnSha(pinned, sha, 'push');
@@ -2078,7 +2085,11 @@ function judgeStandIn(
       };
     }
     if (verdict.verdict === 'missing' || SUPERSEDED_VERDICTS.has(verdict.verdict)) {
-      return 'undecided';
+      return {
+        undecided: `${name}: ${verdict.verdict === 'missing' ? 'no push run' : verdict.verdict} on ${sha.slice(0, 12)}`,
+        filterSkipped: false,
+        neverRan: verdict.verdict === 'missing',
+      };
     }
     return {
       ok: false,
@@ -2086,7 +2097,7 @@ function judgeStandIn(
     };
   }
   // T13846: the gates' own jobs must have run on the stand-in too.
-  let decided = true;
+  const notRun: string[] = [];
   for (const job of jobs ?? []) {
     const onSha = evaluateJobs(job.globs, checks, sha, job.scope, 'push');
     if (onSha.ok) continue;
@@ -2099,9 +2110,32 @@ function judgeStandIn(
     }
     const decisive = onSha.reasons.find((r) => !JOB_NOT_RUN.test(r));
     if (decisive) return { ok: false, reason: `${decisive} (later ${ref} commit)` };
-    decided = false;
+    notRun.push(...onSha.reasons);
   }
-  return decided ? { ok: true } : 'undecided';
+  if (notRun.length === 0) return { ok: true };
+  return {
+    undecided: `its required checks are green but the gates' jobs did not run (${notRun.join('; ')})`,
+    // A push run's change filter diffs against the previous head, so a job it
+    // skipped is CI's own verdict that this commit changed nothing it tests.
+    filterSkipped: notRun.every((r) => r.endsWith(`: skipped on ${sha.slice(0, 12)}`)),
+    neverRan: false,
+  };
+}
+
+/**
+ * Why a stand-in candidate decided nothing (T14177): a required check
+ * cancelled, skipped or never started, or the gates' jobs not run.
+ */
+interface Undecided {
+  /** The reason, naming the checks or jobs. */
+  undecided: string;
+  /**
+   * Every required check is green and every missing gate job was SKIPPED (by
+   * CI's change filter), never cancelled or absent.
+   */
+  filterSkipped: boolean;
+  /** A required check has no push run yet: it may still start. */
+  neverRan: boolean;
 }
 
 /** Inputs of {@link findGreenCurrentHead}. */
@@ -2158,7 +2192,9 @@ export type FindGreenCurrentHeadResult =
  *
  * Candidates are HEAD, then its first parents while they differ from HEAD only
  * in documentation ({@link isCiDocumentPath}, the T13784 rule: nothing a test
- * reads moved), up to {@link CI_DESCENDANT_MAX_CANDIDATES}. Each must descend
+ * reads moved), or while every commit stepped past had green required checks
+ * and its gates' jobs skipped by CI's own change filter (T14177: the filter
+ * judged its change untested), up to {@link CI_DESCENDANT_MAX_CANDIDATES}. Each must descend
  * from the merge commit. The first decisive verdict decides, as in
  * {@link findGreenDescendant}: every required check green on its own `push`
  * runs (and the gates' jobs run, T13846) accepts; a failed or pending one
@@ -2175,6 +2211,10 @@ export async function findGreenCurrentHead(
   const head = input.defaultBranchHead(ref, cwd);
   if (!head) return { ok: false, reason: `cannot read the current head of ${ref}` };
   let sha: string | null = head;
+  // T14177: the first commit stepped past whose run decided nothing for a
+  // reason other than CI's change filter skipping the gates' jobs.
+  let blocking: { sha: string; why: Undecided } | undefined;
+  let headWhy: Undecided | undefined;
   for (let n = 0; n < CI_DESCENDANT_MAX_CANDIDATES && sha; n++) {
     const at = sha === head ? `${ref} HEAD ${head.slice(0, 12)}` : `${sha.slice(0, 12)}`;
     if (sha === merge || !input.isAncestor(merge, sha, cwd)) {
@@ -2192,26 +2232,45 @@ export async function findGreenCurrentHead(
         return { ok: false, reason: `cannot diff ${sha.slice(0, 12)}..${head.slice(0, 12)}` };
       }
       const testInput = moved.find((p) => !isCiDocumentPath(p));
-      if (testInput) {
+      // Every commit stepped past had its gates' jobs skipped by CI's own
+      // change filter, so nothing it changed is a test input (T14177).
+      if (testInput && blocking) {
+        const range = `${sha.slice(0, 12)}..${head.slice(0, 12)} changes ${testInput}, so an earlier run does not test HEAD${headSkipped(head, headWhy)}`;
         return {
           ok: false,
-          reason: `${ref} HEAD ${head.slice(0, 12)} has no completed push run of the required checks, and ${sha.slice(0, 12)}..${head.slice(0, 12)} changes ${testInput}, so an earlier run does not test HEAD — wait for HEAD's push CI to finish, then verify again`,
+          reason:
+            blocking.sha === head && headWhy?.neverRan
+              ? `${ref} HEAD ${head.slice(0, 12)} has no completed push run of the required checks (${headWhy.undecided}), and ${range} — wait for HEAD's push CI to finish, then verify again`
+              : `${ref} commit ${blocking.sha.slice(0, 12)} decided nothing: ${blocking.why.undecided}; ${range}. ` +
+                `Prove testsPassed on ${ref} HEAD with tool:test-affected, or a test-run there covering ${TARGETED_RUN_COVERAGE}`,
         };
       }
     }
     const fetched = await input.fetchChecks(sha, cwd);
     if (!fetched.ok) return { ok: false, reason: fetched.reason };
     const verdict = judgeStandIn(fetched.checks, sha, input.required, input.pins, input.jobs, ref);
-    if (verdict !== 'undecided') {
+    if (!('undecided' in verdict)) {
       if (!verdict.ok) return verdict;
       return { ok: true, sha, checks: fetched.checks, range: `${merge}..${sha}`, head };
     }
+    if (sha === head) headWhy = verdict;
+    if (!verdict.filterSkipped) blocking ??= { sha, why: verdict };
     sha = input.firstParentOf(sha, cwd);
   }
   return {
     ok: false,
-    reason: `no commit within ${CI_DESCENDANT_MAX_CANDIDATES} first parents of ${ref} HEAD ${head.slice(0, 12)} has a completed push run of ${input.required.join(', ')}`,
+    reason: `no commit within ${CI_DESCENDANT_MAX_CANDIDATES} first parents of ${ref} HEAD ${head.slice(0, 12)} has a completed push run of ${input.required.join(', ')} that ran the gates' jobs${headSkipped(head, headWhy)}`,
   };
+}
+
+/**
+ * The note a current-HEAD refusal adds when HEAD's own run is complete but
+ * its gates' jobs were skipped (T14177): waiting for HEAD cannot help.
+ */
+function headSkipped(head: string, why: Undecided | undefined): string {
+  return why?.filterSkipped
+    ? ` (HEAD ${head.slice(0, 12)}'s push run is complete and ${why.undecided}, so waiting for it will not help)`
+    : '';
 }
 
 /**
