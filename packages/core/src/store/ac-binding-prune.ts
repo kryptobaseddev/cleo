@@ -288,8 +288,9 @@ export async function selectOrphanAcBindings(db: TasksDb): Promise<AcBindingRow[
 /**
  * Infer the task that owned an orphan binding's AC.
  *
- * Only `satisfies:<source>-><target>#<ac>` atom ids name it (the target owns
- * the AC). Every other atom shape yields {@link UNKNOWN_BINDING_OWNER}.
+ * Only `satisfies:<source>-><target>#<ac>` and per-criterion receipt
+ * `receipt:<records>-><target>#<ac>` (T14199) atom ids name it (the target
+ * owns the AC). Every other atom shape yields {@link UNKNOWN_BINDING_OWNER}.
  *
  * @param binding - an orphan binding
  * @returns owning task id, or `'unknown'`
@@ -297,7 +298,7 @@ export async function selectOrphanAcBindings(db: TasksDb): Promise<AcBindingRow[
  * @task T12790
  */
 export function inferBindingOwnerTask(binding: AcBindingRow): string {
-  const match = /^satisfies:[^>]*->([^#]+)#/.exec(binding.evidenceAtomId);
+  const match = /^(?:satisfies|receipt):[^>]*->([^#]+)#/.exec(binding.evidenceAtomId);
   return match?.[1] ?? UNKNOWN_BINDING_OWNER;
 }
 
